@@ -6,6 +6,7 @@
 import { listHandshakeRecords } from './db'
 import { getQueueStatus } from './outboundQueue'
 import { getP2PHealth } from '../p2p/p2pHealth'
+import { handshakeRowVisibilityForSession } from './handshakeAccountIsolation'
 import { HandshakeState, type HandshakeRecord, type SSOSession } from './types'
 
 /** P2P-ingested inbox rows (no IMAP `account_id`); see `beapEmailIngestion`. */
@@ -67,7 +68,8 @@ export interface SandboxOrchestratorAvailability {
 export type AuthoritativeDeviceInternalRole = 'host' | 'sandbox' | 'none'
 
 /**
- * Scans ACTIVE internal handshakes: cross-principal rows are ignored via `accountMatchesRecord`.
+ * Scans ACTIVE internal handshakes: cross-principal rows are ignored via
+ * {@link handshakeRowVisibilityForSession} (same rules as the Handshakes list).
  * If the device is Sandbox on any row, returns `sandbox` (stricter than `host`).
  */
 export function computeAuthoritativeDeviceInternalRole(
@@ -82,7 +84,7 @@ export function computeAuthoritativeDeviceInternalRole(
   let host = false
   let sand = false
   for (const record of rows) {
-    if (!accountMatchesRecord(record, session)) continue
+    if (!sessionIsPartyOnVisibleHandshakeRow(record, session)) continue
     if (isLocalHostPeerSandbox(record)) host = true
     if (isLocalSandboxPeerHost(record)) sand = true
   }
@@ -106,23 +108,17 @@ function computeSandboxOrchestratorAvailability(
   return { status: 'not_configured', relay_connected, use_coordination }
 }
 
-function norm(s: string | null | undefined): string {
+function normId(s: string | null | undefined): string {
   return (s ?? '').trim()
 }
 
-function accountMatchesRecord(record: HandshakeRecord, session: SSOSession): boolean {
-  const wid = norm(session.wrdesk_user_id) || norm(session.sub)
-  if (!wid) return false
-  const ie = record.initiator?.wrdesk_user_id?.trim()
-  const ae = record.acceptor?.wrdesk_user_id?.trim()
-  if (ie && ie === wid) return true
-  if (ae && ae === wid) return true
-  const em = (session.email ?? '').toLowerCase()
-  if (em) {
-    if ((record.initiator?.email ?? '').toLowerCase() === em) return true
-    if ((record.acceptor?.email ?? '').toLowerCase() === em) return true
-  }
-  return false
+/**
+ * Whether the current SSO session is a visible party on this row — **must** match
+ * `filterHandshakeRecordsForCurrentSession` / Handshakes UI so `internalSandboxes.listAvailable`
+ * does not return empty while the user still sees the handshake.
+ */
+function sessionIsPartyOnVisibleHandshakeRow(record: HandshakeRecord, session: SSOSession): boolean {
+  return handshakeRowVisibilityForSession(record, session).ok
 }
 
 function isLocalHostPeerSandbox(record: HandshakeRecord): boolean {
@@ -145,9 +141,9 @@ function isLocalSandboxPeerHost(record: HandshakeRecord): boolean {
 
 function peerCoordinationOrLegacyId(record: HandshakeRecord): string {
   if (record.local_role === 'initiator') {
-    return norm(record.acceptor_coordination_device_id) || record.internal_peer_device_id?.trim() || 'unknown / pending repair'
+    return normId(record.acceptor_coordination_device_id) || record.internal_peer_device_id?.trim() || 'unknown / pending repair'
   }
-  return norm(record.initiator_coordination_device_id) || record.internal_peer_device_id?.trim() || 'unknown / pending repair'
+  return normId(record.initiator_coordination_device_id) || record.internal_peer_device_id?.trim() || 'unknown / pending repair'
 }
 
 function peerDeviceName(record: HandshakeRecord): string | null {
@@ -210,7 +206,7 @@ export function isEligibleActiveInternalHostSandboxRecord(
 ): boolean {
   if (record.state !== HandshakeState.ACTIVE) return false
   if (record.handshake_type !== 'internal') return false
-  if (!accountMatchesRecord(record, session)) return false
+  if (!sessionIsPartyOnVisibleHandshakeRow(record, session)) return false
   if (!isLocalHostPeerSandbox(record)) return false
   if (!record.internal_coordination_identity_complete) return false
   return true
@@ -270,7 +266,7 @@ export function listAvailableInternalSandboxes(
   const incomplete: InternalSandboxListIncompleteEntry[] = []
 
   for (const record of rows) {
-    if (!accountMatchesRecord(record, session)) continue
+    if (!sessionIsPartyOnVisibleHandshakeRow(record, session)) continue
     if (!isLocalHostPeerSandbox(record)) continue
     if (!record.internal_coordination_identity_complete) {
       incomplete.push({

@@ -15,7 +15,8 @@ import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
 import { canShowSandboxCloneAction } from '../lib/beapInboxSandboxVisibility'
 import { isInboxMessageActionable } from '../lib/inboxMessageActionable'
-import type { InternalSandboxTargetWire } from '../hooks/useInternalSandboxesList'
+import type { InternalSandboxesListSnapshot, InternalSandboxTargetWire } from '../hooks/useInternalSandboxesList'
+import { resolveActiveSandboxCloneTargets } from '../lib/resolveActiveSandboxCloneTargets'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { beapInboxCloneToSandboxApi, sandboxCloneFeedbackFromOutcome } from '../lib/beapInboxCloneToSandbox'
 import {
@@ -86,6 +87,11 @@ export interface EmailMessageDetailProps {
   authoritativeDeviceInternalRole?: AuthoritativeDeviceInternalRole
   /** `useInternalSandboxesList().internalSandboxListReady` — false hides Sandbox until RPC succeeds. */
   internalSandboxListReady?: boolean
+  /**
+   * Fetches a fresh `internalSandboxes.listAvailable` snapshot (used on Sandbox click so targets are not stale).
+   * When omitted, click routing falls back to props (`internalSandboxTargets` / counts).
+   */
+  internalSandboxesRefresh?: () => Promise<InternalSandboxesListSnapshot>
   /** Open Handshakes (e.g. from link-dialog “no Sandbox” help). */
   onOpenHandshakesView?: () => void
 }
@@ -325,6 +331,7 @@ export default function EmailMessageDetail({
   authoritativeDeviceInternalRole = 'none',
   internalSandboxListReady = false,
   onOpenHandshakesView,
+  internalSandboxesRefresh,
   activeInternalHandshakeCount = 0,
   internalSandboxesListLastSuccess = true,
   activeIdentityCompleteHostSandboxCount: activeIdentityCompleteFromParent,
@@ -681,19 +688,43 @@ export default function EmailMessageDetail({
       })
       return
     }
-    const sendable = internalSandboxTargets ?? []
+    let sendable = internalSandboxTargets ?? []
+    let idCompleteN = activeIdentityCompleteHostSandboxCount
+    let idIncompN = identityIncompleteHostSandboxCount
+    let listOk = internalSandboxesListLastSuccess
+    let liveN = sandboxLiveEligibleCount
+    let activeN = activeHostSandboxHandshakeTotalCount
+    if (internalSandboxesRefresh) {
+      const snap = await internalSandboxesRefresh()
+      if (!snap.success) {
+        // eslint-disable-next-line no-console
+        console.log('[BEAP_SANDBOX_CLONE] list_refresh_failed', { message_id: message.id, error: snap.error })
+        setHostSandboxInlineFeedback(
+          snap.error ? `Could not load Sandbox handshakes: ${snap.error}` : 'Could not load Sandbox handshakes.',
+        )
+        window.setTimeout(() => setHostSandboxInlineFeedback(null), 8000)
+        return
+      }
+      const res = resolveActiveSandboxCloneTargets(snap.sandboxes, snap.incomplete)
+      sendable = res.sendableTargets
+      idCompleteN = res.identityCompleteRows.length
+      idIncompN = res.incompleteRows.length
+      listOk = true
+      liveN = res.liveEligibleCount
+      activeN = res.activeHostSandboxCount
+    }
     // eslint-disable-next-line no-console
     console.log('[BEAP_SANDBOX_CLONE] click', {
       message_id: message.id,
       host_mode: true,
-      active_sandbox_count: activeHostSandboxHandshakeTotalCount,
+      active_sandbox_count: activeN,
     })
     const next = resolveHostSandboxCloneClickAction({
-      internalListLoading: internalSandboxListLoading ?? false,
-      listLastSuccess: internalSandboxesListLastSuccess,
+      internalListLoading: internalSandboxesRefresh ? false : (internalSandboxListLoading ?? false),
+      listLastSuccess: listOk,
       sendableTargetCount: sendable.length,
-      activeIdentityCompleteHostSandboxCount,
-      identityIncompleteHostSandboxCount,
+      activeIdentityCompleteHostSandboxCount: idCompleteN,
+      identityIncompleteHostSandboxCount: idIncompN,
     })
     logSandboxTargetResolution({
       source: 'message_detail',
@@ -701,13 +732,13 @@ export default function EmailMessageDetail({
       modeReady,
       orchestratorMode,
       isHost: true,
-      internalSandboxRowsCount: activeIdentityCompleteHostSandboxCount,
-      activeSandboxTargetsCount: activeHostSandboxHandshakeTotalCount,
-      liveSandboxTargetsCount: sandboxLiveEligibleCount,
+      internalSandboxRowsCount: idCompleteN,
+      activeSandboxTargetsCount: activeN,
+      liveSandboxTargetsCount: liveN,
       selectedTargetHandshakeId: sendable[0]?.handshake_id ?? null,
       action: next,
       decision: mapSandboxClickActionToResolutionDecision(next),
-      reason: 'host_sandbox_routing',
+      reason: internalSandboxesRefresh ? 'host_sandbox_routing_fresh_list' : 'host_sandbox_routing',
     })
     if (next === 'loading_refresh') {
       onRequestInternalSandboxListRefresh?.()
@@ -717,7 +748,7 @@ export default function EmailMessageDetail({
     }
     if (next === 'open_unavailable_dialog') {
       // eslint-disable-next-line no-console
-      console.log('[BEAP_SANDBOX_CLONE] no_active_sandbox_handshake', { message_id: message.id })
+      console.log('[BEAP_SANDBOX_CLONE] no_active_target_show_setup', { message_id: message.id })
       onNoSandboxConnectedInfo?.()
       return
     }
@@ -739,15 +770,22 @@ export default function EmailMessageDetail({
       onSandboxMultiSelect?.(message)
       return
     }
+    // eslint-disable-next-line no-console
+    console.log('[BEAP_SANDBOX_CLONE] start', { message_id: message.id, target_handshake_id: sendable[0]?.handshake_id })
     setHostSandboxBusy(true)
     setHostSandboxInlineFeedback('Cloning message to Sandbox…')
     try {
-      // eslint-disable-next-line no-console
-      console.log('[BEAP_SANDBOX_CLONE] send_begin', { message_id: message.id, target_handshake_id: sendable[0]?.handshake_id })
       const r = await beapInboxCloneToSandboxApi({ sourceMessageId: message.id })
       if (r.success) {
         onSandboxCloneComplete?.()
         const fb = sandboxCloneFeedbackFromOutcome(r)
+        if (fb.kind === 'success_queued') {
+          // eslint-disable-next-line no-console
+          console.log('[BEAP_SANDBOX_CLONE] queued', { message_id: message.id, deliveryMode: r.deliveryMode })
+        } else if (fb.kind === 'success_live') {
+          // eslint-disable-next-line no-console
+          console.log('[BEAP_SANDBOX_CLONE] success', { message_id: message.id, deliveryMode: r.deliveryMode })
+        }
         // eslint-disable-next-line no-console
         console.log('[BEAP_SANDBOX_CLONE] send_result', {
           message_id: message.id,
@@ -764,6 +802,8 @@ export default function EmailMessageDetail({
         )
       }
     } catch (e) {
+      // eslint-disable-next-line no-console
+      console.log('[BEAP_SANDBOX_CLONE] error', { message_id: message.id, error: e })
       setHostSandboxInlineFeedback(e instanceof Error ? e.message : 'Failed to send clone')
     } finally {
       setHostSandboxBusy(false)
@@ -777,6 +817,7 @@ export default function EmailMessageDetail({
     internalSandboxTargets,
     internalSandboxListLoading,
     internalSandboxesListLastSuccess,
+    internalSandboxesRefresh,
     activeIdentityCompleteHostSandboxCount,
     identityIncompleteHostSandboxCount,
     activeHostSandboxHandshakeTotalCount,
@@ -832,19 +873,43 @@ export default function EmailMessageDetail({
       })
       return
     }
-    const sendable = internalSandboxTargets ?? []
+    let sendable = internalSandboxTargets ?? []
+    let idCompleteN = activeIdentityCompleteHostSandboxCount
+    let idIncompN = identityIncompleteHostSandboxCount
+    let listOk = internalSandboxesListLastSuccess
+    let liveN = sandboxLiveEligibleCount
+    let activeN = activeHostSandboxHandshakeTotalCount
+    if (internalSandboxesRefresh) {
+      const snap = await internalSandboxesRefresh()
+      if (!snap.success) {
+        // eslint-disable-next-line no-console
+        console.log('[BEAP_SANDBOX_CLONE] list_refresh_failed', { message_id: message.id, error: snap.error })
+        setHostSandboxInlineFeedback(
+          snap.error ? `Could not load Sandbox handshakes: ${snap.error}` : 'Could not load Sandbox handshakes.',
+        )
+        window.setTimeout(() => setHostSandboxInlineFeedback(null), 8000)
+        return
+      }
+      const res = resolveActiveSandboxCloneTargets(snap.sandboxes, snap.incomplete)
+      sendable = res.sendableTargets
+      idCompleteN = res.identityCompleteRows.length
+      idIncompN = res.incompleteRows.length
+      listOk = true
+      liveN = res.liveEligibleCount
+      activeN = res.activeHostSandboxCount
+    }
     // eslint-disable-next-line no-console
     console.log('[BEAP_SANDBOX_CLONE] click', {
       message_id: message.id,
       host_mode: true,
-      active_sandbox_count: activeHostSandboxHandshakeTotalCount,
+      active_sandbox_count: activeN,
     })
     const next = resolveHostSandboxCloneClickAction({
-      internalListLoading: internalSandboxListLoading ?? false,
-      listLastSuccess: internalSandboxesListLastSuccess,
+      internalListLoading: internalSandboxesRefresh ? false : (internalSandboxListLoading ?? false),
+      listLastSuccess: listOk,
       sendableTargetCount: sendable.length,
-      activeIdentityCompleteHostSandboxCount,
-      identityIncompleteHostSandboxCount,
+      activeIdentityCompleteHostSandboxCount: idCompleteN,
+      identityIncompleteHostSandboxCount: idIncompN,
     })
     logSandboxTargetResolution({
       source: 'external_link_dialog',
@@ -852,13 +917,13 @@ export default function EmailMessageDetail({
       modeReady,
       orchestratorMode,
       isHost: true,
-      internalSandboxRowsCount: activeIdentityCompleteHostSandboxCount,
-      activeSandboxTargetsCount: activeHostSandboxHandshakeTotalCount,
-      liveSandboxTargetsCount: sandboxLiveEligibleCount,
+      internalSandboxRowsCount: idCompleteN,
+      activeSandboxTargetsCount: activeN,
+      liveSandboxTargetsCount: liveN,
       selectedTargetHandshakeId: sendable[0]?.handshake_id ?? null,
       action: next,
       decision: mapSandboxClickActionToResolutionDecision(next),
-      reason: 'host_sandbox_routing',
+      reason: internalSandboxesRefresh ? 'host_sandbox_routing_fresh_list' : 'host_sandbox_routing',
     })
     if (next === 'loading_refresh') {
       onRequestInternalSandboxListRefresh?.()
@@ -866,7 +931,7 @@ export default function EmailMessageDetail({
     }
     if (next === 'open_unavailable_dialog') {
       // eslint-disable-next-line no-console
-      console.log('[BEAP_SANDBOX_CLONE] no_active_sandbox_handshake', { message_id: message.id })
+      console.log('[BEAP_SANDBOX_CLONE] no_active_target_show_setup', { message_id: message.id })
       setLinkSandboxInfoOpen(true)
       return
     }
@@ -892,10 +957,10 @@ export default function EmailMessageDetail({
       setPendingLinkUrl(null)
       return
     }
+    // eslint-disable-next-line no-console
+    console.log('[BEAP_SANDBOX_CLONE] start', { message_id: message.id, target_handshake_id: sendable[0]?.handshake_id })
     setLinkDialogSandboxBusy(true)
     try {
-      // eslint-disable-next-line no-console
-      console.log('[BEAP_SANDBOX_CLONE] send_begin', { message_id: message.id, target_handshake_id: sendable[0]?.handshake_id })
       const r = await beapInboxCloneToSandboxApi({
         sourceMessageId: message.id,
         cloneReason: 'external_link_or_artifact_review',
@@ -905,6 +970,13 @@ export default function EmailMessageDetail({
         onSandboxCloneComplete?.()
         setPendingLinkUrl(null)
         const fb = sandboxCloneFeedbackFromOutcome(r)
+        if (fb.kind === 'success_queued') {
+          // eslint-disable-next-line no-console
+          console.log('[BEAP_SANDBOX_CLONE] queued', { message_id: message.id, deliveryMode: r.deliveryMode })
+        } else if (fb.kind === 'success_live') {
+          // eslint-disable-next-line no-console
+          console.log('[BEAP_SANDBOX_CLONE] success', { message_id: message.id, deliveryMode: r.deliveryMode })
+        }
         setHostSandboxInlineFeedback(fb.text)
         window.setTimeout(() => setHostSandboxInlineFeedback(null), 5000)
       } else {
@@ -926,6 +998,7 @@ export default function EmailMessageDetail({
     internalSandboxTargets,
     internalSandboxListLoading,
     internalSandboxesListLastSuccess,
+    internalSandboxesRefresh,
     activeIdentityCompleteHostSandboxCount,
     identityIncompleteHostSandboxCount,
     activeHostSandboxHandshakeTotalCount,

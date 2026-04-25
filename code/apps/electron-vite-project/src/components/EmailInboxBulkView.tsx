@@ -59,6 +59,7 @@ import {
   SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE,
   sandboxCloneUnavailableDialogVariant,
 } from '../lib/beapInboxHostSandboxClickPolicy'
+import { resolveActiveSandboxCloneTargets } from '../lib/resolveActiveSandboxCloneTargets'
 import BeapSandboxCloneDialog from './BeapSandboxCloneDialog'
 import BeapSandboxUnavailableDialog, { type BeapSandboxUnavailableVariant } from './BeapSandboxUnavailableDialog'
 import '../components/handshakeViewTypes'
@@ -4259,15 +4260,23 @@ export default function EmailInboxBulkView({
   const handleBulkLinkWarningSandbox = useCallback(async () => {
     if (!pendingLink) return
     const { url, message: msg } = pendingLink
+    const snap = await refreshBulkInternalSandboxesList()
+    if (!snap.success) {
+      setBulkLinkKeyingNotice(
+        snap.error ? `Could not load Sandbox handshakes: ${snap.error}` : 'Could not load Sandbox handshakes.',
+      )
+      window.setTimeout(() => setBulkLinkKeyingNotice(null), 10000)
+      return
+    }
+    const resolved = resolveActiveSandboxCloneTargets(snap.sandboxes, snap.incomplete)
     const next = resolveHostSandboxCloneClickAction({
-      internalListLoading: bulkInternalSandboxesLoading,
-      listLastSuccess: bulkInternalSandboxesListLastSuccess,
-      sendableTargetCount: bulkSendableCloneSandboxes.length,
-      activeIdentityCompleteHostSandboxCount: bulkInternalSandboxes.length,
-      identityIncompleteHostSandboxCount: bulkInternalSandboxesIncomplete.length,
+      internalListLoading: false,
+      listLastSuccess: true,
+      sendableTargetCount: resolved.sendableTargets.length,
+      activeIdentityCompleteHostSandboxCount: resolved.identityCompleteRows.length,
+      identityIncompleteHostSandboxCount: resolved.incompleteRows.length,
     })
     if (next === 'loading_refresh') {
-      void refreshBulkInternalSandboxesList()
       return
     }
     if (next === 'open_unavailable_dialog') {
@@ -4295,6 +4304,8 @@ export default function EmailInboxBulkView({
     }
     setLinkDialogSandboxBusy(true)
     try {
+      // eslint-disable-next-line no-console
+      console.log('[BEAP_SANDBOX_CLONE] start', { message_id: msg.id, target_handshake_id: resolved.sendableTargets[0]?.handshake_id })
       const r = await beapInboxCloneToSandboxApi({
         sourceMessageId: msg.id,
         cloneReason: 'external_link_or_artifact_review',
@@ -4307,16 +4318,7 @@ export default function EmailInboxBulkView({
     } finally {
       setLinkDialogSandboxBusy(false)
     }
-  }, [
-    pendingLink,
-    bulkSendableCloneSandboxes,
-    bulkInternalSandboxes.length,
-    bulkInternalSandboxesIncomplete.length,
-    bulkInternalSandboxesListLastSuccess,
-    bulkInternalSandboxesLoading,
-    refreshBulkInternalSandboxesList,
-    refreshMessages,
-  ])
+  }, [pendingLink, refreshBulkInternalSandboxesList, refreshMessages])
 
   const handleComposeClick = useCallback((fn: () => void) => {
     const now = Date.now()
@@ -6787,6 +6789,7 @@ export default function EmailInboxBulkView({
                   onSandboxCloneComplete={() => void refreshMessages()}
                   internalSandboxListLoading={bulkInternalSandboxesLoading}
                   onRequestInternalSandboxListRefresh={() => void refreshBulkInternalSandboxesList()}
+                  internalSandboxesRefresh={refreshBulkInternalSandboxesList}
                   sandboxAvailability={bulkSandboxAvailability}
                   authoritativeDeviceInternalRole={bulkAuthoritativeDeviceInternalRole}
                   internalSandboxListReady={bulkInternalSandboxListReady}

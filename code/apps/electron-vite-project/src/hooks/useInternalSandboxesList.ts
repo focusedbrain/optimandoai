@@ -35,6 +35,15 @@ export interface InternalSandboxIncompleteWire {
   reason: 'identity_incomplete'
 }
 
+/** Return value of {@link useInternalSandboxesList} `refresh` — use for click-time routing without stale React state. */
+export type InternalSandboxesListSnapshot = {
+  success: boolean
+  sandboxes: InternalSandboxTargetWire[]
+  incomplete: InternalSandboxIncompleteWire[]
+  lastSuccess: boolean
+  error: string | null
+}
+
 export function useInternalSandboxesList() {
   const [sandboxes, setSandboxes] = useState<InternalSandboxTargetWire[]>([])
   const [incomplete, setIncomplete] = useState<InternalSandboxIncompleteWire[]>([])
@@ -47,7 +56,7 @@ export function useInternalSandboxesList() {
   const [authoritativeDeviceInternalRole, setAuthoritativeDeviceInternalRole] =
     useState<AuthoritativeDeviceInternalRole>('none')
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<InternalSandboxesListSnapshot> => {
     const rpc = (window as unknown as { handshakeView?: { vaultRpc?: (a: unknown) => Promise<unknown> } })
       .handshakeView?.vaultRpc
     if (!rpc) {
@@ -57,7 +66,7 @@ export function useInternalSandboxesList() {
       setIncomplete([])
       setSandboxAvailability(defaultSandboxAvailability)
       setAuthoritativeDeviceInternalRole('none')
-      return
+      return { success: false, sandboxes: [], incomplete: [], lastSuccess: false, error: 'Handshake bridge unavailable' }
     }
     setLoading(true)
     setError(null)
@@ -74,9 +83,11 @@ export function useInternalSandboxesList() {
         authoritative_device_internal_role?: AuthoritativeDeviceInternalRole
       }
       if (r?.success) {
+        const s = (Array.isArray(r.sandboxes) ? r.sandboxes : []) as InternalSandboxTargetWire[]
+        const inc = Array.isArray(r.incomplete) ? r.incomplete : []
         setLastSuccess(true)
-        setSandboxes((Array.isArray(r.sandboxes) ? r.sandboxes : []) as InternalSandboxTargetWire[])
-        setIncomplete(Array.isArray(r.incomplete) ? r.incomplete : [])
+        setSandboxes(s)
+        setIncomplete(inc)
         const ar = r.authoritative_device_internal_role
         setAuthoritativeDeviceInternalRole(
           ar === 'host' || ar === 'sandbox' || ar === 'none' ? ar : 'none',
@@ -94,21 +105,26 @@ export function useInternalSandboxesList() {
         } else {
           setSandboxAvailability(defaultSandboxAvailability)
         }
+        return { success: true, sandboxes: s, incomplete: inc, lastSuccess: true, error: null }
       } else {
         setLastSuccess(false)
-        setError(typeof r?.error === 'string' ? r.error : 'Failed to list internal sandboxes')
+        const err = typeof r?.error === 'string' ? r.error : 'Failed to list internal sandboxes'
+        setError(err)
         setSandboxes([])
         setIncomplete([])
         setSandboxAvailability(defaultSandboxAvailability)
         setAuthoritativeDeviceInternalRole('none')
+        return { success: false, sandboxes: [], incomplete: [], lastSuccess: false, error: err }
       }
     } catch (e) {
       setLastSuccess(false)
-      setError(e instanceof Error ? e.message : 'Failed to list internal sandboxes')
+      const err = e instanceof Error ? e.message : 'Failed to list internal sandboxes'
+      setError(err)
       setSandboxes([])
       setIncomplete([])
       setSandboxAvailability(defaultSandboxAvailability)
       setAuthoritativeDeviceInternalRole('none')
+      return { success: false, sandboxes: [], incomplete: [], lastSuccess: false, error: err }
     } finally {
       setLoading(false)
     }

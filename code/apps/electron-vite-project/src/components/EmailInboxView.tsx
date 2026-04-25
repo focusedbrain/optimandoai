@@ -22,6 +22,7 @@ import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import type { NormalInboxAiResult } from '../types/inboxAi'
 import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
+import { resolveActiveSandboxCloneTargets } from '../lib/resolveActiveSandboxCloneTargets'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { beapInboxCloneToSandboxApi, sandboxCloneFeedbackFromOutcome } from '../lib/beapInboxCloneToSandbox'
 import { beapHostSandboxCloneTooltipForAvailability, beapInboxRedirectTooltipPropsForRow } from '../lib/beapInboxActionTooltips'
@@ -2650,78 +2651,108 @@ export default function EmailInboxView({
         }
         return
       }
-      // eslint-disable-next-line no-console
-      console.log('[BEAP_SANDBOX_CLONE] click', {
-        message_id: m.id,
-        host_mode: true,
-        active_sandbox_count: activeHostSandboxHandshakeCount,
-      })
-      const next = resolveHostSandboxCloneClickAction({
-        internalListLoading: internalSandboxesLoading,
-        listLastSuccess: internalSandboxesListLastSuccess,
-        sendableTargetCount: sendableCloneSandboxes.length,
-        activeIdentityCompleteHostSandboxCount: internalSandboxes.length,
-        identityIncompleteHostSandboxCount: internalSandboxesIncomplete.length,
-      })
-      logSandboxTargetResolution({
-        source: 'inbox_row',
-        messageId: m.id,
-        modeReady: hostModeReady,
-        orchestratorMode,
-        isHost: true,
-        internalSandboxRowsCount: internalSandboxes.length,
-        activeSandboxTargetsCount: activeHostSandboxHandshakeCount,
-        liveSandboxTargetsCount: cloneEligibleSandboxes.length,
-        selectedTargetHandshakeId: sendableCloneSandboxes[0]?.handshake_id ?? null,
-        action: next,
-        decision: mapSandboxClickActionToResolutionDecision(next),
-        reason: 'host_sandbox_routing',
-      })
-      if (next === 'loading_refresh') {
-        setSandboxRowFeedback('Checking internal Sandbox handshakes…')
-        void refreshInternalSandboxesList()
-        window.setTimeout(() => setSandboxRowFeedback(null), 5000)
-        return
-      }
-      if (next === 'open_unavailable_dialog') {
-        // eslint-disable-next-line no-console
-        console.log('[BEAP_SANDBOX_CLONE] no_active_sandbox_handshake', { message_id: m.id })
-        openSandboxUnavailableDialog()
-        return
-      }
-      if (next === 'keying_incomplete') {
-        // eslint-disable-next-line no-console
-        console.log('[BEAP_SANDBOX_CLONE] keying_incomplete', { message_id: m.id })
-        setSandboxRowFeedback(SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE)
-        window.setTimeout(() => setSandboxRowFeedback(null), 8000)
-        return
-      }
-      if (next === 'identity_incomplete') {
-        // eslint-disable-next-line no-console
-        console.log('[BEAP_SANDBOX_CLONE] identity_incomplete', { message_id: m.id })
-        setSandboxRowFeedback(SANDBOX_IDENTITY_INCOMPLETE_USER_MESSAGE)
-        window.setTimeout(() => setSandboxRowFeedback(null), 8000)
-        return
-      }
-      if (next === 'open_target_picker') {
-        setSandboxCloneForMessage(m)
-        return
-      }
       void (async () => {
+        const snap = await refreshInternalSandboxesList()
+        if (!snap.success) {
+          // eslint-disable-next-line no-console
+          console.log('[BEAP_SANDBOX_CLONE] list_refresh_failed', { message_id: m.id, error: snap.error })
+          setSandboxRowFeedback(
+            snap.error ? `Could not load Sandbox handshakes: ${snap.error}` : 'Could not load Sandbox handshakes.',
+          )
+          window.setTimeout(() => setSandboxRowFeedback(null), 8000)
+          return
+        }
+        const resolved = resolveActiveSandboxCloneTargets(snap.sandboxes, snap.incomplete)
+        const {
+          sendableTargets,
+          activeHostSandboxCount,
+          liveEligibleCount,
+          identityCompleteRows,
+          incompleteRows,
+        } = resolved
         // eslint-disable-next-line no-console
-        console.log('[BEAP_SANDBOX_CLONE] send_begin', {
+        console.log('[BEAP_SANDBOX_CLONE] click', {
           message_id: m.id,
-          target_handshake_id: sendableCloneSandboxes[0]?.handshake_id,
+          host_mode: true,
+          active_sandbox_count: activeHostSandboxCount,
+        })
+        const next = resolveHostSandboxCloneClickAction({
+          internalListLoading: false,
+          listLastSuccess: true,
+          sendableTargetCount: sendableTargets.length,
+          activeIdentityCompleteHostSandboxCount: identityCompleteRows.length,
+          identityIncompleteHostSandboxCount: incompleteRows.length,
+        })
+        logSandboxTargetResolution({
+          source: 'inbox_row',
+          messageId: m.id,
+          modeReady: hostModeReady,
+          orchestratorMode,
+          isHost: true,
+          internalSandboxRowsCount: identityCompleteRows.length,
+          activeSandboxTargetsCount: activeHostSandboxCount,
+          liveSandboxTargetsCount: liveEligibleCount,
+          selectedTargetHandshakeId: sendableTargets[0]?.handshake_id ?? null,
+          action: next,
+          decision: mapSandboxClickActionToResolutionDecision(next),
+          reason: 'host_sandbox_routing_fresh_list',
+        })
+        if (next === 'loading_refresh') {
+          setSandboxRowFeedback('Checking internal Sandbox handshakes…')
+          window.setTimeout(() => setSandboxRowFeedback(null), 5000)
+          return
+        }
+        if (next === 'open_unavailable_dialog') {
+          // eslint-disable-next-line no-console
+          console.log('[BEAP_SANDBOX_CLONE] no_active_target_show_setup', { message_id: m.id })
+          openSandboxUnavailableDialog()
+          return
+        }
+        if (next === 'keying_incomplete') {
+          // eslint-disable-next-line no-console
+          console.log('[BEAP_SANDBOX_CLONE] keying_incomplete', { message_id: m.id })
+          setSandboxRowFeedback(SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE)
+          window.setTimeout(() => setSandboxRowFeedback(null), 8000)
+          return
+        }
+        if (next === 'identity_incomplete') {
+          // eslint-disable-next-line no-console
+          console.log('[BEAP_SANDBOX_CLONE] identity_incomplete', { message_id: m.id })
+          setSandboxRowFeedback(SANDBOX_IDENTITY_INCOMPLETE_USER_MESSAGE)
+          window.setTimeout(() => setSandboxRowFeedback(null), 8000)
+          return
+        }
+        if (next === 'open_target_picker') {
+          setSandboxCloneForMessage(m)
+          return
+        }
+        // eslint-disable-next-line no-console
+        console.log('[BEAP_SANDBOX_CLONE] start', {
+          message_id: m.id,
+          target_handshake_id: sendableTargets[0]?.handshake_id,
         })
         try {
           setSandboxRowFeedback('Cloning message to Sandbox…')
           const r = await beapInboxCloneToSandboxApi({ sourceMessageId: m.id })
           if (r.success) {
             const fb = sandboxCloneFeedbackFromOutcome(r)
+            if (fb.kind === 'success_queued') {
+              // eslint-disable-next-line no-console
+              console.log('[BEAP_SANDBOX_CLONE] queued', {
+                message_id: m.id,
+                deliveryMode: 'deliveryMode' in r ? r.deliveryMode : undefined,
+              })
+            } else if (fb.kind === 'success_live') {
+              // eslint-disable-next-line no-console
+              console.log('[BEAP_SANDBOX_CLONE] success', {
+                message_id: m.id,
+                deliveryMode: 'deliveryMode' in r ? r.deliveryMode : undefined,
+              })
+            }
             // eslint-disable-next-line no-console
             console.log('[BEAP_SANDBOX_CLONE] send_result', {
               message_id: m.id,
-              deliveryMode: r.deliveryMode,
+              deliveryMode: 'deliveryMode' in r ? r.deliveryMode : undefined,
             })
             setSandboxRowFeedback(fb.text)
             void fetchMessages()
@@ -2732,6 +2763,8 @@ export default function EmailInboxView({
           }
           window.setTimeout(() => setSandboxRowFeedback(null), 5000)
         } catch (e) {
+          // eslint-disable-next-line no-console
+          console.log('[BEAP_SANDBOX_CLONE] error', { message_id: m.id, error: e })
           setSandboxRowFeedback(e instanceof Error ? e.message : 'Failed to send clone')
           window.setTimeout(() => setSandboxRowFeedback(null), 5000)
         }
@@ -2740,16 +2773,9 @@ export default function EmailInboxView({
     [
       hostModeReady,
       orchestratorMode,
-      internalSandboxesLoading,
-      internalSandboxesListLastSuccess,
-      internalSandboxes.length,
-      internalSandboxesIncomplete.length,
-      activeHostSandboxHandshakeCount,
-      sendableCloneSandboxes,
-      cloneEligibleSandboxes,
-      fetchMessages,
       openSandboxUnavailableDialog,
       refreshInternalSandboxesList,
+      fetchMessages,
     ],
   )
 
@@ -3410,6 +3436,7 @@ export default function EmailInboxView({
               onSandboxCloneComplete={() => void fetchMessages()}
               internalSandboxListLoading={internalSandboxesLoading}
               onRequestInternalSandboxListRefresh={() => void refreshInternalSandboxesList()}
+              internalSandboxesRefresh={refreshInternalSandboxesList}
               sandboxAvailability={sandboxAvailability}
               authoritativeDeviceInternalRole={authoritativeDeviceInternalRole}
               internalSandboxListReady={internalSandboxListReady}
