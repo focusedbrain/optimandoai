@@ -39,6 +39,13 @@ describe('beapInbox Ux source regressions', () => {
     expect(src).not.toMatch(/Reply using capsule fields/i)
   })
 
+  test('11b: Inbox message body uses shared safe-link parts (no raw body_html innerHTML)', () => {
+    const detail = readRel('components', 'EmailMessageDetail.tsx')
+    expect(detail).toContain('beapInboxMessageBodyToLinkParts')
+    expect(detail).toContain('BeapMessageSafeLinkParts')
+    expect(detail).not.toMatch(/dangerouslySetInnerHTML=\{\{ __html:.*body_html/s)
+  })
+
   test('12: Reply is icon-only (class + tooltip); no visible Reply label in the control', () => {
     const src = readRel('components', 'EmailMessageDetail.tsx')
     expect(src).toContain('beapInboxReplyTooltipProps()')

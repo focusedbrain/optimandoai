@@ -15,6 +15,7 @@ import type {
 import type { DeliveryResult } from '@ext/beap-messages/services/BeapPackageBuilder'
 import '../components/handshakeViewTypes'
 import { mapCoordinationDeliveryToMatrixMode } from './beapSandboxCloneDeliverySemantics'
+import { SANDBOX_CLONE_COPY, type SandboxCloneFeedbackView } from './sandboxCloneFeedbackUi'
 
 const SANDBOX_BANNER =
   '[BEAP sandbox clone — sent by you]\n' +
@@ -185,10 +186,6 @@ export type BeapInboxClonePrepareFailure = {
   details?: unknown
 }
 
-const CLONE_OK_LIVE = 'Message cloned and sent to Sandbox.'
-const CLONE_OK_QUEUED =
-  'Message cloned and queued for Sandbox. It will arrive when the Sandbox orchestrator reconnects.'
-
 /** User-facing string after a clone attempt (200 vs 202 vs prepare/send failure). */
 function sandboxCloneFailureUserText(
   e: string | undefined,
@@ -215,24 +212,65 @@ function sandboxCloneFailureUserText(
 
 export function sandboxCloneFeedbackFromOutcome(
   r: BeapInboxCloneToSandboxResult | BeapInboxClonePrepareFailure,
-): { kind: 'success_live' | 'success_queued' | 'error'; text: string } {
+): {
+  kind: 'success_live' | 'success_queued' | 'error'
+  /** @deprecated use view.message — kept for call sites that only read .text */
+  text: string
+  view: SandboxCloneFeedbackView
+} {
   if (r && 'success' in r && r.success === false) {
     const f = r as BeapInboxClonePrepareFailure
+    const detail = sandboxCloneFailureUserText(f.error, f.code)
     return {
       kind: 'error',
-      text: sandboxCloneFailureUserText(f.error, f.code),
+      text: SANDBOX_CLONE_COPY.failedGeneric,
+      view: {
+        variant: 'error',
+        message: SANDBOX_CLONE_COPY.failedGeneric,
+        persistUntilDismiss: true,
+        screenReaderDetail: detail,
+      },
     }
   }
   if (r && 'success' in r && r.success === true) {
     if (r.deliveryMode === 'queued') {
-      return { kind: 'success_queued', text: CLONE_OK_QUEUED }
+      return {
+        kind: 'success_queued',
+        text: SANDBOX_CLONE_COPY.successQueued,
+        view: {
+          variant: 'queued',
+          message: SANDBOX_CLONE_COPY.successQueued,
+          persistUntilDismiss: false,
+        },
+      }
     }
     if (r.deliveryMode === 'failed') {
-      return { kind: 'error', text: 'Sandbox clone failed: delivery did not complete.' }
+      return {
+        kind: 'error',
+        text: SANDBOX_CLONE_COPY.failedGeneric,
+        view: {
+          variant: 'error',
+          message: SANDBOX_CLONE_COPY.failedGeneric,
+          persistUntilDismiss: true,
+          screenReaderDetail: 'Delivery did not complete',
+        },
+      }
     }
-    return { kind: 'success_live', text: CLONE_OK_LIVE }
+    return {
+      kind: 'success_live',
+      text: SANDBOX_CLONE_COPY.successLive,
+      view: {
+        variant: 'success',
+        message: SANDBOX_CLONE_COPY.successLive,
+        persistUntilDismiss: false,
+      },
+    }
   }
-  return { kind: 'error', text: 'Sandbox clone failed.' }
+  return {
+    kind: 'error',
+    text: SANDBOX_CLONE_COPY.failedGeneric,
+    view: { variant: 'error', message: SANDBOX_CLONE_COPY.failedGeneric, persistUntilDismiss: true },
+  }
 }
 
 export async function beapInboxCloneToSandboxApi(params: {

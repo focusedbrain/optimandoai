@@ -6,6 +6,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { InboxMessage } from '../stores/useEmailInboxStore'
 import type { InternalSandboxTargetWire } from '../hooks/useInternalSandboxesList'
 import { beapInboxCloneToSandboxApi, sandboxCloneFeedbackFromOutcome } from '../lib/beapInboxCloneToSandbox'
+import type { SandboxCloneFeedbackView } from '../lib/sandboxCloneFeedbackUi'
+import SandboxCloneFeedbackBadge from './SandboxCloneFeedbackBadge'
 import { UI_BUTTON } from '../styles/uiContrastTokens'
 import './handshakeViewTypes'
 
@@ -35,7 +37,7 @@ export default function BeapSandboxCloneDialog({
   const [targetId, setTargetId] = useState<string | null>(sandboxes.length === 1 ? sandboxes[0]!.handshake_id : null)
   const [sending, setSending] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [cloneFeedback, setCloneFeedback] = useState<SandboxCloneFeedbackView | null>(null)
 
   useEffect(() => {
     if (sandboxes.length === 1) setTargetId(sandboxes[0]!.handshake_id)
@@ -63,7 +65,7 @@ export default function BeapSandboxCloneDialog({
     console.log('[BEAP_SANDBOX_CLONE] send_begin', { message_id: message.id, target_handshake_id: hid })
     setSending(true)
     setErr(null)
-    setToast(null)
+    setCloneFeedback(null)
     try {
       const r = await beapInboxCloneToSandboxApi({
         sourceMessageId: message.id,
@@ -81,20 +83,19 @@ export default function BeapSandboxCloneDialog({
         const fb = sandboxCloneFeedbackFromOutcome(r)
         // eslint-disable-next-line no-console
         console.log('[BEAP_SANDBOX_CLONE] send_result', { message_id: message.id, deliveryMode: r.deliveryMode })
-        setToast({ type: 'success', text: fb.text })
+        setCloneFeedback(fb.view)
         onSent?.()
-        window.setTimeout(() => onClose(), 1200)
+        window.setTimeout(() => onClose(), 1800)
       } else {
         // eslint-disable-next-line no-console
         console.log('[BEAP_SANDBOX_CLONE] send_result', { message_id: message.id, error: r })
-        const msg = 'error' in r ? `Sandbox clone failed: ${r.error}` : 'Sandbox clone failed.'
-        setToast({ type: 'error', text: msg })
-        setErr(msg)
+        const v = sandboxCloneFeedbackFromOutcome(r).view
+        setCloneFeedback(v)
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Failed to send clone'
-      setToast({ type: 'error', text: msg })
-      setErr(msg)
+      const v = sandboxCloneFeedbackFromOutcome({ success: false, error: msg }).view
+      setCloneFeedback(v)
     } finally {
       setSending(false)
     }
@@ -182,18 +183,15 @@ export default function BeapSandboxCloneDialog({
 
         {err && <p style={{ fontSize: 12, color: '#f87171', marginBottom: 8 }}>{err}</p>}
 
-        {toast && (
-          <p
-            style={{
-              fontSize: 12,
-              marginBottom: 10,
-              color: toast.type === 'success' ? '#4ade80' : '#f87171',
-            }}
-            role="status"
-          >
-            {toast.text}
-          </p>
-        )}
+        {cloneFeedback ? (
+          <div style={{ marginBottom: 12 }}>
+            <SandboxCloneFeedbackBadge
+              view={cloneFeedback}
+              onDismiss={cloneFeedback.persistUntilDismiss ? () => setCloneFeedback(null) : undefined}
+              maxWidth="100%"
+            />
+          </div>
+        ) : null}
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
           <button

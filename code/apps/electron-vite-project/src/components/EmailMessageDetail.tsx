@@ -10,7 +10,8 @@ import InboxAttachmentRow from './InboxAttachmentRow'
 import LinkWarningDialog from './LinkWarningDialog'
 import SandboxLinkInfoDialog from './SandboxLinkInfoDialog'
 import { openAppExternalUrl } from '../lib/openAppExternalUrl'
-import { extractLinkParts } from '../utils/safeLinks'
+import BeapMessageSafeLinkParts from './BeapMessageSafeLinkParts'
+import { beapInboxMessageBodyToLinkParts, extractLinkParts } from '../utils/safeLinks'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
 import { canShowSandboxCloneAction } from '../lib/beapInboxSandboxVisibility'
@@ -20,6 +21,17 @@ import { resolveActiveSandboxCloneTargets } from '../lib/resolveActiveSandboxClo
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { beapInboxCloneToSandboxApi, sandboxCloneFeedbackFromOutcome } from '../lib/beapInboxCloneToSandbox'
 import {
+  SANDBOX_CLONE_COPY,
+  viewSandboxChecking,
+  viewSandboxCloning,
+  viewSandboxIdentityIncomplete,
+  viewSandboxKeyingIncomplete,
+  viewSandboxListLoadFailed,
+  viewSandboxNoOrchestrator,
+  type SandboxCloneFeedbackView,
+} from '../lib/sandboxCloneFeedbackUi'
+import SandboxCloneFeedbackBadge from './SandboxCloneFeedbackBadge'
+import {
   beapHostSandboxCloneTooltipForAvailability,
   beapInboxRedirectTooltipPropsForDetail,
   beapInboxReplyTooltipProps,
@@ -28,8 +40,6 @@ import {
   logSandboxTargetResolution,
   mapSandboxClickActionToResolutionDecision,
   resolveHostSandboxCloneClickAction,
-  SANDBOX_IDENTITY_INCOMPLETE_USER_MESSAGE,
-  SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE,
 } from '../lib/beapInboxHostSandboxClickPolicy'
 import { InboxRedirectActionIcon, InboxSandboxCloneActionIcon } from './InboxActionIcons'
 import type {
@@ -112,22 +122,6 @@ function formatDate(isoString: string | null): string {
   } catch {
     return '—'
   }
-}
-
-/** Basic HTML sanitization: strip script, style, iframe, object, embed; remove on* attributes */
-function sanitizeHtml(html: string): string {
-  if (!html || typeof html !== 'string') return ''
-  const doc = new DOMParser().parseFromString(html, 'text/html')
-  const remove = doc.querySelectorAll('script, style, iframe, object, embed')
-  remove.forEach((el) => el.remove())
-  doc.body.querySelectorAll('*').forEach((el) => {
-    Array.from(el.attributes).forEach((attr) => {
-      if (/^on/i.test(attr.name) || attr.name === 'href' && attr.value?.startsWith('javascript:')) {
-        el.removeAttribute(attr.name)
-      }
-    })
-  })
-  return doc.body.innerHTML
 }
 
 function getAutomationTags(p: Record<string, unknown>): string[] {
@@ -351,7 +345,7 @@ export default function EmailMessageDetail({
   const [importingSession, setImportingSession] = useState<Record<string, unknown> | null>(null)
   const [importStatus, setImportStatus] = useState<Record<string, 'idle' | 'importing' | 'imported' | 'error'>>({})
   const [hostSandboxBusy, setHostSandboxBusy] = useState(false)
-  const [hostSandboxInlineFeedback, setHostSandboxInlineFeedback] = useState<string | null>(null)
+  const [hostSandboxInlineFeedback, setHostSandboxInlineFeedback] = useState<SandboxCloneFeedbackView | null>(null)
   const {
     selectedAttachmentId: storeSelectedAttachmentId,
     selectAttachment,
@@ -512,6 +506,19 @@ export default function EmailMessageDetail({
     }
     return ''
   }, [isNativeBeap, parsedDepackaged, parsedPackage])
+
+  const publicBodyLinkParts = useMemo(
+    () => (publicBody ? extractLinkParts(publicBody) : null),
+    [publicBody],
+  )
+  const encryptedBodyLinkParts = useMemo(
+    () => (encryptedBody ? extractLinkParts(encryptedBody) : null),
+    [encryptedBody],
+  )
+  const nonNativeBodyLinkParts = useMemo(() => {
+    if (isNativeBeap || !message) return null
+    return beapInboxMessageBodyToLinkParts(message)
+  }, [isNativeBeap, message])
 
   const fromDisplay = useMemo((): ReactNode => {
     if (!message) return '—'
@@ -701,10 +708,11 @@ export default function EmailMessageDetail({
       if (!snap.success) {
         // eslint-disable-next-line no-console
         console.log('[BEAP_SANDBOX_CLONE] list_refresh_failed', { message_id: message.id, error: snap.error })
-        setHostSandboxInlineFeedback(
-          snap.error ? `Could not load Sandbox handshakes: ${snap.error}` : 'Could not load Sandbox handshakes.',
-        )
-        window.setTimeout(() => setHostSandboxInlineFeedback(null), 8000)
+        const v = viewSandboxListLoadFailed(snap.error)
+        setHostSandboxInlineFeedback(v)
+        if (!v.persistUntilDismiss) {
+          window.setTimeout(() => setHostSandboxInlineFeedback(null), 8000)
+        }
         return
       }
       const res = resolveActiveSandboxCloneTargets(snap.sandboxes, snap.incomplete)
@@ -745,27 +753,28 @@ export default function EmailMessageDetail({
     })
     if (next === 'loading_refresh') {
       onRequestInternalSandboxListRefresh?.()
-      setHostSandboxInlineFeedback('Checking internal Sandbox handshakes…')
+      setHostSandboxInlineFeedback(viewSandboxChecking())
       window.setTimeout(() => setHostSandboxInlineFeedback(null), 5000)
       return
     }
     if (next === 'open_unavailable_dialog') {
       // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] no_active_target_show_setup', { message_id: message.id })
+      setHostSandboxInlineFeedback(viewSandboxNoOrchestrator())
       onNoSandboxConnectedInfo?.()
       return
     }
     if (next === 'keying_incomplete') {
       // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] keying_incomplete', { message_id: message.id })
-      setHostSandboxInlineFeedback(SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE)
+      setHostSandboxInlineFeedback(viewSandboxKeyingIncomplete())
       window.setTimeout(() => setHostSandboxInlineFeedback(null), 8000)
       return
     }
     if (next === 'identity_incomplete') {
       // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] identity_incomplete', { message_id: message.id })
-      setHostSandboxInlineFeedback(SANDBOX_IDENTITY_INCOMPLETE_USER_MESSAGE)
+      setHostSandboxInlineFeedback(viewSandboxIdentityIncomplete())
       window.setTimeout(() => setHostSandboxInlineFeedback(null), 8000)
       return
     }
@@ -776,7 +785,7 @@ export default function EmailMessageDetail({
     // eslint-disable-next-line no-console
     console.log('[BEAP_SANDBOX_CLONE] start', { message_id: message.id, target_handshake_id: sendable[0]?.handshake_id })
     setHostSandboxBusy(true)
-    setHostSandboxInlineFeedback('Cloning message to Sandbox…')
+    setHostSandboxInlineFeedback(viewSandboxCloning())
     try {
       const r = await beapInboxCloneToSandboxApi({ sourceMessageId: message.id })
       if (r.success) {
@@ -795,19 +804,24 @@ export default function EmailMessageDetail({
           deliveryMode: r.deliveryMode,
           coordinationRelayDelivery: r.delivery?.coordinationRelayDelivery,
         })
-        setHostSandboxInlineFeedback(fb.text)
-        window.setTimeout(() => setHostSandboxInlineFeedback(null), 5000)
+        setHostSandboxInlineFeedback(fb.view)
+        if (!fb.view.persistUntilDismiss) {
+          window.setTimeout(() => setHostSandboxInlineFeedback(null), 5500)
+        }
       } else {
         // eslint-disable-next-line no-console
         console.log('[BEAP_SANDBOX_CLONE] send_result', { message_id: message.id, error: r })
-        setHostSandboxInlineFeedback(
-          'error' in r ? `Sandbox clone failed: ${r.error}` : 'Sandbox clone failed.',
-        )
+        setHostSandboxInlineFeedback(sandboxCloneFeedbackFromOutcome(r).view)
       }
     } catch (e) {
       // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] error', { message_id: message.id, error: e })
-      setHostSandboxInlineFeedback(e instanceof Error ? e.message : 'Failed to send clone')
+      setHostSandboxInlineFeedback({
+        variant: 'error',
+        message: SANDBOX_CLONE_COPY.failedGeneric,
+        persistUntilDismiss: true,
+        screenReaderDetail: e instanceof Error ? e.message : String(e),
+      })
     } finally {
       setHostSandboxBusy(false)
     }
@@ -889,10 +903,11 @@ export default function EmailMessageDetail({
       if (!snap.success) {
         // eslint-disable-next-line no-console
         console.log('[BEAP_SANDBOX_CLONE] list_refresh_failed', { message_id: message.id, error: snap.error })
-        setHostSandboxInlineFeedback(
-          snap.error ? `Could not load Sandbox handshakes: ${snap.error}` : 'Could not load Sandbox handshakes.',
-        )
-        window.setTimeout(() => setHostSandboxInlineFeedback(null), 8000)
+        const v = viewSandboxListLoadFailed(snap.error)
+        setHostSandboxInlineFeedback(v)
+        if (!v.persistUntilDismiss) {
+          window.setTimeout(() => setHostSandboxInlineFeedback(null), 8000)
+        }
         return
       }
       const res = resolveActiveSandboxCloneTargets(snap.sandboxes, snap.incomplete)
@@ -938,20 +953,21 @@ export default function EmailMessageDetail({
     if (next === 'open_unavailable_dialog') {
       // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] no_active_target_show_setup', { message_id: message.id })
+      setHostSandboxInlineFeedback(viewSandboxNoOrchestrator())
       setLinkSandboxInfoOpen(true)
       return
     }
     if (next === 'keying_incomplete') {
       // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] keying_incomplete', { message_id: message.id })
-      setHostSandboxInlineFeedback(SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE)
+      setHostSandboxInlineFeedback(viewSandboxKeyingIncomplete())
       window.setTimeout(() => setHostSandboxInlineFeedback(null), 8000)
       return
     }
     if (next === 'identity_incomplete') {
       // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] identity_incomplete', { message_id: message.id })
-      setHostSandboxInlineFeedback(SANDBOX_IDENTITY_INCOMPLETE_USER_MESSAGE)
+      setHostSandboxInlineFeedback(viewSandboxIdentityIncomplete())
       window.setTimeout(() => setHostSandboxInlineFeedback(null), 8000)
       return
     }
@@ -983,13 +999,12 @@ export default function EmailMessageDetail({
           // eslint-disable-next-line no-console
           console.log('[BEAP_SANDBOX_CLONE] success', { message_id: message.id, deliveryMode: r.deliveryMode })
         }
-        setHostSandboxInlineFeedback(fb.text)
-        window.setTimeout(() => setHostSandboxInlineFeedback(null), 5000)
+        setHostSandboxInlineFeedback(fb.view)
+        if (!fb.view.persistUntilDismiss) {
+          window.setTimeout(() => setHostSandboxInlineFeedback(null), 5500)
+        }
       } else {
-        setHostSandboxInlineFeedback(
-          'error' in r ? `Sandbox clone failed: ${r.error}` : 'Sandbox clone failed.',
-        )
-        window.setTimeout(() => setHostSandboxInlineFeedback(null), 8000)
+        setHostSandboxInlineFeedback(sandboxCloneFeedbackFromOutcome(r).view)
       }
     } finally {
       setLinkDialogSandboxBusy(false)
@@ -1235,25 +1250,21 @@ export default function EmailMessageDetail({
           </div>
           {showSandboxCloneIcon && hostSandboxInlineFeedback ? (
             <div
-              role="status"
               style={{
-                marginTop: 8,
-                marginBottom: 0,
-                fontSize: 11,
-                color: (() => {
-                  const t = hostSandboxInlineFeedback
-                  if (t.startsWith('Message cloned') || t.startsWith('Cloning message')) {
-                    return t.startsWith('Cloning') ? '#a78bfa' : '#4ade80'
-                  }
-                  if (/failed|key material|handshake is active but/i.test(t)) return '#f87171'
-                  if (t.startsWith('Checking internal')) return '#94a3b8'
-                  return '#e2e8f0'
-                })(),
-                maxWidth: 480,
-                lineHeight: 1.4,
+                display: 'flex',
+                justifyContent: 'flex-end',
+                width: '100%',
+                marginTop: 6,
+                marginBottom: 4,
               }}
             >
-              {hostSandboxInlineFeedback}
+              <div style={{ width: '100%', maxWidth: 400 }}>
+                <SandboxCloneFeedbackBadge
+                  view={hostSandboxInlineFeedback}
+                  onDismiss={() => setHostSandboxInlineFeedback(null)}
+                  maxWidth="100%"
+                />
+              </div>
             </div>
           ) : null}
           <div style={{ fontSize: 12, color: 'var(--color-text-muted, #94a3b8)' }}>
@@ -1283,19 +1294,23 @@ export default function EmailMessageDetail({
                 </div>
               ) : (
                 <>
-                  {publicBody ? (
+                  {publicBody && publicBodyLinkParts ? (
                     <div className="beap-body-section">
                       <div className="beap-body-label">📨 Public Message (pBEAP)</div>
                       <pre
                         className="beap-body-pre beap-body-content beap-body-content--public"
                         style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}
                       >
-                        {publicBody}
+                        <BeapMessageSafeLinkParts
+                          keyPrefix="pbeap"
+                          parts={publicBodyLinkParts}
+                          onLinkClick={handleLinkClick}
+                        />
                       </pre>
                     </div>
                   ) : null}
 
-                  {encryptedBody ? (
+                  {encryptedBody && encryptedBodyLinkParts ? (
                     <div className="beap-body-section">
                       <div className="beap-body-label beap-body-label--encrypted beap-body-label--confidential">
                         🔒 End-to-End Encrypted (qBEAP)
@@ -1305,7 +1320,11 @@ export default function EmailMessageDetail({
                           className="beap-body-pre"
                           style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}
                         >
-                          {encryptedBody}
+                          <BeapMessageSafeLinkParts
+                            keyPrefix="qbeap"
+                            parts={encryptedBodyLinkParts}
+                            onLinkClick={handleLinkClick}
+                          />
                         </pre>
                       </div>
                     </div>
@@ -1388,56 +1407,26 @@ export default function EmailMessageDetail({
             </div>
           ) : (
             <>
-              {message.body_html ? (
+              {nonNativeBodyLinkParts ? (
                 <div
-                  className="msg-detail-body-html"
-                  onClick={(e) => {
-                    const a = (e.target as HTMLElement).closest('a[href]')
-                    if (a) {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      const href = (a as HTMLAnchorElement).href
-                      if (href && !href.startsWith('mailto:')) handleLinkClick(href)
-                    }
-                  }}
-                  style={{
-                    fontSize: 13,
-                    lineHeight: 1.6,
-                    color: 'var(--color-text, #e2e8f0)',
-                  }}
-                >
-                  <div
-                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(message.body_html) }}
-                    style={{ fontSize: 'inherit', lineHeight: 'inherit', color: 'inherit' }}
-                  />
-                </div>
-              ) : (
-                <pre
+                  className="msg-detail-body-safe"
                   style={{
                     margin: 0,
                     fontSize: 13,
                     lineHeight: 1.6,
+                    color: 'var(--color-text, #e2e8f0)',
                     whiteSpace: 'pre-wrap',
                     wordBreak: 'break-word',
                     fontFamily: 'inherit',
                   }}
                 >
-                  {extractLinkParts(message.body_text || '(No body)').map((part, i) =>
-                    part.type === 'text' ? (
-                      <span key={i}>{part.text}</span>
-                    ) : (
-                      <button
-                        key={i}
-                        type="button"
-                        className="msg-safe-link-btn"
-                        onClick={() => handleLinkClick(part.url!)}
-                      >
-                        {part.text}
-                      </button>
-                    )
-                  )}
-                </pre>
-              )}
+                  <BeapMessageSafeLinkParts
+                    keyPrefix="nn"
+                    parts={nonNativeBodyLinkParts}
+                    onLinkClick={handleLinkClick}
+                  />
+                </div>
+              ) : null}
 
               {message.depackaged_json && !isNativeBeap ? (
                 <div style={{ marginTop: 16 }}>

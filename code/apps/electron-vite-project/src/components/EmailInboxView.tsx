@@ -25,6 +25,17 @@ import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
 import { resolveActiveSandboxCloneTargets } from '../lib/resolveActiveSandboxCloneTargets'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { beapInboxCloneToSandboxApi, sandboxCloneFeedbackFromOutcome } from '../lib/beapInboxCloneToSandbox'
+import {
+  SANDBOX_CLONE_COPY,
+  viewSandboxChecking,
+  viewSandboxCloning,
+  viewSandboxIdentityIncomplete,
+  viewSandboxKeyingIncomplete,
+  viewSandboxListLoadFailed,
+  viewSandboxNoOrchestrator,
+  type SandboxCloneFeedbackView,
+} from '../lib/sandboxCloneFeedbackUi'
+import SandboxCloneFeedbackBadge from './SandboxCloneFeedbackBadge'
 import { beapHostSandboxCloneTooltipForAvailability, beapInboxRedirectTooltipPropsForRow } from '../lib/beapInboxActionTooltips'
 import { InboxRedirectActionIcon, InboxSandboxCloneActionIcon } from './InboxActionIcons'
 import type {
@@ -44,8 +55,6 @@ import {
   logSandboxTargetResolution,
   mapSandboxClickActionToResolutionDecision,
   resolveHostSandboxCloneClickAction,
-  SANDBOX_IDENTITY_INCOMPLETE_USER_MESSAGE,
-  SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE,
   sandboxCloneUnavailableDialogVariant,
 } from '../lib/beapInboxHostSandboxClickPolicy'
 import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
@@ -2095,7 +2104,7 @@ export default function EmailInboxView({
   const [sandboxUnavailableOpen, setSandboxUnavailableOpen] = useState(false)
   const [sandboxUnavailableVariant, setSandboxUnavailableVariant] =
     useState<BeapSandboxUnavailableVariant>('not_configured')
-  const [sandboxRowFeedback, setSandboxRowFeedback] = useState<string | null>(null)
+  const [sandboxRowFeedback, setSandboxRowFeedback] = useState<SandboxCloneFeedbackView | null>(null)
   const [beapRedirectForMessage, setBeapRedirectForMessage] = useState<InboxMessage | null>(null)
 
   const [leftPanelTab, setLeftPanelTab] = useState<'inbox' | 'sent'>('inbox')
@@ -2658,10 +2667,11 @@ export default function EmailInboxView({
         if (!snap.success) {
           // eslint-disable-next-line no-console
           console.log('[BEAP_SANDBOX_CLONE] list_refresh_failed', { message_id: m.id, error: snap.error })
-          setSandboxRowFeedback(
-            snap.error ? `Could not load Sandbox handshakes: ${snap.error}` : 'Could not load Sandbox handshakes.',
-          )
-          window.setTimeout(() => setSandboxRowFeedback(null), 8000)
+          const v = viewSandboxListLoadFailed(snap.error)
+          setSandboxRowFeedback(v)
+          if (!v.persistUntilDismiss) {
+            window.setTimeout(() => setSandboxRowFeedback(null), 8000)
+          }
           return
         }
         const resolved = resolveActiveSandboxCloneTargets(snap.sandboxes, snap.incomplete)
@@ -2701,27 +2711,28 @@ export default function EmailInboxView({
           reason: 'host_sandbox_routing_fresh_list',
         })
         if (next === 'loading_refresh') {
-          setSandboxRowFeedback('Checking internal Sandbox handshakes…')
+          setSandboxRowFeedback(viewSandboxChecking())
           window.setTimeout(() => setSandboxRowFeedback(null), 5000)
           return
         }
         if (next === 'open_unavailable_dialog') {
           // eslint-disable-next-line no-console
           console.log('[BEAP_SANDBOX_CLONE] no_active_target_show_setup', { message_id: m.id })
+          setSandboxRowFeedback(viewSandboxNoOrchestrator())
           openSandboxUnavailableDialog()
           return
         }
         if (next === 'keying_incomplete') {
           // eslint-disable-next-line no-console
           console.log('[BEAP_SANDBOX_CLONE] keying_incomplete', { message_id: m.id })
-          setSandboxRowFeedback(SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE)
+          setSandboxRowFeedback(viewSandboxKeyingIncomplete())
           window.setTimeout(() => setSandboxRowFeedback(null), 8000)
           return
         }
         if (next === 'identity_incomplete') {
           // eslint-disable-next-line no-console
           console.log('[BEAP_SANDBOX_CLONE] identity_incomplete', { message_id: m.id })
-          setSandboxRowFeedback(SANDBOX_IDENTITY_INCOMPLETE_USER_MESSAGE)
+          setSandboxRowFeedback(viewSandboxIdentityIncomplete())
           window.setTimeout(() => setSandboxRowFeedback(null), 8000)
           return
         }
@@ -2735,7 +2746,7 @@ export default function EmailInboxView({
           target_handshake_id: sendableTargets[0]?.handshake_id,
         })
         try {
-          setSandboxRowFeedback('Cloning message to Sandbox…')
+          setSandboxRowFeedback(viewSandboxCloning())
           const r = await beapInboxCloneToSandboxApi({ sourceMessageId: m.id })
           if (r.success) {
             const fb = sandboxCloneFeedbackFromOutcome(r)
@@ -2757,19 +2768,25 @@ export default function EmailInboxView({
               message_id: m.id,
               deliveryMode: 'deliveryMode' in r ? r.deliveryMode : undefined,
             })
-            setSandboxRowFeedback(fb.text)
+            setSandboxRowFeedback(fb.view)
             void fetchMessages()
+            if (!fb.view.persistUntilDismiss) {
+              window.setTimeout(() => setSandboxRowFeedback(null), 5500)
+            }
           } else {
             // eslint-disable-next-line no-console
             console.log('[BEAP_SANDBOX_CLONE] send_result', { message_id: m.id, error: r })
-            setSandboxRowFeedback('error' in r ? `Sandbox clone failed: ${r.error}` : 'Sandbox clone failed.')
+            setSandboxRowFeedback(sandboxCloneFeedbackFromOutcome(r).view)
           }
-          window.setTimeout(() => setSandboxRowFeedback(null), 5000)
         } catch (e) {
           // eslint-disable-next-line no-console
           console.log('[BEAP_SANDBOX_CLONE] error', { message_id: m.id, error: e })
-          setSandboxRowFeedback(e instanceof Error ? e.message : 'Failed to send clone')
-          window.setTimeout(() => setSandboxRowFeedback(null), 5000)
+          setSandboxRowFeedback({
+            variant: 'error',
+            message: SANDBOX_CLONE_COPY.failedGeneric,
+            persistUntilDismiss: true,
+            screenReaderDetail: e instanceof Error ? e.message : String(e),
+          })
         }
       })()
     },
@@ -3041,25 +3058,18 @@ export default function EmailInboxView({
         <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
           {sandboxRowFeedback && leftPanelTab === 'inbox' ? (
             <div
-              role="status"
               style={{
-                padding: '6px 12px',
-                fontSize: 11,
-                lineHeight: 1.4,
-                color: (() => {
-                  const t = sandboxRowFeedback
-                  if (t.startsWith('Message cloned') || t.startsWith('Cloning message')) {
-                    return t.startsWith('Cloning') ? '#a78bfa' : '#4ade80'
-                  }
-                  if (/failed|key material|handshake is active but/i.test(t)) return '#f87171'
-                  if (t.startsWith('Checking internal')) return '#94a3b8'
-                  return '#e2e8f0'
-                })(),
-                borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+                padding: '8px 12px 10px',
+                borderBottom: '1px solid var(--color-border, #e5e7eb)',
                 flexShrink: 0,
+                background: 'var(--color-surface, #f9fafb)',
               }}
             >
-              {sandboxRowFeedback}
+              <SandboxCloneFeedbackBadge
+                view={sandboxRowFeedback}
+                onDismiss={() => setSandboxRowFeedback(null)}
+                maxWidth="100%"
+              />
             </div>
           ) : null}
           {leftPanelTab === 'sent' ? (

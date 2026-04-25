@@ -29,7 +29,8 @@ import { InboxMessageKindSelect } from './InboxMessageKindSelect'
 import LinkWarningDialog from './LinkWarningDialog'
 import SandboxLinkInfoDialog from './SandboxLinkInfoDialog'
 import { openAppExternalUrl } from '../lib/openAppExternalUrl'
-import { extractLinkParts } from '../utils/safeLinks'
+import BeapMessageSafeLinkParts from './BeapMessageSafeLinkParts'
+import { beapInboxMessageBodyToLinkParts } from '../utils/safeLinks'
 import { BulkOllamaModelSelect } from './BulkOllamaModelSelect'
 import { AutosortRuntimeStatus } from './AutosortRuntimeStatus'
 import type {
@@ -6228,7 +6229,7 @@ export default function EmailInboxBulkView({
               const isFocused = focusedMessageId === msg.id
               const isCardExpanded = expandedCardIds.has(msg.id)
               const output = bulkAiOutputs[msg.id] ?? parsePersistedAnalysis(msg.ai_analysis_json, msg)
-              const bodyContent = (msg.body_text || '').trim() || '(No body)'
+              const bodyContentParts = beapInboxMessageBodyToLinkParts(msg)
               const hasAttachments = msg.has_attachments === 1
               const isDeleted = msg.deleted === 1
               const isPendingDelete = (msg as InboxMessage & { pending_delete?: number }).pending_delete === 1
@@ -6395,23 +6396,13 @@ export default function EmailInboxBulkView({
                             wordBreak: 'break-word',
                           }}
                         >
-                          {extractLinkParts(bodyContent).map((part, i) =>
-                            part.type === 'text' ? (
-                              <span key={i}>{part.text}</span>
-                            ) : (
-                              <button
-                                key={i}
-                                type="button"
-                                className="msg-safe-link-btn"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleLinkClick(part.url!, msg)
-                                }}
-                              >
-                                {part.text}
-                              </button>
-                            )
-                          )}
+                          <BeapMessageSafeLinkParts
+                            keyPrefix={msg.id}
+                            parts={bodyContentParts}
+                            onLinkClick={(url) => {
+                              handleLinkClick(url, msg)
+                            }}
+                          />
                         </div>
                       </div>
                       {hasAttachments ? (
