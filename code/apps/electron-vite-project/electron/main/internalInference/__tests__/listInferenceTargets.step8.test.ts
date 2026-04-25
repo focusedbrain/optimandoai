@@ -6,6 +6,7 @@ import type { HandshakeRecord, PartyIdentity } from '../../handshake/types'
 import { InternalInferenceErrorCode } from '../errors'
 import { assertP2pEndpointDirect, p2pEndpointKind } from '../policy'
 import { listSandboxHostInternalInferenceTargets } from '../listInferenceTargets'
+import { resetP2pInferenceFlagsForTests } from '../p2pInferenceFlags'
 
 const { isHostModeMock, isSandboxModeMock, getOrchestratorModeMock } = vi.hoisted(() => {
   const isHost = vi.fn(() => false)
@@ -181,6 +182,15 @@ function activeInternalSandboxToHost(over: Partial<HandshakeRecord> = {}): Hands
 }
 
 beforeEach(() => {
+  vi.unstubAllEnvs()
+  /** Most STEP 8 tests assert legacy-HTTP or pre-WebRTC behavior — force P2P stack off. Default-on tests use a nested describe with unstub. */
+  vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '0')
+  vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '0')
+  vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '0')
+  vi.stubEnv('WRDESK_P2P_INFERENCE_CAPS_OVER_P2P', '0')
+  vi.stubEnv('WRDESK_P2P_INFERENCE_REQUEST_OVER_P2P', '0')
+  vi.stubEnv('WRDESK_P2P_INFERENCE_HTTP_FALLBACK', '0')
+  resetP2pInferenceFlagsForTests()
   isHostModeMock.mockReturnValue(false)
   isSandboxModeMock.mockReturnValue(false)
   getOrchestratorModeMock.mockImplementation(() => {
@@ -207,6 +217,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.unstubAllEnvs()
+  resetP2pInferenceFlagsForTests()
   vi.clearAllMocks()
 })
 
@@ -1001,6 +1013,81 @@ describe('STEP 10 — named regression (main: listSandboxHostInternalInferenceTa
     ])
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.targets).toEqual([])
+  })
+})
+
+/**
+ * Shipped Host AI: unset env → P2P stack defaults on; `WRDESK_HOST_AI_DISABLED=1` removes list rows.
+ */
+describe('Host AI P2P — bundle defaults (no WRDESK env)', () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs()
+    resetP2pInferenceFlagsForTests()
+  })
+
+  it('ACTIVE Sandbox→Host + relay + no env: getP2pInferenceFlags on; [HOST_AI_FLAGS_SOURCE]; transport preferred=webrtc_p2p, connecting', async () => {
+    const { getP2pInferenceFlags } = await import('../p2pInferenceFlags')
+    const f = getP2pInferenceFlags()
+    expect(f.p2pInferenceEnabled).toBe(true)
+    expect(f.p2pInferenceSignalingEnabled).toBe(true)
+    expect(f.p2pInferenceWebrtcEnabled).toBe(true)
+    expect(f.p2pInferenceCapsOverP2p).toBe(true)
+    expect(f.p2pInferenceRequestOverP2p).toBe(true)
+    expect(f.p2pInferenceHttpFallback).toBe(false)
+
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    isSandboxModeMock.mockReturnValue(true)
+    isDcUpListMock.mockReturnValue(false)
+    const relay = 'https://relay.wrdesk.com/xyz/beap/ingest'
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost({ p2p_endpoint: relay })])
+    ensureSessionListMock.mockResolvedValue({
+      handshakeId: 'hs-internal-1',
+      sessionId: 'sess-defaults',
+      phase: 'signaling',
+      p2pUiPhase: 'connecting',
+      lastErrorCode: null,
+      connectedAt: null,
+      updatedAt: Date.now(),
+      signalingExpiresAt: Date.now() + 60_000,
+      boundLocalDeviceId: 'dev-sand-1',
+      boundPeerDeviceId: 'dev-host-1',
+    })
+    probeHostInferencePolicyFromSandboxMock.mockResolvedValue({
+      ok: true as const,
+      allowSandboxInference: true,
+      defaultChatModel: 'mdef',
+      modelId: 'mdef',
+      displayLabelFromHost: 'Host AI · mdef',
+      hostComputerNameFromHost: 'H',
+      hostOrchestratorRoleLabelFromHost: 'Host',
+      internalIdentifierDisplayFromHost: '1-2-3',
+      internalIdentifier6FromHost: '123456',
+      directP2pAvailable: false,
+    })
+    const r = await listSandboxHostInternalInferenceTargets()
+    const t = r.targets[0]!
+    const joined = log.mock.calls.flat().join('\n')
+    expect(joined).toMatch(/\[HOST_AI_FLAGS_SOURCE\] source=default/)
+    expect(joined).toMatch(/p2pInferenceEnabled=true.*signaling=true.*webrtc=true/s)
+    expect(joined).toMatch(/\[HOST_AI_TRANSPORT_DECIDE\].*preferred=webrtc_p2p.*selector_phase=connecting/s)
+    expect(t.transportMode).toBe('webrtc_p2p')
+    expect(t.p2pUiPhase).toBe('connecting')
+    log.mockRestore()
+  })
+
+  it('WRDESK_HOST_AI_DISABLED: empty list (no Host AI row, not legacy_http_invalid)', async () => {
+    vi.stubEnv('WRDESK_HOST_AI_DISABLED', '1')
+    resetP2pInferenceFlagsForTests()
+    isSandboxModeMock.mockReturnValue(true)
+    const relay = 'https://relay.wrdesk.com/xyz/beap/ingest'
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost({ p2p_endpoint: relay })])
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toEqual([])
+    const joined = log.mock.calls.flat().join('\n')
+    expect(joined).toMatch(/list_skip reason=host_ai_p2p_ux_disabled/)
+    expect(joined).not.toMatch(/legacy_http_invalid.*MVP_P2P_ENDPOINT_INVALID/)
+    log.mockRestore()
   })
 })
 

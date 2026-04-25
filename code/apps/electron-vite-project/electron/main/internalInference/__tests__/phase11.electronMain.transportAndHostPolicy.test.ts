@@ -2,8 +2,9 @@
  * Phase 11 — Electron main: transport decision, handshake policy, device binding.
  * Complements `internalInferenceTransport.decide.test.ts` and `hostInferenceCore.policy.test.ts`.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetP2pInferenceFlagsForTests } from '../p2pInferenceFlags'
+import { stubP2pInferenceEnvLegacyHttpOnlyForTests } from './p2pInferenceFlagsTestSetup'
 import { decideHostAiIntentRoute } from '../transport/transportDecide'
 import { tryHandleInternalServiceP2P } from '../p2pServiceDispatch'
 import { InternalInferenceErrorCode } from '../errors'
@@ -48,6 +49,10 @@ vi.mock('electron', () => ({
 import { getHandshakeRecord } from '../../handshake/db'
 
 describe('Phase 11 — transport (flags)', () => {
+  beforeEach(() => {
+    stubP2pInferenceEnvLegacyHttpOnlyForTests()
+  })
+
   afterEach(() => {
     vi.unstubAllEnvs()
     resetP2pInferenceFlagsForTests()
@@ -85,7 +90,13 @@ describe('Phase 11 — transport (flags)', () => {
 })
 
 describe('Phase 11 — Host ingest policy', () => {
+  beforeEach(() => {
+    stubP2pInferenceEnvLegacyHttpOnlyForTests()
+  })
+
   afterEach(() => {
+    vi.unstubAllEnvs()
+    resetP2pInferenceFlagsForTests()
     isHostModeMock.mockReturnValue(true)
     isSandboxModeMock.mockReturnValue(false)
     getInstanceIdMock.mockReturnValue('dev-host-1')

@@ -17,7 +17,9 @@ import { _resetHostInferencePolicyForTests } from '../hostInferencePolicyStore'
 import { _resetConcurrencyForTests } from '../hostInferenceConcurrency'
 import { INTERNAL_INFERENCE_SCHEMA_VERSION, type InternalInferenceErrorWire, type InternalInferenceResultWire } from '../types'
 import { resetP2pInferenceFlagsForTests } from '../p2pInferenceFlags'
+import { stubP2pInferenceEnvLegacyHttpOnlyForTests } from './p2pInferenceFlagsTestSetup'
 import { _resetHandshakeRateLimitForTests } from '../hostInferenceRequestRateLimit'
+import * as dbAccess from '../dbAccess'
 
 vi.mock('electron', () => ({
   app: {
@@ -229,8 +231,11 @@ describe('host dispatch with mocks', () => {
   const getHandshakeRecord = vi.spyOn(hdb, 'getHandshakeRecord')
   let ollamaSpy: ReturnType<typeof vi.spyOn>
   let runHostSpy: ReturnType<typeof vi.spyOn>
+  let getIxDbSpy: ReturnType<typeof vi.spyOn> | undefined
 
   beforeEach(async () => {
+    stubP2pInferenceEnvLegacyHttpOnlyForTests()
+    getIxDbSpy = vi.spyOn(dbAccess, 'getHandshakeDbForInternalInference').mockResolvedValue({} as any)
     getHandshakeRecord.mockReset()
     isHostModeMock.mockReturnValue(true)
     isSandboxModeMock.mockReturnValue(false)
@@ -258,6 +263,8 @@ describe('host dispatch with mocks', () => {
   afterEach(() => {
     ollamaSpy?.mockRestore()
     runHostSpy?.mockRestore()
+    getIxDbSpy?.mockRestore()
+    getIxDbSpy = undefined
     isHostModeMock.mockReturnValue(false)
     isSandboxModeMock.mockReturnValue(false)
     getInstanceIdMock.mockReturnValue('dev-local')

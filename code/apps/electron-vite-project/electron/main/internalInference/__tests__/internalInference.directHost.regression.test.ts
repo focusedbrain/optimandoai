@@ -19,6 +19,8 @@ import {
   INTERNAL_INFERENCE_SCHEMA_VERSION,
   type InternalInferenceResultWire,
 } from '../types'
+import { resetP2pInferenceFlagsForTests } from '../p2pInferenceFlags'
+import { stubP2pInferenceEnvLegacyHttpOnlyForTests } from './p2pInferenceFlagsTestSetup'
 import { _resetPendingForTests, registerInternalInferenceRequest } from '../pendingRequests'
 import { _resetHostInferencePolicyForTests } from '../hostInferencePolicyStore'
 import { _resetConcurrencyForTests } from '../hostInferenceConcurrency'
@@ -163,10 +165,10 @@ describe('direct Host inference — transport invariants', () => {
     expect(src).not.toContain('outboundQueue')
   })
 
-  it('sandboxHostChat only uses postServiceEnvelopeDirect (no coordination)', () => {
+  it('sandboxHostChat uses internal inference transport (no coordination)', () => {
     const src = readFileSync(join(internalInfDir, 'sandboxHostChat.ts'), 'utf8')
     expect(src).not.toContain('sendCapsuleViaCoordination')
-    expect(src).toContain('postServiceEnvelopeDirect')
+    expect(src).toContain('requestHostCompletion')
   })
 
   it('POST targets peer p2p_endpoint (ingest) with JSON body and Bearer', async () => {
@@ -221,6 +223,7 @@ describe('direct Host inference — inbox isolation', () => {
   let runHostSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
+    stubP2pInferenceEnvLegacyHttpOnlyForTests()
     getHandshakeRecord.mockReset()
     insertPending.mockClear()
     _resetPendingForTests()
@@ -243,6 +246,8 @@ describe('direct Host inference — inbox isolation', () => {
   })
 
   afterEach(() => {
+    vi.unstubAllEnvs()
+    resetP2pInferenceFlagsForTests()
     runHostSpy?.mockRestore()
     isHostModeMock.mockReturnValue(false)
     isSandboxModeMock.mockReturnValue(false)
@@ -284,6 +289,7 @@ describe('direct Host inference — authorization (Host inbound)', () => {
   let runHostSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
+    stubP2pInferenceEnvLegacyHttpOnlyForTests()
     getHandshakeRecord.mockReset()
     insertPending.mockClear()
     _resetPendingForTests()
@@ -306,6 +312,8 @@ describe('direct Host inference — authorization (Host inbound)', () => {
   })
 
   afterEach(() => {
+    vi.unstubAllEnvs()
+    resetP2pInferenceFlagsForTests()
     runHostSpy?.mockRestore()
     isHostModeMock.mockReturnValue(false)
   })
@@ -397,6 +405,7 @@ describe('direct Host inference — authorization (Sandbox inbound result)', () 
   const getHandshakeRecord = vi.spyOn(hdb, 'getHandshakeRecord')
 
   beforeEach(() => {
+    stubP2pInferenceEnvLegacyHttpOnlyForTests()
     getHandshakeRecord.mockReset()
     _resetPendingForTests()
     isHostModeMock.mockReturnValue(false)
@@ -405,6 +414,8 @@ describe('direct Host inference — authorization (Sandbox inbound result)', () 
   })
 
   afterEach(() => {
+    vi.unstubAllEnvs()
+    resetP2pInferenceFlagsForTests()
     isSandboxModeMock.mockReturnValue(false)
   })
 
@@ -569,11 +580,18 @@ describe('Sandbox receives internal_inference_result (pending only)', () => {
   const getHandshakeRecord = vi.spyOn(hdb, 'getHandshakeRecord')
 
   beforeEach(() => {
+    stubP2pInferenceEnvLegacyHttpOnlyForTests()
     getHandshakeRecord.mockReset()
     _resetPendingForTests()
     isHostModeMock.mockReturnValue(false)
     isSandboxModeMock.mockReturnValue(true)
     getInstanceIdMock.mockReturnValue('dev-sand-1')
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    resetP2pInferenceFlagsForTests()
+    isSandboxModeMock.mockReturnValue(false)
   })
 
   it('resolves registerInternalInferenceRequest without inbox insert', async () => {

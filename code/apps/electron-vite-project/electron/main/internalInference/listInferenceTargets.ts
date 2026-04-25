@@ -13,7 +13,12 @@ import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { logInternalHostHandshakeP2pInspect } from './internalP2pHandshakeInspect'
 import { newHostAiCorrelationChain } from './hostAiStageLog'
-import { getP2pInferenceFlags, isWebRtcHostAiArchitectureEnabled, logHostAiP2pFlagsSnapshot } from './p2pInferenceFlags'
+import {
+  getP2pInferenceFlags,
+  isHostAiP2pUxEnabled,
+  isWebRtcHostAiArchitectureEnabled,
+  logHostAiP2pFlagsAndSource,
+} from './p2pInferenceFlags'
 import { ensureSession, P2pSessionPhase } from './p2pSession/p2pInferenceSessionManager'
 import { isP2pDataChannelUpForHandshake } from './p2pSession/p2pSessionWait'
 import { assertRecordForServiceRpc, handshakeSamePrincipal, p2pEndpointKind, peerCoordinationDeviceId } from './policy'
@@ -652,7 +657,13 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
   console.log(
     `${L} list_begin configured_mode=${configuredModeForLog(mainMode)} (orchestrator file is a hint, not a hard block)`,
   )
-  logHostAiP2pFlagsSnapshot(getP2pInferenceFlags())
+  if (!isHostAiP2pUxEnabled()) {
+    console.log(
+      `${L} list_skip reason=host_ai_p2p_ux_disabled (WRDESK_HOST_AI_DISABLED or bundle without Host AI P2P) — no Host AI list rows`,
+    )
+    return { ok: true, targets: [], refreshMeta: { hadCapabilitiesProbed: false } }
+  }
+  logHostAiP2pFlagsAndSource()
 
   const db = await getHandshakeDbForInternalInference()
   const dbOk = db != null

@@ -9,7 +9,7 @@ const root = __dirname
 const extSrc = path.resolve(root, '../extension-chromium/src')
 
 /** Parsed by scripts/kill-wr-desk.cjs and clear-build-caches (extension); keep in sync with extension outDir. */
-const ORCHESTRATOR_BUILD_STAMP = 'build65'
+const ORCHESTRATOR_BUILD_STAMP = 'build66'
 
 const oauthId =
   process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() ||
@@ -49,6 +49,7 @@ export default defineConfig({
         vite: {
           define: {
             __ORCHESTRATOR_BUILD_STAMP__: JSON.stringify(ORCHESTRATOR_BUILD_STAMP),
+            __WRDESK_HOST_AI_P2P_BUNDLE_DEFAULTS_ON__: true,
             __BUILD_TIME_GOOGLE_OAUTH_CLIENT_ID__: JSON.stringify(oauthId),
             __BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__: JSON.stringify(oauthSecret),
           },

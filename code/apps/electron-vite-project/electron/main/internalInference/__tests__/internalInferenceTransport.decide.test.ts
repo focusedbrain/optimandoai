@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { resetP2pInferenceFlagsForTests } from '../p2pInferenceFlags'
+import { stubP2pInferenceEnvLegacyHttpOnlyForTests } from './p2pInferenceFlagsTestSetup'
 
 const { mockP2pDcUpMap } = vi.hoisted(() => ({
   mockP2pDcUpMap: new Map<string, boolean>(),
@@ -14,6 +15,10 @@ vi.mock('../p2pSession/p2pSessionWait', () => ({
 import { decideHostAiIntentRoute } from '../transport/transportDecide'
 
 describe('decideHostAiIntentRoute', () => {
+  beforeEach(() => {
+    stubP2pInferenceEnvLegacyHttpOnlyForTests()
+  })
+
   afterEach(() => {
     vi.unstubAllEnvs()
     resetP2pInferenceFlagsForTests()

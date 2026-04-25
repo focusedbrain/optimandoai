@@ -13,7 +13,9 @@ import {
   canPostInternalInferenceHttpToP2pEndpointIngest,
   assertSandboxRequestToHost,
   handshakeSamePrincipal,
+  localDeviceRole,
   peerCoordinationDeviceId,
+  peerDeviceRole,
   internalInferenceEndpointGateOk,
   type P2pMvpEndpointClass,
 } from '../policy'
@@ -231,7 +233,8 @@ export function decideInternalInferenceTransport(
         preferredTransport: 'legacy_http',
         mayUseLegacyHttpFallback: mayFb,
         legacyHttpFallbackViable: legacyViable,
-        p2pTransportEndpointOpen: false,
+        // True so `decideHostAiIntentRoute` may select `http_direct` (same gate as P2P-capable rows; list still uses `p2pEnsureEligibleForList` before WebRTC ensure).
+        p2pTransportEndpointOpen: true,
         failureCode: null,
         userSafeReason: null,
       }
@@ -316,8 +319,11 @@ export function buildSessionStateForHostAiDecider(handshakeId: string): {
 }
 
 export function deriveHostAiHandshakeRoles(r: HandshakeRecord): HandshakeDerivedRoles {
+  const sandboxLedgerView = assertSandboxRequestToHost(r).ok
+  const hostLedgerView = localDeviceRole(r) === 'host' && peerDeviceRole(r) === 'sandbox'
   return {
-    ledgerSandboxToHost: assertSandboxRequestToHost(r).ok,
+    /** Sandbox→Host list row, or the symmetric internal pair when the ledger is the Host copy (inbound /beap, result delivery). */
+    ledgerSandboxToHost: sandboxLedgerView || hostLedgerView,
     samePrincipal: handshakeSamePrincipal(r),
     internalIdentityComplete: r.internal_coordination_identity_complete === true,
     peerHostDeviceIdPresent: Boolean((peerCoordinationDeviceId(r) ?? '').trim()),
