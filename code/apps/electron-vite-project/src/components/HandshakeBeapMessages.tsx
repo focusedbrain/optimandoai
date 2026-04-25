@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { InboxMessage, InboxSourceType } from '../stores/useEmailInboxStore'
 import InboxAttachmentRow from './InboxAttachmentRow'
+import { InboxBeapSourceBadgeListRow } from './InboxBeapSourceBadge'
 import '../components/handshakeViewTypes'
 
 const BODY_PREVIEW_LEN = 150
@@ -219,7 +220,8 @@ export default function HandshakeBeapMessages({
                       style={{ cursor: 'pointer' }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                          <InboxBeapSourceBadgeListRow message={msg} />
                           {isSelected && (
                             <span
                               style={{ fontSize: 12, color: 'var(--purple-accent, #a78bfa)', lineHeight: 1 }}
@@ -229,7 +231,17 @@ export default function HandshakeBeapMessages({
                               👉
                             </span>
                           )}
-                          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text, #e2e8f0)' }}>
+                          <span
+                            style={{
+                              fontSize: '13px',
+                              fontWeight: 600,
+                              color: 'var(--color-text, #e2e8f0)',
+                              minWidth: 0,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
                             {msg.subject || msg.from_address || '—'}
                           </span>
                         </span>

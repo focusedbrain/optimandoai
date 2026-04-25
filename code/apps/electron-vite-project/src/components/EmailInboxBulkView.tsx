@@ -1970,6 +1970,12 @@ export default function EmailInboxBulkView({
     bulkAuthoritativeDeviceInternalRole,
     bulkInternalSandboxListReady,
   ])
+  const linkDialogShowSandboxOrchestratorWarning = useMemo(
+    () =>
+      bulkOrchestratorMode === 'sandbox' ||
+      (bulkInternalSandboxListReady && bulkAuthoritativeDeviceInternalRole === 'sandbox'),
+    [bulkOrchestratorMode, bulkInternalSandboxListReady, bulkAuthoritativeDeviceInternalRole],
+  )
   const [aiSortProgress, setAiSortProgress] = useState<AiSortProgressState | null>(null)
   /** Messages per `aiClassifyBatch` chunk (1–8). Persisted; read at each chunk boundary — changes apply from the next chunk. */
   const [sortConcurrency, setSortConcurrency] = useState<number>(() => {
@@ -6593,6 +6599,7 @@ export default function EmailInboxBulkView({
         showSandboxAction={showSandboxOnLinkDialog}
         onSandbox={() => void handleBulkLinkWarningSandbox()}
         sandboxBusy={linkDialogSandboxBusy}
+        showSandboxOrchestratorWarning={linkDialogShowSandboxOrchestratorWarning}
       />
       {bulkLinkKeyingNotice ? (
         <div

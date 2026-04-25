@@ -36,6 +36,7 @@ import {
   type SandboxCloneFeedbackView,
 } from '../lib/sandboxCloneFeedbackUi'
 import SandboxCloneFeedbackBadge from './SandboxCloneFeedbackBadge'
+import { InboxBeapSourceBadgeListRow } from './InboxBeapSourceBadge'
 import { beapHostSandboxCloneTooltipForAvailability, beapInboxRedirectTooltipPropsForRow } from '../lib/beapInboxActionTooltips'
 import { InboxRedirectActionIcon, InboxSandboxCloneActionIcon } from './InboxActionIcons'
 import type {
@@ -1808,25 +1809,8 @@ function InboxMessageRow({
         </span>
       )}
 
-      {/* Source badge — BEAP inbox is BEAP-only; do not branch on source_type for display */}
-      <div
-        style={{
-          flexShrink: 0,
-          width: 24,
-          height: 24,
-          borderRadius: 4,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 12,
-          fontWeight: 700,
-          background: 'var(--purple-accent, #9333ea)',
-          color: '#fff',
-        }}
-        title="BEAP message"
-      >
-        B
-      </div>
+      {/* B = normal BEAP row; S = sandbox clone (see inboxMessageIsSandboxBeapClone) */}
+      <InboxBeapSourceBadgeListRow message={message} />
 
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, minWidth: 0 }}>

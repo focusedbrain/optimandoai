@@ -18,6 +18,11 @@ export interface LinkWarningDialogProps {
   /** Clone full message via existing sandbox prepare/send (not URL-only). */
   onSandbox?: () => void
   sandboxBusy?: boolean
+  /**
+   * When this device is the Sandbox orchestrator, show extra “treat as compromised” guidance and
+   * never offer the Sandbox clone action (defense in depth; parent should already hide clone).
+   */
+  showSandboxOrchestratorWarning?: boolean
 }
 
 const BODY_PRIMARY =
@@ -28,6 +33,10 @@ const BODY_SANDBOX =
 
 const BODY_KVM =
   'A KVM switch with hotkeys is the recommended setup, so you can inspect risky content in the Sandbox environment without interrupting your normal workflow.'
+
+/** Shown in Open Link when running on a Sandbox orchestrator (in addition to standard warnings). */
+const BODY_SANDBOX_ORCHESTRATOR =
+  'This Sandbox orchestrator should be treated as compromised. Only enter passwords on websites if two-factor authentication is enabled. Restore the sandbox from a clean snapshot regularly, especially after opening external links or original files.'
 
 const RISK_CHECK_LABEL = 'I understand the risks of opening external links.'
 
@@ -43,8 +52,10 @@ export default function LinkWarningDialog({
   showSandboxAction = false,
   onSandbox,
   sandboxBusy = false,
+  showSandboxOrchestratorWarning = false,
 }: LinkWarningDialogProps) {
   const [riskAccepted, setRiskAccepted] = useState(false)
+  const showCloneToSandbox = Boolean(showSandboxAction && onSandbox && !showSandboxOrchestratorWarning)
 
   useEffect(() => {
     if (!isOpen) return
@@ -76,6 +87,11 @@ export default function LinkWarningDialog({
         </h2>
         <div className="link-warning-body">
           <p className="link-warning-para link-warning-para--primary">{BODY_PRIMARY}</p>
+          {showSandboxOrchestratorWarning ? (
+            <p className="link-warning-para link-warning-para--sandbox-orc" role="note">
+              {BODY_SANDBOX_ORCHESTRATOR}
+            </p>
+          ) : null}
           <p className="link-warning-para">{BODY_SANDBOX}</p>
           <p className="link-warning-para">{BODY_KVM}</p>
         </div>
@@ -97,7 +113,7 @@ export default function LinkWarningDialog({
         </div>
 
         <div className="link-warning-actions">
-          {showSandboxAction && onSandbox ? (
+          {showCloneToSandbox ? (
             <button
               type="button"
               className="link-warning-btn-sandbox"
@@ -131,4 +147,4 @@ export default function LinkWarningDialog({
   )
 }
 
-export { SANDBOX_ACTION_TOOLTIP, RISK_CHECK_LABEL }
+export { SANDBOX_ACTION_TOOLTIP, RISK_CHECK_LABEL, BODY_SANDBOX_ORCHESTRATOR }

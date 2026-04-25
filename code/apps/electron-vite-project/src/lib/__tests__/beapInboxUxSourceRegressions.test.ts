@@ -46,6 +46,20 @@ describe('beapInbox Ux source regressions', () => {
     expect(detail).not.toMatch(/dangerouslySetInnerHTML=\{\{ __html:.*body_html/s)
   })
 
+  test('11c: Open Link includes Sandbox orchestrator compromise warning string', () => {
+    const dlg = readRel('components', 'LinkWarningDialog.tsx')
+    expect(dlg).toMatch(/treated as compromised/)
+    expect(dlg).toMatch(/showSandboxOrchestratorWarning/)
+  })
+
+  test('11d: B vs S source badge via inboxMessageIsSandboxBeapClone', () => {
+    const src = readRel('lib', 'inboxMessageSandboxClone.ts')
+    expect(src).toContain('inboxMessageIsSandboxBeapClone')
+    const badge = readRel('components', 'InboxBeapSourceBadge.tsx')
+    expect(badge).toMatch(/'S'/)
+    expect(badge).toMatch(/'B'/)
+  })
+
   test('12: Reply is icon-only (class + tooltip); no visible Reply label in the control', () => {
     const src = readRel('components', 'EmailMessageDetail.tsx')
     expect(src).toContain('beapInboxReplyTooltipProps()')

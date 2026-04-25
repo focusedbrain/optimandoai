@@ -48,6 +48,7 @@ import type {
 } from '../types/sandboxOrchestratorAvailability'
 import { defaultSandboxAvailability } from '../types/sandboxOrchestratorAvailability'
 import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
+import { InboxBeapSourceBadgeDetail } from './InboxBeapSourceBadge'
 import BeapRedirectDialog from './BeapRedirectDialog'
 import { listHandshakes } from '../shims/handshakeRpc'
 import { UI_BADGE } from '../styles/uiContrastTokens'
@@ -1081,6 +1082,10 @@ export default function EmailMessageDetail({
         showSandboxAction={showSandboxCloneIcon}
         onSandbox={handleLinkWarningSandbox}
         sandboxBusy={linkDialogSandboxBusy}
+        showSandboxOrchestratorWarning={
+          orchestratorMode === 'sandbox' ||
+          (internalSandboxListReady && authoritativeDeviceInternalRole === 'sandbox')
+        }
       />
       <SandboxLinkInfoDialog
         isOpen={linkSandboxInfoOpen}
@@ -1150,18 +1155,28 @@ export default function EmailMessageDetail({
 
         {/* Header — stacked: subject full-width, then actions, then metadata */}
         <div style={{ marginBottom: 16 }}>
-          <h2
+          <div
             style={{
-              margin: 0,
-              fontSize: 18,
-              fontWeight: 700,
-              width: '100%',
-              wordBreak: 'break-word',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 10,
               marginBottom: 10,
             }}
           >
-            {message.subject || '(No subject)'}
-          </h2>
+            <InboxBeapSourceBadgeDetail message={message} />
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 18,
+                fontWeight: 700,
+                flex: 1,
+                minWidth: 0,
+                wordBreak: 'break-word',
+              }}
+            >
+              {message.subject || '(No subject)'}
+            </h2>
+          </div>
           <div className="inbox-detail-action-toolbar">
             <div className="inbox-detail-action-group inbox-detail-action-group--start" aria-label="Message actions">
               {editingDraftForMessageId === message.id && (
