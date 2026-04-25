@@ -45,6 +45,7 @@ export function logModelSelectorTargets(args: {
   selected: unknown
 }): void {
   const { selector, localCount, hostCount, finalCount, hostTargets, selected } = args
+  console.log(`${PREFIX} host_count=${hostCount} final_count=${finalCount}`)
   console.log(
     `${PREFIX} selector=${selector} local_count=${localCount} host_count=${hostCount} final_count=${finalCount}`,
   )

@@ -12,6 +12,7 @@ import { assertHostSendsResultToSandbox, assertRecordForServiceRpc } from './pol
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
 import { InternalInferenceErrorCode } from './errors'
 import { ollamaManager } from '../llm/ollama-manager'
+import { hostDirectP2pAdvertisementHeaders } from './p2pEndpointRepair'
 
 const IP_LIMIT = 30
 
@@ -138,7 +139,7 @@ export async function handleGetInternalInferencePolicy(
       ? `Host AI · ${modelId}`
       : 'Host AI · —'
 
-  res.writeHead(200, { 'Content-Type': 'application/json' })
+  res.writeHead(200, { 'Content-Type': 'application/json', ...hostDirectP2pAdvertisementHeaders(db) })
   res.end(
     JSON.stringify({
       allowSandboxInference,

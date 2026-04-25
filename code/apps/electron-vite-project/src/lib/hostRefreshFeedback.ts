@@ -1,26 +1,41 @@
 import type { HostInferenceTargetRow } from '../hooks/useSandboxHostInference'
 import type { FetchSelectorModelListResult } from './selectorModelListFromHostDiscovery'
+import { isP2pTransportOrProbeFailure } from './hostModelSelectorRowUi'
 
 export type HostRefreshFeedback = {
   variant: 'success' | 'warning' | 'error'
   /** One line; no console-only phrasing. */
   message: string
+  /** STEP 7: post-refresh toast weight (small inline badge, not a modal). */
+  display?: 'default' | 'premium' | 'compact'
 }
 
-const SUCCESS_OK = 'Host AI refreshed.'
-
 const COPY = {
-  /** Aligned with main `listInferenceTargets` HR.p2p (direct-only MVP; no relay for inference). */
-  p2p: 'Host is paired, but direct P2P is not reachable.',
   noModel: 'Host has no active local model.',
   policy: 'Host AI is disabled on the Host.',
   identity: 'Internal handshake is active but identity is incomplete.',
-  capabilities: 'Host capabilities could not be fetched. Check the Host and network, then try again.',
-  roleMetadata: 'This pairing is not a valid Sandbox–Host row. Check device roles in Settings, or re-pair.',
-  checking: 'Host AI is still checking. Keep the Host online, then try refresh again in a few seconds.',
-  noPairing: 'No active Host–Sandbox pairing found. Open the handshake ledger to pair a Host.',
-  errorGeneric: 'Could not refresh Host AI. Check the network and try again.',
+  roleMetadata: 'Check device roles in Settings or re-pair.',
+  checking: 'Host AI still checking — try again shortly.',
+  noPairing: 'No Host pairing — open the handshake ledger.',
 } as const
+
+const MSG_REFRESH_OFFLINE = 'Host AI offline · direct P2P failed'
+const CONNECTED_PREFIX = 'Host AI connected · '
+
+function hostTargetDisplayModel(t: HostInferenceTargetRow): string {
+  const raw = (t.model_id ?? t.model ?? '').toString().trim()
+  if (raw) {
+    return raw
+      .replace(/host-internal:/gi, '')
+      .replace(/^[^:]+:[^:]+:(.+)$/i, '$1')
+      .trim() || raw
+  }
+  const dl = (t.display_label ?? t.label ?? '')
+    .replace(/^\s*Host AI\s*·\s*/i, '')
+    .replace(/^\s*Host AI\s*-\s*/i, '')
+    .trim()
+  return dl || 'Host model'
+}
 
 /**
  * After a manual Host refresh, derive readable inline copy from merged `hostInferenceTargets` (same
@@ -34,39 +49,40 @@ export function getHostRefreshFeedbackFromTargets(
   },
 ): HostRefreshFeedback {
   if (opts.error != null) {
-    return { variant: 'error', message: COPY.errorGeneric }
+    return { variant: 'warning', message: MSG_REFRESH_OFFLINE, display: 'compact' }
   }
   if (!Array.isArray(gav) || gav.length === 0) {
-    if (opts.path === 'empty') {
-      return { variant: 'warning', message: COPY.noPairing }
-    }
-    return { variant: 'warning', message: COPY.noPairing }
+    return { variant: 'warning', message: COPY.noPairing, display: 'default' }
   }
   const t = gav[0]!
   if (t.available === true) {
-    return { variant: 'success', message: SUCCESS_OK }
+    return {
+      variant: 'success',
+      message: `${CONNECTED_PREFIX}${hostTargetDisplayModel(t)}`,
+      display: 'premium',
+    }
   }
   const st = t.host_selector_state
   if (st === 'checking' || t.availability === 'checking_host' || t.unavailable_reason === 'CHECKING_CAPABILITIES') {
-    return { variant: 'warning', message: COPY.checking }
+    return { variant: 'warning', message: COPY.checking, display: 'default' }
+  }
+  if (isP2pTransportOrProbeFailure(t)) {
+    return { variant: 'warning', message: MSG_REFRESH_OFFLINE, display: 'compact' }
   }
   const ur = (t.unavailable_reason ?? '') as string
   const av = t.availability ?? ''
 
   if (ur === 'IDENTITY_INCOMPLETE' || ur === 'HOST_INCOMPLETE_INTERNAL_HANDSHAKE' || av === 'identity_incomplete') {
-    return { variant: 'warning', message: COPY.identity }
+    return { variant: 'warning', message: COPY.identity, display: 'default' }
   }
   if (ur === 'HOST_NO_ACTIVE_LOCAL_LLM' || av === 'model_unavailable') {
-    return { variant: 'warning', message: COPY.noModel }
+    return { variant: 'warning', message: COPY.noModel, display: 'default' }
   }
   if (ur === 'HOST_POLICY_DISABLED' || av === 'policy_disabled') {
-    return { variant: 'warning', message: COPY.policy }
-  }
-  if (ur === 'CAPABILITY_PROBE_FAILED' || t.inference_error_code === 'CAPABILITY_PROBE_FAILED') {
-    return { variant: 'warning', message: COPY.capabilities }
+    return { variant: 'warning', message: COPY.policy, display: 'default' }
   }
   if (ur === 'SANDBOX_HOST_ROLE_METADATA') {
-    return { variant: 'warning', message: COPY.roleMetadata }
+    return { variant: 'warning', message: COPY.roleMetadata, display: 'default' }
   }
   if (
     av === 'direct_unreachable' ||
@@ -74,15 +90,12 @@ export function getHostRefreshFeedbackFromTargets(
     ur === 'HOST_DIRECT_P2P_UNAVAILABLE' ||
     ur === 'HOST_DIRECT_P2P_UNREACHABLE' ||
     ur === 'ENDPOINT_NOT_DIRECT' ||
+    ur === 'MVP_P2P_ENDPOINT_INVALID' ||
     ur === 'MISSING_P2P_ENDPOINT'
   ) {
-    return { variant: 'warning', message: COPY.p2p }
+    return { variant: 'warning', message: MSG_REFRESH_OFFLINE, display: 'compact' }
   }
-  const sub = (t.secondary_label || '').trim()
-  if (sub.length > 0) {
-    return { variant: 'warning', message: sub }
-  }
-  return { variant: 'warning', message: 'Host AI is not available. Check the model menu and Settings.' }
+  return { variant: 'warning', message: 'Host AI unavailable.', display: 'default' }
 }
 
 function notConfiguredMissingEndpoint(ur: string, av: string): boolean {

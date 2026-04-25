@@ -6,6 +6,24 @@ export const HOST_AI_OPTION_TOOLTIP =
 export const HOST_AI_UNREACHABLE_TOOLTIP =
   'Host not directly reachable. Check that the Host is online, on a reachable network path, and that firewalls or VPN allow the connection.'
 
+/**
+ * Selector / native `title` (STEP 6–7) — not shown inline; use newlines for tooltip layout in Chromium.
+ */
+export const HOST_AI_P2P_OFFLINE_DETAIL_TOOLTIP = [
+  'Host handshake detected',
+  'direct P2P failed',
+  'possible causes:',
+  '• Host app not running',
+  '• Host P2P server disabled',
+  '• firewall blocks port',
+  '• endpoint stale',
+  '• not on same LAN',
+].join('\n')
+
+/** Active internal Host handshake, but `p2p_endpoint` is not a valid direct-LAN URL (STEP 2). */
+export const HOST_AI_MVP_P2P_ENDPOINT_INVALID_TOOLTIP =
+  'The Host handshake is active, but the stored direct P2P endpoint is not reachable.'
+
 /** Placeholder while the internal Host handshake is recognized but capabilities are not ready yet. */
 export const HOST_AI_CHECKING_TOOLTIP =
   'Resolving the Host’s model and network path. No action required — this updates automatically.'

@@ -13,7 +13,11 @@ import {
   assertP2pEndpointDirect,
   assertRecordForServiceRpc,
   assertLedgerRolesSandboxToHost,
+  assertSandboxRequestToHost,
   localCoordinationDeviceId,
+  p2pEndpointKind,
+  p2pEndpointKindForProbeLog,
+  type P2pEndpointProbeLogKind,
   peerCoordinationDeviceId,
 } from './policy'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
@@ -109,6 +113,144 @@ export async function listSandboxHostInferenceCandidates(): Promise<SandboxHostI
   return out
 }
 
+/** A–K labels for `probeHostInferencePolicyFromSandbox` direct P2P capability diagnostics. */
+export type P2pCapabilityProbeLetter =
+  | 'A'
+  | 'B'
+  | 'C'
+  | 'D'
+  | 'E'
+  | 'F'
+  | 'G'
+  | 'H'
+  | 'I'
+  | 'J'
+  | 'K'
+
+export const P2P_CAPABILITY_PROBE = {
+  ENDPOINT_MISSING: 'A' as const,
+  ENDPOINT_IS_RELAY: 'B' as const,
+  ENDPOINT_IS_LOCALHOST: 'C' as const,
+  ENDPOINT_STALE_LAN_IP: 'D' as const,
+  HOST_P2P_SERVER_NOT_RUNNING: 'E' as const,
+  HOST_P2P_SERVER_BOUND_LOCAL_ONLY: 'F' as const,
+  FIREWALL_OR_NETWORK_TIMEOUT: 'G' as const,
+  TOKEN_OR_AUTH_REJECTED: 'H' as const,
+  HOST_HANDLER_NOT_REACHED: 'I' as const,
+  HOST_HANDLER_REACHED_BUT_NO_ACTIVE_MODEL: 'J' as const,
+  UNKNOWN: 'K' as const,
+}
+
+function isPrivateIPv4Host(hostname: string): boolean {
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) return false
+  const p = hostname.split('.').map((n) => Number(n))
+  if (p.length !== 4 || p.some((n) => !Number.isFinite(n) || n > 255)) return false
+  const [a, b] = p
+  if (a === 10) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 192 && b === 168) return true
+  return false
+}
+
+function hostFromP2pUrlForProbe(ep: string): string {
+  const t = typeof ep === 'string' ? ep.trim() : ''
+  if (!t) return ''
+  try {
+    return new URL(t).hostname
+  } catch {
+    return ''
+  }
+}
+
+function safeP2pLogMessage(m: string | undefined | null): string {
+  const s = (m ?? '')
+    .replace(/Bearer\s+[^\s]+/gi, 'Bearer <redacted>')
+    .replace(/[\r\n]+/g, ' ')
+    .trim()
+  return s.length > 200 ? `${s.slice(0, 197)}...` : s
+}
+
+/**
+ * Heuristic A–K classification for direct P2P capability-probe outcomes (client-side; F may stay K
+ * here unless the Host advertises bind mode).
+ */
+export function classifyP2pCapabilityProbeFailure(args: {
+  endpoint: string
+  endpointKind: P2pEndpointProbeLogKind
+  postReason: string
+  postResponseStatus?: number
+  getResponseStatus?: number
+  getPhase?: 'none' | 'aborted' | 'http' | 'json' | 'parse'
+  networkMessage?: string
+}): P2pCapabilityProbeLetter {
+  const { endpointKind, postReason, postResponseStatus, getResponseStatus, getPhase, networkMessage } = args
+  if (endpointKind === 'missing') return P2P_CAPABILITY_PROBE.ENDPOINT_MISSING
+  if (endpointKind === 'relay') return P2P_CAPABILITY_PROBE.ENDPOINT_IS_RELAY
+  if (endpointKind === 'localhost') {
+    if (postReason === 'forbidden' || postResponseStatus === 401 || postResponseStatus === 403) {
+      return P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED
+    }
+    return P2P_CAPABILITY_PROBE.ENDPOINT_IS_LOCALHOST
+  }
+  if (postReason === 'forbidden' || postResponseStatus === 401 || postResponseStatus === 403) {
+    return P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED
+  }
+  if (postReason === 'timeout') {
+    return P2P_CAPABILITY_PROBE.FIREWALL_OR_NETWORK_TIMEOUT
+  }
+  if (getPhase === 'aborted' && (getResponseStatus == null || getResponseStatus === 0)) {
+    return P2P_CAPABILITY_PROBE.FIREWALL_OR_NETWORK_TIMEOUT
+  }
+  const n = (networkMessage ?? '').toLowerCase()
+  const nNorm = n.replace(/_/g, ' ')
+  if (n.includes('aborterror') || n.includes('the user aborted')) {
+    return P2P_CAPABILITY_PROBE.FIREWALL_OR_NETWORK_TIMEOUT
+  }
+  if (
+    n.includes('ehostunreach') ||
+    n.includes('host unreachable') ||
+    n.includes('enetunreach') ||
+    n.includes('no route to host') ||
+    n.includes('network is unreachable')
+  ) {
+    const h = hostFromP2pUrlForProbe(args.endpoint)
+    if (h && (isPrivateIPv4Host(h) || h.includes('.'))) {
+      return P2P_CAPABILITY_PROBE.ENDPOINT_STALE_LAN_IP
+    }
+  }
+  if (n.includes('econnrefused') || n.includes('connection refused')) {
+    return P2P_CAPABILITY_PROBE.HOST_P2P_SERVER_NOT_RUNNING
+  }
+  if (postReason === 'wrong_type') {
+    return P2P_CAPABILITY_PROBE.HOST_HANDLER_NOT_REACHED
+  }
+  const httpN = (() => {
+    const m = /^http_(\d+)$/.exec(postReason)
+    return m ? parseInt(m[1], 10) : (postResponseStatus ?? (getResponseStatus && getResponseStatus > 0 ? getResponseStatus : undefined))
+  })()
+  if (httpN != null) {
+    if (httpN === 401 || httpN === 403) return P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED
+    if (httpN === 404 || httpN === 502 || httpN === 503 || httpN === 504) {
+      return P2P_CAPABILITY_PROBE.HOST_HANDLER_NOT_REACHED
+    }
+  }
+  if (getResponseStatus === 404 || getResponseStatus === 502) {
+    return P2P_CAPABILITY_PROBE.HOST_HANDLER_NOT_REACHED
+  }
+  if (postReason === 'network' || getPhase === 'aborted' || n.length > 0) {
+    if (postReason === 'network' && n.length < 1 && (postResponseStatus == null)) {
+      return P2P_CAPABILITY_PROBE.HOST_P2P_SERVER_NOT_RUNNING
+    }
+    if (n.includes('econnrefused') || n.includes('connection refused')) {
+      return P2P_CAPABILITY_PROBE.HOST_P2P_SERVER_NOT_RUNNING
+    }
+    if (n.includes('etimedout') || nNorm.includes('timed out')) {
+      return P2P_CAPABILITY_PROBE.FIREWALL_OR_NETWORK_TIMEOUT
+    }
+  }
+  return P2P_CAPABILITY_PROBE.UNKNOWN
+}
+
 /** Host response from GET /beap/internal-inference-policy (direct P2P; STEP 6 metadata). */
 export type HostInternalInferencePolicyPayload = {
   allowSandboxInference?: boolean
@@ -141,8 +283,17 @@ export type ProbeHostPolicyResult =
       directP2pPath?: boolean
       policyEnabledFromHost?: boolean
       inferenceErrorCode?: string
+      /** A–K direct P2P capability-probe label (J = Host reachable, no active local model). */
+      p2pProbeClassification?: P2pCapabilityProbeLetter
     }
-  | { ok: false; code: string; message: string; directP2pAvailable: boolean; allowSandboxInference?: undefined }
+  | {
+      ok: false
+      code: string
+      message: string
+      directP2pAvailable: boolean
+      allowSandboxInference?: undefined
+      p2pProbeClassification?: P2pCapabilityProbeLetter
+    }
 
 function displayPairingFromDigits6(d: string): string {
   const s = (d ?? '').replace(/\D/g, '')
@@ -214,11 +365,15 @@ export async function postInternalInferenceCapabilitiesRequest(
   timeoutMs: number,
 ): Promise<
   | { ok: true; wire: InternalInferenceCapabilitiesResultWire }
-  | { ok: false; reason: string }
+  | { ok: false; reason: string; responseStatus?: number; networkErrorMessage?: string }
 > {
   const localSandbox = (localCoordinationDeviceId(record) ?? '').trim()
   const peerHost = (peerCoordinationDeviceId(record) ?? '').trim()
   if (!localSandbox || !peerHost) {
+    const m = 'missing coordination ids'
+    console.log(
+      `[HOST_INFERENCE_P2P] request_failed code=missing_coordination_ids message=${safeP2pLogMessage(m)} handshake=${hid}`,
+    )
     console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=missing_coordination_ids`)
     return { ok: false, reason: 'missing_coordination_ids' }
   }
@@ -247,31 +402,61 @@ export async function postInternalInferenceCapabilitiesRequest(
       signal: ac.signal,
     })
     clearTimeout(timer)
+    console.log(`[HOST_INFERENCE_P2P] response_status=${res.status} handshake=${hid}`)
     if (res.status === 401 || res.status === 403) {
+      const m = 'forbidden'
+      console.log(
+        `[HOST_INFERENCE_P2P] request_failed code=forbidden message=${safeP2pLogMessage(m)} handshake=${hid}`,
+      )
       console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=forbidden`)
-      return { ok: false, reason: 'forbidden' }
+      return { ok: false, reason: 'forbidden', responseStatus: res.status }
     }
     if (!res.ok) {
+      const m = `http ${res.status}`
+      console.log(
+        `[HOST_INFERENCE_P2P] request_failed code=http_${res.status} message=${safeP2pLogMessage(m)} handshake=${hid}`,
+      )
       console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=http_${res.status}`)
-      return { ok: false, reason: `http_${res.status}` }
+      return { ok: false, reason: `http_${res.status}`, responseStatus: res.status }
+    }
+    const adv = res.headers.get('x-beap-direct-p2p-endpoint')
+    {
+      const db = await getHandshakeDbForInternalInference()
+      if (db) {
+        const { tryRepairP2pEndpointFromHostAdvertisement } = await import('./p2pEndpointRepair')
+        tryRepairP2pEndpointFromHostAdvertisement(db, hid, adv)
+      }
     }
     const j = (await res.json()) as Record<string, unknown>
     if (j.type !== 'internal_inference_capabilities_result') {
+      const m = 'wrong JSON type for capabilities result'
+      console.log(
+        `[HOST_INFERENCE_P2P] request_failed code=wrong_type message=${safeP2pLogMessage(m)} handshake=${hid}`,
+      )
       console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=wrong_type`)
-      return { ok: false, reason: 'wrong_type' }
+      return { ok: false, reason: 'wrong_type', responseStatus: 200 }
     }
-    const w = j as InternalInferenceCapabilitiesResultWire
+    const w = j as unknown as InternalInferenceCapabilitiesResultWire
     const m = w.active_local_llm?.model?.trim() || w.active_chat_model?.trim() || null
     console.log(`[HOST_INFERENCE_CAPS] response_received active_model=${m ?? 'null'}`)
     return { ok: true, wire: w }
   } catch (e) {
     clearTimeout(timer)
     if ((e as Error)?.name === 'AbortError') {
+      const m = 'request aborted (timeout)'
+      console.log(
+        `[HOST_INFERENCE_P2P] request_failed code=timeout message=${safeP2pLogMessage(m)} handshake=${hid}`,
+      )
       console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=timeout`)
       return { ok: false, reason: 'timeout' }
     }
+    const netMsg = (e as Error)?.message
+    const m = netMsg && netMsg.length > 0 ? netMsg : 'network'
+    console.log(
+      `[HOST_INFERENCE_P2P] request_failed code=network message=${safeP2pLogMessage(m)} handshake=${hid}`,
+    )
     console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=network`)
-    return { ok: false, reason: 'network' }
+    return { ok: false, reason: 'network', networkErrorMessage: netMsg }
   }
 }
 
@@ -281,41 +466,104 @@ export async function postInternalInferenceCapabilitiesRequest(
 export async function probeHostInferencePolicyFromSandbox(
   handshakeId: string,
 ): Promise<ProbeHostPolicyResult> {
+  const p2p = (msg: string) => console.log(`[HOST_INFERENCE_P2P] ${msg}`)
+  const probeDone = (ok: boolean) => p2p(`capability_probe_done ok=${ok ? 'true' : 'false'}`)
+
   const db = await getHandshakeDbForInternalInference()
   if (!db) {
-    return { ok: false, code: 'NO_DB', message: 'no database', directP2pAvailable: false }
+    probeDone(false)
+    p2p('capability_probe_detail classification=K reason=NO_DB')
+    return {
+      ok: false,
+      code: 'NO_DB',
+      message: 'no database',
+      directP2pAvailable: false,
+      p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
+    }
   }
   const hid = String(handshakeId ?? '').trim()
   const r = getHandshakeRecord(db, hid)
   const ar = assertRecordForServiceRpc(r)
   if (!ar.ok) {
-    return { ok: false, code: ar.code, message: 'handshake', directP2pAvailable: false }
+    probeDone(false)
+    p2p(`capability_probe_detail classification=K handshake=${hid} reason=assert_record`)
+    return {
+      ok: false,
+      code: ar.code,
+      message: 'handshake',
+      directP2pAvailable: false,
+      p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
+    }
   }
   const role = assertLedgerRolesSandboxToHost(ar.record)
   if (!role.ok) {
-    return { ok: false, code: role.code, message: 'role', directP2pAvailable: false }
+    probeDone(false)
+    p2p(`capability_probe_detail classification=K handshake=${hid} reason=role`)
+    return {
+      ok: false,
+      code: role.code,
+      message: 'role',
+      directP2pAvailable: false,
+      p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
+    }
   }
   const direct = assertP2pEndpointDirect(db, ar.record.p2p_endpoint)
   if (!direct.ok) {
+    const rawEp0 = ar.record.p2p_endpoint?.trim() ?? ''
+    const epK0 = p2pEndpointKindForProbeLog(db, ar.record.p2p_endpoint)
+    p2p(`endpoint=${rawEp0 || '(empty)'}`)
+    p2p(`endpoint_kind=${epK0}`)
+    const k = p2pEndpointKind(db, ar.record.p2p_endpoint)
+    const letter: P2pCapabilityProbeLetter =
+      k === 'missing'
+        ? P2P_CAPABILITY_PROBE.ENDPOINT_MISSING
+        : k === 'relay'
+          ? P2P_CAPABILITY_PROBE.ENDPOINT_IS_RELAY
+          : P2P_CAPABILITY_PROBE.UNKNOWN
+    probeDone(false)
+    p2p(`capability_probe_detail classification=${letter} reason=not_direct_p2p`)
     return {
       ok: false,
       code: direct.code,
       message: 'direct P2P required',
       directP2pAvailable: false,
+      p2pProbeClassification: letter,
     }
   }
   const ep = ar.record.p2p_endpoint?.trim() ?? ''
+  const epK = p2pEndpointKindForProbeLog(db, ar.record.p2p_endpoint)
   const token = ar.record.counterparty_p2p_token
   if (!token?.trim()) {
-    return { ok: false, code: 'POLICY_FORBIDDEN', message: 'token', directP2pAvailable: true }
+    probeDone(false)
+    p2p(`capability_probe_detail classification=${P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED} reason=no_p2p_token`)
+    return {
+      ok: false,
+      code: 'POLICY_FORBIDDEN',
+      message: 'token',
+      directP2pAvailable: true,
+      p2pProbeClassification: P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED,
+    }
   }
   const { timeoutMs } = getHostInternalInferencePolicy()
   const tCap = Math.min(timeoutMs, 15_000)
 
+  p2p('capability_probe_begin')
+  p2p(`handshake=${hid} endpoint=${ep}`)
+  p2p(`endpoint_kind=${epK}`)
+  p2p(`request_timeout_ms=${tCap}`)
+
   const cap = await postInternalInferenceCapabilitiesRequest(hid, ar.record, ep, token, tCap)
   if (cap.ok) {
-    return mapCapabilitiesWireToProbe(cap.wire)
+    const out = mapCapabilitiesWireToProbe(cap.wire)
+    const isJ = out.inferenceErrorCode === InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM
+    probeDone(true)
+    if (isJ) {
+      p2p(`capability_probe_detail classification=${P2P_CAPABILITY_PROBE.HOST_HANDLER_REACHED_BUT_NO_ACTIVE_MODEL}`)
+    }
+    return { ...out, p2pProbeClassification: isJ ? P2P_CAPABILITY_PROBE.HOST_HANDLER_REACHED_BUT_NO_ACTIVE_MODEL : undefined }
   }
+
+  p2p(`policy_fallback_get url=${policyProbeUrlFromP2pIngest(ep)} handshake=${hid}`)
 
   const url = policyProbeUrlFromP2pIngest(ep)
   const ac = new AbortController()
@@ -330,15 +578,45 @@ export async function probeHostInferencePolicyFromSandbox(
       signal: ac.signal,
     })
     clearTimeout(timer)
+    p2p(`response_status=${res.status} phase=policy_get handshake=${hid}`)
+    if (res.ok) {
+      const adv = res.headers.get('x-beap-direct-p2p-endpoint')
+      const { tryRepairP2pEndpointFromHostAdvertisement } = await import('./p2pEndpointRepair')
+      tryRepairP2pEndpointFromHostAdvertisement(db, hid, adv)
+    }
     if (res.status === 401 || res.status === 403) {
-      return { ok: false, code: InternalInferenceErrorCode.POLICY_FORBIDDEN, message: 'forbidden', directP2pAvailable: true }
+      p2p(`request_failed code=forbidden message=get policy status handshake=${hid}`)
+      probeDone(false)
+      p2p(`capability_probe_detail classification=${P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED}`)
+      return {
+        ok: false,
+        code: InternalInferenceErrorCode.POLICY_FORBIDDEN,
+        message: 'forbidden',
+        directP2pAvailable: true,
+        p2pProbeClassification: P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED,
+      }
     }
     if (!res.ok) {
+      const letter = classifyP2pCapabilityProbeFailure({
+        endpoint: ep,
+        endpointKind: epK,
+        postReason: cap.reason,
+        postResponseStatus: cap.responseStatus,
+        getResponseStatus: res.status,
+        getPhase: 'http',
+        networkMessage: `GET status ${res.status}`,
+      })
+      p2p(
+        `request_failed code=http_get_${res.status} message=${safeP2pLogMessage(`get policy ${res.status}`)} handshake=${hid}`,
+      )
+      probeDone(false)
+      p2p(`capability_probe_detail classification=${letter}`)
       return {
         ok: false,
         code: InternalInferenceErrorCode.OLLAMA_UNAVAILABLE,
         message: `http ${res.status}`,
         directP2pAvailable: true,
+        p2pProbeClassification: letter,
       }
     }
     const j = (await res.json()) as HostInternalInferencePolicyPayload
@@ -353,6 +631,13 @@ export async function probeHostInferencePolicyFromSandbox(
       modelId = j.modelId.trim()
     } else if (dcm) {
       modelId = dcm
+    }
+    const infErr = typeof j.inferenceErrorCode === 'string' ? j.inferenceErrorCode : undefined
+    const isJ = infErr === InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM
+    p2p('policy_fallback_succeeded')
+    probeDone(true)
+    if (isJ) {
+      p2p(`capability_probe_detail classification=${P2P_CAPABILITY_PROBE.HOST_HANDLER_REACHED_BUT_NO_ACTIVE_MODEL}`)
     }
     return {
       ok: true as const,
@@ -369,24 +654,50 @@ export async function probeHostInferencePolicyFromSandbox(
         typeof j.internalIdentifierDisplay === 'string' ? j.internalIdentifierDisplay : undefined,
       directP2pPath: j.directReachable === true,
       policyEnabledFromHost: typeof j.policyEnabled === 'boolean' ? j.policyEnabled : undefined,
-      inferenceErrorCode: typeof j.inferenceErrorCode === 'string' ? j.inferenceErrorCode : undefined,
+      inferenceErrorCode: infErr,
+      p2pProbeClassification: isJ ? P2P_CAPABILITY_PROBE.HOST_HANDLER_REACHED_BUT_NO_ACTIVE_MODEL : undefined,
     }
   } catch (e) {
     clearTimeout(timer)
     const name = (e as Error)?.name
+    const em = (e as Error)?.message
     if (name === 'AbortError') {
+      const letter = classifyP2pCapabilityProbeFailure({
+        endpoint: ep,
+        endpointKind: epK,
+        postReason: cap.reason,
+        postResponseStatus: cap.responseStatus,
+        getPhase: 'aborted',
+        networkMessage: [cap.networkErrorMessage, 'GET AbortError'].filter(Boolean).join(' | '),
+      })
+      p2p(`request_failed code=timeout message=${safeP2pLogMessage('get policy timeout')} handshake=${hid}`)
+      probeDone(false)
+      p2p(`capability_probe_detail classification=${letter}`)
       return {
         ok: false,
         code: InternalInferenceErrorCode.PROVIDER_TIMEOUT,
         message: 'timeout',
         directP2pAvailable: true,
+        p2pProbeClassification: letter,
       }
     }
+    const letter = classifyP2pCapabilityProbeFailure({
+      endpoint: ep,
+      endpointKind: epK,
+      postReason: cap.reason,
+      postResponseStatus: cap.responseStatus,
+      getPhase: 'parse',
+      networkMessage: [cap.networkErrorMessage, em].filter(Boolean).join(' | '),
+    })
+    p2p(`request_failed code=network message=${safeP2pLogMessage(em)} handshake=${hid}`)
+    probeDone(false)
+    p2p(`capability_probe_detail classification=${letter}`)
     return {
       ok: false,
       code: InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE,
-      message: (e as Error)?.message ?? 'fetch failed',
+      message: em ?? 'fetch failed',
       directP2pAvailable: true,
+      p2pProbeClassification: letter,
     }
   }
 }

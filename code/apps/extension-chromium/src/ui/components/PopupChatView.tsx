@@ -48,9 +48,15 @@ function wrChatHostModelTitle(m: {
   hostTargetChecking?: boolean
   hostAvailable?: boolean
   subtitle?: string
+  /** From dashboard merge: full tooltip; compact row has empty subtitle. */
+  hostTooltipDetail?: string
 }): string {
   if (!m.hostAi) {
     return `Model: ${m.name}`
+  }
+  const detail = m.hostTooltipDetail?.trim()
+  if (detail) {
+    return detail
   }
   const base = m.hostTargetChecking
     ? HOST_AI_CHECKING_TOOLTIP
@@ -116,6 +122,7 @@ export interface PopupChatViewProps {
     size?: string
     displayTitle?: string
     subtitle?: string
+    hostTooltipDetail?: string
     hostAi?: boolean
     hostAvailable?: boolean
     hostTargetChecking?: boolean
@@ -132,7 +139,11 @@ export interface PopupChatViewProps {
   /** Dashboard: restored selection was invalid (e.g. handshake gone after account switch). */
   inferenceSelectionPersistError?: string | null
   /** Dashboard (Sandbox): inline line after ↻ — success / explainer (Host AI). */
-  hostModelRefreshFeedback?: { variant: 'success' | 'warning' | 'error'; message: string } | null
+  hostModelRefreshFeedback?: {
+    variant: 'success' | 'warning' | 'error'
+    message: string
+    display?: 'default' | 'premium' | 'compact'
+  } | null
   onModelSelect?: (name: string) => void
   /**
    * Dashboard: `reason` is logged in the shell (`selector_open` | `manual_refresh` | …).
@@ -3406,9 +3417,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                                     setShowModelDropdown(false)
                                   }}
                                   style={{
-                                    padding: '10px 12px', fontSize: 12,
+                                    padding: '5px 12px', fontSize: 12,
                                     cursor: hostBlocked && !hostChecking ? 'not-allowed' : hostChecking ? 'default' : 'pointer',
-                                    opacity: hostBlocked && !hostChecking ? 0.55 : 1,
+                                    opacity: hostBlocked && !hostChecking ? 0.75 : 1,
                                     color: isLight ? '#0f172a' : '#f1f5f9',
                                     background: m.name === activeLlmModel ? 'rgba(99,102,241,0.12)' : 'transparent',
                                     borderLeft: m.name === activeLlmModel ? '3px solid #a78bfa' : '3px solid transparent',
@@ -3423,9 +3434,22 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                                   >
                                     {hostIcon ? <span className={hostIcon} aria-hidden title="" /> : null}
                                     <div style={{ minWidth: 0, flex: 1 }}>
-                                      <div style={{ fontWeight: 600 }}>{modelMenuPrimary(m)}</div>
+                                      <div style={{ fontWeight: 600, lineHeight: 1.25 }}>{modelMenuPrimary(m)}</div>
                                       {m.subtitle ? (
-                                        <div style={{ fontSize: 10, opacity: 0.8, marginTop: 2, lineHeight: 1.3 }}>{m.subtitle}</div>
+                                        <div
+                                          style={{
+                                            fontSize: 11,
+                                            marginTop: 1,
+                                            lineHeight: 1.2,
+                                            color: isLight ? '#64748b' : 'rgba(255,255,255,0.55)',
+                                            whiteSpace: 'nowrap',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            maxWidth: 220,
+                                          }}
+                                        >
+                                          {m.subtitle}
+                                        </div>
                                       ) : null}
                                     </div>
                                   </div>
@@ -3480,7 +3504,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                           setShowModelDropdown(false)
                         }}
                         style={{
-                          padding: '10px 12px', fontSize: 12,
+                          padding: m.hostAi ? '5px 12px' : '10px 12px', fontSize: 12,
                           cursor:
                             m.hostAi && m.hostAvailable === false && !m.hostTargetChecking
                               ? 'not-allowed'
@@ -3488,15 +3512,28 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                                 ? 'default'
                                 : 'pointer',
                           opacity:
-                            m.hostAi && m.hostAvailable === false && !m.hostTargetChecking ? 0.55 : 1,
+                            m.hostAi && m.hostAvailable === false && !m.hostTargetChecking ? 0.75 : 1,
                           color: isLight ? '#0f172a' : '#f1f5f9',
                           background: m.name === activeLlmModel ? 'rgba(34,197,94,0.12)' : 'transparent',
                           borderLeft: m.name === activeLlmModel ? '3px solid #22c55e' : '3px solid transparent'
                         }}
                       >
-                        <div style={{ fontWeight: 600 }}>{modelMenuPrimary(m)}</div>
+                        <div style={{ fontWeight: 600, lineHeight: 1.25 }}>{modelMenuPrimary(m)}</div>
                         {m.subtitle ? (
-                          <div style={{ fontSize: 10, opacity: 0.75, marginTop: 2, lineHeight: 1.3 }}>{m.subtitle}</div>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              marginTop: 1,
+                              lineHeight: 1.2,
+                              color: isLight ? '#64748b' : 'rgba(255,255,255,0.55)',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              maxWidth: 220,
+                            }}
+                          >
+                            {m.subtitle}
+                          </div>
                         ) : null}
                       </div>
                     )))}
@@ -3510,19 +3547,31 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               role="status"
               aria-live="polite"
               style={{
-                maxWidth: 360,
-                fontSize: 10,
+                maxWidth: hostModelRefreshFeedback.display === 'compact' ? 300 : hostModelRefreshFeedback.display === 'premium' ? 420 : 360,
+                fontSize: hostModelRefreshFeedback.display === 'compact' ? 10 : hostModelRefreshFeedback.display === 'premium' ? 11 : 10,
                 fontWeight: 600,
-                lineHeight: 1.4,
+                lineHeight: 1.35,
                 textAlign: 'right',
-                padding: '5px 9px',
+                padding:
+                  hostModelRefreshFeedback.display === 'compact'
+                    ? '4px 8px'
+                    : hostModelRefreshFeedback.display === 'premium'
+                      ? '7px 11px'
+                      : '5px 9px',
                 borderRadius: 6,
+                letterSpacing: hostModelRefreshFeedback.display === 'premium' ? '0.02em' : undefined,
                 boxShadow: isLight
                   ? '0 2px 10px rgba(0,0,0,0.06)'
                   : isPro
                     ? '0 2px 12px rgba(0,0,0,0.25)'
                     : '0 2px 10px rgba(0,0,0,0.2)',
                 ...hostModelRefreshLineStyle(hostModelRefreshFeedback.variant),
+                ...(hostModelRefreshFeedback.display === 'premium' && hostModelRefreshFeedback.variant === 'success'
+                  ? {
+                      borderColor: isLight ? '#a78bfa' : isPro ? 'rgba(167, 139, 250, 0.55)' : 'rgba(139, 92, 246, 0.45)',
+                      boxShadow: `${isLight ? '0 2px 10px rgba(0,0,0,0.08)' : '0 2px 12px rgba(0,0,0,0.2)'}, 0 0 0 1px ${isLight ? 'rgba(139, 92, 246, 0.15)' : 'rgba(139, 92, 246, 0.2)'}`,
+                    }
+                  : {}),
               }}
             >
               {hostModelRefreshFeedback.message}

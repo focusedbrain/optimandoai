@@ -6,6 +6,18 @@ export const HOST_AI_OPTION_TOOLTIP =
 export const HOST_AI_UNREACHABLE_TOOLTIP =
   "Can't reach your Host right now. Check that it's online, on the same network, and that firewalls or VPN allow the connection."
 
+/** Multi-line for `title` (Chromium); dashboard usually passes `hostTooltipDetail` from main. */
+export const HOST_AI_P2P_OFFLINE_DETAIL_TOOLTIP = [
+  'Host handshake detected',
+  'direct P2P failed',
+  'possible causes:',
+  '• Host app not running',
+  '• Host P2P server disabled',
+  '• firewall blocks port',
+  '• endpoint stale',
+  '• not on same LAN',
+].join('\n')
+
 export const HOST_AI_CHECKING_TOOLTIP =
   'Resolving the Host’s model and network path. No action required — this updates automatically.'
 

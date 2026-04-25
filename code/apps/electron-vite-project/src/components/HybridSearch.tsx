@@ -3,11 +3,8 @@ import {
   GROUP_CLOUD,
   GROUP_HOST_MODELS,
   GROUP_LOCAL_MODELS,
-  HOST_AI_CHECKING_TOOLTIP,
-  HOST_AI_OPTION_TOOLTIP,
   HOST_AI_STALE_INLINE,
   HOST_AI_SELECTOR_ICON_CLASS,
-  HOST_AI_UNREACHABLE_TOOLTIP,
   HOST_INFERENCE_UNAVAILABLE,
 } from '../lib/hostAiSelectorCopy'
 import type { ChangeEvent } from 'react'
@@ -53,7 +50,11 @@ import {
   type HostRefreshFeedback,
   getHostRefreshFeedbackFromTargets,
 } from '../lib/hostRefreshFeedback'
-import { hostModelSelectorRowUi } from '../lib/hostModelSelectorRowUi'
+import {
+  buildHostAiSelectorTooltip,
+  hostModelSelectorRowUi,
+  isP2pTransportOrProbeFailure,
+} from '../lib/hostModelSelectorRowUi'
 import {
   isHostInferenceModelId,
   parseAnyHostInferenceModelId,
@@ -689,10 +690,32 @@ export default function HybridSearch({
       if (includeHostInternalDiscovery && reason === 'manual_refresh') {
         logInferenceTargetRefreshStart('manual_refresh')
         setModelsLoading(true)
+        setGavHostTargets((prev) =>
+          prev.length
+            ? prev.map((t) => ({
+                ...t,
+                host_selector_state: 'checking' as const,
+                availability: 'checking_host',
+                unavailable_reason: 'CHECKING_CAPABILITIES',
+                available: false,
+              }))
+            : prev,
+        )
+        setAvailableModels((prev) =>
+          prev.map((m) =>
+            m.type === 'host_internal'
+              ? {
+                  ...m,
+                  hostTargetAvailable: false,
+                  hostSelectorState: 'checking' as const,
+                }
+              : m,
+          ),
+        )
       }
       const discovered = await fetchSelectorModelListFromHostDiscovery({
         reason,
-        force: options?.force,
+        force: options?.force ?? (reason === 'manual_refresh' ? true : undefined),
         includeHostInternalDiscovery,
         orchestratorLedgerProvesInternalSandboxToHost: ledgerProvesInternalSandboxToHost,
       })
@@ -2557,20 +2580,12 @@ export default function HybridSearch({
                     <div
                       role="status"
                       aria-live="polite"
-                      className="hs-model-item hs-model-item--host hs-model-item--disabled"
+                      className="hs-model-item hs-model-item--host hs-model-item--host-compact hs-model-item--disabled"
                     >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'flex-start',
-                          gap: 6,
-                          width: '100%',
-                          textAlign: 'left',
-                        }}
-                      >
+                      <div className="hs-model-item__host-row">
                         <span className={HOST_AI_SELECTOR_ICON_CLASS} aria-hidden title="" />
                         <div className="hs-model-item__stack">
-                          <div style={{ fontWeight: 600 }}>Host AI · checking Host…</div>
+                          <div className="hs-model-item__line-primary">Host AI · …</div>
                         </div>
                       </div>
                     </div>
@@ -2627,18 +2642,21 @@ export default function HybridSearch({
                             const sel =
                               m.hostSelectorState ??
                               (m.hostTargetAvailable ? 'available' : 'unavailable')
-                            const tip =
-                              sel === 'checking'
-                                ? HOST_AI_CHECKING_TOOLTIP
-                                : m.hostTargetAvailable
-                                  ? HOST_AI_OPTION_TOOLTIP
-                                  : [HOST_AI_UNREACHABLE_TOOLTIP, sub].filter(Boolean).join(' ')
+                            const tip = buildHostAiSelectorTooltip(t, {
+                              hostTargetAvailable: m.hostTargetAvailable,
+                              hostSelectorState: m.hostSelectorState,
+                            })
                             const hostItemMod =
                               !m.hostTargetAvailable && sel === 'checking'
                                 ? ' hs-model-item--host-checking'
                                 : !m.hostTargetAvailable
-                                  ? ' hs-model-item--disabled'
+                                  ? ' hs-model-item--disabled hs-model-item--host-off'
                                   : ''
+                            const showHostRetry =
+                              !m.hostTargetAvailable &&
+                              sel !== 'checking' &&
+                              t &&
+                              isP2pTransportOrProbeFailure(t)
                             return (
                               <button
                                 key={id}
@@ -2646,46 +2664,52 @@ export default function HybridSearch({
                                 role="menuitem"
                                 disabled={!m.hostTargetAvailable}
                                 title={tip}
-                                className={`hs-model-item hs-model-item--host${active ? ' hs-model-item--active' : ''}${hostItemMod}`}
+                                className={`hs-model-item hs-model-item--host hs-model-item--host-compact${active ? ' hs-model-item--active' : ''}${hostItemMod}`}
                                 onClick={() => {
                                   if (!m.hostTargetAvailable) return
                                   setSelectedModel(id)
                                   setModelMenuOpen(false)
                                 }}
                               >
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'flex-start',
-                                    gap: 6,
-                                    width: '100%',
-                                    textAlign: 'left',
-                                  }}
-                                >
-                                  <span className={HOST_AI_SELECTOR_ICON_CLASS} aria-hidden title="" />
-                                  <div className="hs-model-item__stack">
-                                    <div style={{ fontWeight: 600 }}>{titleLine}</div>
-                                    {sub ? (
-                                      <div style={{ fontSize: 11, opacity: 0.8, lineHeight: 1.3 }}>{sub}</div>
+                                <div className="hs-model-item__host-body">
+                                  <div className="hs-model-item__host-row">
+                                    <span className={HOST_AI_SELECTOR_ICON_CLASS} aria-hidden title="" />
+                                    <div className="hs-model-item__stack">
+                                      <div className="hs-model-item__line-primary">{titleLine}</div>
+                                      {sub ? <div className="hs-model-item__line-secondary">{sub}</div> : null}
+                                    </div>
+                                    {showHostRetry ? (
+                                      <span
+                                        role="button"
+                                        tabIndex={0}
+                                        className="hs-model-item__host-retry"
+                                        title={tip}
+                                        aria-label="Retry Host direct P2P check"
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' || e.key === ' ') {
+                                            e.stopPropagation()
+                                            e.preventDefault()
+                                            void loadModels('manual_refresh', { force: true })
+                                          }
+                                        }}
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          void loadModels('manual_refresh', { force: true })
+                                        }}
+                                      >
+                                        ↻
+                                      </span>
                                     ) : null}
                                   </div>
+                                  {active && <span className="hs-model-check">✓</span>}
                                 </div>
-                                {hostInf.policy === 'deny' && active && m.hostTargetAvailable && t?.available ? (
-                                  <div style={{ fontSize: 10, color: 'var(--text-muted, #94a3b8)', marginTop: 4 }}>
-                                    Host has not enabled AI for this device.
-                                  </div>
-                                ) : null}
-                                {active && <span className="hs-model-check">✓</span>}
                               </button>
                             )
                           })}
                         </>
                       ) : !hostInf.listLoading ? (
-                        <div
-                          className="hs-model-group-label"
-                          style={{ maxWidth: 280, lineHeight: 1.4, fontWeight: 400, whiteSpace: 'normal' }}
-                        >
-                          {GROUP_HOST_MODELS}: none yet — in Settings, pair this Sandbox with a Host; then that machine's models show up here, like local models.
+                        <div className="hs-model-group-label hs-model-group-label--host-empty" role="note">
+                          {GROUP_HOST_MODELS}: none — pair in Settings.
                         </div>
                       ) : null}
                     </>
@@ -2723,7 +2747,13 @@ export default function HybridSearch({
           <div
             role="status"
             aria-live="polite"
-            className={`hs-host-refresh-feedback hs-host-refresh-feedback--${hostRefreshFeedback.variant}`}
+            className={`hs-host-refresh-feedback hs-host-refresh-feedback--${hostRefreshFeedback.variant}${
+              hostRefreshFeedback.display === 'premium'
+                ? ' hs-host-refresh-feedback--premium'
+                : hostRefreshFeedback.display === 'compact'
+                  ? ' hs-host-refresh-feedback--compact'
+                  : ''
+            }`}
           >
             {hostRefreshFeedback.message}
           </div>

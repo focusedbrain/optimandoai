@@ -62,6 +62,7 @@ export async function fetchSelectorModelListFromHostDiscovery(options: {
   orchestratorLedgerProvesInternalSandboxToHost?: boolean
 }): Promise<FetchSelectorModelListResult> {
   const { reason, force, includeHostInternalDiscovery, orchestratorLedgerProvesInternalSandboxToHost } = options
+  const effectiveForce = Boolean(force) || reason === 'manual_refresh'
   const result = await window.handshakeView?.getAvailableModels?.()
   const withHost = (result && typeof result === 'object' ? result : {}) as FetchSelectorModelListResult['withHost']
   const wLedger = (withHost as { ledgerProvesInternalSandboxToHost?: boolean }).ledgerProvesInternalSandboxToHost === true
@@ -70,7 +71,7 @@ export async function fetchSelectorModelListFromHostDiscovery(options: {
   const hostTargets = Array.isArray(withHost.hostInferenceTargets) ? withHost.hostInferenceTargets : []
   const listInferenceOpts = {
     reason,
-    force,
+    force: effectiveForce,
     gavIpcFromHandshakeEmpty: hostTargets.length === 0,
   }
 

@@ -29,6 +29,7 @@ import {
   type InternalInferenceRequestWire,
   type InternalInferenceResultWire,
 } from './types'
+import { hostDirectP2pAdvertisementHeaders } from './p2pEndpointRepair'
 
 function jsonError(res: http.ServerResponse, status: number, code: string, message: string): void {
   res.writeHead(status, { 'Content-Type': 'application/json' })
@@ -187,7 +188,7 @@ export async function tryHandleInternalServiceP2P(
     const capLocalLlm = capWire.active_local_llm?.model?.trim() || null
     console.log(`[HOST_INFERENCE_CAPS] active_local_llm model=${toLog(capLocalLlm)}`)
     console.log(`[HOST_INFERENCE_CAPS] response_send active_model=${toLog(wireModel)}`)
-    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.writeHead(200, { 'Content-Type': 'application/json', ...hostDirectP2pAdvertisementHeaders(db) })
     res.end(JSON.stringify(capWire))
     return true
   }
@@ -248,6 +249,7 @@ export async function tryHandleInternalServiceP2P(
         tStart,
       )
       return finishHostInferencePost(
+        db,
         res,
         errWire,
         'internal_inference_error',
@@ -272,6 +274,7 @@ export async function tryHandleInternalServiceP2P(
         tStart,
       )
       return finishHostInferencePost(
+        db,
         res,
         errWire,
         'internal_inference_error',
@@ -306,6 +309,7 @@ export async function tryHandleInternalServiceP2P(
     })
     if (wire.type === 'internal_inference_error') {
       return finishHostInferencePost(
+        db,
         res,
         wire,
         'internal_inference_error',
@@ -323,6 +327,7 @@ export async function tryHandleInternalServiceP2P(
       )
     }
     return finishHostInferencePost(
+      db,
       res,
       wire,
       'internal_inference_result',
@@ -400,6 +405,7 @@ export async function tryHandleInternalServiceP2P(
 }
 
 async function finishHostInferencePost(
+  db: any,
   res: http.ServerResponse,
   wire: InternalInferenceResultWire | InternalInferenceErrorWire,
   messageType: 'internal_inference_result' | 'internal_inference_error',
@@ -453,7 +459,7 @@ async function finishHostInferencePost(
     },
     epCheck,
   )
-  res.writeHead(200, { 'Content-Type': 'application/json' })
+  res.writeHead(200, { 'Content-Type': 'application/json', ...hostDirectP2pAdvertisementHeaders(db) })
   res.end(JSON.stringify({ internal_inference: 'ack', request_id: wire.request_id }))
   return true
 }

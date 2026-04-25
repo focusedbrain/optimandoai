@@ -253,9 +253,10 @@ describe('FINAL ACCEPTANCE — orchestrator + selector wiring (source)', () => {
     expect(ap).toContain('gavIpcFromHandshakeEmpty')
   })
 
-  it('Host row UI: disabled state carries reason (subtitle / unavailable_reason)', () => {
+  it('Host row UI: compact title + tooltip (buildHostAiSelectorTooltip, secondary_label in title)', () => {
     const row = readRel('lib', 'hostModelSelectorRowUi.ts')
-    expect(row).toMatch(/unavailable_reason|displaySubtitle|secondary_label/s)
+    expect(row).toContain('buildHostAiSelectorTooltip')
+    expect(row).toMatch(/P2P offline|TITLE_P2P_OFFLINE|secondary_label/s)
   })
 
   it('STEP 7: orchestrator persisted mode vs handshake mismatch — log + Settings notice', () => {

@@ -422,6 +422,7 @@ export function processHandshakeCapsule(
         last_capsule_hash_received: handshakeRecord?.last_capsule_hash_received,
         incoming_prev_hash: (capsuleObj as any)?.prev_hash,
       })
+      const stateBeforeContextSync = handshakeRecord!.state
       record = buildContextSyncRecord(handshakeRecord!, input)
       console.log(
         '[HANDSHAKE] context_sync result state:',
@@ -432,6 +433,14 @@ export function processHandshakeCapsule(
         (handshakeRecord as any)?.last_seq_sent,
       )
       updateHandshakeRecord(db, record)
+      if (stateBeforeContextSync !== HS.ACTIVE && record.state === HS.ACTIVE) {
+        const hid = input.handshake_id
+        queueMicrotask(() => {
+          void import('../internalInference/p2pEndpointRepair')
+            .then((m) => m.runP2pEndpointRepairAfterInternalHandshakeActive(db, hid))
+            .catch(() => {})
+        })
+      }
     } else if (input.capsuleType === 'handshake-revoke') {
       record = buildRevokeRecord(handshakeRecord!, input)
       updateHandshakeRecord(db, record)

@@ -183,6 +183,11 @@ function logoutFast(): void {
   closeLedger()
   closedLedger = true
   console.log(`[AUTH][t+${Date.now() - t0}ms] Handshake ledger closed`)
+  try {
+    void import('./main/internalInference/p2pEndpointRepair').then((m) => m.resetP2pEndpointRepairSessionGates())
+  } catch {
+    /* */
+  }
 
   disconnectCoordinationWsForAccountSwitch('logout')
   closedRelayWs = true
@@ -895,7 +900,7 @@ import {
 import { setEmailSendFn } from './main/handshake/emailTransport'
 import { processOutboundQueue, setOutboundQueueAuthRefresh } from './main/handshake/outboundQueue'
 import { pullFromRelay } from './main/p2p/relayPull'
-import { createP2PServer } from './main/p2p/p2pServer'
+import { createP2PServer, logP2pServerDisabledState } from './main/p2p/p2pServer'
 import { createCoordinationWsClient } from './main/p2p/coordinationWs'
 import {
   setCoordinationWsClient,
@@ -9006,6 +9011,17 @@ async function runDeviceKeyMigration(
         setOrchestratorMode(req.body)
         if (getOrchestratorMode().mode !== prevMode) {
           broadcastOrchestratorModeChanged()
+          void (async () => {
+            try {
+              const db = await getHandshakeDb()
+              if (db) {
+                const { runP2pEndpointRepairPass } = await import('./main/internalInference/p2pEndpointRepair')
+                runP2pEndpointRepairPass(db, 'orchestrator_mode_change')
+              }
+            } catch {
+              /* */
+            }
+          })()
         }
         res.json({ ok: true as const })
       } catch (error: any) {
@@ -9053,6 +9069,17 @@ async function runDeviceKeyMigration(
         setOrchestratorMode(req.body)
         if (getOrchestratorMode().mode !== prevMode) {
           broadcastOrchestratorModeChanged()
+          void (async () => {
+            try {
+              const db = await getHandshakeDb()
+              if (db) {
+                const { runP2pEndpointRepairPass } = await import('./main/internalInference/p2pEndpointRepair')
+                runP2pEndpointRepairPass(db, 'orchestrator_mode_change')
+              }
+            } catch {
+              /* */
+            }
+          })()
         }
         res.json({ ok: true as const })
       } catch (error: any) {
@@ -11099,6 +11126,10 @@ async function runDeviceKeyMigration(
                 try {
                   upsertP2PConfig(handshakeDb, { local_p2p_endpoint: localEndpoint })
                   console.log('[P2P] local_p2p_endpoint:', localEndpoint)
+                  console.log(`[P2P-SERVER] p2p_config.local_p2p_endpoint=${localEndpoint}`)
+                  void import('./main/internalInference/p2pEndpointRepair')
+                    .then((m) => m.runP2pEndpointRepairPass(handshakeDb, 'p2p_server_listen'))
+                    .catch(() => {})
                   // Self-test: connect to own endpoint
                   fetch(localEndpoint, { method: 'POST', body: JSON.stringify({ handshake_id: 'self-test' }), headers: { 'Content-Type': 'application/json' } })
                     .then(() => setP2PHealthSelfTest(true))
@@ -11108,6 +11139,8 @@ async function runDeviceKeyMigration(
               () => { p2pServerStarted = false },
             )
             if (server) p2pServerStarted = true
+          } else {
+            logP2pServerDisabledState(config)
           }
         } catch (err: any) {
           console.warn('[P2P] Server startup skipped:', err?.message)
@@ -11150,6 +11183,12 @@ async function runDeviceKeyMigration(
         }
       } else if (existingCoord) {
         disconnectCoordinationWsForAccountSwitch('config_disabled')
+      }
+      const HD = getHandshakeDb()
+      if (HD) {
+        void import('./main/internalInference/p2pEndpointRepair')
+          .then((m) => m.runP2pEndpointRepairPass(HD, 'app_p2p_ledger_ready'))
+          .catch(() => {})
       }
     }
 

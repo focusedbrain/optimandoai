@@ -78,6 +78,54 @@ export function p2pEndpointKind(
   return 'direct'
 }
 
+/**
+ * P2P URL class for direct capability-probe logging (incl. localhost vs cross-machine).
+ */
+export type P2pEndpointProbeLogKind = 'direct' | 'relay' | 'localhost' | 'invalid' | 'missing'
+
+export function p2pEndpointKindForProbeLog(
+  db: any,
+  p2pEndpoint: string | null | undefined,
+): P2pEndpointProbeLogKind {
+  const base = p2pEndpointKind(db, p2pEndpoint)
+  if (base === 'missing' || base === 'invalid' || base === 'relay') {
+    return base
+  }
+  const ep = typeof p2pEndpoint === 'string' ? p2pEndpoint.trim() : ''
+  try {
+    const h = new URL(ep).hostname.toLowerCase()
+    if (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]') {
+      return 'localhost'
+    }
+  } catch {
+    return 'invalid'
+  }
+  return 'direct'
+}
+
+/**
+ * Direct Host inference (MVP): only non-relay, non-loopback addresses are valid (e.g. `http://192.168.x.x:port/beap/ingest`).
+ * Relay, localhost/127.0.0.1, and invalid/missing URLs are not valid for the Host AI row.
+ */
+export type P2pMvpEndpointClass = 'direct_lan' | 'localhost' | 'relay' | 'missing' | 'invalid'
+
+export function p2pEndpointMvpClass(
+  db: any,
+  p2pEndpoint: string | null | undefined,
+): P2pMvpEndpointClass {
+  const probe = p2pEndpointKindForProbeLog(db, p2pEndpoint)
+  if (probe === 'missing' || probe === 'invalid') {
+    return probe
+  }
+  if (probe === 'relay' || p2pEndpointKind(db, p2pEndpoint) === 'relay') {
+    return 'relay'
+  }
+  if (probe === 'localhost') {
+    return 'localhost'
+  }
+  return 'direct_lan'
+}
+
 export function assertP2pEndpointDirect(db: any, p2pEndpoint: string | null | undefined): { ok: true } | { ok: false; code: string } {
   const ep = typeof p2pEndpoint === 'string' ? p2pEndpoint.trim() : ''
   const kind = p2pEndpointKind(db, ep)

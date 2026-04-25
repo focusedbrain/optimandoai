@@ -11,11 +11,12 @@ import { listHandshakeRecords } from '../handshake/db'
 import { HandshakeState, type HandshakeRecord } from '../handshake/types'
 import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
+import { logInternalHostHandshakeP2pInspect } from './internalP2pHandshakeInspect'
 import {
-  assertP2pEndpointDirect,
   assertRecordForServiceRpc,
   handshakeSamePrincipal,
   p2pEndpointKind,
+  p2pEndpointMvpClass,
   peerCoordinationDeviceId,
 } from './policy'
 import { probeHostInferencePolicyFromSandbox } from './sandboxHostUi'
@@ -27,11 +28,13 @@ const L = '[HOST_INFERENCE_TARGETS]'
 const HR = {
   /**
    * STEP 8 / MVP: capability probe + inference are direct P2P only; relay is not used for those paths.
-   * Same line for `ENDPOINT_NOT_DIRECT` and `HOST_DIRECT_P2P_UNREACHABLE` — row stays visible, not dropped.
+   * `HR.p2p` for generic direct P2P failures; `HR.mvpP2p` when the stored `p2p_endpoint` is not direct-LAN (STEP 2).
    */
   p2p: 'Host is paired, but direct P2P is not reachable.',
   /** Dev / comments only; `p2p` is used in the model row for non-direct relay endpoints. */
   endpointNotDirect: 'Direct (non-relay) P2P to the Host is required. This endpoint is not a direct address.',
+  /** STEP 2: stored `p2p_endpoint` is not a valid direct-LAN URL for Host inference (relay, localhost, or invalid). */
+  mvpP2p: 'The Host handshake is active, but the stored direct P2P endpoint is not reachable.',
   missingP2p: 'No direct P2P endpoint on this internal handshake. Set a local Host address in the ledger.',
   policy: 'Host AI is disabled on the Host.',
   noModel: 'Host has no active local model.',
@@ -206,6 +209,8 @@ export type HostTargetUnavailableCode =
   | 'IDENTITY_INCOMPLETE'
   | 'MISSING_P2P_ENDPOINT'
   | 'ENDPOINT_NOT_DIRECT'
+  /** Stored endpoint is not valid direct-LAN (relay, localhost, 127.0.0.1, invalid URL) for MVP. */
+  | 'MVP_P2P_ENDPOINT_INVALID'
   | 'HOST_DIRECT_P2P_UNREACHABLE'
   | 'HOST_POLICY_DISABLED'
   | 'HOST_NO_ACTIVE_LOCAL_LLM'
@@ -525,6 +530,10 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     return { ok: true, targets: [], refreshMeta: { hadCapabilitiesProbed: false } }
   }
 
+  void import('./p2pEndpointRepair')
+    .then((m) => m.runP2pEndpointRepairPass(db, 'list_inference_targets'))
+    .catch(() => {})
+
   /** 1) ACTIVE rows first, then 2) derive roles, 3) count handshake Sandbox→Host. */
   const ledgerActive = listHandshakeRecords(db, { state: HandshakeState.ACTIVE })
   const activeInternalCount = ledgerActive.filter((r) => r.handshake_type === 'internal').length
@@ -618,9 +627,9 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     }
 
     const r = ar.record
-    const direct = assertP2pEndpointDirect(db, r.p2p_endpoint)
-    const directOk = direct.ok
+    logInternalHostHandshakeP2pInspect(db, r)
     const epK = p2pEndpointKind(db, r.p2p_endpoint)
+    const mvp = p2pEndpointMvpClass(db, r.p2p_endpoint)
     const displayName = hostComputerNameFromRow(r)
     const hostDevice = peerCoordinationDeviceId(r)?.trim() || ''
     const pcc = r.internal_peer_pairing_code ?? undefined
@@ -657,6 +666,40 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       continue
     }
 
+    if (mvp !== 'direct_lan' && mvp !== 'missing') {
+      const ur: HostTargetUnavailableCode = 'MVP_P2P_ENDPOINT_INVALID'
+      const ml = metaLocal(displayName, pcc)
+      const t: HostTargetDraft = {
+        kind: 'host_internal',
+        id: buildHostTargetId(hid, 'unavailable'),
+        label: 'Host AI unavailable',
+        display_label: 'Host AI unavailable',
+        model: null,
+        model_id: null,
+        provider: 'host_internal',
+        handshake_id: hid,
+        host_device_id: hostDevice,
+        host_computer_name: ml.hostName,
+        host_pairing_code: ml.digits6,
+        host_orchestrator_role: 'host',
+        host_orchestrator_role_label: ml.roleLabel,
+        internal_identifier_6: ml.digits6,
+        secondary_label: HR.mvpP2p,
+        direct_reachable: false,
+        policy_enabled: false,
+        available: false,
+        availability: 'direct_unreachable',
+        unavailable_reason: ur,
+        host_role: 'Host',
+        inference_error_code: 'MVP_P2P_ENDPOINT_INVALID',
+      }
+      console.log(
+        `${L} target_disabled handshake=${hid} reason=MVP_P2P_ENDPOINT_INVALID mvp_class=${mvp} p2p_endpoint_kind=${epK}`,
+      )
+      targets.push(finalizeItem(t))
+      continue
+    }
+
     if (!hostDevice) {
       const ml = metaLocal(displayName, pcc)
       const ur: HostTargetUnavailableCode = 'UNKNOWN'
@@ -689,44 +732,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       continue
     }
 
-    if (!directOk) {
-      const ur: HostTargetUnavailableCode =
-        epK === 'relay' ? 'ENDPOINT_NOT_DIRECT' : 'HOST_DIRECT_P2P_UNREACHABLE'
-      const ml = metaLocal(displayName, pcc)
-      /** No capability probe on relay; disabled row with user copy (non-empty selector). */
-      const sub =
-        epK === 'missing' || epK === 'invalid' ? HR.missingP2p : HR.p2p
-      const t: HostTargetDraft = {
-        kind: 'host_internal',
-        id: buildHostTargetId(hid, 'unavailable'),
-        label: 'Host AI unavailable',
-        display_label: 'Host AI unavailable',
-        model: null,
-        model_id: null,
-        provider: 'host_internal',
-        handshake_id: hid,
-        host_device_id: hostDevice,
-        host_computer_name: ml.hostName,
-        host_pairing_code: ml.digits6,
-        host_orchestrator_role: 'host',
-        host_orchestrator_role_label: ml.roleLabel,
-        internal_identifier_6: ml.digits6,
-        secondary_label: sub,
-        direct_reachable: false,
-        policy_enabled: false,
-        available: false,
-        availability: 'direct_unreachable',
-        unavailable_reason: ur,
-        host_role: 'Host',
-        inference_error_code: ur,
-      }
-      console.log(
-        `${L} target_disabled handshake=${hid} reason=${ur === 'ENDPOINT_NOT_DIRECT' ? 'ENDPOINT_NOT_DIRECT' : 'HOST_DIRECT_P2P_UNREACHABLE'} detail=${epK}`,
-      )
-      targets.push(finalizeItem(t))
-      continue
-    }
-
+    console.log(`[HOST_INFERENCE_P2P] from_listInferenceTargets handshake=${hid}`)
     console.log(`${L} probe_capabilities_start handshake=${hid}`)
     hadCapabilitiesProbed = true
     const ml0 = metaLocal(displayName, pcc)

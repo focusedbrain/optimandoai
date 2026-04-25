@@ -26,7 +26,7 @@ import {
   logInferenceTargetRefreshFromLoad,
   logInferenceTargetRefreshStart,
 } from '../lib/inferenceTargetRefreshLog'
-import { hostModelSelectorRowUi } from '../lib/hostModelSelectorRowUi'
+import { buildHostAiSelectorTooltip, hostModelSelectorRowUi } from '../lib/hostModelSelectorRowUi'
 import { HOST_INFERENCE_UNAVAILABLE } from '../lib/hostAiSelectorCopy'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import {
@@ -46,6 +46,8 @@ type WrChatModelOption = {
   size?: string
   displayTitle?: string
   subtitle?: string
+  /** Full tooltip (native `title`); menu row stays one line. */
+  hostTooltipDetail?: string
   hostAi?: boolean
   hostAvailable?: boolean
   /** True when main reports `host_selector_state === 'checking'`. */
@@ -189,6 +191,17 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
   const refreshModels = useCallback(async (reason?: InferenceTargetRefreshReason, options?: { force?: boolean }) => {
     if (reason === 'manual_refresh' && includeHostInternalDiscovery) {
       logInferenceTargetRefreshStart('manual_refresh')
+      setGavHostTargets((prev) =>
+        prev.length
+          ? prev.map((t) => ({
+              ...t,
+              host_selector_state: 'checking' as const,
+              availability: 'checking_host',
+              unavailable_reason: 'CHECKING_CAPABILITIES',
+              available: false,
+            }))
+          : prev,
+      )
     }
 
     let discovered: FetchSelectorModelListResult
@@ -199,7 +212,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
        */
       discovered = await fetchSelectorModelListFromHostDiscovery({
         reason,
-        force: options?.force,
+        force: options?.force ?? (reason === 'manual_refresh' ? true : undefined),
         includeHostInternalDiscovery,
         orchestratorLedgerProvesInternalSandboxToHost: ledgerProvesInternalSandboxToHost,
       })
@@ -277,6 +290,10 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
           ...row,
           displayTitle: ui.titleLine,
           subtitle: ui.subtitleLine,
+          hostTooltipDetail: buildHostAiSelectorTooltip(t, {
+            hostTargetAvailable: row.hostAvailable === true,
+            hostSelectorState: row.hostTargetChecking ? 'checking' : row.hostAvailable ? 'available' : 'unavailable',
+          }),
           hostComputerName: t?.host_computer_name?.trim() || row.hostComputerName,
         }
       })

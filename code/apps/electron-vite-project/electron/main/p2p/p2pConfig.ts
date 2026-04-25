@@ -133,6 +133,54 @@ export function detectLocalP2PHost(): string {
   return '127.0.0.1'
 }
 
+/** Non-internal IPv4s for P2P diagnostics (STEP 3); safe to log (no hostnames, no keys). */
+export function listLanIPv4Candidates(): string[] {
+  const out: string[] = []
+  try {
+    const nets = networkInterfaces()
+    for (const name of Object.keys(nets)) {
+      const addrs = nets[name]
+      if (!addrs) continue
+      for (const addr of addrs) {
+        const isV4 = addr.family === 'IPv4' || addr.family === 4
+        if (isV4 && !addr.internal) {
+          out.push(addr.address)
+        }
+      }
+    }
+  } catch { /* non-fatal */ }
+  return [...new Set(out)].sort()
+}
+
+function normalizeBracketHostname(h: string): string {
+  if (h.startsWith('[') && h.includes(']')) {
+    return h.slice(1, h.indexOf(']'))
+  }
+  return h
+}
+
+export function p2pIngestUrlHostname(publishedUrl: string): string | null {
+  const t = (publishedUrl ?? '').trim()
+  if (!t) return null
+  try {
+    return normalizeBracketHostname(new URL(t).hostname)
+  } catch {
+    return null
+  }
+}
+
+export function isP2pPublishedHostLoopback(hostname: string | null | undefined): boolean {
+  if (!hostname) return true
+  const h = normalizeBracketHostname(hostname.trim().toLowerCase())
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '0:0:0:0:0:0:0:1'
+}
+
+export function isBindAddressLocalhostOnly(bindAddress: string | null | undefined): boolean {
+  const b = (bindAddress ?? '').trim()
+  if (!b) return false
+  return b === '127.0.0.1' || b === '::1' || b === '::ffff:127.0.0.1' || b.toLowerCase() === 'localhost'
+}
+
 /**
  * Compute the local P2P endpoint URL for a running server.
  */

@@ -19,7 +19,15 @@ import { processHandshakeCapsule } from '../handshake/enforcement'
 import { maybeEnqueueInitialContextSyncAfterInboundAccept } from '../handshake/contextSyncEnqueue'
 import { buildDefaultReceiverPolicy } from '../handshake/types'
 import type { SSOSession } from '../handshake/types'
-import { computeLocalP2PEndpoint, type P2PConfig } from './p2pConfig'
+import {
+  computeLocalP2PEndpoint,
+  detectLocalP2PHost,
+  isBindAddressLocalhostOnly,
+  isP2pPublishedHostLoopback,
+  listLanIPv4Candidates,
+  p2pIngestUrlHostname,
+  type P2PConfig,
+} from './p2pConfig'
 import { notifyBeapRecipientPending } from './beapRecipientNotify'
 import {
   checkIpLimit,
@@ -224,6 +232,12 @@ function createP2PRequestHandler(
 
     // Direct P2P internal service RPC (inference skeleton — not user inbox, not Ollama)
     if (isInternalServiceRpcShape(parsed)) {
+      if (parsed.type === 'internal_inference_capabilities_request' && typeof parsed.handshake_id === 'string') {
+        const capsHid = (parsed.handshake_id as string).trim()
+        console.log(
+          `[P2P-SERVER] ingest_received type=internal_inference_capabilities_request handshake=${capsHid || 'unknown'}`,
+        )
+      }
       const handled = await tryHandleInternalServiceP2P(db, parsed, res)
       if (handled) {
         return
@@ -335,6 +349,76 @@ function createP2PRequestHandler(
   }
 }
 
+/**
+ * P2P server disabled: STEP 3 diagnostics (no listen).
+ */
+export function logP2pServerDisabledState(config: P2PConfig): void {
+  console.log(`[P2P-SERVER] startup enabled=false`)
+  console.log(`[P2P-SERVER] bind_address=${config.bind_address}`)
+  console.log(`[P2P-SERVER] port=${config.port}`)
+  console.log(`[P2P-SERVER] listen_state=not_started`)
+  const cands = listLanIPv4Candidates()
+  console.log(`[P2P-SERVER] lan_ip_candidates=${JSON.stringify(cands)}`)
+  if (cands.length === 0) {
+    console.warn('[P2P-SERVER] warning_no_lan_ip')
+  }
+  if (isBindAddressLocalhostOnly(config.bind_address)) {
+    console.warn('[P2P-SERVER] warning_localhost_endpoint')
+    console.warn('[P2P-SERVER] classification=F HOST_P2P_SERVER_BOUND_LOCAL_ONLY')
+  }
+  if (process.platform === 'win32') {
+    console.log(`[P2P-SERVER] windows_firewall=manual_verify_inbound_tcp port=${config.port} (server not running)`)
+  } else {
+    console.log(`[P2P-SERVER] windows_firewall=not_applicable platform=${process.platform}`)
+  }
+}
+
+/**
+ * On successful listen: STEP 3 Host publication and LAN / firewall hints.
+ * Counterparty `p2p_endpoint` in handshakes is derived from the URL published here (`local_p2p_endpoint` in `p2p_config` on listen)
+ * and from ledger/context exchange — see `onReady` in main.
+ */
+function logP2pServerListenDiagnostics(config: P2PConfig, publishedEndpoint: string, _proto: string): void {
+  console.log(`[P2P-SERVER] startup enabled=true`)
+  console.log(`[P2P-SERVER] listen_state=listening`)
+  console.log(`[P2P-SERVER] bind_address=${config.bind_address}`)
+  console.log(`[P2P-SERVER] port=${config.port}`)
+  console.log(`[P2P-SERVER] published_endpoint=${publishedEndpoint}`)
+  const cands = listLanIPv4Candidates()
+  const primary = detectLocalP2PHost()
+  console.log(`[P2P-SERVER] lan_ip_candidates=${JSON.stringify(cands)}`)
+  const ph = p2pIngestUrlHostname(publishedEndpoint)
+  const boundLocal = isBindAddressLocalhostOnly(config.bind_address)
+  const publishedLoop = isP2pPublishedHostLoopback(ph)
+  if (cands.length === 0) {
+    console.warn('[P2P-SERVER] warning_no_lan_ip')
+  }
+  if (boundLocal || publishedLoop) {
+    console.warn('[P2P-SERVER] warning_localhost_endpoint')
+    console.warn('[P2P-SERVER] classification=F HOST_P2P_SERVER_BOUND_LOCAL_ONLY')
+  }
+  let hostVs: string
+  if (boundLocal || publishedLoop) {
+    hostVs = 'not_lan (localhost_bind_or_published_host)'
+  } else if (ph == null) {
+    hostVs = 'mismatch (unparseable_url)'
+  } else if (cands.length === 0) {
+    hostVs = primary === '127.0.0.1' && ph === '127.0.0.1' ? 'match (fallback_to_loopback_no_lan_nic)' : 'mismatch (no_lan_nic)'
+  } else if (cands.includes(ph) || ph === primary) {
+    hostVs = 'match'
+  } else {
+    hostVs = 'mismatch'
+  }
+  console.log(`[P2P-SERVER] published_host_vs_lan_ip=${hostVs}`)
+  if (process.platform === 'win32') {
+    console.log(
+      `[P2P-SERVER] windows_firewall=manual_verify_inbound_tcp port=${config.port} (app cannot read Defender rules; allow TCP inbound if the Sandbox cannot connect)`,
+    )
+  } else {
+    console.log(`[P2P-SERVER] windows_firewall=not_applicable platform=${process.platform}`)
+  }
+}
+
 export function createP2PServer(
   config: P2PConfig,
   getDb: () => any,
@@ -342,12 +426,15 @@ export function createP2PServer(
   onReady?: (localEndpoint: string) => void,
   onListenError?: () => void,
 ): http.Server | https.Server | null {
-  if (!config.enabled) return null
+  if (!config.enabled) {
+    return null
+  }
 
   const requestHandler = createP2PRequestHandler(getDb, getSsoSession)
 
   function onListenSuccess(proto: string): void {
     const localEndpoint = computeLocalP2PEndpoint(config)
+    logP2pServerListenDiagnostics(config, localEndpoint, proto)
     setP2PHealthServerStarted(config.port, localEndpoint, !!config.tls_enabled)
     console.log(`[P2P] ✅ ${proto} server listening on ${localEndpoint}`)
     onReady?.(localEndpoint)

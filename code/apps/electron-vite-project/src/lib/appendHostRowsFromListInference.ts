@@ -12,7 +12,8 @@ export type HostModelRow = {
  * process uses (no llm getStatus) and merge any missing `host_internal` rows (available or disabled).
  * Does not require local Ollama models: `models: []` still triggers a probe when `!hasHost` (see `shouldProbe`).
  * Host rows are not filtered by `provider === 'ollama'`.
- * When `force` is true, always calls `listTargets` to re-probe the Host.
+ * When `force` is true or `reason === 'manual_refresh'`, calls `listTargets` and **replaces** existing
+ * `host_internal` model rows with fresh targets (re-reads ledger `p2p_endpoint`, validation, and capabilities).
  */
 export async function appendHostRowsFromListInference<T extends HostModelRow>(options: {
   reason: InferenceTargetRefreshReason | undefined
@@ -27,6 +28,7 @@ export async function appendHostRowsFromListInference<T extends HostModelRow>(op
 }): Promise<{ models: T[]; gav: HostInferenceTargetRow[] }> {
   const { reason, models, force, gavIpcFromHandshakeEmpty } = options
   const hasHost = models.some((m) => m.type === 'host_internal')
+  const shouldReplaceHostRows = Boolean(force) || reason === 'manual_refresh'
   const shouldProbe =
     Boolean(force) ||
     reason === 'manual_refresh' ||
@@ -49,6 +51,11 @@ export async function appendHostRowsFromListInference<T extends HostModelRow>(op
     }
     const gav = r.targets
     const fromTargets = mapHostTargetsToGavModelEntries(gav) as unknown as T[]
+    if (shouldReplaceHostRows) {
+      const withoutHost = models.filter((m) => m.type !== 'host_internal') as T[]
+      const next = orderModelsLocalHostCloud([...withoutHost, ...fromTargets]) as T[]
+      return { models: next, gav }
+    }
     const seen = new Set(models.map((m) => m.id))
     const next: T[] = [...models]
     for (const row of fromTargets) {

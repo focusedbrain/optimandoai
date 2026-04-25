@@ -636,6 +636,11 @@ contextBridge.exposeInMainWorld('internalInference', {
     }
     return ipcRenderer.invoke('internal-inference:checkDirectP2pReachability', { handshakeId: id })
   },
+  /** STEP 2: safe field dump for active internal Sandbox→Host handshake (no tokens or private keys). */
+  inspectP2pHandshake: (handshakeId?: unknown) =>
+    ipcRenderer.invoke('internal-inference:inspectP2pHandshake', {
+      handshakeId: typeof handshakeId === 'string' ? handshakeId.trim() : undefined,
+    }),
 })
 
 // ── Analysis Dashboard ───────────────────────────────────────────────────

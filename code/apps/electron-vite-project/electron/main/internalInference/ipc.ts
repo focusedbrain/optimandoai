@@ -75,11 +75,18 @@ export function registerInternalInferenceIpc(): void {
     return { ok: true as const, ...r }
   })
 
+  ipcMain.handle('internal-inference:inspectP2pHandshake', async (_e, params: { handshakeId?: string }) => {
+    const { getInternalHostHandshakeP2pInspect } = await import('./internalP2pHandshakeInspect')
+    const handshakeId = typeof params?.handshakeId === 'string' ? params.handshakeId.trim() : undefined
+    return getInternalHostHandshakeP2pInspect(handshakeId)
+  })
+
   ipcMain.handle('internal-inference:probeHostPolicy', async (_e, params: { handshakeId?: string }) => {
     const handshakeId = typeof params?.handshakeId === 'string' ? params.handshakeId.trim() : ''
     if (!handshakeId) {
       return { ok: false as const, error: 'handshakeId required' }
     }
+    console.log(`[HOST_INFERENCE_P2P] ipc_probeHostPolicy handshake=${handshakeId}`)
     const { probeHostInferencePolicyFromSandbox } = await import('./sandboxHostUi')
     return probeHostInferencePolicyFromSandbox(handshakeId)
   })

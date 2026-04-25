@@ -324,8 +324,10 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
     const t = r.targets[0]!
     expect(t.available).toBe(false)
     expect(t.availability).toBe('direct_unreachable')
-    expect(t.unavailable_reason).toBe('ENDPOINT_NOT_DIRECT')
-    expect(t.secondary_label).toBe('Host is paired, but direct P2P is not reachable.')
+    expect(t.unavailable_reason).toBe('MVP_P2P_ENDPOINT_INVALID')
+    expect(t.secondary_label).toBe(
+      'The Host handshake is active, but the stored direct P2P endpoint is not reachable.',
+    )
   })
 
   it('identity-incomplete internal row produces disabled explanatory target (not dropped)', async () => {

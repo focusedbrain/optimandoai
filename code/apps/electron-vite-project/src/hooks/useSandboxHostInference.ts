@@ -42,7 +42,10 @@ export type HostInferenceTargetRow = {
   unavailable_reason?: string
   host_role: string
   inference_error_code?: string
-  /** Present when list comes from `handshake:getAvailableModels` / listInference (same as top chat). */
+  /**
+   * UI tri-state from main; capability refresh also drives: `checking` (in-flight), then `available` or
+   * `unavailable` (e.g. p2p_offline / host_no_model / policy_disabled map via `availability` + `unavailable_reason`).
+   */
   host_selector_state?: 'available' | 'checking' | 'unavailable'
 }
 
