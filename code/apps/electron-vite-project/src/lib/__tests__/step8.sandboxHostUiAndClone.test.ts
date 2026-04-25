@@ -65,6 +65,56 @@ describe('STEP 8 — routing contracts', () => {
   })
 })
 
+/**
+ * STEP 8 — required runtime log tags (static contract).
+ * Full proof: on Sandbox, open Renderer DevTools (HybridSearch/WR) + main stdout (Electron terminal),
+ * click ↻ on top model bar, then on WR Chat; you should see these tags. Main logs `[HOST_*]`; renderer logs `[INFERENCE_TARGET_*]` and `[MODEL_SELECTOR_*]`.
+ */
+describe('STEP 8 — log contract (source must contain required tags)', () => {
+  it('renderer: [INFERENCE_TARGET_REFRESH] + [MODEL_SELECTOR_TARGETS]', () => {
+    const refreshLog = readRel('lib', 'inferenceTargetRefreshLog.ts')
+    const modelSel = readRel('lib', 'modelSelectorTargetsLog.ts')
+    const refreshTs = readRel('lib', 'refreshHostInferenceTargets.ts')
+    expect(refreshLog).toContain('[INFERENCE_TARGET_REFRESH]')
+    expect(refreshLog).toContain("'manual_refresh'")
+    expect(modelSel).toMatch(/ModelSelectorSurface/)
+    expect(modelSel).toMatch(/'top'/)
+    expect(modelSel).toMatch(/'wrchat'/)
+    expect(modelSel).toContain("selector=${selector} local_count=")
+    expect(refreshTs).toContain("logInferenceTargetRefreshStart('manual_refresh')")
+  })
+
+  it('main: [HOST_INFERENCE_TARGETS] list_begin, active_internal_host_count', () => {
+    const listT = readFileSync(
+      join(appsRoot, 'electron-vite-project', 'electron', 'main', 'internalInference', 'listInferenceTargets.ts'),
+      'utf-8',
+    )
+    const main = readFileSync(join(appsRoot, 'electron-vite-project', 'electron', 'main.ts'), 'utf-8')
+    // Runtime line is `` `${L} list_begin mode=…` ``
+    expect(listT).toContain('list_begin mode=')
+    expect(listT).toContain('active_internal_host_count=')
+    expect(listT).toMatch(/const L = '\[HOST_INFERENCE_TARGETS\]'/)
+    expect(main).toContain('[HOST_INFERENCE_TARGETS] list_begin mode=')
+  })
+
+  it('main (Sandbox): [HOST_INFERENCE_CAPS] request_send / response_received; Host: request_received / auth_ok / response_send', () => {
+    const ui = readFileSync(
+      join(appsRoot, 'electron-vite-project', 'electron', 'main', 'internalInference', 'sandboxHostUi.ts'),
+      'utf-8',
+    )
+    const p2p = readFileSync(
+      join(appsRoot, 'electron-vite-project', 'electron', 'main', 'internalInference', 'p2pServiceDispatch.ts'),
+      'utf-8',
+    )
+    expect(ui).toContain('[HOST_INFERENCE_CAPS] request_send handshake=')
+    expect(ui).toContain('[HOST_INFERENCE_CAPS] response_received active_model=')
+    expect(p2p).toContain('[HOST_INFERENCE_CAPS] request_received handshake=')
+    expect(p2p).toContain('[HOST_INFERENCE_CAPS] auth_ok handshake=')
+    expect(p2p).toContain('[HOST_INFERENCE_CAPS] active_local_llm model=')
+    expect(p2p).toContain('[HOST_INFERENCE_CAPS] response_send active_model=')
+  })
+})
+
 describe('STEP 8 — UI file invariants (top chat, WR Chat, no UUID in copy)', () => {
   it('HybridSearch: Host model group label + Host path', () => {
     const s = readRel('components', 'HybridSearch.tsx')
@@ -76,7 +126,7 @@ describe('STEP 8 — UI file invariants (top chat, WR Chat, no UUID in copy)', (
   it('WRChat dashboard: merges Host from listTargets into model list', () => {
     const s = readRel('components', 'WRChatDashboardView.tsx')
     expect(s).toContain('listTargets')
-    expect(s).toContain("section: 'host'")
+    expect(s).toContain("m.section === 'host'")
   })
 
   it('top chat (HybridSearch): Host submit uses getRequestHostCompletion (not local llm:chat for Host id)', () => {
@@ -126,5 +176,41 @@ describe('STEP 8 — Sandbox Clone header (detail)', () => {
     const inner = 'Hello link https://a.test/x'
     const full = `${SANDBOX_CLONE_INBOX_LEAD_IN}${inner}`
     expect(stripSandboxCloneLeadInFromBodyText(full).trim()).toBe(inner)
+  })
+})
+
+/**
+ * FINAL ACCEPTANCE (static): Host vs Sandbox UI gates, single discovery pipeline, disabled Host rows.
+ * Manual: Host mode = no ↻, Sandbox + internal handshake = ↻ + listTargets merge; no local Ollama required for Host option.
+ */
+describe('FINAL ACCEPTANCE — orchestrator + selector wiring (source)', () => {
+  it('HybridSearch: Host inference ↻ only when Sandbox (not Host orchestrator)', () => {
+    const hs = readRel('components', 'HybridSearch.tsx')
+    expect(hs).toMatch(/orchModeReady && orchIsSandbox && !orchIsHost/)
+    expect(hs).toMatch(/className="hs-inference-refresh"/)
+    expect(hs).toContain("void loadModels('manual_refresh', { force: true })")
+  })
+
+  it('WR Chat dashboard: showModelListRefresh = Sandbox only (not Host orchestrator)', () => {
+    const wr = readRel('components', 'WRChatDashboardView.tsx')
+    expect(wr).toContain('orchModeReady && orchIsSandbox && !orchIsHost')
+  })
+
+  it('Unified model list: Sandbox can populate Host from listTargets with empty local list', () => {
+    const sel = readRel('lib', 'selectorModelListFromHostDiscovery.ts')
+    expect(sel).toContain("appendHostRowsFromListInference")
+    expect(sel).toMatch(/models:\s*\[\]/)
+  })
+
+  it('appendHostRowsFromListInference: re-probe on manual refresh, no host in list, or gav/IPC desync', () => {
+    const ap = readRel('lib', 'appendHostRowsFromListInference.ts')
+    expect(ap).toContain("reason === 'manual_refresh'")
+    expect(ap).toContain('!hasHost')
+    expect(ap).toContain('gavIpcFromHandshakeEmpty')
+  })
+
+  it('Host row UI: disabled state carries reason (subtitle / unavailable_reason)', () => {
+    const row = readRel('lib', 'hostModelSelectorRowUi.ts')
+    expect(row).toMatch(/unavailable_reason|displaySubtitle|secondary_label/s)
   })
 })

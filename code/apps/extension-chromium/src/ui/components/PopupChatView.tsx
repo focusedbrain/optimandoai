@@ -112,12 +112,19 @@ export interface PopupChatViewProps {
   onConfirmSwitchFromStaleHost?: () => void
   /** Dashboard: restored selection was invalid (e.g. handshake gone after account switch). */
   inferenceSelectionPersistError?: string | null
+  /** Dashboard (Sandbox): inline line after ↻ — success / explainer (Host AI). */
+  hostModelRefreshFeedback?: { variant: 'success' | 'warning' | 'error'; message: string } | null
   onModelSelect?: (name: string) => void
   /**
    * Dashboard: `reason` is logged in the shell (`selector_open` | `manual_refresh` | …).
    * Extension popup may ignore `reason` and refresh the same way as before.
    */
   onRefreshModels?: (reason?: string) => void | Promise<void>
+  /**
+   * Electron: hide the ↳ refresh control on **Host** orchestrator (Host has no local “fetch Host” step).
+   * Omitted / true = show (browser extension, or Sandbox).
+   */
+  showModelListRefreshButton?: boolean
   sessionName?: string
   /** When set (e.g. Electron dashboard), persist message list to localStorage for this key. */
   persistTranscriptStorageKey?: string
@@ -411,6 +418,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   activeLlmModel,
   onModelSelect,
   onRefreshModels,
+  showModelListRefreshButton: showModelListRefresh = true,
   sessionName = 'Active Session',
   persistTranscriptStorageKey,
   wrChatEmbedContext,
@@ -418,6 +426,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   hostAiStale = false,
   onConfirmSwitchFromStaleHost,
   inferenceSelectionPersistError = null,
+  hostModelRefreshFeedback = null,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -2281,6 +2290,52 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     btnText: isLight ? '#374151' : 'rgba(255,255,255,0.75)',
   }
 
+  const hostModelRefreshLineStyle = (variant: 'success' | 'warning' | 'error') => {
+    if (variant === 'success') {
+      return {
+        border: isLight
+          ? '1px solid #86efac'
+          : isPro
+            ? '1px solid rgba(74, 222, 128, 0.5)'
+            : '1px solid rgba(34, 197, 94, 0.45)',
+        background: isLight
+          ? 'rgba(22, 163, 74, 0.11)'
+          : isPro
+            ? 'rgba(22, 101, 52, 0.55)'
+            : 'rgba(34, 197, 94, 0.2)',
+        color: isLight ? '#14532d' : isPro ? '#dcfce7' : '#bbf7d0',
+      } as const
+    }
+    if (variant === 'error') {
+      return {
+        border: isLight
+          ? '1px solid #fca5a5'
+          : isPro
+            ? '1px solid rgba(248, 113, 113, 0.5)'
+            : '1px solid rgba(252, 165, 165, 0.4)',
+        background: isLight
+          ? 'rgba(127, 29, 29, 0.08)'
+          : isPro
+            ? 'rgba(127, 29, 29, 0.45)'
+            : 'rgba(220, 38, 38, 0.22)',
+        color: isLight ? '#991b1b' : isPro ? '#ffe4e6' : '#fecaca',
+      } as const
+    }
+    return {
+      border: isLight
+        ? '1px solid #fbbf24'
+        : isPro
+          ? '1px solid rgba(251, 191, 36, 0.5)'
+          : '1px solid rgba(245, 158, 11, 0.45)',
+      background: isLight
+        ? 'rgba(180, 83, 9, 0.1)'
+        : isPro
+          ? 'rgba(180, 83, 9, 0.42)'
+          : 'rgba(245, 158, 11, 0.2)',
+      color: isLight ? '#9a3412' : isPro ? '#fffbeb' : '#fef3c7',
+    } as const
+  }
+
   const noModels = availableModels.length === 0
 
   const modelGroups = useMemo(() => {
@@ -3159,7 +3214,16 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             }}
           />
 
-          {/* Send / model selector */}
+          {/* Send / model selector; optional ↻ status line (dashboard) */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-end',
+              gap: 3,
+              flexShrink: 0,
+            }}
+          >
           <div ref={modelDropdownRef} style={{ position: 'relative', display: 'flex', flexShrink: 0 }}>
             <button
               onClick={handleSend}
@@ -3183,6 +3247,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
             {onModelSelect && onRefreshModels && (
               <>
+                {showModelListRefresh && (
                 <button
                   type="button"
                   onClick={async (e) => {
@@ -3196,7 +3261,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                     }
                   }}
                   disabled={isLoading}
-                  title="Refresh model list"
+                  title="Refresh model list (Sandbox: includes Host AI discovery)"
                   aria-label="Refresh model list"
                   style={{
                     height: 44, padding: '2px 6px', border: 'none', fontWeight: 700,
@@ -3208,9 +3273,10 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                 >
                   ↻
                 </button>
+                )}
                 <button
                   onClick={async () => {
-                    if (!showModelDropdown && onRefreshModels) {
+                    if (!showModelDropdown && onRefreshModels && showModelListRefresh) {
                       const t0 = lastModelListFetchAtRef.current
                       const listStale =
                         t0 === 0 ||
@@ -3432,6 +3498,30 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                 )}
               </>
             )}
+          </div>
+          {hostModelRefreshFeedback && wrChatEmbedContext === 'dashboard' ? (
+            <div
+              role="status"
+              aria-live="polite"
+              style={{
+                maxWidth: 360,
+                fontSize: 10,
+                fontWeight: 600,
+                lineHeight: 1.4,
+                textAlign: 'right',
+                padding: '5px 9px',
+                borderRadius: 6,
+                boxShadow: isLight
+                  ? '0 2px 10px rgba(0,0,0,0.06)'
+                  : isPro
+                    ? '0 2px 12px rgba(0,0,0,0.25)'
+                    : '0 2px 10px rgba(0,0,0,0.2)',
+                ...hostModelRefreshLineStyle(hostModelRefreshFeedback.variant),
+              }}
+            >
+              {hostModelRefreshFeedback.message}
+            </div>
+          ) : null}
           </div>
         </div>
       </div>

@@ -39,8 +39,15 @@ import {
   type InferenceTargetRefreshReason,
   countMergedModelList,
   logInferenceTargetRefreshFromLoad,
+  logInferenceTargetRefreshStart,
 } from '../lib/inferenceTargetRefreshLog'
-import { orderModelsLocalHostCloud, mapHostTargetsToGavModelEntries } from '../lib/modelSelectorMerge'
+import { fetchSelectorModelListFromHostDiscovery } from '../lib/selectorModelListFromHostDiscovery'
+import type { SelectorAvailableModel } from '../lib/selectorModelListFromHostDiscovery'
+import {
+  type HostRefreshFeedback,
+  getHostRefreshFeedbackFromTargets,
+} from '../lib/hostRefreshFeedback'
+import { hostModelSelectorRowUi } from '../lib/hostModelSelectorRowUi'
 import {
   isHostInferenceModelId,
   parseAnyHostInferenceModelId,
@@ -151,26 +158,9 @@ interface HybridSearchProps {
   onClearMessageSelection?: () => void
 }
 
-// ── LLM Models (loaded from backend) ──
+// ── LLM Models (loaded from backend) — same shape as `fetchSelectorModelListFromHostDiscovery` (top + WR). ──
 
-type AvailableModel =
-  | {
-      id: string
-      name: string
-      provider: string
-      type: 'local' | 'cloud'
-    }
-  | {
-      id: string
-      name: string
-      provider: 'host_internal'
-      type: 'host_internal'
-      displayTitle: string
-      displaySubtitle: string
-      hostTargetAvailable: boolean
-      /** From main `handshake:getAvailableModels` — drives checking vs disabled-unavailable copy. */
-      hostSelectorState?: 'available' | 'checking' | 'unavailable'
-    }
+type AvailableModel = SelectorAvailableModel
 
 const RAW_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -619,6 +609,8 @@ export default function HybridSearch({
   const lastAccountKeyForOrchRef = useRef(accountKeyFromSession())
   const isFirstOrchListRef = useRef(true)
   const lastInferenceTargetFetchAtRef = useRef(0)
+  const hostRefreshFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [hostRefreshFeedback, setHostRefreshFeedback] = useState<HostRefreshFeedback | null>(null)
   const [inferenceSelectionPersistError, setInferenceSelectionPersistError] = useState<string | null>(null)
 
   const [hostInfSuccess, setHostInfSuccess] = useState(false)
@@ -626,127 +618,111 @@ export default function HybridSearch({
     line1: string
     line2: string
   } | null>(null)
-  const { ready: orchModeReady, isSandbox: orchIsSandbox } = useOrchestratorMode()
+  const { ready: orchModeReady, isSandbox: orchIsSandbox, isHost: orchIsHost } = useOrchestratorMode()
   const hostInferenceProbeId = parseAnyHostInferenceModelId(selectedModel)?.handshakeId ?? null
   const selectedModelRef = useRef(selectedModel)
   selectedModelRef.current = selectedModel
-  const loadModels = useCallback(async (reason?: InferenceTargetRefreshReason) => {
+  const loadModels = useCallback(
+    async (reason?: InferenceTargetRefreshReason, options?: { force?: boolean }) => {
     try {
-      const result = await window.handshakeView?.getAvailableModels?.()
-      const withHost = result as {
-        success?: boolean
-        models?: unknown[]
-        hostInferenceTargets?: HostInferenceTargetRow[]
-        inferenceRefreshMeta?: { hadCapabilitiesProbed?: boolean }
+      if (orchIsSandbox && reason === 'manual_refresh') {
+        logInferenceTargetRefreshStart('manual_refresh')
+        setModelsLoading(true)
       }
-      const hostTargets = Array.isArray(withHost.hostInferenceTargets) ? withHost.hostInferenceTargets : []
-      if (Array.isArray(withHost.hostInferenceTargets)) {
-        setGavHostTargets(withHost.hostInferenceTargets)
-      } else {
-        setGavHostTargets([])
+      const discovered = await fetchSelectorModelListFromHostDiscovery({
+        reason,
+        force: options?.force,
+        orchIsSandbox,
+      })
+      const { result, withHost, models, gavForHook, path } = discovered
+      setGavHostTargets(gavForHook)
+      setAvailableModels(models as AvailableModel[])
+
+      if (reason === 'manual_refresh' && orchIsSandbox) {
+        setHostRefreshFeedback(getHostRefreshFeedbackFromTargets(gavForHook, { path }))
       }
-      if (result?.success) {
-        const rawModels = Array.isArray((result as { models?: unknown }).models)
-          ? (result as { models: unknown[] }).models
-          : []
-        let models = orderModelsLocalHostCloud(rawModels as AvailableModel[])
-        if (hostTargets.length > 0) {
-          const fromTargets = mapHostTargetsToGavModelEntries(hostTargets) as unknown as AvailableModel[]
-          const seen = new Set(models.map((m) => m.id))
-          for (const row of fromTargets) {
-            if (!seen.has(row.id)) {
-              models.push(row)
-              seen.add(row.id)
-            }
-          }
-          models = orderModelsLocalHostCloud(models)
-        }
-        setAvailableModels(models)
-        const localCount = models.filter((m) => m.type === 'local').length
-        const hostInternalCount = models.filter((m) => m.type === 'host_internal').length
-        const gav = Array.isArray(withHost.hostInferenceTargets) ? withHost.hostInferenceTargets : []
-        const hostTargetsPayload =
-          gav.length > 0
-            ? gav.map((t) => ({
-                id: t.id,
-                kind: t.kind,
-                handshake_id: t.handshake_id,
-                available: t.available,
-                availability: t.availability,
-                label: t.label,
-                display_label: t.display_label,
-                model: t.model,
-                model_id: t.model_id,
-                secondary_label: t.secondary_label,
-                direct_reachable: t.direct_reachable,
-                policy_enabled: t.policy_enabled,
+
+      if (path === 'empty' && models.length === 0) {
+        lastInferenceTargetFetchAtRef.current = Date.now()
+        return result
+      }
+      const localCount = models.filter((m) => m.type === 'local').length
+      const hostInternalCount = models.filter((m) => m.type === 'host_internal').length
+      const gav = gavForHook
+      const hostTargetsPayload =
+        gav.length > 0
+          ? gav.map((t) => ({
+              id: t.id,
+              kind: t.kind,
+              handshake_id: t.handshake_id,
+              available: t.available,
+              availability: t.availability,
+              label: t.label,
+              display_label: t.display_label,
+              model: t.model,
+              model_id: t.model_id,
+              secondary_label: t.secondary_label,
+              direct_reachable: t.direct_reachable,
+              policy_enabled: t.policy_enabled,
+            }))
+          : models
+              .filter((m): m is Extract<AvailableModel, { type: 'host_internal' }> => m.type === 'host_internal')
+              .map((m) => ({
+                id: m.id,
+                type: m.type,
+                hostTargetAvailable: m.hostTargetAvailable,
+                displayTitle: m.displayTitle,
+                displaySubtitle: m.displaySubtitle,
               }))
-            : models
-                .filter((m): m is Extract<AvailableModel, { type: 'host_internal' }> => m.type === 'host_internal')
-                .map((m) => ({
-                  id: m.id,
-                  type: m.type,
-                  hostTargetAvailable: m.hostTargetAvailable,
-                  displayTitle: m.displayTitle,
-                  displaySubtitle: m.displaySubtitle,
-                }))
-        const { local, host, final } = countMergedModelList(models)
-        const hadCap = Boolean(withHost.inferenceRefreshMeta?.hadCapabilitiesProbed)
-        logInferenceTargetRefreshFromLoad(reason, hadCap, local, host, final)
-        lastInferenceTargetFetchAtRef.current = Date.now()
-        logModelSelectorTargets({
-          selector: 'top',
-          localCount,
-          hostCount: hostInternalCount,
-          finalCount: models.length,
-          hostTargets: { ipc: 'handshake:getAvailableModels', rows: hostTargetsPayload },
-          selected: { selectedModel: selectedModelRef.current },
-        })
-        return result
-      }
-      if (hostTargets.length > 0) {
-        const models = orderModelsLocalHostCloud(
-          mapHostTargetsToGavModelEntries(hostTargets) as unknown as AvailableModel[],
-        )
-        setAvailableModels(models)
-        const localCount = 0
-        const hostInternalCount = models.filter((m) => m.type === 'host_internal').length
-        const gav = hostTargets
-        const hostTargetsPayload = gav.map((t) => ({
-          id: t.id,
-          kind: t.kind,
-          handshake_id: t.handshake_id,
-          available: t.available,
-          availability: t.availability,
-          label: t.label,
-          display_label: t.display_label,
-          model: t.model,
-          model_id: t.model_id,
-          secondary_label: t.secondary_label,
-          direct_reachable: t.direct_reachable,
-          policy_enabled: t.policy_enabled,
-        }))
-        const { local, host, final } = countMergedModelList(models)
-        const hadCapHostOnly = Boolean(withHost.inferenceRefreshMeta?.hadCapabilitiesProbed)
-        logInferenceTargetRefreshFromLoad(reason, hadCapHostOnly, local, host, final)
-        lastInferenceTargetFetchAtRef.current = Date.now()
-        logModelSelectorTargets({
-          selector: 'top',
-          localCount,
-          hostCount: hostInternalCount,
-          finalCount: models.length,
-          hostTargets: { ipc: 'handshake:getAvailableModels+hostTargetsOnly', rows: hostTargetsPayload },
-          selected: { selectedModel: selectedModelRef.current },
-        })
-        return result
-      }
+      const { local, host, final } = countMergedModelList(models)
+      const hadMeta = Boolean(withHost.inferenceRefreshMeta?.hadCapabilitiesProbed)
+      const hadCap = path === 'list_fallback' ? true : hadMeta
+      logInferenceTargetRefreshFromLoad(reason, hadCap, local, host, final)
+      lastInferenceTargetFetchAtRef.current = Date.now()
+      const ipc =
+        path === 'gav_success'
+          ? 'handshake:getAvailableModels'
+          : path === 'gav_host_only'
+            ? 'handshake:getAvailableModels+hostTargetsOnly'
+            : 'internal-inference:listTargets+fallback'
+      logModelSelectorTargets({
+        selector: 'top',
+        localCount,
+        hostCount: hostInternalCount,
+        finalCount: models.length,
+        hostTargets: { ipc, rows: hostTargetsPayload },
+        selected: { selectedModel: selectedModelRef.current },
+      })
+      return result
     } catch (err) {
       console.error('Failed to load models:', err)
+      if (orchIsSandbox && (reason as InferenceTargetRefreshReason | undefined) === 'manual_refresh') {
+        setHostRefreshFeedback(getHostRefreshFeedbackFromTargets([], { path: 'empty', error: err }))
+      }
     } finally {
       setModelsLoading(false)
     }
     return null
-  }, [])
+  },
+  [orchIsSandbox],
+  )
+
+  useEffect(() => {
+    if (hostRefreshFeedback == null) return
+    if (hostRefreshFeedbackTimerRef.current) {
+      clearTimeout(hostRefreshFeedbackTimerRef.current)
+    }
+    hostRefreshFeedbackTimerRef.current = setTimeout(() => {
+      hostRefreshFeedbackTimerRef.current = null
+      setHostRefreshFeedback(null)
+    }, 8_000)
+    return () => {
+      if (hostRefreshFeedbackTimerRef.current) {
+        clearTimeout(hostRefreshFeedbackTimerRef.current)
+        hostRefreshFeedbackTimerRef.current = null
+      }
+    }
+  }, [hostRefreshFeedback])
 
   const gavForHostHook = useMemo(
     () => ({
@@ -777,6 +753,18 @@ export default function HybridSearch({
       return false
     }
     const t = hostInf.inferenceTargets.find((x) => x.id === selectedModel)
+    if (entry?.type === 'host_internal') {
+      if (t) {
+        if (t.host_selector_state === 'checking' || entry.hostSelectorState === 'checking') {
+          return true
+        }
+        return !t.available
+      }
+      if (entry.hostSelectorState === 'checking') {
+        return true
+      }
+      return !entry.hostTargetAvailable
+    }
     if (!t) {
       return true
     }
@@ -2393,7 +2381,8 @@ export default function HybridSearch({
           spellCheck={false}
         />
 
-        {/* ── Right: action button ── */}
+        {/* ── Right: action button + Host refresh status (absolute below selector on Sandbox) ── */}
+        <div className="hs-send-group-wrap">
         <div className="hs-send-group" ref={modelMenuRef}>
           <button
             className={`hs-send-btn hs-send-btn--${mode === 'actions' ? 'actions' : mode}`}
@@ -2419,20 +2408,22 @@ export default function HybridSearch({
           {/* Model picker — Chat / Actions only. Does NOT affect Auto-Sort (autosort has its own selector in the inbox toolbar row). */}
           {showModelSelector && (
             <>
-              <button
-                type="button"
-                className="hs-inference-refresh"
-                onClick={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  void loadModels('manual_refresh')
-                }}
-                disabled={isSortingActive}
-                aria-label="Refresh inference model list"
-                title="Refresh Host / local model list"
-              >
-                ↻
-              </button>
+              {orchModeReady && orchIsSandbox && !orchIsHost && (
+                <button
+                  type="button"
+                  className="hs-inference-refresh"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    void loadModels('manual_refresh', { force: true })
+                  }}
+                  disabled={isSortingActive}
+                  aria-label="Refresh Host AI model list (Sandbox)"
+                  title="Re-fetch the paired Host’s model list and capabilities (Sandbox only)"
+                >
+                  ↻
+                </button>
+              )}
               <button
                 className={`hs-model-selector${modelMenuOpen ? ' hs-model-caret--open' : ''}${mode === 'actions' ? ' hs-model-selector--actions' : ''}`}
                 onClick={async () => {
@@ -2449,7 +2440,10 @@ export default function HybridSearch({
                           availableModels.length === 0
                         let models: AvailableModel[] | null = null
                         if (listStale) {
-                          const result = await loadModels('selector_open')
+                          const result = (await loadModels('selector_open')) as
+                            | { success?: boolean; models?: unknown[] }
+                            | null
+                            | undefined
                           if (result?.success && Array.isArray(result.models)) {
                             models = result.models as AvailableModel[]
                           }
@@ -2555,11 +2549,19 @@ export default function HybridSearch({
                             const id = m.id
                             const active = selectedModel === id
                             const t = hostInf.inferenceTargets.find((x) => x.id === m.id)
-                            const titleLine = m.displayTitle || m.name
-                            const sub =
-                              m.displaySubtitle?.trim() ||
-                              t?.secondary_label?.trim() ||
-                              ''
+                            const ui = hostModelSelectorRowUi(
+                              {
+                                hostSelectorState: m.hostSelectorState,
+                                hostTargetAvailable: m.hostTargetAvailable,
+                                displayTitle: m.displayTitle || m.name,
+                                displaySubtitle: m.displaySubtitle?.trim() || '',
+                                name: m.id,
+                                hostLocalModelName: t?.model ?? t?.model_id,
+                              },
+                              t,
+                            )
+                            const titleLine = ui.titleLine
+                            const sub = ui.subtitleLine
                             const sel =
                               m.hostSelectorState ??
                               (m.hostTargetAvailable ? 'available' : 'unavailable')
@@ -2654,6 +2656,16 @@ export default function HybridSearch({
               )}
             </div>
           )}
+        </div>
+        {hostRefreshFeedback && orchIsSandbox && (
+          <div
+            role="status"
+            aria-live="polite"
+            className={`hs-host-refresh-feedback hs-host-refresh-feedback--${hostRefreshFeedback.variant}`}
+          >
+            {hostRefreshFeedback.message}
+          </div>
+        )}
         </div>
       </div>
 

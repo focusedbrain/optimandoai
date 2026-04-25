@@ -585,6 +585,20 @@
 
 /* ── Split send button group ── */
 
+.hs-send-group-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+/* Keep inline status legible: reserve space (absolute line does not expand layout). */
+.hs-send-group-wrap:has(.hs-host-refresh-feedback) {
+  margin-bottom: 32px;
+}
+
 .hs-send-group {
   position: relative;
   display: flex;
@@ -593,6 +607,89 @@
   height: 100%;
   overflow: visible;
   border-radius: 0 9px 9px 0;
+}
+
+/* Manual ↻ refresh: one line, high contrast (not muted for warnings) */
+.hs-host-refresh-feedback {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  z-index: 25;
+  max-width: min(380px, 92vw);
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  text-align: right;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  background: var(--color-bg-surface, var(--bg-elevated));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.hs-host-refresh-feedback--success {
+  color: #14532d;
+  background: color-mix(in srgb, #22c55e 14%, var(--color-bg-surface, var(--bg-elevated)));
+  border-color: color-mix(in srgb, #16a34a 45%, var(--border));
+}
+
+.hs-host-refresh-feedback--warning {
+  color: #9a3412;
+  background: color-mix(in srgb, #f59e0b 16%, var(--color-bg-surface, var(--bg-elevated)));
+  border-color: color-mix(in srgb, #d97706 50%, var(--border));
+}
+
+.hs-host-refresh-feedback--error {
+  color: #991b1b;
+  background: color-mix(in srgb, #ef4444 12%, var(--color-bg-surface, var(--bg-elevated)));
+  border-color: color-mix(in srgb, #dc2626 45%, var(--border));
+}
+
+[data-ui-theme="dark"] .hs-host-refresh-feedback {
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+}
+
+[data-ui-theme="dark"] .hs-host-refresh-feedback--success {
+  color: #bbf7d0;
+  background: color-mix(in srgb, #22c55e 22%, var(--bg-surface-dark));
+  border-color: color-mix(in srgb, #4ade80 40%, var(--border-dark));
+}
+
+[data-ui-theme="dark"] .hs-host-refresh-feedback--warning {
+  color: #fef3c7;
+  background: color-mix(in srgb, #d97706 28%, var(--bg-surface-dark));
+  border-color: color-mix(in srgb, #fbbf24 42%, var(--border-dark));
+}
+
+[data-ui-theme="dark"] .hs-host-refresh-feedback--error {
+  color: #fecaca;
+  background: color-mix(in srgb, #ef4444 22%, var(--bg-surface-dark));
+  border-color: color-mix(in srgb, #f87171 35%, var(--border-dark));
+}
+
+[data-ui-theme="pro"] .hs-host-refresh-feedback {
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+}
+
+[data-ui-theme="pro"] .hs-host-refresh-feedback--success {
+  color: #dcfce7;
+  background: color-mix(in srgb, #16a34a 32%, #0f172a);
+  border-color: color-mix(in srgb, #4ade80 38%, rgba(255, 255, 255, 0.2));
+}
+
+[data-ui-theme="pro"] .hs-host-refresh-feedback--warning {
+  color: #fffbeb;
+  background: color-mix(in srgb, #d97706 38%, #0f172a);
+  border-color: color-mix(in srgb, #fbbf24 45%, rgba(255, 255, 255, 0.22));
+}
+
+[data-ui-theme="pro"] .hs-host-refresh-feedback--error {
+  color: #ffe4e6;
+  background: color-mix(in srgb, #dc2626 30%, #0f172a);
+  border-color: color-mix(in srgb, #f87171 38%, rgba(255, 255, 255, 0.2));
 }
 
 .hs-send-btn {

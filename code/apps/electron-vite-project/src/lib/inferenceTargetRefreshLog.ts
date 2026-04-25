@@ -34,7 +34,15 @@ export function logInferenceTargetRefresh(
   console.log(`[INFERENCE_TARGET_REFRESH] reason=${reason} local=${local} host=${host} final=${final}`)
 }
 
-/** Prefer `capabilities_result` when the Host capabilities probe ran; otherwise log the trigger reason (if any). */
+/** One-line [INFERENCE_TARGET_REFRESH] for trigger reasons (e.g. manual user refresh before merge completes). */
+export function logInferenceTargetRefreshStart(reason: InferenceTargetRefreshReason): void {
+  console.log(`[INFERENCE_TARGET_REFRESH] reason=${reason}`)
+}
+
+/**
+ * Prefer `capabilities_result` when the Host capabilities probe ran; otherwise log the trigger reason (if any).
+ * Manual refresh always keeps `reason=manual_refresh` for the result line (not `capabilities_result`).
+ */
 export function logInferenceTargetRefreshFromLoad(
   reason: InferenceTargetRefreshReason | undefined,
   hadCapabilitiesProbed: boolean,
@@ -42,6 +50,10 @@ export function logInferenceTargetRefreshFromLoad(
   host: number,
   final: number,
 ): void {
+  if (reason === 'manual_refresh') {
+    logInferenceTargetRefresh('manual_refresh', local, host, final)
+    return
+  }
   if (hadCapabilitiesProbed) {
     logInferenceTargetRefresh('capabilities_result', local, host, final)
     return

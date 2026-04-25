@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { PopupChatView } from '@ext/ui/components'
 import { useProjectStore } from '../stores/useProjectStore'
 import { ensureOrchestratorSessionForDashboard } from '../lib/wrChatDashboardBootstrap'
@@ -14,14 +14,24 @@ import {
   clearWrChatInferenceSelection,
 } from '../lib/inferenceSelectionPersistence'
 import { logModelSelectorTargets } from '../lib/modelSelectorTargetsLog'
-import { mapHostTargetsToGavModelEntries } from '../lib/modelSelectorMerge'
+import {
+  fetchSelectorModelListFromHostDiscovery,
+  wrChatModelOptionsFromSelectorModels,
+} from '../lib/selectorModelListFromHostDiscovery'
 import type { HostInferenceTargetRow } from '../hooks/useSandboxHostInference'
 import {
   type InferenceTargetRefreshReason,
   countWrChatMerged,
   logInferenceTargetRefreshFromLoad,
+  logInferenceTargetRefreshStart,
 } from '../lib/inferenceTargetRefreshLog'
-import { HOST_INFERENCE_UNAVAILABLE, HOST_AI_SELECTOR_ICON_CLASS } from '../lib/hostAiSelectorCopy'
+import { hostModelSelectorRowUi } from '../lib/hostModelSelectorRowUi'
+import { HOST_INFERENCE_UNAVAILABLE } from '../lib/hostAiSelectorCopy'
+import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
+import {
+  type HostRefreshFeedback,
+  getHostRefreshFeedbackFromTargets,
+} from '../lib/hostRefreshFeedback'
 import './WRChatDashboardView.css'
 
 type WrChatModelOption = {
@@ -89,9 +99,14 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
   const [activeLlmModel, setActiveLlmModel] = useState<string | undefined>(undefined)
   const [hostAiStale, setHostAiStale] = useState(false)
   const [inferenceSelectionPersistError, setInferenceSelectionPersistError] = useState<string | null>(null)
+  const [hostModelRefreshFeedback, setHostModelRefreshFeedback] = useState<HostRefreshFeedback | null>(null)
+  const hostModelRefreshFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const activeLlmModelRef = useRef<string | undefined>(undefined)
   activeLlmModelRef.current = activeLlmModel
   const lastAccountKeyForWrRef = useRef(accountKeyFromSession())
+  const { ready: orchModeReady, isSandbox: orchIsSandbox, isHost: orchIsHost } = useOrchestratorMode()
+  /** Host orchestrator: hide ↻ (no Sandbox→Host discovery). Sandbox: same pipeline as top chat. */
+  const showModelListRefreshButton = orchModeReady && orchIsSandbox && !orchIsHost
 
   useLayoutEffect(() => {
     ensureWrdeskChromeShim()
@@ -111,195 +126,126 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
     }
   }, [])
 
-  const refreshModels = useCallback(async (reason?: InferenceTargetRefreshReason) => {
+  const refreshModels = useCallback(async (reason?: InferenceTargetRefreshReason, options?: { force?: boolean }) => {
+    if (reason === 'manual_refresh' && orchIsSandbox) {
+      logInferenceTargetRefreshStart('manual_refresh')
+    }
     const api = typeof window !== 'undefined' ? window.llm : undefined
     let installed: WrChatModelOption[] = []
     let d: { activeModel?: string; modelsInstalled?: Array<{ name: string; size?: unknown }> } = {}
-    if (api?.getStatus) {
-      try {
-        const res = await api.getStatus()
-        if (res.ok && res.data) {
-          d = res.data
-          installed = (d.modelsInstalled || []).map((m) => ({
-            name: m.name,
-            size: m.size != null ? String(m.size) : undefined,
-            section: 'local' as const,
-          }))
-        } else {
-          const err = 'error' in res ? (res as { error?: string }).error : undefined
-          wrChatDashboardWarn(`llm.getStatus ok:false${err ? `: ${err}` : ''}`)
-        }
-      } catch (e) {
-        wrChatDashboardWarn('llm.getStatus failed:', e instanceof Error ? e.message : e)
-      }
-    } else {
-      wrChatDashboardWarn(
-        'window.llm.getStatus unavailable — local list empty; Host AI rows still load on Sandbox when ledger is open',
-      )
-    }
 
     try {
-      let hostRows: WrChatModelOption[] = []
-      let cloudRows: WrChatModelOption[] = []
-      let localFromGav: WrChatModelOption[] = []
-      let hadCapabilities = false
       /**
-       * `handshake:getAvailableModels` (main): `models` = local + host_internal + cloud (order preserved).
-       * This runs even when `llm.getStatus` failed — empty `installed` does not block Host/cloud rows.
+       * Handshake + `internal-inference:listTargets` merge first (↻ and all loads). Local `llm.getStatus` is
+       * only for Ollama names/sizes — not a substitute for Host discovery on Sandbox.
        */
-      try {
-        if (typeof window.handshakeView?.getAvailableModels === 'function') {
-          const g = await window.handshakeView.getAvailableModels()
-          hadCapabilities = Boolean(
-            (g as { inferenceRefreshMeta?: { hadCapabilitiesProbed?: boolean } })?.inferenceRefreshMeta
-              ?.hadCapabilitiesProbed,
-          )
-          const gOk = g && typeof g === 'object' && (g as { success?: boolean }).success === true
-          const gModels: unknown[] =
-            gOk && Array.isArray((g as { models?: unknown[] }).models) ? (g as { models: unknown[] }).models : []
-          const gHostIpc = (g as { hostInferenceTargets?: HostInferenceTargetRow[] })?.hostInferenceTargets
-
-          for (const raw of gModels) {
-            if (!raw || typeof raw !== 'object') continue
-            const m = raw as {
-              type?: string
-              id?: string
-              name?: string
-              displayTitle?: string
-              displaySubtitle?: string
-              hostTargetAvailable?: boolean
-              hostSelectorState?: 'available' | 'checking' | 'unavailable'
-              provider?: string
-            }
-            if (m.type === 'local' && typeof m.id === 'string') {
-              localFromGav.push({
-                name: m.id,
-                size: (m as { size?: string }).size,
-                displayTitle: typeof m.name === 'string' ? m.name : m.id,
-                section: 'local',
-              })
-            } else if (m.type === 'host_internal' && typeof m.id === 'string') {
-              const sel = m.hostSelectorState ?? (m.hostTargetAvailable ? 'available' : 'unavailable')
-              const sub = (m.displaySubtitle || '').trim()
-              hostRows.push({
-                name: m.id,
-                displayTitle: (m.displayTitle || m.name || 'Host AI').replace(
-                  /host-internal:[^:]+:[^\s]+/i,
-                  'Host AI',
-                ),
-                subtitle: sub || undefined,
-                hostAi: true,
-                hostAvailable: m.hostTargetAvailable === true,
-                hostTargetChecking: sel === 'checking',
-                hostComputerName: undefined,
-                hostIconClass: HOST_AI_SELECTOR_ICON_CLASS,
-                section: 'host' as const,
-              })
-            } else if (m.type === 'cloud' && typeof m.id === 'string') {
-              cloudRows.push({
-                name: m.id,
-                displayTitle: typeof m.name === 'string' ? m.name : m.id,
-                section: 'cloud' as const,
-              })
-            }
-          }
-
-          if (hostRows.length === 0 && Array.isArray(gHostIpc) && gHostIpc.length > 0) {
-            for (const row of mapHostTargetsToGavModelEntries(gHostIpc)) {
-              hostRows.push({
-                name: row.id,
-                displayTitle: row.displayTitle,
-                subtitle: row.displaySubtitle || undefined,
-                hostAi: true,
-                hostAvailable: row.hostTargetAvailable,
-                hostTargetChecking: row.hostSelectorState === 'checking',
-                hostComputerName: undefined,
-                hostIconClass: HOST_AI_SELECTOR_ICON_CLASS,
-                section: 'host' as const,
-              })
-            }
-          }
-        }
-      } catch {
-        /* fall through to internalInference */
-      }
-
-      const localOpts = localFromGav.length > 0 ? localFromGav : installed
-      if (hostRows.length === 0) {
+      const discovered = await fetchSelectorModelListFromHostDiscovery({
+        reason,
+        force: options?.force,
+        orchIsSandbox: orchIsSandbox,
+      })
+      if (api?.getStatus) {
         try {
-          const inf = window.internalInference
-          const listHostTargets = typeof inf?.listTargets === 'function' ? inf.listTargets : inf?.listInferenceTargets
-          if (typeof listHostTargets === 'function') {
-            const ht = (await listHostTargets()) as {
-              ok?: boolean
-              targets?: Array<{
-                id: string
-                label: string
-                display_label?: string
-                available: boolean
-                unavailable_reason?: string
-                host_computer_name?: string
-                host_selector_state?: 'available' | 'checking' | 'unavailable'
-                secondary_label?: string
-              }>
-            }
-            if (ht?.ok && Array.isArray(ht.targets)) {
-              hostRows = ht.targets.map((t) => {
-                const secondary = t.secondary_label?.trim() || ''
-                const sel = t.host_selector_state ?? (t.available ? 'available' : 'unavailable')
-                return {
-                  name: t.id,
-                  displayTitle: t.display_label || t.label,
-                  subtitle: secondary,
-                  hostAi: true,
-                  hostAvailable: t.available,
-                  hostTargetChecking: sel === 'checking',
-                  hostComputerName: t.host_computer_name,
-                  hostIconClass: HOST_AI_SELECTOR_ICON_CLASS,
-                  section: 'host' as const,
-                }
-              })
-            }
+          const res = await api.getStatus()
+          if (res.ok && res.data) {
+            d = res.data
+            installed = (d.modelsInstalled || []).map((m) => ({
+              name: m.name,
+              size: m.size != null ? String(m.size) : undefined,
+              section: 'local' as const,
+            }))
+          } else {
+            const err = 'error' in res ? (res as { error?: string }).error : undefined
+            wrChatDashboardWarn(`llm.getStatus ok:false${err ? `: ${err}` : ''}`)
           }
-        } catch {
-          /* ignore */
+        } catch (e) {
+          wrChatDashboardWarn('llm.getStatus failed:', e instanceof Error ? e.message : e)
+        }
+      } else {
+        wrChatDashboardWarn(
+          'window.llm.getStatus unavailable — local list empty; Host AI rows still load on Sandbox when ledger is open',
+        )
+      }
+      const hadCapabilities = Boolean(
+        discovered.withHost.inferenceRefreshMeta?.hadCapabilitiesProbed,
+      )
+      const hostIdToTarget = new Map<string, HostInferenceTargetRow>()
+      for (const r of discovered.gavForHook) {
+        if (r && typeof r === 'object' && typeof r.id === 'string') {
+          hostIdToTarget.set(r.id, r)
         }
       }
-
-      const merged = [...localOpts, ...hostRows, ...cloudRows]
-      setAvailableModels(merged)
+      const baseRows = wrChatModelOptionsFromSelectorModels(discovered.models) as WrChatModelOption[]
+      /** Prefer installed sizes for local names when Ollama reported them. */
+      const withSizes = baseRows.map((row) => {
+        if (row.section !== 'local') {
+          return row
+        }
+        const inst = installed.find((i) => i.name === row.name)
+        if (inst?.size) {
+          return { ...row, size: inst.size }
+        }
+        return row
+      })
+      const merged = withSizes
+      const mergedWithHostUi: WrChatModelOption[] = merged.map((row) => {
+        if (!row.hostAi) {
+          return row
+        }
+        const t = hostIdToTarget.get(row.name)
+        const ui = hostModelSelectorRowUi(
+          {
+            hostSelectorState: row.hostTargetChecking ? 'checking' : row.hostAvailable ? 'available' : 'unavailable',
+            hostTargetAvailable: row.hostAvailable === true,
+            displayTitle: row.displayTitle || row.name,
+            displaySubtitle: (row.subtitle || '').trim(),
+            name: row.name,
+            hostLocalModelName: t?.model ?? t?.model_id,
+          },
+          t,
+        )
+        return { ...row, displayTitle: ui.titleLine, subtitle: ui.subtitleLine }
+      })
+      setAvailableModels(mergedWithHostUi)
+      const localOpts = mergedWithHostUi.filter((m) => m.section === 'local')
+      const hostRows = mergedWithHostUi.filter((m) => m.hostAi || m.section === 'host')
+      const cloudRows = mergedWithHostUi.filter((m) => m.section === 'cloud')
       const { local, host, cloud, final } = countWrChatMerged(localOpts, hostRows, cloudRows)
-      logInferenceTargetRefreshFromLoad(reason, hadCapabilities, local, host, final)
-      const localCount = merged.filter((m) => m.section === 'local').length
-      const hostInternalCount = merged.filter((m) => m.hostAi || m.section === 'host').length
-      const hostTargetsPayload = hostRows.map((h) => ({
-        name: h.name,
-        displayTitle: h.displayTitle,
-        subtitle: h.subtitle,
-        hostAvailable: h.hostAvailable,
-        hostTargetChecking: h.hostTargetChecking,
-        section: h.section,
-      }))
+      const hadCapForLog = discovered.path === 'list_fallback' ? true : hadCapabilities
+      logInferenceTargetRefreshFromLoad(reason, hadCapForLog, local, host, final)
+      const localCount = mergedWithHostUi.filter((m) => m.section === 'local').length
+      const hostInternalCount = mergedWithHostUi.filter((m) => m.hostAi || m.section === 'host').length
+      const hostTargetsPayload = mergedWithHostUi
+        .filter((m) => m.hostAi || m.section === 'host')
+        .map((h) => ({
+          name: h.name,
+          displayTitle: h.displayTitle,
+          subtitle: h.subtitle,
+          hostAvailable: h.hostAvailable,
+          hostTargetChecking: h.hostTargetChecking,
+          section: h.section,
+        }))
       logModelSelectorTargets({
         selector: 'wrchat',
         localCount,
         hostCount: hostInternalCount,
-        finalCount: merged.length,
+        finalCount: mergedWithHostUi.length,
         hostTargets: {
-          composition: '(llm.getStatus best-effort) + (sandbox: handshake:getAvailableModels | internal-inference:listTargets)',
+          composition:
+            'llm.getStatus (best effort, non-blocking) + fetchSelectorModelListFromHostDiscovery (handshake + listTargets like top chat)',
           hostRows: hostTargetsPayload,
         },
         selected: { activeLlmModel: activeLlmModelRef.current ?? null, ollamaActiveFromLlm: d.activeModel },
       })
 
       let preferred: string | undefined = d.activeModel as string | undefined
-      const names = merged.map((m) => m.name)
+      const names = mergedWithHostUi.map((m) => m.name)
       const stored = readWrChatInferenceSelection()
       if (stored) {
         const v = validateStoredSelectionForWrChat(
           stored,
           names,
-          merged.filter((m) => m.hostAi),
+          mergedWithHostUi.filter((m) => m.hostAi),
         )
         if (v.error) {
           setInferenceSelectionPersistError(
@@ -332,10 +278,35 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
         preferred = hostRows[0].name
       }
       setActiveLlmModel(preferred)
+      if (reason === 'manual_refresh' && orchIsSandbox) {
+        setHostModelRefreshFeedback(
+          getHostRefreshFeedbackFromTargets(discovered.gavForHook, { path: discovered.path }),
+        )
+      }
     } catch (e) {
       wrChatDashboardWarn('refreshModels failed:', e instanceof Error ? e.message : e)
+      if (reason === 'manual_refresh' && orchIsSandbox) {
+        setHostModelRefreshFeedback(getHostRefreshFeedbackFromTargets([], { path: 'empty', error: e }))
+      }
     }
-  }, [])
+  }, [orchIsSandbox])
+
+  useEffect(() => {
+    if (hostModelRefreshFeedback == null) return
+    if (hostModelRefreshFeedbackTimerRef.current) {
+      clearTimeout(hostModelRefreshFeedbackTimerRef.current)
+    }
+    hostModelRefreshFeedbackTimerRef.current = setTimeout(() => {
+      hostModelRefreshFeedbackTimerRef.current = null
+      setHostModelRefreshFeedback(null)
+    }, 8_000)
+    return () => {
+      if (hostModelRefreshFeedbackTimerRef.current) {
+        clearTimeout(hostModelRefreshFeedbackTimerRef.current)
+        hostModelRefreshFeedbackTimerRef.current = null
+      }
+    }
+  }, [hostModelRefreshFeedback])
 
   useLayoutEffect(() => {
     if (!ready) return
@@ -520,15 +491,21 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
           availableModels={availableModels}
           activeLlmModel={activeLlmModel}
           onModelSelect={onModelSelect}
-          onRefreshModels={(r) =>
-            void refreshModels((r as InferenceTargetRefreshReason | undefined) ?? 'manual_refresh')
-          }
+          onRefreshModels={(r) => {
+            const reason = (r as InferenceTargetRefreshReason | undefined) ?? 'manual_refresh'
+            void refreshModels(
+              reason,
+              reason === 'manual_refresh' && orchIsSandbox ? { force: true } : undefined,
+            )
+          }}
+          showModelListRefreshButton={showModelListRefreshButton}
           sessionName="Dashboard"
           wrChatEmbedContext="dashboard"
           onPersistAcceptedOptimizationSuggestion={onPersistAcceptedOptimizationSuggestion}
           hostAiStale={hostAiStale}
           onConfirmSwitchFromStaleHost={switchWrChatFromStaleHost}
           inferenceSelectionPersistError={inferenceSelectionPersistError}
+          hostModelRefreshFeedback={hostModelRefreshFeedback}
         />
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { DirectP2pReachabilityStatus } from '../lib/hostInferenceUiGates'
 import type { InferenceTargetRefreshReason } from '../lib/inferenceTargetRefreshLog'
 import { useOrchestratorMode } from './useOrchestratorMode'
@@ -172,6 +172,15 @@ export function useSandboxHostInference(
     }
   }, [gav])
 
+  useLayoutEffect(() => {
+    if (!modeReady || !isSandbox || !gav) {
+      return
+    }
+    setListLoading(false)
+    setInferenceTargets(gav.targets)
+    setCandidates(targetsToCandidates(gav.targets))
+  }, [isSandbox, modeReady, gav, gav?.targets])
+
   useEffect(() => {
     if (!modeReady) {
       return
@@ -183,9 +192,6 @@ export function useSandboxHostInference(
       return
     }
     if (gav) {
-      setListLoading(false)
-      setInferenceTargets(gav.targets)
-      setCandidates(targetsToCandidates(gav.targets))
       return
     }
     setListLoading(true)

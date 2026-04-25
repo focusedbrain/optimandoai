@@ -264,7 +264,8 @@ describe('STEP 8 — capabilities-driven availability', () => {
     const t = r.targets[0]!
     expect(t.available).toBe(false)
     expect(t.id).toContain(':unavailable')
-    expect(t.secondary_label).toBe('Host capabilities could not be fetched.')
+    expect(t.unavailable_reason).toBe('CAPABILITY_PROBE_FAILED')
+    expect(t.secondary_label).toMatch(/Host capabilities could not be fetched/i)
   })
 })
 
@@ -310,6 +311,7 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
     const t = r.targets[0]!
     expect(t.available).toBe(false)
     expect(t.availability).toBe('direct_unreachable')
+    expect(t.secondary_label).toMatch(/direct \(non-relay\)|direct P2P/i)
   })
 
   it('identity-incomplete internal row produces disabled explanatory target (not dropped)', async () => {
@@ -392,5 +394,19 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
     expect(t.display_label).toMatch(/checking Host/i)
     expect(r.refreshMeta.hadCapabilitiesProbed).toBe(false)
     expect(probeHostInferencePolicyFromSandboxMock).not.toHaveBeenCalled()
+  })
+
+  it('assertSandboxRequestToHost fails and device roles are not host+sandbox: disabled explanatory target (not empty)', async () => {
+    isSandboxModeMock.mockReturnValue(true)
+    listHandshakeRecordsMock.mockReturnValue([
+      activeInternalSandboxToHost({ initiator_device_role: 'host' as any, acceptor_device_role: 'host' as any }),
+    ])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toHaveLength(1)
+    const t = r.targets[0]!
+    expect(t.id).toContain(':unavailable')
+    expect(t.unavailable_reason).toBe('SANDBOX_HOST_ROLE_METADATA')
+    expect(t.available).toBe(false)
+    expect(t.host_selector_state).toBe('unavailable')
   })
 })
