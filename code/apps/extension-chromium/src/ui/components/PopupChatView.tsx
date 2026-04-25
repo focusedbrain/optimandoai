@@ -30,11 +30,13 @@ import {
   formatInternalInferenceErrorCode,
   getRequestHostCompletion,
   hostModelDisplayNameFromSelection,
+  isHostInternalChatModelId,
 } from '../../lib/inferenceSubmitRouting'
 import {
   GROUP_CLOUD,
   GROUP_HOST_MODELS,
   GROUP_LOCAL_MODELS,
+  HOST_AI_CHECKING_TOOLTIP,
   HOST_AI_OPTION_TOOLTIP,
   HOST_AI_STALE_INLINE,
   HOST_AI_UNREACHABLE_TOOLTIP,
@@ -97,6 +99,7 @@ export interface PopupChatViewProps {
     subtitle?: string
     hostAi?: boolean
     hostAvailable?: boolean
+    hostTargetChecking?: boolean
     /** Shown in Host running UI and answer attribution (dashboard listInferenceTargets). */
     hostComputerName?: string
     /** Optional CSS class for a Host row icon (e.g. dashboard `host-ai-model-icon`). */
@@ -110,7 +113,11 @@ export interface PopupChatViewProps {
   /** Dashboard: restored selection was invalid (e.g. handshake gone after account switch). */
   inferenceSelectionPersistError?: string | null
   onModelSelect?: (name: string) => void
-  onRefreshModels?: () => Promise<void>
+  /**
+   * Dashboard: `reason` is logged in the shell (`selector_open` | `manual_refresh` | …).
+   * Extension popup may ignore `reason` and refresh the same way as before.
+   */
+  onRefreshModels?: (reason?: string) => void | Promise<void>
   sessionName?: string
   /** When set (e.g. Electron dashboard), persist message list to localStorage for this key. */
   persistTranscriptStorageKey?: string
@@ -216,7 +223,6 @@ async function mapChatToLlmMessages(
         const b64 = resolved ? toBase64ForOllama(resolved) : null
         const attachVision = idx === lastUserImageIdx && isPlausibleVisionBase64(b64)
         const images = attachVision && b64 ? [b64] : []
-        console.log('[mapChatToLlm] idx:', idx, '| lastUserImageIdx:', lastUserImageIdx, '| resolved length:', resolved?.length ?? 0, '| b64 length:', b64?.length ?? 0, '| attachVision:', attachVision, '| images count:', images.length)
         const baseText = msg.text || 'Screenshot'
         const enrichedContent = ocr
           ? `${baseText}\n\n[OCR extracted text]:\n${ocr}`
@@ -244,6 +250,65 @@ function sliceMessagesFromLastUserImage(messages: ChatMessage[]): ChatMessage[] 
     }
   }
   return messages
+}
+
+/**
+ * Build Host P2P chat messages without `mapChatToLlmMessages` (no local OCR/vision side-path beyond text).
+ * `internalInference.requestCompletion` only accepts text roles+content.
+ */
+function buildHostInternalMessagesForDashboard(
+  newMessages: ChatMessage[],
+  opts: {
+    docCtx: { name: string; text: string } | null
+    focusPrefix: string
+    useFreshPayload: boolean
+    /** Single user turn when `useFreshPayload` (screenshot/dashboard). */
+    freshUserContent: string
+    lastUserImageUrl: string | null
+    ocrText: string
+  },
+): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
+  if (opts.useFreshPayload) {
+    return [{ role: 'user', content: opts.freshUserContent }]
+  }
+  const out: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
+  for (const m of newMessages) {
+    if (m.role !== 'user' && m.role !== 'assistant') continue
+    let content = m.text ?? ''
+    if (m.role === 'user' && m.videoUrl) {
+      content = `${m.text || 'Video:'}\n[Video attached]`
+    }
+    if (
+      m.role === 'user' &&
+      m.imageUrl &&
+      opts.lastUserImageUrl &&
+      m.imageUrl === opts.lastUserImageUrl &&
+      opts.ocrText.trim()
+    ) {
+      content = `${content}\n\n[OCR extracted text]:\n${opts.ocrText}`
+    }
+    out.push({ role: m.role, content })
+  }
+  if (opts.focusPrefix) {
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (out[i].role === 'user') {
+        out[i] = { ...out[i], content: `${opts.focusPrefix}\n\n${out[i].content}` }
+        break
+      }
+    }
+  }
+  if (opts.docCtx) {
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (out[i].role === 'user') {
+        out[i] = {
+          ...out[i],
+          content: `[Attached document: ${opts.docCtx.name}]\n\n${opts.docCtx.text}\n\n---\n${out[i].content}`,
+        }
+        break
+      }
+    }
+  }
+  return out
 }
 
 function resolveModelIdForChat(
@@ -311,7 +376,6 @@ async function runOcr(imageUrl: string, secret: string | null): Promise<string> 
   try {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 60_000)
-    console.log('[runOcr] calling /api/ocr/process | image length:', imageUrl?.length ?? 0, '| starts with data::', imageUrl?.startsWith('data:'))
     const res: Response = await fetch(`${BASE_URL}/api/ocr/process`, {
       method: 'POST',
       headers: buildHeaders(secret),
@@ -330,13 +394,14 @@ async function runOcr(imageUrl: string, secret: string | null): Promise<string> 
       return ''
     }
     const text = json.data?.text ?? ''
-    console.log('[runOcr] OCR result | text length:', text.length, '| confidence:', json.data?.confidence, '| method:', json.data?.method)
     return text
   } catch (err) {
     console.warn('[runOcr] exception:', err instanceof Error ? err.message : err)
     return ''
   }
 }
+
+const POPUP_MODEL_SELECTOR_STALE_MS = 20_000
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -366,6 +431,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const [pendingDoc, setPendingDoc] = useState<{ name: string; text: string } | null>(null)
   const [pendingCaptureUrl, setPendingCaptureUrl] = useState<string | null>(null)
   const [showModelDropdown, setShowModelDropdown] = useState(false)
+  const lastModelListFetchAtRef = useRef(0)
   const [isConnected, setIsConnected] = useState(false)
   /** Saved area triggers — same storage key as docked WR Chat */
   const [triggers, setTriggers] = useState<any[]>([])
@@ -1014,7 +1080,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       return
     }
 
-    if (wrChatEmbedContext === 'dashboard' && hostAiStale && isHostInferenceRouteId(modelId)) {
+    if (wrChatEmbedContext === 'dashboard' && hostAiStale && isHostInternalChatModelId(modelId, availableModels)) {
       setMessages((prev) => [...prev, { role: 'assistant', text: HOST_AI_STALE_INLINE }])
       scrollToBottom()
       return
@@ -1055,7 +1121,92 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           )
         }
       }
-      // OCR for image if present
+      // Host AI: `internalInference.requestCompletion` only (no local `/api/llm/chat`, mapChat, or agents on this path).
+      if (isDashboard && isHostInternalChatModelId(modelId, availableModels)) {
+        let ocrHost = ''
+        let resHost: string | null = null
+        if (hasImage && currentTurnImageUrl) {
+          resHost = await resolveImageUrlForBackend(currentTurnImageUrl, { secret, isDashboard: true })
+          ocrHost = await runOcr(resHost ?? '', secret)
+        }
+        const useFreshHost = isDashboard && hasImage
+        const effectiveLlmTextH = llmText || ocrHost || (hasImage ? '[screenshot]' : '')
+        const enrichedTextH = enrichRouteTextWithOcr(effectiveLlmTextH, ocrHost)
+        const focusPrefixH = getChatFocusLlmPrefix(useChatFocusStore.getState())
+        const enrichedForRouteH = focusPrefixH ? `${focusPrefixH}\n\n${enrichedTextH}` : enrichedTextH
+        const parsedH = parseAnyHostInferenceModelId(modelId)
+        const rowH = availableModels.find((m) => m.name === modelId)
+        if (rowH?.hostAi && rowH.hostAvailable === false) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: 'assistant',
+              text: "This Host model is not available. Pick another model or check the model and AI settings on the Host machine.",
+            },
+          ])
+          setIsLoading(false)
+          return
+        }
+        if (parsedH) {
+          const runH = getRequestHostCompletion(window)
+          if (typeof runH !== 'function') {
+            setMessages((prev) => [
+              ...prev,
+              { role: 'assistant', text: 'Host models are not available in this build. Pick a local or cloud model instead.' },
+            ])
+            setIsLoading(false)
+            return
+          }
+          const hostMsgs = buildHostInternalMessagesForDashboard(newMessages, {
+            docCtx,
+            focusPrefix: focusPrefixH,
+            useFreshPayload: useFreshHost,
+            freshUserContent: enrichedForRouteH,
+            lastUserImageUrl: currentTurnImageUrl ?? null,
+            ocrText: ocrHost,
+          })
+          const hostComputerNameH = (rowH?.hostComputerName || '').trim() || 'Host'
+          setHostInternalRunUi({
+            line1: `Running on Host AI · ${hostModelDisplayNameFromSelection({
+              parsedModel: parsedH.model,
+              targetLabel: rowH?.displayTitle,
+            })}`,
+            line2: hostComputerNameH,
+          })
+          try {
+            const r = (await runH({
+              targetId: modelId,
+              handshakeId: parsedH.handshakeId,
+              messages: hostMsgs,
+              model: parsedH.model,
+              timeoutMs: 120_000,
+            })) as { ok?: boolean; output?: string; code?: string; message?: string }
+            if (r && 'ok' in r && r.ok && typeof (r as { output?: string }).output === 'string') {
+              const text = appendHostAiAttributionLine((r as { output: string }).output, hostComputerNameH)
+              setMessages((prev) => [...prev, { role: 'assistant', text }])
+            } else {
+              const er = r as { ok: false; code: string; message: string }
+              const msg = formatInternalInferenceErrorCode(er.code, er.message)
+              setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${msg}` }])
+            }
+          } catch {
+            setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${formatInternalInferenceErrorCode(undefined)}` }])
+          } finally {
+            setHostInternalRunUi(null)
+          }
+          setIsLoading(false)
+          scrollToBottom()
+          return
+        }
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', text: 'That Host model id is not recognized. Open the model menu and select Host AI again.' },
+        ])
+        setIsLoading(false)
+        return
+      }
+
+      // OCR for image if present (orchestrator local / Ollama / agent paths — not used for Host AI above)
       let resolvedImg: string | null = null
       let ocrText = ''
       if (hasImage && currentTurnImageUrl) {
@@ -1117,73 +1268,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       const freshUserMessage: Record<string, unknown> | null = useFreshPayload
         ? { role: 'user', content: enrichedForRoute, ...(visionB64ForSend ? { images: [visionB64ForSend] } : {}) }
         : null
-
-      if (isDashboard && isHostInferenceRouteId(modelId)) {
-        const parsed = parseAnyHostInferenceModelId(modelId)
-        const row = availableModels.find((m) => m.name === modelId)
-        if (row?.hostAi && row.hostAvailable === false) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: 'assistant',
-              text: "This Host model is not available. Pick another model or check the model and AI settings on the Host machine.",
-            },
-          ])
-          setIsLoading(false)
-          return
-        }
-        if (parsed) {
-          const run = getRequestHostCompletion(window)
-          if (typeof run !== 'function') {
-            setMessages((prev) => [
-              ...prev,
-              { role: 'assistant', text: 'Host models are not available in this build. Pick a local or cloud model instead.' },
-            ])
-            setIsLoading(false)
-            return
-          }
-          let hostMsgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
-          if (useFreshPayload && freshUserMessage) {
-            hostMsgs = [{ role: 'user', content: String(freshUserMessage.content ?? '') }]
-          } else {
-            hostMsgs = processedMessages
-              .filter((m) => m.role === 'system' || m.role === 'user' || m.role === 'assistant')
-              .map((m) => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content }))
-          }
-          const hostComputerName = (row?.hostComputerName || '').trim() || 'Host'
-          setHostInternalRunUi({
-            line1: `Running on Host AI · ${hostModelDisplayNameFromSelection({
-              parsedModel: parsed.model,
-              targetLabel: row?.displayTitle,
-            })}`,
-            line2: hostComputerName,
-          })
-          try {
-            const r = (await run({
-              targetId: modelId,
-              handshakeId: parsed.handshakeId,
-              messages: hostMsgs,
-              model: parsed.model,
-              timeoutMs: 120_000,
-            })) as { ok?: boolean; output?: string; code?: string; message?: string }
-            if (r && 'ok' in r && r.ok && typeof (r as { output?: string }).output === 'string') {
-              const text = appendHostAiAttributionLine((r as { output: string }).output, hostComputerName)
-              setMessages((prev) => [...prev, { role: 'assistant', text }])
-            } else {
-              const er = r as { ok: false; code: string; message: string }
-              const msg = formatInternalInferenceErrorCode(er.code, er.message)
-              setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${msg}` }])
-            }
-          } catch {
-            setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${formatInternalInferenceErrorCode(undefined)}` }])
-          } finally {
-            setHostInternalRunUi(null)
-          }
-          setIsLoading(false)
-          scrollToBottom()
-          return
-        }
-      }
 
       // Try routing via processFlow agents, fall back to Butler
       let answered = false
@@ -1281,13 +1365,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         const butlerMessages = useFreshPayload
           ? [{ role: 'system', content: butlerPrompt }, freshUserMessage!]
           : [{ role: 'system', content: butlerPrompt }, ...processedMessages]
-        console.log('[handleSend] butler call | model:', modelId,
-          '| freshPayload:', useFreshPayload,
-          '| contentLength:', enrichedText?.length,
-          '| ocrText:', ocrText.length,
-          '| has vision:', !!visionB64ForSend,
-          '| msg count:', butlerMessages.length,
-          '| secret:', !!secret)
         const butlerRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
           method: 'POST',
           headers: buildHeaders(secret),
@@ -1339,7 +1416,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       if (isLoading) return
       setHostInternalRunUi(null)
 
-      if (wrChatEmbedContext === 'dashboard' && hostAiStale && isHostInferenceRouteId(modelId)) {
+      if (wrChatEmbedContext === 'dashboard' && hostAiStale && isHostInternalChatModelId(modelId, availableModels)) {
         setMessages((prev) => [...prev, { role: 'assistant', text: HOST_AI_STALE_INLINE }])
         return
       }
@@ -1360,17 +1437,99 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       try {
         const secret = await ensureLaunchSecret(secretRef)
         const isDashboard = wrChatEmbedContext === 'dashboard'
+        const hasImage = !isVideo && !!mediaUrl
+        if (isDashboard && isHostInternalChatModelId(modelId, availableModels)) {
+          let ocrH = ''
+          let resH: string | null = null
+          if (!isVideo && mediaUrl) {
+            resH = await resolveImageUrlForBackend(mediaUrl, { secret, isDashboard: true })
+            ocrH = await runOcr(resH ?? '', secret)
+          }
+          const effectiveRouteTextH = routeText || ocrH || (hasImage ? '[screenshot]' : '')
+          const enrichedTextH = enrichRouteTextWithOcr(effectiveRouteTextH, ocrH)
+          const focusPrefixTrigH = getChatFocusLlmPrefix(useChatFocusStore.getState())
+          const enrichedForRouteTrigH = focusPrefixTrigH ? `${focusPrefixTrigH}\n\n${enrichedTextH}` : enrichedTextH
+          const useFreshHost = isDashboard && hasImage
+          const parsedH = parseAnyHostInferenceModelId(modelId)
+          const rowH = availableModels.find((m) => m.name === modelId)
+          if (rowH?.hostAi && rowH.hostAvailable === false) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: 'assistant',
+                text: "This Host model is not available. Pick another model or check the model and AI settings on the Host machine.",
+              },
+            ])
+            setIsLoading(false)
+            return
+          }
+          if (parsedH) {
+            const runH = getRequestHostCompletion(window)
+            if (typeof runH !== 'function') {
+              setMessages((prev) => [
+                ...prev,
+                { role: 'assistant', text: 'Host models are not available in this build. Pick a local or cloud model instead.' },
+              ])
+              setIsLoading(false)
+              return
+            }
+            const hostMsgs = buildHostInternalMessagesForDashboard(newMessages, {
+              docCtx: null,
+              focusPrefix: focusPrefixTrigH,
+              useFreshPayload: useFreshHost,
+              freshUserContent: enrichedForRouteTrigH,
+              lastUserImageUrl: mediaUrl ?? null,
+              ocrText: ocrH,
+            })
+            const hostComputerNameH = (rowH?.hostComputerName || '').trim() || 'Host'
+            setHostInternalRunUi({
+              line1: `Running on Host AI · ${hostModelDisplayNameFromSelection({
+                parsedModel: parsedH.model,
+                targetLabel: rowH?.displayTitle,
+              })}`,
+              line2: hostComputerNameH,
+            })
+            try {
+              const r = (await runH({
+                targetId: modelId,
+                handshakeId: parsedH.handshakeId,
+                messages: hostMsgs,
+                model: parsedH.model,
+                timeoutMs: 120_000,
+              })) as { ok?: boolean; output?: string; code?: string; message?: string }
+              if (r && 'ok' in r && r.ok && typeof (r as { output?: string }).output === 'string') {
+                const text = appendHostAiAttributionLine((r as { output: string }).output, hostComputerNameH)
+                setMessages((prev) => [...prev, { role: 'assistant', text }])
+              } else {
+                const er = r as { ok: false; code: string; message: string }
+                const msg = formatInternalInferenceErrorCode(er.code, er.message)
+                setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${msg}` }])
+              }
+            } catch {
+              setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${formatInternalInferenceErrorCode(undefined)}` }])
+            } finally {
+              setHostInternalRunUi(null)
+            }
+            setIsLoading(false)
+            scrollToBottom()
+            return
+          }
+          setMessages((prev) => [
+            ...prev,
+            { role: 'assistant', text: 'That Host model id is not recognized. Open the model menu and select Host AI again.' },
+          ])
+          setIsLoading(false)
+          return
+        }
+
         let resolvedMedia: string | null = null
         let ocrText = ''
         if (!isVideo && mediaUrl) {
           resolvedMedia = await resolveImageUrlForBackend(mediaUrl, { secret, isDashboard })
-          console.log('[sendWithTriggerAndImage] resolvedMedia length:', resolvedMedia?.length ?? 0, '| secret present:', !!secret, '| isDashboard:', isDashboard)
           ocrText = await runOcr(resolvedMedia ?? '', secret)
-          console.log('[sendWithTriggerAndImage] ocrText length:', ocrText.length)
         }
         // When routeText is empty (manual capture from Capture button), use OCR text for routing so
         // agent tags embedded in the screenshot can be matched. Fall back to a generic hint.
-        const hasImage = !isVideo && !!mediaUrl
         const effectiveRouteText = routeText || ocrText || (hasImage ? '[screenshot]' : '')
         const enrichedText = enrichRouteTextWithOcr(effectiveRouteText, ocrText)
         const focusPrefixTrig = getChatFocusLlmPrefix(useChatFocusStore.getState())
@@ -1413,82 +1572,10 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           processedMessages = prependHiddenContextToLastUserContent(processedMessages, focusPrefixTrig)
         }
 
-        if (!useFreshPayload) {
-          const imagesInMessages = processedMessages.filter(m => (m as any).images?.length > 0).length
-          console.log('[sendWithTriggerAndImage] processedMessages count:', processedMessages.length, '| messages with images:', imagesInMessages)
-        }
-
         // Build the fresh user message once — reused by both agent and butler paths when
         const freshUserMessage: Record<string, unknown> | null = useFreshPayload
           ? { role: 'user', content: enrichedForRouteTrig, ...(visionB64 ? { images: [visionB64] } : {}) }
           : null
-
-        if (isDashboard && isHostInferenceRouteId(modelId)) {
-          const parsed = parseAnyHostInferenceModelId(modelId)
-          const row = availableModels.find((m) => m.name === modelId)
-          if (row?.hostAi && row.hostAvailable === false) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                role: 'assistant',
-                text: "This Host model is not available. Pick another model or check the model and AI settings on the Host machine.",
-              },
-            ])
-            setIsLoading(false)
-            return
-          }
-          if (parsed) {
-            const run = getRequestHostCompletion(window)
-            if (typeof run !== 'function') {
-              setMessages((prev) => [
-              ...prev,
-              { role: 'assistant', text: 'Host models are not available in this build. Pick a local or cloud model instead.' },
-            ])
-              setIsLoading(false)
-              return
-            }
-            let hostMsgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
-            if (useFreshPayload && freshUserMessage) {
-              hostMsgs = [{ role: 'user', content: String(freshUserMessage.content ?? '') }]
-            } else {
-              hostMsgs = processedMessages
-                .filter((m) => m.role === 'system' || m.role === 'user' || m.role === 'assistant')
-                .map((m) => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content }))
-            }
-            const hostComputerName = (row?.hostComputerName || '').trim() || 'Host'
-            setHostInternalRunUi({
-              line1: `Running on Host AI · ${hostModelDisplayNameFromSelection({
-                parsedModel: parsed.model,
-                targetLabel: row?.displayTitle,
-              })}`,
-              line2: hostComputerName,
-            })
-            try {
-              const r = (await run({
-                targetId: modelId,
-                handshakeId: parsed.handshakeId,
-                messages: hostMsgs,
-                model: parsed.model,
-                timeoutMs: 120_000,
-              })) as { ok?: boolean; output?: string; code?: string; message?: string }
-              if (r && 'ok' in r && r.ok && typeof (r as { output?: string }).output === 'string') {
-                const text = appendHostAiAttributionLine((r as { output: string }).output, hostComputerName)
-                setMessages((prev) => [...prev, { role: 'assistant', text }])
-              } else {
-                const er = r as { ok: false; code: string; message: string }
-                const msg = formatInternalInferenceErrorCode(er.code, er.message)
-                setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${msg}` }])
-              }
-            } catch {
-              setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${formatInternalInferenceErrorCode(undefined)}` }])
-            } finally {
-              setHostInternalRunUi(null)
-            }
-            setIsLoading(false)
-            scrollToBottom()
-            return
-          }
-        }
 
         let answered = false
         try {
@@ -1587,13 +1674,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           const butlerMessages = useFreshPayload
             ? [{ role: 'system', content: butlerPrompt }, freshUserMessage!]
             : [{ role: 'system', content: butlerPrompt }, ...processedMessages]
-          console.log('[sendWithTriggerAndImage] butler call | model:', modelId,
-            '| freshPayload:', useFreshPayload,
-            '| contentLength:', enrichedForRouteTrig?.length,
-            '| ocrText:', ocrText.length,
-            '| has vision:', !!visionB64,
-            '| msg count:', butlerMessages.length,
-            '| secret:', !!secret)
           const butlerRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
             method: 'POST',
             headers: buildHeaders(secret),
@@ -3104,8 +3184,47 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             {onModelSelect && onRefreshModels && (
               <>
                 <button
+                  type="button"
+                  onClick={async (e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    try {
+                      await onRefreshModels('manual_refresh')
+                      lastModelListFetchAtRef.current = Date.now()
+                    } catch {
+                      /* ignore */
+                    }
+                  }}
+                  disabled={isLoading}
+                  title="Refresh model list"
+                  aria-label="Refresh model list"
+                  style={{
+                    height: 44, padding: '2px 6px', border: 'none', fontWeight: 700,
+                    cursor: isLoading ? 'not-allowed' : 'pointer',
+                    background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', color: '#052e16',
+                    borderRadius: 0, borderLeft: '1px solid rgba(0,0,0,0.1)', minWidth: 28, fontSize: 15, lineHeight: 1,
+                    opacity: isLoading ? 0.65 : 1,
+                  }}
+                >
+                  ↻
+                </button>
+                <button
                   onClick={async () => {
-                    if (!showModelDropdown && onRefreshModels) await onRefreshModels()
+                    if (!showModelDropdown && onRefreshModels) {
+                      const t0 = lastModelListFetchAtRef.current
+                      const listStale =
+                        t0 === 0 ||
+                        Date.now() - t0 > POPUP_MODEL_SELECTOR_STALE_MS ||
+                        (availableModels?.length ?? 0) === 0
+                      if (listStale) {
+                        try {
+                          await onRefreshModels('selector_open')
+                          lastModelListFetchAtRef.current = Date.now()
+                        } catch {
+                          /* ignore */
+                        }
+                      }
+                    }
                     setShowModelDropdown(s => !s)
                   }}
                   disabled={isLoading}
@@ -3189,7 +3308,13 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                               {GROUP_HOST_MODELS}
                             </div>
                             {modelGroups.hosts.map((m) => {
-                              const tip = m.hostAvailable ? HOST_AI_OPTION_TOOLTIP : HOST_AI_UNREACHABLE_TOOLTIP
+                              const hostChecking = m.hostAi && m.hostTargetChecking === true
+                              const hostBlocked = m.hostAi && m.hostAvailable === false
+                              const tip = hostChecking
+                                ? HOST_AI_CHECKING_TOOLTIP
+                                : m.hostAvailable
+                                  ? HOST_AI_OPTION_TOOLTIP
+                                  : HOST_AI_UNREACHABLE_TOOLTIP
                               const hostIcon = m.hostIconClass?.trim()
                               return (
                                 <div
@@ -3202,8 +3327,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                                   }}
                                   style={{
                                     padding: '10px 12px', fontSize: 12,
-                                    cursor: m.hostAi && m.hostAvailable === false ? 'not-allowed' : 'pointer',
-                                    opacity: m.hostAi && m.hostAvailable === false ? 0.55 : 1,
+                                    cursor: hostBlocked && !hostChecking ? 'not-allowed' : hostChecking ? 'default' : 'pointer',
+                                    opacity: hostBlocked && !hostChecking ? 0.55 : 1,
                                     color: isLight ? '#0f172a' : '#f1f5f9',
                                     background: m.name === activeLlmModel ? 'rgba(99,102,241,0.12)' : 'transparent',
                                     borderLeft: m.name === activeLlmModel ? '3px solid #a78bfa' : '3px solid transparent',
@@ -3270,7 +3395,11 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                         key={m.name}
                         title={
                           m.hostAi
-                            ? (m.hostAvailable ? HOST_AI_OPTION_TOOLTIP : HOST_AI_UNREACHABLE_TOOLTIP)
+                            ? (m.hostTargetChecking
+                                ? HOST_AI_CHECKING_TOOLTIP
+                                : m.hostAvailable
+                                  ? HOST_AI_OPTION_TOOLTIP
+                                  : HOST_AI_UNREACHABLE_TOOLTIP)
                             : `Model: ${m.name}`
                         }
                         onClick={() => {
@@ -3280,8 +3409,14 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                         }}
                         style={{
                           padding: '10px 12px', fontSize: 12,
-                          cursor: m.hostAi && m.hostAvailable === false ? 'not-allowed' : 'pointer',
-                          opacity: m.hostAi && m.hostAvailable === false ? 0.55 : 1,
+                          cursor:
+                            m.hostAi && m.hostAvailable === false && !m.hostTargetChecking
+                              ? 'not-allowed'
+                              : m.hostAi && m.hostTargetChecking
+                                ? 'default'
+                                : 'pointer',
+                          opacity:
+                            m.hostAi && m.hostAvailable === false && !m.hostTargetChecking ? 0.55 : 1,
                           color: isLight ? '#0f172a' : '#f1f5f9',
                           background: m.name === activeLlmModel ? 'rgba(34,197,94,0.12)' : 'transparent',
                           borderLeft: m.name === activeLlmModel ? '3px solid #22c55e' : '3px solid transparent'

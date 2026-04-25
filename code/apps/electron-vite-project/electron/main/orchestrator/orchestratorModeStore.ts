@@ -153,6 +153,11 @@ function persistConfig(config: OrchestratorModeConfig): void {
   }
 }
 
+/**
+ * Single source of truth for host vs sandbox: `orchestrator-mode.json` in Electron `userData`.
+ * The renderer must not rely on `localStorage` for mode — use `orchestrator:getMode` (same file as
+ * this read). `isHostMode` / `isSandboxMode` are derived from the same function.
+ */
 export function getOrchestratorMode(): OrchestratorModeConfig {
   const raw = readRawJson()
   const { config, missingInstanceId, missingPairingCode } = buildConfigFromRaw(raw)

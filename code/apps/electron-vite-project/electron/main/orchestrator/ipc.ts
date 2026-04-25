@@ -19,6 +19,7 @@ import { broadcastOrchestratorModeChanged } from './broadcastModeChange'
 export function registerOrchestratorIPC(): void {
   console.log('[Orchestrator IPC] Registering handlers...')
 
+  /** Read persisted host/sandbox — must match `isSandboxMode()` in main; same JSON file as setMode. */
   ipcMain.handle('orchestrator:getMode', async () => {
     return getOrchestratorMode()
   })

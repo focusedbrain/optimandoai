@@ -5,6 +5,16 @@
 
 import { isHostInferenceRouteId, parseAnyHostInferenceModelId } from './hostInferenceRouteIds'
 
+/** Dashboard / top chat: Host AI row (route id or `hostAi` / `section: host`). */
+export function isHostInternalChatModelId(
+  modelId: string,
+  available?: ReadonlyArray<{ name: string; hostAi?: boolean; section?: 'local' | 'host' | 'cloud' }>,
+): boolean {
+  if (isHostInferenceRouteId(modelId)) return true
+  const row = available?.find((m) => m.name === modelId)
+  return row?.hostAi === true || row?.section === 'host'
+}
+
 export type ChatInferenceKind = 'local_ollama' | 'host_internal' | 'cloud'
 
 type AvailableOrchestratorModel = { id: string; type: 'local' | 'cloud' | 'host_internal' }
@@ -40,7 +50,8 @@ export function formatInternalInferenceErrorCode(
     PROVIDER_UNAVAILABLE: 'The model software on your Host (for example Ollama) is not running or not reachable. Check the Host machine.',
     REQUEST_TIMEOUT: 'The request to your Host timed out. Try again.',
     PAYLOAD_TOO_LARGE: 'The request is too large for this model. Shorten the message or remove attachments.',
-    POLICY_FORBIDDEN: "This request isn't allowed for the Host model you selected. Try a different model or check settings on the Host.",
+    POLICY_FORBIDDEN:
+      "This request isn't allowed for the Host model you selected. Try a different model or check settings on the Host.",
     OLLAMA_UNAVAILABLE: 'Ollama is not running or not reachable on your Host. Start it on the Host machine and try again.',
     MALFORMED_SERVICE_MESSAGE: 'The request could not be sent. Try again or restart the app.',
     SERVICE_RPC_NOT_SUPPORTED:

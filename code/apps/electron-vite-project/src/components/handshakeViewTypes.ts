@@ -59,6 +59,7 @@ declare global {
               displayTitle: string
               displaySubtitle: string
               hostTargetAvailable: boolean
+              hostSelectorState?: 'available' | 'checking' | 'unavailable'
             }
         >
         /** Present on Sandbox when main merged `listTargets` into the same IPC. */
@@ -493,10 +494,12 @@ declare global {
         timeoutMs?: number
       }) => Promise<unknown>
       /**
-       * STEP 5: Host internal completion over direct P2P (`target_id`, `handshake_id`, `timeout_ms`, `stream: false`).
+       * Host internal completion over direct P2P (`provider: host_internal`, `handshake_id`, `model`, `messages`, `stream: false`, `timeout_ms`).
+       * `target_id` is optional in the renderer; preload may default it to `handshake_id`.
        */
       requestCompletion: (params: {
-        target_id: string
+        provider: 'host_internal'
+        target_id?: string
         handshake_id: string
         messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
         model?: string

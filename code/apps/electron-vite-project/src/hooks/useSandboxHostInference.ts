@@ -17,8 +17,8 @@ export type HostInferenceTargetRow = {
   kind: 'host_internal'
   id: string
   label: string
-  model: string
-  model_id?: string
+  model: string | null
+  model_id?: string | null
   /** Live label from Host policy GET; preferred over `label` in UI. */
   display_label?: string
   /** Second line: "<host> — Host orchestrator · ID …" (no raw device UUID in normal copy). */
@@ -38,6 +38,8 @@ export type HostInferenceTargetRow = {
   unavailable_reason?: string
   host_role: string
   inference_error_code?: string
+  /** Present when list comes from `handshake:getAvailableModels` / listInference (same as top chat). */
+  host_selector_state?: 'available' | 'checking' | 'unavailable'
 }
 
 type PolicyState = 'unknown' | 'allow' | 'deny' | 'unreachable' | 'no_direct'
@@ -88,9 +90,9 @@ export function useSandboxHostInference(
   const showHostInferenceOption =
     modeReady && isSandbox && inferenceTargets.some((t) => t.direct_reachable && t.available)
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (reason?: InferenceTargetRefreshReason) => {
     if (gav) {
-      await gav.refresh()
+      await gav.refresh(reason)
       return
     }
     const api = (window as unknown as {

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 
 /**
- * Best-effort Host vs Sandbox detection via main-process persisted orchestrator mode
- * (`orchestrator:getMode`). When the bridge is missing (e.g. web dev), `mode` stays null and
- * `isHost` is false. Refetches when the document becomes visible again (e.g. after changing mode in Settings).
+ * Host vs Sandbox from the **main-process** persist file (same as `isSandboxMode()` / `handshake:getAvailableModels`):
+ * `orchestrator:getMode` → `orchestrator-mode.json` in Electron `userData`. Do not use `localStorage` for
+ * authoritative mode. Refetches on `orchestrator-mode-changed` (sent after `orchestrator:setMode` and HTTP
+ * `POST /api/orchestrator/mode`).
  */
 export function useOrchestratorMode() {
   const [mode, setMode] = useState<'host' | 'sandbox' | null>(null)

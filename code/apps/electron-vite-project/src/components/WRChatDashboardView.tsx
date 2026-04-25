@@ -14,11 +14,12 @@ import {
   clearWrChatInferenceSelection,
 } from '../lib/inferenceSelectionPersistence'
 import { logModelSelectorTargets } from '../lib/modelSelectorTargetsLog'
+import { mapHostTargetsToGavModelEntries } from '../lib/modelSelectorMerge'
+import type { HostInferenceTargetRow } from '../hooks/useSandboxHostInference'
 import {
   type InferenceTargetRefreshReason,
   countWrChatMerged,
-  logInferenceTargetRefreshReason,
-  logInferenceTargetRefreshResult,
+  logInferenceTargetRefreshFromLoad,
 } from '../lib/inferenceTargetRefreshLog'
 import { HOST_INFERENCE_UNAVAILABLE, HOST_AI_SELECTOR_ICON_CLASS } from '../lib/hostAiSelectorCopy'
 import './WRChatDashboardView.css'
@@ -30,6 +31,8 @@ type WrChatModelOption = {
   subtitle?: string
   hostAi?: boolean
   hostAvailable?: boolean
+  /** True when main reports `host_selector_state === 'checking'`. */
+  hostTargetChecking?: boolean
   hostComputerName?: string
   /** CSS class for a non-text Host row marker (e.g. `host-ai-model-icon`). */
   hostIconClass?: string
@@ -110,70 +113,118 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
 
   const refreshModels = useCallback(async (reason?: InferenceTargetRefreshReason) => {
     const api = typeof window !== 'undefined' ? window.llm : undefined
-    if (!api?.getStatus) {
-      wrChatDashboardWarn('window.llm.getStatus unavailable — model list may be empty until preload exposes llm bridge')
-      return
-    }
-    try {
-      const res = await api.getStatus()
-      if (!res.ok) {
-        const err = 'error' in res ? (res as { error?: string }).error : undefined
-        wrChatDashboardWarn(`llm.getStatus ok:false${err ? `: ${err}` : ''}`)
-        return
-      }
-      const d = res.data
-      const installed: WrChatModelOption[] = (d.modelsInstalled || []).map((m) => ({
-        name: m.name,
-        size: m.size != null ? String(m.size) : undefined,
-        section: 'local' as const,
-      }))
-
-      let hostRows: WrChatModelOption[] = []
-      let hadCapabilities = false
-      /** Sandbox: same source as HybridSearch (`handshake:getAvailableModels` merges Host policy + active Ollama). */
+    let installed: WrChatModelOption[] = []
+    let d: { activeModel?: string; modelsInstalled?: Array<{ name: string; size?: unknown }> } = {}
+    if (api?.getStatus) {
       try {
-        const mode = (await window.orchestratorMode?.getMode?.())?.mode
-        if (mode === 'sandbox' && typeof window.handshakeView?.getAvailableModels === 'function') {
+        const res = await api.getStatus()
+        if (res.ok && res.data) {
+          d = res.data
+          installed = (d.modelsInstalled || []).map((m) => ({
+            name: m.name,
+            size: m.size != null ? String(m.size) : undefined,
+            section: 'local' as const,
+          }))
+        } else {
+          const err = 'error' in res ? (res as { error?: string }).error : undefined
+          wrChatDashboardWarn(`llm.getStatus ok:false${err ? `: ${err}` : ''}`)
+        }
+      } catch (e) {
+        wrChatDashboardWarn('llm.getStatus failed:', e instanceof Error ? e.message : e)
+      }
+    } else {
+      wrChatDashboardWarn(
+        'window.llm.getStatus unavailable — local list empty; Host AI rows still load on Sandbox when ledger is open',
+      )
+    }
+
+    try {
+      let hostRows: WrChatModelOption[] = []
+      let cloudRows: WrChatModelOption[] = []
+      let localFromGav: WrChatModelOption[] = []
+      let hadCapabilities = false
+      /**
+       * `handshake:getAvailableModels` (main): `models` = local + host_internal + cloud (order preserved).
+       * This runs even when `llm.getStatus` failed — empty `installed` does not block Host/cloud rows.
+       */
+      try {
+        if (typeof window.handshakeView?.getAvailableModels === 'function') {
           const g = await window.handshakeView.getAvailableModels()
           hadCapabilities = Boolean(
             (g as { inferenceRefreshMeta?: { hadCapabilitiesProbed?: boolean } })?.inferenceRefreshMeta
               ?.hadCapabilitiesProbed,
           )
-          const ok = g && typeof g === 'object' && (g as { success?: boolean }).success === true
-          const models = ok && Array.isArray((g as { models?: unknown }).models) ? (g as { models: unknown[] }).models : []
-          const hostFromGav = models.filter(
-            (m): m is {
-              id: string
-              type: string
-              name: string
+          const gOk = g && typeof g === 'object' && (g as { success?: boolean }).success === true
+          const gModels: unknown[] =
+            gOk && Array.isArray((g as { models?: unknown[] }).models) ? (g as { models: unknown[] }).models : []
+          const gHostIpc = (g as { hostInferenceTargets?: HostInferenceTargetRow[] })?.hostInferenceTargets
+
+          for (const raw of gModels) {
+            if (!raw || typeof raw !== 'object') continue
+            const m = raw as {
+              type?: string
+              id?: string
+              name?: string
               displayTitle?: string
               displaySubtitle?: string
               hostTargetAvailable?: boolean
-            } =>
-              Boolean(m) &&
-              typeof m === 'object' &&
-              (m as { type?: string }).type === 'host_internal' &&
-              typeof (m as { id?: string }).id === 'string',
-          )
-          if (hostFromGav.length > 0) {
-            hostRows = hostFromGav.map((m) => ({
-              name: m.id,
-              displayTitle: (m.displayTitle || m.name || 'Host AI').replace(
-                /host-internal:[^:]+:[^\s]+/i,
-                'Host AI',
-              ),
-              subtitle: (m.displaySubtitle || '').trim().replace(/^[A-Z0-9_]+$/g, '') || undefined,
-              hostAi: true,
-              hostAvailable: m.hostTargetAvailable === true,
-              hostComputerName: undefined,
-              hostIconClass: HOST_AI_SELECTOR_ICON_CLASS,
-              section: 'host' as const,
-            }))
+              hostSelectorState?: 'available' | 'checking' | 'unavailable'
+              provider?: string
+            }
+            if (m.type === 'local' && typeof m.id === 'string') {
+              localFromGav.push({
+                name: m.id,
+                size: (m as { size?: string }).size,
+                displayTitle: typeof m.name === 'string' ? m.name : m.id,
+                section: 'local',
+              })
+            } else if (m.type === 'host_internal' && typeof m.id === 'string') {
+              const sel = m.hostSelectorState ?? (m.hostTargetAvailable ? 'available' : 'unavailable')
+              const sub = (m.displaySubtitle || '').trim()
+              hostRows.push({
+                name: m.id,
+                displayTitle: (m.displayTitle || m.name || 'Host AI').replace(
+                  /host-internal:[^:]+:[^\s]+/i,
+                  'Host AI',
+                ),
+                subtitle: sub || undefined,
+                hostAi: true,
+                hostAvailable: m.hostTargetAvailable === true,
+                hostTargetChecking: sel === 'checking',
+                hostComputerName: undefined,
+                hostIconClass: HOST_AI_SELECTOR_ICON_CLASS,
+                section: 'host' as const,
+              })
+            } else if (m.type === 'cloud' && typeof m.id === 'string') {
+              cloudRows.push({
+                name: m.id,
+                displayTitle: typeof m.name === 'string' ? m.name : m.id,
+                section: 'cloud' as const,
+              })
+            }
+          }
+
+          if (hostRows.length === 0 && Array.isArray(gHostIpc) && gHostIpc.length > 0) {
+            for (const row of mapHostTargetsToGavModelEntries(gHostIpc)) {
+              hostRows.push({
+                name: row.id,
+                displayTitle: row.displayTitle,
+                subtitle: row.displaySubtitle || undefined,
+                hostAi: true,
+                hostAvailable: row.hostTargetAvailable,
+                hostTargetChecking: row.hostSelectorState === 'checking',
+                hostComputerName: undefined,
+                hostIconClass: HOST_AI_SELECTOR_ICON_CLASS,
+                section: 'host' as const,
+              })
+            }
           }
         }
       } catch {
         /* fall through to internalInference */
       }
+
+      const localOpts = localFromGav.length > 0 ? localFromGav : installed
       if (hostRows.length === 0) {
         try {
           const inf = window.internalInference
@@ -188,17 +239,21 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
                 available: boolean
                 unavailable_reason?: string
                 host_computer_name?: string
+                host_selector_state?: 'available' | 'checking' | 'unavailable'
+                secondary_label?: string
               }>
             }
             if (ht?.ok && Array.isArray(ht.targets)) {
               hostRows = ht.targets.map((t) => {
-                const secondary = (t as { secondary_label?: string }).secondary_label?.trim() || ''
+                const secondary = t.secondary_label?.trim() || ''
+                const sel = t.host_selector_state ?? (t.available ? 'available' : 'unavailable')
                 return {
                   name: t.id,
                   displayTitle: t.display_label || t.label,
                   subtitle: secondary,
                   hostAi: true,
                   hostAvailable: t.available,
+                  hostTargetChecking: sel === 'checking',
                   hostComputerName: t.host_computer_name,
                   hostIconClass: HOST_AI_SELECTOR_ICON_CLASS,
                   section: 'host' as const,
@@ -211,17 +266,10 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
         }
       }
 
-      const merged = [...installed, ...hostRows]
+      const merged = [...localOpts, ...hostRows, ...cloudRows]
       setAvailableModels(merged)
-      if (reason) {
-        const { local, host, final } = countWrChatMerged(installed, hostRows)
-        logInferenceTargetRefreshReason(reason)
-        logInferenceTargetRefreshResult(local, host, final)
-        if (hadCapabilities) {
-          logInferenceTargetRefreshReason('capabilities_result')
-          logInferenceTargetRefreshResult(local, host, final)
-        }
-      }
+      const { local, host, cloud, final } = countWrChatMerged(localOpts, hostRows, cloudRows)
+      logInferenceTargetRefreshFromLoad(reason, hadCapabilities, local, host, final)
       const localCount = merged.filter((m) => m.section === 'local').length
       const hostInternalCount = merged.filter((m) => m.hostAi || m.section === 'host').length
       const hostTargetsPayload = hostRows.map((h) => ({
@@ -229,6 +277,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
         displayTitle: h.displayTitle,
         subtitle: h.subtitle,
         hostAvailable: h.hostAvailable,
+        hostTargetChecking: h.hostTargetChecking,
         section: h.section,
       }))
       logModelSelectorTargets({
@@ -237,7 +286,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
         hostCount: hostInternalCount,
         finalCount: merged.length,
         hostTargets: {
-          composition: 'llm:getStatus + (sandbox: handshake:getAvailableModels | internal-inference:listTargets)',
+          composition: '(llm.getStatus best-effort) + (sandbox: handshake:getAvailableModels | internal-inference:listTargets)',
           hostRows: hostTargetsPayload,
         },
         selected: { activeLlmModel: activeLlmModelRef.current ?? null, ollamaActiveFromLlm: d.activeModel },
@@ -305,7 +354,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
         void refreshModels('account_change')
         return
       }
-      void refreshModels()
+      void refreshModels('visibility_resume')
     }
     const onList = () => {
       void refreshModels('handshake_active')
@@ -471,7 +520,9 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
           availableModels={availableModels}
           activeLlmModel={activeLlmModel}
           onModelSelect={onModelSelect}
-          onRefreshModels={refreshModels}
+          onRefreshModels={(r) =>
+            void refreshModels((r as InferenceTargetRefreshReason | undefined) ?? 'manual_refresh')
+          }
           sessionName="Dashboard"
           wrChatEmbedContext="dashboard"
           onPersistAcceptedOptimizationSuggestion={onPersistAcceptedOptimizationSuggestion}

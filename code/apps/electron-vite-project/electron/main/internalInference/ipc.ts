@@ -130,9 +130,8 @@ export function registerInternalInferenceIpc(): void {
       if (p != null && p !== 'host_internal') {
         return { ok: false as const, code: InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE, message: 'provider must be host_internal' }
       }
-      const targetId = typeof params?.target_id === 'string' ? params.target_id.trim() : ''
       const handshakeId = typeof params?.handshake_id === 'string' ? params.handshake_id.trim() : ''
-      if (!targetId || !handshakeId || !Array.isArray(params?.messages)) {
+      if (!handshakeId || !Array.isArray(params?.messages)) {
         return { ok: false as const, code: InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE, message: 'invalid params' }
       }
       if (params?.stream !== false) {

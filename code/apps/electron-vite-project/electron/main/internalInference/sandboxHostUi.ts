@@ -158,6 +158,23 @@ function mapCapabilitiesWireToProbe(
   w: InternalInferenceCapabilitiesResultWire,
 ): Extract<ProbeHostPolicyResult, { ok: true }> {
   const allow = w.policy_enabled === true
+  if (w.inference_error_code === InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM) {
+    return {
+      ok: true,
+      allowSandboxInference: allow,
+      defaultChatModel: undefined,
+      modelId: null,
+      displayLabelFromHost: 'Host AI · —',
+      hostComputerNameFromHost: w.host_computer_name,
+      providerFromHost: 'ollama',
+      hostOrchestratorRoleLabelFromHost: 'Host orchestrator',
+      internalIdentifier6FromHost: w.host_pairing_code,
+      internalIdentifierDisplayFromHost: displayPairingFromDigits6(w.host_pairing_code),
+      directP2pPath: true,
+      policyEnabledFromHost: allow,
+      inferenceErrorCode: InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM,
+    }
+  }
   const enabledModels = w.models.filter((m) => m.enabled && typeof m.model === 'string' && m.model.trim())
   const fromActiveLocal = w.active_local_llm
   const activeLocalName =
@@ -248,7 +265,7 @@ export async function postInternalInferenceCapabilitiesRequest(
     }
     const w = j as InternalInferenceCapabilitiesResultWire
     const m = w.active_local_llm?.model?.trim() || w.active_chat_model?.trim() || null
-    console.log(`[HOST_INFERENCE_CAPS] response_received handshake=${hid} active_model=${m ?? 'null'}`)
+    console.log(`[HOST_INFERENCE_CAPS] response_received active_model=${m ?? 'null'}`)
     return { ok: true, wire: w }
   } catch (e) {
     clearTimeout(timer)

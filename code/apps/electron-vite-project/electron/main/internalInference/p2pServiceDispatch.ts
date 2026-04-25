@@ -6,7 +6,6 @@ import type http from 'http'
 import { getHandshakeRecord } from '../handshake/db'
 import type { HandshakeRecord } from '../handshake/types'
 import type { InternalHostInferenceMessage } from '../llm/internalHostInferenceOllama'
-import { ollamaManager } from '../llm/ollama-manager'
 import { getInstanceId, isHostMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { InternalInferenceErrorCode } from './errors'
 import { buildInternalInferenceCapabilitiesResult } from './hostInferenceCapabilities'
@@ -150,6 +149,7 @@ export async function tryHandleInternalServiceP2P(
 
   if (t === 'internal_inference_capabilities_request') {
     console.log(`[HOST_INFERENCE_CAPS] request_received handshake=${handshakeId}`)
+    // Validated: assertRecord (internal+ACTIVE+same principal) + isHost + peer=Sandbox on direct P2P (Bearer+handshake) + assertHostReceivesRequestFromSandbox
     if (!isHostMode()) {
       jsonError(res, 400, InternalInferenceErrorCode.SERVICE_RPC_NOT_SUPPORTED, 'capabilities on non-host')
       return true
@@ -181,21 +181,11 @@ export async function tryHandleInternalServiceP2P(
       request_id: capReq.request_id,
       created_at: capReq.created_at,
     })
-    let ollamaOk = false
-    let effModel: string | null = null
-    try {
-      ollamaOk = await ollamaManager.isRunning()
-      effModel = (await ollamaManager.getEffectiveChatModelName())?.trim() || null
-    } catch {
-      ollamaOk = false
-    }
     const wireModel =
       capWire.active_local_llm?.model?.trim() || capWire.active_chat_model?.trim() || null
-    const statusModel = (wireModel && wireModel.length > 0 ? wireModel : null) || effModel
     const toLog = (m: string | null | undefined) => (m != null && m.length > 0 ? m : 'null')
-    console.log(
-      `[HOST_INFERENCE_CAPS] ollama_status ok=${ollamaOk} active_model=${toLog(statusModel)}`,
-    )
+    const capLocalLlm = capWire.active_local_llm?.model?.trim() || null
+    console.log(`[HOST_INFERENCE_CAPS] active_local_llm model=${toLog(capLocalLlm)}`)
     console.log(`[HOST_INFERENCE_CAPS] response_send active_model=${toLog(wireModel)}`)
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(capWire))

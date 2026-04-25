@@ -14,6 +14,8 @@ import AIAssistPopover from './AIAssistPopover'
 import { importFromFile } from '../../ingress'
 import { logImportEvent } from '../../audit'
 
+const COMMAND_MODEL_SELECTOR_STALE_MS = 20_000
+
 interface ChatMessage {
   role: 'user' | 'assistant'
   text: string
@@ -39,8 +41,8 @@ interface CommandChatViewProps {
   activeLlmModel?: string
   /** Callback when user selects a model */
   onModelSelect?: (name: string) => void
-  /** Callback to refresh models (e.g. when opening dropdown) */
-  onRefreshModels?: () => Promise<void>
+  /** Callback to refresh models (e.g. when opening dropdown); optional `reason` for host/shell logging. */
+  onRefreshModels?: (reason?: string) => void | Promise<void>
 }
 
 export const CommandChatView: React.FC<CommandChatViewProps> = ({
@@ -64,6 +66,7 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
   const [inputText, setInputText] = useState('')
   const [showAIAssist, setShowAIAssist] = useState(false)
   const [showModelDropdown, setShowModelDropdown] = useState(false)
+  const lastModelListFetchAtRef = useRef(0)
   const modelDropdownRef = useRef<HTMLDivElement>(null)
 
   // Close model dropdown when clicking outside
@@ -436,9 +439,51 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
                   <span style={styles.sendModel}>{resolvedActiveLlm}</span>
                 </button>
                 <button
+                  type="button"
+                  onClick={async (e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    try {
+                      await onRefreshModels('manual_refresh')
+                      lastModelListFetchAtRef.current = Date.now()
+                    } catch {
+                      /* ignore */
+                    }
+                  }}
+                  disabled={isLoading}
+                  title="Refresh model list"
+                  aria-label="Refresh model list"
+                  style={{
+                    ...styles.sendButton,
+                    opacity: isLoading ? 0.7 : 1,
+                    borderRadius: 0,
+                    borderLeft: '1px solid rgba(0,0,0,0.1)',
+                    padding: '2px 6px',
+                    minWidth: '28px',
+                    fontSize: 15,
+                    lineHeight: 1,
+                  }}
+                >
+                  ↻
+                </button>
+                <button
                   onClick={async () => {
                     const next = !showModelDropdown
-                    if (next && onRefreshModels) await onRefreshModels()
+                    if (next && onRefreshModels) {
+                      const t0 = lastModelListFetchAtRef.current
+                      const listStale =
+                        t0 === 0 ||
+                        Date.now() - t0 > COMMAND_MODEL_SELECTOR_STALE_MS ||
+                        availableModels.length === 0
+                      if (listStale) {
+                        try {
+                          await onRefreshModels('selector_open')
+                          lastModelListFetchAtRef.current = Date.now()
+                        } catch {
+                          /* ignore */
+                        }
+                      }
+                    }
                     setShowModelDropdown(next)
                   }}
                   disabled={isLoading}

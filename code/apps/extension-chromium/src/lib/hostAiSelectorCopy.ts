@@ -6,6 +6,9 @@ export const HOST_AI_OPTION_TOOLTIP =
 export const HOST_AI_UNREACHABLE_TOOLTIP =
   "Can't reach your Host right now. Check that it's online, on the same network, and that firewalls or VPN allow the connection."
 
+export const HOST_AI_CHECKING_TOOLTIP =
+  'Resolving the Host’s model and network path. No action required — this updates automatically.'
+
 export const HOST_AI_STALE_INLINE =
   'That Host model is no longer in the list. Choose another model to continue.'
 

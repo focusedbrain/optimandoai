@@ -1,19 +1,42 @@
 /**
- * STEP 8 — Sandbox Host AI target discovery + capabilities outcomes (listInferenceTargets).
+ * STEP 8 / STEP 9 — Sandbox Host AI target discovery + capabilities + regression.
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import type { HandshakeRecord, PartyIdentity } from '../../handshake/types'
 import { InternalInferenceErrorCode } from '../errors'
+import { assertP2pEndpointDirect, p2pEndpointKind } from '../policy'
 import { listSandboxHostInternalInferenceTargets } from '../listInferenceTargets'
 
-const { isHostModeMock, isSandboxModeMock } = vi.hoisted(() => ({
-  isHostModeMock: vi.fn(() => false),
-  isSandboxModeMock: vi.fn(() => false),
-}))
+const { isHostModeMock, isSandboxModeMock, getOrchestratorModeMock } = vi.hoisted(() => {
+  const isHost = vi.fn(() => false)
+  const isSandbox = vi.fn(() => false)
+  const minimal = (mode: 'host' | 'sandbox') => ({
+    mode,
+    deviceName: 'dev',
+    instanceId: 'inst',
+    pairingCode: '123456',
+    connectedPeers: [] as const,
+  })
+  const getOrch = vi.fn(() => {
+    if (isHost()) return minimal('host')
+    if (isSandbox()) return minimal('sandbox')
+    return minimal('host')
+  })
+  return { isHostModeMock: isHost, isSandboxModeMock: isSandbox, getOrchestratorModeMock: getOrch, _minimalOrch: minimal }
+})
+
+const minimalOrch = (mode: 'host' | 'sandbox') => ({
+  mode,
+  deviceName: 'dev',
+  instanceId: 'inst',
+  pairingCode: '123456',
+  connectedPeers: [] as const,
+})
 
 vi.mock('../../orchestrator/orchestratorModeStore', () => ({
   isHostMode: () => isHostModeMock(),
   isSandboxMode: () => isSandboxModeMock(),
+  getOrchestratorMode: () => getOrchestratorModeMock(),
 }))
 
 const listHandshakeRecordsMock = vi.fn<
@@ -97,6 +120,11 @@ function activeInternalSandboxToHost(over: Partial<HandshakeRecord> = {}): Hands
 beforeEach(() => {
   isHostModeMock.mockReturnValue(false)
   isSandboxModeMock.mockReturnValue(false)
+  getOrchestratorModeMock.mockImplementation(() => {
+    if (isHostModeMock()) return minimalOrch('host')
+    if (isSandboxModeMock()) return minimalOrch('sandbox')
+    return minimalOrch('host')
+  })
   getHandshakeDbMock.mockResolvedValue({})
   listHandshakeRecordsMock.mockReturnValue([])
   probeHostInferencePolicyFromSandboxMock.mockReset()
@@ -206,6 +234,9 @@ describe('STEP 8 — capabilities-driven availability', () => {
     expect(t.available).toBe(false)
     expect(t.availability).toBe('model_unavailable')
     expect(t.inference_error_code).toBe(InternalInferenceErrorCode.MODEL_UNAVAILABLE)
+    expect(t.model).toBeNull()
+    expect(t.id).toContain(':unavailable')
+    expect(t.secondary_label).toBe('Host has no active local model.')
   })
 
   it('Direct P2P unavailable from probe maps to direct_unreachable (HOST_DIRECT_P2P_UNAVAILABLE)', async () => {
@@ -222,5 +253,144 @@ describe('STEP 8 — capabilities-driven availability', () => {
     expect(t.available).toBe(false)
     expect(t.availability).toBe('direct_unreachable')
     expect(t.direct_reachable).toBe(false)
+    expect(t.id).toContain(':unavailable')
+    expect(t.secondary_label).toBe('Host is paired but direct P2P is not reachable.')
+  })
+
+  it('probe throws: returns disabled target with capabilities message (not empty)', async () => {
+    probeHostInferencePolicyFromSandboxMock.mockRejectedValue(new Error('network'))
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toHaveLength(1)
+    const t = r.targets[0]!
+    expect(t.available).toBe(false)
+    expect(t.id).toContain(':unavailable')
+    expect(t.secondary_label).toBe('Host capabilities could not be fetched.')
+  })
+})
+
+describe('STEP 9 — regression (listInferenceTargets)', () => {
+  it('getHandshakeDb unavailable logs DB_UNAVAILABLE and returns no targets (no silent failure)', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    isSandboxModeMock.mockReturnValue(true)
+    getHandshakeDbMock.mockResolvedValue(null)
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toHaveLength(0)
+    expect(r.refreshMeta.hadCapabilitiesProbed).toBe(false)
+    expect(listHandshakeRecordsMock).not.toHaveBeenCalled()
+    expect(log.mock.calls.flat().join('\n')).toMatch(/DB_UNAVAILABLE|rejected reason=DB_UNAVAILABLE|db_available=false/)
+    log.mockRestore()
+  })
+
+  it('orchestrator mode host (persisted) yields empty list before DB — main mode wins over isSandbox flag', async () => {
+    isHostModeMock.mockReturnValue(false)
+    isSandboxModeMock.mockReturnValue(true)
+    getOrchestratorModeMock.mockImplementation(() => minimalOrch('host'))
+    getHandshakeDbMock.mockResolvedValue({})
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toEqual([])
+    expect(listHandshakeRecordsMock).not.toHaveBeenCalled()
+  })
+
+  it('p2p relay URL is not direct — policy rejects relay; list shows disabled target (no capabilities probe)', async () => {
+    isSandboxModeMock.mockReturnValue(true)
+    const relay = 'https://relay.wrdesk.com/xyz/beap/ingest'
+    expect(p2pEndpointKind({}, relay)).toBe('relay')
+    const d = assertP2pEndpointDirect({}, relay)
+    expect(d.ok).toBe(false)
+    if (!d.ok) expect(d.code).toBe(InternalInferenceErrorCode.SERVICE_RPC_NOT_SUPPORTED)
+    listHandshakeRecordsMock.mockReturnValue([
+      activeInternalSandboxToHost({ p2p_endpoint: relay }),
+    ])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.refreshMeta.hadCapabilitiesProbed).toBe(false)
+    expect(probeHostInferencePolicyFromSandboxMock).not.toHaveBeenCalled()
+    expect(r.targets).toHaveLength(1)
+    const t = r.targets[0]!
+    expect(t.available).toBe(false)
+    expect(t.availability).toBe('direct_unreachable')
+  })
+
+  it('identity-incomplete internal row produces disabled explanatory target (not dropped)', async () => {
+    isSandboxModeMock.mockReturnValue(true)
+    listHandshakeRecordsMock.mockReturnValue([
+      activeInternalSandboxToHost({ internal_coordination_identity_complete: false as any }),
+    ])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toHaveLength(1)
+    const t = r.targets[0]!
+    expect(t.available).toBe(false)
+    expect(t.availability).toBe('identity_incomplete')
+    expect(t.secondary_label).toBe('Internal handshake identity is incomplete.')
+  })
+
+  it('HOST_NO_ACTIVE_LOCAL_LLM from probe is surfaced on the disabled row', async () => {
+    isSandboxModeMock.mockReturnValue(true)
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
+    probeHostInferencePolicyFromSandboxMock.mockResolvedValue({
+      ok: true as const,
+      allowSandboxInference: true,
+      defaultChatModel: undefined,
+      modelId: undefined,
+      directP2pAvailable: true,
+      displayLabelFromHost: 'Host AI · —',
+      hostComputerNameFromHost: 'H',
+      hostOrchestratorRoleLabelFromHost: 'Host orchestrator',
+      internalIdentifierDisplayFromHost: '1-2-3',
+      internalIdentifier6FromHost: '123456',
+      inferenceErrorCode: InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM,
+    })
+    const r = await listSandboxHostInternalInferenceTargets()
+    const t = r.targets[0]!
+    expect(t.inference_error_code).toBe(InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM)
+    expect(t.unavailable_reason).toBe(InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM)
+  })
+
+  it('active Host model name updates when probe returns a different defaultChatModel', async () => {
+    isSandboxModeMock.mockReturnValue(true)
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
+    probeHostInferencePolicyFromSandboxMock
+      .mockResolvedValueOnce({
+        ok: true as const,
+        allowSandboxInference: true,
+        defaultChatModel: 'm-a',
+        modelId: 'm-a',
+        displayLabelFromHost: 'Host AI · m-a',
+        hostComputerNameFromHost: 'H',
+        hostOrchestratorRoleLabelFromHost: 'Host orchestrator',
+        internalIdentifierDisplayFromHost: '1-2-3',
+        internalIdentifier6FromHost: '123456',
+        directP2pAvailable: true,
+      })
+    const r1 = await listSandboxHostInternalInferenceTargets()
+    expect(r1.targets[0]?.model).toBe('m-a')
+    probeHostInferencePolicyFromSandboxMock
+      .mockResolvedValueOnce({
+        ok: true as const,
+        allowSandboxInference: true,
+        defaultChatModel: 'm-b',
+        modelId: 'm-b',
+        displayLabelFromHost: 'Host AI · m-b',
+        hostComputerNameFromHost: 'H',
+        hostOrchestratorRoleLabelFromHost: 'Host orchestrator',
+        internalIdentifierDisplayFromHost: '1-2-3',
+        internalIdentifier6FromHost: '123456',
+        directP2pAvailable: true,
+      })
+    const r2 = await listSandboxHostInternalInferenceTargets()
+    expect(r2.targets[0]?.model).toBe('m-b')
+  })
+
+  it('assertSandboxRequestToHost fails (local_role vs device roles) but host+sandbox pairing still gets a checking Host row, not an empty list', async () => {
+    isSandboxModeMock.mockReturnValue(true)
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost({ local_role: 'acceptor' as const })])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toHaveLength(1)
+    const t = r.targets[0]!
+    expect(t.id).toContain(':checking')
+    expect(t.display_label).toMatch(/checking Host/i)
+    expect(r.refreshMeta.hadCapabilitiesProbed).toBe(false)
+    expect(probeHostInferencePolicyFromSandboxMock).not.toHaveBeenCalled()
   })
 })

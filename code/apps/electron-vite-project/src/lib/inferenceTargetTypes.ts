@@ -41,8 +41,8 @@ export type InferenceTarget =
       kind: 'host_internal'
       id: string
       label: string
-      model: string
-      model_id: string
+      model: string | null
+      model_id: string | null
       display_label: string
       provider: 'ollama' | ''
       handshake_id: string

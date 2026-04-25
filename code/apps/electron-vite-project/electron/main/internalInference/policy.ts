@@ -14,14 +14,14 @@ export function handshakeSamePrincipal(r: HandshakeRecord): boolean {
   return samePrincipal(r)
 }
 
-function localDeviceRole(r: HandshakeRecord): 'host' | 'sandbox' | null {
+export function localDeviceRole(r: HandshakeRecord): 'host' | 'sandbox' | null {
   if (r.local_role === 'initiator') {
     return r.initiator_device_role ?? null
   }
   return r.acceptor_device_role ?? null
 }
 
-function peerDeviceRole(r: HandshakeRecord): 'host' | 'sandbox' | null {
+export function peerDeviceRole(r: HandshakeRecord): 'host' | 'sandbox' | null {
   if (r.local_role === 'initiator') {
     return r.acceptor_device_role ?? null
   }
@@ -59,13 +59,33 @@ export function isCoordinationServiceEndpointUrl(p2pEndpoint: string, coordinati
   }
 }
 
-export function assertP2pEndpointDirect(db: any, p2pEndpoint: string | null | undefined): { ok: true } | { ok: false; code: string } {
+/**
+ * classifies P2P URL for Host discovery logging (not security enforcement).
+ * `relay` = coordination/BEAP service path (not a direct LAN/TUN endpoint for internal inference).
+ */
+export function p2pEndpointKind(
+  db: any,
+  p2pEndpoint: string | null | undefined,
+): 'direct' | 'relay' | 'missing' | 'invalid' {
   const ep = typeof p2pEndpoint === 'string' ? p2pEndpoint.trim() : ''
-  if (!ep) {
-    return { ok: false, code: InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE }
+  if (!ep) return 'missing'
+  try {
+    void new URL(ep)
+  } catch {
+    return 'invalid'
   }
   const cfg = getP2PConfig(db)
-  if (isCoordinationServiceEndpointUrl(ep, cfg.coordination_url)) {
+  if (isCoordinationServiceEndpointUrl(ep, cfg.coordination_url)) return 'relay'
+  return 'direct'
+}
+
+export function assertP2pEndpointDirect(db: any, p2pEndpoint: string | null | undefined): { ok: true } | { ok: false; code: string } {
+  const ep = typeof p2pEndpoint === 'string' ? p2pEndpoint.trim() : ''
+  const kind = p2pEndpointKind(db, ep)
+  if (kind === 'missing' || kind === 'invalid') {
+    return { ok: false, code: InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE }
+  }
+  if (kind === 'relay') {
     return { ok: false, code: InternalInferenceErrorCode.SERVICE_RPC_NOT_SUPPORTED }
   }
   return { ok: true }

@@ -1,21 +1,16 @@
 /**
  * Host: build `internal_inference_capabilities_result` (metadata only — no prompts, no user files).
- * Uses Ollama list / effective model resolution shared with internal inference and GET /internal-inference-policy.
- * (No `os` import — keeps Vitest ESM happy; `getOrchestratorMode` supplies display name, same idea as policy GET.)
+ * Active local LLM is **only** from `ollamaManager.getEffectiveChatModelName()` (uses `activeOllamaModelStore` + /api/tags).
+ * No second path that might disagree with Backend Config / WR Chat.
  */
 
 import type { HandshakeRecord } from '../handshake/types'
 import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { ollamaManager } from '../llm/ollama-manager'
-import { resolveModelForInternalInference } from '../llm/internalHostInferenceOllama'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
 import { InternalInferenceErrorCode } from './errors'
 import { localCoordinationDeviceId, peerCoordinationDeviceId } from './policy'
-import {
-  INTERNAL_INFERENCE_SCHEMA_VERSION,
-  type ActiveLocalLlmWire,
-  type InternalInferenceCapabilitiesResultWire,
-} from './types'
+import { INTERNAL_INFERENCE_SCHEMA_VERSION, type InternalInferenceCapabilitiesResultWire } from './types'
 
 function digits6FromPairing(raw: string | null | undefined): string {
   const s = (raw ?? '').replace(/\D/g, '')
@@ -23,64 +18,7 @@ function digits6FromPairing(raw: string | null | undefined): string {
 }
 
 /**
- * Source of truth for the Host’s “active” local model name: `getEffectiveChatModelName()` (uses
- * `activeOllamaModelStore` + installed tags). `getStatus` / `listModels` are supporting.
- */
-async function buildActiveLocalLlmWire(modelAllowlist: string[]): Promise<{
-  active_local_llm: ActiveLocalLlmWire
-  eff: string | null
-}> {
-  let eff: string | null = null
-  try {
-    eff = await ollamaManager.getEffectiveChatModelName()
-  } catch {
-    /* supporting path */
-  }
-  if (!eff) {
-    try {
-      const st = await ollamaManager.getStatus()
-      const a = st.activeModel?.trim()
-      if (a) {
-        const names = new Set((await ollamaManager.listModels()).map((m) => m.name))
-        if (names.has(a)) {
-          eff = a
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-  const allow = modelAllowlist
-  const inAllow = eff != null && (allow.length === 0 || allow.includes(eff))
-  const active_local_llm: ActiveLocalLlmWire = {
-    provider: 'ollama',
-    model: eff ?? '',
-    label: eff ?? '',
-    enabled: Boolean(eff && inAllow),
-  }
-  return { active_local_llm, eff }
-}
-
-/** Same “active Ollama” as Backend Config / llm getStatus — when `active_local_llm` is empty, fill active_chat_model. */
-async function attachActiveChatModelFromHostStatusIfNeeded(target: InternalInferenceCapabilitiesResultWire): Promise<void> {
-  if (target.active_local_llm?.model?.trim()) {
-    const m = target.active_local_llm.model.trim()
-    target.active_chat_model = m
-    return
-  }
-  try {
-    const st = await ollamaManager.getStatus()
-    const a = st.activeModel?.trim()
-    if (a) {
-      target.active_chat_model = a
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
-/**
- * Synchronous response body for `internal_inference_capabilities_request` on Host (direct P2P only).
+ * HTTP 200 body for `internal_inference_capabilities_request` on Host (direct P2P only; validated in p2pServiceDispatch).
  */
 export async function buildInternalInferenceCapabilitiesResult(
   record: HandshakeRecord,
@@ -116,77 +54,80 @@ export async function buildInternalInferenceCapabilitiesResult(
 
   const allow = modelAllowlist ?? []
 
-  let effForSort: string | null = null
   try {
-    const { active_local_llm, eff } = await buildActiveLocalLlmWire(allow)
-    effForSort = eff
-    base.active_local_llm = active_local_llm
-    if (active_local_llm.model.trim()) {
-      base.active_chat_model = active_local_llm.model.trim()
-    } else {
-      await attachActiveChatModelFromHostStatusIfNeeded(base)
+    const eff = await ollamaManager.getEffectiveChatModelName()
+    const name = (eff ?? '').trim()
+    const inAllow = name.length > 0 && (allow.length === 0 || allow.includes(name))
+    base.active_local_llm = {
+      provider: 'ollama',
+      model: name,
+      label: name,
+      enabled: Boolean(inAllow),
+    }
+    if (name && inAllow) {
+      base.active_chat_model = name
     }
 
     if (capabilitiesExposeAllInstalledOllama) {
       const installed = await ollamaManager.listModels()
       base.models = installed.map((m) => {
-        const name = m.name?.trim() || ''
+        const modelName = m.name?.trim() || ''
         return {
           provider: 'ollama' as const,
-          model: name,
-          label: name,
-          enabled: name.length > 0,
+          model: modelName,
+          label: modelName,
+          enabled: modelName.length > 0,
         }
       })
       if (base.models.length === 0) {
-        base.inference_error_code = InternalInferenceErrorCode.MODEL_UNAVAILABLE
+        base.inference_error_code = InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM
       } else {
-        const act = effForSort ?? base.active_chat_model
-        if (act) {
+        if (name && inAllow) {
           base.models.sort((a, b) => {
-            if (a.model === act) return -1
-            if (b.model === act) return 1
+            if (a.model === name) return -1
+            if (b.model === name) return 1
             return 0
           })
+        }
+        if (!name) {
+          base.inference_error_code = InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM
+        } else if (!inAllow) {
+          base.inference_error_code = InternalInferenceErrorCode.MODEL_UNAVAILABLE
         }
       }
       return base
     }
 
-    let resolved = await resolveModelForInternalInference(undefined, allow)
-    if (!('model' in resolved)) {
-      const st = await ollamaManager.getStatus()
-      const active = st.activeModel?.trim()
-      const nameSet = new Set((await ollamaManager.listModels()).map((x) => x.name))
-      if (active && nameSet.has(active) && (allow.length === 0 || allow.includes(active))) {
-        resolved = { model: active }
+    if (name && inAllow) {
+      base.models = [{ provider: 'ollama', model: name, label: name, enabled: true }]
+    } else {
+      base.models = []
+      if (!name) {
+        base.inference_error_code = InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM
+      } else {
+        base.inference_error_code = InternalInferenceErrorCode.MODEL_UNAVAILABLE
       }
-    }
-    if (!('model' in resolved)) {
-      base.inference_error_code = InternalInferenceErrorCode.MODEL_UNAVAILABLE
-      if (!base.active_chat_model) {
-        await attachActiveChatModelFromHostStatusIfNeeded(base)
-      }
-      return base
-    }
-    const m = resolved.model.trim()
-    base.models = [{ provider: 'ollama' as const, model: m, label: m, enabled: true }]
-    if (!base.active_chat_model) {
-      base.active_chat_model = m
     }
   } catch {
     base.inference_error_code = InternalInferenceErrorCode.OLLAMA_UNAVAILABLE
-    try {
-      const { active_local_llm, eff } = await buildActiveLocalLlmWire(allow)
-      base.active_local_llm = active_local_llm
-      effForSort = eff
-      if (!base.active_local_llm.model.trim()) {
-        await attachActiveChatModelFromHostStatusIfNeeded(base)
-      } else {
-        base.active_chat_model = base.active_local_llm.model.trim()
+    base.active_local_llm = { provider: 'ollama', model: '', label: '', enabled: false }
+    if (!capabilitiesExposeAllInstalledOllama) {
+      base.models = []
+    } else {
+      try {
+        const installed = await ollamaManager.listModels()
+        base.models = installed.map((m) => {
+          const modelName = m.name?.trim() || ''
+          return {
+            provider: 'ollama' as const,
+            model: modelName,
+            label: modelName,
+            enabled: modelName.length > 0,
+          }
+        })
+      } catch {
+        base.models = []
       }
-    } catch {
-      /* ignore */
     }
   }
 

@@ -703,6 +703,52 @@
   to { transform: rotate(360deg); }
 }
 
+/* Small recovery control — refetch Host/local lists without opening the menu */
+.hs-inference-refresh {
+  padding: 0 4px;
+  min-width: 24px;
+  font-size: 14px;
+  line-height: 1;
+  background: var(--purple-accent-hover);
+  color: rgba(255, 255, 255, 0.92);
+  border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  flex-shrink: 0;
+}
+.hs-inference-refresh:hover:not(:disabled) {
+  background: #6d28d9;
+  color: #fff;
+}
+.hs-inference-refresh:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+[data-ui-theme="pro"] .hs-inference-refresh,
+[data-ui-theme="pro"] .hs-inference-refresh:hover:not(:disabled) {
+  background: var(--purple-accent-hover);
+}
+.hs-inference-refresh:has(+ .hs-model-selector--actions) {
+  background: #047857;
+}
+.hs-inference-refresh:has(+ .hs-model-selector--actions):hover:not(:disabled) {
+  background: #059669;
+}
+[data-ui-theme="pro"] .hs-inference-refresh:has(+ .hs-model-selector--actions) {
+  background: rgba(5, 150, 105, 0.7);
+}
+[data-ui-theme="pro"] .hs-inference-refresh:has(+ .hs-model-selector--actions):hover:not(:disabled) {
+  background: rgba(5, 150, 105, 0.9);
+}
+[data-ui-theme="dark"] .hs-inference-refresh:has(+ .hs-model-selector--actions) {
+  background: #047857;
+}
+[data-ui-theme="dark"] .hs-inference-refresh:has(+ .hs-model-selector--actions):hover:not(:disabled) {
+  background: #059669;
+}
+
 /* Model selector: model name + caret, always clickable without typing */
 .hs-model-selector {
   padding: 0 8px;
@@ -832,6 +878,12 @@
 .hs-model-item--disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* Host row: resolving handshake / capabilities — not a hard failure. */
+.hs-model-item--host-checking {
+  opacity: 0.92;
+  cursor: default;
 }
 
 .hs-model-group-label--ledge {

@@ -1,11 +1,12 @@
 /**
- * Resolves the same DB surface as main `getHandshakeDb` (ledger + vault fallback)
- * without importing the nested closure from main.ts.
+ * Handshake **ledger** only — same as `getLedgerDbOrOpen` in main (Tier-1, no vault alignment gate).
+ * Internal Host target discovery must not return null just because the vault is locked or
+ * a different account is “active” in the vault service while SSO has already opened the ledger.
  */
 
 import { getCachedUserInfo } from '../../../src/auth/session'
+import { getCurrentSession } from '../handshake/ipc'
 import { buildLedgerSessionToken, getLedgerDb, openLedger } from '../handshake/ledger'
-import { vaultService } from '../vault/service'
 
 export async function getHandshakeDbForInternalInference(): Promise<any | null> {
   let db = getLedgerDb()
@@ -17,21 +18,19 @@ export async function getHandshakeDbForInternalInference(): Promise<any | null> 
         db = await openLedger(tok)
       }
     } catch {
-      /* fall through to vault */
+      /* try SSO session */
     }
   }
   if (!db) {
-    const vs = (globalThis as any).__og_vault_service_ref
-    const vdb = vs?.getDb?.() ?? vs?.db ?? null
-    /**
-     * Internal inference list (Host targets) can use the handshake **ledger** without vault unlock.
-     * The vault path is only used when session is aligned; otherwise we do not read cross-account DB.
-     * See ledger comments: Tier-1 stores handshake metadata without requiring vault.
-     */
-    if (vdb && !vaultService.isActiveVaultAccountAlignedWithSession()) {
-      return null
+    try {
+      const sess = getCurrentSession()
+      if (sess?.wrdesk_user_id && sess?.iss) {
+        const tok = buildLedgerSessionToken(sess.wrdesk_user_id, sess.iss)
+        db = await openLedger(tok)
+      }
+    } catch {
+      /* no ledger */
     }
-    db = vdb
   }
   return db ?? null
 }

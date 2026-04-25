@@ -1924,7 +1924,7 @@ function PopupChatApp() {
             availableModels={availableModels}
             activeLlmModel={activeLlmModel}
             onModelSelect={(name) => { setActiveLlmModel(name); activeLlmModelRef.current = name }}
-            onRefreshModels={async () => { await refreshPopupModels() }}
+            onRefreshModels={async (_reason?: string) => { await refreshPopupModels() }}
             sessionName="Popup Session"
           />
         )
@@ -1979,7 +1979,7 @@ function PopupChatApp() {
             availableModels={availableModels}
             activeLlmModel={activeLlmModel}
             onModelSelect={(name) => { setActiveLlmModel(name); activeLlmModelRef.current = name }}
-            onRefreshModels={async () => { await refreshPopupModels() }}
+            onRefreshModels={async (_reason?: string) => { await refreshPopupModels() }}
             sessionName="Popup Session"
           />
         )

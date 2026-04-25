@@ -565,14 +565,14 @@ function buildInternalInferenceRequestCompletionPayload(params: unknown) {
   if (provider == null) {
     throw new Error('internalInference.requestCompletion: provider must be "host_internal"')
   }
-  const target_id = typeof o.target_id === 'string' ? o.target_id.trim() : ''
   const handshake_id = typeof o.handshake_id === 'string' ? o.handshake_id.trim() : ''
-  if (!target_id) {
-    throw new Error('internalInference.requestCompletion: target_id required')
-  }
   if (!handshake_id) {
     throw new Error('internalInference.requestCompletion: handshake_id required')
   }
+  const target_id =
+    typeof o.target_id === 'string' && o.target_id.trim()
+      ? o.target_id.trim()
+      : handshake_id
   const messages = assertHostChatMessages(o.messages, 'internalInference.requestCompletion')
   const model = typeof o.model === 'string' && o.model.trim() ? o.model.trim().slice(0, 200) : undefined
   const timeout_ms =

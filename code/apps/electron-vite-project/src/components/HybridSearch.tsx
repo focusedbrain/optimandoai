@@ -3,6 +3,7 @@ import {
   GROUP_CLOUD,
   GROUP_HOST_MODELS,
   GROUP_LOCAL_MODELS,
+  HOST_AI_CHECKING_TOOLTIP,
   HOST_AI_OPTION_TOOLTIP,
   HOST_AI_STALE_INLINE,
   HOST_AI_SELECTOR_ICON_CLASS,
@@ -37,9 +38,9 @@ import { logModelSelectorTargets } from '../lib/modelSelectorTargetsLog'
 import {
   type InferenceTargetRefreshReason,
   countMergedModelList,
-  logInferenceTargetRefreshReason,
-  logInferenceTargetRefreshResult,
+  logInferenceTargetRefreshFromLoad,
 } from '../lib/inferenceTargetRefreshLog'
+import { orderModelsLocalHostCloud, mapHostTargetsToGavModelEntries } from '../lib/modelSelectorMerge'
 import {
   isHostInferenceModelId,
   parseAnyHostInferenceModelId,
@@ -167,16 +168,38 @@ type AvailableModel =
       displayTitle: string
       displaySubtitle: string
       hostTargetAvailable: boolean
+      /** From main `handshake:getAvailableModels` — drives checking vs disabled-unavailable copy. */
+      hostSelectorState?: 'available' | 'checking' | 'unavailable'
     }
+
+const RAW_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function isCompactUiRawId(s: string): boolean {
+  const t = s.trim()
+  if (!t) return true
+  if (RAW_UUID_RE.test(t)) return true
+  if (t.length > 60 && t.includes('host-internal:')) return true
+  return false
+}
 
 function getModelLabel(id: string, models: AvailableModel[], hostLabel?: (modelId: string) => string | null): string {
   const h = hostLabel?.(id)
-  if (h) return h
+  if (h && !isCompactUiRawId(h)) return h
+  if (h && isCompactUiRawId(h)) {
+    return 'Host AI'
+  }
   const m = models.find((x) => x.id === id)
   if (m && m.type === 'host_internal') {
-    return m.displayTitle || m.name
+    const title = m.displayTitle || m.name
+    if (!isCompactUiRawId(title)) return title
+    return 'Host AI'
   }
-  return m?.name ?? id
+  const n = m?.name ?? id
+  if (isCompactUiRawId(n)) {
+    return n.length > 20 ? `…${n.slice(-8)}` : n
+  }
+  return n
 }
 
 function defaultScope(view: DashboardView): SearchScope {
@@ -542,6 +565,8 @@ const SUPPORTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/g
 const MAX_IMAGE_SIZE  = 10 * 1024 * 1024  // 10 MB
 const MAX_PDF_SIZE    = 20 * 1024 * 1024  // 20 MB
 const MAX_CHAT_ATTACHMENTS = 5
+/** Re-fetch `getAvailableModels` when opening the model menu if the last successful load is older than this. */
+const SELECTOR_MODEL_LIST_STALE_MS = 20_000
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -593,6 +618,7 @@ export default function HybridSearch({
   const orchestratorChatModelRestoredRef = useRef(false)
   const lastAccountKeyForOrchRef = useRef(accountKeyFromSession())
   const isFirstOrchListRef = useRef(true)
+  const lastInferenceTargetFetchAtRef = useRef(0)
   const [inferenceSelectionPersistError, setInferenceSelectionPersistError] = useState<string | null>(null)
 
   const [hostInfSuccess, setHostInfSuccess] = useState(false)
@@ -607,18 +633,35 @@ export default function HybridSearch({
   const loadModels = useCallback(async (reason?: InferenceTargetRefreshReason) => {
     try {
       const result = await window.handshakeView?.getAvailableModels?.()
-      if (result?.success && Array.isArray(result.models)) {
-        const models = result.models as AvailableModel[]
+      const withHost = result as {
+        success?: boolean
+        models?: unknown[]
+        hostInferenceTargets?: HostInferenceTargetRow[]
+        inferenceRefreshMeta?: { hadCapabilitiesProbed?: boolean }
+      }
+      const hostTargets = Array.isArray(withHost.hostInferenceTargets) ? withHost.hostInferenceTargets : []
+      if (Array.isArray(withHost.hostInferenceTargets)) {
+        setGavHostTargets(withHost.hostInferenceTargets)
+      } else {
+        setGavHostTargets([])
+      }
+      if (result?.success) {
+        const rawModels = Array.isArray((result as { models?: unknown }).models)
+          ? (result as { models: unknown[] }).models
+          : []
+        let models = orderModelsLocalHostCloud(rawModels as AvailableModel[])
+        if (hostTargets.length > 0) {
+          const fromTargets = mapHostTargetsToGavModelEntries(hostTargets) as unknown as AvailableModel[]
+          const seen = new Set(models.map((m) => m.id))
+          for (const row of fromTargets) {
+            if (!seen.has(row.id)) {
+              models.push(row)
+              seen.add(row.id)
+            }
+          }
+          models = orderModelsLocalHostCloud(models)
+        }
         setAvailableModels(models)
-        const withHost = result as {
-          hostInferenceTargets?: HostInferenceTargetRow[]
-          inferenceRefreshMeta?: { hadCapabilitiesProbed?: boolean }
-        }
-        if (Array.isArray(withHost.hostInferenceTargets)) {
-          setGavHostTargets(withHost.hostInferenceTargets)
-        } else {
-          setGavHostTargets([])
-        }
         const localCount = models.filter((m) => m.type === 'local').length
         const hostInternalCount = models.filter((m) => m.type === 'host_internal').length
         const gav = Array.isArray(withHost.hostInferenceTargets) ? withHost.hostInferenceTargets : []
@@ -648,20 +691,51 @@ export default function HybridSearch({
                   displaySubtitle: m.displaySubtitle,
                 }))
         const { local, host, final } = countMergedModelList(models)
-        if (reason) {
-          logInferenceTargetRefreshReason(reason)
-          logInferenceTargetRefreshResult(local, host, final)
-          if (withHost.inferenceRefreshMeta?.hadCapabilitiesProbed) {
-            logInferenceTargetRefreshReason('capabilities_result')
-            logInferenceTargetRefreshResult(local, host, final)
-          }
-        }
+        const hadCap = Boolean(withHost.inferenceRefreshMeta?.hadCapabilitiesProbed)
+        logInferenceTargetRefreshFromLoad(reason, hadCap, local, host, final)
+        lastInferenceTargetFetchAtRef.current = Date.now()
         logModelSelectorTargets({
           selector: 'top',
           localCount,
           hostCount: hostInternalCount,
           finalCount: models.length,
           hostTargets: { ipc: 'handshake:getAvailableModels', rows: hostTargetsPayload },
+          selected: { selectedModel: selectedModelRef.current },
+        })
+        return result
+      }
+      if (hostTargets.length > 0) {
+        const models = orderModelsLocalHostCloud(
+          mapHostTargetsToGavModelEntries(hostTargets) as unknown as AvailableModel[],
+        )
+        setAvailableModels(models)
+        const localCount = 0
+        const hostInternalCount = models.filter((m) => m.type === 'host_internal').length
+        const gav = hostTargets
+        const hostTargetsPayload = gav.map((t) => ({
+          id: t.id,
+          kind: t.kind,
+          handshake_id: t.handshake_id,
+          available: t.available,
+          availability: t.availability,
+          label: t.label,
+          display_label: t.display_label,
+          model: t.model,
+          model_id: t.model_id,
+          secondary_label: t.secondary_label,
+          direct_reachable: t.direct_reachable,
+          policy_enabled: t.policy_enabled,
+        }))
+        const { local, host, final } = countMergedModelList(models)
+        const hadCapHostOnly = Boolean(withHost.inferenceRefreshMeta?.hadCapabilitiesProbed)
+        logInferenceTargetRefreshFromLoad(reason, hadCapHostOnly, local, host, final)
+        lastInferenceTargetFetchAtRef.current = Date.now()
+        logModelSelectorTargets({
+          selector: 'top',
+          localCount,
+          hostCount: hostInternalCount,
+          finalCount: models.length,
+          hostTargets: { ipc: 'handshake:getAvailableModels+hostTargetsOnly', rows: hostTargetsPayload },
           selected: { selectedModel: selectedModelRef.current },
         })
         return result
@@ -677,7 +751,9 @@ export default function HybridSearch({
   const gavForHostHook = useMemo(
     () => ({
       targets: gavHostTargets,
-      refresh: loadModels,
+      refresh: async (reason?: InferenceTargetRefreshReason): Promise<void> => {
+        await loadModels(reason)
+      },
     }),
     [gavHostTargets, loadModels],
   )
@@ -1006,6 +1082,16 @@ export default function HybridSearch({
   }, [loadModels])
 
   useEffect(() => {
+    const onOrchestratorMode = () => {
+      void loadModels('mode_change')
+    }
+    window.addEventListener('orchestrator-mode-changed', onOrchestratorMode)
+    return () => {
+      window.removeEventListener('orchestrator-mode-changed', onOrchestratorMode)
+    }
+  }, [loadModels])
+
+  useEffect(() => {
     if (selectedModel) {
       persistOrchestratorModelId(selectedModel, availableModels)
     }
@@ -1025,7 +1111,7 @@ export default function HybridSearch({
         void loadModels('account_change')
         return
       }
-      void loadModels()
+      void loadModels('visibility_resume')
     }
     document.addEventListener('visibilitychange', onResume)
     return () => document.removeEventListener('visibilitychange', onResume)
@@ -2332,50 +2418,78 @@ export default function HybridSearch({
 
           {/* Model picker — Chat / Actions only. Does NOT affect Auto-Sort (autosort has its own selector in the inbox toolbar row). */}
           {showModelSelector && (
-            <button
-              className={`hs-model-selector${modelMenuOpen ? ' hs-model-caret--open' : ''}${mode === 'actions' ? ' hs-model-selector--actions' : ''}`}
-              onClick={async () => {
-                if (isSortingActive) return
-                const next = !modelMenuOpen
-                setModelMenuOpen(next)
-                if (next) {
-                  void (async () => {
-                    try {
-                      const result = await loadModels('selector_open')
-                      if (result?.success && Array.isArray(result.models)) {
-                        const models = result.models as AvailableModel[]
-                        const preferred =
-                          models.find((m) => m.type === 'local') ??
-                          models.find((m) => m.type === 'host_internal') ??
-                          models[0]
-                        setSelectedModel((prev) => {
-                          if (isHostInferenceModelId(prev)) {
-                            return prev
+            <>
+              <button
+                type="button"
+                className="hs-inference-refresh"
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  void loadModels('manual_refresh')
+                }}
+                disabled={isSortingActive}
+                aria-label="Refresh inference model list"
+                title="Refresh Host / local model list"
+              >
+                ↻
+              </button>
+              <button
+                className={`hs-model-selector${modelMenuOpen ? ' hs-model-caret--open' : ''}${mode === 'actions' ? ' hs-model-selector--actions' : ''}`}
+                onClick={async () => {
+                  if (isSortingActive) return
+                  const next = !modelMenuOpen
+                  setModelMenuOpen(next)
+                  if (next) {
+                    void (async () => {
+                      try {
+                        const t0 = lastInferenceTargetFetchAtRef.current
+                        const listStale =
+                          t0 === 0 ||
+                          Date.now() - t0 > SELECTOR_MODEL_LIST_STALE_MS ||
+                          availableModels.length === 0
+                        let models: AvailableModel[] | null = null
+                        if (listStale) {
+                          const result = await loadModels('selector_open')
+                          if (result?.success && Array.isArray(result.models)) {
+                            models = result.models as AvailableModel[]
                           }
-                          if (models.some((m) => m.id === prev)) {
-                            return prev
-                          }
-                          return preferred?.id ?? ''
-                        })
+                        } else {
+                          models = availableModels
+                        }
+                        if (models && models.length > 0) {
+                          const preferred =
+                            models.find((m) => m.type === 'local') ??
+                            models.find((m) => m.type === 'host_internal') ??
+                            models[0]
+                          setSelectedModel((prev) => {
+                            if (isHostInferenceModelId(prev)) {
+                              return prev
+                            }
+                            if (models!.some((m) => m.id === prev)) {
+                              return prev
+                            }
+                            return preferred?.id ?? ''
+                          })
+                        }
+                      } catch {
+                        /* ignore */
                       }
-                    } catch {
-                      /* ignore */
-                    }
-                  })()
+                    })()
+                  }
+                }}
+                disabled={isSortingActive}
+                aria-label="Chat model"
+                title={
+                  isSortingActive
+                    ? 'Chat model cannot be changed while Auto-Sort is running.'
+                    : 'Chat model — click to switch. This selector is for Chat/Actions only and does not affect Auto-Sort.'
                 }
-              }}
-              disabled={isSortingActive}
-              aria-label="Chat model"
-              title={
-                isSortingActive
-                  ? 'Chat model cannot be changed while Auto-Sort is running.'
-                  : 'Chat model — click to switch. This selector is for Chat/Actions only and does not affect Auto-Sort.'
-              }
-              tabIndex={0}
-            >
-              <span className="hs-send-model">{getModelLabel(selectedModel, availableModels, hostModelLabel)}</span>
-              <span className="hs-model-caret">▾</span>
-            </button>
+                tabIndex={0}
+              >
+                <span className="hs-send-model">{getModelLabel(selectedModel, availableModels, hostModelLabel)}</span>
+                <span className="hs-model-caret">▾</span>
+              </button>
+            </>
           )}
 
           {modelMenuOpen && showModelSelector && (
@@ -2446,9 +2560,21 @@ export default function HybridSearch({
                               m.displaySubtitle?.trim() ||
                               t?.secondary_label?.trim() ||
                               ''
-                            const tip = m.hostTargetAvailable
-                              ? HOST_AI_OPTION_TOOLTIP
-                              : [HOST_AI_UNREACHABLE_TOOLTIP, sub].filter(Boolean).join(' ')
+                            const sel =
+                              m.hostSelectorState ??
+                              (m.hostTargetAvailable ? 'available' : 'unavailable')
+                            const tip =
+                              sel === 'checking'
+                                ? HOST_AI_CHECKING_TOOLTIP
+                                : m.hostTargetAvailable
+                                  ? HOST_AI_OPTION_TOOLTIP
+                                  : [HOST_AI_UNREACHABLE_TOOLTIP, sub].filter(Boolean).join(' ')
+                            const hostItemMod =
+                              !m.hostTargetAvailable && sel === 'checking'
+                                ? ' hs-model-item--host-checking'
+                                : !m.hostTargetAvailable
+                                  ? ' hs-model-item--disabled'
+                                  : ''
                             return (
                               <button
                                 key={id}
@@ -2456,7 +2582,7 @@ export default function HybridSearch({
                                 role="menuitem"
                                 disabled={!m.hostTargetAvailable}
                                 title={tip}
-                                className={`hs-model-item hs-model-item--host${active ? ' hs-model-item--active' : ''}${!m.hostTargetAvailable ? ' hs-model-item--disabled' : ''}`}
+                                className={`hs-model-item hs-model-item--host${active ? ' hs-model-item--active' : ''}${hostItemMod}`}
                                 onClick={() => {
                                   if (!m.hostTargetAvailable) return
                                   setSelectedModel(id)

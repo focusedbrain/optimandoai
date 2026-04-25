@@ -7,6 +7,7 @@ import {
   formatInternalInferenceErrorCode,
   getRequestHostCompletion,
   hostModelDisplayNameFromSelection,
+  isHostInternalChatModelId,
   resolveChatInferenceKind,
 } from '@ext/lib/inferenceSubmitRouting'
 import { hostInternalInferenceModelId } from '../hostInferenceModelIds'
@@ -215,6 +216,15 @@ describe('selector integration — selection / routing (extension + preload cont
 
   it('cloud model id routes to cloud', () => {
     expect(resolveChatInferenceKind('oai-gpt4', [{ id: 'oai-gpt4', type: 'cloud' }])).toBe('cloud')
+  })
+
+  it('isHostInternalChatModelId: route id or host row', () => {
+    const id = hostInternalInferenceModelId('hs', 'gemma')
+    expect(isHostInternalChatModelId(id, [])).toBe(true)
+    expect(
+      isHostInternalChatModelId('opaque', [{ name: 'opaque', hostAi: true, section: 'local' }]),
+    ).toBe(true)
+    expect(isHostInternalChatModelId('local-id', [{ name: 'local-id', section: 'local' }])).toBe(false)
   })
 
   it('selecting Host uses requestCompletion when exposed (STEP 5)', () => {

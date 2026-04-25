@@ -3730,6 +3730,20 @@ app.whenReady().then(async () => {
         const localForChat =
           isSandboxMode() && process.env.WRDESK_SANDBOX_LOCAL_OLLAMA !== '1' ? [] : localModels
 
+        /** Same `mode` as `orchestrator:getMode` / isSandboxMode() — `orchestrator-mode.json` (userData). */
+        const mainOrchMode = getOrchestratorMode().mode
+        console.log(`[HOST_INFERENCE_TARGETS] list_begin mode=${mainOrchMode}`)
+        if (mainOrchMode !== 'host' && mainOrchMode !== 'sandbox') {
+          console.warn(
+            `[HOST_INFERENCE_TARGETS] mode_unknown persisted_orchestrator_mode=${String(mainOrchMode)}`,
+          )
+        }
+        if (!isSandboxMode()) {
+          console.log(
+            '[HOST_INFERENCE_TARGETS] host_internal_merge_skipped reason=orchestrator_mode_not_sandbox',
+          )
+        }
+
         const hostForChat: Array<{
           id: string
           name: string
@@ -3738,6 +3752,7 @@ app.whenReady().then(async () => {
           displayTitle: string
           displaySubtitle: string
           hostTargetAvailable: boolean
+          hostSelectorState: 'available' | 'checking' | 'unavailable'
         }> = []
         let hostInferenceTargetsOut: unknown[] | undefined
         let inferenceRefreshMeta: { hadCapabilitiesProbed: boolean } | undefined
@@ -3762,6 +3777,7 @@ app.whenReady().then(async () => {
                 displayTitle: title,
                 displaySubtitle: sub,
                 hostTargetAvailable: t.available,
+                hostSelectorState: t.host_selector_state,
               })
             }
           } catch (e: any) {

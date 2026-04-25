@@ -6,6 +6,10 @@ export const HOST_AI_OPTION_TOOLTIP =
 export const HOST_AI_UNREACHABLE_TOOLTIP =
   'Host not directly reachable. Check that the Host is online, on a reachable network path, and that firewalls or VPN allow the connection.'
 
+/** Placeholder while the internal Host handshake is recognized but capabilities are not ready yet. */
+export const HOST_AI_CHECKING_TOOLTIP =
+  'Resolving the Host’s model and network path. No action required — this updates automatically.'
+
 export const HOST_AI_STALE_INLINE =
   'That Host model is no longer in the list. Choose another model to continue.'
 
