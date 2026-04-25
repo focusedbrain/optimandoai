@@ -5370,6 +5370,9 @@ app.whenReady().then(async () => {
     const { registerInternalInferenceIpc } = await import('./main/internalInference/ipc')
     registerInternalInferenceIpc()
     console.log('[MAIN] Internal-inference IPC handlers registered')
+    void import('./main/internalInference/p2pSessionManagerStub').then((m) =>
+      m.maybeInitP2pSessionManagerStub({ phase: 'app_init' }),
+    )
 
     registerOrchestratorIPC()
     console.log('[MAIN] Orchestrator IPC handlers registered')

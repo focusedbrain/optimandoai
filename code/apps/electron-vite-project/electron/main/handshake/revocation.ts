@@ -23,6 +23,7 @@ import { enqueueOutboundCapsule, processOutboundQueue } from './outboundQueue'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { internalRelayCapsuleWireOptsFromRecord } from './internalCoordinationWire'
+import { P2pSessionLogReason, closeSession } from '../internalInference/p2pSession/p2pInferenceSessionManager'
 
 export async function revokeHandshake(
   db: any,
@@ -73,6 +74,12 @@ export async function revokeHandshake(
   })
 
   tx()
+
+  try {
+    closeSession(handshakeId, P2pSessionLogReason.handshake_revoked)
+  } catch {
+    /* no-op: internal inference P2P session cleanup must not break revocation */
+  }
 
   // 5. Best-effort peer notification: build and enqueue a signed revoke capsule.
   //    Only for local-user initiated revocations (remote-capsule means we already received theirs).

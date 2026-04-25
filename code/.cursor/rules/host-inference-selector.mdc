@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Host inference selector (Sandbox)
 
-**Scope:** Sandbox orchestrator, **ACTIVE same-principal internal Host** handshake, model selector (orchestrator chat / related surfaces that consume `handshake:getAvailableModels` Host rows).
+**Scope:** Sandbox orchestrator, **ACTIVE same-principal internal Host** handshake, model selector (orchestrator chat / related surfaces that consume `handshake:getAvailableModels` Host rows). For **BEAP / P2P / policy / logging** invariants, see `internal-inference-p2p-invariants.mdc`.
 
 ## Invariants
 

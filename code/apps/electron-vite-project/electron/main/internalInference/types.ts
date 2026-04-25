@@ -9,6 +9,8 @@ export type InternalServiceMessageType =
   | 'internal_inference_request'
   | 'internal_inference_result'
   | 'internal_inference_error'
+  /** Sandbox → Host: cancel a pending `internal_inference_request` on Host (rejects local pending on Sandbox). */
+  | 'internal_inference_cancel'
   /** Sandbox → Host direct P2P POST; response body is `InternalInferenceCapabilitiesResultWire` (no second POST). */
   | 'internal_inference_capabilities_request'
 

@@ -18,11 +18,18 @@ export const InternalInferenceErrorCode = {
   PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
   RATE_LIMITED: 'RATE_LIMITED',
   REQUEST_EXPIRED: 'REQUEST_EXPIRED',
+  /** Client requested cancel; Sandbox may treat as a soft error. */
+  REQUEST_CANCELLED: 'REQUEST_CANCELLED',
   PROVIDER_TIMEOUT: 'PROVIDER_TIMEOUT',
   /** Provider (e.g. Ollama) not running or not reachable; distinct from time-based timeouts. */
   PROVIDER_UNAVAILABLE: 'PROVIDER_UNAVAILABLE',
   PROVIDER_BUSY: 'PROVIDER_BUSY',
   INTERNAL_INFERENCE_FAILED: 'INTERNAL_INFERENCE_FAILED',
+  /**
+   * Host no longer serves `internal_inference_request` on HTTP /beap/ingest when P2P+DC is the
+   * configured path — old Sandboxes must use DataChannel, or set `WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT=1`.
+   */
+  P2P_INFERENCE_REQUIRED: 'P2P_INFERENCE_REQUIRED',
 } as const
 
 export type InternalInferenceErrorCodeType =

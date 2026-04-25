@@ -33,6 +33,7 @@ import { computeSamePrincipalCoordinationSkipOwn } from './coordinationSamePrinc
 import { requestCoordinationFlushQueued } from './coordinationFlushQueued'
 import { getCanonicalRelayDeviceId, logDeviceIdBinding } from './relayDeviceBinding'
 import { relayIdentitySnapshot } from './relayIdentity'
+import { tryHandleCoordinationP2pSignal } from '../internalInference/relayP2pSignalHandler'
 
 /**
  * In-memory buffer for context_sync capsules that arrived before the accept was processed.
@@ -702,6 +703,15 @@ export function createCoordinationWsClient(
           // System events (e.g. tier_changed) are no longer processed — tier/entitlement
           // updates come from /api/vault/status and auth status polling only.
           if (msg?.type === 'system_event') {
+            return
+          }
+
+          if (
+            tryHandleCoordinationP2pSignal(
+              msg as Record<string, unknown>,
+              typeof (msg as { id?: string }).id === 'string' ? (msg as { id: string }).id : 'unknown',
+            )
+          ) {
             return
           }
 

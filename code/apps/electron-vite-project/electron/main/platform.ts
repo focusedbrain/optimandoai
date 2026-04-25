@@ -33,3 +33,27 @@ export function getRendererIndexPath(
   // Windows (and macOS): app.getAppPath() works correctly
   return path.join(app.getAppPath(), 'dist', 'index.html')
 }
+
+/**
+ * Multi-page Vite build: `src/internal-inference-p2p-transport.html` → `dist/src/...` (no React).
+ * Same __dirname / app.getAppPath() rules as `getRendererIndexPath`.
+ */
+export function getP2pTransportPagePath(
+  __dirnameVal: string,
+  rendererDist: string,
+  isPackaged: boolean,
+): string {
+  if (!isPackaged) {
+    return path.join(rendererDist, 'src', 'internal-inference-p2p-transport.html')
+  }
+  if (isLinux) {
+    return path.join(
+      __dirnameVal,
+      '..',
+      'dist',
+      'src',
+      'internal-inference-p2p-transport.html',
+    )
+  }
+  return path.join(app.getAppPath(), 'dist', 'src', 'internal-inference-p2p-transport.html')
+}

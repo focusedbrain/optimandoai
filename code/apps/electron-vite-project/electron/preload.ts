@@ -641,6 +641,39 @@ contextBridge.exposeInMainWorld('internalInference', {
     ipcRenderer.invoke('internal-inference:inspectP2pHandshake', {
       handshakeId: typeof handshakeId === 'string' ? handshakeId.trim() : undefined,
     }),
+  p2pEnsureSession: (params: { handshakeId: string; reason?: string }) => {
+    const handshakeId = typeof params?.handshakeId === 'string' ? params.handshakeId.trim() : ''
+    if (!handshakeId) {
+      throw new Error('internalInference.p2pEnsureSession: handshakeId required')
+    }
+    return ipcRenderer.invoke('internal-inference:p2pSession:ensure', { handshakeId, reason: params?.reason })
+  },
+  p2pCloseSession: (params: { handshakeId: string; reason: string }) => {
+    const handshakeId = typeof params?.handshakeId === 'string' ? params.handshakeId.trim() : ''
+    if (!handshakeId) {
+      throw new Error('internalInference.p2pCloseSession: handshakeId required')
+    }
+    const reason = typeof params?.reason === 'string' && params.reason.trim() ? params.reason : 'user'
+    return ipcRenderer.invoke('internal-inference:p2pSession:close', { handshakeId, reason })
+  },
+  p2pGetSessionState: (handshakeId: string) => {
+    const id = typeof handshakeId === 'string' ? handshakeId.trim() : ''
+    if (!id) {
+      throw new Error('internalInference.p2pGetSessionState: handshakeId required')
+    }
+    return ipcRenderer.invoke('internal-inference:p2pSession:getState', id)
+  },
+  webrtcRunLocalPairTest: () => ipcRenderer.invoke('internal-inference:webrtc:runLocalPairTest'),
+  p2pOnSessionState: (cb: (state: unknown) => void) => {
+    if (typeof cb !== 'function') {
+      throw new Error('internalInference.p2pOnSessionState: callback required')
+    }
+    const h = (_e: Electron.IpcRendererEvent, state: unknown) => cb(state)
+    ipcRenderer.on('internal-inference:p2pSession:state', h)
+    return () => {
+      ipcRenderer.removeListener('internal-inference:p2pSession:state', h)
+    }
+  },
 })
 
 // ── Analysis Dashboard ───────────────────────────────────────────────────

@@ -14,11 +14,13 @@ import {
   clearWrChatInferenceSelection,
 } from '../lib/inferenceSelectionPersistence'
 import { logModelSelectorTargets } from '../lib/modelSelectorTargetsLog'
+import { mapHostTargetsToGavModelEntries, orderModelsLocalHostCloud } from '../lib/modelSelectorMerge'
 import {
   fetchSelectorModelListFromHostDiscovery,
   type FetchSelectorModelListResult,
   wrChatModelOptionsFromSelectorModels,
 } from '../lib/selectorModelListFromHostDiscovery'
+import type { SelectorAvailableModel } from '../lib/selectorModelListFromHostDiscovery'
 import type { HostInferenceTargetRow } from '../hooks/useSandboxHostInference'
 import {
   type InferenceTargetRefreshReason,
@@ -259,7 +261,14 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
           hostIdToTarget.set(r.id, r)
         }
       }
-      const baseRows = wrChatModelOptionsFromSelectorModels(discovered.models) as WrChatModelOption[]
+      const modelSource: SelectorAvailableModel[] =
+        !discovered.models.some((m) => m.type === 'host_internal') && discovered.gavForHook.length > 0
+          ? orderModelsLocalHostCloud([
+              ...discovered.models,
+              ...mapHostTargetsToGavModelEntries(discovered.gavForHook),
+            ])
+          : discovered.models
+      const baseRows = wrChatModelOptionsFromSelectorModels(modelSource) as WrChatModelOption[]
       const withSizes = baseRows.map((row) => {
         if (row.section !== 'local') {
           return row

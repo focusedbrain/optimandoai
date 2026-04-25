@@ -5,6 +5,7 @@
 
 import type { createCoordinationWsClient } from './coordinationWs'
 import { setP2PHealthCoordinationDisconnected } from './p2pHealth'
+import { P2pSessionLogReason, closeAllP2pInferenceSessions } from '../internalInference/p2pSession/p2pInferenceSessionManager'
 
 type CoordinationClient = ReturnType<typeof createCoordinationWsClient> | null
 
@@ -58,6 +59,11 @@ export function disconnectCoordinationWsForAccountSwitch(reason: 'logout' | 'acc
       reason,
     }),
   )
+  try {
+    closeAllP2pInferenceSessions(P2pSessionLogReason.account_switch)
+  } catch {
+    /* */
+  }
 }
 
 export function getCoordinationWsUserKey(): string | null {

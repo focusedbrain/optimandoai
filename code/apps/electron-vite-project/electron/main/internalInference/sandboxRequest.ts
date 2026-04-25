@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto'
 import { getHandshakeRecord } from '../handshake/db'
 import { getInstanceId, isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
-import { postServiceEnvelopeDirect } from './directSend'
+import { requestHostCompletion } from './transport/internalInferenceTransport'
 import { InternalInferenceErrorCode } from './errors'
 import {
   assertP2pEndpointDirect,
@@ -58,7 +58,8 @@ export async function runSandboxPongTestFromHostHandshake(handshakeId: string): 
     return { ok: false, code: role.code, message: 'role' }
   }
   const direct = assertP2pEndpointDirect(db, r.p2p_endpoint)
-  if (!direct.ok) {
+  const directOk = direct.ok
+  if (!directOk) {
     return {
       ok: false,
       code: direct.code,
@@ -87,19 +88,10 @@ export async function runSandboxPongTestFromHostHandshake(handshakeId: string): 
     stream: false,
     messages: [{ role: 'user', content: 'ping' }],
   }
-  const ep = r.p2p_endpoint?.trim() ?? ''
-  const post = await postServiceEnvelopeDirect(
-    wire,
-    ep,
-    r.handshake_id,
-    r.counterparty_p2p_token,
-    {
-      request_id: requestId,
-      sender_device_id: wire.sender_device_id,
-      target_device_id: wire.target_device_id,
-      message_type: 'internal_inference_request',
-    },
-  )
+  const post = await requestHostCompletion(r.handshake_id, wire, {
+    record: r,
+    directEndpointOk: directOk,
+  })
   if (!post.ok) {
     rejectInternalInferenceByRequestId(
       requestId,

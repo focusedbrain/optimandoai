@@ -1,0 +1,69 @@
+---
+description: DO-NOT-BREAK + final target state — internal Host AI, P2P, BEAP, security, UI
+alwaysApply: true
+---
+
+# Internal Host inference and P2P
+
+**Scope:** `electron/main/internalInference/**`, P2P/WebRTC, coordination relay, BEAP/inbox boundaries, Sandbox Host AI UI. Complements `host-inference-selector.mdc` (row-level invariants on Sandbox).
+
+## Final target state
+
+**Sandbox selector** (single Host row; explicit phase copy):
+
+- `Host AI · connecting…`
+- `Host AI · <active_host_model>`
+- `Host AI · P2P unavailable`
+- `Host AI · no active model`
+- `Host AI · disabled by Host`
+
+**Host selector:**
+
+- **Local models only** — no merged “Host AI” internal-inference row on the Host machine’s own picker.
+- **No Host AI refresh** (Sandbox-only affordance).
+- **No self-target** — Host does not offer internal Host↔Sandbox inference as a target to itself.
+
+**Transport:**
+
+- **Relay** carries **`p2p_signal` only** (offer/answer/ICE control), not inference bodies.
+- **DataChannel** for **capabilities** and **inference** bytes when P2P is up and flags allow.
+- **Direct HTTP** is **transitional / fallback** only (`p2pInferenceFlags`, `transportDecide`); not the long-term primary once DC is proven.
+- **No inference payload** on the **wrdesk coordination relay** — no prompt/result streaming through the generic relay path; DC or allowed HTTP direct path only.
+
+**Security:**
+
+- **Internal**, **ACTIVE**, **same-principal** Host/Sandbox pair only (`assertRecordForServiceRpc` and policy).
+- **Host opt-in / policy** gates what the Sandbox may call.
+- **Strict** size, time, and rate limits (policy store, request rate limit, DC frame caps).
+- **Metadata-only logs** — no prompt, completion, SDP/ICE bodies, or tokens in logs.
+
+---
+
+## Non-negotiables (do not break)
+
+## Do not
+
+- **Carry inference over BEAP capsules** — Do not send inference prompts/results through `/beap/capsule` or the capsule ingest path. Internal inference uses **HTTP `/beap/ingest` (where enabled)** and/or **P2P signaling + DataChannel** as designed, not the inbox capsule family.
+- **Reuse the BEAP inbox path for inference RPC** — Inbox, orchestration, and `p2p_signal` are separate concerns; do not route inference RPCs through the same pipeline as `direct_beap` / `email_beap` message handling.
+- **Enqueue inference in `p2p_pending_beap`** — Do not insert inference service messages there; regression: `internalInference.directHost.regression.test.ts` (internal_inference_request does not enqueue `p2p_pending_beap`).
+- **Weaken `assertRecordForServiceRpc`** — This gate restricts Host inference to **internal, same-principal, ACTIVE, identity-complete** handshakes. Do not relax checks for “convenience”; extend tests in `policy.internalInference.test.ts` if behavior changes.
+- **Allow standard / external handshakes to use Host inference** — Non-internal and external handshakes must not gain Host Ollama inference; policy + ingest remain the authority.
+- **Host AI self-target on Host** — The Host machine must not present “use Host’s own Ollama via internal inference” in a self-targeting way; Sandbox-only affordances (e.g. refresh) stay off Host.
+- **Hide Host AI on Sandbox** when an **active internal Host handshake** exists — See `host-inference-selector.mdc`: empty local Sandbox models must not remove the Host row.
+- **Log sensitive content** — Do not log prompt, completion, output text, **SDP, ICE content**, or tokens. Metadata-only logs (e.g. `[HOST_AI_INFER]`, byte counts, ids). Use `internalInferenceLogRedact` and related patterns.
+- **Remove the HTTP path while P2P is still unproven** — **Compatibility flags** must remain; `WRDESK_P2P_INFERENCE_HTTP_FALLBACK` and direct HTTP for internal inference stay until P2P DataChannel is proven in production. Do not delete the working HTTP direct path in favor of P2P-only without product sign-off.
+
+## Do
+
+- **Keep compatibility flags** — P2P feature flags in `p2pInferenceFlags.ts` remain env-driven and backward compatible.
+- **Isolate signaling from BEAP capsules** — P2P signaling is **`p2p_signal` / coordination relay**, not a BEAP inbox capsule; coordination service must not store inference in `coordination_capsules` for signaling.
+- **Keep Ollama in main** — Model execution stays in the main process; transport is bytes only.
+- **Keep the hidden WebRTC renderer minimal and non-React** — No React in that surface; no UI coupling.
+- **UI state: compact and explicit** — e.g. “P2P unavailable” vs “no model” / policy — use the established copy in `listInferenceTargets`, `hostRefreshFeedback`, and selector helpers.
+
+## Code anchors (this repo)
+
+- **Policy / gate:** `internalInference/policy.ts` — `assertRecordForServiceRpc`, `assertP2pEndpointDirect` where applicable.
+- **P2P signal vs BEAP:** `internalInference/relayP2pSignalHandler.ts` — `p2p_signal` handling, forbidden keys, no `prompt`/`messages` in signal payloads.
+- **HTTP vs P2P transport:** `internalInference/transport/transportDecide.ts`, `p2pInferenceFlags.ts`.
+- **Logging contract:** `internalInference/hostAiInferLog.ts` — metadata only.

@@ -11,6 +11,25 @@ import {
   type HostInternalInferencePolicy,
 } from './hostInferencePolicyStore'
 import { runSandboxPongTestFromHostHandshake } from './sandboxRequest'
+import {
+  closeSession,
+  ensureSession,
+  getSessionState,
+  P2pSessionLogReason,
+  type P2pSessionState,
+} from './p2pSession/p2pInferenceSessionManager'
+import { registerWebrtcTransportIpc } from './webrtc/webrtcTransportIpc'
+
+type P2pSessionLogReasonType = (typeof P2pSessionLogReason)[keyof typeof P2pSessionLogReason]
+
+function parseP2pSessionCloseReason(r: unknown): P2pSessionLogReasonType {
+  const s = typeof r === 'string' ? r : ''
+  const allowed = new Set<string>(Object.values(P2pSessionLogReason)) as Set<string>
+  if (s && allowed.has(s)) {
+    return s as P2pSessionLogReasonType
+  }
+  return P2pSessionLogReason.unknown
+}
 
 export function registerInternalInferenceIpc(): void {
   console.log('[InternalInference IPC] register')
@@ -158,4 +177,38 @@ export function registerInternalInferenceIpc(): void {
   ipcMain.handle('internal-inference:runHostChat', handleHostChatOrRequestCompletion)
   /** Direct P2P internal inference; camelCase params (older preload). */
   ipcMain.handle('internal-inference:requestHostCompletion', handleHostChatOrRequestCompletion)
+
+  /** P2P session skeleton (no WebRTC): state for selectors, signaling hooks only. */
+  ipcMain.handle(
+    'internal-inference:p2pSession:ensure',
+    async (
+      _e: unknown,
+      params: { handshakeId?: string; reason?: string },
+    ): Promise<P2pSessionState> => {
+      const handshakeId = typeof params?.handshakeId === 'string' ? params.handshakeId.trim() : ''
+      const reason = typeof params?.reason === 'string' && params.reason.trim() ? params.reason.trim() : 'ipc'
+      return ensureSession(handshakeId, reason)
+    },
+  )
+  ipcMain.handle(
+    'internal-inference:p2pSession:close',
+    async (
+      _e: unknown,
+      params: { handshakeId?: string; reason?: string },
+    ): Promise<{ ok: true }> => {
+      const handshakeId = typeof params?.handshakeId === 'string' ? params.handshakeId.trim() : ''
+      const reason = parseP2pSessionCloseReason(params?.reason)
+      closeSession(handshakeId, reason)
+      return { ok: true as const }
+    },
+  )
+  ipcMain.handle('internal-inference:p2pSession:getState', async (_e: unknown, handshakeId: unknown) => {
+    const id = typeof handshakeId === 'string' ? handshakeId.trim() : ''
+    if (!id) {
+      return null
+    }
+    return getSessionState(id)
+  })
+
+  registerWebrtcTransportIpc()
 }

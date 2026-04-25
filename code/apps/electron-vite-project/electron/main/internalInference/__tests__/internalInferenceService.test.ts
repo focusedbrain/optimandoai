@@ -16,11 +16,14 @@ import {
 import { _resetHostInferencePolicyForTests } from '../hostInferencePolicyStore'
 import { _resetConcurrencyForTests } from '../hostInferenceConcurrency'
 import { INTERNAL_INFERENCE_SCHEMA_VERSION, type InternalInferenceErrorWire, type InternalInferenceResultWire } from '../types'
+import { resetP2pInferenceFlagsForTests } from '../p2pInferenceFlags'
+import { _resetHandshakeRateLimitForTests } from '../hostInferenceRequestRateLimit'
 
 vi.mock('electron', () => ({
   app: {
     getPath: () => path.join(tmpdir(), 'ev-internal-infer-test'),
     getAppPath: () => path.join(tmpdir(), 'ev-internal-infer-test-app'),
+    isPackaged: true,
   },
 }))
 
@@ -199,8 +202,10 @@ const defaultPolicy = {
   allowSandboxInference: true,
   modelAllowlist: [] as string[],
   maxPromptBytes: 256_000,
+  maxOutputBytes: 256_000,
   timeoutMs: 60_000,
   maxConcurrent: 1,
+  maxRequestsPerHandshakePerMinute: 10_000,
   capabilitiesExposeAllInstalledOllama: false,
 }
 
@@ -256,6 +261,103 @@ describe('host dispatch with mocks', () => {
     isHostModeMock.mockReturnValue(false)
     isSandboxModeMock.mockReturnValue(false)
     getInstanceIdMock.mockReturnValue('dev-local')
+    vi.unstubAllEnvs()
+    resetP2pInferenceFlagsForTests()
+    _resetHandshakeRateLimitForTests()
+  })
+
+  it('applies per-handshake rate limit before running inference', async () => {
+    _resetHostInferencePolicyForTests({ ...defaultPolicy, maxRequestsPerHandshakePerMinute: 1 })
+    getHandshakeRecord.mockReturnValue(defaultRecord({}))
+    runHostSpy.mockResolvedValue({
+      wire: {
+        type: 'internal_inference_result',
+        schema_version: INTERNAL_INFERENCE_SCHEMA_VERSION,
+        request_id: 'r1',
+        handshake_id: 'hs-1',
+        sender_device_id: 'dev-host-1',
+        target_device_id: 'dev-sand-1',
+        transport_policy: 'direct_only' as const,
+        created_at: new Date().toISOString(),
+        model: 'm',
+        output: 'x',
+        usage: {},
+        duration_ms: 1,
+      },
+      log: { model: 'm', prompt_bytes: 1, message_count: 1, duration_ms: 1 },
+    })
+    global.fetch = vi.fn(async () => new Response('{}', { status: 200 }) as any) as any
+    const r1 = { writeHead: vi.fn(), end: vi.fn() } as any
+    await tryHandleInternalServiceP2P({ prepare: () => ({ run: () => {} }) } as any, requestPayload(), r1)
+    const r2 = { writeHead: vi.fn(), end: vi.fn() } as any
+    await tryHandleInternalServiceP2P({ prepare: () => ({ run: () => {} }) } as any, requestPayload(), r2)
+    expect(runHostSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns 503 P2P_INFERENCE_REQUIRED when P2P request plane is on and HTTP internal compat is off', async () => {
+    vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_REQUEST_OVER_P2P', '1')
+    resetP2pInferenceFlagsForTests()
+    getHandshakeRecord.mockReturnValue(defaultRecord({}))
+    const res: { status?: number; body?: string } = {}
+    const r = {
+      writeHead: (c: number) => {
+        res.status = c
+      },
+      end: (b: string) => {
+        res.body = b
+      },
+    } as any
+    await tryHandleInternalServiceP2P({ prepare: () => ({ run: () => {} }) } as any, requestPayload(), r)
+    expect(ollamaSpy).not.toHaveBeenCalled()
+    expect(res.status).toBe(503)
+    const j = JSON.parse(res.body as string) as { code: string }
+    expect(j.code).toBe(InternalInferenceErrorCode.P2P_INFERENCE_REQUIRED)
+  })
+
+  it('allows internal_inference_request on HTTP when WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT=1 with full P2P flags', async () => {
+    vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_REQUEST_OVER_P2P', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT', '1')
+    // Result delivery uses the same P2P preference; allow HTTP when DC is not up (transition / tests).
+    vi.stubEnv('WRDESK_P2P_INFERENCE_HTTP_FALLBACK', '1')
+    resetP2pInferenceFlagsForTests()
+    getHandshakeRecord.mockReturnValue(defaultRecord({}))
+    const ok: InternalInferenceResultWire = {
+      type: 'internal_inference_result',
+      schema_version: INTERNAL_INFERENCE_SCHEMA_VERSION,
+      request_id: 'r1',
+      handshake_id: 'hs-1',
+      sender_device_id: 'dev-host-1',
+      target_device_id: 'dev-sand-1',
+      transport_policy: 'direct_only',
+      created_at: new Date().toISOString(),
+      model: 'llama-test',
+      output: 'ollama-ok',
+      usage: { eval_count: 1 },
+      duration_ms: 2,
+    }
+    runHostSpy.mockResolvedValue({
+      wire: ok,
+      log: { model: 'llama-test', prompt_bytes: 35, message_count: 1, duration_ms: 2 },
+    })
+    global.fetch = vi.fn(async () => new Response('{}', { status: 200 }) as any) as any
+    const res: { status?: number; body?: string } = {}
+    const r = {
+      writeHead: (c: number) => {
+        res.status = c
+      },
+      end: (b: string) => {
+        res.body = b
+      },
+    } as any
+    await tryHandleInternalServiceP2P({ prepare: () => ({ run: () => {} }) } as any, requestPayload(), r)
+    expect(runHostSpy).toHaveBeenCalled()
+    expect(res.status).toBe(200)
   })
 
   it('returns 403 for external (standard) record', async () => {

@@ -112,6 +112,8 @@ function defaultRecord(over: Partial<HandshakeRecord> = {}): HandshakeRecord {
 
 const defaultPolicy = {
   allowSandboxInference: true,
+  maxOutputBytes: 256_000,
+  maxRequestsPerHandshakePerMinute: 10_000,
   modelAllowlist: [] as string[],
   maxPromptBytes: 256_000,
   timeoutMs: 60_000,

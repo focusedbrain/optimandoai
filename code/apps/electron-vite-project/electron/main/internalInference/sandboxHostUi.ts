@@ -4,7 +4,6 @@
  * not inbox, not a BEAP message). Falls back to GET /beap/internal-inference-policy.
  */
 
-import { randomUUID } from 'crypto'
 import { getHandshakeRecord, listHandshakeRecords } from '../handshake/db'
 import { HandshakeState, type HandshakeRecord } from '../handshake/types'
 import { getHandshakeDbForInternalInference } from './dbAccess'
@@ -21,7 +20,9 @@ import {
   peerCoordinationDeviceId,
 } from './policy'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
-import { INTERNAL_INFERENCE_SCHEMA_VERSION, type InternalInferenceCapabilitiesResultWire } from './types'
+import { getP2pInferenceFlags } from './p2pInferenceFlags'
+import type { InternalInferenceCapabilitiesResultWire } from './types'
+import { listHostCapabilities } from './transport/internalInferenceTransport'
 
 export interface SandboxHostInferenceCandidate {
   handshakeId: string
@@ -367,97 +368,7 @@ export async function postInternalInferenceCapabilitiesRequest(
   | { ok: true; wire: InternalInferenceCapabilitiesResultWire }
   | { ok: false; reason: string; responseStatus?: number; networkErrorMessage?: string }
 > {
-  const localSandbox = (localCoordinationDeviceId(record) ?? '').trim()
-  const peerHost = (peerCoordinationDeviceId(record) ?? '').trim()
-  if (!localSandbox || !peerHost) {
-    const m = 'missing coordination ids'
-    console.log(
-      `[HOST_INFERENCE_P2P] request_failed code=missing_coordination_ids message=${safeP2pLogMessage(m)} handshake=${hid}`,
-    )
-    console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=missing_coordination_ids`)
-    return { ok: false, reason: 'missing_coordination_ids' }
-  }
-  const body = {
-    type: 'internal_inference_capabilities_request',
-    schema_version: INTERNAL_INFERENCE_SCHEMA_VERSION,
-    request_id: randomUUID(),
-    handshake_id: hid,
-    sender_device_id: localSandbox,
-    target_device_id: peerHost,
-    created_at: new Date().toISOString(),
-    transport_policy: 'direct_only' as const,
-  }
-  console.log(`[HOST_INFERENCE_CAPS] request_send handshake=${hid}`)
-  const ac = new AbortController()
-  const timer = setTimeout(() => ac.abort(), Math.min(timeoutMs, 15_000))
-  try {
-    const res = await fetch(ingestUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token.trim()}`,
-        'X-BEAP-Handshake': hid,
-      },
-      body: JSON.stringify(body),
-      signal: ac.signal,
-    })
-    clearTimeout(timer)
-    console.log(`[HOST_INFERENCE_P2P] response_status=${res.status} handshake=${hid}`)
-    if (res.status === 401 || res.status === 403) {
-      const m = 'forbidden'
-      console.log(
-        `[HOST_INFERENCE_P2P] request_failed code=forbidden message=${safeP2pLogMessage(m)} handshake=${hid}`,
-      )
-      console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=forbidden`)
-      return { ok: false, reason: 'forbidden', responseStatus: res.status }
-    }
-    if (!res.ok) {
-      const m = `http ${res.status}`
-      console.log(
-        `[HOST_INFERENCE_P2P] request_failed code=http_${res.status} message=${safeP2pLogMessage(m)} handshake=${hid}`,
-      )
-      console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=http_${res.status}`)
-      return { ok: false, reason: `http_${res.status}`, responseStatus: res.status }
-    }
-    const adv = res.headers.get('x-beap-direct-p2p-endpoint')
-    {
-      const db = await getHandshakeDbForInternalInference()
-      if (db) {
-        const { tryRepairP2pEndpointFromHostAdvertisement } = await import('./p2pEndpointRepair')
-        tryRepairP2pEndpointFromHostAdvertisement(db, hid, adv)
-      }
-    }
-    const j = (await res.json()) as Record<string, unknown>
-    if (j.type !== 'internal_inference_capabilities_result') {
-      const m = 'wrong JSON type for capabilities result'
-      console.log(
-        `[HOST_INFERENCE_P2P] request_failed code=wrong_type message=${safeP2pLogMessage(m)} handshake=${hid}`,
-      )
-      console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=wrong_type`)
-      return { ok: false, reason: 'wrong_type', responseStatus: 200 }
-    }
-    const w = j as unknown as InternalInferenceCapabilitiesResultWire
-    const m = w.active_local_llm?.model?.trim() || w.active_chat_model?.trim() || null
-    console.log(`[HOST_INFERENCE_CAPS] response_received active_model=${m ?? 'null'}`)
-    return { ok: true, wire: w }
-  } catch (e) {
-    clearTimeout(timer)
-    if ((e as Error)?.name === 'AbortError') {
-      const m = 'request aborted (timeout)'
-      console.log(
-        `[HOST_INFERENCE_P2P] request_failed code=timeout message=${safeP2pLogMessage(m)} handshake=${hid}`,
-      )
-      console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=timeout`)
-      return { ok: false, reason: 'timeout' }
-    }
-    const netMsg = (e as Error)?.message
-    const m = netMsg && netMsg.length > 0 ? netMsg : 'network'
-    console.log(
-      `[HOST_INFERENCE_P2P] request_failed code=network message=${safeP2pLogMessage(m)} handshake=${hid}`,
-    )
-    console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=network`)
-    return { ok: false, reason: 'network', networkErrorMessage: netMsg }
-  }
+  return listHostCapabilities(hid, { record, ingestUrl, token, timeoutMs })
 }
 
 /**
@@ -546,6 +457,19 @@ export async function probeHostInferencePolicyFromSandbox(
   }
   const { timeoutMs } = getHostInternalInferencePolicy()
   const tCap = Math.min(timeoutMs, 15_000)
+
+  const fP2p = getP2pInferenceFlags()
+  if (
+    fP2p.p2pInferenceEnabled &&
+    fP2p.p2pInferenceWebrtcEnabled &&
+    fP2p.p2pInferenceSignalingEnabled &&
+    fP2p.p2pInferenceCapsOverP2p
+  ) {
+    const { ensureSession } = await import('./p2pSession/p2pInferenceSessionManager')
+    const { waitForP2pDataChannelOrTimeout } = await import('./p2pSession/p2pSessionWait')
+    await ensureSession(hid, 'capability_probe')
+    await waitForP2pDataChannelOrTimeout(hid, 10_000)
+  }
 
   p2p('capability_probe_begin')
   p2p(`handshake=${hid} endpoint=${ep}`)

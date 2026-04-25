@@ -4,36 +4,53 @@
 
 import type http from 'http'
 import { getHandshakeRecord } from '../handshake/db'
-import type { HandshakeRecord } from '../handshake/types'
-import type { InternalHostInferenceMessage } from '../llm/internalHostInferenceOllama'
-import { getInstanceId, isHostMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
+import { isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { InternalInferenceErrorCode } from './errors'
-import { buildInternalInferenceCapabilitiesResult } from './hostInferenceCapabilities'
-import * as hostInference from './hostInferenceExecute'
-import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
-import { postServiceEnvelopeDirect } from './directSend'
+import {
+  handleInternalInferenceCancel,
+  handleInternalInferenceCapabilitiesRequest,
+  handleInternalInferenceRequest,
+  isValidInternalServiceBaseEnvelope,
+  type CoreInferenceHandoff,
+  type HostInferenceCoreContext,
+  type HostInferenceCoreFailure,
+} from './hostInferenceCore'
+import { INTERNAL_INFERENCE_SCHEMA_VERSION } from './types'
+import { logHostAiInferRequestReceived, logHostAiInferResponseReceived } from './hostAiInferLog'
+import { sendHostInferenceResult } from './transport/internalInferenceTransport'
 import { logInternalInferenceEvent, endpointHostOnly } from './logging'
 import { resolveInternalInferenceByRequestId, type PendingResult } from './pendingRequests'
 import {
-  assertHostReceivesRequestFromSandbox,
-  assertHostSendsResultToSandbox,
-  assertP2pEndpointDirect,
   assertRecordForServiceRpc,
   assertSandboxReceivesResultFromHost,
   localCoordinationDeviceId,
-  peerCoordinationDeviceId,
 } from './policy'
-import {
-  INTERNAL_INFERENCE_SCHEMA_VERSION,
-  type InternalInferenceErrorWire,
-  type InternalInferenceRequestWire,
-  type InternalInferenceResultWire,
-} from './types'
+import { type InternalInferenceRequestWire, type InternalInferenceResultWire } from './types'
 import { hostDirectP2pAdvertisementHeaders } from './p2pEndpointRepair'
+import { shouldRejectHttpInternalInferenceRequest } from './p2pInferenceFlags'
 
 function jsonError(res: http.ServerResponse, status: number, code: string, message: string): void {
   res.writeHead(status, { 'Content-Type': 'application/json' })
   res.end(JSON.stringify({ code, message }))
+}
+
+function httpStatusForCoreFailure(f: HostInferenceCoreFailure): number {
+  if (f.code === InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE) {
+    return 400
+  }
+  if (f.code === InternalInferenceErrorCode.SERVICE_RPC_NOT_SUPPORTED) {
+    return 400
+  }
+  if (f.code === InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE) {
+    return 503
+  }
+  if (f.code === InternalInferenceErrorCode.P2P_INFERENCE_REQUIRED) {
+    return 503
+  }
+  if (f.messageKey === 'host_send_path') {
+    return 500
+  }
+  return 403
 }
 
 function isServiceType(
@@ -42,80 +59,32 @@ function isServiceType(
   | InternalInferenceRequestWire['type']
   | InternalInferenceResultWire['type']
   | 'internal_inference_error'
-  | 'internal_inference_capabilities_request' {
+  | 'internal_inference_capabilities_request'
+  | 'internal_inference_cancel' {
   return (
     t === 'internal_inference_request' ||
     t === 'internal_inference_result' ||
     t === 'internal_inference_error' ||
-    t === 'internal_inference_capabilities_request'
+    t === 'internal_inference_capabilities_request' ||
+    t === 'internal_inference_cancel'
   )
 }
 
-function validBaseFields(
-  p: Record<string, unknown>,
-): p is { request_id: string; handshake_id: string; sender_device_id: string; target_device_id: string; schema_version: number; created_at: string } {
-  return (
-    typeof p.request_id === 'string' &&
-    p.request_id.trim().length > 0 &&
-    typeof p.handshake_id === 'string' &&
-    p.handshake_id.trim().length > 0 &&
-    typeof p.sender_device_id === 'string' &&
-    p.sender_device_id.trim().length > 0 &&
-    typeof p.target_device_id === 'string' &&
-    p.target_device_id.trim().length > 0 &&
-    typeof p.schema_version === 'number' &&
-    Number.isFinite(p.schema_version) &&
-    typeof p.created_at === 'string' &&
-    p.created_at.trim().length > 0
-  )
-}
-
-function tryParseInternalInferenceRequest(
+function toHttpContext(
+  db: any,
   parsed: Record<string, unknown>,
-):
-  | { ok: true; value: { messages: InternalHostInferenceMessage[]; model?: string; options?: { temperature?: number; max_tokens?: number }; expiresAt: number } }
-  | { ok: false } {
-  if (typeof parsed.expires_at !== 'string' || !parsed.expires_at.trim()) {
-    return { ok: false }
+  handshakeId: string,
+): HostInferenceCoreContext {
+  return {
+    transport: 'http_direct',
+    handshakeId: handshakeId.trim(),
+    senderDeviceId: (parsed as { sender_device_id: string }).sender_device_id.trim(),
+    targetDeviceId: (parsed as { target_device_id: string }).target_device_id.trim(),
+    authenticated: true,
+    requestId: (parsed as { request_id: string }).request_id.trim(),
+    now: Date.now(),
+    db,
   }
-  const exp = Date.parse(parsed.expires_at)
-  if (Number.isNaN(exp)) {
-    return { ok: false }
-  }
-  const messages = parsed.messages
-  if (!Array.isArray(messages) || messages.length < 1) {
-    return { ok: false }
-  }
-  const out: InternalHostInferenceMessage[] = []
-  for (const m of messages) {
-    if (!m || typeof m !== 'object' || Array.isArray(m)) {
-      return { ok: false }
-    }
-    const o = m as Record<string, unknown>
-    if (o.role !== 'system' && o.role !== 'user' && o.role !== 'assistant') {
-      return { ok: false }
-    }
-    if (typeof o.content !== 'string') {
-      return { ok: false }
-    }
-    out.push({ role: o.role, content: o.content })
-  }
-  const model = typeof parsed.model === 'string' && parsed.model.trim() ? parsed.model.trim() : undefined
-  let options: { temperature?: number; max_tokens?: number } | undefined
-  if (parsed.options && typeof parsed.options === 'object' && !Array.isArray(parsed.options)) {
-    const op = parsed.options as Record<string, unknown>
-    const next: { temperature?: number; max_tokens?: number } = {}
-    if (typeof op.temperature === 'number' && Number.isFinite(op.temperature)) {
-      next.temperature = op.temperature
-    }
-    if (typeof op.max_tokens === 'number' && Number.isFinite(op.max_tokens) && op.max_tokens > 0) {
-      next.max_tokens = Math.floor(op.max_tokens)
-    }
-    if (Object.keys(next).length > 0) {
-      options = next
-    }
-  }
-  return { ok: true, value: { messages: out, model, options, expiresAt: exp } }
 }
 
 /**
@@ -130,7 +99,7 @@ export async function tryHandleInternalServiceP2P(
   if (!isServiceType(t)) {
     return false
   }
-  if (!validBaseFields(parsed)) {
+  if (!isValidInternalServiceBaseEnvelope(parsed as Record<string, unknown>)) {
     jsonError(res, 400, InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE, 'missing required service fields')
     return true
   }
@@ -140,208 +109,63 @@ export async function tryHandleInternalServiceP2P(
   }
 
   const handshakeId = (parsed.handshake_id as string).trim()
-  const record = getHandshakeRecord(db, handshakeId)
-  const ar = assertRecordForServiceRpc(record)
-  if (!ar.ok) {
-    jsonError(res, 403, ar.code, 'policy')
+  const ctx = toHttpContext(db, parsed, handshakeId)
+
+  if (t === 'internal_inference_cancel') {
+    const out = handleInternalInferenceCancel(parsed, ctx)
+    if (!out.ok) {
+      jsonError(res, httpStatusForCoreFailure(out), out.code, out.messageKey)
+    } else {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          internal_inference: 'cancel_ack',
+          request_id: out.responseEnvelope.request_id,
+          cancelled: out.responseEnvelope.cancelled,
+        }),
+      )
+    }
     return true
   }
-  const r: HandshakeRecord = ar.record
 
   if (t === 'internal_inference_capabilities_request') {
     console.log(`[HOST_INFERENCE_CAPS] request_received handshake=${handshakeId}`)
-    // Validated: assertRecord (internal+ACTIVE+same principal) + isHost + peer=Sandbox on direct P2P (Bearer+handshake) + assertHostReceivesRequestFromSandbox
-    if (!isHostMode()) {
-      jsonError(res, 400, InternalInferenceErrorCode.SERVICE_RPC_NOT_SUPPORTED, 'capabilities on non-host')
+    const cap = await handleInternalInferenceCapabilitiesRequest(parsed, ctx)
+    if (!cap.ok) {
+      jsonError(res, httpStatusForCoreFailure(cap), cap.code, cap.messageKey)
       return true
     }
-    const h = assertHostReceivesRequestFromSandbox(r, (parsed as { sender_device_id: string }).sender_device_id)
-    if (!h.ok) {
-      jsonError(res, 403, h.code, 'policy')
-      return true
-    }
-    const localId = localCoordinationDeviceId(r) ?? ''
-    const capTarget = (parsed as { target_device_id: string }).target_device_id.trim()
-    if (!localId || localId !== capTarget) {
-      jsonError(res, 403, InternalInferenceErrorCode.POLICY_FORBIDDEN, 'target_device_id mismatch')
-      return true
-    }
-    const directCap = assertP2pEndpointDirect(db, r.p2p_endpoint)
-    if (!directCap.ok) {
-      jsonError(res, 503, directCap.code, 'direct peer URL required')
-      return true
-    }
-    const hsCap = assertHostSendsResultToSandbox(r)
-    if (!hsCap.ok) {
-      jsonError(res, 500, hsCap.code, 'internal')
-      return true
-    }
-    console.log(`[HOST_INFERENCE_CAPS] auth_ok handshake=${handshakeId}`)
-    const capReq = parsed as { request_id: string; created_at: string }
-    const capWire = await buildInternalInferenceCapabilitiesResult(r, {
-      request_id: capReq.request_id,
-      created_at: capReq.created_at,
-    })
     const wireModel =
-      capWire.active_local_llm?.model?.trim() || capWire.active_chat_model?.trim() || null
+      cap.responseEnvelope.active_local_llm?.model?.trim() || cap.responseEnvelope.active_chat_model?.trim() || null
     const toLog = (m: string | null | undefined) => (m != null && m.length > 0 ? m : 'null')
-    const capLocalLlm = capWire.active_local_llm?.model?.trim() || null
+    const capLocalLlm = cap.responseEnvelope.active_local_llm?.model?.trim() || null
     console.log(`[HOST_INFERENCE_CAPS] active_local_llm model=${toLog(capLocalLlm)}`)
     console.log(`[HOST_INFERENCE_CAPS] response_send active_model=${toLog(wireModel)}`)
     res.writeHead(200, { 'Content-Type': 'application/json', ...hostDirectP2pAdvertisementHeaders(db) })
-    res.end(JSON.stringify(capWire))
+    res.end(JSON.stringify(cap.responseEnvelope))
     return true
   }
 
   if (t === 'internal_inference_request') {
-    if (!isHostMode()) {
-      jsonError(res, 400, InternalInferenceErrorCode.SERVICE_RPC_NOT_SUPPORTED, 'request on non-host')
-      return true
-    }
-    const h = assertHostReceivesRequestFromSandbox(r, (parsed as InternalInferenceRequestWire).sender_device_id)
-    if (!h.ok) {
-      jsonError(res, 403, h.code, 'policy')
-      return true
-    }
-    const localId = localCoordinationDeviceId(r) ?? ''
-    const targetId = (parsed as InternalInferenceRequestWire).target_device_id.trim()
-    if (!localId || localId !== targetId) {
-      jsonError(res, 403, InternalInferenceErrorCode.POLICY_FORBIDDEN, 'target_device_id mismatch')
-      return true
-    }
-
-    const direct = assertP2pEndpointDirect(db, r.p2p_endpoint)
-    if (!direct.ok) {
+    if (shouldRejectHttpInternalInferenceRequest()) {
       jsonError(
         res,
         503,
-        direct.code,
-        'direct peer URL required',
+        InternalInferenceErrorCode.P2P_INFERENCE_REQUIRED,
+        'Internal inference on HTTP is disabled; use P2P DataChannel, or set WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT=1 for legacy clients.',
       )
       return true
     }
-    const epCheck = r.p2p_endpoint?.trim() ?? ''
-    const wireReq = tryParseInternalInferenceRequest(parsed)
-    if (!wireReq.ok) {
-      jsonError(res, 400, InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE, 'invalid request body')
+    const rid = (parsed as { request_id: string }).request_id?.trim() ?? ''
+    if (rid) {
+      logHostAiInferRequestReceived({ handshakeId, requestId: rid, transport: 'http' })
+    }
+    const inf = await handleInternalInferenceRequest(parsed, ctx)
+    if (!inf.ok) {
+      jsonError(res, httpStatusForCoreFailure(inf), inf.code, inf.messageKey)
       return true
     }
-
-    const tStart = Date.now()
-    const peerId = peerCoordinationDeviceId(r) ?? ''
-    const hostId = getInstanceId()
-    const requestId = (parsed as InternalInferenceRequestWire).request_id
-
-    const ctxBase = {
-      requestId,
-      handshakeId: r.handshake_id,
-      hostDeviceId: hostId,
-      peerDeviceId: peerId,
-    }
-
-    const policy = getHostInternalInferencePolicy()
-    const promptBytes = Buffer.byteLength(JSON.stringify(wireReq.value.messages), 'utf8')
-    if (Date.now() > wireReq.value.expiresAt) {
-      const errWire: InternalInferenceErrorWire = hostInference.buildHostInferenceErrorWire(
-        ctxBase,
-        InternalInferenceErrorCode.REQUEST_EXPIRED,
-        'expired',
-        tStart,
-      )
-      return finishHostInferencePost(
-        db,
-        res,
-        errWire,
-        'internal_inference_error',
-        r,
-        epCheck,
-        {
-          request_id: requestId,
-          handshake_id: r.handshake_id,
-          model: undefined,
-          prompt_bytes: promptBytes,
-          message_count: wireReq.value.messages.length,
-          error_code: InternalInferenceErrorCode.REQUEST_EXPIRED,
-          duration_ms: errWire.duration_ms,
-        },
-      )
-    }
-    if (promptBytes > policy.maxPromptBytes) {
-      const errWire: InternalInferenceErrorWire = hostInference.buildHostInferenceErrorWire(
-        ctxBase,
-        InternalInferenceErrorCode.PAYLOAD_TOO_LARGE,
-        'too large',
-        tStart,
-      )
-      return finishHostInferencePost(
-        db,
-        res,
-        errWire,
-        'internal_inference_error',
-        r,
-        epCheck,
-        {
-          request_id: requestId,
-          handshake_id: r.handshake_id,
-          model: undefined,
-          prompt_bytes: promptBytes,
-          message_count: wireReq.value.messages.length,
-          error_code: InternalInferenceErrorCode.PAYLOAD_TOO_LARGE,
-          duration_ms: errWire.duration_ms,
-        },
-      )
-    }
-
-    const hs = assertHostSendsResultToSandbox(r)
-    if (!hs.ok) {
-      jsonError(res, 500, hs.code, 'internal')
-      return true
-    }
-
-    const { wire, log: infLog } = await hostInference.runHostInternalInference({
-      handshakeId: r.handshake_id,
-      requestId,
-      modelRequested: wireReq.value.model,
-      messages: wireReq.value.messages,
-      options: wireReq.value.options,
-      peerDeviceId: peerId,
-      hostDeviceId: hostId,
-    })
-    if (wire.type === 'internal_inference_error') {
-      return finishHostInferencePost(
-        db,
-        res,
-        wire,
-        'internal_inference_error',
-        r,
-        epCheck,
-        {
-          request_id: requestId,
-          handshake_id: r.handshake_id,
-          model: infLog.model,
-          prompt_bytes: infLog.prompt_bytes,
-          message_count: infLog.message_count,
-          error_code: infLog.error_code,
-          duration_ms: wire.duration_ms,
-        },
-      )
-    }
-    return finishHostInferencePost(
-      db,
-      res,
-      wire,
-      'internal_inference_result',
-      r,
-      epCheck,
-      {
-        request_id: requestId,
-        handshake_id: r.handshake_id,
-        model: infLog.model,
-        prompt_bytes: infLog.prompt_bytes,
-        message_count: infLog.message_count,
-        duration_ms: wire.duration_ms,
-      },
-    )
+    return finishHostInferencePost(db, res, inf.responseEnvelope)
   }
 
   if (t === 'internal_inference_result' || t === 'internal_inference_error') {
@@ -349,6 +173,13 @@ export async function tryHandleInternalServiceP2P(
       jsonError(res, 400, InternalInferenceErrorCode.SERVICE_RPC_NOT_SUPPORTED, 'not sandbox')
       return true
     }
+    const rec = getHandshakeRecord(db, handshakeId)
+    const ar = assertRecordForServiceRpc(rec)
+    if (!ar.ok) {
+      jsonError(res, 403, ar.code, 'policy')
+      return true
+    }
+    const r = ar.record
     const s = assertSandboxReceivesResultFromHost(r, (parsed as { sender_device_id: string }).sender_device_id)
     if (!s.ok) {
       jsonError(res, 403, s.code, 'policy')
@@ -356,7 +187,7 @@ export async function tryHandleInternalServiceP2P(
     }
     const localSandboxId = localCoordinationDeviceId(r) ?? ''
     if (!localSandboxId || localSandboxId !== (parsed as { target_device_id: string }).target_device_id.trim()) {
-      jsonError(res, 403, InternalInferenceErrorCode.POLICY_FORBIDDEN, 'target_device_id mismatch')
+      jsonError(res, 403, InternalInferenceErrorCode.POLICY_FORBIDDEN, 'policy')
       return true
     }
     const requestId = (parsed as { request_id: string }).request_id
@@ -374,7 +205,9 @@ export async function tryHandleInternalServiceP2P(
         ...(typeof model === 'string' && model.trim() ? { model: model.trim() } : {}),
         ...(typeof duration_ms === 'number' && Number.isFinite(duration_ms) ? { duration_ms } : {}),
       }
-      resolveInternalInferenceByRequestId(requestId, pr)
+      if (resolveInternalInferenceByRequestId(requestId, pr)) {
+        logHostAiInferResponseReceived({ handshakeId: r.handshake_id, requestId, transport: 'http' })
+      }
     } else {
       const code = (parsed as { code?: string }).code
       const message = (parsed as { message?: string }).message
@@ -382,7 +215,9 @@ export async function tryHandleInternalServiceP2P(
         jsonError(res, 400, InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE, 'missing error fields')
         return true
       }
-      resolveInternalInferenceByRequestId(requestId, { kind: 'error', code, message })
+      if (resolveInternalInferenceByRequestId(requestId, { kind: 'error', code, message })) {
+        logHostAiInferResponseReceived({ handshakeId: r.handshake_id, requestId, transport: 'http' })
+      }
     }
     const meta: Parameters<typeof logInternalInferenceEvent>[1] = {
       request_id: requestId,
@@ -407,39 +242,17 @@ export async function tryHandleInternalServiceP2P(
 async function finishHostInferencePost(
   db: any,
   res: http.ServerResponse,
-  wire: InternalInferenceResultWire | InternalInferenceErrorWire,
-  messageType: 'internal_inference_result' | 'internal_inference_error',
-  r: HandshakeRecord,
-  epCheck: string,
-  meta: {
-    request_id: string
-    handshake_id: string
-    model?: string
-    prompt_bytes: number
-    message_count: number
-    error_code?: string
-    duration_ms: number
-  },
+  handoff: CoreInferenceHandoff,
 ): Promise<boolean> {
-  const post = await postServiceEnvelopeDirect(
-    wire,
-    epCheck,
+  const { record: r, targetEndpoint: epCheck, messageType, wire, log: meta } = handoff
+  const post = await sendHostInferenceResult(
     r.handshake_id,
-    r.counterparty_p2p_token,
-    {
-      request_id: wire.request_id,
-      sender_device_id: wire.sender_device_id,
-      target_device_id: wire.target_device_id,
-      message_type: messageType,
-    },
+    wire,
+    { record: r, targetEndpoint: epCheck, directEndpointOk: true },
+    messageType,
   )
   if (!post.ok) {
-    jsonError(
-      res,
-      503,
-      post.code,
-      'failed to deliver to sandbox',
-    )
+    jsonError(res, 503, post.code, 'failed to deliver to sandbox')
     return true
   }
   logInternalInferenceEvent(

@@ -118,6 +118,15 @@ export interface WsManagerAdapter {
     reason: 'register_handshake' | 'http_flush' | 'ws_connect',
   ): { delivered: number }
   pushCapsule(recipientUserId: string, id: string, capsuleJson: string): boolean
+  /**
+   * Transient P2P signaling (WebRTC) — not stored in coordination_capsules, not a BEAP capsule frame.
+   */
+  pushP2pSignal(
+    recipientUserId: string,
+    recipientDeviceId: string | null,
+    id: string,
+    payload: Record<string, unknown>,
+  ): boolean
   pushSystemEvent(recipientUserId: string, event: string, payload?: Record<string, unknown>): boolean
   handleAck(userId: string, ids: string[]): void
   getConnectedCount(): number
@@ -253,6 +262,23 @@ export function createWsManager(store: StoreAdapter): WsManagerAdapter {
       try {
         target.ws.send(JSON.stringify({ type: 'capsule', id, capsule: JSON.parse(capsuleJson) }))
         store.markPushed(id)
+        return true
+      } catch {
+        return false
+      }
+    },
+
+    pushP2pSignal(
+      recipientUserId: string,
+      recipientDeviceId: string | null,
+      id: string,
+      payload: Record<string, unknown>,
+    ): boolean {
+      const d = (recipientDeviceId ?? '').trim()
+      const target = d.length > 0 ? getClientByDevice(recipientUserId, d) : getClient(recipientUserId)
+      if (!target) return false
+      try {
+        target.ws.send(JSON.stringify({ type: 'p2p_signal', id, payload }))
         return true
       } catch {
         return false

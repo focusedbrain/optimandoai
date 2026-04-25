@@ -81,6 +81,9 @@ export function getHostRefreshFeedbackFromTargets(
   if (ur === 'HOST_POLICY_DISABLED' || av === 'policy_disabled') {
     return { variant: 'warning', message: COPY.policy, display: 'default' }
   }
+  if (/\bdisabled\s+by\s+host\b/i.test(String(t.display_label ?? t.label ?? ''))) {
+    return { variant: 'warning', message: COPY.policy, display: 'default' }
+  }
   if (ur === 'SANDBOX_HOST_ROLE_METADATA') {
     return { variant: 'warning', message: COPY.roleMetadata, display: 'default' }
   }

@@ -1312,6 +1312,275 @@ describe('coordination-service', () => {
     expect(j.delivered).toBe(0)
     recipientWs.close()
   })
+
+  test('CS_P2P_01: p2p-signal delivers p2p_signal frame to recipient WS (not capsule)', async () => {
+    const hsId = 'hs-p2p-01'
+    const user = 'p2puser01'
+    const devHost = 'dev-host-p2p01'
+    const devSbx = 'dev-sbx-p2p01'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: user,
+        acceptor_user_id: user,
+        initiator_device_id: devHost,
+        acceptor_device_id: devSbx,
+        handshake_type: 'internal',
+      }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    const received: Array<{ type?: string; id?: string; payload?: unknown }> = []
+    const sbxWs = await wsConnectWithDevice(port, `test-${user}-pro`, devSbx, (data) => {
+      const msg = JSON.parse(data.toString()) as { type?: string; id?: string; payload?: unknown }
+      received.push(msg)
+    })
+    await new Promise((r) => setTimeout(r, 100))
+    const t0 = new Date()
+    const t1 = new Date(t0.getTime() + 15_000)
+    const r = await request(port, 'POST', '/beap/p2p-signal', {
+      body: JSON.stringify({
+        schema_version: 1,
+        signal_type: 'p2p_inference_offer',
+        correlation_id: 'c1',
+        session_id: 'sess-p2p-01',
+        handshake_id: hsId,
+        sender_device_id: devHost,
+        receiver_device_id: devSbx,
+        created_at: t0.toISOString(),
+        expires_at: t1.toISOString(),
+        sdp: 'v=0',
+      }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(200)
+    await new Promise((r2) => setTimeout(r2, 200))
+    const signalFrames = received.filter((m) => m.type === 'p2p_signal')
+    expect(signalFrames).toHaveLength(1)
+    expect(signalFrames[0].id).toBeDefined()
+    expect((signalFrames[0].payload as { signal_type?: string })?.signal_type).toBe('p2p_inference_offer')
+    expect(received.filter((m) => m.type === 'capsule')).toHaveLength(0)
+    sbxWs.close()
+  })
+
+  test('CS_P2P_02: p2p-signal rejects top-level messages key', async () => {
+    const t0 = new Date()
+    const t1 = new Date(t0.getTime() + 10_000)
+    const r = await request(port, 'POST', '/beap/p2p-signal', {
+      body: JSON.stringify({
+        schema_version: 1,
+        signal_type: 'p2p_inference_offer',
+        correlation_id: 'c1',
+        session_id: 's1',
+        handshake_id: 'hs-x',
+        sender_device_id: 'a',
+        receiver_device_id: 'b',
+        created_at: t0.toISOString(),
+        expires_at: t1.toISOString(),
+        messages: ['no'],
+      }),
+      auth: 'test-anyuser-pro',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(400)
+  })
+
+  test('CS_P2P_03: p2p-signal when recipient offline → 202', async () => {
+    const hsId = 'hs-p2p-off'
+    const user = 'p2puseroff'
+    const devHost = 'dev-host-p2poff'
+    const devSbx = 'dev-sbx-p2poff'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: user,
+        acceptor_user_id: user,
+        initiator_device_id: devHost,
+        acceptor_device_id: devSbx,
+      }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    const t0 = new Date()
+    const t1 = new Date(t0.getTime() + 15_000)
+    const r = await request(port, 'POST', '/beap/p2p-signal', {
+      body: JSON.stringify({
+        schema_version: 1,
+        signal_type: 'p2p_inference_ice',
+        correlation_id: 'c-ice',
+        session_id: 'sess-off',
+        handshake_id: hsId,
+        sender_device_id: devHost,
+        receiver_device_id: devSbx,
+        created_at: t0.toISOString(),
+        expires_at: new Date(t0.getTime() + 20_000).toISOString(),
+        candidate: 'candidate:1',
+      }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(202)
+  })
+
+  test('CS_P2P_04: invalid signal_type → 400', async () => {
+    const t0 = new Date()
+    const t1 = new Date(t0.getTime() + 10_000)
+    const r = await request(port, 'POST', '/beap/p2p-signal', {
+      body: JSON.stringify({
+        schema_version: 1,
+        signal_type: 'p2p_not_a_real_type',
+        correlation_id: 'c1',
+        session_id: 's1',
+        handshake_id: 'hs-x',
+        sender_device_id: 'a',
+        receiver_device_id: 'b',
+        created_at: t0.toISOString(),
+        expires_at: t1.toISOString(),
+      }),
+      auth: 'test-zanyuser-pro',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(400)
+    const j = JSON.parse(r.body) as { reason?: string }
+    expect(j.reason).toBe('signal_type')
+  })
+
+  test('CS_P2P_05: expired signal (expires_at in the past) → 400', async () => {
+    const t0 = new Date(Date.now() - 120_000)
+    const t1 = new Date(Date.now() - 60_000)
+    const r = await request(port, 'POST', '/beap/p2p-signal', {
+      body: JSON.stringify({
+        schema_version: 1,
+        signal_type: 'p2p_inference_offer',
+        correlation_id: 'c1',
+        session_id: 's1',
+        handshake_id: 'hs-x',
+        sender_device_id: 'a',
+        receiver_device_id: 'b',
+        created_at: t0.toISOString(),
+        expires_at: t1.toISOString(),
+        sdp: 'v=0',
+      }),
+      auth: 'test-zanyuser-pro',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(400)
+    const j = JSON.parse(r.body) as { reason?: string }
+    expect(j.reason).toBe('expired')
+  })
+
+  test('CS_P2P_06: top-level prompt key → 400 (forbidden_field)', async () => {
+    const t0 = new Date()
+    const t1 = new Date(t0.getTime() + 10_000)
+    const r = await request(port, 'POST', '/beap/p2p-signal', {
+      body: JSON.stringify({
+        schema_version: 1,
+        signal_type: 'p2p_inference_offer',
+        correlation_id: 'c1',
+        session_id: 's1',
+        handshake_id: 'hs-x',
+        sender_device_id: 'a',
+        receiver_device_id: 'b',
+        created_at: t0.toISOString(),
+        expires_at: t1.toISOString(),
+        prompt: 'no-user-content',
+      }),
+      auth: 'test-zanyuser-pro',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(400)
+    const j = JSON.parse(r.body) as { reason?: string }
+    expect(j.reason).toBe('forbidden_field')
+  })
+
+  test('CS_P2P_07: receiver_device_id mismatch (same-principal) → 403', async () => {
+    const hsId = 'hs-p2p-recv-bad'
+    const user = 'p2puserrecv'
+    const devHost = 'dev-host-recv'
+    const devSbx = 'dev-sbx-recv'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: user,
+        acceptor_user_id: user,
+        initiator_device_id: devHost,
+        acceptor_device_id: devSbx,
+        handshake_type: 'internal',
+      }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    const t0 = new Date()
+    const t1 = new Date(t0.getTime() + 15_000)
+    const r = await request(port, 'POST', '/beap/p2p-signal', {
+      body: JSON.stringify({
+        schema_version: 1,
+        signal_type: 'p2p_inference_offer',
+        correlation_id: 'c1',
+        session_id: 's1',
+        handshake_id: hsId,
+        sender_device_id: devHost,
+        receiver_device_id: 'not-the-expected-recipient',
+        created_at: t0.toISOString(),
+        expires_at: t1.toISOString(),
+        sdp: 'v=0',
+      }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(403)
+  })
+
+  test('CS_P2P_08: successful p2p-signal does not insert coordination_capsules', async () => {
+    const hsId = 'hs-p2p-no-capsule-row'
+    const user = 'p2pnocapuser'
+    const devHost = 'dev-host-nocap'
+    const devSbx = 'dev-sbx-nocap'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: user,
+        acceptor_user_id: user,
+        initiator_device_id: devHost,
+        acceptor_device_id: devSbx,
+        handshake_type: 'internal',
+      }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    const before = relay?.store
+      .getDb()
+      .prepare('SELECT COUNT(*) as c FROM coordination_capsules')
+      .get() as { c: number }
+    const sbxWs = await wsConnectWithDevice(port, `test-${user}-pro`, devSbx)
+    await new Promise((r) => setTimeout(r, 100))
+    const t0 = new Date()
+    const t1 = new Date(t0.getTime() + 15_000)
+    const r = await request(port, 'POST', '/beap/p2p-signal', {
+      body: JSON.stringify({
+        schema_version: 1,
+        signal_type: 'p2p_inference_answer',
+        correlation_id: 'c-ans',
+        session_id: 'sess-nocap',
+        handshake_id: hsId,
+        sender_device_id: devHost,
+        receiver_device_id: devSbx,
+        created_at: t0.toISOString(),
+        expires_at: t1.toISOString(),
+        sdp: 'v=0',
+      }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(200)
+    const after = relay?.store
+      .getDb()
+      .prepare('SELECT COUNT(*) as c FROM coordination_capsules')
+      .get() as { c: number }
+    expect(after.c).toBe(before.c)
+    sbxWs.close()
+  })
 })
 
 describe('coordination-service fail-close', () => {

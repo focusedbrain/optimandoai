@@ -17,6 +17,11 @@ import { createHandshakeRegistry } from './handshakeRegistry.js'
 import { createPairingCodeRegistry } from './pairingCodeRegistry.js'
 import { createWsManager } from './wsManager.js'
 import { createHealth } from './health.js'
+import {
+  P2P_SIGNAL_MAX_BODY_BYTES,
+  tryParseP2pSignalRequest,
+  p2pSignalMessageId,
+} from './p2pSignal.js'
 
 const log = {
   info(message: string, meta?: Record<string, unknown>): void {
@@ -372,6 +377,106 @@ function createRequestHandler(
           instance_id: entry.instance_id,
           device_name: entry.device_name,
         }))
+        return
+      }
+
+      /* ── POST /beap/p2p-signal — WebRTC inference signaling only (not BEAP capsules) ─ */
+      if (req.method === 'POST' && path === '/beap/p2p-signal') {
+        if (!identity) {
+          sendError(res, 401)
+          return
+        }
+        const contentType = (req.headers['content-type'] ?? '').toLowerCase()
+        if (!contentType.includes('application/json')) {
+          sendError(res, 415)
+          return
+        }
+        const { body, ok: bodyOk } = await readBody(req, P2P_SIGNAL_MAX_BODY_BYTES)
+        if (!bodyOk) {
+          sendError(res, 413)
+          return
+        }
+        const parsed = tryParseP2pSignalRequest(body, P2P_SIGNAL_MAX_BODY_BYTES)
+        if (!parsed.ok) {
+          console.log(
+            `[P2P_SIGNAL] rejected handshake=(n/a) reason=${parsed.reason}`,
+          )
+          sendError(res, parsed.httpStatus, { error: 'P2P_SIGNAL_REJECTED', reason: parsed.reason })
+          return
+        }
+        if (!handshakeRegistry.isSenderAuthorized(parsed.handshakeId, identity.userId)) {
+          console.log(`[P2P_SIGNAL] rejected handshake=${parsed.handshakeId} reason=sender_unauthorized`)
+          sendError(res, 403, { error: 'RELAY_SENDER_UNAUTHORIZED' })
+          return
+        }
+        const regEntryPre = handshakeRegistry.getHandshake(parsed.handshakeId)
+        const samePrincipal =
+          regEntryPre != null && regEntryPre.initiator_user_id === regEntryPre.acceptor_user_id
+        const senderDeviceId = parsed.senderDeviceId
+        const recipientRoute = handshakeRegistry.getRecipientForSender(
+          parsed.handshakeId,
+          identity.userId,
+          senderDeviceId,
+        )
+        if (!recipientRoute) {
+          console.log(`[P2P_SIGNAL] rejected handshake=${parsed.handshakeId} reason=no_route`)
+          sendError(res, 403, { error: 'RELAY_RECIPIENT_RESOLUTION_FAILED' })
+          return
+        }
+        if (samePrincipal) {
+          const expectedRecv = (recipientRoute.deviceId ?? '').trim()
+          if (!expectedRecv || parsed.receiverDeviceId !== expectedRecv) {
+            console.log(`[P2P_SIGNAL] rejected handshake=${parsed.handshakeId} reason=receiver_mismatch`)
+            sendError(res, 403, { error: 'RELAY_RECEIVER_DEVICE_MISMATCH' })
+            return
+          }
+        } else {
+          const expected = (recipientRoute.deviceId ?? '').trim()
+          if (expected && parsed.receiverDeviceId !== expected) {
+            console.log(`[P2P_SIGNAL] rejected handshake=${parsed.handshakeId} reason=receiver_mismatch`)
+            sendError(res, 403, { error: 'RELAY_RECEIVER_DEVICE_MISMATCH' })
+            return
+          }
+        }
+        const recipientUserId = recipientRoute.userId
+        let recipientPending = 0
+        try {
+          recipientPending = store.countPendingForRecipient(recipientUserId)
+        } catch {
+          sendError(res, 503, { error: 'Storage unavailable' })
+          return
+        }
+        const rateCheck = rateLimiter.checkRateLimit(identity.userId, identity, recipientPending)
+        if (!rateCheck.ok) {
+          sendError(res, 429, { error: 'Rate limit exceeded' })
+          return
+        }
+        const id = p2pSignalMessageId()
+        const payload = { ...parsed.payload }
+        const byteLen = Buffer.byteLength(body, 'utf8')
+        console.log(
+          `[P2P_SIGNAL] accepted handshake=${parsed.handshakeId} signal=${parsed.signalType} session=${parsed.sessionId} bytes=${byteLen}`,
+        )
+        rateLimiter.recordCapsuleSent(identity.userId)
+        const pushed = wsManager.pushP2pSignal(
+          recipientUserId,
+          recipientRoute.deviceId,
+          id,
+          payload,
+        )
+        if (pushed) {
+          console.log(
+            `[P2P_SIGNAL] delivered handshake=${parsed.handshakeId} signal=${parsed.signalType} session=${parsed.sessionId}`,
+          )
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ status: 'p2p_signal delivered' }))
+          return
+        }
+        console.log(
+          `[P2P_SIGNAL] offline handshake=${parsed.handshakeId} signal=${parsed.signalType}`,
+        )
+        res.writeHead(202, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ status: 'recipient offline' }))
         return
       }
 

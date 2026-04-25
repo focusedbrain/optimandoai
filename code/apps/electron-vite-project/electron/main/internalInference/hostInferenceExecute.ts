@@ -193,6 +193,27 @@ export async function runHostInternalInference(
       maxTokens: ctx.options?.max_tokens,
       timeoutMs: policy.timeoutMs,
     })
+    const outBytes = Buffer.byteLength(out.text, 'utf8')
+    if (outBytes > policy.maxOutputBytes) {
+      return {
+        wire: buildHostInferenceErrorWire(
+          {
+            requestId: ctx.requestId,
+            handshakeId: ctx.handshakeId,
+            hostDeviceId: ctx.hostDeviceId,
+            peerDeviceId: ctx.peerDeviceId,
+          },
+          InternalInferenceErrorCode.PAYLOAD_TOO_LARGE,
+          'output too large',
+          t0,
+        ),
+        log: {
+          ...baseLog,
+          duration_ms: Date.now() - t0,
+          error_code: InternalInferenceErrorCode.PAYLOAD_TOO_LARGE,
+        },
+      }
+    }
     return {
       wire: {
         type: 'internal_inference_result',

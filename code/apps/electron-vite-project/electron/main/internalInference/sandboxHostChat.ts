@@ -6,7 +6,8 @@ import { randomUUID } from 'crypto'
 import { getHandshakeRecord } from '../handshake/db'
 import { getInstanceId, isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
-import { postServiceEnvelopeDirect } from './directSend'
+import { getP2pInferenceFlags } from './p2pInferenceFlags'
+import { requestHostCompletion } from './transport/internalInferenceTransport'
 import { InternalInferenceErrorCode } from './errors'
 import {
   assertP2pEndpointDirect,
@@ -92,7 +93,8 @@ export async function runSandboxHostInferenceChat(params: {
     return { ok: false, code: role.code, message: 'role' }
   }
   const direct = assertP2pEndpointDirect(db, r.p2p_endpoint)
-  if (!direct.ok) {
+  const directOk = direct.ok
+  if (!directOk) {
     return { ok: false, code: direct.code, message: 'direct peer URL required' }
   }
 
@@ -100,6 +102,19 @@ export async function runSandboxHostInferenceChat(params: {
   const peerHostId = peerCoordinationDeviceId(r) ?? ''
   if (!peerHostId) {
     return { ok: false, code: InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE, message: 'peer device' }
+  }
+
+  const fP2p = getP2pInferenceFlags()
+  if (
+    fP2p.p2pInferenceEnabled &&
+    fP2p.p2pInferenceWebrtcEnabled &&
+    fP2p.p2pInferenceSignalingEnabled &&
+    fP2p.p2pInferenceRequestOverP2p
+  ) {
+    const { ensureSession } = await import('./p2pSession/p2pInferenceSessionManager')
+    const { waitForP2pDataChannelOrTimeout } = await import('./p2pSession/p2pSessionWait')
+    await ensureSession(hid, 'host_inference_chat')
+    await waitForP2pDataChannelOrTimeout(hid, 10_000)
   }
 
   const now = Date.now()
@@ -127,19 +142,10 @@ export async function runSandboxHostInferenceChat(params: {
     model: params.model?.trim() || undefined,
     options: Object.keys(options).length > 0 ? options : undefined,
   }
-  const ep = r.p2p_endpoint?.trim() ?? ''
-  const post = await postServiceEnvelopeDirect(
-    wire,
-    ep,
-    r.handshake_id,
-    r.counterparty_p2p_token,
-    {
-      request_id: requestId,
-      sender_device_id: wire.sender_device_id,
-      target_device_id: wire.target_device_id,
-      message_type: 'internal_inference_request',
-    },
-  )
+  const post = await requestHostCompletion(r.handshake_id, wire, {
+    record: r,
+    directEndpointOk: directOk,
+  })
   if (!post.ok) {
     rejectInternalInferenceByRequestId(
       requestId,

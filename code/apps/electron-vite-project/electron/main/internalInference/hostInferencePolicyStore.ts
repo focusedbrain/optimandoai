@@ -1,6 +1,8 @@
 /**
  * Host-only persisted policy for Sandbox → Host internal inference (Ollama, direct P2P).
- * Default: disabled.
+ * - `allowSandboxInference` defaults to **false** (explicit product opt-in via settings / IPC).
+ * - Size, duration, concurrency, and per-handshake rate are bounded; model selection follows
+ *   allowlist / active local model (see `hostInferenceExecute`).
  */
 
 import fs from 'fs'
@@ -17,10 +19,17 @@ export interface HostInternalInferencePolicy {
   modelAllowlist: string[]
   /** Total UTF-8 byte budget for the serialized `messages` payload (approximate, JSON length). */
   maxPromptBytes: number
+  /** Max UTF-8 bytes for a single model output (non-streaming). */
+  maxOutputBytes: number
   /** Client-side and Host-side Ollama fetch timeout. */
   timeoutMs: number
   /** In-flight cap for internal inference. */
   maxConcurrent: number
+  /**
+   * Per-handshake rolling limit over 60s for `internal_inference_request` (sliding window, in-process).
+   * Default 30; set 0 to use default. Range clamped 1–120 in normalize.
+   */
+  maxRequestsPerHandshakePerMinute: number
   /**
    * When true, `internal_inference_capabilities_result` lists all installed Ollama models (metadata only).
    * Default false: expose only the resolved active / allowlist chat model (MVP).
@@ -32,8 +41,10 @@ const DEFAULT_POLICY: HostInternalInferencePolicy = {
   allowSandboxInference: false,
   modelAllowlist: [],
   maxPromptBytes: 256_000,
+  maxOutputBytes: 256_000,
   timeoutMs: 60_000,
   maxConcurrent: 1,
+  maxRequestsPerHandshakePerMinute: 30,
   capabilitiesExposeAllInstalledOllama: false,
 }
 
@@ -66,6 +77,10 @@ function normalizePolicy(p: Partial<HostInternalInferencePolicy>): HostInternalI
       typeof p.maxPromptBytes === 'number' && p.maxPromptBytes > 0 && p.maxPromptBytes < 10_000_000
         ? Math.floor(p.maxPromptBytes)
         : DEFAULT_POLICY.maxPromptBytes,
+    maxOutputBytes:
+      typeof p.maxOutputBytes === 'number' && p.maxOutputBytes > 0 && p.maxOutputBytes < 10_000_000
+        ? Math.floor(p.maxOutputBytes)
+        : DEFAULT_POLICY.maxOutputBytes,
     timeoutMs:
       typeof p.timeoutMs === 'number' && p.timeoutMs >= 1_000 && p.timeoutMs <= 600_000
         ? Math.floor(p.timeoutMs)
@@ -74,6 +89,19 @@ function normalizePolicy(p: Partial<HostInternalInferencePolicy>): HostInternalI
       typeof p.maxConcurrent === 'number' && p.maxConcurrent >= 1 && p.maxConcurrent <= 8
         ? Math.floor(p.maxConcurrent)
         : DEFAULT_POLICY.maxConcurrent,
+    maxRequestsPerHandshakePerMinute: (() => {
+      if (p.maxRequestsPerHandshakePerMinute === 0) {
+        return DEFAULT_POLICY.maxRequestsPerHandshakePerMinute
+      }
+      if (
+        typeof p.maxRequestsPerHandshakePerMinute === 'number' &&
+        p.maxRequestsPerHandshakePerMinute >= 1 &&
+        p.maxRequestsPerHandshakePerMinute <= 120
+      ) {
+        return Math.floor(p.maxRequestsPerHandshakePerMinute)
+      }
+      return DEFAULT_POLICY.maxRequestsPerHandshakePerMinute
+    })(),
     capabilitiesExposeAllInstalledOllama: p.capabilitiesExposeAllInstalledOllama === true,
   }
 }

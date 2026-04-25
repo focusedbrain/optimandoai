@@ -46,15 +46,12 @@ import {
 } from '../lib/modelSelectorHostRefreshVisibility'
 import { fetchSelectorModelListFromHostDiscovery } from '../lib/selectorModelListFromHostDiscovery'
 import type { SelectorAvailableModel } from '../lib/selectorModelListFromHostDiscovery'
+import { mapHostTargetsToGavModelEntries } from '../lib/modelSelectorMerge'
 import {
   type HostRefreshFeedback,
   getHostRefreshFeedbackFromTargets,
 } from '../lib/hostRefreshFeedback'
-import {
-  buildHostAiSelectorTooltip,
-  hostModelSelectorRowUi,
-  isP2pTransportOrProbeFailure,
-} from '../lib/hostModelSelectorRowUi'
+import { buildHostAiSelectorTooltip, hostModelSelectorRowUi } from '../lib/hostModelSelectorRowUi'
 import {
   isHostInferenceModelId,
   parseAnyHostInferenceModelId,
@@ -855,6 +852,23 @@ export default function HybridSearch({
     }
     return !t.available
   }, [selectedModel, hostInf.inferenceTargets, availableModels])
+
+  /** Phase 8: never hide Host AI when GAV has targets but merge lagged — synthesize from `gavHostTargets`. */
+  const hostInternalMenuModels = useMemo((): Extract<SelectorAvailableModel, { type: 'host_internal' }>[] => {
+    const from = availableModels.filter(
+      (m): m is Extract<AvailableModel, { type: 'host_internal' }> => m.type === 'host_internal',
+    )
+    if (from.length > 0) {
+      return from
+    }
+    if (hostInf.treatAsSandboxForHostInternal && gavHostTargets.length > 0) {
+      return mapHostTargetsToGavModelEntries(gavHostTargets) as unknown as Extract<
+        SelectorAvailableModel,
+        { type: 'host_internal' }
+      >[]
+    }
+    return from
+  }, [availableModels, gavHostTargets, hostInf.treatAsSandboxForHostInternal])
 
   const switchOrchestratorChatToLocalModel = useCallback(() => {
     const local = availableModels.find((m) => m.type === 'local')
@@ -2585,7 +2599,7 @@ export default function HybridSearch({
                       <div className="hs-model-item__host-row">
                         <span className={HOST_AI_SELECTOR_ICON_CLASS} aria-hidden title="" />
                         <div className="hs-model-item__stack">
-                          <div className="hs-model-item__line-primary">Host AI · …</div>
+                          <div className="hs-model-item__line-primary">Host AI · connecting…</div>
                         </div>
                       </div>
                     </div>
@@ -2617,12 +2631,10 @@ export default function HybridSearch({
                   )}
                   {hostInf.treatAsSandboxForHostInternal && (
                     <>
-                      {availableModels.filter((m) => m.type === 'host_internal').length > 0 ? (
+                      {hostInternalMenuModels.length > 0 ? (
                         <>
                           <div className="hs-model-group-label hs-model-group-label--ledge">{GROUP_HOST_MODELS}</div>
-                          {availableModels
-                            .filter((m): m is Extract<AvailableModel, { type: 'host_internal' }> => m.type === 'host_internal')
-                            .map((m) => {
+                          {hostInternalMenuModels.map((m) => {
                             const id = m.id
                             const active = selectedModel === id
                             const t = hostInf.inferenceTargets.find((x) => x.id === m.id)
@@ -2652,11 +2664,6 @@ export default function HybridSearch({
                                 : !m.hostTargetAvailable
                                   ? ' hs-model-item--disabled hs-model-item--host-off'
                                   : ''
-                            const showHostRetry =
-                              !m.hostTargetAvailable &&
-                              sel !== 'checking' &&
-                              t &&
-                              isP2pTransportOrProbeFailure(t)
                             return (
                               <button
                                 key={id}
@@ -2678,28 +2685,6 @@ export default function HybridSearch({
                                       <div className="hs-model-item__line-primary">{titleLine}</div>
                                       {sub ? <div className="hs-model-item__line-secondary">{sub}</div> : null}
                                     </div>
-                                    {showHostRetry ? (
-                                      <span
-                                        role="button"
-                                        tabIndex={0}
-                                        className="hs-model-item__host-retry"
-                                        title={tip}
-                                        aria-label="Retry Host direct P2P check"
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter' || e.key === ' ') {
-                                            e.stopPropagation()
-                                            e.preventDefault()
-                                            void loadModels('manual_refresh', { force: true })
-                                          }
-                                        }}
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          void loadModels('manual_refresh', { force: true })
-                                        }}
-                                      >
-                                        ↻
-                                      </span>
-                                    ) : null}
                                   </div>
                                   {active && <span className="hs-model-check">✓</span>}
                                 </div>
@@ -2734,7 +2719,7 @@ export default function HybridSearch({
                   {availableModels.length === 0 &&
                     !(
                         hostInf.treatAsSandboxForHostInternal &&
-                        availableModels.some((m) => m.type === 'host_internal')
+                        hostInternalMenuModels.length > 0
                       ) && (
                     <div className="hs-model-group-label">No models configured — check Settings</div>
                   )}

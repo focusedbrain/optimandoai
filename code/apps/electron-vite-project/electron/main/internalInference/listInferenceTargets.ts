@@ -46,8 +46,6 @@ const HR = {
   roleGate: 'This internal row is not a Sandbox–Host internal pair. Fix local / peer device roles, or re-pair.',
 } as const
 
-const CHECKING_SECONDARY = 'Active internal Host handshake found'
-
 /**
  * Rejection / disable reasons for internal Host target discovery (aligned logging only).
  * See: STEP 3 — Make active internal Host handshake discovery reliable.
@@ -112,16 +110,6 @@ function mapRoleGateFromDerived(d: DerivedInternalRoles): HostInternalInferenceR
   return 'UNKNOWN'
 }
 
-function secondaryForRoleMetadataReject(_r: HandshakeRecord, rr: HostInternalInferenceRejectReason): string {
-  if (rr === 'LOCAL_NOT_SANDBOX') {
-    return HR.localNotSandbox
-  }
-  if (rr === 'PEER_NOT_HOST') {
-    return HR.peerNotHost
-  }
-  return HR.roleGate
-}
-
 /**
  * When `assertLedgerRolesSandboxToHost` fails and we cannot use the "checking" placeholder (no host+sandbox
  * device role pair in metadata), still emit one **disabled** Host row so the selector is never empty.
@@ -147,7 +135,7 @@ function draftDisabledSandboxHostRoleMetadata(
     host_orchestrator_role: 'host',
     host_orchestrator_role_label: ml.roleLabel,
     internal_identifier_6: ml.digits6,
-    secondary_label: secondaryForRoleMetadataReject(r0, rr),
+    secondary_label: secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay),
     direct_reachable: false,
     policy_enabled: false,
     available: false,
@@ -317,8 +305,9 @@ function metaFromOkProbe(
   }
 }
 
-function secondaryLabelFromMeta(hostName: string, roleLabel: string, pairingDisplay: string): string {
-  return `${hostName} — ${roleLabel} · ID ${pairingDisplay}`
+/** Phase 8 compact selector: one ID line, no role label in the secondary row. */
+function secondaryLabelFromMeta(hostName: string, _roleLabel: string, pairingDisplay: string): string {
+  return `${hostName.trim() || 'Host'} · ID ${pairingDisplay}`
 }
 
 function draftCheckingPlaceholderForHostPair(r0: HandshakeRecord): HostTargetDraft {
@@ -329,8 +318,8 @@ function draftCheckingPlaceholderForHostPair(r0: HandshakeRecord): HostTargetDra
   return {
     kind: 'host_internal',
     id: buildHostTargetId(hid, 'checking'),
-    label: 'Host AI · checking Host…',
-    display_label: 'Host AI · checking Host…',
+    label: 'Host AI · connecting…',
+    display_label: 'Host AI · connecting…',
     model: null,
     model_id: null,
     provider: 'host_internal',
@@ -341,7 +330,7 @@ function draftCheckingPlaceholderForHostPair(r0: HandshakeRecord): HostTargetDra
     host_orchestrator_role: 'host',
     host_orchestrator_role_label: ml.roleLabel,
     internal_identifier_6: ml.digits6,
-    secondary_label: CHECKING_SECONDARY,
+    secondary_label: secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay),
     direct_reachable: false,
     policy_enabled: false,
     available: false,
@@ -464,7 +453,7 @@ function ensureAtLeastOneHostTargetWhenLedgerProvesSandboxToHost(
     const pcc = r0.internal_peer_pairing_code ?? undefined
     const displayName = hostComputerNameFromRow(r0)
     const ml = metaLocal(displayName, pcc)
-    const secondary = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay)
+    const secondary = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay) // id line; reasons are tooltips
     console.error(
       `${L} list_invariant ledger_proved_sandbox_to_host but_pipeline_emitted_zero_rows handshake=${hid} configured_mode=${configuredModeForLog(
         mainMode,
@@ -612,7 +601,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         host_orchestrator_role: 'host',
         host_orchestrator_role_label: ml.roleLabel,
         internal_identifier_6: ml.digits6,
-        secondary_label: HR.identity,
+        secondary_label: secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay),
         direct_reachable: false,
         policy_enabled: false,
         available: false,
@@ -652,7 +641,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         host_orchestrator_role: 'host',
         host_orchestrator_role_label: ml.roleLabel,
         internal_identifier_6: ml.digits6,
-        secondary_label: HR.missingP2p,
+        secondary_label: secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay),
         direct_reachable: false,
         policy_enabled: false,
         available: false,
@@ -684,7 +673,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         host_orchestrator_role: 'host',
         host_orchestrator_role_label: ml.roleLabel,
         internal_identifier_6: ml.digits6,
-        secondary_label: HR.mvpP2p,
+        secondary_label: secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay),
         direct_reachable: false,
         policy_enabled: false,
         available: false,
@@ -718,7 +707,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         host_orchestrator_role: 'host',
         host_orchestrator_role_label: ml.roleLabel,
         internal_identifier_6: ml.digits6,
-        secondary_label: HR.ledger,
+        secondary_label: secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay),
         direct_reachable: false,
         policy_enabled: false,
         available: false,
@@ -757,7 +746,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         host_orchestrator_role: 'host',
         host_orchestrator_role_label: ml0.roleLabel,
         internal_identifier_6: ml0.digits6,
-        secondary_label: HR.capabilities,
+        secondary_label: secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay),
         direct_reachable: false,
         policy_enabled: false,
         available: false,
@@ -771,29 +760,31 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     }
     if (!probe.ok) {
       const code = probe.code
+      const p2pFail =
+        code === InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE || !probe.directP2pAvailable
       const ur: HostTargetUnavailableCode =
         code === InternalInferenceErrorCode.POLICY_FORBIDDEN
           ? 'HOST_POLICY_DISABLED'
-          : code === InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE || !probe.directP2pAvailable
+          : p2pFail
             ? 'HOST_DIRECT_P2P_UNREACHABLE'
             : 'CAPABILITY_PROBE_FAILED'
       let av: HostInferenceListAvailability = 'host_offline'
       if (code === InternalInferenceErrorCode.POLICY_FORBIDDEN) {
         av = 'policy_disabled'
-      } else if (code === InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE || !probe.directP2pAvailable) {
+      } else if (p2pFail) {
         av = 'direct_unreachable'
       }
-      const sub =
-        code === InternalInferenceErrorCode.POLICY_FORBIDDEN
-          ? HR.policy
-          : code === InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE || !probe.directP2pAvailable
-            ? HR.p2p
-            : HR.capabilities
+      const p2pCompact = p2pFail
+      const isPolicyForbid = code === InternalInferenceErrorCode.POLICY_FORBIDDEN
       const t: HostTargetDraft = {
         kind: 'host_internal',
         id: buildHostTargetId(hid, 'unavailable'),
-        label: 'Host AI unavailable',
-        display_label: 'Host AI unavailable',
+        label: p2pCompact ? 'Host AI · P2P unavailable' : isPolicyForbid ? 'Host AI · disabled by Host' : 'Host AI unavailable',
+        display_label: p2pCompact
+          ? 'Host AI · P2P unavailable'
+          : isPolicyForbid
+            ? 'Host AI · disabled by Host'
+            : 'Host AI unavailable',
         model: null,
         model_id: null,
         provider: 'host_internal',
@@ -804,7 +795,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         host_orchestrator_role: 'host',
         host_orchestrator_role_label: ml0.roleLabel,
         internal_identifier_6: ml0.digits6,
-        secondary_label: sub,
+        secondary_label: secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay),
         direct_reachable: !!probe.directP2pAvailable,
         policy_enabled: false,
         available: false,
@@ -829,8 +820,8 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       const t: HostTargetDraft = {
         kind: 'host_internal',
         id: buildHostTargetId(hid, 'unavailable'),
-        label: 'Host AI unavailable',
-        display_label: 'Host AI unavailable',
+        label: 'Host AI · disabled by Host',
+        display_label: 'Host AI · disabled by Host',
         model: null,
         model_id: null,
         provider: 'host_internal',
@@ -841,7 +832,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         host_orchestrator_role: 'host',
         host_orchestrator_role_label: hm.roleLabel,
         internal_identifier_6: hm.digits6,
-        secondary_label: HR.policy,
+        secondary_label: secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay),
         direct_reachable: true,
         policy_enabled: false,
         available: false,
@@ -861,8 +852,8 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       const t: HostTargetDraft = {
         kind: 'host_internal',
         id: buildHostTargetId(hid, 'unavailable'),
-        label: 'Host AI unavailable',
-        display_label: 'Host AI unavailable',
+        label: 'Host AI · no active model',
+        display_label: 'Host AI · no active model',
         model: null,
         model_id: null,
         provider: 'host_internal',
@@ -873,7 +864,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         host_orchestrator_role: 'host',
         host_orchestrator_role_label: hm.roleLabel,
         internal_identifier_6: hm.digits6,
-        secondary_label: HR.noModel,
+        secondary_label: secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay),
         direct_reachable: true,
         policy_enabled: true,
         available: false,

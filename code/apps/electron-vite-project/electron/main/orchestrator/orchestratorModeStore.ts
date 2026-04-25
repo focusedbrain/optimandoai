@@ -223,8 +223,14 @@ function validateForWrite(config: OrchestratorModeConfig): OrchestratorModeConfi
 }
 
 export function setOrchestratorMode(config: OrchestratorModeConfig): void {
+  const before = getOrchestratorMode()
   const normalized = validateForWrite(config)
   persistConfig(normalized)
+  if (before.mode !== normalized.mode || before.instanceId !== normalized.instanceId) {
+    void import('../internalInference/p2pSession/p2pInferenceSessionManager').then((m) => {
+      m.closeAllP2pInferenceSessions(m.P2pSessionLogReason.orchestrator_mode_change)
+    })
+  }
 }
 
 /** Persisted `mode === 'host'`. Do not use alone to deny internal Host AI when the ledger proves Sandbox↔Host. */

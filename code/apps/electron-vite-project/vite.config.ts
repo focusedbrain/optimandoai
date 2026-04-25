@@ -9,7 +9,7 @@ const root = __dirname
 const extSrc = path.resolve(root, '../extension-chromium/src')
 
 /** Parsed by scripts/kill-wr-desk.cjs and clear-build-caches (extension); keep in sync with extension outDir. */
-const ORCHESTRATOR_BUILD_STAMP = 'build62'
+const ORCHESTRATOR_BUILD_STAMP = 'build63'
 
 const oauthId =
   process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() ||
@@ -84,13 +84,18 @@ export default defineConfig({
         },
       },
       preload: {
-        input: 'electron/preload.ts',
+        input: {
+          'preload.cjs': path.join(root, 'electron/preload.ts'),
+          'webrtc-transport.cjs': path.join(root, 'electron/preload/webrtcTransportPreload.ts'),
+        },
         vite: {
           build: {
             rollupOptions: {
               output: {
-                entryFileNames: 'preload.cjs',
-                chunkFileNames: 'preload.cjs',
+                entryFileNames: '[name]',
+                chunkFileNames: 'webrtc-tp-prel-chunk.cjs',
+                /** Two preload entries: cannot use `inlineDynamicImports: true` (Rollup). */
+                inlineDynamicImports: false,
               },
             },
           },
@@ -102,5 +107,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rollupOptions: {
+      input: [path.join(root, 'index.html'), path.join(root, 'src/internal-inference-p2p-transport.html')],
+      output: {
+        /** Required for MPA: Rollup disallows `inlineDynamicImports: true` with multiple inputs. */
+        inlineDynamicImports: false,
+      },
+    },
   },
 })
