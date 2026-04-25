@@ -42,6 +42,25 @@ import {
   HOST_AI_UNREACHABLE_TOOLTIP,
 } from '../../lib/hostAiSelectorCopy'
 
+function wrChatHostModelTitle(m: {
+  name: string
+  hostAi?: boolean
+  hostTargetChecking?: boolean
+  hostAvailable?: boolean
+  subtitle?: string
+}): string {
+  if (!m.hostAi) {
+    return `Model: ${m.name}`
+  }
+  const base = m.hostTargetChecking
+    ? HOST_AI_CHECKING_TOOLTIP
+    : m.hostAvailable
+      ? HOST_AI_OPTION_TOOLTIP
+      : HOST_AI_UNREACHABLE_TOOLTIP
+  const s = m.subtitle?.trim()
+  return s ? `${base} — ${s}` : base
+}
+
 const BASE_URL = 'http://127.0.0.1:51248'
 
 /** Active orchestrator storage key (Electron dashboard WR Chat does not pass the real key via sessionName). */
@@ -3376,16 +3395,11 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                             {modelGroups.hosts.map((m) => {
                               const hostChecking = m.hostAi && m.hostTargetChecking === true
                               const hostBlocked = m.hostAi && m.hostAvailable === false
-                              const tip = hostChecking
-                                ? HOST_AI_CHECKING_TOOLTIP
-                                : m.hostAvailable
-                                  ? HOST_AI_OPTION_TOOLTIP
-                                  : HOST_AI_UNREACHABLE_TOOLTIP
                               const hostIcon = m.hostIconClass?.trim()
                               return (
                                 <div
                                   key={m.name}
-                                  title={tip}
+                                  title={wrChatHostModelTitle(m)}
                                   onClick={() => {
                                     if (m.hostAi && m.hostAvailable === false) return
                                     onModelSelect(m.name)
@@ -3459,15 +3473,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                     availableModels.map(m => (
                       <div
                         key={m.name}
-                        title={
-                          m.hostAi
-                            ? (m.hostTargetChecking
-                                ? HOST_AI_CHECKING_TOOLTIP
-                                : m.hostAvailable
-                                  ? HOST_AI_OPTION_TOOLTIP
-                                  : HOST_AI_UNREACHABLE_TOOLTIP)
-                            : `Model: ${m.name}`
-                        }
+                        title={wrChatHostModelTitle(m)}
                         onClick={() => {
                           if (m.hostAi && m.hostAvailable === false) return
                           onModelSelect(m.name)

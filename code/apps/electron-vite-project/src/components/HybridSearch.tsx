@@ -41,6 +41,12 @@ import {
   logInferenceTargetRefreshFromLoad,
   logInferenceTargetRefreshStart,
 } from '../lib/inferenceTargetRefreshLog'
+import {
+  computeShowHostInferenceRefresh,
+  discoveryHasHostInternalRows,
+  handshakeLocalRoleForModelSelectorLog,
+  logModelSelectorShowRefresh,
+} from '../lib/modelSelectorHostRefreshVisibility'
 import { fetchSelectorModelListFromHostDiscovery } from '../lib/selectorModelListFromHostDiscovery'
 import type { SelectorAvailableModel } from '../lib/selectorModelListFromHostDiscovery'
 import {
@@ -618,27 +624,83 @@ export default function HybridSearch({
     line1: string
     line2: string
   } | null>(null)
-  const { ready: orchModeReady, isSandbox: orchIsSandbox, isHost: orchIsHost } = useOrchestratorMode()
+  const {
+    ready: orchModeReady,
+    mode: orchMode,
+    isSandbox: orchIsSandbox,
+    isHost: orchIsHost,
+    ledgerProvesInternalSandboxToHost,
+    ledgerProvesLocalHostPeerSandbox,
+  } = useOrchestratorMode()
+  const discoveryHostInternalRows = useMemo(
+    () => discoveryHasHostInternalRows(gavHostTargets, availableModels),
+    [gavHostTargets, availableModels],
+  )
+  const hostInferenceRefreshState = useMemo(
+    () =>
+      computeShowHostInferenceRefresh({
+        orchModeReady,
+        orchIsSandbox,
+        orchIsHost,
+        ledgerProvesInternalSandboxToHost,
+        ledgerProvesLocalHostPeerSandbox,
+        discoveryHasHostInternalRows: discoveryHostInternalRows,
+      }),
+    [
+      orchModeReady,
+      orchIsSandbox,
+      orchIsHost,
+      ledgerProvesInternalSandboxToHost,
+      ledgerProvesLocalHostPeerSandbox,
+      discoveryHostInternalRows,
+    ],
+  )
+  /** Same gate as ↻: merge `listTargets` + show Host rows even with stale "host" on disk; local list may be empty. */
+  const includeHostInternalDiscovery = hostInferenceRefreshState.show
+  const showHostAiDiscoveryControls = hostInferenceRefreshState.show
+  useEffect(() => {
+    if (!orchModeReady) {
+      return
+    }
+    logModelSelectorShowRefresh({
+      selector: 'top',
+      configuredMode: orchMode,
+      handshakeLocalRole: handshakeLocalRoleForModelSelectorLog({
+        ledgerProvesInternalSandboxToHost,
+        ledgerProvesLocalHostPeerSandbox,
+      }),
+      show: hostInferenceRefreshState.show,
+      reason: hostInferenceRefreshState.reason,
+    })
+  }, [
+    orchModeReady,
+    orchMode,
+    ledgerProvesInternalSandboxToHost,
+    ledgerProvesLocalHostPeerSandbox,
+    hostInferenceRefreshState.show,
+    hostInferenceRefreshState.reason,
+  ])
   const hostInferenceProbeId = parseAnyHostInferenceModelId(selectedModel)?.handshakeId ?? null
   const selectedModelRef = useRef(selectedModel)
   selectedModelRef.current = selectedModel
   const loadModels = useCallback(
     async (reason?: InferenceTargetRefreshReason, options?: { force?: boolean }) => {
     try {
-      if (orchIsSandbox && reason === 'manual_refresh') {
+      if (includeHostInternalDiscovery && reason === 'manual_refresh') {
         logInferenceTargetRefreshStart('manual_refresh')
         setModelsLoading(true)
       }
       const discovered = await fetchSelectorModelListFromHostDiscovery({
         reason,
         force: options?.force,
-        orchIsSandbox,
+        includeHostInternalDiscovery,
+        orchestratorLedgerProvesInternalSandboxToHost: ledgerProvesInternalSandboxToHost,
       })
       const { result, withHost, models, gavForHook, path } = discovered
       setGavHostTargets(gavForHook)
       setAvailableModels(models as AvailableModel[])
 
-      if (reason === 'manual_refresh' && orchIsSandbox) {
+      if (reason === 'manual_refresh' && includeHostInternalDiscovery) {
         setHostRefreshFeedback(getHostRefreshFeedbackFromTargets(gavForHook, { path }))
       }
 
@@ -696,7 +758,7 @@ export default function HybridSearch({
       return result
     } catch (err) {
       console.error('Failed to load models:', err)
-      if (orchIsSandbox && (reason as InferenceTargetRefreshReason | undefined) === 'manual_refresh') {
+      if (includeHostInternalDiscovery && (reason as InferenceTargetRefreshReason | undefined) === 'manual_refresh') {
         setHostRefreshFeedback(getHostRefreshFeedbackFromTargets([], { path: 'empty', error: err }))
       }
     } finally {
@@ -704,7 +766,7 @@ export default function HybridSearch({
     }
     return null
   },
-  [orchIsSandbox],
+  [includeHostInternalDiscovery, ledgerProvesInternalSandboxToHost],
   )
 
   useEffect(() => {
@@ -788,11 +850,11 @@ export default function HybridSearch({
   }, [availableModels])
 
   const hostDirectP2pStatusUi = useMemo(() => {
-    if (!hostInf.isSandbox || mode !== 'chat' || !isHostInferenceModelId(selectedModel)) {
+    if (!hostInf.treatAsSandboxForHostInternal || mode !== 'chat' || !isHostInferenceModelId(selectedModel)) {
       return null
     }
     return directP2pReachabilityCopyForSandboxToHost(hostInf.directReachability)
-  }, [hostInf.isSandbox, hostInf.directReachability, mode, selectedModel])
+  }, [hostInf.treatAsSandboxForHostInternal, hostInf.directReachability, mode, selectedModel])
 
   useEffect(() => {
     setHostInfSuccess(false)
@@ -1044,7 +1106,7 @@ export default function HybridSearch({
       return
     }
     void loadModels('mode_change')
-  }, [loadModels, orchModeReady, orchIsSandbox])
+  }, [loadModels, orchModeReady, orchIsSandbox, ledgerProvesInternalSandboxToHost])
 
   useEffect(() => {
     const onHandshake = () => {
@@ -1109,7 +1171,7 @@ export default function HybridSearch({
     if (modelsLoading) {
       return
     }
-    if (hostInf.isSandbox && hostInf.listLoading) {
+    if (hostInf.treatAsSandboxForHostInternal && hostInf.listLoading) {
       return
     }
     const ak = accountKeyFromSession()
@@ -1128,7 +1190,7 @@ export default function HybridSearch({
         stored,
         availableModels,
         hostInf.inferenceTargets,
-        hostInf.isSandbox,
+        hostInf.treatAsSandboxForHostInternal,
         hasLocal,
       )
       if (v.error) {
@@ -1156,7 +1218,7 @@ export default function HybridSearch({
       hostInf.inferenceTargets.find((t) => t.available)?.id
     const firstLocal = availableModels.find((m) => m.type === 'local')?.id
     const preferred =
-      (hostInf.isSandbox ? firstCloud ?? firstHost ?? firstLocal : firstLocal ?? firstCloud) ??
+      (hostInf.treatAsSandboxForHostInternal ? firstCloud ?? firstHost ?? firstLocal : firstLocal ?? firstCloud) ??
       availableModels[0]?.id ??
       ''
     setSelectedModel((prev) => {
@@ -1174,7 +1236,7 @@ export default function HybridSearch({
     orchestratorChatModelRestoredRef.current = true
   }, [
     modelsLoading,
-    hostInf.isSandbox,
+    hostInf.treatAsSandboxForHostInternal,
     hostInf.listLoading,
     hostInf.inferenceTargets,
     availableModels,
@@ -2136,7 +2198,7 @@ export default function HybridSearch({
           </button>
         </div>
       )}
-      {hostInf.isSandbox && mode === 'chat' && hostDirectP2pStatusUi && (
+      {hostInf.treatAsSandboxForHostInternal && mode === 'chat' && hostDirectP2pStatusUi && (
         <div
           style={{
             display: 'flex',
@@ -2408,7 +2470,7 @@ export default function HybridSearch({
           {/* Model picker — Chat / Actions only. Does NOT affect Auto-Sort (autosort has its own selector in the inbox toolbar row). */}
           {showModelSelector && (
             <>
-              {orchModeReady && orchIsSandbox && !orchIsHost && (
+              {showHostAiDiscoveryControls && (
                 <button
                   type="button"
                   className="hs-inference-refresh"
@@ -2488,8 +2550,8 @@ export default function HybridSearch({
 
           {modelMenuOpen && showModelSelector && (
             <div className="hs-model-menu" role="menu">
-              {modelsLoading || (hostInf.isSandbox && hostInf.listLoading) ? (
-                hostInf.isSandbox ? (
+              {modelsLoading || (hostInf.treatAsSandboxForHostInternal && hostInf.listLoading) ? (
+                hostInf.treatAsSandboxForHostInternal ? (
                   <>
                     <div className="hs-model-group-label hs-model-group-label--ledge">{GROUP_HOST_MODELS}</div>
                     <div
@@ -2538,7 +2600,7 @@ export default function HybridSearch({
                       ))}
                     </>
                   )}
-                  {hostInf.isSandbox && (
+                  {hostInf.treatAsSandboxForHostInternal && (
                     <>
                       {availableModels.filter((m) => m.type === 'host_internal').length > 0 ? (
                         <>
@@ -2647,7 +2709,7 @@ export default function HybridSearch({
                   )}
                   {availableModels.length === 0 &&
                     !(
-                        hostInf.isSandbox &&
+                        hostInf.treatAsSandboxForHostInternal &&
                         availableModels.some((m) => m.type === 'host_internal')
                       ) && (
                     <div className="hs-model-group-label">No models configured — check Settings</div>
@@ -2657,7 +2719,7 @@ export default function HybridSearch({
             </div>
           )}
         </div>
-        {hostRefreshFeedback && orchIsSandbox && (
+        {hostRefreshFeedback && includeHostInternalDiscovery && (
           <div
             role="status"
             aria-live="polite"

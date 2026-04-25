@@ -19,9 +19,23 @@ import { broadcastOrchestratorModeChanged } from './broadcastModeChange'
 export function registerOrchestratorIPC(): void {
   console.log('[Orchestrator IPC] Registering handlers...')
 
-  /** Read persisted host/sandbox — must match `isSandboxMode()` in main; same JSON file as setMode. */
+  /**
+   * Read persisted host/sandbox (same JSON as setMode) + ledger-based Host AI hint: ACTIVE internal
+   * same-principal Sandbox↔Host row. Does not override persisted mode; UIs use it for Host discovery/↻.
+   */
   ipcMain.handle('orchestrator:getMode', async () => {
-    return getOrchestratorMode()
+    const base = getOrchestratorMode()
+    let ledgerProvesInternalSandboxToHost = false
+    let ledgerProvesLocalHostPeerSandbox = false
+    try {
+      const { hasActiveInternalLedgerSandboxToHostForHostAi, hasActiveInternalLedgerLocalHostPeerSandboxForHostUi } =
+        await import('../internalInference/listInferenceTargets')
+      ledgerProvesInternalSandboxToHost = await hasActiveInternalLedgerSandboxToHostForHostAi()
+      ledgerProvesLocalHostPeerSandbox = await hasActiveInternalLedgerLocalHostPeerSandboxForHostUi()
+    } catch (e) {
+      console.warn('[Orchestrator IPC] ledger role hints failed:', e)
+    }
+    return { ...base, ledgerProvesInternalSandboxToHost, ledgerProvesLocalHostPeerSandbox }
   })
 
   ipcMain.handle('orchestrator:setMode', async (_event, config: OrchestratorModeConfig) => {

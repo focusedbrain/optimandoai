@@ -8,6 +8,22 @@
 
 export type OrchestratorKind = 'host' | 'sandbox'
 
+function normalizeDeviceRole(v: unknown): 'host' | 'sandbox' | null {
+  if (v === 'host' || v === 'sandbox') return v
+  return null
+}
+
+function trimName(v: string | null | undefined): string | null {
+  const t = typeof v === 'string' ? v.trim() : ''
+  return t ? t : null
+}
+
+/** 6-digit pairing id for display (not UUIDs). */
+function sixDigitPairingCodeForUi(raw: string | null | undefined): string | null {
+  const t = (raw ?? '').replace(/\D/g, '')
+  return t.length === 6 ? t : null
+}
+
 /** Minimal shape for deriving peer/local orchestrator display (matches ledger + rpcTypes). */
 export interface InternalIdentitySource {
   handshake_type?: 'internal' | 'standard' | null
@@ -25,6 +41,71 @@ export interface InternalIdentitySource {
   internal_peer_pairing_code?: string | null
   internal_coordination_identity_complete?: boolean
   internal_coordination_repair_needed?: boolean
+}
+
+/** Extends {@link InternalIdentitySource} with lifecycle state (ledger row). */
+export interface InternalHandshakeRoleSource extends InternalIdentitySource {
+  state?: string | null
+}
+
+export interface DerivedInternalHandshakeRoles {
+  isInternal: boolean
+  localDeviceRole: 'host' | 'sandbox' | null
+  peerDeviceRole: 'host' | 'sandbox' | null
+  localDeviceName: string | null
+  peerDeviceName: string | null
+  /** 6 decimal digits when valid; for display pair with name — never a coordination UUID. */
+  peerPairingCode: string | null
+  isLocalSandboxPeerHost: boolean
+  isLocalHostPeerSandbox: boolean
+}
+
+const ACTIVE = 'ACTIVE'
+
+/**
+ * Derive local/peer device roles and display-oriented names for an internal identity row.
+ * User-facing: computer/device name + 6-digit pairing code — not raw UUIDs.
+ */
+export function deriveInternalHandshakeRoles(record: InternalHandshakeRoleSource): DerivedInternalHandshakeRoles {
+  const isInternal = record.handshake_type === 'internal'
+  const localRole = record.local_role
+
+  let localDeviceRole: 'host' | 'sandbox' | null = null
+  let peerDeviceRole: 'host' | 'sandbox' | null = null
+  let localDeviceName: string | null = null
+  let peerDeviceName: string | null = null
+
+  if (localRole === 'initiator') {
+    localDeviceRole = normalizeDeviceRole(record.initiator_device_role)
+    peerDeviceRole = normalizeDeviceRole(record.acceptor_device_role)
+    localDeviceName = trimName(record.initiator_device_name)
+    peerDeviceName = trimName(record.acceptor_device_name) ?? trimName(record.internal_peer_computer_name)
+  } else {
+    localDeviceRole = normalizeDeviceRole(record.acceptor_device_role)
+    peerDeviceRole = normalizeDeviceRole(record.initiator_device_role)
+    localDeviceName = trimName(record.acceptor_device_name)
+    peerDeviceName = trimName(record.initiator_device_name) ?? trimName(record.internal_peer_computer_name)
+  }
+
+  const peerPairingCode = sixDigitPairingCodeForUi(record.internal_peer_pairing_code)
+  const isActive = String(record.state ?? '') === ACTIVE
+  const internalActive = isInternal && isActive
+
+  const isLocalSandboxPeerHost =
+    internalActive && localDeviceRole === 'sandbox' && peerDeviceRole === 'host'
+  const isLocalHostPeerSandbox =
+    internalActive && localDeviceRole === 'host' && peerDeviceRole === 'sandbox'
+
+  return {
+    isInternal,
+    localDeviceRole,
+    peerDeviceRole,
+    localDeviceName,
+    peerDeviceName,
+    peerPairingCode,
+    isLocalSandboxPeerHost,
+    isLocalHostPeerSandbox,
+  }
 }
 
 export function isInternalHandshake(r: Pick<InternalIdentitySource, 'handshake_type'>): boolean {

@@ -38,13 +38,27 @@ export function hostModelSelectorRowUi(
     }
   }
   if (st === 'unavailable' || !m.hostTargetAvailable) {
+    const fromMain = t?.secondary_label?.trim() || m.displaySubtitle?.trim()
+    if (fromMain) {
+      return {
+        titleLine: 'Host AI unavailable',
+        subtitleLine: fromMain,
+      }
+    }
+    const ur = t?.unavailable_reason ?? t?.inference_error_code
+    if (ur === 'ENDPOINT_NOT_DIRECT' || ur === 'HOST_DIRECT_P2P_UNREACHABLE') {
+      return {
+        titleLine: 'Host AI unavailable',
+        subtitleLine: 'Host is paired, but direct P2P is not reachable.',
+      }
+    }
     const av = t?.availability
     const fromAvail =
       av && av !== 'available' && av !== 'checking_host' ? String(av) : ''
-    const reason = (t?.unavailable_reason && String(t.unavailable_reason)) || fromAvail || m.displaySubtitle?.trim() || ''
+    const reason = fromAvail || m.displaySubtitle?.trim() || ''
     return {
       titleLine: 'Host AI unavailable',
-      subtitleLine: reason || m.displaySubtitle || 'Host is not available for this Sandbox',
+      subtitleLine: reason || 'Host is not available for this Sandbox',
     }
   }
   const rawModel = (

@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { DirectP2pReachabilityStatus } from '../lib/hostInferenceUiGates'
 import type { InferenceTargetRefreshReason } from '../lib/inferenceTargetRefreshLog'
+import {
+  computeShowHostInferenceRefresh,
+  discoveryHasHostInternalRows,
+} from '../lib/modelSelectorHostRefreshVisibility'
 import { useOrchestratorMode } from './useOrchestratorMode'
 
 export type HostInferenceCandidateRow = {
@@ -79,13 +83,54 @@ export function useSandboxHostInference(
   selectedHandshakeIdForProbe: string | null,
   gav?: HostInferenceGavSync | null,
 ) {
-  const { isSandbox, ready: modeReady } = useOrchestratorMode()
+  const {
+    isSandbox,
+    isHost: orchIsHost,
+    ready: modeReady,
+    ledgerProvesInternalSandboxToHost,
+    ledgerProvesLocalHostPeerSandbox,
+  } = useOrchestratorMode()
   const [candidates, setCandidates] = useState<HostInferenceCandidateRow[]>([])
   const [inferenceTargets, setInferenceTargets] = useState<HostInferenceTargetRow[]>([])
   const [listLoading, setListLoading] = useState(true)
   const [policy, setPolicy] = useState<PolicyState>('unknown')
   const [policyDetail, setPolicyDetail] = useState<string | null>(null)
   const [directReachability, setDirectReachability] = useState<DirectP2pReachabilityStatus | null>(null)
+
+  const discoveryFromLists = useMemo(
+    () => discoveryHasHostInternalRows(gav?.targets ?? inferenceTargets, []),
+    [gav?.targets, inferenceTargets],
+  )
+  const hasHandshakeDerivedSandboxHostTarget =
+    ledgerProvesInternalSandboxToHost || discoveryFromLists
+  const showHostInferenceRefreshState = useMemo(
+    () =>
+      computeShowHostInferenceRefresh({
+        orchModeReady: modeReady,
+        orchIsSandbox: isSandbox,
+        orchIsHost: orchIsHost,
+        ledgerProvesInternalSandboxToHost,
+        ledgerProvesLocalHostPeerSandbox,
+        discoveryHasHostInternalRows: discoveryFromLists,
+      }),
+    [
+      modeReady,
+      isSandbox,
+      orchIsHost,
+      ledgerProvesInternalSandboxToHost,
+      ledgerProvesLocalHostPeerSandbox,
+      discoveryFromLists,
+    ],
+  )
+
+  /**
+   * Use for Host AI list / gav sync / P2P when ledger proves Sandbox side of the internal pair even if
+   * `orchestrator-mode.json` still says "host" (or vice versa) — not the same as strict `isSandbox` from file.
+   */
+  const treatAsSandboxForHostInternal =
+    modeReady &&
+    !ledgerProvesLocalHostPeerSandbox &&
+    (isSandbox || ledgerProvesInternalSandboxToHost)
 
   const showHostInferenceOption =
     modeReady && isSandbox && inferenceTargets.some((t) => t.direct_reachable && t.available)
@@ -173,19 +218,19 @@ export function useSandboxHostInference(
   }, [gav])
 
   useLayoutEffect(() => {
-    if (!modeReady || !isSandbox || !gav) {
+    if (!treatAsSandboxForHostInternal || !gav) {
       return
     }
     setListLoading(false)
     setInferenceTargets(gav.targets)
     setCandidates(targetsToCandidates(gav.targets))
-  }, [isSandbox, modeReady, gav, gav?.targets])
+  }, [treatAsSandboxForHostInternal, gav, gav?.targets])
 
   useEffect(() => {
     if (!modeReady) {
       return
     }
-    if (!isSandbox) {
+    if (!treatAsSandboxForHostInternal) {
       setListLoading(false)
       setCandidates([])
       setInferenceTargets([])
@@ -196,7 +241,7 @@ export function useSandboxHostInference(
     }
     setListLoading(true)
     void refresh()
-  }, [isSandbox, modeReady, gav, gav?.targets, refresh])
+  }, [treatAsSandboxForHostInternal, modeReady, gav, gav?.targets, refresh])
 
   useEffect(() => {
     /**
@@ -206,7 +251,7 @@ export function useSandboxHostInference(
       return () => {}
     }
     const on = () => {
-      if (isSandbox) void refresh()
+      if (treatAsSandboxForHostInternal) void refresh()
     }
     window.addEventListener('handshake-list-refresh', on)
     window.addEventListener('orchestrator-mode-changed', on)
@@ -214,11 +259,11 @@ export function useSandboxHostInference(
       window.removeEventListener('handshake-list-refresh', on)
       window.removeEventListener('orchestrator-mode-changed', on)
     }
-  }, [isSandbox, refresh, gav])
+  }, [treatAsSandboxForHostInternal, refresh, gav])
 
   const p2pRefreshSig = useRef<string>('')
   useEffect(() => {
-    if (!isSandbox) {
+    if (!treatAsSandboxForHostInternal) {
       p2pRefreshSig.current = ''
       return
     }
@@ -230,10 +275,10 @@ export function useSandboxHostInference(
     window.dispatchEvent(
       new CustomEvent('inference-target-refresh', { detail: { reason: 'p2p_change' } }),
     )
-  }, [isSandbox, directReachability])
+  }, [treatAsSandboxForHostInternal, directReachability])
 
   useEffect(() => {
-    if (!isSandbox || !selectedHandshakeIdForProbe) {
+    if (!treatAsSandboxForHostInternal || !selectedHandshakeIdForProbe) {
       setDirectReachability(null)
       return
     }
@@ -272,10 +317,10 @@ export function useSandboxHostInference(
     return () => {
       cancelled = true
     }
-  }, [isSandbox, selectedHandshakeIdForProbe, candidates])
+  }, [treatAsSandboxForHostInternal, selectedHandshakeIdForProbe, candidates])
 
   useEffect(() => {
-    if (!isSandbox || !selectedHandshakeIdForProbe) {
+    if (!treatAsSandboxForHostInternal || !selectedHandshakeIdForProbe) {
       setPolicy('unknown')
       setPolicyDetail(null)
       return
@@ -326,14 +371,20 @@ export function useSandboxHostInference(
     return () => {
       cancelled = true
     }
-  }, [isSandbox, selectedHandshakeIdForProbe, candidates])
+  }, [treatAsSandboxForHostInternal, selectedHandshakeIdForProbe, candidates])
 
   return {
     isSandbox: modeReady && isSandbox,
+    /** True when the device should use Sandbox-side Host internal inference (handshake/ledger, not on-disk host alone). */
+    treatAsSandboxForHostInternal,
     listLoading,
     candidates,
     inferenceTargets,
     showHostInferenceOption,
+    hasHandshakeDerivedSandboxHostTarget,
+    showHostInferenceRefresh: showHostInferenceRefreshState.show,
+    ledgerProvesInternalSandboxToHost,
+    ledgerProvesLocalHostPeerSandbox,
     policy,
     policyDetail,
     directReachability,

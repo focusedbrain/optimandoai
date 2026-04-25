@@ -3,18 +3,19 @@
  * See also: internal-inference:listTargets (same data; wire-oriented + logs).
  */
 
+import {
+  deriveInternalHandshakeRoles,
+  type InternalHandshakeRoleSource,
+} from '../../../../../packages/shared/src/handshake/internalIdentityUi'
 import { listHandshakeRecords } from '../handshake/db'
 import { HandshakeState, type HandshakeRecord } from '../handshake/types'
-import { getOrchestratorMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
+import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import {
   assertP2pEndpointDirect,
   assertRecordForServiceRpc,
-  assertSandboxRequestToHost,
   handshakeSamePrincipal,
-  localDeviceRole,
   p2pEndpointKind,
-  peerDeviceRole,
   peerCoordinationDeviceId,
 } from './policy'
 import { probeHostInferencePolicyFromSandbox } from './sandboxHostUi'
@@ -24,8 +25,12 @@ const L = '[HOST_INFERENCE_TARGETS]'
 
 /** User-facing subtitle for disabled Host rows (not transport codes; see `handshake:getAvailableModels`). */
 const HR = {
-  p2p: 'Host is paired but direct P2P is not reachable.',
-  /** Relay / BEAP service URL in `p2p_endpoint` is not a direct local endpoint for service RPC. */
+  /**
+   * STEP 8 / MVP: capability probe + inference are direct P2P only; relay is not used for those paths.
+   * Same line for `ENDPOINT_NOT_DIRECT` and `HOST_DIRECT_P2P_UNREACHABLE` — row stays visible, not dropped.
+   */
+  p2p: 'Host is paired, but direct P2P is not reachable.',
+  /** Dev / comments only; `p2p` is used in the model row for non-direct relay endpoints. */
   endpointNotDirect: 'Direct (non-relay) P2P to the Host is required. This endpoint is not a direct address.',
   missingP2p: 'No direct P2P endpoint on this internal handshake. Set a local Host address in the ledger.',
   policy: 'Host AI is disabled on the Host.',
@@ -60,10 +65,47 @@ export type HostInternalInferenceRejectReason =
   | 'HOST_NO_ACTIVE_LOCAL_LLM'
   | 'UNKNOWN'
 
-function mapRoleGateReason(r: HandshakeRecord): HostInternalInferenceRejectReason {
-  if (!isSandboxMode()) return 'NOT_SANDBOX_MODE'
-  if (localDeviceRole(r) !== 'sandbox') return 'LOCAL_NOT_SANDBOX'
-  if (peerDeviceRole(r) !== 'host') return 'PEER_NOT_HOST'
+type DerivedInternalRoles = ReturnType<typeof deriveInternalHandshakeRoles>
+
+function recordToInternalRoleSource(r: HandshakeRecord): InternalHandshakeRoleSource {
+  return {
+    handshake_type: r.handshake_type,
+    state: r.state,
+    local_role: r.local_role,
+    initiator_device_role: r.initiator_device_role,
+    acceptor_device_role: r.acceptor_device_role,
+    initiator_device_name: r.initiator_device_name,
+    acceptor_device_name: r.acceptor_device_name,
+    initiator_coordination_device_id: r.initiator_coordination_device_id,
+    acceptor_coordination_device_id: r.acceptor_coordination_device_id,
+    internal_peer_device_id: r.internal_peer_device_id,
+    internal_peer_device_role: r.internal_peer_device_role,
+    internal_peer_computer_name: r.internal_peer_computer_name,
+    internal_peer_pairing_code: r.internal_peer_pairing_code,
+    internal_coordination_identity_complete: r.internal_coordination_identity_complete,
+    internal_coordination_repair_needed: r.internal_coordination_repair_needed,
+  }
+}
+
+function deriveFromRecord(r: HandshakeRecord): DerivedInternalRoles {
+  return deriveInternalHandshakeRoles(recordToInternalRoleSource(r))
+}
+
+/** Handshake says this device is Sandbox and peer is Host, same account — the Host AI target shape. */
+function rowProvesLocalSandboxToHostForHostAi(r: HandshakeRecord): boolean {
+  if (!handshakeSamePrincipal(r)) return false
+  return deriveFromRecord(r).isLocalSandboxPeerHost
+}
+
+/** This device is Host and peer is Sandbox (same account) — not the Host AI discovery client role. */
+function rowProvesLocalHostPeerSandboxForHostAi(r: HandshakeRecord): boolean {
+  if (!handshakeSamePrincipal(r)) return false
+  return deriveFromRecord(r).isLocalHostPeerSandbox
+}
+
+function mapRoleGateFromDerived(d: DerivedInternalRoles): HostInternalInferenceRejectReason {
+  if (d.localDeviceRole !== 'sandbox') return 'LOCAL_NOT_SANDBOX'
+  if (d.peerDeviceRole !== 'host') return 'PEER_NOT_HOST'
   return 'UNKNOWN'
 }
 
@@ -78,7 +120,7 @@ function secondaryForRoleMetadataReject(_r: HandshakeRecord, rr: HostInternalInf
 }
 
 /**
- * When `assertSandboxRequestToHost` fails and we cannot use the "checking" placeholder (no host+sandbox
+ * When `assertLedgerRolesSandboxToHost` fails and we cannot use the "checking" placeholder (no host+sandbox
  * device role pair in metadata), still emit one **disabled** Host row so the selector is never empty.
  */
 function draftDisabledSandboxHostRoleMetadata(
@@ -113,9 +155,14 @@ function draftDisabledSandboxHostRoleMetadata(
   }
 }
 
-function peerDeviceRoleForLog(r: HandshakeRecord): 'host' | 'sandbox' | 'unknown' {
-  const p = peerDeviceRole(r)
+function peerDeviceRoleForLogD(d: DerivedInternalRoles): 'host' | 'sandbox' | 'unknown' {
+  const p = d.peerDeviceRole
   if (p === 'host' || p === 'sandbox') return p
+  return 'unknown'
+}
+
+function configuredModeForLog(m: string): 'host' | 'sandbox' | 'unknown' {
+  if (m === 'host' || m === 'sandbox') return m
   return 'unknown'
 }
 
@@ -123,28 +170,48 @@ function logInternalCandidate(
   r: HandshakeRecord,
   db: any,
   mainMode: string,
+  d: DerivedInternalRoles,
 ): void {
   const sp = handshakeSamePrincipal(r)
   const idc = r.internal_coordination_identity_complete === true
   const epKind = p2pEndpointKind(db, r.p2p_endpoint)
   const peerName = hostComputerNameFromRow(r)
   const digits6 = digits6Only(r.internal_peer_pairing_code ?? undefined)
-  const ldr = localDeviceRole(r)
-  const pdr = peerDeviceRoleForLog(r)
+  const ldr = d.localDeviceRole
+  const pdr = peerDeviceRoleForLogD(d)
+  const lr = d.localDeviceRole == null ? 'null' : d.localDeviceRole
+  const pr = d.peerDeviceRole == null ? 'null' : d.peerDeviceRole
   console.log(
-    `${L} candidate handshake=${r.handshake_id} local_mode=${mainMode} local_role=${r.local_role} local_device_role=${
+    `${L} role_source=handshake configured_mode=${configuredModeForLog(mainMode)} local_role=${lr} peer_role=${pr}`,
+  )
+  const cm = configuredModeForLog(mainMode)
+  if (cm === 'host' && d.localDeviceRole === 'sandbox') {
+    console.log(
+      `${L} mode_mismatch configured_mode=${cm} handshake_local_role=${lr} handshake=${r.handshake_id}`,
+    )
+  } else if (cm === 'sandbox' && d.localDeviceRole === 'host') {
+    console.log(
+      `${L} mode_mismatch configured_mode=${cm} handshake_local_role=${lr} handshake=${r.handshake_id}`,
+    )
+  }
+  console.log(
+    `${L} candidate handshake=${r.handshake_id} local_mode=${mainMode} ledger_local_role=${r.local_role} local_device_role=${
       ldr ?? 'unknown'
     } peer_device_role=${pdr} same_principal=${sp} internal_coordination_identity_complete=${idc} p2p_endpoint_kind=${epKind} peer_display_name=${peerName} pairing_6=${digits6 || '—'}`,
   )
 }
 
+/** Exposed on disabled Host AI rows; aligned with product failure taxonomy (STEP 3). */
 export type HostTargetUnavailableCode =
-  | 'HOST_DIRECT_P2P_UNAVAILABLE'
-  | 'HOST_NO_ACTIVE_LOCAL_LLM'
+  | 'IDENTITY_INCOMPLETE'
+  | 'MISSING_P2P_ENDPOINT'
+  | 'ENDPOINT_NOT_DIRECT'
+  | 'HOST_DIRECT_P2P_UNREACHABLE'
   | 'HOST_POLICY_DISABLED'
-  | 'CHECKING_CAPABILITIES'
-  | 'HOST_INCOMPLETE_INTERNAL_HANDSHAKE'
+  | 'HOST_NO_ACTIVE_LOCAL_LLM'
   | 'CAPABILITY_PROBE_FAILED'
+  | 'UNKNOWN'
+  | 'CHECKING_CAPABILITIES'
   | 'SANDBOX_HOST_ROLE_METADATA'
 
 export type HostInferenceListAvailability =
@@ -317,8 +384,123 @@ function finalizeItem(t: HostTargetDraft): HostInternalInferenceListItem {
 }
 
 /**
+ * At least one ACTIVE internal row: same account + handshake-derived Sandbox→Host.
+ */
+function anyActiveRowProvesLocalSandboxToHostFromDb(db: unknown): boolean {
+  const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE })
+  for (const r0 of rows) {
+    if (r0.handshake_type !== 'internal' || r0.state !== HandshakeState.ACTIVE) continue
+    if (rowProvesLocalSandboxToHostForHostAi(r0)) return true
+  }
+  return false
+}
+
+/**
+ * `handshake:getAvailableModels`: merge `host_internal` rows when the persisted file says sandbox **or**
+ * the ACTIVE internal ledger proves this device is the Sandbox side of a Sandbox↔Host pair.
+ * Do not use `isSandboxMode()` alone — `orchestrator-mode.json` can remain "host" while the ledger is authoritative.
+ */
+export function shouldMergeHostInternalRowsForGetAvailableModels(
+  isSandboxFromPersistedFile: boolean,
+  ledgerProvesInternalSandboxToHost: boolean,
+): boolean {
+  return isSandboxFromPersistedFile || ledgerProvesInternalSandboxToHost
+}
+
+/**
+ * Exposed for `orchestrator:getMode` / `handshake:getAvailableModels` — main asks the ledger, not only the persisted host/sandbox file.
+ */
+export async function hasActiveInternalLedgerSandboxToHostForHostAi(): Promise<boolean> {
+  const db = await getHandshakeDbForInternalInference()
+  if (!db) return false
+  return anyActiveRowProvesLocalSandboxToHostFromDb(db)
+}
+
+function anyActiveRowProvesLocalHostPeerSandboxFromDb(db: unknown): boolean {
+  const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE })
+  for (const r0 of rows) {
+    if (r0.handshake_type !== 'internal' || r0.state !== HandshakeState.ACTIVE) continue
+    if (rowProvesLocalHostPeerSandboxForHostAi(r0)) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * `orchestrator:getMode`: this device is the Host side of an ACTIVE internal same-principal row (hide Host AI ↻ in UI).
+ */
+export async function hasActiveInternalLedgerLocalHostPeerSandboxForHostUi(): Promise<boolean> {
+  const db = await getHandshakeDbForInternalInference()
+  if (!db) {
+    return false
+  }
+  return anyActiveRowProvesLocalHostPeerSandboxFromDb(db)
+}
+
+/**
+ * Last resort: the ledger has an ACTIVE internal Sandbox→Host (same account) row but the pipeline
+ * produced zero list entries — add one disabled `UNKNOWN` row so the selector is never empty.
+ */
+function ensureAtLeastOneHostTargetWhenLedgerProvesSandboxToHost(
+  targets: HostInternalInferenceListItem[],
+  ledgerActive: HandshakeRecord[],
+  handshakeProvesSandboxToHost: boolean,
+  mainMode: string,
+): void {
+  if (!handshakeProvesSandboxToHost || targets.length > 0) {
+    return
+  }
+  for (const r0 of ledgerActive) {
+    if (!rowProvesLocalSandboxToHostForHostAi(r0)) {
+      continue
+    }
+    const hid = r0.handshake_id
+    const pcc = r0.internal_peer_pairing_code ?? undefined
+    const displayName = hostComputerNameFromRow(r0)
+    const ml = metaLocal(displayName, pcc)
+    const secondary = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay)
+    console.error(
+      `${L} list_invariant ledger_proved_sandbox_to_host but_pipeline_emitted_zero_rows handshake=${hid} configured_mode=${configuredModeForLog(
+        mainMode,
+      )} (adding disabled UNKNOWN)`,
+    )
+    const t: HostTargetDraft = {
+      kind: 'host_internal',
+      id: buildHostTargetId(hid, 'unavailable'),
+      label: 'Host AI unavailable',
+      display_label: 'Host AI unavailable',
+      model: null,
+      model_id: null,
+      provider: 'host_internal',
+      handshake_id: hid,
+      host_device_id: (peerCoordinationDeviceId(r0) ?? '').trim() || '',
+      host_computer_name: ml.hostName,
+      host_pairing_code: ml.digits6,
+      host_orchestrator_role: 'host',
+      host_orchestrator_role_label: ml.roleLabel,
+      internal_identifier_6: ml.digits6,
+      secondary_label: secondary,
+      direct_reachable: false,
+      policy_enabled: false,
+      available: false,
+      availability: 'not_configured',
+      unavailable_reason: 'UNKNOWN',
+      host_role: 'Host',
+      inference_error_code: 'UNKNOWN',
+    }
+    targets.push(finalizeItem(t))
+    return
+  }
+  console.error(
+    `${L} list_invariant_broken count_says_sandbox_to_host_but_no_matching_row in ledgerActive`,
+  )
+}
+
+/**
  * Returns Host AI targets for Sandbox: ACTIVE internal, same principal, this device Sandbox ↔ peer Host.
- * Host orchestrator (local mode Host) always gets an empty list.
+ * When persisted mode is "host" but the ledger still shows an ACTIVE internal Sandbox↔Host row (mis-set file), lists anyway.
+ * Real Host machines with no such ledger row get an empty list.
  * Never returns empty when at least one qualifying row exists in the ledger (one row per handshake: available, or disabled with reason).
  */
 export async function listSandboxHostInternalInferenceTargets(): Promise<{
@@ -327,19 +509,15 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
   /** Set when at least one target row called Host (direct P2P capabilities) this run. */
   refreshMeta: { hadCapabilitiesProbed: boolean }
 }> {
-  /** Same persisted value as `orchestrator:getMode` / `handshake:getAvailableModels` (orchestrator-mode.json). */
   const mainMode = getOrchestratorMode().mode
-  console.log(`${L} list_begin mode=${mainMode}`)
-
-  if (mainMode === 'host') {
-    console.log(`${L} list_done count=0`)
-    return { ok: true, targets: [], refreshMeta: { hadCapabilitiesProbed: false } }
-  }
-  // `OrchestratorModeConfig.mode` is host|sandbox; at this point we are sandbox.
+  console.log(
+    `${L} list_begin configured_mode=${configuredModeForLog(mainMode)} (orchestrator file is a hint, not a hard block)`,
+  )
 
   const db = await getHandshakeDbForInternalInference()
   const dbOk = db != null
   console.log(`${L} db_available=${dbOk}`)
+
   if (!db) {
     console.log(`${L} rejected reason=DB_UNAVAILABLE (ledger not open; check SSO / session)`)
     console.log(`${L} list_empty reason=handshake_db_unavailable`)
@@ -347,19 +525,27 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     return { ok: true, targets: [], refreshMeta: { hadCapabilitiesProbed: false } }
   }
 
-  /** Same Tier-1 ledger as `handshake.list` (no per-request filter) — all ACTIVE rows, then split by type in-process. */
+  /** 1) ACTIVE rows first, then 2) derive roles, 3) count handshake Sandbox→Host. */
   const ledgerActive = listHandshakeRecords(db, { state: HandshakeState.ACTIVE })
   const activeInternalCount = ledgerActive.filter((r) => r.handshake_type === 'internal').length
-  console.log(`${L} active_internal_count=${activeInternalCount}`)
-
-  let hostPairCount = 0
+  let activeInternalSandboxToHostCount = 0
+  let handshakeProvesSandboxToHost = false
   for (const r0 of ledgerActive) {
     if (r0.handshake_type !== 'internal' || r0.state !== HandshakeState.ACTIVE) continue
-    if (!handshakeSamePrincipal(r0)) continue
-    if (!assertSandboxRequestToHost(r0).ok) continue
-    hostPairCount += 1
+    if (rowProvesLocalSandboxToHostForHostAi(r0)) {
+      activeInternalSandboxToHostCount += 1
+      handshakeProvesSandboxToHost = true
+    }
   }
-  console.log(`${L} active_internal_host_count=${hostPairCount}`)
+  console.log(`${L} active_internal_count=${activeInternalCount}`)
+  console.log(`${L} active_internal_sandbox_to_host_count=${activeInternalSandboxToHostCount}`)
+
+  if (!handshakeProvesSandboxToHost && mainMode !== 'sandbox') {
+    console.log(
+      `${L} list_done count=0 reason=no_handshake_sandbox_to_host_and_configured_mode_not_sandbox (Host AI not needed)`,
+    )
+    return { ok: true, targets: [], refreshMeta: { hadCapabilitiesProbed: false } }
+  }
 
   const targets: HostInternalInferenceListItem[] = []
   let hadCapabilitiesProbed = false
@@ -374,17 +560,18 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       continue
     }
 
-    logInternalCandidate(r0, db, mainMode)
+    const derived = deriveFromRecord(r0)
+    logInternalCandidate(r0, db, mainMode, derived)
     if (!handshakeSamePrincipal(r0)) {
       console.log(`${L} rejected handshake=${r0.handshake_id} reason=NOT_SAME_PRINCIPAL`)
       continue
     }
-    const roleGate = assertSandboxRequestToHost(r0)
-    if (!roleGate.ok) {
-      const rr = mapRoleGateReason(r0)
+    const roleGateOk = derived.isLocalSandboxPeerHost
+    if (!roleGateOk) {
+      const rr = mapRoleGateFromDerived(derived)
       if (isHostSandboxDeviceRoles(r0)) {
         console.log(
-          `${L} target_placeholder handshake=${r0.handshake_id} reason=assertSandboxRequestToHost_failed detail=${rr}`,
+          `${L} target_placeholder handshake=${r0.handshake_id} reason=handshake_sandbox_to_host_mismatch detail=${rr}`,
         )
         targets.push(finalizeItem(draftCheckingPlaceholderForHostPair(r0)))
         continue
@@ -399,7 +586,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     const hid = r0.handshake_id
     const ar = assertRecordForServiceRpc(r0)
     if (!ar.ok) {
-      const ur: HostTargetUnavailableCode = 'HOST_INCOMPLETE_INTERNAL_HANDSHAKE'
+      const ur: HostTargetUnavailableCode = 'IDENTITY_INCOMPLETE'
       const ml = metaLocal(hostComputerNameFromRow(r0), r0.internal_peer_pairing_code ?? undefined)
       const t: HostTargetDraft = {
         kind: 'host_internal',
@@ -423,6 +610,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         availability: 'identity_incomplete',
         unavailable_reason: ur,
         host_role: 'Host',
+        inference_error_code: 'IDENTITY_INCOMPLETE',
       }
       console.log(`${L} target_disabled handshake=${hid} reason=IDENTITY_INCOMPLETE detail=assertRecord_${ar.code}`)
       targets.push(finalizeItem(t))
@@ -439,7 +627,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
 
     if (epK === 'missing') {
       const ml = metaLocal(displayName, pcc)
-      const ur: HostTargetUnavailableCode = 'HOST_DIRECT_P2P_UNAVAILABLE'
+      const ur: HostTargetUnavailableCode = 'MISSING_P2P_ENDPOINT'
       const t: HostTargetDraft = {
         kind: 'host_internal',
         id: buildHostTargetId(hid, 'unavailable'),
@@ -455,13 +643,14 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         host_orchestrator_role: 'host',
         host_orchestrator_role_label: ml.roleLabel,
         internal_identifier_6: ml.digits6,
-        secondary_label: HR.p2p,
+        secondary_label: HR.missingP2p,
         direct_reachable: false,
         policy_enabled: false,
         available: false,
         availability: 'not_configured',
         unavailable_reason: ur,
         host_role: 'Host',
+        inference_error_code: 'MISSING_P2P_ENDPOINT',
       }
       console.log(`${L} target_disabled handshake=${hid} reason=MISSING_P2P_ENDPOINT`)
       targets.push(finalizeItem(t))
@@ -470,7 +659,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
 
     if (!hostDevice) {
       const ml = metaLocal(displayName, pcc)
-      const ur: HostTargetUnavailableCode = 'HOST_DIRECT_P2P_UNAVAILABLE'
+      const ur: HostTargetUnavailableCode = 'UNKNOWN'
       const t: HostTargetDraft = {
         kind: 'host_internal',
         id: buildHostTargetId(hid, 'unavailable'),
@@ -493,6 +682,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         availability: 'not_configured',
         unavailable_reason: ur,
         host_role: 'Host',
+        inference_error_code: 'UNKNOWN',
       }
       console.log(`${L} target_disabled handshake=${hid} reason=UNKNOWN detail=no_peer_coordination_device_id`)
       targets.push(finalizeItem(t))
@@ -500,14 +690,12 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     }
 
     if (!directOk) {
-      const ur: HostTargetUnavailableCode = 'HOST_DIRECT_P2P_UNAVAILABLE'
+      const ur: HostTargetUnavailableCode =
+        epK === 'relay' ? 'ENDPOINT_NOT_DIRECT' : 'HOST_DIRECT_P2P_UNREACHABLE'
       const ml = metaLocal(displayName, pcc)
+      /** No capability probe on relay; disabled row with user copy (non-empty selector). */
       const sub =
-        epK === 'relay'
-          ? HR.endpointNotDirect
-          : epK === 'missing' || epK === 'invalid'
-            ? HR.missingP2p
-            : HR.p2p
+        epK === 'missing' || epK === 'invalid' ? HR.missingP2p : HR.p2p
       const t: HostTargetDraft = {
         kind: 'host_internal',
         id: buildHostTargetId(hid, 'unavailable'),
@@ -530,9 +718,11 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         availability: 'direct_unreachable',
         unavailable_reason: ur,
         host_role: 'Host',
-        inference_error_code: epK === 'relay' ? 'ENDPOINT_NOT_DIRECT' : 'HOST_DIRECT_P2P_UNAVAILABLE',
+        inference_error_code: ur,
       }
-      console.log(`${L} target_disabled handshake=${hid} reason=ENDPOINT_NOT_DIRECT detail=${epK}`)
+      console.log(
+        `${L} target_disabled handshake=${hid} reason=${ur === 'ENDPOINT_NOT_DIRECT' ? 'ENDPOINT_NOT_DIRECT' : 'HOST_DIRECT_P2P_UNREACHABLE'} detail=${epK}`,
+      )
       targets.push(finalizeItem(t))
       continue
     }
@@ -578,7 +768,9 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       const ur: HostTargetUnavailableCode =
         code === InternalInferenceErrorCode.POLICY_FORBIDDEN
           ? 'HOST_POLICY_DISABLED'
-          : 'HOST_DIRECT_P2P_UNAVAILABLE'
+          : code === InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE || !probe.directP2pAvailable
+            ? 'HOST_DIRECT_P2P_UNREACHABLE'
+            : 'CAPABILITY_PROBE_FAILED'
       let av: HostInferenceListAvailability = 'host_offline'
       if (code === InternalInferenceErrorCode.POLICY_FORBIDDEN) {
         av = 'policy_disabled'
@@ -613,6 +805,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         availability: av,
         unavailable_reason: ur,
         host_role: 'Host',
+        inference_error_code: ur,
       }
       const pr =
         code === InternalInferenceErrorCode.POLICY_FORBIDDEN
@@ -649,6 +842,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         availability: 'policy_disabled',
         unavailable_reason: ur,
         host_role: 'Host',
+        inference_error_code: 'HOST_POLICY_DISABLED',
       }
       console.log(`${L} target_disabled handshake=${hid} reason=POLICY_DISABLED detail=host_policy_no_sandbox_inference`)
       targets.push(finalizeItem(t))
@@ -717,27 +911,42 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
   }
 
   /**
-   * Invariant: if at least one ACTIVE same-principal internal Host handshake row exists, the
-   * selector is never left empty (checking placeholder if the pipeline could not build a more specific row).
+   * Only ACTIVE internal **Sandbox→Host** (handshake-derived, same account) can populate an empty
+   * selector: checking row while the pipeline is still unable to build a more specific item.
    */
-  if (targets.length === 0 && mainMode === 'sandbox' && db) {
+  if (targets.length === 0 && db && (mainMode === 'sandbox' || handshakeProvesSandboxToHost)) {
     for (const r0 of ledgerActive) {
-      if (r0.handshake_type !== 'internal' || r0.state !== HandshakeState.ACTIVE) continue
-      if (!handshakeSamePrincipal(r0)) continue
+      if (r0.handshake_type !== 'internal' || r0.state !== HandshakeState.ACTIVE) {
+        continue
+      }
+      if (!rowProvesLocalSandboxToHostForHostAi(r0)) {
+        continue
+      }
       const hid = r0.handshake_id
-      console.log(`${L} target_placeholder_added handshake=${hid} reason=fallback_no_rows_after_pipeline`)
+      console.log(
+        `${L} target_placeholder_added handshake=${hid} reason=fallback_no_rows_after_pipeline_sandbox_to_host`,
+      )
       targets.push(finalizeItem(draftCheckingPlaceholderForHostPair(r0)))
       break
     }
   }
 
+  ensureAtLeastOneHostTargetWhenLedgerProvesSandboxToHost(
+    targets,
+    ledgerActive,
+    handshakeProvesSandboxToHost,
+    mainMode,
+  )
+
   if (targets.length === 0) {
     if (activeInternalCount === 0) {
       console.log(`${L} list_empty reason=no_active_internal_rows_in_ledger`)
-    } else if (hostPairCount === 0) {
+    } else if (activeInternalSandboxToHostCount === 0) {
       console.log(`${L} list_empty reason=no_sandbox_to_host_host_pairs_after_filter`)
     } else {
-      console.log(`${L} list_empty reason=unexpected (hostPairCount>0 but no target rows — bug)`)
+      console.log(
+        `${L} list_empty reason=unexpected (active_internal_sandbox_to_host_count>0 but no target rows — bug)`,
+      )
     }
   }
   console.log(`${L} list_done count=${targets.length}`)

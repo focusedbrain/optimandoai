@@ -3,7 +3,7 @@
  * Tier-gated: only Pro, Publisher, Enterprise can access relay setup.
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import RelaySetupWizard from './RelaySetupWizard'
 import ThisDeviceCard from './ThisDeviceCard'
 import { useSandboxHostInference } from '../hooks/useSandboxHostInference'
@@ -13,6 +13,8 @@ import {
   directP2pReachabilityCopyForSandboxToHost,
   hostInferenceDirectUnavailableMessage,
 } from '../lib/hostInferenceUiGates'
+import { getOrchestratorModeVsHandshakeInfo } from '../lib/orchestratorModeVsHandshake'
+import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 
 // ── Inbox AI Settings types ──
 interface InboxAiSettings {
@@ -129,6 +131,23 @@ export default function SettingsView({ onNavigateToHandshake }: SettingsViewProp
   const [hostP2pProbeId, setHostP2pProbeId] = useState<string | null>(null)
   const sandboxHostInf = useSandboxHostInference(hostInfProbeId)
   const hostToSand = useHostToSandboxDirectReachability(hostP2pProbeId)
+
+  const {
+    mode: orchHookMode,
+    ready: orchHookReady,
+    ledgerProvesInternalSandboxToHost: orchHookLedgerS2H,
+    ledgerProvesLocalHostPeerSandbox: orchHookLedgerH2S,
+  } = useOrchestratorMode()
+  const orchestratorModeVsHandshake = useMemo(
+    () =>
+      getOrchestratorModeVsHandshakeInfo({
+        orchModeReady: orchHookReady,
+        mode: orchHookMode,
+        ledgerProvesInternalSandboxToHost: orchHookLedgerS2H,
+        ledgerProvesLocalHostPeerSandbox: orchHookLedgerH2S,
+      }),
+    [orchHookReady, orchHookMode, orchHookLedgerS2H, orchHookLedgerH2S],
+  )
 
   const auth = (window as any).auth
   const relay = (window as any).relay
@@ -751,6 +770,24 @@ export default function SettingsView({ onNavigateToHandshake }: SettingsViewProp
                 ))}
               </div>
             </div>
+            {orchestratorModeVsHandshake.mismatch && (
+              <div
+                role="status"
+                style={{
+                  marginBottom: '16px',
+                  padding: '10px 12px',
+                  fontSize: '12px',
+                  lineHeight: 1.5,
+                  color: 'var(--color-text, #e2e8f0)',
+                  background: 'rgba(251, 191, 36, 0.1)',
+                  border: '1px solid rgba(251, 191, 36, 0.35)',
+                  borderRadius: '8px',
+                }}
+              >
+                {orchestratorModeVsHandshake.message} Host AI and model discovery use the active internal
+                handshake for this device; you can still switch the saved mode here if you intend to re-pair.
+              </div>
+            )}
 
             <div style={{ marginBottom: '16px' }}>
               <button

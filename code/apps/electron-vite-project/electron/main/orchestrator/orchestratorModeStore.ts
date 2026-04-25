@@ -1,6 +1,11 @@
 /**
  * Persisted orchestrator role (host vs sandbox), device identity, and connected peers.
  * Single JSON file under Electron userData.
+ *
+ * This file is **setup / default metadata** and can be stale. **Host AI internal inference** eligibility
+ * follows the ACTIVE internal handshake in the ledger (`hasActiveInternalLedgerSandboxToHostForHostAi`, etc.),
+ * not `mode` alone — see `shouldMergeHostInternalRowsForGetAvailableModels` and `policy.assert*` for
+ * internal P2P (ledger roles are authoritative there).
  */
 
 import { randomInt, randomUUID } from 'crypto'
@@ -154,9 +159,9 @@ function persistConfig(config: OrchestratorModeConfig): void {
 }
 
 /**
- * Single source of truth for host vs sandbox: `orchestrator-mode.json` in Electron `userData`.
- * The renderer must not rely on `localStorage` for mode — use `orchestrator:getMode` (same file as
- * this read). `isHostMode` / `isSandboxMode` are derived from the same function.
+ * Persisted `orchestrator-mode.json` in Electron `userData` (UI defaults, server bind hints, etc.).
+ * The renderer should use `orchestrator:getMode` (not `localStorage`). For **internal Host AI** and
+ * related P2P policy, prefer ledger-derived flags from the same handler over `mode` alone.
  */
 export function getOrchestratorMode(): OrchestratorModeConfig {
   const raw = readRawJson()
@@ -222,10 +227,12 @@ export function setOrchestratorMode(config: OrchestratorModeConfig): void {
   persistConfig(normalized)
 }
 
+/** Persisted `mode === 'host'`. Do not use alone to deny internal Host AI when the ledger proves Sandbox↔Host. */
 export function isHostMode(): boolean {
   return getOrchestratorMode().mode === 'host'
 }
 
+/** Persisted `mode === 'sandbox'`. Complement: `shouldMergeHostInternalRowsForGetAvailableModels` in listInference. */
 export function isSandboxMode(): boolean {
   return getOrchestratorMode().mode === 'sandbox'
 }

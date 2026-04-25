@@ -84,17 +84,51 @@ describe('STEP 8 — log contract (source must contain required tags)', () => {
     expect(refreshTs).toContain("logInferenceTargetRefreshStart('manual_refresh')")
   })
 
-  it('main: [HOST_INFERENCE_TARGETS] list_begin, active_internal_host_count', () => {
+  it('main: [HOST_INFERENCE_TARGETS] list_begin configured_mode, active_internal counts', () => {
     const listT = readFileSync(
       join(appsRoot, 'electron-vite-project', 'electron', 'main', 'internalInference', 'listInferenceTargets.ts'),
       'utf-8',
     )
     const main = readFileSync(join(appsRoot, 'electron-vite-project', 'electron', 'main.ts'), 'utf-8')
-    // Runtime line is `` `${L} list_begin mode=…` ``
-    expect(listT).toContain('list_begin mode=')
-    expect(listT).toContain('active_internal_host_count=')
+    expect(listT).toContain('list_begin configured_mode=')
+    expect(listT).toContain('active_internal_count=')
+    expect(listT).toContain('active_internal_sandbox_to_host_count=')
+    expect(listT).toContain('role_source=handshake configured_mode=')
+    expect(listT).toContain('mode_mismatch configured_mode=')
     expect(listT).toMatch(/const L = '\[HOST_INFERENCE_TARGETS\]'/)
-    expect(main).toContain('[HOST_INFERENCE_TARGETS] list_begin mode=')
+    /* Canonical list logs live in listInferenceTargets; getAvailableModels delegates to it (no duplicate list_begin in main). */
+    expect(main).not.toMatch(/\[HOST_INFERENCE_TARGETS\] list_begin mode=/)
+  })
+
+  it('STEP 9 — Sandbox + Host runtime log tags (grep main / renderer when debugging)', () => {
+    const listT = readFileSync(
+      join(appsRoot, 'electron-vite-project', 'electron', 'main', 'internalInference', 'listInferenceTargets.ts'),
+      'utf-8',
+    )
+    const ui = readFileSync(
+      join(appsRoot, 'electron-vite-project', 'electron', 'main', 'internalInference', 'sandboxHostUi.ts'),
+      'utf-8',
+    )
+    const p2p = readFileSync(
+      join(appsRoot, 'electron-vite-project', 'electron', 'main', 'internalInference', 'p2pServiceDispatch.ts'),
+      'utf-8',
+    )
+    const mst = readRel('lib', 'modelSelectorTargetsLog.ts')
+    /* Sandbox: discovery + role + (optional) mismatch + capability probe + merged selector counts. */
+    expect(listT).toMatch(/active_internal_count=\$\{activeInternalCount\}/)
+    expect(listT).toMatch(/active_internal_sandbox_to_host_count=\$\{activeInternalSandboxToHostCount\}/)
+    expect(listT).toContain('role_source=handshake configured_mode=')
+    expect(listT).toContain('local_role=')
+    expect(listT).toContain('peer_role=')
+    expect(listT).toContain('mode_mismatch')
+    expect(ui).toContain('[HOST_INFERENCE_CAPS] request_send handshake=')
+    expect(ui).toContain('[HOST_INFERENCE_CAPS] response_received active_model=')
+    expect(mst).toContain("selector=${selector} local_count=${localCount} host_count=${hostCount} final_count=${finalCount}")
+    /* Host: inbound capabilities RPC. */
+    expect(p2p).toContain('[HOST_INFERENCE_CAPS] request_received handshake=')
+    expect(p2p).toContain('[HOST_INFERENCE_CAPS] auth_ok handshake=')
+    expect(p2p).toContain('[HOST_INFERENCE_CAPS] active_local_llm model=')
+    expect(p2p).toContain('[HOST_INFERENCE_CAPS] response_send active_model=')
   })
 
   it('main (Sandbox): [HOST_INFERENCE_CAPS] request_send / response_received; Host: request_received / auth_ok / response_send', () => {
@@ -184,16 +218,26 @@ describe('STEP 8 — Sandbox Clone header (detail)', () => {
  * Manual: Host mode = no ↻, Sandbox + internal handshake = ↻ + listTargets merge; no local Ollama required for Host option.
  */
 describe('FINAL ACCEPTANCE — orchestrator + selector wiring (source)', () => {
-  it('HybridSearch: Host inference ↻ only when Sandbox (not Host orchestrator)', () => {
+  it('HybridSearch: Host inference ↻ when Sandbox or ledger-proved internal Sandbox↔Host', () => {
     const hs = readRel('components', 'HybridSearch.tsx')
-    expect(hs).toMatch(/orchModeReady && orchIsSandbox && !orchIsHost/)
+    expect(hs).toMatch(/showHostAiDiscoveryControls/)
+    expect(hs).toContain('computeShowHostInferenceRefresh')
+    expect(hs).toContain('logModelSelectorShowRefresh')
     expect(hs).toMatch(/className="hs-inference-refresh"/)
     expect(hs).toContain("void loadModels('manual_refresh', { force: true })")
   })
 
-  it('WR Chat dashboard: showModelListRefresh = Sandbox only (not Host orchestrator)', () => {
+  it('WR Chat dashboard: Host ↻ from handshake + discovery (STEP 4), not config alone', () => {
     const wr = readRel('components', 'WRChatDashboardView.tsx')
-    expect(wr).toContain('orchModeReady && orchIsSandbox && !orchIsHost')
+    expect(wr).toContain('ledgerProvesInternalSandboxToHost')
+    expect(wr).toContain('computeShowHostInferenceRefresh')
+    expect(wr).toContain('logModelSelectorShowRefresh')
+  })
+
+  it('modelSelectorHostRefreshVisibility: ledger host peer hides ↻, discovery/ledger restore', () => {
+    const lib = readRel('lib', 'modelSelectorHostRefreshVisibility.ts')
+    expect(lib).toContain('computeShowHostInferenceRefresh')
+    expect(lib).toContain('ledgerProvesLocalHostPeerSandbox')
   })
 
   it('Unified model list: Sandbox can populate Host from listTargets with empty local list', () => {
@@ -212,5 +256,16 @@ describe('FINAL ACCEPTANCE — orchestrator + selector wiring (source)', () => {
   it('Host row UI: disabled state carries reason (subtitle / unavailable_reason)', () => {
     const row = readRel('lib', 'hostModelSelectorRowUi.ts')
     expect(row).toMatch(/unavailable_reason|displaySubtitle|secondary_label/s)
+  })
+
+  it('STEP 7: orchestrator persisted mode vs handshake mismatch — log + Settings notice', () => {
+    const lib = readRel('lib', 'orchestratorModeVsHandshake.ts')
+    expect(lib).toContain('getOrchestratorModeVsHandshakeInfo')
+    expect(lib).toContain('[ORCHESTRATOR_MODE_VS_HANDSHAKE]')
+    expect(lib).toContain('configured as Host, but an active internal handshake')
+    const hook = readRel('hooks', 'useOrchestratorMode.ts')
+    expect(hook).toContain('logOrchestratorModeVsHandshakeMismatch')
+    const sv = readRel('components', 'SettingsView.tsx')
+    expect(sv).toContain('getOrchestratorModeVsHandshakeInfo')
   })
 })

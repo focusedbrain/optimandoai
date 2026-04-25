@@ -7,13 +7,12 @@
 import { randomUUID } from 'crypto'
 import { getHandshakeRecord, listHandshakeRecords } from '../handshake/db'
 import { HandshakeState, type HandshakeRecord } from '../handshake/types'
-import { isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { InternalInferenceErrorCode } from './errors'
 import {
   assertP2pEndpointDirect,
   assertRecordForServiceRpc,
-  assertSandboxRequestToHost,
+  assertLedgerRolesSandboxToHost,
   localCoordinationDeviceId,
   peerCoordinationDeviceId,
 } from './policy'
@@ -81,9 +80,6 @@ function endpointHostLabel(ingestUrl: string | null | undefined): string | null 
  * List ACTIVE internal handshakes where this device is Sandbox and peer is Host.
  */
 export async function listSandboxHostInferenceCandidates(): Promise<SandboxHostInferenceCandidate[]> {
-  if (!isSandboxMode()) {
-    return []
-  }
   const db = await getHandshakeDbForInternalInference()
   if (!db) {
     return []
@@ -207,7 +203,8 @@ function mapCapabilitiesWireToProbe(
 }
 
 /**
- * Direct P2P POST: `internal_inference_capabilities_request` → 200 + `internal_inference_capabilities_result` (MVP, no relay).
+ * Direct P2P POST to the peer `p2p_endpoint` only (asserted direct before call). Request body sets
+ * `transport_policy: 'direct_only'`. Relay / shared BEAP ingest URLs are not used for inference MVP.
  */
 export async function postInternalInferenceCapabilitiesRequest(
   hid: string,
@@ -284,9 +281,6 @@ export async function postInternalInferenceCapabilitiesRequest(
 export async function probeHostInferencePolicyFromSandbox(
   handshakeId: string,
 ): Promise<ProbeHostPolicyResult> {
-  if (!isSandboxMode()) {
-    return { ok: false, code: 'NOT_SANDBOX', message: 'not sandbox', directP2pAvailable: false }
-  }
   const db = await getHandshakeDbForInternalInference()
   if (!db) {
     return { ok: false, code: 'NO_DB', message: 'no database', directP2pAvailable: false }
@@ -297,7 +291,7 @@ export async function probeHostInferencePolicyFromSandbox(
   if (!ar.ok) {
     return { ok: false, code: ar.code, message: 'handshake', directP2pAvailable: false }
   }
-  const role = assertSandboxRequestToHost(ar.record)
+  const role = assertLedgerRolesSandboxToHost(ar.record)
   if (!role.ok) {
     return { ok: false, code: role.code, message: 'role', directP2pAvailable: false }
   }

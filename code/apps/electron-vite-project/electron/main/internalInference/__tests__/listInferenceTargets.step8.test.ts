@@ -135,14 +135,15 @@ afterEach(() => {
 })
 
 describe('STEP 8 — listInferenceTargets / target discovery', () => {
-  it('Host mode returns no Host AI targets', async () => {
+  it('Host mode returns no Host AI targets when ledger has no internal Sandbox↔Host row', async () => {
     isHostModeMock.mockReturnValue(true)
     isSandboxModeMock.mockReturnValue(false)
+    listHandshakeRecordsMock.mockReturnValue([])
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.ok).toBe(true)
     expect(r.targets).toEqual([])
     expect(r.refreshMeta.hadCapabilitiesProbed).toBe(false)
-    expect(listHandshakeRecordsMock).not.toHaveBeenCalled()
+    expect(listHandshakeRecordsMock).toHaveBeenCalled()
   })
 
   it('Sandbox + no internal handshake rows returns empty targets', async () => {
@@ -254,7 +255,7 @@ describe('STEP 8 — capabilities-driven availability', () => {
     expect(t.availability).toBe('direct_unreachable')
     expect(t.direct_reachable).toBe(false)
     expect(t.id).toContain(':unavailable')
-    expect(t.secondary_label).toBe('Host is paired but direct P2P is not reachable.')
+    expect(t.secondary_label).toBe('Host is paired, but direct P2P is not reachable.')
   })
 
   it('probe throws: returns disabled target with capabilities message (not empty)', async () => {
@@ -283,15 +284,27 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
     log.mockRestore()
   })
 
-  it('orchestrator mode host (persisted) yields empty list before DB — main mode wins over isSandbox flag', async () => {
+  it('persisted orchestrator "host" does not block Host AI when ledger row is internal Sandbox↔Host', async () => {
     isHostModeMock.mockReturnValue(false)
     isSandboxModeMock.mockReturnValue(true)
     getOrchestratorModeMock.mockImplementation(() => minimalOrch('host'))
     getHandshakeDbMock.mockResolvedValue({})
     listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
+    probeHostInferencePolicyFromSandboxMock.mockResolvedValue({
+      ok: true as const,
+      allowSandboxInference: true,
+      defaultChatModel: 'm1',
+      modelId: 'm1',
+      displayLabelFromHost: 'Host AI · m1',
+      hostComputerNameFromHost: 'Konge-AS1',
+      hostOrchestratorRoleLabelFromHost: 'Host orchestrator',
+      internalIdentifierDisplayFromHost: '123-456',
+      internalIdentifier6FromHost: '123456',
+      directP2pAvailable: true,
+    })
     const r = await listSandboxHostInternalInferenceTargets()
-    expect(r.targets).toEqual([])
-    expect(listHandshakeRecordsMock).not.toHaveBeenCalled()
+    expect(r.targets.length).toBeGreaterThan(0)
+    expect(listHandshakeRecordsMock).toHaveBeenCalled()
   })
 
   it('p2p relay URL is not direct — policy rejects relay; list shows disabled target (no capabilities probe)', async () => {
@@ -311,7 +324,8 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
     const t = r.targets[0]!
     expect(t.available).toBe(false)
     expect(t.availability).toBe('direct_unreachable')
-    expect(t.secondary_label).toMatch(/direct \(non-relay\)|direct P2P/i)
+    expect(t.unavailable_reason).toBe('ENDPOINT_NOT_DIRECT')
+    expect(t.secondary_label).toBe('Host is paired, but direct P2P is not reachable.')
   })
 
   it('identity-incomplete internal row produces disabled explanatory target (not dropped)', async () => {
@@ -408,5 +422,152 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
     expect(t.unavailable_reason).toBe('SANDBOX_HOST_ROLE_METADATA')
     expect(t.available).toBe(false)
     expect(t.host_selector_state).toBe('unavailable')
+  })
+})
+
+/** Ledger: this device = Host, peer = Sandbox (same principal). Not a Sandbox→Host discovery client. */
+function activeInternalLocalIsHost(over: Partial<HandshakeRecord> = {}): HandshakeRecord {
+  return activeInternalSandboxToHost({
+    local_role: 'initiator',
+    initiator_device_role: 'host',
+    acceptor_device_role: 'sandbox',
+    ...over,
+  })
+}
+
+describe('STEP 10 — named regression (main: listSandboxHostInternalInferenceTargets)', () => {
+  it('(1) configured Host + internal row proves Sandbox (this device): discovery runs, mode_mismatch logged, capabilities probed', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    isHostModeMock.mockReturnValue(true)
+    isSandboxModeMock.mockReturnValue(false)
+    getHandshakeDbMock.mockResolvedValue({})
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
+    probeHostInferencePolicyFromSandboxMock.mockResolvedValue({
+      ok: true as const,
+      allowSandboxInference: true,
+      defaultChatModel: 'm1',
+      modelId: 'm1',
+      displayLabelFromHost: 'Host AI · m1',
+      hostComputerNameFromHost: 'H',
+      hostOrchestratorRoleLabelFromHost: 'Host orchestrator',
+      internalIdentifierDisplayFromHost: '1-2-3',
+      internalIdentifier6FromHost: '123456',
+      directP2pAvailable: true,
+    })
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.refreshMeta.hadCapabilitiesProbed).toBe(true)
+    expect(r.targets[0]?.available).toBe(true)
+    const joined = log.mock.calls.flat().join('\n')
+    expect(joined).toMatch(/mode_mismatch configured_mode=host/)
+    log.mockRestore()
+  })
+
+  it('(2) configured Sandbox + ledger local Host (this device is Host on pair): no usable Host target, no capability probe', async () => {
+    isSandboxModeMock.mockReturnValue(true)
+    isHostModeMock.mockReturnValue(false)
+    getHandshakeDbMock.mockResolvedValue({})
+    listHandshakeRecordsMock.mockReturnValue([activeInternalLocalIsHost()])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(probeHostInferencePolicyFromSandboxMock).not.toHaveBeenCalled()
+    expect(r.refreshMeta.hadCapabilitiesProbed).toBe(false)
+    const t = r.targets[0]!
+    expect(t.available).toBe(false)
+    expect(t.id).toContain(':checking')
+  })
+
+  it('(3) configured Host, no internal handshake: no Host AI targets', async () => {
+    isHostModeMock.mockReturnValue(true)
+    isSandboxModeMock.mockReturnValue(false)
+    listHandshakeRecordsMock.mockReturnValue([])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toEqual([])
+  })
+
+  it('(4) configured Sandbox, no internal handshake: no Host AI targets', async () => {
+    isSandboxModeMock.mockReturnValue(true)
+    listHandshakeRecordsMock.mockReturnValue([])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toEqual([])
+  })
+
+  it('(5) ACTIVE Sandbox→Host + direct P2P + active model: available target', async () => {
+    isSandboxModeMock.mockReturnValue(true)
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
+    probeHostInferencePolicyFromSandboxMock.mockResolvedValue({
+      ok: true as const,
+      allowSandboxInference: true,
+      defaultChatModel: 'gem',
+      modelId: 'gem',
+      displayLabelFromHost: 'Host AI · gem',
+      hostComputerNameFromHost: 'H',
+      hostOrchestratorRoleLabelFromHost: 'Host orchestrator',
+      internalIdentifierDisplayFromHost: '1-2-3',
+      internalIdentifier6FromHost: '123456',
+      directP2pAvailable: true,
+    })
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets[0]?.available).toBe(true)
+    expect(r.targets[0]?.model).toBe('gem')
+  })
+
+  it('(6) ACTIVE Sandbox→Host + missing/invalid direct endpoint: disabled row, not empty', async () => {
+    isSandboxModeMock.mockReturnValue(true)
+    listHandshakeRecordsMock.mockReturnValue([
+      activeInternalSandboxToHost({ p2p_endpoint: null as unknown as string }),
+    ])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toHaveLength(1)
+    expect(r.targets[0]?.available).toBe(false)
+    expect(probeHostInferencePolicyFromSandboxMock).not.toHaveBeenCalled()
+  })
+
+  it('(7) external (non-internal) handshake: no Host AI target', async () => {
+    isSandboxModeMock.mockReturnValue(true)
+    listHandshakeRecordsMock.mockReturnValue([
+      activeInternalSandboxToHost({ handshake_type: 'standard' as any }),
+    ])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toEqual([])
+  })
+
+  it('(8) cross-principal internal row: no Host AI target', async () => {
+    isSandboxModeMock.mockReturnValue(true)
+    listHandshakeRecordsMock.mockReturnValue([
+      activeInternalSandboxToHost({ initiator: party('a'), acceptor: party('b') }),
+    ])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toEqual([])
+  })
+})
+
+/**
+ * Final acceptance: Host device (orchestrator file host, ledger local Host on internal pair) must not
+ * get a Sandbox→Host "Host AI" self-target; discovery list exits before emitting client rows.
+ */
+describe('FINAL ACCEPTANCE — main: no Host AI self-target on Host side of pair', () => {
+  it('configured Host + only local-Host internal row: empty targets (not a S→H client)', async () => {
+    isHostModeMock.mockReturnValue(true)
+    isSandboxModeMock.mockReturnValue(false)
+    getHandshakeDbMock.mockResolvedValue({})
+    listHandshakeRecordsMock.mockReturnValue([activeInternalLocalIsHost()])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toEqual([])
+  })
+})
+
+/**
+ * Direct P2P unavailable: one disabled explanatory row, never a silent empty selector when the row is otherwise relevant.
+ * (Complements `FINAL ACCEPTANCE` static tests in `finalAcceptance.hostAiInvariants.test.ts`.)
+ */
+describe('FINAL ACCEPTANCE — main: P2P down, selector not silently empty', () => {
+  it('missing direct endpoint: one disabled target with unavailable_reason', async () => {
+    isSandboxModeMock.mockReturnValue(true)
+    listHandshakeRecordsMock.mockReturnValue([
+      activeInternalSandboxToHost({ p2p_endpoint: null as unknown as string }),
+    ])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toHaveLength(1)
+    expect(r.targets[0]?.available).toBe(false)
+    expect(r.targets[0]?.unavailable_reason).toBe('MISSING_P2P_ENDPOINT')
   })
 })

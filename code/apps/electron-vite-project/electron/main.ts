@@ -3732,15 +3732,25 @@ app.whenReady().then(async () => {
 
         /** Same `mode` as `orchestrator:getMode` / isSandboxMode() — `orchestrator-mode.json` (userData). */
         const mainOrchMode = getOrchestratorMode().mode
-        console.log(`[HOST_INFERENCE_TARGETS] list_begin mode=${mainOrchMode}`)
         if (mainOrchMode !== 'host' && mainOrchMode !== 'sandbox') {
           console.warn(
             `[HOST_INFERENCE_TARGETS] mode_unknown persisted_orchestrator_mode=${String(mainOrchMode)}`,
           )
         }
-        if (!isSandboxMode()) {
+        const {
+          hasActiveInternalLedgerSandboxToHostForHostAi,
+          listSandboxHostInternalInferenceTargets,
+          shouldMergeHostInternalRowsForGetAvailableModels,
+        } = await import('./main/internalInference/listInferenceTargets')
+        const ledgerProvesInternalSandboxToHost = await hasActiveInternalLedgerSandboxToHostForHostAi()
+        const mergeHostInternalInference = shouldMergeHostInternalRowsForGetAvailableModels(
+          isSandboxMode(),
+          ledgerProvesInternalSandboxToHost,
+        )
+
+        if (!mergeHostInternalInference) {
           console.log(
-            '[HOST_INFERENCE_TARGETS] host_internal_merge_skipped reason=orchestrator_mode_not_sandbox',
+            '[HOST_INFERENCE_TARGETS] host_internal_merge_skipped reason=no_sandbox_mode_and_no_ledger_sandbox_to_host',
           )
         }
 
@@ -3756,9 +3766,8 @@ app.whenReady().then(async () => {
         }> = []
         let hostInferenceTargetsOut: unknown[] | undefined
         let inferenceRefreshMeta: { hadCapabilitiesProbed: boolean } | undefined
-        if (isSandboxMode()) {
+        if (mergeHostInternalInference) {
           try {
-            const { listSandboxHostInternalInferenceTargets } = await import('./main/internalInference/listInferenceTargets')
             const h = await listSandboxHostInternalInferenceTargets()
             hostInferenceTargetsOut = h.targets
             inferenceRefreshMeta = h.refreshMeta
@@ -3789,8 +3798,9 @@ app.whenReady().then(async () => {
         return {
           success: true,
           models: [...localForChat, ...hostForChat, ...cloudModels],
-          ...(isSandboxMode() && hostInferenceTargetsOut ? { hostInferenceTargets: hostInferenceTargetsOut } : {}),
-          ...(isSandboxMode() && inferenceRefreshMeta ? { inferenceRefreshMeta } : {}),
+          ledgerProvesInternalSandboxToHost,
+          ...(mergeHostInternalInference && hostInferenceTargetsOut ? { hostInferenceTargets: hostInferenceTargetsOut } : {}),
+          ...(mergeHostInternalInference && inferenceRefreshMeta ? { inferenceRefreshMeta } : {}),
         }
       } catch (err: any) {
         console.error('[MAIN] handshake:getAvailableModels error:', err?.message)

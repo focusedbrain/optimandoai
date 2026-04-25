@@ -43,15 +43,30 @@ export type FetchSelectorModelListResult = {
 /**
  * Unifies top bar + WR Chat: `handshake:getAvailableModels`, then (Sandbox) `appendHostRowsFromListInference`
  * (same as `internal-inference:listTargets` merge in main).
+ * Host `host_internal` rows are **not** tied to local Ollama; `models: []` still triggers list merge when
+ * `runListInference` is true (Sandbox with no local models is valid).
  */
 export async function fetchSelectorModelListFromHostDiscovery(options: {
   reason: InferenceTargetRefreshReason | undefined
   force?: boolean
-  orchIsSandbox: boolean
+  /**
+   * When true, after GAV, call `appendHostRowsFromListInference` (→ `internalInference:listTargets`) so
+   * Handshake-derived Host rows appear even with zero local models. Prefer the same boolean as
+   * `computeShowHostInferenceRefresh` in the app (not persisted mode alone).
+   */
+  includeHostInternalDiscovery: boolean
+  /**
+   * Same ledger flag as `orchestrator:getMode` / main `getAvailableModels` (may race with the latest GAV
+   * payload) — use so list inference still runs if renderer already knows the Sandbox↔Host ledger is open.
+   */
+  orchestratorLedgerProvesInternalSandboxToHost?: boolean
 }): Promise<FetchSelectorModelListResult> {
-  const { reason, force, orchIsSandbox } = options
+  const { reason, force, includeHostInternalDiscovery, orchestratorLedgerProvesInternalSandboxToHost } = options
   const result = await window.handshakeView?.getAvailableModels?.()
   const withHost = (result && typeof result === 'object' ? result : {}) as FetchSelectorModelListResult['withHost']
+  const wLedger = (withHost as { ledgerProvesInternalSandboxToHost?: boolean }).ledgerProvesInternalSandboxToHost === true
+  const hookLedger = orchestratorLedgerProvesInternalSandboxToHost === true
+  const runListInference = includeHostInternalDiscovery || wLedger || hookLedger
   const hostTargets = Array.isArray(withHost.hostInferenceTargets) ? withHost.hostInferenceTargets : []
   const listInferenceOpts = {
     reason,
@@ -77,7 +92,7 @@ export async function fetchSelectorModelListFromHostDiscovery(options: {
       models = orderModelsLocalHostCloud(models)
     }
     let gavForHook: HostInferenceTargetRow[] = hostTargets
-    if (orchIsSandbox) {
+    if (runListInference) {
       const extra = await appendHostRowsFromListInference<SelectorAvailableModel>({ ...listInferenceOpts, models })
       if (extra.gav.length > 0) {
         gavForHook = extra.gav
@@ -91,7 +106,7 @@ export async function fetchSelectorModelListFromHostDiscovery(options: {
       mapHostTargetsToGavModelEntries(hostTargets) as unknown as SelectorAvailableModel[],
     )
     let gavForHook: HostInferenceTargetRow[] = hostTargets
-    if (orchIsSandbox) {
+    if (runListInference) {
       const extra = await appendHostRowsFromListInference<SelectorAvailableModel>({ ...listInferenceOpts, models })
       if (extra.gav.length > 0) {
         gavForHook = extra.gav
@@ -100,7 +115,7 @@ export async function fetchSelectorModelListFromHostDiscovery(options: {
     }
     return { result, withHost, models, gavForHook, path: 'gav_host_only' }
   }
-  if (orchIsSandbox) {
+  if (runListInference) {
     const extra = await appendHostRowsFromListInference<SelectorAvailableModel>({ ...listInferenceOpts, models: [] })
     if (extra.gav.length > 0) {
       return {

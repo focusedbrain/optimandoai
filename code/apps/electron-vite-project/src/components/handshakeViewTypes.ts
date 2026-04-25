@@ -49,6 +49,8 @@ declare global {
       getAvailableModels?: () => Promise<{
         success: boolean
         error?: string
+        /** Main: ACTIVE internal same-principal Sandbox↔Host ledger row; mirrors `orchestrator:getMode`. */
+        ledgerProvesInternalSandboxToHost?: boolean
         models?: Array<
           | { id: string; name: string; provider: string; type: 'local' | 'cloud' }
           | {

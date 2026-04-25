@@ -1,6 +1,5 @@
 import type { HandshakeRecord } from '../handshake/types'
 import { getP2PConfig } from '../p2p/p2pConfig'
-import { isHostMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { InternalInferenceErrorCode } from './errors'
 
 function samePrincipal(r: HandshakeRecord): boolean {
@@ -115,23 +114,29 @@ export function assertRecordForServiceRpc(
   return { ok: true, record: r }
 }
 
-export function assertSandboxRequestToHost(r: HandshakeRecord): { ok: true } | { ok: false; code: string } {
-  if (!isSandboxMode()) {
-    return { ok: false, code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE }
-  }
+/**
+ * Ledger-only: this row says local device is Sandbox and peer is Host.
+ * Authoritative for internal Host AI / P2P policy: do not gate on `orchestrator-mode.json` (setup
+ * metadata; can be stale).
+ */
+export function assertLedgerRolesSandboxToHost(
+  r: HandshakeRecord,
+): { ok: true } | { ok: false; code: string } {
   if (localDeviceRole(r) !== 'sandbox' || peerDeviceRole(r) !== 'host') {
     return { ok: false, code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE }
   }
   return { ok: true }
 }
 
+/** Sandbox→Host request path: ledger role is authoritative; persisted orchestrator mode is not a second gate. */
+export function assertSandboxRequestToHost(r: HandshakeRecord): { ok: true } | { ok: false; code: string } {
+  return assertLedgerRolesSandboxToHost(r)
+}
+
 export function assertHostReceivesRequestFromSandbox(
   r: HandshakeRecord,
   senderDeviceId: string,
 ): { ok: true } | { ok: false; code: string } {
-  if (!isHostMode()) {
-    return { ok: false, code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE }
-  }
   if (localDeviceRole(r) !== 'host' || peerDeviceRole(r) !== 'sandbox') {
     return { ok: false, code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE }
   }
@@ -143,9 +148,6 @@ export function assertHostReceivesRequestFromSandbox(
 }
 
 export function assertHostSendsResultToSandbox(r: HandshakeRecord): { ok: true } | { ok: false; code: string } {
-  if (!isHostMode()) {
-    return { ok: false, code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE }
-  }
   if (localDeviceRole(r) !== 'host' || peerDeviceRole(r) !== 'sandbox') {
     return { ok: false, code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE }
   }
@@ -156,9 +158,6 @@ export function assertSandboxReceivesResultFromHost(
   r: HandshakeRecord,
   senderDeviceId: string,
 ): { ok: true } | { ok: false; code: string } {
-  if (!isSandboxMode()) {
-    return { ok: false, code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE }
-  }
   if (localDeviceRole(r) !== 'sandbox' || peerDeviceRole(r) !== 'host') {
     return { ok: false, code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE }
   }

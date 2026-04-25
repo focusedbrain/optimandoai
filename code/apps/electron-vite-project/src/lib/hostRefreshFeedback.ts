@@ -10,7 +10,8 @@ export type HostRefreshFeedback = {
 const SUCCESS_OK = 'Host AI refreshed.'
 
 const COPY = {
-  p2p: 'Host AI is paired but direct P2P is not reachable.',
+  /** Aligned with main `listInferenceTargets` HR.p2p (direct-only MVP; no relay for inference). */
+  p2p: 'Host is paired, but direct P2P is not reachable.',
   noModel: 'Host has no active local model.',
   policy: 'Host AI is disabled on the Host.',
   identity: 'Internal handshake is active but identity is incomplete.',
@@ -52,7 +53,7 @@ export function getHostRefreshFeedbackFromTargets(
   const ur = (t.unavailable_reason ?? '') as string
   const av = t.availability ?? ''
 
-  if (ur === 'HOST_INCOMPLETE_INTERNAL_HANDSHAKE' || av === 'identity_incomplete') {
+  if (ur === 'IDENTITY_INCOMPLETE' || ur === 'HOST_INCOMPLETE_INTERNAL_HANDSHAKE' || av === 'identity_incomplete') {
     return { variant: 'warning', message: COPY.identity }
   }
   if (ur === 'HOST_NO_ACTIVE_LOCAL_LLM' || av === 'model_unavailable') {
@@ -67,14 +68,14 @@ export function getHostRefreshFeedbackFromTargets(
   if (ur === 'SANDBOX_HOST_ROLE_METADATA') {
     return { variant: 'warning', message: COPY.roleMetadata }
   }
-  if (av === 'direct_unreachable' || notConfiguredMissingEndpoint(ur, av) || ur === 'HOST_DIRECT_P2P_UNAVAILABLE') {
-    if (t.inference_error_code === 'ENDPOINT_NOT_DIRECT') {
-      return {
-        variant: 'warning',
-        message:
-          'A direct (non-relay) P2P endpoint to the Host is required. Set a local Host address in the ledger.',
-      }
-    }
+  if (
+    av === 'direct_unreachable' ||
+    notConfiguredMissingEndpoint(ur, av) ||
+    ur === 'HOST_DIRECT_P2P_UNAVAILABLE' ||
+    ur === 'HOST_DIRECT_P2P_UNREACHABLE' ||
+    ur === 'ENDPOINT_NOT_DIRECT' ||
+    ur === 'MISSING_P2P_ENDPOINT'
+  ) {
     return { variant: 'warning', message: COPY.p2p }
   }
   const sub = (t.secondary_label || '').trim()
@@ -85,5 +86,11 @@ export function getHostRefreshFeedbackFromTargets(
 }
 
 function notConfiguredMissingEndpoint(ur: string, av: string): boolean {
-  return av === 'not_configured' && (ur === 'HOST_DIRECT_P2P_UNAVAILABLE' || ur.includes('DIRECT_P2P'))
+  return (
+    av === 'not_configured' &&
+    (ur === 'HOST_DIRECT_P2P_UNAVAILABLE' ||
+      ur === 'HOST_DIRECT_P2P_UNREACHABLE' ||
+      ur === 'MISSING_P2P_ENDPOINT' ||
+      ur.includes('DIRECT_P2P'))
+  )
 }

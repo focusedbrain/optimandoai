@@ -10,6 +10,8 @@ export type HostModelRow = {
 /**
  * After `handshake:getAvailableModels`, re-run the same `internal-inference:listTargets` call the main
  * process uses (no llm getStatus) and merge any missing `host_internal` rows (available or disabled).
+ * Does not require local Ollama models: `models: []` still triggers a probe when `!hasHost` (see `shouldProbe`).
+ * Host rows are not filtered by `provider === 'ollama'`.
  * When `force` is true, always calls `listTargets` to re-probe the Host.
  */
 export async function appendHostRowsFromListInference<T extends HostModelRow>(options: {
