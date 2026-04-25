@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DirectP2pReachabilityStatus } from '../lib/hostInferenceUiGates'
+import type { InferenceTargetRefreshReason } from '../lib/inferenceTargetRefreshLog'
 import { useOrchestratorMode } from './useOrchestratorMode'
 
 export type HostInferenceCandidateRow = {
@@ -65,7 +66,7 @@ function targetsToCandidates(targets: HostInferenceTargetRow[]): HostInferenceCa
  */
 export type HostInferenceGavSync = {
   targets: HostInferenceTargetRow[]
-  refresh: () => Promise<void>
+  refresh: (reason?: InferenceTargetRefreshReason) => Promise<void>
 }
 
 /**
@@ -190,6 +191,12 @@ export function useSandboxHostInference(
   }, [isSandbox, modeReady, gav, gav?.targets, refresh])
 
   useEffect(() => {
+    /**
+     * When `gav` (HybridSearch) is set, the parent refetches and logs; avoid double `getAvailableModels` here.
+     */
+    if (gav) {
+      return () => {}
+    }
     const on = () => {
       if (isSandbox) void refresh()
     }
@@ -199,7 +206,23 @@ export function useSandboxHostInference(
       window.removeEventListener('handshake-list-refresh', on)
       window.removeEventListener('orchestrator-mode-changed', on)
     }
-  }, [isSandbox, refresh])
+  }, [isSandbox, refresh, gav])
+
+  const p2pRefreshSig = useRef<string>('')
+  useEffect(() => {
+    if (!isSandbox) {
+      p2pRefreshSig.current = ''
+      return
+    }
+    if (directReachability == null) return
+    const s = String(directReachability)
+    if (p2pRefreshSig.current === s) return
+    p2pRefreshSig.current = s
+    if (typeof window === 'undefined') return
+    window.dispatchEvent(
+      new CustomEvent('inference-target-refresh', { detail: { reason: 'p2p_change' } }),
+    )
+  }, [isSandbox, directReachability])
 
   useEffect(() => {
     if (!isSandbox || !selectedHandshakeIdForProbe) {

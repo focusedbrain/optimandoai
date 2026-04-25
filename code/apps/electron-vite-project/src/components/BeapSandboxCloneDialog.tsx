@@ -8,7 +8,6 @@ import type { InternalSandboxTargetWire } from '../hooks/useInternalSandboxesLis
 import { beapInboxCloneToSandboxApi, sandboxCloneFeedbackFromOutcome } from '../lib/beapInboxCloneToSandbox'
 import type { SandboxCloneFeedbackView } from '../lib/sandboxCloneFeedbackUi'
 import SandboxCloneFeedbackBadge from './SandboxCloneFeedbackBadge'
-import { UI_BUTTON } from '../styles/uiContrastTokens'
 import './handshakeViewTypes'
 
 function formatSandboxSelectLabel(s: InternalSandboxTargetWire): string {
@@ -102,68 +101,31 @@ export default function BeapSandboxCloneDialog({
   }, [cloneContext, message.id, onClose, onSent, sandboxes, targetId, selected])
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="beap-sandbox-clone-title"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 500,
-        background: 'rgba(0,0,0,0.55)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-      }}
-      onClick={onClose}
-    >
+    <div className="wrdesk-modal__backdrop" onClick={onClose} role="presentation">
       <div
-        style={{
-          width: 'min(480px, 100%)',
-          maxHeight: '90vh',
-          overflow: 'auto',
-          background: '#0f172a',
-          color: '#e2e8f0',
-          border: '1px solid rgba(148, 163, 184, 0.35)',
-          borderRadius: 12,
-          padding: 22,
-          boxShadow: '0 20px 50px rgba(0,0,0,0.45)',
-        }}
+        className="wrdesk-modal__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="beap-sandbox-clone-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2
-          id="beap-sandbox-clone-title"
-          style={{ margin: '0 0 12px', fontSize: 17, fontWeight: 700, color: '#f8fafc' }}
-        >
+        <h2 id="beap-sandbox-clone-title" className="wrdesk-modal__title" style={{ fontSize: 17 }}>
           Clone to sandbox
         </h2>
-        <p style={{ margin: '0 0 12px', fontSize: 13, color: '#e2e8f0', lineHeight: 1.55, fontWeight: 500 }}>
-          Sends a <strong style={{ color: '#f8fafc' }}>new</strong> qBEAP message to your sandbox for testing. The
-          original inbox message is <strong style={{ color: '#f8fafc' }}>not modified</strong>.
+        <p className="wrdesk-modal__body" style={{ margin: '0 0 12px' }}>
+          Sends a <strong>new</strong> qBEAP message to your sandbox for testing. The original inbox message is{' '}
+          <strong>not modified</strong>.
         </p>
         {sandboxes.length > 1 && (
           <>
-            <label
-              style={{ display: 'block', fontSize: 11, fontWeight: 700, marginBottom: 6, color: '#cbd5e1' }}
-              htmlFor="beap-sbx-target"
-            >
+            <label className="wrdesk-modal__label" htmlFor="beap-sbx-target">
               Sandbox
             </label>
             <select
               id="beap-sbx-target"
+              className="wrdesk-modal__select"
               value={targetId ?? ''}
               onChange={(e) => setTargetId(e.target.value || null)}
-              style={{
-                width: '100%',
-                marginBottom: 12,
-                padding: '8px 10px',
-                borderRadius: 6,
-                fontSize: 12,
-                background: 'var(--color-surface, #0f172a)',
-                color: 'var(--color-text, #e2e8f0)',
-                border: '1px solid var(--color-border, rgba(255,255,255,0.12))',
-              }}
             >
               <option value="">Select…</option>
               {sandboxes.map((s) => (
@@ -176,12 +138,12 @@ export default function BeapSandboxCloneDialog({
         )}
 
         {sandboxes.length === 1 && selected && (
-          <p style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 12 }}>
-            Target: <strong style={{ color: '#f8fafc' }}>{formatSandboxSelectLabel(selected)}</strong>
+          <p className="wrdesk-modal__body" style={{ margin: '0 0 12px' }}>
+            Target: <strong>{formatSandboxSelectLabel(selected)}</strong>
           </p>
         )}
 
-        {err && <p style={{ fontSize: 12, color: '#f87171', marginBottom: 8 }}>{err}</p>}
+        {err && <p className="wrdesk-modal__error" style={{ margin: '0 0 8px' }}>{err}</p>}
 
         {cloneFeedback ? (
           <div style={{ marginBottom: 12 }}>
@@ -193,35 +155,13 @@ export default function BeapSandboxCloneDialog({
           </div>
         ) : null}
 
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={sending}
-            style={{
-              fontSize: 12,
-              padding: '8px 14px',
-              borderRadius: 6,
-              cursor: sending ? 'not-allowed' : 'pointer',
-              opacity: sending ? 0.6 : 1,
-              background: 'rgba(255,255,255,0.06)',
-              color: 'var(--color-text, #e2e8f0)',
-              border: '1px solid rgba(255,255,255,0.12)',
-            }}
-          >
+        <div className="wrdesk-modal__actions">
+          <button type="button" className="wrdesk-modal__btn" onClick={onClose} disabled={sending}>
             Cancel
           </button>
           <button
             type="button"
-            style={{
-              ...UI_BUTTON.primary,
-              fontSize: 12,
-              padding: '8px 14px',
-              borderRadius: 6,
-              cursor:
-                (sandboxes.length > 1 && !targetId) || sending ? 'not-allowed' : 'pointer',
-              opacity: (sandboxes.length > 1 && !targetId) || sending ? 0.5 : 1,
-            }}
+            className="wrdesk-modal__btn wrdesk-modal__btn--primary"
             disabled={(sandboxes.length > 1 && !targetId) || sending}
             onClick={() => void send()}
           >

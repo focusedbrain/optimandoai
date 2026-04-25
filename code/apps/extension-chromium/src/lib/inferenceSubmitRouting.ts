@@ -7,7 +7,7 @@ import { isHostInferenceRouteId, parseAnyHostInferenceModelId } from './hostInfe
 
 export type ChatInferenceKind = 'local_ollama' | 'host_internal' | 'cloud'
 
-type AvailableOrchestratorModel = { id: string; type: 'local' | 'cloud' }
+type AvailableOrchestratorModel = { id: string; type: 'local' | 'cloud' | 'host_internal' }
 
 /** Orchestrator `getAvailableModels` rows — `local` = Ollama, `cloud` = API providers. */
 export function resolveChatInferenceKind(
@@ -17,6 +17,7 @@ export function resolveChatInferenceKind(
   if (!selectedModel) return 'local_ollama'
   if (isHostInferenceRouteId(selectedModel)) return 'host_internal'
   const m = availableModels.find((x) => x.id === selectedModel)
+  if (m?.type === 'host_internal') return 'host_internal'
   if (m?.type === 'cloud') return 'cloud'
   return 'local_ollama'
 }
@@ -31,6 +32,8 @@ export function formatInternalInferenceErrorCode(
       'That model is turned off on your Host. On the Host machine, enable AI in settings, or ask your admin.',
     HOST_DIRECT_P2P_UNAVAILABLE:
       "Can't reach your Host right now. Check that it's online, on the same network, and that firewalls or VPN aren't blocking the connection.",
+    HOST_NO_ACTIVE_LOCAL_LLM:
+      'The Host has no active local model selected. On the Host machine, pick an active Ollama model in settings, then try again.',
     MODEL_UNAVAILABLE:
       'That model is not available on your Host. Pick a different model on the Host, or choose another model here.',
     PROVIDER_TIMEOUT: 'The model on your Host took too long. Try a shorter message or a different model.',
@@ -100,6 +103,7 @@ export function getRequestHostCompletion(
   if (typeof inf?.requestCompletion === 'function') {
     return (params: HostInternalCompletionParams) =>
       inf.requestCompletion!({
+        provider: 'host_internal' as const,
         target_id: params.targetId,
         handshake_id: params.handshakeId,
         model: params.model,

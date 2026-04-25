@@ -3740,14 +3740,20 @@ app.whenReady().then(async () => {
           hostTargetAvailable: boolean
         }> = []
         let hostInferenceTargetsOut: unknown[] | undefined
+        let inferenceRefreshMeta: { hadCapabilitiesProbed: boolean } | undefined
         if (isSandboxMode()) {
           try {
             const { listSandboxHostInternalInferenceTargets } = await import('./main/internalInference/listInferenceTargets')
             const h = await listSandboxHostInternalInferenceTargets()
             hostInferenceTargetsOut = h.targets
+            inferenceRefreshMeta = h.refreshMeta
             for (const t of h.targets) {
-              const title = (t.display_label || t.label).trim() || 'Host AI'
-              const sub = (t.secondary_label || t.unavailable_reason || '').trim()
+              const defaultModel = t.model_id?.trim() || t.model?.trim() || ''
+              const title =
+                (t.display_label || t.label).trim() ||
+                (defaultModel ? `Host AI · ${defaultModel}` : 'Host AI')
+              /** User-facing only — never use `unavailable_reason` codes (e.g. HOST_*) in the selector. */
+              const sub = (t.secondary_label || '').trim()
               hostForChat.push({
                 id: t.id,
                 name: title,
@@ -3763,10 +3769,12 @@ app.whenReady().then(async () => {
           }
         }
 
+        // Sandbox/Host: local Ollama first, then Host AI, then cloud — Host AI remains visible with zero local models.
         return {
           success: true,
-          models: [...localForChat, ...cloudModels, ...hostForChat],
+          models: [...localForChat, ...hostForChat, ...cloudModels],
           ...(isSandboxMode() && hostInferenceTargetsOut ? { hostInferenceTargets: hostInferenceTargetsOut } : {}),
+          ...(isSandboxMode() && inferenceRefreshMeta ? { inferenceRefreshMeta } : {}),
         }
       } catch (err: any) {
         console.error('[MAIN] handshake:getAvailableModels error:', err?.message)

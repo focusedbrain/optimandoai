@@ -556,6 +556,15 @@ function buildInternalInferenceRequestCompletionPayload(params: unknown) {
     throw new Error('internalInference.requestCompletion: expected params object')
   }
   const o = params as Record<string, unknown>
+  const provider =
+    o.provider === undefined
+      ? 'host_internal'
+      : o.provider === 'host_internal'
+        ? 'host_internal'
+        : null
+  if (provider == null) {
+    throw new Error('internalInference.requestCompletion: provider must be "host_internal"')
+  }
   const target_id = typeof o.target_id === 'string' ? o.target_id.trim() : ''
   const handshake_id = typeof o.handshake_id === 'string' ? o.handshake_id.trim() : ''
   if (!target_id) {
@@ -573,7 +582,7 @@ function buildInternalInferenceRequestCompletionPayload(params: unknown) {
   if (o.stream !== false) {
     throw new Error('internalInference.requestCompletion: stream must be false')
   }
-  return { target_id, handshake_id, messages, model, timeout_ms, stream: false as const }
+  return { provider, target_id, handshake_id, messages, model, timeout_ms, stream: false as const }
 }
 
 // ── Internal inference (Sandbox → Host direct P2P; Host policy) ───────

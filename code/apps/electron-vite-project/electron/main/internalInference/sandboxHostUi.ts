@@ -159,7 +159,17 @@ function mapCapabilitiesWireToProbe(
 ): Extract<ProbeHostPolicyResult, { ok: true }> {
   const allow = w.policy_enabled === true
   const enabledModels = w.models.filter((m) => m.enabled && typeof m.model === 'string' && m.model.trim())
-  const dcm = enabledModels[0]?.model?.trim()
+  const fromActiveLocal = w.active_local_llm
+  const activeLocalName =
+    fromActiveLocal?.enabled && typeof fromActiveLocal.model === 'string'
+      ? fromActiveLocal.model.trim()
+      : ''
+  const activeHint =
+    activeLocalName || (typeof w.active_chat_model === 'string' ? w.active_chat_model.trim() : '')
+  const dcm =
+    activeHint && (enabledModels.length === 0 || enabledModels.some((e) => e.model === activeHint))
+      ? activeHint
+      : enabledModels[0]?.model?.trim()
   const modelId = dcm != null && dcm.length > 0 ? dcm : null
   const displayLabel = !allow ? 'Host AI' : dcm ? `Host AI · ${dcm}` : 'Host AI · —'
   return {
@@ -195,6 +205,7 @@ export async function postInternalInferenceCapabilitiesRequest(
   const localSandbox = (localCoordinationDeviceId(record) ?? '').trim()
   const peerHost = (peerCoordinationDeviceId(record) ?? '').trim()
   if (!localSandbox || !peerHost) {
+    console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=missing_coordination_ids`)
     return { ok: false, reason: 'missing_coordination_ids' }
   }
   const body = {
@@ -207,6 +218,7 @@ export async function postInternalInferenceCapabilitiesRequest(
     created_at: new Date().toISOString(),
     transport_policy: 'direct_only' as const,
   }
+  console.log(`[HOST_INFERENCE_CAPS] request_send handshake=${hid}`)
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), Math.min(timeoutMs, 15_000))
   try {
@@ -222,21 +234,29 @@ export async function postInternalInferenceCapabilitiesRequest(
     })
     clearTimeout(timer)
     if (res.status === 401 || res.status === 403) {
+      console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=forbidden`)
       return { ok: false, reason: 'forbidden' }
     }
     if (!res.ok) {
+      console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=http_${res.status}`)
       return { ok: false, reason: `http_${res.status}` }
     }
     const j = (await res.json()) as Record<string, unknown>
     if (j.type !== 'internal_inference_capabilities_result') {
+      console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=wrong_type`)
       return { ok: false, reason: 'wrong_type' }
     }
-    return { ok: true, wire: j as InternalInferenceCapabilitiesResultWire }
+    const w = j as InternalInferenceCapabilitiesResultWire
+    const m = w.active_local_llm?.model?.trim() || w.active_chat_model?.trim() || null
+    console.log(`[HOST_INFERENCE_CAPS] response_received handshake=${hid} active_model=${m ?? 'null'}`)
+    return { ok: true, wire: w }
   } catch (e) {
     clearTimeout(timer)
     if ((e as Error)?.name === 'AbortError') {
+      console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=timeout`)
       return { ok: false, reason: 'timeout' }
     }
+    console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=network`)
     return { ok: false, reason: 'network' }
   }
 }

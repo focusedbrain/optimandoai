@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import type { SandboxCloneUiMeta } from '../lib/inboxMessageSandboxClone'
 
 const EXPANDED_COPY =
-  'This message is a sandbox clone. It was copied from the Host orchestrator so links, PDFs, attachments, and original artifacts can be inspected inside the Sandbox environment. The original message on the Host stays unchanged.'
+  'This message is a sandbox clone. It was copied from the Host orchestrator so links, PDFs, attachments, and original artifacts can be inspected inside the Sandbox environment. The original Host message stays unchanged.'
 
 type Props = {
   meta: SandboxCloneUiMeta

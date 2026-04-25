@@ -1,0 +1,37 @@
+---
+description: Host AI row labels and non-empty selector on Sandbox with active internal Host handshake
+alwaysApply: true
+---
+
+# Host inference selector (Sandbox)
+
+**Scope:** Sandbox orchestrator, **ACTIVE same-principal internal Host** handshake, model selector (orchestrator chat / related surfaces that consume `handshake:getAvailableModels` Host rows).
+
+## Invariants
+
+1. **Model label (Host has an active local LLM)** — The primary line must be:
+
+   `Host AI · <active_host_local_model>`
+
+   (Model id/name comes from Host policy / capabilities, e.g. `listSandboxHostInternalInferenceTargets` / merged `host_internal` row with `available: true`.)
+
+2. **Capabilities or list still loading** — Show a clear Host line, not a blank Host section, e.g.:
+
+   `Host AI · checking Host…`
+
+   Do not leave the user inferring that “no local GPU on Sandbox” means there is no Host path.
+
+3. **Unavailable (policy, offline, no default model, etc.)** — Show a **disabled** row (or disabled-equivalent) with an **explanatory** label (e.g. `Host AI unavailable` plus secondary line from `secondary_label` / tooltips), not an empty group.
+
+4. **Never empty only because Sandbox has no local model** — The main process merges `host_internal` models into the chat model list **after** (or alongside) local Ollama, which may be **empty** on Sandbox by design. The selector must still show Cloud / Host / setup copy as applicable; the Host group must not disappear solely due to `localForChat` being `[]`.
+
+## Implementation pointers (this repo)
+
+- `electron/main.ts` — `handshake:getAvailableModels`: `models: [...localForChat, ...hostForChat, ...cloudModels]` in Sandbox mode.
+- `electron/main/internalInference/listInferenceTargets.ts` — `display_label` / `label` patterns (`Host AI · …`, `Host AI unavailable`, disabled rows).
+- `src/components/HybridSearch.tsx` — Host group rows and `hostTargetAvailable` / disabled styling.
+
+## Do not
+
+- Hide the Host AI group only because the Sandbox has no local Ollama models.
+- Use raw error / IPC codes as the user-visible selector title (use human copy + `secondary_label`).

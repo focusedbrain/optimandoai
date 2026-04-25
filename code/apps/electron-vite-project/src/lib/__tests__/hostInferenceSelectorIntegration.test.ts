@@ -207,6 +207,12 @@ describe('selector integration — selection / routing (extension + preload cont
     expect(resolveChatInferenceKind(id, [])).toBe('host_internal')
   })
 
+  it('orchestrator model row with type host_internal routes to host_internal (even if id is opaque)', () => {
+    expect(
+      resolveChatInferenceKind('opaque-row-id', [{ id: 'opaque-row-id', type: 'host_internal' }]),
+    ).toBe('host_internal')
+  })
+
   it('cloud model id routes to cloud', () => {
     expect(resolveChatInferenceKind('oai-gpt4', [{ id: 'oai-gpt4', type: 'cloud' }])).toBe('cloud')
   })
@@ -223,6 +229,7 @@ describe('selector integration — selection / routing (extension + preload cont
     })
     expect(call).toHaveBeenCalledWith(
       expect.objectContaining({
+        provider: 'host_internal',
         target_id: 'host-route-id',
         handshake_id: 'h',
         stream: false,

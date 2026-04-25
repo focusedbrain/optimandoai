@@ -113,6 +113,7 @@ describe('STEP 8 — listInferenceTargets / target discovery', () => {
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.ok).toBe(true)
     expect(r.targets).toEqual([])
+    expect(r.refreshMeta.hadCapabilitiesProbed).toBe(false)
     expect(listHandshakeRecordsMock).not.toHaveBeenCalled()
   })
 
@@ -122,6 +123,7 @@ describe('STEP 8 — listInferenceTargets / target discovery', () => {
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.ok).toBe(true)
     expect(r.targets).toHaveLength(0)
+    expect(r.refreshMeta.hadCapabilitiesProbed).toBe(false)
   })
 
   it('external (non-internal) handshake row is ignored', async () => {
@@ -132,6 +134,7 @@ describe('STEP 8 — listInferenceTargets / target discovery', () => {
     listHandshakeRecordsMock.mockReturnValue([ext])
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.targets).toHaveLength(0)
+    expect(r.refreshMeta.hadCapabilitiesProbed).toBe(false)
   })
 
   it('cross-email internal row (different principals) is ignored', async () => {
@@ -143,6 +146,7 @@ describe('STEP 8 — listInferenceTargets / target discovery', () => {
     listHandshakeRecordsMock.mockReturnValue([bad])
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.targets).toHaveLength(0)
+    expect(r.refreshMeta.hadCapabilitiesProbed).toBe(false)
   })
 
   it('Sandbox + ACTIVE internal Host handshake returns an available Host AI target when probe has model', async () => {
@@ -162,6 +166,7 @@ describe('STEP 8 — listInferenceTargets / target discovery', () => {
     })
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.targets).toHaveLength(1)
+    expect(r.refreshMeta.hadCapabilitiesProbed).toBe(true)
     const t = r.targets[0]!
     expect(t.kind).toBe('host_internal')
     expect(t.available).toBe(true)
@@ -196,6 +201,7 @@ describe('STEP 8 — capabilities-driven availability', () => {
     })
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.targets).toHaveLength(1)
+    expect(r.refreshMeta.hadCapabilitiesProbed).toBe(true)
     const t = r.targets[0]!
     expect(t.available).toBe(false)
     expect(t.availability).toBe('model_unavailable')
@@ -211,6 +217,7 @@ describe('STEP 8 — capabilities-driven availability', () => {
     })
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.targets).toHaveLength(1)
+    expect(r.refreshMeta.hadCapabilitiesProbed).toBe(true)
     const t = r.targets[0]!
     expect(t.available).toBe(false)
     expect(t.availability).toBe('direct_unreachable')

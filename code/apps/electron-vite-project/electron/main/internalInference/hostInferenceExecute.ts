@@ -5,6 +5,7 @@
 import { InboxLlmTimeoutError } from '../email/inboxLlmChat'
 import * as internalHostOllama from '../llm/internalHostInferenceOllama'
 import type { InternalHostInferenceMessage } from '../llm/internalHostInferenceOllama'
+import { ollamaManager } from '../llm/ollama-manager'
 import { InternalInferenceErrorCode } from './errors'
 import { tryAcquireHostInferenceSlot } from './hostInferenceConcurrency'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
@@ -113,6 +114,53 @@ export async function runHostInternalInference(
         t0,
       ),
       log: { ...baseLog, duration_ms: Date.now() - t0, error_code: InternalInferenceErrorCode.HOST_INFERENCE_DISABLED },
+    }
+  }
+
+  /** Sandbox should send the Host’s active local model tag; reject mismatch vs effective Ollama config. (Before slot.) */
+  const requested = ctx.modelRequested?.trim()
+  if (requested) {
+    let eff: string | null = null
+    try {
+      eff = await ollamaManager.getEffectiveChatModelName()
+    } catch {
+      eff = null
+    }
+    if (!eff) {
+      return {
+        wire: buildHostInferenceErrorWire(
+          {
+            requestId: ctx.requestId,
+            handshakeId: ctx.handshakeId,
+            hostDeviceId: ctx.hostDeviceId,
+            peerDeviceId: ctx.peerDeviceId,
+          },
+          InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM,
+          'no active model',
+          t0,
+        ),
+        log: {
+          ...baseLog,
+          duration_ms: Date.now() - t0,
+          error_code: InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM,
+        },
+      }
+    }
+    if (eff.trim() !== requested) {
+      return {
+        wire: buildHostInferenceErrorWire(
+          {
+            requestId: ctx.requestId,
+            handshakeId: ctx.handshakeId,
+            hostDeviceId: ctx.hostDeviceId,
+            peerDeviceId: ctx.peerDeviceId,
+          },
+          InternalInferenceErrorCode.MODEL_UNAVAILABLE,
+          'model not active on Host',
+          t0,
+        ),
+        log: { ...baseLog, duration_ms: Date.now() - t0, error_code: InternalInferenceErrorCode.MODEL_UNAVAILABLE },
+      }
     }
   }
 

@@ -11,6 +11,7 @@ import { checkAuthFailLimit, checkIpLimit, recordAuthFailure } from '../p2p/rate
 import { assertHostSendsResultToSandbox, assertRecordForServiceRpc } from './policy'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
 import { InternalInferenceErrorCode } from './errors'
+import { ollamaManager } from '../llm/ollama-manager'
 
 const IP_LIMIT = 30
 
@@ -110,7 +111,16 @@ export async function handleGetInternalInferencePolicy(
   if (allowSandboxInference) {
     try {
       const { resolveModelForInternalInference } = await import('../llm/internalHostInferenceOllama')
-      const resolved = await resolveModelForInternalInference(undefined, hostPolicy.modelAllowlist ?? [])
+      const allow = hostPolicy.modelAllowlist ?? []
+      let resolved = await resolveModelForInternalInference(undefined, allow)
+      if (!('model' in resolved)) {
+        const st = await ollamaManager.getStatus()
+        const active = st.activeModel?.trim()
+        const nameSet = new Set((await ollamaManager.listModels()).map((x) => x.name))
+        if (active && nameSet.has(active) && (allow.length === 0 || allow.includes(active))) {
+          resolved = { model: active }
+        }
+      }
       if ('model' in resolved) {
         defaultChatModel = resolved.model
       }

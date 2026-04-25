@@ -116,6 +116,7 @@ export function registerInternalInferenceIpc(): void {
     async (
       _e: unknown,
       params: {
+        provider?: string
         target_id?: string
         handshake_id?: string
         messages?: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
@@ -125,6 +126,10 @@ export function registerInternalInferenceIpc(): void {
       },
     ) => {
       const { runSandboxHostInferenceChat } = await import('./sandboxHostChat')
+      const p = params?.provider
+      if (p != null && p !== 'host_internal') {
+        return { ok: false as const, code: InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE, message: 'provider must be host_internal' }
+      }
       const targetId = typeof params?.target_id === 'string' ? params.target_id.trim() : ''
       const handshakeId = typeof params?.handshake_id === 'string' ? params.handshake_id.trim() : ''
       if (!targetId || !handshakeId || !Array.isArray(params?.messages)) {

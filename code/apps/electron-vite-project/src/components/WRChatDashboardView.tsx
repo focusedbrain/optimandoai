@@ -14,6 +14,12 @@ import {
   clearWrChatInferenceSelection,
 } from '../lib/inferenceSelectionPersistence'
 import { logModelSelectorTargets } from '../lib/modelSelectorTargetsLog'
+import {
+  type InferenceTargetRefreshReason,
+  countWrChatMerged,
+  logInferenceTargetRefreshReason,
+  logInferenceTargetRefreshResult,
+} from '../lib/inferenceTargetRefreshLog'
 import { HOST_INFERENCE_UNAVAILABLE, HOST_AI_SELECTOR_ICON_CLASS } from '../lib/hostAiSelectorCopy'
 import './WRChatDashboardView.css'
 
@@ -102,7 +108,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
     }
   }, [])
 
-  const refreshModels = useCallback(async () => {
+  const refreshModels = useCallback(async (reason?: InferenceTargetRefreshReason) => {
     const api = typeof window !== 'undefined' ? window.llm : undefined
     if (!api?.getStatus) {
       wrChatDashboardWarn('window.llm.getStatus unavailable — model list may be empty until preload exposes llm bridge')
@@ -123,54 +129,118 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
       }))
 
       let hostRows: WrChatModelOption[] = []
+      let hadCapabilities = false
+      /** Sandbox: same source as HybridSearch (`handshake:getAvailableModels` merges Host policy + active Ollama). */
       try {
-        const inf = window.internalInference
-        const listHostTargets = typeof inf?.listTargets === 'function' ? inf.listTargets : inf?.listInferenceTargets
-        if (typeof listHostTargets === 'function') {
-          const ht = (await listHostTargets()) as {
-            ok?: boolean
-            targets?: Array<{
+        const mode = (await window.orchestratorMode?.getMode?.())?.mode
+        if (mode === 'sandbox' && typeof window.handshakeView?.getAvailableModels === 'function') {
+          const g = await window.handshakeView.getAvailableModels()
+          hadCapabilities = Boolean(
+            (g as { inferenceRefreshMeta?: { hadCapabilitiesProbed?: boolean } })?.inferenceRefreshMeta
+              ?.hadCapabilitiesProbed,
+          )
+          const ok = g && typeof g === 'object' && (g as { success?: boolean }).success === true
+          const models = ok && Array.isArray((g as { models?: unknown }).models) ? (g as { models: unknown[] }).models : []
+          const hostFromGav = models.filter(
+            (m): m is {
               id: string
-              label: string
-              display_label?: string
-              available: boolean
-              unavailable_reason?: string
-              host_computer_name?: string
-            }>
-          }
-          if (ht?.ok && Array.isArray(ht.targets)) {
-            hostRows = ht.targets.map((t) => {
-              const secondary =
-                (t as { secondary_label?: string }).secondary_label?.trim() ||
-                (t as { unavailable_reason?: string }).unavailable_reason?.trim() ||
-                ''
-              return {
-                name: t.id,
-                displayTitle: t.display_label || t.label,
-                subtitle: secondary,
-                hostAi: true,
-                hostAvailable: t.available,
-                hostComputerName: t.host_computer_name,
-                hostIconClass: HOST_AI_SELECTOR_ICON_CLASS,
-                section: 'host' as const,
-              }
-            })
+              type: string
+              name: string
+              displayTitle?: string
+              displaySubtitle?: string
+              hostTargetAvailable?: boolean
+            } =>
+              Boolean(m) &&
+              typeof m === 'object' &&
+              (m as { type?: string }).type === 'host_internal' &&
+              typeof (m as { id?: string }).id === 'string',
+          )
+          if (hostFromGav.length > 0) {
+            hostRows = hostFromGav.map((m) => ({
+              name: m.id,
+              displayTitle: (m.displayTitle || m.name || 'Host AI').replace(
+                /host-internal:[^:]+:[^\s]+/i,
+                'Host AI',
+              ),
+              subtitle: (m.displaySubtitle || '').trim().replace(/^[A-Z0-9_]+$/g, '') || undefined,
+              hostAi: true,
+              hostAvailable: m.hostTargetAvailable === true,
+              hostComputerName: undefined,
+              hostIconClass: HOST_AI_SELECTOR_ICON_CLASS,
+              section: 'host' as const,
+            }))
           }
         }
       } catch {
-        /* ignore */
+        /* fall through to internalInference */
+      }
+      if (hostRows.length === 0) {
+        try {
+          const inf = window.internalInference
+          const listHostTargets = typeof inf?.listTargets === 'function' ? inf.listTargets : inf?.listInferenceTargets
+          if (typeof listHostTargets === 'function') {
+            const ht = (await listHostTargets()) as {
+              ok?: boolean
+              targets?: Array<{
+                id: string
+                label: string
+                display_label?: string
+                available: boolean
+                unavailable_reason?: string
+                host_computer_name?: string
+              }>
+            }
+            if (ht?.ok && Array.isArray(ht.targets)) {
+              hostRows = ht.targets.map((t) => {
+                const secondary = (t as { secondary_label?: string }).secondary_label?.trim() || ''
+                return {
+                  name: t.id,
+                  displayTitle: t.display_label || t.label,
+                  subtitle: secondary,
+                  hostAi: true,
+                  hostAvailable: t.available,
+                  hostComputerName: t.host_computer_name,
+                  hostIconClass: HOST_AI_SELECTOR_ICON_CLASS,
+                  section: 'host' as const,
+                }
+              })
+            }
+          }
+        } catch {
+          /* ignore */
+        }
       }
 
       const merged = [...installed, ...hostRows]
       setAvailableModels(merged)
+      if (reason) {
+        const { local, host, final } = countWrChatMerged(installed, hostRows)
+        logInferenceTargetRefreshReason(reason)
+        logInferenceTargetRefreshResult(local, host, final)
+        if (hadCapabilities) {
+          logInferenceTargetRefreshReason('capabilities_result')
+          logInferenceTargetRefreshResult(local, host, final)
+        }
+      }
       const localCount = merged.filter((m) => m.section === 'local').length
       const hostInternalCount = merged.filter((m) => m.hostAi || m.section === 'host').length
+      const hostTargetsPayload = hostRows.map((h) => ({
+        name: h.name,
+        displayTitle: h.displayTitle,
+        subtitle: h.subtitle,
+        hostAvailable: h.hostAvailable,
+        section: h.section,
+      }))
       logModelSelectorTargets({
+        selector: 'wrchat',
         localCount,
-        hostInternalCount,
+        hostCount: hostInternalCount,
         finalCount: merged.length,
-        selectedTarget: activeLlmModelRef.current ?? '',
-        surface: 'wr_chat',
+        hostTargets: {
+          composition: 'llm:getStatus + (sandbox: handshake:getAvailableModels | internal-inference:listTargets)',
+          hostRows: hostTargetsPayload,
+        },
+        selected: { activeLlmModel: activeLlmModelRef.current ?? null, ollamaActiveFromLlm: d.activeModel },
       })
 
       let preferred: string | undefined = d.activeModel as string | undefined
@@ -220,7 +290,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
 
   useLayoutEffect(() => {
     if (!ready) return
-    void refreshModels()
+    void refreshModels('startup')
   }, [ready, refreshModels])
 
   /** Handshake ledger, orchestrator mode, resume, account — keep Host rows in sync with Sandbox (same triggers as top chat). */
@@ -232,22 +302,32 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
       if (ak !== lastAccountKeyForWrRef.current) {
         lastAccountKeyForWrRef.current = ak
         setAvailableModels([])
+        void refreshModels('account_change')
+        return
       }
       void refreshModels()
     }
     const onList = () => {
-      void refreshModels()
+      void refreshModels('handshake_active')
     }
     const onMode = () => {
-      void refreshModels()
+      void refreshModels('mode_change')
+    }
+    const onP2p = (e: Event) => {
+      const d = (e as CustomEvent<{ reason?: string }>).detail
+      if (d?.reason === 'p2p_change') {
+        void refreshModels('p2p_change')
+      }
     }
     document.addEventListener('visibilitychange', onResume)
     window.addEventListener('handshake-list-refresh', onList)
     window.addEventListener('orchestrator-mode-changed', onMode)
+    window.addEventListener('inference-target-refresh', onP2p)
     return () => {
       document.removeEventListener('visibilitychange', onResume)
       window.removeEventListener('handshake-list-refresh', onList)
       window.removeEventListener('orchestrator-mode-changed', onMode)
+      window.removeEventListener('inference-target-refresh', onP2p)
     }
   }, [ready, refreshModels])
 

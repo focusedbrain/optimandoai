@@ -11,6 +11,8 @@ export const InternalInferenceErrorCode = {
   MALFORMED_SERVICE_MESSAGE: 'MALFORMED_SERVICE_MESSAGE',
   /** Host policy: internal inference is off. */
   HOST_INFERENCE_DISABLED: 'HOST_INFERENCE_DISABLED',
+  /** Host has no active local Ollama model configured, but Sandbox sent a model id. */
+  HOST_NO_ACTIVE_LOCAL_LLM: 'HOST_NO_ACTIVE_LOCAL_LLM',
   MODEL_UNAVAILABLE: 'MODEL_UNAVAILABLE',
   OLLAMA_UNAVAILABLE: 'OLLAMA_UNAVAILABLE',
   PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',

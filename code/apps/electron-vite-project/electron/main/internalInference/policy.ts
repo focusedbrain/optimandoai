@@ -9,6 +9,11 @@ function samePrincipal(r: HandshakeRecord): boolean {
   return typeof a === 'string' && typeof b === 'string' && a.length > 0 && a === b
 }
 
+/** Exported for `listTargets` / ledger filtering — same check as `assertRecordForServiceRpc` (without identity-complete gate). */
+export function handshakeSamePrincipal(r: HandshakeRecord): boolean {
+  return samePrincipal(r)
+}
+
 function localDeviceRole(r: HandshakeRecord): 'host' | 'sandbox' | null {
   if (r.local_role === 'initiator') {
     return r.initiator_device_role ?? null

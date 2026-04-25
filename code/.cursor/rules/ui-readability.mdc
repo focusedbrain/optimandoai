@@ -1,0 +1,47 @@
+---
+description: UI readability and theme tokens for panels, dialogs, disclosures, badges, tooltips, selectors
+alwaysApply: true
+---
+
+# UI readability (mandatory)
+
+Every new or changed **panel, dialog, disclosure, badge, selector row, or tooltip** must be **readable by default** in **Standard (light) and dark** themes. Theme compatibility is not optional.
+
+## Rules
+
+1. **Background implies foreground** — If you set a `background` (or a full surface in inline styles), set an explicit `color` (or equivalent) on the same element or a guaranteed child wrapper. Do not rely on inherited color from a parent that might differ by route or theme.
+
+2. **Muted is not for primary copy** — Do not use `text-muted`, disabled palette, or low-contrast grays for the **main instruction, warning, or CTA explanation**. Use `--text-primary` (with fallbacks where the codebase does) for primary explanation; use `--text-secondary` only for **secondary** labels, hints, or metadata—not the core message.
+
+3. **Theme tokens over ad-hoc colors** — Prefer `var(--text-primary)`, `var(--text-secondary)`, `var(--bg-elevated)`, `var(--bg-surface)`, `var(--border)` (and existing `*-prof` fallbacks where the file already uses them). If contrast is uncertain, **use Standard theme text/surface tokens** instead of one-off hex/rgba stacks.
+
+4. **Surfaces and borders** — Surfaces that float above the page (cards, modals, disclosures) should use the same token family as the rest of the app for the active `[data-ui-theme]`, not `:root` handshake-only aliases that can invert wrong in inbox/chat.
+
+5. **Controls stay visible** — Buttons, checkboxes, icons, and focus rings must remain visible in both themes; avoid dark-on-dark or grey-on-grey for primary actions.
+
+## Quick check
+
+- Light + dark: body text and titles readable without squinting.
+- Primary warning/instruction: **not** styled as muted or disabled.
+- New surface: **bg + explicit fg** set together.
+
+## Bad / good
+
+```tsx
+// ❌ BAD — muted for the main warning
+<p style={{ color: 'var(--text-muted)' }}>This action cannot be undone.</p>
+
+// ✅ GOOD
+<p style={{ color: 'var(--text-primary, var(--text-primary-prof))' }}>This action cannot be undone.</p>
+```
+
+```css
+/* ❌ BAD — background set, text inherits from broken parent */
+.my-panel { background: var(--bg-elevated); }
+
+/* ✅ GOOD */
+.my-panel {
+  background: var(--bg-elevated, var(--bg-elevated-prof));
+  color: var(--text-primary, var(--text-primary-prof));
+}
+```

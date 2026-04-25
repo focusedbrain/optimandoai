@@ -74,6 +74,14 @@ export interface InternalInferenceCapabilitiesModelEntry {
   enabled: boolean
 }
 
+/** Current Host local Ollama selection (drives Sandbox “Host” label; not hardcoded in Sandbox). */
+export interface ActiveLocalLlmWire {
+  provider: 'ollama'
+  model: string
+  label: string
+  enabled: boolean
+}
+
 /** Returned in the HTTP 200 body of `internal_inference_capabilities_request` (same connection; not inbox / not BEAP message). */
 export interface InternalInferenceCapabilitiesResultWire {
   type: InternalInferenceCapabilitiesResultType
@@ -89,7 +97,15 @@ export interface InternalInferenceCapabilitiesResultWire {
   host_pairing_code: string
   models: InternalInferenceCapabilitiesModelEntry[]
   policy_enabled: boolean
+  /** Set when `policy_enabled` — Host’s active local Ollama from getEffective + policy (activeOllamaModelStore is read via ollamaManager). */
+  active_local_llm?: ActiveLocalLlmWire
   inference_error_code?: string
+  /**
+   * Host Ollama “active / preferred” model from the same `getStatus` path as UI (no hardcoded name in Sandbox).
+   * When `models` lists multiple installed tags, the UI prefers this for the primary label.
+   * Prefer `active_local_llm` when present.
+   */
+  active_chat_model?: string
 }
 
 export type ServiceEnvelope =
