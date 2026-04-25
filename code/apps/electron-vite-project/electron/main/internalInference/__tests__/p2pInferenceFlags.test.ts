@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
   getP2pInferenceFlags,
   isP2pInferenceFeatureTouched,
+  isWebRtcHostAiArchitectureEnabled,
   resetP2pInferenceFlagsForTests,
   shouldRejectHttpInternalInferenceRequest,
 } from '../p2pInferenceFlags'
@@ -32,6 +33,15 @@ describe('p2pInferenceFlags', () => {
     resetP2pInferenceFlagsForTests()
     expect(getP2pInferenceFlags().p2pInferenceEnabled).toBe(true)
     expect(isP2pInferenceFeatureTouched()).toBe(true)
+  })
+
+  test('isWebRtcHostAiArchitectureEnabled is ENABLED+WEBRTC only', () => {
+    const f0 = getP2pInferenceFlags()
+    expect(isWebRtcHostAiArchitectureEnabled(f0)).toBe(false)
+    vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
+    resetP2pInferenceFlagsForTests()
+    expect(isWebRtcHostAiArchitectureEnabled(getP2pInferenceFlags())).toBe(true)
   })
 
   test('WRDESK_P2P_INFERENCE_VERBOSE_LOGS and legacy WRDESK_P2P_INFERENCE_ANALYSIS_LOG', () => {

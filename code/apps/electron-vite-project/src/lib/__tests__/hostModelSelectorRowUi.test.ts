@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { HOST_AI_MVP_P2P_ENDPOINT_INVALID_TOOLTIP, HOST_AI_P2P_OFFLINE_DETAIL_TOOLTIP } from '../hostAiSelectorCopy'
+import { HOST_AI_PATH_UNAVAILABLE_TOOLTIP } from '../hostAiSelectorCopy'
 import { buildHostAiSelectorTooltip, hostModelSelectorRowUi } from '../hostModelSelectorRowUi'
 import type { HostInferenceTargetRow } from '../../hooks/useSandboxHostInference'
 
@@ -18,6 +18,9 @@ describe('hostModelSelectorRowUi', () => {
       model: 'llama3:8b',
       host_computer_name: 'Workstation',
       internal_identifier_6: '482917',
+      p2pUiPhase: 'ready',
+      displayTitle: 'Host AI · llama3:8b',
+      displaySubtitle: 'Workstation · ID 482-917',
     } as HostInferenceTargetRow
     const u = hostModelSelectorRowUi(
       { ...baseM(), hostLocalModelName: 'llama3:8b', displayTitle: 'Host AI · llama3:8b' },
@@ -29,53 +32,64 @@ describe('hostModelSelectorRowUi', () => {
     expect(tip).toBeTruthy()
   })
 
-  it('P2P / probe failure: compact P2P unavailable; secondary computer · ID; long text in tooltip only', () => {
+  it('P2P unavailable: use main displayTitle + p2pUiPhase; long text in tooltip only', () => {
     const t = {
       available: false,
+      p2pUiPhase: 'p2p_unavailable',
+      displayTitle: 'Host AI · P2P unavailable',
+      displaySubtitle: 'Office-PC · ID 111-222',
       host_computer_name: 'Office-PC',
-      availability: 'direct_unreachable',
       internal_identifier_6: '111222',
-      secondary_label: 'Office-PC · ID 111-222',
     } as HostInferenceTargetRow
     const u = hostModelSelectorRowUi(
-      { ...baseM(), hostTargetAvailable: false, displayTitle: 'x' },
+      { ...baseM(), hostTargetAvailable: false, p2pUiPhase: 'p2p_unavailable', displayTitle: 'Host AI · P2P unavailable' },
       t,
     )
     expect(u.titleLine).toBe('Host AI · P2P unavailable')
     expect(u.subtitleLine).toBe('Office-PC · ID 111-222')
     const tip = buildHostAiSelectorTooltip(t, { hostTargetAvailable: false, hostSelectorState: 'unavailable' })
-    expect(tip).toContain(HOST_AI_P2P_OFFLINE_DETAIL_TOOLTIP)
+    expect(tip).toContain(HOST_AI_PATH_UNAVAILABLE_TOOLTIP)
   })
 
-  it('MVP invalid stored p2p_endpoint: P2P offline row + dedicated MVP tooltip', () => {
+  it('legacy path invalid: primary from main; tooltip without MVP endpoint phrasing', () => {
     const t = {
       available: false,
+      p2pUiPhase: 'legacy_http_invalid',
+      displayTitle: 'Host AI · legacy endpoint unavailable',
+      displaySubtitle: 'H · ID 000-000',
       host_computer_name: 'H',
-      availability: 'direct_unreachable',
-      unavailable_reason: 'MVP_P2P_ENDPOINT_INVALID',
-      inference_error_code: 'MVP_P2P_ENDPOINT_INVALID',
       internal_identifier_6: '000000',
-      secondary_label:
-        'The Host handshake is active, but the stored direct P2P endpoint is not reachable.',
     } as HostInferenceTargetRow
-    const u = hostModelSelectorRowUi({ ...baseM(), hostTargetAvailable: false, displayTitle: 'x' }, t)
-    expect(u.titleLine).toBe('Host AI · P2P unavailable')
+    const u = hostModelSelectorRowUi(
+      {
+        ...baseM(),
+        hostTargetAvailable: false,
+        p2pUiPhase: 'legacy_http_invalid',
+        displayTitle: 'Host AI · legacy endpoint unavailable',
+      },
+      t,
+    )
+    expect(u.titleLine).toBe('Host AI · legacy endpoint unavailable')
     expect(u.subtitleLine).toBe('H · ID 000-000')
     const tip = buildHostAiSelectorTooltip(t, { hostTargetAvailable: false, hostSelectorState: 'unavailable' })
-    expect(tip).toContain(HOST_AI_MVP_P2P_ENDPOINT_INVALID_TOOLTIP)
+    expect(tip).toMatch(/WebRTC|legacy|Settings/i)
   })
 
-  it('capability probe failed: P2P offline + long P2P tooltip', () => {
+  it('capability probe: phase p2p_unavailable + displayTitle from main', () => {
     const t = {
       available: false,
+      p2pUiPhase: 'p2p_unavailable',
+      displayTitle: 'Host AI · P2P unavailable',
+      displaySubtitle: 'X · ID 123-456',
       host_computer_name: 'X',
-      unavailable_reason: 'CAPABILITY_PROBE_FAILED',
       internal_identifier_6: '123456',
-      secondary_label: 'Host capabilities could not be fetched (request failed or timed out).',
     } as HostInferenceTargetRow
-    const u = hostModelSelectorRowUi({ ...baseM(), hostTargetAvailable: false, displayTitle: 'x' }, t)
+    const u = hostModelSelectorRowUi(
+      { ...baseM(), hostTargetAvailable: false, p2pUiPhase: 'p2p_unavailable', displayTitle: 'Host AI · P2P unavailable' },
+      t,
+    )
     expect(u.titleLine).toBe('Host AI · P2P unavailable')
     const tip = buildHostAiSelectorTooltip(t, { hostTargetAvailable: false, hostSelectorState: 'unavailable' })
-    expect(tip).toContain(HOST_AI_P2P_OFFLINE_DETAIL_TOOLTIP)
+    expect(tip).toContain(HOST_AI_PATH_UNAVAILABLE_TOOLTIP)
   })
 })

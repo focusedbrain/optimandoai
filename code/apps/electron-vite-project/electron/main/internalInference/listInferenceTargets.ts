@@ -12,40 +12,88 @@ import { HandshakeState, type HandshakeRecord } from '../handshake/types'
 import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { logInternalHostHandshakeP2pInspect } from './internalP2pHandshakeInspect'
+import { newHostAiCorrelationChain } from './hostAiStageLog'
+import { getP2pInferenceFlags } from './p2pInferenceFlags'
+import { ensureSession, P2pSessionPhase } from './p2pSession/p2pInferenceSessionManager'
+import { isP2pDataChannelUpForHandshake } from './p2pSession/p2pSessionWait'
+import { assertRecordForServiceRpc, handshakeSamePrincipal, p2pEndpointKind, peerCoordinationDeviceId } from './policy'
 import {
-  assertRecordForServiceRpc,
-  handshakeSamePrincipal,
-  p2pEndpointKind,
-  p2pEndpointMvpClass,
-  peerCoordinationDeviceId,
-} from './policy'
+  buildHostAiTransportDeciderInput,
+  decideInternalInferenceTransport,
+  type HostAiSelectorPhase,
+  type HostAiTransportDeciderResult,
+} from './transport/decideInternalInferenceTransport'
+import type { P2pInferenceFlagSnapshot } from './p2pInferenceFlags'
 import { probeHostInferencePolicyFromSandbox } from './sandboxHostUi'
 import { InternalInferenceErrorCode } from './errors'
 
 const L = '[HOST_INFERENCE_TARGETS]'
 
-/** User-facing subtitle for disabled Host rows (not transport codes; see `handshake:getAvailableModels`). */
-const HR = {
-  /**
-   * STEP 8 / MVP: capability probe + inference are direct P2P only; relay is not used for those paths.
-   * `HR.p2p` for generic direct P2P failures; `HR.mvpP2p` when the stored `p2p_endpoint` is not direct-LAN (STEP 2).
-   */
-  p2p: 'Host is paired, but direct P2P is not reachable.',
-  /** Dev / comments only; `p2p` is used in the model row for non-direct relay endpoints. */
-  endpointNotDirect: 'Direct (non-relay) P2P to the Host is required. This endpoint is not a direct address.',
-  /** STEP 2: stored `p2p_endpoint` is not a valid direct-LAN URL for Host inference (relay, localhost, or invalid). */
-  mvpP2p: 'The Host handshake is active, but the stored direct P2P endpoint is not reachable.',
-  missingP2p: 'No direct P2P endpoint on this internal handshake. Set a local Host address in the ledger.',
-  policy: 'Host AI is disabled on the Host.',
-  noModel: 'Host has no active local model.',
-  identity: 'Internal handshake identity is incomplete.',
-  capabilities: 'Host capabilities could not be fetched (request failed or timed out).',
-  ledger: 'Unlock or refresh the handshake ledger.',
-  localNotSandbox: 'This device is not recorded as the Sandbox in this internal handshake. Check device roles in Settings.',
-  peerNotHost: 'The peer in this internal handshake is not recorded as a Host. Check pairing metadata.',
-  roleGate: 'This internal row is not a Sandbox–Host internal pair. Fix local / peer device roles, or re-pair.',
-} as const
+/** UI phase for Host AI selector (from transport policy + probe); do not infer from p2p_endpoint_kind alone. */
+export type HostP2pUiPhase =
+  | 'connecting'
+  | 'ready'
+  | 'p2p_unavailable'
+  | 'legacy_http_invalid'
+  | 'policy_disabled'
+  | 'no_model'
+  | 'hidden'
 
+export type HostListTransportMode = 'webrtc_p2p' | 'legacy_http' | 'none'
+export type HostListLegacyEndpointKind = 'direct' | 'relay' | 'missing' | 'invalid'
+
+function p2pStackEnabledForList(f: P2pInferenceFlagSnapshot): boolean {
+  return f.p2pInferenceEnabled && f.p2pInferenceWebrtcEnabled && f.p2pInferenceSignalingEnabled
+}
+
+/**
+ * Map authoritative selector phase to a stable p2pUiPhase for renderer (list targets).
+ * `legacy_http_available` is still "resolving" before probe returns — treat as connecting.
+ */
+export function mapHostAiSelectorPhaseToP2pUiPhase(phase: HostAiSelectorPhase): HostP2pUiPhase {
+  switch (phase) {
+    case 'hidden':
+      return 'hidden'
+    case 'detected':
+    case 'connecting':
+    case 'legacy_http_available':
+      return 'connecting'
+    case 'ready':
+      return 'ready'
+    case 'p2p_unavailable':
+      return 'p2p_unavailable'
+    case 'legacy_http_invalid':
+      return 'legacy_http_invalid'
+    case 'policy_disabled':
+      return 'policy_disabled'
+    case 'no_model':
+      return 'no_model'
+  }
+}
+
+function primaryLabelForP2pUiPhase(phase: HostP2pUiPhase, readyModelName?: string | null): string {
+  switch (phase) {
+    case 'connecting':
+      return 'Host AI · connecting…'
+    case 'ready':
+      return (readyModelName && readyModelName.trim()) || 'Host AI · ready'
+    case 'p2p_unavailable':
+      return 'Host AI · P2P unavailable'
+    case 'legacy_http_invalid':
+      return 'Host AI · legacy endpoint unavailable'
+    case 'policy_disabled':
+      return 'Host AI · disabled by Host'
+    case 'no_model':
+      return 'Host AI · no active model'
+    case 'hidden':
+      return 'Host AI unavailable'
+  }
+}
+
+/**
+ * User-visible copy for disabled rows: use `displayTitle` / `primaryLabelForP2pUiPhase` / `p2pUiPhase` (STEP 7–9).
+ * Legacy “direct P2P / MVP endpoint” subtitle blobs were removed; they collided with WebRTC + relay signaling.
+ */
 /**
  * Rejection / disable reasons for internal Host target discovery (aligned logging only).
  * See: STEP 3 — Make active internal Host handshake discovery reliable.
@@ -117,14 +165,18 @@ function mapRoleGateFromDerived(d: DerivedInternalRoles): HostInternalInferenceR
 function draftDisabledSandboxHostRoleMetadata(
   r0: HandshakeRecord,
   rr: HostInternalInferenceRejectReason,
+  db: unknown,
 ): HostTargetDraft {
   const hid = r0.handshake_id
   const ml = metaLocal(hostComputerNameFromRow(r0), r0.internal_peer_pairing_code ?? undefined)
+  const lek = epKindToListKind(p2pEndpointKind(db, r0.p2p_endpoint))
   return {
     kind: 'host_internal',
     id: buildHostTargetId(hid, 'unavailable'),
-    label: 'Host AI unavailable',
-    display_label: 'Host AI unavailable',
+    label: primaryLabelForP2pUiPhase('hidden'),
+    display_label: primaryLabelForP2pUiPhase('hidden'),
+    displayTitle: primaryLabelForP2pUiPhase('hidden'),
+    displaySubtitle: secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay),
     model: null,
     model_id: null,
     provider: 'host_internal',
@@ -143,6 +195,10 @@ function draftDisabledSandboxHostRoleMetadata(
     unavailable_reason: 'SANDBOX_HOST_ROLE_METADATA',
     host_role: 'Host',
     inference_error_code: `SANDBOX_HOST_ROLE_${rr}`,
+    p2pUiPhase: 'hidden',
+    failureCode: `SANDBOX_HOST_ROLE_${rr}`,
+    transportMode: 'none',
+    legacyEndpointKind: lek,
   }
 }
 
@@ -220,12 +276,18 @@ export type HostInferenceListAvailability =
   | 'checking_host'
 
 export interface HostInternalInferenceListItem {
+  /** Same as `kind`; preferred for new IPC/selector consumers. */
+  type: 'host_internal'
   kind: 'host_internal'
   id: string
   label: string
   model: string | null
   model_id: string | null
   display_label: string
+  /** Primary title for selectors (duplicates `label` / `display_label` when unset at draft time). */
+  displayTitle: string
+  /** One-line pairing / host identity (duplicates `secondary_label`). */
+  displaySubtitle: string
   provider: 'host_internal' | 'ollama' | ''
   handshake_id: string
   host_device_id: string
@@ -240,6 +302,8 @@ export interface HostInternalInferenceListItem {
   direct_reachable: boolean
   policy_enabled: boolean
   available: boolean
+  /** Same as `available` — whether the user can target this Host for inference. */
+  hostTargetAvailable: boolean
   availability: HostInferenceListAvailability
   /**
    * When `available` is true, must be `null` / omitted.
@@ -248,11 +312,48 @@ export interface HostInternalInferenceListItem {
   unavailable_reason: string | null
   host_role: 'Host'
   inference_error_code?: string
+  /** Policy / transport / probe failure for diagnostics (not user-facing copy). */
+  failureCode: string | null
+  /**
+   * Preferred transport for this row: WebRTC, legacy HTTP, or none.
+   * In relay+WebRTC mode the signaling URL may be relay while the data plane is P2P.
+   */
+  transportMode: HostListTransportMode
+  /**
+   * Classified p2p_endpoint (ledger); relay is valid for WebRTC signaling and must not block the row when P2P is on.
+   */
+  legacyEndpointKind: HostListLegacyEndpointKind
+  /** Stable UI phase for labels — prefer this over inferring from `legacyEndpointKind` alone. */
+  p2pUiPhase: HostP2pUiPhase
+  /** From `decideInternalInferenceTransport` — raw policy phase. */
+  selector_phase?: HostAiSelectorPhase
   /** UI tri-state: available vs in-flight check vs not selectable. */
   host_selector_state: 'available' | 'checking' | 'unavailable'
+  /** Camel-case alias of `host_selector_state` for new consumers. */
+  hostSelectorState: 'available' | 'checking' | 'unavailable'
 }
 
-type HostTargetDraft = Omit<HostInternalInferenceListItem, 'host_selector_state' | 'secondaryLabel'>
+type HostTargetDraft = Omit<HostInternalInferenceListItem, 'host_selector_state' | 'secondaryLabel' | 'hostSelectorState' | 'type'>
+
+function epKindToListKind(
+  k: ReturnType<typeof p2pEndpointKind>,
+): HostListLegacyEndpointKind {
+  if (k === 'missing' || k === 'invalid' || k === 'relay' || k === 'direct') return k
+  return 'invalid'
+}
+
+function baseMetaFromDec(
+  dec: HostAiTransportDeciderResult,
+  epK: HostListLegacyEndpointKind,
+): Pick<HostTargetDraft, 'p2pUiPhase' | 'failureCode' | 'transportMode' | 'legacyEndpointKind' | 'selector_phase'> {
+  return {
+    p2pUiPhase: mapHostAiSelectorPhaseToP2pUiPhase(dec.selectorPhase),
+    failureCode: dec.failureCode,
+    transportMode: dec.preferredTransport,
+    legacyEndpointKind: epK,
+    selector_phase: dec.selectorPhase,
+  }
+}
 
 const CAP_UNKNOWN = 'CAPABILITIES_UNKNOWN' as const
 
@@ -310,16 +411,20 @@ function secondaryLabelFromMeta(hostName: string, _roleLabel: string, pairingDis
   return `${hostName.trim() || 'Host'} · ID ${pairingDisplay}`
 }
 
-function draftCheckingPlaceholderForHostPair(r0: HandshakeRecord): HostTargetDraft {
+function draftCheckingPlaceholderForHostPair(r0: HandshakeRecord, db: unknown): HostTargetDraft {
   const hid = r0.handshake_id
   const name = hostComputerNameFromRow(r0)
   const pcc = r0.internal_peer_pairing_code ?? undefined
   const ml = metaLocal(name, pcc)
+  const lek = epKindToListKind(p2pEndpointKind(db, r0.p2p_endpoint))
+  const title = primaryLabelForP2pUiPhase('connecting')
   return {
     kind: 'host_internal',
     id: buildHostTargetId(hid, 'checking'),
-    label: 'Host AI · connecting…',
-    display_label: 'Host AI · connecting…',
+    label: title,
+    display_label: title,
+    displayTitle: title,
+    displaySubtitle: secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay),
     model: null,
     model_id: null,
     provider: 'host_internal',
@@ -337,6 +442,10 @@ function draftCheckingPlaceholderForHostPair(r0: HandshakeRecord): HostTargetDra
     availability: 'checking_host',
     unavailable_reason: 'CHECKING_CAPABILITIES',
     host_role: 'Host',
+    p2pUiPhase: 'connecting',
+    failureCode: null,
+    transportMode: 'none',
+    legacyEndpointKind: lek,
   }
 }
 
@@ -369,10 +478,17 @@ function hostSelectorStateForItem(
 }
 
 function finalizeItem(t: HostTargetDraft): HostInternalInferenceListItem {
+  const hss = hostSelectorStateForItem(t)
+  const subtitle = t.secondary_label
   return {
     ...t,
-    host_selector_state: hostSelectorStateForItem(t),
-    secondaryLabel: t.secondary_label,
+    type: 'host_internal',
+    displayTitle: t.displayTitle ?? t.label,
+    displaySubtitle: t.displaySubtitle ?? subtitle,
+    hostTargetAvailable: t.available,
+    host_selector_state: hss,
+    hostSelectorState: hss,
+    secondaryLabel: subtitle,
     unavailable_reason: t.available ? null : t.unavailable_reason == null ? null : String(t.unavailable_reason),
   }
 }
@@ -441,6 +557,7 @@ function ensureAtLeastOneHostTargetWhenLedgerProvesSandboxToHost(
   ledgerActive: HandshakeRecord[],
   handshakeProvesSandboxToHost: boolean,
   mainMode: string,
+  db: unknown,
 ): void {
   if (!handshakeProvesSandboxToHost || targets.length > 0) {
     return
@@ -454,6 +571,8 @@ function ensureAtLeastOneHostTargetWhenLedgerProvesSandboxToHost(
     const displayName = hostComputerNameFromRow(r0)
     const ml = metaLocal(displayName, pcc)
     const secondary = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay) // id line; reasons are tooltips
+    const lek = epKindToListKind(p2pEndpointKind(db, r0.p2p_endpoint))
+    const title = primaryLabelForP2pUiPhase('p2p_unavailable')
     console.error(
       `${L} list_invariant ledger_proved_sandbox_to_host but_pipeline_emitted_zero_rows handshake=${hid} configured_mode=${configuredModeForLog(
         mainMode,
@@ -462,8 +581,10 @@ function ensureAtLeastOneHostTargetWhenLedgerProvesSandboxToHost(
     const t: HostTargetDraft = {
       kind: 'host_internal',
       id: buildHostTargetId(hid, 'unavailable'),
-      label: 'Host AI unavailable',
-      display_label: 'Host AI unavailable',
+      label: title,
+      display_label: title,
+      displayTitle: title,
+      displaySubtitle: secondary,
       model: null,
       model_id: null,
       provider: 'host_internal',
@@ -482,6 +603,10 @@ function ensureAtLeastOneHostTargetWhenLedgerProvesSandboxToHost(
       unavailable_reason: 'UNKNOWN',
       host_role: 'Host',
       inference_error_code: 'UNKNOWN',
+      p2pUiPhase: 'p2p_unavailable',
+      failureCode: 'UNKNOWN',
+      transportMode: 'none',
+      legacyEndpointKind: lek,
     }
     targets.push(finalizeItem(t))
     return
@@ -571,13 +696,13 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         console.log(
           `${L} target_placeholder handshake=${r0.handshake_id} reason=handshake_sandbox_to_host_mismatch detail=${rr}`,
         )
-        targets.push(finalizeItem(draftCheckingPlaceholderForHostPair(r0)))
+        targets.push(finalizeItem(draftCheckingPlaceholderForHostPair(r0, db)))
         continue
       }
       console.log(
         `${L} target_disabled handshake=${r0.handshake_id} reason=SANDBOX_HOST_ROLE_METADATA detail=${rr}`,
       )
-      targets.push(finalizeItem(draftDisabledSandboxHostRoleMetadata(r0, rr)))
+      targets.push(finalizeItem(draftDisabledSandboxHostRoleMetadata(r0, rr, db)))
       continue
     }
 
@@ -586,11 +711,16 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     if (!ar.ok) {
       const ur: HostTargetUnavailableCode = 'IDENTITY_INCOMPLETE'
       const ml = metaLocal(hostComputerNameFromRow(r0), r0.internal_peer_pairing_code ?? undefined)
+      const sub = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay)
+      const tle = epKindToListKind(p2pEndpointKind(db, r0.p2p_endpoint))
+      const ht = primaryLabelForP2pUiPhase('hidden')
       const t: HostTargetDraft = {
         kind: 'host_internal',
         id: buildHostTargetId(hid, 'unavailable'),
-        label: 'Host AI unavailable',
-        display_label: 'Host AI unavailable',
+        label: ht,
+        display_label: ht,
+        displayTitle: ht,
+        displaySubtitle: sub,
         model: null,
         model_id: null,
         provider: 'host_internal',
@@ -601,7 +731,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         host_orchestrator_role: 'host',
         host_orchestrator_role_label: ml.roleLabel,
         internal_identifier_6: ml.digits6,
-        secondary_label: secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay),
+        secondary_label: sub,
         direct_reachable: false,
         policy_enabled: false,
         available: false,
@@ -609,6 +739,10 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         unavailable_reason: ur,
         host_role: 'Host',
         inference_error_code: 'IDENTITY_INCOMPLETE',
+        p2pUiPhase: 'hidden',
+        failureCode: 'IDENTITY_INCOMPLETE',
+        transportMode: 'none',
+        legacyEndpointKind: tle,
       }
       console.log(`${L} target_disabled handshake=${hid} reason=IDENTITY_INCOMPLETE detail=assertRecord_${ar.code}`)
       targets.push(finalizeItem(t))
@@ -617,52 +751,57 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
 
     const r = ar.record
     logInternalHostHandshakeP2pInspect(db, r)
-    const epK = p2pEndpointKind(db, r.p2p_endpoint)
-    const mvp = p2pEndpointMvpClass(db, r.p2p_endpoint)
     const displayName = hostComputerNameFromRow(r)
     const hostDevice = peerCoordinationDeviceId(r)?.trim() || ''
     const pcc = r.internal_peer_pairing_code ?? undefined
+    const fRow = getP2pInferenceFlags()
+    const dec = decideInternalInferenceTransport(
+      buildHostAiTransportDeciderInput({
+        operationContext: 'list_targets',
+        db,
+        handshakeRecord: r,
+        featureFlags: fRow,
+      }),
+    )
+    const rowChain = newHostAiCorrelationChain()
+    const epK = p2pEndpointKind(db, r.p2p_endpoint)
+    const leK = epKindToListKind(epK)
 
-    if (epK === 'missing') {
-      const ml = metaLocal(displayName, pcc)
-      const ur: HostTargetUnavailableCode = 'MISSING_P2P_ENDPOINT'
-      const t: HostTargetDraft = {
-        kind: 'host_internal',
-        id: buildHostTargetId(hid, 'unavailable'),
-        label: 'Host AI unavailable',
-        display_label: 'Host AI unavailable',
-        model: null,
-        model_id: null,
-        provider: 'host_internal',
-        handshake_id: hid,
-        host_device_id: (peerCoordinationDeviceId(r) ?? '').trim() || '',
-        host_computer_name: ml.hostName,
-        host_pairing_code: ml.digits6,
-        host_orchestrator_role: 'host',
-        host_orchestrator_role_label: ml.roleLabel,
-        internal_identifier_6: ml.digits6,
-        secondary_label: secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay),
-        direct_reachable: false,
-        policy_enabled: false,
-        available: false,
-        availability: 'not_configured',
-        unavailable_reason: ur,
-        host_role: 'Host',
-        inference_error_code: 'MISSING_P2P_ENDPOINT',
+    // MVP_P2P_ENDPOINT_INVALID / `legacy_http_invalid` is legacy-HTTP-fallback only; with WebRTC stack on, relay+signaling is valid — WebRTC path (detected → ensureSession), not a disabled list row.
+    let listDec: HostAiTransportDeciderResult = dec
+    if (dec.selectorPhase === 'legacy_http_invalid' && p2pStackEnabledForList(fRow)) {
+      console.warn(
+        `${L} transport_repair handshake=${hid} raw_phase=legacy_http_invalid p2p_endpoint_kind=${epK} -> detected (MVP not applied when WebRTC stack on)`,
+      )
+      listDec = {
+        ...dec,
+        selectorPhase: 'detected',
+        preferredTransport: 'webrtc_p2p',
+        p2pTransportEndpointOpen: true,
+        failureCode: null,
+        userSafeReason: null,
       }
-      console.log(`${L} target_disabled handshake=${hid} reason=MISSING_P2P_ENDPOINT`)
-      targets.push(finalizeItem(t))
-      continue
     }
+    const bm = baseMetaFromDec(listDec, leK)
+    const phaseLog =
+      listDec === dec
+        ? ''
+        : ` raw_phase=${dec.selectorPhase} (repaired_for_webrtc_p2p)`
+    console.log(
+      `${L} transport_decide handshake=${hid} selector_phase=${listDec.selectorPhase} p2p_endpoint_kind=${epK} target_detected=${listDec.targetDetected} preferred=${listDec.preferredTransport} failure=${listDec.failureCode ?? 'null'}${phaseLog}`,
+    )
 
-    if (mvp !== 'direct_lan' && mvp !== 'missing') {
-      const ur: HostTargetUnavailableCode = 'MVP_P2P_ENDPOINT_INVALID'
+    if (!listDec.targetDetected) {
       const ml = metaLocal(displayName, pcc)
+      const sub = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay)
+      const ht = primaryLabelForP2pUiPhase('hidden')
       const t: HostTargetDraft = {
         kind: 'host_internal',
         id: buildHostTargetId(hid, 'unavailable'),
-        label: 'Host AI unavailable',
-        display_label: 'Host AI unavailable',
+        label: ht,
+        display_label: ht,
+        displayTitle: ht,
+        displaySubtitle: sub,
         model: null,
         model_id: null,
         provider: 'host_internal',
@@ -673,7 +812,91 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         host_orchestrator_role: 'host',
         host_orchestrator_role_label: ml.roleLabel,
         internal_identifier_6: ml.digits6,
-        secondary_label: secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay),
+        secondary_label: sub,
+        direct_reachable: false,
+        policy_enabled: false,
+        available: false,
+        availability: 'not_configured',
+        unavailable_reason: 'UNKNOWN',
+        host_role: 'Host',
+        inference_error_code: listDec.failureCode ?? 'TARGET_NOT_TRUSTED',
+        ...bm,
+        p2pUiPhase: 'hidden',
+        failureCode: listDec.failureCode ?? 'TARGET_NOT_TRUSTED',
+      }
+      console.log(`${L} target_disabled handshake=${hid} reason=TARGET_NOT_TRUSTED detail=${listDec.failureCode ?? ''}`)
+      targets.push(finalizeItem(t))
+      continue
+    }
+
+    if (listDec.selectorPhase === 'p2p_unavailable') {
+      const ml = metaLocal(displayName, pcc)
+      const miss = listDec.failureCode === 'MISSING_P2P_ENDPOINT'
+      const inv = listDec.failureCode === 'INVALID_P2P_ENDPOINT'
+      const ur: HostTargetUnavailableCode = miss
+        ? 'MISSING_P2P_ENDPOINT'
+        : inv
+          ? 'ENDPOINT_NOT_DIRECT'
+          : 'HOST_DIRECT_P2P_UNREACHABLE'
+      const sub = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay)
+      const ht = primaryLabelForP2pUiPhase('p2p_unavailable')
+      const t: HostTargetDraft = {
+        kind: 'host_internal',
+        id: buildHostTargetId(hid, 'unavailable'),
+        label: ht,
+        display_label: ht,
+        displayTitle: ht,
+        displaySubtitle: sub,
+        model: null,
+        model_id: null,
+        provider: 'host_internal',
+        handshake_id: hid,
+        host_device_id: hostDevice,
+        host_computer_name: ml.hostName,
+        host_pairing_code: ml.digits6,
+        host_orchestrator_role: 'host',
+        host_orchestrator_role_label: ml.roleLabel,
+        internal_identifier_6: ml.digits6,
+        secondary_label: sub,
+        direct_reachable: false,
+        policy_enabled: false,
+        available: false,
+        availability: miss || inv ? 'not_configured' : 'direct_unreachable',
+        unavailable_reason: ur,
+        host_role: 'Host',
+        inference_error_code: listDec.failureCode ?? ur,
+        ...bm,
+        p2pUiPhase: 'p2p_unavailable',
+        failureCode: listDec.failureCode ?? ur,
+      }
+      console.log(`${L} target_disabled handshake=${hid} reason=${String(listDec.failureCode)} p2p_endpoint_kind=${epK}`)
+      targets.push(finalizeItem(t))
+      continue
+    }
+
+    if (listDec.selectorPhase === 'legacy_http_invalid' && !p2pStackEnabledForList(fRow)) {
+      const ml = metaLocal(displayName, pcc)
+      const ur: HostTargetUnavailableCode = 'MVP_P2P_ENDPOINT_INVALID'
+      const sub = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay)
+      const ht = primaryLabelForP2pUiPhase('legacy_http_invalid')
+      const t: HostTargetDraft = {
+        kind: 'host_internal',
+        id: buildHostTargetId(hid, 'unavailable'),
+        label: ht,
+        display_label: ht,
+        displayTitle: ht,
+        displaySubtitle: sub,
+        model: null,
+        model_id: null,
+        provider: 'host_internal',
+        handshake_id: hid,
+        host_device_id: hostDevice,
+        host_computer_name: ml.hostName,
+        host_pairing_code: ml.digits6,
+        host_orchestrator_role: 'host',
+        host_orchestrator_role_label: ml.roleLabel,
+        internal_identifier_6: ml.digits6,
+        secondary_label: sub,
         direct_reachable: false,
         policy_enabled: false,
         available: false,
@@ -681,61 +904,184 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         unavailable_reason: ur,
         host_role: 'Host',
         inference_error_code: 'MVP_P2P_ENDPOINT_INVALID',
+        ...bm,
+        p2pUiPhase: 'legacy_http_invalid',
+        failureCode: listDec.failureCode ?? 'MVP_P2P_ENDPOINT_INVALID',
       }
       console.log(
-        `${L} target_disabled handshake=${hid} reason=MVP_P2P_ENDPOINT_INVALID mvp_class=${mvp} p2p_endpoint_kind=${epK}`,
+        `${L} target_disabled handshake=${hid} reason=legacy_http_invalid failureCode=${listDec.failureCode ?? 'MVP_P2P_ENDPOINT_INVALID'} p2p_endpoint_kind=${epK} (legacy_http_mvp_p2p_stack_off)`,
       )
       targets.push(finalizeItem(t))
       continue
     }
 
-    if (!hostDevice) {
+    if (
+      listDec.selectorPhase !== 'detected' &&
+      listDec.selectorPhase !== 'connecting' &&
+      listDec.selectorPhase !== 'ready' &&
+      listDec.selectorPhase !== 'legacy_http_available'
+    ) {
       const ml = metaLocal(displayName, pcc)
-      const ur: HostTargetUnavailableCode = 'UNKNOWN'
+      const sub = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay)
+      const up = mapHostAiSelectorPhaseToP2pUiPhase(listDec.selectorPhase)
+      const ht = primaryLabelForP2pUiPhase(up)
       const t: HostTargetDraft = {
         kind: 'host_internal',
         id: buildHostTargetId(hid, 'unavailable'),
-        label: 'Host AI unavailable',
-        display_label: 'Host AI unavailable',
+        label: ht,
+        display_label: ht,
+        displayTitle: ht,
+        displaySubtitle: sub,
         model: null,
         model_id: null,
         provider: 'host_internal',
         handshake_id: hid,
-        host_device_id: '',
+        host_device_id: hostDevice,
         host_computer_name: ml.hostName,
         host_pairing_code: ml.digits6,
         host_orchestrator_role: 'host',
         host_orchestrator_role_label: ml.roleLabel,
         internal_identifier_6: ml.digits6,
-        secondary_label: secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay),
+        secondary_label: sub,
         direct_reachable: false,
         policy_enabled: false,
         available: false,
         availability: 'not_configured',
-        unavailable_reason: ur,
+        unavailable_reason: 'UNKNOWN',
         host_role: 'Host',
-        inference_error_code: 'UNKNOWN',
+        inference_error_code: `unexpected_selector_${listDec.selectorPhase}`,
+        ...bm,
+        p2pUiPhase: up,
+        failureCode: listDec.failureCode ?? 'UNEXPECTED_SELECTOR_PHASE',
+        transportMode: listDec.preferredTransport,
+        legacyEndpointKind: leK,
       }
-      console.log(`${L} target_disabled handshake=${hid} reason=UNKNOWN detail=no_peer_coordination_device_id`)
+      console.warn(
+        `${L} unexpected_selector_phase handshake=${hid} phase=${String(listDec.selectorPhase)} (emitting row to preserve list_invariant)`,
+      )
       targets.push(finalizeItem(t))
       continue
     }
 
     console.log(`[HOST_INFERENCE_P2P] from_listInferenceTargets handshake=${hid}`)
+
+    const stackOn = p2pStackEnabledForList(fRow) && listDec.p2pTransportEndpointOpen
+    if (stackOn) {
+      let sState: Awaited<ReturnType<typeof ensureSession>> | null = null
+      try {
+        sState = await ensureSession(hid, 'model_selector')
+        console.log(
+          `${L} p2p_ensure model_selector handshake=${hid} session=${sState.sessionId ?? 'null'} phase=${sState.phase}`,
+        )
+      } catch (e) {
+        console.warn(`${L} p2p_ensure_error handshake=${hid}`, e)
+        sState = null
+      }
+      if (sState?.phase === P2pSessionPhase.failed) {
+        const ml0 = metaLocal(displayName, pcc)
+        const psub0 = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
+        const ht0 = primaryLabelForP2pUiPhase('p2p_unavailable')
+        const failCode0 = sState.lastErrorCode ? String(sState.lastErrorCode) : 'P2P_SESSION_FAILED'
+        const tFailed: HostTargetDraft = {
+          kind: 'host_internal',
+          id: buildHostTargetId(hid, 'unavailable'),
+          label: ht0,
+          display_label: ht0,
+          displayTitle: ht0,
+          displaySubtitle: psub0,
+          model: null,
+          model_id: null,
+          provider: 'host_internal',
+          handshake_id: hid,
+          host_device_id: hostDevice,
+          host_computer_name: ml0.hostName,
+          host_pairing_code: ml0.digits6,
+          host_orchestrator_role: 'host',
+          host_orchestrator_role_label: ml0.roleLabel,
+          internal_identifier_6: ml0.digits6,
+          secondary_label: psub0,
+          direct_reachable: false,
+          policy_enabled: false,
+          available: false,
+          availability: 'host_offline',
+          unavailable_reason: 'HOST_DIRECT_P2P_UNREACHABLE',
+          host_role: 'Host',
+          inference_error_code: failCode0,
+          ...baseMetaFromDec(listDec, leK),
+          p2pUiPhase: 'p2p_unavailable',
+          failureCode: failCode0,
+        }
+        console.log(`${L} target_disabled handshake=${hid} reason=p2p_session_failed detail=${failCode0}`)
+        targets.push(finalizeItem(tFailed))
+        continue
+      }
+      if (sState) {
+        const dcReady =
+          isP2pDataChannelUpForHandshake(hid) ||
+          sState.phase === P2pSessionPhase.datachannel_open ||
+          sState.phase === P2pSessionPhase.ready
+        const stillConnecting =
+          sState.phase === P2pSessionPhase.signaling || sState.phase === P2pSessionPhase.connecting
+        if (stillConnecting && !dcReady) {
+          const ml0 = metaLocal(displayName, pcc)
+          const psub0 = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
+          const hConn = primaryLabelForP2pUiPhase('connecting')
+          const tConn: HostTargetDraft = {
+            kind: 'host_internal',
+            id: buildHostTargetId(hid, 'connecting'),
+            label: hConn,
+            display_label: hConn,
+            displayTitle: hConn,
+            displaySubtitle: psub0,
+            model: null,
+            model_id: null,
+            provider: 'host_internal',
+            handshake_id: hid,
+            host_device_id: hostDevice,
+            host_computer_name: ml0.hostName,
+            host_pairing_code: ml0.digits6,
+            host_orchestrator_role: 'host',
+            host_orchestrator_role_label: ml0.roleLabel,
+            internal_identifier_6: ml0.digits6,
+            secondary_label: psub0,
+            direct_reachable: true,
+            policy_enabled: false,
+            available: false,
+            availability: 'checking_host',
+            unavailable_reason: 'CHECKING_CAPABILITIES',
+            host_role: 'Host',
+            inference_error_code: 'P2P_SESSION_IN_PROGRESS',
+            ...baseMetaFromDec(listDec, leK),
+            p2pUiPhase: 'connecting',
+            failureCode: 'P2P_SESSION_IN_PROGRESS',
+          }
+          console.log(
+            `${L} target_p2p_connecting handshake=${hid} session=${sState.sessionId ?? 'null'} row_emitted=true probe_deferred=next_poll`,
+          )
+          targets.push(finalizeItem(tConn))
+          continue
+        }
+      }
+    }
+
     console.log(`${L} probe_capabilities_start handshake=${hid}`)
     hadCapabilitiesProbed = true
     const ml0 = metaLocal(displayName, pcc)
     let probe: Awaited<ReturnType<typeof probeHostInferencePolicyFromSandbox>>
     try {
-      probe = await probeHostInferencePolicyFromSandbox(hid)
+      probe = await probeHostInferencePolicyFromSandbox(hid, { correlationChain: rowChain })
     } catch (err) {
       console.warn(`${L} target_disabled handshake=${hid} reason=probe_throw`, err)
       const ur: HostTargetUnavailableCode = 'CAPABILITY_PROBE_FAILED'
+      const psub = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
+      const pht = primaryLabelForP2pUiPhase('p2p_unavailable')
       const t: HostTargetDraft = {
         kind: 'host_internal',
         id: buildHostTargetId(hid, 'unavailable'),
-        label: 'Host AI unavailable',
-        display_label: 'Host AI unavailable',
+        label: pht,
+        display_label: pht,
+        displayTitle: pht,
+        displaySubtitle: psub,
         model: null,
         model_id: null,
         provider: 'host_internal',
@@ -746,7 +1092,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         host_orchestrator_role: 'host',
         host_orchestrator_role_label: ml0.roleLabel,
         internal_identifier_6: ml0.digits6,
-        secondary_label: secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay),
+        secondary_label: psub,
         direct_reachable: false,
         policy_enabled: false,
         available: false,
@@ -754,37 +1100,49 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         unavailable_reason: ur,
         host_role: 'Host',
         inference_error_code: 'CAPABILITY_PROBE_FAILED',
+        ...baseMetaFromDec(listDec, leK),
+        p2pUiPhase: 'p2p_unavailable',
+        failureCode: 'CAPABILITY_PROBE_FAILED',
       }
       targets.push(finalizeItem(t))
       continue
     }
     if (!probe.ok) {
       const code = probe.code
+      const isPolicyForbid = code === InternalInferenceErrorCode.POLICY_FORBIDDEN
+      const stackOn = p2pStackEnabledForList(fRow)
+      const relaySig = epK === 'relay'
+      // Relay is valid for WebRTC signaling; a false "direct HTTP" probe flag must not be the only reason we hide the row.
       const p2pFail =
-        code === InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE || !probe.directP2pAvailable
-      const ur: HostTargetUnavailableCode =
-        code === InternalInferenceErrorCode.POLICY_FORBIDDEN
-          ? 'HOST_POLICY_DISABLED'
-          : p2pFail
-            ? 'HOST_DIRECT_P2P_UNREACHABLE'
-            : 'CAPABILITY_PROBE_FAILED'
+        !isPolicyForbid &&
+        (code === InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE ||
+          (!probe.directP2pAvailable && !(stackOn && relaySig)))
+      const ur: HostTargetUnavailableCode = isPolicyForbid
+        ? 'HOST_POLICY_DISABLED'
+        : p2pFail
+          ? 'HOST_DIRECT_P2P_UNREACHABLE'
+          : 'CAPABILITY_PROBE_FAILED'
+      const p2pUiProbe: HostP2pUiPhase = isPolicyForbid ? 'policy_disabled' : 'p2p_unavailable'
       let av: HostInferenceListAvailability = 'host_offline'
-      if (code === InternalInferenceErrorCode.POLICY_FORBIDDEN) {
+      if (isPolicyForbid) {
         av = 'policy_disabled'
       } else if (p2pFail) {
         av = 'direct_unreachable'
       }
       const p2pCompact = p2pFail
-      const isPolicyForbid = code === InternalInferenceErrorCode.POLICY_FORBIDDEN
+      const sub = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
+      const unLab = p2pCompact
+        ? primaryLabelForP2pUiPhase('p2p_unavailable')
+        : isPolicyForbid
+          ? primaryLabelForP2pUiPhase('policy_disabled')
+          : primaryLabelForP2pUiPhase('p2p_unavailable')
       const t: HostTargetDraft = {
         kind: 'host_internal',
         id: buildHostTargetId(hid, 'unavailable'),
-        label: p2pCompact ? 'Host AI · P2P unavailable' : isPolicyForbid ? 'Host AI · disabled by Host' : 'Host AI unavailable',
-        display_label: p2pCompact
-          ? 'Host AI · P2P unavailable'
-          : isPolicyForbid
-            ? 'Host AI · disabled by Host'
-            : 'Host AI unavailable',
+        label: unLab,
+        display_label: unLab,
+        displayTitle: unLab,
+        displaySubtitle: sub,
         model: null,
         model_id: null,
         provider: 'host_internal',
@@ -795,7 +1153,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         host_orchestrator_role: 'host',
         host_orchestrator_role_label: ml0.roleLabel,
         internal_identifier_6: ml0.digits6,
-        secondary_label: secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay),
+        secondary_label: sub,
         direct_reachable: !!probe.directP2pAvailable,
         policy_enabled: false,
         available: false,
@@ -803,11 +1161,13 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         unavailable_reason: ur,
         host_role: 'Host',
         inference_error_code: ur,
+        ...baseMetaFromDec(listDec, leK),
+        p2pUiPhase: p2pUiProbe,
+        failureCode: isPolicyForbid ? 'HOST_POLICY_DISABLED' : String(code),
+        transportMode: listDec.preferredTransport,
+        legacyEndpointKind: leK,
       }
-      const pr =
-        code === InternalInferenceErrorCode.POLICY_FORBIDDEN
-          ? 'POLICY_DISABLED'
-          : 'CAPABILITY_PROBE_FAILED'
+      const pr = isPolicyForbid ? 'POLICY_DISABLED' : 'CAPABILITY_PROBE_FAILED'
       console.log(`${L} target_disabled handshake=${hid} reason=${pr} detail=probe_${String(code)}`)
       targets.push(finalizeItem(t))
       continue
@@ -817,11 +1177,15 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
 
     if (!probe.allowSandboxInference) {
       const ur: HostTargetUnavailableCode = 'HOST_POLICY_DISABLED'
+      const polT = primaryLabelForP2pUiPhase('policy_disabled')
+      const psub = secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay)
       const t: HostTargetDraft = {
         kind: 'host_internal',
         id: buildHostTargetId(hid, 'unavailable'),
-        label: 'Host AI · disabled by Host',
-        display_label: 'Host AI · disabled by Host',
+        label: polT,
+        display_label: polT,
+        displayTitle: polT,
+        displaySubtitle: psub,
         model: null,
         model_id: null,
         provider: 'host_internal',
@@ -832,7 +1196,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         host_orchestrator_role: 'host',
         host_orchestrator_role_label: hm.roleLabel,
         internal_identifier_6: hm.digits6,
-        secondary_label: secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay),
+        secondary_label: psub,
         direct_reachable: true,
         policy_enabled: false,
         available: false,
@@ -840,6 +1204,9 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         unavailable_reason: ur,
         host_role: 'Host',
         inference_error_code: 'HOST_POLICY_DISABLED',
+        ...baseMetaFromDec(listDec, leK),
+        p2pUiPhase: 'policy_disabled',
+        failureCode: 'HOST_POLICY_DISABLED',
       }
       console.log(`${L} target_disabled handshake=${hid} reason=POLICY_DISABLED detail=host_policy_no_sandbox_inference`)
       targets.push(finalizeItem(t))
@@ -849,11 +1216,15 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     const defaultChatModel = probe.defaultChatModel?.trim()
     if (!defaultChatModel) {
       const ur: HostTargetUnavailableCode = 'HOST_NO_ACTIVE_LOCAL_LLM'
+      const nmT = primaryLabelForP2pUiPhase('no_model')
+      const psub = secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay)
       const t: HostTargetDraft = {
         kind: 'host_internal',
         id: buildHostTargetId(hid, 'unavailable'),
-        label: 'Host AI · no active model',
-        display_label: 'Host AI · no active model',
+        label: nmT,
+        display_label: nmT,
+        displayTitle: nmT,
+        displaySubtitle: psub,
         model: null,
         model_id: null,
         provider: 'host_internal',
@@ -864,7 +1235,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         host_orchestrator_role: 'host',
         host_orchestrator_role_label: hm.roleLabel,
         internal_identifier_6: hm.digits6,
-        secondary_label: secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay),
+        secondary_label: psub,
         direct_reachable: true,
         policy_enabled: true,
         available: false,
@@ -872,8 +1243,11 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         unavailable_reason: ur,
         host_role: 'Host',
         inference_error_code: probe.inferenceErrorCode || InternalInferenceErrorCode.MODEL_UNAVAILABLE,
+        ...baseMetaFromDec(listDec, leK),
+        p2pUiPhase: 'no_model',
+        failureCode: listDec.failureCode ?? 'HOST_NO_ACTIVE_LOCAL_LLM',
       }
-      console.log(`${L} target_disabled handshake=${hid} reason=HOST_NO_ACTIVE_LOCAL_LLM detail=no_default_model`)
+      console.log(`${L} target_disabled handshake=${hid} reason=HOST_NO_ACTIVE_LOCAL_LLM detail=no_default_model (row_kept for discovery)`)
       targets.push(finalizeItem(t))
       continue
     }
@@ -885,6 +1259,8 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       id: buildHostTargetId(hid, defaultChatModel),
       label: primaryLabel,
       display_label: primaryLabel,
+      displayTitle: primaryLabel,
+      displaySubtitle: secondary,
       model: defaultChatModel,
       model_id: defaultChatModel,
       provider: 'host_internal',
@@ -902,6 +1278,10 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       availability: 'available',
       unavailable_reason: null,
       host_role: 'Host',
+      selector_phase: listDec.selectorPhase === 'legacy_http_available' ? 'legacy_http_available' : 'ready',
+      ...baseMetaFromDec(listDec, leK),
+      p2pUiPhase: 'ready',
+      failureCode: null,
     }
     console.log(`${L} target_added handshake=${hid} model=${defaultChatModel}`)
     targets.push(finalizeItem(t))
@@ -923,7 +1303,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       console.log(
         `${L} target_placeholder_added handshake=${hid} reason=fallback_no_rows_after_pipeline_sandbox_to_host`,
       )
-      targets.push(finalizeItem(draftCheckingPlaceholderForHostPair(r0)))
+      targets.push(finalizeItem(draftCheckingPlaceholderForHostPair(r0, db)))
       break
     }
   }
@@ -933,6 +1313,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     ledgerActive,
     handshakeProvesSandboxToHost,
     mainMode,
+    db,
   )
 
   if (targets.length === 0) {

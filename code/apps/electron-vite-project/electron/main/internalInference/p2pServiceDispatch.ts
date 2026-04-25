@@ -248,7 +248,7 @@ async function finishHostInferencePost(
   const post = await sendHostInferenceResult(
     r.handshake_id,
     wire,
-    { record: r, targetEndpoint: epCheck, directEndpointOk: true },
+    { record: r, targetEndpoint: epCheck },
     messageType,
   )
   if (!post.ok) {

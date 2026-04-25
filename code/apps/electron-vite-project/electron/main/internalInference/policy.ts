@@ -138,6 +138,44 @@ export function assertP2pEndpointDirect(db: any, p2pEndpoint: string | null | un
   return { ok: true }
 }
 
+/**
+ * P2P internal inference may run when:
+ * - `p2p_endpoint` is a direct Host BEAP ingest (LAN) — optional legacy HTTP path; or
+ * - `p2p_endpoint` is the coordination/relay URL **and** the WebRTC+signaling stack is on — relay is for
+ *   signaling; the inference data plane is the DataChannel, not HTTP to this URL.
+ * Missing/invalid URLs are never OK.
+ */
+export function internalInferenceEndpointGateOk(
+  db: any,
+  p2pEndpoint: string | null | undefined,
+  flags: {
+    p2pInferenceEnabled: boolean
+    p2pInferenceWebrtcEnabled: boolean
+    p2pInferenceSignalingEnabled: boolean
+  },
+): boolean {
+  if (assertP2pEndpointDirect(db, p2pEndpoint).ok) {
+    return true
+  }
+  if (
+    flags.p2pInferenceEnabled &&
+    flags.p2pInferenceWebrtcEnabled &&
+    flags.p2pInferenceSignalingEnabled &&
+    p2pEndpointKind(db, p2pEndpoint) === 'relay'
+  ) {
+    return true
+  }
+  return false
+}
+
+/** True only for direct (non-relay) ingest — the only case where HTTP POST to `p2p_endpoint` is allowed for internal inference. */
+export function canPostInternalInferenceHttpToP2pEndpointIngest(
+  db: any,
+  p2pEndpoint: string | null | undefined,
+): boolean {
+  return assertP2pEndpointDirect(db, p2pEndpoint).ok
+}
+
 export function assertRecordForServiceRpc(
   r: HandshakeRecord | null | undefined,
 ): { ok: true; record: HandshakeRecord } | { ok: false; code: string } {

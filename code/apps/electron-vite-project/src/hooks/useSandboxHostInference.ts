@@ -47,6 +47,19 @@ export type HostInferenceTargetRow = {
    * `unavailable` (e.g. p2p_offline / host_no_model / policy_disabled map via `availability` + `unavailable_reason`).
    */
   host_selector_state?: 'available' | 'checking' | 'unavailable'
+  /** CamelCase alias of `host_selector_state` (IPC / merged rows). */
+  hostSelectorState?: 'available' | 'checking' | 'unavailable'
+  /**
+   * Stable UI phase from main (`listTargets` / GAV) — drive selector copy from this + `displayTitle`, not
+   * from `p2p_endpoint` classification in the renderer.
+   */
+  p2pUiPhase?: string
+  /** Primary line from main; duplicates `label` / `display_label` when set. */
+  displayTitle?: string
+  /** Secondary line: `<host> · ID …` (duplicates `secondary_label` when set). */
+  displaySubtitle?: string
+  /** Diagnostic; not shown verbatim in the selector. */
+  failureCode?: string | null
 }
 
 type PolicyState = 'unknown' | 'allow' | 'deny' | 'unreachable' | 'no_direct'

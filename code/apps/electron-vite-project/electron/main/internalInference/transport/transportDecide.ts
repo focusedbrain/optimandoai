@@ -32,7 +32,7 @@ function preferP2pForIntent(
 
 function p2pPrerequisitesSatisfied(
   _handshakeId: string,
-  directEndpointOk: boolean,
+  p2pTransportEndpointOpen: boolean,
   flags: ReturnType<typeof getP2pInferenceFlags>,
 ): boolean {
   if (!flags.p2pInferenceEnabled) {
@@ -44,7 +44,7 @@ function p2pPrerequisitesSatisfied(
   if (!flags.p2pInferenceSignalingEnabled) {
     return false
   }
-  if (!directEndpointOk) {
+  if (!p2pTransportEndpointOpen) {
     return false
   }
   if (!isWebrtcP2pDataPlaneAvailable(_handshakeId)) {
@@ -54,19 +54,20 @@ function p2pPrerequisitesSatisfied(
 }
 
 /**
+ * Intent-level P2P vs HTTP selection after `decideInternalInferenceTransport` (policy) has opened the endpoint.
  * The only place that picks transport for a given operation (caps / request / result to peer).
  * Does not log; callers emit [HOST_AI_TRANSPORT] from the result.
  */
-export function decideInternalInferenceTransport(
+export function decideHostAiIntentRoute(
   handshakeId: string,
   intent: HostAiTransportIntent,
-  directEndpointOk: boolean,
+  p2pTransportEndpointOpen: boolean,
 ): { choice: HostAiTransportChoice; shouldEmitFallbackLog: boolean } {
   const flags = getP2pInferenceFlags()
   const wantP2p = preferP2pForIntent(intent, flags)
-  const p2pReady = p2pPrerequisitesSatisfied(handshakeId, directEndpointOk, flags)
+  const p2pReady = p2pPrerequisitesSatisfied(handshakeId, p2pTransportEndpointOpen, flags)
 
-  if (!directEndpointOk) {
+  if (!p2pTransportEndpointOpen) {
     return {
       choice: { preferred: 'http', selected: 'unavailable', reason: 'non_direct_endpoint' },
       shouldEmitFallbackLog: false,

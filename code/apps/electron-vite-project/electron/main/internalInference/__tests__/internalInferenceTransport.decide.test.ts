@@ -11,9 +11,9 @@ vi.mock('../p2pSession/p2pSessionWait', () => ({
   waitForP2pDataChannelOrTimeout: async (hid: string) => mockP2pDcUpMap.get(String(hid).trim()) === true,
 }))
 
-import { decideInternalInferenceTransport } from '../transport/transportDecide'
+import { decideHostAiIntentRoute } from '../transport/transportDecide'
 
-describe('decideInternalInferenceTransport', () => {
+describe('decideHostAiIntentRoute', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
     resetP2pInferenceFlagsForTests()
@@ -21,7 +21,7 @@ describe('decideInternalInferenceTransport', () => {
   })
 
   test('defaults: direct endpoint → http_direct for capabilities', () => {
-    const d = decideInternalInferenceTransport('hs-1', 'capabilities', true)
+    const d = decideHostAiIntentRoute('hs-1', 'capabilities', true)
     expect(d.choice.preferred).toBe('http')
     expect(d.choice.selected).toBe('http_direct')
     expect(d.choice.reason).toBe('http_default')
@@ -29,7 +29,7 @@ describe('decideInternalInferenceTransport', () => {
   })
 
   test('non-direct endpoint → unavailable', () => {
-    const d = decideInternalInferenceTransport('hs-1', 'request', false)
+    const d = decideHostAiIntentRoute('hs-1', 'request', false)
     expect(d.choice.selected).toBe('unavailable')
     expect(d.choice.reason).toBe('non_direct_endpoint')
   })
@@ -41,7 +41,7 @@ describe('decideInternalInferenceTransport', () => {
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_HTTP_FALLBACK', '1')
     resetP2pInferenceFlagsForTests()
-    const d = decideInternalInferenceTransport('hs-1', 'capabilities', true)
+    const d = decideHostAiIntentRoute('hs-1', 'capabilities', true)
     expect(d.choice.preferred).toBe('p2p')
     expect(d.choice.selected).toBe('http_direct')
     expect(d.choice.reason).toBe('p2p_not_ready_fallback_http')
@@ -55,7 +55,7 @@ describe('decideInternalInferenceTransport', () => {
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
     resetP2pInferenceFlagsForTests()
     mockP2pDcUpMap.set('hs-dc', true)
-    const d = decideInternalInferenceTransport('hs-dc', 'capabilities', true)
+    const d = decideHostAiIntentRoute('hs-dc', 'capabilities', true)
     expect(d.choice.selected).toBe('webrtc_p2p')
     expect(d.choice.reason).toBe('p2p_chosen')
     expect(d.shouldEmitFallbackLog).toBe(false)
@@ -66,7 +66,7 @@ describe('decideInternalInferenceTransport', () => {
     vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_HTTP_FALLBACK', '0')
     resetP2pInferenceFlagsForTests()
-    const d = decideInternalInferenceTransport('hs-1', 'request', true)
+    const d = decideHostAiIntentRoute('hs-1', 'request', true)
     expect(d.choice.selected).toBe('unavailable')
     expect(d.choice.reason).toBe('p2p_not_ready_no_fallback')
   })
@@ -78,7 +78,7 @@ describe('decideInternalInferenceTransport', () => {
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
     resetP2pInferenceFlagsForTests()
     mockP2pDcUpMap.set('hs-req', true)
-    const d = decideInternalInferenceTransport('hs-req', 'request', true)
+    const d = decideHostAiIntentRoute('hs-req', 'request', true)
     expect(d.choice.selected).toBe('webrtc_p2p')
     expect(d.choice.reason).toBe('p2p_chosen')
   })

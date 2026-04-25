@@ -6,7 +6,9 @@ import { randomUUID } from 'crypto'
 import { getHandshakeRecord } from '../handshake/db'
 import { getInstanceId, isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
+import { getP2pInferenceFlags } from './p2pInferenceFlags'
 import { requestHostCompletion } from './transport/internalInferenceTransport'
+import { decideInternalInferenceTransport, buildHostAiTransportDeciderInput } from './transport/decideInternalInferenceTransport'
 import { InternalInferenceErrorCode } from './errors'
 import {
   assertP2pEndpointDirect,
@@ -57,13 +59,21 @@ export async function runSandboxPongTestFromHostHandshake(handshakeId: string): 
   if (!role.ok) {
     return { ok: false, code: role.code, message: 'role' }
   }
-  const direct = assertP2pEndpointDirect(db, r.p2p_endpoint)
-  const directOk = direct.ok
-  if (!directOk) {
+  const fP2p = getP2pInferenceFlags()
+  const endpointGateOk = decideInternalInferenceTransport(
+    buildHostAiTransportDeciderInput({
+      operationContext: 'request',
+      db,
+      handshakeRecord: r,
+      featureFlags: fP2p,
+    }),
+  ).p2pTransportEndpointOpen
+  if (!endpointGateOk) {
+    const d = assertP2pEndpointDirect(db, r.p2p_endpoint)
     return {
       ok: false,
-      code: direct.code,
-      message: 'direct peer URL required',
+      code: d.ok ? InternalInferenceErrorCode.INTERNAL_INFERENCE_FAILED : d.code,
+      message: 'no valid P2P transport endpoint',
     }
   }
 
@@ -71,6 +81,18 @@ export async function runSandboxPongTestFromHostHandshake(handshakeId: string): 
   const peerHostId = peerCoordinationDeviceId(r) ?? ''
   if (!peerHostId) {
     return { ok: false, code: InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE, message: 'peer device' }
+  }
+
+  if (
+    fP2p.p2pInferenceEnabled &&
+    fP2p.p2pInferenceWebrtcEnabled &&
+    fP2p.p2pInferenceSignalingEnabled &&
+    fP2p.p2pInferenceRequestOverP2p
+  ) {
+    const { ensureSession } = await import('./p2pSession/p2pInferenceSessionManager')
+    const { waitForP2pDataChannelOrTimeout } = await import('./p2pSession/p2pSessionWait')
+    await ensureSession(hid, 'pong_test')
+    await waitForP2pDataChannelOrTimeout(hid, 10_000)
   }
 
   const now = Date.now()
@@ -88,10 +110,7 @@ export async function runSandboxPongTestFromHostHandshake(handshakeId: string): 
     stream: false,
     messages: [{ role: 'user', content: 'ping' }],
   }
-  const post = await requestHostCompletion(r.handshake_id, wire, {
-    record: r,
-    directEndpointOk: directOk,
-  })
+  const post = await requestHostCompletion(r.handshake_id, wire, { record: r })
   if (!post.ok) {
     rejectInternalInferenceByRequestId(
       requestId,

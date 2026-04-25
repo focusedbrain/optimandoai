@@ -1,6 +1,13 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
+
+vi.mock('../../p2p/p2pConfig', () => ({
+  getP2PConfig: () => ({ coordination_url: 'https://coord.test.invalid' }),
+}))
 import { InternalInferenceErrorCode } from '../errors'
-import { assertRecordForServiceRpc } from '../policy'
+import {
+  assertRecordForServiceRpc,
+  internalInferenceEndpointGateOk,
+} from '../policy'
 import { HandshakeState, type HandshakeRecord } from '../../handshake/types'
 
 const uid = 'u1@x|s'
@@ -56,5 +63,31 @@ describe('assertRecordForServiceRpc (Host inference gate)', () => {
     )
     expect(ar.ok).toBe(false)
     if (!ar.ok) expect(ar.code).toBe(InternalInferenceErrorCode.POLICY_FORBIDDEN)
+  })
+})
+
+describe('internalInferenceEndpointGateOk', () => {
+  const relay = 'https://relay.wrdesk.com/beap/capsule'
+  const stackOn = {
+    p2pInferenceEnabled: true,
+    p2pInferenceWebrtcEnabled: true,
+    p2pInferenceSignalingEnabled: true,
+  }
+  const stackOff = {
+    p2pInferenceEnabled: false,
+    p2pInferenceWebrtcEnabled: false,
+    p2pInferenceSignalingEnabled: false,
+  }
+
+  test('relay + full P2P stack passes (signaling-only URL; DC is data plane)', () => {
+    expect(internalInferenceEndpointGateOk({}, relay, stackOn)).toBe(true)
+  })
+
+  test('relay without P2P stack fails (legacy: no direct HTTP ingest)', () => {
+    expect(internalInferenceEndpointGateOk({}, relay, stackOff)).toBe(false)
+  })
+
+  test('direct LAN ingest passes without P2P stack', () => {
+    expect(internalInferenceEndpointGateOk({}, 'http://192.168.1.2:51249/beap/ingest', stackOff)).toBe(true)
   })
 })

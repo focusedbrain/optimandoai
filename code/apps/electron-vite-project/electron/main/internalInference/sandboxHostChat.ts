@@ -8,6 +8,7 @@ import { getInstanceId, isSandboxMode } from '../orchestrator/orchestratorModeSt
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { getP2pInferenceFlags } from './p2pInferenceFlags'
 import { requestHostCompletion } from './transport/internalInferenceTransport'
+import { decideInternalInferenceTransport, buildHostAiTransportDeciderInput } from './transport/decideInternalInferenceTransport'
 import { InternalInferenceErrorCode } from './errors'
 import {
   assertP2pEndpointDirect,
@@ -92,10 +93,18 @@ export async function runSandboxHostInferenceChat(params: {
   if (!role.ok) {
     return { ok: false, code: role.code, message: 'role' }
   }
-  const direct = assertP2pEndpointDirect(db, r.p2p_endpoint)
-  const directOk = direct.ok
-  if (!directOk) {
-    return { ok: false, code: direct.code, message: 'direct peer URL required' }
+  const fP2p = getP2pInferenceFlags()
+  const endpointGateOk = decideInternalInferenceTransport(
+    buildHostAiTransportDeciderInput({
+      operationContext: 'request',
+      db,
+      handshakeRecord: r,
+      featureFlags: fP2p,
+    }),
+  ).p2pTransportEndpointOpen
+  if (!endpointGateOk) {
+    const d = assertP2pEndpointDirect(db, r.p2p_endpoint)
+    return { ok: false, code: d.ok ? InternalInferenceErrorCode.INTERNAL_INFERENCE_FAILED : d.code, message: 'no valid P2P transport endpoint' }
   }
 
   const requestId = randomUUID()
@@ -104,7 +113,6 @@ export async function runSandboxHostInferenceChat(params: {
     return { ok: false, code: InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE, message: 'peer device' }
   }
 
-  const fP2p = getP2pInferenceFlags()
   if (
     fP2p.p2pInferenceEnabled &&
     fP2p.p2pInferenceWebrtcEnabled &&
@@ -142,10 +150,7 @@ export async function runSandboxHostInferenceChat(params: {
     model: params.model?.trim() || undefined,
     options: Object.keys(options).length > 0 ? options : undefined,
   }
-  const post = await requestHostCompletion(r.handshake_id, wire, {
-    record: r,
-    directEndpointOk: directOk,
-  })
+  const post = await requestHostCompletion(r.handshake_id, wire, { record: r })
   if (!post.ok) {
     rejectInternalInferenceByRequestId(
       requestId,

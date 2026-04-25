@@ -95,6 +95,9 @@ export function tryHandleCoordinationP2pSignal(
   }
   const hid = typeof p.handshake_id === 'string' ? p.handshake_id : ''
   const session = typeof p.session_id === 'string' ? p.session_id : ''
+  if (p.signal_type === 'p2p_inference_answer') {
+    console.log(`[P2P_SIGNAL] answer_received handshake=${hid} session=${redactIdForLog(session)}`)
+  }
   console.log(
     `[P2P_SIGNAL] received handshake=${hid} signal=${p.signal_type} session=${redactIdForLog(session)}`,
   )

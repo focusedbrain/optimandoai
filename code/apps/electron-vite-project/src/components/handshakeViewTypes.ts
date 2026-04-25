@@ -438,11 +438,14 @@ declare global {
         ok: boolean
         targets?: Array<{
           kind: 'host_internal'
+          type?: 'host_internal'
           id: string
           label: string
           model: string
           model_id: string
           display_label: string
+          displayTitle?: string
+          displaySubtitle?: string
           secondary_label: string
           provider: 'host_internal' | 'ollama' | ''
           handshake_id: string
@@ -455,10 +458,16 @@ declare global {
           direct_reachable: boolean
           policy_enabled: boolean
           available: boolean
+          hostTargetAvailable?: boolean
           availability: string
           unavailable_reason?: string
           host_role: string
           inference_error_code?: string
+          failureCode?: string | null
+          transportMode?: 'webrtc_p2p' | 'legacy_http' | 'none'
+          legacyEndpointKind?: 'direct' | 'relay' | 'missing' | 'invalid'
+          p2pUiPhase?: string
+          hostSelectorState?: 'available' | 'checking' | 'unavailable'
         }>
       }>
       listSandboxPeerCandidates: () => Promise<{

@@ -6,36 +6,38 @@ export const HOST_AI_OPTION_TOOLTIP =
   'Uses the model on your Host — the same idea as choosing a local model, but the model runs on the machine you paired with.'
 
 export const HOST_AI_UNREACHABLE_TOOLTIP =
-  'Host not directly reachable. Check that the Host is online, on a reachable network path, and that firewalls or VPN allow the connection.'
+  'Host AI could not connect. Check that the Host is online, on a reachable path, and that firewalls or VPN allow the connection.'
 
 /**
- * Selector / native `title` (STEP 6–7) — not shown inline; use newlines for tooltip layout in Chromium.
+ * Generic path/transport message — not tied to legacy endpoint inspection in the UI (STEP 7).
  */
-export const HOST_AI_P2P_OFFLINE_DETAIL_TOOLTIP = [
-  'Host handshake detected',
-  'direct P2P failed',
-  'possible causes:',
+export const HOST_AI_PATH_UNAVAILABLE_TOOLTIP = [
+  'The Host could not be reached on the current path (network or app state).',
+  'Possible causes:',
   '• Host app not running',
-  '• Host P2P server disabled',
-  '• firewall blocks port',
-  '• endpoint stale',
-  '• not on same LAN',
+  '• relay or firewall blocking the connection',
+  '• not on a reachable path from this Sandbox',
 ].join('\n')
 
-/** Active internal Host handshake, but `p2p_endpoint` is not a valid direct-LAN URL (STEP 2). */
+/** @deprecated Use projection / HOST_AI_PATH_UNAVAILABLE_TOOLTIP; kept for test imports if needed. */
+export const HOST_AI_P2P_OFFLINE_DETAIL_TOOLTIP = HOST_AI_PATH_UNAVAILABLE_TOOLTIP
+
+/**
+ * @deprecated Quarantined — do not surface “MVP endpoint” to users. Prefer `p2pUiPhase` + primaryLabel (STEP 9).
+ */
 export const HOST_AI_MVP_P2P_ENDPOINT_INVALID_TOOLTIP =
-  'The Host handshake is active, but the stored direct P2P endpoint is not reachable.'
+  'Host AI · legacy endpoint unavailable — check pairing in Settings, or use Host AI with WebRTC enabled.'
 
 /** Placeholder while the internal Host handshake is recognized but capabilities are not ready yet. */
 export const HOST_AI_CHECKING_TOOLTIP =
   'Resolving the Host’s model and network path. No action required — this updates automatically.'
 
 export const HOST_AI_STALE_INLINE =
-  'That Host model is no longer in the list. Choose another model to continue.'
+  'That Host AI selection is no longer in the list. Choose another model to continue.'
 
 /** Persisted Host selection can no longer be used (handshake missing, inactive, or after account change). */
 export const HOST_INFERENCE_UNAVAILABLE =
-  'Your saved Host model is no longer available. Pick another model from the menu.'
+  'Your saved Host AI selection is no longer valid. Open the model menu and pick Host AI again, or choose a local or cloud model.'
 
 /** Visual for Host AI rows in merged selectors (not technical transport text). */
 export const HOST_AI_SELECTOR_ICON_CLASS = 'host-ai-model-icon'
@@ -71,8 +73,52 @@ const TOOLTIP_IDENTITY = [
   'Action: open the handshake in Settings, complete device identity, or re-pair.',
 ].join(NL)
 
+const TOOLTIP_LEGACY_PATH = [
+  'Host AI · legacy endpoint unavailable — the stored path is not valid for this device while WebRTC is off.',
+  'Action: re-check pairing in Settings or on the Host, then use Refresh (↻) in the model menu on Sandbox.',
+].join(NL)
+
+function phaseFrom(t: HostInferenceTargetRow | null | undefined): string | undefined {
+  return t?.p2pUiPhase
+}
+
 /**
- * Phase 8: one tooltip string (reason + suggested action). No duplicate long text on the second row.
+ * Chat submit when the Host target row is disabled — uses `p2pUiPhase` from main. Do not blame “model” for transport (STEP 9).
+ */
+export function hostAiChatBlockedUserMessage(t: HostInferenceTargetRow | undefined): string {
+  if (!t) {
+    return 'Open the model menu and select Host AI when it is ready, or pick a local or cloud model.'
+  }
+  const ph = t.p2pUiPhase
+  if (ph === 'no_model') {
+    return 'Host AI · no active model. On the Host, pick an active local model, then try again or choose another model here.'
+  }
+  if (ph === 'policy_disabled') {
+    return 'Host AI · disabled by Host. On the Host, allow Sandbox inference, or pick another model here.'
+  }
+  if (ph === 'legacy_http_invalid') {
+    return 'Host AI · legacy endpoint unavailable. This path is not available with WebRTC off — check Settings or use Refresh (↻), then try again.'
+  }
+  if (ph === 'connecting' || t.host_selector_state === 'checking' || t.availability === 'checking_host') {
+    return 'Host AI is still connecting. Wait a moment, use Refresh (↻) in the model menu, or pick another model.'
+  }
+  if (ph === 'hidden' || t.unavailable_reason === 'SANDBOX_HOST_ROLE_METADATA') {
+    return 'Host AI is not set up for this device pair. Check internal handshake roles in Settings, or pick another model.'
+  }
+  if (ph === 'p2p_unavailable' || t.availability === 'direct_unreachable' || t.availability === 'host_offline') {
+    return 'Host AI · P2P unavailable. Check that the Host app is online, use Refresh (↻), or pick a local or cloud model.'
+  }
+  if (t.availability === 'model_unavailable' || t.unavailable_reason === 'HOST_NO_ACTIVE_LOCAL_LLM') {
+    return 'Host AI · no active model. On the Host, pick an active local model, or choose another model here.'
+  }
+  if (t.availability === 'policy_disabled' || t.unavailable_reason === 'HOST_POLICY_DISABLED') {
+    return 'Host AI · disabled by Host. Change policy on the Host, or pick another model here.'
+  }
+  return 'Host AI is not available for this run. Open the model menu, or select a local or cloud model.'
+}
+
+/**
+ * One tooltip string (reason + suggested action). Prefer `p2pUiPhase` and `hostSelectorState` from main (STEP 7).
  */
 export function hostAiRowUnavailableTooltip(
   t: HostInferenceTargetRow | null | undefined,
@@ -83,6 +129,7 @@ export function hostAiRowUnavailableTooltip(
 ): string {
   if (
     opts.hostSelectorState === 'checking' ||
+    t?.hostSelectorState === 'checking' ||
     t?.host_selector_state === 'checking' ||
     t?.unavailable_reason === 'CHECKING_CAPABILITIES' ||
     t?.availability === 'checking_host'
@@ -91,6 +138,22 @@ export function hostAiRowUnavailableTooltip(
   }
   if (opts.hostTargetAvailable && t?.available !== false) {
     return HOST_AI_OPTION_TOOLTIP
+  }
+  const ph = phaseFrom(t)
+  if (ph === 'policy_disabled') {
+    return TOOLTIP_DISABLED
+  }
+  if (ph === 'no_model') {
+    return TOOLTIP_NO_MODEL
+  }
+  if (ph === 'hidden') {
+    return TOOLTIP_ROLE
+  }
+  if (ph === 'p2p_unavailable' || ph === 'connecting') {
+    return `${HOST_AI_PATH_UNAVAILABLE_TOOLTIP}${NL}${ACT_SANDBOX_REFRESH}`
+  }
+  if (ph === 'legacy_http_invalid') {
+    return `${TOOLTIP_LEGACY_PATH}${NL}${ACT_SANDBOX_REFRESH}`
   }
   const ur = String(t?.unavailable_reason ?? '')
   const av = String(t?.availability ?? '')
@@ -106,24 +169,5 @@ export function hostAiRowUnavailableTooltip(
   if (t?.availability === 'model_unavailable' || ur === 'HOST_NO_ACTIVE_LOCAL_LLM') {
     return TOOLTIP_NO_MODEL
   }
-  if (t?.inference_error_code === 'MVP_P2P_ENDPOINT_INVALID' || ur === 'MVP_P2P_ENDPOINT_INVALID') {
-    return `${HOST_AI_MVP_P2P_ENDPOINT_INVALID_TOOLTIP}${NL}Action: update the direct LAN URL for the Host in the handshake, or re-pair.`
-  }
-  if (
-    av === 'direct_unreachable' ||
-    av === 'host_offline' ||
-    ur === 'ENDPOINT_NOT_DIRECT' ||
-    ur === 'HOST_DIRECT_P2P_UNREACHABLE' ||
-    ur === 'HOST_DIRECT_P2P_UNAVAILABLE' ||
-    ur === 'MISSING_P2P_ENDPOINT' ||
-    ur === 'CAPABILITY_PROBE_FAILED' ||
-    String(t?.inference_error_code ?? '').includes('DIRECT_P2P')
-  ) {
-    return `${HOST_AI_P2P_OFFLINE_DETAIL_TOOLTIP}${NL}${ACT_SANDBOX_REFRESH}`
-  }
-  const d = t?.secondary_label?.trim() || t?.host_computer_name?.trim()
-  if (d) {
-    return `${HOST_AI_UNREACHABLE_TOOLTIP}${NL}Details: ${d}${NL}Action: confirm the Host is reachable and the handshake is active.`
-  }
-  return `${HOST_AI_UNREACHABLE_TOOLTIP}${NL}${ACT_SANDBOX_REFRESH}`
+  return `${HOST_AI_PATH_UNAVAILABLE_TOOLTIP}${NL}${ACT_SANDBOX_REFRESH}`
 }

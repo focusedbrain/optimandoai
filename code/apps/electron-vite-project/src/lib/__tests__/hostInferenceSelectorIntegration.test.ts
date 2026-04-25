@@ -331,9 +331,9 @@ describe('selector integration — UI copy (label + secondary)', () => {
 
 describe('selector integration — error mapping (orchestrator user strings)', () => {
   const cases: Array<{ code: string; needle: string }> = [
-    { code: 'HOST_DIRECT_P2P_UNAVAILABLE', needle: "can't reach" },
+    { code: 'HOST_DIRECT_P2P_UNAVAILABLE', needle: 'P2P unavailable' },
     { code: 'HOST_INFERENCE_DISABLED', needle: 'turned off' },
-    { code: 'MODEL_UNAVAILABLE', needle: 'not available' },
+    { code: 'MODEL_UNAVAILABLE', needle: 'no active' },
     { code: 'PROVIDER_UNAVAILABLE', needle: 'Ollama' },
     { code: 'PROVIDER_TIMEOUT', needle: 'too long' },
     { code: 'POLICY_FORBIDDEN', needle: "isn't allowed" },

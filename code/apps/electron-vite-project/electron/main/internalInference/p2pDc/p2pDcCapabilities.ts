@@ -239,6 +239,7 @@ export async function requestHostInferenceCapabilitiesOverDataChannel(
   handshakeId: string,
   p2pSessionId: string,
   timeoutMs: number,
+  options?: { requestId?: string },
 ): Promise<
   { ok: true; wire: InternalInferenceCapabilitiesResultWire } | { ok: false; reason: string; code?: string }
 > {
@@ -263,7 +264,7 @@ export async function requestHostInferenceCapabilitiesOverDataChannel(
   if (!localSandbox || !peerHost) {
     return { ok: false, reason: 'missing_coordination_ids' }
   }
-  const requestId = randomUUID()
+  const requestId = (options?.requestId?.trim() ? options.requestId.trim() : null) || randomUUID()
   const body = {
     schema_version: 1,
     type: CAPS_TYPE_REQ,

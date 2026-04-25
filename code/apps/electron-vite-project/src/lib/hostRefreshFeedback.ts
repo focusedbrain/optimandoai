@@ -1,6 +1,5 @@
 import type { HostInferenceTargetRow } from '../hooks/useSandboxHostInference'
 import type { FetchSelectorModelListResult } from './selectorModelListFromHostDiscovery'
-import { isP2pTransportOrProbeFailure } from './hostModelSelectorRowUi'
 
 export type HostRefreshFeedback = {
   variant: 'success' | 'warning' | 'error'
@@ -19,7 +18,8 @@ const COPY = {
   noPairing: 'No Host pairing — open the handshake ledger.',
 } as const
 
-const MSG_REFRESH_OFFLINE = 'Host AI offline · direct P2P failed'
+const MSG_REFRESH_P2P_DOWN = 'Host AI · P2P unavailable'
+const MSG_REFRESH_LEGACY = 'Host AI · legacy endpoint unavailable'
 const CONNECTED_PREFIX = 'Host AI connected · '
 
 function hostTargetDisplayModel(t: HostInferenceTargetRow): string {
@@ -34,7 +34,7 @@ function hostTargetDisplayModel(t: HostInferenceTargetRow): string {
     .replace(/^\s*Host AI\s*·\s*/i, '')
     .replace(/^\s*Host AI\s*-\s*/i, '')
     .trim()
-  return dl || 'Host model'
+  return dl || 'Host AI'
 }
 
 /**
@@ -49,7 +49,7 @@ export function getHostRefreshFeedbackFromTargets(
   },
 ): HostRefreshFeedback {
   if (opts.error != null) {
-    return { variant: 'warning', message: MSG_REFRESH_OFFLINE, display: 'compact' }
+    return { variant: 'warning', message: MSG_REFRESH_P2P_DOWN, display: 'compact' }
   }
   if (!Array.isArray(gav) || gav.length === 0) {
     return { variant: 'warning', message: COPY.noPairing, display: 'default' }
@@ -66,8 +66,11 @@ export function getHostRefreshFeedbackFromTargets(
   if (st === 'checking' || t.availability === 'checking_host' || t.unavailable_reason === 'CHECKING_CAPABILITIES') {
     return { variant: 'warning', message: COPY.checking, display: 'default' }
   }
-  if (isP2pTransportOrProbeFailure(t)) {
-    return { variant: 'warning', message: MSG_REFRESH_OFFLINE, display: 'compact' }
+  if (t.p2pUiPhase === 'legacy_http_invalid') {
+    return { variant: 'warning', message: MSG_REFRESH_LEGACY, display: 'compact' }
+  }
+  if (isHostPathOfflineByProjection(t)) {
+    return { variant: 'warning', message: MSG_REFRESH_P2P_DOWN, display: 'compact' }
   }
   const ur = (t.unavailable_reason ?? '') as string
   const av = t.availability ?? ''
@@ -87,26 +90,20 @@ export function getHostRefreshFeedbackFromTargets(
   if (ur === 'SANDBOX_HOST_ROLE_METADATA') {
     return { variant: 'warning', message: COPY.roleMetadata, display: 'default' }
   }
-  if (
-    av === 'direct_unreachable' ||
-    notConfiguredMissingEndpoint(ur, av) ||
-    ur === 'HOST_DIRECT_P2P_UNAVAILABLE' ||
-    ur === 'HOST_DIRECT_P2P_UNREACHABLE' ||
-    ur === 'ENDPOINT_NOT_DIRECT' ||
-    ur === 'MVP_P2P_ENDPOINT_INVALID' ||
-    ur === 'MISSING_P2P_ENDPOINT'
-  ) {
-    return { variant: 'warning', message: MSG_REFRESH_OFFLINE, display: 'compact' }
-  }
-  return { variant: 'warning', message: 'Host AI unavailable.', display: 'default' }
+  return { variant: 'warning', message: 'Host AI is not available right now.', display: 'default' }
 }
 
-function notConfiguredMissingEndpoint(ur: string, av: string): boolean {
-  return (
-    av === 'not_configured' &&
-    (ur === 'HOST_DIRECT_P2P_UNAVAILABLE' ||
-      ur === 'HOST_DIRECT_P2P_UNREACHABLE' ||
-      ur === 'MISSING_P2P_ENDPOINT' ||
-      ur.includes('DIRECT_P2P'))
-  )
+/** After refresh, use `p2pUiPhase` from main; no renderer inference from p2p_endpoint. */
+function isHostPathOfflineByProjection(t: HostInferenceTargetRow): boolean {
+  const p = t.p2pUiPhase
+  if (p === 'legacy_http_invalid') {
+    return false
+  }
+  if (p === 'p2p_unavailable') {
+    return true
+  }
+  if (p) {
+    return false
+  }
+  return t.availability === 'direct_unreachable' || t.availability === 'host_offline'
 }

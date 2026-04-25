@@ -41,11 +41,11 @@ export function formatInternalInferenceErrorCode(
     HOST_INFERENCE_DISABLED:
       'That model is turned off on your Host. On the Host machine, enable AI in settings, or ask your admin.',
     HOST_DIRECT_P2P_UNAVAILABLE:
-      "Can't reach your Host right now. Check that it's online, on the same network, and that firewalls or VPN aren't blocking the connection.",
+      'Host AI · P2P unavailable. The Host could not be reached on the current path. Check that the Host is online, then try again, or pick another model here.',
     HOST_NO_ACTIVE_LOCAL_LLM:
-      'The Host has no active local model selected. On the Host machine, pick an active Ollama model in settings, then try again.',
+      'Host AI · no active model. On the Host, pick an active local Ollama model, then try again, or choose another model here.',
     MODEL_UNAVAILABLE:
-      'That model is not available on your Host. Pick a different model on the Host, or choose another model here.',
+      'Host AI · no active model, or the chosen model is missing on the Host. On the Host, pick a working model, or choose another model here.',
     PROVIDER_TIMEOUT: 'The model on your Host took too long. Try a shorter message or a different model.',
     PROVIDER_UNAVAILABLE: 'The model software on your Host (for example Ollama) is not running or not reachable. Check the Host machine.',
     REQUEST_TIMEOUT: 'The request to your Host timed out. Try again.',
@@ -55,7 +55,7 @@ export function formatInternalInferenceErrorCode(
     OLLAMA_UNAVAILABLE: 'Ollama is not running or not reachable on your Host. Start it on the Host machine and try again.',
     MALFORMED_SERVICE_MESSAGE: 'The request could not be sent. Try again or restart the app.',
     SERVICE_RPC_NOT_SUPPORTED:
-      "Can't reach your Host on the network you need for Host models. Check that the Host is online and on the same network, and that firewalls or VPN allow the connection.",
+      'Host AI · P2P unavailable. Check that the Host is online, on a reachable path, and that firewalls or VPN allow the connection, then try again.',
     INTERNAL_INFERENCE_FAILED: 'The Host could not run this request. Try again or pick a different model.',
     RATE_LIMITED: 'Too many requests to your Host. Wait a moment and try again.',
     REQUEST_EXPIRED: 'The request expired. Try again.',

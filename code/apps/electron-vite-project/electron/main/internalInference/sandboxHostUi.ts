@@ -13,6 +13,7 @@ import {
   assertRecordForServiceRpc,
   assertLedgerRolesSandboxToHost,
   assertSandboxRequestToHost,
+  internalInferenceEndpointGateOk,
   localCoordinationDeviceId,
   p2pEndpointKind,
   p2pEndpointKindForProbeLog,
@@ -21,8 +22,10 @@ import {
 } from './policy'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
 import { getP2pInferenceFlags } from './p2pInferenceFlags'
+import { getHostAiBuildStamp, logHostAiStage, newHostAiCorrelationChain } from './hostAiStageLog'
 import type { InternalInferenceCapabilitiesResultWire } from './types'
 import { listHostCapabilities } from './transport/internalInferenceTransport'
+import { buildHostAiTransportDeciderInput, decideInternalInferenceTransport, deriveHostAiHandshakeRoles } from './transport/decideInternalInferenceTransport'
 
 export interface SandboxHostInferenceCandidate {
   handshakeId: string
@@ -364,11 +367,12 @@ export async function postInternalInferenceCapabilitiesRequest(
   ingestUrl: string,
   token: string,
   timeoutMs: number,
+  correlationChain?: string,
 ): Promise<
   | { ok: true; wire: InternalInferenceCapabilitiesResultWire }
   | { ok: false; reason: string; responseStatus?: number; networkErrorMessage?: string }
 > {
-  return listHostCapabilities(hid, { record, ingestUrl, token, timeoutMs })
+  return listHostCapabilities(hid, { record, ingestUrl, token, timeoutMs, correlationChain })
 }
 
 /**
@@ -376,12 +380,37 @@ export async function postInternalInferenceCapabilitiesRequest(
  */
 export async function probeHostInferencePolicyFromSandbox(
   handshakeId: string,
+  opt?: { correlationChain?: string },
 ): Promise<ProbeHostPolicyResult> {
   const p2p = (msg: string) => console.log(`[HOST_INFERENCE_P2P] ${msg}`)
   const probeDone = (ok: boolean) => p2p(`capability_probe_done ok=${ok ? 'true' : 'false'}`)
 
+  const chain = (opt?.correlationChain && opt.correlationChain.trim() ? opt.correlationChain : null) || newHostAiCorrelationChain()
+  const buildStamp = getHostAiBuildStamp()
+  const fProbe = getP2pInferenceFlags()
+
   const db = await getHandshakeDbForInternalInference()
   if (!db) {
+    logHostAiStage({
+      chain,
+      stage: 'feature_flags',
+      reached: true,
+      success: true,
+      handshakeId: String(handshakeId ?? '').trim() || 'unknown',
+      buildStamp,
+      flags: fProbe,
+    })
+    logHostAiStage({
+      chain,
+      stage: 'selector_target',
+      reached: true,
+      success: false,
+      handshakeId: String(handshakeId ?? '').trim() || 'unknown',
+      buildStamp,
+      flags: fProbe,
+      phase: 'probe',
+      failureCode: 'NO_HANDSHAKE_DB',
+    })
     probeDone(false)
     p2p('capability_probe_detail classification=K reason=NO_DB')
     return {
@@ -396,6 +425,16 @@ export async function probeHostInferencePolicyFromSandbox(
   const r = getHandshakeRecord(db, hid)
   const ar = assertRecordForServiceRpc(r)
   if (!ar.ok) {
+    logHostAiStage({
+      chain,
+      stage: 'handshake_role',
+      reached: true,
+      success: false,
+      handshakeId: hid,
+      buildStamp,
+      flags: fProbe,
+      failureCode: 'ASSERT_RECORD',
+    })
     probeDone(false)
     p2p(`capability_probe_detail classification=K handshake=${hid} reason=assert_record`)
     return {
@@ -406,7 +445,51 @@ export async function probeHostInferencePolicyFromSandbox(
       p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
     }
   }
+  const rolesL = deriveHostAiHandshakeRoles(ar.record)
+  const roleL =
+    rolesL.ledgerSandboxToHost &&
+    rolesL.samePrincipal &&
+    rolesL.internalIdentityComplete &&
+    rolesL.peerHostDeviceIdPresent
+  logHostAiStage({
+    chain,
+    stage: 'handshake_role',
+    reached: true,
+    success: roleL,
+    handshakeId: hid,
+    buildStamp,
+    flags: fProbe,
+    failureCode: roleL ? null : 'TARGET_NOT_TRUSTED',
+  })
+  logHostAiStage({
+    chain,
+    stage: 'feature_flags',
+    reached: true,
+    success: true,
+    handshakeId: hid,
+    buildStamp,
+    flags: fProbe,
+  })
+  const decL = decideInternalInferenceTransport(
+    buildHostAiTransportDeciderInput({
+      operationContext: 'list_targets',
+      db,
+      handshakeRecord: ar.record,
+      featureFlags: fProbe,
+    }),
+  )
   const role = assertLedgerRolesSandboxToHost(ar.record)
+  logHostAiStage({
+    chain,
+    stage: 'selector_target',
+    reached: true,
+    success: role.ok,
+    handshakeId: hid,
+    buildStamp,
+    flags: fProbe,
+    phase: decL.selectorPhase,
+    failureCode: role.ok ? null : 'SANDBOX_HOST_ROLE',
+  })
   if (!role.ok) {
     probeDone(false)
     p2p(`capability_probe_detail classification=K handshake=${hid} reason=role`)
@@ -418,8 +501,9 @@ export async function probeHostInferencePolicyFromSandbox(
       p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
     }
   }
-  const direct = assertP2pEndpointDirect(db, ar.record.p2p_endpoint)
-  if (!direct.ok) {
+  const fP2p = getP2pInferenceFlags()
+  if (!internalInferenceEndpointGateOk(db, ar.record.p2p_endpoint, fP2p)) {
+    const direct = assertP2pEndpointDirect(db, ar.record.p2p_endpoint)
     const rawEp0 = ar.record.p2p_endpoint?.trim() ?? ''
     const epK0 = p2pEndpointKindForProbeLog(db, ar.record.p2p_endpoint)
     p2p(`endpoint=${rawEp0 || '(empty)'}`)
@@ -433,10 +517,21 @@ export async function probeHostInferencePolicyFromSandbox(
           : P2P_CAPABILITY_PROBE.UNKNOWN
     probeDone(false)
     p2p(`capability_probe_detail classification=${letter} reason=not_direct_p2p`)
+    logHostAiStage({
+      chain,
+      stage: 'selector_target',
+      reached: true,
+      success: false,
+      handshakeId: hid,
+      buildStamp,
+      flags: fP2p,
+      phase: epK0,
+      failureCode: 'ENDPOINT_GATE_NOT_OK',
+    })
     return {
       ok: false,
       code: direct.code,
-      message: 'direct P2P required',
+      message: 'Host AI path not reachable (direct ingest required for this probe).',
       directP2pAvailable: false,
       p2pProbeClassification: letter,
     }
@@ -447,6 +542,16 @@ export async function probeHostInferencePolicyFromSandbox(
   if (!token?.trim()) {
     probeDone(false)
     p2p(`capability_probe_detail classification=${P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED} reason=no_p2p_token`)
+    logHostAiStage({
+      chain,
+      stage: 'capabilities_request',
+      reached: true,
+      success: false,
+      handshakeId: hid,
+      buildStamp,
+      flags: fP2p,
+      failureCode: 'NO_P2P_TOKEN',
+    })
     return {
       ok: false,
       code: 'POLICY_FORBIDDEN',
@@ -458,7 +563,6 @@ export async function probeHostInferencePolicyFromSandbox(
   const { timeoutMs } = getHostInternalInferencePolicy()
   const tCap = Math.min(timeoutMs, 15_000)
 
-  const fP2p = getP2pInferenceFlags()
   if (
     fP2p.p2pInferenceEnabled &&
     fP2p.p2pInferenceWebrtcEnabled &&
@@ -476,7 +580,7 @@ export async function probeHostInferencePolicyFromSandbox(
   p2p(`endpoint_kind=${epK}`)
   p2p(`request_timeout_ms=${tCap}`)
 
-  const cap = await postInternalInferenceCapabilitiesRequest(hid, ar.record, ep, token, tCap)
+  const cap = await postInternalInferenceCapabilitiesRequest(hid, ar.record, ep, token, tCap, chain)
   if (cap.ok) {
     const out = mapCapabilitiesWireToProbe(cap.wire)
     const isJ = out.inferenceErrorCode === InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM

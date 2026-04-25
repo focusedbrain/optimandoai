@@ -25,26 +25,31 @@ export function mapHostTargetsToGavModelEntries(targets: HostInferenceTargetRow[
   displaySubtitle: string
   hostTargetAvailable: boolean
   hostSelectorState?: 'available' | 'checking' | 'unavailable'
+  p2pUiPhase?: string
 }> {
   return targets
     .filter((t) => t?.kind === 'host_internal' && typeof t.id === 'string' && t.id.length > 0)
     .map((t) => {
       const st =
+        t.hostSelectorState ??
         t.host_selector_state ??
         (t.unavailable_reason === 'CHECKING_CAPABILITIES' || t.availability === 'checking_host'
           ? 'checking'
           : t.available
             ? 'available'
             : 'unavailable')
+      const displayTitle = (t.displayTitle ?? t.display_label ?? t.label ?? 'Host AI').trim() || 'Host AI'
+      const displaySubtitle = (t.displaySubtitle ?? t.secondary_label ?? '').trim()
       return {
         id: t.id,
-        name: t.display_label?.trim() || t.label || 'Host AI',
+        name: displayTitle,
         provider: 'host_internal' as const,
         type: 'host_internal' as const,
-        displayTitle: t.display_label?.trim() || t.label || 'Host AI',
-        displaySubtitle: t.secondary_label?.trim() || '',
+        displayTitle,
+        displaySubtitle,
         hostTargetAvailable: t.available === true,
         hostSelectorState: st,
+        p2pUiPhase: t.p2pUiPhase,
       }
     })
 }

@@ -20,14 +20,20 @@ export function directP2pReachabilityCopyForSandboxToHost(
     return { primary: 'Host reachable', hint: null }
   }
   if (status === 'auth_failed') {
-    return { primary: 'Host not directly reachable', hint: 'Connection to your Host failed. Check pairing in Settings on both devices.' }
+    return {
+      primary: 'Host AI · P2P unavailable',
+      hint: 'Connection to your Host failed. Check pairing in Settings on both devices.',
+    }
   }
   if (status === 'missing_endpoint') {
-    return { primary: 'Host not directly reachable', hint: 'Host models need a direct network path to your Host; relay alone is not enough.' }
+    return {
+      primary: 'Host AI · P2P unavailable',
+      hint: 'A reachable path to the Host is required. Check the handshake in Settings, then try again.',
+    }
   }
   return {
-    primary: 'Host not directly reachable',
-    hint: 'Firewall or network may be blocking the connection to your Host.',
+    primary: 'Host AI · P2P unavailable',
+    hint: 'Firewall or network may be blocking the connection. Check that the Host app is online.',
   }
 }
 
@@ -87,5 +93,5 @@ export function hostInferenceDirectUnavailableMessage(
   directP2pAvailable: boolean,
 ): string | null {
   if (directP2pAvailable) return null
-  return 'Host not directly reachable. Check that the Host is online, on a reachable path, and that firewalls or VPN allow the connection.'
+  return 'Host AI · P2P unavailable. Check that the Host is online, on a reachable path, and that firewalls or VPN allow the connection.'
 }

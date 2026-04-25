@@ -6,6 +6,7 @@ import {
   HOST_AI_STALE_INLINE,
   HOST_AI_SELECTOR_ICON_CLASS,
   HOST_INFERENCE_UNAVAILABLE,
+  hostAiChatBlockedUserMessage,
 } from '../lib/hostAiSelectorCopy'
 import type { ChangeEvent } from 'react'
 import './HybridSearch.css'
@@ -1406,7 +1407,7 @@ export default function HybridSearch({
 
     if (mode === 'chat' && !isDraftRefineSession && hostAiSelectionInvalid) {
       setResponse(
-        'This Host model is not available. Pick a local, cloud, or different Host model from the menu (see “Use a local or cloud model” if shown).',
+        'Host AI is not ready for this run. Open the model menu, wait for a ready state, or pick a local or cloud model.',
       )
       setShowPanel(true)
       return
@@ -1459,7 +1460,7 @@ export default function HybridSearch({
           const parsed = parseAnyHostInferenceModelId(selectedModel)
           const hid = parsed?.handshakeId
           if (!hid) {
-            setResponse('That Host model is not in the list. Open the model menu and select Host AI again.')
+            setResponse('That Host AI selection is not in the list. Open the model menu and select Host AI again.')
             setIsLoading(false)
             return
           }
@@ -1470,29 +1471,28 @@ export default function HybridSearch({
             target?.model?.trim() ||
             undefined
           if (target && !target.available) {
-            setResponse(
-              target.secondary_label?.trim() ||
-                "This Host model is not available. Check the model and AI settings on the Host machine, or pick another model here.",
-            )
+            setResponse(hostAiChatBlockedUserMessage(target))
             setIsLoading(false)
             return
           }
           const row = hostInf.candidates.find((c) => c.handshakeId === hid)
           if (!row?.directP2pAvailable) {
             setResponse(
-              "Can't reach your Host. Check that it's online, on the same network, and that firewalls or VPN allow the connection.",
+              'Host AI · P2P unavailable. Check that the Host is online, then use Refresh (↻) in the model menu, or pick another model.',
             )
             setIsLoading(false)
             return
           }
           if (hostInf.policy === 'deny') {
-            setResponse("This model isn't allowed on the Host for this device. On the Host, enable AI for this Sandbox, or pick another model.")
+            setResponse(
+              'Host AI · disabled by Host. On the Host, enable Sandbox inference for this device, or pick another model here.',
+            )
             setIsLoading(false)
             return
           }
           const run = getRequestHostCompletion(window)
           if (typeof run !== 'function') {
-            setResponse('Host models are not available in this build. Pick a local or cloud model instead.')
+            setResponse('Host AI is not available in this build. Pick a local or cloud model instead.')
             setIsLoading(false)
             return
           }
@@ -2646,6 +2646,7 @@ export default function HybridSearch({
                                 displaySubtitle: m.displaySubtitle?.trim() || '',
                                 name: m.id,
                                 hostLocalModelName: t?.model ?? t?.model_id,
+                                p2pUiPhase: t?.p2pUiPhase ?? m.p2pUiPhase,
                               },
                               t,
                             )

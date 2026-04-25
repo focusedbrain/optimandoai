@@ -166,7 +166,7 @@ function onRendererToMain(_sender: Electron.WebContents, msg: unknown) {
           markDataChannelOpenForP2pSession(handshakeId, sessionId)
         }
         console.log(
-          `[P2P_WEBRTC] datachannel_open session=${redactIdForLog(sessionId)} handshake=${handshakeId}`,
+          `[P2P_WEBRTC] datachannel_open handshake=${handshakeId} session=${redactIdForLog(sessionId)}`,
         )
       }
       break

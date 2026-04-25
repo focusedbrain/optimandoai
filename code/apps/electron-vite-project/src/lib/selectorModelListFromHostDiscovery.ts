@@ -24,6 +24,8 @@ export type SelectorAvailableModel =
       displaySubtitle: string
       hostTargetAvailable: boolean
       hostSelectorState?: 'available' | 'checking' | 'unavailable'
+      /** From main / GAV — selector copy; do not infer from `p2p_endpoint` in the UI. */
+      p2pUiPhase?: string
     }
 
 export type FetchSelectorModelListResult = {
@@ -151,6 +153,7 @@ export function wrChatModelOptionsFromSelectorModels(models: SelectorAvailableMo
   hostTargetChecking?: boolean
   hostIconClass?: string
   section?: 'local' | 'host' | 'cloud'
+  p2pUiPhase?: string
 }> {
   return models.map((m) => {
     switch (m.type) {
@@ -172,6 +175,7 @@ export function wrChatModelOptionsFromSelectorModels(models: SelectorAvailableMo
           hostTargetChecking: sel === 'checking',
           hostIconClass: HOST_AI_SELECTOR_ICON_CLASS,
           section: 'host' as const,
+          p2pUiPhase: m.p2pUiPhase,
         }
       }
     }

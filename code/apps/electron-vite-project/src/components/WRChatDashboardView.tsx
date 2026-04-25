@@ -59,6 +59,8 @@ type WrChatModelOption = {
   hostIconClass?: string
   /** Grouping for dropdown: same order as orchestrator (local → host → cloud). */
   section?: 'local' | 'host' | 'cloud'
+  /** From main (GAV / listTargets); do not infer selector phase in the UI. */
+  p2pUiPhase?: string
 }
 
 function wrChatModelsForPersist(models: WrChatModelOption[]) {
@@ -292,6 +294,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
             displaySubtitle: (row.subtitle || '').trim(),
             name: row.name,
             hostLocalModelName: t?.model ?? t?.model_id,
+            p2pUiPhase: t?.p2pUiPhase ?? row.p2pUiPhase,
           },
           t,
         )

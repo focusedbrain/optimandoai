@@ -4,7 +4,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resetP2pInferenceFlagsForTests } from '../p2pInferenceFlags'
-import { decideInternalInferenceTransport } from '../transport/transportDecide'
+import { decideHostAiIntentRoute } from '../transport/transportDecide'
 import { tryHandleInternalServiceP2P } from '../p2pServiceDispatch'
 import { InternalInferenceErrorCode } from '../errors'
 import { _resetHostInferencePolicyForTests } from '../hostInferencePolicyStore'
@@ -54,7 +54,7 @@ describe('Phase 11 — transport (flags)', () => {
   })
 
   it('P2P flags off → http_direct (capabilities)', () => {
-    const d = decideInternalInferenceTransport('hs', 'capabilities', true)
+    const d = decideHostAiIntentRoute('hs', 'capabilities', true)
     expect(d.choice.selected).toBe('http_direct')
     expect(d.choice.reason).toBe('http_default')
   })
@@ -66,7 +66,7 @@ describe('Phase 11 — transport (flags)', () => {
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_HTTP_FALLBACK', '0')
     resetP2pInferenceFlagsForTests()
-    const d = decideInternalInferenceTransport('hs', 'request', true)
+    const d = decideHostAiIntentRoute('hs', 'request', true)
     expect(d.choice.selected).toBe('unavailable')
     expect(d.choice.reason).toBe('p2p_not_ready_no_fallback')
   })
@@ -78,7 +78,7 @@ describe('Phase 11 — transport (flags)', () => {
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_HTTP_FALLBACK', '1')
     resetP2pInferenceFlagsForTests()
-    const d = decideInternalInferenceTransport('hs', 'request', true)
+    const d = decideHostAiIntentRoute('hs', 'request', true)
     expect(d.choice.selected).toBe('http_direct')
     expect(d.choice.reason).toBe('p2p_not_ready_fallback_http')
   })

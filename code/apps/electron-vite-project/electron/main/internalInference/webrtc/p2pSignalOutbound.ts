@@ -14,6 +14,12 @@ export function recordOutboundP2pSignal(
   if (!getP2pInferenceFlags().p2pInferenceEnabled) {
     return
   }
+  if (kind === 'offer') {
+    console.log(
+      `[P2P_SIGNAL] offer_send handshake=${meta.handshakeId} session=${redactIdForLog(meta.p2pSessionId)}`,
+    )
+    return
+  }
   const eos = meta.iceEos ? ' ice_end' : ''
   console.log(
     `[P2P_SIGNAL] outbound type=${kind} handshake=${meta.handshakeId} session=${redactIdForLog(meta.p2pSessionId)} bytes=${meta.byteLength}${eos}`,

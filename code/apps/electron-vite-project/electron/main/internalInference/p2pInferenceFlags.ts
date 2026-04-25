@@ -49,9 +49,10 @@ export type P2pInferenceFlagSnapshot = {
   /** `WRDESK_P2P_INFERENCE_REQUEST_OVER_P2P` — prefer DC for request + Host→Sandbox result when ready. Default off. */
   p2pInferenceRequestOverP2p: boolean
   /**
-   * `WRDESK_P2P_INFERENCE_HTTP_FALLBACK` — when P2P not ready, Sandbox may use direct HTTP for
-   * internal inference. Unset: **false in packaged (production)**, **true in dev** (`!app.isPackaged`).
-   * Set `1` to force allow; `0` to force deny.
+   * `WRDESK_P2P_INFERENCE_HTTP_FALLBACK` — **only** controls whether legacy direct HTTP to
+   * `p2p_endpoint` may be used **after** the WebRTC path is unavailable. Does not create Host rows,
+   * does not define “WebRTC mode”, and is not the default future architecture. Unset: **false in
+   * packaged (production)**, **true in dev** (`!app.isPackaged`). `1` / `0` to force.
    */
   p2pInferenceHttpFallback: boolean
   /**
@@ -97,6 +98,15 @@ export function getP2pInferenceFlags(): P2pInferenceFlagSnapshot {
 
 export function resetP2pInferenceFlagsForTests(): void {
   _cache = null
+}
+
+/**
+ * `WRDESK_P2P_INFERENCE_ENABLED` + `WRDESK_P2P_INFERENCE_WEBRTC_ENABLED` — WebRTC is the intended
+ * transport architecture (vs legacy direct HTTP to BEAP). If signaling is off, the stack is
+ * incomplete: policy must **not** treat that as a legacy / MVP `p2p_endpoint` failure.
+ */
+export function isWebRtcHostAiArchitectureEnabled(f: P2pInferenceFlagSnapshot): boolean {
+  return f.p2pInferenceEnabled && f.p2pInferenceWebrtcEnabled
 }
 
 /** True if any non-default P2P plane may be considered (all off in production until wired). */

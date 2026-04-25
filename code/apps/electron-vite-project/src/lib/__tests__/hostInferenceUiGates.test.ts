@@ -25,7 +25,7 @@ describe('hostInferenceUiGates', () => {
   })
 
   it('direct unavailable text', () => {
-    expect(hostInferenceDirectUnavailableMessage(false)).toMatch(/reach|network|firewall/i)
+    expect(hostInferenceDirectUnavailableMessage(false)).toMatch(/P2P unavailable|network|firewall/i)
     expect(hostInferenceDirectUnavailableMessage(true)).toBeNull()
   })
 })

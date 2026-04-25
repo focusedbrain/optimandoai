@@ -3768,6 +3768,7 @@ app.whenReady().then(async () => {
           displaySubtitle: string
           hostTargetAvailable: boolean
           hostSelectorState: 'available' | 'checking' | 'unavailable'
+          p2pUiPhase?: string
         }> = []
         let hostInferenceTargetsOut: unknown[] | undefined
         let inferenceRefreshMeta: { hadCapabilitiesProbed: boolean } | undefined
@@ -3778,11 +3779,20 @@ app.whenReady().then(async () => {
             inferenceRefreshMeta = h.refreshMeta
             for (const t of h.targets) {
               const defaultModel = t.model_id?.trim() || t.model?.trim() || ''
+              const titleFromMain = typeof (t as { displayTitle?: string }).displayTitle === 'string'
+                ? (t as { displayTitle: string }).displayTitle.trim()
+                : ''
               const title =
-                (t.display_label || t.label).trim() ||
-                (defaultModel ? `Host AI · ${defaultModel}` : 'Host AI')
+                titleFromMain ||
+                ((t.display_label || t.label).trim() ||
+                  (defaultModel ? `Host AI · ${defaultModel}` : 'Host AI'))
               /** User-facing only — never use `unavailable_reason` codes (e.g. HOST_*) in the selector. */
-              const sub = (t.secondary_label || '').trim()
+              const subFromMain =
+                typeof (t as { displaySubtitle?: string }).displaySubtitle === 'string'
+                  ? (t as { displaySubtitle: string }).displaySubtitle.trim()
+                  : ''
+              const sub = subFromMain || (t.secondary_label || '').trim()
+              const p2pUiPhase = (t as { p2pUiPhase?: string }).p2pUiPhase
               hostForChat.push({
                 id: t.id,
                 name: title,
@@ -3792,6 +3802,7 @@ app.whenReady().then(async () => {
                 displaySubtitle: sub,
                 hostTargetAvailable: t.available,
                 hostSelectorState: t.host_selector_state,
+                ...(p2pUiPhase ? { p2pUiPhase } : {}),
               })
             }
           } catch (e: any) {
