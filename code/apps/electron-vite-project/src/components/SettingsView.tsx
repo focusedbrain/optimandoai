@@ -808,7 +808,7 @@ export default function SettingsView({ onNavigateToHandshake }: SettingsViewProp
                       color: 'var(--color-text-muted)',
                     }}
                   >
-                    Host inference (WR Chat)
+                    Host AI (WR Chat)
                   </span>
                   {(() => {
                     const dr = directP2pReachabilityCopyForSandboxToHost(sandboxHostInf.directReachability)
@@ -895,7 +895,7 @@ export default function SettingsView({ onNavigateToHandshake }: SettingsViewProp
                         </p>
                       ) : (
                         <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: 'var(--color-text)' }}>
-                          Use the chat bar model menu (<strong>On Host (orchestrator)</strong>)
+                          Use the chat bar model menu (<strong>Host AI</strong>)
                           {probed ? (
                             <>
                               {' '}

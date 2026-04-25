@@ -17,6 +17,8 @@ export const InternalInferenceErrorCode = {
   RATE_LIMITED: 'RATE_LIMITED',
   REQUEST_EXPIRED: 'REQUEST_EXPIRED',
   PROVIDER_TIMEOUT: 'PROVIDER_TIMEOUT',
+  /** Provider (e.g. Ollama) not running or not reachable; distinct from time-based timeouts. */
+  PROVIDER_UNAVAILABLE: 'PROVIDER_UNAVAILABLE',
   PROVIDER_BUSY: 'PROVIDER_BUSY',
   INTERNAL_INFERENCE_FAILED: 'INTERNAL_INFERENCE_FAILED',
 } as const

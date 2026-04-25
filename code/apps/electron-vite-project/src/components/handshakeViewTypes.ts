@@ -385,6 +385,33 @@ declare global {
           endpointHostLabel: string | null
         }>
       }>
+      /** Full Host AI rows (availability + model label) for model selectors. */
+      listInferenceTargets: () => Promise<{
+        ok: boolean
+        targets?: Array<{
+          kind: 'host_internal'
+          id: string
+          label: string
+          model: string
+          model_id: string
+          display_label: string
+          provider: 'ollama' | ''
+          handshake_id: string
+          host_device_id: string
+          host_computer_name: string
+          host_pairing_code?: string
+          host_orchestrator_role: 'host'
+          host_orchestrator_role_label: string
+          internal_identifier_6: string
+          direct_reachable: boolean
+          policy_enabled: boolean
+          available: boolean
+          availability: string
+          unavailable_reason?: string
+          host_role: string
+          inference_error_code?: string
+        }>
+      }>
       listSandboxPeerCandidates: () => Promise<{
         ok: boolean
         candidates: Array<{
@@ -404,6 +431,14 @@ declare global {
       }>
       probeHostPolicy: (handshakeId: string) => Promise<unknown>
       runHostChat: (params: {
+        handshakeId: string
+        messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+        model?: string
+        temperature?: number
+        max_tokens?: number
+      }) => Promise<unknown>
+      /** Direct P2P Host internal inference (preferred entry; same behavior as `runHostChat`). */
+      requestHostCompletion: (params: {
         handshakeId: string
         messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
         model?: string

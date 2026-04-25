@@ -107,8 +107,39 @@ export async function listSandboxHostInferenceCandidates(): Promise<SandboxHostI
   return out
 }
 
+/** Host response from GET /beap/internal-inference-policy (direct P2P; STEP 6 metadata). */
+export type HostInternalInferencePolicyPayload = {
+  allowSandboxInference?: boolean
+  defaultChatModel?: string
+  provider?: string
+  modelId?: string | null
+  displayLabel?: string
+  hostComputerName?: string
+  hostOrchestratorRoleLabel?: string
+  internalIdentifier6?: string
+  internalIdentifierDisplay?: string
+  directReachable?: boolean
+  policyEnabled?: boolean
+  inferenceErrorCode?: string
+}
+
 export type ProbeHostPolicyResult =
-  | { ok: true; allowSandboxInference: boolean }
+  | {
+      ok: true
+      allowSandboxInference: boolean
+      defaultChatModel?: string
+      /** Ollama chat model id (live on each probe). */
+      modelId?: string | null
+      displayLabelFromHost?: string
+      hostComputerNameFromHost?: string
+      providerFromHost?: 'ollama'
+      hostOrchestratorRoleLabelFromHost?: string
+      internalIdentifier6FromHost?: string
+      internalIdentifierDisplayFromHost?: string
+      directP2pPath?: boolean
+      policyEnabledFromHost?: boolean
+      inferenceErrorCode?: string
+    }
   | { ok: false; code: string; message: string; directP2pAvailable: boolean; allowSandboxInference?: undefined }
 
 /**
@@ -173,8 +204,36 @@ export async function probeHostInferencePolicyFromSandbox(
         directP2pAvailable: true,
       }
     }
-    const j = (await res.json()) as { allowSandboxInference?: boolean }
-    return { ok: true, allowSandboxInference: j.allowSandboxInference === true }
+    const j = (await res.json()) as HostInternalInferencePolicyPayload
+    const allow = j.allowSandboxInference === true
+    const dcmFromLegacy = typeof j.defaultChatModel === 'string' && j.defaultChatModel.trim() ? j.defaultChatModel.trim() : undefined
+    const dcmFromId = typeof j.modelId === 'string' && j.modelId.trim() ? j.modelId.trim() : undefined
+    const dcm = dcmFromId ?? dcmFromLegacy
+    let modelId: string | null | undefined
+    if (j.modelId === null) {
+      modelId = null
+    } else if (typeof j.modelId === 'string' && j.modelId.trim()) {
+      modelId = j.modelId.trim()
+    } else if (dcm) {
+      modelId = dcm
+    }
+    return {
+      ok: true as const,
+      allowSandboxInference: allow,
+      defaultChatModel: dcm,
+      modelId,
+      displayLabelFromHost: typeof j.displayLabel === 'string' ? j.displayLabel : undefined,
+      hostComputerNameFromHost: typeof j.hostComputerName === 'string' ? j.hostComputerName.trim() : undefined,
+      providerFromHost: j.provider === 'ollama' ? 'ollama' : undefined,
+      hostOrchestratorRoleLabelFromHost:
+        typeof j.hostOrchestratorRoleLabel === 'string' ? j.hostOrchestratorRoleLabel : undefined,
+      internalIdentifier6FromHost: typeof j.internalIdentifier6 === 'string' ? j.internalIdentifier6 : undefined,
+      internalIdentifierDisplayFromHost:
+        typeof j.internalIdentifierDisplay === 'string' ? j.internalIdentifierDisplay : undefined,
+      directP2pPath: j.directReachable === true,
+      policyEnabledFromHost: typeof j.policyEnabled === 'boolean' ? j.policyEnabled : undefined,
+      inferenceErrorCode: typeof j.inferenceErrorCode === 'string' ? j.inferenceErrorCode : undefined,
+    }
   } catch (e) {
     clearTimeout(timer)
     const name = (e as Error)?.name

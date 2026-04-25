@@ -14,20 +14,20 @@ export function directP2pReachabilityCopyForSandboxToHost(
   status: DirectP2pReachabilityStatus | null,
 ): { primary: string; hint: string | null } {
   if (status == null || status === 'unknown') {
-    return { primary: 'Checking direct P2P…', hint: null }
+    return { primary: 'Checking connection to your Host…', hint: null }
   }
   if (status === 'reachable') {
     return { primary: 'Host reachable', hint: null }
   }
   if (status === 'auth_failed') {
-    return { primary: 'Host not reachable', hint: 'P2P authentication failed. Check pairing on both devices.' }
+    return { primary: 'Host not reachable', hint: 'Connection to your Host failed. Check pairing in Settings on both devices.' }
   }
   if (status === 'missing_endpoint') {
-    return { primary: 'Host not reachable', hint: 'No direct P2P endpoint — relay is not used for Host inference.' }
+    return { primary: 'Host not reachable', hint: 'Host models need a direct network path to your Host; relay alone is not enough.' }
   }
   return {
     primary: 'Host not reachable',
-    hint: 'Firewall or network may block direct P2P.',
+    hint: 'Firewall or network may be blocking the connection to your Host.',
   }
 }
 
@@ -36,20 +36,20 @@ export function directP2pReachabilityCopyForHostToSandbox(
   status: DirectP2pReachabilityStatus | null,
 ): { primary: string; hint: string | null } {
   if (status == null || status === 'unknown') {
-    return { primary: 'Checking direct P2P…', hint: null }
+    return { primary: 'Checking connection to Sandbox…', hint: null }
   }
   if (status === 'reachable') {
-    return { primary: 'Sandbox direct P2P reachable', hint: null }
+    return { primary: 'Sandbox reachable', hint: null }
   }
   if (status === 'auth_failed') {
-    return { primary: 'Sandbox not reachable', hint: 'P2P authentication failed. Check pairing on both devices.' }
+    return { primary: 'Sandbox not reachable', hint: 'Connection to Sandbox failed. Check pairing in Settings on both devices.' }
   }
   if (status === 'missing_endpoint') {
-    return { primary: 'Sandbox not reachable', hint: 'No direct P2P endpoint — relay is not used for Host inference.' }
+    return { primary: 'Sandbox not reachable', hint: 'A direct network path to Sandbox is required; relay alone is not enough.' }
   }
   return {
     primary: 'Sandbox not reachable',
-    hint: 'Firewall or network may block direct P2P.',
+    hint: 'Firewall or network may be blocking the connection to Sandbox.',
   }
 }
 
@@ -87,5 +87,5 @@ export function hostInferenceDirectUnavailableMessage(
   directP2pAvailable: boolean,
 ): string | null {
   if (directP2pAvailable) return null
-  return 'Host is not directly reachable. Start Host orchestrator on the same network or check firewall.'
+  return "Can't reach your Host. Check that it's online, on the same network, and that firewalls or VPN allow the connection."
 }

@@ -4,7 +4,7 @@ import { hostInferenceOptionVisible, directP2pReachabilityCopyForSandboxToHost }
 /**
  * Copy used by HybridSearch / Settings (regression: stable product strings for QA).
  */
-const PREMIUM_SUCCESS = 'Host inference completed'
+const PREMIUM_SUCCESS = 'Host model finished'
 const POLICY_OFF = 'Host inference is not enabled on the Host.'
 
 describe('Host inference — UI gating and copy (regression)', () => {
@@ -25,6 +25,6 @@ describe('Host inference — UI gating and copy (regression)', () => {
   })
 
   it('success badge copy (header strip)', () => {
-    expect(PREMIUM_SUCCESS).toBe('Host inference completed')
+    expect(PREMIUM_SUCCESS).toBe('Host model finished')
   })
 })

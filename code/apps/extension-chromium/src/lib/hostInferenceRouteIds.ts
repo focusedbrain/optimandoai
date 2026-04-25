@@ -1,21 +1,11 @@
-/** Legacy virtual chat model id for Host-side Ollama via direct P2P (non-streaming). */
-export const HOST_INFERENCE_PREFIX = 'host-inference:'
+/**
+ * Mirror of electron-vite-project `hostInferenceModelIds` for WR Chat (PopupChatView) routing.
+ */
 
-/** Preferred id: includes model for stable routing (`host-internal:<encHid>:<encModel>`). */
-export const HOST_INTERNAL_PREFIX = 'host-internal:'
+const HOST_INFERENCE_PREFIX = 'host-inference:'
+const HOST_INTERNAL_PREFIX = 'host-internal:'
 
-export function hostInferenceModelId(handshakeId: string): string {
-  return `${HOST_INFERENCE_PREFIX}${handshakeId.trim()}`
-}
-
-/** Build canonical Host internal id (use in new UI). */
-export function hostInternalInferenceModelId(handshakeId: string, model: string): string {
-  return `${HOST_INTERNAL_PREFIX}${encodeURIComponent(handshakeId.trim())}:${encodeURIComponent(model.trim())}`
-}
-
-export function parseHostInferenceModelId(
-  id: string | null | undefined,
-): { handshakeId: string } | null {
+function parseHostInferenceModelId(id: string | null | undefined): { handshakeId: string } | null {
   if (typeof id !== 'string' || !id.startsWith(HOST_INFERENCE_PREFIX)) {
     return null
   }
@@ -23,9 +13,7 @@ export function parseHostInferenceModelId(
   return handshakeId ? { handshakeId } : null
 }
 
-export function parseHostInternalInferenceModelId(
-  id: string | null | undefined,
-): { handshakeId: string; model: string } | null {
+function parseHostInternalInferenceModelId(id: string | null | undefined): { handshakeId: string; model: string } | null {
   if (typeof id !== 'string' || !id.startsWith(HOST_INTERNAL_PREFIX)) {
     return null
   }
@@ -44,10 +32,6 @@ export function parseHostInternalInferenceModelId(
   }
 }
 
-/**
- * Resolves Host routing from any supported id (legacy or canonical).
- * When legacy `host-inference:<hid>`, model is undefined (Host picks default).
- */
 export function parseAnyHostInferenceModelId(
   id: string | null | undefined,
 ): { handshakeId: string; model: string | undefined } | null {
@@ -66,6 +50,6 @@ export function parseAnyHostInferenceModelId(
   return null
 }
 
-export function isHostInferenceModelId(id: string | null | undefined): boolean {
+export function isHostInferenceRouteId(id: string | null | undefined): boolean {
   return parseAnyHostInferenceModelId(id) != null
 }

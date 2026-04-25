@@ -1,0 +1,100 @@
+/**
+ * Host vs local vs cloud chat submit: shared formatting and IPC resolution (WR Chat + orchestrator top chat).
+ * Do not log prompt/result here.
+ */
+
+import { isHostInferenceRouteId, parseAnyHostInferenceModelId } from './hostInferenceRouteIds'
+
+export type ChatInferenceKind = 'local_ollama' | 'host_internal' | 'cloud'
+
+type AvailableOrchestratorModel = { id: string; type: 'local' | 'cloud' }
+
+/** Orchestrator `getAvailableModels` rows — `local` = Ollama, `cloud` = API providers. */
+export function resolveChatInferenceKind(
+  selectedModel: string,
+  availableModels: AvailableOrchestratorModel[],
+): ChatInferenceKind {
+  if (!selectedModel) return 'local_ollama'
+  if (isHostInferenceRouteId(selectedModel)) return 'host_internal'
+  const m = availableModels.find((x) => x.id === selectedModel)
+  if (m?.type === 'cloud') return 'cloud'
+  return 'local_ollama'
+}
+
+export function formatInternalInferenceErrorCode(
+  code: string | undefined,
+  messageFallback?: string,
+): string {
+  const c = (code ?? '').trim()
+  const M: Record<string, string> = {
+    HOST_INFERENCE_DISABLED:
+      'That model is turned off on your Host. On the Host machine, enable AI in settings, or ask your admin.',
+    HOST_DIRECT_P2P_UNAVAILABLE:
+      "Can't reach your Host right now. Check that it's online, on the same network, and that firewalls or VPN aren't blocking the connection.",
+    MODEL_UNAVAILABLE:
+      'That model is not available on your Host. Pick a different model on the Host, or choose another model here.',
+    PROVIDER_TIMEOUT: 'The model on your Host took too long. Try a shorter message or a different model.',
+    PROVIDER_UNAVAILABLE: 'The model software on your Host (for example Ollama) is not running or not reachable. Check the Host machine.',
+    REQUEST_TIMEOUT: 'The request to your Host timed out. Try again.',
+    PAYLOAD_TOO_LARGE: 'The request is too large for this model. Shorten the message or remove attachments.',
+    POLICY_FORBIDDEN: "This request isn't allowed for the Host model you selected. Try a different model or check settings on the Host.",
+    OLLAMA_UNAVAILABLE: 'Ollama is not running or not reachable on your Host. Start it on the Host machine and try again.',
+    MALFORMED_SERVICE_MESSAGE: 'The request could not be sent. Try again or restart the app.',
+    SERVICE_RPC_NOT_SUPPORTED:
+      "Can't reach your Host on the network you need for Host models. Check that the Host is online and on the same network, and that firewalls or VPN allow the connection.",
+    INTERNAL_INFERENCE_FAILED: 'The Host could not run this request. Try again or pick a different model.',
+    RATE_LIMITED: 'Too many requests to your Host. Wait a moment and try again.',
+    REQUEST_EXPIRED: 'The request expired. Try again.',
+    PROVIDER_BUSY: 'The model on your Host is busy. Try again in a few seconds.',
+    NO_ACTIVE_INTERNAL_HOST_HANDSHAKE: 'No Host is paired for this account. In Settings, pair a Host, then select a Host model again here.',
+  }
+  if (M[c]) return M[c]!
+  const fb = messageFallback?.trim()
+  if (fb) return fb
+  return "This Host model couldn't complete the request. Try again."
+}
+
+export function appendHostAiAttributionLine(answer: string, hostComputerName: string): string {
+  const h = (hostComputerName || 'Host').trim() || 'Host'
+  return `${answer.trimEnd()}\n\n*Model ran on your Host (${h})*`
+}
+
+export function hostModelDisplayNameFromSelection(args: {
+  parsedModel: string | undefined
+  targetLabel: string | undefined
+}): string {
+  const m = args.parsedModel?.trim()
+  if (m) return m
+  const label = args.targetLabel?.trim()
+  if (label && /^host ai\s*·/i.test(label)) {
+    return label.replace(/^host ai\s*·\s*/i, '').trim() || 'Model'
+  }
+  return 'Model'
+}
+
+type HostChatParams = {
+  handshakeId: string
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+  model?: string
+  temperature?: number
+  max_tokens?: number
+}
+
+type InternalInfApi = {
+  requestHostCompletion?: (p: unknown) => Promise<unknown>
+  runHostChat?: (p: unknown) => Promise<unknown>
+}
+
+/** Prefer `requestHostCompletion` (STEP 5); fall back to `runHostChat` for older preload. */
+export function getRequestHostCompletion(
+  w: typeof window,
+): ((params: HostChatParams) => Promise<unknown>) | undefined {
+  const inf = w.internalInference as InternalInfApi | undefined
+  if (typeof inf?.requestHostCompletion === 'function') {
+    return (params: HostChatParams) => inf.requestHostCompletion!(params)
+  }
+  if (typeof inf?.runHostChat === 'function') {
+    return (params: HostChatParams) => inf.runHostChat!(params)
+  }
+  return undefined
+}

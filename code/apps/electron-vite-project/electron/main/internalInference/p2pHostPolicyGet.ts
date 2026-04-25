@@ -1,16 +1,27 @@
 /**
  * GET /beap/internal-inference-policy — Host only; same auth as ingest (Bearer + X-BEAP-Handshake).
- * Returns { allowSandboxInference: boolean } — no secrets.
+ * Returns policy + **live** Ollama model metadata for the paired Sandbox (direct P2P only — not relayed).
  */
 
+import os from 'os'
 import type http from 'http'
 import { getHandshakeRecord } from '../handshake/db'
-import { isHostMode } from '../orchestrator/orchestratorModeStore'
+import { isHostMode, getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { checkAuthFailLimit, checkIpLimit, recordAuthFailure } from '../p2p/rateLimiter'
 import { assertHostSendsResultToSandbox, assertRecordForServiceRpc } from './policy'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
+import { InternalInferenceErrorCode } from './errors'
 
 const IP_LIMIT = 30
+
+/** 6-digit internal pairing id for this Host↔Sandbox internal handshake (display + raw digits). */
+function formatInternalIdentifier6(raw: string | null | undefined): { digits6: string; display: string } {
+  const s = (raw ?? '').replace(/\D/g, '')
+  if (s.length === 6) {
+    return { digits6: s, display: `${s.slice(0, 3)}-${s.slice(3)}` }
+  }
+  return { digits6: '', display: s ? s : '—' }
+}
 
 function getClientIp(req: http.IncomingMessage): string {
   const forwarded = req.headers['x-forwarded-for']
@@ -86,7 +97,55 @@ export async function handleGetInternalInferencePolicy(
     return
   }
 
-  const { allowSandboxInference } = getHostInternalInferencePolicy()
+  const hostPolicy = getHostInternalInferencePolicy()
+  const { allowSandboxInference } = hostPolicy
+  const hostRec = ar.record
+  const { digits6: internalIdentifier6, display: internalIdentifierDisplay } = formatInternalIdentifier6(
+    hostRec.internal_peer_pairing_code,
+  )
+  const { deviceName: orchName } = getOrchestratorMode()
+  const hostComputerName = (orchName || '').trim() || os.hostname()
+
+  let defaultChatModel: string | undefined
+  if (allowSandboxInference) {
+    try {
+      const { resolveModelForInternalInference } = await import('../llm/internalHostInferenceOllama')
+      const resolved = await resolveModelForInternalInference(undefined, hostPolicy.modelAllowlist ?? [])
+      if ('model' in resolved) {
+        defaultChatModel = resolved.model
+      }
+    } catch {
+      /* Ollama stopped or no models */
+    }
+  }
+
+  const modelId = defaultChatModel?.trim() ? defaultChatModel.trim() : null
+  const inferenceErrorCode =
+    allowSandboxInference && !modelId ? InternalInferenceErrorCode.MODEL_UNAVAILABLE : undefined
+  const displayLabel = !allowSandboxInference
+    ? 'Host AI'
+    : modelId
+      ? `Host AI · ${modelId}`
+      : 'Host AI · —'
+
   res.writeHead(200, { 'Content-Type': 'application/json' })
-  res.end(JSON.stringify({ allowSandboxInference }))
+  res.end(
+    JSON.stringify({
+      allowSandboxInference,
+      defaultChatModel,
+      // ── STEP 6: model + Host metadata (MVP: live active / allowlist-resolved Ollama model per GET) ──
+      provider: 'ollama' as const,
+      modelId,
+      displayLabel,
+      hostComputerName,
+      hostOrchestratorRole: 'host' as const,
+      hostOrchestratorRoleLabel: 'Host orchestrator' as const,
+      internalIdentifier6,
+      internalIdentifierDisplay,
+      /** Caller reached Host over direct P2P (this endpoint is not exposed on relay-only routes). */
+      directReachable: true,
+      policyEnabled: allowSandboxInference,
+      inferenceErrorCode,
+    }),
+  )
 }

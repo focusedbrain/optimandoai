@@ -24,6 +24,21 @@ import {
   isPlausibleVisionBase64,
   resolveImageUrlForBackend,
 } from '../../utils/image-resolve'
+import { isHostInferenceRouteId, parseAnyHostInferenceModelId } from '../../lib/hostInferenceRouteIds'
+import {
+  appendHostAiAttributionLine,
+  formatInternalInferenceErrorCode,
+  getRequestHostCompletion,
+  hostModelDisplayNameFromSelection,
+} from '../../lib/inferenceSubmitRouting'
+import {
+  GROUP_CLOUD,
+  GROUP_HOST_MODELS,
+  GROUP_LOCAL_MODELS,
+  HOST_AI_OPTION_TOOLTIP,
+  HOST_AI_STALE_INLINE,
+  HOST_AI_UNREACHABLE_TOOLTIP,
+} from '../../lib/hostAiSelectorCopy'
 
 const BASE_URL = 'http://127.0.0.1:51248'
 
@@ -75,8 +90,23 @@ interface ChatMessage {
 
 export interface PopupChatViewProps {
   theme?: 'pro' | 'dark' | 'standard'
-  availableModels?: Array<{ name: string; size?: string }>
+  availableModels?: Array<{
+    name: string
+    size?: string
+    displayTitle?: string
+    subtitle?: string
+    hostAi?: boolean
+    hostAvailable?: boolean
+    /** Shown in Host running UI and answer attribution (dashboard listInferenceTargets). */
+    hostComputerName?: string
+    section?: 'local' | 'host' | 'cloud'
+  }>
   activeLlmModel?: string
+  /** Dashboard: Host AI selection no longer usable — show inline control. */
+  hostAiStale?: boolean
+  onConfirmSwitchFromStaleHost?: () => void
+  /** Dashboard: restored selection was invalid (e.g. handshake gone after account switch). */
+  inferenceSelectionPersistError?: string | null
   onModelSelect?: (name: string) => void
   onRefreshModels?: () => Promise<void>
   sessionName?: string
@@ -216,18 +246,22 @@ function sliceMessagesFromLastUserImage(messages: ChatMessage[]): ChatMessage[] 
 
 function resolveModelIdForChat(
   active: string | undefined,
-  models: Array<{ name: string }> | undefined,
+  models: Array<{ name: string; hostAvailable?: boolean }> | undefined,
 ): string {
   const t = (active ?? '').trim()
   if (t) return t
-  const m0 = models?.[0]?.name
-  if (m0) return m0
+  const m0 = models?.find((m) => m.hostAvailable !== false) ?? models?.[0]
+  if (m0) return m0.name
   try {
     const w = (window as unknown as { llm?: { models?: Array<{ id?: string; name?: string }> } }).llm?.models?.[0]
     return (w?.id || w?.name || '') as string
   } catch {
     return ''
   }
+}
+
+function modelMenuPrimary(m: { name: string; displayTitle?: string }): string {
+  return (m.displayTitle ?? m.name).trim()
 }
 
 
@@ -314,10 +348,18 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   persistTranscriptStorageKey,
   wrChatEmbedContext,
   onPersistAcceptedOptimizationSuggestion,
+  hostAiStale = false,
+  onConfirmSwitchFromStaleHost,
+  inferenceSelectionPersistError = null,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  /** Dashboard Host AI: running line + host machine name (no prompt/result logging). */
+  const [hostInternalRunUi, setHostInternalRunUi] = useState<{
+    line1: string
+    line2: string
+  } | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [pendingDoc, setPendingDoc] = useState<{ name: string; text: string } | null>(null)
   const [pendingCaptureUrl, setPendingCaptureUrl] = useState<string | null>(null)
@@ -958,6 +1000,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     }
 
     if (isLoading) return
+    setHostInternalRunUi(null)
 
     const modelId = resolveModelIdForChat(activeLlmModel, availableModels)
     if (!modelId) {
@@ -965,6 +1008,12 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         role: 'assistant',
         text: `⚠️ No LLM model available. Please go to Admin panel → LLM Settings and install a model.`
       }])
+      scrollToBottom()
+      return
+    }
+
+    if (wrChatEmbedContext === 'dashboard' && hostAiStale && isHostInferenceRouteId(modelId)) {
+      setMessages((prev) => [...prev, { role: 'assistant', text: HOST_AI_STALE_INLINE }])
       scrollToBottom()
       return
     }
@@ -1066,6 +1115,71 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       const freshUserMessage: Record<string, unknown> | null = useFreshPayload
         ? { role: 'user', content: enrichedForRoute, ...(visionB64ForSend ? { images: [visionB64ForSend] } : {}) }
         : null
+
+      if (isDashboard && isHostInferenceRouteId(modelId)) {
+        const parsed = parseAnyHostInferenceModelId(modelId)
+        const row = availableModels.find((m) => m.name === modelId)
+        if (row?.hostAi && row.hostAvailable === false) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: 'assistant',
+              text: "This Host model is not available. Pick another model or check the model and AI settings on the Host machine.",
+            },
+          ])
+          setIsLoading(false)
+          return
+        }
+        if (parsed) {
+          const run = getRequestHostCompletion(window)
+          if (typeof run !== 'function') {
+            setMessages((prev) => [
+              ...prev,
+              { role: 'assistant', text: 'Host models are not available in this build. Pick a local or cloud model instead.' },
+            ])
+            setIsLoading(false)
+            return
+          }
+          let hostMsgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
+          if (useFreshPayload && freshUserMessage) {
+            hostMsgs = [{ role: 'user', content: String(freshUserMessage.content ?? '') }]
+          } else {
+            hostMsgs = processedMessages
+              .filter((m) => m.role === 'system' || m.role === 'user' || m.role === 'assistant')
+              .map((m) => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content }))
+          }
+          const hostComputerName = (row?.hostComputerName || '').trim() || 'Host'
+          setHostInternalRunUi({
+            line1: `Host AI · ${hostModelDisplayNameFromSelection({
+              parsedModel: parsed.model,
+              targetLabel: row?.displayTitle,
+            })}`,
+            line2: hostComputerName,
+          })
+          try {
+            const r = (await run({
+              handshakeId: parsed.handshakeId,
+              messages: hostMsgs,
+              model: parsed.model,
+            })) as { ok?: boolean; output?: string; code?: string; message?: string }
+            if (r && 'ok' in r && r.ok && typeof (r as { output?: string }).output === 'string') {
+              const text = appendHostAiAttributionLine((r as { output: string }).output, hostComputerName)
+              setMessages((prev) => [...prev, { role: 'assistant', text }])
+            } else {
+              const er = r as { ok: false; code: string; message: string }
+              const msg = formatInternalInferenceErrorCode(er.code, er.message)
+              setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${msg}` }])
+            }
+          } catch {
+            setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${formatInternalInferenceErrorCode(undefined)}` }])
+          } finally {
+            setHostInternalRunUi(null)
+          }
+          setIsLoading(false)
+          scrollToBottom()
+          return
+        }
+      }
 
       // Try routing via processFlow agents, fall back to Butler
       let answered = false
@@ -1199,7 +1313,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       setIsLoading(false)
       scrollToBottom()
     }
-  }, [input, messages, pendingDoc, pendingCaptureUrl, activeLlmModel, availableModels, isLoading, isConnected, sessionName, wrChatEmbedContext, chatFocusMode.mode])
+  }, [input, messages, pendingDoc, pendingCaptureUrl, activeLlmModel, availableModels, isLoading, isConnected, sessionName, wrChatEmbedContext, chatFocusMode.mode, hostAiStale])
 
   /** After capture Save with tag/command — displayText is what appears in chat; routeText drives routing/LLM. */
   const sendWithTriggerAndImage = useCallback(
@@ -1219,6 +1333,12 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         return
       }
       if (isLoading) return
+      setHostInternalRunUi(null)
+
+      if (wrChatEmbedContext === 'dashboard' && hostAiStale && isHostInferenceRouteId(modelId)) {
+        setMessages((prev) => [...prev, { role: 'assistant', text: HOST_AI_STALE_INLINE }])
+        return
+      }
 
       const routeTag = normaliseTriggerTag(routeText)
       const displayLabel =
@@ -1298,6 +1418,71 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         const freshUserMessage: Record<string, unknown> | null = useFreshPayload
           ? { role: 'user', content: enrichedForRouteTrig, ...(visionB64 ? { images: [visionB64] } : {}) }
           : null
+
+        if (isDashboard && isHostInferenceRouteId(modelId)) {
+          const parsed = parseAnyHostInferenceModelId(modelId)
+          const row = availableModels.find((m) => m.name === modelId)
+          if (row?.hostAi && row.hostAvailable === false) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: 'assistant',
+                text: "This Host model is not available. Pick another model or check the model and AI settings on the Host machine.",
+              },
+            ])
+            setIsLoading(false)
+            return
+          }
+          if (parsed) {
+            const run = getRequestHostCompletion(window)
+            if (typeof run !== 'function') {
+              setMessages((prev) => [
+              ...prev,
+              { role: 'assistant', text: 'Host models are not available in this build. Pick a local or cloud model instead.' },
+            ])
+              setIsLoading(false)
+              return
+            }
+            let hostMsgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
+            if (useFreshPayload && freshUserMessage) {
+              hostMsgs = [{ role: 'user', content: String(freshUserMessage.content ?? '') }]
+            } else {
+              hostMsgs = processedMessages
+                .filter((m) => m.role === 'system' || m.role === 'user' || m.role === 'assistant')
+                .map((m) => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content }))
+            }
+            const hostComputerName = (row?.hostComputerName || '').trim() || 'Host'
+            setHostInternalRunUi({
+              line1: `Host AI · ${hostModelDisplayNameFromSelection({
+                parsedModel: parsed.model,
+                targetLabel: row?.displayTitle,
+              })}`,
+              line2: hostComputerName,
+            })
+            try {
+              const r = (await run({
+                handshakeId: parsed.handshakeId,
+                messages: hostMsgs,
+                model: parsed.model,
+              })) as { ok?: boolean; output?: string; code?: string; message?: string }
+              if (r && 'ok' in r && r.ok && typeof (r as { output?: string }).output === 'string') {
+                const text = appendHostAiAttributionLine((r as { output: string }).output, hostComputerName)
+                setMessages((prev) => [...prev, { role: 'assistant', text }])
+              } else {
+                const er = r as { ok: false; code: string; message: string }
+                const msg = formatInternalInferenceErrorCode(er.code, er.message)
+                setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${msg}` }])
+              }
+            } catch {
+              setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${formatInternalInferenceErrorCode(undefined)}` }])
+            } finally {
+              setHostInternalRunUi(null)
+            }
+            setIsLoading(false)
+            scrollToBottom()
+            return
+          }
+        }
 
         let answered = false
         try {
@@ -1436,7 +1621,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         scrollToBottom()
       }
     },
-    [messages, activeLlmModel, availableModels, isLoading, isConnected, sessionName, wrChatEmbedContext],
+    [messages, activeLlmModel, availableModels, isLoading, isConnected, sessionName, wrChatEmbedContext, hostAiStale],
   )
 
   /** Folder diff from Electron — same LLM path as sendWithTriggerAndImage, text-only (no image). */
@@ -2011,7 +2196,28 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   }
 
   const noModels = availableModels.length === 0
-  const canSend = !isLoading && (!!input.trim() || !!pendingDoc || !!pendingCaptureUrl)
+
+  const modelGroups = useMemo(() => {
+    const m = availableModels
+    return {
+      locals: m.filter((x) => !x.hostAi && x.section !== 'cloud'),
+      hosts: m.filter((x) => x.hostAi === true || x.section === 'host'),
+      clouds: m.filter((x) => x.section === 'cloud'),
+    }
+  }, [availableModels])
+
+  const useGroupedModelMenu = wrChatEmbedContext === 'dashboard'
+
+  const hostSendBlocked =
+    wrChatEmbedContext === 'dashboard' &&
+    hostAiStale === true &&
+    typeof activeLlmModel === 'string' &&
+    isHostInferenceRouteId(activeLlmModel)
+
+  const canSend =
+    !isLoading &&
+    (!!input.trim() || !!pendingDoc || !!pendingCaptureUrl) &&
+    !hostSendBlocked
 
   const pinnedTriggersOnEdge = useMemo(() => {
     try {
@@ -2519,7 +2725,17 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             fontSize: '12px', alignSelf: 'flex-start',
             background: colors.aiBubbleBg, border: colors.aiBubbleBorder, color: colors.muted
           }}>
-            ⏳ Thinking…
+            {hostInternalRunUi ? (
+              <div>
+                <div style={{ fontWeight: 600, color: colors.bubbleText, marginBottom: 3 }}>{hostInternalRunUi.line1}</div>
+                <div style={{ fontSize: 11, opacity: 0.9, marginBottom: 3 }}>{hostInternalRunUi.line2}</div>
+                <div style={{ fontSize: 10, fontStyle: 'italic', opacity: 0.85 }}>
+                  Cancel not available for Host inference MVP
+                </div>
+              </div>
+            ) : (
+              '⏳ Thinking…'
+            )}
           </div>
         )}
       </div>
@@ -2773,6 +2989,58 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         padding: '8px 12px 12px', display: 'flex', flexDirection: 'column', gap: '8px',
         background: colors.composerBg, borderTop: colors.composerBorder
       }}>
+        {inferenceSelectionPersistError && wrChatEmbedContext === 'dashboard' ? (
+          <div
+            role="alert"
+            style={{
+              padding: '6px 8px',
+              fontSize: 11,
+              lineHeight: 1.35,
+              borderRadius: 6,
+              background: isLight ? 'rgba(127, 29, 29, 0.08)' : 'rgba(248, 113, 113, 0.12)',
+              border: isLight ? '1px solid rgba(185, 28, 28, 0.35)' : '1px solid rgba(252, 165, 165, 0.35)',
+              color: colors.inputText,
+            }}
+          >
+            {inferenceSelectionPersistError}
+          </div>
+        ) : null}
+        {hostSendBlocked && onConfirmSwitchFromStaleHost ? (
+          <div
+            role="alert"
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: '6px 10px',
+              padding: '6px 8px',
+              fontSize: 11,
+              lineHeight: 1.35,
+              borderRadius: 6,
+              background: isLight ? 'rgba(180, 83, 9, 0.1)' : 'rgba(180, 83, 9, 0.2)',
+              border: isLight ? '1px solid rgba(217, 119, 6, 0.45)' : '1px solid rgba(251, 191, 36, 0.35)',
+              color: colors.inputText,
+            }}
+          >
+            <span style={{ flex: 1, minWidth: 0 }}>{HOST_AI_STALE_INLINE}</span>
+            <button
+              type="button"
+              onClick={onConfirmSwitchFromStaleHost}
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '3px 8px',
+                borderRadius: 5,
+                border: isLight ? '1px solid rgba(217, 119, 6, 0.5)' : '1px solid rgba(251, 191, 36, 0.4)',
+                background: isLight ? '#fff' : 'rgba(15,23,42,0.5)',
+                color: isLight ? '#9a3412' : '#fdba74',
+                cursor: 'pointer',
+              }}
+            >
+              Use a local model
+            </button>
+          </div>
+        ) : null}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
           {/* Hidden file input */}
           <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={handleFileChange} />
@@ -2822,7 +3090,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               <span>{isLoading ? '…' : 'Run'}</span>
               {activeLlmModel && (
                 <span style={{ fontSize: 9, opacity: 0.85, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {activeLlmModel}
+                  {modelMenuPrimary(availableModels.find((m) => m.name === activeLlmModel) ?? { name: activeLlmModel })}
                 </span>
               )}
             </button>
@@ -2861,18 +3129,152 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                         No models available. Install models in LLM Settings.
                       </div>
                     )}
-                    {availableModels.map(m => (
+                    {useGroupedModelMenu ? (
+                      <>
+                        {modelGroups.locals.length > 0 ? (
+                          <>
+                            <div
+                              style={{
+                                padding: '6px 12px 2px',
+                                fontSize: 9,
+                                fontWeight: 700,
+                                letterSpacing: '0.04em',
+                                textTransform: 'uppercase' as const,
+                                color: isLight ? '#94a3b8' : 'rgba(255,255,255,0.45)',
+                              }}
+                            >
+                              {GROUP_LOCAL_MODELS}
+                            </div>
+                            {modelGroups.locals.map((m) => {
+                              const rowTitle = `Local model: ${m.name}`
+                              return (
+                                <div
+                                  key={m.name}
+                                  title={rowTitle}
+                                  onClick={() => {
+                                    onModelSelect(m.name)
+                                    setShowModelDropdown(false)
+                                  }}
+                                  style={{
+                                    padding: '10px 12px', fontSize: 12, cursor: 'pointer',
+                                    color: isLight ? '#0f172a' : '#f1f5f9',
+                                    background: m.name === activeLlmModel ? 'rgba(34,197,94,0.12)' : 'transparent',
+                                    borderLeft: m.name === activeLlmModel ? '3px solid #22c55e' : '3px solid transparent',
+                                  }}
+                                >
+                                  <div style={{ fontWeight: 600 }}>{modelMenuPrimary(m)}</div>
+                                </div>
+                              )
+                            })}
+                          </>
+                        ) : null}
+                        {modelGroups.hosts.length > 0 ? (
+                          <>
+                            <div
+                              style={{
+                                padding: '8px 12px 2px',
+                                fontSize: 9,
+                                fontWeight: 700,
+                                letterSpacing: '0.04em',
+                                textTransform: 'uppercase' as const,
+                                color: isLight ? '#94a3b8' : 'rgba(255,255,255,0.45)',
+                              }}
+                            >
+                              {GROUP_HOST_MODELS}
+                            </div>
+                            {modelGroups.hosts.map((m) => {
+                              const tip = m.hostAvailable ? HOST_AI_OPTION_TOOLTIP : HOST_AI_UNREACHABLE_TOOLTIP
+                              return (
+                                <div
+                                  key={m.name}
+                                  title={tip}
+                                  onClick={() => {
+                                    if (m.hostAi && m.hostAvailable === false) return
+                                    onModelSelect(m.name)
+                                    setShowModelDropdown(false)
+                                  }}
+                                  style={{
+                                    padding: '10px 12px', fontSize: 12,
+                                    cursor: m.hostAi && m.hostAvailable === false ? 'not-allowed' : 'pointer',
+                                    opacity: m.hostAi && m.hostAvailable === false ? 0.55 : 1,
+                                    color: isLight ? '#0f172a' : '#f1f5f9',
+                                    background: m.name === activeLlmModel ? 'rgba(99,102,241,0.12)' : 'transparent',
+                                    borderLeft: m.name === activeLlmModel ? '3px solid #a78bfa' : '3px solid transparent',
+                                  }}
+                                >
+                                  <div style={{ fontWeight: 600 }}>{modelMenuPrimary(m)}</div>
+                                  {m.subtitle ? (
+                                    <div style={{ fontSize: 10, opacity: 0.8, marginTop: 2, lineHeight: 1.3 }}>{m.subtitle}</div>
+                                  ) : null}
+                                </div>
+                              )
+                            })}
+                          </>
+                        ) : null}
+                        {modelGroups.clouds.length > 0 ? (
+                          <>
+                            <div
+                              style={{
+                                padding: '8px 12px 2px',
+                                fontSize: 9,
+                                fontWeight: 700,
+                                letterSpacing: '0.04em',
+                                textTransform: 'uppercase' as const,
+                                color: isLight ? '#94a3b8' : 'rgba(255,255,255,0.45)',
+                              }}
+                            >
+                              {GROUP_CLOUD}
+                            </div>
+                            {modelGroups.clouds.map((m) => (
+                              <div
+                                key={m.name}
+                                title={`Cloud model: ${m.name}`}
+                                onClick={() => {
+                                  onModelSelect(m.name)
+                                  setShowModelDropdown(false)
+                                }}
+                                style={{
+                                  padding: '10px 12px', fontSize: 12, cursor: 'pointer',
+                                  color: isLight ? '#0f172a' : '#f1f5f9',
+                                  background: m.name === activeLlmModel ? 'rgba(34,197,94,0.12)' : 'transparent',
+                                  borderLeft: m.name === activeLlmModel ? '3px solid #22c55e' : '3px solid transparent',
+                                }}
+                              >
+                                <div style={{ fontWeight: 600 }}>{modelMenuPrimary(m)}</div>
+                              </div>
+                            ))}
+                          </>
+                        ) : null}
+                      </>
+                    ) : (
+                    availableModels.map(m => (
                       <div
                         key={m.name}
-                        onClick={() => { onModelSelect(m.name); setShowModelDropdown(false) }}
+                        title={
+                          m.hostAi
+                            ? (m.hostAvailable ? HOST_AI_OPTION_TOOLTIP : HOST_AI_UNREACHABLE_TOOLTIP)
+                            : `Model: ${m.name}`
+                        }
+                        onClick={() => {
+                          if (m.hostAi && m.hostAvailable === false) return
+                          onModelSelect(m.name)
+                          setShowModelDropdown(false)
+                        }}
                         style={{
-                          padding: '10px 12px', fontSize: 12, cursor: 'pointer',
+                          padding: '10px 12px', fontSize: 12,
+                          cursor: m.hostAi && m.hostAvailable === false ? 'not-allowed' : 'pointer',
+                          opacity: m.hostAi && m.hostAvailable === false ? 0.55 : 1,
                           color: isLight ? '#0f172a' : '#f1f5f9',
                           background: m.name === activeLlmModel ? 'rgba(34,197,94,0.12)' : 'transparent',
                           borderLeft: m.name === activeLlmModel ? '3px solid #22c55e' : '3px solid transparent'
                         }}
-                      >{m.name}</div>
-                    ))}
+                      >
+                        <div style={{ fontWeight: 600 }}>{modelMenuPrimary(m)}</div>
+                        {m.subtitle ? (
+                          <div style={{ fontSize: 10, opacity: 0.75, marginTop: 2, lineHeight: 1.3 }}>{m.subtitle}</div>
+                        ) : null}
+                      </div>
+                    )))}
                   </div>
                 )}
               </>

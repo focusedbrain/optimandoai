@@ -1,4 +1,6 @@
 import { loadRefreshToken, clearRefreshToken, saveRefreshToken } from './tokenStore';
+import { getCachedUserInfo, setCachedUserInfo } from './sessionCache';
+export { getCachedUserInfo } from './sessionCache';
 import { refreshWithKeycloak } from './refresh';
 import { extractSsoTierFromRoles, mapRolesToTier, resolveTier, type Tier } from './capabilities';
 
@@ -30,7 +32,6 @@ export interface SessionUserInfo {
 // Module-level variables (RAM only, not persisted)
 let accessToken: string | null = null;
 let expiresAt: number | null = null;
-let cachedUserInfo: SessionUserInfo | null = null;
 
 // Buffer before expiry to trigger refresh (60 seconds)
 const EXPIRY_BUFFER_MS = 60_000;
@@ -285,7 +286,7 @@ export async function ensureSession(forceRefresh = false): Promise<{ accessToken
   if (!forceRefresh && accessToken && expiresAt && expiresAt > Date.now() + EXPIRY_BUFFER_MS) {
     // [CHECKPOINT F] Log unlock decision: cached valid
     console.log('[SESSION][F] ensureSession: UNLOCKED (cached token valid, expiresAt=' + new Date(expiresAt).toISOString() + ')');
-    return { accessToken, userInfo: cachedUserInfo || undefined };
+    return { accessToken, userInfo: getCachedUserInfo() || undefined };
   }
 
   const refreshToken = await loadRefreshToken();
@@ -293,7 +294,7 @@ export async function ensureSession(forceRefresh = false): Promise<{ accessToken
   if (!refreshToken) {
     accessToken = null;
     expiresAt = null;
-    cachedUserInfo = null;
+    setCachedUserInfo(null);
     // [CHECKPOINT F] Log unlock decision: no refresh token
     console.log('[SESSION][F] ensureSession: LOCKED (reason=no_refresh_token)');
     return { accessToken: null };
@@ -307,8 +308,9 @@ export async function ensureSession(forceRefresh = false): Promise<{ accessToken
     expiresAt = Date.now() + tokens.expires_in * 1000;
 
     // Extract user info from BOTH tokens (plan from access_token first, then id_token)
-    cachedUserInfo = extractUserInfoFromTokens(tokens);
-    console.log('[SESSION] Token refresh: hasIdToken=' + !!tokens.id_token + ', wrdesk_plan=' + (cachedUserInfo?.wrdesk_plan || '(none)') + ', roleCount=' + (cachedUserInfo?.roles?.length ?? 0));
+    setCachedUserInfo(extractUserInfoFromTokens(tokens));
+    const u = getCachedUserInfo();
+    console.log('[SESSION] Token refresh: hasIdToken=' + !!tokens.id_token + ', wrdesk_plan=' + (u?.wrdesk_plan || '(none)') + ', roleCount=' + (u?.roles?.length ?? 0));
 
     // === DEBUG: Token-Rollen prüfen ===
     const debugPayload = decodeJwtPayload(tokens.access_token);
@@ -328,13 +330,13 @@ export async function ensureSession(forceRefresh = false): Promise<{ accessToken
 
     // [CHECKPOINT F] Log unlock decision: refresh succeeded
     console.log('[SESSION][F] ensureSession: UNLOCKED (refresh succeeded, expiresAt=' + new Date(expiresAt!).toISOString() + ')');
-    return { accessToken, userInfo: cachedUserInfo || undefined };
+    return { accessToken, userInfo: getCachedUserInfo() || undefined };
   } catch (err) {
     // Refresh failed - clear stored token
     await clearRefreshToken();
     accessToken = null;
     expiresAt = null;
-    cachedUserInfo = null;
+    setCachedUserInfo(null);
     // [CHECKPOINT F] Log unlock decision: refresh failed
     console.log('[SESSION][F] ensureSession: LOCKED (reason=refresh_failed)');
     return { accessToken: null };
@@ -354,7 +356,7 @@ export function updateSessionFromTokens(tokens: {
   expiresAt = Date.now() + tokens.expires_in * 1000;
 
   // Extract user info from BOTH tokens (plan from access_token first, then id_token)
-  cachedUserInfo = extractUserInfoFromTokens(tokens);
+  setCachedUserInfo(extractUserInfoFromTokens(tokens));
 
   // === DEBUG: Token-Rollen prüfen ===
   const debugPayload = decodeJwtPayload(tokens.access_token);
@@ -369,17 +371,10 @@ export function updateSessionFromTokens(tokens: {
 
   // [CHECKPOINT E] Log session persisted (no tokens)
   const expiresAtISO = expiresAt ? new Date(expiresAt).toISOString() : 'null';
-  const roleCount = cachedUserInfo?.roles?.length ?? 0;
-  console.log('[SESSION][E] Session updated: expiresAt=' + expiresAtISO + ', roleCount=' + roleCount + ', hasUserInfo=' + !!cachedUserInfo);
+  const roleCount = getCachedUserInfo()?.roles?.length ?? 0;
+  console.log('[SESSION][E] Session updated: expiresAt=' + expiresAtISO + ', roleCount=' + roleCount + ', hasUserInfo=' + !!getCachedUserInfo());
 
-  return cachedUserInfo || undefined;
-}
-
-/**
- * Get cached user info (if session is active)
- */
-export function getCachedUserInfo(): SessionUserInfo | null {
-  return cachedUserInfo;
+  return getCachedUserInfo() || undefined;
 }
 
 /**
@@ -395,5 +390,5 @@ export function getAccessToken(): string | null {
 export function clearSession(): void {
   accessToken = null;
   expiresAt = null;
-  cachedUserInfo = null;
+  setCachedUserInfo(null);
 }

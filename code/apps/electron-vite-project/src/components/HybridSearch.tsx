@@ -1,4 +1,13 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import {
+  GROUP_CLOUD,
+  GROUP_HOST_MODELS,
+  GROUP_LOCAL_MODELS,
+  HOST_AI_OPTION_TOOLTIP,
+  HOST_AI_STALE_INLINE,
+  HOST_AI_UNREACHABLE_TOOLTIP,
+  HOST_INFERENCE_UNAVAILABLE,
+} from '../lib/hostAiSelectorCopy'
 import type { ChangeEvent } from 'react'
 import './HybridSearch.css'
 import './handshakeViewTypes'
@@ -20,11 +29,23 @@ import { resolveChatRoute } from '../chat/routing/resolveChatRoute'
 import { handleLetterComposerChat } from '../chat/routing/letterComposerChat'
 import { useSandboxHostInference } from '../hooks/useSandboxHostInference'
 import {
-  hostInferenceModelId,
   isHostInferenceModelId,
-  parseHostInferenceModelId,
+  parseAnyHostInferenceModelId,
 } from '../lib/hostInferenceModelIds'
 import { directP2pReachabilityCopyForSandboxToHost } from '../lib/hostInferenceUiGates'
+import {
+  appendHostAiAttributionLine,
+  formatInternalInferenceErrorCode,
+  getRequestHostCompletion,
+  hostModelDisplayNameFromSelection,
+} from '@ext/lib/inferenceSubmitRouting'
+import {
+  accountKeyFromSession,
+  readOrchestratorInferenceSelection,
+  validateStoredSelectionForOrchestrator,
+  persistOrchestratorModelId,
+  clearOrchestratorInferenceSelection,
+} from '../lib/inferenceSelectionPersistence'
 
 /** Resolves which template field the user meant (focused row, name in message, or single field). */
 function matchLetterComposerFieldFromMessage(
@@ -541,21 +562,55 @@ export default function HybridSearch({
   const chatContainerRef = useRef<HTMLDivElement>(null)
   /** Bumped on letter-composer field switch and on each chat submit so stale stream tokens are ignored. */
   const chatGenerationRef = useRef(0)
+  const orchestratorChatModelRestoredRef = useRef(false)
+  const lastAccountKeyForOrchRef = useRef(accountKeyFromSession())
+  const [inferenceSelectionPersistError, setInferenceSelectionPersistError] = useState<string | null>(null)
 
   const [hostInfSuccess, setHostInfSuccess] = useState(false)
-  const [hostInfRunningName, setHostInfRunningName] = useState<string | null>(null)
-  const hostInferenceProbeId = parseHostInferenceModelId(selectedModel)?.handshakeId ?? null
+  const [hostInfRunUi, setHostInfRunUi] = useState<{
+    line1: string
+    line2: string
+  } | null>(null)
+  const hostInferenceProbeId = parseAnyHostInferenceModelId(selectedModel)?.handshakeId ?? null
   const hostInf = useSandboxHostInference(hostInferenceProbeId)
   const hostModelLabel = useCallback(
     (modelId: string) => {
-      const p = parseHostInferenceModelId(modelId)
+      const p = parseAnyHostInferenceModelId(modelId)
       if (!p) return null
-      const row = hostInf.candidates.find((c) => c.handshakeId === p.handshakeId)
-      if (!row) return 'Host inference'
-      return `Host: ${row.hostDisplayName}`
+      const t = hostInf.inferenceTargets.find((x) => x.handshake_id === p.handshakeId)
+      const primary = (t as { display_label?: string; label?: string } | undefined)?.display_label || t?.label
+      if (primary) return primary
+      return 'Host AI'
     },
-    [hostInf.candidates],
+    [hostInf.inferenceTargets],
   )
+
+  const hostAiSelectionInvalid = useMemo(() => {
+    if (!isHostInferenceModelId(selectedModel)) {
+      return false
+    }
+    const t = hostInf.inferenceTargets.find((x) => x.id === selectedModel)
+    if (!t) {
+      return true
+    }
+    return !t.available
+  }, [selectedModel, hostInf.inferenceTargets])
+
+  const switchOrchestratorChatToLocalModel = useCallback(() => {
+    const local = availableModels.find((m) => m.type === 'local')
+    if (local) {
+      setSelectedModel(local.id)
+      setModelMenuOpen(false)
+      return
+    }
+    const cloud = availableModels.find((m) => m.type === 'cloud')
+    if (cloud) {
+      setSelectedModel(cloud.id)
+    } else {
+      setSelectedModel('')
+    }
+    setModelMenuOpen(false)
+  }, [availableModels])
 
   const hostDirectP2pStatusUi = useMemo(() => {
     if (!hostInf.isSandbox || mode !== 'chat' || !isHostInferenceModelId(selectedModel)) {
@@ -810,8 +865,6 @@ export default function HybridSearch({
         const result = await window.handshakeView?.getAvailableModels?.()
         if (result?.success && Array.isArray(result.models)) {
           setAvailableModels(result.models)
-          const preferred = result.models.find((m: { type: string }) => m.type === 'local') ?? result.models[0]
-          setSelectedModel(prev => (result.models.some((m: { id: string }) => m.id === prev) ? prev : (preferred?.id ?? '')))
         }
       } catch (err) {
         console.error('Failed to load models:', err)
@@ -821,6 +874,104 @@ export default function HybridSearch({
     }
     loadModels()
   }, [])
+
+  useEffect(() => {
+    if (selectedModel) {
+      persistOrchestratorModelId(selectedModel, availableModels)
+    }
+  }, [selectedModel, availableModels])
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState !== 'visible') return
+      const next = accountKeyFromSession()
+      if (next !== lastAccountKeyForOrchRef.current) {
+        lastAccountKeyForOrchRef.current = next
+        orchestratorChatModelRestoredRef.current = false
+      }
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [])
+
+  useEffect(() => {
+    if (modelsLoading) {
+      return
+    }
+    if (hostInf.isSandbox && hostInf.listLoading) {
+      return
+    }
+    const ak = accountKeyFromSession()
+    if (ak !== lastAccountKeyForOrchRef.current) {
+      lastAccountKeyForOrchRef.current = ak
+      orchestratorChatModelRestoredRef.current = false
+    }
+    if (orchestratorChatModelRestoredRef.current) {
+      return
+    }
+    setInferenceSelectionPersistError(null)
+    const stored = readOrchestratorInferenceSelection()
+    const hasLocal = availableModels.some((m) => m.type === 'local')
+    if (stored) {
+      const v = validateStoredSelectionForOrchestrator(
+        stored,
+        availableModels,
+        hostInf.inferenceTargets,
+        hostInf.isSandbox,
+        hasLocal,
+      )
+      if (v.error) {
+        if (v.error === 'host_unavailable') {
+          setInferenceSelectionPersistError(HOST_INFERENCE_UNAVAILABLE)
+        } else {
+          setInferenceSelectionPersistError(
+            'The saved chat model is no longer available. Choose another model.',
+          )
+        }
+        clearOrchestratorInferenceSelection()
+        setSelectedModel('')
+        orchestratorChatModelRestoredRef.current = true
+        return
+      }
+      if (v.modelId) {
+        setSelectedModel(v.modelId)
+        orchestratorChatModelRestoredRef.current = true
+        return
+      }
+    }
+    const firstCloud = availableModels.find((m) => m.type === 'cloud')?.id
+    const firstHost = hostInf.inferenceTargets.find((t) => t.available)?.id
+    const firstLocal = availableModels.find((m) => m.type === 'local')?.id
+    const preferred =
+      (hostInf.isSandbox ? firstCloud ?? firstHost ?? firstLocal : firstLocal ?? firstCloud) ??
+      availableModels[0]?.id ??
+      ''
+    setSelectedModel((prev) => {
+      if (isHostInferenceModelId(prev)) {
+        if (hostInf.inferenceTargets.some((t) => t.id === prev && t.available)) {
+          return prev
+        }
+        return preferred
+      }
+      if (availableModels.some((m) => m.id === prev) || hostInf.inferenceTargets.some((t) => t.id === prev)) {
+        return prev
+      }
+      return preferred
+    })
+    orchestratorChatModelRestoredRef.current = true
+  }, [
+    modelsLoading,
+    hostInf.isSandbox,
+    hostInf.listLoading,
+    hostInf.inferenceTargets,
+    availableModels,
+  ])
+
+  useEffect(() => {
+    if (selectedModel) {
+      setInferenceSelectionPersistError(null)
+    }
+  }, [selectedModel])
 
   // Sync scope when activeView changes
   useEffect(() => {
@@ -941,6 +1092,14 @@ export default function HybridSearch({
     const trimmed = query.trim()
     if (!trimmed || isLoading) return
 
+    if (mode === 'chat' && !isDraftRefineSession && hostAiSelectionInvalid && isHostInferenceModelId(selectedModel)) {
+      setResponse(
+        'This Host model is not available. Pick a local, cloud, or different Host model from the menu (see “Use a local or cloud model” if shown).',
+      )
+      setShowPanel(true)
+      return
+    }
+
     chatGenerationRef.current += 1
 
     const previousAnswer = response
@@ -948,6 +1107,7 @@ export default function HybridSearch({
     setIsLoading(true)
     setShowPanel(true)
     setHostInfSuccess(false)
+    setHostInfRunUi(null)
     setResults([])
     setResponse(null)
     setContextBlocks([])
@@ -978,35 +1138,50 @@ export default function HybridSearch({
           setChatGovernanceNote(null)
           setStructuredResult(null)
           setResultType(null)
-          const hid = parseHostInferenceModelId(selectedModel)?.handshakeId
+          const parsed = parseAnyHostInferenceModelId(selectedModel)
+          const hid = parsed?.handshakeId
           if (!hid) {
-            setResponse('Invalid Host inference selection.')
+            setResponse('That Host model is not in the list. Open the model menu and select Host AI again.')
+            setIsLoading(false)
+            return
+          }
+          const target = hostInf.inferenceTargets.find((t) => t.handshake_id === hid)
+          if (target && !target.available) {
+            setResponse(
+              target.unavailable_reason?.trim() ||
+                "This Host model is not available. Check the model and AI settings on the Host machine, or pick another model here.",
+            )
             setIsLoading(false)
             return
           }
           const row = hostInf.candidates.find((c) => c.handshakeId === hid)
           if (!row?.directP2pAvailable) {
             setResponse(
-              'Host is not directly reachable. Start Host orchestrator on the same network or check firewall.',
+              "Can't reach your Host. Check that it's online, on the same network, and that firewalls or VPN allow the connection.",
             )
             setIsLoading(false)
             return
           }
           if (hostInf.policy === 'deny') {
-            setResponse('Host inference is not enabled on the Host.')
+            setResponse("This model isn't allowed on the Host for this device. On the Host, enable AI for this Sandbox, or pick another model.")
             setIsLoading(false)
             return
           }
-          const run = (
-            window as unknown as { internalInference?: { runHostChat?: (p: unknown) => Promise<unknown> } }
-          ).internalInference?.runHostChat
+          const run = getRequestHostCompletion(window)
           if (typeof run !== 'function') {
-            setResponse('Host inference is not available in this build.')
+            setResponse('Host models are not available in this build. Pick a local or cloud model instead.')
             setIsLoading(false)
             return
           }
           setHostInfSuccess(false)
-          setHostInfRunningName(row.hostDisplayName)
+          const hostComputerName = (target?.host_computer_name ?? row?.hostDisplayName ?? 'Host').trim() || 'Host'
+          setHostInfRunUi({
+            line1: `Host AI · ${hostModelDisplayNameFromSelection({
+              parsedModel: parsed?.model,
+              targetLabel: target?.label,
+            })}`,
+            line2: hostComputerName,
+          })
           const prior = chatMessages.map((m) => ({ role: m.role, content: m.content }))
           const msgSeq =
             previousAnswer?.trim() && mode === 'chat' && !isDraftRefineSession
@@ -1017,30 +1192,27 @@ export default function HybridSearch({
                 ]
               : [...prior, { role: 'user' as const, content: trimmed }]
           try {
-            const r = (await run({ handshakeId: hid, messages: msgSeq })) as
+            const r = (await run({
+              handshakeId: hid,
+              messages: msgSeq,
+              model: parsed?.model,
+            })) as
               | { ok: true; output: string }
               | { ok: false; code: string; message: string }
             if (r && 'ok' in r && r.ok) {
-              setResponse((r as { output: string }).output)
+              const out = (r as { output: string }).output
+              setResponse(appendHostAiAttributionLine(out, hostComputerName))
               setHostInfSuccess(true)
             } else {
               const er = r as { ok: false; code: string; message: string }
-              if (er.code === 'HOST_INFERENCE_DISABLED') {
-                setResponse('Host inference is not enabled on the Host.')
-              } else if (er.code === 'HOST_DIRECT_P2P_UNAVAILABLE' || er.code === 'SERVICE_RPC_NOT_SUPPORTED') {
-                setResponse(
-                  'Host is not directly reachable. Start Host orchestrator on the same network or check firewall.',
-                )
-              } else {
-                setResponse(er.message?.trim() || 'Host inference failed.')
-              }
+              setResponse(formatInternalInferenceErrorCode(er.code, er.message))
               setHostInfSuccess(false)
             }
-          } catch (e) {
-            setResponse((e as Error)?.message ?? 'Host inference failed.')
+          } catch {
+            setResponse(formatInternalInferenceErrorCode(undefined))
             setHostInfSuccess(false)
           } finally {
-            setHostInfRunningName(null)
+            setHostInfRunUi(null)
             setIsLoading(false)
             setChatAttachments([])
           }
@@ -1437,7 +1609,7 @@ export default function HybridSearch({
       setIsLoading(false)
       setChatAttachments([])
     }
-  }, [query, mode, scope, activeView, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, isDraftRefineSession, draftRefineDraftText, draftRefineTarget, draftRefineDeliverResponse, draftRefineAcceptRefinement, chatAttachments, chatMessages, hostInf.candidates, hostInf.policy])
+  }, [query, mode, scope, activeView, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, isDraftRefineSession, draftRefineDraftText, draftRefineTarget, draftRefineDeliverResponse, draftRefineAcceptRefinement, chatAttachments, chatMessages, hostInf.inferenceTargets, hostInf.policy, hostAiSelectionInvalid])
 
   const handleContextUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
@@ -1750,7 +1922,7 @@ export default function HybridSearch({
             border: '1px solid var(--color-border, rgba(255,255,255,0.1))',
           }}
           role="status"
-          aria-label="Direct P2P reachability to Host"
+          aria-label="Connection status to your Host for Host models"
         >
           <span
             style={{
@@ -1766,12 +1938,13 @@ export default function HybridSearch({
           ) : null}
         </div>
       )}
-      {hostInf.isSandbox && mode === 'chat' && (hostInfRunningName || hostInfSuccess) && (
+      {mode === 'chat' && (hostInfRunUi || hostInfSuccess) && (
         <div
           style={{
             display: 'flex',
-            alignItems: 'center',
-            gap: 8,
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            gap: 2,
             padding: '4px 10px',
             marginBottom: 4,
             borderRadius: 6,
@@ -1780,14 +1953,40 @@ export default function HybridSearch({
           }}
           role="status"
         >
-          {hostInfRunningName ? (
-            <span style={{ fontSize: 12, color: 'var(--text-primary, #e2e8f0)', fontWeight: 500 }}>
-              Running on Host: {hostInfRunningName}
-            </span>
+          {hostInfRunUi ? (
+            <>
+              <span style={{ fontSize: 12, color: 'var(--text-primary, #e2e8f0)', fontWeight: 600 }}>
+                {hostInfRunUi.line1}
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--text-muted, #94a3b8)', fontWeight: 500 }}>{hostInfRunUi.line2}</span>
+              <span style={{ fontSize: 10, color: 'var(--text-muted, #94a3b8)', fontStyle: 'italic' }}>
+                Cancel is not available while using a Host model
+              </span>
+            </>
           ) : null}
-          {hostInfSuccess && !hostInfRunningName ? (
-            <span style={{ fontSize: 12, color: '#b45309', fontWeight: 600 }}>Host inference completed</span>
+          {hostInfSuccess && !hostInfRunUi ? (
+            <span style={{ fontSize: 12, color: '#b45309', fontWeight: 600 }}>Host model finished</span>
           ) : null}
+        </div>
+      )}
+      {inferenceSelectionPersistError && mode === 'chat' && (
+        <div className="hs-host-stale" role="alert">
+          <span className="hs-host-stale__text">{inferenceSelectionPersistError}</span>
+        </div>
+      )}
+      {hostAiSelectionInvalid && mode === 'chat' && (
+        <div
+          className="hs-host-stale"
+          role="alert"
+        >
+          <span className="hs-host-stale__text">{HOST_AI_STALE_INLINE}</span>
+          <button
+            type="button"
+            className="hs-host-stale__action"
+            onClick={switchOrchestratorChatToLocalModel}
+          >
+            Use a local or cloud model
+          </button>
         </div>
       )}
       <div
@@ -1994,7 +2193,7 @@ export default function HybridSearch({
                       setAvailableModels(result.models)
                       const preferred = result.models.find((m: { type: string }) => m.type === 'local') ?? result.models[0]
                       setSelectedModel((prev) => {
-                        if (parseHostInferenceModelId(prev)) {
+                        if (isHostInferenceModelId(prev)) {
                           return prev
                         }
                         if (result.models.some((m: { id: string }) => m.id === prev)) {
@@ -2026,60 +2225,15 @@ export default function HybridSearch({
                 <div className="hs-model-group-label">Loading models…</div>
               ) : (
                 <>
-                  {hostInf.isSandbox && (
-                    <>
-                      {hostInf.candidates.filter((c) => c.directP2pAvailable).length > 0 ? (
-                        <>
-                          <div className="hs-model-group-label">On Host (orchestrator)</div>
-                          {hostInf.candidates
-                            .filter((c) => c.directP2pAvailable)
-                            .map((c) => {
-                              const id = hostInferenceModelId(c.handshakeId)
-                              return (
-                                <button
-                                  key={id}
-                                  type="button"
-                                  role="menuitem"
-                                  className={`hs-model-item${selectedModel === id ? ' hs-model-item--active' : ''}`}
-                                  onClick={() => {
-                                    setSelectedModel(id)
-                                    setModelMenuOpen(false)
-                                  }}
-                                >
-                                  <div style={{ fontWeight: 600 }}>{c.hostDisplayName}</div>
-                                  <div style={{ fontSize: 11, opacity: 0.75, lineHeight: 1.3 }}>
-                                    {c.hostRoleLabel} · {c.pairingCodeDisplay}
-                                    {c.endpointHostLabel ? ` · direct ${c.endpointHostLabel}` : ' · direct P2P'}
-                                  </div>
-                                  {hostInf.policy === 'deny' && selectedModel === id ? (
-                                    <div style={{ fontSize: 10, color: 'var(--text-muted, #94a3b8)', marginTop: 4 }}>
-                                      Host has not enabled inference for this device.
-                                    </div>
-                                  ) : null}
-                                  {selectedModel === id && <span className="hs-model-check">✓</span>}
-                                </button>
-                              )
-                            })}
-                        </>
-                      ) : !hostInf.listLoading ? (
-                        <div
-                          className="hs-model-group-label"
-                          style={{ maxWidth: 280, lineHeight: 1.4, fontWeight: 400, whiteSpace: 'normal' }}
-                        >
-                          No Host connection — add an active internal Handshake to a Host (Sandbox role) in
-                          Handshakes, with direct P2P, to use Host inference.
-                        </div>
-                      ) : null}
-                    </>
-                  )}
                   {availableModels.some(m => m.type === 'local') && (
                     <>
-                      <div className="hs-model-group-label">Local Models</div>
+                      <div className="hs-model-group-label hs-model-group-label--ledge">{GROUP_LOCAL_MODELS}</div>
                       {availableModels.filter(m => m.type === 'local').map(m => (
                         <button
                           key={m.id}
                           role="menuitem"
                           className={`hs-model-item${selectedModel === m.id ? ' hs-model-item--active' : ''}`}
+                          title={`Local model: ${m.name}`}
                           onClick={() => { setSelectedModel(m.id); setModelMenuOpen(false) }}
                         >
                           {m.name}
@@ -2088,14 +2242,67 @@ export default function HybridSearch({
                       ))}
                     </>
                   )}
+                  {hostInf.isSandbox && (
+                    <>
+                      {hostInf.inferenceTargets.length > 0 ? (
+                        <>
+                          <div className="hs-model-group-label hs-model-group-label--ledge">{GROUP_HOST_MODELS}</div>
+                          {hostInf.inferenceTargets.map((t) => {
+                            const id = t.id
+                            const active = selectedModel === id
+                            const titleLine = (t as { display_label?: string }).display_label || t.label
+                            const tip = t.available
+                              ? HOST_AI_OPTION_TOOLTIP
+                              : [HOST_AI_UNREACHABLE_TOOLTIP, t.unavailable_reason?.trim() ?? ''].filter(Boolean).join(' ')
+                            return (
+                              <button
+                                key={id}
+                                type="button"
+                                role="menuitem"
+                                disabled={!t.available}
+                                title={tip}
+                                className={`hs-model-item hs-model-item--host${active ? ' hs-model-item--active' : ''}${!t.available ? ' hs-model-item--disabled' : ''}`}
+                                onClick={() => {
+                                  if (!t.available) return
+                                  setSelectedModel(id)
+                                  setModelMenuOpen(false)
+                                }}
+                              >
+                                <div className="hs-model-item__stack">
+                                  <div style={{ fontWeight: 600 }}>{titleLine}</div>
+                                  <div style={{ fontSize: 11, opacity: 0.8, lineHeight: 1.3 }}>
+                                    {t.unavailable_reason?.trim() || `${t.host_computer_name} — Host orchestrator`}
+                                  </div>
+                                </div>
+                                {hostInf.policy === 'deny' && active && t.available ? (
+                                  <div style={{ fontSize: 10, color: 'var(--text-muted, #94a3b8)', marginTop: 4 }}>
+                                    Host has not enabled AI for this device.
+                                  </div>
+                                ) : null}
+                                {active && <span className="hs-model-check">✓</span>}
+                              </button>
+                            )
+                          })}
+                        </>
+                      ) : !hostInf.listLoading ? (
+                        <div
+                          className="hs-model-group-label"
+                          style={{ maxWidth: 280, lineHeight: 1.4, fontWeight: 400, whiteSpace: 'normal' }}
+                        >
+                          {GROUP_HOST_MODELS}: none yet — in Settings, pair this Sandbox with a Host; then that machine's models show up here, like local models.
+                        </div>
+                      ) : null}
+                    </>
+                  )}
                   {availableModels.some(m => m.type === 'cloud') && (
                     <>
-                      <div className="hs-model-group-label">Cloud Models</div>
+                      <div className="hs-model-group-label hs-model-group-label--ledge">{GROUP_CLOUD}</div>
                       {availableModels.filter(m => m.type === 'cloud').map(m => (
                         <button
                           key={m.id}
                           role="menuitem"
                           className={`hs-model-item${selectedModel === m.id ? ' hs-model-item--active' : ''}`}
+                          title={`Cloud: ${m.name} (${m.provider})`}
                           onClick={() => { setSelectedModel(m.id); setModelMenuOpen(false) }}
                         >
                           {m.name}
@@ -2105,7 +2312,7 @@ export default function HybridSearch({
                     </>
                   )}
                   {availableModels.length === 0 &&
-                    !(hostInf.isSandbox && hostInf.candidates.some((c) => c.directP2pAvailable)) && (
+                    !(hostInf.isSandbox && hostInf.inferenceTargets.length > 0) && (
                     <div className="hs-model-group-label">No models configured — check Settings</div>
                   )}
                 </>

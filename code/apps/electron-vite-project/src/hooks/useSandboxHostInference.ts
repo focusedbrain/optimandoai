@@ -11,7 +11,44 @@ export type HostInferenceCandidateRow = {
   endpointHostLabel: string | null
 }
 
+/** Row from `internal-inference:listInferenceTargets` (Host AI selector). */
+export type HostInferenceTargetRow = {
+  kind: 'host_internal'
+  id: string
+  label: string
+  model: string
+  model_id?: string
+  /** Live label from Host policy GET; preferred over `label` in UI. */
+  display_label?: string
+  provider?: 'ollama' | ''
+  handshake_id: string
+  host_device_id: string
+  host_computer_name: string
+  host_pairing_code?: string
+  host_orchestrator_role?: 'host'
+  host_orchestrator_role_label?: string
+  internal_identifier_6?: string
+  direct_reachable: boolean
+  policy_enabled: boolean
+  available: boolean
+  availability: string
+  unavailable_reason?: string
+  host_role: string
+  inference_error_code?: string
+}
+
 type PolicyState = 'unknown' | 'allow' | 'deny' | 'unreachable' | 'no_direct'
+
+function targetsToCandidates(targets: HostInferenceTargetRow[]): HostInferenceCandidateRow[] {
+  return targets.map((t) => ({
+    handshakeId: t.handshake_id,
+    hostDisplayName: t.host_computer_name,
+    hostRoleLabel: 'Host orchestrator',
+    pairingCodeDisplay: t.host_pairing_code ?? '—',
+    directP2pAvailable: t.direct_reachable,
+    endpointHostLabel: null,
+  }))
+}
 
 /**
  * Lists internal Host handshakes on Sandbox, probes allowSandboxInference over direct P2P when possible.
@@ -19,17 +56,42 @@ type PolicyState = 'unknown' | 'allow' | 'deny' | 'unreachable' | 'no_direct'
 export function useSandboxHostInference(selectedHandshakeIdForProbe: string | null) {
   const { isSandbox, ready: modeReady } = useOrchestratorMode()
   const [candidates, setCandidates] = useState<HostInferenceCandidateRow[]>([])
+  const [inferenceTargets, setInferenceTargets] = useState<HostInferenceTargetRow[]>([])
   const [listLoading, setListLoading] = useState(true)
   const [policy, setPolicy] = useState<PolicyState>('unknown')
   const [policyDetail, setPolicyDetail] = useState<string | null>(null)
   const [directReachability, setDirectReachability] = useState<DirectP2pReachabilityStatus | null>(null)
 
-  const showHostInferenceOption = modeReady && isSandbox && candidates.some((c) => c.directP2pAvailable)
+  const showHostInferenceOption =
+    modeReady && isSandbox && inferenceTargets.some((t) => t.direct_reachable && t.available)
 
   const refresh = useCallback(async () => {
-    const api = (window as unknown as { internalInference?: { listHostCandidates?: () => Promise<unknown> } })
-      .internalInference
+    const api = (window as unknown as {
+      internalInference?: {
+        listInferenceTargets?: () => Promise<unknown>
+        listHostCandidates?: () => Promise<unknown>
+      }
+    }).internalInference
+    if (typeof api?.listInferenceTargets === 'function') {
+      try {
+        const r = (await api.listInferenceTargets()) as { ok?: boolean; targets?: HostInferenceTargetRow[] }
+        if (r?.ok && Array.isArray(r.targets)) {
+          setInferenceTargets(r.targets)
+          setCandidates(targetsToCandidates(r.targets))
+        } else {
+          setInferenceTargets([])
+          setCandidates([])
+        }
+      } catch {
+        setInferenceTargets([])
+        setCandidates([])
+      } finally {
+        setListLoading(false)
+      }
+      return
+    }
     if (typeof api?.listHostCandidates !== 'function') {
+      setInferenceTargets([])
       setCandidates([])
       setListLoading(false)
       return
@@ -41,11 +103,37 @@ export function useSandboxHostInference(selectedHandshakeIdForProbe: string | nu
       }
       if (r?.ok && Array.isArray(r.candidates)) {
         setCandidates(r.candidates)
+        setInferenceTargets(
+          r.candidates.map((c) => ({
+            kind: 'host_internal' as const,
+            id: `host-inference-fallback:${c.handshakeId}`,
+            label: c.hostDisplayName,
+            display_label: c.hostDisplayName,
+            model: '',
+            model_id: '',
+            provider: '' as const,
+            handshake_id: c.handshakeId,
+            host_device_id: '',
+            host_computer_name: c.hostDisplayName,
+            host_pairing_code: c.pairingCodeDisplay,
+            host_orchestrator_role: 'host',
+            host_orchestrator_role_label: c.hostRoleLabel,
+            internal_identifier_6: '',
+            direct_reachable: c.directP2pAvailable,
+            policy_enabled: true,
+            available: c.directP2pAvailable,
+            availability: c.directP2pAvailable ? 'available' : 'direct_unreachable',
+            unavailable_reason: `${c.hostDisplayName} — ${c.hostRoleLabel} · ${c.pairingCodeDisplay}`,
+            host_role: 'Host',
+          })),
+        )
       } else {
         setCandidates([])
+        setInferenceTargets([])
       }
     } catch {
       setCandidates([])
+      setInferenceTargets([])
     } finally {
       setListLoading(false)
     }
@@ -58,6 +146,7 @@ export function useSandboxHostInference(selectedHandshakeIdForProbe: string | nu
     if (!isSandbox) {
       setListLoading(false)
       setCandidates([])
+      setInferenceTargets([])
       return
     }
     setListLoading(true)
@@ -172,6 +261,7 @@ export function useSandboxHostInference(selectedHandshakeIdForProbe: string | nu
     isSandbox: modeReady && isSandbox,
     listLoading,
     candidates,
+    inferenceTargets,
     showHostInferenceOption,
     policy,
     policyDetail,

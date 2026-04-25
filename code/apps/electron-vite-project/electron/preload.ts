@@ -499,56 +499,66 @@ contextBridge.exposeInMainWorld('orchestratorMode', {
   regeneratePairingCode: () => ipcRenderer.invoke('orchestrator:regeneratePairingCode'),
 })
 
-function assertHostChatMessages(v: unknown): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
+function assertHostChatMessages(
+  v: unknown,
+  apiLabel: 'internalInference.runHostChat' | 'internalInference.requestHostCompletion',
+): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
   if (!Array.isArray(v) || v.length < 1) {
-    throw new Error('internalInference.runHostChat: messages must be a non-empty array')
+    throw new Error(`${apiLabel}: messages must be a non-empty array`)
   }
   const out: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
   for (const m of v) {
     if (!m || typeof m !== 'object') {
-      throw new Error('internalInference.runHostChat: invalid message')
+      throw new Error(`${apiLabel}: invalid message`)
     }
     const o = m as Record<string, unknown>
     if (o.role !== 'system' && o.role !== 'user' && o.role !== 'assistant') {
-      throw new Error('internalInference.runHostChat: message.role')
+      throw new Error(`${apiLabel}: message.role`)
     }
     if (typeof o.content !== 'string' || o.content.length > 2_000_000) {
-      throw new Error('internalInference.runHostChat: message.content')
+      throw new Error(`${apiLabel}: message.content`)
     }
     out.push({ role: o.role, content: o.content })
   }
   return out
 }
 
+function buildInternalInferenceHostChatPayload(
+  params: unknown,
+  apiLabel: 'internalInference.runHostChat' | 'internalInference.requestHostCompletion',
+) {
+  if (params == null || typeof params !== 'object') {
+    throw new Error(`${apiLabel}: expected params object`)
+  }
+  const o = params as Record<string, unknown>
+  const handshakeId = typeof o.handshakeId === 'string' ? o.handshakeId.trim() : ''
+  if (!handshakeId) {
+    throw new Error(`${apiLabel}: handshakeId required`)
+  }
+  const messages = assertHostChatMessages(o.messages, apiLabel)
+  const model = typeof o.model === 'string' && o.model.trim() ? o.model.trim().slice(0, 200) : undefined
+  const temperature = typeof o.temperature === 'number' && Number.isFinite(o.temperature) ? o.temperature : undefined
+  const max_tokens =
+    typeof o.max_tokens === 'number' && Number.isFinite(o.max_tokens) ? Math.floor(o.max_tokens) : undefined
+  return { handshakeId, messages, model, temperature, max_tokens }
+}
+
 // ── Internal inference (Sandbox → Host direct P2P; Host policy) ───────
 contextBridge.exposeInMainWorld('internalInference', {
   listHostCandidates: () => ipcRenderer.invoke('internal-inference:listHostCandidates'),
+  listInferenceTargets: () => ipcRenderer.invoke('internal-inference:listInferenceTargets'),
   probeHostPolicy: (handshakeId: unknown) => {
     const id = typeof handshakeId === 'string' ? handshakeId.trim() : ''
     if (!id) throw new Error('internalInference.probeHostPolicy: handshakeId required')
     return ipcRenderer.invoke('internal-inference:probeHostPolicy', { handshakeId: id })
   },
   runHostChat: (params: unknown) => {
-    if (params == null || typeof params !== 'object') {
-      throw new Error('internalInference.runHostChat: expected params object')
-    }
-    const o = params as Record<string, unknown>
-    const handshakeId = typeof o.handshakeId === 'string' ? o.handshakeId.trim() : ''
-    if (!handshakeId) {
-      throw new Error('internalInference.runHostChat: handshakeId required')
-    }
-    const messages = assertHostChatMessages(o.messages)
-    const model = typeof o.model === 'string' && o.model.trim() ? o.model.trim().slice(0, 200) : undefined
-    const temperature = typeof o.temperature === 'number' && Number.isFinite(o.temperature) ? o.temperature : undefined
-    const max_tokens =
-      typeof o.max_tokens === 'number' && Number.isFinite(o.max_tokens) ? Math.floor(o.max_tokens) : undefined
-    return ipcRenderer.invoke('internal-inference:runHostChat', {
-      handshakeId,
-      messages,
-      model,
-      temperature,
-      max_tokens,
-    })
+    const p = buildInternalInferenceHostChatPayload(params, 'internalInference.runHostChat')
+    return ipcRenderer.invoke('internal-inference:runHostChat', p)
+  },
+  requestHostCompletion: (params: unknown) => {
+    const p = buildInternalInferenceHostChatPayload(params, 'internalInference.requestHostCompletion')
+    return ipcRenderer.invoke('internal-inference:requestHostCompletion', p)
   },
   getHostPolicy: () => ipcRenderer.invoke('internal-inference:getHostPolicy'),
   setHostPolicy: (partial: unknown) => {

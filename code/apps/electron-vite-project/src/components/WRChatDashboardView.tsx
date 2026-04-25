@@ -5,7 +5,27 @@ import { ensureOrchestratorSessionForDashboard } from '../lib/wrChatDashboardBoo
 import { wrChatDashboardWarn } from '../lib/wrChatDashboardLog'
 import { setWrChatRuntimeSurface } from '../lib/wrChatRuntimeMode'
 import { ensureWrdeskChromeShim } from '../shims/wrChatDashboardChrome'
+import { isHostInferenceModelId } from '../lib/hostInferenceModelIds'
+import {
+  readWrChatInferenceSelection,
+  validateStoredSelectionForWrChat,
+  persistWrChatModelId,
+  clearWrChatInferenceSelection,
+} from '../lib/inferenceSelectionPersistence'
+import { HOST_INFERENCE_UNAVAILABLE } from '../lib/hostAiSelectorCopy'
 import './WRChatDashboardView.css'
+
+type WrChatModelOption = {
+  name: string
+  size?: string
+  displayTitle?: string
+  subtitle?: string
+  hostAi?: boolean
+  hostAvailable?: boolean
+  hostComputerName?: string
+  /** Grouping for dropdown: same order as orchestrator (local → host → cloud). */
+  section?: 'local' | 'host' | 'cloud'
+}
 
 type DashboardTheme = 'pro' | 'dark' | 'standard'
 
@@ -41,8 +61,10 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
   )
 
   const [ready, setReady] = useState(false)
-  const [availableModels, setAvailableModels] = useState<Array<{ name: string; size?: string }>>([])
+  const [availableModels, setAvailableModels] = useState<WrChatModelOption[]>([])
   const [activeLlmModel, setActiveLlmModel] = useState<string | undefined>(undefined)
+  const [hostAiStale, setHostAiStale] = useState(false)
+  const [inferenceSelectionPersistError, setInferenceSelectionPersistError] = useState<string | null>(null)
 
   useLayoutEffect(() => {
     ensureWrdeskChromeShim()
@@ -76,28 +98,84 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
         return
       }
       const d = res.data
-      const installed = (d.modelsInstalled || []).map((m) => ({
+      const installed: WrChatModelOption[] = (d.modelsInstalled || []).map((m) => ({
         name: m.name,
         size: m.size != null ? String(m.size) : undefined,
+        section: 'local' as const,
       }))
-      setAvailableModels(installed)
-      let preferred = d.activeModel as string | undefined
+
+      let hostRows: WrChatModelOption[] = []
       try {
-        const saved = localStorage.getItem('optimando-wr-chat-active-model')
-        if (saved && installed.some((m) => m.name === saved)) {
-          preferred = saved
-          if (typeof window.llm?.setActiveModel === 'function') {
-            void window.llm.setActiveModel(saved)
+        const inf = window.internalInference
+        if (typeof inf?.listInferenceTargets === 'function') {
+          const ht = (await inf.listInferenceTargets()) as {
+            ok?: boolean
+            targets?: Array<{
+              id: string
+              label: string
+              display_label?: string
+              available: boolean
+              unavailable_reason?: string
+              host_computer_name?: string
+            }>
+          }
+          if (ht?.ok && Array.isArray(ht.targets)) {
+            hostRows = ht.targets.map((t) => ({
+              name: t.id,
+              displayTitle: t.display_label || t.label,
+              subtitle: t.unavailable_reason,
+              hostAi: true,
+              hostAvailable: t.available,
+              hostComputerName: t.host_computer_name,
+              section: 'host' as const,
+            }))
           }
         }
       } catch {
         /* ignore */
+      }
+
+      const merged = [...installed, ...hostRows]
+      setAvailableModels(merged)
+
+      let preferred: string | undefined = d.activeModel as string | undefined
+      const names = merged.map((m) => m.name)
+      const stored = readWrChatInferenceSelection()
+      if (stored) {
+        const v = validateStoredSelectionForWrChat(
+          stored,
+          names,
+          merged.filter((m) => m.hostAi),
+        )
+        if (v.error) {
+          setInferenceSelectionPersistError(
+            v.error === 'host_unavailable'
+              ? HOST_INFERENCE_UNAVAILABLE
+              : 'The saved model is no longer available. Choose another model.',
+          )
+          clearWrChatInferenceSelection()
+          preferred = undefined
+        } else {
+          setInferenceSelectionPersistError(null)
+          preferred = v.modelId
+        }
+      } else {
+        setInferenceSelectionPersistError(null)
+      }
+      if (preferred && !isHostInferenceModelId(preferred) && typeof window.llm?.setActiveModel === 'function') {
+        void window.llm.setActiveModel(preferred)
+      }
+      if (!preferred && hostRows.length === 1 && hostRows[0]?.hostAvailable) {
+        preferred = hostRows[0].name
       }
       if (!preferred && installed.length > 0) {
         const visionFirst = installed.find((m) =>
           /gemma3|llava|moondream|vision|qwen2-vl|minicpm-v/i.test(m.name),
         )
         preferred = visionFirst?.name ?? installed[0].name
+      }
+      if (!preferred && hostRows.length > 0) {
+        preferred = hostRows[0].name
       }
       setActiveLlmModel(preferred)
     } catch (e) {
@@ -181,19 +259,66 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
     })
   }, [ready, refreshModels])
 
-  const onModelSelect = useCallback((name: string) => {
-    setActiveLlmModel(name)
-    try {
-      localStorage.setItem('optimando-wr-chat-active-model', name)
-    } catch {
-      /* ignore */
-    }
-    if (typeof window.llm?.setActiveModel !== 'function') {
-      wrChatDashboardWarn('window.llm.setActiveModel unavailable — model selection may not persist')
+  useLayoutEffect(() => {
+    if (!activeLlmModel) {
+      setHostAiStale(false)
       return
     }
-    void window.llm.setActiveModel(name)
-  }, [])
+    if (!isHostInferenceModelId(activeLlmModel)) {
+      setHostAiStale(false)
+      return
+    }
+    const row = availableModels.find((m) => m.name === activeLlmModel)
+    if (!row?.hostAi) {
+      setHostAiStale(true)
+      return
+    }
+    setHostAiStale(!row.hostAvailable)
+  }, [activeLlmModel, availableModels])
+
+  const switchWrChatFromStaleHost = useCallback(() => {
+    const local = availableModels.find((m) => m.section === 'local')
+    const cloud = availableModels.find((m) => m.section === 'cloud')
+    const host = availableModels.find((m) => m.hostAi && m.hostAvailable)
+    const next = local?.name ?? cloud?.name ?? host?.name
+    if (next) {
+      setActiveLlmModel(next)
+      setInferenceSelectionPersistError(null)
+      const forPersist = availableModels.map((m) => ({
+        id: m.name,
+        type: (m.section === 'cloud' ? 'cloud' : 'local') as 'local' | 'cloud',
+      }))
+      persistWrChatModelId(next, forPersist)
+      if (!isHostInferenceModelId(next) && typeof window.llm?.setActiveModel === 'function') {
+        void window.llm.setActiveModel(next)
+      }
+    } else {
+      setActiveLlmModel(undefined)
+      clearWrChatInferenceSelection()
+    }
+    setHostAiStale(false)
+  }, [availableModels])
+
+  const onModelSelect = useCallback(
+    (name: string) => {
+      setActiveLlmModel(name)
+      setInferenceSelectionPersistError(null)
+      const forPersist = availableModels.map((m) => ({
+        id: m.name,
+        type: (m.section === 'cloud' ? 'cloud' : 'local') as 'local' | 'cloud',
+      }))
+      persistWrChatModelId(name, forPersist)
+      if (isHostInferenceModelId(name)) {
+        return
+      }
+      if (typeof window.llm?.setActiveModel !== 'function') {
+        wrChatDashboardWarn('window.llm.setActiveModel unavailable — model selection may not persist')
+        return
+      }
+      void window.llm.setActiveModel(name)
+    },
+    [availableModels],
+  )
 
   if (!ready) {
     return (
@@ -215,6 +340,9 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
           sessionName="Dashboard"
           wrChatEmbedContext="dashboard"
           onPersistAcceptedOptimizationSuggestion={onPersistAcceptedOptimizationSuggestion}
+          hostAiStale={hostAiStale}
+          onConfirmSwitchFromStaleHost={switchWrChatFromStaleHost}
+          inferenceSelectionPersistError={inferenceSelectionPersistError}
         />
       </div>
     </div>

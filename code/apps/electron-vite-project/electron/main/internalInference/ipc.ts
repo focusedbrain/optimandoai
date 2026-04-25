@@ -47,6 +47,14 @@ export function registerInternalInferenceIpc(): void {
     return { ok: true as const, candidates }
   })
 
+  ipcMain.handle('internal-inference:listInferenceTargets', async () => {
+    if (isHostMode()) {
+      return { ok: true as const, targets: [] }
+    }
+    const { listSandboxHostInternalInferenceTargets } = await import('./listInferenceTargets')
+    return listSandboxHostInternalInferenceTargets()
+  })
+
   ipcMain.handle('internal-inference:listSandboxPeerCandidates', async () => {
     if (isSandboxMode()) {
       return { ok: true as const, candidates: [] }
@@ -75,30 +83,32 @@ export function registerInternalInferenceIpc(): void {
     return probeHostInferencePolicyFromSandbox(handshakeId)
   })
 
-  ipcMain.handle(
-    'internal-inference:runHostChat',
-    async (
-      _e,
-      params: {
-        handshakeId?: string
-        messages?: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
-        model?: string
-        temperature?: number
-        max_tokens?: number
-      },
-    ) => {
-      const { runSandboxHostInferenceChat } = await import('./sandboxHostChat')
-      const handshakeId = typeof params?.handshakeId === 'string' ? params.handshakeId.trim() : ''
-      if (!handshakeId || !Array.isArray(params?.messages)) {
-        return { ok: false as const, code: InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE, message: 'invalid params' }
-      }
-      return runSandboxHostInferenceChat({
-        handshakeId,
-        messages: params.messages,
-        model: params.model,
-        temperature: params.temperature,
-        max_tokens: params.max_tokens,
-      })
+  const handleHostChatOrRequestCompletion = async (
+    _e: unknown,
+    params: {
+      handshakeId?: string
+      messages?: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+      model?: string
+      temperature?: number
+      max_tokens?: number
     },
-  )
+  ) => {
+    const { runSandboxHostInferenceChat } = await import('./sandboxHostChat')
+    const handshakeId = typeof params?.handshakeId === 'string' ? params.handshakeId.trim() : ''
+    if (!handshakeId || !Array.isArray(params?.messages)) {
+      return { ok: false as const, code: InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE, message: 'invalid params' }
+    }
+    return runSandboxHostInferenceChat({
+      handshakeId,
+      messages: params.messages,
+      model: params.model,
+      temperature: params.temperature,
+      max_tokens: params.max_tokens,
+    })
+  }
+
+  /** Legacy name — same as `requestHostCompletion` (direct P2P internal inference). */
+  ipcMain.handle('internal-inference:runHostChat', handleHostChatOrRequestCompletion)
+  /** STEP 5: explicit entry for Host internal completion (no relay, not local llm:chat). */
+  ipcMain.handle('internal-inference:requestHostCompletion', handleHostChatOrRequestCompletion)
 }

@@ -25,7 +25,7 @@ describe('hostInferenceUiGates', () => {
   })
 
   it('direct unavailable text', () => {
-    expect(hostInferenceDirectUnavailableMessage(false)).toContain('not directly reachable')
+    expect(hostInferenceDirectUnavailableMessage(false)).toMatch(/reach|network|firewall/i)
     expect(hostInferenceDirectUnavailableMessage(true)).toBeNull()
   })
 })

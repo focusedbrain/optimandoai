@@ -19,8 +19,8 @@ describe('directP2pReachabilityCopyForSandboxToHost', () => {
 })
 
 describe('directP2pReachabilityCopyForHostToSandbox', () => {
-  it('reachable shows Sandbox direct P2P', () => {
+  it('reachable shows Sandbox as reachable', () => {
     const u = directP2pReachabilityCopyForHostToSandbox('reachable')
-    expect(u.primary).toBe('Sandbox direct P2P reachable')
+    expect(u.primary).toBe('Sandbox reachable')
   })
 })
