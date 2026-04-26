@@ -409,6 +409,7 @@ export async function probeHostInferencePolicyFromSandbox(
   const probeDone = (ok: boolean) => p2p(`capability_probe_done ok=${ok ? 'true' : 'false'}`)
 
   const chain = (opt?.correlationChain && opt.correlationChain.trim() ? opt.correlationChain : null) || newHostAiCorrelationChain()
+  const p2pClassificationDetail = (detail: string) => p2p(`capability_probe_detail ${detail} chain=${chain}`)
   const buildStamp = getHostAiBuildStamp()
   const fProbe = getP2pInferenceFlags()
 
@@ -435,7 +436,7 @@ export async function probeHostInferencePolicyFromSandbox(
       failureCode: 'NO_HANDSHAKE_DB',
     })
     probeDone(false)
-    p2p('capability_probe_detail classification=K reason=NO_DB')
+    p2pClassificationDetail('classification=K reason=NO_DB')
     return {
       ok: false,
       code: 'NO_DB',
@@ -459,7 +460,7 @@ export async function probeHostInferencePolicyFromSandbox(
       failureCode: 'ASSERT_RECORD',
     })
     probeDone(false)
-    p2p(`capability_probe_detail classification=K handshake=${hid} reason=assert_record`)
+    p2pClassificationDetail(`classification=K handshake=${hid} reason=assert_record`)
     return {
       ok: false,
       code: ar.code,
@@ -550,7 +551,7 @@ export async function probeHostInferencePolicyFromSandbox(
   }
   if (!role.ok) {
     probeDone(false)
-    p2p(`capability_probe_detail classification=K handshake=${hid} reason=role`)
+    p2pClassificationDetail(`classification=K handshake=${hid} reason=role`)
     return {
       ok: false,
       code: role.code,
@@ -574,7 +575,7 @@ export async function probeHostInferencePolicyFromSandbox(
           ? P2P_CAPABILITY_PROBE.ENDPOINT_IS_RELAY
           : P2P_CAPABILITY_PROBE.UNKNOWN
     probeDone(false)
-    p2p(`capability_probe_detail classification=${letter} reason=not_direct_p2p`)
+    p2pClassificationDetail(`classification=${letter} reason=not_direct_p2p`)
     logHostAiStage({
       chain,
       stage: 'selector_target',
@@ -599,7 +600,7 @@ export async function probeHostInferencePolicyFromSandbox(
   const token = ar.record.counterparty_p2p_token
   if (!token?.trim()) {
     probeDone(false)
-    p2p(`capability_probe_detail classification=${P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED} reason=no_p2p_token`)
+    p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED} reason=no_p2p_token`)
     logHostAiStage({
       chain,
       stage: 'capabilities_request',
@@ -668,7 +669,7 @@ export async function probeHostInferencePolicyFromSandbox(
       const isJ = out.inferenceErrorCode === InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM
       probeDone(true)
       if (isJ) {
-        p2p(`capability_probe_detail classification=${P2P_CAPABILITY_PROBE.HOST_HANDLER_REACHED_BUT_NO_ACTIVE_MODEL}`)
+        p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.HOST_HANDLER_REACHED_BUT_NO_ACTIVE_MODEL}`)
       }
       return { ...out, p2pProbeClassification: isJ ? P2P_CAPABILITY_PROBE.HOST_HANDLER_REACHED_BUT_NO_ACTIVE_MODEL : undefined }
     }
@@ -722,7 +723,7 @@ export async function probeHostInferencePolicyFromSandbox(
     const isJ = out.inferenceErrorCode === InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM
     probeDone(true)
     if (isJ) {
-      p2p(`capability_probe_detail classification=${P2P_CAPABILITY_PROBE.HOST_HANDLER_REACHED_BUT_NO_ACTIVE_MODEL}`)
+      p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.HOST_HANDLER_REACHED_BUT_NO_ACTIVE_MODEL}`)
     }
     return { ...out, p2pProbeClassification: isJ ? P2P_CAPABILITY_PROBE.HOST_HANDLER_REACHED_BUT_NO_ACTIVE_MODEL : undefined }
   }
@@ -738,6 +739,7 @@ export async function probeHostInferencePolicyFromSandbox(
       headers: {
         Authorization: `Bearer ${token.trim()}`,
         'X-BEAP-Handshake': hid,
+        'X-BEAP-Host-AI-Chain': chain,
       },
       signal: ac.signal,
     })
@@ -751,7 +753,7 @@ export async function probeHostInferencePolicyFromSandbox(
     if (res.status === 401 || res.status === 403) {
       p2p(`request_failed code=forbidden message=get policy status handshake=${hid}`)
       probeDone(false)
-      p2p(`capability_probe_detail classification=${P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED}`)
+      p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED}`)
       return {
         ok: false,
         code: InternalInferenceErrorCode.POLICY_FORBIDDEN,
@@ -774,7 +776,7 @@ export async function probeHostInferencePolicyFromSandbox(
         `request_failed code=http_get_${res.status} message=${safeP2pLogMessage(`get policy ${res.status}`)} handshake=${hid}`,
       )
       probeDone(false)
-      p2p(`capability_probe_detail classification=${letter}`)
+      p2pClassificationDetail(`classification=${letter}`)
       return {
         ok: false,
         code: InternalInferenceErrorCode.OLLAMA_UNAVAILABLE,
@@ -801,7 +803,7 @@ export async function probeHostInferencePolicyFromSandbox(
     p2p('policy_fallback_succeeded')
     probeDone(true)
     if (isJ) {
-      p2p(`capability_probe_detail classification=${P2P_CAPABILITY_PROBE.HOST_HANDLER_REACHED_BUT_NO_ACTIVE_MODEL}`)
+      p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.HOST_HANDLER_REACHED_BUT_NO_ACTIVE_MODEL}`)
     }
     return {
       ok: true as const,
@@ -836,7 +838,7 @@ export async function probeHostInferencePolicyFromSandbox(
       })
       p2p(`request_failed code=timeout message=${safeP2pLogMessage('get policy timeout')} handshake=${hid}`)
       probeDone(false)
-      p2p(`capability_probe_detail classification=${letter}`)
+      p2pClassificationDetail(`classification=${letter}`)
       return {
         ok: false,
         code: InternalInferenceErrorCode.PROVIDER_TIMEOUT,
@@ -855,7 +857,7 @@ export async function probeHostInferencePolicyFromSandbox(
     })
     p2p(`request_failed code=network message=${safeP2pLogMessage(em)} handshake=${hid}`)
     probeDone(false)
-    p2p(`capability_probe_detail classification=${letter}`)
+    p2pClassificationDetail(`classification=${letter}`)
     return {
       ok: false,
       code: InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE,

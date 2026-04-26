@@ -87,6 +87,11 @@ function toHttpContext(
   }
 }
 
+export type InternalServiceP2PIngestMeta = {
+  /** Sandbox `HOST_AI_STAGE` / probe correlation id (HTTP header `X-BEAP-Host-AI-Chain`). */
+  hostAiChain?: string | null
+}
+
 /**
  * @returns true if the response was fully handled (service RPC)
  */
@@ -94,6 +99,7 @@ export async function tryHandleInternalServiceP2P(
   db: any,
   parsed: Record<string, unknown>,
   res: http.ServerResponse,
+  ingestMeta?: InternalServiceP2PIngestMeta,
 ): Promise<boolean> {
   const t = parsed.type
   if (!isServiceType(t)) {
@@ -129,7 +135,8 @@ export async function tryHandleInternalServiceP2P(
   }
 
   if (t === 'internal_inference_capabilities_request') {
-    console.log(`[HOST_INFERENCE_CAPS] request_received handshake=${handshakeId}`)
+    const ch = (ingestMeta?.hostAiChain ?? '').trim() || 'none'
+    console.log(`[HOST_INFERENCE_CAPS] request_received handshake=${handshakeId} chain=${ch}`)
     const cap = await handleInternalInferenceCapabilitiesRequest(parsed, ctx)
     if (!cap.ok) {
       jsonError(res, httpStatusForCoreFailure(cap), cap.code, cap.messageKey)

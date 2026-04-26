@@ -232,13 +232,18 @@ function createP2PRequestHandler(
 
     // Direct P2P internal service RPC (inference skeleton — not user inbox, not Ollama)
     if (isInternalServiceRpcShape(parsed)) {
+      const hostAiChainHdr = req.headers['x-beap-host-ai-chain']
+      const hostAiChain =
+        typeof hostAiChainHdr === 'string' ? hostAiChainHdr.trim().slice(0, 128) : ''
       if (parsed.type === 'internal_inference_capabilities_request' && typeof parsed.handshake_id === 'string') {
         const capsHid = (parsed.handshake_id as string).trim()
         console.log(
-          `[P2P-SERVER] ingest_received type=internal_inference_capabilities_request handshake=${capsHid || 'unknown'}`,
+          `[P2P-SERVER] ingest_received type=internal_inference_capabilities_request handshake=${capsHid || 'unknown'} chain=${hostAiChain || 'none'}`,
         )
       }
-      const handled = await tryHandleInternalServiceP2P(db, parsed, res)
+      const handled = await tryHandleInternalServiceP2P(db, parsed, res, {
+        hostAiChain: hostAiChain || null,
+      })
       if (handled) {
         return
       }

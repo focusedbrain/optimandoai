@@ -193,7 +193,7 @@ export function getP2pInferenceFlagsSourceTagForTests(): 'default' | 'env' | 'co
 /** One-line snapshot for [HOST_AI_FLAGS] — Host AI / list / transport diagnostics. */
 export function logHostAiP2pFlagsSnapshot(f: P2pInferenceFlagSnapshot): void {
   console.log(
-    `[HOST_AI_FLAGS] p2pInferenceEnabled=${f.p2pInferenceEnabled} signaling=${f.p2pInferenceSignalingEnabled} webrtc=${f.p2pInferenceWebrtcEnabled} capsOverP2p=${f.p2pInferenceCapsOverP2p} requestOverP2p=${f.p2pInferenceRequestOverP2p} httpFallback=${f.p2pInferenceHttpFallback}`,
+    `[HOST_AI_FLAGS] p2pInferenceEnabled=${f.p2pInferenceEnabled} signaling=${f.p2pInferenceSignalingEnabled} webrtc=${f.p2pInferenceWebrtcEnabled} capsOverP2p=${f.p2pInferenceCapsOverP2p} requestOverP2p=${f.p2pInferenceRequestOverP2p} httpFallback=${f.p2pInferenceHttpFallback} verboseLogs=${f.p2pInferenceVerboseLogs}`,
   )
 }
 
@@ -211,6 +211,7 @@ export function logHostAiP2pFlagsSourceLine(): void {
     capsOverP2p: f.p2pInferenceCapsOverP2p,
     requestOverP2p: f.p2pInferenceRequestOverP2p,
     httpFallback: f.p2pInferenceHttpFallback,
+    verboseLogs: f.p2pInferenceVerboseLogs,
   }
   console.log(
     `[HOST_AI_FLAGS_SOURCE] source=${src} build=${build} values=${JSON.stringify(values)} (hostAiUxEnabled=${isHostAiP2pUxEnabled()})`,

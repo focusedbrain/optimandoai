@@ -459,6 +459,7 @@ export async function listHostCapabilities(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token.trim()}`,
         'X-BEAP-Handshake': hid,
+        'X-BEAP-Host-AI-Chain': chain,
       },
       body: JSON.stringify(body),
       signal: ac.signal,

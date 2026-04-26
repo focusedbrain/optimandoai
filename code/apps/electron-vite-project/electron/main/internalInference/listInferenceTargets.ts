@@ -903,7 +903,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     const transportAuthRow = decideHostAiTransport(listDec)
     const bm = baseMetaFromDec(listDec, leK)
     console.log(
-      `[HOST_AI_TRANSPORT_DECIDE] handshake=${hid} target_detected=${listDec.targetDetected} preferred=${listDec.preferredTransport} selector_phase=${listDec.selectorPhase} legacy_http_status=${legacyHttpStatusForDecideLog(listDec, epK)} p2p_endpoint_kind=${epK} reason=${transportDecideLogReason}`,
+      `[HOST_AI_TRANSPORT_DECIDE] handshake=${hid} chain=${rowChain} target_detected=${listDec.targetDetected} preferred=${listDec.preferredTransport} selector_phase=${listDec.selectorPhase} legacy_http_status=${legacyHttpStatusForDecideLog(listDec, epK)} p2p_endpoint_kind=${epK} reason=${transportDecideLogReason} failureCode=${listDec.failureCode ?? 'null'}`,
     )
 
     if (!listDec.targetDetected) {
