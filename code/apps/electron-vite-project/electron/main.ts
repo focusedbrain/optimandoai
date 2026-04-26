@@ -2664,6 +2664,28 @@ app.whenReady().then(async () => {
     // This is more reliable than the 'open' npm package in Electron context
     setUrlOpener((url: string) => shell.openExternal(url))
 
+    try {
+      const { runHostAiInvalidationIfOrchestratorBuildChanged } = await import(
+        './main/internalInference/hostAiOrchestratorBuildSync'
+      )
+      const ob = orchestratorBuildMeta()
+      runHostAiInvalidationIfOrchestratorBuildChanged({
+        userDataDir: app.getPath('userData'),
+        currentStamp: ob.orchestratorBuildStamp,
+        broadcast: () => {
+          for (const w of BrowserWindow.getAllWindows()) {
+            try {
+              w.webContents.send('host-ai:orchestrator-build-changed', { buildStamp: ob.orchestratorBuildStamp })
+            } catch {
+              /* ignore */
+            }
+          }
+        },
+      })
+    } catch (e) {
+      console.warn('[HOST_AI_BUILD] startup sync failed:', e)
+    }
+
     // Email + Inbox IPC â€” register before any other awaited startup work so a throw
     // (e.g. setupFileLogging, handshake IPC wiring, session, ports, HTTP) cannot skip
     // registration and leave `inbox:dashboardSnapshot` / `email:listAccounts` missing.

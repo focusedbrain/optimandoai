@@ -249,6 +249,32 @@ export function decideInternalInferenceTransport(
     }
   }
 
+  /**
+   * Internal same-principal Sandbox→Host with a direct BEAP ingest: prefer capability probe over HTTP
+   * even when the full WebRTC stack is enabled. Relay-only rows still use WebRTC below.
+   */
+  const internalPreferDirectHttp =
+    Boolean(hr?.handshake_type === 'internal') &&
+    trust &&
+    le.mayPostInternalInferenceHttpToIngest &&
+    kind === 'direct'
+
+  if (internalPreferDirectHttp) {
+    console.log(
+      `[HOST_AI_TRANSPORT_DECIDE] mode=internal preferred=direct_http reason=same_principal_direct_ingest p2p_endpoint_kind=${kind} p2p_stack_on=${p2pOn}`,
+    )
+    return {
+      targetDetected: true,
+      selectorPhase: 'legacy_http_available',
+      preferredTransport: 'legacy_http',
+      mayUseLegacyHttpFallback: mayFb,
+      legacyHttpFallbackViable: legacyViable,
+      p2pTransportEndpointOpen: true,
+      failureCode: null,
+      userSafeReason: null,
+    }
+  }
+
   if (!p2pOn) {
     // WRDESK_P2P_INFERENCE_ENABLED + WEBRTC: incomplete stack is a P2P config issue, not legacy MVP.
     if (wrtcArch) {

@@ -586,7 +586,7 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
     resetP2pInferenceFlagsForTests()
   })
 
-  it('STEP 6: WebRTC stack on, session signaling and no DC yet → connecting row; ensureSession(model_selector); no probe yet', async () => {
+  it('STEP 6: WebRTC stack on, session signaling and no DC yet → not selectable (transport_not_ready); ensureSession; no probe yet', async () => {
     vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
@@ -616,9 +616,10 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
     expect(probeHostInferencePolicyFromSandboxMock).not.toHaveBeenCalled()
     expect(r.targets).toHaveLength(1)
     const t = r.targets[0]!
-    expect(t.p2pUiPhase).toBe('connecting')
+    expect(t.p2pUiPhase).toBe('hidden')
     expect(t.available).toBe(false)
-    expect(t.availability).toBe('checking_host')
+    expect(t.availability).toBe('host_offline')
+    expect(t.hostAiStructuredUnavailableReason).toBe('transport_not_ready')
     vi.unstubAllEnvs()
     resetP2pInferenceFlagsForTests()
   })
@@ -693,7 +694,7 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
     expect(r2.targets[0]?.model).toBe('m-b')
   })
 
-  it('assertSandboxRequestToHost fails (local_role vs device roles) but host+sandbox pairing still gets a checking Host row, not an empty list', async () => {
+  it('assertSandboxRequestToHost fails (local_role vs device roles) but host+sandbox pairing still gets a gated Host row, not an empty list', async () => {
     isSandboxModeMock.mockReturnValue(true)
     /** Ledger local_role acceptor, but this instance id is the Host side of the pair → instance-id roles are host↔sandbox, not S→H client. */
     getInstanceIdMock.mockReturnValue('dev-host-1')
@@ -701,8 +702,8 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.targets).toHaveLength(1)
     const t = r.targets[0]!
-    expect(t.id).toContain(':checking')
-    expect(t.display_label).toMatch(/connecting|checking/i)
+    expect(t.id).toContain(':unavailable')
+    expect(t.p2pUiPhase).toBe('hidden')
     expect(r.refreshMeta.hadCapabilitiesProbed).toBe(false)
     expect(probeHostInferencePolicyFromSandboxMock).not.toHaveBeenCalled()
   })
@@ -753,7 +754,7 @@ describe('STEP 8 — Production safety (unit contracts)', () => {
     const t = r.targets[0]!
     const joined = log.mock.calls.flat().join('\n')
     expect(joined).toMatch(/\[HOST_AI_FLAGS\] p2pInferenceEnabled=true/)
-    expect(joined).toMatch(/\[HOST_AI_TRANSPORT_DECIDE\].*target_detected=true.*preferred=webrtc_p2p.*reason=p2p_enabled_legacy_endpoint_ignored/s)
+    expect(joined).toMatch(/\[HOST_AI_TRANSPORT_DECIDE\].*target_detected=true.*preferred=webrtc_p2p.*reason=relay_signaling_webrtc/s)
     expect(joined).not.toMatch(
       /target_disabled[^\n]*reason=legacy_http_invalid[^\n]*MVP_P2P_ENDPOINT_INVALID/,
     )
@@ -765,7 +766,7 @@ describe('STEP 8 — Production safety (unit contracts)', () => {
     resetP2pInferenceFlagsForTests()
   })
 
-  it('(1a) CONTRACT: WebRTC on + relay + ACTIVE Sandbox→Host — no MVP disable; transport shows webrtc_p2p + connecting/ready; legacy invalid only', async () => {
+  it('(1a) CONTRACT: WebRTC on + relay + ACTIVE Sandbox→Host — no MVP disable; DC down → not selectable (hidden), legacy invalid only', async () => {
     vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
@@ -801,16 +802,17 @@ describe('STEP 8 — Production safety (unit contracts)', () => {
     })
     const r = await listSandboxHostInternalInferenceTargets()
     const t = r.targets[0]!
-    expect(t.p2pUiPhase).toBe('connecting')
+    expect(t.p2pUiPhase).toBe('hidden')
     expect(t.transportMode).toBe('webrtc_p2p')
     expect(t.p2pUiPhase).not.toBe('legacy_http_invalid')
     expect(t.inference_error_code).not.toBe('MVP_P2P_ENDPOINT_INVALID')
     expect(ensureSessionListMock).toHaveBeenCalled()
+    expect(probeHostInferencePolicyFromSandboxMock).not.toHaveBeenCalled()
     vi.unstubAllEnvs()
     resetP2pInferenceFlagsForTests()
   })
 
-  it('(1b) relay + WebRTC on + still signaling: phase=connecting, not legacy invalid', async () => {
+  it('(1b) relay + WebRTC on + still signaling: hidden row (transport not ready), not legacy invalid', async () => {
     vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
@@ -834,7 +836,7 @@ describe('STEP 8 — Production safety (unit contracts)', () => {
     listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost({ p2p_endpoint: relay })])
     const r = await listSandboxHostInternalInferenceTargets()
     const t = r.targets[0]!
-    expect(t.p2pUiPhase).toBe('connecting')
+    expect(t.p2pUiPhase).toBe('hidden')
     expect(t.p2pUiPhase).not.toBe('legacy_http_invalid')
     vi.unstubAllEnvs()
     resetP2pInferenceFlagsForTests()
@@ -1091,7 +1093,7 @@ describe('STEP 10 — named regression (main: listSandboxHostInternalInferenceTa
     expect(r.refreshMeta.hadCapabilitiesProbed).toBe(false)
     const t = r.targets[0]!
     expect(t.available).toBe(false)
-    expect(t.id).toContain(':checking')
+    expect(t.id).toContain(':unavailable')
   })
 
   it('(3) configured Host, no internal handshake: no Host AI targets', async () => {
@@ -1168,7 +1170,7 @@ describe('Host AI P2P — bundle defaults (no WRDESK env)', () => {
     resetP2pInferenceFlagsForTests()
   })
 
-  it('ACTIVE Sandbox→Host + relay + no env: getP2pInferenceFlags on; [HOST_AI_FLAGS_SOURCE]; transport preferred=webrtc_p2p, connecting', async () => {
+  it('ACTIVE Sandbox→Host + relay + no env: getP2pInferenceFlags on; [HOST_AI_FLAGS_SOURCE]; transport preferred=webrtc_p2p; row hidden until DC', async () => {
     const { getP2pInferenceFlags } = await import('../p2pInferenceFlags')
     const f = getP2pInferenceFlags()
     expect(f.p2pInferenceEnabled).toBe(true)
@@ -1214,7 +1216,8 @@ describe('Host AI P2P — bundle defaults (no WRDESK env)', () => {
     expect(joined).toMatch(/p2pInferenceEnabled=true.*signaling=true.*webrtc=true/s)
     expect(joined).toMatch(/\[HOST_AI_TRANSPORT_DECIDE\].*preferred=webrtc_p2p.*selector_phase=connecting/s)
     expect(t.transportMode).toBe('webrtc_p2p')
-    expect(t.p2pUiPhase).toBe('connecting')
+    expect(t.p2pUiPhase).toBe('hidden')
+    expect(t.available).toBe(false)
     log.mockRestore()
   })
 

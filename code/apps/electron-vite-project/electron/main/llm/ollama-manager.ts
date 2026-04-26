@@ -110,33 +110,119 @@ export class OllamaManager {
       this.ollamaPath = 'ollama'
     }
   }
+
+  /** Resolve probe URLs: `OLLAMA_HOST` first, then loopback (Electron often lacks shell PATH for `ollama`). */
+  private collectOllamaHttpBases(): string[] {
+    const out: string[] = []
+    const seen = new Set<string>()
+    const push = (u: string) => {
+      const t = u.replace(/\/$/, '')
+      if (!seen.has(t)) {
+        seen.add(t)
+        out.push(t)
+      }
+    }
+    const raw = (process.env.OLLAMA_HOST ?? '').trim()
+    if (raw) {
+      try {
+        if (raw.startsWith('http://') || raw.startsWith('https://')) {
+          push(new URL(raw).origin)
+        } else {
+          const colon = raw.lastIndexOf(':')
+          const hostPart = colon > 0 ? raw.slice(0, colon) : raw
+          const portPart = colon > 0 ? raw.slice(colon + 1) : '11434'
+          push(`http://${hostPart}:${portPart}`)
+        }
+      } catch {
+        /* ignore malformed OLLAMA_HOST */
+      }
+    }
+    push('http://127.0.0.1:11434')
+    push('http://localhost:11434')
+    return out
+  }
+
+  private applyResolvedBaseUrl(origin: string): void {
+    const base = origin.replace(/\/$/, '')
+    this.baseUrl = base
+    try {
+      const u = new URL(base)
+      const p = u.port ? parseInt(u.port, 10) : 11434
+      if (Number.isFinite(p)) this.ollamaPort = p
+    } catch {
+      this.ollamaPort = 11434
+    }
+  }
+
+  /**
+   * HTTP-first: `/api/tags` must succeed and return at least one model for “provider ready”.
+   * Does not rely on `ollama` CLI (PATH may be empty under Electron).
+   */
+  async probeHttpTagsWithLogging(): Promise<{ ok: boolean; baseUrl: string; modelCount: number }> {
+    const bases = this.collectOllamaHttpBases()
+    for (const b of bases) {
+      try {
+        const res = await fetch(`${b}/api/tags`, { method: 'GET', signal: AbortSignal.timeout(5000) })
+        if (!res.ok) {
+          console.log(`[HOST_PROVIDER] ollama_probe method=http endpoint=${b} ok=false reason=http_${res.status}`)
+          continue
+        }
+        const data = (await res.json()) as { models?: unknown[] }
+        const n = Array.isArray(data?.models) ? data.models.length : 0
+        if (n === 0) {
+          console.log(`[HOST_PROVIDER] ollama_probe method=http endpoint=${b} ok=false reason=no_models`)
+          continue
+        }
+        this.applyResolvedBaseUrl(b)
+        console.log(`[HOST_PROVIDER] ollama_probe method=http endpoint=${b} ok=true models=${n}`)
+        return { ok: true, baseUrl: b, modelCount: n }
+      } catch {
+        console.log(`[HOST_PROVIDER] ollama_probe method=http endpoint=${b} ok=false reason=unreachable`)
+      }
+    }
+    console.log(`[HOST_PROVIDER] ollama_probe method=http ok=false reason=unreachable`)
+    return { ok: false, baseUrl: bases[0] ?? 'http://127.0.0.1:11434', modelCount: 0 }
+  }
   
   /**
    * Check if Ollama is installed
    */
   async checkInstalled(): Promise<boolean> {
     try {
-      const version = await this.getVersion()
-      return version !== null
-    } catch (error) {
+      const r = await this.probeHttpTagsWithLogging()
+      return r.ok
+    } catch {
       return false
     }
   }
   
   /**
-   * Get Ollama version
+   * Get Ollama version (HTTP `/api/version` first; CLI is optional debug only).
    */
   async getVersion(): Promise<string | null> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/version`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(2000),
+      })
+      if (res.ok) {
+        const j = (await res.json()) as { version?: string }
+        if (typeof j?.version === 'string' && j.version.trim()) {
+          return j.version.trim()
+        }
+      }
+    } catch {
+      /* try CLI */
+    }
     try {
       const { stdout } = await execAsync(`"${this.ollamaPath}" --version`)
       const match = stdout.match(/ollama version is (\d+\.\d+\.\d+)/)
       if (match) {
         return match[1]
       }
-      // Fallback: return raw output
       return stdout.trim()
     } catch (error) {
-      console.error('[Ollama] Failed to get version:', error)
+      console.warn('[Ollama] Optional CLI version check failed (HTTP already preferred):', error)
       return null
     }
   }
@@ -192,15 +278,8 @@ export class OllamaManager {
    * Check if Ollama server is running
    */
   async isRunning(): Promise<boolean> {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/tags`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(2000)
-      })
-      return response.ok
-    } catch (error) {
-      return false
-    }
+    const r = await this.probeHttpTagsWithLogging()
+    return r.ok
   }
   
   /**
@@ -229,8 +308,9 @@ export class OllamaManager {
    * Get complete Ollama status
    */
   async getStatus(): Promise<OllamaStatus> {
-    const installed = await this.checkInstalled()
-    const running = await this.isRunning()
+    const probe = await this.probeHttpTagsWithLogging()
+    const installed = probe.ok
+    const running = probe.ok
     const version = installed ? await this.getVersion() : undefined
     
     let modelsInstalled: InstalledModel[] = []
@@ -276,31 +356,42 @@ export class OllamaManager {
    * Raw /api/tags fetch — no cache, no dedup. Used internally by listModels().
    */
   private async listModelsRaw(): Promise<InstalledModel[]> {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/tags`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(5000)
-      })
-
-      if (!response.ok) {
-        console.warn('[Ollama] Failed to list models:', response.statusText)
-        return []
-      }
-
-      const data = await response.json()
+    const parse = (data: any): InstalledModel[] => {
       const models = data.models || []
-
       return models.map((m: any) => ({
         name: m.name,
         size: m.size || 0,
         modified: m.modified_at || new Date().toISOString(),
         digest: m.digest || '',
-        isActive: false // Will be set by caller based on config
+        isActive: false,
       }))
+    }
+    const fetchTags = async (base: string) => {
+      const response = await fetch(`${base.replace(/\/$/, '')}/api/tags`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(5000),
+      })
+      if (!response.ok) {
+        console.warn('[Ollama] Failed to list models:', response.statusText)
+        return null
+      }
+      return response.json()
+    }
+    try {
+      const data = await fetchTags(this.baseUrl)
+      if (data) return parse(data)
     } catch (error) {
       console.error('[Ollama] Error listing models:', error)
-      return []
     }
+    const pr = await this.probeHttpTagsWithLogging()
+    if (!pr.ok) return []
+    try {
+      const data = await fetchTags(this.baseUrl)
+      if (data) return parse(data)
+    } catch (error) {
+      console.error('[Ollama] Error listing models after HTTP probe:', error)
+    }
+    return []
   }
 
   /**

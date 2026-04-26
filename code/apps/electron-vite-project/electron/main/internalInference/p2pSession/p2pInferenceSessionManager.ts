@@ -78,6 +78,7 @@ export const P2pSessionLogReason = {
   handshake_revoked: 'handshake_revoked',
   orchestrator_mode_change: 'orchestrator_mode_change',
   account_switch: 'account_switch',
+  orchestrator_build_changed: 'orchestrator_build_changed',
 } as const
 export type P2pSessionLogReasonType = (typeof P2pSessionLogReason)[keyof typeof P2pSessionLogReason]
 

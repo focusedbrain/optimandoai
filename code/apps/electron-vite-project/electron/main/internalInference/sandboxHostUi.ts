@@ -328,6 +328,8 @@ export function mapCapabilitiesWireToProbe(
 ): Extract<ProbeHostPolicyResult, { ok: true }> {
   const allow = w.policy_enabled === true
   if (w.inference_error_code === InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM) {
+    const enabledN = (w.models ?? []).filter((m) => m.enabled && typeof m.model === 'string' && m.model.trim()).length
+    console.log(`[HOST_CAPS] inference_ready=false reason=no_models provider=ollama models=${enabledN}`)
     return {
       ok: true,
       allowSandboxInference: allow,
@@ -358,6 +360,9 @@ export function mapCapabilitiesWireToProbe(
       : enabledModels[0]?.model?.trim()
   const modelId = dcm != null && dcm.length > 0 ? dcm : null
   const displayLabel = !allow ? 'Host AI' : dcm ? `Host AI · ${dcm}` : 'Host AI · —'
+  console.log(
+    `[HOST_CAPS] inference_ready=${modelId ? 'true' : 'false'} provider=ollama models=${enabledModels.length}`,
+  )
   return {
     ok: true,
     allowSandboxInference: allow,

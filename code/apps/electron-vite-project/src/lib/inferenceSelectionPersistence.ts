@@ -214,6 +214,7 @@ export type OrchestratorHostInferenceTargetSnapshot = {
   hostSelectorState?: string
   inference_error_code?: string | null
   failureCode?: string | null
+  hostAiStructuredUnavailableReason?: string
 }
 
 function definitiveP2pSessionFailureCode(err: string): boolean {
@@ -268,24 +269,8 @@ export function findHostInferenceTargetForHandshakeAndId<T extends { id: string;
   return list.find((x) => x.id === storedId)
 }
 
-/** True while P2P/caps are still warming up — must not clear persisted Host AI. */
-export function isHostInferenceTargetPendingForRestore(t: OrchestratorHostInferenceTargetSnapshot): boolean {
-  const phase = t.p2pUiPhase ?? ''
-  const av = String(t.availability ?? '')
-  const ur = String(t.unavailable_reason ?? '')
-  const sel = String(t.host_selector_state ?? t.hostSelectorState ?? '')
-  const err = String(t.inference_error_code ?? t.failureCode ?? '')
-
-  if (phase === 'connecting') return true
-  if (av === 'checking_host') return true
-  if (ur === 'CHECKING_CAPABILITIES') return true
-  if (sel === 'checking') return true
-  if (err === 'P2P_SESSION_IN_PROGRESS' || err === 'P2P_STILL_CONNECTING' || err === 'P2P_NOT_READY') {
-    return true
-  }
-  if (phase === 'p2p_unavailable' && !definitiveP2pSessionFailureCode(err)) {
-    return true
-  }
+/** Host AI is only selectable when fully probed — there is no “pending connecting” restore path. */
+export function isHostInferenceTargetPendingForRestore(_t: OrchestratorHostInferenceTargetSnapshot): boolean {
   return false
 }
 
@@ -302,6 +287,23 @@ export function isHostInferenceTargetDefinitivelyInvalidForRestore(t: Orchestrat
   if (av === 'model_unavailable' || ur === 'HOST_NO_ACTIVE_LOCAL_LLM') return true
   if (err === 'HOST_NO_ACTIVE_LOCAL_LLM' || err === 'MODEL_UNAVAILABLE') return true
   if (definitiveP2pSessionFailureCode(err)) return true
+  const sur = String(t.hostAiStructuredUnavailableReason ?? '')
+  if (
+    sur === 'provider_not_ready' ||
+    sur === 'no_models' ||
+    sur === 'transport_not_ready' ||
+    sur === 'capability_probe_failed'
+  ) {
+    return true
+  }
+  if (
+    ur === 'transport_not_ready' ||
+    ur === 'capability_probe_failed' ||
+    ur === 'provider_not_ready' ||
+    ur === 'no_models'
+  ) {
+    return true
+  }
 
   return false
 }
@@ -653,6 +655,24 @@ export function clearWrChatInferenceSelection(): void {
   try {
     localStorage.removeItem(wrV1Key())
     localStorage.removeItem(legacyWrScoped(ak))
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Main bumps orchestrator build stamp — clear persisted Host-internal routing only. */
+export function clearPersistedHostAiInferenceSelection(): void {
+  try {
+    if (readOrchestratorInferenceSelection()?.kind === 'host_internal') {
+      clearOrchestratorInferenceSelection()
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (readWrChatInferenceSelection()?.kind === 'host_internal') {
+      clearWrChatInferenceSelection()
+    }
   } catch {
     /* ignore */
   }

@@ -67,6 +67,7 @@ import {
   validateStoredSelectionForOrchestratorWithDiagnostics,
   persistOrchestratorModelId,
   clearOrchestratorInferenceSelection,
+  clearPersistedHostAiInferenceSelection,
   isHostInternalSelectionStaleForOrchestratorUi,
   type ValidateSelectionResultWithDiagnostics,
 } from '../lib/inferenceSelectionPersistence'
@@ -1194,6 +1195,19 @@ export default function HybridSearch({
     window.addEventListener('orchestrator-mode-changed', onOrchestratorMode)
     return () => {
       window.removeEventListener('orchestrator-mode-changed', onOrchestratorMode)
+    }
+  }, [loadModels])
+
+  useEffect(() => {
+    const onBuild = () => {
+      clearPersistedHostAiInferenceSelection()
+      orchestratorChatModelRestoredRef.current = false
+      lastOrchestratorSelectionValidateLogKeyRef.current = ''
+      void loadModels('orchestrator_build_changed')
+    }
+    window.addEventListener('host-ai-orchestrator-build-changed', onBuild)
+    return () => {
+      window.removeEventListener('host-ai-orchestrator-build-changed', onBuild)
     }
   }, [loadModels])
 

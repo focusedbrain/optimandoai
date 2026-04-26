@@ -750,6 +750,9 @@ ipcRenderer.on('handshake-list-refresh', () => {
 ipcRenderer.on('orchestrator-mode-did-change', () => {
   window.dispatchEvent(new CustomEvent('orchestrator-mode-changed'))
 })
+ipcRenderer.on('host-ai:orchestrator-build-changed', () => {
+  window.dispatchEvent(new CustomEvent('host-ai-orchestrator-build-changed'))
+})
 ipcRenderer.on('vault-status-changed', () => {
   window.dispatchEvent(new CustomEvent('vault-status-changed'))
 })

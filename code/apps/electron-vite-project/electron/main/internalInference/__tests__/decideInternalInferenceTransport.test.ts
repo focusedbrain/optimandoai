@@ -38,6 +38,7 @@ function rolesOk(): HandshakeDerivedRoles {
 }
 
 const hr = { handshake_id: 'h1' } as unknown as HandshakeRecord
+const hrInternal = { handshake_id: 'h1', handshake_type: 'internal' } as unknown as HandshakeRecord
 
 const base: Omit<HostAiTransportDeciderInput, 'featureFlags' | 'legacyEndpointInfo' | 'relayHostAiP2pSignaling'> = {
   operationContext: 'list_targets',
@@ -111,9 +112,10 @@ describe('decideInternalInferenceTransport (STEP 4 legacy vs WebRTC)', () => {
     expect(r.legacyHttpFallbackViable).toBe(false)
   })
 
-  it('WRDESK P2P+WebRTC on but stack incomplete (no signaling), direct — P2P_STACK_INCOMPLETE', () => {
+  it('internal Sandbox→Host + direct ingest: prefer direct_http even when P2P stack is incomplete', () => {
     const r = decideInternalInferenceTransport({
       ...base,
+      handshakeRecord: hrInternal,
       featureFlags: {
         p2pInferenceEnabled: true,
         p2pInferenceWebrtcEnabled: true,
@@ -127,7 +129,37 @@ describe('decideInternalInferenceTransport (STEP 4 legacy vs WebRTC)', () => {
         p2pInferenceDataChannelCapabilities: false,
         p2pInferenceDataChannelInference: false,
       },
-      // Even if direct BEAP would validate, WebRTC path is the architecture — not legacy MVP.
+      legacyEndpointInfo: {
+        p2pEndpointKind: 'direct',
+        mayPostInternalInferenceHttpToIngest: true,
+        mvpClassForLog: 'direct_lan',
+        p2pEndpointGateOpen: true,
+      },
+    })
+    expect(r.selectorPhase).toBe('legacy_http_available')
+    expect(r.preferredTransport).toBe('legacy_http')
+    expect(r.failureCode).toBeNull()
+    expect(r.mayUseLegacyHttpFallback).toBe(true)
+    expect(r.legacyHttpFallbackViable).toBe(true)
+  })
+
+  it('non-internal + direct + incomplete P2P stack — still P2P_STACK_INCOMPLETE (WebRTC architecture)', () => {
+    const r = decideInternalInferenceTransport({
+      ...base,
+      handshakeRecord: hr,
+      featureFlags: {
+        p2pInferenceEnabled: true,
+        p2pInferenceWebrtcEnabled: true,
+        p2pInferenceSignalingEnabled: false,
+        p2pInferenceHttpFallback: true,
+        p2pInferenceCapsOverP2p: false,
+        p2pInferenceRequestOverP2p: false,
+        p2pInferenceHttpInternalCompat: false,
+        p2pInferenceVerboseLogs: false,
+        p2pInferenceAnalysisLog: false,
+        p2pInferenceDataChannelCapabilities: false,
+        p2pInferenceDataChannelInference: false,
+      },
       legacyEndpointInfo: {
         p2pEndpointKind: 'direct',
         mayPostInternalInferenceHttpToIngest: true,
@@ -138,9 +170,6 @@ describe('decideInternalInferenceTransport (STEP 4 legacy vs WebRTC)', () => {
     expect(r.selectorPhase).toBe('p2p_unavailable')
     expect(r.failureCode).toBe('P2P_STACK_INCOMPLETE')
     expect(r.preferredTransport).toBe('webrtc_p2p')
-    expect(r.failureCode).not.toBe('MVP_P2P_ENDPOINT_INVALID')
-    expect(r.mayUseLegacyHttpFallback).toBe(true)
-    expect(r.legacyHttpFallbackViable).toBe(true)
   })
 
   it('WebRTC enabled + full stack + relay + session signaling: preferred=webrtc_p2p, selector_phase=connecting (relay only blocks legacy HTTP)', () => {
