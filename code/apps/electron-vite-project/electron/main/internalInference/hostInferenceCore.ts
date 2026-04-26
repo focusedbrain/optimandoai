@@ -6,20 +6,19 @@
 import { getHandshakeRecord } from '../handshake/db'
 import type { HandshakeRecord } from '../handshake/types'
 import type { InternalHostInferenceMessage } from '../llm/internalHostInferenceOllama'
-import { getInstanceId, isHostMode } from '../orchestrator/orchestratorModeStore'
+import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { InternalInferenceErrorCode } from './errors'
 import { buildInternalInferenceCapabilitiesResult } from './hostInferenceCapabilities'
+import { logHostAiRoleGate } from './hostAiRoleGateLog'
 import * as hostInference from './hostInferenceExecute'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
 import { tryConsumePerHandshakeInferenceSlot } from './hostInferenceRequestRateLimit'
 import { rejectInternalInferenceByRequestId } from './pendingRequests'
 import {
-  assertHostReceivesRequestFromSandbox,
-  assertHostSendsResultToSandbox,
   assertP2pEndpointDirect,
   assertRecordForServiceRpc,
-  localCoordinationDeviceId,
-  peerCoordinationDeviceId,
+  coordinationDeviceIdForHandshakeDeviceRole,
+  deriveInternalHostAiPeerRoles,
 } from './policy'
 import {
   INTERNAL_INFERENCE_SCHEMA_VERSION,
@@ -180,22 +179,94 @@ function loadServiceRecord(
   return { ok: true, record: ar.record }
 }
 
+function roleToGate(
+  v: 'host' | 'sandbox' | 'unknown' | null | undefined,
+): 'host' | 'sandbox' | 'unknown' | null {
+  if (v === 'host' || v === 'sandbox' || v === 'unknown') return v
+  return v ?? null
+}
+
+/**
+ * Inbound service RPC: authorize only from handshake geometry (this instance = host side, peer = sandbox, sender ↔ peer).
+ * Does not use orchestrator `configured_mode` / `isHostMode()`.
+ */
 function assertHostInbound(
   r: HandshakeRecord,
   senderDeviceId: string,
   targetDeviceId: string,
+  requestType: string,
 ): HostInferenceCoreFailure | null {
-  if (!isHostMode()) {
-    return fail(InternalInferenceErrorCode.SERVICE_RPC_NOT_SUPPORTED, 'not_host')
+  const currentId = getInstanceId().trim()
+  const dr = deriveInternalHostAiPeerRoles(r, currentId)
+  const snd = senderDeviceId.trim()
+  const tgt = targetDeviceId.trim()
+  const hostCoord = coordinationDeviceIdForHandshakeDeviceRole(r, 'host') ?? ''
+
+  const logGate = (o: { decision: 'allow' | 'deny'; reason: string; drOk: true; epOwner: string; lr: 'host' | 'sandbox'; pr: 'host' | 'sandbox' } | { decision: 'allow' | 'deny'; reason: string; drOk: false }): void => {
+    if (o.drOk) {
+      logHostAiRoleGate({
+        handshake_id: r.handshake_id,
+        request_type: requestType,
+        current_device_id: currentId,
+        endpoint_owner_device_id: o.epOwner,
+        requester_device_id: snd,
+        local_derived_role: roleToGate(o.lr),
+        peer_derived_role: roleToGate(o.pr),
+        receiver_role: roleToGate(o.lr),
+        requester_role: roleToGate(o.pr),
+        configured_mode: '',
+        decision: o.decision,
+        reason: o.reason,
+      })
+    } else {
+      logHostAiRoleGate({
+        handshake_id: r.handshake_id,
+        request_type: requestType,
+        current_device_id: currentId,
+        endpoint_owner_device_id: hostCoord || currentId,
+        requester_device_id: snd,
+        local_derived_role: 'unknown',
+        peer_derived_role: 'unknown',
+        receiver_role: 'unknown',
+        requester_role: 'unknown',
+        configured_mode: '',
+        decision: o.decision,
+        reason: o.reason,
+      })
+    }
   }
-  const h = assertHostReceivesRequestFromSandbox(r, senderDeviceId)
-  if (!h.ok) {
-    return fail(h.code, 'role_or_peer_mismatch')
+
+  if (!dr.ok) {
+    logGate({ decision: 'deny', reason: 'forbidden_host_role', drOk: false })
+    return fail(dr.code, 'role_or_peer_mismatch')
   }
-  const localId = (localCoordinationDeviceId(r) ?? '').trim()
-  if (!localId || localId !== targetDeviceId.trim()) {
+  const okDr = dr
+  const g = (d: 'allow' | 'deny', reason: string) =>
+    logGate({
+      decision: d,
+      reason,
+      drOk: true,
+      epOwner: okDr.localCoordinationDeviceId,
+      lr: okDr.localRole,
+      pr: okDr.peerRole,
+    })
+  if (okDr.localRole === 'sandbox' && okDr.peerRole === 'host') {
+    g('deny', 'forbidden_host_role')
+    return fail(InternalInferenceErrorCode.POLICY_FORBIDDEN, 'forbidden_host_role')
+  }
+  if (okDr.localRole !== 'host' || okDr.peerRole !== 'sandbox') {
+    g('deny', 'forbidden_host_role')
+    return fail(InternalInferenceErrorCode.INVALID_INTERNAL_ROLE, 'role_or_peer_mismatch')
+  }
+  if (okDr.peerCoordinationDeviceId !== snd) {
+    g('deny', 'forbidden_host_role')
+    return fail(InternalInferenceErrorCode.POLICY_FORBIDDEN, 'forbidden_or_sender_mismatch')
+  }
+  if (okDr.localCoordinationDeviceId !== tgt) {
+    g('deny', 'forbidden_host_role')
     return fail(InternalInferenceErrorCode.POLICY_FORBIDDEN, 'target_mismatch')
   }
+  g('allow', 'ok')
   return null
 }
 
@@ -225,16 +296,13 @@ export async function handleInternalInferenceCapabilitiesRequest(
     recResult.record,
     ctx.senderDeviceId,
     (envelope as { target_device_id: string }).target_device_id.trim(),
+    'internal_inference_capabilities_request',
   )
   if (hErr) return hErr
 
   const direct = assertP2pEndpointDirect(ctx.db, recResult.record.p2p_endpoint)
   if (!direct.ok) {
     return fail(direct.code, 'no_direct_p2p')
-  }
-  const hs = assertHostSendsResultToSandbox(recResult.record)
-  if (!hs.ok) {
-    return fail(hs.code, 'host_send_path')
   }
 
   const capReq = envelope as { request_id: string; created_at: string }
@@ -271,6 +339,7 @@ export async function handleInternalInferenceRequest(
     recResult.record,
     (envelope as InternalInferenceRequestWire).sender_device_id,
     (envelope as InternalInferenceRequestWire).target_device_id.trim(),
+    'internal_inference_request',
   )
   if (hErr) return hErr
 
@@ -289,8 +358,9 @@ export async function handleInternalInferenceRequest(
   const tStart = ctx.now
   const r = recResult.record
   const requestId = (envelope as InternalInferenceRequestWire).request_id
-  const peerId = peerCoordinationDeviceId(r) ?? ''
-  const hostId = getInstanceId()
+  const drInfer = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
+  const peerId = drInfer.ok ? drInfer.peerCoordinationDeviceId : coordinationDeviceIdForHandshakeDeviceRole(r, 'sandbox') ?? ''
+  const hostId = drInfer.ok ? drInfer.localCoordinationDeviceId : getInstanceId()
   const ctxBase = { requestId, handshakeId: r.handshake_id, hostDeviceId: hostId, peerDeviceId: peerId }
   const policy = getHostInternalInferencePolicy()
   if (!tryConsumePerHandshakeInferenceSlot(r.handshake_id, policy.maxRequestsPerHandshakePerMinute)) {
@@ -380,11 +450,6 @@ export async function handleInternalInferenceRequest(
     }
   }
 
-  const hs = assertHostSendsResultToSandbox(r)
-  if (!hs.ok) {
-    return fail(hs.code, 'host_send_path')
-  }
-
   const { wire, log: infLog } = await hostInference.runHostInternalInference({
     handshakeId: r.handshake_id,
     requestId,
@@ -443,6 +508,7 @@ export function handleInternalInferenceCancel(
     recResult.record,
     (envelope as { sender_device_id: string }).sender_device_id,
     (envelope as { target_device_id: string }).target_device_id.trim(),
+    'internal_inference_cancel',
   )
   if (hErr) return hErr
 

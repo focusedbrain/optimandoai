@@ -5,11 +5,11 @@
  */
 
 import type { HandshakeRecord } from '../handshake/types'
-import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
+import { getInstanceId, getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { ollamaManager } from '../llm/ollama-manager'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
 import { InternalInferenceErrorCode } from './errors'
-import { localCoordinationDeviceId, peerCoordinationDeviceId } from './policy'
+import { coordinationDeviceIdForHandshakeDeviceRole, deriveInternalHostAiPeerRoles } from './policy'
 import { INTERNAL_INFERENCE_SCHEMA_VERSION, type InternalInferenceCapabilitiesResultWire } from './types'
 
 function digits6FromPairing(raw: string | null | undefined): string {
@@ -30,8 +30,17 @@ export async function buildInternalInferenceCapabilitiesResult(
   const hostComputerName = (orchName || '').trim() || 'This computer (Host)'
   const hostPairingCode = digits6FromPairing(record.internal_peer_pairing_code)
 
-  const localHostId = (localCoordinationDeviceId(record) ?? '').trim()
-  const peerSandboxId = (peerCoordinationDeviceId(record) ?? '').trim()
+  const dr = deriveInternalHostAiPeerRoles(record, getInstanceId().trim())
+  const localHostId = (
+    dr.ok && dr.localRole === 'host' && dr.peerRole === 'sandbox'
+      ? dr.localCoordinationDeviceId
+      : coordinationDeviceIdForHandshakeDeviceRole(record, 'host') ?? ''
+  ).trim()
+  const peerSandboxId = (
+    dr.ok && dr.localRole === 'host' && dr.peerRole === 'sandbox'
+      ? dr.peerCoordinationDeviceId
+      : coordinationDeviceIdForHandshakeDeviceRole(record, 'sandbox') ?? ''
+  ).trim()
 
   const base: InternalInferenceCapabilitiesResultWire = {
     type: 'internal_inference_capabilities_result',

@@ -142,6 +142,7 @@ export async function tryHandleInternalServiceP2P(
       jsonError(res, httpStatusForCoreFailure(cap), cap.code, cap.messageKey)
       return true
     }
+    console.log(`[HOST_INFERENCE_CAPS] response ok handshake=${handshakeId}`)
     const wireModel =
       cap.responseEnvelope.active_local_llm?.model?.trim() || cap.responseEnvelope.active_chat_model?.trim() || null
     const toLog = (m: string | null | undefined) => (m != null && m.length > 0 ? m : 'null')

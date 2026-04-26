@@ -5,7 +5,7 @@
 
 import type http from 'http'
 import { getHandshakeRecord } from '../handshake/db'
-import { isHostMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
+import { getInstanceId, isHostMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import {
   checkAuthFailLimit,
   checkIpLimit,
@@ -14,7 +14,14 @@ import {
   IP_LIMIT_PUBLIC,
   IP_LIMIT_PRIVATE_LAN,
 } from '../p2p/rateLimiter'
-import { assertRecordForServiceRpc, assertSandboxRequestToHost, assertHostSendsResultToSandbox } from './policy'
+import { logHostAiRoleGate } from './hostAiRoleGateLog'
+import {
+  assertRecordForServiceRpc,
+  assertSandboxRequestToHost,
+  assertHostSendsResultToSandbox,
+  coordinationDeviceIdForHandshakeDeviceRole,
+  deriveInternalHostAiPeerRoles,
+} from './policy'
 import {
   logBeapIngressReceived,
   logP2pBeapRejection,
@@ -93,15 +100,32 @@ export async function handleGetP2PReachability(req: http.IncomingMessage, res: h
     return
   }
 
-  if (isHostMode()) {
+  const id0 = getInstanceId().trim()
+  const drR = deriveInternalHostAiPeerRoles(ar.record, id0)
+  if (drR.ok && drR.localRole === 'host' && drR.peerRole === 'sandbox') {
     const h = assertHostSendsResultToSandbox(ar.record)
     if (!h.ok) {
+      const dr = deriveInternalHostAiPeerRoles(ar.record, id0)
+      logHostAiRoleGate({
+        handshake_id: handshakeId,
+        request_type: 'get_p2p_reachability',
+        current_device_id: id0,
+        endpoint_owner_device_id: dr.ok ? dr.localCoordinationDeviceId : coordinationDeviceIdForHandshakeDeviceRole(ar.record, 'host') || id0,
+        requester_device_id: '',
+        local_derived_role: dr.ok ? dr.localRole : 'unknown',
+        peer_derived_role: dr.ok ? dr.peerRole : 'unknown',
+        receiver_role: dr.ok ? dr.localRole : 'unknown',
+        requester_role: dr.ok ? dr.peerRole : 'unknown',
+        configured_mode: '',
+        decision: 'deny',
+        reason: 'forbidden_host_role',
+      })
       logP2pBeapRejection({ ip, status: 403, reason: 'forbidden_host_role', handshakeId, correlationId: beapCorr })
       res.writeHead(403, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Forbidden' }))
       return
     }
-  } else {
+  } else if (drR.ok && drR.localRole === 'sandbox' && drR.peerRole === 'host') {
     const s = assertSandboxRequestToHost(ar.record)
     if (!s.ok) {
       logP2pBeapRejection({ ip, status: 403, reason: 'forbidden_sandbox_role', handshakeId, correlationId: beapCorr })
@@ -109,6 +133,11 @@ export async function handleGetP2PReachability(req: http.IncomingMessage, res: h
       res.end(JSON.stringify({ error: 'Forbidden' }))
       return
     }
+  } else {
+    logP2pBeapRejection({ ip, status: 403, reason: 'forbidden_internal_role', handshakeId, correlationId: beapCorr })
+    res.writeHead(403, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Forbidden' }))
+    return
   }
 
   res.writeHead(200, { 'Content-Type': 'application/json' })

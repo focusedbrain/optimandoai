@@ -4,9 +4,11 @@ import { INTERNAL_INFERENCE_SCHEMA_VERSION } from '../types'
 import { HandshakeState, type HandshakeRecord } from '../../handshake/types'
 import type { HostInferenceCoreContext } from '../hostInferenceCore'
 
+const orchestratorOms = vi.hoisted(() => ({ instanceId: 'dev-host' }))
+
 vi.mock('../../orchestrator/orchestratorModeStore', () => ({
-  isHostMode: () => true,
-  getInstanceId: () => 'dev-host',
+  getInstanceId: () => orchestratorOms.instanceId,
+  getOrchestratorMode: () => ({ mode: orchestratorOms.instanceId === 'dev-sand' ? 'sandbox' : 'host' }),
 }))
 
 vi.mock('../../handshake/db', () => ({
@@ -31,6 +33,10 @@ vi.mock('../hostInferenceCapabilities', () => ({
     models: [],
     policy_enabled: true,
   })),
+}))
+
+vi.mock('../hostAiRoleGateLog', () => ({
+  logHostAiRoleGate: vi.fn(),
 }))
 
 vi.mock('../hostInferenceExecute', () => ({
@@ -108,6 +114,7 @@ function baseRecord(over: Partial<HandshakeRecord>): HandshakeRecord {
 describe('hostInferenceCore policy (non-internal / standard handshakes)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    orchestratorOms.instanceId = 'dev-host'
   })
 
   afterEach(() => {
@@ -167,6 +174,79 @@ describe('hostInferenceCore policy (non-internal / standard handshakes)', () => 
     const r = await handleInternalInferenceCapabilitiesRequest(capEnvelope, ctx)
     expect(r.ok).toBe(false)
     if (!r.ok) {
+      expect(r.code).toBe(InternalInferenceErrorCode.POLICY_FORBIDDEN)
+    }
+  })
+})
+
+describe('hostInferenceCore — receiver-side role (not local_role, not isHostMode)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    orchestratorOms.instanceId = 'dev-host'
+  })
+
+  test('A: allows sandbox→host when local_role is stale but host is acceptor in initiator/acceptor columns', async () => {
+    const stale = baseRecord({
+      local_role: 'initiator' as any,
+      initiator_device_role: 'sandbox' as any,
+      acceptor_device_role: 'host' as any,
+      initiator_coordination_device_id: 'dev-sand',
+      acceptor_coordination_device_id: 'dev-host',
+    })
+    vi.mocked(getHandshakeRecord).mockReturnValue(stale as any)
+    const ctx2: HostInferenceCoreContext = {
+      transport: 'http_direct',
+      handshakeId: 'hs-x',
+      senderDeviceId: 'dev-sand',
+      targetDeviceId: 'dev-host',
+      authenticated: true,
+      requestId: 'req-1',
+      now: Date.now(),
+      db: { prepare: () => ({ run: () => {} }) } as any,
+    }
+    const r = await handleInternalInferenceCapabilitiesRequest(
+      {
+        type: 'internal_inference_capabilities_request',
+        schema_version: INTERNAL_INFERENCE_SCHEMA_VERSION,
+        request_id: 'req-1',
+        handshake_id: 'hs-x',
+        sender_device_id: 'dev-sand',
+        target_device_id: 'dev-host',
+        created_at: new Date().toISOString(),
+      },
+      ctx2,
+    )
+    expect(r.ok).toBe(true)
+  })
+
+  test('C: rejects inbound to sandbox instance (host peer → capability request to this BEAP is forbidden_host_role)', async () => {
+    orchestratorOms.instanceId = 'dev-sand'
+    vi.mocked(getHandshakeRecord).mockReturnValue(baseRecord({}) as any)
+    const ctx2: HostInferenceCoreContext = {
+      transport: 'http_direct',
+      handshakeId: 'hs-x',
+      senderDeviceId: 'dev-host',
+      targetDeviceId: 'dev-sand',
+      authenticated: true,
+      requestId: 'req-1',
+      now: Date.now(),
+      db: { prepare: () => ({ run: () => {} }) } as any,
+    }
+    const r = await handleInternalInferenceCapabilitiesRequest(
+      {
+        type: 'internal_inference_capabilities_request',
+        schema_version: INTERNAL_INFERENCE_SCHEMA_VERSION,
+        request_id: 'req-1',
+        handshake_id: 'hs-x',
+        sender_device_id: 'dev-host',
+        target_device_id: 'dev-sand',
+        created_at: new Date().toISOString(),
+      },
+      ctx2,
+    )
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.messageKey).toBe('forbidden_host_role')
       expect(r.code).toBe(InternalInferenceErrorCode.POLICY_FORBIDDEN)
     }
   })

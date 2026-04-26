@@ -42,6 +42,27 @@ vi.mock('../../handshake/db', () => ({
   getHandshakeRecord: (...a: unknown[]) => getHSMock(...a),
 }))
 
+vi.mock('../../p2p/p2pConfig', () => ({
+  getP2PConfig: () => ({ coordination_url: 'https://coord.test/' }),
+}))
+
+vi.mock('../hostInferenceCapabilities', () => ({
+  buildInternalInferenceCapabilitiesResult: vi.fn(async () => ({
+    type: 'internal_inference_capabilities_result',
+    schema_version: 1,
+    request_id: 'r1',
+    handshake_id: 'hs-1',
+    sender_device_id: 'dev-host-1',
+    target_device_id: 'dev-sand-1',
+    created_at: new Date().toISOString(),
+    transport_policy: 'direct_only',
+    host_computer_name: 'H',
+    host_pairing_code: '123456',
+    models: [],
+    policy_enabled: true,
+  })),
+}))
+
 vi.mock('electron', () => ({
   app: { getPath: () => 't', getAppPath: () => 't', isPackaged: true },
 }))
@@ -218,12 +239,19 @@ describe('Phase 11 — Host ingest policy', () => {
     expect(j.internal_inference).toBe('cancel_ack')
   })
 
-  it('Host inference RPC requires Host mode (orchestrator file is not the ledger authority; still rejected when not host)', async () => {
+  it('Host inference capabilities: orchestrator `mode` hint (sandbox) does not reject; ledger+receiver host role is authoritative', async () => {
     isHostModeMock.mockReturnValue(false)
     isSandboxModeMock.mockReturnValue(true)
     getHSMock.mockReturnValue(defaultRecord())
-    const res: { status?: number } = {}
-    const r = { writeHead: (c: number) => { res.status = c }, end: () => {} } as any
+    const res: { status?: number; body?: string } = {}
+    const r = {
+      writeHead: (c: number) => {
+        res.status = c
+      },
+      end: (b: string) => {
+        res.body = b
+      },
+    } as any
     const t = Date.now()
     const handled = await tryHandleInternalServiceP2P(
       {},
@@ -239,6 +267,8 @@ describe('Phase 11 — Host ingest policy', () => {
       r,
     )
     expect(handled).toBe(true)
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(200)
+    const j = JSON.parse((res.body as string) || '{}') as { type: string }
+    expect(j.type).toBe('internal_inference_capabilities_result')
   })
 })

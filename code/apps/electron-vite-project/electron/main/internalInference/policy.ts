@@ -20,6 +20,23 @@ function normHostSandboxRole(v: unknown): 'host' | 'sandbox' | null {
 }
 
 /**
+ * Coordination id for the given device role from **initiator/acceptor role columns + ids** only.
+ * Does not use `local_role` (per-device view can disagree with the receiving machine).
+ */
+export function coordinationDeviceIdForHandshakeDeviceRole(
+  r: HandshakeRecord,
+  deviceRole: 'host' | 'sandbox',
+): string | null {
+  const ini = (r.initiator_coordination_device_id ?? '').trim()
+  const acc = (r.acceptor_coordination_device_id ?? '').trim()
+  const iRole = normHostSandboxRole(r.initiator_device_role)
+  const aRole = normHostSandboxRole(r.acceptor_device_role)
+  if (iRole === deviceRole && ini) return ini
+  if (aRole === deviceRole && acc) return acc
+  return null
+}
+
+/**
  * Canonical Host AI / internal P2P role mapping: this device's **coordination id** vs initiator/acceptor ids.
  * Does not use `local_role` or orchestrator-mode.json — the ledger + instance id are authoritative.
  */

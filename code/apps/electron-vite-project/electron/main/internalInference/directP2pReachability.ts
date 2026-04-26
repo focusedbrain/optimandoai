@@ -7,13 +7,14 @@ import { randomUUID } from 'crypto'
 import { getHandshakeRecord, listHandshakeRecords } from '../handshake/db'
 import { BEAP_CORRELATION_HEADER_OUT } from '../p2p/beapIngressLog'
 import { HandshakeState, type HandshakeRecord } from '../handshake/types'
-import { isHostMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
+import { getInstanceId, isHostMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import {
   assertP2pEndpointDirect,
   assertRecordForServiceRpc,
   assertSandboxRequestToHost,
   assertHostSendsResultToSandbox,
+  deriveInternalHostAiPeerRoles,
   outboundP2pBearerToCounterpartyIngest,
 } from './policy'
 import { InternalInferenceErrorCode } from './errors'
@@ -113,14 +114,16 @@ function resolveContext(handshakeId: string, db: any): { ok: true; record: Hands
   if (!ar.ok) {
     return { ok: false, result: { status: 'unreachable', detail: ar.code } }
   }
-  if (isSandboxMode()) {
+  const id = getInstanceId().trim()
+  const dr = deriveInternalHostAiPeerRoles(ar.record, id)
+  if (dr.ok && dr.localRole === 'sandbox' && dr.peerRole === 'host') {
     const role = assertSandboxRequestToHost(ar.record)
     if (!role.ok) {
       return { ok: false, result: { status: 'unreachable', detail: role.code } }
     }
     return { ok: true, record: ar.record }
   }
-  if (isHostMode()) {
+  if (dr.ok && dr.localRole === 'host' && dr.peerRole === 'sandbox') {
     const role = assertHostSendsResultToSandbox(ar.record)
     if (!role.ok) {
       return { ok: false, result: { status: 'unreachable', detail: role.code } }

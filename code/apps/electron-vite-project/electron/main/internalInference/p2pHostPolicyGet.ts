@@ -6,7 +6,7 @@
 import os from 'os'
 import type http from 'http'
 import { getHandshakeRecord } from '../handshake/db'
-import { isHostMode, getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
+import { getInstanceId, getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import {
   checkAuthFailLimit,
   checkIpLimit,
@@ -15,7 +15,13 @@ import {
   IP_LIMIT_PUBLIC,
   IP_LIMIT_PRIVATE_LAN,
 } from '../p2p/rateLimiter'
-import { assertHostSendsResultToSandbox, assertRecordForServiceRpc } from './policy'
+import { logHostAiRoleGate } from './hostAiRoleGateLog'
+import {
+  assertHostSendsResultToSandbox,
+  assertRecordForServiceRpc,
+  coordinationDeviceIdForHandshakeDeviceRole,
+  deriveInternalHostAiPeerRoles,
+} from './policy'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
 import { InternalInferenceErrorCode } from './errors'
 import { ollamaManager } from '../llm/ollama-manager'
@@ -81,13 +87,6 @@ export async function handleGetInternalInferencePolicy(
     return
   }
 
-  if (!isHostMode()) {
-    logP2pBeapRejection({ ip, status: 404, reason: 'not_host_mode', handshakeId, correlationId: beapCorr })
-    res.writeHead(404, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ error: 'Not found' }))
-    return
-  }
-
   const db = getDb()
   if (!db) {
     logP2pBeapRejection({ ip, status: 503, reason: 'vault_locked', handshakeId, correlationId: beapCorr })
@@ -116,6 +115,22 @@ export async function handleGetInternalInferencePolicy(
 
   const h = assertHostSendsResultToSandbox(ar.record)
   if (!h.ok) {
+    const id0 = getInstanceId().trim()
+    const dr = deriveInternalHostAiPeerRoles(ar.record, id0)
+    logHostAiRoleGate({
+      handshake_id: handshakeId,
+      request_type: 'get_internal_inference_policy',
+      current_device_id: id0,
+      endpoint_owner_device_id: dr.ok ? dr.localCoordinationDeviceId : coordinationDeviceIdForHandshakeDeviceRole(ar.record, 'host') || id0,
+      requester_device_id: '',
+      local_derived_role: dr.ok ? dr.localRole : 'unknown',
+      peer_derived_role: dr.ok ? dr.peerRole : 'unknown',
+      receiver_role: dr.ok ? dr.localRole : 'unknown',
+      requester_role: dr.ok ? dr.peerRole : 'unknown',
+      configured_mode: '',
+      decision: 'deny',
+      reason: 'forbidden_host_role',
+    })
     logP2pBeapRejection({ ip, status: 403, reason: 'forbidden_host_role', handshakeId, correlationId: beapCorr })
     res.writeHead(403, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ error: 'Forbidden' }))
