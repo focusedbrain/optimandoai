@@ -15,6 +15,7 @@ const { isSandboxModeMock, isHostModeMock } = vi.hoisted(() => ({
 vi.mock('../../orchestrator/orchestratorModeStore', () => ({
   isHostMode: () => isHostModeMock(),
   isSandboxMode: () => isSandboxModeMock(),
+  getInstanceId: () => 'dev-sand-1',
 }))
 
 const getHandshakeRecordMock = vi.fn<(_db: any, id: string) => HandshakeRecord | null>()

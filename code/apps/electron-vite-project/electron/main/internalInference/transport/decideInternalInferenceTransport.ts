@@ -11,14 +11,12 @@ import {
   p2pEndpointKind,
   p2pEndpointMvpClass,
   canPostInternalInferenceHttpToP2pEndpointIngest,
-  assertSandboxRequestToHost,
+  deriveInternalHostAiPeerRoles,
   handshakeSamePrincipal,
-  localDeviceRole,
-  peerCoordinationDeviceId,
-  peerDeviceRole,
   internalInferenceEndpointGateOk,
   type P2pMvpEndpointClass,
 } from '../policy'
+import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
 import { getSessionState, P2pSessionPhase, type P2pSessionState } from '../p2pSession/p2pInferenceSessionManager'
 import { isP2pDataChannelUpForHandshake } from '../p2pSession/p2pSessionWait'
 import type { HandshakeRecord } from '../../handshake/types'
@@ -319,14 +317,26 @@ export function buildSessionStateForHostAiDecider(handshakeId: string): {
 }
 
 export function deriveHostAiHandshakeRoles(r: HandshakeRecord): HandshakeDerivedRoles {
-  const sandboxLedgerView = assertSandboxRequestToHost(r).ok
-  const hostLedgerView = localDeviceRole(r) === 'host' && peerDeviceRole(r) === 'sandbox'
+  const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
+  const samePrincipal = handshakeSamePrincipal(r)
+  const internalComplete = r.internal_coordination_identity_complete === true
+  if (!dr.ok) {
+    return {
+      ledgerSandboxToHost: false,
+      samePrincipal,
+      internalIdentityComplete: internalComplete,
+      peerHostDeviceIdPresent: false,
+    }
+  }
+  const pairOk =
+    (dr.localRole === 'sandbox' && dr.peerRole === 'host') ||
+    (dr.localRole === 'host' && dr.peerRole === 'sandbox')
   return {
-    /** Sandbox→Host list row, or the symmetric internal pair when the ledger is the Host copy (inbound /beap, result delivery). */
-    ledgerSandboxToHost: sandboxLedgerView || hostLedgerView,
-    samePrincipal: handshakeSamePrincipal(r),
-    internalIdentityComplete: r.internal_coordination_identity_complete === true,
-    peerHostDeviceIdPresent: Boolean((peerCoordinationDeviceId(r) ?? '').trim()),
+    /** Internal Host↔Sandbox row for this instance id (coordination identity), not orchestrator file. */
+    ledgerSandboxToHost: pairOk,
+    samePrincipal,
+    internalIdentityComplete: internalComplete,
+    peerHostDeviceIdPresent: pairOk && Boolean((dr.peerCoordinationDeviceId ?? '').trim()),
   }
 }
 

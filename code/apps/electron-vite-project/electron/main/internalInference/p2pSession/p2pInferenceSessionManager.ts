@@ -8,19 +8,28 @@
 import { randomUUID } from 'crypto'
 import { BrowserWindow } from 'electron'
 import { getHandshakeRecord } from '../../handshake/db'
-import { isHostMode, isSandboxMode } from '../../orchestrator/orchestratorModeStore'
+import type { HandshakeRecord } from '../../handshake/types'
+import { getInstanceId, getOrchestratorMode } from '../../orchestrator/orchestratorModeStore'
 import { getP2pInferenceFlags } from '../p2pInferenceFlags'
 import { getHandshakeDbForInternalInference } from '../dbAccess'
 import { InternalInferenceErrorCode, type InternalInferenceErrorCodeType } from '../errors'
 import { getHostInternalInferencePolicy } from '../hostInferencePolicyStore'
 import { redactIdForLog } from '../internalInferenceLogRedact'
 import {
-  assertHostSendsResultToSandbox,
   assertRecordForServiceRpc,
-  assertSandboxRequestToHost,
+  deriveInternalHostAiPeerRoles,
+  type DeriveInternalHostAiPeerRolesResult,
   localCoordinationDeviceId,
   peerCoordinationDeviceId,
 } from '../policy'
+
+/** Sandbox-side flows that require local=sandbox, peer=host (model selector, chat, probe). */
+const SANDBOX_INITIATED_P2P_SESSION_REASONS = new Set([
+  'model_selector',
+  'capability_probe',
+  'host_inference_chat',
+  'pong_test',
+])
 
 /** Max time to complete signaling offer/answer before the session is treated as stale. */
 export const P2P_SIGNALING_WINDOW_MS = 120_000
@@ -169,6 +178,103 @@ export function getSessionState(handshakeId: string): P2pSessionState | null {
   return withDerivedUi(m.state)
 }
 
+type P2pSessionAuthFailureReason =
+  | 'device_id_mismatch'
+  | 'sandbox_target_reason_wrong_role'
+  | 'host_path_policy'
+  | 'host_path_wrong_role'
+  | 'invalid_pair'
+
+function logP2pSessionAuthFailed(
+  hid: string,
+  record: HandshakeRecord | null,
+  dr: DeriveInternalHostAiPeerRolesResult,
+  params: {
+    ensureReason: string
+    lastErrorCode: InternalInferenceErrorCodeType
+    authReason: P2pSessionAuthFailureReason
+    expectedLocalRole?: 'sandbox' | 'host'
+  },
+) {
+  const om = getOrchestratorMode()
+  const localId8 = redactIdForLog(String(getInstanceId() ?? '').trim())
+  const initiator = record?.initiator_device_role ?? 'null'
+  const acceptor = record?.acceptor_device_role ?? 'null'
+  const lrField = record?.local_role ?? 'null'
+  let derivedLocal = 'null'
+  let derivedPeer = 'null'
+  if (dr.ok) {
+    derivedLocal = dr.localRole
+    derivedPeer = dr.peerRole
+  }
+  const exp = params.expectedLocalRole ?? 'n/a'
+  console.log(
+    `[P2P_SESSION_AUTH] failed handshake=${hid} configured_mode=${om.mode} derived_local_role=${derivedLocal} derived_peer_role=${derivedPeer} expected_local_role=${exp} local_device_id=${localId8} initiator_device_role=${initiator} acceptor_device_role=${acceptor} local_role_field=${lrField} reason=${params.authReason} lastErrorCode=${params.lastErrorCode} ensure=${params.ensureReason}`,
+  )
+}
+
+function authorizeInternalP2pSession(
+  reason: string,
+  dr: DeriveInternalHostAiPeerRolesResult,
+):
+  | { ok: true }
+  | {
+      ok: false
+      code: InternalInferenceErrorCodeType
+      authReason: P2pSessionAuthFailureReason
+      expectedLocalRole?: 'sandbox' | 'host'
+    } {
+  if (!dr.ok) {
+    return {
+      ok: false,
+      code: dr.code as InternalInferenceErrorCodeType,
+      authReason: 'device_id_mismatch',
+    }
+  }
+  const { localRole, peerRole } = dr
+  if (
+    (localRole !== 'host' && localRole !== 'sandbox') ||
+    (peerRole !== 'host' && peerRole !== 'sandbox') ||
+    localRole === peerRole
+  ) {
+    return {
+      ok: false,
+      code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE,
+      authReason: 'invalid_pair',
+    }
+  }
+  if (SANDBOX_INITIATED_P2P_SESSION_REASONS.has(reason)) {
+    if (localRole !== 'sandbox' || peerRole !== 'host') {
+      return {
+        ok: false,
+        code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE,
+        authReason: 'sandbox_target_reason_wrong_role',
+        expectedLocalRole: 'sandbox',
+      }
+    }
+    return { ok: true }
+  }
+  if (localRole === 'sandbox' && peerRole === 'host') {
+    return { ok: true }
+  }
+  if (localRole === 'host' && peerRole === 'sandbox') {
+    if (!getHostInternalInferencePolicy().allowSandboxInference) {
+      return {
+        ok: false,
+        code: InternalInferenceErrorCode.HOST_INFERENCE_DISABLED,
+        authReason: 'host_path_policy',
+        expectedLocalRole: 'host',
+      }
+    }
+    return { ok: true }
+  }
+  return {
+    ok: false,
+    code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE,
+    authReason: 'host_path_wrong_role',
+  }
+}
+
 /**
  * @param reason — caller context for logs only (e.g. `ui_ensure`); not sent to peer.
  */
@@ -210,23 +316,6 @@ export async function ensureSession(
     setSession(hid, st)
     return withDerivedUi(st)
   }
-  if (!isHostMode() && !isSandboxMode()) {
-    const st: P2pSessionState = {
-      handshakeId: hid,
-      sessionId: null,
-      phase: P2pSessionPhase.failed,
-      p2pUiPhase: P2pSessionUiPhase.p2p_unavailable,
-      lastErrorCode: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE,
-      connectedAt: null,
-      updatedAt: t,
-      signalingExpiresAt: null,
-      boundLocalDeviceId: '',
-      boundPeerDeviceId: '',
-    }
-    setSession(hid, st)
-    logFailed(hid, null, P2pSessionLogReason.unauthorized, reason)
-    return withDerivedUi(st)
-  }
   const db = await getHandshakeDbForInternalInference()
   if (!db) {
     const st: P2pSessionState = {
@@ -264,61 +353,41 @@ export async function ensureSession(
     logFailed(hid, null, P2pSessionLogReason.unauthorized, reason)
     return withDerivedUi(st)
   }
-  if (isSandboxMode()) {
-    const role = assertSandboxRequestToHost(ar.record)
-    if (!role.ok) {
-      const st: P2pSessionState = {
-        handshakeId: hid,
-        sessionId: null,
-        phase: P2pSessionPhase.failed,
-        p2pUiPhase: P2pSessionUiPhase.p2p_unavailable,
-        lastErrorCode: role.code as InternalInferenceErrorCodeType,
-        connectedAt: null,
-        updatedAt: t,
-        signalingExpiresAt: null,
-        boundLocalDeviceId: '',
-        boundPeerDeviceId: '',
-      }
-      setSession(hid, st)
-      logFailed(hid, null, P2pSessionLogReason.unauthorized, reason)
-      return withDerivedUi(st)
+  const localId = String(getInstanceId() ?? '').trim()
+  const dr = deriveInternalHostAiPeerRoles(ar.record, localId)
+  const authz = authorizeInternalP2pSession(reason, dr)
+  if (!authz.ok) {
+    const st: P2pSessionState = {
+      handshakeId: hid,
+      sessionId: null,
+      phase: P2pSessionPhase.failed,
+      p2pUiPhase:
+        authz.code === InternalInferenceErrorCode.HOST_INFERENCE_DISABLED
+          ? P2pSessionUiPhase.policy_disabled
+          : P2pSessionUiPhase.p2p_unavailable,
+      lastErrorCode: authz.code,
+      connectedAt: null,
+      updatedAt: t,
+      signalingExpiresAt: null,
+      boundLocalDeviceId: '',
+      boundPeerDeviceId: '',
     }
-  } else {
-    const role = assertHostSendsResultToSandbox(ar.record)
-    if (!role.ok) {
-      const st: P2pSessionState = {
-        handshakeId: hid,
-        sessionId: null,
-        phase: P2pSessionPhase.failed,
-        p2pUiPhase: P2pSessionUiPhase.p2p_unavailable,
-        lastErrorCode: role.code as InternalInferenceErrorCodeType,
-        connectedAt: null,
-        updatedAt: t,
-        signalingExpiresAt: null,
-        boundLocalDeviceId: '',
-        boundPeerDeviceId: '',
-      }
-      setSession(hid, st)
-      logFailed(hid, null, P2pSessionLogReason.unauthorized, reason)
-      return withDerivedUi(st)
-    }
-    if (!getHostInternalInferencePolicy().allowSandboxInference) {
-      const st: P2pSessionState = {
-        handshakeId: hid,
-        sessionId: null,
-        phase: P2pSessionPhase.failed,
-        p2pUiPhase: P2pSessionUiPhase.policy_disabled,
-        lastErrorCode: InternalInferenceErrorCode.HOST_INFERENCE_DISABLED,
-        connectedAt: null,
-        updatedAt: t,
-        signalingExpiresAt: null,
-        boundLocalDeviceId: '',
-        boundPeerDeviceId: '',
-      }
-      setSession(hid, st)
-      logFailed(hid, null, P2pSessionLogReason.host_policy, reason)
-      return withDerivedUi(st)
-    }
+    setSession(hid, st)
+    logP2pSessionAuthFailed(hid, ar.record, dr, {
+      ensureReason: reason,
+      lastErrorCode: authz.code,
+      authReason: authz.authReason,
+      expectedLocalRole: authz.expectedLocalRole,
+    })
+    logFailed(
+      hid,
+      null,
+      authz.code === InternalInferenceErrorCode.HOST_INFERENCE_DISABLED
+        ? P2pSessionLogReason.host_policy
+        : P2pSessionLogReason.unauthorized,
+      reason,
+    )
+    return withDerivedUi(st)
   }
   const existing = sessions.get(hid)
   if (existing) {

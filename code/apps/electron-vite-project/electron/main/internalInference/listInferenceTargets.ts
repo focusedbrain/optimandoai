@@ -9,7 +9,7 @@ import {
 } from '../../../../../packages/shared/src/handshake/internalIdentityUi'
 import { listHandshakeRecords } from '../handshake/db'
 import { HandshakeState, type HandshakeRecord } from '../handshake/types'
-import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
+import { getInstanceId, getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { logInternalHostHandshakeP2pInspect } from './internalP2pHandshakeInspect'
 import { newHostAiCorrelationChain } from './hostAiStageLog'
@@ -21,7 +21,13 @@ import {
 } from './p2pInferenceFlags'
 import { ensureSession, P2pSessionPhase } from './p2pSession/p2pInferenceSessionManager'
 import { isP2pDataChannelUpForHandshake } from './p2pSession/p2pSessionWait'
-import { assertRecordForServiceRpc, handshakeSamePrincipal, p2pEndpointKind, peerCoordinationDeviceId } from './policy'
+import {
+  assertRecordForServiceRpc,
+  deriveInternalHostAiPeerRoles,
+  handshakeSamePrincipal,
+  p2pEndpointKind,
+  peerCoordinationDeviceId,
+} from './policy'
 import {
   buildHostAiTransportDeciderInput,
   decideInternalInferenceTransport,
@@ -165,16 +171,18 @@ function deriveFromRecord(r: HandshakeRecord): DerivedInternalRoles {
   return deriveInternalHandshakeRoles(recordToInternalRoleSource(r))
 }
 
-/** Handshake says this device is Sandbox and peer is Host, same account — the Host AI target shape. */
+/** This instance (coordination id) is Sandbox and peer is Host, same account — the Host AI target shape. */
 function rowProvesLocalSandboxToHostForHostAi(r: HandshakeRecord): boolean {
   if (!handshakeSamePrincipal(r)) return false
-  return deriveFromRecord(r).isLocalSandboxPeerHost
+  const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
+  return dr.ok && dr.localRole === 'sandbox' && dr.peerRole === 'host'
 }
 
-/** This device is Host and peer is Sandbox (same account) — not the Host AI discovery client role. */
+/** This instance is Host and peer is Sandbox (same account) — not the Host AI discovery client role. */
 function rowProvesLocalHostPeerSandboxForHostAi(r: HandshakeRecord): boolean {
   if (!handshakeSamePrincipal(r)) return false
-  return deriveFromRecord(r).isLocalHostPeerSandbox
+  const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
+  return dr.ok && dr.localRole === 'host' && dr.peerRole === 'sandbox'
 }
 
 function mapRoleGateFromDerived(d: DerivedInternalRoles): HostInternalInferenceRejectReason {
@@ -697,7 +705,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
 
   if (!handshakeProvesSandboxToHost && mainMode !== 'sandbox') {
     console.log(
-      `${L} list_done count=0 reason=no_handshake_sandbox_to_host_and_configured_mode_not_sandbox (Host AI not needed)`,
+      `${L} list_done count=0 reason=no_sandbox_to_host_for_this_instance_and_configured_mode_not_sandbox (Host AI not needed)`,
     )
     return { ok: true, targets: [], refreshMeta: { hadCapabilitiesProbed: false } }
   }
@@ -721,7 +729,8 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       console.log(`${L} rejected handshake=${r0.handshake_id} reason=NOT_SAME_PRINCIPAL`)
       continue
     }
-    const roleGateOk = derived.isLocalSandboxPeerHost
+    const drInst = deriveInternalHostAiPeerRoles(r0, getInstanceId().trim())
+    const roleGateOk = drInst.ok && drInst.localRole === 'sandbox' && drInst.peerRole === 'host'
     if (!roleGateOk) {
       const rr = mapRoleGateFromDerived(derived)
       if (isHostSandboxDeviceRoles(r0)) {
@@ -1329,7 +1338,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
    * Only ACTIVE internal **Sandbox→Host** (handshake-derived, same account) can populate an empty
    * selector: checking row while the pipeline is still unable to build a more specific item.
    */
-  if (targets.length === 0 && db && (mainMode === 'sandbox' || handshakeProvesSandboxToHost)) {
+  if (targets.length === 0 && db && handshakeProvesSandboxToHost) {
     for (const r0 of ledgerActive) {
       if (r0.handshake_type !== 'internal' || r0.state !== HandshakeState.ACTIVE) {
         continue

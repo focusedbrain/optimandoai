@@ -8,9 +8,10 @@ import { assertP2pEndpointDirect, p2pEndpointKind } from '../policy'
 import { listSandboxHostInternalInferenceTargets } from '../listInferenceTargets'
 import { resetP2pInferenceFlagsForTests } from '../p2pInferenceFlags'
 
-const { isHostModeMock, isSandboxModeMock, getOrchestratorModeMock } = vi.hoisted(() => {
+const { isHostModeMock, isSandboxModeMock, getOrchestratorModeMock, getInstanceIdMock } = vi.hoisted(() => {
   const isHost = vi.fn(() => false)
   const isSandbox = vi.fn(() => false)
+  const getInst = vi.fn(() => 'dev-sand-1')
   const minimal = (mode: 'host' | 'sandbox') => ({
     mode,
     deviceName: 'dev',
@@ -23,7 +24,13 @@ const { isHostModeMock, isSandboxModeMock, getOrchestratorModeMock } = vi.hoiste
     if (isSandbox()) return minimal('sandbox')
     return minimal('host')
   })
-  return { isHostModeMock: isHost, isSandboxModeMock: isSandbox, getOrchestratorModeMock: getOrch, _minimalOrch: minimal }
+  return {
+    isHostModeMock: isHost,
+    isSandboxModeMock: isSandbox,
+    getOrchestratorModeMock: getOrch,
+    getInstanceIdMock: getInst,
+    _minimalOrch: minimal,
+  }
 })
 
 const minimalOrch = (mode: 'host' | 'sandbox') => ({
@@ -38,6 +45,7 @@ vi.mock('../../orchestrator/orchestratorModeStore', () => ({
   isHostMode: () => isHostModeMock(),
   isSandboxMode: () => isSandboxModeMock(),
   getOrchestratorMode: () => getOrchestratorModeMock(),
+  getInstanceId: () => getInstanceIdMock(),
 }))
 
 const listHandshakeRecordsMock = vi.fn<
@@ -202,6 +210,7 @@ beforeEach(() => {
   listHandshakeRecordsMock.mockReturnValue([])
   probeHostInferencePolicyFromSandboxMock.mockReset()
   isDcUpListMock.mockReturnValue(true)
+  getInstanceIdMock.mockReturnValue('dev-sand-1')
   ensureSessionListMock.mockImplementation(async (hid: string) => ({
     handshakeId: hid,
     sessionId: 'p2p-sess-1',
@@ -565,6 +574,8 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
 
   it('assertSandboxRequestToHost fails (local_role vs device roles) but host+sandbox pairing still gets a checking Host row, not an empty list', async () => {
     isSandboxModeMock.mockReturnValue(true)
+    /** Ledger local_role acceptor, but this instance id is the Host side of the pair → instance-id roles are host↔sandbox, not S→H client. */
+    getInstanceIdMock.mockReturnValue('dev-host-1')
     listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost({ local_role: 'acceptor' as const })])
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.targets).toHaveLength(1)

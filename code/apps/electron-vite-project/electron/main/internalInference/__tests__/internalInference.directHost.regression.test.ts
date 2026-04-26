@@ -507,6 +507,8 @@ describe('runSandboxHostInferenceChat (Sandbox entry)', () => {
         local_role: 'initiator',
         initiator_device_role: 'sandbox',
         acceptor_device_role: 'host',
+        initiator_coordination_device_id: 'dev-sand-1',
+        acceptor_coordination_device_id: 'dev-host-1',
         p2p_endpoint: null as any,
       }) as any,
     )

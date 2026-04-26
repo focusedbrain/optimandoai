@@ -27,6 +27,14 @@ vi.mock('../../handshake/db', () => ({
 vi.mock('../../orchestrator/orchestratorModeStore', () => ({
   isHostMode: () => true,
   isSandboxMode: () => false,
+  getInstanceId: () => 'dev-host-11',
+  getOrchestratorMode: () => ({
+    mode: 'host',
+    deviceName: 'T',
+    instanceId: 'dev-host-11',
+    pairingCode: '000000',
+    connectedPeers: [],
+  }),
 }))
 
 import {

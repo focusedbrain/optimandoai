@@ -1,4 +1,5 @@
 import type { HandshakeRecord } from '../handshake/types'
+import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getP2PConfig } from '../p2p/p2pConfig'
 import { InternalInferenceErrorCode } from './errors'
 
@@ -11,6 +12,81 @@ function samePrincipal(r: HandshakeRecord): boolean {
 /** Exported for `listTargets` / ledger filtering — same check as `assertRecordForServiceRpc` (without identity-complete gate). */
 export function handshakeSamePrincipal(r: HandshakeRecord): boolean {
   return samePrincipal(r)
+}
+
+function normHostSandboxRole(v: unknown): 'host' | 'sandbox' | null {
+  if (v === 'host' || v === 'sandbox') return v
+  return null
+}
+
+/**
+ * Canonical Host AI / internal P2P role mapping: this device's **coordination id** vs initiator/acceptor ids.
+ * Does not use `local_role` or orchestrator-mode.json — the ledger + instance id are authoritative.
+ */
+export type InternalHostAiPeerRolesOk = {
+  ok: true
+  localRole: 'sandbox' | 'host'
+  peerRole: 'sandbox' | 'host'
+  localCoordinationDeviceId: string
+  peerCoordinationDeviceId: string
+  roleSource: 'handshake'
+}
+
+export type InternalHostAiPeerRolesFail = {
+  ok: false
+  code: string
+  reason: 'device_id_not_in_handshake' | 'invalid_coordination_roles'
+}
+
+export type DeriveInternalHostAiPeerRolesResult = InternalHostAiPeerRolesOk | InternalHostAiPeerRolesFail
+
+export function deriveInternalHostAiPeerRoles(
+  r: HandshakeRecord,
+  localDeviceId: string,
+): DeriveInternalHostAiPeerRolesResult {
+  const id = typeof localDeviceId === 'string' ? localDeviceId.trim() : ''
+  if (!id) {
+    return { ok: false, code: InternalInferenceErrorCode.POLICY_FORBIDDEN, reason: 'device_id_not_in_handshake' }
+  }
+  const ini = (r.initiator_coordination_device_id ?? '').trim()
+  const acc = (r.acceptor_coordination_device_id ?? '').trim()
+  const iRole = normHostSandboxRole(r.initiator_device_role)
+  const aRole = normHostSandboxRole(r.acceptor_device_role)
+  if (id === ini && ini.length > 0) {
+    if (!iRole || !aRole) {
+      return {
+        ok: false,
+        code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE,
+        reason: 'invalid_coordination_roles',
+      }
+    }
+    return {
+      ok: true,
+      localRole: iRole,
+      peerRole: aRole,
+      localCoordinationDeviceId: ini,
+      peerCoordinationDeviceId: acc,
+      roleSource: 'handshake',
+    }
+  }
+  if (id === acc && acc.length > 0) {
+    if (!iRole || !aRole) {
+      return {
+        ok: false,
+        code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE,
+        reason: 'invalid_coordination_roles',
+      }
+    }
+    return {
+      ok: true,
+      localRole: aRole,
+      peerRole: iRole,
+      localCoordinationDeviceId: acc,
+      peerCoordinationDeviceId: ini,
+      roleSource: 'handshake',
+    }
+  }
+  return { ok: false, code: InternalInferenceErrorCode.POLICY_FORBIDDEN, reason: 'device_id_not_in_handshake' }
 }
 
 export function localDeviceRole(r: HandshakeRecord): 'host' | 'sandbox' | null {
@@ -201,20 +277,21 @@ export function assertRecordForServiceRpc(
 }
 
 /**
- * Ledger-only: this row says local device is Sandbox and peer is Host.
- * Authoritative for internal Host AI / P2P policy: do not gate on `orchestrator-mode.json` (setup
- * metadata; can be stale).
+ * Ledger + coordination identity: this **instance** (getInstanceId) maps to Sandbox with peer Host.
+ * Authoritative for internal Host AI / P2P — not `orchestrator-mode.json` or `local_role` alone.
  */
 export function assertLedgerRolesSandboxToHost(
   r: HandshakeRecord,
 ): { ok: true } | { ok: false; code: string } {
-  if (localDeviceRole(r) !== 'sandbox' || peerDeviceRole(r) !== 'host') {
+  const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
+  if (!dr.ok) return { ok: false, code: dr.code }
+  if (dr.localRole !== 'sandbox' || dr.peerRole !== 'host') {
     return { ok: false, code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE }
   }
   return { ok: true }
 }
 
-/** Sandbox→Host request path: ledger role is authoritative; persisted orchestrator mode is not a second gate. */
+/** Sandbox→Host request path: coordination device id on the row vs this instance. */
 export function assertSandboxRequestToHost(r: HandshakeRecord): { ok: true } | { ok: false; code: string } {
   return assertLedgerRolesSandboxToHost(r)
 }
@@ -223,10 +300,12 @@ export function assertHostReceivesRequestFromSandbox(
   r: HandshakeRecord,
   senderDeviceId: string,
 ): { ok: true } | { ok: false; code: string } {
-  if (localDeviceRole(r) !== 'host' || peerDeviceRole(r) !== 'sandbox') {
+  const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
+  if (!dr.ok) return { ok: false, code: dr.code }
+  if (dr.localRole !== 'host' || dr.peerRole !== 'sandbox') {
     return { ok: false, code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE }
   }
-  const peer = peerCoordinationDeviceId(r)
+  const peer = dr.peerCoordinationDeviceId
   if (!peer || peer !== senderDeviceId.trim()) {
     return { ok: false, code: InternalInferenceErrorCode.POLICY_FORBIDDEN }
   }
@@ -234,7 +313,9 @@ export function assertHostReceivesRequestFromSandbox(
 }
 
 export function assertHostSendsResultToSandbox(r: HandshakeRecord): { ok: true } | { ok: false; code: string } {
-  if (localDeviceRole(r) !== 'host' || peerDeviceRole(r) !== 'sandbox') {
+  const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
+  if (!dr.ok) return { ok: false, code: dr.code }
+  if (dr.localRole !== 'host' || dr.peerRole !== 'sandbox') {
     return { ok: false, code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE }
   }
   return { ok: true }
@@ -244,10 +325,12 @@ export function assertSandboxReceivesResultFromHost(
   r: HandshakeRecord,
   senderDeviceId: string,
 ): { ok: true } | { ok: false; code: string } {
-  if (localDeviceRole(r) !== 'sandbox' || peerDeviceRole(r) !== 'host') {
+  const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
+  if (!dr.ok) return { ok: false, code: dr.code }
+  if (dr.localRole !== 'sandbox' || dr.peerRole !== 'host') {
     return { ok: false, code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE }
   }
-  const peer = peerCoordinationDeviceId(r)
+  const peer = dr.peerCoordinationDeviceId
   if (!peer || peer !== senderDeviceId.trim()) {
     return { ok: false, code: InternalInferenceErrorCode.POLICY_FORBIDDEN }
   }
