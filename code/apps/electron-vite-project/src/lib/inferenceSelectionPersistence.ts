@@ -313,7 +313,8 @@ export function isHostInferenceTargetDefinitivelyInvalidForRestore(t: Orchestrat
     ur === 'transport_not_ready' ||
     ur === 'capability_probe_failed' ||
     ur === 'provider_not_ready' ||
-    ur === 'no_models'
+    ur === 'no_models' ||
+    ur === 'INTERNAL_RELAY_P2P_NOT_READY'
   ) {
     return true
   }

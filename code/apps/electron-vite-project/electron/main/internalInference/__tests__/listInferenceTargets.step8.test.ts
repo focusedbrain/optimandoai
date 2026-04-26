@@ -622,10 +622,10 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
     expect(probeHostInferencePolicyFromSandboxMock).not.toHaveBeenCalled()
     expect(r.targets).toHaveLength(1)
     const t = r.targets[0]!
-    expect(t.p2pUiPhase).toBe('hidden')
+    expect(t.p2pUiPhase).toBe('p2p_unavailable')
     expect(t.available).toBe(false)
-    expect(t.availability).toBe('host_offline')
-    expect(t.hostAiStructuredUnavailableReason).toBe('transport_not_ready')
+    expect(t.availability).toBe('direct_unreachable')
+    expect(t.unavailable_reason).toBe('INTERNAL_RELAY_P2P_NOT_READY')
     vi.unstubAllEnvs()
     resetP2pInferenceFlagsForTests()
   })
@@ -808,17 +808,17 @@ describe('STEP 8 — Production safety (unit contracts)', () => {
     })
     const r = await listSandboxHostInternalInferenceTargets()
     const t = r.targets[0]!
-    expect(t.p2pUiPhase).toBe('hidden')
-    expect(t.transportMode).toBe('webrtc_p2p')
+    expect(t.p2pUiPhase).toBe('p2p_unavailable')
+    expect(t.transportMode).toBe('none')
     expect(t.p2pUiPhase).not.toBe('legacy_http_invalid')
-    expect(t.inference_error_code).not.toBe('MVP_P2P_ENDPOINT_INVALID')
+    expect(t.inference_error_code).toBe('INTERNAL_RELAY_P2P_NOT_READY')
     expect(ensureSessionListMock).toHaveBeenCalled()
     expect(probeHostInferencePolicyFromSandboxMock).not.toHaveBeenCalled()
     vi.unstubAllEnvs()
     resetP2pInferenceFlagsForTests()
   })
 
-  it('(1b) relay + WebRTC on + still signaling: hidden row (transport not ready), not legacy invalid', async () => {
+  it('(1b) relay + WebRTC on + still signaling: p2p_unavailable row (transport not ready), not legacy invalid', async () => {
     vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
@@ -842,7 +842,7 @@ describe('STEP 8 — Production safety (unit contracts)', () => {
     listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost({ p2p_endpoint: relay })])
     const r = await listSandboxHostInternalInferenceTargets()
     const t = r.targets[0]!
-    expect(t.p2pUiPhase).toBe('hidden')
+    expect(t.p2pUiPhase).toBe('p2p_unavailable')
     expect(t.p2pUiPhase).not.toBe('legacy_http_invalid')
     vi.unstubAllEnvs()
     resetP2pInferenceFlagsForTests()
@@ -1176,7 +1176,7 @@ describe('Host AI P2P — bundle defaults (no WRDESK env)', () => {
     resetP2pInferenceFlagsForTests()
   })
 
-  it('ACTIVE Sandbox→Host + relay + no env: getP2pInferenceFlags on; [HOST_AI_FLAGS_SOURCE]; transport preferred=webrtc_p2p; row hidden until DC', async () => {
+  it('ACTIVE Sandbox→Host + relay + no env: getP2pInferenceFlags on; [HOST_AI_FLAGS_SOURCE]; internal relay+noDC fail-closed; row p2p_unavailable until DC', async () => {
     const { getP2pInferenceFlags } = await import('../p2pInferenceFlags')
     const f = getP2pInferenceFlags()
     expect(f.p2pInferenceEnabled).toBe(true)
@@ -1220,9 +1220,11 @@ describe('Host AI P2P — bundle defaults (no WRDESK env)', () => {
     const joined = log.mock.calls.flat().join('\n')
     expect(joined).toMatch(/\[HOST_AI_FLAGS_SOURCE\] source=default/)
     expect(joined).toMatch(/p2pInferenceEnabled=true.*signaling=true.*webrtc=true/s)
-    expect(joined).toMatch(/\[HOST_AI_TRANSPORT_DECIDE\].*preferred=webrtc_p2p.*selector_phase=connecting/s)
-    expect(t.transportMode).toBe('webrtc_p2p')
-    expect(t.p2pUiPhase).toBe('hidden')
+    expect(joined).toMatch(
+      /\[HOST_AI_TRANSPORT_DECIDE\].*preferred=none.*selector_phase=p2p_unavailable.*failureCode=INTERNAL_RELAY_P2P_NOT_READY/s,
+    )
+    expect(t.transportMode).toBe('none')
+    expect(t.p2pUiPhase).toBe('p2p_unavailable')
     expect(t.available).toBe(false)
     log.mockRestore()
   })

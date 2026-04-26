@@ -343,6 +343,18 @@ export function decideInternalInferenceTransport(
 
   const ph = ss?.p2pSession?.phase
   const dcUp = Boolean(ss?.dataChannelUp)
+  if (ph === P2pSessionPhase.failed) {
+    return {
+      targetDetected: true,
+      selectorPhase: 'p2p_unavailable',
+      preferredTransport: 'none',
+      mayUseLegacyHttpFallback: mayFb,
+      legacyHttpFallbackViable: legacyViable,
+      p2pTransportEndpointOpen: false,
+      failureCode: String(ss?.p2pSession?.lastErrorCode ?? 'P2P_SESSION_FAILED'),
+      userSafeReason: null,
+    }
+  }
   if (dcUp) {
     return {
       targetDetected: true,
@@ -353,6 +365,26 @@ export function decideInternalInferenceTransport(
       p2pTransportEndpointOpen: true,
       failureCode: null,
       userSafeReason: null,
+    }
+  }
+  /**
+   * Same-principal internal Sandbox→Host: a relay `p2p_endpoint` is signaling-only until a data channel
+   * exists. Do not report `connecting`+WebRTC as a usable transport for the selector (it loops probes).
+   * Direct HTTP (when the stored endpoint is a real BEAP ingest) is preferred earlier via
+   * `internalPreferDirectHttp`. Pure relay+noDC → fail closed; list still throttles `ensureHostAiP2pSession` so
+   * WebRTC can start in the background.
+   */
+  if (hr?.handshake_type === 'internal' && trust && kind === 'relay' && !dcUp) {
+    return {
+      targetDetected: true,
+      selectorPhase: 'p2p_unavailable',
+      preferredTransport: 'none',
+      mayUseLegacyHttpFallback: mayFb,
+      legacyHttpFallbackViable: legacyViable,
+      p2pTransportEndpointOpen: false,
+      failureCode: 'INTERNAL_RELAY_P2P_NOT_READY',
+      userSafeReason:
+        'Host AI on this internal pair needs a direct BEAP address on the handshake, or a live P2P data channel. Relay signaling alone cannot run inference until the connection is up.',
     }
   }
   if (ph === P2pSessionPhase.starting || ph === P2pSessionPhase.signaling || ph === P2pSessionPhase.connecting) {

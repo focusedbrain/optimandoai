@@ -2,16 +2,19 @@ import type { HostInferenceTargetRow } from '../hooks/useSandboxHostInference'
 
 type SelectorRowLike = { type?: string; hostAi?: boolean; section?: 'local' | 'host' | 'cloud' }
 
+type HostTargetLike = Pick<HostInferenceTargetRow, 'kind'> & { available?: boolean }
+
 /**
- * `host_internal` in merged model list (including disabled) or listTargets rows — model discovery
- * has surfaced Host AI, so refresh can be relevant even if `orchestrator-mode.json` is wrong.
+ * True when a **selectable** Host internal row exists (or merged model list has an enabled host group).
+ * Disabled diagnostic-only rows (transport down, Ollama missing, etc.) do not count — otherwise the
+ * model selector shows "Host AI" discovery while no inference route is ready.
  * WR Chat passes rows with `hostAi` / `section` from `wrChatModelOptionsFromSelectorModels` (no `type` on that shape).
  */
 export function discoveryHasHostInternalRows(
-  gavHostTargets: Pick<HostInferenceTargetRow, 'kind'>[],
+  gavHostTargets: HostTargetLike[],
   selectorOrMergedModels: SelectorRowLike[],
 ): boolean {
-  if (gavHostTargets.some((t) => t.kind === 'host_internal')) {
+  if (gavHostTargets.some((t) => t.kind === 'host_internal' && t.available === true)) {
     return true
   }
   return selectorOrMergedModels.some(

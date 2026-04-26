@@ -61,10 +61,15 @@ const L = '[HOST_INFERENCE_TARGETS]'
 const stableListProbeChainByHandshake = new Map<string, string>()
 
 const P2P_LIST_ENSURE_THROTTLE_MS = 5_000
+/** If signaling/starting persists longer than this, drop cached ensure and force a fresh session attempt. */
+const P2P_LIST_MAX_STUCK_SIGNALING_CACHE_MS = 15_000
+/** Throttle background ensure for internal+relay+no-DC (decider fails closed; P2P still needs a nudge to start). */
+const RELAY_DATA_CHANNEL_NUDGE_THROTTLE_MS = 3_000
 const lastP2pEnsureByHandshake = new Map<
   string,
   { t: number; state: Awaited<ReturnType<typeof ensureHostAiP2pSession>> }
 >()
+const lastRelayP2pNudgeByHandshake = new Map<string, number>()
 
 registerP2pEnsureCacheInvalidator((handshakeId) => {
   lastP2pEnsureByHandshake.delete(String(handshakeId ?? '').trim())
@@ -147,12 +152,14 @@ export function resetWebrtcListHostCapsCacheForTests(): void {
 /** Clears ensure-session throttle cache (module singleton). For unit tests only. */
 export function resetP2pEnsureThrottleCacheForTests(): void {
   lastP2pEnsureByHandshake.clear()
+  lastRelayP2pNudgeByHandshake.clear()
 }
 
 /** After orchestrator build bump: drop cached list/probe state so Host AI is re-derived fresh. */
 export function clearHostAiListTransientStateForOrchestratorBuildChange(): void {
   stableListProbeChainByHandshake.clear()
   lastP2pEnsureByHandshake.clear()
+  lastRelayP2pNudgeByHandshake.clear()
   webrtcListHostCapsCache.clear()
   listHostCapsProbeInflight.clear()
   listHostCapsProbeLast.clear()
@@ -500,6 +507,7 @@ export type HostTargetUnavailableCode =
   | 'UNKNOWN'
   | 'CHECKING_CAPABILITIES'
   | 'SANDBOX_HOST_ROLE_METADATA'
+  | 'INTERNAL_RELAY_P2P_NOT_READY'
 
 export type HostInferenceListAvailability =
   | 'available'
@@ -1043,6 +1051,21 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     const hostDevice = peerCoordinationDeviceId(r)?.trim() || ''
     const pcc = r.internal_peer_pairing_code ?? undefined
     const fRow = getP2pInferenceFlags()
+    {
+      const epKindForNudge = p2pEndpointKind(db, r.p2p_endpoint)
+      if (
+        r.handshake_type === 'internal' &&
+        epKindForNudge === 'relay' &&
+        !isP2pDataChannelUpForHandshake(hid)
+      ) {
+        const nowN = Date.now()
+        const prevN = lastRelayP2pNudgeByHandshake.get(hid) ?? 0
+        if (nowN - prevN >= RELAY_DATA_CHANNEL_NUDGE_THROTTLE_MS) {
+          lastRelayP2pNudgeByHandshake.set(hid, nowN)
+          void ensureHostAiP2pSession(hid, 'model_selector').catch(() => {})
+        }
+      }
+    }
     const dec = decideInternalInferenceTransport(
       await buildHostAiTransportDeciderInputAsync({
         operationContext: 'list_targets',
@@ -1130,18 +1153,23 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       const miss = listDec.failureCode === 'MISSING_P2P_ENDPOINT'
       const inv = listDec.failureCode === 'INVALID_P2P_ENDPOINT'
       const relaySig = listDec.failureCode === 'RELAY_HOST_AI_P2P_SIGNALING_UNAVAILABLE'
+      const internalRelayNoDc = listDec.failureCode === 'INTERNAL_RELAY_P2P_NOT_READY'
       const ur: HostTargetUnavailableCode = miss
         ? 'MISSING_P2P_ENDPOINT'
         : inv
           ? 'ENDPOINT_NOT_DIRECT'
           : relaySig
             ? 'UNKNOWN'
-            : 'HOST_DIRECT_P2P_UNREACHABLE'
+            : internalRelayNoDc
+              ? 'INTERNAL_RELAY_P2P_NOT_READY'
+              : 'HOST_DIRECT_P2P_UNREACHABLE'
       const sub0 = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay)
       const sub =
         relaySig && listDec.userSafeReason?.trim()
           ? `${sub0} — ${listDec.userSafeReason.trim()}`
-          : sub0
+          : internalRelayNoDc && listDec.userSafeReason?.trim()
+            ? `${sub0} — ${listDec.userSafeReason.trim()}`
+            : sub0
       const ht = primaryLabelForP2pUiPhase('p2p_unavailable')
       const t: HostTargetDraft = {
         kind: 'host_internal',
@@ -1274,7 +1302,22 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     if (webrtcListPath) {
       let sState: Awaited<ReturnType<typeof ensureHostAiP2pSession>> | null = null
       const tList = Date.now()
-      const ensureCached = lastP2pEnsureByHandshake.get(hid)
+      let ensureCached = lastP2pEnsureByHandshake.get(hid)
+      if (
+        ensureCached &&
+        tList - ensureCached.t >= P2P_LIST_MAX_STUCK_SIGNALING_CACHE_MS &&
+        (ensureCached.state.phase === P2pSessionPhase.starting ||
+          ensureCached.state.phase === P2pSessionPhase.signaling ||
+          ensureCached.state.phase === P2pSessionPhase.connecting) &&
+        !isP2pDataChannelUpForHandshake(hid)
+      ) {
+        const expAge = tList - ensureCached.t
+        lastP2pEnsureByHandshake.delete(hid)
+        ensureCached = undefined
+        console.log(`${L} p2p_ensure_cache_expired handshake=${hid} reason=stuck_signaling age_ms=${expAge}`)
+      } else {
+        ensureCached = lastP2pEnsureByHandshake.get(hid)
+      }
       const useCached =
         ensureCached &&
         tList - ensureCached.t < P2P_LIST_ENSURE_THROTTLE_MS &&
@@ -1728,7 +1771,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         host_orchestrator_role_label: ml0.roleLabel,
         internal_identifier_6: ml0.digits6,
         secondary_label: sub,
-        direct_reachable: !!probe.directP2pAvailable,
+        direct_reachable: false,
         policy_enabled: false,
         available: false,
         availability: av,
@@ -1788,6 +1831,49 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       }
       console.log(`${L} target_disabled handshake=${hid} reason=POLICY_DISABLED detail=host_policy_no_sandbox_inference`)
       targets.push(finalizeItem(t))
+      continue
+    }
+
+    const listTransportProvenForSelection =
+      listDec.selectorPhase === 'ready' || listDec.selectorPhase === 'legacy_http_available'
+    if (!listTransportProvenForSelection) {
+      const ml0 = metaLocal(displayName, pcc)
+      const psub0 = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
+      const hFail = primaryLabelForP2pUiPhase('p2p_unavailable')
+      const tProto: HostTargetDraft = {
+        kind: 'host_internal',
+        id: buildHostTargetId(hid, 'unavailable'),
+        label: hFail,
+        display_label: hFail,
+        displayTitle: hFail,
+        displaySubtitle: psub0,
+        model: null,
+        model_id: null,
+        provider: 'host_internal',
+        handshake_id: hid,
+        host_device_id: hostDevice,
+        host_computer_name: ml0.hostName,
+        host_pairing_code: ml0.digits6,
+        host_orchestrator_role: 'host',
+        host_orchestrator_role_label: ml0.roleLabel,
+        internal_identifier_6: ml0.digits6,
+        secondary_label: psub0,
+        direct_reachable: false,
+        policy_enabled: false,
+        available: false,
+        availability: 'host_offline',
+        unavailable_reason: 'CAPABILITY_PROBE_FAILED',
+        hostAiStructuredUnavailableReason: 'transport_not_ready',
+        host_role: 'Host',
+        inference_error_code: InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY,
+        ...baseMetaFromDec(listDec, leK),
+        p2pUiPhase: 'p2p_unavailable',
+        failureCode: 'LIST_TRANSPORT_NOT_PROVEN',
+      }
+      console.warn(
+        `${L} list_guard_fail_closed handshake=${hid} selector_phase=${listDec.selectorPhase} preferred=${listDec.preferredTransport}`,
+      )
+      targets.push(finalizeItem(tProto))
       continue
     }
 
@@ -1928,7 +2014,8 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       )
     }
   }
-  console.log(`${L} list_done count=${targets.length}`)
+  const availableCount = targets.filter((t) => t.available === true).length
+  console.log(`${L} list_done count=${targets.length} available_count=${availableCount}`)
 
   return { ok: true, targets, refreshMeta: { hadCapabilitiesProbed } }
 }

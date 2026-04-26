@@ -15,8 +15,11 @@ const srcRoot = join(__dir, '..', '..')
 const readSrc = (rel: string) => readFileSync(join(srcRoot, rel), 'utf-8')
 
 describe('Phase 11 — Sandbox: Host AI row + merge', () => {
-  it('gav/merged model rows with host section keep Host internal discoverable in selector', () => {
-    expect(discoveryHasHostInternalRows([{ kind: 'host_internal' }], [])).toBe(true)
+  it('GAV host_internal rows count as discovery only when available; merged host section is unchanged', () => {
+    expect(discoveryHasHostInternalRows([{ kind: 'host_internal', available: true }], [])).toBe(true)
+    expect(discoveryHasHostInternalRows([{ kind: 'host_internal', available: false } as { kind: string; available: boolean }], [])).toBe(
+      false,
+    )
     expect(discoveryHasHostInternalRows([], [{ section: 'host' } as { section: 'host' }])).toBe(true)
   })
 
