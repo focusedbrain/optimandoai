@@ -628,7 +628,7 @@ export function canonicalRebuild(raw: unknown): RebuildResult {
     }
   }
 
-  // Validate p2p_auth_token (optional — hex token for P2P Bearer auth)
+  // Validate p2p_auth_token (optional — opaque Bearer secret; UUID or legacy hex)
   if ('p2p_auth_token' in obj && obj.p2p_auth_token !== undefined && obj.p2p_auth_token !== null) {
     if (typeof obj.p2p_auth_token !== 'string') {
       return { ok: false, reason: 'p2p_auth_token must be a string', field: 'p2p_auth_token' }
@@ -637,7 +637,7 @@ export function canonicalRebuild(raw: unknown): RebuildResult {
     if (clean.length > 128) {
       return { ok: false, reason: 'p2p_auth_token exceeds max length', field: 'p2p_auth_token' }
     }
-    if (clean.length > 0 && /^[a-f0-9]+$/.test(clean)) {
+    if (clean.length > 0 && /^[a-zA-Z0-9._:-]+$/.test(clean)) {
       canonical.p2p_auth_token = clean
     }
   }

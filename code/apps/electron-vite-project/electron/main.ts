@@ -11141,6 +11141,12 @@ async function runDeviceKeyMigration(
         console.warn('[P2P] processOutboundQueue error:', err?.message)
       })
 
+      void import('./main/handshake/p2pTokenBackfill')
+        .then((m) => {
+          m.runActiveHandshakeLocalP2pTokenBackfill(handshakeDb, getCurrentSession(), getOidcToken)
+        })
+        .catch(() => {})
+
       // Best-effort: ensure this device's pairing code is registered with the
       // coordination service. Safe to call repeatedly — the server treats
       // (user_id, instance_id) re-registration as idempotent.

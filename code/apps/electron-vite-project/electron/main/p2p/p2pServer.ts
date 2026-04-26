@@ -9,7 +9,7 @@
 import http from 'http'
 import https from 'https'
 import { readFileSync } from 'fs'
-import { getHandshakeRecord, insertPendingP2PBeap } from '../handshake/db'
+import { getHandshakeRecord, getHandshakeIdByCounterpartyP2PToken, insertPendingP2PBeap } from '../handshake/db'
 import { handleIngestionRPC } from '../ingestion/ipc'
 import { processIncomingInput } from '../ingestion/ingestionPipeline'
 import { insertIngestionAuditRecord, insertQuarantineRecord } from '../ingestion/persistenceDb'
@@ -176,7 +176,18 @@ function createP2PRequestHandler(
 
     // Auth failure rate limit (aggressive)
     if (!checkAuthFailLimit(ip)) {
-      sendGenericError(res, 429, ip, 'auth_rate_limit', null, beapCorr)
+      let hidFromBearer: string | null = null
+      try {
+        const dbEarly = getDb()
+        const authEarly = req.headers.authorization
+        const tokEarly = authEarly?.startsWith('Bearer ') ? authEarly.slice(7).trim() : null
+        if (dbEarly && tokEarly) {
+          hidFromBearer = getHandshakeIdByCounterpartyP2PToken(dbEarly, tokEarly)
+        }
+      } catch {
+        /* ignore */
+      }
+      sendGenericError(res, 429, ip, 'auth_rate_limit', hidFromBearer, beapCorr)
       return
     }
 
@@ -214,9 +225,18 @@ function createP2PRequestHandler(
       return
     }
 
+    const db = getDb()
     let handshakeId: string | null = parseHandshakeIdMinimal(body)
     if (!handshakeId && isBeapMessagePackage(parsed)) {
       handshakeId = getHandshakeIdForBeapMessage(parsed, req.headers)
+    }
+    const authHeader = req.headers.authorization
+    const token = authHeader?.startsWith('Bearer ')
+      ? authHeader.slice(7).trim()
+      : null
+    if ((!handshakeId || handshakeId.trim() === '') && db && token) {
+      const altH = getHandshakeIdByCounterpartyP2PToken(db, token)
+      if (altH) handshakeId = altH
     }
     if (!handshakeId || typeof handshakeId !== 'string' || handshakeId.trim().length === 0) {
       sendGenericError(res, 400, ip, 'missing_handshake_id', null, beapCorr)
@@ -229,13 +249,6 @@ function createP2PRequestHandler(
       return
     }
 
-    // Auth: Bearer token
-    const authHeader = req.headers.authorization
-    const token = authHeader?.startsWith('Bearer ')
-      ? authHeader.slice(7).trim()
-      : null
-
-    const db = getDb()
     if (!db) {
       sendGenericError(res, 503, ip, 'vault_locked', handshakeId, beapCorr)
       return

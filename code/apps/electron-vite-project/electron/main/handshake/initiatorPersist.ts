@@ -28,6 +28,7 @@ import {
   baselineFromPolicySelections,
   type ContextItemGovernance,
 } from './contextGovernance'
+import { randomUUID } from 'crypto'
 
 export interface PersistInitiatorResult {
   success: boolean
@@ -74,10 +75,10 @@ export function persistInitiatorHandshakeRecord(
       typeof capsule.p2p_endpoint === 'string' && capsule.p2p_endpoint.trim().length > 0
         ? capsule.p2p_endpoint.trim()
         : null
-    const senderP2PAuthToken: string | null =
+    const localP2pAuthToken: string =
       typeof capsule.p2p_auth_token === 'string' && capsule.p2p_auth_token.trim().length > 0
         ? capsule.p2p_auth_token.trim()
-        : null
+        : randomUUID()
 
     const record: HandshakeRecord = {
       handshake_id: capsule.handshake_id,
@@ -113,7 +114,8 @@ export function persistInitiatorHandshakeRecord(
       initiator_context_commitment: capsule.context_commitment ?? null,
       acceptor_context_commitment: null,
       p2p_endpoint: senderP2PEndpoint,
-      counterparty_p2p_token: senderP2PAuthToken,
+      local_p2p_auth_token: localP2pAuthToken,
+      counterparty_p2p_token: null,
       local_public_key: keypair.publicKey,
       local_private_key: keypair.privateKey,
       receiver_email: capsule.receiver_email ?? null,

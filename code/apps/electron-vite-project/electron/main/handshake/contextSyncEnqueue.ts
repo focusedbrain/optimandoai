@@ -199,6 +199,7 @@ export function tryEnqueueContextSync(
       context_blocks: contextBlocks,
       local_public_key: localPub,
       local_private_key: localPriv,
+      ...(record.local_p2p_auth_token?.trim() ? { p2p_auth_token: record.local_p2p_auth_token.trim() } : {}),
       ...(internalRelayWire ?? {}),
     })
     const cap = contextSyncCapsule as unknown as Record<string, unknown>

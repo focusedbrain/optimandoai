@@ -1048,6 +1048,12 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE handshakes ADD COLUMN internal_peer_pairing_code TEXT`,
     ],
   },
+  {
+    version: 60,
+    description:
+      'Schema v60: handshakes.local_p2p_auth_token — symmetric P2P Bearer: each side mints a local token for outbound BEAP; counterparty_p2p_token stores the peer token from their capsules.',
+    sql: [`ALTER TABLE handshakes ADD COLUMN local_p2p_auth_token TEXT`],
+  },
 ]
 
 /**
@@ -1462,6 +1468,7 @@ export function serializeHandshakeRecord(record: HandshakeRecord): any {
     initiator_context_commitment: record.initiator_context_commitment ?? null,
     acceptor_context_commitment: record.acceptor_context_commitment ?? null,
     p2p_endpoint: record.p2p_endpoint ?? null,
+    local_p2p_auth_token: record.local_p2p_auth_token ?? null,
     counterparty_p2p_token: record.counterparty_p2p_token ?? null,
     local_public_key: record.local_public_key ?? null,
     local_private_key: record.local_private_key ?? null,
@@ -1520,6 +1527,7 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
     initiator_context_commitment: row.initiator_context_commitment ?? null,
     acceptor_context_commitment: row.acceptor_context_commitment ?? null,
     p2p_endpoint: row.p2p_endpoint ?? null,
+    local_p2p_auth_token: row.local_p2p_auth_token ?? null,
     counterparty_p2p_token: row.counterparty_p2p_token ?? null,
     local_public_key: row.local_public_key ?? null,
     local_private_key: row.local_private_key ?? null,
@@ -1645,7 +1653,7 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     created_at, activated_at, expires_at, revoked_at, revocation_source,
     initiator_wrdesk_policy_hash, initiator_wrdesk_policy_version,
     acceptor_wrdesk_policy_hash, acceptor_wrdesk_policy_version,
-    initiator_context_commitment, acceptor_context_commitment, p2p_endpoint, counterparty_p2p_token,
+    initiator_context_commitment, acceptor_context_commitment, p2p_endpoint, local_p2p_auth_token, counterparty_p2p_token,
     local_public_key, local_private_key, counterparty_public_key, receiver_email,
     peer_x25519_public_key_b64, peer_mlkem768_public_key_b64,
     local_x25519_private_key_b64, local_x25519_public_key_b64,     local_mlkem768_secret_key_b64, local_mlkem768_public_key_b64,
@@ -1662,7 +1670,7 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     @created_at, @activated_at, @expires_at, @revoked_at, @revocation_source,
     @initiator_wrdesk_policy_hash, @initiator_wrdesk_policy_version,
     @acceptor_wrdesk_policy_hash, @acceptor_wrdesk_policy_version,
-    @initiator_context_commitment, @acceptor_context_commitment, @p2p_endpoint, @counterparty_p2p_token,
+    @initiator_context_commitment, @acceptor_context_commitment, @p2p_endpoint, @local_p2p_auth_token, @counterparty_p2p_token,
     @local_public_key, @local_private_key, @counterparty_public_key, @receiver_email,
     @peer_x25519_public_key_b64, @peer_mlkem768_public_key_b64,
     @local_x25519_private_key_b64, @local_x25519_public_key_b64,     @local_mlkem768_secret_key_b64, @local_mlkem768_public_key_b64,
@@ -1708,6 +1716,7 @@ export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
     initiator_context_commitment = @initiator_context_commitment,
     acceptor_context_commitment = @acceptor_context_commitment,
     p2p_endpoint = @p2p_endpoint,
+    local_p2p_auth_token = @local_p2p_auth_token,
     counterparty_p2p_token = @counterparty_p2p_token,
     local_public_key = @local_public_key,
     local_private_key = @local_private_key,
@@ -1738,6 +1747,22 @@ export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
 export function getHandshakeRecord(db: any, handshakeId: string): HandshakeRecord | null {
   const row = db.prepare('SELECT * FROM handshakes WHERE handshake_id = ?').get(handshakeId) as any
   return row ? deserializeHandshakeRecord(row) : null
+}
+
+/** Resolve handshake_id when the caller presents the peer's Bearer (matches our stored counterparty_p2p_token). */
+export function getHandshakeIdByCounterpartyP2PToken(db: any, bearerToken: string): string | null {
+  if (!db || !bearerToken?.trim()) return null
+  try {
+    const row = db
+      .prepare(
+        `SELECT handshake_id FROM handshakes WHERE counterparty_p2p_token = ? LIMIT 1`,
+      )
+      .get(bearerToken.trim()) as { handshake_id?: string } | undefined
+    const id = row?.handshake_id?.trim()
+    return id || null
+  } catch {
+    return null
+  }
 }
 
 /**

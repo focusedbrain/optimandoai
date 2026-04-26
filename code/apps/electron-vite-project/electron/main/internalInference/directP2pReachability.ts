@@ -158,7 +158,7 @@ export async function checkDirectP2pReachabilityFromHandshake(
     return { status: 'missing_endpoint' }
   }
   const ep = record.p2p_endpoint?.trim() ?? ''
-  const token = record.counterparty_p2p_token
+  const token = record.local_p2p_auth_token
   if (!ep || !token?.trim()) {
     return { status: 'missing_endpoint' }
   }

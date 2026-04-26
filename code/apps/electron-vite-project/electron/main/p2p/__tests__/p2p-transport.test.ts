@@ -121,10 +121,9 @@ async function createValidHandshakeWithContextSync(db: any): Promise<{
   })
   const record = db.prepare('SELECT * FROM handshakes WHERE handshake_id = ?').get(initiate.handshake_id) as any
   if (record) {
-    db.prepare('UPDATE handshakes SET counterparty_p2p_token = ? WHERE handshake_id = ?').run(
-      authToken,
-      initiate.handshake_id,
-    )
+    db.prepare(
+      'UPDATE handshakes SET local_p2p_auth_token = ?, counterparty_p2p_token = ? WHERE handshake_id = ?',
+    ).run(authToken, authToken, initiate.handshake_id)
   }
   return {
     handshakeId: initiate.handshake_id,
@@ -443,6 +442,7 @@ describe('P2: Outbound Queue', () => {
       created_at: new Date().toISOString(),
       initiator_wrdesk_policy_hash: '',
       initiator_wrdesk_policy_version: '1.0',
+      local_p2p_auth_token: token,
       counterparty_p2p_token: token,
       ...mockKeypairFields(),
     }
@@ -1174,8 +1174,12 @@ async function createTwoHostSetup(): Promise<{
     }
   }
 
-  dbA.prepare('UPDATE handshakes SET counterparty_p2p_token = ? WHERE handshake_id = ?').run(tokenB, initiate.handshake_id)
-  dbB.prepare('UPDATE handshakes SET counterparty_p2p_token = ? WHERE handshake_id = ?').run(tokenA, initiate.handshake_id)
+  dbA.prepare(
+    'UPDATE handshakes SET local_p2p_auth_token = ?, counterparty_p2p_token = ? WHERE handshake_id = ?',
+  ).run(tokenA, tokenB, initiate.handshake_id)
+  dbB.prepare(
+    'UPDATE handshakes SET local_p2p_auth_token = ?, counterparty_p2p_token = ? WHERE handshake_id = ?',
+  ).run(tokenB, tokenA, initiate.handshake_id)
 
   const configA: P2PConfig = {
     enabled: true,
@@ -1291,7 +1295,7 @@ describe('P7: Full Roundtrip', () => {
     if (skipIfNoSqlite()) return
     const setup = await createTwoHostSetup()
     try {
-      setup.hostB.db.prepare('UPDATE handshakes SET counterparty_p2p_token = ? WHERE handshake_id = ?').run(
+      setup.hostB.db.prepare('UPDATE handshakes SET local_p2p_auth_token = ? WHERE handshake_id = ?').run(
         'wrong-token',
         setup.handshakeId,
       )

@@ -1256,7 +1256,7 @@ export async function handleHandshakeRPC(
       const p2pConfig = getP2PConfig(db)
       const localEndpoint = p2pConfig.local_p2p_endpoint ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const p2pEndpoint = p2pEndpointParam ?? getEffectiveRelayEndpoint(p2pConfig, localEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
-      const p2pAuthToken = p2pEndpoint ? randomBytes(32).toString('hex') : null
+      const p2pAuthToken = p2pEndpoint ? randomUUID() : null
 
       let keyAgreementRaw: BeapKeyAgreementMaterial
       try {
@@ -1547,7 +1547,7 @@ export async function handleHandshakeRPC(
       const dlP2PConfig = getP2PConfig(db)
       const dlLocalEndpoint = dlP2PConfig.local_p2p_endpoint ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const dlP2PEndpoint = dlP2PEndpointParam ?? getEffectiveRelayEndpoint(dlP2PConfig, dlLocalEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
-      const dlP2PAuthToken = dlP2PEndpoint ? randomBytes(32).toString('hex') : null
+      const dlP2PAuthToken = dlP2PEndpoint ? randomUUID() : null
 
       let dlKeyAgreementRaw: BeapKeyAgreementMaterial
       try {
@@ -2060,7 +2060,7 @@ export async function handleHandshakeRPC(
       const acceptP2PConfig = getP2PConfig(db)
       const acceptLocalEndpoint = acceptP2PConfig.local_p2p_endpoint ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const p2pEndpoint = p2pEndpointParam ?? getEffectiveRelayEndpoint(acceptP2PConfig, acceptLocalEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
-      const p2pAuthToken = p2pEndpoint ? randomBytes(32).toString('hex') : null
+      const p2pAuthToken = p2pEndpoint ? randomUUID() : null
 
       let acceptKeyAgreementRaw: BeapKeyAgreementMaterial
       try {
@@ -2616,6 +2616,7 @@ export async function handleHandshakeRPC(
         context_block_proofs: context_block_proofs ?? [],
         local_public_key: localPub,
         local_private_key: localPriv,
+        ...(record.local_p2p_auth_token?.trim() ? { p2p_auth_token: record.local_p2p_auth_token.trim() } : {}),
         ...(refreshInternalWire ?? {}),
       })
 

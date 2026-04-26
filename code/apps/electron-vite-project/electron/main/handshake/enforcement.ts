@@ -22,6 +22,7 @@ import type {
 } from './types'
 import { HandshakeState as HS, INPUT_LIMITS, ReasonCode } from './types'
 import type { ValidatedCapsule } from '../ingestion/types'
+import { randomUUID } from 'crypto'
 import { runHandshakeVerification } from './pipeline'
 import { HANDSHAKE_PIPELINE } from './steps'
 import { resolveEffectivePolicyFn } from './steps/policyResolution'
@@ -165,6 +166,10 @@ function extractVerifiedInput(validated: ValidatedCapsule): VerifiedCapsuleInput
     receiver_pairing_code:
       typeof c.receiver_pairing_code === 'string' && /^\d{6}$/.test(c.receiver_pairing_code.trim())
         ? c.receiver_pairing_code.trim()
+        : null,
+    p2p_auth_token:
+      typeof c.p2p_auth_token === 'string' && c.p2p_auth_token.trim().length > 0
+        ? c.p2p_auth_token.trim()
         : null,
   }
 }
@@ -737,6 +742,7 @@ function buildInitiateRecord(
     initiator_context_commitment: input.context_commitment ?? null,
     acceptor_context_commitment: null,
     p2p_endpoint: p2pEndpoint,
+    local_p2p_auth_token: randomUUID(),
     counterparty_p2p_token: counterpartyP2PToken,
     counterparty_public_key: newCounterparty,
     peer_x25519_public_key_b64: senderX25519,
@@ -834,12 +840,19 @@ function buildAcceptRecord(
     effective_policy: effectivePolicy,
     external_processing: effectivePolicy.effectiveExternalProcessing,
     activated_at: new Date().toISOString(),
-    expires_at: resolveExpiresAt(input.expires_at ?? existing.expires_at),
+    expires_at: resolveExpiresAt((input.expires_at ?? existing.expires_at) ?? undefined),
     acceptor_wrdesk_policy_hash: input.wrdesk_policy_hash,
     acceptor_wrdesk_policy_version: input.wrdesk_policy_version,
     acceptor_context_commitment: input.context_commitment ?? null,
     p2p_endpoint: existing.p2p_endpoint ?? p2pEndpoint,
-    counterparty_p2p_token: counterpartyP2PToken ?? existing.counterparty_p2p_token,
+    counterparty_p2p_token:
+      existing.local_role === 'initiator'
+        ? (counterpartyP2PToken ?? existing.counterparty_p2p_token)
+        : existing.counterparty_p2p_token,
+    local_p2p_auth_token:
+      existing.local_role === 'acceptor'
+        ? (counterpartyP2PToken?.trim() || existing.local_p2p_auth_token || randomUUID())
+        : existing.local_p2p_auth_token,
     // Acceptor: counterparty stays the initiator's key from initiate; never the local acceptor sender key.
     // Initiator: set to acceptor's key from this capsule when not already stored.
     counterparty_public_key: newCounterpartyAccept,
@@ -936,16 +949,42 @@ function scheduleInternalInitiatorPostAcceptCoordinationRepair(
   })
 }
 
+/** When the peer sends refresh/context_sync/revoke with `p2p_auth_token`, store it as our counterparty bearer. */
+function inboundPeerP2pAuthTokenUpdate(existing: HandshakeRecord, input: VerifiedCapsuleInput): string | null {
+  const tok = input.p2p_auth_token?.trim()
+  if (!tok) return null
+  if (existing.handshake_type === 'internal') {
+    const senderDev = input.sender_device_id?.trim() ?? ''
+    if (!senderDev) return null
+    const peerDev =
+      existing.local_role === 'initiator'
+        ? (existing.acceptor_coordination_device_id ?? '').trim()
+        : (existing.initiator_coordination_device_id ?? '').trim()
+    if (peerDev && senderDev === peerDev) return tok
+    return null
+  }
+  const senderId = input.sender_wrdesk_user_id
+  if (existing.local_role === 'initiator' && existing.acceptor && senderId === existing.acceptor.wrdesk_user_id) {
+    return tok
+  }
+  if (existing.local_role === 'acceptor' && senderId === existing.initiator.wrdesk_user_id) {
+    return tok
+  }
+  return null
+}
+
 function buildRefreshRecord(
   existing: HandshakeRecord,
   input: VerifiedCapsuleInput,
   _tierDecision: TierDecision,
 ): HandshakeRecord {
+  const cpTok = inboundPeerP2pAuthTokenUpdate(existing, input)
   return {
     ...existing,
     current_tier_signals: input.tierSignals,
     last_seq_received: input.seq,
     last_capsule_hash_received: input.capsule_hash,
+    ...(cpTok ? { counterparty_p2p_token: cpTok } : {}),
   }
 }
 
@@ -969,12 +1008,14 @@ function buildContextSyncRecord(
       })
     }
   }
+  const cpTok = inboundPeerP2pAuthTokenUpdate(existing, input)
   return {
     ...existing,
     state: nextState,
     last_seq_received: input.seq,
     last_capsule_hash_received: input.capsule_hash,
     ...(nextState === HS.ACTIVE ? { expires_at: null } : {}),
+    ...(cpTok ? { counterparty_p2p_token: cpTok } : {}),
   }
 }
 
@@ -982,6 +1023,7 @@ function buildRevokeRecord(
   existing: HandshakeRecord,
   input: VerifiedCapsuleInput,
 ): HandshakeRecord {
+  const cpTok = inboundPeerP2pAuthTokenUpdate(existing, input)
   return {
     ...existing,
     state: HS.REVOKED,
@@ -989,5 +1031,6 @@ function buildRevokeRecord(
     revocation_source: 'remote-capsule',
     last_seq_received: input.seq,
     last_capsule_hash_received: input.capsule_hash,
+    ...(cpTok ? { counterparty_p2p_token: cpTok } : {}),
   }
 }

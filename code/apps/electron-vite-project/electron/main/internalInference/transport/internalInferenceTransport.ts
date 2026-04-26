@@ -923,7 +923,7 @@ export async function requestHostCompletion(
     request,
     ep,
     record.handshake_id,
-    record.counterparty_p2p_token,
+    record.local_p2p_auth_token,
     {
       request_id: request.request_id,
       sender_device_id: request.sender_device_id,
@@ -1035,7 +1035,7 @@ export async function sendHostInferenceResult(
     result,
     targetEndpoint,
     record.handshake_id,
-    record.counterparty_p2p_token,
+    record.local_p2p_auth_token,
     {
       request_id: result.request_id,
       sender_device_id: result.sender_device_id,

@@ -1500,7 +1500,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       try {
         const tCap = Math.min(getHostInternalInferencePolicy().timeoutMs, 15_000)
         const ep = r.p2p_endpoint?.trim() ?? ''
-        const tok = (r.counterparty_p2p_token ?? '').trim()
+        const tok = (r.local_p2p_auth_token ?? '').trim()
         if (!tok) {
           probe = {
             ok: false,

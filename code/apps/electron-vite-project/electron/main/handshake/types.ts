@@ -324,6 +324,8 @@ export interface VerifiedCapsuleInput {
    * path matches the file-import path.
    */
   receiver_pairing_code?: string | null;
+  /** Wire P2P Bearer from sender (refresh/context_sync/revoke may carry token rotation / backfill). */
+  p2p_auth_token?: string | null;
 }
 
 // ── Party Identity ──
@@ -367,7 +369,12 @@ export interface HandshakeRecord {
   acceptor_context_commitment: string | null;
   /** Counterparty's P2P endpoint (where we send context-sync). Full URL e.g. https://host:port/beap/ingest */
   p2p_endpoint: string | null;
-  /** Counterparty's P2P auth token (Bearer) for authenticating outbound requests to them */
+  /**
+   * This device's P2P Bearer for outbound direct BEAP to the peer (`Authorization` on POST/GET to their ingest).
+   * The peer stores the same value as their `counterparty_p2p_token` when they receive our capsule `p2p_auth_token`.
+   */
+  local_p2p_auth_token?: string | null;
+  /** Counterparty's P2P auth token (Bearer) — what we expect when they call our ingest */
   counterparty_p2p_token: string | null;
   /** This device's Ed25519 public key (64-char hex) for handshake signing */
   local_public_key?: string | null;

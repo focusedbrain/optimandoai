@@ -69,7 +69,8 @@ function sandboxToHostRecord(over: Partial<HandshakeRecord> = {}): HandshakeReco
     initiator_context_commitment: null,
     acceptor_context_commitment: null,
     p2p_endpoint: 'http://10.0.0.2:51249/beap/ingest',
-    counterparty_p2p_token: 'secrettok',
+    local_p2p_auth_token: 'secrettok',
+    counterparty_p2p_token: 'peer-secrettok',
     handshake_type: 'internal',
     initiator_device_role: 'sandbox',
     acceptor_device_role: 'host',
@@ -113,7 +114,7 @@ describe('checkDirectP2pReachabilityFromHandshake', () => {
 
   it('missing direct endpoint (empty p2p) → missing_endpoint', async () => {
     getHandshakeRecordMock.mockReturnValue(
-      sandboxToHostRecord({ p2p_endpoint: '', counterparty_p2p_token: 't' }) as any,
+      sandboxToHostRecord({ p2p_endpoint: '', local_p2p_auth_token: 't' }) as any,
     )
     const r = await checkDirectP2pReachabilityFromHandshake('hs-r1', { timeoutMs: 2000, fetchImpl: vi.fn() as any })
     expect(r.status).toBe('missing_endpoint')

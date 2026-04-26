@@ -209,6 +209,8 @@ export interface HandshakeCapsuleWire {
   readonly context_blocks: ReadonlyArray<ContextBlockWireProof>;
   /** Sender's P2P endpoint (advertised in initiate/accept). Optional. */
   readonly p2p_endpoint?: string | null;
+  /** Bearer the peer stores as `counterparty_p2p_token` for this sender's outbound BEAP. Optional. */
+  readonly p2p_auth_token?: string | null;
   /** Ed25519 public key (64-char hex) — sender's signing key */
   readonly sender_public_key: string;
   /** Ed25519 signature (128-char hex) over capsule_hash */
@@ -388,6 +390,8 @@ export interface RefreshOptions {
   receiverDeviceRole?: 'host' | 'sandbox';
   senderComputerName?: string;
   receiverComputerName?: string;
+  /** Local P2P Bearer for the peer to store (symmetric auth). */
+  p2p_auth_token?: string | null;
 }
 
 export interface RevokeOptions {
@@ -418,6 +422,7 @@ export interface RevokeOptions {
   receiverDeviceRole?: 'host' | 'sandbox';
   senderComputerName?: string;
   receiverComputerName?: string;
+  p2p_auth_token?: string | null;
 }
 
 /** Options for context_sync — first post-activation capsule delivering context blocks. */
@@ -453,6 +458,7 @@ export interface ContextSyncOptions {
   receiverDeviceRole?: 'host' | 'sandbox';
   senderComputerName?: string;
   receiverComputerName?: string;
+  p2p_auth_token?: string | null;
 }
 
 // ── Builder functions ──
@@ -856,6 +862,7 @@ export function buildRefreshCapsule(
       senderComputerName: opts.senderComputerName,
       receiverComputerName: opts.receiverComputerName,
     }),
+    ...(opts.p2p_auth_token ? { p2p_auth_token: opts.p2p_auth_token } : {}),
   }
   return wire
 }
@@ -964,6 +971,7 @@ export function buildContextSyncCapsule(
       senderComputerName: opts.senderComputerName,
       receiverComputerName: opts.receiverComputerName,
     }),
+    ...(opts.p2p_auth_token ? { p2p_auth_token: opts.p2p_auth_token } : {}),
   }
 }
 
@@ -1087,6 +1095,7 @@ export function buildRevokeCapsule(
       senderComputerName: opts.senderComputerName,
       receiverComputerName: opts.receiverComputerName,
     }),
+    ...(opts.p2p_auth_token ? { p2p_auth_token: opts.p2p_auth_token } : {}),
   }
 }
 

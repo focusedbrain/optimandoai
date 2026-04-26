@@ -124,6 +124,7 @@ export async function revokeHandshake(
         last_capsule_hash_received: lastCapsuleHash,
         local_public_key: localPub,
         local_private_key: localPriv,
+        ...(record.local_p2p_auth_token?.trim() ? { p2p_auth_token: record.local_p2p_auth_token.trim() } : {}),
         ...(revokeInternalWire ?? {}),
       })
 

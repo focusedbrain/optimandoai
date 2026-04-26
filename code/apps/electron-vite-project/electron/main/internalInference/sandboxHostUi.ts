@@ -841,7 +841,7 @@ async function probeHostInferencePolicyFromSandboxImpl(
   }
   const ep = ar.record.p2p_endpoint?.trim() ?? ''
   const epK = p2pEndpointKindForProbeLog(db, ar.record.p2p_endpoint)
-  const token = ar.record.counterparty_p2p_token
+  const token = ar.record.local_p2p_auth_token
   if (!token?.trim()) {
     probeDone(false)
     p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.AUTH_REJECTED} reason=no_p2p_token`)

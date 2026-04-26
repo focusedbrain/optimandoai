@@ -25,6 +25,7 @@ import { resolveEffectivePolicyFn } from './steps/policyResolution'
 import { insertHandshakeRecord, insertSeenCapsuleHash } from './db'
 import type { ValidatedCapsule } from '../ingestion/types'
 import { validateInternalInitiateCapsuleWire } from './internalPersistence'
+import { randomUUID } from 'crypto'
 
 export interface PersistRecipientResult {
   success: boolean
@@ -134,6 +135,7 @@ export function persistRecipientHandshakeRecord(
       initiator_context_commitment: c.context_commitment ?? null,
       acceptor_context_commitment: null,
       p2p_endpoint: senderP2PEndpoint,
+      local_p2p_auth_token: randomUUID(),
       counterparty_p2p_token: senderP2PAuthToken,
       counterparty_public_key: senderPublicKey || null,
       receiver_email: c.receiver_email ?? null,

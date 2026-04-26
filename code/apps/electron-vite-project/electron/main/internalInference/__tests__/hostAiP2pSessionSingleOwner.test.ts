@@ -54,7 +54,8 @@ function baseHS() {
     internal_coordination_identity_complete: true,
     initiator: { email: 'a@a', wrdesk_user_id: 'u1', iss: 'i', sub: 's1' },
     acceptor: { email: 'a@a', wrdesk_user_id: 'u1', iss: 'i', sub: 's1' },
-    counterparty_p2p_token: 'tok',
+    local_p2p_auth_token: 'tok',
+    counterparty_p2p_token: 'peer-tok',
     p2p_endpoint: 'http://192.168.1.1:9/beap/ingest',
   }
 }

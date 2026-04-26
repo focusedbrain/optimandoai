@@ -141,7 +141,8 @@ describe('Coordination Client', () => {
       created_at: new Date().toISOString(),
       initiator_wrdesk_policy_hash: '',
       initiator_wrdesk_policy_version: '1.0',
-      counterparty_p2p_token: 'bearer-token-abc',
+      local_p2p_auth_token: 'bearer-token-abc',
+      counterparty_p2p_token: 'peer-token',
       p2p_endpoint: 'https://relay.example.com/beap/ingest',
     }
     insertHandshakeRecord(db, record as HandshakeRecord)

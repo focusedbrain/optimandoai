@@ -61,7 +61,7 @@ export type InternalHostHandshakeP2pSafeDump = {
   peer_derived_role: 'host' | 'sandbox' | 'unknown' | null
   p2p_endpoint: string | null
   p2p_endpoint_kind: 'direct LAN' | 'localhost' | 'relay' | 'missing' | 'invalid'
-  /** No separate `p2p_auth` column on the row; wire `p2p_auth_token` is represented as `counterparty_p2p_token` for outbound calls. */
+  /** Local Bearer we send on outbound direct BEAP (`local_p2p_auth_token`). */
   p2p_auth_token_set: 'no' | 'yes'
   counterparty_p2p_token_set: 'no' | 'yes'
   internal_coordination_identity_complete: boolean
@@ -75,8 +75,8 @@ export function buildInternalHostHandshakeP2pSafeDump(
 ): InternalHostHandshakeP2pSafeDump {
   const d = deriveInternalHandshakeRoles(recordToInternalRoleSource(r))
   const mvp = p2pEndpointMvpClass(db, r.p2p_endpoint)
+  const localTok = typeof r.local_p2p_auth_token === 'string' && r.local_p2p_auth_token.trim().length > 0
   const cp = typeof r.counterparty_p2p_token === 'string' && r.counterparty_p2p_token.trim().length > 0
-  const tokenYesNo = cp ? ('yes' as const) : ('no' as const)
   return {
     handshake_id: r.handshake_id,
     local_role: r.local_role,
@@ -86,9 +86,8 @@ export function buildInternalHostHandshakeP2pSafeDump(
     peer_derived_role: d.peerDeviceRole ?? 'unknown',
     p2p_endpoint: r.p2p_endpoint,
     p2p_endpoint_kind: mvpKindDisplay(mvp),
-    /** Same source as `counterparty_p2p_token_set` (BEAP outbound bearer); no separate DB column. */
-    p2p_auth_token_set: tokenYesNo,
-    counterparty_p2p_token_set: tokenYesNo,
+    p2p_auth_token_set: localTok ? 'yes' : 'no',
+    counterparty_p2p_token_set: cp ? 'yes' : 'no',
     internal_coordination_identity_complete: r.internal_coordination_identity_complete === true,
     initiator_coordination_device_id_first8: first8(r.initiator_coordination_device_id),
     acceptor_coordination_device_id_first8: first8(r.acceptor_coordination_device_id),

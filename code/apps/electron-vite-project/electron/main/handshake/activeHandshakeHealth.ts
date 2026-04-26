@@ -20,7 +20,7 @@ export type HandshakeHealthClassification =
   | { ok: false; health: HandshakeHealthTier; reason: HandshakeHealthReason }
 
 export function hasP2pTokenForLog(r: HandshakeRecord): boolean {
-  return typeof r.counterparty_p2p_token === 'string' && r.counterparty_p2p_token.trim().length > 0
+  return typeof r.local_p2p_auth_token === 'string' && r.local_p2p_auth_token.trim().length > 0
 }
 
 export function coordinationCompleteForLog(r: HandshakeRecord): boolean {
@@ -31,10 +31,7 @@ export function coordinationCompleteForLog(r: HandshakeRecord): boolean {
 }
 
 export function counterpartyP2pTokenSetForLog(r: HandshakeRecord): boolean {
-  if (r.handshake_type === 'internal') {
-    return r.internal_coordination_identity_complete === true
-  }
-  return hasP2pTokenForLog(r)
+  return typeof r.counterparty_p2p_token === 'string' && r.counterparty_p2p_token.trim().length > 0
 }
 
 export function peerDisplayNameForHealth(r: HandshakeRecord): string {

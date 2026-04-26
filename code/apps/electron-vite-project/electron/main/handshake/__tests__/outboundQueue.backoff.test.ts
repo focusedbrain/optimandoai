@@ -70,7 +70,8 @@ function relayDirectHandshake(handshakeId: string): HandshakeRecord {
     created_at: new Date().toISOString(),
     initiator_wrdesk_policy_hash: '',
     initiator_wrdesk_policy_version: '1.0',
-    counterparty_p2p_token: 'bearer-peer',
+    local_p2p_auth_token: 'bearer-peer',
+    counterparty_p2p_token: 'peer-token',
     p2p_endpoint: 'https://peer.example/beap/ingest',
     ...mockKeypairFields(),
   } as HandshakeRecord
