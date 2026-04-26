@@ -7,6 +7,7 @@ import { getCoordinationWsClient } from '../p2p/coordinationWsHolder'
 import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { getAccessToken } from '../../../src/auth/session'
 import { ollamaManager } from '../llm/ollama-manager'
+import { logP2pSignalWireSchemaStartupLine } from './p2pSignalWireSchemaVersion'
 
 export async function logHostAiOrchestratorHealthLine(): Promise<void> {
   try {
@@ -37,8 +38,11 @@ export async function logHostAiOrchestratorHealthLine(): Promise<void> {
       relayWs = false
     }
 
+    const ollamaLabel = ollamaOk ? 'ok' : 'down'
+    const relayLabel = relayWs ? 'connected' : 'disconnected'
+    logP2pSignalWireSchemaStartupLine()
     console.log(
-      `[HOST_AI_HEALTH] mode=host ollama_reachable=${ollamaOk} ollama_models=${modelCount} relay_ws_connected=${relayWs} device_id=${deviceId} account=${account}`,
+      `[HOST_AI_HEALTH] ollama=${ollamaLabel} models=${modelCount} relay_ws=${relayLabel} device_id=${deviceId} account=${account}`,
     )
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)

@@ -4,6 +4,8 @@
  * to disable Host AI list UX entirely.
  */
 
+import { logP2pSignalWireSchemaStartupLine } from './p2pSignalWireSchemaVersion'
+
 declare const __ORCHESTRATOR_BUILD_STAMP__: string | undefined
 declare const __WRDESK_HOST_AI_P2P_BUNDLE_DEFAULTS_ON__: boolean | undefined
 
@@ -224,6 +226,9 @@ export function logHostAiP2pFlagsSourceLine(): void {
  * [HOST_AI_FLAGS] + [HOST_AI_FLAGS_SOURCE] in one call (list / diagnostics).
  */
 export function logHostAiP2pFlagsAndSource(): void {
+  if (isHostAiP2pUxEnabled()) {
+    logP2pSignalWireSchemaStartupLine()
+  }
   const f = getP2pInferenceFlags()
   logHostAiP2pFlagsSnapshot(f)
   logHostAiP2pFlagsSourceLine()

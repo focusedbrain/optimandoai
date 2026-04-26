@@ -21,6 +21,13 @@ type P2pSignalDrop = 'forbidden_key' | 'schema' | 'type' | 'field' | 'expired' |
 /** Reject `created_at` too far in the past (defense in depth vs relay `expires_at`). */
 const MAX_P2P_SIGNAL_AGE_MS = 120_000
 
+/** Match coordination-service `coerceSchemaVersion` (integer 1 or decimal string "1"). */
+function isWireSchemaVersionOne(v: unknown): boolean {
+  if (v === 1) return true
+  if (typeof v === 'string' && /^[0-9]+$/.test(v.trim()) && Number(v.trim()) === 1) return true
+  return false
+}
+
 function parseIso(s: unknown): number | null {
   if (typeof s !== 'string' || !s.trim()) return null
   const t = Date.parse(s)
@@ -49,10 +56,11 @@ export function tryHandleCoordinationP2pSignal(
       return true
     }
   }
-  if (p.schema_version !== 1) {
+  if (!isWireSchemaVersionOne(p.schema_version)) {
     logDropped(p.handshake_id, 'schema', relayMessageId)
     return true
   }
+  p.schema_version = 1
   const st = p.signal_type
   if (typeof st !== 'string' || !SIGNAL_TYPES.has(st)) {
     logDropped(p.handshake_id, 'type', relayMessageId)

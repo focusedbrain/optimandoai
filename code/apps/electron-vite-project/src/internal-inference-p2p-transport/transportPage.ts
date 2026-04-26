@@ -32,6 +32,9 @@ type Session = {
 
 const sessions = new Map<string, Session>()
 
+/** Latest P2P session id we accept outbound ICE for per handshake (mirrors main ledger after each `create`). */
+const handshakeActiveSessionId = new Map<string, string>()
+
 type FromMain =
   | { op: 'create'; sessionId: string; handshakeId: string; role: Role }
   | { op: 'applyRemoteOffer'; sessionId: string; handshakeId: string; sdp: string }
@@ -68,12 +71,31 @@ function clearIceToMainDrain(session: Session) {
   }
 }
 
+function isSessionActiveForOutboundIce(session: Session): boolean {
+  return handshakeActiveSessionId.get(session.handshakeId) === session.sessionId
+}
+
+/** ICE tags use the handshake’s current active session id (see `handshakeActiveSessionId`). */
+function outboundIceSessionTag(session: Session): string {
+  return handshakeActiveSessionId.get(session.handshakeId) ?? session.sessionId
+}
+
 function emitPendingIceEndToMain(session: Session) {
   if (!session.iceEndPending || session.iceQueue.length > 0 || session.iceToMainTimer != null) {
     return
   }
+  if (!isSessionActiveForOutboundIce(session)) {
+    closeOne(session.sessionId)
+    return
+  }
   session.iceEndPending = false
-  out({ v: 1, type: 'ice', sessionId: session.sessionId, handshakeId: session.handshakeId, end: true })
+  out({
+    v: 1,
+    type: 'ice',
+    sessionId: outboundIceSessionTag(session),
+    handshakeId: session.handshakeId,
+    end: true,
+  })
 }
 
 /**
@@ -85,12 +107,18 @@ function pumpIceToMain(session: Session) {
   }
   const tick = () => {
     session.iceToMainTimer = null
+    if (!isSessionActiveForOutboundIce(session)) {
+      session.iceQueue = []
+      session.iceEndPending = false
+      closeOne(session.sessionId)
+      return
+    }
     if (session.iceQueue.length > 0) {
       const init = session.iceQueue.shift()!
       out({
         v: 1,
         type: 'ice',
-        sessionId: session.sessionId,
+        sessionId: outboundIceSessionTag(session),
         handshakeId: session.handshakeId,
         end: false,
         init,
@@ -108,6 +136,10 @@ function pumpIceToMain(session: Session) {
 }
 
 function enqueueLocalIceCandidate(session: Session, init: RTCIceCandidateInit) {
+  if (!isSessionActiveForOutboundIce(session)) {
+    closeOne(session.sessionId)
+    return
+  }
   session.iceQueue.push(init)
   pumpIceToMain(session)
 }
@@ -116,6 +148,10 @@ function onPcSession(session: Session) {
   const { pc, sessionId, handshakeId } = session
   pc.onicecandidate = (e) => {
     if (!e.candidate) {
+      if (!isSessionActiveForOutboundIce(session)) {
+        closeOne(session.sessionId)
+        return
+      }
       session.iceEndPending = true
       pumpIceToMain(session)
       emitPendingIceEndToMain(session)
@@ -140,9 +176,12 @@ function onPcSession(session: Session) {
 }
 
 function createOne(sessionId: string, handshakeId: string, role: Role) {
-  if (sessions.has(sessionId)) {
-    closeOne(sessionId)
+  for (const [sid, s] of [...sessions.entries()]) {
+    if (s.handshakeId === handshakeId) {
+      closeOne(sid)
+    }
   }
+  handshakeActiveSessionId.set(handshakeId, sessionId)
   out({ v: 1, type: 'peer_connection_create_begin', sessionId, handshakeId })
   const pc = new RTCPeerConnection(RTC_CFG)
   const session: Session = {
@@ -277,6 +316,9 @@ function closeOne(sessionId: string) {
   const s = sessions.get(sessionId)
   if (!s) {
     return
+  }
+  if (handshakeActiveSessionId.get(s.handshakeId) === sessionId) {
+    handshakeActiveSessionId.delete(s.handshakeId)
   }
   clearIceToMainDrain(s)
   s.iceQueue = []

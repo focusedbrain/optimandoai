@@ -327,9 +327,14 @@ export function tryApplyRelayPayloadToWebrtcPod(p: Record<string, unknown>): voi
       } catch {
         return
       }
-    } else if (p.candidate) {
+    } else if (typeof p.candidate === 'string') {
+      const raw = p.candidate
+      if (!raw.length) {
+        void webrtcAddIceCandidate(sessionId, handshakeId, { candidate: '' })
+        return
+      }
       try {
-        const init = JSON.parse(String(p.candidate))
+        const init = JSON.parse(raw) as Record<string, unknown>
         void webrtcAddIceCandidate(sessionId, handshakeId, init)
       } catch {
         return

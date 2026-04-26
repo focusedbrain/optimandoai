@@ -6,6 +6,7 @@
 import { loadConfig } from './config.js'
 import { createServer } from './server.js'
 import { createCleanup } from './cleanup.js'
+import { P2P_SIGNAL_SCHEMA_VERSION } from './p2pSignal.js'
 
 export async function main(): Promise<void> {
   const config = loadConfig()
@@ -24,6 +25,9 @@ export async function main(): Promise<void> {
   server.listen(config.port, config.host, () => {
     const proto = config.tls_cert_path ? 'https' : 'http'
     console.log(`[Coordination] ${proto} server listening on ${config.host}:${config.port}`)
+    console.log(
+      `[P2P_SIGNAL_SCHEMA] component=coordination-service wire_schema_version=${P2P_SIGNAL_SCHEMA_VERSION}`,
+    )
   })
 
   server.on('error', (err: Error) => {

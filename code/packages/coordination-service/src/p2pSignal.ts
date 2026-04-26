@@ -1,5 +1,9 @@
 /**
  * P2P WebRTC signaling over coordination relay (no BEAP capsules / no inbox).
+ *
+ * Wire shape must stay aligned with the Electron client’s `buildP2pSignalBody` in
+ * `apps/electron-vite-project/electron/main/internalInference/p2pSignalRelayPost.ts`
+ * (same `schema_version`, TTL caps, and candidate handling).
  */
 
 import { randomUUID } from 'crypto'
@@ -53,6 +57,49 @@ function parseIso(s: string): number | null {
   return Number.isNaN(t) ? null : t
 }
 
+/** Accept `1` or decimal integer string (some clients JSON-encode version loosely). */
+function coerceSchemaVersion(p: Record<string, unknown>): P2pSignalParseFail | null {
+  const v = p.schema_version
+  let n: number | null = null
+  if (typeof v === 'number' && Number.isFinite(v) && Number.isInteger(v)) {
+    n = v
+  } else if (typeof v === 'string' && /^[0-9]+$/.test(v.trim())) {
+    n = Number(v.trim())
+  }
+  if (n !== P2P_SIGNAL_SCHEMA_VERSION) {
+    return { ok: false, reason: 'schema_version', httpStatus: 400 }
+  }
+  p.schema_version = P2P_SIGNAL_SCHEMA_VERSION
+  return null
+}
+
+/**
+ * Candidate is an opaque UTF-8 string on the wire (JSON text of RTCIceCandidateInit).
+ * Also accept a JSON object and stringify it so callers may send nested sdpMid: null,
+ * end-of-trickle `candidate: ""`, optional usernameFragment / relatedAddress / relatedPort, etc.
+ */
+function coerceCandidateField(p: Record<string, unknown>): P2pSignalParseFail | null {
+  if (!('candidate' in p)) return null
+  const c = p.candidate
+  if (c === null || c === undefined) {
+    delete p.candidate
+    return null
+  }
+  if (typeof c === 'string') {
+    p.candidate = c
+    return null
+  }
+  if (typeof c === 'object' && !Array.isArray(c)) {
+    try {
+      p.candidate = JSON.stringify(c)
+    } catch {
+      return { ok: false, reason: 'invalid_json', httpStatus: 400 }
+    }
+    return null
+  }
+  return { ok: false, reason: 'field_required', httpStatus: 400 }
+}
+
 /**
  * Wire validation only — no registry / auth (caller enforces).
  */
@@ -78,10 +125,10 @@ export function tryParseP2pSignalRequest(
       return { ok: false, reason: 'forbidden_field', httpStatus: 400 }
     }
   }
-  const v = p.schema_version
-  if (v !== P2P_SIGNAL_SCHEMA_VERSION) {
-    return { ok: false, reason: 'schema_version', httpStatus: 400 }
-  }
+  const schemaErr = coerceSchemaVersion(p)
+  if (schemaErr) return schemaErr
+  const candErr = coerceCandidateField(p)
+  if (candErr) return candErr
   const st = p.signal_type
   if (typeof st !== 'string' || !P2P_SIGNAL_TYPES.includes(st as P2pSignalType)) {
     return { ok: false, reason: 'signal_type', httpStatus: 400 }
@@ -99,7 +146,8 @@ export function tryParseP2pSignalRequest(
     return { ok: false, reason: 'field_required', httpStatus: 400 }
   }
   const sdp = typeof p.sdp === 'string' && p.sdp.length > 0 ? p.sdp : undefined
-  const candidate = typeof p.candidate === 'string' && p.candidate.length > 0 ? p.candidate : undefined
+  /** Includes `""` for end-of-trickle envelopes after `coerceCandidateField`. */
+  const candidate = typeof p.candidate === 'string' ? p.candidate : undefined
   const c0 = parseIso(createdAt)
   const c1 = parseIso(expiresAt)
   if (c0 == null || c1 == null) {

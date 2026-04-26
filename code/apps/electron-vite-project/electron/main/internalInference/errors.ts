@@ -60,6 +60,8 @@ export const InternalInferenceErrorCode = {
   P2P_SIGNAL_AUTH_OR_ROUTE_FAILED: 'P2P_SIGNAL_AUTH_OR_ROUTE_FAILED',
   /** Relay signaling circuit breaker: too many 429 offer/answer storms; new sessions paused briefly. */
   RELAY_429_CIRCUIT_OPEN: 'RELAY_429_CIRCUIT_OPEN',
+  /** Too many terminal session failures on this handshake in a short window; new session attempts paused briefly. */
+  HOST_AI_SESSION_TERMINAL_STORM: 'HOST_AI_SESSION_TERMINAL_STORM',
 } as const
 
 export type InternalInferenceErrorCodeType =

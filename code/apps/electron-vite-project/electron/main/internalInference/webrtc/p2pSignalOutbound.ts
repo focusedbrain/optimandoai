@@ -46,9 +46,11 @@ export function recordOutboundP2pSignal(
     const iceJson =
       kind === 'ice' && meta.iceInit && typeof meta.iceInit === 'object'
         ? JSON.stringify(meta.iceInit)
-        : kind === 'ice'
-          ? ''
-          : undefined
+        : kind === 'ice' && meta.iceEos
+          ? JSON.stringify({ candidate: '', sdpMid: null, sdpMLineIndex: null })
+          : kind === 'ice'
+            ? ''
+            : undefined
     await sendHostAiP2pSignalOutbound({
       db,
       handshakeId: hid,

@@ -1,6 +1,8 @@
 /**
  * Outbound Host AI WebRTC signaling: POST /beap/p2p-signal to coordination-service.
- * Matches packages/coordination-service/src/p2pSignal.ts schema_version 1.
+ * Wire JSON must stay in sync with `packages/coordination-service/src/p2pSignal.ts`
+ * (`tryParseP2pSignalRequest`): same schema_version, required string keys, TTL behavior,
+ * and candidate as string (including empty for end-of-trickle) or relay-coerced object.
  */
 
 import { randomUUID } from 'crypto'
@@ -8,12 +10,14 @@ import { getAccessToken } from '../../../src/auth/session'
 import { getHandshakeRecord } from '../handshake/db'
 import { getP2PConfig } from '../p2p/p2pConfig'
 import { InternalInferenceErrorCode, type InternalInferenceErrorCodeType } from './errors'
+import { getP2pInferenceFlags } from './p2pInferenceFlags'
 import { redactIdForLog } from './internalInferenceLogRedact'
 import { p2pEndpointKind } from './policy'
 import { recordP2pRelaySignaling429Storm, resetP2pRelaySignalingCircuitForTests } from './p2pSignalRelayCircuit'
 import { failHostAiP2pSessionForTerminalSignalingError, getSessionState } from './p2pSession/p2pInferenceSessionManager'
+import { P2P_SIGNAL_WIRE_SCHEMA_VERSION } from './p2pSignalWireSchemaVersion'
 
-export const P2P_SIGNAL_WIRE_SCHEMA_VERSION = 1
+export { P2P_SIGNAL_WIRE_SCHEMA_VERSION }
 
 const OFFER_ANSWER_TTL_MS = 55_000
 const ICE_TTL_MS = 25_000
@@ -167,13 +171,58 @@ function buildP2pSignalBody(params: {
     expires_at: expiresAt,
   }
   if (params.sdp != null && params.sdp.length > 0) o.sdp = params.sdp
-  if (params.candidate != null && params.candidate.length > 0) o.candidate = params.candidate
+  if (params.candidate != null && typeof params.candidate === 'string') {
+    o.candidate = params.candidate
+  }
   return JSON.stringify(o)
 }
 
 /**
+ * Full wire + relay body when schema is rejected (400). Off by default — enable with
+ * `WRDESK_P2P_INFERENCE_VERBOSE_LOGS=1` (can include ICE/SDP-sized strings; never at default log level).
+ */
+function logP2pSignalSchemaDebug(payloadJson: string, responseBody: string, kind: OutboundRelayP2pKind): void {
+  if (!getP2pInferenceFlags().p2pInferenceVerboseLogs) {
+    return
+  }
+  let candidateExtra = ''
+  if (kind === 'ice') {
+    try {
+      const o = JSON.parse(payloadJson) as Record<string, unknown>
+      const c = o.candidate
+      if (typeof c === 'string') {
+        try {
+          const parsed = JSON.parse(c) as Record<string, unknown>
+          candidateExtra = ` candidate_object=${JSON.stringify({
+            candidate: parsed.candidate ?? parsed.candidateString,
+            sdpMid: parsed.sdpMid,
+            sdpMLineIndex: parsed.sdpMLineIndex,
+            usernameFragment: parsed.usernameFragment,
+          })}`
+        } catch {
+          candidateExtra = ` candidate_raw=${JSON.stringify(c)}`
+        }
+      } else if (c && typeof c === 'object') {
+        const p = c as Record<string, unknown>
+        candidateExtra = ` candidate_object=${JSON.stringify({
+          candidate: p.candidate ?? p.candidateString,
+          sdpMid: p.sdpMid,
+          sdpMLineIndex: p.sdpMLineIndex,
+          usernameFragment: p.usernameFragment,
+        })}`
+      }
+    } catch {
+      /* keep candidateExtra empty */
+    }
+  }
+  console.debug(
+    `[P2P_SIGNAL_SCHEMA_DEBUG] payload_sent=${JSON.stringify(payloadJson)}${candidateExtra} response_body=${JSON.stringify(responseBody)}`,
+  )
+}
+
+/**
  * Session-fatal errors for offer/answer on any non-success, and for ICE only on auth/route/schema.
- * ICE transport failures (429/5xx/etc.) return null → non-fatal counter path.
+ * ICE transport errors (429/5xx/etc.) return null → non-fatal counter path.
  */
 function mapSignalingHttpToTerminalCode(
   kind: OutboundRelayP2pKind,
@@ -227,7 +276,8 @@ async function postP2pSignalToCoordination(
 }
 
 /**
- * Sends offer / answer / ICE to coordination. ICE end-of-candidates is not sent (no wire candidate).
+ * Sends offer / answer / ICE to coordination.
+ * ICE: `iceEnd` skips POST; `iceCandidateJson === ''` sends `candidate: ""` (end-of-trickle envelope).
  * ICE transport errors are non-fatal until streak thresholds; offer/answer remain session-fatal.
  * HTTP 429: exponential backoff and retry same message before failing (offer/answer) or counting ICE failure.
  */
@@ -247,11 +297,28 @@ export async function sendHostAiP2pSignalOutbound(params: {
   if (params.kind === 'ice' && params.iceEnd) {
     return
   }
-  if (params.kind === 'ice' && (!params.iceCandidateJson || !params.iceCandidateJson.trim())) {
-    return
+  if (params.kind === 'ice') {
+    const j = params.iceCandidateJson
+    if (j === undefined || j === null) return
+    if (j.length > 0 && j.trim() === '') return
   }
   if ((params.kind === 'offer' || params.kind === 'answer') && (!params.sdp || !params.sdp.trim())) {
     return
+  }
+
+  if (params.kind === 'ice') {
+    const st = getSessionState(hid)
+    if (
+      !st ||
+      st.phase === 'failed' ||
+      !st.sessionId ||
+      st.sessionId.trim() !== sid
+    ) {
+      console.log(
+        `[P2P_SIGNAL_OUT] dropped_stale_candidate session=${redactIdForLog(sid)} handshake=${hid} ledger_session=${st?.sessionId ? redactIdForLog(st.sessionId.trim()) : 'none'} phase=${st?.phase ?? 'no_ledger'}`,
+      )
+      return
+    }
   }
 
   const record = getHandshakeRecord(params.db, hid)
@@ -350,6 +417,9 @@ export async function sendHostAiP2pSignalOutbound(params: {
 
         const terminalEarly = mapSignalingHttpToTerminalCode(params.kind, res.status, res.bodyText)
         const codeLog = terminalEarly ?? 'non_fatal_ice_transport'
+        if (res.status === 400 && terminalEarly === InternalInferenceErrorCode.P2P_SIGNAL_SCHEMA_REJECTED) {
+          logP2pSignalSchemaDebug(body, res.bodyText, params.kind)
+        }
         console.log(
           `[P2P_SIGNAL_OUT] failed status=${res.status} type=${params.kind} code=${codeLog} handshake=${hid} session=${redactIdForLog(sid)}`,
         )

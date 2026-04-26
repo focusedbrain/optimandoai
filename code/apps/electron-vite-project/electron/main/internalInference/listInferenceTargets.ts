@@ -1136,7 +1136,11 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         console.warn(`${L} p2p_ensure_error handshake=${hid}`, e)
         sState = null
       }
-      if (sState?.lastErrorCode === InternalInferenceErrorCode.RELAY_429_CIRCUIT_OPEN) {
+      if (
+        sState?.lastErrorCode === InternalInferenceErrorCode.RELAY_429_CIRCUIT_OPEN ||
+        sState?.lastErrorCode === InternalInferenceErrorCode.HOST_AI_SESSION_TERMINAL_STORM
+      ) {
+        const stormCode = sState!.lastErrorCode!
         const ml0 = metaLocal(displayName, pcc)
         const psub0 = hostAiSubtitleForPhase('relay_reconnecting', ml0)
         const htR = primaryLabelForP2pUiPhase('relay_reconnecting')
@@ -1165,14 +1169,18 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           unavailable_reason: 'transport_not_ready',
           hostAiStructuredUnavailableReason: 'transport_not_ready',
           host_role: 'Host',
-          inference_error_code: InternalInferenceErrorCode.RELAY_429_CIRCUIT_OPEN,
+          inference_error_code: stormCode,
           ...baseMetaFromDec(listDec, leK),
           p2pUiPhase: 'relay_reconnecting',
-          failureCode: InternalInferenceErrorCode.RELAY_429_CIRCUIT_OPEN,
+          failureCode: stormCode,
         }
-        console.log(
-          `${L} target_relay_circuit handshake=${hid} open_until_ms=${getP2pRelaySignalingCircuitOpenUntilMs()} transport=webrtc_p2p`,
-        )
+        if (stormCode === InternalInferenceErrorCode.RELAY_429_CIRCUIT_OPEN) {
+          console.log(
+            `${L} target_relay_circuit handshake=${hid} open_until_ms=${getP2pRelaySignalingCircuitOpenUntilMs()} transport=webrtc_p2p`,
+          )
+        } else {
+          console.log(`${L} target_session_storm_pause handshake=${hid} transport=webrtc_p2p`)
+        }
         targets.push(finalizeItem(tRec))
         continue
       }

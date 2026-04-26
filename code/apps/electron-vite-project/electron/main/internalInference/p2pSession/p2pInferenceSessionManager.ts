@@ -46,6 +46,16 @@ const SANDBOX_INITIATED_P2P_SESSION_REASONS = new Set([
 /** Max time to complete signaling offer/answer before the session is treated as stale. */
 export const P2P_SIGNALING_WINDOW_MS = 120_000
 
+/** Tear down the hidden WebRTC pod peer for this ledger session (ICE queue + PC close). */
+function disposeWebrtcPodSession(handshakeId: string, sessionId: string | null | undefined): void {
+  const hid = typeof handshakeId === 'string' ? handshakeId.trim() : ''
+  const sid = typeof sessionId === 'string' ? sessionId.trim() : ''
+  if (!hid || !sid) return
+  void import('../webrtc/webrtcTransportIpc')
+    .then(({ webrtcCloseSession }) => webrtcCloseSession(sid, hid))
+    .catch(() => {})
+}
+
 export const P2pSessionPhase = {
   idle: 'idle',
   /** WebRTC offer pipeline is being started (transport window + create); not yet in ICE signaling. */
@@ -127,6 +137,57 @@ const ensureSessionInFlight = new Map<string, { chain: string; promise: Promise<
 
 /** Cooldown after `failed` before `ensureSession` will allocate a new attempt. */
 const HOST_AI_FAILED_COOLDOWN_MS = 5_000
+/** Terminal `phase=failed` transitions in this rolling window trip a session storm pause. */
+const HOST_AI_TERMINAL_FAIL_WINDOW_MS = 60_000
+const HOST_AI_TERMINAL_FAIL_STORM_THRESHOLD = 3
+const HOST_AI_SESSION_STORM_PAUSE_MS = 30_000
+
+const handshakeTerminalFailureTimestamps = new Map<string, number[]>()
+const handshakeSessionStormOpenUntilMs = new Map<string, number>()
+
+/** Test-only: clear session storm counters and pause map. */
+export function resetHostAiSessionStormForTests(): void {
+  handshakeTerminalFailureTimestamps.clear()
+  handshakeSessionStormOpenUntilMs.clear()
+}
+
+function pruneTerminalFailureTimestamps(hid: string, t: number): number[] {
+  const arr = handshakeTerminalFailureTimestamps.get(hid) ?? []
+  const pruned = arr.filter((x) => t - x <= HOST_AI_TERMINAL_FAIL_WINDOW_MS)
+  handshakeTerminalFailureTimestamps.set(hid, pruned)
+  return pruned
+}
+
+function recordHandshakeTerminalFailureForStorm(hid: string): void {
+  const t = now()
+  const pruned = pruneTerminalFailureTimestamps(hid, t)
+  pruned.push(t)
+  handshakeTerminalFailureTimestamps.set(hid, pruned)
+  if (pruned.length >= HOST_AI_TERMINAL_FAIL_STORM_THRESHOLD) {
+    const until = t + HOST_AI_SESSION_STORM_PAUSE_MS
+    handshakeSessionStormOpenUntilMs.set(hid, until)
+    console.log(
+      `[HOST_AI_SESSION_STORM] handshake=${hid} consecutive_terminal_sessions=${pruned.length} window_ms=${HOST_AI_TERMINAL_FAIL_WINDOW_MS} pause_until_ms=${until} pause_ms=${HOST_AI_SESSION_STORM_PAUSE_MS}`,
+    )
+  }
+}
+
+function clearHandshakeTerminalFailureStreak(hid: string): void {
+  handshakeTerminalFailureTimestamps.delete(hid)
+}
+
+function hostAiSessionStormOpenUntilMs(handshakeId: string): number {
+  const hid = handshakeId.trim()
+  if (!hid) return 0
+  const until = handshakeSessionStormOpenUntilMs.get(hid) ?? 0
+  const t = now()
+  if (until > 0 && until <= t) {
+    handshakeSessionStormOpenUntilMs.delete(hid)
+    return 0
+  }
+  return until
+}
+
 /** After `phase=signaling`, if no outbound offer is recorded (main), fail with `OFFER_CREATE_TIMEOUT`. */
 const HOST_AI_OFFER_OUTBOUND_DEADLINE_MS = 15_000
 /** If in `signaling` (WebRTC) and neither `create_offer_begin` nor outbound offer is observed, fail. */
@@ -216,6 +277,7 @@ function scheduleOfferStartWatchdogIfNeeded(handshakeId: string, p2pSessionId: s
       return
     }
     const tFail = now()
+    disposeWebrtcPodSession(hid, sid)
     setSession(hid, {
       ...m.state,
       phase: P2pSessionPhase.failed,
@@ -299,6 +361,7 @@ function scheduleOfferOutboundDeadlineIfNeeded(handshakeId: string, p2pSessionId
     if (!m || m.state.sessionId !== sid) return
     if (m.state.phase !== P2pSessionPhase.signaling) return
     if (offerSentForSession.has(k)) return
+    disposeWebrtcPodSession(hid, sid)
     setSession(hid, {
       ...m.state,
       phase: P2pSessionPhase.failed,
@@ -408,6 +471,9 @@ function withDerivedUi(base: P2pSessionState): P2pSessionState {
   if (base.lastErrorCode === InternalInferenceErrorCode.RELAY_429_CIRCUIT_OPEN) {
     return { ...base, p2pUiPhase: P2pSessionUiPhase.relay_reconnecting }
   }
+  if (base.lastErrorCode === InternalInferenceErrorCode.HOST_AI_SESSION_TERMINAL_STORM) {
+    return { ...base, p2pUiPhase: P2pSessionUiPhase.relay_reconnecting }
+  }
   if (base.phase === P2pSessionPhase.failed) {
     return { ...base, p2pUiPhase: P2pSessionUiPhase.p2p_unavailable }
   }
@@ -435,7 +501,11 @@ function setSession(hid: string, next: P2pSessionState) {
   const derived = withDerivedUi({ ...next, updatedAt: now() })
   sessions.set(hid, { state: derived })
   emitSessionState(derived)
+  if (derived.phase === P2pSessionPhase.datachannel_open || derived.phase === P2pSessionPhase.ready) {
+    clearHandshakeTerminalFailureStreak(hid)
+  }
   if (derived.phase === P2pSessionPhase.failed && prev?.phase !== P2pSessionPhase.failed) {
+    recordHandshakeTerminalFailureForStorm(hid)
     emitP2pCapabilityDcWait(hid, { kind: 'session_terminal', lastErrorCode: derived.lastErrorCode })
   }
 }
@@ -461,6 +531,7 @@ export function failHostAiP2pSessionForTerminalSignalingError(
   const m = sessions.get(hid)
   if (!m) return
   const sid = m.state.sessionId
+  disposeWebrtcPodSession(hid, sid)
   clearHostAiSignalingGatesForHandshake(hid)
   const tFail = now()
   setSession(hid, {
@@ -616,6 +687,25 @@ function syntheticRelayCircuitCooldownState(handshakeId: string): P2pSessionStat
   return withDerivedUi(st)
 }
 
+function syntheticSessionStormCooldownState(handshakeId: string): P2pSessionState {
+  const hid = handshakeId.trim()
+  const t = now()
+  const st: P2pSessionState = {
+    handshakeId: hid,
+    sessionId: null,
+    phase: P2pSessionPhase.idle,
+    p2pUiPhase: P2pSessionUiPhase.relay_reconnecting,
+    lastErrorCode: InternalInferenceErrorCode.HOST_AI_SESSION_TERMINAL_STORM,
+    connectedAt: null,
+    updatedAt: t,
+    signalingExpiresAt: null,
+    boundLocalDeviceId: '',
+    boundPeerDeviceId: '',
+    ...noOfferMilestones(),
+  }
+  return withDerivedUi(st)
+}
+
 /**
  * Single owner for Host AI WebRTC session attempts: one in-flight promise, reuse of an
  * already-active session (signaling … ready), and failed-state cooldown.
@@ -668,6 +758,13 @@ export function ensureHostAiP2pSession(handshakeId: string, reason: string): Pro
     }
   }
   const f0 = getP2pInferenceFlags()
+  const sessionStormUntilMs = hostAiSessionStormOpenUntilMs(hid)
+  if (f0.p2pInferenceEnabled && f0.p2pInferenceSignalingEnabled && sessionStormUntilMs > 0) {
+    console.log(
+      `[HOST_AI_SESSION_ENSURE] session_storm_pause handshake=${hid} open_until_ms=${sessionStormUntilMs} skip_new_session`,
+    )
+    return Promise.resolve(syntheticSessionStormCooldownState(hid))
+  }
   if (f0.p2pInferenceEnabled && f0.p2pInferenceSignalingEnabled && isP2pRelaySignalingCircuitOpen()) {
     console.log(
       `[HOST_AI_SESSION_ENSURE] relay_429_circuit_open handshake=${hid} open_until_ms=${getP2pRelaySignalingCircuitOpenUntilMs()} skip_new_session`,
@@ -1211,6 +1308,7 @@ export function closeSession(handshakeId: string, reason: P2pSessionLogReasonTyp
   }
   const t = now()
   const sessionId = m.state.sessionId
+  disposeWebrtcPodSession(hid, sessionId)
   clearHostAiSignalingGatesForHandshake(hid)
   sessions.delete(hid)
   const final: P2pSessionState = withDerivedUi({
