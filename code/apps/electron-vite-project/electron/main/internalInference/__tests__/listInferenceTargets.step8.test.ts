@@ -153,6 +153,7 @@ vi.mock('../p2pSession/p2pInferenceSessionManager', () => ({
   },
   getSessionState: vi.fn(() => null),
   subscribeSessionState: vi.fn(() => () => {}),
+  ensureHostAiP2pSession: (hid: string, reason: string) => ensureSessionListMock(hid, reason),
   ensureSessionSingleFlight: (hid: string, reason: string) => ensureSessionListMock(hid, reason),
   preflightP2pRelaySignal: vi.fn(() => Promise.resolve(false)),
   handleSignal: vi.fn(),

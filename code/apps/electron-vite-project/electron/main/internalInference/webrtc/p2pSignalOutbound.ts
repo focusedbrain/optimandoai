@@ -4,6 +4,7 @@
  */
 import { getP2pInferenceFlags } from '../p2pInferenceFlags'
 import { redactIdForLog } from '../internalInferenceLogRedact'
+import { markP2pOfferSentForSession } from '../p2pSession/p2pInferenceSessionManager'
 
 export type OutboundP2pSignalKind = 'offer' | 'answer' | 'ice'
 
@@ -15,8 +16,9 @@ export function recordOutboundP2pSignal(
     return
   }
   if (kind === 'offer') {
+    markP2pOfferSentForSession(meta.handshakeId, meta.p2pSessionId)
     console.log(
-      `[P2P_SIGNAL] offer_send handshake=${meta.handshakeId} session=${redactIdForLog(meta.p2pSessionId)}`,
+      `[P2P_SIGNAL] outbound type=offer handshake=${meta.handshakeId} session=${redactIdForLog(meta.p2pSessionId)} bytes=${meta.byteLength}`,
     )
     return
   }

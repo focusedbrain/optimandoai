@@ -89,9 +89,9 @@ export async function runSandboxPongTestFromHostHandshake(handshakeId: string): 
     fP2p.p2pInferenceSignalingEnabled &&
     fP2p.p2pInferenceRequestOverP2p
   ) {
-    const { ensureSession } = await import('./p2pSession/p2pInferenceSessionManager')
+    const { ensureHostAiP2pSession } = await import('./p2pSession/p2pInferenceSessionManager')
     const { waitForP2pDataChannelOrTimeout } = await import('./p2pSession/p2pSessionWait')
-    await ensureSession(hid, 'pong_test')
+    await ensureHostAiP2pSession(hid, 'pong_test')
     await waitForP2pDataChannelOrTimeout(hid, 10_000)
   }
 

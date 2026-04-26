@@ -119,9 +119,9 @@ export async function runSandboxHostInferenceChat(params: {
     fP2p.p2pInferenceSignalingEnabled &&
     fP2p.p2pInferenceRequestOverP2p
   ) {
-    const { ensureSession } = await import('./p2pSession/p2pInferenceSessionManager')
+    const { ensureHostAiP2pSession } = await import('./p2pSession/p2pInferenceSessionManager')
     const { waitForP2pDataChannelOrTimeout } = await import('./p2pSession/p2pSessionWait')
-    await ensureSession(hid, 'host_inference_chat')
+    await ensureHostAiP2pSession(hid, 'host_inference_chat')
     await waitForP2pDataChannelOrTimeout(hid, 10_000)
   }
 

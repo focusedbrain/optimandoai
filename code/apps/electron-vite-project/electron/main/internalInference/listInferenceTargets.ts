@@ -19,7 +19,7 @@ import {
   isWebRtcHostAiArchitectureEnabled,
   logHostAiP2pFlagsAndSource,
 } from './p2pInferenceFlags'
-import { ensureSessionSingleFlight, P2pSessionPhase } from './p2pSession/p2pInferenceSessionManager'
+import { ensureHostAiP2pSession, P2pSessionPhase } from './p2pSession/p2pInferenceSessionManager'
 import { isP2pDataChannelUpForHandshake } from './p2pSession/p2pSessionWait'
 import {
   assertRecordForServiceRpc,
@@ -713,9 +713,16 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     return { ok: true, targets: [], refreshMeta: { hadCapabilitiesProbed: false } }
   }
 
-  void import('./p2pEndpointRepair')
-    .then((m) => m.runP2pEndpointRepairPass(db, 'list_inference_targets'))
-    .catch(() => {})
+  {
+    const fList = getP2pInferenceFlags()
+    const skipListRepair =
+      fList.p2pInferenceWebrtcEnabled && fList.p2pInferenceEnabled && !fList.p2pInferenceHttpFallback
+    if (!skipListRepair) {
+      void import('./p2pEndpointRepair')
+        .then((m) => m.runP2pEndpointRepairPass(db, 'list_inference_targets'))
+        .catch(() => {})
+    }
+  }
 
   /** 1) ACTIVE rows first, then 2) derive roles, 3) count handshake Sandbox→Host. */
   const ledgerActive = listHandshakeRecords(db, { state: HandshakeState.ACTIVE })
@@ -1046,9 +1053,9 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       listDec.p2pTransportEndpointOpen
 
     if (webrtcListPath) {
-      let sState: Awaited<ReturnType<typeof ensureSessionSingleFlight>> | null = null
+      let sState: Awaited<ReturnType<typeof ensureHostAiP2pSession>> | null = null
       try {
-        sState = await ensureSessionSingleFlight(hid, 'model_selector')
+        sState = await ensureHostAiP2pSession(hid, 'model_selector')
         console.log(
           `${L} p2p_ensure model_selector handshake=${hid} session=${sState.sessionId ?? 'null'} phase=${sState.phase}`,
         )

@@ -235,7 +235,8 @@ export async function listHostCapabilities(
     buildStamp,
     flags: f,
     p2pSessionId: webrtcPath ? p2pSid0 : null,
-    failureCode: webrtcPath && !sigSuccess ? 'P2P_SIGNALING_INCOMPLETE' : null,
+    /** Host AI WebRTC: signaling/ICE in progress is not a logged selector failure. */
+    failureCode: webrtcPath ? null : webrtcPath && !sigSuccess ? 'P2P_SIGNALING_INCOMPLETE' : null,
   })
   const dcUp = isP2pDataChannelUpForHandshake(hid)
   const dcSuccess = !webrtcPath || dcUp
@@ -248,7 +249,7 @@ export async function listHostCapabilities(
     buildStamp,
     flags: f,
     p2pSessionId: webrtcPath ? p2pSid0 : null,
-    failureCode: webrtcPath && !dcSuccess ? 'DATACHANNEL_NOT_UP' : null,
+    failureCode: webrtcPath ? null : webrtcPath && !dcSuccess ? 'DATACHANNEL_NOT_UP' : null,
   })
   emitTransportDiagnostics(hid, 'capabilities', endpointGateOk, decision)
   touchState(
@@ -715,7 +716,7 @@ export async function requestHostCompletion(
     flags: f0,
     p2pSessionId: webrtcReq ? p2pSidR : null,
     requestId: reqId0,
-    failureCode: webrtcReq && !sigOkR ? 'P2P_SIGNALING_INCOMPLETE' : null,
+    failureCode: webrtcReq ? null : webrtcReq && !sigOkR ? 'P2P_SIGNALING_INCOMPLETE' : null,
   })
   const dcUpR = isP2pDataChannelUpForHandshake(hid)
   const dcOkR = !webrtcReq || dcUpR
@@ -729,7 +730,7 @@ export async function requestHostCompletion(
     flags: f0,
     p2pSessionId: webrtcReq ? p2pSidR : null,
     requestId: reqId0,
-    failureCode: webrtcReq && !dcOkR ? 'DATACHANNEL_NOT_UP' : null,
+    failureCode: webrtcReq ? null : webrtcReq && !dcOkR ? 'DATACHANNEL_NOT_UP' : null,
   })
   emitTransportDiagnostics(hid, 'request', endpointGateOk, decision)
   if (decision.choice.selected === 'unavailable') {

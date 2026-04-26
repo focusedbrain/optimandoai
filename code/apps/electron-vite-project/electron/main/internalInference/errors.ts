@@ -32,6 +32,10 @@ export const InternalInferenceErrorCode = {
   P2P_INFERENCE_REQUIRED: 'P2P_INFERENCE_REQUIRED',
   /** WebRTC path selected; data channel or capability fetch not complete yet (not a user-facing “failure” for the selector). */
   P2P_STILL_CONNECTING: 'P2P_STILL_CONNECTING',
+  /** IPC / probe: WebRTC path but DataChannel not open; do not start a new session from probe. */
+  P2P_NOT_READY: 'P2P_NOT_READY',
+  /** WebRTC: no local offer was sent before the signaling deadline. */
+  SIGNALING_NOT_STARTED: 'SIGNALING_NOT_STARTED',
 } as const
 
 export type InternalInferenceErrorCodeType =

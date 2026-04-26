@@ -13,7 +13,7 @@ import {
 import { runSandboxPongTestFromHostHandshake } from './sandboxRequest'
 import {
   closeSession,
-  ensureSession,
+  ensureHostAiP2pSession,
   getSessionState,
   P2pSessionLogReason,
   type P2pSessionState,
@@ -187,7 +187,7 @@ export function registerInternalInferenceIpc(): void {
     ): Promise<P2pSessionState> => {
       const handshakeId = typeof params?.handshakeId === 'string' ? params.handshakeId.trim() : ''
       const reason = typeof params?.reason === 'string' && params.reason.trim() ? params.reason.trim() : 'ipc'
-      return ensureSession(handshakeId, reason)
+      return ensureHostAiP2pSession(handshakeId, reason)
     },
   )
   ipcMain.handle(

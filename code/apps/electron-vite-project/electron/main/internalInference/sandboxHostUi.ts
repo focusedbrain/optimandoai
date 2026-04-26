@@ -22,6 +22,8 @@ import {
 } from './policy'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
 import { getP2pInferenceFlags } from './p2pInferenceFlags'
+import { P2pSessionPhase, getSessionState } from './p2pSession/p2pInferenceSessionManager'
+import { isP2pDataChannelUpForHandshake } from './p2pSession/p2pSessionWait'
 import { getHostAiBuildStamp, logHostAiStage, newHostAiCorrelationChain } from './hostAiStageLog'
 import type { InternalInferenceCapabilitiesResultWire } from './types'
 import { listHostCapabilities } from './transport/internalInferenceTransport'
@@ -302,6 +304,9 @@ export type ProbeHostPolicyResult =
       directP2pAvailable: boolean
       allowSandboxInference?: undefined
       p2pProbeClassification?: P2pCapabilityProbeLetter
+      /** WebRTC: DC not up; do not treat as a terminal probe failure. */
+      retryable?: boolean
+      p2pNotReadyPhase?: string | null
     }
 
 function displayPairingFromDigits6(d: string): string {
@@ -486,6 +491,11 @@ export async function probeHostInferencePolicyFromSandbox(
   )
   const transportAuth = decideHostAiTransport(decL)
   const role = assertLedgerRolesSandboxToHost(ar.record)
+  const stSel0 = decL.selectorPhase
+  const webrtcRowInFlight =
+    role.ok &&
+    decL.preferredTransport === 'webrtc_p2p' &&
+    (stSel0 === 'connecting' || stSel0 === 'ready' || stSel0 === 'detected')
   logHostAiStage({
     chain,
     stage: 'selector_target',
@@ -495,7 +505,7 @@ export async function probeHostInferencePolicyFromSandbox(
     buildStamp,
     flags: fProbe,
     phase: decL.selectorPhase,
-    failureCode: role.ok ? null : 'SANDBOX_HOST_ROLE',
+    failureCode: !role.ok ? 'SANDBOX_HOST_ROLE' : webrtcRowInFlight ? null : decL.failureCode,
   })
   if (!role.ok) {
     probeDone(false)
@@ -578,12 +588,27 @@ export async function probeHostInferencePolicyFromSandbox(
       fP2p.p2pInferenceSignalingEnabled &&
       fP2p.p2pInferenceCapsOverP2p
     ) {
-      const { ensureSessionSingleFlight } = await import('./p2pSession/p2pInferenceSessionManager')
-      const { waitForP2pDataChannelOrTimeout } = await import('./p2pSession/p2pSessionWait')
-      await ensureSessionSingleFlight(hid, 'capability_probe')
-      await waitForP2pDataChannelOrTimeout(hid, 10_000)
+      const st = getSessionState(hid)
+      const dcReady =
+        isP2pDataChannelUpForHandshake(hid) ||
+        st?.phase === P2pSessionPhase.datachannel_open ||
+        st?.phase === P2pSessionPhase.ready
+      if (!dcReady) {
+        probeDone(false)
+        p2p(
+          `capability_probe_deferred reason=dc_not_open handshake=${hid} p2p_phase=${st?.phase ?? 'none'} (no_session_ensure_from_probe)`,
+        )
+        return {
+          ok: false,
+          code: InternalInferenceErrorCode.P2P_NOT_READY,
+          message: 'p2p_not_ready',
+          directP2pAvailable: true,
+          p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
+          retryable: true,
+          p2pNotReadyPhase: st?.phase ?? null,
+        }
+      }
     }
-    const { listHostCapabilities } = await import('./transport/internalInferenceTransport')
     const capP2p = await listHostCapabilities(hid, {
       record: ar.record,
       ingestUrl: ep,

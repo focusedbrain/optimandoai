@@ -97,6 +97,80 @@ const sessions = new Map<string, SessionModel>()
 /** One in-flight `ensureSession` per handshake (model list bursts, probe + list). */
 const ensureSessionInFlight = new Map<string, { chain: string; promise: Promise<P2pSessionState> }>()
 
+/** Cooldown after `failed` before `ensureSession` will allocate a new attempt. */
+const HOST_AI_FAILED_COOLDOWN_MS = 5_000
+/** If no local WebRTC offer is recorded within this window, session fails with `SIGNALING_NOT_STARTED`. */
+const HOST_AI_SIGNALING_OFFER_DEADLINE_MS = 15_000
+
+const signalingOfferDeadlineTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const offerSentForSession = new Set<string>()
+
+function sessionOpKey(handshakeId: string, p2pSessionId: string): string {
+  return `${handshakeId.trim()}\0${p2pSessionId.trim()}`
+}
+
+function clearSignalingOfferDeadline(handshakeId: string, p2pSessionId: string | null | undefined) {
+  const sid = typeof p2pSessionId === 'string' ? p2pSessionId.trim() : ''
+  if (!sid) return
+  const k = sessionOpKey(handshakeId, sid)
+  const t = signalingOfferDeadlineTimers.get(k)
+  if (t) {
+    clearTimeout(t)
+    signalingOfferDeadlineTimers.delete(k)
+  }
+}
+
+function clearHostAiSignalingGatesForHandshake(handshakeId: string) {
+  const hid = handshakeId.trim()
+  const prefix = `${hid}\0`
+  for (const [k, timer] of [...signalingOfferDeadlineTimers.entries()]) {
+    if (k.startsWith(prefix)) {
+      clearTimeout(timer)
+      signalingOfferDeadlineTimers.delete(k)
+    }
+  }
+  for (const k of [...offerSentForSession]) {
+    if (k.startsWith(prefix)) {
+      offerSentForSession.delete(k)
+    }
+  }
+}
+
+/**
+ * Mark that the WebRTC transport produced a local SDP offer (or equivalent), so
+ * `SIGNALING_NOT_STARTED` does not fire. Invoked from `p2pSignalOutbound` only.
+ */
+export function markP2pOfferSentForSession(handshakeId: string, p2pSessionId: string): void {
+  const k = sessionOpKey(handshakeId, p2pSessionId)
+  offerSentForSession.add(k)
+  clearSignalingOfferDeadline(handshakeId, p2pSessionId)
+}
+
+function scheduleSignalingNotStartedIfNoOffer(handshakeId: string, p2pSessionId: string) {
+  const hid = handshakeId.trim()
+  const sid = p2pSessionId.trim()
+  if (!hid || !sid) return
+  const k = sessionOpKey(hid, sid)
+  clearSignalingOfferDeadline(hid, sid)
+  const t = setTimeout(() => {
+    signalingOfferDeadlineTimers.delete(k)
+    const m = sessions.get(hid)
+    if (!m || m.state.sessionId !== sid) return
+    if (m.state.phase !== P2pSessionPhase.signaling) return
+    if (offerSentForSession.has(k)) return
+    setSession(hid, {
+      ...m.state,
+      phase: P2pSessionPhase.failed,
+      updatedAt: now(),
+      lastErrorCode: InternalInferenceErrorCode.SIGNALING_NOT_STARTED,
+    })
+    console.log(
+      `[P2P_SIGNAL] failed type=offer handshake=${hid} session=${redactIdForLog(sid)} code=SIGNALING_NOT_STARTED`,
+    )
+  }, HOST_AI_SIGNALING_OFFER_DEADLINE_MS)
+  signalingOfferDeadlineTimers.set(k, t)
+}
+
 const sessionListeners = new Set<(s: P2pSessionState) => void>()
 
 function now() {
@@ -280,31 +354,53 @@ function authorizeInternalP2pSession(
 }
 
 /**
- * Deduplicate concurrent `ensureSession` for the same handshake.
- * [HOST_AI_SESSION_ENSURE] begin — once per burst; reuse_inflight at verbose only.
+ * Single owner for Host AI WebRTC session attempts: one in-flight promise, reuse of an
+ * already-active session (signaling … ready), and failed-state cooldown.
+ * `capability_probe` must not use this to start sessions — call `ensureSession` only from
+ * list/chat/p2p IPC via this API; probe paths use `getSessionState` only.
  */
-export function ensureSessionSingleFlight(
-  handshakeId: string,
-  reason: string,
-): Promise<P2pSessionState> {
+export function ensureHostAiP2pSession(handshakeId: string, reason: string): Promise<P2pSessionState> {
   const hid = typeof handshakeId === 'string' ? handshakeId.trim() : ''
   if (!hid) {
     return ensureSession(handshakeId, reason)
   }
-  const existing = ensureSessionInFlight.get(hid)
-  if (existing) {
-    const f = getP2pInferenceFlags()
-    if (f.p2pInferenceVerboseLogs) {
+  const inflight = ensureSessionInFlight.get(hid)
+  if (inflight) {
+    const curSid = sessions.get(hid)?.state.sessionId
+    const sidLog = curSid ? redactIdForLog(curSid) : 'null'
+    console.log(
+      `[HOST_AI_SESSION_ENSURE] reuse_inflight handshake=${hid} session=${sidLog} chain=${inflight.chain} requested_reason=${reason}`,
+    )
+    return inflight.promise
+  }
+  const m0 = sessions.get(hid)
+  if (m0) {
+    const s = m0.state
+    const tCheck = now()
+    if (s.phase === P2pSessionPhase.failed) {
+      if (tCheck - s.updatedAt < HOST_AI_FAILED_COOLDOWN_MS) {
+        console.log(
+          `[HOST_AI_SESSION_ENSURE] reuse_failed_cooldown handshake=${hid} code=${s.lastErrorCode ?? 'unknown'}`,
+        )
+        return Promise.resolve(withDerivedUi(s))
+      }
+    } else if (
+      s.phase === P2pSessionPhase.signaling ||
+      s.phase === P2pSessionPhase.connecting ||
+      s.phase === P2pSessionPhase.datachannel_open ||
+      s.phase === P2pSessionPhase.ready
+    ) {
+      const sidLog2 = s.sessionId ? redactIdForLog(s.sessionId) : 'null'
       console.log(
-        `[HOST_AI_SESSION_ENSURE] reuse_inflight handshake=${hid} chain=${existing.chain} reason=${reason}`,
+        `[HOST_AI_SESSION_ENSURE] reuse_active handshake=${hid} session=${sidLog2} phase=${s.phase} requested_reason=${reason}`,
       )
+      return Promise.resolve(withDerivedUi(s))
     }
-    return existing.promise
   }
   const chain = newHostAiCorrelationChain()
   console.log(`[HOST_AI_SESSION_ENSURE] begin handshake=${hid} chain=${chain} reason=${reason}`)
   const p = ensureSession(hid, reason)
-    .then((s) => s, (e) => {
+    .then((st) => st, (e) => {
       throw e
     })
     .finally(() => {
@@ -312,6 +408,16 @@ export function ensureSessionSingleFlight(
     })
   ensureSessionInFlight.set(hid, { chain, promise: p })
   return p
+}
+
+/**
+ * @deprecated Prefer {@link ensureHostAiP2pSession}; same behavior.
+ */
+export function ensureSessionSingleFlight(
+  handshakeId: string,
+  reason: string,
+): Promise<P2pSessionState> {
+  return ensureHostAiP2pSession(handshakeId, reason)
 }
 
 /**
@@ -431,7 +537,11 @@ export async function ensureSession(
   const existing = sessions.get(hid)
   if (existing) {
     const s = existing.state
-    if (s.sessionId) {
+    if (s.phase === P2pSessionPhase.failed) {
+      if (t - s.updatedAt < HOST_AI_FAILED_COOLDOWN_MS) {
+        return withDerivedUi(s)
+      }
+    } else if (s.sessionId) {
       if (s.phase === P2pSessionPhase.signaling) {
         scheduleP2pSignalingRelayOut({ sessionId: s.sessionId, handshakeId: hid, reason: 'ensure_idempotent' })
         return withDerivedUi(s)
@@ -441,6 +551,7 @@ export async function ensureSession(
       return withDerivedUi(s)
     }
   }
+  clearHostAiSignalingGatesForHandshake(hid)
   const sessionId = randomUUID()
   const localBound = localCoordinationDeviceId(ar.record)?.trim() ?? ''
   const peerBound = peerCoordinationDeviceId(ar.record)?.trim() ?? ''
@@ -459,6 +570,7 @@ export async function ensureSession(
   setSession(hid, st)
   logConnecting(hid, sessionId)
   scheduleP2pSignalingRelayOut({ sessionId, handshakeId: hid, reason: `ensure_${reason}` })
+  scheduleSignalingNotStartedIfNoOffer(hid, sessionId)
   return withDerivedUi(st)
 }
 
@@ -545,6 +657,7 @@ export function handleSignal(raw: Record<string, unknown>): void {
     return
   }
   if (st.phase === P2pSessionPhase.signaling) {
+    clearSignalingOfferDeadline(hid, st.sessionId)
     setSession(hid, { ...st, phase: P2pSessionPhase.connecting, updatedAt: t })
   }
 }
@@ -559,6 +672,7 @@ export function markDataChannelOpenForP2pSession(handshakeId: string, p2pSession
   if (!hid || !sid) return
   const m = sessions.get(hid)
   if (!m || m.state.sessionId !== sid) return
+  clearSignalingOfferDeadline(hid, sid)
   const t = now()
   setSession(hid, {
     ...m.state,
@@ -577,6 +691,7 @@ export function closeSession(handshakeId: string, reason: P2pSessionLogReasonTyp
   }
   const t = now()
   const sessionId = m.state.sessionId
+  clearHostAiSignalingGatesForHandshake(hid)
   sessions.delete(hid)
   const final: P2pSessionState = withDerivedUi({
     handshakeId: hid,
@@ -602,6 +717,11 @@ export function closeAllP2pInferenceSessions(reason: P2pSessionLogReasonType): v
 
 /** @internal */
 export function _resetP2pInferenceSessionsForTests(): void {
+  for (const timer of signalingOfferDeadlineTimers.values()) {
+    clearTimeout(timer)
+  }
+  signalingOfferDeadlineTimers.clear()
+  offerSentForSession.clear()
   sessions.clear()
   ensureSessionInFlight.clear()
 }
