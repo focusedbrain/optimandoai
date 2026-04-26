@@ -98,6 +98,41 @@ export type HostAiTransportDeciderResult = {
   userSafeReason: string | null
 }
 
+export type HostAiTransportAuthoritative =
+  | {
+      kind: 'webrtc_p2p'
+      phase: 'connecting' | 'ready' | 'failed'
+      allowLegacyHttpProbe: false
+    }
+  | { kind: 'legacy_http'; phase: 'available' | 'invalid'; allowLegacyHttpProbe: true }
+  | { kind: 'none'; phase: 'disabled' | 'unavailable'; allowLegacyHttpProbe: false }
+
+/**
+ * One authoritative result for gating HTTP capability probes: when `kind === 'webrtc_p2p'`,
+ * callers must not POST/GET the relay or direct legacy inference HTTP paths (use P2P/DC or wait).
+ */
+export function decideHostAiTransport(
+  d: HostAiTransportDeciderResult,
+): HostAiTransportAuthoritative {
+  if (d.preferredTransport === 'webrtc_p2p') {
+    let ph: 'connecting' | 'ready' | 'failed' = 'connecting'
+    if (d.selectorPhase === 'ready') ph = 'ready'
+    else if (d.selectorPhase === 'p2p_unavailable' && d.failureCode) ph = 'failed'
+    return { kind: 'webrtc_p2p', phase: ph, allowLegacyHttpProbe: false }
+  }
+  if (d.preferredTransport === 'legacy_http') {
+    return {
+      kind: 'legacy_http',
+      phase: d.selectorPhase === 'legacy_http_invalid' ? 'invalid' : 'available',
+      allowLegacyHttpProbe: true,
+    }
+  }
+  if (d.selectorPhase === 'policy_disabled' || d.failureCode === 'HOST_POLICY_DISABLED') {
+    return { kind: 'none', phase: 'disabled', allowLegacyHttpProbe: false }
+  }
+  return { kind: 'none', phase: 'unavailable', allowLegacyHttpProbe: false }
+}
+
 function p2pStackEnabled(f: P2pInferenceFlagSnapshot): boolean {
   return f.p2pInferenceEnabled && f.p2pInferenceWebrtcEnabled && f.p2pInferenceSignalingEnabled
 }

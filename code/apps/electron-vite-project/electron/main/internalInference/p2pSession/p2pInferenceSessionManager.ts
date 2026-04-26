@@ -14,6 +14,7 @@ import { getP2pInferenceFlags } from '../p2pInferenceFlags'
 import { getHandshakeDbForInternalInference } from '../dbAccess'
 import { InternalInferenceErrorCode, type InternalInferenceErrorCodeType } from '../errors'
 import { getHostInternalInferencePolicy } from '../hostInferencePolicyStore'
+import { newHostAiCorrelationChain } from '../hostAiStageLog'
 import { redactIdForLog } from '../internalInferenceLogRedact'
 import {
   assertRecordForServiceRpc,
@@ -92,6 +93,9 @@ type SessionModel = {
 }
 
 const sessions = new Map<string, SessionModel>()
+
+/** One in-flight `ensureSession` per handshake (model list bursts, probe + list). */
+const ensureSessionInFlight = new Map<string, { chain: string; promise: Promise<P2pSessionState> }>()
 
 const sessionListeners = new Set<(s: P2pSessionState) => void>()
 
@@ -273,6 +277,41 @@ function authorizeInternalP2pSession(
     code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE,
     authReason: 'host_path_wrong_role',
   }
+}
+
+/**
+ * Deduplicate concurrent `ensureSession` for the same handshake.
+ * [HOST_AI_SESSION_ENSURE] begin — once per burst; reuse_inflight at verbose only.
+ */
+export function ensureSessionSingleFlight(
+  handshakeId: string,
+  reason: string,
+): Promise<P2pSessionState> {
+  const hid = typeof handshakeId === 'string' ? handshakeId.trim() : ''
+  if (!hid) {
+    return ensureSession(handshakeId, reason)
+  }
+  const existing = ensureSessionInFlight.get(hid)
+  if (existing) {
+    const f = getP2pInferenceFlags()
+    if (f.p2pInferenceVerboseLogs) {
+      console.log(
+        `[HOST_AI_SESSION_ENSURE] reuse_inflight handshake=${hid} chain=${existing.chain} reason=${reason}`,
+      )
+    }
+    return existing.promise
+  }
+  const chain = newHostAiCorrelationChain()
+  console.log(`[HOST_AI_SESSION_ENSURE] begin handshake=${hid} chain=${chain} reason=${reason}`)
+  const p = ensureSession(hid, reason)
+    .then((s) => s, (e) => {
+      throw e
+    })
+    .finally(() => {
+      ensureSessionInFlight.delete(hid)
+    })
+  ensureSessionInFlight.set(hid, { chain, promise: p })
+  return p
 }
 
 /**
@@ -564,6 +603,7 @@ export function closeAllP2pInferenceSessions(reason: P2pSessionLogReasonType): v
 /** @internal */
 export function _resetP2pInferenceSessionsForTests(): void {
   sessions.clear()
+  ensureSessionInFlight.clear()
 }
 
 function logConnecting(handshake: string, session: string) {

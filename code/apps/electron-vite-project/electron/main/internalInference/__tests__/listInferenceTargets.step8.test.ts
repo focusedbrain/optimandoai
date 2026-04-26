@@ -5,7 +5,10 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import type { HandshakeRecord, PartyIdentity } from '../../handshake/types'
 import { InternalInferenceErrorCode } from '../errors'
 import { assertP2pEndpointDirect, p2pEndpointKind } from '../policy'
-import { listSandboxHostInternalInferenceTargets } from '../listInferenceTargets'
+import {
+  listSandboxHostInternalInferenceTargets,
+  resetWebrtcListHostCapsCacheForTests,
+} from '../listInferenceTargets'
 import { resetP2pInferenceFlagsForTests } from '../p2pInferenceFlags'
 
 const { isHostModeMock, isSandboxModeMock, getOrchestratorModeMock, getInstanceIdMock } = vi.hoisted(() => {
@@ -62,8 +65,36 @@ vi.mock('../dbAccess', () => ({
 }))
 
 const probeHostInferencePolicyFromSandboxMock = vi.fn()
-vi.mock('../sandboxHostUi', () => ({
-  probeHostInferencePolicyFromSandbox: (hid: string) => probeHostInferencePolicyFromSandboxMock(hid),
+const listHostCapabilitiesListMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({
+    ok: true,
+    wire: {
+      type: 'internal_inference_capabilities_result' as const,
+      schema_version: 1,
+      request_id: 'req-1',
+      handshake_id: 'hs-internal-1',
+      sender_device_id: 'dev-sand-1',
+      target_device_id: 'dev-host-1',
+      created_at: new Date().toISOString(),
+      host_computer_name: 'Konge-AS1',
+      host_pairing_code: '123456',
+      models: [{ provider: 'ollama' as const, model: 'gemma3:12b', label: 'g', enabled: true }],
+      policy_enabled: true,
+      active_local_llm: { provider: 'ollama' as const, model: 'gemma3:12b', label: 'g', enabled: true },
+      active_chat_model: 'gemma3:12b',
+    },
+  }),
+)
+vi.mock('../sandboxHostUi', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../sandboxHostUi')>()
+  return {
+    ...mod,
+    probeHostInferencePolicyFromSandbox: (hid: string, o?: { correlationChain?: string }) =>
+      probeHostInferencePolicyFromSandboxMock(hid, o),
+  }
+})
+vi.mock('../transport/internalInferenceTransport', () => ({
+  listHostCapabilities: (hid: string, opts: unknown) => listHostCapabilitiesListMock(hid, opts),
 }))
 
 vi.mock('../../p2p/p2pConfig', () => ({
@@ -122,7 +153,7 @@ vi.mock('../p2pSession/p2pInferenceSessionManager', () => ({
   },
   getSessionState: vi.fn(() => null),
   subscribeSessionState: vi.fn(() => () => {}),
-  ensureSession: (hid: string, reason: string) => ensureSessionListMock(hid, reason),
+  ensureSessionSingleFlight: (hid: string, reason: string) => ensureSessionListMock(hid, reason),
   preflightP2pRelaySignal: vi.fn(() => Promise.resolve(false)),
   handleSignal: vi.fn(),
   markDataChannelOpenForP2pSession: vi.fn(),
@@ -191,6 +222,7 @@ function activeInternalSandboxToHost(over: Partial<HandshakeRecord> = {}): Hands
 
 beforeEach(() => {
   vi.unstubAllEnvs()
+  resetWebrtcListHostCapsCacheForTests()
   /** Most STEP 8 tests assert legacy-HTTP or pre-WebRTC behavior — force P2P stack off. Default-on tests use a nested describe with unstub. */
   vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '0')
   vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '0')
@@ -209,6 +241,25 @@ beforeEach(() => {
   getHandshakeDbMock.mockResolvedValue({})
   listHandshakeRecordsMock.mockReturnValue([])
   probeHostInferencePolicyFromSandboxMock.mockReset()
+  listHostCapabilitiesListMock.mockReset()
+  listHostCapabilitiesListMock.mockResolvedValue({
+    ok: true,
+    wire: {
+      type: 'internal_inference_capabilities_result' as const,
+      schema_version: 1,
+      request_id: 'req-1',
+      handshake_id: 'hs-internal-1',
+      sender_device_id: 'dev-sand-1',
+      target_device_id: 'dev-host-1',
+      created_at: new Date().toISOString(),
+      host_computer_name: 'Konge-AS1',
+      host_pairing_code: '123456',
+      models: [{ provider: 'ollama' as const, model: 'gemma3:12b', label: 'g', enabled: true }],
+      policy_enabled: true,
+      active_local_llm: { provider: 'ollama' as const, model: 'gemma3:12b', label: 'g', enabled: true },
+      active_chat_model: 'gemma3:12b',
+    },
+  })
   isDcUpListMock.mockReturnValue(true)
   getInstanceIdMock.mockReturnValue('dev-sand-1')
   ensureSessionListMock.mockImplementation(async (hid: string) => ({
@@ -439,19 +490,27 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
     listHandshakeRecordsMock.mockReturnValue([
       activeInternalSandboxToHost({ p2p_endpoint: relay }),
     ])
-    probeHostInferencePolicyFromSandboxMock.mockResolvedValue({
-      ok: true as const,
-      allowSandboxInference: true,
-      defaultChatModel: 'm1',
-      modelId: 'm1',
-      displayLabelFromHost: 'Host AI · m1',
-      hostComputerNameFromHost: 'Konge-AS1',
-      hostOrchestratorRoleLabelFromHost: 'Host orchestrator',
-      internalIdentifierDisplayFromHost: '123-456',
-      internalIdentifier6FromHost: '123456',
-      directP2pAvailable: false,
+    listHostCapabilitiesListMock.mockResolvedValue({
+      ok: true,
+      wire: {
+        type: 'internal_inference_capabilities_result' as const,
+        schema_version: 1,
+        request_id: 'req-1',
+        handshake_id: 'hs-internal-1',
+        sender_device_id: 'dev-sand-1',
+        target_device_id: 'dev-host-1',
+        created_at: new Date().toISOString(),
+        host_computer_name: 'Konge-AS1',
+        host_pairing_code: '123456',
+        models: [{ provider: 'ollama' as const, model: 'm1', label: 'm', enabled: true }],
+        policy_enabled: true,
+        active_local_llm: { provider: 'ollama' as const, model: 'm1', label: 'm', enabled: true },
+        active_chat_model: 'm1',
+      },
     })
     const r = await listSandboxHostInternalInferenceTargets()
+    expect(listHostCapabilitiesListMock).toHaveBeenCalled()
+    expect(probeHostInferencePolicyFromSandboxMock).not.toHaveBeenCalled()
     expect(r.refreshMeta.hadCapabilitiesProbed).toBe(true)
     expect(r.targets).toHaveLength(1)
     const t = r.targets[0]!
@@ -850,7 +909,7 @@ describe('STEP 8 — Production safety (unit contracts)', () => {
     resetP2pInferenceFlagsForTests()
   })
 
-  it('(8) DataChannel path + policy probe: ready and model on row', async () => {
+  it('(8) DataChannel path + listHostCapabilities: ready and model on row; no policy probe', async () => {
     vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
@@ -860,23 +919,32 @@ describe('STEP 8 — Production safety (unit contracts)', () => {
     const relay = 'https://relay.wrdesk.com/xyz/beap/ingest'
     listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost({ p2p_endpoint: relay })])
     isDcUpListMock.mockReturnValue(true)
-    probeHostInferencePolicyFromSandboxMock.mockResolvedValue({
-      ok: true as const,
-      allowSandboxInference: true,
-      defaultChatModel: 'gem',
-      modelId: 'gem',
-      displayLabelFromHost: 'Host AI · gem',
-      hostComputerNameFromHost: 'H',
-      hostOrchestratorRoleLabelFromHost: 'Host orchestrator',
-      internalIdentifierDisplayFromHost: '1-2-3',
-      internalIdentifier6FromHost: '123456',
-      directP2pAvailable: false,
+    probeHostInferencePolicyFromSandboxMock.mockReset()
+    listHostCapabilitiesListMock.mockResolvedValue({
+      ok: true,
+      wire: {
+        type: 'internal_inference_capabilities_result' as const,
+        schema_version: 1,
+        request_id: 'req-dc-8',
+        handshake_id: 'hs-internal-1',
+        sender_device_id: 'dev-sand-1',
+        target_device_id: 'dev-host-1',
+        created_at: new Date().toISOString(),
+        host_computer_name: 'Konge-AS1',
+        host_pairing_code: '123456',
+        models: [{ provider: 'ollama' as const, model: 'gem', label: 'g', enabled: true }],
+        policy_enabled: true,
+        active_local_llm: { provider: 'ollama' as const, model: 'gem', label: 'g', enabled: true },
+        active_chat_model: 'gem',
+      },
     })
     const r = await listSandboxHostInternalInferenceTargets()
     const t = r.targets[0]!
     expect(t.p2pUiPhase).toBe('ready')
     expect(t.model).toBe('gem')
     expect(t.displayTitle ?? t.label).toMatch(/gem/)
+    expect(probeHostInferencePolicyFromSandboxMock).not.toHaveBeenCalled()
+    expect(listHostCapabilitiesListMock).toHaveBeenCalled()
     vi.unstubAllEnvs()
     resetP2pInferenceFlagsForTests()
   })

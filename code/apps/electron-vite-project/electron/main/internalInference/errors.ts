@@ -30,6 +30,8 @@ export const InternalInferenceErrorCode = {
    * configured path — old Sandboxes must use DataChannel, or set `WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT=1`.
    */
   P2P_INFERENCE_REQUIRED: 'P2P_INFERENCE_REQUIRED',
+  /** WebRTC path selected; data channel or capability fetch not complete yet (not a user-facing “failure” for the selector). */
+  P2P_STILL_CONNECTING: 'P2P_STILL_CONNECTING',
 } as const
 
 export type InternalInferenceErrorCodeType =

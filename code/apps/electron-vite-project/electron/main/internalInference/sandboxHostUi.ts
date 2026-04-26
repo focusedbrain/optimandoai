@@ -25,7 +25,12 @@ import { getP2pInferenceFlags } from './p2pInferenceFlags'
 import { getHostAiBuildStamp, logHostAiStage, newHostAiCorrelationChain } from './hostAiStageLog'
 import type { InternalInferenceCapabilitiesResultWire } from './types'
 import { listHostCapabilities } from './transport/internalInferenceTransport'
-import { buildHostAiTransportDeciderInput, decideInternalInferenceTransport, deriveHostAiHandshakeRoles } from './transport/decideInternalInferenceTransport'
+import {
+  buildHostAiTransportDeciderInput,
+  decideHostAiTransport,
+  decideInternalInferenceTransport,
+  deriveHostAiHandshakeRoles,
+} from './transport/decideInternalInferenceTransport'
 
 export interface SandboxHostInferenceCandidate {
   handshakeId: string
@@ -305,7 +310,7 @@ function displayPairingFromDigits6(d: string): string {
   return s ? s : '—'
 }
 
-function mapCapabilitiesWireToProbe(
+export function mapCapabilitiesWireToProbe(
   w: InternalInferenceCapabilitiesResultWire,
 ): Extract<ProbeHostPolicyResult, { ok: true }> {
   const allow = w.policy_enabled === true
@@ -472,12 +477,14 @@ export async function probeHostInferencePolicyFromSandbox(
   })
   const decL = decideInternalInferenceTransport(
     buildHostAiTransportDeciderInput({
+      /** Must match `listInferenceTargets` so the probe never diverges to legacy HTTP when the list row chose WebRTC. */
       operationContext: 'list_targets',
       db,
       handshakeRecord: ar.record,
       featureFlags: fProbe,
     }),
   )
+  const transportAuth = decideHostAiTransport(decL)
   const role = assertLedgerRolesSandboxToHost(ar.record)
   logHostAiStage({
     chain,
@@ -563,16 +570,73 @@ export async function probeHostInferencePolicyFromSandbox(
   const { timeoutMs } = getHostInternalInferencePolicy()
   const tCap = Math.min(timeoutMs, 15_000)
 
-  if (
-    fP2p.p2pInferenceEnabled &&
-    fP2p.p2pInferenceWebrtcEnabled &&
-    fP2p.p2pInferenceSignalingEnabled &&
-    fP2p.p2pInferenceCapsOverP2p
-  ) {
-    const { ensureSession } = await import('./p2pSession/p2pInferenceSessionManager')
-    const { waitForP2pDataChannelOrTimeout } = await import('./p2pSession/p2pSessionWait')
-    await ensureSession(hid, 'capability_probe')
-    await waitForP2pDataChannelOrTimeout(hid, 10_000)
+  /** When WebRTC is the policy choice, do not POST/GET the relay (or any legacy) Host inference HTTP; use P2P/DC via `listHostCapabilities`. */
+  if (transportAuth.kind === 'webrtc_p2p' && decL.preferredTransport === 'webrtc_p2p') {
+    if (
+      fP2p.p2pInferenceEnabled &&
+      fP2p.p2pInferenceWebrtcEnabled &&
+      fP2p.p2pInferenceSignalingEnabled &&
+      fP2p.p2pInferenceCapsOverP2p
+    ) {
+      const { ensureSessionSingleFlight } = await import('./p2pSession/p2pInferenceSessionManager')
+      const { waitForP2pDataChannelOrTimeout } = await import('./p2pSession/p2pSessionWait')
+      await ensureSessionSingleFlight(hid, 'capability_probe')
+      await waitForP2pDataChannelOrTimeout(hid, 10_000)
+    }
+    const { listHostCapabilities } = await import('./transport/internalInferenceTransport')
+    const capP2p = await listHostCapabilities(hid, {
+      record: ar.record,
+      ingestUrl: ep,
+      token: token!,
+      timeoutMs: tCap,
+      correlationChain: chain,
+    })
+    if (capP2p.ok) {
+      const out = mapCapabilitiesWireToProbe(capP2p.wire)
+      const isJ = out.inferenceErrorCode === InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM
+      probeDone(true)
+      if (isJ) {
+        p2p(`capability_probe_detail classification=${P2P_CAPABILITY_PROBE.HOST_HANDLER_REACHED_BUT_NO_ACTIVE_MODEL}`)
+      }
+      return { ...out, p2pProbeClassification: isJ ? P2P_CAPABILITY_PROBE.HOST_HANDLER_REACHED_BUT_NO_ACTIVE_MODEL : undefined }
+    }
+    if (!fP2p.p2pInferenceHttpFallback) {
+      probeDone(false)
+      p2p(`capability_probe_skip_http reason=webrtc_p2p_dc_or_caps_incomplete handshake=${hid} detail=${'reason' in capP2p ? String(capP2p.reason) : 'unknown'}`)
+      return {
+        ok: false,
+        code: InternalInferenceErrorCode.P2P_STILL_CONNECTING,
+        message: 'p2p_still_connecting',
+        directP2pAvailable: true,
+        p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
+      }
+    }
+    const dcfail = 'reason' in capP2p ? capP2p.reason : 'unknown'
+    probeDone(false)
+    p2p(`capability_probe_webrtc_exhausted handshake=${hid} reason=${String(dcfail)} (http_fallback_tried_in_listHost)`)
+    return {
+      ok: false,
+      code: InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE,
+      message: String(dcfail),
+      directP2pAvailable: true,
+      p2pProbeClassification: P2P_CAPABILITY_PROBE.FIREWALL_OR_NETWORK_TIMEOUT,
+    }
+  }
+
+  /**
+   * Failsafe: if the decider still prefers WebRTC, we must not POST to relay capsule or policy GET
+   * (all WebRTC cases should have returned in the block above; listTargets can use `listHostCapabilities` on DC up).
+   */
+  if (decL.preferredTransport === 'webrtc_p2p') {
+    probeDone(false)
+    p2p(`capability_probe_legacy_blocked handshake=${hid} reason=webrtc_preferred_failsafe`)
+    return {
+      ok: false,
+      code: InternalInferenceErrorCode.P2P_STILL_CONNECTING,
+      message: 'legacy_blocked_failsafe',
+      directP2pAvailable: true,
+      p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
+    }
   }
 
   p2p('capability_probe_begin')

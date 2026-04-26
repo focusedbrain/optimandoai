@@ -839,17 +839,23 @@ export default function HybridSearch({
     if (entry?.type === 'host_internal') {
       if (t) {
         if (t.host_selector_state === 'checking' || entry.hostSelectorState === 'checking') {
-          return true
+          return false
+        }
+        if (t.p2pUiPhase === 'connecting' || t.p2pUiPhase === 'p2p_unavailable' || t.availability === 'checking_host') {
+          return false
         }
         return !t.available
       }
       if (entry.hostSelectorState === 'checking') {
-        return true
+        return false
       }
       return !entry.hostTargetAvailable
     }
     if (!t) {
       return true
+    }
+    if (t.p2pUiPhase === 'connecting' || t.p2pUiPhase === 'p2p_unavailable' || t.availability === 'checking_host') {
+      return false
     }
     return !t.available
   }, [selectedModel, hostInf.inferenceTargets, availableModels])
