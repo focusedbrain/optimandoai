@@ -19,7 +19,10 @@ export type HostAiEndpointDiagnostics = {
 /** Must match `InternalInferenceErrorCode` in main where applicable. */
 export const HostAiProbeCode = {
   HOST_AI_ENDPOINT_OWNER_MISMATCH: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
-  HOST_AI_PEER_ENDPOINT_MISSING: 'HOST_AI_PEER_ENDPOINT_MISSING',
+  /** Direct-HTTP-only: peer LAN BEAP not in ledger/relay ads; P2P may still be valid. */
+  HOST_AI_DIRECT_PEER_BEAP_MISSING: 'HOST_AI_DIRECT_PEER_BEAP_MISSING',
+  /** No WebRTC, relay session, or valid direct BEAP for HTTP. */
+  HOST_AI_NO_ROUTE: 'HOST_AI_NO_ROUTE',
   HOST_AI_ENDPOINT_PROVENANCE_MISSING: 'HOST_AI_ENDPOINT_PROVENANCE_MISSING',
   HOST_DIRECT_ENDPOINT_MISSING: 'HOST_DIRECT_ENDPOINT_MISSING',
   PROBE_AUTH_REJECTED: 'PROBE_AUTH_REJECTED',
@@ -96,8 +99,11 @@ export function hostAiUserFacingMessageFromTarget(
   if (code === HostAiProbeCode.HOST_AI_ENDPOINT_OWNER_MISMATCH) {
     return { primary: HOST_AI_MSG.ownerMismatch, hint: null }
   }
-  if (code === HostAiProbeCode.HOST_AI_PEER_ENDPOINT_MISSING) {
+  if (code === HostAiProbeCode.HOST_AI_DIRECT_PEER_BEAP_MISSING) {
     return { primary: HOST_AI_MSG.hostEndpointNotPublished, hint: null }
+  }
+  if (code === HostAiProbeCode.HOST_AI_NO_ROUTE) {
+    return { primary: 'Host AI has no available route: enable P2P/relay, or a reachable direct BEAP on the Host.', hint: null }
   }
   if (code === HostAiProbeCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING || code === HostAiProbeCode.HOST_DIRECT_ENDPOINT_MISSING) {
     return { primary: HOST_AI_MSG.provenanceMissing, hint: null }

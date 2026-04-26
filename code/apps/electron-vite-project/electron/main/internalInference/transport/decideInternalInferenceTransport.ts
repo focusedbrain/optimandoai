@@ -257,7 +257,8 @@ export function decideInternalInferenceTransport(
     Boolean(hr?.handshake_type === 'internal') &&
     trust &&
     le.mayPostInternalInferenceHttpToIngest &&
-    kind === 'direct'
+    kind === 'direct' &&
+    !p2pOn
 
   if (internalPreferDirectHttp) {
     return {
@@ -368,13 +369,23 @@ export function decideInternalInferenceTransport(
     }
   }
   /**
-   * Same-principal internal Sandbox→Host: a relay `p2p_endpoint` is signaling-only until a data channel
-   * exists. Do not report `connecting`+WebRTC as a usable transport for the selector (it loops probes).
-   * Direct HTTP (when the stored endpoint is a real BEAP ingest) is preferred earlier via
-   * `internalPreferDirectHttp`. Pure relay+noDC → fail closed; list still throttles `ensureHostAiP2pSession` so
-   * WebRTC can start in the background.
+   * Same-principal internal Sandbox→Host: relay `p2p_endpoint` is signaling until a data channel exists.
+   * Expose P2P transport as open + `connecting` so the sandbox can `ensureHostAiP2pSession` and list can wait
+   * for WebRTC/DC; direct BEAP is optional. Only fail here when the P2P session is terminal.
    */
   if (hr?.handshake_type === 'internal' && trust && kind === 'relay' && !dcUp) {
+    if (p2pOn && ph !== P2pSessionPhase.failed) {
+      return {
+        targetDetected: true,
+        selectorPhase: 'connecting',
+        preferredTransport: 'webrtc_p2p',
+        mayUseLegacyHttpFallback: mayFb,
+        legacyHttpFallbackViable: legacyViable,
+        p2pTransportEndpointOpen: true,
+        failureCode: null,
+        userSafeReason: null,
+      }
+    }
     return {
       targetDetected: true,
       selectorPhase: 'p2p_unavailable',
@@ -384,7 +395,7 @@ export function decideInternalInferenceTransport(
       p2pTransportEndpointOpen: false,
       failureCode: 'INTERNAL_RELAY_P2P_NOT_READY',
       userSafeReason:
-        'Host AI on this internal pair needs a direct BEAP address on the handshake, or a live P2P data channel. Relay signaling alone cannot run inference until the connection is up.',
+        'Host AI on this internal pair needs a live P2P data channel, or enable the P2P stack. Relay signaling alone cannot run inference until the connection is up.',
     }
   }
   if (ph === P2pSessionPhase.starting || ph === P2pSessionPhase.signaling || ph === P2pSessionPhase.connecting) {

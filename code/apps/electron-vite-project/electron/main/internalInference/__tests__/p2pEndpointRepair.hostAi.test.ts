@@ -120,7 +120,7 @@ describe('resolveSandboxToHostHttpDirectIngest', () => {
     resetHostAdvertisedMvpDirectForTests()
   })
 
-  it('Test 4: no peer Host advert and ledger/caller is local sandbox BEAP → HOST_AI_PEER_ENDPOINT_MISSING', () => {
+  it('Test 4: no peer Host advert and ledger/caller is local sandbox BEAP → HOST_AI_DIRECT_PEER_BEAP_MISSING', () => {
     const r = resolveSandboxToHostHttpDirectIngest(
       db,
       'hs-a',
@@ -129,7 +129,7 @@ describe('resolveSandboxToHostHttpDirectIngest', () => {
     )
     expect(r.ok).toBe(false)
     if (r.ok) return
-    expect(r.code).toBe(InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING)
+    expect(r.code).toBe(InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING)
     expect(r.host_ai_endpoint_deny_detail).toBe('peer_host_beap_not_advertised')
     expect(r.selected_endpoint_provenance).toBe('local_beap')
   })
@@ -340,7 +340,7 @@ describe('provenance error contract', () => {
   it('D: terminal reasons exclude BEAP role gate (policy GET must be skipped in UI for these codes only)', () => {
     const isTerminal = (code: string) =>
       code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH ||
-      code === InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING ||
+      code === InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING ||
       code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING ||
       code === InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING
     expect(isTerminal(InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH)).toBe(true)

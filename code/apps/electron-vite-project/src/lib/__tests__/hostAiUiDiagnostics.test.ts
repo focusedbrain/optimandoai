@@ -13,9 +13,9 @@ describe('hostAiUserFacingMessageFromTarget', () => {
     })
     expect(m?.primary).toBe(HOST_AI_MSG.ownerMismatch)
   })
-  it('maps HOST_AI_PEER_ENDPOINT_MISSING to host-not-published string', () => {
+  it('maps HOST_AI_DIRECT_PEER_BEAP_MISSING to host-not-published string', () => {
     const m = hostAiUserFacingMessageFromTarget({
-      inference_error_code: HostAiProbeCode.HOST_AI_PEER_ENDPOINT_MISSING,
+      inference_error_code: HostAiProbeCode.HOST_AI_DIRECT_PEER_BEAP_MISSING,
     })
     expect(m?.primary).toBe(HOST_AI_MSG.hostEndpointNotPublished)
   })

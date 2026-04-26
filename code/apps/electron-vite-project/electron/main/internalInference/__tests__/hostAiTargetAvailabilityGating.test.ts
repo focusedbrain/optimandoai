@@ -1,6 +1,6 @@
 /**
- * Host AI list availability: same-principal internal + relay + no data channel is fail-closed
- * in the decider (no infinite "connecting" list loop); direct HTTP and DC-up webrtc still work.
+ * Host AI list: internal + relay + no data channel is still a valid **connecting** WebRTC+relay path
+ * (not legacy HTTP to relay). DC-up and direct LAN are separate cases.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
@@ -71,7 +71,7 @@ describe('decideInternalInferenceTransport — internal same-principal relay gat
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
   })
 
-  it('(1) internal + relay + no DC → p2p_unavailable, not connecting/webrtc', () => {
+  it('(1) internal + relay + no DC + live session (non-failed) → connecting + webrtc (not legacy closed)', () => {
     const relay = 'https://relay.wrdesk.com/xyz/beap/ingest'
     const hr = baseInternal(relay)
     const p2pSession: P2pSessionState = {
@@ -97,9 +97,10 @@ describe('decideInternalInferenceTransport — internal same-principal relay gat
       ...d,
       sessionState: { handshakeId: hr.handshake_id, p2pSession, dataChannelUp: false },
     })
-    expect(dec.selectorPhase).toBe('p2p_unavailable')
-    expect(dec.preferredTransport).toBe('none')
-    expect(dec.failureCode).toBe('INTERNAL_RELAY_P2P_NOT_READY')
+    expect(dec.selectorPhase).toBe('connecting')
+    expect(dec.preferredTransport).toBe('webrtc_p2p')
+    expect(dec.p2pTransportEndpointOpen).toBe(true)
+    expect(dec.failureCode).toBeNull()
   })
 
   it('(2) internal + relay + DC up → ready + webrtc', () => {
@@ -132,7 +133,10 @@ describe('decideInternalInferenceTransport — internal same-principal relay gat
     expect(dec.preferredTransport).toBe('webrtc_p2p')
   })
 
-  it('(3) internal + direct LAN ingest → legacy_http, not webrtc', () => {
+  it('(3) internal + direct LAN ingest + P2P stack off → legacy_http (not WebRTC when stack disabled)', () => {
+    vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '0')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '0')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '0')
     const direct = 'http://192.168.0.5:51249/beap/ingest'
     const hr = baseInternal(direct)
     const d = buildHostAiTransportDeciderInput({

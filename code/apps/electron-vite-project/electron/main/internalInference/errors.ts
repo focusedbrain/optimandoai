@@ -88,12 +88,17 @@ export const InternalInferenceErrorCode = {
   /** Handshake row cannot establish host coordination id (or other binding) to vet counterparty direct BEAP. */
   HOST_AI_ENDPOINT_PROVENANCE_MISSING: 'HOST_AI_ENDPOINT_PROVENANCE_MISSING',
   /**
-   * Sandbox→Host: no peer-issued or relay-delivered host BEAP advertisement and the ledger/caller would
-   * only point at this device’s own BEAP — do not probe; Host must publish first.
+   * Direct-HTTP path only: no peer-issued or relay-delivered host LAN BEAP advertisement while the
+   * ledger/caller would only point at this device’s own BEAP. Does **not** mean Host AI is unavailable
+   * if WebRTC/relay can carry the session (see {@link decideHostAiIntentRoute} / route selection).
    */
-  HOST_AI_PEER_ENDPOINT_MISSING: 'HOST_AI_PEER_ENDPOINT_MISSING',
+  HOST_AI_DIRECT_PEER_BEAP_MISSING: 'HOST_AI_DIRECT_PEER_BEAP_MISSING',
   /** Host peer has no direct MVP-LAN counterparty URL; do not substitute local sandbox URL. */
   HOST_DIRECT_ENDPOINT_MISSING: 'HOST_DIRECT_ENDPOINT_MISSING',
+  /**
+   * No WebRTC/DC, no relay P2P session, and no valid direct BEAP for HTTP — Host AI cannot be reached.
+   */
+  HOST_AI_NO_ROUTE: 'HOST_AI_NO_ROUTE',
   /**
    * Mis-attributed: Sandbox local Ollama unreachable; must not be shown as the **paired Host** Ollama down
    * when Host capabilities advertise the Host Ollama as available.

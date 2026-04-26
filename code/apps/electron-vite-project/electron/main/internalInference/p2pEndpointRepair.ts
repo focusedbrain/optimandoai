@@ -144,7 +144,7 @@ type DenyCode =
   | typeof InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH
   | typeof InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING
   | typeof InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING
-  | typeof InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING
+  | typeof InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING
 
 export type SandboxToHostHttpDirectIngestResult =
   | {
@@ -408,7 +408,7 @@ export function resolveSandboxToHostHttpDirectIngest(
      * Do not use local BEAP as the Host path or mislabel it as a peer error — Host must advertise first.
      */
     return fail(
-      InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING,
+      InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING,
       'rejected_no_peer_host_beap',
       'peer_host_beap_not_advertised',
       'local_beap',

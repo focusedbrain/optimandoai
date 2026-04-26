@@ -82,6 +82,16 @@ export function decideHostAiIntentRoute(
   }
 
   if (wantP2p && !p2pReady) {
+    /**
+     * Capabilities: prefer WebRTC data plane when policy allows; do not fall back to optional direct
+     * BEAP while signaling/ICE is still completing — relay-only rows have no direct HTTP to post.
+     */
+    if (intent === 'capabilities') {
+      return {
+        choice: { preferred: 'p2p', selected: 'webrtc_p2p', reason: 'p2p_await_data_channel' },
+        shouldEmitFallbackLog: false,
+      }
+    }
     if (flags.p2pInferenceHttpFallback) {
       return {
         choice: { preferred: 'p2p', selected: 'http_direct', reason: 'p2p_not_ready_fallback_http' },

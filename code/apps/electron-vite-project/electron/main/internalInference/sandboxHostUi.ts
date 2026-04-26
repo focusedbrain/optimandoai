@@ -95,8 +95,8 @@ function isHostAiProvenanceFailureTerminal(cap: {
   return (
     cap.reason === InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH ||
     cap.reason === InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING ||
-    cap.reason === InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING ||
     cap.reason === InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING ||
+    cap.reason === InternalInferenceErrorCode.HOST_AI_NO_ROUTE ||
     cap.reason === InternalInferenceErrorCode.HOST_AI_LEDGER_ASYMMETRIC ||
     cap.reason === InternalInferenceErrorCode.HOST_AI_PAIRING_STALE ||
     cap.reason === InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE

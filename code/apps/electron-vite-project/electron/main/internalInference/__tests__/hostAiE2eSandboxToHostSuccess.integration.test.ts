@@ -7,7 +7,7 @@
  * Run from the repo root that contains `vitest.config.ts` (this workspace: `code/code`):
  * `pnpm vitest run apps/electron-vite-project/electron/main/internalInference/__tests__/hostAiE2eSandboxToHostSuccess.integration.test.ts --config vitest.config.ts`
  *
- * Covers: (1) self-BEAP + no peer ad → `HOST_AI_PEER_ENDPOINT_MISSING` (no HTTP).
+ * Covers: (1) self-BEAP + no peer ad → `HOST_AI_DIRECT_PEER_BEAP_MISSING` (no direct HTTP; not “no P2P”).
  * (2) Relay-seeded host-owned distinct BEAP + successful capabilities POST → `available` row,
  *     `hostWireOllamaReachable` from host wire. (3) Host list path does not depend on
  *     sandbox-local Ollama. (4) Two models + Ollama on host in wire. (5) No env/test hook
@@ -281,7 +281,7 @@ describe('Host AI E2E — sandbox ↔ host (HTTP capabilities path)', () => {
     const t = r.targets[0]!
     expect(t.kind).toBe('host_internal')
     expect(t.available).toBe(false)
-    expect(t.inference_error_code).toBe(InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING)
+    expect(t.inference_error_code).toBe(InternalInferenceErrorCode.HOST_AI_NO_ROUTE)
     expect(t.host_ai_endpoint_diagnostics).toBeDefined()
     expect(t.host_ai_endpoint_diagnostics?.local_device_id).toBe(SANDBOX_DEVICE_ID)
     expect(t.host_ai_endpoint_diagnostics?.peer_host_device_id).toBe(HOST_DEVICE_ID)

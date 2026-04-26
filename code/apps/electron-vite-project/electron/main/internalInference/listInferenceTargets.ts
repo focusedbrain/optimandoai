@@ -375,7 +375,7 @@ function isHostAiHttpEndpointProvenanceClassFailure(code: string): boolean {
   return (
     code === InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING ||
     code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING ||
-    code === InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING ||
+    code === InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING ||
     code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH
   )
 }
@@ -384,7 +384,7 @@ function hostP2pUiPhaseForHostEndpointProvenance(
   code: string,
   hostAiEndpointDenyDetail: string | undefined,
 ): HostP2pUiPhase {
-  if (code === InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING) {
+  if (code === InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING) {
     return 'host_endpoint_not_advertised'
   }
   if (
@@ -432,6 +432,10 @@ function hostP2pUiPhaseForProbeFailureCode(code: string): HostP2pUiPhase {
     case InternalInferenceErrorCode.HOST_AI_LEDGER_ASYMMETRIC:
     case InternalInferenceErrorCode.HOST_AI_PAIRING_STALE:
       return 'p2p_unavailable'
+    case InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY:
+      return 'host_transport_unavailable'
+    case InternalInferenceErrorCode.HOST_AI_NO_ROUTE:
+      return 'host_transport_unavailable'
     default:
       return 'p2p_unavailable'
   }
@@ -464,10 +468,12 @@ function hostAiStructuredReasonForProbeCode(code: string): HostAiStructuredUnava
       return 'pairing_stale'
     case InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING:
     case InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING:
-    case InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING:
+    case InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING:
       return 'host_endpoint_not_advertised'
     case InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH:
       return 'endpoint_provenance_missing'
+    case InternalInferenceErrorCode.HOST_AI_NO_ROUTE:
+      return 'host_transport_unavailable'
     default:
       return 'capability_probe_failed'
   }
@@ -2123,6 +2129,11 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         failureCode: isPolicyForbid ? 'HOST_POLICY_DISABLED' : String(code),
         transportMode: listDec.preferredTransport,
         legacyEndpointKind: leK,
+        host_ai_endpoint_diagnostics:
+          'hostAiEndpointDiagnostics' in probe &&
+          (probe as { hostAiEndpointDiagnostics?: HostAiEndpointDiagnostics }).hostAiEndpointDiagnostics
+            ? (probe as { hostAiEndpointDiagnostics: HostAiEndpointDiagnostics }).hostAiEndpointDiagnostics
+            : undefined,
       }
       const pr = isPolicyForbid ? 'POLICY_DISABLED' : 'CAPABILITY_PROBE_FAILED'
       if (structured) {
