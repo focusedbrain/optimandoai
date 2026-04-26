@@ -250,6 +250,12 @@ function assertHostInbound(
       lr: okDr.localRole,
       pr: okDr.peerRole,
     })
+  // `requester_device_id` must come from the authenticated envelope (see `toHttpContext`); never treat
+  // "current host" as the sandbox requester for remote direct calls.
+  if (okDr.localRole === 'host' && okDr.peerRole === 'sandbox' && snd === currentId) {
+    g('deny', 'forbidden_host_role')
+    return fail(InternalInferenceErrorCode.POLICY_FORBIDDEN, 'sender_must_be_peer_sandbox')
+  }
   if (okDr.localRole === 'sandbox' && okDr.peerRole === 'host') {
     g('deny', 'forbidden_host_role')
     return fail(InternalInferenceErrorCode.POLICY_FORBIDDEN, 'forbidden_host_role')

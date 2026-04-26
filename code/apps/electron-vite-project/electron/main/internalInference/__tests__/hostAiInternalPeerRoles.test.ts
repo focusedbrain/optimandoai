@@ -4,9 +4,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { HandshakeState, type HandshakeRecord } from '../../handshake/types'
 import { InternalInferenceErrorCode } from '../errors'
-import {
-  deriveInternalHostAiPeerRoles,
-} from '../policy'
+import { deriveInternalHostAiPeerRoles, hostAiSandboxToHostRequestDeviceIds } from '../policy'
 import { ensureSession, P2pSessionPhase, _resetP2pInferenceSessionsForTests } from '../p2pSession/p2pInferenceSessionManager'
 import { resetP2pInferenceFlagsForTests } from '../p2pInferenceFlags'
 import { _resetHostInferencePolicyForTests } from '../hostInferencePolicyStore'
@@ -112,6 +110,26 @@ describe('deriveInternalHostAiPeerRoles', () => {
     if (!d.ok) {
       expect(d.reason).toBe('device_id_not_in_handshake')
     }
+  })
+})
+
+describe('hostAiSandboxToHostRequestDeviceIds (ignores per-device local_role)', () => {
+  it('A: returns sandbox and host device ids from initiator/acceptor columns when local_role is wrong', () => {
+    const r = base({
+      local_role: 'acceptor',
+    })
+    const x = hostAiSandboxToHostRequestDeviceIds(r, 'dev-sand-1')
+    expect(x.ok).toBe(true)
+    if (x.ok) {
+      expect(x.requester).toBe('dev-sand-1')
+      expect(x.targetHost).toBe('dev-host-1')
+    }
+  })
+
+  it('fails when local instance is not the sandbox id', () => {
+    const r = base()
+    const x = hostAiSandboxToHostRequestDeviceIds(r, 'dev-host-1')
+    expect(x.ok).toBe(false)
   })
 })
 

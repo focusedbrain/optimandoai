@@ -376,4 +376,51 @@ export function outboundP2pBearerToCounterpartyIngest(r: HandshakeRecord): strin
   return typeof r.counterparty_p2p_token === 'string' ? r.counterparty_p2p_token.trim() : ''
 }
 
+/**
+ * Host AI caps / inference: Sandbox process calling the **host** peer. Uses ledger + instance id only
+ * (ignores per-device `local_role`, which can disagree across machines).
+ */
+export function hostAiSandboxToHostRequestDeviceIds(
+  r: HandshakeRecord,
+  localInstanceId: string,
+):
+  | { ok: true; requester: string; targetHost: string; localRole: 'sandbox'; peerRole: 'host' }
+  | { ok: false; code: string } {
+  const dr = deriveInternalHostAiPeerRoles(r, localInstanceId)
+  if (!dr.ok) {
+    return { ok: false, code: dr.code }
+  }
+  if (dr.localRole !== 'sandbox' || dr.peerRole !== 'host') {
+    return { ok: false, code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE }
+  }
+  return {
+    ok: true,
+    requester: dr.localCoordinationDeviceId.trim(),
+    targetHost: dr.peerCoordinationDeviceId.trim(),
+    localRole: 'sandbox',
+    peerRole: 'host',
+  }
+}
+
+/** Inbound on Host: this instance is the host; peer is sandbox (DataChannel / validation). */
+export function hostAiHostToSandboxAsHost(
+  r: HandshakeRecord,
+  localInstanceId: string,
+):
+  | { ok: true; localHost: string; peerSandbox: string }
+  | { ok: false; code: string } {
+  const dr = deriveInternalHostAiPeerRoles(r, localInstanceId)
+  if (!dr.ok) {
+    return { ok: false, code: dr.code }
+  }
+  if (dr.localRole !== 'host' || dr.peerRole !== 'sandbox') {
+    return { ok: false, code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE }
+  }
+  return {
+    ok: true,
+    localHost: dr.localCoordinationDeviceId.trim(),
+    peerSandbox: dr.peerCoordinationDeviceId.trim(),
+  }
+}
+
 export { localCoordinationDeviceId, peerCoordinationDeviceId }

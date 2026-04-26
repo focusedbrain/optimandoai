@@ -74,12 +74,24 @@ export function getHostPublishedMvpDirectP2pIngestUrl(db: any): string | null {
   return url
 }
 
+/**
+ * True when `url` is the same MVP direct LAN BEAP this process would publish (this machine’s listener).
+ * Used on Sandbox: if the “host” `p2p_endpoint` normalizes to this, the row points at the local sandbox, not the peer host.
+ */
+export function ingestUrlMatchesThisDevicesMvpDirectBeap(db: any, url: string | null | undefined): boolean {
+  const pub = getHostPublishedMvpDirectP2pIngestUrl(db)
+  if (!pub) return false
+  const t = typeof url === 'string' ? url.trim() : ''
+  if (!t) return false
+  return normalizeP2pIngestUrl(t) === normalizeP2pIngestUrl(pub)
+}
+
 export function hostDirectP2pAdvertisementHeaders(db: any): Record<string, string> {
   const u = getHostPublishedMvpDirectP2pIngestUrl(db)
   return u ? { [P2P_DIRECT_P2P_ENDPOINT_HEADER]: u } : {}
 }
 
-function normalizeP2pIngestUrl(s: string): string {
+export function normalizeP2pIngestUrl(s: string): string {
   const t = s.trim()
   try {
     const u = new URL(t)
@@ -182,7 +194,9 @@ export function runP2pEndpointRepairPass(db: any, context: string): void {
     const storedRelayKind = p2pEndpointKind(db, storedEp) === 'relay'
     const k = p2pEndpointMvpClass(db, storedEp)
 
-    const promoRaw = hostAdvertisedMvpDirectByHandshake.get(hid) ?? hostUrl
+    // Never fall back to `hostUrl` (this process’s published direct URL) on a sandbox row: that can be
+    // the local sandbox’s LAN BEAP, not the peer host’s. Promote only from Host-advertised header.
+    const promoRaw = hostAdvertisedMvpDirectByHandshake.get(hid)
     if (
       storedRelayKind &&
       promoRaw &&

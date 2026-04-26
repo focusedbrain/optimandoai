@@ -4,11 +4,17 @@
  */
 import { randomUUID } from 'crypto'
 import { getHandshakeRecord } from '../../handshake/db'
-import { isHostMode, isSandboxMode } from '../../orchestrator/orchestratorModeStore'
+import { getInstanceId, isHostMode, isSandboxMode } from '../../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from '../dbAccess'
 import { buildInternalInferenceCapabilitiesResult } from '../hostInferenceCapabilities'
 import { getSessionState } from '../p2pSession/p2pInferenceSessionManager'
-import { assertRecordForServiceRpc, assertHostSendsResultToSandbox, assertSandboxRequestToHost, localCoordinationDeviceId, peerCoordinationDeviceId } from '../policy'
+import {
+  assertRecordForServiceRpc,
+  assertHostSendsResultToSandbox,
+  assertSandboxRequestToHost,
+  hostAiHostToSandboxAsHost,
+  hostAiSandboxToHostRequestDeviceIds,
+} from '../policy'
 import type { InternalInferenceCapabilitiesResultWire } from '../types'
 import { tryRouteP2pInferenceDataChannelMessage } from './p2pDcInference'
 
@@ -87,8 +93,12 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
   if (!s?.sessionId || s.sessionId !== p2pSessionId) {
     return
   }
-  const localHost = (localCoordinationDeviceId(r) ?? '').trim()
-  const peerSb = (peerCoordinationDeviceId(r) ?? '').trim()
+  const hx = hostAiHostToSandboxAsHost(r, getInstanceId().trim())
+  if (!hx.ok) {
+    return
+  }
+  const localHost = hx.localHost
+  const peerSb = hx.peerSandbox
   if (!localHost || !peerSb) {
     return
   }
@@ -259,8 +269,12 @@ export async function requestHostInferenceCapabilitiesOverDataChannel(
     return { ok: false, reason: 'role' }
   }
   const rec = ar.record
-  const localSandbox = (localCoordinationDeviceId(rec) ?? '').trim()
-  const peerHost = (peerCoordinationDeviceId(rec) ?? '').trim()
+  const sb = hostAiSandboxToHostRequestDeviceIds(rec, getInstanceId().trim())
+  if (!sb.ok) {
+    return { ok: false, reason: 'missing_coordination_ids' }
+  }
+  const localSandbox = sb.requester
+  const peerHost = sb.targetHost
   if (!localSandbox || !peerHost) {
     return { ok: false, reason: 'missing_coordination_ids' }
   }

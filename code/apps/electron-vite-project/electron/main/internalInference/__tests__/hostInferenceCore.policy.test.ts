@@ -219,6 +219,36 @@ describe('hostInferenceCore — receiver-side role (not local_role, not isHostMo
     expect(r.ok).toBe(true)
   })
 
+  test('D: inbound capabilities to sandbox endpoint with sandbox→host wire shape denies forbidden_host_role', async () => {
+    orchestratorOms.instanceId = 'dev-sand'
+    vi.mocked(getHandshakeRecord).mockReturnValue(baseRecord({}) as any)
+    const r = await handleInternalInferenceCapabilitiesRequest(
+      {
+        type: 'internal_inference_capabilities_request',
+        schema_version: INTERNAL_INFERENCE_SCHEMA_VERSION,
+        request_id: 'req-1',
+        handshake_id: 'hs-x',
+        sender_device_id: 'dev-sand',
+        target_device_id: 'dev-host',
+        created_at: new Date().toISOString(),
+      },
+      {
+        transport: 'http_direct',
+        handshakeId: 'hs-x',
+        senderDeviceId: 'dev-sand',
+        targetDeviceId: 'dev-host',
+        authenticated: true,
+        requestId: 'req-1',
+        now: Date.now(),
+        db: { prepare: () => ({ run: () => {} }) } as any,
+      },
+    )
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.messageKey).toBe('forbidden_host_role')
+    }
+  })
+
   test('C: rejects inbound to sandbox instance (host peer → capability request to this BEAP is forbidden_host_role)', async () => {
     orchestratorOms.instanceId = 'dev-sand'
     vi.mocked(getHandshakeRecord).mockReturnValue(baseRecord({}) as any)

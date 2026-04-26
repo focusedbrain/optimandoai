@@ -29,11 +29,11 @@ import {
 } from './p2pSession/p2pSessionWait'
 import {
   assertRecordForServiceRpc,
+  coordinationDeviceIdForHandshakeDeviceRole,
   deriveInternalHostAiPeerRoles,
   handshakeSamePrincipal,
   outboundP2pBearerToCounterpartyIngest,
   p2pEndpointKind,
-  peerCoordinationDeviceId,
 } from './policy'
 import {
   buildHostAiTransportDeciderInputAsync,
@@ -441,7 +441,7 @@ function draftDisabledSandboxHostRoleMetadata(
     model_id: null,
     provider: 'host_internal',
     handshake_id: hid,
-    host_device_id: (peerCoordinationDeviceId(r0) ?? '').trim() || '',
+    host_device_id: (coordinationDeviceIdForHandshakeDeviceRole(r0, 'host') ?? '').trim() || '',
     host_computer_name: ml.hostName,
     host_pairing_code: ml.digits6,
     host_orchestrator_role: 'host',
@@ -734,7 +734,7 @@ function draftCheckingPlaceholderForHostPair(r0: HandshakeRecord, db: unknown): 
     model_id: null,
     provider: 'host_internal',
     handshake_id: hid,
-    host_device_id: (peerCoordinationDeviceId(r0) ?? '').trim() || '',
+    host_device_id: (coordinationDeviceIdForHandshakeDeviceRole(r0, 'host') ?? '').trim() || '',
     host_computer_name: ml.hostName,
     host_pairing_code: ml.digits6,
     host_orchestrator_role: 'host',
@@ -896,7 +896,7 @@ function ensureAtLeastOneHostTargetWhenLedgerProvesSandboxToHost(
       model_id: null,
       provider: 'host_internal',
       handshake_id: hid,
-      host_device_id: (peerCoordinationDeviceId(r0) ?? '').trim() || '',
+      host_device_id: (coordinationDeviceIdForHandshakeDeviceRole(r0, 'host') ?? '').trim() || '',
       host_computer_name: ml.hostName,
       host_pairing_code: ml.digits6,
       host_orchestrator_role: 'host',
@@ -1047,7 +1047,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         model_id: null,
         provider: 'host_internal',
         handshake_id: hid,
-        host_device_id: (peerCoordinationDeviceId(r0) ?? '').trim() || '',
+        host_device_id: (coordinationDeviceIdForHandshakeDeviceRole(r0, 'host') ?? '').trim() || '',
         host_computer_name: ml.hostName,
         host_pairing_code: ml.digits6,
         host_orchestrator_role: 'host',
@@ -1074,7 +1074,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     const r = ar.record
     logInternalHostHandshakeP2pInspect(db, r)
     const displayName = hostComputerNameFromRow(r)
-    const hostDevice = peerCoordinationDeviceId(r)?.trim() || ''
+    const hostDevice = (coordinationDeviceIdForHandshakeDeviceRole(r, 'host') ?? '').trim() || ''
     const pcc = r.internal_peer_pairing_code ?? undefined
     const fRow = getP2pInferenceFlags()
     {

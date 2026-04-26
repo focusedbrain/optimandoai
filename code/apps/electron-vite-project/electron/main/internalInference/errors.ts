@@ -83,6 +83,10 @@ export const InternalInferenceErrorCode = {
   PROBE_OLLAMA_UNAVAILABLE: 'PROBE_OLLAMA_UNAVAILABLE',
   /** Direct HTTP to peer: `counterparty_p2p_token` missing locally (cannot authenticate to their BEAP). */
   HOST_AI_DIRECT_AUTH_MISSING: 'HOST_AI_DIRECT_AUTH_MISSING',
+  /** Sandbox→Host probe would POST to this device’s own direct BEAP or mismatched host owner (selection bug). */
+  HOST_AI_ENDPOINT_OWNER_MISMATCH: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
+  /** Host peer has no direct MVP-LAN counterparty URL; do not substitute local sandbox URL. */
+  HOST_DIRECT_ENDPOINT_MISSING: 'HOST_DIRECT_ENDPOINT_MISSING',
 } as const
 
 export type InternalInferenceErrorCodeType =

@@ -12,12 +12,7 @@ import { handleInternalInferenceCancel, handleInternalInferenceRequest, type Hos
 import { logHostAiInferComplete, logHostAiInferError, logHostAiInferRequestReceived, logHostAiInferResponseReceived } from '../hostAiInferLog'
 import { getSessionState } from '../p2pSession/p2pInferenceSessionManager'
 import { resolveInternalInferenceByRequestId, type PendingResult } from '../pendingRequests'
-import {
-  assertHostSendsResultToSandbox,
-  assertRecordForServiceRpc,
-  localCoordinationDeviceId,
-  peerCoordinationDeviceId,
-} from '../policy'
+import { assertHostSendsResultToSandbox, assertRecordForServiceRpc, coordinationDeviceIdForHandshakeDeviceRole, hostAiHostToSandboxAsHost } from '../policy'
 import { INTERNAL_INFERENCE_SCHEMA_VERSION, type InternalInferenceErrorWire, type InternalInferenceRequestWire, type InternalInferenceResultWire } from '../types'
 
 const DC_TYPES = {
@@ -123,8 +118,12 @@ async function validateHostInboundInferenceDc(
   if (assertHostSendsResultToSandbox(r).ok !== true) {
     return { ok: false }
   }
-  const localHost = (localCoordinationDeviceId(r) ?? '').trim()
-  const peerSb = (peerCoordinationDeviceId(r) ?? '').trim()
+  const hx = hostAiHostToSandboxAsHost(r, getInstanceId().trim())
+  if (!hx.ok) {
+    return { ok: false }
+  }
+  const localHost = hx.localHost
+  const peerSb = hx.peerSandbox
   if (!localHost || !peerSb) {
     return { ok: false }
   }
@@ -196,7 +195,7 @@ export async function handleP2pDcInferenceRequestAsHost(
     return
   }
   const requestId = String(envelope.request_id ?? '')
-  const peer = (peerCoordinationDeviceId(v.record) ?? '').trim()
+  const peer = (coordinationDeviceIdForHandshakeDeviceRole(v.record, 'sandbox') ?? '').trim()
   const host = getInstanceId()
   logHostAiInferRequestReceived({ handshakeId: handshakeId.trim(), requestId, transport: 'p2p' })
   const ctx: HostInferenceCoreContext = {

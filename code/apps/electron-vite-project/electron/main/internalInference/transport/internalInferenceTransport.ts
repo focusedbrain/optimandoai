@@ -14,12 +14,16 @@ import { requestHostInferenceCapabilitiesOverDataChannel } from '../p2pDc/p2pDcC
 import { sendHostInferenceRequestOverP2pDataChannel, sendInternalInferenceWireOverP2pDataChannel } from '../p2pDc/p2pDcInference'
 import { getSessionState, P2pSessionPhase } from '../p2pSession/p2pInferenceSessionManager'
 import { isP2pDataChannelUpForHandshake } from '../p2pSession/p2pSessionWait'
-import { tryRepairP2pEndpointFromHostAdvertisement } from '../p2pEndpointRepair'
+import { ingestUrlMatchesThisDevicesMvpDirectBeap, tryRepairP2pEndpointFromHostAdvertisement } from '../p2pEndpointRepair'
+import { logHostAiEndpointSelect } from '../hostAiEndpointSelectLog'
+import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
 import {
   canPostInternalInferenceHttpToP2pEndpointIngest,
-  localCoordinationDeviceId,
+  coordinationDeviceIdForHandshakeDeviceRole,
+  hostAiSandboxToHostRequestDeviceIds,
   outboundP2pBearerToCounterpartyIngest,
-  peerCoordinationDeviceId,
+  p2pEndpointKind,
+  p2pEndpointMvpClass,
 } from '../policy'
 import type { HandshakeRecord } from '../../handshake/types'
 import { INTERNAL_INFERENCE_SCHEMA_VERSION, type InternalInferenceCapabilitiesResultWire, type InternalInferenceErrorWire, type InternalInferenceRequestWire, type InternalInferenceResultWire, type InternalServiceMessageType } from '../types'
@@ -273,9 +277,8 @@ export async function listHostCapabilities(
     decision.choice.reason as HostAiTransportLogReason,
   )
 
-  const localSandbox = (localCoordinationDeviceId(record) ?? '').trim()
-  const peerHost = (peerCoordinationDeviceId(record) ?? '').trim()
-  if (!localSandbox || !peerHost) {
+  const cids = hostAiSandboxToHostRequestDeviceIds(record, getInstanceId().trim())
+  if (!cids.ok) {
     logHostAiStage({
       chain,
       stage: 'capabilities_request',
@@ -289,13 +292,15 @@ export async function listHostCapabilities(
     })
     logHostAiTransportUnavailable({ handshakeId: hid, reason: 'missing_coordination_ids' })
     touchState(hid, 'capabilities', 'unavailable', 'missing_coordination_ids')
-    const m = 'missing coordination ids'
+    const m = 'missing coordination ids (sandbox_to_host roles)'
     console.log(
       `[HOST_INFERENCE_P2P] request_failed code=missing_coordination_ids message=${redactP2pLogLine(m)} handshake=${hid}`,
     )
     console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=missing_coordination_ids`)
     return { ok: false, reason: 'missing_coordination_ids' }
   }
+  const localSandbox = cids.requester
+  const peerHost = cids.targetHost
 
   const httpIngestOk = canPostInternalInferenceHttpToP2pEndpointIngest(db, record.p2p_endpoint)
 
@@ -435,6 +440,143 @@ export async function listHostCapabilities(
     )
     return { ok: false, reason: 'http_ingest_requires_direct_beap' }
   }
+
+  const currentDevice = getInstanceId().trim()
+  const hostOwnerFromRow = (coordinationDeviceIdForHandshakeDeviceRole(record, 'host') ?? '').trim()
+  const epKHttp = p2pEndpointKind(db, record.p2p_endpoint)
+  const mvpKHttp = p2pEndpointMvpClass(db, record.p2p_endpoint)
+  const isDirectRow = epKHttp === 'direct' || mvpKHttp === 'direct_lan'
+  if (ingestUrlMatchesThisDevicesMvpDirectBeap(db, ingestUrl)) {
+    logHostAiEndpointSelect({
+      handshake_id: hid,
+      current_device_id: currentDevice,
+      local_derived_role: cids.localRole,
+      peer_device_id: peerHost,
+      peer_derived_role: cids.peerRole,
+      selected_endpoint: ingestUrl,
+      endpoint_owner_device_id: hostOwnerFromRow || peerHost,
+      endpoint_owner_role: 'host',
+      decision: 'deny',
+      reason: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
+    })
+    logHostAiStage({
+      chain,
+      stage: 'capabilities_request',
+      reached: true,
+      success: false,
+      handshakeId: hid,
+      buildStamp,
+      flags: f,
+      failureCode: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
+    })
+    logHostAiStage({
+      chain,
+      stage: 'capabilities_response',
+      reached: true,
+      success: false,
+      handshakeId: hid,
+      buildStamp,
+      flags: f,
+      failureCode: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
+    })
+    touchState(hid, 'capabilities', 'unavailable', 'host_ai_endpoint_owner_mismatch')
+    console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=HOST_AI_ENDPOINT_OWNER_MISMATCH`)
+    return { ok: false, reason: 'HOST_AI_ENDPOINT_OWNER_MISMATCH' }
+  }
+  if (isDirectRow) {
+    if (!hostOwnerFromRow) {
+      logHostAiEndpointSelect({
+        handshake_id: hid,
+        current_device_id: currentDevice,
+        local_derived_role: cids.localRole,
+        peer_device_id: peerHost,
+        peer_derived_role: cids.peerRole,
+        selected_endpoint: ingestUrl,
+        endpoint_owner_device_id: hostOwnerFromRow,
+        endpoint_owner_role: 'unknown',
+        decision: 'deny',
+        reason: 'HOST_DIRECT_ENDPOINT_MISSING',
+      })
+      logHostAiStage({
+        chain,
+        stage: 'capabilities_request',
+        reached: true,
+        success: false,
+        handshakeId: hid,
+        buildStamp,
+        flags: f,
+        failureCode: 'HOST_DIRECT_ENDPOINT_MISSING',
+      })
+      touchState(hid, 'capabilities', 'unavailable', 'host_direct_endpoint_missing')
+      console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=HOST_DIRECT_ENDPOINT_MISSING`)
+      return { ok: false, reason: 'HOST_DIRECT_ENDPOINT_MISSING' }
+    }
+    if (hostOwnerFromRow !== peerHost) {
+      logHostAiEndpointSelect({
+        handshake_id: hid,
+        current_device_id: currentDevice,
+        local_derived_role: cids.localRole,
+        peer_device_id: peerHost,
+        peer_derived_role: cids.peerRole,
+        selected_endpoint: ingestUrl,
+        endpoint_owner_device_id: hostOwnerFromRow,
+        endpoint_owner_role: 'host',
+        decision: 'deny',
+        reason: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
+      })
+      logHostAiStage({
+        chain,
+        stage: 'capabilities_request',
+        reached: true,
+        success: false,
+        handshakeId: hid,
+        buildStamp,
+        flags: f,
+        failureCode: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
+      })
+      touchState(hid, 'capabilities', 'unavailable', 'host_ai_endpoint_owner_mismatch')
+      console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=HOST_AI_ENDPOINT_OWNER_MISMATCH`)
+      return { ok: false, reason: 'HOST_AI_ENDPOINT_OWNER_MISMATCH' }
+    }
+    if (currentDevice === peerHost) {
+      logHostAiEndpointSelect({
+        handshake_id: hid,
+        current_device_id: currentDevice,
+        local_derived_role: cids.localRole,
+        peer_device_id: peerHost,
+        peer_derived_role: cids.peerRole,
+        selected_endpoint: ingestUrl,
+        endpoint_owner_device_id: hostOwnerFromRow,
+        endpoint_owner_role: 'host',
+        decision: 'deny',
+        reason: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
+      })
+      logHostAiStage({
+        chain,
+        stage: 'capabilities_request',
+        reached: true,
+        success: false,
+        handshakeId: hid,
+        buildStamp,
+        flags: f,
+        failureCode: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
+      })
+      touchState(hid, 'capabilities', 'unavailable', 'host_ai_endpoint_owner_mismatch')
+      console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=HOST_AI_ENDPOINT_OWNER_MISMATCH`)
+      return { ok: false, reason: 'HOST_AI_ENDPOINT_OWNER_MISMATCH' }
+    }
+  }
+  logHostAiEndpointSelect({
+    handshake_id: hid,
+    current_device_id: currentDevice,
+    local_derived_role: cids.localRole,
+    peer_device_id: peerHost,
+    peer_derived_role: cids.peerRole,
+    selected_endpoint: ingestUrl,
+    endpoint_owner_device_id: hostOwnerFromRow || peerHost,
+    endpoint_owner_role: 'host',
+    decision: 'probe',
+  })
 
   const capHttpReqId = randomUUID()
   logHostAiStage({
