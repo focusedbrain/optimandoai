@@ -202,10 +202,150 @@ export function clearOrchestratorInferenceSelection(): void {
   }
 }
 
-type HostishTarget = {
+/** IPC snapshot: fields used to restore Host AI without clearing during P2P/capability warmup. */
+export type OrchestratorHostInferenceTargetSnapshot = {
   id: string
   handshake_id: string
   available: boolean
+  p2pUiPhase?: string
+  availability?: string
+  unavailable_reason?: string
+  host_selector_state?: string
+  hostSelectorState?: string
+  inference_error_code?: string | null
+  failureCode?: string | null
+}
+
+function definitiveP2pSessionFailureCode(err: string): boolean {
+  if (!err) return false
+  return (
+    err === 'OFFER_START_NOT_OBSERVED' ||
+    err === 'OFFER_CREATE_TIMEOUT' ||
+    err === 'SIGNALING_ANSWER_TIMEOUT' ||
+    err === 'OFFER_SIGNAL_SEND_FAILED' ||
+    err === 'OFFER_DISPATCH_FAILED' ||
+    err === 'WEBRTC_TRANSPORT_NOT_READY' ||
+    err === 'SIGNALING_NOT_STARTED'
+  )
+}
+
+/**
+ * Handshake id for Host routing: persisted field first, else parsed from `host-internal:` / `host-inference:` id.
+ */
+export function resolveHostHandshakeIdFromInferenceSelection(
+  stored: Pick<StoredInferenceSelectionV1, 'handshake_id' | 'id'>,
+): string | null {
+  const h = stored.handshake_id?.trim()
+  if (h) return h
+  const p = parseAnyHostInferenceModelId(stored.id)
+  return p?.handshakeId?.trim() || null
+}
+
+/**
+ * Prefer matching the internal Host row by handshake (stable) before exact `id`, because list rows may use
+ * ephemeral tails (`connecting`, `checking`, …) while persistence keeps `host-internal:<hid>:<model>`.
+ */
+export function findHostInferenceTargetForHandshakeAndId<T extends { id: string; handshake_id: string }>(
+  targets: T[] | undefined,
+  handshakeId: string | null,
+  storedId: string,
+): T | undefined {
+  const list = targets ?? []
+  const hid = handshakeId?.trim()
+  if (hid) {
+    const sameHs = list.filter((x) => x.handshake_id === hid)
+    if (sameHs.length === 1) return sameHs[0]
+    if (sameHs.length > 1) {
+      const exact = sameHs.find((x) => x.id === storedId)
+      return exact ?? sameHs[0]
+    }
+  }
+  return list.find((x) => x.id === storedId)
+}
+
+/** True while P2P/caps are still warming up — must not clear persisted Host AI. */
+export function isHostInferenceTargetPendingForRestore(t: OrchestratorHostInferenceTargetSnapshot): boolean {
+  const phase = t.p2pUiPhase ?? ''
+  const av = String(t.availability ?? '')
+  const ur = String(t.unavailable_reason ?? '')
+  const sel = String(t.host_selector_state ?? t.hostSelectorState ?? '')
+  const err = String(t.inference_error_code ?? t.failureCode ?? '')
+
+  if (phase === 'connecting') return true
+  if (av === 'checking_host') return true
+  if (ur === 'CHECKING_CAPABILITIES') return true
+  if (sel === 'checking') return true
+  if (err === 'P2P_SESSION_IN_PROGRESS' || err === 'P2P_STILL_CONNECTING' || err === 'P2P_NOT_READY') {
+    return true
+  }
+  if (phase === 'p2p_unavailable' && !definitiveP2pSessionFailureCode(err)) {
+    return true
+  }
+  return false
+}
+
+/** True only for states where the saved Host selection should be dropped (policy, identity, hard P2P failure, …). */
+export function isHostInferenceTargetDefinitivelyInvalidForRestore(t: OrchestratorHostInferenceTargetSnapshot): boolean {
+  const phase = t.p2pUiPhase ?? ''
+  const av = String(t.availability ?? '')
+  const ur = String(t.unavailable_reason ?? '')
+  const err = String(t.inference_error_code ?? t.failureCode ?? '')
+
+  if (phase === 'policy_disabled' || av === 'policy_disabled' || ur === 'HOST_POLICY_DISABLED') return true
+  if (phase === 'hidden' || ur === 'SANDBOX_HOST_ROLE_METADATA') return true
+  if (av === 'identity_incomplete' || ur === 'IDENTITY_INCOMPLETE') return true
+  if (av === 'model_unavailable' || ur === 'HOST_NO_ACTIVE_LOCAL_LLM') return true
+  if (err === 'HOST_NO_ACTIVE_LOCAL_LLM' || err === 'MODEL_UNAVAILABLE') return true
+  if (definitiveP2pSessionFailureCode(err)) return true
+
+  return false
+}
+
+/** Minimal merged-list row shape for Host AI stale UI (orchestrator selector). */
+export type OrchestratorUiHostListRow = {
+  id: string
+  type: 'local' | 'cloud' | 'host_internal'
+  hostTargetAvailable?: boolean
+  hostSelectorState?: 'available' | 'checking' | 'unavailable'
+}
+
+/**
+ * "That Host AI selection is no longer in the list" (orchestrator): same handshake-first matching and
+ * pending vs definitive rules as `validateStoredSelectionForOrchestrator`. Non-Host selections always false.
+ */
+export function isHostInternalSelectionStaleForOrchestratorUi(
+  selectedModelId: string,
+  availableModels: OrchestratorUiHostListRow[],
+  inferenceTargets: OrchestratorHostInferenceTargetSnapshot[] | undefined,
+): boolean {
+  const entry = availableModels.find((m) => m.id === selectedModelId)
+  const isHost = entry?.type === 'host_internal' || isHostInferenceModelId(selectedModelId)
+  if (!isHost) {
+    return false
+  }
+
+  const p = parseAnyHostInferenceModelId(selectedModelId)
+  const hid = p?.handshakeId ?? null
+  const t = findHostInferenceTargetForHandshakeAndId(inferenceTargets, hid, selectedModelId)
+
+  if (t) {
+    if (isHostInferenceTargetPendingForRestore(t)) {
+      return false
+    }
+    if (isHostInferenceTargetDefinitivelyInvalidForRestore(t)) {
+      return true
+    }
+    return false
+  }
+
+  if (entry?.type === 'host_internal') {
+    if (entry.hostSelectorState === 'checking') {
+      return false
+    }
+    return !entry.hostTargetAvailable
+  }
+
+  return true
 }
 
 export type ValidateSelectionResult = {
@@ -213,33 +353,225 @@ export type ValidateSelectionResult = {
   error?: 'host_unavailable' | 'unknown_model'
 }
 
+export type OrchestratorSelectionValidateReason =
+  | 'ok'
+  | 'host_pending_p2p'
+  | 'host_target_missing'
+  | 'host_model_unavailable'
+  | 'local_model_missing'
+  | 'cloud_model_missing'
+
+/** Single snapshot for orchestrator restore diagnostics / logging (renderer). */
+export type OrchestratorSelectionDiagnostics = {
+  provider: 'host_ai' | 'local_ollama' | 'cloud'
+  saved: string
+  kind: InferenceSelectionKind
+  handshake: string | null
+  source: 'inference_targets' | 'local_models' | 'cloud_models'
+  matched_row_id: string | null
+  available: boolean | null
+  availability: string | null
+  p2p_phase: string | null
+  host_selector_state: string | null
+  valid: boolean
+  pending: boolean
+  reason: OrchestratorSelectionValidateReason
+}
+
+export type ValidateSelectionResultWithDiagnostics = ValidateSelectionResult & {
+  diagnostics: OrchestratorSelectionDiagnostics
+}
+
+function orchestratorDiagHostRowFields(
+  t: OrchestratorHostInferenceTargetSnapshot,
+): Pick<
+  OrchestratorSelectionDiagnostics,
+  'matched_row_id' | 'available' | 'availability' | 'p2p_phase' | 'host_selector_state'
+> {
+  return {
+    matched_row_id: t.id,
+    available: t.available,
+    availability: t.availability != null && t.availability !== '' ? String(t.availability) : null,
+    p2p_phase: t.p2pUiPhase ?? null,
+    host_selector_state: (t.host_selector_state ?? t.hostSelectorState ?? null) as string | null,
+  }
+}
+
+const emptyNonHostRowFields: Pick<
+  OrchestratorSelectionDiagnostics,
+  'matched_row_id' | 'available' | 'availability' | 'p2p_phase' | 'host_selector_state'
+> = {
+  matched_row_id: null,
+  available: null,
+  availability: null,
+  p2p_phase: null,
+  host_selector_state: null,
+}
+
+/**
+ * Same rules as `validateStoredSelectionForOrchestrator` plus structured diagnostics for targeted logging.
+ * Callers should dedupe logs when `diagnostics` + `modelId` + `error` are unchanged.
+ */
+export function validateStoredSelectionForOrchestratorWithDiagnostics(
+  stored: StoredInferenceSelectionV1,
+  availableModels: Array<{ id: string; type: 'local' | 'cloud' | 'host_internal' }>,
+  inferenceTargets: OrchestratorHostInferenceTargetSnapshot[] | undefined,
+  isSandbox: boolean,
+  hasLocalModelsInList: boolean,
+): ValidateSelectionResultWithDiagnostics {
+  const ak = accountKeyFromSession()
+
+  if (stored.account_key && stored.account_key !== ak) {
+    const reason: OrchestratorSelectionValidateReason =
+      stored.kind === 'cloud' ? 'cloud_model_missing' : 'local_model_missing'
+    return {
+      modelId: '',
+      error: 'unknown_model',
+      diagnostics: {
+        provider:
+          stored.kind === 'host_internal' ? 'host_ai' : stored.kind === 'cloud' ? 'cloud' : 'local_ollama',
+        saved: stored.id,
+        kind: stored.kind,
+        handshake: stored.kind === 'host_internal' ? resolveHostHandshakeIdFromInferenceSelection(stored) : null,
+        source:
+          stored.kind === 'host_internal'
+            ? 'inference_targets'
+            : stored.kind === 'cloud'
+              ? 'cloud_models'
+              : 'local_models',
+        ...emptyNonHostRowFields,
+        valid: false,
+        pending: false,
+        reason,
+      },
+    }
+  }
+
+  if (stored.kind === 'host_internal') {
+    const hid = resolveHostHandshakeIdFromInferenceSelection(stored)
+    const t = findHostInferenceTargetForHandshakeAndId(inferenceTargets, hid, stored.id)
+    const row = t ? orchestratorDiagHostRowFields(t) : emptyNonHostRowFields
+
+    if (!t) {
+      return {
+        modelId: '',
+        error: 'host_unavailable',
+        diagnostics: {
+          provider: 'host_ai',
+          saved: stored.id,
+          kind: stored.kind,
+          handshake: hid,
+          source: 'inference_targets',
+          ...row,
+          valid: false,
+          pending: false,
+          reason: 'host_target_missing',
+        },
+      }
+    }
+    if (isHostInferenceTargetDefinitivelyInvalidForRestore(t)) {
+      return {
+        modelId: '',
+        error: 'host_unavailable',
+        diagnostics: {
+          provider: 'host_ai',
+          saved: stored.id,
+          kind: stored.kind,
+          handshake: hid,
+          source: 'inference_targets',
+          ...orchestratorDiagHostRowFields(t),
+          valid: false,
+          pending: false,
+          reason: 'host_model_unavailable',
+        },
+      }
+    }
+    const pending = !t.available || isHostInferenceTargetPendingForRestore(t)
+    return {
+      modelId: stored.id,
+      diagnostics: {
+        provider: 'host_ai',
+        saved: stored.id,
+        kind: stored.kind,
+        handshake: hid,
+        source: 'inference_targets',
+        ...orchestratorDiagHostRowFields(t),
+        valid: true,
+        pending,
+        reason: pending ? 'host_pending_p2p' : 'ok',
+      },
+    }
+  }
+
+  if (stored.kind === 'local_ollama' && isSandbox && !hasLocalModelsInList) {
+    return {
+      modelId: '',
+      error: 'unknown_model',
+      diagnostics: {
+        provider: 'local_ollama',
+        saved: stored.id,
+        kind: stored.kind,
+        handshake: null,
+        source: 'local_models',
+        ...emptyNonHostRowFields,
+        valid: false,
+        pending: false,
+        reason: 'local_model_missing',
+      },
+    }
+  }
+
+  if (availableModels.some((m) => m.id === stored.id)) {
+    const isCloud = stored.kind === 'cloud'
+    return {
+      modelId: stored.id,
+      diagnostics: {
+        provider: isCloud ? 'cloud' : 'local_ollama',
+        saved: stored.id,
+        kind: stored.kind,
+        handshake: null,
+        source: isCloud ? 'cloud_models' : 'local_models',
+        ...emptyNonHostRowFields,
+        valid: true,
+        pending: false,
+        reason: 'ok',
+      },
+    }
+  }
+
+  const isCloud = stored.kind === 'cloud'
+  return {
+    modelId: '',
+    error: 'unknown_model',
+    diagnostics: {
+      provider: isCloud ? 'cloud' : 'local_ollama',
+      saved: stored.id,
+      kind: stored.kind,
+      handshake: null,
+      source: isCloud ? 'cloud_models' : 'local_models',
+      ...emptyNonHostRowFields,
+      valid: false,
+      pending: false,
+      reason: isCloud ? 'cloud_model_missing' : 'local_model_missing',
+    },
+  }
+}
+
 export function validateStoredSelectionForOrchestrator(
   stored: StoredInferenceSelectionV1,
   availableModels: Array<{ id: string; type: 'local' | 'cloud' | 'host_internal' }>,
-  inferenceTargets: HostishTarget[] | undefined,
+  inferenceTargets: OrchestratorHostInferenceTargetSnapshot[] | undefined,
   isSandbox: boolean,
   hasLocalModelsInList: boolean,
 ): ValidateSelectionResult {
-  const ak = accountKeyFromSession()
-  if (stored.account_key && stored.account_key !== ak) {
-    return { modelId: '', error: 'unknown_model' }
-  }
-  if (stored.kind === 'host_internal') {
-    const t = (inferenceTargets ?? []).find(
-      (x) => x.id === stored.id && (stored.handshake_id ? x.handshake_id === stored.handshake_id : true),
-    )
-    if (!t || !t.available) {
-      return { modelId: '', error: 'host_unavailable' }
-    }
-    return { modelId: stored.id }
-  }
-  if (stored.kind === 'local_ollama' && isSandbox && !hasLocalModelsInList) {
-    return { modelId: '', error: 'unknown_model' }
-  }
-  if (availableModels.some((m) => m.id === stored.id)) {
-    return { modelId: stored.id }
-  }
-  return { modelId: '', error: 'unknown_model' }
+  const r = validateStoredSelectionForOrchestratorWithDiagnostics(
+    stored,
+    availableModels,
+    inferenceTargets,
+    isSandbox,
+    hasLocalModelsInList,
+  )
+  return { modelId: r.modelId, error: r.error }
 }
 
 // ── WR Chat (dashboard) ─────────────────────────────────────────────

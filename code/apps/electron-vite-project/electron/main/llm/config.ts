@@ -191,7 +191,31 @@ export const MODEL_CATALOG: LlmModelConfig[] = [
     contextWindow: 8192,
     description: 'High-quality responses, good reasoning capabilities.'
   },
-  
+  {
+    id: 'gemma4:e2b',
+    displayName: 'Gemma 4 E2B Edge (Q4_K_M)',
+    provider: 'Google',
+    tier: 'balanced',
+    minRamGb: 8,
+    recommendedRamGb: 10,
+    diskSizeGb: 7.2,
+    contextWindow: 131072,
+    description:
+      'Q4_K_M. Ollama ~7.2GB. Google Gemma 4 edge: ~2.3B effective parameters (5.1B with embeddings per model card); text and image input; 128K context; reasoning, tools, and coding use cases per upstream docs.'
+  },
+  {
+    id: 'gemma4:e4b',
+    displayName: 'Gemma 4 E4B Edge (Q4_K_M)',
+    provider: 'Google',
+    tier: 'balanced',
+    minRamGb: 10,
+    recommendedRamGb: 12,
+    diskSizeGb: 9.6,
+    contextWindow: 131072,
+    description:
+      'Q4_K_M. Ollama ~9.6GB. Google Gemma 4 edge: ~4.5B effective parameters (8B with embeddings per model card); text and image input; 128K context; stronger than E2B for balanced laptops per upstream docs.'
+  },
+
   // Performance models (8-16GB RAM)
   {
     id: 'mistral:7b',
@@ -270,8 +294,32 @@ export const MODEL_CATALOG: LlmModelConfig[] = [
     contextWindow: 131072,
     description: '4-bit quantized. Gemma 3 12B; long-context general model from Google.'
   },
-  
+  {
+    id: 'gemma4:26b',
+    displayName: 'Gemma 4 26B MoE A4B (Q4_K_M)',
+    provider: 'Google',
+    tier: 'performance',
+    minRamGb: 20,
+    recommendedRamGb: 24,
+    diskSizeGb: 18,
+    contextWindow: 262144,
+    description:
+      'Q4_K_M. Ollama ~18GB; Mixture-of-Experts per Google Gemma 4 docs (~25.2B total parameters, ~3.8B active per model card; Ollama lists ~25.8B). Text and image input; 256K context; strong reasoning and coding per upstream docs.'
+  },
+
   // High-end models (16GB+ RAM)
+  {
+    id: 'gemma4:31b',
+    displayName: 'Gemma 4 31B Dense (Q4_K_M)',
+    provider: 'Google',
+    tier: 'high-end',
+    minRamGb: 24,
+    recommendedRamGb: 32,
+    diskSizeGb: 20,
+    contextWindow: 262144,
+    description:
+      'Q4_K_M. Ollama ~20GB; dense Gemma 4 (~30.7B parameters per Google model card; Ollama lists ~31.3B). Text and image input; 256K context; top local tier in the Gemma 4 family per upstream docs.'
+  },
   {
     id: 'mixtral:8x7b',
     displayName: 'Mixtral 8x7B MoE (Q4)',

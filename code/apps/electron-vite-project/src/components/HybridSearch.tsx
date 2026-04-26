@@ -8,7 +8,7 @@ import {
   HOST_INFERENCE_UNAVAILABLE,
   hostAiChatBlockedUserMessage,
 } from '../lib/hostAiSelectorCopy'
-import type { ChangeEvent } from 'react'
+import type { ChangeEvent, MutableRefObject } from 'react'
 import './HybridSearch.css'
 import './handshakeViewTypes'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
@@ -53,10 +53,7 @@ import {
   getHostRefreshFeedbackFromTargets,
 } from '../lib/hostRefreshFeedback'
 import { buildHostAiSelectorTooltip, hostModelSelectorRowUi } from '../lib/hostModelSelectorRowUi'
-import {
-  isHostInferenceModelId,
-  parseAnyHostInferenceModelId,
-} from '../lib/hostInferenceModelIds'
+import { isHostInferenceModelId, parseAnyHostInferenceModelId } from '../lib/hostInferenceModelIds'
 import { directP2pReachabilityCopyForSandboxToHost } from '../lib/hostInferenceUiGates'
 import {
   appendHostAiAttributionLine,
@@ -67,10 +64,50 @@ import {
 import {
   accountKeyFromSession,
   readOrchestratorInferenceSelection,
-  validateStoredSelectionForOrchestrator,
+  validateStoredSelectionForOrchestratorWithDiagnostics,
   persistOrchestratorModelId,
   clearOrchestratorInferenceSelection,
+  isHostInternalSelectionStaleForOrchestratorUi,
+  type ValidateSelectionResultWithDiagnostics,
 } from '../lib/inferenceSelectionPersistence'
+
+function formatOrchestratorSelectionLogValue(v: string | null): string {
+  if (v == null || v === '') return 'null'
+  return v.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240)
+}
+
+/** Deduped: emit only when validation outcome changes (restore effect may re-run on list updates). */
+function logOrchestratorModelSelectionValidateIfChanged(
+  keyRef: MutableRefObject<string>,
+  outcome: ValidateSelectionResultWithDiagnostics,
+): void {
+  const { diagnostics: d, error, modelId } = outcome
+  const key = JSON.stringify({
+    provider: d.provider,
+    saved: d.saved,
+    kind: d.kind,
+    handshake: d.handshake,
+    source: d.source,
+    matched_row_id: d.matched_row_id,
+    available: d.available,
+    availability: d.availability,
+    p2p_phase: d.p2p_phase,
+    host_selector_state: d.host_selector_state,
+    valid: d.valid,
+    pending: d.pending,
+    reason: d.reason,
+    error: error ?? null,
+    modelId,
+  })
+  if (key === keyRef.current) return
+  keyRef.current = key
+  console.log(
+    `[MODEL_SELECTION_VALIDATE] provider=${d.provider} saved=${formatOrchestratorSelectionLogValue(d.saved)} kind=${d.kind} handshake=${formatOrchestratorSelectionLogValue(d.handshake)} source=${d.source} matched_row_id=${formatOrchestratorSelectionLogValue(d.matched_row_id)} available=${d.available === null ? 'null' : String(d.available)} availability=${formatOrchestratorSelectionLogValue(d.availability)} p2p_phase=${formatOrchestratorSelectionLogValue(d.p2p_phase)} host_selector_state=${formatOrchestratorSelectionLogValue(d.host_selector_state)}`,
+  )
+  console.log(
+    `[MODEL_SELECTION_VALIDATE_RESULT] provider=${d.provider} valid=${d.valid} pending=${d.pending} reason=${d.reason}`,
+  )
+}
 
 /** Resolves which template field the user meant (focused row, name in message, or single field). */
 function matchLetterComposerFieldFromMessage(
@@ -611,6 +648,7 @@ export default function HybridSearch({
   /** Bumped on letter-composer field switch and on each chat submit so stale stream tokens are ignored. */
   const chatGenerationRef = useRef(0)
   const orchestratorChatModelRestoredRef = useRef(false)
+  const lastOrchestratorSelectionValidateLogKeyRef = useRef('')
   const lastAccountKeyForOrchRef = useRef(accountKeyFromSession())
   const isFirstOrchListRef = useRef(true)
   const lastInferenceTargetFetchAtRef = useRef(0)
@@ -829,36 +867,10 @@ export default function HybridSearch({
     [hostInf.inferenceTargets],
   )
 
-  const hostAiSelectionInvalid = useMemo(() => {
-    const entry = availableModels.find((m) => m.id === selectedModel)
-    const isHost = entry?.type === 'host_internal' || isHostInferenceModelId(selectedModel)
-    if (!isHost) {
-      return false
-    }
-    const t = hostInf.inferenceTargets.find((x) => x.id === selectedModel)
-    if (entry?.type === 'host_internal') {
-      if (t) {
-        if (t.host_selector_state === 'checking' || entry.hostSelectorState === 'checking') {
-          return false
-        }
-        if (t.p2pUiPhase === 'connecting' || t.p2pUiPhase === 'p2p_unavailable' || t.availability === 'checking_host') {
-          return false
-        }
-        return !t.available
-      }
-      if (entry.hostSelectorState === 'checking') {
-        return false
-      }
-      return !entry.hostTargetAvailable
-    }
-    if (!t) {
-      return true
-    }
-    if (t.p2pUiPhase === 'connecting' || t.p2pUiPhase === 'p2p_unavailable' || t.availability === 'checking_host') {
-      return false
-    }
-    return !t.available
-  }, [selectedModel, hostInf.inferenceTargets, availableModels])
+  const hostAiSelectionInvalid = useMemo(
+    () => isHostInternalSelectionStaleForOrchestratorUi(selectedModel, availableModels, hostInf.inferenceTargets),
+    [selectedModel, hostInf.inferenceTargets, availableModels],
+  )
 
   /** Phase 8: never hide Host AI when GAV has targets but merge lagged — synthesize from `gavHostTargets`. */
   const hostInternalMenuModels = useMemo((): Extract<SelectorAvailableModel, { type: 'host_internal' }>[] => {
@@ -1199,6 +1211,7 @@ export default function HybridSearch({
       if (next !== lastAccountKeyForOrchRef.current) {
         lastAccountKeyForOrchRef.current = next
         orchestratorChatModelRestoredRef.current = false
+        lastOrchestratorSelectionValidateLogKeyRef.current = ''
         setGavHostTargets([])
         setAvailableModels([])
         setModelsLoading(true)
@@ -1222,6 +1235,7 @@ export default function HybridSearch({
     if (ak !== lastAccountKeyForOrchRef.current) {
       lastAccountKeyForOrchRef.current = ak
       orchestratorChatModelRestoredRef.current = false
+      lastOrchestratorSelectionValidateLogKeyRef.current = ''
     }
     if (orchestratorChatModelRestoredRef.current) {
       return
@@ -1230,13 +1244,14 @@ export default function HybridSearch({
     const stored = readOrchestratorInferenceSelection()
     const hasLocal = availableModels.some((m) => m.type === 'local')
     if (stored) {
-      const v = validateStoredSelectionForOrchestrator(
+      const v = validateStoredSelectionForOrchestratorWithDiagnostics(
         stored,
         availableModels,
         hostInf.inferenceTargets,
         hostInf.treatAsSandboxForHostInternal,
         hasLocal,
       )
+      logOrchestratorModelSelectionValidateIfChanged(lastOrchestratorSelectionValidateLogKeyRef, v)
       if (v.error) {
         if (v.error === 'host_unavailable') {
           setInferenceSelectionPersistError(HOST_INFERENCE_UNAVAILABLE)

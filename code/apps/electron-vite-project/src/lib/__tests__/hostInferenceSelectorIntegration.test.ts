@@ -23,6 +23,8 @@ import {
   readOrchestratorInferenceSelection,
   toStoredSelection,
   validateStoredSelectionForOrchestrator,
+  validateStoredSelectionForOrchestratorWithDiagnostics,
+  isHostInternalSelectionStaleForOrchestratorUi,
 } from '../inferenceSelectionPersistence'
 import { getCachedUserInfo } from '../auth/sessionCache'
 
@@ -303,6 +305,297 @@ describe('selector integration — persistence (structured + legacy)', () => {
     )
     expect(v.error).toBe('host_unavailable')
     expect(v.modelId).toBe('')
+  })
+
+  it('Host row in P2P connecting (ephemeral id) keeps persisted host-internal model id', () => {
+    const storedId = hostInternalInferenceModelId('hs-connect', 'llama3')
+    const stored = toStoredSelection(storedId, [{ id: 'l', type: 'local' }])
+    const connectingId = `host-internal:${encodeURIComponent('hs-connect')}:connecting`
+    const v = validateStoredSelectionForOrchestrator(
+      stored,
+      [{ id: 'l', type: 'local' }],
+      [
+        {
+          id: connectingId,
+          handshake_id: 'hs-connect',
+          available: false,
+          p2pUiPhase: 'connecting',
+          availability: 'checking_host',
+          unavailable_reason: 'CHECKING_CAPABILITIES',
+        },
+      ],
+      true,
+      true,
+    )
+    expect(v.error).toBeUndefined()
+    expect(v.modelId).toBe(storedId)
+  })
+
+  it('Host policy disabled: validate returns host_unavailable', () => {
+    const storedId = hostInternalInferenceModelId('hs1', 'm1')
+    const stored = toStoredSelection(storedId, [{ id: 'l', type: 'local' }])
+    const v = validateStoredSelectionForOrchestrator(
+      stored,
+      [{ id: 'l', type: 'local' }],
+      [
+        {
+          id: storedId,
+          handshake_id: 'hs1',
+          available: false,
+          p2pUiPhase: 'policy_disabled',
+          availability: 'policy_disabled',
+          unavailable_reason: 'HOST_POLICY_DISABLED',
+        },
+      ],
+      true,
+      true,
+    )
+    expect(v.error).toBe('host_unavailable')
+  })
+
+  it('Definitive WebRTC failure (offer not observed): validate returns host_unavailable', () => {
+    const storedId = hostInternalInferenceModelId('hs1', 'm1')
+    const stored = toStoredSelection(storedId, [{ id: 'l', type: 'local' }])
+    const v = validateStoredSelectionForOrchestrator(
+      stored,
+      [{ id: 'l', type: 'local' }],
+      [
+        {
+          id: storedId,
+          handshake_id: 'hs1',
+          available: false,
+          p2pUiPhase: 'p2p_unavailable',
+          inference_error_code: 'OFFER_START_NOT_OBSERVED',
+        },
+      ],
+      true,
+      true,
+    )
+    expect(v.error).toBe('host_unavailable')
+  })
+})
+
+/**
+ * Orchestrator restore is driven by `validateStoredSelectionForOrchestrator` in HybridSearch.
+ * Manual QA: reload the dashboard repeatedly while Host AI is still connecting — selection must not
+ * flicker cleared, and the UI must not show HOST_INFERENCE_UNAVAILABLE unless the Host target is
+ * absent or definitively invalid (policy, hard P2P failure, model unavailable on Host, …).
+ */
+describe('orchestrator selection restore (regression)', () => {
+  const hid = 'pair-hid-restore-001'
+  const storedId = hostInternalInferenceModelId(hid, 'llama')
+  const connectingRowId = `host-internal:${encodeURIComponent(hid)}:connecting`
+  const checkingRowId = `host-internal:${encodeURIComponent(hid)}:checking`
+
+  it('(1) host_internal + handshake_id + ephemeral :connecting row keeps selection; no host_unavailable', () => {
+    const base = toStoredSelection(storedId, [{ id: 'x', type: 'local' }])
+    const stored = { ...base, handshake_id: hid }
+    expect(stored.kind).toBe('host_internal')
+    const v = validateStoredSelectionForOrchestratorWithDiagnostics(
+      stored,
+      [{ id: 'x', type: 'local' }],
+      [
+        {
+          id: connectingRowId,
+          handshake_id: hid,
+          available: false,
+          availability: 'checking_host',
+          p2pUiPhase: 'connecting',
+        },
+      ],
+      true,
+      true,
+    )
+    expect(v.error).toBeUndefined()
+    expect(v.modelId).toBe(storedId)
+    expect(v.diagnostics.pending).toBe(true)
+    expect(v.diagnostics.valid).toBe(true)
+    expect(v.diagnostics.reason).toBe('host_pending_p2p')
+  })
+
+  it('(2) CHECKING_CAPABILITIES + checking_host remains valid/pending (not invalid)', () => {
+    const stored = toStoredSelection(storedId, [{ id: 'x', type: 'local' }])
+    const v = validateStoredSelectionForOrchestratorWithDiagnostics(
+      stored,
+      [{ id: 'x', type: 'local' }],
+      [
+        {
+          id: connectingRowId,
+          handshake_id: hid,
+          available: false,
+          availability: 'checking_host',
+          unavailable_reason: 'CHECKING_CAPABILITIES',
+          p2pUiPhase: 'connecting',
+        },
+      ],
+      true,
+      true,
+    )
+    expect(v.error).toBeUndefined()
+    expect(v.diagnostics.valid).toBe(true)
+    expect(v.diagnostics.pending).toBe(true)
+    expect(v.diagnostics.reason).toBe('host_pending_p2p')
+  })
+
+  it('(3) no inference target for stored handshake → host_unavailable', () => {
+    const stored = toStoredSelection(storedId, [{ id: 'x', type: 'local' }])
+    const v = validateStoredSelectionForOrchestrator(
+      stored,
+      [{ id: 'x', type: 'local' }],
+      [
+        {
+          id: hostInternalInferenceModelId('other-hs', 'm'),
+          handshake_id: 'other-hs',
+          available: true,
+          availability: 'ready',
+        },
+      ],
+      true,
+      true,
+    )
+    expect(v.error).toBe('host_unavailable')
+    expect(v.modelId).toBe('')
+  })
+
+  it('(4) sandbox local Ollama with no local models → unknown_model; not host_unavailable (renderer uses HOST_INFERENCE_UNAVAILABLE only for host_unavailable)', () => {
+    const stored = toStoredSelection('phi3:latest', [{ id: 'phi3:latest', type: 'local' }])
+    expect(stored.kind).toBe('local_ollama')
+    const v = validateStoredSelectionForOrchestratorWithDiagnostics(
+      stored,
+      [],
+      [
+        {
+          id: connectingRowId,
+          handshake_id: hid,
+          available: false,
+          p2pUiPhase: 'connecting',
+          availability: 'checking_host',
+        },
+      ],
+      true,
+      false,
+    )
+    expect(v.error).toBe('unknown_model')
+    expect(v.error).not.toBe('host_unavailable')
+    expect(v.diagnostics.reason).toBe('local_model_missing')
+  })
+
+  it('(5) empty local list / Ollama unavailable does not invalidate host_internal selection', () => {
+    const stored = toStoredSelection(storedId, [{ id: 'x', type: 'local' }])
+    const v = validateStoredSelectionForOrchestratorWithDiagnostics(
+      stored,
+      [],
+      [
+        {
+          id: connectingRowId,
+          handshake_id: hid,
+          available: false,
+          p2pUiPhase: 'connecting',
+          availability: 'checking_host',
+        },
+      ],
+      true,
+      false,
+    )
+    expect(v.error).toBeUndefined()
+    expect(v.modelId).toBe(storedId)
+    expect(v.diagnostics.provider).toBe('host_ai')
+    expect(v.diagnostics.source).toBe('inference_targets')
+  })
+
+  it('(6) handshake match wins when list row uses :checking suffix (id mismatch vs stored :llama)', () => {
+    const stored = toStoredSelection(storedId, [{ id: 'x', type: 'local' }])
+    const v = validateStoredSelectionForOrchestrator(
+      stored,
+      [{ id: 'x', type: 'local' }],
+      [
+        {
+          id: checkingRowId,
+          handshake_id: hid,
+          available: false,
+          availability: 'checking_host',
+          p2pUiPhase: 'connecting',
+          host_selector_state: 'checking',
+        },
+      ],
+      true,
+      true,
+    )
+    expect(v.error).toBeUndefined()
+    expect(v.modelId).toBe(storedId)
+  })
+})
+
+describe('HOST_AI_STALE_INLINE — orchestrator stale UI (handshake + pending)', () => {
+  const hid = 'stale-ui-hid'
+  const storedId = hostInternalInferenceModelId(hid, 'llama')
+  const connectingRowId = `host-internal:${encodeURIComponent(hid)}:connecting`
+
+  it('not stale when IPC row is connecting/checking (id mismatch vs persisted model id)', () => {
+    expect(
+      isHostInternalSelectionStaleForOrchestratorUi(
+        storedId,
+        [],
+        [
+          {
+            id: connectingRowId,
+            handshake_id: hid,
+            available: false,
+            availability: 'checking_host',
+            p2pUiPhase: 'connecting',
+          },
+        ],
+      ),
+    ).toBe(false)
+  })
+
+  it('stale when handshake has no IPC row and no merged host_internal entry', () => {
+    expect(isHostInternalSelectionStaleForOrchestratorUi(storedId, [], [])).toBe(true)
+  })
+
+  it('stale when Host target is definitively invalid (policy)', () => {
+    expect(
+      isHostInternalSelectionStaleForOrchestratorUi(
+        storedId,
+        [],
+        [
+          {
+            id: storedId,
+            handshake_id: hid,
+            available: false,
+            p2pUiPhase: 'policy_disabled',
+            unavailable_reason: 'HOST_POLICY_DISABLED',
+          },
+        ],
+      ),
+    ).toBe(true)
+  })
+
+  it('not stale for local/cloud model id', () => {
+    expect(
+      isHostInternalSelectionStaleForOrchestratorUi('gpt-4o', [{ id: 'gpt-4o', type: 'cloud' }], []),
+    ).toBe(false)
+  })
+
+  /**
+   * Aligned with restore: `available=false` alone must not imply "not in list" if not definitive
+   * (avoids grey-zone flicker vs validateStoredSelectionForOrchestrator).
+   */
+  it('not stale when row is neither pending nor definitively invalid (grey zone)', () => {
+    expect(
+      isHostInternalSelectionStaleForOrchestratorUi(
+        storedId,
+        [],
+        [
+          {
+            id: storedId,
+            handshake_id: hid,
+            available: false,
+            availability: 'unknown_transitional',
+          },
+        ],
+      ),
+    ).toBe(false)
   })
 })
 

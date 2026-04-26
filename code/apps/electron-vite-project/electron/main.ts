@@ -44,6 +44,19 @@ import * as http from 'node:http'
 import * as net from 'net'
 import * as crypto from 'crypto'
 
+/** Deduped: log only when ok/error changes (avoids spam on repeated getAvailableModels). */
+let lastLocalProviderOllamaDiscoveryLogSig = ''
+function logLocalProviderOllamaDiscovery(ok: boolean, errorMessage: string | null): void {
+  const sig = `${ok}:${errorMessage ?? ''}`
+  if (sig === lastLocalProviderOllamaDiscoveryLogSig) return
+  lastLocalProviderOllamaDiscoveryLogSig = sig
+  const errPart =
+    errorMessage == null || errorMessage === ''
+      ? 'null'
+      : String(errorMessage).replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500)
+  console.log(`[LOCAL_PROVIDER_DISCOVERY] provider=ollama ok=${ok} error=${errPart} affects_host_ai=false`)
+}
+
 function stripDataUriPrefixForLlm(s: string): string {
   if (!s.startsWith('data:')) return s
   const idx = s.indexOf(',')
@@ -3688,7 +3701,10 @@ app.whenReady().then(async () => {
               type: 'local',
             })
           }
+          logLocalProviderOllamaDiscovery(true, null)
         } catch (err: any) {
+          const msg = err?.message != null ? String(err.message) : String(err)
+          logLocalProviderOllamaDiscovery(false, msg || 'unknown_error')
           console.warn('[MAIN] handshake:getAvailableModels Ollama:', err?.message ?? err)
         }
 
