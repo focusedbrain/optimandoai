@@ -61,6 +61,8 @@ export type HostInferenceTargetRow = {
   displaySubtitle?: string
   /** Diagnostic; not shown verbatim in the selector. */
   failureCode?: string | null
+  /** Paired host machine — orthogonal to sandbox-local Ollama. */
+  inferenceTargetContext?: 'host_remote'
 }
 
 type PolicyState = 'unknown' | 'allow' | 'deny' | 'unreachable' | 'no_direct'

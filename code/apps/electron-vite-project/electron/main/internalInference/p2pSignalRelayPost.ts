@@ -416,6 +416,12 @@ export async function sendHostAiP2pSignalOutbound(params: {
           console.log(
             `[P2P_SIGNAL_OUT] accepted status=200 type=${params.kind} handshake=${hid} session=${redactIdForLog(sid)}`,
           )
+          if (params.kind === 'offer' || params.kind === 'answer' || params.kind === 'ice') {
+            const okKind = params.kind === 'ice' ? 'ice' : params.kind
+            console.log(
+              `[P2P_SIGNAL_SEND] type=${okKind} ok=true handshake=${hid} session=${redactIdForLog(sid)}`,
+            )
+          }
           return
         }
         if (res.status === 202) {

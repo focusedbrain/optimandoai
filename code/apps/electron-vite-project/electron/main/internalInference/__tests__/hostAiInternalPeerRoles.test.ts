@@ -120,6 +120,8 @@ describe('ensureSession — instance id (not orchestrator mode)', () => {
     vi.unstubAllEnvs()
     vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
+    /** WebRTC IPC is not exercised here; keeps ensureSession from awaiting relay WS + transport. */
+    vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '0')
     resetP2pInferenceFlagsForTests()
     _resetP2pInferenceSessionsForTests()
     _resetHostInferencePolicyForTests({

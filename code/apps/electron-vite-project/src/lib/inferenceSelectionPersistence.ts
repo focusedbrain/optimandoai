@@ -305,7 +305,8 @@ export function isHostInferenceTargetDefinitivelyInvalidForRestore(t: Orchestrat
     sur === 'gateway_error' ||
     sur === 'host_unreachable' ||
     sur === 'invalid_response' ||
-    sur === 'local_ollama_down'
+    sur === 'local_ollama_down' ||
+    sur === 'host_remote_ollama_down'
   ) {
     return true
   }

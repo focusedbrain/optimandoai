@@ -16,6 +16,7 @@ type HostP2pUiPhase =
   | 'probe_gateway_error'
   | 'probe_unreachable'
   | 'probe_invalid_response'
+  | 'probe_host_ollama'
   | 'probe_local_ollama'
 
 /** Top chat + WR Chat: one Host row in the model menu (or collapsed label). */
@@ -141,6 +142,7 @@ function fallbackTitleForPhase(phase: HostP2pUiPhase | undefined, t: HostInferen
       return TITLE_PROBE_NET
     case 'probe_invalid_response':
       return TITLE_PROBE_JSON
+    case 'probe_host_ollama':
     case 'probe_local_ollama':
       return TITLE_PROBE_OLLAMA
     default:

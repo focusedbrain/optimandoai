@@ -529,7 +529,7 @@ export function mapCapabilitiesWireToProbe(
     rawWireErr === InternalInferenceErrorCode.OLLAMA_UNAVAILABLE
   ) {
     const enabledN = (w.models ?? []).filter((m) => m.enabled && typeof m.model === 'string' && m.model.trim()).length
-    console.log(`[HOST_CAPS] inference_ready=false reason=ollama_unreachable provider=ollama models=${enabledN}`)
+    console.log(`[HOST_CAPS] inference_ready=false reason=host_remote_ollama_unreachable provider=ollama models=${enabledN}`)
     return {
       ok: true,
       allowSandboxInference: allow,

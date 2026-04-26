@@ -21,6 +21,13 @@ const MAX_DC_FRAME_BYTES = 2_000_000
 
 let registered = false
 
+/** One `[P2P_ICE_CONNECTED]` per handshake+session when ICE reaches connected/completed. */
+const iceConnectedLogged = new Set<string>()
+
+function iceLogKey(handshakeId: string, sessionId: string): string {
+  return `${handshakeId.trim()}\0${sessionId.trim()}`
+}
+
 const createAckBySessionId = new Map<string, { resolve: () => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>()
 
 /**
@@ -287,6 +294,15 @@ function onRendererToMain(_sender: Electron.WebContents, msg: unknown) {
       if (handshakeId && sessionId) {
         const ice = typeof m.ice === 'string' ? m.ice : ''
         const conn = typeof m.conn === 'string' ? m.conn : ''
+        if (ice === 'connected' || ice === 'completed') {
+          const ik = iceLogKey(handshakeId, sessionId)
+          if (!iceConnectedLogged.has(ik)) {
+            iceConnectedLogged.add(ik)
+            console.log(
+              `[P2P_ICE_CONNECTED] handshake=${handshakeId} session=${redactIdForLog(sessionId)} ice=${ice} conn=${conn}`,
+            )
+          }
+        }
         notifyWebrtcTransportTerminalIceOrConnectionFailed(handshakeId, sessionId, ice, conn)
       }
       break

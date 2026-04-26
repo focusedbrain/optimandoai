@@ -188,7 +188,11 @@ export type HostP2pUiPhase =
   | 'probe_unreachable'
   /** Capability probe: HTTP 200 but body was not valid capabilities JSON/shape. */
   | 'probe_invalid_response'
-  /** Capability probe: Host’s local Ollama/provider not running (wire OLLAMA_UNAVAILABLE). */
+  /**
+   * Host’s remote Ollama (on the **paired host machine**) unreachable — not sandbox-local Ollama.
+   * Legacy alias: `probe_local_ollama` (misleading name; kept in renderer for one release).
+   */
+  | 'probe_host_ollama'
   | 'probe_local_ollama'
 
 export type HostListTransportMode = 'webrtc_p2p' | 'legacy_http' | 'none'
@@ -270,6 +274,7 @@ function primaryLabelForP2pUiPhase(phase: HostP2pUiPhase, readyModelName?: strin
       return "Host machine isn't reachable on the network."
     case 'probe_invalid_response':
       return "Host responded but the format wasn't recognized."
+    case 'probe_host_ollama':
     case 'probe_local_ollama':
       return "Host's local AI provider isn't running."
     case 'hidden':
@@ -300,7 +305,7 @@ function hostP2pUiPhaseForProbeFailureCode(code: string): HostP2pUiPhase {
       return 'probe_invalid_response'
     case InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE:
     case InternalInferenceErrorCode.OLLAMA_UNAVAILABLE:
-      return 'probe_local_ollama'
+      return 'probe_host_ollama'
     case InternalInferenceErrorCode.PROBE_NO_MODELS:
       return 'no_model'
     default:
@@ -323,7 +328,7 @@ function hostAiStructuredReasonForProbeCode(code: string): HostAiStructuredUnava
       return 'invalid_response'
     case InternalInferenceErrorCode.OLLAMA_UNAVAILABLE:
     case InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE:
-      return 'local_ollama_down'
+      return 'host_remote_ollama_down'
     case InternalInferenceErrorCode.PROVIDER_UNAVAILABLE:
       return 'provider_not_ready'
     case InternalInferenceErrorCode.PROBE_NO_MODELS:
@@ -532,6 +537,9 @@ export type HostAiStructuredUnavailableReason =
   | 'gateway_error'
   | 'host_unreachable'
   | 'invalid_response'
+  /** Paired **host** machine Ollama unreachable (capabilities wire) — not sandbox-local Ollama. */
+  | 'host_remote_ollama_down'
+  /** @deprecated use host_remote_ollama_down */
   | 'local_ollama_down'
 
 export interface HostInternalInferenceListItem {
@@ -592,9 +600,16 @@ export interface HostInternalInferenceListItem {
   hostSelectorState: 'available' | 'checking' | 'unavailable'
   /** Normalized reason when Host AI is not selectable (strict readiness gating). */
   hostAiStructuredUnavailableReason?: HostAiStructuredUnavailableReason
+  /**
+   * Always `host_remote` for this list: inference runs on the paired host, independent of sandbox-local providers.
+   */
+  inferenceTargetContext: 'host_remote'
 }
 
-type HostTargetDraft = Omit<HostInternalInferenceListItem, 'host_selector_state' | 'secondaryLabel' | 'hostSelectorState' | 'type'>
+type HostTargetDraft = Omit<
+  HostInternalInferenceListItem,
+  'host_selector_state' | 'secondaryLabel' | 'hostSelectorState' | 'type' | 'inferenceTargetContext'
+>
 
 function epKindToListKind(
   k: ReturnType<typeof p2pEndpointKind>,
@@ -763,6 +778,7 @@ function finalizeItem(t: HostTargetDraft): HostInternalInferenceListItem {
   return {
     ...t,
     type: 'host_internal',
+    inferenceTargetContext: 'host_remote',
     displayTitle: t.displayTitle ?? t.label,
     displaySubtitle: t.displaySubtitle ?? subtitle,
     hostTargetAvailable: t.available,
@@ -1883,16 +1899,19 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       const psub = secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay)
       const iec0 = probe.inferenceErrorCode
       const rowFailure = iec0 ?? InternalInferenceErrorCode.MODEL_UNAVAILABLE
-      const ollamaDown =
+      /** Paired host’s Ollama (remote), from capabilities wire — never sandbox-local Ollama. */
+      const hostRemoteOllamaDown =
         rowFailure === InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE ||
         rowFailure === InternalInferenceErrorCode.OLLAMA_UNAVAILABLE
-      const nmT = ollamaDown
-        ? primaryLabelForP2pUiPhase('probe_local_ollama')
+      const nmT = hostRemoteOllamaDown
+        ? primaryLabelForP2pUiPhase('probe_host_ollama')
         : rowFailure === InternalInferenceErrorCode.PROBE_NO_MODELS
           ? 'Host has no AI models installed.'
           : primaryLabelForP2pUiPhase('no_model')
-      const noModelPhase: HostP2pUiPhase = ollamaDown ? 'probe_local_ollama' : 'no_model'
-      const structuredNoModel: HostAiStructuredUnavailableReason = ollamaDown ? 'local_ollama_down' : 'no_models'
+      const noModelPhase: HostP2pUiPhase = hostRemoteOllamaDown ? 'probe_host_ollama' : 'no_model'
+      const structuredNoModel: HostAiStructuredUnavailableReason = hostRemoteOllamaDown
+        ? 'host_remote_ollama_down'
+        : 'no_models'
       const t: HostTargetDraft = {
         kind: 'host_internal',
         id: buildHostTargetId(hid, 'unavailable'),
@@ -1924,7 +1943,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         failureCode: rowFailure,
       }
       console.log(
-        `[HOST_CAPS] inference_ready=false reason=${ollamaDown ? 'ollama_unreachable' : 'no_models'} handshake=${hid}`,
+        `[HOST_CAPS] inference_ready=false reason=${hostRemoteOllamaDown ? 'host_remote_ollama_unreachable' : 'no_models'} handshake=${hid}`,
       )
       console.log(`${L} target_available=false reason=no_models handshake=${hid}`)
       console.log(

@@ -109,15 +109,21 @@ export function tryHandleCoordinationP2pSignal(
   }
   const hid = typeof p.handshake_id === 'string' ? p.handshake_id : ''
   const session = typeof p.session_id === 'string' ? p.session_id : ''
-  if (p.signal_type === 'p2p_inference_answer') {
-    const sdp0 = p.sdp
-    const bytes = typeof sdp0 === 'string' ? sdp0.length : 0
-    console.log(
-      `[P2P_SIGNAL] inbound type=answer handshake=${hid} session=${redactIdForLog(session)} bytes=${bytes}`,
-    )
-  }
+  const recvType =
+    p.signal_type === 'p2p_inference_offer'
+      ? 'offer'
+      : p.signal_type === 'p2p_inference_answer'
+        ? 'answer'
+        : p.signal_type === 'p2p_inference_ice'
+          ? 'ice'
+          : p.signal_type.replace(/^p2p_inference_/, '')
+  const extraBytes =
+    (p.signal_type === 'p2p_inference_answer' || p.signal_type === 'p2p_inference_offer') &&
+    typeof p.sdp === 'string'
+      ? ` bytes=${p.sdp.length}`
+      : ''
   console.log(
-    `[P2P_SIGNAL] received handshake=${hid} signal=${p.signal_type} session=${redactIdForLog(session)}`,
+    `[P2P_SIGNAL_RECV] type=${recvType} handshake=${hid} session=${redactIdForLog(session)}${extraBytes}`,
   )
   void maybeHandleP2pInferenceRelaySignal({
     relayMessageId,

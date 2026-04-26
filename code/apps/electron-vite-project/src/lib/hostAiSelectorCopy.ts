@@ -137,7 +137,7 @@ export function hostAiChatBlockedUserMessage(t: HostInferenceTargetRow | undefin
     }
     return 'Host AI · no active model. On the Host, pick an active local model, or choose another model here.'
   }
-  if (ph === 'probe_local_ollama' || t.inference_error_code === 'PROBE_OLLAMA_UNAVAILABLE') {
+  if (ph === 'probe_host_ollama' || ph === 'probe_local_ollama' || t.inference_error_code === 'PROBE_OLLAMA_UNAVAILABLE') {
     return "Host's local AI provider isn't running."
   }
   if (t.availability === 'policy_disabled' || t.unavailable_reason === 'HOST_POLICY_DISABLED') {
@@ -197,7 +197,7 @@ export function hostAiRowUnavailableTooltip(
   if (ph === 'probe_invalid_response' || t?.inference_error_code === 'PROBE_INVALID_RESPONSE') {
     return ["Host responded but the format wasn't recognized.", ACT_SANDBOX_REFRESH].join(NL)
   }
-  if (ph === 'probe_local_ollama' || t?.inference_error_code === 'PROBE_OLLAMA_UNAVAILABLE') {
+  if (ph === 'probe_host_ollama' || ph === 'probe_local_ollama' || t?.inference_error_code === 'PROBE_OLLAMA_UNAVAILABLE') {
     return ["Host's local AI provider isn't running.", ACT_SANDBOX_REFRESH].join(NL)
   }
   if (ph === 'p2p_unavailable' || ph === 'connecting') {

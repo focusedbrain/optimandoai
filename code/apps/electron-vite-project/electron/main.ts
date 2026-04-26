@@ -3729,72 +3729,20 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('handshake:getAvailableModels', async () => {
       try {
-        const localModels: Array<{ id: string; name: string; provider: string; type: 'local' }> = []
-        const cloudModels: Array<{ id: string; name: string; provider: string; type: 'cloud' }> = []
-
-        // 1. Fetch local models from Ollama (use OllamaManager â€” same path as Backend Config)
-        try {
-          const { ollamaManager } = await import('./main/llm/ollama-manager')
-          const installed = await ollamaManager.listModels()
-          for (const m of installed) {
-            const name = m?.name?.trim?.() || ''
-            if (!name) continue
-            localModels.push({
-              id: name,
-              name,
-              provider: 'ollama',
-              type: 'local',
-            })
-          }
-          logLocalProviderOllamaDiscovery(true, null)
-        } catch (err: any) {
-          const msg = err?.message != null ? String(err.message) : String(err)
-          logLocalProviderOllamaDiscovery(false, msg || 'unknown_error')
-          console.warn('[MAIN] handshake:getAvailableModels Ollama:', err?.message ?? err)
-        }
-
-        // 2. Cloud models from OCR router (API keys set via POST /api/ocr/config or ocr:setCloudConfig)
-        const { ocrRouter } = await import('./main/ocr/router')
-        const providers = ocrRouter.getAvailableProviders()
-        const CLOUD_MODEL_MAP: Record<string, { id: string; name: string; provider: string }> = {
-          OpenAI: { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai' },
-          Claude: { id: 'claude-sonnet', name: 'Claude Sonnet', provider: 'anthropic' },
-          Gemini: { id: 'gemini-pro', name: 'Gemini Pro', provider: 'google' },
-          Grok: { id: 'grok-1', name: 'Grok', provider: 'xai' },
-        }
-        for (const p of providers) {
-          const entry = CLOUD_MODEL_MAP[p]
-          if (entry) {
-            cloudModels.push({ ...entry, type: 'cloud' })
-          }
-        }
-
-        // 3. Fallback: orchestrator (optimando-api-keys â€” same key as extension localStorage)
-        if (cloudModels.length === 0) {
-          try {
-            const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-            const service = getOrchestratorService()
-            const keys = await service.get<Record<string, string>>('optimando-api-keys')
-            if (keys && typeof keys === 'object') {
-              const PROVIDER_ORDER = ['OpenAI', 'Claude', 'Gemini', 'Grok'] as const
-              for (const p of PROVIDER_ORDER) {
-                const val = keys[p]
-                if (val && typeof val === 'string' && val.trim()) {
-                  const entry = CLOUD_MODEL_MAP[p]
-                  if (entry) {
-                    cloudModels.push({ ...entry, type: 'cloud' })
-                  }
-                }
-              }
-            }
-          } catch (e) {
-            console.error('[MAIN] Failed to read optimando-api-keys from orchestrator:', e)
-          }
-        }
-
-        /** Sandbox: hide local HTTP Ollama from the chat model list unless explicitly opted in. */
-        const localForChat =
-          isSandboxMode() && process.env.WRDESK_SANDBOX_LOCAL_OLLAMA !== '1' ? [] : localModels
+        const localModels: Array<{
+          id: string
+          name: string
+          provider: string
+          type: 'local'
+          inferenceTargetContext: 'sandbox_local'
+        }> = []
+        const cloudModels: Array<{
+          id: string
+          name: string
+          provider: string
+          type: 'cloud'
+          inferenceTargetContext: 'cloud'
+        }> = []
 
         /** Same `mode` as `orchestrator:getMode` / isSandboxMode() — `orchestrator-mode.json` (userData). */
         const mainOrchMode = getOrchestratorMode().mode
@@ -3820,11 +3768,16 @@ app.whenReady().then(async () => {
           )
         }
 
+        /**
+         * 1) Host AI (paired host machine: remote provider + transport) — runs before sandbox-local Ollama
+         * so a missing/broken Ollama on the Sandbox never delays or conflates Host discovery.
+         */
         const hostForChat: Array<{
           id: string
           name: string
           provider: string
           type: 'host_internal'
+          inferenceTargetContext: 'host_remote'
           displayTitle: string
           displaySubtitle: string
           hostTargetAvailable: boolean
@@ -3859,6 +3812,7 @@ app.whenReady().then(async () => {
                 name: title,
                 provider: 'host_internal',
                 type: 'host_internal',
+                inferenceTargetContext: 'host_remote',
                 displayTitle: title,
                 displaySubtitle: sub,
                 hostTargetAvailable: t.available,
@@ -3871,7 +3825,72 @@ app.whenReady().then(async () => {
           }
         }
 
-        // Sandbox/Host: local Ollama first, then Host AI, then cloud — Host AI remains visible with zero local models.
+        // 2) Sandbox-local Ollama (this machine only — does not affect Host AI rows or availability)
+        try {
+          const { ollamaManager } = await import('./main/llm/ollama-manager')
+          const installed = await ollamaManager.listModels()
+          for (const m of installed) {
+            const name = m?.name?.trim?.() || ''
+            if (!name) continue
+            localModels.push({
+              id: name,
+              name,
+              provider: 'ollama',
+              type: 'local',
+              inferenceTargetContext: 'sandbox_local',
+            })
+          }
+          logLocalProviderOllamaDiscovery(true, null)
+        } catch (err: any) {
+          const msg = err?.message != null ? String(err.message) : String(err)
+          logLocalProviderOllamaDiscovery(false, msg || 'unknown_error')
+          console.warn('[MAIN] handshake:getAvailableModels sandbox-local Ollama:', err?.message ?? err)
+        }
+
+        // 3) Cloud models from OCR router (API keys set via POST /api/ocr/config or ocr:setCloudConfig)
+        const { ocrRouter } = await import('./main/ocr/router')
+        const providers = ocrRouter.getAvailableProviders()
+        const CLOUD_MODEL_MAP: Record<string, { id: string; name: string; provider: string }> = {
+          OpenAI: { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai' },
+          Claude: { id: 'claude-sonnet', name: 'Claude Sonnet', provider: 'anthropic' },
+          Gemini: { id: 'gemini-pro', name: 'Gemini Pro', provider: 'google' },
+          Grok: { id: 'grok-1', name: 'Grok', provider: 'xai' },
+        }
+        for (const p of providers) {
+          const entry = CLOUD_MODEL_MAP[p]
+          if (entry) {
+            cloudModels.push({ ...entry, type: 'cloud', inferenceTargetContext: 'cloud' })
+          }
+        }
+
+        // 4) Fallback: orchestrator (optimando-api-keys — same key as extension localStorage)
+        if (cloudModels.length === 0) {
+          try {
+            const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+            const service = getOrchestratorService()
+            const keys = await service.get<Record<string, string>>('optimando-api-keys')
+            if (keys && typeof keys === 'object') {
+              const PROVIDER_ORDER = ['OpenAI', 'Claude', 'Gemini', 'Grok'] as const
+              for (const p of PROVIDER_ORDER) {
+                const val = keys[p]
+                if (val && typeof val === 'string' && val.trim()) {
+                  const entry = CLOUD_MODEL_MAP[p]
+                  if (entry) {
+                    cloudModels.push({ ...entry, type: 'cloud', inferenceTargetContext: 'cloud' })
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.error('[MAIN] Failed to read optimando-api-keys from orchestrator:', e)
+          }
+        }
+
+        /** Sandbox: hide local HTTP Ollama from the chat model list unless explicitly opted in. */
+        const localForChat =
+          isSandboxMode() && process.env.WRDESK_SANDBOX_LOCAL_OLLAMA !== '1' ? [] : localModels
+
+        // Selector merge order: local, Host AI, cloud — Host AI does not depend on local rows being non-empty.
         return {
           success: true,
           models: [...localForChat, ...hostForChat, ...cloudModels],

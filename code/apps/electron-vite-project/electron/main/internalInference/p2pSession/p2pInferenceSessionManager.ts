@@ -1325,6 +1325,7 @@ export function markDataChannelOpenForP2pSession(handshakeId: string, p2pSession
     connectedAt: t,
     updatedAt: t,
   })
+  console.log(`[P2P_DC_OPEN] handshake=${hid} session=${redactIdForLog(sid)}`)
   emitP2pCapabilityDcWait(hid, { kind: 'dc_open' })
 }
 
