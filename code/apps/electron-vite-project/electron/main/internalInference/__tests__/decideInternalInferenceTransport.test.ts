@@ -39,7 +39,7 @@ function rolesOk(): HandshakeDerivedRoles {
 
 const hr = { handshake_id: 'h1' } as unknown as HandshakeRecord
 
-const base: Omit<HostAiTransportDeciderInput, 'featureFlags' | 'legacyEndpointInfo'> = {
+const base: Omit<HostAiTransportDeciderInput, 'featureFlags' | 'legacyEndpointInfo' | 'relayHostAiP2pSignaling'> = {
   operationContext: 'list_targets',
   handshakeRecord: hr,
   handshakeDerivedRoles: rolesOk(),
@@ -146,6 +146,7 @@ describe('decideInternalInferenceTransport (STEP 4 legacy vs WebRTC)', () => {
   it('WebRTC enabled + full stack + relay + session signaling: preferred=webrtc_p2p, selector_phase=connecting (relay only blocks legacy HTTP)', () => {
     const r = decideInternalInferenceTransport({
       ...base,
+      relayHostAiP2pSignaling: 'supported',
       featureFlags: {
         p2pInferenceEnabled: true,
         p2pInferenceWebrtcEnabled: true,
@@ -180,6 +181,7 @@ describe('decideInternalInferenceTransport (STEP 4 legacy vs WebRTC)', () => {
   it('relay + stale p2pEndpointGateOpen false + full stack: WebRTC not blocked; connecting when signaling (gate repair for relay only)', () => {
     const r = decideInternalInferenceTransport({
       ...base,
+      relayHostAiP2pSignaling: 'supported',
       featureFlags: {
         p2pInferenceEnabled: true,
         p2pInferenceWebrtcEnabled: true,
@@ -213,6 +215,7 @@ describe('decideInternalInferenceTransport (STEP 4 legacy vs WebRTC)', () => {
   it('full stack: transport open, DataChannel up — ready, MVP never applies', () => {
     const r = decideInternalInferenceTransport({
       ...base,
+      relayHostAiP2pSignaling: 'supported',
       featureFlags: {
         p2pInferenceEnabled: true,
         p2pInferenceWebrtcEnabled: true,
@@ -240,5 +243,35 @@ describe('decideInternalInferenceTransport (STEP 4 legacy vs WebRTC)', () => {
     })
     expect(r.selectorPhase).toBe('ready')
     expect(r.failureCode).toBeNull()
+  })
+
+  it('relay + full P2P stack + missing host_ai_p2p_signaling capability → p2p_unavailable, no webrtc_p2p', () => {
+    const r = decideInternalInferenceTransport({
+      ...base,
+      relayHostAiP2pSignaling: 'missing',
+      featureFlags: {
+        p2pInferenceEnabled: true,
+        p2pInferenceWebrtcEnabled: true,
+        p2pInferenceSignalingEnabled: true,
+        p2pInferenceHttpFallback: true,
+        p2pInferenceCapsOverP2p: false,
+        p2pInferenceRequestOverP2p: false,
+        p2pInferenceHttpInternalCompat: false,
+        p2pInferenceVerboseLogs: false,
+        p2pInferenceAnalysisLog: false,
+        p2pInferenceDataChannelCapabilities: false,
+        p2pInferenceDataChannelInference: false,
+      },
+      legacyEndpointInfo: {
+        p2pEndpointKind: 'relay',
+        mayPostInternalInferenceHttpToIngest: false,
+        mvpClassForLog: 'relay',
+        p2pEndpointGateOpen: true,
+      },
+    })
+    expect(r.selectorPhase).toBe('p2p_unavailable')
+    expect(r.preferredTransport).toBe('none')
+    expect(r.failureCode).toBe('RELAY_HOST_AI_P2P_SIGNALING_UNAVAILABLE')
+    expect(r.p2pTransportEndpointOpen).toBe(false)
   })
 })

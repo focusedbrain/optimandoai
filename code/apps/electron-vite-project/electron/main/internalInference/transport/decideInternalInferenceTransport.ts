@@ -73,6 +73,11 @@ export type HostAiTransportDeciderInput = {
   sessionState: HostAiSessionStateInput | null
   legacyEndpointInfo: LegacyEndpointInfo
   hostPolicyState: HostPolicyState | null
+  /**
+   * Coordination GET /health `host_ai_p2p_signaling` — required when `legacyEndpointInfo.p2pEndpointKind === 'relay'`
+   * and the full P2P stack is on. Omitted or `'na'` is treated as not applicable (non-relay or stack off).
+   */
+  relayHostAiP2pSignaling?: 'supported' | 'missing' | 'na'
 }
 
 export type HostAiTransportDeciderResult = {
@@ -151,6 +156,7 @@ export function decideInternalInferenceTransport(
     legacyEndpointInfo: le,
     hostPolicyState: pol,
   } = input
+  const relaySig = input.relayHostAiP2pSignaling ?? 'na'
 
   const mayFb = f.p2pInferenceHttpFallback
   /** `HTTP_FALLBACK` flag && direct BEAP ingest — legacy path could actually be used. Relay never POSTs; `mayPost` is false. */
@@ -226,6 +232,20 @@ export function decideInternalInferenceTransport(
       p2pTransportEndpointOpen: false,
       failureCode: kind === 'missing' ? 'MISSING_P2P_ENDPOINT' : 'INVALID_P2P_ENDPOINT',
       userSafeReason: 'No valid coordination or Host endpoint in the handshake record.',
+    }
+  }
+
+  if (kind === 'relay' && p2pOn && relaySig !== 'supported') {
+    return {
+      targetDetected: true,
+      selectorPhase: 'p2p_unavailable',
+      preferredTransport: 'none',
+      mayUseLegacyHttpFallback: mayFb,
+      legacyHttpFallbackViable: legacyViable,
+      p2pTransportEndpointOpen: false,
+      failureCode: 'RELAY_HOST_AI_P2P_SIGNALING_UNAVAILABLE',
+      userSafeReason:
+        'This relay does not advertise Host AI P2P signaling. Update the coordination service or confirm the relay URL.',
     }
   }
 
@@ -404,6 +424,7 @@ export function buildHostAiTransportDeciderInput(args: {
   handshakeRecord: HandshakeRecord
   featureFlags: P2pInferenceFlagSnapshot
   hostPolicyState?: HostPolicyState | null
+  relayHostAiP2pSignaling?: 'supported' | 'missing' | 'na'
 }): HostAiTransportDeciderInput {
   const hid = String(args.handshakeRecord.handshake_id ?? '').trim()
   const { sessionState } = buildSessionStateForHostAiDecider(hid)
@@ -419,5 +440,37 @@ export function buildHostAiTransportDeciderInput(args: {
       args.featureFlags,
     ),
     hostPolicyState: args.hostPolicyState ?? null,
+    relayHostAiP2pSignaling: args.relayHostAiP2pSignaling ?? 'na',
   }
+}
+
+/**
+ * Resolves relay Host AI P2P signaling capability from coordination /health when the row uses a relay endpoint.
+ */
+export async function buildHostAiTransportDeciderInputAsync(args: {
+  operationContext: HostAiOperationContext
+  db: unknown
+  handshakeRecord: HandshakeRecord
+  featureFlags: P2pInferenceFlagSnapshot
+  hostPolicyState?: HostPolicyState | null
+  relayHostAiP2pSignaling?: 'supported' | 'missing' | 'na'
+}): Promise<HostAiTransportDeciderInput> {
+  if (args.relayHostAiP2pSignaling !== undefined) {
+    return buildHostAiTransportDeciderInput(args)
+  }
+  const le = buildLegacyEndpointInfoForDecider(
+    args.db,
+    args.handshakeRecord.p2p_endpoint,
+    args.featureFlags,
+  )
+  let sig: 'supported' | 'missing' | 'na' = 'na'
+  if (le.p2pEndpointKind === 'relay') {
+    const { resolveRelayHostAiP2pSignalingForTransportDecider } = await import('../hostAiRelayCapability')
+    sig = await resolveRelayHostAiP2pSignalingForTransportDecider(
+      args.db,
+      args.featureFlags,
+      args.handshakeRecord.p2p_endpoint,
+    )
+  }
+  return buildHostAiTransportDeciderInput({ ...args, relayHostAiP2pSignaling: sig })
 }

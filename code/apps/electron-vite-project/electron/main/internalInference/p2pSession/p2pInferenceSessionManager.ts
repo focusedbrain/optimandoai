@@ -1,7 +1,7 @@
 /**
  * P2P internal inference — session state machine. WebRTC stack lives in the hidden `internal-inference-p2p-transport` page only.
  * - Handshake + role authorization from ledger (same rules as service RPC) before a session is created.
- * - Signaling: inbound via `handleSignal`; coordination relay post is a reserved stub (no prompts).
+ * - Signaling: inbound via `handleSignal`; outbound POST /beap/p2p-signal via `p2pSignalRelayPost` (no RPC bodies).
  * - `p2p_unavailable` when P2P / signaling feature flags are off; does not change HTTP direct fallback.
  */
 
@@ -361,11 +361,38 @@ function setSession(hid: string, next: P2pSessionState) {
 }
 
 /**
- * When signaling is on and auth passed: reserved for POST /beap/p2p-signal outbound (Phase 5+).
- * Does not send prompts, completions, or service RPC bodies.
+ * When signaling is on and auth passed: reserved for correlation hooks.
+ * Actual POST /beap/p2p-signal runs from `p2pSignalOutbound` when SDP/ICE is ready.
  */
 function scheduleP2pSignalingRelayOut(_: { sessionId: string; handshakeId: string; reason: string }): void {
   void _
+}
+
+/**
+ * Terminal failure for outbound coordination signaling (HTTP 4xx/5xx except 202, or network).
+ * Applies failed phase + cooldown so list/probes do not reuse a stuck session forever.
+ */
+export function failHostAiP2pSessionForTerminalSignalingError(
+  handshakeId: string,
+  code: InternalInferenceErrorCodeType,
+): void {
+  const hid = typeof handshakeId === 'string' ? handshakeId.trim() : ''
+  if (!hid) return
+  const m = sessions.get(hid)
+  if (!m) return
+  const sid = m.state.sessionId
+  clearHostAiSignalingGatesForHandshake(hid)
+  const tFail = now()
+  setSession(hid, {
+    ...m.state,
+    sessionId: sid,
+    phase: P2pSessionPhase.failed,
+    updatedAt: tFail,
+    lastErrorCode: code,
+  })
+  console.log(
+    `[HOST_AI_SESSION_FAIL] handshake=${hid} session=${sid ? redactIdForLog(sid) : 'null'} code=${code} phase=signaling_transport`,
+  )
 }
 
 /**

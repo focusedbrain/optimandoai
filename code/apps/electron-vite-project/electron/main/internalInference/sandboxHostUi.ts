@@ -28,7 +28,7 @@ import { getHostAiBuildStamp, logHostAiStage, newHostAiCorrelationChain } from '
 import type { InternalInferenceCapabilitiesResultWire } from './types'
 import { listHostCapabilities } from './transport/internalInferenceTransport'
 import {
-  buildHostAiTransportDeciderInput,
+  buildHostAiTransportDeciderInputAsync,
   decideHostAiTransport,
   decideInternalInferenceTransport,
   deriveHostAiHandshakeRoles,
@@ -489,7 +489,7 @@ export async function probeHostInferencePolicyFromSandbox(
     flags: fProbe,
   })
   const decL = decideInternalInferenceTransport(
-    buildHostAiTransportDeciderInput({
+    await buildHostAiTransportDeciderInputAsync({
       /** Must match `listInferenceTargets` so the probe never diverges to legacy HTTP when the list row chose WebRTC. */
       operationContext: 'list_targets',
       db,

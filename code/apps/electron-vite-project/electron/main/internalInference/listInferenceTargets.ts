@@ -29,7 +29,7 @@ import {
   peerCoordinationDeviceId,
 } from './policy'
 import {
-  buildHostAiTransportDeciderInput,
+  buildHostAiTransportDeciderInputAsync,
   decideHostAiTransport,
   decideInternalInferenceTransport,
   type HostAiSelectorPhase,
@@ -65,6 +65,11 @@ const webrtcListHostCapsCache = new Map<string, { at: number; result: ListHostCa
 /** Clears the short TTL WebRTC list caps cache. Used by unit tests to avoid order-dependent state. */
 export function resetWebrtcListHostCapsCacheForTests(): void {
   webrtcListHostCapsCache.clear()
+}
+
+/** Clears ensure-session throttle cache (module singleton). For unit tests only. */
+export function resetP2pEnsureThrottleCacheForTests(): void {
+  lastP2pEnsureByHandshake.clear()
 }
 
 /** UI phase for Host AI selector (from transport policy + probe); do not infer from p2p_endpoint_kind alone. */
@@ -845,7 +850,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     const pcc = r.internal_peer_pairing_code ?? undefined
     const fRow = getP2pInferenceFlags()
     const dec = decideInternalInferenceTransport(
-      buildHostAiTransportDeciderInput({
+      await buildHostAiTransportDeciderInputAsync({
         operationContext: 'list_targets',
         db,
         handshakeRecord: r,
@@ -943,12 +948,19 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       const ml = metaLocal(displayName, pcc)
       const miss = listDec.failureCode === 'MISSING_P2P_ENDPOINT'
       const inv = listDec.failureCode === 'INVALID_P2P_ENDPOINT'
+      const relaySig = listDec.failureCode === 'RELAY_HOST_AI_P2P_SIGNALING_UNAVAILABLE'
       const ur: HostTargetUnavailableCode = miss
         ? 'MISSING_P2P_ENDPOINT'
         : inv
           ? 'ENDPOINT_NOT_DIRECT'
-          : 'HOST_DIRECT_P2P_UNREACHABLE'
-      const sub = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay)
+          : relaySig
+            ? 'UNKNOWN'
+            : 'HOST_DIRECT_P2P_UNREACHABLE'
+      const sub0 = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay)
+      const sub =
+        relaySig && listDec.userSafeReason?.trim()
+          ? `${sub0} — ${listDec.userSafeReason.trim()}`
+          : sub0
       const ht = primaryLabelForP2pUiPhase('p2p_unavailable')
       const t: HostTargetDraft = {
         kind: 'host_internal',

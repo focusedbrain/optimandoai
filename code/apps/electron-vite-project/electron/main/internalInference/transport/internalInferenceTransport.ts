@@ -24,13 +24,19 @@ import type { HostAiTransport, HostAiTransportIntent, HostAiTransportLogReason }
 import { decideHostAiIntentRoute } from './transportDecide'
 import {
   buildHostAiTransportDeciderInput,
+  buildHostAiTransportDeciderInputAsync,
   decideInternalInferenceTransport,
   deriveHostAiHandshakeRoles,
 } from './decideInternalInferenceTransport'
 
 export type { HostAiTransport, HostAiTransportIntent, HostAiTransportLogReason, HostAiTransportPreference } from './hostAiTransportTypes'
 export { decideHostAiIntentRoute, isWebrtcP2pDataPlaneAvailable, type HostAiTransportChoice } from './transportDecide'
-export { decideInternalInferenceTransport, buildHostAiTransportDeciderInput, buildSessionStateForHostAiDecider } from './decideInternalInferenceTransport'
+export {
+  decideInternalInferenceTransport,
+  buildHostAiTransportDeciderInput,
+  buildHostAiTransportDeciderInputAsync,
+  buildSessionStateForHostAiDecider,
+} from './decideInternalInferenceTransport'
 
 function emitTransportDiagnostics(
   handshakeId: string,
@@ -179,7 +185,7 @@ export async function listHostCapabilities(
   const db = await getHandshakeDbForInternalInference()
   const dec = db
     ? decideInternalInferenceTransport(
-        buildHostAiTransportDeciderInput({
+        await buildHostAiTransportDeciderInputAsync({
           operationContext: 'capabilities',
           db,
           handshakeRecord: record,
@@ -642,7 +648,7 @@ export async function requestHostCompletion(
   const db0 = await getHandshakeDbForInternalInference()
   const dec0 = db0
     ? decideInternalInferenceTransport(
-        buildHostAiTransportDeciderInput({
+        await buildHostAiTransportDeciderInputAsync({
           operationContext: 'request',
           db: db0,
           handshakeRecord: record,
@@ -909,17 +915,17 @@ export async function sendHostInferenceResult(
   const { record, targetEndpoint } = opts
   const db0 = await getHandshakeDbForInternalInference()
   const f0 = getP2pInferenceFlags()
-  const endpointGateOk = (() => {
-    if (!db0) return false
-    return decideInternalInferenceTransport(
-      buildHostAiTransportDeciderInput({
+  let endpointGateOk = false
+  if (db0) {
+    endpointGateOk = decideInternalInferenceTransport(
+      await buildHostAiTransportDeciderInputAsync({
         operationContext: 'result',
         db: db0,
         handshakeRecord: record,
         featureFlags: f0,
       }),
     ).p2pTransportEndpointOpen
-  })()
+  }
   const decision = decideHostAiIntentRoute(hid, 'result', endpointGateOk)
   emitTransportDiagnostics(hid, 'result', endpointGateOk, decision)
   if (decision.choice.selected === 'unavailable') {

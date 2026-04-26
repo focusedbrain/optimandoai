@@ -8,7 +8,10 @@ import { getInstanceId, isSandboxMode } from '../orchestrator/orchestratorModeSt
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { getP2pInferenceFlags } from './p2pInferenceFlags'
 import { requestHostCompletion } from './transport/internalInferenceTransport'
-import { decideInternalInferenceTransport, buildHostAiTransportDeciderInput } from './transport/decideInternalInferenceTransport'
+import {
+  decideInternalInferenceTransport,
+  buildHostAiTransportDeciderInputAsync,
+} from './transport/decideInternalInferenceTransport'
 import { InternalInferenceErrorCode } from './errors'
 import {
   assertP2pEndpointDirect,
@@ -61,7 +64,7 @@ export async function runSandboxPongTestFromHostHandshake(handshakeId: string): 
   }
   const fP2p = getP2pInferenceFlags()
   const endpointGateOk = decideInternalInferenceTransport(
-    buildHostAiTransportDeciderInput({
+    await buildHostAiTransportDeciderInputAsync({
       operationContext: 'request',
       db,
       handshakeRecord: r,

@@ -836,6 +836,12 @@ describe('coordination-service', () => {
     expect(typeof body.uptime).toBe('number')
     expect(typeof body.connected_clients).toBe('number')
     expect(typeof body.pending_capsules).toBe('number')
+    expect(body.host_ai_p2p_signaling).toEqual({
+      supported: true,
+      schema_version: 1,
+      ws_path: '/beap/ws',
+      signal_path: '/beap/p2p-signal',
+    })
   })
 
   test('CS_17_session_ttl: Stale handshake cleaned after TTL', async () => {
@@ -1361,6 +1367,93 @@ describe('coordination-service', () => {
     expect(signalFrames[0].id).toBeDefined()
     expect((signalFrames[0].payload as { signal_type?: string })?.signal_type).toBe('p2p_inference_offer')
     expect(received.filter((m) => m.type === 'capsule')).toHaveLength(0)
+    sbxWs.close()
+  })
+
+  test('CS_P2P_10: bidirectional p2p-signal (offer + answer + ICE) between two connected WS peers', async () => {
+    const hsId = 'hs-p2p-bi'
+    const user = 'p2puserbi'
+    const devHost = 'dev-host-bi'
+    const devSbx = 'dev-sbx-bi'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: user,
+        acceptor_user_id: user,
+        initiator_device_id: devHost,
+        acceptor_device_id: devSbx,
+        handshake_type: 'internal',
+      }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    const hostRx: Array<{ type?: string; payload?: { signal_type?: string } }> = []
+    const sbxRx: Array<{ type?: string; payload?: { signal_type?: string } }> = []
+    const hostWs = await wsConnectWithDevice(port, `test-${user}-pro`, devHost, (data) => {
+      hostRx.push(JSON.parse(data.toString()) as { type?: string; payload?: { signal_type?: string } })
+    })
+    const sbxWs = await wsConnectWithDevice(port, `test-${user}-pro`, devSbx, (data) => {
+      sbxRx.push(JSON.parse(data.toString()) as { type?: string; payload?: { signal_type?: string } })
+    })
+    await new Promise((r) => setTimeout(r, 100))
+
+    const mkBody = (
+      signalType: string,
+      sender: string,
+      receiver: string,
+      extra: Record<string, unknown> = {},
+    ) => {
+      const t0 = new Date()
+      const t1 = new Date(t0.getTime() + (signalType === 'p2p_inference_ice' ? 20_000 : 15_000))
+      return JSON.stringify({
+        schema_version: 1,
+        signal_type: signalType,
+        correlation_id: `c-${signalType}-${sender}`,
+        session_id: 'sess-bi',
+        handshake_id: hsId,
+        sender_device_id: sender,
+        receiver_device_id: receiver,
+        created_at: t0.toISOString(),
+        expires_at: t1.toISOString(),
+        ...extra,
+      })
+    }
+
+    let r = await request(port, 'POST', '/beap/p2p-signal', {
+      body: mkBody('p2p_inference_offer', devHost, devSbx, { sdp: 'offer-sdp' }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(200)
+    await new Promise((x) => setTimeout(x, 150))
+    expect(sbxRx.filter((m) => m.type === 'p2p_signal' && m.payload?.signal_type === 'p2p_inference_offer')).toHaveLength(1)
+
+    r = await request(port, 'POST', '/beap/p2p-signal', {
+      body: mkBody('p2p_inference_answer', devSbx, devHost, { sdp: 'answer-sdp' }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(200)
+    await new Promise((x) => setTimeout(x, 150))
+    expect(hostRx.filter((m) => m.type === 'p2p_signal' && m.payload?.signal_type === 'p2p_inference_answer')).toHaveLength(1)
+
+    r = await request(port, 'POST', '/beap/p2p-signal', {
+      body: mkBody('p2p_inference_ice', devHost, devSbx, { candidate: '{"c":"host"}' }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(200)
+    r = await request(port, 'POST', '/beap/p2p-signal', {
+      body: mkBody('p2p_inference_ice', devSbx, devHost, { candidate: '{"c":"sbx"}' }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(200)
+    await new Promise((x) => setTimeout(x, 150))
+    expect(sbxRx.filter((m) => m.type === 'p2p_signal' && m.payload?.signal_type === 'p2p_inference_ice')).toHaveLength(1)
+    expect(hostRx.filter((m) => m.type === 'p2p_signal' && m.payload?.signal_type === 'p2p_inference_ice')).toHaveLength(1)
+
+    hostWs.close()
     sbxWs.close()
   })
 

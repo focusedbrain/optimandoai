@@ -225,7 +225,12 @@ function definitiveP2pSessionFailureCode(err: string): boolean {
     err === 'OFFER_SIGNAL_SEND_FAILED' ||
     err === 'OFFER_DISPATCH_FAILED' ||
     err === 'WEBRTC_TRANSPORT_NOT_READY' ||
-    err === 'SIGNALING_NOT_STARTED'
+    err === 'SIGNALING_NOT_STARTED' ||
+    err === 'RELAY_HOST_AI_P2P_SIGNALING_UNAVAILABLE' ||
+    err === 'RELAY_MISSING_P2P_SIGNAL_ROUTE' ||
+    err === 'RELAY_UNREACHABLE' ||
+    err === 'P2P_SIGNAL_SCHEMA_REJECTED' ||
+    err === 'P2P_SIGNAL_AUTH_OR_ROUTE_FAILED'
   )
 }
 

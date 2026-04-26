@@ -182,6 +182,7 @@ function onRendererToMain(_sender: Electron.WebContents, msg: unknown) {
           p2pSessionId: sessionId,
           handshakeId,
           byteLength: sdp.length,
+          sdp,
         })
       }
       break
@@ -189,20 +190,35 @@ function onRendererToMain(_sender: Electron.WebContents, msg: unknown) {
     case 'answer': {
       const sdp = m.sdp
       if (typeof sdp === 'string' && sessionId && handshakeId) {
-        recordOutboundP2pSignal('answer', { p2pSessionId: sessionId, handshakeId, byteLength: sdp.length })
+        recordOutboundP2pSignal('answer', {
+          p2pSessionId: sessionId,
+          handshakeId,
+          byteLength: sdp.length,
+          sdp,
+        })
       }
       break
     }
     case 'ice': {
       const end = m.end === true
       if (end) {
-        recordOutboundP2pSignal('ice', { p2pSessionId: sessionId, handshakeId, byteLength: 0, iceEos: true })
+        recordOutboundP2pSignal('ice', {
+          p2pSessionId: sessionId,
+          handshakeId,
+          byteLength: 0,
+          iceEos: true,
+        })
         break
       }
       const init = m.init
       const s = init && typeof init === 'object' ? JSON.stringify(init) : ''
       if (sessionId && handshakeId) {
-        recordOutboundP2pSignal('ice', { p2pSessionId: sessionId, handshakeId, byteLength: s.length })
+        recordOutboundP2pSignal('ice', {
+          p2pSessionId: sessionId,
+          handshakeId,
+          byteLength: s.length,
+          iceInit: init,
+        })
       }
       break
     }

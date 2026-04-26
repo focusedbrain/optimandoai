@@ -48,6 +48,16 @@ export const InternalInferenceErrorCode = {
   SIGNALING_ANSWER_TIMEOUT: 'SIGNALING_ANSWER_TIMEOUT',
   /** `phase=signaling` with no `create_offer_begin` and no outbound offer within the watchdog window. */
   OFFER_START_NOT_OBSERVED: 'OFFER_START_NOT_OBSERVED',
+  /** Relay GET /health does not advertise Host AI P2P signaling; do not select webrtc_p2p for relay rows. */
+  RELAY_HOST_AI_P2P_SIGNALING_UNAVAILABLE: 'RELAY_HOST_AI_P2P_SIGNALING_UNAVAILABLE',
+  /** POST /beap/p2p-signal returned 404/405 — coordination route missing on this host. */
+  RELAY_MISSING_P2P_SIGNAL_ROUTE: 'RELAY_MISSING_P2P_SIGNAL_ROUTE',
+  /** Network failure reaching coordination relay for p2p-signal. */
+  RELAY_UNREACHABLE: 'RELAY_UNREACHABLE',
+  /** Coordination rejected p2p-signal body (4xx validation / schema). */
+  P2P_SIGNAL_SCHEMA_REJECTED: 'P2P_SIGNAL_SCHEMA_REJECTED',
+  /** 401/403 on p2p-signal POST (auth or routing). */
+  P2P_SIGNAL_AUTH_OR_ROUTE_FAILED: 'P2P_SIGNAL_AUTH_OR_ROUTE_FAILED',
 } as const
 
 export type InternalInferenceErrorCodeType =

@@ -7,8 +7,13 @@ import { InternalInferenceErrorCode } from '../errors'
 import { assertP2pEndpointDirect, p2pEndpointKind } from '../policy'
 import {
   listSandboxHostInternalInferenceTargets,
+  resetP2pEnsureThrottleCacheForTests,
   resetWebrtcListHostCapsCacheForTests,
 } from '../listInferenceTargets'
+import {
+  resetHostAiRelayCapabilityCacheForTests,
+  setHostAiRelayCapabilityFetchForTests,
+} from '../hostAiRelayCapability'
 import { resetP2pInferenceFlagsForTests } from '../p2pInferenceFlags'
 
 const { isHostModeMock, isSandboxModeMock, getOrchestratorModeMock, getInstanceIdMock } = vi.hoisted(() => {
@@ -100,8 +105,11 @@ vi.mock('../transport/internalInferenceTransport', () => ({
 vi.mock('../../p2p/p2pConfig', () => ({
   getP2PConfig: () => ({
     coordination_url: 'https://coord.test.invalid',
+    use_coordination: true,
   }),
 }))
+
+const getSessionStateListMock = vi.hoisted(() => vi.fn(() => null as any))
 
 const ensureSessionListMock = vi.hoisted(() =>
   vi.fn().mockImplementation(async (hid: string) => ({
@@ -151,7 +159,7 @@ vi.mock('../p2pSession/p2pInferenceSessionManager', () => ({
     orchestrator_mode_change: 'orchestrator_mode_change',
     account_switch: 'account_switch',
   },
-  getSessionState: vi.fn(() => null),
+  getSessionState: (...a: unknown[]) => getSessionStateListMock(...a),
   subscribeSessionState: vi.fn(() => () => {}),
   ensureHostAiP2pSession: (hid: string, reason: string) => ensureSessionListMock(hid, reason),
   ensureSessionSingleFlight: (hid: string, reason: string) => ensureSessionListMock(hid, reason),
@@ -223,7 +231,27 @@ function activeInternalSandboxToHost(over: Partial<HandshakeRecord> = {}): Hands
 
 beforeEach(() => {
   vi.unstubAllEnvs()
+  resetHostAiRelayCapabilityCacheForTests()
+  setHostAiRelayCapabilityFetchForTests(async (url: RequestInfo | URL) => {
+    const s = String(url)
+    if (s.includes('/health')) {
+      return new Response(
+        JSON.stringify({
+          status: 'ok',
+          host_ai_p2p_signaling: {
+            supported: true,
+            schema_version: 1,
+            ws_path: '/beap/ws',
+            signal_path: '/beap/p2p-signal',
+          },
+        }),
+        { status: 200 },
+      )
+    }
+    return new Response('', { status: 404 })
+  })
   resetWebrtcListHostCapsCacheForTests()
+  resetP2pEnsureThrottleCacheForTests()
   /** Most STEP 8 tests assert legacy-HTTP or pre-WebRTC behavior — force P2P stack off. Default-on tests use a nested describe with unstub. */
   vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '0')
   vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '0')
@@ -262,6 +290,8 @@ beforeEach(() => {
     },
   })
   isDcUpListMock.mockReturnValue(true)
+  getSessionStateListMock.mockReset()
+  getSessionStateListMock.mockReturnValue(null)
   getInstanceIdMock.mockReturnValue('dev-sand-1')
   ensureSessionListMock.mockImplementation(async (hid: string) => ({
     handshakeId: hid,
@@ -279,6 +309,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs()
+  setHostAiRelayCapabilityFetchForTests(null)
+  resetHostAiRelayCapabilityCacheForTests()
   resetP2pInferenceFlagsForTests()
   vi.clearAllMocks()
 })
@@ -521,6 +553,35 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
     expect(t.inference_error_code).not.toBe('MVP_P2P_ENDPOINT_INVALID')
     expect(t.type).toBe('host_internal')
     expect(t.hostTargetAvailable).toBe(true)
+    vi.unstubAllEnvs()
+    resetP2pInferenceFlagsForTests()
+  })
+
+  it('relay + full P2P stack on but coordination health missing host_ai_p2p_signaling → p2p_unavailable', async () => {
+    vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
+    const { resetP2pInferenceFlagsForTests } = await import('../p2pInferenceFlags')
+    resetP2pInferenceFlagsForTests()
+    resetHostAiRelayCapabilityCacheForTests()
+    setHostAiRelayCapabilityFetchForTests(async (url: RequestInfo | URL) => {
+      const s = String(url)
+      if (s.includes('/health')) {
+        return new Response(JSON.stringify({ status: 'ok' }), { status: 200 })
+      }
+      return new Response('', { status: 404 })
+    })
+    isSandboxModeMock.mockReturnValue(true)
+    const relay = 'https://relay.wrdesk.com/xyz/beap/ingest'
+    listHandshakeRecordsMock.mockReturnValue([
+      activeInternalSandboxToHost({ p2p_endpoint: relay }),
+    ])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toHaveLength(1)
+    const t = r.targets[0]!
+    expect(t.available).toBe(false)
+    expect(t.p2pUiPhase).toBe('p2p_unavailable')
+    expect(t.failureCode).toBe('RELAY_HOST_AI_P2P_SIGNALING_UNAVAILABLE')
     vi.unstubAllEnvs()
     resetP2pInferenceFlagsForTests()
   })
@@ -887,7 +948,7 @@ describe('STEP 8 — Production safety (unit contracts)', () => {
     resetP2pInferenceFlagsForTests()
     isSandboxModeMock.mockReturnValue(true)
     isDcUpListMock.mockReturnValue(false)
-    ensureSessionListMock.mockResolvedValue({
+    const failedSess = {
       handshakeId: 'hs-internal-1',
       sessionId: 'sess-dead',
       phase: 'failed',
@@ -898,7 +959,9 @@ describe('STEP 8 — Production safety (unit contracts)', () => {
       signalingExpiresAt: null,
       boundLocalDeviceId: 'a',
       boundPeerDeviceId: 'b',
-    })
+    }
+    getSessionStateListMock.mockReturnValue(failedSess)
+    ensureSessionListMock.mockResolvedValue(failedSess)
     const relay = 'https://relay.wrdesk.com/xyz/beap/ingest'
     listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost({ p2p_endpoint: relay })])
     const r = await listSandboxHostInternalInferenceTargets()

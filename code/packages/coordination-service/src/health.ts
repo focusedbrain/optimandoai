@@ -7,8 +7,17 @@
 import type { StoreAdapter } from './store.js'
 import type { AuthAdapter } from './auth.js'
 import type { WsManagerAdapter } from './wsManager.js'
+import { P2P_SIGNAL_SCHEMA_VERSION } from './p2pSignal.js'
 
 const startTime = Date.now()
+
+/** Additive capability advertisement for Host AI WebRTC signaling (POST /beap/p2p-signal + WS). */
+export type HostAiP2pSignalingCapability = {
+  supported: true
+  schema_version: number
+  ws_path: string
+  signal_path: string
+}
 
 export interface HealthResult {
   status: 'ok' | 'degraded'
@@ -21,6 +30,7 @@ export interface HealthResult {
     storage_ok?: boolean
     jwks_ok?: boolean
     event_loop_ok?: boolean
+    host_ai_p2p_signaling?: HostAiP2pSignalingCapability
   }
 }
 
@@ -70,6 +80,12 @@ export function createHealth(
           storage_ok: storageOk,
           jwks_ok: jwksOk,
           event_loop_ok: eventLoopOk,
+          host_ai_p2p_signaling: {
+            supported: true,
+            schema_version: P2P_SIGNAL_SCHEMA_VERSION,
+            ws_path: '/beap/ws',
+            signal_path: '/beap/p2p-signal',
+          },
         },
       }
     },
