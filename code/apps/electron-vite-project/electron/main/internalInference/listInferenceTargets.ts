@@ -20,7 +20,12 @@ import {
   logHostAiP2pFlagsAndSource,
 } from './p2pInferenceFlags'
 import { ensureHostAiP2pSession, getSessionState, P2pSessionPhase } from './p2pSession/p2pInferenceSessionManager'
-import { isP2pDataChannelUpForHandshake } from './p2pSession/p2pSessionWait'
+import {
+  HOST_AI_CAPABILITY_DC_WAIT_MS,
+  isP2pDataChannelUpForHandshake,
+  p2pCapabilityDcWaitOutcomeLogReason,
+  waitForP2pDataChannelOpenOrTerminal,
+} from './p2pSession/p2pSessionWait'
 import {
   assertRecordForServiceRpc,
   deriveInternalHostAiPeerRoles,
@@ -37,8 +42,13 @@ import {
 } from './transport/decideInternalInferenceTransport'
 import type { P2pInferenceFlagSnapshot } from './p2pInferenceFlags'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
-import { mapCapabilitiesWireToProbe, probeHostInferencePolicyFromSandbox } from './sandboxHostUi'
+import {
+  mapCapabilitiesWireToProbe,
+  probeHostInferencePolicyFromSandbox,
+  resetProbeHostInferencePolicyInFlightForTests,
+} from './sandboxHostUi'
 import { InternalInferenceErrorCode } from './errors'
+import { getP2pRelaySignalingCircuitOpenUntilMs } from './p2pSignalRelayCircuit'
 import { listHostCapabilities } from './transport/internalInferenceTransport'
 import type { InternalInferenceCapabilitiesResultWire } from './types'
 
@@ -77,11 +87,13 @@ export function clearHostAiListTransientStateForOrchestratorBuildChange(): void 
   stableListProbeChainByHandshake.clear()
   lastP2pEnsureByHandshake.clear()
   webrtcListHostCapsCache.clear()
+  resetProbeHostInferencePolicyInFlightForTests()
 }
 
 /** UI phase for Host AI selector (from transport policy + probe); do not infer from p2p_endpoint_kind alone. */
 export type HostP2pUiPhase =
   | 'connecting'
+  | 'relay_reconnecting'
   | 'ready'
   | 'p2p_unavailable'
   | 'legacy_http_invalid'
@@ -146,6 +158,8 @@ function primaryLabelForP2pUiPhase(phase: HostP2pUiPhase, readyModelName?: strin
   switch (phase) {
     case 'connecting':
       return 'Host AI · connecting…'
+    case 'relay_reconnecting':
+      return 'Host AI · reconnecting to relay…'
     case 'ready':
       return (readyModelName && readyModelName.trim()) || 'Host AI · ready'
     case 'p2p_unavailable':
@@ -494,12 +508,17 @@ function secondaryLabelFromMeta(hostName: string, _roleLabel: string, pairingDis
 }
 
 const COPY_HOST_AI_CONNECTING_SUB = 'Checking secure P2P connection to your Host…'
+const COPY_HOST_AI_RELAY_RECONNECTING_SUB =
+  'Relay rate limits were hit; pausing new connections briefly. Retrying automatically…'
 const COPY_HOST_AI_P2P_UNAVAILABLE_SUB =
   'Secure P2P connection could not be established. Try refresh or check the Host.'
 
 function hostAiSubtitleForPhase(phase: HostP2pUiPhase, ml: { hostName: string; roleLabel: string; pairingDisplay: string }): string {
   if (phase === 'connecting') {
     return COPY_HOST_AI_CONNECTING_SUB
+  }
+  if (phase === 'relay_reconnecting') {
+    return COPY_HOST_AI_RELAY_RECONNECTING_SUB
   }
   if (phase === 'p2p_unavailable') {
     return COPY_HOST_AI_P2P_UNAVAILABLE_SUB
@@ -1117,6 +1136,46 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         console.warn(`${L} p2p_ensure_error handshake=${hid}`, e)
         sState = null
       }
+      if (sState?.lastErrorCode === InternalInferenceErrorCode.RELAY_429_CIRCUIT_OPEN) {
+        const ml0 = metaLocal(displayName, pcc)
+        const psub0 = hostAiSubtitleForPhase('relay_reconnecting', ml0)
+        const htR = primaryLabelForP2pUiPhase('relay_reconnecting')
+        const tRec: HostTargetDraft = {
+          kind: 'host_internal',
+          id: buildHostTargetId(hid, 'unavailable'),
+          label: htR,
+          display_label: htR,
+          displayTitle: htR,
+          displaySubtitle: psub0,
+          model: null,
+          model_id: null,
+          provider: 'host_internal',
+          handshake_id: hid,
+          host_device_id: hostDevice,
+          host_computer_name: ml0.hostName,
+          host_pairing_code: ml0.digits6,
+          host_orchestrator_role: 'host',
+          host_orchestrator_role_label: ml0.roleLabel,
+          internal_identifier_6: ml0.digits6,
+          secondary_label: psub0,
+          direct_reachable: false,
+          policy_enabled: false,
+          available: false,
+          availability: 'host_offline',
+          unavailable_reason: 'transport_not_ready',
+          hostAiStructuredUnavailableReason: 'transport_not_ready',
+          host_role: 'Host',
+          inference_error_code: InternalInferenceErrorCode.RELAY_429_CIRCUIT_OPEN,
+          ...baseMetaFromDec(listDec, leK),
+          p2pUiPhase: 'relay_reconnecting',
+          failureCode: InternalInferenceErrorCode.RELAY_429_CIRCUIT_OPEN,
+        }
+        console.log(
+          `${L} target_relay_circuit handshake=${hid} open_until_ms=${getP2pRelaySignalingCircuitOpenUntilMs()} transport=webrtc_p2p`,
+        )
+        targets.push(finalizeItem(tRec))
+        continue
+      }
       if (sState?.phase === P2pSessionPhase.failed) {
         const ml0 = metaLocal(displayName, pcc)
         const psub0 =
@@ -1165,6 +1224,58 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         sState?.phase === P2pSessionPhase.datachannel_open ||
         sState?.phase === P2pSessionPhase.ready
       if (!dcReady) {
+        const waitOut = await waitForP2pDataChannelOpenOrTerminal(hid, HOST_AI_CAPABILITY_DC_WAIT_MS)
+        if (!waitOut.ok) {
+          const ml0 = metaLocal(displayName, pcc)
+          const psub0 = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
+          const hHidden = primaryLabelForP2pUiPhase('hidden')
+          const tConn: HostTargetDraft = {
+            kind: 'host_internal',
+            id: buildHostTargetId(hid, 'unavailable'),
+            label: hHidden,
+            display_label: hHidden,
+            displayTitle: hHidden,
+            displaySubtitle: psub0,
+            model: null,
+            model_id: null,
+            provider: 'host_internal',
+            handshake_id: hid,
+            host_device_id: hostDevice,
+            host_computer_name: ml0.hostName,
+            host_pairing_code: ml0.digits6,
+            host_orchestrator_role: 'host',
+            host_orchestrator_role_label: ml0.roleLabel,
+            internal_identifier_6: ml0.digits6,
+            secondary_label: psub0,
+            direct_reachable: false,
+            policy_enabled: false,
+            available: false,
+            availability: 'host_offline',
+            unavailable_reason: 'transport_not_ready',
+            hostAiStructuredUnavailableReason: 'transport_not_ready',
+            host_role: 'Host',
+            inference_error_code: 'P2P_SESSION_IN_PROGRESS',
+            ...baseMetaFromDec(listDec, leK),
+            p2pUiPhase: 'hidden',
+            failureCode: 'transport_not_ready',
+          }
+          const phProbe = getSessionState(hid)?.phase ?? sState?.phase ?? 'none'
+          const pr = p2pCapabilityDcWaitOutcomeLogReason(waitOut)
+          console.log(
+            `[HOST_AI_CAPABILITY_PROBE] transport=webrtc_p2p ok=false reason=${pr} handshake=${hid} p2p_phase=${phProbe}`,
+          )
+          console.log(
+            `${L} target_available=false reason=transport_not_ready handshake=${hid} session=${sState?.sessionId ?? 'null'} transport=webrtc_p2p`,
+          )
+          targets.push(finalizeItem(tConn))
+          continue
+        }
+      }
+    }
+
+    if (listDec.preferredTransport === 'webrtc_p2p' && !isP2pDataChannelUpForHandshake(hid)) {
+      const waitOut = await waitForP2pDataChannelOpenOrTerminal(hid, HOST_AI_CAPABILITY_DC_WAIT_MS)
+      if (!waitOut.ok) {
         const ml0 = metaLocal(displayName, pcc)
         const psub0 = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
         const hHidden = primaryLabelForP2pUiPhase('hidden')
@@ -1198,55 +1309,13 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           p2pUiPhase: 'hidden',
           failureCode: 'transport_not_ready',
         }
-        console.log(
-          `[HOST_AI_CAPABILITY_PROBE] transport=webrtc_p2p ok=false reason=dc_not_open handshake=${hid} p2p_phase=${sState?.phase ?? 'none'}`,
-        )
-        console.log(
-          `${L} target_available=false reason=transport_not_ready handshake=${hid} session=${sState?.sessionId ?? 'null'} transport=webrtc_p2p`,
-        )
+        const phProbe = getSessionState(hid)?.phase ?? 'none'
+        const pr = p2pCapabilityDcWaitOutcomeLogReason(waitOut)
+        console.log(`[HOST_AI_CAPABILITY_PROBE] transport=webrtc_p2p ok=false reason=${pr} handshake=${hid} p2p_phase=${phProbe}`)
+        console.log(`${L} target_available=false reason=transport_not_ready handshake=${hid} transport=webrtc_p2p (precap_guard)`)
         targets.push(finalizeItem(tConn))
         continue
       }
-    }
-
-    if (listDec.preferredTransport === 'webrtc_p2p' && !isP2pDataChannelUpForHandshake(hid)) {
-      const ml0 = metaLocal(displayName, pcc)
-      const psub0 = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
-      const hHidden = primaryLabelForP2pUiPhase('hidden')
-      const tConn: HostTargetDraft = {
-        kind: 'host_internal',
-        id: buildHostTargetId(hid, 'unavailable'),
-        label: hHidden,
-        display_label: hHidden,
-        displayTitle: hHidden,
-        displaySubtitle: psub0,
-        model: null,
-        model_id: null,
-        provider: 'host_internal',
-        handshake_id: hid,
-        host_device_id: hostDevice,
-        host_computer_name: ml0.hostName,
-        host_pairing_code: ml0.digits6,
-        host_orchestrator_role: 'host',
-        host_orchestrator_role_label: ml0.roleLabel,
-        internal_identifier_6: ml0.digits6,
-        secondary_label: psub0,
-        direct_reachable: false,
-        policy_enabled: false,
-        available: false,
-        availability: 'host_offline',
-        unavailable_reason: 'transport_not_ready',
-        hostAiStructuredUnavailableReason: 'transport_not_ready',
-        host_role: 'Host',
-        inference_error_code: 'P2P_SESSION_IN_PROGRESS',
-        ...baseMetaFromDec(listDec, leK),
-        p2pUiPhase: 'hidden',
-        failureCode: 'transport_not_ready',
-      }
-      console.log(`[HOST_AI_CAPABILITY_PROBE] transport=webrtc_p2p ok=false reason=dc_not_open handshake=${hid}`)
-      console.log(`${L} target_available=false reason=transport_not_ready handshake=${hid} transport=webrtc_p2p (precap_guard)`)
-      targets.push(finalizeItem(tConn))
-      continue
     }
 
     const ml0 = metaLocal(displayName, pcc)

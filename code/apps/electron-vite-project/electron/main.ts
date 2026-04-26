@@ -2686,6 +2686,12 @@ app.whenReady().then(async () => {
       console.warn('[HOST_AI_BUILD] startup sync failed:', e)
     }
 
+    setTimeout(() => {
+      void import('./main/internalInference/hostAiHostOrchestratorHealth').then((m) =>
+        m.logHostAiOrchestratorHealthLine(),
+      )
+    }, 2_500)
+
     // Email + Inbox IPC â€” register before any other awaited startup work so a throw
     // (e.g. setupFileLogging, handshake IPC wiring, session, ports, HTTP) cannot skip
     // registration and leave `inbox:dashboardSnapshot` / `email:listAccounts` missing.

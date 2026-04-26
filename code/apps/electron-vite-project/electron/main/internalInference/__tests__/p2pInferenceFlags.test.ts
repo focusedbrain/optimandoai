@@ -15,15 +15,15 @@ describe('p2pInferenceFlags', () => {
     resetP2pInferenceFlagsForTests()
   })
 
-  test('defaults (no env): Host AI P2P stack on; HTTP fallback off unless set', () => {
+  test('defaults (no env): Host AI P2P stack on; HTTP fallback + internal compat on unless env overrides', () => {
     const f = getP2pInferenceFlags()
     expect(f.p2pInferenceEnabled).toBe(true)
     expect(f.p2pInferenceSignalingEnabled).toBe(true)
     expect(f.p2pInferenceWebrtcEnabled).toBe(true)
     expect(f.p2pInferenceCapsOverP2p).toBe(true)
     expect(f.p2pInferenceRequestOverP2p).toBe(true)
-    expect(f.p2pInferenceHttpFallback).toBe(false)
-    expect(f.p2pInferenceHttpInternalCompat).toBe(false)
+    expect(f.p2pInferenceHttpFallback).toBe(true)
+    expect(f.p2pInferenceHttpInternalCompat).toBe(true)
     expect(f.p2pInferenceVerboseLogs).toBe(false)
     expect(f.p2pInferenceAnalysisLog).toBe(false)
     expect(isP2pInferenceFeatureTouched()).toBe(true)
@@ -99,6 +99,7 @@ describe('p2pInferenceFlags', () => {
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_REQUEST_OVER_P2P', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT', '0')
     resetP2pInferenceFlagsForTests()
     expect(shouldRejectHttpInternalInferenceRequest()).toBe(true)
   })

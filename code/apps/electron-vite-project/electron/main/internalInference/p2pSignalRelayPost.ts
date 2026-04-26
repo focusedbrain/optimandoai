@@ -10,6 +10,7 @@ import { getP2PConfig } from '../p2p/p2pConfig'
 import { InternalInferenceErrorCode, type InternalInferenceErrorCodeType } from './errors'
 import { redactIdForLog } from './internalInferenceLogRedact'
 import { p2pEndpointKind } from './policy'
+import { recordP2pRelaySignaling429Storm, resetP2pRelaySignalingCircuitForTests } from './p2pSignalRelayCircuit'
 import { failHostAiP2pSessionForTerminalSignalingError, getSessionState } from './p2pSession/p2pInferenceSessionManager'
 
 export const P2P_SIGNAL_WIRE_SCHEMA_VERSION = 1
@@ -17,7 +18,108 @@ export const P2P_SIGNAL_WIRE_SCHEMA_VERSION = 1
 const OFFER_ANSWER_TTL_MS = 55_000
 const ICE_TTL_MS = 25_000
 
+/** Max 429 retries per signaling message (same body); then offer/answer fatal, ICE non-fatal counter. */
+const MAX_429_RETRIES_PER_MESSAGE = 12
+
+const ICE_SEND_FAIL_CONSECUTIVE_FATAL = 10
+/** With no successful ICE POST for this long and enough transport failures, escalate (burst alone uses consecutive count). */
+const ICE_SEND_FAIL_STREAK_MS = 30_000
+const ICE_SEND_FAIL_STREAK_MIN_COUNT = 6
+
 export type OutboundRelayP2pKind = 'offer' | 'answer' | 'ice'
+
+type RelayOutboundSoftState = {
+  p2pSessionId: string
+  iceConsecutiveFailures: number
+  iceFailureStreakStartMs: number | null
+  /** Next 429 backoff uses this slot index (0 → 500ms base before cap). */
+  signaling429Slot: number
+}
+
+const relayOutboundSoftByHandshake = new Map<string, RelayOutboundSoftState>()
+
+const relaySendChainByHandshake = new Map<string, Promise<void>>()
+
+function getRelayOutboundSoft(hid: string, sid: string): RelayOutboundSoftState {
+  let s = relayOutboundSoftByHandshake.get(hid)
+  if (!s || s.p2pSessionId !== sid) {
+    s = {
+      p2pSessionId: sid,
+      iceConsecutiveFailures: 0,
+      iceFailureStreakStartMs: null,
+      signaling429Slot: 0,
+    }
+    relayOutboundSoftByHandshake.set(hid, s)
+  }
+  return s
+}
+
+function reset429SlotOnSuccess(hid: string, sid: string): void {
+  const s = relayOutboundSoftByHandshake.get(hid)
+  if (s && s.p2pSessionId === sid) {
+    s.signaling429Slot = 0
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+/** Exponential backoff for 429: 500ms × 2^n capped at 8s, plus jitter 0–249ms. */
+function jittered429BackoffMs(slot: number): number {
+  const exp = Math.min(4, Math.max(0, slot))
+  const base = Math.min(8000, 500 * 2 ** exp)
+  return base + Math.floor(Math.random() * 250)
+}
+
+function consume429BackoffDelayMs(hid: string, sid: string): number {
+  const s = getRelayOutboundSoft(hid, sid)
+  const delay = jittered429BackoffMs(s.signaling429Slot)
+  s.signaling429Slot = Math.min(s.signaling429Slot + 1, 8)
+  return delay
+}
+
+function handleIceSendFailureAfterRetries(hid: string, sid: string, status: number): void {
+  const soft = getRelayOutboundSoft(hid, sid)
+  soft.iceConsecutiveFailures += 1
+  if (soft.iceFailureStreakStartMs == null) {
+    soft.iceFailureStreakStartMs = Date.now()
+  }
+  const n = soft.iceConsecutiveFailures
+  const streakAge = Date.now() - soft.iceFailureStreakStartMs
+  const timeFatal = n >= ICE_SEND_FAIL_STREAK_MIN_COUNT && streakAge >= ICE_SEND_FAIL_STREAK_MS
+  const countFatal = n >= ICE_SEND_FAIL_CONSECUTIVE_FATAL
+  console.log(
+    `[P2P_SIGNAL_OUT] ice_send_failed_non_fatal status=${status} handshake=${hid} session=${redactIdForLog(sid)} count=${n} streak_ms=${streakAge}`,
+  )
+  if (countFatal || timeFatal) {
+    console.log(
+      `[P2P_SIGNAL_OUT] ice_send_failures_escalate handshake=${hid} session=${redactIdForLog(sid)} count=${n} streak_ms=${streakAge}`,
+    )
+    failHostAiP2pSessionForTerminalSignalingError(hid, InternalInferenceErrorCode.OFFER_SIGNAL_SEND_FAILED)
+  }
+}
+
+/** @internal Vitest — module state would otherwise leak across cases. */
+export function resetP2pSignalRelayOutboundStateForTests(): void {
+  relayOutboundSoftByHandshake.clear()
+  relaySendChainByHandshake.clear()
+  resetP2pRelaySignalingCircuitForTests()
+}
+
+async function withRelayOutboundQueue(handshakeId: string, fn: () => Promise<void>): Promise<void> {
+  const hid = handshakeId.trim()
+  const prev = relaySendChainByHandshake.get(hid) ?? Promise.resolve()
+  const next = prev.then(fn, fn)
+  relaySendChainByHandshake.set(hid, next)
+  try {
+    await next
+  } finally {
+    if (relaySendChainByHandshake.get(hid) === next) {
+      relaySendChainByHandshake.delete(hid)
+    }
+  }
+}
 
 function coordinationBaseUrl(db: any): string | null {
   const u = getP2PConfig(db).coordination_url?.trim()
@@ -69,7 +171,12 @@ function buildP2pSignalBody(params: {
   return JSON.stringify(o)
 }
 
-function mapStatusToTerminalError(
+/**
+ * Session-fatal errors for offer/answer on any non-success, and for ICE only on auth/route/schema.
+ * ICE transport failures (429/5xx/etc.) return null → non-fatal counter path.
+ */
+function mapSignalingHttpToTerminalCode(
+  kind: OutboundRelayP2pKind,
   status: number,
   bodySnippet: string,
 ): InternalInferenceErrorCodeType | null {
@@ -81,6 +188,9 @@ function mapStatusToTerminalError(
       return InternalInferenceErrorCode.P2P_SIGNAL_SCHEMA_REJECTED
     }
     return InternalInferenceErrorCode.P2P_SIGNAL_SCHEMA_REJECTED
+  }
+  if (kind === 'ice') {
+    return null
   }
   if (status >= 500) return InternalInferenceErrorCode.OFFER_SIGNAL_SEND_FAILED
   return InternalInferenceErrorCode.OFFER_SIGNAL_SEND_FAILED
@@ -95,7 +205,8 @@ export const p2pSignalRelayPostTestHooks: {
         body: string,
       ) => Promise<{ status: number; bodyText: string }>)
     | null
-} = { post: null }
+  max429Retries: number | null
+} = { post: null, max429Retries: null }
 
 async function postP2pSignalToCoordination(
   coordinationUrl: string,
@@ -117,7 +228,8 @@ async function postP2pSignalToCoordination(
 
 /**
  * Sends offer / answer / ICE to coordination. ICE end-of-candidates is not sent (no wire candidate).
- * On terminal HTTP errors, fails the P2P session with cooldown.
+ * ICE transport errors are non-fatal until streak thresholds; offer/answer remain session-fatal.
+ * HTTP 429: exponential backoff and retry same message before failing (offer/answer) or counting ICE failure.
  */
 export async function sendHostAiP2pSignalOutbound(params: {
   db: any
@@ -148,83 +260,140 @@ export async function sendHostAiP2pSignalOutbound(params: {
     return
   }
 
-  const base = coordinationBaseUrl(params.db)
-  if (!base) {
-    console.log(`[P2P_SIGNAL_OUT] failed status=0 type=${params.kind} code=no_coordination_url handshake=${hid}`)
-    failHostAiP2pSessionForTerminalSignalingError(hid, InternalInferenceErrorCode.RELAY_UNREACHABLE)
-    return
-  }
+  await withRelayOutboundQueue(hid, async () => {
+    const base = coordinationBaseUrl(params.db)
+    if (!base) {
+      console.log(`[P2P_SIGNAL_OUT] failed status=0 type=${params.kind} code=no_coordination_url handshake=${hid}`)
+      failHostAiP2pSessionForTerminalSignalingError(hid, InternalInferenceErrorCode.RELAY_UNREACHABLE)
+      return
+    }
 
-  const st = getSessionState(hid)
-  const sender = st?.boundLocalDeviceId?.trim() ?? ''
-  const receiver = st?.boundPeerDeviceId?.trim() ?? ''
-  if (!sender || !receiver) {
+    const st = getSessionState(hid)
+    const sender = st?.boundLocalDeviceId?.trim() ?? ''
+    const receiver = st?.boundPeerDeviceId?.trim() ?? ''
+    if (!sender || !receiver) {
+      console.log(
+        `[P2P_SIGNAL_OUT] failed status=0 type=${params.kind} code=no_bound_device_ids handshake=${hid} session=${redactIdForLog(sid)}`,
+      )
+      failHostAiP2pSessionForTerminalSignalingError(hid, InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE)
+      return
+    }
+
+    const signalType = signalTypeForKind(params.kind)
+    const body = buildP2pSignalBody({
+      signalType,
+      handshakeId: hid,
+      sessionId: sid,
+      senderDeviceId: sender,
+      receiverDeviceId: receiver,
+      sdp: params.kind !== 'ice' ? params.sdp : undefined,
+      candidate: params.kind === 'ice' ? params.iceCandidateJson : undefined,
+    })
+
+    const token = getAccessToken()
+    if (!token?.trim()) {
+      console.log(
+        `[P2P_SIGNAL_OUT] failed status=401 type=${params.kind} code=no_bearer handshake=${hid} session=${redactIdForLog(sid)}`,
+      )
+      failHostAiP2pSessionForTerminalSignalingError(hid, InternalInferenceErrorCode.P2P_SIGNAL_AUTH_OR_ROUTE_FAILED)
+      return
+    }
+
     console.log(
-      `[P2P_SIGNAL_OUT] failed status=0 type=${params.kind} code=no_bound_device_ids handshake=${hid} session=${redactIdForLog(sid)}`,
+      `[P2P_SIGNAL_OUT] sending type=${params.kind} handshake=${hid} session=${redactIdForLog(sid)} target_device=${receiver} bytes=${Buffer.byteLength(body, 'utf8')}`,
     )
-    failHostAiP2pSessionForTerminalSignalingError(hid, InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE)
-    return
-  }
 
-  const signalType = signalTypeForKind(params.kind)
-  const body = buildP2pSignalBody({
-    signalType,
-    handshakeId: hid,
-    sessionId: sid,
-    senderDeviceId: sender,
-    receiverDeviceId: receiver,
-    sdp: params.kind !== 'ice' ? params.sdp : undefined,
-    candidate: params.kind === 'ice' ? params.iceCandidateJson : undefined,
-  })
-
-  const token = getAccessToken()
-  if (!token?.trim()) {
-    console.log(
-      `[P2P_SIGNAL_OUT] failed status=401 type=${params.kind} code=no_bearer handshake=${hid} session=${redactIdForLog(sid)}`,
-    )
-    failHostAiP2pSessionForTerminalSignalingError(hid, InternalInferenceErrorCode.P2P_SIGNAL_AUTH_OR_ROUTE_FAILED)
-    return
-  }
-
-  console.log(
-    `[P2P_SIGNAL_OUT] sending type=${params.kind} handshake=${hid} session=${redactIdForLog(sid)} target_device=${receiver} bytes=${Buffer.byteLength(body, 'utf8')}`,
-  )
-
-  let status: number
-  let bodyText: string
-  try {
     const postFn = p2pSignalRelayPostTestHooks.post ?? postP2pSignalToCoordination
-    const res = await postFn(base, token.trim(), body)
-    status = res.status
-    bodyText = res.bodyText
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    console.log(
-      `[P2P_SIGNAL_OUT] failed status=0 type=${params.kind} code=relay_unreachable handshake=${hid} session=${redactIdForLog(sid)} err=${JSON.stringify(msg.slice(0, 200))}`,
-    )
-    failHostAiP2pSessionForTerminalSignalingError(hid, InternalInferenceErrorCode.RELAY_UNREACHABLE)
-    return
-  }
+    const max429 = p2pSignalRelayPostTestHooks.max429Retries ?? MAX_429_RETRIES_PER_MESSAGE
 
-  if (status === 200) {
-    console.log(
-      `[P2P_SIGNAL_OUT] accepted status=200 type=${params.kind} handshake=${hid} session=${redactIdForLog(sid)}`,
-    )
-    return
-  }
-  if (status === 202) {
-    console.log(
-      `[P2P_SIGNAL_OUT] recipient_offline status=202 type=${params.kind} handshake=${hid} session=${redactIdForLog(sid)}`,
-    )
-    return
-  }
+    let lastStatus = 0
+    let lastBody = ''
+    let attempt429 = 0
 
-  const terminal = mapStatusToTerminalError(status, bodyText)
-  const codeLog = terminal ?? 'unknown'
-  console.log(
-    `[P2P_SIGNAL_OUT] failed status=${status} type=${params.kind} code=${codeLog} handshake=${hid} session=${redactIdForLog(sid)}`,
-  )
-  if (terminal) {
-    failHostAiP2pSessionForTerminalSignalingError(hid, terminal)
-  }
+    try {
+      while (true) {
+        const res = await postFn(base, token.trim(), body)
+        lastStatus = res.status
+        lastBody = res.bodyText
+
+        if (res.status === 200) {
+          reset429SlotOnSuccess(hid, sid)
+          if (params.kind === 'ice') {
+            const soft = getRelayOutboundSoft(hid, sid)
+            soft.iceConsecutiveFailures = 0
+            soft.iceFailureStreakStartMs = null
+          }
+          console.log(
+            `[P2P_SIGNAL_OUT] accepted status=200 type=${params.kind} handshake=${hid} session=${redactIdForLog(sid)}`,
+          )
+          return
+        }
+        if (res.status === 202) {
+          reset429SlotOnSuccess(hid, sid)
+          console.log(
+            `[P2P_SIGNAL_OUT] recipient_offline status=202 type=${params.kind} handshake=${hid} session=${redactIdForLog(sid)}`,
+          )
+          return
+        }
+        if (res.status === 429) {
+          attempt429 += 1
+          if (attempt429 > max429) {
+            break
+          }
+          const delayMs = consume429BackoffDelayMs(hid, sid)
+          console.log(
+            `[P2P_SIGNAL_OUT] rate_limit_backoff type=${params.kind} handshake=${hid} session=${redactIdForLog(sid)} attempt=${attempt429} sleep_ms=${delayMs}`,
+          )
+          await sleep(delayMs)
+          continue
+        }
+
+        const terminalEarly = mapSignalingHttpToTerminalCode(params.kind, res.status, res.bodyText)
+        const codeLog = terminalEarly ?? 'non_fatal_ice_transport'
+        console.log(
+          `[P2P_SIGNAL_OUT] failed status=${res.status} type=${params.kind} code=${codeLog} handshake=${hid} session=${redactIdForLog(sid)}`,
+        )
+        if (terminalEarly) {
+          failHostAiP2pSessionForTerminalSignalingError(hid, terminalEarly)
+          return
+        }
+        if (params.kind === 'ice') {
+          handleIceSendFailureAfterRetries(hid, sid, res.status)
+        } else {
+          failHostAiP2pSessionForTerminalSignalingError(hid, InternalInferenceErrorCode.OFFER_SIGNAL_SEND_FAILED)
+        }
+        return
+      }
+
+      const offerOrAnswer = params.kind === 'offer' || params.kind === 'answer'
+      if (offerOrAnswer && lastStatus === 429 && attempt429 > max429) {
+        recordP2pRelaySignaling429Storm()
+      }
+
+      const terminalAfter429 = mapSignalingHttpToTerminalCode(params.kind, lastStatus, lastBody)
+      const code429 = terminalAfter429 ?? 'non_fatal_ice_transport'
+      console.log(
+        `[P2P_SIGNAL_OUT] failed status=${lastStatus} type=${params.kind} code=${code429} handshake=${hid} session=${redactIdForLog(sid)} after_429_retries=${attempt429}`,
+      )
+      if (terminalAfter429) {
+        failHostAiP2pSessionForTerminalSignalingError(hid, terminalAfter429)
+        return
+      }
+      if (params.kind === 'ice') {
+        handleIceSendFailureAfterRetries(hid, sid, lastStatus)
+      } else {
+        failHostAiP2pSessionForTerminalSignalingError(hid, InternalInferenceErrorCode.OFFER_SIGNAL_SEND_FAILED)
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.log(
+        `[P2P_SIGNAL_OUT] failed status=0 type=${params.kind} code=relay_unreachable handshake=${hid} session=${redactIdForLog(sid)} err=${JSON.stringify(msg.slice(0, 200))}`,
+      )
+      if (params.kind === 'ice') {
+        handleIceSendFailureAfterRetries(hid, sid, 0)
+      } else {
+        failHostAiP2pSessionForTerminalSignalingError(hid, InternalInferenceErrorCode.RELAY_UNREACHABLE)
+      }
+    }
+  })
 }

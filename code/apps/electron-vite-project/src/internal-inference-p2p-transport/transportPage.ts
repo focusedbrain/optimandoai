@@ -7,6 +7,9 @@ const RTC_CFG: RTCConfiguration = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
 }
 
+/** Min gap between ICE candidate IPC messages to main (relay storm prevention). */
+const ICE_TO_MAIN_MIN_GAP_MS = 250
+
 type Role = 'offerer' | 'answerer'
 
 type WrdeskWebrtcP2p = {
@@ -20,6 +23,11 @@ type Session = {
   role: Role
   pc: RTCPeerConnection
   dc: RTCDataChannel | null
+  /** Buffered local ICE candidates; drained to main at most one per {@link ICE_TO_MAIN_MIN_GAP_MS}. */
+  iceQueue: RTCIceCandidateInit[]
+  iceToMainTimer: ReturnType<typeof setTimeout> | null
+  /** `onicecandidate` null: emit end after queue drains. */
+  iceEndPending: boolean
 }
 
 const sessions = new Map<string, Session>()
@@ -53,21 +61,67 @@ function emitError(sessionId: string, handshakeId: string, code: string, message
   out({ v: 1, type: 'error', sessionId, handshakeId, code, message })
 }
 
+function clearIceToMainDrain(session: Session) {
+  if (session.iceToMainTimer != null) {
+    clearTimeout(session.iceToMainTimer)
+    session.iceToMainTimer = null
+  }
+}
+
+function emitPendingIceEndToMain(session: Session) {
+  if (!session.iceEndPending || session.iceQueue.length > 0 || session.iceToMainTimer != null) {
+    return
+  }
+  session.iceEndPending = false
+  out({ v: 1, type: 'ice', sessionId: session.sessionId, handshakeId: session.handshakeId, end: true })
+}
+
+/**
+ * Drain buffered local ICE to main: first candidate immediately, then at most one per ICE_TO_MAIN_MIN_GAP_MS.
+ */
+function pumpIceToMain(session: Session) {
+  if (session.iceToMainTimer != null) {
+    return
+  }
+  const tick = () => {
+    session.iceToMainTimer = null
+    if (session.iceQueue.length > 0) {
+      const init = session.iceQueue.shift()!
+      out({
+        v: 1,
+        type: 'ice',
+        sessionId: session.sessionId,
+        handshakeId: session.handshakeId,
+        end: false,
+        init,
+      })
+      if (session.iceQueue.length > 0) {
+        session.iceToMainTimer = setTimeout(tick, ICE_TO_MAIN_MIN_GAP_MS)
+      } else {
+        emitPendingIceEndToMain(session)
+      }
+    } else {
+      emitPendingIceEndToMain(session)
+    }
+  }
+  tick()
+}
+
+function enqueueLocalIceCandidate(session: Session, init: RTCIceCandidateInit) {
+  session.iceQueue.push(init)
+  pumpIceToMain(session)
+}
+
 function onPcSession(session: Session) {
   const { pc, sessionId, handshakeId } = session
   pc.onicecandidate = (e) => {
     if (!e.candidate) {
-      out({ v: 1, type: 'ice', sessionId, handshakeId, end: true })
+      session.iceEndPending = true
+      pumpIceToMain(session)
+      emitPendingIceEndToMain(session)
       return
     }
-    out({
-      v: 1,
-      type: 'ice',
-      sessionId,
-      handshakeId,
-      end: false,
-      init: e.candidate.toJSON() as unknown as RTCIceCandidateInit,
-    })
+    enqueueLocalIceCandidate(session, e.candidate.toJSON() as unknown as RTCIceCandidateInit)
   }
   pc.oniceconnectionstatechange = () => {
     emitState(sessionId, handshakeId, {
@@ -91,7 +145,16 @@ function createOne(sessionId: string, handshakeId: string, role: Role) {
   }
   out({ v: 1, type: 'peer_connection_create_begin', sessionId, handshakeId })
   const pc = new RTCPeerConnection(RTC_CFG)
-  const session: Session = { sessionId, handshakeId, role, pc, dc: null }
+  const session: Session = {
+    sessionId,
+    handshakeId,
+    role,
+    pc,
+    dc: null,
+    iceQueue: [],
+    iceToMainTimer: null,
+    iceEndPending: false,
+  }
   onPcSession(session)
   if (role === 'offerer') {
     const dc = pc.createDataChannel('wrdesk_p2p', { ordered: true })
@@ -215,6 +278,9 @@ function closeOne(sessionId: string) {
   if (!s) {
     return
   }
+  clearIceToMainDrain(s)
+  s.iceQueue = []
+  s.iceEndPending = false
   try {
     s.dc?.close()
   } catch {

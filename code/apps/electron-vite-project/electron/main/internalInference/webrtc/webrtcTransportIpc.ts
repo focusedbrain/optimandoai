@@ -7,6 +7,7 @@ import {
   markDataChannelOpenForP2pSession,
   markP2pCreateOfferBegin,
   markP2pPeerConnectionCreateBegin,
+  notifyWebrtcTransportTerminalIceOrConnectionFailed,
 } from '../p2pSession/p2pInferenceSessionManager'
 import { tryRouteP2pDataChannelJsonMessage } from '../p2pDc/p2pDcCapabilities'
 import { redactIdForLog } from '../internalInferenceLogRedact'
@@ -283,6 +284,11 @@ function onRendererToMain(_sender: Electron.WebContents, msg: unknown) {
       break
     }
     case 'state': {
+      if (handshakeId && sessionId) {
+        const ice = typeof m.ice === 'string' ? m.ice : ''
+        const conn = typeof m.conn === 'string' ? m.conn : ''
+        notifyWebrtcTransportTerminalIceOrConnectionFailed(handshakeId, sessionId, ice, conn)
+      }
       break
     }
     default: {

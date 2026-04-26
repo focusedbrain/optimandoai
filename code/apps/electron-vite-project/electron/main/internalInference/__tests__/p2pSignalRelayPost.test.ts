@@ -3,6 +3,7 @@ import * as authSession from '../../../../src/auth/session'
 import { InternalInferenceErrorCode } from '../errors'
 import {
   p2pSignalRelayPostTestHooks,
+  resetP2pSignalRelayOutboundStateForTests,
   sendHostAiP2pSignalOutbound,
   P2P_SIGNAL_WIRE_SCHEMA_VERSION,
 } from '../p2pSignalRelayPost'
@@ -39,6 +40,8 @@ describe('p2pSignalRelayPost', () => {
 
   beforeEach(() => {
     failMock.mockClear()
+    resetP2pSignalRelayOutboundStateForTests()
+    p2pSignalRelayPostTestHooks.max429Retries = null
     vi.spyOn(authSession, 'getAccessToken').mockReturnValue('test-access-token')
     p2pSignalRelayPostTestHooks.post = async (_base, bearer, body) => {
       expect(bearer).toBe('test-access-token')
@@ -49,6 +52,8 @@ describe('p2pSignalRelayPost', () => {
 
   afterEach(() => {
     p2pSignalRelayPostTestHooks.post = null
+    p2pSignalRelayPostTestHooks.max429Retries = null
+    resetP2pSignalRelayOutboundStateForTests()
   })
 
   it('POST offer: body matches coordination schema v1 and bearer is sent', async () => {
@@ -134,5 +139,55 @@ describe('p2pSignalRelayPost', () => {
       sdp: 'o',
     })
     expect(failMock).toHaveBeenCalledWith('hs1', InternalInferenceErrorCode.RELAY_MISSING_P2P_SIGNAL_ROUTE)
+  })
+
+  it('ICE 503 → non-fatal until threshold; 10th failure escalates', async () => {
+    p2pSignalRelayPostTestHooks.post = async () => ({ status: 503, bodyText: '{}' })
+    const ice = {
+      db,
+      handshakeId: 'hs1',
+      p2pSessionId: 'sid-1',
+      kind: 'ice' as const,
+      iceCandidateJson: JSON.stringify({ candidate: 'c', sdpMLineIndex: 0 }),
+    }
+    for (let i = 0; i < 9; i++) {
+      await sendHostAiP2pSignalOutbound(ice)
+      expect(failMock).not.toHaveBeenCalled()
+    }
+    await sendHostAiP2pSignalOutbound(ice)
+    expect(failMock).toHaveBeenCalledTimes(1)
+    expect(failMock).toHaveBeenCalledWith('hs1', InternalInferenceErrorCode.OFFER_SIGNAL_SEND_FAILED)
+  })
+
+  it('ICE 401 → session-fatal (auth)', async () => {
+    p2pSignalRelayPostTestHooks.post = async () => ({ status: 401, bodyText: '{}' })
+    await sendHostAiP2pSignalOutbound({
+      db,
+      handshakeId: 'hs1',
+      p2pSessionId: 'sid-1',
+      kind: 'ice',
+      iceCandidateJson: JSON.stringify({ candidate: 'c', sdpMLineIndex: 0 }),
+    })
+    expect(failMock).toHaveBeenCalledWith('hs1', InternalInferenceErrorCode.P2P_SIGNAL_AUTH_OR_ROUTE_FAILED)
+  })
+
+  it('offer: 429 then 200 retries same message; no session fail', async () => {
+    let n = 0
+    p2pSignalRelayPostTestHooks.post = async (_base, _bearer, body) => {
+      n += 1
+      if (n < 3) return { status: 429, bodyText: 'rate limit' }
+      expect(body).toContain('p2p_inference_offer')
+      return { status: 200, bodyText: '{}' }
+    }
+    p2pSignalRelayPostTestHooks.max429Retries = 8
+    await sendHostAiP2pSignalOutbound({
+      db,
+      handshakeId: 'hs1',
+      p2pSessionId: 'sid-1',
+      kind: 'offer',
+      sdp: 'v=0',
+    })
+    expect(failMock).not.toHaveBeenCalled()
+    expect(n).toBe(3)
   })
 })

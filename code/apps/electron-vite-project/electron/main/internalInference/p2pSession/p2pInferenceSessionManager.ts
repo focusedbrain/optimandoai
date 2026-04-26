@@ -29,6 +29,11 @@ import {
   localCoordinationDeviceId,
   peerCoordinationDeviceId,
 } from '../policy'
+import {
+  getP2pRelaySignalingCircuitOpenUntilMs,
+  isP2pRelaySignalingCircuitOpen,
+  resetP2pRelaySignalingCircuitForTests,
+} from '../p2pSignalRelayCircuit'
 
 /** Sandbox-side flows that require local=sandbox, peer=host (model selector, chat, probe). */
 const SANDBOX_INITIATED_P2P_SESSION_REASONS = new Set([
@@ -57,6 +62,8 @@ export type P2pSessionPhaseType = (typeof P2pSessionPhase)[keyof typeof P2pSessi
 export const P2pSessionUiPhase = {
   ledger: 'ledger',
   connecting: 'connecting',
+  /** Relay signaling circuit breaker: brief pause after repeated 429 storms (offer/answer only). */
+  relay_reconnecting: 'relay_reconnecting',
   ready: 'ready',
   p2p_unavailable: 'p2p_unavailable',
   no_model: 'no_model',
@@ -307,6 +314,71 @@ function scheduleOfferOutboundDeadlineIfNeeded(handshakeId: string, p2pSessionId
 
 const sessionListeners = new Set<(s: P2pSessionState) => void>()
 
+/** Event-driven waiters: DataChannel open (from transport pod) or terminal ICE / session failure. */
+export type P2pCapabilityDcWaitEvent =
+  | { kind: 'dc_open' }
+  | { kind: 'webrtc_ice_terminal'; ice: string; conn: string }
+  | { kind: 'session_terminal'; lastErrorCode: InternalInferenceErrorCodeType | null }
+
+const capabilityDcWaitListeners = new Map<string, Set<(e: P2pCapabilityDcWaitEvent) => void>>()
+
+function emitP2pCapabilityDcWait(handshakeId: string, e: P2pCapabilityDcWaitEvent): void {
+  const hid = handshakeId.trim()
+  const set = capabilityDcWaitListeners.get(hid)
+  if (!set) return
+  for (const fn of [...set]) {
+    try {
+      fn(e)
+    } catch {
+      /* no-op */
+    }
+  }
+}
+
+/**
+ * Subscribe to transport/session events used by `waitForP2pDataChannelOpenOrTerminal` (p2pSessionWait).
+ * @returns Unsubscribe
+ */
+export function subscribeP2pCapabilityDcWait(
+  handshakeId: string,
+  listener: (e: P2pCapabilityDcWaitEvent) => void,
+): () => void {
+  const hid = handshakeId.trim()
+  if (!hid) {
+    return () => {}
+  }
+  let set = capabilityDcWaitListeners.get(hid)
+  if (!set) {
+    set = new Set()
+    capabilityDcWaitListeners.set(hid, set)
+  }
+  set.add(listener)
+  return () => {
+    set!.delete(listener)
+    if (set!.size === 0) {
+      capabilityDcWaitListeners.delete(hid)
+    }
+  }
+}
+
+/**
+ * From the WebRTC pod: `RTCPeerConnection` ICE or connection state reached `failed`.
+ */
+export function notifyWebrtcTransportTerminalIceOrConnectionFailed(
+  handshakeId: string,
+  p2pSessionId: string,
+  ice: string,
+  conn: string,
+): void {
+  const hid = handshakeId.trim()
+  const sid = p2pSessionId.trim()
+  if (!hid || !sid) return
+  if (ice !== 'failed' && conn !== 'failed') return
+  const m = sessions.get(hid)
+  if (!m || m.state.sessionId !== sid) return
+  emitP2pCapabilityDcWait(hid, { kind: 'webrtc_ice_terminal', ice, conn })
+}
+
 function now() {
   return Date.now()
 }
@@ -333,6 +405,9 @@ function withDerivedUi(base: P2pSessionState): P2pSessionState {
   if (base.lastErrorCode === InternalInferenceErrorCode.HOST_INFERENCE_DISABLED) {
     return { ...base, p2pUiPhase: P2pSessionUiPhase.policy_disabled }
   }
+  if (base.lastErrorCode === InternalInferenceErrorCode.RELAY_429_CIRCUIT_OPEN) {
+    return { ...base, p2pUiPhase: P2pSessionUiPhase.relay_reconnecting }
+  }
   if (base.phase === P2pSessionPhase.failed) {
     return { ...base, p2pUiPhase: P2pSessionUiPhase.p2p_unavailable }
   }
@@ -356,9 +431,13 @@ function withDerivedUi(base: P2pSessionState): P2pSessionState {
 }
 
 function setSession(hid: string, next: P2pSessionState) {
+  const prev = sessions.get(hid)?.state
   const derived = withDerivedUi({ ...next, updatedAt: now() })
   sessions.set(hid, { state: derived })
   emitSessionState(derived)
+  if (derived.phase === P2pSessionPhase.failed && prev?.phase !== P2pSessionPhase.failed) {
+    emitP2pCapabilityDcWait(hid, { kind: 'session_terminal', lastErrorCode: derived.lastErrorCode })
+  }
 }
 
 /**
@@ -518,6 +597,25 @@ function authorizeInternalP2pSession(
   }
 }
 
+function syntheticRelayCircuitCooldownState(handshakeId: string): P2pSessionState {
+  const hid = handshakeId.trim()
+  const t = now()
+  const st: P2pSessionState = {
+    handshakeId: hid,
+    sessionId: null,
+    phase: P2pSessionPhase.idle,
+    p2pUiPhase: P2pSessionUiPhase.relay_reconnecting,
+    lastErrorCode: InternalInferenceErrorCode.RELAY_429_CIRCUIT_OPEN,
+    connectedAt: null,
+    updatedAt: t,
+    signalingExpiresAt: null,
+    boundLocalDeviceId: '',
+    boundPeerDeviceId: '',
+    ...noOfferMilestones(),
+  }
+  return withDerivedUi(st)
+}
+
 /**
  * Single owner for Host AI WebRTC session attempts: one in-flight promise, reuse of an
  * already-active session (signaling … ready), and failed-state cooldown.
@@ -568,6 +666,13 @@ export function ensureHostAiP2pSession(handshakeId: string, reason: string): Pro
         return Promise.resolve(withDerivedUi(s))
       }
     }
+  }
+  const f0 = getP2pInferenceFlags()
+  if (f0.p2pInferenceEnabled && f0.p2pInferenceSignalingEnabled && isP2pRelaySignalingCircuitOpen()) {
+    console.log(
+      `[HOST_AI_SESSION_ENSURE] relay_429_circuit_open handshake=${hid} open_until_ms=${getP2pRelaySignalingCircuitOpenUntilMs()} skip_new_session`,
+    )
+    return Promise.resolve(syntheticRelayCircuitCooldownState(hid))
   }
   const chain = newHostAiCorrelationChain()
   console.log(`[HOST_AI_SESSION_ENSURE] ensure_chain_start handshake=${hid} chain=${chain} reason=${reason}`)
@@ -1094,6 +1199,7 @@ export function markDataChannelOpenForP2pSession(handshakeId: string, p2pSession
     connectedAt: t,
     updatedAt: t,
   })
+  emitP2pCapabilityDcWait(hid, { kind: 'dc_open' })
 }
 
 export function closeSession(handshakeId: string, reason: P2pSessionLogReasonType): void {
@@ -1143,6 +1249,8 @@ export function _resetP2pInferenceSessionsForTests(): void {
   offerSentForSession.clear()
   sessions.clear()
   ensureSessionInFlight.clear()
+  capabilityDcWaitListeners.clear()
+  resetP2pRelaySignalingCircuitForTests()
 }
 
 function logConnecting(handshake: string, session: string) {

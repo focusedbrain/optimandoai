@@ -58,6 +58,8 @@ export const InternalInferenceErrorCode = {
   P2P_SIGNAL_SCHEMA_REJECTED: 'P2P_SIGNAL_SCHEMA_REJECTED',
   /** 401/403 on p2p-signal POST (auth or routing). */
   P2P_SIGNAL_AUTH_OR_ROUTE_FAILED: 'P2P_SIGNAL_AUTH_OR_ROUTE_FAILED',
+  /** Relay signaling circuit breaker: too many 429 offer/answer storms; new sessions paused briefly. */
+  RELAY_429_CIRCUIT_OPEN: 'RELAY_429_CIRCUIT_OPEN',
 } as const
 
 export type InternalInferenceErrorCodeType =

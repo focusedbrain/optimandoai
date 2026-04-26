@@ -99,6 +99,8 @@ describe('Phase 11 — P2P session manager', () => {
     vi.unstubAllEnvs()
     vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
+    /** Real WebRTC IPC is not available under Vitest; this suite covers signaling/session state only. */
+    vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '0')
     resetP2pInferenceFlagsForTests()
     _resetP2pInferenceSessionsForTests()
     _resetHostInferencePolicyForTests({

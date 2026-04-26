@@ -7,7 +7,7 @@
 import { getHandshakeRecord, listHandshakeRecords } from '../handshake/db'
 import { HandshakeState, type HandshakeRecord } from '../handshake/types'
 import { getHandshakeDbForInternalInference } from './dbAccess'
-import { InternalInferenceErrorCode } from './errors'
+import { InternalInferenceErrorCode, type InternalInferenceErrorCodeType } from './errors'
 import {
   assertP2pEndpointDirect,
   assertRecordForServiceRpc,
@@ -23,7 +23,13 @@ import {
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
 import { getP2pInferenceFlags } from './p2pInferenceFlags'
 import { P2pSessionPhase, getSessionState } from './p2pSession/p2pInferenceSessionManager'
-import { isP2pDataChannelUpForHandshake } from './p2pSession/p2pSessionWait'
+import {
+  HOST_AI_CAPABILITY_DC_WAIT_MS,
+  isP2pDataChannelUpForHandshake,
+  p2pCapabilityDcWaitOutcomeLogReason,
+  waitForP2pDataChannelOpenOrTerminal,
+  type P2pCapabilityDcWaitOutcome,
+} from './p2pSession/p2pSessionWait'
 import { getHostAiBuildStamp, logHostAiStage, newHostAiCorrelationChain } from './hostAiStageLog'
 import type { InternalInferenceCapabilitiesResultWire } from './types'
 import { listHostCapabilities } from './transport/internalInferenceTransport'
@@ -33,10 +39,6 @@ import {
   decideInternalInferenceTransport,
   deriveHostAiHandshakeRoles,
 } from './transport/decideInternalInferenceTransport'
-
-/** Throttle [HOST_INFERENCE_P2P] capability_probe_deferred per handshake while WebRTC is still handshaking. */
-const lastCapabilityProbeDeferredLogByHandshake = new Map<string, number>()
-const CAPABILITY_PROBE_DEFERRED_LOG_MIN_MS = 5_000
 
 /** Throttle [HOST_AI_STAGE] selector_target while P2P is in starting/signaling (same handshake). */
 const lastHostAiSelectorTargetStageByHandshake = new Map<string, number>()
@@ -317,6 +319,55 @@ export type ProbeHostPolicyResult =
       p2pNotReadyPhase?: string | null
     }
 
+/** At most one in-flight policy probe per handshake (renderer list polls share the same await). */
+const probeHostInferencePolicyFromSandboxInFlight = new Map<string, Promise<ProbeHostPolicyResult>>()
+
+/** @internal For unit tests only. */
+export function resetProbeHostInferencePolicyInFlightForTests(): void {
+  probeHostInferencePolicyFromSandboxInFlight.clear()
+}
+
+function probePolicyFailureFromDcWait(
+  out: P2pCapabilityDcWaitOutcome,
+  p2pPhase: string | null,
+): Extract<ProbeHostPolicyResult, { ok: false }> {
+  if (out.ok) {
+    throw new Error('probePolicyFailureFromDcWait: unexpected ok')
+  }
+  if (out.reason === 'ice_failed') {
+    return {
+      ok: false,
+      code: InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE,
+      message: 'ice_failed',
+      directP2pAvailable: true,
+      p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
+    }
+  }
+  if (out.reason === 'dc_open_timeout') {
+    return {
+      ok: false,
+      code: InternalInferenceErrorCode.P2P_NOT_READY,
+      message: 'dc_open_timeout',
+      directP2pAvailable: true,
+      p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
+      retryable: true,
+      p2pNotReadyPhase: p2pPhase,
+    }
+  }
+  const raw = out.lastErrorCode
+  const code: InternalInferenceErrorCodeType | string =
+    raw && (Object.values(InternalInferenceErrorCode) as string[]).includes(raw)
+      ? (raw as InternalInferenceErrorCodeType)
+      : InternalInferenceErrorCode.INTERNAL_INFERENCE_FAILED
+  return {
+    ok: false,
+    code,
+    message: raw ?? 'p2p_session_failed',
+    directP2pAvailable: true,
+    p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
+  }
+}
+
 function displayPairingFromDigits6(d: string): string {
   const s = (d ?? '').replace(/\D/g, '')
   if (s.length === 6) return `${s.slice(0, 3)}-${s.slice(3)}`
@@ -400,8 +451,31 @@ export async function postInternalInferenceCapabilitiesRequest(
 
 /**
  * Probes Host policy and live model metadata: POST capabilities (preferred), then GET /internal-inference-policy as fallback.
+ * One concurrent probe per handshake: rapid UI polls await the same promise.
  */
-export async function probeHostInferencePolicyFromSandbox(
+export function probeHostInferencePolicyFromSandbox(
+  handshakeId: string,
+  opt?: { correlationChain?: string },
+): Promise<ProbeHostPolicyResult> {
+  const hid = String(handshakeId ?? '').trim()
+  if (!hid) {
+    return probeHostInferencePolicyFromSandboxImpl(handshakeId, opt)
+  }
+  const inflight = probeHostInferencePolicyFromSandboxInFlight.get(hid)
+  if (inflight) {
+    return inflight
+  }
+  const started = probeHostInferencePolicyFromSandboxImpl(handshakeId, opt)
+  probeHostInferencePolicyFromSandboxInFlight.set(hid, started)
+  void started.finally(() => {
+    if (probeHostInferencePolicyFromSandboxInFlight.get(hid) === started) {
+      probeHostInferencePolicyFromSandboxInFlight.delete(hid)
+    }
+  })
+  return started
+}
+
+async function probeHostInferencePolicyFromSandboxImpl(
   handshakeId: string,
   opt?: { correlationChain?: string },
 ): Promise<ProbeHostPolicyResult> {
@@ -636,24 +710,17 @@ export async function probeHostInferencePolicyFromSandbox(
         st?.phase === P2pSessionPhase.datachannel_open ||
         st?.phase === P2pSessionPhase.ready
       if (!dcReady) {
-        probeDone(false)
-        const ph0 = st?.phase ?? 'none'
-        const tNow = Date.now()
-        const lastLog = lastCapabilityProbeDeferredLogByHandshake.get(hid) ?? 0
-        if (tNow - lastLog >= CAPABILITY_PROBE_DEFERRED_LOG_MIN_MS) {
-          lastCapabilityProbeDeferredLogByHandshake.set(hid, tNow)
-          p2p(
-            `capability_probe_deferred reason=dc_not_open handshake=${hid} p2p_phase=${ph0} (no_session_ensure_from_probe)`,
+        const waitOut = await waitForP2pDataChannelOpenOrTerminal(hid, HOST_AI_CAPABILITY_DC_WAIT_MS)
+        if (!waitOut.ok) {
+          probeDone(false)
+          const stAfter = getSessionState(hid)
+          const phAfter = stAfter?.phase ?? 'none'
+          const detail = p2pCapabilityDcWaitOutcomeLogReason(waitOut)
+          p2p(`capability_probe_dc_wait handshake=${hid} outcome=${detail} p2p_phase=${phAfter}`)
+          console.log(
+            `[HOST_AI_CAPABILITY_PROBE] transport=webrtc_p2p ok=false reason=${detail} handshake=${hid} p2p_phase=${phAfter}`,
           )
-        }
-        return {
-          ok: false,
-          code: InternalInferenceErrorCode.P2P_NOT_READY,
-          message: 'p2p_not_ready',
-          directP2pAvailable: true,
-          p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
-          retryable: true,
-          p2pNotReadyPhase: st?.phase ?? null,
+          return probePolicyFailureFromDcWait(waitOut, phAfter === 'none' ? null : phAfter)
         }
       }
     }

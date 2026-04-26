@@ -4,6 +4,7 @@ import { hostAiRowUnavailableTooltip } from './hostAiSelectorCopy'
 /** Aligned with main `listInferenceTargets` / `HostP2pUiPhase` — renderer uses only for fallback when `displayTitle` is missing. */
 type HostP2pUiPhase =
   | 'connecting'
+  | 'relay_reconnecting'
   | 'ready'
   | 'p2p_unavailable'
   | 'legacy_http_invalid'
@@ -26,6 +27,7 @@ export type HostModelSelectorRowUiIn = {
 const ELL = '\u2026'
 
 const TITLE_CONNECTING = 'Host AI · connecting…'
+const TITLE_RELAY_RECONNECTING = 'Host AI · reconnecting to relay…'
 const TITLE_P2P_UNAVAIL = 'Host AI · P2P unavailable'
 const TITLE_NO_ACTIVE_MODEL = 'Host AI · no active model'
 const TITLE_DISABLED_BY_HOST = 'Host AI · disabled by Host'
@@ -73,7 +75,7 @@ function isChecking(
   if (t?.unavailable_reason === 'CHECKING_CAPABILITIES' || t?.availability === 'checking_host') {
     return true
   }
-  return phase === 'connecting'
+  return phase === 'connecting' || phase === 'relay_reconnecting'
 }
 
 /**
@@ -94,6 +96,8 @@ function fallbackTitleForPhase(phase: HostP2pUiPhase | undefined, t: HostInferen
   switch (phase) {
     case 'connecting':
       return TITLE_CONNECTING
+    case 'relay_reconnecting':
+      return TITLE_RELAY_RECONNECTING
     case 'ready': {
       const rawModel = (t?.model ?? t?.model_id ?? '').toString()
       const cleanModel = rawModel

@@ -116,8 +116,9 @@ export function getP2pInferenceFlags(): P2pInferenceFlagSnapshot {
 
   const anyEnvTouched = [m, sig, wrtc, cCaps, cCapLegacy, rReq, rReqLegacy].some((x) => x.fromEnv)
 
-  const httpFb = readP2pBoolWithDefaultOnUnset('WRDESK_P2P_INFERENCE_HTTP_FALLBACK', false)
-  const httpIc = readP2pBoolWithDefaultOnUnset('WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT', false)
+  /** Shipped default: HTTP fallback + internal compat on so WebRTC remains preferred but direct ingest can recover transient P2P failures without env. */
+  const httpFb = readP2pBoolWithDefaultOnUnset('WRDESK_P2P_INFERENCE_HTTP_FALLBACK', true)
+  const httpIc = readP2pBoolWithDefaultOnUnset('WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT', true)
   const vrb = readP2pBoolWithDefaultOnUnset('WRDESK_P2P_INFERENCE_VERBOSE_LOGS', false)
   const ana = readP2pBoolWithDefaultOnUnset('WRDESK_P2P_INFERENCE_ANALYSIS_LOG', false)
 
@@ -193,7 +194,7 @@ export function getP2pInferenceFlagsSourceTagForTests(): 'default' | 'env' | 'co
 /** One-line snapshot for [HOST_AI_FLAGS] — Host AI / list / transport diagnostics. */
 export function logHostAiP2pFlagsSnapshot(f: P2pInferenceFlagSnapshot): void {
   console.log(
-    `[HOST_AI_FLAGS] p2pInferenceEnabled=${f.p2pInferenceEnabled} signaling=${f.p2pInferenceSignalingEnabled} webrtc=${f.p2pInferenceWebrtcEnabled} capsOverP2p=${f.p2pInferenceCapsOverP2p} requestOverP2p=${f.p2pInferenceRequestOverP2p} httpFallback=${f.p2pInferenceHttpFallback} verboseLogs=${f.p2pInferenceVerboseLogs}`,
+    `[HOST_AI_FLAGS] p2pInferenceEnabled=${f.p2pInferenceEnabled} signaling=${f.p2pInferenceSignalingEnabled} webrtc=${f.p2pInferenceWebrtcEnabled} capsOverP2p=${f.p2pInferenceCapsOverP2p} requestOverP2p=${f.p2pInferenceRequestOverP2p} httpFallback=${f.p2pInferenceHttpFallback} httpInternalCompat=${f.p2pInferenceHttpInternalCompat} verboseLogs=${f.p2pInferenceVerboseLogs}`,
   )
 }
 
@@ -211,6 +212,7 @@ export function logHostAiP2pFlagsSourceLine(): void {
     capsOverP2p: f.p2pInferenceCapsOverP2p,
     requestOverP2p: f.p2pInferenceRequestOverP2p,
     httpFallback: f.p2pInferenceHttpFallback,
+    httpInternalCompat: f.p2pInferenceHttpInternalCompat,
     verboseLogs: f.p2pInferenceVerboseLogs,
   }
   console.log(

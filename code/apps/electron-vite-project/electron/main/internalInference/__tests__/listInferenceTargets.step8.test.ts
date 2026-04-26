@@ -172,7 +172,12 @@ vi.mock('../p2pSession/p2pInferenceSessionManager', () => ({
 }))
 
 vi.mock('../p2pSession/p2pSessionWait', () => ({
+  HOST_AI_CAPABILITY_DC_WAIT_MS: 8_000,
   isP2pDataChannelUpForHandshake: (hid: string) => isDcUpListMock(hid),
+  p2pCapabilityDcWaitOutcomeLogReason: (out: { ok: boolean; reason?: string; lastErrorCode?: string | null }) =>
+    out.ok ? 'dc_open' : out.reason === 'p2p_session_failed' ? `p2p_session_failed code=${out.lastErrorCode ?? 'unknown'}` : String(out.reason ?? 'unknown'),
+  waitForP2pDataChannelOpenOrTerminal: async (hid: string) =>
+    isDcUpListMock(hid) ? { ok: true as const } : { ok: false as const, reason: 'dc_open_timeout' as const },
 }))
 
 function party(uid: string): PartyIdentity {
@@ -1178,7 +1183,7 @@ describe('Host AI P2P — bundle defaults (no WRDESK env)', () => {
     expect(f.p2pInferenceWebrtcEnabled).toBe(true)
     expect(f.p2pInferenceCapsOverP2p).toBe(true)
     expect(f.p2pInferenceRequestOverP2p).toBe(true)
-    expect(f.p2pInferenceHttpFallback).toBe(false)
+    expect(f.p2pInferenceHttpFallback).toBe(true)
 
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     isSandboxModeMock.mockReturnValue(true)

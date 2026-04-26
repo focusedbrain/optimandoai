@@ -106,7 +106,15 @@ describe('STEP 8 — log contract (source must contain required tags)', () => {
       'utf-8',
     )
     const ui = readFileSync(
-      join(appsRoot, 'electron-vite-project', 'electron', 'main', 'internalInference', 'sandboxHostUi.ts'),
+      join(
+        appsRoot,
+        'electron-vite-project',
+        'electron',
+        'main',
+        'internalInference',
+        'transport',
+        'internalInferenceTransport.ts',
+      ),
       'utf-8',
     )
     const p2p = readFileSync(
@@ -124,16 +132,24 @@ describe('STEP 8 — log contract (source must contain required tags)', () => {
     expect(ui).toContain('[HOST_INFERENCE_CAPS] request_send handshake=')
     expect(ui).toContain('[HOST_INFERENCE_CAPS] response_received active_model=')
     expect(mst).toContain("selector=${selector} local_count=${localCount} host_count=${hostCount} final_count=${finalCount}")
-    /* Host: inbound capabilities RPC. */
+    /* Host: inbound capabilities RPC (chain= correlates with Sandbox X-BEAP-Host-AI-Chain). */
     expect(p2p).toContain('[HOST_INFERENCE_CAPS] request_received handshake=')
-    expect(p2p).toContain('[HOST_INFERENCE_CAPS] auth_ok handshake=')
+    expect(p2p).toContain('chain=')
     expect(p2p).toContain('[HOST_INFERENCE_CAPS] active_local_llm model=')
     expect(p2p).toContain('[HOST_INFERENCE_CAPS] response_send active_model=')
   })
 
-  it('main (Sandbox): [HOST_INFERENCE_CAPS] request_send / response_received; Host: request_received / auth_ok / response_send', () => {
+  it('main (Sandbox): [HOST_INFERENCE_CAPS] request_send / response_received; Host: request_received / chain / response_send', () => {
     const ui = readFileSync(
-      join(appsRoot, 'electron-vite-project', 'electron', 'main', 'internalInference', 'sandboxHostUi.ts'),
+      join(
+        appsRoot,
+        'electron-vite-project',
+        'electron',
+        'main',
+        'internalInference',
+        'transport',
+        'internalInferenceTransport.ts',
+      ),
       'utf-8',
     )
     const p2p = readFileSync(
@@ -143,7 +159,7 @@ describe('STEP 8 — log contract (source must contain required tags)', () => {
     expect(ui).toContain('[HOST_INFERENCE_CAPS] request_send handshake=')
     expect(ui).toContain('[HOST_INFERENCE_CAPS] response_received active_model=')
     expect(p2p).toContain('[HOST_INFERENCE_CAPS] request_received handshake=')
-    expect(p2p).toContain('[HOST_INFERENCE_CAPS] auth_ok handshake=')
+    expect(p2p).toContain('chain=')
     expect(p2p).toContain('[HOST_INFERENCE_CAPS] active_local_llm model=')
     expect(p2p).toContain('[HOST_INFERENCE_CAPS] response_send active_model=')
   })
