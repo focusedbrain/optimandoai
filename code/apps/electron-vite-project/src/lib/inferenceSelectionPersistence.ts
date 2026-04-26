@@ -292,7 +292,11 @@ export function isHostInferenceTargetDefinitivelyInvalidForRestore(t: Orchestrat
     sur === 'provider_not_ready' ||
     sur === 'no_models' ||
     sur === 'transport_not_ready' ||
-    sur === 'capability_probe_failed'
+    sur === 'capability_probe_failed' ||
+    sur === 'auth_rejected' ||
+    sur === 'rate_limited' ||
+    sur === 'gateway_error' ||
+    sur === 'host_unreachable'
   ) {
     return true
   }

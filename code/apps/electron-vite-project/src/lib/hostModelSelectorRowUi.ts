@@ -11,6 +11,10 @@ type HostP2pUiPhase =
   | 'policy_disabled'
   | 'no_model'
   | 'hidden'
+  | 'probe_access_denied'
+  | 'probe_rate_limited'
+  | 'probe_gateway_error'
+  | 'probe_unreachable'
 
 /** Top chat + WR Chat: one Host row in the model menu (or collapsed label). */
 export type HostModelSelectorRowUiIn = {
@@ -36,6 +40,10 @@ const TITLE_PAIRING = 'Host AI · pairing'
 const TITLE_LEGACY_HTTP = 'Host AI · legacy endpoint unavailable'
 const TITLE_UNAVAILABLE = 'Host AI · unavailable'
 const TITLE_HIDDEN = 'Host AI unavailable'
+const TITLE_PROBE_AUTH = 'Host AI · access denied (check pairing / token)'
+const TITLE_PROBE_RL = 'Host AI · rate limited — retry shortly'
+const TITLE_PROBE_GW = 'Host AI · gateway or Host server error'
+const TITLE_PROBE_NET = 'Host AI · cannot reach Host (network or timeout)'
 
 function hostDisplayName(t: HostInferenceTargetRow | null | undefined): string {
   return (t?.host_computer_name?.trim() || 'Host').trim() || 'Host'
@@ -119,6 +127,14 @@ function fallbackTitleForPhase(phase: HostP2pUiPhase | undefined, t: HostInferen
       return TITLE_NO_ACTIVE_MODEL
     case 'hidden':
       return TITLE_HIDDEN
+    case 'probe_access_denied':
+      return TITLE_PROBE_AUTH
+    case 'probe_rate_limited':
+      return TITLE_PROBE_RL
+    case 'probe_gateway_error':
+      return TITLE_PROBE_GW
+    case 'probe_unreachable':
+      return TITLE_PROBE_NET
     default:
       return null
   }

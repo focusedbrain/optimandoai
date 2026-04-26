@@ -42,16 +42,32 @@ If **three** separate **offer/answer** signaling sends exhaust in-message **429*
 
 If **three** transitions to **`phase=failed`** for the **same handshake** occur within a **60s** rolling window, new session ensures pause **30s** with the same user-visible **reconnecting** row (`p2pUiPhase=relay_reconnecting`, code `HOST_AI_SESSION_TERMINAL_STORM`). Logs: `[HOST_AI_SESSION_STORM]`, `[HOST_AI_SESSION_ENSURE] session_storm_pause`, `[LIST_HOST_AI] target_session_storm_pause`. Successful **DataChannel** progress (`datachannel_open` / `ready`) clears the failure streak for that handshake.
 
+## Permanent operational logs (do not remove or gate)
+
+These lines are **intentional** for field diagnostics and debouncer verification. They are **not** debug-only:
+
+| Token | Where | Meaning |
+|--------|--------|---------|
+| **`[HOST_INFERENCE_P2P] endpoint_repair_promoted`** | `p2pEndpointRepair` | Stored direct endpoint was promoted from relay advertisement — **expected** when repair runs. |
+| **`[P2P_SIGNAL_OUT] dropped_stale_send`** | `p2pSignalRelayPost` | Outbound ICE/offer for a **superseded** session id was dropped — **expected** during session rotation; a **steady stream** still indicates a lifecycle leak (see below). |
+| **`[HOST_INFERENCE_TARGETS] probe_coalesced`** | `listInferenceTargets` | List/probe debouncer coalesced duplicate work — **operational**, not a bug. |
+| **`[HOST_INFERENCE_TARGETS] ipc_list_coalesced`** | `internalInference/ipc` | Parallel renderer list IPC joined one in-flight call — **operational**. |
+| **`[P2P_SIGNAL_OUT] rate_limit_backoff`** | `p2pSignalRelayPost` | Signaling hit 429 and is backing off — **operational**; tune quotas if storms persist. |
+
 ## Host startup health (bug reports)
 
-~2.5s after app ready on **Host** orchestrator, main logs:
+**Immediately** after internal-inference IPC registration (Host **and** Sandbox):
+
+- `[HOST_AI_HEALTH] startup phase=internal_inference_ipc orchestrator_mode=host|sandbox|… pid=…`
+
+~2.5s after app ready on **Host** orchestrator, main also logs (unchanged):
 
 1. `[P2P_SIGNAL_SCHEMA] component=electron-app wire_schema_version=…` (if not already printed earlier from a Host AI list)
 2. `[HOST_AI_HEALTH] ollama=ok|down models=N relay_ws=connected|disconnected device_id=… direct_endpoint=http://…:51249/beap/ingest account=signed_in|signed_out`
 
 `device_id` is truncated in packaged builds (privacy). `direct_endpoint` is the published or computed LAN BEAP ingest URL.
 
-Paste both schema + health lines in tickets.
+Paste **startup** + **schema** + **Host detail** health lines in tickets.
 
 ## Diagnostic log signatures (quick reference)
 
@@ -65,6 +81,29 @@ Paste both schema + health lines in tickets.
 | **`rate_limit_backoff attempt=N`** | Backoff **working as designed** — **operational**; sustained storms may need quota/tuning. |
 | **`[P2P_SIGNAL_OUT] failed status=429`** (with backoff) | Bursting on signaling; same operational bucket as backoff. |
 | **`[P2P_SIGNAL_OUT] dropped_stale_candidate`** | **Expected** when a new P2P session id replaces an old one; stale ICE for the previous session is dropped. |
+| **`[P2P] Rejection`** with **`reason: 'auth_rate_limit'`** (or `reason=auth_rate_limit` in grep) and **`handshake_id: 'unknown'`** | Request was rejected **before** the body/handshake was parsed — per-IP **auth-failure rate limit** tripped (often after many bad/missing Bearer attempts). **Likely:** outbound **Authorization / pairing token wrong or missing** on the Sandbox (regression of Prompt 2 header path). Compare with requests that include `X-BEAP-Handshake` + Bearer. |
+| **`detail=probe_PROBE_RATE_LIMITED`** / **`probe_code=PROBE_RATE_LIMITED`** (Sandbox list logs) | Host or gateway returned **HTTP 429** on the capability/policy probe path — check Sandbox **probe loop** (debouncing) and relay/auth **rate buckets**. |
+| **`detail=probe_PROBE_AUTH_REJECTED`** / **`probe_code=PROBE_AUTH_REJECTED`** | **401/403** on probe — **token/handshake mismatch** or gateway auth rejection; not “Ollama down”. |
+| **`probe_coalesced`** / **`ipc_list_coalesced`** | Debouncer **working as designed** — **operational**, not a bug. |
+| **`detail=probe_OLLAMA_UNAVAILABLE`** **only after** probe auth succeeded (no 401/403/429 on the same attempt) | **Host** reported **`OLLAMA_UNAVAILABLE`** — **local Ollama on the Host** is actually down or unreachable; distinct from gateway errors (now mapped to `PROBE_*` codes). |
+
+## Deferred engineering (explicit)
+
+### WebRTC signal wire schema hardening
+
+**When:** Cross-network / relay signaling paths where **coordination-service** and Electron **must** accept the same offer/answer/ICE envelope shapes (NAT traversal, multi-hop).
+
+**Why deferred:** LAN + HTTP fallback can validate the product first; schema changes touch relay, Host, Sandbox, and CI alignment tests (`p2pSignalSchemaElectronAlignment`).
+
+**Trigger to schedule:** Persistent **`P2P_SIGNAL_SCHEMA_REJECTED`** / **`400`** on signaling **after** confirming `[P2P_SIGNAL_SCHEMA]` version lines match, or new ICE fields required by a browser / TURN deployment.
+
+### P2P session lifecycle (repeated probe / selector open-close)
+
+**When:** Users **rapidly** open the model selector, switch networks, or run **back-to-back** probes without full process restart.
+
+**Why deferred:** Prompt 3/4 debouncing reduces duplicate HTTP; remaining issues are **orphan PeerConnections** or **stale ICE** after session id rotation.
+
+**Trigger to schedule:** Steady **`dropped_stale_send`** / candidate traffic **after** the selector is closed, or **`HOST_AI_SESSION_TERMINAL_STORM`** without user-visible recovery — run **Prompt 8 (lifecycle hardening)** from the prior sequence.
 
 ## End-to-end correlation ID (optional / deferred)
 

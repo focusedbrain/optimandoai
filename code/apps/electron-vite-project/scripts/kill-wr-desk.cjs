@@ -18,6 +18,18 @@ const BUILD_BASE = 'C:\\build-output'
  * Parsed from disk (regex) so we never rely on a stale require() cache or the wrong merged field.
  * We must NOT delete this folder before `electron-builder` runs.
  */
+function getWindowsExecutableNameFromConfig() {
+  const cfgPath = path.join(__dirname, '..', 'electron-builder.config.cjs')
+  try {
+    const text = fs.readFileSync(cfgPath, 'utf8')
+    const exeM = text.match(/executableName:\s*['"]([^'"]+)['"]/)
+    if (exeM) return exeM[1]
+  } catch {
+    /* fall through */
+  }
+  return 'WRDeskT'
+}
+
 function getActiveWindowsOutputBasename() {
   if (process.platform !== 'win32') return null
   const cfgPath = path.join(__dirname, '..', 'electron-builder.config.cjs')
@@ -187,7 +199,7 @@ function killProcesses() {
     return
   }
 
-  const names = ['WR DeskT', 'WR Desk', 'electron']
+  const names = ['WRDeskT', 'WR DeskT', 'WR Desk', 'electron']
   let killed = 0
 
   for (const name of names) {
@@ -223,9 +235,10 @@ function killProcesses() {
     if (k) {
       const outDir = path.join(BUILD_BASE, k)
       const winUnpacked = path.join(outDir, 'win-unpacked')
+      const exeBase = getWindowsExecutableNameFromConfig()
       console.log(`[kill-wr-desk] Windows build output: ${outDir}`)
       console.log(
-        `[kill-wr-desk] Desktop app: ${winUnpacked}\\WR DeskT.exe (unpacked build). Not for Chrome.`,
+        `[kill-wr-desk] Desktop app: ${winUnpacked}\\${exeBase}.exe (unpacked). Chrome extension: …/extension-chromium/${k} — not win-unpacked.`,
       )
       console.log(
         '[kill-wr-desk] Chrome MV3 extension: Load unpacked → …/apps/extension-chromium/' +

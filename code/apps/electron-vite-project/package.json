@@ -18,7 +18,7 @@
     "clear-caches": "node scripts/clear-build-caches.cjs",
     "kill": "node scripts/kill-wr-desk.cjs",
     "build:clean": "node scripts/clean.cjs && electron-rebuild -f -w better-sqlite3,keytar,canvas && vite build && node scripts/smoke-pdfjs-parser.cjs && node scripts/clean-windows-build-output.cjs && electron-builder -c electron-builder.config.cjs && node scripts/verify-windows-unpacked.cjs",
-    "build:portable": "node scripts/dist-clean-artifacts.cjs && vite build && node scripts/smoke-pdfjs-parser.cjs && node scripts/clean-windows-build-output.cjs && electron-builder -c electron-builder.config.cjs --win portable",
+    "build:portable": "node scripts/dist-clean-artifacts.cjs && vite build && node scripts/smoke-pdfjs-parser.cjs && node scripts/clean-windows-build-output.cjs && electron-builder -c electron-builder.config.cjs --win dir portable && node scripts/verify-windows-unpacked.cjs",
     "build:nsis": "node scripts/kill-wr-desk.cjs && node scripts/dist-clean-artifacts.cjs && node scripts/copy-pnpm-transitive-deps.cjs && vite build && node scripts/smoke-pdfjs-parser.cjs && node scripts/clean-windows-build-output.cjs && electron-builder -c electron-builder.config.cjs --win nsis && node scripts/verify-windows-unpacked.cjs",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",

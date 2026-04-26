@@ -62,6 +62,16 @@ export const InternalInferenceErrorCode = {
   RELAY_429_CIRCUIT_OPEN: 'RELAY_429_CIRCUIT_OPEN',
   /** Too many terminal session failures on this handshake in a short window; new session attempts paused briefly. */
   HOST_AI_SESSION_TERMINAL_STORM: 'HOST_AI_SESSION_TERMINAL_STORM',
+  /** Capability probe: HTTP 401/403 from Host/BEAP (gateway or token), not “Ollama down”. */
+  PROBE_AUTH_REJECTED: 'PROBE_AUTH_REJECTED',
+  /** Capability probe: HTTP 429 from Host/BEAP path. */
+  PROBE_RATE_LIMITED: 'PROBE_RATE_LIMITED',
+  /** Capability probe: HTTP 5xx or bad gateway / malformed success path from Host/BEAP. */
+  PROBE_HOST_ERROR: 'PROBE_HOST_ERROR',
+  /** Capability probe: transport error (network, DNS, refused) before a definitive HTTP probe status. */
+  PROBE_HOST_UNREACHABLE: 'PROBE_HOST_UNREACHABLE',
+  /** Capability probe: HTTP 200 capabilities OK but no models configured (distinct from Host “no active LLM” / Ollama down). */
+  PROBE_NO_MODELS: 'PROBE_NO_MODELS',
 } as const
 
 export type InternalInferenceErrorCodeType =

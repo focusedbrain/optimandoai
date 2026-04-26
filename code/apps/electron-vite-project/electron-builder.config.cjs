@@ -7,10 +7,10 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\build80'
+ *   return 'C:\\build-output\\build81'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build80'
+  return 'C:\\build-output\\build81'
 }
 
 const workspaceRoot = path.resolve(appDir, '../..')
@@ -90,15 +90,15 @@ module.exports = {
   win: {
     /**
      * Use `dir` (unpacked) only as the default Windows artifact. It always fills
-     * `win-unpacked` with `WR DeskT.exe` and Electron DLLs.
+     * `win-unpacked` with `WRDeskT.exe` and Electron DLLs.
      * Do NOT add `portable` here: the follow-up NSIS/portable step can leave `win-unpacked`
      * incomplete on some machines (only locales/resources). For a one-file build run
      * `pnpm run build:portable` separately.
      */
     target: ['dir'],
-    /** ASCII-only installer/portable exe name (avoids Unicode path issues with child_process). */
+    /** ASCII-only, no spaces — spaces in the .exe name have caused 0-byte or broken PE files on some Windows pack runs. */
     artifactName: 'WR-Desk-Setup-${version}.${ext}',
-    executableName: 'WR DeskT',
+    executableName: 'WRDeskT',
     signAndEditExecutable: false,
     signDlls: false,
     verifyUpdateCodeSignature: false,

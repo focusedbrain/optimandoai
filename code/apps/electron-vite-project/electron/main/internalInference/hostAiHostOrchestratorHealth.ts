@@ -3,9 +3,9 @@
  * Runs once shortly after app ready (relay WebSocket may still be connecting).
  */
 
+import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { getCoordinationWsClient } from '../p2p/coordinationWsHolder'
 import { getP2PConfig, computeLocalP2PEndpoint, type P2PConfig } from '../p2p/p2pConfig'
-import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { getAccessToken } from '../../../src/auth/session'
 import { ollamaManager } from '../llm/ollama-manager'
 import { getHandshakeDbForInternalInference } from './dbAccess'
@@ -19,6 +19,19 @@ function resolveDirectBeapIngestForHealth(cfg: P2PConfig): string {
   if (pub.includes('/beap/ingest')) return pub.replace(/\/$/, '')
   if (/^https?:\/\//i.test(pub)) return `${pub.replace(/\/$/, '')}/beap/ingest`
   return pub
+}
+
+/**
+ * First [HOST_AI_HEALTH] line after internal-inference IPC is registered (Host and Sandbox).
+ * Permanent operational log — do not gate behind debug flags.
+ */
+export function logHostAiHealthStartupLine(): void {
+  try {
+    const mode = getOrchestratorMode().mode
+    console.log(`[HOST_AI_HEALTH] startup phase=internal_inference_ipc orchestrator_mode=${mode} pid=${process.pid}`)
+  } catch {
+    console.log('[HOST_AI_HEALTH] startup phase=internal_inference_ipc orchestrator_mode=unknown')
+  }
 }
 
 export async function logHostAiOrchestratorHealthLine(): Promise<void> {

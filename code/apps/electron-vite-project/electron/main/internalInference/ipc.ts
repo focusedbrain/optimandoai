@@ -69,9 +69,29 @@ export function registerInternalInferenceIpc(): void {
     return { ok: true as const, candidates }
   })
 
+  /** Parallel renderer invokes (re-renders) must not run two full list walks; join the in-flight IPC. */
+  let listInferenceTargetsInflight: ReturnType<
+    typeof import('./listInferenceTargets').listSandboxHostInternalInferenceTargets
+  > | null = null
+
   const listInferenceTargetsHandler = async () => {
+    if (listInferenceTargetsInflight) {
+      console.log('[HOST_INFERENCE_TARGETS] ipc_list_coalesced joining_inflight=1')
+      return listInferenceTargetsInflight
+    }
     const { listSandboxHostInternalInferenceTargets } = await import('./listInferenceTargets')
-    return listSandboxHostInternalInferenceTargets()
+    if (listInferenceTargetsInflight) {
+      console.log('[HOST_INFERENCE_TARGETS] ipc_list_coalesced joining_inflight=1')
+      return listInferenceTargetsInflight
+    }
+    const p = listSandboxHostInternalInferenceTargets()
+    listInferenceTargetsInflight = p
+    void p.finally(() => {
+      if (listInferenceTargetsInflight === p) {
+        listInferenceTargetsInflight = null
+      }
+    })
+    return p
   }
   /** Legacy alias — same as `internal-inference:listTargets`. */
   ipcMain.handle('internal-inference:listInferenceTargets', listInferenceTargetsHandler)
