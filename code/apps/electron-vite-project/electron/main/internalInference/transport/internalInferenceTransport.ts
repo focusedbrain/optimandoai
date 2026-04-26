@@ -15,7 +15,12 @@ import { sendHostInferenceRequestOverP2pDataChannel, sendInternalInferenceWireOv
 import { getSessionState, P2pSessionPhase } from '../p2pSession/p2pInferenceSessionManager'
 import { isP2pDataChannelUpForHandshake } from '../p2pSession/p2pSessionWait'
 import { tryRepairP2pEndpointFromHostAdvertisement } from '../p2pEndpointRepair'
-import { canPostInternalInferenceHttpToP2pEndpointIngest, localCoordinationDeviceId, peerCoordinationDeviceId } from '../policy'
+import {
+  canPostInternalInferenceHttpToP2pEndpointIngest,
+  localCoordinationDeviceId,
+  outboundP2pBearerToCounterpartyIngest,
+  peerCoordinationDeviceId,
+} from '../policy'
 import type { HandshakeRecord } from '../../handshake/types'
 import { INTERNAL_INFERENCE_SCHEMA_VERSION, type InternalInferenceCapabilitiesResultWire, type InternalInferenceErrorWire, type InternalInferenceRequestWire, type InternalInferenceResultWire, type InternalServiceMessageType } from '../types'
 import { logHostAiInferComplete, logHostAiInferError, logHostAiInferRequestSend } from '../hostAiInferLog'
@@ -923,7 +928,7 @@ export async function requestHostCompletion(
     request,
     ep,
     record.handshake_id,
-    record.local_p2p_auth_token,
+    outboundP2pBearerToCounterpartyIngest(record) || null,
     {
       request_id: request.request_id,
       sender_device_id: request.sender_device_id,
@@ -1035,7 +1040,7 @@ export async function sendHostInferenceResult(
     result,
     targetEndpoint,
     record.handshake_id,
-    record.local_p2p_auth_token,
+    outboundP2pBearerToCounterpartyIngest(record) || null,
     {
       request_id: result.request_id,
       sender_device_id: result.sender_device_id,

@@ -14,6 +14,7 @@ import {
   assertRecordForServiceRpc,
   assertSandboxRequestToHost,
   assertHostSendsResultToSandbox,
+  outboundP2pBearerToCounterpartyIngest,
 } from './policy'
 import { InternalInferenceErrorCode } from './errors'
 
@@ -158,8 +159,8 @@ export async function checkDirectP2pReachabilityFromHandshake(
     return { status: 'missing_endpoint' }
   }
   const ep = record.p2p_endpoint?.trim() ?? ''
-  const token = record.local_p2p_auth_token
-  if (!ep || !token?.trim()) {
+  const token = outboundP2pBearerToCounterpartyIngest(record)
+  if (!ep || !token) {
     return { status: 'missing_endpoint' }
   }
   const url = reachabilityUrlFromP2pIngest(ep)

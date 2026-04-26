@@ -105,7 +105,11 @@ export function hostAiChatBlockedUserMessage(t: HostInferenceTargetRow | undefin
   if (ph === 'hidden' || t.unavailable_reason === 'SANDBOX_HOST_ROLE_METADATA') {
     return 'Host AI is not set up for this device pair. Check internal handshake roles in Settings, or pick another model.'
   }
-  if (ph === 'probe_access_denied' || t.inference_error_code === 'PROBE_AUTH_REJECTED') {
+  if (
+    ph === 'probe_access_denied' ||
+    t.inference_error_code === 'PROBE_AUTH_REJECTED' ||
+    t.inference_error_code === 'HOST_AI_DIRECT_AUTH_MISSING'
+  ) {
     return 'Authentication failed. Re-pair to refresh tokens.'
   }
   if (ph === 'probe_rate_limited' || t.inference_error_code === 'PROBE_RATE_LIMITED') {
@@ -178,7 +182,11 @@ export function hostAiRowUnavailableTooltip(
   if (ph === 'hidden') {
     return TOOLTIP_ROLE
   }
-  if (ph === 'probe_access_denied' || t?.inference_error_code === 'PROBE_AUTH_REJECTED') {
+  if (
+    ph === 'probe_access_denied' ||
+    t?.inference_error_code === 'PROBE_AUTH_REJECTED' ||
+    t?.inference_error_code === 'HOST_AI_DIRECT_AUTH_MISSING'
+  ) {
     return ['Authentication failed. Re-pair to refresh tokens.', ACT_SANDBOX_REFRESH].join(NL)
   }
   if (ph === 'probe_rate_limited' || t?.inference_error_code === 'PROBE_RATE_LIMITED') {

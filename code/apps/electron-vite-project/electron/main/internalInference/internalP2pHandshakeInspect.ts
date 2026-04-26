@@ -61,8 +61,9 @@ export type InternalHostHandshakeP2pSafeDump = {
   peer_derived_role: 'host' | 'sandbox' | 'unknown' | null
   p2p_endpoint: string | null
   p2p_endpoint_kind: 'direct LAN' | 'localhost' | 'relay' | 'missing' | 'invalid'
-  /** Local Bearer we send on outbound direct BEAP (`local_p2p_auth_token`). */
+  /** Inbound: token we expect peers to use when calling this device’s ingest (`local_p2p_auth_token` / server `counterparty_p2p` check). */
   p2p_auth_token_set: 'no' | 'yes'
+  /** Outbound: token we use when calling the peer’s ingest (must match; see `outboundP2pBearerToCounterpartyIngest`). */
   counterparty_p2p_token_set: 'no' | 'yes'
   internal_coordination_identity_complete: boolean
   initiator_coordination_device_id_first8: string

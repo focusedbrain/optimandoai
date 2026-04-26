@@ -7,6 +7,7 @@ import { InternalInferenceErrorCode } from '../errors'
 import {
   assertRecordForServiceRpc,
   internalInferenceEndpointGateOk,
+  outboundP2pBearerToCounterpartyIngest,
 } from '../policy'
 import { HandshakeState, type HandshakeRecord } from '../../handshake/types'
 
@@ -90,5 +91,12 @@ describe('internalInferenceEndpointGateOk', () => {
 
   test('direct LAN ingest passes without P2P stack', () => {
     expect(internalInferenceEndpointGateOk({}, 'http://192.168.1.2:51249/beap/ingest', stackOff)).toBe(true)
+  })
+})
+
+describe('outboundP2pBearerToCounterpartyIngest', () => {
+  test('returns counterparty_p2p_token (Bearer to peer /beap/ingest), not local', () => {
+    expect(outboundP2pBearerToCounterpartyIngest(baseRecord({}))).toBe('pt')
+    expect(outboundP2pBearerToCounterpartyIngest(baseRecord({ counterparty_p2p_token: '  secret  ' }))).toBe('secret')
   })
 })

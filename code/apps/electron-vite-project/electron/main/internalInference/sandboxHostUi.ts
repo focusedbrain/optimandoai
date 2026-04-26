@@ -16,6 +16,7 @@ import {
   assertSandboxRequestToHost,
   internalInferenceEndpointGateOk,
   localCoordinationDeviceId,
+  outboundP2pBearerToCounterpartyIngest,
   p2pEndpointKind,
   p2pEndpointKindForProbeLog,
   type P2pEndpointProbeLogKind,
@@ -841,10 +842,14 @@ async function probeHostInferencePolicyFromSandboxImpl(
   }
   const ep = ar.record.p2p_endpoint?.trim() ?? ''
   const epK = p2pEndpointKindForProbeLog(db, ar.record.p2p_endpoint)
-  const token = ar.record.local_p2p_auth_token
-  if (!token?.trim()) {
+  const token = outboundP2pBearerToCounterpartyIngest(ar.record)
+  if (!token) {
+    const hasLocal = !!(ar.record.local_p2p_auth_token && String(ar.record.local_p2p_auth_token).trim())
     probeDone(false)
-    p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.AUTH_REJECTED} reason=no_p2p_token`)
+    p2p(
+      `capability_probe_auth_skip reason=${InternalInferenceErrorCode.HOST_AI_DIRECT_AUTH_MISSING} handshake=${hid} counterparty_p2p_token_set=no local_p2p_auth_token_set=${hasLocal ? 'yes' : 'no'}`,
+    )
+    p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.AUTH_REJECTED} reason=host_ai_direct_auth_missing`)
     logHostAiStage({
       chain,
       stage: 'capabilities_request',
@@ -853,12 +858,12 @@ async function probeHostInferencePolicyFromSandboxImpl(
       handshakeId: hid,
       buildStamp,
       flags: fP2p,
-      failureCode: 'NO_P2P_TOKEN',
+      failureCode: 'NO_COUNTERPARTY_P2P_TOKEN',
     })
     return {
       ok: false,
-      code: 'POLICY_FORBIDDEN',
-      message: 'token',
+      code: InternalInferenceErrorCode.HOST_AI_DIRECT_AUTH_MISSING,
+      message: 'counterparty_p2p_token',
       directP2pAvailable: true,
       p2pProbeClassification: P2P_CAPABILITY_PROBE.AUTH_REJECTED,
     }
@@ -983,6 +988,24 @@ async function probeHostInferencePolicyFromSandboxImpl(
       p2pClassificationDetail(`classification=${letterOk}`)
     }
     return { ...out, p2pProbeClassification: letterOk }
+  }
+
+  const post429 =
+    ('responseStatus' in cap && cap.responseStatus === 429) ||
+    ('reason' in cap && String(cap.reason) === 'http_429')
+  if (post429) {
+    p2p(`capability_probe_skip_policy_get reason=post_429 handshake=${hid}`)
+    const letter = P2P_CAPABILITY_PROBE.RATE_LIMITED
+    const failCode = InternalInferenceErrorCode.PROBE_RATE_LIMITED
+    probeDone(false)
+    p2pClassificationDetail(`classification=${letter}`)
+    return {
+      ok: false,
+      code: failCode,
+      message: 'http_429',
+      directP2pAvailable: true,
+      p2pProbeClassification: letter,
+    }
   }
 
   p2p(`policy_fallback_get url=${policyProbeUrlFromP2pIngest(ep)} handshake=${hid}`)

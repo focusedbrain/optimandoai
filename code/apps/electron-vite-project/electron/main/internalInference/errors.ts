@@ -81,6 +81,8 @@ export const InternalInferenceErrorCode = {
    * Not related to sandbox-local Ollama discovery on the Sandbox app.
    */
   PROBE_OLLAMA_UNAVAILABLE: 'PROBE_OLLAMA_UNAVAILABLE',
+  /** Direct HTTP to peer: `counterparty_p2p_token` missing locally (cannot authenticate to their BEAP). */
+  HOST_AI_DIRECT_AUTH_MISSING: 'HOST_AI_DIRECT_AUTH_MISSING',
 } as const
 
 export type InternalInferenceErrorCodeType =

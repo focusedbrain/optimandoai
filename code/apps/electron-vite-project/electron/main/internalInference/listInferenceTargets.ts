@@ -31,6 +31,7 @@ import {
   assertRecordForServiceRpc,
   deriveInternalHostAiPeerRoles,
   handshakeSamePrincipal,
+  outboundP2pBearerToCounterpartyIngest,
   p2pEndpointKind,
   peerCoordinationDeviceId,
 } from './policy'
@@ -45,6 +46,7 @@ import type { P2pInferenceFlagSnapshot } from './p2pInferenceFlags'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
 import {
   mapCapabilitiesWireToProbe,
+  P2P_CAPABILITY_PROBE,
   probeHostInferencePolicyFromSandbox,
   resetProbeHostInferencePolicyInFlightForTests,
 } from './sandboxHostUi'
@@ -70,6 +72,10 @@ const lastP2pEnsureByHandshake = new Map<
   { t: number; state: Awaited<ReturnType<typeof ensureHostAiP2pSession>> }
 >()
 const lastRelayP2pNudgeByHandshake = new Map<string, number>()
+
+/** After HTTP 429 on a Host AI direct probe, skip re-POST/GET to the same host briefly (global BEAP rate limit). */
+const HOST_AI_DIRECT_PROBE_429_COOLDOWN_MS = 45_000
+const hostAiDirectProbe429CooldownUntil = new Map<string, number>()
 
 registerP2pEnsureCacheInvalidator((handshakeId) => {
   lastP2pEnsureByHandshake.delete(String(handshakeId ?? '').trim())
@@ -147,6 +153,7 @@ export function resetWebrtcListHostCapsCacheForTests(): void {
   listHostCapsProbeInflight.clear()
   listHostCapsProbeLast.clear()
   policyProbeInflight.clear()
+  hostAiDirectProbe429CooldownUntil.clear()
 }
 
 /** Clears ensure-session throttle cache (module singleton). For unit tests only. */
@@ -164,6 +171,7 @@ export function clearHostAiListTransientStateForOrchestratorBuildChange(): void 
   listHostCapsProbeInflight.clear()
   listHostCapsProbeLast.clear()
   policyProbeInflight.clear()
+  hostAiDirectProbe429CooldownUntil.clear()
   resetProbeHostInferencePolicyInFlightForTests()
   clearHostAiTransportDecideDedupeCache()
 }
@@ -292,6 +300,7 @@ function capabilityProbeLogDetailToken(code: string): string {
 
 function hostP2pUiPhaseForProbeFailureCode(code: string): HostP2pUiPhase {
   switch (code) {
+    case InternalInferenceErrorCode.HOST_AI_DIRECT_AUTH_MISSING:
     case InternalInferenceErrorCode.PROBE_AUTH_REJECTED:
       return 'probe_access_denied'
     case InternalInferenceErrorCode.PROBE_RATE_LIMITED:
@@ -315,6 +324,7 @@ function hostP2pUiPhaseForProbeFailureCode(code: string): HostP2pUiPhase {
 
 function hostAiStructuredReasonForProbeCode(code: string): HostAiStructuredUnavailableReason {
   switch (code) {
+    case InternalInferenceErrorCode.HOST_AI_DIRECT_AUTH_MISSING:
     case InternalInferenceErrorCode.PROBE_AUTH_REJECTED:
       return 'auth_rejected'
     case InternalInferenceErrorCode.PROBE_RATE_LIMITED:
@@ -1555,16 +1565,27 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       isP2pDataChannelUpForHandshake(hid) &&
       transportAuthRow.kind === 'webrtc_p2p'
 
-    if (webrtcP2pListDirect) {
+    const until429 = hostAiDirectProbe429CooldownUntil.get(hid) ?? 0
+    if (Date.now() < until429) {
+      console.log(`${L} probe_skipped_429_cooldown handshake=${hid} until_ms=${until429}`)
+      probe = {
+        ok: false,
+        code: InternalInferenceErrorCode.PROBE_RATE_LIMITED,
+        message: 'probe_rate_limited_cooldown',
+        directP2pAvailable: true,
+        p2pProbeClassification: P2P_CAPABILITY_PROBE.RATE_LIMITED,
+      }
+      hadCapabilitiesProbed = true
+    } else if (webrtcP2pListDirect) {
       try {
         const tCap = Math.min(getHostInternalInferencePolicy().timeoutMs, 15_000)
         const ep = r.p2p_endpoint?.trim() ?? ''
-        const tok = (r.local_p2p_auth_token ?? '').trim()
+        const tok = outboundP2pBearerToCounterpartyIngest(r)
         if (!tok) {
           probe = {
             ok: false,
-            code: InternalInferenceErrorCode.POLICY_FORBIDDEN,
-            message: 'token',
+            code: InternalInferenceErrorCode.HOST_AI_DIRECT_AUTH_MISSING,
+            message: 'counterparty_p2p_token',
             directP2pAvailable: true,
           }
         } else {
@@ -1694,6 +1715,12 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     if (!probe.ok) {
       const code = probe.code
       if (
+        code === InternalInferenceErrorCode.PROBE_RATE_LIMITED &&
+        (typeof probe !== 'object' || !('message' in probe) || (probe as { message?: string }).message !== 'probe_rate_limited_cooldown')
+      ) {
+        hostAiDirectProbe429CooldownUntil.set(hid, Date.now() + HOST_AI_DIRECT_PROBE_429_COOLDOWN_MS)
+      }
+      if (
         code === InternalInferenceErrorCode.P2P_STILL_CONNECTING ||
         code === InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY
       ) {
@@ -1810,6 +1837,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       continue
     }
 
+    hostAiDirectProbe429CooldownUntil.delete(hid)
     const hm = metaFromOkProbe(probe, displayName, pcc)
 
     if (!probe.allowSandboxInference) {

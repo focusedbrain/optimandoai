@@ -347,4 +347,16 @@ export function assertSandboxReceivesResultFromHost(
   return { ok: true }
 }
 
+/**
+ * Bearer token this device must send when **calling the peer’s** `p2p_endpoint` (POST
+ * `/beap/ingest`, policy GET, reachability, internal inference). That is the secret the **peer**
+ * gave you to authenticate to their BEAP listener, stored as `counterparty_p2p_token` on the local
+ * handshake row. It is not `local_p2p_auth_token` (the secret this device expects inbound peers
+ * to present on *our* listener — the server compares the request Bearer to *its*
+ * `counterparty_p2p_token`, see `p2pServer` / `p2pReachabilityGet` / `p2pHostPolicyGet`).
+ */
+export function outboundP2pBearerToCounterpartyIngest(r: HandshakeRecord): string {
+  return typeof r.counterparty_p2p_token === 'string' ? r.counterparty_p2p_token.trim() : ''
+}
+
 export { localCoordinationDeviceId, peerCoordinationDeviceId }
