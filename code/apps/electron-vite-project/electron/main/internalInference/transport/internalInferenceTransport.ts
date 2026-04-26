@@ -175,12 +175,29 @@ function hostAiDiagnosticsFromFailedProv(
   prov: Extract<SandboxToHostHttpDirectIngestResult, { ok: false }>,
   ingestUrl: string,
   currentDevice: string,
+  peerHostCoordinationId: string,
 ): HostAiEndpointDiagnostics {
+  const code = prov.code
+  const detail = String(prov.host_ai_endpoint_deny_detail ?? '')
+  const isPeerMissing = code === InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING
+  const isLocalProvenance =
+    prov.selected_endpoint_provenance === 'local_beap' || detail === 'self_local_beap_selected'
+
+  const selected: string | null = isPeerMissing
+    ? null
+    : (ingestUrl && ingestUrl.trim()) || prov.ledger_p2p_endpoint || null
+  const peerHost = (peerHostCoordinationId && peerHostCoordinationId.trim()) || prov.hostDeviceId
+  const selectedOwner: string | null = isPeerMissing
+    ? null
+    : isLocalProvenance
+      ? currentDevice
+      : prov.hostDeviceId || null
+
   return {
     local_device_id: currentDevice,
-    peer_host_device_id: prov.hostDeviceId,
-    selected_endpoint: (ingestUrl && ingestUrl.trim()) || prov.ledger_p2p_endpoint || null,
-    selected_endpoint_owner: prov.hostDeviceId,
+    peer_host_device_id: peerHost,
+    selected_endpoint: selected,
+    selected_endpoint_owner: selectedOwner,
     local_beap_endpoint: prov.local_beap_endpoint,
     peer_advertised_beap_endpoint: prov.peer_advertised_beap_endpoint,
     rejection_reason: `${String(prov.code)} (${String(prov.host_ai_endpoint_deny_detail)})`,
@@ -516,23 +533,38 @@ export async function listHostCapabilities(
   const prov = resolveSandboxToHostHttpDirectIngest(db, hid, record, ingestUrl)
   if (!prov.ok) {
     const code = prov.code
+    const isPeerMissing = code === InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING
+    const isLocalProv =
+      prov.selected_endpoint_provenance === 'local_beap' || prov.host_ai_endpoint_deny_detail === 'self_local_beap_selected'
+    const logSelected: string | null = isPeerMissing ? null : (ingestUrl && ingestUrl.trim()) || null
+    const logRecordId =
+      isPeerMissing ? null : isLocalProv ? currentDevice : hostRecordOwnerId
+    const logOwnerId =
+      isPeerMissing ? null : isLocalProv ? currentDevice : peerHost
+    const logRecordRole: 'host' | 'unknown' = isPeerMissing
+      ? 'unknown'
+      : isLocalProv
+        ? 'unknown'
+        : hostRecordOwnerId
+          ? 'host'
+          : 'unknown'
     logHostAiEndpointSelect({
       handshake_id: hid,
       current_device_id: currentDevice,
       local_derived_role: cids.localRole,
       peer_device_id: peerHost,
       peer_derived_role: cids.peerRole,
-      selected_endpoint: ingestUrl,
+      selected_endpoint: logSelected,
       selected_endpoint_provenance: prov.selected_endpoint_provenance,
       host_ai_endpoint_deny_detail: prov.host_ai_endpoint_deny_detail,
       host_ai_resolution_category: prov.resolutionCategory,
-      selected_endpoint_record_device_id: hostRecordOwnerId,
-      selected_endpoint_record_role: hostRecordOwnerId ? 'host' : 'unknown',
+      selected_endpoint_record_device_id: logRecordId ?? undefined,
+      selected_endpoint_record_role: logRecordRole,
       local_beap_endpoint: prov.local_beap_endpoint,
       peer_advertised_beap_endpoint: prov.peer_advertised_beap_endpoint,
       repaired_from_local_endpoint: false,
-      endpoint_owner_device_id: peerHost,
-      endpoint_owner_role: 'host',
+      endpoint_owner_device_id: logOwnerId,
+      endpoint_owner_role: isPeerMissing ? 'unknown' : isLocalProv ? 'sandbox' : 'host',
       decision: 'deny',
       reason: code,
     })
@@ -541,7 +573,9 @@ export async function listHostCapabilities(
         ? 'HOST_DIRECT_ENDPOINT_MISSING'
         : code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING
           ? 'HOST_AI_ENDPOINT_PROVENANCE_MISSING'
-          : 'HOST_AI_ENDPOINT_OWNER_MISMATCH'
+          : code === InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING
+            ? 'HOST_AI_PEER_ENDPOINT_MISSING'
+            : 'HOST_AI_ENDPOINT_OWNER_MISMATCH'
     logHostAiStage({
       chain,
       stage: 'capabilities_request',
@@ -570,7 +604,9 @@ export async function listHostCapabilities(
         ? 'host_direct_endpoint_missing'
         : code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING
           ? 'host_ai_endpoint_provenance_missing'
-          : 'host_ai_endpoint_owner_mismatch',
+          : code === InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING
+            ? 'host_ai_peer_endpoint_missing'
+            : 'host_ai_endpoint_owner_mismatch',
     )
     console.log(
       `[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=${code} deny_detail=${prov.host_ai_endpoint_deny_detail ?? 'n/a'}`,
@@ -579,7 +615,7 @@ export async function listHostCapabilities(
       ok: false,
       reason: code,
       hostAiEndpointDenyDetail: prov.host_ai_endpoint_deny_detail,
-      hostAiEndpointDiagnostics: hostAiDiagnosticsFromFailedProv(prov, ingestUrl, currentDevice),
+      hostAiEndpointDiagnostics: hostAiDiagnosticsFromFailedProv(prov, ingestUrl, currentDevice, peerHost),
     }
   }
 

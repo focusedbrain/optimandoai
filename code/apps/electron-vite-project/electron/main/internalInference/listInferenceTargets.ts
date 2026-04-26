@@ -375,6 +375,7 @@ function isHostAiHttpEndpointProvenanceClassFailure(code: string): boolean {
   return (
     code === InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING ||
     code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING ||
+    code === InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING ||
     code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH
   )
 }
@@ -383,6 +384,9 @@ function hostP2pUiPhaseForHostEndpointProvenance(
   code: string,
   hostAiEndpointDenyDetail: string | undefined,
 ): HostP2pUiPhase {
+  if (code === InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING) {
+    return 'host_endpoint_not_advertised'
+  }
   if (
     code === InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING ||
     code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING
@@ -460,6 +464,7 @@ function hostAiStructuredReasonForProbeCode(code: string): HostAiStructuredUnava
       return 'pairing_stale'
     case InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING:
     case InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING:
+    case InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING:
       return 'host_endpoint_not_advertised'
     case InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH:
       return 'endpoint_provenance_missing'

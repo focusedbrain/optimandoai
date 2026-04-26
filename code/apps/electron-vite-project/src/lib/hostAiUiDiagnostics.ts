@@ -19,6 +19,7 @@ export type HostAiEndpointDiagnostics = {
 /** Must match `InternalInferenceErrorCode` in main where applicable. */
 export const HostAiProbeCode = {
   HOST_AI_ENDPOINT_OWNER_MISMATCH: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
+  HOST_AI_PEER_ENDPOINT_MISSING: 'HOST_AI_PEER_ENDPOINT_MISSING',
   HOST_AI_ENDPOINT_PROVENANCE_MISSING: 'HOST_AI_ENDPOINT_PROVENANCE_MISSING',
   HOST_DIRECT_ENDPOINT_MISSING: 'HOST_DIRECT_ENDPOINT_MISSING',
   PROBE_AUTH_REJECTED: 'PROBE_AUTH_REJECTED',
@@ -33,6 +34,8 @@ export const HOST_AI_MSG = {
   ownerMismatch:
     'Host AI endpoint rejected: the selected endpoint appears to belong to this device, not the paired Host.',
   provenanceMissing: 'Host AI endpoint missing: the Host has not advertised a trusted endpoint yet.',
+  /** Paired Host direct BEAP was never received on the relay/header path; ledger only shows this device’s own ingest. */
+  hostEndpointNotPublished: 'Host AI: the paired Host has not published a reachable direct endpoint yet. Open WR Desk on the Host with Host AI enabled, or wait for the relay to deliver the host advertisement.',
   authRejected: 'Host AI auth rejected: the paired Host refused the request.',
   rateLimited: 'Host AI temporarily rate-limited. Wait briefly or reduce repeated probes.',
   relayNotReady: 'Host AI relay/WebRTC path is not ready yet.',
@@ -92,6 +95,9 @@ export function hostAiUserFacingMessageFromTarget(
 
   if (code === HostAiProbeCode.HOST_AI_ENDPOINT_OWNER_MISMATCH) {
     return { primary: HOST_AI_MSG.ownerMismatch, hint: null }
+  }
+  if (code === HostAiProbeCode.HOST_AI_PEER_ENDPOINT_MISSING) {
+    return { primary: HOST_AI_MSG.hostEndpointNotPublished, hint: null }
   }
   if (code === HostAiProbeCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING || code === HostAiProbeCode.HOST_DIRECT_ENDPOINT_MISSING) {
     return { primary: HOST_AI_MSG.provenanceMissing, hint: null }

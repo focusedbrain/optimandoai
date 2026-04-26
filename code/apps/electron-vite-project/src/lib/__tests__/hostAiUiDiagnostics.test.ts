@@ -13,6 +13,12 @@ describe('hostAiUserFacingMessageFromTarget', () => {
     })
     expect(m?.primary).toBe(HOST_AI_MSG.ownerMismatch)
   })
+  it('maps HOST_AI_PEER_ENDPOINT_MISSING to host-not-published string', () => {
+    const m = hostAiUserFacingMessageFromTarget({
+      inference_error_code: HostAiProbeCode.HOST_AI_PEER_ENDPOINT_MISSING,
+    })
+    expect(m?.primary).toBe(HOST_AI_MSG.hostEndpointNotPublished)
+  })
   it('maps HOST_AI_ENDPOINT_PROVENANCE_MISSING to product string', () => {
     const m = hostAiUserFacingMessageFromTarget({
       inference_error_code: HostAiProbeCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING,

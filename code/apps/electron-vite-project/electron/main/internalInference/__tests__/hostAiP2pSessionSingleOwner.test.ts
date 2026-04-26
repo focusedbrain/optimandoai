@@ -65,6 +65,8 @@ describe('ensureHostAiP2pSession single-owner', () => {
     vi.unstubAllEnvs()
     vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
+    // WebRTC offer start is async and never completes in this mock; off keeps ensureSession fast.
+    vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '0')
     resetP2pInferenceFlagsForTests()
     _resetP2pInferenceSessionsForTests()
     getInstanceIdMock.mockReturnValue('dev-sand-1')

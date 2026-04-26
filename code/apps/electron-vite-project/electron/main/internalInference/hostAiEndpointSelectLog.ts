@@ -13,7 +13,8 @@ export function logHostAiEndpointSelect(p: {
   local_derived_role: 'sandbox' | 'host' | 'unknown'
   peer_device_id: string
   peer_derived_role: 'sandbox' | 'host' | 'unknown'
-  selected_endpoint: string
+  /** When resolution fails with no valid Host URL, null. */
+  selected_endpoint: string | null
   /** @deprecated use selected_endpoint_provenance */
   selected_endpoint_source?: HostAiSelectedEndpointProvenance
   selected_endpoint_provenance?: HostAiSelectedEndpointProvenance
@@ -24,7 +25,8 @@ export function logHostAiEndpointSelect(p: {
   local_beap_endpoint?: string | null
   peer_advertised_beap_endpoint?: string | null
   repaired_from_local_endpoint?: boolean
-  endpoint_owner_device_id: string
+  /** Owning device id of the *selected* URL (null when no selection / Host not yet advertised). */
+  endpoint_owner_device_id: string | null
   endpoint_owner_role: 'host' | 'sandbox' | 'unknown'
   decision: 'probe' | 'deny' | 'skip'
   reason?: string

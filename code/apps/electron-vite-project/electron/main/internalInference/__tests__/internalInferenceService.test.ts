@@ -307,6 +307,7 @@ describe('host dispatch with mocks', () => {
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_REQUEST_OVER_P2P', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT', '0')
     resetP2pInferenceFlagsForTests()
     getHandshakeRecord.mockReturnValue(defaultRecord({}))
     const res: { status?: number; body?: string } = {}

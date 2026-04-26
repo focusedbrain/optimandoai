@@ -120,7 +120,7 @@ describe('resolveSandboxToHostHttpDirectIngest', () => {
     resetHostAdvertisedMvpDirectForTests()
   })
 
-  it('A: no peer ad and only local sandbox direct in ledger/caller → owner mismatch (must not use as host)', () => {
+  it('A: no peer ad and only local sandbox direct in ledger/caller → HOST_AI_PEER_ENDPOINT_MISSING (must not use as host)', () => {
     const r = resolveSandboxToHostHttpDirectIngest(
       db,
       'hs-a',
@@ -129,8 +129,8 @@ describe('resolveSandboxToHostHttpDirectIngest', () => {
     )
     expect(r.ok).toBe(false)
     if (r.ok) return
-    expect(r.code).toBe(InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH)
-    expect(r.host_ai_endpoint_deny_detail).toBe('self_local_beap_selected')
+    expect(r.code).toBe(InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING)
+    expect(r.host_ai_endpoint_deny_detail).toBe('peer_host_beap_not_advertised')
     expect(r.selected_endpoint_provenance).toBe('local_beap')
   })
 
@@ -221,7 +221,7 @@ describe('resolveSandboxToHostHttpDirectIngest', () => {
     expect(r.host_ai_endpoint_deny_detail).toBe('provenance_incomplete')
   })
 
-  it('peer ad that matches local BEAP is rejected and cleared (no usable selection)', () => {
+  it('C: peer ad that matches local BEAP → OWNER_MISMATCH / self_local_beap_selected (hard reject before meaningful host probe)', () => {
     const hid = 'hs-poison'
     setHostAdvertisedMvpDirectForTests(hid, LOCAL_SANDBOX_DIRECT)
     const r = resolveSandboxToHostHttpDirectIngest(
@@ -325,6 +325,7 @@ describe('provenance error contract', () => {
   it('D: terminal reasons exclude BEAP role gate (policy GET must be skipped in UI for these codes only)', () => {
     const isTerminal = (code: string) =>
       code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH ||
+      code === InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING ||
       code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING ||
       code === InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING
     expect(isTerminal(InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH)).toBe(true)

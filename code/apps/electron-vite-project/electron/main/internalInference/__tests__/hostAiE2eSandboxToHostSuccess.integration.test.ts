@@ -7,11 +7,11 @@
  * Run from the repo root that contains `vitest.config.ts` (this workspace: `code/code`):
  * `pnpm vitest run apps/electron-vite-project/electron/main/internalInference/__tests__/hostAiE2eSandboxToHostSuccess.integration.test.ts --config vitest.config.ts`
  *
- * Covers: (1) self-BEAP + no peer ad → `HOST_AI_ENDPOINT_OWNER_MISMATCH` (no HTTP).
+ * Covers: (1) self-BEAP + no peer ad → `HOST_AI_PEER_ENDPOINT_MISSING` (no HTTP).
  * (2) Relay-seeded host-owned distinct BEAP + successful capabilities POST → `available` row,
  *     `hostWireOllamaReachable` from host wire. (3) Host list path does not depend on
  *     sandbox-local Ollama. (4) Two models + Ollama on host in wire. (5) No env/test hook
- *     disables `HOST_AI_ENDPOINT_OWNER_MISMATCH` enforcement.
+ *     disables peer-endpoint / owner-mismatch enforcement.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -271,7 +271,7 @@ describe('Host AI E2E — sandbox ↔ host (HTTP capabilities path)', () => {
   })
 
   it('rejects HOST_AI when ledger/caller point at this device’s BEAP and there is no peer-advertised endpoint (selected === local, peer ad null)', async () => {
-    // No setHostAdvertisedMvpDirectForTests → resolveSandboxToHostHttpDirectIngest: self_local_beap_selected
+    // No setHostAdvertisedMvpDirectForTests → resolveSandbox: peer_host_beap_not_advertised
     fetchMock.mockImplementation(() => {
       throw new Error('HTTP must not be reached when provenance fails before POST')
     })
@@ -281,11 +281,12 @@ describe('Host AI E2E — sandbox ↔ host (HTTP capabilities path)', () => {
     const t = r.targets[0]!
     expect(t.kind).toBe('host_internal')
     expect(t.available).toBe(false)
-    expect(t.inference_error_code).toBe(InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH)
+    expect(t.inference_error_code).toBe(InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING)
     expect(t.host_ai_endpoint_diagnostics).toBeDefined()
     expect(t.host_ai_endpoint_diagnostics?.local_device_id).toBe(SANDBOX_DEVICE_ID)
     expect(t.host_ai_endpoint_diagnostics?.peer_host_device_id).toBe(HOST_DEVICE_ID)
-    expect(t.host_ai_endpoint_diagnostics?.selected_endpoint).toBe(LOCAL_SANDBOX_BEAP)
+    expect(t.host_ai_endpoint_diagnostics?.selected_endpoint).toBeNull()
+    expect(t.host_ai_endpoint_diagnostics?.selected_endpoint_owner).toBeNull()
     expect(t.host_ai_endpoint_diagnostics?.local_beap_endpoint).toBe(LOCAL_SANDBOX_BEAP)
     expect(t.host_ai_endpoint_diagnostics?.peer_advertised_beap_endpoint).toBeNull()
     expect(fetchMock).not.toHaveBeenCalled()

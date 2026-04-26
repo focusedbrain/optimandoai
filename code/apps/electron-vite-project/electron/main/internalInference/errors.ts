@@ -87,6 +87,11 @@ export const InternalInferenceErrorCode = {
   HOST_AI_ENDPOINT_OWNER_MISMATCH: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
   /** Handshake row cannot establish host coordination id (or other binding) to vet counterparty direct BEAP. */
   HOST_AI_ENDPOINT_PROVENANCE_MISSING: 'HOST_AI_ENDPOINT_PROVENANCE_MISSING',
+  /**
+   * Sandbox→Host: no peer-issued or relay-delivered host BEAP advertisement and the ledger/caller would
+   * only point at this device’s own BEAP — do not probe; Host must publish first.
+   */
+  HOST_AI_PEER_ENDPOINT_MISSING: 'HOST_AI_PEER_ENDPOINT_MISSING',
   /** Host peer has no direct MVP-LAN counterparty URL; do not substitute local sandbox URL. */
   HOST_DIRECT_ENDPOINT_MISSING: 'HOST_DIRECT_ENDPOINT_MISSING',
   /**

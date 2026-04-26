@@ -455,7 +455,7 @@ describe('direct Host inference — authorization (Sandbox inbound result)', () 
       end: () => {},
     } as any
     await tryHandleInternalServiceP2P({ prepare: () => ({ run: () => {} }) } as any, requestPayload(), res)
-    expect(r.status).toBe(400)
+    expect(r.status).toBe(403)
   })
 })
 
