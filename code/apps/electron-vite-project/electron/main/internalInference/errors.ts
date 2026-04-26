@@ -85,8 +85,17 @@ export const InternalInferenceErrorCode = {
   HOST_AI_DIRECT_AUTH_MISSING: 'HOST_AI_DIRECT_AUTH_MISSING',
   /** Sandbox→Host probe would POST to this device’s own direct BEAP or mismatched host owner (selection bug). */
   HOST_AI_ENDPOINT_OWNER_MISMATCH: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
+  /** Handshake row cannot establish host coordination id (or other binding) to vet counterparty direct BEAP. */
+  HOST_AI_ENDPOINT_PROVENANCE_MISSING: 'HOST_AI_ENDPOINT_PROVENANCE_MISSING',
   /** Host peer has no direct MVP-LAN counterparty URL; do not substitute local sandbox URL. */
   HOST_DIRECT_ENDPOINT_MISSING: 'HOST_DIRECT_ENDPOINT_MISSING',
+  /**
+   * Mis-attributed: Sandbox local Ollama unreachable; must not be shown as the **paired Host** Ollama down
+   * when Host capabilities advertise the Host Ollama as available.
+   */
+  OLLAMA_UNREACHABLE_ON_SANDBOX: 'OLLAMA_UNREACHABLE_ON_SANDBOX',
+  /** Capabilities: Host is reachable; no Host-side provider (Ollama, etc.) available for the chosen mode. */
+  HOST_PROVIDER_UNAVAILABLE: 'HOST_PROVIDER_UNAVAILABLE',
   /** Sandbox has an internal S→H row but the Host machine has no matching active handshake (asymmetric DB). */
   HOST_AI_LEDGER_ASYMMETRIC: 'HOST_AI_LEDGER_ASYMMETRIC',
   /** Reciprocity proof expired; user must re-link the Host. */

@@ -18,6 +18,12 @@ type HostP2pUiPhase =
   | 'probe_invalid_response'
   | 'probe_host_ollama'
   | 'probe_local_ollama'
+  | 'host_endpoint_not_advertised'
+  | 'host_endpoint_rejected_self'
+  | 'host_endpoint_mismatch'
+  | 'host_auth_rejected'
+  | 'host_transport_unavailable'
+  | 'host_provider_unavailable'
 
 /** Top chat + WR Chat: one Host row in the model menu (or collapsed label). */
 export type HostModelSelectorRowUiIn = {
@@ -35,7 +41,6 @@ const ELL = '\u2026'
 
 const TITLE_CONNECTING = 'Host AI · connecting…'
 const TITLE_RELAY_RECONNECTING = 'Host AI · reconnecting to relay…'
-const TITLE_P2P_UNAVAIL = 'Host AI · P2P unavailable'
 const TITLE_NO_ACTIVE_MODEL = 'Host AI · no active model'
 const TITLE_DISABLED_BY_HOST = 'Host AI · disabled by Host'
 const TITLE_INCOMPLETE = 'Host AI · incomplete'
@@ -43,12 +48,16 @@ const TITLE_PAIRING = 'Host AI · pairing'
 const TITLE_LEGACY_HTTP = 'Host AI · legacy endpoint unavailable'
 const TITLE_UNAVAILABLE = 'Host AI · unavailable'
 const TITLE_HIDDEN = 'Host AI unavailable'
-const TITLE_PROBE_AUTH = 'Authentication failed. Re-pair to refresh tokens.'
 const TITLE_PROBE_RL = 'Host is throttling requests. Try again in a moment.'
 const TITLE_PROBE_GW = 'Host orchestrator returned an error.'
 const TITLE_PROBE_NET = "Host machine isn't reachable on the network."
 const TITLE_PROBE_JSON = "Host responded but the format wasn't recognized."
-const TITLE_PROBE_OLLAMA = "Host's local AI provider isn't running."
+const TITLE_PROBE_OLLAMA = "The host's local model provider is not available."
+const TITLE_HOST_ENDPOINT_NOT_AD = 'Host has not published a direct endpoint for this pairing.'
+const TITLE_HOST_ENDPOINT_SELF = "Host endpoint points to this device; use the Host computer's advertised address."
+const TITLE_HOST_ENDPOINT_MISMATCH = 'The stored host address does not match the paired host.'
+const TITLE_HOST_AUTH = 'Host authentication was rejected. Re-pair to refresh access.'
+const TITLE_HOST_TRANSPORT = 'Host transport is unavailable. Check network, relay, and P2P settings.'
 
 function hostDisplayName(t: HostInferenceTargetRow | null | undefined): string {
   return (t?.host_computer_name?.trim() || 'Host').trim() || 'Host'
@@ -123,7 +132,9 @@ function fallbackTitleForPhase(phase: HostP2pUiPhase | undefined, t: HostInferen
       return 'Host AI · ready'
     }
     case 'p2p_unavailable':
-      return TITLE_P2P_UNAVAIL
+      return 'Host transport is unavailable'
+    case 'host_transport_unavailable':
+      return TITLE_HOST_TRANSPORT
     case 'legacy_http_invalid':
       return TITLE_LEGACY_HTTP
     case 'policy_disabled':
@@ -133,7 +144,8 @@ function fallbackTitleForPhase(phase: HostP2pUiPhase | undefined, t: HostInferen
     case 'hidden':
       return TITLE_HIDDEN
     case 'probe_access_denied':
-      return TITLE_PROBE_AUTH
+    case 'host_auth_rejected':
+      return TITLE_HOST_AUTH
     case 'probe_rate_limited':
       return TITLE_PROBE_RL
     case 'probe_gateway_error':
@@ -144,7 +156,14 @@ function fallbackTitleForPhase(phase: HostP2pUiPhase | undefined, t: HostInferen
       return TITLE_PROBE_JSON
     case 'probe_host_ollama':
     case 'probe_local_ollama':
+    case 'host_provider_unavailable':
       return TITLE_PROBE_OLLAMA
+    case 'host_endpoint_not_advertised':
+      return TITLE_HOST_ENDPOINT_NOT_AD
+    case 'host_endpoint_rejected_self':
+      return TITLE_HOST_ENDPOINT_SELF
+    case 'host_endpoint_mismatch':
+      return TITLE_HOST_ENDPOINT_MISMATCH
     default:
       return null
   }

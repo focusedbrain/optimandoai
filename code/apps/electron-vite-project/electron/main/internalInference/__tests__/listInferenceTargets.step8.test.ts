@@ -2,6 +2,8 @@
  * STEP 8 / STEP 9 — Sandbox Host AI target discovery + capabilities + regression.
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
+
+vi.mock('electron', () => ({ app: { getPath: () => '/tmp/wrdesk-list-inference-step8-test' } }))
 import type { HandshakeRecord, PartyIdentity } from '../../handshake/types'
 import { InternalInferenceErrorCode } from '../errors'
 import { assertP2pEndpointDirect, p2pEndpointKind } from '../policy'

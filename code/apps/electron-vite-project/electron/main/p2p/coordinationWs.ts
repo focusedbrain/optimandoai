@@ -684,6 +684,12 @@ export function createCoordinationWsClient(
             m.runHandshakeHealthRemoteCheckAfterRelayConnect(getDb(), cu, token),
           )
         }
+        const ddb = getDb()
+        if (ddb) {
+          void import('../internalInference/hostAiDirectBeapAdPublish').then((m) =>
+            m.publishHostAiDirectBeapAdvertisementsForEligibleHost(ddb, { context: 'coordination_ws_open' }),
+          )
+        }
       })
 
       ws.on('message', (data: Buffer | string) => {
@@ -713,6 +719,7 @@ export function createCoordinationWsClient(
             tryHandleCoordinationP2pSignal(
               msg as Record<string, unknown>,
               typeof (msg as { id?: string }).id === 'string' ? (msg as { id: string }).id : 'unknown',
+              getDb,
             )
           ) {
             return

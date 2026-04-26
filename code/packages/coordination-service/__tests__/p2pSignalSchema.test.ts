@@ -81,3 +81,47 @@ describe('tryParseP2pSignalRequest — permissive candidate / schema_version', (
     if (!r.ok) expect(r.reason).toBe('field_required')
   })
 })
+
+function beapAdBase(overrides: Record<string, unknown> = {}) {
+  const t0 = Date.now()
+  return {
+    schema_version: 1,
+    signal_type: 'p2p_host_ai_direct_beap_ad',
+    handshake_id: 'h1',
+    correlation_id: 'c1',
+    session_id: 's1',
+    sender_device_id: 'dev-a',
+    receiver_device_id: 'dev-b',
+    created_at: new Date(t0).toISOString(),
+    expires_at: new Date(t0 + 120_000).toISOString(),
+    endpoint_url: 'http://192.168.1.5:9/beap/ingest',
+    ad_seq: 1,
+    owner_role: 'host',
+    ...overrides,
+  }
+}
+
+describe('p2p_host_ai_direct_beap_ad', () => {
+  it('accepts 120s ttl and endpoint_url + ad_seq', () => {
+    const body = JSON.stringify(beapAdBase())
+    const r = tryParseP2pSignalRequest(body, P2P_SIGNAL_MAX_BODY_BYTES)
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.signalType).toBe('p2p_host_ai_direct_beap_ad')
+      expect((r.payload as { endpoint_url?: string }).endpoint_url).toContain('beap/ingest')
+    }
+  })
+
+  it('rejects ttl below 60s for beap ad', () => {
+    const t0 = Date.now()
+    const body = JSON.stringify(
+      beapAdBase({
+        created_at: new Date(t0).toISOString(),
+        expires_at: new Date(t0 + 30_000).toISOString(),
+      }),
+    )
+    const r = tryParseP2pSignalRequest(body, P2P_SIGNAL_MAX_BODY_BYTES)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toBe('signaling_ttl')
+  })
+})

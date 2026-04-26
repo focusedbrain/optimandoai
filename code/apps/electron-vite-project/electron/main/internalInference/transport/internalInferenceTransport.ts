@@ -14,7 +14,8 @@ import { requestHostInferenceCapabilitiesOverDataChannel } from '../p2pDc/p2pDcC
 import { sendHostInferenceRequestOverP2pDataChannel, sendInternalInferenceWireOverP2pDataChannel } from '../p2pDc/p2pDcInference'
 import { getSessionState, P2pSessionPhase } from '../p2pSession/p2pInferenceSessionManager'
 import { isP2pDataChannelUpForHandshake } from '../p2pSession/p2pSessionWait'
-import { resolveSandboxToHostHttpDirectIngest, tryRepairP2pEndpointFromHostAdvertisement } from '../p2pEndpointRepair'
+import { resolveSandboxToHostHttpDirectIngest, tryRepairP2pEndpointFromHostAdvertisement, type SandboxToHostHttpDirectIngestResult } from '../p2pEndpointRepair'
+import type { HostAiEndpointDiagnostics } from '../../../../src/lib/hostAiUiDiagnostics'
 import { logHostAiEndpointSelect } from '../hostAiEndpointSelectLog'
 import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
 import {
@@ -170,13 +171,59 @@ function redactP2pLogLine(m: string | undefined | null): string {
 /**
  * List Host capabilities (POST internal_inference_capabilities_request, response body on same connection).
  */
+function hostAiDiagnosticsFromFailedProv(
+  prov: Extract<SandboxToHostHttpDirectIngestResult, { ok: false }>,
+  ingestUrl: string,
+  currentDevice: string,
+): HostAiEndpointDiagnostics {
+  return {
+    local_device_id: currentDevice,
+    peer_host_device_id: prov.hostDeviceId,
+    selected_endpoint: (ingestUrl && ingestUrl.trim()) || prov.ledger_p2p_endpoint || null,
+    selected_endpoint_owner: prov.hostDeviceId,
+    local_beap_endpoint: prov.local_beap_endpoint,
+    peer_advertised_beap_endpoint: prov.peer_advertised_beap_endpoint,
+    rejection_reason: `${String(prov.code)} (${String(prov.host_ai_endpoint_deny_detail)})`,
+  }
+}
+
+function hostAiDiagnosticsFromDirectRowDeny(input: {
+  currentDevice: string
+  peerHost: string
+  selectedEndpoint: string
+  localBeap: string | null
+  peerAdvertised: string | null
+  code: string
+  detail: string
+}): HostAiEndpointDiagnostics {
+  return {
+    local_device_id: input.currentDevice,
+    peer_host_device_id: input.peerHost,
+    selected_endpoint: input.selectedEndpoint,
+    selected_endpoint_owner: input.peerHost,
+    local_beap_endpoint: input.localBeap,
+    peer_advertised_beap_endpoint: input.peerAdvertised,
+    rejection_reason: `${input.code} (${input.detail})`,
+  }
+}
+
+export type ListHostCapabilitiesFailure = {
+  ok: false
+  reason: string
+  responseStatus?: number
+  networkErrorMessage?: string
+  /**
+   * When `reason` is a terminal endpoint-trust / provenance `InternalInferenceErrorCode`, mirrors
+   * `resolveSandboxToHostHttpDirectIngest` (`self_endpoint_selected` vs `host_owner_mismatch`, etc.) for UI.
+   */
+  hostAiEndpointDenyDetail?: string
+  hostAiEndpointDiagnostics?: HostAiEndpointDiagnostics
+}
+
 export async function listHostCapabilities(
   handshakeId: string,
   opts: ListHostCapabilitiesOpts,
-): Promise<
-  | { ok: true; wire: InternalInferenceCapabilitiesResultWire }
-  | { ok: false; reason: string; responseStatus?: number; networkErrorMessage?: string }
-> {
+): Promise<{ ok: true; wire: InternalInferenceCapabilitiesResultWire } | ListHostCapabilitiesFailure> {
   const hid = handshakeId.trim()
   const { record, ingestUrl, token, timeoutMs, correlationChain: chainOpt, beapCorrelationId: corrOpt } = opts
   const chain = (chainOpt && chainOpt.trim() ? chainOpt.trim() : null) || newHostAiCorrelationChain()
@@ -476,7 +523,9 @@ export async function listHostCapabilities(
       peer_device_id: peerHost,
       peer_derived_role: cids.peerRole,
       selected_endpoint: ingestUrl,
-      selected_endpoint_source: 'none',
+      selected_endpoint_provenance: prov.selected_endpoint_provenance,
+      host_ai_endpoint_deny_detail: prov.host_ai_endpoint_deny_detail,
+      host_ai_resolution_category: prov.resolutionCategory,
       selected_endpoint_record_device_id: hostRecordOwnerId,
       selected_endpoint_record_role: hostRecordOwnerId ? 'host' : 'unknown',
       local_beap_endpoint: prov.local_beap_endpoint,
@@ -487,7 +536,12 @@ export async function listHostCapabilities(
       decision: 'deny',
       reason: code,
     })
-    const fc = code === 'HOST_DIRECT_ENDPOINT_MISSING' ? 'HOST_DIRECT_ENDPOINT_MISSING' : 'HOST_AI_ENDPOINT_OWNER_MISMATCH'
+    const fc =
+      code === InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING
+        ? 'HOST_DIRECT_ENDPOINT_MISSING'
+        : code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING
+          ? 'HOST_AI_ENDPOINT_PROVENANCE_MISSING'
+          : 'HOST_AI_ENDPOINT_OWNER_MISMATCH'
     logHostAiStage({
       chain,
       stage: 'capabilities_request',
@@ -512,10 +566,21 @@ export async function listHostCapabilities(
       hid,
       'capabilities',
       'unavailable',
-      code === 'HOST_DIRECT_ENDPOINT_MISSING' ? 'host_direct_endpoint_missing' : 'host_ai_endpoint_owner_mismatch',
+      code === InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING
+        ? 'host_direct_endpoint_missing'
+        : code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING
+          ? 'host_ai_endpoint_provenance_missing'
+          : 'host_ai_endpoint_owner_mismatch',
     )
-    console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=${code}`)
-    return { ok: false, reason: code }
+    console.log(
+      `[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=${code} deny_detail=${prov.host_ai_endpoint_deny_detail ?? 'n/a'}`,
+    )
+    return {
+      ok: false,
+      reason: code,
+      hostAiEndpointDenyDetail: prov.host_ai_endpoint_deny_detail,
+      hostAiEndpointDiagnostics: hostAiDiagnosticsFromFailedProv(prov, ingestUrl, currentDevice),
+    }
   }
 
   const urlToUse = prov.url
@@ -528,7 +593,8 @@ export async function listHostCapabilities(
         peer_device_id: peerHost,
         peer_derived_role: cids.peerRole,
         selected_endpoint: urlToUse,
-        selected_endpoint_source: prov.selected_endpoint_source,
+        selected_endpoint_provenance: prov.selected_endpoint_provenance,
+        host_ai_resolution_category: prov.resolutionCategory,
         selected_endpoint_record_device_id: hostRecordOwnerId,
         selected_endpoint_record_role: 'unknown',
         local_beap_endpoint: prov.local_beap_endpoint,
@@ -551,7 +617,20 @@ export async function listHostCapabilities(
       })
       touchState(hid, 'capabilities', 'unavailable', 'host_direct_endpoint_missing')
       console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=HOST_DIRECT_ENDPOINT_MISSING`)
-      return { ok: false, reason: 'HOST_DIRECT_ENDPOINT_MISSING' }
+      return {
+        ok: false,
+        reason: 'HOST_DIRECT_ENDPOINT_MISSING',
+        hostAiEndpointDenyDetail: 'no_host_owner_on_row',
+        hostAiEndpointDiagnostics: hostAiDiagnosticsFromDirectRowDeny({
+          currentDevice,
+          peerHost,
+          selectedEndpoint: urlToUse,
+          localBeap: prov.local_beap_endpoint,
+          peerAdvertised: prov.peer_advertised_beap_endpoint,
+          code: 'HOST_DIRECT_ENDPOINT_MISSING',
+          detail: 'no_host_owner_on_row',
+        }),
+      }
     }
     if (hostRecordOwnerId !== peerHost) {
       logHostAiEndpointSelect({
@@ -561,7 +640,9 @@ export async function listHostCapabilities(
         peer_device_id: peerHost,
         peer_derived_role: cids.peerRole,
         selected_endpoint: urlToUse,
-        selected_endpoint_source: prov.selected_endpoint_source,
+        selected_endpoint_provenance: prov.selected_endpoint_provenance,
+        host_ai_resolution_category: prov.resolutionCategory,
+        host_ai_endpoint_deny_detail: 'host_owner_mismatch',
         selected_endpoint_record_device_id: hostRecordOwnerId,
         selected_endpoint_record_role: 'host',
         local_beap_endpoint: prov.local_beap_endpoint,
@@ -584,7 +665,20 @@ export async function listHostCapabilities(
       })
       touchState(hid, 'capabilities', 'unavailable', 'host_ai_endpoint_owner_mismatch')
       console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=HOST_AI_ENDPOINT_OWNER_MISMATCH`)
-      return { ok: false, reason: 'HOST_AI_ENDPOINT_OWNER_MISMATCH' }
+      return {
+        ok: false,
+        reason: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
+        hostAiEndpointDenyDetail: 'host_owner_mismatch',
+        hostAiEndpointDiagnostics: hostAiDiagnosticsFromDirectRowDeny({
+          currentDevice,
+          peerHost,
+          selectedEndpoint: urlToUse,
+          localBeap: prov.local_beap_endpoint,
+          peerAdvertised: prov.peer_advertised_beap_endpoint,
+          code: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
+          detail: 'host_owner_mismatch',
+        }),
+      }
     }
     if (currentDevice === peerHost) {
       logHostAiEndpointSelect({
@@ -594,7 +688,9 @@ export async function listHostCapabilities(
         peer_device_id: peerHost,
         peer_derived_role: cids.peerRole,
         selected_endpoint: urlToUse,
-        selected_endpoint_source: prov.selected_endpoint_source,
+        selected_endpoint_provenance: prov.selected_endpoint_provenance,
+        host_ai_resolution_category: prov.resolutionCategory,
+        host_ai_endpoint_deny_detail: 'self_endpoint_selected',
         selected_endpoint_record_device_id: hostRecordOwnerId,
         selected_endpoint_record_role: 'host',
         local_beap_endpoint: prov.local_beap_endpoint,
@@ -617,7 +713,20 @@ export async function listHostCapabilities(
       })
       touchState(hid, 'capabilities', 'unavailable', 'host_ai_endpoint_owner_mismatch')
       console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=HOST_AI_ENDPOINT_OWNER_MISMATCH`)
-      return { ok: false, reason: 'HOST_AI_ENDPOINT_OWNER_MISMATCH' }
+      return {
+        ok: false,
+        reason: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
+        hostAiEndpointDenyDetail: 'self_endpoint_selected',
+        hostAiEndpointDiagnostics: hostAiDiagnosticsFromDirectRowDeny({
+          currentDevice,
+          peerHost,
+          selectedEndpoint: urlToUse,
+          localBeap: prov.local_beap_endpoint,
+          peerAdvertised: prov.peer_advertised_beap_endpoint,
+          code: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
+          detail: 'self_endpoint_selected',
+        }),
+      }
     }
   }
   logHostAiEndpointSelect({
@@ -627,7 +736,8 @@ export async function listHostCapabilities(
     peer_device_id: peerHost,
     peer_derived_role: cids.peerRole,
     selected_endpoint: urlToUse,
-    selected_endpoint_source: prov.selected_endpoint_source,
+    selected_endpoint_provenance: prov.selected_endpoint_provenance,
+    host_ai_resolution_category: prov.resolutionCategory,
     selected_endpoint_record_device_id: hostRecordOwnerId,
     selected_endpoint_record_role: 'host',
     local_beap_endpoint: prov.local_beap_endpoint,

@@ -94,6 +94,7 @@ function isHostAiProvenanceFailureTerminal(cap: {
   if (typeof cap.reason !== 'string') return false
   return (
     cap.reason === InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH ||
+    cap.reason === InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING ||
     cap.reason === InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING ||
     cap.reason === InternalInferenceErrorCode.HOST_AI_LEDGER_ASYMMETRIC ||
     cap.reason === InternalInferenceErrorCode.HOST_AI_PAIRING_STALE ||
@@ -450,6 +451,9 @@ export type ProbeHostPolicyResult =
       /** WebRTC: DC not up; do not treat as a terminal probe failure. */
       retryable?: boolean
       p2pNotReadyPhase?: string | null
+      /** From `listHostCapabilities` when the failure is a terminal `HOST_*` endpoint-trust / provenance code. */
+      hostAiEndpointDenyDetail?: string
+      hostAiEndpointDiagnostics?: import('../../../src/lib/hostAiUiDiagnostics').HostAiEndpointDiagnostics
     }
 
 /** At most one in-flight policy probe per handshake (renderer list polls share the same await). */
@@ -964,6 +968,11 @@ async function probeHostInferencePolicyFromSandboxImpl(
         message: 'endpoint_provenance',
         directP2pAvailable: true,
         p2pProbeClassification: P2P_CAPABILITY_PROBE.ENDPOINT_STALE_LAN_IP,
+        hostAiEndpointDenyDetail:
+          'hostAiEndpointDenyDetail' in capP2p && typeof (capP2p as { hostAiEndpointDenyDetail?: string }).hostAiEndpointDenyDetail === 'string'
+            ? (capP2p as { hostAiEndpointDenyDetail: string }).hostAiEndpointDenyDetail
+            : undefined,
+        hostAiEndpointDiagnostics: 'hostAiEndpointDiagnostics' in capP2p ? (capP2p as { hostAiEndpointDiagnostics?: import('../../../src/lib/hostAiUiDiagnostics').HostAiEndpointDiagnostics }).hostAiEndpointDiagnostics : undefined,
       }
     }
     if (!fP2p.p2pInferenceHttpFallback) {
@@ -1075,6 +1084,11 @@ async function probeHostInferencePolicyFromSandboxImpl(
       message: 'endpoint_provenance',
       directP2pAvailable: true,
       p2pProbeClassification: P2P_CAPABILITY_PROBE.ENDPOINT_STALE_LAN_IP,
+      hostAiEndpointDenyDetail:
+        'hostAiEndpointDenyDetail' in cap && typeof (cap as { hostAiEndpointDenyDetail?: string }).hostAiEndpointDenyDetail === 'string'
+          ? (cap as { hostAiEndpointDenyDetail: string }).hostAiEndpointDenyDetail
+          : undefined,
+      hostAiEndpointDiagnostics: 'hostAiEndpointDiagnostics' in cap ? (cap as { hostAiEndpointDiagnostics?: import('../../../src/lib/hostAiUiDiagnostics').HostAiEndpointDiagnostics }).hostAiEndpointDiagnostics : undefined,
     }
   }
 

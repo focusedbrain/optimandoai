@@ -1,3 +1,5 @@
+import { hostAiGenericP2pUnavailableLine } from './hostAiUiDiagnostics'
+
 /** Pure UI gates for Host inference (unit-tested; no Electron). */
 
 export type DirectP2pReachabilityStatus =
@@ -27,8 +29,8 @@ export function directP2pReachabilityCopyForSandboxToHost(
   }
   if (status === 'missing_endpoint') {
     return {
-      primary: 'Host AI · P2P unavailable',
-      hint: 'A reachable path to the Host is required. Check the handshake in Settings, then try again.',
+      primary: 'Host transport unavailable',
+      hint: 'If you expect a direct endpoint, ensure the Host has advertised a trusted direct BEAP address for this pairing (see Host AI diagnostics in chat when available).',
     }
   }
   return {
@@ -93,5 +95,5 @@ export function hostInferenceDirectUnavailableMessage(
   directP2pAvailable: boolean,
 ): string | null {
   if (directP2pAvailable) return null
-  return 'Host AI · P2P unavailable. Check that the Host is online, on a reachable path, and that firewalls or VPN allow the connection.'
+  return hostAiGenericP2pUnavailableLine()
 }

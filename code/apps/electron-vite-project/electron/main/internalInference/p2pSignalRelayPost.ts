@@ -496,3 +496,69 @@ export async function sendHostAiP2pSignalOutbound(params: {
     }
   })
 }
+
+/** Must stay within coordination-service `tryParseP2pSignalRequest` TTL for `p2p_host_ai_direct_beap_ad` (60s–600s). */
+const HOST_AI_BEAP_AD_TTL_MS = 300_000
+
+export function buildHostAiDirectBeapAdSignalBody(params: {
+  handshakeId: string
+  sessionId: string
+  senderDeviceId: string
+  receiverDeviceId: string
+  endpointUrl: string
+  adSeq: number
+}): string {
+  const correlationId = randomUUID()
+  const t0 = Date.now()
+  const createdAt = new Date(t0).toISOString()
+  const expiresAt = new Date(t0 + HOST_AI_BEAP_AD_TTL_MS).toISOString()
+  return JSON.stringify({
+    schema_version: P2P_SIGNAL_WIRE_SCHEMA_VERSION,
+    signal_type: 'p2p_host_ai_direct_beap_ad',
+    handshake_id: params.handshakeId,
+    correlation_id: correlationId,
+    session_id: params.sessionId,
+    sender_device_id: params.senderDeviceId,
+    receiver_device_id: params.receiverDeviceId,
+    created_at: createdAt,
+    expires_at: expiresAt,
+    endpoint_url: params.endpointUrl,
+    ad_seq: params.adSeq,
+    owner_role: 'host',
+  })
+}
+
+export async function postHostAiDirectBeapAdToCoordination(params: {
+  db: any
+  handshakeId: string
+  endpointUrl: string
+  senderDeviceId: string
+  receiverDeviceId: string
+  adSeq: number
+}): Promise<{ ok: boolean; status: number }> {
+  const base = coordinationBaseUrl(params.db)
+  if (!base) {
+    return { ok: false, status: 0 }
+  }
+  const token = getAccessToken()
+  if (!token?.trim()) {
+    return { ok: false, status: 401 }
+  }
+  const hid = params.handshakeId.trim()
+  const sessionId = `host_ai_beap_ad:${hid}:${params.adSeq}`
+  const body = buildHostAiDirectBeapAdSignalBody({
+    handshakeId: hid,
+    sessionId,
+    senderDeviceId: params.senderDeviceId.trim(),
+    receiverDeviceId: params.receiverDeviceId.trim(),
+    endpointUrl: params.endpointUrl.trim(),
+    adSeq: params.adSeq,
+  })
+  const postFn = p2pSignalRelayPostTestHooks.post ?? postP2pSignalToCoordination
+  try {
+    const res = await postFn(base, token.trim(), body)
+    return { ok: res.status === 200 || res.status === 202, status: res.status }
+  } catch {
+    return { ok: false, status: 0 }
+  }
+}

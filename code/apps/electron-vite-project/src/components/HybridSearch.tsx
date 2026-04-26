@@ -55,6 +55,7 @@ import {
 import { buildHostAiSelectorTooltip, hostModelSelectorRowUi } from '../lib/hostModelSelectorRowUi'
 import { isHostInferenceModelId, parseAnyHostInferenceModelId } from '../lib/hostInferenceModelIds'
 import { directP2pReachabilityCopyForSandboxToHost } from '../lib/hostInferenceUiGates'
+import { hostAiUserFacingMessageFromTarget, type HostAiEndpointDiagnostics } from '../lib/hostAiUiDiagnostics'
 import {
   appendHostAiAttributionLine,
   formatInternalInferenceErrorCode,
@@ -906,12 +907,25 @@ export default function HybridSearch({
     setModelMenuOpen(false)
   }, [availableModels])
 
+  const hostAiRowForStatusStrip = useMemo((): HostInferenceTargetRow | null => {
+    if (!isHostInferenceModelId(selectedModel)) return null
+    const p = parseAnyHostInferenceModelId(selectedModel)
+    if (!p?.handshakeId) return null
+    return hostInf.inferenceTargets.find((x) => x.handshake_id === p.handshakeId) ?? null
+  }, [selectedModel, hostInf.inferenceTargets])
+
   const hostDirectP2pStatusUi = useMemo(() => {
     if (!hostInf.treatAsSandboxForHostInternal || mode !== 'chat' || !isHostInferenceModelId(selectedModel)) {
       return null
     }
+    const fromProbe = hostAiUserFacingMessageFromTarget(hostAiRowForStatusStrip, {
+      hostWireOllamaReachableOverride: (hostAiRowForStatusStrip as { hostWireOllamaReachable?: boolean } | null)?.hostWireOllamaReachable,
+    })
+    if (fromProbe) {
+      return { primary: fromProbe.primary, hint: fromProbe.hint }
+    }
     return directP2pReachabilityCopyForSandboxToHost(hostInf.directReachability)
-  }, [hostInf.treatAsSandboxForHostInternal, hostInf.directReachability, mode, selectedModel])
+  }, [hostInf.treatAsSandboxForHostInternal, hostInf.directReachability, mode, selectedModel, hostAiRowForStatusStrip])
 
   useEffect(() => {
     setHostInfSuccess(false)
@@ -2299,6 +2313,38 @@ export default function HybridSearch({
           ) : null}
         </div>
       )}
+      {mode === 'chat' && hostInf.treatAsSandboxForHostInternal && (hostAiRowForStatusStrip as { host_ai_endpoint_diagnostics?: HostAiEndpointDiagnostics } | null)?.host_ai_endpoint_diagnostics ? (
+        (() => {
+          const d = (hostAiRowForStatusStrip as { host_ai_endpoint_diagnostics: HostAiEndpointDiagnostics }).host_ai_endpoint_diagnostics
+          return (
+            <div
+              className="hs-host-diag"
+              style={{
+                fontSize: 10,
+                color: 'var(--text-muted, #94a3b8)',
+                padding: '4px 10px 6px',
+                marginBottom: 4,
+                borderRadius: 6,
+                background: 'rgba(15, 23, 42, 0.45)',
+                border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+                lineHeight: 1.4,
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+              }}
+              role="status"
+              aria-label="Host AI endpoint diagnostics"
+            >
+              <div style={{ fontWeight: 600, color: 'var(--text-secondary, #cbd5e1)', marginBottom: 4, fontSize: 11, fontFamily: 'inherit' }}>Host AI diagnostics</div>
+              <div>local_device_id: {d.local_device_id || '—'}</div>
+              <div>peer_host_device_id: {d.peer_host_device_id || '—'}</div>
+              <div>selected_endpoint: {d.selected_endpoint || '—'}</div>
+              <div>selected_endpoint_owner: {d.selected_endpoint_owner || '—'}</div>
+              <div>local_beap_endpoint: {d.local_beap_endpoint || '—'}</div>
+              <div>peer_advertised_endpoint: {d.peer_advertised_beap_endpoint || '—'}</div>
+              <div>rejection_reason: {d.rejection_reason || '—'}</div>
+            </div>
+          )
+        })()
+      ) : null}
       {mode === 'chat' && (hostInfRunUi || hostInfSuccess) && (
         <div
           style={{

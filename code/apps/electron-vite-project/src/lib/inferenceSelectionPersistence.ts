@@ -307,8 +307,14 @@ export function isHostInferenceTargetDefinitivelyInvalidForRestore(t: Orchestrat
     sur === 'provider_not_ready' ||
     sur === 'no_models' ||
     sur === 'transport_not_ready' ||
+    sur === 'host_transport_unavailable' ||
     sur === 'capability_probe_failed' ||
     sur === 'auth_rejected' ||
+    sur === 'host_auth_rejected' ||
+    sur === 'host_endpoint_not_advertised' ||
+    sur === 'host_endpoint_rejected_self' ||
+    sur === 'host_endpoint_mismatch' ||
+    sur === 'host_provider_unavailable' ||
     sur === 'rate_limited' ||
     sur === 'gateway_error' ||
     sur === 'host_unreachable' ||
@@ -362,9 +368,11 @@ export function isHostInternalSelectionStaleForOrchestratorUi(
     if (isHostInferenceTargetPendingForRestore(t)) {
       return false
     }
-    if (isHostInferenceTargetDefinitivelyInvalidForRestore(t)) {
-      return true
-    }
+    /**
+     * A matching `host_internal` row is still in the list (even if disabled) — do not show
+     * "That Host AI selection is no longer in the list." Use the row’s probe/structured copy instead
+     * (`hostAiUserFacingMessageFromTarget` / p2pUiPhase on the target).
+     */
     return false
   }
 

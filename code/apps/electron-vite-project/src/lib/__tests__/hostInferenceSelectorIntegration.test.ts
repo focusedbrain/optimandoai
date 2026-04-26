@@ -553,7 +553,7 @@ describe('HOST_AI_STALE_INLINE — orchestrator stale UI (handshake + pending)',
     expect(isHostInternalSelectionStaleForOrchestratorUi(storedId, [], [])).toBe(true)
   })
 
-  it('stale when Host target is definitively invalid (policy)', () => {
+  it('not stale when Host row exists in IPC list (policy disabled) — show row copy, not "no longer in list"', () => {
     expect(
       isHostInternalSelectionStaleForOrchestratorUi(
         storedId,
@@ -568,10 +568,10 @@ describe('HOST_AI_STALE_INLINE — orchestrator stale UI (handshake + pending)',
           },
         ],
       ),
-    ).toBe(true)
+    ).toBe(false)
   })
 
-  it('C: saved Host AI selection is stale when ledger is asymmetric (pairing state)', () => {
+  it('C: not stale for ledger-asymmetric when IPC row exists — use structured failure copy on the row', () => {
     expect(
       isHostInternalSelectionStaleForOrchestratorUi(
         storedId,
@@ -587,7 +587,7 @@ describe('HOST_AI_STALE_INLINE — orchestrator stale UI (handshake + pending)',
           },
         ],
       ),
-    ).toBe(true)
+    ).toBe(false)
   })
 
   it('not stale for local/cloud model id', () => {

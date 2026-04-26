@@ -63,6 +63,8 @@ export type HostInferenceTargetRow = {
   failureCode?: string | null
   /** Paired host machine — orthogonal to sandbox-local Ollama. */
   inferenceTargetContext?: 'host_remote'
+  host_ai_endpoint_diagnostics?: import('../lib/hostAiUiDiagnostics').HostAiEndpointDiagnostics
+  hostWireOllamaReachable?: boolean
 }
 
 type PolicyState = 'unknown' | 'allow' | 'deny' | 'unreachable' | 'no_direct'

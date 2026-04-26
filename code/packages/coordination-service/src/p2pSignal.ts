@@ -14,6 +14,8 @@ export const P2P_SIGNAL_TYPES = [
   'p2p_inference_ice',
   'p2p_inference_close',
   'p2p_inference_error',
+  /** Host AI: authenticated relay envelope for the peer sandbox before first direct HTTP (bootstrap). */
+  'p2p_host_ai_direct_beap_ad',
 ] as const
 export type P2pSignalType = (typeof P2P_SIGNAL_TYPES)[number]
 
@@ -171,7 +173,27 @@ export function tryParseP2pSignalRequest(
   if (ttl <= 0) {
     return { ok: false, reason: 'expired', httpStatus: 400 }
   }
-  if (signalType === 'p2p_inference_ice') {
+  if (signalType === 'p2p_host_ai_direct_beap_ad') {
+    if (ttl < 60_000 || ttl > 600_000) {
+      return { ok: false, reason: 'signaling_ttl', httpStatus: 400 }
+    }
+    const ep = typeof p.endpoint_url === 'string' ? p.endpoint_url.trim() : ''
+    if (!ep) {
+      return { ok: false, reason: 'field_required', httpStatus: 400 }
+    }
+    try {
+      void new URL(ep)
+    } catch {
+      return { ok: false, reason: 'field_required', httpStatus: 400 }
+    }
+    const adSeq = p.ad_seq
+    if (typeof adSeq !== 'number' || !Number.isInteger(adSeq) || adSeq < 0) {
+      return { ok: false, reason: 'field_required', httpStatus: 400 }
+    }
+    if (p.owner_role != null && p.owner_role !== 'host') {
+      return { ok: false, reason: 'field_required', httpStatus: 400 }
+    }
+  } else if (signalType === 'p2p_inference_ice') {
     if (ttl > 30_000) {
       return { ok: false, reason: 'ice_ttl', httpStatus: 400 }
     }

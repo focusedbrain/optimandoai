@@ -3753,6 +3753,7 @@ app.whenReady().then(async () => {
         }
         const {
           hasActiveInternalLedgerSandboxToHostForHostAi,
+          hasActiveInternalLedgerLocalHostPeerSandboxForHostUi,
           listSandboxHostInternalInferenceTargets,
           shouldMergeHostInternalRowsForGetAvailableModels,
         } = await import('./main/internalInference/listInferenceTargets')
@@ -3761,11 +3762,19 @@ app.whenReady().then(async () => {
           isSandboxMode(),
           ledgerProvesInternalSandboxToHost,
         )
+        const ledgerProvesLocalHostWithPeerSandbox =
+          await hasActiveInternalLedgerLocalHostPeerSandboxForHostUi()
 
         if (!mergeHostInternalInference) {
-          console.log(
-            '[HOST_INFERENCE_TARGETS] host_internal_merge_skipped reason=no_sandbox_mode_and_no_ledger_sandbox_to_host',
-          )
+          if (ledgerProvesLocalHostWithPeerSandbox && !ledgerProvesInternalSandboxToHost) {
+            console.log(
+              '[HOST_INFERENCE_TARGETS] host_internal_merge_skipped reason=not_sandbox_client expected=true (ledger=host; merge applies only to sandbox-side Host AI list)',
+            )
+          } else {
+            console.log(
+              '[HOST_INFERENCE_TARGETS] host_internal_merge_skipped reason=no_sandbox_mode_and_no_ledger_sandbox_to_host',
+            )
+          }
         }
 
         /**
@@ -3853,37 +3862,30 @@ app.whenReady().then(async () => {
         }
 
         try {
-          const { getInstanceId } = await import('./main/orchestrator/orchestratorModeStore')
-          const { getHostPublishedMvpDirectP2pIngestUrl } = await import('./main/internalInference/p2pEndpointRepair')
-          const { getHandshakeDb } = await import('./main/handshake/db')
-          const { getHostInternalInferencePolicy } = await import('./main/internalInference/hostInferencePolicyStore')
-          const { hasActiveInternalLedgerLocalHostPeerSandboxForHostUi } = await import(
-            './main/internalInference/listInferenceTargets'
+          const { buildHostAiProviderAdvertisementPayload } = await import(
+            './main/internalInference/hostAiProviderAdvertisementLog'
           )
-          const dbProv = await getHandshakeDb()
-          const endpointH = getHostPublishedMvpDirectP2pIngestUrl(dbProv)
-          const polH = getHostInternalInferencePolicy()
-          const hostSidePair = await hasActiveInternalLedgerLocalHostPeerSandboxForHostUi()
-          const roleH = isSandboxMode() ? 'sandbox' : 'host'
-          const advertisedAsHostAi =
-            roleH === 'host' && hostSidePair && polH?.allowSandboxInference === true
-          console.log(
-            `[HOST_AI_PROVIDER_ADVERTISEMENT] ${JSON.stringify({
-              current_device_id: getInstanceId().trim(),
-              role: roleH,
-              ollama_ok: ollamaDiscoveryOk,
-              models_count: ollamaModelCount,
-              /** Host: ledger shows Host↔Sandbox pair and policy allows sandbox inference (Ollama on host is separate). */
-              advertised_as_host_ai: advertisedAsHostAi,
-              endpoint: endpointH,
-              endpoint_owner_device_id: getInstanceId().trim(),
-              handshake_id: null,
-              active_internal_ledger_sandbox_to_host: ledgerProvesInternalSandboxToHost,
-              active_internal_ledger_host_peer_sandbox: hostSidePair,
-              host_internal_merge_would_run: mergeHostInternalInference,
-              ttl_ms: polH?.timeoutMs ?? null,
-            })}`,
-          )
+          const hostAiProvPayload = await buildHostAiProviderAdvertisementPayload({
+            ledgerProvesInternalSandboxToHost,
+            mergeHostInternalInference,
+            ollamaDiscoveryOk,
+            ollamaModelCount,
+          })
+          console.log(`[HOST_AI_PROVIDER_ADVERTISEMENT] ${JSON.stringify(hostAiProvPayload)}`)
+          if (hostAiProvPayload.advertised_as_host_ai) {
+            const { getHandshakeDbForInternalInference } = await import(
+              './main/internalInference/dbAccess'
+            )
+            const hdb = await getHandshakeDbForInternalInference()
+            if (hdb) {
+              const { publishHostAiDirectBeapAdvertisementsForEligibleHost } = await import(
+                './main/internalInference/hostAiDirectBeapAdPublish'
+              )
+              void publishHostAiDirectBeapAdvertisementsForEligibleHost(hdb, {
+                context: 'provider_models_list',
+              })
+            }
+          }
         } catch (e) {
           console.log(`[HOST_AI_PROVIDER_ADVERTISEMENT] err=${(e as Error)?.message ?? String(e)}`)
         }

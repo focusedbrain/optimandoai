@@ -1,6 +1,7 @@
 /** Tooltips and labels for Host AI in model selectors (orchestrator + WR Chat). */
 
 import type { HostInferenceTargetRow } from '../hooks/useSandboxHostInference'
+import { hostAiUserFacingMessageFromTarget } from './hostAiUiDiagnostics'
 
 export const HOST_AI_OPTION_TOOLTIP =
   'Uses the model on your Host — the same idea as choosing a local model, but the model runs on the machine you paired with.'
@@ -89,6 +90,13 @@ export function hostAiChatBlockedUserMessage(t: HostInferenceTargetRow | undefin
   if (!t) {
     return 'Open the model menu and select Host AI when it is ready, or pick a local or cloud model.'
   }
+  const mapped = hostAiUserFacingMessageFromTarget(
+    t as { inference_error_code?: string; failureCode?: string; hostWireOllamaReachable?: boolean },
+    { hostWireOllamaReachableOverride: (t as { hostWireOllamaReachable?: boolean }).hostWireOllamaReachable },
+  )
+  if (mapped) {
+    return mapped.hint ? `${mapped.primary} ${mapped.hint}` : mapped.primary
+  }
   const ph = t.p2pUiPhase
   if (ph === 'no_model') {
     return 'Host AI · no active model. On the Host, pick an active local model, then try again or choose another model here.'
@@ -107,10 +115,26 @@ export function hostAiChatBlockedUserMessage(t: HostInferenceTargetRow | undefin
   }
   if (
     ph === 'probe_access_denied' ||
+    ph === 'host_auth_rejected' ||
     t.inference_error_code === 'PROBE_AUTH_REJECTED' ||
     t.inference_error_code === 'HOST_AI_DIRECT_AUTH_MISSING'
   ) {
-    return 'Authentication failed. Re-pair to refresh tokens.'
+    return 'Host authentication was rejected. Re-pair to refresh access.'
+  }
+  if (ph === 'host_endpoint_not_advertised') {
+    return 'Host has not published a direct endpoint for this pairing. On the Host, advertise a direct BEAP address, then Refresh (↻).'
+  }
+  if (ph === 'host_endpoint_rejected_self') {
+    return "The endpoint points at this device. Use the Host computer's published address, then Refresh (↻)."
+  }
+  if (ph === 'host_endpoint_mismatch') {
+    return 'The stored address does not match the paired host. Re-pair or repair the host endpoint, then try again.'
+  }
+  if (ph === 'host_transport_unavailable' || t.hostAiStructuredUnavailableReason === 'host_transport_unavailable') {
+    return 'Host transport is unavailable. Check network, relay, and P2P settings, or use Refresh (↻).'
+  }
+  if (ph === 'host_provider_unavailable' || t.hostAiStructuredUnavailableReason === 'host_provider_unavailable') {
+    return "The host's local model provider is not available. On the Host machine, start Ollama and pick a model, then try again."
   }
   if (ph === 'probe_rate_limited' || t.inference_error_code === 'PROBE_RATE_LIMITED') {
     return 'Host is throttling requests. Try again in a moment.'
@@ -129,7 +153,7 @@ export function hostAiChatBlockedUserMessage(t: HostInferenceTargetRow | undefin
     return "Host responded but the format wasn't recognized."
   }
   if (ph === 'p2p_unavailable' || t.availability === 'direct_unreachable' || t.availability === 'host_offline') {
-    return 'Host AI · P2P unavailable. Check that the Host app is online, use Refresh (↻), or pick a local or cloud model.'
+    return 'Host transport is unavailable. Check that the Host app is online, use Refresh (↻), or pick a local or cloud model.'
   }
   if (
     t.availability === 'model_unavailable' ||
@@ -142,7 +166,7 @@ export function hostAiChatBlockedUserMessage(t: HostInferenceTargetRow | undefin
     return 'Host AI · no active model. On the Host, pick an active local model, or choose another model here.'
   }
   if (ph === 'probe_host_ollama' || ph === 'probe_local_ollama' || t.inference_error_code === 'PROBE_OLLAMA_UNAVAILABLE') {
-    return "Host's local AI provider isn't running."
+    return "The host's local model provider is not available."
   }
   if (t.availability === 'policy_disabled' || t.unavailable_reason === 'HOST_POLICY_DISABLED') {
     return 'Host AI · disabled by Host. Change policy on the Host, or pick another model here.'
@@ -184,10 +208,11 @@ export function hostAiRowUnavailableTooltip(
   }
   if (
     ph === 'probe_access_denied' ||
+    ph === 'host_auth_rejected' ||
     t?.inference_error_code === 'PROBE_AUTH_REJECTED' ||
     t?.inference_error_code === 'HOST_AI_DIRECT_AUTH_MISSING'
   ) {
-    return ['Authentication failed. Re-pair to refresh tokens.', ACT_SANDBOX_REFRESH].join(NL)
+    return ['Host authentication was rejected. Re-pair to refresh access.', ACT_SANDBOX_REFRESH].join(NL)
   }
   if (ph === 'probe_rate_limited' || t?.inference_error_code === 'PROBE_RATE_LIMITED') {
     return ['Host is throttling requests. Try again in a moment.', ACT_SANDBOX_REFRESH].join(NL)
