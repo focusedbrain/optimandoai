@@ -14,6 +14,7 @@ import {
   assertRecordForServiceRpc,
   assertLedgerRolesSandboxToHost,
   assertSandboxRequestToHost,
+  coordinationDeviceIdForHandshakeDeviceRole,
   internalInferenceEndpointGateOk,
   localCoordinationDeviceId,
   outboundP2pBearerToCounterpartyIngest,
@@ -22,7 +23,13 @@ import {
   type P2pEndpointProbeLogKind,
   peerCoordinationDeviceId,
 } from './policy'
+import {
+  hostAiPairingListBlock,
+  recordHostAiLedgerAsymmetric,
+  recordHostAiReciprocalCapabilitiesSuccess,
+} from './hostAiPairingStateStore'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
+import { ingestUrlMatchesThisDevicesMvpDirectBeap } from './p2pEndpointRepair'
 import { getP2pInferenceFlags } from './p2pInferenceFlags'
 import { P2pSessionPhase, getSessionState } from './p2pSession/p2pInferenceSessionManager'
 import {
@@ -77,6 +84,21 @@ function formatPairingCode(raw: string | null | undefined): string {
     return `${s.slice(0, 3)}-${s.slice(3)}`
   }
   return s || '—'
+}
+
+function isHostAiProvenanceFailureTerminal(cap: {
+  ok: boolean
+  reason?: string
+}): cap is { ok: false; reason: string } {
+  if (cap.ok) return false
+  if (typeof cap.reason !== 'string') return false
+  return (
+    cap.reason === InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH ||
+    cap.reason === InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING ||
+    cap.reason === InternalInferenceErrorCode.HOST_AI_LEDGER_ASYMMETRIC ||
+    cap.reason === InternalInferenceErrorCode.HOST_AI_PAIRING_STALE ||
+    cap.reason === InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE
+  )
 }
 
 export function policyProbeUrlFromP2pIngest(ingestUrl: string): string {
@@ -805,6 +827,22 @@ async function probeHostInferencePolicyFromSandboxImpl(
       p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
     }
   }
+  const peerHGate = (coordinationDeviceIdForHandshakeDeviceRole(ar.record, 'host') ?? '').trim()
+  if (peerHGate) {
+    const bPair = hostAiPairingListBlock(hid, peerHGate)
+    if (bPair.block) {
+      probeDone(false)
+      p2p(`capability_probe_skipped reason=${bPair.code} handshake=${hid} (pairing_terminal)`)
+      p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.UNKNOWN} reason=pairing_terminal`)
+      return {
+        ok: false,
+        code: bPair.code,
+        message: 'pairing_terminal',
+        directP2pAvailable: true,
+        p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
+      }
+    }
+  }
   const fP2p = getP2pInferenceFlags()
   if (!internalInferenceEndpointGateOk(db, ar.record.p2p_endpoint, fP2p)) {
     const direct = assertP2pEndpointDirect(db, ar.record.p2p_endpoint)
@@ -916,6 +954,18 @@ async function probeHostInferencePolicyFromSandboxImpl(
       }
       return { ...out, p2pProbeClassification: letterOk }
     }
+    if (isHostAiProvenanceFailureTerminal(capP2p)) {
+      const pr = 'reason' in capP2p ? String(capP2p.reason) : ''
+      p2p(`capability_probe_terminated handshake=${hid} webrtc_listHost code=${pr} (no http fallback / policy get)`)
+      probeDone(false)
+      return {
+        ok: false,
+        code: pr,
+        message: 'endpoint_provenance',
+        directP2pAvailable: true,
+        p2pProbeClassification: P2P_CAPABILITY_PROBE.ENDPOINT_STALE_LAN_IP,
+      }
+    }
     if (!fP2p.p2pInferenceHttpFallback) {
       probeDone(false)
       p2p(`capability_probe_skip_http reason=webrtc_p2p_dc_or_caps_incomplete handshake=${hid} detail=${'reason' in capP2p ? String(capP2p.reason) : 'unknown'}`)
@@ -983,11 +1033,49 @@ async function probeHostInferencePolicyFromSandboxImpl(
   if (cap.ok) {
     const out = mapCapabilitiesWireToProbe(cap.wire)
     const letterOk = p2pProbeLetterForOkInferenceCode(out.inferenceErrorCode)
+    const peerHostCoord = (coordinationDeviceIdForHandshakeDeviceRole(ar.record, 'host') ?? '').trim()
+    if (peerHostCoord) {
+      recordHostAiReciprocalCapabilitiesSuccess(hid, peerHostCoord)
+    }
     probeDone(true)
     if (letterOk) {
       p2pClassificationDetail(`classification=${letterOk}`)
     }
     return { ...out, p2pProbeClassification: letterOk }
+  }
+
+  if (
+    'reason' in cap &&
+    String(cap.reason) === InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE
+  ) {
+    const peerH = (coordinationDeviceIdForHandshakeDeviceRole(ar.record, 'host') ?? '').trim()
+    if (peerH) {
+      recordHostAiLedgerAsymmetric(hid, peerH)
+    }
+    p2p(`capability_probe_ledger_asymmetric handshake=${hid} (host_beap_rejects_no_local_handshake)`)
+    probeDone(false)
+    p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.UNKNOWN} reason=ledger_asymmetric`)
+    return {
+      ok: false,
+      code: InternalInferenceErrorCode.HOST_AI_LEDGER_ASYMMETRIC,
+      message: 'host_ledger_missing',
+      directP2pAvailable: true,
+      p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
+    }
+  }
+
+  if (isHostAiProvenanceFailureTerminal(cap)) {
+    const pr = 'reason' in cap ? String(cap.reason) : ''
+    p2p(`capability_probe_terminated handshake=${hid} code=${pr} (no policy GET / repair / fallback)`)
+    probeDone(false)
+    p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.UNKNOWN} reason=endpoint_provenance`)
+    return {
+      ok: false,
+      code: pr,
+      message: 'endpoint_provenance',
+      directP2pAvailable: true,
+      p2pProbeClassification: P2P_CAPABILITY_PROBE.ENDPOINT_STALE_LAN_IP,
+    }
   }
 
   const post429 =
@@ -1028,8 +1116,12 @@ async function probeHostInferencePolicyFromSandboxImpl(
     p2p(`response_status=${res.status} phase=policy_get handshake=${hid}`)
     if (res.ok) {
       const adv = res.headers.get('x-beap-direct-p2p-endpoint')
-      const { tryRepairP2pEndpointFromHostAdvertisement } = await import('./p2pEndpointRepair')
-      tryRepairP2pEndpointFromHostAdvertisement(db, hid, adv)
+      if (!ingestUrlMatchesThisDevicesMvpDirectBeap(db, ep)) {
+        const { tryRepairP2pEndpointFromHostAdvertisement } = await import('./p2pEndpointRepair')
+        tryRepairP2pEndpointFromHostAdvertisement(db, hid, adv)
+      } else {
+        p2p(`capability_policy_get_skip_repair reason=policy_get_target_is_local_ingest handshake=${hid}`)
+      }
     }
     if (res.status === 401 || res.status === 403) {
       p2p(`request_failed code=forbidden message=get policy status handshake=${hid}`)

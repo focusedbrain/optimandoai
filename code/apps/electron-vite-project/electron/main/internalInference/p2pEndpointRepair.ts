@@ -6,9 +6,12 @@
 import { getHandshakeRecord, listHandshakeRecords, updateHandshakeRecord } from '../handshake/db'
 import { HandshakeState, type HandshakeRecord } from '../handshake/types'
 import { getP2PConfig, computeLocalP2PEndpoint } from '../p2p/p2pConfig'
+import { InternalInferenceErrorCode } from './errors'
+import { isHostAiLedgerAsymmetricTerminal } from './hostAiPairingStateStore'
 import {
   assertLedgerRolesSandboxToHost,
   assertRecordForServiceRpc,
+  coordinationDeviceIdForHandshakeDeviceRole,
   p2pEndpointKind,
   p2pEndpointMvpClass,
   type P2pMvpEndpointClass,
@@ -43,6 +46,25 @@ function invalidateP2pEnsureCachesForHandshake(handshakeId: string): void {
 /** @internal */
 export function resetHostAdvertisedMvpDirectForTests(): void {
   hostAdvertisedMvpDirectByHandshake.clear()
+}
+
+/** @internal — vitest: seed the in-memory map as if the peer Host advertised a header. */
+export function setHostAdvertisedMvpDirectForTests(handshakeId: string, url: string | null | undefined): void {
+  const hid = String(handshakeId ?? '').trim()
+  if (!hid) return
+  const t = typeof url === 'string' ? url.trim() : ''
+  if (!t) {
+    hostAdvertisedMvpDirectByHandshake.delete(hid)
+    return
+  }
+  hostAdvertisedMvpDirectByHandshake.set(hid, normalizeP2pIngestUrl(t))
+}
+
+/** Drop poisoned peer “advertisement” (e.g. this sandbox’s own BEAP URL) from the in-memory map. */
+export function clearHostAdvertisedMvpDirectForHandshake(handshakeId: string): void {
+  const hid = String(handshakeId ?? '').trim()
+  if (!hid) return
+  hostAdvertisedMvpDirectByHandshake.delete(hid)
 }
 
 /** Sandbox: last Host-advertised MVP direct ingest URL seen for this handshake (response header), if any. */
@@ -84,6 +106,93 @@ export function ingestUrlMatchesThisDevicesMvpDirectBeap(db: any, url: string | 
   const t = typeof url === 'string' ? url.trim() : ''
   if (!t) return false
   return normalizeP2pIngestUrl(t) === normalizeP2pIngestUrl(pub)
+}
+
+export type SandboxToHostHttpDirectIngestResult =
+  | {
+      ok: true
+      url: string
+      selected_endpoint_source: 'peer_advertised_header' | 'internal_handshake_ledger'
+      local_beap_endpoint: string | null
+      peer_advertised_beap_endpoint: string | null
+      ledger_p2p_endpoint: string
+      repaired_from_local_endpoint: boolean
+    }
+  | {
+      ok: false
+      code: typeof InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH | typeof InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING
+      local_beap_endpoint: string | null
+      peer_advertised_beap_endpoint: string | null
+      ledger_p2p_endpoint: string
+    }
+
+/**
+ * Sandbox → host **HTTP direct** only: pick the POST base URL that is *not* this process’s own MVP direct
+ * BEAP, preferring a peer-issued advertisement (response header) over the internal handshake `p2p_endpoint`
+ * row, which can be corrupt or conflate local BEAP with the host peer.
+ */
+export function resolveSandboxToHostHttpDirectIngest(
+  db: any,
+  handshakeId: string,
+  row: { p2p_endpoint: string | null | undefined },
+  callerIngestUrl: string,
+): SandboxToHostHttpDirectIngestResult {
+  const hid = String(handshakeId ?? '').trim()
+  const localPub = getHostPublishedMvpDirectP2pIngestUrl(db)
+  const peerAd = peekHostAdvertisedMvpDirectP2pEndpoint(hid)
+  const ledger = typeof row.p2p_endpoint === 'string' ? row.p2p_endpoint.trim() : ''
+  const fromCaller = typeof callerIngestUrl === 'string' ? callerIngestUrl.trim() : ''
+  const candidate = fromCaller || ledger
+  const repairedFromLocal = Boolean(ledger && ingestUrlMatchesThisDevicesMvpDirectBeap(db, ledger))
+
+  if (peerAd) {
+    if (ingestUrlMatchesThisDevicesMvpDirectBeap(db, peerAd)) {
+      clearHostAdvertisedMvpDirectForHandshake(hid)
+      return {
+        ok: false,
+        code: InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH,
+        local_beap_endpoint: localPub,
+        peer_advertised_beap_endpoint: peerAd,
+        ledger_p2p_endpoint: ledger,
+      }
+    }
+    return {
+      ok: true,
+      url: normalizeP2pIngestUrl(peerAd),
+      selected_endpoint_source: 'peer_advertised_header',
+      local_beap_endpoint: localPub,
+      peer_advertised_beap_endpoint: peerAd,
+      ledger_p2p_endpoint: ledger,
+      repaired_from_local_endpoint: repairedFromLocal,
+    }
+  }
+  if (!candidate) {
+    return {
+      ok: false,
+      code: InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING,
+      local_beap_endpoint: localPub,
+      peer_advertised_beap_endpoint: null,
+      ledger_p2p_endpoint: ledger,
+    }
+  }
+  if (ingestUrlMatchesThisDevicesMvpDirectBeap(db, candidate)) {
+    return {
+      ok: false,
+      code: InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH,
+      local_beap_endpoint: localPub,
+      peer_advertised_beap_endpoint: null,
+      ledger_p2p_endpoint: ledger,
+    }
+  }
+  return {
+    ok: true,
+    url: normalizeP2pIngestUrl(candidate),
+    selected_endpoint_source: 'internal_handshake_ledger',
+    local_beap_endpoint: localPub,
+    peer_advertised_beap_endpoint: null,
+    ledger_p2p_endpoint: ledger,
+    repaired_from_local_endpoint: repairedFromLocal,
+  }
 }
 
 export function hostDirectP2pAdvertisementHeaders(db: any): Record<string, string> {
@@ -131,7 +240,6 @@ export function tryRepairP2pEndpointFromHostAdvertisement(
     )
     return
   }
-  hostAdvertisedMvpDirectByHandshake.set(hid, normalizeP2pIngestUrl(advRaw))
   const r0 = getHandshakeRecord(db, hid)
   const ar = assertRecordForServiceRpc(r0)
   if (!ar.ok) {
@@ -146,6 +254,14 @@ export function tryRepairP2pEndpointFromHostAdvertisement(
     )
     return
   }
+  if (ingestUrlMatchesThisDevicesMvpDirectBeap(db, advRaw)) {
+    clearHostAdvertisedMvpDirectForHandshake(hid)
+    console.log(
+      `[HOST_INFERENCE_P2P] endpoint_repair_skipped reason=advertised_is_local_sandbox_beaP handshake=${hid}`,
+    )
+    return
+  }
+  hostAdvertisedMvpDirectByHandshake.set(hid, normalizeP2pIngestUrl(advRaw))
   const r = ar.record
   const current = (r.p2p_endpoint ?? '').trim()
   const newNorm = normalizeP2pIngestUrl(advRaw)
@@ -190,6 +306,13 @@ export function runP2pEndpointRepairPass(db: any, context: string): void {
     if (!ar.ok) continue
     if (!assertLedgerRolesSandboxToHost(ar.record).ok) continue
     const hid = r.handshake_id
+    const hostCoord = (coordinationDeviceIdForHandshakeDeviceRole(ar.record, 'host') ?? '').trim()
+    if (hostCoord && isHostAiLedgerAsymmetricTerminal(hid, hostCoord)) {
+      console.log(
+        `[HOST_INFERENCE_P2P] endpoint_repair_skipped reason=ledger_asymmetric_terminal handshake=${hid} context=${context}`,
+      )
+      continue
+    }
     const storedEp = ar.record.p2p_endpoint
     const storedRelayKind = p2pEndpointKind(db, storedEp) === 'relay'
     const k = p2pEndpointMvpClass(db, storedEp)

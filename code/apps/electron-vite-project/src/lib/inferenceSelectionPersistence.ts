@@ -281,6 +281,13 @@ export function isHostInferenceTargetDefinitivelyInvalidForRestore(t: Orchestrat
   const ur = String(t.unavailable_reason ?? '')
   const err = String(t.inference_error_code ?? t.failureCode ?? '')
 
+  if (
+    err === 'HOST_AI_LEDGER_ASYMMETRIC' ||
+    err === 'HOST_AI_PAIRING_STALE' ||
+    err === 'NO_ACTIVE_INTERNAL_HOST_HANDSHAKE'
+  ) {
+    return true
+  }
   if (phase === 'policy_disabled' || av === 'policy_disabled' || ur === 'HOST_POLICY_DISABLED') return true
   if (phase === 'hidden' || ur === 'SANDBOX_HOST_ROLE_METADATA') return true
   if (av === 'identity_incomplete' || ur === 'IDENTITY_INCOMPLETE') return true
@@ -295,6 +302,7 @@ export function isHostInferenceTargetDefinitivelyInvalidForRestore(t: Orchestrat
   }
   if (definitiveP2pSessionFailureCode(err)) return true
   const sur = String(t.hostAiStructuredUnavailableReason ?? '')
+  if (sur === 'ledger_asymmetric' || sur === 'pairing_stale') return true
   if (
     sur === 'provider_not_ready' ||
     sur === 'no_models' ||

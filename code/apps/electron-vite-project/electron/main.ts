@@ -3826,9 +3826,12 @@ app.whenReady().then(async () => {
         }
 
         // 2) Sandbox-local Ollama (this machine only — does not affect Host AI rows or availability)
+        let ollamaDiscoveryOk = true
+        let ollamaModelCount = 0
         try {
           const { ollamaManager } = await import('./main/llm/ollama-manager')
           const installed = await ollamaManager.listModels()
+          ollamaModelCount = Array.isArray(installed) ? installed.length : 0
           for (const m of installed) {
             const name = m?.name?.trim?.() || ''
             if (!name) continue
@@ -3842,9 +3845,47 @@ app.whenReady().then(async () => {
           }
           logLocalProviderOllamaDiscovery(true, null)
         } catch (err: any) {
+          ollamaDiscoveryOk = false
+          ollamaModelCount = 0
           const msg = err?.message != null ? String(err.message) : String(err)
           logLocalProviderOllamaDiscovery(false, msg || 'unknown_error')
           console.warn('[MAIN] handshake:getAvailableModels sandbox-local Ollama:', err?.message ?? err)
+        }
+
+        try {
+          const { getInstanceId } = await import('./main/orchestrator/orchestratorModeStore')
+          const { getHostPublishedMvpDirectP2pIngestUrl } = await import('./main/internalInference/p2pEndpointRepair')
+          const { getHandshakeDb } = await import('./main/handshake/db')
+          const { getHostInternalInferencePolicy } = await import('./main/internalInference/hostInferencePolicyStore')
+          const { hasActiveInternalLedgerLocalHostPeerSandboxForHostUi } = await import(
+            './main/internalInference/listInferenceTargets'
+          )
+          const dbProv = await getHandshakeDb()
+          const endpointH = getHostPublishedMvpDirectP2pIngestUrl(dbProv)
+          const polH = getHostInternalInferencePolicy()
+          const hostSidePair = await hasActiveInternalLedgerLocalHostPeerSandboxForHostUi()
+          const roleH = isSandboxMode() ? 'sandbox' : 'host'
+          const advertisedAsHostAi =
+            roleH === 'host' && hostSidePair && polH?.allowSandboxInference === true
+          console.log(
+            `[HOST_AI_PROVIDER_ADVERTISEMENT] ${JSON.stringify({
+              current_device_id: getInstanceId().trim(),
+              role: roleH,
+              ollama_ok: ollamaDiscoveryOk,
+              models_count: ollamaModelCount,
+              /** Host: ledger shows Host↔Sandbox pair and policy allows sandbox inference (Ollama on host is separate). */
+              advertised_as_host_ai: advertisedAsHostAi,
+              endpoint: endpointH,
+              endpoint_owner_device_id: getInstanceId().trim(),
+              handshake_id: null,
+              active_internal_ledger_sandbox_to_host: ledgerProvesInternalSandboxToHost,
+              active_internal_ledger_host_peer_sandbox: hostSidePair,
+              host_internal_merge_would_run: mergeHostInternalInference,
+              ttl_ms: polH?.timeoutMs ?? null,
+            })}`,
+          )
+        } catch (e) {
+          console.log(`[HOST_AI_PROVIDER_ADVERTISEMENT] err=${(e as Error)?.message ?? String(e)}`)
         }
 
         // 3) Cloud models from OCR router (API keys set via POST /api/ocr/config or ocr:setCloudConfig)

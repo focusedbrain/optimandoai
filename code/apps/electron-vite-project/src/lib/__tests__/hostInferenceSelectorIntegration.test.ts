@@ -571,6 +571,25 @@ describe('HOST_AI_STALE_INLINE — orchestrator stale UI (handshake + pending)',
     ).toBe(true)
   })
 
+  it('C: saved Host AI selection is stale when ledger is asymmetric (pairing state)', () => {
+    expect(
+      isHostInternalSelectionStaleForOrchestratorUi(
+        storedId,
+        [],
+        [
+          {
+            id: storedId,
+            handshake_id: hid,
+            available: false,
+            p2pUiPhase: 'p2p_unavailable',
+            inference_error_code: 'HOST_AI_LEDGER_ASYMMETRIC',
+            hostAiStructuredUnavailableReason: 'ledger_asymmetric',
+          },
+        ],
+      ),
+    ).toBe(true)
+  })
+
   it('not stale for local/cloud model id', () => {
     expect(
       isHostInternalSelectionStaleForOrchestratorUi('gpt-4o', [{ id: 'gpt-4o', type: 'cloud' }], []),

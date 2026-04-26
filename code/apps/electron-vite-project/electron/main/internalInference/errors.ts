@@ -87,6 +87,10 @@ export const InternalInferenceErrorCode = {
   HOST_AI_ENDPOINT_OWNER_MISMATCH: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
   /** Host peer has no direct MVP-LAN counterparty URL; do not substitute local sandbox URL. */
   HOST_DIRECT_ENDPOINT_MISSING: 'HOST_DIRECT_ENDPOINT_MISSING',
+  /** Sandbox has an internal S→H row but the Host machine has no matching active handshake (asymmetric DB). */
+  HOST_AI_LEDGER_ASYMMETRIC: 'HOST_AI_LEDGER_ASYMMETRIC',
+  /** Reciprocity proof expired; user must re-link the Host. */
+  HOST_AI_PAIRING_STALE: 'HOST_AI_PAIRING_STALE',
 } as const
 
 export type InternalInferenceErrorCodeType =

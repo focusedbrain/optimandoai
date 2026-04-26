@@ -3,8 +3,20 @@
  * (that URL can be the local sandbox BEAP, not the peer host’s).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('electron', () => ({ app: { getPath: () => '/tmp/wrdesk-p2p-repair-test' } }))
+import { InternalInferenceErrorCode } from '../errors'
 import { HandshakeState, type HandshakeRecord } from '../../handshake/types'
-import { resetP2pEndpointRepairSessionGates, runP2pEndpointRepairPass } from '../p2pEndpointRepair'
+import { getHandshakeRecord } from '../../handshake/db'
+import {
+  peekHostAdvertisedMvpDirectP2pEndpoint,
+  resetHostAdvertisedMvpDirectForTests,
+  resetP2pEndpointRepairSessionGates,
+  resolveSandboxToHostHttpDirectIngest,
+  runP2pEndpointRepairPass,
+  setHostAdvertisedMvpDirectForTests,
+  tryRepairP2pEndpointFromHostAdvertisement,
+} from '../p2pEndpointRepair'
 
 vi.mock('../../orchestrator/orchestratorModeStore', () => ({
   getInstanceId: () => 'dev-sand-1',
@@ -84,5 +96,98 @@ describe('runP2pEndpointRepairPass', () => {
     listRows.push(relayRow('hs-relay'))
     runP2pEndpointRepairPass({} as any, 'test_ctx')
     expect(updateHandshakeRecord).not.toHaveBeenCalled()
+  })
+
+  it('relay row + peer map uses peer direct only (not local published URL)', () => {
+    const hid = 'hs-relay-with-peer'
+    listRows.push(relayRow(hid))
+    setHostAdvertisedMvpDirectForTests(hid, 'http://192.168.1.20:51249/beap/ingest')
+    runP2pEndpointRepairPass({} as any, 'test_ctx')
+    expect(updateHandshakeRecord).toHaveBeenCalled()
+    const next = updateHandshakeRecord.mock.calls[0]?.[0] as HandshakeRecord
+    expect(next.p2p_endpoint).toMatch(/192\.168\.1\.20/)
+  })
+})
+
+const LOCAL_SANDBOX_DIRECT = 'http://192.168.0.5:9/beap/ingest'
+const PEER_HOST_DIRECT = 'http://192.168.1.20:51249/beap/ingest'
+
+describe('resolveSandboxToHostHttpDirectIngest', () => {
+  const db = {}
+
+  afterEach(() => {
+    resetHostAdvertisedMvpDirectForTests()
+  })
+
+  it('A: no peer ad and only local sandbox direct in ledger/caller → owner mismatch (must not use as host)', () => {
+    const r = resolveSandboxToHostHttpDirectIngest(
+      db,
+      'hs-a',
+      { p2p_endpoint: LOCAL_SANDBOX_DIRECT },
+      LOCAL_SANDBOX_DIRECT,
+    )
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.code).toBe(InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH)
+  })
+
+  it('A: no peer ad, empty candidate → HOST_DIRECT_ENDPOINT_MISSING', () => {
+    const r = resolveSandboxToHostHttpDirectIngest(db, 'hs-miss', { p2p_endpoint: '' }, '')
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.code).toBe(InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING)
+  })
+
+  it('B: with peer-issued ad, use peer host URL even when ledger is local', () => {
+    const hid = 'hs-b'
+    setHostAdvertisedMvpDirectForTests(hid, PEER_HOST_DIRECT)
+    const r = resolveSandboxToHostHttpDirectIngest(
+      db,
+      hid,
+      { p2p_endpoint: LOCAL_SANDBOX_DIRECT },
+      LOCAL_SANDBOX_DIRECT,
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.url).toMatch(/192\.168\.1\.20/)
+    expect(r.selected_endpoint_source).toBe('peer_advertised_header')
+  })
+
+  it('peer ad that matches local BEAP is rejected and cleared (no usable selection)', () => {
+    const hid = 'hs-poison'
+    setHostAdvertisedMvpDirectForTests(hid, LOCAL_SANDBOX_DIRECT)
+    const r = resolveSandboxToHostHttpDirectIngest(db, hid, { p2p_endpoint: '' }, '')
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.code).toBe(InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH)
+    expect(peekHostAdvertisedMvpDirectP2pEndpoint(hid)).toBeNull()
+  })
+})
+
+describe('tryRepairP2pEndpointFromHostAdvertisement', () => {
+  afterEach(() => {
+    vi.mocked(getHandshakeRecord).mockReset()
+    resetHostAdvertisedMvpDirectForTests()
+  })
+
+  it('C: local sandbox BEAP in header is not stored as peer advert', () => {
+    vi.mocked(getHandshakeRecord).mockReturnValue(relayRow('hs-c') as any)
+    tryRepairP2pEndpointFromHostAdvertisement(
+      {} as any,
+      'hs-c',
+      'http://192.168.0.5:9/beap/ingest',
+    )
+    expect(peekHostAdvertisedMvpDirectP2pEndpoint('hs-c')).toBeNull()
+  })
+})
+
+describe('provenance error contract', () => {
+  it('D: terminal reasons exclude BEAP role gate (policy GET must be skipped in UI for these codes only)', () => {
+    const isTerminal = (code: string) =>
+      code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH ||
+      code === InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING
+    expect(isTerminal(InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH)).toBe(true)
+    expect(isTerminal(InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING)).toBe(true)
+    expect(isTerminal('forbidden_host_role')).toBe(false)
   })
 })

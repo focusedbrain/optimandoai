@@ -14,7 +14,7 @@ import { requestHostInferenceCapabilitiesOverDataChannel } from '../p2pDc/p2pDcC
 import { sendHostInferenceRequestOverP2pDataChannel, sendInternalInferenceWireOverP2pDataChannel } from '../p2pDc/p2pDcInference'
 import { getSessionState, P2pSessionPhase } from '../p2pSession/p2pInferenceSessionManager'
 import { isP2pDataChannelUpForHandshake } from '../p2pSession/p2pSessionWait'
-import { ingestUrlMatchesThisDevicesMvpDirectBeap, tryRepairP2pEndpointFromHostAdvertisement } from '../p2pEndpointRepair'
+import { resolveSandboxToHostHttpDirectIngest, tryRepairP2pEndpointFromHostAdvertisement } from '../p2pEndpointRepair'
 import { logHostAiEndpointSelect } from '../hostAiEndpointSelectLog'
 import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
 import {
@@ -37,6 +37,22 @@ import {
   decideInternalInferenceTransport,
   deriveHostAiHandshakeRoles,
 } from './decideInternalInferenceTransport'
+
+/**
+ * /beap/ingest `jsonError` body is `{ code, message }` (see p2pServiceDispatch).
+ * Used to map Host “no such handshake in local DB” to sandbox-side ledger-asymmetry handling.
+ */
+function tryParseIngestErrorBodyText(text: string): string | null {
+  try {
+    const j = JSON.parse(text) as { code?: unknown; message?: unknown }
+    if (typeof j.code === 'string' && j.code.trim()) {
+      return j.code.trim()
+    }
+  } catch {
+    return null
+  }
+  return null
+}
 
 export type { HostAiTransport, HostAiTransportIntent, HostAiTransportLogReason, HostAiTransportPreference } from './hostAiTransportTypes'
 export { decideHostAiIntentRoute, isWebrtcP2pDataPlaneAvailable, type HostAiTransportChoice } from './transportDecide'
@@ -440,13 +456,19 @@ export async function listHostCapabilities(
     )
     return { ok: false, reason: 'http_ingest_requires_direct_beap' }
   }
+  if (!db) {
+    return { ok: false, reason: 'http_ingest_requires_direct_beap' }
+  }
 
   const currentDevice = getInstanceId().trim()
-  const hostOwnerFromRow = (coordinationDeviceIdForHandshakeDeviceRole(record, 'host') ?? '').trim()
+  const hostRecordOwnerId = (coordinationDeviceIdForHandshakeDeviceRole(record, 'host') ?? '').trim()
   const epKHttp = p2pEndpointKind(db, record.p2p_endpoint)
   const mvpKHttp = p2pEndpointMvpClass(db, record.p2p_endpoint)
   const isDirectRow = epKHttp === 'direct' || mvpKHttp === 'direct_lan'
-  if (ingestUrlMatchesThisDevicesMvpDirectBeap(db, ingestUrl)) {
+
+  const prov = resolveSandboxToHostHttpDirectIngest(db, hid, record, ingestUrl)
+  if (!prov.ok) {
+    const code = prov.code
     logHostAiEndpointSelect({
       handshake_id: hid,
       current_device_id: currentDevice,
@@ -454,11 +476,18 @@ export async function listHostCapabilities(
       peer_device_id: peerHost,
       peer_derived_role: cids.peerRole,
       selected_endpoint: ingestUrl,
-      endpoint_owner_device_id: hostOwnerFromRow || peerHost,
+      selected_endpoint_source: 'none',
+      selected_endpoint_record_device_id: hostRecordOwnerId,
+      selected_endpoint_record_role: hostRecordOwnerId ? 'host' : 'unknown',
+      local_beap_endpoint: prov.local_beap_endpoint,
+      peer_advertised_beap_endpoint: prov.peer_advertised_beap_endpoint,
+      repaired_from_local_endpoint: false,
+      endpoint_owner_device_id: peerHost,
       endpoint_owner_role: 'host',
       decision: 'deny',
-      reason: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
+      reason: code,
     })
+    const fc = code === 'HOST_DIRECT_ENDPOINT_MISSING' ? 'HOST_DIRECT_ENDPOINT_MISSING' : 'HOST_AI_ENDPOINT_OWNER_MISMATCH'
     logHostAiStage({
       chain,
       stage: 'capabilities_request',
@@ -467,7 +496,7 @@ export async function listHostCapabilities(
       handshakeId: hid,
       buildStamp,
       flags: f,
-      failureCode: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
+      failureCode: fc,
     })
     logHostAiStage({
       chain,
@@ -477,22 +506,35 @@ export async function listHostCapabilities(
       handshakeId: hid,
       buildStamp,
       flags: f,
-      failureCode: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
+      failureCode: fc,
     })
-    touchState(hid, 'capabilities', 'unavailable', 'host_ai_endpoint_owner_mismatch')
-    console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=HOST_AI_ENDPOINT_OWNER_MISMATCH`)
-    return { ok: false, reason: 'HOST_AI_ENDPOINT_OWNER_MISMATCH' }
+    touchState(
+      hid,
+      'capabilities',
+      'unavailable',
+      code === 'HOST_DIRECT_ENDPOINT_MISSING' ? 'host_direct_endpoint_missing' : 'host_ai_endpoint_owner_mismatch',
+    )
+    console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=${code}`)
+    return { ok: false, reason: code }
   }
+
+  const urlToUse = prov.url
   if (isDirectRow) {
-    if (!hostOwnerFromRow) {
+    if (!hostRecordOwnerId) {
       logHostAiEndpointSelect({
         handshake_id: hid,
         current_device_id: currentDevice,
         local_derived_role: cids.localRole,
         peer_device_id: peerHost,
         peer_derived_role: cids.peerRole,
-        selected_endpoint: ingestUrl,
-        endpoint_owner_device_id: hostOwnerFromRow,
+        selected_endpoint: urlToUse,
+        selected_endpoint_source: prov.selected_endpoint_source,
+        selected_endpoint_record_device_id: hostRecordOwnerId,
+        selected_endpoint_record_role: 'unknown',
+        local_beap_endpoint: prov.local_beap_endpoint,
+        peer_advertised_beap_endpoint: prov.peer_advertised_beap_endpoint,
+        repaired_from_local_endpoint: prov.repaired_from_local_endpoint,
+        endpoint_owner_device_id: peerHost,
         endpoint_owner_role: 'unknown',
         decision: 'deny',
         reason: 'HOST_DIRECT_ENDPOINT_MISSING',
@@ -511,15 +553,21 @@ export async function listHostCapabilities(
       console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=HOST_DIRECT_ENDPOINT_MISSING`)
       return { ok: false, reason: 'HOST_DIRECT_ENDPOINT_MISSING' }
     }
-    if (hostOwnerFromRow !== peerHost) {
+    if (hostRecordOwnerId !== peerHost) {
       logHostAiEndpointSelect({
         handshake_id: hid,
         current_device_id: currentDevice,
         local_derived_role: cids.localRole,
         peer_device_id: peerHost,
         peer_derived_role: cids.peerRole,
-        selected_endpoint: ingestUrl,
-        endpoint_owner_device_id: hostOwnerFromRow,
+        selected_endpoint: urlToUse,
+        selected_endpoint_source: prov.selected_endpoint_source,
+        selected_endpoint_record_device_id: hostRecordOwnerId,
+        selected_endpoint_record_role: 'host',
+        local_beap_endpoint: prov.local_beap_endpoint,
+        peer_advertised_beap_endpoint: prov.peer_advertised_beap_endpoint,
+        repaired_from_local_endpoint: prov.repaired_from_local_endpoint,
+        endpoint_owner_device_id: peerHost,
         endpoint_owner_role: 'host',
         decision: 'deny',
         reason: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
@@ -545,8 +593,14 @@ export async function listHostCapabilities(
         local_derived_role: cids.localRole,
         peer_device_id: peerHost,
         peer_derived_role: cids.peerRole,
-        selected_endpoint: ingestUrl,
-        endpoint_owner_device_id: hostOwnerFromRow,
+        selected_endpoint: urlToUse,
+        selected_endpoint_source: prov.selected_endpoint_source,
+        selected_endpoint_record_device_id: hostRecordOwnerId,
+        selected_endpoint_record_role: 'host',
+        local_beap_endpoint: prov.local_beap_endpoint,
+        peer_advertised_beap_endpoint: prov.peer_advertised_beap_endpoint,
+        repaired_from_local_endpoint: prov.repaired_from_local_endpoint,
+        endpoint_owner_device_id: peerHost,
         endpoint_owner_role: 'host',
         decision: 'deny',
         reason: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
@@ -572,8 +626,14 @@ export async function listHostCapabilities(
     local_derived_role: cids.localRole,
     peer_device_id: peerHost,
     peer_derived_role: cids.peerRole,
-    selected_endpoint: ingestUrl,
-    endpoint_owner_device_id: hostOwnerFromRow || peerHost,
+    selected_endpoint: urlToUse,
+    selected_endpoint_source: prov.selected_endpoint_source,
+    selected_endpoint_record_device_id: hostRecordOwnerId,
+    selected_endpoint_record_role: 'host',
+    local_beap_endpoint: prov.local_beap_endpoint,
+    peer_advertised_beap_endpoint: prov.peer_advertised_beap_endpoint,
+    repaired_from_local_endpoint: prov.repaired_from_local_endpoint,
+    endpoint_owner_device_id: peerHost,
     endpoint_owner_role: 'host',
     decision: 'probe',
   })
@@ -603,7 +663,7 @@ export async function listHostCapabilities(
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), Math.min(timeoutMs, 15_000))
   try {
-    const res = await fetch(ingestUrl, {
+    const res = await fetch(urlToUse, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -617,6 +677,26 @@ export async function listHostCapabilities(
     })
     clearTimeout(timer)
     console.log(`[HOST_INFERENCE_P2P] response_status=${res.status} handshake=${hid}`)
+    const errText = !res.ok ? await res.text() : ''
+    const ingestErrCode = !res.ok && errText ? tryParseIngestErrorBodyText(errText) : null
+    if (ingestErrCode === InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE) {
+      const fc = 'NO_ACTIVE_INTERNAL_HOST_HANDSHAKE'
+      logHostAiStage({
+        chain,
+        stage: 'capabilities_response',
+        reached: true,
+        success: false,
+        handshakeId: hid,
+        buildStamp,
+        flags: f,
+        requestId: capHttpReqId,
+        failureCode: fc,
+      })
+      console.log(
+        `[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=${fc} (host_ledger_missing peer expects handshake)`,
+      )
+      return { ok: false, reason: InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE, responseStatus: res.status }
+    }
     if (res.status === 401 || res.status === 403) {
       const m = 'forbidden'
       logHostAiStage({

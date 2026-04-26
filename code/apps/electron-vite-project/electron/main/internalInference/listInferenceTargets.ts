@@ -10,7 +10,7 @@ import {
 } from '../../../../../packages/shared/src/handshake/internalIdentityUi'
 import { listHandshakeRecords } from '../handshake/db'
 import { HandshakeState, type HandshakeRecord } from '../handshake/types'
-import { getInstanceId, getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
+import { getInstanceId, getOrchestratorMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { logInternalHostHandshakeP2pInspect } from './internalP2pHandshakeInspect'
 import { newHostAiCorrelationChain } from './hostAiStageLog'
@@ -53,11 +53,56 @@ import {
 import { InternalInferenceErrorCode } from './errors'
 import { clearHostAiTransportDecideDedupeCache, logHostAiTransportDecideListLine } from './hostAiTransportDecideLog'
 import { registerP2pEnsureCacheInvalidator } from './p2pEndpointRepair'
+import {
+  hostAiPairingListBlock,
+  recordHostAiLedgerAsymmetric,
+  recordHostAiReciprocalCapabilitiesSuccess,
+  reconcileHostAiPairingEntry,
+  refreshHostAiPairingStaleByTtl,
+} from './hostAiPairingStateStore'
 import { getP2pRelaySignalingCircuitOpenUntilMs } from './p2pSignalRelayCircuit'
 import { listHostCapabilities } from './transport/internalInferenceTransport'
 import type { InternalInferenceCapabilitiesResultWire } from './types'
 
 const L = '[HOST_INFERENCE_TARGETS]'
+
+function logHostAiLedgerView(
+  mainMode: string,
+  activeInternal: number,
+  s2h: number,
+  rows: HandshakeRecord[],
+  source: 'sandbox' | 'list_targets_common',
+): void {
+  const currentDevice = getInstanceId().trim()
+  const firstInternal = rows.find((r) => r.handshake_type === 'internal' && r.state === HandshakeState.ACTIVE)
+  const handshakes = rows
+    .filter((r) => r.handshake_type === 'internal' && r.state === HandshakeState.ACTIVE)
+    .map((r) => {
+      const d = deriveFromRecord(r)
+      const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
+      const peerDev = dr.ok ? dr.peerCoordinationDeviceId.trim() : ''
+      return {
+        handshake_id: r.handshake_id,
+        local_device_id: currentDevice,
+        peer_device_id: peerDev,
+        local_derived_role: d.localDeviceRole,
+        peer_derived_role: d.peerDeviceRole,
+        state: r.state,
+        last_seen_at: (r as { last_seen_at?: string }).last_seen_at ?? (r.activated_at ?? r.created_at ?? null),
+        source,
+      }
+    })
+  const payload = {
+    current_device_id: currentDevice,
+    configured_mode: mainMode,
+    is_sandbox_persisted: isSandboxMode(),
+    local_derived_role: firstInternal ? deriveFromRecord(firstInternal).localDeviceRole : 'unknown',
+    active_internal_count: activeInternal,
+    active_internal_sandbox_to_host_count: s2h,
+    handshakes,
+  }
+  console.log(`[HOST_AI_LEDGER_VIEW] ${JSON.stringify(payload)}`)
+}
 
 /** While P2P is in offer/signaling, reuse one correlation chain per handshake for list/probe (avoid new chain every poll). */
 const stableListProbeChainByHandshake = new Map<string, string>()
@@ -317,6 +362,9 @@ function hostP2pUiPhaseForProbeFailureCode(code: string): HostP2pUiPhase {
       return 'probe_host_ollama'
     case InternalInferenceErrorCode.PROBE_NO_MODELS:
       return 'no_model'
+    case InternalInferenceErrorCode.HOST_AI_LEDGER_ASYMMETRIC:
+    case InternalInferenceErrorCode.HOST_AI_PAIRING_STALE:
+      return 'p2p_unavailable'
     default:
       return 'p2p_unavailable'
   }
@@ -343,6 +391,10 @@ function hostAiStructuredReasonForProbeCode(code: string): HostAiStructuredUnava
       return 'provider_not_ready'
     case InternalInferenceErrorCode.PROBE_NO_MODELS:
       return 'no_models'
+    case InternalInferenceErrorCode.HOST_AI_LEDGER_ASYMMETRIC:
+      return 'ledger_asymmetric'
+    case InternalInferenceErrorCode.HOST_AI_PAIRING_STALE:
+      return 'pairing_stale'
     default:
       return 'capability_probe_failed'
   }
@@ -551,6 +603,8 @@ export type HostAiStructuredUnavailableReason =
   | 'host_remote_ollama_down'
   /** @deprecated use host_remote_ollama_down */
   | 'local_ollama_down'
+  | 'ledger_asymmetric'
+  | 'pairing_stale'
 
 export interface HostInternalInferenceListItem {
   /** Same as `kind`; preferred for new IPC/selector consumers. */
@@ -984,6 +1038,14 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
   console.log(`${L} active_internal_count=${activeInternalCount}`)
   console.log(`${L} active_internal_sandbox_to_host_count=${activeInternalSandboxToHostCount}`)
 
+  logHostAiLedgerView(
+    mainMode,
+    activeInternalCount,
+    activeInternalSandboxToHostCount,
+    ledgerActive,
+    'list_targets_common',
+  )
+
   if (!handshakeProvesSandboxToHost && mainMode !== 'sandbox') {
     console.log(
       `${L} list_done count=0 reason=no_sandbox_to_host_for_this_instance_and_configured_mode_not_sandbox (Host AI not needed)`,
@@ -1076,6 +1138,53 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     const displayName = hostComputerNameFromRow(r)
     const hostDevice = (coordinationDeviceIdForHandshakeDeviceRole(r, 'host') ?? '').trim() || ''
     const pcc = r.internal_peer_pairing_code ?? undefined
+    if (hostDevice) {
+      reconcileHostAiPairingEntry(hid, hostDevice)
+      refreshHostAiPairingStaleByTtl(hid, hostDevice)
+    }
+    const pairBlock = hostDevice ? hostAiPairingListBlock(hid, hostDevice) : { block: false as const }
+    if (pairBlock.block) {
+      const mlB = metaLocal(displayName, pcc)
+      const subB = secondaryLabelFromMeta(mlB.hostName, mlB.roleLabel, mlB.pairingDisplay)
+      const lekB = epKindToListKind(p2pEndpointKind(db, r.p2p_endpoint))
+      const tPair: HostTargetDraft = {
+        kind: 'host_internal',
+        id: buildHostTargetId(hid, 'unavailable'),
+        label: 'Host AI unavailable',
+        display_label: 'Host AI unavailable',
+        displayTitle: 'Host AI unavailable',
+        displaySubtitle: `${pairBlock.userMessage} — ${subB}`,
+        model: null,
+        model_id: null,
+        provider: 'host_internal',
+        handshake_id: hid,
+        host_device_id: hostDevice,
+        host_computer_name: mlB.hostName,
+        host_pairing_code: mlB.digits6,
+        host_orchestrator_role: 'host',
+        host_orchestrator_role_label: mlB.roleLabel,
+        internal_identifier_6: mlB.digits6,
+        secondary_label: subB,
+        direct_reachable: false,
+        policy_enabled: false,
+        available: false,
+        availability: 'not_configured',
+        unavailable_reason: 'pairing_ledger_terminal',
+        host_role: 'Host',
+        inference_error_code: pairBlock.code,
+        hostAiStructuredUnavailableReason:
+          pairBlock.code === InternalInferenceErrorCode.HOST_AI_LEDGER_ASYMMETRIC
+            ? 'ledger_asymmetric'
+            : 'pairing_stale',
+        p2pUiPhase: 'p2p_unavailable',
+        failureCode: pairBlock.code,
+        transportMode: 'none',
+        legacyEndpointKind: lekB,
+      }
+      console.log(`${L} target_pairing_terminal handshake=${hid} code=${pairBlock.code} (no_probe_no_repair)`)
+      targets.push(finalizeItem(tPair))
+      continue
+    }
     const fRow = getP2pInferenceFlags()
     {
       const epKindForNudge = p2pEndpointKind(db, r.p2p_endpoint)
@@ -1610,18 +1719,33 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
             webrtcListHostCapsCache.set(hid, { at: Date.now(), result: capP2p })
           }
           if (capP2p.ok) {
+            if (hostDevice) {
+              recordHostAiReciprocalCapabilitiesSuccess(hid, hostDevice)
+            }
             probe = mapCapabilitiesWireToProbe(capP2p.wire)
           } else {
             const rsn = String('reason' in capP2p ? capP2p.reason : 'unknown')
-            const still =
-              rsn === 'p2p_not_ready_no_fallback' || rsn.includes('P2P') || rsn === 'P2P_UNAVAILABLE'
-            probe = {
-              ok: false,
-              code: still
-                ? InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY
-                : InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE,
-              message: rsn,
-              directP2pAvailable: true,
+            if (rsn === InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE && hostDevice) {
+              recordHostAiLedgerAsymmetric(hid, hostDevice)
+            }
+            if (rsn === InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE) {
+              probe = {
+                ok: false,
+                code: InternalInferenceErrorCode.HOST_AI_LEDGER_ASYMMETRIC,
+                message: rsn,
+                directP2pAvailable: true,
+              }
+            } else {
+              const still =
+                rsn === 'p2p_not_ready_no_fallback' || rsn.includes('P2P') || rsn === 'P2P_UNAVAILABLE'
+              probe = {
+                ok: false,
+                code: still
+                  ? InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY
+                  : InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE,
+                message: rsn,
+                directP2pAvailable: true,
+              }
             }
           }
           console.log(
