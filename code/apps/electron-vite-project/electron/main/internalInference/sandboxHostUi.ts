@@ -38,6 +38,10 @@ import {
 const lastCapabilityProbeDeferredLogByHandshake = new Map<string, number>()
 const CAPABILITY_PROBE_DEFERRED_LOG_MIN_MS = 5_000
 
+/** Throttle [HOST_AI_STAGE] selector_target while P2P is in starting/signaling (same handshake). */
+const lastHostAiSelectorTargetStageByHandshake = new Map<string, number>()
+const HOST_AI_SELECTOR_TARGET_STAGE_LOG_MIN_MS = 5_000
+
 export interface SandboxHostInferenceCandidate {
   handshakeId: string
   /** Shown in UI (counterparty “computer name”). */
@@ -500,17 +504,45 @@ export async function probeHostInferencePolicyFromSandbox(
     role.ok &&
     decL.preferredTransport === 'webrtc_p2p' &&
     (stSel0 === 'connecting' || stSel0 === 'ready' || stSel0 === 'detected')
-  logHostAiStage({
-    chain,
-    stage: 'selector_target',
-    reached: true,
-    success: role.ok,
-    handshakeId: hid,
-    buildStamp,
-    flags: fProbe,
-    phase: decL.selectorPhase,
-    failureCode: !role.ok ? 'SANDBOX_HOST_ROLE' : webrtcRowInFlight ? null : decL.failureCode,
-  })
+  {
+    const stP2pSel = getSessionState(hid)
+    const p2pBusy =
+      stP2pSel &&
+      (stP2pSel.phase === P2pSessionPhase.starting || stP2pSel.phase === P2pSessionPhase.signaling)
+    const tSt = Date.now()
+    if (p2pBusy) {
+      const lastSt = lastHostAiSelectorTargetStageByHandshake.get(hid)
+      if (lastSt != null && tSt - lastSt < HOST_AI_SELECTOR_TARGET_STAGE_LOG_MIN_MS) {
+        /* throttled: avoid new chain/selector_target spam on renderer poll */
+      } else {
+        lastHostAiSelectorTargetStageByHandshake.set(hid, tSt)
+        logHostAiStage({
+          chain,
+          stage: 'selector_target',
+          reached: true,
+          success: role.ok,
+          handshakeId: hid,
+          buildStamp,
+          flags: fProbe,
+          phase: decL.selectorPhase,
+          failureCode: !role.ok ? 'SANDBOX_HOST_ROLE' : webrtcRowInFlight ? null : decL.failureCode,
+        })
+      }
+    } else {
+      lastHostAiSelectorTargetStageByHandshake.delete(hid)
+      logHostAiStage({
+        chain,
+        stage: 'selector_target',
+        reached: true,
+        success: role.ok,
+        handshakeId: hid,
+        buildStamp,
+        flags: fProbe,
+        phase: decL.selectorPhase,
+        failureCode: !role.ok ? 'SANDBOX_HOST_ROLE' : webrtcRowInFlight ? null : decL.failureCode,
+      })
+    }
+  }
   if (!role.ok) {
     probeDone(false)
     p2p(`capability_probe_detail classification=K handshake=${hid} reason=role`)

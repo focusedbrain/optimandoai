@@ -47,6 +47,15 @@ const L = '[HOST_INFERENCE_TARGETS]'
 /** While P2P is in offer/signaling, reuse one correlation chain per handshake for list/probe (avoid new chain every poll). */
 const stableListProbeChainByHandshake = new Map<string, string>()
 
+const P2P_LIST_ENSURE_THROTTLE_MS = 5_000
+const lastP2pEnsureByHandshake = new Map<
+  string,
+  { t: number; state: Awaited<ReturnType<typeof ensureHostAiP2pSession>> }
+>()
+
+const COPY_OFFER_START_NOT_OBSERVED =
+  'Host AI P2P setup did not start correctly. Check logs for OFFER_START_NOT_OBSERVED.'
+
 const WEBRTC_LIST_CAPS_CACHE_TTL_MS = 5_000
 type ListHostCapResult =
   | { ok: true; wire: InternalInferenceCapabilitiesResultWire }
@@ -1071,18 +1080,37 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
 
     if (webrtcListPath) {
       let sState: Awaited<ReturnType<typeof ensureHostAiP2pSession>> | null = null
+      const tList = Date.now()
+      const ensureCached = lastP2pEnsureByHandshake.get(hid)
+      const useCached =
+        ensureCached &&
+        tList - ensureCached.t < P2P_LIST_ENSURE_THROTTLE_MS &&
+        (ensureCached.state.phase === P2pSessionPhase.starting ||
+          ensureCached.state.phase === P2pSessionPhase.signaling) &&
+        !isP2pDataChannelUpForHandshake(hid)
       try {
-        sState = await ensureHostAiP2pSession(hid, 'model_selector')
-        console.log(
-          `${L} p2p_ensure model_selector handshake=${hid} session=${sState.sessionId ?? 'null'} phase=${sState.phase}`,
-        )
+        if (useCached) {
+          sState = ensureCached.state
+          console.log(
+            `${L} p2p_ensure_cached handshake=${hid} session=${sState.sessionId ?? 'null'} phase=${sState.phase} age_ms=${tList - ensureCached.t}`,
+          )
+        } else {
+          sState = await ensureHostAiP2pSession(hid, 'model_selector')
+          lastP2pEnsureByHandshake.set(hid, { t: tList, state: sState })
+          console.log(
+            `${L} p2p_ensure model_selector handshake=${hid} session=${sState.sessionId ?? 'null'} phase=${sState.phase}`,
+          )
+        }
       } catch (e) {
         console.warn(`${L} p2p_ensure_error handshake=${hid}`, e)
         sState = null
       }
       if (sState?.phase === P2pSessionPhase.failed) {
         const ml0 = metaLocal(displayName, pcc)
-        const psub0 = hostAiSubtitleForPhase('p2p_unavailable', ml0)
+        const psub0 =
+          sState.lastErrorCode === InternalInferenceErrorCode.OFFER_START_NOT_OBSERVED
+            ? COPY_OFFER_START_NOT_OBSERVED
+            : hostAiSubtitleForPhase('p2p_unavailable', ml0)
         const ht0 = primaryLabelForP2pUiPhase('p2p_unavailable')
         const failCode0 = sState.lastErrorCode ? String(sState.lastErrorCode) : 'P2P_SESSION_FAILED'
         const tFailed: HostTargetDraft = {

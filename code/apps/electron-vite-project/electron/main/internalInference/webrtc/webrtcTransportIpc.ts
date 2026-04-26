@@ -3,7 +3,11 @@
  */
 import { ipcMain } from 'electron'
 import { getP2pInferenceFlags } from '../p2pInferenceFlags'
-import { markDataChannelOpenForP2pSession } from '../p2pSession/p2pInferenceSessionManager'
+import {
+  markDataChannelOpenForP2pSession,
+  markP2pCreateOfferBegin,
+  markP2pPeerConnectionCreateBegin,
+} from '../p2pSession/p2pInferenceSessionManager'
 import { tryRouteP2pDataChannelJsonMessage } from '../p2pDc/p2pDcCapabilities'
 import { redactIdForLog } from '../internalInferenceLogRedact'
 import { recordOutboundP2pSignal } from './p2pSignalOutbound'
@@ -144,8 +148,18 @@ function onRendererToMain(_sender: Electron.WebContents, msg: unknown) {
       }
       break
     }
+    case 'peer_connection_create_begin': {
+      if (handshakeId && sessionId) {
+        markP2pPeerConnectionCreateBegin(handshakeId, sessionId)
+        console.log(
+          `[P2P_WEBRTC] peer_connection_create_begin handshake=${handshakeId} session=${redactIdForLog(sessionId)}`,
+        )
+      }
+      break
+    }
     case 'create_offer_begin': {
       if (handshakeId && sessionId) {
+        markP2pCreateOfferBegin(handshakeId, sessionId)
         console.log(
           `[P2P_WEBRTC] create_offer_begin handshake=${handshakeId} session=${redactIdForLog(sessionId)}`,
         )

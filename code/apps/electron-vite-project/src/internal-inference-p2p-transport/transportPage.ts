@@ -89,6 +89,7 @@ function createOne(sessionId: string, handshakeId: string, role: Role) {
   if (sessions.has(sessionId)) {
     closeOne(sessionId)
   }
+  out({ v: 1, type: 'peer_connection_create_begin', sessionId, handshakeId })
   const pc = new RTCPeerConnection(RTC_CFG)
   const session: Session = { sessionId, handshakeId, role, pc, dc: null }
   onPcSession(session)

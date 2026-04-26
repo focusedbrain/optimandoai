@@ -103,6 +103,16 @@ export function peerDeviceRole(r: HandshakeRecord): 'host' | 'sandbox' | null {
   return r.initiator_device_role ?? null
 }
 
+/**
+ * P2P WebRTC: ledger initiator creates the offer; acceptor sends the answer. Uses coordination
+ * device ids, not the email initiator/acceptor role fields alone.
+ */
+export function isInternalHandshakeInitiatorDevice(r: HandshakeRecord, localCoordinationDeviceId: string): boolean {
+  const id = typeof localCoordinationDeviceId === 'string' ? localCoordinationDeviceId.trim() : ''
+  const ini = (r.initiator_coordination_device_id ?? '').trim()
+  return id.length > 0 && id === ini
+}
+
 function peerCoordinationDeviceId(r: HandshakeRecord): string | null {
   const t =
     r.local_role === 'initiator'

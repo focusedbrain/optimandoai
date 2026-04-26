@@ -6,9 +6,26 @@
 
 import { getP2pInferenceFlags } from './p2pInferenceFlags'
 import { tryApplyRelayPayloadToWebrtcPod } from './webrtc/webrtcTransportIpc'
-import { handleSignal, preflightP2pRelaySignal } from './p2pSession/p2pInferenceSessionManager'
+import {
+  getP2pInboundLocalRoleForLog,
+  getSessionState,
+  handleSignal,
+  preflightP2pRelaySignal,
+  tryAttachP2pSessionForInboundSignaling,
+} from './p2pSession/p2pInferenceSessionManager'
 
 let registered = false
+
+/** Brief wait when session was just attached / answerer PC is still coming up. */
+const SIGNAL_PREFLIGHT_RETRY_MS = 80
+const SIGNAL_PREFLIGHT_RETRY_MAX = 6
+
+function signalTypeForLog(st: unknown): string {
+  if (st === 'p2p_inference_offer') return 'offer'
+  if (st === 'p2p_inference_answer') return 'answer'
+  if (st === 'p2p_inference_ice') return 'candidate'
+  return String(st)
+}
 
 export function maybeInitP2pSessionManagerStub(context: { phase: 'app_init' }): void {
   if (registered) return
@@ -38,10 +55,51 @@ export async function maybeHandleP2pInferenceRelaySignal(args: {
     return
   }
   void args.relayMessageId
-  const ok = await preflightP2pRelaySignal(args.raw)
+  const raw = args.raw
+  const hid = typeof raw.handshake_id === 'string' ? raw.handshake_id.trim() : ''
+  const sid = typeof raw.session_id === 'string' ? raw.session_id.trim() : ''
+  const st = raw.signal_type
+  const localRole = await getP2pInboundLocalRoleForLog(hid)
+  const phase = getSessionState(hid)?.phase ?? 'none'
+  console.log(
+    `[P2P_SIGNAL_INBOUND] type=${signalTypeForLog(st)} handshake=${hid} session=${sid} local_role=${localRole} phase=${phase}`,
+  )
+
+  let attachResult = await tryAttachP2pSessionForInboundSignaling(raw)
+  let anyAttached = attachResult === 'attached'
+  let ok = await preflightP2pRelaySignal(raw)
+  let waited = 0
+  while (!ok && waited < SIGNAL_PREFLIGHT_RETRY_MAX) {
+    await new Promise((r) => setTimeout(r, SIGNAL_PREFLIGHT_RETRY_MS))
+    waited++
+    const ar = await tryAttachP2pSessionForInboundSignaling(raw)
+    if (ar === 'attached') {
+      anyAttached = true
+    }
+    ok = await preflightP2pRelaySignal(raw)
+  }
+
   if (!ok) {
+    const reason =
+      !hid || !sid ? 'missing_handshake_or_session' : 'preflight_rejected_or_stale'
+    console.log(`[P2P_SIGNAL_ROUTE] action=rejected reason=${reason}`)
     return
   }
-  handleSignal(args.raw)
-  tryApplyRelayPayloadToWebrtcPod(args.raw)
+
+  let action: 'handled' | 'queued' | 'attached' = 'handled'
+  let routeReason = 'ok'
+  if (anyAttached) {
+    action = 'attached'
+    routeReason = 'inbound_attach'
+  } else if (waited > 0) {
+    action = 'queued'
+    routeReason = 'preflight_retry'
+  } else if (attachResult === 'answerer_ready') {
+    action = 'handled'
+    routeReason = 'answerer_transport_ready'
+  }
+  console.log(`[P2P_SIGNAL_ROUTE] action=${action} reason=${routeReason}`)
+
+  handleSignal(raw)
+  tryApplyRelayPayloadToWebrtcPod(raw)
 }

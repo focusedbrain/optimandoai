@@ -38,12 +38,16 @@ export const InternalInferenceErrorCode = {
   SIGNALING_NOT_STARTED: 'SIGNALING_NOT_STARTED',
   /** Hidden WebRTC transport window could not be created or is disabled. */
   WEBRTC_TRANSPORT_NOT_READY: 'WEBRTC_TRANSPORT_NOT_READY',
+  /** `webrtcCreatePeerConnection` / IPC to the transport pod failed after the window existed. */
+  OFFER_DISPATCH_FAILED: 'OFFER_DISPATCH_FAILED',
   /** Local SDP was not produced in time after transport dispatch (renderer createOffer / send offer). */
   OFFER_CREATE_TIMEOUT: 'OFFER_CREATE_TIMEOUT',
   /** Offer SDP could not be sent on the signaling path (e.g. relay). */
   OFFER_SIGNAL_SEND_FAILED: 'OFFER_SIGNAL_SEND_FAILED',
   /** Outbound offer was sent but no answer arrived before the deadline. */
   SIGNALING_ANSWER_TIMEOUT: 'SIGNALING_ANSWER_TIMEOUT',
+  /** `phase=signaling` with no `create_offer_begin` and no outbound offer within the watchdog window. */
+  OFFER_START_NOT_OBSERVED: 'OFFER_START_NOT_OBSERVED',
 } as const
 
 export type InternalInferenceErrorCodeType =

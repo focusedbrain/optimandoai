@@ -15,12 +15,17 @@ import { getHandshakeDbForInternalInference } from '../dbAccess'
 import { InternalInferenceErrorCode, type InternalInferenceErrorCodeType } from '../errors'
 import { getHostInternalInferencePolicy } from '../hostInferencePolicyStore'
 import { newHostAiCorrelationChain } from '../hostAiStageLog'
-import { HostAiWebrtcStartError, startHostAiP2pWebrtcSessionOffer } from '../hostAiWebrtcOfferStart'
+import {
+  HostAiWebrtcStartError,
+  startWebrtcAnswererForHostAiSession,
+  startWebrtcOfferForHostAiSession,
+} from '../hostAiWebrtcOfferStart'
 import { redactIdForLog } from '../internalInferenceLogRedact'
 import {
   assertRecordForServiceRpc,
   deriveInternalHostAiPeerRoles,
   type DeriveInternalHostAiPeerRolesResult,
+  isInternalHandshakeInitiatorDevice,
   localCoordinationDeviceId,
   peerCoordinationDeviceId,
 } from '../policy'
@@ -89,6 +94,18 @@ export type P2pSessionState = {
   /** From ledger at session creation; must match a live re-read for relay signals. */
   boundLocalDeviceId: string
   boundPeerDeviceId: string
+  /** `phase=signaling` (WebRTC) is only valid after a successful `startWebrtcOfferForHostAiSession` — both true. */
+  offerStartRequested: boolean
+  offerCreateDispatched: boolean
+  /** Set when the transport page logged `peer_connection_create_begin` for this session. */
+  observedPeerConnectionCreateBegin: boolean
+  /** Set when the transport page sent `create_offer_begin` to main. */
+  observedCreateOfferBegin: boolean
+  /**
+   * WebRTC: ledger **initiator** (coordination id) runs `createOffer`; **acceptor** runs `createAnswer` only.
+   * Prevents both peers from creating a local offer.
+   */
+  p2pWebrtcLocalRole: 'offerer' | 'answerer'
 }
 
 type SessionModel = {
@@ -104,9 +121,41 @@ const ensureSessionInFlight = new Map<string, { chain: string; promise: Promise<
 const HOST_AI_FAILED_COOLDOWN_MS = 5_000
 /** After `phase=signaling`, if no outbound offer is recorded (main), fail with `OFFER_CREATE_TIMEOUT`. */
 const HOST_AI_OFFER_OUTBOUND_DEADLINE_MS = 15_000
+/** If in `signaling` (WebRTC) and neither `create_offer_begin` nor outbound offer is observed, fail. */
+const HOST_AI_OFFER_START_WATCHDOG_MS = 5_000
 
 const signalingOfferDeadlineTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const offerStartWatchdogTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const offerSentForSession = new Set<string>()
+
+function noOfferMilestones(): {
+  offerStartRequested: false
+  offerCreateDispatched: false
+  observedPeerConnectionCreateBegin: false
+  observedCreateOfferBegin: false
+  p2pWebrtcLocalRole: 'offerer'
+} {
+  return {
+    offerStartRequested: false,
+    offerCreateDispatched: false,
+    observedPeerConnectionCreateBegin: false,
+    observedCreateOfferBegin: false,
+    p2pWebrtcLocalRole: 'offerer',
+  }
+}
+
+function needsWebrtcOfferPipelineRepair(s: P2pSessionState, webrtc: boolean): boolean {
+  if (s.p2pWebrtcLocalRole === 'answerer') {
+    return false
+  }
+  if (!webrtc || !s.sessionId) {
+    return false
+  }
+  if (s.phase !== P2pSessionPhase.starting && s.phase !== P2pSessionPhase.signaling) {
+    return false
+  }
+  return !s.offerCreateDispatched
+}
 
 function sessionOpKey(handshakeId: string, p2pSessionId: string): string {
   return `${handshakeId.trim()}\0${p2pSessionId.trim()}`
@@ -123,6 +172,55 @@ function clearSignalingOfferDeadline(handshakeId: string, p2pSessionId: string |
   }
 }
 
+function clearOfferStartWatchdog(handshakeId: string, p2pSessionId: string | null | undefined) {
+  const sid = typeof p2pSessionId === 'string' ? p2pSessionId.trim() : ''
+  if (!sid) return
+  const k = sessionOpKey(handshakeId, sid)
+  const t = offerStartWatchdogTimers.get(k)
+  if (t) {
+    clearTimeout(t)
+    offerStartWatchdogTimers.delete(k)
+  }
+}
+
+function scheduleOfferStartWatchdogIfNeeded(handshakeId: string, p2pSessionId: string) {
+  const hid = handshakeId.trim()
+  const sid = p2pSessionId.trim()
+  if (!hid || !sid) return
+  if (!getP2pInferenceFlags().p2pInferenceWebrtcEnabled) {
+    return
+  }
+  const m0 = sessions.get(hid)
+  if (m0?.state.p2pWebrtcLocalRole === 'answerer') {
+    return
+  }
+  const k = sessionOpKey(hid, sid)
+  clearOfferStartWatchdog(hid, sid)
+  const t = setTimeout(() => {
+    offerStartWatchdogTimers.delete(k)
+    const m = sessions.get(hid)
+    if (!m || m.state.sessionId !== sid) return
+    if (m.state.phase !== P2pSessionPhase.signaling) return
+    if (m.state.observedCreateOfferBegin || offerSentForSession.has(k)) {
+      return
+    }
+    if (m.state.p2pWebrtcLocalRole === 'answerer') {
+      return
+    }
+    const tFail = now()
+    setSession(hid, {
+      ...m.state,
+      phase: P2pSessionPhase.failed,
+      updatedAt: tFail,
+      lastErrorCode: InternalInferenceErrorCode.OFFER_START_NOT_OBSERVED,
+    })
+    console.log(
+      `[HOST_AI_SESSION_FAIL] handshake=${hid} session=${redactIdForLog(sid)} code=OFFER_START_NOT_OBSERVED phase=signaling`,
+    )
+  }, HOST_AI_OFFER_START_WATCHDOG_MS)
+  offerStartWatchdogTimers.set(k, t)
+}
+
 function clearHostAiSignalingGatesForHandshake(handshakeId: string) {
   const hid = handshakeId.trim()
   const prefix = `${hid}\0`
@@ -130,6 +228,12 @@ function clearHostAiSignalingGatesForHandshake(handshakeId: string) {
     if (k.startsWith(prefix)) {
       clearTimeout(timer)
       signalingOfferDeadlineTimers.delete(k)
+    }
+  }
+  for (const [k, timer] of [...offerStartWatchdogTimers.entries()]) {
+    if (k.startsWith(prefix)) {
+      clearTimeout(timer)
+      offerStartWatchdogTimers.delete(k)
     }
   }
   for (const k of [...offerSentForSession]) {
@@ -147,12 +251,38 @@ export function markP2pOfferSentForSession(handshakeId: string, p2pSessionId: st
   const k = sessionOpKey(handshakeId, p2pSessionId)
   offerSentForSession.add(k)
   clearSignalingOfferDeadline(handshakeId, p2pSessionId)
+  clearOfferStartWatchdog(handshakeId, p2pSessionId)
+}
+
+/** Transport page: RTCPeerConnection is about to be created (main-side correlation). */
+export function markP2pPeerConnectionCreateBegin(handshakeId: string, p2pSessionId: string): void {
+  const hid = typeof handshakeId === 'string' ? handshakeId.trim() : ''
+  const sid = typeof p2pSessionId === 'string' ? p2pSessionId.trim() : ''
+  if (!hid || !sid) return
+  const m = sessions.get(hid)
+  if (!m || m.state.sessionId !== sid) return
+  setSession(hid, { ...m.state, observedPeerConnectionCreateBegin: true, updatedAt: now() })
+}
+
+/** Transport page: about to run createOffer. */
+export function markP2pCreateOfferBegin(handshakeId: string, p2pSessionId: string): void {
+  const hid = typeof handshakeId === 'string' ? handshakeId.trim() : ''
+  const sid = typeof p2pSessionId === 'string' ? p2pSessionId.trim() : ''
+  if (!hid || !sid) return
+  const m = sessions.get(hid)
+  if (!m || m.state.sessionId !== sid) return
+  setSession(hid, { ...m.state, observedCreateOfferBegin: true, updatedAt: now() })
+  clearOfferStartWatchdog(hid, sid)
 }
 
 function scheduleOfferOutboundDeadlineIfNeeded(handshakeId: string, p2pSessionId: string) {
   const hid = handshakeId.trim()
   const sid = p2pSessionId.trim()
   if (!hid || !sid) return
+  const m0 = sessions.get(hid)
+  if (m0?.state.p2pWebrtcLocalRole === 'answerer') {
+    return
+  }
   const k = sessionOpKey(hid, sid)
   clearSignalingOfferDeadline(hid, sid)
   const t = setTimeout(() => {
@@ -386,8 +516,9 @@ export function ensureHostAiP2pSession(handshakeId: string, reason: string): Pro
     const tCheck = now()
     if (s.phase === P2pSessionPhase.failed) {
       if (tCheck - s.updatedAt < HOST_AI_FAILED_COOLDOWN_MS) {
+        const failSid = s.sessionId ? redactIdForLog(s.sessionId) : 'null'
         console.log(
-          `[HOST_AI_SESSION_ENSURE] reuse_failed_cooldown handshake=${hid} code=${s.lastErrorCode ?? 'unknown'}`,
+          `[HOST_AI_SESSION_ENSURE] reuse_failed_cooldown handshake=${hid} session=${failSid} code=${s.lastErrorCode ?? 'unknown'}`,
         )
         return Promise.resolve(withDerivedUi(s))
       }
@@ -398,11 +529,16 @@ export function ensureHostAiP2pSession(handshakeId: string, reason: string): Pro
       s.phase === P2pSessionPhase.datachannel_open ||
       s.phase === P2pSessionPhase.ready
     ) {
-      const sidLog2 = s.sessionId ? redactIdForLog(s.sessionId) : 'null'
-      console.log(
-        `[HOST_AI_SESSION_ENSURE] reuse_active handshake=${hid} session=${sidLog2} phase=${s.phase} requested_reason=${reason}`,
-      )
-      return Promise.resolve(withDerivedUi(s))
+      const fReuse = getP2pInferenceFlags()
+      if (needsWebrtcOfferPipelineRepair(s, fReuse.p2pInferenceWebrtcEnabled)) {
+        // Invalid passive signaling: must run the awaited offer start path (falls through to ensure).
+      } else {
+        const sidLog2 = s.sessionId ? redactIdForLog(s.sessionId) : 'null'
+        console.log(
+          `[HOST_AI_SESSION_ENSURE] reuse_active handshake=${hid} session=${sidLog2} phase=${s.phase} requested_reason=${reason}`,
+        )
+        return Promise.resolve(withDerivedUi(s))
+      }
     }
   }
   const chain = newHostAiCorrelationChain()
@@ -450,6 +586,7 @@ export async function ensureSession(
       signalingExpiresAt: null,
       boundLocalDeviceId: '',
       boundPeerDeviceId: '',
+      ...noOfferMilestones(),
     }
     return withDerivedUi(st)
   }
@@ -465,6 +602,7 @@ export async function ensureSession(
       signalingExpiresAt: null,
       boundLocalDeviceId: '',
       boundPeerDeviceId: '',
+      ...noOfferMilestones(),
     }
     setSession(hid, st)
     return withDerivedUi(st)
@@ -482,6 +620,7 @@ export async function ensureSession(
       signalingExpiresAt: null,
       boundLocalDeviceId: '',
       boundPeerDeviceId: '',
+      ...noOfferMilestones(),
     }
     setSession(hid, st)
     logFailed(hid, null, P2pSessionLogReason.no_db, reason)
@@ -501,6 +640,7 @@ export async function ensureSession(
       signalingExpiresAt: null,
       boundLocalDeviceId: '',
       boundPeerDeviceId: '',
+      ...noOfferMilestones(),
     }
     setSession(hid, st)
     logFailed(hid, null, P2pSessionLogReason.unauthorized, reason)
@@ -524,6 +664,7 @@ export async function ensureSession(
       signalingExpiresAt: null,
       boundLocalDeviceId: '',
       boundPeerDeviceId: '',
+      ...noOfferMilestones(),
     }
     setSession(hid, st)
     logP2pSessionAuthFailed(hid, ar.record, dr, {
@@ -545,9 +686,51 @@ export async function ensureSession(
   const existing = sessions.get(hid)
   if (existing) {
     const s = existing.state
+    if (
+      !s.sessionId &&
+      s.p2pWebrtcLocalRole === 'answerer' &&
+      s.phase === P2pSessionPhase.signaling
+    ) {
+      console.log(`[HOST_AI_SESSION_ENSURE] reuse_acceptor_wait handshake=${hid} reason=${reason}`)
+      return withDerivedUi(s)
+    }
     if (s.phase === P2pSessionPhase.failed) {
       if (t - s.updatedAt < HOST_AI_FAILED_COOLDOWN_MS) {
         return withDerivedUi(s)
+      }
+    } else if (s.sessionId && needsWebrtcOfferPipelineRepair(s, f.p2pInferenceWebrtcEnabled)) {
+      const sid0 = s.sessionId
+      try {
+        await startWebrtcOfferForHostAiSession(hid, sid0, reason)
+        const tSig = now()
+        const stOk: P2pSessionState = {
+          ...s,
+          p2pWebrtcLocalRole: s.p2pWebrtcLocalRole ?? 'offerer',
+          offerStartRequested: true,
+          offerCreateDispatched: true,
+          phase: P2pSessionPhase.signaling,
+          updatedAt: tSig,
+          signalingExpiresAt: tSig + P2P_SIGNALING_WINDOW_MS,
+        }
+        setSession(hid, stOk)
+        scheduleP2pSignalingRelayOut({ sessionId: sid0, handshakeId: hid, reason: 'ensure_offer_repair' })
+        scheduleOfferOutboundDeadlineIfNeeded(hid, sid0)
+        scheduleOfferStartWatchdogIfNeeded(hid, sid0)
+        return withDerivedUi(stOk)
+      } catch (e) {
+        const errCode: InternalInferenceErrorCodeType =
+          e instanceof HostAiWebrtcStartError
+            ? e.errorCode
+            : InternalInferenceErrorCode.WEBRTC_TRANSPORT_NOT_READY
+        const tFail = now()
+        setSession(hid, {
+          ...s,
+          phase: P2pSessionPhase.failed,
+          updatedAt: tFail,
+          lastErrorCode: errCode,
+        })
+        logFailed(hid, sid0, P2pSessionLogReason.unknown, reason)
+        return withDerivedUi(sessions.get(hid)!.state)
       }
     } else if (s.sessionId) {
       if (s.phase === P2pSessionPhase.starting || s.phase === P2pSessionPhase.signaling) {
@@ -559,16 +742,40 @@ export async function ensureSession(
       return withDerivedUi(s)
     }
   }
+  const isInitiatorForAlloc = isInternalHandshakeInitiatorDevice(ar.record, localId)
+  if (!isInitiatorForAlloc && f.p2pInferenceWebrtcEnabled) {
+    const t0 = now()
+    const localBoundW = localCoordinationDeviceId(ar.record)?.trim() ?? ''
+    const peerBoundW = peerCoordinationDeviceId(ar.record)?.trim() ?? ''
+    const stWait: P2pSessionState = {
+      handshakeId: hid,
+      sessionId: null,
+      phase: P2pSessionPhase.signaling,
+      p2pUiPhase: P2pSessionUiPhase.connecting,
+      lastErrorCode: null,
+      connectedAt: null,
+      updatedAt: t0,
+      signalingExpiresAt: t0 + P2P_SIGNALING_WINDOW_MS,
+      boundLocalDeviceId: localBoundW,
+      boundPeerDeviceId: peerBoundW,
+      ...noOfferMilestones(),
+      p2pWebrtcLocalRole: 'answerer',
+    }
+    setSession(hid, stWait)
+    console.log(`[HOST_AI_SESSION_ENSURE] acceptor_wait_inbound handshake=${hid} reason=${reason}`)
+    return withDerivedUi(stWait)
+  }
   clearHostAiSignalingGatesForHandshake(hid)
   const sessionId = randomUUID()
   const localBound = localCoordinationDeviceId(ar.record)?.trim() ?? ''
   const peerBound = peerCoordinationDeviceId(ar.record)?.trim() ?? ''
   const webrtc = f.p2pInferenceWebrtcEnabled
+  const p2pWebrtcLocalRole: 'offerer' | 'answerer' = isInitiatorForAlloc ? 'offerer' : 'answerer'
   const tBase = now()
   const stBase: P2pSessionState = {
     handshakeId: hid,
     sessionId,
-    phase: webrtc ? P2pSessionPhase.starting : P2pSessionPhase.signaling,
+    phase: webrtc && p2pWebrtcLocalRole === 'offerer' ? P2pSessionPhase.starting : P2pSessionPhase.signaling,
     p2pUiPhase: P2pSessionUiPhase.connecting,
     lastErrorCode: null,
     connectedAt: null,
@@ -576,13 +783,15 @@ export async function ensureSession(
     signalingExpiresAt: tBase + P2P_SIGNALING_WINDOW_MS,
     boundLocalDeviceId: localBound,
     boundPeerDeviceId: peerBound,
+    ...noOfferMilestones(),
+    p2pWebrtcLocalRole,
   }
   setSession(hid, stBase)
   console.log(`[HOST_AI_SESSION_ENSURE] begin handshake=${hid} session=${redactIdForLog(sessionId)} reason=${reason}`)
   logConnecting(hid, sessionId)
-  if (webrtc) {
+  if (webrtc && p2pWebrtcLocalRole === 'offerer') {
     try {
-      await startHostAiP2pWebrtcSessionOffer(hid, sessionId, reason)
+      await startWebrtcOfferForHostAiSession(hid, sessionId, reason)
     } catch (e) {
       const errCode: InternalInferenceErrorCodeType =
         e instanceof HostAiWebrtcStartError
@@ -603,16 +812,146 @@ export async function ensureSession(
   const tSig = now()
   const st: P2pSessionState = {
     ...stBase,
+    offerStartRequested: webrtc && p2pWebrtcLocalRole === 'offerer',
+    offerCreateDispatched: webrtc && p2pWebrtcLocalRole === 'offerer',
     phase: P2pSessionPhase.signaling,
     updatedAt: tSig,
     signalingExpiresAt: tSig + P2P_SIGNALING_WINDOW_MS,
   }
   setSession(hid, st)
   scheduleP2pSignalingRelayOut({ sessionId, handshakeId: hid, reason: `ensure_${reason}` })
-  if (webrtc) {
+  if (webrtc && p2pWebrtcLocalRole === 'offerer') {
     scheduleOfferOutboundDeadlineIfNeeded(hid, sessionId)
+    scheduleOfferStartWatchdogIfNeeded(hid, sessionId)
   }
   return withDerivedUi(st)
+}
+
+/**
+ * Inbound relay frame (e.g. first offer) on acceptor: attach session and create answerer PC before
+ * `preflightP2pRelaySignal` + WebRTC apply.
+ */
+export async function tryAttachP2pSessionForInboundSignaling(
+  raw: Record<string, unknown>,
+): Promise<'attached' | 'answerer_ready' | 'skipped'> {
+  const f = getP2pInferenceFlags()
+  if (!f.p2pInferenceEnabled || !f.p2pInferenceSignalingEnabled || !f.p2pInferenceWebrtcEnabled) {
+    return 'skipped'
+  }
+  const stype = raw.signal_type
+  const hid = typeof raw.handshake_id === 'string' ? raw.handshake_id.trim() : ''
+  const sid = typeof raw.session_id === 'string' ? raw.session_id.trim() : ''
+  if (!hid || !sid) return 'skipped'
+  if (stype !== 'p2p_inference_offer' && stype !== 'p2p_inference_answer' && stype !== 'p2p_inference_ice') {
+    return 'skipped'
+  }
+  const db = await getHandshakeDbForInternalInference()
+  if (!db) return 'skipped'
+  const record = getHandshakeRecord(db, hid)
+  const ar = assertRecordForServiceRpc(record)
+  if (!ar.ok) return 'skipped'
+  const localId = String(getInstanceId() ?? '').trim()
+  const isInitiator = isInternalHandshakeInitiatorDevice(ar.record, localId)
+  const existing = sessions.get(hid)
+  if (existing?.state.sessionId === sid) {
+    if (existing.state.p2pWebrtcLocalRole === 'answerer') {
+      await ensureAnswererWebrtcTransportIfNeeded(hid, sid)
+      return 'answerer_ready'
+    }
+    if (existing.state.p2pWebrtcLocalRole === 'offerer' && stype === 'p2p_inference_answer') {
+      return 'skipped'
+    }
+    if (existing.state.p2pWebrtcLocalRole === 'offerer' && stype === 'p2p_inference_ice') {
+      return 'skipped'
+    }
+    return 'skipped'
+  }
+  if (stype === 'p2p_inference_answer' || stype === 'p2p_inference_ice') {
+    return 'skipped'
+  }
+  if (isInitiator) {
+    return 'skipped'
+  }
+  const localBound = localCoordinationDeviceId(ar.record)?.trim() ?? ''
+  const peerBound = peerCoordinationDeviceId(ar.record)?.trim() ?? ''
+  const t0 = now()
+  const stNew: P2pSessionState = {
+    handshakeId: hid,
+    sessionId: sid,
+    phase: P2pSessionPhase.signaling,
+    p2pUiPhase: P2pSessionUiPhase.connecting,
+    lastErrorCode: null,
+    connectedAt: null,
+    updatedAt: t0,
+    signalingExpiresAt: t0 + P2P_SIGNALING_WINDOW_MS,
+    boundLocalDeviceId: localBound,
+    boundPeerDeviceId: peerBound,
+    ...noOfferMilestones(),
+    p2pWebrtcLocalRole: 'answerer',
+  }
+  setSession(hid, stNew)
+  try {
+    await startWebrtcAnswererForHostAiSession(hid, sid, 'inbound_p2p_offer')
+    const t1 = now()
+    setSession(hid, {
+      ...sessions.get(hid)!.state,
+      offerStartRequested: true,
+      offerCreateDispatched: true,
+      updatedAt: t1,
+    })
+  } catch (e) {
+    const errCode: InternalInferenceErrorCodeType =
+      e instanceof HostAiWebrtcStartError ? e.errorCode : InternalInferenceErrorCode.WEBRTC_TRANSPORT_NOT_READY
+    setSession(hid, {
+      ...stNew,
+      phase: P2pSessionPhase.failed,
+      updatedAt: now(),
+      lastErrorCode: errCode,
+    })
+    logFailed(hid, sid, P2pSessionLogReason.unknown, 'inbound_attach')
+    return 'skipped'
+  }
+  return 'attached'
+}
+
+async function ensureAnswererWebrtcTransportIfNeeded(hid: string, sessionId: string): Promise<void> {
+  const m = sessions.get(hid)
+  if (!m || m.state.sessionId !== sessionId) return
+  if (m.state.p2pWebrtcLocalRole !== 'answerer') return
+  if (m.state.offerCreateDispatched) return
+  try {
+    await startWebrtcAnswererForHostAiSession(hid, sessionId, 'inbound_p2p_signal')
+  } catch (e) {
+    const errCode: InternalInferenceErrorCodeType =
+      e instanceof HostAiWebrtcStartError ? e.errorCode : InternalInferenceErrorCode.WEBRTC_TRANSPORT_NOT_READY
+    setSession(hid, {
+      ...m.state,
+      phase: P2pSessionPhase.failed,
+      updatedAt: now(),
+      lastErrorCode: errCode,
+    })
+    logFailed(hid, sessionId, P2pSessionLogReason.unknown, 'answerer_warmup')
+    return
+  }
+  setSession(hid, {
+    ...m.state,
+    offerStartRequested: true,
+    offerCreateDispatched: true,
+    updatedAt: now(),
+  })
+}
+
+/** Sandbox vs host (ledger) for inbound logs; async due to DB. */
+export async function getP2pInboundLocalRoleForLog(handshakeId: string): Promise<string> {
+  const hid = typeof handshakeId === 'string' ? handshakeId.trim() : ''
+  if (!hid) return 'unknown'
+  const db = await getHandshakeDbForInternalInference()
+  if (!db) return 'unknown'
+  const record = getHandshakeRecord(db, hid)
+  const ar = assertRecordForServiceRpc(record)
+  if (!ar.ok) return 'unknown'
+  const dr = deriveInternalHostAiPeerRoles(ar.record, String(getInstanceId() ?? '').trim())
+  return dr.ok ? dr.localRole : 'unknown'
 }
 
 /**
@@ -703,6 +1042,7 @@ export function handleSignal(raw: Record<string, unknown>): void {
   }
   if (st.phase === P2pSessionPhase.starting || st.phase === P2pSessionPhase.signaling) {
     clearSignalingOfferDeadline(hid, st.sessionId)
+    clearOfferStartWatchdog(hid, st.sessionId)
     setSession(hid, { ...st, phase: P2pSessionPhase.connecting, updatedAt: t })
   }
 }
@@ -718,6 +1058,7 @@ export function markDataChannelOpenForP2pSession(handshakeId: string, p2pSession
   const m = sessions.get(hid)
   if (!m || m.state.sessionId !== sid) return
   clearSignalingOfferDeadline(hid, sid)
+  clearOfferStartWatchdog(hid, sid)
   const t = now()
   setSession(hid, {
     ...m.state,
@@ -749,6 +1090,7 @@ export function closeSession(handshakeId: string, reason: P2pSessionLogReasonTyp
     signalingExpiresAt: null,
     boundLocalDeviceId: '',
     boundPeerDeviceId: '',
+    ...noOfferMilestones(),
   })
   emitSessionState(final)
   logClosed(hid, sessionId, reason)
@@ -766,6 +1108,10 @@ export function _resetP2pInferenceSessionsForTests(): void {
     clearTimeout(timer)
   }
   signalingOfferDeadlineTimers.clear()
+  for (const timer of offerStartWatchdogTimers.values()) {
+    clearTimeout(timer)
+  }
+  offerStartWatchdogTimers.clear()
   offerSentForSession.clear()
   sessions.clear()
   ensureSessionInFlight.clear()
