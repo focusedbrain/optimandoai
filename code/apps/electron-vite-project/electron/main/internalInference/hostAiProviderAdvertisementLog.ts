@@ -3,9 +3,11 @@
  * same DB class as internal inference / P2P config, not `handshake/db.ts` (CRUD-only, no DB accessor export).
  */
 
+import { listHandshakeRecords } from '../handshake/db'
+import { HandshakeState } from '../handshake/types'
 import { getInstanceId, getOrchestratorMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
-import { getHostAiLedgerRoleSummaryFromDb } from './hostAiEffectiveRole'
+import { getEffectiveHostAiRoleForHandshake, getHostAiLedgerRoleSummaryFromDb } from './hostAiEffectiveRole'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
 import {
   getHostPublishedMvpDirectP2pIngestUrl,
@@ -44,7 +46,11 @@ export type HostAiProviderAdvertisementPayload = {
   /** Same as `host_published_direct_endpoint` (legacy field name in logs). */
   endpoint: string | null
   endpoint_owner_device_id: string
-  handshake_id: null
+  /**
+   * First ACTIVE internal row where this device can publish Host AI (debugging); unrelated to BEAP
+   * relay `handshake_id` in `p2p_host_ai_direct_beap_ad` bodies.
+   */
+  handshake_id: string | null
   active_internal_ledger_sandbox_to_host: boolean
   active_internal_ledger_host_peer_sandbox: boolean
   host_internal_merge_would_run: boolean
@@ -101,6 +107,22 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
   const advertisedAsHostAi =
     ledger.can_publish_host_endpoint && polH?.allowSandboxInference === true
 
+  let diagnosticPublishHandshakeId: string | null = null
+  if (dbProv) {
+    try {
+      const rows = listHandshakeRecords(dbProv as any, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })
+      for (const r0 of rows) {
+        const eff = getEffectiveHostAiRoleForHandshake(r0, currentId, String(mode))
+        if (eff.can_publish_host_endpoint) {
+          diagnosticPublishHandshakeId = (r0.handshake_id ?? '').trim() || null
+          break
+        }
+      }
+    } catch {
+      diagnosticPublishHandshakeId = null
+    }
+  }
+
   // Explicit line for support: handshake-derived roles vs orchestrator file hint.
   if (db_open_ok) {
     console.log(
@@ -133,7 +155,7 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
     advertised_as_host_ai: advertisedAsHostAi,
     endpoint: endpointH,
     endpoint_owner_device_id: getInstanceId().trim(),
-    handshake_id: null,
+    handshake_id: diagnosticPublishHandshakeId,
     active_internal_ledger_sandbox_to_host: input.ledgerProvesInternalSandboxToHost,
     active_internal_ledger_host_peer_sandbox: hostSidePair,
     host_internal_merge_would_run: input.mergeHostInternalInference,

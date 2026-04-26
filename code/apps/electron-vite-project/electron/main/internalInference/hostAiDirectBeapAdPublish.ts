@@ -46,12 +46,6 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
   if (!db) {
     return
   }
-  const now = Date.now()
-  if (now - lastHostBeapAdPublishAllAt < publishCooldownMs) {
-    return
-  }
-  lastHostBeapAdPublishAllAt = now
-
   const pol = getHostInternalInferencePolicy()
   if (!pol?.allowSandboxInference) {
     return
@@ -64,6 +58,15 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
   const { getHostPublishedMvpDirectP2pIngestUrl } = await import('./p2pEndpointRepair')
   const directUrl = getHostPublishedMvpDirectP2pIngestUrl(db)
   if (!directUrl) {
+    /**
+     * Do **not** consume publish cooldown when the MVP direct BEAP URL is not ready yet. Early callers
+     * (`app_p2p_ledger_ready`, `coordination_ws_open`) can run before `p2p_server_listen` persists
+     * `local_p2p_endpoint`; a premature cooldown was blocking the first real publish to the relay.
+     */
+    console.log(
+      `[HOST_AI_HOST_BEAP_AD_PUBLISH] skip reason=no_mvp_direct_endpoint context=${input.context} ` +
+        '(waiting for local LAN BEAP; retry on p2p_server_listen / p2p repair / list / ws)',
+    )
     return
   }
 
@@ -73,6 +76,11 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
   if (!ledger.can_publish_host_endpoint) {
     return
   }
+  const now = Date.now()
+  if (now - lastHostBeapAdPublishAllAt < publishCooldownMs) {
+    return
+  }
+  lastHostBeapAdPublishAllAt = now
   if (ledger.any_orchestrator_mismatch) {
     console.log(
       `[HOST_AI_HOST_BEAP_AD_PUBLISH] orchestrator_mode_hint_mismatch ` +

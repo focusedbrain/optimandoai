@@ -28,14 +28,18 @@ vi.mock('../listInferenceTargets', () => ({
   hasActiveInternalLedgerLocalHostPeerSandboxForHostUi: vi.fn(() => Promise.resolve(false)),
 }))
 
-vi.mock('../hostAiEffectiveRole', () => ({
-  getHostAiLedgerRoleSummaryFromDb: vi.fn(() => ({
-    can_publish_host_endpoint: false,
-    can_probe_host_endpoint: true,
-    any_orchestrator_mismatch: true,
-    effective_host_ai_role: 'sandbox',
-  })),
-}))
+vi.mock('../hostAiEffectiveRole', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../hostAiEffectiveRole')>()
+  return {
+    ...orig,
+    getHostAiLedgerRoleSummaryFromDb: vi.fn(() => ({
+      can_publish_host_endpoint: false,
+      can_probe_host_endpoint: true,
+      any_orchestrator_mismatch: true,
+      effective_host_ai_role: 'sandbox',
+    })),
+  }
+})
 
 vi.mock('../p2pEndpointRepair', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../p2pEndpointRepair')>()

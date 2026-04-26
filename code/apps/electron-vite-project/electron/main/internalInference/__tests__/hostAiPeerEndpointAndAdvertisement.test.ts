@@ -22,9 +22,14 @@ const getHostAiLedgerRoleSummaryFromDb = vi.hoisted(() =>
   })),
 )
 
-vi.mock('../hostAiEffectiveRole', () => ({
-  getHostAiLedgerRoleSummaryFromDb: (db: unknown, id: string, mode: string) => getHostAiLedgerRoleSummaryFromDb(db, id, mode),
-}))
+vi.mock('../hostAiEffectiveRole', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../hostAiEffectiveRole')>()
+  return {
+    ...orig,
+    getHostAiLedgerRoleSummaryFromDb: (db: unknown, id: string, mode: string) =>
+      getHostAiLedgerRoleSummaryFromDb(db, id, mode),
+  }
+})
 
 const getOrchestratorMode = vi.hoisted(() => vi.fn(() => ({ mode: 'host' as const })))
 const isSandboxMode = vi.hoisted(() => vi.fn(() => false))
@@ -69,7 +74,7 @@ describe('buildHostAiProviderAdvertisementPayload (gating)', () => {
     getOrchestratorMode.mockImplementation(() => ({ mode: 'host' as const }))
   })
 
-  it('D: configured_mode implies host but effective role is sandbox and cannot publish → advertised_as_host_ai = false', async () => {
+  it('Test 2: effective sandbox (ledger) with configured host file must not publish Host AI', async () => {
     const { buildHostAiProviderAdvertisementPayload } = await import('../hostAiProviderAdvertisementLog')
     const payload = await buildHostAiProviderAdvertisementPayload({
       ledgerProvesInternalSandboxToHost: true,
@@ -83,7 +88,7 @@ describe('buildHostAiProviderAdvertisementPayload (gating)', () => {
     expect(payload.advertised_as_host_ai).toBe(false)
   })
 
-  it('E: effective host + can publish + policy allows → advertised_as_host_ai = true', async () => {
+  it('Test 1: ledger host + can_publish + policy → advertised_as_host_ai and owner = current device', async () => {
     hasHostSidePair.mockResolvedValue(true)
     getHostAiLedgerRoleSummaryFromDb.mockImplementation(() => ({
       can_publish_host_endpoint: true,

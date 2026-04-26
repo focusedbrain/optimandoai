@@ -120,7 +120,7 @@ describe('resolveSandboxToHostHttpDirectIngest', () => {
     resetHostAdvertisedMvpDirectForTests()
   })
 
-  it('A: no peer ad and only local sandbox direct in ledger/caller → HOST_AI_PEER_ENDPOINT_MISSING (must not use as host)', () => {
+  it('Test 4: no peer Host advert and ledger/caller is local sandbox BEAP → HOST_AI_PEER_ENDPOINT_MISSING', () => {
     const r = resolveSandboxToHostHttpDirectIngest(
       db,
       'hs-a',
@@ -142,7 +142,7 @@ describe('resolveSandboxToHostHttpDirectIngest', () => {
     expect(r.selected_endpoint_provenance).toBe('not_applicable')
   })
 
-  it('B: peer ad with host owner + candidate distinct from peer URL → accept peer header', () => {
+  it('Test 3: peer advert (header) with owner=ledger host → selected_endpoint uses peer URL', () => {
     const hid = 'hs-b'
     setHostAdvertisedMvpDirectForTests(hid, PEER_HOST_DIRECT, { ownerDeviceId: 'dev-host-1' })
     const r = resolveSandboxToHostHttpDirectIngest(
@@ -187,6 +187,21 @@ describe('resolveSandboxToHostHttpDirectIngest', () => {
     if (r.ok) return
     expect(r.code).toBe(InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH)
     expect(r.host_ai_endpoint_deny_detail).toBe('peer_ad_owner_sandbox')
+  })
+
+  it('Test 5: peer ad owner_device_id ≠ ledger host coordination id → reject (stale/wrong owner ignored)', () => {
+    const hid = 'hs-wrong-host-owner'
+    setHostAdvertisedMvpDirectForTests(hid, PEER_HOST_DIRECT, { ownerDeviceId: '8929353a-5cbc-46f7-b4d9-6439b82a14ca' })
+    const r = resolveSandboxToHostHttpDirectIngest(
+      db,
+      hid,
+      { ...relayRow(hid), p2p_endpoint: LOCAL_SANDBOX_DIRECT },
+      LOCAL_SANDBOX_DIRECT,
+    )
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.code).toBe(InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH)
+    expect(r.host_ai_endpoint_deny_detail).toBe('host_owner_mismatch')
   })
 
   it('ledger endpoint with host coordination + distinct direct URL → accept ledger', () => {
