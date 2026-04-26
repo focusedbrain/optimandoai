@@ -191,6 +191,9 @@ describe('direct Host inference — transport invariants', () => {
     expect(url).toBe('http://192.168.1.2:9/beap/ingest')
     expect(init?.method).toBe('POST')
     expect((init?.headers as Record<string, string>)['Authorization']).toMatch(/^Bearer /)
+    const corr = (init?.headers as Record<string, string>)['X-Correlation-Id']
+    expect(typeof corr).toBe('string')
+    expect(corr!.length).toBeGreaterThan(8)
   })
 
   it('HTTP 202 Accepted is not treated as success (direct-only MVP)', async () => {

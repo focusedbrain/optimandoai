@@ -3,7 +3,9 @@
  * Does not log request/response bodies (metadata only via callers).
  */
 
+import { randomUUID } from 'crypto'
 import { InternalInferenceErrorCode } from './errors'
+import { BEAP_CORRELATION_HEADER_OUT } from '../p2p/beapIngressLog'
 import { endpointHostOnly, logInternalInferenceEvent } from './logging'
 import type { InternalServiceMessageType } from './types'
 
@@ -26,6 +28,7 @@ export async function postServiceEnvelopeDirect(
     target_device_id: string
     message_type: InternalServiceMessageType
   },
+  beapCorrelationId?: string,
 ): Promise<DirectServiceSendResult> {
   const trimmed = typeof targetEndpoint === 'string' ? targetEndpoint.trim() : ''
   if (!trimmed) {
@@ -36,9 +39,11 @@ export async function postServiceEnvelopeDirect(
   const t0 = Date.now()
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), DIRECT_SEND_TIMEOUT_MS)
+  const corr = (beapCorrelationId && beapCorrelationId.trim() ? beapCorrelationId.trim() : null) || randomUUID()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-BEAP-Handshake': handshakeId,
+    [BEAP_CORRELATION_HEADER_OUT]: corr,
   }
   if (bearerToken?.trim()) {
     headers['Authorization'] = `Bearer ${bearerToken.trim()}`

@@ -4,6 +4,7 @@
  * not inbox, not a BEAP message). Falls back to GET /beap/internal-inference-policy.
  */
 
+import { randomUUID } from 'crypto'
 import { getHandshakeRecord, listHandshakeRecords } from '../handshake/db'
 import { HandshakeState, type HandshakeRecord } from '../handshake/types'
 import { getHandshakeDbForInternalInference } from './dbAccess'
@@ -134,7 +135,7 @@ export async function listSandboxHostInferenceCandidates(): Promise<SandboxHostI
   return out
 }
 
-/** A–P labels for `probeHostInferencePolicyFromSandbox` direct P2P capability diagnostics. */
+/** A–Q labels for `probeHostInferencePolicyFromSandbox` direct P2P capability diagnostics (`K` = catch-all). */
 export type P2pCapabilityProbeLetter =
   | 'A'
   | 'B'
@@ -152,6 +153,7 @@ export type P2pCapabilityProbeLetter =
   | 'N'
   | 'O'
   | 'P'
+  | 'Q'
 
 export const P2P_CAPABILITY_PROBE = {
   ENDPOINT_MISSING: 'A' as const,
@@ -161,20 +163,23 @@ export const P2P_CAPABILITY_PROBE = {
   HOST_P2P_SERVER_NOT_RUNNING: 'E' as const,
   HOST_P2P_SERVER_BOUND_LOCAL_ONLY: 'F' as const,
   FIREWALL_OR_NETWORK_TIMEOUT: 'G' as const,
-  TOKEN_OR_AUTH_REJECTED: 'H' as const,
+  /** HTTP 401/403 / missing token before probe (pairing). */
+  AUTH_REJECTED: 'H' as const,
   HOST_HANDLER_NOT_REACHED: 'I' as const,
   HOST_HANDLER_REACHED_BUT_NO_ACTIVE_MODEL: 'J' as const,
   UNKNOWN: 'K' as const,
   /** HTTP 429 on capabilities / policy probe. */
   RATE_LIMITED: 'L' as const,
   /** HTTP 5xx / gateway error on probe path. */
-  HOST_HTTP_SERVER_ERROR: 'M' as const,
+  HOST_ERROR: 'M' as const,
   /** Network / DNS / generic transport failure (no specific HTTP status). */
   HOST_TRANSPORT_UNREACHABLE: 'N' as const,
-  /** JSON/policy body parse or unexpected shape after HTTP success. */
-  HOST_PROBE_RESPONSE_INVALID: 'O' as const,
-  /** Local Ollama/provider unreachable; Host handler returned OLLAMA_UNAVAILABLE. */
-  LOCAL_LLM_UNAVAILABLE: 'P' as const,
+  /** Body parse / unexpected JSON shape after HTTP success. */
+  INVALID_RESPONSE: 'O' as const,
+  /** Host’s local Ollama/provider unreachable (wire OLLAMA_UNAVAILABLE / PROBE_OLLAMA_UNAVAILABLE). */
+  OLLAMA_LOCAL_DOWN: 'P' as const,
+  /** Data channel / transport not ready — probe not sent (transient). */
+  TRANSPORT_NOT_READY: 'Q' as const,
 }
 
 /**
@@ -190,7 +195,7 @@ export function probeFailureInternalInferenceCodeFromCapabilityAttempt(args: {
 }): InternalInferenceErrorCodeType {
   const { postReason: pr, postResponseStatus: fromPost, getHttpStatus: fromGet, getPhase, networkMessage } = args
   if (getPhase === 'aborted') {
-    return InternalInferenceErrorCode.PROVIDER_TIMEOUT
+    return InternalInferenceErrorCode.PROBE_HOST_UNREACHABLE
   }
   const httpFromReason = /^http_(\d+)$/.exec(pr)
   const reasonNum = httpFromReason ? parseInt(httpFromReason[1], 10) : undefined
@@ -200,6 +205,13 @@ export function probeFailureInternalInferenceCodeFromCapabilityAttempt(args: {
       : fromPost != null && fromPost > 0
         ? fromPost
         : reasonNum
+
+  if (pr === 'invalid_response' || pr === 'wrong_type') {
+    return InternalInferenceErrorCode.PROBE_INVALID_RESPONSE
+  }
+  if (getPhase === 'parse') {
+    return InternalInferenceErrorCode.PROBE_INVALID_RESPONSE
+  }
 
   if (pr === 'forbidden' || status === 401 || status === 403) {
     return InternalInferenceErrorCode.PROBE_AUTH_REJECTED
@@ -214,20 +226,17 @@ export function probeFailureInternalInferenceCodeFromCapabilityAttempt(args: {
     return InternalInferenceErrorCode.PROBE_HOST_ERROR
   }
 
-  if (getPhase === 'parse') {
-    return InternalInferenceErrorCode.PROBE_HOST_ERROR
-  }
-
   if (pr === 'timeout') {
-    return InternalInferenceErrorCode.PROVIDER_TIMEOUT
+    return InternalInferenceErrorCode.PROBE_HOST_UNREACHABLE
   }
   if (pr === 'network') {
     return InternalInferenceErrorCode.PROBE_HOST_UNREACHABLE
   }
 
   const nm = (networkMessage ?? '').toLowerCase()
+  const nmNorm = nm.replace(/_/g, ' ')
   if (nm.includes('aborterror') || nm.includes('the user aborted')) {
-    return InternalInferenceErrorCode.PROVIDER_TIMEOUT
+    return InternalInferenceErrorCode.PROBE_HOST_UNREACHABLE
   }
   if (
     nm.includes('econnrefused') ||
@@ -235,12 +244,11 @@ export function probeFailureInternalInferenceCodeFromCapabilityAttempt(args: {
     nm.includes('enotfound') ||
     nm.includes('eai_again') ||
     nm.includes('ehostunreach') ||
-    nm.includes('enetunreach')
+    nm.includes('enetunreach') ||
+    nm.includes('etimedout') ||
+    nmNorm.includes('timed out')
   ) {
     return InternalInferenceErrorCode.PROBE_HOST_UNREACHABLE
-  }
-  if (pr === 'wrong_type') {
-    return InternalInferenceErrorCode.PROBE_HOST_ERROR
   }
 
   return InternalInferenceErrorCode.PROBE_HOST_UNREACHABLE
@@ -276,7 +284,7 @@ function safeP2pLogMessage(m: string | undefined | null): string {
 }
 
 /**
- * Heuristic A–P classification for direct P2P capability-probe outcomes (client-side; complements
+ * Heuristic A–Q classification for direct P2P capability-probe outcomes (client-side; complements
  * `probeFailureInternalInferenceCodeFromCapabilityAttempt` for Sandbox UI / logs).
  */
 export function classifyP2pCapabilityProbeFailure(args: {
@@ -293,12 +301,21 @@ export function classifyP2pCapabilityProbeFailure(args: {
   if (endpointKind === 'relay') return P2P_CAPABILITY_PROBE.ENDPOINT_IS_RELAY
   if (endpointKind === 'localhost') {
     if (postReason === 'forbidden' || postResponseStatus === 401 || postResponseStatus === 403) {
-      return P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED
+      return P2P_CAPABILITY_PROBE.AUTH_REJECTED
     }
     return P2P_CAPABILITY_PROBE.ENDPOINT_IS_LOCALHOST
   }
-  if (postReason === 'forbidden' || postResponseStatus === 401 || postResponseStatus === 403) {
-    return P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED
+  if (
+    postReason === 'forbidden' ||
+    postReason === 'invalid_response' ||
+    postReason === 'wrong_type' ||
+    postResponseStatus === 401 ||
+    postResponseStatus === 403
+  ) {
+    if (postReason === 'invalid_response' || postReason === 'wrong_type') {
+      return P2P_CAPABILITY_PROBE.INVALID_RESPONSE
+    }
+    return P2P_CAPABILITY_PROBE.AUTH_REJECTED
   }
   if (postReason === 'timeout') {
     return P2P_CAPABILITY_PROBE.FIREWALL_OR_NETWORK_TIMEOUT
@@ -326,27 +343,24 @@ export function classifyP2pCapabilityProbeFailure(args: {
   if (n.includes('econnrefused') || n.includes('connection refused')) {
     return P2P_CAPABILITY_PROBE.HOST_P2P_SERVER_NOT_RUNNING
   }
-  if (postReason === 'wrong_type') {
-    return P2P_CAPABILITY_PROBE.HOST_PROBE_RESPONSE_INVALID
-  }
   if (getPhase === 'parse') {
-    return P2P_CAPABILITY_PROBE.HOST_PROBE_RESPONSE_INVALID
+    return P2P_CAPABILITY_PROBE.INVALID_RESPONSE
   }
   const httpN = (() => {
     const m = /^http_(\d+)$/.exec(postReason)
     return m ? parseInt(m[1], 10) : (postResponseStatus ?? (getResponseStatus && getResponseStatus > 0 ? getResponseStatus : undefined))
   })()
   if (httpN != null) {
-    if (httpN === 401 || httpN === 403) return P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED
+    if (httpN === 401 || httpN === 403) return P2P_CAPABILITY_PROBE.AUTH_REJECTED
     if (httpN === 429) return P2P_CAPABILITY_PROBE.RATE_LIMITED
-    if (httpN >= 500 && httpN <= 599) return P2P_CAPABILITY_PROBE.HOST_HTTP_SERVER_ERROR
+    if (httpN >= 500 && httpN <= 599) return P2P_CAPABILITY_PROBE.HOST_ERROR
     if (httpN === 404) return P2P_CAPABILITY_PROBE.HOST_HANDLER_NOT_REACHED
   }
   if (getResponseStatus === 404) {
     return P2P_CAPABILITY_PROBE.HOST_HANDLER_NOT_REACHED
   }
   if (getResponseStatus != null && getResponseStatus >= 500 && getResponseStatus <= 599) {
-    return P2P_CAPABILITY_PROBE.HOST_HTTP_SERVER_ERROR
+    return P2P_CAPABILITY_PROBE.HOST_ERROR
   }
   if (getResponseStatus === 429) {
     return P2P_CAPABILITY_PROBE.RATE_LIMITED
@@ -400,7 +414,7 @@ export type ProbeHostPolicyResult =
       directP2pPath?: boolean
       policyEnabledFromHost?: boolean
       inferenceErrorCode?: string
-      /** A–P direct P2P capability-probe label (J = no active local model; P = Ollama unreachable from Host). */
+      /** A–Q direct P2P capability-probe label (J = no active local model; P = Ollama down on Host; Q = transport not ready). */
       p2pProbeClassification?: P2pCapabilityProbeLetter
     }
   | {
@@ -442,10 +456,10 @@ function probePolicyFailureFromDcWait(
   if (out.reason === 'dc_open_timeout') {
     return {
       ok: false,
-      code: InternalInferenceErrorCode.P2P_NOT_READY,
+      code: InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY,
       message: 'dc_open_timeout',
       directP2pAvailable: true,
-      p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
+      p2pProbeClassification: P2P_CAPABILITY_PROBE.TRANSPORT_NOT_READY,
       retryable: true,
       p2pNotReadyPhase: p2pPhase,
     }
@@ -470,11 +484,28 @@ function displayPairingFromDigits6(d: string): string {
   return s ? s : '—'
 }
 
+/** Normalize legacy Host wire codes so Sandbox probe attribution stays stable (STEP 10). */
+function normalizeCapabilityWireInferenceErrorCode(raw: string | undefined): string | undefined {
+  if (raw == null || !String(raw).trim()) return undefined
+  const c = String(raw).trim()
+  if (c === InternalInferenceErrorCode.OLLAMA_UNAVAILABLE) {
+    return InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE
+  }
+  if (c === InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM) {
+    return InternalInferenceErrorCode.PROBE_NO_MODELS
+  }
+  return c
+}
+
 export function mapCapabilitiesWireToProbe(
   w: InternalInferenceCapabilitiesResultWire,
 ): Extract<ProbeHostPolicyResult, { ok: true }> {
   const allow = w.policy_enabled === true
-  if (w.inference_error_code === InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM) {
+  const rawWireErr = typeof w.inference_error_code === 'string' ? w.inference_error_code.trim() : ''
+  if (
+    rawWireErr === InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM ||
+    rawWireErr === InternalInferenceErrorCode.PROBE_NO_MODELS
+  ) {
     const enabledN = (w.models ?? []).filter((m) => m.enabled && typeof m.model === 'string' && m.model.trim()).length
     console.log(`[HOST_CAPS] inference_ready=false reason=no_models provider=ollama models=${enabledN}`)
     return {
@@ -490,7 +521,29 @@ export function mapCapabilitiesWireToProbe(
       internalIdentifierDisplayFromHost: displayPairingFromDigits6(w.host_pairing_code),
       directP2pPath: true,
       policyEnabledFromHost: allow,
-      inferenceErrorCode: InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM,
+      inferenceErrorCode: InternalInferenceErrorCode.PROBE_NO_MODELS,
+    }
+  }
+  if (
+    rawWireErr === InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE ||
+    rawWireErr === InternalInferenceErrorCode.OLLAMA_UNAVAILABLE
+  ) {
+    const enabledN = (w.models ?? []).filter((m) => m.enabled && typeof m.model === 'string' && m.model.trim()).length
+    console.log(`[HOST_CAPS] inference_ready=false reason=ollama_unreachable provider=ollama models=${enabledN}`)
+    return {
+      ok: true,
+      allowSandboxInference: allow,
+      defaultChatModel: undefined,
+      modelId: null,
+      displayLabelFromHost: 'Host AI · —',
+      hostComputerNameFromHost: w.host_computer_name,
+      providerFromHost: 'ollama',
+      hostOrchestratorRoleLabelFromHost: 'Host orchestrator',
+      internalIdentifier6FromHost: w.host_pairing_code,
+      internalIdentifierDisplayFromHost: displayPairingFromDigits6(w.host_pairing_code),
+      directP2pPath: true,
+      policyEnabledFromHost: allow,
+      inferenceErrorCode: InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE,
     }
   }
   const enabledModels = w.models.filter((m) => m.enabled && typeof m.model === 'string' && m.model.trim())
@@ -511,11 +564,10 @@ export function mapCapabilitiesWireToProbe(
     `[HOST_CAPS] inference_ready=${modelId ? 'true' : 'false'} provider=ollama models=${enabledModels.length}`,
   )
   const rawErr = w.inference_error_code
-  const hostErr = typeof rawErr === 'string' && rawErr.trim() ? rawErr.trim() : undefined
+  const hostErrRaw = typeof rawErr === 'string' && rawErr.trim() ? rawErr.trim() : undefined
+  const hostErr = normalizeCapabilityWireInferenceErrorCode(hostErrRaw)
   const inferenceErrorCode =
-    modelId != null
-      ? hostErr
-      : hostErr ?? InternalInferenceErrorCode.PROBE_NO_MODELS
+    modelId != null ? hostErr : hostErr ?? InternalInferenceErrorCode.PROBE_NO_MODELS
   return {
     ok: true,
     allowSandboxInference: allow,
@@ -534,11 +586,14 @@ export function mapCapabilitiesWireToProbe(
 }
 
 function p2pProbeLetterForOkInferenceCode(iec: string | undefined): P2pCapabilityProbeLetter | undefined {
-  if (iec === InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM) {
+  if (
+    iec === InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM ||
+    iec === InternalInferenceErrorCode.PROBE_NO_MODELS
+  ) {
     return P2P_CAPABILITY_PROBE.HOST_HANDLER_REACHED_BUT_NO_ACTIVE_MODEL
   }
-  if (iec === InternalInferenceErrorCode.OLLAMA_UNAVAILABLE) {
-    return P2P_CAPABILITY_PROBE.LOCAL_LLM_UNAVAILABLE
+  if (iec === InternalInferenceErrorCode.OLLAMA_UNAVAILABLE || iec === InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE) {
+    return P2P_CAPABILITY_PROBE.OLLAMA_LOCAL_DOWN
   }
   return undefined
 }
@@ -554,11 +609,12 @@ export async function postInternalInferenceCapabilitiesRequest(
   token: string,
   timeoutMs: number,
   correlationChain?: string,
+  beapCorrelationId?: string,
 ): Promise<
   | { ok: true; wire: InternalInferenceCapabilitiesResultWire }
   | { ok: false; reason: string; responseStatus?: number; networkErrorMessage?: string }
 > {
-  return listHostCapabilities(hid, { record, ingestUrl, token, timeoutMs, correlationChain })
+  return listHostCapabilities(hid, { record, ingestUrl, token, timeoutMs, correlationChain, beapCorrelationId })
 }
 
 /**
@@ -567,7 +623,7 @@ export async function postInternalInferenceCapabilitiesRequest(
  */
 export function probeHostInferencePolicyFromSandbox(
   handshakeId: string,
-  opt?: { correlationChain?: string },
+  opt?: { correlationChain?: string; beapCorrelationId?: string },
 ): Promise<ProbeHostPolicyResult> {
   const hid = String(handshakeId ?? '').trim()
   if (!hid) {
@@ -589,12 +645,14 @@ export function probeHostInferencePolicyFromSandbox(
 
 async function probeHostInferencePolicyFromSandboxImpl(
   handshakeId: string,
-  opt?: { correlationChain?: string },
+  opt?: { correlationChain?: string; beapCorrelationId?: string },
 ): Promise<ProbeHostPolicyResult> {
   const p2p = (msg: string) => console.log(`[HOST_INFERENCE_P2P] ${msg}`)
   const probeDone = (ok: boolean) => p2p(`capability_probe_done ok=${ok ? 'true' : 'false'}`)
 
   const chain = (opt?.correlationChain && opt.correlationChain.trim() ? opt.correlationChain : null) || newHostAiCorrelationChain()
+  const beapCorr =
+    (opt?.beapCorrelationId && opt.beapCorrelationId.trim() ? opt.beapCorrelationId.trim() : null) || randomUUID()
   const p2pClassificationDetail = (detail: string) => p2p(`capability_probe_detail ${detail} chain=${chain}`)
   const buildStamp = getHostAiBuildStamp()
   const fProbe = getP2pInferenceFlags()
@@ -786,7 +844,7 @@ async function probeHostInferencePolicyFromSandboxImpl(
   const token = ar.record.counterparty_p2p_token
   if (!token?.trim()) {
     probeDone(false)
-    p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED} reason=no_p2p_token`)
+    p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.AUTH_REJECTED} reason=no_p2p_token`)
     logHostAiStage({
       chain,
       stage: 'capabilities_request',
@@ -802,7 +860,7 @@ async function probeHostInferencePolicyFromSandboxImpl(
       code: 'POLICY_FORBIDDEN',
       message: 'token',
       directP2pAvailable: true,
-      p2pProbeClassification: P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED,
+      p2pProbeClassification: P2P_CAPABILITY_PROBE.AUTH_REJECTED,
     }
   }
   const { timeoutMs } = getHostInternalInferencePolicy()
@@ -842,6 +900,7 @@ async function probeHostInferencePolicyFromSandboxImpl(
       token: token!,
       timeoutMs: tCap,
       correlationChain: chain,
+      beapCorrelationId: beapCorr,
     })
     if (capP2p.ok) {
       const out = mapCapabilitiesWireToProbe(capP2p.wire)
@@ -857,27 +916,31 @@ async function probeHostInferencePolicyFromSandboxImpl(
       p2p(`capability_probe_skip_http reason=webrtc_p2p_dc_or_caps_incomplete handshake=${hid} detail=${'reason' in capP2p ? String(capP2p.reason) : 'unknown'}`)
       return {
         ok: false,
-        code: InternalInferenceErrorCode.P2P_STILL_CONNECTING,
+        code: InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY,
         message: 'p2p_still_connecting',
         directP2pAvailable: true,
-        p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
+        p2pProbeClassification: P2P_CAPABILITY_PROBE.TRANSPORT_NOT_READY,
       }
     }
     const dcfail = 'reason' in capP2p ? capP2p.reason : 'unknown'
     probeDone(false)
     p2p(`capability_probe_webrtc_exhausted handshake=${hid} reason=${String(dcfail)} (http_fallback_tried_in_listHost)`)
+    const capReason = 'reason' in capP2p ? capP2p.reason : 'unknown'
+    const capPhase: 'http' | 'parse' =
+      capReason === 'wrong_type' || capReason === 'invalid_response' ? 'parse' : 'http'
     const letter = classifyP2pCapabilityProbeFailure({
       endpoint: ep,
       endpointKind: epK,
-      postReason: 'reason' in capP2p ? capP2p.reason : 'unknown',
+      postReason: capReason,
       postResponseStatus: 'responseStatus' in capP2p ? capP2p.responseStatus : undefined,
       getResponseStatus: 'responseStatus' in capP2p ? capP2p.responseStatus : undefined,
-      getPhase: 'http',
+      getPhase: capPhase,
       networkMessage: 'networkErrorMessage' in capP2p ? capP2p.networkErrorMessage : undefined,
     })
     const failCode = probeFailureInternalInferenceCodeFromCapabilityAttempt({
-      postReason: 'reason' in capP2p ? capP2p.reason : 'unknown',
+      postReason: capReason,
       postResponseStatus: 'responseStatus' in capP2p ? capP2p.responseStatus : undefined,
+      getPhase: capPhase,
       networkMessage: 'networkErrorMessage' in capP2p ? capP2p.networkErrorMessage : undefined,
     })
     p2pClassificationDetail(`classification=${letter}`)
@@ -899,10 +962,10 @@ async function probeHostInferencePolicyFromSandboxImpl(
     p2p(`capability_probe_legacy_blocked handshake=${hid} reason=webrtc_preferred_failsafe`)
     return {
       ok: false,
-      code: InternalInferenceErrorCode.P2P_STILL_CONNECTING,
+      code: InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY,
       message: 'legacy_blocked_failsafe',
       directP2pAvailable: true,
-      p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
+      p2pProbeClassification: P2P_CAPABILITY_PROBE.TRANSPORT_NOT_READY,
     }
   }
 
@@ -911,7 +974,7 @@ async function probeHostInferencePolicyFromSandboxImpl(
   p2p(`endpoint_kind=${epK}`)
   p2p(`request_timeout_ms=${tCap}`)
 
-  const cap = await postInternalInferenceCapabilitiesRequest(hid, ar.record, ep, token, tCap, chain)
+  const cap = await postInternalInferenceCapabilitiesRequest(hid, ar.record, ep, token, tCap, chain, beapCorr)
   if (cap.ok) {
     const out = mapCapabilitiesWireToProbe(cap.wire)
     const letterOk = p2pProbeLetterForOkInferenceCode(out.inferenceErrorCode)
@@ -934,6 +997,7 @@ async function probeHostInferencePolicyFromSandboxImpl(
         Authorization: `Bearer ${token.trim()}`,
         'X-BEAP-Handshake': hid,
         'X-BEAP-Host-AI-Chain': chain,
+        'X-Correlation-Id': beapCorr,
       },
       signal: ac.signal,
     })
@@ -947,13 +1011,13 @@ async function probeHostInferencePolicyFromSandboxImpl(
     if (res.status === 401 || res.status === 403) {
       p2p(`request_failed code=forbidden message=get policy status handshake=${hid}`)
       probeDone(false)
-      p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED}`)
+      p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.AUTH_REJECTED}`)
       return {
         ok: false,
         code: InternalInferenceErrorCode.PROBE_AUTH_REJECTED,
         message: 'forbidden',
         directP2pAvailable: true,
-        p2pProbeClassification: P2P_CAPABILITY_PROBE.TOKEN_OR_AUTH_REJECTED,
+        p2pProbeClassification: P2P_CAPABILITY_PROBE.AUTH_REJECTED,
       }
     }
     if (!res.ok) {

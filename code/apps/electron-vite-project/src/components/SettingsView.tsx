@@ -107,9 +107,16 @@ function mapInternalHandshakeRecordToOrchPeer(r: Record<string, unknown>): Setti
 export interface SettingsViewProps {
   /** When set, Connect opens handshake initiation with internal preset (Electron dashboard). */
   onNavigateToHandshake?: (opts?: { presetInternal?: boolean }) => void
+  /** Scroll Orchestrator "Connected devices" to this ACTIVE handshake row once (e.g. health banner). */
+  focusOrchestratorHandshakeId?: string | null
+  onConsumedOrchestratorHandshakeFocus?: () => void
 }
 
-export default function SettingsView({ onNavigateToHandshake }: SettingsViewProps = {}) {
+export default function SettingsView({
+  onNavigateToHandshake,
+  focusOrchestratorHandshakeId,
+  onConsumedOrchestratorHandshakeFocus,
+}: SettingsViewProps = {}) {
   const [tier, setTier] = useState<string | null>(null)
   const [relayStatus, setRelayStatus] = useState<{
     relay_mode: string
@@ -288,6 +295,25 @@ export default function SettingsView({ onNavigateToHandshake }: SettingsViewProp
   useEffect(() => {
     void loadOrchestratorSettings()
   }, [loadOrchestratorSettings])
+
+  useEffect(() => {
+    const id = typeof focusOrchestratorHandshakeId === 'string' ? focusOrchestratorHandshakeId.trim() : ''
+    if (!id || !onConsumedOrchestratorHandshakeFocus) return
+    const t = window.setTimeout(() => {
+      const esc = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      let el = document.querySelector(`[data-orchestrator-peer-handshake="${esc}"]`) as HTMLElement | null
+      if (!el) {
+        el = document.getElementById('settings-orchestrator-section')
+      }
+      try {
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      } catch {
+        el?.scrollIntoView()
+      }
+      onConsumedOrchestratorHandshakeFocus()
+    }, 250)
+    return () => window.clearTimeout(t)
+  }, [focusOrchestratorHandshakeId, onConsumedOrchestratorHandshakeFocus])
 
   const saveOrchestratorDeviceNameBlur = async () => {
     if (!orchestratorMode?.setDeviceName) return
@@ -696,15 +722,18 @@ export default function SettingsView({ onNavigateToHandshake }: SettingsViewProp
       </section>
 
       {/* Orchestrator Mode */}
-      <section style={{
+      <section
+        id="settings-orchestrator-section"
+        style={{
         marginBottom: '24px',
         padding: '16px',
         background: 'var(--color-surface, rgba(255,255,255,0.04))',
         borderRadius: '10px',
         border: '1px solid var(--color-border, rgba(255,255,255,0.12))',
-      }}>
+      }}
+      >
         <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: 600 }}>
-          Orchestrator Mode
+          Orchestrator Mode (pairing)
         </h3>
         <div style={{ height: '1px', background: 'var(--color-border)', margin: '0 0 12px' }} />
 
@@ -1059,6 +1088,7 @@ export default function SettingsView({ onNavigateToHandshake }: SettingsViewProp
                   {orchPeers.map((peer) => (
                     <li
                       key={peer.instanceId}
+                      data-orchestrator-peer-handshake={peer.handshakeId}
                       style={{
                         display: 'flex',
                         alignItems: 'flex-start',

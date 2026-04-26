@@ -22,6 +22,10 @@ declare global {
   interface Window {
     handshakeView?: {
       listHandshakes: (filter?: { state?: string }) => Promise<any[]>
+      /** Main: ACTIVE handshake rows with health !== OK (same rules as `[HANDSHAKE_HEALTH]`). */
+      getActiveHandshakeHealthIssues?: () => Promise<{
+        issues: import('@shared/handshake/activeHandshakeHealthIssue').ActiveHandshakeHealthIssue[]
+      }>
       submitCapsule: (jsonString: string) => Promise<any>
       importCapsule: (jsonString: string) => Promise<any>
       acceptHandshake: (id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[] }) => Promise<any>
@@ -406,7 +410,7 @@ declare global {
         }>
       }>
       /** Full Host AI rows (availability + model label) for model selectors. @deprecated use listTargets */
-      listInferenceTargets: () => Promise<{
+      listInferenceTargets: (opts?: { coalesceHandshakeId?: string }) => Promise<{
         ok: boolean
         targets?: Array<{
           kind: 'host_internal'
@@ -434,7 +438,7 @@ declare global {
         }>
       }>
       /** Same as `listInferenceTargets` (internal-inference:listTargets). */
-      listTargets: () => Promise<{
+      listTargets: (opts?: { coalesceHandshakeId?: string }) => Promise<{
         ok: boolean
         targets?: Array<{
           kind: 'host_internal'

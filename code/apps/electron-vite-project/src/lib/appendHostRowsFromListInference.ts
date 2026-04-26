@@ -1,4 +1,5 @@
 import type { HostInferenceTargetRow } from '../hooks/useSandboxHostInference'
+import { coalescedListInferenceTargetsInvoke } from './coalescedListInferenceTargets'
 import type { InferenceTargetRefreshReason } from './inferenceTargetRefreshLog'
 import { orderModelsLocalHostCloud, mapHostTargetsToGavModelEntries } from './modelSelectorMerge'
 
@@ -38,14 +39,26 @@ export async function appendHostRowsFromListInference<T extends HostModelRow>(op
     return { models, gav: [] }
   }
   const inf = (window as unknown as {
-    internalInference?: { listTargets?: () => Promise<unknown>; listInferenceTargets?: () => Promise<unknown> }
+    internalInference?: {
+      listTargets?: (opts?: { coalesceHandshakeId?: string }) => Promise<unknown>
+      listInferenceTargets?: (opts?: { coalesceHandshakeId?: string }) => Promise<unknown>
+    }
   }).internalInference
   const listFn = typeof inf?.listTargets === 'function' ? inf.listTargets : inf?.listInferenceTargets
   if (typeof listFn !== 'function') {
     return { models, gav: [] }
   }
   try {
-    const r = (await listFn()) as { ok?: boolean; targets?: HostInferenceTargetRow[] }
+    const hostRow = models.find((m) => m.type === 'host_internal') as { handshake_id?: string } | undefined
+    const hid = typeof hostRow?.handshake_id === 'string' ? hostRow.handshake_id.trim() : ''
+    const bypassCache = shouldReplaceHostRows
+    const r = (await coalescedListInferenceTargetsInvoke(listFn, {
+      coalesceHandshakeId: hid || undefined,
+      bypassCache,
+    })) as {
+      ok?: boolean
+      targets?: HostInferenceTargetRow[]
+    }
     if (!r?.ok || !Array.isArray(r.targets) || r.targets.length === 0) {
       return { models, gav: [] }
     }

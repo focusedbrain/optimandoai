@@ -15,6 +15,8 @@ type HostP2pUiPhase =
   | 'probe_rate_limited'
   | 'probe_gateway_error'
   | 'probe_unreachable'
+  | 'probe_invalid_response'
+  | 'probe_local_ollama'
 
 /** Top chat + WR Chat: one Host row in the model menu (or collapsed label). */
 export type HostModelSelectorRowUiIn = {
@@ -40,10 +42,12 @@ const TITLE_PAIRING = 'Host AI · pairing'
 const TITLE_LEGACY_HTTP = 'Host AI · legacy endpoint unavailable'
 const TITLE_UNAVAILABLE = 'Host AI · unavailable'
 const TITLE_HIDDEN = 'Host AI unavailable'
-const TITLE_PROBE_AUTH = 'Host AI · access denied (check pairing / token)'
-const TITLE_PROBE_RL = 'Host AI · rate limited — retry shortly'
-const TITLE_PROBE_GW = 'Host AI · gateway or Host server error'
-const TITLE_PROBE_NET = 'Host AI · cannot reach Host (network or timeout)'
+const TITLE_PROBE_AUTH = 'Authentication failed. Re-pair to refresh tokens.'
+const TITLE_PROBE_RL = 'Host is throttling requests. Try again in a moment.'
+const TITLE_PROBE_GW = 'Host orchestrator returned an error.'
+const TITLE_PROBE_NET = "Host machine isn't reachable on the network."
+const TITLE_PROBE_JSON = "Host responded but the format wasn't recognized."
+const TITLE_PROBE_OLLAMA = "Host's local AI provider isn't running."
 
 function hostDisplayName(t: HostInferenceTargetRow | null | undefined): string {
   return (t?.host_computer_name?.trim() || 'Host').trim() || 'Host'
@@ -135,6 +139,10 @@ function fallbackTitleForPhase(phase: HostP2pUiPhase | undefined, t: HostInferen
       return TITLE_PROBE_GW
     case 'probe_unreachable':
       return TITLE_PROBE_NET
+    case 'probe_invalid_response':
+      return TITLE_PROBE_JSON
+    case 'probe_local_ollama':
+      return TITLE_PROBE_OLLAMA
     default:
       return null
   }

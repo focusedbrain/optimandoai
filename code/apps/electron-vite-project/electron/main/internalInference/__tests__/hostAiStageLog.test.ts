@@ -9,7 +9,24 @@ afterEach(() => {
 })
 
 describe('hostAiStageLog', () => {
-  it('emits [HOST_AI_STAGE] with chain, build, and flags (no body content)', () => {
+  it('does not emit [HOST_AI_STAGE] when WRDESK_P2P_INFERENCE_VERBOSE_LOGS is off', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const f = getP2pInferenceFlags()
+    logHostAiStage({
+      chain: 'c1',
+      stage: 'feature_flags',
+      reached: true,
+      success: true,
+      handshakeId: 'hs-1',
+      buildStamp: 'b',
+      flags: f,
+    })
+    expect(log).not.toHaveBeenCalled()
+  })
+
+  it('emits [HOST_AI_STAGE] with chain, build, and flags when verbose logs on (no body content)', () => {
+    vi.stubEnv('WRDESK_P2P_INFERENCE_VERBOSE_LOGS', '1')
+    resetP2pInferenceFlagsForTests()
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const f = getP2pInferenceFlags()
     logHostAiStage({

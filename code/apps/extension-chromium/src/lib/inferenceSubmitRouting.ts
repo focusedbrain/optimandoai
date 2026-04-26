@@ -53,6 +53,15 @@ export function formatInternalInferenceErrorCode(
     POLICY_FORBIDDEN:
       "This request isn't allowed for the Host model you selected. Try a different model or check settings on the Host.",
     OLLAMA_UNAVAILABLE: 'Ollama is not running or not reachable on your Host. Start it on the Host machine and try again.',
+    PROBE_AUTH_REJECTED: 'Authentication failed. Re-pair to refresh tokens.',
+    PROBE_RATE_LIMITED: 'Host is throttling requests. Try again in a moment.',
+    PROBE_HOST_ERROR: 'Host orchestrator returned an error.',
+    PROBE_HOST_UNREACHABLE: "Host machine isn't reachable on the network.",
+    PROBE_INVALID_RESPONSE: "Host responded but the format wasn't recognized.",
+    PROBE_TRANSPORT_NOT_READY:
+      'Host AI is still connecting. Wait a moment, use Refresh (↻) in the model menu, or pick another model.',
+    PROBE_NO_MODELS: 'Host has no AI models installed.',
+    PROBE_OLLAMA_UNAVAILABLE: "Host's local AI provider isn't running.",
     MALFORMED_SERVICE_MESSAGE: 'The request could not be sent. Try again or restart the app.',
     SERVICE_RPC_NOT_SUPPORTED:
       'Host AI · P2P unavailable. Check that the Host is online, on a reachable path, and that firewalls or VPN allow the connection, then try again.',

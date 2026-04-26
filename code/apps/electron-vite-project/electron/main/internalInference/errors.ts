@@ -72,6 +72,12 @@ export const InternalInferenceErrorCode = {
   PROBE_HOST_UNREACHABLE: 'PROBE_HOST_UNREACHABLE',
   /** Capability probe: HTTP 200 capabilities OK but no models configured (distinct from Host “no active LLM” / Ollama down). */
   PROBE_NO_MODELS: 'PROBE_NO_MODELS',
+  /** Capability probe: HTTP 200 but body was not valid JSON or not the expected capabilities shape. */
+  PROBE_INVALID_RESPONSE: 'PROBE_INVALID_RESPONSE',
+  /** Capability probe: WebRTC/DataChannel or client transport not ready; probe not sent yet (transient). */
+  PROBE_TRANSPORT_NOT_READY: 'PROBE_TRANSPORT_NOT_READY',
+  /** Capability probe: HTTP 200 from Host but local Ollama on Host could not be reached (getEffectiveChatModelName / listModels threw). */
+  PROBE_OLLAMA_UNAVAILABLE: 'PROBE_OLLAMA_UNAVAILABLE',
 } as const
 
 export type InternalInferenceErrorCodeType =

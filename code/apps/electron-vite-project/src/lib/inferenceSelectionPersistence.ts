@@ -285,7 +285,14 @@ export function isHostInferenceTargetDefinitivelyInvalidForRestore(t: Orchestrat
   if (phase === 'hidden' || ur === 'SANDBOX_HOST_ROLE_METADATA') return true
   if (av === 'identity_incomplete' || ur === 'IDENTITY_INCOMPLETE') return true
   if (av === 'model_unavailable' || ur === 'HOST_NO_ACTIVE_LOCAL_LLM') return true
-  if (err === 'HOST_NO_ACTIVE_LOCAL_LLM' || err === 'MODEL_UNAVAILABLE') return true
+  if (
+    err === 'HOST_NO_ACTIVE_LOCAL_LLM' ||
+    err === 'MODEL_UNAVAILABLE' ||
+    err === 'PROBE_NO_MODELS' ||
+    err === 'PROBE_OLLAMA_UNAVAILABLE'
+  ) {
+    return true
+  }
   if (definitiveP2pSessionFailureCode(err)) return true
   const sur = String(t.hostAiStructuredUnavailableReason ?? '')
   if (
@@ -296,7 +303,9 @@ export function isHostInferenceTargetDefinitivelyInvalidForRestore(t: Orchestrat
     sur === 'auth_rejected' ||
     sur === 'rate_limited' ||
     sur === 'gateway_error' ||
-    sur === 'host_unreachable'
+    sur === 'host_unreachable' ||
+    sur === 'invalid_response' ||
+    sur === 'local_ollama_down'
   ) {
     return true
   }

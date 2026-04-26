@@ -105,11 +105,40 @@ export function hostAiChatBlockedUserMessage(t: HostInferenceTargetRow | undefin
   if (ph === 'hidden' || t.unavailable_reason === 'SANDBOX_HOST_ROLE_METADATA') {
     return 'Host AI is not set up for this device pair. Check internal handshake roles in Settings, or pick another model.'
   }
+  if (ph === 'probe_access_denied' || t.inference_error_code === 'PROBE_AUTH_REJECTED') {
+    return 'Authentication failed. Re-pair to refresh tokens.'
+  }
+  if (ph === 'probe_rate_limited' || t.inference_error_code === 'PROBE_RATE_LIMITED') {
+    return 'Host is throttling requests. Try again in a moment.'
+  }
+  if (ph === 'probe_gateway_error' || t.inference_error_code === 'PROBE_HOST_ERROR') {
+    return 'Host orchestrator returned an error.'
+  }
+  if (
+    ph === 'probe_unreachable' ||
+    t.inference_error_code === 'PROBE_HOST_UNREACHABLE' ||
+    t.inference_error_code === 'PROVIDER_TIMEOUT'
+  ) {
+    return "Host machine isn't reachable on the network."
+  }
+  if (ph === 'probe_invalid_response' || t.inference_error_code === 'PROBE_INVALID_RESPONSE') {
+    return "Host responded but the format wasn't recognized."
+  }
   if (ph === 'p2p_unavailable' || t.availability === 'direct_unreachable' || t.availability === 'host_offline') {
     return 'Host AI · P2P unavailable. Check that the Host app is online, use Refresh (↻), or pick a local or cloud model.'
   }
-  if (t.availability === 'model_unavailable' || t.unavailable_reason === 'HOST_NO_ACTIVE_LOCAL_LLM') {
+  if (
+    t.availability === 'model_unavailable' ||
+    t.unavailable_reason === 'HOST_NO_ACTIVE_LOCAL_LLM' ||
+    t.inference_error_code === 'PROBE_NO_MODELS'
+  ) {
+    if (t.inference_error_code === 'PROBE_NO_MODELS') {
+      return 'Host has no AI models installed.'
+    }
     return 'Host AI · no active model. On the Host, pick an active local model, or choose another model here.'
+  }
+  if (ph === 'probe_local_ollama' || t.inference_error_code === 'PROBE_OLLAMA_UNAVAILABLE') {
+    return "Host's local AI provider isn't running."
   }
   if (t.availability === 'policy_disabled' || t.unavailable_reason === 'HOST_POLICY_DISABLED') {
     return 'Host AI · disabled by Host. Change policy on the Host, or pick another model here.'
@@ -149,6 +178,28 @@ export function hostAiRowUnavailableTooltip(
   if (ph === 'hidden') {
     return TOOLTIP_ROLE
   }
+  if (ph === 'probe_access_denied' || t?.inference_error_code === 'PROBE_AUTH_REJECTED') {
+    return ['Authentication failed. Re-pair to refresh tokens.', ACT_SANDBOX_REFRESH].join(NL)
+  }
+  if (ph === 'probe_rate_limited' || t?.inference_error_code === 'PROBE_RATE_LIMITED') {
+    return ['Host is throttling requests. Try again in a moment.', ACT_SANDBOX_REFRESH].join(NL)
+  }
+  if (ph === 'probe_gateway_error' || t?.inference_error_code === 'PROBE_HOST_ERROR') {
+    return ['Host orchestrator returned an error.', ACT_SANDBOX_REFRESH].join(NL)
+  }
+  if (
+    ph === 'probe_unreachable' ||
+    t?.inference_error_code === 'PROBE_HOST_UNREACHABLE' ||
+    t?.inference_error_code === 'PROVIDER_TIMEOUT'
+  ) {
+    return ["Host machine isn't reachable on the network.", ACT_SANDBOX_REFRESH].join(NL)
+  }
+  if (ph === 'probe_invalid_response' || t?.inference_error_code === 'PROBE_INVALID_RESPONSE') {
+    return ["Host responded but the format wasn't recognized.", ACT_SANDBOX_REFRESH].join(NL)
+  }
+  if (ph === 'probe_local_ollama' || t?.inference_error_code === 'PROBE_OLLAMA_UNAVAILABLE') {
+    return ["Host's local AI provider isn't running.", ACT_SANDBOX_REFRESH].join(NL)
+  }
   if (ph === 'p2p_unavailable' || ph === 'connecting') {
     return `${HOST_AI_PATH_UNAVAILABLE_TOOLTIP}${NL}${ACT_SANDBOX_REFRESH}`
   }
@@ -166,8 +217,18 @@ export function hostAiRowUnavailableTooltip(
   if (t?.availability === 'policy_disabled' || ur === 'HOST_POLICY_DISABLED' || /disabled\s+by\s+host/i.test(String(t?.display_label ?? t?.label ?? ''))) {
     return TOOLTIP_DISABLED
   }
-  if (t?.availability === 'model_unavailable' || ur === 'HOST_NO_ACTIVE_LOCAL_LLM') {
+  if (
+    t?.availability === 'model_unavailable' ||
+    ur === 'HOST_NO_ACTIVE_LOCAL_LLM' ||
+    t?.inference_error_code === 'PROBE_NO_MODELS'
+  ) {
+    if (t?.inference_error_code === 'PROBE_NO_MODELS') {
+      return ['Host has no AI models installed.', ACT_SANDBOX_REFRESH].join(NL)
+    }
     return TOOLTIP_NO_MODEL
+  }
+  if (t?.inference_error_code === 'PROBE_OLLAMA_UNAVAILABLE') {
+    return ["Host's local AI provider isn't running.", ACT_SANDBOX_REFRESH].join(NL)
   }
   return `${HOST_AI_PATH_UNAVAILABLE_TOOLTIP}${NL}${ACT_SANDBOX_REFRESH}`
 }

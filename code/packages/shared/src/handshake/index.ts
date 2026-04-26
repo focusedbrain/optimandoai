@@ -1,4 +1,5 @@
 export * from './types'
+export * from './activeHandshakeHealthIssue'
 export * from './receiverEmailValidation'
 export * from './internalEndpointValidation'
 export * from './internalIdentityUi'

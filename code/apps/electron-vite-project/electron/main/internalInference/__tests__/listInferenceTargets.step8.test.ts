@@ -642,7 +642,7 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
     expect(t.secondary_label).toMatch(/Konge-AS1 · ID 123-456/)
   })
 
-  it('HOST_NO_ACTIVE_LOCAL_LLM from probe is surfaced on the disabled row', async () => {
+  it('PROBE_NO_MODELS from probe is surfaced on the disabled row (legacy HOST_NO_ACTIVE normalized)', async () => {
     isSandboxModeMock.mockReturnValue(true)
     listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
     probeHostInferencePolicyFromSandboxMock.mockResolvedValue({
@@ -656,11 +656,11 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
       hostOrchestratorRoleLabelFromHost: 'Host orchestrator',
       internalIdentifierDisplayFromHost: '1-2-3',
       internalIdentifier6FromHost: '123456',
-      inferenceErrorCode: InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM,
+      inferenceErrorCode: InternalInferenceErrorCode.PROBE_NO_MODELS,
     })
     const r = await listSandboxHostInternalInferenceTargets()
     const t = r.targets[0]!
-    expect(t.inference_error_code).toBe(InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM)
+    expect(t.inference_error_code).toBe(InternalInferenceErrorCode.PROBE_NO_MODELS)
     expect(t.unavailable_reason).toBe(InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM)
   })
 

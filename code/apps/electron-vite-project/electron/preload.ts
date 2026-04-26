@@ -589,9 +589,11 @@ function buildInternalInferenceRequestCompletionPayload(params: unknown) {
 contextBridge.exposeInMainWorld('internalInference', {
   listHostCandidates: () => ipcRenderer.invoke('internal-inference:listHostCandidates'),
   /** @deprecated Prefer `listTargets` — identical IPC. */
-  listInferenceTargets: () => ipcRenderer.invoke('internal-inference:listInferenceTargets'),
+  listInferenceTargets: (opts?: { coalesceHandshakeId?: string }) =>
+    ipcRenderer.invoke('internal-inference:listInferenceTargets', opts ?? {}),
   /** Host AI rows for Sandbox (same as `listInferenceTargets`). */
-  listTargets: () => ipcRenderer.invoke('internal-inference:listTargets'),
+  listTargets: (opts?: { coalesceHandshakeId?: string }) =>
+    ipcRenderer.invoke('internal-inference:listTargets', opts ?? {}),
   probeHostPolicy: (handshakeId: unknown) => {
     const id = typeof handshakeId === 'string' ? handshakeId.trim() : ''
     if (!id) throw new Error('internalInference.probeHostPolicy: handshakeId required')
@@ -766,6 +768,9 @@ contextBridge.exposeInMainWorld('handshakeView', {
   listHandshakes: (filter?: unknown) => {
     const validFilter = filter && typeof filter === 'object' ? filter : undefined
     return ipcRenderer.invoke('handshake:list', validFilter)
+  },
+  getActiveHandshakeHealthIssues: () => {
+    return ipcRenderer.invoke('handshake:activeHealthIssues')
   },
   submitCapsule: (jsonString: unknown) => {
     if (typeof jsonString !== 'string' || jsonString.length === 0 || jsonString.length > 65536) {

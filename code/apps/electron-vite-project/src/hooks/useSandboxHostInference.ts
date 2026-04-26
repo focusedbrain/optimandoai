@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { DirectP2pReachabilityStatus } from '../lib/hostInferenceUiGates'
 import type { InferenceTargetRefreshReason } from '../lib/inferenceTargetRefreshLog'
+import { coalescedListInferenceTargetsInvoke } from '../lib/coalescedListInferenceTargets'
 import {
   computeShowHostInferenceRefresh,
   discoveryHasHostInternalRows,
@@ -158,15 +159,23 @@ export function useSandboxHostInference(
     }
     const api = (window as unknown as {
       internalInference?: {
-        listTargets?: () => Promise<unknown>
-        listInferenceTargets?: () => Promise<unknown>
+        listTargets?: (opts?: { coalesceHandshakeId?: string }) => Promise<unknown>
+        listInferenceTargets?: (opts?: { coalesceHandshakeId?: string }) => Promise<unknown>
         listHostCandidates?: () => Promise<unknown>
       }
     }).internalInference
     const listFn = typeof api?.listTargets === 'function' ? api.listTargets : api?.listInferenceTargets
     if (typeof listFn === 'function') {
       try {
-        const r = (await listFn()) as { ok?: boolean; targets?: HostInferenceTargetRow[] }
+        const coalesceHandshakeId = selectedHandshakeIdForProbe?.trim() || undefined
+        const bypassCache = reason === 'manual_refresh'
+        const r = (await coalescedListInferenceTargetsInvoke(listFn, {
+          coalesceHandshakeId,
+          bypassCache,
+        })) as {
+          ok?: boolean
+          targets?: HostInferenceTargetRow[]
+        }
         if (r?.ok && Array.isArray(r.targets)) {
           setInferenceTargets(r.targets)
           setCandidates(targetsToCandidates(r.targets))
@@ -231,7 +240,7 @@ export function useSandboxHostInference(
     } finally {
       setListLoading(false)
     }
-  }, [gav])
+  }, [gav, selectedHandshakeIdForProbe])
 
   useLayoutEffect(() => {
     if (!treatAsSandboxForHostInternal || !gav) {

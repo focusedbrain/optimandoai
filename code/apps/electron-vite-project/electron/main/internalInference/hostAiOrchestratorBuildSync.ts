@@ -5,6 +5,7 @@
 import fs from 'fs'
 import path from 'path'
 import { closeAllP2pInferenceSessions, P2pSessionLogReason } from './p2pSession/p2pInferenceSessionManager'
+import { resetListInferenceTargetsIpcCacheForOrchestrator } from './ipc'
 import { clearHostAiListTransientStateForOrchestratorBuildChange } from './listInferenceTargets'
 import { ollamaManager } from '../llm/ollama-manager'
 
@@ -35,6 +36,7 @@ export function runHostAiInvalidationIfOrchestratorBuildChanged(args: {
 
   console.log(`[HOST_AI_BUILD] orchestrator_build_changed prev=${prev || '(none)'} now=${stamp}`)
   clearHostAiListTransientStateForOrchestratorBuildChange()
+  resetListInferenceTargetsIpcCacheForOrchestrator()
   closeAllP2pInferenceSessions(P2pSessionLogReason.orchestrator_build_changed)
   try {
     ollamaManager.invalidateModelsCache()

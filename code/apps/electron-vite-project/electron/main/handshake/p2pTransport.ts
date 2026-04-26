@@ -8,7 +8,9 @@
  */
 
 /** Direct source import: Vitest + `@repo/ingestion-core` index alias can yield incomplete exports for this module. */
+import { randomUUID } from 'crypto'
 import { isCoordinationRelayNativeBeap } from '../../../../../packages/ingestion-core/src/beapDetection.ts'
+import { BEAP_CORRELATION_HEADER_OUT } from '../p2p/beapIngressLog'
 import { getCanonicalRelayDeviceId, logDeviceIdBinding } from '../p2p/relayDeviceBinding'
 import { decodeJwtSubForLogs } from '../p2p/relayIdentity'
 import { getHandshakeRecord } from './db'
@@ -766,6 +768,7 @@ export async function sendCapsuleViaHttp(
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-BEAP-Handshake': handshakeId,
+    [BEAP_CORRELATION_HEADER_OUT]: randomUUID(),
   }
   if (bearerToken?.trim()) {
     headers['Authorization'] = `Bearer ${bearerToken.trim()}`

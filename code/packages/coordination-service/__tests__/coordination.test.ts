@@ -149,8 +149,57 @@ describe('coordination-service', () => {
     relay.rateLimiter.resetForTests()
     const d = relay.store.getDb()
     if (d) {
-      d.exec('DELETE FROM coordination_capsules; DELETE FROM coordination_handshake_registry; DELETE FROM coordination_token_cache;')
+      d.exec(
+        'DELETE FROM coordination_capsules; DELETE FROM coordination_handshake_registry; DELETE FROM coordination_handshake_health_reports; DELETE FROM coordination_token_cache;',
+      )
     }
+  })
+
+  test('handshake-health-report: POST snapshot + GET peer (same-principal)', async () => {
+    const hsId = 'hs-health-peer'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'sameuser',
+        acceptor_user_id: 'sameuser',
+        initiator_device_id: 'dev-a',
+        acceptor_device_id: 'dev-b',
+      }),
+      auth: 'test-sameuser-pro',
+      contentType: 'application/json',
+    })
+
+    const postA = await request(port, 'POST', '/beap/handshake-health-report', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        device_id: 'dev-a',
+        health_tier: 'OK',
+        endpoint_kind: 'direct',
+      }),
+      auth: 'test-sameuser-pro',
+      contentType: 'application/json',
+    })
+    expect(postA.status).toBe(200)
+
+    const getB = await request(
+      port,
+      'GET',
+      `/beap/handshake-health-peer?handshake_id=${encodeURIComponent(hsId)}&device_id=dev-b`,
+      { auth: 'test-sameuser-pro' },
+    )
+    expect(getB.status).toBe(200)
+    const peer = JSON.parse(getB.body).peer as { health_tier: string; endpoint_kind: string | null }
+    expect(peer).toBeTruthy()
+    expect(peer.health_tier).toBe('OK')
+    expect(peer.endpoint_kind).toBe('direct')
+
+    const getNoPeer = await request(
+      port,
+      'GET',
+      `/beap/handshake-health-peer?handshake_id=${encodeURIComponent(hsId)}&device_id=dev-a`,
+      { auth: 'test-sameuser-pro' },
+    )
+    expect(JSON.parse(getNoPeer.body).peer).toBeNull()
   })
 
   test('CS_01_post_capsule_stored: POST valid capsule → stored, 202', async () => {

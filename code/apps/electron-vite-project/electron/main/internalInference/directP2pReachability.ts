@@ -3,7 +3,9 @@
  * GET /beap/p2p-reachability with Bearer + X-BEAP-Handshake only.
  */
 
+import { randomUUID } from 'crypto'
 import { getHandshakeRecord, listHandshakeRecords } from '../handshake/db'
+import { BEAP_CORRELATION_HEADER_OUT } from '../p2p/beapIngressLog'
 import { HandshakeState, type HandshakeRecord } from '../handshake/types'
 import { isHostMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
@@ -83,12 +85,14 @@ async function fetchReachability(
   token: string,
   signal: AbortSignal,
   fetchImpl: typeof fetch,
+  beapCorrelationId: string,
 ): Promise<DirectP2pReachabilityResult> {
   const res = await fetchImpl(url, {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${token.trim()}`,
       'X-BEAP-Handshake': handshakeId,
+      [BEAP_CORRELATION_HEADER_OUT]: beapCorrelationId,
     },
     signal,
   })
@@ -159,10 +163,11 @@ export async function checkDirectP2pReachabilityFromHandshake(
     return { status: 'missing_endpoint' }
   }
   const url = reachabilityUrlFromP2pIngest(ep)
+  const beapCorr = randomUUID()
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), timeoutMs)
   try {
-    const res = await fetchReachability(url, record.handshake_id, token, ac.signal, doFetch)
+    const res = await fetchReachability(url, record.handshake_id, token, ac.signal, doFetch, beapCorr)
     clearTimeout(timer)
     return res
   } catch (e) {

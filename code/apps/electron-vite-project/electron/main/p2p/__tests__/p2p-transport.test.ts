@@ -15,7 +15,7 @@ import {
   getQueueStatus,
 } from '../../handshake/outboundQueue'
 import { createP2PServer } from '../p2pServer'
-import { resetRateLimitsForTests } from '../rateLimiter'
+import { resetRateLimitsForTests, setForcePublicP2pRateLimitsForTests } from '../rateLimiter'
 import { migrateHandshakeTables, insertHandshakeRecord } from '../../handshake/db'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
 import { buildTestSession } from '../../handshake/sessionFactory'
@@ -737,6 +737,8 @@ describe('P5: Rate Limiting', () => {
 
   beforeAll(async () => {
     if (skipIfNoSqlite()) return
+    // Loopback is "private LAN" in prod; force public caps so P5_02/P5_03 still assert 30/5 per minute.
+    setForcePublicP2pRateLimitsForTests(true)
     db = createP2PTestDb()
     const setup = await createValidHandshakeWithContextSync(db)
     handshakeId = setup.handshakeId
@@ -768,6 +770,7 @@ describe('P5: Rate Limiting', () => {
 
   afterAll(async () => {
     if (p2pServer) await new Promise<void>((r) => p2pServer!.close(() => r()))
+    setForcePublicP2pRateLimitsForTests(false)
   })
 
   async function sendRequest(capsule: Record<string, unknown>, token: string | null): Promise<number> {

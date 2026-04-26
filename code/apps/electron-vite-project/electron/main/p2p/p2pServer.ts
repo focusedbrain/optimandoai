@@ -34,6 +34,11 @@ import {
   checkHandshakeLimit,
   checkAuthFailLimit,
   recordAuthFailure,
+  isClientIpPrivateLan,
+  IP_LIMIT_PUBLIC,
+  IP_LIMIT_PRIVATE_LAN,
+  HANDSHAKE_LIMIT_PUBLIC,
+  HANDSHAKE_LIMIT_PRIVATE_LAN,
 } from './rateLimiter'
 import { INGESTION_CONSTANTS } from '../ingestion/types'
 import {
@@ -44,10 +49,22 @@ import {
 import { handleGetInternalInferencePolicy } from '../internalInference/p2pHostPolicyGet'
 import { handleGetP2PReachability } from '../internalInference/p2pReachabilityGet'
 import { isInternalServiceRpcShape, tryHandleInternalServiceP2P } from '../internalInference/p2pServiceDispatch'
+import {
+  logBeapIngressReceived,
+  logP2pBeapRejection,
+  readBeapCorrelationIdFromIncoming,
+  readBeapHandshakeHintFromIncoming,
+} from './beapIngressLog'
 
 const MAX_BODY_BYTES = INGESTION_CONSTANTS.MAX_RAW_INPUT_BYTES
-const IP_LIMIT = 30
-const HANDSHAKE_LIMIT = 5
+
+function ingestIpLimitForClient(ip: string): number {
+  return isClientIpPrivateLan(ip) ? IP_LIMIT_PRIVATE_LAN : IP_LIMIT_PUBLIC
+}
+
+function ingestHandshakeLimitForClient(ip: string): number {
+  return isClientIpPrivateLan(ip) ? HANDSHAKE_LIMIT_PRIVATE_LAN : HANDSHAKE_LIMIT_PUBLIC
+}
 
 const migratedDbs = new WeakSet<object>()
 
@@ -122,9 +139,9 @@ function sendGenericError(
   ip: string,
   reason: string,
   handshakeId?: string | null,
+  correlationId?: string | null,
 ): void {
-  const ts = new Date().toISOString()
-  console.warn('[P2P] Rejection', { ip, status, reason, handshake_id: handshakeId ?? 'unknown', timestamp: ts })
+  logP2pBeapRejection({ ip, status, reason, handshakeId, correlationId })
   const errorMsg = STATUS_ERROR_MESSAGES[status] ?? 'Request rejected'
   res.writeHead(status, { 'Content-Type': 'application/json' })
   res.end(JSON.stringify({ error: errorMsg }))
@@ -148,28 +165,31 @@ function createP2PRequestHandler(
 
     if (req.method !== 'POST' || pathOnly !== '/beap/ingest') {
       const ip = getClientIp(req)
-      sendGenericError(res, 404, ip, 'not_found')
+      sendGenericError(res, 404, ip, 'not_found', null, readBeapCorrelationIdFromIncoming(req))
       return
     }
 
     const ip = getClientIp(req)
+    const beapCorr = readBeapCorrelationIdFromIncoming(req)
+    const handshakeHintIngress = readBeapHandshakeHintFromIncoming(req)
+    logBeapIngressReceived({ ip, corr: beapCorr, handshakeHint: handshakeHintIngress })
 
     // Auth failure rate limit (aggressive)
     if (!checkAuthFailLimit(ip)) {
-      sendGenericError(res, 429, ip, 'auth_rate_limit')
+      sendGenericError(res, 429, ip, 'auth_rate_limit', null, beapCorr)
       return
     }
 
-    // Per-IP rate limit
-    if (!checkIpLimit(ip, IP_LIMIT)) {
-      sendGenericError(res, 429, ip, 'ip_rate_limit')
+    // Per-IP rate limit (higher tier for private LAN — same-principal direct BEAP)
+    if (!checkIpLimit(ip, ingestIpLimitForClient(ip))) {
+      sendGenericError(res, 429, ip, 'ip_rate_limit', null, beapCorr)
       return
     }
 
     // Content-Type check
     const contentType = req.headers['content-type'] ?? ''
     if (!contentType.includes('application/json') && !contentType.includes('application/vnd.beap+json')) {
-      sendGenericError(res, 415, ip, 'content_type')
+      sendGenericError(res, 415, ip, 'content_type', null, beapCorr)
       return
     }
 
@@ -178,7 +198,7 @@ function createP2PRequestHandler(
     for await (const chunk of req) {
       totalSize += chunk.length
       if (totalSize > MAX_BODY_BYTES) {
-        sendGenericError(res, 413, ip, 'body_too_large')
+        sendGenericError(res, 413, ip, 'body_too_large', null, beapCorr)
         return
       }
       chunks.push(chunk as Buffer)
@@ -190,7 +210,7 @@ function createP2PRequestHandler(
     try {
       parsed = JSON.parse(body) as Record<string, unknown>
     } catch {
-      sendGenericError(res, 400, ip, 'invalid_json')
+      sendGenericError(res, 400, ip, 'invalid_json', null, beapCorr)
       return
     }
 
@@ -199,13 +219,13 @@ function createP2PRequestHandler(
       handshakeId = getHandshakeIdForBeapMessage(parsed, req.headers)
     }
     if (!handshakeId || typeof handshakeId !== 'string' || handshakeId.trim().length === 0) {
-      sendGenericError(res, 400, ip, 'missing_handshake_id')
+      sendGenericError(res, 400, ip, 'missing_handshake_id', null, beapCorr)
       return
     }
 
-    // Per-handshake rate limit
-    if (!checkHandshakeLimit(handshakeId, HANDSHAKE_LIMIT)) {
-      sendGenericError(res, 429, ip, 'handshake_rate_limit', handshakeId)
+    // Per-handshake rate limit (higher tier when client is on private LAN)
+    if (!checkHandshakeLimit(handshakeId, ingestHandshakeLimitForClient(ip))) {
+      sendGenericError(res, 429, ip, 'handshake_rate_limit', handshakeId, beapCorr)
       return
     }
 
@@ -217,7 +237,7 @@ function createP2PRequestHandler(
 
     const db = getDb()
     if (!db) {
-      sendGenericError(res, 503, ip, 'vault_locked', handshakeId)
+      sendGenericError(res, 503, ip, 'vault_locked', handshakeId, beapCorr)
       return
     }
 
@@ -226,7 +246,7 @@ function createP2PRequestHandler(
     if (!expectedToken || token !== expectedToken) {
       recordAuthFailure(ip)
       console.warn('[P2P] P2P_AUTH_FAILURE', { ip, handshake_id: handshakeId, timestamp: new Date().toISOString() })
-      sendGenericError(res, 401, ip, 'auth_failure', handshakeId)
+      sendGenericError(res, 401, ip, 'auth_failure', handshakeId, beapCorr)
       return
     }
 
@@ -348,7 +368,7 @@ function createP2PRequestHandler(
       res.end(JSON.stringify({ success: true }))
     } catch (err: any) {
       console.error('[P2P] Ingestion error:', err?.message)
-      sendGenericError(res, 500, ip, 'internal_error', handshakeId)
+      sendGenericError(res, 500, ip, 'internal_error', handshakeId, beapCorr)
     }
     })()
   }

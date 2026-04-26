@@ -130,6 +130,8 @@ export type ListHostCapabilitiesOpts = {
   timeoutMs: number
   /** Correlates all [HOST_AI_STAGE] lines for this attempt; defaults to a new UUID. */
   correlationChain?: string
+  /** `X-Correlation-Id` on POST /beap/ingest; defaults to a new UUID. */
+  beapCorrelationId?: string
 }
 
 function redactP2pLogLine(m: string | undefined | null): string {
@@ -151,8 +153,9 @@ export async function listHostCapabilities(
   | { ok: false; reason: string; responseStatus?: number; networkErrorMessage?: string }
 > {
   const hid = handshakeId.trim()
-  const { record, ingestUrl, token, timeoutMs, correlationChain: chainOpt } = opts
+  const { record, ingestUrl, token, timeoutMs, correlationChain: chainOpt, beapCorrelationId: corrOpt } = opts
   const chain = (chainOpt && chainOpt.trim() ? chainOpt.trim() : null) || newHostAiCorrelationChain()
+  const beapCorr = (corrOpt && corrOpt.trim() ? corrOpt.trim() : null) || randomUUID()
   const buildStamp = getHostAiBuildStamp()
   const f = getP2pInferenceFlags()
   const roles = deriveHostAiHandshakeRoles(record)
@@ -333,7 +336,7 @@ export async function listHostCapabilities(
       p2pSessionId: p2pSid,
       requestId: capReqId,
     })
-    console.log(`[HOST_INFERENCE_CAPS] request_send_dc handshake=${hid} session=${p2pSid}`)
+    console.log(`[HOST_INFERENCE_CAPS] request_send_dc handshake=${hid} session=${p2pSid} corr=${beapCorr}`)
     const dcr = await requestHostInferenceCapabilitiesOverDataChannel(hid, p2pSid, timeoutMs, { requestId: capReqId })
     if (dcr.ok) {
       logHostAiStage({
@@ -449,7 +452,7 @@ export async function listHostCapabilities(
     created_at: new Date().toISOString(),
     transport_policy: 'direct_only' as const,
   }
-  console.log(`[HOST_INFERENCE_CAPS] request_send handshake=${hid}`)
+  console.log(`[HOST_INFERENCE_CAPS] request_send handshake=${hid} corr=${beapCorr}`)
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), Math.min(timeoutMs, 15_000))
   try {
@@ -460,6 +463,7 @@ export async function listHostCapabilities(
         Authorization: `Bearer ${token.trim()}`,
         'X-BEAP-Handshake': hid,
         'X-BEAP-Host-AI-Chain': chain,
+        'X-Correlation-Id': beapCorr,
       },
       body: JSON.stringify(body),
       signal: ac.signal,
@@ -511,7 +515,27 @@ export async function listHostCapabilities(
         tryRepairP2pEndpointFromHostAdvertisement(db, hid, adv)
       }
     }
-    const j = (await res.json()) as Record<string, unknown>
+    let j: Record<string, unknown>
+    try {
+      j = (await res.json()) as Record<string, unknown>
+    } catch {
+      logHostAiStage({
+        chain,
+        stage: 'capabilities_response',
+        reached: true,
+        success: false,
+        handshakeId: hid,
+        buildStamp,
+        flags: f,
+        requestId: capHttpReqId,
+        failureCode: 'INVALID_JSON',
+      })
+      console.log(
+        `[HOST_INFERENCE_P2P] request_failed code=invalid_response message=${redactP2pLogLine('JSON parse error')} handshake=${hid}`,
+      )
+      console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=invalid_response`)
+      return { ok: false, reason: 'invalid_response', responseStatus: res.status }
+    }
     if (j.type !== 'internal_inference_capabilities_result') {
       const m = 'wrong JSON type for capabilities result'
       logHostAiStage({
@@ -603,7 +627,12 @@ export async function listHostCapabilities(
   }
 }
 
-export type RequestHostCompletionOpts = { record: HandshakeRecord; correlationChain?: string }
+export type RequestHostCompletionOpts = {
+  record: HandshakeRecord
+  correlationChain?: string
+  /** `X-Correlation-Id` on direct POST /beap/ingest; defaults to a new UUID. */
+  beapCorrelationId?: string
+}
 
 /**
  * POST internal_inference_request to the Host (direct HTTP in Phase 1 when selected transport is http_direct).
@@ -614,8 +643,9 @@ export async function requestHostCompletion(
   opts: RequestHostCompletionOpts,
 ): Promise<DirectServiceSendResult> {
   const hid = String(handshakeId ?? '').trim()
-  const { record, correlationChain: reqChain } = opts
+  const { record, correlationChain: reqChain, beapCorrelationId: reqBeapCorr } = opts
   const chain = (reqChain && reqChain.trim() ? reqChain.trim() : null) || newHostAiCorrelationChain()
+  const httpBeapCorr = (reqBeapCorr && reqBeapCorr.trim() ? reqBeapCorr.trim() : null) || randomUUID()
   const buildStamp = getHostAiBuildStamp()
   const f0 = getP2pInferenceFlags()
   const reqId0 = (request.request_id && String(request.request_id).trim()) || 'null'
@@ -900,6 +930,7 @@ export async function requestHostCompletion(
       target_device_id: request.target_device_id,
       message_type: 'internal_inference_request',
     },
+    httpBeapCorr,
   )
 }
 
@@ -909,11 +940,12 @@ export async function requestHostCompletion(
 export async function sendHostInferenceResult(
   handshakeId: string,
   result: InternalInferenceResultWire | InternalInferenceErrorWire,
-  opts: { record: HandshakeRecord; targetEndpoint: string },
+  opts: { record: HandshakeRecord; targetEndpoint: string; beapCorrelationId?: string },
   messageType: 'internal_inference_result' | 'internal_inference_error',
 ): Promise<DirectServiceSendResult> {
   const hid = String(handshakeId ?? '').trim()
-  const { record, targetEndpoint } = opts
+  const { record, targetEndpoint, beapCorrelationId: resBeapCorr } = opts
+  const resultBeapCorr = (resBeapCorr && resBeapCorr.trim() ? resBeapCorr.trim() : null) || randomUUID()
   const db0 = await getHandshakeDbForInternalInference()
   const f0 = getP2pInferenceFlags()
   let endpointGateOk = false
@@ -1010,6 +1042,7 @@ export async function sendHostInferenceResult(
       target_device_id: result.target_device_id,
       message_type: messageType as InternalServiceMessageType,
     },
+    resultBeapCorr,
   )
   if (post.ok) {
     if (messageType === 'internal_inference_result' && result.type === 'internal_inference_result') {

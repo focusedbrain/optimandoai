@@ -3,6 +3,7 @@
  * See also: internal-inference:listTargets (same data; wire-oriented + logs).
  */
 
+import { randomUUID } from 'crypto'
 import {
   deriveInternalHandshakeRoles,
   type InternalHandshakeRoleSource,
@@ -48,6 +49,7 @@ import {
   resetProbeHostInferencePolicyInFlightForTests,
 } from './sandboxHostUi'
 import { InternalInferenceErrorCode } from './errors'
+import { clearHostAiTransportDecideDedupeCache, logHostAiTransportDecideListLine } from './hostAiTransportDecideLog'
 import { registerP2pEnsureCacheInvalidator } from './p2pEndpointRepair'
 import { getP2pRelaySignalingCircuitOpenUntilMs } from './p2pSignalRelayCircuit'
 import { listHostCapabilities } from './transport/internalInferenceTransport'
@@ -73,7 +75,7 @@ const COPY_OFFER_START_NOT_OBSERVED =
 
 const WEBRTC_LIST_CAPS_CACHE_TTL_MS = 5_000
 /** Collapse duplicate capability probes from rapid list_inference_targets / UI refresh (per handshake). */
-const LIST_PROBE_COALESCE_MS = 1000
+const LIST_PROBE_COALESCE_MS = 1500
 
 type ListHostCapResult =
   | { ok: true; wire: InternalInferenceCapabilitiesResultWire }
@@ -114,14 +116,18 @@ async function coalescedListHostCapabilitiesProbe(hid: string, run: () => Promis
   return p
 }
 
-async function coalescedProbeHostPolicyForList(hid: string, rowChain: string | undefined): Promise<ProbeHostPolicyResult> {
+async function coalescedProbeHostPolicyForList(
+  hid: string,
+  rowChain: string | undefined,
+  rowBeapCorrelationId: string,
+): Promise<ProbeHostPolicyResult> {
   const h = hid.trim()
   const fly = policyProbeInflight.get(h)
   if (fly) {
     console.log(`${L} probe_coalesced handshake=${h} age_ms=0 joining_inflight=1`)
     return fly
   }
-  const p = probeHostInferencePolicyFromSandbox(h, { correlationChain: rowChain }).finally(() => {
+  const p = probeHostInferencePolicyFromSandbox(h, { correlationChain: rowChain, beapCorrelationId: rowBeapCorrelationId }).finally(() => {
     if (policyProbeInflight.get(h) === p) {
       policyProbeInflight.delete(h)
     }
@@ -152,6 +158,7 @@ export function clearHostAiListTransientStateForOrchestratorBuildChange(): void 
   listHostCapsProbeLast.clear()
   policyProbeInflight.clear()
   resetProbeHostInferencePolicyInFlightForTests()
+  clearHostAiTransportDecideDedupeCache()
 }
 
 /** UI phase for Host AI selector (from transport policy + probe); do not infer from p2p_endpoint_kind alone. */
@@ -172,6 +179,10 @@ export type HostP2pUiPhase =
   | 'probe_gateway_error'
   /** Capability probe: transport/DNS/refused or probe timeout. */
   | 'probe_unreachable'
+  /** Capability probe: HTTP 200 but body was not valid capabilities JSON/shape. */
+  | 'probe_invalid_response'
+  /** Capability probe: Host’s local Ollama/provider not running (wire OLLAMA_UNAVAILABLE). */
+  | 'probe_local_ollama'
 
 export type HostListTransportMode = 'webrtc_p2p' | 'legacy_http' | 'none'
 export type HostListLegacyEndpointKind = 'direct' | 'relay' | 'missing' | 'invalid'
@@ -243,16 +254,28 @@ function primaryLabelForP2pUiPhase(phase: HostP2pUiPhase, readyModelName?: strin
     case 'no_model':
       return 'Host AI · no active model'
     case 'probe_access_denied':
-      return 'Host AI · access denied (check pairing / token)'
+      return 'Authentication failed. Re-pair to refresh tokens.'
     case 'probe_rate_limited':
-      return 'Host AI · rate limited — retry shortly'
+      return 'Host is throttling requests. Try again in a moment.'
     case 'probe_gateway_error':
-      return 'Host AI · gateway or Host server error'
+      return 'Host orchestrator returned an error.'
     case 'probe_unreachable':
-      return 'Host AI · cannot reach Host (network or timeout)'
+      return "Host machine isn't reachable on the network."
+    case 'probe_invalid_response':
+      return "Host responded but the format wasn't recognized."
+    case 'probe_local_ollama':
+      return "Host's local AI provider isn't running."
     case 'hidden':
       return 'Host AI unavailable'
   }
+}
+
+/** Log token after `detail=probe_` — strips `PROBE_` prefix; transport-not-ready → TRANSPORT_NOT_READY. */
+function capabilityProbeLogDetailToken(code: string): string {
+  const c = String(code)
+  if (c === InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY) return 'TRANSPORT_NOT_READY'
+  if (c.startsWith('PROBE_')) return c.slice('PROBE_'.length)
+  return c
 }
 
 function hostP2pUiPhaseForProbeFailureCode(code: string): HostP2pUiPhase {
@@ -266,6 +289,13 @@ function hostP2pUiPhaseForProbeFailureCode(code: string): HostP2pUiPhase {
     case InternalInferenceErrorCode.PROBE_HOST_UNREACHABLE:
     case InternalInferenceErrorCode.PROVIDER_TIMEOUT:
       return 'probe_unreachable'
+    case InternalInferenceErrorCode.PROBE_INVALID_RESPONSE:
+      return 'probe_invalid_response'
+    case InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE:
+    case InternalInferenceErrorCode.OLLAMA_UNAVAILABLE:
+      return 'probe_local_ollama'
+    case InternalInferenceErrorCode.PROBE_NO_MODELS:
+      return 'no_model'
     default:
       return 'p2p_unavailable'
   }
@@ -282,7 +312,11 @@ function hostAiStructuredReasonForProbeCode(code: string): HostAiStructuredUnava
     case InternalInferenceErrorCode.PROBE_HOST_UNREACHABLE:
     case InternalInferenceErrorCode.PROVIDER_TIMEOUT:
       return 'host_unreachable'
+    case InternalInferenceErrorCode.PROBE_INVALID_RESPONSE:
+      return 'invalid_response'
     case InternalInferenceErrorCode.OLLAMA_UNAVAILABLE:
+    case InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE:
+      return 'local_ollama_down'
     case InternalInferenceErrorCode.PROVIDER_UNAVAILABLE:
       return 'provider_not_ready'
     case InternalInferenceErrorCode.PROBE_NO_MODELS:
@@ -489,6 +523,8 @@ export type HostAiStructuredUnavailableReason =
   | 'rate_limited'
   | 'gateway_error'
   | 'host_unreachable'
+  | 'invalid_response'
+  | 'local_ollama_down'
 
 export interface HostInternalInferenceListItem {
   /** Same as `kind`; preferred for new IPC/selector consumers. */
@@ -1030,6 +1066,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       stableListProbeChainByHandshake.delete(hid)
       rowChain = newHostAiCorrelationChain()
     }
+    const rowBeapCorrelationId = randomUUID()
     const epK = p2pEndpointKind(db, r.p2p_endpoint)
     const leK = epKindToListKind(epK)
 
@@ -1042,9 +1079,13 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           : 'policy'
     const transportAuthRow = decideHostAiTransport(listDec)
     const bm = baseMetaFromDec(listDec, leK)
-    console.log(
-      `[HOST_AI_TRANSPORT_DECIDE] handshake=${hid} chain=${rowChain} target_detected=${listDec.targetDetected} preferred=${listDec.preferredTransport} selector_phase=${listDec.selectorPhase} legacy_http_status=${legacyHttpStatusForDecideLog(listDec, epK)} p2p_endpoint_kind=${epK} reason=${transportDecideLogReason} failureCode=${listDec.failureCode ?? 'null'}`,
-    )
+    const legacyHttpSt = legacyHttpStatusForDecideLog(listDec, epK)
+    const decideFingerprint = `${listDec.targetDetected}|${listDec.preferredTransport}|${listDec.selectorPhase}|${legacyHttpSt}|${epK}|${transportDecideLogReason}|${listDec.failureCode ?? 'null'}`
+    logHostAiTransportDecideListLine({
+      handshakeId: hid,
+      decisionFingerprint: decideFingerprint,
+      line: `[HOST_AI_TRANSPORT_DECIDE] handshake=${hid} chain=${rowChain} corr=${rowBeapCorrelationId} target_detected=${listDec.targetDetected} preferred=${listDec.preferredTransport} selector_phase=${listDec.selectorPhase} legacy_http_status=${legacyHttpSt} p2p_endpoint_kind=${epK} reason=${transportDecideLogReason} failureCode=${listDec.failureCode ?? 'null'}`,
+    })
 
     if (!listDec.targetDetected) {
       const ml = metaLocal(displayName, pcc)
@@ -1483,6 +1524,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
                 token: tok,
                 timeoutMs: tCap,
                 correlationChain: rowChain,
+                beapCorrelationId: rowBeapCorrelationId,
               }) as Promise<ListHostCapResult>,
             )
             webrtcListHostCapsCache.set(hid, { at: Date.now(), result: capP2p })
@@ -1496,7 +1538,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
             probe = {
               ok: false,
               code: still
-                ? InternalInferenceErrorCode.P2P_STILL_CONNECTING
+                ? InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY
                 : InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE,
               message: rsn,
               directP2pAvailable: true,
@@ -1511,7 +1553,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         console.warn(`${L} target_disabled handshake=${hid} reason=webrtc_listHost_throw`, err)
         const ur: HostTargetUnavailableCode = 'CAPABILITY_PROBE_FAILED'
         const psub = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
-        const pht = primaryLabelForP2pUiPhase('p2p_unavailable')
+        const pht = primaryLabelForP2pUiPhase('probe_gateway_error')
         const t: HostTargetDraft = {
           kind: 'host_internal',
           id: buildHostTargetId(hid, 'unavailable'),
@@ -1536,10 +1578,11 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           availability: 'host_offline',
           unavailable_reason: ur,
           host_role: 'Host',
-          inference_error_code: 'CAPABILITY_PROBE_FAILED',
+          inference_error_code: InternalInferenceErrorCode.PROBE_HOST_ERROR,
+          hostAiStructuredUnavailableReason: 'gateway_error',
           ...baseMetaFromDec(listDec, leK),
-          p2pUiPhase: 'p2p_unavailable',
-          failureCode: 'CAPABILITY_PROBE_FAILED',
+          p2pUiPhase: 'probe_gateway_error',
+          failureCode: InternalInferenceErrorCode.PROBE_HOST_ERROR,
         }
         hadCapabilitiesProbed = true
         targets.push(finalizeItem(t))
@@ -1549,12 +1592,12 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       console.log(`${L} probe_capabilities_start handshake=${hid}`)
       hadCapabilitiesProbed = true
       try {
-        probe = await coalescedProbeHostPolicyForList(hid, rowChain)
+        probe = await coalescedProbeHostPolicyForList(hid, rowChain, rowBeapCorrelationId)
       } catch (err) {
         console.warn(`${L} target_disabled handshake=${hid} reason=probe_throw`, err)
         const ur: HostTargetUnavailableCode = 'CAPABILITY_PROBE_FAILED'
         const psub = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
-        const pht = primaryLabelForP2pUiPhase('p2p_unavailable')
+        const pht = primaryLabelForP2pUiPhase('probe_gateway_error')
         const t: HostTargetDraft = {
           kind: 'host_internal',
           id: buildHostTargetId(hid, 'unavailable'),
@@ -1579,10 +1622,11 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           availability: 'host_offline',
           unavailable_reason: ur,
           host_role: 'Host',
-          inference_error_code: 'CAPABILITY_PROBE_FAILED',
+          inference_error_code: InternalInferenceErrorCode.PROBE_HOST_ERROR,
+          hostAiStructuredUnavailableReason: 'gateway_error',
           ...baseMetaFromDec(listDec, leK),
-          p2pUiPhase: 'p2p_unavailable',
-          failureCode: 'CAPABILITY_PROBE_FAILED',
+          p2pUiPhase: 'probe_gateway_error',
+          failureCode: InternalInferenceErrorCode.PROBE_HOST_ERROR,
         }
         targets.push(finalizeItem(t))
         continue
@@ -1590,7 +1634,10 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     }
     if (!probe.ok) {
       const code = probe.code
-      if (code === InternalInferenceErrorCode.P2P_STILL_CONNECTING) {
+      if (
+        code === InternalInferenceErrorCode.P2P_STILL_CONNECTING ||
+        code === InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY
+      ) {
         const psubC = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
         const hH = primaryLabelForP2pUiPhase('hidden')
         const tStill: HostTargetDraft = {
@@ -1616,17 +1663,19 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           available: false,
           availability: 'host_offline',
           unavailable_reason: 'capability_probe_failed',
-          hostAiStructuredUnavailableReason: 'capability_probe_failed',
+          hostAiStructuredUnavailableReason: 'transport_not_ready',
           host_role: 'Host',
-          inference_error_code: 'P2P_STILL_CONNECTING',
+          inference_error_code: InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY,
           ...baseMetaFromDec(listDec, leK),
           p2pUiPhase: 'hidden',
-          failureCode: 'capability_probe_failed',
+          failureCode: InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY,
         }
         console.log(
-          `[HOST_AI_CAPABILITY_PROBE] transport=webrtc_p2p ok=false reason=p2p_still_connecting handshake=${hid}`,
+          `[HOST_AI_CAPABILITY_PROBE] transport=webrtc_p2p ok=false reason=transport_not_ready handshake=${hid}`,
         )
-        console.log(`${L} target_available=false reason=capability_probe_failed handshake=${hid} detail=p2p_still_connecting`)
+        console.log(
+          `${L} target_available=false reason=transport_not_ready handshake=${hid} detail=probe_${capabilityProbeLogDetailToken(InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY)}`,
+        )
         targets.push(finalizeItem(tStill))
         continue
       }
@@ -1686,7 +1735,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         unavailable_reason: ur,
         hostAiStructuredUnavailableReason: structured,
         host_role: 'Host',
-        inference_error_code: ur,
+        inference_error_code: isPolicyForbid ? ur : String(code),
         ...baseMetaFromDec(listDec, leK),
         p2pUiPhase: p2pUiProbe,
         failureCode: isPolicyForbid ? 'HOST_POLICY_DISABLED' : String(code),
@@ -1697,7 +1746,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       if (structured) {
         console.log(`${L} target_available=false reason=${structured} handshake=${hid} probe_code=${String(code)}`)
       }
-      console.log(`${L} target_disabled handshake=${hid} reason=${pr} detail=probe_${String(code)}`)
+      console.log(`${L} target_disabled handshake=${hid} reason=${pr} detail=probe_${capabilityProbeLogDetailToken(String(code))}`)
       targets.push(finalizeItem(t))
       continue
     }
@@ -1745,10 +1794,19 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     const defaultChatModel = probe.defaultChatModel?.trim()
     if (!defaultChatModel) {
       const ur: HostTargetUnavailableCode = 'HOST_NO_ACTIVE_LOCAL_LLM'
-      const nmT = primaryLabelForP2pUiPhase('no_model')
       const psub = secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay)
       const iec0 = probe.inferenceErrorCode
       const rowFailure = iec0 ?? InternalInferenceErrorCode.MODEL_UNAVAILABLE
+      const ollamaDown =
+        rowFailure === InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE ||
+        rowFailure === InternalInferenceErrorCode.OLLAMA_UNAVAILABLE
+      const nmT = ollamaDown
+        ? primaryLabelForP2pUiPhase('probe_local_ollama')
+        : rowFailure === InternalInferenceErrorCode.PROBE_NO_MODELS
+          ? 'Host has no AI models installed.'
+          : primaryLabelForP2pUiPhase('no_model')
+      const noModelPhase: HostP2pUiPhase = ollamaDown ? 'probe_local_ollama' : 'no_model'
+      const structuredNoModel: HostAiStructuredUnavailableReason = ollamaDown ? 'local_ollama_down' : 'no_models'
       const t: HostTargetDraft = {
         kind: 'host_internal',
         id: buildHostTargetId(hid, 'unavailable'),
@@ -1772,17 +1830,19 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         available: false,
         availability: 'model_unavailable',
         unavailable_reason: ur,
-        hostAiStructuredUnavailableReason: 'no_models',
+        hostAiStructuredUnavailableReason: structuredNoModel,
         host_role: 'Host',
         inference_error_code: rowFailure,
         ...baseMetaFromDec(listDec, leK),
-        p2pUiPhase: 'no_model',
+        p2pUiPhase: noModelPhase,
         failureCode: rowFailure,
       }
-      console.log(`[HOST_CAPS] inference_ready=false reason=no_models handshake=${hid}`)
+      console.log(
+        `[HOST_CAPS] inference_ready=false reason=${ollamaDown ? 'ollama_unreachable' : 'no_models'} handshake=${hid}`,
+      )
       console.log(`${L} target_available=false reason=no_models handshake=${hid}`)
       console.log(
-        `${L} target_disabled handshake=${hid} reason=HOST_NO_ACTIVE_LOCAL_LLM detail=probe_${String(rowFailure)} (row_kept for discovery)`,
+        `${L} target_disabled handshake=${hid} reason=HOST_NO_ACTIVE_LOCAL_LLM detail=probe_${capabilityProbeLogDetailToken(String(rowFailure))} (row_kept for discovery)`,
       )
       targets.push(finalizeItem(t))
       continue

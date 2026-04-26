@@ -63,6 +63,20 @@ CREATE TABLE IF NOT EXISTS coordination_pairing_codes (
 
 CREATE INDEX IF NOT EXISTS idx_coord_pairing_user_instance
   ON coordination_pairing_codes(user_id, instance_id);
+
+-- Per-device handshake health snapshots (cross-machine sanity; Prompt 8 Part C).
+CREATE TABLE IF NOT EXISTS coordination_handshake_health_reports (
+  handshake_id TEXT NOT NULL,
+  reporter_device_id TEXT NOT NULL,
+  reporter_user_id TEXT NOT NULL,
+  health_tier TEXT NOT NULL,
+  reason TEXT,
+  endpoint_kind TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (handshake_id, reporter_device_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_coord_health_handshake ON coordination_handshake_health_reports (handshake_id);
 `
 
 function applyHandshakeRegistryMigrations(db: Database.Database): void {
@@ -123,6 +137,26 @@ export interface StoreAdapter {
   cleanupExpired(): number
   cleanupAcknowledged(): number
   cleanupStaleHandshakes(ttlSeconds: number): number
+  upsertHandshakeHealthReport(
+    handshakeId: string,
+    reporterDeviceId: string,
+    reporterUserId: string,
+    healthTier: string,
+    reason: string | null,
+    endpointKind: string | null,
+  ): void
+  getHandshakeHealthReport(
+    handshakeId: string,
+    reporterDeviceId: string,
+  ): {
+    handshake_id: string
+    reporter_device_id: string
+    reporter_user_id: string
+    health_tier: string
+    reason: string | null
+    endpoint_kind: string | null
+    updated_at: string
+  } | null
   getDb(): Database.Database
 }
 
@@ -316,6 +350,61 @@ export function createStore(config: CoordinationConfig): StoreAdapter {
       const cutoff = new Date(Date.now() - ttlSeconds * 1000).toISOString()
       const r = d.prepare(`DELETE FROM coordination_handshake_registry WHERE created_at < ?`).run(cutoff)
       return r.changes
+    },
+
+    upsertHandshakeHealthReport(
+      handshakeId: string,
+      reporterDeviceId: string,
+      reporterUserId: string,
+      healthTier: string,
+      reason: string | null,
+      endpointKind: string | null,
+    ): void {
+      const d = ensureDb()
+      const now = new Date().toISOString()
+      d.prepare(
+        `INSERT INTO coordination_handshake_health_reports (
+           handshake_id, reporter_device_id, reporter_user_id,
+           health_tier, reason, endpoint_kind, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(handshake_id, reporter_device_id) DO UPDATE SET
+           reporter_user_id = excluded.reporter_user_id,
+           health_tier = excluded.health_tier,
+           reason = excluded.reason,
+           endpoint_kind = excluded.endpoint_kind,
+           updated_at = excluded.updated_at`,
+      ).run(
+        handshakeId,
+        reporterDeviceId,
+        reporterUserId,
+        healthTier,
+        reason,
+        endpointKind,
+        now,
+      )
+    },
+
+    getHandshakeHealthReport(handshakeId: string, reporterDeviceId: string) {
+      const d = ensureDb()
+      const row = d
+        .prepare(
+          `SELECT handshake_id, reporter_device_id, reporter_user_id,
+                  health_tier, reason, endpoint_kind, updated_at
+           FROM coordination_handshake_health_reports
+           WHERE handshake_id = ? AND reporter_device_id = ?`,
+        )
+        .get(handshakeId, reporterDeviceId) as
+        | {
+            handshake_id: string
+            reporter_device_id: string
+            reporter_user_id: string
+            health_tier: string
+            reason: string | null
+            endpoint_kind: string | null
+            updated_at: string
+          }
+        | undefined
+      return row ?? null
     },
 
     getDb(): Database.Database {

@@ -25,6 +25,8 @@ import {
 } from './lib/wrdeskUiEvents'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 import './components/handshakeViewTypes'
+import { HandshakeHealthOrchestratorBanner } from './components/HandshakeHealthOrchestratorBanner'
+import { useActiveHandshakeHealthBanner } from './hooks/useActiveHandshakeHealthBanner'
 // === TEMPORARY DEBUG LOG VIEWER (remove before production) ===
 import { DebugLogViewer } from './components/DebugLogViewer'
 // === END TEMPORARY DEBUG LOG VIEWER ===
@@ -83,6 +85,9 @@ function App() {
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null)
   const [inboxBulkMode, setInboxBulkMode] = useState(false)
+  const [settingsHandshakeFocusId, setSettingsHandshakeFocusId] = useState<string | null>(null)
+  const { primaryIssue: handshakeHealthIssue, extraCount: handshakeHealthExtraCount, dismiss: dismissHandshakeHealth } =
+    useActiveHandshakeHealthBanner()
   const [emailAccounts, setEmailAccounts] = useState<
     Array<{ id: string; email: string; status?: string; processingPaused?: boolean }>
   >([])
@@ -336,6 +341,10 @@ function App() {
     setActiveView('analysis')
   }, [])
 
+  const clearSettingsHandshakeFocus = useCallback(() => {
+    setSettingsHandshakeFocusId(null)
+  }, [])
+
   return (
     <div className="app-root">
       {optimizationGuardToast && (
@@ -378,6 +387,13 @@ function App() {
             onClick={() => setActiveView('handshakes')}
           >
             Handshakes
+          </button>
+          <button
+            type="button"
+            className={`nav-tab${activeView === 'settings' ? ' nav-tab--active' : ''}`}
+            onClick={() => setActiveView('settings')}
+          >
+            Settings
           </button>
           <div
             role="button"
@@ -450,6 +466,18 @@ function App() {
         />
       </header>
 
+      {handshakeHealthIssue ? (
+        <HandshakeHealthOrchestratorBanner
+          issue={handshakeHealthIssue}
+          extraCount={handshakeHealthExtraCount}
+          onDismiss={dismissHandshakeHealth}
+          onOpenPairingSettings={(handshakeId) => {
+            setActiveView('settings')
+            setSettingsHandshakeFocusId(handshakeId)
+          }}
+        />
+      ) : null}
+
       <main className="app-main">
         {activeView === 'handshakes' ? (
           <HandshakeView
@@ -500,7 +528,10 @@ function App() {
             />
           )
         ) : activeView === 'settings' ? (
-          <SettingsView />
+          <SettingsView
+            focusOrchestratorHandshakeId={settingsHandshakeFocusId}
+            onConsumedOrchestratorHandshakeFocus={clearSettingsHandshakeFocus}
+          />
         ) : activeView === 'wr-chat' ? (
           <WrChatDashboardPanel extensionTheme={extensionTheme} />
         ) : (

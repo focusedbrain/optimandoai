@@ -80,7 +80,7 @@ export async function buildInternalInferenceCapabilitiesResult(
         }
       })
       if (base.models.length === 0) {
-        base.inference_error_code = InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM
+        base.inference_error_code = InternalInferenceErrorCode.PROBE_NO_MODELS
       } else {
         if (name && inAllow) {
           base.models.sort((a, b) => {
@@ -90,7 +90,7 @@ export async function buildInternalInferenceCapabilitiesResult(
           })
         }
         if (!name) {
-          base.inference_error_code = InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM
+          base.inference_error_code = InternalInferenceErrorCode.PROBE_NO_MODELS
         } else if (!inAllow) {
           base.inference_error_code = InternalInferenceErrorCode.MODEL_UNAVAILABLE
         }
@@ -103,13 +103,13 @@ export async function buildInternalInferenceCapabilitiesResult(
     } else {
       base.models = []
       if (!name) {
-        base.inference_error_code = InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM
+        base.inference_error_code = InternalInferenceErrorCode.PROBE_NO_MODELS
       } else {
         base.inference_error_code = InternalInferenceErrorCode.MODEL_UNAVAILABLE
       }
     }
   } catch {
-    base.inference_error_code = InternalInferenceErrorCode.OLLAMA_UNAVAILABLE
+    base.inference_error_code = InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE
     base.active_local_llm = { provider: 'ollama', model: '', label: '', enabled: false }
     if (!capabilitiesExposeAllInstalledOllama) {
       base.models = []

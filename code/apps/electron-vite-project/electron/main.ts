@@ -105,6 +105,11 @@ function enrichHttpChatMessages(body: { messages?: unknown; images?: unknown }):
 /** When true, log every `GET /api/auth/status` request and response summary (verbose). */
 const DEBUG_AUTH_STATUS_HTTP = false
 
+// -----------------------------------------------------------------------------
+// Diagnostic log signatures (pairing, rate limits, endpoint repair, WebRTC, probes):
+//   docs/HOST_AI_DIAGNOSTIC_LOGS.md — section "Diagnostic log signatures"
+// Main-process lines are mirrored to renderers via broadcastMainProcessLog below.
+// -----------------------------------------------------------------------------
 // === TEMPORARY DEBUG LOG CAPTURE (remove before production) ===
 const _originalLog = console.log
 const _originalError = console.error
@@ -3206,6 +3211,18 @@ app.whenReady().then(async () => {
       } catch (err: any) {
         console.error('[MAIN] handshake:list error:', err?.message)
         return []
+      }
+    })
+
+    ipcMain.handle('handshake:activeHealthIssues', async () => {
+      try {
+        const db = await getLedgerDbOrOpen()
+        if (!db) return { issues: [] }
+        const { listActiveHandshakeHealthIssues } = await import('./main/handshake/activeHandshakeHealth')
+        return { issues: listActiveHandshakeHealthIssues(db) }
+      } catch (err: any) {
+        console.warn('[MAIN] handshake:activeHealthIssues error:', err?.message)
+        return { issues: [] }
       }
     })
 
@@ -11087,10 +11104,28 @@ async function runDeviceKeyMigration(
     }
     setPairingCodeRegistrar(orchestratorPairingCodeRegistrar)
 
+    let handshakeHealthStartupEmitted = false
     function tryP2PStartup(): void {
       const handshakeDb = getHandshakeDb()
       if (!handshakeDb) {
         return // Ledger not ready yet â€” will retry in 10s
+      }
+      // Part A: one line per ACTIVE handshake as soon as DB exists (before P2P server / relay WS).
+      if (!handshakeHealthStartupEmitted) {
+        handshakeHealthStartupEmitted = true
+        void import('./main/handshake/handshakeHealthStartupLog')
+          .then((m) => {
+            m.logHandshakeHealthStartupLines(handshakeDb)
+            try {
+              win?.webContents.send('handshake-list-refresh')
+            } catch {
+              /* no window */
+            }
+          })
+          .catch((e) => {
+            handshakeHealthStartupEmitted = false
+            console.warn('[HANDSHAKE_HEALTH] import_failed', (e as Error)?.message ?? e)
+          })
       }
       try {
         void processPendingP2PBeapEmails(handshakeDb).then((drained) => {

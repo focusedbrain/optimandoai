@@ -22,6 +22,70 @@ import { registerWebrtcTransportIpc } from './webrtc/webrtcTransportIpc'
 
 type P2pSessionLogReasonType = (typeof P2pSessionLogReason)[keyof typeof P2pSessionLogReason]
 
+type ListSandboxHostInferenceResult = Awaited<
+  ReturnType<typeof import('./listInferenceTargets').listSandboxHostInternalInferenceTargets>
+>
+
+/** Completed-list snapshot: same renderer burst (effects + events) must not re-run `list_begin` within this window. */
+const IPC_LIST_INFERENCE_TARGETS_CACHE_MS = 1500
+
+const listInferenceCacheByHandshake = new Map<
+  string,
+  { completedAt: number; result: ListSandboxHostInferenceResult }
+>()
+let lastListInferenceGlobalCache: { completedAt: number; result: ListSandboxHostInferenceResult } | null = null
+
+/** Parallel IPC invokes join this promise; sequential duplicates use TTL cache above. */
+let listInferenceTargetsInflight: Promise<ListSandboxHostInferenceResult> | null = null
+
+function parseListTargetsCoalesceHandshakeId(raw: unknown): string {
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return ''
+  }
+  const o = raw as { coalesceHandshakeId?: unknown }
+  return typeof o.coalesceHandshakeId === 'string' ? o.coalesceHandshakeId.trim() : ''
+}
+
+function noteListInferenceTargetsIpcCache(result: ListSandboxHostInferenceResult): void {
+  const now = Date.now()
+  lastListInferenceGlobalCache = { completedAt: now, result }
+  listInferenceCacheByHandshake.clear()
+  if (result.ok && Array.isArray(result.targets)) {
+    for (const t of result.targets) {
+      const hid = typeof t.handshake_id === 'string' ? t.handshake_id.trim() : ''
+      if (hid) {
+        listInferenceCacheByHandshake.set(hid, { completedAt: now, result })
+      }
+    }
+  }
+}
+
+function tryListInferenceTargetsIpcCache(
+  coalesceHandshakeId: string,
+  now: number,
+): ListSandboxHostInferenceResult | null {
+  if (coalesceHandshakeId) {
+    const hit = listInferenceCacheByHandshake.get(coalesceHandshakeId)
+    if (hit && now - hit.completedAt < IPC_LIST_INFERENCE_TARGETS_CACHE_MS) {
+      console.log(`[HOST_INFERENCE_TARGETS] probe_coalesced age_ms=${now - hit.completedAt}`)
+      return hit.result
+    }
+    return null
+  }
+  const g = lastListInferenceGlobalCache
+  if (g && now - g.completedAt < IPC_LIST_INFERENCE_TARGETS_CACHE_MS) {
+    console.log(`[HOST_INFERENCE_TARGETS] probe_coalesced age_ms=${now - g.completedAt}`)
+    return g.result
+  }
+  return null
+}
+
+/** Drop list IPC cache when orchestrator / Host AI build invalidates in-memory probe state. */
+export function resetListInferenceTargetsIpcCacheForOrchestrator(): void {
+  listInferenceCacheByHandshake.clear()
+  lastListInferenceGlobalCache = null
+}
+
 const lastIpcProbeHostPolicyLogByHandshake = new Map<string, number>()
 const IPC_PROBE_HOST_POLICY_LOG_MIN_MS = 5_000
 
@@ -32,6 +96,38 @@ function parseP2pSessionCloseReason(r: unknown): P2pSessionLogReasonType {
     return s as P2pSessionLogReasonType
   }
   return P2pSessionLogReason.unknown
+}
+
+/**
+ * Shared by IPC handlers and lifecycle tests (Prompt 7: model selector reopen within TTL).
+ */
+export async function dispatchListInferenceTargetsIpc(rawArg?: unknown): Promise<ListSandboxHostInferenceResult> {
+  const coalesceHandshakeId = parseListTargetsCoalesceHandshakeId(rawArg)
+  const now = Date.now()
+  const cached = tryListInferenceTargetsIpcCache(coalesceHandshakeId, now)
+  if (cached) {
+    return cached
+  }
+  if (listInferenceTargetsInflight) {
+    console.log('[HOST_INFERENCE_TARGETS] ipc_list_coalesced joining_inflight=1')
+    return listInferenceTargetsInflight
+  }
+  const { listSandboxHostInternalInferenceTargets } = await import('./listInferenceTargets')
+  if (listInferenceTargetsInflight) {
+    console.log('[HOST_INFERENCE_TARGETS] ipc_list_coalesced joining_inflight=1')
+    return listInferenceTargetsInflight
+  }
+  const p = listSandboxHostInternalInferenceTargets().then((r) => {
+    noteListInferenceTargetsIpcCache(r)
+    return r
+  })
+  listInferenceTargetsInflight = p
+  void p.finally(() => {
+    if (listInferenceTargetsInflight === p) {
+      listInferenceTargetsInflight = null
+    }
+  })
+  return p
 }
 
 export function registerInternalInferenceIpc(): void {
@@ -69,34 +165,10 @@ export function registerInternalInferenceIpc(): void {
     return { ok: true as const, candidates }
   })
 
-  /** Parallel renderer invokes (re-renders) must not run two full list walks; join the in-flight IPC. */
-  let listInferenceTargetsInflight: ReturnType<
-    typeof import('./listInferenceTargets').listSandboxHostInternalInferenceTargets
-  > | null = null
-
-  const listInferenceTargetsHandler = async () => {
-    if (listInferenceTargetsInflight) {
-      console.log('[HOST_INFERENCE_TARGETS] ipc_list_coalesced joining_inflight=1')
-      return listInferenceTargetsInflight
-    }
-    const { listSandboxHostInternalInferenceTargets } = await import('./listInferenceTargets')
-    if (listInferenceTargetsInflight) {
-      console.log('[HOST_INFERENCE_TARGETS] ipc_list_coalesced joining_inflight=1')
-      return listInferenceTargetsInflight
-    }
-    const p = listSandboxHostInternalInferenceTargets()
-    listInferenceTargetsInflight = p
-    void p.finally(() => {
-      if (listInferenceTargetsInflight === p) {
-        listInferenceTargetsInflight = null
-      }
-    })
-    return p
-  }
   /** Legacy alias — same as `internal-inference:listTargets`. */
-  ipcMain.handle('internal-inference:listInferenceTargets', listInferenceTargetsHandler)
+  ipcMain.handle('internal-inference:listInferenceTargets', (_e, rawArg) => dispatchListInferenceTargetsIpc(rawArg))
   /** Host AI model rows for Sandbox (active internal Host handshakes; same handler as listInferenceTargets). */
-  ipcMain.handle('internal-inference:listTargets', listInferenceTargetsHandler)
+  ipcMain.handle('internal-inference:listTargets', (_e, rawArg) => dispatchListInferenceTargetsIpc(rawArg))
 
   ipcMain.handle('internal-inference:listSandboxPeerCandidates', async () => {
     if (isSandboxMode()) {

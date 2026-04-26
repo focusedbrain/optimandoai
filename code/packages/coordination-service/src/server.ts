@@ -13,7 +13,7 @@ import type { CoordinationConfig } from './config.js'
 import { createStore } from './store.js'
 import { createAuth } from './auth.js'
 import { createRateLimiter } from './rateLimiter.js'
-import { createHandshakeRegistry } from './handshakeRegistry.js'
+import { createHandshakeRegistry, type HandshakeEntry } from './handshakeRegistry.js'
 import { createPairingCodeRegistry } from './pairingCodeRegistry.js'
 import { createWsManager } from './wsManager.js'
 import { createHealth } from './health.js'
@@ -70,6 +70,48 @@ async function readBody(req: http.IncomingMessage, maxBytes: number): Promise<{ 
     chunks.push(chunk as Buffer)
   }
   return { body: Buffer.concat(chunks).toString('utf8'), ok: true }
+}
+
+/** Caller must already be authorized for the handshake (same user as initiator/acceptor). */
+function validateReporterDeviceForHandshake(h: HandshakeEntry, userId: string, deviceId: string): boolean {
+  const d = deviceId.trim()
+  if (!d) return false
+  if (h.initiator_user_id === h.acceptor_user_id) {
+    const idI = (h.initiator_device_id ?? '').trim()
+    const idA = (h.acceptor_device_id ?? '').trim()
+    if (!idI || !idA) return false
+    if (userId !== h.initiator_user_id) return false
+    return d === idI || d === idA
+  }
+  if (userId === h.initiator_user_id) {
+    return d === (h.initiator_device_id ?? '').trim()
+  }
+  if (userId === h.acceptor_user_id) {
+    return d === (h.acceptor_device_id ?? '').trim()
+  }
+  return false
+}
+
+function peerDeviceIdForHealth(h: HandshakeEntry, userId: string, deviceId: string): string | null {
+  const d = deviceId.trim()
+  if (!d) return null
+  if (h.initiator_user_id === h.acceptor_user_id) {
+    const idI = (h.initiator_device_id ?? '').trim()
+    const idA = (h.acceptor_device_id ?? '').trim()
+    if (!idI || !idA) return null
+    if (d === idI) return idA
+    if (d === idA) return idI
+    return null
+  }
+  if (userId === h.initiator_user_id) {
+    const p = (h.acceptor_device_id ?? '').trim()
+    return p || null
+  }
+  if (userId === h.acceptor_user_id) {
+    const p = (h.initiator_device_id ?? '').trim()
+    return p || null
+  }
+  return null
 }
 
 export interface RelayInstance {
@@ -286,6 +328,118 @@ function createRequestHandler(
         }
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ registered: true }))
+        return
+      }
+
+      if (req.method === 'POST' && path === '/beap/handshake-health-report') {
+        if (!identity) {
+          sendError(res, 401)
+          return
+        }
+        const { body, ok } = await readBody(req, 32 * 1024)
+        if (!ok) {
+          sendError(res, 413)
+          return
+        }
+        let parsed: Record<string, unknown>
+        try {
+          parsed = JSON.parse(body) as Record<string, unknown>
+        } catch {
+          sendError(res, 400)
+          return
+        }
+        const handshakeId = typeof parsed.handshake_id === 'string' ? parsed.handshake_id.trim() : ''
+        const deviceId = typeof parsed.device_id === 'string' ? parsed.device_id.trim() : ''
+        const healthTier = typeof parsed.health_tier === 'string' ? parsed.health_tier.trim() : ''
+        const reasonRaw = typeof parsed.reason === 'string' ? parsed.reason.trim() : ''
+        const reason = reasonRaw.length > 0 ? reasonRaw : null
+        const epRaw = typeof parsed.endpoint_kind === 'string' ? parsed.endpoint_kind.trim() : ''
+        const endpointKind = epRaw.length > 0 ? epRaw : null
+        if (!handshakeId || !deviceId || !healthTier) {
+          sendError(res, 400)
+          return
+        }
+        const allowedTiers = new Set(['OK', 'BROKEN', 'DEGRADED', 'SUBOPTIMAL'])
+        if (!allowedTiers.has(healthTier)) {
+          sendError(res, 400)
+          return
+        }
+        const hReg = handshakeRegistry.getHandshake(handshakeId)
+        if (!hReg) {
+          sendError(res, 404)
+          return
+        }
+        if (!handshakeRegistry.isSenderAuthorized(handshakeId, identity.userId)) {
+          sendError(res, 403)
+          return
+        }
+        if (!validateReporterDeviceForHandshake(hReg, identity.userId, deviceId)) {
+          sendError(res, 403)
+          return
+        }
+        try {
+          store.upsertHandshakeHealthReport(
+            handshakeId,
+            deviceId,
+            identity.userId,
+            healthTier,
+            reason,
+            endpointKind,
+          )
+        } catch {
+          sendError(res, 503, { error: 'Storage unavailable' })
+          return
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true }))
+        return
+      }
+
+      if (req.method === 'GET' && path === '/beap/handshake-health-peer') {
+        if (!identity) {
+          sendError(res, 401)
+          return
+        }
+        const u = new URL(url, 'http://127.0.0.1')
+        const handshakeId = (u.searchParams.get('handshake_id') ?? '').trim()
+        const deviceId = (u.searchParams.get('device_id') ?? '').trim()
+        if (!handshakeId || !deviceId) {
+          sendError(res, 400)
+          return
+        }
+        const hReg = handshakeRegistry.getHandshake(handshakeId)
+        if (!hReg) {
+          sendError(res, 404)
+          return
+        }
+        if (!handshakeRegistry.isSenderAuthorized(handshakeId, identity.userId)) {
+          sendError(res, 403)
+          return
+        }
+        if (!validateReporterDeviceForHandshake(hReg, identity.userId, deviceId)) {
+          sendError(res, 403)
+          return
+        }
+        const peerDev = peerDeviceIdForHealth(hReg, identity.userId, deviceId)
+        if (!peerDev?.trim()) {
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ peer: null }))
+          return
+        }
+        const peerRow = store.getHandshakeHealthReport(handshakeId, peerDev.trim())
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            peer: peerRow
+              ? {
+                  health_tier: peerRow.health_tier,
+                  reason: peerRow.reason,
+                  endpoint_kind: peerRow.endpoint_kind,
+                  updated_at: peerRow.updated_at,
+                }
+              : null,
+          }),
+        )
         return
       }
 

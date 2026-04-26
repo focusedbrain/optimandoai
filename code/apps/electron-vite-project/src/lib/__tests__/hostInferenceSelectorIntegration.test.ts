@@ -630,6 +630,12 @@ describe('selector integration — error mapping (orchestrator user strings)', (
     { code: 'PROVIDER_UNAVAILABLE', needle: 'Ollama' },
     { code: 'PROVIDER_TIMEOUT', needle: 'too long' },
     { code: 'POLICY_FORBIDDEN', needle: "isn't allowed" },
+    { code: 'PROBE_AUTH_REJECTED', needle: 'authentication' },
+    { code: 'PROBE_RATE_LIMITED', needle: 'throttl' },
+    { code: 'PROBE_HOST_UNREACHABLE', needle: 'reachable' },
+    { code: 'PROBE_NO_MODELS', needle: 'models' },
+    { code: 'PROBE_OLLAMA_UNAVAILABLE', needle: "isn't running" },
+    { code: 'PROBE_INVALID_RESPONSE', needle: "wasn't recognized" },
   ]
   for (const { code, needle } of cases) {
     it(`maps ${code} to a clear message`, () => {

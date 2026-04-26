@@ -680,6 +680,9 @@ export function createCoordinationWsClient(
         const cu = config.coordination_url?.trim()
         if (cu && token?.trim()) {
           void requestCoordinationFlushQueued(cu, token, 'ws_connect')
+          void import('../handshake/handshakeHealthRemoteCheck').then((m) =>
+            m.runHandshakeHealthRemoteCheckAfterRelayConnect(getDb(), cu, token),
+          )
         }
       })
 

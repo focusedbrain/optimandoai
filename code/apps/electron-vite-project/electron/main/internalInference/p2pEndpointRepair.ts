@@ -45,6 +45,15 @@ export function resetHostAdvertisedMvpDirectForTests(): void {
   hostAdvertisedMvpDirectByHandshake.clear()
 }
 
+/** Sandbox: last Host-advertised MVP direct ingest URL seen for this handshake (response header), if any. */
+export function peekHostAdvertisedMvpDirectP2pEndpoint(handshakeId: string): string | null {
+  const hid = String(handshakeId ?? '').trim()
+  if (!hid) return null
+  const raw = hostAdvertisedMvpDirectByHandshake.get(hid)
+  const t = typeof raw === 'string' ? raw.trim() : ''
+  return t.length > 0 ? t : null
+}
+
 export function resetP2pEndpointRepairSessionGates(): void {
   appP2pLedgerStartupPassDone = false
 }

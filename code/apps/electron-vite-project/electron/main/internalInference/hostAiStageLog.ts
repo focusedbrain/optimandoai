@@ -3,7 +3,7 @@
  * Never log prompts, completions, document text, URL bodies, SDP/ICE, tokens, or decrypted BEAP content.
  */
 import { randomUUID } from 'crypto'
-import type { P2pInferenceFlagSnapshot } from './p2pInferenceFlags'
+import { getP2pInferenceFlags, type P2pInferenceFlagSnapshot } from './p2pInferenceFlags'
 
 declare const __ORCHESTRATOR_BUILD_STAMP__: string | undefined
 
@@ -72,8 +72,13 @@ type HostAiStageLogArgs = {
 /**
  * One line per stage transition. Use the same `chain` for a single user-visible attempt
  * (capabilities fetch, list row probe, or completion request) so support can follow one correlation path.
+ *
+ * Emitted only when `WRDESK_P2P_INFERENCE_VERBOSE_LOGS=1` — default logs stay operational (handshake health, transport decide, etc.).
  */
 export function logHostAiStage(args: HostAiStageLogArgs): void {
+  if (!getP2pInferenceFlags().p2pInferenceVerboseLogs) {
+    return
+  }
   const parts: string[] = [
     '[HOST_AI_STAGE]',
     `${ST}=${args.stage}`,

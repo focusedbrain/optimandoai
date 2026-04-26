@@ -260,9 +260,6 @@ export function decideInternalInferenceTransport(
     kind === 'direct'
 
   if (internalPreferDirectHttp) {
-    console.log(
-      `[HOST_AI_TRANSPORT_DECIDE] mode=internal preferred=direct_http reason=same_principal_direct_ingest p2p_endpoint_kind=${kind} p2p_stack_on=${p2pOn}`,
-    )
     return {
       targetDetected: true,
       selectorPhase: 'legacy_http_available',
