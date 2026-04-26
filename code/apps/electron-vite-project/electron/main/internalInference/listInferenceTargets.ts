@@ -19,7 +19,7 @@ import {
   isWebRtcHostAiArchitectureEnabled,
   logHostAiP2pFlagsAndSource,
 } from './p2pInferenceFlags'
-import { ensureHostAiP2pSession, P2pSessionPhase } from './p2pSession/p2pInferenceSessionManager'
+import { ensureHostAiP2pSession, getSessionState, P2pSessionPhase } from './p2pSession/p2pInferenceSessionManager'
 import { isP2pDataChannelUpForHandshake } from './p2pSession/p2pSessionWait'
 import {
   assertRecordForServiceRpc,
@@ -43,6 +43,9 @@ import { listHostCapabilities } from './transport/internalInferenceTransport'
 import type { InternalInferenceCapabilitiesResultWire } from './types'
 
 const L = '[HOST_INFERENCE_TARGETS]'
+
+/** While P2P is in offer/signaling, reuse one correlation chain per handshake for list/probe (avoid new chain every poll). */
+const stableListProbeChainByHandshake = new Map<string, string>()
 
 const WEBRTC_LIST_CAPS_CACHE_TTL_MS = 5_000
 type ListHostCapResult =
@@ -840,7 +843,21 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         featureFlags: fRow,
       }),
     )
-    const rowChain = newHostAiCorrelationChain()
+    const sProbe = getSessionState(hid)
+    const p2pProbeBusy =
+      sProbe?.phase === P2pSessionPhase.starting || sProbe?.phase === P2pSessionPhase.signaling
+    let rowChain: string
+    if (p2pProbeBusy) {
+      let c = stableListProbeChainByHandshake.get(hid)
+      if (!c) {
+        c = newHostAiCorrelationChain()
+        stableListProbeChainByHandshake.set(hid, c)
+      }
+      rowChain = c
+    } else {
+      stableListProbeChainByHandshake.delete(hid)
+      rowChain = newHostAiCorrelationChain()
+    }
     const epK = p2pEndpointKind(db, r.p2p_endpoint)
     const leK = epKindToListKind(epK)
 

@@ -16,6 +16,31 @@ const MAX_DC_FRAME_BYTES = 2_000_000
 
 let registered = false
 
+const createAckBySessionId = new Map<string, { resolve: () => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>()
+
+/**
+ * Resolves when the transport page acknowledges `op: 'create'` (before `RTCPeerConnection` work).
+ */
+export function waitForWebrtcPodCreateAck(p2pSessionId: string, timeoutMs: number): Promise<void> {
+  const sid = typeof p2pSessionId === 'string' ? p2pSessionId.trim() : ''
+  return new Promise((resolve, reject) => {
+    if (!sid) {
+      reject(new Error('no_session_id'))
+      return
+    }
+    const prev = createAckBySessionId.get(sid)
+    if (prev) {
+      clearTimeout(prev.timer)
+      createAckBySessionId.delete(sid)
+    }
+    const timer = setTimeout(() => {
+      createAckBySessionId.delete(sid)
+      reject(new Error('create_ack_timeout'))
+    }, timeoutMs)
+    createAckBySessionId.set(sid, { resolve, reject, timer })
+  })
+}
+
 function assertFromTransportPod(sender: Electron.WebContents): boolean {
   const w = getWebrtcTransportWindowOrNull()
   if (!w || w.isDestroyed()) {
@@ -102,12 +127,40 @@ function onRendererToMain(_sender: Electron.WebContents, msg: unknown) {
   }
   const m = msg as Record<string, unknown>
   const t = m.type
-  if (t !== 'string' || !t) {
+  if (typeof t !== 'string' || t === '') {
     return
   }
   const sessionId = typeof m.sessionId === 'string' ? m.sessionId : ''
   const handshakeId = typeof m.handshakeId === 'string' ? m.handshakeId : ''
   switch (t) {
+    case 'create_ack': {
+      if (sessionId) {
+        const w = createAckBySessionId.get(sessionId)
+        if (w) {
+          clearTimeout(w.timer)
+          createAckBySessionId.delete(sessionId)
+          w.resolve()
+        }
+      }
+      break
+    }
+    case 'create_offer_begin': {
+      if (handshakeId && sessionId) {
+        console.log(
+          `[P2P_WEBRTC] create_offer_begin handshake=${handshakeId} session=${redactIdForLog(sessionId)}`,
+        )
+      }
+      break
+    }
+    case 'create_offer_ok': {
+      const n = m.sdpBytes
+      if (handshakeId && sessionId && typeof n === 'number') {
+        console.log(
+          `[P2P_WEBRTC] create_offer_ok handshake=${handshakeId} session=${redactIdForLog(sessionId)} sdp_bytes=${n}`,
+        )
+      }
+      break
+    }
     case 'offer': {
       const sdp = m.sdp
       if (typeof sdp === 'string' && sessionId && handshakeId) {
@@ -181,8 +234,21 @@ function onRendererToMain(_sender: Electron.WebContents, msg: unknown) {
     }
     case 'error': {
       const code = typeof m.code === 'string' ? m.code : 'unknown'
+      const msg0 = m.message
+      const safe =
+        typeof msg0 === 'string' && msg0.length
+          ? msg0.length > 200
+            ? `${msg0.slice(0, 200)}…`
+            : msg0
+          : ''
       if (handshakeId && sessionId) {
-        console.log(`[P2P_WEBRTC] error session=${redactIdForLog(sessionId)} code=${code}`)
+        if (code === 'create_offer') {
+          console.log(
+            `[P2P_WEBRTC] create_offer_failed handshake=${handshakeId} session=${redactIdForLog(sessionId)} code=create_offer message=${JSON.stringify(safe || '(empty)')}`,
+          )
+        } else {
+          console.log(`[P2P_WEBRTC] error session=${redactIdForLog(sessionId)} code=${code}`)
+        }
       }
       break
     }

@@ -22,6 +22,9 @@ import { registerWebrtcTransportIpc } from './webrtc/webrtcTransportIpc'
 
 type P2pSessionLogReasonType = (typeof P2pSessionLogReason)[keyof typeof P2pSessionLogReason]
 
+const lastIpcProbeHostPolicyLogByHandshake = new Map<string, number>()
+const IPC_PROBE_HOST_POLICY_LOG_MIN_MS = 5_000
+
 function parseP2pSessionCloseReason(r: unknown): P2pSessionLogReasonType {
   const s = typeof r === 'string' ? r : ''
   const allowed = new Set<string>(Object.values(P2pSessionLogReason)) as Set<string>
@@ -105,7 +108,12 @@ export function registerInternalInferenceIpc(): void {
     if (!handshakeId) {
       return { ok: false as const, error: 'handshakeId required' }
     }
-    console.log(`[HOST_INFERENCE_P2P] ipc_probeHostPolicy handshake=${handshakeId}`)
+    const t = Date.now()
+    const last = lastIpcProbeHostPolicyLogByHandshake.get(handshakeId) ?? 0
+    if (t - last >= IPC_PROBE_HOST_POLICY_LOG_MIN_MS) {
+      lastIpcProbeHostPolicyLogByHandshake.set(handshakeId, t)
+      console.log(`[HOST_INFERENCE_P2P] ipc_probeHostPolicy handshake=${handshakeId}`)
+    }
     const { probeHostInferencePolicyFromSandbox } = await import('./sandboxHostUi')
     return probeHostInferencePolicyFromSandbox(handshakeId)
   })

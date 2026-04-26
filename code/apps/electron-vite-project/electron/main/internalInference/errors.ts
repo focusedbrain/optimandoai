@@ -34,8 +34,16 @@ export const InternalInferenceErrorCode = {
   P2P_STILL_CONNECTING: 'P2P_STILL_CONNECTING',
   /** IPC / probe: WebRTC path but DataChannel not open; do not start a new session from probe. */
   P2P_NOT_READY: 'P2P_NOT_READY',
-  /** WebRTC: no local offer was sent before the signaling deadline. */
+  /** @deprecated Use OFFER_CREATE_TIMEOUT; kept for log compatibility. */
   SIGNALING_NOT_STARTED: 'SIGNALING_NOT_STARTED',
+  /** Hidden WebRTC transport window could not be created or is disabled. */
+  WEBRTC_TRANSPORT_NOT_READY: 'WEBRTC_TRANSPORT_NOT_READY',
+  /** Local SDP was not produced in time after transport dispatch (renderer createOffer / send offer). */
+  OFFER_CREATE_TIMEOUT: 'OFFER_CREATE_TIMEOUT',
+  /** Offer SDP could not be sent on the signaling path (e.g. relay). */
+  OFFER_SIGNAL_SEND_FAILED: 'OFFER_SIGNAL_SEND_FAILED',
+  /** Outbound offer was sent but no answer arrived before the deadline. */
+  SIGNALING_ANSWER_TIMEOUT: 'SIGNALING_ANSWER_TIMEOUT',
 } as const
 
 export type InternalInferenceErrorCodeType =

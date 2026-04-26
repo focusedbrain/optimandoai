@@ -34,6 +34,10 @@ import {
   deriveHostAiHandshakeRoles,
 } from './transport/decideInternalInferenceTransport'
 
+/** Throttle [HOST_INFERENCE_P2P] capability_probe_deferred per handshake while WebRTC is still handshaking. */
+const lastCapabilityProbeDeferredLogByHandshake = new Map<string, number>()
+const CAPABILITY_PROBE_DEFERRED_LOG_MIN_MS = 5_000
+
 export interface SandboxHostInferenceCandidate {
   handshakeId: string
   /** Shown in UI (counterparty “computer name”). */
@@ -595,9 +599,15 @@ export async function probeHostInferencePolicyFromSandbox(
         st?.phase === P2pSessionPhase.ready
       if (!dcReady) {
         probeDone(false)
-        p2p(
-          `capability_probe_deferred reason=dc_not_open handshake=${hid} p2p_phase=${st?.phase ?? 'none'} (no_session_ensure_from_probe)`,
-        )
+        const ph0 = st?.phase ?? 'none'
+        const tNow = Date.now()
+        const lastLog = lastCapabilityProbeDeferredLogByHandshake.get(hid) ?? 0
+        if (tNow - lastLog >= CAPABILITY_PROBE_DEFERRED_LOG_MIN_MS) {
+          lastCapabilityProbeDeferredLogByHandshake.set(hid, tNow)
+          p2p(
+            `capability_probe_deferred reason=dc_not_open handshake=${hid} p2p_phase=${ph0} (no_session_ensure_from_probe)`,
+          )
+        }
         return {
           ok: false,
           code: InternalInferenceErrorCode.P2P_NOT_READY,

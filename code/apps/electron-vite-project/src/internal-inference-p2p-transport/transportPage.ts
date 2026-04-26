@@ -144,9 +144,18 @@ async function maybeNegotiate(session: Session) {
     return
   }
   try {
+    out({ v: 1, type: 'create_offer_begin', sessionId: session.sessionId, handshakeId: session.handshakeId })
     const offer = await session.pc.createOffer()
     await session.pc.setLocalDescription(offer)
-    out({ v: 1, type: 'offer', sessionId: session.sessionId, handshakeId: session.handshakeId, sdp: offer.sdp ?? '' })
+    const sdp = offer.sdp ?? ''
+    out({
+      v: 1,
+      type: 'create_offer_ok',
+      sessionId: session.sessionId,
+      handshakeId: session.handshakeId,
+      sdpBytes: sdp.length,
+    })
+    out({ v: 1, type: 'offer', sessionId: session.sessionId, handshakeId: session.handshakeId, sdp: sdp })
   } catch (e) {
     emitError(
       session.sessionId,
@@ -277,6 +286,7 @@ function handleFromMain(msg: unknown) {
   const m = msg as FromMain
   switch (m.op) {
     case 'create':
+      out({ v: 1, type: 'create_ack', sessionId: m.sessionId, handshakeId: m.handshakeId })
       createOne(m.sessionId, m.handshakeId, m.role)
       break
     case 'applyRemoteOffer':

@@ -15,6 +15,7 @@ import { getHandshakeDbForInternalInference } from '../dbAccess'
 import { InternalInferenceErrorCode, type InternalInferenceErrorCodeType } from '../errors'
 import { getHostInternalInferencePolicy } from '../hostInferencePolicyStore'
 import { newHostAiCorrelationChain } from '../hostAiStageLog'
+import { HostAiWebrtcStartError, startHostAiP2pWebrtcSessionOffer } from '../hostAiWebrtcOfferStart'
 import { redactIdForLog } from '../internalInferenceLogRedact'
 import {
   assertRecordForServiceRpc,
@@ -37,6 +38,8 @@ export const P2P_SIGNALING_WINDOW_MS = 120_000
 
 export const P2pSessionPhase = {
   idle: 'idle',
+  /** WebRTC offer pipeline is being started (transport window + create); not yet in ICE signaling. */
+  starting: 'starting',
   signaling: 'signaling',
   connecting: 'connecting',
   datachannel_open: 'datachannel_open',
@@ -99,8 +102,8 @@ const ensureSessionInFlight = new Map<string, { chain: string; promise: Promise<
 
 /** Cooldown after `failed` before `ensureSession` will allocate a new attempt. */
 const HOST_AI_FAILED_COOLDOWN_MS = 5_000
-/** If no local WebRTC offer is recorded within this window, session fails with `SIGNALING_NOT_STARTED`. */
-const HOST_AI_SIGNALING_OFFER_DEADLINE_MS = 15_000
+/** After `phase=signaling`, if no outbound offer is recorded (main), fail with `OFFER_CREATE_TIMEOUT`. */
+const HOST_AI_OFFER_OUTBOUND_DEADLINE_MS = 15_000
 
 const signalingOfferDeadlineTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const offerSentForSession = new Set<string>()
@@ -138,7 +141,7 @@ function clearHostAiSignalingGatesForHandshake(handshakeId: string) {
 
 /**
  * Mark that the WebRTC transport produced a local SDP offer (or equivalent), so
- * `SIGNALING_NOT_STARTED` does not fire. Invoked from `p2pSignalOutbound` only.
+ * `OFFER_CREATE_TIMEOUT` does not fire. Invoked from `p2pSignalOutbound` only.
  */
 export function markP2pOfferSentForSession(handshakeId: string, p2pSessionId: string): void {
   const k = sessionOpKey(handshakeId, p2pSessionId)
@@ -146,7 +149,7 @@ export function markP2pOfferSentForSession(handshakeId: string, p2pSessionId: st
   clearSignalingOfferDeadline(handshakeId, p2pSessionId)
 }
 
-function scheduleSignalingNotStartedIfNoOffer(handshakeId: string, p2pSessionId: string) {
+function scheduleOfferOutboundDeadlineIfNeeded(handshakeId: string, p2pSessionId: string) {
   const hid = handshakeId.trim()
   const sid = p2pSessionId.trim()
   if (!hid || !sid) return
@@ -162,12 +165,12 @@ function scheduleSignalingNotStartedIfNoOffer(handshakeId: string, p2pSessionId:
       ...m.state,
       phase: P2pSessionPhase.failed,
       updatedAt: now(),
-      lastErrorCode: InternalInferenceErrorCode.SIGNALING_NOT_STARTED,
+      lastErrorCode: InternalInferenceErrorCode.OFFER_CREATE_TIMEOUT,
     })
     console.log(
-      `[P2P_SIGNAL] failed type=offer handshake=${hid} session=${redactIdForLog(sid)} code=SIGNALING_NOT_STARTED`,
+      `[P2P_SIGNAL] failed type=offer handshake=${hid} session=${redactIdForLog(sid)} code=OFFER_CREATE_TIMEOUT`,
     )
-  }, HOST_AI_SIGNALING_OFFER_DEADLINE_MS)
+  }, HOST_AI_OFFER_OUTBOUND_DEADLINE_MS)
   signalingOfferDeadlineTimers.set(k, t)
 }
 
@@ -202,7 +205,11 @@ function withDerivedUi(base: P2pSessionState): P2pSessionState {
   if (base.phase === P2pSessionPhase.failed) {
     return { ...base, p2pUiPhase: P2pSessionUiPhase.p2p_unavailable }
   }
-  if (base.phase === P2pSessionPhase.signaling || base.phase === P2pSessionPhase.connecting) {
+  if (
+    base.phase === P2pSessionPhase.starting ||
+    base.phase === P2pSessionPhase.signaling ||
+    base.phase === P2pSessionPhase.connecting
+  ) {
     return { ...base, p2pUiPhase: P2pSessionUiPhase.connecting }
   }
   if (base.phase === P2pSessionPhase.datachannel_open || base.phase === P2pSessionPhase.ready) {
@@ -385,6 +392,7 @@ export function ensureHostAiP2pSession(handshakeId: string, reason: string): Pro
         return Promise.resolve(withDerivedUi(s))
       }
     } else if (
+      s.phase === P2pSessionPhase.starting ||
       s.phase === P2pSessionPhase.signaling ||
       s.phase === P2pSessionPhase.connecting ||
       s.phase === P2pSessionPhase.datachannel_open ||
@@ -398,7 +406,7 @@ export function ensureHostAiP2pSession(handshakeId: string, reason: string): Pro
     }
   }
   const chain = newHostAiCorrelationChain()
-  console.log(`[HOST_AI_SESSION_ENSURE] begin handshake=${hid} chain=${chain} reason=${reason}`)
+  console.log(`[HOST_AI_SESSION_ENSURE] ensure_chain_start handshake=${hid} chain=${chain} reason=${reason}`)
   const p = ensureSession(hid, reason)
     .then((st) => st, (e) => {
       throw e
@@ -542,7 +550,7 @@ export async function ensureSession(
         return withDerivedUi(s)
       }
     } else if (s.sessionId) {
-      if (s.phase === P2pSessionPhase.signaling) {
+      if (s.phase === P2pSessionPhase.starting || s.phase === P2pSessionPhase.signaling) {
         scheduleP2pSignalingRelayOut({ sessionId: s.sessionId, handshakeId: hid, reason: 'ensure_idempotent' })
         return withDerivedUi(s)
       }
@@ -555,22 +563,55 @@ export async function ensureSession(
   const sessionId = randomUUID()
   const localBound = localCoordinationDeviceId(ar.record)?.trim() ?? ''
   const peerBound = peerCoordinationDeviceId(ar.record)?.trim() ?? ''
-  const st: P2pSessionState = {
+  const webrtc = f.p2pInferenceWebrtcEnabled
+  const tBase = now()
+  const stBase: P2pSessionState = {
     handshakeId: hid,
     sessionId,
-    phase: P2pSessionPhase.signaling,
+    phase: webrtc ? P2pSessionPhase.starting : P2pSessionPhase.signaling,
     p2pUiPhase: P2pSessionUiPhase.connecting,
     lastErrorCode: null,
     connectedAt: null,
-    updatedAt: t,
-    signalingExpiresAt: t + P2P_SIGNALING_WINDOW_MS,
+    updatedAt: tBase,
+    signalingExpiresAt: tBase + P2P_SIGNALING_WINDOW_MS,
     boundLocalDeviceId: localBound,
     boundPeerDeviceId: peerBound,
   }
-  setSession(hid, st)
+  setSession(hid, stBase)
+  console.log(`[HOST_AI_SESSION_ENSURE] begin handshake=${hid} session=${redactIdForLog(sessionId)} reason=${reason}`)
   logConnecting(hid, sessionId)
+  if (webrtc) {
+    try {
+      await startHostAiP2pWebrtcSessionOffer(hid, sessionId, reason)
+    } catch (e) {
+      const errCode: InternalInferenceErrorCodeType =
+        e instanceof HostAiWebrtcStartError
+          ? e.errorCode
+          : InternalInferenceErrorCode.WEBRTC_TRANSPORT_NOT_READY
+      const tFail = now()
+      const stFailed: P2pSessionState = {
+        ...stBase,
+        phase: P2pSessionPhase.failed,
+        updatedAt: tFail,
+        lastErrorCode: errCode,
+      }
+      setSession(hid, stFailed)
+      logFailed(hid, sessionId, P2pSessionLogReason.unknown, reason)
+      return withDerivedUi(stFailed)
+    }
+  }
+  const tSig = now()
+  const st: P2pSessionState = {
+    ...stBase,
+    phase: P2pSessionPhase.signaling,
+    updatedAt: tSig,
+    signalingExpiresAt: tSig + P2P_SIGNALING_WINDOW_MS,
+  }
+  setSession(hid, st)
   scheduleP2pSignalingRelayOut({ sessionId, handshakeId: hid, reason: `ensure_${reason}` })
-  scheduleSignalingNotStartedIfNoOffer(hid, sessionId)
+  if (webrtc) {
+    scheduleOfferOutboundDeadlineIfNeeded(hid, sessionId)
+  }
   return withDerivedUi(st)
 }
 
@@ -595,7 +636,11 @@ export async function preflightP2pRelaySignal(raw: Record<string, unknown>): Pro
   if (st0.phase === P2pSessionPhase.failed || st0.phase === P2pSessionPhase.closed) {
     return false
   }
-  if (st0.phase === P2pSessionPhase.signaling && st0.signalingExpiresAt != null && t > st0.signalingExpiresAt) {
+  if (
+    (st0.phase === P2pSessionPhase.starting || st0.phase === P2pSessionPhase.signaling) &&
+    st0.signalingExpiresAt != null &&
+    t > st0.signalingExpiresAt
+  ) {
     closeSession(hid, P2pSessionLogReason.stale_signal)
     return false
   }
@@ -656,7 +701,7 @@ export function handleSignal(raw: Record<string, unknown>): void {
     setSession(hid, { ...st, phase: P2pSessionPhase.failed, updatedAt: t, lastErrorCode: InternalInferenceErrorCode.INTERNAL_INFERENCE_FAILED })
     return
   }
-  if (st.phase === P2pSessionPhase.signaling) {
+  if (st.phase === P2pSessionPhase.starting || st.phase === P2pSessionPhase.signaling) {
     clearSignalingOfferDeadline(hid, st.sessionId)
     setSession(hid, { ...st, phase: P2pSessionPhase.connecting, updatedAt: t })
   }

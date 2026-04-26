@@ -312,7 +312,7 @@ export function decideInternalInferenceTransport(
       userSafeReason: null,
     }
   }
-  if (ph === P2pSessionPhase.signaling || ph === P2pSessionPhase.connecting) {
+  if (ph === P2pSessionPhase.starting || ph === P2pSessionPhase.signaling || ph === P2pSessionPhase.connecting) {
     return {
       targetDetected: true,
       selectorPhase: 'connecting',
