@@ -57,16 +57,26 @@ function parseIso(s: string): number | null {
   return Number.isNaN(t) ? null : t
 }
 
-/** Accept `1` or decimal integer string (some clients JSON-encode version loosely). */
+/**
+ * Accept strict wire version 1 only, but tolerate loose serializers:
+ * `1`, `1.0`, `"1"`, `"01"`, `"1.0"`, `"1.000"` (reject `"1.1"`, `2`, etc.).
+ */
 function coerceSchemaVersion(p: Record<string, unknown>): P2pSignalParseFail | null {
   const v = p.schema_version
-  let n: number | null = null
-  if (typeof v === 'number' && Number.isFinite(v) && Number.isInteger(v)) {
-    n = v
-  } else if (typeof v === 'string' && /^[0-9]+$/.test(v.trim())) {
-    n = Number(v.trim())
+  let ok = false
+  if (typeof v === 'number' && Number.isFinite(v) && v === P2P_SIGNAL_SCHEMA_VERSION) {
+    ok = true
+  } else if (typeof v === 'string') {
+    const t = v.trim()
+    if (t) {
+      if (/^[0-9]+$/.test(t)) {
+        ok = Number(t) === P2P_SIGNAL_SCHEMA_VERSION
+      } else if (/^1(?:\.0+)?$/.test(t)) {
+        ok = true
+      }
+    }
   }
-  if (n !== P2P_SIGNAL_SCHEMA_VERSION) {
+  if (!ok) {
     return { ok: false, reason: 'schema_version', httpStatus: 400 }
   }
   p.schema_version = P2P_SIGNAL_SCHEMA_VERSION

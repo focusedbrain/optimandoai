@@ -71,13 +71,20 @@ function clearIceToMainDrain(session: Session) {
   }
 }
 
-function isSessionActiveForOutboundIce(session: Session): boolean {
-  return handshakeActiveSessionId.get(session.handshakeId) === session.sessionId
+/**
+ * ICE must only be emitted when this PC’s session is still the handshake’s active one.
+ * If the ledger moved on (failed / new session) and the map is empty or points elsewhere, drop — do not fall back to `session.sessionId`.
+ */
+function iceStampForActiveSessionOrNull(session: Session): string | null {
+  const active = handshakeActiveSessionId.get(session.handshakeId)
+  if (!active || active !== session.sessionId) {
+    return null
+  }
+  return active
 }
 
-/** ICE tags use the handshake’s current active session id (see `handshakeActiveSessionId`). */
-function outboundIceSessionTag(session: Session): string {
-  return handshakeActiveSessionId.get(session.handshakeId) ?? session.sessionId
+function isSessionActiveForOutboundIce(session: Session): boolean {
+  return iceStampForActiveSessionOrNull(session) != null
 }
 
 function emitPendingIceEndToMain(session: Session) {
@@ -89,10 +96,15 @@ function emitPendingIceEndToMain(session: Session) {
     return
   }
   session.iceEndPending = false
+  const stamp = iceStampForActiveSessionOrNull(session)
+  if (!stamp) {
+    closeOne(session.sessionId)
+    return
+  }
   out({
     v: 1,
     type: 'ice',
-    sessionId: outboundIceSessionTag(session),
+    sessionId: stamp,
     handshakeId: session.handshakeId,
     end: true,
   })
@@ -115,10 +127,17 @@ function pumpIceToMain(session: Session) {
     }
     if (session.iceQueue.length > 0) {
       const init = session.iceQueue.shift()!
+      const stamp = iceStampForActiveSessionOrNull(session)
+      if (!stamp) {
+        session.iceQueue = []
+        session.iceEndPending = false
+        closeOne(session.sessionId)
+        return
+      }
       out({
         v: 1,
         type: 'ice',
-        sessionId: outboundIceSessionTag(session),
+        sessionId: stamp,
         handshakeId: session.handshakeId,
         end: false,
         init,

@@ -104,6 +104,16 @@ function handleIceSendFailureAfterRetries(hid: string, sid: string, status: numb
   }
 }
 
+/**
+ * Drop per-handshake relay signaling soft state (ICE failure counters, 429 slot) when the ledger
+ * session fails or is superseded — avoids attributing retries to a new session id.
+ */
+export function discardP2pRelayOutboundSoftStateForHandshake(handshakeId: string): void {
+  const hid = handshakeId.trim()
+  if (!hid) return
+  relayOutboundSoftByHandshake.delete(hid)
+}
+
 /** @internal Vitest — module state would otherwise leak across cases. */
 export function resetP2pSignalRelayOutboundStateForTests(): void {
   relayOutboundSoftByHandshake.clear()
@@ -178,11 +188,12 @@ function buildP2pSignalBody(params: {
 }
 
 /**
- * Full wire + relay body when schema is rejected (400). Off by default — enable with
- * `WRDESK_P2P_INFERENCE_VERBOSE_LOGS=1` (can include ICE/SDP-sized strings; never at default log level).
+ * Full wire + relay body when schema is rejected (400). **Only** when
+ * `WRDESK_P2P_INFERENCE_VERBOSE_LOGS=1` — dumps may include SDP/ICE-shaped fields; use `console.debug`.
  */
 function logP2pSignalSchemaDebug(payloadJson: string, responseBody: string, kind: OutboundRelayP2pKind): void {
-  if (!getP2pInferenceFlags().p2pInferenceVerboseLogs) {
+  const f = getP2pInferenceFlags()
+  if (!f.p2pInferenceVerboseLogs) {
     return
   }
   let candidateExtra = ''
@@ -215,9 +226,8 @@ function logP2pSignalSchemaDebug(payloadJson: string, responseBody: string, kind
       /* keep candidateExtra empty */
     }
   }
-  console.debug(
-    `[P2P_SIGNAL_SCHEMA_DEBUG] payload_sent=${JSON.stringify(payloadJson)}${candidateExtra} response_body=${JSON.stringify(responseBody)}`,
-  )
+  const line = `[P2P_SIGNAL_SCHEMA_DEBUG] payload_sent=${JSON.stringify(payloadJson)}${candidateExtra} response_body=${JSON.stringify(responseBody)}`
+  console.debug(line)
 }
 
 /**
@@ -306,19 +316,18 @@ export async function sendHostAiP2pSignalOutbound(params: {
     return
   }
 
-  if (params.kind === 'ice') {
-    const st = getSessionState(hid)
-    if (
-      !st ||
-      st.phase === 'failed' ||
-      !st.sessionId ||
-      st.sessionId.trim() !== sid
-    ) {
-      console.log(
-        `[P2P_SIGNAL_OUT] dropped_stale_candidate session=${redactIdForLog(sid)} handshake=${hid} ledger_session=${st?.sessionId ? redactIdForLog(st.sessionId.trim()) : 'none'} phase=${st?.phase ?? 'no_ledger'}`,
-      )
-      return
-    }
+  const stEarly = getSessionState(hid)
+  if (
+    !stEarly ||
+    stEarly.phase === 'failed' ||
+    !stEarly.sessionId ||
+    stEarly.sessionId.trim() !== sid
+  ) {
+    const cur = stEarly?.sessionId ? redactIdForLog(stEarly.sessionId.trim()) : 'none'
+    console.log(
+      `[P2P_SIGNAL_OUT] dropped_stale_send session=${redactIdForLog(sid)} current_session=${cur} handshake=${hid} kind=${params.kind} phase=${stEarly?.phase ?? 'no_ledger'}`,
+    )
+    return
   }
 
   const record = getHandshakeRecord(params.db, hid)
@@ -328,6 +337,20 @@ export async function sendHostAiP2pSignalOutbound(params: {
   }
 
   await withRelayOutboundQueue(hid, async () => {
+    const stQ = getSessionState(hid)
+    if (
+      !stQ ||
+      stQ.phase === 'failed' ||
+      !stQ.sessionId ||
+      stQ.sessionId.trim() !== sid
+    ) {
+      const cur = stQ?.sessionId ? redactIdForLog(stQ.sessionId.trim()) : 'none'
+      console.log(
+        `[P2P_SIGNAL_OUT] dropped_stale_send session=${redactIdForLog(sid)} current_session=${cur} handshake=${hid} kind=${params.kind} phase=${stQ?.phase ?? 'no_ledger'} reason=queue_race`,
+      )
+      return
+    }
+
     const base = coordinationBaseUrl(params.db)
     if (!base) {
       console.log(`[P2P_SIGNAL_OUT] failed status=0 type=${params.kind} code=no_coordination_url handshake=${hid}`)

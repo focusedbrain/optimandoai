@@ -45,6 +45,13 @@ describe('p2pSignalRelayPost', () => {
     resetP2pInferenceFlagsForTests()
     resetP2pSignalRelayOutboundStateForTests()
     p2pSignalRelayPostTestHooks.max429Retries = null
+    getSessionStateMock.mockReset()
+    getSessionStateMock.mockImplementation(() => ({
+      sessionId: 'sid-1',
+      phase: 'signaling',
+      boundLocalDeviceId: 'dev-a',
+      boundPeerDeviceId: 'dev-b',
+    }))
     vi.spyOn(authSession, 'getAccessToken').mockReturnValue('test-access-token')
     p2pSignalRelayPostTestHooks.post = async (_base, bearer, body) => {
       expect(bearer).toBe('test-access-token')
@@ -175,14 +182,16 @@ describe('p2pSignalRelayPost', () => {
     expect(failMock).toHaveBeenCalledWith('hs1', InternalInferenceErrorCode.P2P_SIGNAL_AUTH_OR_ROUTE_FAILED)
   })
 
-  it('ICE: drops stale session id vs ledger with [P2P_SIGNAL_OUT] dropped_stale_candidate', async () => {
+  it('ICE: drops stale session id vs ledger with [P2P_SIGNAL_OUT] dropped_stale_send', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-    getSessionStateMock.mockReturnValueOnce({
+    const ledger = {
       sessionId: 'sid-new',
       phase: 'signaling',
       boundLocalDeviceId: 'dev-a',
       boundPeerDeviceId: 'dev-b',
-    })
+    }
+    getSessionStateMock.mockReset()
+    getSessionStateMock.mockImplementation(() => ledger)
     p2pSignalRelayPostTestHooks.post = async () => ({ status: 200, bodyText: '{}' })
     await sendHostAiP2pSignalOutbound({
       db,
@@ -192,7 +201,9 @@ describe('p2pSignalRelayPost', () => {
       iceCandidateJson: JSON.stringify({ candidate: 'c', sdpMLineIndex: 0 }),
     })
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[P2P_SIGNAL_OUT] dropped_stale_candidate session=sid-old'),
+      expect.stringContaining(
+        '[P2P_SIGNAL_OUT] dropped_stale_send session=sid-old current_session=sid-new handshake=hs1 kind=ice',
+      ),
     )
     logSpy.mockRestore()
   })
@@ -253,6 +264,42 @@ describe('p2pSignalRelayPost', () => {
     expect(failMock).toHaveBeenCalledWith('hs1', InternalInferenceErrorCode.P2P_SIGNAL_SCHEMA_REJECTED)
     expect(debugSpy).not.toHaveBeenCalled()
     debugSpy.mockRestore()
+  })
+
+  it('ICE 400 schema rejected → [P2P_SIGNAL_SCHEMA_DEBUG] via console.debug when WRDESK_P2P_INFERENCE_VERBOSE_LOGS=1', async () => {
+    vi.stubEnv('WRDESK_P2P_INFERENCE_VERBOSE_LOGS', '1')
+    resetP2pInferenceFlagsForTests()
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {})
+    try {
+      const relayErr = JSON.stringify({ error: 'invalid_candidate', field: 'candidate' })
+      p2pSignalRelayPostTestHooks.post = async () => ({ status: 400, bodyText: relayErr })
+      const cand = JSON.stringify({
+        candidate: 'candidate:1 1 udp 2130706431 127.0.0.1 9 typ host',
+        sdpMid: '0',
+        sdpMLineIndex: 0,
+        usernameFragment: 'uf',
+      })
+      await sendHostAiP2pSignalOutbound({
+        db,
+        handshakeId: 'hs1',
+        p2pSessionId: 'sid-1',
+        kind: 'ice',
+        iceCandidateJson: cand,
+      })
+      expect(failMock).toHaveBeenCalledWith('hs1', InternalInferenceErrorCode.P2P_SIGNAL_SCHEMA_REJECTED)
+      expect(debugSpy).toHaveBeenCalled()
+      const msg = String(debugSpy.mock.calls.find((c) => String(c[0]).startsWith('[P2P_SIGNAL_SCHEMA_DEBUG]'))?.[0])
+      expect(msg.startsWith('[P2P_SIGNAL_SCHEMA_DEBUG]')).toBe(true)
+      expect(msg).toContain('payload_sent=')
+      expect(msg).toContain('response_body=')
+      expect(logSpy.mock.calls.some((c) => String(c[0]).includes('[P2P_SIGNAL_SCHEMA_DEBUG]'))).toBe(false)
+    } finally {
+      logSpy.mockRestore()
+      debugSpy.mockRestore()
+      vi.unstubAllEnvs()
+      resetP2pInferenceFlagsForTests()
+    }
   })
 
   it('offer: 429 then 200 retries same message; no session fail', async () => {

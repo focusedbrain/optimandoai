@@ -27,6 +27,22 @@ describe('tryParseP2pSignalRequest — permissive candidate / schema_version', (
     }
   })
 
+  it('accepts schema_version as "1.0" / "1.000" (loose JSON encoders) and normalizes to 1', () => {
+    for (const schema_version of ['1.0', '1.000', ' 1.0 ']) {
+      const body = JSON.stringify(iceBase({ schema_version }))
+      const r = tryParseP2pSignalRequest(body, P2P_SIGNAL_MAX_BODY_BYTES)
+      expect(r.ok).toBe(true)
+      if (r.ok) expect(r.payload.schema_version).toBe(1)
+    }
+  })
+
+  it('rejects schema_version "1.1"', () => {
+    const body = JSON.stringify(iceBase({ schema_version: '1.1' }))
+    const r = tryParseP2pSignalRequest(body, P2P_SIGNAL_MAX_BODY_BYTES)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toBe('schema_version')
+  })
+
   it('accepts top-level candidate "" (end-of-trickle envelope)', () => {
     const body = JSON.stringify(iceBase({ candidate: '' }))
     const r = tryParseP2pSignalRequest(body, P2P_SIGNAL_MAX_BODY_BYTES)

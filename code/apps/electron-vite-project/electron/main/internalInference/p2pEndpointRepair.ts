@@ -9,6 +9,7 @@ import { getP2PConfig, computeLocalP2PEndpoint } from '../p2p/p2pConfig'
 import {
   assertLedgerRolesSandboxToHost,
   assertRecordForServiceRpc,
+  p2pEndpointKind,
   p2pEndpointMvpClass,
   type P2pMvpEndpointClass,
 } from './policy'
@@ -16,6 +17,33 @@ import {
 export const P2P_DIRECT_P2P_ENDPOINT_HEADER = 'X-BEAP-Direct-P2P-Endpoint'
 
 let appP2pLedgerStartupPassDone = false
+
+/** Last Host-advertised MVP direct ingest URL per handshake (Sandbox; from response header). */
+const hostAdvertisedMvpDirectByHandshake = new Map<string, string>()
+
+const p2pEnsureCacheInvalidators: Array<(handshakeId: string) => void> = []
+
+/** Register `lastP2pEnsureByHandshake` invalidation (see listInferenceTargets). */
+export function registerP2pEnsureCacheInvalidator(fn: (handshakeId: string) => void): void {
+  p2pEnsureCacheInvalidators.push(fn)
+}
+
+function invalidateP2pEnsureCachesForHandshake(handshakeId: string): void {
+  const hid = handshakeId.trim()
+  if (!hid) return
+  for (const fn of p2pEnsureCacheInvalidators) {
+    try {
+      fn(hid)
+    } catch {
+      /* no-op */
+    }
+  }
+}
+
+/** @internal */
+export function resetHostAdvertisedMvpDirectForTests(): void {
+  hostAdvertisedMvpDirectByHandshake.clear()
+}
 
 export function resetP2pEndpointRepairSessionGates(): void {
   appP2pLedgerStartupPassDone = false
@@ -82,6 +110,7 @@ export function tryRepairP2pEndpointFromHostAdvertisement(
     )
     return
   }
+  hostAdvertisedMvpDirectByHandshake.set(hid, normalizeP2pIngestUrl(advRaw))
   const r0 = getHandshakeRecord(db, hid)
   const ar = assertRecordForServiceRpc(r0)
   if (!ar.ok) {
@@ -111,6 +140,7 @@ export function tryRepairP2pEndpointFromHostAdvertisement(
   )
   const next: HandshakeRecord = { ...r, p2p_endpoint: newNorm }
   updateHandshakeRecord(db, next)
+  invalidateP2pEnsureCachesForHandshake(hid)
   console.log(`[HOST_INFERENCE_P2P] endpoint_repair_done handshake=${hid}`)
 }
 
@@ -131,19 +161,44 @@ export function runP2pEndpointRepairPass(db: any, context: string): void {
     appP2pLedgerStartupPassDone = true
   }
 
+  const hostUrl = getHostPublishedMvpDirectP2pIngestUrl(db)
+
   const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })
   for (const r of rows) {
     const ar = assertRecordForServiceRpc(r)
     if (!ar.ok) continue
     if (!assertLedgerRolesSandboxToHost(ar.record).ok) continue
-    const k = p2pEndpointMvpClass(db, ar.record.p2p_endpoint)
+    const hid = r.handshake_id
+    const storedEp = ar.record.p2p_endpoint
+    const storedRelayKind = p2pEndpointKind(db, storedEp) === 'relay'
+    const k = p2pEndpointMvpClass(db, storedEp)
+
+    const promoRaw = hostAdvertisedMvpDirectByHandshake.get(hid) ?? hostUrl
+    if (
+      storedRelayKind &&
+      promoRaw &&
+      p2pEndpointMvpClass(db, promoRaw) === 'direct_lan'
+    ) {
+      const newNorm = normalizeP2pIngestUrl(promoRaw)
+      const oldNorm = storedEp ? normalizeP2pIngestUrl(storedEp) : ''
+      if (newNorm !== oldNorm) {
+        const next: HandshakeRecord = { ...ar.record, p2p_endpoint: newNorm }
+        updateHandshakeRecord(db, next)
+        invalidateP2pEnsureCachesForHandshake(hid)
+        const toKind = p2pEndpointKind(db, newNorm)
+        console.log(
+          `[HOST_INFERENCE_P2P] endpoint_repair_promoted handshake=${hid} from_kind=relay to_kind=${toKind} new_endpoint=${newNorm} context=${context}`,
+        )
+        continue
+      }
+    }
+
     if (k !== 'direct_lan') {
       console.log(
-        `[HOST_INFERENCE_P2P] endpoint_repair_skipped reason=stale_or_non_direct_stored handshake=${r.handshake_id} stored_kind=${k} context=${context}`,
+        `[HOST_INFERENCE_P2P] endpoint_repair_skipped reason=stale_or_non_direct_stored handshake=${hid} stored_kind=${k} context=${context}`,
       )
     }
   }
-  const hostUrl = getHostPublishedMvpDirectP2pIngestUrl(db)
   if (hostUrl) {
     console.log(
       `[HOST_INFERENCE_P2P] endpoint_repair_pass context=${context} host_publishes_mvp_direct=${hostUrl}`,

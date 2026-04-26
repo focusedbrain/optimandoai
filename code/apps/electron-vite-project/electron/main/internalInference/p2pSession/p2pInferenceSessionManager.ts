@@ -277,7 +277,7 @@ function scheduleOfferStartWatchdogIfNeeded(handshakeId: string, p2pSessionId: s
       return
     }
     const tFail = now()
-    disposeWebrtcPodSession(hid, sid)
+    tearDownP2pTransportAndRelayForHandshake(hid, sid)
     setSession(hid, {
       ...m.state,
       phase: P2pSessionPhase.failed,
@@ -311,6 +311,25 @@ function clearHostAiSignalingGatesForHandshake(handshakeId: string) {
       offerSentForSession.delete(k)
     }
   }
+}
+
+/** Clears relay ICE/429 soft state for a handshake (see `p2pSignalRelayPost`). */
+function discardRelayOutboundSoftStateForHandshake(handshakeId: string): void {
+  const h = typeof handshakeId === 'string' ? handshakeId.trim() : ''
+  if (!h) return
+  void import('../p2pSignalRelayPost')
+    .then((m) => m.discardP2pRelayOutboundSoftStateForHandshake(h))
+    .catch(() => {})
+}
+
+/** Pod close + signaling timers + relay soft state (not ledger row). */
+function tearDownP2pTransportAndRelayForHandshake(
+  handshakeId: string,
+  sessionId: string | null | undefined,
+): void {
+  disposeWebrtcPodSession(handshakeId, sessionId)
+  clearHostAiSignalingGatesForHandshake(handshakeId)
+  discardRelayOutboundSoftStateForHandshake(handshakeId)
 }
 
 /**
@@ -361,7 +380,7 @@ function scheduleOfferOutboundDeadlineIfNeeded(handshakeId: string, p2pSessionId
     if (!m || m.state.sessionId !== sid) return
     if (m.state.phase !== P2pSessionPhase.signaling) return
     if (offerSentForSession.has(k)) return
-    disposeWebrtcPodSession(hid, sid)
+    tearDownP2pTransportAndRelayForHandshake(hid, sid)
     setSession(hid, {
       ...m.state,
       phase: P2pSessionPhase.failed,
@@ -531,8 +550,7 @@ export function failHostAiP2pSessionForTerminalSignalingError(
   const m = sessions.get(hid)
   if (!m) return
   const sid = m.state.sessionId
-  disposeWebrtcPodSession(hid, sid)
-  clearHostAiSignalingGatesForHandshake(hid)
+  tearDownP2pTransportAndRelayForHandshake(hid, sid)
   const tFail = now()
   setSession(hid, {
     ...m.state,
@@ -953,6 +971,7 @@ export async function ensureSession(
             ? e.errorCode
             : InternalInferenceErrorCode.WEBRTC_TRANSPORT_NOT_READY
         const tFail = now()
+        tearDownP2pTransportAndRelayForHandshake(hid, sid0)
         setSession(hid, {
           ...s,
           phase: P2pSessionPhase.failed,
@@ -995,7 +1014,10 @@ export async function ensureSession(
     console.log(`[HOST_AI_SESSION_ENSURE] acceptor_wait_inbound handshake=${hid} reason=${reason}`)
     return withDerivedUi(stWait)
   }
-  clearHostAiSignalingGatesForHandshake(hid)
+  {
+    const ev0 = sessions.get(hid)
+    tearDownP2pTransportAndRelayForHandshake(hid, ev0?.state.sessionId ?? null)
+  }
   const sessionId = randomUUID()
   const localBound = localCoordinationDeviceId(ar.record)?.trim() ?? ''
   const peerBound = peerCoordinationDeviceId(ar.record)?.trim() ?? ''
@@ -1028,6 +1050,7 @@ export async function ensureSession(
           ? e.errorCode
           : InternalInferenceErrorCode.WEBRTC_TRANSPORT_NOT_READY
       const tFail = now()
+      tearDownP2pTransportAndRelayForHandshake(hid, sessionId)
       const stFailed: P2pSessionState = {
         ...stBase,
         phase: P2pSessionPhase.failed,
@@ -1102,6 +1125,9 @@ export async function tryAttachP2pSessionForInboundSignaling(
   if (isInitiator) {
     return 'skipped'
   }
+  if (existing?.state.sessionId && existing.state.sessionId !== sid) {
+    tearDownP2pTransportAndRelayForHandshake(hid, existing.state.sessionId)
+  }
   const localBound = localCoordinationDeviceId(ar.record)?.trim() ?? ''
   const peerBound = peerCoordinationDeviceId(ar.record)?.trim() ?? ''
   const t0 = now()
@@ -1132,6 +1158,7 @@ export async function tryAttachP2pSessionForInboundSignaling(
   } catch (e) {
     const errCode: InternalInferenceErrorCodeType =
       e instanceof HostAiWebrtcStartError ? e.errorCode : InternalInferenceErrorCode.WEBRTC_TRANSPORT_NOT_READY
+    tearDownP2pTransportAndRelayForHandshake(hid, sid)
     setSession(hid, {
       ...stNew,
       phase: P2pSessionPhase.failed,
@@ -1154,6 +1181,7 @@ async function ensureAnswererWebrtcTransportIfNeeded(hid: string, sessionId: str
   } catch (e) {
     const errCode: InternalInferenceErrorCodeType =
       e instanceof HostAiWebrtcStartError ? e.errorCode : InternalInferenceErrorCode.WEBRTC_TRANSPORT_NOT_READY
+    tearDownP2pTransportAndRelayForHandshake(hid, sessionId)
     setSession(hid, {
       ...m.state,
       phase: P2pSessionPhase.failed,
@@ -1267,6 +1295,7 @@ export function handleSignal(raw: Record<string, unknown>): void {
   }
   const stype = raw.signal_type
   if (stype === 'p2p_inference_error' || stype === 'p2p_inference_close') {
+    tearDownP2pTransportAndRelayForHandshake(hid, st.sessionId)
     setSession(hid, { ...st, phase: P2pSessionPhase.failed, updatedAt: t, lastErrorCode: InternalInferenceErrorCode.INTERNAL_INFERENCE_FAILED })
     return
   }
@@ -1308,8 +1337,7 @@ export function closeSession(handshakeId: string, reason: P2pSessionLogReasonTyp
   }
   const t = now()
   const sessionId = m.state.sessionId
-  disposeWebrtcPodSession(hid, sessionId)
-  clearHostAiSignalingGatesForHandshake(hid)
+  tearDownP2pTransportAndRelayForHandshake(hid, sessionId)
   sessions.delete(hid)
   const final: P2pSessionState = withDerivedUi({
     handshakeId: hid,

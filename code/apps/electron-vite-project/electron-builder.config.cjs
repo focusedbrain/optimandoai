@@ -7,10 +7,10 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\build78'
+ *   return 'C:\\build-output\\build79'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build78'
+  return 'C:\\build-output\\build79'
 }
 
 const workspaceRoot = path.resolve(appDir, '../..')
@@ -108,10 +108,12 @@ module.exports = {
     allowToChangeInstallationDirectory: true,
   },
   /**
-   * Host AI HTTP safety net: `p2pInferenceFlags.ts` already defaults
-   * `WRDESK_P2P_INFERENCE_HTTP_FALLBACK` and `WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT` to **on**
-   * when unset. Electron-builder has no portable way to inject process env into the main
-   * bundle cross-platform; for explicit launch env use OS user environment, a wrapper script,
-   * or CI (see `docs/HOST_AI_DIAGNOSTIC_LOGS.md`).
+   * Host AI HTTP safety net: `p2pInferenceFlags.ts` defaults `WRDESK_P2P_INFERENCE_HTTP_FALLBACK`
+   * and `WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT` to **on** when unset (direct-LAN HTTP + compat;
+   * WebRTC for cross-network; HTTP fallback catches transient DC failures).
+   * Electron-builder cannot inject main-process env — for packaged installs that must pin behavior,
+   * set explicitly at launch, e.g. `WRDESK_P2P_INFERENCE_HTTP_FALLBACK=1` and
+   * `WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT=1` (redundant with defaults but documents intent).
+   * See `docs/HOST_AI_DIAGNOSTIC_LOGS.md`.
    */
 }

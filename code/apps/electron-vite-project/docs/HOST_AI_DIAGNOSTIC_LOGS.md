@@ -4,17 +4,26 @@
 
 When `WRDESK_P2P_INFERENCE_ENABLED` is on and env vars are **unset**, the app defaults to:
 
-- **`WRDESK_P2P_INFERENCE_HTTP_FALLBACK=1` (implicit)** — after P2P is considered, direct BEAP ingest may be used as fallback when policy allows (WebRTC remains preferred).
-- **`WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT=1` (implicit)** — Host accepts `internal_inference_request` on HTTP when the P2P request plane is on (avoids hard-rejecting legacy clients).
+- **`WRDESK_P2P_INFERENCE_HTTP_FALLBACK=1` (implicit)** — after P2P is considered, direct BEAP ingest may be used as fallback when policy allows (WebRTC remains preferred on the same LAN; relay WebRTC for cross-network).
+- **`WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT=1` (implicit)** — Host accepts `internal_inference_request` on HTTP when the P2P request plane is on (avoids hard-rejecting legacy clients; HTTP fallback over relay can recover transient WebRTC failures invisibly).
 
-**Behavior:** WebRTC/DataChannel stays the fast path when available; HTTP covers transient relay or DC issues without requiring env tweaks.
+**Behavior:** Direct-LAN HTTP is the preferred path on the same network when policy allows; WebRTC handles cross-network; HTTP fallback + internal compat catches transient DC/WebRTC issues without env tweaks.
 
 **To turn off** (stricter P2P-only): set explicitly in the launch environment or shell before starting the app:
 
 - `WRDESK_P2P_INFERENCE_HTTP_FALLBACK=0`
 - `WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT=0`
 
-**Where to flip:** OS environment for dev (`$env:WRDESK_...` in PowerShell), your installer / CI launch script, or a desktop shortcut that sets variables. Packaged builds rely on the same implicit defaults unless you add a launcher wrapper (electron-builder does not inject main-process env). Verify at runtime via `[HOST_AI_FLAGS]` / `[HOST_AI_FLAGS_SOURCE]` (includes `httpFallback` and `httpInternalCompat`).
+**Where to flip:** OS environment for dev (`$env:WRDESK_...` in PowerShell), your installer / CI launch script, or a desktop shortcut that sets variables. Packaged builds use the same **implicit** defaults as dev; if your distribution cannot rely on code defaults, set explicitly at launch:
+
+- `WRDESK_P2P_INFERENCE_HTTP_FALLBACK=1`
+- `WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT=1`
+
+Electron-builder does not inject main-process env. Verify at runtime via `[HOST_AI_FLAGS]` / `[HOST_AI_FLAGS_SOURCE]` (includes `httpFallback` and `httpInternalCompat`).
+
+## Verbose signal dumps (SDP / ICE)
+
+`[P2P_SIGNAL_SCHEMA_DEBUG]` (full wire + relay body on schema reject) logs **only** when `WRDESK_P2P_INFERENCE_VERBOSE_LOGS=1`. It uses `console.debug` (may include SDP/ICE-shaped fields). There is no separate env for this dump.
 
 ## P2P signal wire schema version (drift detection)
 
@@ -38,19 +47,24 @@ If **three** transitions to **`phase=failed`** for the **same handshake** occur 
 ~2.5s after app ready on **Host** orchestrator, main logs:
 
 1. `[P2P_SIGNAL_SCHEMA] component=electron-app wire_schema_version=…` (if not already printed earlier from a Host AI list)
-2. `[HOST_AI_HEALTH] ollama=ok|down models=N relay_ws=connected|disconnected device_id=… account=signed_in|signed_out`
+2. `[HOST_AI_HEALTH] ollama=ok|down models=N relay_ws=connected|disconnected device_id=… direct_endpoint=http://…:51249/beap/ingest account=signed_in|signed_out`
 
-Paste both lines in tickets.
+`device_id` is truncated in packaged builds (privacy). `direct_endpoint` is the published or computed LAN BEAP ingest URL.
+
+Paste both schema + health lines in tickets.
 
 ## Diagnostic log signatures (quick reference)
 
 | Signature | Meaning |
 |--------|---------|
-| **`[P2P_SIGNAL_OUT] recipient_offline status=202`** | Coordination accepted the signal but the **peer is not connected** on the relay WebSocket (other device offline or not registered). |
-| **`[P2P_SIGNAL_OUT] failed status=429`** plus **`rate_limit_backoff`** (many times in one session, **> ~3**) | **Bursting** on signaling; client backoff applies — sustained repeats mean quota or client throttle tuning, not “normal” throttling. |
-| **`[P2P_SIGNAL_OUT] failed status=400` … `P2P_SIGNAL_SCHEMA_REJECTED`** | **Schema drift** between Electron outbound JSON and coordination `tryParseP2pSignalRequest` — compare startup `[P2P_SIGNAL_SCHEMA]` lines. |
+| **`endpoint_repair_skipped` … `reason=stale_or_non_direct_stored`** with **no** following **`[HOST_INFERENCE_P2P] endpoint_repair_promoted`** | Repair did not fire — **regression** of Prompt 2 path (expect `endpoint_repair_promoted` when a fresh direct endpoint is promoted). |
+| **`P2P_SIGNAL_SCHEMA_REJECTED`** / **`failed status=400`** on outbound signal | **Relay schema drift** vs app; compare startup `[P2P_SIGNAL_SCHEMA]` lines. To capture payload, enable **`WRDESK_P2P_INFERENCE_VERBOSE_LOGS=1`** and look for **`[P2P_SIGNAL_SCHEMA_DEBUG]`** — **regression** of Prompt 5 alignment if versions match but reject persists. |
+| **`dc_open_timeout`** (or DC not ready) **after answer accepted** | Real **WebRTC** failure (NAT / firewall / ICE), not a bug in the signaling layer alone. |
+| **`[P2P_SIGNAL_OUT] dropped_stale_send`** as a **steady stream** | **Lifecycle leak** — **regression** of Prompt 8 guards (stale sends should be occasional, not continuous). |
+| **`[P2P_SIGNAL_OUT] recipient_offline status=202`** | Peer **not** on relay WebSocket — **operational**, not an app bug. |
+| **`rate_limit_backoff attempt=N`** | Backoff **working as designed** — **operational**; sustained storms may need quota/tuning. |
+| **`[P2P_SIGNAL_OUT] failed status=429`** (with backoff) | Bursting on signaling; same operational bucket as backoff. |
 | **`[P2P_SIGNAL_OUT] dropped_stale_candidate`** | **Expected** when a new P2P session id replaces an old one; stale ICE for the previous session is dropped. |
-| **`dc_not_open`** (or transport not ready) **persisting beyond ~10s after answer accepted** | Real **WebRTC path failure** (NAT, firewall, ICE), not a bug in this signaling layer alone. |
 
 ## End-to-end correlation ID (optional / deferred)
 

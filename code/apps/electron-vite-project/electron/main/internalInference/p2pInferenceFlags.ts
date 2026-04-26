@@ -124,7 +124,8 @@ export function getP2pInferenceFlags(): P2pInferenceFlagSnapshot {
   const vrb = readP2pBoolWithDefaultOnUnset('WRDESK_P2P_INFERENCE_VERBOSE_LOGS', false)
   const ana = readP2pBoolWithDefaultOnUnset('WRDESK_P2P_INFERENCE_ANALYSIS_LOG', false)
 
-  _lastSourceTag = anyEnvTouched || httpFb.fromEnv || httpIc.fromEnv || vrb.fromEnv || ana.fromEnv ? 'env' : 'default'
+  _lastSourceTag =
+    anyEnvTouched || httpFb.fromEnv || httpIc.fromEnv || vrb.fromEnv || ana.fromEnv ? 'env' : 'default'
 
   _cache = {
     p2pInferenceEnabled: m.value,

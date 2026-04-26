@@ -48,6 +48,7 @@ import {
   resetProbeHostInferencePolicyInFlightForTests,
 } from './sandboxHostUi'
 import { InternalInferenceErrorCode } from './errors'
+import { registerP2pEnsureCacheInvalidator } from './p2pEndpointRepair'
 import { getP2pRelaySignalingCircuitOpenUntilMs } from './p2pSignalRelayCircuit'
 import { listHostCapabilities } from './transport/internalInferenceTransport'
 import type { InternalInferenceCapabilitiesResultWire } from './types'
@@ -62,6 +63,10 @@ const lastP2pEnsureByHandshake = new Map<
   string,
   { t: number; state: Awaited<ReturnType<typeof ensureHostAiP2pSession>> }
 >()
+
+registerP2pEnsureCacheInvalidator((handshakeId) => {
+  lastP2pEnsureByHandshake.delete(String(handshakeId ?? '').trim())
+})
 
 const COPY_OFFER_START_NOT_OBSERVED =
   'Host AI P2P setup did not start correctly. Check logs for OFFER_START_NOT_OBSERVED.'

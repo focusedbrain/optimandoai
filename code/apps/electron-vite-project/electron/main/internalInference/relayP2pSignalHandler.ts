@@ -21,11 +21,17 @@ type P2pSignalDrop = 'forbidden_key' | 'schema' | 'type' | 'field' | 'expired' |
 /** Reject `created_at` too far in the past (defense in depth vs relay `expires_at`). */
 const MAX_P2P_SIGNAL_AGE_MS = 120_000
 
-/** Match coordination-service `coerceSchemaVersion` (integer 1 or decimal string "1"). */
+/**
+ * Match coordination-service `coerceSchemaVersion` (see `packages/coordination-service/src/p2pSignal.ts`).
+ * Keep in sync when loosening/tightening — duplicated here because Electron does not depend on that package.
+ */
 function isWireSchemaVersionOne(v: unknown): boolean {
-  if (v === 1) return true
-  if (typeof v === 'string' && /^[0-9]+$/.test(v.trim()) && Number(v.trim()) === 1) return true
-  return false
+  if (typeof v === 'number' && Number.isFinite(v) && v === 1) return true
+  if (typeof v !== 'string') return false
+  const t = v.trim()
+  if (!t) return false
+  if (/^[0-9]+$/.test(t)) return Number(t) === 1
+  return /^1(?:\.0+)?$/.test(t)
 }
 
 function parseIso(s: unknown): number | null {
