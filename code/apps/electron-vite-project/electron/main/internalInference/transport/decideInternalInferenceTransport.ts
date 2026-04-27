@@ -302,6 +302,18 @@ function computeHostAiRouteFieldsForDecider(
     counterpartyP2pToken: handshakeRecord.counterparty_p2p_token ?? null,
     localBeapEndpoint: getHostPublishedMvpDirectP2pIngestUrl(db as any),
   })
+  console.log(
+    `[INFERENCE_TRUST_DEBUG] handshake=${handshakeRecord.handshake_id} ` +
+      `trusted=${inferenceTrust.trusted} reason=${inferenceTrust.reason} ` +
+      `state=${handshakeRecord.state} ` +
+      `type=${handshakeRecord.handshake_type} ` +
+      `identity_complete=${handshakeRecord.internal_coordination_identity_complete} ` +
+      `p2p_endpoint=${handshakeRecord.p2p_endpoint ?? 'null'} ` +
+      `bearer_present=${Boolean(handshakeRecord.counterparty_p2p_token)} ` +
+      `roles_ok=${canonical.roles.ok} ` +
+      `local_role=${canonical.roles.ok ? canonical.roles.localRole : 'n/a'} ` +
+      `peer_role=${canonical.roles.ok ? canonical.roles.peerRole : 'n/a'}`,
+  )
   return {
     hostAiVerifiedDirectHttp: verified,
     hostAiVerifiedDirectIngestUrl: ingestUrl,

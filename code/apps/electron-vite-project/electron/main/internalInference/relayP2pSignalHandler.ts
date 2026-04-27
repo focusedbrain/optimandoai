@@ -24,10 +24,13 @@ const ALL_P2P_SIGNAL_TYPES = new Set([...WEBRTC_SIGNAL_TYPES, BEAP_AD_TYPE])
 
 type P2pSignalDrop = 'forbidden_key' | 'schema' | 'type' | 'field' | 'expired' | 'ttl' | 'parse' | 'stale'
 
-/** Reject `created_at` too far in the past (defense in depth vs relay `expires_at`). WebRTC only. */
-const MAX_P2P_SIGNAL_AGE_MS = 120_000
 /** Queued 202 + offline recipient can delay beap-ads; still bound defense-in-depth. */
 const MAX_HOST_AI_BEAP_AD_AGE_MS = 600_000
+
+/** WebRTC Host-AI signals: accept until slightly after `expires_at` (relay delay / clock skew vs sender). */
+const WEBRTC_EXPIRY_CLOCK_SKEW_GRACE_MS = 60_000
+/** Reject `created_at` implausibly far in the future vs local clock. */
+const WEBRTC_MAX_CREATED_AT_FUTURE_MS = 300_000
 
 /**
  * Match coordination-service `coerceSchemaVersion` (see `packages/coordination-service/src/p2pSignal.ts`).
@@ -46,6 +49,70 @@ function parseIso(s: unknown): number | null {
   if (typeof s !== 'string' || !s.trim()) return null
   const t = Date.parse(s)
   return Number.isNaN(t) ? null : t
+}
+
+function logHostAiSignalTtl(payload: Record<string, unknown>, args: {
+  c0: number
+  c1: number
+  now: number
+  decision: 'allow' | 'drop'
+  reason: string
+}): void {
+  const signal_type = typeof payload.signal_type === 'string' ? payload.signal_type : ''
+  const handshake_id = typeof payload.handshake_id === 'string' ? payload.handshake_id : ''
+  const session_id = typeof payload.session_id === 'string' ? payload.session_id : ''
+  const sender_device_id = typeof payload.sender_device_id === 'string' ? payload.sender_device_id : ''
+  const receiver_device_id = typeof payload.receiver_device_id === 'string' ? payload.receiver_device_id : ''
+  const created_at = typeof payload.created_at === 'string' ? payload.created_at : ''
+  const expires_at = typeof payload.expires_at === 'string' ? payload.expires_at : ''
+  const { c0, c1, now, decision, reason } = args
+  console.log(
+    `[HOST_AI_SIGNAL_TTL] ${JSON.stringify({
+      signal_type,
+      handshake_id,
+      session_id,
+      sender_device_id,
+      receiver_device_id,
+      now_iso: new Date(now).toISOString(),
+      created_at,
+      expires_at,
+      now_minus_created_ms: Math.round(now - c0),
+      expires_minus_now_ms: Math.round(c1 - now),
+      decision,
+      reason,
+    })}`,
+  )
+}
+
+/**
+ * Host AI WebRTC signals (`p2p_inference_*`): trust `expires_at` + grace; do not cap `expires_at - created_at`
+ * below what `p2pSignalRelayPost` sends (120s for offer/answer/ICE).
+ */
+function evaluateWebRtcInferenceSignalLifetime(
+  p: Record<string, unknown>,
+  c0: number,
+  c1: number,
+  now: number,
+): { ok: true } | { ok: false; drop: 'expired' | 'ttl'; reasonCode: string } {
+  const ttl = c1 - c0
+  if (!Number.isFinite(c0) || !Number.isFinite(c1) || !Number.isFinite(now)) {
+    logHostAiSignalTtl(p, { c0, c1, now, decision: 'drop', reason: 'non_finite_timestamps' })
+    return { ok: false, drop: 'ttl', reasonCode: 'non_finite_timestamps' }
+  }
+  if (ttl <= 0) {
+    logHostAiSignalTtl(p, { c0, c1, now, decision: 'drop', reason: 'expires_at_not_after_created_at' })
+    return { ok: false, drop: 'expired', reasonCode: 'expires_at_not_after_created_at' }
+  }
+  if (c0 > now + WEBRTC_MAX_CREATED_AT_FUTURE_MS) {
+    logHostAiSignalTtl(p, { c0, c1, now, decision: 'drop', reason: 'created_at_too_far_in_future' })
+    return { ok: false, drop: 'ttl', reasonCode: 'created_at_too_far_in_future' }
+  }
+  if (now > c1 + WEBRTC_EXPIRY_CLOCK_SKEW_GRACE_MS) {
+    logHostAiSignalTtl(p, { c0, c1, now, decision: 'drop', reason: 'past_expires_at_with_grace' })
+    return { ok: false, drop: 'expired', reasonCode: 'past_expires_at_with_grace' }
+  }
+  logHostAiSignalTtl(p, { c0, c1, now, decision: 'allow', reason: 'ok' })
+  return { ok: true }
 }
 
 /**
@@ -94,39 +161,30 @@ export function tryHandleCoordinationP2pSignal(
     return true
   }
   const now = Date.now()
-  if (c1 < now) {
-    logDropped(p.handshake_id, 'expired', relayMessageId)
-    return true
-  }
-  const ttl = c1 - c0
-  if (ttl <= 0) {
-    logDropped(p.handshake_id, 'expired', relayMessageId)
-    return true
-  }
   const isBeapAd = st === BEAP_AD_TYPE
+
   if (isBeapAd) {
+    const ttl = c1 - c0
+    if (ttl <= 0) {
+      logHostAiSignalTtl(p, { c0, c1, now, decision: 'drop', reason: 'expires_at_not_after_created_at' })
+      logDropped(p.handshake_id, 'expired', relayMessageId)
+      return true
+    }
     if (ttl < 60_000 || ttl > 600_000) {
+      logHostAiSignalTtl(p, { c0, c1, now, decision: 'drop', reason: 'beap_ad_ttl_out_of_bounds' })
       logDropped(p.handshake_id, 'ttl', relayMessageId)
       return true
     }
     if (now - c0 > MAX_HOST_AI_BEAP_AD_AGE_MS) {
+      logHostAiSignalTtl(p, { c0, c1, now, decision: 'drop', reason: 'beap_ad_created_at_stale' })
       logDropped(p.handshake_id, 'stale', relayMessageId)
       return true
     }
+    logHostAiSignalTtl(p, { c0, c1, now, decision: 'allow', reason: 'ok_beap_ad' })
   } else {
-    if (now - c0 > MAX_P2P_SIGNAL_AGE_MS) {
-      logDropped(p.handshake_id, 'stale', relayMessageId)
-      return true
-    }
-  }
-  if (!isBeapAd) {
-    if (p.signal_type === 'p2p_inference_ice') {
-      if (ttl > 30_000) {
-        logDropped(p.handshake_id, 'ttl', relayMessageId)
-        return true
-      }
-    } else if (ttl > 60_000) {
-      logDropped(p.handshake_id, 'ttl', relayMessageId)
+    const life = evaluateWebRtcInferenceSignalLifetime(p, c0, c1, now)
+    if (!life.ok) {
+      logDropped(p.handshake_id, life.drop, relayMessageId)
       return true
     }
   }
