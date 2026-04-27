@@ -4,7 +4,6 @@ import AnalysisCanvas from './components/AnalysisCanvas'
 import HandshakeView from './components/HandshakeView'
 import HybridSearch from './components/HybridSearch'
 import HandshakeInitiateModal from './components/HandshakeInitiateModal'
-import SettingsView from './components/SettingsView'
 import EmailInboxView from './components/EmailInboxView'
 import EmailInboxBulkView from './components/EmailInboxBulkView'
 import WrChatDashboardPanel from './components/WrChatDashboardPanel'
@@ -31,7 +30,7 @@ import { useActiveHandshakeHealthBanner } from './hooks/useActiveHandshakeHealth
 import { DebugLogViewer } from './components/DebugLogViewer'
 // === END TEMPORARY DEBUG LOG VIEWER ===
 
-type DashboardView = 'analysis' | 'wr-chat' | 'handshakes' | 'beap-inbox' | 'settings'
+type DashboardView = 'analysis' | 'wr-chat' | 'handshakes' | 'beap-inbox'
 type ExtensionTheme = 'pro' | 'dark' | 'standard'
 
 function mapThemeToCss(theme: ExtensionTheme): string {
@@ -85,7 +84,6 @@ function App() {
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null)
   const [inboxBulkMode, setInboxBulkMode] = useState(false)
-  const [settingsHandshakeFocusId, setSettingsHandshakeFocusId] = useState<string | null>(null)
   const { primaryIssue: handshakeHealthIssue, extraCount: handshakeHealthExtraCount, dismiss: dismissHandshakeHealth } =
     useActiveHandshakeHealthBanner()
   const [emailAccounts, setEmailAccounts] = useState<
@@ -230,7 +228,7 @@ function App() {
 
   // Clear selected message and attachment when switching to views that don't support message focus
   useEffect(() => {
-    if (activeView === 'analysis' || activeView === 'wr-chat' || activeView === 'settings') {
+    if (activeView === 'analysis' || activeView === 'wr-chat') {
       setSelectedMessageId(null)
       setSelectedAttachmentId(null)
     }
@@ -279,7 +277,7 @@ function App() {
 
   /**
    * Background sync (auto-sync, IMAP interval, etc.) emits `inbox:newMessages` from the main process.
-   * Subscribing only inside Inbox/Bulk would miss events while the user is on Analysis, Handshakes, or Settings.
+   * Subscribing only inside Inbox/Bulk would miss events while the user is on Analysis or Handshakes.
    * Single app-level listener keeps the Zustand snapshot fresh so opening Inbox shows new mail without manual refresh.
    */
   useEffect(() => {
@@ -341,10 +339,6 @@ function App() {
     setActiveView('analysis')
   }, [])
 
-  const clearSettingsHandshakeFocus = useCallback(() => {
-    setSettingsHandshakeFocusId(null)
-  }, [])
-
   return (
     <div className="app-root">
       {optimizationGuardToast && (
@@ -387,13 +381,6 @@ function App() {
             onClick={() => setActiveView('handshakes')}
           >
             Handshakes
-          </button>
-          <button
-            type="button"
-            className={`nav-tab${activeView === 'settings' ? ' nav-tab--active' : ''}`}
-            onClick={() => setActiveView('settings')}
-          >
-            Settings
           </button>
           <div
             role="button"
@@ -472,8 +459,7 @@ function App() {
           extraCount={handshakeHealthExtraCount}
           onDismiss={dismissHandshakeHealth}
           onOpenPairingSettings={(handshakeId) => {
-            setActiveView('settings')
-            setSettingsHandshakeFocusId(handshakeId)
+            handleNavigateToHandshakeFromInbox(handshakeId)
           }}
         />
       ) : null}
@@ -527,11 +513,6 @@ function App() {
               onOpenHandshakesView={handleOpenHandshakesViewFromInbox}
             />
           )
-        ) : activeView === 'settings' ? (
-          <SettingsView
-            focusOrchestratorHandshakeId={settingsHandshakeFocusId}
-            onConsumedOrchestratorHandshakeFocus={clearSettingsHandshakeFocus}
-          />
         ) : activeView === 'wr-chat' ? (
           <WrChatDashboardPanel extensionTheme={extensionTheme} />
         ) : (

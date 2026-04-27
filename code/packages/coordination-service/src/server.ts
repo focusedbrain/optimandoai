@@ -600,10 +600,14 @@ function createRequestHandler(
           sendError(res, 503, { error: 'Storage unavailable' })
           return
         }
-        const rateCheck = rateLimiter.checkRateLimit(identity.userId, identity, recipientPending)
-        if (!rateCheck.ok) {
-          sendError(res, 429, { error: 'Rate limit exceeded' })
-          return
+        /** ICE bursts (many candidates/s) must not share BEAP capsule tier limits (429 → client backoff). */
+        const skipCapsuleRateLimitForIce = parsed.signalType === 'p2p_inference_ice'
+        if (!skipCapsuleRateLimitForIce) {
+          const rateCheck = rateLimiter.checkRateLimit(identity.userId, identity, recipientPending)
+          if (!rateCheck.ok) {
+            sendError(res, 429, { error: 'Rate limit exceeded' })
+            return
+          }
         }
         const id = p2pSignalMessageId()
         const payload = { ...parsed.payload }
@@ -611,7 +615,9 @@ function createRequestHandler(
         console.log(
           `[P2P_SIGNAL] accepted handshake=${parsed.handshakeId} signal=${parsed.signalType} session=${parsed.sessionId} bytes=${byteLen}`,
         )
-        rateLimiter.recordCapsuleSent(identity.userId)
+        if (!skipCapsuleRateLimitForIce) {
+          rateLimiter.recordCapsuleSent(identity.userId)
+        }
         const pushed = wsManager.pushP2pSignal(
           recipientUserId,
           recipientRoute.deviceId,

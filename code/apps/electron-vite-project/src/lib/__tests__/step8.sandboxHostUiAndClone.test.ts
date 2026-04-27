@@ -275,14 +275,12 @@ describe('FINAL ACCEPTANCE — orchestrator + selector wiring (source)', () => {
     expect(row).toMatch(/P2P offline|TITLE_P2P_OFFLINE|secondary_label/s)
   })
 
-  it('STEP 7: orchestrator persisted mode vs handshake mismatch — log + Settings notice', () => {
+  it('STEP 7: orchestrator persisted mode vs handshake mismatch — log (useOrchestratorMode)', () => {
     const lib = readRel('lib', 'orchestratorModeVsHandshake.ts')
     expect(lib).toContain('getOrchestratorModeVsHandshakeInfo')
     expect(lib).toContain('[ORCHESTRATOR_MODE_VS_HANDSHAKE]')
     expect(lib).toContain('configured as Host, but an active internal handshake')
     const hook = readRel('hooks', 'useOrchestratorMode.ts')
     expect(hook).toContain('logOrchestratorModeVsHandshakeMismatch')
-    const sv = readRel('components', 'SettingsView.tsx')
-    expect(sv).toContain('getOrchestratorModeVsHandshakeInfo')
   })
 })

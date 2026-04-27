@@ -56,7 +56,7 @@ export function HandshakeHealthOrchestratorBanner(props: {
               color: 'var(--color-text-muted, #94a3b8)',
             }}
           >
-            {extraCount} more connection issue{extraCount === 1 ? '' : 's'} — click to open Settings
+            {extraCount} more connection issue{extraCount === 1 ? '' : 's'} — click to open Handshakes
           </div>
         ) : (
           <div
@@ -66,7 +66,7 @@ export function HandshakeHealthOrchestratorBanner(props: {
               color: 'var(--color-text-muted, #94a3b8)',
             }}
           >
-            Open Settings → Orchestrator Mode (pairing) on this device
+            Open Handshakes to review pairing on this device
           </div>
         )}
       </div>
