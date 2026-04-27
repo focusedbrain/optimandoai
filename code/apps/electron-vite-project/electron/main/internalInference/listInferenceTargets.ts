@@ -1326,12 +1326,21 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     const leK = epKindToListKind(epK)
 
     const listDec: HostAiTransportDeciderResult = dec
-    const transportDecideLogReason: string =
-      listDec.preferredTransport === 'legacy_http' && epK === 'direct'
-        ? 'internal_direct_http_preferred'
-        : listDec.preferredTransport === 'webrtc_p2p' && epK === 'relay'
-          ? 'relay_signaling_webrtc'
-          : 'policy'
+    const transportDecideLogReason: string = (() => {
+      if (listDec.preferredTransport === 'legacy_http' && epK === 'direct') {
+        return 'internal_direct_http_preferred'
+      }
+      if (listDec.preferredTransport === 'webrtc_p2p' && epK === 'relay') {
+        return 'relay_signaling_webrtc'
+      }
+      if (String(listDec.failureCode) === 'P2P_SIGNAL_SCHEMA_REJECTED') {
+        return 'p2p_signaling_schema_rejected_recovering'
+      }
+      if (listDec.selectorPhase === 'p2p_unavailable' && listDec.preferredTransport === 'none' && listDec.failureCode) {
+        return `p2p_unavailable_${String(listDec.failureCode)}`
+      }
+      return 'policy'
+    })()
     const transportAuthRow = decideHostAiTransport(listDec)
     const bm = baseMetaFromDec(listDec, leK)
     const legacyHttpSt = legacyHttpStatusForDecideLog(listDec, epK)

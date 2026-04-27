@@ -15,6 +15,7 @@ import {
   decideInternalInferenceTransport,
 } from '../transport/decideInternalInferenceTransport'
 import { getP2pInferenceFlags, resetP2pInferenceFlagsForTests } from '../p2pInferenceFlags'
+import { InternalInferenceErrorCode } from '../errors'
 
 const getInstanceIdMock = vi.hoisted(() => vi.fn(() => 'dev-sand-1'))
 vi.mock('../../orchestrator/orchestratorModeStore', () => ({
@@ -131,6 +132,38 @@ describe('decideInternalInferenceTransport — internal same-principal relay gat
     })
     expect(dec.selectorPhase).toBe('ready')
     expect(dec.preferredTransport).toBe('webrtc_p2p')
+  })
+
+  it('(2b) internal + relay + failed session + P2P_SIGNAL_SCHEMA_REJECTED → still connecting (relay/WebRTC path; not direct-only policy)', () => {
+    const relay = 'https://relay.wrdesk.com/xyz/beap/ingest'
+    const hr = baseInternal(relay)
+    const p2pSession: P2pSessionState = {
+      handshakeId: hr.handshake_id,
+      sessionId: 's1',
+      phase: P2pSessionPhase.failed,
+      p2pUiPhase: 'failed',
+      lastErrorCode: InternalInferenceErrorCode.P2P_SIGNAL_SCHEMA_REJECTED,
+      connectedAt: null,
+      updatedAt: Date.now(),
+      signalingExpiresAt: null,
+      boundLocalDeviceId: 'a',
+      boundPeerDeviceId: 'b',
+    }
+    const d = buildHostAiTransportDeciderInput({
+      operationContext: 'list_targets',
+      db: {},
+      handshakeRecord: hr,
+      featureFlags: getP2pInferenceFlags(),
+      relayHostAiP2pSignaling: 'supported',
+    })
+    const dec = decideInternalInferenceTransport({
+      ...d,
+      sessionState: { handshakeId: hr.handshake_id, p2pSession, dataChannelUp: false },
+    })
+    expect(dec.selectorPhase).toBe('connecting')
+    expect(dec.preferredTransport).toBe('webrtc_p2p')
+    expect(dec.p2pTransportEndpointOpen).toBe(true)
+    expect(dec.failureCode).toBe(InternalInferenceErrorCode.P2P_SIGNAL_SCHEMA_REJECTED)
   })
 
   it('(3) internal + direct LAN ingest + P2P stack off → legacy_http (not WebRTC when stack disabled)', () => {

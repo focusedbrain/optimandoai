@@ -7,12 +7,14 @@
 
 import { randomUUID } from 'crypto'
 import { getAccessToken } from '../../../src/auth/session'
+import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeRecord } from '../handshake/db'
 import { getP2PConfig } from '../p2p/p2pConfig'
 import { InternalInferenceErrorCode, type InternalInferenceErrorCodeType } from './errors'
 import { getP2pInferenceFlags } from './p2pInferenceFlags'
 import { redactIdForLog } from './internalInferenceLogRedact'
 import { p2pEndpointKind } from './policy'
+import { logHostAiSignalSchemaRejected } from './hostAiP2pSignalSchemaRejectLog'
 import { recordP2pRelaySignaling429Storm, resetP2pRelaySignalingCircuitForTests } from './p2pSignalRelayCircuit'
 import { failHostAiP2pSessionForTerminalSignalingError, getSessionState } from './p2pSession/p2pInferenceSessionManager'
 import { P2P_SIGNAL_WIRE_SCHEMA_VERSION } from './p2pSignalWireSchemaVersion'
@@ -448,6 +450,25 @@ export async function sendHostAiP2pSignalOutbound(params: {
         const codeLog = terminalEarly ?? 'non_fatal_ice_transport'
         if (res.status === 400 && terminalEarly === InternalInferenceErrorCode.P2P_SIGNAL_SCHEMA_REJECTED) {
           logP2pSignalSchemaDebug(body, res.bodyText, params.kind)
+          let peer = ''
+          try {
+            const o = JSON.parse(body) as { receiver_device_id?: string; sender_device_id?: string }
+            const r = (o.receiver_device_id ?? '').trim()
+            const s = (o.sender_device_id ?? '').trim()
+            const loc = getInstanceId().trim()
+            peer = r && r !== loc ? r : s && s !== loc ? s : r || s || 'unknown'
+          } catch {
+            peer = 'unknown'
+          }
+          logHostAiSignalSchemaRejected({
+            handshake_id: hid,
+            local_device_id: getInstanceId().trim(),
+            peer_device_id: peer,
+            source: 'p2p_signal_coordination_post',
+            request_body_json: body,
+            response_body_text: res.bodyText,
+            kind: params.kind === 'offer' ? 'offer' : params.kind === 'answer' ? 'answer' : 'ice',
+          })
         }
         console.log(
           `[P2P_SIGNAL_OUT] failed status=${res.status} type=${params.kind} code=${codeLog} handshake=${hid} session=${redactIdForLog(sid)}`,
@@ -525,6 +546,21 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
     endpoint_url: params.endpointUrl,
     ad_seq: params.adSeq,
     owner_role: 'host',
+    /** Optional v1 route envelope; coordination ignores unknown top-level keys except forbidden. */
+    host_ai_route: {
+      type: 'host_ai.route_advertisement',
+      version: 1,
+      handshake_id: params.handshakeId,
+      from_device_id: params.senderDeviceId,
+      from_role: 'host' as const,
+      to_device_id: params.receiverDeviceId,
+      routes: [
+        { kind: 'direct_http' as const, endpoint: params.endpointUrl, optional: true, ttl_ms: HOST_AI_BEAP_AD_TTL_MS },
+        { kind: 'relay' as const, available: true },
+        { kind: 'webrtc' as const, available: true },
+      ],
+      capabilities: { provider: 'ollama' as const, models_count: 0, available: true },
+    },
   })
 }
 
@@ -557,6 +593,24 @@ export async function postHostAiDirectBeapAdToCoordination(params: {
   const postFn = p2pSignalRelayPostTestHooks.post ?? postP2pSignalToCoordination
   try {
     const res = await postFn(base, token.trim(), body)
+    if (res.status === 400) {
+      let peer = ''
+      try {
+        const o = JSON.parse(body) as { receiver_device_id?: string; sender_device_id?: string }
+        peer = (o.receiver_device_id ?? o.sender_device_id ?? '').trim() || 'unknown'
+      } catch {
+        peer = 'unknown'
+      }
+      logHostAiSignalSchemaRejected({
+        handshake_id: hid,
+        local_device_id: getInstanceId().trim(),
+        peer_device_id: peer,
+        source: 'p2p_signal_coordination_post',
+        request_body_json: body,
+        response_body_text: res.bodyText,
+        kind: 'host_ai_direct_beap_ad',
+      })
+    }
     return { ok: res.status === 200 || res.status === 202, status: res.status }
   } catch {
     return { ok: false, status: 0 }

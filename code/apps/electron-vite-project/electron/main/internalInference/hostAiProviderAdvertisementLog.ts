@@ -32,8 +32,9 @@ export type HostAiProviderAdvertisementPayload = {
   /** True when `hostDirectP2pAdvertisementHeaders` would attach `X-BEAP-Direct-P2P-Endpoint`. */
   advertisement_headers_can_generate: boolean
   /**
-   * @deprecated Use `orchestrator_file_implies` + `host_ai_ledger` — was easy to conflate with ledger role.
-   * Kept for log parsers: same as `orchestrator_file_implies`.
+   * Host AI **product** role for this log line: ledger-effective (`sandbox` or `host`) when known;
+   * if ledger is `none`/`mixed`, falls back to `orchestrator_file_implies` (hint only).
+   * @deprecated Contrast with `orchestrator_file_implies` — do not use orchestrator as authority.
    */
   role: 'sandbox' | 'host'
   ollama_ok: boolean
@@ -76,10 +77,11 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
 }): Promise<HostAiProviderAdvertisementPayload> {
   const dbProv = await getHandshakeDbForInternalInference()
   const db_open_ok = dbProv != null
-  const endpointH = dbProv ? getHostPublishedMvpDirectP2pIngestUrl(dbProv) : null
+  /** Local MVP LAN BEAP (always); only exposed as "Host published" when ledger allows publishing. */
+  const mvpListenerUrl = dbProv ? getHostPublishedMvpDirectP2pIngestUrl(dbProv) : null
   const headers = dbProv ? hostDirectP2pAdvertisementHeaders(dbProv) : {}
   const headerVal = headers[P2P_DIRECT_P2P_ENDPOINT_HEADER]
-  const advertisement_headers_can_generate =
+  const headersTechnicallyGeneratable =
     typeof headerVal === 'string' && headerVal.trim().length > 0
 
   const polH = getHostInternalInferencePolicy()
@@ -106,6 +108,18 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
 
   const advertisedAsHostAi =
     ledger.can_publish_host_endpoint && polH?.allowSandboxInference === true
+
+  /** Only the ledger **host** may publish a Host direct endpoint; `configured_mode` is never authority. */
+  const mayPublishAsHost = ledger.can_publish_host_endpoint
+  const hostPublishedEndpoint = mayPublishAsHost && mvpListenerUrl ? mvpListenerUrl : null
+  const advertisement_headers_can_generate = mayPublishAsHost && headersTechnicallyGeneratable
+  /** `role` in this log: ledger-effective role for Host AI (not orchestrator `configured_mode` alone). */
+  const roleForHostAiLog: 'sandbox' | 'host' =
+    ledger.effective_host_ai_role === 'host'
+      ? 'host'
+      : ledger.effective_host_ai_role === 'sandbox'
+        ? 'sandbox'
+        : orchestratorFileImplies
 
   let diagnosticPublishHandshakeId: string | null = null
   if (dbProv) {
@@ -147,13 +161,13 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
     configured_mode: String(mode),
     orchestrator_file_implies: orchestratorFileImplies,
     local_derived_role,
-    host_published_direct_endpoint: endpointH,
+    host_published_direct_endpoint: hostPublishedEndpoint,
     advertisement_headers_can_generate,
-    role: orchestratorFileImplies,
+    role: roleForHostAiLog,
     ollama_ok: input.ollamaDiscoveryOk,
     models_count: input.ollamaModelCount,
     advertised_as_host_ai: advertisedAsHostAi,
-    endpoint: endpointH,
+    endpoint: hostPublishedEndpoint,
     endpoint_owner_device_id: getInstanceId().trim(),
     handshake_id: diagnosticPublishHandshakeId,
     active_internal_ledger_sandbox_to_host: input.ledgerProvesInternalSandboxToHost,

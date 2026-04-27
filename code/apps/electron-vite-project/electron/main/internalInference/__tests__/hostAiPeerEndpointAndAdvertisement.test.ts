@@ -86,6 +86,10 @@ describe('buildHostAiProviderAdvertisementPayload (gating)', () => {
     expect(payload.host_ai_ledger.effective_host_ai_role).toBe('sandbox')
     expect(payload.host_ai_ledger.can_publish_host_endpoint).toBe(false)
     expect(payload.advertised_as_host_ai).toBe(false)
+    expect(payload.host_published_direct_endpoint).toBeNull()
+    expect(payload.endpoint).toBeNull()
+    expect(payload.role).toBe('sandbox')
+    expect(payload.advertisement_headers_can_generate).toBe(false)
   })
 
   it('Test 1: ledger host + can_publish + policy → advertised_as_host_ai and owner = current device', async () => {

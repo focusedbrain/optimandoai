@@ -6,6 +6,7 @@
  *
  * List targets and intent routing must not branch on p2p_endpoint_kind alone; use this result.
  */
+import { InternalInferenceErrorCode } from '../errors'
 import { isWebRtcHostAiArchitectureEnabled, type P2pInferenceFlagSnapshot } from '../p2pInferenceFlags'
 import {
   p2pEndpointKind,
@@ -344,7 +345,31 @@ export function decideInternalInferenceTransport(
 
   const ph = ss?.p2pSession?.phase
   const dcUp = Boolean(ss?.dataChannelUp)
+  const lastErr = ss?.p2pSession?.lastErrorCode
   if (ph === P2pSessionPhase.failed) {
+    /**
+     * Coordination may return 400 `P2P_SIGNAL_REJECTED` on version skew; relay + WebRTC are still
+     * the right route — keep transport "open" so the next `ensure` can retry. Do not treat like
+     * missing direct LAN endpoint.
+     */
+    if (
+      lastErr === InternalInferenceErrorCode.P2P_SIGNAL_SCHEMA_REJECTED &&
+      p2pOn &&
+      wrtcArch &&
+      transportOpen
+    ) {
+      return {
+        targetDetected: true,
+        selectorPhase: 'connecting',
+        preferredTransport: 'webrtc_p2p',
+        mayUseLegacyHttpFallback: mayFb,
+        legacyHttpFallbackViable: legacyViable,
+        p2pTransportEndpointOpen: true,
+        failureCode: InternalInferenceErrorCode.P2P_SIGNAL_SCHEMA_REJECTED,
+        userSafeReason:
+          'P2P signaling was rejected by the relay (schema). Align app + coordination versions or wait for a new session; relay/WebRTC still apply.',
+      }
+    }
     return {
       targetDetected: true,
       selectorPhase: 'p2p_unavailable',
@@ -352,7 +377,7 @@ export function decideInternalInferenceTransport(
       mayUseLegacyHttpFallback: mayFb,
       legacyHttpFallbackViable: legacyViable,
       p2pTransportEndpointOpen: false,
-      failureCode: String(ss?.p2pSession?.lastErrorCode ?? 'P2P_SESSION_FAILED'),
+      failureCode: String(lastErr ?? 'P2P_SESSION_FAILED'),
       userSafeReason: null,
     }
   }

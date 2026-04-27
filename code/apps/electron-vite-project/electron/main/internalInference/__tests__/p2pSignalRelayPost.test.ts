@@ -37,6 +37,11 @@ vi.mock('../policy', () => ({
   p2pEndpointKind: () => 'relay',
 }))
 
+/** `logHostAiSignalSchemaRejected` (400 / schema) calls `getInstanceId`; without Electron `app.getPath` this must not touch disk. */
+vi.mock('../../orchestrator/orchestratorModeStore', () => ({
+  getInstanceId: () => 'dev-a',
+}))
+
 describe('p2pSignalRelayPost', () => {
   const db = {}
 
@@ -126,6 +131,32 @@ describe('p2pSignalRelayPost', () => {
       sdp: 'o',
     })
     expect(failMock).toHaveBeenCalledWith('hs1', InternalInferenceErrorCode.P2P_SIGNAL_AUTH_OR_ROUTE_FAILED)
+  })
+
+  it('400 with P2P_SIGNAL_REJECTED → P2P_SIGNAL_SCHEMA_REJECTED and logs [HOST_AI_SIGNAL_SCHEMA_REJECTED] with rejection_path', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    p2pSignalRelayPostTestHooks.post = async () => ({
+      status: 400,
+      bodyText: JSON.stringify({ error: 'P2P_SIGNAL_REJECTED', reason: 'unknown_field:host_ai_route' }),
+    })
+    await sendHostAiP2pSignalOutbound({
+      db,
+      handshakeId: 'hs1',
+      p2pSessionId: 'sid-1',
+      kind: 'offer',
+      sdp: 'o',
+    })
+    expect(failMock).toHaveBeenCalledWith('hs1', InternalInferenceErrorCode.P2P_SIGNAL_SCHEMA_REJECTED)
+    const schemaLine = logSpy.mock.calls
+      .map((c) => String(c[0]))
+      .find((s) => s.includes('[HOST_AI_SIGNAL_SCHEMA_REJECTED]'))
+    expect(schemaLine).toBeDefined()
+    const jsonPart = String(schemaLine).replace(/^\[HOST_AI_SIGNAL_SCHEMA_REJECTED\]\s*/, '')
+    const parsed = JSON.parse(jsonPart) as { rejection_path: string; received_keys: string[]; kind: string }
+    expect(parsed.rejection_path).toBe('unknown_field:host_ai_route')
+    expect(Array.isArray(parsed.received_keys)).toBe(true)
+    expect(parsed.kind).toBe('offer')
+    logSpy.mockRestore()
   })
 
   it('404 → RELAY_MISSING_P2P_SIGNAL_ROUTE', async () => {

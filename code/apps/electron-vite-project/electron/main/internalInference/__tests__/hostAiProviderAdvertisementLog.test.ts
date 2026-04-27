@@ -75,8 +75,9 @@ describe('buildHostAiProviderAdvertisementPayload', () => {
     expect(payload.host_ai_ledger.role_source).toBe('handshake')
     expect(payload.host_ai_ledger.can_probe_host_endpoint).toBe(true)
     expect(payload.local_derived_role).toBe('sandbox')
-    expect(payload.host_published_direct_endpoint).toBe('http://10.0.0.2:51249/beap/ingest')
-    expect(payload.advertisement_headers_can_generate).toBe(true)
+    expect(payload.host_published_direct_endpoint).toBeNull()
+    expect(payload.advertisement_headers_can_generate).toBe(false)
+    expect(payload.role).toBe('sandbox')
     expect(payload.models_count).toBe(2)
   })
 

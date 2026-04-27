@@ -56,6 +56,8 @@ export const InternalInferenceErrorCode = {
   RELAY_UNREACHABLE: 'RELAY_UNREACHABLE',
   /** Coordination rejected p2p-signal body (4xx validation / schema). */
   P2P_SIGNAL_SCHEMA_REJECTED: 'P2P_SIGNAL_SCHEMA_REJECTED',
+  /** Inbound Host AI envelope cannot be normalized to a supported `host_ai.route_advertisement` version. */
+  HOST_AI_SIGNAL_SCHEMA_VERSION_UNSUPPORTED: 'HOST_AI_SIGNAL_SCHEMA_VERSION_UNSUPPORTED',
   /** 401/403 on p2p-signal POST (auth or routing). */
   P2P_SIGNAL_AUTH_OR_ROUTE_FAILED: 'P2P_SIGNAL_AUTH_OR_ROUTE_FAILED',
   /** Relay signaling circuit breaker: too many 429 offer/answer storms; new sessions paused briefly. */
