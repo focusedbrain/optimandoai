@@ -435,6 +435,7 @@ function hostP2pUiPhaseForProbeFailureCode(code: string): HostP2pUiPhase {
     case InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY:
       return 'host_transport_unavailable'
     case InternalInferenceErrorCode.HOST_AI_NO_ROUTE:
+    case InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED:
       return 'host_transport_unavailable'
     default:
       return 'p2p_unavailable'
@@ -473,6 +474,7 @@ function hostAiStructuredReasonForProbeCode(code: string): HostAiStructuredUnava
     case InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH:
       return 'endpoint_provenance_missing'
     case InternalInferenceErrorCode.HOST_AI_NO_ROUTE:
+    case InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED:
       return 'host_transport_unavailable'
     default:
       return 'capability_probe_failed'

@@ -3,15 +3,17 @@
  * Wire: inference_capabilities_{request,result} + inference_error (JSON UTF-8; main validates, no Ollama in transport page).
  */
 import { randomUUID } from 'crypto'
+import { getLedgerDb } from '../../handshake/ledger'
 import { getHandshakeRecord } from '../../handshake/db'
-import { getInstanceId, isHostMode, isSandboxMode } from '../../orchestrator/orchestratorModeStore'
+import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from '../dbAccess'
 import { buildInternalInferenceCapabilitiesResult } from '../hostInferenceCapabilities'
 import { getSessionState } from '../p2pSession/p2pInferenceSessionManager'
+import { InternalInferenceErrorCode } from '../errors'
+import { logHostAiCapsRoleGate } from '../hostAiCapsRoleGateLog'
 import {
   assertRecordForServiceRpc,
-  assertHostSendsResultToSandbox,
-  assertSandboxRequestToHost,
+  deriveInternalHostAiPeerRoles,
   hostAiHostToSandboxAsHost,
   hostAiSandboxToHostRequestDeviceIds,
 } from '../policy'
@@ -24,6 +26,20 @@ const pending = new Map<string, { resolve: CapResolve; timeoutId: ReturnType<typ
 const CAPS_TYPE_RESULT = 'inference_capabilities_result'
 const CAPS_TYPE_ERR = 'inference_error'
 const CAPS_TYPE_REQ = 'inference_capabilities_request'
+
+async function sendCapsDcError(p2pSessionId: string, handshakeId: string, p: { requestId: string; code: string; message: string }): Promise<void> {
+  const err = {
+    schema_version: 1,
+    type: CAPS_TYPE_ERR,
+    request_id: p.requestId,
+    handshake_id: handshakeId.trim(),
+    code: p.code,
+    message: p.message,
+  }
+  const te = new TextEncoder().encode(JSON.stringify(err))
+  const { webrtcSendData } = await import('../webrtc/webrtcTransportIpc')
+  void webrtcSendData(p2pSessionId, handshakeId.trim(), te.buffer)
+}
 
 export function clearPendingP2pCapabilitiesForTests(): void {
   for (const [, v] of pending) {
@@ -70,12 +86,10 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
   handshakeId: string,
   raw: Record<string, unknown>,
 ): Promise<void> {
-  if (!isHostMode()) {
-    return
-  }
   if (raw.type !== CAPS_TYPE_REQ) {
     return
   }
+  const reqRid = typeof raw.request_id === 'string' ? raw.request_id.trim() : ''
   const db = await getHandshakeDbForInternalInference()
   if (!db) {
     return
@@ -86,7 +100,54 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
     return
   }
   const r = ar.record
-  if (assertHostSendsResultToSandbox(r).ok !== true) {
+  const me = getInstanceId().trim()
+  const dr = deriveInternalHostAiPeerRoles(r, me)
+  const snd0 = (typeof raw.sender_device_id === 'string' ? raw.sender_device_id : '').trim()
+  const tgt0 = (typeof raw.target_device_id === 'string' ? raw.target_device_id : '').trim()
+  if (!dr.ok) {
+    logHostAiCapsRoleGate({
+      handshake_id: handshakeId.trim(),
+      request_type: 'internal_inference_capabilities_request',
+      current_device_id: me,
+      sender_device_id: snd0,
+      receiver_device_id: tgt0,
+      local_derived_role: 'unknown',
+      peer_derived_role: 'unknown',
+      requester_role: 'sandbox',
+      receiver_role: 'host',
+      decision: 'deny',
+      reason: dr.reason,
+    })
+    if (reqRid) {
+      void sendCapsDcError(p2pSessionId, handshakeId, {
+        requestId: reqRid,
+        code: InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED,
+        message: 'ledger_role_derivation_failed',
+      })
+    }
+    return
+  }
+  if (dr.localRole !== 'host' || dr.peerRole !== 'sandbox') {
+    logHostAiCapsRoleGate({
+      handshake_id: handshakeId.trim(),
+      request_type: 'internal_inference_capabilities_request',
+      current_device_id: me,
+      sender_device_id: snd0,
+      receiver_device_id: tgt0,
+      local_derived_role: dr.localRole,
+      peer_derived_role: dr.peerRole,
+      requester_role: 'sandbox',
+      receiver_role: 'host',
+      decision: 'deny',
+      reason: `receiver_must_be_host_requester_sandbox_got_local_${dr.localRole}_peer_${dr.peerRole}`,
+    })
+    if (reqRid) {
+      void sendCapsDcError(p2pSessionId, handshakeId, {
+        requestId: reqRid,
+        code: InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED,
+        message: 'receiver_must_be_ledger_host',
+      })
+    }
     return
   }
   const s = getSessionState(handshakeId.trim())
@@ -114,6 +175,19 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
   if (!requestId) {
     return
   }
+  logHostAiCapsRoleGate({
+    handshake_id: handshakeId.trim(),
+    request_type: 'internal_inference_capabilities_request',
+    current_device_id: me,
+    sender_device_id: reqSid || dr.localCoordinationDeviceId,
+    receiver_device_id: reqTgt || dr.peerCoordinationDeviceId,
+    local_derived_role: dr.localRole,
+    peer_derived_role: dr.peerRole,
+    requester_role: 'sandbox',
+    receiver_role: 'host',
+    decision: 'allow',
+    reason: 'ledger_sandbox_to_host',
+  })
   const createdAt = typeof raw.created_at === 'string' ? raw.created_at : new Date().toISOString()
   let built: InternalInferenceCapabilitiesResultWire
   try {
@@ -164,7 +238,16 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
   handshakeId: string,
   raw: Record<string, unknown>,
 ): boolean {
-  if (!isSandboxMode()) {
+  const dbl = getLedgerDb()
+  if (!dbl) {
+    return false
+  }
+  const srec = getHandshakeRecord(dbl, handshakeId.trim())
+  if (!srec) {
+    return false
+  }
+  const sdr = deriveInternalHostAiPeerRoles(srec, getInstanceId().trim())
+  if (!sdr.ok || sdr.localRole !== 'sandbox') {
     return false
   }
   if (raw.type === CAPS_TYPE_ERR) {
@@ -253,9 +336,7 @@ export async function requestHostInferenceCapabilitiesOverDataChannel(
 ): Promise<
   { ok: true; wire: InternalInferenceCapabilitiesResultWire } | { ok: false; reason: string; code?: string }
 > {
-  if (!isSandboxMode()) {
-    return { ok: false, reason: 'not_sandbox' }
-  }
+  const me = getInstanceId().trim()
   const db = await getHandshakeDbForInternalInference()
   if (!db) {
     return { ok: false, reason: 'no_db' }
@@ -265,11 +346,54 @@ export async function requestHostInferenceCapabilitiesOverDataChannel(
   if (!ar.ok) {
     return { ok: false, reason: 'handshake' }
   }
-  if (assertSandboxRequestToHost(ar.record).ok !== true) {
-    return { ok: false, reason: 'role' }
-  }
   const rec = ar.record
-  const sb = hostAiSandboxToHostRequestDeviceIds(rec, getInstanceId().trim())
+  const dr = deriveInternalHostAiPeerRoles(rec, me)
+  if (!dr.ok) {
+    logHostAiCapsRoleGate({
+      handshake_id: handshakeId.trim(),
+      request_type: 'internal_inference_capabilities_request',
+      current_device_id: me,
+      sender_device_id: '',
+      receiver_device_id: '',
+      local_derived_role: 'unknown',
+      peer_derived_role: 'unknown',
+      requester_role: 'sandbox',
+      receiver_role: 'host',
+      decision: 'deny',
+      reason: dr.reason,
+    })
+    return { ok: false, reason: 'role', code: InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED }
+  }
+  if (dr.localRole !== 'sandbox' || dr.peerRole !== 'host') {
+    logHostAiCapsRoleGate({
+      handshake_id: handshakeId.trim(),
+      request_type: 'internal_inference_capabilities_request',
+      current_device_id: me,
+      sender_device_id: dr.localCoordinationDeviceId,
+      receiver_device_id: dr.peerCoordinationDeviceId,
+      local_derived_role: dr.localRole,
+      peer_derived_role: dr.peerRole,
+      requester_role: 'sandbox',
+      receiver_role: 'host',
+      decision: 'deny',
+      reason: `requester_must_be_sandbox_got_local_${dr.localRole}_peer_${dr.peerRole}`,
+    })
+    return { ok: false, reason: 'not_sandbox_requester', code: InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED }
+  }
+  logHostAiCapsRoleGate({
+    handshake_id: handshakeId.trim(),
+    request_type: 'internal_inference_capabilities_request',
+    current_device_id: me,
+    sender_device_id: dr.localCoordinationDeviceId,
+    receiver_device_id: dr.peerCoordinationDeviceId,
+    local_derived_role: dr.localRole,
+    peer_derived_role: dr.peerRole,
+    requester_role: 'sandbox',
+    receiver_role: 'host',
+    decision: 'allow',
+    reason: 'ledger_sandbox_to_host',
+  })
+  const sb = hostAiSandboxToHostRequestDeviceIds(rec, me)
   if (!sb.ok) {
     return { ok: false, reason: 'missing_coordination_ids' }
   }

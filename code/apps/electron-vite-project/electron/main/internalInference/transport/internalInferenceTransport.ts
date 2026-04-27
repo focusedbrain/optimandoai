@@ -489,6 +489,31 @@ export async function listHostCapabilities(
     }
     if (!dcr.ok) {
       const errReason = dcr.reason
+      const errCode = dcr.code
+      const roleGate =
+        errCode === InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED ||
+        errReason === 'not_sandbox_requester' ||
+        errReason === 'role' ||
+        (errReason === 'inference_error' && errCode === InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED)
+      if (roleGate) {
+        logHostAiStage({
+          chain,
+          stage: 'capabilities_response',
+          reached: true,
+          success: false,
+          handshakeId: hid,
+          buildStamp,
+          flags: f,
+          p2pSessionId: p2pSid,
+          requestId: capReqId,
+          failureCode: InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED,
+        })
+        console.log(
+          `[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=${InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED} (no_http_fallback)`,
+        )
+        touchState(hid, 'capabilities', 'unavailable', 'host_ai_capability_role_rejected')
+        return { ok: false, reason: InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED }
+      }
       logHostAiStage({
         chain,
         stage: 'capabilities_response',

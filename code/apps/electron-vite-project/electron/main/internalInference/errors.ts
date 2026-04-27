@@ -106,6 +106,11 @@ export const InternalInferenceErrorCode = {
    * when Host capabilities advertise the Host Ollama as available.
    */
   OLLAMA_UNREACHABLE_ON_SANDBOX: 'OLLAMA_UNREACHABLE_ON_SANDBOX',
+  /**
+   * Capability probe over P2P: ledger says this process is not the expected receiver (host) or
+   * requester (sandbox) for internal_inference_capabilities — not a transport/BEAP-missing error.
+   */
+  HOST_AI_CAPABILITY_ROLE_REJECTED: 'HOST_AI_CAPABILITY_ROLE_REJECTED',
   /** Capabilities: Host is reachable; no Host-side provider (Ollama, etc.) available for the chosen mode. */
   HOST_PROVIDER_UNAVAILABLE: 'HOST_PROVIDER_UNAVAILABLE',
   /** Sandbox has an internal S→H row but the Host machine has no matching active handshake (asymmetric DB). */
