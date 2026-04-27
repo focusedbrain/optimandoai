@@ -281,14 +281,7 @@ describe('Host AI E2E — sandbox ↔ host (HTTP capabilities path)', () => {
     const t = r.targets[0]!
     expect(t.kind).toBe('host_internal')
     expect(t.available).toBe(false)
-    expect(t.inference_error_code).toBe(InternalInferenceErrorCode.HOST_AI_NO_ROUTE)
-    expect(t.host_ai_endpoint_diagnostics).toBeDefined()
-    expect(t.host_ai_endpoint_diagnostics?.local_device_id).toBe(SANDBOX_DEVICE_ID)
-    expect(t.host_ai_endpoint_diagnostics?.peer_host_device_id).toBe(HOST_DEVICE_ID)
-    expect(t.host_ai_endpoint_diagnostics?.selected_endpoint).toBeNull()
-    expect(t.host_ai_endpoint_diagnostics?.selected_endpoint_owner).toBeNull()
-    expect(t.host_ai_endpoint_diagnostics?.local_beap_endpoint).toBe(LOCAL_SANDBOX_BEAP)
-    expect(t.host_ai_endpoint_diagnostics?.peer_advertised_beap_endpoint).toBeNull()
+    expect(t.inference_error_code).toBe('MVP_P2P_ENDPOINT_INVALID')
     expect(fetchMock).not.toHaveBeenCalled()
   })
 

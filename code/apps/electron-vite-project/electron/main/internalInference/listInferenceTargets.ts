@@ -63,6 +63,7 @@ import {
 } from './hostAiPairingStateStore'
 import { getP2pRelaySignalingCircuitOpenUntilMs } from './p2pSignalRelayCircuit'
 import { listHostCapabilities } from './transport/internalInferenceTransport'
+import { isHostAiProbeTerminalNoPolicyFallback } from './transport/hostAiRouteCandidate'
 import type { InternalInferenceCapabilitiesResultWire } from './types'
 import { isHostAiListTransportProven } from './hostAiTransportMatrix'
 import type { HostAiEndpointDiagnostics } from '../../../src/lib/hostAiUiDiagnostics'
@@ -127,7 +128,11 @@ const HOST_AI_DIRECT_PROBE_429_COOLDOWN_MS = 45_000
 const hostAiDirectProbe429CooldownUntil = new Map<string, number>()
 
 registerP2pEnsureCacheInvalidator((handshakeId) => {
-  lastP2pEnsureByHandshake.delete(String(handshakeId ?? '').trim())
+  const h = String(handshakeId ?? '').trim()
+  if (h) {
+    lastP2pEnsureByHandshake.delete(h)
+    invalidateProbeCache(h)
+  }
 })
 
 const COPY_OFFER_START_NOT_OBSERVED =
@@ -145,6 +150,7 @@ type ListHostCapResult =
       responseStatus?: number
       networkErrorMessage?: string
       hostAiEndpointDenyDetail?: string
+      hostAiEndpointDiagnostics?: HostAiEndpointDiagnostics
     }
 const webrtcListHostCapsCache = new Map<string, { at: number; result: ListHostCapResult }>()
 
@@ -163,9 +169,13 @@ export function invalidateProbeCache(handshakeId?: string): void {
     }
     probeCache.delete(h)
     inflightProbes.delete(h)
+    webrtcListHostCapsCache.delete(h)
+    listHostCapsProbeLast.delete(h)
   } else {
     probeCache.clear()
     inflightProbes.clear()
+    webrtcListHostCapsCache.clear()
+    listHostCapsProbeLast.clear()
   }
 }
 
@@ -325,6 +335,8 @@ export type HostP2pUiPhase =
   | 'host_auth_rejected'
   | 'host_transport_unavailable'
   | 'host_provider_unavailable'
+  /** Roles, ledger, or route identity do not match Sandbox→Host pairing (not a transport timeout). */
+  | 'host_internal_identity_mismatch'
 
 export type HostListTransportMode = 'webrtc_p2p' | 'legacy_http' | 'none'
 export type HostListLegacyEndpointKind = 'direct' | 'relay' | 'missing' | 'invalid'
@@ -346,6 +358,7 @@ function legacyHttpStatusForDecideLog(
   endpointKind: 'direct' | 'relay' | 'missing' | 'invalid',
 ): 'valid' | 'invalid' | 'not_checked' {
   if (!d.targetDetected) return 'not_checked'
+  // Internal Sandbox→Host: `legacyHttpFallbackViable` is false without `hostAiVerifiedDirectHttp` (decider).
   if (d.legacyHttpFallbackViable) return 'valid'
   /** Relay never supports legacy HTTP POST to p2p_endpoint — invalid for fallback regardless of env default for httpFallback. */
   if (endpointKind === 'relay') return 'invalid'
@@ -418,6 +431,8 @@ function primaryLabelForP2pUiPhase(phase: HostP2pUiPhase, readyModelName?: strin
       return 'The stored host address does not match the paired host.'
     case 'host_transport_unavailable':
       return 'Host transport is unavailable. Check network, relay, and P2P settings.'
+    case 'host_internal_identity_mismatch':
+      return 'Host AI pairing or roles do not match this handshake. Re-check Sandbox and Host are linked correctly.'
     case 'hidden':
       return 'Host AI unavailable'
   }
@@ -436,8 +451,101 @@ function isHostAiHttpEndpointProvenanceClassFailure(code: string): boolean {
     code === InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING ||
     code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING ||
     code === InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING ||
-    code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH
+    code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH ||
+    code === InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING
   )
+}
+
+function hostTargetUnavailableCodeForTerminalIdentityProbe(code: string): HostTargetUnavailableCode {
+  switch (code) {
+    case InternalInferenceErrorCode.POLICY_FORBIDDEN:
+      return 'HOST_POLICY_DISABLED'
+    case InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED:
+      return 'HOST_AI_CAPABILITY_ROLE_REJECTED'
+    case InternalInferenceErrorCode.HOST_AI_ROUTE_OWNER_MISMATCH:
+      return 'HOST_AI_ROUTE_OWNER_MISMATCH'
+    case InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH:
+      return 'HOST_AI_ENDPOINT_OWNER_MISMATCH'
+    case InternalInferenceErrorCode.HOST_AI_LOCAL_BEAP_IS_NOT_PEER_HOST:
+      return 'HOST_AI_LOCAL_BEAP_NOT_PEER_HOST'
+    case InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING:
+    case InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING:
+      return 'HOST_AI_PEER_ENDPOINT_MISSING'
+    case InternalInferenceErrorCode.HOST_AI_NO_VERIFIED_PEER_ROUTE:
+      return 'HOST_AI_NO_VERIFIED_PEER_ROUTE'
+    case InternalInferenceErrorCode.HOST_AI_NO_ROUTE:
+      return 'HOST_AI_NO_ROUTE'
+    case InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING:
+    case InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING:
+      return 'HOST_AI_ENDPOINT_PROVENANCE'
+    case InternalInferenceErrorCode.HOST_AI_LEDGER_ASYMMETRIC:
+    case InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE:
+      return 'HOST_AI_LEDGER_ASYMMETRIC'
+    case InternalInferenceErrorCode.HOST_AI_PAIRING_STALE:
+      return 'HOST_AI_PAIRING_STALE'
+    default:
+      return 'CAPABILITY_PROBE_FAILED'
+  }
+}
+
+function hostP2pUiPhaseForTerminalIdentityProbe(code: string, hostAiEndpointDenyDetail: string | undefined): HostP2pUiPhase {
+  if (code === InternalInferenceErrorCode.POLICY_FORBIDDEN) {
+    return 'policy_disabled'
+  }
+  if (isHostAiHttpEndpointProvenanceClassFailure(code)) {
+    return hostP2pUiPhaseForHostEndpointProvenance(code, hostAiEndpointDenyDetail)
+  }
+  if (code === InternalInferenceErrorCode.HOST_AI_ROUTE_OWNER_MISMATCH) {
+    return 'host_endpoint_mismatch'
+  }
+  if (code === InternalInferenceErrorCode.HOST_AI_LOCAL_BEAP_IS_NOT_PEER_HOST) {
+    return 'host_endpoint_rejected_self'
+  }
+  if (code === InternalInferenceErrorCode.HOST_AI_NO_VERIFIED_PEER_ROUTE || code === InternalInferenceErrorCode.HOST_AI_NO_ROUTE) {
+    return 'host_endpoint_not_advertised'
+  }
+  if (
+    code === InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED ||
+    code === InternalInferenceErrorCode.HOST_AI_LEDGER_ASYMMETRIC ||
+    code === InternalInferenceErrorCode.HOST_AI_PAIRING_STALE ||
+    code === InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE
+  ) {
+    return 'host_internal_identity_mismatch'
+  }
+  return hostP2pUiPhaseForProbeFailureCode(code)
+}
+
+function hostAiStructuredReasonForTerminalIdentityProbe(
+  code: string,
+  hostAiEndpointDenyDetail: string | undefined,
+): HostAiStructuredUnavailableReason {
+  if (code === InternalInferenceErrorCode.POLICY_FORBIDDEN) {
+    return 'host_policy_forbidden'
+  }
+  if (isHostAiHttpEndpointProvenanceClassFailure(code)) {
+    return hostAiStructuredForEndpointProvenanceUiPhase(
+      hostP2pUiPhaseForHostEndpointProvenance(code, hostAiEndpointDenyDetail),
+    )
+  }
+  switch (code) {
+    case InternalInferenceErrorCode.HOST_AI_ROUTE_OWNER_MISMATCH:
+      return 'host_route_owner_mismatch'
+    case InternalInferenceErrorCode.HOST_AI_LOCAL_BEAP_IS_NOT_PEER_HOST:
+      return 'host_local_beap_not_peer_host'
+    case InternalInferenceErrorCode.HOST_AI_NO_VERIFIED_PEER_ROUTE:
+      return 'host_no_verified_peer_route'
+    case InternalInferenceErrorCode.HOST_AI_NO_ROUTE:
+      return 'host_no_route'
+    case InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED:
+      return 'host_capability_role_rejected'
+    case InternalInferenceErrorCode.HOST_AI_LEDGER_ASYMMETRIC:
+    case InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE:
+      return 'ledger_asymmetric'
+    case InternalInferenceErrorCode.HOST_AI_PAIRING_STALE:
+      return 'pairing_stale'
+    default:
+      return 'capability_probe_failed'
+  }
 }
 
 function hostP2pUiPhaseForHostEndpointProvenance(
@@ -449,7 +557,8 @@ function hostP2pUiPhaseForHostEndpointProvenance(
   }
   if (
     code === InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING ||
-    code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING
+    code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING ||
+    code === InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING
   ) {
     return 'host_endpoint_not_advertised'
   }
@@ -491,12 +600,13 @@ function hostP2pUiPhaseForProbeFailureCode(code: string): HostP2pUiPhase {
       return 'no_model'
     case InternalInferenceErrorCode.HOST_AI_LEDGER_ASYMMETRIC:
     case InternalInferenceErrorCode.HOST_AI_PAIRING_STALE:
-      return 'p2p_unavailable'
+      return 'host_internal_identity_mismatch'
     case InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY:
       return 'host_transport_unavailable'
     case InternalInferenceErrorCode.HOST_AI_NO_ROUTE:
+      return 'host_endpoint_not_advertised'
     case InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED:
-      return 'host_transport_unavailable'
+      return 'host_internal_identity_mismatch'
     default:
       return 'p2p_unavailable'
   }
@@ -530,12 +640,22 @@ function hostAiStructuredReasonForProbeCode(code: string): HostAiStructuredUnava
     case InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING:
     case InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING:
     case InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING:
+    case InternalInferenceErrorCode.HOST_AI_PEER_ENDPOINT_MISSING:
       return 'host_endpoint_not_advertised'
     case InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH:
       return 'endpoint_provenance_missing'
     case InternalInferenceErrorCode.HOST_AI_NO_ROUTE:
+      return 'host_no_route'
+    case InternalInferenceErrorCode.HOST_AI_ROUTE_OWNER_MISMATCH:
+      return 'host_route_owner_mismatch'
+    case InternalInferenceErrorCode.HOST_AI_LOCAL_BEAP_IS_NOT_PEER_HOST:
+      return 'host_local_beap_not_peer_host'
+    case InternalInferenceErrorCode.HOST_AI_NO_VERIFIED_PEER_ROUTE:
+      return 'host_no_verified_peer_route'
+    case InternalInferenceErrorCode.POLICY_FORBIDDEN:
+      return 'host_policy_forbidden'
     case InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED:
-      return 'host_transport_unavailable'
+      return 'host_capability_role_rejected'
     default:
       return 'capability_probe_failed'
   }
@@ -716,6 +836,16 @@ export type HostTargetUnavailableCode =
   | 'CHECKING_CAPABILITIES'
   | 'SANDBOX_HOST_ROLE_METADATA'
   | 'INTERNAL_RELAY_P2P_NOT_READY'
+  | 'HOST_AI_CAPABILITY_ROLE_REJECTED'
+  | 'HOST_AI_ROUTE_OWNER_MISMATCH'
+  | 'HOST_AI_ENDPOINT_OWNER_MISMATCH'
+  | 'HOST_AI_LOCAL_BEAP_NOT_PEER_HOST'
+  | 'HOST_AI_PEER_ENDPOINT_MISSING'
+  | 'HOST_AI_NO_VERIFIED_PEER_ROUTE'
+  | 'HOST_AI_NO_ROUTE'
+  | 'HOST_AI_ENDPOINT_PROVENANCE'
+  | 'HOST_AI_LEDGER_ASYMMETRIC'
+  | 'HOST_AI_PAIRING_STALE'
 
 export type HostInferenceListAvailability =
   | 'available'
@@ -753,6 +883,18 @@ export type HostAiStructuredUnavailableReason =
   | 'host_auth_rejected'
   | 'host_transport_unavailable'
   | 'host_provider_unavailable'
+  /** Host policy / role gate (`POLICY_FORBIDDEN`, `forbidden_host_role`). */
+  | 'host_policy_forbidden'
+  /** Ledger says Sandbox→Host roles are wrong for capability RPC. */
+  | 'host_capability_role_rejected'
+  /** Resolved route owner ≠ handshake peer Host coordination id. */
+  | 'host_route_owner_mismatch'
+  /** Local BEAP selected where peer-Host BEAP was required. */
+  | 'host_local_beap_not_peer_host'
+  /** No verified peer-Host-owned route candidate. */
+  | 'host_no_verified_peer_route'
+  /** No WebRTC, relay session, or verified direct BEAP — distinct from generic probe failure. */
+  | 'host_no_route'
 
 export interface HostInternalInferenceListItem {
   /** Same as `kind`; preferred for new IPC/selector consumers. */
@@ -1867,7 +2009,6 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     } else if (webrtcP2pListDirect) {
       try {
         const tCap = Math.min(getHostInternalInferencePolicy().timeoutMs, 15_000)
-        const ep = r.p2p_endpoint?.trim() ?? ''
         const tok = outboundP2pBearerToCounterpartyIngest(r)
         if (!tok) {
           probe = {
@@ -1888,7 +2029,6 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
             capP2p = await coalescedListHostCapabilitiesProbe(hid, () =>
               listHostCapabilities(hid, {
                 record: r,
-                ingestUrl: ep,
                 token: tok,
                 timeoutMs: tCap,
                 correlationChain: rowChain,
@@ -1914,7 +2054,14 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
                 message: rsn,
                 directP2pAvailable: true,
               }
-            } else if (isHostAiHttpEndpointProvenanceClassFailure(rsn)) {
+            } else if (
+              isHostAiProbeTerminalNoPolicyFallback({
+                ok: false,
+                reason: rsn,
+                hostAiEndpointDenyDetail:
+                  'hostAiEndpointDenyDetail' in capP2p ? capP2p.hostAiEndpointDenyDetail : undefined,
+              })
+            ) {
               probe = {
                 ok: false,
                 code: rsn,
@@ -2037,19 +2184,30 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         'hostAiEndpointDenyDetail' in probe && typeof (probe as { hostAiEndpointDenyDetail?: string }).hostAiEndpointDenyDetail === 'string'
           ? (probe as { hostAiEndpointDenyDetail: string }).hostAiEndpointDenyDetail
           : undefined
-      if (isHostAiHttpEndpointProvenanceClassFailure(String(code))) {
-        const eph = hostP2pUiPhaseForHostEndpointProvenance(String(code), hostAiEndpointDenyDetailProbe)
-        const subE = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
-        const fromProbe = hostAiUserFacingMessageFromTarget({
-          inference_error_code: String(code),
+      if (
+        isHostAiProbeTerminalNoPolicyFallback({
+          ok: false,
+          reason: String(code),
           hostAiEndpointDenyDetail: hostAiEndpointDenyDetailProbe,
         })
+      ) {
+        const codeStr = String(code)
+        const isPol = codeStr === InternalInferenceErrorCode.POLICY_FORBIDDEN
+        const eph = hostP2pUiPhaseForTerminalIdentityProbe(codeStr, hostAiEndpointDenyDetailProbe)
+        const structE = hostAiStructuredReasonForTerminalIdentityProbe(codeStr, hostAiEndpointDenyDetailProbe)
+        const ur = hostTargetUnavailableCodeForTerminalIdentityProbe(codeStr)
+        const subE = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
+        const fromProbe = hostAiUserFacingMessageFromTarget({
+          inference_error_code: codeStr,
+          hostAiEndpointDenyDetail: hostAiEndpointDenyDetailProbe,
+          hostAiStructuredUnavailableReason: structE,
+        })
         const unLabE = fromProbe?.primary ?? primaryLabelForP2pUiPhase(eph)
-        const structE = hostAiStructuredForEndpointProvenanceUiPhase(eph)
         const diagE =
           'hostAiEndpointDiagnostics' in probe && (probe as { hostAiEndpointDiagnostics?: HostAiEndpointDiagnostics }).hostAiEndpointDiagnostics
             ? (probe as { hostAiEndpointDiagnostics: HostAiEndpointDiagnostics }).hostAiEndpointDiagnostics
             : undefined
+        const av: HostInferenceListAvailability = isPol ? 'policy_disabled' : 'not_configured'
         const tE: HostTargetDraft = {
           kind: 'host_internal',
           id: buildHostTargetId(hid, 'unavailable'),
@@ -2071,18 +2229,18 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           direct_reachable: false,
           policy_enabled: false,
           available: false,
-          availability: 'not_configured',
-          unavailable_reason: 'CAPABILITY_PROBE_FAILED',
+          availability: av,
+          unavailable_reason: ur,
           hostAiStructuredUnavailableReason: structE,
           host_role: 'Host',
-          inference_error_code: String(code),
+          inference_error_code: isPol ? 'HOST_POLICY_DISABLED' : codeStr,
           ...baseMetaFromDec(listDec, leK),
           p2pUiPhase: eph,
-          failureCode: String(code),
+          failureCode: isPol ? 'HOST_POLICY_DISABLED' : codeStr,
           host_ai_endpoint_diagnostics: diagE,
         }
         console.log(
-          `${L} target_available=false reason=${structE} handshake=${hid} detail=probe_endpoint_provenance code=${String(code)} deny=${hostAiEndpointDenyDetailProbe ?? 'n/a'}`,
+          `${L} target_available=false reason=${structE} handshake=${hid} detail=probe_terminal_identity code=${codeStr} deny=${hostAiEndpointDenyDetailProbe ?? 'n/a'}`,
         )
         targets.push(finalizeItem(tE))
         continue

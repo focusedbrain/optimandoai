@@ -39,7 +39,7 @@ describe('decideHostAiIntentRoute', () => {
     expect(d.choice.reason).toBe('non_direct_endpoint')
   })
 
-  test('caps over P2P with fallback → http_direct + fallback when P2P not ready', () => {
+  test('caps over P2P with DC down → await WebRTC data channel (no HTTP fallback for capabilities)', () => {
     vi.stubEnv('WRDESK_P2P_INFERENCE_CAPS_OVER_P2P', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
@@ -48,9 +48,9 @@ describe('decideHostAiIntentRoute', () => {
     resetP2pInferenceFlagsForTests()
     const d = decideHostAiIntentRoute('hs-1', 'capabilities', true)
     expect(d.choice.preferred).toBe('p2p')
-    expect(d.choice.selected).toBe('http_direct')
-    expect(d.choice.reason).toBe('p2p_not_ready_fallback_http')
-    expect(d.shouldEmitFallbackLog).toBe(true)
+    expect(d.choice.selected).toBe('webrtc_p2p')
+    expect(d.choice.reason).toBe('p2p_await_data_channel')
+    expect(d.shouldEmitFallbackLog).toBe(false)
   })
 
   test('caps over P2P + DataChannel up → webrtc_p2p', () => {

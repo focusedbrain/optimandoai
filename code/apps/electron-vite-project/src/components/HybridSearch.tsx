@@ -2340,6 +2340,13 @@ export default function HybridSearch({
               <div>selected_endpoint_owner: {d.selected_endpoint_owner || '—'}</div>
               <div>local_beap_endpoint: {d.local_beap_endpoint || '—'}</div>
               <div>peer_advertised_endpoint: {d.peer_advertised_beap_endpoint || '—'}</div>
+              {d.webrtc_available !== undefined ? <div>webrtc_available: {String(d.webrtc_available)}</div> : null}
+              {d.direct_http_available !== undefined ? <div>direct_http_available: {String(d.direct_http_available)}</div> : null}
+              {d.relay_available !== undefined ? <div>relay_available: {String(d.relay_available)}</div> : null}
+              {d.local_role !== undefined ? <div>local_role: {d.local_role || '—'}</div> : null}
+              {d.peer_role !== undefined ? <div>peer_role: {d.peer_role || '—'}</div> : null}
+              {d.requester_role !== undefined ? <div>requester_role: {d.requester_role || '—'}</div> : null}
+              {d.receiver_role !== undefined ? <div>receiver_role: {d.receiver_role || '—'}</div> : null}
               <div>rejection_reason: {d.rejection_reason || '—'}</div>
             </div>
           )

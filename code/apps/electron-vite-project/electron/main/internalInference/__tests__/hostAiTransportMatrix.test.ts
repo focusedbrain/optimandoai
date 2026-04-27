@@ -17,6 +17,9 @@ const base: HostAiTransportDeciderResult = {
   p2pTransportEndpointOpen: true,
   failureCode: null,
   userSafeReason: null,
+  hostAiVerifiedDirectHttp: false,
+  hostAiRouteResolveFailureCode: null,
+  hostAiRouteResolveFailureReason: null,
 }
 
 describe('isHostAiListTransportProven', () => {

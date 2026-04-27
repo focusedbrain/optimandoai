@@ -14,6 +14,15 @@ export type HostAiEndpointDiagnostics = {
   peer_advertised_beap_endpoint: string | null
   /** Human + machine reason: code and deny detail, ICE, etc. */
   rejection_reason: string
+  /** Transport snapshot when no verified peer-Host route exists (coordination ids only — not IP). */
+  webrtc_available?: boolean
+  direct_http_available?: boolean
+  relay_available?: boolean
+  /** Ledger / capability RPC roles when a role or policy gate fails. */
+  local_role?: string
+  peer_role?: string
+  requester_role?: string
+  receiver_role?: string
 }
 
 /** Must match `InternalInferenceErrorCode` in main where applicable. */
@@ -21,6 +30,8 @@ export const HostAiProbeCode = {
   HOST_AI_ENDPOINT_OWNER_MISMATCH: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
   /** Direct-HTTP-only: peer LAN BEAP not in ledger/relay ads; P2P may still be valid. */
   HOST_AI_DIRECT_PEER_BEAP_MISSING: 'HOST_AI_DIRECT_PEER_BEAP_MISSING',
+  /** Host policy / orchestrator role gate — not generic transport auth failure. */
+  POLICY_FORBIDDEN: 'POLICY_FORBIDDEN',
   /** Ledger role mismatch for internal capability RPC (e.g. wrong device side); not a missing BEAP endpoint. */
   HOST_AI_CAPABILITY_ROLE_REJECTED: 'HOST_AI_CAPABILITY_ROLE_REJECTED',
   /** No WebRTC, relay session, or valid direct BEAP for HTTP. */
@@ -33,14 +44,26 @@ export const HostAiProbeCode = {
   ICE_FAILED: 'ICE_FAILED',
   HOST_PROVIDER_UNAVAILABLE: 'HOST_PROVIDER_UNAVAILABLE',
   OLLAMA_UNREACHABLE_ON_SANDBOX: 'OLLAMA_UNREACHABLE_ON_SANDBOX',
+  /** Local BEAP or self-owned ingest was selected instead of the peer Host’s route. */
+  HOST_AI_LOCAL_BEAP_IS_NOT_PEER_HOST: 'HOST_AI_LOCAL_BEAP_IS_NOT_PEER_HOST',
+  /** No candidate passed verified peer-Host checks. */
+  HOST_AI_NO_VERIFIED_PEER_ROUTE: 'HOST_AI_NO_VERIFIED_PEER_ROUTE',
+  HOST_AI_PEER_ENDPOINT_MISSING: 'HOST_AI_PEER_ENDPOINT_MISSING',
+  HOST_AI_ROUTE_OWNER_MISMATCH: 'HOST_AI_ROUTE_OWNER_MISMATCH',
 } as const
 
 export const HOST_AI_MSG = {
-  ownerMismatch:
-    'Host AI endpoint rejected: the selected endpoint appears to belong to this device, not the paired Host.',
+  /** Self / local BEAP selected — route belongs to this coordination device, not the paired Host. */
+  routeRejectedSelfBeap:
+    'Host AI route rejected: the candidate endpoint belongs to this device, not the paired Host.',
+  routeOwnerMismatch:
+    'Host AI route rejected: route ownership does not match the paired Host.',
+  noVerifiedPeerRoute: 'Host AI has no verified route to the paired Host yet.',
+  peerNoDirectEndpoint:
+    'The paired Host has not advertised a verified direct endpoint. Direct HTTP is not available.',
+  roleGateFailed:
+    'Host AI role check failed for this route. The request was not sent to a verified Host endpoint.',
   provenanceMissing: 'Host AI endpoint missing: the Host has not advertised a trusted endpoint yet.',
-  /** Paired Host direct BEAP was never received on the relay/header path; ledger only shows this device’s own ingest. */
-  hostEndpointNotPublished: 'Host AI: the paired Host has not published a reachable direct endpoint yet. Open WR Desk on the Host with Host AI enabled, or wait for the relay to deliver the host advertisement.',
   authRejected: 'Host AI auth rejected: the paired Host refused the request.',
   rateLimited: 'Host AI temporarily rate-limited. Wait briefly or reduce repeated probes.',
   relayNotReady: 'Host AI relay/WebRTC path is not ready yet.',
@@ -48,14 +71,56 @@ export const HOST_AI_MSG = {
   hostProviderUnavailable: 'Host is reachable but no local Host AI provider is available.',
 } as const
 
+/**
+ * Example diagnostics when the resolver selected this device’s BEAP instead of the peer Host (for support / tests).
+ */
+export const HOST_AI_DIAGNOSTICS_EXAMPLE_SELF_LOCAL_BEAP: HostAiEndpointDiagnostics = {
+  local_device_id: 'coord-sandbox-abc',
+  peer_host_device_id: 'coord-host-xyz',
+  selected_endpoint: 'https://sandbox.example/beap/ingest',
+  selected_endpoint_owner: 'coord-sandbox-abc',
+  local_beap_endpoint: 'https://sandbox.example/beap/ingest',
+  peer_advertised_beap_endpoint: null,
+  rejection_reason: 'HOST_AI_ENDPOINT_OWNER_MISMATCH (self_local_beap_selected)',
+}
+
 export type HostAiTargetLike = {
   inference_error_code?: string | null
   failureCode?: string | null
   unavailable_reason?: string | null
   hostAiStructuredUnavailableReason?: string | null
   hostAiEndpointDenyDetail?: string | null
+  host_ai_endpoint_diagnostics?: HostAiEndpointDiagnostics | null
   /** When true, capabilities/ads indicate the **remote Host** Ollama is up — do not mislabel sandbox-only Ollama issues as Host. */
   hostWireOllamaReachable?: boolean | null
+}
+
+function isSelfLocalBeapDeny(deny: string): boolean {
+  return deny === 'self_local_beap_selected' || deny === 'self_endpoint_selected'
+}
+
+/**
+ * When a row is mislabeled as auth but structured reason is a terminal route/identity class, prefer the real class.
+ */
+function identityUiCode(code: string, sur: string): string {
+  const authish = code === HostAiProbeCode.PROBE_AUTH_REJECTED || sur === 'auth_rejected'
+  if (!authish) return code
+  switch (sur) {
+    case 'host_no_verified_peer_route':
+      return HostAiProbeCode.HOST_AI_NO_VERIFIED_PEER_ROUTE
+    case 'host_no_route':
+      return HostAiProbeCode.HOST_AI_NO_ROUTE
+    case 'host_endpoint_not_advertised':
+      return HostAiProbeCode.HOST_AI_DIRECT_PEER_BEAP_MISSING
+    case 'host_capability_role_rejected':
+      return HostAiProbeCode.HOST_AI_CAPABILITY_ROLE_REJECTED
+    case 'host_route_owner_mismatch':
+      return HostAiProbeCode.HOST_AI_ROUTE_OWNER_MISMATCH
+    case 'host_policy_forbidden':
+      return HostAiProbeCode.POLICY_FORBIDDEN
+    default:
+      return code
+  }
 }
 
 /**
@@ -86,6 +151,7 @@ export function hostAiUserFacingMessageFromTarget(
   const sur = String(t.hostAiStructuredUnavailableReason ?? '').trim()
   const deny = String(t.hostAiEndpointDenyDetail ?? '').trim()
   const wireOllama = opts?.hostWireOllamaReachableOverride ?? t.hostWireOllamaReachable
+  const ic = identityUiCode(code, sur)
 
   if (shouldSuppressOllamaUnreachableSandboxAsHostFailure(code, wireOllama ?? null)) {
     return null
@@ -98,25 +164,63 @@ export function hostAiUserFacingMessageFromTarget(
     }
   }
 
-  if (code === HostAiProbeCode.HOST_AI_ENDPOINT_OWNER_MISMATCH) {
-    return { primary: HOST_AI_MSG.ownerMismatch, hint: null }
+  // Route / identity / provenance — before generic PROBE_AUTH_REJECTED
+
+  if (
+    ic === HostAiProbeCode.HOST_AI_LOCAL_BEAP_IS_NOT_PEER_HOST ||
+    (ic === HostAiProbeCode.HOST_AI_ENDPOINT_OWNER_MISMATCH && isSelfLocalBeapDeny(deny)) ||
+    (isSelfLocalBeapDeny(deny) &&
+      (!ic || ic === HostAiProbeCode.HOST_AI_ENDPOINT_OWNER_MISMATCH))
+  ) {
+    return { primary: HOST_AI_MSG.routeRejectedSelfBeap, hint: null }
   }
-  if (code === HostAiProbeCode.HOST_AI_DIRECT_PEER_BEAP_MISSING) {
-    return { primary: HOST_AI_MSG.hostEndpointNotPublished, hint: null }
+
+  if (ic === HostAiProbeCode.HOST_AI_ROUTE_OWNER_MISMATCH || sur === 'host_route_owner_mismatch') {
+    return { primary: HOST_AI_MSG.routeOwnerMismatch, hint: null }
   }
-  if (code === HostAiProbeCode.HOST_AI_CAPABILITY_ROLE_REJECTED) {
+
+  if (
+    ic === HostAiProbeCode.HOST_AI_NO_VERIFIED_PEER_ROUTE ||
+    sur === 'host_no_verified_peer_route' ||
+    ic === HostAiProbeCode.HOST_AI_NO_ROUTE ||
+    sur === 'host_no_route'
+  ) {
+    return { primary: HOST_AI_MSG.noVerifiedPeerRoute, hint: null }
+  }
+
+  if (
+    ic === HostAiProbeCode.HOST_AI_DIRECT_PEER_BEAP_MISSING ||
+    ic === HostAiProbeCode.HOST_AI_PEER_ENDPOINT_MISSING ||
+    ic === HostAiProbeCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING ||
+    ic === HostAiProbeCode.HOST_DIRECT_ENDPOINT_MISSING ||
+    sur === 'host_endpoint_not_advertised'
+  ) {
+    return { primary: HOST_AI_MSG.peerNoDirectEndpoint, hint: null }
+  }
+
+  if (ic === HostAiProbeCode.HOST_AI_CAPABILITY_ROLE_REJECTED || sur === 'host_capability_role_rejected') {
+    return { primary: HOST_AI_MSG.roleGateFailed, hint: null }
+  }
+
+  if (
+    ic === HostAiProbeCode.HOST_AI_ENDPOINT_OWNER_MISMATCH ||
+    sur === 'host_endpoint_mismatch' ||
+    sur === 'endpoint_provenance_missing'
+  ) {
+    return { primary: HOST_AI_MSG.routeOwnerMismatch, hint: null }
+  }
+
+  if (
+    ic === HostAiProbeCode.POLICY_FORBIDDEN ||
+    sur === 'host_policy_forbidden' ||
+    code === 'HOST_POLICY_DISABLED'
+  ) {
     return {
-      primary:
-        'Host AI capability was rejected: this session’s roles do not match the internal handshake (Sandbox→Host). Check both devices are linked correctly.',
+      primary: 'Host AI is blocked by Host policy or role (this device is not allowed to use Host AI on that Host).',
       hint: null,
     }
   }
-  if (code === HostAiProbeCode.HOST_AI_NO_ROUTE) {
-    return { primary: 'Host AI has no available route: enable P2P/relay, or a reachable direct BEAP on the Host.', hint: null }
-  }
-  if (code === HostAiProbeCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING || code === HostAiProbeCode.HOST_DIRECT_ENDPOINT_MISSING) {
-    return { primary: HOST_AI_MSG.provenanceMissing, hint: null }
-  }
+
   if (code === HostAiProbeCode.PROBE_AUTH_REJECTED || sur === 'host_auth_rejected' || sur === 'auth_rejected') {
     return { primary: HOST_AI_MSG.authRejected, hint: null }
   }

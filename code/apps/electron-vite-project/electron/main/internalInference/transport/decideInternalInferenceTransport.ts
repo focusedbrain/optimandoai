@@ -9,6 +9,7 @@
 import { InternalInferenceErrorCode } from '../errors'
 import { isWebRtcHostAiArchitectureEnabled, type P2pInferenceFlagSnapshot } from '../p2pInferenceFlags'
 import {
+  coordinationDeviceIdForHandshakeDeviceRole,
   p2pEndpointKind,
   p2pEndpointMvpClass,
   canPostInternalInferenceHttpToP2pEndpointIngest,
@@ -21,6 +22,12 @@ import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
 import { getSessionState, P2pSessionPhase, type P2pSessionState } from '../p2pSession/p2pInferenceSessionManager'
 import { isP2pDataChannelUpForHandshake } from '../p2pSession/p2pSessionWait'
 import type { HandshakeRecord } from '../../handshake/types'
+import {
+  getHostPublishedMvpDirectP2pIngestUrl,
+  normalizeP2pIngestUrl,
+  peekHostAdvertisedMvpDirectEntry,
+} from '../p2pEndpointRepair'
+import { hostAiCanonicalDirectHttpViable, resolveHostAiRoute, type HostAiCanonicalRouteResolveInput } from './hostAiRouteResolve'
 
 const L = '[HOST_AI_TRANSPORT]'
 
@@ -79,6 +86,14 @@ export type HostAiTransportDeciderInput = {
    * and the full P2P stack is on. Omitted or `'na'` is treated as not applicable (non-relay or stack off).
    */
   relayHostAiP2pSignaling?: 'supported' | 'missing' | 'na'
+  /**
+   * Populated by `buildHostAiTransportDeciderInput` from the canonical Host AI route resolver.
+   * Manual unit tests may set these to exercise internal Sandbox→Host branches.
+   */
+  hostAiVerifiedDirectHttp?: boolean
+  hostAiVerifiedDirectIngestUrl?: string | null
+  hostAiRouteResolveFailureCode?: string | null
+  hostAiRouteResolveFailureReason?: string | null
 }
 
 export type HostAiTransportDeciderResult = {
@@ -107,6 +122,10 @@ export type HostAiTransportDeciderResult = {
   p2pTransportEndpointOpen: boolean
   failureCode: string | null
   userSafeReason: string | null
+  /** Verified peer-Host direct BEAP for sandbox→Host (not syntactic ledger `p2p_endpoint`). */
+  hostAiVerifiedDirectHttp: boolean
+  hostAiRouteResolveFailureCode: string | null
+  hostAiRouteResolveFailureReason: string | null
 }
 
 export type HostAiTransportAuthoritative =
@@ -177,6 +196,116 @@ function isPrivateLanHttpBeapUrl(p2pEndpoint: string | null | undefined): boolea
   return false
 }
 
+function isInternalTrustedSandboxHost(
+  hr: HandshakeRecord | null | undefined,
+  trust: boolean,
+  roles: HandshakeDerivedRoles,
+): boolean {
+  return Boolean(hr && hr.handshake_type === 'internal' && trust && roles.ledgerSandboxToHost)
+}
+
+export function buildHostAiCanonicalRouteResolveInputForDecider(
+  db: unknown,
+  handshakeRecord: HandshakeRecord,
+  sessionState: HostAiSessionStateInput | null,
+  relayHostAiP2pSignaling: 'supported' | 'missing' | 'na',
+  legacyEndpointInfo: LegacyEndpointInfo,
+): HostAiCanonicalRouteResolveInput {
+  const hid = String(handshakeRecord.handshake_id ?? '').trim()
+  const localId = getInstanceId().trim()
+  const peerHost = (coordinationDeviceIdForHandshakeDeviceRole(handshakeRecord, 'host') ?? '').trim()
+  const roles = deriveInternalHostAiPeerRoles(handshakeRecord, localId)
+  const ent = peekHostAdvertisedMvpDirectEntry(hid)
+  const peerDirectAdvertisement = ent?.url?.trim()
+    ? {
+        url: ent.url,
+        ownerDeviceId: String(ent.ownerDeviceId ?? '').trim(),
+        source: ent.adSource === 'relay' ? ('relay' as const) : ('http_header' as const),
+      }
+    : null
+  const p2pKind = legacyEndpointInfo.p2pEndpointKind
+  const relayAttested = p2pKind === 'relay' && relayHostAiP2pSignaling === 'supported'
+  return {
+    handshakeId: hid,
+    localDeviceId: localId,
+    peerHostDeviceId: peerHost,
+    record: handshakeRecord,
+    roles,
+    webrtc: sessionState
+      ? {
+          dataChannelUp: sessionState.dataChannelUp,
+          sessionHandshakeId: sessionState.handshakeId,
+          boundPeerDeviceId: sessionState.p2pSession?.boundPeerDeviceId
+            ? String(sessionState.p2pSession.boundPeerDeviceId).trim() || null
+            : null,
+        }
+      : null,
+    peerDirectAdvertisement,
+    localBeapEndpoint: getHostPublishedMvpDirectP2pIngestUrl(db as any),
+    relay: {
+      serverAttestedAvailable: relayAttested,
+      relayEndpointUrl: p2pKind === 'relay' ? handshakeRecord.p2p_endpoint : null,
+    },
+    ledgerP2pEndpoint: handshakeRecord.p2p_endpoint,
+  }
+}
+
+function computeHostAiRouteFieldsForDecider(
+  db: unknown,
+  handshakeRecord: HandshakeRecord,
+  sessionState: HostAiSessionStateInput | null,
+  relayHostAiP2pSignaling: 'supported' | 'missing' | 'na',
+  legacyEndpointInfo: LegacyEndpointInfo,
+): Pick<
+  HostAiTransportDeciderInput,
+  | 'hostAiVerifiedDirectHttp'
+  | 'hostAiVerifiedDirectIngestUrl'
+  | 'hostAiRouteResolveFailureCode'
+  | 'hostAiRouteResolveFailureReason'
+> {
+  const canonical = buildHostAiCanonicalRouteResolveInputForDecider(
+    db,
+    handshakeRecord,
+    sessionState,
+    relayHostAiP2pSignaling,
+    legacyEndpointInfo,
+  )
+  const verified = hostAiCanonicalDirectHttpViable(canonical)
+  let ingestUrl: string | null = null
+  if (verified && canonical.peerDirectAdvertisement?.url?.trim()) {
+    ingestUrl = normalizeP2pIngestUrl(canonical.peerDirectAdvertisement.url.trim())
+  }
+  let failCode: string | null = null
+  let failReason: string | null = null
+  if (!verified) {
+    const res = resolveHostAiRoute(canonical, { emitLog: false })
+    if (!res.ok) {
+      failCode = res.code
+      failReason = res.reason
+    } else {
+      failCode = InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING
+      failReason = 'no_verified_peer_direct_http'
+    }
+  }
+  return {
+    hostAiVerifiedDirectHttp: verified,
+    hostAiVerifiedDirectIngestUrl: ingestUrl,
+    hostAiRouteResolveFailureCode: failCode,
+    hostAiRouteResolveFailureReason: failReason,
+  }
+}
+
+function hostAiRouteSnap(input: HostAiTransportDeciderInput): Pick<
+  HostAiTransportDeciderResult,
+  'hostAiVerifiedDirectHttp' | 'hostAiRouteResolveFailureCode' | 'hostAiRouteResolveFailureReason'
+> {
+  return {
+    hostAiVerifiedDirectHttp: input.hostAiVerifiedDirectHttp ?? false,
+    hostAiRouteResolveFailureCode: input.hostAiRouteResolveFailureCode ?? null,
+    hostAiRouteResolveFailureReason: input.hostAiRouteResolveFailureReason ?? null,
+  }
+}
+
 /**
  * One authoritative policy decision for Host internal AI: discovery row, selector phase, and transport hints.
  */
@@ -194,8 +323,18 @@ export function decideInternalInferenceTransport(
   const relaySig = input.relayHostAiP2pSignaling ?? 'na'
 
   const mayFb = f.p2pInferenceHttpFallback
-  /** `HTTP_FALLBACK` flag && direct BEAP ingest — legacy path could actually be used. Relay never POSTs; `mayPost` is false. */
-  const legacyViable = mayFb && le.mayPostInternalInferenceHttpToIngest
+  const trust =
+    Boolean(hr) &&
+    roles.ledgerSandboxToHost &&
+    roles.samePrincipal &&
+    roles.internalIdentityComplete &&
+    roles.peerHostDeviceIdPresent
+  const internalSlice = isInternalTrustedSandboxHost(hr, trust, roles)
+  const verifiedDirect = input.hostAiVerifiedDirectHttp === true
+  /** Internal same-principal ledger rows: legacy HTTP viability follows verified peer-Host BEAP, not `canPost` on raw ledger. */
+  const legacyPostOk = internalSlice ? verifiedDirect : le.mayPostInternalInferenceHttpToIngest
+  /** `HTTP_FALLBACK` flag && eligible direct legacy POST per policy slice above. */
+  const legacyViable = mayFb && legacyPostOk
   const p2pOn = p2pStackEnabled(f)
   const kind = le.p2pEndpointKind
   const wrtcArch = isWebRtcHostAiArchitectureEnabled(f)
@@ -211,15 +350,9 @@ export function decideInternalInferenceTransport(
     )
   }
 
-  const trust =
-    Boolean(hr) &&
-    roles.ledgerSandboxToHost &&
-    roles.samePrincipal &&
-    roles.internalIdentityComplete &&
-    roles.peerHostDeviceIdPresent
-
   if (!hr || !trust) {
     return {
+      ...hostAiRouteSnap(input),
       targetDetected: false,
       selectorPhase: 'hidden',
       preferredTransport: 'none',
@@ -233,6 +366,7 @@ export function decideInternalInferenceTransport(
 
   if (pol?.allowSandboxInference === false) {
     return {
+      ...hostAiRouteSnap(input),
       targetDetected: true,
       selectorPhase: 'policy_disabled',
       preferredTransport: 'none',
@@ -246,6 +380,7 @@ export function decideInternalInferenceTransport(
 
   if (input.operationContext === 'list_targets' && pol && pol.hasActiveModel === false && pol.allowSandboxInference === true) {
     return {
+      ...hostAiRouteSnap(input),
       targetDetected: true,
       selectorPhase: 'no_model',
       preferredTransport: 'none',
@@ -259,6 +394,7 @@ export function decideInternalInferenceTransport(
 
   if (kind === 'missing' || kind === 'invalid') {
     return {
+      ...hostAiRouteSnap(input),
       targetDetected: true,
       selectorPhase: 'p2p_unavailable',
       preferredTransport: 'none',
@@ -272,6 +408,7 @@ export function decideInternalInferenceTransport(
 
   if (kind === 'relay' && p2pOn && relaySig !== 'supported') {
     return {
+      ...hostAiRouteSnap(input),
       targetDetected: true,
       selectorPhase: 'p2p_unavailable',
       preferredTransport: 'none',
@@ -287,25 +424,31 @@ export function decideInternalInferenceTransport(
   /**
    * Direct private-LAN BEAP URL + full WebRTC stack: prefer legacy HTTP for Host AI so we do not
    * start or rely on WebRTC while a reachable direct ingest is advertised (stale-IP follow-up: probe).
-   * Placed after policy/endpoint-kind gates, before `internalPreferDirectHttp` (!p2pOn) and WebRTC paths.
+   * Internal rows: verified peer-advertised ingest only. Non-internal: preserve ledger URL syntax check.
    */
-  if (
-    kind === 'direct' &&
-    p2pOn &&
-    wrtcArch &&
-    le.mayPostInternalInferenceHttpToIngest &&
-    isPrivateLanHttpBeapUrl(hr.p2p_endpoint)
-  ) {
-    return {
-      targetDetected: true,
-      selectorPhase: 'legacy_http_available',
-      preferredTransport: 'legacy_http',
-      reason: 'internal_direct_http_preferred',
-      mayUseLegacyHttpFallback: mayFb,
-      legacyHttpFallbackViable: legacyViable,
-      p2pTransportEndpointOpen: true,
-      failureCode: null,
-      userSafeReason: null,
+  if (kind === 'direct' && p2pOn && wrtcArch) {
+    const preferLanInternal =
+      internalSlice &&
+      verifiedDirect &&
+      Boolean(input.hostAiVerifiedDirectIngestUrl?.trim()) &&
+      isPrivateLanHttpBeapUrl(input.hostAiVerifiedDirectIngestUrl)
+    const preferLanExternal =
+      !internalSlice &&
+      le.mayPostInternalInferenceHttpToIngest &&
+      isPrivateLanHttpBeapUrl(hr.p2p_endpoint)
+    if (preferLanInternal || preferLanExternal) {
+      return {
+        ...hostAiRouteSnap(input),
+        targetDetected: true,
+        selectorPhase: 'legacy_http_available',
+        preferredTransport: 'legacy_http',
+        reason: 'internal_direct_http_preferred',
+        mayUseLegacyHttpFallback: mayFb,
+        legacyHttpFallbackViable: legacyViable,
+        p2pTransportEndpointOpen: true,
+        failureCode: null,
+        userSafeReason: null,
+      }
     }
   }
 
@@ -314,14 +457,11 @@ export function decideInternalInferenceTransport(
    * even when the full WebRTC stack is enabled. Relay-only rows still use WebRTC below.
    */
   const internalPreferDirectHttp =
-    Boolean(hr?.handshake_type === 'internal') &&
-    trust &&
-    le.mayPostInternalInferenceHttpToIngest &&
-    kind === 'direct' &&
-    !p2pOn
+    Boolean(hr?.handshake_type === 'internal') && trust && legacyPostOk && kind === 'direct' && !p2pOn
 
   if (internalPreferDirectHttp) {
     return {
+      ...hostAiRouteSnap(input),
       targetDetected: true,
       selectorPhase: 'legacy_http_available',
       preferredTransport: 'legacy_http',
@@ -339,6 +479,7 @@ export function decideInternalInferenceTransport(
       // Relay URL is signaling; it never supports legacy HTTP POST — do not conflate with MVP / legacy_http_invalid.
       if (kind === 'relay') {
         return {
+          ...hostAiRouteSnap(input),
           targetDetected: true,
           selectorPhase: 'connecting',
           preferredTransport: 'webrtc_p2p',
@@ -350,6 +491,7 @@ export function decideInternalInferenceTransport(
         }
       }
       return {
+        ...hostAiRouteSnap(input),
         targetDetected: true,
         selectorPhase: 'p2p_unavailable',
         preferredTransport: 'webrtc_p2p',
@@ -363,8 +505,9 @@ export function decideInternalInferenceTransport(
       }
     }
     // Legacy-only (WebRTC off): direct HTTP to p2p_endpoint / MVP rules apply; MVP is isolated here.
-    if (le.mayPostInternalInferenceHttpToIngest) {
+    if (legacyPostOk) {
       return {
+        ...hostAiRouteSnap(input),
         targetDetected: true,
         selectorPhase: 'legacy_http_available',
         preferredTransport: 'legacy_http',
@@ -376,13 +519,21 @@ export function decideInternalInferenceTransport(
         userSafeReason: null,
       }
     }
+    /** Allow HTTP capability probe to run `resolveSandboxToHostHttpDirectIngest` and surface `HOST_AI_NO_ROUTE` (not `non_direct_endpoint`). */
+    const allowUnverifiedDirectHttpProbe =
+      internalSlice &&
+      kind === 'direct' &&
+      le.mayPostInternalInferenceHttpToIngest &&
+      !verifiedDirect &&
+      !p2pOn
     return {
+      ...hostAiRouteSnap(input),
       targetDetected: true,
       selectorPhase: 'legacy_http_invalid',
       preferredTransport: 'none',
       mayUseLegacyHttpFallback: mayFb,
       legacyHttpFallbackViable: false,
-      p2pTransportEndpointOpen: false,
+      p2pTransportEndpointOpen: allowUnverifiedDirectHttpProbe,
       failureCode: 'MVP_P2P_ENDPOINT_INVALID',
       userSafeReason:
         'Legacy direct HTTP needs a valid direct BEAP address, or enable the full P2P stack. HTTP fallback (WRDESK_P2P_INFERENCE_HTTP_FALLBACK) applies only after P2P is considered.',
@@ -391,6 +542,7 @@ export function decideInternalInferenceTransport(
 
   if (!transportOpen) {
     return {
+      ...hostAiRouteSnap(input),
       targetDetected: true,
       selectorPhase: 'p2p_unavailable',
       preferredTransport: wrtcArch ? 'webrtc_p2p' : 'none',
@@ -418,6 +570,7 @@ export function decideInternalInferenceTransport(
       transportOpen
     ) {
       return {
+        ...hostAiRouteSnap(input),
         targetDetected: true,
         selectorPhase: 'connecting',
         preferredTransport: 'webrtc_p2p',
@@ -430,6 +583,7 @@ export function decideInternalInferenceTransport(
       }
     }
     return {
+      ...hostAiRouteSnap(input),
       targetDetected: true,
       selectorPhase: 'p2p_unavailable',
       preferredTransport: 'none',
@@ -442,6 +596,7 @@ export function decideInternalInferenceTransport(
   }
   if (dcUp) {
     return {
+      ...hostAiRouteSnap(input),
       targetDetected: true,
       selectorPhase: 'ready',
       preferredTransport: 'webrtc_p2p',
@@ -460,6 +615,7 @@ export function decideInternalInferenceTransport(
   if (hr?.handshake_type === 'internal' && trust && kind === 'relay' && !dcUp) {
     if (p2pOn && ph !== P2pSessionPhase.failed) {
       return {
+        ...hostAiRouteSnap(input),
         targetDetected: true,
         selectorPhase: 'connecting',
         preferredTransport: 'webrtc_p2p',
@@ -471,6 +627,7 @@ export function decideInternalInferenceTransport(
       }
     }
     return {
+      ...hostAiRouteSnap(input),
       targetDetected: true,
       selectorPhase: 'p2p_unavailable',
       preferredTransport: 'none',
@@ -484,6 +641,7 @@ export function decideInternalInferenceTransport(
   }
   if (ph === P2pSessionPhase.starting || ph === P2pSessionPhase.signaling || ph === P2pSessionPhase.connecting) {
     return {
+      ...hostAiRouteSnap(input),
       targetDetected: true,
       selectorPhase: 'connecting',
       preferredTransport: 'webrtc_p2p',
@@ -496,6 +654,7 @@ export function decideInternalInferenceTransport(
   }
 
   return {
+    ...hostAiRouteSnap(input),
     targetDetected: true,
     selectorPhase: 'connecting',
     preferredTransport: 'webrtc_p2p',
@@ -578,19 +737,29 @@ export function buildHostAiTransportDeciderInput(args: {
 }): HostAiTransportDeciderInput {
   const hid = String(args.handshakeRecord.handshake_id ?? '').trim()
   const { sessionState } = buildSessionStateForHostAiDecider(hid)
+  const relay = args.relayHostAiP2pSignaling ?? 'na'
+  const legacyEndpointInfo = buildLegacyEndpointInfoForDecider(
+    args.db,
+    args.handshakeRecord.p2p_endpoint,
+    args.featureFlags,
+  )
+  const routeFields = computeHostAiRouteFieldsForDecider(
+    args.db,
+    args.handshakeRecord,
+    sessionState,
+    relay,
+    legacyEndpointInfo,
+  )
   return {
     operationContext: args.operationContext,
     handshakeRecord: args.handshakeRecord,
     handshakeDerivedRoles: deriveHostAiHandshakeRoles(args.handshakeRecord),
     featureFlags: args.featureFlags,
     sessionState,
-    legacyEndpointInfo: buildLegacyEndpointInfoForDecider(
-      args.db,
-      args.handshakeRecord.p2p_endpoint,
-      args.featureFlags,
-    ),
+    legacyEndpointInfo,
     hostPolicyState: args.hostPolicyState ?? null,
-    relayHostAiP2pSignaling: args.relayHostAiP2pSignaling ?? 'na',
+    relayHostAiP2pSignaling: relay,
+    ...routeFields,
   }
 }
 

@@ -19,6 +19,7 @@ vi.mock('../p2pSession/p2pSessionWait', () => ({
   waitForP2pDataChannelOrTimeout: async () => false,
 }))
 
+import { InternalInferenceErrorCode } from '../errors'
 import { resetP2pInferenceFlagsForTests } from '../p2pInferenceFlags'
 import {
   decideInternalInferenceTransport,
@@ -40,12 +41,20 @@ function rolesOk(): HandshakeDerivedRoles {
 const hr = { handshake_id: 'h1' } as unknown as HandshakeRecord
 const hrInternal = { handshake_id: 'h1', handshake_type: 'internal' } as unknown as HandshakeRecord
 
-const base: Omit<HostAiTransportDeciderInput, 'featureFlags' | 'legacyEndpointInfo' | 'relayHostAiP2pSignaling'> = {
+const base: Omit<
+  HostAiTransportDeciderInput,
+  'featureFlags' | 'legacyEndpointInfo' | 'relayHostAiP2pSignaling'
+> = {
   operationContext: 'list_targets',
   handshakeRecord: hr,
   handshakeDerivedRoles: rolesOk(),
   sessionState: { handshakeId: 'h1', p2pSession: null, dataChannelUp: false },
   hostPolicyState: null,
+  /** Non-internal rows ignore this for legacy POST gating; internal tests set explicitly. */
+  hostAiVerifiedDirectHttp: false,
+  hostAiVerifiedDirectIngestUrl: null,
+  hostAiRouteResolveFailureCode: null,
+  hostAiRouteResolveFailureReason: null,
 }
 
 afterEach(() => {
@@ -116,6 +125,10 @@ describe('decideInternalInferenceTransport (STEP 4 legacy vs WebRTC)', () => {
     const r = decideInternalInferenceTransport({
       ...base,
       handshakeRecord: hrInternal,
+      hostAiVerifiedDirectHttp: true,
+      hostAiVerifiedDirectIngestUrl: 'http://192.168.0.2:51249/beap/ingest',
+      hostAiRouteResolveFailureCode: null,
+      hostAiRouteResolveFailureReason: null,
       featureFlags: {
         p2pInferenceEnabled: true,
         p2pInferenceWebrtcEnabled: true,
@@ -141,6 +154,44 @@ describe('decideInternalInferenceTransport (STEP 4 legacy vs WebRTC)', () => {
     expect(r.failureCode).toBeNull()
     expect(r.mayUseLegacyHttpFallback).toBe(true)
     expect(r.legacyHttpFallbackViable).toBe(true)
+  })
+
+  it('internal: syntactically valid LAN direct URL without verified peer-Host ad — no legacy_http (P2P stack off)', () => {
+    const r = decideInternalInferenceTransport({
+      ...base,
+      handshakeRecord: {
+        ...hrInternal,
+        p2p_endpoint: 'http://192.168.1.10:51249/beap/ingest',
+      } as HandshakeRecord,
+      hostAiVerifiedDirectHttp: false,
+      hostAiVerifiedDirectIngestUrl: null,
+      hostAiRouteResolveFailureCode: InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING,
+      hostAiRouteResolveFailureReason: 'no_peer_host_direct_or_relay',
+      featureFlags: {
+        p2pInferenceEnabled: false,
+        p2pInferenceWebrtcEnabled: false,
+        p2pInferenceSignalingEnabled: false,
+        p2pInferenceHttpFallback: true,
+        p2pInferenceCapsOverP2p: false,
+        p2pInferenceRequestOverP2p: false,
+        p2pInferenceHttpInternalCompat: false,
+        p2pInferenceVerboseLogs: false,
+        p2pInferenceAnalysisLog: false,
+        p2pInferenceDataChannelCapabilities: false,
+        p2pInferenceDataChannelInference: false,
+      },
+      legacyEndpointInfo: {
+        p2pEndpointKind: 'direct',
+        mayPostInternalInferenceHttpToIngest: true,
+        mvpClassForLog: 'direct_lan',
+        p2pEndpointGateOpen: true,
+      },
+    })
+    expect(r.preferredTransport).not.toBe('legacy_http')
+    expect(r.selectorPhase).toBe('legacy_http_invalid')
+    expect(r.legacyHttpFallbackViable).toBe(false)
+    expect(r.hostAiVerifiedDirectHttp).toBe(false)
+    expect(r.p2pTransportEndpointOpen).toBe(true)
   })
 
   it('non-internal + direct + incomplete P2P stack — still P2P_STACK_INCOMPLETE (WebRTC architecture)', () => {

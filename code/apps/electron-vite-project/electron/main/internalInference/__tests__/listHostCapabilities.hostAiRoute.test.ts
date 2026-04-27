@@ -136,8 +136,8 @@ describe('listHostCapabilities — Host AI route (WebRTC/relay before direct HTT
     connectedAt: Date.now(),
     updatedAt: Date.now(),
     signalingExpiresAt: null,
-    boundLocalDeviceId: 'a',
-    boundPeerDeviceId: 'b',
+    boundLocalDeviceId: 'dev-sand-1',
+    boundPeerDeviceId: 'dev-host-1',
   }
 
   beforeEach(() => {
@@ -160,11 +160,11 @@ describe('listHostCapabilities — Host AI route (WebRTC/relay before direct HTT
     vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_CAPS_OVER_P2P', '1')
+    isDcUpMock.mockReturnValue(true)
     getSessionStateMock.mockReturnValue(sess)
     requestCapsMock.mockResolvedValue({ ok: true, wire: minWire, rawJson: null })
     const r = await listHostCapabilities('hs-route', {
       record: baseRecord(),
-      ingestUrl: 'https://relay.example/beap/ingest/relay?x=1',
       token: 'tok',
       timeoutMs: 10_000,
     })
@@ -188,7 +188,6 @@ describe('listHostCapabilities — Host AI route (WebRTC/relay before direct HTT
     requestCapsMock.mockResolvedValue({ ok: true, wire: minWire, rawJson: null })
     const r = await listHostCapabilities('hs-route', {
       record: baseRecord(),
-      ingestUrl: 'https://relay.example/beap/ingest/relay?x=1',
       token: 'tok',
       timeoutMs: 10_000,
     })
@@ -196,36 +195,24 @@ describe('listHostCapabilities — Host AI route (WebRTC/relay before direct HTT
     expect(requestCapsMock).toHaveBeenCalled()
   })
 
-  it('(3) P2P/WebRTC off + direct resolve missing peer BEAP: HOST_AI_NO_ROUTE (no WebRTC/relay to fall back to)', async () => {
+  it('(3) P2P/WebRTC off + no peer-attested direct BEAP: HOST_AI_DIRECT_PEER_BEAP_MISSING (resolver, not raw ledger dial)', async () => {
     vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '0')
     vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '0')
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '0')
     vi.stubEnv('WRDESK_P2P_INFERENCE_CAPS_OVER_P2P', '0')
     getSessionStateMock.mockReturnValue(null)
-    const provDeny = {
-      ok: false as const,
-      code: InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING,
-      local_beap_endpoint: 'http://192.168.0.5:9/beap/ingest',
-      peer_advertised_beap_endpoint: null,
-      ledger_p2p_endpoint: 'http://192.168.0.5:9/beap/ingest',
-      selected_endpoint_provenance: 'local_beap' as const,
-      resolutionCategory: 'rejected_no_peer_host_beap' as const,
-      host_ai_endpoint_deny_detail: 'peer_host_beap_not_advertised' as const,
-      hostDeviceId: 'dev-host-1',
-      rejectedCandidate: null,
-    } as p2pEndpointRepair.SandboxToHostHttpDirectIngestResult
-    const sp = vi.spyOn(p2pEndpointRepair, 'resolveSandboxToHostHttpDirectIngest').mockReturnValue(provDeny)
     const localBeap = 'http://192.168.0.5:9/beap/ingest'
+    const resolveDirect = vi.spyOn(p2pEndpointRepair, 'resolveSandboxToHostHttpDirectIngest')
     const r = await listHostCapabilities('hs-route', {
       record: baseRecord({ p2p_endpoint: localBeap }),
-      ingestUrl: localBeap,
       token: 'tok',
       timeoutMs: 10_000,
     })
-    sp.mockRestore()
     expect(r.ok).toBe(false)
+    expect(resolveDirect).not.toHaveBeenCalled()
+    resolveDirect.mockRestore()
     if (!r.ok) {
-      expect(r.reason).toBe(InternalInferenceErrorCode.HOST_AI_NO_ROUTE)
+      expect(r.reason).toBe(InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING)
     }
   })
 

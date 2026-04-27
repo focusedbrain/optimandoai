@@ -16,6 +16,7 @@ import {
 } from '../transport/decideInternalInferenceTransport'
 import { getP2pInferenceFlags, resetP2pInferenceFlagsForTests } from '../p2pInferenceFlags'
 import { InternalInferenceErrorCode } from '../errors'
+import { resetHostAdvertisedMvpDirectForTests, setHostAdvertisedMvpDirectForTests } from '../p2pEndpointRepair'
 
 const getInstanceIdMock = vi.hoisted(() => vi.fn(() => 'dev-sand-1'))
 vi.mock('../../orchestrator/orchestratorModeStore', () => ({
@@ -67,6 +68,7 @@ describe('decideInternalInferenceTransport — internal same-principal relay gat
   beforeEach(() => {
     vi.unstubAllEnvs()
     resetP2pInferenceFlagsForTests()
+    resetHostAdvertisedMvpDirectForTests()
     vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
@@ -172,6 +174,10 @@ describe('decideInternalInferenceTransport — internal same-principal relay gat
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '0')
     const direct = 'http://192.168.0.5:51249/beap/ingest'
     const hr = baseInternal(direct)
+    setHostAdvertisedMvpDirectForTests(hr.handshake_id, direct, {
+      ownerDeviceId: 'dev-host-1',
+      adSource: 'http_header',
+    })
     const d = buildHostAiTransportDeciderInput({
       operationContext: 'list_targets',
       db: { prepare: () => ({ get: () => ({ enabled: 1, port: 51249, bind_address: '0.0.0.0' }) }) } as any,

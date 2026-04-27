@@ -15,7 +15,6 @@ import {
   assertLedgerRolesSandboxToHost,
   assertSandboxRequestToHost,
   coordinationDeviceIdForHandshakeDeviceRole,
-  internalInferenceEndpointGateOk,
   localCoordinationDeviceId,
   outboundP2pBearerToCounterpartyIngest,
   p2pEndpointKind,
@@ -41,13 +40,17 @@ import {
 } from './p2pSession/p2pSessionWait'
 import { getHostAiBuildStamp, logHostAiStage, newHostAiCorrelationChain } from './hostAiStageLog'
 import type { InternalInferenceCapabilitiesResultWire } from './types'
-import { listHostCapabilities } from './transport/internalInferenceTransport'
+import { listHostCapabilities, parseBeapIngestErrorJsonCode } from './transport/internalInferenceTransport'
+import { logHostAiProbeRoute } from './hostAiProbeRouteLog'
+import { isHostAiProbeTerminalNoPolicyFallback } from './transport/hostAiRouteCandidate'
 import {
+  buildHostAiCanonicalRouteResolveInputForDecider,
   buildHostAiTransportDeciderInputAsync,
   decideHostAiTransport,
   decideInternalInferenceTransport,
   deriveHostAiHandshakeRoles,
 } from './transport/decideInternalInferenceTransport'
+import { resolveHostAiRoute } from './transport/hostAiRouteResolve'
 
 /** Throttle [HOST_AI_STAGE] selector_target while P2P is in starting/signaling (same handshake). */
 const lastHostAiSelectorTargetStageByHandshake = new Map<string, number>()
@@ -86,21 +89,17 @@ function formatPairingCode(raw: string | null | undefined): string {
   return s || '—'
 }
 
-function isHostAiProvenanceFailureTerminal(cap: {
+function hostAiCapabilitiesAttemptTerminalNoPolicyGet(cap: {
   ok: boolean
   reason?: string
+  hostAiEndpointDenyDetail?: string
 }): cap is { ok: false; reason: string } {
   if (cap.ok) return false
-  if (typeof cap.reason !== 'string') return false
-  return (
-    cap.reason === InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH ||
-    cap.reason === InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING ||
-    cap.reason === InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING ||
-    cap.reason === InternalInferenceErrorCode.HOST_AI_NO_ROUTE ||
-    cap.reason === InternalInferenceErrorCode.HOST_AI_LEDGER_ASYMMETRIC ||
-    cap.reason === InternalInferenceErrorCode.HOST_AI_PAIRING_STALE ||
-    cap.reason === InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE
-  )
+  return isHostAiProbeTerminalNoPolicyFallback({
+    ok: false,
+    reason: typeof cap.reason === 'string' ? cap.reason : '',
+    hostAiEndpointDenyDetail: cap.hostAiEndpointDenyDetail,
+  })
 }
 
 export function policyProbeUrlFromP2pIngest(ingestUrl: string): string {
@@ -627,13 +626,12 @@ function p2pProbeLetterForOkInferenceCode(iec: string | undefined): P2pCapabilit
 }
 
 /**
- * Direct P2P POST to the peer `p2p_endpoint` only (asserted direct before call). Request body sets
- * `transport_policy: 'direct_only'`. Relay / shared BEAP ingest URLs are not used for inference MVP.
+ * POST Host capabilities using the canonical Host AI route resolver (verified direct HTTP or WebRTC/DC).
+ * Request body sets `transport_policy: 'direct_only'`.
  */
 export async function postInternalInferenceCapabilitiesRequest(
   hid: string,
   record: HandshakeRecord,
-  ingestUrl: string,
   token: string,
   timeoutMs: number,
   correlationChain?: string,
@@ -642,7 +640,7 @@ export async function postInternalInferenceCapabilitiesRequest(
   | { ok: true; wire: InternalInferenceCapabilitiesResultWire }
   | { ok: false; reason: string; responseStatus?: number; networkErrorMessage?: string }
 > {
-  return listHostCapabilities(hid, { record, ingestUrl, token, timeoutMs, correlationChain, beapCorrelationId })
+  return listHostCapabilities(hid, { record, token, timeoutMs, correlationChain, beapCorrelationId })
 }
 
 /**
@@ -766,15 +764,49 @@ async function probeHostInferencePolicyFromSandboxImpl(
     buildStamp,
     flags: fProbe,
   })
-  const decL = decideInternalInferenceTransport(
-    await buildHostAiTransportDeciderInputAsync({
-      /** Must match `listInferenceTargets` so the probe never diverges to legacy HTTP when the list row chose WebRTC. */
-      operationContext: 'list_targets',
-      db,
-      handshakeRecord: ar.record,
-      featureFlags: fProbe,
-    }),
+  const decInputL = await buildHostAiTransportDeciderInputAsync({
+    /** Must match `listInferenceTargets` so the probe never diverges to legacy HTTP when the list row chose WebRTC. */
+    operationContext: 'list_targets',
+    db,
+    handshakeRecord: ar.record,
+    featureFlags: fProbe,
+  })
+  const decL = decideInternalInferenceTransport(decInputL)
+  const canonicalProbe = buildHostAiCanonicalRouteResolveInputForDecider(
+    db,
+    ar.record,
+    decInputL.sessionState,
+    decInputL.relayHostAiP2pSignaling ?? 'na',
+    decInputL.legacyEndpointInfo,
   )
+  const routeResProbe = resolveHostAiRoute(canonicalProbe, { emitLog: false })
+  {
+    const localSandForLog = (localCoordinationDeviceId(ar.record) ?? '').trim()
+    const peerHostForLog = (coordinationDeviceIdForHandshakeDeviceRole(ar.record, 'host') ?? '').trim()
+    if (routeResProbe.ok) {
+      logHostAiProbeRoute({
+        handshake_id: hid,
+        selected_route_kind: routeResProbe.route.transport,
+        selected_endpoint_source: routeResProbe.route.source,
+        endpoint_owner_device_id: routeResProbe.route.ownerDeviceId,
+        local_device_id: localSandForLog,
+        peer_host_device_id: peerHostForLog,
+        decision: 'allow',
+        reason: `ok:${routeResProbe.route.transport}`,
+      })
+    } else {
+      logHostAiProbeRoute({
+        handshake_id: hid,
+        selected_route_kind: 'none',
+        selected_endpoint_source: 'none',
+        endpoint_owner_device_id: null,
+        local_device_id: localSandForLog,
+        peer_host_device_id: peerHostForLog,
+        decision: 'deny',
+        reason: `${routeResProbe.code}:${routeResProbe.reason}`,
+      })
+    }
+  }
   const transportAuth = decideHostAiTransport(decL)
   const role = assertLedgerRolesSandboxToHost(ar.record)
   const stSel0 = decL.selectorPhase
@@ -849,42 +881,6 @@ async function probeHostInferencePolicyFromSandboxImpl(
     }
   }
   const fP2p = getP2pInferenceFlags()
-  if (!internalInferenceEndpointGateOk(db, ar.record.p2p_endpoint, fP2p)) {
-    const direct = assertP2pEndpointDirect(db, ar.record.p2p_endpoint)
-    const rawEp0 = ar.record.p2p_endpoint?.trim() ?? ''
-    const epK0 = p2pEndpointKindForProbeLog(db, ar.record.p2p_endpoint)
-    p2p(`endpoint=${rawEp0 || '(empty)'}`)
-    p2p(`endpoint_kind=${epK0}`)
-    const k = p2pEndpointKind(db, ar.record.p2p_endpoint)
-    const letter: P2pCapabilityProbeLetter =
-      k === 'missing'
-        ? P2P_CAPABILITY_PROBE.ENDPOINT_MISSING
-        : k === 'relay'
-          ? P2P_CAPABILITY_PROBE.ENDPOINT_IS_RELAY
-          : P2P_CAPABILITY_PROBE.UNKNOWN
-    probeDone(false)
-    p2pClassificationDetail(`classification=${letter} reason=not_direct_p2p`)
-    logHostAiStage({
-      chain,
-      stage: 'selector_target',
-      reached: true,
-      success: false,
-      handshakeId: hid,
-      buildStamp,
-      flags: fP2p,
-      phase: epK0,
-      failureCode: 'ENDPOINT_GATE_NOT_OK',
-    })
-    return {
-      ok: false,
-      code: direct.ok ? InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE : direct.code,
-      message: 'Host AI path not reachable (direct ingest required for this probe).',
-      directP2pAvailable: false,
-      p2pProbeClassification: letter,
-    }
-  }
-  const ep = ar.record.p2p_endpoint?.trim() ?? ''
-  const epK = p2pEndpointKindForProbeLog(db, ar.record.p2p_endpoint)
   const token = outboundP2pBearerToCounterpartyIngest(ar.record)
   if (!token) {
     const hasLocal = !!(ar.record.local_p2p_auth_token && String(ar.record.local_p2p_auth_token).trim())
@@ -944,7 +940,6 @@ async function probeHostInferencePolicyFromSandboxImpl(
     }
     const capP2p = await listHostCapabilities(hid, {
       record: ar.record,
-      ingestUrl: ep,
       token: token!,
       timeoutMs: tCap,
       correlationChain: chain,
@@ -959,7 +954,7 @@ async function probeHostInferencePolicyFromSandboxImpl(
       }
       return { ...out, p2pProbeClassification: letterOk }
     }
-    if (isHostAiProvenanceFailureTerminal(capP2p)) {
+    if (hostAiCapabilitiesAttemptTerminalNoPolicyGet(capP2p)) {
       const pr = 'reason' in capP2p ? String(capP2p.reason) : ''
       p2p(`capability_probe_terminated handshake=${hid} webrtc_listHost code=${pr} (no http fallback / policy get)`)
       probeDone(false)
@@ -994,8 +989,8 @@ async function probeHostInferencePolicyFromSandboxImpl(
     const capPhase: 'http' | 'parse' =
       capReason === 'wrong_type' || capReason === 'invalid_response' ? 'parse' : 'http'
     const letter = classifyP2pCapabilityProbeFailure({
-      endpoint: ep,
-      endpointKind: epK,
+      endpoint: decInputL.hostAiVerifiedDirectIngestUrl ?? '',
+      endpointKind: p2pEndpointKindForProbeLog(db, decInputL.hostAiVerifiedDirectIngestUrl ?? ''),
       postReason: capReason,
       postResponseStatus: 'responseStatus' in capP2p ? capP2p.responseStatus : undefined,
       getResponseStatus: 'responseStatus' in capP2p ? capP2p.responseStatus : undefined,
@@ -1034,12 +1029,28 @@ async function probeHostInferencePolicyFromSandboxImpl(
     }
   }
 
+  if (!routeResProbe.ok || routeResProbe.route.transport !== 'direct_http' || !routeResProbe.route.endpoint?.trim()) {
+    probeDone(false)
+    p2p(`capability_probe_skip handshake=${hid} reason=no_verified_direct_http_route`)
+    p2pClassificationDetail(`classification=K reason=no_verified_direct_http_route`)
+    return {
+      ok: false,
+      code: !routeResProbe.ok ? routeResProbe.code : InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING,
+      message: 'no_verified_direct_http_route',
+      directP2pAvailable: true,
+      p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
+    }
+  }
+
+  const directEp = routeResProbe.route.endpoint.trim()
+  const epK = p2pEndpointKindForProbeLog(db, directEp)
+
   p2p('capability_probe_begin')
-  p2p(`handshake=${hid} endpoint=${ep}`)
+  p2p(`handshake=${hid} endpoint=${directEp}`)
   p2p(`endpoint_kind=${epK}`)
   p2p(`request_timeout_ms=${tCap}`)
 
-  const cap = await postInternalInferenceCapabilitiesRequest(hid, ar.record, ep, token, tCap, chain, beapCorr)
+  const cap = await postInternalInferenceCapabilitiesRequest(hid, ar.record, token, tCap, chain, beapCorr)
   if (cap.ok) {
     const out = mapCapabilitiesWireToProbe(cap.wire)
     const letterOk = p2pProbeLetterForOkInferenceCode(out.inferenceErrorCode)
@@ -1074,7 +1085,7 @@ async function probeHostInferencePolicyFromSandboxImpl(
     }
   }
 
-  if (isHostAiProvenanceFailureTerminal(cap)) {
+  if (hostAiCapabilitiesAttemptTerminalNoPolicyGet(cap)) {
     const pr = 'reason' in cap ? String(cap.reason) : ''
     p2p(`capability_probe_terminated handshake=${hid} code=${pr} (no policy GET / repair / fallback)`)
     probeDone(false)
@@ -1111,9 +1122,9 @@ async function probeHostInferencePolicyFromSandboxImpl(
     }
   }
 
-  p2p(`policy_fallback_get url=${policyProbeUrlFromP2pIngest(ep)} handshake=${hid}`)
+  p2p(`policy_fallback_get url=${policyProbeUrlFromP2pIngest(directEp)} handshake=${hid}`)
 
-  const url = policyProbeUrlFromP2pIngest(ep)
+  const url = policyProbeUrlFromP2pIngest(directEp)
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), tCap)
   try {
@@ -1131,7 +1142,7 @@ async function probeHostInferencePolicyFromSandboxImpl(
     p2p(`response_status=${res.status} phase=policy_get handshake=${hid}`)
     if (res.ok) {
       const adv = res.headers.get('x-beap-direct-p2p-endpoint')
-      if (!ingestUrlMatchesThisDevicesMvpDirectBeap(db, ep)) {
+      if (!ingestUrlMatchesThisDevicesMvpDirectBeap(db, directEp)) {
         const { tryRepairP2pEndpointFromHostAdvertisement } = await import('./p2pEndpointRepair')
         tryRepairP2pEndpointFromHostAdvertisement(db, hid, adv)
       } else {
@@ -1139,6 +1150,20 @@ async function probeHostInferencePolicyFromSandboxImpl(
       }
     }
     if (res.status === 401 || res.status === 403) {
+      const errText = await res.text()
+      const typed = errText ? parseBeapIngestErrorJsonCode(errText) : null
+      if (typed === InternalInferenceErrorCode.POLICY_FORBIDDEN) {
+        p2p(`request_failed code=${typed} message=get policy role/policy terminal handshake=${hid}`)
+        probeDone(false)
+        p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.UNKNOWN} reason=policy_forbidden`)
+        return {
+          ok: false,
+          code: InternalInferenceErrorCode.POLICY_FORBIDDEN,
+          message: 'forbidden_host_role',
+          directP2pAvailable: true,
+          p2pProbeClassification: P2P_CAPABILITY_PROBE.UNKNOWN,
+        }
+      }
       p2p(`request_failed code=forbidden message=get policy status handshake=${hid}`)
       probeDone(false)
       p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.AUTH_REJECTED}`)
@@ -1152,7 +1177,7 @@ async function probeHostInferencePolicyFromSandboxImpl(
     }
     if (!res.ok) {
       const letter = classifyP2pCapabilityProbeFailure({
-        endpoint: ep,
+        endpoint: directEp,
         endpointKind: epK,
         postReason: cap.reason,
         postResponseStatus: cap.responseStatus,
@@ -1226,7 +1251,7 @@ async function probeHostInferencePolicyFromSandboxImpl(
     const em = (e as Error)?.message
     if (name === 'AbortError') {
       const letter = classifyP2pCapabilityProbeFailure({
-        endpoint: ep,
+        endpoint: directEp,
         endpointKind: epK,
         postReason: cap.reason,
         postResponseStatus: cap.responseStatus,
@@ -1252,7 +1277,7 @@ async function probeHostInferencePolicyFromSandboxImpl(
     }
     const parsePhase = name === 'SyntaxError' ? ('parse' as const) : undefined
     const letter = classifyP2pCapabilityProbeFailure({
-      endpoint: ep,
+      endpoint: directEp,
       endpointKind: epK,
       postReason: cap.reason,
       postResponseStatus: cap.responseStatus,

@@ -95,6 +95,25 @@ export const InternalInferenceErrorCode = {
    * if WebRTC/relay can carry the session (see {@link decideHostAiIntentRoute} / route selection).
    */
   HOST_AI_DIRECT_PEER_BEAP_MISSING: 'HOST_AI_DIRECT_PEER_BEAP_MISSING',
+  /**
+   * Route resolution: selected endpoint is this device’s own BEAP / local ingest, not the paired Host’s.
+   * Identity is coordination-device scoped (handshake + device ids), not IP.
+   */
+  HOST_AI_LOCAL_BEAP_IS_NOT_PEER_HOST: 'HOST_AI_LOCAL_BEAP_IS_NOT_PEER_HOST',
+  /**
+   * Route resolution: no candidate passed verified peer-Host checks (advertisement, attestation, or policy).
+   */
+  HOST_AI_NO_VERIFIED_PEER_ROUTE: 'HOST_AI_NO_VERIFIED_PEER_ROUTE',
+  /**
+   * Route resolution: candidate owner device id does not match the handshake’s peer Host coordination id
+   * (distinct from {@link InternalInferenceErrorCode.HOST_AI_ENDPOINT_OWNER_MISMATCH} wire/ingest scope).
+   */
+  HOST_AI_ROUTE_OWNER_MISMATCH: 'HOST_AI_ROUTE_OWNER_MISMATCH',
+  /**
+   * Route / repair: peer Host has no advertised counterparty BEAP endpoint (distinct ledger empty cases).
+   * Terminal for probe UX when paired with {@link InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING}.
+   */
+  HOST_AI_PEER_ENDPOINT_MISSING: 'HOST_AI_PEER_ENDPOINT_MISSING',
   /** Host peer has no direct MVP-LAN counterparty URL; do not substitute local sandbox URL. */
   HOST_DIRECT_ENDPOINT_MISSING: 'HOST_DIRECT_ENDPOINT_MISSING',
   /**

@@ -14,14 +14,22 @@ import { requestHostInferenceCapabilitiesOverDataChannel } from '../p2pDc/p2pDcC
 import { sendHostInferenceRequestOverP2pDataChannel, sendInternalInferenceWireOverP2pDataChannel } from '../p2pDc/p2pDcInference'
 import { getSessionState, P2pSessionPhase } from '../p2pSession/p2pInferenceSessionManager'
 import { isP2pDataChannelUpForHandshake } from '../p2pSession/p2pSessionWait'
-import { resolveSandboxToHostHttpDirectIngest, tryRepairP2pEndpointFromHostAdvertisement, type SandboxToHostHttpDirectIngestResult } from '../p2pEndpointRepair'
+import {
+  getHostPublishedMvpDirectP2pIngestUrl,
+  peekHostAdvertisedMvpDirectP2pEndpoint,
+  tryRepairP2pEndpointFromHostAdvertisement,
+  type SandboxToHostHttpDirectIngestResult,
+} from '../p2pEndpointRepair'
+import type { HostAiSelectedEndpointProvenance } from '../hostAiEndpointCandidate'
 import type { HostAiEndpointDiagnostics } from '../../../../src/lib/hostAiUiDiagnostics'
+import { logHostAiProbeRoute } from '../hostAiProbeRouteLog'
 import { logHostAiRouteSelect } from '../hostAiRouteSelectLog'
 import { logHostAiEndpointSelect } from '../hostAiEndpointSelectLog'
 import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
 import {
-  canPostInternalInferenceHttpToP2pEndpointIngest,
+  assertP2pEndpointDirect,
   coordinationDeviceIdForHandshakeDeviceRole,
+  deriveInternalHostAiPeerRoles,
   hostAiSandboxToHostRequestDeviceIds,
   outboundP2pBearerToCounterpartyIngest,
   p2pEndpointKind,
@@ -34,21 +42,72 @@ import { logHostAiTransportChoose, logHostAiTransportFallback, logHostAiTranspor
 import type { HostAiTransport, HostAiTransportIntent, HostAiTransportLogReason } from './hostAiTransportTypes'
 import { decideHostAiIntentRoute } from './transportDecide'
 import {
+  buildHostAiCanonicalRouteResolveInputForDecider,
   buildHostAiTransportDeciderInput,
   buildHostAiTransportDeciderInputAsync,
   decideInternalInferenceTransport,
   deriveHostAiHandshakeRoles,
+  type HostAiTransportDeciderResult,
 } from './decideInternalInferenceTransport'
+import { resolveHostAiRoute } from './hostAiRouteResolve'
+import { hostAiDcCapabilityResultBlocksHttpFallback, type HostAiRouteResolveResult } from './hostAiRouteCandidate'
+
+/**
+ * Host → Sandbox HTTP delivery after `handleInternalInferenceRequest`: resolver `hostAiVerifiedDirectHttp`
+ * is sandbox→Host–centric (localRole=sandbox) and is always false on the Host process. Allow primary
+ * legacy HTTP only when it matches the same MVP-direct row gate as inbound core — never after a
+ * WebRTC→HTTP fallback (that path requires a verified direct candidate; not ledger-only).
+ */
+function hostAiVerifiedHttpForHostSendResult(args: {
+  dec: HostAiTransportDeciderResult | null
+  db: unknown
+  record: HandshakeRecord
+  webrtcFailureHttpFallback: boolean
+}): boolean {
+  if (args.dec?.hostAiVerifiedDirectHttp) return true
+  if (args.webrtcFailureHttpFallback) return false
+  const dr = deriveInternalHostAiPeerRoles(args.record, getInstanceId().trim())
+  if (!dr.ok || dr.localRole !== 'host' || dr.peerRole !== 'sandbox') return false
+  if (args.record.handshake_type !== 'internal') return false
+  return assertP2pEndpointDirect(args.db as any, args.record.p2p_endpoint).ok
+}
+
+function logHostAiRouteSelectFromDecider(
+  base: {
+    handshake_id: string
+    local_device_id: string
+    peer_device_id: string
+    local_role: 'sandbox' | 'host' | 'unknown'
+    peer_role: 'sandbox' | 'host' | 'unknown'
+    webrtc_available: boolean
+    relay_available: boolean
+    selected_route_kind: 'webrtc' | 'relay' | 'direct_http' | 'none'
+    failure_reason: string | null
+  },
+  dec: HostAiTransportDeciderResult | null,
+): void {
+  const direct = Boolean(dec?.hostAiVerifiedDirectHttp)
+  logHostAiRouteSelect({
+    ...base,
+    direct_http_available: direct,
+    route_resolve_code: direct ? null : dec?.hostAiRouteResolveFailureCode ?? null,
+    route_resolve_reason: direct ? null : dec?.hostAiRouteResolveFailureReason ?? null,
+  })
+}
 
 /**
  * /beap/ingest `jsonError` body is `{ code, message }` (see p2pServiceDispatch).
- * Used to map Host “no such handshake in local DB” to sandbox-side ledger-asymmetry handling.
+ * Used to map Host “no such handshake in local DB” to sandbox-side ledger-asymmetry handling,
+ * and to preserve `POLICY_FORBIDDEN` when the body only repeats `message: forbidden_host_role`.
  */
-function tryParseIngestErrorBodyText(text: string): string | null {
+export function parseBeapIngestErrorJsonCode(text: string): string | null {
   try {
     const j = JSON.parse(text) as { code?: unknown; message?: unknown }
     if (typeof j.code === 'string' && j.code.trim()) {
       return j.code.trim()
+    }
+    if (typeof j.message === 'string' && j.message.trim() === 'forbidden_host_role') {
+      return InternalInferenceErrorCode.POLICY_FORBIDDEN
     }
   } catch {
     return null
@@ -152,7 +211,8 @@ export function refreshTransportState(handshakeId: string, reason: string): void
 
 export type ListHostCapabilitiesOpts = {
   record: HandshakeRecord
-  ingestUrl: string
+  /** @deprecated Ignored for dial — HTTP uses `resolveHostAiRoute` direct_http endpoint only. */
+  ingestUrl?: string
   token: string
   timeoutMs: number
   /** Correlates all [HOST_AI_STAGE] lines for this attempt; defaults to a new UUID. */
@@ -243,7 +303,7 @@ export async function listHostCapabilities(
   opts: ListHostCapabilitiesOpts,
 ): Promise<{ ok: true; wire: InternalInferenceCapabilitiesResultWire } | ListHostCapabilitiesFailure> {
   const hid = handshakeId.trim()
-  const { record, ingestUrl, token, timeoutMs, correlationChain: chainOpt, beapCorrelationId: corrOpt } = opts
+  const { record, token, timeoutMs, correlationChain: chainOpt, beapCorrelationId: corrOpt } = opts
   const chain = (chainOpt && chainOpt.trim() ? chainOpt.trim() : null) || newHostAiCorrelationChain()
   const beapCorr = (corrOpt && corrOpt.trim() ? corrOpt.trim() : null) || randomUUID()
   const buildStamp = getHostAiBuildStamp()
@@ -276,16 +336,15 @@ export async function listHostCapabilities(
   })
 
   const db = await getHandshakeDbForInternalInference()
-  const dec = db
-    ? decideInternalInferenceTransport(
-        await buildHostAiTransportDeciderInputAsync({
-          operationContext: 'capabilities',
-          db,
-          handshakeRecord: record,
-          featureFlags: f,
-        }),
-      )
+  const decInput = db
+    ? await buildHostAiTransportDeciderInputAsync({
+        operationContext: 'capabilities',
+        db,
+        handshakeRecord: record,
+        featureFlags: f,
+      })
     : null
+  const dec = decInput ? decideInternalInferenceTransport(decInput) : null
   const endpointGateOk = dec?.p2pTransportEndpointOpen ?? false
   const decision = decideHostAiIntentRoute(hid, 'capabilities', endpointGateOk)
   const selOk = decision.choice.selected !== 'unavailable'
@@ -383,7 +442,42 @@ export async function listHostCapabilities(
   const localSandbox = cids.requester
   const peerHost = cids.targetHost
 
-  const httpIngestOk = canPostInternalInferenceHttpToP2pEndpointIngest(db, record.p2p_endpoint)
+  let routeRes: HostAiRouteResolveResult | null = null
+  if (db && decInput) {
+    const canonical = buildHostAiCanonicalRouteResolveInputForDecider(
+      db,
+      record,
+      decInput.sessionState,
+      decInput.relayHostAiP2pSignaling ?? 'na',
+      decInput.legacyEndpointInfo,
+    )
+    routeRes = resolveHostAiRoute(canonical, { emitLog: false })
+    if (routeRes.ok) {
+      logHostAiProbeRoute({
+        handshake_id: hid,
+        selected_route_kind: routeRes.route.transport,
+        selected_endpoint_source: routeRes.route.source,
+        endpoint_owner_device_id: routeRes.route.ownerDeviceId,
+        local_device_id: localSandbox,
+        peer_host_device_id: peerHost,
+        decision: 'allow',
+        reason: `ok:${routeRes.route.transport}`,
+      })
+    } else {
+      logHostAiProbeRoute({
+        handshake_id: hid,
+        selected_route_kind: 'none',
+        selected_endpoint_source: 'none',
+        endpoint_owner_device_id: null,
+        local_device_id: localSandbox,
+        peer_host_device_id: peerHost,
+        decision: 'deny',
+        reason: `${routeRes.code}:${routeRes.reason}`,
+      })
+    }
+  }
+
+  let resolvedHttpIngestUrl: string | null = null
 
   if (decision.choice.selected === 'webrtc_p2p') {
     const p2pS = getSessionState(hid)
@@ -412,19 +506,36 @@ export async function listHostCapabilities(
         failureCode: 'P2P_NO_SESSION',
       })
       touchState(hid, 'capabilities', 'unavailable', 'p2p_not_wired')
-      logHostAiRouteSelect({
-        handshake_id: hid,
-        local_device_id: localSandbox,
-        peer_device_id: peerHost,
-        local_role: cids.localRole,
-        peer_role: cids.peerRole,
-        webrtc_available: false,
-        relay_available: p2pEndpointKind(db, record.p2p_endpoint) === 'relay',
-        direct_http_available: httpIngestOk,
-        selected_route_kind: 'none',
-        failure_reason: 'p2p_session_not_allocated_yet',
-      })
+      logHostAiRouteSelectFromDecider(
+        {
+          handshake_id: hid,
+          local_device_id: localSandbox,
+          peer_device_id: peerHost,
+          local_role: cids.localRole,
+          peer_role: cids.peerRole,
+          webrtc_available: false,
+          relay_available: p2pEndpointKind(db, record.p2p_endpoint) === 'relay',
+          selected_route_kind: 'none',
+          failure_reason: 'p2p_session_not_allocated_yet',
+        },
+        dec,
+      )
       console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=probe_transport_not_ready (no p2p session yet)`)
+      return { ok: false, reason: InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY }
+    }
+    if (!routeRes?.ok || routeRes.route.transport !== 'webrtc_dc') {
+      logHostAiProbeRoute({
+        handshake_id: hid,
+        selected_route_kind: routeRes?.ok ? routeRes.route.transport : 'none',
+        selected_endpoint_source: routeRes?.ok ? routeRes.route.source : 'none',
+        endpoint_owner_device_id: routeRes?.ok ? routeRes.route.ownerDeviceId : null,
+        local_device_id: localSandbox,
+        peer_host_device_id: peerHost,
+        decision: 'deny',
+        reason: 'webrtc_requires_verified_dc_route',
+      })
+      touchState(hid, 'capabilities', 'unavailable', 'webrtc_route_not_verified_dc')
+      console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=probe_transport_not_ready (no verified webrtc_dc route)`)
       return { ok: false, reason: InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY }
     }
     const capReqId = randomUUID()
@@ -442,18 +553,20 @@ export async function listHostCapabilities(
     console.log(`[HOST_INFERENCE_CAPS] request_send_dc handshake=${hid} session=${p2pSid} corr=${beapCorr}`)
     const dcr = await requestHostInferenceCapabilitiesOverDataChannel(hid, p2pSid, timeoutMs, { requestId: capReqId })
     if (dcr.ok) {
-      logHostAiRouteSelect({
-        handshake_id: hid,
-        local_device_id: localSandbox,
-        peer_device_id: peerHost,
-        local_role: cids.localRole,
-        peer_role: cids.peerRole,
-        webrtc_available: true,
-        relay_available: p2pEndpointKind(db, record.p2p_endpoint) === 'relay',
-        direct_http_available: httpIngestOk,
-        selected_route_kind: 'webrtc',
-        failure_reason: null,
-      })
+      logHostAiRouteSelectFromDecider(
+        {
+          handshake_id: hid,
+          local_device_id: localSandbox,
+          peer_device_id: peerHost,
+          local_role: cids.localRole,
+          peer_role: cids.peerRole,
+          webrtc_available: true,
+          relay_available: p2pEndpointKind(db, record.p2p_endpoint) === 'relay',
+          selected_route_kind: 'webrtc',
+          failure_reason: null,
+        },
+        dec,
+      )
       logHostAiStage({
         chain,
         stage: 'capabilities_response',
@@ -490,12 +603,13 @@ export async function listHostCapabilities(
     if (!dcr.ok) {
       const errReason = dcr.reason
       const errCode = dcr.code
-      const roleGate =
-        errCode === InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED ||
-        errReason === 'not_sandbox_requester' ||
-        errReason === 'role' ||
-        (errReason === 'inference_error' && errCode === InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED)
-      if (roleGate) {
+      if (hostAiDcCapabilityResultBlocksHttpFallback(errReason, errCode)) {
+        const terminalReason =
+          typeof errCode === 'string' && errCode.trim()
+            ? errCode.trim()
+            : errReason === 'not_sandbox_requester' || errReason === 'role'
+              ? InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED
+              : errReason
         logHostAiStage({
           chain,
           stage: 'capabilities_response',
@@ -506,13 +620,30 @@ export async function listHostCapabilities(
           flags: f,
           p2pSessionId: p2pSid,
           requestId: capReqId,
-          failureCode: InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED,
+          failureCode: terminalReason,
         })
-        console.log(
-          `[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=${InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED} (no_http_fallback)`,
-        )
-        touchState(hid, 'capabilities', 'unavailable', 'host_ai_capability_role_rejected')
-        return { ok: false, reason: InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED }
+        console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=${terminalReason} (no_http_fallback)`)
+        touchState(hid, 'capabilities', 'unavailable', terminalReason)
+        const roleDiag =
+          terminalReason === InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED ||
+          terminalReason === InternalInferenceErrorCode.POLICY_FORBIDDEN ||
+          errReason === 'role' ||
+          errReason === 'not_sandbox_requester'
+            ? {
+                local_device_id: localSandbox,
+                peer_host_device_id: peerHost,
+                selected_endpoint: null as string | null,
+                selected_endpoint_owner: null as string | null,
+                local_beap_endpoint: null as string | null,
+                peer_advertised_beap_endpoint: null as string | null,
+                rejection_reason: `${terminalReason} (${errReason})`,
+                local_role: String(cids.localRole ?? 'unknown'),
+                peer_role: String(cids.peerRole ?? 'unknown'),
+                requester_role: 'sandbox',
+                receiver_role: 'host',
+              }
+            : undefined
+        return { ok: false, reason: terminalReason, hostAiEndpointDiagnostics: roleDiag }
       }
       logHostAiStage({
         chain,
@@ -528,6 +659,11 @@ export async function listHostCapabilities(
       })
       console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=${errReason}`)
       if (getP2pInferenceFlags().p2pInferenceHttpFallback) {
+        const u = decInput?.hostAiVerifiedDirectIngestUrl?.trim()
+        if (!u) {
+          touchState(hid, 'capabilities', 'unavailable', 'p2p_not_ready_no_fallback')
+          return { ok: false, reason: errReason }
+        }
         logHostAiTransportFallback({
           handshakeId: hid,
           from: 'webrtc_p2p',
@@ -536,6 +672,17 @@ export async function listHostCapabilities(
         })
         touchState(hid, 'capabilities', 'http_direct', 'p2p_dc_error_fallback_http')
         console.log(`[HOST_INFERENCE_CAPS] falling_back_to_http reason=${errReason} handshake=${hid}`)
+        logHostAiProbeRoute({
+          handshake_id: hid,
+          selected_route_kind: 'direct_http',
+          selected_endpoint_source: 'verified_peer_fallback',
+          endpoint_owner_device_id: peerHost,
+          local_device_id: localSandbox,
+          peer_host_device_id: peerHost,
+          decision: 'allow',
+          reason: 'dc_error_fallback_verified_direct',
+        })
+        resolvedHttpIngestUrl = u
       } else {
         touchState(hid, 'capabilities', 'unavailable', 'p2p_not_ready_no_fallback')
         return { ok: false, reason: errReason }
@@ -543,22 +690,84 @@ export async function listHostCapabilities(
     }
   }
 
-  if (!httpIngestOk) {
+  // Host AI caps HTTP POST uses only `resolvedHttpIngestUrl` (resolver-verified). Do not treat `canPost(ledger)`
+  // as dial viability — ledger `p2p_endpoint` is untrusted for peer-Host ownership.
+  const ledgerRowNotSyntacticDirectIngest = db ? p2pEndpointKind(db, record.p2p_endpoint) !== 'direct' : true
+
+  if (!resolvedHttpIngestUrl && decision.choice.selected === 'http_direct') {
+    if (!db || !routeRes) {
+      touchState(hid, 'capabilities', 'unavailable', 'p2p_not_wired')
+      return { ok: false, reason: 'http_ingest_requires_direct_beap' }
+    }
+    if (!routeRes.ok || routeRes.route.transport !== 'direct_http' || !routeRes.route.endpoint?.trim()) {
+      logHostAiProbeRoute({
+        handshake_id: hid,
+        selected_route_kind: routeRes.ok ? routeRes.route.transport : 'none',
+        selected_endpoint_source: routeRes.ok ? routeRes.route.source : 'none',
+        endpoint_owner_device_id: routeRes.ok ? routeRes.route.ownerDeviceId : null,
+        local_device_id: localSandbox,
+        peer_host_device_id: peerHost,
+        decision: 'deny',
+        reason: 'http_direct_requires_resolver_direct_http',
+      })
+      touchState(hid, 'capabilities', 'unavailable', 'host_direct_beap_unavailable')
+      const code = !routeRes.ok ? routeRes.code : InternalInferenceErrorCode.HOST_AI_NO_VERIFIED_PEER_ROUTE
+      console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=${code} (no verified direct_http route)`)
+      const epK = db ? p2pEndpointKind(db, record.p2p_endpoint) : 'missing'
+      return {
+        ok: false,
+        reason: code,
+        hostAiEndpointDiagnostics: {
+          local_device_id: getInstanceId().trim(),
+          peer_host_device_id: peerHost,
+          selected_endpoint: null,
+          selected_endpoint_owner: null,
+          local_beap_endpoint: null,
+          peer_advertised_beap_endpoint: null,
+          rejection_reason: !routeRes.ok ? `${routeRes.code} (${routeRes.reason})` : 'no_verified_direct_http',
+          webrtc_available: Boolean(
+            dec?.preferredTransport === 'webrtc_p2p' || isP2pDataChannelUpForHandshake(hid),
+          ),
+          direct_http_available: Boolean(dec?.hostAiVerifiedDirectHttp),
+          relay_available: epK === 'relay',
+        },
+      }
+    }
+    resolvedHttpIngestUrl = routeRes.route.endpoint.trim()
+    logHostAiProbeRoute({
+      handshake_id: hid,
+      selected_route_kind: 'direct_http',
+      selected_endpoint_source: routeRes.route.source,
+      endpoint_owner_device_id: routeRes.route.ownerDeviceId,
+      local_device_id: localSandbox,
+      peer_host_device_id: peerHost,
+      decision: 'allow',
+      reason: 'http_capabilities_verified_direct',
+    })
+  }
+
+  if (!resolvedHttpIngestUrl && ledgerRowNotSyntacticDirectIngest) {
     const p2pStackOn = f.p2pInferenceEnabled && f.p2pInferenceWebrtcEnabled && f.p2pInferenceSignalingEnabled
     /** Relay / signaling `p2p_endpoint` is not a BEAP HTTP POST target; WebRTC+DC (or P2P setup) is still valid. */
     if (p2pStackOn) {
-      logHostAiRouteSelect({
-        handshake_id: hid,
-        local_device_id: localSandbox,
-        peer_device_id: peerHost,
-        local_role: cids.localRole,
-        peer_role: cids.peerRole,
-        webrtc_available: isP2pDataChannelUpForHandshake(hid),
-        relay_available: p2pEndpointKind(db, record.p2p_endpoint) === 'relay',
-        direct_http_available: false,
-        selected_route_kind: isP2pDataChannelUpForHandshake(hid) ? 'webrtc' : p2pEndpointKind(db, record.p2p_endpoint) === 'relay' ? 'relay' : 'none',
-        failure_reason: null,
-      })
+      logHostAiRouteSelectFromDecider(
+        {
+          handshake_id: hid,
+          local_device_id: localSandbox,
+          peer_device_id: peerHost,
+          local_role: cids.localRole,
+          peer_role: cids.peerRole,
+          webrtc_available: isP2pDataChannelUpForHandshake(hid),
+          relay_available: p2pEndpointKind(db, record.p2p_endpoint) === 'relay',
+          selected_route_kind: isP2pDataChannelUpForHandshake(hid)
+            ? 'webrtc'
+            : p2pEndpointKind(db, record.p2p_endpoint) === 'relay'
+              ? 'relay'
+              : 'none',
+          failure_reason: null,
+        },
+        dec,
+      )
       logHostAiStage({
         chain,
         stage: 'capabilities_request',
@@ -606,159 +815,46 @@ export async function listHostCapabilities(
       failureCode: 'HTTP_INGEST_DIRECT_BEAP_REQUIRED',
     })
     touchState(hid, 'capabilities', 'unavailable', 'p2p_not_wired')
-    logHostAiRouteSelect({
-      handshake_id: hid,
-      local_device_id: localSandbox,
-      peer_device_id: peerHost,
-      local_role: cids.localRole,
-      peer_role: cids.peerRole,
-      webrtc_available: isP2pDataChannelUpForHandshake(hid),
-      relay_available: p2pEndpointKind(db, record.p2p_endpoint) === 'relay',
-      direct_http_available: false,
-      selected_route_kind: 'none',
-      failure_reason: 'http_ingest_requires_direct_beap',
-    })
+    logHostAiRouteSelectFromDecider(
+      {
+        handshake_id: hid,
+        local_device_id: localSandbox,
+        peer_device_id: peerHost,
+        local_role: cids.localRole,
+        peer_role: cids.peerRole,
+        webrtc_available: isP2pDataChannelUpForHandshake(hid),
+        relay_available: p2pEndpointKind(db, record.p2p_endpoint) === 'relay',
+        selected_route_kind: 'none',
+        failure_reason: 'http_ingest_requires_direct_beap',
+      },
+      dec,
+    )
     console.log(
       `[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=http_ingest_requires_direct_beap`,
     )
     return { ok: false, reason: 'http_ingest_requires_direct_beap' }
   }
+  if (!resolvedHttpIngestUrl) {
+    return { ok: false, reason: InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY }
+  }
+
   if (!db) {
     return { ok: false, reason: 'http_ingest_requires_direct_beap' }
   }
 
   const currentDevice = getInstanceId().trim()
   const hostRecordOwnerId = (coordinationDeviceIdForHandshakeDeviceRole(record, 'host') ?? '').trim()
-  const epKHttp = p2pEndpointKind(db, record.p2p_endpoint)
-  const mvpKHttp = p2pEndpointMvpClass(db, record.p2p_endpoint)
-  const isDirectRow = epKHttp === 'direct' || mvpKHttp === 'direct_lan'
+  const urlToUse = resolvedHttpIngestUrl
+  const localBeapLog = getHostPublishedMvpDirectP2pIngestUrl(db as any)
+  const peerAdLog = peekHostAdvertisedMvpDirectP2pEndpoint(hid)
+  const endpointProv: HostAiSelectedEndpointProvenance =
+    routeRes?.ok && routeRes.route.transport === 'direct_http'
+      ? routeRes.route.source === 'server_attested_relay'
+        ? 'relay_control_plane'
+        : 'peer_advertised_header'
+      : 'peer_advertised_header'
 
-  const prov = resolveSandboxToHostHttpDirectIngest(db, hid, record, ingestUrl)
-  if (!prov.ok) {
-    const code = prov.code
-    if (code === InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING) {
-      const wrtc = isWebRtcHostAiArchitectureEnabled(f)
-      const dcUp = isP2pDataChannelUpForHandshake(hid)
-      const rel = p2pEndpointKind(db, record.p2p_endpoint) === 'relay'
-      logHostAiRouteSelect({
-        handshake_id: hid,
-        local_device_id: currentDevice,
-        peer_device_id: peerHost,
-        local_role: cids.localRole,
-        peer_role: cids.peerRole,
-        webrtc_available: dcUp,
-        relay_available: rel,
-        direct_http_available: false,
-        selected_route_kind: dcUp ? 'webrtc' : rel ? 'relay' : 'none',
-        failure_reason: 'HOST_AI_DIRECT_PEER_BEAP_MISSING',
-      })
-      if (wrtc && (dec?.p2pTransportEndpointOpen || dec?.selectorPhase === 'connecting' || rel)) {
-        touchState(hid, 'capabilities', 'unavailable', 'direct_beap_optional_pending_p2p')
-        return {
-          ok: false,
-          reason: InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY,
-          hostAiEndpointDenyDetail: prov.host_ai_endpoint_deny_detail,
-          hostAiEndpointDiagnostics: hostAiDiagnosticsFromFailedProv(prov, ingestUrl, currentDevice, peerHost),
-        }
-      }
-      if (!wrtc) {
-        touchState(hid, 'capabilities', 'unavailable', 'host_direct_beap_unavailable')
-        return {
-          ok: false,
-          reason: InternalInferenceErrorCode.HOST_AI_NO_ROUTE,
-          hostAiEndpointDenyDetail: prov.host_ai_endpoint_deny_detail,
-          hostAiEndpointDiagnostics: hostAiDiagnosticsFromFailedProv(prov, ingestUrl, currentDevice, peerHost),
-        }
-      }
-    }
-    const isPeerMissing = code === InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING
-    const isLocalProv =
-      prov.selected_endpoint_provenance === 'local_beap' || prov.host_ai_endpoint_deny_detail === 'self_local_beap_selected'
-    const logSelected: string | null = isPeerMissing ? null : (ingestUrl && ingestUrl.trim()) || null
-    const logRecordId =
-      isPeerMissing ? null : isLocalProv ? currentDevice : hostRecordOwnerId
-    const logOwnerId =
-      isPeerMissing ? null : isLocalProv ? currentDevice : peerHost
-    const logRecordRole: 'host' | 'unknown' = isPeerMissing
-      ? 'unknown'
-      : isLocalProv
-        ? 'unknown'
-        : hostRecordOwnerId
-          ? 'host'
-          : 'unknown'
-    logHostAiEndpointSelect({
-      handshake_id: hid,
-      current_device_id: currentDevice,
-      local_derived_role: cids.localRole,
-      peer_device_id: peerHost,
-      peer_derived_role: cids.peerRole,
-      selected_endpoint: logSelected,
-      selected_endpoint_provenance: prov.selected_endpoint_provenance,
-      host_ai_endpoint_deny_detail: prov.host_ai_endpoint_deny_detail,
-      host_ai_resolution_category: prov.resolutionCategory,
-      selected_endpoint_record_device_id: logRecordId ?? undefined,
-      selected_endpoint_record_role: logRecordRole,
-      local_beap_endpoint: prov.local_beap_endpoint,
-      peer_advertised_beap_endpoint: prov.peer_advertised_beap_endpoint,
-      repaired_from_local_endpoint: false,
-      endpoint_owner_device_id: logOwnerId,
-      endpoint_owner_role: isPeerMissing ? 'unknown' : isLocalProv ? 'sandbox' : 'host',
-      decision: 'deny',
-      reason: code,
-    })
-    const fc =
-      code === InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING
-        ? 'HOST_DIRECT_ENDPOINT_MISSING'
-        : code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING
-          ? 'HOST_AI_ENDPOINT_PROVENANCE_MISSING'
-          : code === InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING
-            ? 'HOST_AI_DIRECT_PEER_BEAP_MISSING'
-            : 'HOST_AI_ENDPOINT_OWNER_MISMATCH'
-    logHostAiStage({
-      chain,
-      stage: 'capabilities_request',
-      reached: true,
-      success: false,
-      handshakeId: hid,
-      buildStamp,
-      flags: f,
-      failureCode: fc,
-    })
-    logHostAiStage({
-      chain,
-      stage: 'capabilities_response',
-      reached: true,
-      success: false,
-      handshakeId: hid,
-      buildStamp,
-      flags: f,
-      failureCode: fc,
-    })
-    touchState(
-      hid,
-      'capabilities',
-      'unavailable',
-      code === InternalInferenceErrorCode.HOST_DIRECT_ENDPOINT_MISSING
-        ? 'host_direct_endpoint_missing'
-        : code === InternalInferenceErrorCode.HOST_AI_ENDPOINT_PROVENANCE_MISSING
-          ? 'host_ai_endpoint_provenance_missing'
-          : code === InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING
-            ? 'host_direct_peer_beap_missing'
-            : 'host_ai_endpoint_owner_mismatch',
-    )
-    console.log(
-      `[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=${code} deny_detail=${prov.host_ai_endpoint_deny_detail ?? 'n/a'}`,
-    )
-    return {
-      ok: false,
-      reason: code,
-      hostAiEndpointDenyDetail: prov.host_ai_endpoint_deny_detail,
-      hostAiEndpointDiagnostics: hostAiDiagnosticsFromFailedProv(prov, ingestUrl, currentDevice, peerHost),
-    }
-  }
-
-  const urlToUse = prov.url
-  if (isDirectRow) {
+  {
     if (!hostRecordOwnerId) {
       logHostAiEndpointSelect({
         handshake_id: hid,
@@ -767,13 +863,13 @@ export async function listHostCapabilities(
         peer_device_id: peerHost,
         peer_derived_role: cids.peerRole,
         selected_endpoint: urlToUse,
-        selected_endpoint_provenance: prov.selected_endpoint_provenance,
-        host_ai_resolution_category: prov.resolutionCategory,
+        selected_endpoint_provenance: endpointProv,
+        host_ai_resolution_category: 'rejected_no_peer_host_beap',
         selected_endpoint_record_device_id: hostRecordOwnerId,
         selected_endpoint_record_role: 'unknown',
-        local_beap_endpoint: prov.local_beap_endpoint,
-        peer_advertised_beap_endpoint: prov.peer_advertised_beap_endpoint,
-        repaired_from_local_endpoint: prov.repaired_from_local_endpoint,
+        local_beap_endpoint: localBeapLog,
+        peer_advertised_beap_endpoint: peerAdLog,
+        repaired_from_local_endpoint: false,
         endpoint_owner_device_id: peerHost,
         endpoint_owner_role: 'unknown',
         decision: 'deny',
@@ -799,8 +895,8 @@ export async function listHostCapabilities(
           currentDevice,
           peerHost,
           selectedEndpoint: urlToUse,
-          localBeap: prov.local_beap_endpoint,
-          peerAdvertised: prov.peer_advertised_beap_endpoint,
+          localBeap: localBeapLog,
+          peerAdvertised: peerAdLog,
           code: 'HOST_DIRECT_ENDPOINT_MISSING',
           detail: 'no_host_owner_on_row',
         }),
@@ -814,14 +910,14 @@ export async function listHostCapabilities(
         peer_device_id: peerHost,
         peer_derived_role: cids.peerRole,
         selected_endpoint: urlToUse,
-        selected_endpoint_provenance: prov.selected_endpoint_provenance,
-        host_ai_resolution_category: prov.resolutionCategory,
+        selected_endpoint_provenance: endpointProv,
+        host_ai_resolution_category: 'rejected_owner_mismatch',
         host_ai_endpoint_deny_detail: 'host_owner_mismatch',
         selected_endpoint_record_device_id: hostRecordOwnerId,
         selected_endpoint_record_role: 'host',
-        local_beap_endpoint: prov.local_beap_endpoint,
-        peer_advertised_beap_endpoint: prov.peer_advertised_beap_endpoint,
-        repaired_from_local_endpoint: prov.repaired_from_local_endpoint,
+        local_beap_endpoint: localBeapLog,
+        peer_advertised_beap_endpoint: peerAdLog,
+        repaired_from_local_endpoint: false,
         endpoint_owner_device_id: peerHost,
         endpoint_owner_role: 'host',
         decision: 'deny',
@@ -847,8 +943,8 @@ export async function listHostCapabilities(
           currentDevice,
           peerHost,
           selectedEndpoint: urlToUse,
-          localBeap: prov.local_beap_endpoint,
-          peerAdvertised: prov.peer_advertised_beap_endpoint,
+          localBeap: localBeapLog,
+          peerAdvertised: peerAdLog,
           code: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
           detail: 'host_owner_mismatch',
         }),
@@ -862,14 +958,14 @@ export async function listHostCapabilities(
         peer_device_id: peerHost,
         peer_derived_role: cids.peerRole,
         selected_endpoint: urlToUse,
-        selected_endpoint_provenance: prov.selected_endpoint_provenance,
-        host_ai_resolution_category: prov.resolutionCategory,
+        selected_endpoint_provenance: endpointProv,
+        host_ai_resolution_category: 'rejected_self_endpoint',
         host_ai_endpoint_deny_detail: 'self_endpoint_selected',
         selected_endpoint_record_device_id: hostRecordOwnerId,
         selected_endpoint_record_role: 'host',
-        local_beap_endpoint: prov.local_beap_endpoint,
-        peer_advertised_beap_endpoint: prov.peer_advertised_beap_endpoint,
-        repaired_from_local_endpoint: prov.repaired_from_local_endpoint,
+        local_beap_endpoint: localBeapLog,
+        peer_advertised_beap_endpoint: peerAdLog,
+        repaired_from_local_endpoint: false,
         endpoint_owner_device_id: peerHost,
         endpoint_owner_role: 'host',
         decision: 'deny',
@@ -895,8 +991,8 @@ export async function listHostCapabilities(
           currentDevice,
           peerHost,
           selectedEndpoint: urlToUse,
-          localBeap: prov.local_beap_endpoint,
-          peerAdvertised: prov.peer_advertised_beap_endpoint,
+          localBeap: localBeapLog,
+          peerAdvertised: peerAdLog,
           code: 'HOST_AI_ENDPOINT_OWNER_MISMATCH',
           detail: 'self_endpoint_selected',
         }),
@@ -910,13 +1006,14 @@ export async function listHostCapabilities(
     peer_device_id: peerHost,
     peer_derived_role: cids.peerRole,
     selected_endpoint: urlToUse,
-    selected_endpoint_provenance: prov.selected_endpoint_provenance,
-    host_ai_resolution_category: prov.resolutionCategory,
+    selected_endpoint_provenance: endpointProv,
+    host_ai_resolution_category:
+      endpointProv === 'relay_control_plane' ? 'accepted_relay_ad' : 'accepted_peer_header',
     selected_endpoint_record_device_id: hostRecordOwnerId,
     selected_endpoint_record_role: 'host',
-    local_beap_endpoint: prov.local_beap_endpoint,
-    peer_advertised_beap_endpoint: prov.peer_advertised_beap_endpoint,
-    repaired_from_local_endpoint: prov.repaired_from_local_endpoint,
+    local_beap_endpoint: localBeapLog,
+    peer_advertised_beap_endpoint: peerAdLog,
+    repaired_from_local_endpoint: false,
     endpoint_owner_device_id: peerHost,
     endpoint_owner_role: 'host',
     decision: 'probe',
@@ -962,7 +1059,7 @@ export async function listHostCapabilities(
     clearTimeout(timer)
     console.log(`[HOST_INFERENCE_P2P] response_status=${res.status} handshake=${hid}`)
     const errText = !res.ok ? await res.text() : ''
-    const ingestErrCode = !res.ok && errText ? tryParseIngestErrorBodyText(errText) : null
+    const ingestErrCode = !res.ok && errText ? parseBeapIngestErrorJsonCode(errText) : null
     if (ingestErrCode === InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE) {
       const fc = 'NO_ACTIVE_INTERNAL_HOST_HANDSHAKE'
       logHostAiStage({
@@ -982,7 +1079,8 @@ export async function listHostCapabilities(
       return { ok: false, reason: InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE, responseStatus: res.status }
     }
     if (res.status === 401 || res.status === 403) {
-      const m = 'forbidden'
+      const reason = ingestErrCode?.trim() ? ingestErrCode.trim() : 'forbidden'
+      const m = reason === 'forbidden' ? 'forbidden' : reason
       logHostAiStage({
         chain,
         stage: 'capabilities_response',
@@ -995,10 +1093,10 @@ export async function listHostCapabilities(
         failureCode: 'HTTP_FORBIDDEN',
       })
       console.log(
-        `[HOST_INFERENCE_P2P] request_failed code=forbidden message=${redactP2pLogLine(m)} handshake=${hid}`,
+        `[HOST_INFERENCE_P2P] request_failed code=${reason} message=${redactP2pLogLine(m)} handshake=${hid}`,
       )
-      console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=forbidden`)
-      return { ok: false, reason: 'forbidden', responseStatus: res.status }
+      console.log(`[HOST_INFERENCE_CAPS] response_error handshake=${hid} code=${reason}`)
+      return { ok: false, reason, responseStatus: res.status }
     }
     if (!res.ok) {
       const m = `http ${res.status}`
@@ -1391,7 +1489,8 @@ export async function requestHostCompletion(
     touchState(hid, 'request', d.selected, d.reason)
   }
   const dbHttp = (await getHandshakeDbForInternalInference()) ?? db0
-  if (!dbHttp || !canPostInternalInferenceHttpToP2pEndpointIngest(dbHttp, record.p2p_endpoint)) {
+  const verifiedHttpUrl = (dec0?.hostAiVerifiedDirectIngestUrl ?? '').trim()
+  if (!dbHttp || !verifiedHttpUrl) {
     logHostAiStage({
       chain,
       stage: 'model_projection',
@@ -1402,16 +1501,15 @@ export async function requestHostCompletion(
       flags: f0,
       requestId: reqId0,
       phase: 'http_ingest',
-      failureCode: 'DIRECT_BEAP_INGEST_REQUIRED',
+      failureCode: 'VERIFIED_DIRECT_HTTP_REQUIRED',
     })
     touchState(hid, 'request', 'unavailable', 'p2p_not_wired')
     return {
       ok: false,
-      code: InternalInferenceErrorCode.SERVICE_RPC_NOT_SUPPORTED,
-      error: 'direct_beap_ingest_required',
+      code: InternalInferenceErrorCode.HOST_AI_NO_VERIFIED_PEER_ROUTE,
+      error: 'verified_direct_http_required',
     }
   }
-  const ep = record.p2p_endpoint?.trim() ?? ''
   logHostAiInferRequestSend({
     handshakeId: hid,
     requestId: request.request_id,
@@ -1432,7 +1530,7 @@ export async function requestHostCompletion(
   })
   return postServiceEnvelopeDirect(
     request,
-    ep,
+    verifiedHttpUrl,
     record.handshake_id,
     outboundP2pBearerToCounterpartyIngest(record) || null,
     {
@@ -1459,19 +1557,20 @@ export async function sendHostInferenceResult(
   const resultBeapCorr = (resBeapCorr && resBeapCorr.trim() ? resBeapCorr.trim() : null) || randomUUID()
   const db0 = await getHandshakeDbForInternalInference()
   const f0 = getP2pInferenceFlags()
-  let endpointGateOk = false
-  if (db0) {
-    endpointGateOk = decideInternalInferenceTransport(
-      await buildHostAiTransportDeciderInputAsync({
-        operationContext: 'result',
-        db: db0,
-        handshakeRecord: record,
-        featureFlags: f0,
-      }),
-    ).p2pTransportEndpointOpen
-  }
+  const decResult = db0
+    ? decideInternalInferenceTransport(
+        await buildHostAiTransportDeciderInputAsync({
+          operationContext: 'result',
+          db: db0,
+          handshakeRecord: record,
+          featureFlags: f0,
+        }),
+      )
+    : null
+  const endpointGateOk = decResult?.p2pTransportEndpointOpen ?? false
   const decision = decideHostAiIntentRoute(hid, 'result', endpointGateOk)
   emitTransportDiagnostics(hid, 'result', endpointGateOk, decision)
+  let webrtcFailureHttpFallback = false
   if (decision.choice.selected === 'unavailable') {
     touchState(hid, 'result', 'unavailable', decision.choice.reason)
     return {
@@ -1513,6 +1612,7 @@ export async function sendHostInferenceResult(
         to: 'http_direct',
         reason: 'p2p_dc_error_fallback_http',
       })
+      webrtcFailureHttpFallback = true
       touchState(hid, 'result', 'http_direct', 'p2p_dc_error_fallback_http')
     } else {
       if (!getP2pInferenceFlags().p2pInferenceHttpFallback) {
@@ -1529,17 +1629,37 @@ export async function sendHostInferenceResult(
         to: 'http_direct',
         reason: 'p2p_not_wired',
       })
+      webrtcFailureHttpFallback = true
       touchState(hid, 'result', 'http_direct', 'p2p_not_wired')
     }
   } else {
     touchState(hid, 'result', d.selected, d.reason)
   }
   const dbRes = (await getHandshakeDbForInternalInference()) ?? db0
-  if (!dbRes || !canPostInternalInferenceHttpToP2pEndpointIngest(dbRes, record.p2p_endpoint)) {
+  const decForVerified =
+    dbRes && dbRes !== db0
+      ? decideInternalInferenceTransport(
+          await buildHostAiTransportDeciderInputAsync({
+            operationContext: 'result',
+            db: dbRes,
+            handshakeRecord: record,
+            featureFlags: f0,
+          }),
+        )
+      : decResult
+  if (
+    !dbRes ||
+    !hostAiVerifiedHttpForHostSendResult({
+      dec: decForVerified,
+      db: dbRes,
+      record,
+      webrtcFailureHttpFallback,
+    })
+  ) {
     return {
       ok: false,
       code: InternalInferenceErrorCode.SERVICE_RPC_NOT_SUPPORTED,
-      error: 'direct_beap_ingest_required',
+      error: 'verified_direct_http_required',
     }
   }
   const post = await postServiceEnvelopeDirect(
