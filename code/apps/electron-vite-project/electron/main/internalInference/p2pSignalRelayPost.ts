@@ -21,14 +21,6 @@ import { P2P_SIGNAL_WIRE_SCHEMA_VERSION } from './p2pSignalWireSchemaVersion'
 
 export { P2P_SIGNAL_WIRE_SCHEMA_VERSION }
 
-/**
- * Was 55s (below 60s). Raised to match ICE: relay 429 backoffs can exceed sub-minute TTLs and
- * reject with `rejection_path=expired` before the signal is delivered.
- */
-const OFFER_ANSWER_TTL_MS = 120_000
-/** ICE: long enough to survive several 429 backoffs (capped ~8s + jitter) before `expires_at`. */
-const ICE_TTL_MS = 120_000
-
 /** Max 429 retries per signaling message (same body); then offer/answer fatal, ICE non-fatal counter. */
 const MAX_429_RETRIES_PER_MESSAGE = 12
 
@@ -172,10 +164,6 @@ function buildP2pSignalBody(params: {
   candidate?: string
 }): string {
   const correlationId = randomUUID()
-  const t0 = Date.now()
-  const ttl = params.signalType === 'p2p_inference_ice' ? ICE_TTL_MS : OFFER_ANSWER_TTL_MS
-  const createdAt = new Date(t0).toISOString()
-  const expiresAt = new Date(t0 + ttl).toISOString()
   const o: Record<string, unknown> = {
     schema_version: P2P_SIGNAL_WIRE_SCHEMA_VERSION,
     signal_type: params.signalType,
@@ -184,8 +172,8 @@ function buildP2pSignalBody(params: {
     session_id: params.sessionId,
     sender_device_id: params.senderDeviceId,
     receiver_device_id: params.receiverDeviceId,
-    created_at: createdAt,
-    expires_at: expiresAt,
+    created_at: new Date(Date.now()).toISOString(),
+    expires_at: new Date(Date.now() + 120_000).toISOString(),
   }
   if (params.sdp != null && params.sdp.length > 0) o.sdp = params.sdp
   if (params.candidate != null && typeof params.candidate === 'string') {

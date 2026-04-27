@@ -3,7 +3,7 @@
  *
  * Wire shape must stay aligned with the Electron client’s `buildP2pSignalBody` in
  * `apps/electron-vite-project/electron/main/internalInference/p2pSignalRelayPost.ts`
- * (same `schema_version`, TTL caps, and candidate handling).
+ * (same `schema_version`, max per-type signaling TTL, and candidate handling).
  */
 
 import { randomUUID } from 'crypto'
@@ -194,11 +194,11 @@ export function tryParseP2pSignalRequest(
       return { ok: false, reason: 'field_required', httpStatus: 400 }
     }
   } else if (signalType === 'p2p_inference_ice') {
-    if (ttl > 30_000) {
+    if (ttl > 120_000) {
       return { ok: false, reason: 'ice_ttl', httpStatus: 400 }
     }
   } else {
-    if (ttl > 60_000) {
+    if (ttl > 120_000) {
       return { ok: false, reason: 'signaling_ttl', httpStatus: 400 }
     }
   }

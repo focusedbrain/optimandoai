@@ -112,6 +112,23 @@ describe('p2p_host_ai_direct_beap_ad', () => {
     }
   })
 
+  it('accepts 120s ttl for p2p_inference_offer (client buildP2pSignalBody)', () => {
+    const t0 = Date.now()
+    const body = JSON.stringify({
+      schema_version: 1,
+      signal_type: 'p2p_inference_offer',
+      handshake_id: 'h1',
+      correlation_id: 'c1',
+      session_id: 's1',
+      sender_device_id: 'a',
+      receiver_device_id: 'b',
+      created_at: new Date(t0).toISOString(),
+      expires_at: new Date(t0 + 120_000).toISOString(),
+      sdp: 'v=0',
+    })
+    expect(tryParseP2pSignalRequest(body, P2P_SIGNAL_MAX_BODY_BYTES).ok).toBe(true)
+  })
+
   it('rejects ttl below 60s for beap ad', () => {
     const t0 = Date.now()
     const body = JSON.stringify(
