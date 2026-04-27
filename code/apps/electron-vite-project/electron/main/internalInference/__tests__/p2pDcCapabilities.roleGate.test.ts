@@ -105,4 +105,16 @@ describe('requestHostInferenceCapabilitiesOverDataChannel (ledger role)', () => 
       expect(r.reason).toBe('not_sandbox_requester')
     }
   })
+
+  it('coalesces concurrent DC capability requests for the same handshake+session (single webrtcSendData)', async () => {
+    getHandshakeRecordMock.mockReturnValue(recordSandboxInitiator())
+    getInstanceIdMock.mockReturnValue('dev-sand-1')
+    const { webrtcSendData } = await import('../webrtc/webrtcTransportIpc')
+    vi.mocked(webrtcSendData).mockClear()
+    void requestHostInferenceCapabilitiesOverDataChannel('hs1', 'sid-1', 5000, { requestId: 'r-coalesce' })
+    void requestHostInferenceCapabilitiesOverDataChannel('hs1', 'sid-1', 5000, { requestId: 'r-coalesce' })
+    await new Promise((r) => setTimeout(r, 25))
+    expect(webrtcSendData).toHaveBeenCalledTimes(1)
+    clearPendingP2pCapabilitiesForTests()
+  })
 })

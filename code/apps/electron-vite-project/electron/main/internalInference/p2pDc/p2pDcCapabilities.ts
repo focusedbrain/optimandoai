@@ -21,22 +21,60 @@ import type { InternalInferenceCapabilitiesResultWire } from '../types'
 import { tryRouteP2pInferenceDataChannelMessage } from './p2pDcInference'
 
 type CapResolve = (r: { ok: true; wire: InternalInferenceCapabilitiesResultWire } | { ok: false; reason: string; code?: string }) => void
-const pending = new Map<string, { resolve: CapResolve; timeoutId: ReturnType<typeof setTimeout> }>()
+
+type PendingCap = {
+  resolve: CapResolve
+  timeoutId: ReturnType<typeof setTimeout>
+  handshakeId: string
+  p2pSessionId: string
+}
+
+const pending = new Map<string, PendingCap>()
+
+/** Same handshake + P2P session: one DC request in flight; extra callers await the same promise. */
+const inflightCapsByHandshakeSession = new Map<string, Promise<
+  { ok: true; wire: InternalInferenceCapabilitiesResultWire } | { ok: false; reason: string; code?: string }
+>>()
 
 const CAPS_TYPE_RESULT = 'inference_capabilities_result'
 const CAPS_TYPE_ERR = 'inference_error'
 const CAPS_TYPE_REQ = 'inference_capabilities_request'
 
-async function sendCapsDcError(p2pSessionId: string, handshakeId: string, p: { requestId: string; code: string; message: string }): Promise<void> {
+function capsCoalesceKey(handshakeId: string, p2pSessionId: string): string {
+  return `${handshakeId.trim()}:${p2pSessionId.trim()}`
+}
+
+async function sendCapsDcError(
+  p2pSessionId: string,
+  handshakeId: string,
+  p: { requestId: string; code: string; message: string },
+): Promise<void> {
   const err = {
     schema_version: 1,
     type: CAPS_TYPE_ERR,
     request_id: p.requestId,
     handshake_id: handshakeId.trim(),
+    session_id: p2pSessionId.trim(),
     code: p.code,
     message: p.message,
   }
-  const te = new TextEncoder().encode(JSON.stringify(err))
+  const body = JSON.stringify(err)
+  const bytes = new TextEncoder().encode(body).length
+  console.log(
+    `[HOST_AI_CAPS_RESPONSE_SEND] ${JSON.stringify({
+      handshake_id: handshakeId.trim(),
+      session_id: p2pSessionId.trim(),
+      correlation_id: p.requestId,
+      request_type: CAPS_TYPE_ERR,
+      ok: false,
+      models_count: null,
+      provider_ok: null,
+      error_code: p.code,
+      bytes,
+      dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+    })}`,
+  )
+  const te = new TextEncoder().encode(body)
   const { webrtcSendData } = await import('../webrtc/webrtcTransportIpc')
   void webrtcSendData(p2pSessionId, handshakeId.trim(), te.buffer)
 }
@@ -46,6 +84,7 @@ export function clearPendingP2pCapabilitiesForTests(): void {
     clearTimeout(v.timeoutId)
   }
   pending.clear()
+  inflightCapsByHandshakeSession.clear()
 }
 
 function mapDcToInternalWire(o: Record<string, unknown>, hid: string): InternalInferenceCapabilitiesResultWire | null {
@@ -188,30 +227,64 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
     decision: 'allow',
     reason: 'ledger_sandbox_to_host',
   })
+  const sessState = getSessionState(handshakeId.trim())
+  const dcPhase = sessState?.phase ?? null
+  console.log(
+    `[HOST_AI_CAPS_BUILD_BEGIN] ${JSON.stringify({
+      handshake_id: handshakeId.trim(),
+      session_id: p2pSessionId.trim(),
+      correlation_id: requestId,
+      request_type: CAPS_TYPE_REQ,
+      dc_phase: dcPhase,
+    })}`,
+  )
   const createdAt = typeof raw.created_at === 'string' ? raw.created_at : new Date().toISOString()
   let built: InternalInferenceCapabilitiesResultWire
   try {
     built = await buildInternalInferenceCapabilitiesResult(r, { request_id: requestId, created_at: createdAt })
   } catch {
-    const err = {
-      schema_version: 1,
-      type: CAPS_TYPE_ERR,
-      request_id: requestId,
-      handshake_id: handshakeId.trim(),
+    console.log(
+      `[HOST_AI_CAPS_BUILD_DONE] ${JSON.stringify({
+        handshake_id: handshakeId.trim(),
+        session_id: p2pSessionId.trim(),
+        correlation_id: requestId,
+        request_type: CAPS_TYPE_REQ,
+        ok: false,
+        models_count: null,
+        provider_ok: null,
+        error_code: 'BUILD_THROW',
+        dc_phase: dcPhase,
+      })}`,
+    )
+    await sendCapsDcError(p2pSessionId, handshakeId, {
+      requestId,
       code: 'INTERNAL',
       message: 'capabilities build failed',
-    }
-    const te = new TextEncoder().encode(JSON.stringify(err))
-    const { webrtcSendData } = await import('../webrtc/webrtcTransportIpc')
-    void webrtcSendData(p2pSessionId, handshakeId.trim(), te.buffer)
+    })
     return
   }
+  const modelsCount = Array.isArray(built.models) ? built.models.length : 0
+  const providerOk = built.inference_error_code !== InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE
+  console.log(
+    `[HOST_AI_CAPS_BUILD_DONE] ${JSON.stringify({
+      handshake_id: handshakeId.trim(),
+      session_id: p2pSessionId.trim(),
+      correlation_id: requestId,
+      request_type: CAPS_TYPE_REQ,
+      ok: true,
+      models_count: modelsCount,
+      provider_ok: providerOk,
+      error_code: built.inference_error_code ?? null,
+      dc_phase: dcPhase,
+    })}`,
+  )
   const capsEpoch = Date.now()
   const out = {
     type: CAPS_TYPE_RESULT,
     schema_version: 1,
     request_id: built.request_id,
     handshake_id: built.handshake_id,
+    session_id: p2pSessionId.trim(),
     policy_enabled: built.policy_enabled,
     active_local_llm: built.active_local_llm,
     caps_epoch: capsEpoch,
@@ -224,7 +297,23 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
     active_chat_model: built.active_chat_model,
     inference_error_code: built.inference_error_code,
   }
-  const te = new TextEncoder().encode(JSON.stringify(out))
+  const body = JSON.stringify(out)
+  const bytes = new TextEncoder().encode(body).length
+  console.log(
+    `[HOST_AI_CAPS_RESPONSE_SEND] ${JSON.stringify({
+      handshake_id: handshakeId.trim(),
+      session_id: p2pSessionId.trim(),
+      correlation_id: built.request_id,
+      request_type: CAPS_TYPE_RESULT,
+      ok: true,
+      models_count: modelsCount,
+      provider_ok: providerOk,
+      error_code: built.inference_error_code ?? null,
+      bytes,
+      dc_phase: getSessionState(handshakeId.trim())?.phase ?? dcPhase,
+    })}`,
+  )
+  const te = new TextEncoder().encode(body)
   const { webrtcSendData } = await import('../webrtc/webrtcTransportIpc')
   void webrtcSendData(p2pSessionId, handshakeId.trim(), te.buffer)
 }
@@ -238,50 +327,216 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
   handshakeId: string,
   raw: Record<string, unknown>,
 ): boolean {
+  const wireType = raw.type === CAPS_TYPE_ERR || raw.type === CAPS_TYPE_RESULT ? String(raw.type) : ''
+  if (!wireType) {
+    return false
+  }
+
+  const ridEarly = typeof raw.request_id === 'string' ? raw.request_id : ''
+  const rawHidEarly = typeof raw.handshake_id === 'string' ? raw.handshake_id.trim() : ''
+  const rawSidEarly = typeof raw.session_id === 'string' ? raw.session_id.trim() : ''
+  console.log(
+    `[HOST_AI_CAPS_RESPONSE_RECV] ${JSON.stringify({
+      handshake_id: handshakeId.trim(),
+      session_id: p2pSessionId.trim(),
+      correlation_id: ridEarly || null,
+      wire_type: wireType,
+      payload_handshake_id: rawHidEarly || null,
+      payload_session_id: rawSidEarly || null,
+      dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+    })}`,
+  )
+
   const dbl = getLedgerDb()
   if (!dbl) {
+    console.log(
+      `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+        handshake_id: handshakeId.trim(),
+        session_id: p2pSessionId.trim(),
+        correlation_id: ridEarly || null,
+        reason: 'no_ledger_db',
+        dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+      })}`,
+    )
     return false
   }
   const srec = getHandshakeRecord(dbl, handshakeId.trim())
   if (!srec) {
+    console.log(
+      `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+        handshake_id: handshakeId.trim(),
+        session_id: p2pSessionId.trim(),
+        correlation_id: ridEarly || null,
+        reason: 'handshake_row_missing',
+        dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+      })}`,
+    )
     return false
   }
   const sdr = deriveInternalHostAiPeerRoles(srec, getInstanceId().trim())
   if (!sdr.ok || sdr.localRole !== 'sandbox') {
+    console.log(
+      `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+        handshake_id: handshakeId.trim(),
+        session_id: p2pSessionId.trim(),
+        correlation_id: ridEarly || null,
+        reason: 'ledger_role_not_sandbox',
+        dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+      })}`,
+    )
     return false
   }
+
+  const rid = typeof raw.request_id === 'string' ? raw.request_id : ''
+  const rawHid = typeof raw.handshake_id === 'string' ? raw.handshake_id.trim() : ''
+  const rawSid = typeof raw.session_id === 'string' ? raw.session_id.trim() : ''
+
   if (raw.type === CAPS_TYPE_ERR) {
-    const rid = typeof raw.request_id === 'string' ? raw.request_id : ''
     if (!rid || !pending.has(rid)) {
+      console.log(
+        `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+          handshake_id: handshakeId.trim(),
+          session_id: p2pSessionId.trim(),
+          correlation_id: rid || null,
+          reason: 'no_pending_or_unknown_correlation',
+          dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+        })}`,
+      )
       return false
     }
-    const p = pending.get(rid)
-    if (!p) {
+    const entry = pending.get(rid)
+    if (!entry) {
       return false
     }
-    clearTimeout(p.timeoutId)
+    if (rawHid && rawHid !== entry.handshakeId) {
+      console.log(
+        `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+          handshake_id: handshakeId.trim(),
+          session_id: p2pSessionId.trim(),
+          correlation_id: rid,
+          reason: 'handshake_id_mismatch',
+          dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+        })}`,
+      )
+      clearTimeout(entry.timeoutId)
+      pending.delete(rid)
+      entry.resolve({ ok: false, reason: 'handshake_mismatch', code: InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE })
+      return true
+    }
+    if (rawSid && rawSid !== entry.p2pSessionId) {
+      console.log(
+        `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+          handshake_id: handshakeId.trim(),
+          session_id: p2pSessionId.trim(),
+          correlation_id: rid,
+          reason: 'session_id_mismatch',
+          dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+        })}`,
+      )
+      clearTimeout(entry.timeoutId)
+      pending.delete(rid)
+      entry.resolve({ ok: false, reason: 'session_mismatch', code: InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE })
+      return true
+    }
+    clearTimeout(entry.timeoutId)
     pending.delete(rid)
     const code = typeof raw.code === 'string' ? raw.code : 'error'
-    p.resolve({ ok: false, reason: 'inference_error', code })
+    console.log(
+      `[HOST_AI_CAPS_RESPONSE_ACCEPT] ${JSON.stringify({
+        handshake_id: handshakeId.trim(),
+        session_id: p2pSessionId.trim(),
+        correlation_id: rid,
+        wire_type: CAPS_TYPE_ERR,
+        ok: false,
+        models_count: null,
+        provider_ok: null,
+        error_code: code,
+        dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+      })}`,
+    )
+    entry.resolve({ ok: false, reason: 'inference_error', code })
     return true
   }
   if (raw.type === CAPS_TYPE_RESULT) {
-    const rid = typeof raw.request_id === 'string' ? raw.request_id : ''
     if (!rid || !pending.has(rid)) {
+      console.log(
+        `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+          handshake_id: handshakeId.trim(),
+          session_id: p2pSessionId.trim(),
+          correlation_id: rid || null,
+          reason: 'no_pending_or_unknown_correlation',
+          dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+        })}`,
+      )
       return false
     }
-    const p = pending.get(rid)
-    if (!p) {
+    const entry = pending.get(rid)
+    if (!entry) {
       return false
     }
-    clearTimeout(p.timeoutId)
+    if (rawHid && rawHid !== entry.handshakeId) {
+      console.log(
+        `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+          handshake_id: handshakeId.trim(),
+          session_id: p2pSessionId.trim(),
+          correlation_id: rid,
+          reason: 'handshake_id_mismatch',
+          dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+        })}`,
+      )
+      clearTimeout(entry.timeoutId)
+      pending.delete(rid)
+      entry.resolve({ ok: false, reason: 'handshake_mismatch', code: InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE })
+      return true
+    }
+    if (rawSid && rawSid !== entry.p2pSessionId) {
+      console.log(
+        `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+          handshake_id: handshakeId.trim(),
+          session_id: p2pSessionId.trim(),
+          correlation_id: rid,
+          reason: 'session_id_mismatch',
+          dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+        })}`,
+      )
+      clearTimeout(entry.timeoutId)
+      pending.delete(rid)
+      entry.resolve({ ok: false, reason: 'session_mismatch', code: InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE })
+      return true
+    }
+    clearTimeout(entry.timeoutId)
     pending.delete(rid)
     const w = mapDcToInternalWire(raw, handshakeId.trim())
     if (!w) {
-      p.resolve({ ok: false, reason: 'parse' })
-    } else {
-      p.resolve({ ok: true, wire: w })
+      console.log(
+        `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+          handshake_id: handshakeId.trim(),
+          session_id: p2pSessionId.trim(),
+          correlation_id: rid,
+          reason: 'schema_or_type_map_failed',
+          dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+        })}`,
+      )
+      entry.resolve({ ok: false, reason: 'parse' })
+      return true
     }
+    const mc = Array.isArray(w.models) ? w.models.length : 0
+    const ie = w.inference_error_code
+    const providerOk = ie !== InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE
+    console.log(
+      `[HOST_AI_CAPS_RESPONSE_ACCEPT] ${JSON.stringify({
+        handshake_id: handshakeId.trim(),
+        session_id: p2pSessionId.trim(),
+        correlation_id: rid,
+        wire_type: CAPS_TYPE_RESULT,
+        ok: true,
+        models_count: mc,
+        provider_ok: providerOk,
+        error_code: ie ?? null,
+        dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+      })}`,
+    )
+    entry.resolve({ ok: true, wire: w })
     return true
   }
   return false
@@ -325,17 +580,44 @@ export function tryRouteP2pDataChannelJsonMessage(
   return tryRouteP2pInferenceDataChannelMessage(p2pSessionId, handshakeId, o)
 }
 
+export type HostInferenceCapabilitiesDcOutcome =
+  | { ok: true; wire: InternalInferenceCapabilitiesResultWire }
+  | { ok: false; reason: string; code?: string }
+
 /**
  * Sandbox → Host: send capabilities request over DC and await response (or error).
+ * Concurrent callers for the same handshake + P2P session share one in-flight exchange (no duplicate DC sends).
  */
 export async function requestHostInferenceCapabilitiesOverDataChannel(
   handshakeId: string,
   p2pSessionId: string,
   timeoutMs: number,
   options?: { requestId?: string },
-): Promise<
-  { ok: true; wire: InternalInferenceCapabilitiesResultWire } | { ok: false; reason: string; code?: string }
-> {
+): Promise<HostInferenceCapabilitiesDcOutcome> {
+  const ck = capsCoalesceKey(handshakeId, p2pSessionId)
+  const existing = inflightCapsByHandshakeSession.get(ck)
+  if (existing) {
+    return existing
+  }
+  const started = executeHostInferenceCapabilitiesDcExchange(handshakeId, p2pSessionId, timeoutMs, options)
+  inflightCapsByHandshakeSession.set(ck, started)
+  void started.finally(() => {
+    if (inflightCapsByHandshakeSession.get(ck) === started) {
+      inflightCapsByHandshakeSession.delete(ck)
+    }
+  })
+  return started
+}
+
+/**
+ * Single DC capabilities RPC: registers pending + sends one request frame.
+ */
+async function executeHostInferenceCapabilitiesDcExchange(
+  handshakeId: string,
+  p2pSessionId: string,
+  timeoutMs: number,
+  options?: { requestId?: string },
+): Promise<HostInferenceCapabilitiesDcOutcome> {
   const me = getInstanceId().trim()
   const db = await getHandshakeDbForInternalInference()
   if (!db) {
@@ -403,12 +685,14 @@ export async function requestHostInferenceCapabilitiesOverDataChannel(
     return { ok: false, reason: 'missing_coordination_ids' }
   }
   const requestId = (options?.requestId?.trim() ? options.requestId.trim() : null) || randomUUID()
+  const hidTrim = handshakeId.trim()
+  const sidTrim = p2pSessionId.trim()
   const body = {
     schema_version: 1,
     type: CAPS_TYPE_REQ,
     request_id: requestId,
-    handshake_id: handshakeId.trim(),
-    session_id: p2pSessionId,
+    handshake_id: hidTrim,
+    session_id: sidTrim,
     sender_device_id: localSandbox,
     target_device_id: peerHost,
     created_at: new Date().toISOString(),
@@ -425,11 +709,16 @@ export async function requestHostInferenceCapabilitiesOverDataChannel(
       clearTimeout(to)
       resolve(x)
     }
-    pending.set(requestId, { resolve: finish, timeoutId: to })
+    pending.set(requestId, {
+      resolve: finish,
+      timeoutId: to,
+      handshakeId: hidTrim,
+      p2pSessionId: sidTrim,
+    })
     const te = new TextEncoder().encode(JSON.stringify(body))
     void (async () => {
       const { webrtcSendData } = await import('../webrtc/webrtcTransportIpc')
-      await webrtcSendData(p2pSessionId, handshakeId.trim(), te.buffer)
+      await webrtcSendData(p2pSessionId, hidTrim, te.buffer)
     })()
   })
 }
