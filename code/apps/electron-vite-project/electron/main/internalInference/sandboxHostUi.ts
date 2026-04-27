@@ -529,26 +529,54 @@ export function mapCapabilitiesWireToProbe(
 ): Extract<ProbeHostPolicyResult, { ok: true }> {
   const allow = w.policy_enabled === true
   const rawWireErr = typeof w.inference_error_code === 'string' ? w.inference_error_code.trim() : ''
+
+  const activeChatTrim = typeof w.active_chat_model === 'string' ? w.active_chat_model.trim() : ''
+  const fromActiveLocal = w.active_local_llm
+  const activeLocalName =
+    fromActiveLocal?.enabled && typeof fromActiveLocal.model === 'string'
+      ? fromActiveLocal.model.trim()
+      : ''
+  /** Prefer active_chat_model, then enabled active_local_llm (matches Host ordering expectations). */
+  const activeHint = activeChatTrim || activeLocalName
+
+  const baseEnabledFromWire = (w.models ?? []).filter(
+    (m) => m.enabled && typeof m.model === 'string' && m.model.trim(),
+  )
+
+  let enabledModels =
+    allow && baseEnabledFromWire.length === 0 && activeHint
+      ? [
+          {
+            provider: 'ollama' as const,
+            model: activeHint,
+            label: '',
+            enabled: true,
+          },
+        ]
+      : baseEnabledFromWire
+
   if (
     rawWireErr === InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM ||
     rawWireErr === InternalInferenceErrorCode.PROBE_NO_MODELS
   ) {
-    const enabledN = (w.models ?? []).filter((m) => m.enabled && typeof m.model === 'string' && m.model.trim()).length
-    console.log(`[HOST_CAPS] inference_ready=false reason=no_models provider=ollama models=${enabledN}`)
-    return {
-      ok: true,
-      allowSandboxInference: allow,
-      defaultChatModel: undefined,
-      modelId: null,
-      displayLabelFromHost: 'Host AI · —',
-      hostComputerNameFromHost: w.host_computer_name,
-      providerFromHost: 'ollama',
-      hostOrchestratorRoleLabelFromHost: 'Host orchestrator',
-      internalIdentifier6FromHost: w.host_pairing_code,
-      internalIdentifierDisplayFromHost: displayPairingFromDigits6(w.host_pairing_code),
-      directP2pPath: true,
-      policyEnabledFromHost: allow,
-      inferenceErrorCode: InternalInferenceErrorCode.PROBE_NO_MODELS,
+    if (!allow || enabledModels.length === 0) {
+      const enabledN = (w.models ?? []).filter((m) => m.enabled && typeof m.model === 'string' && m.model.trim()).length
+      console.log(`[HOST_CAPS] inference_ready=false reason=no_models provider=ollama models=${enabledN}`)
+      return {
+        ok: true,
+        allowSandboxInference: allow,
+        defaultChatModel: undefined,
+        modelId: null,
+        displayLabelFromHost: 'Host AI · —',
+        hostComputerNameFromHost: w.host_computer_name,
+        providerFromHost: 'ollama',
+        hostOrchestratorRoleLabelFromHost: 'Host orchestrator',
+        internalIdentifier6FromHost: w.host_pairing_code,
+        internalIdentifierDisplayFromHost: displayPairingFromDigits6(w.host_pairing_code),
+        directP2pPath: true,
+        policyEnabledFromHost: allow,
+        inferenceErrorCode: InternalInferenceErrorCode.PROBE_NO_MODELS,
+      }
     }
   }
   if (
@@ -573,14 +601,6 @@ export function mapCapabilitiesWireToProbe(
       inferenceErrorCode: InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE,
     }
   }
-  const enabledModels = w.models.filter((m) => m.enabled && typeof m.model === 'string' && m.model.trim())
-  const fromActiveLocal = w.active_local_llm
-  const activeLocalName =
-    fromActiveLocal?.enabled && typeof fromActiveLocal.model === 'string'
-      ? fromActiveLocal.model.trim()
-      : ''
-  const activeHint =
-    activeLocalName || (typeof w.active_chat_model === 'string' ? w.active_chat_model.trim() : '')
   const dcm =
     activeHint && (enabledModels.length === 0 || enabledModels.some((e) => e.model === activeHint))
       ? activeHint
@@ -593,8 +613,14 @@ export function mapCapabilitiesWireToProbe(
   const rawErr = w.inference_error_code
   const hostErrRaw = typeof rawErr === 'string' && rawErr.trim() ? rawErr.trim() : undefined
   const hostErr = normalizeCapabilityWireInferenceErrorCode(hostErrRaw)
+  const recoveredEmptyWireWithHint =
+    allow && baseEnabledFromWire.length === 0 && Boolean(activeHint) && modelId != null
   const inferenceErrorCode =
-    modelId != null ? hostErr : hostErr ?? InternalInferenceErrorCode.PROBE_NO_MODELS
+    modelId != null
+      ? recoveredEmptyWireWithHint
+        ? undefined
+        : hostErr
+      : hostErr ?? InternalInferenceErrorCode.PROBE_NO_MODELS
   return {
     ok: true,
     allowSandboxInference: allow,
