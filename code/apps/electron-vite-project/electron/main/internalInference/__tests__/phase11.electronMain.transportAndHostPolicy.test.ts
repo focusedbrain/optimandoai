@@ -48,18 +48,28 @@ vi.mock('../../p2p/p2pConfig', () => ({
 
 vi.mock('../hostInferenceCapabilities', () => ({
   buildInternalInferenceCapabilitiesResult: vi.fn(async () => ({
-    type: 'internal_inference_capabilities_result',
-    schema_version: 1,
-    request_id: 'r1',
-    handshake_id: 'hs-1',
-    sender_device_id: 'dev-host-1',
-    target_device_id: 'dev-sand-1',
-    created_at: new Date().toISOString(),
-    transport_policy: 'direct_only',
-    host_computer_name: 'H',
-    host_pairing_code: '123456',
-    models: [],
-    policy_enabled: true,
+    wire: {
+      type: 'internal_inference_capabilities_result',
+      schema_version: 1,
+      request_id: 'r1',
+      handshake_id: 'hs-1',
+      sender_device_id: 'dev-host-1',
+      target_device_id: 'dev-sand-1',
+      created_at: new Date().toISOString(),
+      transport_policy: 'direct_only',
+      host_computer_name: 'H',
+      host_pairing_code: '123456',
+      models: [],
+      policy_enabled: true,
+    },
+    meta: {
+      raw_models_count: 0,
+      mapped_models_count: 0,
+      probe_http_model_count: 0,
+      provider_probe_ok: true,
+      endpoint: 'http://127.0.0.1:11434',
+      mapping_fatal: false,
+    },
   })),
 }))
 

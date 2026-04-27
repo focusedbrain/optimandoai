@@ -21,17 +21,27 @@ vi.mock('../../p2p/p2pConfig', () => ({
 
 vi.mock('../hostInferenceCapabilities', () => ({
   buildInternalInferenceCapabilitiesResult: vi.fn(async () => ({
-    type: 'internal_inference_capabilities_result',
-    schema_version: INTERNAL_INFERENCE_SCHEMA_VERSION,
-    request_id: 'r',
-    handshake_id: 'hs-x',
-    sender_device_id: 'dev-host',
-    target_device_id: 'dev-sand',
-    created_at: new Date().toISOString(),
-    host_computer_name: 'x',
-    host_pairing_code: '123456',
-    models: [],
-    policy_enabled: true,
+    wire: {
+      type: 'internal_inference_capabilities_result',
+      schema_version: INTERNAL_INFERENCE_SCHEMA_VERSION,
+      request_id: 'r',
+      handshake_id: 'hs-x',
+      sender_device_id: 'dev-host',
+      target_device_id: 'dev-sand',
+      created_at: new Date().toISOString(),
+      host_computer_name: 'x',
+      host_pairing_code: '123456',
+      models: [],
+      policy_enabled: true,
+    },
+    meta: {
+      raw_models_count: 0,
+      mapped_models_count: 0,
+      probe_http_model_count: 0,
+      provider_probe_ok: true,
+      endpoint: 'http://127.0.0.1:11434',
+      mapping_fatal: false,
+    },
   })),
 }))
 
@@ -118,7 +128,7 @@ describe('hostInferenceCore policy (non-internal / standard handshakes)', () => 
   })
 
   afterEach(() => {
-    vi.resetAllMocks()
+    vi.clearAllMocks()
   })
 
   const ctx: HostInferenceCoreContext = {

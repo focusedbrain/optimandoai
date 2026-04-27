@@ -312,7 +312,7 @@ export async function handleInternalInferenceCapabilitiesRequest(
   }
 
   const capReq = envelope as { request_id: string; created_at: string }
-  const capWire = await buildInternalInferenceCapabilitiesResult(recResult.record, {
+  const { wire: capWire } = await buildInternalInferenceCapabilitiesResult(recResult.record, {
     request_id: capReq.request_id,
     created_at: capReq.created_at,
   })

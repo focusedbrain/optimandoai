@@ -7,7 +7,10 @@ import { getLedgerDb } from '../../handshake/ledger'
 import { getHandshakeRecord } from '../../handshake/db'
 import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from '../dbAccess'
-import { buildInternalInferenceCapabilitiesResult } from '../hostInferenceCapabilities'
+import {
+  buildInternalInferenceCapabilitiesResult,
+  type HostInferenceCapabilitiesBuildMeta,
+} from '../hostInferenceCapabilities'
 import { getSessionState } from '../p2pSession/p2pInferenceSessionManager'
 import { InternalInferenceErrorCode } from '../errors'
 import { logHostAiCapsRoleGate } from '../hostAiCapsRoleGateLog'
@@ -35,6 +38,29 @@ const pending = new Map<string, PendingCap>()
 const inflightCapsByHandshakeSession = new Map<string, Promise<
   { ok: true; wire: InternalInferenceCapabilitiesResultWire } | { ok: false; reason: string; code?: string }
 >>()
+
+/** Sandbox: successful caps wires keyed by handshake + session; avoids DC storms between ticks. */
+const CAPS_SUCCESS_CACHE_TTL_MS = 30_000
+const capsWireSuccessCache = new Map<
+  string,
+  { wire: InternalInferenceCapabilitiesResultWire; expiresAt: number }
+>()
+
+function getCapsWireSuccessCache(ck: string): InternalInferenceCapabilitiesResultWire | null {
+  const e = capsWireSuccessCache.get(ck)
+  if (!e || Date.now() >= e.expiresAt) {
+    if (e) capsWireSuccessCache.delete(ck)
+    return null
+  }
+  return e.wire
+}
+
+function setCapsWireSuccessCache(ck: string, wire: InternalInferenceCapabilitiesResultWire): void {
+  capsWireSuccessCache.set(ck, {
+    wire,
+    expiresAt: Date.now() + CAPS_SUCCESS_CACHE_TTL_MS,
+  })
+}
 
 const CAPS_TYPE_RESULT = 'inference_capabilities_result'
 const CAPS_TYPE_ERR = 'inference_error'
@@ -85,6 +111,7 @@ export function clearPendingP2pCapabilitiesForTests(): void {
   }
   pending.clear()
   inflightCapsByHandshakeSession.clear()
+  capsWireSuccessCache.clear()
 }
 
 function mapDcToInternalWire(o: Record<string, unknown>, hid: string): InternalInferenceCapabilitiesResultWire | null {
@@ -240,8 +267,11 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
   )
   const createdAt = typeof raw.created_at === 'string' ? raw.created_at : new Date().toISOString()
   let built: InternalInferenceCapabilitiesResultWire
+  let buildMeta: HostInferenceCapabilitiesBuildMeta
   try {
-    built = await buildInternalInferenceCapabilitiesResult(r, { request_id: requestId, created_at: createdAt })
+    const builtPack = await buildInternalInferenceCapabilitiesResult(r, { request_id: requestId, created_at: createdAt })
+    built = builtPack.wire
+    buildMeta = builtPack.meta
   } catch {
     console.log(
       `[HOST_AI_CAPS_BUILD_DONE] ${JSON.stringify({
@@ -264,17 +294,26 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
     return
   }
   const modelsCount = Array.isArray(built.models) ? built.models.length : 0
-  const providerOk = built.inference_error_code !== InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE
+  const ie = built.inference_error_code
+  const probeHadModels = buildMeta.probe_http_model_count > 0
+  const providerOk =
+    ie !== InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE &&
+    !(probeHadModels && modelsCount === 0)
+  const okCaps =
+    ie !== InternalInferenceErrorCode.MODEL_MAPPING_DROPPED_ALL && !(probeHadModels && modelsCount === 0)
   console.log(
     `[HOST_AI_CAPS_BUILD_DONE] ${JSON.stringify({
       handshake_id: handshakeId.trim(),
       session_id: p2pSessionId.trim(),
       correlation_id: requestId,
       request_type: CAPS_TYPE_REQ,
-      ok: true,
+      ok: okCaps,
       models_count: modelsCount,
+      raw_models_count: buildMeta.raw_models_count,
+      mapped_models_count: buildMeta.mapped_models_count,
+      probe_http_model_count: buildMeta.probe_http_model_count,
       provider_ok: providerOk,
-      error_code: built.inference_error_code ?? null,
+      error_code: ie ?? null,
       dc_phase: dcPhase,
     })}`,
   )
@@ -300,12 +339,25 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
   const body = JSON.stringify(out)
   const bytes = new TextEncoder().encode(body).length
   console.log(
+    `[HOST_AI_CAPS_RESPONSE_BODY] ${JSON.stringify({
+      response_type: CAPS_TYPE_RESULT,
+      session_id: p2pSessionId.trim(),
+      correlation_id: built.request_id,
+      handshake_id: handshakeId.trim(),
+      models_array_length: modelsCount,
+      provider_ok: providerOk,
+      ok: okCaps,
+      schema_keys: Object.keys(out),
+      inference_error_code: built.inference_error_code ?? null,
+    })}`,
+  )
+  console.log(
     `[HOST_AI_CAPS_RESPONSE_SEND] ${JSON.stringify({
       handshake_id: handshakeId.trim(),
       session_id: p2pSessionId.trim(),
       correlation_id: built.request_id,
       request_type: CAPS_TYPE_RESULT,
-      ok: true,
+      ok: okCaps,
       models_count: modelsCount,
       provider_ok: providerOk,
       error_code: built.inference_error_code ?? null,
@@ -335,14 +387,20 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
   const ridEarly = typeof raw.request_id === 'string' ? raw.request_id : ''
   const rawHidEarly = typeof raw.handshake_id === 'string' ? raw.handshake_id.trim() : ''
   const rawSidEarly = typeof raw.session_id === 'string' ? raw.session_id.trim() : ''
+  const modelsEarly =
+    raw.type === CAPS_TYPE_RESULT && Array.isArray((raw as { models?: unknown }).models)
+      ? (raw as { models: unknown[] }).models.length
+      : null
   console.log(
     `[HOST_AI_CAPS_RESPONSE_RECV] ${JSON.stringify({
+      response_type: wireType,
       handshake_id: handshakeId.trim(),
       session_id: p2pSessionId.trim(),
       correlation_id: ridEarly || null,
-      wire_type: wireType,
       payload_handshake_id: rawHidEarly || null,
       payload_session_id: rawSidEarly || null,
+      models_count: modelsEarly,
+      reject_reason: null,
       dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
     })}`,
   )
@@ -351,10 +409,12 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
   if (!dbl) {
     console.log(
       `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+        response_type: wireType,
         handshake_id: handshakeId.trim(),
         session_id: p2pSessionId.trim(),
         correlation_id: ridEarly || null,
-        reason: 'no_ledger_db',
+        models_count: null,
+        reject_reason: 'no_ledger_db',
         dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
       })}`,
     )
@@ -364,10 +424,12 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
   if (!srec) {
     console.log(
       `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+        response_type: wireType,
         handshake_id: handshakeId.trim(),
         session_id: p2pSessionId.trim(),
         correlation_id: ridEarly || null,
-        reason: 'handshake_row_missing',
+        models_count: null,
+        reject_reason: 'handshake_row_missing',
         dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
       })}`,
     )
@@ -377,10 +439,12 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
   if (!sdr.ok || sdr.localRole !== 'sandbox') {
     console.log(
       `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+        response_type: wireType,
         handshake_id: handshakeId.trim(),
         session_id: p2pSessionId.trim(),
         correlation_id: ridEarly || null,
-        reason: 'ledger_role_not_sandbox',
+        models_count: null,
+        reject_reason: 'ledger_role_not_sandbox',
         dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
       })}`,
     )
@@ -395,10 +459,12 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
     if (!rid || !pending.has(rid)) {
       console.log(
         `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+          response_type: CAPS_TYPE_ERR,
           handshake_id: handshakeId.trim(),
           session_id: p2pSessionId.trim(),
           correlation_id: rid || null,
-          reason: 'no_pending_or_unknown_correlation',
+          models_count: null,
+          reject_reason: 'no_pending_or_unknown_correlation',
           dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
         })}`,
       )
@@ -411,10 +477,12 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
     if (rawHid && rawHid !== entry.handshakeId) {
       console.log(
         `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+          response_type: CAPS_TYPE_ERR,
           handshake_id: handshakeId.trim(),
           session_id: p2pSessionId.trim(),
           correlation_id: rid,
-          reason: 'handshake_id_mismatch',
+          models_count: null,
+          reject_reason: 'handshake_id_mismatch',
           dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
         })}`,
       )
@@ -426,10 +494,12 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
     if (rawSid && rawSid !== entry.p2pSessionId) {
       console.log(
         `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+          response_type: CAPS_TYPE_ERR,
           handshake_id: handshakeId.trim(),
           session_id: p2pSessionId.trim(),
           correlation_id: rid,
-          reason: 'session_id_mismatch',
+          models_count: null,
+          reject_reason: 'session_id_mismatch',
           dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
         })}`,
       )
@@ -443,14 +513,15 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
     const code = typeof raw.code === 'string' ? raw.code : 'error'
     console.log(
       `[HOST_AI_CAPS_RESPONSE_ACCEPT] ${JSON.stringify({
+        response_type: CAPS_TYPE_ERR,
         handshake_id: handshakeId.trim(),
         session_id: p2pSessionId.trim(),
         correlation_id: rid,
-        wire_type: CAPS_TYPE_ERR,
         ok: false,
         models_count: null,
         provider_ok: null,
         error_code: code,
+        reject_reason: null,
         dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
       })}`,
     )
@@ -461,10 +532,12 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
     if (!rid || !pending.has(rid)) {
       console.log(
         `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+          response_type: CAPS_TYPE_RESULT,
           handshake_id: handshakeId.trim(),
           session_id: p2pSessionId.trim(),
           correlation_id: rid || null,
-          reason: 'no_pending_or_unknown_correlation',
+          models_count: null,
+          reject_reason: 'no_pending_or_unknown_correlation',
           dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
         })}`,
       )
@@ -477,10 +550,12 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
     if (rawHid && rawHid !== entry.handshakeId) {
       console.log(
         `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+          response_type: CAPS_TYPE_RESULT,
           handshake_id: handshakeId.trim(),
           session_id: p2pSessionId.trim(),
           correlation_id: rid,
-          reason: 'handshake_id_mismatch',
+          models_count: null,
+          reject_reason: 'handshake_id_mismatch',
           dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
         })}`,
       )
@@ -492,10 +567,12 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
     if (rawSid && rawSid !== entry.p2pSessionId) {
       console.log(
         `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+          response_type: CAPS_TYPE_RESULT,
           handshake_id: handshakeId.trim(),
           session_id: p2pSessionId.trim(),
           correlation_id: rid,
-          reason: 'session_id_mismatch',
+          models_count: null,
+          reject_reason: 'session_id_mismatch',
           dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
         })}`,
       )
@@ -510,10 +587,12 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
     if (!w) {
       console.log(
         `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+          response_type: CAPS_TYPE_RESULT,
           handshake_id: handshakeId.trim(),
           session_id: p2pSessionId.trim(),
           correlation_id: rid,
-          reason: 'schema_or_type_map_failed',
+          models_count: null,
+          reject_reason: 'schema_or_type_map_failed',
           dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
         })}`,
       )
@@ -522,20 +601,27 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
     }
     const mc = Array.isArray(w.models) ? w.models.length : 0
     const ie = w.inference_error_code
-    const providerOk = ie !== InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE
+    const providerOk =
+      ie !== InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE &&
+      ie !== InternalInferenceErrorCode.MODEL_MAPPING_DROPPED_ALL &&
+      !(mc === 0 && ie === InternalInferenceErrorCode.PROBE_INVALID_RESPONSE)
     console.log(
       `[HOST_AI_CAPS_RESPONSE_ACCEPT] ${JSON.stringify({
+        response_type: CAPS_TYPE_RESULT,
         handshake_id: handshakeId.trim(),
         session_id: p2pSessionId.trim(),
         correlation_id: rid,
-        wire_type: CAPS_TYPE_RESULT,
         ok: true,
         models_count: mc,
         provider_ok: providerOk,
         error_code: ie ?? null,
+        reject_reason: null,
         dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
       })}`,
     )
+    if (mc > 0) {
+      setCapsWireSuccessCache(capsCoalesceKey(entry.handshakeId, entry.p2pSessionId), w)
+    }
     entry.resolve({ ok: true, wire: w })
     return true
   }
@@ -687,6 +773,11 @@ async function executeHostInferenceCapabilitiesDcExchange(
   const requestId = (options?.requestId?.trim() ? options.requestId.trim() : null) || randomUUID()
   const hidTrim = handshakeId.trim()
   const sidTrim = p2pSessionId.trim()
+  const ck = capsCoalesceKey(hidTrim, sidTrim)
+  const cachedWire = getCapsWireSuccessCache(ck)
+  if (cachedWire) {
+    return { ok: true, wire: { ...cachedWire, request_id: requestId } }
+  }
   const body = {
     schema_version: 1,
     type: CAPS_TYPE_REQ,

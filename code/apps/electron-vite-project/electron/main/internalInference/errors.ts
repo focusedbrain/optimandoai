@@ -83,6 +83,11 @@ export const InternalInferenceErrorCode = {
    * Not related to sandbox-local Ollama discovery on the Sandbox app.
    */
   PROBE_OLLAMA_UNAVAILABLE: 'PROBE_OLLAMA_UNAVAILABLE',
+  /**
+   * Host capability build: `/api/tags` returned models but every row was dropped during mapping (e.g. empty names).
+   * Distinct from {@link InternalInferenceErrorCode.PROBE_NO_MODELS} (no tags).
+   */
+  MODEL_MAPPING_DROPPED_ALL: 'MODEL_MAPPING_DROPPED_ALL',
   /** Direct HTTP to peer: `counterparty_p2p_token` missing locally (cannot authenticate to their BEAP). */
   HOST_AI_DIRECT_AUTH_MISSING: 'HOST_AI_DIRECT_AUTH_MISSING',
   /** Sandbox→Host probe would POST to this device’s own direct BEAP or mismatched host owner (selection bug). */
