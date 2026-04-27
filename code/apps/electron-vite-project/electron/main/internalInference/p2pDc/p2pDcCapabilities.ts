@@ -9,7 +9,6 @@ import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from '../dbAccess'
 import {
   buildInternalInferenceCapabilitiesResult,
-  summarizeCapsModelsBriefForLog,
   type HostInferenceCapabilitiesBuildMeta,
 } from '../hostInferenceCapabilities'
 import { getSessionState } from '../p2pSession/p2pInferenceSessionManager'
@@ -47,10 +46,6 @@ const capsWireSuccessCache = new Map<
   { wire: InternalInferenceCapabilitiesResultWire; expiresAt: number }
 >()
 
-/** Valid but empty-model caps (stable policy + enumerated empty list) — short TTL to stop repeated identical DC RPCs. */
-const CAPS_EMPTY_VALID_CACHE_TTL_MS = 15_000
-const capsWireEmptyValidCache = new Map<string, { wire: InternalInferenceCapabilitiesResultWire; expiresAt: number }>()
-
 function getCapsWireSuccessCache(ck: string): InternalInferenceCapabilitiesResultWire | null {
   const e = capsWireSuccessCache.get(ck)
   if (!e || Date.now() >= e.expiresAt) {
@@ -64,22 +59,6 @@ function setCapsWireSuccessCache(ck: string, wire: InternalInferenceCapabilities
   capsWireSuccessCache.set(ck, {
     wire,
     expiresAt: Date.now() + CAPS_SUCCESS_CACHE_TTL_MS,
-  })
-}
-
-function getCapsWireEmptyValidCache(ck: string): InternalInferenceCapabilitiesResultWire | null {
-  const e = capsWireEmptyValidCache.get(ck)
-  if (!e || Date.now() >= e.expiresAt) {
-    if (e) capsWireEmptyValidCache.delete(ck)
-    return null
-  }
-  return e.wire
-}
-
-function setCapsWireEmptyValidCache(ck: string, wire: InternalInferenceCapabilitiesResultWire): void {
-  capsWireEmptyValidCache.set(ck, {
-    wire,
-    expiresAt: Date.now() + CAPS_EMPTY_VALID_CACHE_TTL_MS,
   })
 }
 
@@ -133,7 +112,6 @@ export function clearPendingP2pCapabilitiesForTests(): void {
   pending.clear()
   inflightCapsByHandshakeSession.clear()
   capsWireSuccessCache.clear()
-  capsWireEmptyValidCache.clear()
 }
 
 function mapDcToInternalWire(o: Record<string, unknown>, hid: string): InternalInferenceCapabilitiesResultWire | null {
@@ -358,32 +336,6 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
     active_chat_model: built.active_chat_model,
     inference_error_code: built.inference_error_code,
   }
-  console.log(
-    `[HOST_AI_CAPS_FINAL_WIRE] ${JSON.stringify({
-      transport: 'webrtc_dc_inference_capabilities_result_imminent_send',
-      note: 'prior_HOST_AI_CAPS_FINAL_WIRE_emitted_from_buildInternalInferenceCapabilitiesResult_same_built_object',
-      policy_enabled: built.policy_enabled,
-      policy_enabled_reason:
-        'from_getHostInternalInferencePolicy_allowSandboxInference_mapped_to_wire.policy_enabled',
-      models_array_reason:
-        'from_same_build_as_HTTP_caps_body_then_DC_frame_adds_type_inference_capabilities_result',
-      active_local_llm: built.active_local_llm ?? null,
-      active_chat_model: built.active_chat_model ?? null,
-      models_length: modelsCount,
-      models_brief: summarizeCapsModelsBriefForLog(built.models),
-      inference_error_code: built.inference_error_code ?? null,
-      selected_local_model_from_host_state:
-        (built.active_local_llm?.model ?? '').trim() || (built.active_chat_model ?? '').trim() || null,
-      request_id: built.request_id,
-      handshake_id: built.handshake_id,
-      sender_device_id: built.sender_device_id,
-      target_device_id: built.target_device_id,
-      session_id: p2pSessionId.trim(),
-      frame_keys: Object.keys(out),
-      ok_caps_diagnostic_host_dc_log: okCaps,
-      provider_ok_diagnostic_host_dc_log: providerOk,
-    })}`,
-  )
   const body = JSON.stringify(out)
   const bytes = new TextEncoder().encode(body).length
   console.log(
@@ -631,61 +583,6 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
     }
     clearTimeout(entry.timeoutId)
     pending.delete(rid)
-    const rawModelsArr = Array.isArray(raw.models) ? raw.models : null
-    const rawModelsLen = rawModelsArr ? rawModelsArr.length : null
-    const rawPolicy = raw.policy_enabled === true
-    const rawAl = raw.active_local_llm
-    const rawActiveChat =
-      typeof raw.active_chat_model === 'string' ? raw.active_chat_model : undefined
-    const rawIe = raw.inference_error_code
-    const rawSender = typeof raw.sender_device_id === 'string' ? raw.sender_device_id : ''
-    const rawTarget = typeof raw.target_device_id === 'string' ? raw.target_device_id : ''
-    const rawModelsBrief =
-      rawModelsArr?.slice(0, 16).map((m) => {
-        if (!m || typeof m !== 'object') {
-          return { model: '', enabled: false, provider: '', source: 'dc_raw_invalid_entry' }
-        }
-        const o = m as Record<string, unknown>
-        return {
-          model: typeof o.model === 'string' ? o.model : '',
-          enabled: o.enabled === true,
-          provider: typeof o.provider === 'string' ? o.provider : '',
-          source: 'dc_raw_json',
-        }
-      }) ?? []
-    console.log(
-      `[SBX_AI_CAPS_WIRE_RECEIVED] ${JSON.stringify({
-        route: 'webrtc_datachannel_json',
-        raw_type: typeof raw.type === 'string' ? raw.type : String(raw.type ?? ''),
-        policy_enabled: rawPolicy,
-        active_local_llm:
-          rawAl && typeof rawAl === 'object'
-            ? {
-                enabled: (rawAl as { enabled?: boolean }).enabled === true,
-                model_len:
-                  typeof (rawAl as { model?: string }).model === 'string'
-                    ? String((rawAl as { model: string }).model).length
-                    : 0,
-              }
-            : null,
-        active_chat_model: rawActiveChat ?? null,
-        models_length: rawModelsLen,
-        models_brief: rawModelsBrief,
-        inference_error_code:
-          typeof rawIe === 'string'
-            ? rawIe
-            : rawIe === null
-              ? null
-              : rawIe !== undefined
-                ? String(rawIe)
-                : undefined,
-        request_id: rid,
-        handshake_id:
-          typeof raw.handshake_id === 'string' ? raw.handshake_id.trim() : handshakeId.trim(),
-        sender_device_id: rawSender || null,
-        target_device_id: rawTarget || null,
-      })}`,
-    )
     const w = mapDcToInternalWire(raw, handshakeId.trim())
     if (!w) {
       console.log(
@@ -708,36 +605,6 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
       ie !== InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE &&
       ie !== InternalInferenceErrorCode.MODEL_MAPPING_DROPPED_ALL &&
       !(mc === 0 && ie === InternalInferenceErrorCode.PROBE_INVALID_RESPONSE)
-    const okCapsDiagnostic =
-      ie !== InternalInferenceErrorCode.MODEL_MAPPING_DROPPED_ALL &&
-      !(mc === 0 && ie === InternalInferenceErrorCode.PROBE_INVALID_RESPONSE)
-    const normalizationNotes: string[] = []
-    if (rawIe !== undefined && typeof rawIe !== 'string') {
-      normalizationNotes.push('inference_error_code_non_string_not_mapped_by_mapDcToInternalWire')
-    }
-    if (rawIe === null) {
-      normalizationNotes.push('inference_error_code_json_null_maps_to_undefined_on_InternalInferenceCapabilitiesResultWire')
-    }
-    normalizationNotes.push(
-      'policy_enabled_mapped_via_strict_equals_true_else_false_on_DC_JSON_before_Internal_wire',
-    )
-    console.log(
-      `[SBX_AI_CAPS_WIRE_MAPPED_FROM_DC] ${JSON.stringify({
-        policy_enabled: w.policy_enabled === true,
-        active_local_llm: w.active_local_llm ?? null,
-        active_chat_model: w.active_chat_model ?? null,
-        models_length: mc,
-        models_brief: summarizeCapsModelsBriefForLog(w.models),
-        inference_error_code: w.inference_error_code ?? null,
-        normalization_notes: normalizationNotes,
-        ok_diagnostic: okCapsDiagnostic,
-        provider_ok_diagnostic: providerOk,
-        sourceDeviceId: w.sender_device_id || null,
-        targetDeviceId: w.target_device_id || null,
-        handshake_id: w.handshake_id,
-        correlation_id: rid,
-      })}`,
-    )
     console.log(
       `[HOST_AI_CAPS_RESPONSE_ACCEPT] ${JSON.stringify({
         response_type: CAPS_TYPE_RESULT,
@@ -752,11 +619,8 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
         dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
       })}`,
     )
-    const cacheKey = capsCoalesceKey(entry.handshakeId, entry.p2pSessionId)
     if (mc > 0) {
-      setCapsWireSuccessCache(cacheKey, w)
-    } else {
-      setCapsWireEmptyValidCache(cacheKey, w)
+      setCapsWireSuccessCache(capsCoalesceKey(entry.handshakeId, entry.p2pSessionId), w)
     }
     entry.resolve({ ok: true, wire: w })
     return true
@@ -913,18 +777,6 @@ async function executeHostInferenceCapabilitiesDcExchange(
   const cachedWire = getCapsWireSuccessCache(ck)
   if (cachedWire) {
     return { ok: true, wire: { ...cachedWire, request_id: requestId } }
-  }
-  const cachedEmpty = getCapsWireEmptyValidCache(ck)
-  if (cachedEmpty) {
-    console.log(
-      `[SBX_AI_CAPS_EMPTY_CACHE_HIT] ${JSON.stringify({
-        handshake_id: hidTrim,
-        session_id: sidTrim,
-        cache: 'valid_empty_caps',
-        ttl_ms: CAPS_EMPTY_VALID_CACHE_TTL_MS,
-      })}`,
-    )
-    return { ok: true, wire: { ...cachedEmpty, request_id: requestId } }
   }
   const body = {
     schema_version: 1,

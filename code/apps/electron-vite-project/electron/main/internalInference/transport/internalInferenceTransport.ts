@@ -36,7 +36,6 @@ import {
   p2pEndpointMvpClass,
 } from '../policy'
 import type { HandshakeRecord } from '../../handshake/types'
-import { summarizeCapsModelsBriefForLog } from '../hostInferenceCapabilities'
 import { INTERNAL_INFERENCE_SCHEMA_VERSION, type InternalInferenceCapabilitiesResultWire, type InternalInferenceErrorWire, type InternalInferenceRequestWire, type InternalInferenceResultWire, type InternalServiceMessageType } from '../types'
 import { logHostAiInferComplete, logHostAiInferError, logHostAiInferRequestSend } from '../hostAiInferLog'
 import { logHostAiTransportChoose, logHostAiTransportFallback, logHostAiTransportUnavailable } from './hostAiTransportLog'
@@ -1166,25 +1165,6 @@ export async function listHostCapabilities(
       return { ok: false, reason: 'wrong_type', responseStatus: 200 }
     }
     const w = j as unknown as InternalInferenceCapabilitiesResultWire
-    console.log(
-      `[SBX_AI_CAPS_WIRE_RECEIVED] ${JSON.stringify({
-        route: 'direct_http_post_beap_ingest_json_body',
-        raw_type:
-          typeof (j as { type?: unknown }).type === 'string'
-            ? (j as { type: string }).type
-            : String((j as { type?: unknown }).type ?? ''),
-        policy_enabled: w.policy_enabled === true,
-        active_local_llm: w.active_local_llm ?? null,
-        active_chat_model: w.active_chat_model ?? null,
-        models_length: Array.isArray(w.models) ? w.models.length : 0,
-        models_brief: summarizeCapsModelsBriefForLog(w.models),
-        inference_error_code: w.inference_error_code ?? null,
-        request_id: w.request_id,
-        handshake_id: w.handshake_id,
-        sender_device_id: w.sender_device_id,
-        target_device_id: w.target_device_id,
-      })}`,
-    )
     const m = w.active_local_llm?.model?.trim() || w.active_chat_model?.trim() || null
     logHostAiStage({
       chain,

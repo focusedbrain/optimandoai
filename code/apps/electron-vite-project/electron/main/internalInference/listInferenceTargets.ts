@@ -2381,21 +2381,6 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     hostAiDirectProbe429CooldownUntil.delete(hid)
     const hm = metaFromOkProbe(probe, displayName, pcc)
 
-    console.log(
-      `[SBX_AI_HOST_AI_UI_DECISION] ${JSON.stringify({
-        handshake_id: hid,
-        exactBranchName: 'gate_allowSandboxInference_from_probe_mapCapabilitiesWireToProbe',
-        probe_ok: probe.ok,
-        allowSandboxInference: probe.allowSandboxInference,
-        defaultChatModel: probe.defaultChatModel?.trim() ?? null,
-        modelId: (probe as { modelId?: string | null }).modelId ?? null,
-        inferenceErrorCode: probe.inferenceErrorCode ?? null,
-        list_transport_proven_for_selection: null,
-        derived_availability: probe.allowSandboxInference ? null : 'policy_disabled',
-        derived_p2pUiPhase: probe.allowSandboxInference ? null : 'policy_disabled',
-        derived_primary_label: probe.allowSandboxInference ? null : primaryLabelForP2pUiPhase('policy_disabled'),
-      })}`,
-    )
     if (!probe.allowSandboxInference) {
       const ur: HostTargetUnavailableCode = 'HOST_POLICY_DISABLED'
       const polT = primaryLabelForP2pUiPhase('policy_disabled')
@@ -2435,23 +2420,6 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     }
 
     const listTransportProvenForSelection = isHostAiListTransportProven(listDec, hid)
-    console.log(
-      `[SBX_AI_HOST_AI_UI_DECISION] ${JSON.stringify({
-        handshake_id: hid,
-        exactBranchName: 'gate_isHostAiListTransportProven_listInferenceTargets',
-        probe_ok: probe.ok,
-        allowSandboxInference: probe.allowSandboxInference,
-        defaultChatModel: probe.defaultChatModel?.trim() ?? null,
-        modelId: (probe as { modelId?: string | null }).modelId ?? null,
-        inferenceErrorCode: probe.inferenceErrorCode ?? null,
-        list_transport_proven_for_selection: listTransportProvenForSelection,
-        derived_availability: listTransportProvenForSelection ? null : 'host_offline',
-        derived_p2pUiPhase: listTransportProvenForSelection ? null : 'host_transport_unavailable',
-        derived_primary_label: listTransportProvenForSelection
-          ? null
-          : primaryLabelForP2pUiPhase('host_transport_unavailable'),
-      })}`,
-    )
     if (!listTransportProvenForSelection) {
       const ml0 = metaLocal(displayName, pcc)
       const psub0 = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
@@ -2494,30 +2462,6 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     }
 
     const defaultChatModel = probe.defaultChatModel?.trim()
-    const iecGate = probe.inferenceErrorCode
-    const hostRemoteGate =
-      iecGate === InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE ||
-      iecGate === InternalInferenceErrorCode.OLLAMA_UNAVAILABLE
-    const primaryNoModelGate = hostRemoteGate
-      ? primaryLabelForP2pUiPhase('host_provider_unavailable')
-      : iecGate === InternalInferenceErrorCode.PROBE_NO_MODELS
-        ? 'Host has no AI models installed.'
-        : primaryLabelForP2pUiPhase('no_model')
-    console.log(
-      `[SBX_AI_HOST_AI_UI_DECISION] ${JSON.stringify({
-        handshake_id: hid,
-        exactBranchName: 'gate_probe_defaultChatModel_trim_nonempty_listInferenceTargets',
-        probe_ok: probe.ok,
-        allowSandboxInference: probe.allowSandboxInference,
-        defaultChatModel: defaultChatModel ?? null,
-        modelId: (probe as { modelId?: string | null }).modelId ?? null,
-        inferenceErrorCode: probe.inferenceErrorCode ?? null,
-        list_transport_proven_for_selection: true,
-        derived_availability: defaultChatModel ? null : 'model_unavailable',
-        derived_p2pUiPhase: defaultChatModel ? null : hostRemoteGate ? 'host_provider_unavailable' : 'no_model',
-        derived_primary_label: defaultChatModel ? null : primaryNoModelGate,
-      })}`,
-    )
     if (!defaultChatModel) {
       const ur: HostTargetUnavailableCode = 'HOST_NO_ACTIVE_LOCAL_LLM'
       const psub = secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay)
@@ -2578,21 +2522,6 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     }
 
     const primaryLabel = probe.displayLabelFromHost?.trim() || `Host AI · ${defaultChatModel}`
-    console.log(
-      `[SBX_AI_HOST_AI_UI_DECISION] ${JSON.stringify({
-        handshake_id: hid,
-        exactBranchName: 'branch_finalize_available_host_internal_row_listInferenceTargets',
-        probe_ok: probe.ok,
-        allowSandboxInference: probe.allowSandboxInference,
-        defaultChatModel,
-        modelId: (probe as { modelId?: string | null }).modelId ?? null,
-        inferenceErrorCode: probe.inferenceErrorCode ?? null,
-        list_transport_proven_for_selection: true,
-        derived_availability: 'available',
-        derived_p2pUiPhase: 'ready',
-        derived_primary_label: primaryLabel,
-      })}`,
-    )
     const secondary = secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay)
     const pProbe = probe as { inferenceErrorCode?: string; providerFromHost?: string }
     const ollamaWireHostReachable =

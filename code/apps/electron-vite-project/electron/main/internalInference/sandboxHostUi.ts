@@ -40,7 +40,6 @@ import {
 } from './p2pSession/p2pSessionWait'
 import { getHostAiBuildStamp, logHostAiStage, newHostAiCorrelationChain } from './hostAiStageLog'
 import type { InternalInferenceCapabilitiesResultWire } from './types'
-import { summarizeCapsModelsBriefForLog } from './hostInferenceCapabilities'
 import { listHostCapabilities, parseBeapIngestErrorJsonCode } from './transport/internalInferenceTransport'
 import { logHostAiProbeRoute } from './hostAiProbeRouteLog'
 import { isHostAiProbeTerminalNoPolicyFallback } from './transport/hostAiRouteCandidate'
@@ -528,18 +527,6 @@ function normalizeCapabilityWireInferenceErrorCode(raw: string | undefined): str
 export function mapCapabilitiesWireToProbe(
   w: InternalInferenceCapabilitiesResultWire,
 ): Extract<ProbeHostPolicyResult, { ok: true }> {
-  console.log(
-    `[SBX_AI_CAPS_PROBE_MAP_INPUT] ${JSON.stringify({
-      policy_enabled: w.policy_enabled === true,
-      active_local_llm: w.active_local_llm ?? null,
-      active_chat_model:
-        typeof w.active_chat_model === 'string' ? w.active_chat_model : null,
-      models_length: Array.isArray(w.models) ? w.models.length : 0,
-      models_brief: summarizeCapsModelsBriefForLog(w.models),
-      inference_error_code: w.inference_error_code ?? null,
-    })}`,
-  )
-
   const allow = w.policy_enabled === true
   const rawWireErr = typeof w.inference_error_code === 'string' ? w.inference_error_code.trim() : ''
   if (
@@ -548,7 +535,7 @@ export function mapCapabilitiesWireToProbe(
   ) {
     const enabledN = (w.models ?? []).filter((m) => m.enabled && typeof m.model === 'string' && m.model.trim()).length
     console.log(`[HOST_CAPS] inference_ready=false reason=no_models provider=ollama models=${enabledN}`)
-    const outEarly: Extract<ProbeHostPolicyResult, { ok: true }> = {
+    return {
       ok: true,
       allowSandboxInference: allow,
       defaultChatModel: undefined,
@@ -563,18 +550,6 @@ export function mapCapabilitiesWireToProbe(
       policyEnabledFromHost: allow,
       inferenceErrorCode: InternalInferenceErrorCode.PROBE_NO_MODELS,
     }
-    console.log(
-      `[SBX_AI_CAPS_PROBE_MAP_OUTPUT] ${JSON.stringify({
-        ok: true,
-        allowSandboxInference: outEarly.allowSandboxInference,
-        defaultChatModel: null,
-        modelId: null,
-        inferenceErrorCode: outEarly.inferenceErrorCode,
-        earlyReturnReason: 'wire_inference_error_PROBE_NO_MODELS_or_HOST_NO_ACTIVE_LOCAL_LLM',
-        selectedModelReason: 'mapper_branch_forced_PROBE_NO_MODELS_overrides_active_hint',
-      })}`,
-    )
-    return outEarly
   }
   if (
     rawWireErr === InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE ||
@@ -582,7 +557,7 @@ export function mapCapabilitiesWireToProbe(
   ) {
     const enabledN = (w.models ?? []).filter((m) => m.enabled && typeof m.model === 'string' && m.model.trim()).length
     console.log(`[HOST_CAPS] inference_ready=false reason=host_remote_ollama_unreachable provider=ollama models=${enabledN}`)
-    const outOllama: Extract<ProbeHostPolicyResult, { ok: true }> = {
+    return {
       ok: true,
       allowSandboxInference: allow,
       defaultChatModel: undefined,
@@ -597,18 +572,6 @@ export function mapCapabilitiesWireToProbe(
       policyEnabledFromHost: allow,
       inferenceErrorCode: InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE,
     }
-    console.log(
-      `[SBX_AI_CAPS_PROBE_MAP_OUTPUT] ${JSON.stringify({
-        ok: true,
-        allowSandboxInference: outOllama.allowSandboxInference,
-        defaultChatModel: null,
-        modelId: null,
-        inferenceErrorCode: outOllama.inferenceErrorCode,
-        earlyReturnReason: 'wire_inference_error_PROBE_OLLAMA_UNAVAILABLE_or_OLLAMA_UNAVAILABLE',
-        selectedModelReason: 'mapper_branch_forced_no_default_model',
-      })}`,
-    )
-    return outOllama
   }
   const enabledModels = w.models.filter((m) => m.enabled && typeof m.model === 'string' && m.model.trim())
   const fromActiveLocal = w.active_local_llm
@@ -632,20 +595,7 @@ export function mapCapabilitiesWireToProbe(
   const hostErr = normalizeCapabilityWireInferenceErrorCode(hostErrRaw)
   const inferenceErrorCode =
     modelId != null ? hostErr : hostErr ?? InternalInferenceErrorCode.PROBE_NO_MODELS
-  let selectedModelReason = 'none'
-  if (modelId != null) {
-    if (activeHint && enabledModels.length === 0) {
-      selectedModelReason = 'active_hint_or_chat_used_when_enabled_models_empty'
-    } else if (
-      activeHint &&
-      enabledModels.some((e) => e.model === activeHint)
-    ) {
-      selectedModelReason = 'active_hint_matches_enabled_models_entry'
-    } else if (enabledModels[0]?.model) {
-      selectedModelReason = 'first_enabled_entry_in_models_array'
-    }
-  }
-  const outMain: Extract<ProbeHostPolicyResult, { ok: true }> = {
+  return {
     ok: true,
     allowSandboxInference: allow,
     defaultChatModel: dcm,
@@ -660,18 +610,6 @@ export function mapCapabilitiesWireToProbe(
     policyEnabledFromHost: allow,
     inferenceErrorCode,
   }
-  console.log(
-    `[SBX_AI_CAPS_PROBE_MAP_OUTPUT] ${JSON.stringify({
-      ok: true,
-      allowSandboxInference: outMain.allowSandboxInference,
-      defaultChatModel: dcm ?? null,
-      modelId,
-      inferenceErrorCode: outMain.inferenceErrorCode,
-      earlyReturnReason: null,
-      selectedModelReason,
-    })}`,
-  )
-  return outMain
 }
 
 function p2pProbeLetterForOkInferenceCode(iec: string | undefined): P2pCapabilityProbeLetter | undefined {
