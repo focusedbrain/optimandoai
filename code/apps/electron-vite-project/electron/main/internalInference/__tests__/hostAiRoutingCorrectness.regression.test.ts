@@ -7,7 +7,8 @@
  * Documents:
  * - No dial to sandbox-local BEAP as paired Host; no policy_fallback_get on raw ledger/local URL when
  *   peer Host direct BEAP is missing.
- * - direct_http_available / legacy_http must not follow from syntactic direct URL alone (peer proof required).
+ * - Without ANY trust source (neither BEAP peer attestation nor inference handshake+bearer trust),
+ *   direct_http_available / legacy_http must not be selected from a syntactic direct /beap/ingest URL alone.
  * - BEAP role denial (forbidden_host_role) must be terminal — no policy GET, typed error not PROBE_AUTH_REJECTED.
  * - HTTP fallback after DC errors must not hit unverified ledger-only direct routes (no peer advertisement).
  *
@@ -237,7 +238,7 @@ describe('Host AI routing regression (expected failures until resolver hardens)'
     expect(r.code).not.toBe(InternalInferenceErrorCode.PROBE_AUTH_REJECTED)
   })
 
-  it('(2) direct_http_available must be false when only syntactic direct /beap/ingest exists (no peer Host proof)', async () => {
+  it('(2) direct_http_available must be false without any trust source (no BEAP attestation, no inference bearer trust)', async () => {
     vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
@@ -249,7 +250,7 @@ describe('Host AI routing regression (expected failures until resolver hardens)'
 
     getHandshakeRecordMock.mockImplementation((hid: string) =>
       hid === 'hs-routing-regression'
-        ? sandboxToHostRecord({ p2p_endpoint: LEDGER_DIRECT_NON_LOCAL })
+        ? sandboxToHostRecord({ p2p_endpoint: LEDGER_DIRECT_NON_LOCAL, counterparty_p2p_token: null })
         : null,
     )
 
@@ -273,7 +274,7 @@ describe('Host AI routing regression (expected failures until resolver hardens)'
 
     const { listHostCapabilities } = await import('../transport/internalInferenceTransport')
     await listHostCapabilities('hs-routing-regression', {
-      record: sandboxToHostRecord({ p2p_endpoint: LEDGER_DIRECT_NON_LOCAL }),
+      record: sandboxToHostRecord({ p2p_endpoint: LEDGER_DIRECT_NON_LOCAL, counterparty_p2p_token: null }),
       token: 'tok',
       timeoutMs: 5000,
     })
@@ -288,7 +289,7 @@ describe('Host AI routing regression (expected failures until resolver hardens)'
     spy.mockRestore()
   })
 
-  it('(2b) transport decider must not select legacy_http / legacy_http_available without verified peer-Host direct candidate', async () => {
+  it('(2b) transport decider must not select legacy_http without any trust source (no BEAP attestation, no inference bearer trust)', async () => {
     vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
     vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '0')
     vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '0')
@@ -303,7 +304,10 @@ describe('Host AI routing regression (expected failures until resolver hardens)'
       buildHostAiTransportDeciderInput({
         operationContext: 'capabilities',
         db: {},
-        handshakeRecord: sandboxToHostRecord({ p2p_endpoint: LEDGER_DIRECT_NON_LOCAL }),
+        handshakeRecord: sandboxToHostRecord({
+          p2p_endpoint: LEDGER_DIRECT_NON_LOCAL,
+          counterparty_p2p_token: null,
+        }),
         featureFlags: getP2pInferenceFlags(),
       }),
     )

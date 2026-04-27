@@ -27,6 +27,7 @@ import {
   normalizeP2pIngestUrl,
   peekHostAdvertisedMvpDirectEntry,
 } from '../p2pEndpointRepair'
+import { inferenceDirectHttpTrust } from './inferenceDirectHttpTrust'
 import { hostAiCanonicalDirectHttpViable, resolveHostAiRoute, type HostAiCanonicalRouteResolveInput } from './hostAiRouteResolve'
 
 const L = '[HOST_AI_TRANSPORT]'
@@ -94,6 +95,12 @@ export type HostAiTransportDeciderInput = {
   hostAiVerifiedDirectIngestUrl?: string | null
   hostAiRouteResolveFailureCode?: string | null
   hostAiRouteResolveFailureReason?: string | null
+  /**
+   * Handshake + bearer + private-LAN URL inference trust (no BEAP advertisement).
+   * Set by `buildHostAiTransportDeciderInput` / `computeHostAiRouteFieldsForDecider`.
+   */
+  inferenceHandshakeTrusted?: boolean
+  inferenceTrustedUrl?: string | null
 }
 
 export type HostAiTransportDeciderResult = {
@@ -262,6 +269,8 @@ function computeHostAiRouteFieldsForDecider(
   | 'hostAiVerifiedDirectIngestUrl'
   | 'hostAiRouteResolveFailureCode'
   | 'hostAiRouteResolveFailureReason'
+  | 'inferenceHandshakeTrusted'
+  | 'inferenceTrustedUrl'
 > {
   const canonical = buildHostAiCanonicalRouteResolveInputForDecider(
     db,
@@ -287,11 +296,19 @@ function computeHostAiRouteFieldsForDecider(
       failReason = 'no_verified_peer_direct_http'
     }
   }
+  const inferenceTrust = inferenceDirectHttpTrust({
+    handshakeRecord,
+    roles: canonical.roles,
+    counterpartyP2pToken: handshakeRecord.counterparty_p2p_token ?? null,
+    localBeapEndpoint: getHostPublishedMvpDirectP2pIngestUrl(db as any),
+  })
   return {
     hostAiVerifiedDirectHttp: verified,
     hostAiVerifiedDirectIngestUrl: ingestUrl,
     hostAiRouteResolveFailureCode: failCode,
     hostAiRouteResolveFailureReason: failReason,
+    inferenceHandshakeTrusted: inferenceTrust.trusted,
+    inferenceTrustedUrl: inferenceTrust.normalizedUrl,
   }
 }
 
@@ -331,8 +348,12 @@ export function decideInternalInferenceTransport(
     roles.peerHostDeviceIdPresent
   const internalSlice = isInternalTrustedSandboxHost(hr, trust, roles)
   const verifiedDirect = input.hostAiVerifiedDirectHttp === true
-  /** Internal same-principal ledger rows: legacy HTTP viability follows verified peer-Host BEAP, not `canPost` on raw ledger. */
-  const legacyPostOk = internalSlice ? verifiedDirect : le.mayPostInternalInferenceHttpToIngest
+  const inferenceHandshakeTrusted = input.inferenceHandshakeTrusted === true
+  const inferenceTrustedUrl = input.inferenceTrustedUrl ?? null
+  /** Internal same-principal ledger rows: legacy HTTP viability follows BEAP-advertised direct HTTP and/or handshake+bearer inference trust, not `canPost` on raw ledger alone. */
+  const legacyPostOk = internalSlice
+    ? inferenceHandshakeTrusted || verifiedDirect
+    : le.mayPostInternalInferenceHttpToIngest
   /** `HTTP_FALLBACK` flag && eligible direct legacy POST per policy slice above. */
   const legacyViable = mayFb && legacyPostOk
   const p2pOn = p2pStackEnabled(f)
@@ -424,9 +445,29 @@ export function decideInternalInferenceTransport(
   /**
    * Direct private-LAN BEAP URL + full WebRTC stack: prefer legacy HTTP for Host AI so we do not
    * start or rely on WebRTC while a reachable direct ingest is advertised (stale-IP follow-up: probe).
-   * Internal rows: verified peer-advertised ingest only. Non-internal: preserve ledger URL syntax check.
+   * Internal rows: handshake+bearer inference trust (branch above) and/or BEAP peer-advertised ingest.
+   * Non-internal: preserve ledger URL syntax check.
    */
   if (kind === 'direct' && p2pOn && wrtcArch) {
+    const preferLanByHandshakeTrust =
+      internalSlice &&
+      inferenceHandshakeTrusted &&
+      Boolean(inferenceTrustedUrl?.trim()) &&
+      isPrivateLanHttpBeapUrl(inferenceTrustedUrl)
+    if (preferLanByHandshakeTrust) {
+      return {
+        ...hostAiRouteSnap(input),
+        targetDetected: true,
+        selectorPhase: 'legacy_http_available',
+        preferredTransport: 'legacy_http',
+        reason: 'inference_handshake_trust_lan',
+        mayUseLegacyHttpFallback: mayFb,
+        legacyHttpFallbackViable: legacyViable,
+        p2pTransportEndpointOpen: true,
+        failureCode: null,
+        userSafeReason: null,
+      }
+    }
     const preferLanInternal =
       internalSlice &&
       verifiedDirect &&
