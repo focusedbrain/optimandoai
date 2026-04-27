@@ -70,6 +70,25 @@ function capsCoalesceKey(handshakeId: string, p2pSessionId: string): string {
   return `${handshakeId.trim()}:${p2pSessionId.trim()}`
 }
 
+/** Host: same Sandbox sender + handshake → one concurrent provider enumeration / wire build (duplicate DC frames join). */
+function hostCapsHandshakeSenderKey(handshakeId: string, sandboxSenderDeviceId: string): string {
+  return `${handshakeId.trim()}:${sandboxSenderDeviceId.trim()}`
+}
+
+const HOST_CAPS_CACHE_SUCCESS_MS = 25_000
+const HOST_CAPS_CACHE_FAILURE_MS = 2_000
+
+type HostCapsBuiltPack = { wire: InternalInferenceCapabilitiesResultWire; meta: HostInferenceCapabilitiesBuildMeta }
+
+/** Host-side TTL cache for identical builds (models/error bodies); request_id merged per inbound frame. */
+const hostCapsBuiltCacheByHsSender = new Map<string, { pack: HostCapsBuiltPack; expiresAt: number }>()
+
+const inflightHostCapsBuildByHandshakeSender = new Map<string, Promise<HostCapsBuiltPack>>()
+
+/** Sandbox: pause outbound caps RPC briefly after invalid empty-success wire from Host (anti hammer). */
+const SBX_CAPS_INVALID_EMPTY_COOLDOWN_MS = 2_000
+const sbxCapsInvalidEmptyCooldownUntilBySession = new Map<string, number>()
+
 async function sendCapsDcError(
   p2pSessionId: string,
   handshakeId: string,
@@ -112,6 +131,9 @@ export function clearPendingP2pCapabilitiesForTests(): void {
   pending.clear()
   inflightCapsByHandshakeSession.clear()
   capsWireSuccessCache.clear()
+  inflightHostCapsBuildByHandshakeSender.clear()
+  hostCapsBuiltCacheByHsSender.clear()
+  sbxCapsInvalidEmptyCooldownUntilBySession.clear()
 }
 
 function mapDcToInternalWire(o: Record<string, unknown>, hid: string): InternalInferenceCapabilitiesResultWire | null {
@@ -269,8 +291,43 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
   let built: InternalInferenceCapabilitiesResultWire
   let buildMeta: HostInferenceCapabilitiesBuildMeta
   try {
-    const builtPack = await buildInternalInferenceCapabilitiesResult(r, { request_id: requestId, created_at: createdAt })
-    built = builtPack.wire
+    const hk = hostCapsHandshakeSenderKey(handshakeId, reqSid || peerSb)
+    const cached = hostCapsBuiltCacheByHsSender.get(hk)
+    let builtPack: HostCapsBuiltPack
+    if (cached && Date.now() < cached.expiresAt) {
+      builtPack = cached.pack
+    } else {
+      let inflight = inflightHostCapsBuildByHandshakeSender.get(hk)
+      if (!inflight) {
+        inflight = buildInternalInferenceCapabilitiesResult(r, {
+          request_id: requestId,
+          created_at: createdAt,
+        }).finally(() => {
+          inflightHostCapsBuildByHandshakeSender.delete(hk)
+        })
+        inflightHostCapsBuildByHandshakeSender.set(hk, inflight)
+      }
+      builtPack = await inflight
+      const mc = Array.isArray(builtPack.wire.models) ? builtPack.wire.models.length : 0
+      const ie = builtPack.wire.inference_error_code
+      const ieUnset =
+        ie === undefined ||
+        ie === null ||
+        (typeof ie === 'string' && ie.trim().length === 0)
+      const badEmptySuccess = builtPack.wire.policy_enabled === true && mc === 0 && ieUnset
+      if (!badEmptySuccess) {
+        const ttl =
+          mc > 0 ? HOST_CAPS_CACHE_SUCCESS_MS : ie !== undefined ? HOST_CAPS_CACHE_FAILURE_MS : 0
+        if (ttl > 0) {
+          hostCapsBuiltCacheByHsSender.set(hk, { pack: builtPack, expiresAt: Date.now() + ttl })
+        }
+      }
+    }
+    built = {
+      ...builtPack.wire,
+      request_id: requestId,
+      created_at: createdAt,
+    }
     buildMeta = builtPack.meta
   } catch {
     console.log(
@@ -600,7 +657,33 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
       return true
     }
     const mc = Array.isArray(w.models) ? w.models.length : 0
-    const ie = w.inference_error_code
+    let ie = w.inference_error_code
+    const ieUnset =
+      ie === undefined ||
+      ie === null ||
+      (typeof ie === 'string' && ie.trim().length === 0)
+    let wireOut = w
+    if (w.policy_enabled === true && mc === 0 && ieUnset) {
+      console.log(
+        `[SBX_AI_CAPS_INVALID_EMPTY_SUCCESS] ${JSON.stringify({
+          handshake_id: handshakeId.trim(),
+          session_id: p2pSessionId.trim(),
+          correlation_id: rid,
+          policy_enabled: true,
+          models_length: 0,
+          inference_error_code_before: ie ?? null,
+        })}`,
+      )
+      sbxCapsInvalidEmptyCooldownUntilBySession.set(
+        capsCoalesceKey(entry.handshakeId, entry.p2pSessionId),
+        Date.now() + SBX_CAPS_INVALID_EMPTY_COOLDOWN_MS,
+      )
+      wireOut = {
+        ...w,
+        inference_error_code: InternalInferenceErrorCode.PROBE_PROVIDER_NOT_READY,
+      }
+      ie = wireOut.inference_error_code
+    }
     const providerOk =
       ie !== InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE &&
       ie !== InternalInferenceErrorCode.MODEL_MAPPING_DROPPED_ALL &&
@@ -620,9 +703,9 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
       })}`,
     )
     if (mc > 0) {
-      setCapsWireSuccessCache(capsCoalesceKey(entry.handshakeId, entry.p2pSessionId), w)
+      setCapsWireSuccessCache(capsCoalesceKey(entry.handshakeId, entry.p2pSessionId), wireOut)
     }
-    entry.resolve({ ok: true, wire: w })
+    entry.resolve({ ok: true, wire: wireOut })
     return true
   }
   return false
@@ -774,6 +857,22 @@ async function executeHostInferenceCapabilitiesDcExchange(
   const hidTrim = handshakeId.trim()
   const sidTrim = p2pSessionId.trim()
   const ck = capsCoalesceKey(hidTrim, sidTrim)
+  const coolUntil = sbxCapsInvalidEmptyCooldownUntilBySession.get(ck) ?? 0
+  if (Date.now() < coolUntil) {
+    console.log(
+      `[SBX_AI_CAPS_INVALID_EMPTY_SUCCESS] ${JSON.stringify({
+        handshake_id: hidTrim,
+        session_id: sidTrim,
+        throttle: true,
+        cool_remaining_ms: Math.max(0, coolUntil - Date.now()),
+      })}`,
+    )
+    return {
+      ok: false,
+      reason: 'invalid_caps_empty_success_throttled',
+      code: InternalInferenceErrorCode.PROBE_PROVIDER_NOT_READY,
+    }
+  }
   const cachedWire = getCapsWireSuccessCache(ck)
   if (cachedWire) {
     return { ok: true, wire: { ...cachedWire, request_id: requestId } }

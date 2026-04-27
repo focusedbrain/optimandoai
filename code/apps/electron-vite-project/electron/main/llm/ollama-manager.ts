@@ -353,6 +353,16 @@ export class OllamaManager {
   }
   
   /**
+   * Invalidate TTL/in-flight dedup, then fetch `/api/tags` directly against {@link baseUrl}.
+   * Host capability builder calls this immediately after {@link probeHttpTagsWithLogging} so enumeration
+   * matches the resolved probe endpoint (avoids stale empty cache from a previous wrong base URL).
+   */
+  async fetchTagsInstalledModelsFresh(): Promise<InstalledModel[]> {
+    this.invalidateModelsCache()
+    return this.listModelsRaw()
+  }
+
+  /**
    * Raw /api/tags fetch — no cache, no dedup. Used internally by listModels().
    */
   private async listModelsRaw(): Promise<InstalledModel[]> {

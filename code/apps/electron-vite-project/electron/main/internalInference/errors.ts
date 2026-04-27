@@ -78,6 +78,8 @@ export const InternalInferenceErrorCode = {
   PROBE_INVALID_RESPONSE: 'PROBE_INVALID_RESPONSE',
   /** Capability probe: WebRTC/DataChannel or client transport not ready; probe not sent yet (transient). */
   PROBE_TRANSPORT_NOT_READY: 'PROBE_TRANSPORT_NOT_READY',
+  /** Host capability build: `/api/tags` probe reported models but enumeration failed transiently — retry shortly (distinct from PROBE_INVALID_RESPONSE wiring bugs). */
+  PROBE_PROVIDER_NOT_READY: 'PROBE_PROVIDER_NOT_READY',
   /**
    * Capability probe: Host machine’s Ollama HTTP API unreachable (Host-side getEffectiveChatModelName / listModels).
    * Not related to sandbox-local Ollama discovery on the Sandbox app.
