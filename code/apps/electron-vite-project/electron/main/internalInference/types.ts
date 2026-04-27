@@ -74,6 +74,8 @@ export interface InternalInferenceCapabilitiesModelEntry {
   model: string
   label: string
   enabled: boolean
+  /** Populated when rows come from Host `/api/tags` (not reconstructed sandbox-side state). */
+  source?: 'host_ollama'
 }
 
 /** Current Host local Ollama selection (drives Sandbox “Host” label; not hardcoded in Sandbox). */

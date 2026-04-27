@@ -58,7 +58,7 @@ import {
 } from './sandboxHostUi'
 import { InternalInferenceErrorCode } from './errors'
 import { clearHostAiTransportDecideDedupeCache, logHostAiTransportDecideListLine } from './hostAiTransportDecideLog'
-import { registerP2pEnsureCacheInvalidator } from './p2pEndpointRepair'
+import { peekHostAdvertisedMvpDirectEntry, registerP2pEnsureCacheInvalidator } from './p2pEndpointRepair'
 import {
   hostAiPairingListBlock,
   recordHostAiLedgerAsymmetric,
@@ -900,6 +900,8 @@ export type HostAiStructuredUnavailableReason =
   | 'host_no_verified_peer_route'
   /** No WebRTC, relay session, or verified direct BEAP — distinct from generic probe failure. */
   | 'host_no_route'
+  /** Sandbox→Host ledger/endpoint pointed at local BEAP or resolve denied — transport/trust misrouting (not Host policy). */
+  | 'host_transport_trust_misrouting'
 
 export interface HostInternalInferenceListItem {
   /** Same as `kind`; preferred for new IPC/selector consumers. */
@@ -2424,12 +2426,47 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       const ml0 = metaLocal(displayName, pcc)
       const psub0 = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
       const hFail = primaryLabelForP2pUiPhase('host_transport_unavailable')
+      const trustReason = listDec.inferenceHandshakeTrustReason
+      const trustMis =
+        trustReason === 'peer_host_endpoint_missing' ||
+        trustReason === 'self_loop_detected'
+      const structuredTrust: HostAiStructuredUnavailableReason = trustMis
+        ? 'host_transport_trust_misrouting'
+        : 'host_transport_unavailable'
+      const hUser = hostAiUserFacingMessageFromTarget({
+        inference_error_code: trustReason ?? undefined,
+        hostAiStructuredUnavailableReason: structuredTrust,
+        failureCode: 'LIST_TRANSPORT_NOT_PROVEN',
+      })
+      const primaryLine = hUser?.primary ?? hFail
+      const mode = getOrchestratorMode().mode
+      const cur = getInstanceId().trim()
+      const ledgerSummary = getHostAiLedgerRoleSummaryFromDb(db, cur, String(mode))
+      const peerRoles = deriveInternalHostAiPeerRoles(r, cur)
+      const peerEnt = peekHostAdvertisedMvpDirectEntry(hid)
+      console.log(
+        `[HOST_AI_TARGET_TRUST_DECISION] ${JSON.stringify({
+          current_device_id: cur,
+          peer_device_id: hostDevice,
+          endpoint: typeof r.p2p_endpoint === 'string' ? r.p2p_endpoint.trim() : null,
+          endpoint_owner_device_id: peerEnt?.ownerDeviceId != null ? String(peerEnt.ownerDeviceId).trim() : null,
+          local_derived_role: deriveFromRecord(r).localDeviceRole,
+          peer_derived_role: peerRoles.ok ? peerRoles.peerRole : 'unknown',
+          configured_mode: String(mode),
+          effective_host_ai_role: ledgerSummary.effective_host_ai_role,
+          can_publish_host_endpoint: ledgerSummary.can_publish_host_endpoint,
+          can_probe_host_endpoint: ledgerSummary.can_probe_host_endpoint,
+          trusted: listDec.inferenceHandshakeTrusted === true,
+          trust_reason: trustReason ?? null,
+          disabled_ui_reason: primaryLine,
+        })}`,
+      )
       const tProto: HostTargetDraft = {
         kind: 'host_internal',
         id: buildHostTargetId(hid, 'unavailable'),
-        label: hFail,
-        display_label: hFail,
-        displayTitle: hFail,
+        label: primaryLine,
+        display_label: primaryLine,
+        displayTitle: primaryLine,
         displaySubtitle: psub0,
         model: null,
         model_id: null,
@@ -2447,9 +2484,11 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         available: false,
         availability: 'host_offline',
         unavailable_reason: 'CAPABILITY_PROBE_FAILED',
-        hostAiStructuredUnavailableReason: 'host_transport_unavailable',
+        hostAiStructuredUnavailableReason: structuredTrust,
         host_role: 'Host',
-        inference_error_code: InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY,
+        inference_error_code: trustMis
+          ? String(trustReason ?? 'LIST_TRANSPORT_NOT_PROVEN')
+          : InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY,
         ...baseMetaFromDec(listDec, leK),
         p2pUiPhase: 'host_transport_unavailable',
         failureCode: 'LIST_TRANSPORT_NOT_PROVEN',

@@ -20,6 +20,9 @@ const base: HostAiTransportDeciderResult = {
   hostAiVerifiedDirectHttp: false,
   hostAiRouteResolveFailureCode: null,
   hostAiRouteResolveFailureReason: null,
+  inferenceHandshakeTrusted: false,
+  inferenceTrustedUrl: null,
+  inferenceHandshakeTrustReason: null,
 }
 
 describe('isHostAiListTransportProven', () => {

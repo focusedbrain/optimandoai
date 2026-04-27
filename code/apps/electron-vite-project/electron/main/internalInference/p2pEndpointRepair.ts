@@ -4,7 +4,8 @@
  */
 
 import { getHandshakeRecord, listHandshakeRecords, updateHandshakeRecord } from '../handshake/db'
-import { getInstanceId } from '../orchestrator/orchestratorModeStore'
+import { getInstanceId, getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
+import { getHostAiLedgerRoleSummaryFromDb } from './hostAiEffectiveRole'
 import { HandshakeState, type HandshakeRecord } from '../handshake/types'
 import { getP2PConfig, computeLocalP2PEndpoint } from '../p2p/p2pConfig'
 import { InternalInferenceErrorCode } from './errors'
@@ -693,6 +694,8 @@ export function runP2pEndpointRepairPass(db: any, context: string): void {
   }
 
   const hostUrl = getHostPublishedMvpDirectP2pIngestUrl(db)
+  const mode = getOrchestratorMode().mode
+  const ledgerRoles = getHostAiLedgerRoleSummaryFromDb(db, getInstanceId().trim(), String(mode))
 
   const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })
   for (const r of rows) {
@@ -741,17 +744,25 @@ export function runP2pEndpointRepairPass(db: any, context: string): void {
     }
   }
   if (hostUrl) {
-    console.log(
-      `[HOST_INFERENCE_P2P] endpoint_repair_pass context=${context} host_publishes_mvp_direct=${hostUrl}`,
-    )
+    if (ledgerRoles.can_publish_host_endpoint) {
+      console.log(
+        `[HOST_INFERENCE_P2P] endpoint_repair_pass context=${context} host_publishes_mvp_direct=${hostUrl}`,
+      )
+    } else {
+      console.log(
+        `[HOST_INFERENCE_P2P] endpoint_repair_pass context=${context} role=sandbox_side local_mvp_direct_listener=${hostUrl} effective_host_ai_role=${ledgerRoles.effective_host_ai_role} can_publish_host_endpoint=false`,
+      )
+    }
   } else {
     console.log(`[HOST_INFERENCE_P2P] endpoint_repair_pass context=${context} host_publishes_mvp_direct=(none)`)
   }
-  void import('./hostAiDirectBeapAdPublish')
-    .then((m) => m.publishHostAiDirectBeapAdvertisementsForEligibleHost(db, { context }))
-    .catch(() => {
-      /* no-op */
-    })
+  if (ledgerRoles.can_publish_host_endpoint) {
+    void import('./hostAiDirectBeapAdPublish')
+      .then((m) => m.publishHostAiDirectBeapAdvertisementsForEligibleHost(db, { context }))
+      .catch(() => {
+        /* no-op */
+      })
+  }
 }
 
 export function runP2pEndpointRepairAfterInternalHandshakeActive(db: any, handshakeId: string): void {

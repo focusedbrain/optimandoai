@@ -51,6 +51,10 @@ import {
 } from './decideInternalInferenceTransport'
 import { resolveHostAiRoute } from './hostAiRouteResolve'
 import { hostAiDcCapabilityResultBlocksHttpFallback, type HostAiRouteResolveResult } from './hostAiRouteCandidate'
+import {
+  logSbxHostAiModelSource,
+  mergeSandboxCapabilitiesWireWithPeerLanOllamaTags,
+} from '../hostAiOllamaNativeDiscovery'
 
 /**
  * Host → Sandbox HTTP delivery after `handleInternalInferenceRequest`: resolver `hostAiVerifiedDirectHttp`
@@ -598,6 +602,15 @@ export async function listHostCapabilities(
           failureCode: mpOk ? null : String(ie).trim(),
         })
       }
+      logSbxHostAiModelSource({
+        current_device_id: localSandbox,
+        peer_device_id: peerHost,
+        selected_endpoint: null,
+        endpoint_owner_device_id: peerHost,
+        model_source: 'capabilities_wire',
+        models_count: Array.isArray(w.models) ? w.models.length : 0,
+        rejected_reason: null,
+      })
       return { ok: true, wire: w }
     }
     if (!dcr.ok) {
@@ -1193,7 +1206,21 @@ export async function listHostCapabilities(
         failureCode: mpOk ? null : String(ie).trim(),
       })
     }
-    return { ok: true, wire: w }
+    let outWire: InternalInferenceCapabilitiesResultWire = w
+    try {
+      outWire = await mergeSandboxCapabilitiesWireWithPeerLanOllamaTags(
+        db,
+        hid,
+        record,
+        w,
+        urlToUse,
+        currentDevice,
+        peerHost,
+      )
+    } catch (e) {
+      console.warn(`[HOST_INFERENCE_CAPS] sandbox_peer_lan_ollama_merge_skipped err=${(e as Error)?.message ?? String(e)}`)
+    }
+    return { ok: true, wire: outWire }
   } catch (e) {
     clearTimeout(timer)
     if ((e as Error)?.name === 'AbortError') {

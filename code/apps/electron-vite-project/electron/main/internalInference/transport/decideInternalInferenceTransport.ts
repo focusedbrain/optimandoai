@@ -29,7 +29,7 @@ import {
   peekHostAdvertisedMvpDirectEntry,
   resolveSandboxToHostHttpDirectIngest,
 } from '../p2pEndpointRepair'
-import { inferenceDirectHttpTrust } from './inferenceDirectHttpTrust'
+import { inferenceDirectHttpTrust, type InferenceDirectHttpTrustReason } from './inferenceDirectHttpTrust'
 import { hostAiCanonicalDirectHttpViable, resolveHostAiRoute, type HostAiCanonicalRouteResolveInput } from './hostAiRouteResolve'
 
 const L = '[HOST_AI_TRANSPORT]'
@@ -103,6 +103,8 @@ export type HostAiTransportDeciderInput = {
    */
   inferenceHandshakeTrusted?: boolean
   inferenceTrustedUrl?: string | null
+  /** From {@link inferenceDirectHttpTrust} / sandbox resolve — surfaced on decider results for diagnostics. */
+  inferenceHandshakeTrustReason?: InferenceDirectHttpTrustReason | null
 }
 
 export type HostAiTransportDeciderResult = {
@@ -135,6 +137,9 @@ export type HostAiTransportDeciderResult = {
   hostAiVerifiedDirectHttp: boolean
   hostAiRouteResolveFailureCode: string | null
   hostAiRouteResolveFailureReason: string | null
+  inferenceHandshakeTrusted: boolean
+  inferenceTrustedUrl: string | null
+  inferenceHandshakeTrustReason: InferenceDirectHttpTrustReason | null
 }
 
 export type HostAiTransportAuthoritative =
@@ -273,6 +278,7 @@ function computeHostAiRouteFieldsForDecider(
   | 'hostAiRouteResolveFailureReason'
   | 'inferenceHandshakeTrusted'
   | 'inferenceTrustedUrl'
+  | 'inferenceHandshakeTrustReason'
 > {
   const canonical = buildHostAiCanonicalRouteResolveInputForDecider(
     db,
@@ -330,16 +336,14 @@ function computeHostAiRouteFieldsForDecider(
           sandboxPeerLanEndpoint: res.url,
         })
       }
-      const detail = res.host_ai_endpoint_deny_detail
-      if (detail === 'peer_host_beap_not_advertised' || detail === 'self_local_beap_selected') {
-        console.log(
-          `[HOST_AI_ENDPOINT_REJECTED] handshake=${hid} reason=local_endpoint_for_peer_host_candidate deny_detail=${detail}`,
-        )
-        return {
-          trusted: false,
-          reason: 'peer_host_endpoint_missing' as const,
-          normalizedUrl: null,
-        }
+      /** Never fall through to handshake-only trust: ledger `p2p_endpoint` may equal this sandbox’s BEAP → `self_loop_detected`. */
+      console.log(
+        `[HOST_AI_ENDPOINT_REJECTED] handshake=${hid} reason=sandbox_resolve_denied deny_detail=${res.host_ai_endpoint_deny_detail} code=${res.code}`,
+      )
+      return {
+        trusted: false,
+        reason: 'peer_host_endpoint_missing',
+        normalizedUrl: null,
       }
     }
 
@@ -369,17 +373,26 @@ function computeHostAiRouteFieldsForDecider(
     hostAiRouteResolveFailureReason: failReason,
     inferenceHandshakeTrusted: inferenceTrust.trusted,
     inferenceTrustedUrl: inferenceTrust.normalizedUrl,
+    inferenceHandshakeTrustReason: inferenceTrust.reason,
   }
 }
 
 function hostAiRouteSnap(input: HostAiTransportDeciderInput): Pick<
   HostAiTransportDeciderResult,
-  'hostAiVerifiedDirectHttp' | 'hostAiRouteResolveFailureCode' | 'hostAiRouteResolveFailureReason'
+  | 'hostAiVerifiedDirectHttp'
+  | 'hostAiRouteResolveFailureCode'
+  | 'hostAiRouteResolveFailureReason'
+  | 'inferenceHandshakeTrusted'
+  | 'inferenceTrustedUrl'
+  | 'inferenceHandshakeTrustReason'
 > {
   return {
     hostAiVerifiedDirectHttp: input.hostAiVerifiedDirectHttp ?? false,
     hostAiRouteResolveFailureCode: input.hostAiRouteResolveFailureCode ?? null,
     hostAiRouteResolveFailureReason: input.hostAiRouteResolveFailureReason ?? null,
+    inferenceHandshakeTrusted: input.inferenceHandshakeTrusted === true,
+    inferenceTrustedUrl: input.inferenceTrustedUrl ?? null,
+    inferenceHandshakeTrustReason: input.inferenceHandshakeTrustReason ?? null,
   }
 }
 

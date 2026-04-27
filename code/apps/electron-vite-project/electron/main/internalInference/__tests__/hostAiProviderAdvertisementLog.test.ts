@@ -78,7 +78,7 @@ describe('buildHostAiProviderAdvertisementPayload', () => {
     expect(payload.host_published_direct_endpoint).toBeNull()
     expect(payload.advertisement_headers_can_generate).toBe(false)
     expect(payload.role).toBe('sandbox')
-    expect(payload.models_count).toBe(2)
+    expect(payload.models_count).toBe(0)
   })
 
   it('handshake/db must not export getHandshakeDb (prevents broken dynamic import in main)', () => {

@@ -202,6 +202,21 @@ export function hostAiUserFacingMessageFromTarget(
     return { primary: HOST_AI_MSG.roleGateFailed, hint: null }
   }
 
+  /** Ledger/resolver pointed HTTP trust at this sandbox’s BEAP or denied sandbox→host resolve — not Host policy off. */
+  if (
+    sur === 'host_transport_trust_misrouting' ||
+    ic === 'peer_host_endpoint_missing' ||
+    ic === 'self_loop_detected' ||
+    deny === 'peer_host_endpoint_missing' ||
+    deny === 'self_loop_detected'
+  ) {
+    return {
+      primary:
+        'Host AI transport misrouted: the endpoint does not match the paired Host yet. Wait for the Host to advertise its LAN ingest, confirm P2P when possible, then refresh.',
+      hint: null,
+    }
+  }
+
   if (
     ic === HostAiProbeCode.HOST_AI_ENDPOINT_OWNER_MISMATCH ||
     sur === 'host_endpoint_mismatch' ||

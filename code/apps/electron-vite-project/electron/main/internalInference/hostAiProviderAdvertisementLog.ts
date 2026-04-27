@@ -165,7 +165,9 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
     advertisement_headers_can_generate,
     role: roleForHostAiLog,
     ollama_ok: input.ollamaDiscoveryOk,
-    models_count: input.ollamaModelCount,
+    /** Sandbox machines must not attribute local `/api/tags` counts to Host AI — only ledger hosts publish Host models here. */
+    models_count:
+      ledger.effective_host_ai_role === 'host' && ledger.can_publish_host_endpoint ? input.ollamaModelCount : 0,
     advertised_as_host_ai: advertisedAsHostAi,
     endpoint: hostPublishedEndpoint,
     endpoint_owner_device_id: getInstanceId().trim(),

@@ -1,13 +1,11 @@
 /**
  * Host: build `internal_inference_capabilities_result` (metadata only — no prompts, no user files).
- * Active local LLM is **only** from `ollamaManager.getEffectiveChatModelName()` (uses `activeOllamaModelStore` + /api/tags).
- * Model enumeration aligns with `[HOST_PROVIDER] ollama_probe`: {@link ollamaManager.probeHttpTagsWithLogging}
- * then {@link ollamaManager.fetchTagsInstalledModelsFresh} so cached empty lists cannot stale-read before base URL resolves.
+ * Model list is **native Ollama**: `GET http://127.0.0.1:<port>/api/tags` on the Host machine only (see {@link hostAiModelsFromOllamaTagsModels}).
+ * Active chat selection remains from `ollamaManager.getEffectiveChatModelName()` (Host-local store).
  */
 
 import { createHash } from 'node:crypto'
 import type { HandshakeRecord } from '../handshake/types'
-import type { InstalledModel } from '../llm/types'
 import { getInstanceId, getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { ollamaManager } from '../llm/ollama-manager'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
@@ -18,6 +16,13 @@ import {
   type InternalInferenceCapabilitiesModelEntry,
   type InternalInferenceCapabilitiesResultWire,
 } from './types'
+import {
+  fetchOllamaApiTagsJson,
+  hostAiModelsFromOllamaTagsModels,
+  logHostAiOllamaDiscovery,
+  normalizeHostLoopbackOllamaBaseUrl,
+  parseOllamaTagsBody,
+} from './hostAiOllamaNativeDiscovery'
 
 function digits6FromPairing(raw: string | null | undefined): string {
   const s = (raw ?? '').replace(/\D/g, '')
@@ -30,10 +35,6 @@ function hashModelNameForLog(name: string): string {
   return createHash('sha256').update(n).digest('hex').slice(0, 16)
 }
 
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms))
-}
-
 export interface HostInferenceCapabilitiesBuildMeta {
   raw_models_count: number
   mapped_models_count: number
@@ -42,30 +43,6 @@ export interface HostInferenceCapabilitiesBuildMeta {
   endpoint: string
   /** True only when {@link InternalInferenceErrorCode.MODEL_MAPPING_DROPPED_ALL} applies. */
   mapping_fatal: boolean
-}
-
-/** Same probe path as `[HOST_PROVIDER] ollama_probe` HTTP discovery; caps skip stale listModels TTL cache after probe. */
-async function probeAndFreshInstalledModels(): Promise<{
-  probeResult: { ok: boolean; baseUrl: string; modelCount: number }
-  installed: InstalledModel[]
-  providerSource: string
-}> {
-  const probeResult = await ollamaManager.probeHttpTagsWithLogging()
-  /** {@link fetchTagsInstalledModelsFresh} invalidates TTL cache then reads `/api/tags` at probe-resolved {@link OllamaManager} base URL. */
-  let installed = await ollamaManager.fetchTagsInstalledModelsFresh()
-  let providerSource = 'probe_then_fetchTagsInstalledModelsFresh'
-
-  if (probeResult.ok && probeResult.modelCount > 0 && installed.length === 0) {
-    console.warn(
-      `[HOST_AI_CAPS] probe_tags_positive_list_empty_retry probe_http_model_count=${probeResult.modelCount} listed=${installed.length}`,
-    )
-    await sleepMs(750)
-    ollamaManager.invalidateModelsCache()
-    installed = await ollamaManager.fetchTagsInstalledModelsFresh()
-    providerSource = 'probe_then_fetch_after_retry_ms_750'
-  }
-
-  return { probeResult, installed, providerSource }
 }
 
 function enforcePolicyCapabilityInvariant(p: {
@@ -163,59 +140,51 @@ export async function buildInternalInferenceCapabilitiesResult(
   }
 
   try {
-    const { probeResult, installed, providerSource } = await probeAndFreshInstalledModels()
-    meta.provider_probe_ok = probeResult.ok
-    meta.probe_http_model_count = probeResult.modelCount
-    meta.endpoint = probeResult.baseUrl || ollamaManager.getBaseUrl()
+    const loopbackBase = normalizeHostLoopbackOllamaBaseUrl(ollamaManager.getBaseUrl())
+    meta.endpoint = loopbackBase
 
-    meta.raw_models_count = installed.length
+    const tagsFetch = await fetchOllamaApiTagsJson(loopbackBase)
+    const parsed = parseOllamaTagsBody(tagsFetch.json)
+    meta.raw_models_count = parsed.rawCount
+    meta.probe_http_model_count = parsed.rawCount
+    meta.provider_probe_ok = Boolean(tagsFetch.ok && tagsFetch.json != null)
 
-    const hashedNames = installed.map((m) => hashModelNameForLog(m.name ?? ''))
+    logHostAiOllamaDiscovery({
+      current_device_id: getInstanceId().trim(),
+      peer_device_id: peerSandboxId,
+      role: 'host',
+      endpoint_owner_device_id: localHostId || null,
+      ollama_base_url: loopbackBase,
+      source: 'host_local_api_tags',
+      ok: meta.provider_probe_ok,
+      models_count: parsed.rawCount,
+      error: tagsFetch.error,
+    })
+
+    const hashedNames = parsed.rawModels.map((m) => hashModelNameForLog(String(m.model ?? m.name ?? '')))
     console.log(
       `[HOST_AI_CAPS_PROVIDER_RAW] ${JSON.stringify({
         provider: 'ollama',
         endpoint: meta.endpoint,
-        provider_ok: probeResult.ok,
+        provider_ok: meta.provider_probe_ok,
         raw_models_count: meta.raw_models_count,
+        discovery: 'native_api_tags',
         raw_model_names_redacted_or_hashed: hashedNames,
       })}`,
     )
 
-    if (probeResult.ok && probeResult.modelCount > 0 && installed.length === 0) {
-      console.warn(
-        `[HOST_AI_CAPS] probe_ok_but_listModels_empty_after_probe_alignment probe_http_model_count=${probeResult.modelCount} listed=0`,
-      )
-    }
+    let mappedWireModels: InternalInferenceCapabilitiesModelEntry[] = hostAiModelsFromOllamaTagsModels(
+      parsed.rawModels,
+      allow,
+    )
 
-    const dropReasons: Array<{ name_hash: string; reason: string }> = []
-    let mappedWireModels: InternalInferenceCapabilitiesModelEntry[] = []
-
-    for (const m of installed) {
-      const modelName = (m.name ?? '').trim()
-      if (!modelName) {
-        dropReasons.push({ name_hash: '(empty)', reason: 'empty_name' })
-        continue
-      }
-      const enabled = allow.length === 0 || allow.includes(modelName)
-      mappedWireModels.push({
-        provider: 'ollama',
-        model: modelName,
-        label: modelName,
-        enabled,
-      })
-    }
-
-    meta.mapped_models_count = mappedWireModels.length
-
-    /** Host-side fallback: enumeration empty but active chat model is known — advertise single enabled tag (same machine). */
     let syntheticActiveFallback = false
-    if (mappedWireModels.length === 0 && probeResult.ok) {
+    if (mappedWireModels.length === 0 && meta.provider_probe_ok) {
       const eff = ((await ollamaManager.getEffectiveChatModelName()) ?? '').trim()
       if (eff && (allow.length === 0 || allow.includes(eff))) {
         mappedWireModels = [
-          { provider: 'ollama', model: eff, label: eff, enabled: true },
+          { provider: 'ollama', model: eff, label: eff, enabled: true, source: 'host_ollama' },
         ]
-        meta.mapped_models_count = 1
         syntheticActiveFallback = true
         console.log(
           `[HOST_AI_CAPS_ACTIVE_FALLBACK] ${JSON.stringify({
@@ -230,6 +199,7 @@ export async function buildInternalInferenceCapabilitiesResult(
     meta.mapped_models_count = mappedWireModels.length
 
     const filtered_models_count = mappedWireModels.filter((x) => !x.enabled).length
+    const dropReasons: Array<{ name_hash: string; reason: string }> = []
     console.log(
       `[HOST_AI_CAPS_MODEL_MAP] ${JSON.stringify({
         raw_models_count: meta.raw_models_count,
@@ -250,10 +220,10 @@ export async function buildInternalInferenceCapabilitiesResult(
         handshake_id: record.handshake_id,
         current_device_id: getInstanceId().trim(),
         local_derived_role: localDerivedRole,
-        provider_ok: probeResult.ok,
-        provider_source: providerSource,
-        provider_models_count: probeResult.modelCount,
-        provider_model_names: installed.map((m) => (m.name ?? '').trim()).filter(Boolean).slice(0, 32),
+        provider_ok: meta.provider_probe_ok,
+        provider_source: 'native_api_tags',
+        provider_models_count: meta.probe_http_model_count,
+        provider_model_names: parsed.rawModels.map((m) => String(m.model ?? m.name ?? '').trim()).filter(Boolean).slice(0, 32),
         active_local_llm: base.active_local_llm,
         active_chat_model: undefined,
         raw_models_count: meta.raw_models_count,
@@ -287,12 +257,9 @@ export async function buildInternalInferenceCapabilitiesResult(
       })
     }
 
-    if (!probeResult.ok) {
+    if (!meta.provider_probe_ok) {
       base.inference_error_code = InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE
-    } else if (probeResult.modelCount > 0 && installed.length === 0 && !syntheticActiveFallback) {
-      base.inference_error_code = InternalInferenceErrorCode.PROBE_INVALID_RESPONSE
-      base.models = []
-    } else if (mappedWireModels.length === 0) {
+    } else if (mappedWireModels.length === 0 && !syntheticActiveFallback) {
       base.inference_error_code = InternalInferenceErrorCode.PROBE_NO_MODELS
     } else if (!name) {
       console.warn('[HOST_AI_CAPS] effective_model_null_despite_installed_tags')
@@ -302,8 +269,8 @@ export async function buildInternalInferenceCapabilitiesResult(
 
     enforcePolicyCapabilityInvariant({
       policyEnabled: base.policy_enabled === true,
-      probeOk: probeResult.ok,
-      probeModelCount: probeResult.modelCount,
+      probeOk: meta.provider_probe_ok,
+      probeModelCount: meta.probe_http_model_count,
       wire: base,
     })
 
@@ -311,10 +278,10 @@ export async function buildInternalInferenceCapabilitiesResult(
       handshake_id: record.handshake_id,
       current_device_id: getInstanceId().trim(),
       local_derived_role: localDerivedRole,
-      provider_ok: probeResult.ok,
-      provider_source: providerSource,
-      provider_models_count: probeResult.modelCount,
-      provider_model_names: installed.map((m) => (m.name ?? '').trim()).filter(Boolean).slice(0, 32),
+      provider_ok: meta.provider_probe_ok,
+      provider_source: 'native_api_tags',
+      provider_models_count: meta.probe_http_model_count,
+      provider_model_names: parsed.rawModels.map((m) => String(m.model ?? m.name ?? '').trim()).filter(Boolean).slice(0, 32),
       active_local_llm: base.active_local_llm,
       active_chat_model: base.active_chat_model,
       raw_models_count: meta.raw_models_count,

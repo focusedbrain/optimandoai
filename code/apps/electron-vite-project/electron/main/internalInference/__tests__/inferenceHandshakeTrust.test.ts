@@ -469,4 +469,22 @@ describe('decideInternalInferenceTransport — inference trust wiring', () => {
     expect(dec.preferredTransport).toBe('legacy_http')
     expect(dec.selectorPhase).toBe('legacy_http_available')
   })
+
+  /** Ledger holds this sandbox’s MVP BEAP and no peer Host advertisement — must not fall through to handshake URL trust (`self_loop_detected`). */
+  it('G. poisoned ledger equals local BEAP, no peer ad — peer_host_endpoint_missing', () => {
+    const dec = decideInternalInferenceTransport(
+      buildHostAiTransportDeciderInput({
+        operationContext: 'capabilities',
+        db: {},
+        handshakeRecord: wiringRecord({
+          p2p_endpoint: LOCAL_BEAP_OTHER,
+          counterparty_p2p_token: 'bearer-g',
+        }),
+        featureFlags: getP2pInferenceFlags(),
+        hostPolicyState: { allowSandboxInference: true, hasActiveModel: true },
+      }),
+    )
+    expect(dec.inferenceHandshakeTrusted).toBe(false)
+    expect(dec.inferenceHandshakeTrustReason).toBe('peer_host_endpoint_missing')
+  })
 })
