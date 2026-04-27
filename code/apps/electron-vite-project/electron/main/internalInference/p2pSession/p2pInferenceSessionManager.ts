@@ -226,6 +226,92 @@ function needsWebrtcOfferPipelineRepair(s: P2pSessionState, webrtc: boolean): bo
   return !s.offerCreateDispatched
 }
 
+/** Pre-data-channel phases that may be torn down when signaling times out or list cache marks stuck. */
+function isHostAiP2pPreDataChannelPhase(phase: P2pSessionPhaseType): boolean {
+  return (
+    phase === P2pSessionPhase.starting ||
+    phase === P2pSessionPhase.signaling ||
+    phase === P2pSessionPhase.connecting
+  )
+}
+
+function computeHostAiP2pSessionStaleEvictionDetail(
+  s: P2pSessionState,
+  nowMs: number,
+): { reason: string; age_ms: number } | null {
+  if (!isHostAiP2pPreDataChannelPhase(s.phase)) {
+    return null
+  }
+  const ageFromUpdated = Math.max(0, nowMs - s.updatedAt)
+  const exp = s.signalingExpiresAt
+  if (exp != null && nowMs >= exp) {
+    return { reason: 'signaling_window_expired', age_ms: ageFromUpdated }
+  }
+  if (exp == null && nowMs - s.updatedAt > P2P_SIGNALING_WINDOW_MS) {
+    return { reason: 'signaling_stale_no_window', age_ms: ageFromUpdated }
+  }
+  return null
+}
+
+function performHostAiP2pSessionEviction(
+  hid: string,
+  s: P2pSessionState,
+  detail: { reason: string; age_ms: number },
+): void {
+  const oldSid = s.sessionId
+  const oldPhase = s.phase
+  const sidLog = oldSid ? redactIdForLog(oldSid) : 'null'
+  console.log(
+    `[HOST_AI_SESSION_EXPIRE] handshake=${hid} old_session=${sidLog} old_phase=${oldPhase} age_ms=${detail.age_ms} reason=${detail.reason} action=close_and_remove`,
+  )
+  emitP2pCapabilityDcWait(hid, { kind: 'session_terminal', lastErrorCode: null })
+  tearDownP2pTransportAndRelayForHandshake(hid, oldSid)
+  sessions.delete(hid)
+  const t = now()
+  const final: P2pSessionState = withDerivedUi({
+    handshakeId: hid,
+    sessionId: null,
+    phase: P2pSessionPhase.closed,
+    p2pUiPhase: P2pSessionUiPhase.ledger,
+    lastErrorCode: null,
+    connectedAt: null,
+    updatedAt: t,
+    signalingExpiresAt: null,
+    boundLocalDeviceId: '',
+    boundPeerDeviceId: '',
+    ...noOfferMilestones(),
+  })
+  emitSessionState(final)
+}
+
+function evictStaleHostAiP2pSessionBeforeReuse(handshakeId: string): void {
+  const hid = typeof handshakeId === 'string' ? handshakeId.trim() : ''
+  if (!hid) return
+  for (let i = 0; i < 4; i++) {
+    const m = sessions.get(hid)
+    if (!m) return
+    const d = computeHostAiP2pSessionStaleEvictionDetail(m.state, now())
+    if (!d) return
+    performHostAiP2pSessionEviction(hid, m.state, d)
+  }
+}
+
+/**
+ * List path: `p2p_ensure_cache_expired` (stuck pre-DC ensure) must evict the live session so
+ * `ensureHostAiP2pSession` cannot hit `reuse_active` on the same ledger session.
+ */
+export function evictHostAiP2pSessionForStuckListCache(handshakeId: string, ageMs: number): void {
+  const hid = typeof handshakeId === 'string' ? handshakeId.trim() : ''
+  if (!hid) return
+  const m = sessions.get(hid)
+  if (!m) return
+  const s = m.state
+  if (!isHostAiP2pPreDataChannelPhase(s.phase)) {
+    return
+  }
+  performHostAiP2pSessionEviction(hid, s, { reason: 'stuck_signaling', age_ms: ageMs })
+}
+
 function sessionOpKey(handshakeId: string, p2pSessionId: string): string {
   return `${handshakeId.trim()}\0${p2pSessionId.trim()}`
 }
@@ -744,6 +830,7 @@ export function ensureHostAiP2pSession(handshakeId: string, reason: string): Pro
     )
     return inflight.promise
   }
+  evictStaleHostAiP2pSessionBeforeReuse(hid)
   const m0 = sessions.get(hid)
   if (m0) {
     const s = m0.state
@@ -931,6 +1018,7 @@ export async function ensureSession(
     )
     return withDerivedUi(st)
   }
+  evictStaleHostAiP2pSessionBeforeReuse(hid)
   const existing = sessions.get(hid)
   if (existing) {
     const s = existing.state
@@ -1368,6 +1456,14 @@ export function closeAllP2pInferenceSessions(reason: P2pSessionLogReasonType): v
   for (const hid of [...sessions.keys()]) {
     closeSession(hid, reason)
   }
+}
+
+/** @internal Seed an in-memory session row for Vitest (no ledger write). */
+export function _seedHostAiP2pSessionForTests(state: P2pSessionState): void {
+  const hid = typeof state.handshakeId === 'string' ? state.handshakeId.trim() : ''
+  if (!hid) return
+  const derived = withDerivedUi({ ...state, handshakeId: hid })
+  sessions.set(hid, { state: derived })
 }
 
 /** @internal */

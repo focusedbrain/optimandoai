@@ -21,7 +21,12 @@ import {
   isWebRtcHostAiArchitectureEnabled,
   logHostAiP2pFlagsAndSource,
 } from './p2pInferenceFlags'
-import { ensureHostAiP2pSession, getSessionState, P2pSessionPhase } from './p2pSession/p2pInferenceSessionManager'
+import {
+  ensureHostAiP2pSession,
+  evictHostAiP2pSessionForStuckListCache,
+  getSessionState,
+  P2pSessionPhase,
+} from './p2pSession/p2pInferenceSessionManager'
 import {
   HOST_AI_CAPABILITY_DC_WAIT_MS,
   isP2pDataChannelUpForHandshake,
@@ -1767,6 +1772,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         lastP2pEnsureByHandshake.delete(hid)
         ensureCached = undefined
         console.log(`${L} p2p_ensure_cache_expired handshake=${hid} reason=stuck_signaling age_ms=${expAge}`)
+        evictHostAiP2pSessionForStuckListCache(hid, expAge)
       } else {
         ensureCached = lastP2pEnsureByHandshake.get(hid)
       }
