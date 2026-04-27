@@ -87,6 +87,11 @@ export type HostAiTransportDeciderResult = {
   /** Intent routing hint; for list_targets mirrors best-effort P2P vs HTTP. */
   preferredTransport: HostAiPreferredTransport
   /**
+   * Optional machine-readable branch token for logs/diagnostics (not user-facing).
+   * e.g. `internal_direct_http_preferred` when direct private-LAN BEAP URL wins over WebRTC.
+   */
+  reason?: string
+  /**
    * `WRDESK_P2P_INFERENCE_HTTP_FALLBACK` only. Does not imply legacy HTTP will succeed (see `legacyHttpFallbackViable`).
    */
   mayUseLegacyHttpFallback: boolean
@@ -141,6 +146,35 @@ export function decideHostAiTransport(
 
 function p2pStackEnabled(f: P2pInferenceFlagSnapshot): boolean {
   return f.p2pInferenceEnabled && f.p2pInferenceWebrtcEnabled && f.p2pInferenceSignalingEnabled
+}
+
+/**
+ * True when `p2p_endpoint` is http(s) to an RFC1918-style IPv4 host (10/8, 192.168/16, 172.16–31/12).
+ * Follow-up: pair with a short TCP/HEAD reachability probe; on failure log `[DIRECT_HTTP_PROBE_FAIL]`
+ * and fall through to WebRTC instead of preferring this path.
+ */
+function isPrivateLanHttpBeapUrl(p2pEndpoint: string | null | undefined): boolean {
+  const raw = String(p2pEndpoint ?? '').trim()
+  if (!raw) return false
+  let u: URL
+  try {
+    u = new URL(raw)
+  } catch {
+    return false
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false
+  const host = u.hostname
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
+  if (!m) return false
+  const a = Number(m[1])
+  const b = Number(m[2])
+  const c = Number(m[3])
+  const d = Number(m[4])
+  if ([a, b, c, d].some((x) => !Number.isInteger(x) || x < 0 || x > 255)) return false
+  if (a === 10) return true
+  if (a === 192 && b === 168) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  return false
 }
 
 /**
@@ -247,6 +281,31 @@ export function decideInternalInferenceTransport(
       failureCode: 'RELAY_HOST_AI_P2P_SIGNALING_UNAVAILABLE',
       userSafeReason:
         'This relay does not advertise Host AI P2P signaling. Update the coordination service or confirm the relay URL.',
+    }
+  }
+
+  /**
+   * Direct private-LAN BEAP URL + full WebRTC stack: prefer legacy HTTP for Host AI so we do not
+   * start or rely on WebRTC while a reachable direct ingest is advertised (stale-IP follow-up: probe).
+   * Placed after policy/endpoint-kind gates, before `internalPreferDirectHttp` (!p2pOn) and WebRTC paths.
+   */
+  if (
+    kind === 'direct' &&
+    p2pOn &&
+    wrtcArch &&
+    le.mayPostInternalInferenceHttpToIngest &&
+    isPrivateLanHttpBeapUrl(hr.p2p_endpoint)
+  ) {
+    return {
+      targetDetected: true,
+      selectorPhase: 'legacy_http_available',
+      preferredTransport: 'legacy_http',
+      reason: 'internal_direct_http_preferred',
+      mayUseLegacyHttpFallback: mayFb,
+      legacyHttpFallbackViable: legacyViable,
+      p2pTransportEndpointOpen: true,
+      failureCode: null,
+      userSafeReason: null,
     }
   }
 
