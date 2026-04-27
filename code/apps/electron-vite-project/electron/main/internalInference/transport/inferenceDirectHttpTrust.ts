@@ -11,7 +11,7 @@ import {
 } from '../policy'
 import { normalizeP2pIngestUrl } from '../p2pEndpointRepair'
 
-type InferenceDirectHttpTrustReason =
+export type InferenceDirectHttpTrustReason =
   | 'handshake_inference_trust'
   | 'state_not_active'
   | 'handshake_type_not_internal'
@@ -21,6 +21,8 @@ type InferenceDirectHttpTrustReason =
   | 'url_not_private_lan'
   | 'missing_bearer_token'
   | 'self_loop_detected'
+  /** Sandbox→Host: no peer-owned LAN BEAP available (ledger/header poisoned or missing); do not trust handshake URL alone. */
+  | 'peer_host_endpoint_missing'
 
 /**
  * Mirrors `isPrivateLanHttpBeapUrl` in `decideInternalInferenceTransport.ts`.
@@ -59,12 +61,18 @@ export function inferenceDirectHttpTrust(input: {
   roles: DeriveInternalHostAiPeerRolesResult
   counterpartyP2pToken: string | null
   localBeapEndpoint: string | null
+  /**
+   * Sandbox→Host only: LAN ingest URL chosen by {@link resolveSandboxToHostHttpDirectIngest}
+   * (peer header / relay / repaired ledger). When set, overrides `handshakeRecord.p2p_endpoint` for trust
+   * so the ledger row cannot force `self_loop_detected` when it wrongly holds this sandbox’s BEAP URL.
+   */
+  sandboxPeerLanEndpoint?: string | null
 }): {
   trusted: boolean
   reason: InferenceDirectHttpTrustReason
   normalizedUrl: string | null
 } {
-  const { handshakeRecord: r, roles, counterpartyP2pToken, localBeapEndpoint } = input
+  const { handshakeRecord: r, roles, counterpartyP2pToken, localBeapEndpoint, sandboxPeerLanEndpoint } = input
 
   if (r.state !== HandshakeState.ACTIVE) {
     return { trusted: false, reason: 'state_not_active', normalizedUrl: null }
@@ -82,7 +90,13 @@ export function inferenceDirectHttpTrust(input: {
     return { trusted: false, reason: 'identity_not_complete', normalizedUrl: null }
   }
 
-  const rawEp = typeof r.p2p_endpoint === 'string' ? r.p2p_endpoint.trim() : ''
+  const overrideEp =
+    rolesSandboxToHost(roles) &&
+    typeof sandboxPeerLanEndpoint === 'string' &&
+    sandboxPeerLanEndpoint.trim()
+      ? sandboxPeerLanEndpoint.trim()
+      : ''
+  const rawEp = overrideEp || (typeof r.p2p_endpoint === 'string' ? r.p2p_endpoint.trim() : '')
   if (!rawEp || !isPrivateLanHttpBeapUrl(rawEp)) {
     return { trusted: false, reason: 'url_not_private_lan', normalizedUrl: null }
   }

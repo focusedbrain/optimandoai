@@ -23,9 +23,11 @@ import { getSessionState, P2pSessionPhase, type P2pSessionState } from '../p2pSe
 import { isP2pDataChannelUpForHandshake } from '../p2pSession/p2pSessionWait'
 import type { HandshakeRecord } from '../../handshake/types'
 import {
+  clearHostAdvertisedMvpDirectForHandshake,
   getHostPublishedMvpDirectP2pIngestUrl,
   normalizeP2pIngestUrl,
   peekHostAdvertisedMvpDirectEntry,
+  resolveSandboxToHostHttpDirectIngest,
 } from '../p2pEndpointRepair'
 import { inferenceDirectHttpTrust } from './inferenceDirectHttpTrust'
 import { hostAiCanonicalDirectHttpViable, resolveHostAiRoute, type HostAiCanonicalRouteResolveInput } from './hostAiRouteResolve'
@@ -296,12 +298,58 @@ function computeHostAiRouteFieldsForDecider(
       failReason = 'no_verified_peer_direct_http'
     }
   }
-  const inferenceTrust = inferenceDirectHttpTrust({
-    handshakeRecord,
-    roles: canonical.roles,
-    counterpartyP2pToken: handshakeRecord.counterparty_p2p_token ?? null,
-    localBeapEndpoint: getHostPublishedMvpDirectP2pIngestUrl(db as any),
-  })
+  const inferenceTrust = (() => {
+    const roles = canonical.roles
+    const hid = String(handshakeRecord.handshake_id ?? '').trim()
+    const token = handshakeRecord.counterparty_p2p_token ?? null
+    const localBeap = getHostPublishedMvpDirectP2pIngestUrl(db as any)
+
+    if (roles.ok && roles.localRole === 'sandbox' && roles.peerRole === 'host') {
+      const cur = getInstanceId().trim()
+      const peerHostDev = (coordinationDeviceIdForHandshakeDeviceRole(handshakeRecord, 'host') ?? '').trim()
+      const peekEnt = peekHostAdvertisedMvpDirectEntry(hid)
+      if (
+        peekEnt?.ownerDeviceId &&
+        String(peekEnt.ownerDeviceId).trim() === cur &&
+        peerHostDev &&
+        String(peekEnt.ownerDeviceId).trim() !== peerHostDev
+      ) {
+        console.log(
+          `[HOST_AI_ENDPOINT_REJECTED] handshake=${hid} reason=local_endpoint_for_peer_host_candidate endpoint_owner_device_id=${String(peekEnt.ownerDeviceId).trim()}`,
+        )
+        clearHostAdvertisedMvpDirectForHandshake(hid)
+      }
+
+      const res = resolveSandboxToHostHttpDirectIngest(db as any, hid, handshakeRecord, '')
+      if (res.ok) {
+        return inferenceDirectHttpTrust({
+          handshakeRecord,
+          roles,
+          counterpartyP2pToken: token,
+          localBeapEndpoint: localBeap,
+          sandboxPeerLanEndpoint: res.url,
+        })
+      }
+      const detail = res.host_ai_endpoint_deny_detail
+      if (detail === 'peer_host_beap_not_advertised' || detail === 'self_local_beap_selected') {
+        console.log(
+          `[HOST_AI_ENDPOINT_REJECTED] handshake=${hid} reason=local_endpoint_for_peer_host_candidate deny_detail=${detail}`,
+        )
+        return {
+          trusted: false,
+          reason: 'peer_host_endpoint_missing' as const,
+          normalizedUrl: null,
+        }
+      }
+    }
+
+    return inferenceDirectHttpTrust({
+      handshakeRecord,
+      roles: canonical.roles,
+      counterpartyP2pToken: token,
+      localBeapEndpoint: localBeap,
+    })
+  })()
   console.log(
     `[INFERENCE_TRUST_DEBUG] handshake=${handshakeRecord.handshake_id} ` +
       `trusted=${inferenceTrust.trusted} reason=${inferenceTrust.reason} ` +

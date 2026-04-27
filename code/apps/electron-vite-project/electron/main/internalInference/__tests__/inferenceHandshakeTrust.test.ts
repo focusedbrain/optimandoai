@@ -290,6 +290,19 @@ describe('inferenceDirectHttpTrust', () => {
     expect(r.normalizedUrl).toBeNull()
   })
 
+  it('sandboxPeerLanEndpoint overrides handshake row — avoids self-loop when ledger wrongly equals local BEAP', () => {
+    const r = inferenceDirectHttpTrust({
+      handshakeRecord: happyHandshakeRecord({ p2p_endpoint: LOCAL_BEAP_OTHER }),
+      roles: happyRoles,
+      counterpartyP2pToken: 'test-bearer-abc123',
+      localBeapEndpoint: LOCAL_BEAP_OTHER,
+      sandboxPeerLanEndpoint: LAN_PEER,
+    })
+    expect(r.trusted).toBe(true)
+    expect(r.reason).toBe('handshake_inference_trust')
+    expect(r.normalizedUrl).toBe(normalizeP2pIngestUrl(LAN_PEER))
+  })
+
   it('localBeapEndpoint null — still trusted when no self-loop to check', () => {
     const r = inferenceDirectHttpTrust({
       handshakeRecord: happyHandshakeRecord(),
@@ -431,5 +444,29 @@ describe('decideInternalInferenceTransport — inference trust wiring', () => {
       }),
     )
     expect(dec.reason).not.toBe('inference_handshake_trust_lan')
+  })
+
+  /** Ledger stores this sandbox’s MVP BEAP URL; peer Host advertises a different LAN ingest via header map — trust must follow resolve (peer URL), not the ledger row. */
+  it('F. poisoned ledger URL equals local BEAP but peer advertisement present — inference_handshake_trust_lan still wins', () => {
+    const peerLan = 'http://192.168.178.88:51249/beap/ingest'
+    setHostAdvertisedMvpDirectForTests(HID, peerLan, {
+      ownerDeviceId: 'dev-host-coord-1',
+      adSource: 'http_header',
+    })
+    const dec = decideInternalInferenceTransport(
+      buildHostAiTransportDeciderInput({
+        operationContext: 'capabilities',
+        db: {},
+        handshakeRecord: wiringRecord({
+          /** Same URL as mocked computeLocalP2PEndpoint — wrong row until repaired */
+          p2p_endpoint: LOCAL_BEAP_OTHER,
+        }),
+        featureFlags: getP2pInferenceFlags(),
+        hostPolicyState: { allowSandboxInference: true, hasActiveModel: true },
+      }),
+    )
+    expect(dec.reason).toBe('inference_handshake_trust_lan')
+    expect(dec.preferredTransport).toBe('legacy_http')
+    expect(dec.selectorPhase).toBe('legacy_http_available')
   })
 })
