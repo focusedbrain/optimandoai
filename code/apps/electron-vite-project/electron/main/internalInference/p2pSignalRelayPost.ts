@@ -21,8 +21,13 @@ import { P2P_SIGNAL_WIRE_SCHEMA_VERSION } from './p2pSignalWireSchemaVersion'
 
 export { P2P_SIGNAL_WIRE_SCHEMA_VERSION }
 
-const OFFER_ANSWER_TTL_MS = 55_000
-const ICE_TTL_MS = 25_000
+/**
+ * Was 55s (below 60s). Raised to match ICE: relay 429 backoffs can exceed sub-minute TTLs and
+ * reject with `rejection_path=expired` before the signal is delivered.
+ */
+const OFFER_ANSWER_TTL_MS = 120_000
+/** ICE: long enough to survive several 429 backoffs (capped ~8s + jitter) before `expires_at`. */
+const ICE_TTL_MS = 120_000
 
 /** Max 429 retries per signaling message (same body); then offer/answer fatal, ICE non-fatal counter. */
 const MAX_429_RETRIES_PER_MESSAGE = 12

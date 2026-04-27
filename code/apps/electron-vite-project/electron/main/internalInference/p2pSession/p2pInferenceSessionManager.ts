@@ -1319,11 +1319,18 @@ export function markDataChannelOpenForP2pSession(handshakeId: string, p2pSession
   clearSignalingOfferDeadline(hid, sid)
   clearOfferStartWatchdog(hid, sid)
   const t = now()
+  const st = m.state
+  if (st.phase === P2pSessionPhase.failed) {
+    console.log(
+      `[P2P_DC_OPEN_PHASE_RESET] handshake=${hid} session=${redactIdForLog(sid)} from=failed to=datachannel_open`,
+    )
+  }
   setSession(hid, {
-    ...m.state,
+    ...st,
     phase: P2pSessionPhase.datachannel_open,
     connectedAt: t,
     updatedAt: t,
+    lastErrorCode: st.phase === P2pSessionPhase.failed ? null : st.lastErrorCode,
   })
   console.log(`[P2P_DC_OPEN] handshake=${hid} session=${redactIdForLog(sid)}`)
   emitP2pCapabilityDcWait(hid, { kind: 'dc_open' })

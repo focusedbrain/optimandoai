@@ -150,6 +150,25 @@ const webrtcListHostCapsCache = new Map<string, { at: number; result: ListHostCa
 
 type ProbeHostPolicyResult = Awaited<ReturnType<typeof probeHostInferencePolicyFromSandbox>>
 
+const PROBE_TTL_MS = 5000
+const probeCache = new Map<string, { result: ProbeHostPolicyResult; ts: number }>()
+const inflightProbes = new Map<string, Promise<ProbeHostPolicyResult>>()
+
+/** Drop capability-probe debounce (e.g. after role / transport change). */
+export function invalidateProbeCache(handshakeId?: string): void {
+  if (handshakeId) {
+    const h = String(handshakeId).trim()
+    if (!h) {
+      return
+    }
+    probeCache.delete(h)
+    inflightProbes.delete(h)
+  } else {
+    probeCache.clear()
+    inflightProbes.clear()
+  }
+}
+
 const listHostCapsProbeInflight = new Map<string, Promise<ListHostCapResult>>()
 const listHostCapsProbeLast = new Map<string, { at: number; result: ListHostCapResult }>()
 /** In-flight only (no TTL cache): sequential list runs must observe updated Host probe mocks / policy. */
@@ -202,12 +221,51 @@ async function coalescedProbeHostPolicyForList(
   return p
 }
 
+/**
+ * Throttles `coalescedProbeHostPolicyForList` (Host capability policy probe) for rapid list refreshes.
+ * Logs `probe_capabilities_start` only on a fresh run; cache / outer inflight reuse are skipped lines.
+ */
+async function runDebouncedPolicyProbeForList(
+  hid: string,
+  rowChain: string | undefined,
+  rowBeapCorrelationId: string,
+): Promise<ProbeHostPolicyResult> {
+  const h = hid.trim()
+  const now = Date.now()
+  const hit = probeCache.get(h)
+  if (hit && now - hit.ts < PROBE_TTL_MS) {
+    const age = now - hit.ts
+    console.log(`${L} probe_capabilities_skipped handshake=${h} reason=cache_hit_age_ms=${age}`)
+    return hit.result
+  }
+  const ex = inflightProbes.get(h)
+  if (ex) {
+    console.log(`${L} probe_capabilities_skipped handshake=${h} reason=inflight_reuse`)
+    return ex
+  }
+  console.log(`${L} probe_capabilities_start handshake=${h}`)
+  const p = coalescedProbeHostPolicyForList(h, rowChain, rowBeapCorrelationId)
+    .then((r) => {
+      probeCache.set(h, { result: r, ts: Date.now() })
+      return r
+    })
+    .finally(() => {
+      if (inflightProbes.get(h) === p) {
+        inflightProbes.delete(h)
+      }
+    })
+  inflightProbes.set(h, p)
+  return p
+}
+
 /** Clears the short TTL WebRTC list caps cache. Used by unit tests to avoid order-dependent state. */
 export function resetWebrtcListHostCapsCacheForTests(): void {
   webrtcListHostCapsCache.clear()
   listHostCapsProbeInflight.clear()
   listHostCapsProbeLast.clear()
   policyProbeInflight.clear()
+  probeCache.clear()
+  inflightProbes.clear()
   hostAiDirectProbe429CooldownUntil.clear()
 }
 
@@ -226,6 +284,8 @@ export function clearHostAiListTransientStateForOrchestratorBuildChange(): void 
   listHostCapsProbeInflight.clear()
   listHostCapsProbeLast.clear()
   policyProbeInflight.clear()
+  probeCache.clear()
+  inflightProbes.clear()
   hostAiDirectProbe429CooldownUntil.clear()
   resetProbeHostInferencePolicyInFlightForTests()
   clearHostAiTransportDecideDedupeCache()
@@ -1923,10 +1983,9 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         continue
       }
     } else {
-      console.log(`${L} probe_capabilities_start handshake=${hid}`)
       hadCapabilitiesProbed = true
       try {
-        probe = await coalescedProbeHostPolicyForList(hid, rowChain, rowBeapCorrelationId)
+        probe = await runDebouncedPolicyProbeForList(hid, rowChain, rowBeapCorrelationId)
       } catch (err) {
         console.warn(`${L} target_disabled handshake=${hid} reason=probe_throw`, err)
         const ur: HostTargetUnavailableCode = 'CAPABILITY_PROBE_FAILED'
