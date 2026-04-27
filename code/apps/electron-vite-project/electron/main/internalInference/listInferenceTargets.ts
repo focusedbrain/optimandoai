@@ -67,6 +67,7 @@ import {
   refreshHostAiPairingStaleByTtl,
 } from './hostAiPairingStateStore'
 import { getP2pRelaySignalingCircuitOpenUntilMs } from './p2pSignalRelayCircuit'
+import { invalidateSbxAiCapsTerminalCache } from './p2pDc/p2pDcCapabilities'
 import { listHostCapabilities } from './transport/internalInferenceTransport'
 import { isHostAiProbeTerminalNoPolicyFallback } from './transport/hostAiRouteCandidate'
 import type { InternalInferenceCapabilitiesResultWire } from './types'
@@ -167,6 +168,7 @@ const inflightProbes = new Map<string, Promise<ProbeHostPolicyResult>>()
 
 /** Drop capability-probe debounce (e.g. after role / transport change). */
 export function invalidateProbeCache(handshakeId?: string): void {
+  invalidateSbxAiCapsTerminalCache(handshakeId)
   if (handshakeId) {
     const h = String(handshakeId).trim()
     if (!h) {
@@ -275,6 +277,7 @@ async function runDebouncedPolicyProbeForList(
 
 /** Clears the short TTL WebRTC list caps cache. Used by unit tests to avoid order-dependent state. */
 export function resetWebrtcListHostCapsCacheForTests(): void {
+  invalidateSbxAiCapsTerminalCache()
   webrtcListHostCapsCache.clear()
   listHostCapsProbeInflight.clear()
   listHostCapsProbeLast.clear()
@@ -292,6 +295,7 @@ export function resetP2pEnsureThrottleCacheForTests(): void {
 
 /** After orchestrator build bump: drop cached list/probe state so Host AI is re-derived fresh. */
 export function clearHostAiListTransientStateForOrchestratorBuildChange(): void {
+  invalidateSbxAiCapsTerminalCache()
   stableListProbeChainByHandshake.clear()
   lastP2pEnsureByHandshake.clear()
   lastRelayP2pNudgeByHandshake.clear()

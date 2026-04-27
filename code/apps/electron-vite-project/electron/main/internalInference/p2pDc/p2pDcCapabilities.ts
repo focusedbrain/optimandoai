@@ -23,7 +23,11 @@ import {
 import type { InternalInferenceCapabilitiesResultWire } from '../types'
 import { tryRouteP2pInferenceDataChannelMessage } from './p2pDcInference'
 
-type CapResolve = (r: { ok: true; wire: InternalInferenceCapabilitiesResultWire } | { ok: false; reason: string; code?: string }) => void
+export type HostInferenceCapabilitiesDcOutcome =
+  | { ok: true; wire: InternalInferenceCapabilitiesResultWire }
+  | { ok: false; reason: string; code?: string }
+
+type CapResolve = (r: HostInferenceCapabilitiesDcOutcome) => void
 
 type PendingCap = {
   resolve: CapResolve
@@ -34,41 +38,132 @@ type PendingCap = {
 
 const pending = new Map<string, PendingCap>()
 
-/** Same handshake + P2P session: one DC request in flight; extra callers await the same promise. */
-const inflightCapsByHandshakeSession = new Map<string, Promise<
-  { ok: true; wire: InternalInferenceCapabilitiesResultWire } | { ok: false; reason: string; code?: string }
->>()
+export type SbxAiCapsPurpose = 'capabilities_dc'
 
-/** Sandbox: successful caps wires keyed by handshake + session; avoids DC storms between ticks. */
-const CAPS_SUCCESS_CACHE_TTL_MS = 30_000
-const capsWireSuccessCache = new Map<
-  string,
-  { wire: InternalInferenceCapabilitiesResultWire; expiresAt: number }
->()
-
-function getCapsWireSuccessCache(ck: string): InternalInferenceCapabilitiesResultWire | null {
-  const e = capsWireSuccessCache.get(ck)
-  if (!e || Date.now() >= e.expiresAt) {
-    if (e) capsWireSuccessCache.delete(ck)
-    return null
-  }
-  return e.wire
+/** Sandbox requester key: handshake + peer Host coordination id + logical purpose (not WebRTC session id). */
+export function sbxAiCapsCacheKey(
+  handshakeId: string,
+  peerHostDeviceId: string,
+  purpose: SbxAiCapsPurpose = 'capabilities_dc',
+): string {
+  return `${handshakeId.trim()}:${peerHostDeviceId.trim()}:${purpose}`
 }
 
-function setCapsWireSuccessCache(ck: string, wire: InternalInferenceCapabilitiesResultWire): void {
-  capsWireSuccessCache.set(ck, {
-    wire,
-    expiresAt: Date.now() + CAPS_SUCCESS_CACHE_TTL_MS,
-  })
+export type SbxAiCapsResponseClassification =
+  | 'available'
+  | 'no_models'
+  | 'policy_disabled'
+  | 'transport_failed'
+  | 'invalid_response'
+
+/** Terminal capability outcomes keyed by {@link sbxAiCapsCacheKey}; avoids hammering Host when models=[] etc. */
+const sbxAiCapsTerminalCache = new Map<string, { outcome: HostInferenceCapabilitiesDcOutcome; expiresAt: number }>()
+
+/** Single-flight join map keyed like {@link sbxAiCapsTerminalCache}. */
+const sbxAiCapsInflightByCacheKey = new Map<string, Promise<HostInferenceCapabilitiesDcOutcome>>()
+
+function getSbxAiCapsTerminalCache(cacheKey: string): HostInferenceCapabilitiesDcOutcome | null {
+  const e = sbxAiCapsTerminalCache.get(cacheKey)
+  if (!e || Date.now() >= e.expiresAt) {
+    if (e) sbxAiCapsTerminalCache.delete(cacheKey)
+    return null
+  }
+  return deepCloneDcOutcome(e.outcome)
+}
+
+function setSbxAiCapsTerminalCache(cacheKey: string, outcome: HostInferenceCapabilitiesDcOutcome, ttlMs: number): void {
+  if (ttlMs <= 0) return
+  sbxAiCapsTerminalCache.set(cacheKey, { outcome: deepCloneDcOutcome(outcome), expiresAt: Date.now() + ttlMs })
+}
+
+function deepCloneDcOutcome(o: HostInferenceCapabilitiesDcOutcome): HostInferenceCapabilitiesDcOutcome {
+  return JSON.parse(JSON.stringify(o)) as HostInferenceCapabilitiesDcOutcome
+}
+
+function cloneDcOutcomeFreshRequestId(
+  out: HostInferenceCapabilitiesDcOutcome,
+  requestIdOpt?: string,
+): HostInferenceCapabilitiesDcOutcome {
+  if (!out.ok) return { ...out }
+  const rid = requestIdOpt?.trim() ? requestIdOpt.trim() : randomUUID()
+  return { ok: true, wire: { ...out.wire, request_id: rid } }
+}
+
+function classifySbxAiCapsOutcome(out: HostInferenceCapabilitiesDcOutcome): SbxAiCapsResponseClassification {
+  if (!out.ok) {
+    const r = out.reason
+    if (
+      r === 'timeout' ||
+      r === 'parse' ||
+      r === 'handshake_mismatch' ||
+      r === 'session_mismatch' ||
+      r === 'missing_coordination_ids' ||
+      r === 'handshake' ||
+      r === 'no_db'
+    ) {
+      return 'transport_failed'
+    }
+    return 'invalid_response'
+  }
+  const w = out.wire
+  if (w.policy_enabled === false) return 'policy_disabled'
+  const mc = Array.isArray(w.models) ? w.models.length : 0
+  if (mc > 0) return 'available'
+  return 'no_models'
+}
+
+function ttlMsForSbxAiCapsOutcome(out: HostInferenceCapabilitiesDcOutcome): number {
+  if (!out.ok) {
+    const r = out.reason
+    if (
+      r === 'timeout' ||
+      r === 'parse' ||
+      r === 'handshake_mismatch' ||
+      r === 'session_mismatch' ||
+      r === 'missing_coordination_ids' ||
+      r === 'handshake' ||
+      r === 'no_db'
+    ) {
+      return 0
+    }
+    const code = out.code
+    if (
+      code === InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED ||
+      code === InternalInferenceErrorCode.POLICY_FORBIDDEN
+    ) {
+      return 20_000
+    }
+    if (r === 'inference_error') {
+      return 10_000
+    }
+    return 0
+  }
+  const w = out.wire
+  if (w.policy_enabled === false) return 20_000
+  const mc = Array.isArray(w.models) ? w.models.length : 0
+  if (mc > 0) return 30_000
+  return 5_000
+}
+
+/** Clears TTL terminal caches when handshake rows / transport change (caller: invalidateProbeCache). */
+export function invalidateSbxAiCapsTerminalCache(handshakeId?: string): void {
+  if (!handshakeId?.trim()) {
+    sbxAiCapsTerminalCache.clear()
+    sbxAiCapsInflightByCacheKey.clear()
+    return
+  }
+  const prefix = `${handshakeId.trim()}:`
+  for (const k of [...sbxAiCapsTerminalCache.keys()]) {
+    if (k.startsWith(prefix)) sbxAiCapsTerminalCache.delete(k)
+  }
+  for (const k of [...sbxAiCapsInflightByCacheKey.keys()]) {
+    if (k.startsWith(prefix)) sbxAiCapsInflightByCacheKey.delete(k)
+  }
 }
 
 const CAPS_TYPE_RESULT = 'inference_capabilities_result'
 const CAPS_TYPE_ERR = 'inference_error'
 const CAPS_TYPE_REQ = 'inference_capabilities_request'
-
-function capsCoalesceKey(handshakeId: string, p2pSessionId: string): string {
-  return `${handshakeId.trim()}:${p2pSessionId.trim()}`
-}
 
 /** Host: same Sandbox sender + handshake → one concurrent provider enumeration / wire build (duplicate DC frames join). */
 function hostCapsHandshakeSenderKey(handshakeId: string, sandboxSenderDeviceId: string): string {
@@ -84,10 +179,6 @@ type HostCapsBuiltPack = { wire: InternalInferenceCapabilitiesResultWire; meta: 
 const hostCapsBuiltCacheByHsSender = new Map<string, { pack: HostCapsBuiltPack; expiresAt: number }>()
 
 const inflightHostCapsBuildByHandshakeSender = new Map<string, Promise<HostCapsBuiltPack>>()
-
-/** Sandbox: pause outbound caps RPC briefly after invalid empty-success wire from Host (anti hammer). */
-const SBX_CAPS_INVALID_EMPTY_COOLDOWN_MS = 2_000
-const sbxCapsInvalidEmptyCooldownUntilBySession = new Map<string, number>()
 
 async function sendCapsDcError(
   p2pSessionId: string,
@@ -129,11 +220,10 @@ export function clearPendingP2pCapabilitiesForTests(): void {
     clearTimeout(v.timeoutId)
   }
   pending.clear()
-  inflightCapsByHandshakeSession.clear()
-  capsWireSuccessCache.clear()
+  sbxAiCapsInflightByCacheKey.clear()
+  sbxAiCapsTerminalCache.clear()
   inflightHostCapsBuildByHandshakeSender.clear()
   hostCapsBuiltCacheByHsSender.clear()
-  sbxCapsInvalidEmptyCooldownUntilBySession.clear()
 }
 
 function mapDcToInternalWire(o: Record<string, unknown>, hid: string): InternalInferenceCapabilitiesResultWire | null {
@@ -665,22 +755,19 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
     let wireOut = w
     if (w.policy_enabled === true && mc === 0 && ieUnset) {
       console.log(
-        `[SBX_AI_CAPS_INVALID_EMPTY_SUCCESS] ${JSON.stringify({
+        `[SBX_AI_CAPS_EMPTY_WIRE_NORMALIZED] ${JSON.stringify({
           handshake_id: handshakeId.trim(),
           session_id: p2pSessionId.trim(),
           correlation_id: rid,
           policy_enabled: true,
           models_length: 0,
           inference_error_code_before: ie ?? null,
+          inference_error_code_after: InternalInferenceErrorCode.PROBE_NO_MODELS,
         })}`,
-      )
-      sbxCapsInvalidEmptyCooldownUntilBySession.set(
-        capsCoalesceKey(entry.handshakeId, entry.p2pSessionId),
-        Date.now() + SBX_CAPS_INVALID_EMPTY_COOLDOWN_MS,
       )
       wireOut = {
         ...w,
-        inference_error_code: InternalInferenceErrorCode.PROBE_PROVIDER_NOT_READY,
+        inference_error_code: InternalInferenceErrorCode.PROBE_NO_MODELS,
       }
       ie = wireOut.inference_error_code
     }
@@ -702,9 +789,6 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
         dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
       })}`,
     )
-    if (mc > 0) {
-      setCapsWireSuccessCache(capsCoalesceKey(entry.handshakeId, entry.p2pSessionId), wireOut)
-    }
     entry.resolve({ ok: true, wire: wireOut })
     return true
   }
@@ -749,13 +833,53 @@ export function tryRouteP2pDataChannelJsonMessage(
   return tryRouteP2pInferenceDataChannelMessage(p2pSessionId, handshakeId, o)
 }
 
-export type HostInferenceCapabilitiesDcOutcome =
-  | { ok: true; wire: InternalInferenceCapabilitiesResultWire }
-  | { ok: false; reason: string; code?: string }
+async function peekSandboxPeerHostDeviceForCapsCache(handshakeId: string): Promise<string | null> {
+  const me = getInstanceId().trim()
+  const db = await getHandshakeDbForInternalInference()
+  if (!db) return null
+  const r = getHandshakeRecord(db, handshakeId.trim())
+  const ar = assertRecordForServiceRpc(r)
+  if (!ar.ok) return null
+  const dr = deriveInternalHostAiPeerRoles(ar.record, me)
+  if (!dr.ok || dr.localRole !== 'sandbox' || dr.peerRole !== 'host') return null
+  const sb = hostAiSandboxToHostRequestDeviceIds(ar.record, me)
+  if (!sb.ok || !sb.targetHost?.trim()) return null
+  return sb.targetHost.trim()
+}
+
+function logSbxAiCapsResponseClassifiedPayload(
+  handshakeId: string,
+  peerHost: string | null,
+  cacheKey: string | null,
+  out: HostInferenceCapabilitiesDcOutcome,
+): void {
+  const me = getInstanceId().trim()
+  const ttl = ttlMsForSbxAiCapsOutcome(out)
+  const classification = classifySbxAiCapsOutcome(out)
+  const modelsCount =
+    out.ok && Array.isArray(out.wire.models) ? out.wire.models.length : null
+  const policyEnabled = out.ok ? out.wire.policy_enabled === true : null
+  const inferenceErr =
+    out.ok ? (out.wire.inference_error_code ?? null) : (out.code ?? out.reason ?? null)
+  console.log(
+    `[SBX_AI_CAPS_RESPONSE_CLASSIFIED] ${JSON.stringify({
+      handshake_id: handshakeId.trim(),
+      peer_host_device_id: peerHost,
+      current_device_id: me,
+      cache_key: cacheKey,
+      models_count: modelsCount,
+      policy_enabled: policyEnabled,
+      inference_error_code: inferenceErr,
+      classification,
+      ttl_ms: ttl,
+      caller_purpose: 'capabilities_dc',
+    })}`,
+  )
+}
 
 /**
  * Sandbox → Host: send capabilities request over DC and await response (or error).
- * Concurrent callers for the same handshake + P2P session share one in-flight exchange (no duplicate DC sends).
+ * Same handshake + peer Host device coalesce and share TTL terminal cache (models=[] included).
  */
 export async function requestHostInferenceCapabilitiesOverDataChannel(
   handshakeId: string,
@@ -763,18 +887,77 @@ export async function requestHostInferenceCapabilitiesOverDataChannel(
   timeoutMs: number,
   options?: { requestId?: string },
 ): Promise<HostInferenceCapabilitiesDcOutcome> {
-  const ck = capsCoalesceKey(handshakeId, p2pSessionId)
-  const existing = inflightCapsByHandshakeSession.get(ck)
-  if (existing) {
-    return existing
-  }
-  const started = executeHostInferenceCapabilitiesDcExchange(handshakeId, p2pSessionId, timeoutMs, options)
-  inflightCapsByHandshakeSession.set(ck, started)
-  void started.finally(() => {
-    if (inflightCapsByHandshakeSession.get(ck) === started) {
-      inflightCapsByHandshakeSession.delete(ck)
+  const hidTrim = handshakeId.trim()
+  const me = getInstanceId().trim()
+  const peerHostPeek = await peekSandboxPeerHostDeviceForCapsCache(handshakeId)
+  let cacheKey: string | null = null
+  if (peerHostPeek) {
+    cacheKey = sbxAiCapsCacheKey(hidTrim, peerHostPeek)
+    const cached = getSbxAiCapsTerminalCache(cacheKey)
+    if (cached) {
+      console.log(
+        `[SBX_AI_CAPS_REQUEST_CACHE_HIT] ${JSON.stringify({
+          handshake_id: hidTrim,
+          peer_host_device_id: peerHostPeek,
+          current_device_id: me,
+          cache_key: cacheKey,
+          models_count:
+            cached.ok && Array.isArray(cached.wire.models) ? cached.wire.models.length : null,
+          policy_enabled: cached.ok ? cached.wire.policy_enabled === true : null,
+          inference_error_code:
+            cached.ok ? cached.wire.inference_error_code ?? null : cached.code ?? cached.reason,
+          classification: classifySbxAiCapsOutcome(cached),
+          ttl_ms: ttlMsForSbxAiCapsOutcome(cached),
+          caller_purpose: 'capabilities_dc',
+        })}`,
+      )
+      return cloneDcOutcomeFreshRequestId(cached, options?.requestId)
     }
+    const existingInflight = sbxAiCapsInflightByCacheKey.get(cacheKey)
+    if (existingInflight) {
+      console.log(
+        `[SBX_AI_CAPS_REQUEST_INFLIGHT_REUSE] ${JSON.stringify({
+          handshake_id: hidTrim,
+          peer_host_device_id: peerHostPeek,
+          current_device_id: me,
+          cache_key: cacheKey,
+          caller_purpose: 'capabilities_dc',
+        })}`,
+      )
+      return existingInflight
+    }
+  }
+
+  console.log(
+    `[SBX_AI_CAPS_REQUEST_START] ${JSON.stringify({
+      handshake_id: hidTrim,
+      peer_host_device_id: peerHostPeek,
+      current_device_id: me,
+      cache_key: cacheKey,
+      caller_purpose: 'capabilities_dc',
+    })}`,
+  )
+
+  const inner = executeHostInferenceCapabilitiesDcExchange(handshakeId, p2pSessionId, timeoutMs, options)
+
+  const finalize = (out: HostInferenceCapabilitiesDcOutcome): HostInferenceCapabilitiesDcOutcome => {
+    logSbxAiCapsResponseClassifiedPayload(hidTrim, peerHostPeek, cacheKey, out)
+    if (cacheKey) {
+      const ttl = ttlMsForSbxAiCapsOutcome(out)
+      if (ttl > 0) setSbxAiCapsTerminalCache(cacheKey, out, ttl)
+    }
+    return out
+  }
+
+  if (!cacheKey) {
+    return inner.then(finalize)
+  }
+
+  const started = inner.then(finalize).finally(() => {
+    sbxAiCapsInflightByCacheKey.delete(cacheKey!)
   })
+
+  sbxAiCapsInflightByCacheKey.set(cacheKey, started)
   return started
 }
 
@@ -856,27 +1039,6 @@ async function executeHostInferenceCapabilitiesDcExchange(
   const requestId = (options?.requestId?.trim() ? options.requestId.trim() : null) || randomUUID()
   const hidTrim = handshakeId.trim()
   const sidTrim = p2pSessionId.trim()
-  const ck = capsCoalesceKey(hidTrim, sidTrim)
-  const coolUntil = sbxCapsInvalidEmptyCooldownUntilBySession.get(ck) ?? 0
-  if (Date.now() < coolUntil) {
-    console.log(
-      `[SBX_AI_CAPS_INVALID_EMPTY_SUCCESS] ${JSON.stringify({
-        handshake_id: hidTrim,
-        session_id: sidTrim,
-        throttle: true,
-        cool_remaining_ms: Math.max(0, coolUntil - Date.now()),
-      })}`,
-    )
-    return {
-      ok: false,
-      reason: 'invalid_caps_empty_success_throttled',
-      code: InternalInferenceErrorCode.PROBE_PROVIDER_NOT_READY,
-    }
-  }
-  const cachedWire = getCapsWireSuccessCache(ck)
-  if (cachedWire) {
-    return { ok: true, wire: { ...cachedWire, request_id: requestId } }
-  }
   const body = {
     schema_version: 1,
     type: CAPS_TYPE_REQ,

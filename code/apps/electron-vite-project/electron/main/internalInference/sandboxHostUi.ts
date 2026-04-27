@@ -438,6 +438,8 @@ export type ProbeHostPolicyResult =
       directP2pPath?: boolean
       policyEnabledFromHost?: boolean
       inferenceErrorCode?: string
+      /** Host caps wire valid but nothing selectable — never triggers immediate capability retry loops. */
+      terminalNoModel?: boolean
       /** A–Q direct P2P capability-probe label (J = no active local model; P = Ollama down on Host; Q = transport not ready). */
       p2pProbeClassification?: P2pCapabilityProbeLetter
     }
@@ -543,6 +545,34 @@ export function mapCapabilitiesWireToProbe(
     (m) => m.enabled && typeof m.model === 'string' && m.model.trim(),
   )
 
+  const terminalEmptyWireErr =
+    rawWireErr === '' ||
+    rawWireErr === InternalInferenceErrorCode.PROBE_PROVIDER_NOT_READY
+  if (
+    allow &&
+    terminalEmptyWireErr &&
+    baseEnabledFromWire.length === 0 &&
+    !activeHint
+  ) {
+    console.log(`[HOST_CAPS] inference_ready=false reason=no_models_terminal provider=ollama models=0`)
+    return {
+      ok: true,
+      allowSandboxInference: allow,
+      defaultChatModel: undefined,
+      modelId: null,
+      displayLabelFromHost: 'Host AI · —',
+      hostComputerNameFromHost: w.host_computer_name,
+      providerFromHost: 'ollama',
+      hostOrchestratorRoleLabelFromHost: 'Host orchestrator',
+      internalIdentifier6FromHost: w.host_pairing_code,
+      internalIdentifierDisplayFromHost: displayPairingFromDigits6(w.host_pairing_code),
+      directP2pPath: true,
+      policyEnabledFromHost: allow,
+      inferenceErrorCode: InternalInferenceErrorCode.PROBE_NO_MODELS,
+      terminalNoModel: true,
+    }
+  }
+
   let enabledModels =
     allow && baseEnabledFromWire.length === 0 && activeHint
       ? [
@@ -576,6 +606,7 @@ export function mapCapabilitiesWireToProbe(
         directP2pPath: true,
         policyEnabledFromHost: allow,
         inferenceErrorCode: InternalInferenceErrorCode.PROBE_NO_MODELS,
+        terminalNoModel: enabledModels.length === 0,
       }
     }
   }
