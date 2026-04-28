@@ -16,6 +16,7 @@ import { InternalInferenceErrorCode } from '../errors'
 import { logHostAiCapsRoleGate } from '../hostAiCapsRoleGateLog'
 import {
   assertRecordForServiceRpc,
+  coordinationDeviceIdForHandshakeDeviceRole,
   deriveInternalHostAiPeerRoles,
   hostAiHostToSandboxAsHost,
   hostAiSandboxToHostRequestDeviceIds,
@@ -252,12 +253,15 @@ function ollamaDirectWireFieldsFromDcPayload(
   > = {}
   if (typeof o.ollama_direct_available === 'boolean') extra.ollama_direct_available = o.ollama_direct_available
   if (typeof o.ollama_direct_base_url === 'string') extra.ollama_direct_base_url = o.ollama_direct_base_url
+  else if (o.ollama_direct_base_url === null) extra.ollama_direct_base_url = undefined
   if (typeof o.ollama_direct_host_ip === 'string') extra.ollama_direct_host_ip = o.ollama_direct_host_ip
+  else if (o.ollama_direct_host_ip === null) extra.ollama_direct_host_ip = undefined
   if (typeof o.ollama_direct_models_count === 'number' && Number.isFinite(o.ollama_direct_models_count)) {
     extra.ollama_direct_models_count = o.ollama_direct_models_count
   }
   if (typeof o.ollama_direct_source === 'string') extra.ollama_direct_source = o.ollama_direct_source
   if (typeof o.endpoint_owner_device_id === 'string') extra.endpoint_owner_device_id = o.endpoint_owner_device_id
+  else if (o.endpoint_owner_device_id === null) extra.endpoint_owner_device_id = undefined
   return extra
 }
 
@@ -502,6 +506,11 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
     })}`,
   )
   const capsEpoch = Date.now()
+  const odAvail = built.ollama_direct_available === true
+  const odSourceRaw =
+    typeof built.ollama_direct_source === 'string' && built.ollama_direct_source.trim()
+      ? built.ollama_direct_source.trim()
+      : 'none'
   const out = {
     type: CAPS_TYPE_RESULT,
     schema_version: 1,
@@ -519,7 +528,34 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
     target_device_id: built.target_device_id,
     active_chat_model: built.active_chat_model,
     inference_error_code: built.inference_error_code,
+    ollama_direct_available: odAvail,
+    ollama_direct_base_url: built.ollama_direct_base_url ?? null,
+    ollama_direct_host_ip: built.ollama_direct_host_ip ?? null,
+    ollama_direct_models_count:
+      typeof built.ollama_direct_models_count === 'number' && Number.isFinite(built.ollama_direct_models_count)
+        ? built.ollama_direct_models_count
+        : 0,
+    ollama_direct_source: odSourceRaw,
+    endpoint_owner_device_id: built.endpoint_owner_device_id ?? null,
   }
+  console.log(
+    `[HOST_AI_CAPS_OLLAMA_DIRECT_WIRE] ${JSON.stringify({
+      handshake_id: handshakeId.trim(),
+      session_id: p2pSessionId.trim(),
+      correlation_id: built.request_id,
+      current_device_id: getInstanceId().trim(),
+      sender_device_id: built.sender_device_id,
+      target_device_id: built.target_device_id,
+      endpoint_owner_device_id: built.endpoint_owner_device_id ?? null,
+      ollama_direct_available: odAvail,
+      ollama_direct_base_url: built.ollama_direct_base_url ?? null,
+      ollama_direct_host_ip: built.ollama_direct_host_ip ?? null,
+      ollama_direct_models_count:
+        typeof built.ollama_direct_models_count === 'number' ? built.ollama_direct_models_count : 0,
+      legacy_models_array_length: modelsCount,
+      inference_error_code: built.inference_error_code ?? null,
+    })}`,
+  )
   const body = JSON.stringify(out)
   const bytes = new TextEncoder().encode(body).length
   console.log(
@@ -824,6 +860,48 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
         error_code: ie ?? null,
         reject_reason: null,
         dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+      })}`,
+    )
+    const peerHostWire = (coordinationDeviceIdForHandshakeDeviceRole(srec, 'host') ?? '').trim()
+    const ownerW = typeof wireOut.endpoint_owner_device_id === 'string' ? wireOut.endpoint_owner_device_id.trim() : ''
+    let baseValid = false
+    const bu = typeof wireOut.ollama_direct_base_url === 'string' ? wireOut.ollama_direct_base_url.trim() : ''
+    if (bu) {
+      try {
+        const u = new URL(bu)
+        baseValid = u.protocol === 'http:' || u.protocol === 'https:'
+      } catch {
+        baseValid = false
+      }
+    }
+    let rejected_reason: string | null = null
+    let acceptedOd = false
+    if (wireOut.ollama_direct_available === true && baseValid && peerHostWire && ownerW === peerHostWire) {
+      acceptedOd = true
+    } else if (wireOut.ollama_direct_available !== true) {
+      rejected_reason = 'ollama_direct_not_available'
+    } else if (!baseValid) {
+      rejected_reason = 'invalid_or_missing_ollama_direct_base_url'
+    } else if (!peerHostWire) {
+      rejected_reason = 'missing_peer_host_device_id'
+    } else if (ownerW !== peerHostWire) {
+      rejected_reason = 'endpoint_owner_not_peer_host'
+    } else {
+      rejected_reason = 'rejected'
+    }
+    console.log(
+      `[SBX_HOST_AI_OLLAMA_DIRECT_WIRE_RECEIVED] ${JSON.stringify({
+        handshake_id: handshakeId.trim(),
+        current_device_id: getInstanceId().trim(),
+        peer_host_device_id: peerHostWire || null,
+        endpoint_owner_device_id: ownerW || null,
+        ollama_direct_available: wireOut.ollama_direct_available === true,
+        ollama_direct_base_url: wireOut.ollama_direct_base_url ?? null,
+        ollama_direct_host_ip: wireOut.ollama_direct_host_ip ?? null,
+        ollama_direct_models_count:
+          typeof wireOut.ollama_direct_models_count === 'number' ? wireOut.ollama_direct_models_count : 0,
+        accepted: acceptedOd,
+        rejected_reason,
       })}`,
     )
     entry.resolve({ ok: true, wire: wireOut })
