@@ -951,7 +951,19 @@ contextBridge.exposeInMainWorld('handshakeView', {
     const user = assertString(userMessage, 'userMessage')
     return ipcRenderer.invoke('handshake:chatWithContext', systemMessage, dataWrapper, user)
   },
-  chatWithContextRag: (params: { query: string; scope?: string; model: string; provider: string; stream?: boolean; debug?: boolean; conversationContext?: { lastAnswer?: string }; selectedDocumentId?: string; selectedAttachmentId?: string }) => {
+  chatWithContextRag: (params: {
+    query: string
+    scope?: string
+    model: string
+    provider: string
+    stream?: boolean
+    debug?: boolean
+    conversationContext?: { lastAnswer?: string }
+    selectedDocumentId?: string
+    selectedAttachmentId?: string
+    selectedMessageId?: string
+    sandboxInferenceHandshakeId?: string
+  }) => {
     if (!params || typeof params !== 'object' || typeof params.query !== 'string') {
       throw new Error('chatWithContextRag: expected { query, scope?, model, provider }')
     }
@@ -967,6 +979,11 @@ contextBridge.exposeInMainWorld('handshakeView', {
         : undefined,
       selectedDocumentId: typeof params.selectedDocumentId === 'string' && params.selectedDocumentId.trim() ? params.selectedDocumentId.trim() : undefined,
       selectedAttachmentId: typeof params.selectedAttachmentId === 'string' && params.selectedAttachmentId.trim() ? params.selectedAttachmentId.trim() : undefined,
+      selectedMessageId: typeof params.selectedMessageId === 'string' && params.selectedMessageId.trim() ? params.selectedMessageId.trim() : undefined,
+      sandboxInferenceHandshakeId:
+        typeof params.sandboxInferenceHandshakeId === 'string' && params.sandboxInferenceHandshakeId.trim()
+          ? params.sandboxInferenceHandshakeId.trim()
+          : undefined,
     })
   },
   chatDirect: (params: {

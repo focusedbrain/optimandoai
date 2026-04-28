@@ -594,6 +594,20 @@ interface ChatAttachment {
   thumbnail?: string
 }
 
+/** Matches the RAG path attachment prepend (HybridSearch PDF block ~1835+) so Host-internal IPC gets the same text. */
+function prependChatAttachmentsToUserText(trimmed: string, attachments: ChatAttachment[]): string {
+  if (!attachments?.length) return trimmed
+  const parts: string[] = []
+  for (const att of attachments) {
+    if (att.type === 'pdf') {
+      parts.push(`[Attached PDF: ${att.filename}]\n${att.data}\n[End of PDF]`)
+    } else {
+      parts.push(`[User attached image: ${att.filename}. Image analysis requires a multi-modal model.]`)
+    }
+  }
+  return parts.length > 0 ? `${parts.join('\n\n')}\n\n${trimmed}` : trimmed
+}
+
 interface ChatTurn {
   role: 'user' | 'assistant'
   content: string
@@ -1608,14 +1622,15 @@ export default function HybridSearch({
             line2: hostComputerName,
           })
           const prior = chatMessages.map((m) => ({ role: m.role, content: m.content }))
+          const userLine = prependChatAttachmentsToUserText(trimmed, chatAttachments)
           const msgSeq =
             previousAnswer?.trim() && mode === 'chat' && !isDraftRefineSession
               ? [
                   ...prior,
                   { role: 'assistant' as const, content: previousAnswer.trim() },
-                  { role: 'user' as const, content: trimmed },
+                  { role: 'user' as const, content: userLine },
                 ]
-              : [...prior, { role: 'user' as const, content: trimmed }]
+              : [...prior, { role: 'user' as const, content: userLine }]
           try {
             const r = (await run({
               targetId: selectedModel,
@@ -1955,6 +1970,7 @@ export default function HybridSearch({
               selectedDocumentId: selectedDocumentId ?? undefined,
               selectedAttachmentId: selectedAttachmentId ?? undefined,
               selectedMessageId: selectedMessageId ?? undefined,
+              sandboxInferenceHandshakeId: selectedHandshakeId ?? undefined,
             })
           }
         } finally {
@@ -1969,6 +1985,13 @@ export default function HybridSearch({
             setResponse('Search requires Ollama with an embedding model. Check Backend Configuration.')
           } else if (result?.error === 'no_api_key') {
             setResponse(`No API key configured for ${result.provider ?? 'cloud provider'}. Add it in Extension Settings.`)
+          } else if (result?.error === 'inference_routing_unavailable') {
+            const r = result as { message?: string }
+            setResponse(
+              typeof r.message === 'string' && r.message.trim()
+                ? r.message
+                : 'No AI available. Either install Ollama on this device, or connect to a host running Ollama.',
+            )
           } else if (result?.error === 'ollama_unavailable') {
             setResponse('Ollama is not running. Start Ollama to use local models.')
           } else if (result?.error === 'model_not_available') {

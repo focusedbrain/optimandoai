@@ -86,9 +86,24 @@ declare global {
         message?: string
         answer?: string
       }>
-      chatWithContextRag?: (params: { query: string; scope?: string; model: string; provider: string; stream?: boolean; debug?: boolean; conversationContext?: { lastAnswer?: string }; selectedDocumentId?: string; selectedAttachmentId?: string; selectedMessageId?: string }) => Promise<{
+      chatWithContextRag?: (params: {
+        query: string
+        scope?: string
+        model: string
+        provider: string
+        stream?: boolean
+        debug?: boolean
+        conversationContext?: { lastAnswer?: string }
+        selectedDocumentId?: string
+        selectedAttachmentId?: string
+        selectedMessageId?: string
+        /** Sandbox: optional resolver hint (top chat handshake); scope `hs-*` works when omitted. */
+        sandboxInferenceHandshakeId?: string
+      }) => Promise<{
         success: boolean
         error?: string
+        /** When `error === 'inference_routing_unavailable'` — resolver reason (main process). */
+        inferenceRoutingReason?: string
         provider?: string
         message?: string
         answer?: string

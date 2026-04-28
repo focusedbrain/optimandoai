@@ -4286,7 +4286,23 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:chatWithContextRag', async (event, params: { query: string; scope?: string; model: string; provider: string; stream?: boolean; debug?: boolean; conversationContext?: { lastAnswer?: string }; selectedDocumentId?: string }) => {
+    ipcMain.handle(
+      'handshake:chatWithContextRag',
+      async (
+        event,
+        params: {
+          query: string
+          scope?: string
+          model: string
+          provider: string
+          stream?: boolean
+          debug?: boolean
+          conversationContext?: { lastAnswer?: string }
+          selectedDocumentId?: string
+          /** Optional Sandbox hint for resolver (top chat handshake selection); scope `hs-*` also used when unset. */
+          sandboxInferenceHandshakeId?: string
+        },
+      ) => {
       const toIPC = (o: unknown) => {
         try { return JSON.parse(JSON.stringify(o)) } catch { return o }
       }
@@ -4309,6 +4325,33 @@ app.whenReady().then(async () => {
           provider.id === 'ollama' ||
           ('hasEmbeddingSupport' in provider && typeof (provider as any).hasEmbeddingSupport === 'function' && (provider as any).hasEmbeddingSupport())
         const embeddingService = hasEmbedding ? toEmbeddingService(provider) : null
+
+        const ragSbxGen = await import('./main/internalInference/chatWithContextRagOllamaGeneration')
+        const sandboxRagRoutingParams = (): {
+          scope?: string
+          sandboxInferenceHandshakeId?: string
+        } => ({
+          scope: typeof params.scope === 'string' ? params.scope : undefined,
+          sandboxInferenceHandshakeId:
+            typeof params.sandboxInferenceHandshakeId === 'string' ? params.sandboxInferenceHandshakeId.trim() : undefined,
+        })
+
+        function mapInferenceRoutingError(err: unknown): unknown | null {
+          if (!ragSbxGen.isInferenceRoutingUnavailableError(err)) return null
+          const reason = err.reason
+          const message =
+            reason === 'cross_device_caps_not_accepted'
+              ? 'Connection to host AI is incomplete. Try reconnecting from the host.'
+              : reason === 'no_local_ollama_no_cross_device_host'
+                ? 'No AI available. Either install Ollama on this device, or connect to a host running Ollama.'
+                : 'Inference is not available on this device.'
+          return toIPC({
+            success: false,
+            error: 'inference_routing_unavailable',
+            inferenceRoutingReason: reason,
+            message,
+          })
+        }
 
         const filter: { relationship_id?: string; handshake_id?: string } = {}
         const scope = params.scope ?? 'all'
@@ -4370,16 +4413,23 @@ app.whenReady().then(async () => {
               try {
                 if (doStream) {
                   send('handshake:chatStreamStart', { contextBlocks: src ? [src.block_id] : [], sources })
-                  answer = await provider.generateChat(messages, {
+                  answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, messages, {
                     model: params.model,
                     stream: true,
                     send,
+                    ragParams: sandboxRagRoutingParams(),
                   })
                 } else {
-                  answer = await provider.generateChat(messages, { model: params.model })
+                  answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, messages, {
+                    model: params.model,
+                    stream: false,
+                    ragParams: sandboxRagRoutingParams(),
+                  })
                 }
-              } catch (err: any) {
-                const msg = err?.message ?? 'Unknown error'
+              } catch (err: unknown) {
+                const ir = mapInferenceRoutingError(err)
+                if (ir) return ir
+                const msg = err instanceof Error ? err.message : String(err)
                 const isNoKey = /no_api_key|API key required/i.test(msg)
                 const isUnavailable = /ECONNREFUSED|fetch failed|Failed to fetch|no_api_key|API key/i.test(msg)
                 const providerLower = (params.provider ?? 'ollama').toLowerCase()
@@ -4535,13 +4585,21 @@ app.whenReady().then(async () => {
             const send = doStream ? (ch: string, payload: unknown) => event.sender.send(ch, payload) : () => {}
             try {
               if (doStream) send('handshake:chatStreamStart', { contextBlocks: [foundBlockId], sources })
-              const answer = await provider.generateChat(
-                [{ role: 'system' as const, content: system }, { role: 'user' as const, content: userPrompt }],
-                { model: params.model, stream: doStream, send: doStream ? send : undefined }
-              )
+              const ragMessages = [
+                { role: 'system' as const, content: system },
+                { role: 'user' as const, content: userPrompt },
+              ]
+              const answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, ragMessages, {
+                model: params.model,
+                stream: !!doStream,
+                send: doStream ? send : undefined,
+                ragParams: sandboxRagRoutingParams(),
+              })
               return toIPC({ success: true, answer, sources, streamed: doStream, resultType: 'context_answer' })
-            } catch (err: any) {
-              const msg = err?.message ?? 'Unknown error'
+            } catch (err: unknown) {
+              const ir = mapInferenceRoutingError(err)
+              if (ir) return ir
+              const msg = err instanceof Error ? err.message : String(err)
               if (/no_api_key|API key required/i.test(msg)) return toIPC({ success: false, error: 'no_api_key', provider: providerLower, message: msg })
               if (/ECONNREFUSED|fetch failed|Failed to fetch/i.test(msg) && provider.id === 'ollama') return toIPC({ success: false, error: 'ollama_unavailable', message: msg })
               return toIPC({ success: false, error: 'model_execution_failed', provider: providerLower, message: msg })
@@ -4630,16 +4688,23 @@ app.whenReady().then(async () => {
           try {
             if (doStream) {
               send('handshake:chatStreamStart', { contextBlocks: src ? [src.block_id] : [], sources })
-              answer = await provider.generateChat(messages, {
+              answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, messages, {
                 model: params.model,
                 stream: true,
                 send,
+                ragParams: sandboxRagRoutingParams(),
               })
             } else {
-              answer = await provider.generateChat(messages, { model: params.model })
+              answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, messages, {
+                model: params.model,
+                stream: false,
+                ragParams: sandboxRagRoutingParams(),
+              })
             }
-          } catch (err: any) {
-            const msg = err?.message ?? 'Unknown error'
+          } catch (err: unknown) {
+            const ir = mapInferenceRoutingError(err)
+            if (ir) return ir
+            const msg = err instanceof Error ? err.message : String(err)
             const isNoKey = /no_api_key|API key required/i.test(msg)
             const isUnavailable = /ECONNREFUSED|fetch failed|Failed to fetch|no_api_key|API key/i.test(msg)
             if (isNoKey) return toIPC({ success: false, error: 'no_api_key', provider: providerLower, message: msg })
@@ -4766,12 +4831,15 @@ app.whenReady().then(async () => {
           { role: 'user' as const, content: userPrompt },
         ]
         try {
-          answer = await provider.generateChat(messages, {
+          answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, messages, {
             model: params.model,
             stream: doStream,
             send: doStream ? send : undefined,
+            ragParams: sandboxRagRoutingParams(),
           })
         } catch (err: unknown) {
+          const ir = mapInferenceRoutingError(err)
+          if (ir) return ir
           console.error('[RAG] LLM execution error:', err)
           console.error('[RAG] LLM error stack:', err instanceof Error ? err.stack : '(not an Error)')
           let errSerialized = ''
