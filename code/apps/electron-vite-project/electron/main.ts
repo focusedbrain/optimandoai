@@ -5596,6 +5596,15 @@ app.whenReady().then(async () => {
     // Continue app startup even if LLM init fails
   }
 
+  try {
+    const { startHostOllamaDirectProactiveRefreshTimer } = await import(
+      './main/internalInference/hostAiOllamaDirectProactiveRefresh'
+    )
+    startHostOllamaDirectProactiveRefreshTimer()
+  } catch (e) {
+    console.warn('[MAIN] host ollama_direct proactive refresh timer not started:', e)
+  }
+
   // Initialize OCR services
   try {
     console.log('[MAIN] ===== INITIALIZING OCR SERVICES =====')

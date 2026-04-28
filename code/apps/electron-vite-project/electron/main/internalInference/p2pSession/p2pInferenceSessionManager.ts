@@ -1458,6 +1458,18 @@ export function closeAllP2pInferenceSessions(reason: P2pSessionLogReasonType): v
   }
 }
 
+/** Handshake IDs with an active WebRTC data channel (host proactive caps push). */
+export function listHandshakeIdsWithOpenP2pDataChannel(): string[] {
+  const out: string[] = []
+  for (const [hid, m] of sessions) {
+    const s = m.state
+    if (s.sessionId && s.phase === P2pSessionPhase.datachannel_open) {
+      out.push(hid)
+    }
+  }
+  return out
+}
+
 /** @internal Seed an in-memory session row for Vitest (no ledger write). */
 export function _seedHostAiP2pSessionForTests(state: P2pSessionState): void {
   const hid = typeof state.handshakeId === 'string' ? state.handshakeId.trim() : ''

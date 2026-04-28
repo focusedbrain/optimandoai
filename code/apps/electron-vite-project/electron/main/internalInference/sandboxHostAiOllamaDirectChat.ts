@@ -5,6 +5,8 @@
 
 import { InternalInferenceErrorCode } from './errors'
 import { getSandboxOllamaDirectRouteCandidate } from './sandboxHostAiOllamaDirectCandidate'
+import { classifyOllamaDirectFetchTransportFailure } from './sandboxOllamaDirectTransport'
+import { refreshSandboxOllamaDirectFromHostCapabilities } from './sandboxOllamaDirectCapsRefresh'
 
 export type SbxHostAiOllamaDirectChatLogPayload = {
   handshake_id: string
@@ -38,16 +40,20 @@ function looksLikeOllamaModelNotFound(httpStatus: number, bodyText: string, pars
   )
 }
 
-export async function executeSandboxHostAiOllamaDirectChat(p: {
-  handshakeId: string
-  currentDeviceId: string
-  peerHostDeviceId: string
-  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
-  model: string | undefined
-  timeoutMs: number
-  temperature?: number
-  max_tokens?: number
-}): Promise<
+export async function executeSandboxHostAiOllamaDirectChat(
+  p: {
+    handshakeId: string
+    currentDeviceId: string
+    peerHostDeviceId: string
+    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+    model: string | undefined
+    timeoutMs: number
+    temperature?: number
+    max_tokens?: number
+    /** When true, transport-level failures do not trigger a caps refresh + single retry. */
+    _ollamaDirectRetryConsumed?: boolean
+  },
+): Promise<
   | { ok: true; output: string; model: string; duration_ms: number }
   | { ok: false; code: string; message: string }
 > {
@@ -185,6 +191,24 @@ export async function executeSandboxHostAiOllamaDirectChat(p: {
     failLog(true, res.status, null)
     return { ok: true, output: out, model: modelOut, duration_ms: Date.now() - t0 }
   } catch (e) {
+    const trig = classifyOllamaDirectFetchTransportFailure(e)
+    if (trig && !p._ollamaDirectRetryConsumed) {
+      const oldUrl = baseRaw
+      const capOk = (await refreshSandboxOllamaDirectFromHostCapabilities({ handshakeId: hid })).ok
+      const newCand = getSandboxOllamaDirectRouteCandidate(hid)
+      const newUrl = newCand?.base_url?.trim() ?? ''
+      console.log(
+        `[SBX_HOST_AI_OLLAMA_DIRECT_ENDPOINT_REFRESH] ${JSON.stringify({
+          handshake_id: hid,
+          old_url: oldUrl || null,
+          new_url: newUrl || null,
+          trigger_reason: trig,
+          caps_refresh_ok: capOk,
+          path: 'ollama_direct_chat',
+        })}`,
+      )
+      return executeSandboxHostAiOllamaDirectChat({ ...p, _ollamaDirectRetryConsumed: true })
+    }
     const msg = (e as Error)?.message ?? String(e)
     const aborted = (e as Error)?.name === 'AbortError' || /abort/i.test(msg)
     failLog(false, null, InternalInferenceErrorCode.OLLAMA_DIRECT_CHAT_UNREACHABLE)

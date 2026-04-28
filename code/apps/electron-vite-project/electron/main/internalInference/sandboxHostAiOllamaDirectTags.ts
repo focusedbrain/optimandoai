@@ -4,7 +4,12 @@
  */
 
 import { parseOllamaTagsBody } from './hostAiOllamaNativeDiscovery'
-import type { SandboxOllamaDirectRouteCandidate } from './sandboxHostAiOllamaDirectCandidate'
+import {
+  getSandboxOllamaDirectRouteCandidate,
+  type SandboxOllamaDirectRouteCandidate,
+} from './sandboxHostAiOllamaDirectCandidate'
+import { classifyOllamaDirectFetchTransportFailure } from './sandboxOllamaDirectTransport'
+import { refreshSandboxOllamaDirectFromHostCapabilities } from './sandboxOllamaDirectCapsRefresh'
 
 export type SandboxOllamaDirectRemoteModelEntry = {
   id: string
@@ -70,6 +75,18 @@ export function clearSandboxOllamaDirectTagsCacheForTests(): void {
   inflightByKey.clear()
 }
 
+/** Drop cached `/api/tags` entries for a handshake (e.g. after `ollama_direct` base URL changes). */
+export function invalidateSandboxOllamaDirectTagsCacheForHandshake(handshakeId: string): void {
+  const p = `${String(handshakeId ?? '').trim()}:`
+  if (!p || p === ':') return
+  for (const k of [...cacheByKey.keys()]) {
+    if (k.startsWith(p)) cacheByKey.delete(k)
+  }
+  for (const k of [...inflightByKey.keys()]) {
+    if (k.startsWith(p)) inflightByKey.delete(k)
+  }
+}
+
 function mapTagsToRemoteModels(
   rawModels: Array<{ name?: string; model?: string }>,
   endpointOwner: string,
@@ -99,6 +116,7 @@ async function fetchTagsPayloadOutbound(p: {
   peerHostDeviceId: string
   candidate: SandboxOllamaDirectRouteCandidate
   baseUrl: string
+  endpointRefreshAttempted?: boolean
 }): Promise<CachedPayload> {
   const t0 = Date.now()
   const owner = p.peerHostDeviceId.trim()
@@ -193,6 +211,33 @@ async function fetchTagsPayloadOutbound(p: {
       duration_ms,
     }
   } catch (e) {
+    const trig = classifyOllamaDirectFetchTransportFailure(e)
+    if (trig && !p.endpointRefreshAttempted) {
+      const oldUrl = base
+      const capOk = (await refreshSandboxOllamaDirectFromHostCapabilities({ handshakeId: p.handshakeId })).ok
+      const nc = getSandboxOllamaDirectRouteCandidate(p.handshakeId)
+      const refreshedCand =
+        nc && typeof nc.base_url === 'string' && nc.base_url.trim() ? nc : p.candidate
+      const newUrl = String(refreshedCand.base_url ?? '').trim().replace(/\/$/, '')
+      console.log(
+        `[SBX_HOST_AI_OLLAMA_DIRECT_ENDPOINT_REFRESH] ${JSON.stringify({
+          handshake_id: p.handshakeId,
+          old_url: oldUrl || null,
+          new_url: newUrl || null,
+          trigger_reason: trig,
+          caps_refresh_ok: capOk,
+          path: 'ollama_direct_tags',
+        })}`,
+      )
+      return fetchTagsPayloadOutbound({
+        handshakeId: p.handshakeId,
+        currentDeviceId: p.currentDeviceId,
+        peerHostDeviceId: p.peerHostDeviceId,
+        candidate: refreshedCand,
+        baseUrl: refreshedCand.base_url,
+        endpointRefreshAttempted: true,
+      })
+    }
     const duration_ms = Date.now() - t0
     const msg = e instanceof Error ? e.message : String(e)
     logOutboundTags({

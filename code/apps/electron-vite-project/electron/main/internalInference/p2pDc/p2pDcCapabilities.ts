@@ -23,6 +23,8 @@ import {
 } from '../policy'
 import type { InternalInferenceCapabilitiesResultWire } from '../types'
 import { tryRouteP2pInferenceDataChannelMessage } from './p2pDcInference'
+import { evaluateSandboxHostAiOllamaDirectFromCapabilitiesWire } from '../sandboxHostAiOllamaDirectCandidate'
+import { invalidateSandboxOllamaDirectTagsCacheForHandshake } from '../sandboxHostAiOllamaDirectTags'
 
 export type HostInferenceCapabilitiesDcOutcome =
   | { ok: true; wire: InternalInferenceCapabilitiesResultWire }
@@ -225,6 +227,15 @@ export function clearPendingP2pCapabilitiesForTests(): void {
   sbxAiCapsTerminalCache.clear()
   inflightHostCapsBuildByHandshakeSender.clear()
   hostCapsBuiltCacheByHsSender.clear()
+}
+
+/** Drop host caps build cache for a handshake (all sandbox senders) before rebuilding for proactive push. */
+export function invalidateHostCapsBuiltCacheForHandshake(handshakeId: string): void {
+  const p = `${handshakeId.trim()}:`
+  if (!p || p === ':') return
+  for (const k of [...hostCapsBuiltCacheByHsSender.keys()]) {
+    if (k.startsWith(p)) hostCapsBuiltCacheByHsSender.delete(k)
+  }
 }
 
 function ollamaDirectWireFieldsFromDcPayload(
@@ -591,6 +602,83 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
 }
 
 /**
+ * Host: unsolicited `inference_capabilities_result` when `ollama_direct` advertisement changes (timer-driven).
+ */
+export async function sendProactiveInferenceCapabilitiesDcResult(params: {
+  p2pSessionId: string
+  handshakeId: string
+  wire: InternalInferenceCapabilitiesResultWire
+}): Promise<void> {
+  const hid = params.handshakeId.trim()
+  const sid = params.p2pSessionId.trim()
+  const built = params.wire
+  const rid = randomUUID()
+  const capsEpoch = Date.now()
+  const modelsCount = Array.isArray(built.models) ? built.models.length : 0
+  const ie = built.inference_error_code
+  const providerOk =
+    ie !== InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE &&
+    ie !== InternalInferenceErrorCode.MODEL_MAPPING_DROPPED_ALL &&
+    !(modelsCount === 0 && ie === InternalInferenceErrorCode.PROBE_INVALID_RESPONSE)
+  const okCaps =
+    ie !== InternalInferenceErrorCode.MODEL_MAPPING_DROPPED_ALL &&
+    !(modelsCount === 0 && ie === InternalInferenceErrorCode.PROBE_INVALID_RESPONSE)
+  const odAvail = built.ollama_direct_available === true
+  const odSourceRaw =
+    typeof built.ollama_direct_source === 'string' && built.ollama_direct_source.trim()
+      ? built.ollama_direct_source.trim()
+      : 'none'
+  const out = {
+    type: CAPS_TYPE_RESULT,
+    schema_version: 1,
+    request_id: rid,
+    handshake_id: built.handshake_id,
+    session_id: sid,
+    policy_enabled: built.policy_enabled,
+    active_local_llm: built.active_local_llm,
+    caps_epoch: capsEpoch,
+    host_computer_name: built.host_computer_name,
+    host_pairing_code: built.host_pairing_code,
+    models: built.models,
+    created_at: built.created_at,
+    sender_device_id: built.sender_device_id,
+    target_device_id: built.target_device_id,
+    active_chat_model: built.active_chat_model,
+    inference_error_code: built.inference_error_code,
+    ollama_direct_available: odAvail,
+    ollama_direct_base_url: built.ollama_direct_base_url ?? null,
+    ollama_direct_host_ip: built.ollama_direct_host_ip ?? null,
+    ollama_direct_models_count:
+      typeof built.ollama_direct_models_count === 'number' && Number.isFinite(built.ollama_direct_models_count)
+        ? built.ollama_direct_models_count
+        : 0,
+    ollama_direct_source: odSourceRaw,
+    endpoint_owner_device_id: built.endpoint_owner_device_id ?? null,
+  }
+  const body = JSON.stringify(out)
+  const bytes = new TextEncoder().encode(body).length
+  const dcPhase = getSessionState(hid)?.phase ?? null
+  console.log(
+    `[HOST_AI_CAPS_RESPONSE_SEND] ${JSON.stringify({
+      handshake_id: hid,
+      session_id: sid,
+      correlation_id: rid,
+      request_type: CAPS_TYPE_RESULT,
+      ok: okCaps,
+      models_count: modelsCount,
+      provider_ok: providerOk,
+      error_code: built.inference_error_code ?? null,
+      bytes,
+      dc_phase: dcPhase,
+      proactive: true,
+    })}`,
+  )
+  const te = new TextEncoder().encode(body)
+  const { webrtcSendData } = await import('../webrtc/webrtcTransportIpc')
+  await webrtcSendData(sid, hid, te.buffer)
+}
+
+/**
  * Sandbox: inbound result / error for a pending capabilities request.
  * @returns true if this message was consumed as a capabilities RPC (including unknown id for result).
  */
@@ -749,15 +837,15 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
     return true
   }
   if (raw.type === CAPS_TYPE_RESULT) {
-    if (!rid || !pending.has(rid)) {
+    if (!rid) {
       console.log(
         `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
           response_type: CAPS_TYPE_RESULT,
           handshake_id: handshakeId.trim(),
           session_id: p2pSessionId.trim(),
-          correlation_id: rid || null,
+          correlation_id: null,
           models_count: null,
-          reject_reason: 'no_pending_or_unknown_correlation',
+          reject_reason: 'missing_request_id',
           dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
         })}`,
       )
@@ -765,7 +853,118 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
     }
     const entry = pending.get(rid)
     if (!entry) {
-      return false
+      if (!rawHid || rawHid !== handshakeId.trim() || !rawSid || rawSid !== p2pSessionId.trim()) {
+        console.log(
+          `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+            response_type: CAPS_TYPE_RESULT,
+            handshake_id: handshakeId.trim(),
+            session_id: p2pSessionId.trim(),
+            correlation_id: rid,
+            models_count: null,
+            reject_reason: 'unsolicited_caps_session_handshake_mismatch',
+            dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+          })}`,
+        )
+        return false
+      }
+      const wU = mapDcToInternalWire(raw, handshakeId.trim())
+      if (!wU) {
+        console.log(
+          `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+            response_type: CAPS_TYPE_RESULT,
+            handshake_id: handshakeId.trim(),
+            session_id: p2pSessionId.trim(),
+            correlation_id: rid,
+            models_count: null,
+            reject_reason: 'schema_or_type_map_failed',
+            dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+          })}`,
+        )
+        return false
+      }
+      const mcU = Array.isArray(wU.models) ? wU.models.length : 0
+      let ieU0 = wU.inference_error_code
+      const ieUnsetU =
+        ieU0 === undefined ||
+        ieU0 === null ||
+        (typeof ieU0 === 'string' && ieU0.trim().length === 0)
+      let wireOutU = wU
+      if (wU.policy_enabled === true && mcU === 0 && ieUnsetU) {
+        console.log(
+          `[SBX_AI_CAPS_EMPTY_WIRE_NORMALIZED] ${JSON.stringify({
+            handshake_id: handshakeId.trim(),
+            session_id: p2pSessionId.trim(),
+            correlation_id: rid,
+            policy_enabled: true,
+            models_length: 0,
+            inference_error_code_before: ieU0 ?? null,
+            inference_error_code_after: InternalInferenceErrorCode.PROBE_NO_MODELS,
+          })}`,
+        )
+        wireOutU = {
+          ...wU,
+          inference_error_code: InternalInferenceErrorCode.PROBE_NO_MODELS,
+        }
+      }
+      const peerHostWireU = (coordinationDeviceIdForHandshakeDeviceRole(srec, 'host') ?? '').trim()
+      const ownerWU =
+        typeof wireOutU.endpoint_owner_device_id === 'string' ? wireOutU.endpoint_owner_device_id.trim() : ''
+      let baseValidU = false
+      const buU = typeof wireOutU.ollama_direct_base_url === 'string' ? wireOutU.ollama_direct_base_url.trim() : ''
+      if (buU) {
+        try {
+          const uU = new URL(buU)
+          baseValidU = uU.protocol === 'http:' || uU.protocol === 'https:'
+        } catch {
+          baseValidU = false
+        }
+      }
+      let rejected_reasonU: string | null = null
+      let acceptedOdU = false
+      if (wireOutU.ollama_direct_available === true && baseValidU && peerHostWireU && ownerWU === peerHostWireU) {
+        acceptedOdU = true
+      } else if (wireOutU.ollama_direct_available !== true) {
+        rejected_reasonU = 'ollama_direct_not_available'
+      } else if (!baseValidU) {
+        rejected_reasonU = 'invalid_or_missing_ollama_direct_base_url'
+      } else if (!peerHostWireU) {
+        rejected_reasonU = 'missing_peer_host_device_id'
+      } else if (ownerWU !== peerHostWireU) {
+        rejected_reasonU = 'endpoint_owner_not_peer_host'
+      } else {
+        rejected_reasonU = 'rejected'
+      }
+      console.log(
+        `[SBX_HOST_AI_OLLAMA_DIRECT_WIRE_RECEIVED] ${JSON.stringify({
+          handshake_id: handshakeId.trim(),
+          current_device_id: getInstanceId().trim(),
+          peer_host_device_id: peerHostWireU || null,
+          endpoint_owner_device_id: ownerWU || null,
+          ollama_direct_available: wireOutU.ollama_direct_available === true,
+          ollama_direct_base_url: wireOutU.ollama_direct_base_url ?? null,
+          ollama_direct_host_ip: wireOutU.ollama_direct_host_ip ?? null,
+          ollama_direct_models_count:
+            typeof wireOutU.ollama_direct_models_count === 'number' ? wireOutU.ollama_direct_models_count : 0,
+          accepted: acceptedOdU,
+          rejected_reason: rejected_reasonU,
+          proactive: true,
+        })}`,
+      )
+      evaluateSandboxHostAiOllamaDirectFromCapabilitiesWire({
+        handshakeId: handshakeId.trim(),
+        currentDeviceId: getInstanceId().trim(),
+        peerHostDeviceId: peerHostWireU,
+        wire: wireOutU,
+      })
+      invalidateSandboxOllamaDirectTagsCacheForHandshake(handshakeId.trim())
+      console.log(
+        `[SBX_HOST_AI_OLLAMA_DIRECT_PROACTIVE_RECV] ${JSON.stringify({
+          handshake_id: handshakeId.trim(),
+          session_id: p2pSessionId.trim(),
+          correlation_id: rid,
+        })}`,
+      )
+      return true
     }
     if (rawHid && rawHid !== entry.handshakeId) {
       console.log(
