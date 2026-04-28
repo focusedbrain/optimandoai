@@ -914,8 +914,18 @@ export default function HybridSearch({
     return hostInf.inferenceTargets.find((x) => x.handshake_id === p.handshakeId) ?? null
   }, [selectedModel, hostInf.inferenceTargets])
 
+  /**
+   * Chat-area strip only (above messages). The model selector uses `hostModelSelectorRowUi` / `hostAiSelectorCopy`
+   * and must stay independent — gate flicker here only, not in shared copy helpers.
+   *
+   * Show when direct P2P reachability is definitively failed; hide for null/unknown/reachable (probe cycles).
+   */
   const hostDirectP2pStatusUi = useMemo(() => {
     if (!hostInf.treatAsSandboxForHostInternal || mode !== 'chat' || !isHostInferenceModelId(selectedModel)) {
+      return null
+    }
+    const dr = hostInf.directReachability
+    if (dr == null || dr === 'unknown' || dr === 'reachable') {
       return null
     }
     const fromProbe = hostAiUserFacingMessageFromTarget(hostAiRowForStatusStrip, {
@@ -924,7 +934,7 @@ export default function HybridSearch({
     if (fromProbe) {
       return { primary: fromProbe.primary, hint: fromProbe.hint }
     }
-    return directP2pReachabilityCopyForSandboxToHost(hostInf.directReachability)
+    return directP2pReachabilityCopyForSandboxToHost(dr)
   }, [hostInf.treatAsSandboxForHostInternal, hostInf.directReachability, mode, selectedModel, hostAiRowForStatusStrip])
 
   useEffect(() => {
