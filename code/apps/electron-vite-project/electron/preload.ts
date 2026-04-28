@@ -1374,7 +1374,7 @@ contextBridge.exposeInMainWorld('emailInbox', {
     ipcRenderer.on('inbox:aiAnalyzeMessageDone', handler)
     return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageDone', handler)
   },
-  onAiAnalyzeError: (cb: (data: { messageId: string; error: string; message: string }) => void) => {
+  onAiAnalyzeError: (cb: (data: { messageId: string; error: string; message: string; inferenceRoutingReason?: string }) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, data: { messageId: string; error: string; message: string }) => cb(data)
     ipcRenderer.on('inbox:aiAnalyzeMessageError', handler)
     return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageError', handler)

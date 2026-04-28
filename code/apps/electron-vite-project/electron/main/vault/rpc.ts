@@ -9,7 +9,8 @@
 
 import { vaultService } from './service'
 import type { VaultTier } from './types'
-import { getOrCreateEmbeddingService, processEmbeddingQueue } from '../handshake/embeddings'
+import { processEmbeddingQueue } from '../handshake/embeddings'
+import { getOrCreateOrchestratorEmbeddingService } from '../internalInference/orchestratorSandboxEmbedding'
 import { migrateHandshakeTables, backfillLocalX25519PublicKey } from '../handshake/db'
 import { x25519 } from '@noble/curves/ed25519'
 
@@ -83,7 +84,7 @@ function persistHAState(): void {
  */
 export function setupEmbeddingServiceRef(vs: typeof vaultService, handshakeDb?: any): void {
   try {
-    const embeddingService = getOrCreateEmbeddingService()
+    const embeddingService = getOrCreateOrchestratorEmbeddingService()
     const getDb = () => {
       try {
         return vs.getHsProfileDb?.() ?? null

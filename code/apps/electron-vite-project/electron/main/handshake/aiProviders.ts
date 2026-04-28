@@ -66,6 +66,11 @@ export class OllamaProvider implements AIProvider {
   private embedModel: string
   private chatModel: string
 
+  /** Embedding model passed to `/api/embed` — used when routing sandbox embeddings cross-device. */
+  getOllamaEmbedModel(): string {
+    return this.embedModel
+  }
+
   constructor(options?: { baseUrl?: string; embedModel?: string; chatModel?: string }) {
     this.baseUrl = options?.baseUrl ?? OLLAMA_BASE
     this.embedModel = options?.embedModel ?? DEFAULT_EMBED_MODEL

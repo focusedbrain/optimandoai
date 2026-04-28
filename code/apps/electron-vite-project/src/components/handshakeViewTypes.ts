@@ -673,7 +673,9 @@ export interface EmailInboxBridge {
   aiAnalyzeMessageStream: (messageId: string) => Promise<{ started: boolean }>
   onAiAnalyzeChunk: (cb: (data: { messageId: string; chunk: string }) => void) => () => void
   onAiAnalyzeDone: (cb: (data: { messageId: string }) => void) => () => void
-  onAiAnalyzeError: (cb: (data: { messageId: string; error: string; message: string }) => void) => () => void
+  onAiAnalyzeError: (
+    cb: (data: { messageId: string; error: string; message: string; inferenceRoutingReason?: string }) => void,
+  ) => () => void
   aiCategorize: (ids: string[]) => Promise<{ ok: boolean; data?: { classifications?: BulkClassification[] }; error?: string }>
   aiClassifySingle?: (
     messageId: string,

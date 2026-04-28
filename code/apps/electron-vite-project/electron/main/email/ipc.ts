@@ -238,6 +238,8 @@ import { collectReadOnlyDashboardSnapshot } from './dashboardSnapshot'
 const activeAiAnalyzeMessageStreams = new Set<string>()
 import { processPendingPlainEmails } from './plainEmailIngestion'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
+import { streamInboxOllamaAnalyzeWithSandboxRouting } from './inboxOllamaChatStreamSandbox'
+import { mapInferenceRoutingErrorToIPC } from '../internalInference/inferenceRoutingIpcPayload'
 import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } from '../../../src/lib/inboxSortSourceWeighting'
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
@@ -284,84 +286,6 @@ async function isOllamaAvailable(): Promise<boolean> {
     return models.length > 0
   } catch {
     return false
-  }
-}
-
-const OLLAMA_BASE_URL = 'http://127.0.0.1:11434'
-
-/** @deprecated Ollama-only stream; retained for advisory analyze when unified provider is local Ollama. */
-async function* callInboxOllamaChatStream(
-  systemPrompt: string,
-  userPrompt: string,
-  /** When set, skips `listModels()` (caller already fetched models once). */
-  modelIdFromPrecheck?: string,
-): AsyncGenerator<string> {
-  let modelId = modelIdFromPrecheck
-  if (!modelId) {
-    const { ollamaManager } = await import('../llm/ollama-manager')
-    const resolved = await ollamaManager.getEffectiveChatModelName()
-    if (!resolved) {
-      throw new Error('No LLM model installed. Install a model in LLM Settings first.')
-    }
-    modelId = resolved
-  }
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), INBOX_LLM_TIMEOUT_MS)
-  try {
-    const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: modelId,
-        stream: true,
-        keep_alive: '2m',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-      }),
-      signal: controller.signal,
-    })
-    clearTimeout(timeoutId)
-    if (!response.ok || !response.body) throw new Error('Stream failed')
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-      for (const line of lines) {
-        if (!line.trim()) continue
-        try {
-          const parsed = JSON.parse(line) as { message?: { content?: string } }
-          if (parsed.message?.content) {
-            yield parsed.message.content
-          }
-        } catch {
-          /* partial line, skip */
-        }
-      }
-    }
-    if (buffer.trim()) {
-      try {
-        const parsed = JSON.parse(buffer) as { message?: { content?: string } }
-        if (parsed.message?.content) {
-          yield parsed.message.content
-        }
-      } catch {
-        /* partial line, skip */
-      }
-    }
-  } catch (err: unknown) {
-    clearTimeout(timeoutId)
-    const isAbort = err instanceof Error && err.name === 'AbortError'
-    if (isAbort) {
-      throw new Error('LLM_TIMEOUT: response exceeded 45s')
-    }
-    throw err
   }
 }
 
@@ -4153,7 +4077,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
       if (contextBlock) systemPrompt += contextBlock
 
       if (ollamaModelForStream) {
-        const stream = callInboxOllamaChatStream(systemPrompt, userPrompt, ollamaModelForStream)
+        const stream = streamInboxOllamaAnalyzeWithSandboxRouting(systemPrompt, userPrompt, ollamaModelForStream)
         for await (const chunk of stream) {
           if (event.sender.isDestroyed()) break
           event.sender.send('inbox:aiAnalyzeMessageChunk', { messageId, chunk })
@@ -4169,16 +4093,26 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
         streamStartedOk = true
       }
     } catch (err: unknown) {
+      const ir = mapInferenceRoutingErrorToIPC(err)
       const msg = err instanceof Error ? err.message : String(err)
       const stack = err instanceof Error ? err.stack : undefined
       console.error('[Inbox IPC] aiAnalyzeMessageStream error:', msg, stack ?? err)
       const isTimeout = msg.startsWith('LLM_TIMEOUT')
       if (!event.sender.isDestroyed()) {
-        event.sender.send('inbox:aiAnalyzeMessageError', {
-          messageId,
-          error: isTimeout ? 'timeout' : 'llm_error',
-          message: msg || 'Unknown error',
-        })
+        if (ir) {
+          event.sender.send('inbox:aiAnalyzeMessageError', {
+            messageId,
+            error: ir.error,
+            message: ir.message,
+            inferenceRoutingReason: ir.inferenceRoutingReason,
+          })
+        } else {
+          event.sender.send('inbox:aiAnalyzeMessageError', {
+            messageId,
+            error: isTimeout ? 'timeout' : 'llm_error',
+            message: msg || 'Unknown error',
+          })
+        }
       }
     } finally {
       activeAiAnalyzeMessageStreams.delete(messageId)

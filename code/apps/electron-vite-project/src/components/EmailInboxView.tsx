@@ -419,15 +419,19 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       cleanup()
     })
 
-    const unsubError = window.emailInbox.onAiAnalyzeError(({ messageId: mid, error }) => {
+    const unsubError = window.emailInbox.onAiAnalyzeError(({ messageId: mid, error, message }) => {
       if (mid !== messageId) return
       autoAnalyzeStreamFailedRef.current.add(messageId)
       setAnalysisLoading(false)
-      setAnalysisError(
-        error === 'timeout'
-          ? 'Analysis timed out. Ollama may be slow or unavailable.'
-          : 'Analysis failed. Check that Ollama is running.'
-      )
+      if (error === 'inference_routing_unavailable' && typeof message === 'string' && message.trim()) {
+        setAnalysisError(message.trim())
+      } else {
+        setAnalysisError(
+          error === 'timeout'
+            ? 'Analysis timed out. Ollama may be slow or unavailable.'
+            : 'Analysis failed. Check that Ollama is running.',
+        )
+      }
       cleanup()
     })
 

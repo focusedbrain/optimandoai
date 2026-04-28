@@ -4315,7 +4315,8 @@ app.whenReady().then(async () => {
           return toIPC({ success: false, error: 'vault_locked' })
         }
 
-        const { getProvider, toEmbeddingService } = await import('./main/handshake/aiProviders')
+        const aiProvidersMod = await import('./main/handshake/aiProviders')
+        const { getProvider, toEmbeddingService } = aiProvidersMod
         const { ocrRouter } = await import('./main/ocr/router')
         const provider = getProvider(
           { provider: params.provider ?? 'ollama', model: params.model },
@@ -4324,9 +4325,11 @@ app.whenReady().then(async () => {
         const hasEmbedding =
           provider.id === 'ollama' ||
           ('hasEmbeddingSupport' in provider && typeof (provider as any).hasEmbeddingSupport === 'function' && (provider as any).hasEmbeddingSupport())
-        const embeddingService = hasEmbedding ? toEmbeddingService(provider) : null
 
         const ragSbxGen = await import('./main/internalInference/chatWithContextRagOllamaGeneration')
+        const { mapInferenceRoutingErrorToIPC } = await import('./main/internalInference/inferenceRoutingIpcPayload')
+        const { wrapOllamaEmbeddingServiceForSandbox } = ragSbxGen
+
         const sandboxRagRoutingParams = (): {
           scope?: string
           sandboxInferenceHandshakeId?: string
@@ -4336,21 +4339,15 @@ app.whenReady().then(async () => {
             typeof params.sandboxInferenceHandshakeId === 'string' ? params.sandboxInferenceHandshakeId.trim() : undefined,
         })
 
+        const embeddingService = hasEmbedding
+          ? provider.id === 'ollama'
+            ? wrapOllamaEmbeddingServiceForSandbox(provider as InstanceType<(typeof aiProvidersMod)['OllamaProvider']>, sandboxRagRoutingParams)
+            : toEmbeddingService(provider)
+          : null
+
         function mapInferenceRoutingError(err: unknown): unknown | null {
-          if (!ragSbxGen.isInferenceRoutingUnavailableError(err)) return null
-          const reason = err.reason
-          const message =
-            reason === 'cross_device_caps_not_accepted'
-              ? 'Connection to host AI is incomplete. Try reconnecting from the host.'
-              : reason === 'no_local_ollama_no_cross_device_host'
-                ? 'No AI available. Either install Ollama on this device, or connect to a host running Ollama.'
-                : 'Inference is not available on this device.'
-          return toIPC({
-            success: false,
-            error: 'inference_routing_unavailable',
-            inferenceRoutingReason: reason,
-            message,
-          })
+          const mapped = mapInferenceRoutingErrorToIPC(err)
+          return mapped ? toIPC(mapped) : null
         }
 
         const filter: { relationship_id?: string; handshake_id?: string } = {}

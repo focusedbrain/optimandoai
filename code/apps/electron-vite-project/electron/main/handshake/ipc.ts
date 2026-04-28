@@ -70,6 +70,7 @@ import { processIncomingInput } from '../ingestion/ingestionPipeline'
 import { replayBufferedContextSync } from '../p2p/coordinationWs'
 import { canonicalRebuild } from './canonicalRebuild'
 import { semanticSearch } from './embeddings'
+import { mapInferenceRoutingErrorToIPC } from '../internalInference/inferenceRoutingIpcPayload'
 import { validateReceiverEmail, isSameAccountHandshakeEmails } from '../../../../../packages/shared/src/handshake/receiverEmailValidation'
 import {
   validateInternalEndpointFields,
@@ -2902,9 +2903,19 @@ export async function handleHandshakeRPC(
           return { ...r, governance_summary }
         })
         return { success: true, results: enriched }
-      } catch (err: any) {
-        console.error('[IPC] semanticSearch error:', err?.message)
-        return { success: false, error: err?.message ?? 'search_failed' }
+      } catch (err: unknown) {
+        const ir = mapInferenceRoutingErrorToIPC(err)
+        if (ir) {
+          console.error('[IPC] semanticSearch inference routing unavailable:', ir.inferenceRoutingReason)
+          return {
+            success: false,
+            error: ir.error,
+            message: ir.message,
+            inferenceRoutingReason: ir.inferenceRoutingReason,
+          }
+        }
+        console.error('[IPC] semanticSearch error:', err instanceof Error ? err.message : err)
+        return { success: false, error: err instanceof Error ? err.message : 'search_failed' }
       }
     }
 
