@@ -76,6 +76,12 @@ export function formatInternalInferenceErrorCode(
       "Host AI · could not reach your Host's Ollama on the LAN. Check the network and that Ollama is running on the Host.",
     OLLAMA_DIRECT_MODEL_NOT_FOUND:
       'That model was not found on your Host Ollama. Pick another Host model or pull it on the Host.',
+    /** Renderer gate — LAN Ollama row selected but probes say `ollama_direct` is not ready. */
+    HOST_AI_OLLAMA_DIRECT_LANE_NOT_READY:
+      'Host AI · LAN Ollama to your Host is not ready. Use Refresh (↻) in the model menu, verify Ollama on the Host, or pick another model.',
+    /** BEAP ingest / top-chat path not ready — prefer LAN ODL model rows when BEAP blocks. */
+    HOST_AI_DIRECT_PEER_BEAP_MISSING:
+      'Host AI · BEAP / top-chat ingest is not available on this pairing. Pick a Host model that uses direct LAN Ollama, fix Host BEAP advertisement, or use Refresh (↻).',
   }
   if (M[c]) return M[c]!
   const fb = messageFallback?.trim()

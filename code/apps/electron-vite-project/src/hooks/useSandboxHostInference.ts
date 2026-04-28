@@ -64,6 +64,10 @@ export type HostInferenceTargetRow = {
   displaySubtitle?: string
   /** Diagnostic; not shown verbatim in the selector. */
   failureCode?: string | null
+  /** BEAP / top-chat ingest lane warning — orthogonal to LAN Ollama (see also `failureCode`). */
+  beapFailureCode?: string | null
+  /** LAN `/api/tags` or ODL execution failure — orthogonal to BEAP */
+  ollamaDirectFailureCode?: string | null
   /** Paired host machine — orthogonal to sandbox-local Ollama. */
   inferenceTargetContext?: 'host_remote'
   host_ai_endpoint_diagnostics?: import('../lib/hostAiUiDiagnostics').HostAiEndpointDiagnostics
@@ -80,6 +84,10 @@ export type HostInferenceTargetRow = {
   canUseTopChatTools?: boolean
   canUseOllamaDirect?: boolean
   trusted?: boolean
+  beapReady?: boolean
+  ollamaDirectReady?: boolean
+  visibleInModelSelector?: boolean
+  trustedForBeap?: boolean
   /** When main sends trust diagnostics; shown in dev/debug only. */
   inferenceHandshakeTrustReason?: string | null
 }
@@ -172,7 +180,13 @@ export function useSandboxHostInference(
     (isSandbox || ledgerProvesInternalSandboxToHost)
 
   const showHostInferenceOption =
-    modeReady && isSandbox && inferenceTargets.some((t) => t.direct_reachable && t.available)
+    modeReady &&
+    isSandbox &&
+    inferenceTargets.some(
+      (t) =>
+        t.direct_reachable &&
+        (t.available === true || t.visibleInModelSelector === true || t.canUseOllamaDirect === true),
+    )
 
   const gavRefreshRef = useRef(gav)
   gavRefreshRef.current = gav

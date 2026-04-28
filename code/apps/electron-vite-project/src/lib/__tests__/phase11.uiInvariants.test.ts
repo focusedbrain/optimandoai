@@ -20,6 +20,9 @@ describe('Phase 11 — Sandbox: Host AI row + merge', () => {
     expect(discoveryHasHostInternalRows([{ kind: 'host_internal', available: false } as { kind: string; available: boolean }], [])).toBe(
       false,
     )
+    expect(
+      discoveryHasHostInternalRows([{ kind: 'host_internal', available: false, visibleInModelSelector: true }], []),
+    ).toBe(true)
     expect(discoveryHasHostInternalRows([], [{ section: 'host' } as { section: 'host' }])).toBe(true)
   })
 

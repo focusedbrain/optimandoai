@@ -217,6 +217,10 @@ export type OrchestratorHostInferenceTargetSnapshot = {
   inference_error_code?: string | null
   failureCode?: string | null
   hostAiStructuredUnavailableReason?: string
+  host_ai_target_status?: string
+  canUseOllamaDirect?: boolean
+  ollamaDirectReady?: boolean
+  visibleInModelSelector?: boolean
 }
 
 function definitiveP2pSessionFailureCode(err: string): boolean {
@@ -293,6 +297,18 @@ export function isHostInferenceTargetDefinitivelyInvalidForRestore(t: Orchestrat
   if (phase === 'policy_disabled' || av === 'policy_disabled' || ur === 'HOST_POLICY_DISABLED') return true
   if (phase === 'hidden' || ur === 'SANDBOX_HOST_ROLE_METADATA') return true
   if (av === 'identity_incomplete' || ur === 'IDENTITY_INCOMPLETE') return true
+  /**
+   * Ollama-direct-only lane (BEAP gated): selectable model rows are not definitive failures —
+   * do not invalidate saved Host selection purely because `available`/BEAP semantics are false.
+   */
+  if (av === 'ollama_direct_lane') return false
+  const odSnap = t as OrchestratorHostInferenceTargetSnapshot
+  if (
+    err === 'HOST_AI_DIRECT_PEER_BEAP_MISSING' &&
+    (odSnap.host_ai_target_status === 'ollama_direct_only' ||
+      (odSnap.ollamaDirectReady === true && odSnap.canUseOllamaDirect === true))
+  )
+    return false
   if (av === 'model_unavailable' || ur === 'HOST_NO_ACTIVE_LOCAL_LLM') return true
   if (
     err === 'HOST_NO_ACTIVE_LOCAL_LLM' ||
@@ -538,7 +554,9 @@ export function validateStoredSelectionForOrchestratorWithDiagnostics(
         },
       }
     }
-    const pending = !t.available || isHostInferenceTargetPendingForRestore(t)
+    const pending =
+      (!t.available && !(t.visibleInModelSelector === true || t.canUseOllamaDirect === true)) ||
+      isHostInferenceTargetPendingForRestore(t)
     return {
       modelId: stored.id,
       diagnostics: {

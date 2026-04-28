@@ -5,6 +5,7 @@ type SelectorRowLike = { type?: string; hostAi?: boolean; section?: 'local' | 'h
 type HostTargetLike = Pick<HostInferenceTargetRow, 'kind'> & {
   available?: boolean
   canChat?: boolean
+  visibleInModelSelector?: boolean
 }
 
 /**
@@ -20,6 +21,7 @@ export function discoveryHasHostInternalRows(
   if (
     gavHostTargets.some((t) => {
       if (t.kind !== 'host_internal') return false
+      if (t.visibleInModelSelector === true) return true
       if (typeof t.canChat === 'boolean') return t.canChat
       return t.available === true
     })

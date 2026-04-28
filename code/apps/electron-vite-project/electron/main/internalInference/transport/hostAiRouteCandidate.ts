@@ -122,6 +122,8 @@ export function isHostAiProbeTerminalNoPolicyFallback(p: HostAiProbeTerminalInpu
   if (p.ok) return false
   const reason = typeof p.reason === 'string' ? p.reason.trim() : ''
   if (!reason) return false
+  /** Peer BEAP ingest missing — top-chat gated only; LAN ODL listing is handled upstream (never fail-close `list_targets`). */
+  if (reason === InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING) return false
   if (hostAiRouteFailureCodeIsTerminalIdentityProvenance(reason as InternalInferenceErrorCodeType)) return true
   const d = typeof p.hostAiEndpointDenyDetail === 'string' ? p.hostAiEndpointDenyDetail.trim() : ''
   if (d === 'self_local_beap_selected' || d === 'peer_host_beap_not_advertised') return true

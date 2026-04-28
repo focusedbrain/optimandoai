@@ -1,4 +1,5 @@
 import type { HostInferenceTargetRow } from '../hooks/useSandboxHostInference'
+import type { HostModelRemoteLane } from './hostAiRemoteChatLane'
 
 type HostRowMeta = Pick<
   HostInferenceTargetRow,
@@ -19,6 +20,8 @@ export type SelectorAvailableModel =
       name: string
       provider: string
       type: 'local' | 'cloud'
+      /** Non-Host rows — always `'local'` for local Ollama when set. */
+      remoteLane?: 'local'
     }
   | {
       id: string
@@ -34,6 +37,9 @@ export type SelectorAvailableModel =
       host_ai_target_status?: HostRowMeta['host_ai_target_status']
       canChat?: boolean
       canUseOllamaDirect?: boolean
+      ollamaDirectReady?: boolean
+      visibleInModelSelector?: boolean
+      remoteLane?: HostModelRemoteLane
       execution_transport?: HostRowMeta['execution_transport']
       failureCode?: string | null
     }

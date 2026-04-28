@@ -6,7 +6,6 @@ import {
   HOST_AI_STALE_INLINE,
   HOST_AI_SELECTOR_ICON_CLASS,
   HOST_INFERENCE_UNAVAILABLE,
-  hostAiChatBlockedUserMessage,
 } from '../lib/hostAiSelectorCopy'
 import type { ChangeEvent, MutableRefObject } from 'react'
 import './HybridSearch.css'
@@ -67,6 +66,11 @@ import {
   serializeMergedSelectorModelsForStableUi,
 } from '../lib/hostAiTargetUiNormalization'
 import { isHostInferenceModelId, parseAnyHostInferenceModelId } from '../lib/hostInferenceModelIds'
+import {
+  findHostInferenceTargetRowForChatSelection,
+  inferHostModelRemoteLane,
+  type HostModelRemoteLane,
+} from '../lib/hostAiRemoteChatLane'
 import { directP2pReachabilityCopyForSandboxToHost } from '../lib/hostInferenceUiGates'
 import { hostAiUserFacingMessageFromTarget, type HostAiEndpointDiagnostics } from '../lib/hostAiUiDiagnostics'
 import {
@@ -1607,32 +1611,45 @@ export default function HybridSearch({
             setIsLoading(false)
             return
           }
-          const target = hostInf.inferenceTargets.find((t) => t.handshake_id === hid)
-          const modelParam =
-            parsed?.model?.trim() ||
-            target?.model_id?.trim() ||
-            target?.model?.trim() ||
-            undefined
-          const odDirect = target?.execution_transport === 'ollama_direct'
-          const allowOllamaDirectChat =
-            Boolean(odDirect) &&
-            target?.canUseOllamaDirect === true &&
-            target?.host_ai_target_status === 'ollama_direct_only'
-          const allowBeapChat = target?.canChat === true
-          if (
-            target &&
-            !allowBeapChat &&
-            !allowOllamaDirectChat
-          ) {
-            const baseMsg = hostAiChatBlockedUserMessage(target)
-            const dev =
-              import.meta.env.DEV ? `\n\n[debug] ${hostAiTargetDevDebugSnippet(target)}` : ''
-            setResponse(baseMsg + dev)
+          const target = findHostInferenceTargetRowForChatSelection(hostInf.inferenceTargets, selectedModel)
+          if (!target) {
+            setResponse('That Host AI selection is not in the list. Open the model menu and select Host AI again.')
             setIsLoading(false)
             return
           }
+
+          const modelParam =
+            parsed?.model?.trim() ||
+            target.model_id?.trim() ||
+            target.model?.trim() ||
+            undefined
+
+          const hostMenuRow = mEntry?.type === 'host_internal' ? mEntry : null
+          const laneFromMerged: HostModelRemoteLane | null =
+            hostMenuRow?.remoteLane === 'ollama_direct' || hostMenuRow?.remoteLane === 'beap'
+              ? hostMenuRow.remoteLane
+              : null
+          const remoteLane: HostModelRemoteLane = laneFromMerged ?? inferHostModelRemoteLane(target)
+
+          console.log(
+            `[HOST_AI_CHAT_ROUTE] model=${modelParam ?? ''} lane=${remoteLane} beapReady=${Boolean(target.beapReady)} ollamaDirectReady=${Boolean(target.ollamaDirectReady)} failureCode=${target.failureCode ?? 'null'}`,
+          )
+
+          if (remoteLane === 'ollama_direct') {
+            if (target.ollamaDirectReady !== true) {
+              setResponse(formatInternalInferenceErrorCode('HOST_AI_OLLAMA_DIRECT_LANE_NOT_READY'))
+              setIsLoading(false)
+              return
+            }
+          } else {
+            if (target.beapReady !== true) {
+              setResponse(formatInternalInferenceErrorCode('HOST_AI_DIRECT_PEER_BEAP_MISSING'))
+              setIsLoading(false)
+              return
+            }
+          }
           const row = hostInf.candidates.find((c) => c.handshakeId === hid)
-          if (!odDirect && !row?.directP2pAvailable) {
+          if (remoteLane === 'beap' && !row?.directP2pAvailable) {
             setResponse(
               'Host AI · P2P unavailable. Check that the Host is online, then use Refresh (↻) in the model menu, or pick another model.',
             )
@@ -1678,7 +1695,7 @@ export default function HybridSearch({
               messages: msgSeq,
               model: modelParam,
               timeoutMs: 120_000,
-              execution_transport: odDirect ? ('ollama_direct' as const) : undefined,
+              execution_transport: remoteLane === 'ollama_direct' ? ('ollama_direct' as const) : undefined,
             })) as
               | { ok: true; output: string }
               | { ok: false; code: string; message: string }

@@ -1,22 +1,36 @@
 /**
- * Maps `host_ai_target_status` + backend `canChat` flags to selector enablement — never infer from model counts.
+ * Maps `host_ai_target_status` + backend lane flags to selector enablement.
+ * LAN `ollama_direct` is independent of BEAP/top-chat — do not require `beapReady` / `trustedForBeap` / `canUseTopChatTools`.
  */
 
 import type { HostInferenceTargetRow } from '../hooks/useSandboxHostInference'
 
+function hostInferenceRowHasModelId(t: HostInferenceTargetRow): boolean {
+  const m = (t.model ?? t.model_id ?? '').toString().trim()
+  return m.length > 0
+}
+
 export function hostInferenceTargetMenuSelectable(t: HostInferenceTargetRow): boolean {
+  const hasModel = hostInferenceRowHasModelId(t)
+
+  /**
+   * Remote Host Ollama via LAN — `failureCode=HOST_AI_DIRECT_PEER_BEAP_MISSING` only reflects BEAP ingest;
+   * it must not hide rows when `ollamaDirectReady` / `visibleInModelSelector` say the model is usable.
+   */
+  const ollamaDirectMenuOk =
+    hasModel &&
+    t.canUseOllamaDirect === true &&
+    (t.ollamaDirectReady === true ||
+      t.visibleInModelSelector === true ||
+      t.host_ai_target_status === 'ollama_direct_only')
+
+  if (ollamaDirectMenuOk) return true
+
   if (t.host_ai_target_status === 'untrusted' || t.host_ai_target_status === 'offline') return false
-  if (t.host_ai_target_status === 'handshake_active_but_endpoint_missing') return false
 
   if (typeof t.canChat === 'boolean' && t.canChat) return true
 
-  if (
-    t.host_ai_target_status === 'ollama_direct_only' &&
-    t.execution_transport === 'ollama_direct' &&
-    t.canUseOllamaDirect === true
-  ) {
-    return true
-  }
+  if (t.host_ai_target_status === 'handshake_active_but_endpoint_missing') return false
 
   return false
 }
@@ -27,7 +41,7 @@ export function hostAiConnectionStatusLabel(status: HostInferenceTargetRow['host
     case 'beap_ready':
       return 'Connected'
     case 'ollama_direct_only':
-      return 'Ollama reachable only'
+      return 'Ollama direct'
     case 'handshake_active_but_endpoint_missing':
       return 'Host paired, BEAP endpoint missing'
     case 'untrusted':
@@ -65,11 +79,15 @@ export function composeHostAiConnectionSubtitle(
 
 export function hostAiTargetDevDebugSnippet(t: HostInferenceTargetRow | null | undefined): string {
   const fc = (t?.failureCode ?? '').trim()
+  const bfc = String((t as { beapFailureCode?: string | null }).beapFailureCode ?? '').trim()
+  const odFc = String((t as { ollamaDirectFailureCode?: string | null }).ollamaDirectFailureCode ?? '').trim()
   const st = (t?.host_ai_target_status ?? '').trim()
   const tr = (t?.inferenceHandshakeTrustReason ?? '').trim()
-  if (!fc && !st && !tr) return ''
+  if (!fc && !st && !tr && !bfc && !odFc) return ''
   const bits: string[] = []
   bits.push(fc ? `failureCode=${fc}` : 'failureCode=null')
+  bits.push(bfc ? `beapFailureCode=${bfc}` : 'beapFailureCode=null')
+  bits.push(odFc ? `ollamaDirectFailureCode=${odFc}` : 'ollamaDirectFailureCode=null')
   if (st) bits.push(`host_ai_target_status=${st}`)
   if (tr) bits.push(`reason=${tr}`)
   return bits.join(' ')
@@ -77,6 +95,14 @@ export function hostAiTargetDevDebugSnippet(t: HostInferenceTargetRow | null | u
 
 /** Same basis as `mapHostTargetsToGavModelEntries`; main still drives probe phase when known. */
 export function deriveRawHostSelectorStateFromTarget(t: HostInferenceTargetRow): 'available' | 'checking' | 'unavailable' {
+  if (
+    typeof t.visibleInModelSelector === 'boolean' &&
+    t.visibleInModelSelector &&
+    t.unavailable_reason !== 'CHECKING_CAPABILITIES' &&
+    t.availability !== 'checking_host'
+  ) {
+    return 'available'
+  }
   const st =
     t.hostSelectorState ??
     t.host_selector_state ??

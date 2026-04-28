@@ -47,6 +47,7 @@ describe('hostInferenceTargetMenuSelectable', () => {
     expect(
       hostInferenceTargetMenuSelectable(
         fakeBase({
+          model: 'mistral:latest',
           host_ai_target_status: 'ollama_direct_only',
           execution_transport: 'ollama_direct',
           canUseOllamaDirect: true,
@@ -59,10 +60,28 @@ describe('hostInferenceTargetMenuSelectable', () => {
     ).toBe(true)
   })
 
-  it('blocks endpoint-missing handshake state', () => {
+  it('allows LAN ODL when handshake_active_but_endpoint_missing if ODL is ready (BEAP_missing does not block)', () => {
     expect(
       hostInferenceTargetMenuSelectable(
         fakeBase({
+          model: 'mistral:latest',
+          host_ai_target_status: 'handshake_active_but_endpoint_missing',
+          execution_transport: 'ollama_direct',
+          canUseOllamaDirect: true,
+          ollamaDirectReady: true,
+          visibleInModelSelector: true,
+          failureCode: 'HOST_AI_DIRECT_PEER_BEAP_MISSING',
+          canChat: false,
+        }),
+      ),
+    ).toBe(true)
+  })
+
+  it('blocks endpoint-missing handshake state when no ODL readiness flags', () => {
+    expect(
+      hostInferenceTargetMenuSelectable(
+        fakeBase({
+          model: 'mistral:latest',
           host_ai_target_status: 'handshake_active_but_endpoint_missing',
           execution_transport: 'ollama_direct',
           canUseOllamaDirect: true,
@@ -103,6 +122,7 @@ describe('composeHostAiConnectionSubtitle', () => {
 describe('computeHostInferenceGavRowPresentation', () => {
   it('forces menu state from trust flags when IPC still reports unavailable', () => {
     const o = fakeBase({
+      model: 'mistral:latest',
       host_ai_target_status: 'ollama_direct_only',
       execution_transport: 'ollama_direct',
       canUseOllamaDirect: true,

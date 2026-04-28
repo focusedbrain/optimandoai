@@ -289,7 +289,9 @@ function logCacheHit(p: {
   classification: SandboxOllamaDirectTagsClassification
   ttl_remaining_ms: number
 }): void {
-  console.log(`[SBX_HOST_AI_OLLAMA_DIRECT_CACHE_HIT] ${JSON.stringify(p)}`)
+  console.log(
+    `[SBX_HOST_AI_OLLAMA_DIRECT_CACHE_HIT] models_count=${p.models_count} classification=${p.classification} handshake_id=${p.handshake_id} ttl_remaining_ms=${p.ttl_remaining_ms}`,
+  )
 }
 
 function logInflightReuse(p: { handshake_id: string; peer_host_device_id: string; base_url: string }): void {

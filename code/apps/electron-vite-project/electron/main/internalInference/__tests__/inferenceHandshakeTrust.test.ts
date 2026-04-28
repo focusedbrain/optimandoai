@@ -471,7 +471,10 @@ describe('decideInternalInferenceTransport — inference trust wiring', () => {
     expect(dec.selectorPhase).toBe('legacy_http_available')
   })
 
-  /** Ledger holds this sandbox’s MVP BEAP and no peer Host advertisement — must not fall through to handshake URL trust (`self_loop_detected`). */
+  /**
+   * Ledger holds this sandbox’s MVP BEAP and no peer Host advertisement — must not fall through to handshake URL trust (`self_loop_detected`).
+   * With WebRTC Host AI architecture on, the decider must not return `blocked` here: LAN Ollama-direct discovery must still run; BEAP/top-chat stay gated via trust reason + row-level failure codes.
+   */
   it('G. poisoned ledger equals local BEAP, no peer ad — peer_host_endpoint_missing', () => {
     const dec = decideInternalInferenceTransport(
       buildHostAiTransportDeciderInput({
@@ -487,8 +490,8 @@ describe('decideInternalInferenceTransport — inference trust wiring', () => {
     )
     expect(dec.inferenceHandshakeTrusted).toBe(false)
     expect(dec.inferenceHandshakeTrustReason).toBe('peer_host_endpoint_missing')
-    expect(dec.selectorPhase).toBe('blocked')
-    expect(dec.preferredTransport).toBe('none')
-    expect(dec.failureCode).toBe(InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING)
+    expect(dec.selectorPhase).toBe('connecting')
+    expect(dec.preferredTransport).toBe('webrtc_p2p')
+    expect(dec.failureCode).toBeNull()
   })
 })

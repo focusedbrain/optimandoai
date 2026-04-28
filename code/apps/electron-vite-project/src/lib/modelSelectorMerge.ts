@@ -5,6 +5,7 @@
 
 import type { HostInferenceTargetRow } from '../hooks/useSandboxHostInference'
 import { computeHostInferenceGavRowPresentation } from './hostAiTargetConnectionPresentation'
+import { inferHostModelRemoteLane, type HostModelRemoteLane } from './hostAiRemoteChatLane'
 
 export function orderModelsLocalHostCloud<T extends { type?: string }>(models: T[]): T[] {
   const local = models.filter((m) => m?.type === 'local')
@@ -30,6 +31,10 @@ export function mapHostTargetsToGavModelEntries(targets: HostInferenceTargetRow[
   host_ai_target_status?: HostInferenceTargetRow['host_ai_target_status']
   canChat?: boolean
   canUseOllamaDirect?: boolean
+  ollamaDirectReady?: boolean
+  visibleInModelSelector?: boolean
+  /** Explicit chat dispatch lane — derived from `execution_transport` on the IPC row. */
+  remoteLane?: HostModelRemoteLane
   execution_transport?: HostInferenceTargetRow['execution_transport']
   failureCode?: string | null
 }> {
@@ -52,6 +57,9 @@ export function mapHostTargetsToGavModelEntries(targets: HostInferenceTargetRow[
         host_ai_target_status: t.host_ai_target_status,
         canChat: t.canChat,
         canUseOllamaDirect: t.canUseOllamaDirect,
+        ollamaDirectReady: t.ollamaDirectReady,
+        visibleInModelSelector: t.visibleInModelSelector,
+        remoteLane: inferHostModelRemoteLane(t),
         execution_transport: t.execution_transport,
         failureCode: t.failureCode,
       }

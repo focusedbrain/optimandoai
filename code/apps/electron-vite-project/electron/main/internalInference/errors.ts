@@ -128,7 +128,8 @@ export const InternalInferenceErrorCode = {
   HOST_AI_ROUTE_OWNER_MISMATCH: 'HOST_AI_ROUTE_OWNER_MISMATCH',
   /**
    * Route / repair: peer Host has no advertised counterparty BEAP endpoint (distinct ledger empty cases).
-   * Terminal for probe UX when paired with {@link InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING}.
+   * May pair diagnostically with `HOST_AI_DIRECT_PEER_BEAP_MISSING` on ingest-only probes; LAN ODL enumeration
+   * uses split `beapFailureCode` / `ollamaDirectFailureCode` on list rows instead of a single blocking `failureCode`.
    */
   HOST_AI_PEER_ENDPOINT_MISSING: 'HOST_AI_PEER_ENDPOINT_MISSING',
   /** Handshake-derived roles do not satisfy Sandbox→Host inference (see inferenceDirectHttpTrust). */

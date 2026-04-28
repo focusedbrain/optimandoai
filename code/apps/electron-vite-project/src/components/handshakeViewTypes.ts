@@ -483,6 +483,8 @@ declare global {
           host_role: string
           inference_error_code?: string
           failureCode?: string | null
+          beapFailureCode?: string | null
+          ollamaDirectFailureCode?: string | null
           transportMode?: 'webrtc_p2p' | 'legacy_http' | 'none'
           legacyEndpointKind?: 'direct' | 'relay' | 'missing' | 'invalid'
           p2pUiPhase?: string

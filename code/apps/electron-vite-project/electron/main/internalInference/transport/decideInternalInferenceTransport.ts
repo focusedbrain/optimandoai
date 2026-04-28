@@ -453,21 +453,30 @@ export function decideInternalInferenceTransport(
   const legacyViable = mayFb && legacyPostOk
   /**
    * Internal Sandbox→Host **direct ledger** (`p2p_endpoint` classify as `direct`), **P2P stack on**: no verified peer ingest
-   * and no handshake+LAN inference trust ⇒ no BEAP/WebRTC dataplane readiness — block before dcUp/connecting would mark `selectorPhase=ready`.
+   * and no handshake+LAN inference trust ⇒ block **bogus ledger HTTP** to the wrong BEAP.
+   *
+   * Do **not** apply this hard `blocked` return when WebRTC Host AI architecture is enabled: the Sandbox must still
+   * reach the normal `webrtc_p2p` / `connecting` / `ready` path so `listHostCapabilities` over the data channel
+   * can supply `ollama_direct_*` for LAN Ollama discovery — independent of BEAP handshake trust.
    *
    * Exemptions:
    * - **`url_not_private_lan`** — relay-style / hostname ingest URLs rely on WebRTC signaling; handshake HTTP trust intentionally fails without blocking P2P.
    * - **P2P stack off** — fall through to `legacy_http_invalid` / MVP path (nothing can report `webrtc` ready anyway).
    * - **Relay rows** (`p2pEndpointKind !== 'direct'`).
+   * - **WebRTC architecture on** — defer to session/DC branches below; legacy POST remains gated by `legacyPostOk` / `legacyViable`.
    */
+  const p2pOn = p2pStackEnabled(f)
+  const kind = le.p2pEndpointKind
+  const wrtcArch = isWebRtcHostAiArchitectureEnabled(f)
   const trHandshake = input.inferenceHandshakeTrustReason ?? null
   if (
     internalSlice &&
     !inferenceHandshakeTrusted &&
     !verifiedDirect &&
     le.p2pEndpointKind === 'direct' &&
-    p2pStackEnabled(f) &&
-    trHandshake !== 'url_not_private_lan'
+    p2pOn &&
+    trHandshake !== 'url_not_private_lan' &&
+    !wrtcArch
   ) {
     const tr = trHandshake
     const fc = mapTrustReasonToInferenceFailureCode(tr)
@@ -488,9 +497,6 @@ export function decideInternalInferenceTransport(
     }
   }
 
-  const p2pOn = p2pStackEnabled(f)
-  const kind = le.p2pEndpointKind
-  const wrtcArch = isWebRtcHostAiArchitectureEnabled(f)
   /**
    * P2P transport may run over relay (signaling URL). `p2pEndpointGateOpen` already encodes that when policy agrees;
    * if `legacyEndpointInfo` is stale, relay + full stack still must not be treated as `P2P_TRANSPORT_BLOCK` (relay only blocks legacy HTTP to `p2p_endpoint`).

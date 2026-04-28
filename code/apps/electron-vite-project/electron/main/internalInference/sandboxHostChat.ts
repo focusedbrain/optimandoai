@@ -107,75 +107,24 @@ export async function runSandboxHostInferenceChat(params: {
   }
   const fP2p = getP2pInferenceFlags()
   const odDirect = params.execution_transport === 'ollama_direct'
-
-  const decChat = decideInternalInferenceTransport(
-    await buildHostAiTransportDeciderInputAsync({
-      operationContext: 'request',
-      db,
-      handshakeRecord: r,
-      featureFlags: fP2p,
-    }),
-  )
-  const endpointGateOk = decChat.p2pTransportEndpointOpen
-  let transportLog: string =
-    odDirect ? 'ollama_direct' : 'null'
-  let canChatRoute = odDirect
-  if (!odDirect) {
-    const ic = decideHostAiIntentRoute(hid, 'request', endpointGateOk)
-    transportLog = ic.choice.selected === 'unavailable' ? 'null' : String(ic.choice.selected)
-    canChatRoute = ic.choice.selected !== 'unavailable'
-  }
-  const fcRoute = decChat.failureCode == null ? 'null' : String(decChat.failureCode)
-  console.log(
-    `[HOST_AI_CHAT_ROUTE] handshake=${hid} status=${decChat.selectorPhase} canChat=${canChatRoute} transport=${transportLog} failureCode=${fcRoute}`,
-  )
-
-  if (!odDirect && !endpointGateOk) {
-    console.log(
-      `[HOST_AI_CHAT_BLOCKED] handshake=${hid} reason=p2p_endpoint_gate_failure failureCode=${fcRoute}`,
-    )
-    const d = assertP2pEndpointDirect(db, r.p2p_endpoint)
-    const fallbackMsg =
-      decChat.userSafeReason?.trim() ||
-      'Host AI transport is not ready. Confirm pairing on both devices, advertise a Host BEAP endpoint where required, then use Refresh (↻) in the model list.'
-    return {
-      ok: false,
-      code: d.ok ? decChat.failureCode ?? InternalInferenceErrorCode.INTERNAL_INFERENCE_FAILED : d.code,
-      message: fallbackMsg,
-    }
-  }
-
-  const requestId = randomUUID()
   const peerHostId = peerCoordinationDeviceId(r) ?? ''
   if (!peerHostId) {
     return { ok: false, code: InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE, message: 'peer device' }
   }
 
-  if (
-    !odDirect &&
-    fP2p.p2pInferenceEnabled &&
-    fP2p.p2pInferenceWebrtcEnabled &&
-    fP2p.p2pInferenceSignalingEnabled &&
-    fP2p.p2pInferenceRequestOverP2p
-  ) {
-    const { ensureHostAiP2pSession } = await import('./p2pSession/p2pInferenceSessionManager')
-    const { waitForP2pDataChannelOrTimeout } = await import('./p2pSession/p2pSessionWait')
-    await ensureHostAiP2pSession(hid, 'host_inference_chat')
-    await waitForP2pDataChannelOrTimeout(hid, 10_000)
-  }
-
-  const now = Date.now()
-  const requestTimeoutMs = clampTimeoutMs(params.timeoutMs)
-  const promise = registerInternalInferenceRequest(requestId, requestTimeoutMs)
-  const options: { temperature?: number; max_tokens?: number } = {}
-  if (typeof params.temperature === 'number' && Number.isFinite(params.temperature)) {
-    options.temperature = params.temperature
-  }
-  if (typeof params.max_tokens === 'number' && Number.isFinite(params.max_tokens) && params.max_tokens > 0) {
-    options.max_tokens = Math.floor(params.max_tokens)
-  }
-
+  /**
+   * LAN `ollama_direct` — bypass `decideInternalInferenceTransport` / BEAP endpoint gates entirely.
+   * Renderer sets `execution_transport: 'ollama_direct'` only for ODL selector rows after local readiness checks.
+   */
   if (odDirect) {
+    const mlog = (params.model ?? '').trim()
+    console.log(
+      `[HOST_AI_CHAT_ROUTE] handshake=${hid} model=${mlog} lane=ollama_direct ollamaDirectReady=true beapReady=false`,
+    )
+
+    const requestId = randomUUID()
+    const requestTimeoutMs = clampTimeoutMs(params.timeoutMs)
+    const promise = registerInternalInferenceRequest(requestId, requestTimeoutMs)
     const out = await executeSandboxHostAiOllamaDirectChat({
       handshakeId: hid,
       currentDeviceId: getInstanceId(),
@@ -212,6 +161,62 @@ export async function runSandboxHostInferenceChat(params: {
       const code = (e && e.code) || InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE
       return { ok: false, code, message: e?.message ?? String(e) }
     }
+  }
+
+  const decChat = decideInternalInferenceTransport(
+    await buildHostAiTransportDeciderInputAsync({
+      operationContext: 'request',
+      db,
+      handshakeRecord: r,
+      featureFlags: fP2p,
+    }),
+  )
+  const endpointGateOk = decChat.p2pTransportEndpointOpen
+  const ic = decideHostAiIntentRoute(hid, 'request', endpointGateOk)
+  const transportLog = ic.choice.selected === 'unavailable' ? 'null' : String(ic.choice.selected)
+  const canChatRoute = ic.choice.selected !== 'unavailable'
+  const fcRoute = decChat.failureCode == null ? 'null' : String(decChat.failureCode)
+  console.log(
+    `[HOST_AI_CHAT_ROUTE] handshake=${hid} status=${decChat.selectorPhase} lane=beap canChat=${canChatRoute} transport=${transportLog} failureCode=${fcRoute}`,
+  )
+
+  if (!endpointGateOk) {
+    console.log(
+      `[HOST_AI_CHAT_BLOCKED] handshake=${hid} reason=p2p_endpoint_gate_failure failureCode=${fcRoute}`,
+    )
+    const d = assertP2pEndpointDirect(db, r.p2p_endpoint)
+    const fallbackMsg =
+      decChat.userSafeReason?.trim() ||
+      'Host AI transport is not ready. Confirm pairing on both devices, advertise a Host BEAP endpoint where required, then use Refresh (↻) in the model list.'
+    return {
+      ok: false,
+      code: d.ok ? decChat.failureCode ?? InternalInferenceErrorCode.INTERNAL_INFERENCE_FAILED : d.code,
+      message: fallbackMsg,
+    }
+  }
+
+  if (
+    fP2p.p2pInferenceEnabled &&
+    fP2p.p2pInferenceWebrtcEnabled &&
+    fP2p.p2pInferenceSignalingEnabled &&
+    fP2p.p2pInferenceRequestOverP2p
+  ) {
+    const { ensureHostAiP2pSession } = await import('./p2pSession/p2pInferenceSessionManager')
+    const { waitForP2pDataChannelOrTimeout } = await import('./p2pSession/p2pSessionWait')
+    await ensureHostAiP2pSession(hid, 'host_inference_chat')
+    await waitForP2pDataChannelOrTimeout(hid, 10_000)
+  }
+
+  const now = Date.now()
+  const requestId = randomUUID()
+  const requestTimeoutMs = clampTimeoutMs(params.timeoutMs)
+  const promise = registerInternalInferenceRequest(requestId, requestTimeoutMs)
+  const options: { temperature?: number; max_tokens?: number } = {}
+  if (typeof params.temperature === 'number' && Number.isFinite(params.temperature)) {
+    options.temperature = params.temperature
+  }
+  if (typeof params.max_tokens === 'number' && Number.isFinite(params.max_tokens) && params.max_tokens > 0) {
+    options.max_tokens = Math.floor(params.max_tokens)
   }
 
   const wire: InternalInferenceRequestWire = {

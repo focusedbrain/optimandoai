@@ -137,7 +137,7 @@ describe('Host AI cross-device inference regression', () => {
     resetHostAdvertisedMvpDirectForTests()
   })
 
-  it('Case 1: handshake ACTIVE + Ollama-tags ok but peer Host BEAP missing — blocked lane, OD-only', () => {
+  it('Case 1: handshake ACTIVE + Ollama-tags ok but peer Host BEAP missing — transport connecting, BEAP/orchestration gated, OD-only', () => {
     const listDec = decideInternalInferenceTransport(
       buildHostAiTransportDeciderInput({
         operationContext: 'capabilities',
@@ -152,20 +152,20 @@ describe('Host AI cross-device inference regression', () => {
     )
     expect(listDec.inferenceHandshakeTrusted).toBe(false)
     expect(listDec.inferenceHandshakeTrustReason).toBe('peer_host_endpoint_missing')
-    expect(listDec.selectorPhase).toBe('blocked')
-    expect(listDec.failureCode).toBe(InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING)
+    expect(listDec.selectorPhase).toBe('connecting')
+    expect(listDec.preferredTransport).toBe('webrtc_p2p')
+    expect(listDec.failureCode).toBeNull()
     expect(isHostAiListTransportProven(listDec, HID)).toBe(false)
 
     const secondary = 'Host · sandbox'
     const leK = 'relay' as const
     const models = ['mx', 'my']
-    const rows = models.map((dm) => {
+    const rows = models.map((dm, idx) => {
       const meta = {
-        p2pUiPhase: mapHostAiSelectorPhaseToP2pUiPhase(listDec.selectorPhase),
-        failureCode: listDec.failureCode,
+        failureCode: null as string | null,
         transportMode: listDec.preferredTransport,
         legacyEndpointKind: leK,
-        selector_phase: listDec.selectorPhase,
+        selector_phase: 'ready' as const,
       }
       return finalizeHostInferenceRowForRegressionTest({
         kind: 'host_internal',
@@ -187,18 +187,22 @@ describe('Host AI cross-device inference regression', () => {
         secondary_label: secondary,
         direct_reachable: true,
         policy_enabled: true,
-        available: false,
-        availability: 'model_unavailable',
-        unavailable_reason: InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING,
-        hostAiStructuredUnavailableReason: 'host_endpoint_not_advertised',
+        available: idx === 0,
+        availability: 'ollama_direct_lane',
+        unavailable_reason: null,
         host_role: 'Host',
         ...meta,
-        p2pUiPhase: 'host_transport_unavailable',
-        inference_error_code: InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING,
-        failureCode: InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING,
+        p2pUiPhase: 'ready',
+        inference_error_code: undefined,
+        beapFailureCode: InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING,
+        ollamaDirectFailureCode: null,
         hostWireOllamaReachable: true,
         execution_transport: 'ollama_direct',
-        host_ai_target_status: 'handshake_active_but_endpoint_missing',
+        host_ai_target_status: 'ollama_direct_only',
+        beapReady: false,
+        ollamaDirectReady: true,
+        visibleInModelSelector: true,
+        trustedForBeap: false,
         canChat: false,
         canUseTopChatTools: false,
         canUseOllamaDirect: true,
@@ -208,13 +212,19 @@ describe('Host AI cross-device inference regression', () => {
 
     expect(rows).toHaveLength(2)
     for (const r of rows) {
-      expect(r.host_ai_target_status).toBe('handshake_active_but_endpoint_missing')
-      expect(r.failureCode).toBe(InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING)
+      expect(r.host_ai_target_status).toBe('ollama_direct_only')
+      expect(r.failureCode).toBeNull()
+      expect(r.beapFailureCode).toBe(InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING)
+      expect(String(r.ollamaDirectFailureCode ?? '')).toBe('')
+      expect(r.beapReady).toBe(false)
+      expect(r.ollamaDirectReady).toBe(true)
+      expect(r.visibleInModelSelector).toBe(true)
       expect(r.canChat).toBe(false)
       expect(r.canUseTopChatTools).toBe(false)
       expect(r.canUseOllamaDirect).toBe(true)
-      expect(r.selector_phase).toBe('blocked')
-      expect(r.p2pUiPhase).toBe('host_transport_unavailable')
+      expect(r.host_selector_state).toBe('available')
+      expect(r.selector_phase).toBe('ready')
+      expect(r.p2pUiPhase).toBe('ready')
     }
   })
 

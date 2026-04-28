@@ -88,6 +88,19 @@ import type { HostAiTargetStatus } from './hostAiTargetStatus'
 
 const L = '[HOST_INFERENCE_TARGETS]'
 
+/**
+ * `/api/tags` classification allows skipping BEAP/WebRTC policy work for model listing — LAN ODL is not gated by the BEAP transport selector.
+ */
+function sandboxOllamaDirectTagsAllowListTransportBypass(tags: SandboxOllamaDirectTagsFetchResult): boolean {
+  return (
+    tags.cache_hit === true ||
+    tags.classification === 'available' ||
+    tags.classification === 'no_models' ||
+    tags.classification === 'transport_unavailable' ||
+    tags.classification === 'unavailable_invalid_advertisement'
+  )
+}
+
 function logHostAiLedgerView(
   mainMode: string,
   activeInternal: number,
@@ -881,6 +894,8 @@ export type HostInferenceListAvailability =
   | 'direct_unreachable'
   | 'policy_disabled'
   | 'model_unavailable'
+  /** Listing runs on `ollama_direct` only — BEAP/top-chat gated (distinct from `model_unavailable` hard failure). */
+  | 'ollama_direct_lane'
   | 'handshake_inactive'
   | 'not_configured'
   | 'identity_incomplete'
@@ -969,8 +984,15 @@ export interface HostInternalInferenceListItem {
   unavailable_reason: string | null
   host_role: 'Host'
   inference_error_code?: string
-  /** Policy / transport / probe failure for diagnostics (not user-facing copy). */
+  /** Legacy aggregate; omit when lanes use {@link HostInternalInferenceListItem.beapFailureCode} / {@link HostInternalInferenceListItem.ollamaDirectFailureCode}. */
   failureCode: string | null
+  /**
+   * BEAP ingest / peer top-chat lane only — does not indict LAN `ollama_direct` when tags succeeded.
+   * e.g. `HOST_AI_DIRECT_PEER_BEAP_MISSING` while `ollamaDirectFailureCode=null` and models listed.
+   */
+  beapFailureCode?: string | null
+  /** LAN `/api/tags` or ODL execution readiness — orthogonal to BEAP */
+  ollamaDirectFailureCode?: string | null
   /**
    * Preferred transport for this row: WebRTC, legacy HTTP, or none.
    * In relay+WebRTC mode the signaling URL may be relay while the data plane is P2P.
@@ -1007,6 +1029,14 @@ export interface HostInternalInferenceListItem {
   canUseOllamaDirect?: boolean
   /** Mirrors handshake transport trust resolution (`inferenceHandshakeTrusted`). */
   trusted?: boolean
+  /** Trusted peer-hosted BEAP ingest — top-chat / BEAP-backed tools. */
+  beapReady?: boolean
+  /** LAN Ollama `/api/tags` probe succeeded (`ollama_direct` execution lane). */
+  ollamaDirectReady?: boolean
+  /** Selector should show at least one model row when true (OR of BEAP + Ollama-direct lanes); independent of legacy `available`. */
+  visibleInModelSelector?: boolean
+  /** BEAP-route trust (distinct from ledger same-principal `trusted`). */
+  trustedForBeap?: boolean
 }
 
 export type HostInferenceHostTargetDraft = Omit<
@@ -1023,14 +1053,10 @@ function epKindToListKind(
 }
 
 /**
- * Runtime diagnostic: one summarized line per list row — makes transport/trust regressions searchable in logs.
+ * Runtime diagnostic: one summarized line per paired Host handshake — makes transport/trust regressions searchable in logs.
  */
-async function logHostAiTargetSummaryLines(
-  targets: HostInternalInferenceListItem[],
-  db: Exclude<Awaited<ReturnType<typeof getHandshakeDbForInternalInference>>, null | undefined>,
-): Promise<void> {
+async function logHostAiTargetSummaryLines(targets: HostInternalInferenceListItem[]): Promise<void> {
   if (targets.length === 0) return
-  const f = getP2pInferenceFlags()
   const hidSet = new Set<string>()
   for (const t of targets) {
     const h = String(t.handshake_id ?? '').trim()
@@ -1048,42 +1074,33 @@ async function logHostAiTargetSummaryLines(
       ).length,
     )
   }
-  const transportReadyByHid = new Map<string, boolean>()
   const endpointAdvertisedByHid = new Map<string, boolean>()
   for (const hid of hidSet) {
     const peek = peekHostAdvertisedMvpDirectEntry(hid)
     endpointAdvertisedByHid.set(hid, Boolean(peek?.url && String(peek.url).trim() !== ''))
-    const rec =
-      listHandshakeRecords(db as any, { state: HandshakeState.ACTIVE }).find((x) => x.handshake_id === hid) ??
-      null
-    if (!rec) {
-      transportReadyByHid.set(hid, false)
-      continue
-    }
-    const dec = decideInternalInferenceTransport(
-      await buildHostAiTransportDeciderInputAsync({
-        operationContext: 'list_targets',
-        db,
-        handshakeRecord: rec,
-        featureFlags: f,
-      }),
-    )
-    transportReadyByHid.set(hid, isHostAiListTransportProven(dec, hid))
   }
-  for (const t of targets) {
-    const hid = String(t.handshake_id ?? '').trim()
+  /** One stable row per handshake (prefer ODL lane row over duplicates). */
+  function pickSummaryRow(rows: HostInternalInferenceListItem[]): HostInternalInferenceListItem {
+    const od = rows.find((r) => r.host_ai_target_status === 'ollama_direct_only')
+    if (od) return od
+    return rows[0]!
+  }
+  for (const hid of hidSet) {
+    const rowsForHid = targets.filter((x) => String(x.handshake_id ?? '').trim() === hid)
+    const t = pickSummaryRow(rowsForHid)
     const peer = String(t.host_device_id ?? '').trim()
     const status = t.host_ai_target_status != null ? String(t.host_ai_target_status) : 'n/a'
-    const fc = t.failureCode == null ? 'null' : String(t.failureCode)
     const mc = modelsCountByHid.get(hid) ?? 0
-    const tr = transportReadyByHid.get(hid) ?? false
     const epOk = endpointAdvertisedByHid.get(hid) ?? false
+    const br = typeof t.beapReady === 'boolean' ? Boolean(t.beapReady) : false
+    const odR = typeof t.ollamaDirectReady === 'boolean' ? Boolean(t.ollamaDirectReady) : false
+    const visMerged = rowsForHid.some((r) => r.visibleInModelSelector === true)
     console.log(
       `[HOST_AI_TARGET_SUMMARY] handshake=${hid} peer=${peer} status=${status} trusted=${Boolean(
         t.trusted,
-      )} canChat=${Boolean(t.canChat)} canUseTopChatTools=${Boolean(
+      )} beapReady=${br} ollamaDirectReady=${odR} canUseTopChatTools=${Boolean(
         t.canUseTopChatTools,
-      )} canUseOllamaDirect=${Boolean(t.canUseOllamaDirect)} transportReady=${tr} failureCode=${fc} modelsCount=${mc} endpointAdvertised=${epOk}`,
+      )} canUseOllamaDirect=${Boolean(t.canUseOllamaDirect)} modelsCount=${mc} visibleInModelSelector=${visMerged} endpointAdvertised=${epOk}`,
     )
   }
 }
@@ -1223,9 +1240,14 @@ function isHostSandboxDeviceRoles(r: HandshakeRecord): boolean {
 }
 
 function hostSelectorStateForItem(
-  t: Pick<HostInternalInferenceListItem, 'available' | 'availability' | 'unavailable_reason'>,
+  t: Pick<
+    HostInternalInferenceListItem,
+    'available' | 'availability' | 'unavailable_reason'
+  > & {
+    visibleInModelSelector?: boolean
+  },
 ): 'available' | 'checking' | 'unavailable' {
-  if (t.available) return 'available'
+  if (t.visibleInModelSelector === true || t.available) return 'available'
   return 'unavailable'
 }
 
@@ -1239,23 +1261,70 @@ export function finalizeHostInferenceRowForRegressionTest(
 }
 
 function finalizeItem(t: HostTargetDraft): HostInternalInferenceListItem {
-  const hss = hostSelectorStateForItem(t)
+  const resolvedBeapReady =
+    typeof t.beapReady === 'boolean'
+      ? t.beapReady
+      : Boolean(
+          t.host_ai_target_status === 'beap_ready' ||
+            ((t.available === true || t.canUseTopChatTools === true) &&
+              !(
+                t.host_ai_target_status === 'ollama_direct_only' ||
+                (t.execution_transport === 'ollama_direct' && t.canChat === false)
+              )),
+        )
+  const resolvedOllamaDirectReady =
+    typeof t.ollamaDirectReady === 'boolean'
+      ? t.ollamaDirectReady
+      : Boolean(
+          t.host_ai_target_status === 'ollama_direct_only' ||
+            (t.execution_transport === 'ollama_direct' &&
+              (t.canUseOllamaDirect === true || t.hostWireOllamaReachable === true)),
+        )
+  const inferredVisible =
+    typeof t.visibleInModelSelector === 'boolean'
+      ? t.visibleInModelSelector
+      : resolvedBeapReady || resolvedOllamaDirectReady
+  const hss = hostSelectorStateForItem({ ...t, visibleInModelSelector: inferredVisible })
   const subtitle = t.secondary_label
-  const resolvedCanChat = typeof t.canChat === 'boolean' ? t.canChat : t.available
-  const resolvedHostTargetAvailable =
-    typeof t.hostTargetAvailable === 'boolean' ? t.hostTargetAvailable : resolvedCanChat
+  const resolvedCanChat =
+    typeof t.canChat === 'boolean' ? t.canChat : Boolean(t.available && resolvedBeapReady)
   const resolvedTopChat =
-    typeof t.canUseTopChatTools === 'boolean' ? t.canUseTopChatTools : resolvedCanChat
+    typeof t.canUseTopChatTools === 'boolean'
+      ? t.canUseTopChatTools
+      : Boolean(resolvedCanChat && resolvedBeapReady)
   const resolvedOllamaDirect =
     typeof t.canUseOllamaDirect === 'boolean'
       ? t.canUseOllamaDirect
-      : Boolean(t.hostWireOllamaReachable || t.execution_transport === 'ollama_direct')
+      : Boolean(
+          resolvedOllamaDirectReady ||
+            (t.hostWireOllamaReachable && t.execution_transport === 'ollama_direct'),
+        )
+  const resolvedHostTargetAvailable =
+    typeof t.hostTargetAvailable === 'boolean'
+      ? t.hostTargetAvailable
+      : inferredVisible && (resolvedCanChat === true || resolvedOllamaDirect === true)
+
+  /** OD-only with tags: `host_endpoint_not_advertised` must not mark selection definitively invalid for restore */
+  let hostAiStructuredUnavailableReasonOut = t.hostAiStructuredUnavailableReason
+  if (inferredVisible && resolvedOllamaDirectReady && !resolvedBeapReady) {
+    if (hostAiStructuredUnavailableReasonOut === 'host_endpoint_not_advertised') {
+      hostAiStructuredUnavailableReasonOut = undefined
+    }
+  }
+
   return {
     ...t,
     type: 'host_internal',
     inferenceTargetContext: 'host_remote',
     displayTitle: t.displayTitle ?? t.label,
     displaySubtitle: t.displaySubtitle ?? subtitle,
+    beapReady: resolvedBeapReady,
+    ollamaDirectReady: resolvedOllamaDirectReady,
+    visibleInModelSelector: inferredVisible,
+    trustedForBeap:
+      typeof t.trustedForBeap === 'boolean'
+        ? t.trustedForBeap
+        : Boolean(resolvedBeapReady && t.trusted !== false),
     hostTargetAvailable: resolvedHostTargetAvailable,
     canChat: resolvedCanChat,
     canUseTopChatTools: resolvedTopChat,
@@ -1264,7 +1333,7 @@ function finalizeItem(t: HostTargetDraft): HostInternalInferenceListItem {
     hostSelectorState: hss,
     secondaryLabel: subtitle,
     unavailable_reason: t.available ? null : t.unavailable_reason == null ? null : String(t.unavailable_reason),
-    hostAiStructuredUnavailableReason: t.hostAiStructuredUnavailableReason,
+    hostAiStructuredUnavailableReason: hostAiStructuredUnavailableReasonOut,
   }
 }
 
@@ -1609,6 +1678,23 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       continue
     }
     const fRow = getP2pInferenceFlags()
+    /** Cooldown for BEAP/policy HTTP probes — Ollama LAN tags may still bypass listing when already enumerated. */
+    const until429 = hostAiDirectProbe429CooldownUntil.get(hid) ?? 0
+    /**
+     * Ollama-direct `/api/tags` — runs before `decideInternalInferenceTransport` so BEAP trust / P2P selector
+     * cannot block LAN model discovery (`list_targets` is not gated on BEAP transport alone).
+     */
+    let odCandPrefetch = getSandboxOllamaDirectRouteCandidate(hid)
+    let odTagsPrefetch: SandboxOllamaDirectTagsFetchResult | null = null
+    if (odCandPrefetch && hostDevice) {
+      odTagsPrefetch = await fetchSandboxOllamaDirectTags({
+        handshakeId: hid,
+        currentDeviceId: getInstanceId().trim(),
+        peerHostDeviceId: hostDevice,
+        candidate: odCandPrefetch,
+      })
+    }
+
     {
       const epKindForNudge = p2pEndpointKind(db, r.p2p_endpoint)
       if (
@@ -1652,6 +1738,14 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     const leK = epKindToListKind(epK)
 
     const listDec: HostAiTransportDeciderResult = dec
+    const ml0 = metaLocal(displayName, pcc)
+    /** LAN ODL already classified — skip BEAP-only “transport down” exits that would hide reachable Host Ollama. */
+    const sandboxLanOdlPrefetchedBypassesBrokenBeapTransport =
+      odCandPrefetch != null &&
+      hostDevice.trim() !== '' &&
+      odTagsPrefetch != null &&
+      Date.now() >= until429 &&
+      sandboxOllamaDirectTagsAllowListTransportBypass(odTagsPrefetch)
     const inferenceTrusted = listDec.inferenceHandshakeTrusted === true
     const handshakeTrustReason = listDec.inferenceHandshakeTrustReason ?? null
     const transportDecideLogReason: string = (() => {
@@ -1717,48 +1811,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       continue
     }
 
-    if (listDec.selectorPhase === 'blocked') {
-      const ml = metaLocal(displayName, pcc)
-      const fc = listDec.failureCode ?? InternalInferenceErrorCode.HOST_AI_UNTRUSTED
-      const tr = listDec.inferenceHandshakeTrustReason ?? null
-      const ht = primaryLabelForP2pUiPhase('host_transport_unavailable')
-      const sub = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay)
-      console.log(`${L} target_blocked handshake=${hid} reason=${tr ?? 'null'} failure_code=${fc}`)
-      const t: HostTargetDraft = {
-        kind: 'host_internal',
-        id: buildHostTargetId(hid, 'unavailable'),
-        label: ht,
-        display_label: ht,
-        displayTitle: ht,
-        displaySubtitle: sub,
-        model: null,
-        model_id: null,
-        provider: 'host_internal',
-        handshake_id: hid,
-        host_device_id: hostDevice,
-        host_computer_name: ml.hostName,
-        host_pairing_code: ml.digits6,
-        host_orchestrator_role: 'host',
-        host_orchestrator_role_label: ml.roleLabel,
-        internal_identifier_6: ml.digits6,
-        secondary_label: sub,
-        direct_reachable: false,
-        policy_enabled: false,
-        available: false,
-        availability: 'direct_unreachable',
-        unavailable_reason: fc,
-        hostAiStructuredUnavailableReason: 'host_transport_unavailable',
-        host_role: 'Host',
-        inference_error_code: fc,
-        ...bm,
-        p2pUiPhase: 'host_transport_unavailable',
-        failureCode: fc,
-      }
-      targets.push(finalizeItem(t))
-      continue
-    }
-
-    if (listDec.selectorPhase === 'p2p_unavailable') {
+    if (listDec.selectorPhase === 'p2p_unavailable' && !sandboxLanOdlPrefetchedBypassesBrokenBeapTransport) {
       const ml = metaLocal(displayName, pcc)
       const miss = listDec.failureCode === 'MISSING_P2P_ENDPOINT'
       const inv = listDec.failureCode === 'INVALID_P2P_ENDPOINT'
@@ -1822,7 +1875,11 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       continue
     }
 
-    if (listDec.selectorPhase === 'legacy_http_invalid' && !isWebRtcHostAiArchitectureEnabled(fRow)) {
+    if (
+      listDec.selectorPhase === 'legacy_http_invalid' &&
+      !isWebRtcHostAiArchitectureEnabled(fRow) &&
+      !sandboxLanOdlPrefetchedBypassesBrokenBeapTransport
+    ) {
       const ml = metaLocal(displayName, pcc)
       const ur: HostTargetUnavailableCode = 'MVP_P2P_ENDPOINT_INVALID'
       const sub = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay)
@@ -1867,7 +1924,8 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       listDec.selectorPhase !== 'detected' &&
       listDec.selectorPhase !== 'connecting' &&
       listDec.selectorPhase !== 'ready' &&
-      listDec.selectorPhase !== 'legacy_http_available'
+      listDec.selectorPhase !== 'legacy_http_available' &&
+      listDec.selectorPhase !== 'blocked'
     ) {
       const ml = metaLocal(displayName, pcc)
       const sub = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay)
@@ -1911,33 +1969,12 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       continue
     }
 
-    const ml0 = metaLocal(displayName, pcc)
-    const until429 = hostAiDirectProbe429CooldownUntil.get(hid) ?? 0
-
-    const odCandPrefetch = getSandboxOllamaDirectRouteCandidate(hid)
-    let odTagsPrefetch: SandboxOllamaDirectTagsFetchResult | null = null
-    if (odCandPrefetch && hostDevice) {
-      odTagsPrefetch = await fetchSandboxOllamaDirectTags({
-        handshakeId: hid,
-        currentDeviceId: getInstanceId().trim(),
-        peerHostDeviceId: hostDevice,
-        candidate: odCandPrefetch,
-      })
-    }
-
     const capsPrevForDecision = webrtcListHostCapsCache.get(hid)
     const capsCacheHitEarly = Boolean(
       capsPrevForDecision && Date.now() - capsPrevForDecision.at < WEBRTC_LIST_CAPS_CACHE_TTL_MS,
     )
     const tagsCacheHitEarly = odTagsPrefetch?.cache_hit === true
-    const bypassOllamaDirectLan =
-      Boolean(odCandPrefetch && odTagsPrefetch && hostDevice) &&
-      Date.now() >= until429 &&
-      (tagsCacheHitEarly ||
-        odTagsPrefetch!.classification === 'available' ||
-        odTagsPrefetch!.classification === 'no_models' ||
-        odTagsPrefetch!.classification === 'transport_unavailable' ||
-        odTagsPrefetch!.classification === 'unavailable_invalid_advertisement')
+    const bypassOllamaDirectLan = sandboxLanOdlPrefetchedBypassesBrokenBeapTransport
 
     const webrtcListPath =
       listDec.preferredTransport === 'webrtc_p2p' &&
@@ -2226,14 +2263,28 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
 
     if (on429) {
       console.log(`${L} probe_skipped_429_cooldown handshake=${hid} until_ms=${until429}`)
-      probe = {
-        ok: false,
-        code: InternalInferenceErrorCode.PROBE_RATE_LIMITED,
-        message: 'probe_rate_limited_cooldown',
-        directP2pAvailable: true,
-        p2pProbeClassification: P2P_CAPABILITY_PROBE.RATE_LIMITED,
+      if (
+        odCandPrefetch &&
+        odTagsPrefetch &&
+        hostDevice.trim() !== '' &&
+        sandboxOllamaDirectTagsAllowListTransportBypass(odTagsPrefetch)
+      ) {
+        /** BEAP/policy HTTP on cooldown — Ollama LAN tags already enumerated ⇒ list via `ollama_direct` only. */
+        probe = buildSyntheticOkProbeFromOllamaDirectTags(odTagsPrefetch, {
+          hostComputerName: ml0.hostName,
+          pairingDigits: ml0.digits6,
+        })
+        hadCapabilitiesProbed = false
+      } else {
+        probe = {
+          ok: false,
+          code: InternalInferenceErrorCode.PROBE_RATE_LIMITED,
+          message: 'probe_rate_limited_cooldown',
+          directP2pAvailable: true,
+          p2pProbeClassification: P2P_CAPABILITY_PROBE.RATE_LIMITED,
+        }
+        hadCapabilitiesProbed = true
       }
-      hadCapabilitiesProbed = true
     } else if (bypassOllamaDirectLan && odTagsPrefetch) {
       probe = buildSyntheticOkProbeFromOllamaDirectTags(odTagsPrefetch, {
         hostComputerName: ml0.hostName,
@@ -2406,6 +2457,58 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         continue
       }
     }
+
+    if (
+      !probe.ok &&
+      odCandPrefetch &&
+      odTagsPrefetch &&
+      hostDevice.trim() !== '' &&
+      sandboxOllamaDirectTagsAllowListTransportBypass(odTagsPrefetch)
+    ) {
+      /** BEAP/caps/policy failed — LAN `/api/tags` already classified — keep Host Ollama models (not BEAP gated). */
+      probe = buildSyntheticOkProbeFromOllamaDirectTags(odTagsPrefetch, {
+        hostComputerName: ml0.hostName,
+        pairingDigits: ml0.digits6,
+      })
+      hadCapabilitiesProbed = false
+    }
+
+    if (
+      !probe.ok &&
+      odCandPrefetch &&
+      hostDevice.trim() !== '' &&
+      String((probe as { code?: unknown }).code) === InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING
+    ) {
+      /**
+       * Prefetch occasionally misses `available`/`no_models`; refetch `/api/tags` before treating peer-BEAP-missing as terminal —
+       * `HOST_AI_DIRECT_PEER_BEAP_MISSING` must not wipe ODL enumeration when LAN tags can succeed on retry.
+       */
+      let tagsRecover: SandboxOllamaDirectTagsFetchResult | null = odTagsPrefetch
+      if (
+        !tagsRecover ||
+        !sandboxOllamaDirectTagsAllowListTransportBypass(tagsRecover)
+      ) {
+        tagsRecover = await fetchSandboxOllamaDirectTags({
+          handshakeId: hid,
+          currentDeviceId: getInstanceId().trim(),
+          peerHostDeviceId: hostDevice,
+          candidate: odCandPrefetch,
+        })
+        odTagsPrefetch = tagsRecover
+      }
+      if (
+        tagsRecover &&
+        sandboxOllamaDirectTagsAllowListTransportBypass(tagsRecover) &&
+        (tagsRecover.classification === 'available' || tagsRecover.classification === 'no_models')
+      ) {
+        probe = buildSyntheticOkProbeFromOllamaDirectTags(tagsRecover, {
+          hostComputerName: ml0.hostName,
+          pairingDigits: ml0.digits6,
+        })
+        hadCapabilitiesProbed = false
+      }
+    }
+
     if (!probe.ok) {
       const code = probe.code
       if (
@@ -2674,9 +2777,14 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       continue
     }
 
-    /** Physical dataplane or LAN `ollama_direct` advertisement — coarse gate so we can classify rows (trusted BEAP readiness is narrowed per-branch). */
+    /**
+     * BEAP-list transport proven **or** we have (or will use) the LAN `ollama_direct` lane.
+     * Missing peer BEAP must not fail-closed here if `/api/tags` can still classify the Host Ollama path.
+     */
     const listTransportProvenForSelection =
-      isHostAiListTransportProven(listDec, hid) || Boolean(getSandboxOllamaDirectRouteCandidate(hid))
+      isHostAiListTransportProven(listDec, hid) ||
+      Boolean(getSandboxOllamaDirectRouteCandidate(hid)) ||
+      Boolean(odCand && odTags != null)
     if (!listTransportProvenForSelection) {
       const ml0 = metaLocal(displayName, pcc)
       const psub0 = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
@@ -2836,9 +2944,8 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       const transportProbeLabel = listDec.preferredTransport === 'legacy_http' ? 'direct_http' : 'webrtc_p2p'
       const peerEndpointMissingUntrusted =
         !inferenceTrusted && handshakeTrustReason === 'peer_host_endpoint_missing'
-      const laneStatusUntrusted: HostAiTargetStatus = peerEndpointMissingUntrusted
-        ? 'handshake_active_but_endpoint_missing'
-        : 'ollama_direct_only'
+      /** BEAP ingest missing/untrusted — Ollama tags still enumerate ⇒ `ollama_direct_only` lane (not `handshake_active_but_endpoint_missing`, which disables selector). */
+      const laneStatusUntrusted: HostAiTargetStatus = 'ollama_direct_only'
 
       let pushed = 0
       if (inferenceTrusted) {
@@ -2879,6 +2986,10 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
             hostWireOllamaReachable: true,
             execution_transport: 'ollama_direct',
             host_ai_target_status: 'beap_ready',
+            beapReady: true,
+            ollamaDirectReady: true,
+            visibleInModelSelector: true,
+            trustedForBeap: true,
             canChat: true,
             canUseTopChatTools: true,
             canUseOllamaDirect: true,
@@ -2893,14 +3004,20 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           `${L} target_available=true transport=${transportProbeLabel} handshake=${hid} ollama_direct_models=${pushed} beap_lane=trusted`,
         )
       } else {
-        const ucFailure = peerEndpointMissingUntrusted
+        /** BEAP/top-chat gated; OD tags succeeded — stash BEAP warning only (see `beapFailureCode`). */
+        const beapFc: string | null = peerEndpointMissingUntrusted
           ? InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING
-          : listDec.failureCode ?? null
+          : String(listDec.hostAiRouteResolveFailureCode ?? listDec.failureCode ?? '').trim() || null
+        /** BEAP gated; OD tags ok — omit `host_endpoint_not_advertised` (restore/UI treats it as definitive failure). */
+        const ucStructuredTrust: HostAiStructuredUnavailableReason | undefined =
+          peerEndpointMissingUntrusted ? undefined : 'host_transport_trust_misrouting'
         for (const rm of odTags.models) {
           const dm = rm.model.trim()
           if (!dm) continue
           pushed += 1
           const primaryLabel = `Host AI · ${dm}`
+          /** Exactly one logical `available` row per handshake avoids double-count in `list_done`; extra model rows remain selector-visible via `visibleInModelSelector`. */
+          const laneRowAvailable = pushed === 1
           const t: HostTargetDraft = {
             kind: 'host_internal',
             id: buildHostTargetId(hid, dm),
@@ -2921,21 +3038,25 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
             secondary_label: secondary,
             direct_reachable: true,
             policy_enabled: true,
-            available: false,
-            availability: 'model_unavailable',
-            unavailable_reason: ucFailure ?? InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING,
-            hostAiStructuredUnavailableReason: peerEndpointMissingUntrusted
-              ? 'host_endpoint_not_advertised'
-              : 'host_transport_trust_misrouting',
+            available: laneRowAvailable,
+            availability: 'ollama_direct_lane',
+            unavailable_reason: null,
+            hostAiStructuredUnavailableReason: ucStructuredTrust,
             host_role: 'Host',
             ...baseMetaFromDec(listDec, leK),
-            p2pUiPhase: 'host_transport_unavailable',
-            inference_error_code:
-              ucFailure ?? InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING,
-            failureCode: ucFailure ?? InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING,
+            selector_phase: 'ready',
+            p2pUiPhase: 'ready',
+            inference_error_code: null,
+            failureCode: null,
+            beapFailureCode: beapFc,
+            ollamaDirectFailureCode: null,
             hostWireOllamaReachable: true,
             execution_transport: 'ollama_direct',
             host_ai_target_status: laneStatusUntrusted,
+            beapReady: false,
+            ollamaDirectReady: true,
+            visibleInModelSelector: true,
+            trustedForBeap: false,
             canChat: false,
             canUseTopChatTools: false,
             canUseOllamaDirect: true,
@@ -3102,7 +3223,15 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       `${L} target_available=true transport=${transportProbeLabel} models=1 handshake=${hid} model=${defaultChatModel}`,
     )
     console.log(`${L} target_added handshake=${hid} model=${defaultChatModel}`)
-    targets.push(finalizeItem(t))
+    targets.push(
+      finalizeItem({
+        ...t,
+        beapReady: true,
+        ollamaDirectReady: ollamaWireHostReachable,
+        visibleInModelSelector: true,
+        trustedForBeap: true,
+      }),
+    )
   }
 
   /**
@@ -3146,8 +3275,21 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     }
   }
   const availableCount = targets.filter((t) => t.available === true).length
-  await logHostAiTargetSummaryLines(targets, db!)
-  console.log(`${L} list_done count=${targets.length} available_count=${availableCount}`)
+  const handshakeIds = [
+    ...new Set(targets.map((t) => String(t.handshake_id ?? '').trim()).filter((h) => h.length > 0)),
+  ]
+  const handshakeCount = handshakeIds.length
+  const ollamaDirectHandshakeCount = handshakeIds.filter((hid) =>
+    targets.some(
+      (t) => String(t.handshake_id ?? '').trim() === hid && t.execution_transport === 'ollama_direct',
+    ),
+  ).length
+  const modelRows = targets.filter((t) => t.model != null && String(t.model ?? '').trim() !== '')
+  const beapReadyCount = modelRows.filter((t) => t.beapReady === true).length
+  await logHostAiTargetSummaryLines(targets)
+  console.log(
+    `${L} list_done count=${handshakeCount} available_count=${availableCount} ollama_direct_count=${ollamaDirectHandshakeCount} beap_ready_count=${beapReadyCount}`,
+  )
 
   return { ok: true, targets, refreshMeta: { hadCapabilitiesProbed } }
 }
