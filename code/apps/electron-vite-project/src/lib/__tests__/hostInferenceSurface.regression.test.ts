@@ -16,8 +16,8 @@ describe('Host inference — UI gating and copy (regression)', () => {
 
   it('direct unreachable surfaces firewall/network hint (Sandbox)', () => {
     const u = directP2pReachabilityCopyForSandboxToHost('timeout')
-    expect(u.primary).toBe('Host not directly reachable')
-    expect(u.hint).toMatch(/Firewall or network/i)
+    expect(u?.primary).toBe('Connection to host failed')
+    expect(u?.hint).toMatch(/Firewall or network/i)
   })
 
   it('Host policy denial message (renderer strings)', () => {

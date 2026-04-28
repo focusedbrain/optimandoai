@@ -5,22 +5,24 @@ import {
 } from '../hostInferenceUiGates'
 
 describe('directP2pReachabilityCopyForSandboxToHost', () => {
-  it('reachable is friendly', () => {
-    const u = directP2pReachabilityCopyForSandboxToHost('reachable')
-    expect(u.primary).toBe('Host reachable')
-    expect(u.hint).toBeNull()
+  it('reachable does not show a banner', () => {
+    expect(directP2pReachabilityCopyForSandboxToHost('reachable')).toBeNull()
   })
 
-  it('tls maps to network hint', () => {
+  it('null / unknown does not show a banner', () => {
+    expect(directP2pReachabilityCopyForSandboxToHost(null)).toBeNull()
+    expect(directP2pReachabilityCopyForSandboxToHost('unknown')).toBeNull()
+  })
+
+  it('tls maps to failure copy + network hint', () => {
     const u = directP2pReachabilityCopyForSandboxToHost('tls_error')
-    expect(u.primary).toBe('Host not directly reachable')
-    expect(u.hint).toMatch(/Firewall or network/i)
+    expect(u?.primary).toBe('Connection to host failed')
+    expect(u?.hint).toMatch(/Firewall or network/i)
   })
 })
 
 describe('directP2pReachabilityCopyForHostToSandbox', () => {
-  it('reachable shows Sandbox as reachable', () => {
-    const u = directP2pReachabilityCopyForHostToSandbox('reachable')
-    expect(u.primary).toBe('Sandbox reachable')
+  it('reachable does not show a banner', () => {
+    expect(directP2pReachabilityCopyForHostToSandbox('reachable')).toBeNull()
   })
 })

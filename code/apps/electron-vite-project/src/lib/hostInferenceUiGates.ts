@@ -11,52 +11,52 @@ export type DirectP2pReachabilityStatus =
   | 'timeout'
   | 'unknown'
 
-/** Sandbox → Host: primary + optional network/auth hint. */
+/** Sandbox → Host: primary + optional network/auth hint. `null` = do not show a banner (healthy / still probing). */
 export function directP2pReachabilityCopyForSandboxToHost(
   status: DirectP2pReachabilityStatus | null,
-): { primary: string; hint: string | null } {
-  if (status == null || status === 'unknown') {
-    return { primary: 'Checking connection to your Host…', hint: null }
-  }
-  if (status === 'reachable') {
-    return { primary: 'Host reachable', hint: null }
+): { primary: string; hint: string | null } | null {
+  if (status == null || status === 'unknown' || status === 'reachable') {
+    return null
   }
   if (status === 'auth_failed') {
     return {
-      primary: 'Host AI · P2P unavailable',
-      hint: 'Connection to your Host failed. Check pairing in Settings on both devices.',
+      primary: 'Connection to host failed',
+      hint: 'Check pairing in Settings on both devices.',
     }
   }
   if (status === 'missing_endpoint') {
     return {
-      primary: 'Host transport unavailable',
-      hint: 'If you expect a direct endpoint, ensure the Host has advertised a trusted direct BEAP address for this pairing (see Host AI diagnostics in chat when available).',
+      primary: 'Connection to host failed',
+      hint: 'No trusted direct BEAP endpoint for this pairing. On the Host, ensure a direct address is advertised (Host AI diagnostics when available).',
     }
   }
   return {
-    primary: 'Host AI · P2P unavailable',
-    hint: 'Firewall or network may be blocking the connection. Check that the Host app is online.',
+    primary: 'Connection to host failed',
+    hint: 'Firewall or network may be blocking the connection. Ensure the Host app is online.',
   }
 }
 
-/** Host → Sandbox: symmetric direct check. */
+/** Host → Sandbox: symmetric direct check. `null` = do not show a banner (healthy / still probing). */
 export function directP2pReachabilityCopyForHostToSandbox(
   status: DirectP2pReachabilityStatus | null,
-): { primary: string; hint: string | null } {
-  if (status == null || status === 'unknown') {
-    return { primary: 'Checking connection to Sandbox…', hint: null }
-  }
-  if (status === 'reachable') {
-    return { primary: 'Sandbox reachable', hint: null }
+): { primary: string; hint: string | null } | null {
+  if (status == null || status === 'unknown' || status === 'reachable') {
+    return null
   }
   if (status === 'auth_failed') {
-    return { primary: 'Sandbox not reachable', hint: 'Connection to Sandbox failed. Check pairing in Settings on both devices.' }
+    return {
+      primary: 'Connection to Sandbox failed',
+      hint: 'Check pairing in Settings on both devices.',
+    }
   }
   if (status === 'missing_endpoint') {
-    return { primary: 'Sandbox not reachable', hint: 'A direct network path to Sandbox is required; relay alone is not enough.' }
+    return {
+      primary: 'Connection to Sandbox failed',
+      hint: 'A direct network path to Sandbox is required; relay alone is not enough.',
+    }
   }
   return {
-    primary: 'Sandbox not reachable',
+    primary: 'Connection to Sandbox failed',
     hint: 'Firewall or network may be blocking the connection to Sandbox.',
   }
 }

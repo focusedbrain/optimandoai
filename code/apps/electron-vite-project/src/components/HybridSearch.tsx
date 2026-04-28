@@ -2305,7 +2305,7 @@ export default function HybridSearch({
             style={{
               fontSize: 11,
               fontWeight: 600,
-              color: hostInf.directReachability === 'reachable' ? '#4ade80' : 'var(--text-secondary, #cbd5e1)',
+              color: 'var(--text-secondary, #cbd5e1)',
             }}
           >
             {hostDirectP2pStatusUi.primary}
