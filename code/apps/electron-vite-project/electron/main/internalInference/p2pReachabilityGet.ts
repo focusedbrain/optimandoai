@@ -14,7 +14,7 @@ import {
   IP_LIMIT_PUBLIC,
   IP_LIMIT_PRIVATE_LAN,
 } from '../p2p/rateLimiter'
-import { logHostAiRoleGate } from './hostAiRoleGateLog'
+import { logHostAiPairingRoleGate } from './hostAiPairingRoleGateLog'
 import {
   assertRecordForServiceRpc,
   assertSandboxRequestToHost,
@@ -106,17 +106,18 @@ export async function handleGetP2PReachability(req: http.IncomingMessage, res: h
     const h = assertHostSendsResultToSandbox(ar.record)
     if (!h.ok) {
       const dr = deriveInternalHostAiPeerRoles(ar.record, id0)
-      logHostAiRoleGate({
+      logHostAiPairingRoleGate({
+        gate: 'inference_rpc',
         handshake_id: handshakeId,
         request_type: 'get_p2p_reachability',
         current_device_id: id0,
-        endpoint_owner_device_id: dr.ok ? dr.localCoordinationDeviceId : coordinationDeviceIdForHandshakeDeviceRole(ar.record, 'host') || id0,
-        requester_device_id: '',
+        sender_device_id: '',
+        receiver_device_id: dr.ok ? dr.localCoordinationDeviceId : coordinationDeviceIdForHandshakeDeviceRole(ar.record, 'host') || id0,
         local_derived_role: dr.ok ? dr.localRole : 'unknown',
         peer_derived_role: dr.ok ? dr.peerRole : 'unknown',
         receiver_role: dr.ok ? dr.localRole : 'unknown',
         requester_role: dr.ok ? dr.peerRole : 'unknown',
-        configured_mode: '',
+        orchestrator_mode_hint: '',
         decision: 'deny',
         reason: 'forbidden_host_role',
       })

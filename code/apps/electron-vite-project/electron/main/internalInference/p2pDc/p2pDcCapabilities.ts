@@ -13,7 +13,8 @@ import {
 } from '../hostInferenceCapabilities'
 import { getSessionState } from '../p2pSession/p2pInferenceSessionManager'
 import { InternalInferenceErrorCode } from '../errors'
-import { logHostAiCapsRoleGate } from '../hostAiCapsRoleGateLog'
+import { logOllamaDirectCapsSnapshot, HOST_AI_OLLAMA_PROVIDER, HOST_AI_ROUTE_KIND_OLLAMA_DIRECT } from '../hostAiOllamaDirect'
+import { logHostAiPairingRoleGate } from '../hostAiPairingRoleGateLog'
 import {
   assertRecordForServiceRpc,
   coordinationDeviceIdForHandshakeDeviceRole,
@@ -335,7 +336,8 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
   const snd0 = (typeof raw.sender_device_id === 'string' ? raw.sender_device_id : '').trim()
   const tgt0 = (typeof raw.target_device_id === 'string' ? raw.target_device_id : '').trim()
   if (!dr.ok) {
-    logHostAiCapsRoleGate({
+    logHostAiPairingRoleGate({
+      gate: 'caps_rpc',
       handshake_id: handshakeId.trim(),
       request_type: 'internal_inference_capabilities_request',
       current_device_id: me,
@@ -358,7 +360,8 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
     return
   }
   if (dr.localRole !== 'host' || dr.peerRole !== 'sandbox') {
-    logHostAiCapsRoleGate({
+    logHostAiPairingRoleGate({
+      gate: 'caps_rpc',
       handshake_id: handshakeId.trim(),
       request_type: 'internal_inference_capabilities_request',
       current_device_id: me,
@@ -405,7 +408,8 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
   if (!requestId) {
     return
   }
-  logHostAiCapsRoleGate({
+  logHostAiPairingRoleGate({
+    gate: 'caps_rpc',
     handshake_id: handshakeId.trim(),
     request_type: 'internal_inference_capabilities_request',
     current_device_id: me,
@@ -549,24 +553,26 @@ export async function handleP2pDcInferenceCapabilitiesAsHost(
     ollama_direct_source: odSourceRaw,
     endpoint_owner_device_id: built.endpoint_owner_device_id ?? null,
   }
-  console.log(
-    `[HOST_AI_CAPS_OLLAMA_DIRECT_WIRE] ${JSON.stringify({
-      handshake_id: handshakeId.trim(),
-      session_id: p2pSessionId.trim(),
-      correlation_id: built.request_id,
-      current_device_id: getInstanceId().trim(),
-      sender_device_id: built.sender_device_id,
-      target_device_id: built.target_device_id,
-      endpoint_owner_device_id: built.endpoint_owner_device_id ?? null,
-      ollama_direct_available: odAvail,
-      ollama_direct_base_url: built.ollama_direct_base_url ?? null,
-      ollama_direct_host_ip: built.ollama_direct_host_ip ?? null,
-      ollama_direct_models_count:
-        typeof built.ollama_direct_models_count === 'number' ? built.ollama_direct_models_count : 0,
-      legacy_models_array_length: modelsCount,
-      inference_error_code: built.inference_error_code ?? null,
-    })}`,
-  )
+  logOllamaDirectCapsSnapshot({
+    channel: 'p2p_dc',
+    route_kind: HOST_AI_ROUTE_KIND_OLLAMA_DIRECT,
+    provider: HOST_AI_OLLAMA_PROVIDER,
+    handshake_id: handshakeId.trim(),
+    session_id: p2pSessionId.trim(),
+    correlation_id: built.request_id,
+    current_device_id: getInstanceId().trim(),
+    sender_device_id: built.sender_device_id,
+    target_device_id: built.target_device_id,
+    endpoint_owner_device_id: built.endpoint_owner_device_id ?? null,
+    ollama_direct_available: odAvail,
+    ollama_direct_base_url: built.ollama_direct_base_url ?? null,
+    ollama_direct_host_ip: built.ollama_direct_host_ip ?? null,
+    ollama_direct_models_count:
+      typeof built.ollama_direct_models_count === 'number' ? built.ollama_direct_models_count : 0,
+    ollama_direct_source: odSourceRaw,
+    legacy_models_array_length: modelsCount,
+    inference_error_code: built.inference_error_code ?? null,
+  })
   const body = JSON.stringify(out)
   const bytes = new TextEncoder().encode(body).length
   console.log(
@@ -1297,7 +1303,8 @@ async function executeHostInferenceCapabilitiesDcExchange(
   const rec = ar.record
   const dr = deriveInternalHostAiPeerRoles(rec, me)
   if (!dr.ok) {
-    logHostAiCapsRoleGate({
+    logHostAiPairingRoleGate({
+      gate: 'caps_rpc',
       handshake_id: handshakeId.trim(),
       request_type: 'internal_inference_capabilities_request',
       current_device_id: me,
@@ -1313,7 +1320,8 @@ async function executeHostInferenceCapabilitiesDcExchange(
     return { ok: false, reason: 'role', code: InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED }
   }
   if (dr.localRole !== 'sandbox' || dr.peerRole !== 'host') {
-    logHostAiCapsRoleGate({
+    logHostAiPairingRoleGate({
+      gate: 'caps_rpc',
       handshake_id: handshakeId.trim(),
       request_type: 'internal_inference_capabilities_request',
       current_device_id: me,
@@ -1328,7 +1336,8 @@ async function executeHostInferenceCapabilitiesDcExchange(
     })
     return { ok: false, reason: 'not_sandbox_requester', code: InternalInferenceErrorCode.HOST_AI_CAPABILITY_ROLE_REJECTED }
   }
-  logHostAiCapsRoleGate({
+  logHostAiPairingRoleGate({
+    gate: 'caps_rpc',
     handshake_id: handshakeId.trim(),
     request_type: 'internal_inference_capabilities_request',
     current_device_id: me,

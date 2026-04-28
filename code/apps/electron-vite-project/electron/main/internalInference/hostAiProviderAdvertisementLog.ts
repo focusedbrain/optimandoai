@@ -20,9 +20,9 @@ export type HostAiProviderAdvertisementPayload = {
   db_open_ok: boolean
   current_device_id: string
   /** Persisted `orchestrator-mode.json` — hint only, not authority for Host AI. */
-  configured_mode: string
+  orchestrator_mode_hint: string
   /**
-   * Role implied by the sandbox file: `isSandboxMode()` (same as `configured_mode` mapping).
+   * Role implied by the sandbox file: `isSandboxMode()` (same as persisted mode mapping).
    * For diagnostics; compare to `host_ai_ledger` when troubleshooting misconfiguration.
    */
   orchestrator_file_implies: 'sandbox' | 'host'
@@ -31,12 +31,6 @@ export type HostAiProviderAdvertisementPayload = {
   host_published_direct_endpoint: string | null
   /** True when `hostDirectP2pAdvertisementHeaders` would attach `X-BEAP-Direct-P2P-Endpoint`. */
   advertisement_headers_can_generate: boolean
-  /**
-   * Host AI **product** role for this log line: ledger-effective (`sandbox` or `host`) when known;
-   * if ledger is `none`/`mixed`, falls back to `orchestrator_file_implies` (hint only).
-   * @deprecated Contrast with `orchestrator_file_implies` — do not use orchestrator as authority.
-   */
-  role: 'sandbox' | 'host'
   ollama_ok: boolean
   models_count: number
   /**
@@ -109,17 +103,10 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
   const advertisedAsHostAi =
     ledger.can_publish_host_endpoint && polH?.allowSandboxInference === true
 
-  /** Only the ledger **host** may publish a Host direct endpoint; `configured_mode` is never authority. */
+  /** Only the ledger **host** may publish a Host direct endpoint; orchestrator file is never authority. */
   const mayPublishAsHost = ledger.can_publish_host_endpoint
   const hostPublishedEndpoint = mayPublishAsHost && mvpListenerUrl ? mvpListenerUrl : null
   const advertisement_headers_can_generate = mayPublishAsHost && headersTechnicallyGeneratable
-  /** `role` in this log: ledger-effective role for Host AI (not orchestrator `configured_mode` alone). */
-  const roleForHostAiLog: 'sandbox' | 'host' =
-    ledger.effective_host_ai_role === 'host'
-      ? 'host'
-      : ledger.effective_host_ai_role === 'sandbox'
-        ? 'sandbox'
-        : orchestratorFileImplies
 
   let diagnosticPublishHandshakeId: string | null = null
   if (dbProv) {
@@ -158,12 +145,11 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
   return {
     db_open_ok,
     current_device_id: currentId,
-    configured_mode: String(mode),
+    orchestrator_mode_hint: String(mode),
     orchestrator_file_implies: orchestratorFileImplies,
     local_derived_role,
     host_published_direct_endpoint: hostPublishedEndpoint,
     advertisement_headers_can_generate,
-    role: roleForHostAiLog,
     ollama_ok: input.ollamaDiscoveryOk,
     /** Sandbox machines must not attribute local `/api/tags` counts to Host AI — only ledger hosts publish Host models here. */
     models_count:

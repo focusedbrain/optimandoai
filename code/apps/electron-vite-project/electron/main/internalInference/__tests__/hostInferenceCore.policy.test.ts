@@ -45,8 +45,8 @@ vi.mock('../hostInferenceCapabilities', () => ({
   })),
 }))
 
-vi.mock('../hostAiRoleGateLog', () => ({
-  logHostAiRoleGate: vi.fn(),
+vi.mock('../hostAiPairingRoleGateLog', () => ({
+  logHostAiPairingRoleGate: vi.fn(),
 }))
 
 vi.mock('../hostInferenceExecute', () => ({

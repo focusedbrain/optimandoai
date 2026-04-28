@@ -53,7 +53,7 @@ export function logOrchestratorModeVsHandshakeMismatch(p: {
   handshakeLocalRole: HandshakeLocalRoleForLog
 }): void {
   console.log(
-    `[ORCHESTRATOR_MODE_VS_HANDSHAKE] configured_mode=${p.configuredMode} handshake_local_role=${p.handshakeLocalRole} eligibility_uses=handshake note=mismatch_ignored_for_host_ai_stale_persisted_mode`,
+    `[ORCHESTRATOR_MODE_VS_HANDSHAKE] orchestrator_mode_hint=${p.configuredMode} handshake_local_role=${p.handshakeLocalRole} eligibility_uses=handshake note=mismatch_ignored_for_host_ai_stale_persisted_mode`,
   )
 }
 

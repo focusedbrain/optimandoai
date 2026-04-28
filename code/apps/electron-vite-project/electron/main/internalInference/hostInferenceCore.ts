@@ -9,7 +9,7 @@ import type { InternalHostInferenceMessage } from '../llm/internalHostInferenceO
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { InternalInferenceErrorCode } from './errors'
 import { buildInternalInferenceCapabilitiesResult } from './hostInferenceCapabilities'
-import { logHostAiRoleGate } from './hostAiRoleGateLog'
+import { logHostAiPairingRoleGate } from './hostAiPairingRoleGateLog'
 import * as hostInference from './hostInferenceExecute'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
 import { tryConsumePerHandshakeInferenceSlot } from './hostInferenceRequestRateLimit'
@@ -204,32 +204,34 @@ function assertHostInbound(
 
   const logGate = (o: { decision: 'allow' | 'deny'; reason: string; drOk: true; epOwner: string; lr: 'host' | 'sandbox'; pr: 'host' | 'sandbox' } | { decision: 'allow' | 'deny'; reason: string; drOk: false }): void => {
     if (o.drOk) {
-      logHostAiRoleGate({
+      logHostAiPairingRoleGate({
+        gate: 'inference_rpc',
         handshake_id: r.handshake_id,
         request_type: requestType,
         current_device_id: currentId,
-        endpoint_owner_device_id: o.epOwner,
-        requester_device_id: snd,
+        sender_device_id: snd,
+        receiver_device_id: o.epOwner,
         local_derived_role: roleToGate(o.lr),
         peer_derived_role: roleToGate(o.pr),
         receiver_role: roleToGate(o.lr),
         requester_role: roleToGate(o.pr),
-        configured_mode: '',
+        orchestrator_mode_hint: '',
         decision: o.decision,
         reason: o.reason,
       })
     } else {
-      logHostAiRoleGate({
+      logHostAiPairingRoleGate({
+        gate: 'inference_rpc',
         handshake_id: r.handshake_id,
         request_type: requestType,
         current_device_id: currentId,
-        endpoint_owner_device_id: hostCoord || currentId,
-        requester_device_id: snd,
+        sender_device_id: snd,
+        receiver_device_id: hostCoord || currentId,
         local_derived_role: 'unknown',
         peer_derived_role: 'unknown',
         receiver_role: 'unknown',
         requester_role: 'unknown',
-        configured_mode: '',
+        orchestrator_mode_hint: '',
         decision: o.decision,
         reason: o.reason,
       })

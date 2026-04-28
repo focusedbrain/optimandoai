@@ -706,7 +706,7 @@ function logP2pSessionAuthFailed(
   }
   const exp = params.expectedLocalRole ?? 'n/a'
   console.log(
-    `[P2P_SESSION_AUTH] failed handshake=${hid} configured_mode=${om.mode} derived_local_role=${derivedLocal} derived_peer_role=${derivedPeer} expected_local_role=${exp} local_device_id=${localId8} initiator_device_role=${initiator} acceptor_device_role=${acceptor} local_role_field=${lrField} reason=${params.authReason} lastErrorCode=${params.lastErrorCode} ensure=${params.ensureReason}`,
+    `[P2P_SESSION_AUTH] failed handshake=${hid} orchestrator_mode_hint=${om.mode} derived_local_role=${derivedLocal} derived_peer_role=${derivedPeer} expected_local_role=${exp} local_device_id=${localId8} initiator_device_role=${initiator} acceptor_device_role=${acceptor} local_role_field=${lrField} reason=${params.authReason} lastErrorCode=${params.lastErrorCode} ensure=${params.ensureReason}`,
   )
 }
 

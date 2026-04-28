@@ -36,7 +36,7 @@ export function logHostAiEndpointSelect(p: {
   const line = {
     ...p,
     selected_endpoint_provenance: prov,
-    configured_mode: mode,
+    orchestrator_mode_hint: mode,
   }
   try {
     console.log(`HOST_AI_ENDPOINT_SELECT: ${JSON.stringify(line)}`)

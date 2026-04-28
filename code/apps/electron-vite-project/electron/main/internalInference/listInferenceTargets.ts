@@ -115,7 +115,7 @@ function logHostAiLedgerView(
     })
   const payload = {
     current_device_id: currentDevice,
-    configured_mode: mainMode,
+    orchestrator_mode_hint: mainMode,
     is_sandbox_persisted: isSandboxMode(),
     local_derived_role: firstInternal ? deriveFromRecord(firstInternal).localDeviceRole : 'unknown',
     active_internal_count: activeInternal,
@@ -821,16 +821,16 @@ function logInternalCandidate(
   const lr = d.localDeviceRole == null ? 'null' : d.localDeviceRole
   const pr = d.peerDeviceRole == null ? 'null' : d.peerDeviceRole
   console.log(
-    `${L} role_source=handshake configured_mode=${configuredModeForLog(mainMode)} local_role=${lr} peer_role=${pr}`,
+    `${L} role_source=handshake orchestrator_mode_hint=${configuredModeForLog(mainMode)} local_role=${lr} peer_role=${pr}`,
   )
   const cm = configuredModeForLog(mainMode)
   if (cm === 'host' && d.localDeviceRole === 'sandbox') {
     console.log(
-      `${L} mode_mismatch configured_mode=${cm} handshake_local_role=${lr} handshake=${r.handshake_id}`,
+      `${L} mode_mismatch orchestrator_mode_hint=${cm} handshake_local_role=${lr} handshake=${r.handshake_id}`,
     )
   } else if (cm === 'sandbox' && d.localDeviceRole === 'host') {
     console.log(
-      `${L} mode_mismatch configured_mode=${cm} handshake_local_role=${lr} handshake=${r.handshake_id}`,
+      `${L} mode_mismatch orchestrator_mode_hint=${cm} handshake_local_role=${lr} handshake=${r.handshake_id}`,
     )
   }
   console.log(
@@ -1243,7 +1243,7 @@ function ensureAtLeastOneHostTargetWhenLedgerProvesSandboxToHost(
     const lek = epKindToListKind(p2pEndpointKind(db, r0.p2p_endpoint))
     const title = primaryLabelForP2pUiPhase('p2p_unavailable')
     console.error(
-      `${L} list_invariant ledger_proved_sandbox_to_host but_pipeline_emitted_zero_rows handshake=${hid} configured_mode=${configuredModeForLog(
+      `${L} list_invariant ledger_proved_sandbox_to_host but_pipeline_emitted_zero_rows handshake=${hid} orchestrator_mode_hint=${configuredModeForLog(
         mainMode,
       )} (adding disabled UNKNOWN)`,
     )
@@ -1299,7 +1299,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
 }> {
   const mainMode = getOrchestratorMode().mode
   console.log(
-    `${L} list_begin configured_mode=${configuredModeForLog(mainMode)} (orchestrator file is a hint, not a hard block)`,
+    `${L} list_begin orchestrator_mode_hint=${configuredModeForLog(mainMode)} (orchestrator file is a hint, not a hard block)`,
   )
   if (!isHostAiP2pUxEnabled()) {
     console.log(
@@ -1316,7 +1316,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     const hEff = getHostAiLedgerRoleSummaryFromDb(db, getInstanceId().trim(), String(mainMode))
     console.log(
       `${L} host_ai_ledger_effective ` +
-        `role=${hEff.effective_host_ai_role} can_probe_host_endpoint=${hEff.can_probe_host_endpoint} ` +
+        `effective_host_ai_role=${hEff.effective_host_ai_role} can_probe_host_endpoint=${hEff.can_probe_host_endpoint} ` +
         `can_publish_host_endpoint=${hEff.can_publish_host_endpoint} ` +
         `orchestrator_mismatch=${hEff.any_orchestrator_mismatch} (handshake is authoritative)`,
     )
@@ -1365,7 +1365,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
 
   if (!handshakeProvesSandboxToHost && mainMode !== 'sandbox') {
     console.log(
-      `${L} list_done count=0 reason=no_sandbox_to_host_for_this_instance_and_configured_mode_not_sandbox (Host AI not needed)`,
+      `${L} list_done count=0 reason=no_sandbox_to_host_for_this_instance_and_orchestrator_mode_hint_not_sandbox (Host AI not needed)`,
     )
     return { ok: true, targets: [], refreshMeta: { hadCapabilitiesProbed: false } }
   }
@@ -2557,7 +2557,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           endpoint_owner_device_id: peerEnt?.ownerDeviceId != null ? String(peerEnt.ownerDeviceId).trim() : null,
           local_derived_role: deriveFromRecord(r).localDeviceRole,
           peer_derived_role: peerRoles.ok ? peerRoles.peerRole : 'unknown',
-          configured_mode: String(mode),
+          orchestrator_mode_hint: String(mode),
           effective_host_ai_role: ledgerSummary.effective_host_ai_role,
           can_publish_host_endpoint: ledgerSummary.can_publish_host_endpoint,
           can_probe_host_endpoint: ledgerSummary.can_probe_host_endpoint,

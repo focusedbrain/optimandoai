@@ -1125,7 +1125,7 @@ describe('STEP 10 — named regression (main: listSandboxHostInternalInferenceTa
     expect(r.refreshMeta.hadCapabilitiesProbed).toBe(true)
     expect(r.targets[0]?.available).toBe(true)
     const joined = log.mock.calls.flat().join('\n')
-    expect(joined).toMatch(/mode_mismatch configured_mode=host/)
+    expect(joined).toMatch(/mode_mismatch orchestrator_mode_hint=host/)
     log.mockRestore()
   })
 

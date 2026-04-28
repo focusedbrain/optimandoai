@@ -36,7 +36,7 @@ import {
   p2pEndpointMvpClass,
 } from '../policy'
 import type { HandshakeRecord } from '../../handshake/types'
-import { logHostAiOllamaDirectCapabilitiesWireHint } from '../hostAiOllamaDirect'
+import { logOllamaDirectCapsSnapshotHttpPreviewIfPresent } from '../hostAiOllamaDirect'
 import { INTERNAL_INFERENCE_SCHEMA_VERSION, type InternalInferenceCapabilitiesResultWire, type InternalInferenceErrorWire, type InternalInferenceRequestWire, type InternalInferenceResultWire, type InternalServiceMessageType } from '../types'
 import { logHostAiInferComplete, logHostAiInferError, logHostAiInferRequestSend } from '../hostAiInferLog'
 import { logHostAiTransportChoose, logHostAiTransportFallback, logHostAiTransportUnavailable } from './hostAiTransportLog'
@@ -659,7 +659,7 @@ export async function listHostCapabilities(
           failureCode: mpOk ? null : String(ie).trim(),
         })
       }
-      logHostAiOllamaDirectCapabilitiesWireHint(hid, w)
+      logOllamaDirectCapsSnapshotHttpPreviewIfPresent(hid, w)
       evaluateSandboxHostAiOllamaDirectFromCapabilitiesWire({
         handshakeId: hid,
         currentDeviceId: localSandbox,
@@ -1294,7 +1294,7 @@ export async function listHostCapabilities(
     } catch (e) {
       console.warn(`[HOST_INFERENCE_CAPS] sandbox_peer_lan_ollama_merge_skipped err=${(e as Error)?.message ?? String(e)}`)
     }
-    logHostAiOllamaDirectCapabilitiesWireHint(hid, outWire)
+    logOllamaDirectCapsSnapshotHttpPreviewIfPresent(hid, outWire)
     evaluateSandboxHostAiOllamaDirectFromCapabilitiesWire({
       handshakeId: hid,
       currentDeviceId: localSandbox,

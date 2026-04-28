@@ -82,13 +82,13 @@ describe('buildHostAiProviderAdvertisementPayload (gating)', () => {
       ollamaDiscoveryOk: true,
       ollamaModelCount: 2,
     })
-    expect(payload.configured_mode).toBe('host')
+    expect(payload.orchestrator_mode_hint).toBe('host')
     expect(payload.host_ai_ledger.effective_host_ai_role).toBe('sandbox')
     expect(payload.host_ai_ledger.can_publish_host_endpoint).toBe(false)
     expect(payload.advertised_as_host_ai).toBe(false)
     expect(payload.host_published_direct_endpoint).toBeNull()
     expect(payload.endpoint).toBeNull()
-    expect(payload.role).toBe('sandbox')
+    expect(payload.host_ai_ledger.effective_host_ai_role).toBe('sandbox')
     expect(payload.advertisement_headers_can_generate).toBe(false)
   })
 

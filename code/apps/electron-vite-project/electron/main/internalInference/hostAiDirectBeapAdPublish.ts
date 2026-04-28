@@ -85,7 +85,11 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
     console.log(
       `[HOST_AI_HOST_BEAP_AD_PUBLISH] orchestrator_mode_hint_mismatch ` +
         `(ledger is authoritative; publish still allowed when can_publish_host_endpoint) ` +
-        JSON.stringify({ configured_mode: modeHint, effective_host_ai_role: ledger.effective_host_ai_role, context: input.context }),
+        JSON.stringify({
+          orchestrator_mode_hint: modeHint,
+          effective_host_ai_role: ledger.effective_host_ai_role,
+          context: input.context,
+        }),
     )
   }
   const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })

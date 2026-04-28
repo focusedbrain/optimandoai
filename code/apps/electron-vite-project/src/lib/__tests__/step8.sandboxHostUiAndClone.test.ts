@@ -84,17 +84,17 @@ describe('STEP 8 — log contract (source must contain required tags)', () => {
     expect(refreshTs).toContain("logInferenceTargetRefreshStart('manual_refresh')")
   })
 
-  it('main: [HOST_INFERENCE_TARGETS] list_begin configured_mode, active_internal counts', () => {
+  it('main: [HOST_INFERENCE_TARGETS] list_begin orchestrator_mode_hint, active_internal counts', () => {
     const listT = readFileSync(
       join(appsRoot, 'electron-vite-project', 'electron', 'main', 'internalInference', 'listInferenceTargets.ts'),
       'utf-8',
     )
     const main = readFileSync(join(appsRoot, 'electron-vite-project', 'electron', 'main.ts'), 'utf-8')
-    expect(listT).toContain('list_begin configured_mode=')
+    expect(listT).toContain('list_begin orchestrator_mode_hint=')
     expect(listT).toContain('active_internal_count=')
     expect(listT).toContain('active_internal_sandbox_to_host_count=')
-    expect(listT).toContain('role_source=handshake configured_mode=')
-    expect(listT).toContain('mode_mismatch configured_mode=')
+    expect(listT).toContain('role_source=handshake orchestrator_mode_hint=')
+    expect(listT).toContain('mode_mismatch orchestrator_mode_hint=')
     expect(listT).toMatch(/const L = '\[HOST_INFERENCE_TARGETS\]'/)
     /* Canonical list logs live in listInferenceTargets; getAvailableModels delegates to it (no duplicate list_begin in main). */
     expect(main).not.toMatch(/\[HOST_INFERENCE_TARGETS\] list_begin mode=/)
@@ -125,7 +125,7 @@ describe('STEP 8 — log contract (source must contain required tags)', () => {
     /* Sandbox: discovery + role + (optional) mismatch + capability probe + merged selector counts. */
     expect(listT).toMatch(/active_internal_count=\$\{activeInternalCount\}/)
     expect(listT).toMatch(/active_internal_sandbox_to_host_count=\$\{activeInternalSandboxToHostCount\}/)
-    expect(listT).toContain('role_source=handshake configured_mode=')
+    expect(listT).toContain('role_source=handshake orchestrator_mode_hint=')
     expect(listT).toContain('local_role=')
     expect(listT).toContain('peer_role=')
     expect(listT).toContain('mode_mismatch')

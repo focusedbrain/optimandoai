@@ -61,7 +61,7 @@ export function computeShowHostInferenceRefresh(p: {
     return { show: true, reason: 'discovery_host_internal_rows' }
   }
   if (modeFallback) {
-    return { show: true, reason: 'configured_mode_sandbox_until_discovery' }
+    return { show: true, reason: 'orchestrator_mode_hint_sandbox_until_discovery' }
   }
   return { show: false, reason: 'not_sandbox_no_handshake_and_no_mode_fallback' }
 }
@@ -76,6 +76,6 @@ export function logModelSelectorShowRefresh(p: {
   const m =
     p.configuredMode === 'host' || p.configuredMode === 'sandbox' ? p.configuredMode : 'unknown'
   console.log(
-    `[MODEL_SELECTOR_TARGETS] show_refresh selector=${p.selector} configured_mode=${m} handshake_local_role=${p.handshakeLocalRole} show=${p.show} reason=${p.reason}`,
+    `[MODEL_SELECTOR_TARGETS] show_refresh selector=${p.selector} orchestrator_mode_hint=${m} handshake_local_role=${p.handshakeLocalRole} show=${p.show} reason=${p.reason}`,
   )
 }
