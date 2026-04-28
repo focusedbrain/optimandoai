@@ -4,6 +4,7 @@
  */
 
 import type { HostInferenceTargetRow } from '../hooks/useSandboxHostInference'
+import { computeHostInferenceGavRowPresentation } from './hostAiTargetConnectionPresentation'
 
 export function orderModelsLocalHostCloud<T extends { type?: string }>(models: T[]): T[] {
   const local = models.filter((m) => m?.type === 'local')
@@ -26,18 +27,16 @@ export function mapHostTargetsToGavModelEntries(targets: HostInferenceTargetRow[
   hostTargetAvailable: boolean
   hostSelectorState?: 'available' | 'checking' | 'unavailable'
   p2pUiPhase?: string
+  host_ai_target_status?: HostInferenceTargetRow['host_ai_target_status']
+  canChat?: boolean
+  canUseOllamaDirect?: boolean
+  execution_transport?: HostInferenceTargetRow['execution_transport']
+  failureCode?: string | null
 }> {
   return targets
     .filter((t) => t?.kind === 'host_internal' && typeof t.id === 'string' && t.id.length > 0)
     .map((t) => {
-      const st =
-        t.hostSelectorState ??
-        t.host_selector_state ??
-        (t.unavailable_reason === 'CHECKING_CAPABILITIES' || t.availability === 'checking_host'
-          ? 'checking'
-          : t.available
-            ? 'available'
-            : 'unavailable')
+      const { hostTargetAvailable, hostSelectorState } = computeHostInferenceGavRowPresentation(t)
       const displayTitle = (t.displayTitle ?? t.display_label ?? t.label ?? 'Host AI').trim() || 'Host AI'
       const displaySubtitle = (t.displaySubtitle ?? t.secondary_label ?? '').trim()
       return {
@@ -47,9 +46,14 @@ export function mapHostTargetsToGavModelEntries(targets: HostInferenceTargetRow[
         type: 'host_internal' as const,
         displayTitle,
         displaySubtitle,
-        hostTargetAvailable: t.available === true,
-        hostSelectorState: st,
+        hostTargetAvailable,
+        hostSelectorState,
         p2pUiPhase: t.p2pUiPhase,
+        host_ai_target_status: t.host_ai_target_status,
+        canChat: t.canChat,
+        canUseOllamaDirect: t.canUseOllamaDirect,
+        execution_transport: t.execution_transport,
+        failureCode: t.failureCode,
       }
     })
 }

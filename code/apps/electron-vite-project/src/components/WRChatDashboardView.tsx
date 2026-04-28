@@ -41,6 +41,10 @@ import {
   type HostRefreshFeedback,
   getHostRefreshFeedbackFromTargets,
 } from '../lib/hostRefreshFeedback'
+import {
+  areNormalizedHostAiTargetListsEqual,
+  serializeMergedSelectorModelsForStableUi,
+} from '../lib/hostAiTargetUiNormalization'
 import './WRChatDashboardView.css'
 
 type WrChatModelOption = {
@@ -151,6 +155,12 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
   )
   const includeHostInternalDiscovery = showModelListRefreshState.show
   const showModelListRefreshButton = showModelListRefreshState.show
+
+  const includeHostDiscoveryWrRef = useRef(includeHostInternalDiscovery)
+  includeHostDiscoveryWrRef.current = includeHostInternalDiscovery
+  const ledgerSandboxWrRef = useRef(ledgerProvesInternalSandboxToHost)
+  ledgerSandboxWrRef.current = ledgerProvesInternalSandboxToHost
+
   useEffect(() => {
     if (!orchModeReady) {
       return
@@ -193,7 +203,8 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
   }, [])
 
   const refreshModels = useCallback(async (reason?: InferenceTargetRefreshReason, options?: { force?: boolean }) => {
-    if (reason === 'manual_refresh' && includeHostInternalDiscovery) {
+    const discoveryOn = includeHostDiscoveryWrRef.current
+    if (reason === 'manual_refresh' && discoveryOn) {
       logInferenceTargetRefreshStart('manual_refresh')
       setGavHostTargets((prev) =>
         prev.length
@@ -217,18 +228,20 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
       discovered = await fetchSelectorModelListFromHostDiscovery({
         reason,
         force: options?.force ?? (reason === 'manual_refresh' ? true : undefined),
-        includeHostInternalDiscovery,
-        orchestratorLedgerProvesInternalSandboxToHost: ledgerProvesInternalSandboxToHost,
+        includeHostInternalDiscovery: discoveryOn,
+        orchestratorLedgerProvesInternalSandboxToHost: ledgerSandboxWrRef.current,
       })
     } catch (e) {
       wrChatDashboardWarn('Host discovery (fetchSelectorModelListFromHostDiscovery) failed:', e instanceof Error ? e.message : e)
       setGavHostTargets([])
-      if (reason === 'manual_refresh' && includeHostInternalDiscovery) {
+      if (reason === 'manual_refresh' && includeHostDiscoveryWrRef.current) {
         setHostModelRefreshFeedback(getHostRefreshFeedbackFromTargets([], { path: 'empty', error: e }))
       }
       return
     }
-    setGavHostTargets(discovered.gavForHook)
+    setGavHostTargets((prev) =>
+      areNormalizedHostAiTargetListsEqual(prev, discovered.gavForHook) ? prev : discovered.gavForHook,
+    )
 
     const api = typeof window !== 'undefined' ? window.llm : undefined
     let installed: WrChatModelOption[] = []
@@ -318,7 +331,12 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
       wrChatDashboardWarn('WRChat model merge failed; using discovery rows only:', e instanceof Error ? e.message : e)
       mergedWithHostUi = wrChatModelOptionsFromSelectorModels(discovered.models) as WrChatModelOption[]
     }
-    setAvailableModels(mergedWithHostUi)
+    setAvailableModels((prev) =>
+      serializeMergedSelectorModelsForStableUi(prev as unknown[]) ===
+      serializeMergedSelectorModelsForStableUi(mergedWithHostUi as unknown[])
+        ? prev
+        : mergedWithHostUi,
+    )
     const localOpts = mergedWithHostUi.filter((m) => m.section === 'local')
     const hostRows = mergedWithHostUi.filter((m) => m.hostAi || m.section === 'host')
     const cloudRows = mergedWithHostUi.filter((m) => m.section === 'cloud')
@@ -393,12 +411,16 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
       preferred = hostRows[0].name
     }
     setActiveLlmModel(preferred)
-    if (reason === 'manual_refresh' && includeHostInternalDiscovery) {
+    if (reason === 'manual_refresh' && includeHostDiscoveryWrRef.current) {
       setHostModelRefreshFeedback(
         getHostRefreshFeedbackFromTargets(discovered.gavForHook, { path: discovered.path }),
       )
     }
-  }, [includeHostInternalDiscovery, ledgerProvesInternalSandboxToHost])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable; refs for discovery flags
+  }, [])
+
+  const refreshModelsRef = useRef(refreshModels)
+  refreshModelsRef.current = refreshModels
 
   useEffect(() => {
     if (hostModelRefreshFeedback == null) return
@@ -421,8 +443,8 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
   useLayoutEffect(() => {
     if (!ready) return
     if (!orchModeReady) return
-    void refreshModels('startup')
-  }, [ready, orchModeReady, refreshModels])
+    void refreshModelsRef.current('startup')
+  }, [ready, orchModeReady])
 
   /** Handshake ledger, orchestrator mode, resume, account — keep Host rows in sync with Sandbox (same triggers as top chat). */
   useLayoutEffect(() => {
@@ -434,21 +456,21 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
         lastAccountKeyForWrRef.current = ak
         setAvailableModels([])
         setGavHostTargets([])
-        void refreshModels('account_change')
+        void refreshModelsRef.current('account_change')
         return
       }
-      void refreshModels('visibility_resume')
+      void refreshModelsRef.current('visibility_resume')
     }
     const onList = () => {
-      void refreshModels('handshake_active')
+      void refreshModelsRef.current('handshake_active')
     }
     const onMode = () => {
-      void refreshModels('mode_change')
+      void refreshModelsRef.current('mode_change')
     }
     const onP2p = (e: Event) => {
       const d = (e as CustomEvent<{ reason?: string }>).detail
       if (d?.reason === 'p2p_change') {
-        void refreshModels('p2p_change')
+        void refreshModelsRef.current('p2p_change')
       }
     }
     document.addEventListener('visibilitychange', onResume)
@@ -461,7 +483,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
       window.removeEventListener('orchestrator-mode-changed', onMode)
       window.removeEventListener('inference-target-refresh', onP2p)
     }
-  }, [ready, refreshModels])
+  }, [ready])
 
   /** Merge host-stored tags (extension mirror) into dashboard localStorage so Tags menus stay aligned. */
   useLayoutEffect(() => {
@@ -530,9 +552,9 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
     const api = window.llm
     if (!api?.onActiveModelChanged) return
     return api.onActiveModelChanged(() => {
-      void refreshModels()
+      void refreshModelsRef.current()
     })
-  }, [ready, refreshModels])
+  }, [ready])
 
   useLayoutEffect(() => {
     if (!activeLlmModel) {

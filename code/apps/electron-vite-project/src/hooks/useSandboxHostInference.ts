@@ -6,6 +6,7 @@ import {
   computeShowHostInferenceRefresh,
   discoveryHasHostInternalRows,
 } from '../lib/modelSelectorHostRefreshVisibility'
+import { serializeNormalizedHostAiTargetListUi } from '../lib/hostAiTargetUiNormalization'
 import { useOrchestratorMode } from './useOrchestratorMode'
 
 export type HostInferenceCandidateRow = {
@@ -69,6 +70,18 @@ export type HostInferenceTargetRow = {
   hostWireOllamaReachable?: boolean
   /** LAN Host Ollama — chat uses `ollama_direct` only (no BEAP/P2P). */
   execution_transport?: 'ollama_direct'
+  host_ai_target_status?:
+    | 'beap_ready'
+    | 'ollama_direct_only'
+    | 'handshake_active_but_endpoint_missing'
+    | 'untrusted'
+    | 'offline'
+  canChat?: boolean
+  canUseTopChatTools?: boolean
+  canUseOllamaDirect?: boolean
+  trusted?: boolean
+  /** When main sends trust diagnostics; shown in dev/debug only. */
+  inferenceHandshakeTrustReason?: string | null
 }
 
 type PolicyState = 'unknown' | 'allow' | 'deny' | 'unreachable' | 'no_direct'
@@ -161,9 +174,13 @@ export function useSandboxHostInference(
   const showHostInferenceOption =
     modeReady && isSandbox && inferenceTargets.some((t) => t.direct_reachable && t.available)
 
+  const gavRefreshRef = useRef(gav)
+  gavRefreshRef.current = gav
+
   const refresh = useCallback(async (reason?: InferenceTargetRefreshReason) => {
-    if (gav) {
-      await gav.refresh(reason)
+    const currentGav = gavRefreshRef.current
+    if (currentGav) {
+      await currentGav.refresh(reason)
       return
     }
     const api = (window as unknown as {
@@ -249,16 +266,33 @@ export function useSandboxHostInference(
     } finally {
       setListLoading(false)
     }
-  }, [gav, selectedHandshakeIdForProbe])
+  }, [selectedHandshakeIdForProbe])
+
+  /** Stable across referentially fresh `targets` arrays from IPC polls with identical semantics. */
+  const gavTargetsSemanticSignature = useMemo(
+    () => serializeNormalizedHostAiTargetListUi(gav?.targets ?? []),
+    [gav?.targets],
+  )
+  const lastSyncedGavSignatureRef = useRef<string>('__init__')
 
   useLayoutEffect(() => {
-    if (!treatAsSandboxForHostInternal || !gav) {
+    if (!treatAsSandboxForHostInternal) {
+      lastSyncedGavSignatureRef.current = '__init__'
       return
     }
+    const sync = gavRefreshRef.current
+    if (!sync) {
+      lastSyncedGavSignatureRef.current = ''
+      return
+    }
+    const sig = gavTargetsSemanticSignature
+    if (sig === lastSyncedGavSignatureRef.current) return
+    lastSyncedGavSignatureRef.current = sig
+    const rows = sync.targets ?? []
     setListLoading(false)
-    setInferenceTargets(gav.targets)
-    setCandidates(targetsToCandidates(gav.targets))
-  }, [treatAsSandboxForHostInternal, gav, gav?.targets])
+    setInferenceTargets(rows)
+    setCandidates(targetsToCandidates(rows))
+  }, [treatAsSandboxForHostInternal, gavTargetsSemanticSignature])
 
   useEffect(() => {
     if (!modeReady) {
@@ -270,18 +304,18 @@ export function useSandboxHostInference(
       setInferenceTargets([])
       return
     }
-    if (gav) {
+    if (gavRefreshRef.current) {
       return
     }
     setListLoading(true)
     void refresh()
-  }, [treatAsSandboxForHostInternal, modeReady, gav, gav?.targets, refresh])
+  }, [treatAsSandboxForHostInternal, modeReady, refresh])
 
   useEffect(() => {
     /**
      * When `gav` (HybridSearch) is set, the parent refetches and logs; avoid double `getAvailableModels` here.
      */
-    if (gav) {
+    if (gavRefreshRef.current) {
       return () => {}
     }
     const on = () => {
@@ -293,7 +327,16 @@ export function useSandboxHostInference(
       window.removeEventListener('handshake-list-refresh', on)
       window.removeEventListener('orchestrator-mode-changed', on)
     }
-  }, [treatAsSandboxForHostInternal, refresh, gav])
+  }, [treatAsSandboxForHostInternal, refresh])
+
+  const handshakeProbeDepsKey = useMemo(
+    () =>
+      `${selectedHandshakeIdForProbe ?? ''}|` +
+      candidates
+        .map((c) => `${c.handshakeId}:${c.directP2pAvailable ? 1 : 0}:${String(c.execution_transport ?? '')}`)
+        .join(','),
+    [selectedHandshakeIdForProbe, candidates],
+  )
 
   const p2pRefreshSig = useRef<string>('')
   useEffect(() => {
@@ -351,7 +394,7 @@ export function useSandboxHostInference(
     return () => {
       cancelled = true
     }
-  }, [treatAsSandboxForHostInternal, selectedHandshakeIdForProbe, candidates])
+  }, [treatAsSandboxForHostInternal, selectedHandshakeIdForProbe, handshakeProbeDepsKey])
 
   useEffect(() => {
     if (!treatAsSandboxForHostInternal || !selectedHandshakeIdForProbe) {
@@ -410,7 +453,7 @@ export function useSandboxHostInference(
     return () => {
       cancelled = true
     }
-  }, [treatAsSandboxForHostInternal, selectedHandshakeIdForProbe, candidates])
+  }, [treatAsSandboxForHostInternal, selectedHandshakeIdForProbe, handshakeProbeDepsKey])
 
   return {
     isSandbox: modeReady && isSandbox,

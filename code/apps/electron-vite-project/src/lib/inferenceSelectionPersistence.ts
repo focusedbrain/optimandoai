@@ -4,7 +4,9 @@
  */
 
 import { getCachedUserInfo } from '../auth/sessionCache'
+import type { HostInferenceTargetRow } from '../hooks/useSandboxHostInference'
 import { isHostInferenceModelId, parseAnyHostInferenceModelId } from './hostInferenceModelIds'
+import { hostInferenceTargetMenuSelectable } from './hostAiTargetConnectionPresentation'
 
 const SELECTION_V = 1 as const
 
@@ -368,10 +370,22 @@ export function isHostInternalSelectionStaleForOrchestratorUi(
     if (isHostInferenceTargetPendingForRestore(t)) {
       return false
     }
+    const row = t as unknown as HostInferenceTargetRow
+    const backendEmittedSelectableSignals =
+      typeof row.canChat === 'boolean' ||
+      typeof row.host_ai_target_status !== 'undefined' ||
+      row.execution_transport === 'ollama_direct'
     /**
-     * A matching `host_internal` row is still in the list (even if disabled) — do not show
-     * "That Host AI selection is no longer in the list." Use the row’s probe/structured copy instead
-     * (`hostAiUserFacingMessageFromTarget` / p2pUiPhase on the target).
+     * When main has emitted `canChat` / `host_ai_target_status` / Ollama transport, treat unavailable
+     * snapshots as stale so HOST_AI_STALE_INLINE matches menu + submit guards. Omitting those fields
+     * keeps legacy behaviour: row visible in IPC list ⇒ do not blank the selection purely from omission.
+     */
+    if (backendEmittedSelectableSignals && !hostInferenceTargetMenuSelectable(row)) {
+      return true
+    }
+    /**
+     * A matching `host_internal` row is still in the list — do not show
+     * "That Host AI selection is no longer in the list." Use the row's probe copy instead when needed.
      */
     return false
   }

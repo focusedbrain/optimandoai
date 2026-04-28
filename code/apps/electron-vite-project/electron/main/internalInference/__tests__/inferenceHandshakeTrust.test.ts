@@ -4,6 +4,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { InternalInferenceErrorCode } from '../errors'
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/wrdesk-inference-handshake-trust-test' } }))
 
@@ -486,5 +487,8 @@ describe('decideInternalInferenceTransport — inference trust wiring', () => {
     )
     expect(dec.inferenceHandshakeTrusted).toBe(false)
     expect(dec.inferenceHandshakeTrustReason).toBe('peer_host_endpoint_missing')
+    expect(dec.selectorPhase).toBe('blocked')
+    expect(dec.preferredTransport).toBe('none')
+    expect(dec.failureCode).toBe(InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING)
   })
 })

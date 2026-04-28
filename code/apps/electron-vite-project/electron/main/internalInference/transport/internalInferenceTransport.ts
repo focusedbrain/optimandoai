@@ -1508,6 +1508,11 @@ export async function requestHostCompletion(
   emitTransportDiagnostics(hid, 'request', endpointGateOk, decision)
   if (decision.choice.selected === 'unavailable') {
     const reason = decision.choice.reason
+    console.log(
+      `[HOST_AI_CHAT_BLOCKED] handshake=${hid} reason=${String(reason)} failureCode=${
+        dec0?.failureCode == null ? 'null' : String(dec0.failureCode)
+      }`,
+    )
     logHostAiStage({
       chain,
       stage: 'model_projection',
@@ -1521,10 +1526,17 @@ export async function requestHostCompletion(
       failureCode: String(reason),
     })
     touchState(hid, 'request', 'unavailable', reason)
+    const deniedMsg =
+      dec0?.userSafeReason?.trim() ||
+      (reason === 'p2p_not_ready_no_fallback'
+        ? 'Host AI cannot send this request yet: the P2P path is not ready and HTTP fallback to the Host is disabled. Wait for pairing/P2P, enable fallback if appropriate, then try again.'
+        : reason === 'non_direct_endpoint'
+          ? 'Host AI inbound path is blocked: sandbox cannot reach the Host ingest endpoint yet. Confirm the Host advertises a direct BEAP address and try Refresh.'
+          : String(reason))
     return {
       ok: false,
       code: InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE,
-      error: reason,
+      error: deniedMsg,
     }
   }
   const d = decision.choice

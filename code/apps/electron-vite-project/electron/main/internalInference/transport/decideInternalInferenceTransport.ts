@@ -29,7 +29,10 @@ import {
   peekHostAdvertisedMvpDirectEntry,
   resolveSandboxToHostHttpDirectIngest,
 } from '../p2pEndpointRepair'
-import { inferenceDirectHttpTrust, type InferenceDirectHttpTrustReason } from './inferenceDirectHttpTrust'
+import {
+  inferenceDirectHttpTrust,
+  type InferenceDirectHttpTrustReason,
+} from './inferenceDirectHttpTrust'
 import { hostAiCanonicalDirectHttpViable, resolveHostAiRoute, type HostAiCanonicalRouteResolveInput } from './hostAiRouteResolve'
 
 const L = '[HOST_AI_TRANSPORT]'
@@ -41,6 +44,7 @@ export type HostAiSelectorPhase =
   | 'detected'
   | 'connecting'
   | 'ready'
+  | 'blocked'
   | 'p2p_unavailable'
   | 'legacy_http_available'
   | 'legacy_http_invalid'
@@ -155,9 +159,27 @@ export type HostAiTransportAuthoritative =
  * One authoritative result for gating HTTP capability probes: when `kind === 'webrtc_p2p'`,
  * callers must not POST/GET the relay or direct legacy inference HTTP paths (use P2P/DC or wait).
  */
+export function mapTrustReasonToInferenceFailureCode(reason: InferenceDirectHttpTrustReason | null): string {
+  switch (reason) {
+    case 'peer_host_endpoint_missing':
+      return InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING
+    case 'not_sandbox_to_host':
+      return InternalInferenceErrorCode.HOST_AI_ROLE_MISMATCH
+    case 'identity_not_complete':
+      return InternalInferenceErrorCode.HOST_AI_IDENTITY_INCOMPLETE
+    case 'missing_bearer_token':
+      return InternalInferenceErrorCode.HOST_AI_BEARER_MISSING
+    default:
+      return InternalInferenceErrorCode.HOST_AI_UNTRUSTED
+  }
+}
+
 export function decideHostAiTransport(
   d: HostAiTransportDeciderResult,
 ): HostAiTransportAuthoritative {
+  if (d.selectorPhase === 'blocked') {
+    return { kind: 'none', phase: 'unavailable', allowLegacyHttpProbe: false }
+  }
   if (d.preferredTransport === 'webrtc_p2p') {
     let ph: 'connecting' | 'ready' | 'failed' = 'connecting'
     if (d.selectorPhase === 'ready') ph = 'ready'
@@ -429,6 +451,43 @@ export function decideInternalInferenceTransport(
     : le.mayPostInternalInferenceHttpToIngest
   /** `HTTP_FALLBACK` flag && eligible direct legacy POST per policy slice above. */
   const legacyViable = mayFb && legacyPostOk
+  /**
+   * Internal Sandbox→Host **direct ledger** (`p2p_endpoint` classify as `direct`), **P2P stack on**: no verified peer ingest
+   * and no handshake+LAN inference trust ⇒ no BEAP/WebRTC dataplane readiness — block before dcUp/connecting would mark `selectorPhase=ready`.
+   *
+   * Exemptions:
+   * - **`url_not_private_lan`** — relay-style / hostname ingest URLs rely on WebRTC signaling; handshake HTTP trust intentionally fails without blocking P2P.
+   * - **P2P stack off** — fall through to `legacy_http_invalid` / MVP path (nothing can report `webrtc` ready anyway).
+   * - **Relay rows** (`p2pEndpointKind !== 'direct'`).
+   */
+  const trHandshake = input.inferenceHandshakeTrustReason ?? null
+  if (
+    internalSlice &&
+    !inferenceHandshakeTrusted &&
+    !verifiedDirect &&
+    le.p2pEndpointKind === 'direct' &&
+    p2pStackEnabled(f) &&
+    trHandshake !== 'url_not_private_lan'
+  ) {
+    const tr = trHandshake
+    const fc = mapTrustReasonToInferenceFailureCode(tr)
+    console.log(
+      `[HOST_AI_TRANSPORT_BLOCKED] handshake=${String(hr?.handshake_id ?? '')} reason=${tr ?? 'null'} failureCode=${fc} trusted=false`,
+    )
+    return {
+      ...hostAiRouteSnap(input),
+      targetDetected: true,
+      selectorPhase: 'blocked',
+      preferredTransport: 'none',
+      mayUseLegacyHttpFallback: mayFb,
+      legacyHttpFallbackViable: legacyViable,
+      p2pTransportEndpointOpen: false,
+      failureCode: fc,
+      userSafeReason: null,
+      reason: tr ?? undefined,
+    }
+  }
+
   const p2pOn = p2pStackEnabled(f)
   const kind = le.p2pEndpointKind
   const wrtcArch = isWebRtcHostAiArchitectureEnabled(f)

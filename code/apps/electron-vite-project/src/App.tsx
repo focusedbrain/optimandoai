@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import './App.css'
 import AnalysisCanvas from './components/AnalysisCanvas'
 import HandshakeView from './components/HandshakeView'
@@ -59,6 +59,21 @@ function normalizeTheme(theme: string): ExtensionTheme {
   if (mapped === 'default') return 'pro'
   if (mapped === 'professional') return 'standard'
   return (['pro', 'dark', 'standard'].includes(mapped) ? mapped : 'standard') as ExtensionTheme
+}
+
+function emailAccountsListSignature(
+  rows: Array<{ id: string; email: string; status?: string; processingPaused?: boolean }>,
+): string {
+  return JSON.stringify(
+    [...rows]
+      .map((a) => ({
+        id: a.id,
+        email: a.email,
+        status: (a.status ?? '').trim(),
+        paused: a.processingPaused === true,
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
+  )
 }
 
 function App() {
@@ -160,7 +175,8 @@ function App() {
       if (mappedTheme === 'default') mappedTheme = 'pro'
       if (mappedTheme === 'professional') mappedTheme = 'standard'
       if (['pro', 'dark', 'standard'].includes(mappedTheme)) {
-        setExtensionTheme(mappedTheme as ExtensionTheme)
+        const next = mappedTheme as ExtensionTheme
+        setExtensionTheme((prev) => (prev === next ? prev : next))
       }
     })
     window.analysisDashboard?.requestTheme()
@@ -174,7 +190,7 @@ function App() {
       const theme = (payload as any).theme
       if (typeof theme === 'string') {
         const normalized = normalizeTheme(theme)
-        setExtensionTheme(normalized)
+        setExtensionTheme((prev) => (prev === normalized ? prev : normalized))
       }
     }
     setActiveView('analysis')
@@ -234,6 +250,8 @@ function App() {
     }
   }, [activeView])
 
+  const lastEmailAccountsSigRef = useRef<string>('')
+
   const loadEmailAccounts = useCallback(async () => {
     if (typeof window.emailAccounts?.listAccounts !== 'function') return
     try {
@@ -250,15 +268,21 @@ function App() {
         setEmailAccountsLoadError('Account list response was missing or invalid.')
         return
       }
-      setEmailAccountsLoadError(null)
-      setEmailAccounts(
-        res.data.map((a: { id: string; email: string; status?: string; processingPaused?: boolean }) => ({
+      const nextRows = res.data.map(
+        (a: { id: string; email: string; status?: string; processingPaused?: boolean }) => ({
           id: a.id,
           email: a.email,
           status: a.status,
           processingPaused: a.processingPaused === true ? true : undefined,
-        })),
+        }),
       )
+      const sig = emailAccountsListSignature(nextRows)
+      setEmailAccountsLoadError(null)
+      if (sig === lastEmailAccountsSigRef.current) {
+        return
+      }
+      lastEmailAccountsSigRef.current = sig
+      setEmailAccounts(nextRows)
     } catch (err) {
       // Preserve existing list — do NOT wipe accounts on a thrown IPC error.
       const msg = err instanceof Error ? err.message : String(err ?? 'Unknown error')

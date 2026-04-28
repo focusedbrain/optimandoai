@@ -56,6 +56,8 @@ export type HostAiProviderAdvertisementPayload = {
   active_internal_ledger_host_peer_sandbox: boolean
   host_internal_merge_would_run: boolean
   ttl_ms: number | null
+  /** Present when Host AI advertisement is gated off; see logs `[HOST_AI_PROVIDER_ADVERTISEMENT_BLOCKED]`. */
+  provider_advertisement_blocked_reason?: string | null
   /**
    * Authoritative for Host AI transport (publish vs probe). `role_source` is always `handshake` when
    * a ledger row classifies the device; `orchestrator_mismatch` surfaces config hint vs ledger only.
@@ -67,6 +69,29 @@ export type HostAiProviderAdvertisementPayload = {
     any_orchestrator_mismatch: boolean
     role_source: 'handshake'
   }
+}
+
+/** Why provider advertisement failed — single primary reason for support / `[HOST_AI_PROVIDER_ADVERTISEMENT_BLOCKED]`. */
+export function deriveProviderAdvertisementBlockedReason(p: {
+  effective_role: HostAiProviderAdvertisementPayload['host_ai_ledger']['effective_host_ai_role']
+  can_publish_host_endpoint: boolean
+  policyAllowsRemote: boolean | null | undefined
+  ollama_ok: boolean
+  models_count: number
+  host_published_direct_endpoint: string | null
+  advertisement_headers_can_generate: boolean
+}): string {
+  if (p.effective_role === 'sandbox') return 'sandbox_device_must_not_publish_host_ad'
+  if (p.effective_role === 'mixed') return 'ledger_role_mixed_cannot_publish_host_ad'
+  if (p.effective_role !== 'host') return 'effective_host_ai_role_not_host'
+  if (!p.can_publish_host_endpoint) return 'cannot_publish_host_endpoint'
+  if (p.policyAllowsRemote !== true) return 'host_inference_policy_denies_remote'
+  if (!p.ollama_ok) return 'ollama_discovery_failed'
+  if (p.models_count < 1) return 'no_ollama_models'
+  if (p.host_published_direct_endpoint == null || String(p.host_published_direct_endpoint).trim() === '')
+    return 'no_host_published_direct_endpoint'
+  if (!p.advertisement_headers_can_generate) return 'advertisement_headers_not_generatable'
+  return 'unknown'
 }
 
 export async function buildHostAiProviderAdvertisementPayload(input: {
@@ -106,20 +131,53 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
         effective_host_ai_role: 'none' as const,
       }
 
-  const advertisedAsHostAi =
-    ledger.can_publish_host_endpoint && polH?.allowSandboxInference === true
+  /** Only an **exclusive ledger host** (`effective_host_ai_role === 'host'`) may publish — never sandbox/mixed/none. */
+  const ledgerExclusiveHost = ledger.effective_host_ai_role === 'host'
+  /** Only the ledger host may expose peer-facing Host BEAP URI + outbound ad headers (`can_publish_host_endpoint`). */
+  const mayPublishEndpointAsLedgerHost =
+    ledgerExclusiveHost && ledger.can_publish_host_endpoint === true
 
-  /** Only the ledger **host** may publish a Host direct endpoint; `configured_mode` is never authority. */
-  const mayPublishAsHost = ledger.can_publish_host_endpoint
-  const hostPublishedEndpoint = mayPublishAsHost && mvpListenerUrl ? mvpListenerUrl : null
-  const advertisement_headers_can_generate = mayPublishAsHost && headersTechnicallyGeneratable
-  /** `role` in this log: ledger-effective role for Host AI (not orchestrator `configured_mode` alone). */
-  const roleForHostAiLog: 'sandbox' | 'host' =
+  const hostPublishedEndpoint =
+    mayPublishEndpointAsLedgerHost && mvpListenerUrl?.trim()
+      ? mvpListenerUrl.trim()
+      : null
+  const advertisement_headers_can_generate = Boolean(
+    mayPublishEndpointAsLedgerHost && headersTechnicallyGeneratable,
+  )
+
+  const policyAllowsRemote = polH?.allowSandboxInference === true
+  /** Full Host AI provider lane: host-only ledger + policy + reachable Ollama with models + MVP listener + outbound headers. */
+  const advertisedAsHostAi = Boolean(
+    mayPublishEndpointAsLedgerHost &&
+      policyAllowsRemote &&
+      input.ollamaDiscoveryOk === true &&
+      input.ollamaModelCount > 0 &&
+      hostPublishedEndpoint !== null &&
+      advertisement_headers_can_generate,
+  )
+
+  const provider_blocked_reason = advertisedAsHostAi
+    ? null
+    : deriveProviderAdvertisementBlockedReason({
+        effective_role: ledger.effective_host_ai_role,
+        can_publish_host_endpoint: ledger.can_publish_host_endpoint,
+        policyAllowsRemote,
+        ollama_ok: input.ollamaDiscoveryOk,
+        models_count: input.ollamaModelCount,
+        host_published_direct_endpoint: hostPublishedEndpoint,
+        advertisement_headers_can_generate,
+      })
+
+  /** `role` for diagnostics: sandbox ledger never impersonates Host; orchestrator hint only when ledger is none/mixed. */
+  let roleForHostAiLog: 'sandbox' | 'host' =
     ledger.effective_host_ai_role === 'host'
       ? 'host'
       : ledger.effective_host_ai_role === 'sandbox'
         ? 'sandbox'
         : orchestratorFileImplies
+  if (advertisedAsHostAi) {
+    roleForHostAiLog = 'host'
+  }
 
   let diagnosticPublishHandshakeId: string | null = null
   if (dbProv) {
@@ -155,6 +213,40 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
     )
   }
 
+  if (db_open_ok) {
+    if (advertisedAsHostAi && hostPublishedEndpoint != null) {
+      console.log(
+        `[HOST_AI_PROVIDER_ADVERTISEMENT_READY] ` +
+          JSON.stringify({
+            role: 'host',
+            advertised_as_host_ai: true,
+            endpoint: hostPublishedEndpoint,
+            endpoint_owner_device_id: currentId,
+            handshake_id: diagnosticPublishHandshakeId,
+            models_count: input.ollamaModelCount,
+            ttl_ms: typeof polH?.timeoutMs === 'number' ? polH.timeoutMs : null,
+          }),
+      )
+    } else if (
+      ledger.effective_host_ai_role === 'host' ||
+      ledger.effective_host_ai_role === 'mixed'
+    ) {
+      console.log(
+        `[HOST_AI_PROVIDER_ADVERTISEMENT_BLOCKED] ` +
+          JSON.stringify({
+            reason: provider_blocked_reason ?? 'unknown',
+            role: roleForHostAiLog,
+            effective_host_ai_role: ledger.effective_host_ai_role,
+            can_publish_host_endpoint: ledger.can_publish_host_endpoint,
+            ollama_ok: input.ollamaDiscoveryOk,
+            models_count: input.ollamaModelCount,
+            endpoint: hostPublishedEndpoint,
+            advertisement_headers_can_generate,
+          }),
+      )
+    }
+  }
+
   return {
     db_open_ok,
     current_device_id: currentId,
@@ -165,9 +257,10 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
     advertisement_headers_can_generate,
     role: roleForHostAiLog,
     ollama_ok: input.ollamaDiscoveryOk,
-    /** Sandbox machines must not attribute local `/api/tags` counts to Host AI — only ledger hosts publish Host models here. */
+    provider_advertisement_blocked_reason: advertisedAsHostAi ? null : provider_blocked_reason ?? null,
+    /** Sandbox machines must not attribute local `/api/tags` counts to Host AI — exclusive ledger hosts only for Host surface. */
     models_count:
-      ledger.effective_host_ai_role === 'host' && ledger.can_publish_host_endpoint ? input.ollamaModelCount : 0,
+      ledgerExclusiveHost && ledger.can_publish_host_endpoint ? input.ollamaModelCount : 0,
     advertised_as_host_ai: advertisedAsHostAi,
     endpoint: hostPublishedEndpoint,
     endpoint_owner_device_id: getInstanceId().trim(),

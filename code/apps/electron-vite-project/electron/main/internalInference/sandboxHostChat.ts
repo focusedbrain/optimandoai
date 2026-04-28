@@ -12,6 +12,7 @@ import {
   decideInternalInferenceTransport,
   buildHostAiTransportDeciderInputAsync,
 } from './transport/decideInternalInferenceTransport'
+import { decideHostAiIntentRoute } from './transport/transportDecide'
 import { InternalInferenceErrorCode } from './errors'
 import {
   assertP2pEndpointDirect,
@@ -82,6 +83,9 @@ export async function runSandboxHostInferenceChat(params: {
   const record = getHandshakeRecord(db, hid)
   const ar = assertRecordForServiceRpc(record)
   if (!ar.ok) {
+    console.log(
+      `[HOST_AI_CHAT_BLOCKED] handshake=${hid} reason=ledger_assert_${ar.code} failureCode=${ar.code}`,
+    )
     if (ar.code === InternalInferenceErrorCode.POLICY_FORBIDDEN) {
       if (record && record.state !== 'ACTIVE') {
         return { ok: false, code: ar.code, message: 'not active' }
@@ -98,27 +102,46 @@ export async function runSandboxHostInferenceChat(params: {
   const r = ar.record
   const role = assertSandboxRequestToHost(r)
   if (!role.ok) {
-    return { ok: false, code: role.code, message: 'role' }
+    console.log(`[HOST_AI_CHAT_BLOCKED] handshake=${hid} reason=sandbox_host_role_gate failureCode=${role.code}`)
+    return { ok: false, code: role.code, message: 'Sandbox must be paired to a Host device for Host AI chat.' }
   }
   const fP2p = getP2pInferenceFlags()
   const odDirect = params.execution_transport === 'ollama_direct'
 
+  const decChat = decideInternalInferenceTransport(
+    await buildHostAiTransportDeciderInputAsync({
+      operationContext: 'request',
+      db,
+      handshakeRecord: r,
+      featureFlags: fP2p,
+    }),
+  )
+  const endpointGateOk = decChat.p2pTransportEndpointOpen
+  let transportLog: string =
+    odDirect ? 'ollama_direct' : 'null'
+  let canChatRoute = odDirect
   if (!odDirect) {
-    const endpointGateOk = decideInternalInferenceTransport(
-      await buildHostAiTransportDeciderInputAsync({
-        operationContext: 'request',
-        db,
-        handshakeRecord: r,
-        featureFlags: fP2p,
-      }),
-    ).p2pTransportEndpointOpen
-    if (!endpointGateOk) {
-      const d = assertP2pEndpointDirect(db, r.p2p_endpoint)
-      return {
-        ok: false,
-        code: d.ok ? InternalInferenceErrorCode.INTERNAL_INFERENCE_FAILED : d.code,
-        message: 'no valid P2P transport endpoint',
-      }
+    const ic = decideHostAiIntentRoute(hid, 'request', endpointGateOk)
+    transportLog = ic.choice.selected === 'unavailable' ? 'null' : String(ic.choice.selected)
+    canChatRoute = ic.choice.selected !== 'unavailable'
+  }
+  const fcRoute = decChat.failureCode == null ? 'null' : String(decChat.failureCode)
+  console.log(
+    `[HOST_AI_CHAT_ROUTE] handshake=${hid} status=${decChat.selectorPhase} canChat=${canChatRoute} transport=${transportLog} failureCode=${fcRoute}`,
+  )
+
+  if (!odDirect && !endpointGateOk) {
+    console.log(
+      `[HOST_AI_CHAT_BLOCKED] handshake=${hid} reason=p2p_endpoint_gate_failure failureCode=${fcRoute}`,
+    )
+    const d = assertP2pEndpointDirect(db, r.p2p_endpoint)
+    const fallbackMsg =
+      decChat.userSafeReason?.trim() ||
+      'Host AI transport is not ready. Confirm pairing on both devices, advertise a Host BEAP endpoint where required, then use Refresh (↻) in the model list.'
+    return {
+      ok: false,
+      code: d.ok ? decChat.failureCode ?? InternalInferenceErrorCode.INTERNAL_INFERENCE_FAILED : d.code,
+      message: fallbackMsg,
     }
   }
 

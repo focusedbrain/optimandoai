@@ -7,8 +7,18 @@ import { resetHostAiDirectBeapAdPublishStateForTests } from '../hostAiDirectBeap
 
 const getHostUrl = vi.hoisted(() => vi.fn<(_db: unknown) => string | null>())
 
+vi.mock('../llm/ollama-manager', () => ({
+  ollamaManager: {
+    listModels: vi.fn(async () => [{ name: 'm1', size: 1, digest: '', modified_at: '' }]),
+  },
+}))
+
 vi.mock('../p2pEndpointRepair', () => ({
   getHostPublishedMvpDirectP2pIngestUrl: (db: unknown) => getHostUrl(db),
+  P2P_DIRECT_P2P_ENDPOINT_HEADER: 'X-BEAP-Direct-P2P-Endpoint',
+  hostDirectP2pAdvertisementHeaders: () => ({
+    'X-BEAP-Direct-P2P-Endpoint': 'http://192.168.1.2:51249/beap/ingest',
+  }),
 }))
 
 const postBeapAd = vi.hoisted(() => vi.fn(async () => ({ ok: true, status: 200 })))

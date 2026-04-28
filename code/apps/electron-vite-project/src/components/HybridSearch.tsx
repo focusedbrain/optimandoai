@@ -57,6 +57,15 @@ import {
   hostModelSelectorRowUi,
   hostModelSelectorShowsDefinitiveHostFailure,
 } from '../lib/hostModelSelectorRowUi'
+import {
+  computeHostInferenceGavRowPresentation,
+  hostInferenceTargetMenuSelectable,
+  hostAiTargetDevDebugSnippet,
+} from '../lib/hostAiTargetConnectionPresentation'
+import {
+  areNormalizedHostAiTargetListsEqual,
+  serializeMergedSelectorModelsForStableUi,
+} from '../lib/hostAiTargetUiNormalization'
 import { isHostInferenceModelId, parseAnyHostInferenceModelId } from '../lib/hostInferenceModelIds'
 import { directP2pReachabilityCopyForSandboxToHost } from '../lib/hostInferenceUiGates'
 import { hostAiUserFacingMessageFromTarget, type HostAiEndpointDiagnostics } from '../lib/hostAiUiDiagnostics'
@@ -740,10 +749,18 @@ export default function HybridSearch({
   const hostInferenceProbeId = parseAnyHostInferenceModelId(selectedModel)?.handshakeId ?? null
   const selectedModelRef = useRef(selectedModel)
   selectedModelRef.current = selectedModel
+
+  /** `loadModels` is intentionally stabilized (deps `[]`): read flags via refs so `includeHostInternalDiscovery` flips don't recreate the callback and retrigger mount effects (`loadModels('startup')` / `mode_change` loops). */
+  const includeHostInternalDiscoveryRef = useRef(includeHostInternalDiscovery)
+  includeHostInternalDiscoveryRef.current = includeHostInternalDiscovery
+  const ledgerSandboxToHostRef = useRef(ledgerProvesInternalSandboxToHost)
+  ledgerSandboxToHostRef.current = ledgerProvesInternalSandboxToHost
+
   const loadModels = useCallback(
     async (reason?: InferenceTargetRefreshReason, options?: { force?: boolean }) => {
     try {
-      if (includeHostInternalDiscovery && reason === 'manual_refresh') {
+      const discoveryEnabled = includeHostInternalDiscoveryRef.current
+      if (discoveryEnabled && reason === 'manual_refresh') {
         logInferenceTargetRefreshStart('manual_refresh')
         setModelsLoading(true)
         setGavHostTargets((prev) =>
@@ -772,14 +789,20 @@ export default function HybridSearch({
       const discovered = await fetchSelectorModelListFromHostDiscovery({
         reason,
         force: options?.force ?? (reason === 'manual_refresh' ? true : undefined),
-        includeHostInternalDiscovery,
-        orchestratorLedgerProvesInternalSandboxToHost: ledgerProvesInternalSandboxToHost,
+        includeHostInternalDiscovery: discoveryEnabled,
+        orchestratorLedgerProvesInternalSandboxToHost: ledgerSandboxToHostRef.current,
       })
       const { result, withHost, models, gavForHook, path } = discovered
-      setGavHostTargets(gavForHook)
-      setAvailableModels(models as AvailableModel[])
+      setGavHostTargets((prev) =>
+        areNormalizedHostAiTargetListsEqual(prev, gavForHook) ? prev : gavForHook,
+      )
+      setAvailableModels((prev) =>
+        serializeMergedSelectorModelsForStableUi(prev) === serializeMergedSelectorModelsForStableUi(models)
+          ? prev
+          : (models as AvailableModel[]),
+      )
 
-      if (reason === 'manual_refresh' && includeHostInternalDiscovery) {
+      if (reason === 'manual_refresh' && discoveryEnabled) {
         setHostRefreshFeedback(getHostRefreshFeedbackFromTargets(gavForHook, { path }))
       }
 
@@ -837,16 +860,16 @@ export default function HybridSearch({
       return result
     } catch (err) {
       console.error('Failed to load models:', err)
-      if (includeHostInternalDiscovery && (reason as InferenceTargetRefreshReason | undefined) === 'manual_refresh') {
+      if (includeHostInternalDiscoveryRef.current && (reason as InferenceTargetRefreshReason | undefined) === 'manual_refresh') {
         setHostRefreshFeedback(getHostRefreshFeedbackFromTargets([], { path: 'empty', error: err }))
       }
     } finally {
       setModelsLoading(false)
     }
     return null
-  },
-  [includeHostInternalDiscovery, ledgerProvesInternalSandboxToHost],
-  )
+    // Stable callback: refs carry `includeHostInternalDiscovery` / ledger flags so downstream effects (`loadModels`-dependent) don't loop on unrelated gate flips.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally empty
+  }, [])
 
   useEffect(() => {
     if (hostRefreshFeedback == null) return
@@ -959,16 +982,21 @@ export default function HybridSearch({
           name: m.id,
           hostLocalModelName: t.model ?? t.model_id,
           p2pUiPhase: t.p2pUiPhase ?? m.p2pUiPhase,
+          host_ai_target_status: m.host_ai_target_status ?? t.host_ai_target_status,
         }
-      : {
-          hostSelectorState: t.hostSelectorState ?? t.host_selector_state,
-          hostTargetAvailable: t.available === true,
-          displayTitle: (t.displayTitle ?? t.display_label ?? t.label ?? '').trim() || 'Host AI',
-          displaySubtitle: (t.displaySubtitle ?? t.secondary_label ?? '').trim(),
-          name: selectedModel,
-          hostLocalModelName: t.model ?? t.model_id,
-          p2pUiPhase: t.p2pUiPhase,
-        }
+      : (() => {
+          const pres = computeHostInferenceGavRowPresentation(t)
+          return {
+            hostSelectorState: pres.hostSelectorState,
+            hostTargetAvailable: pres.hostTargetAvailable,
+            displayTitle: (t.displayTitle ?? t.display_label ?? t.label ?? '').trim() || 'Host AI',
+            displaySubtitle: (t.displaySubtitle ?? t.secondary_label ?? '').trim(),
+            name: selectedModel,
+            hostLocalModelName: t.model ?? t.model_id,
+            p2pUiPhase: t.p2pUiPhase,
+            host_ai_target_status: t.host_ai_target_status,
+          }
+        })()
     if (!hostModelSelectorShowsDefinitiveHostFailure(rowUiIn, t)) {
       return null
     }
@@ -1368,7 +1396,7 @@ export default function HybridSearch({
     const firstCloud = availableModels.find((m) => m.type === 'cloud')?.id
     const firstHost =
       availableModels.find((m) => m.type === 'host_internal' && m.hostTargetAvailable)?.id ??
-      hostInf.inferenceTargets.find((t) => t.available)?.id
+      hostInf.inferenceTargets.find((t) => hostInferenceTargetMenuSelectable(t))?.id
     const firstLocal = availableModels.find((m) => m.type === 'local')?.id
     const preferred =
       (hostInf.treatAsSandboxForHostInternal ? firstCloud ?? firstHost ?? firstLocal : firstLocal ?? firstCloud) ??
@@ -1585,13 +1613,25 @@ export default function HybridSearch({
             target?.model_id?.trim() ||
             target?.model?.trim() ||
             undefined
-          if (target && !target.available) {
-            setResponse(hostAiChatBlockedUserMessage(target))
+          const odDirect = target?.execution_transport === 'ollama_direct'
+          const allowOllamaDirectChat =
+            Boolean(odDirect) &&
+            target?.canUseOllamaDirect === true &&
+            target?.host_ai_target_status === 'ollama_direct_only'
+          const allowBeapChat = target?.canChat === true
+          if (
+            target &&
+            !allowBeapChat &&
+            !allowOllamaDirectChat
+          ) {
+            const baseMsg = hostAiChatBlockedUserMessage(target)
+            const dev =
+              import.meta.env.DEV ? `\n\n[debug] ${hostAiTargetDevDebugSnippet(target)}` : ''
+            setResponse(baseMsg + dev)
             setIsLoading(false)
             return
           }
           const row = hostInf.candidates.find((c) => c.handshakeId === hid)
-          const odDirect = target?.execution_transport === 'ollama_direct'
           if (!odDirect && !row?.directP2pAvailable) {
             setResponse(
               'Host AI · P2P unavailable. Check that the Host is online, then use Refresh (↻) in the model menu, or pick another model.',
@@ -2812,11 +2852,13 @@ export default function HybridSearch({
                                 name: m.id,
                                 hostLocalModelName: t?.model ?? t?.model_id,
                                 p2pUiPhase: t?.p2pUiPhase ?? m.p2pUiPhase,
+                                host_ai_target_status: m.host_ai_target_status ?? t?.host_ai_target_status,
                               },
                               t,
                             )
                             const titleLine = ui.titleLine
-                            const sub = ui.subtitleLine
+                            const dbg = import.meta.env.DEV && t ? hostAiTargetDevDebugSnippet(t) : ''
+                            const sub = [ui.subtitleLine, dbg].filter(Boolean).join('\n')
                             const sel =
                               m.hostSelectorState ??
                               (m.hostTargetAvailable ? 'available' : 'unavailable')
@@ -2849,7 +2891,14 @@ export default function HybridSearch({
                                     <span className={HOST_AI_SELECTOR_ICON_CLASS} aria-hidden title="" />
                                     <div className="hs-model-item__stack">
                                       <div className="hs-model-item__line-primary">{titleLine}</div>
-                                      {sub ? <div className="hs-model-item__line-secondary">{sub}</div> : null}
+                                      {sub ? (
+                                        <div
+                                          className="hs-model-item__line-secondary"
+                                          style={{ whiteSpace: 'pre-line' }}
+                                        >
+                                          {sub}
+                                        </div>
+                                      ) : null}
                                     </div>
                                   </div>
                                   {active && <span className="hs-model-check">✓</span>}

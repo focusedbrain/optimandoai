@@ -1,4 +1,5 @@
 import type { HostInferenceTargetRow } from '../hooks/useSandboxHostInference'
+import { composeHostAiConnectionSubtitle } from './hostAiTargetConnectionPresentation'
 import { hostAiRowUnavailableTooltip } from './hostAiSelectorCopy'
 
 /** Aligned with main `listInferenceTargets` / `HostP2pUiPhase` — renderer uses only for fallback when `displayTitle` is missing. */
@@ -35,6 +36,7 @@ export type HostModelSelectorRowUiIn = {
   /** Ollama / local model name on the Host (when known). */
   hostLocalModelName?: string | null
   p2pUiPhase?: string
+  host_ai_target_status?: HostInferenceTargetRow['host_ai_target_status']
 }
 
 const ELL = '\u2026'
@@ -113,8 +115,8 @@ export function hostModelSelectorShowsDefinitiveHostFailure(
   if (isChecking(m, t, phase)) {
     return false
   }
-  const treatAsUnavailable = !m.hostTargetAvailable || t?.available === false || m.hostSelectorState === 'unavailable'
-  return treatAsUnavailable
+  const selUnavailable = (m.hostSelectorState ?? t?.hostSelectorState ?? t?.host_selector_state) === 'unavailable'
+  return !m.hostTargetAvailable || selUnavailable
 }
 
 /**
@@ -125,8 +127,9 @@ function projectionSubtitle(
   t: HostInferenceTargetRow | null | undefined,
 ): string {
   const fromRow = (t?.displaySubtitle ?? t?.secondary_label ?? m.displaySubtitle ?? '').trim()
-  if (fromRow) return fromRow
-  return secondaryHostIdLine(t)
+  const base = fromRow ? fromRow : secondaryHostIdLine(t)
+  const status = m.host_ai_target_status ?? t?.host_ai_target_status
+  return composeHostAiConnectionSubtitle(status, base)
 }
 
 /** When main did not set `displayTitle` (stale path), map phase only — do not walk availability / endpoint codes. */
@@ -213,14 +216,24 @@ export function hostModelSelectorRowUi(
   t?: HostInferenceTargetRow | null,
 ): { titleLine: string; subtitleLine: string } {
   const phase = projectPhase(m, t)
-  const sub = projectionSubtitle(m, t)
+  const selUnavailable = (m.hostSelectorState ?? t?.hostSelectorState ?? t?.host_selector_state) === 'unavailable'
+  const treatAsUnavailable = !m.hostTargetAvailable || selUnavailable
+
+  /** During capability probe WeRTC phase, skip connection-status ribbon (may still mismatch `host_ai_target_status`). */
+  const sub =
+    isChecking(m, t, phase) ?
+      (() => {
+        const fromRow = (t?.displaySubtitle ?? t?.secondary_label ?? m.displaySubtitle ?? '').trim()
+        const base = fromRow ? fromRow : secondaryHostIdLine(t)
+        return base
+      })()
+    : projectionSubtitle(m, t)
 
   if (isChecking(m, t, phase)) {
     return { titleLine: TITLE_CONNECTING, subtitleLine: sub }
   }
 
   const primaryFromMain = (t?.displayTitle?.trim() || m.displayTitle?.trim() || '').trim()
-  const treatAsUnavailable = !m.hostTargetAvailable || t?.available === false || m.hostSelectorState === 'unavailable'
 
   if (treatAsUnavailable) {
     if (primaryFromMain) {

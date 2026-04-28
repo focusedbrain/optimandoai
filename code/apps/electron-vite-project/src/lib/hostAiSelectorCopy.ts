@@ -198,7 +198,7 @@ export function hostAiRowUnavailableTooltip(
   ) {
     return HOST_AI_CHECKING_TOOLTIP
   }
-  if (opts.hostTargetAvailable && t?.available !== false) {
+  if (opts.hostTargetAvailable) {
     return HOST_AI_OPTION_TOOLTIP
   }
   const ph = phaseFrom(t)

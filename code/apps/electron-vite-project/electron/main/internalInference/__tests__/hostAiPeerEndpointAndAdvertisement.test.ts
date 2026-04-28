@@ -110,4 +110,23 @@ describe('buildHostAiProviderAdvertisementPayload (gating)', () => {
     expect(payload.advertised_as_host_ai).toBe(true)
     expect(payload.endpoint_owner_device_id).toBe(payload.current_device_id)
   })
+
+  it('ledger host with zero models must not advertise as Host AI provider', async () => {
+    hasHostSidePair.mockResolvedValue(true)
+    getHostAiLedgerRoleSummaryFromDb.mockImplementation(() => ({
+      can_publish_host_endpoint: true,
+      can_probe_host_endpoint: false,
+      any_orchestrator_mismatch: false,
+      effective_host_ai_role: 'host' as const,
+    }))
+    const { buildHostAiProviderAdvertisementPayload } = await import('../hostAiProviderAdvertisementLog')
+    const payload = await buildHostAiProviderAdvertisementPayload({
+      ledgerProvesInternalSandboxToHost: false,
+      mergeHostInternalInference: true,
+      ollamaDiscoveryOk: true,
+      ollamaModelCount: 0,
+    })
+    expect(payload.advertised_as_host_ai).toBe(false)
+    expect(payload.provider_advertisement_blocked_reason).toBe('no_ollama_models')
+  })
 })

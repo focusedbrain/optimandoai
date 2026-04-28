@@ -1,4 +1,9 @@
 import type { HostInferenceTargetRow } from '../hooks/useSandboxHostInference'
+
+type HostRowMeta = Pick<
+  HostInferenceTargetRow,
+  'host_ai_target_status' | 'execution_transport'
+>
 import type { InferenceTargetRefreshReason } from './inferenceTargetRefreshLog'
 import { appendHostRowsFromListInference } from './appendHostRowsFromListInference'
 import { orderModelsLocalHostCloud, mapHostTargetsToGavModelEntries } from './modelSelectorMerge'
@@ -26,6 +31,11 @@ export type SelectorAvailableModel =
       hostSelectorState?: 'available' | 'checking' | 'unavailable'
       /** From main / GAV — selector copy; do not infer from `p2p_endpoint` in the UI. */
       p2pUiPhase?: string
+      host_ai_target_status?: HostRowMeta['host_ai_target_status']
+      canChat?: boolean
+      canUseOllamaDirect?: boolean
+      execution_transport?: HostRowMeta['execution_transport']
+      failureCode?: string | null
     }
 
 export type FetchSelectorModelListResult = {

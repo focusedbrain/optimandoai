@@ -131,6 +131,14 @@ export const InternalInferenceErrorCode = {
    * Terminal for probe UX when paired with {@link InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING}.
    */
   HOST_AI_PEER_ENDPOINT_MISSING: 'HOST_AI_PEER_ENDPOINT_MISSING',
+  /** Handshake-derived roles do not satisfy Sandbox→Host inference (see inferenceDirectHttpTrust). */
+  HOST_AI_ROLE_MISMATCH: 'HOST_AI_ROLE_MISMATCH',
+  /** internal_coordination_identity_complete missing for trusted internal pairing. */
+  HOST_AI_IDENTITY_INCOMPLETE: 'HOST_AI_IDENTITY_INCOMPLETE',
+  /** counterparty_p2p_token missing for Sandbox→Host direct HTTP trust. */
+  HOST_AI_BEARER_MISSING: 'HOST_AI_BEARER_MISSING',
+  /** Inference trust denied for a reason without a narrower code (see mapTrustReasonToFailureCode). */
+  HOST_AI_UNTRUSTED: 'HOST_AI_UNTRUSTED',
   /** Host peer has no direct MVP-LAN counterparty URL; do not substitute local sandbox URL. */
   HOST_DIRECT_ENDPOINT_MISSING: 'HOST_DIRECT_ENDPOINT_MISSING',
   /**

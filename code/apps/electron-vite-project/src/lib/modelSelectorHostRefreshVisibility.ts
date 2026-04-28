@@ -2,7 +2,10 @@ import type { HostInferenceTargetRow } from '../hooks/useSandboxHostInference'
 
 type SelectorRowLike = { type?: string; hostAi?: boolean; section?: 'local' | 'host' | 'cloud' }
 
-type HostTargetLike = Pick<HostInferenceTargetRow, 'kind'> & { available?: boolean }
+type HostTargetLike = Pick<HostInferenceTargetRow, 'kind'> & {
+  available?: boolean
+  canChat?: boolean
+}
 
 /**
  * True when a **selectable** Host internal row exists (or merged model list has an enabled host group).
@@ -14,7 +17,13 @@ export function discoveryHasHostInternalRows(
   gavHostTargets: HostTargetLike[],
   selectorOrMergedModels: SelectorRowLike[],
 ): boolean {
-  if (gavHostTargets.some((t) => t.kind === 'host_internal' && t.available === true)) {
+  if (
+    gavHostTargets.some((t) => {
+      if (t.kind !== 'host_internal') return false
+      if (typeof t.canChat === 'boolean') return t.canChat
+      return t.available === true
+    })
+  ) {
     return true
   }
   return selectorOrMergedModels.some(

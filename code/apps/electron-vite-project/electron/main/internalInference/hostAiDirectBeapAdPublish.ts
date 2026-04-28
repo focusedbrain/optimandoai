@@ -1,6 +1,10 @@
 /**
  * Host-only: push authenticated `p2p_host_ai_direct_beap_ad` over coordination so the peer sandbox
  * learns the host LAN BEAP ingest **before** the first HTTP capability probe (bootstrap).
+ *
+ * Gating matches {@link buildHostAiProviderAdvertisementPayload}: ledger `effective_host_ai_role === 'host'`,
+ * policy, local Ollama models, MVP LAN listener URL, and outbound `X-BEAP-*` advertisement headers — never publishes
+ * from a sandbox-derived ledger identity.
  */
 
 import { listHandshakeRecords } from '../handshake/db'
@@ -34,10 +38,19 @@ export function resetHostAiDirectBeapAdPublishStateForTests(): void {
   adSeqByHandshake.clear()
 }
 
+async function sandboxLocalOllamaModelCountGate(): Promise<{ ollama_ok: boolean; models_count: number }> {
+  try {
+    const { ollamaManager } = await import('../llm/ollama-manager')
+    const installed = await ollamaManager.listModels()
+    const n = Array.isArray(installed) ? installed.length : 0
+    return { ollama_ok: true, models_count: n }
+  } catch {
+    return { ollama_ok: false, models_count: 0 }
+  }
+}
+
 /**
- * When this process is the ledger **host** for an internal row, coordination is enabled, and Host AI
- * policy allows sandbox inference, POST the direct BEAP URL to the peer sandbox device via relay.
- * (Ollama/model availability is enforced at probe/inference time; the endpoint must be known first.)
+ * Ledger-exclusive host device: coordination + MVP URL + sandbox-inference policy + Ollama models + outbound BEAP headers.
  */
 export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
   db: any,
@@ -55,8 +68,8 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
     return
   }
 
-  const { getHostPublishedMvpDirectP2pIngestUrl } = await import('./p2pEndpointRepair')
-  const directUrl = getHostPublishedMvpDirectP2pIngestUrl(db)
+  const endpointRepair = await import('./p2pEndpointRepair')
+  const directUrl = endpointRepair.getHostPublishedMvpDirectP2pIngestUrl(db)
   if (!directUrl) {
     /**
      * Do **not** consume publish cooldown when the MVP direct BEAP URL is not ready yet. Early callers
@@ -73,9 +86,33 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
   const localId = getInstanceId().trim()
   const modeHint = String(getOrchestratorMode().mode)
   const ledger = getHostAiLedgerRoleSummaryFromDb(db, localId, modeHint)
+
+  if (ledger.effective_host_ai_role !== 'host') {
+    console.log(
+      `[HOST_AI_HOST_BEAP_AD_PUBLISH] skip reason=effective_role_not_exclusive_host role=${ledger.effective_host_ai_role} context=${input.context}`,
+    )
+    return
+  }
+
   if (!ledger.can_publish_host_endpoint) {
     return
   }
+
+  const hdrs = endpointRepair.hostDirectP2pAdvertisementHeaders(db)
+  const headerVal = hdrs[endpointRepair.P2P_DIRECT_P2P_ENDPOINT_HEADER]
+  if (typeof headerVal !== 'string' || !headerVal.trim()) {
+    console.log(`[HOST_AI_HOST_BEAP_AD_PUBLISH] skip reason=no_beap_endpoint_header context=${input.context}`)
+    return
+  }
+
+  const ollama = await sandboxLocalOllamaModelCountGate()
+  if (!ollama.ollama_ok || ollama.models_count < 1) {
+    console.log(
+      `[HOST_AI_HOST_BEAP_AD_PUBLISH] skip reason=ollama_models_gate ollama_ok=${ollama.ollama_ok} models_count=${ollama.models_count} context=${input.context}`,
+    )
+    return
+  }
+
   const now = Date.now()
   if (now - lastHostBeapAdPublishAllAt < publishCooldownMs) {
     return
