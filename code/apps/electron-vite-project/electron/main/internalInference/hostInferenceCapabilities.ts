@@ -23,6 +23,11 @@ import {
   normalizeHostLoopbackOllamaBaseUrl,
   parseOllamaTagsBody,
 } from './hostAiOllamaNativeDiscovery'
+import {
+  buildHostOllamaDirectAdvertisement,
+  type HostOllamaDirectAdvertisement,
+} from './hostAiOllamaDirectAdvertisement'
+import { extractPeerLanIpv4HintFromHttpUrl, recordHostAiOllamaDirectLanProbeLine } from './hostAiOllamaDirectLanIp'
 
 function digits6FromPairing(raw: string | null | undefined): string {
   const s = (raw ?? '').replace(/\D/g, '')
@@ -61,6 +66,35 @@ function enforcePolicyCapabilityInvariant(p: {
         ? InternalInferenceErrorCode.PROBE_PROVIDER_NOT_READY
         : InternalInferenceErrorCode.PROBE_NO_MODELS
   }
+}
+
+/** Host-only wire merge — Sandbox path must not populate these fields. */
+function applyHostOllamaDirectWireFields(
+  wire: InternalInferenceCapabilitiesResultWire,
+  adv: HostOllamaDirectAdvertisement,
+  hostCoordinationDeviceId: string,
+): void {
+  wire.ollama_direct_available = adv.available
+  wire.ollama_direct_base_url = adv.base_url ?? undefined
+  wire.ollama_direct_host_ip = adv.host_lan_ip ?? undefined
+  wire.ollama_direct_models_count = adv.models_count
+  wire.ollama_direct_source = adv.source
+  wire.endpoint_owner_device_id = hostCoordinationDeviceId.trim() || undefined
+}
+
+function logHostAiCapsOllamaDirectWire(p: {
+  handshake_id: string
+  current_device_id: string
+  sender_device_id: string
+  target_device_id: string
+  endpoint_owner_device_id: string | undefined
+  ollama_direct_available: boolean | undefined
+  ollama_direct_base_url: string | undefined
+  ollama_direct_models_count: number | undefined
+  inference_error_code: string | undefined
+  legacy_models_array_length: number
+}): void {
+  console.log(`[HOST_AI_CAPS_OLLAMA_DIRECT_WIRE] ${JSON.stringify(p)}`)
 }
 
 function logHostAiCapsModelSource(p: {
@@ -106,6 +140,12 @@ export async function buildInternalInferenceCapabilitiesResult(
       : coordinationDeviceIdForHandshakeDeviceRole(record, 'sandbox') ?? ''
   ).trim()
 
+  recordHostAiOllamaDirectLanProbeLine({
+    current_device_id: getInstanceId().trim(),
+    peer_device_id: peerSandboxId || null,
+    peer_ip_hint: extractPeerLanIpv4HintFromHttpUrl(record.p2p_endpoint),
+  })
+
   const allow = modelAllowlist ?? []
 
   const meta: HostInferenceCapabilitiesBuildMeta = {
@@ -140,6 +180,7 @@ export async function buildInternalInferenceCapabilitiesResult(
   }
 
   try {
+    let ollamaDirectAdv: HostOllamaDirectAdvertisement | undefined
     const loopbackBase = normalizeHostLoopbackOllamaBaseUrl(ollamaManager.getBaseUrl())
     meta.endpoint = loopbackBase
 
@@ -148,6 +189,11 @@ export async function buildInternalInferenceCapabilitiesResult(
     meta.raw_models_count = parsed.rawCount
     meta.probe_http_model_count = parsed.rawCount
     meta.provider_probe_ok = Boolean(tagsFetch.ok && tagsFetch.json != null)
+
+    ollamaDirectAdv = await buildHostOllamaDirectAdvertisement(extractPeerLanIpv4HintFromHttpUrl(record.p2p_endpoint), {
+      peer_device_id: peerSandboxId || null,
+      localTagsPrefetch: { ok: tagsFetch.ok, json: tagsFetch.json },
+    })
 
     logHostAiOllamaDiscovery({
       current_device_id: getInstanceId().trim(),
@@ -231,6 +277,21 @@ export async function buildInternalInferenceCapabilitiesResult(
         wire_models_count: 0,
         inference_error_code: base.inference_error_code,
       })
+      if (ollamaDirectAdv) {
+        applyHostOllamaDirectWireFields(base, ollamaDirectAdv, localHostId)
+        logHostAiCapsOllamaDirectWire({
+          handshake_id: record.handshake_id,
+          current_device_id: getInstanceId().trim(),
+          sender_device_id: base.sender_device_id,
+          target_device_id: base.target_device_id,
+          endpoint_owner_device_id: base.endpoint_owner_device_id,
+          ollama_direct_available: base.ollama_direct_available,
+          ollama_direct_base_url: base.ollama_direct_base_url,
+          ollama_direct_models_count: base.ollama_direct_models_count,
+          inference_error_code: base.inference_error_code,
+          legacy_models_array_length: Array.isArray(base.models) ? base.models.length : 0,
+        })
+      }
       return { wire: base, meta }
     }
 
@@ -274,6 +335,10 @@ export async function buildInternalInferenceCapabilitiesResult(
       wire: base,
     })
 
+    if (ollamaDirectAdv) {
+      applyHostOllamaDirectWireFields(base, ollamaDirectAdv, localHostId)
+    }
+
     logHostAiCapsModelSource({
       handshake_id: record.handshake_id,
       current_device_id: getInstanceId().trim(),
@@ -289,6 +354,21 @@ export async function buildInternalInferenceCapabilitiesResult(
       wire_models_count: Array.isArray(base.models) ? base.models.length : 0,
       inference_error_code: base.inference_error_code,
     })
+
+    if (ollamaDirectAdv) {
+      logHostAiCapsOllamaDirectWire({
+        handshake_id: record.handshake_id,
+        current_device_id: getInstanceId().trim(),
+        sender_device_id: base.sender_device_id,
+        target_device_id: base.target_device_id,
+        endpoint_owner_device_id: base.endpoint_owner_device_id,
+        ollama_direct_available: base.ollama_direct_available,
+        ollama_direct_base_url: base.ollama_direct_base_url,
+        ollama_direct_models_count: base.ollama_direct_models_count,
+        inference_error_code: base.inference_error_code,
+        legacy_models_array_length: Array.isArray(base.models) ? base.models.length : 0,
+      })
+    }
 
     return { wire: base, meta }
   } catch {

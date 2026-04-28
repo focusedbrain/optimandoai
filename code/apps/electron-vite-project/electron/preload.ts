@@ -547,7 +547,8 @@ function buildInternalInferenceHostChatPayload(
     typeof o.timeoutMs === 'number' && Number.isFinite(o.timeoutMs) && o.timeoutMs > 0
       ? Math.floor(o.timeoutMs)
       : undefined
-  return { handshakeId, messages, model, temperature, max_tokens, timeoutMs }
+  const execution_transport = o.execution_transport === 'ollama_direct' ? ('ollama_direct' as const) : undefined
+  return { handshakeId, messages, model, temperature, max_tokens, timeoutMs, execution_transport }
 }
 
 /** STEP 5: Host internal completion — `target_id`, `handshake_id`, `timeout_ms`, `stream: false`. */
@@ -582,7 +583,8 @@ function buildInternalInferenceRequestCompletionPayload(params: unknown) {
   if (o.stream !== false) {
     throw new Error('internalInference.requestCompletion: stream must be false')
   }
-  return { provider, target_id, handshake_id, messages, model, timeout_ms, stream: false as const }
+  const execution_transport = o.execution_transport === 'ollama_direct' ? ('ollama_direct' as const) : undefined
+  return { provider, target_id, handshake_id, messages, model, timeout_ms, stream: false as const, execution_transport }
 }
 
 // ── Internal inference (Sandbox → Host direct P2P; Host policy) ───────

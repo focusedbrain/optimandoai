@@ -70,6 +70,12 @@ export function formatInternalInferenceErrorCode(
     REQUEST_EXPIRED: 'The request expired. Try again.',
     PROVIDER_BUSY: 'The model on your Host is busy. Try again in a few seconds.',
     NO_ACTIVE_INTERNAL_HOST_HANDSHAKE: 'No Host is paired for this account. In Settings, pair a Host, then select a Host model again here.',
+    OLLAMA_DIRECT_INVALID_ENDPOINT:
+      'Host AI · LAN Ollama address is missing or invalid. Refresh Host capabilities or check pairing.',
+    OLLAMA_DIRECT_CHAT_UNREACHABLE:
+      "Host AI · could not reach your Host's Ollama on the LAN. Check the network and that Ollama is running on the Host.",
+    OLLAMA_DIRECT_MODEL_NOT_FOUND:
+      'That model was not found on your Host Ollama. Pick another Host model or pull it on the Host.',
   }
   if (M[c]) return M[c]!
   const fb = messageFallback?.trim()
@@ -104,6 +110,8 @@ export type HostInternalCompletionParams = {
   model?: string
   /** Default 120_000 when using `requestCompletion`. */
   timeoutMs?: number
+  /** LAN Host Ollama — skip BEAP/P2P when `ollama_direct`. */
+  execution_transport?: 'ollama_direct'
 }
 
 type InternalInfApi = {
@@ -130,6 +138,7 @@ export function getRequestHostCompletion(
         messages: params.messages,
         timeout_ms: params.timeoutMs ?? 120_000,
         stream: false,
+        execution_transport: params.execution_transport,
       })
   }
   if (typeof inf?.requestHostCompletion === 'function') {
@@ -139,6 +148,7 @@ export function getRequestHostCompletion(
         messages: params.messages,
         model: params.model,
         timeoutMs: params.timeoutMs,
+        execution_transport: params.execution_transport,
       })
   }
   if (typeof inf?.runHostChat === 'function') {
@@ -148,6 +158,7 @@ export function getRequestHostCompletion(
         messages: params.messages,
         model: params.model,
         timeoutMs: params.timeoutMs,
+        execution_transport: params.execution_transport,
       })
   }
   return undefined

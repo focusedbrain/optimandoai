@@ -135,7 +135,7 @@ export function logSbxHostAiModelSource(payload: {
   peer_device_id: string
   selected_endpoint: string | null
   endpoint_owner_device_id: string | null
-  model_source: 'capabilities_wire' | 'peer_lan_ollama_tags' | 'merged_peer_tags_priority'
+  model_source: 'capabilities_wire' | 'peer_lan_ollama_tags' | 'merged_peer_tags_priority' | 'remote_ollama_tags'
   models_count: number
   rejected_reason: string | null
 }): void {
@@ -179,7 +179,7 @@ export async function mergeSandboxCapabilitiesWireWithPeerLanOllamaTags(
 
   const reject = (
     reason: string,
-    source: 'capabilities_wire' | 'peer_lan_ollama_tags' | 'merged_peer_tags_priority',
+    source: 'capabilities_wire' | 'peer_lan_ollama_tags' | 'merged_peer_tags_priority' | 'remote_ollama_tags',
     mc: number,
   ): InternalInferenceCapabilitiesResultWire => {
     logSbxHostAiModelSource({

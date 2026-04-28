@@ -90,6 +90,16 @@ export const InternalInferenceErrorCode = {
    * Distinct from {@link InternalInferenceErrorCode.PROBE_NO_MODELS} (no tags).
    */
   MODEL_MAPPING_DROPPED_ALL: 'MODEL_MAPPING_DROPPED_ALL',
+  /** Host `ollama_direct` LAN advertisement: loopback `GET http://127.0.0.1:<port>/api/tags` failed — Sandbox reachability unknown from localhost alone. */
+  OLLAMA_LOCAL_UNREACHABLE: 'OLLAMA_LOCAL_UNREACHABLE',
+  /** Host `ollama_direct` LAN advertisement: localhost OK but `GET http://<host-lan-ip>:<port>/api/tags` failed or no LAN bind — do not advertise LAN Ollama. */
+  OLLAMA_LAN_NOT_REACHABLE: 'OLLAMA_LAN_NOT_REACHABLE',
+  /** Sandbox → Host Ollama LAN: no validated `ollama_direct` base URL for this handshake (or owner mismatch). */
+  OLLAMA_DIRECT_INVALID_ENDPOINT: 'OLLAMA_DIRECT_INVALID_ENDPOINT',
+  /** Sandbox → Host Ollama LAN: `POST /api/chat` failed (network / non-HTTP success) before a model-level error. */
+  OLLAMA_DIRECT_CHAT_UNREACHABLE: 'OLLAMA_DIRECT_CHAT_UNREACHABLE',
+  /** Sandbox → Host Ollama LAN: Ollama reports the requested model is not available. */
+  OLLAMA_DIRECT_MODEL_NOT_FOUND: 'OLLAMA_DIRECT_MODEL_NOT_FOUND',
   /** Direct HTTP to peer: `counterparty_p2p_token` missing locally (cannot authenticate to their BEAP). */
   HOST_AI_DIRECT_AUTH_MISSING: 'HOST_AI_DIRECT_AUTH_MISSING',
   /** Sandbox→Host probe would POST to this device’s own direct BEAP or mismatched host owner (selection bug). */

@@ -72,6 +72,16 @@ import { listHostCapabilities } from './transport/internalInferenceTransport'
 import { isHostAiProbeTerminalNoPolicyFallback } from './transport/hostAiRouteCandidate'
 import type { InternalInferenceCapabilitiesResultWire } from './types'
 import { isHostAiListTransportProven } from './hostAiTransportMatrix'
+import { getSandboxOllamaDirectRouteCandidate } from './sandboxHostAiOllamaDirectCandidate'
+import {
+  fetchSandboxOllamaDirectTags,
+  type SandboxOllamaDirectTagsFetchResult,
+} from './sandboxHostAiOllamaDirectTags'
+import { logSbxHostAiRefreshDecision } from './sandboxHostAiListRefreshDecision'
+import {
+  buildSyntheticOkProbeFromOllamaDirectTags,
+  hostComputerNameFromHandshakeRecord,
+} from './sandboxHostAiOllamaDirectSyntheticProbe'
 import type { HostAiEndpointDiagnostics } from '../../../src/lib/hostAiUiDiagnostics'
 import { hostAiUserFacingMessageFromTarget } from '../../../src/lib/hostAiUiDiagnostics'
 
@@ -750,7 +760,7 @@ function draftDisabledSandboxHostRoleMetadata(
   db: unknown,
 ): HostTargetDraft {
   const hid = r0.handshake_id
-  const ml = metaLocal(hostComputerNameFromRow(r0), r0.internal_peer_pairing_code ?? undefined)
+  const ml = metaLocal(hostComputerNameFromHandshakeRecord(r0), r0.internal_peer_pairing_code ?? undefined)
   const lek = epKindToListKind(p2pEndpointKind(db, r0.p2p_endpoint))
   return {
     kind: 'host_internal',
@@ -804,7 +814,7 @@ function logInternalCandidate(
   const sp = handshakeSamePrincipal(r)
   const idc = r.internal_coordination_identity_complete === true
   const epKind = p2pEndpointKind(db, r.p2p_endpoint)
-  const peerName = hostComputerNameFromRow(r)
+  const peerName = hostComputerNameFromHandshakeRecord(r)
   const digits6 = digits6Only(r.internal_peer_pairing_code ?? undefined)
   const ldr = d.localDeviceRole
   const pdr = peerDeviceRoleForLogD(d)
@@ -906,6 +916,12 @@ export type HostAiStructuredUnavailableReason =
   | 'host_no_route'
   /** Sandbox→Host ledger/endpoint pointed at local BEAP or resolve denied — transport/trust misrouting (not Host policy). */
   | 'host_transport_trust_misrouting'
+  /** LAN `ollama_direct`: `/api/tags` could not reach Host Ollama from Sandbox. */
+  | 'ollama_direct_tags_unreachable'
+  /** LAN `ollama_direct`: Host advertisement failed validation / tags parse. */
+  | 'ollama_direct_invalid_advertisement'
+  /** LAN `ollama_direct`: reachable via `/api/tags` but zero models. */
+  | 'ollama_direct_no_models_installed'
 
 export interface HostInternalInferenceListItem {
   /** Same as `kind`; preferred for new IPC/selector consumers. */
@@ -971,6 +987,8 @@ export interface HostInternalInferenceListItem {
   inferenceTargetContext: 'host_remote'
   host_ai_endpoint_diagnostics?: HostAiEndpointDiagnostics
   hostWireOllamaReachable?: boolean
+  /** When set, Sandbox chat targets Host Ollama via LAN `ollama_direct` only (no BEAP/P2P). */
+  execution_transport?: 'ollama_direct'
 }
 
 type HostTargetDraft = Omit<
@@ -1075,7 +1093,7 @@ function hostAiSubtitleForPhase(phase: HostP2pUiPhase, ml: { hostName: string; r
 
 function draftCheckingPlaceholderForHostPair(r0: HandshakeRecord, db: unknown): HostTargetDraft {
   const hid = r0.handshake_id
-  const name = hostComputerNameFromRow(r0)
+  const name = hostComputerNameFromHandshakeRecord(r0)
   const pcc = r0.internal_peer_pairing_code ?? undefined
   const ml = metaLocal(name, pcc)
   const lek = epKindToListKind(p2pEndpointKind(db, r0.p2p_endpoint))
@@ -1110,19 +1128,6 @@ function draftCheckingPlaceholderForHostPair(r0: HandshakeRecord, db: unknown): 
     transportMode: 'none',
     legacyEndpointKind: lek,
   }
-}
-
-function hostComputerNameFromRow(r: HandshakeRecord): string {
-  if (r.local_role === 'initiator') {
-    if (r.initiator_device_role === 'host') {
-      return (r.initiator_device_name?.trim() || 'This computer (Host)').trim()
-    }
-    return (r.acceptor_device_name?.trim() || 'Host').trim()
-  }
-  if (r.acceptor_device_role === 'host') {
-    return (r.acceptor_device_name?.trim() || 'This computer (Host)').trim()
-  }
-  return (r.initiator_device_name?.trim() || 'Host').trim()
 }
 
 /** Lenient: initiator/acceptor device roles are host + sandbox (local_role can be wrong or legacy). */
@@ -1232,7 +1237,7 @@ function ensureAtLeastOneHostTargetWhenLedgerProvesSandboxToHost(
     }
     const hid = r0.handshake_id
     const pcc = r0.internal_peer_pairing_code ?? undefined
-    const displayName = hostComputerNameFromRow(r0)
+    const displayName = hostComputerNameFromHandshakeRecord(r0)
     const ml = metaLocal(displayName, pcc)
     const secondary = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay) // id line; reasons are tooltips
     const lek = epKindToListKind(p2pEndpointKind(db, r0.p2p_endpoint))
@@ -1406,7 +1411,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     const ar = assertRecordForServiceRpc(r0)
     if (!ar.ok) {
       const ur: HostTargetUnavailableCode = 'IDENTITY_INCOMPLETE'
-      const ml = metaLocal(hostComputerNameFromRow(r0), r0.internal_peer_pairing_code ?? undefined)
+      const ml = metaLocal(hostComputerNameFromHandshakeRecord(r0), r0.internal_peer_pairing_code ?? undefined)
       const sub = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay)
       const tle = epKindToListKind(p2pEndpointKind(db, r0.p2p_endpoint))
       const ht = primaryLabelForP2pUiPhase('hidden')
@@ -1447,7 +1452,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
 
     const r = ar.record
     logInternalHostHandshakeP2pInspect(db, r)
-    const displayName = hostComputerNameFromRow(r)
+    const displayName = hostComputerNameFromHandshakeRecord(r)
     const hostDevice = (coordinationDeviceIdForHandshakeDeviceRole(r, 'host') ?? '').trim() || ''
     const pcc = r.internal_peer_pairing_code ?? undefined
     if (hostDevice) {
@@ -1757,12 +1762,40 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       continue
     }
 
+    const ml0 = metaLocal(displayName, pcc)
+    const until429 = hostAiDirectProbe429CooldownUntil.get(hid) ?? 0
+
+    const odCandPrefetch = getSandboxOllamaDirectRouteCandidate(hid)
+    let odTagsPrefetch: SandboxOllamaDirectTagsFetchResult | null = null
+    if (odCandPrefetch && hostDevice) {
+      odTagsPrefetch = await fetchSandboxOllamaDirectTags({
+        handshakeId: hid,
+        currentDeviceId: getInstanceId().trim(),
+        peerHostDeviceId: hostDevice,
+        candidate: odCandPrefetch,
+      })
+    }
+
+    const capsPrevForDecision = webrtcListHostCapsCache.get(hid)
+    const capsCacheHitEarly = Boolean(
+      capsPrevForDecision && Date.now() - capsPrevForDecision.at < WEBRTC_LIST_CAPS_CACHE_TTL_MS,
+    )
+    const tagsCacheHitEarly = odTagsPrefetch?.cache_hit === true
+    const bypassOllamaDirectLan =
+      Boolean(odCandPrefetch && odTagsPrefetch && hostDevice) &&
+      Date.now() >= until429 &&
+      (tagsCacheHitEarly ||
+        odTagsPrefetch!.classification === 'available' ||
+        odTagsPrefetch!.classification === 'no_models' ||
+        odTagsPrefetch!.classification === 'transport_unavailable' ||
+        odTagsPrefetch!.classification === 'unavailable_invalid_advertisement')
+
     const webrtcListPath =
       listDec.preferredTransport === 'webrtc_p2p' &&
       p2pEnsureEligibleForList(fRow, epK) &&
       listDec.p2pTransportEndpointOpen
 
-    if (webrtcListPath) {
+    if (!bypassOllamaDirectLan && webrtcListPath) {
       let sState: Awaited<ReturnType<typeof ensureHostAiP2pSession>> | null = null
       const tList = Date.now()
       let ensureCached = lastP2pEnsureByHandshake.get(hid)
@@ -1954,7 +1987,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       }
     }
 
-    if (listDec.preferredTransport === 'webrtc_p2p' && !isP2pDataChannelUpForHandshake(hid)) {
+    if (!bypassOllamaDirectLan && listDec.preferredTransport === 'webrtc_p2p' && !isP2pDataChannelUpForHandshake(hid)) {
       const waitOut = await waitForP2pDataChannelOpenOrTerminal(hid, HOST_AI_CAPABILITY_DC_WAIT_MS)
       if (!waitOut.ok) {
         const ml0 = metaLocal(displayName, pcc)
@@ -1999,7 +2032,6 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       }
     }
 
-    const ml0 = metaLocal(displayName, pcc)
     let probe: Awaited<ReturnType<typeof probeHostInferencePolicyFromSandbox>>
     const webrtcP2pListDirect =
       listDec.preferredTransport === 'webrtc_p2p' &&
@@ -2007,8 +2039,43 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       isP2pDataChannelUpForHandshake(hid) &&
       transportAuthRow.kind === 'webrtc_p2p'
 
-    const until429 = hostAiDirectProbe429CooldownUntil.get(hid) ?? 0
-    if (Date.now() < until429) {
+    const on429 = Date.now() < until429
+    const routeKind: 'ollama_direct' | 'webrtc_p2p' | 'http_policy' | 'cooldown_429' = on429
+      ? 'cooldown_429'
+      : bypassOllamaDirectLan
+        ? 'ollama_direct'
+        : webrtcP2pListDirect
+          ? 'webrtc_p2p'
+          : 'http_policy'
+    logSbxHostAiRefreshDecision({
+      handshake_id: hid,
+      route_kind: routeKind,
+      reason: on429
+        ? 'probe_429_cooldown'
+        : bypassOllamaDirectLan
+          ? 'ollama_direct_lane_authoritative_skip_caps_and_policy_probe'
+          : 'standard_list_probe_path',
+      caps_cache_hit: capsCacheHitEarly,
+      ollama_tags_cache_hit: tagsCacheHitEarly,
+      will_request_caps: !on429 && !bypassOllamaDirectLan && webrtcP2pListDirect && !capsCacheHitEarly,
+      will_request_ollama_tags: Boolean(
+        odCandPrefetch &&
+          hostDevice &&
+          odTagsPrefetch &&
+          !odTagsPrefetch.cache_hit &&
+          !odTagsPrefetch.inflight_reused,
+      ),
+      will_probe_policy: !on429 && !bypassOllamaDirectLan && !webrtcP2pListDirect,
+      final_action: on429
+        ? 'probe_skipped_rate_limit'
+        : bypassOllamaDirectLan
+          ? 'ollama_direct_lane_short_circuit'
+          : webrtcP2pListDirect
+            ? 'webrtc_dc_capabilities'
+            : 'debounced_http_policy_probe',
+    })
+
+    if (on429) {
       console.log(`${L} probe_skipped_429_cooldown handshake=${hid} until_ms=${until429}`)
       probe = {
         ok: false,
@@ -2018,6 +2085,12 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         p2pProbeClassification: P2P_CAPABILITY_PROBE.RATE_LIMITED,
       }
       hadCapabilitiesProbed = true
+    } else if (bypassOllamaDirectLan && odTagsPrefetch) {
+      probe = buildSyntheticOkProbeFromOllamaDirectTags(odTagsPrefetch, {
+        hostComputerName: ml0.hostName,
+        pairingDigits: ml0.digits6,
+      })
+      hadCapabilitiesProbed = false
     } else if (webrtcP2pListDirect) {
       try {
         const tCap = Math.min(getHostInternalInferencePolicy().timeoutMs, 15_000)
@@ -2387,7 +2460,34 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     hostAiDirectProbe429CooldownUntil.delete(hid)
     const hm = metaFromOkProbe(probe, displayName, pcc)
 
-    if (!probe.allowSandboxInference) {
+    const odCand = odCandPrefetch ?? getSandboxOllamaDirectRouteCandidate(hid)
+    let odTags: SandboxOllamaDirectTagsFetchResult | null = odTagsPrefetch
+    if (!odTags && odCand && hostDevice) {
+      odTags = await fetchSandboxOllamaDirectTags({
+        handshakeId: hid,
+        currentDeviceId: getInstanceId().trim(),
+        peerHostDeviceId: hostDevice,
+        candidate: odCand,
+      })
+    }
+
+    const explicitPolicyForbidden =
+      probe.inferenceErrorCode === InternalInferenceErrorCode.POLICY_FORBIDDEN
+
+    /**
+     * Valid `ollama_direct` advertisement + Sandbox LAN `/api/tags` probe ran — must not surface stale caps
+     * `policy_enabled`/role rows unless Host explicitly forbids ({@link InternalInferenceErrorCode.POLICY_FORBIDDEN}).
+     */
+    const ollamaDirectSkipsStaleCapsPolicyDenyUi =
+      odCand != null && odTags != null && !explicitPolicyForbidden
+
+    /** Remote LAN `/api/tags` succeeded with models or confirmed empty tags — legacy caps `models[]` must not suppress listing. */
+    const ollamaDirectRemoteTagsEnumeratedOk =
+      odTags != null &&
+      !explicitPolicyForbidden &&
+      (odTags.classification === 'available' || odTags.classification === 'no_models')
+
+    if (!probe.allowSandboxInference && !ollamaDirectSkipsStaleCapsPolicyDenyUi) {
       const ur: HostTargetUnavailableCode = 'HOST_POLICY_DISABLED'
       const polT = primaryLabelForP2pUiPhase('policy_disabled')
       const psub = secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay)
@@ -2425,7 +2525,8 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       continue
     }
 
-    const listTransportProvenForSelection = isHostAiListTransportProven(listDec, hid)
+    const listTransportProvenForSelection =
+      isHostAiListTransportProven(listDec, hid) || Boolean(getSandboxOllamaDirectRouteCandidate(hid))
     if (!listTransportProvenForSelection) {
       const ml0 = metaLocal(displayName, pcc)
       const psub0 = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
@@ -2504,8 +2605,175 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       continue
     }
 
+    if (odCand && odTags?.classification === 'transport_unavailable') {
+      const psub = secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay)
+      const lab = 'Host Ollama is not reachable from this device.'
+      const tOd: HostTargetDraft = {
+        kind: 'host_internal',
+        id: buildHostTargetId(hid, 'unavailable'),
+        label: lab,
+        display_label: lab,
+        displayTitle: lab,
+        displaySubtitle: psub,
+        model: null,
+        model_id: null,
+        provider: 'host_internal',
+        handshake_id: hid,
+        host_device_id: hostDevice,
+        host_computer_name: hm.hostName,
+        host_pairing_code: hm.digits6,
+        host_orchestrator_role: 'host',
+        host_orchestrator_role_label: hm.roleLabel,
+        internal_identifier_6: hm.digits6,
+        secondary_label: psub,
+        direct_reachable: true,
+        policy_enabled: true,
+        available: false,
+        availability: 'host_offline',
+        unavailable_reason: 'CAPABILITY_PROBE_FAILED',
+        hostAiStructuredUnavailableReason: 'ollama_direct_tags_unreachable',
+        host_role: 'Host',
+        inference_error_code: InternalInferenceErrorCode.PROBE_HOST_UNREACHABLE,
+        ...baseMetaFromDec(listDec, leK),
+        p2pUiPhase: 'host_transport_unavailable',
+        failureCode: InternalInferenceErrorCode.PROBE_HOST_UNREACHABLE,
+      }
+      console.log(`${L} target_available=false reason=ollama_direct_transport_unavailable handshake=${hid}`)
+      targets.push(finalizeItem(tOd))
+      continue
+    }
+
+    if (odCand && odTags?.classification === 'unavailable_invalid_advertisement') {
+      const psub = secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay)
+      const lab = 'Host Ollama endpoint advertisement is invalid.'
+      const tInv: HostTargetDraft = {
+        kind: 'host_internal',
+        id: buildHostTargetId(hid, 'unavailable'),
+        label: lab,
+        display_label: lab,
+        displayTitle: lab,
+        displaySubtitle: psub,
+        model: null,
+        model_id: null,
+        provider: 'host_internal',
+        handshake_id: hid,
+        host_device_id: hostDevice,
+        host_computer_name: hm.hostName,
+        host_pairing_code: hm.digits6,
+        host_orchestrator_role: 'host',
+        host_orchestrator_role_label: hm.roleLabel,
+        internal_identifier_6: hm.digits6,
+        secondary_label: psub,
+        direct_reachable: true,
+        policy_enabled: true,
+        available: false,
+        availability: 'model_unavailable',
+        unavailable_reason: 'CAPABILITY_PROBE_FAILED',
+        hostAiStructuredUnavailableReason: 'ollama_direct_invalid_advertisement',
+        host_role: 'Host',
+        inference_error_code: InternalInferenceErrorCode.PROBE_INVALID_RESPONSE,
+        ...baseMetaFromDec(listDec, leK),
+        p2pUiPhase: 'probe_invalid_response',
+        failureCode: InternalInferenceErrorCode.PROBE_INVALID_RESPONSE,
+      }
+      console.log(`${L} target_available=false reason=ollama_direct_invalid_advertisement handshake=${hid}`)
+      targets.push(finalizeItem(tInv))
+      continue
+    }
+
+    if (odCand && odTags?.classification === 'available' && odTags.models.length > 0) {
+      const secondary = secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay)
+      const transportProbeLabel = listDec.preferredTransport === 'legacy_http' ? 'direct_http' : 'webrtc_p2p'
+      let pushed = 0
+      for (const rm of odTags.models) {
+        const dm = rm.model.trim()
+        if (!dm) continue
+        pushed += 1
+        const primaryLabel = `Host AI · ${dm}`
+        const t: HostTargetDraft = {
+          kind: 'host_internal',
+          id: buildHostTargetId(hid, dm),
+          label: primaryLabel,
+          display_label: primaryLabel,
+          displayTitle: primaryLabel,
+          displaySubtitle: secondary,
+          model: dm,
+          model_id: dm,
+          provider: 'host_internal',
+          handshake_id: hid,
+          host_device_id: hostDevice,
+          host_computer_name: hm.hostName,
+          host_pairing_code: hm.digits6,
+          host_orchestrator_role: 'host',
+          host_orchestrator_role_label: hm.roleLabel,
+          internal_identifier_6: hm.digits6,
+          secondary_label: secondary,
+          direct_reachable: true,
+          policy_enabled: true,
+          available: true,
+          availability: 'available',
+          unavailable_reason: null,
+          host_role: 'Host',
+          selector_phase: listDec.selectorPhase === 'legacy_http_available' ? 'legacy_http_available' : 'ready',
+          ...baseMetaFromDec(listDec, leK),
+          p2pUiPhase: 'ready',
+          failureCode: null,
+          hostWireOllamaReachable: true,
+          execution_transport: 'ollama_direct',
+        }
+        targets.push(finalizeItem(t))
+      }
+      console.log(
+        `[HOST_AI_CAPABILITY_PROBE] transport=${transportProbeLabel} ok=true handshake=${hid} source=ollama_direct tags_models=${pushed}`,
+      )
+      console.log(
+        `${L} target_available=true transport=${transportProbeLabel} handshake=${hid} ollama_direct_models=${pushed}`,
+      )
+      continue
+    }
+
     const defaultChatModel = probe.defaultChatModel?.trim()
     if (!defaultChatModel) {
+      if (ollamaDirectRemoteTagsEnumeratedOk && odTags?.classification === 'no_models') {
+        const ur: HostTargetUnavailableCode = 'HOST_NO_ACTIVE_LOCAL_LLM'
+        const psub = secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay)
+        const nmT = 'Host Ollama reachable, but no models are installed.'
+        const structuredNoModel: HostAiStructuredUnavailableReason = 'ollama_direct_no_models_installed'
+        const t: HostTargetDraft = {
+          kind: 'host_internal',
+          id: buildHostTargetId(hid, 'unavailable'),
+          label: nmT,
+          display_label: nmT,
+          displayTitle: nmT,
+          displaySubtitle: psub,
+          model: null,
+          model_id: null,
+          provider: 'host_internal',
+          handshake_id: hid,
+          host_device_id: hostDevice,
+          host_computer_name: hm.hostName,
+          host_pairing_code: hm.digits6,
+          host_orchestrator_role: 'host',
+          host_orchestrator_role_label: hm.roleLabel,
+          internal_identifier_6: hm.digits6,
+          secondary_label: psub,
+          direct_reachable: true,
+          policy_enabled: true,
+          available: false,
+          availability: 'model_unavailable',
+          unavailable_reason: ur,
+          hostAiStructuredUnavailableReason: structuredNoModel,
+          host_role: 'Host',
+          inference_error_code: InternalInferenceErrorCode.PROBE_NO_MODELS,
+          ...baseMetaFromDec(listDec, leK),
+          p2pUiPhase: 'no_model',
+          failureCode: InternalInferenceErrorCode.PROBE_NO_MODELS,
+        }
+        console.log(`${L} target_available=false reason=ollama_direct_no_models handshake=${hid}`)
+        targets.push(finalizeItem(t))
+        continue
+      }
+
       const ur: HostTargetUnavailableCode = 'HOST_NO_ACTIVE_LOCAL_LLM'
       const psub = secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay)
       const iec0 = probe.inferenceErrorCode

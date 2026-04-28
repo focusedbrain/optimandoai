@@ -110,6 +110,18 @@ export interface InternalInferenceCapabilitiesResultWire {
    * Prefer `active_local_llm` when present.
    */
   active_chat_model?: string
+  /**
+   * `ollama_direct` route (see `HOST_AI_ROUTE_KIND_OLLAMA_DIRECT` in hostAiOllamaDirect.ts): Host-advertised LAN Ollama for Sandbox.
+   * Optional until Host publishes them — not derived from `/beap/ingest`; Sandbox must not treat absence as policy denial for this route.
+   */
+  ollama_direct_available?: boolean
+  ollama_direct_base_url?: string
+  ollama_direct_host_ip?: string
+  ollama_direct_models_count?: number
+  /** e.g. host LAN advertisement tag — diagnostics only until routing consumes it. */
+  ollama_direct_source?: string
+  /** Coordination id of the device that owns the advertised Ollama endpoint (typically paired Host). */
+  endpoint_owner_device_id?: string
 }
 
 export type ServiceEnvelope =

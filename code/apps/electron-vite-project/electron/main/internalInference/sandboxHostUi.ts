@@ -51,6 +51,14 @@ import {
   deriveHostAiHandshakeRoles,
 } from './transport/decideInternalInferenceTransport'
 import { resolveHostAiRoute } from './transport/hostAiRouteResolve'
+import { getInstanceId } from '../orchestrator/orchestratorModeStore'
+import { getSandboxOllamaDirectRouteCandidate } from './sandboxHostAiOllamaDirectCandidate'
+import { fetchSandboxOllamaDirectTags } from './sandboxHostAiOllamaDirectTags'
+import { logSbxHostAiRefreshDecision } from './sandboxHostAiListRefreshDecision'
+import {
+  buildSyntheticOkProbeFromOllamaDirectTags,
+  hostComputerNameFromHandshakeRecord,
+} from './sandboxHostAiOllamaDirectSyntheticProbe'
 
 /** Throttle [HOST_AI_STAGE] selector_target while P2P is in starting/signaling (same handshake). */
 const lastHostAiSelectorTargetStageByHandshake = new Map<string, number>()
@@ -969,6 +977,55 @@ async function probeHostInferencePolicyFromSandboxImpl(
 
   /** When WebRTC is the policy choice, do not POST/GET the relay (or any legacy) Host inference HTTP; use P2P/DC via `listHostCapabilities`. */
   if (transportAuth.kind === 'webrtc_p2p' && decL.preferredTransport === 'webrtc_p2p') {
+    const odCandIpc = getSandboxOllamaDirectRouteCandidate(hid)
+    if (
+      odCandIpc &&
+      peerHGate &&
+      fP2p.p2pInferenceEnabled &&
+      fP2p.p2pInferenceWebrtcEnabled &&
+      fP2p.p2pInferenceSignalingEnabled &&
+      fP2p.p2pInferenceCapsOverP2p
+    ) {
+      const odTagsIpc = await fetchSandboxOllamaDirectTags({
+        handshakeId: hid,
+        currentDeviceId: getInstanceId().trim(),
+        peerHostDeviceId: peerHGate,
+        candidate: odCandIpc,
+      })
+      const laneAuthoritative =
+        odTagsIpc.cache_hit ||
+        odTagsIpc.classification === 'available' ||
+        odTagsIpc.classification === 'no_models' ||
+        odTagsIpc.classification === 'transport_unavailable' ||
+        odTagsIpc.classification === 'unavailable_invalid_advertisement'
+      if (laneAuthoritative) {
+        const hn = hostComputerNameFromHandshakeRecord(ar.record)
+        const pairingDigits = String(ar.record.internal_peer_pairing_code ?? '')
+          .replace(/\D/g, '')
+          .slice(0, 6)
+        const out = buildSyntheticOkProbeFromOllamaDirectTags(odTagsIpc, {
+          hostComputerName: hn,
+          pairingDigits,
+        })
+        const letterOk = p2pProbeLetterForOkInferenceCode(out.inferenceErrorCode)
+        probeDone(true)
+        logSbxHostAiRefreshDecision({
+          handshake_id: hid,
+          route_kind: 'ollama_direct',
+          reason: 'ipc_probe_ollama_direct_lane_authoritative',
+          caps_cache_hit: false,
+          ollama_tags_cache_hit: odTagsIpc.cache_hit,
+          will_request_caps: false,
+          will_request_ollama_tags: !odTagsIpc.cache_hit && !odTagsIpc.inflight_reused,
+          will_probe_policy: false,
+          final_action: 'ipc_probe_short_circuit_ollama_direct',
+        })
+        if (letterOk) {
+          p2pClassificationDetail(`classification=${letterOk}`)
+        }
+        return { ...out, p2pProbeClassification: letterOk }
+      }
+    }
     if (
       fP2p.p2pInferenceEnabled &&
       fP2p.p2pInferenceWebrtcEnabled &&

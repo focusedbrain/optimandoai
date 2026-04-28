@@ -1525,7 +1525,8 @@ export default function HybridSearch({
             return
           }
           const row = hostInf.candidates.find((c) => c.handshakeId === hid)
-          if (!row?.directP2pAvailable) {
+          const odDirect = target?.execution_transport === 'ollama_direct'
+          if (!odDirect && !row?.directP2pAvailable) {
             setResponse(
               'Host AI · P2P unavailable. Check that the Host is online, then use Refresh (↻) in the model menu, or pick another model.',
             )
@@ -1570,6 +1571,7 @@ export default function HybridSearch({
               messages: msgSeq,
               model: modelParam,
               timeoutMs: 120_000,
+              execution_transport: odDirect ? ('ollama_direct' as const) : undefined,
             })) as
               | { ok: true; output: string }
               | { ok: false; code: string; message: string }

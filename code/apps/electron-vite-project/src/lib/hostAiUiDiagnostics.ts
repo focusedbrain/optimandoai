@@ -157,6 +157,16 @@ export function hostAiUserFacingMessageFromTarget(
     return null
   }
 
+  if (sur === 'ollama_direct_tags_unreachable') {
+    return { primary: 'Host Ollama is not reachable from this device.', hint: null }
+  }
+  if (sur === 'ollama_direct_invalid_advertisement') {
+    return { primary: 'Host Ollama endpoint advertisement is invalid.', hint: null }
+  }
+  if (sur === 'ollama_direct_no_models_installed') {
+    return { primary: 'Host Ollama reachable, but no models are installed.', hint: null }
+  }
+
   if (code === HostAiProbeCode.OLLAMA_UNREACHABLE_ON_SANDBOX) {
     return {
       primary: "Host's local Ollama was unreachable on the Sandbox. This is not a Host copy failure; check Sandbox Ollama or pick another model.",

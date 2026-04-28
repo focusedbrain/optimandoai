@@ -22,7 +22,9 @@ import {
 import {
   registerInternalInferenceRequest,
   rejectInternalInferenceByRequestId,
+  resolveInternalInferenceByRequestId,
 } from './pendingRequests'
+import { executeSandboxHostAiOllamaDirectChat } from './sandboxHostAiOllamaDirectChat'
 import { INTERNAL_INFERENCE_SCHEMA_VERSION, type InternalInferenceRequestWire } from './types'
 
 export interface SandboxHostChatMessage {
@@ -51,6 +53,8 @@ export async function runSandboxHostInferenceChat(params: {
   max_tokens?: number
   /** Pending timeout + `expires_at` on wire. Defaults to 120s. */
   timeoutMs?: number
+  /** LAN Host Ollama — `POST /api/chat` only; skips BEAP and P2P. */
+  execution_transport?: 'ollama_direct'
 }): Promise<SandboxHostChatResult> {
   const db = await getHandshakeDbForInternalInference()
   if (!db) {
@@ -97,17 +101,25 @@ export async function runSandboxHostInferenceChat(params: {
     return { ok: false, code: role.code, message: 'role' }
   }
   const fP2p = getP2pInferenceFlags()
-  const endpointGateOk = decideInternalInferenceTransport(
-    await buildHostAiTransportDeciderInputAsync({
-      operationContext: 'request',
-      db,
-      handshakeRecord: r,
-      featureFlags: fP2p,
-    }),
-  ).p2pTransportEndpointOpen
-  if (!endpointGateOk) {
-    const d = assertP2pEndpointDirect(db, r.p2p_endpoint)
-    return { ok: false, code: d.ok ? InternalInferenceErrorCode.INTERNAL_INFERENCE_FAILED : d.code, message: 'no valid P2P transport endpoint' }
+  const odDirect = params.execution_transport === 'ollama_direct'
+
+  if (!odDirect) {
+    const endpointGateOk = decideInternalInferenceTransport(
+      await buildHostAiTransportDeciderInputAsync({
+        operationContext: 'request',
+        db,
+        handshakeRecord: r,
+        featureFlags: fP2p,
+      }),
+    ).p2pTransportEndpointOpen
+    if (!endpointGateOk) {
+      const d = assertP2pEndpointDirect(db, r.p2p_endpoint)
+      return {
+        ok: false,
+        code: d.ok ? InternalInferenceErrorCode.INTERNAL_INFERENCE_FAILED : d.code,
+        message: 'no valid P2P transport endpoint',
+      }
+    }
   }
 
   const requestId = randomUUID()
@@ -117,6 +129,7 @@ export async function runSandboxHostInferenceChat(params: {
   }
 
   if (
+    !odDirect &&
     fP2p.p2pInferenceEnabled &&
     fP2p.p2pInferenceWebrtcEnabled &&
     fP2p.p2pInferenceSignalingEnabled &&
@@ -138,6 +151,46 @@ export async function runSandboxHostInferenceChat(params: {
   if (typeof params.max_tokens === 'number' && Number.isFinite(params.max_tokens) && params.max_tokens > 0) {
     options.max_tokens = Math.floor(params.max_tokens)
   }
+
+  if (odDirect) {
+    const out = await executeSandboxHostAiOllamaDirectChat({
+      handshakeId: hid,
+      currentDeviceId: getInstanceId(),
+      peerHostDeviceId: peerHostId,
+      messages: params.messages,
+      model: params.model?.trim(),
+      timeoutMs: requestTimeoutMs,
+      temperature: params.temperature,
+      max_tokens: params.max_tokens,
+    })
+    if (!out.ok) {
+      resolveInternalInferenceByRequestId(requestId, { kind: 'error', code: out.code, message: out.message })
+    } else {
+      resolveInternalInferenceByRequestId(requestId, {
+        kind: 'result',
+        output: out.output,
+        model: out.model,
+        duration_ms: out.duration_ms,
+      })
+    }
+    try {
+      const pr = await promise
+      if (pr.kind === 'error') {
+        return { ok: false, code: pr.code, message: pr.message }
+      }
+      return {
+        ok: true,
+        request_id: requestId,
+        output: pr.output,
+        model: pr.model ?? params.model ?? 'host',
+        duration_ms: pr.duration_ms,
+      }
+    } catch (e: any) {
+      const code = (e && e.code) || InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE
+      return { ok: false, code, message: e?.message ?? String(e) }
+    }
+  }
+
   const wire: InternalInferenceRequestWire = {
     type: 'internal_inference_request',
     schema_version: INTERNAL_INFERENCE_SCHEMA_VERSION,

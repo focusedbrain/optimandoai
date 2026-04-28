@@ -226,6 +226,41 @@ export function clearPendingP2pCapabilitiesForTests(): void {
   hostCapsBuiltCacheByHsSender.clear()
 }
 
+function ollamaDirectWireFieldsFromDcPayload(
+  o: Record<string, unknown>,
+): Partial<
+  Pick<
+    InternalInferenceCapabilitiesResultWire,
+    | 'ollama_direct_available'
+    | 'ollama_direct_base_url'
+    | 'ollama_direct_host_ip'
+    | 'ollama_direct_models_count'
+    | 'ollama_direct_source'
+    | 'endpoint_owner_device_id'
+  >
+> {
+  const extra: Partial<
+    Pick<
+      InternalInferenceCapabilitiesResultWire,
+      | 'ollama_direct_available'
+      | 'ollama_direct_base_url'
+      | 'ollama_direct_host_ip'
+      | 'ollama_direct_models_count'
+      | 'ollama_direct_source'
+      | 'endpoint_owner_device_id'
+    >
+  > = {}
+  if (typeof o.ollama_direct_available === 'boolean') extra.ollama_direct_available = o.ollama_direct_available
+  if (typeof o.ollama_direct_base_url === 'string') extra.ollama_direct_base_url = o.ollama_direct_base_url
+  if (typeof o.ollama_direct_host_ip === 'string') extra.ollama_direct_host_ip = o.ollama_direct_host_ip
+  if (typeof o.ollama_direct_models_count === 'number' && Number.isFinite(o.ollama_direct_models_count)) {
+    extra.ollama_direct_models_count = o.ollama_direct_models_count
+  }
+  if (typeof o.ollama_direct_source === 'string') extra.ollama_direct_source = o.ollama_direct_source
+  if (typeof o.endpoint_owner_device_id === 'string') extra.endpoint_owner_device_id = o.endpoint_owner_device_id
+  return extra
+}
+
 function mapDcToInternalWire(o: Record<string, unknown>, hid: string): InternalInferenceCapabilitiesResultWire | null {
   if (o.type !== CAPS_TYPE_RESULT) {
     return null
@@ -237,6 +272,7 @@ function mapDcToInternalWire(o: Record<string, unknown>, hid: string): InternalI
   const policy = o.policy_enabled === true
   const al = o.active_local_llm
   const ep = o.inference_error_code
+  const ollamaDirect = ollamaDirectWireFieldsFromDcPayload(o)
   return {
     type: 'internal_inference_capabilities_result',
     schema_version: typeof o.schema_version === 'number' ? o.schema_version : 1,
@@ -253,6 +289,7 @@ function mapDcToInternalWire(o: Record<string, unknown>, hid: string): InternalI
     active_local_llm: al && typeof al === 'object' && al !== null ? (al as InternalInferenceCapabilitiesResultWire['active_local_llm']) : undefined,
     active_chat_model: typeof o.active_chat_model === 'string' ? o.active_chat_model : undefined,
     inference_error_code: typeof ep === 'string' ? ep : undefined,
+    ...ollamaDirect,
   }
 }
 

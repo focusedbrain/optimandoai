@@ -23,7 +23,7 @@ import {
 import type { HostAiSelectedEndpointProvenance } from '../hostAiEndpointCandidate'
 import type { HostAiEndpointDiagnostics } from '../../../../src/lib/hostAiUiDiagnostics'
 import { logHostAiProbeRoute } from '../hostAiProbeRouteLog'
-import { logHostAiRouteSelect } from '../hostAiRouteSelectLog'
+import { computeBeapMissingForHostAiRouteSelect, logHostAiRouteSelect, type HostAiRouteSelectKind } from '../hostAiRouteSelectLog'
 import { logHostAiEndpointSelect } from '../hostAiEndpointSelectLog'
 import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
 import {
@@ -36,6 +36,7 @@ import {
   p2pEndpointMvpClass,
 } from '../policy'
 import type { HandshakeRecord } from '../../handshake/types'
+import { logHostAiOllamaDirectCapabilitiesWireHint } from '../hostAiOllamaDirect'
 import { INTERNAL_INFERENCE_SCHEMA_VERSION, type InternalInferenceCapabilitiesResultWire, type InternalInferenceErrorWire, type InternalInferenceRequestWire, type InternalInferenceResultWire, type InternalServiceMessageType } from '../types'
 import { logHostAiInferComplete, logHostAiInferError, logHostAiInferRequestSend } from '../hostAiInferLog'
 import { logHostAiTransportChoose, logHostAiTransportFallback, logHostAiTransportUnavailable } from './hostAiTransportLog'
@@ -55,6 +56,52 @@ import {
   logSbxHostAiModelSource,
   mergeSandboxCapabilitiesWireWithPeerLanOllamaTags,
 } from '../hostAiOllamaNativeDiscovery'
+import {
+  evaluateSandboxHostAiOllamaDirectFromCapabilitiesWire,
+  getSandboxOllamaDirectRouteCandidate,
+} from '../sandboxHostAiOllamaDirectCandidate'
+import { fetchSandboxOllamaDirectTags } from '../sandboxHostAiOllamaDirectTags'
+import { logHostAiRouteSelectAfterSandboxCapabilitiesWire } from '../sandboxHostAiRouteSelectCaps'
+
+async function logSbxHostAiModelSourceAfterSandboxCapsWire(p: {
+  handshakeId: string
+  localSandbox: string
+  peerHost: string
+  wireModelsLength: number
+}): Promise<void> {
+  const hid = p.handshakeId.trim()
+  const cand = getSandboxOllamaDirectRouteCandidate(hid)
+  if (cand) {
+    const odTags = await fetchSandboxOllamaDirectTags({
+      handshakeId: hid,
+      currentDeviceId: p.localSandbox,
+      peerHostDeviceId: p.peerHost,
+      candidate: cand,
+    })
+    logSbxHostAiModelSource({
+      current_device_id: p.localSandbox,
+      peer_device_id: p.peerHost,
+      selected_endpoint: cand.base_url.trim() || null,
+      endpoint_owner_device_id: cand.endpoint_owner_device_id,
+      model_source: 'remote_ollama_tags',
+      models_count: odTags.models_count,
+      rejected_reason:
+        odTags.classification === 'available' || odTags.classification === 'no_models'
+          ? null
+          : odTags.classification,
+    })
+  } else {
+    logSbxHostAiModelSource({
+      current_device_id: p.localSandbox,
+      peer_device_id: p.peerHost,
+      selected_endpoint: null,
+      endpoint_owner_device_id: p.peerHost,
+      model_source: 'capabilities_wire',
+      models_count: p.wireModelsLength,
+      rejected_reason: null,
+    })
+  }
+}
 
 /**
  * Host → Sandbox HTTP delivery after `handleInternalInferenceRequest`: resolver `hostAiVerifiedDirectHttp`
@@ -85,15 +132,39 @@ function logHostAiRouteSelectFromDecider(
     peer_role: 'sandbox' | 'host' | 'unknown'
     webrtc_available: boolean
     relay_available: boolean
-    selected_route_kind: 'webrtc' | 'relay' | 'direct_http' | 'none'
+    selected_route_kind: HostAiRouteSelectKind
     failure_reason: string | null
   },
   dec: HostAiTransportDeciderResult | null,
 ): void {
   const direct = Boolean(dec?.hostAiVerifiedDirectHttp)
+  const beapMissing = computeBeapMissingForHostAiRouteSelect(dec)
   logHostAiRouteSelect({
-    ...base,
+    handshake_id: base.handshake_id,
+    local_device_id: base.local_device_id,
+    peer_device_id: base.peer_device_id,
+    local_role: base.local_role,
+    peer_role: base.peer_role,
+    webrtc_available: base.webrtc_available,
+    relay_available: base.relay_available,
     direct_http_available: direct,
+    selected_route_kind: base.selected_route_kind,
+    selected_endpoint_source:
+      base.selected_route_kind === 'webrtc'
+        ? 'webrtc_session'
+        : base.selected_route_kind === 'relay'
+          ? 'relay_signaling'
+          : base.selected_route_kind === 'direct_http'
+            ? 'verified_beap_http'
+            : null,
+    ollama_direct_available: null,
+    ollama_direct_base_url: null,
+    beap_missing: beapMissing,
+    policy_enabled: null,
+    final_classification:
+      base.failure_reason != null || base.selected_route_kind === 'none' ? 'unavailable' : 'pending_caps_transport',
+    reason: base.failure_reason ?? 'transport_decider_pres_caps',
+    failure_reason: base.failure_reason,
     route_resolve_code: direct ? null : dec?.hostAiRouteResolveFailureCode ?? null,
     route_resolve_reason: direct ? null : dec?.hostAiRouteResolveFailureReason ?? null,
   })
@@ -557,20 +628,6 @@ export async function listHostCapabilities(
     console.log(`[HOST_INFERENCE_CAPS] request_send_dc handshake=${hid} session=${p2pSid} corr=${beapCorr}`)
     const dcr = await requestHostInferenceCapabilitiesOverDataChannel(hid, p2pSid, timeoutMs, { requestId: capReqId })
     if (dcr.ok) {
-      logHostAiRouteSelectFromDecider(
-        {
-          handshake_id: hid,
-          local_device_id: localSandbox,
-          peer_device_id: peerHost,
-          local_role: cids.localRole,
-          peer_role: cids.peerRole,
-          webrtc_available: true,
-          relay_available: p2pEndpointKind(db, record.p2p_endpoint) === 'relay',
-          selected_route_kind: 'webrtc',
-          failure_reason: null,
-        },
-        dec,
-      )
       logHostAiStage({
         chain,
         stage: 'capabilities_response',
@@ -602,14 +659,31 @@ export async function listHostCapabilities(
           failureCode: mpOk ? null : String(ie).trim(),
         })
       }
-      logSbxHostAiModelSource({
-        current_device_id: localSandbox,
+      logHostAiOllamaDirectCapabilitiesWireHint(hid, w)
+      evaluateSandboxHostAiOllamaDirectFromCapabilitiesWire({
+        handshakeId: hid,
+        currentDeviceId: localSandbox,
+        peerHostDeviceId: peerHost,
+        wire: w,
+      })
+      await logSbxHostAiModelSourceAfterSandboxCapsWire({
+        handshakeId: hid,
+        localSandbox,
+        peerHost,
+        wireModelsLength: Array.isArray(w.models) ? w.models.length : 0,
+      })
+      await logHostAiRouteSelectAfterSandboxCapabilitiesWire({
+        handshake_id: hid,
+        local_device_id: localSandbox,
         peer_device_id: peerHost,
-        selected_endpoint: null,
-        endpoint_owner_device_id: peerHost,
-        model_source: 'capabilities_wire',
-        models_count: Array.isArray(w.models) ? w.models.length : 0,
-        rejected_reason: null,
+        local_role: cids.localRole,
+        peer_role: cids.peerRole,
+        relay_available: p2pEndpointKind(db, record.p2p_endpoint) === 'relay',
+        webrtc_available: true,
+        direct_http_available: Boolean(dec?.hostAiVerifiedDirectHttp),
+        dec,
+        caps_transport: 'webrtc_dc',
+        wire: w,
       })
       return { ok: true, wire: w }
     }
@@ -1220,6 +1294,32 @@ export async function listHostCapabilities(
     } catch (e) {
       console.warn(`[HOST_INFERENCE_CAPS] sandbox_peer_lan_ollama_merge_skipped err=${(e as Error)?.message ?? String(e)}`)
     }
+    logHostAiOllamaDirectCapabilitiesWireHint(hid, outWire)
+    evaluateSandboxHostAiOllamaDirectFromCapabilitiesWire({
+      handshakeId: hid,
+      currentDeviceId: localSandbox,
+      peerHostDeviceId: peerHost,
+      wire: outWire,
+    })
+    await logSbxHostAiModelSourceAfterSandboxCapsWire({
+      handshakeId: hid,
+      localSandbox,
+      peerHost,
+      wireModelsLength: Array.isArray(outWire.models) ? outWire.models.length : 0,
+    })
+    await logHostAiRouteSelectAfterSandboxCapabilitiesWire({
+      handshake_id: hid,
+      local_device_id: localSandbox,
+      peer_device_id: peerHost,
+      local_role: cids.localRole,
+      peer_role: cids.peerRole,
+      relay_available: p2pEndpointKind(db, record.p2p_endpoint) === 'relay',
+      webrtc_available: Boolean(dec?.preferredTransport === 'webrtc_p2p' || isP2pDataChannelUpForHandshake(hid)),
+      direct_http_available: Boolean(dec?.hostAiVerifiedDirectHttp),
+      dec,
+      caps_transport: 'http_direct',
+      wire: outWire,
+    })
     return { ok: true, wire: outWire }
   } catch (e) {
     clearTimeout(timer)

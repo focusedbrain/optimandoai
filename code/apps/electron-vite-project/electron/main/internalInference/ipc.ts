@@ -210,6 +210,9 @@ export function registerInternalInferenceIpc(): void {
     return probeHostInferencePolicyFromSandbox(handshakeId)
   })
 
+  const parseExecutionTransport = (raw: unknown): 'ollama_direct' | undefined =>
+    raw === 'ollama_direct' ? 'ollama_direct' : undefined
+
   const handleHostChatOrRequestCompletion = async (
     _e: unknown,
     params: {
@@ -219,6 +222,7 @@ export function registerInternalInferenceIpc(): void {
       temperature?: number
       max_tokens?: number
       timeoutMs?: number
+      execution_transport?: unknown
     },
   ) => {
     const { runSandboxHostInferenceChat } = await import('./sandboxHostChat')
@@ -233,6 +237,7 @@ export function registerInternalInferenceIpc(): void {
       temperature: params.temperature,
       max_tokens: params.max_tokens,
       timeoutMs: params.timeoutMs,
+      execution_transport: parseExecutionTransport(params.execution_transport),
     })
   }
 
@@ -249,6 +254,7 @@ export function registerInternalInferenceIpc(): void {
         model?: string
         timeout_ms?: number
         stream?: boolean
+        execution_transport?: unknown
       },
     ) => {
       const { runSandboxHostInferenceChat } = await import('./sandboxHostChat')
@@ -269,6 +275,7 @@ export function registerInternalInferenceIpc(): void {
         messages: params.messages,
         model: typeof params.model === 'string' ? params.model : undefined,
         timeoutMs,
+        execution_transport: parseExecutionTransport(params.execution_transport),
       })
     },
   )

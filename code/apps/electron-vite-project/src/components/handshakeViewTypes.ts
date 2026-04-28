@@ -498,6 +498,7 @@ declare global {
         model?: string
         temperature?: number
         max_tokens?: number
+        execution_transport?: 'ollama_direct'
       }) => Promise<unknown>
       /** Direct P2P Host internal inference (preferred entry; same behavior as `runHostChat`). */
       requestHostCompletion: (params: {
@@ -507,6 +508,7 @@ declare global {
         temperature?: number
         max_tokens?: number
         timeoutMs?: number
+        execution_transport?: 'ollama_direct'
       }) => Promise<unknown>
       /**
        * Host internal completion over direct P2P (`provider: host_internal`, `handshake_id`, `model`, `messages`, `stream: false`, `timeout_ms`).
@@ -520,6 +522,7 @@ declare global {
         model?: string
         timeout_ms: number
         stream: false
+        execution_transport?: 'ollama_direct'
       }) => Promise<unknown>
       getHostPolicy: () => Promise<unknown>
       setHostPolicy: (partial: Record<string, unknown>) => Promise<unknown>

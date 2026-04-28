@@ -15,6 +15,8 @@ export type HostInferenceCandidateRow = {
   pairingCodeDisplay: string
   directP2pAvailable: boolean
   endpointHostLabel: string | null
+  /** When Host AI rows use LAN `ollama_direct` listing, IPC policy probe can mirror list targets without repeat caps. */
+  execution_transport?: 'ollama_direct'
 }
 
 /** Row from `internal-inference:listTargets` / `listInferenceTargets` (Host AI selector). */
@@ -65,6 +67,8 @@ export type HostInferenceTargetRow = {
   inferenceTargetContext?: 'host_remote'
   host_ai_endpoint_diagnostics?: import('../lib/hostAiUiDiagnostics').HostAiEndpointDiagnostics
   hostWireOllamaReachable?: boolean
+  /** LAN Host Ollama — chat uses `ollama_direct` only (no BEAP/P2P). */
+  execution_transport?: 'ollama_direct'
 }
 
 type PolicyState = 'unknown' | 'allow' | 'deny' | 'unreachable' | 'no_direct'
@@ -85,6 +89,7 @@ function targetsToCandidates(targets: HostInferenceTargetRow[]): HostInferenceCa
     pairingCodeDisplay: formatPairingDisplay(t.host_pairing_code),
     directP2pAvailable: t.direct_reachable,
     endpointHostLabel: null,
+    execution_transport: t.execution_transport,
   }))
 }
 
@@ -362,6 +367,11 @@ export function useSandboxHostInference(
     }
     if (!c.directP2pAvailable) {
       setPolicy('no_direct')
+      setPolicyDetail(null)
+      return
+    }
+    if (c.execution_transport === 'ollama_direct') {
+      setPolicy('allow')
       setPolicyDetail(null)
       return
     }

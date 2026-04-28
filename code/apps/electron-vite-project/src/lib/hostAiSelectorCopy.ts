@@ -91,7 +91,12 @@ export function hostAiChatBlockedUserMessage(t: HostInferenceTargetRow | undefin
     return 'Open the model menu and select Host AI when it is ready, or pick a local or cloud model.'
   }
   const mapped = hostAiUserFacingMessageFromTarget(
-    t as { inference_error_code?: string; failureCode?: string; hostWireOllamaReachable?: boolean },
+    t as {
+      inference_error_code?: string
+      failureCode?: string
+      hostWireOllamaReachable?: boolean
+      hostAiStructuredUnavailableReason?: string | null
+    },
     { hostWireOllamaReachableOverride: (t as { hostWireOllamaReachable?: boolean }).hostWireOllamaReachable },
   )
   if (mapped) {
