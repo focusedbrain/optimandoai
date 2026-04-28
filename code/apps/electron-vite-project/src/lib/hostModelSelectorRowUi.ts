@@ -101,6 +101,23 @@ function isChecking(
 }
 
 /**
+ * True when the Host row would be shown as unavailable/disabled in the model menu — **not** during
+ * `isChecking` (connecting / capability probe). Matches `hostModelSelectorRowUi` gating so the chat-level
+ * connection strip does not contradict the selector when IPC `directReachability` lags or mis-fires.
+ */
+export function hostModelSelectorShowsDefinitiveHostFailure(
+  m: HostModelSelectorRowUiIn,
+  t: HostInferenceTargetRow | null | undefined,
+): boolean {
+  const phase = projectPhase(m, t)
+  if (isChecking(m, t, phase)) {
+    return false
+  }
+  const treatAsUnavailable = !m.hostTargetAvailable || t?.available === false || m.hostSelectorState === 'unavailable'
+  return treatAsUnavailable
+}
+
+/**
  * Subtitle: prefer main `displaySubtitle` / `secondary_label`, else computed host · ID.
  */
 function projectionSubtitle(

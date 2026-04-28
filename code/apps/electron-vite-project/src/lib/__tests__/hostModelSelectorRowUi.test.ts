@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { HOST_AI_PATH_UNAVAILABLE_TOOLTIP } from '../hostAiSelectorCopy'
-import { buildHostAiSelectorTooltip, hostModelSelectorRowUi } from '../hostModelSelectorRowUi'
+import {
+  buildHostAiSelectorTooltip,
+  hostModelSelectorRowUi,
+  hostModelSelectorShowsDefinitiveHostFailure,
+} from '../hostModelSelectorRowUi'
 import type { HostInferenceTargetRow } from '../../hooks/useSandboxHostInference'
 
 function baseM(over: Partial<Parameters<typeof hostModelSelectorRowUi>[0]> = {}) {
@@ -91,5 +95,51 @@ describe('hostModelSelectorRowUi', () => {
     expect(u.titleLine).toBe('Host AI · P2P unavailable')
     const tip = buildHostAiSelectorTooltip(t, { hostTargetAvailable: false, hostSelectorState: 'unavailable' })
     expect(tip).toContain(HOST_AI_PATH_UNAVAILABLE_TOOLTIP)
+  })
+})
+
+describe('hostModelSelectorShowsDefinitiveHostFailure', () => {
+  it('false while connecting / checking (matches selector early return)', () => {
+    const t = {
+      available: true,
+      p2pUiPhase: 'connecting',
+      host_computer_name: 'H',
+    } as HostInferenceTargetRow
+    expect(
+      hostModelSelectorShowsDefinitiveHostFailure(
+        { ...baseM(), hostTargetAvailable: false, p2pUiPhase: 'connecting' },
+        t,
+      ),
+    ).toBe(false)
+    expect(
+      hostModelSelectorShowsDefinitiveHostFailure(
+        { ...baseM(), hostSelectorState: 'checking', hostTargetAvailable: false },
+        t,
+      ),
+    ).toBe(false)
+  })
+
+  it('true when unavailable and not checking', () => {
+    const t = {
+      available: false,
+      p2pUiPhase: 'p2p_unavailable',
+      host_computer_name: 'H',
+    } as HostInferenceTargetRow
+    expect(
+      hostModelSelectorShowsDefinitiveHostFailure(
+        { ...baseM(), hostTargetAvailable: false, p2pUiPhase: 'p2p_unavailable' },
+        t,
+      ),
+    ).toBe(true)
+  })
+
+  it('false when target available and row available', () => {
+    const t = {
+      available: true,
+      p2pUiPhase: 'ready',
+      model: 'llama3',
+      host_computer_name: 'H',
+    } as HostInferenceTargetRow
+    expect(hostModelSelectorShowsDefinitiveHostFailure({ ...baseM(), hostTargetAvailable: true }, t)).toBe(false)
   })
 })

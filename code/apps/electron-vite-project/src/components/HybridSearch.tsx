@@ -52,7 +52,11 @@ import {
   type HostRefreshFeedback,
   getHostRefreshFeedbackFromTargets,
 } from '../lib/hostRefreshFeedback'
-import { buildHostAiSelectorTooltip, hostModelSelectorRowUi } from '../lib/hostModelSelectorRowUi'
+import {
+  buildHostAiSelectorTooltip,
+  hostModelSelectorRowUi,
+  hostModelSelectorShowsDefinitiveHostFailure,
+} from '../lib/hostModelSelectorRowUi'
 import { isHostInferenceModelId, parseAnyHostInferenceModelId } from '../lib/hostInferenceModelIds'
 import { directP2pReachabilityCopyForSandboxToHost } from '../lib/hostInferenceUiGates'
 import { hostAiUserFacingMessageFromTarget, type HostAiEndpointDiagnostics } from '../lib/hostAiUiDiagnostics'
@@ -914,28 +918,66 @@ export default function HybridSearch({
     return hostInf.inferenceTargets.find((x) => x.handshake_id === p.handshakeId) ?? null
   }, [selectedModel, hostInf.inferenceTargets])
 
+  const selectedHostMenuModel = useMemo((): Extract<AvailableModel, { type: 'host_internal' }> | null => {
+    if (!isHostInferenceModelId(selectedModel)) return null
+    return hostInternalMenuModels.find((m) => m.id === selectedModel) ?? null
+  }, [hostInternalMenuModels, selectedModel])
+
   /**
-   * Chat-area strip only (above messages). The model selector uses `hostModelSelectorRowUi` / `hostAiSelectorCopy`
-   * and must stay independent — gate flicker here only, not in shared copy helpers.
-   *
-   * Show when direct P2P reachability is definitively failed; hide for null/unknown/reachable (probe cycles).
+   * Chat-area strip only (above messages). Gate with the same unavailable detection as
+   * `hostModelSelectorRowUi` so we never show "connection failed" while the model menu shows connecting/ready.
    */
   const hostDirectP2pStatusUi = useMemo(() => {
     if (!hostInf.treatAsSandboxForHostInternal || mode !== 'chat' || !isHostInferenceModelId(selectedModel)) {
       return null
     }
-    const dr = hostInf.directReachability
-    if (dr == null || dr === 'unknown' || dr === 'reachable') {
+    const t = hostAiRowForStatusStrip
+    if (!t) {
       return null
     }
-    const fromProbe = hostAiUserFacingMessageFromTarget(hostAiRowForStatusStrip, {
-      hostWireOllamaReachableOverride: (hostAiRowForStatusStrip as { hostWireOllamaReachable?: boolean } | null)?.hostWireOllamaReachable,
+    const m = selectedHostMenuModel
+    const rowUiIn = m
+      ? {
+          hostSelectorState: m.hostSelectorState,
+          hostTargetAvailable: m.hostTargetAvailable,
+          displayTitle: m.displayTitle || m.name,
+          displaySubtitle: m.displaySubtitle?.trim() || '',
+          name: m.id,
+          hostLocalModelName: t.model ?? t.model_id,
+          p2pUiPhase: t.p2pUiPhase ?? m.p2pUiPhase,
+        }
+      : {
+          hostSelectorState: t.hostSelectorState ?? t.host_selector_state,
+          hostTargetAvailable: t.available === true,
+          displayTitle: (t.displayTitle ?? t.display_label ?? t.label ?? '').trim() || 'Host AI',
+          displaySubtitle: (t.displaySubtitle ?? t.secondary_label ?? '').trim(),
+          name: selectedModel,
+          hostLocalModelName: t.model ?? t.model_id,
+          p2pUiPhase: t.p2pUiPhase,
+        }
+    if (!hostModelSelectorShowsDefinitiveHostFailure(rowUiIn, t)) {
+      return null
+    }
+    const fromProbe = hostAiUserFacingMessageFromTarget(t, {
+      hostWireOllamaReachableOverride: (t as { hostWireOllamaReachable?: boolean }).hostWireOllamaReachable,
     })
     if (fromProbe) {
       return { primary: fromProbe.primary, hint: fromProbe.hint }
     }
-    return directP2pReachabilityCopyForSandboxToHost(dr)
-  }, [hostInf.treatAsSandboxForHostInternal, hostInf.directReachability, mode, selectedModel, hostAiRowForStatusStrip])
+    return (
+      directP2pReachabilityCopyForSandboxToHost(hostInf.directReachability) ?? {
+        primary: 'Connection to host failed',
+        hint: 'Host AI is not available for the selected model. Check the model menu or use Refresh (↻).',
+      }
+    )
+  }, [
+    hostInf.treatAsSandboxForHostInternal,
+    hostInf.directReachability,
+    mode,
+    selectedModel,
+    hostAiRowForStatusStrip,
+    selectedHostMenuModel,
+  ])
 
   useEffect(() => {
     setHostInfSuccess(false)
