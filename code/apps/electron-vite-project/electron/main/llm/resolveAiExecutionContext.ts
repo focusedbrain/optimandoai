@@ -108,7 +108,7 @@ async function tryLocalContext(): Promise<AiExecutionContext | null> {
  * Persisted `orchestrator-mode.json` can disagree with handshake-derived roles (ledger is authoritative
  * for Host AI — mirrors `shouldApplySandboxOllamaInferenceRouting` in `chatWithContextRagOllamaGeneration.ts`).
  */
-async function isEffectiveSandboxSideForAiExecution(): Promise<boolean> {
+export async function isEffectiveSandboxSideForAiExecution(): Promise<boolean> {
   if (isSandboxMode()) return true
   const db = await getHandshakeDbForInternalInference()
   const om = getOrchestratorMode()
