@@ -1,6 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { oidc } from './oidcConfig';
-import { fetchDiscovery, getCachedDiscovery, formatDiscoveryFailure } from './discovery';
+import { fetchDiscovery, getCachedDiscovery } from './discovery';
 
 export interface IdTokenClaims {
   sub: string;
@@ -41,7 +41,7 @@ export async function verifyIdToken(
   } else {
     const discoveryResult = await fetchDiscovery();
     if (!discoveryResult.ok) {
-      throw new Error(`OIDC discovery failed: ${formatDiscoveryFailure(discoveryResult)}`);
+      throw new Error(`OIDC discovery failed: ${discoveryResult.message}`);
     }
     jwksUri = discoveryResult.discovery.jwks_uri;
   }

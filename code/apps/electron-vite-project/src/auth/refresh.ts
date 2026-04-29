@@ -1,5 +1,5 @@
 import { oidc } from './oidcConfig';
-import { fetchDiscovery, getCachedDiscovery, formatDiscoveryFailure } from './discovery';
+import { fetchDiscovery, getCachedDiscovery } from './discovery';
 
 export interface RefreshTokenResponse {
   access_token: string;
@@ -11,48 +11,23 @@ export interface RefreshTokenResponse {
 }
 
 /**
- * Refresh or discovery failed in a way that should NOT wipe the OS-stored refresh token
- * (transient network, discovery outage, 5xx from IdP, etc.).
- */
-export class OidcRefreshError extends Error {
-  readonly recoverable: boolean;
-
-  constructor(message: string, recoverable: boolean) {
-    super(message);
-    this.name = 'OidcRefreshError';
-    this.recoverable = recoverable;
-  }
-}
-
-function tokenEndpointInvalidGrant(status: number, body: string): boolean {
-  if (status !== 400 && status !== 401) return false;
-  try {
-    const j = JSON.parse(body) as { error?: string };
-    return j.error === 'invalid_grant';
-  } catch {
-    return body.toLowerCase().includes('invalid_grant');
-  }
-}
-
-/**
  * Refresh tokens using Keycloak token endpoint
- *
+ * 
  * Uses OIDC discovery to get the token endpoint.
  * Falls back to cached discovery if available.
  */
 export async function refreshWithKeycloak(refreshToken: string): Promise<RefreshTokenResponse> {
+  // Try to get token endpoint from cache first (fast path)
   let tokenEndpoint: string;
   const cached = getCachedDiscovery();
-
+  
   if (cached) {
     tokenEndpoint = cached.token_endpoint;
   } else {
+    // Fetch discovery if not cached
     const discoveryResult = await fetchDiscovery();
     if (!discoveryResult.ok) {
-      throw new OidcRefreshError(
-        `OIDC discovery failed: ${formatDiscoveryFailure(discoveryResult)}`,
-        true,
-      );
+      throw new Error(`OIDC discovery failed: ${discoveryResult.message}`);
     }
     tokenEndpoint = discoveryResult.discovery.token_endpoint;
   }
@@ -63,36 +38,17 @@ export async function refreshWithKeycloak(refreshToken: string): Promise<Refresh
     refresh_token: refreshToken,
   });
 
-  let response: Response;
-  try {
-    response = await fetch(tokenEndpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: body.toString(),
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const cause =
-      e instanceof Error && 'cause' in e && e.cause != null
-        ? e.cause instanceof Error
-          ? e.cause.message
-          : String(e.cause)
-        : undefined;
-    throw new OidcRefreshError(
-      `Token endpoint unreachable (POST ${tokenEndpoint}): ${msg}${cause ? ` | cause=${cause}` : ''}`,
-      true,
-    );
-  }
+  const response = await fetch(tokenEndpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: body.toString(),
+  });
 
   if (!response.ok) {
     const errorText = await response.text();
-    const fatal = tokenEndpointInvalidGrant(response.status, errorText);
-    throw new OidcRefreshError(
-      `Token refresh failed: HTTP ${response.status} ${errorText.slice(0, 800)}`,
-      !fatal,
-    );
+    throw new Error(`Token refresh failed: ${response.status} ${errorText}`);
   }
 
   const tokens = await response.json();
