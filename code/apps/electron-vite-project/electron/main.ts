@@ -2,11 +2,12 @@
 import { loginWithKeycloak, prepareLoginUrl, setUrlOpener } from '../src/auth/login'
 import { saveRefreshToken, clearRefreshToken } from '../src/auth/tokenStore'
 import { ensureSession, updateSessionFromTokens, clearSession, getCachedUserInfo, getAccessToken } from '../src/auth/session'
-import { 
+import {
   resolveTier,
   UNKNOWN_TIER,
   type Tier
 } from '../src/auth/capabilities'
+import { bareOllamaModelNameForApi } from '../src/lib/hostInferenceModelIds'
 import {
   DEBUG_AUTOSORT_DIAGNOSTICS,
   autosortDiagLog,
@@ -4353,17 +4354,20 @@ app.whenReady().then(async () => {
           if (provider.id === 'ollama') {
             const ollamaProv = provider as InstanceType<(typeof aiProvidersMod)['OllamaProvider']>
             const { resolveOllamaEmbeddingAtBaseUrl } = await import('./main/llm/ollamaEmbeddingCapability')
+            const rawSelectorModel = (params.model ?? ollamaProv.getOllamaChatModel()).trim()
+            const bareChatForEmbed =
+              bareOllamaModelNameForApi(rawSelectorModel || undefined) || rawSelectorModel
             const cap = await resolveOllamaEmbeddingAtBaseUrl({
               baseUrl: ollamaProv.getOllamaBaseUrl(),
               lane: ollamaProv.getOllamaLane(),
-              selectedChatModel: (params.model ?? ollamaProv.getOllamaChatModel()).trim(),
+              selectedChatModel: bareChatForEmbed,
               configuredEmbedModel: ollamaProv.getOllamaEmbedModel(),
             })
             if (cap.canGenerateEmbeddings && cap.embeddingModel) {
               const embedProv = new aiProvidersMod.OllamaProvider({
                 baseUrl: ollamaProv.getOllamaBaseUrl(),
-                model: params.model,
-                chatModel: params.model,
+                model: bareChatForEmbed,
+                chatModel: bareChatForEmbed,
                 embedModel: cap.embeddingModel,
                 lane: ollamaProv.getOllamaLane(),
                 handshakeId: ollamaProv.getOllamaHandshakeId(),

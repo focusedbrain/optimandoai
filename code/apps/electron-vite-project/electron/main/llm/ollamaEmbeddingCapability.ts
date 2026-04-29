@@ -3,6 +3,7 @@
  */
 
 import type { AiExecutionLane } from './aiExecutionTypes'
+import { bareOllamaModelNameForApi } from '../../../src/lib/hostInferenceModelIds'
 
 export type AiModelCapability = {
   canGenerateText: boolean
@@ -103,6 +104,11 @@ export type ResolveOllamaEmbeddingInput = {
 export async function resolveOllamaEmbeddingAtBaseUrl(
   input: ResolveOllamaEmbeddingInput,
 ): Promise<AiModelCapability & { reason: string }> {
+  const rawSelector =
+    typeof input.selectedChatModel === 'string' ? input.selectedChatModel.trim() : ''
+  /** UI may pass `host-internal:<hid>:<encModel>`; `/api/tags` lists bare Ollama names only. */
+  const chatModelForTags = bareOllamaModelNameForApi(input.selectedChatModel) || rawSelector
+
   const configured =
     input.configuredEmbedModel?.trim() ||
     (typeof process.env.WRDESK_OLLAMA_EMBED_MODEL === 'string' ? process.env.WRDESK_OLLAMA_EMBED_MODEL.trim() : '') ||
@@ -114,8 +120,9 @@ export async function resolveOllamaEmbeddingAtBaseUrl(
   const installed = await fetchOllamaInstalledModelNames(input.baseUrl)
   if (!installed) {
     const line =
-      `[EMBEDDING_MODEL_RESOLVE] lane=${laneForLog} baseUrl=${input.baseUrl} selectedChatModel=${input.selectedChatModel} ` +
-      `embeddingModel=null availableModels=0 canGenerateEmbeddings=false reason=tags_unreachable`
+      `[EMBEDDING_MODEL_RESOLVE] lane=${laneForLog} baseUrl=${input.baseUrl} selectedChatModel=${chatModelForTags}` +
+      (rawSelector && rawSelector !== chatModelForTags ? ` selector_raw=${rawSelector}` : '') +
+      ` embeddingModel=null availableModels=0 canGenerateEmbeddings=false reason=tags_unreachable`
     console.log(line)
     return {
       canGenerateText: true,
@@ -124,15 +131,16 @@ export async function resolveOllamaEmbeddingAtBaseUrl(
     }
   }
 
-  const chatHit = findInstalledExact(input.selectedChatModel, installed)
+  const chatHit = findInstalledExact(chatModelForTags, installed)
   const canGenerateText = chatHit != null
 
   const { model, reason } = pickEmbeddingModelForTags(configured, installed)
   const canGenerateEmbeddings = model != null
 
   const line =
-    `[EMBEDDING_MODEL_RESOLVE] lane=${laneForLog} baseUrl=${input.baseUrl} selectedChatModel=${input.selectedChatModel} ` +
-    `embeddingModel=${model ?? 'null'} availableModels=${installed.length} canGenerateEmbeddings=${canGenerateEmbeddings} reason=${reason}`
+    `[EMBEDDING_MODEL_RESOLVE] lane=${laneForLog} baseUrl=${input.baseUrl} selectedChatModel=${chatModelForTags}` +
+    (rawSelector && rawSelector !== chatModelForTags ? ` selector_raw=${rawSelector}` : '') +
+    ` embeddingModel=${model ?? 'null'} availableModels=${installed.length} canGenerateEmbeddings=${canGenerateEmbeddings} reason=${reason}`
   console.log(line)
 
   return {
