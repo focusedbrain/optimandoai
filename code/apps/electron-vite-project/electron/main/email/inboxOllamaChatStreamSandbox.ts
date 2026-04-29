@@ -1,6 +1,7 @@
 /**
  * Inbox NDJSON `/api/chat` streaming with Sandbox resolver routing (cross-device LAN `ollama_direct`).
- * Host/`!isSandboxMode` behavior matches the historical hard-coded `127.0.0.1:11434` path.
+ * Uses ledger-aware sandbox detection (same as {@link resolveAiExecutionContextForLlm}) — persisted
+ * orchestrator `host` must not force `127.0.0.1` when the coordination ledger proves sandbox↔host.
  */
 
 import { INBOX_LLM_TIMEOUT_MS } from './inboxLlmChat'
@@ -11,21 +12,97 @@ import {
 import { resolveSandboxInferenceTarget } from '../internalInference/resolveSandboxInferenceTarget'
 import { getSandboxOllamaDirectRouteCandidate } from '../internalInference/sandboxHostAiOllamaDirectCandidate'
 import { planSandboxHostChatExecution, type BeapContentAiTask } from '../internalInference/beapContentAiRoute'
-import { isSandboxMode } from '../orchestrator/orchestratorModeStore'
+import { isEffectiveSandboxSideForAiExecution } from '../llm/resolveAiExecutionContext'
 import type { AiExecutionContext } from '../llm/aiExecutionTypes'
+import { bareOllamaModelNameForApi } from '../../../src/lib/hostInferenceModelIds'
 
 const LOCAL_OLLAMA_BASE = 'http://127.0.0.1:11434'
+
+export type InboxOllamaStreamFetchDiag = {
+  surface: string
+  requestId?: string
+  lane?: string
+  baseUrl: string
+  url: string
+  model: string
+  handshakeId?: string
+  timeoutMs: number
+  signalAbortedOuter?: boolean
+  signalAbortedTimeout?: boolean
+}
+
+function mergeAbortSignals(outer: AbortSignal | undefined, inner: AbortSignal): AbortSignal {
+  if (!outer) return inner
+  try {
+    const anySig = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any
+    if (typeof anySig === 'function') {
+      return anySig([outer, inner])
+    }
+  } catch {
+    /* fall through */
+  }
+  const merged = new AbortController()
+  const forward = () => merged.abort()
+  if (outer.aborted) {
+    forward()
+    return merged.signal
+  }
+  outer.addEventListener('abort', forward, { once: true })
+  inner.addEventListener('abort', forward, { once: true })
+  return merged.signal
+}
+
+function logStreamFetchErr(err: unknown, diag: InboxOllamaStreamFetchDiag): void {
+  const e = err instanceof Error ? err : new Error(String(err))
+  const cause = e && typeof e === 'object' && 'cause' in e ? (e as Error & { cause?: unknown }).cause : undefined
+  const c =
+    cause && typeof cause === 'object'
+      ? (cause as { code?: unknown; errno?: unknown; address?: unknown; port?: unknown })
+      : {}
+  console.error(
+    '[INBOX_OLLAMA_STREAM_FETCH_FAILED]',
+    JSON.stringify({
+      name: e.name,
+      message: e.message,
+      cause_code: typeof c.code === 'string' || typeof c.code === 'number' ? c.code : undefined,
+      cause_errno: typeof c.errno === 'number' ? c.errno : undefined,
+      cause_address: typeof c.address === 'string' ? c.address : undefined,
+      cause_port: typeof c.port === 'number' ? c.port : undefined,
+      url: diag.url,
+      baseUrl: diag.baseUrl,
+      model: diag.model,
+      surface: diag.surface,
+      requestId: diag.requestId ?? null,
+    }),
+  )
+}
 
 async function* streamOllamaChatNdjsonFromBaseUrl(
   baseUrl: string,
   systemPrompt: string,
   userPrompt: string,
   modelId: string,
+  opts: {
+    diag: InboxOllamaStreamFetchDiag
+    /** IPC / caller cancellation — merged with inner timeout controller */
+    abortSignal?: AbortSignal
+  },
 ): AsyncGenerator<string, void, undefined> {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), INBOX_LLM_TIMEOUT_MS)
+  const normalizedBase = baseUrl.trim().replace(/\/$/, '')
+  const url = `${normalizedBase}/api/chat`
+  const innerAc = new AbortController()
+  const timeoutId = setTimeout(() => innerAc.abort(), opts.diag.timeoutMs)
+  const fetchSignal = mergeAbortSignals(opts.abortSignal, innerAc.signal)
+  const diagBefore = {
+    ...opts.diag,
+    baseUrl: normalizedBase,
+    url,
+    signalAbortedOuter: opts.abortSignal?.aborted === true,
+    signalAbortedTimeout: innerAc.signal.aborted,
+  }
+  console.log('[INBOX_OLLAMA_STREAM_FETCH_BEGIN]', JSON.stringify(diagBefore))
   try {
-    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/chat`, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -37,10 +114,10 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
           { role: 'user', content: userPrompt },
         ],
       }),
-      signal: controller.signal,
+      signal: fetchSignal,
     })
     clearTimeout(timeoutId)
-    if (!response.ok || !response.body) throw new Error('Stream failed')
+    if (!response.ok || !response.body) throw new Error(`Stream failed HTTP ${response.status}`)
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
@@ -74,15 +151,30 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
     }
   } catch (err: unknown) {
     clearTimeout(timeoutId)
+    logStreamFetchErr(err, { ...opts.diag, baseUrl: normalizedBase, url })
     const isAbort = err instanceof Error && err.name === 'AbortError'
-    if (isAbort) throw new Error('LLM_TIMEOUT: response exceeded 45s')
+    if (isAbort) {
+      if (opts.abortSignal?.aborted) {
+        throw new Error('LLM_ABORTED')
+      }
+      throw new Error('LLM_TIMEOUT: response exceeded 45s')
+    }
     throw err
   }
 }
 
+function resolveStreamBase(execCtx: AiExecutionContext | null | undefined, planMode: string): string {
+  let streamBase = (execCtx?.baseUrl ?? '').trim().replace(/\/$/, '')
+  if (!streamBase && execCtx?.handshakeId?.trim() && planMode === 'ollama_direct') {
+    const cand = getSandboxOllamaDirectRouteCandidate(execCtx.handshakeId.trim())
+    streamBase = (cand?.base_url ?? '').trim().replace(/\/$/, '')
+  }
+  return streamBase
+}
+
 /**
  * Replaces deprecated `OLLAMA_BASE_URL` streaming for inbox analyze: routes sandbox traffic through
- * {@link resolveSandboxInferenceTarget}.
+ * {@link resolveSandboxInferenceTarget} when LAN base is unknown.
  */
 export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
   systemPrompt: string,
@@ -90,9 +182,29 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
   modelId: string,
   execCtx?: AiExecutionContext | null,
   contentTask?: BeapContentAiTask,
+  streamOpts?: { abortSignal?: AbortSignal; requestId?: string },
 ): AsyncGenerator<string, void, undefined> {
-  if (!isSandboxMode()) {
-    yield* streamOllamaChatNdjsonFromBaseUrl(LOCAL_OLLAMA_BASE, systemPrompt, userPrompt, modelId)
+  const bareModel = bareOllamaModelNameForApi(modelId)
+  const effectiveSandbox = await isEffectiveSandboxSideForAiExecution()
+
+  const baseDiag = (lane: string | undefined, baseUrl: string): InboxOllamaStreamFetchDiag => ({
+    surface: 'inbox_ai_analyze_stream',
+    requestId: streamOpts?.requestId,
+    lane,
+    baseUrl,
+    url: `${baseUrl.replace(/\/$/, '')}/api/chat`,
+    model: bareModel,
+    handshakeId: execCtx?.handshakeId?.trim() || undefined,
+    timeoutMs: INBOX_LLM_TIMEOUT_MS,
+    signalAbortedOuter: streamOpts?.abortSignal?.aborted,
+  })
+
+  /** Exclusive host machine (no ledger sandbox peer): historical local-only stream */
+  if (!effectiveSandbox) {
+    yield* streamOllamaChatNdjsonFromBaseUrl(LOCAL_OLLAMA_BASE, systemPrompt, userPrompt, bareModel, {
+      diag: baseDiag('local', LOCAL_OLLAMA_BASE),
+      abortSignal: streamOpts?.abortSignal,
+    })
     return
   }
 
@@ -102,14 +214,27 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
     throw new Error(plan.message)
   }
 
-  let streamBase = (execCtx?.baseUrl ?? '').trim().replace(/\/$/, '')
-  if (!streamBase && execCtx?.handshakeId?.trim() && plan.mode === 'ollama_direct') {
-    const cand = getSandboxOllamaDirectRouteCandidate(execCtx.handshakeId.trim())
-    streamBase = (cand?.base_url ?? '').trim().replace(/\/$/, '')
+  const streamBase = resolveStreamBase(execCtx, plan.mode)
+
+  /** LAN Ollama direct — never downgrade to localhost when remote lane is ready */
+  if (
+    execCtx?.lane === 'ollama_direct' &&
+    execCtx.ollamaDirectReady === true &&
+    streamBase &&
+    plan.mode === 'ollama_direct'
+  ) {
+    yield* streamOllamaChatNdjsonFromBaseUrl(streamBase, systemPrompt, userPrompt, bareModel, {
+      diag: baseDiag('ollama_direct', streamBase),
+      abortSignal: streamOpts?.abortSignal,
+    })
+    return
   }
 
   if (plan.mode === 'ollama_direct' && streamBase) {
-    yield* streamOllamaChatNdjsonFromBaseUrl(streamBase, systemPrompt, userPrompt, modelId)
+    yield* streamOllamaChatNdjsonFromBaseUrl(streamBase, systemPrompt, userPrompt, bareModel, {
+      diag: baseDiag('ollama_direct', streamBase),
+      abortSignal: streamOpts?.abortSignal,
+    })
     return
   }
 
@@ -129,10 +254,9 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
 
   logSandboxInferenceSend(target, 'inbox_ai_stream')
 
-  if (target.kind === 'local_sandbox') {
-    yield* streamOllamaChatNdjsonFromBaseUrl(target.baseUrl, systemPrompt, userPrompt, modelId)
-    return
-  }
-
-  yield* streamOllamaChatNdjsonFromBaseUrl(target.baseUrl, systemPrompt, userPrompt, modelId)
+  const tb = target.baseUrl.trim().replace(/\/$/, '')
+  yield* streamOllamaChatNdjsonFromBaseUrl(tb, systemPrompt, userPrompt, bareModel, {
+    diag: baseDiag(target.kind === 'local_sandbox' ? 'local_sandbox' : 'cross_device', tb),
+    abortSignal: streamOpts?.abortSignal,
+  })
 }

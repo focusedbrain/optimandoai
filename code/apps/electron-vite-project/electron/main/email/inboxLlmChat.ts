@@ -13,7 +13,11 @@ import {
   type OllamaRuntimeRequestTrace,
 } from '../llm/ollamaRuntimeDiagnostics'
 import type { AiExecutionContext } from '../llm/aiExecutionTypes'
-import { NO_AI_MODEL_SELECTED, resolveAiExecutionContextForLlm } from '../llm/resolveAiExecutionContext'
+import {
+  NO_AI_MODEL_SELECTED,
+  isEffectiveSandboxSideForAiExecution,
+  resolveAiExecutionContextForLlm,
+} from '../llm/resolveAiExecutionContext'
 import type { BeapContentAiTask } from '../internalInference/beapContentAiRoute'
 
 export const INBOX_LLM_TIMEOUT_MS = 45_000
@@ -252,8 +256,7 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
     { role: 'user' as const, content: user },
   ]
 
-  const { isSandboxMode } = await import('../orchestrator/orchestratorModeStore')
-  if (provider.id === 'ollama' && aiExecution && isSandboxMode()) {
+  if (provider.id === 'ollama' && aiExecution && (await isEffectiveSandboxSideForAiExecution())) {
     if (aiExecution.lane === 'ollama_direct' || aiExecution.lane === 'beap') {
       const { planSandboxHostChatExecution } = await import('../internalInference/beapContentAiRoute')
       const plan = planSandboxHostChatExecution(aiExecution, contentTask ?? { kind: 'other' })

@@ -181,11 +181,14 @@ export function useSandboxHostInference(
 
   const showHostInferenceOption =
     modeReady &&
-    isSandbox &&
+    (isSandbox || ledgerProvesInternalSandboxToHost) &&
     inferenceTargets.some(
       (t) =>
         t.direct_reachable &&
-        (t.available === true || t.visibleInModelSelector === true || t.canUseOllamaDirect === true),
+        (t.available === true ||
+          t.visibleInModelSelector === true ||
+          t.canUseOllamaDirect === true ||
+          t.ollamaDirectReady === true),
     )
 
   const gavRefreshRef = useRef(gav)

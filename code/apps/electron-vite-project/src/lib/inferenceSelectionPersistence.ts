@@ -555,7 +555,12 @@ export function validateStoredSelectionForOrchestratorWithDiagnostics(
       }
     }
     const pending =
-      (!t.available && !(t.visibleInModelSelector === true || t.canUseOllamaDirect === true)) ||
+      (!t.available &&
+        !(
+          t.visibleInModelSelector === true ||
+          t.canUseOllamaDirect === true ||
+          t.ollamaDirectReady === true
+        )) ||
       isHostInferenceTargetPendingForRestore(t)
     return {
       modelId: stored.id,

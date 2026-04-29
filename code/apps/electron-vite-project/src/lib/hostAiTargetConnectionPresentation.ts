@@ -17,12 +17,12 @@ export function hostInferenceTargetMenuSelectable(t: HostInferenceTargetRow): bo
    * Remote Host Ollama via LAN — `failureCode=HOST_AI_DIRECT_PEER_BEAP_MISSING` only reflects BEAP ingest;
    * it must not hide rows when `ollamaDirectReady` / `visibleInModelSelector` say the model is usable.
    */
+  /** `ollamaDirectReady` / selector visibility can be true without `canUseOllamaDirect` on older IPC snapshots. */
   const ollamaDirectMenuOk =
     hasModel &&
-    t.canUseOllamaDirect === true &&
     (t.ollamaDirectReady === true ||
-      t.visibleInModelSelector === true ||
-      t.host_ai_target_status === 'ollama_direct_only')
+      (t.canUseOllamaDirect === true &&
+        (t.visibleInModelSelector === true || t.host_ai_target_status === 'ollama_direct_only')))
 
   if (ollamaDirectMenuOk) return true
 

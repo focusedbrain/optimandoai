@@ -59,9 +59,27 @@ function modelMenuState(available: Available[], isSandbox: boolean, inferenceTar
 function showHostInferenceOption(
   modeReady: boolean,
   isSandbox: boolean,
-  targets: Array<{ direct_reachable: boolean; available: boolean }>,
+  ledgerProvesInternalSandboxToHost: boolean,
+  targets: Array<{
+    direct_reachable: boolean
+    available: boolean
+    visibleInModelSelector?: boolean
+    canUseOllamaDirect?: boolean
+    ollamaDirectReady?: boolean
+  }>,
 ) {
-  return modeReady && isSandbox && targets.some((t) => t.direct_reachable && t.available)
+  return (
+    modeReady &&
+    (isSandbox || ledgerProvesInternalSandboxToHost) &&
+    targets.some(
+      (t) =>
+        t.direct_reachable &&
+        (t.available === true ||
+          t.visibleInModelSelector === true ||
+          t.canUseOllamaDirect === true ||
+          t.ollamaDirectReady === true),
+    )
+  )
 }
 
 function installLocalStorage() {
@@ -166,7 +184,7 @@ describe('selector integration — visibility', () => {
     expect(hostInferenceOptionVisible(true, 'sandbox', 1)).toBe(true)
   })
 
-  it('showHostInferenceOption: requires direct_reachable and available on at least one target', () => {
+  it('showHostInferenceOption: requires direct_reachable and availability-like signals on at least one target', () => {
     const ok: Target = {
       id: 'x',
       label: 'L',
@@ -176,8 +194,20 @@ describe('selector integration — visibility', () => {
       handshake_id: 'h',
     }
     const bad: Target = { ...ok, available: false }
-    expect(showHostInferenceOption(true, true, [ok])).toBe(true)
-    expect(showHostInferenceOption(true, true, [bad])).toBe(false)
+    expect(showHostInferenceOption(true, true, false, [ok])).toBe(true)
+    expect(showHostInferenceOption(true, true, false, [bad])).toBe(false)
+  })
+
+  it('showHostInferenceOption: ledger sandbox + ollamaDirectReady (available false) still shows Host AI', () => {
+    const odl: Target = {
+      id: 'x',
+      label: 'L',
+      available: false,
+      direct_reachable: true,
+      host_computer_name: 'H',
+      handshake_id: 'h',
+    }
+    expect(showHostInferenceOption(true, false, true, [{ ...odl, ollamaDirectReady: true }])).toBe(true)
   })
 
   it('Sandbox without active Host: setup hint can show; no option when no candidates', () => {

@@ -239,11 +239,11 @@ describe('beapContent inbox — remote ollama_direct', () => {
 
   it('Test 5: duplicate analysis taskKey — only one inner run (dedupe)', async () => {
     let innerRuns = 0
-    const taskKey = `analysis:msg-dedup-1:llama3:latest:ollama_direct`
+    const taskKey = `analysis-stream:msg-dedup-1:llama3:latest:ollama_direct`
     const run = () =>
       runInboxAiTaskWithDedup(
         taskKey,
-        { supersedeKeyPrefix: 'analysis:msg-dedup-1:', messageId: 'msg-dedup-1' },
+        { supersedeKeyPrefix: 'analysis-stream:msg-dedup-1:', messageId: 'msg-dedup-1' },
         async () => {
           innerRuns += 1
           await new Promise((r) => setTimeout(r, 25))

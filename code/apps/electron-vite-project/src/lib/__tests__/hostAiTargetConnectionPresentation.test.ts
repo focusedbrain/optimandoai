@@ -24,6 +24,24 @@ function fakeBase(over: Partial<HostInferenceTargetRow>): HostInferenceTargetRow
 }
 
 describe('hostInferenceTargetMenuSelectable', () => {
+  it('allows LAN ODL when ollamaDirectReady without canUseOllamaDirect (IPC snapshot drift)', () => {
+    expect(
+      hostInferenceTargetMenuSelectable(
+        fakeBase({
+          model: 'gemma3:12b',
+          host_ai_target_status: 'ollama_direct_only',
+          execution_transport: 'ollama_direct',
+          canUseOllamaDirect: undefined,
+          ollamaDirectReady: true,
+          visibleInModelSelector: true,
+          failureCode: 'HOST_AI_DIRECT_PEER_BEAP_MISSING',
+          canChat: false,
+          available: false,
+        }),
+      ),
+    ).toBe(true)
+  })
+
   it('uses canChat=true (not IPC available) when status is omitted', () => {
     expect(
       hostInferenceTargetMenuSelectable(

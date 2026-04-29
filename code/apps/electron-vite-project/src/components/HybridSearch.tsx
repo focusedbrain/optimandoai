@@ -916,9 +916,11 @@ export default function HybridSearch({
     [hostInf.inferenceTargets],
   )
 
+  const hostAiStaleTargets =
+    hostInf.inferenceTargets.length > 0 ? hostInf.inferenceTargets : gavHostTargets
   const hostAiSelectionInvalid = useMemo(
-    () => isHostInternalSelectionStaleForOrchestratorUi(selectedModel, availableModels, hostInf.inferenceTargets),
-    [selectedModel, hostInf.inferenceTargets, availableModels],
+    () => isHostInternalSelectionStaleForOrchestratorUi(selectedModel, availableModels, hostAiStaleTargets),
+    [selectedModel, hostAiStaleTargets, availableModels],
   )
 
   /** Phase 8: never hide Host AI when GAV has targets but merge lagged — synthesize from `gavHostTargets`. */
@@ -1618,7 +1620,9 @@ export default function HybridSearch({
               setIsLoading(false)
               return
             }
-            const target = findHostInferenceTargetRowForChatSelection(hostInf.inferenceTargets, selectedModel)
+            const hostChatTargets =
+              hostInf.inferenceTargets.length > 0 ? hostInf.inferenceTargets : gavHostTargets
+            const target = findHostInferenceTargetRowForChatSelection(hostChatTargets, selectedModel)
             if (!target) {
               setResponse('That Host AI selection is not in the list. Open the model menu and select Host AI again.')
               setIsLoading(false)
@@ -2079,12 +2083,36 @@ export default function HybridSearch({
           setChatGovernanceNote(null)
           setChatRetrievalDebugNote(null)
         } else {
-          const answerText = (result.answer ?? streamedRef.current) || ''
+          const answerText = (result.answer || streamedRef.current) || ''
+          const ctxBlocks =
+            (result as { contextBlocks?: unknown[] }).contextBlocks ??
+            (result as { sources?: unknown[] }).sources
+          const ragBlocks =
+            Array.isArray(ctxBlocks)
+              ? ctxBlocks.length
+              : typeof (result as { retrievedBlockCount?: number }).retrievedBlockCount === 'number'
+                ? (result as { retrievedBlockCount: number }).retrievedBlockCount
+                : 0
+          console.log(
+            '[HYBRID_CHAT_RENDER_RESULT]',
+            JSON.stringify({
+              length: answerText.length,
+              requestId: (result as { requestId?: string }).requestId ?? null,
+              provider: modelInfo?.provider ?? null,
+              model: selectedModel || null,
+              streamed: result.streamed === true,
+              ragBlocks,
+            }),
+          )
           if (!result.streamed) {
             setResponse(answerText)
             setChatSources(result.sources ?? [])
-          } else if (result.answer) {
-            setResponse(prev => prev || answerText)
+          } else {
+            setResponse((prev) => {
+              const streamedLive = (prev ?? '').trim().length > 0 ? prev : answerText
+              return streamedLive ?? answerText
+            })
+            if (result.sources?.length) setChatSources(result.sources)
           }
           if (isDraftRefine && answerText.trim()) {
             const refined = answerText.trim()
@@ -2141,7 +2169,7 @@ export default function HybridSearch({
       setIsLoading(false)
       setChatAttachments([])
     }
-  }, [query, mode, scope, activeView, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, isDraftRefineSession, draftRefineDraftText, draftRefineTarget, draftRefineDeliverResponse, draftRefineAcceptRefinement, chatAttachments, chatMessages, hostInf.inferenceTargets, hostInf.policy, hostAiSelectionInvalid])
+  }, [query, mode, scope, activeView, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, isDraftRefineSession, draftRefineDraftText, draftRefineTarget, draftRefineDeliverResponse, draftRefineAcceptRefinement, chatAttachments, chatMessages, hostInf.inferenceTargets, gavHostTargets, hostInf.policy, hostAiSelectionInvalid])
 
   const handleContextUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])

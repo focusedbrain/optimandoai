@@ -4055,28 +4055,29 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
   })
 
   ipcMain.handle('inbox:aiAnalyzeMessageStream', async (event, messageId: string, opts?: InboxAiStreamInvokeOpts) => {
+    const { model: tkModel, lane: tkLane } = syncInboxAiSelectionForTaskKey()
     if (DEBUG_AUTOSORT_DIAGNOSTICS) {
       const st = getAutosortDiagMainState()
       autosortDiagLog('aiAnalyzeMessageStream:invoke', {
         messageId,
+        selectionSnapshot: { model: tkModel, lane: tkLane },
         ts: new Date().toISOString(),
         bulkSortActive: st.bulkSortActive,
         diagRunId: st.runId,
       })
     }
-    const { model: tkModel, lane: tkLane } = syncInboxAiSelectionForTaskKey()
-    const taskKey = buildInboxAiTaskKey('analysis', messageId, tkModel, tkLane)
+    const analyzeDedupeKey = buildInboxAiTaskKey('analysis-stream', messageId, tkModel, tkLane)
     const supersede = !!opts?.supersede
 
     return runInboxAiTaskWithDedup(
-      taskKey,
+      analyzeDedupeKey,
       {
         supersede,
-        supersedeKeyPrefix: `analysis:${messageId}:`,
+        supersedeKeyPrefix: `analysis-stream:${messageId}:`,
         messageId,
         abortControllers: analyzeStreamAbortByMessageId,
       },
-      async (_requestId, signal) => {
+      async (requestId, signal) => {
         let streamStartedOk = false
         let ollamaModelForStream: string | undefined
         let aiExec: import('../llm/aiExecutionTypes').AiExecutionContext | undefined
@@ -4227,6 +4228,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
               ollamaModelForStream!,
               aiExec,
               { kind: 'analysis' },
+              { abortSignal: signal, requestId },
             )
             for await (const chunk of stream) {
               if (signal.aborted || event.sender.isDestroyed()) break

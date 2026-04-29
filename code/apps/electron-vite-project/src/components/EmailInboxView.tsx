@@ -1015,12 +1015,13 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   }, [onDelete, messageId])
 
   const handleRetryAnalysis = useCallback(() => {
+    if (analysisLoading) return
     autoAnalyzeStreamFailedRef.current.delete(messageId)
     setAnalysisError(null)
     setInboxAiAnalyzeDebug(null)
     setInboxAiSemanticDevNote(null)
     void runAnalysisStream({ manual: true, supersede: true })
-  }, [messageId, runAnalysisStream])
+  }, [messageId, runAnalysisStream, analysisLoading])
 
   const handleRetryDraft = useCallback(() => {
     setDraftError(false)
@@ -1121,7 +1122,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         {analysisError && (
           <div className="inbox-detail-ai-error-banner">
             <span>{analysisError}</span>
-            <button type="button" onClick={handleRetryAnalysis}>Retry</button>
+            <button type="button" onClick={handleRetryAnalysis} disabled={analysisLoading}>Retry</button>
             {import.meta.env.DEV && inboxAiAnalyzeDebug && (
               <pre
                 className="inbox-detail-ai-debug-json"
