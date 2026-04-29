@@ -1,6 +1,19 @@
 /**
- * Sandbox-only: resolves where generic inference should execute — local sandbox Ollama first,
- * then LAN `ollama_direct` caps candidate. Not wired into IPC/render surfaces yet (Prompt 3+).
+ * Resolves where a sandbox-mode inference request should go.
+ *
+ * Priority:
+ *   1. If caller passes `handshakeId` and a valid candidate exists for it,
+ *      the user explicitly picked a remote model — route cross-device.
+ *   2. Otherwise, probe local Ollama. If reachable, route local.
+ *   3. If local probe failed, resolve a handshake (caller id when set, else first active Sandbox→Host).
+ *   4. If that handshake has a valid candidate, route cross-device.
+ *   5. If still nothing, return `unavailable`.
+ *
+ * Wired into: chatWithContextRagOllamaGeneration.ts (RAG path),
+ * inboxOllamaChatStreamSandbox.ts (inbox AI), embedding service wrapper.
+ *
+ * Not used by HybridSearch's Host-internal branch — that path bypasses the
+ * resolver entirely via execution_transport: 'ollama_direct'.
  */
 
 import { listHandshakeRecords } from '../handshake/db'
@@ -120,12 +133,52 @@ function logResolveDecision(decision: {
   )
 }
 
+function crossDeviceTargetFromCandidate(
+  handshakeId: string,
+  candidate: NonNullable<ReturnType<typeof getSandboxOllamaDirectRouteCandidate>>,
+): SandboxInferenceTarget {
+  const baseTrim = typeof candidate.base_url === 'string' ? candidate.base_url.trim() : ''
+  const ownerTrim =
+    typeof candidate.endpoint_owner_device_id === 'string' ? candidate.endpoint_owner_device_id.trim() : ''
+  return {
+    kind: 'cross_device',
+    baseUrl: baseTrim.replace(/\/$/, ''),
+    execution_transport: 'ollama_direct',
+    handshakeId,
+    endpointOwnerDeviceId: ownerTrim,
+  }
+}
+
 export async function resolveSandboxInferenceTarget(
   options: ResolveSandboxInferenceTargetOptions = {},
 ): Promise<SandboxInferenceTarget> {
+  const callerHandshakeId = (typeof options.handshakeId === 'string' ? options.handshakeId : '').trim()
+
+  // Authoritative user intent: explicit handshake + valid LAN candidate → cross-device before local probe.
+  if (callerHandshakeId) {
+    const earlyCand = getSandboxOllamaDirectRouteCandidate(callerHandshakeId)
+    const baseEarly = typeof earlyCand?.base_url === 'string' ? earlyCand.base_url.trim() : ''
+    const ownerEarly =
+      typeof earlyCand?.endpoint_owner_device_id === 'string' ? earlyCand.endpoint_owner_device_id.trim() : ''
+    if (earlyCand && baseEarly && ownerEarly) {
+      logResolveDecision({
+        kind: 'cross_device',
+        reason: 'caller_handshake_with_valid_candidate',
+        handshakeId: callerHandshakeId,
+      })
+      return crossDeviceTargetFromCandidate(callerHandshakeId, earlyCand)
+    }
+  }
+
   const localOk = await probeLocalSandboxOllama()
   if (localOk) {
-    logResolveDecision({ kind: 'local_sandbox', reason: 'local_probe_ok' })
+    logResolveDecision({
+      kind: 'local_sandbox',
+      reason: callerHandshakeId
+        ? 'caller_handshake_no_candidate_local_fallback'
+        : 'no_caller_handshake_local_probe_ok',
+      handshakeId: callerHandshakeId || undefined,
+    })
     return {
       kind: 'local_sandbox',
       baseUrl: LOCAL_SANDBOX_BASE_URL,
@@ -133,10 +186,7 @@ export async function resolveSandboxInferenceTarget(
     }
   }
 
-  const resolvedHandshake =
-    typeof options.handshakeId === 'string' && options.handshakeId.trim()
-      ? options.handshakeId.trim()
-      : await resolveActiveSandboxToHostHandshakeId()
+  const resolvedHandshake = callerHandshakeId || (await resolveActiveSandboxToHostHandshakeId())
 
   if (!resolvedHandshake) {
     logResolveDecision({
@@ -172,13 +222,11 @@ export async function resolveSandboxInferenceTarget(
     }
   }
 
-  logResolveDecision({ kind: 'cross_device', reason: 'ollama_direct_candidate', handshakeId: resolvedHandshake })
-
-  return {
+  logResolveDecision({
     kind: 'cross_device',
-    baseUrl: baseTrim.replace(/\/$/, ''),
-    execution_transport: 'ollama_direct',
+    reason: callerHandshakeId ? 'caller_handshake_candidate_appeared_after_local_fail' : 'discovered_handshake_with_valid_candidate',
     handshakeId: resolvedHandshake,
-    endpointOwnerDeviceId: ownerTrim,
-  }
+  })
+
+  return crossDeviceTargetFromCandidate(resolvedHandshake, candidate)
 }

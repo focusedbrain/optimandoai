@@ -16,6 +16,15 @@ vi.mock('../dbAccess', () => ({
   getHandshakeDbForInternalInference: vi.fn(async () => null),
 }))
 
+const sampleCandidate: SandboxOllamaDirectRouteCandidate = {
+  route_kind: 'ollama_direct',
+  handshake_id: 'hs-a',
+  base_url: 'http://192.168.178.28:11434',
+  endpoint_owner_device_id: 'host-dev',
+  peer_host_device_id: 'host-dev',
+  validated_at_ms: Date.now(),
+}
+
 describe('resolveSandboxInferenceTarget', () => {
   beforeEach(async () => {
     const { invalidateLocalSandboxOllamaProbeCache } = await import('../resolveSandboxInferenceTarget')
@@ -40,7 +49,7 @@ describe('resolveSandboxInferenceTarget', () => {
     vi.restoreAllMocks()
   })
 
-  it('local probe ok → returns local_sandbox', async () => {
+  it('no handshakeId + local probe ok → returns local_sandbox', async () => {
     const { resolveSandboxInferenceTarget } = await import('../resolveSandboxInferenceTarget')
     const r = await resolveSandboxInferenceTarget({})
     expect(r.kind).toBe('local_sandbox')
@@ -50,25 +59,15 @@ describe('resolveSandboxInferenceTarget', () => {
     }
   })
 
-  it('local probe failed + handshake + cross-device candidate → cross_device', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        Promise.resolve({
-          ok: false,
-          status: 503,
-        } as Response),
-      ),
+  it('caller handshakeId + valid candidate → cross_device even when local probe would succeed', async () => {
+    candidateMap.value = sampleCandidate
+    const fetchSpy = vi.fn(async () =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+      } as Response),
     )
-
-    candidateMap.value = {
-      route_kind: 'ollama_direct',
-      handshake_id: 'hs-a',
-      base_url: 'http://192.168.178.28:11434',
-      endpoint_owner_device_id: 'host-dev',
-      peer_host_device_id: 'host-dev',
-      validated_at_ms: Date.now(),
-    }
+    vi.stubGlobal('fetch', fetchSpy)
 
     const { resolveSandboxInferenceTarget } = await import('../resolveSandboxInferenceTarget')
     const r = await resolveSandboxInferenceTarget({ handshakeId: 'hs-a' })
@@ -79,9 +78,20 @@ describe('resolveSandboxInferenceTarget', () => {
       expect(r.endpointOwnerDeviceId).toBe('host-dev')
       expect(r.handshakeId).toBe('hs-a')
     }
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
-  it('local probe failed + no candidate → unavailable cross_device_caps_not_accepted', async () => {
+  it('caller handshakeId + no candidate → falls through to local probe (local ok → local_sandbox)', async () => {
+    candidateMap.value = undefined
+    const { resolveSandboxInferenceTarget } = await import('../resolveSandboxInferenceTarget')
+    const r = await resolveSandboxInferenceTarget({ handshakeId: 'hs-missing' })
+    expect(r.kind).toBe('local_sandbox')
+    if (r.kind === 'local_sandbox') {
+      expect(r.execution_transport).toBe('local_ollama')
+    }
+  })
+
+  it('caller handshakeId + no candidate + local probe failed → unavailable cross_device_caps_not_accepted', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
@@ -97,6 +107,24 @@ describe('resolveSandboxInferenceTarget', () => {
     const r = await resolveSandboxInferenceTarget({ handshakeId: 'hs-none' })
     expect(r.kind).toBe('unavailable')
     if (r.kind === 'unavailable') expect(r.reason).toBe('cross_device_caps_not_accepted')
+  })
+
+  it('no handshakeId + local probe failed + db unavailable → no_local_ollama_no_cross_device_host', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Promise.resolve({
+          ok: false,
+          status: 503,
+        } as Response),
+      ),
+    )
+
+    candidateMap.value = undefined
+    const { resolveSandboxInferenceTarget } = await import('../resolveSandboxInferenceTarget')
+    const r = await resolveSandboxInferenceTarget({})
+    expect(r.kind).toBe('unavailable')
+    if (r.kind === 'unavailable') expect(r.reason).toBe('no_local_ollama_no_cross_device_host')
   })
 
   it('second call within TTL does not hit fetch twice', async () => {
