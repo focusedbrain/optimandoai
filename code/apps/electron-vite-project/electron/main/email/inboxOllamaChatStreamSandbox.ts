@@ -11,7 +11,7 @@ import {
 import { resolveSandboxInferenceTarget } from '../internalInference/resolveSandboxInferenceTarget'
 import { getSandboxOllamaDirectRouteCandidate } from '../internalInference/sandboxHostAiOllamaDirectCandidate'
 import { planSandboxHostChatExecution, type BeapContentAiTask } from '../internalInference/beapContentAiRoute'
-import { isEffectiveSandboxSideForAiExecution } from '../llm/resolveAiExecutionContext'
+import { isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import type { AiExecutionContext } from '../llm/aiExecutionTypes'
 
 const LOCAL_OLLAMA_BASE = 'http://127.0.0.1:11434'
@@ -91,7 +91,7 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
   execCtx?: AiExecutionContext | null,
   contentTask?: BeapContentAiTask,
 ): AsyncGenerator<string, void, undefined> {
-  if (!(await isEffectiveSandboxSideForAiExecution())) {
+  if (!isSandboxMode()) {
     yield* streamOllamaChatNdjsonFromBaseUrl(LOCAL_OLLAMA_BASE, systemPrompt, userPrompt, modelId)
     return
   }
