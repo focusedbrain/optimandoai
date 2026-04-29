@@ -89,6 +89,7 @@ import {
   isHostInternalSelectionStaleForOrchestratorUi,
   type ValidateSelectionResultWithDiagnostics,
 } from '../lib/inferenceSelectionPersistence'
+import { buildAiExecutionContextIpcPayload } from '../lib/aiExecutionContextFromSelection'
 
 function formatOrchestratorSelectionLogValue(v: string | null): string {
   if (v == null || v === '') return 'null'
@@ -667,6 +668,7 @@ export default function HybridSearch({
   const [contextBlocks, setContextBlocks] = useState<string[]>([])
   const [chatSources, setChatSources] = useState<ChatSource[]>([])
   const [chatGovernanceNote, setChatGovernanceNote] = useState<string | null>(null)
+  const [chatRetrievalDebugNote, setChatRetrievalDebugNote] = useState<string | null>(null)
   const [structuredResult, setStructuredResult] = useState<{ title: string; items: Array<{ id: string; title: string; snippet: string; handshake_id: string; block_id: string; source: string; score: number; type?: string }> } | null>(null)
   const [resultType, setResultType] = useState<'document_card' | 'result_card' | 'context_answer' | null>(null)
   const [lastMode, setLastMode] = useState<SearchMode | null>(null)
@@ -1326,8 +1328,12 @@ export default function HybridSearch({
   useEffect(() => {
     if (selectedModel) {
       persistOrchestratorModelId(selectedModel, availableModels)
+      const payload = buildAiExecutionContextIpcPayload(selectedModel, gavHostTargets)
+      if (payload && typeof window.llm?.setAiExecutionContext === 'function') {
+        void window.llm.setAiExecutionContext(payload)
+      }
     }
-  }, [selectedModel, availableModels])
+  }, [selectedModel, availableModels, gavHostTargets])
 
   // App resume and account switch: refetch (Host hook also reloads on handshake-list-refresh + orchestrator-mode-changed).
   useEffect(() => {
@@ -1601,123 +1607,124 @@ export default function HybridSearch({
           if (!isHostInternalChat) {
             /* fall through to stream / local */
           } else {
-          setChatGovernanceNote(null)
-          setStructuredResult(null)
-          setResultType(null)
-          const parsed = parseAnyHostInferenceModelId(selectedModel)
-          const hid = parsed?.handshakeId
-          if (!hid) {
-            setResponse('That Host AI selection is not in the list. Open the model menu and select Host AI again.')
-            setIsLoading(false)
-            return
-          }
-          const target = findHostInferenceTargetRowForChatSelection(hostInf.inferenceTargets, selectedModel)
-          if (!target) {
-            setResponse('That Host AI selection is not in the list. Open the model menu and select Host AI again.')
-            setIsLoading(false)
-            return
-          }
-
-          const modelParam =
-            parsed?.model?.trim() ||
-            target.model_id?.trim() ||
-            target.model?.trim() ||
-            undefined
-
-          const hostMenuRow = mEntry?.type === 'host_internal' ? mEntry : null
-          const laneFromMerged: HostModelRemoteLane | null =
-            hostMenuRow?.remoteLane === 'ollama_direct' || hostMenuRow?.remoteLane === 'beap'
-              ? hostMenuRow.remoteLane
-              : null
-          const remoteLane: HostModelRemoteLane = laneFromMerged ?? inferHostModelRemoteLane(target)
-
-          console.log(
-            `[HOST_AI_CHAT_ROUTE] model=${modelParam ?? ''} lane=${remoteLane} beapReady=${Boolean(target.beapReady)} ollamaDirectReady=${Boolean(target.ollamaDirectReady)} failureCode=${target.failureCode ?? 'null'}`,
-          )
-
-          if (remoteLane === 'ollama_direct') {
-            if (target.ollamaDirectReady !== true) {
-              setResponse(formatInternalInferenceErrorCode('HOST_AI_OLLAMA_DIRECT_LANE_NOT_READY'))
+            setChatGovernanceNote(null)
+            setChatRetrievalDebugNote(null)
+            setStructuredResult(null)
+            setResultType(null)
+            const parsed = parseAnyHostInferenceModelId(selectedModel)
+            const hid = parsed?.handshakeId
+            if (!hid) {
+              setResponse('That Host AI selection is not in the list. Open the model menu and select Host AI again.')
               setIsLoading(false)
               return
             }
-          } else {
-            if (target.beapReady !== true) {
-              setResponse(formatInternalInferenceErrorCode('HOST_AI_DIRECT_PEER_BEAP_MISSING'))
+            const target = findHostInferenceTargetRowForChatSelection(hostInf.inferenceTargets, selectedModel)
+            if (!target) {
+              setResponse('That Host AI selection is not in the list. Open the model menu and select Host AI again.')
               setIsLoading(false)
               return
             }
-          }
-          const row = hostInf.candidates.find((c) => c.handshakeId === hid)
-          if (remoteLane === 'beap' && !row?.directP2pAvailable) {
-            setResponse(
-              'Host AI · P2P unavailable. Check that the Host is online, then use Refresh (↻) in the model menu, or pick another model.',
+
+            const modelParam =
+              parsed?.model?.trim() ||
+              target.model_id?.trim() ||
+              target.model?.trim() ||
+              undefined
+
+            const hostMenuRow = mEntry?.type === 'host_internal' ? mEntry : null
+            const laneFromMerged: HostModelRemoteLane | null =
+              hostMenuRow?.remoteLane === 'ollama_direct' || hostMenuRow?.remoteLane === 'beap'
+                ? hostMenuRow.remoteLane
+                : null
+            const remoteLane: HostModelRemoteLane = laneFromMerged ?? inferHostModelRemoteLane(target)
+
+            console.log(
+              `[HOST_AI_CHAT_ROUTE] model=${modelParam ?? ''} lane=${remoteLane} beapReady=${Boolean(target.beapReady)} ollamaDirectReady=${Boolean(target.ollamaDirectReady)} failureCode=${target.failureCode ?? 'null'}`,
             )
-            setIsLoading(false)
-            return
-          }
-          if (hostInf.policy === 'deny') {
-            setResponse(
-              'Host AI · disabled by Host. On the Host, enable Sandbox inference for this device, or pick another model here.',
-            )
-            setIsLoading(false)
-            return
-          }
-          const run = getRequestHostCompletion(window)
-          if (typeof run !== 'function') {
-            setResponse('Host AI is not available in this build. Pick a local or cloud model instead.')
-            setIsLoading(false)
-            return
-          }
-          setHostInfSuccess(false)
-          const hostComputerName = (target?.host_computer_name ?? row?.hostDisplayName ?? 'Host').trim() || 'Host'
-          setHostInfRunUi({
-            line1: `Running on Host AI · ${hostModelDisplayNameFromSelection({
-              parsedModel: modelParam,
-              targetLabel: target?.display_label || target?.label,
-            })}`,
-            line2: hostComputerName,
-          })
-          const prior = chatMessages.map((m) => ({ role: m.role, content: m.content }))
-          const userLine = prependChatAttachmentsToUserText(trimmed, chatAttachments)
-          const msgSeq =
-            previousAnswer?.trim() && mode === 'chat' && !isDraftRefineSession
-              ? [
-                  ...prior,
-                  { role: 'assistant' as const, content: previousAnswer.trim() },
-                  { role: 'user' as const, content: userLine },
-                ]
-              : [...prior, { role: 'user' as const, content: userLine }]
-          try {
-            const r = (await run({
-              targetId: selectedModel,
-              handshakeId: hid,
-              messages: msgSeq,
-              model: modelParam,
-              timeoutMs: 120_000,
-              execution_transport: remoteLane === 'ollama_direct' ? ('ollama_direct' as const) : undefined,
-            })) as
-              | { ok: true; output: string }
-              | { ok: false; code: string; message: string }
-            if (r && 'ok' in r && r.ok) {
-              const out = (r as { output: string }).output
-              setResponse(appendHostAiAttributionLine(out, hostComputerName))
-              setHostInfSuccess(true)
+
+            if (remoteLane === 'ollama_direct') {
+              if (target.ollamaDirectReady !== true) {
+                setResponse(formatInternalInferenceErrorCode('HOST_AI_OLLAMA_DIRECT_LANE_NOT_READY'))
+                setIsLoading(false)
+                return
+              }
             } else {
-              const er = r as { ok: false; code: string; message: string }
-              setResponse(formatInternalInferenceErrorCode(er.code, er.message))
-              setHostInfSuccess(false)
+              if (target.beapReady !== true) {
+                setResponse(formatInternalInferenceErrorCode('HOST_AI_DIRECT_PEER_BEAP_MISSING'))
+                setIsLoading(false)
+                return
+              }
             }
-          } catch {
-            setResponse(formatInternalInferenceErrorCode(undefined))
+            const row = hostInf.candidates.find((c) => c.handshakeId === hid)
+            if (remoteLane === 'beap' && !row?.directP2pAvailable) {
+              setResponse(
+                'Host AI · P2P unavailable. Check that the Host is online, then use Refresh (↻) in the model menu, or pick another model.',
+              )
+              setIsLoading(false)
+              return
+            }
+            if (hostInf.policy === 'deny') {
+              setResponse(
+                'Host AI · disabled by Host. On the Host, enable Sandbox inference for this device, or pick another model here.',
+              )
+              setIsLoading(false)
+              return
+            }
+            const run = getRequestHostCompletion(window)
+            if (typeof run !== 'function') {
+              setResponse('Host AI is not available in this build. Pick a local or cloud model instead.')
+              setIsLoading(false)
+              return
+            }
             setHostInfSuccess(false)
-          } finally {
-            setHostInfRunUi(null)
-            setIsLoading(false)
-            setChatAttachments([])
+            const hostComputerName = (target?.host_computer_name ?? row?.hostDisplayName ?? 'Host').trim() || 'Host'
+            setHostInfRunUi({
+              line1: `Running on Host AI · ${hostModelDisplayNameFromSelection({
+                parsedModel: modelParam,
+                targetLabel: target?.display_label || target?.label,
+              })}`,
+              line2: hostComputerName,
+            })
+            const prior = chatMessages.map((m) => ({ role: m.role, content: m.content }))
+            const userLine = prependChatAttachmentsToUserText(trimmed, chatAttachments)
+            const msgSeq =
+              previousAnswer?.trim() && mode === 'chat' && !isDraftRefineSession
+                ? [
+                    ...prior,
+                    { role: 'assistant' as const, content: previousAnswer.trim() },
+                    { role: 'user' as const, content: userLine },
+                  ]
+                : [...prior, { role: 'user' as const, content: userLine }]
+            try {
+              const r = (await run({
+                targetId: selectedModel,
+                handshakeId: hid,
+                messages: msgSeq,
+                model: modelParam,
+                timeoutMs: 120_000,
+                execution_transport: remoteLane === 'ollama_direct' ? ('ollama_direct' as const) : undefined,
+              })) as
+                | { ok: true; output: string }
+                | { ok: false; code: string; message: string }
+              if (r && 'ok' in r && r.ok) {
+                const out = (r as { output: string }).output
+                setResponse(appendHostAiAttributionLine(out, hostComputerName))
+                setHostInfSuccess(true)
+              } else {
+                const er = r as { ok: false; code: string; message: string }
+                setResponse(formatInternalInferenceErrorCode(er.code, er.message))
+                setHostInfSuccess(false)
+              }
+            } catch {
+              setResponse(formatInternalInferenceErrorCode(undefined))
+              setHostInfSuccess(false)
+            } finally {
+              setHostInfRunUi(null)
+              setIsLoading(false)
+              setChatAttachments([])
+            }
+            return
           }
-          return
-        }
         }
         const modelInfo = availableModels.find(m => m.id === selectedModel)
         const streamedRef = { current: '' }
@@ -1800,10 +1807,12 @@ export default function HybridSearch({
               setStructuredResult(null)
               setResultType(null)
               setChatGovernanceNote(null)
+              setChatRetrievalDebugNote(null)
             } catch (e) {
               setResponse((e as Error)?.message ?? 'Could not generate template versions.')
               setChatSources([])
               setChatGovernanceNote(null)
+              setChatRetrievalDebugNote(null)
             } finally {
               cleanupSubs()
               setIsLoading(false)
@@ -2028,6 +2037,8 @@ export default function HybridSearch({
               selectedAttachmentId: selectedAttachmentId ?? undefined,
               selectedMessageId: selectedMessageId ?? undefined,
               sandboxInferenceHandshakeId: selectedHandshakeId ?? undefined,
+              beapContentTaskKind: isDraftRefine ? 'refine' : 'chat_rag',
+              requiresTopChatTools: false,
             })
           }
         } finally {
@@ -2062,6 +2073,7 @@ export default function HybridSearch({
           }
           setChatSources([])
           setChatGovernanceNote(null)
+          setChatRetrievalDebugNote(null)
         } else {
           const answerText = (result.answer ?? streamedRef.current) || ''
           if (!result.streamed) {
@@ -2099,6 +2111,12 @@ export default function HybridSearch({
             setQuery('')
           }
           setChatGovernanceNote(result.governanceNote ?? null)
+          const cr = result.contextRetrieval
+          setChatRetrievalDebugNote(
+            cr?.mode === 'none' && cr?.warningCode
+              ? 'Semantic context unavailable; generated without retrieval context.'
+              : null,
+          )
           if (result.sources?.length && chatSources.length === 0) setChatSources(result.sources)
           if (result.structuredResult) {
             setStructuredResult(result.structuredResult)
@@ -2112,6 +2130,7 @@ export default function HybridSearch({
       setResponse(msg)
       setChatSources([])
       setChatGovernanceNote(null)
+      setChatRetrievalDebugNote(null)
       setStructuredResult(null)
       setResultType(null)
     } finally {
@@ -3454,6 +3473,11 @@ export default function HybridSearch({
                     </button>
                   </div>
                 )}
+              {chatRetrievalDebugNote && (
+                <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--text-muted, #888)', fontStyle: 'italic' }}>
+                  {chatRetrievalDebugNote}
+                </div>
+              )}
               {chatGovernanceNote && (
                 <div style={{ marginTop: '12px', padding: '10px 12px', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                   {chatGovernanceNote}

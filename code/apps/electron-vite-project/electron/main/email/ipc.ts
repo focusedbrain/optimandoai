@@ -233,13 +233,20 @@ import { notifyBeapInboxDashboard } from './beapInboxDashboardNotify'
 import type { InboxListFilterOptions } from './inboxWhereClause'
 import { buildInboxMessagesWhereClause } from './inboxWhereClause'
 import { collectReadOnlyDashboardSnapshot } from './dashboardSnapshot'
-
-/** Dedup concurrent `inbox:aiAnalyzeMessageStream` IPC calls for the same message id. */
-const activeAiAnalyzeMessageStreams = new Set<string>()
+import {
+  analyzeStreamAbortByMessageId,
+  buildInboxAiTaskKey,
+  bumpDraftReplySupersedeGeneration,
+  getDraftReplyGeneration,
+  isDraftReplyRunStale,
+  runInboxAiTaskWithDedup,
+  syncInboxAiSelectionForTaskKey,
+  type InboxAiStreamInvokeOpts,
+} from './inboxAiTaskDedup'
 import { processPendingPlainEmails } from './plainEmailIngestion'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
 import { streamInboxOllamaAnalyzeWithSandboxRouting } from './inboxOllamaChatStreamSandbox'
-import { mapInferenceRoutingErrorToIPC } from '../internalInference/inferenceRoutingIpcPayload'
+import { buildInboxAiAnalyzeErrorPayload, buildInboxAiDraftIpcFailure } from './inboxAiErrorMapping'
 import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } from '../../../src/lib/inboxSortSourceWeighting'
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
@@ -1765,7 +1772,7 @@ Rules:
     const userPrompt = `AutoSort batch — ${messages.length} messages:\n\n${lines}`
 
     try {
-      const rawStr = (await inboxLlmChat({ system: systemPrompt, user: userPrompt })).trim()
+      const rawStr = (await inboxLlmChat({ system: systemPrompt, user: userPrompt, contentTask: { kind: 'summary' } })).trim()
       const parsed = parseAiJson(rawStr)
       if (!parsed || Object.keys(parsed).length === 0) throw new Error('Failed to parse summary JSON')
 
@@ -3626,7 +3633,7 @@ Rules:
       const systemPrompt = 'You are an AI assistant for WR Desk inbox. Summarize the following email concisely in 2-3 sentences. Focus on: who sent it, what they want, and any action required.'
       console.log('[AI-SUMMARIZE] System prompt length:', systemPrompt.length)
       console.log('[AI-SUMMARIZE] Calling LLM...')
-      const summary = await inboxLlmChat({ system: systemPrompt, user: userPrompt })
+      const summary = await inboxLlmChat({ system: systemPrompt, user: userPrompt, contentTask: { kind: 'summary' } })
       console.log('[AI-SUMMARIZE] Raw LLM response:', summary.substring(0, 500))
 
       /** Persist to ai_analysis_json so analysis survives clearBulkAiOutputsForIds. */
@@ -3652,12 +3659,25 @@ Rules:
     }
   })
 
-  ipcMain.handle('inbox:aiDraftReply', async (_e, messageId: string) => {
-    console.log('[AI-DRAFT] Starting for message:', messageId)
+  ipcMain.handle('inbox:aiDraftReply', async (_e, messageId: string, opts?: { supersede?: boolean }) => {
+    const { model: tkModel, lane: tkLane } = syncInboxAiSelectionForTaskKey()
+    const taskKey = buildInboxAiTaskKey('draft', messageId, tkModel, tkLane)
+    const supersede = !!opts?.supersede
+    if (supersede) bumpDraftReplySupersedeGeneration(messageId)
+    const genAtStart = getDraftReplyGeneration(messageId)
+
+    return runInboxAiTaskWithDedup(
+      taskKey,
+      { supersede, supersedeKeyPrefix: `draft:${messageId}:`, messageId },
+      async (_requestId, _signal) => {
     let isNativeBeap = false
+    let aiExecDraft: import('../llm/aiExecutionTypes').AiExecutionContext | undefined
     try {
       const db = await resolveDb()
-      if (!db) return { ok: false, error: 'Database unavailable' }
+      if (isDraftReplyRunStale(messageId, genAtStart)) {
+        return buildInboxAiDraftIpcFailure(new Error('Draft superseded'), {}) as { ok: false; error: string; message: string }
+      }
+      if (!db) return buildInboxAiDraftIpcFailure(new Error('Database unavailable'), {}) as { ok: false; error: string; message: string }
       const row = db
         .prepare(
           'SELECT from_address, from_name, subject, body_text, source_type, handshake_id, depackaged_json, beap_package_json FROM inbox_messages WHERE id = ?',
@@ -3674,28 +3694,40 @@ Rules:
             beap_package_json?: string | null
           }
         | undefined
-      if (!row) return { ok: false, error: 'Message not found' }
-      console.log('[AI-DRAFT] Message fetched:', { from: row.from_address, subject: row.subject, bodyLength: (row.body_text ?? '').length })
+      if (!row)
+        return buildInboxAiDraftIpcFailure(new Error('Message not found'), {}) as { ok: false; error: string; message: string }
 
       isNativeBeap =
         row.source_type === 'direct_beap' || (!!row.handshake_id && row.source_type !== 'email_plain')
 
-      const available = await isLlmAvailable()
-      if (!available) {
-        if (isNativeBeap) {
-          return {
-            ok: true,
-            data: {
-              draft: '',
-              capsuleDraft: { publicText: '', encryptedText: '' },
-              isNativeBeap: true as const,
-              error: true,
-            },
+      const settingsDraft = resolveInboxLlmSettings()
+      if (settingsDraft.provider.toLowerCase() === 'ollama') {
+        const { resolveAiExecutionContextForLlm } = await import('../llm/resolveAiExecutionContext')
+        const ctxResDraft = await resolveAiExecutionContextForLlm()
+        if (!ctxResDraft.ok) {
+          return buildInboxAiDraftIpcFailure(new Error(ctxResDraft.error), {}, { isNativeBeap }) as {
+            ok: false
+            error: string
+            message: string
           }
         }
-        return {
-          ok: true,
-          data: { draft: 'Error: No AI provider available. Check Backend settings (local model or cloud API key).', error: true },
+        aiExecDraft = ctxResDraft.ctx
+      } else {
+        const available = await isLlmAvailable()
+        if (!available) {
+          return buildInboxAiDraftIpcFailure(
+            new Error('No AI provider available. Check Backend settings (local model or cloud API key).'),
+            {},
+            isNativeBeap ? { isNativeBeap: true } : undefined,
+          ) as { ok: false; error: string; message: string }
+        }
+      }
+
+      if (isDraftReplyRunStale(messageId, genAtStart)) {
+        return buildInboxAiDraftIpcFailure(new Error('Draft superseded'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }, isNativeBeap ? { isNativeBeap: true } : undefined) as {
+          ok: false
+          error: string
+          message: string
         }
       }
 
@@ -3723,8 +3755,23 @@ Match the language of the original message.
 Original message:
 ${messageContent}`
 
-        const fullReply = (await inboxLlmChat({ system: systemFull, user: fullUserPrompt })).trim().slice(0, 8000)
+        const fullReply = (
+          await inboxLlmChat({
+            system: systemFull,
+            user: fullUserPrompt,
+            ...(aiExecDraft ? { aiExecution: aiExecDraft } : {}),
+            contentTask: { kind: 'draft' },
+          })
+        )
+          .trim()
+          .slice(0, 8000)
         console.log('[AI-DRAFT] Native BEAP full reply length:', fullReply.length)
+
+        if (isDraftReplyRunStale(messageId, genAtStart)) {
+          return buildInboxAiDraftIpcFailure(new Error('Draft superseded'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }, {
+            isNativeBeap: true,
+          }) as { ok: false; error: string; message: string }
+        }
 
         const summaryUserPrompt = `Summarize this reply in 1-2 sentences for a preview.
 Output ONLY the summary text. No JSON, no formatting.
@@ -3732,8 +3779,23 @@ Output ONLY the summary text. No JSON, no formatting.
 Reply being summarized:
 ${fullReply}`
 
-        const summary = (await inboxLlmChat({ system: systemSummary, user: summaryUserPrompt })).trim().slice(0, 4000)
+        const summary = (
+          await inboxLlmChat({
+            system: systemSummary,
+            user: summaryUserPrompt,
+            ...(aiExecDraft ? { aiExecution: aiExecDraft } : {}),
+            contentTask: { kind: 'summary' },
+          })
+        )
+          .trim()
+          .slice(0, 4000)
         console.log('[AI-DRAFT] Native BEAP summary length:', summary.length)
+
+        if (isDraftReplyRunStale(messageId, genAtStart)) {
+          return buildInboxAiDraftIpcFailure(new Error('Draft superseded'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }, {
+            isNativeBeap: true,
+          }) as { ok: false; error: string; message: string }
+        }
 
         const capsuleDraft = {
           publicText: summary || '',
@@ -3755,6 +3817,11 @@ ${fullReply}`
           encryptedMessage: capsuleDraft.encryptedText,
         }
         merged.status = merged.status ?? 'draft_reply'
+        if (isDraftReplyRunStale(messageId, genAtStart)) {
+          return buildInboxAiDraftIpcFailure(new Error('Draft superseded'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }, {
+            isNativeBeap: true,
+          }) as { ok: false; error: string; message: string }
+        }
         db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(JSON.stringify(merged), messageId)
 
         return {
@@ -3778,8 +3845,21 @@ ${fullReply}`
       if (contextBlock) systemPrompt += contextBlock
       console.log('[AI-DRAFT] System prompt length:', systemPrompt.length)
       console.log('[AI-DRAFT] Calling LLM...')
-      const draft = await inboxLlmChat({ system: systemPrompt, user: userPrompt })
+      const draft = await inboxLlmChat({
+        system: systemPrompt,
+        user: userPrompt,
+        ...(aiExecDraft ? { aiExecution: aiExecDraft } : {}),
+        contentTask: { kind: 'draft' },
+      })
       console.log('[AI-DRAFT] Raw LLM response:', draft.substring(0, 500))
+
+      if (isDraftReplyRunStale(messageId, genAtStart)) {
+        return buildInboxAiDraftIpcFailure(new Error('Draft superseded'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }) as {
+          ok: false
+          error: string
+          message: string
+        }
+      }
 
       /** Persist to ai_analysis_json so analysis survives clearBulkAiOutputsForIds. */
       const existingRow = db.prepare('SELECT ai_analysis_json FROM inbox_messages WHERE id = ?').get(messageId) as { ai_analysis_json?: string | null } | undefined
@@ -3791,28 +3871,33 @@ ${fullReply}`
       }
       merged.draftReply = draft.slice(0, 8000)
       merged.status = merged.status ?? 'draft_reply'
+      if (isDraftReplyRunStale(messageId, genAtStart)) {
+        return buildInboxAiDraftIpcFailure(new Error('Draft superseded'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }) as {
+          ok: false
+          error: string
+          message: string
+        }
+      }
       db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(JSON.stringify(merged), messageId)
 
       return { ok: true, data: { draft } }
-    } catch (err: any) {
-      if (isNativeBeap) {
-        return {
-          ok: true,
-          data: {
-            draft: '',
-            capsuleDraft: { publicText: '', encryptedText: '' },
-            isNativeBeap: true as const,
-            error: true,
-          },
+    } catch (err: unknown) {
+      if (isDraftReplyRunStale(messageId, genAtStart)) {
+        return buildInboxAiDraftIpcFailure(new Error('Draft superseded'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }, isNativeBeap ? { isNativeBeap: true } : undefined) as {
+          ok: false
+          error: string
+          message: string
         }
       }
-      const isTimeout = err?.message?.startsWith('LLM_TIMEOUT')
-      return {
-        ok: false,
-        error: isTimeout ? 'timeout' : 'llm_error',
-        message: err?.message ?? 'Unknown error',
+      console.error('[AI-DRAFT] error:', err)
+      return buildInboxAiDraftIpcFailure(err, { aiExecution: aiExecDraft, model: aiExecDraft?.model }, isNativeBeap ? { isNativeBeap: true } : undefined) as {
+        ok: false
+        error: string
+        message: string
       }
     }
+      },
+    )
   })
 
   ipcMain.handle('inbox:aiAnalyzeMessage', async (_e, messageId: string) => {
@@ -3893,7 +3978,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
 
       console.log('[AI-ANALYZE] System prompt length:', systemPrompt.length)
       console.log('[AI-ANALYZE] Calling LLM...')
-      const raw = await inboxLlmChat({ system: systemPrompt, user: userPrompt })
+      const raw = await inboxLlmChat({ system: systemPrompt, user: userPrompt, contentTask: { kind: 'analysis' } })
       console.log('[AI-ANALYZE] Raw LLM response:', raw.substring(0, 500))
       const parsed = parseAiJson(raw) as {
         needsReply?: boolean
@@ -3969,7 +4054,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
     }
   })
 
-  ipcMain.handle('inbox:aiAnalyzeMessageStream', async (event, messageId: string) => {
+  ipcMain.handle('inbox:aiAnalyzeMessageStream', async (event, messageId: string, opts?: InboxAiStreamInvokeOpts) => {
     if (DEBUG_AUTOSORT_DIAGNOSTICS) {
       const st = getAutosortDiagMainState()
       autosortDiagLog('aiAnalyzeMessageStream:invoke', {
@@ -3979,80 +4064,136 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
         diagRunId: st.runId,
       })
     }
-    if (activeAiAnalyzeMessageStreams.has(messageId)) {
-      console.log('[AI-ANALYZE-STREAM] Already running for:', messageId)
-      return { started: false, reason: 'already-running' as const }
-    }
-    activeAiAnalyzeMessageStreams.add(messageId)
-    console.log('[AI-ANALYZE-STREAM] Starting for message:', messageId)
-    let streamStartedOk = false
-    try {
-      const db = await resolveDbWithDiag('inbox:aiAnalyzeMessageStream')
-      if (!db) {
-        event.sender.send('inbox:aiAnalyzeMessageError', { messageId, error: 'llm_error', message: 'Database unavailable' })
-        return { started: false }
-      }
-      const row = db
-        .prepare(
-          'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id, depackaged_json, beap_package_json FROM inbox_messages WHERE id = ?',
-        )
-        .get(messageId) as
-        | {
-            from_address?: string
-            from_name?: string
-            subject?: string
-            body_text?: string
-            received_at?: string
-            source_type?: string | null
-            handshake_id?: string | null
-            depackaged_json?: string | null
-            beap_package_json?: string | null
+    const { model: tkModel, lane: tkLane } = syncInboxAiSelectionForTaskKey()
+    const taskKey = buildInboxAiTaskKey('analysis', messageId, tkModel, tkLane)
+    const supersede = !!opts?.supersede
+
+    return runInboxAiTaskWithDedup(
+      taskKey,
+      {
+        supersede,
+        supersedeKeyPrefix: `analysis:${messageId}:`,
+        messageId,
+        abortControllers: analyzeStreamAbortByMessageId,
+      },
+      async (_requestId, signal) => {
+        let streamStartedOk = false
+        let ollamaModelForStream: string | undefined
+        let aiExec: import('../llm/aiExecutionTypes').AiExecutionContext | undefined
+        try {
+          const db = await resolveDbWithDiag('inbox:aiAnalyzeMessageStream')
+          if (signal.aborted) return { started: false }
+          if (!db) {
+            if (!event.sender.isDestroyed()) {
+              event.sender.send(
+                'inbox:aiAnalyzeMessageError',
+                buildInboxAiAnalyzeErrorPayload(new Error('Database unavailable'), {
+                  messageId,
+                  operation: 'analyze_stream',
+                  aiExecution: undefined,
+                  model: undefined,
+                }),
+              )
+            }
+            return { started: false }
           }
-        | undefined
-      if (!row) {
-        event.sender.send('inbox:aiAnalyzeMessageError', { messageId, error: 'llm_error', message: 'Message not found' })
-        return { started: false }
-      }
+          const row = db
+            .prepare(
+              'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id, depackaged_json, beap_package_json FROM inbox_messages WHERE id = ?',
+            )
+            .get(messageId) as
+            | {
+                from_address?: string
+                from_name?: string
+                subject?: string
+                body_text?: string
+                received_at?: string
+                source_type?: string | null
+                handshake_id?: string | null
+                depackaged_json?: string | null
+                beap_package_json?: string | null
+              }
+            | undefined
+          if (!row) {
+            if (!event.sender.isDestroyed()) {
+              event.sender.send(
+                'inbox:aiAnalyzeMessageError',
+                buildInboxAiAnalyzeErrorPayload(new Error('Message not found'), {
+                  messageId,
+                  operation: 'analyze_stream',
+                  aiExecution: aiExec,
+                  model: ollamaModelForStream,
+                }),
+              )
+            }
+            return { started: false }
+          }
 
-      const settings = resolveInboxLlmSettings()
-      let ollamaModelForStream: string | undefined
-      if (settings.provider.toLowerCase() === 'ollama') {
-        const { ollamaManager } = await import('../llm/ollama-manager')
-        const resolved = await ollamaManager.getEffectiveChatModelName()
-        if (!resolved) {
-          event.sender.send('inbox:aiAnalyzeMessageError', {
-            messageId,
-            error: 'llm_error',
-            message: 'No AI provider available. Check Backend settings (local model or cloud API key).',
-          })
-          return { started: false }
-        }
-        ollamaModelForStream = resolved
-      } else {
-        const available = await isLlmAvailable()
-        if (!available) {
-          event.sender.send('inbox:aiAnalyzeMessageError', {
-            messageId,
-            error: 'llm_error',
-            message: 'No AI provider available. Check Backend settings (local model or cloud API key).',
-          })
-          return { started: false }
-        }
-      }
+          const settings = resolveInboxLlmSettings()
+          if (settings.provider.toLowerCase() === 'ollama') {
+            const { resolveAiExecutionContextForLlm } = await import('../llm/resolveAiExecutionContext')
+            const ctxRes = await resolveAiExecutionContextForLlm()
+            if (!ctxRes.ok) {
+              if (!event.sender.isDestroyed()) {
+                event.sender.send(
+                  'inbox:aiAnalyzeMessageError',
+                  buildInboxAiAnalyzeErrorPayload(new Error(ctxRes.error), {
+                    messageId,
+                    operation: 'analyze_stream',
+                    aiExecution: undefined,
+                    model: undefined,
+                  }),
+                )
+              }
+              return { started: false }
+            }
+            aiExec = ctxRes.ctx
+            ollamaModelForStream = ctxRes.ctx.model
+            console.log('[MODEL-DEBUG] resolved:', ctxRes.ctx.model, {
+              lane: ctxRes.ctx.lane,
+              handshakeId: ctxRes.ctx.handshakeId ?? null,
+              peerDeviceId: ctxRes.ctx.peerDeviceId ?? null,
+              baseUrl: ctxRes.ctx.baseUrl ?? null,
+              ollamaDirectReady: ctxRes.ctx.ollamaDirectReady ?? null,
+              beapReady: ctxRes.ctx.beapReady ?? null,
+              remoteModels: ctxRes.ctx.models ?? [],
+            })
+          } else {
+            const available = await isLlmAvailable()
+            if (!available) {
+              if (!event.sender.isDestroyed()) {
+                event.sender.send(
+                  'inbox:aiAnalyzeMessageError',
+                  buildInboxAiAnalyzeErrorPayload(
+                    new Error('No AI provider available. Check Backend settings (local model or cloud API key).'),
+                    {
+                      messageId,
+                      operation: 'analyze_stream',
+                      aiExecution: undefined,
+                      model: undefined,
+                    },
+                  ),
+                )
+              }
+              return { started: false }
+            }
+          }
 
-      const isNativeBeapStream =
-        row.source_type === 'direct_beap' || (!!row.handshake_id && row.source_type !== 'email_plain')
+          if (signal.aborted) return { started: false }
 
-      const sender = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
-      const body = isNativeBeapStream
-        ? buildNativeBeapAnalyzeBody(row)
-        : (row.body_text || '').trim().slice(0, 8000)
-      const sortWStream = sortSourceWeightingFromMessageRow(row)
-      const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWStream)}`
+          const isNativeBeapStream =
+            row.source_type === 'direct_beap' || (!!row.handshake_id && row.source_type !== 'email_plain')
 
-      const { tone, sortRules } = getToneAndSortForPrompts(db)
-      const contextBlock = getContextBlockForPrompts(db)
-      let systemPrompt = `You are an email triage AI for WR Desk. Analyze the following email and respond with a JSON object only. Use these exact keys:
+          const sender = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
+          const body = isNativeBeapStream
+            ? buildNativeBeapAnalyzeBody(row)
+            : (row.body_text || '').trim().slice(0, 8000)
+          const sortWStream = sortSourceWeightingFromMessageRow(row)
+          const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWStream)}`
+
+          const { tone, sortRules } = getToneAndSortForPrompts(db)
+          const contextBlock = getContextBlockForPrompts(db)
+          let systemPrompt = `You are an email triage AI for WR Desk. Analyze the following email and respond with a JSON object only. Use these exact keys:
 - needsReply: boolean — true if the user should respond to this email
 - needsReplyReason: string — one sentence explaining why (e.g. "No — this is an automated notification" or "Yes — sender is asking for clarification")
 - summary: string — 2-3 sentence summary of the message
@@ -4064,60 +4205,68 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
 - draftReply: string | null — if needsReply is true, write a professional, concise draft reply here. If needsReply is false, set draftReply to null.
 
 Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explanation.`
-      if (isNativeBeapStream) {
-        systemPrompt = `You are an email triage AI for WR Desk. The message is a BEAP handshake / native capsule. Analyze it and respond with JSON only. Keys:
+          if (isNativeBeapStream) {
+            systemPrompt = `You are an email triage AI for WR Desk. The message is a BEAP handshake / native capsule. Analyze it and respond with JSON only. Keys:
 - needsReply, needsReplyReason, summary, urgencyScore, urgencyReason, actionItems, archiveRecommendation, archiveReason (same meanings as email triage)
 - draftReplyPublic: string | null — If needsReply is true, brief 1-2 sentence preview (plain prose). If false, null.
 - draftReplyFull: string | null — If needsReply is true, full reply as natural prose (no JSON inside strings). If false, null.
 
 Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
-      }
-      if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
-      if (sortRules) systemPrompt += `\n\nUser custom sorting rules: ${sortRules}`
-      if (contextBlock) systemPrompt += contextBlock
+          }
+          if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
+          if (sortRules) systemPrompt += `\n\nUser custom sorting rules: ${sortRules}`
+          if (contextBlock) systemPrompt += contextBlock
 
-      if (ollamaModelForStream) {
-        const stream = streamInboxOllamaAnalyzeWithSandboxRouting(systemPrompt, userPrompt, ollamaModelForStream)
-        for await (const chunk of stream) {
-          if (event.sender.isDestroyed()) break
-          event.sender.send('inbox:aiAnalyzeMessageChunk', { messageId, chunk })
+          const useOllamaNdjsonStream = Boolean(
+            ollamaModelForStream && (aiExec?.lane !== 'beap' || aiExec?.ollamaDirectReady === true),
+          )
+          if (useOllamaNdjsonStream) {
+            const stream = streamInboxOllamaAnalyzeWithSandboxRouting(
+              systemPrompt,
+              userPrompt,
+              ollamaModelForStream!,
+              aiExec,
+              { kind: 'analysis' },
+            )
+            for await (const chunk of stream) {
+              if (signal.aborted || event.sender.isDestroyed()) break
+              event.sender.send('inbox:aiAnalyzeMessageChunk', { messageId, chunk })
+            }
+          } else {
+            const text = await inboxLlmChat({
+              system: systemPrompt,
+              user: userPrompt,
+              ...(aiExec ? { aiExecution: aiExec } : {}),
+              contentTask: { kind: 'analysis' },
+            })
+            if (!signal.aborted && !event.sender.isDestroyed() && text) {
+              event.sender.send('inbox:aiAnalyzeMessageChunk', { messageId, chunk: text })
+            }
+          }
+          if (!signal.aborted && !event.sender.isDestroyed()) {
+            event.sender.send('inbox:aiAnalyzeMessageDone', { messageId })
+            streamStartedOk = true
+          }
+        } catch (err: unknown) {
+          if (signal.aborted) return { started: false }
+          const msg = err instanceof Error ? err.message : String(err)
+          const stack = err instanceof Error ? err.stack : undefined
+          console.error('[Inbox IPC] aiAnalyzeMessageStream error:', msg, stack ?? err)
+          if (!event.sender.isDestroyed()) {
+            event.sender.send(
+              'inbox:aiAnalyzeMessageError',
+              buildInboxAiAnalyzeErrorPayload(err, {
+                messageId,
+                operation: 'analyze_stream',
+                aiExecution: aiExec,
+                model: ollamaModelForStream,
+              }),
+            )
+          }
         }
-      } else {
-        const text = await inboxLlmChat({ system: systemPrompt, user: userPrompt })
-        if (!event.sender.isDestroyed() && text) {
-          event.sender.send('inbox:aiAnalyzeMessageChunk', { messageId, chunk: text })
-        }
-      }
-      if (!event.sender.isDestroyed()) {
-        event.sender.send('inbox:aiAnalyzeMessageDone', { messageId })
-        streamStartedOk = true
-      }
-    } catch (err: unknown) {
-      const ir = mapInferenceRoutingErrorToIPC(err)
-      const msg = err instanceof Error ? err.message : String(err)
-      const stack = err instanceof Error ? err.stack : undefined
-      console.error('[Inbox IPC] aiAnalyzeMessageStream error:', msg, stack ?? err)
-      const isTimeout = msg.startsWith('LLM_TIMEOUT')
-      if (!event.sender.isDestroyed()) {
-        if (ir) {
-          event.sender.send('inbox:aiAnalyzeMessageError', {
-            messageId,
-            error: ir.error,
-            message: ir.message,
-            inferenceRoutingReason: ir.inferenceRoutingReason,
-          })
-        } else {
-          event.sender.send('inbox:aiAnalyzeMessageError', {
-            messageId,
-            error: isTimeout ? 'timeout' : 'llm_error',
-            message: msg || 'Unknown error',
-          })
-        }
-      }
-    } finally {
-      activeAiAnalyzeMessageStreams.delete(messageId)
-    }
-    return { started: streamStartedOk }
+        return { started: streamStartedOk }
+      },
+    )
   })
 
   /**
@@ -4244,6 +4393,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
         system: systemPrompt,
         user: userPrompt,
         resolvedContext: opts?.resolvedLlm,
+        contentTask: { kind: 'analysis' },
         llmTrace:
           opts?.resolvedLlm != null
             ? {

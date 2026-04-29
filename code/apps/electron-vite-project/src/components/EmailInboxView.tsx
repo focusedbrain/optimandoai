@@ -62,6 +62,19 @@ import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey 
 import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import { autosortDiagLog, DEBUG_AUTOSORT_DIAGNOSTICS } from '../lib/autosortDiagnostics'
+import {
+  inboxAiAnalyzeStreamErrorDisplay,
+  inboxAiDraftReplyErrorDisplay,
+  type InboxAiErrorDebugPayload,
+} from '../lib/inboxAiUserMessages'
+
+/** True when error text points at embedding /api/embed rather than chat completion. */
+function inboxFailureLooksEmbeddingOnly(message: string | undefined): boolean {
+  const m = (message ?? '').toLowerCase()
+  if (!m) return false
+  return /\/api\/embed|embedding failed|generateembedding|nomic-embed|semantic_search|semantic search/i.test(m) &&
+    !/\/api\/chat|generatechat|host inference|internal inference/i.test(m)
+}
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import '../components/handshakeViewTypes'
@@ -197,9 +210,13 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   /** Manual Summarize (IPC) — separate from auto-analysis stream so the button stays usable while streaming. */
   const [summarizeLoading, setSummarizeLoading] = useState(false)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
+  const [inboxAiAnalyzeDebug, setInboxAiAnalyzeDebug] = useState<InboxAiErrorDebugPayload | null>(null)
+  const [inboxAiSemanticDevNote, setInboxAiSemanticDevNote] = useState<string | null>(null)
   const [draft, setDraft] = useState<string | null>(null)
   const [draftLoading, setDraftLoading] = useState(false)
   const [draftError, setDraftError] = useState(false)
+  const [draftErrorMessage, setDraftErrorMessage] = useState<string | null>(null)
+  const [draftErrorDebug, setDraftErrorDebug] = useState<InboxAiErrorDebugPayload | null>(null)
   const [editedDraft, setEditedDraft] = useState('')
   const [attachments, setAttachments] = useState<DraftAttachment[]>([])
   const [actionChecked, setActionChecked] = useState<Record<number, boolean>>({})
@@ -247,7 +264,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   /** Tracks prior `isSortingActive` so we can start deferred auto-analysis when bulk sort finishes. */
   const prevSortingActiveRef = useRef(useEmailInboxStore.getState().isSortingActive)
 
-  const runAnalysisStream = useCallback(async (opts?: { manual?: boolean }) => {
+  const runAnalysisStream = useCallback(async (opts?: { manual?: boolean; supersede?: boolean }) => {
     const manual = !!opts?.manual
     const msg = messageRef.current
     if (DEBUG_AUTOSORT_DIAGNOSTICS) {
@@ -313,6 +330,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setAnalysisLoading(true)
     setAnalysis(null)
     setAnalysisError(null)
+    setInboxAiAnalyzeDebug(null)
+    setInboxAiSemanticDevNote(null)
     let accumulatedText = ''
 
     const DEFAULTS: NormalInboxAiResult = {
@@ -415,22 +434,28 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         }
         useEmailInboxStore.getState().setAnalysisCache(messageId, adjusted)
         autoAnalyzeStreamFailedRef.current.delete(messageId)
+        setAnalysisError(null)
+        setInboxAiAnalyzeDebug(null)
+        setInboxAiSemanticDevNote(null)
       }
       cleanup()
     })
 
-    const unsubError = window.emailInbox.onAiAnalyzeError(({ messageId: mid, error, message }) => {
-      if (mid !== messageId) return
+    const unsubError = window.emailInbox.onAiAnalyzeError((payload) => {
+      if (payload.messageId !== messageId) return
       autoAnalyzeStreamFailedRef.current.add(messageId)
       setAnalysisLoading(false)
-      if (error === 'inference_routing_unavailable' && typeof message === 'string' && message.trim()) {
-        setAnalysisError(message.trim())
+      const { fatalMessage, semanticDevNote } = inboxAiAnalyzeStreamErrorDisplay({
+        error: payload.error,
+        message: payload.message,
+        inboxErrorCode: payload.inboxErrorCode,
+      })
+      setAnalysisError(fatalMessage)
+      setInboxAiSemanticDevNote(semanticDevNote)
+      if (import.meta.env.DEV && payload.debug && typeof payload.debug === 'object') {
+        setInboxAiAnalyzeDebug(payload.debug as InboxAiErrorDebugPayload)
       } else {
-        setAnalysisError(
-          error === 'timeout'
-            ? 'Analysis timed out. Ollama may be slow or unavailable.'
-            : 'Analysis failed. Check that Ollama is running.',
-        )
+        setInboxAiAnalyzeDebug(null)
       }
       cleanup()
     })
@@ -441,24 +466,32 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       if (DEBUG_AUTOSORT_DIAGNOSTICS) {
         console.warn('⚡ EmailInboxView calling aiAnalyzeMessageStream', new Date().toISOString(), { messageId })
       }
-      const res = await window.emailInbox.aiAnalyzeMessageStream(messageId)
-      const deduped =
-        res &&
-        res.started === false &&
-        (res as { reason?: string }).reason === 'already-running'
+      const res = await window.emailInbox.aiAnalyzeMessageStream(messageId, { supersede: !!opts?.supersede })
+      const deduped = res?.deduped === true
       if (res?.started === false && !deduped) {
         autoAnalyzeStreamFailedRef.current.add(messageId)
         setAnalysisLoading(false)
-        setAnalysisError('Analysis failed. Check that Ollama is running.')
+        const { fatalMessage, semanticDevNote } = inboxAiAnalyzeStreamErrorDisplay({
+          inboxErrorCode: 'generation_failed',
+        })
+        setAnalysisError(fatalMessage)
+        setInboxAiSemanticDevNote(semanticDevNote)
         cleanup()
       }
     } catch {
       autoAnalyzeStreamFailedRef.current.add(messageId)
       setAnalysisLoading(false)
-      setAnalysisError('Analysis failed. Check that Ollama is running.')
+      const { fatalMessage, semanticDevNote } = inboxAiAnalyzeStreamErrorDisplay({
+        inboxErrorCode: 'generation_failed',
+      })
+      setAnalysisError(fatalMessage)
+      setInboxAiSemanticDevNote(semanticDevNote)
       cleanup()
     }
   }, [messageId])
+
+  const runAnalysisStreamRef = useRef(runAnalysisStream)
+  runAnalysisStreamRef.current = runAnalysisStream
 
   useEffect(() => {
     if (!messageId) return
@@ -474,6 +507,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       }
     }
     setAnalysisError(null)
+    setInboxAiAnalyzeDebug(null)
+    setInboxAiSemanticDevNote(null)
     setAnalysisLoading(true)
     setAnalysis(null)
     setReceivedFields(new Set())
@@ -481,6 +516,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setDraft(null)
     setEditedDraft('')
     setDraftError(false)
+    setDraftErrorMessage(null)
+    setDraftErrorDebug(null)
     setActionChecked({})
     setDraftSubFocused(false)
     setVisibleSections(new Set(['summary', 'draft', 'analysis']))
@@ -492,11 +529,11 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setSendingCapsule(false)
     setAvailableSessions([])
     draftFallbackAttemptedRef.current = false
-    runAnalysisStream()
+    runAnalysisStreamRef.current()
     return () => {
       streamCleanupRef.current?.()
     }
-  }, [messageId, runAnalysisStream])
+  }, [messageId])
 
   /** When bulk auto-sort ends, run deferred advisory stream for the selected message (auto path only). */
   useEffect(() => {
@@ -505,8 +542,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     if (!wasSorting || isSortingActive || !messageId) return
     if (autoAnalyzeStreamFailedRef.current.has(messageId)) return
     if (useEmailInboxStore.getState().analysisCache[messageId]) return
-    void runAnalysisStream()
-  }, [isSortingActive, messageId, runAnalysisStream])
+    void runAnalysisStreamRef.current()
+  }, [isSortingActive, messageId])
 
   /** FIX-H6: Clear draft-edit indicator when switching to a different message. */
   useEffect(() => {
@@ -640,8 +677,11 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
             : 'ok'
       if (isError) {
         console.warn(`[AI-SUMMARIZE][detail] fail messageId=${messageId} reason=${failReason}`)
+        const httpMsg = !res.ok ? String((res as { message?: string; error?: string }).message ?? (res as { error?: string }).error ?? '') : ''
         setAnalysisError(
-          'Couldn’t generate a summary. Check that Ollama is running, then try Summarize again.'
+          inboxFailureLooksEmbeddingOnly(httpMsg)
+            ? 'Semantic context unavailable; generated without retrieval context.'
+            : 'Couldn’t generate a summary. Check that your AI model is available, then try Summarize again.',
         )
       } else {
         console.log(`[AI-SUMMARIZE][detail] ok messageId=${messageId}`)
@@ -678,8 +718,11 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       }
     } catch (err) {
       console.warn(`[AI-SUMMARIZE][detail] fail messageId=${messageId} reason=exception`, err)
+      const msg = err instanceof Error ? err.message : ''
       setAnalysisError(
-        'Summarize failed (unexpected error). Check the developer console and try again.'
+        inboxFailureLooksEmbeddingOnly(msg)
+          ? 'Semantic context unavailable; generated without retrieval context.'
+          : 'Summarize failed (unexpected error). Check the developer console and try again.',
       )
     } finally {
       setSummarizeLoading(false)
@@ -718,20 +761,32 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     void loadSessions()
   }, [isNativeBeap])
 
-  const handleDraftReply = useCallback(async () => {
+  const handleDraftReply = useCallback(async (opts?: { supersede?: boolean }) => {
     if (!window.emailInbox?.aiDraftReply) return
     setDraftLoading(true)
     setDraft(null)
     setDraftError(false)
+    setDraftErrorMessage(null)
+    setDraftErrorDebug(null)
     setAttachments([])
     try {
-      const res = await window.emailInbox.aiDraftReply(messageId)
+      const res = await window.emailInbox.aiDraftReply(messageId, opts)
       const data = res.data
       const native = data?.isNativeBeap && data.capsuleDraft
+      const payload = res as {
+        ok: boolean
+        inboxErrorCode?: string
+        message?: string
+        error?: string
+        debug?: InboxAiErrorDebugPayload
+        data?: typeof data
+      }
       if (res.ok && native) {
         setCapsulePublicText(data.capsuleDraft!.publicText)
         setCapsuleEncryptedText(data.capsuleDraft!.encryptedText)
-        setDraftError(!!data.error)
+        setDraftError(false)
+        setDraftErrorMessage(null)
+        setDraftErrorDebug(null)
         setVisibleSections((prev) => {
           if (prev.has('draft')) return prev
           const next = new Set(prev)
@@ -742,11 +797,24 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         setDraft(data.draft)
         setEditedDraft(data.draft)
         setDraftError(!!data.error)
+        if (data.error) {
+          const { userMessage, debug } = inboxAiDraftReplyErrorDisplay(payload)
+          setDraftErrorMessage(userMessage || 'AI generation failed for the selected model.')
+          if (import.meta.env.DEV) setDraftErrorDebug(debug ?? null)
+        } else {
+          setDraftErrorMessage(null)
+          setDraftErrorDebug(null)
+        }
       } else {
         setDraftError(true)
+        const { userMessage, debug } = inboxAiDraftReplyErrorDisplay(payload)
+        setDraftErrorMessage(userMessage || 'AI generation failed for the selected model.')
+        if (import.meta.env.DEV) setDraftErrorDebug(debug ?? null)
       }
     } catch {
       setDraftError(true)
+      setDraftErrorMessage('AI generation failed for the selected model.')
+      setDraftErrorDebug(null)
     } finally {
       setDraftLoading(false)
     }
@@ -795,7 +863,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   ])
 
   const handleRegenerateDraft = useCallback(() => {
-    handleDraftReply()
+    void handleDraftReply({ supersede: true })
   }, [handleDraftReply])
 
   const handleAddAttachment = useCallback(async () => {
@@ -949,12 +1017,16 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const handleRetryAnalysis = useCallback(() => {
     autoAnalyzeStreamFailedRef.current.delete(messageId)
     setAnalysisError(null)
-    void runAnalysisStream({ manual: true })
+    setInboxAiAnalyzeDebug(null)
+    setInboxAiSemanticDevNote(null)
+    void runAnalysisStream({ manual: true, supersede: true })
   }, [messageId, runAnalysisStream])
 
   const handleRetryDraft = useCallback(() => {
     setDraftError(false)
-    handleDraftReply()
+    setDraftErrorMessage(null)
+    setDraftErrorDebug(null)
+    void handleDraftReply({ supersede: true })
   }, [handleDraftReply])
 
   const toggleActionChecked = useCallback((idx: number) => {
@@ -1050,6 +1122,19 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           <div className="inbox-detail-ai-error-banner">
             <span>{analysisError}</span>
             <button type="button" onClick={handleRetryAnalysis}>Retry</button>
+            {import.meta.env.DEV && inboxAiAnalyzeDebug && (
+              <pre
+                className="inbox-detail-ai-debug-json"
+                style={{ marginTop: 8, fontSize: 11, opacity: 0.85, whiteSpace: 'pre-wrap' }}
+              >
+                {JSON.stringify(inboxAiAnalyzeDebug, null, 2)}
+              </pre>
+            )}
+          </div>
+        )}
+        {import.meta.env.DEV && inboxAiSemanticDevNote && (
+          <div className="inbox-detail-ai-muted" style={{ marginBottom: 8, fontSize: 12 }}>
+            {inboxAiSemanticDevNote}
           </div>
         )}
 
@@ -1236,9 +1321,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           className="capsule-draft-error inbox-detail-ai-error-banner"
                           role="alert"
                         >
-                          <span>
-                            ⚠ Could not generate AI draft. Check that Ollama is running.
-                          </span>
+                          <span>{draftErrorMessage || 'AI generation failed for the selected model.'}</span>
                           <button
                             type="button"
                             className="capsule-draft-retry"
@@ -1247,6 +1330,14 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           >
                             Retry
                           </button>
+                          {import.meta.env.DEV && draftErrorDebug && (
+                            <pre
+                              className="inbox-detail-ai-debug-json"
+                              style={{ marginTop: 8, fontSize: 11, opacity: 0.85, whiteSpace: 'pre-wrap' }}
+                            >
+                              {JSON.stringify(draftErrorDebug, null, 2)}
+                            </pre>
+                          )}
                         </div>
                       )}
                       <div
@@ -1563,12 +1654,20 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                     {draft ? <span className="ai-draft-connect-hint">click to refine with AI ↑</span> : null}
                   </div>
                   <div className="inbox-detail-ai-row-value inbox-ai-draft-section">
-                    {draftError && (
+                      {draftError && (
                       <div className="inbox-detail-ai-error-banner">
-                        <span>Draft generation failed.</span>
+                        <span>{draftErrorMessage || 'AI generation failed for the selected model.'}</span>
                         <button type="button" onClick={handleRetryDraft}>
                           Retry
                         </button>
+                        {import.meta.env.DEV && draftErrorDebug && (
+                          <pre
+                            className="inbox-detail-ai-debug-json"
+                            style={{ marginTop: 8, fontSize: 11, opacity: 0.85, whiteSpace: 'pre-wrap' }}
+                          >
+                            {JSON.stringify(draftErrorDebug, null, 2)}
+                          </pre>
+                        )}
                       </div>
                     )}
                     {draftRefineConnected && draftRefineMessageId === messageId && (

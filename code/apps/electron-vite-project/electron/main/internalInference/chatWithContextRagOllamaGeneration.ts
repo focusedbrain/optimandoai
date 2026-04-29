@@ -5,10 +5,37 @@
 
 import { OllamaProvider, type AIProvider } from '../handshake/aiProviders'
 import type { LocalEmbeddingService } from '../handshake/embeddings'
+import { readStoredAiExecutionContext } from '../llm/aiExecutionContextStore'
 import { getInstanceId, isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { getSandboxOllamaDirectRouteCandidate } from './sandboxHostAiOllamaDirectCandidate'
 import { executeSandboxHostAiOllamaDirectEmbed } from './sandboxHostAiOllamaDirectEmbed'
 import { resolveSandboxInferenceTarget, type SandboxInferenceTarget } from './resolveSandboxInferenceTarget'
+import { planSandboxHostChatExecution, type BeapContentAiTask } from './beapContentAiRoute'
+
+/**
+ * When the resolver picks `local_sandbox`, still target the Host LAN URL if the user’s persisted
+ * selector is `ollama_direct` (localhost `/api/tags` can be a false positive for embed workload).
+ */
+export function createOllamaProviderForSandboxEmbedding(fallback: OllamaProvider): OllamaProvider {
+  const stored = readStoredAiExecutionContext()
+  if (stored?.lane === 'ollama_direct' && stored.handshakeId?.trim()) {
+    let b = stored.baseUrl?.trim().replace(/\/$/, '')
+    if (!b) {
+      const cand = getSandboxOllamaDirectRouteCandidate(stored.handshakeId.trim())
+      b = cand?.base_url?.trim().replace(/\/$/, '') ?? ''
+    }
+    if (b) {
+      return new OllamaProvider({
+        baseUrl: b,
+        embedModel: fallback.getOllamaEmbedModel(),
+        lane: 'ollama_direct',
+        handshakeId: stored.handshakeId,
+        peerDeviceId: stored.peerDeviceId,
+      })
+    }
+  }
+  return fallback
+}
 
 export class InferenceRoutingUnavailableError extends Error {
   readonly reason: NonNullable<Extract<SandboxInferenceTarget, { kind: 'unavailable' }>['reason']>
@@ -69,6 +96,8 @@ export async function runOllamaGenerateChatWithSandboxRouting(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   opts: GenerateChatOpts & {
     ragParams: { scope?: string; sandboxInferenceHandshakeId?: string }
+    /** When set, gates BEAP transport vs LAN `ollama_direct` for cross-device host completion. */
+    contentTask?: BeapContentAiTask
   },
 ): Promise<string> {
   const model = opts.model
@@ -88,6 +117,13 @@ export async function runOllamaGenerateChatWithSandboxRouting(
   }
   if (provider.id && provider.id !== 'ollama') {
     return direct()
+  }
+
+  const contentTask: BeapContentAiTask = opts.contentTask ?? { kind: 'chat_rag' }
+  const stored = readStoredAiExecutionContext()
+  const routePlan = planSandboxHostChatExecution(stored, contentTask)
+  if (routePlan.mode === 'blocked') {
+    throw new Error(routePlan.message)
   }
 
   const handshakeId = handshakeHintFromParams(opts.ragParams)
@@ -114,7 +150,7 @@ export async function runOllamaGenerateChatWithSandboxRouting(
     handshakeId: target.handshakeId,
     messages,
     model,
-    execution_transport: 'ollama_direct',
+    execution_transport: routePlan.mode === 'ollama_direct' ? 'ollama_direct' : undefined,
   })
   if (!r.ok) {
     const msg = r.message || r.code || 'Host inference failed'
@@ -130,6 +166,8 @@ export async function runOllamaGenerateChatWithSandboxRouting(
 export function isInferenceRoutingUnavailableError(e: unknown): e is InferenceRoutingUnavailableError {
   return e instanceof InferenceRoutingUnavailableError
 }
+
+export type { BeapContentAiTask, BeapContentAiTaskKind } from './beapContentAiRoute'
 
 /** True when Sandbox routing applies to embeddings (same rule as chat: Ollama on sandbox orchestrator only). */
 function shouldRouteSandboxOllamaEmbeddings(provider: AIProvider): boolean {
@@ -171,7 +209,8 @@ export async function runOllamaGenerateEmbeddingWithSandboxRouting(
   logSandboxInferenceSend(target, 'embedding')
 
   if (target.kind === 'local_sandbox') {
-    return ollama.generateEmbedding(text)
+    const embedder = createOllamaProviderForSandboxEmbedding(ollama)
+    return embedder.generateEmbedding(text)
   }
 
   const cand = getSandboxOllamaDirectRouteCandidate(target.handshakeId)
@@ -196,7 +235,7 @@ export function wrapOllamaEmbeddingServiceForSandbox(
   getRagParams: () => SandboxEmbeddingRoutingParams,
 ): LocalEmbeddingService {
   return {
-    modelId: provider.id,
+    modelId: provider.getOllamaEmbedModel(),
     async generateEmbedding(text: string): Promise<Float32Array> {
       const arr = await runOllamaGenerateEmbeddingWithSandboxRouting(provider, text, getRagParams())
       return new Float32Array(arr)

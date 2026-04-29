@@ -227,7 +227,7 @@ export function useInboxPreloadQueue({
       }
     }
 
-    const streamPromise = window.emailInbox?.aiAnalyzeMessageStream?.(messageId)
+    const streamPromise = window.emailInbox?.aiAnalyzeMessageStream?.(messageId, {})
     const hadStream = !!streamPromise
 
     const finish = () => {

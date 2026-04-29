@@ -335,6 +335,14 @@ describe('sandbox_lists_remote_ollama_models_even_when_beap_endpoint_missing', (
     expect(aggregatedModels.length).toBe(2)
 
     expect(logs.some((l) => l.includes('peer_host_endpoint_missing'))).toBe(true)
+    const odOnlyLog = logs.find(
+      (l) =>
+        l.includes('[HOST_INFERENCE_TARGETS]') &&
+        l.includes('beap_target_available=false') &&
+        l.includes('ollama_direct_available=true') &&
+        l.includes('ollama_direct_models=2'),
+    )
+    expect(odOnlyLog).toBeDefined()
 
     const summary = logs.find((l) => l.includes('[HOST_AI_TARGET_SUMMARY]'))
     expect(summary).toBeDefined()

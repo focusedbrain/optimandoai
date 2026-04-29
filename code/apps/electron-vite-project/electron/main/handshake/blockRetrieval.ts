@@ -6,6 +6,7 @@
  */
 
 import type { ScoredContextBlock } from './types'
+import type { ContextRetrievalResult } from './contextRetrievalTypes'
 
 // ── Block Index Structure ───────────────────────────────────────────────────
 // Each block in the index has: id, title, text content, embedding (stored in DB).
@@ -109,14 +110,44 @@ export interface RetrieveBlocksOptions {
 export async function retrieveBlocks(
   db: any,
   query: string,
-  embeddingService: { generateEmbedding(text: string): Promise<Float32Array> },
+  embeddingService: { generateEmbedding(text: string): Promise<Float32Array> } | null,
   options: RetrieveBlocksOptions = {}
-): Promise<RetrievedBlock[]> {
+): Promise<{ blocks: RetrievedBlock[]; contextRetrieval: ContextRetrievalResult }> {
   const { semanticSearch } = await import('./embeddings')
+  const { keywordSearch } = await import('./keywordSearch')
+  const { SEMANTIC_SEARCH_LOG_TAG } = await import('./contextRetrievalTypes')
   const topK = options.topK ?? DEFAULT_TOP_K
   const filter = options.filter ?? {}
+  const q = query?.trim() ?? ''
 
-  const scored = await semanticSearch(db, query, filter, Math.max(topK, 10), embeddingService)
+  let scored: ScoredContextBlock[] | null = null
+  let contextRetrieval: ContextRetrievalResult
+
+  if (!embeddingService) {
+    const kw = keywordSearch(db, q, filter, Math.max(topK, 10))
+    scored = kw
+    contextRetrieval = {
+      mode: kw.length > 0 ? 'keyword' : 'none',
+      ok: true,
+      warningCode: 'embedding_service_unavailable',
+    }
+  } else {
+    try {
+      scored = await semanticSearch(db, query, filter, Math.max(topK, 10), embeddingService)
+      contextRetrieval = { mode: 'semantic', ok: true }
+    } catch (err: unknown) {
+      const detail = err instanceof Error ? err.message : String(err)
+      console.warn(SEMANTIC_SEARCH_LOG_TAG, detail)
+      const kw = keywordSearch(db, q, filter, Math.max(topK, 10))
+      scored = kw
+      contextRetrieval = {
+        mode: kw.length > 0 ? 'keyword' : 'none',
+        ok: true,
+        warningCode: 'semantic_embed_failed',
+      }
+    }
+  }
+
   const blocks = scoredBlocksToRetrieved(scored)
 
   // Deterministic sort: by score desc, then by block_id asc for ties
@@ -125,7 +156,7 @@ export async function retrieveBlocks(
     return a.block_id.localeCompare(b.block_id)
   })
 
-  return blocks.slice(0, topK)
+  return { blocks: blocks.slice(0, topK), contextRetrieval }
 }
 
 // ── Prompt Builder ───────────────────────────────────────────────────────────
@@ -153,6 +184,11 @@ export interface ConversationContext {
 export interface BuildPromptOptions {
   /** When true and contextBlocks is empty: use "contextual search unavailable". When false: use "retrieved blocks did not contain relevant information". */
   retrievalFailed?: boolean
+  /**
+   * Embeddings/semantic search failed but the task continues (keyword had no hits or was skipped).
+   * Softer than `retrievalFailed`: instructs the model not to invent handshake-specific facts.
+   */
+  semanticContextUnavailable?: boolean
   /** When present and lastAnswer is set: prepend to prompt so LLM can resolve "this"/"that" references. */
   conversationContext?: ConversationContext
 }
@@ -174,6 +210,9 @@ export function buildPrompt(
   let contextSection: string
   if (contextBlocks.trim()) {
     contextSection = contextBlocks.trim()
+  } else if (options?.semanticContextUnavailable) {
+    contextSection =
+      '(Semantic context is unavailable. No indexed context blocks were retrieved. Answer using the user question only; do not invent handshake-specific details.)'
   } else if (options?.retrievalFailed) {
     contextSection = '(No context blocks available. Contextual search is currently unavailable.)'
   } else {
@@ -204,6 +243,8 @@ export interface BuildRagPromptOptions {
   maxContextTokens?: number
   /** When true and no blocks: use "contextual search unavailable". When false: use "retrieved blocks did not contain relevant information". */
   retrievalFailed?: boolean
+  /** When semantic/embed retrieval failed and there are no blocks; continues with question-only grounding. */
+  semanticContextUnavailable?: boolean
   /** When present: passed to buildPrompt for follow-up question resolution. */
   conversationContext?: ConversationContext
 }
@@ -237,6 +278,7 @@ export function buildRagPrompt(
   const contextBlocks = parts.length > 0 ? parts.join('\n\n') : ''
   const { system, user } = buildPrompt(contextBlocks, userQuestion, {
     retrievalFailed: opts.retrievalFailed,
+    semanticContextUnavailable: opts.semanticContextUnavailable,
     conversationContext: opts.conversationContext,
   })
 

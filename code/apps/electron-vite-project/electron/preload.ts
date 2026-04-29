@@ -963,6 +963,8 @@ contextBridge.exposeInMainWorld('handshakeView', {
     selectedAttachmentId?: string
     selectedMessageId?: string
     sandboxInferenceHandshakeId?: string
+    beapContentTaskKind?: 'summary' | 'analysis' | 'draft' | 'refine' | 'chat_rag' | 'other'
+    requiresTopChatTools?: boolean
   }) => {
     if (!params || typeof params !== 'object' || typeof params.query !== 'string') {
       throw new Error('chatWithContextRag: expected { query, scope?, model, provider }')
@@ -984,6 +986,10 @@ contextBridge.exposeInMainWorld('handshakeView', {
         typeof params.sandboxInferenceHandshakeId === 'string' && params.sandboxInferenceHandshakeId.trim()
           ? params.sandboxInferenceHandshakeId.trim()
           : undefined,
+      ...(typeof params.beapContentTaskKind === 'string' && params.beapContentTaskKind.trim()
+        ? { beapContentTaskKind: params.beapContentTaskKind.trim() }
+        : {}),
+      ...(params.requiresTopChatTools === true ? { requiresTopChatTools: true } : {}),
     })
   },
   chatDirect: (params: {
@@ -1361,9 +1367,11 @@ contextBridge.exposeInMainWorld('emailInbox', {
   getAttachmentText: (id: string) => ipcRenderer.invoke('inbox:getAttachmentText', id),
   openAttachmentOriginal: (id: string) => ipcRenderer.invoke('inbox:openAttachmentOriginal', id),
   aiSummarize: (id: string) => ipcRenderer.invoke('inbox:aiSummarize', id),
-  aiDraftReply: (id: string) => ipcRenderer.invoke('inbox:aiDraftReply', id),
+  aiDraftReply: (id: string, opts?: { supersede?: boolean }) =>
+    ipcRenderer.invoke('inbox:aiDraftReply', id, opts ?? {}),
   aiAnalyzeMessage: (id: string) => ipcRenderer.invoke('inbox:aiAnalyzeMessage', id),
-  aiAnalyzeMessageStream: (messageId: string) => ipcRenderer.invoke('inbox:aiAnalyzeMessageStream', messageId),
+  aiAnalyzeMessageStream: (messageId: string, opts?: { supersede?: boolean }) =>
+    ipcRenderer.invoke('inbox:aiAnalyzeMessageStream', messageId, opts ?? {}),
   onAiAnalyzeChunk: (cb: (data: { messageId: string; chunk: string }) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, data: { messageId: string; chunk: string }) => cb(data)
     ipcRenderer.on('inbox:aiAnalyzeMessageChunk', handler)
@@ -1374,8 +1382,27 @@ contextBridge.exposeInMainWorld('emailInbox', {
     ipcRenderer.on('inbox:aiAnalyzeMessageDone', handler)
     return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageDone', handler)
   },
-  onAiAnalyzeError: (cb: (data: { messageId: string; error: string; message: string; inferenceRoutingReason?: string }) => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, data: { messageId: string; error: string; message: string }) => cb(data)
+  onAiAnalyzeError: (
+    cb: (data: {
+      messageId: string
+      error: string
+      message: string
+      inferenceRoutingReason?: string
+      inboxErrorCode?: string
+      debug?: import('../src/lib/inboxAiUserMessages').InboxAiErrorDebugPayload
+    }) => void,
+  ) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: Record<string, unknown>) =>
+      cb(
+        data as {
+          messageId: string
+          error: string
+          message: string
+          inferenceRoutingReason?: string
+          inboxErrorCode?: string
+          debug?: import('../src/lib/inboxAiUserMessages').InboxAiErrorDebugPayload
+        },
+      )
     ipcRenderer.on('inbox:aiAnalyzeMessageError', handler)
     return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageError', handler)
   },
@@ -1471,6 +1498,12 @@ contextBridge.exposeInMainWorld('llm', {
   setActiveModel: (modelId: string) => {
     assertString(modelId, 'modelId')
     return ipcRenderer.invoke('llm:setActiveModel', modelId)
+  },
+  setAiExecutionContext: (ctx: Record<string, unknown>) => {
+    if (!ctx || typeof ctx !== 'object') {
+      throw new Error('setAiExecutionContext: expected object')
+    }
+    return ipcRenderer.invoke('llm:setAiExecutionContext', ctx)
   },
   onActiveModelChanged: (handler: (data: { modelId: string }) => void) => {
     const fn = (_e: Electron.IpcRendererEvent, data: unknown) => {

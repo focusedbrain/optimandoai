@@ -20,6 +20,8 @@ import {
 } from './structuredQuery'
 import type { LocalEmbeddingService } from './embeddings'
 import { timed, timedSync, now, elapsedMs, checkStructuredLatency, logStructuredMetrics } from './latencyInstrumentation'
+import type { ContextRetrievalResult } from './contextRetrievalTypes'
+import { SEMANTIC_SEARCH_LOG_TAG } from './contextRetrievalTypes'
 
 export interface HybridSearchFilter {
   relationship_id?: string
@@ -33,6 +35,8 @@ export interface HybridSearchResult {
   structured?: StructuredLookupResult
   /** Present when mode=semantic; top 5 blocks for prompt */
   blocks?: ScoredContextBlock[]
+  /** How context was retrieved for the semantic branch (omitted when structured fast-path wins). */
+  contextRetrieval?: ContextRetrievalResult
   /** Latency metrics for instrumentation */
   metrics?: HybridSearchMetrics
 }
@@ -64,10 +68,12 @@ export async function hybridSearch(
   const [classifierResult, classification_ms] = timedSync(() => queryClassifier(trimmedQuery))
 
   // 2. Run both paths in parallel with timing
-  const [[structuredResult, structured_ms], [semanticBlocks, semantic_ms]] = await Promise.all([
+  const [[structuredResult, structured_ms], [semanticPathOutcome, semantic_ms]] = await Promise.all([
     timed(() => runStructuredPath(db, trimmedQuery, structuredFilter, classifierResult)),
     timed(() => runSemanticPath(db, trimmedQuery, filter, embeddingService)),
   ])
+  const semanticBlocks = semanticPathOutcome.blocks
+  const contextRetrievalSemantic = semanticPathOutcome.contextRetrieval
 
   const metrics: HybridSearchMetrics = {
     classification_ms,
@@ -96,6 +102,7 @@ export async function hybridSearch(
   return {
     mode: 'semantic',
     blocks: semanticBlocks,
+    contextRetrieval: contextRetrievalSemantic,
     metrics,
   }
 }
@@ -124,8 +131,28 @@ async function runSemanticPath(
   query: string,
   filter: HybridSearchFilter,
   embeddingService: LocalEmbeddingService,
-): Promise<ScoredContextBlock[]> {
-  const { semanticSearch } = await import('./embeddings')
-  const results = await semanticSearch(db, query, filter, SEMANTIC_TOP_K, embeddingService)
-  return results
+): Promise<{ blocks: ScoredContextBlock[]; contextRetrieval: ContextRetrievalResult }> {
+  const { keywordSearch } = await import('./keywordSearch')
+  const q = query?.trim() ?? ''
+
+  try {
+    const { semanticSearch } = await import('./embeddings')
+    const results = await semanticSearch(db, query, filter, SEMANTIC_TOP_K, embeddingService)
+    return {
+      blocks: results,
+      contextRetrieval: { mode: 'semantic', ok: true },
+    }
+  } catch (err: unknown) {
+    const detail = err instanceof Error ? err.message : String(err)
+    console.warn(SEMANTIC_SEARCH_LOG_TAG, detail)
+    const blocks = keywordSearch(db, q, filter, SEMANTIC_TOP_K)
+    return {
+      blocks,
+      contextRetrieval: {
+        mode: blocks.length > 0 ? 'keyword' : 'none',
+        ok: true,
+        warningCode: 'semantic_embed_failed',
+      },
+    }
+  }
 }

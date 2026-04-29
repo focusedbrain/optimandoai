@@ -10,7 +10,7 @@
 import { vaultService } from './service'
 import type { VaultTier } from './types'
 import { processEmbeddingQueue } from '../handshake/embeddings'
-import { getOrCreateOrchestratorEmbeddingService } from '../internalInference/orchestratorSandboxEmbedding'
+import { createResolvedOrchestratorEmbeddingService } from '../internalInference/orchestratorSandboxEmbedding'
 import { migrateHandshakeTables, backfillLocalX25519PublicKey } from '../handshake/db'
 import { x25519 } from '@noble/curves/ed25519'
 
@@ -76,6 +76,9 @@ function persistHAState(): void {
   }
 }
 
+/** Resolved after async probe of /api/tags; null until then or when no embedding model is installed. */
+let _vaultEmbeddingServiceInstance: import('../handshake/embeddings').LocalEmbeddingService | null = null
+
 /**
  * Set up embedding service ref and start processing the embedding queue.
  * Called after vault unlock so semantic search and embedding indexing work.
@@ -84,7 +87,7 @@ function persistHAState(): void {
  */
 export function setupEmbeddingServiceRef(vs: typeof vaultService, handshakeDb?: any): void {
   try {
-    const embeddingService = getOrCreateOrchestratorEmbeddingService()
+    _vaultEmbeddingServiceInstance = null
     const getDb = () => {
       try {
         return vs.getHsProfileDb?.() ?? null
@@ -94,7 +97,7 @@ export function setupEmbeddingServiceRef(vs: typeof vaultService, handshakeDb?: 
     }
     ;(globalThis as any).__og_vault_service_ref = {
       getDb,
-      getEmbeddingService: () => embeddingService,
+      getEmbeddingService: () => _vaultEmbeddingServiceInstance,
       getStatus: () => vs.getStatus(),
       resolveHsProfilesForHandshake: vs.resolveHsProfilesForHandshake?.bind(vs),
     }
@@ -113,16 +116,24 @@ export function setupEmbeddingServiceRef(vs: typeof vaultService, handshakeDb?: 
           console.error('[VAULT RPC] backfillLocalX25519PublicKey failed:', e?.message ?? e)
         }
       })
-      setImmediate(() => {
-        processEmbeddingQueue(db, embeddingService).then(
-          ({ processed, failed, skipped }) => {
-            if (processed > 0 || failed > 0 || skipped > 0) {
-              console.log('[Embedding] Queue processed:', { processed, failed, skipped })
-            }
-          },
-          (err) => console.error('[Embedding] Queue processing failed:', err?.message ?? err),
-        )
-      })
+      void (async () => {
+        try {
+          _vaultEmbeddingServiceInstance = await createResolvedOrchestratorEmbeddingService()
+        } catch (e: any) {
+          console.error('[VAULT RPC] embedding service resolve failed:', e?.message ?? e)
+          _vaultEmbeddingServiceInstance = null
+        }
+        const svc = _vaultEmbeddingServiceInstance
+        if (!svc) return
+        try {
+          const { processed, failed, skipped } = await processEmbeddingQueue(db, svc)
+          if (processed > 0 || failed > 0 || skipped > 0) {
+            console.log('[Embedding] Queue processed:', { processed, failed, skipped })
+          }
+        } catch (err: any) {
+          console.error('[Embedding] Queue processing failed:', err?.message ?? err)
+        }
+      })()
     }
   } catch (err: any) {
     console.error('[VAULT RPC] setupEmbeddingServiceRef failed:', err?.message ?? err)
@@ -131,6 +142,7 @@ export function setupEmbeddingServiceRef(vs: typeof vaultService, handshakeDb?: 
 
 /** Clear embedding service ref when vault locks. */
 export function clearEmbeddingServiceRef(): void {
+  _vaultEmbeddingServiceInstance = null
   ;(globalThis as any).__og_vault_service_ref = null
 }
 

@@ -12,6 +12,12 @@ import { MODEL_CATALOG, getModelConfig } from './config'
 import { ChatRequest } from './types'
 import { resolveInboxAutosortRuntime } from './inboxAutosortRuntime'
 import { isSandboxMode } from '../orchestrator/orchestratorModeStore'
+import {
+  normalizeAiExecutionContextInput,
+  writeStoredAiExecutionContext,
+} from './aiExecutionContextStore'
+import type { AiExecutionLane } from './aiExecutionTypes'
+import { getSandboxOllamaDirectRouteCandidate } from '../internalInference/sandboxHostAiOllamaDirectCandidate'
 
 /**
  * Register all LLM-related IPC handlers
@@ -200,6 +206,46 @@ export function registerLlmHandlers() {
     }
   })
   
+  ipcMain.handle('llm:setAiExecutionContext', async (_event, raw: unknown) => {
+    try {
+      if (!raw || typeof raw !== 'object') {
+        return { ok: false as const, error: 'invalid payload' }
+      }
+      const o = raw as Record<string, unknown>
+      const normalized = normalizeAiExecutionContextInput({
+        lane: o.lane as AiExecutionLane,
+        model: typeof o.model === 'string' ? o.model : '',
+        baseUrl: typeof o.baseUrl === 'string' ? o.baseUrl : undefined,
+        handshakeId: typeof o.handshakeId === 'string' ? o.handshakeId : undefined,
+        peerDeviceId: typeof o.peerDeviceId === 'string' ? o.peerDeviceId : undefined,
+        beapReady: typeof o.beapReady === 'boolean' ? o.beapReady : undefined,
+        ollamaDirectReady: typeof o.ollamaDirectReady === 'boolean' ? o.ollamaDirectReady : undefined,
+        models: Array.isArray(o.models) ? o.models.map((x) => String(x)) : undefined,
+      })
+      if (!normalized) {
+        return { ok: false as const, error: 'invalid execution context' }
+      }
+      let toStore = normalized
+      if (toStore.lane === 'ollama_direct' && toStore.handshakeId?.trim()) {
+        const cand = getSandboxOllamaDirectRouteCandidate(toStore.handshakeId.trim())
+        const base = typeof cand?.base_url === 'string' ? cand.base_url.trim().replace(/\/$/, '') : ''
+        const peer =
+          typeof cand?.peer_host_device_id === 'string' && cand.peer_host_device_id.trim()
+            ? cand.peer_host_device_id.trim()
+            : toStore.peerDeviceId?.trim()
+        if (base) {
+          toStore = { ...toStore, baseUrl: base, peerDeviceId: peer }
+        }
+      }
+      writeStoredAiExecutionContext(toStore)
+      _getStatusCache = null
+      return { ok: true as const }
+    } catch (error: any) {
+      console.error('[LLM IPC] setAiExecutionContext failed:', error)
+      return { ok: false as const, error: error?.message ?? String(error) }
+    }
+  })
+
   ipcMain.handle('llm:setActiveModel', async (_event, modelId: string) => {
     try {
       if (isSandboxMode()) {

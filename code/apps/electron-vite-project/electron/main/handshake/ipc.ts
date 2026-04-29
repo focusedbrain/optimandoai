@@ -70,7 +70,7 @@ import { processIncomingInput } from '../ingestion/ingestionPipeline'
 import { replayBufferedContextSync } from '../p2p/coordinationWs'
 import { canonicalRebuild } from './canonicalRebuild'
 import { semanticSearch } from './embeddings'
-import { mapInferenceRoutingErrorToIPC } from '../internalInference/inferenceRoutingIpcPayload'
+import { SEMANTIC_SEARCH_LOG_TAG } from './contextRetrievalTypes'
 import { validateReceiverEmail, isSameAccountHandshakeEmails } from '../../../../../packages/shared/src/handshake/receiverEmailValidation'
 import {
   validateInternalEndpointFields,
@@ -2820,7 +2820,12 @@ export async function handleHandshakeRPC(
                   structured_result: true,
                   governance_summary: 'No restrictions' as string,
                 }]
-                return { success: true, results: enriched, degraded: 'structured_only' }
+                return {
+                  success: true,
+                  results: enriched,
+                  degraded: 'structured_only',
+                  contextRetrieval: { mode: 'none', ok: true },
+                }
               }
             }
           }
@@ -2861,7 +2866,16 @@ export async function handleHandshakeRPC(
             const snippet = extractSnippetFromPayload(r.payload_ref ?? '')
             return { ...r, governance_summary, snippet: snippet || r.payload_ref }
           })
-          return { success: true, results: enriched, degraded: 'keyword_fallback' }
+          return {
+            success: true,
+            results: enriched,
+            degraded: 'keyword_fallback',
+            contextRetrieval: {
+              mode: keywordResults.length > 0 ? 'keyword' : 'none',
+              ok: true,
+              warningCode: 'embedding_service_unavailable',
+            },
+          }
         } catch (err: any) {
           console.error('[IPC] semanticSearch degraded fallback error:', err?.message)
           return { success: false, error: 'embedding_unavailable' }
@@ -2902,20 +2916,57 @@ export async function handleHandshakeRPC(
           }
           return { ...r, governance_summary }
         })
-        return { success: true, results: enriched }
+        return { success: true, results: enriched, contextRetrieval: { mode: 'semantic', ok: true } }
       } catch (err: unknown) {
-        const ir = mapInferenceRoutingErrorToIPC(err)
-        if (ir) {
-          console.error('[IPC] semanticSearch inference routing unavailable:', ir.inferenceRoutingReason)
-          return {
-            success: false,
-            error: ir.error,
-            message: ir.message,
-            inferenceRoutingReason: ir.inferenceRoutingReason,
+        const detail = err instanceof Error ? err.message : String(err)
+        console.warn(SEMANTIC_SEARCH_LOG_TAG, detail)
+        const trimmed = (query ?? '').trim()
+        const { keywordSearch } = await import('./keywordSearch')
+        const keywordResults = keywordSearch(db, trimmed, filter, limit ?? 20)
+        const { parseGovernanceJson, resolveEffectiveGovernance } = await import('./contextGovernance')
+        const enriched = keywordResults.map((r) => {
+          const row = db.prepare('SELECT governance_json FROM context_blocks WHERE handshake_id=? AND block_id=? AND block_hash=?').get(r.handshake_id, r.block_id, r.block_hash) as { governance_json?: string } | undefined
+          const record = getHandshakeRecord(db, r.handshake_id)
+          let governance: ContextItemGovernance | null = null
+          if (record) {
+            const itemGov = parseGovernanceJson(row?.governance_json)
+            const legacy = {
+              block_id: r.block_id,
+              type: r.type,
+              data_classification: r.data_classification,
+              scope_id: r.scope_id,
+              sender_wrdesk_user_id: r.sender_wrdesk_user_id,
+              publisher_id: r.sender_wrdesk_user_id,
+              source: r.source,
+            }
+            governance = resolveEffectiveGovernance(itemGov, legacy, record, record.relationship_id)
           }
+          const policy = governance?.usage_policy
+          let governance_summary: string
+          if (!policy) {
+            governance_summary = 'No restrictions'
+          } else if (policy.local_ai_allowed === false) {
+            governance_summary = 'No AI'
+          } else if (policy.cloud_ai_allowed === true) {
+            governance_summary = 'Cloud AI allowed'
+          } else if (policy.local_ai_allowed === true) {
+            governance_summary = 'Local AI only'
+          } else {
+            governance_summary = 'No restrictions'
+          }
+          const snippet = extractSnippetFromPayload(r.payload_ref ?? '')
+          return { ...r, governance_summary, snippet: snippet || r.payload_ref }
+        })
+        return {
+          success: true,
+          results: enriched,
+          degraded: 'keyword_fallback',
+          contextRetrieval: {
+            mode: keywordResults.length > 0 ? 'keyword' : 'none',
+            ok: true,
+            warningCode: 'semantic_embed_failed',
+          },
         }
-        console.error('[IPC] semanticSearch error:', err instanceof Error ? err.message : err)
-        return { success: false, error: err instanceof Error ? err.message : 'search_failed' }
       }
     }
 

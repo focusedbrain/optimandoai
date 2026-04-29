@@ -4301,6 +4301,10 @@ app.whenReady().then(async () => {
           selectedDocumentId?: string
           /** Optional Sandbox hint for resolver (top chat handshake selection); scope `hs-*` also used when unset. */
           sandboxInferenceHandshakeId?: string
+          /** Routes LAN `ollama_direct` vs BEAP host completion ({@link planSandboxHostChatExecution}). */
+          beapContentTaskKind?: import('./main/internalInference/beapContentAiRoute').BeapContentAiTaskKind
+          /** When true, host completion uses BEAP transport and requires `beapReady`. */
+          requiresTopChatTools?: boolean
         },
       ) => {
       const toIPC = (o: unknown) => {
@@ -4339,11 +4343,38 @@ app.whenReady().then(async () => {
             typeof params.sandboxInferenceHandshakeId === 'string' ? params.sandboxInferenceHandshakeId.trim() : undefined,
         })
 
-        const embeddingService = hasEmbedding
-          ? provider.id === 'ollama'
-            ? wrapOllamaEmbeddingServiceForSandbox(provider as InstanceType<(typeof aiProvidersMod)['OllamaProvider']>, sandboxRagRoutingParams)
-            : toEmbeddingService(provider)
-          : null
+        const ragContentTask: import('./main/internalInference/beapContentAiRoute').BeapContentAiTask = {
+          kind: params.beapContentTaskKind ?? 'chat_rag',
+          requiresTopChatTools: params.requiresTopChatTools === true,
+        }
+
+        let embeddingService: import('./main/handshake/embeddings').LocalEmbeddingService | null = null
+        if (hasEmbedding) {
+          if (provider.id === 'ollama') {
+            const ollamaProv = provider as InstanceType<(typeof aiProvidersMod)['OllamaProvider']>
+            const { resolveOllamaEmbeddingAtBaseUrl } = await import('./main/llm/ollamaEmbeddingCapability')
+            const cap = await resolveOllamaEmbeddingAtBaseUrl({
+              baseUrl: ollamaProv.getOllamaBaseUrl(),
+              lane: ollamaProv.getOllamaLane(),
+              selectedChatModel: (params.model ?? ollamaProv.getOllamaChatModel()).trim(),
+              configuredEmbedModel: ollamaProv.getOllamaEmbedModel(),
+            })
+            if (cap.canGenerateEmbeddings && cap.embeddingModel) {
+              const embedProv = new aiProvidersMod.OllamaProvider({
+                baseUrl: ollamaProv.getOllamaBaseUrl(),
+                model: params.model,
+                chatModel: params.model,
+                embedModel: cap.embeddingModel,
+                lane: ollamaProv.getOllamaLane(),
+                handshakeId: ollamaProv.getOllamaHandshakeId(),
+                peerDeviceId: ollamaProv.getOllamaPeerDeviceId(),
+              })
+              embeddingService = wrapOllamaEmbeddingServiceForSandbox(embedProv, sandboxRagRoutingParams)
+            }
+          } else {
+            embeddingService = toEmbeddingService(provider)
+          }
+        }
 
         function mapInferenceRoutingError(err: unknown): unknown | null {
           const mapped = mapInferenceRoutingErrorToIPC(err)
@@ -4415,12 +4446,14 @@ app.whenReady().then(async () => {
                     stream: true,
                     send,
                     ragParams: sandboxRagRoutingParams(),
+                    contentTask: ragContentTask,
                   })
                 } else {
                   answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, messages, {
                     model: params.model,
                     stream: false,
                     ragParams: sandboxRagRoutingParams(),
+                    contentTask: ragContentTask,
                   })
                 }
               } catch (err: unknown) {
@@ -4459,6 +4492,11 @@ app.whenReady().then(async () => {
           hybridResult = {
             mode: 'semantic',
             blocks: keywordBlocks,
+            contextRetrieval: {
+              mode: keywordBlocks.length > 0 ? 'keyword' : 'none',
+              ok: true,
+              warningCode: 'embedding_service_unavailable',
+            },
             metrics: { classification_ms: 0, structured_ms: 0, semantic_ms: 0 },
           }
         } else {
@@ -4591,6 +4629,7 @@ app.whenReady().then(async () => {
                 stream: !!doStream,
                 send: doStream ? send : undefined,
                 ragParams: sandboxRagRoutingParams(),
+                contentTask: ragContentTask,
               })
               return toIPC({ success: true, answer, sources, streamed: doStream, resultType: 'context_answer' })
             } catch (err: unknown) {
@@ -4613,8 +4652,8 @@ app.whenReady().then(async () => {
           }
         }
 
-        if (embeddingService && !routerResult.useRagPipeline && routerResult.forceSemanticSearch) {
-          const structResult = await executeStructuredSearch(db, params.query ?? '', filter, embeddingService, intentResult.intent)
+        if (!routerResult.useRagPipeline && routerResult.forceSemanticSearch) {
+          const structResult = await executeStructuredSearch(db, params.query ?? '', filter, embeddingService ?? null, intentResult.intent)
           const total_ms = elapsed()
           console.log('[INTENT] Result:', structResult.domain, '| Items:', structResult.items.length, '| Latency:', structResult.latency_ms, 'ms')
 
@@ -4639,6 +4678,7 @@ app.whenReady().then(async () => {
             structuredResult: { title: structResult.title, items: structResult.items },
             intent: intentResult.intent,
             domain: structResult.domain,
+            ...(structResult.contextRetrieval && { contextRetrieval: structResult.contextRetrieval }),
             ...(debug && { latency: { query_ms_total: total_ms, intent: intentResult.intent, domain: structResult.domain } }),
           })
         }
@@ -4690,12 +4730,14 @@ app.whenReady().then(async () => {
                 stream: true,
                 send,
                 ragParams: sandboxRagRoutingParams(),
+                contentTask: ragContentTask,
               })
             } else {
               answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, messages, {
                 model: params.model,
                 stream: false,
                 ragParams: sandboxRagRoutingParams(),
+                contentTask: ragContentTask,
               })
             }
           } catch (err: unknown) {
@@ -4773,7 +4815,11 @@ app.whenReady().then(async () => {
         // not contain relevant information". When embedding unavailable but keyword fallback found
         // matches, we have context â†’ retrievalFailed=false. When embedding unavailable and no blocks â†’
         // retrievalFailed=true â†’ "contextual search unavailable".
-        const retrievalFailed = retrievedBlocks.length === 0 && embeddingUnavailable
+        const cr = hybridResult.contextRetrieval
+        const semanticContextUnavailable =
+          retrievedBlocks.length === 0 && cr?.warningCode === 'semantic_embed_failed'
+        const retrievalFailed =
+          retrievedBlocks.length === 0 && embeddingUnavailable && !semanticContextUnavailable
         const followUpPatterns = [
           /what\s+does\s+(this|that|it)\s+mean/i,
           /explain\s+(this|that|it)/i,
@@ -4791,6 +4837,7 @@ app.whenReady().then(async () => {
           : undefined
         let { systemPrompt, userPrompt, contextBlocks: contextBlocksStr } = buildRagPrompt(retrievedBlocks, params.query ?? '', {
           retrievalFailed,
+          semanticContextUnavailable,
           conversationContext,
         })
 
@@ -4833,6 +4880,7 @@ app.whenReady().then(async () => {
             stream: doStream,
             send: doStream ? send : undefined,
             ragParams: sandboxRagRoutingParams(),
+            contentTask: ragContentTask,
           })
         } catch (err: unknown) {
           const ir = mapInferenceRoutingError(err)
@@ -4884,6 +4932,7 @@ app.whenReady().then(async () => {
           sources,
           governanceNote: governanceNote ?? undefined,
           streamed: doStream,
+          ...(hybridResult.contextRetrieval && { contextRetrieval: hybridResult.contextRetrieval }),
           ...(debug && {
             latency: buildLatencyDebugPayload({
               query_ms_total: total_ms,

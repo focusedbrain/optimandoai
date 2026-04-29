@@ -6,6 +6,10 @@
  */
 
 import type { LocalEmbeddingService } from './embeddings'
+import type { AiExecutionLane } from '../llm/aiExecutionTypes'
+import { readStoredAiExecutionContext } from '../llm/aiExecutionContextStore'
+import { getSandboxOllamaDirectRouteCandidate } from '../internalInference/sandboxHostAiOllamaDirectCandidate'
+import { isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { DEBUG_AUTOSORT_DIAGNOSTICS, autosortDiagLog } from '../autosortDiagnostics'
 import {
   DEBUG_OLLAMA_RUNTIME_TRACE,
@@ -60,42 +64,176 @@ const OLLAMA_BASE = 'http://127.0.0.1:11434'
 const DEFAULT_EMBED_MODEL = 'nomic-embed-text'
 const DEFAULT_CHAT_MODEL = 'llama3.1:8b'
 
+export type OllamaProviderOptions = {
+  baseUrl?: string
+  /** Default chat model when `chatModel` is omitted (alias). */
+  model?: string
+  chatModel?: string
+  embedModel?: string
+  lane?: AiExecutionLane
+  handshakeId?: string
+  peerDeviceId?: string
+}
+
+type OllamaProviderOperation = 'chat' | 'embedding' | 'tags'
+
+function handshakeForLog(h?: string): string | null {
+  const t = typeof h === 'string' ? h.trim() : ''
+  return t || null
+}
+
+function formatCauseChain(err: unknown, depth = 0): string {
+  if (depth > 5) return '(truncated)'
+  if (err == null) return ''
+  if (err instanceof Error) {
+    const sub = err.cause !== undefined ? formatCauseChain(err.cause, depth + 1) : ''
+    return sub ? `${err.name}: ${err.message} | ${sub}` : `${err.name}: ${err.message}`
+  }
+  try {
+    const s = JSON.stringify(err)
+    return s && s !== '{}' ? s : String(err)
+  } catch {
+    return String(err)
+  }
+}
+
+function logOllamaProviderRequest(p: {
+  lane: AiExecutionLane
+  operation: OllamaProviderOperation
+  baseUrl: string
+  model: string
+  handshake: string | null
+  requestUrl: string
+}): void {
+  console.log(
+    `[OLLAMA_PROVIDER_REQUEST] lane=${p.lane} operation=${p.operation} baseUrl=${p.baseUrl} model=${p.model} handshake=${p.handshake ?? 'null'} url=${p.requestUrl}`,
+  )
+}
+
+function logOllamaProviderError(p: {
+  lane: AiExecutionLane
+  operation: OllamaProviderOperation
+  baseUrl: string
+  model: string
+  handshake: string | null
+  requestUrl: string
+  err: unknown
+}): void {
+  const name =
+    p.err instanceof Error
+      ? p.err.name
+      : typeof p.err === 'object' && p.err != null && 'name' in p.err
+        ? String((p.err as { name?: unknown }).name ?? 'unknown')
+        : 'non_error_throw'
+  let message: string
+  if (p.err instanceof Error) {
+    message = p.err.message
+  } else if (typeof p.err === 'object' && p.err != null) {
+    try {
+      const j = JSON.stringify(p.err)
+      message = j && j !== '{}' ? j : String(p.err)
+    } catch {
+      message = String(p.err)
+    }
+  } else {
+    message = String(p.err)
+  }
+  const stack = p.err instanceof Error ? p.err.stack ?? '' : ''
+  const cause =
+    p.err instanceof Error && p.err.cause !== undefined ? formatCauseChain(p.err.cause) : ''
+  console.error(
+    `[OLLAMA_PROVIDER_ERROR] lane=${p.lane} operation=${p.operation} baseUrl=${p.baseUrl} model=${p.model} handshake=${p.handshake ?? 'null'} requestUrl=${p.requestUrl} errorName=${name} errorMessage=${message} cause=${cause || '(none)'}\nerrorStack=${stack || '(none)'}`,
+  )
+}
+
 export class OllamaProvider implements AIProvider {
   readonly id = 'ollama'
   private baseUrl: string
   private embedModel: string
   private chatModel: string
+  private lane: AiExecutionLane
+  private handshakeId?: string
+  private peerDeviceId?: string
 
   /** Embedding model passed to `/api/embed` — used when routing sandbox embeddings cross-device. */
   getOllamaEmbedModel(): string {
     return this.embedModel
   }
 
-  constructor(options?: { baseUrl?: string; embedModel?: string; chatModel?: string }) {
-    this.baseUrl = options?.baseUrl ?? OLLAMA_BASE
-    this.embedModel = options?.embedModel ?? DEFAULT_EMBED_MODEL
-    this.chatModel = options?.chatModel ?? DEFAULT_CHAT_MODEL
+  getOllamaChatModel(): string {
+    return this.chatModel
+  }
+
+  getOllamaLane(): AiExecutionLane {
+    return this.lane
+  }
+
+  getOllamaBaseUrl(): string {
+    return this.baseUrl
+  }
+
+  getOllamaPeerDeviceId(): string | undefined {
+    return this.peerDeviceId
+  }
+
+  getOllamaHandshakeId(): string | undefined {
+    return this.handshakeId
+  }
+
+  constructor(options?: OllamaProviderOptions) {
+    const chatFromOpts = options?.chatModel?.trim() || options?.model?.trim()
+    this.baseUrl = (options?.baseUrl ?? OLLAMA_BASE).replace(/\/$/, '')
+    this.embedModel = options?.embedModel?.trim() || DEFAULT_EMBED_MODEL
+    this.chatModel = chatFromOpts || DEFAULT_CHAT_MODEL
+    this.lane = options?.lane ?? 'local'
+    this.handshakeId = options?.handshakeId?.trim() || undefined
+    this.peerDeviceId = options?.peerDeviceId?.trim() || undefined
+  }
+
+  private logHandshake(): string | null {
+    return handshakeForLog(this.handshakeId)
   }
 
   async generateEmbedding(text: string): Promise<number[]> {
     const url = `${this.baseUrl}/api/embed`
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: this.embedModel,
-        input: text || ' ',
-      }),
+    logOllamaProviderRequest({
+      lane: this.lane,
+      operation: 'embedding',
+      baseUrl: this.baseUrl,
+      model: this.embedModel,
+      handshake: this.logHandshake(),
+      requestUrl: url,
     })
-    if (!response.ok) {
-      throw new Error(`Ollama embedding failed: ${response.status} ${response.statusText}`)
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: this.embedModel,
+          input: text || ' ',
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(`Ollama embedding failed: ${response.status} ${response.statusText}`)
+      }
+      const data = (await response.json()) as { embedding?: number[]; embeddings?: Array<{ embedding?: number[] }> }
+      const raw = data.embedding ?? data.embeddings?.[0]?.embedding ?? data.embeddings?.[0]
+      if (!Array.isArray(raw)) {
+        throw new Error('Ollama embedding response missing embedding array')
+      }
+      return raw
+    } catch (e: unknown) {
+      logOllamaProviderError({
+        lane: this.lane,
+        operation: 'embedding',
+        baseUrl: this.baseUrl,
+        model: this.embedModel,
+        handshake: this.logHandshake(),
+        requestUrl: url,
+        err: e,
+      })
+      throw e
     }
-    const data = (await response.json()) as { embedding?: number[]; embeddings?: Array<{ embedding?: number[] }> }
-    const raw = data.embedding ?? data.embeddings?.[0]?.embedding ?? data.embeddings?.[0]
-    if (!Array.isArray(raw)) {
-      throw new Error('Ollama embedding response missing embedding array')
-    }
-    return raw
   }
 
   async generateChat(messages: Message[], options?: GenerateChatOptions): Promise<string> {
@@ -105,6 +243,15 @@ export class OllamaProvider implements AIProvider {
     const send = options?.send ?? (() => {})
 
     if (stream && send) {
+      const streamUrl = `${this.baseUrl}/api/chat`
+      logOllamaProviderRequest({
+        lane: this.lane,
+        operation: 'chat',
+        baseUrl: this.baseUrl,
+        model,
+        handshake: this.logHandshake(),
+        requestUrl: streamUrl,
+      })
       const { streamOllamaChat } = await import('./llmStream')
       const systemMsg = messages.find(m => m.role === 'system')?.content ?? ''
       const userMsg = messages.find(m => m.role === 'user')?.content ?? ''
@@ -115,6 +262,17 @@ export class OllamaProvider implements AIProvider {
       }
       try {
         return await streamOllamaChat(model, systemMsg, userMsg, send, this.baseUrl)
+      } catch (e: unknown) {
+        logOllamaProviderError({
+          lane: this.lane,
+          operation: 'chat',
+          baseUrl: this.baseUrl,
+          model,
+          handshake: this.logHandshake(),
+          requestUrl: streamUrl,
+          err: e,
+        })
+        throw e
       } finally {
         if (DEBUG_AUTOSORT_DIAGNOSTICS) {
           autosortDiagLog('OllamaProvider.generateChat:stream-end', {
@@ -127,6 +285,15 @@ export class OllamaProvider implements AIProvider {
       }
     }
 
+    const chatUrl = `${this.baseUrl}/api/chat`
+    logOllamaProviderRequest({
+      lane: this.lane,
+      operation: 'chat',
+      baseUrl: this.baseUrl,
+      model,
+      handshake: this.logHandshake(),
+      requestUrl: chatUrl,
+    })
     const _t0 = Date.now()
     const _promptChars = messages.reduce((s, m) => s + m.content.length, 0)
     let outcome: 'completed' | 'http_error' | 'aborted' | 'error' = 'completed'
@@ -158,7 +325,7 @@ export class OllamaProvider implements AIProvider {
       })
     }
     try {
-      const res = await fetch(`${this.baseUrl}/api/chat`, {
+      const res = await fetch(chatUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: options?.signal,
@@ -241,6 +408,15 @@ export class OllamaProvider implements AIProvider {
           }
         } else outcome = 'error'
       }
+      logOllamaProviderError({
+        lane: this.lane,
+        operation: 'chat',
+        baseUrl: this.baseUrl,
+        model,
+        handshake: this.logHandshake(),
+        requestUrl: chatUrl,
+        err: e,
+      })
       throw e
     } finally {
       ollamaRuntimeInFlightDelta(-1)
@@ -269,13 +445,31 @@ export class OllamaProvider implements AIProvider {
   }
 
   async isAvailable(): Promise<boolean> {
+    const url = `${this.baseUrl}/api/tags`
+    logOllamaProviderRequest({
+      lane: this.lane,
+      operation: 'tags',
+      baseUrl: this.baseUrl,
+      model: '(n/a)',
+      handshake: this.logHandshake(),
+      requestUrl: url,
+    })
     try {
-      const res = await fetch(`${this.baseUrl}/api/tags`, {
+      const res = await fetch(url, {
         method: 'GET',
         signal: AbortSignal.timeout(3000),
       })
       return res.ok
-    } catch {
+    } catch (e: unknown) {
+      logOllamaProviderError({
+        lane: this.lane,
+        operation: 'tags',
+        baseUrl: this.baseUrl,
+        model: '(n/a)',
+        handshake: this.logHandshake(),
+        requestUrl: url,
+        err: e,
+      })
       return false
     }
   }
@@ -503,11 +697,41 @@ export interface UserRagSettings {
   chatProvider?: string
 }
 
+function ollamaOptionsFromUserAndDisk(settings: UserRagSettings): OllamaProviderOptions {
+  const cm = settings.model?.trim()
+  const base: OllamaProviderOptions = {
+    ...(cm ? { chatModel: cm, model: cm } : {}),
+    lane: 'local',
+  }
+  if (!isSandboxMode()) {
+    return base
+  }
+  const stored = readStoredAiExecutionContext()
+  if (!stored || stored.lane !== 'ollama_direct' || !stored.handshakeId?.trim()) {
+    return base
+  }
+  let bUrl = stored.baseUrl?.trim().replace(/\/$/, '')
+  if (!bUrl) {
+    const cand = getSandboxOllamaDirectRouteCandidate(stored.handshakeId.trim())
+    bUrl = cand?.base_url?.trim().replace(/\/$/, '') ?? ''
+  }
+  if (!bUrl) {
+    return base
+  }
+  return {
+    ...base,
+    baseUrl: bUrl,
+    lane: 'ollama_direct',
+    handshakeId: stored.handshakeId,
+    peerDeviceId: stored.peerDeviceId,
+  }
+}
+
 export function getProvider(settings: UserRagSettings, getApiKey?: (p: string) => string | undefined): AIProvider {
   const providerLower = (settings.provider ?? 'ollama').toLowerCase()
 
   if (providerLower === 'ollama') {
-    return new OllamaProvider({ chatModel: settings.model })
+    return new OllamaProvider(ollamaOptionsFromUserAndDisk(settings))
   }
 
   const cloudProviders = ['openai', 'anthropic', 'google', 'xai', 'cloudai']
@@ -524,7 +748,7 @@ export function getProvider(settings: UserRagSettings, getApiKey?: (p: string) =
     })
   }
 
-  return new OllamaProvider({ chatModel: settings.model })
+  return new OllamaProvider(ollamaOptionsFromUserAndDisk(settings))
 }
 
 // ── Adapter for existing embedding consumers ─────────────────────────────────

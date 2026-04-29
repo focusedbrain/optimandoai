@@ -258,6 +258,9 @@ interface ResolvedInboxRuntime {
 interface LlmBridge {
   getStatus: () => Promise<{ ok: true; data: LlmOllamaStatus } | { ok: false; error: string }>
   setActiveModel: (modelId: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  setAiExecutionContext: (
+    ctx: Record<string, unknown>,
+  ) => Promise<{ ok: true } | { ok: false; error: string }>
   onActiveModelChanged: (cb: (data: { modelId: string }) => void) => () => void
   resolveAutosortRuntime: () => Promise<
     { ok: true; data: ResolvedInboxRuntime } | { ok: false; error: string }

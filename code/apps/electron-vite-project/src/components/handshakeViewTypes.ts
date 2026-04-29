@@ -6,6 +6,7 @@
 import type { VerifiedContextBlock } from './contextEscaping'
 import type { NormalInboxAiResult, BulkClassification } from '../types/inboxAi'
 import type { BeapInboxClonePrepareOk, CloneBeapToSandboxIpcResult } from '../types/beapInboxClone'
+import type { InboxAiErrorDebugPayload } from '../lib/inboxAiUserMessages'
 
 /** AutoSort session persistence / review (preload `window.autosortSession`). */
 export interface AutosortSessionAPI {
@@ -49,7 +50,13 @@ declare global {
       queryContextBlocks?: (handshakeId: string, purpose?: 'local_ai' | 'cloud_ai' | 'export' | 'search' | 'peer_transmission' | 'auto_reply') => Promise<VerifiedContextBlock[]>
       requestOriginalDocument?: (documentId: string, acknowledgedWarning: boolean, handshakeId?: string | null) => Promise<{ success: boolean; error?: string; approved?: boolean; contentBase64?: string; filename?: string; mimeType?: string }>
       requestLinkOpenApproval?: (linkEntityId: string, acknowledgedWarning: boolean, handshakeId?: string | null) => Promise<{ success: boolean; error?: string; approved?: boolean }>
-      semanticSearch?: (query: string, scope?: string, limit?: number) => Promise<{ success: boolean; error?: string; results?: Array<{ block_id: string; type?: string; snippet?: string; payload_ref?: string; score?: number }> }>
+      semanticSearch?: (query: string, scope?: string, limit?: number) => Promise<{
+        success: boolean
+        error?: string
+        results?: Array<{ block_id: string; type?: string; snippet?: string; payload_ref?: string; score?: number }>
+        degraded?: string
+        contextRetrieval?: { mode: 'semantic' | 'keyword' | 'none'; ok: boolean; warningCode?: string }
+      }>
       getAvailableModels?: () => Promise<{
         success: boolean
         error?: string
@@ -99,6 +106,8 @@ declare global {
         selectedMessageId?: string
         /** Sandbox: optional resolver hint (top chat handshake); scope `hs-*` works when omitted. */
         sandboxInferenceHandshakeId?: string
+        beapContentTaskKind?: 'summary' | 'analysis' | 'draft' | 'refine' | 'chat_rag' | 'other'
+        requiresTopChatTools?: boolean
       }) => Promise<{
         success: boolean
         error?: string
@@ -116,6 +125,7 @@ declare global {
         intent?: string
         domain?: string
         latency?: { total_ms: number; classification_ms?: number; structured_ms?: number; semantic_ms?: number; block_retrieval_ms?: number; llm_ms?: number; cache_hit?: boolean; provider?: string; intent?: string; domain?: string }
+        contextRetrieval?: { mode: 'semantic' | 'keyword' | 'none'; ok: boolean; warningCode?: string }
       }>
       onChatStreamStart?: (callback: (data: { contextBlocks: string[]; sources: unknown[] }) => void) => () => void
       onChatStreamToken?: (callback: (data: { token: string }) => void) => () => void
@@ -660,7 +670,10 @@ export interface EmailInboxBridge {
   }>
   openAttachmentOriginal: (id: string) => Promise<{ ok: boolean; data?: { opened: boolean }; error?: string }>
   aiSummarize: (id: string) => Promise<{ ok: boolean; data?: { summary: string }; error?: string }>
-  aiDraftReply: (id: string) => Promise<{
+  aiDraftReply: (
+    id: string,
+    opts?: { supersede?: boolean },
+  ) => Promise<{
     ok: boolean
     data?: {
       draft: string
@@ -670,13 +683,28 @@ export interface EmailInboxBridge {
       error?: boolean
     }
     error?: string
+    message?: string
+    inboxErrorCode?: string
+    debug?: InboxAiErrorDebugPayload
+    requestId?: string
+    deduped?: boolean
   }>
   aiAnalyzeMessage: (id: string) => Promise<{ ok: boolean; data?: NormalInboxAiResult; error?: string }>
-  aiAnalyzeMessageStream: (messageId: string) => Promise<{ started: boolean }>
+  aiAnalyzeMessageStream: (
+    messageId: string,
+    opts?: { supersede?: boolean },
+  ) => Promise<{ started: boolean; requestId?: string; deduped?: boolean }>
   onAiAnalyzeChunk: (cb: (data: { messageId: string; chunk: string }) => void) => () => void
   onAiAnalyzeDone: (cb: (data: { messageId: string }) => void) => () => void
   onAiAnalyzeError: (
-    cb: (data: { messageId: string; error: string; message: string; inferenceRoutingReason?: string }) => void,
+    cb: (data: {
+      messageId: string
+      error: string
+      message: string
+      inferenceRoutingReason?: string
+      inboxErrorCode?: string
+      debug?: InboxAiErrorDebugPayload
+    }) => void,
   ) => () => void
   aiCategorize: (ids: string[]) => Promise<{ ok: boolean; data?: { classifications?: BulkClassification[] }; error?: string }>
   aiClassifySingle?: (

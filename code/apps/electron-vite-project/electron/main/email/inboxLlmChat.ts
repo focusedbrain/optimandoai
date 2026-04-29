@@ -4,7 +4,6 @@
 
 import { getProvider, type UserRagSettings } from '../handshake/aiProviders'
 import { ocrRouter } from '../ocr/router'
-import { ollamaManager } from '../llm/ollama-manager'
 import { DEBUG_AUTOSORT_DIAGNOSTICS, autosortDiagLog } from '../autosortDiagnostics'
 import type { VisionProvider } from '../ocr/types'
 import { DEBUG_ACTIVE_OLLAMA_MODEL } from '../llm/activeOllamaModelStore'
@@ -13,6 +12,9 @@ import {
   ollamaRuntimeLog,
   type OllamaRuntimeRequestTrace,
 } from '../llm/ollamaRuntimeDiagnostics'
+import type { AiExecutionContext } from '../llm/aiExecutionTypes'
+import { NO_AI_MODEL_SELECTED, resolveAiExecutionContextForLlm } from '../llm/resolveAiExecutionContext'
+import type { BeapContentAiTask } from '../internalInference/beapContentAiRoute'
 
 export const INBOX_LLM_TIMEOUT_MS = 45_000
 
@@ -107,8 +109,8 @@ export async function isLlmAvailable(): Promise<boolean> {
   if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ isLlmAvailable CALLED', new Date().toISOString())
   const settings = resolveInboxLlmSettings()
   if (settings.provider.toLowerCase() === 'ollama') {
-    const models = await ollamaManager.listModels()
-    return models.length > 0
+    const r = await resolveAiExecutionContextForLlm()
+    return r.ok
   }
   const vp = visionForRagSettings(settings)
   if (!vp) return false
@@ -120,9 +122,13 @@ export async function isLlmAvailable(): Promise<boolean> {
 export async function inboxSupportsOllamaStream(): Promise<boolean> {
   const settings = resolveInboxLlmSettings()
   if (settings.provider.toLowerCase() !== 'ollama') return false
-  const { ollamaManager } = await import('../llm/ollama-manager')
-  const models = await ollamaManager.listModels()
-  return models.length > 0
+  const r = await resolveAiExecutionContextForLlm()
+  if (!r.ok) return false
+  /** BEAP lane uses HTTP stream only when LAN Ollama direct is ready; otherwise one-shot host chat. */
+  if (r.ctx.lane === 'beap') {
+    return r.ctx.ollamaDirectReady === true
+  }
+  return true
 }
 
 // ── Resolved LLM context (for bulk/batch callers) ────────────────────────────
@@ -133,10 +139,12 @@ export async function inboxSupportsOllamaStream(): Promise<boolean> {
  * classifySingleMessage() to skip redundant listModels() calls per message.
  */
 export interface ResolvedLlmContext {
-  /** Model name as returned by Ollama (e.g. "gemma3:12b") or a cloud model id. */
+ /** Model name as returned by Ollama (e.g. "gemma3:12b") or a cloud model id. */
   model: string
   /** Provider id — "ollama", "openai", "anthropic", "google", "xai", "cloudai", etc. */
   provider: string
+  /** Set when `provider === 'ollama'` — sandbox Host routing + LAN base. */
+  aiExecution?: AiExecutionContext
 }
 
 /**
@@ -154,12 +162,12 @@ export async function preResolveInboxLlm(): Promise<ResolvedLlmContext | null> {
   const providerLower = settings.provider.toLowerCase()
 
   if (providerLower === 'ollama') {
-    const model = await ollamaManager.getEffectiveChatModelName()
-    if (!model) return null
+    const r = await resolveAiExecutionContextForLlm()
+    if (!r.ok) return null
     if (DEBUG_ACTIVE_OLLAMA_MODEL) {
-      console.warn('[ActiveOllamaModel] preResolveInboxLlm →', model)
+      console.warn('[ActiveOllamaModel] preResolveInboxLlm →', r.ctx.model, r.ctx.lane)
     }
-    return { model, provider: 'ollama' }
+    return { model: r.ctx.model, provider: 'ollama', aiExecution: r.ctx }
   }
 
   // Cloud provider: verify the API key is present
@@ -176,19 +184,34 @@ export interface InboxLlmChatParams {
   timeoutMs?: number
   /**
    * When provided by a bulk caller (e.g. classifySingleMessage from aiCategorize),
-   * inboxLlmChat skips the listModels() lookup and uses this pre-resolved model/provider.
-   * This prevents N parallel messages from each firing their own /api/tags request.
+   * inboxLlmChat skips redundant resolver work and uses this pre-resolved model/provider.
    */
   resolvedContext?: ResolvedLlmContext
+  /**
+   * Explicit routing (e.g. AI-ANALYZE-STREAM) — skips `resolveAiExecutionContextForLlm` when set.
+   */
+  aiExecution?: AiExecutionContext
   /** Optional correlation for DEBUG_OLLAMA_RUNTIME_TRACE (bulk auto-sort). */
   llmTrace?: OllamaRuntimeRequestTrace
+  /**
+   * Sandbox → Host: classify call for LAN `ollama_direct` vs BEAP transport ({@link planSandboxHostChatExecution}).
+   */
+  contentTask?: BeapContentAiTask
 }
 
 /**
  * Non-stream chat for inbox classify / summarize / draft / analyze.
  */
 export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> {
-  const { system, user, timeoutMs = INBOX_LLM_TIMEOUT_MS, resolvedContext, llmTrace } = params
+  const {
+    system,
+    user,
+    timeoutMs = INBOX_LLM_TIMEOUT_MS,
+    resolvedContext,
+    aiExecution: aiExecutionParam,
+    llmTrace,
+    contentTask,
+  } = params
   if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ inboxLlmChat CALLED', new Date().toISOString(), {
     caller: new Error().stack?.split('\n')[2]?.trim(),
     model: resolvedContext?.model ?? '(will resolve)',
@@ -201,21 +224,27 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
   const getApiKey = (p: string) => ocrRouter.getApiKey(p as VisionProvider)
   const provider = getProvider(settings, getApiKey)
 
-  let modelOverride: string | undefined
-  if (resolvedContext) {
-    // Fast path: caller already did the listModels() lookup — skip it entirely.
-    modelOverride = resolvedContext.model
-  } else if (provider.id === 'ollama') {
-    const resolved = await ollamaManager.getEffectiveChatModelName()
-    if (!resolved) {
-      throw new Error('No LLM model installed. Install a local model or configure a cloud API key in Backend settings.')
+  let aiExecution: AiExecutionContext | undefined =
+    aiExecutionParam ?? resolvedContext?.aiExecution
+  let modelOverride: string | undefined = resolvedContext?.model
+
+  if (provider.id === 'ollama') {
+    if (!aiExecution) {
+      const r = await resolveAiExecutionContextForLlm()
+      if (!r.ok) {
+        throw new Error(r.error)
+      }
+      aiExecution = r.ctx
     }
-    modelOverride = resolved
+    modelOverride = (modelOverride ?? aiExecution.model).trim()
+    if (!modelOverride) {
+      throw new Error(NO_AI_MODEL_SELECTED)
+    }
     if (DEBUG_ACTIVE_OLLAMA_MODEL) {
-      console.warn('[ActiveOllamaModel] inboxLlmChat ollama model →', resolved)
+      console.warn('[ActiveOllamaModel] inboxLlmChat ollama →', modelOverride, aiExecution.lane)
     }
   } else {
-    modelOverride = settings.model
+    modelOverride = resolvedContext?.model ?? settings.model
   }
 
   const messages = [
@@ -223,74 +252,160 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
     { role: 'user' as const, content: user },
   ]
 
-  const ac = new AbortController()
-  let outerTimeoutFired = false
-  const timeoutId = setTimeout(() => {
-    outerTimeoutFired = true
-    if (DEBUG_AUTOSORT_DIAGNOSTICS) {
-      autosortDiagLog('inboxLlmChat:outer-timeout', { timeoutMs, action: 'AbortController.abort' })
-    }
-    if (DEBUG_OLLAMA_RUNTIME_TRACE) {
-      ollamaRuntimeLog('inboxLlmChat:timeout_abortSignal', {
+  const { isSandboxMode } = await import('../orchestrator/orchestratorModeStore')
+  if (provider.id === 'ollama' && aiExecution && isSandboxMode()) {
+    if (aiExecution.lane === 'ollama_direct' || aiExecution.lane === 'beap') {
+      const { planSandboxHostChatExecution } = await import('../internalInference/beapContentAiRoute')
+      const plan = planSandboxHostChatExecution(aiExecution, contentTask ?? { kind: 'other' })
+      if (plan.mode === 'blocked') {
+        const e = new Error(plan.message)
+        ;(e as Error & { inboxFailureCode?: string }).inboxFailureCode = plan.code
+        throw e
+      }
+      const hid = aiExecution.handshakeId?.trim()
+      if (!hid) {
+        throw new Error(NO_AI_MODEL_SELECTED)
+      }
+      const { runSandboxHostInferenceChat } = await import('../internalInference/sandboxHostChat')
+      const out = await runSandboxHostInferenceChat({
+        handshakeId: hid,
+        messages,
+        model: modelOverride,
         timeoutMs,
-        providerId: provider.id,
-        model: modelOverride,
-        /** AbortController.abort() cancels the in-flight `fetch` to Ollama (client side). Server may still finish one request. */
-        httpClientAbort: true,
-        ...llmTrace,
+        execution_transport: plan.mode === 'ollama_direct' ? 'ollama_direct' : undefined,
       })
+      if (!out.ok) {
+        const e = new Error(out.message || out.code || 'Host inference failed')
+        ;(e as Error & { inboxFailureCode?: string }).inboxFailureCode = out.code
+        throw e
+      }
+      const trimmed = typeof out.output === 'string' ? out.output.trim() : ''
+      return trimmed || 'No response from model.'
     }
-    ac.abort()
-  }, timeoutMs)
-
-  if (DEBUG_AUTOSORT_DIAGNOSTICS) {
-    autosortDiagLog('inboxLlmChat:fetch-started', { timeoutMs, providerId: provider.id })
   }
 
-  try {
-    const bulkOllamaAutosort = provider.id === 'ollama' && llmTrace?.source === 'bulk_autosort'
-    const text = await provider.generateChat(messages, {
+  if (provider.id === 'ollama' && aiExecution) {
+    const { OllamaProvider } = await import('../handshake/aiProviders')
+    const ollamaProv = new OllamaProvider({
+      baseUrl: aiExecution.baseUrl ?? 'http://127.0.0.1:11434',
       model: modelOverride,
-      stream: false,
-      signal: ac.signal,
-      runtimeTrace: llmTrace,
-      ...(bulkOllamaAutosort ? { ollamaKeepAlive: '15m' as const } : {}),
+      chatModel: modelOverride,
+      lane: aiExecution.lane,
+      handshakeId: aiExecution.handshakeId,
+      peerDeviceId: aiExecution.peerDeviceId,
     })
-    clearTimeout(timeoutId)
+    const ac = new AbortController()
+    let outerTimeoutFired = false
+    const timeoutId = setTimeout(() => {
+      outerTimeoutFired = true
+      if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+        autosortDiagLog('inboxLlmChat:outer-timeout', { timeoutMs, action: 'AbortController.abort' })
+      }
+      if (DEBUG_OLLAMA_RUNTIME_TRACE) {
+        ollamaRuntimeLog('inboxLlmChat:timeout_abortSignal', {
+          timeoutMs,
+          providerId: 'ollama',
+          model: modelOverride,
+          httpClientAbort: true,
+          ...llmTrace,
+        })
+      }
+      ac.abort()
+    }, timeoutMs)
     if (DEBUG_AUTOSORT_DIAGNOSTICS) {
-      autosortDiagLog('inboxLlmChat:completed', {
-        providerId: provider.id,
-        signalAborted: ac.signal.aborted,
-      })
+      autosortDiagLog('inboxLlmChat:fetch-started', { timeoutMs, providerId: 'ollama' })
     }
-    const trimmed = typeof text === 'string' ? text.trim() : ''
-    return trimmed || 'No response from model.'
-  } catch (e) {
-    clearTimeout(timeoutId)
-    const abortErr = isAbortError(e)
-    if (DEBUG_OLLAMA_RUNTIME_TRACE && (abortErr || ac.signal.aborted)) {
-      ollamaRuntimeLog('inboxLlmChat:settled', {
-        outcome: outerTimeoutFired && abortErr ? 'timeout' : abortErr ? 'aborted' : 'error',
-        isAbortError: abortErr,
-        signalAborted: ac.signal.aborted,
-        outerTimeoutFired,
-        mapsToInboxTimeout: ac.signal.aborted && (abortErr || outerTimeoutFired),
-        providerId: provider.id,
+    try {
+      const bulkOllamaAutosort = llmTrace?.source === 'bulk_autosort'
+      const text = await ollamaProv.generateChat(messages, {
         model: modelOverride,
-        ...llmTrace,
+        stream: false,
+        signal: ac.signal,
+        runtimeTrace: llmTrace,
+        ...(bulkOllamaAutosort ? { ollamaKeepAlive: '15m' as const } : {}),
       })
+      clearTimeout(timeoutId)
+      const trimmed = typeof text === 'string' ? text.trim() : ''
+      return trimmed || 'No response from model.'
+    } catch (e) {
+      clearTimeout(timeoutId)
+      const abortErr = isAbortError(e)
+      if (ac.signal.aborted && (abortErr || outerTimeoutFired)) {
+        throw new InboxLlmTimeoutError()
+      }
+      throw e
     }
-    if (DEBUG_AUTOSORT_DIAGNOSTICS) {
-      autosortDiagLog('inboxLlmChat:settled', {
-        outerTimeoutFired,
-        isAbortError: abortErr,
-        signalAborted: ac.signal.aborted,
-        mapsToInboxTimeout: ac.signal.aborted && (abortErr || outerTimeoutFired),
-      })
-    }
-    if (ac.signal.aborted && (abortErr || outerTimeoutFired)) {
-      throw new InboxLlmTimeoutError()
-    }
-    throw e
   }
+
+  if (provider.id !== 'ollama') {
+    const ac = new AbortController()
+    let outerTimeoutFired = false
+    const timeoutId = setTimeout(() => {
+      outerTimeoutFired = true
+      if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+        autosortDiagLog('inboxLlmChat:outer-timeout', { timeoutMs, action: 'AbortController.abort' })
+      }
+      if (DEBUG_OLLAMA_RUNTIME_TRACE) {
+        ollamaRuntimeLog('inboxLlmChat:timeout_abortSignal', {
+          timeoutMs,
+          providerId: provider.id,
+          model: modelOverride,
+          httpClientAbort: true,
+          ...llmTrace,
+        })
+      }
+      ac.abort()
+    }, timeoutMs)
+
+    if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+      autosortDiagLog('inboxLlmChat:fetch-started', { timeoutMs, providerId: provider.id })
+    }
+
+    try {
+      const text = await provider.generateChat(messages, {
+        model: modelOverride,
+        stream: false,
+        signal: ac.signal,
+        runtimeTrace: llmTrace,
+      })
+      clearTimeout(timeoutId)
+      if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+        autosortDiagLog('inboxLlmChat:completed', {
+          providerId: provider.id,
+          signalAborted: ac.signal.aborted,
+        })
+      }
+      const trimmed = typeof text === 'string' ? text.trim() : ''
+      return trimmed || 'No response from model.'
+    } catch (e) {
+      clearTimeout(timeoutId)
+      const abortErr = isAbortError(e)
+      if (DEBUG_OLLAMA_RUNTIME_TRACE && (abortErr || ac.signal.aborted)) {
+        ollamaRuntimeLog('inboxLlmChat:settled', {
+          outcome: outerTimeoutFired && abortErr ? 'timeout' : abortErr ? 'aborted' : 'error',
+          isAbortError: abortErr,
+          signalAborted: ac.signal.aborted,
+          outerTimeoutFired,
+          mapsToInboxTimeout: ac.signal.aborted && (abortErr || outerTimeoutFired),
+          providerId: provider.id,
+          model: modelOverride,
+          ...llmTrace,
+        })
+      }
+      if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+        autosortDiagLog('inboxLlmChat:settled', {
+          outerTimeoutFired,
+          isAbortError: abortErr,
+          signalAborted: ac.signal.aborted,
+          mapsToInboxTimeout: ac.signal.aborted && (abortErr || outerTimeoutFired),
+        })
+      }
+      if (ac.signal.aborted && (abortErr || outerTimeoutFired)) {
+        throw new InboxLlmTimeoutError()
+      }
+      throw e
+    }
+  }
+
+  throw new Error('inboxLlmChat: unsupported ollama configuration')
 }

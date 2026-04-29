@@ -1264,7 +1264,7 @@ describe('Host AI P2P — bundle defaults (no WRDESK env)', () => {
     expect(joined).toMatch(
       /\[HOST_AI_TRANSPORT_DECIDE\].*preferred=webrtc_p2p.*selector_phase=connecting.*failureCode=null/s,
     )
-    expect(joined).toMatch(/target_available=false reason=transport_not_ready/s)
+    expect(joined).toMatch(/beap_target_available=false reason=transport_not_ready/s)
     expect(t.transportMode).toBe('webrtc_p2p')
     expect(t.p2pUiPhase).toBe('hidden')
     expect(t.available).toBe(false)

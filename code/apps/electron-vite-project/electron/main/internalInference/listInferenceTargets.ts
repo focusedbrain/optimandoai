@@ -87,6 +87,7 @@ import { hostAiUserFacingMessageFromTarget } from '../../../src/lib/hostAiUiDiag
 import type { HostAiTargetStatus } from './hostAiTargetStatus'
 
 const L = '[HOST_INFERENCE_TARGETS]'
+/** Log fields: `beap_target_available` = BEAP / top-chat path trusted and ready; `ollama_direct_available` = LAN Ollama tags path usable (do not conflate the two). */
 
 /**
  * `/api/tags` classification allows skipping BEAP/WebRTC policy work for model listing — LAN ODL is not gated by the BEAP transport selector.
@@ -2165,7 +2166,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
             `[HOST_AI_CAPABILITY_PROBE] transport=webrtc_p2p ok=false reason=${pr} handshake=${hid} p2p_phase=${phProbe}`,
           )
           console.log(
-            `${L} target_available=false reason=transport_not_ready handshake=${hid} session=${sState?.sessionId ?? 'null'} transport=webrtc_p2p`,
+            `${L} beap_target_available=false reason=transport_not_ready handshake=${hid} session=${sState?.sessionId ?? 'null'} transport=webrtc_p2p`,
           )
           targets.push(finalizeItem(tConn))
           continue
@@ -2212,7 +2213,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         const phProbe = getSessionState(hid)?.phase ?? 'none'
         const pr = p2pCapabilityDcWaitOutcomeLogReason(waitOut)
         console.log(`[HOST_AI_CAPABILITY_PROBE] transport=webrtc_p2p ok=false reason=${pr} handshake=${hid} p2p_phase=${phProbe}`)
-        console.log(`${L} target_available=false reason=transport_not_ready handshake=${hid} transport=webrtc_p2p (precap_guard)`)
+        console.log(`${L} beap_target_available=false reason=transport_not_ready handshake=${hid} transport=webrtc_p2p (precap_guard)`)
         targets.push(finalizeItem(tConn))
         continue
       }
@@ -2577,7 +2578,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           host_ai_endpoint_diagnostics: diagE,
         }
         console.log(
-          `${L} target_available=false reason=${structE} handshake=${hid} detail=probe_terminal_identity code=${codeStr} deny=${hostAiEndpointDenyDetailProbe ?? 'n/a'}`,
+          `${L} beap_target_available=false reason=${structE} handshake=${hid} detail=probe_terminal_identity code=${codeStr} deny=${hostAiEndpointDenyDetailProbe ?? 'n/a'}`,
         )
         targets.push(finalizeItem(tE))
         continue
@@ -2622,7 +2623,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           `[HOST_AI_CAPABILITY_PROBE] transport=webrtc_p2p ok=false reason=transport_not_ready handshake=${hid}`,
         )
         console.log(
-          `${L} target_available=false reason=transport_not_ready handshake=${hid} detail=probe_${capabilityProbeLogDetailToken(InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY)}`,
+          `${L} beap_target_available=false reason=transport_not_ready handshake=${hid} detail=probe_${capabilityProbeLogDetailToken(InternalInferenceErrorCode.PROBE_TRANSPORT_NOT_READY)}`,
         )
         targets.push(finalizeItem(tStill))
         continue
@@ -2702,7 +2703,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       }
       const pr = isPolicyForbid ? 'POLICY_DISABLED' : 'CAPABILITY_PROBE_FAILED'
       if (structured) {
-        console.log(`${L} target_available=false reason=${structured} handshake=${hid} probe_code=${String(code)}`)
+        console.log(`${L} beap_target_available=false reason=${structured} handshake=${hid} probe_code=${String(code)}`)
       }
       console.log(`${L} target_disabled handshake=${hid} reason=${pr} detail=probe_${capabilityProbeLogDetailToken(String(code))}`)
       targets.push(finalizeItem(t))
@@ -2896,7 +2897,9 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         p2pUiPhase: 'host_transport_unavailable',
         failureCode: InternalInferenceErrorCode.PROBE_HOST_UNREACHABLE,
       }
-      console.log(`${L} target_available=false reason=ollama_direct_transport_unavailable handshake=${hid}`)
+      console.log(
+        `${L} beap_target_available=false ollama_direct_available=false reason=ollama_direct_transport_unavailable handshake=${hid}`,
+      )
       targets.push(finalizeItem(tOd))
       continue
     }
@@ -2934,7 +2937,9 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         p2pUiPhase: 'probe_invalid_response',
         failureCode: InternalInferenceErrorCode.PROBE_INVALID_RESPONSE,
       }
-      console.log(`${L} target_available=false reason=ollama_direct_invalid_advertisement handshake=${hid}`)
+      console.log(
+        `${L} beap_target_available=false ollama_direct_available=false reason=ollama_direct_invalid_advertisement handshake=${hid}`,
+      )
       targets.push(finalizeItem(tInv))
       continue
     }
@@ -3001,7 +3006,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           `[HOST_AI_CAPABILITY_PROBE] transport=${transportProbeLabel} ok=true handshake=${hid} source=ollama_direct tags_models=${pushed}`,
         )
         console.log(
-          `${L} target_available=true transport=${transportProbeLabel} handshake=${hid} ollama_direct_models=${pushed} beap_lane=trusted`,
+          `${L} beap_target_available=true ollama_direct_available=true transport=${transportProbeLabel} handshake=${hid} ollama_direct_models=${pushed} beap_lane=trusted`,
         )
       } else {
         /** BEAP/top-chat gated; OD tags succeeded — stash BEAP warning only (see `beapFailureCode`). */
@@ -3068,7 +3073,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           `[HOST_AI_CAPABILITY_PROBE] transport=${transportProbeLabel} ok=tags_only handshake=${hid} source=ollama_direct tags_models=${pushed} beap_lane=untrusted_direct_only status=${laneStatusUntrusted}`,
         )
         console.log(
-          `${L} target_available=false transport=${transportProbeLabel} handshake=${hid} ollama_direct_models=${pushed} reason=${peerEndpointMissingUntrusted ? 'peer_host_endpoint_missing' : 'trust_misrouting'}`,
+          `${L} beap_target_available=false ollama_direct_available=true transport=${transportProbeLabel} handshake=${hid} ollama_direct_models=${pushed} reason=${peerEndpointMissingUntrusted ? 'peer_host_endpoint_missing' : 'trust_misrouting'}`,
         )
       }
       continue
@@ -3111,7 +3116,9 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           p2pUiPhase: 'no_model',
           failureCode: InternalInferenceErrorCode.PROBE_NO_MODELS,
         }
-        console.log(`${L} target_available=false reason=ollama_direct_no_models handshake=${hid}`)
+        console.log(
+          `${L} beap_target_available=false ollama_direct_available=false reason=ollama_direct_no_models ollama_direct_models=0 handshake=${hid}`,
+        )
         targets.push(finalizeItem(t))
         continue
       }
@@ -3166,7 +3173,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       console.log(
         `[HOST_CAPS] inference_ready=false reason=${hostRemoteOllamaDown ? 'host_remote_ollama_unreachable' : 'no_models'} handshake=${hid}`,
       )
-      console.log(`${L} target_available=false reason=no_models handshake=${hid}`)
+      console.log(`${L} beap_target_available=false reason=no_models handshake=${hid}`)
       console.log(
         `${L} target_disabled handshake=${hid} reason=HOST_NO_ACTIVE_LOCAL_LLM detail=probe_${capabilityProbeLogDetailToken(String(rowFailure))} (row_kept for discovery)`,
       )
@@ -3220,7 +3227,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     const transportProbeLabel = listDec.preferredTransport === 'legacy_http' ? 'direct_http' : 'webrtc_p2p'
     console.log(`[HOST_AI_CAPABILITY_PROBE] transport=${transportProbeLabel} ok=true handshake=${hid}`)
     console.log(
-      `${L} target_available=true transport=${transportProbeLabel} models=1 handshake=${hid} model=${defaultChatModel}`,
+      `${L} beap_target_available=true ollama_direct_available=${ollamaWireHostReachable} transport=${transportProbeLabel} models=1 handshake=${hid} model=${defaultChatModel}`,
     )
     console.log(`${L} target_added handshake=${hid} model=${defaultChatModel}`)
     targets.push(

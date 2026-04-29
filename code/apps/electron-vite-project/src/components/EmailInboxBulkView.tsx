@@ -3540,7 +3540,7 @@ export default function EmailInboxBulkView({
         if (DEBUG_AI_DIAGNOSTICS) {
           console.warn('⚡ EmailInboxBulkView calling aiAnalyzeMessageStream', new Date().toISOString(), { messageId })
         }
-        await bridge.aiAnalyzeMessageStream!(messageId)
+        await bridge.aiAnalyzeMessageStream!(messageId, {})
         if (!streamFailed) {
           finalNormal = tryParseAnalysis(accumulatedText)
         }

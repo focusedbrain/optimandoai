@@ -6,6 +6,8 @@
  */
 
 import type { ChatIntent } from './intentClassifier'
+import type { ContextRetrievalResult } from './contextRetrievalTypes'
+import { SEMANTIC_SEARCH_LOG_TAG } from './contextRetrievalTypes'
 
 export interface StructuredResultItem {
   id: string
@@ -27,6 +29,7 @@ export interface StructuredExecutionResult {
   latency_ms: number
   intent: ChatIntent
   domain: string
+  contextRetrieval?: ContextRetrievalResult
 }
 
 function friendlyTypeName(type: string | undefined): string {
@@ -54,13 +57,39 @@ export async function executeStructuredSearch(
   db: any,
   query: string,
   filter: { handshake_id?: string; relationship_id?: string },
-  embeddingService: { generateEmbedding(text: string): Promise<Float32Array> },
+  embeddingService: { generateEmbedding(text: string): Promise<Float32Array> } | null,
   intent: ChatIntent,
 ): Promise<StructuredExecutionResult> {
   const start = typeof performance !== 'undefined' ? performance.now() : Date.now()
 
   const { semanticSearch } = await import('./embeddings')
-  const results = await semanticSearch(db, query, filter, 10, embeddingService)
+  const { keywordSearch } = await import('./keywordSearch')
+
+  let results: Awaited<ReturnType<typeof semanticSearch>>
+  let contextRetrieval: ContextRetrievalResult
+
+  if (!embeddingService) {
+    results = keywordSearch(db, query.trim(), filter, 10)
+    contextRetrieval = {
+      mode: results.length > 0 ? 'keyword' : 'none',
+      ok: true,
+      warningCode: 'embedding_service_unavailable',
+    }
+  } else {
+    try {
+      results = await semanticSearch(db, query, filter, 10, embeddingService)
+      contextRetrieval = { mode: 'semantic', ok: true }
+    } catch (err: unknown) {
+      const detail = err instanceof Error ? err.message : String(err)
+      console.warn(SEMANTIC_SEARCH_LOG_TAG, detail)
+      results = keywordSearch(db, query.trim(), filter, 10)
+      contextRetrieval = {
+        mode: results.length > 0 ? 'keyword' : 'none',
+        ok: true,
+        warningCode: 'semantic_embed_failed',
+      }
+    }
+  }
 
   const domain = intent === 'document_lookup' ? 'inbox' : intent === 'inbox_lookup' ? 'inbox' : 'semantic'
   const title =
@@ -100,5 +129,6 @@ export async function executeStructuredSearch(
     latency_ms,
     intent,
     domain,
+    contextRetrieval,
   }
 }

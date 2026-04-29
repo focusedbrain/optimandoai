@@ -9,7 +9,10 @@ import {
   logSandboxInferenceSend,
 } from '../internalInference/chatWithContextRagOllamaGeneration'
 import { resolveSandboxInferenceTarget } from '../internalInference/resolveSandboxInferenceTarget'
+import { getSandboxOllamaDirectRouteCandidate } from '../internalInference/sandboxHostAiOllamaDirectCandidate'
+import { planSandboxHostChatExecution, type BeapContentAiTask } from '../internalInference/beapContentAiRoute'
 import { isSandboxMode } from '../orchestrator/orchestratorModeStore'
+import type { AiExecutionContext } from '../llm/aiExecutionTypes'
 
 const LOCAL_OLLAMA_BASE = 'http://127.0.0.1:11434'
 
@@ -85,13 +88,34 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
   systemPrompt: string,
   userPrompt: string,
   modelId: string,
+  execCtx?: AiExecutionContext | null,
+  contentTask?: BeapContentAiTask,
 ): AsyncGenerator<string, void, undefined> {
   if (!isSandboxMode()) {
     yield* streamOllamaChatNdjsonFromBaseUrl(LOCAL_OLLAMA_BASE, systemPrompt, userPrompt, modelId)
     return
   }
 
-  const target = await resolveSandboxInferenceTarget({})
+  const task = contentTask ?? { kind: 'analysis' as const }
+  const plan = planSandboxHostChatExecution(execCtx ?? null, task)
+  if (plan.mode === 'blocked') {
+    throw new Error(plan.message)
+  }
+
+  let streamBase = (execCtx?.baseUrl ?? '').trim().replace(/\/$/, '')
+  if (!streamBase && execCtx?.handshakeId?.trim() && plan.mode === 'ollama_direct') {
+    const cand = getSandboxOllamaDirectRouteCandidate(execCtx.handshakeId.trim())
+    streamBase = (cand?.base_url ?? '').trim().replace(/\/$/, '')
+  }
+
+  if (plan.mode === 'ollama_direct' && streamBase) {
+    yield* streamOllamaChatNdjsonFromBaseUrl(streamBase, systemPrompt, userPrompt, modelId)
+    return
+  }
+
+  const target = await resolveSandboxInferenceTarget({
+    handshakeId: execCtx?.handshakeId,
+  })
 
   if (target.kind === 'unavailable') {
     if (target.reason === 'no_local_ollama_no_cross_device_host') {

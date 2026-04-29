@@ -6,6 +6,7 @@ import { wrChatDashboardWarn } from '../lib/wrChatDashboardLog'
 import { setWrChatRuntimeSurface } from '../lib/wrChatRuntimeMode'
 import { ensureWrdeskChromeShim } from '../shims/wrChatDashboardChrome'
 import { isHostInferenceModelId } from '../lib/hostInferenceModelIds'
+import { buildAiExecutionContextIpcPayload } from '../lib/aiExecutionContextFromSelection'
 import {
   accountKeyFromSession,
   readWrChatInferenceSelection,
@@ -398,6 +399,10 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
     if (preferred && !isHostInferenceModelId(preferred) && typeof window.llm?.setActiveModel === 'function') {
       void window.llm.setActiveModel(preferred)
     }
+    if (preferred && typeof window.llm?.setAiExecutionContext === 'function') {
+      const payload = buildAiExecutionContextIpcPayload(preferred, discovered.gavForHook)
+      if (payload) void window.llm.setAiExecutionContext(payload)
+    }
     if (!preferred && hostRows.length === 1 && hostRows[0]?.hostAvailable) {
       preferred = hostRows[0].name
     }
@@ -582,6 +587,10 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
       setActiveLlmModel(next)
       setInferenceSelectionPersistError(null)
       persistWrChatModelId(next, wrChatModelsForPersist(availableModels))
+      const payload = buildAiExecutionContextIpcPayload(next, gavHostTargets)
+      if (payload && typeof window.llm?.setAiExecutionContext === 'function') {
+        void window.llm.setAiExecutionContext(payload)
+      }
       if (!isHostInferenceModelId(next) && typeof window.llm?.setActiveModel === 'function') {
         void window.llm.setActiveModel(next)
       }
@@ -590,13 +599,17 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
       clearWrChatInferenceSelection()
     }
     setHostAiStale(false)
-  }, [availableModels])
+  }, [availableModels, gavHostTargets])
 
   const onModelSelect = useCallback(
     (name: string) => {
       setActiveLlmModel(name)
       setInferenceSelectionPersistError(null)
       persistWrChatModelId(name, wrChatModelsForPersist(availableModels))
+      const payload = buildAiExecutionContextIpcPayload(name, gavHostTargets)
+      if (payload && typeof window.llm?.setAiExecutionContext === 'function') {
+        void window.llm.setAiExecutionContext(payload)
+      }
       if (isHostInferenceModelId(name)) {
         return
       }
@@ -606,7 +619,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
       }
       void window.llm.setActiveModel(name)
     },
-    [availableModels],
+    [availableModels, gavHostTargets],
   )
 
   if (!ready) {
