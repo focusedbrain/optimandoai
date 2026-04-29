@@ -10,7 +10,8 @@ import { oidc } from './oidcConfig';
 // Returns clear error objects for UI display on failure.
 // ============================================================================
 
-const DISCOVERY_URL = `${oidc.issuer}/.well-known/openid-configuration`;
+/** Full OIDC discovery document URL (issuer is {@link oidc.issuer}). */
+export const OIDC_DISCOVERY_DOCUMENT_URL = `${oidc.issuer}/.well-known/openid-configuration`;
 
 // Cache TTL: 1 hour (discovery endpoints rarely change)
 const CACHE_TTL_MS = 60 * 60 * 1000;
@@ -56,6 +57,22 @@ export interface DiscoverySuccess {
 
 export type DiscoveryResult = DiscoverySuccess | DiscoveryError;
 
+/** Single-line diagnostic for logs and Error messages (avoids generic "Failed to fetch" only). */
+export function formatDiscoveryFailure(r: DiscoveryError): string {
+  const tail = r.details ? ` — ${r.details}` : ''
+  return `[${r.code}] ${r.message}${tail} (GET ${OIDC_DISCOVERY_DOCUMENT_URL})`
+}
+
+function logDiscoveryFailure(r: DiscoveryError): void {
+  console.error('[OIDC_DISCOVERY]', {
+    issuer: oidc.issuer,
+    url: OIDC_DISCOVERY_DOCUMENT_URL,
+    code: r.code,
+    message: r.message,
+    details: r.details ?? null,
+  })
+}
+
 // In-memory cache
 let cachedDiscovery: OidcDiscovery | null = null;
 let cacheTimestamp: number = 0;
@@ -94,7 +111,7 @@ export async function fetchDiscovery(forceRefresh = false): Promise<DiscoveryRes
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
-    const response = await fetch(DISCOVERY_URL, {
+    const response = await fetch(OIDC_DISCOVERY_DOCUMENT_URL, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
       signal: controller.signal,
@@ -103,24 +120,28 @@ export async function fetchDiscovery(forceRefresh = false): Promise<DiscoveryRes
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      return {
+      const err: DiscoveryError = {
         ok: false,
         code: 'NETWORK_ERROR',
-        message: 'Failed to fetch OIDC configuration',
-        details: `HTTP ${response.status}: ${response.statusText}`,
-      };
+        message: 'OIDC discovery HTTP error',
+        details: `status=${response.status} statusText=${response.statusText || '(empty)'}`,
+      }
+      logDiscoveryFailure(err)
+      return err
     }
 
     let config: Record<string, unknown>;
     try {
       config = await response.json();
     } catch {
-      return {
+      const err: DiscoveryError = {
         ok: false,
         code: 'INVALID_RESPONSE',
         message: 'Invalid OIDC discovery response',
-        details: 'Response is not valid JSON',
-      };
+        details: 'Response body is not valid JSON',
+      }
+      logDiscoveryFailure(err)
+      return err
     }
 
     // Validate required fields
@@ -128,22 +149,26 @@ export async function fetchDiscovery(forceRefresh = false): Promise<DiscoveryRes
     const missingFields = requiredFields.filter((field) => !config[field]);
 
     if (missingFields.length > 0) {
-      return {
+      const err: DiscoveryError = {
         ok: false,
         code: 'MISSING_FIELDS',
         message: 'OIDC discovery response missing required fields',
         details: `Missing: ${missingFields.join(', ')}`,
-      };
+      }
+      logDiscoveryFailure(err)
+      return err
     }
 
     // Validate issuer matches expected value
     if (config.issuer !== oidc.issuer) {
-      return {
+      const err: DiscoveryError = {
         ok: false,
         code: 'ISSUER_MISMATCH',
         message: 'OIDC issuer does not match expected value',
         details: `Expected: ${oidc.issuer}, Got: ${config.issuer}`,
-      };
+      }
+      logDiscoveryFailure(err)
+      return err
     }
 
     // Build discovery object
@@ -163,24 +188,44 @@ export async function fetchDiscovery(forceRefresh = false): Promise<DiscoveryRes
 
     return { ok: true, discovery };
   } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const cause =
+      error instanceof Error && 'cause' in error && error.cause != null
+        ? error.cause instanceof Error
+          ? error.cause.message
+          : String(error.cause)
+        : undefined
+    const stackHint =
+      error instanceof Error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : undefined
+
     // Handle abort (timeout)
     if (error instanceof Error && error.name === 'AbortError') {
-      return {
+      const err: DiscoveryError = {
         ok: false,
         code: 'NETWORK_ERROR',
         message: 'OIDC discovery request timed out',
-        details: 'Request took longer than 10 seconds',
-      };
+        details: 'Request aborted after 10s (check firewall / proxy / captive portal)',
+      }
+      logDiscoveryFailure(err)
+      return err
     }
 
-    return {
+    const err: DiscoveryError = {
       ok: false,
       code: 'NETWORK_ERROR',
-      message: 'Failed to connect to identity provider',
-      details: errorMessage,
-    };
+      message: 'OIDC discovery network or transport failure',
+      details: [
+        `error.name=${error instanceof Error ? error.name : 'unknown'}`,
+        `message=${errorMessage}`,
+        cause ? `cause=${cause}` : null,
+        stackHint ? `at=${stackHint}` : null,
+        'hint=If message is "Failed to fetch", check DNS, TLS inspection, offline state, and that auth is reachable independently of local Ollama/BEAP.',
+      ]
+        .filter(Boolean)
+        .join(' | '),
+    }
+    logDiscoveryFailure(err)
+    return err
   }
 }
 
@@ -196,7 +241,7 @@ export async function getOidcDiscovery(): Promise<OidcDiscovery> {
   const result = await fetchDiscovery();
   
   if (!result.ok) {
-    throw new Error(`${result.message}${result.details ? `: ${result.details}` : ''}`);
+    throw new Error(formatDiscoveryFailure(result));
   }
   
   return result.discovery;

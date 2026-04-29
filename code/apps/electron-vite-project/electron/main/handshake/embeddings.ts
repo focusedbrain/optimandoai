@@ -20,8 +20,8 @@ const DEFAULT_EMBED_MODEL = 'nomic-embed-text'
  * LocalEmbeddingService implementation using Ollama's embedding API.
  * Requires Ollama running with an embedding model (e.g. nomic-embed-text) installed.
  *
- * Host orchestrator uses this directly via `getOrCreateEmbeddingService`. Sandbox uses
- * Sandbox orchestrator uses {@link createResolvedOrchestratorEmbeddingService} (resolver + cross-device LAN embed) instead.
+ * Host orchestrator uses this directly via `getOrCreateEmbeddingService`. Sandbox orchestrator may use
+ * {@link getOrCreateOrchestratorEmbeddingService} (vault/IPC hot path) or {@link createResolvedOrchestratorEmbeddingService} when a resolver is required.
  */
 export class OllamaEmbeddingService implements LocalEmbeddingService {
   readonly modelId: string

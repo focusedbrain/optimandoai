@@ -3,7 +3,7 @@ import { oidc } from './oidcConfig';
 import { randomString, sha256base64url } from './pkce';
 import { startLoopbackServer } from './loopback';
 import { verifyIdToken } from './jwtVerify';
-import { fetchDiscovery } from './discovery';
+import { fetchDiscovery, formatDiscoveryFailure } from './discovery';
 
 export interface OidcTokens {
   access_token: string;
@@ -172,7 +172,7 @@ export async function prepareLoginUrl(): Promise<{
 }> {
   const discoveryResult = await fetchDiscovery();
   if (!discoveryResult.ok) {
-    throw new Error(`OIDC discovery failed: ${discoveryResult.message}`);
+    throw new Error(`OIDC discovery failed: ${formatDiscoveryFailure(discoveryResult)}`);
   }
   const { authorization_endpoint, token_endpoint } = discoveryResult.discovery;
 
@@ -272,7 +272,7 @@ export async function loginWithKeycloak(): Promise<OidcTokens> {
   // Fetch OIDC discovery (cached after first call)
   const discoveryResult = await fetchDiscovery();
   if (!discoveryResult.ok) {
-    throw new Error(`OIDC discovery failed: ${discoveryResult.message}`);
+    throw new Error(`OIDC discovery failed: ${formatDiscoveryFailure(discoveryResult)}`);
   }
   const { authorization_endpoint, token_endpoint } = discoveryResult.discovery;
 

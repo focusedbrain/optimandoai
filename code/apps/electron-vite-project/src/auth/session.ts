@@ -1,7 +1,7 @@
 import { loadRefreshToken, clearRefreshToken, saveRefreshToken } from './tokenStore';
 import { getCachedUserInfo, setCachedUserInfo } from './sessionCache';
 export { getCachedUserInfo } from './sessionCache';
-import { refreshWithKeycloak } from './refresh';
+import { refreshWithKeycloak, OidcRefreshError, type RefreshTokenResponse } from './refresh';
 import { extractSsoTierFromRoles, mapRolesToTier, resolveTier, type Tier } from './capabilities';
 
 // ============================================================================
@@ -219,8 +219,9 @@ function extractUserInfoFromTokens(tokens: {
   const roles = [...new Set([...rolesFromId, ...rolesFromAccess])];
 
   // Profile: prefer id_token (identity claims), fallback to access_token
-  const profilePayload = idPayload || accessPayload;
-  const profile = extractProfileFromPayload(profilePayload);
+  const profilePayload = idPayload ?? accessPayload
+  if (!profilePayload) return null
+  const profile = extractProfileFromPayload(profilePayload)
 
   // Debug logging for plan extraction
   if (plan) {
@@ -300,19 +301,14 @@ export async function ensureSession(forceRefresh = false): Promise<{ accessToken
     return { accessToken: null };
   }
 
-  try {
-    const tokens = await refreshWithKeycloak(refreshToken);
-
-    // Keep access token and expiry in memory
+  const applyRefreshedTokens = async (tokens: RefreshTokenResponse) => {
     accessToken = tokens.access_token;
     expiresAt = Date.now() + tokens.expires_in * 1000;
 
-    // Extract user info from BOTH tokens (plan from access_token first, then id_token)
     setCachedUserInfo(extractUserInfoFromTokens(tokens));
     const u = getCachedUserInfo();
     console.log('[SESSION] Token refresh: hasIdToken=' + !!tokens.id_token + ', wrdesk_plan=' + (u?.wrdesk_plan || '(none)') + ', roleCount=' + (u?.roles?.length ?? 0));
 
-    // === DEBUG: Token-Rollen prüfen ===
     const debugPayload = decodeJwtPayload(tokens.access_token);
     if (debugPayload) {
       console.log('[DEBUG] Access Token realm_access:', JSON.stringify(debugPayload.realm_access));
@@ -321,23 +317,43 @@ export async function ensureSession(forceRefresh = false): Promise<{ accessToken
       console.log('[DEBUG] Extracted roles:', JSON.stringify(extractRoles(debugPayload)));
       console.log('[DEBUG] Resolved tier:', mapRolesToTier(extractRoles(debugPayload)));
     }
-    // === END DEBUG ===
 
-    // Save new refresh token if provided (token rotation)
     if (tokens.refresh_token) {
       await saveRefreshToken(tokens.refresh_token);
     }
 
-    // [CHECKPOINT F] Log unlock decision: refresh succeeded
     console.log('[SESSION][F] ensureSession: UNLOCKED (refresh succeeded, expiresAt=' + new Date(expiresAt!).toISOString() + ')');
     return { accessToken, userInfo: getCachedUserInfo() || undefined };
+  };
+
+  try {
+    let tokens: RefreshTokenResponse;
+    try {
+      tokens = await refreshWithKeycloak(refreshToken);
+    } catch (e) {
+      if (e instanceof OidcRefreshError && e.recoverable) {
+        console.warn('[SESSION] Token refresh failed (recoverable), retrying once:', e.message);
+        await new Promise((r) => setTimeout(r, 800));
+        tokens = await refreshWithKeycloak(refreshToken);
+      } else {
+        throw e;
+      }
+    }
+    return await applyRefreshedTokens(tokens);
   } catch (err) {
-    // Refresh failed - clear stored token
+    if (err instanceof OidcRefreshError && err.recoverable) {
+      console.warn(
+        '[SESSION][F] ensureSession: transient refresh failure — keeping refresh token and cached user profile:',
+        err.message,
+      );
+      accessToken = null;
+      expiresAt = null;
+      return { accessToken: null, userInfo: getCachedUserInfo() || undefined };
+    }
     await clearRefreshToken();
     accessToken = null;
     expiresAt = null;
     setCachedUserInfo(null);
-    // [CHECKPOINT F] Log unlock decision: refresh failed
     console.log('[SESSION][F] ensureSession: LOCKED (reason=refresh_failed)');
     return { accessToken: null };
   }
