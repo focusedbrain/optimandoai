@@ -6,7 +6,9 @@
 
 import { getSandboxOllamaDirectRouteCandidate } from '../internalInference/sandboxHostAiOllamaDirectCandidate'
 import { listSandboxHostInternalInferenceTargets } from '../internalInference/listInferenceTargets'
-import { isSandboxMode } from '../orchestrator/orchestratorModeStore'
+import { getHandshakeDbForInternalInference } from '../internalInference/dbAccess'
+import { getHostAiLedgerRoleSummaryFromDb } from '../internalInference/hostAiEffectiveRole'
+import { getInstanceId, getOrchestratorMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { ollamaManager } from './ollama-manager'
 import type { AiExecutionContext, ResolveAiExecutionContextResult } from './aiExecutionTypes'
 import { readStoredAiExecutionContext } from './aiExecutionContextStore'
@@ -102,6 +104,18 @@ async function tryLocalContext(): Promise<AiExecutionContext | null> {
   }
 }
 
+/**
+ * Persisted `orchestrator-mode.json` can disagree with handshake-derived roles (ledger is authoritative
+ * for Host AI — mirrors `shouldApplySandboxOllamaInferenceRouting` in `chatWithContextRagOllamaGeneration.ts`).
+ */
+async function isEffectiveSandboxSideForAiExecution(): Promise<boolean> {
+  if (isSandboxMode()) return true
+  const db = await getHandshakeDbForInternalInference()
+  const om = getOrchestratorMode()
+  const summary = getHostAiLedgerRoleSummaryFromDb(db, getInstanceId().trim(), String(om.mode))
+  return summary.can_probe_host_endpoint
+}
+
 export async function resolveAiExecutionContextForLlm(): Promise<ResolveAiExecutionContextResult> {
   const stored = readStoredAiExecutionContext()
 
@@ -111,7 +125,7 @@ export async function resolveAiExecutionContextForLlm(): Promise<ResolveAiExecut
       ctx = enrichOllamaDirectBase(ctx)
     }
 
-    if (!isSandboxMode()) {
+    if (!(await isEffectiveSandboxSideForAiExecution())) {
       if (ctx.lane === 'ollama_direct' || ctx.lane === 'beap') {
         const local = await tryLocalContext()
         if (local) return { ok: true, ctx: local }
@@ -134,7 +148,7 @@ export async function resolveAiExecutionContextForLlm(): Promise<ResolveAiExecut
     return { ok: true, ctx: { ...ctx, baseUrl: ctx.baseUrl ?? 'http://127.0.0.1:11434' } }
   }
 
-  if (isSandboxMode()) {
+  if (await isEffectiveSandboxSideForAiExecution()) {
     const fb = await fallbackFromListSandbox()
     if (fb) return { ok: true, ctx: fb }
   }
