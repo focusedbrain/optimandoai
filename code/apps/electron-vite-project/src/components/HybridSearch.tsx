@@ -2026,6 +2026,10 @@ export default function HybridSearch({
             })
           } else {
             const ragQuery = milestoneContextBlock ? chatQuery + milestoneContextBlock : chatQuery
+            const ragSandboxInferenceHandshakeId =
+              parseAnyHostInferenceModelId(selectedModel)?.handshakeId?.trim() ||
+              (typeof selectedHandshakeId === 'string' ? selectedHandshakeId.trim() : '') ||
+              undefined
             result = await window.handshakeView?.chatWithContextRag?.({
               query: ragQuery,
               scope: effectiveScope,
@@ -2036,7 +2040,7 @@ export default function HybridSearch({
               selectedDocumentId: selectedDocumentId ?? undefined,
               selectedAttachmentId: selectedAttachmentId ?? undefined,
               selectedMessageId: selectedMessageId ?? undefined,
-              sandboxInferenceHandshakeId: selectedHandshakeId ?? undefined,
+              sandboxInferenceHandshakeId: ragSandboxInferenceHandshakeId,
               beapContentTaskKind: isDraftRefine ? 'refine' : 'chat_rag',
               requiresTopChatTools: false,
             })

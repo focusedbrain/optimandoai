@@ -6,7 +6,9 @@
 import { OllamaProvider, type AIProvider } from '../handshake/aiProviders'
 import type { LocalEmbeddingService } from '../handshake/embeddings'
 import { readStoredAiExecutionContext } from '../llm/aiExecutionContextStore'
-import { getInstanceId, isSandboxMode } from '../orchestrator/orchestratorModeStore'
+import { getInstanceId, getOrchestratorMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
+import { getHandshakeDbForInternalInference } from './dbAccess'
+import { getHostAiLedgerRoleSummaryFromDb } from './hostAiEffectiveRole'
 import { getSandboxOllamaDirectRouteCandidate } from './sandboxHostAiOllamaDirectCandidate'
 import { executeSandboxHostAiOllamaDirectEmbed } from './sandboxHostAiOllamaDirectEmbed'
 import { resolveSandboxInferenceTarget, type SandboxInferenceTarget } from './resolveSandboxInferenceTarget'
@@ -74,6 +76,15 @@ function handshakeHintFromParams(params: {
   return undefined
 }
 
+/** Orchestrator mode is a UX hint; ledger {@link getHostAiLedgerRoleSummaryFromDb} proves sandbox peer for routing. */
+async function shouldApplySandboxOllamaInferenceRouting(): Promise<boolean> {
+  if (isSandboxMode()) return true
+  const db = await getHandshakeDbForInternalInference()
+  const om = getOrchestratorMode()
+  const summary = getHostAiLedgerRoleSummaryFromDb(db, getInstanceId().trim(), String(om.mode))
+  return summary.can_probe_host_endpoint
+}
+
 type GenerateChatOpts = {
   model: string
   stream?: boolean
@@ -112,10 +123,10 @@ export async function runOllamaGenerateChatWithSandboxRouting(
       ...(typeof opts.temperature === 'number' ? { temperature: opts.temperature } : {}),
     })
 
-  if (!isSandboxMode()) {
+  if (provider.id && provider.id !== 'ollama') {
     return direct()
   }
-  if (provider.id && provider.id !== 'ollama') {
+  if (!(await shouldApplySandboxOllamaInferenceRouting())) {
     return direct()
   }
 
@@ -169,11 +180,6 @@ export function isInferenceRoutingUnavailableError(e: unknown): e is InferenceRo
 
 export type { BeapContentAiTask, BeapContentAiTaskKind } from './beapContentAiRoute'
 
-/** True when Sandbox routing applies to embeddings (same rule as chat: Ollama on sandbox orchestrator only). */
-function shouldRouteSandboxOllamaEmbeddings(provider: AIProvider): boolean {
-  return isSandboxMode() && provider.id === 'ollama'
-}
-
 export type SandboxEmbeddingRoutingParams = {
   scope?: string
   sandboxInferenceHandshakeId?: string
@@ -188,7 +194,10 @@ export async function runOllamaGenerateEmbeddingWithSandboxRouting(
   text: string,
   ragParams: SandboxEmbeddingRoutingParams,
 ): Promise<number[]> {
-  if (!shouldRouteSandboxOllamaEmbeddings(provider)) {
+  if (provider.id !== 'ollama') {
+    return provider.generateEmbedding(text)
+  }
+  if (!(await shouldApplySandboxOllamaInferenceRouting())) {
     return provider.generateEmbedding(text)
   }
 

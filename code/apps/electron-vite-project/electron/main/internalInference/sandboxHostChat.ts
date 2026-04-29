@@ -4,7 +4,7 @@
 
 import { randomUUID } from 'crypto'
 import { getHandshakeRecord } from '../handshake/db'
-import { getInstanceId, isSandboxMode } from '../orchestrator/orchestratorModeStore'
+import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { getP2pInferenceFlags } from './p2pInferenceFlags'
 import { requestHostCompletion } from './transport/internalInferenceTransport'
@@ -64,9 +64,6 @@ export async function runSandboxHostInferenceChat(params: {
   const hid = String(params.handshakeId ?? '').trim()
   if (!hid) {
     return { ok: false, code: InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE, message: 'handshakeId' }
-  }
-  if (!isSandboxMode()) {
-    return { ok: false, code: InternalInferenceErrorCode.INVALID_INTERNAL_ROLE, message: 'not sandbox' }
   }
   if (!Array.isArray(params.messages) || params.messages.length < 1) {
     return { ok: false, code: InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE, message: 'messages' }
