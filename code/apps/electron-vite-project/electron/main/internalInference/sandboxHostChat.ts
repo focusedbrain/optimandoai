@@ -122,16 +122,41 @@ export async function runSandboxHostInferenceChat(params: {
     const requestId = randomUUID()
     const requestTimeoutMs = clampTimeoutMs(params.timeoutMs)
     const promise = registerInternalInferenceRequest(requestId, requestTimeoutMs)
-    const out = await executeSandboxHostAiOllamaDirectChat({
-      handshakeId: hid,
-      currentDeviceId: getInstanceId(),
-      peerHostDeviceId: peerHostId,
-      messages: params.messages,
-      model: params.model?.trim(),
-      timeoutMs: requestTimeoutMs,
-      temperature: params.temperature,
-      max_tokens: params.max_tokens,
-    })
+    console.log(
+      `[SBX_HOST_CHAT_OLLAMA_DIRECT_INVOKING] ${JSON.stringify({
+        handshake_id: hid,
+        request_id: requestId,
+        peer_host_device_id: peerHostId,
+        model: mlog || null,
+        timeout_ms: requestTimeoutMs,
+        timestamp: new Date().toISOString(),
+      })}`,
+    )
+    let out: Awaited<ReturnType<typeof executeSandboxHostAiOllamaDirectChat>>
+    try {
+      out = await executeSandboxHostAiOllamaDirectChat({
+        handshakeId: hid,
+        currentDeviceId: getInstanceId(),
+        peerHostDeviceId: peerHostId,
+        messages: params.messages,
+        model: params.model?.trim(),
+        timeoutMs: requestTimeoutMs,
+        temperature: params.temperature,
+        max_tokens: params.max_tokens,
+      })
+    } catch (invokeErr) {
+      console.log(
+        `[SBX_HOST_CHAT_OLLAMA_DIRECT_BAIL] ${JSON.stringify({
+          handshake_id: hid,
+          request_id: requestId,
+          reason: 'executeSandboxHostAiOllamaDirectChat_threw',
+          error_name: (invokeErr as Error)?.name,
+          error_message: (invokeErr as Error)?.message ?? String(invokeErr),
+          timestamp: new Date().toISOString(),
+        })}`,
+      )
+      throw invokeErr
+    }
     if (!out.ok) {
       resolveInternalInferenceByRequestId(requestId, { kind: 'error', code: out.code, message: out.message })
     } else {
@@ -154,9 +179,21 @@ export async function runSandboxHostInferenceChat(params: {
         model: pr.model ?? params.model ?? 'host',
         duration_ms: pr.duration_ms,
       }
-    } catch (e: any) {
-      const code = (e && e.code) || InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE
-      return { ok: false, code, message: e?.message ?? String(e) }
+    } catch (e: unknown) {
+      const err = e as { name?: string; message?: string; code?: string }
+      console.log(
+        `[SBX_HOST_CHAT_OLLAMA_DIRECT_BAIL] ${JSON.stringify({
+          handshake_id: hid,
+          request_id: requestId,
+          reason: 'pending_promise_await_rejected',
+          error_name: err?.name,
+          error_message: err?.message ?? String(e),
+          code: err?.code ?? null,
+          timestamp: new Date().toISOString(),
+        })}`,
+      )
+      const code = (e && (e as { code?: string }).code) || InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE
+      return { ok: false, code, message: err?.message ?? String(e) }
     }
   }
 

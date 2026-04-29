@@ -64,6 +64,20 @@ export async function executeSandboxHostAiOllamaDirectChat(
   const t0 = Date.now()
 
   const cand = getSandboxOllamaDirectRouteCandidate(hid)
+  console.log(
+    `[SBX_HOST_AI_OLLAMA_DIRECT_CHAT_ENTRY] ${JSON.stringify({
+      handshake_id: hid,
+      base_url: typeof cand?.base_url === 'string' ? cand.base_url.trim() : null,
+      model: modelReq || null,
+      has_messages: Array.isArray(p.messages) && p.messages.length > 0,
+      peer_host_device_id: peer || null,
+      endpoint_owner_device_id:
+        typeof cand?.endpoint_owner_device_id === 'string' ? cand.endpoint_owner_device_id.trim() : null,
+      cand_peer_host_device_id:
+        typeof cand?.peer_host_device_id === 'string' ? cand.peer_host_device_id.trim() : null,
+      timestamp: new Date().toISOString(),
+    })}`,
+  )
   const baseRaw = cand?.base_url?.trim() ?? ''
   const failLog = (
     ok: boolean,
@@ -84,6 +98,13 @@ export async function executeSandboxHostAiOllamaDirectChat(
   }
 
   if (!peer || !cur) {
+    console.log(
+      `[SBX_HOST_AI_OLLAMA_DIRECT_CHAT_BAIL] ${JSON.stringify({
+        handshake_id: hid,
+        reason: 'missing_peer_or_sandbox_device_id',
+        detail: { peer_present: !!peer, current_device_present: !!cur },
+      })}`,
+    )
     failLog(false, null, InternalInferenceErrorCode.OLLAMA_DIRECT_INVALID_ENDPOINT)
     return {
       ok: false,
@@ -98,6 +119,19 @@ export async function executeSandboxHostAiOllamaDirectChat(
     cand.peer_host_device_id !== peer ||
     cand.endpoint_owner_device_id !== peer
   ) {
+    console.log(
+      `[SBX_HOST_AI_OLLAMA_DIRECT_CHAT_BAIL] ${JSON.stringify({
+        handshake_id: hid,
+        reason: 'invalid_endpoint_or_peer_mismatch',
+        detail: {
+          has_candidate: !!cand,
+          base_present: !!baseRaw,
+          cand_peer_host_device_id: cand?.peer_host_device_id ?? null,
+          cand_endpoint_owner_device_id: cand?.endpoint_owner_device_id ?? null,
+          expected_peer_host_device_id: peer,
+        },
+      })}`,
+    )
     failLog(false, null, InternalInferenceErrorCode.OLLAMA_DIRECT_INVALID_ENDPOINT)
     return {
       ok: false,
@@ -107,6 +141,13 @@ export async function executeSandboxHostAiOllamaDirectChat(
   }
 
   if (!modelReq) {
+    console.log(
+      `[SBX_HOST_AI_OLLAMA_DIRECT_CHAT_BAIL] ${JSON.stringify({
+        handshake_id: hid,
+        reason: 'model_required',
+        detail: { model_param: typeof p.model === 'string' ? p.model : null },
+      })}`,
+    )
     failLog(false, null, InternalInferenceErrorCode.OLLAMA_DIRECT_INVALID_ENDPOINT)
     return {
       ok: false,
@@ -120,6 +161,13 @@ export async function executeSandboxHostAiOllamaDirectChat(
   try {
     const u = new URL(base)
     if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+      console.log(
+        `[SBX_HOST_AI_OLLAMA_DIRECT_CHAT_BAIL] ${JSON.stringify({
+          handshake_id: hid,
+          reason: 'base_url_protocol_not_http',
+          detail: { protocol: u.protocol, base },
+        })}`,
+      )
       failLog(false, null, InternalInferenceErrorCode.OLLAMA_DIRECT_INVALID_ENDPOINT)
       return {
         ok: false,
@@ -128,7 +176,14 @@ export async function executeSandboxHostAiOllamaDirectChat(
       }
     }
     chatUrl = `${base}/api/chat`
-  } catch {
+  } catch (urlErr) {
+    console.log(
+      `[SBX_HOST_AI_OLLAMA_DIRECT_CHAT_BAIL] ${JSON.stringify({
+        handshake_id: hid,
+        reason: 'base_url_parse_failed',
+        detail: { base_raw: baseRaw, error_message: (urlErr as Error)?.message ?? String(urlErr) },
+      })}`,
+    )
     failLog(false, null, InternalInferenceErrorCode.OLLAMA_DIRECT_INVALID_ENDPOINT)
     return {
       ok: false,
@@ -150,6 +205,13 @@ export async function executeSandboxHostAiOllamaDirectChat(
   if (Object.keys(opts).length > 0) body.options = opts
 
   try {
+    console.log(
+      `[SBX_HOST_AI_OLLAMA_DIRECT_CHAT_FETCH_BEGIN] ${JSON.stringify({
+        url: chatUrl,
+        method: 'POST',
+        timestamp: new Date().toISOString(),
+      })}`,
+    )
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), Math.max(5_000, Math.min(p.timeoutMs, 600_000)))
     const res = await fetch(chatUrl, {
@@ -159,6 +221,14 @@ export async function executeSandboxHostAiOllamaDirectChat(
       signal: ac.signal,
     })
     clearTimeout(timer)
+    console.log(
+      `[SBX_HOST_AI_OLLAMA_DIRECT_CHAT_FETCH_RESPONSE] ${JSON.stringify({
+        url: chatUrl,
+        http_status: res.status,
+        ok: res.ok,
+        timestamp: new Date().toISOString(),
+      })}`,
+    )
     const text = await res.text()
     let parsed: { message?: { content?: string }; model?: string; error?: unknown } | null = null
     try {
@@ -191,6 +261,14 @@ export async function executeSandboxHostAiOllamaDirectChat(
     failLog(true, res.status, null)
     return { ok: true, output: out, model: modelOut, duration_ms: Date.now() - t0 }
   } catch (e) {
+    console.log(
+      `[SBX_HOST_AI_OLLAMA_DIRECT_CHAT_FETCH_ERROR] ${JSON.stringify({
+        url: typeof chatUrl !== 'undefined' ? chatUrl : null,
+        error_name: (e as Error)?.name,
+        error_message: (e as Error)?.message,
+        timestamp: new Date().toISOString(),
+      })}`,
+    )
     const trig = classifyOllamaDirectFetchTransportFailure(e)
     if (trig && !p._ollamaDirectRetryConsumed) {
       const oldUrl = baseRaw
