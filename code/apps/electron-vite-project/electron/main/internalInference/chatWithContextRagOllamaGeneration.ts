@@ -13,6 +13,7 @@ import { getSandboxOllamaDirectRouteCandidate } from './sandboxHostAiOllamaDirec
 import { executeSandboxHostAiOllamaDirectEmbed } from './sandboxHostAiOllamaDirectEmbed'
 import { resolveSandboxInferenceTarget, type SandboxInferenceTarget } from './resolveSandboxInferenceTarget'
 import { planSandboxHostChatExecution, type BeapContentAiTask } from './beapContentAiRoute'
+import { bareOllamaModelNameForApi } from '../../../src/lib/hostInferenceModelIds'
 
 /**
  * When the resolver picks `local_sandbox`, still target the Host LAN URL if the user’s persisted
@@ -111,13 +112,14 @@ export async function runOllamaGenerateChatWithSandboxRouting(
     contentTask?: BeapContentAiTask
   },
 ): Promise<string> {
-  const model = opts.model
+  const opaqueModelSelectorId = opts.model
+  const modelForOllamaApi = bareOllamaModelNameForApi(opaqueModelSelectorId)
   const stream = opts.stream === true
   const send = opts.send
 
   const direct = async () =>
     provider.generateChat(messages, {
-      model,
+      model: modelForOllamaApi,
       stream,
       send: stream ? send : undefined,
       ...(typeof opts.temperature === 'number' ? { temperature: opts.temperature } : {}),
@@ -160,7 +162,7 @@ export async function runOllamaGenerateChatWithSandboxRouting(
   const r = await runSandboxHostInferenceChat({
     handshakeId: target.handshakeId,
     messages,
-    model,
+    model: modelForOllamaApi,
     execution_transport: routePlan.mode === 'ollama_direct' ? 'ollama_direct' : undefined,
   })
   if (!r.ok) {

@@ -3,6 +3,7 @@
  * Does not use BEAP, P2P, or sandbox-local Ollama.
  */
 
+import { bareOllamaModelNameForApi } from '../../../src/lib/hostInferenceModelIds'
 import { InternalInferenceErrorCode } from './errors'
 import { getSandboxOllamaDirectRouteCandidate } from './sandboxHostAiOllamaDirectCandidate'
 import { classifyOllamaDirectFetchTransportFailure } from './sandboxOllamaDirectTransport'
@@ -60,7 +61,8 @@ export async function executeSandboxHostAiOllamaDirectChat(
   const hid = String(p.handshakeId ?? '').trim()
   const peer = String(p.peerHostDeviceId ?? '').trim()
   const cur = String(p.currentDeviceId ?? '').trim()
-  const modelReq = typeof p.model === 'string' ? p.model.trim() : ''
+  const originalModelId = typeof p.model === 'string' ? p.model.trim() : ''
+  const modelReq = bareOllamaModelNameForApi(p.model)
   const t0 = Date.now()
 
   const cand = getSandboxOllamaDirectRouteCandidate(hid)
@@ -68,7 +70,8 @@ export async function executeSandboxHostAiOllamaDirectChat(
     `[SBX_HOST_AI_OLLAMA_DIRECT_CHAT_ENTRY] ${JSON.stringify({
       handshake_id: hid,
       base_url: typeof cand?.base_url === 'string' ? cand.base_url.trim() : null,
-      model: modelReq || null,
+      original_model_id: originalModelId || null,
+      bare_model_name: modelReq || null,
       has_messages: Array.isArray(p.messages) && p.messages.length > 0,
       peer_host_device_id: peer || null,
       endpoint_owner_device_id:

@@ -69,3 +69,18 @@ export function parseAnyHostInferenceModelId(
 export function isHostInferenceModelId(id: string | null | undefined): boolean {
   return parseAnyHostInferenceModelId(id) != null
 }
+
+/**
+ * Ollama `/api/chat` and `/api/embed` expect a registry model name (e.g. `gemma3:12b`).
+ * Chat selectors may use opaque ids (`host-internal:<encHid>:<encModel>`); strip to the bare name.
+ * Plain local/cloud ids pass through unchanged.
+ */
+export function bareOllamaModelNameForApi(chatModelId: string | undefined): string {
+  const raw = typeof chatModelId === 'string' ? chatModelId.trim() : ''
+  if (!raw) return ''
+  const parsed = parseAnyHostInferenceModelId(raw)
+  if (parsed?.model && parsed.model.trim()) {
+    return parsed.model.trim()
+  }
+  return raw
+}

@@ -3,6 +3,7 @@ import {
   hostInferenceModelId,
   hostInternalInferenceModelId,
   isHostInferenceModelId,
+  bareOllamaModelNameForApi,
   parseAnyHostInferenceModelId,
   parseHostInferenceModelId,
   parseHostInternalInferenceModelId,
@@ -29,5 +30,12 @@ describe('hostInferenceModelIds', () => {
     expect(parseHostInferenceModelId('llama3')).toBeNull()
     expect(parseAnyHostInferenceModelId('llama3')).toBeNull()
     expect(isHostInferenceModelId('llama3')).toBe(false)
+  })
+
+  it('bareOllamaModelNameForApi strips host-internal composite ids', () => {
+    const id = hostInternalInferenceModelId('hs-abc', 'gemma3:12b')
+    expect(bareOllamaModelNameForApi(id)).toBe('gemma3:12b')
+    expect(bareOllamaModelNameForApi('llama3')).toBe('llama3')
+    expect(bareOllamaModelNameForApi(undefined)).toBe('')
   })
 })
