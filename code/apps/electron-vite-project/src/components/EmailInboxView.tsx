@@ -210,6 +210,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   /** Manual Summarize (IPC) — separate from auto-analysis stream so the button stays usable while streaming. */
   const [summarizeLoading, setSummarizeLoading] = useState(false)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
+  /** Final buffered stream failed tryParseAnalysis — IPC succeeded but JSON was unusable (see [INBOX_ANALYSIS_PARSE_FAIL]). */
+  const [analysisStreamParseFailed, setAnalysisStreamParseFailed] = useState(false)
   const [inboxAiAnalyzeDebug, setInboxAiAnalyzeDebug] = useState<InboxAiErrorDebugPayload | null>(null)
   const [inboxAiSemanticDevNote, setInboxAiSemanticDevNote] = useState<string | null>(null)
   const [draft, setDraft] = useState<string | null>(null)
@@ -295,6 +297,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
             : null,
       }
       setAnalysis(cachedAdj)
+      setAnalysisStreamParseFailed(false)
       setReceivedFields(new Set(['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason', 'draftReply']))
       if (!skipEmailDraft) {
         if (cachedAdj.draftReply && typeof cachedAdj.draftReply === 'string') {
@@ -328,6 +331,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     streamCleanupRef.current?.()
     manualSummaryOverrideRef.current = null
     setAnalysisLoading(true)
+    setAnalysisStreamParseFailed(false)
     setAnalysis(null)
     setAnalysisError(null)
     setInboxAiAnalyzeDebug(null)
@@ -434,9 +438,26 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         }
         useEmailInboxStore.getState().setAnalysisCache(messageId, adjusted)
         autoAnalyzeStreamFailedRef.current.delete(messageId)
+        setAnalysisStreamParseFailed(false)
         setAnalysisError(null)
         setInboxAiAnalyzeDebug(null)
         setInboxAiSemanticDevNote(null)
+      } else {
+        const raw = accumulatedText || ''
+        const rawTextSample = raw.slice(0, 500)
+        const rawTextLength = raw.length
+        console.warn(
+          `[INBOX_ANALYSIS_PARSE_FAIL] ${JSON.stringify({
+            message_id: messageId,
+            raw_length: rawTextLength,
+            raw_sample: rawTextSample,
+            starts_with: rawTextSample.slice(0, 60),
+            ends_with: rawTextLength > 60 ? raw.slice(-60) : '',
+          })}`,
+        )
+        setAnalysisStreamParseFailed(true)
+        setAnalysis(null)
+        setReceivedFields(new Set())
       }
       cleanup()
     })
@@ -445,6 +466,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       if (payload.messageId !== messageId) return
       autoAnalyzeStreamFailedRef.current.add(messageId)
       setAnalysisLoading(false)
+      setAnalysisStreamParseFailed(false)
       const { fatalMessage, semanticDevNote } = inboxAiAnalyzeStreamErrorDisplay({
         error: payload.error,
         message: payload.message,
@@ -471,6 +493,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       if (res?.started === false && !deduped) {
         autoAnalyzeStreamFailedRef.current.add(messageId)
         setAnalysisLoading(false)
+        setAnalysisStreamParseFailed(false)
         const { fatalMessage, semanticDevNote } = inboxAiAnalyzeStreamErrorDisplay({
           inboxErrorCode: 'generation_failed',
         })
@@ -481,6 +504,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     } catch {
       autoAnalyzeStreamFailedRef.current.add(messageId)
       setAnalysisLoading(false)
+      setAnalysisStreamParseFailed(false)
       const { fatalMessage, semanticDevNote } = inboxAiAnalyzeStreamErrorDisplay({
         inboxErrorCode: 'generation_failed',
       })
@@ -507,6 +531,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       }
     }
     setAnalysisError(null)
+    setAnalysisStreamParseFailed(false)
     setInboxAiAnalyzeDebug(null)
     setInboxAiSemanticDevNote(null)
     setAnalysisLoading(true)
@@ -1018,6 +1043,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     if (analysisLoading) return
     autoAnalyzeStreamFailedRef.current.delete(messageId)
     setAnalysisError(null)
+    setAnalysisStreamParseFailed(false)
     setInboxAiAnalyzeDebug(null)
     setInboxAiSemanticDevNote(null)
     void runAnalysisStream({ manual: true, supersede: true })
@@ -1142,6 +1168,17 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         {visibleSections.has('analysis') && (
           <div className="inbox-detail-ai-section inbox-detail-ai-section--tab-panel">
             <div className="ai-analysis-body">
+            {analysisStreamParseFailed && (
+              <div className="inbox-detail-ai-error-banner" style={{ marginBottom: 12 }}>
+                <span>
+                  Analysis unavailable — the AI response could not be parsed. Check the developer console for{' '}
+                  <code style={{ fontSize: '0.95em' }}>[INBOX_ANALYSIS_PARSE_FAIL]</code>.
+                </span>
+                <button type="button" onClick={handleRetryAnalysis} disabled={analysisLoading}>
+                  Retry
+                </button>
+              </div>
+            )}
             {/* Response Needed */}
             <div className="inbox-detail-ai-row">
               <span className="inbox-detail-ai-row-label">Response Needed</span>
