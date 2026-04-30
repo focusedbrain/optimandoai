@@ -47,7 +47,9 @@ export function registerLlmHandlers() {
     }
     try {
       const status = await ollamaManager.getStatus()
-      const result = { ok: true, data: status }
+      const { augmentOllamaStatusWithWrChatModels } = await import('./handshakeAvailableModelsCompute')
+      const augmented = await augmentOllamaStatusWithWrChatModels(status)
+      const result = { ok: true, data: augmented }
       _getStatusCache = { at: Date.now(), result }
       return result
     } catch (error: any) {

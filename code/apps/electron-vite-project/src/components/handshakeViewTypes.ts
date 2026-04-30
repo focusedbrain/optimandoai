@@ -679,6 +679,7 @@ export interface EmailInboxBridge {
       draft: string
       /** Present when the message is native BEAP — split public / encrypted capsule text. */
       capsuleDraft?: { publicText: string; encryptedText: string }
+      capsuleDraftIssue?: 'full_reply_missing' | 'full_reply_suspiciously_short'
       isNativeBeap?: boolean
       error?: boolean
     }

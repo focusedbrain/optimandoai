@@ -44,6 +44,10 @@ import { runDraftAttachmentParseWithFallback, draftAttachmentParseRejectedUpdate
 import { BeapDocumentReaderModal, AttachmentStatusBadge } from './beap-builder/components'
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
 import { electronRpc, type ElectronRpcResponse } from './rpc/electronRpc'
+import {
+  buildWrChatSelectorModelsFromLlmStatus,
+  type WrChatSelectorRow,
+} from './lib/wrChatModelsFromLlmStatus'
 import { getVaultStatus } from './vault/api'
 import type { ClientSendFailureDebug, OutboundRequestDebugSnapshot } from './handshake/handshakeRpc'
 import {
@@ -66,6 +70,7 @@ type LlmStatusData = {
   installed?: boolean
   running?: boolean
   modelsInstalled?: Array<{ name: string }>
+  wrChatAvailableModels?: Array<{ id: string; displayName: string; kind: string }>
 }
 
 function unwrapLlmStatusPayload(data: unknown): LlmStatusData | null {
@@ -388,7 +393,7 @@ function PopupChatApp() {
   const [beapSubmode, setBeapSubmode] = useState<BeapSubmode>('inbox')
 
   // Command Chat model state (popup — same as sidepanel)
-  const [availableModels, setAvailableModels] = useState<Array<{ name: string; size?: string }>>([])
+  const [availableModels, setAvailableModels] = useState<WrChatSelectorRow[]>([])
   const [activeLlmModel, setActiveLlmModel] = useState<string>('')
   const activeLlmModelRef = useRef<string>('')
   
@@ -476,20 +481,24 @@ function PopupChatApp() {
         result.success && inner != null
           ? { ok: outer?.ok ?? result.success, data: inner }
           : { ok: false, data: null as LlmStatusData | null }
-      if (statusResult.ok && statusResult.data?.modelsInstalled?.length) {
-        const models = statusResult.data.modelsInstalled
-        setAvailableModels(models)
-        const currentModel = activeLlmModelRef.current || activeLlmModel
-        const modelStillExists = models.some((m: { name: string }) => m.name === currentModel)
-        if (!currentModel || !modelStillExists) {
-          const gemmaModel = models.find((m: { name: string }) => m.name.toLowerCase().includes('gemma'))
-          const selectedModel = gemmaModel ? gemmaModel.name : models[0].name
-          setActiveLlmModel(selectedModel)
-          activeLlmModelRef.current = selectedModel
+      if (statusResult.ok && statusResult.data) {
+        const models = buildWrChatSelectorModelsFromLlmStatus(statusResult.data)
+        if (models.length > 0) {
+          setAvailableModels(models)
+          const currentModel = activeLlmModelRef.current || activeLlmModel
+          const modelStillExists = models.some((m) => m.name === currentModel)
+          if (!currentModel || !modelStillExists) {
+            const gemmaModel = models.find((m) => m.name.toLowerCase().includes('gemma'))
+            const selectedModel = gemmaModel ? gemmaModel.name : models[0].name
+            setActiveLlmModel(selectedModel)
+            activeLlmModelRef.current = selectedModel
+          }
+          return true
         }
-        return true
       }
-    } catch (e) { console.error('[Popup] Failed to refresh models:', e) }
+    } catch (e) {
+      console.error('[Popup] Failed to refresh models:', e)
+    }
     return false
   }
 

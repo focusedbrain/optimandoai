@@ -3765,7 +3765,8 @@ ${messageContent}`
         )
           .trim()
           .slice(0, 8000)
-        console.log('[AI-DRAFT] Native BEAP full reply length:', fullReply.length)
+        const fullTrim = fullReply.trim()
+        console.log('[AI-DRAFT] Native BEAP full reply length:', fullTrim.length)
 
         if (isDraftReplyRunStale(messageId, genAtStart)) {
           return buildInboxAiDraftIpcFailure(new Error('Draft superseded'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }, {
@@ -3789,7 +3790,32 @@ ${fullReply}`
         )
           .trim()
           .slice(0, 4000)
-        console.log('[AI-DRAFT] Native BEAP summary length:', summary.length)
+        const summaryTrim = summary.trim()
+        console.log('[AI-DRAFT] Native BEAP summary length:', summaryTrim.length)
+
+        /** Short prose threshold — avoids treating whitespace/noise as a successful full draft. */
+        const MIN_MEANINGFUL_FULL_DRAFT_LEN = 24
+        let capsuleDraftIssue: 'full_reply_missing' | 'full_reply_suspiciously_short' | undefined
+        if (!fullTrim && summaryTrim.length > 0) {
+          capsuleDraftIssue = 'full_reply_missing'
+        } else if (fullTrim.length > 0 && fullTrim.length < MIN_MEANINGFUL_FULL_DRAFT_LEN && summaryTrim.length >= fullTrim.length) {
+          capsuleDraftIssue = 'full_reply_suspiciously_short'
+        }
+
+        const lane = aiExecDraft?.lane ?? 'n/a'
+        const sandboxHostRouting = lane === 'ollama_direct' || lane === 'beap'
+        console.log(
+          `[AI-DRAFT] Native BEAP capsule diagnostics ${JSON.stringify({
+            contentTask_full: 'draft',
+            contentTask_summary: 'summary',
+            fullLen: fullTrim.length,
+            summaryLen: summaryTrim.length,
+            model: aiExecDraft?.model ?? '',
+            lane,
+            sandboxHostRouting,
+            capsuleDraftIssue: capsuleDraftIssue ?? null,
+          })}`,
+        )
 
         if (isDraftReplyRunStale(messageId, genAtStart)) {
           return buildInboxAiDraftIpcFailure(new Error('Draft superseded'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }, {
@@ -3801,7 +3827,8 @@ ${fullReply}`
           publicText: summary || '',
           encryptedText: fullReply || '',
         }
-        const draftFallback = (capsuleDraft.encryptedText || capsuleDraft.publicText).slice(0, 8000)
+        /** Never fall back to public preview as if it were the full draft (avoids "summary-only" confusion). */
+        const draftFallback = capsuleDraft.encryptedText.trim().slice(0, 8000)
 
         const existingRow = db.prepare('SELECT ai_analysis_json FROM inbox_messages WHERE id = ?').get(messageId) as { ai_analysis_json?: string | null } | undefined
         let merged: Record<string, unknown> = {}
@@ -3830,6 +3857,7 @@ ${fullReply}`
             draft: draftFallback,
             capsuleDraft,
             isNativeBeap: true as const,
+            ...(capsuleDraftIssue ? { capsuleDraftIssue } : {}),
           },
         }
       }

@@ -77,6 +77,13 @@ export interface OllamaStatus {
   activeModel?: string          // Currently active model ID
   /** Hardware/reachability hints — optional for backward compatibility with older payloads. */
   localRuntime?: LocalLlmRuntimeInfo
+  /** Unified WR Chat / extension selector rows (Host cross-device + local + cloud). */
+  wrChatAvailableModels?: Array<{
+    id: string
+    displayName: string
+    kind: 'local_ollama' | 'host_internal' | 'cloud'
+    displaySubtitle?: string
+  }>
 }
 
 /**

@@ -228,6 +228,13 @@ interface LlmOllamaStatus {
     evidence?: string
     runtimeObservation?: 'none' | 'recent_warm_loads'
   }
+  /** Unified WR Chat selector rows (local + host/cross-device + cloud). */
+  wrChatAvailableModels?: Array<{
+    id: string
+    displayName: string
+    kind: 'local_ollama' | 'host_internal' | 'cloud'
+    displaySubtitle?: string
+  }>
 }
 
 /** Block reason returned by `llm:resolveAutosortRuntime`. */

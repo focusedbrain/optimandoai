@@ -45,19 +45,6 @@ import * as http from 'node:http'
 import * as net from 'net'
 import * as crypto from 'crypto'
 
-/** Deduped: log only when ok/error changes (avoids spam on repeated getAvailableModels). */
-let lastLocalProviderOllamaDiscoveryLogSig = ''
-function logLocalProviderOllamaDiscovery(ok: boolean, errorMessage: string | null): void {
-  const sig = `${ok}:${errorMessage ?? ''}`
-  if (sig === lastLocalProviderOllamaDiscoveryLogSig) return
-  lastLocalProviderOllamaDiscoveryLogSig = sig
-  const errPart =
-    errorMessage == null || errorMessage === ''
-      ? 'null'
-      : String(errorMessage).replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500)
-  console.log(`[LOCAL_PROVIDER_DISCOVERY] provider=ollama ok=${ok} error=${errPart} affects_host_ai=false`)
-}
-
 function stripDataUriPrefixForLlm(s: string): string {
   if (!s.startsWith('data:')) return s
   const idx = s.indexOf(',')
@@ -3729,223 +3716,8 @@ app.whenReady().then(async () => {
     })
 
     ipcMain.handle('handshake:getAvailableModels', async () => {
-      try {
-        const localModels: Array<{
-          id: string
-          name: string
-          provider: string
-          type: 'local'
-          inferenceTargetContext: 'sandbox_local'
-        }> = []
-        const cloudModels: Array<{
-          id: string
-          name: string
-          provider: string
-          type: 'cloud'
-          inferenceTargetContext: 'cloud'
-        }> = []
-
-        /** Same `mode` as `orchestrator:getMode` / isSandboxMode() — `orchestrator-mode.json` (userData). */
-        const mainOrchMode = getOrchestratorMode().mode
-        if (mainOrchMode !== 'host' && mainOrchMode !== 'sandbox') {
-          console.warn(
-            `[HOST_INFERENCE_TARGETS] mode_unknown persisted_orchestrator_mode=${String(mainOrchMode)}`,
-          )
-        }
-        const {
-          hasActiveInternalLedgerSandboxToHostForHostAi,
-          hasActiveInternalLedgerLocalHostPeerSandboxForHostUi,
-          listSandboxHostInternalInferenceTargets,
-          shouldMergeHostInternalRowsForGetAvailableModels,
-        } = await import('./main/internalInference/listInferenceTargets')
-        const ledgerProvesInternalSandboxToHost = await hasActiveInternalLedgerSandboxToHostForHostAi()
-        const mergeHostInternalInference = shouldMergeHostInternalRowsForGetAvailableModels(
-          isSandboxMode(),
-          ledgerProvesInternalSandboxToHost,
-        )
-        const ledgerProvesLocalHostWithPeerSandbox =
-          await hasActiveInternalLedgerLocalHostPeerSandboxForHostUi()
-
-        if (!mergeHostInternalInference) {
-          if (ledgerProvesLocalHostWithPeerSandbox && !ledgerProvesInternalSandboxToHost) {
-            console.log(
-              '[HOST_INFERENCE_TARGETS] host_internal_merge_skipped reason=not_sandbox_client expected=true (ledger=host; merge applies only to sandbox-side Host AI list)',
-            )
-          } else {
-            console.log(
-              '[HOST_INFERENCE_TARGETS] host_internal_merge_skipped reason=no_sandbox_mode_and_no_ledger_sandbox_to_host',
-            )
-          }
-        }
-
-        /**
-         * 1) Host AI (paired host machine: remote provider + transport) — runs before sandbox-local Ollama
-         * so a missing/broken Ollama on the Sandbox never delays or conflates Host discovery.
-         */
-        const hostForChat: Array<{
-          id: string
-          name: string
-          provider: string
-          type: 'host_internal'
-          inferenceTargetContext: 'host_remote'
-          displayTitle: string
-          displaySubtitle: string
-          hostTargetAvailable: boolean
-          hostSelectorState: 'available' | 'checking' | 'unavailable'
-          p2pUiPhase?: string
-        }> = []
-        let hostInferenceTargetsOut: unknown[] | undefined
-        let inferenceRefreshMeta: { hadCapabilitiesProbed: boolean } | undefined
-        if (mergeHostInternalInference) {
-          try {
-            const h = await listSandboxHostInternalInferenceTargets()
-            hostInferenceTargetsOut = h.targets
-            inferenceRefreshMeta = h.refreshMeta
-            for (const t of h.targets) {
-              const defaultModel = t.model_id?.trim() || t.model?.trim() || ''
-              const titleFromMain = typeof (t as { displayTitle?: string }).displayTitle === 'string'
-                ? (t as { displayTitle: string }).displayTitle.trim()
-                : ''
-              const title =
-                titleFromMain ||
-                ((t.display_label || t.label).trim() ||
-                  (defaultModel ? `Host AI · ${defaultModel}` : 'Host AI'))
-              /** User-facing only — never use `unavailable_reason` codes (e.g. HOST_*) in the selector. */
-              const subFromMain =
-                typeof (t as { displaySubtitle?: string }).displaySubtitle === 'string'
-                  ? (t as { displaySubtitle: string }).displaySubtitle.trim()
-                  : ''
-              const sub = subFromMain || (t.secondary_label || '').trim()
-              const p2pUiPhase = (t as { p2pUiPhase?: string }).p2pUiPhase
-              hostForChat.push({
-                id: t.id,
-                name: title,
-                provider: 'host_internal',
-                type: 'host_internal',
-                inferenceTargetContext: 'host_remote',
-                displayTitle: title,
-                displaySubtitle: sub,
-                hostTargetAvailable: t.available,
-                hostSelectorState: t.host_selector_state,
-                ...(p2pUiPhase ? { p2pUiPhase } : {}),
-              })
-            }
-          } catch (e: any) {
-            console.warn('[MAIN] handshake:getAvailableModels host targets:', e?.message ?? e)
-          }
-        }
-
-        // 2) Sandbox-local Ollama (this machine only — does not affect Host AI rows or availability)
-        let ollamaDiscoveryOk = true
-        let ollamaModelCount = 0
-        try {
-          const { ollamaManager } = await import('./main/llm/ollama-manager')
-          const installed = await ollamaManager.listModels()
-          ollamaModelCount = Array.isArray(installed) ? installed.length : 0
-          for (const m of installed) {
-            const name = m?.name?.trim?.() || ''
-            if (!name) continue
-            localModels.push({
-              id: name,
-              name,
-              provider: 'ollama',
-              type: 'local',
-              inferenceTargetContext: 'sandbox_local',
-            })
-          }
-          logLocalProviderOllamaDiscovery(true, null)
-        } catch (err: any) {
-          ollamaDiscoveryOk = false
-          ollamaModelCount = 0
-          const msg = err?.message != null ? String(err.message) : String(err)
-          logLocalProviderOllamaDiscovery(false, msg || 'unknown_error')
-          console.warn('[MAIN] handshake:getAvailableModels sandbox-local Ollama:', err?.message ?? err)
-        }
-
-        try {
-          const { buildHostAiProviderAdvertisementPayload } = await import(
-            './main/internalInference/hostAiProviderAdvertisementLog'
-          )
-          const hostAiProvPayload = await buildHostAiProviderAdvertisementPayload({
-            ledgerProvesInternalSandboxToHost,
-            mergeHostInternalInference,
-            ollamaDiscoveryOk,
-            ollamaModelCount,
-          })
-          console.log(`[HOST_AI_PROVIDER_ADVERTISEMENT] ${JSON.stringify(hostAiProvPayload)}`)
-          if (hostAiProvPayload.advertised_as_host_ai) {
-            const { getHandshakeDbForInternalInference } = await import(
-              './main/internalInference/dbAccess'
-            )
-            const hdb = await getHandshakeDbForInternalInference()
-            if (hdb) {
-              const { publishHostAiDirectBeapAdvertisementsForEligibleHost } = await import(
-                './main/internalInference/hostAiDirectBeapAdPublish'
-              )
-              void publishHostAiDirectBeapAdvertisementsForEligibleHost(hdb, {
-                context: 'provider_models_list',
-              })
-            }
-          }
-        } catch (e) {
-          console.log(`[HOST_AI_PROVIDER_ADVERTISEMENT] err=${(e as Error)?.message ?? String(e)}`)
-        }
-
-        // 3) Cloud models from OCR router (API keys set via POST /api/ocr/config or ocr:setCloudConfig)
-        const { ocrRouter } = await import('./main/ocr/router')
-        const providers = ocrRouter.getAvailableProviders()
-        const CLOUD_MODEL_MAP: Record<string, { id: string; name: string; provider: string }> = {
-          OpenAI: { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai' },
-          Claude: { id: 'claude-sonnet', name: 'Claude Sonnet', provider: 'anthropic' },
-          Gemini: { id: 'gemini-pro', name: 'Gemini Pro', provider: 'google' },
-          Grok: { id: 'grok-1', name: 'Grok', provider: 'xai' },
-        }
-        for (const p of providers) {
-          const entry = CLOUD_MODEL_MAP[p]
-          if (entry) {
-            cloudModels.push({ ...entry, type: 'cloud', inferenceTargetContext: 'cloud' })
-          }
-        }
-
-        // 4) Fallback: orchestrator (optimando-api-keys — same key as extension localStorage)
-        if (cloudModels.length === 0) {
-          try {
-            const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-            const service = getOrchestratorService()
-            const keys = await service.get<Record<string, string>>('optimando-api-keys')
-            if (keys && typeof keys === 'object') {
-              const PROVIDER_ORDER = ['OpenAI', 'Claude', 'Gemini', 'Grok'] as const
-              for (const p of PROVIDER_ORDER) {
-                const val = keys[p]
-                if (val && typeof val === 'string' && val.trim()) {
-                  const entry = CLOUD_MODEL_MAP[p]
-                  if (entry) {
-                    cloudModels.push({ ...entry, type: 'cloud', inferenceTargetContext: 'cloud' })
-                  }
-                }
-              }
-            }
-          } catch (e) {
-            console.error('[MAIN] Failed to read optimando-api-keys from orchestrator:', e)
-          }
-        }
-
-        /** Sandbox: hide local HTTP Ollama from the chat model list unless explicitly opted in. */
-        const localForChat =
-          isSandboxMode() && process.env.WRDESK_SANDBOX_LOCAL_OLLAMA !== '1' ? [] : localModels
-
-        // Selector merge order: local, Host AI, cloud — Host AI does not depend on local rows being non-empty.
-        return {
-          success: true,
-          models: [...localForChat, ...hostForChat, ...cloudModels],
-          ledgerProvesInternalSandboxToHost,
-          ...(mergeHostInternalInference && hostInferenceTargetsOut ? { hostInferenceTargets: hostInferenceTargetsOut } : {}),
-          ...(mergeHostInternalInference && inferenceRefreshMeta ? { inferenceRefreshMeta } : {}),
-        }
-      } catch (err: any) {
-        console.error('[MAIN] handshake:getAvailableModels error:', err?.message)
-        return { success: false, error: err?.message ?? 'failed', models: [] }
-      }
+      const { computeHandshakeAvailableModels } = await import('./main/llm/handshakeAvailableModelsCompute')
+      return computeHandshakeAvailableModels()
     })
 
     /** Policy / auto-run hook point after BEAP session import (orchestrator DB). Intentionally empty until policy work ships. */
@@ -9520,7 +9292,9 @@ async function runDeviceKeyMigration(
     httpApp.get('/api/llm/status', async (_req, res) => {
       try {
         const { ollamaManager } = await import('./main/llm/ollama-manager')
-        const status = await ollamaManager.getStatus()
+        const { augmentOllamaStatusWithWrChatModels } = await import('./main/llm/handshakeAvailableModelsCompute')
+        const base = await ollamaManager.getStatus()
+        const status = await augmentOllamaStatusWithWrChatModels(base)
         res.json({ ok: true, data: status })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error in get status:', error)

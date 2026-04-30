@@ -58,7 +58,7 @@ import {
   resolveHostSandboxCloneClickAction,
   sandboxCloneUnavailableDialogVariant,
 } from '../lib/beapInboxHostSandboxClickPolicy'
-import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
+import { tryParsePartialAnalysis, tryParseAnalysis, tryParseAnalysisWithMeta, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
 import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import { autosortDiagLog, DEBUG_AUTOSORT_DIAGNOSTICS } from '../lib/autosortDiagnostics'
@@ -226,6 +226,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const [visibleSections, setVisibleSections] = useState<Set<string>>(() => new Set(['summary', 'draft', 'analysis']))
   const [capsulePublicText, setCapsulePublicText] = useState('')
   const [capsuleEncryptedText, setCapsuleEncryptedText] = useState('')
+  const [capsuleDraftIssue, setCapsuleDraftIssue] = useState<
+    'full_reply_missing' | 'full_reply_suspiciously_short' | null
+  >(null)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [availableSessions, setAvailableSessions] = useState<Array<{ id: string; name: string }>>([])
   const [capsuleAttachments, setCapsuleAttachments] = useState<File[]>([])
@@ -393,7 +396,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     const unsubDone = window.emailInbox.onAiAnalyzeDone(({ messageId: mid }) => {
       if (mid !== messageId) return
       setAnalysisLoading(false)
-      const final = tryParseAnalysis(accumulatedText)
+      const finalMeta = tryParseAnalysisWithMeta(accumulatedText)
+      const final = finalMeta.result
       if (final) {
         const tri = reconcileAnalyzeTriage(
           {
@@ -443,16 +447,19 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         setInboxAiAnalyzeDebug(null)
         setInboxAiSemanticDevNote(null)
       } else {
-        const raw = accumulatedText || ''
-        const rawTextSample = raw.slice(0, 500)
-        const rawTextLength = raw.length
+        const rawLen = accumulatedText.length
+        const { meta } = finalMeta
         console.warn(
           `[INBOX_ANALYSIS_PARSE_FAIL] ${JSON.stringify({
             message_id: messageId,
-            raw_length: rawTextLength,
-            raw_sample: rawTextSample,
-            starts_with: rawTextSample.slice(0, 60),
-            ends_with: rawTextLength > 60 ? raw.slice(-60) : '',
+            raw_length: rawLen,
+            has_fence: meta.strippedFence,
+            trimmed_preamble_chars: meta.trimmedPreambleChars,
+            balanced_extract: meta.usedBalancedExtract,
+            trailing_comma_repair: meta.usedTrailingCommaRepair,
+            ...(import.meta.env.DEV
+              ? { dev_raw_sample: accumulatedText.slice(0, 240).replace(/\r?\n/g, ' ') }
+              : {}),
           })}`,
         )
         setAnalysisStreamParseFailed(true)
@@ -548,6 +555,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setVisibleSections(new Set(['summary', 'draft', 'analysis']))
     setCapsulePublicText('')
     setCapsuleEncryptedText('')
+    setCapsuleDraftIssue(null)
     setSelectedSessionId(null)
     setCapsuleAttachments([])
     setSendResult(null)
@@ -794,6 +802,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setDraftErrorMessage(null)
     setDraftErrorDebug(null)
     setAttachments([])
+    setCapsuleDraftIssue(null)
     try {
       const res = await window.emailInbox.aiDraftReply(messageId, opts)
       const data = res.data
@@ -807,6 +816,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         data?: typeof data
       }
       if (res.ok && native) {
+        const issue = (data as { capsuleDraftIssue?: 'full_reply_missing' | 'full_reply_suspiciously_short' })
+          .capsuleDraftIssue
+        setCapsuleDraftIssue(issue ?? null)
         setCapsulePublicText(data.capsuleDraft!.publicText)
         setCapsuleEncryptedText(data.capsuleDraft!.encryptedText)
         setDraftError(false)
@@ -1398,7 +1410,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           }}
                         >
                           <label className="capsule-field-label" style={{ marginBottom: 0 }}>
-                            📨 Public Message (pBEAP)
+                            📨 Public Message (pBEAP) — AI summary preview
                             {draftRefineConnected &&
                             draftRefineMessageId === messageId &&
                             draftRefineTarget === 'capsule-public'
@@ -1459,7 +1471,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                               ? ' capsule-draft-textarea--refine-connected'
                               : ''
                           }`}
-                          placeholder="Public capsule text — transport-visible message body"
+                          placeholder="Short public preview (1–2 sentences). Full reply belongs in the encrypted field."
                           value={capsulePublicText}
                           onChange={(e) => setCapsulePublicText(e.target.value)}
                           onFocus={() => {
@@ -1488,7 +1500,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           }}
                         >
                           <label className="capsule-field-label capsule-field-label--encrypted" style={{ marginBottom: 0 }}>
-                            🔒 End-to-End Encrypted (qBEAP)
+                            🔒 Full draft reply (qBEAP · encrypted)
                             {draftRefineConnected &&
                             draftRefineMessageId === messageId &&
                             draftRefineTarget === 'capsule-encrypted'
@@ -1549,7 +1561,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                               ? ' capsule-draft-textarea--refine-connected'
                               : ''
                           }`}
-                          placeholder="Encrypted capsule-bound message — end-to-end encrypted, fully readable by you"
+                          placeholder="Full AI draft reply — encrypted capsule body (authoritative when present)."
                           value={capsuleEncryptedText}
                           onChange={(e) => setCapsuleEncryptedText(e.target.value)}
                           onFocus={() => {
@@ -1560,6 +1572,17 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                         <div className="capsule-field-hint">
                           ⚠ This content is end-to-end encrypted and capsule-bound.
                         </div>
+                        {capsuleDraftIssue === 'full_reply_missing' && (
+                          <div className="capsule-field-hint" style={{ color: '#b45309', marginTop: 8 }}>
+                            Full draft generation returned no text; only the public preview above may be shown. Try
+                            another model or retry draft generation.
+                          </div>
+                        )}
+                        {capsuleDraftIssue === 'full_reply_suspiciously_short' && (
+                          <div className="capsule-field-hint" style={{ color: '#b45309', marginTop: 8 }}>
+                            Full draft looks incomplete compared to the preview. Verify the encrypted field or retry.
+                          </div>
+                        )}
                       </div>
                       {/* Refined text: use chat expansion "USE ↓" only — no duplicate preview here (capsule fields). */}
                       <div className="capsule-draft-field">

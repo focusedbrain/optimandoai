@@ -74,6 +74,11 @@ import { runDraftAttachmentParseWithFallback, draftAttachmentParseRejectedUpdate
 import { BeapDocumentReaderModal, AttachmentStatusBadge } from './beap-builder/components'
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
 import { electronRpc, type ElectronRpcResponse } from './rpc/electronRpc'
+import {
+  buildWrChatSelectorModelsFromLlmStatus,
+  wrChatModelButtonShortLabel,
+  type WrChatSelectorRow,
+} from './lib/wrChatModelsFromLlmStatus'
 import { getVaultStatus } from './vault/api'
 import type { ClientSendFailureDebug, OutboundRequestDebugSnapshot } from './handshake/handshakeRpc'
 import {
@@ -121,6 +126,7 @@ type LlmStatusData = {
   installed?: boolean
   running?: boolean
   modelsInstalled?: Array<{ name: string }>
+  wrChatAvailableModels?: Array<{ id: string; displayName: string; kind: string }>
 }
 
 // ── Pinned-trigger emoji helpers ─────────────────────────────────────────────
@@ -973,7 +979,7 @@ function SidepanelOrchestrator() {
 
   // LLM state
   const [activeLlmModel, setActiveLlmModel] = useState<string>('')
-  const [availableModels, setAvailableModels] = useState<Array<{ name: string; size?: string }>>([])
+  const [availableModels, setAvailableModels] = useState<WrChatSelectorRow[]>([])
   const [showModelDropdown, setShowModelDropdown] = useState(false)
   
   // Refs to store latest values for use in message handlers (avoids stale closure)
@@ -1184,28 +1190,38 @@ function SidepanelOrchestrator() {
         result.success && inner != null
           ? { ok: outer?.ok ?? result.success, data: inner }
           : { ok: false, data: null as LlmStatusData | null }
-      
-      const modelsList = statusResult.ok ? statusResult.data?.modelsInstalled : undefined
-      if (modelsList && modelsList.length > 0) {
-        const models = modelsList
-        setAvailableModels(models)
-        
-        // Only set active model if not already set OR if current selection no longer exists
-        const currentModel = activeLlmModelRef.current || activeLlmModel
-        const modelStillExists = models.some((m: any) => m.name === currentModel)
-        
-        if (!currentModel || !modelStillExists) {
-          // Prefer gemma if available, otherwise use first model
-          const gemmaModel = models.find((m: any) => m.name.toLowerCase().includes('gemma'))
-          const selectedModel = gemmaModel ? gemmaModel.name : models[0].name
-          setActiveLlmModel(selectedModel)
-          activeLlmModelRef.current = selectedModel
-          try { localStorage.setItem('optimando-wr-chat-active-model', selectedModel) } catch {}
-        }
-        setLlmError(null)
-        return true
+
+      if (!statusResult.ok || !statusResult.data) return false
+
+      const models = buildWrChatSelectorModelsFromLlmStatus(statusResult.data)
+      if (models.length === 0) return false
+
+      setAvailableModels(models)
+      const localN = models.filter((m) => !m.hostAi && m.section !== 'cloud').length
+      const hostN = models.filter((m) => m.hostAi).length
+      console.log(
+        `[WR_CHAT_EXTENSION_MODELS] ${JSON.stringify({
+          local: localN,
+          host_cross: hostN,
+          cloud: models.length - localN - hostN,
+          active: activeLlmModelRef.current || activeLlmModel,
+        })}`,
+      )
+
+      const currentModel = activeLlmModelRef.current || activeLlmModel
+      const modelStillExists = models.some((m) => m.name === currentModel)
+
+      if (!currentModel || !modelStillExists) {
+        const gemmaModel = models.find((m) => m.name.toLowerCase().includes('gemma'))
+        const selectedModel = gemmaModel ? gemmaModel.name : models[0].name
+        setActiveLlmModel(selectedModel)
+        activeLlmModelRef.current = selectedModel
+        try {
+          localStorage.setItem('optimando-wr-chat-active-model', selectedModel)
+        } catch {}
       }
-      return false
+      setLlmError(null)
+      return true
     } catch (error) {
       console.error('[Command Chat] Failed to refresh models:', error)
       return false
@@ -1230,34 +1246,32 @@ function SidepanelOrchestrator() {
         }
         
         const status = statusResult.data
-        
-        // If Ollama is not installed or not running
+        const rows = buildWrChatSelectorModelsFromLlmStatus(status)
+        if (rows.length > 0) {
+          setAvailableModels(rows)
+
+          const currentModel = activeLlmModelRef.current || activeLlmModel
+          const modelExists = rows.some((m) => m.name === currentModel)
+
+          if (!currentModel || !modelExists) {
+            const gemmaModel = rows.find((m) => m.name.toLowerCase().includes('gemma'))
+            const selectedModel = gemmaModel ? gemmaModel.name : rows[0].name
+            setActiveLlmModel(selectedModel)
+            activeLlmModelRef.current = selectedModel
+            try {
+              localStorage.setItem('optimando-wr-chat-active-model', selectedModel)
+            } catch {}
+          }
+          setLlmError(null)
+          return
+        }
+
         if (!status.installed || !status.running) {
           setLlmError('Ollama not running. Please start it from LLM Settings.')
           return
         }
-        
-        // Check if any models are installed
-        if (status.modelsInstalled && status.modelsInstalled.length > 0) {
-          setAvailableModels(status.modelsInstalled)
-          
-          // Only set model if not already set
-          const currentModel = activeLlmModelRef.current || activeLlmModel
-          const modelExists = status.modelsInstalled.some((m: any) => m.name === currentModel)
-          
-          if (!currentModel || !modelExists) {
-            // Prefer gemma if available, otherwise use first model
-            const gemmaModel = status.modelsInstalled.find((m: any) => m.name.toLowerCase().includes('gemma'))
-            const selectedModel = gemmaModel ? gemmaModel.name : status.modelsInstalled[0].name
-            setActiveLlmModel(selectedModel)
-            activeLlmModelRef.current = selectedModel
-            try { localStorage.setItem('optimando-wr-chat-active-model', selectedModel) } catch {}
-          }
-          setLlmError(null)
-        } else {
-          // No models installed - show message but DON'T auto-install
-          setLlmError('No models installed. Please go to Backend Configuration → LLM tab to install a model.')
-        }
+
+        setLlmError('No models installed. Please go to Backend Configuration → LLM tab to install a model.')
       } catch (error: any) {
         console.error('[Command Chat] Failed to fetch available models:', error)
         setLlmError('Failed to connect to LLM service')
@@ -4098,16 +4112,6 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
     setShowModelDropdown(false)
   }
 
-  // Get short model name for display (e.g., "llama3.2:3b" -> "llama3.2")
-  const getShortModelName = (name: string) => {
-    if (!name) return 'No model'
-    // Remove size suffix like :3b, :7b, :latest
-    const baseName = name.split(':')[0]
-    // Truncate if too long
-    return baseName.length > 12 ? baseName.slice(0, 12) + '…' : baseName
-  }
-
-  // Render the Send button with integrated model dropdown
   const renderSendButton = () => {
     const hasModels = availableModels.length > 0
     const isDisabled = isLlmLoading || !chatInput.trim()
@@ -4191,7 +4195,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap'
           }}>
-            {hasModels ? getShortModelName(activeLlmModel) : 'No model'}
+            {hasModels ? wrChatModelButtonShortLabel(activeLlmModel, availableModels) : 'No model'}
           </span>
         </button>
         
@@ -4328,7 +4332,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
                   whiteSpace: 'nowrap',
                   fontWeight: model.name === activeLlmModel ? '600' : '400'
                 }}>
-                  {model.name}
+                  {model.displayLabel ?? model.name}
                 </span>
                 {model.size && (
                   <span style={{ 
