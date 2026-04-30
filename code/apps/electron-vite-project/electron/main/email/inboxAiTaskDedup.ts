@@ -138,6 +138,24 @@ export function replayAnalysisStreamState(
   return st.terminal?.kind ?? 'running'
 }
 
+export async function waitForInboxAiTask(taskKey: string): Promise<boolean> {
+  const existing = inboxAiTaskInflight.get(taskKey)
+  if (!existing || existing.state !== 'running') return false
+  console.log(
+    `[AI_TASK_QUEUED] ${JSON.stringify({
+      taskKey,
+      existingRequestId: existing.requestId,
+      elapsedMs: Date.now() - existing.startedAt,
+    })}`,
+  )
+  try {
+    await existing.promise
+  } catch {
+    /* The queued task should still proceed; the original task reports its own terminal state. */
+  }
+  return true
+}
+
 function classifyTerminalState(err: unknown, signal: AbortSignal): InflightEntry['state'] {
   if (signal.aborted) return 'aborted'
   const msg = err instanceof Error ? err.message : String(err ?? '')

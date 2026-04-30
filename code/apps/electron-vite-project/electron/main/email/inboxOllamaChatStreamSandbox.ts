@@ -91,6 +91,7 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
     /** IPC / caller cancellation — merged with inner timeout controller */
     abortSignal?: AbortSignal
     responseFormat?: 'json'
+    expectedSchemaKeys?: string[]
   },
 ): AsyncGenerator<string, void, undefined> {
   const normalizedBase = baseUrl.trim().replace(/\/$/, '')
@@ -109,8 +110,12 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
   let lineCount = 0
   let chunkCount = 0
   let cumulativeChars = 0
+  let finalText = ''
   let sawDone = false
   try {
+    const requestOptions = opts.responseFormat === 'json'
+      ? { temperature: 0, top_p: 0.9, num_predict: 1024 }
+      : undefined
     const body: Record<string, unknown> = {
       model: modelId,
       stream: true,
@@ -122,8 +127,22 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
     }
     if (opts.responseFormat === 'json') {
       body.format = 'json'
-      body.options = { temperature: 0 }
+      body.options = requestOptions
     }
+    logStreamEvent('ANALYSIS_REQUEST_OPTIONS', {
+      requestId: opts.diag.requestId ?? null,
+      model: modelId,
+      format: opts.responseFormat ?? null,
+      stream: true,
+      temperature: requestOptions?.temperature ?? null,
+      num_predict: requestOptions?.num_predict ?? null,
+      top_p: requestOptions?.top_p ?? null,
+      max_tokens: null,
+      messageCount: 2,
+      systemPromptLen: systemPrompt.length,
+      userPromptLen: userPrompt.length,
+      expectedSchemaKeys: opts.expectedSchemaKeys ?? [],
+    })
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -181,6 +200,7 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
             const chunk = parsed.message.content
             chunkCount += 1
             cumulativeChars += chunk.length
+            finalText += chunk
             logStreamEvent('INBOX_OLLAMA_STREAM_CHUNK', {
               requestId: opts.diag.requestId ?? null,
               chunkCount,
@@ -211,6 +231,7 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
           const chunk = parsed.message.content
           chunkCount += 1
           cumulativeChars += chunk.length
+          finalText += chunk
           logStreamEvent('INBOX_OLLAMA_STREAM_CHUNK', {
             requestId: opts.diag.requestId ?? null,
             chunkCount,
@@ -229,6 +250,12 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
       chunkCount,
       cumulativeChars,
       sawDone,
+    })
+    logStreamEvent('ANALYSIS_STREAM_FINAL_SAMPLE', {
+      requestId: opts.diag.requestId ?? null,
+      cumulativeChars,
+      first120: finalText.slice(0, 120),
+      last120: finalText.slice(-120),
     })
   } catch (err: unknown) {
     logStreamFetchErr(err, { ...opts.diag, baseUrl: normalizedBase, url })
@@ -289,6 +316,16 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
 ): AsyncGenerator<string, void, undefined> {
   const bareModel = bareOllamaModelNameForApi(modelId)
   const effectiveSandbox = await isEffectiveSandboxSideForAiExecution()
+  const expectedSchemaKeys = [
+    'needsReply',
+    'needsReplyReason',
+    'summary',
+    'urgencyScore',
+    'urgencyReason',
+    'actionItems',
+    'archiveRecommendation',
+    'archiveReason',
+  ]
 
   const baseDiag = (lane: string | undefined, baseUrl: string): InboxOllamaStreamFetchDiag => ({
     surface: 'inbox_ai_analyze_stream',
@@ -308,6 +345,7 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
       diag: baseDiag('local', LOCAL_OLLAMA_BASE),
       abortSignal: streamOpts?.abortSignal,
       responseFormat: 'json',
+      expectedSchemaKeys,
     })
     return
   }
@@ -332,6 +370,7 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
       diag: baseDiag('ollama_direct', streamBase),
       abortSignal: streamOpts?.abortSignal,
       responseFormat,
+      expectedSchemaKeys,
     })
     return
   }
@@ -341,6 +380,7 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
       diag: baseDiag('ollama_direct', streamBase),
       abortSignal: streamOpts?.abortSignal,
       responseFormat,
+      expectedSchemaKeys,
     })
     return
   }
@@ -366,5 +406,6 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
     diag: baseDiag(target.kind === 'local_sandbox' ? 'local_sandbox' : 'cross_device', tb),
     abortSignal: streamOpts?.abortSignal,
     responseFormat,
+    expectedSchemaKeys,
   })
 }

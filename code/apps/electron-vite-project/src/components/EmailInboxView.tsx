@@ -173,13 +173,13 @@ function resolveNativeBeapDraftFields(data: NativeBeapDraftData): {
   const capsulePublic = data.capsuleDraft?.publicText
   const capsuleEncrypted = data.capsuleDraft?.encryptedText
   const main = firstNonEmptyString([
-    { source: 'draftReplyFull', value: data.draftReplyFull },
-    { source: 'draftReply', value: data.draftReply },
-    { source: 'capsuleDraft.encryptedText', value: capsuleEncrypted },
+    { source: 'data.draftReplyFull', value: data.draftReplyFull },
+    { source: 'data.draftReply', value: data.draftReply },
+    { source: 'data.capsuleDraft.encryptedText', value: capsuleEncrypted },
   ])
   const preview = firstNonEmptyString([
-    { source: 'draftReplyPublic', value: data.draftReplyPublic },
-    { source: 'capsuleDraft.publicText', value: capsulePublic },
+    { source: 'data.draftReplyPublic', value: data.draftReplyPublic },
+    { source: 'data.capsuleDraft.publicText', value: capsulePublic },
   ])
   return {
     mainDraft: main.value,
@@ -718,9 +718,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     if (
       capsuleEncryptedText.trim() &&
       capsulePublicText.trim() &&
-      (capsuleEncryptedSource === 'draftReplyPublic' ||
-        capsuleEncryptedSource === 'capsuleDraft.publicText' ||
-        capsuleEncryptedText === capsulePublicText)
+      (capsuleEncryptedSource === 'data.draftReplyPublic' ||
+        capsuleEncryptedSource === 'data.capsuleDraft.publicText')
     ) {
       console.error(
         `[BEAP_DRAFT_FIELD_SOURCE_BUG] ${JSON.stringify({
@@ -909,6 +908,24 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       }
       if (res.ok && native) {
         const fieldSelection = resolveNativeBeapDraftFields(data as NativeBeapDraftData)
+        const draftReplyLen = typeof data?.draftReply === 'string' ? data.draftReply.length : 0
+        const draftReplyFullLen = typeof data?.draftReplyFull === 'string' ? data.draftReplyFull.length : 0
+        const draftReplyPublicLen = typeof data?.draftReplyPublic === 'string' ? data.draftReplyPublic.length : 0
+        const capsuleEncryptedLen =
+          typeof data?.capsuleDraft?.encryptedText === 'string' ? data.capsuleDraft.encryptedText.length : 0
+        const capsulePublicLen =
+          typeof data?.capsuleDraft?.publicText === 'string' ? data.capsuleDraft.publicText.length : 0
+        console.log(
+          `[BEAP_DRAFT_RENDERER_RECEIVED] ${JSON.stringify({
+            messageId,
+            dataKeys: Object.keys(data ?? {}),
+            draftReplyLen,
+            draftReplyFullLen,
+            draftReplyPublicLen,
+            capsuleEncryptedLen,
+            capsulePublicLen,
+          })}`,
+        )
         console.log(
           `[BEAP_DRAFT_RENDERER_RESULT] ${JSON.stringify({
             resultKeys: Object.keys(res ?? {}),
@@ -924,8 +941,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         if (
           fieldSelection.mainDraft.length > 0 &&
           fieldSelection.publicPreview.length > 0 &&
-          (fieldSelection.mainSource === 'draftReplyPublic' ||
-            fieldSelection.mainSource === 'capsuleDraft.publicText' ||
+          (fieldSelection.mainSource === 'data.draftReplyPublic' ||
+            fieldSelection.mainSource === 'data.capsuleDraft.publicText' ||
             fieldSelection.equalsPublicText)
         ) {
           console.error(
@@ -940,8 +957,32 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         const issue = (data as { capsuleDraftIssue?: 'full_reply_missing' | 'full_reply_suspiciously_short' })
           .capsuleDraftIssue
         setCapsuleDraftIssue(issue ?? null)
-        setCapsulePublicText(fieldSelection.publicPreview)
-        setCapsulePublicSource(fieldSelection.publicSource)
+        const fullLen = fieldSelection.mainDraft.length
+        const summaryLen = fieldSelection.publicPreview.length
+        console.log(
+          `[BEAP_EDITOR_FIELD_SOURCE] ${JSON.stringify({
+            messageId,
+            fieldType: 'pbeap',
+            sourcePath: fieldSelection.mainSource,
+            renderedLen: fieldSelection.mainDraft.length,
+            fullLen,
+            summaryLen,
+            isUsingPublicPreview: false,
+          })}`,
+        )
+        console.log(
+          `[BEAP_EDITOR_FIELD_SOURCE] ${JSON.stringify({
+            messageId,
+            fieldType: 'qbeap',
+            sourcePath: fieldSelection.mainSource,
+            renderedLen: fieldSelection.mainDraft.length,
+            fullLen,
+            summaryLen,
+            isUsingPublicPreview: false,
+          })}`,
+        )
+        setCapsulePublicText(fieldSelection.mainDraft)
+        setCapsulePublicSource(fieldSelection.mainSource)
         setCapsuleEncryptedText(fieldSelection.mainDraft)
         setCapsuleEncryptedSource(fieldSelection.mainSource)
         setDraftError(false)

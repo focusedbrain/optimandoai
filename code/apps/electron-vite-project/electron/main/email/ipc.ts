@@ -234,7 +234,6 @@ import type { InboxListFilterOptions } from './inboxWhereClause'
 import { buildInboxMessagesWhereClause } from './inboxWhereClause'
 import { collectReadOnlyDashboardSnapshot } from './dashboardSnapshot'
 import {
-  abortAnalyzeStreamForMessage,
   appendAnalysisStreamReplayChunk,
   analyzeStreamAbortByMessageId,
   buildInboxAiTaskKey,
@@ -247,6 +246,7 @@ import {
   replayAnalysisStreamState,
   runInboxAiTaskWithDedup,
   syncInboxAiSelectionForTaskKey,
+  waitForInboxAiTask,
   type InboxAiStreamInvokeOpts,
 } from './inboxAiTaskDedup'
 import { processPendingPlainEmails } from './plainEmailIngestion'
@@ -3671,35 +3671,17 @@ Rules:
     const supersede = !!opts?.supersede
     if (supersede) bumpDraftReplySupersedeGeneration(messageId)
     const genAtStart = getDraftReplyGeneration(messageId)
-    if (abortAnalyzeStreamForMessage(messageId, 'draft_generation_started')) {
+    const activeAnalysisKey = buildInboxAiTaskKey('analysis-stream', messageId, tkModel, tkLane)
+    if (await waitForInboxAiTask(activeAnalysisKey)) {
       console.log(
         `[AI_TASK_CONCURRENCY_POLICY] ${JSON.stringify({
-          policy: 'cancel_analysis_for_draft',
+          policy: 'queue_draft_behind_analysis',
           messageId,
           model: tkModel,
           lane: tkLane,
-          reason: 'draft_generation_started',
+          reason: 'active_analysis_same_message_model_lane',
         })}`,
       )
-      console.log(
-        `[AI_TASK_CANCELLED_FOR_DRAFT] ${JSON.stringify({
-          messageId,
-          model: tkModel,
-          lane: tkLane,
-          reason: 'draft_generation_started',
-        })}`,
-      )
-      if (!event.sender.isDestroyed()) {
-        event.sender.send(
-          'inbox:aiAnalyzeMessageError',
-          buildInboxAiAnalyzeErrorPayload(new Error('Analysis cancelled because draft generation started.'), {
-            messageId,
-            operation: 'analyze_stream',
-            aiExecution: undefined,
-            model: tkModel,
-          }),
-        )
-      }
     }
 
     return runInboxAiTaskWithDedup(
@@ -3896,10 +3878,37 @@ ${fullReply}`
             capsulePublicLen: capsuleDraft.publicText.length,
             capsuleEncryptedLen: capsuleDraft.encryptedText.length,
             mainDraftFieldSource: 'fullReply',
-            pbeapFieldSource: 'summary_public_preview',
+            pbeapFieldSource: 'fullReply',
             qbeapFieldSource: 'fullReply',
+            publicPreviewFieldSource: 'summary_public_preview',
           })}`,
         )
+        if (fullReply.length > 0 && summary.length > 0) {
+          const pbeapFieldSource = 'fullReply'
+          const qbeapFieldSource = 'fullReply'
+          if (pbeapFieldSource !== 'fullReply') {
+            console.error(
+              `[BEAP_DRAFT_FIELD_SOURCE_BUG] ${JSON.stringify({
+                messageId,
+                fieldType: 'pbeap',
+                fullReplyLen: fullReply.length,
+                summaryLen: summary.length,
+                pbeapFieldSource,
+              })}`,
+            )
+          }
+          if (qbeapFieldSource !== 'fullReply') {
+            console.error(
+              `[BEAP_DRAFT_FIELD_SOURCE_BUG] ${JSON.stringify({
+                messageId,
+                fieldType: 'qbeap',
+                fullReplyLen: fullReply.length,
+                summaryLen: summary.length,
+                qbeapFieldSource,
+              })}`,
+            )
+          }
+        }
 
         const nativeBeapResponse = {
           ok: true,
@@ -4151,6 +4160,44 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
     }
   })
 
+  const REQUIRED_ANALYSIS_KEYS = [
+    'needsReply',
+    'needsReplyReason',
+    'summary',
+    'urgencyScore',
+    'urgencyReason',
+    'actionItems',
+    'archiveRecommendation',
+    'archiveReason',
+  ] as const
+
+  function parsedAnalysisKeys(text: string): string[] {
+    const start = text.indexOf('{')
+    const end = text.lastIndexOf('}')
+    if (start < 0 || end <= start) return []
+    try {
+      const parsed = JSON.parse(text.slice(start, end + 1)) as unknown
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? Object.keys(parsed) : []
+    } catch {
+      return []
+    }
+  }
+
+  function assertMinimumAnalysisOutput(text: string): void {
+    const keys = parsedAnalysisKeys(text)
+    const missing = REQUIRED_ANALYSIS_KEYS.filter((k) => !keys.includes(k))
+    if (text.trim().length < 200 && missing.length > 0) {
+      console.warn(
+        `[INBOX_ANALYSIS_TOO_SHORT] ${JSON.stringify({
+          cumulativeChars: text.length,
+          parsedKeys: keys,
+          missingKeys: missing,
+        })}`,
+      )
+      throw new Error(`Analysis output too short (${text.length} chars) and missing required keys: ${missing.join(', ')}`)
+    }
+  }
+
   ipcMain.handle('inbox:aiAnalyzeMessageStream', async (event, messageId: string, opts?: InboxAiStreamInvokeOpts) => {
     const { model: tkModel, lane: tkLane } = syncInboxAiSelectionForTaskKey()
     if (DEBUG_AUTOSORT_DIAGNOSTICS) {
@@ -4187,6 +4234,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
         let streamStartedOk = false
         let ollamaModelForStream: string | undefined
         let aiExec: import('../llm/aiExecutionTypes').AiExecutionContext | undefined
+        let finalAnalysisText = ''
         try {
           const db = await resolveDbWithDiag('inbox:aiAnalyzeMessageStream')
           if (signal.aborted) return { started: false }
@@ -4338,6 +4386,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
             )
             for await (const chunk of stream) {
               if (signal.aborted || event.sender.isDestroyed()) break
+              finalAnalysisText += chunk
               appendAnalysisStreamReplayChunk(analyzeDedupeKey, chunk)
               event.sender.send('inbox:aiAnalyzeMessageChunk', { messageId, chunk })
               console.log(
@@ -4356,6 +4405,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
               contentTask: { kind: 'analysis' },
             })
             if (!signal.aborted && !event.sender.isDestroyed() && text) {
+              finalAnalysisText += text
               appendAnalysisStreamReplayChunk(analyzeDedupeKey, text)
               event.sender.send('inbox:aiAnalyzeMessageChunk', { messageId, chunk: text })
               console.log(
@@ -4369,6 +4419,16 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
             }
           }
           if (!signal.aborted && !event.sender.isDestroyed()) {
+            console.log(
+              `[ANALYSIS_STREAM_FINAL_SAMPLE] ${JSON.stringify({
+                messageId,
+                requestId,
+                cumulativeChars: finalAnalysisText.length,
+                first120: finalAnalysisText.slice(0, 120),
+                last120: finalAnalysisText.slice(-120),
+              })}`,
+            )
+            assertMinimumAnalysisOutput(finalAnalysisText)
             markAnalysisStreamReplayDone(analyzeDedupeKey)
             event.sender.send('inbox:aiAnalyzeMessageDone', { messageId })
             console.log(
