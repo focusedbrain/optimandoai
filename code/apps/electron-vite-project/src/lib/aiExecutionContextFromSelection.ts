@@ -18,6 +18,7 @@ export type AiExecutionContextIpcPayload = {
   beapReady?: boolean
   ollamaDirectReady?: boolean
   models?: string[]
+  selectionSource?: 'user' | 'auto'
 }
 
 function normalizeModelName(row: HostInferenceTargetRow, parsedModel?: string): string | null {

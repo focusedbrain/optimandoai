@@ -66,6 +66,8 @@ type WrChatModelOption = {
   section?: 'local' | 'host' | 'cloud'
   /** From main (GAV / listTargets); do not infer selector phase in the UI. */
   p2pUiPhase?: string
+  /** LAN Host Ollama route; forwarded to Host WRChat completion. */
+  execution_transport?: 'ollama_direct'
 }
 
 function wrChatModelsForPersist(models: WrChatModelOption[]) {
@@ -321,6 +323,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
             hostSelectorState: row.hostTargetChecking ? 'checking' : row.hostAvailable ? 'available' : 'unavailable',
           }),
           hostComputerName: t?.host_computer_name?.trim() || row.hostComputerName,
+          execution_transport: t?.execution_transport ?? row.execution_transport,
         }
       })
     }
@@ -373,6 +376,8 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
     })
 
     let preferred: string | undefined = d.activeModel as string | undefined
+    let preferredSource: 'stored' | 'status_active' | 'host_single' | 'local_default' | 'host_default' | null =
+      preferred ? 'status_active' : null
     const names = mergedWithHostUi.map((m) => m.name)
     const stored = readWrChatInferenceSelection()
     if (stored) {
@@ -392,30 +397,42 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
       } else {
         setInferenceSelectionPersistError(null)
         preferred = v.modelId
+        preferredSource = 'stored'
       }
     } else {
       setInferenceSelectionPersistError(null)
     }
-    if (preferred && !isHostInferenceModelId(preferred) && typeof window.llm?.setActiveModel === 'function') {
+    if (!preferred && hostRows.length === 1 && hostRows[0]?.hostAvailable) {
+      preferred = hostRows[0].name
+      preferredSource = 'host_single'
+    }
+    if (!preferred && installed.length > 0) {
+      const llamaPreferred = installed.find((m) => m.name === 'llama3.1:8b')
+      preferred = llamaPreferred?.name ?? installed[0].name
+      preferredSource = 'local_default'
+    }
+    if (!preferred && hostRows.length > 0) {
+      preferred = hostRows[0].name
+      preferredSource = 'host_default'
+    }
+    setActiveLlmModel(preferred)
+    if (
+      preferred &&
+      !isHostInferenceModelId(preferred) &&
+      preferredSource === 'stored' &&
+      typeof window.llm?.setActiveModel === 'function'
+    ) {
       void window.llm.setActiveModel(preferred)
     }
     if (preferred && typeof window.llm?.setAiExecutionContext === 'function') {
       const payload = buildAiExecutionContextIpcPayload(preferred, discovered.gavForHook)
-      if (payload) void window.llm.setAiExecutionContext(payload)
+      if (payload) {
+        void window.llm.setAiExecutionContext({
+          ...payload,
+          selectionSource: preferredSource === 'stored' ? 'user' : 'auto',
+        })
+      }
     }
-    if (!preferred && hostRows.length === 1 && hostRows[0]?.hostAvailable) {
-      preferred = hostRows[0].name
-    }
-    if (!preferred && installed.length > 0) {
-      const visionFirst = installed.find((m) =>
-        /gemma3|llava|moondream|vision|qwen2-vl|minicpm-v/i.test(m.name),
-      )
-      preferred = visionFirst?.name ?? installed[0].name
-    }
-    if (!preferred && hostRows.length > 0) {
-      preferred = hostRows[0].name
-    }
-    setActiveLlmModel(preferred)
     if (reason === 'manual_refresh' && includeHostDiscoveryWrRef.current) {
       setHostModelRefreshFeedback(
         getHostRefreshFeedbackFromTargets(discovered.gavForHook, { path: discovered.path }),

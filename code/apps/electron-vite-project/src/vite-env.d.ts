@@ -234,6 +234,7 @@ interface LlmOllamaStatus {
     displayName: string
     kind: 'local_ollama' | 'host_internal' | 'cloud'
     displaySubtitle?: string
+    execution_transport?: 'ollama_direct'
   }>
 }
 

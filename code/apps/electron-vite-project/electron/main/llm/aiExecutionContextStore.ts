@@ -75,7 +75,7 @@ export function writeStoredAiExecutionContext(ctx: AiExecutionContext): void {
   const payload = JSON.stringify(
     {
       ...ctx,
-        selectionSource: ctx.selectionSource ?? 'user',
+      selectionSource: ctx.selectionSource,
       updatedAt: new Date().toISOString(),
     },
     null,

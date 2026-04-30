@@ -130,6 +130,8 @@ export interface PopupChatViewProps {
     hostComputerName?: string
     /** Optional CSS class for a Host row icon (e.g. dashboard `host-ai-model-icon`). */
     hostIconClass?: string
+    /** LAN Host Ollama route; when present, skip BEAP/P2P for Host completion. */
+    execution_transport?: 'ollama_direct'
     section?: 'local' | 'host' | 'cloud'
   }>
   activeLlmModel?: string
@@ -1219,6 +1221,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               messages: hostMsgs,
               model: parsedH.model,
               timeoutMs: 120_000,
+              execution_transport: rowH?.execution_transport === 'ollama_direct' ? 'ollama_direct' : undefined,
             })) as { ok?: boolean; output?: string; code?: string; message?: string }
             if (r && 'ok' in r && r.ok && typeof (r as { output?: string }).output === 'string') {
               const text = appendHostAiAttributionLine((r as { output: string }).output, hostComputerNameH)
@@ -1535,6 +1538,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                 messages: hostMsgs,
                 model: parsedH.model,
                 timeoutMs: 120_000,
+                execution_transport: rowH?.execution_transport === 'ollama_direct' ? 'ollama_direct' : undefined,
               })) as { ok?: boolean; output?: string; code?: string; message?: string }
               if (r && 'ok' in r && r.ok && typeof (r as { output?: string }).output === 'string') {
                 const text = appendHostAiAttributionLine((r as { output: string }).output, hostComputerNameH)

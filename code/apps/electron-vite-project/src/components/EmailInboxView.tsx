@@ -144,31 +144,6 @@ function formatRelativeDate(isoString: string): string {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' }).replace(/\//g, '.')
 }
 
-/** Apply AI `draftReply` to native BEAP capsule fields (string or capsule object). */
-function applyCapsuleDraftFromDraftReply(
-  dr: NormalInboxAiResult['draftReply'],
-  setPublic: (s: string) => void,
-  setEnc: (s: string) => void,
-): void {
-  if (dr == null) return
-  if (typeof dr === 'object' && !Array.isArray(dr)) {
-    const o = dr as Record<string, unknown>
-    const pub =
-      o.publicMessage ?? o.publicText ?? o.public
-    const enc =
-      o.encryptedMessage ?? o.encryptedText ?? o.text
-    if (pub != null || enc != null) {
-      setPublic(typeof pub === 'string' ? pub : '')
-      setEnc(typeof enc === 'string' ? enc : '')
-      return
-    }
-  }
-  if (typeof dr === 'string') {
-    setEnc(dr)
-    setPublic('')
-  }
-}
-
 type NativeBeapDraftData = {
   draftReply?: unknown
   draftReplyFull?: unknown
@@ -359,13 +334,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           setDraft(null)
           setEditedDraft('')
         }
-      } else if (cachedAdj.draftReply) {
-        const dr = cachedAdj.draftReply
-        if (typeof dr === 'string' && dr.trim()) {
-          setCapsuleEncryptedText((prev) => (prev.trim() ? prev : dr))
-        } else {
-          applyCapsuleDraftFromDraftReply(dr, setCapsulePublicText, setCapsuleEncryptedText)
-        }
       }
       setAnalysisLoading(false)
       return
@@ -438,14 +406,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           setDraft(parsed.partial.draftReply)
           setEditedDraft(parsed.partial.draftReply)
         }
-        if (skipEmailDraft && parsed.receivedKeys.includes('draftReply') && parsed.partial.draftReply != null) {
-          const dr = parsed.partial.draftReply
-          if (typeof dr === 'string' && dr.trim()) {
-            setCapsuleEncryptedText((prev) => (prev.trim() ? prev : dr))
-          } else {
-            applyCapsuleDraftFromDraftReply(dr, setCapsulePublicText, setCapsuleEncryptedText)
-          }
-        }
       }
     })
 
@@ -503,13 +463,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           } else {
             setDraft(null)
             setEditedDraft('')
-          }
-        } else if (adjusted.draftReply) {
-          const dr = adjusted.draftReply
-          if (typeof dr === 'string' && dr.trim()) {
-            setCapsuleEncryptedText((prev) => (prev.trim() ? prev : dr))
-          } else {
-            applyCapsuleDraftFromDraftReply(dr, setCapsulePublicText, setCapsuleEncryptedText)
           }
         }
         useEmailInboxStore.getState().setAnalysisCache(messageId, adjusted)
@@ -620,7 +573,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setAnalysisStreamParseFailed(false)
     setInboxAiAnalyzeDebug(null)
     setInboxAiSemanticDevNote(null)
-    setAnalysisLoading(true)
+    setAnalysisLoading(!isNativeBeap)
     setAnalysis(null)
     setReceivedFields(new Set())
     setSummarizeLoading(false)
@@ -643,21 +596,31 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setSendingCapsule(false)
     setAvailableSessions([])
     draftFallbackAttemptedRef.current = false
-    runAnalysisStreamRef.current()
+    if (isNativeBeap) {
+      console.log(
+        `[BEAP_ANALYSIS_AUTO_DEFERRED] ${JSON.stringify({
+          messageId,
+          reason: 'native_beap_draft_first',
+        })}`,
+      )
+    } else {
+      runAnalysisStreamRef.current()
+    }
     return () => {
       streamCleanupRef.current?.()
     }
-  }, [messageId])
+  }, [messageId, isNativeBeap])
 
   /** When bulk auto-sort ends, run deferred advisory stream for the selected message (auto path only). */
   useEffect(() => {
     const wasSorting = prevSortingActiveRef.current
     prevSortingActiveRef.current = isSortingActive
     if (!wasSorting || isSortingActive || !messageId) return
+    if (isNativeBeap) return
     if (autoAnalyzeStreamFailedRef.current.has(messageId)) return
     if (useEmailInboxStore.getState().analysisCache[messageId]) return
     void runAnalysisStreamRef.current()
-  }, [isSortingActive, messageId])
+  }, [isSortingActive, messageId, isNativeBeap])
 
   /** FIX-H6: Clear draft-edit indicator when switching to a different message. */
   useEffect(() => {

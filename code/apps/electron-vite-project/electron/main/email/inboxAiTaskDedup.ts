@@ -35,6 +35,16 @@ type InflightEntry = {
 
 const inboxAiTaskInflight = new Map<string, InflightEntry>()
 
+type AnalysisStreamReplayState = {
+  messageId: string
+  requestId: string
+  chunks: string[]
+  startedAt: number
+  terminal?: { kind: 'done' } | { kind: 'error'; payload: Record<string, unknown> }
+}
+
+const analysisStreamReplayByTaskKey = new Map<string, AnalysisStreamReplayState>()
+
 export const analyzeStreamAbortByMessageId = new Map<string, AbortController>()
 
 export function abortAnalyzeStreamForMessage(messageId: string, reason: string): boolean {
@@ -63,6 +73,69 @@ function removeInflightKeysWithPrefix(prefix: string): void {
   for (const k of inboxAiTaskInflight.keys()) {
     if (k.startsWith(prefix)) inboxAiTaskInflight.delete(k)
   }
+}
+
+export function clearAnalysisStreamReplayPrefix(prefix: string): void {
+  for (const k of analysisStreamReplayByTaskKey.keys()) {
+    if (k.startsWith(prefix)) analysisStreamReplayByTaskKey.delete(k)
+  }
+}
+
+export function initAnalysisStreamReplay(taskKey: string, messageId: string, requestId: string): void {
+  analysisStreamReplayByTaskKey.set(taskKey, {
+    messageId,
+    requestId,
+    chunks: [],
+    startedAt: Date.now(),
+  })
+}
+
+export function appendAnalysisStreamReplayChunk(taskKey: string, chunk: string): void {
+  const st = analysisStreamReplayByTaskKey.get(taskKey)
+  if (!st) return
+  st.chunks.push(chunk)
+  const totalChars = st.chunks.reduce((sum, c) => sum + c.length, 0)
+  if (totalChars <= 256_000) return
+  while (st.chunks.length > 1 && st.chunks.reduce((sum, c) => sum + c.length, 0) > 256_000) {
+    st.chunks.shift()
+  }
+}
+
+export function markAnalysisStreamReplayDone(taskKey: string): void {
+  const st = analysisStreamReplayByTaskKey.get(taskKey)
+  if (st) st.terminal = { kind: 'done' }
+}
+
+export function markAnalysisStreamReplayError(taskKey: string, payload: Record<string, unknown>): void {
+  const st = analysisStreamReplayByTaskKey.get(taskKey)
+  if (st) st.terminal = { kind: 'error', payload }
+}
+
+export function replayAnalysisStreamState(
+  taskKey: string,
+  send: (channel: string, payload: Record<string, unknown>) => void,
+): 'none' | 'running' | 'done' | 'error' {
+  const st = analysisStreamReplayByTaskKey.get(taskKey)
+  if (!st) return 'none'
+  for (const chunk of st.chunks) {
+    send('inbox:aiAnalyzeMessageChunk', { messageId: st.messageId, chunk })
+  }
+  if (st.terminal?.kind === 'done') {
+    send('inbox:aiAnalyzeMessageDone', { messageId: st.messageId })
+  } else if (st.terminal?.kind === 'error') {
+    send('inbox:aiAnalyzeMessageError', st.terminal.payload)
+  }
+  console.log(
+    `[INBOX_ANALYSIS_REPLAY_SENT] ${JSON.stringify({
+      taskKey,
+      messageId: st.messageId,
+      requestId: st.requestId,
+      chunks: st.chunks.length,
+      terminal: st.terminal?.kind ?? 'running',
+      elapsedMs: Date.now() - st.startedAt,
+    })}`,
+  )
+  return st.terminal?.kind ?? 'running'
 }
 
 function classifyTerminalState(err: unknown, signal: AbortSignal): InflightEntry['state'] {
@@ -114,6 +187,7 @@ export async function runInboxAiTaskWithDedup<T extends Record<string, unknown>>
       abortControllers.delete(messageId)
     }
     removeInflightKeysWithPrefix(supersedeKeyPrefix)
+    clearAnalysisStreamReplayPrefix(supersedeKeyPrefix)
   }
 
   const existing = inboxAiTaskInflight.get(taskKey)

@@ -223,7 +223,7 @@ export function registerLlmHandlers() {
         beapReady: typeof o.beapReady === 'boolean' ? o.beapReady : undefined,
         ollamaDirectReady: typeof o.ollamaDirectReady === 'boolean' ? o.ollamaDirectReady : undefined,
         models: Array.isArray(o.models) ? o.models.map((x) => String(x)) : undefined,
-        selectionSource: 'user',
+        selectionSource: o.selectionSource === 'auto' ? undefined : 'user',
       })
       if (!normalized) {
         return { ok: false as const, error: 'invalid execution context' }

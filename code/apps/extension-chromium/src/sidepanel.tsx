@@ -76,6 +76,7 @@ import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-buil
 import { electronRpc, type ElectronRpcResponse } from './rpc/electronRpc'
 import {
   buildWrChatSelectorModelsFromLlmStatus,
+  chooseDefaultWrChatModel,
   wrChatModelButtonShortLabel,
   type WrChatSelectorRow,
 } from './lib/wrChatModelsFromLlmStatus'
@@ -126,7 +127,7 @@ type LlmStatusData = {
   installed?: boolean
   running?: boolean
   modelsInstalled?: Array<{ name: string }>
-  wrChatAvailableModels?: Array<{ id: string; displayName: string; kind: string }>
+  wrChatAvailableModels?: Array<{ id: string; displayName: string; kind: string; execution_transport?: 'ollama_direct' }>
 }
 
 // ── Pinned-trigger emoji helpers ─────────────────────────────────────────────
@@ -1212,8 +1213,8 @@ function SidepanelOrchestrator() {
       const modelStillExists = models.some((m) => m.name === currentModel)
 
       if (!currentModel || !modelStillExists) {
-        const gemmaModel = models.find((m) => m.name.toLowerCase().includes('gemma'))
-        const selectedModel = gemmaModel ? gemmaModel.name : models[0].name
+        const selectedModel = chooseDefaultWrChatModel(models)
+        if (!selectedModel) return true
         setActiveLlmModel(selectedModel)
         activeLlmModelRef.current = selectedModel
         try {
@@ -1254,8 +1255,8 @@ function SidepanelOrchestrator() {
           const modelExists = rows.some((m) => m.name === currentModel)
 
           if (!currentModel || !modelExists) {
-            const gemmaModel = rows.find((m) => m.name.toLowerCase().includes('gemma'))
-            const selectedModel = gemmaModel ? gemmaModel.name : rows[0].name
+            const selectedModel = chooseDefaultWrChatModel(rows)
+            if (!selectedModel) return
             setActiveLlmModel(selectedModel)
             activeLlmModelRef.current = selectedModel
             try {

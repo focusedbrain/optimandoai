@@ -170,6 +170,7 @@ export function wrChatModelOptionsFromSelectorModels(models: SelectorAvailableMo
   hostIconClass?: string
   section?: 'local' | 'host' | 'cloud'
   p2pUiPhase?: string
+  execution_transport?: HostRowMeta['execution_transport']
 }> {
   return models.map((m) => {
     switch (m.type) {
@@ -192,6 +193,7 @@ export function wrChatModelOptionsFromSelectorModels(models: SelectorAvailableMo
           hostIconClass: HOST_AI_SELECTOR_ICON_CLASS,
           section: 'host' as const,
           p2pUiPhase: m.p2pUiPhase,
+          execution_transport: m.execution_transport,
         }
       }
     }

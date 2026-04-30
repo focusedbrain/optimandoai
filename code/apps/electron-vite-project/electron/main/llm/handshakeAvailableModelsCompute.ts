@@ -38,6 +38,7 @@ export type HandshakeUiModelRow =
       hostTargetAvailable: boolean
       hostSelectorState: 'available' | 'checking' | 'unavailable'
       p2pUiPhase?: string
+      execution_transport?: 'ollama_direct'
     }
   | {
       id: string
@@ -52,6 +53,7 @@ export type WrChatAvailableModelRow = {
   displayName: string
   kind: 'local_ollama' | 'host_internal' | 'cloud'
   displaySubtitle?: string
+  execution_transport?: 'ollama_direct'
 }
 
 export type ComputeHandshakeAvailableModelsOpts = {
@@ -82,6 +84,7 @@ export function handshakeModelsToWrChatRows(models: HandshakeUiModelRow[]): WrCh
         displayName: m.displayTitle || m.name,
         kind: 'host_internal',
         displaySubtitle: m.displaySubtitle?.trim() ? m.displaySubtitle : undefined,
+        execution_transport: m.execution_transport,
       }
     }
     if (m.type === 'cloud') {
@@ -164,6 +167,7 @@ export async function computeHandshakeAvailableModels(
             displaySubtitle: sub,
             hostTargetAvailable: t.available,
             hostSelectorState: t.host_selector_state,
+            execution_transport: t.execution_transport,
             ...(p2pUiPhase ? { p2pUiPhase } : {}),
           })
         }

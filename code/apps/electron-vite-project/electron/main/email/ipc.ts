@@ -235,11 +235,16 @@ import { buildInboxMessagesWhereClause } from './inboxWhereClause'
 import { collectReadOnlyDashboardSnapshot } from './dashboardSnapshot'
 import {
   abortAnalyzeStreamForMessage,
+  appendAnalysisStreamReplayChunk,
   analyzeStreamAbortByMessageId,
   buildInboxAiTaskKey,
   bumpDraftReplySupersedeGeneration,
   getDraftReplyGeneration,
+  initAnalysisStreamReplay,
   isDraftReplyRunStale,
+  markAnalysisStreamReplayDone,
+  markAnalysisStreamReplayError,
+  replayAnalysisStreamState,
   runInboxAiTaskWithDedup,
   syncInboxAiSelectionForTaskKey,
   type InboxAiStreamInvokeOpts,
@@ -4160,6 +4165,14 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
     }
     const analyzeDedupeKey = buildInboxAiTaskKey('analysis-stream', messageId, tkModel, tkLane)
     const supersede = !!opts?.supersede
+    if (!supersede && !event.sender.isDestroyed()) {
+      const replayState = replayAnalysisStreamState(analyzeDedupeKey, (channel, payload) => {
+        if (!event.sender.isDestroyed()) event.sender.send(channel, payload)
+      })
+      if (replayState === 'done' || replayState === 'error') {
+        return { started: true, replayed: true, terminal: replayState }
+      }
+    }
 
     return runInboxAiTaskWithDedup(
       analyzeDedupeKey,
@@ -4170,6 +4183,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
         abortControllers: analyzeStreamAbortByMessageId,
       },
       async (requestId, signal) => {
+        initAnalysisStreamReplay(analyzeDedupeKey, messageId, requestId)
         let streamStartedOk = false
         let ollamaModelForStream: string | undefined
         let aiExec: import('../llm/aiExecutionTypes').AiExecutionContext | undefined
@@ -4324,6 +4338,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
             )
             for await (const chunk of stream) {
               if (signal.aborted || event.sender.isDestroyed()) break
+              appendAnalysisStreamReplayChunk(analyzeDedupeKey, chunk)
               event.sender.send('inbox:aiAnalyzeMessageChunk', { messageId, chunk })
               console.log(
                 `[INBOX_ANALYSIS_IPC_CHUNK_SENT] ${JSON.stringify({
@@ -4341,6 +4356,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
               contentTask: { kind: 'analysis' },
             })
             if (!signal.aborted && !event.sender.isDestroyed() && text) {
+              appendAnalysisStreamReplayChunk(analyzeDedupeKey, text)
               event.sender.send('inbox:aiAnalyzeMessageChunk', { messageId, chunk: text })
               console.log(
                 `[INBOX_ANALYSIS_IPC_CHUNK_SENT] ${JSON.stringify({
@@ -4353,6 +4369,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
             }
           }
           if (!signal.aborted && !event.sender.isDestroyed()) {
+            markAnalysisStreamReplayDone(analyzeDedupeKey)
             event.sender.send('inbox:aiAnalyzeMessageDone', { messageId })
             console.log(
               `[INBOX_ANALYSIS_IPC_DONE_SENT] ${JSON.stringify({
@@ -4367,15 +4384,17 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
           const msg = err instanceof Error ? err.message : String(err)
           const stack = err instanceof Error ? err.stack : undefined
           console.error('[Inbox IPC] aiAnalyzeMessageStream error:', msg, stack ?? err)
+          const errorPayload = buildInboxAiAnalyzeErrorPayload(err, {
+            messageId,
+            operation: 'analyze_stream',
+            aiExecution: aiExec,
+            model: ollamaModelForStream,
+          })
+          markAnalysisStreamReplayError(analyzeDedupeKey, errorPayload)
           if (!event.sender.isDestroyed()) {
             event.sender.send(
               'inbox:aiAnalyzeMessageError',
-              buildInboxAiAnalyzeErrorPayload(err, {
-                messageId,
-                operation: 'analyze_stream',
-                aiExecution: aiExec,
-                model: ollamaModelForStream,
-              }),
+              errorPayload,
             )
           }
         }

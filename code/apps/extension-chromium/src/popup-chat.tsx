@@ -46,6 +46,7 @@ import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-buil
 import { electronRpc, type ElectronRpcResponse } from './rpc/electronRpc'
 import {
   buildWrChatSelectorModelsFromLlmStatus,
+  chooseDefaultWrChatModel,
   type WrChatSelectorRow,
 } from './lib/wrChatModelsFromLlmStatus'
 import { getVaultStatus } from './vault/api'
@@ -70,7 +71,7 @@ type LlmStatusData = {
   installed?: boolean
   running?: boolean
   modelsInstalled?: Array<{ name: string }>
-  wrChatAvailableModels?: Array<{ id: string; displayName: string; kind: string }>
+  wrChatAvailableModels?: Array<{ id: string; displayName: string; kind: string; execution_transport?: 'ollama_direct' }>
 }
 
 function unwrapLlmStatusPayload(data: unknown): LlmStatusData | null {
@@ -488,8 +489,8 @@ function PopupChatApp() {
           const currentModel = activeLlmModelRef.current || activeLlmModel
           const modelStillExists = models.some((m) => m.name === currentModel)
           if (!currentModel || !modelStillExists) {
-            const gemmaModel = models.find((m) => m.name.toLowerCase().includes('gemma'))
-            const selectedModel = gemmaModel ? gemmaModel.name : models[0].name
+            const selectedModel = chooseDefaultWrChatModel(models)
+            if (!selectedModel) return true
             setActiveLlmModel(selectedModel)
             activeLlmModelRef.current = selectedModel
           }

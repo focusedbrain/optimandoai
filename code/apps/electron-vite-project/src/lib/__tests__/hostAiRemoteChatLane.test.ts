@@ -5,6 +5,7 @@ import {
   findHostInferenceTargetRowForChatSelection,
   inferHostModelRemoteLane,
 } from '../hostAiRemoteChatLane'
+import { wrChatModelOptionsFromSelectorModels } from '../selectorModelListFromHostDiscovery'
 
 function base(id: string, model: string, over: Partial<HostInferenceTargetRow> = {}): HostInferenceTargetRow {
   return {
@@ -35,6 +36,23 @@ describe('inferHostModelRemoteLane', () => {
 
   it('defaults missing transport to BEAP/top-chat semantics', () => {
     expect(inferHostModelRemoteLane(base('host-internal:hs:m2', 'm2', {}))).toBe('beap')
+  })
+})
+
+describe('wrChatModelOptionsFromSelectorModels', () => {
+  it('preserves ollama_direct route metadata for WRChat Host rows', () => {
+    const row = {
+      id: 'host-internal:hs:m1',
+      name: 'Host AI · m1',
+      provider: 'host_internal',
+      type: 'host_internal',
+      displayTitle: 'Host AI · m1',
+      displaySubtitle: 'LAN',
+      hostTargetAvailable: true,
+      execution_transport: 'ollama_direct',
+    } as Parameters<typeof wrChatModelOptionsFromSelectorModels>[0][number]
+
+    expect(wrChatModelOptionsFromSelectorModels([row])[0]?.execution_transport).toBe('ollama_direct')
   })
 })
 
