@@ -81,13 +81,51 @@ describe('resolveSandboxInferenceTarget', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
+  it('caller handshakeId + candidate appears during bounded wait → cross_device without local probe', async () => {
+    vi.useFakeTimers()
+    try {
+      candidateMap.value = undefined
+      const fetchSpy = vi.fn(async () =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+        } as Response),
+      )
+      vi.stubGlobal('fetch', fetchSpy)
+
+      const { resolveSandboxInferenceTarget } = await import('../resolveSandboxInferenceTarget')
+      const p = resolveSandboxInferenceTarget({ handshakeId: 'hs-a' })
+
+      await vi.advanceTimersByTimeAsync(100)
+      candidateMap.value = sampleCandidate
+      await vi.advanceTimersByTimeAsync(100)
+
+      const r = await p
+      expect(r.kind).toBe('cross_device')
+      if (r.kind === 'cross_device') {
+        expect(r.handshakeId).toBe('hs-a')
+        expect(r.baseUrl).toBe('http://192.168.178.28:11434')
+      }
+      expect(fetchSpy).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('caller handshakeId + no candidate → falls through to local probe (local ok → local_sandbox)', async () => {
-    candidateMap.value = undefined
-    const { resolveSandboxInferenceTarget } = await import('../resolveSandboxInferenceTarget')
-    const r = await resolveSandboxInferenceTarget({ handshakeId: 'hs-missing' })
-    expect(r.kind).toBe('local_sandbox')
-    if (r.kind === 'local_sandbox') {
-      expect(r.execution_transport).toBe('local_ollama')
+    vi.useFakeTimers()
+    try {
+      candidateMap.value = undefined
+      const { resolveSandboxInferenceTarget } = await import('../resolveSandboxInferenceTarget')
+      const p = resolveSandboxInferenceTarget({ handshakeId: 'hs-missing' })
+      await vi.advanceTimersByTimeAsync(2100)
+      const r = await p
+      expect(r.kind).toBe('local_sandbox')
+      if (r.kind === 'local_sandbox') {
+        expect(r.execution_transport).toBe('local_ollama')
+      }
+    } finally {
+      vi.useRealTimers()
     }
   })
 
@@ -102,11 +140,18 @@ describe('resolveSandboxInferenceTarget', () => {
       ),
     )
 
-    candidateMap.value = undefined
-    const { resolveSandboxInferenceTarget } = await import('../resolveSandboxInferenceTarget')
-    const r = await resolveSandboxInferenceTarget({ handshakeId: 'hs-none' })
-    expect(r.kind).toBe('unavailable')
-    if (r.kind === 'unavailable') expect(r.reason).toBe('cross_device_caps_not_accepted')
+    vi.useFakeTimers()
+    try {
+      candidateMap.value = undefined
+      const { resolveSandboxInferenceTarget } = await import('../resolveSandboxInferenceTarget')
+      const p = resolveSandboxInferenceTarget({ handshakeId: 'hs-none' })
+      await vi.advanceTimersByTimeAsync(2100)
+      const r = await p
+      expect(r.kind).toBe('unavailable')
+      if (r.kind === 'unavailable') expect(r.reason).toBe('cross_device_caps_not_accepted')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('no handshakeId + local probe failed + db unavailable → no_local_ollama_no_cross_device_host', async () => {

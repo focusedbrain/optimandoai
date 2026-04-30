@@ -1602,6 +1602,20 @@ export default function HybridSearch({
       } else if (mode === 'actions') {
         setResponse('Actions mode: Draft, analyze, extract, or automate based on the selected handshake or message. Coming soon.')
       } else {
+        // Host-internal AI runs only when !isDraftRefineSession. This is collateral, not policy:
+        // the surrounding `!isDraftRefineSession` block was added for chat-transcript management
+        // (commit cac36bee, 2026-03-30, before Host AI existed). Host-internal was inserted into
+        // this block (commit 86986e56, 2026-04-25) without explicit consideration of draft-refine.
+        //
+        // Technical compatibility check (see docs/host-ai-deferred-work.md): useDraftRefineStore's
+        // deliverResponse/connect/onResponse have no Host coupling and accept non-streaming text.
+        // Integration is technically possible but is deferred pending:
+        //   1. Streaming support for Host-internal (currently stream: false), so refinement loops
+        //      don't feel sluggish at 2-3s per iteration.
+        //   2. Product decision on whether draft-refine should accept cross-device inference at all.
+        //
+        // Do not naively remove `!isDraftRefineSession` here without addressing both of the above
+        // AND preserving the chatMessages-skip behavior that draft-refine sessions rely on.
         if (mode === 'chat' && !isDraftRefineSession) {
           const mEntry = availableModels.find((m) => m.id === selectedModel)
           const isHostInternalChat =
@@ -1690,7 +1704,65 @@ export default function HybridSearch({
               line2: hostComputerName,
             })
             const prior = chatMessages.map((m) => ({ role: m.role, content: m.content }))
-            const userLine = prependChatAttachmentsToUserText(trimmed, chatAttachments)
+
+            /** Same assembly order as non-Host chatQuery (minus RAG / field-drafting / chatDirect-only paths). */
+            let chatQueryForHost = trimmed
+            let inboxContextForHost = ''
+            if (selectedMessageId && window.emailInbox?.getMessage) {
+              try {
+                const msgRes = await window.emailInbox.getMessage(selectedMessageId)
+                if (msgRes.ok && msgRes.data) {
+                  const msg = msgRes.data as { subject?: string; body_text?: string; body_html?: string }
+                  inboxContextForHost = `[Email] Subject: ${msg.subject ?? '(none)'}\nBody: ${(msg.body_text || msg.body_html || '').slice(0, 4000)}\n`
+                  if (selectedAttachmentId && window.emailInbox?.getAttachmentText) {
+                    const attRes = await window.emailInbox.getAttachmentText(selectedAttachmentId)
+                    if (attRes.ok && attRes.data) {
+                      const t = (attRes.data.text || '').trim()
+                      if (t) {
+                        inboxContextForHost += `[Selected Attachment]\n${t.slice(0, 4000)}\n`
+                      } else if (attRes.data.error) {
+                        inboxContextForHost += `[Selected Attachment: text not available] ${String(attRes.data.error).slice(0, 800)}\n`
+                      }
+                    }
+                  }
+                  inboxContextForHost += '\n'
+                }
+              } catch {
+                /* ignore — mirrors same-device inbox branch */
+              }
+            }
+            chatQueryForHost = inboxContextForHost
+              ? `${inboxContextForHost}User question: ${trimmed}`
+              : trimmed
+
+            let focusPrefixForHost = ''
+            if (useChatFocusStore.getState().chatFocusMode.mode !== 'letter-composer') {
+              const focusPrefix = getChatFocusLlmPrefix(useChatFocusStore.getState())
+              if (focusPrefix) {
+                focusPrefixForHost = focusPrefix
+                chatQueryForHost = focusPrefix + chatQueryForHost
+              }
+            }
+
+            const contextDocsHost = useAiDraftContextStore.getState().documents
+            if (contextDocsHost.length > 0) {
+              const ctxBlock = contextDocsHost.map((d) => `[${d.name}]\n${d.text.slice(0, 8000)}`).join('\n\n')
+              chatQueryForHost = `Context:\n${ctxBlock}\n\n${chatQueryForHost}`
+            }
+
+            const amCtxHost =
+              activeView === 'analysis'
+                ? useProjectSetupChatContextStore.getState().activeMilestoneContext
+                : null
+            const milestoneContextBlockHost = amCtxHost
+              ? `\n\nThe user is currently working on this milestone:\nTitle: ${amCtxHost.title}\nDescription: ${amCtxHost.description}\n\nIf the user asks to refine, improve, or edit the milestone, produce an improved version. Format your response as:\n[MILESTONE_TITLE]: <improved title>\n[MILESTONE_DESC]: <improved description>\n\nIf the user is not asking about the milestone, respond normally.`
+              : ''
+            if (milestoneContextBlockHost) {
+              chatQueryForHost += milestoneContextBlockHost
+            }
+
+            const userLine = prependChatAttachmentsToUserText(chatQueryForHost, chatAttachments)
+
             const msgSeq =
               previousAnswer?.trim() && mode === 'chat' && !isDraftRefineSession
                 ? [
@@ -1699,6 +1771,19 @@ export default function HybridSearch({
                     { role: 'user' as const, content: userLine },
                   ]
                 : [...prior, { role: 'user' as const, content: userLine }]
+
+            console.log(
+              `[HYBRID_HOST_PROMPT_BUILT] ${JSON.stringify({
+                msg_count: msgSeq.length,
+                user_line_length: userLine.length,
+                trimmed_length: trimmed.length,
+                has_attachments: chatAttachments.length > 0,
+                has_focus_prefix: focusPrefixForHost.length > 0,
+                has_context_docs: contextDocsHost.length > 0,
+                has_milestone: milestoneContextBlockHost.length > 0,
+                has_inbox_context: inboxContextForHost.length > 0,
+              })}`,
+            )
             try {
               const r = (await run({
                 targetId: selectedModel,
@@ -3151,13 +3236,37 @@ export default function HybridSearch({
             )}
           </div>
 
-          {isLoading &&
-            !(lastMode === 'chat' && (contextBlocks.length > 0 || !!(response && response.trim()))) && (
-            <div className="hs-panel-loading">
-              <span className="hs-spinner" />
-              <span>{lastMode === 'chat' ? 'Asking…' : lastMode === 'actions' ? 'Running…' : 'Searching…'}</span>
-            </div>
-          )}
+          {((isLoading &&
+            !(lastMode === 'chat' && (contextBlocks.length > 0 || !!(response && response.trim())))) ||
+            hostInfRunUi !== null) &&
+            (hostInfRunUi !== null ? (
+              <div
+                className="hs-panel-loading"
+                style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
+                  <span className="hs-spinner" />
+                  <span>
+                    {lastMode === 'chat' ? 'Asking…' : lastMode === 'actions' ? 'Running…' : 'Searching…'}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--text-muted, #94a3b8)',
+                    marginLeft: 25,
+                    lineHeight: 1.35,
+                  }}
+                >
+                  Host AI is processing your request…
+                </div>
+              </div>
+            ) : (
+              <div className="hs-panel-loading">
+                <span className="hs-spinner" />
+                <span>{lastMode === 'chat' ? 'Asking…' : lastMode === 'actions' ? 'Running…' : 'Searching…'}</span>
+              </div>
+            ))}
 
           {/* Search results */}
           {!isLoading && lastMode === 'search' && (

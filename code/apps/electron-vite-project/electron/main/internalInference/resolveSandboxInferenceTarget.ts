@@ -156,10 +156,43 @@ export async function resolveSandboxInferenceTarget(
 
   // Authoritative user intent: explicit handshake + valid LAN candidate → cross-device before local probe.
   if (callerHandshakeId) {
-    const earlyCand = getSandboxOllamaDirectRouteCandidate(callerHandshakeId)
-    const baseEarly = typeof earlyCand?.base_url === 'string' ? earlyCand.base_url.trim() : ''
-    const ownerEarly =
+    let earlyCand = getSandboxOllamaDirectRouteCandidate(callerHandshakeId)
+    let baseEarly = typeof earlyCand?.base_url === 'string' ? earlyCand.base_url.trim() : ''
+    let ownerEarly =
       typeof earlyCand?.endpoint_owner_device_id === 'string' ? earlyCand.endpoint_owner_device_id.trim() : ''
+
+    if (!earlyCand || !baseEarly || !ownerEarly) {
+      const waitStartedAt = Date.now()
+      const maxWaitMs = 2000
+      const pollIntervalMs = 100
+      while (Date.now() - waitStartedAt < maxWaitMs) {
+        await new Promise((r) => setTimeout(r, pollIntervalMs))
+        earlyCand = getSandboxOllamaDirectRouteCandidate(callerHandshakeId)
+        baseEarly = typeof earlyCand?.base_url === 'string' ? earlyCand.base_url.trim() : ''
+        ownerEarly =
+          typeof earlyCand?.endpoint_owner_device_id === 'string' ? earlyCand.endpoint_owner_device_id.trim() : ''
+        if (earlyCand && baseEarly && ownerEarly) {
+          console.log(
+            `[SBX_INFERENCE_ROUTE_RESOLVE_WAIT] ${JSON.stringify({
+              handshake_id: callerHandshakeId,
+              waited_ms: Date.now() - waitStartedAt,
+              resolved: true,
+            })}`,
+          )
+          break
+        }
+      }
+      if (!earlyCand || !baseEarly || !ownerEarly) {
+        console.log(
+          `[SBX_INFERENCE_ROUTE_RESOLVE_WAIT] ${JSON.stringify({
+            handshake_id: callerHandshakeId,
+            waited_ms: maxWaitMs,
+            resolved: false,
+          })}`,
+        )
+      }
+    }
+
     if (earlyCand && baseEarly && ownerEarly) {
       logResolveDecision({
         kind: 'cross_device',
