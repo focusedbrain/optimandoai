@@ -3667,6 +3667,23 @@ Rules:
     if (supersede) bumpDraftReplySupersedeGeneration(messageId)
     const genAtStart = getDraftReplyGeneration(messageId)
     if (abortAnalyzeStreamForMessage(messageId, 'draft_generation_started')) {
+      console.log(
+        `[AI_TASK_CONCURRENCY_POLICY] ${JSON.stringify({
+          policy: 'cancel_analysis_for_draft',
+          messageId,
+          model: tkModel,
+          lane: tkLane,
+          reason: 'draft_generation_started',
+        })}`,
+      )
+      console.log(
+        `[AI_TASK_CANCELLED_FOR_DRAFT] ${JSON.stringify({
+          messageId,
+          model: tkModel,
+          lane: tkLane,
+          reason: 'draft_generation_started',
+        })}`,
+      )
       if (!event.sender.isDestroyed()) {
         event.sender.send(
           'inbox:aiAnalyzeMessageError',
@@ -3879,7 +3896,7 @@ ${fullReply}`
           })}`,
         )
 
-        return {
+        const nativeBeapResponse = {
           ok: true,
           data: {
             draft: draftFallback,
@@ -3891,6 +3908,22 @@ ${fullReply}`
             ...(capsuleDraftIssue ? { capsuleDraftIssue } : {}),
           },
         }
+        console.log(
+          `[AI-DRAFT] Native BEAP IPC response boundary ${JSON.stringify({
+            responseKeys: Object.keys(nativeBeapResponse),
+            dataKeys: Object.keys(nativeBeapResponse.data),
+            draftReplyLen: nativeBeapResponse.data.draftReply.length,
+            draftReplyFullLen: nativeBeapResponse.data.draftReplyFull.length,
+            draftReplyPublicLen: nativeBeapResponse.data.draftReplyPublic.length,
+            capsulePublicLen: nativeBeapResponse.data.capsuleDraft.publicText.length,
+            capsuleEncryptedLen: nativeBeapResponse.data.capsuleDraft.encryptedText.length,
+            fullMatchesEncrypted:
+              nativeBeapResponse.data.draftReplyFull === nativeBeapResponse.data.capsuleDraft.encryptedText,
+            publicMatchesCapsule:
+              nativeBeapResponse.data.draftReplyPublic === nativeBeapResponse.data.capsuleDraft.publicText,
+          })}`,
+        )
+        return nativeBeapResponse
       }
 
       const sender = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
@@ -4292,6 +4325,13 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
             for await (const chunk of stream) {
               if (signal.aborted || event.sender.isDestroyed()) break
               event.sender.send('inbox:aiAnalyzeMessageChunk', { messageId, chunk })
+              console.log(
+                `[INBOX_ANALYSIS_IPC_CHUNK_SENT] ${JSON.stringify({
+                  messageId,
+                  requestId,
+                  chunkChars: chunk.length,
+                })}`,
+              )
             }
           } else {
             const text = await inboxLlmChat({
@@ -4302,10 +4342,24 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
             })
             if (!signal.aborted && !event.sender.isDestroyed() && text) {
               event.sender.send('inbox:aiAnalyzeMessageChunk', { messageId, chunk: text })
+              console.log(
+                `[INBOX_ANALYSIS_IPC_CHUNK_SENT] ${JSON.stringify({
+                  messageId,
+                  requestId,
+                  chunkChars: text.length,
+                  source: 'non_stream',
+                })}`,
+              )
             }
           }
           if (!signal.aborted && !event.sender.isDestroyed()) {
             event.sender.send('inbox:aiAnalyzeMessageDone', { messageId })
+            console.log(
+              `[INBOX_ANALYSIS_IPC_DONE_SENT] ${JSON.stringify({
+                messageId,
+                requestId,
+              })}`,
+            )
             streamStartedOk = true
           }
         } catch (err: unknown) {

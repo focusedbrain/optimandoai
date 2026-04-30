@@ -15,6 +15,8 @@ export type AiExecutionContext = {
   ollamaDirectReady?: boolean
   /** Remote model names for this Host / handshake (from selector); optional cache. */
   models?: string[]
+  /** Present for model-selector writes; legacy files without this are treated as non-explicit fallbacks. */
+  selectionSource?: 'user'
 }
 
 /** IPC / disk payload before normalization (renderer → main). */
@@ -27,6 +29,7 @@ export type AiExecutionContextInput = {
   beapReady?: boolean
   ollamaDirectReady?: boolean
   models?: string[]
+  selectionSource?: 'user'
 }
 
 export type ResolveAiExecutionContextResult =

@@ -169,6 +169,53 @@ function applyCapsuleDraftFromDraftReply(
   }
 }
 
+type NativeBeapDraftData = {
+  draftReply?: unknown
+  draftReplyFull?: unknown
+  draftReplyPublic?: unknown
+  capsuleDraft?: { publicText?: unknown; encryptedText?: unknown }
+}
+
+function firstNonEmptyString(
+  candidates: Array<{ source: string; value: unknown }>,
+): { source: string; value: string } {
+  for (const candidate of candidates) {
+    if (typeof candidate.value === 'string' && candidate.value.trim()) {
+      return { source: candidate.source, value: candidate.value }
+    }
+  }
+  return { source: 'none', value: '' }
+}
+
+function resolveNativeBeapDraftFields(data: NativeBeapDraftData): {
+  mainDraft: string
+  mainSource: string
+  publicPreview: string
+  publicSource: string
+  equalsPublicText: boolean
+  equalsEncryptedText: boolean
+} {
+  const capsulePublic = data.capsuleDraft?.publicText
+  const capsuleEncrypted = data.capsuleDraft?.encryptedText
+  const main = firstNonEmptyString([
+    { source: 'draftReplyFull', value: data.draftReplyFull },
+    { source: 'draftReply', value: data.draftReply },
+    { source: 'capsuleDraft.encryptedText', value: capsuleEncrypted },
+  ])
+  const preview = firstNonEmptyString([
+    { source: 'draftReplyPublic', value: data.draftReplyPublic },
+    { source: 'capsuleDraft.publicText', value: capsulePublic },
+  ])
+  return {
+    mainDraft: main.value,
+    mainSource: main.source,
+    publicPreview: preview.value,
+    publicSource: preview.source,
+    equalsPublicText: typeof capsulePublic === 'string' && main.value === capsulePublic,
+    equalsEncryptedText: typeof capsuleEncrypted === 'string' && main.value === capsuleEncrypted,
+  }
+}
+
 /** AI preview line for list rows — aligns with Bulk (summary / reason / sort_reason). */
 function getMessageAiPreviewLine(msg: InboxMessage): string | null {
   let text = ''
@@ -226,6 +273,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const [visibleSections, setVisibleSections] = useState<Set<string>>(() => new Set(['summary', 'draft', 'analysis']))
   const [capsulePublicText, setCapsulePublicText] = useState('')
   const [capsuleEncryptedText, setCapsuleEncryptedText] = useState('')
+  const [capsulePublicSource, setCapsulePublicSource] = useState('none')
+  const [capsuleEncryptedSource, setCapsuleEncryptedSource] = useState('none')
   const [capsuleDraftIssue, setCapsuleDraftIssue] = useState<
     'full_reply_missing' | 'full_reply_suspiciously_short' | null
   >(null)
@@ -362,6 +411,13 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     const unsubChunk = window.emailInbox.onAiAnalyzeChunk(({ messageId: mid, chunk }) => {
       if (mid !== messageId) return
       accumulatedText += chunk
+      console.log(
+        `[INBOX_ANALYSIS_RENDERER_CHUNK_RECEIVED] ${JSON.stringify({
+          messageId,
+          chunkChars: chunk.length,
+          accumulatedChars: accumulatedText.length,
+        })}`,
+      )
       const parsed = tryParsePartialAnalysis(accumulatedText)
       if (parsed) {
         setAnalysis((prev) => {
@@ -395,8 +451,24 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
     const unsubDone = window.emailInbox.onAiAnalyzeDone(({ messageId: mid }) => {
       if (mid !== messageId) return
+      console.log(
+        `[INBOX_ANALYSIS_RENDERER_DONE_RECEIVED] ${JSON.stringify({
+          messageId,
+          accumulatedChars: accumulatedText.length,
+        })}`,
+      )
       setAnalysisLoading(false)
       const finalMeta = tryParseAnalysisWithMeta(accumulatedText)
+      console.log(
+        `[INBOX_ANALYSIS_RENDERER_PARSE_ATTEMPT] ${JSON.stringify({
+          messageId,
+          accumulatedChars: accumulatedText.length,
+          success: !!finalMeta.result,
+          strippedFence: finalMeta.meta.strippedFence,
+          usedBalancedExtract: finalMeta.meta.usedBalancedExtract,
+          usedTrailingCommaRepair: finalMeta.meta.usedTrailingCommaRepair,
+        })}`,
+      )
       const final = finalMeta.result
       if (final) {
         const tri = reconcileAnalyzeTriage(
@@ -471,6 +543,13 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
     const unsubError = window.emailInbox.onAiAnalyzeError((payload) => {
       if (payload.messageId !== messageId) return
+      console.log(
+        `[INBOX_ANALYSIS_RENDERER_ERROR_RECEIVED] ${JSON.stringify({
+          messageId,
+          error: payload.error ?? null,
+          inboxErrorCode: payload.inboxErrorCode ?? null,
+        })}`,
+      )
       autoAnalyzeStreamFailedRef.current.add(messageId)
       setAnalysisLoading(false)
       setAnalysisStreamParseFailed(false)
@@ -555,6 +634,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setVisibleSections(new Set(['summary', 'draft', 'analysis']))
     setCapsulePublicText('')
     setCapsuleEncryptedText('')
+    setCapsulePublicSource('none')
+    setCapsuleEncryptedSource('none')
     setCapsuleDraftIssue(null)
     setSelectedSessionId(null)
     setCapsuleAttachments([])
@@ -650,8 +731,56 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   }, [messageId, message?.subject, capsuleEncryptedText, draftRefineConnect, draftRefineDisconnect])
 
   useEffect(() => {
+    if (!isNativeBeap || !visibleSections.has('draft')) return
+    console.log(
+      `[BEAP_DRAFT_EDITOR_RENDER] ${JSON.stringify({
+        messageId,
+        fieldName: 'pBEAP public preview',
+        renderedValueLength: capsulePublicText.length,
+        sourcePath: capsulePublicSource,
+      })}`,
+    )
+  }, [isNativeBeap, visibleSections, messageId, capsulePublicText, capsulePublicSource])
+
+  useEffect(() => {
+    if (!isNativeBeap || !visibleSections.has('draft')) return
+    console.log(
+      `[BEAP_DRAFT_EDITOR_RENDER] ${JSON.stringify({
+        messageId,
+        fieldName: 'qBEAP full draft reply',
+        renderedValueLength: capsuleEncryptedText.length,
+        sourcePath: capsuleEncryptedSource,
+      })}`,
+    )
+    if (
+      capsuleEncryptedText.trim() &&
+      capsulePublicText.trim() &&
+      (capsuleEncryptedSource === 'draftReplyPublic' ||
+        capsuleEncryptedSource === 'capsuleDraft.publicText' ||
+        capsuleEncryptedText === capsulePublicText)
+    ) {
+      console.error(
+        `[BEAP_DRAFT_FIELD_SOURCE_BUG] ${JSON.stringify({
+          messageId,
+          fieldName: 'qBEAP full draft reply',
+          sourcePath: capsuleEncryptedSource,
+          renderedValueLength: capsuleEncryptedText.length,
+          publicPreviewLength: capsulePublicText.length,
+        })}`,
+      )
+    }
+  }, [
+    isNativeBeap,
+    visibleSections,
+    messageId,
+    capsuleEncryptedText,
+    capsuleEncryptedSource,
+    capsulePublicText,
+  ])
+
+  useEffect(() => {
     if (!draftRefineConnected || draftRefineMessageId !== messageId) return
-    function handleClickOutside(e: MouseEvent) {
+    function handleClickOutside(e: globalThis.MouseEvent) {
       const target = e.target as Node
       // Top HybridSearch bar lives outside draftRef — exclude it so refinement can be typed there.
       const chatBar = document.querySelector('.hs-root')
@@ -816,11 +945,42 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         data?: typeof data
       }
       if (res.ok && native) {
+        const fieldSelection = resolveNativeBeapDraftFields(data as NativeBeapDraftData)
+        console.log(
+          `[BEAP_DRAFT_RENDERER_RESULT] ${JSON.stringify({
+            resultKeys: Object.keys(res ?? {}),
+            dataKeys: Object.keys(data ?? {}),
+            selectedMainDraftSource: fieldSelection.mainSource,
+            selectedMainDraftLen: fieldSelection.mainDraft.length,
+            publicPreviewSource: fieldSelection.publicSource,
+            publicPreviewLen: fieldSelection.publicPreview.length,
+            selectedMainEqualsPublicText: fieldSelection.equalsPublicText,
+            selectedMainEqualsEncryptedText: fieldSelection.equalsEncryptedText,
+          })}`,
+        )
+        if (
+          fieldSelection.mainDraft.length > 0 &&
+          fieldSelection.publicPreview.length > 0 &&
+          (fieldSelection.mainSource === 'draftReplyPublic' ||
+            fieldSelection.mainSource === 'capsuleDraft.publicText' ||
+            fieldSelection.equalsPublicText)
+        ) {
+          console.error(
+            `[BEAP_DRAFT_FIELD_SOURCE_BUG] ${JSON.stringify({
+              messageId,
+              selectedMainDraftSource: fieldSelection.mainSource,
+              selectedMainDraftLen: fieldSelection.mainDraft.length,
+              publicPreviewLen: fieldSelection.publicPreview.length,
+            })}`,
+          )
+        }
         const issue = (data as { capsuleDraftIssue?: 'full_reply_missing' | 'full_reply_suspiciously_short' })
           .capsuleDraftIssue
         setCapsuleDraftIssue(issue ?? null)
-        setCapsulePublicText(data.capsuleDraft!.publicText)
-        setCapsuleEncryptedText(data.capsuleDraft!.encryptedText)
+        setCapsulePublicText(fieldSelection.publicPreview)
+        setCapsulePublicSource(fieldSelection.publicSource)
+        setCapsuleEncryptedText(fieldSelection.mainDraft)
+        setCapsuleEncryptedSource(fieldSelection.mainSource)
         setDraftError(false)
         setDraftErrorMessage(null)
         setDraftErrorDebug(null)
@@ -1473,7 +1633,10 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           }`}
                           placeholder="Short public preview (1–2 sentences). Full reply belongs in the encrypted field."
                           value={capsulePublicText}
-                          onChange={(e) => setCapsulePublicText(e.target.value)}
+                          onChange={(e) => {
+                            setCapsulePublicText(e.target.value)
+                            setCapsulePublicSource('user_edit')
+                          }}
                           onFocus={() => {
                             useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
                           }}
@@ -1563,7 +1726,10 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           }`}
                           placeholder="Full AI draft reply — encrypted capsule body (authoritative when present)."
                           value={capsuleEncryptedText}
-                          onChange={(e) => setCapsuleEncryptedText(e.target.value)}
+                          onChange={(e) => {
+                            setCapsuleEncryptedText(e.target.value)
+                            setCapsuleEncryptedSource('user_edit')
+                          }}
                           onFocus={() => {
                             useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
                           }}

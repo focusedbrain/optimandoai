@@ -41,6 +41,7 @@ export function normalizeAiExecutionContextInput(raw: AiExecutionContextInput): 
     beapReady: typeof raw.beapReady === 'boolean' ? raw.beapReady : undefined,
     ollamaDirectReady: typeof raw.ollamaDirectReady === 'boolean' ? raw.ollamaDirectReady : undefined,
     models: models?.length ? [...new Set(models)] : undefined,
+    selectionSource: raw.selectionSource === 'user' ? 'user' : undefined,
   }
 }
 
@@ -60,6 +61,7 @@ export function readStoredAiExecutionContext(): AiExecutionContext | null {
       beapReady: typeof o.beapReady === 'boolean' ? o.beapReady : undefined,
       ollamaDirectReady: typeof o.ollamaDirectReady === 'boolean' ? o.ollamaDirectReady : undefined,
       models: Array.isArray(o.models) ? (o.models as unknown[]).map((x) => String(x)) : undefined,
+      selectionSource: o.selectionSource === 'user' ? 'user' : undefined,
     })
   } catch (e) {
     console.warn('[AiExecutionContext] read failed:', e)
@@ -73,6 +75,7 @@ export function writeStoredAiExecutionContext(ctx: AiExecutionContext): void {
   const payload = JSON.stringify(
     {
       ...ctx,
+        selectionSource: ctx.selectionSource ?? 'user',
       updatedAt: new Date().toISOString(),
     },
     null,

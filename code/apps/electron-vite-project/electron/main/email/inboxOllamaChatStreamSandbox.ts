@@ -77,6 +77,10 @@ function logStreamFetchErr(err: unknown, diag: InboxOllamaStreamFetchDiag): void
   )
 }
 
+function logStreamEvent(name: string, payload: Record<string, unknown>): void {
+  console.log(`[${name}] ${JSON.stringify(payload)}`)
+}
+
 async function* streamOllamaChatNdjsonFromBaseUrl(
   baseUrl: string,
   systemPrompt: string,
@@ -102,6 +106,10 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
     signalAbortedTimeout: innerAc.signal.aborted,
   }
   console.log('[INBOX_OLLAMA_STREAM_FETCH_BEGIN]', JSON.stringify(diagBefore))
+  let lineCount = 0
+  let chunkCount = 0
+  let cumulativeChars = 0
+  let sawDone = false
   try {
     const body: Record<string, unknown> = {
       model: modelId,
@@ -122,23 +130,64 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
       body: JSON.stringify(body),
       signal: fetchSignal,
     })
-    clearTimeout(timeoutId)
+    logStreamEvent('INBOX_OLLAMA_STREAM_RESPONSE', {
+      ...diagBefore,
+      http_status: response.status,
+      ok: response.ok,
+      has_body: !!response.body,
+      response_format: opts.responseFormat ?? null,
+    })
     if (!response.ok || !response.body) throw new Error(`Stream failed HTTP ${response.status}`)
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
     while (true) {
       const { done, value } = await reader.read()
-      if (done) break
+      if (done) {
+        logStreamEvent('INBOX_OLLAMA_STREAM_READER_CLOSE', {
+          requestId: opts.diag.requestId ?? null,
+          lineCount,
+          chunkCount,
+          cumulativeChars,
+          sawDone,
+        })
+        break
+      }
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n')
       buffer = lines.pop() || ''
       for (const line of lines) {
         if (!line.trim()) continue
+        lineCount += 1
+        if (lineCount === 1) {
+          logStreamEvent('INBOX_OLLAMA_STREAM_FIRST_LINE', {
+            requestId: opts.diag.requestId ?? null,
+            lineChars: line.length,
+            linePrefix: line.slice(0, 120),
+          })
+        }
         try {
-          const parsed = JSON.parse(line) as { message?: { content?: string } }
+          const parsed = JSON.parse(line) as { message?: { content?: string }; done?: boolean }
+          if (parsed.done === true) {
+            sawDone = true
+            logStreamEvent('INBOX_OLLAMA_STREAM_DONE', {
+              requestId: opts.diag.requestId ?? null,
+              lineCount,
+              chunkCount,
+              cumulativeChars,
+            })
+          }
           if (parsed.message?.content) {
-            yield parsed.message.content
+            const chunk = parsed.message.content
+            chunkCount += 1
+            cumulativeChars += chunk.length
+            logStreamEvent('INBOX_OLLAMA_STREAM_CHUNK', {
+              requestId: opts.diag.requestId ?? null,
+              chunkCount,
+              chunkChars: chunk.length,
+              cumulativeChars,
+            })
+            yield chunk
           }
         } catch {
           /* partial line */
@@ -146,26 +195,74 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
       }
     }
     if (buffer.trim()) {
+      lineCount += 1
       try {
-        const parsed = JSON.parse(buffer) as { message?: { content?: string } }
+        const parsed = JSON.parse(buffer) as { message?: { content?: string }; done?: boolean }
+        if (parsed.done === true) {
+          sawDone = true
+          logStreamEvent('INBOX_OLLAMA_STREAM_DONE', {
+            requestId: opts.diag.requestId ?? null,
+            lineCount,
+            chunkCount,
+            cumulativeChars,
+          })
+        }
         if (parsed.message?.content) {
-          yield parsed.message.content
+          const chunk = parsed.message.content
+          chunkCount += 1
+          cumulativeChars += chunk.length
+          logStreamEvent('INBOX_OLLAMA_STREAM_CHUNK', {
+            requestId: opts.diag.requestId ?? null,
+            chunkCount,
+            chunkChars: chunk.length,
+            cumulativeChars,
+          })
+          yield chunk
         }
       } catch {
         /* partial */
       }
     }
+    logStreamEvent('INBOX_OLLAMA_STREAM_FINAL_LENGTH', {
+      requestId: opts.diag.requestId ?? null,
+      lineCount,
+      chunkCount,
+      cumulativeChars,
+      sawDone,
+    })
   } catch (err: unknown) {
-    clearTimeout(timeoutId)
     logStreamFetchErr(err, { ...opts.diag, baseUrl: normalizedBase, url })
     const isAbort = err instanceof Error && err.name === 'AbortError'
     if (isAbort) {
       if (opts.abortSignal?.aborted) {
+        logStreamEvent('INBOX_OLLAMA_STREAM_ABORTED', {
+          requestId: opts.diag.requestId ?? null,
+          lineCount,
+          chunkCount,
+          cumulativeChars,
+          reason: 'outer_abort',
+        })
         throw new Error('LLM_ABORTED')
       }
+      logStreamEvent('INBOX_OLLAMA_STREAM_TIMEOUT', {
+        requestId: opts.diag.requestId ?? null,
+        lineCount,
+        chunkCount,
+        cumulativeChars,
+        timeoutMs: opts.diag.timeoutMs,
+      })
       throw new Error('LLM_TIMEOUT: response exceeded 45s')
     }
+    logStreamEvent('INBOX_OLLAMA_STREAM_ERROR', {
+      requestId: opts.diag.requestId ?? null,
+      lineCount,
+      chunkCount,
+      cumulativeChars,
+      error: err instanceof Error ? err.message : String(err),
+    })
     throw err
+  } finally {
+    clearTimeout(timeoutId)
   }
 }
 
