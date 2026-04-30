@@ -145,6 +145,8 @@ function formatRelativeDate(isoString: string): string {
 }
 
 type NativeBeapDraftData = {
+  qbeapReply?: unknown
+  pbeapReply?: unknown
   draftReply?: unknown
   draftReplyFull?: unknown
   draftReplyPublic?: unknown
@@ -173,11 +175,13 @@ function resolveNativeBeapDraftFields(data: NativeBeapDraftData): {
   const capsulePublic = data.capsuleDraft?.publicText
   const capsuleEncrypted = data.capsuleDraft?.encryptedText
   const main = firstNonEmptyString([
+    { source: 'data.qbeapReply', value: data.qbeapReply },
     { source: 'data.draftReplyFull', value: data.draftReplyFull },
     { source: 'data.draftReply', value: data.draftReply },
     { source: 'data.capsuleDraft.encryptedText', value: capsuleEncrypted },
   ])
   const preview = firstNonEmptyString([
+    { source: 'data.pbeapReply', value: data.pbeapReply },
     { source: 'data.draftReplyPublic', value: data.draftReplyPublic },
     { source: 'data.capsuleDraft.publicText', value: capsulePublic },
   ])
@@ -189,6 +193,33 @@ function resolveNativeBeapDraftFields(data: NativeBeapDraftData): {
     equalsPublicText: typeof capsulePublic === 'string' && main.value === capsulePublic,
     equalsEncryptedText: typeof capsuleEncrypted === 'string' && main.value === capsuleEncrypted,
   }
+}
+
+/**
+ * Maps `inbox:aiAnalyzeMessageError` payloads to banners. Main uses `buildInboxAiAnalyzeErrorPayload`:
+ * — `LLM_TIMEOUT`/`InboxLlmTimeoutError` → `inboxErrorCode: 'timeout'`, legacy `error: 'timeout'`
+ * — Abort stream → thrown `LLM_ABORTED` retained on `payload.message`
+ * — `assertMinimumAnalysisOutput` → message includes `Analysis output too short` / `[INBOX_ANALYSIS_TOO_SHORT]`
+ */
+function inboxAnalyzeStreamPrivilegedBannerMessage(payload: {
+  error?: string
+  message?: string
+  inboxErrorCode?: string
+}): string | null {
+  const raw = typeof payload.message === 'string' ? payload.message : ''
+  const code = typeof payload.inboxErrorCode === 'string' ? payload.inboxErrorCode : ''
+  const errField = typeof payload.error === 'string' ? payload.error : ''
+
+  if (code === 'timeout' || errField === 'timeout' || raw.startsWith('LLM_TIMEOUT')) {
+    return 'Analysis took too long (>45s) and timed out. The host may be busy. Try again.'
+  }
+  if (raw === 'LLM_ABORTED' || raw.startsWith('LLM_ABORTED')) {
+    return 'Analysis was cancelled.'
+  }
+  if (raw.includes('Analysis output too short') || raw.includes('[INBOX_ANALYSIS_TOO_SHORT]')) {
+    return 'The AI returned an incomplete response. Try again or check that your model is responding properly.'
+  }
+  return null
 }
 
 /** AI preview line for list rows — aligns with Bulk (summary / reason / sort_reason). */
@@ -488,6 +519,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           })}`,
         )
         setAnalysisStreamParseFailed(true)
+        setAnalysisError(null)
         setAnalysis(null)
         setReceivedFields(new Set())
       }
@@ -506,13 +538,30 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       autoAnalyzeStreamFailedRef.current.add(messageId)
       setAnalysisLoading(false)
       setAnalysisStreamParseFailed(false)
+
+      const priv = inboxAnalyzeStreamPrivilegedBannerMessage({
+        error: payload.error,
+        message: payload.message,
+        inboxErrorCode: payload.inboxErrorCode,
+      })
       const { fatalMessage, semanticDevNote } = inboxAiAnalyzeStreamErrorDisplay({
         error: payload.error,
         message: payload.message,
         inboxErrorCode: payload.inboxErrorCode,
       })
-      setAnalysisError(fatalMessage)
-      setInboxAiSemanticDevNote(semanticDevNote)
+      if (priv != null) {
+        setAnalysisError(priv)
+        setInboxAiSemanticDevNote(null)
+      } else if (fatalMessage) {
+        setAnalysisError(fatalMessage)
+        setInboxAiSemanticDevNote(null)
+      } else if (typeof payload.message === 'string' && payload.message.trim()) {
+        setAnalysisError(`Analysis failed: ${payload.message.trim()}`)
+        setInboxAiSemanticDevNote(null)
+      } else {
+        setAnalysisError(null)
+        setInboxAiSemanticDevNote(semanticDevNote)
+      }
       if (import.meta.env.DEV && payload.debug && typeof payload.debug === 'object') {
         setInboxAiAnalyzeDebug(payload.debug as InboxAiErrorDebugPayload)
       } else {
@@ -573,7 +622,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setAnalysisStreamParseFailed(false)
     setInboxAiAnalyzeDebug(null)
     setInboxAiSemanticDevNote(null)
-    setAnalysisLoading(!isNativeBeap)
+    setAnalysisLoading(true)
     setAnalysis(null)
     setReceivedFields(new Set())
     setSummarizeLoading(false)
@@ -596,16 +645,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setSendingCapsule(false)
     setAvailableSessions([])
     draftFallbackAttemptedRef.current = false
-    if (isNativeBeap) {
-      console.log(
-        `[BEAP_ANALYSIS_AUTO_DEFERRED] ${JSON.stringify({
-          messageId,
-          reason: 'native_beap_draft_first',
-        })}`,
-      )
-    } else {
-      runAnalysisStreamRef.current()
-    }
+    void runAnalysisStreamRef.current()
     return () => {
       streamCleanupRef.current?.()
     }
@@ -616,11 +656,10 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     const wasSorting = prevSortingActiveRef.current
     prevSortingActiveRef.current = isSortingActive
     if (!wasSorting || isSortingActive || !messageId) return
-    if (isNativeBeap) return
     if (autoAnalyzeStreamFailedRef.current.has(messageId)) return
     if (useEmailInboxStore.getState().analysisCache[messageId]) return
     void runAnalysisStreamRef.current()
-  }, [isSortingActive, messageId, isNativeBeap])
+  }, [isSortingActive, messageId])
 
   /** FIX-H6: Clear draft-edit indicator when switching to a different message. */
   useEffect(() => {
@@ -908,9 +947,15 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       }
       if (res.ok && native) {
         const fieldSelection = resolveNativeBeapDraftFields(data as NativeBeapDraftData)
-        const draftReplyLen = typeof data?.draftReply === 'string' ? data.draftReply.length : 0
-        const draftReplyFullLen = typeof data?.draftReplyFull === 'string' ? data.draftReplyFull.length : 0
-        const draftReplyPublicLen = typeof data?.draftReplyPublic === 'string' ? data.draftReplyPublic.length : 0
+        const dq = data as NativeBeapDraftData & {
+          draftReplyFull?: unknown
+          draftReplyPublic?: unknown
+        }
+        const draftReplyLen = typeof dq.draftReply === 'string' ? dq.draftReply.length : 0
+        const draftReplyFullLen = typeof dq.draftReplyFull === 'string' ? dq.draftReplyFull.length : 0
+        const draftReplyPublicLen = typeof dq.draftReplyPublic === 'string' ? dq.draftReplyPublic.length : 0
+        const qbeapReplyLen = typeof dq.qbeapReply === 'string' ? dq.qbeapReply.length : 0
+        const pbeapReplyLen = typeof dq.pbeapReply === 'string' ? dq.pbeapReply.length : 0
         const capsuleEncryptedLen =
           typeof data?.capsuleDraft?.encryptedText === 'string' ? data.capsuleDraft.encryptedText.length : 0
         const capsulePublicLen =
@@ -919,6 +964,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           `[BEAP_DRAFT_RENDERER_RECEIVED] ${JSON.stringify({
             messageId,
             dataKeys: Object.keys(data ?? {}),
+            qbeapReplyLen,
+            pbeapReplyLen,
             draftReplyLen,
             draftReplyFullLen,
             draftReplyPublicLen,
@@ -930,12 +977,10 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           `[BEAP_DRAFT_RENDERER_RESULT] ${JSON.stringify({
             resultKeys: Object.keys(res ?? {}),
             dataKeys: Object.keys(data ?? {}),
-            selectedMainDraftSource: fieldSelection.mainSource,
-            selectedMainDraftLen: fieldSelection.mainDraft.length,
-            publicPreviewSource: fieldSelection.publicSource,
-            publicPreviewLen: fieldSelection.publicPreview.length,
-            selectedMainEqualsPublicText: fieldSelection.equalsPublicText,
-            selectedMainEqualsEncryptedText: fieldSelection.equalsEncryptedText,
+            qbeapDraftSource: fieldSelection.mainSource,
+            qbeapDraftLen: fieldSelection.mainDraft.length,
+            pbeapDraftSource: fieldSelection.publicSource,
+            pbeapDraftLen: fieldSelection.publicPreview.length,
           })}`,
         )
         if (
@@ -948,8 +993,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           console.error(
             `[BEAP_DRAFT_FIELD_SOURCE_BUG] ${JSON.stringify({
               messageId,
-              selectedMainDraftSource: fieldSelection.mainSource,
-              selectedMainDraftLen: fieldSelection.mainDraft.length,
+              mainDraftSourceBug: fieldSelection.mainSource,
+              mainDraftLen: fieldSelection.mainDraft.length,
               publicPreviewLen: fieldSelection.publicPreview.length,
             })}`,
           )
@@ -957,17 +1002,12 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         const issue = (data as { capsuleDraftIssue?: 'full_reply_missing' | 'full_reply_suspiciously_short' })
           .capsuleDraftIssue
         setCapsuleDraftIssue(issue ?? null)
-        const fullLen = fieldSelection.mainDraft.length
-        const summaryLen = fieldSelection.publicPreview.length
         console.log(
           `[BEAP_EDITOR_FIELD_SOURCE] ${JSON.stringify({
             messageId,
             fieldType: 'pbeap',
-            sourcePath: fieldSelection.mainSource,
-            renderedLen: fieldSelection.mainDraft.length,
-            fullLen,
-            summaryLen,
-            isUsingPublicPreview: false,
+            sourcePath: fieldSelection.publicSource,
+            renderedLen: fieldSelection.publicPreview.length,
           })}`,
         )
         console.log(
@@ -976,15 +1016,14 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
             fieldType: 'qbeap',
             sourcePath: fieldSelection.mainSource,
             renderedLen: fieldSelection.mainDraft.length,
-            fullLen,
-            summaryLen,
-            isUsingPublicPreview: false,
           })}`,
         )
-        setCapsulePublicText(fieldSelection.mainDraft)
-        setCapsulePublicSource(fieldSelection.mainSource)
-        setCapsuleEncryptedText(fieldSelection.mainDraft)
-        setCapsuleEncryptedSource(fieldSelection.mainSource)
+        const pubText = fieldSelection.publicPreview.trim()
+        const encText = fieldSelection.mainDraft.trim()
+        setCapsulePublicText(pubText)
+        setCapsulePublicSource(pubText ? fieldSelection.publicSource : 'none')
+        setCapsuleEncryptedText(encText)
+        setCapsuleEncryptedSource(encText ? fieldSelection.mainSource : 'none')
         setDraftError(false)
         setDraftErrorMessage(null)
         setDraftErrorDebug(null)
@@ -1252,6 +1291,17 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
   const isDepackaged = message?.source_type === 'email_plain'
 
+  const inboxAiWorkInFlight = analysisLoading || draftLoading
+  /** Combined / single-flight labels shown in `inbox-detail-ai-loading`. */
+  const inboxAiWorkLabel =
+    analysisLoading && draftLoading
+      ? 'AI is processing this message…'
+      : draftLoading
+        ? 'Generating reply…'
+        : analysisLoading
+          ? 'Analyzing message…'
+          : null
+
   return (
     <div className="inbox-detail-ai-inner inbox-detail-ai-premium" role="complementary" aria-label="AI email analysis">
       <div className="inbox-detail-ai-action-bar">
@@ -1321,7 +1371,15 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         ) : null}
       </div>
       <div className="inbox-detail-ai-scroll">
-        {analysisError && (
+        {inboxAiWorkInFlight && inboxAiWorkLabel ? (
+          <div className="inbox-detail-ai-loading" role="status" aria-live="polite" aria-busy="true">
+            <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span className="inbox-detail-ai-skeleton-inline" style={{ width: 18, minHeight: 14, flexShrink: 0 }} aria-hidden />
+              <span>{inboxAiWorkLabel}</span>
+            </div>
+          </div>
+        ) : null}
+        {analysisError && !analysisStreamParseFailed ? (
           <div className="inbox-detail-ai-error-banner">
             <span>{analysisError}</span>
             <button type="button" onClick={handleRetryAnalysis} disabled={analysisLoading}>Retry</button>
@@ -1334,7 +1392,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
               </pre>
             )}
           </div>
-        )}
+        ) : null}
         {import.meta.env.DEV && inboxAiSemanticDevNote && (
           <div className="inbox-detail-ai-muted" style={{ marginBottom: 8, fontSize: 12 }}>
             {inboxAiSemanticDevNote}

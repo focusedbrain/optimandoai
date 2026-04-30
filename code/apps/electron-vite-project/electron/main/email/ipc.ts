@@ -404,6 +404,44 @@ function buildNativeBeapAnalyzeBody(row: {
   return messageContent.slice(0, 12_000)
 }
 
+/**
+ * Plain incoming text for native BEAP per-field drafts: aligns with redirect source layering —
+ * {@link extractInboxMessageRedirectSourceFromRow} `public_text` (transport / pBEAP layer) vs
+ * `encrypted_text` (decrypted inner / qBEAP-facing body).
+ */
+function extractNativeBeapIncomingPbeapQbeapTexts(
+  messageIdForExtract: string,
+  row: {
+    subject?: string | null
+    body_text?: string | null
+    handshake_id?: string | null
+    depackaged_json?: string | null
+    beap_package_json?: string | null
+    source_type?: string | null
+    has_attachments?: number | null
+  },
+): { incomingPbeap: string; incomingQbeap: string } {
+  const src = extractInboxMessageRedirectSourceFromRow({
+    id: messageIdForExtract,
+    subject: row.subject,
+    body_text: row.body_text,
+    handshake_id: row.handshake_id,
+    depackaged_json: row.depackaged_json,
+    beap_package_json: row.beap_package_json,
+    source_type: row.source_type,
+    has_attachments: row.has_attachments ?? undefined,
+  })
+  if (!src.ok) {
+    return { incomingPbeap: '', incomingQbeap: '' }
+  }
+  const p = src.public_text.trim()
+  const q = src.encrypted_text.trim()
+  if (p && q && p === q) {
+    return { incomingPbeap: '', incomingQbeap: q }
+  }
+  return { incomingPbeap: p, incomingQbeap: q }
+}
+
 /** Normalize draftReply from LLM JSON for native BEAP (flat keys, object, or stringified JSON). */
 function normalizeNativeBeapDraftReply(parsed: Record<string, unknown>): {
   publicMessage: string
@@ -3698,7 +3736,7 @@ Rules:
       if (!db) return buildInboxAiDraftIpcFailure(new Error('Database unavailable'), {}) as { ok: false; error: string; message: string }
       const row = db
         .prepare(
-          'SELECT from_address, from_name, subject, body_text, source_type, handshake_id, depackaged_json, beap_package_json FROM inbox_messages WHERE id = ?',
+          'SELECT from_address, from_name, subject, body_text, source_type, handshake_id, depackaged_json, beap_package_json, has_attachments FROM inbox_messages WHERE id = ?',
         )
         .get(messageId) as
         | {
@@ -3710,6 +3748,7 @@ Rules:
             handshake_id?: string | null
             depackaged_json?: string | null
             beap_package_json?: string | null
+            has_attachments?: number | null
           }
         | undefined
       if (!row)
@@ -3750,41 +3789,45 @@ Rules:
       }
 
       if (isNativeBeap) {
-        const messageContent = buildNativeBeapAnalyzeBody(row)
+        const sender = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
+        const subjectLine = row.subject || '(No subject)'
+        const { incomingPbeap, incomingQbeap } = extractNativeBeapIncomingPbeapQbeapTexts(messageId, row)
+
         const { tone } = getToneAndSortForPrompts(db)
         const contextBlock = getContextBlockForPrompts(db)
-        let systemFull =
-          'You are a professional assistant writing a reply to a business message. Output only the reply text as natural prose. No JSON, no key-value contact cards, no structured metadata.'
-        let systemSummary =
-          'You summarize text into a short 1-2 sentence preview for an inbox. Output only the summary text. No JSON.'
+        let systemFieldReply =
+          'You write a direct reply to one specific field of an email. Output ONLY the reply text as natural prose. Match the language and tone of the field you are replying to. No JSON, no labels, no metadata, no summary — just the reply.'
         if (tone) {
-          systemFull += `\n\nUser instructions for response tone and style: ${tone}`
-          systemSummary += `\n\nUser instructions for tone: ${tone}`
+          systemFieldReply += `\n\nUser instructions for response tone and style: ${tone}`
         }
         if (contextBlock) {
-          systemFull += contextBlock
-          systemSummary += contextBlock
+          systemFieldReply += contextBlock
         }
 
-        const fullUserPrompt = `Write a professional reply to this message.
-Output ONLY the reply text. No JSON, no labels, no structured fields — write as normal sentences.
-Match the language of the original message.
+        let qbeapReply: string | null = null
+        let pbeapReply: string | null = null
 
-Original message:
-${messageContent}`
+        if (incomingQbeap.trim().length > 0) {
+          const qbeapUserPrompt = `You are replying to one specific field (qbeap — the inner / encrypted-facing layer) from an email.
 
-        const fullReply = (
-          await inboxLlmChat({
-            system: systemFull,
-            user: fullUserPrompt,
-            ...(aiExecDraft ? { aiExecution: aiExecDraft } : {}),
-            contentTask: { kind: 'draft' },
-          })
-        )
-          .trim()
-          .slice(0, 8000)
-        const fullTrim = fullReply.trim()
-        console.log('[AI-DRAFT] Native BEAP full reply length:', fullTrim.length)
+From: ${sender}
+Subject: ${subjectLine}
+
+Incoming qbeap field content:
+${incomingQbeap}
+
+Write a reply specifically to the qbeap field above. Output ONLY the reply text.`
+          const out = (
+            await inboxLlmChat({
+              system: systemFieldReply,
+              user: qbeapUserPrompt,
+              ...(aiExecDraft ? { aiExecution: aiExecDraft } : {}),
+              contentTask: { kind: 'draft' },
+            })
+          ).trim()
+          qbeapReply = out ? out.slice(0, 8000) : null
+        }
+        console.log('[AI-DRAFT] Native BEAP qbeap reply length:', (qbeapReply ?? '').trim().length)
 
         if (isDraftReplyRunStale(messageId, genAtStart)) {
           return buildInboxAiDraftIpcFailure(new Error('Draft superseded'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }, {
@@ -3792,42 +3835,49 @@ ${messageContent}`
           }) as { ok: false; error: string; message: string }
         }
 
-        const summaryUserPrompt = `Summarize this reply in 1-2 sentences for a preview.
-Output ONLY the summary text. No JSON, no formatting.
+        if (incomingPbeap.trim().length > 0) {
+          const pbeapUserPrompt = `You are replying to one specific field (pbeap — the public / transport-facing layer) from an email.
 
-Reply being summarized:
-${fullReply}`
+From: ${sender}
+Subject: ${subjectLine}
 
-        const summary = (
-          await inboxLlmChat({
-            system: systemSummary,
-            user: summaryUserPrompt,
-            ...(aiExecDraft ? { aiExecution: aiExecDraft } : {}),
-            contentTask: { kind: 'summary' },
-          })
-        )
-          .trim()
-          .slice(0, 4000)
-        const summaryTrim = summary.trim()
-        console.log('[AI-DRAFT] Native BEAP summary length:', summaryTrim.length)
+Incoming pbeap field content:
+${incomingPbeap}
 
-        /** Short prose threshold — avoids treating whitespace/noise as a successful full draft. */
-        const MIN_MEANINGFUL_FULL_DRAFT_LEN = 24
+Write a reply specifically to the pbeap field above. Output ONLY the reply text.`
+          const out = (
+            await inboxLlmChat({
+              system: systemFieldReply,
+              user: pbeapUserPrompt,
+              ...(aiExecDraft ? { aiExecution: aiExecDraft } : {}),
+              contentTask: { kind: 'draft' },
+            })
+          ).trim()
+          pbeapReply = out ? out.slice(0, 4000) : null
+        }
+        console.log('[AI-DRAFT] Native BEAP pbeap reply length:', (pbeapReply ?? '').trim().length)
+
+        const qTrim = (qbeapReply ?? '').trim()
+        const pTrim = (pbeapReply ?? '').trim()
+
+        /** Short prose threshold — avoids treating whitespace/noise as a successful qbeap reply. */
+        const MIN_MEANINGFUL_QBEAP_LEN = 24
         let capsuleDraftIssue: 'full_reply_missing' | 'full_reply_suspiciously_short' | undefined
-        if (!fullTrim && summaryTrim.length > 0) {
+        if (!qTrim && pTrim.length > 0) {
           capsuleDraftIssue = 'full_reply_missing'
-        } else if (fullTrim.length > 0 && fullTrim.length < MIN_MEANINGFUL_FULL_DRAFT_LEN && summaryTrim.length >= fullTrim.length) {
+        } else if (qTrim.length > 0 && qTrim.length < MIN_MEANINGFUL_QBEAP_LEN && pTrim.length >= qTrim.length) {
           capsuleDraftIssue = 'full_reply_suspiciously_short'
         }
 
         const lane = aiExecDraft?.lane ?? 'n/a'
         const sandboxHostRouting = lane === 'ollama_direct' || lane === 'beap'
         console.log(
-          `[AI-DRAFT] Native BEAP capsule diagnostics ${JSON.stringify({
-            contentTask_full: 'draft',
-            contentTask_summary: 'summary',
-            fullLen: fullTrim.length,
-            summaryLen: summaryTrim.length,
+          `[AI-DRAFT] Native BEAP per-field diagnostics ${JSON.stringify({
+            contentTask: 'draft+draft',
+            incomingPbeapLen: incomingPbeap.trim().length,
+            incomingQbeapLen: incomingQbeap.trim().length,
+            qbeapReplyLen: qTrim.length,
+            pbeapReplyLen: pTrim.length,
             model: aiExecDraft?.model ?? '',
             lane,
             sandboxHostRouting,
@@ -3842,11 +3892,10 @@ ${fullReply}`
         }
 
         const capsuleDraft = {
-          publicText: summary || '',
-          encryptedText: fullReply || '',
+          publicText: pbeapReply ?? '',
+          encryptedText: qbeapReply ?? '',
         }
-        /** Never fall back to public preview as if it were the full draft (avoids "summary-only" confusion). */
-        const draftFallback = capsuleDraft.encryptedText.trim().slice(0, 8000)
+        const draftFallback = (qTrim || pTrim).slice(0, 8000)
 
         const existingRow = db.prepare('SELECT ai_analysis_json FROM inbox_messages WHERE id = ?').get(messageId) as { ai_analysis_json?: string | null } | undefined
         let merged: Record<string, unknown> = {}
@@ -3872,52 +3921,26 @@ ${fullReply}`
         db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(JSON.stringify(merged), messageId)
 
         console.log(
-          `[AI-DRAFT] Native BEAP response field sources ${JSON.stringify({
-            fullReplyLen: fullReply.length,
-            summaryLen: summary.length,
+          `[AI-DRAFT] Native BEAP IPC per-field response ${JSON.stringify({
+            qbeapReplyLen: qTrim.length,
+            pbeapReplyLen: pTrim.length,
             capsulePublicLen: capsuleDraft.publicText.length,
             capsuleEncryptedLen: capsuleDraft.encryptedText.length,
-            mainDraftFieldSource: 'fullReply',
-            pbeapFieldSource: 'fullReply',
-            qbeapFieldSource: 'fullReply',
-            publicPreviewFieldSource: 'summary_public_preview',
           })}`,
         )
-        if (fullReply.length > 0 && summary.length > 0) {
-          const pbeapFieldSource = 'fullReply'
-          const qbeapFieldSource = 'fullReply'
-          if (pbeapFieldSource !== 'fullReply') {
-            console.error(
-              `[BEAP_DRAFT_FIELD_SOURCE_BUG] ${JSON.stringify({
-                messageId,
-                fieldType: 'pbeap',
-                fullReplyLen: fullReply.length,
-                summaryLen: summary.length,
-                pbeapFieldSource,
-              })}`,
-            )
-          }
-          if (qbeapFieldSource !== 'fullReply') {
-            console.error(
-              `[BEAP_DRAFT_FIELD_SOURCE_BUG] ${JSON.stringify({
-                messageId,
-                fieldType: 'qbeap',
-                fullReplyLen: fullReply.length,
-                summaryLen: summary.length,
-                qbeapFieldSource,
-              })}`,
-            )
-          }
-        }
 
+        const compatFull = (qbeapReply || pbeapReply || '').trim()
+        const compatPublic = (pbeapReply || '').trim()
         const nativeBeapResponse = {
           ok: true,
           data: {
+            qbeapReply: qbeapReply ?? null,
+            pbeapReply: pbeapReply ?? null,
             draft: draftFallback,
             capsuleDraft,
-            draftReply: fullReply,
-            draftReplyFull: fullReply,
-            draftReplyPublic: summary,
+            draftReplyFull: compatFull || draftFallback,
+            draftReplyPublic: compatPublic,
+            draftReply: compatFull || compatPublic || '',
             isNativeBeap: true as const,
             ...(capsuleDraftIssue ? { capsuleDraftIssue } : {}),
           },
@@ -3926,15 +3949,11 @@ ${fullReply}`
           `[AI-DRAFT] Native BEAP IPC response boundary ${JSON.stringify({
             responseKeys: Object.keys(nativeBeapResponse),
             dataKeys: Object.keys(nativeBeapResponse.data),
-            draftReplyLen: nativeBeapResponse.data.draftReply.length,
-            draftReplyFullLen: nativeBeapResponse.data.draftReplyFull.length,
-            draftReplyPublicLen: nativeBeapResponse.data.draftReplyPublic.length,
+            qbeapReplyLen: qTrim.length,
+            pbeapReplyLen: pTrim.length,
+            draftLen: nativeBeapResponse.data.draft.length,
             capsulePublicLen: nativeBeapResponse.data.capsuleDraft.publicText.length,
             capsuleEncryptedLen: nativeBeapResponse.data.capsuleDraft.encryptedText.length,
-            fullMatchesEncrypted:
-              nativeBeapResponse.data.draftReplyFull === nativeBeapResponse.data.capsuleDraft.encryptedText,
-            publicMatchesCapsule:
-              nativeBeapResponse.data.draftReplyPublic === nativeBeapResponse.data.capsuleDraft.publicText,
           })}`,
         )
         return nativeBeapResponse
