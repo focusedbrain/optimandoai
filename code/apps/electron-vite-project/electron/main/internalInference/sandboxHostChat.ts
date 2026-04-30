@@ -52,6 +52,7 @@ export async function runSandboxHostInferenceChat(params: {
   model?: string
   temperature?: number
   max_tokens?: number
+  responseFormat?: 'json'
   /** Pending timeout + `expires_at` on wire. Defaults to 120s. */
   timeoutMs?: number
   /** LAN Host Ollama — `POST /api/chat` only; skips BEAP and P2P. */
@@ -143,6 +144,7 @@ export async function runSandboxHostInferenceChat(params: {
         timeoutMs: requestTimeoutMs,
         temperature: params.temperature,
         max_tokens: params.max_tokens,
+        responseFormat: params.responseFormat,
       })
     } catch (invokeErr) {
       console.log(
@@ -192,7 +194,9 @@ export async function runSandboxHostInferenceChat(params: {
           timestamp: new Date().toISOString(),
         })}`,
       )
-      const code = (e && (e as { code?: string }).code) || InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE
+      const code =
+        (e && typeof (e as { code?: unknown }).code === 'string' ? (e as { code: string }).code : undefined) ||
+        InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE
       return { ok: false, code, message: err?.message ?? String(e) }
     }
   }

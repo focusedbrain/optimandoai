@@ -1034,6 +1034,8 @@ export interface HostInternalInferenceListItem {
   beapReady?: boolean
   /** LAN Ollama `/api/tags` probe succeeded (`ollama_direct` execution lane). */
   ollamaDirectReady?: boolean
+  /** Host's active/default model when the policy/caps probe supplied it. */
+  hostActiveModel?: string | null
   /** Selector should show at least one model row when true (OR of BEAP + Ollama-direct lanes); independent of legacy `available`. */
   visibleInModelSelector?: boolean
   /** BEAP-route trust (distinct from ledger same-principal `trusted`). */
@@ -2953,8 +2955,16 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       const laneStatusUntrusted: HostAiTargetStatus = 'ollama_direct_only'
 
       let pushed = 0
+      const hostActiveModel = probe.defaultChatModel?.trim() || null
+      const orderedOdModels =
+        hostActiveModel && odTags.models.some((rm) => rm.model.trim() === hostActiveModel)
+          ? [
+              ...odTags.models.filter((rm) => rm.model.trim() === hostActiveModel),
+              ...odTags.models.filter((rm) => rm.model.trim() !== hostActiveModel),
+            ]
+          : odTags.models
       if (inferenceTrusted) {
-        for (const rm of odTags.models) {
+        for (const rm of orderedOdModels) {
           const dm = rm.model.trim()
           if (!dm) continue
           pushed += 1
@@ -2993,6 +3003,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
             host_ai_target_status: 'beap_ready',
             beapReady: true,
             ollamaDirectReady: true,
+            hostActiveModel,
             visibleInModelSelector: true,
             trustedForBeap: true,
             canChat: true,
@@ -3016,7 +3027,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         /** BEAP gated; OD tags ok — omit `host_endpoint_not_advertised` (restore/UI treats it as definitive failure). */
         const ucStructuredTrust: HostAiStructuredUnavailableReason | undefined =
           peerEndpointMissingUntrusted ? undefined : 'host_transport_trust_misrouting'
-        for (const rm of odTags.models) {
+        for (const rm of orderedOdModels) {
           const dm = rm.model.trim()
           if (!dm) continue
           pushed += 1
@@ -3060,6 +3071,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
             host_ai_target_status: laneStatusUntrusted,
             beapReady: false,
             ollamaDirectReady: true,
+            hostActiveModel,
             visibleInModelSelector: true,
             trustedForBeap: false,
             canChat: false,
@@ -3219,6 +3231,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       failureCode: null,
       hostWireOllamaReachable: ollamaWireHostReachable,
       host_ai_target_status: 'beap_ready',
+      hostActiveModel: defaultChatModel,
       canChat: true,
       canUseTopChatTools: true,
       canUseOllamaDirect: ollamaWireHostReachable,

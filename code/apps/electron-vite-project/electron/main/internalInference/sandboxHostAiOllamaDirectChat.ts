@@ -21,6 +21,8 @@ export type SbxHostAiOllamaDirectChatLogPayload = {
   duration_ms: number
 }
 
+type OllamaChatResponseBody = { message?: { content?: string }; model?: string; error?: unknown }
+
 export function logSbxHostAiOllamaDirectChat(p: SbxHostAiOllamaDirectChatLogPayload): void {
   console.log(`[SBX_HOST_AI_OLLAMA_DIRECT_CHAT] ${JSON.stringify(p)}`)
 }
@@ -51,6 +53,7 @@ export async function executeSandboxHostAiOllamaDirectChat(
     timeoutMs: number
     temperature?: number
     max_tokens?: number
+    responseFormat?: 'json'
     /** When true, transport-level failures do not trigger a caps refresh + single retry. */
     _ollamaDirectRetryConsumed?: boolean
   },
@@ -202,9 +205,11 @@ export async function executeSandboxHostAiOllamaDirectChat(
   }
   const opts: Record<string, number> = {}
   if (typeof p.temperature === 'number' && Number.isFinite(p.temperature)) opts.temperature = p.temperature
+  if (p.responseFormat === 'json' && opts.temperature == null) opts.temperature = 0
   if (typeof p.max_tokens === 'number' && Number.isFinite(p.max_tokens) && p.max_tokens > 0) {
     opts.num_predict = Math.floor(p.max_tokens)
   }
+  if (p.responseFormat === 'json') body.format = 'json'
   if (Object.keys(opts).length > 0) body.options = opts
 
   try {
@@ -233,9 +238,9 @@ export async function executeSandboxHostAiOllamaDirectChat(
       })}`,
     )
     const text = await res.text()
-    let parsed: { message?: { content?: string }; model?: string; error?: unknown } | null = null
+    let parsed: OllamaChatResponseBody | null = null
     try {
-      parsed = text ? (JSON.parse(text) as typeof parsed) : null
+      parsed = text ? (JSON.parse(text) as OllamaChatResponseBody) : null
     } catch {
       parsed = null
     }

@@ -86,6 +86,7 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
     diag: InboxOllamaStreamFetchDiag
     /** IPC / caller cancellation — merged with inner timeout controller */
     abortSignal?: AbortSignal
+    responseFormat?: 'json'
   },
 ): AsyncGenerator<string, void, undefined> {
   const normalizedBase = baseUrl.trim().replace(/\/$/, '')
@@ -102,18 +103,23 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
   }
   console.log('[INBOX_OLLAMA_STREAM_FETCH_BEGIN]', JSON.stringify(diagBefore))
   try {
+    const body: Record<string, unknown> = {
+      model: modelId,
+      stream: true,
+      keep_alive: '2m',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+    }
+    if (opts.responseFormat === 'json') {
+      body.format = 'json'
+      body.options = { temperature: 0 }
+    }
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: modelId,
-        stream: true,
-        keep_alive: '2m',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-      }),
+      body: JSON.stringify(body),
       signal: fetchSignal,
     })
     clearTimeout(timeoutId)
@@ -204,11 +210,13 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
     yield* streamOllamaChatNdjsonFromBaseUrl(LOCAL_OLLAMA_BASE, systemPrompt, userPrompt, bareModel, {
       diag: baseDiag('local', LOCAL_OLLAMA_BASE),
       abortSignal: streamOpts?.abortSignal,
+      responseFormat: 'json',
     })
     return
   }
 
   const task = contentTask ?? { kind: 'analysis' as const }
+  const responseFormat = task.kind === 'analysis' ? 'json' : undefined
   const plan = planSandboxHostChatExecution(execCtx ?? null, task)
   if (plan.mode === 'blocked') {
     throw new Error(plan.message)
@@ -226,6 +234,7 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
     yield* streamOllamaChatNdjsonFromBaseUrl(streamBase, systemPrompt, userPrompt, bareModel, {
       diag: baseDiag('ollama_direct', streamBase),
       abortSignal: streamOpts?.abortSignal,
+      responseFormat,
     })
     return
   }
@@ -234,6 +243,7 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
     yield* streamOllamaChatNdjsonFromBaseUrl(streamBase, systemPrompt, userPrompt, bareModel, {
       diag: baseDiag('ollama_direct', streamBase),
       abortSignal: streamOpts?.abortSignal,
+      responseFormat,
     })
     return
   }
@@ -258,5 +268,6 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
   yield* streamOllamaChatNdjsonFromBaseUrl(tb, systemPrompt, userPrompt, bareModel, {
     diag: baseDiag(target.kind === 'local_sandbox' ? 'local_sandbox' : 'cross_device', tb),
     abortSignal: streamOpts?.abortSignal,
+    responseFormat,
   })
 }

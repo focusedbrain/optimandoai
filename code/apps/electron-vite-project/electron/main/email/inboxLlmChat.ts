@@ -276,6 +276,7 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
         model: modelOverride,
         timeoutMs,
         execution_transport: plan.mode === 'ollama_direct' ? 'ollama_direct' : undefined,
+        ...(contentTask?.kind === 'analysis' ? { responseFormat: 'json' as const, temperature: 0 } : {}),
       })
       if (!out.ok) {
         const e = new Error(out.message || out.code || 'Host inference failed')
@@ -325,6 +326,7 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
         stream: false,
         signal: ac.signal,
         runtimeTrace: llmTrace,
+        ...(contentTask?.kind === 'analysis' ? { temperature: 0, responseFormat: 'json' as const } : {}),
         ...(bulkOllamaAutosort ? { ollamaKeepAlive: '15m' as const } : {}),
       })
       clearTimeout(timeoutId)

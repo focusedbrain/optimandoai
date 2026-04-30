@@ -234,6 +234,7 @@ import type { InboxListFilterOptions } from './inboxWhereClause'
 import { buildInboxMessagesWhereClause } from './inboxWhereClause'
 import { collectReadOnlyDashboardSnapshot } from './dashboardSnapshot'
 import {
+  abortAnalyzeStreamForMessage,
   analyzeStreamAbortByMessageId,
   buildInboxAiTaskKey,
   bumpDraftReplySupersedeGeneration,
@@ -3659,12 +3660,25 @@ Rules:
     }
   })
 
-  ipcMain.handle('inbox:aiDraftReply', async (_e, messageId: string, opts?: { supersede?: boolean }) => {
+  ipcMain.handle('inbox:aiDraftReply', async (event, messageId: string, opts?: { supersede?: boolean }) => {
     const { model: tkModel, lane: tkLane } = syncInboxAiSelectionForTaskKey()
     const taskKey = buildInboxAiTaskKey('draft', messageId, tkModel, tkLane)
     const supersede = !!opts?.supersede
     if (supersede) bumpDraftReplySupersedeGeneration(messageId)
     const genAtStart = getDraftReplyGeneration(messageId)
+    if (abortAnalyzeStreamForMessage(messageId, 'draft_generation_started')) {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(
+          'inbox:aiAnalyzeMessageError',
+          buildInboxAiAnalyzeErrorPayload(new Error('Analysis cancelled because draft generation started.'), {
+            messageId,
+            operation: 'analyze_stream',
+            aiExecution: undefined,
+            model: tkModel,
+          }),
+        )
+      }
+    }
 
     return runInboxAiTaskWithDedup(
       taskKey,
@@ -3843,6 +3857,8 @@ ${fullReply}`
           publicMessage: capsuleDraft.publicText,
           encryptedMessage: capsuleDraft.encryptedText,
         }
+        merged.draftReplyPublic = capsuleDraft.publicText
+        merged.draftReplyFull = capsuleDraft.encryptedText
         merged.status = merged.status ?? 'draft_reply'
         if (isDraftReplyRunStale(messageId, genAtStart)) {
           return buildInboxAiDraftIpcFailure(new Error('Draft superseded'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }, {
@@ -3851,11 +3867,26 @@ ${fullReply}`
         }
         db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(JSON.stringify(merged), messageId)
 
+        console.log(
+          `[AI-DRAFT] Native BEAP response field sources ${JSON.stringify({
+            fullReplyLen: fullReply.length,
+            summaryLen: summary.length,
+            capsulePublicLen: capsuleDraft.publicText.length,
+            capsuleEncryptedLen: capsuleDraft.encryptedText.length,
+            mainDraftFieldSource: 'fullReply',
+            pbeapFieldSource: 'summary_public_preview',
+            qbeapFieldSource: 'fullReply',
+          })}`,
+        )
+
         return {
           ok: true,
           data: {
             draft: draftFallback,
             capsuleDraft,
+            draftReply: fullReply,
+            draftReplyFull: fullReply,
+            draftReplyPublic: summary,
             isNativeBeap: true as const,
             ...(capsuleDraftIssue ? { capsuleDraftIssue } : {}),
           },
@@ -3984,7 +4015,7 @@ ${fullReply}`
 - archiveReason: string — one sentence explaining the recommendation
 - draftReply: string | null — if needsReply is true, write a professional, concise draft reply here. If needsReply is false, set draftReply to null.
 
-Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explanation.`
+Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble, no trailing prose, no explanation.`
       if (isNativeBeap) {
         systemPrompt = `You are an email triage AI for WR Desk. The message is a BEAP handshake / native capsule. Analyze it and respond with a JSON object only. Use these exact keys:
 - needsReply: boolean — true if the user should respond
@@ -3998,7 +4029,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
 - draftReplyPublic: string | null — If needsReply is true, a brief 1-2 sentence preview (plain prose only). If needsReply is false, null.
 - draftReplyFull: string | null — If needsReply is true, the full reply as natural prose only (no JSON inside the string, no structured contact-card fields). If needsReply is false, null.
 
-Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explanation.`
+Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble, no trailing prose, no explanation.`
       }
       if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
       if (sortRules) systemPrompt += `\n\nUser custom sorting rules: ${sortRules}`
@@ -4233,14 +4264,14 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
 - archiveReason: string — one sentence explaining the recommendation
 - draftReply: string | null — if needsReply is true, write a professional, concise draft reply here. If needsReply is false, set draftReply to null.
 
-Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explanation.`
+Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble, no trailing prose, no explanation.`
           if (isNativeBeapStream) {
             systemPrompt = `You are an email triage AI for WR Desk. The message is a BEAP handshake / native capsule. Analyze it and respond with JSON only. Keys:
 - needsReply, needsReplyReason, summary, urgencyScore, urgencyReason, actionItems, archiveRecommendation, archiveReason (same meanings as email triage)
 - draftReplyPublic: string | null — If needsReply is true, brief 1-2 sentence preview (plain prose). If false, null.
 - draftReplyFull: string | null — If needsReply is true, full reply as natural prose (no JSON inside strings). If false, null.
 
-Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
+Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble, no trailing prose.`
           }
           if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
           if (sortRules) systemPrompt += `\n\nUser custom sorting rules: ${sortRules}`

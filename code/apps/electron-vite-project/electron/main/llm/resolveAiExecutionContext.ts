@@ -39,6 +39,8 @@ function rowModelName(m: { model: string | null; model_id: string | null }): str
 async function fallbackFromListSandbox(): Promise<AiExecutionContext | null> {
   const { targets } = await listSandboxHostInternalInferenceTargets()
   const visible = (t: (typeof targets)[0]) => t.visibleInModelSelector !== false
+  const stored = readStoredAiExecutionContext()
+  const selectedModelBeforeFallback = stored?.model?.trim() || null
 
   const odl = targets.filter(
     (t) =>
@@ -48,7 +50,27 @@ async function fallbackFromListSandbox(): Promise<AiExecutionContext | null> {
       String(t.handshake_id ?? '').trim(),
   )
   if (odl.length > 0) {
-    const t = odl[0]!
+    const remoteModels = [
+      ...new Set(
+        odl
+          .filter((x) => rowModelName(x))
+          .map((x) => rowModelName(x)),
+      ),
+    ]
+    const hostActiveModel = String(
+      (odl.find((x) => typeof x.hostActiveModel === 'string' && x.hostActiveModel.trim()) as
+        | { hostActiveModel?: string | null }
+        | undefined)?.hostActiveModel ?? '',
+    ).trim()
+    const explicit =
+      selectedModelBeforeFallback && remoteModels.includes(selectedModelBeforeFallback)
+        ? odl.find((x) => rowModelName(x) === selectedModelBeforeFallback)
+        : undefined
+    const hostActive =
+      !explicit && hostActiveModel && remoteModels.includes(hostActiveModel)
+        ? odl.find((x) => rowModelName(x) === hostActiveModel)
+        : undefined
+    const t = (explicit ?? hostActive ?? odl[0])!
     const model = rowModelName(t)
     const models = [
       ...new Set(
@@ -57,6 +79,22 @@ async function fallbackFromListSandbox(): Promise<AiExecutionContext | null> {
           .map((x) => rowModelName(x)),
       ),
     ]
+    const fallbackReason = explicit
+      ? 'preserved_explicit_selection'
+      : hostActive
+        ? 'preferred_host_active_model'
+        : 'first_available_remote_model'
+    console.log(
+      `[AI_EXEC_MODEL_FALLBACK] ${JSON.stringify({
+        lane: 'ollama_direct',
+        remoteModels,
+        hostActiveModel: hostActiveModel || null,
+        selectedModelBeforeFallback,
+        selectedModelAfterFallback: model,
+        fallbackReason,
+        handshakeId: t.handshake_id ?? null,
+      })}`,
+    )
     let ctx: AiExecutionContext = {
       lane: 'ollama_direct',
       model,
@@ -79,8 +117,37 @@ async function fallbackFromListSandbox(): Promise<AiExecutionContext | null> {
       String(t.handshake_id ?? '').trim(),
   )
   if (beap.length > 0) {
-    const t = beap[0]!
+    const remoteModels = [...new Set(beap.map((x) => rowModelName(x)).filter(Boolean))]
+    const hostActiveModel = String(
+      (beap.find((x) => typeof x.hostActiveModel === 'string' && x.hostActiveModel.trim()) as
+        | { hostActiveModel?: string | null }
+        | undefined)?.hostActiveModel ?? '',
+    ).trim()
+    const explicit =
+      selectedModelBeforeFallback && remoteModels.includes(selectedModelBeforeFallback)
+        ? beap.find((x) => rowModelName(x) === selectedModelBeforeFallback)
+        : undefined
+    const hostActive =
+      !explicit && hostActiveModel && remoteModels.includes(hostActiveModel)
+        ? beap.find((x) => rowModelName(x) === hostActiveModel)
+        : undefined
+    const t = (explicit ?? hostActive ?? beap[0])!
     const model = rowModelName(t)
+    console.log(
+      `[AI_EXEC_MODEL_FALLBACK] ${JSON.stringify({
+        lane: 'beap',
+        remoteModels,
+        hostActiveModel: hostActiveModel || null,
+        selectedModelBeforeFallback,
+        selectedModelAfterFallback: model,
+        fallbackReason: explicit
+          ? 'preserved_explicit_selection'
+          : hostActive
+            ? 'preferred_host_active_model'
+            : 'first_available_remote_model',
+        handshakeId: t.handshake_id ?? null,
+      })}`,
+    )
     return {
       lane: 'beap',
       model,

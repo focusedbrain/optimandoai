@@ -26,11 +26,28 @@ export function syncInboxAiSelectionForTaskKey(): { model: string; lane: string 
   }
 }
 
-type InflightEntry = { requestId: string; promise: Promise<unknown> }
+type InflightEntry = {
+  requestId: string
+  promise: Promise<unknown>
+  startedAt: number
+  state: 'running' | 'done' | 'error' | 'timeout' | 'aborted'
+}
 
 const inboxAiTaskInflight = new Map<string, InflightEntry>()
 
 export const analyzeStreamAbortByMessageId = new Map<string, AbortController>()
+
+export function abortAnalyzeStreamForMessage(messageId: string, reason: string): boolean {
+  const ac = analyzeStreamAbortByMessageId.get(messageId)
+  if (!ac) return false
+  logInboxAiTaskTerminal('ABORTED', {
+    messageId,
+    retryReason: reason,
+  })
+  ac.abort()
+  analyzeStreamAbortByMessageId.delete(messageId)
+  return true
+}
 
 const draftReplyGenerationByMessageId = new Map<string, number>()
 
@@ -46,6 +63,20 @@ function removeInflightKeysWithPrefix(prefix: string): void {
   for (const k of inboxAiTaskInflight.keys()) {
     if (k.startsWith(prefix)) inboxAiTaskInflight.delete(k)
   }
+}
+
+function classifyTerminalState(err: unknown, signal: AbortSignal): InflightEntry['state'] {
+  if (signal.aborted) return 'aborted'
+  const msg = err instanceof Error ? err.message : String(err ?? '')
+  if (/timeout|LLM_TIMEOUT/i.test(msg)) return 'timeout'
+  return 'error'
+}
+
+function logInboxAiTaskTerminal(
+  event: 'DONE' | 'ERROR' | 'TIMEOUT' | 'ABORTED',
+  payload: Record<string, unknown>,
+): void {
+  console.log(`[INBOX_OLLAMA_STREAM_${event}] ${JSON.stringify(payload)}`)
 }
 
 export function isDraftReplyRunStale(messageId: string, genAtStart: number): boolean {
@@ -71,7 +102,15 @@ export async function runInboxAiTaskWithDedup<T extends Record<string, unknown>>
 
   if (supersede) {
     if (abortControllers) {
-      abortControllers.get(messageId)?.abort()
+      const prev = abortControllers.get(messageId)
+      if (prev) {
+        logInboxAiTaskTerminal('ABORTED', {
+          taskKey,
+          messageId,
+          retryReason: 'supersede',
+        })
+      }
+      prev?.abort()
       abortControllers.delete(messageId)
     }
     removeInflightKeysWithPrefix(supersedeKeyPrefix)
@@ -79,12 +118,21 @@ export async function runInboxAiTaskWithDedup<T extends Record<string, unknown>>
 
   const existing = inboxAiTaskInflight.get(taskKey)
   if (existing && !supersede) {
-    console.log(`[AI_TASK_DEDUPED] taskKey=${taskKey} existingRequestId=${existing.requestId}`)
+    console.log(
+      `[AI_TASK_DEDUPED] ${JSON.stringify({
+        taskKey,
+        existingRequestId: existing.requestId,
+        previousRequestId: existing.requestId,
+        previousState: existing.state,
+        elapsedMs: Date.now() - existing.startedAt,
+      })}`,
+    )
     const r = (await existing.promise) as T
     return { ...r, requestId: existing.requestId, deduped: true }
   }
 
   const requestId = randomUUID()
+  const startedAt = Date.now()
   console.log(`[AI_TASK_START] taskKey=${taskKey} requestId=${requestId}`)
 
   const ac = new AbortController()
@@ -94,7 +142,32 @@ export async function runInboxAiTaskWithDedup<T extends Record<string, unknown>>
 
   const promise = (async (): Promise<T> => {
     try {
-      return await run(requestId, ac.signal)
+      const result = await run(requestId, ac.signal)
+      const terminalState: InflightEntry['state'] = ac.signal.aborted ? 'aborted' : 'done'
+      const cur = inboxAiTaskInflight.get(taskKey)
+      if (cur?.requestId === requestId) cur.state = terminalState
+      logInboxAiTaskTerminal(terminalState === 'aborted' ? 'ABORTED' : 'DONE', {
+        taskKey,
+        requestId,
+        messageId,
+        elapsedMs: Date.now() - startedAt,
+      })
+      return result
+    } catch (err) {
+      const terminalState = classifyTerminalState(err, ac.signal)
+      const cur = inboxAiTaskInflight.get(taskKey)
+      if (cur?.requestId === requestId) cur.state = terminalState
+      logInboxAiTaskTerminal(
+        terminalState === 'timeout' ? 'TIMEOUT' : terminalState === 'aborted' ? 'ABORTED' : 'ERROR',
+        {
+          taskKey,
+          requestId,
+          messageId,
+          elapsedMs: Date.now() - startedAt,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      )
+      throw err
     } finally {
       if (abortControllers?.get(messageId) === ac) {
         abortControllers.delete(messageId)
@@ -102,11 +175,22 @@ export async function runInboxAiTaskWithDedup<T extends Record<string, unknown>>
     }
   })()
 
-  inboxAiTaskInflight.set(taskKey, { requestId, promise })
+  inboxAiTaskInflight.set(taskKey, { requestId, promise, startedAt, state: 'running' })
 
   promise.finally(() => {
     const cur = inboxAiTaskInflight.get(taskKey)
-    if (cur?.requestId === requestId) inboxAiTaskInflight.delete(taskKey)
+    if (cur?.requestId === requestId) {
+      inboxAiTaskInflight.delete(taskKey)
+      console.log(
+        `[INBOX_ANALYSIS_TASK_CLEARED] ${JSON.stringify({
+          taskKey,
+          requestId,
+          messageId,
+          previousState: cur.state,
+          elapsedMs: Date.now() - startedAt,
+        })}`,
+      )
+    }
   })
 
   const result = (await promise) as T

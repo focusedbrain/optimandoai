@@ -43,6 +43,8 @@ export interface GenerateChatOptions {
   signal?: AbortSignal
   /** Sampling temperature (Ollama `options.temperature`, OpenAI `temperature`, etc.). */
   temperature?: number
+  /** Ollama `/api/chat` response format, e.g. `json` for strict analysis tasks. */
+  responseFormat?: 'json'
   /** Inbox bulk classify correlation when `DEBUG_OLLAMA_RUNTIME_TRACE`. */
   runtimeTrace?: OllamaRuntimeRequestTrace
   /**
@@ -334,6 +336,7 @@ export class OllamaProvider implements AIProvider {
           stream: false,
           keep_alive: options?.ollamaKeepAlive ?? '2m',
           messages: messages.map(m => ({ role: m.role, content: m.content })),
+          ...(options?.responseFormat ? { format: options.responseFormat } : {}),
           ...(options?.temperature !== undefined
             ? { options: { temperature: options.temperature } }
             : {}),
