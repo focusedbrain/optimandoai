@@ -381,6 +381,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
   const runAnalysisStream = useCallback(async (opts?: { manual?: boolean; supersede?: boolean }) => {
     const manual = !!opts?.manual
+    const trigger: 'auto' | 'manual' | 'retry' = manual ? (opts?.supersede ? 'retry' : 'manual') : 'auto'
     const msg = messageRef.current
     if (DEBUG_AUTOSORT_DIAGNOSTICS) {
       console.log('[ANALYSIS] runAnalysisStream triggered for:', messageId)
@@ -443,6 +444,14 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setInboxAiAnalyzeDebug(null)
     setInboxAiSemanticDevNote(null)
     let accumulatedText = ''
+    let streamChunkCount = 0
+    console.log(
+      `[INBOX_AUDIT] renderer_analysis_subscribe ${JSON.stringify({
+        messageId,
+        isNativeBeap,
+        trigger,
+      })}`,
+    )
 
     const DEFAULTS: NormalInboxAiResult = {
       needsReply: false,
@@ -464,6 +473,16 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
     const unsubChunk = window.emailInbox.onAiAnalyzeChunk(({ messageId: mid, chunk }) => {
       if (mid !== messageId) return
+      streamChunkCount += 1
+      if (streamChunkCount === 1) {
+        console.log(
+          `[INBOX_AUDIT] renderer_first_chunk ${JSON.stringify({
+            messageId,
+            chunk_chars: chunk.length,
+            chunk_prefix: chunk.slice(0, 100),
+          })}`,
+        )
+      }
       accumulatedText += chunk
       console.log(
         `[INBOX_ANALYSIS_RENDERER_CHUNK_RECEIVED] ${JSON.stringify({
@@ -497,6 +516,13 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
     const unsubDone = window.emailInbox.onAiAnalyzeDone(({ messageId: mid }) => {
       if (mid !== messageId) return
+      console.log(
+        `[INBOX_AUDIT] renderer_stream_chunks_summary ${JSON.stringify({
+          messageId,
+          chunk_count: streamChunkCount,
+          cumulativeChars: accumulatedText.length,
+        })}`,
+      )
       console.log(
         `[INBOX_ANALYSIS_RENDERER_DONE_RECEIVED] ${JSON.stringify({
           messageId,
@@ -557,6 +583,15 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         setAnalysisError(null)
         setInboxAiAnalyzeDebug(null)
         setInboxAiSemanticDevNote(null)
+        console.log(
+          `[INBOX_AUDIT] renderer_done_parsed_ok ${JSON.stringify({
+            messageId,
+            parsed_keys: Object.keys(final),
+            has_summary: !!final.summary,
+            has_needs_reply: 'needsReply' in final,
+            text_length: accumulatedText.length,
+          })}`,
+        )
       } else {
         const rawLen = accumulatedText.length
         const { meta } = finalMeta
@@ -573,6 +608,13 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
               : {}),
           })}`,
         )
+        console.log(
+          `[INBOX_AUDIT] renderer_done_parse_failed ${JSON.stringify({
+            messageId,
+            text_length: accumulatedText.length,
+            text_full: accumulatedText.slice(0, 5000),
+          })}`,
+        )
         setAnalysisStreamParseFailed(true)
         setAnalysisError(null)
         setAnalysis(null)
@@ -583,6 +625,14 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
     const unsubError = window.emailInbox.onAiAnalyzeError((payload) => {
       if (payload.messageId !== messageId) return
+      const ep = payload as { message?: string; inboxErrorCode?: string; code?: string; error_code?: string }
+      console.log(
+        `[INBOX_AUDIT] renderer_error_received ${JSON.stringify({
+          messageId,
+          error_code: ep.code ?? ep.error_code ?? ep.inboxErrorCode,
+          error_message: ep.message,
+        })}`,
+      )
       console.log(
         `[INBOX_ANALYSIS_RENDERER_ERROR_RECEIVED] ${JSON.stringify({
           messageId,
@@ -655,7 +705,21 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       setInboxAiSemanticDevNote(semanticDevNote)
       cleanup()
     }
-  }, [messageId])
+  }, [messageId, isNativeBeap])
+
+  useEffect(() => {
+    console.log(
+      `[INBOX_AUDIT] renderer_panel_state ${JSON.stringify({
+        messageId,
+        has_analysis: !!analysis,
+        analysis_keys: analysis ? Object.keys(analysis) : [],
+        has_error: !!analysisError,
+        error_text: analysisError,
+        parse_failed: analysisStreamParseFailed,
+        is_loading: analysisLoading,
+      })}`,
+    )
+  }, [messageId, analysis, analysisError, analysisStreamParseFailed, analysisLoading])
 
   const runAnalysisStreamRef = useRef(runAnalysisStream)
   runAnalysisStreamRef.current = runAnalysisStream

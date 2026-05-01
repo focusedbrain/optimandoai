@@ -4234,22 +4234,70 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
   }
 
   /** Accepts partial JSON: production UX prefers showing some fields over failing the stream. */
-  function assertMinimumAnalysisOutput(text: string): void {
+  function assertMinimumAnalysisOutput(
+    text: string,
+    audit?: { messageId: string; requestId: string },
+  ): void {
     const UNPARSEABLE_SHORT_MAX = 50
     const parsed = parseAnalysisJsonObjectFromStreamText(text)
     if (!parsed) {
       if (text.trim().length < UNPARSEABLE_SHORT_MAX) {
-        throw new Error(`Analysis output unparseable and too short (${text.trim().length} chars)`)
+        const reason = `Analysis output unparseable and too short (${text.trim().length} chars)`
+        console.log(
+          `[INBOX_AUDIT] analysis_validation ${JSON.stringify({
+            outcome: 'rejected',
+            messageId: audit?.messageId,
+            requestId: audit?.requestId,
+            reason,
+            text_length: text.length,
+            parsed_keys: [] as string[],
+            missing_keys: [] as string[],
+          })}`,
+        )
+        throw new Error(reason)
       }
+      console.log(
+        `[INBOX_AUDIT] analysis_validation ${JSON.stringify({
+          outcome: 'accepted',
+          messageId: audit?.messageId,
+          requestId: audit?.requestId,
+          text_length: text.length,
+          via: 'unparseable_long_allowed',
+        })}`,
+      )
       return
     }
     const allKeys = Object.keys(parsed)
     if (allKeys.length <= 1) {
-      throw new Error(`Analysis output too sparse: expected a fuller JSON object, got a single-key object`)
+      const reason = `Analysis output too sparse: expected a fuller JSON object, got a single-key object`
+      console.log(
+        `[INBOX_AUDIT] analysis_validation ${JSON.stringify({
+          outcome: 'rejected',
+          messageId: audit?.messageId,
+          requestId: audit?.requestId,
+          reason,
+          text_length: text.length,
+          parsed_keys: allKeys,
+          missing_keys: REQUIRED_ANALYSIS_KEYS.filter((k) => !allKeys.includes(k)),
+        })}`,
+      )
+      throw new Error(reason)
     }
     const present = REQUIRED_ANALYSIS_KEYS.filter((k) => requiredAnalysisKeyPresent(parsed, k))
     if (present.length < MIN_ANALYSIS_REQUIRED_KEYS_PRESENT) {
       const missing = REQUIRED_ANALYSIS_KEYS.filter((k) => !present.includes(k))
+      const reason = `Analysis output too sparse: only ${present.length}/${REQUIRED_ANALYSIS_KEYS.length} required keys with usable values (${missing.slice(0, 6).join(', ')}${missing.length > 6 ? ', …' : ''})`
+      console.log(
+        `[INBOX_AUDIT] analysis_validation ${JSON.stringify({
+          outcome: 'rejected',
+          messageId: audit?.messageId,
+          requestId: audit?.requestId,
+          reason,
+          text_length: text.length,
+          parsed_keys: allKeys,
+          missing_keys: missing,
+        })}`,
+      )
       console.warn(
         `[INBOX_ANALYSIS_TOO_SHORT] ${JSON.stringify({
           cumulativeChars: text.length,
@@ -4258,10 +4306,16 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
           missingKeys: missing,
         })}`,
       )
-      throw new Error(
-        `Analysis output too sparse: only ${present.length}/${REQUIRED_ANALYSIS_KEYS.length} required keys with usable values (${missing.slice(0, 6).join(', ')}${missing.length > 6 ? ', …' : ''})`,
-      )
+      throw new Error(reason)
     }
+    console.log(
+      `[INBOX_AUDIT] analysis_validation ${JSON.stringify({
+        outcome: 'accepted',
+        messageId: audit?.messageId,
+        requestId: audit?.requestId,
+        text_length: text.length,
+      })}`,
+    )
   }
 
   ipcMain.handle('inbox:aiAnalyzeMessageStream', async (event, messageId: string, opts?: InboxAiStreamInvokeOpts) => {
@@ -4438,6 +4492,20 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
           if (sortRules) systemPrompt += `\n\nUser custom sorting rules: ${sortRules}`
           if (contextBlock) systemPrompt += contextBlock
 
+          const up = userPrompt || ''
+          console.log(
+            `[INBOX_AUDIT] analysis_prompt_built ${JSON.stringify({
+              messageId,
+              requestId,
+              isNativeBeap: isNativeBeapStream,
+              systemPrompt_full: systemPrompt,
+              userPrompt_first1000: up.slice(0, 1000),
+              userPrompt_last500: up.slice(-500),
+              userPrompt_length: up.length,
+              expectedSchemaKeys: REQUIRED_ANALYSIS_KEYS,
+            })}`,
+          )
+
           const useOllamaNdjsonStream = Boolean(
             ollamaModelForStream && (aiExec?.lane !== 'beap' || aiExec?.ollamaDirectReady === true),
           )
@@ -4494,9 +4562,29 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
                 last120: finalAnalysisText.slice(-120),
               })}`,
             )
-            assertMinimumAnalysisOutput(finalAnalysisText)
+            const INBOX_AUDIT_FINAL_MAX = 10000
+            const finalTruncated = finalAnalysisText.length > INBOX_AUDIT_FINAL_MAX
+            console.log(
+              `[INBOX_AUDIT] analysis_stream_complete ${JSON.stringify({
+                messageId,
+                requestId,
+                finalText_full: finalTruncated
+                  ? finalAnalysisText.slice(0, INBOX_AUDIT_FINAL_MAX)
+                  : finalAnalysisText,
+                finalText_length: finalAnalysisText.length,
+                finalText_truncated: finalTruncated,
+              })}`,
+            )
+            assertMinimumAnalysisOutput(finalAnalysisText, { messageId, requestId })
             markAnalysisStreamReplayDone(analyzeDedupeKey)
             event.sender.send('inbox:aiAnalyzeMessageDone', { messageId })
+            console.log(
+              `[INBOX_AUDIT] analysis_done_sent ${JSON.stringify({
+                messageId,
+                requestId,
+                text_length: finalAnalysisText.length,
+              })}`,
+            )
             console.log(
               `[INBOX_ANALYSIS_IPC_DONE_SENT] ${JSON.stringify({
                 messageId,
@@ -4518,6 +4606,15 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
           })
           markAnalysisStreamReplayError(analyzeDedupeKey, errorPayload)
           if (!event.sender.isDestroyed()) {
+            const ep = errorPayload as Record<string, unknown>
+            console.log(
+              `[INBOX_AUDIT] analysis_error_sent ${JSON.stringify({
+                messageId,
+                requestId,
+                error_code: ep.code ?? ep.error_code ?? ep.inboxErrorCode,
+                error_message: ep.message,
+              })}`,
+            )
             event.sender.send(
               'inbox:aiAnalyzeMessageError',
               errorPayload,
