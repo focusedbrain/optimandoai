@@ -63,6 +63,8 @@ export interface AgentEntry {
   title: string
   provider: string | null
   model: string | null
+  /** Per-box model when not using fixed provider/model (inherit chain). */
+  userSelectedInferenceModel?: string | null
   systemPromptOrRole: string | null
   toolsSummary: string | null
   /** Current text already stored on the agent box in the orchestrator session (if any). */

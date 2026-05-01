@@ -829,6 +829,7 @@ export class InputCoordinator {
           agentBoxNumber: firstBox?.boxNumber,
           agentBoxProvider: firstBox?.provider,
           agentBoxModel: firstBox?.model,
+          agentBoxUserSelectedInferenceModel: firstBox?.userSelectedInferenceModel,
           targetBoxIds: connectedBoxes.map(b => b.id),
           targetBoxLabels: boxLabels,
         })
@@ -903,6 +904,7 @@ export class InputCoordinator {
         agentBoxNumber: firstBox?.boxNumber,
         agentBoxProvider: firstBox?.provider,
         agentBoxModel: firstBox?.model,
+        agentBoxUserSelectedInferenceModel: firstBox?.userSelectedInferenceModel,
         targetBoxIds: connectedBoxes.map((b) => b.id),
         targetBoxLabels: boxLabels,
       })

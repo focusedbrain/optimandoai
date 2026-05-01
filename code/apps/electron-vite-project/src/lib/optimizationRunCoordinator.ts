@@ -22,6 +22,7 @@ import {
 import { runAgentsParallel } from './optimizationAgentRunner'
 import { runAgentsSequential } from './optimizationChainRunner'
 import { createOptimizationLlmSend } from './optimizationLlmAdapter'
+import { OPTIMIZATION_AGENT_DEFAULT_MODEL } from './optimizationAgentBoxModel'
 import { updateAgentBoxOutput } from '@ext/services/processFlow'
 import {
   WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS,
@@ -120,6 +121,10 @@ function buildAgentEntries(session: OrchestratorSessionJson): AgentEntry[] {
       title: String(box.title ?? agentCfg?.name ?? 'Agent'),
       provider: typeof box.provider === 'string' ? box.provider : null,
       model: typeof box.model === 'string' ? box.model : null,
+      userSelectedInferenceModel:
+        typeof (box as { userSelectedInferenceModel?: unknown }).userSelectedInferenceModel === 'string'
+          ? (box as { userSelectedInferenceModel: string }).userSelectedInferenceModel
+          : null,
       systemPromptOrRole,
       toolsSummary,
       existingBoxOutput,
@@ -397,7 +402,7 @@ export async function executeOptimizationRun(
     ctx = trimToTokenBudget(ctx, 24_000)
     logStep(runId, 'assemble_context', 'end', 'ok')
 
-    const llmSend = createOptimizationLlmSend()
+    const llmSend = createOptimizationLlmSend({ defaultModelId: OPTIMIZATION_AGENT_DEFAULT_MODEL })
 
     logStep(runId, 'llm_execute', 'start', sequential ? 'sequential' : 'parallel')
     let results: AgentRunResult[] = []

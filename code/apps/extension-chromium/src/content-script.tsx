@@ -5807,7 +5807,7 @@ function initializeExtension() {
 
             <select id="agent-provider" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white; height: auto; min-height: 42px;">
 
-              <option value="" selected disabled>Select LLM</option>
+              <option value="__inherit__" selected>Inherit (WR Chat / per-box)</option>
 
               <option value="OpenAI">OpenAI</option>
 
@@ -5837,6 +5837,14 @@ function initializeExtension() {
 
           </div>
 
+        </div>
+
+        <div id="agent-inherit-extras" style="margin-bottom: 16px;">
+          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Preferred model when inheriting (optional)</label>
+          <select id="agent-inference-override" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white;">
+            <option value="">— Use WR Chat model at send time —</option>
+          </select>
+          <div style="font-size: 11px; color: #888; margin-top: 4px;">If set, overrides WR Chat for this box only when Provider is Inherit. Fixed provider/model above always wins.</div>
         </div>
 
         
@@ -5937,15 +5945,61 @@ function initializeExtension() {
 
     const modelSelect = overlay.querySelector('#agent-model') as HTMLSelectElement | null
 
+    const inferenceOverrideSelect = overlay.querySelector('#agent-inference-override') as HTMLSelectElement | null
+
+    const populateAddInferenceOverride = async (cur?: string) => {
+
+      if (!inferenceOverrideSelect) return
+
+      inferenceOverrideSelect.innerHTML = '<option value="">— Use WR Chat model at send time —</option>'
+
+      const r = await fetchInstalledLocalModelNames()
+
+      if (r.ok && r.names.length > 0) {
+
+        for (const n of r.names) {
+
+          const o = document.createElement('option')
+
+          o.value = n
+
+          o.textContent = n
+
+          inferenceOverrideSelect.appendChild(o)
+
+        }
+
+      }
+
+      const v = cur || ''
+
+      if (v && Array.from(inferenceOverrideSelect.options).some((o) => o.value === v)) {
+
+        inferenceOverrideSelect.value = v
+
+      }
+
+    }
+
+    const syncAddInheritUi = () => {
+
+      const inherit = providerSelect?.value === '__inherit__'
+
+      const extras = overlay.querySelector('#agent-inherit-extras') as HTMLElement | null
+
+      if (extras) extras.style.display = inherit ? 'block' : 'none'
+
+    }
+
     const refreshModels = async () => {
 
       if (!modelSelect) return
 
       const provider = providerSelect?.value || ''
 
-      if (!provider) {
+      if (!provider || provider === '__inherit__') {
 
-        modelSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>'
+        modelSelect.innerHTML = '<option value="">(inherit chain)</option>'
 
         modelSelect.disabled = true
 
@@ -6035,11 +6089,23 @@ function initializeExtension() {
 
     providerSelect?.addEventListener('change', () => {
 
+      syncAddInheritUi()
+
       void refreshModels()
 
     })
 
-    void refreshModels()
+    const bootAddAgentModelUi = async () => {
+
+      await populateAddInferenceOverride()
+
+      syncAddInheritUi()
+
+      void refreshModels()
+
+    }
+
+    void bootAddAgentModelUi()
 
     
 
@@ -6227,9 +6293,30 @@ function initializeExtension() {
         const title = titleInput.value.trim() || `Agent Box ${String(boxNumber).padStart(2, '0')}`
 
       const providerRaw = providerInput?.value || ''
-      const provider = toProviderId(providerRaw) || providerRaw
 
-      const model = modelInput?.value || 'auto'
+      const inferenceOverrideEl = overlay.querySelector('#agent-inference-override') as HTMLSelectElement | null
+
+      let provider = ''
+
+      let model = ''
+
+      let userSelectedInferenceModel = ''
+
+      if (providerRaw === '__inherit__' || !providerRaw) {
+
+        provider = ''
+
+        model = ''
+
+        userSelectedInferenceModel = (inferenceOverrideEl?.value || '').trim()
+
+      } else {
+
+        provider = toProviderId(providerRaw) || providerRaw
+
+        model = modelInput?.value || 'auto'
+
+      }
 
       
 
@@ -6326,6 +6413,8 @@ function initializeExtension() {
         provider: provider,
 
           model: model,
+
+          userSelectedInferenceModel: provider ? undefined : (userSelectedInferenceModel || undefined),
 
           tools: tools,  // ← Add tools array
 
@@ -6605,7 +6694,7 @@ function initializeExtension() {
 
             <select id="edit-agent-provider" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white;">
 
-              <option value="" ${!agentBox.provider ? 'selected' : ''} disabled>Select LLM</option>
+              <option value="" ${!agentBox.provider ? 'selected' : ''}>Inherit (WR Chat / per-box)</option>
 
               <option value="OpenAI" ${toProviderLabel(agentBox.provider || '') === 'OpenAI' ? 'selected' : ''}>OpenAI</option>
 
@@ -6629,7 +6718,7 @@ function initializeExtension() {
 
             <select id="edit-agent-model" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white;" ${!agentBox.provider ? 'disabled' : ''}>
 
-              ${!agentBox.provider ? '<option value="" selected disabled>Select provider first</option>' : ''}
+              ${!agentBox.provider ? '<option value="">(inherit chain)</option>' : ''}
 
             </select>
 
@@ -6643,6 +6732,13 @@ function initializeExtension() {
 
           </div>
 
+        </div>
+
+        <div id="edit-agent-inherit-extras" style="margin-bottom: 16px;">
+          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Preferred model when inheriting (optional)</label>
+          <select id="edit-agent-inference-override" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white;">
+            <option value="">— Use WR Chat model at send time —</option>
+          </select>
         </div>
 
         
@@ -6757,15 +6853,61 @@ function initializeExtension() {
 
     const modelSelect = overlay.querySelector('#edit-agent-model') as HTMLSelectElement | null
 
+    const editInferenceOverride = overlay.querySelector('#edit-agent-inference-override') as HTMLSelectElement | null
+
+    const populateEditInferenceOverride = async (preferred?: string) => {
+
+      if (!editInferenceOverride) return
+
+      editInferenceOverride.innerHTML = '<option value="">— Use WR Chat model at send time —</option>'
+
+      const r = await fetchInstalledLocalModelNames()
+
+      if (r.ok && r.names.length > 0) {
+
+        for (const n of r.names) {
+
+          const o = document.createElement('option')
+
+          o.value = n
+
+          o.textContent = n
+
+          editInferenceOverride.appendChild(o)
+
+        }
+
+      }
+
+      const pick = preferred || (typeof agentBox.userSelectedInferenceModel === 'string' ? agentBox.userSelectedInferenceModel : '')
+
+      if (pick && Array.from(editInferenceOverride.options).some((o) => o.value === pick)) {
+
+        editInferenceOverride.value = pick
+
+      }
+
+    }
+
+    const syncEditInheritExtras = () => {
+
+      const inherit = !(providerSelect?.value || '').trim()
+
+      const ex = overlay.querySelector('#edit-agent-inherit-extras') as HTMLElement | null
+
+      if (ex) ex.style.display = inherit ? 'block' : 'none'
+
+    }
+
     const refreshModels = async () => {
 
       if (!modelSelect) return
 
-      const provider = providerSelect?.value || agentBox.provider || ''
+      const provider = (providerSelect?.value ?? '').trim()
 
       if (!provider) {
 
-        modelSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>'
+        modelSelect.innerHTML = '<option value="">(inherit chain)</option>'
 
         modelSelect.disabled = true
 
@@ -6859,9 +7001,21 @@ function initializeExtension() {
 
     }
 
-    void refreshModels()
+    const bootEditUi = async () => {
+
+      await populateEditInferenceOverride()
+
+      syncEditInheritExtras()
+
+      await refreshModels()
+
+    }
+
+    void bootEditUi()
 
     providerSelect?.addEventListener('change', () => {
+
+      syncEditInheritExtras()
 
       void refreshModels()
 
@@ -7079,10 +7233,31 @@ function initializeExtension() {
 
       const title = titleInput.value.trim() || agentBox.title
 
-      const providerRaw = providerInput?.value || agentBox.provider || 'OpenAI'
-      const provider = toProviderId(providerRaw) || providerRaw
+      const providerRaw = (providerInput?.value || '').trim()
 
-      const model = modelInput?.value || agentBox.model || 'auto'
+      const editInferenceOverrideEl = overlay.querySelector('#edit-agent-inference-override') as HTMLSelectElement | null
+
+      let provider = ''
+
+      let model = ''
+
+      let userSelectedInferenceModel = ''
+
+      if (!providerRaw) {
+
+        provider = ''
+
+        model = ''
+
+        userSelectedInferenceModel = (editInferenceOverrideEl?.value || '').trim()
+
+      } else {
+
+        provider = toProviderId(providerRaw) || providerRaw
+
+        model = modelInput?.value || agentBox.model || 'auto'
+
+      }
 
       
 
@@ -7116,6 +7291,8 @@ function initializeExtension() {
         provider: provider,
 
         model: model,
+
+        userSelectedInferenceModel: provider ? '' : userSelectedInferenceModel,
 
         agentId: agentIdToSet, // Set the allocated agent
 
@@ -7162,7 +7339,7 @@ function initializeExtension() {
 
 
 
-  function updateAgentBox(agentId: string, updates: { number?: number, title?: string, color?: string, provider?: string, model?: string, agentId?: string, agentNumber?: number, wrExperts?: any[] }) {
+  function updateAgentBox(agentId: string, updates: { number?: number, title?: string, color?: string, provider?: string, model?: string, userSelectedInferenceModel?: string, agentId?: string, agentNumber?: number, wrExperts?: any[] }) {
 
     const agentBoxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
 
@@ -7189,6 +7366,22 @@ function initializeExtension() {
     if (updates.provider !== undefined) agentBox.provider = updates.provider
 
     if (updates.model !== undefined) agentBox.model = updates.model
+
+    if (updates.userSelectedInferenceModel !== undefined) {
+
+      const u = String(updates.userSelectedInferenceModel).trim()
+
+      if (u) {
+
+        agentBox.userSelectedInferenceModel = u
+
+      } else {
+
+        delete agentBox.userSelectedInferenceModel
+
+      }
+
+    }
 
     
 

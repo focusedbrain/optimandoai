@@ -7,13 +7,15 @@
  */
 
 import type { WrChatSurface } from '../ui/components/wrChatSurface'
+import type { WrChatSelectorRow } from '../lib/wrChatModelsFromLlmStatus'
+import { runAgentBoxInferencePreSend } from '../lib/agentBoxInferencePreSend'
 import { ensureLaunchSecretForElectronHttp } from './ensureLaunchSecretForElectronHttp'
 import {
   matchAgentsForModeRun,
   loadAgentsFromSession,
   loadAgentBoxesFromSession,
   wrapInputForAgent,
-  resolveModelForAgent,
+  resolveAgentBoxInference,
   buildLlmRequestBody,
   updateAgentBoxOutput,
   type AgentMatch,
@@ -70,6 +72,12 @@ export type ExecuteModeRunAgentsOptions = {
   /** Recent chat turns for the LLM (default: one empty user message). */
   processedMessages?: Array<{ role: string; content: string }>
   fallbackModel: string
+  /** When set, used as WR Chat–style inheritance for agent boxes without fixed/user model. */
+  wrchatModelId?: string
+  /** Explicit default when neither box nor WR Chat supplies a model. */
+  defaultModelId?: string
+  /** Host-route execution context for `setAiExecutionContext` (optional). */
+  availableModels?: readonly WrChatSelectorRow[]
   baseUrl?: string
   /** Defaults to Electron launch-secret headers; override in tests or non-extension contexts. */
   getFetchHeaders?: () => Promise<Record<string, string>>
@@ -93,6 +101,9 @@ export async function executeModeRunAgents(
     ocrText = '',
     processedMessages = [{ role: 'user', content: '' }],
     fallbackModel,
+    wrchatModelId,
+    defaultModelId,
+    availableModels,
     baseUrl = DEFAULT_LLM_BASE,
     getFetchHeaders = defaultGetFetchHeaders,
     beforeEachLlmCall,
@@ -118,6 +129,9 @@ export async function executeModeRunAgents(
       ocrText,
       processedMessages,
       fallbackModel,
+      wrchatModelId,
+      defaultModelId,
+      availableModels,
       baseUrl,
       sessionKey,
       getFetchHeaders,
@@ -137,6 +151,9 @@ type RunOneParams = {
   ocrText: string
   processedMessages: Array<{ role: string; content: string }>
   fallbackModel: string
+  wrchatModelId?: string
+  defaultModelId?: string
+  availableModels?: readonly WrChatSelectorRow[]
   baseUrl: string
   sessionKey?: string
   getFetchHeaders: () => Promise<Record<string, string>>
@@ -147,6 +164,8 @@ type RunOneParams = {
 
 async function runAgentMatchLlm(p: RunOneParams): Promise<ModeRunAgentExecutionResult> {
   const { match, inputText, ocrText, processedMessages, fallbackModel, baseUrl, sessionKey } = p
+  const wrchat = (p.wrchatModelId ?? fallbackModel).trim()
+  const def = (p.defaultModelId ?? fallbackModel).trim()
   const baseResult = { agentId: match.agentId, agentName: match.agentName }
 
   try {
@@ -157,11 +176,16 @@ async function runAgentMatchLlm(p: RunOneParams): Promise<ModeRunAgentExecutionR
     }
 
     const reasoningContext = wrapInputForAgent(inputText, agent, ocrText)
-    const modelResolution: BrainResolution = resolveModelForAgent(
-      match.agentBoxProvider,
-      match.agentBoxModel,
-      fallbackModel,
-    )
+    const inf = resolveAgentBoxInference({
+      agentBoxProvider: match.agentBoxProvider,
+      agentBoxModel: match.agentBoxModel,
+      agentBoxUserSelectedInferenceModel: match.agentBoxUserSelectedInferenceModel,
+      wrchatModelId: wrchat,
+      defaultModelId: def || wrchat,
+      agentId: match.agentId,
+      boxId: match.agentBoxId,
+    })
+    const modelResolution: BrainResolution = inf.brain
 
     if (!modelResolution.ok) {
       const errorMsg = `Brain resolution failed for ${match.agentName}:\n${modelResolution.error}`
@@ -194,6 +218,15 @@ async function runAgentMatchLlm(p: RunOneParams): Promise<ModeRunAgentExecutionR
       }
       return { ...baseResult, success: false, error: keyError }
     }
+
+    await runAgentBoxInferencePreSend({
+      resolvedModelId: (llmBody as { modelId: string }).modelId,
+      modelSource: inf.modelSource,
+      availableModels: p.availableModels ?? [],
+      agentId: match.agentId,
+      boxId: match.agentBoxId,
+      inferencePath: 'mode_run_agent',
+    })
 
     if (p.beforeEachLlmCall) await p.beforeEachLlmCall()
 

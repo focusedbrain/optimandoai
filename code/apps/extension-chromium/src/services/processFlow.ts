@@ -166,6 +166,8 @@ export interface AgentMatch {
   // Agent box model info for LLM selection
   agentBoxProvider?: string
   agentBoxModel?: string
+  /** Per-box inference model when provider/model are not fixed (inherit chain); persisted on the box. */
+  agentBoxUserSelectedInferenceModel?: string
   // All target boxes (primary + additional, e.g. grid display boxes)
   targetBoxIds?: string[]
   // Human-readable labels for all target boxes (e.g. "Agent Box 01 (Summarizer) & Agent Box 02 (Display Port 6)")
@@ -248,6 +250,8 @@ export interface AgentBox {
   color?: string
   provider?: string // LLM provider (OpenAI, Claude, etc.)
   model?: string // LLM model
+  /** When using inherit chain: optional model before WR Chat. */
+  userSelectedInferenceModel?: string
   imageProvider?: string // Image generation provider ID (comfyui, replicate, etc.)
   imageModel?: string // Image model/preset for the selected provider
 }
@@ -1483,6 +1487,131 @@ export function resolveModelForAgent(
         errorType: 'unknown_provider'
       }
   }
+}
+
+/** Precedence: agent fixed LLM > per-box user selection > WR Chat model > default. */
+export type AgentBoxModelSource =
+  | 'agent_fixed'
+  | 'agent_user_selected'
+  | 'wrchat_inherited'
+  | 'default'
+
+export function agentBoxInferenceDebugLog(event: string, fields: Record<string, unknown>): void {
+  console.log(`[AGENT_BOX_INF] ${event} ${JSON.stringify(fields)}`)
+}
+
+/** True when the box pins both provider and model (non-empty after trim). */
+export function hasAgentBoxFixedLlm(agentBoxProvider?: string, agentBoxModel?: string): boolean {
+  const p = String(agentBoxProvider ?? '').trim()
+  const m = String(agentBoxModel ?? '').trim()
+  return p.length > 0 && m.length > 0
+}
+
+export type ResolveAgentBoxModelIdsResult = {
+  resolvedModelId: string
+  modelSource: AgentBoxModelSource
+}
+
+/**
+ * Resolves which logical model id to prefer before `resolveModelForAgent` normalizes (e.g. cloud `auto`).
+ */
+export function resolveAgentBoxModelIds(input: {
+  agentBoxProvider?: string
+  agentBoxModel?: string
+  agentBoxUserSelectedInferenceModel?: string
+  wrchatModelId?: string
+  defaultModelId?: string
+}): ResolveAgentBoxModelIdsResult {
+  const bp = String(input.agentBoxProvider ?? '').trim()
+  const bm = String(input.agentBoxModel ?? '').trim()
+  const userSel = String(input.agentBoxUserSelectedInferenceModel ?? '').trim()
+  const wrchat = String(input.wrchatModelId ?? '').trim()
+  const def = String(input.defaultModelId ?? '').trim()
+
+  if (hasAgentBoxFixedLlm(bp, bm)) {
+    return { resolvedModelId: bm, modelSource: 'agent_fixed' }
+  }
+  if (userSel) {
+    return { resolvedModelId: userSel, modelSource: 'agent_user_selected' }
+  }
+  if (wrchat) {
+    return { resolvedModelId: wrchat, modelSource: 'wrchat_inherited' }
+  }
+  return { resolvedModelId: def, modelSource: 'default' }
+}
+
+export type ResolveAgentBoxInferenceResult = {
+  brain: BrainResolution
+  modelSource: AgentBoxModelSource
+  /** Effective model string after brain resolution (e.g. cloud default expansion). */
+  resolvedModelId: string
+  logFields: Record<string, unknown>
+}
+
+/**
+ * Full agent-box inference resolution: applies precedence rule then `resolveModelForAgent` for provider/cloud behavior.
+ */
+export function resolveAgentBoxInference(input: {
+  agentBoxProvider?: string
+  agentBoxModel?: string
+  agentBoxUserSelectedInferenceModel?: string
+  wrchatModelId?: string
+  defaultModelId?: string
+  agentId?: string
+  boxId?: string
+}): ResolveAgentBoxInferenceResult {
+  const bp = String(input.agentBoxProvider ?? '').trim()
+  const bm = String(input.agentBoxModel ?? '').trim()
+  const userSel = String(input.agentBoxUserSelectedInferenceModel ?? '').trim()
+  const wrchat = String(input.wrchatModelId ?? '').trim()
+  const def = String(input.defaultModelId ?? '').trim()
+
+  const { modelSource } = resolveAgentBoxModelIds({
+    agentBoxProvider: bp,
+    agentBoxModel: bm,
+    agentBoxUserSelectedInferenceModel: userSel,
+    wrchatModelId: wrchat,
+    defaultModelId: def,
+  })
+
+  let brain: BrainResolution
+  if (modelSource === 'agent_fixed') {
+    brain = resolveModelForAgent(bp, bm, def || wrchat)
+  } else if (modelSource === 'agent_user_selected') {
+    brain = resolveModelForAgent('', userSel, def || wrchat)
+  } else if (modelSource === 'wrchat_inherited') {
+    brain = resolveModelForAgent('', wrchat, def)
+  } else {
+    brain = resolveModelForAgent('', '', def)
+  }
+
+  const resolvedModelId = brain.ok ? brain.model : def || wrchat || userSel || bm || ''
+
+  const logFields: Record<string, unknown> = {
+    origin: 'agent_box',
+    agentId: input.agentId ?? null,
+    boxId: input.boxId ?? null,
+    agentFixedModel: hasAgentBoxFixedLlm(bp, bm) ? bm : null,
+    userSelectedAgentModel: userSel || null,
+    inheritedWrChatModel: wrchat || null,
+    resolvedModelId,
+    modelSource,
+    brainOk: brain.ok,
+  }
+
+  agentBoxInferenceDebugLog('model_resolution', logFields)
+
+  if (modelSource === 'agent_fixed' && hasAgentBoxFixedLlm(bp, bm)) {
+    agentBoxInferenceDebugLog('fixed_model_wins', {
+      origin: 'agent_box',
+      boxId: input.boxId ?? null,
+      agentId: input.agentId ?? null,
+      agentFixedProvider: bp,
+      agentFixedModel: bm,
+    })
+  }
+
+  return { brain, modelSource, resolvedModelId, logFields }
 }
 
 /**

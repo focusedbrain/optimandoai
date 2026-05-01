@@ -70,6 +70,8 @@ type WrChatModelOption = {
   p2pUiPhase?: string
   /** LAN Host Ollama route; forwarded to Host WRChat completion. */
   execution_transport?: 'ollama_direct'
+  /** Host Ollama tag from listTargets (legacy `host-inference:` / placeholder route ids). */
+  hostLocalModelName?: string
 }
 
 function wrChatModelsForPersist(models: WrChatModelOption[]) {
@@ -316,6 +318,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
           },
           t,
         )
+        const hostLocalModelName = (t?.model ?? t?.model_id) as string | undefined
         return {
           ...row,
           displayTitle: ui.titleLine,
@@ -326,6 +329,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
           }),
           hostComputerName: t?.host_computer_name?.trim() || row.hostComputerName,
           execution_transport: t?.execution_transport ?? row.execution_transport,
+          hostLocalModelName: typeof hostLocalModelName === 'string' ? hostLocalModelName.trim() : undefined,
         }
       })
     }

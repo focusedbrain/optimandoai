@@ -43,26 +43,13 @@ export async function runWrChatExtensionPreSend(options: {
       : logSelectionSourceForSend(persisted, options.resolvedModelId)
 
   const fallbackUsed = selectionSourceForLog !== 'user'
-
   const payload = buildWrChatExtensionAiExecutionPayload(options.resolvedModelId, options.availableModels)
 
   wrChatExtensionDebugLog('model_select_context', {
     origin: options.origin,
     selectedModelUi: options.activeLlmModelUi ?? null,
     persistedModelId: persisted?.modelId ?? null,
-    persistedSelectionSource: persisted?.selectionSource ?? null,
     selectionSource: selectionSourceForLog,
-    resolvedModelId: options.resolvedModelId,
-  })
-
-  wrChatExtensionDebugLog('before_send', {
-    origin: options.origin,
-    selectedModelUi: options.activeLlmModelUi ?? null,
-    resolvedModelName: options.resolvedModelId,
-    modelIdForPayload: options.resolvedModelId,
-    selectionSource: selectionSourceForLog,
-    fallbackUsed,
-    aiExecutionPayloadBuilt: payload != null,
   })
 
   let aiExecutionContextAvailable = false
@@ -74,6 +61,7 @@ export async function runWrChatExtensionPreSend(options: {
           ...payload,
           selectionSource: selectionSourceForLog === 'user' ? ('user' as const) : ('auto' as const),
           wrchat_origin: options.origin,
+          origin: options.origin,
         },
         12_000,
       )
@@ -84,18 +72,22 @@ export async function runWrChatExtensionPreSend(options: {
     }
   }
 
-  if (!aiExecutionContextAvailable) {
-    wrChatExtensionDebugLog('ai_execution_context', {
+  wrChatExtensionDebugLog('before_send', {
+    origin: options.origin,
+    selectedModelUi: options.activeLlmModelUi ?? null,
+    resolvedModelId: options.resolvedModelId,
+    modelIdSent: options.resolvedModelId,
+    selectionSource: selectionSourceForLog,
+    fallbackUsed,
+    aiExecutionContextAvailable,
+    aiExecutionPayloadBuilt: payload != null,
+  })
+
+  if (payload && !aiExecutionContextAvailable) {
+    wrChatExtensionDebugLog('ai_execution_context_miss', {
       origin: options.origin,
-      aiExecutionContextUnavailable: true,
+      aiExecutionContextAvailable: false,
       resolvedModelId: options.resolvedModelId,
-    })
-  } else {
-    wrChatExtensionDebugLog('ai_execution_context', {
-      origin: options.origin,
-      aiExecutionContextUnavailable: false,
-      lane: payload?.lane ?? null,
-      model: payload?.model ?? null,
     })
   }
 }

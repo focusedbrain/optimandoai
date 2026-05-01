@@ -149,6 +149,9 @@ export interface CanonicalAgentBoxConfig {
   
   /** Specific model within the provider (e.g., 'gpt-4o', 'auto') */
   model?: string;
+
+  /** When provider/model are not fixed (inherit), optional per-box model before WR Chat fallback. */
+  userSelectedInferenceModel?: string;
   
   /** Mini apps/tools attached to this box */
   tools?: string[];

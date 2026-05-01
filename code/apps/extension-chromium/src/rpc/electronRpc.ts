@@ -174,6 +174,12 @@ const LlmSetAiExecutionContext = {
     models: z.array(z.string().max(200)).max(500).optional(),
     selectionSource: z.enum(['user', 'auto']).optional(),
     wrchat_origin: z.string().max(64).optional(),
+    origin: z.enum(['sidebar_wrchat', 'popup_wrchat', 'agent_box']).optional(),
+    agentId: z.string().max(200).optional(),
+    boxId: z.string().max(200).optional(),
+    modelSource: z
+      .enum(['agent_fixed', 'agent_user_selected', 'wrchat_inherited', 'default'])
+      .optional(),
   }),
   http: 'POST' as const,
   route: '/api/llm/ai-execution-context',

@@ -59,10 +59,11 @@ export function createOptimizationLlmSend(options?: OptimizationLlmAdapterOption
   const baseUrl = (options?.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '')
   const fetchFn = options?.fetchImpl ?? fetch
   const getHeaders = options?.getHeaders ?? defaultDashboardLlmHeaders
+  const defaultModelId = (options?.defaultModelId ?? 'llama3.2').trim()
 
   return async (messages, provider, model) => {
     const headers = await getHeaders()
-    const modelId = (model && model.trim()) || options?.defaultModelId || ''
+    const modelId = (model && model.trim()) || defaultModelId || ''
     const body: Record<string, unknown> = {
       modelId,
       messages,

@@ -24,7 +24,7 @@ import {
   loadAgentsFromSession,
   updateAgentBoxOutput,
   getAgentById,
-  resolveModelForAgent,
+  resolveAgentBoxInference,
   buildLlmRequestBody,
   type BrainResolution,
   type RoutingDecision,
@@ -87,6 +87,7 @@ import {
   clearPersistedWrChatExtensionModel,
 } from './lib/wrChatExtensionModelPersistence'
 import { runWrChatExtensionPreSend, wrChatExtensionDebugLog } from './lib/wrChatExtensionPreSend'
+import { runAgentBoxInferencePreSend } from './lib/agentBoxInferencePreSend'
 import { getVaultStatus } from './vault/api'
 import type { ClientSendFailureDebug, OutboundRequestDebugSnapshot } from './handshake/handshakeRpc'
 import {
@@ -1403,6 +1404,13 @@ function SidepanelOrchestrator() {
       }])
       return
     }
+
+    await runWrChatExtensionPreSend({
+      origin: 'sidebar_wrchat',
+      activeLlmModelUi: activeLlmModelRef.current || activeLlmModel,
+      resolvedModelId: currentModel,
+      availableModels,
+    })
     
     setIsLlmLoading(true)
     
@@ -1417,7 +1425,7 @@ function SidepanelOrchestrator() {
       } catch (e) {}
       
       // Import routing functions dynamically to avoid circular deps
-      const { routeInput, loadAgentsFromSession, wrapInputForAgent, updateAgentBoxOutput, getButlerSystemPrompt, resolveModelForAgent } = await import('./services/processFlow')
+      const { routeInput, loadAgentsFromSession, wrapInputForAgent, updateAgentBoxOutput, getButlerSystemPrompt, resolveAgentBoxInference } = await import('./services/processFlow')
       
       // Use refs for values to avoid stale closures
       const currentConnectionStatus = connectionStatusRef.current
@@ -1476,12 +1484,21 @@ function SidepanelOrchestrator() {
           
           const wrappedInput = wrapInputForAgent(triggerText, agent, ocrText)
           
-          // Resolve model - use agent box model if configured, otherwise use current model
-          const modelResolution: BrainResolution = resolveModelForAgent(
-            match.agentBoxProvider,
-            match.agentBoxModel,
-            currentModel
-          )
+          const defaultModel =
+            currentModel.trim() ||
+            availableModels[0]?.name ||
+            ''
+
+          const inf = resolveAgentBoxInference({
+            agentBoxProvider: match.agentBoxProvider,
+            agentBoxModel: match.agentBoxModel,
+            agentBoxUserSelectedInferenceModel: match.agentBoxUserSelectedInferenceModel,
+            wrchatModelId: currentModel,
+            defaultModelId: defaultModel,
+            agentId: match.agentId,
+            boxId: match.agentBoxId,
+          })
+          const modelResolution: BrainResolution = inf.brain
           
           
           if (!modelResolution.ok) {
@@ -1510,8 +1527,24 @@ function SidepanelOrchestrator() {
               continue
             }
 
+            await runAgentBoxInferencePreSend({
+              resolvedModelId: (llmBody as { modelId: string }).modelId,
+              modelSource: inf.modelSource,
+              availableModels,
+              agentId: match.agentId,
+              boxId: match.agentBoxId,
+              inferencePath: 'sidepanel_screenshot_agent',
+            })
+
             // Ensure launch secret is fresh before the LLM call (handles SW sleep/wake)
             await ensureLaunchSecret()
+
+            wrChatExtensionDebugLog('before_api_llm_chat', {
+              origin: 'sidebar_wrchat',
+              modelId: (llmBody as { modelId?: string }).modelId ?? null,
+              hasProviderKey: !!(llmBody as { provider?: string }).provider,
+              statusPath: 'screenshot_trigger_agent',
+            })
 
             const agentResponse: Response = await fetch(`${baseUrl}/api/llm/chat`, {
               method: 'POST',
@@ -1569,6 +1602,13 @@ function SidepanelOrchestrator() {
         )
         
         try {
+          wrChatExtensionDebugLog('before_api_llm_chat', {
+            origin: 'sidebar_wrchat',
+            modelId: currentModel,
+            hasProviderKey: false,
+            statusPath: 'screenshot_trigger_butler',
+          })
+
           const butlerResponse: Response = await fetch(`${baseUrl}/api/llm/chat`, {
             method: 'POST',
             headers: electronFetchHeaders(),
@@ -3096,14 +3136,23 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
       const reasoningContext = wrapInputForAgent(inputText, agent, ocrText)
       
       
-      // Resolve which model to use (AgentBox model > fallback)
-      const modelResolution: BrainResolution = resolveModelForAgent(
-        match.agentBoxProvider,
-        match.agentBoxModel,
-        fallbackModel
-      )
-      
-      
+      const defaultModel =
+        fallbackModel.trim() ||
+        availableModels[0]?.name ||
+        ''
+
+      const inf = resolveAgentBoxInference({
+        agentBoxProvider: match.agentBoxProvider,
+        agentBoxModel: match.agentBoxModel,
+        agentBoxUserSelectedInferenceModel: match.agentBoxUserSelectedInferenceModel,
+        wrchatModelId: fallbackModel,
+        defaultModelId: defaultModel,
+        agentId: match.agentId,
+        boxId: match.agentBoxId,
+      })
+      const modelResolution: BrainResolution = inf.brain
+
+
       // Surface brain resolution failures visibly
       if (!modelResolution.ok) {
         const errorMsg = `⚠️ Brain resolution failed for ${match.agentName}:\n${modelResolution.error}`
@@ -3142,6 +3191,15 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         }
         return { success: false, error: keyError }
       }
+
+      await runAgentBoxInferencePreSend({
+        resolvedModelId: (llmBody as { modelId: string }).modelId,
+        modelSource: inf.modelSource,
+        availableModels,
+        agentId: match.agentId,
+        boxId: match.agentBoxId,
+        inferencePath: 'sidepanel_processWithAgent',
+      })
 
       // Ensure launch secret is fresh before the LLM call (handles SW sleep/wake)
       await ensureLaunchSecret()
@@ -3397,12 +3455,21 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
           
           const wrappedInput = wrapInputForAgent(routeText || ocrText || '[screenshot]', agent, ocrText)
           
-          // Resolve model
-          const modelResolution: BrainResolution = resolveModelForAgent(
-            match.agentBoxProvider,
-            match.agentBoxModel,
-            currentModel
-          )
+          const defaultModel =
+            currentModel.trim() ||
+            availableModels[0]?.name ||
+            ''
+
+          const inf = resolveAgentBoxInference({
+            agentBoxProvider: match.agentBoxProvider,
+            agentBoxModel: match.agentBoxModel,
+            agentBoxUserSelectedInferenceModel: match.agentBoxUserSelectedInferenceModel,
+            wrchatModelId: currentModel,
+            defaultModelId: defaultModel,
+            agentId: match.agentId,
+            boxId: match.agentBoxId,
+          })
+          const modelResolution: BrainResolution = inf.brain
           
           
           if (!modelResolution.ok) {
@@ -3433,6 +3500,15 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
             setChatMessages(prev => [...prev, { role: 'assistant' as const, text: keyMsg }])
             continue
           }
+
+          await runAgentBoxInferencePreSend({
+            resolvedModelId: (triggerLlmBody as { modelId: string }).modelId,
+            modelSource: inf.modelSource,
+            availableModels,
+            agentId: match.agentId,
+            boxId: match.agentBoxId,
+            inferencePath: 'sidepanel_trigger_agent',
+          })
 
           // Ensure launch secret is fresh before the LLM call (handles SW sleep/wake)
           await ensureLaunchSecret()

@@ -4,6 +4,11 @@
 
 import type { AgentEntry, AgentRunResult, LlmSendFn, OptimizationContext } from '../types/optimizationTypes'
 import { buildMessagesForAgent } from './optimizationPromptBuilder'
+import {
+  logOptimizationAgentBoxSend,
+  optimizationDashboardAgentBoxSetAiExecutionContext,
+  resolveOptimizationAgentInference,
+} from './optimizationAgentBoxModel'
 
 function chunkAgents<T>(arr: T[], size: number): T[][] {
   const out: T[][] = []
@@ -33,8 +38,15 @@ export async function runAgentsParallel(
     const settled = await Promise.allSettled(
       batch.map(async (agent) => {
         const t0 = Date.now()
+        const inf = resolveOptimizationAgentInference(agent)
+        if (!inf.brain.ok) {
+          throw new Error(inf.brain.error)
+        }
         const messages = buildMessagesForAgent(agent, ctx, 'parallel')
-        const output = await llmSend(messages, agent.provider ?? undefined, agent.model ?? undefined)
+        optimizationDashboardAgentBoxSetAiExecutionContext(agent, inf)
+        logOptimizationAgentBoxSend(inf, 'optimization_dashboard_parallel')
+        const providerOut = inf.brain.isLocal ? undefined : inf.brain.provider
+        const output = await llmSend(messages, providerOut, inf.brain.model)
         return {
           agentBoxId: agent.boxId,
           agentLabel: agent.title,

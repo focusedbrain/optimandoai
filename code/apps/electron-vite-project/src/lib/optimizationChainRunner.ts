@@ -10,6 +10,11 @@ import type {
   OptimizationContext,
 } from '../types/optimizationTypes'
 import { buildMessagesForAgent } from './optimizationPromptBuilder'
+import {
+  logOptimizationAgentBoxSend,
+  optimizationDashboardAgentBoxSetAiExecutionContext,
+  resolveOptimizationAgentInference,
+} from './optimizationAgentBoxModel'
 
 const MAX_CHAIN = 6
 
@@ -61,7 +66,14 @@ export async function runAgentsSequential(
     const t0 = Date.now()
     const messages = buildMessagesForAgent(agent, workingCtx, 'sequential')
     try {
-      const output = await llmSend(messages, agent.provider ?? undefined, agent.model ?? undefined)
+      const inf = resolveOptimizationAgentInference(agent)
+      if (!inf.brain.ok) {
+        throw new Error(inf.brain.error)
+      }
+      optimizationDashboardAgentBoxSetAiExecutionContext(agent, inf)
+      logOptimizationAgentBoxSend(inf, 'optimization_dashboard_sequential')
+      const providerOut = inf.brain.isLocal ? undefined : inf.brain.provider
+      const output = await llmSend(messages, providerOut, inf.brain.model)
       const durationMs = Date.now() - t0
       results.push({
         agentBoxId: agent.boxId,

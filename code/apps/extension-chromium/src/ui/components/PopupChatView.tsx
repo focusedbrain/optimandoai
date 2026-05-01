@@ -139,6 +139,8 @@ export interface PopupChatViewProps {
     hostIconClass?: string
     /** LAN Host Ollama route; when present, skip BEAP/P2P for Host completion. */
     execution_transport?: 'ollama_direct'
+    /** Bare Host Ollama tag from discovery (fills wire `model` when route id has no embedded tag). */
+    hostLocalModelName?: string
     section?: 'local' | 'host' | 'cloud'
   }>
   activeLlmModel?: string
@@ -181,6 +183,17 @@ export interface PopupChatViewProps {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Prefer tag from `host-internal:…:<model>`; else discovery row (legacy `host-inference:` / placeholders). */
+function wrChatHostInternalWireModel(
+  parsed: { model?: string } | null | undefined,
+  row: { hostLocalModelName?: string } | undefined,
+): string | undefined {
+  const fromRoute = parsed?.model?.trim()
+  if (fromRoute) return fromRoute
+  const fromRow = row?.hostLocalModelName?.trim()
+  return fromRow || undefined
+}
 
 async function getLaunchSecret(): Promise<string | null> {
   return new Promise((resolve) => {
@@ -1242,9 +1255,10 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             ocrText: ocrHost,
           })
           const hostComputerNameH = (rowH?.hostComputerName || '').trim() || 'Host'
+          const wireModel = wrChatHostInternalWireModel(parsedH, rowH)
           setHostInternalRunUi({
             line1: `Running on Host AI · ${hostModelDisplayNameFromSelection({
-              parsedModel: parsedH.model,
+              parsedModel: wireModel ?? parsedH.model,
               targetLabel: rowH?.displayTitle,
             })}`,
             line2: hostComputerNameH,
@@ -1255,7 +1269,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                 origin: 'dashboard_wrchat',
                 chatFocusMode: useChatFocusStore.getState().chatFocusMode.mode,
                 inferencePath: 'internal_inference',
-                model: parsedH.model,
+                model: wireModel ?? parsedH.model,
                 targetId: modelId,
                 execution_transport: rowH?.execution_transport ?? null,
                 handshakeId: parsedH.handshakeId,
@@ -1265,7 +1279,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               targetId: modelId,
               handshakeId: parsedH.handshakeId,
               messages: hostMsgs,
-              model: parsedH.model,
+              model: wireModel,
               timeoutMs: 120_000,
               execution_transport: rowH?.execution_transport === 'ollama_direct' ? 'ollama_direct' : undefined,
             })) as { ok?: boolean; output?: string; code?: string; message?: string }
@@ -1600,9 +1614,10 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               ocrText: ocrH,
             })
             const hostComputerNameH = (rowH?.hostComputerName || '').trim() || 'Host'
+            const wireModelTrig = wrChatHostInternalWireModel(parsedH, rowH)
             setHostInternalRunUi({
               line1: `Running on Host AI · ${hostModelDisplayNameFromSelection({
-                parsedModel: parsedH.model,
+                parsedModel: wireModelTrig ?? parsedH.model,
                 targetLabel: rowH?.displayTitle,
               })}`,
               line2: hostComputerNameH,
@@ -1613,7 +1628,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                   origin: 'dashboard_wrchat',
                   chatFocusMode: useChatFocusStore.getState().chatFocusMode.mode,
                   inferencePath: 'internal_inference',
-                  model: parsedH.model,
+                  model: wireModelTrig ?? parsedH.model,
                   targetId: modelId,
                   execution_transport: rowH?.execution_transport ?? null,
                   handshakeId: parsedH.handshakeId,
@@ -1623,7 +1638,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                 targetId: modelId,
                 handshakeId: parsedH.handshakeId,
                 messages: hostMsgs,
-                model: parsedH.model,
+                model: wireModelTrig,
                 timeoutMs: 120_000,
                 execution_transport: rowH?.execution_transport === 'ollama_direct' ? 'ollama_direct' : undefined,
               })) as { ok?: boolean; output?: string; code?: string; message?: string }
