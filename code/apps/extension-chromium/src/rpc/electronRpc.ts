@@ -161,6 +161,24 @@ const LlmInstallProgress = {
   route: '/api/llm/install-progress',
 }
 
+const LlmSetAiExecutionContext = {
+  method: 'llm.setAiExecutionContext' as const,
+  schema: z.object({
+    lane: z.enum(['local', 'ollama_direct', 'beap']),
+    model: z.string().min(1).max(512),
+    baseUrl: z.string().max(2000).optional(),
+    handshakeId: z.string().max(200).optional(),
+    peerDeviceId: z.string().max(200).optional(),
+    beapReady: z.boolean().optional(),
+    ollamaDirectReady: z.boolean().optional(),
+    models: z.array(z.string().max(200)).max(500).optional(),
+    selectionSource: z.enum(['user', 'auto']).optional(),
+    wrchat_origin: z.string().max(64).optional(),
+  }),
+  http: 'POST' as const,
+  route: '/api/llm/ai-execution-context',
+}
+
 // ── Dashboard ──
 
 const DashboardOpen = {
@@ -266,6 +284,7 @@ const RPC_REGISTRY = [
   LlmActivateModel,
   LlmPerformance,
   LlmInstallProgress,
+  LlmSetAiExecutionContext,
   DashboardOpen,
   DashboardStatus,
   OrchestratorGetMode,

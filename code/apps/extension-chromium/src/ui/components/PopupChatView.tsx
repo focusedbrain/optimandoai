@@ -32,6 +32,7 @@ import {
   hostModelDisplayNameFromSelection,
   isHostInternalChatModelId,
 } from '../../lib/inferenceSubmitRouting'
+import { runWrChatExtensionPreSend, wrChatExtensionDebugLog } from '../../lib/wrChatExtensionPreSend'
 import {
   GROUP_CLOUD,
   GROUP_HOST_MODELS,
@@ -106,6 +107,12 @@ function emojiForTriggerKey(key: string): string {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+export type DashboardWrChatBeforeLlmSendInfo = {
+  resolvedModelId: string
+  activeLlmModelUi?: string
+  inferencePath: 'api_llm_chat' | 'internal_inference'
+}
+
 interface ChatMessage {
   role: 'user' | 'assistant'
   /** User messages may pair `text` + `imageUrl` / `videoUrl` in one bubble (capture Save path). */
@@ -169,6 +176,8 @@ export interface PopupChatViewProps {
     agentBoxId: string
     text: string
   }) => void
+  /** Dashboard embed only: sync AI execution context immediately before any LLM / Host dispatch. */
+  onDashboardBeforeLlmSend?: (info: DashboardWrChatBeforeLlmSendInfo) => void | Promise<void>
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -459,6 +468,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   onConfirmSwitchFromStaleHost,
   inferenceSelectionPersistError = null,
   hostModelRefreshFeedback = null,
+  onDashboardBeforeLlmSend,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -481,6 +491,17 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const [diffWatchers, setDiffWatchers] = useState<any[]>([])
   const [showTagsMenu, setShowTagsMenu] = useState(false)
   const chatFocusMode = useChatFocusStore((s) => s.chatFocusMode)
+  const invokeDashboardPreInference = useCallback(
+    async (resolvedModelId: string, inferencePath: 'api_llm_chat' | 'internal_inference') => {
+      if (wrChatEmbedContext !== 'dashboard' || !onDashboardBeforeLlmSend) return
+      await onDashboardBeforeLlmSend({
+        resolvedModelId,
+        activeLlmModelUi: activeLlmModel,
+        inferencePath,
+      })
+    },
+    [wrChatEmbedContext, onDashboardBeforeLlmSend, activeLlmModel],
+  )
   /** When false, skip persisting until localStorage transcript has been read (dashboard embed). */
   const [transcriptHydrated, setTranscriptHydrated] = useState(() => !persistTranscriptStorageKey)
   /** Capture tag/command prompt — same surface as sidepanel, filtered by promptContext (popup vs dashboard). */
@@ -1127,6 +1148,20 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       return
     }
 
+    if (wrChatEmbedContext !== 'dashboard') {
+      await runWrChatExtensionPreSend({
+        origin: 'popup_wrchat',
+        activeLlmModelUi: activeLlmModel,
+        resolvedModelId: modelId,
+        availableModels,
+      })
+    } else {
+      const inferencePath = isHostInternalChatModelId(modelId, availableModels)
+        ? 'internal_inference'
+        : 'api_llm_chat'
+      await invokeDashboardPreInference(modelId, inferencePath)
+    }
+
     // Build the text we send to the LLM (with doc content injected)
     const llmText = docCtx
       ? `[Attached document: ${docCtx.name}]\n\n${docCtx.text}\n\n---\n${text}`
@@ -1215,6 +1250,17 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             line2: hostComputerNameH,
           })
           try {
+            if (import.meta.env.DEV && wrChatEmbedContext === 'dashboard') {
+              console.debug('[WR Chat:Dashboard] dashboard_wrchat.inference_job', {
+                origin: 'dashboard_wrchat',
+                chatFocusMode: useChatFocusStore.getState().chatFocusMode.mode,
+                inferencePath: 'internal_inference',
+                model: parsedH.model,
+                targetId: modelId,
+                execution_transport: rowH?.execution_transport ?? null,
+                handshakeId: parsedH.handshakeId,
+              })
+            }
             const r = (await runH({
               targetId: modelId,
               handshakeId: parsedH.handshakeId,
@@ -1356,6 +1402,14 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                   ...processedMessages.filter(m => m.role === 'user'),
                 ]
             const modelToUse = match.agentBoxModel || modelId
+            if (wrChatEmbedContext !== 'dashboard') {
+              wrChatExtensionDebugLog('before_api_llm_chat', {
+                origin: 'popup_wrchat',
+                modelId: modelToUse,
+                hasProviderKey: false,
+                statusPath: 'agent',
+              })
+            }
             const agentRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
               method: 'POST',
               headers: buildHeaders(secret),
@@ -1407,6 +1461,14 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         const butlerMessages = useFreshPayload
           ? [{ role: 'system', content: butlerPrompt }, freshUserMessage!]
           : [{ role: 'system', content: butlerPrompt }, ...processedMessages]
+        if (wrChatEmbedContext !== 'dashboard') {
+          wrChatExtensionDebugLog('before_api_llm_chat', {
+            origin: 'popup_wrchat',
+            modelId: modelId,
+            hasProviderKey: false,
+            statusPath: 'butler',
+          })
+        }
         const butlerRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
           method: 'POST',
           headers: buildHeaders(secret),
@@ -1436,7 +1498,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       setIsLoading(false)
       scrollToBottom()
     }
-  }, [input, messages, pendingDoc, pendingCaptureUrl, activeLlmModel, availableModels, isLoading, isConnected, sessionName, wrChatEmbedContext, chatFocusMode.mode, hostAiStale])
+  }, [input, messages, pendingDoc, pendingCaptureUrl, activeLlmModel, availableModels, isLoading, isConnected, sessionName, wrChatEmbedContext, chatFocusMode.mode, hostAiStale, invokeDashboardPreInference])
 
   /** After capture Save with tag/command — displayText is what appears in chat; routeText drives routing/LLM. */
   const sendWithTriggerAndImage = useCallback(
@@ -1461,6 +1523,20 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       if (wrChatEmbedContext === 'dashboard' && hostAiStale && isHostInternalChatModelId(modelId, availableModels)) {
         setMessages((prev) => [...prev, { role: 'assistant', text: HOST_AI_STALE_INLINE }])
         return
+      }
+
+      if (wrChatEmbedContext !== 'dashboard') {
+        await runWrChatExtensionPreSend({
+          origin: 'popup_wrchat',
+          activeLlmModelUi: activeLlmModel,
+          resolvedModelId: modelId,
+          availableModels,
+        })
+      } else {
+        const inferencePath = isHostInternalChatModelId(modelId, availableModels)
+          ? 'internal_inference'
+          : 'api_llm_chat'
+        await invokeDashboardPreInference(modelId, inferencePath)
       }
 
       const routeTag = normaliseTriggerTag(routeText)
@@ -1532,6 +1608,17 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               line2: hostComputerNameH,
             })
             try {
+              if (import.meta.env.DEV && wrChatEmbedContext === 'dashboard') {
+                console.debug('[WR Chat:Dashboard] dashboard_wrchat.inference_job', {
+                  origin: 'dashboard_wrchat',
+                  chatFocusMode: useChatFocusStore.getState().chatFocusMode.mode,
+                  inferencePath: 'internal_inference',
+                  model: parsedH.model,
+                  targetId: modelId,
+                  execution_transport: rowH?.execution_transport ?? null,
+                  handshakeId: parsedH.handshakeId,
+                })
+              }
               const r = (await runH({
                 targetId: modelId,
                 handshakeId: parsedH.handshakeId,
@@ -1661,6 +1748,14 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                     ...processedMessages.filter(m => m.role === 'user'),
                   ]
               const modelToUse = match.agentBoxModel || modelId
+              if (wrChatEmbedContext !== 'dashboard') {
+                wrChatExtensionDebugLog('before_api_llm_chat', {
+                  origin: 'popup_wrchat',
+                  modelId: modelToUse,
+                  hasProviderKey: false,
+                  statusPath: 'agent_trigger',
+                })
+              }
               const agentRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
                 method: 'POST',
                 headers: buildHeaders(secret),
@@ -1717,6 +1812,14 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           const butlerMessages = useFreshPayload
             ? [{ role: 'system', content: butlerPrompt }, freshUserMessage!]
             : [{ role: 'system', content: butlerPrompt }, ...processedMessages]
+          if (wrChatEmbedContext !== 'dashboard') {
+            wrChatExtensionDebugLog('before_api_llm_chat', {
+              origin: 'popup_wrchat',
+              modelId: modelId,
+              hasProviderKey: false,
+              statusPath: 'butler_trigger',
+            })
+          }
           const butlerRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
             method: 'POST',
             headers: buildHeaders(secret),
@@ -1750,7 +1853,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         scrollToBottom()
       }
     },
-    [messages, activeLlmModel, availableModels, isLoading, isConnected, sessionName, wrChatEmbedContext, hostAiStale],
+    [messages, activeLlmModel, availableModels, isLoading, isConnected, sessionName, wrChatEmbedContext, hostAiStale, invokeDashboardPreInference],
   )
 
   /** Folder diff from Electron — same LLM path as sendWithTriggerAndImage, text-only (no image). */
@@ -1769,6 +1872,20 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           },
         ])
         return
+      }
+
+      if (wrChatEmbedContext !== 'dashboard') {
+        await runWrChatExtensionPreSend({
+          origin: 'popup_wrchat',
+          activeLlmModelUi: activeLlmModel,
+          resolvedModelId: modelId,
+          availableModels,
+        })
+      } else {
+        const inferencePath = isHostInternalChatModelId(modelId, availableModels)
+          ? 'internal_inference'
+          : 'api_llm_chat'
+        await invokeDashboardPreInference(modelId, inferencePath)
       }
 
       const userMsg: ChatMessage = { role: 'user', text }
@@ -1834,6 +1951,14 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                 ...processedMessages.filter((m) => m.role === 'user'),
               ]
               const modelToUse = match.agentBoxModel || modelId
+              if (wrChatEmbedContext !== 'dashboard') {
+                wrChatExtensionDebugLog('before_api_llm_chat', {
+                  origin: 'popup_wrchat',
+                  modelId: modelToUse,
+                  hasProviderKey: false,
+                  statusPath: 'agent_diff',
+                })
+              }
               const agentRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
                 method: 'POST',
                 headers: buildHeaders(secret),
@@ -1891,6 +2016,14 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           const { getButlerSystemPrompt } = processFlow
           const butlerPrompt = getButlerSystemPrompt(sessionName, 0, isConnected)
           const butlerMessages = [{ role: 'system', content: butlerPrompt }, ...processedMessages]
+          if (wrChatEmbedContext !== 'dashboard') {
+            wrChatExtensionDebugLog('before_api_llm_chat', {
+              origin: 'popup_wrchat',
+              modelId: modelId,
+              hasProviderKey: false,
+              statusPath: 'butler_diff',
+            })
+          }
           const butlerRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
             method: 'POST',
             headers: buildHeaders(secret),
@@ -1933,7 +2066,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         scrollToBottom()
       }
     },
-    [messages, activeLlmModel, availableModels, isConnected, sessionName, wrChatEmbedContext],
+    [messages, activeLlmModel, availableModels, isConnected, sessionName, wrChatEmbedContext, invokeDashboardPreInference],
   )
 
   const handleDiffMessage = useCallback(

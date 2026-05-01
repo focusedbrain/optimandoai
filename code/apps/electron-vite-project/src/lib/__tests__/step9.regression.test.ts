@@ -73,6 +73,33 @@ describe('STEP 9 — WR Chat selection', () => {
     expect(v.error).toBe('host_unavailable')
     expect(v.modelId).toBe('')
   })
+
+  it('Host target still checking keeps persisted WR Chat selection (no false unavailable)', () => {
+    const stored: StoredInferenceSelectionV1 = {
+      v: 1,
+      kind: 'host_internal',
+      id: 'host-x',
+      model: 'm',
+    }
+    const v = validateStoredSelectionForWrChat(stored, ['host-x'], [
+      { name: 'host-x', hostAi: true, hostAvailable: false, hostTargetChecking: true },
+    ])
+    expect(v.error).toBeUndefined()
+    expect(v.modelId).toBe('host-x')
+  })
+
+  it('host_internal id still listed in merged roster validates when host row slice is empty (transitional load)', () => {
+    const stored: StoredInferenceSelectionV1 = {
+      v: 1,
+      kind: 'host_internal',
+      id: 'host-internal:a:gemma',
+      model: 'gemma',
+      handshake_id: 'a',
+    }
+    const v = validateStoredSelectionForWrChat(stored, ['host-internal:a:gemma'], [])
+    expect(v.error).toBeUndefined()
+    expect(v.modelId).toBe('host-internal:a:gemma')
+  })
 })
 
 describe('STEP 9 — submit routing (renderer)', () => {

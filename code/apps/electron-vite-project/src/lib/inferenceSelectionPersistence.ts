@@ -746,7 +746,13 @@ export function clearPersistedHostAiInferenceSelection(): void {
   }
 }
 
-type WrHostish = { name: string; hostAi?: boolean; hostAvailable?: boolean }
+type WrHostish = {
+  name: string
+  hostAi?: boolean
+  hostAvailable?: boolean
+  /** When Host capabilities are still probing — do not treat as unavailable or wipe persistence. */
+  hostTargetChecking?: boolean
+}
 
 export function validateStoredSelectionForWrChat(
   stored: StoredInferenceSelectionV1,
@@ -758,10 +764,16 @@ export function validateStoredSelectionForWrChat(
   }
   if (stored.kind === 'host_internal') {
     const row = hostRows.find((h) => h.name === stored.id)
-    if (!row?.hostAi || !row.hostAvailable) {
+    if (row?.hostAi) {
+      if (row.hostAvailable || row.hostTargetChecking) {
+        return { modelId: stored.id }
+      }
       return { modelId: '', error: 'host_unavailable' }
     }
-    return { modelId: stored.id }
+    if (mergedModelNames.includes(stored.id)) {
+      return { modelId: stored.id }
+    }
+    return { modelId: '', error: 'unknown_model' }
   }
   if (mergedModelNames.includes(stored.id)) {
     return { modelId: stored.id }

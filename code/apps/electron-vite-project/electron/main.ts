@@ -9497,6 +9497,60 @@ async function runDeviceKeyMigration(
       }
     })
     
+    // POST /api/llm/ai-execution-context — same persistence as `llm:setAiExecutionContext` IPC (extension WR Chat).
+    httpApp.post('/api/llm/ai-execution-context', async (req, res) => {
+      try {
+        const raw = req.body
+        if (!raw || typeof raw !== 'object') {
+          res.status(400).json({ ok: false, error: 'invalid payload' })
+          return
+        }
+        const o = raw as Record<string, unknown>
+        const wrchatOrigin = typeof o.wrchat_origin === 'string' ? o.wrchat_origin.trim() : ''
+        if (wrchatOrigin) {
+          console.log(`[HTTP-LLM] ai-execution-context wrchat_origin=${wrchatOrigin}`)
+        }
+        const {
+          normalizeAiExecutionContextInput,
+          writeStoredAiExecutionContext,
+        } = await import('./main/llm/aiExecutionContextStore')
+        const { getSandboxOllamaDirectRouteCandidate } = await import('./main/internalInference/sandboxHostAiOllamaDirectCandidate')
+        type AiExecutionLane = import('./main/llm/aiExecutionTypes').AiExecutionLane
+        const normalized = normalizeAiExecutionContextInput({
+          lane: o.lane as AiExecutionLane,
+          model: typeof o.model === 'string' ? o.model : '',
+          baseUrl: typeof o.baseUrl === 'string' ? o.baseUrl : undefined,
+          handshakeId: typeof o.handshakeId === 'string' ? o.handshakeId : undefined,
+          peerDeviceId: typeof o.peerDeviceId === 'string' ? o.peerDeviceId : undefined,
+          beapReady: typeof o.beapReady === 'boolean' ? o.beapReady : undefined,
+          ollamaDirectReady: typeof o.ollamaDirectReady === 'boolean' ? o.ollamaDirectReady : undefined,
+          models: Array.isArray(o.models) ? o.models.map((x) => String(x)) : undefined,
+          selectionSource: o.selectionSource === 'auto' ? undefined : 'user',
+        })
+        if (!normalized) {
+          res.status(400).json({ ok: false, error: 'invalid execution context' })
+          return
+        }
+        let toStore = normalized
+        if (toStore.lane === 'ollama_direct' && toStore.handshakeId?.trim()) {
+          const cand = getSandboxOllamaDirectRouteCandidate(toStore.handshakeId.trim())
+          const base = typeof cand?.base_url === 'string' ? cand.base_url.trim().replace(/\/$/, '') : ''
+          const peer =
+            typeof cand?.peer_host_device_id === 'string' && cand.peer_host_device_id.trim()
+              ? cand.peer_host_device_id.trim()
+              : toStore.peerDeviceId?.trim()
+          if (base) {
+            toStore = { ...toStore, baseUrl: base, peerDeviceId: peer }
+          }
+        }
+        writeStoredAiExecutionContext(toStore)
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] ai-execution-context failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
     // GET /api/llm/first-available - Preferred chat model (persisted active or first installed)
     httpApp.get('/api/llm/first-available', async (_req, res) => {
       try {

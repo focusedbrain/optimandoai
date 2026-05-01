@@ -80,6 +80,13 @@ import {
   wrChatModelButtonShortLabel,
   type WrChatSelectorRow,
 } from './lib/wrChatModelsFromLlmStatus'
+import {
+  persistWrChatExtensionModelId,
+  loadPersistedWrChatExtensionModel,
+  subscribeWrChatExtensionModel,
+  clearPersistedWrChatExtensionModel,
+} from './lib/wrChatExtensionModelPersistence'
+import { runWrChatExtensionPreSend, wrChatExtensionDebugLog } from './lib/wrChatExtensionPreSend'
 import { getVaultStatus } from './vault/api'
 import type { ClientSendFailureDebug, OutboundRequestDebugSnapshot } from './handshake/handshakeRpc'
 import {
@@ -1210,16 +1217,27 @@ function SidepanelOrchestrator() {
       )
 
       const currentModel = activeLlmModelRef.current || activeLlmModel
-      const modelStillExists = models.some((m) => m.name === currentModel)
+      const modelStillExists = currentModel && models.some((m) => m.name === currentModel)
+      const persisted = loadPersistedWrChatExtensionModel()
+      if (persisted?.modelId && !models.some((m) => m.name === persisted.modelId)) {
+        if (persisted.selectionSource === 'user') {
+          clearPersistedWrChatExtensionModel()
+        }
+      }
+      const persistedOk =
+        persisted?.modelId && models.some((m) => m.name === persisted.modelId) ? persisted.modelId : null
 
-      if (!currentModel || !modelStillExists) {
+      if (persistedOk) {
+        if (currentModel !== persistedOk || !modelStillExists) {
+          setActiveLlmModel(persistedOk)
+          activeLlmModelRef.current = persistedOk
+        }
+      } else if (!modelStillExists) {
         const selectedModel = chooseDefaultWrChatModel(models)
         if (!selectedModel) return true
         setActiveLlmModel(selectedModel)
         activeLlmModelRef.current = selectedModel
-        try {
-          localStorage.setItem('optimando-wr-chat-active-model', selectedModel)
-        } catch {}
+        persistWrChatExtensionModelId(selectedModel, 'auto')
       }
       setLlmError(null)
       return true
@@ -1252,16 +1270,27 @@ function SidepanelOrchestrator() {
           setAvailableModels(rows)
 
           const currentModel = activeLlmModelRef.current || activeLlmModel
-          const modelExists = rows.some((m) => m.name === currentModel)
+          const modelExists = currentModel && rows.some((m) => m.name === currentModel)
+          const persisted = loadPersistedWrChatExtensionModel()
+          if (persisted?.modelId && !rows.some((m) => m.name === persisted.modelId)) {
+            if (persisted.selectionSource === 'user') {
+              clearPersistedWrChatExtensionModel()
+            }
+          }
+          const persistedOk =
+            persisted?.modelId && rows.some((m) => m.name === persisted.modelId) ? persisted.modelId : null
 
-          if (!currentModel || !modelExists) {
+          if (persistedOk) {
+            if (currentModel !== persistedOk || !modelExists) {
+              setActiveLlmModel(persistedOk)
+              activeLlmModelRef.current = persistedOk
+            }
+          } else if (!modelExists) {
             const selectedModel = chooseDefaultWrChatModel(rows)
             if (!selectedModel) return
             setActiveLlmModel(selectedModel)
             activeLlmModelRef.current = selectedModel
-            try {
-              localStorage.setItem('optimando-wr-chat-active-model', selectedModel)
-            } catch {}
+            persistWrChatExtensionModelId(selectedModel, 'auto')
           }
           setLlmError(null)
           return
@@ -1281,6 +1310,15 @@ function SidepanelOrchestrator() {
     
     fetchFirstAvailableModel()
   }, [llmRefreshTrigger])
+
+  useEffect(() => {
+    return subscribeWrChatExtensionModel(() => {
+      const persisted = loadPersistedWrChatExtensionModel()
+      if (!persisted?.modelId) return
+      activeLlmModelRef.current = persisted.modelId
+      setActiveLlmModel(persisted.modelId)
+    })
+  }, [])
   
   // Periodic fallback check for newly installed models.
   // Model-install events are already handled by the chrome.storage listener below;
@@ -3119,6 +3157,13 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         if (isPlausibleVisionBase64(b64)) safeVisionB64 = b64
       }
 
+      wrChatExtensionDebugLog('before_api_llm_chat', {
+        origin: 'sidebar_wrchat',
+        modelId: (llmBody as { modelId?: string }).modelId ?? null,
+        hasProviderKey: !!(llmBody as { provider?: string }).provider,
+        statusPath: 'agent',
+      })
+
       const response: Response = await fetch(`${baseUrl}/api/llm/chat`, {
         method: 'POST',
         headers: electronFetchHeaders(),
@@ -3180,6 +3225,13 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         const b64 = resolvedVision ? toBase64ForOllama(resolvedVision) : null
         if (isPlausibleVisionBase64(b64)) safeVisionB64 = b64
       }
+
+      wrChatExtensionDebugLog('before_api_llm_chat', {
+        origin: 'sidebar_wrchat',
+        modelId: model,
+        hasProviderKey: false,
+        statusPath: 'butler',
+      })
 
       const response: Response = await fetch(`${baseUrl}/api/llm/chat`, {
         method: 'POST',
@@ -3277,6 +3329,13 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
     
     try {
       const baseUrl = 'http://127.0.0.1:51248'
+
+      await runWrChatExtensionPreSend({
+        origin: 'sidebar_wrchat',
+        activeLlmModelUi: activeLlmModelRef.current || activeLlmModel,
+        resolvedModelId: currentModel,
+        availableModels,
+      })
       
       // Get current URL for website filtering
       let currentUrl = ''
@@ -3378,6 +3437,13 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
           // Ensure launch secret is fresh before the LLM call (handles SW sleep/wake)
           await ensureLaunchSecret()
 
+          wrChatExtensionDebugLog('before_api_llm_chat', {
+            origin: 'sidebar_wrchat',
+            modelId: (triggerLlmBody as { modelId?: string }).modelId ?? null,
+            hasProviderKey: !!(triggerLlmBody as { provider?: string }).provider,
+            statusPath: 'trigger_agent',
+          })
+
           const agentResponse: Response = await fetch(`${baseUrl}/api/llm/chat`, {
             method: 'POST',
             headers: electronFetchHeaders(),
@@ -3426,6 +3492,13 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
           connectionStatus.isConnected
         )
         
+        wrChatExtensionDebugLog('before_api_llm_chat', {
+          origin: 'sidebar_wrchat',
+          modelId: currentModel,
+          hasProviderKey: false,
+          statusPath: 'trigger_butler',
+        })
+
         const response: Response = await fetch(`${baseUrl}/api/llm/chat`, {
           method: 'POST',
           headers: electronFetchHeaders(),
@@ -3759,6 +3832,13 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
     try {
       const baseUrl = 'http://127.0.0.1:51248'
       const sessionKeyForRoute = getActiveCustomModeRuntime()?.sessionId?.trim() || sessionKey
+
+      await runWrChatExtensionPreSend({
+        origin: 'sidebar_wrchat',
+        activeLlmModelUi: activeLlmModelRef.current || activeLlmModel,
+        resolvedModelId: effectiveLlmModel,
+        availableModels,
+      })
 
       const appendOptSidebarIfOpt = (role: 'user' | 'assistant', line: string) => {
         const cf = useChatFocusStore.getState()
@@ -4109,7 +4189,20 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
     e.stopPropagation()
     setActiveLlmModel(modelName)
     activeLlmModelRef.current = modelName
-    try { localStorage.setItem('optimando-wr-chat-active-model', modelName) } catch {}
+    persistWrChatExtensionModelId(modelName, 'user')
+    wrChatExtensionDebugLog('model_select_changed', {
+      origin: 'sidebar_wrchat',
+      selectedModelUi: modelName,
+      persistedModelId: modelName,
+      selectionSource: 'user',
+    })
+    void runWrChatExtensionPreSend({
+      origin: 'sidebar_wrchat',
+      activeLlmModelUi: modelName,
+      resolvedModelId: modelName,
+      availableModels,
+      selectionSource: 'user',
+    })
     setShowModelDropdown(false)
   }
 

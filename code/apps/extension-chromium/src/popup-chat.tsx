@@ -49,6 +49,13 @@ import {
   chooseDefaultWrChatModel,
   type WrChatSelectorRow,
 } from './lib/wrChatModelsFromLlmStatus'
+import {
+  persistWrChatExtensionModelId,
+  loadPersistedWrChatExtensionModel,
+  subscribeWrChatExtensionModel,
+  clearPersistedWrChatExtensionModel,
+} from './lib/wrChatExtensionModelPersistence'
+import { runWrChatExtensionPreSend, wrChatExtensionDebugLog } from './lib/wrChatExtensionPreSend'
 import { getVaultStatus } from './vault/api'
 import type { ClientSendFailureDebug, OutboundRequestDebugSnapshot } from './handshake/handshakeRpc'
 import {
@@ -397,6 +404,25 @@ function PopupChatApp() {
   const [availableModels, setAvailableModels] = useState<WrChatSelectorRow[]>([])
   const [activeLlmModel, setActiveLlmModel] = useState<string>('')
   const activeLlmModelRef = useRef<string>('')
+
+  const onWrChatModelSelectPopup = useCallback((name: string) => {
+    setActiveLlmModel(name)
+    activeLlmModelRef.current = name
+    persistWrChatExtensionModelId(name, 'user')
+    wrChatExtensionDebugLog('model_select_changed', {
+      origin: 'popup_wrchat',
+      selectedModelUi: name,
+      persistedModelId: name,
+      selectionSource: 'user',
+    })
+    void runWrChatExtensionPreSend({
+      origin: 'popup_wrchat',
+      activeLlmModelUi: name,
+      resolvedModelId: name,
+      availableModels,
+      selectionSource: 'user',
+    })
+  }, [availableModels])
   
   // Handle launchMode and deep-link query parameters (R.8)
   useEffect(() => {
@@ -487,12 +513,27 @@ function PopupChatApp() {
         if (models.length > 0) {
           setAvailableModels(models)
           const currentModel = activeLlmModelRef.current || activeLlmModel
-          const modelStillExists = models.some((m) => m.name === currentModel)
-          if (!currentModel || !modelStillExists) {
+          const modelStillExists = currentModel && models.some((m) => m.name === currentModel)
+          const persisted = loadPersistedWrChatExtensionModel()
+          if (persisted?.modelId && !models.some((m) => m.name === persisted.modelId)) {
+            if (persisted.selectionSource === 'user') {
+              clearPersistedWrChatExtensionModel()
+            }
+          }
+          const persistedOk =
+            persisted?.modelId && models.some((m) => m.name === persisted.modelId) ? persisted.modelId : null
+
+          if (persistedOk) {
+            if (currentModel !== persistedOk || !modelStillExists) {
+              setActiveLlmModel(persistedOk)
+              activeLlmModelRef.current = persistedOk
+            }
+          } else if (!modelStillExists) {
             const selectedModel = chooseDefaultWrChatModel(models)
             if (!selectedModel) return true
             setActiveLlmModel(selectedModel)
             activeLlmModelRef.current = selectedModel
+            persistWrChatExtensionModelId(selectedModel, 'auto')
           }
           return true
         }
@@ -514,6 +555,15 @@ function PopupChatApp() {
     }
     load()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps -- run once on mount
+
+  useEffect(() => {
+    return subscribeWrChatExtensionModel(() => {
+      const persisted = loadPersistedWrChatExtensionModel()
+      if (!persisted?.modelId) return
+      activeLlmModelRef.current = persisted.modelId
+      setActiveLlmModel(persisted.modelId)
+    })
+  }, [])
 
   // Load available sessions for Draft Email session selector
   // Sessions are stored in chrome.storage.local (same as Sessions History modal)
@@ -1933,7 +1983,7 @@ function PopupChatApp() {
             theme={theme}
             availableModels={availableModels}
             activeLlmModel={activeLlmModel}
-            onModelSelect={(name) => { setActiveLlmModel(name); activeLlmModelRef.current = name }}
+            onModelSelect={onWrChatModelSelectPopup}
             onRefreshModels={async (_reason?: string) => { await refreshPopupModels() }}
             sessionName="Popup Session"
           />
@@ -1988,7 +2038,7 @@ function PopupChatApp() {
             theme={theme}
             availableModels={availableModels}
             activeLlmModel={activeLlmModel}
-            onModelSelect={(name) => { setActiveLlmModel(name); activeLlmModelRef.current = name }}
+            onModelSelect={onWrChatModelSelectPopup}
             onRefreshModels={async (_reason?: string) => { await refreshPopupModels() }}
             sessionName="Popup Session"
           />

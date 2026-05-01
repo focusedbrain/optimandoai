@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { PopupChatView } from '@ext/ui/components'
+import { PopupChatView, type DashboardWrChatBeforeLlmSendInfo } from '@ext/ui/components'
+import { useChatFocusStore } from '@ext/stores/chatFocusStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import { ensureOrchestratorSessionForDashboard } from '../lib/wrChatDashboardBootstrap'
-import { wrChatDashboardWarn } from '../lib/wrChatDashboardLog'
+import { wrChatDashboardDebug, wrChatDashboardWarn } from '../lib/wrChatDashboardLog'
+import { peekDashboardWrChatSpeechOpenMeta } from '../lib/wrChatDashboardSpeechContext'
 import { setWrChatRuntimeSurface } from '../lib/wrChatRuntimeMode'
 import { ensureWrdeskChromeShim } from '../shims/wrChatDashboardChrome'
 import { isHostInferenceModelId } from '../lib/hostInferenceModelIds'
@@ -381,11 +383,15 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
     const names = mergedWithHostUi.map((m) => m.name)
     const stored = readWrChatInferenceSelection()
     if (stored) {
-      const v = validateStoredSelectionForWrChat(
-        stored,
-        names,
-        mergedWithHostUi.filter((m) => m.hostAi),
-      )
+      const hostRowsForValidate = mergedWithHostUi
+        .filter((m) => m.hostAi)
+        .map((m) => ({
+          name: m.name,
+          hostAi: true as const,
+          hostAvailable: m.hostAvailable === true,
+          hostTargetChecking: m.hostTargetChecking === true,
+        }))
+      const v = validateStoredSelectionForWrChat(stored, names, hostRowsForValidate)
       if (v.error) {
         setInferenceSelectionPersistError(
           v.error === 'host_unavailable'
@@ -416,6 +422,17 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
       preferredSource = 'host_default'
     }
     setActiveLlmModel(preferred)
+    const speechMeta = peekDashboardWrChatSpeechOpenMeta()
+    wrChatDashboardDebug('dashboard_wrchat.model_list_refresh', {
+      origin: 'dashboard_wrchat',
+      activation: speechMeta?.activation ?? null,
+      dashboardModeKey: speechMeta?.dashboardModeKey ?? null,
+      refreshReason: reason ?? null,
+      preferredSource,
+      resolvedModelName: preferred ?? null,
+      persistedWrChatModelId: stored?.id ?? null,
+      fallbackUsed: preferredSource !== 'stored' && Boolean(stored),
+    })
     if (
       preferred &&
       !isHostInferenceModelId(preferred) &&
@@ -427,6 +444,17 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
     if (preferred && typeof window.llm?.setAiExecutionContext === 'function') {
       const payload = buildAiExecutionContextIpcPayload(preferred, discovered.gavForHook)
       if (payload) {
+        const focusMode = useChatFocusStore.getState().chatFocusMode
+        wrChatDashboardDebug('dashboard_wrchat.setAiExecutionContext', {
+          origin: 'dashboard_wrchat',
+          activation: speechMeta?.activation ?? null,
+          dashboardModeKey: speechMeta?.dashboardModeKey ?? null,
+          mode: focusMode.mode,
+          lane: payload.lane,
+          model: payload.model,
+          selectionSource: preferredSource === 'stored' ? 'user' : 'auto',
+          handshakeId: payload.handshakeId ?? null,
+        })
         void window.llm.setAiExecutionContext({
           ...payload,
           selectionSource: preferredSource === 'stored' ? 'user' : 'auto',
@@ -606,7 +634,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
       persistWrChatModelId(next, wrChatModelsForPersist(availableModels))
       const payload = buildAiExecutionContextIpcPayload(next, gavHostTargets)
       if (payload && typeof window.llm?.setAiExecutionContext === 'function') {
-        void window.llm.setAiExecutionContext(payload)
+        void window.llm.setAiExecutionContext({ ...payload, selectionSource: 'user' })
       }
       if (!isHostInferenceModelId(next) && typeof window.llm?.setActiveModel === 'function') {
         void window.llm.setActiveModel(next)
@@ -618,14 +646,80 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
     setHostAiStale(false)
   }, [availableModels, gavHostTargets])
 
+  const onDashboardBeforeLlmSend = useCallback(
+    async ({ resolvedModelId, activeLlmModelUi, inferencePath }: DashboardWrChatBeforeLlmSendInfo) => {
+      const speech = peekDashboardWrChatSpeechOpenMeta()
+      const focusMode = useChatFocusStore.getState().chatFocusMode
+      const persisted = readWrChatInferenceSelection()
+      const selectionSource: 'user' | 'auto' = persisted ? 'user' : 'auto'
+      const payload = buildAiExecutionContextIpcPayload(resolvedModelId, gavHostTargets)
+      const row = availableModels.find((m) => m.name === resolvedModelId)
+      wrChatDashboardDebug('dashboard_wrchat.send_creation', {
+        origin: 'dashboard_wrchat',
+        activation: speech?.activation ?? null,
+        dashboardModeKey: speech?.dashboardModeKey ?? null,
+        chatFocusMode: focusMode.mode,
+        selectedModelUi: activeLlmModelUi ?? null,
+        resolvedModelName: payload?.model ?? resolvedModelId,
+        modelIdSent: resolvedModelId,
+        selectionSource,
+        inferencePath,
+        execution_transport: row?.execution_transport ?? null,
+        fallbackUsed: selectionSource === 'auto',
+      })
+      wrChatDashboardDebug('dashboard_wrchat.setAiExecutionContext', {
+        origin: 'dashboard_wrchat',
+        activation: speech?.activation ?? null,
+        dashboardModeKey: speech?.dashboardModeKey ?? null,
+        mode: focusMode.mode,
+        lane: payload?.lane ?? null,
+        model: payload?.model ?? resolvedModelId,
+        selectionSource,
+        handshakeId: payload?.handshakeId ?? null,
+      })
+      if (payload && typeof window.llm?.setAiExecutionContext === 'function') {
+        void window.llm.setAiExecutionContext({
+          ...payload,
+          selectionSource: selectionSource === 'user' ? 'user' : 'auto',
+        })
+      } else {
+        wrChatDashboardWarn('setAiExecutionContext unavailable or invalid payload before WR Chat send')
+      }
+    },
+    [availableModels, gavHostTargets],
+  )
+
   const onModelSelect = useCallback(
     (name: string) => {
       setActiveLlmModel(name)
       setInferenceSelectionPersistError(null)
       persistWrChatModelId(name, wrChatModelsForPersist(availableModels))
       const payload = buildAiExecutionContextIpcPayload(name, gavHostTargets)
+      const speech = peekDashboardWrChatSpeechOpenMeta()
+      const focusMode = useChatFocusStore.getState().chatFocusMode
+      wrChatDashboardDebug('dashboard_wrchat.model_selector_change', {
+        origin: 'dashboard_wrchat',
+        activation: speech?.activation ?? null,
+        dashboardModeKey: speech?.dashboardModeKey ?? null,
+        chatFocusMode: focusMode.mode,
+        selectedModelUi: name,
+        selectionSource: 'user',
+      })
       if (payload && typeof window.llm?.setAiExecutionContext === 'function') {
-        void window.llm.setAiExecutionContext(payload)
+        wrChatDashboardDebug('dashboard_wrchat.setAiExecutionContext', {
+          origin: 'dashboard_wrchat',
+          activation: speech?.activation ?? null,
+          dashboardModeKey: speech?.dashboardModeKey ?? null,
+          mode: focusMode.mode,
+          lane: payload.lane,
+          model: payload.model,
+          selectionSource: 'user',
+          handshakeId: payload.handshakeId ?? null,
+        })
+        void window.llm.setAiExecutionContext({
+          ...payload,
+          selectionSource: 'user',
+        })
       }
       if (isHostInferenceModelId(name)) {
         return
@@ -662,6 +756,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
               reason === 'manual_refresh' && includeHostInternalDiscovery ? { force: true } : undefined,
             )
           }}
+          onDashboardBeforeLlmSend={onDashboardBeforeLlmSend}
           showModelListRefreshButton={showModelListRefreshButton}
           sessionName="Dashboard"
           wrChatEmbedContext="dashboard"

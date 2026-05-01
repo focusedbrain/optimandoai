@@ -22,6 +22,13 @@ import {
   WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS,
   WRDESK_OPTIMIZATION_GUARD_TOAST,
 } from './lib/wrdeskUiEvents'
+import { readWrChatInferenceSelection } from './lib/inferenceSelectionPersistence'
+import { wrChatDashboardDebug } from './lib/wrChatDashboardLog'
+import {
+  dashboardModeKeyFromTriggerFunctionId,
+  recordDashboardWrChatSpeechIconOpen,
+  clearDashboardWrChatSpeechOpenMeta,
+} from './lib/wrChatDashboardSpeechContext'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 import './components/handshakeViewTypes'
 import { HandshakeHealthOrchestratorBanner } from './components/HandshakeHealthOrchestratorBanner'
@@ -354,9 +361,21 @@ function App() {
 
   /** WR Chat tab + deferred focus so intro runs after the chat view mounts. */
   const ensureWrChatOpenThen = useCallback((applyFocus: () => void) => {
+    const dashboardMode = dashboardModeKeyFromTriggerFunctionId(activeTriggerFunctionId)
+    recordDashboardWrChatSpeechIconOpen(dashboardMode)
+    const persisted = readWrChatInferenceSelection()
+    wrChatDashboardDebug('dashboard_wrchat.speech_icon', {
+      origin: 'dashboard_wrchat',
+      activation: 'speech_icon',
+      dashboardMode,
+      persistedWrChatModelId: persisted?.id ?? null,
+      persistedKind: persisted?.kind ?? null,
+      selectedModelUi: null,
+      resolvedModelName: null,
+    })
     setActiveView('wr-chat')
     window.setTimeout(applyFocus, 0)
-  }, [])
+  }, [activeTriggerFunctionId])
 
   /** Open the main dashboard view (logo home, deep links, composer shortcuts). */
   const goToDashboard = useCallback(() => {
@@ -443,6 +462,7 @@ function App() {
                   return
                 }
                 if (composerId === 'smartSummary') {
+                  clearDashboardWrChatSpeechOpenMeta()
                   setActiveView('wr-chat')
                   return
                 }
@@ -550,7 +570,10 @@ function App() {
             projectAssistantCreateToken={projectAssistantCreateToken}
             dashboardComposeMode={dashboardComposeMode}
             onDashboardComposeModeChange={setDashboardComposeMode}
-            onNavigateToWrChat={() => setActiveView('wr-chat')}
+            onNavigateToWrChat={() => {
+              clearDashboardWrChatSpeechOpenMeta()
+              setActiveView('wr-chat')
+            }}
             onOpenBulkInboxForAnalysis={() => {
               setActiveView('beap-inbox')
               setInboxBulkMode(true)
