@@ -120,3 +120,76 @@ export function classifyInboxRowForAi(row: InboxMessageAiClassificationRow): { i
   }
   return { isNativeBeap: rawIsNativeBeap }
 }
+
+/** Outbound reply/send transport: SMTP/email vs native BEAP / capsule / clipboard compose. */
+export type InboxReplyTransport = 'email' | 'native_beap'
+
+export type InboxReplyTransportRouterReason =
+  | 'source_email_plain_or_depackaged_storage'
+  | 'sandbox_p2p_clone_of_plain_email'
+  | 'default_native_beap'
+
+export type InboxReplyTransportResolutionMeta = {
+  transport: InboxReplyTransport
+  routerReason: InboxReplyTransportRouterReason
+}
+
+/**
+ * Same semantic gate as AI/kind classification: plain-email origin always uses email transport,
+ * including sandbox P2P rows stored as `direct_beap` with clone provenance of `email_plain`.
+ *
+ * `depackaged` is treated like `email_plain` for transport (legacy storage label).
+ */
+export function resolveInboxReplyTransportMeta(row: InboxMessageAiClassificationRow): InboxReplyTransportResolutionMeta {
+  const st = String(row.source_type ?? '')
+  if (st === 'email_plain' || st === 'depackaged') {
+    return { transport: 'email', routerReason: 'source_email_plain_or_depackaged_storage' }
+  }
+  if (inboxRowIsClonedPlainEmail(row)) {
+    return { transport: 'email', routerReason: 'sandbox_p2p_clone_of_plain_email' }
+  }
+  return { transport: 'native_beap', routerReason: 'default_native_beap' }
+}
+
+export function resolveInboxReplyTransport(row: InboxMessageAiClassificationRow): InboxReplyTransport {
+  return resolveInboxReplyTransportMeta(row).transport
+}
+
+export type LogInboxReplyTransportInput = {
+  messageId: string
+  phase: 'reply' | 'send_draft'
+  /** Set when known (e.g. after listing accounts). Omit / null when not applicable or unknown. */
+  accountId?: string | null
+  /** True only if code incorrectly fell back to BEAP after choosing email (should stay false). */
+  fallbackUsed?: boolean
+  derivedMessageKind?: 'handshake' | 'depackaged' | null
+  hasFromAddress: boolean
+}
+
+/**
+ * Structured observability for reply/send routing. Avoids logging full addresses, bodies, or payloads.
+ */
+export function logInboxReplyTransportResolution(
+  row: InboxMessageAiClassificationRow,
+  input: LogInboxReplyTransportInput,
+): void {
+  const { transport, routerReason } = resolveInboxReplyTransportMeta(row)
+  const clonedPlain = inboxRowIsClonedPlainEmail(row)
+  const st = String(row.source_type ?? '')
+  const payload = {
+    scope: 'inbox_reply_transport',
+    messageId: input.messageId,
+    phase: input.phase,
+    source_type: st,
+    resolvedReplyTransport: transport,
+    routerReason,
+    inboxRowIsClonedPlainEmail: clonedPlain,
+    derivedMessageKind: input.derivedMessageKind ?? null,
+    hasFromAddress: input.hasFromAddress,
+    hasRecipient: input.hasFromAddress,
+    accountId: input.accountId ?? null,
+    fallbackUsed: input.fallbackUsed ?? false,
+  }
+  // eslint-disable-next-line no-console
+  console.info(`[INBOX_REPLY_TRANSPORT] ${JSON.stringify(payload)}`)
+}

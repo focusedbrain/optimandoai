@@ -61,6 +61,10 @@ import {
 import { tryParsePartialAnalysis, tryParseAnalysis, tryParseAnalysisWithMeta, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
 import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
+import {
+  logInboxReplyTransportResolution,
+  resolveInboxReplyTransport,
+} from '../lib/inboxAiCloneClassification'
 import { autosortDiagLog, DEBUG_AUTOSORT_DIAGNOSTICS } from '../lib/autosortDiagnostics'
 import {
   inboxAiAnalyzeStreamErrorDisplay,
@@ -1408,7 +1412,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     })
   }, [])
 
-  const isDepackaged = message?.source_type === 'email_plain'
+  const usesEmailReplyTransport = message ? resolveInboxReplyTransport(message) === 'email' : false
 
   const inboxAiWorkInFlight = analysisLoading || draftLoading
   /** Combined / single-flight labels shown in `inbox-detail-ai-loading`. */
@@ -2159,7 +2163,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                     )}
                     <div className="bulk-draft-actions-toolbar-wrap inbox-detail-ai-draft-actions">
                       <div className="bulk-draft-actions-toolbar">
-                        {isDepackaged && (
+                        {usesEmailReplyTransport && (
                           <button
                             type="button"
                             className="bulk-action-card-btn bulk-action-card-btn--secondary"
@@ -2176,7 +2180,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                             onClick={handleSend}
                             disabled={sending || !(editedDraft || draft)?.trim()}
                           >
-                            {sending ? 'Sending...' : isDepackaged ? 'Send via Email' : 'Send via BEAP'}
+                            {sending ? 'Sending...' : usesEmailReplyTransport ? 'Send via Email' : 'Send via BEAP'}
                           </button>
                         )}
                         {onArchive && messageId ? (
@@ -2604,6 +2608,7 @@ export default function EmailInboxView({
     body: string
     handshakeId?: string
   } | null>(null)
+  const [sendEmailToast, setSendEmailToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   const [sandboxCloneForMessage, setSandboxCloneForMessage] = useState<InboxMessage | null>(null)
   const [sandboxClonePickerContext, setSandboxClonePickerContext] = useState<{
@@ -3309,8 +3314,20 @@ export default function EmailInboxView({
   )
 
   const handleReply = useCallback((msg: InboxMessage) => {
-    const src = msg.source_type as string
-    if (src === 'email_plain' || src === 'depackaged') {
+    const derivedKind = deriveInboxMessageKind(msg)
+    const replyTransport = resolveInboxReplyTransport(msg)
+    const hasFrom = !!msg.from_address?.trim()
+    logInboxReplyTransportResolution(msg, {
+      messageId: msg.id,
+      phase: 'reply',
+      derivedMessageKind: derivedKind,
+      hasFromAddress: hasFrom,
+    })
+    if (replyTransport === 'email') {
+      if (!hasFrom) {
+        setSendEmailToast({ type: 'error', message: 'No sender address for reply' })
+        return
+      }
       setComposeMode('email')
       setComposeReplyTo({
         to: msg.from_address || '',
@@ -3319,22 +3336,35 @@ export default function EmailInboxView({
       })
       return
     }
-    if (src === 'direct_beap' || src === 'email_beap') {
-      setAiPanelCollapsed(false)
-      useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
-    }
+    setAiPanelCollapsed(false)
+    useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
   }, [])
-
-  const [sendEmailToast, setSendEmailToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   const handleSendDraft = useCallback(
     async (draft: string, msg: InboxMessage, attachments?: DraftAttachment[]): Promise<boolean> => {
-      const isDepackaged = msg.source_type === 'email_plain'
-      if (!isDepackaged) {
+      const derivedKind = deriveInboxMessageKind(msg)
+      const replyTransport = resolveInboxReplyTransport(msg)
+      const hasFrom = !!msg.from_address?.trim()
+
+      if (replyTransport === 'native_beap') {
+        logInboxReplyTransportResolution(msg, {
+          messageId: msg.id,
+          phase: 'send_draft',
+          derivedMessageKind: derivedKind,
+          hasFromAddress: hasFrom,
+        })
         navigator.clipboard?.writeText(draft).catch(() => {})
         setComposeMode('beap')
         return false
       }
+
+      logInboxReplyTransportResolution(msg, {
+        messageId: msg.id,
+        phase: 'send_draft',
+        derivedMessageKind: derivedKind,
+        hasFromAddress: hasFrom,
+      })
+
       const to = msg.from_address?.trim()
       if (!to) {
         setSendEmailToast({ type: 'error', message: 'No sender address' })
@@ -3350,6 +3380,13 @@ export default function EmailInboxView({
         return false
       }
       const accountId = accountsRes.data[0].id
+      logInboxReplyTransportResolution(msg, {
+        messageId: msg.id,
+        phase: 'send_draft',
+        derivedMessageKind: derivedKind,
+        hasFromAddress: true,
+        accountId,
+      })
       const subject = msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject || '(No subject)'}`
       const fullBody = (draft || '').trim() + '\n\n—\nAutomate your inbox. Try wrdesk.com\nhttps://wrdesk.com'
       const emailAttachments: { filename: string; mimeType: string; contentBase64: string }[] = []

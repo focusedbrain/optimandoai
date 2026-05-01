@@ -46,6 +46,8 @@ import { tryParseAnalysis, tryParsePartialAnalysis } from '../utils/parseInboxAi
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import { reconcileInboxClassification } from '../lib/inboxClassificationReconcile'
+import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
+import { logInboxReplyTransportResolution, resolveInboxReplyTransport } from '../lib/inboxAiCloneClassification'
 import { BulkInboxAttachmentsStrip } from './BulkInboxAttachmentsStrip'
 import { AutoSortSessionReview } from './AutoSortSessionReview'
 import { AutoSortSessionHistory } from './AutoSortSessionHistory'
@@ -1374,7 +1376,7 @@ function BulkActionCardStructured({
                 Undo
               </button>
             ) : null}
-            {msg.source_type === 'email_plain' && onAddDraftAttachment ? (
+            {resolveInboxReplyTransport(msg) === 'email' && onAddDraftAttachment ? (
               <button
                 type="button"
                 className="bulk-action-card-btn bulk-action-card-btn--secondary"
@@ -1392,7 +1394,7 @@ function BulkActionCardStructured({
               className={`bulk-action-card-btn bulk-action-card-btn--primary${rec === 'draft_reply_ready' ? ' bulk-action-card-btn--primary-emphasis' : ''}`}
               onClick={() => handleSendDraft(msg, output.draftReply ?? '', draftAttachments.length > 0 ? draftAttachments : undefined)}
             >
-              {msg.source_type === 'email_plain' ? 'Send via Email' : 'Send via Handshake'}
+              {resolveInboxReplyTransport(msg) === 'email' ? 'Send via Email' : 'Send via Handshake'}
             </button>
             {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply ? (
               <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleArchiveOne(msg)}>
@@ -1452,7 +1454,7 @@ function BulkActionCardStructured({
               className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
               onClick={() => handleSendDraft(msg, output.draftReply!)}
             >
-              ✉ Send via Email
+              {resolveInboxReplyTransport(msg) === 'email' ? '✉ Send via Email' : '✉ Send via Handshake'}
             </button>
           )}
           {!streamClassifying && (rec === 'archive' || rec === 'keep_for_manual_action') && (
@@ -2048,6 +2050,7 @@ export default function EmailInboxBulkView({
     body: string
     handshakeId?: string
   } | null>(null)
+  const [sendEmailToast, setSendEmailToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [draftAttachmentsByMessage, setDraftAttachmentsByMessage] = useState<Record<string, Array<{ name: string; path: string; size: number }>>>({})
   const composeClickRef = useRef<number>(0)
 
@@ -4349,28 +4352,57 @@ export default function EmailInboxBulkView({
   }, [onSelectMessage, selectMessage])
 
   const handleReply = useCallback((msg: InboxMessage) => {
-    const src = msg.source_type as string
-    if (src === 'email_plain' || src === 'depackaged') {
+    const derivedKind = deriveInboxMessageKind(msg)
+    const replyTransport = resolveInboxReplyTransport(msg)
+    const hasFrom = !!msg.from_address?.trim()
+    logInboxReplyTransportResolution(msg, {
+      messageId: msg.id,
+      phase: 'reply',
+      derivedMessageKind: derivedKind,
+      hasFromAddress: hasFrom,
+    })
+    if (replyTransport === 'email') {
+      if (!hasFrom) {
+        setSendEmailToast({ type: 'error', message: 'No sender address for reply' })
+        return
+      }
       setComposeMode('email')
       setComposeReplyTo({
         to: msg.from_address || '',
         subject: 'Re: ' + (msg.subject || ''),
         body: '',
       })
+      return
     }
+    useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
   }, [])
-
-  const [sendEmailToast, setSendEmailToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   /** Send draft directly (no modal). */
   const handleSendDraft = useCallback(
     async (msg: InboxMessage, draftBody: string, attachments?: Array<{ name: string; path: string; size: number }>) => {
-      const isDepackaged = msg.source_type === 'email_plain'
-      if (!isDepackaged) {
+      const derivedKind = deriveInboxMessageKind(msg)
+      const replyTransport = resolveInboxReplyTransport(msg)
+      const hasFrom = !!msg.from_address?.trim()
+
+      if (replyTransport === 'native_beap') {
+        logInboxReplyTransportResolution(msg, {
+          messageId: msg.id,
+          phase: 'send_draft',
+          derivedMessageKind: derivedKind,
+          hasFromAddress: hasFrom,
+        })
         if (draftBody?.trim()) navigator.clipboard?.writeText(draftBody).catch(() => {})
         setComposeMode('beap')
         return
       }
+
+      logInboxReplyTransportResolution(msg, {
+        messageId: msg.id,
+        phase: 'send_draft',
+        derivedMessageKind: derivedKind,
+        hasFromAddress: hasFrom,
+      })
+
       const to = msg.from_address?.trim()
       if (!to) {
         setSendEmailToast({ type: 'error', message: 'No sender address' })
@@ -4386,6 +4418,13 @@ export default function EmailInboxBulkView({
         return
       }
       const accountId = accountsRes.data[0].id
+      logInboxReplyTransportResolution(msg, {
+        messageId: msg.id,
+        phase: 'send_draft',
+        derivedMessageKind: derivedKind,
+        hasFromAddress: true,
+        accountId,
+      })
       const subject = msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject || '(No subject)'}`
       const fullBody = (draftBody || '').trim() + '\n\n—\nAutomate your inbox. Try wrdesk.com\nhttps://wrdesk.com'
       const emailAttachments: { filename: string; mimeType: string; contentBase64: string }[] = []
