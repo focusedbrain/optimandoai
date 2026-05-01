@@ -1,16 +1,17 @@
 /**
  * Inbox Type filter: message origin only (not status, not Handshakes tab).
- * Independent of raw `source_type` for display — renderer + main stay aligned on filter SQL.
+ * Aligned with main-process AI routes via {@link classifyInboxRowForAi} (sandbox clone-of-plain override).
  *
- * “Received BEAP” (clone / Redirect / Sandbox product rules) is *not* this dimension.
  * The store uses `source_type` ∈ {`direct_beap`, `email_beap`, `email_plain`} — BEAP payloads can also
  * live on `email_plain` with `beap_package_json` / depackaged JSON (see `inboxBeapRowEligibility`).
  * Depackaging state (e.g. `beap_qbeap_decrypted` in `depackaged_json`) is orthogonal to this filter.
  *
- * Rules (this file only):
- * - `handshake` (UI: Native BEAP): non-empty `handshake_id` OR `source_type === 'direct_beap'`
- * - `depackaged` (UI: Depackaged Email): everything else
+ * Rules:
+ * - `handshake` (UI: Native BEAP): same boolean as IPC “native BEAP” for analyze/draft after clone override.
+ * - `depackaged`: everything else (including P2P `direct_beap` rows that are clones of plain email).
  */
+
+import { classifyInboxRowForAi, type InboxMessageAiClassificationRow } from './inboxAiCloneClassification'
 
 /** Filter dimension: All, or one origin slice. Internal values stable for IPC. */
 export type InboxMessageKindFilter = 'all' | 'handshake' | 'depackaged'
@@ -28,13 +29,15 @@ export type InboxMessageKindDerived = 'handshake' | 'depackaged'
 export type InboxMessageKindFields = {
   handshake_id: string | null
   source_type: string
+  depackaged_json?: string | null
+  beap_package_json?: string | null
+  body_text?: string | null
+  body_html?: string | null
+  original_source_type?: string | null
 }
 
 export function deriveInboxMessageKind(m: InboxMessageKindFields): InboxMessageKindDerived {
-  if (m.source_type === 'direct_beap') return 'handshake'
-  const h = m.handshake_id
-  if (h != null && String(h).trim() !== '') return 'handshake'
-  return 'depackaged'
+  return classifyInboxRowForAi(m as InboxMessageAiClassificationRow).isNativeBeap ? 'handshake' : 'depackaged'
 }
 
 export function messageMatchesKindFilter(m: InboxMessageKindFields, kind: InboxMessageKindFilter): boolean {
