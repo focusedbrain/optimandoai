@@ -143,10 +143,28 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
       userPromptLen: userPrompt.length,
       expectedSchemaKeys: opts.expectedSchemaKeys ?? [],
     })
+    const bodyRaw = JSON.stringify(body)
+    const __auditBodyParsed = (() => {
+      try {
+        return JSON.parse(bodyRaw) as unknown
+      } catch {
+        return null
+      }
+    })()
+    console.log(
+      `[INBOX_AUDIT_REQ_BODY] ${JSON.stringify({
+        surface: 'inbox_ai_analyze_stream',
+        url,
+        method: 'POST',
+        body_full: __auditBodyParsed,
+        body_raw: bodyRaw,
+        body_length: bodyRaw.length,
+      })}`,
+    )
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: bodyRaw,
       signal: fetchSignal,
     })
     logStreamEvent('INBOX_OLLAMA_STREAM_RESPONSE', {
