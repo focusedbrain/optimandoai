@@ -60,11 +60,10 @@ import {
 } from '../lib/beapInboxHostSandboxClickPolicy'
 import { tryParsePartialAnalysis, tryParseAnalysis, tryParseAnalysisWithMeta, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
 import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
-import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import {
   INBOX_EMAIL_REPLY_METADATA_MISSING,
   logInboxReplyTransportDecision,
-  resolveInboxReplyTransport,
+  resolveInboxReplyMode,
 } from '../lib/inboxAiCloneClassification'
 import { autosortDiagLog, DEBUG_AUTOSORT_DIAGNOSTICS } from '../lib/autosortDiagnostics'
 import {
@@ -378,8 +377,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     messageRef.current = message
   }, [message])
 
-  const messageKind = message ? deriveInboxMessageKind(message) : null
-  const isNativeBeap = messageKind === 'handshake'
+  const replyMode = message ? resolveInboxReplyMode(message) : 'email'
+  const isNativeBeap = replyMode === 'native_beap'
   const isSortingActive = useEmailInboxStore((s) => s.isSortingActive)
   /** Tracks prior `isSortingActive` so we can start deferred auto-analysis when bulk sort finishes. */
   const prevSortingActiveRef = useRef(useEmailInboxStore.getState().isSortingActive)
@@ -392,7 +391,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       console.log('[ANALYSIS] runAnalysisStream triggered for:', messageId)
     }
     if (!window.emailInbox?.aiAnalyzeMessageStream || !window.emailInbox.onAiAnalyzeChunk) return
-    const skipEmailDraft = !!(msg && deriveInboxMessageKind(msg) === 'handshake')
+    const skipEmailDraft = !!(msg && resolveInboxReplyMode(msg) === 'native_beap')
     const cached = useEmailInboxStore.getState().analysisCache[messageId]
     if (cached) {
       autoAnalyzeStreamFailedRef.current.delete(messageId)
@@ -1060,7 +1059,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     try {
       const res = await window.emailInbox.aiDraftReply(messageId, opts)
       const data = res.data
-      const native = data?.isNativeBeap && data.capsuleDraft
+      const native = isNativeBeap && data?.capsuleDraft
       const payload = res as {
         ok: boolean
         inboxErrorCode?: string
@@ -1183,7 +1182,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       setDraftLoading(false)
     }
     draftRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  }, [messageId])
+  }, [messageId, isNativeBeap])
 
   /** If analyze stream ends with needsReply but no draftReply, fetch draft once via aiDraftReply. */
   useEffect(() => {
@@ -1413,7 +1412,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     })
   }, [])
 
-  const usesEmailReplyTransport = message ? resolveInboxReplyTransport(message) === 'email' : false
+  const usesEmailReplyTransport = replyMode === 'email'
 
   const inboxAiWorkInFlight = analysisLoading || draftLoading
   /** Combined / single-flight labels shown in `inbox-detail-ai-loading`. */
@@ -3315,8 +3314,8 @@ export default function EmailInboxView({
   )
 
   const handleReply = useCallback((msg: InboxMessage) => {
-    const replyTransport = resolveInboxReplyTransport(msg)
-    const shouldSendEmail = replyTransport === 'email'
+    const replyMode = resolveInboxReplyMode(msg)
+    const shouldSendEmail = replyMode === 'email'
     const hasFrom = !!msg.from_address?.trim()
     if (shouldSendEmail) {
       if (!hasFrom) {
@@ -3352,8 +3351,8 @@ export default function EmailInboxView({
 
   const handleSendDraft = useCallback(
     async (draft: string, msg: InboxMessage, attachments?: DraftAttachment[]): Promise<boolean> => {
-      const replyTransport = resolveInboxReplyTransport(msg)
-      const shouldSendEmail = replyTransport === 'email'
+      const replyMode = resolveInboxReplyMode(msg)
+      const shouldSendEmail = replyMode === 'email'
 
       if (!shouldSendEmail) {
         logInboxReplyTransportDecision(msg, {

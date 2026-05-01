@@ -4,7 +4,7 @@
  */
 
 export type InboxMessageAiClassificationRow = {
-  source_type: string
+  source_type?: string | null
   handshake_id?: string | null
   depackaged_json?: string | null
   beap_package_json?: string | null
@@ -110,23 +110,38 @@ export function inboxRowIsClonedPlainEmail(row: InboxMessageAiClassificationRow)
   return acc.plain && !acc.beap
 }
 
-/** Native BEAP capsule semantics for AI (analyze + draft), after clone-of-plain override. */
-export function classifyInboxRowForAi(row: InboxMessageAiClassificationRow): { isNativeBeap: boolean } {
+function rowIsActualNativeBeap(row: InboxMessageAiClassificationRow): boolean {
   const st = String(row.source_type ?? '')
   const hid = row.handshake_id != null ? String(row.handshake_id).trim() : ''
-  const rawIsNativeBeap = st === 'direct_beap' || (!!hid && st !== 'email_plain')
-  if (rawIsNativeBeap && inboxRowIsClonedPlainEmail(row)) {
-    return { isNativeBeap: false }
+  return st === 'direct_beap' || (!!hid && st !== 'email_plain')
+}
+
+/** Shared renderer / AI / send semantics for inbox replies. */
+export type InboxReplyMode = 'email' | 'native_beap'
+
+export function resolveInboxReplyMode(row: InboxMessageAiClassificationRow): InboxReplyMode {
+  const st = String(row.source_type ?? '')
+  if (st === 'email_plain') {
+    return 'email'
   }
-  return { isNativeBeap: rawIsNativeBeap }
+  if (inboxRowIsClonedPlainEmail(row)) {
+    return 'email'
+  }
+  return rowIsActualNativeBeap(row) ? 'native_beap' : 'email'
+}
+
+/** Native BEAP capsule semantics for AI (analyze + draft), after clone-of-plain override. */
+export function classifyInboxRowForAi(row: InboxMessageAiClassificationRow): { isNativeBeap: boolean } {
+  return { isNativeBeap: resolveInboxReplyMode(row) === 'native_beap' }
 }
 
 /** Outbound reply/send transport: SMTP/email vs native BEAP / capsule / clipboard compose. */
-export type InboxReplyTransport = 'email' | 'native_beap'
+export type InboxReplyTransport = InboxReplyMode
 
 export type InboxReplyTransportRouterReason =
   | 'source_type_email_plain'
   | 'sandbox_clone_plain_email_provenance'
+  | 'not_native_beap'
   | 'default_native_beap'
 
 export type InboxReplyTransportResolutionMeta = {
@@ -147,11 +162,14 @@ export function resolveInboxReplyTransportMeta(row: InboxMessageAiClassification
   if (inboxRowIsClonedPlainEmail(row)) {
     return { transport: 'email', routerReason: 'sandbox_clone_plain_email_provenance' }
   }
-  return { transport: 'native_beap', routerReason: 'default_native_beap' }
+  if (rowIsActualNativeBeap(row)) {
+    return { transport: 'native_beap', routerReason: 'default_native_beap' }
+  }
+  return { transport: 'email', routerReason: 'not_native_beap' }
 }
 
 export function resolveInboxReplyTransport(row: InboxMessageAiClassificationRow): InboxReplyTransport {
-  return resolveInboxReplyTransportMeta(row).transport
+  return resolveInboxReplyMode(row)
 }
 
 /** Temporary debug: which UX/IPC path was selected after transport resolution. */
@@ -167,7 +185,7 @@ export function logInboxReplyTransportDecision(
 ): void {
   const st = String(row.source_type ?? '')
   const clonedPlain = inboxRowIsClonedPlainEmail(row)
-  const transport = resolveInboxReplyTransport(row)
+  const transport = resolveInboxReplyMode(row)
   const payload = {
     messageId: opts.messageId,
     source_type: st,

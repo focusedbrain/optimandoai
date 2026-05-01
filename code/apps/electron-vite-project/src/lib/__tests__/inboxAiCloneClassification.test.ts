@@ -3,6 +3,7 @@ import {
   classifyInboxRowForAi,
   inboxRowIsClonedPlainEmail,
   logInboxReplyTransportDecision,
+  resolveInboxReplyMode,
   resolveInboxReplyTransport,
   resolveInboxReplyTransportMeta,
 } from '../inboxAiCloneClassification'
@@ -23,6 +24,7 @@ describe('inboxAiCloneClassification', () => {
     }
     expect(inboxRowIsClonedPlainEmail(row)).toBe(true)
     expect(classifyInboxRowForAi(row).isNativeBeap).toBe(false)
+    expect(resolveInboxReplyMode(row)).toBe('email')
   })
 
   it('classifyInboxRowForAi: direct_beap without clone provenance → native', () => {
@@ -132,7 +134,7 @@ describe('inboxAiCloneClassification', () => {
       expect(resolveInboxReplyTransport(row)).toBe('native_beap')
     })
 
-    it('unknown source_type without clone provenance → native_beap (not email from source_type alone)', () => {
+    it('unknown source_type without native BEAP signals → email', () => {
       const row = {
         source_type: 'depackaged',
         handshake_id: null,
@@ -140,7 +142,9 @@ describe('inboxAiCloneClassification', () => {
         body_text: '',
         beap_package_json: null,
       }
-      expect(resolveInboxReplyTransport(row)).toBe('native_beap')
+      expect(resolveInboxReplyMode(row)).toBe('email')
+      expect(resolveInboxReplyTransport(row)).toBe('email')
+      expect(resolveInboxReplyTransportMeta(row).routerReason).toBe('not_native_beap')
     })
 
     it('email_plain keeps email transport when From is empty (UI fail-closed; resolver unchanged)', () => {

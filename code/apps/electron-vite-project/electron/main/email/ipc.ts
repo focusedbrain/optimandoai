@@ -250,7 +250,7 @@ import {
   type InboxAiStreamInvokeOpts,
 } from './inboxAiTaskDedup'
 import { processPendingPlainEmails } from './plainEmailIngestion'
-import { classifyInboxRowForAi } from '../../../src/lib/inboxAiCloneClassification'
+import { resolveInboxReplyMode } from '../../../src/lib/inboxAiCloneClassification'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
 import { streamInboxOllamaAnalyzeWithSandboxRouting } from './inboxOllamaChatStreamSandbox'
 import { buildInboxAiAnalyzeErrorPayload, buildInboxAiDraftIpcFailure } from './inboxAiErrorMapping'
@@ -3755,7 +3755,7 @@ Rules:
       if (!row)
         return buildInboxAiDraftIpcFailure(new Error('Message not found'), {}) as { ok: false; error: string; message: string }
 
-      isNativeBeap = classifyInboxRowForAi(row).isNativeBeap
+      isNativeBeap = resolveInboxReplyMode(row) === 'native_beap'
 
       const settingsDraft = resolveInboxLlmSettings()
       if (settingsDraft.provider.toLowerCase() === 'ollama') {
@@ -4073,7 +4073,7 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
         return { ok: true, data: { error: 'No AI provider available. Check Backend settings (local model or cloud API key).' } }
       }
 
-      const { isNativeBeap } = classifyInboxRowForAi(row)
+      const isNativeBeap = resolveInboxReplyMode(row) === 'native_beap'
 
       const sender = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
       const body = isNativeBeap
@@ -4455,7 +4455,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
 
           if (signal.aborted) return { started: false }
 
-          const { isNativeBeap: isNativeBeapStream } = classifyInboxRowForAi(row)
+          const isNativeBeapStream = resolveInboxReplyMode(row) === 'native_beap'
 
           const sender = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
           const body = isNativeBeapStream

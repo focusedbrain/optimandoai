@@ -49,7 +49,7 @@ import { reconcileInboxClassification } from '../lib/inboxClassificationReconcil
 import {
   INBOX_EMAIL_REPLY_METADATA_MISSING,
   logInboxReplyTransportDecision,
-  resolveInboxReplyTransport,
+  resolveInboxReplyMode,
 } from '../lib/inboxAiCloneClassification'
 import { BulkInboxAttachmentsStrip } from './BulkInboxAttachmentsStrip'
 import { AutoSortSessionReview } from './AutoSortSessionReview'
@@ -1379,7 +1379,7 @@ function BulkActionCardStructured({
                 Undo
               </button>
             ) : null}
-            {resolveInboxReplyTransport(msg) === 'email' && onAddDraftAttachment ? (
+            {resolveInboxReplyMode(msg) === 'email' && onAddDraftAttachment ? (
               <button
                 type="button"
                 className="bulk-action-card-btn bulk-action-card-btn--secondary"
@@ -1397,7 +1397,7 @@ function BulkActionCardStructured({
               className={`bulk-action-card-btn bulk-action-card-btn--primary${rec === 'draft_reply_ready' ? ' bulk-action-card-btn--primary-emphasis' : ''}`}
               onClick={() => handleSendDraft(msg, output.draftReply ?? '', draftAttachments.length > 0 ? draftAttachments : undefined)}
             >
-              {resolveInboxReplyTransport(msg) === 'email' ? 'Send via Email' : 'Send via Handshake'}
+              {resolveInboxReplyMode(msg) === 'email' ? 'Send via Email' : 'Send via Handshake'}
             </button>
             {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply ? (
               <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleArchiveOne(msg)}>
@@ -1457,7 +1457,7 @@ function BulkActionCardStructured({
               className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
               onClick={() => handleSendDraft(msg, output.draftReply!)}
             >
-              {resolveInboxReplyTransport(msg) === 'email' ? '✉ Send via Email' : '✉ Send via Handshake'}
+              {resolveInboxReplyMode(msg) === 'email' ? '✉ Send via Email' : '✉ Send via Handshake'}
             </button>
           )}
           {!streamClassifying && (rec === 'archive' || rec === 'keep_for_manual_action') && (
@@ -4355,8 +4355,8 @@ export default function EmailInboxBulkView({
   }, [onSelectMessage, selectMessage])
 
   const handleReply = useCallback((msg: InboxMessage) => {
-    const replyTransport = resolveInboxReplyTransport(msg)
-    const shouldSendEmail = replyTransport === 'email'
+    const replyMode = resolveInboxReplyMode(msg)
+    const shouldSendEmail = replyMode === 'email'
     const hasFrom = !!msg.from_address?.trim()
     if (shouldSendEmail) {
       if (!hasFrom) {
@@ -4392,8 +4392,8 @@ export default function EmailInboxBulkView({
   /** Send draft directly (no modal). */
   const handleSendDraft = useCallback(
     async (msg: InboxMessage, draftBody: string, attachments?: Array<{ name: string; path: string; size: number }>) => {
-      const replyTransport = resolveInboxReplyTransport(msg)
-      const shouldSendEmail = replyTransport === 'email'
+      const replyMode = resolveInboxReplyMode(msg)
+      const shouldSendEmail = replyMode === 'email'
 
       if (!shouldSendEmail) {
         logInboxReplyTransportDecision(msg, {
