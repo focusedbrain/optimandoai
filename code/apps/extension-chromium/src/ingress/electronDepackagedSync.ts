@@ -35,7 +35,11 @@ export function buildElectronMergePayload(
     subject: title,
     transport_plaintext: transport,
     body: { text: inner },
-    metadata: { source: 'extension_stage5', verifiedAt: pkg.verifiedAt },
+    metadata: {
+      source: 'extension_stage5',
+      verifiedAt: pkg.verifiedAt,
+      ...(pkg.metadata?.inbox_response_path ? { inbox_response_path: pkg.metadata.inbox_response_path } : {}),
+    },
   })
 
   const body_text = [title, transport, inner].filter(Boolean).join('\n\n').slice(0, 120_000)

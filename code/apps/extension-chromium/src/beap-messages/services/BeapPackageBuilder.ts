@@ -351,6 +351,17 @@ export interface BeapPackageConfig {
    */
   encryptedMessage?: string
   /**
+   * Non-secret inbox routing semantics. Used by desktop inbox rows before qBEAP
+   * depackaging completes, so UI/send routing does not infer reply mode from
+   * transport-only fields like direct_beap or handshake_id.
+   */
+  inboxResponsePathMetadata?: {
+    sandbox_clone?: boolean
+    original_source_type?: 'email_plain' | 'email_beap' | 'direct_beap' | string
+    original_response_path?: 'email' | 'native_beap'
+    reply_transport?: 'email' | 'native_beap'
+  }
+  /**
    * Policy signals for build validation.
    * If not provided, conservative defaults are used.
    */
@@ -604,6 +615,7 @@ export interface BeapPackage {
     delivery_method: DeliveryMethod
     delivery_hint?: string // Email address for delivery (not identity)
     filename: string
+    inbox_response_path?: BeapPackageConfig['inboxResponsePathMetadata']
   }
   /**
    * Plaintext artefacts (pBEAP only)
@@ -1687,7 +1699,10 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
       created_at: now,
       delivery_method: config.deliveryMethod,
       delivery_hint: recipient.receiver_email_list?.[0] || config.emailTo,
-      filename
+      filename,
+      ...(config.inboxResponsePathMetadata
+        ? { inbox_response_path: config.inboxResponsePathMetadata }
+        : {})
     },
     // Encrypted artefacts (no plaintext artefacts for qBEAP)
     artefactsEnc
@@ -1892,7 +1907,10 @@ async function buildPBeapPackage(config: BeapPackageConfig): Promise<BeapPackage
       created_at: now,
       delivery_method: config.deliveryMethod,
       delivery_hint: config.emailTo,
-      filename
+      filename,
+      ...(config.inboxResponsePathMetadata
+        ? { inbox_response_path: config.inboxResponsePathMetadata }
+        : {})
     },
     // Include raster artefacts (base64 page images) if provided
     artefacts: config.rasterArtefacts && config.rasterArtefacts.length > 0

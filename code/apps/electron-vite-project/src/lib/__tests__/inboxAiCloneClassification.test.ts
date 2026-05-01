@@ -107,6 +107,58 @@ describe('inboxAiCloneClassification', () => {
       expect(resolveInboxReplyTransport(row)).toBe('email')
     })
 
+    it('direct_beap + qBEAP package metadata for cloned plain mail → email before depackaging merge', () => {
+      const pkg = JSON.stringify({
+        header: { encoding: 'qBEAP' },
+        metadata: {
+          delivery_method: 'p2p',
+          inbox_response_path: {
+            sandbox_clone: true,
+            original_source_type: 'email_plain',
+            original_response_path: 'email',
+            reply_transport: 'email',
+          },
+        },
+      })
+      const row = {
+        source_type: 'direct_beap',
+        handshake_id: 'hs1',
+        depackaged_json: JSON.stringify({
+          format: 'beap_qbeap_pending_main',
+          body: { text: '(Encrypted qBEAP — open in extension for full content)' },
+        }),
+        body_text: '(Encrypted qBEAP — open in extension for full content)',
+        beap_package_json: pkg,
+      }
+      expect(resolveInboxReplyMode(row)).toBe('email')
+      expect(resolveInboxReplyTransportMeta(row).routerReason).toBe('original_source_type_email_plain')
+    })
+
+    it('direct_beap + decrypted body string trailing clone provenance → email for old clones', () => {
+      const dep = JSON.stringify({
+        format: 'beap_qbeap_decrypted',
+        body: {
+          text:
+            'Original plain mail body\n\n---\n' +
+            JSON.stringify({
+              beap_sandbox_clone: {
+                clone_reason: 'sandbox_test',
+                original_inbox_source_type: 'email_plain',
+              },
+            }),
+        },
+      })
+      const row = {
+        source_type: 'direct_beap',
+        handshake_id: 'hs1',
+        depackaged_json: dep,
+        body_text: '[BEAP sandbox clone — sent by you]\nOriginal plain mail body',
+        beap_package_json: null,
+      }
+      expect(inboxRowIsClonedPlainEmail(row)).toBe(true)
+      expect(resolveInboxReplyMode(row)).toBe('email')
+    })
+
     it('direct_beap + provenance original_response_path email → email', () => {
       const dep = JSON.stringify({
         inbox_sandbox_clone_provenance: {

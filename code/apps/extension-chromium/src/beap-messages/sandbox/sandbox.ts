@@ -314,6 +314,7 @@ function sanitisePackage(pkg: DecryptedPackage): SanitisedDecryptedPackage {
       delivery_method: pkg.metadata.delivery_method,
       delivery_hint: pkg.metadata.delivery_hint,
       filename: pkg.metadata.filename,
+      inbox_response_path: pkg.metadata.inbox_response_path,
     },
     verification: {
       signatureValid: pkg.verification.signatureValid,

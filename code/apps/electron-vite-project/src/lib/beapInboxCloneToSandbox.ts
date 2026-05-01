@@ -116,6 +116,12 @@ export async function cloneBeapInboxToSandbox(
     senderFingerprintShort: senderShort,
     messageBody: pub,
     encryptedMessage: enc,
+    inboxResponsePathMetadata: {
+      sandbox_clone: true,
+      original_source_type: preparePayload.source_type,
+      original_response_path: preparePayload.original_response_path,
+      reply_transport: preparePayload.reply_transport,
+    },
     attachments: [],
   }
 

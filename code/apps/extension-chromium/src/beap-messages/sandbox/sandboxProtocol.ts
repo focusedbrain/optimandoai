@@ -205,6 +205,12 @@ export interface SanitisedDecryptedPackage {
     delivery_method: string
     delivery_hint?: string
     filename: string
+    inbox_response_path?: {
+      sandbox_clone?: boolean
+      original_source_type?: string
+      original_response_path?: 'email' | 'native_beap'
+      reply_transport?: 'email' | 'native_beap'
+    }
   }
 
   /** Signature verification outcome. */

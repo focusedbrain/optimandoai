@@ -55,6 +55,7 @@ function walkClonePlainSignals(v: unknown, depth: number, acc: { plain: boolean;
     if (v.includes('inbox_sandbox_clone_provenance') || v.includes('beap_sandbox_clone')) {
       const inner = safeParseJsonObject(v)
       if (inner) walkClonePlainSignals(inner, depth + 1, acc)
+      forEachTrailingProvenanceJson(v, (o) => walkClonePlainSignals(o, depth + 1, acc))
     }
     return
   }
@@ -171,6 +172,7 @@ function walkReplyModeMetadata(v: unknown, depth: number, meta: InboxReplyModeMe
     ) {
       const inner = safeParseJsonObject(v)
       if (inner) walkReplyModeMetadata(inner, depth + 1, meta)
+      forEachTrailingProvenanceJson(v, (o) => walkReplyModeMetadata(o, depth + 1, meta))
     }
     return
   }
