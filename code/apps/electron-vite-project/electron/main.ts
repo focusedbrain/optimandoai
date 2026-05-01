@@ -9551,6 +9551,62 @@ async function runDeviceKeyMigration(
       }
     })
     
+    // POST /api/llm/host-internal-completion — Sandbox WR Chat / extension: same execution as `internal-inference:requestCompletion` (no local Ollama).
+    httpApp.post('/api/llm/host-internal-completion', async (req, res) => {
+      try {
+        if (!isSandboxMode()) {
+          res.status(400).json({
+            ok: false,
+            error:
+              'Host-internal WR Chat completion requires WR Desk in sandbox mode with a paired Host.',
+            code: 'HOST_INTERNAL_REQUIRES_SANDBOX',
+          })
+          return
+        }
+        const body = req.body ?? {}
+        const handshake_id = typeof body.handshake_id === 'string' ? body.handshake_id.trim() : ''
+        const messages = body.messages
+        if (!handshake_id || !Array.isArray(messages) || messages.length < 1) {
+          res.status(400).json({ ok: false, error: 'handshake_id and messages[] required' })
+          return
+        }
+        for (const m of messages) {
+          if (!m || (m.role !== 'system' && m.role !== 'user' && m.role !== 'assistant')) {
+            res.status(400).json({ ok: false, error: 'invalid message role' })
+            return
+          }
+          if (typeof m.content !== 'string') {
+            res.status(400).json({ ok: false, error: 'invalid message content' })
+            return
+          }
+        }
+        const model =
+          typeof body.model === 'string' && body.model.trim() ? body.model.trim().slice(0, 200) : undefined
+        const execution_transport =
+          body.execution_transport === 'ollama_direct' ? ('ollama_direct' as const) : undefined
+        const timeout_ms =
+          typeof body.timeout_ms === 'number' && Number.isFinite(body.timeout_ms) && body.timeout_ms > 0
+            ? Math.floor(body.timeout_ms)
+            : undefined
+        const { runSandboxHostInferenceChat } = await import('./main/internalInference/sandboxHostChat')
+        const r = await runSandboxHostInferenceChat({
+          handshakeId: handshake_id,
+          messages,
+          model,
+          execution_transport,
+          timeoutMs: timeout_ms,
+        })
+        if (r.ok) {
+          res.json({ ok: true, data: { content: r.output, model: r.model } })
+        } else {
+          res.json({ ok: false, error: r.message, code: r.code })
+        }
+      } catch (error: any) {
+        console.error('[HTTP-LLM] host-internal-completion failed:', error)
+        res.status(500).json({ ok: false, error: error.message ?? String(error) })
+      }
+    })
+
     // GET /api/llm/first-available - Preferred chat model (persisted active or first installed)
     httpApp.get('/api/llm/first-available', async (_req, res) => {
       try {

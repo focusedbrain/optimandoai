@@ -32,6 +32,14 @@ import {
   hostModelDisplayNameFromSelection,
   isHostInternalChatModelId,
 } from '../../lib/inferenceSubmitRouting'
+import { loadPersistedWrChatExtensionModel } from '../../lib/wrChatExtensionModelPersistence'
+import {
+  buildHostInternalMessagesFromSimpleChat,
+  logWrChatInferenceRoutingPreflight,
+  resolveWrChatExecutionTransport,
+  runWrChatHostInferenceForExtensionSurface,
+  wrChatHostInternalWireModel,
+} from '../../lib/wrChatHostInferenceShared'
 import { runWrChatExtensionPreSend, wrChatExtensionDebugLog } from '../../lib/wrChatExtensionPreSend'
 import {
   GROUP_CLOUD,
@@ -169,8 +177,8 @@ export interface PopupChatViewProps {
   sessionName?: string
   /** When set (e.g. Electron dashboard), persist message list to localStorage for this key. */
   persistTranscriptStorageKey?: string
-  /** Mark Electron dashboard embed — optional defensive branches (no popup window). */
-  wrChatEmbedContext?: 'dashboard'
+  /** Electron dashboard vs extension surfaces (logging + Host HTTP vs IPC). */
+  wrChatEmbedContext?: 'dashboard' | 'sidebar' | 'popup'
   /** Dashboard: persist accepted optimization suggestions to project store. */
   onPersistAcceptedOptimizationSuggestion?: (payload: {
     projectId: string
@@ -183,17 +191,6 @@ export interface PopupChatViewProps {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Prefer tag from `host-internal:…:<model>`; else discovery row (legacy `host-inference:` / placeholders). */
-function wrChatHostInternalWireModel(
-  parsed: { model?: string } | null | undefined,
-  row: { hostLocalModelName?: string } | undefined,
-): string | undefined {
-  const fromRoute = parsed?.model?.trim()
-  if (fromRoute) return fromRoute
-  const fromRow = row?.hostLocalModelName?.trim()
-  return fromRow || undefined
-}
 
 async function getLaunchSecret(): Promise<string | null> {
   return new Promise((resolve) => {
@@ -313,65 +310,6 @@ function sliceMessagesFromLastUserImage(messages: ChatMessage[]): ChatMessage[] 
   return messages
 }
 
-/**
- * Build Host P2P chat messages without `mapChatToLlmMessages` (no local OCR/vision side-path beyond text).
- * `internalInference.requestCompletion` only accepts text roles+content.
- */
-function buildHostInternalMessagesForDashboard(
-  newMessages: ChatMessage[],
-  opts: {
-    docCtx: { name: string; text: string } | null
-    focusPrefix: string
-    useFreshPayload: boolean
-    /** Single user turn when `useFreshPayload` (screenshot/dashboard). */
-    freshUserContent: string
-    lastUserImageUrl: string | null
-    ocrText: string
-  },
-): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
-  if (opts.useFreshPayload) {
-    return [{ role: 'user', content: opts.freshUserContent }]
-  }
-  const out: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
-  for (const m of newMessages) {
-    if (m.role !== 'user' && m.role !== 'assistant') continue
-    let content = m.text ?? ''
-    if (m.role === 'user' && m.videoUrl) {
-      content = `${m.text || 'Video:'}\n[Video attached]`
-    }
-    if (
-      m.role === 'user' &&
-      m.imageUrl &&
-      opts.lastUserImageUrl &&
-      m.imageUrl === opts.lastUserImageUrl &&
-      opts.ocrText.trim()
-    ) {
-      content = `${content}\n\n[OCR extracted text]:\n${opts.ocrText}`
-    }
-    out.push({ role: m.role, content })
-  }
-  if (opts.focusPrefix) {
-    for (let i = out.length - 1; i >= 0; i--) {
-      if (out[i].role === 'user') {
-        out[i] = { ...out[i], content: `${opts.focusPrefix}\n\n${out[i].content}` }
-        break
-      }
-    }
-  }
-  if (opts.docCtx) {
-    for (let i = out.length - 1; i >= 0; i--) {
-      if (out[i].role === 'user') {
-        out[i] = {
-          ...out[i],
-          content: `[Attached document: ${opts.docCtx.name}]\n\n${opts.docCtx.text}\n\n---\n${out[i].content}`,
-        }
-        break
-      }
-    }
-  }
-  return out
-}
-
 function resolveModelIdForChat(
   active: string | undefined,
   models: Array<{ name: string; hostAvailable?: boolean }> | undefined,
@@ -483,6 +421,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   hostModelRefreshFeedback = null,
   onDashboardBeforeLlmSend,
 }) => {
+  const extInferenceOrigin: 'sidebar_wrchat' | 'popup_wrchat' =
+    wrChatEmbedContext === 'sidebar' ? 'sidebar_wrchat' : 'popup_wrchat'
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -1163,7 +1103,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
     if (wrChatEmbedContext !== 'dashboard') {
       await runWrChatExtensionPreSend({
-        origin: 'popup_wrchat',
+        origin: extInferenceOrigin,
         activeLlmModelUi: activeLlmModel,
         resolvedModelId: modelId,
         availableModels,
@@ -1246,7 +1186,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             setIsLoading(false)
             return
           }
-          const hostMsgs = buildHostInternalMessagesForDashboard(newMessages, {
+          const hostMsgs = buildHostInternalMessagesFromSimpleChat(newMessages, {
             docCtx,
             focusPrefix: focusPrefixH,
             useFreshPayload: useFreshHost,
@@ -1256,6 +1196,18 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           })
           const hostComputerNameH = (rowH?.hostComputerName || '').trim() || 'Host'
           const wireModel = wrChatHostInternalWireModel(parsedH, rowH)
+          const execTH = rowH?.execution_transport === 'ollama_direct' ? ('ollama_direct' as const) : ('beap' as const)
+          logWrChatInferenceRoutingPreflight({
+            origin: 'dashboard_wrchat',
+            selectedModelId: modelId,
+            resolvedExecutionTransport: resolveWrChatExecutionTransport(modelId, availableModels),
+            inferencePath: 'host_internal_ipc',
+            modelSent: wireModel ?? parsedH.model ?? null,
+            hostTargetId: modelId,
+            handshakeId: parsedH.handshakeId ?? null,
+            execution_transport: execTH,
+            fallbackUsed: false,
+          })
           setHostInternalRunUi({
             line1: `Running on Host AI · ${hostModelDisplayNameFromSelection({
               parsedModel: wireModel ?? parsedH.model,
@@ -1293,6 +1245,76 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             }
           } catch {
             setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${formatInternalInferenceErrorCode(undefined)}` }])
+          } finally {
+            setHostInternalRunUi(null)
+          }
+          setIsLoading(false)
+          scrollToBottom()
+          return
+        }
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', text: 'That Host model id is not recognized. Open the model menu and select Host AI again.' },
+        ])
+        setIsLoading(false)
+        return
+      }
+
+      // Extension (popup / sidebar): Host AI — HTTP bridge to main-process Host inference (no local Ollama).
+      if (!isDashboard && isHostInternalChatModelId(modelId, availableModels)) {
+        let ocrExt = ''
+        let resExt: string | null = null
+        if (hasImage && currentTurnImageUrl) {
+          resExt = await resolveImageUrlForBackend(currentTurnImageUrl, { secret, isDashboard: false })
+          ocrExt = await runOcr(resExt ?? '', secret)
+        }
+        const effectiveLlmTextExt = llmText || ocrExt || (hasImage ? '[screenshot]' : '')
+        const enrichedTextExt = enrichRouteTextWithOcr(effectiveLlmTextExt, ocrExt)
+        const focusPrefixExt = getChatFocusLlmPrefix(useChatFocusStore.getState())
+        const enrichedForRouteExt = focusPrefixExt ? `${focusPrefixExt}\n\n${enrichedTextExt}` : enrichedTextExt
+        const parsedExt = parseAnyHostInferenceModelId(modelId)
+        const rowExt = availableModels.find((m) => m.name === modelId)
+        if (rowExt?.hostAi && rowExt.hostAvailable === false) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: 'assistant',
+              text: "This Host model is not available. Pick another model or check the model and AI settings on the Host machine.",
+            },
+          ])
+          setIsLoading(false)
+          return
+        }
+        if (parsedExt) {
+          const hostMsgsExt = buildHostInternalMessagesFromSimpleChat(newMessages, {
+            docCtx,
+            focusPrefix: focusPrefixExt,
+            useFreshPayload: false,
+            freshUserContent: enrichedForRouteExt,
+            lastUserImageUrl: currentTurnImageUrl ?? null,
+            ocrText: ocrExt,
+          })
+          const hostComputerNameExt = (rowExt?.hostComputerName || '').trim() || 'Host'
+          const wireModelExt = wrChatHostInternalWireModel(parsedExt, rowExt)
+          setHostInternalRunUi({
+            line1: `Running on Host AI · ${hostModelDisplayNameFromSelection({
+              parsedModel: wireModelExt ?? parsedExt.model,
+              targetLabel: rowExt?.displayTitle,
+            })}`,
+            line2: hostComputerNameExt,
+          })
+          try {
+            const persistedExt = loadPersistedWrChatExtensionModel()
+            const rExt = await runWrChatHostInferenceForExtensionSurface({
+              origin: extInferenceOrigin,
+              selectedModelId: modelId,
+              availableModels,
+              hostMessages: hostMsgsExt,
+              baseUrl: BASE_URL,
+              headers: buildHeaders(secret),
+              fallbackUsed: persistedExt?.selectionSource === 'auto',
+            })
+            setMessages((prev) => [...prev, { role: 'assistant', text: rExt.assistantText }])
           } finally {
             setHostInternalRunUi(null)
           }
@@ -1418,7 +1440,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             const modelToUse = match.agentBoxModel || modelId
             if (wrChatEmbedContext !== 'dashboard') {
               wrChatExtensionDebugLog('before_api_llm_chat', {
-                origin: 'popup_wrchat',
+                origin: extInferenceOrigin,
                 modelId: modelToUse,
                 hasProviderKey: false,
                 statusPath: 'agent',
@@ -1477,7 +1499,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           : [{ role: 'system', content: butlerPrompt }, ...processedMessages]
         if (wrChatEmbedContext !== 'dashboard') {
           wrChatExtensionDebugLog('before_api_llm_chat', {
-            origin: 'popup_wrchat',
+            origin: extInferenceOrigin,
             modelId: modelId,
             hasProviderKey: false,
             statusPath: 'butler',
@@ -1507,7 +1529,11 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       }
     } catch (err: any) {
       console.error('[PopupChat] handleSend error:', err)
-      setMessages(prev => [...prev, { role: 'assistant', text: `❌ Error: ${err?.message || 'Unknown error'}` }])
+      const localTip =
+        resolveWrChatExecutionTransport(modelId, availableModels) === 'local_ollama'
+          ? `\n\nTip: Make sure Ollama is running and a trusted model is installed in LLM Settings.`
+          : ''
+      setMessages(prev => [...prev, { role: 'assistant', text: `❌ Error: ${err?.message || 'Unknown error'}${localTip}` }])
     } finally {
       setIsLoading(false)
       scrollToBottom()
@@ -1541,7 +1567,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
       if (wrChatEmbedContext !== 'dashboard') {
         await runWrChatExtensionPreSend({
-          origin: 'popup_wrchat',
+          origin: extInferenceOrigin,
           activeLlmModelUi: activeLlmModel,
           resolvedModelId: modelId,
           availableModels,
@@ -1605,7 +1631,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               setIsLoading(false)
               return
             }
-            const hostMsgs = buildHostInternalMessagesForDashboard(newMessages, {
+            const hostMsgs = buildHostInternalMessagesFromSimpleChat(newMessages, {
               docCtx: null,
               focusPrefix: focusPrefixTrigH,
               useFreshPayload: useFreshHost,
@@ -1615,6 +1641,18 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             })
             const hostComputerNameH = (rowH?.hostComputerName || '').trim() || 'Host'
             const wireModelTrig = wrChatHostInternalWireModel(parsedH, rowH)
+            const execTT = rowH?.execution_transport === 'ollama_direct' ? ('ollama_direct' as const) : ('beap' as const)
+            logWrChatInferenceRoutingPreflight({
+              origin: 'dashboard_wrchat',
+              selectedModelId: modelId,
+              resolvedExecutionTransport: resolveWrChatExecutionTransport(modelId, availableModels),
+              inferencePath: 'host_internal_ipc',
+              modelSent: wireModelTrig ?? parsedH.model ?? null,
+              hostTargetId: modelId,
+              handshakeId: parsedH.handshakeId ?? null,
+              execution_transport: execTT,
+              fallbackUsed: false,
+            })
             setHostInternalRunUi({
               line1: `Running on Host AI · ${hostModelDisplayNameFromSelection({
                 parsedModel: wireModelTrig ?? parsedH.model,
@@ -1652,6 +1690,76 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               }
             } catch {
               setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${formatInternalInferenceErrorCode(undefined)}` }])
+            } finally {
+              setHostInternalRunUi(null)
+            }
+            setIsLoading(false)
+            scrollToBottom()
+            return
+          }
+          setMessages((prev) => [
+            ...prev,
+            { role: 'assistant', text: 'That Host model id is not recognized. Open the model menu and select Host AI again.' },
+          ])
+          setIsLoading(false)
+          return
+        }
+
+        // Extension: Host AI trigger path — HTTP bridge (no local Ollama).
+        if (!isDashboard && isHostInternalChatModelId(modelId, availableModels)) {
+          let ocrTr = ''
+          let resTr: string | null = null
+          if (!isVideo && mediaUrl) {
+            resTr = await resolveImageUrlForBackend(mediaUrl, { secret, isDashboard: false })
+            ocrTr = await runOcr(resTr ?? '', secret)
+          }
+          const effectiveRouteTr = routeText || ocrTr || (hasImage ? '[screenshot]' : '') || (isVideo ? '[stream]' : '')
+          const enrichedTr = enrichRouteTextWithOcr(effectiveRouteTr, ocrTr)
+          const focusTrig = getChatFocusLlmPrefix(useChatFocusStore.getState())
+          const enrichedForTrig = focusTrig ? `${focusTrig}\n\n${enrichedTr}` : enrichedTr
+          const parsedTr = parseAnyHostInferenceModelId(modelId)
+          const rowTr = availableModels.find((m) => m.name === modelId)
+          if (rowTr?.hostAi && rowTr.hostAvailable === false) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: 'assistant',
+                text: "This Host model is not available. Pick another model or check the model and AI settings on the Host machine.",
+              },
+            ])
+            setIsLoading(false)
+            return
+          }
+          if (parsedTr) {
+            const hostMsgsTr = buildHostInternalMessagesFromSimpleChat(newMessages, {
+              docCtx: null,
+              focusPrefix: focusTrig,
+              useFreshPayload: false,
+              freshUserContent: enrichedForTrig,
+              lastUserImageUrl: !isVideo ? (mediaUrl ?? null) : null,
+              ocrText: ocrTr,
+            })
+            const hostNameTr = (rowTr?.hostComputerName || '').trim() || 'Host'
+            const wireTr = wrChatHostInternalWireModel(parsedTr, rowTr)
+            setHostInternalRunUi({
+              line1: `Running on Host AI · ${hostModelDisplayNameFromSelection({
+                parsedModel: wireTr ?? parsedTr.model,
+                targetLabel: rowTr?.displayTitle,
+              })}`,
+              line2: hostNameTr,
+            })
+            try {
+              const persistedTr = loadPersistedWrChatExtensionModel()
+              const rTr = await runWrChatHostInferenceForExtensionSurface({
+                origin: extInferenceOrigin,
+                selectedModelId: modelId,
+                availableModels,
+                hostMessages: hostMsgsTr,
+                baseUrl: BASE_URL,
+                headers: buildHeaders(secret),
+                fallbackUsed: persistedTr?.selectionSource === 'auto',
+              })
+              setMessages((prev) => [...prev, { role: 'assistant', text: rTr.assistantText }])
             } finally {
               setHostInternalRunUi(null)
             }
@@ -1765,7 +1873,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               const modelToUse = match.agentBoxModel || modelId
               if (wrChatEmbedContext !== 'dashboard') {
                 wrChatExtensionDebugLog('before_api_llm_chat', {
-                  origin: 'popup_wrchat',
+                  origin: extInferenceOrigin,
                   modelId: modelToUse,
                   hasProviderKey: false,
                   statusPath: 'agent_trigger',
@@ -1829,7 +1937,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             : [{ role: 'system', content: butlerPrompt }, ...processedMessages]
           if (wrChatEmbedContext !== 'dashboard') {
             wrChatExtensionDebugLog('before_api_llm_chat', {
-              origin: 'popup_wrchat',
+              origin: extInferenceOrigin,
               modelId: modelId,
               hasProviderKey: false,
               statusPath: 'butler_trigger',
@@ -1862,7 +1970,11 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         }
       } catch (err: any) {
         console.error('[PopupChat] sendWithTriggerAndImage error:', err)
-        setMessages(prev => [...prev, { role: 'assistant', text: `❌ Error: ${err?.message || 'Unknown error'}` }])
+        const localTip =
+          resolveWrChatExecutionTransport(modelId, availableModels) === 'local_ollama'
+            ? `\n\nTip: Make sure Ollama is running and a trusted model is installed in LLM Settings.`
+            : ''
+        setMessages(prev => [...prev, { role: 'assistant', text: `❌ Error: ${err?.message || 'Unknown error'}${localTip}` }])
       } finally {
         setIsLoading(false)
         scrollToBottom()
@@ -1891,7 +2003,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
       if (wrChatEmbedContext !== 'dashboard') {
         await runWrChatExtensionPreSend({
-          origin: 'popup_wrchat',
+          origin: extInferenceOrigin,
           activeLlmModelUi: activeLlmModel,
           resolvedModelId: modelId,
           availableModels,
@@ -1917,6 +2029,112 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         const focusPrefixDiff = getChatFocusLlmPrefix(useChatFocusStore.getState())
         const enrichedForRouteDiff = focusPrefixDiff ? `${focusPrefixDiff}\n\n${enrichedText}` : enrichedText
         const hasImage = false
+
+        if (isDashboard && isHostInternalChatModelId(modelId, availableModels)) {
+          const parsedDf = parseAnyHostInferenceModelId(modelId)
+          const rowDf = availableModels.find((m) => m.name === modelId)
+          if (rowDf?.hostAi && rowDf.hostAvailable === false) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: 'assistant',
+                text: "This Host model is not available. Pick another model or check the model and AI settings on the Host machine.",
+              },
+            ])
+            setIsLoading(false)
+            scrollToBottom()
+            return
+          }
+          if (parsedDf) {
+            const runDf = getRequestHostCompletion(window)
+            if (typeof runDf !== 'function') {
+              setMessages((prev) => [
+                ...prev,
+                { role: 'assistant', text: 'Host models are not available in this build. Pick a local or cloud model instead.' },
+              ])
+              setIsLoading(false)
+              scrollToBottom()
+              return
+            }
+            const hostMsgsDf = buildHostInternalMessagesFromSimpleChat(newMessages, {
+              docCtx: null,
+              focusPrefix: focusPrefixDiff,
+              useFreshPayload: false,
+              freshUserContent: enrichedForRouteDiff,
+              lastUserImageUrl: null,
+              ocrText: '',
+            })
+            const hostComputerDf = (rowDf?.hostComputerName || '').trim() || 'Host'
+            const wireDf = wrChatHostInternalWireModel(parsedDf, rowDf)
+            const execTDf = rowDf?.execution_transport === 'ollama_direct' ? ('ollama_direct' as const) : ('beap' as const)
+            logWrChatInferenceRoutingPreflight({
+              origin: 'dashboard_wrchat',
+              selectedModelId: modelId,
+              resolvedExecutionTransport: resolveWrChatExecutionTransport(modelId, availableModels),
+              inferencePath: 'host_internal_ipc',
+              modelSent: wireDf ?? parsedDf.model ?? null,
+              hostTargetId: modelId,
+              handshakeId: parsedDf.handshakeId ?? null,
+              execution_transport: execTDf,
+              fallbackUsed: false,
+            })
+            try {
+              const rDf = (await runDf({
+                targetId: modelId,
+                handshakeId: parsedDf.handshakeId,
+                messages: hostMsgsDf,
+                model: wireDf,
+                timeoutMs: 120_000,
+                execution_transport: rowDf?.execution_transport === 'ollama_direct' ? 'ollama_direct' : undefined,
+              })) as { ok?: boolean; output?: string; code?: string; message?: string }
+              if (rDf && 'ok' in rDf && rDf.ok && typeof (rDf as { output?: string }).output === 'string') {
+                const outDf = appendHostAiAttributionLine((rDf as { output: string }).output, hostComputerDf)
+                setMessages((prev) => [...prev, { role: 'assistant', text: outDf }])
+              } else {
+                const erDf = rDf as { ok: false; code: string; message: string }
+                const msgDf = formatInternalInferenceErrorCode(erDf.code, erDf.message)
+                setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${msgDf}` }])
+              }
+            } catch {
+              setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${formatInternalInferenceErrorCode(undefined)}` }])
+            }
+            setIsLoading(false)
+            scrollToBottom()
+            return
+          }
+          setMessages((prev) => [
+            ...prev,
+            { role: 'assistant', text: 'That Host model id is not recognized. Open the model menu and select Host AI again.' },
+          ])
+          setIsLoading(false)
+          scrollToBottom()
+          return
+        }
+
+        if (!isDashboard && isHostInternalChatModelId(modelId, availableModels)) {
+          const hostMsgsDiffExt = buildHostInternalMessagesFromSimpleChat(newMessages, {
+            docCtx: null,
+            focusPrefix: focusPrefixDiff,
+            useFreshPayload: false,
+            freshUserContent: enrichedForRouteDiff,
+            lastUserImageUrl: null,
+            ocrText: '',
+          })
+          const persistedDiff = loadPersistedWrChatExtensionModel()
+          const rDiff = await runWrChatHostInferenceForExtensionSurface({
+            origin: extInferenceOrigin,
+            selectedModelId: modelId,
+            availableModels,
+            hostMessages: hostMsgsDiffExt,
+            baseUrl: BASE_URL,
+            headers: buildHeaders(secret),
+            fallbackUsed: persistedDiff?.selectionSource === 'auto',
+          })
+          setMessages((prev) => [...prev, { role: 'assistant', text: rDiff.assistantText }])
+          setIsLoading(false)
+          scrollToBottom()
+          return
+        }
 
         const [processedMessagesRaw, processFlow] = await Promise.all([
           mapChatToLlmMessages(newMessages, secret, { isDashboard }),
@@ -1968,7 +2186,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               const modelToUse = match.agentBoxModel || modelId
               if (wrChatEmbedContext !== 'dashboard') {
                 wrChatExtensionDebugLog('before_api_llm_chat', {
-                  origin: 'popup_wrchat',
+                  origin: extInferenceOrigin,
                   modelId: modelToUse,
                   hasProviderKey: false,
                   statusPath: 'agent_diff',
@@ -2033,7 +2251,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           const butlerMessages = [{ role: 'system', content: butlerPrompt }, ...processedMessages]
           if (wrChatEmbedContext !== 'dashboard') {
             wrChatExtensionDebugLog('before_api_llm_chat', {
-              origin: 'popup_wrchat',
+              origin: extInferenceOrigin,
               modelId: modelId,
               hasProviderKey: false,
               statusPath: 'butler_diff',
@@ -2072,9 +2290,13 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         }
       } catch (err: any) {
         console.error('[PopupChat] handleDiffMessage error:', err)
+        const localTip =
+          resolveWrChatExecutionTransport(modelId, availableModels) === 'local_ollama'
+            ? `\n\nTip: Make sure Ollama is running and a trusted model is installed in LLM Settings.`
+            : ''
         setMessages((prev) => [
           ...prev,
-          { role: 'assistant', text: `❌ Error: ${err?.message || 'Unknown error'}` },
+          { role: 'assistant', text: `❌ Error: ${err?.message || 'Unknown error'}${localTip}` },
         ])
       } finally {
         setIsLoading(false)

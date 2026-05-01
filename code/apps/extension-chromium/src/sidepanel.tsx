@@ -87,6 +87,12 @@ import {
   clearPersistedWrChatExtensionModel,
 } from './lib/wrChatExtensionModelPersistence'
 import { runWrChatExtensionPreSend, wrChatExtensionDebugLog } from './lib/wrChatExtensionPreSend'
+import { isHostInternalChatModelId } from './lib/inferenceSubmitRouting'
+import {
+  buildHostInternalMessagesFromSimpleChat,
+  resolveWrChatExecutionTransport,
+  runWrChatHostInferenceForExtensionSurface,
+} from './lib/wrChatHostInferenceShared'
 import { runAgentBoxInferencePreSend } from './lib/agentBoxInferencePreSend'
 import { getVaultStatus } from './vault/api'
 import type { ClientSendFailureDebug, OutboundRequestDebugSnapshot } from './handshake/handshakeRpc'
@@ -3427,6 +3433,50 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         ? `${mergedContextPrefixTrigger}\n\n${enrichedTriggerText}`
         : enrichedTriggerText
 
+      if (isHostInternalChatModelId(currentModel, availableModels)) {
+        await ensureLaunchSecret()
+        const headers = electronFetchHeaders()
+        const rowTrig = availableModels.find((m) => m.name === currentModel)
+        if (rowTrig?.hostAi && rowTrig.hostAvailable === false) {
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              role: 'assistant' as const,
+              text: "This Host model is not available. Pick another model or check the model and AI settings on the Host machine.",
+            },
+          ])
+          setIsLlmLoading(false)
+          return
+        }
+        const hostMsgsTrig = buildHostInternalMessagesFromSimpleChat(
+          newMessages as Parameters<typeof buildHostInternalMessagesFromSimpleChat>[0],
+          {
+            docCtx: null,
+            focusPrefix: mergedContextPrefixTrigger,
+            useFreshPayload: false,
+            freshUserContent: enrichedTriggerTextForLlm,
+            lastUserImageUrl: effectiveImageUrl,
+            ocrText,
+          },
+        )
+        const persistedTrig = loadPersistedWrChatExtensionModel()
+        const rTrig = await runWrChatHostInferenceForExtensionSurface({
+          origin: 'sidebar_wrchat',
+          selectedModelId: currentModel,
+          availableModels,
+          hostMessages: hostMsgsTrig,
+          baseUrl,
+          headers,
+          fallbackUsed: persistedTrig?.selectionSource === 'auto',
+        })
+        setChatMessages((prev) => [...prev, { role: 'assistant' as const, text: rTrig.assistantText }])
+        setTimeout(() => {
+          if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+        }, 0)
+        setIsLlmLoading(false)
+        return
+      }
+
       // Route the input with OCR-enriched text
       const routingDecision = await routeInput(
         enrichedTriggerTextForLlm,
@@ -3621,9 +3671,13 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
       
     } catch (error: any) {
       console.error('[Sidepanel] Error processing trigger:', error)
+      const localTip =
+        resolveWrChatExecutionTransport(currentModel, availableModels) === 'local_ollama'
+          ? '\n\nTip: Make sure Ollama is running and a trusted model is installed in LLM Settings.'
+          : ''
       setChatMessages(prev => [...prev, {
         role: 'assistant' as const,
-        text: `⚠️ Error: ${error.message || 'Failed to process trigger'}`
+        text: `⚠️ Error: ${error.message || 'Failed to process trigger'}${localTip}`
       }])
     } finally {
       setIsLlmLoading(false)
@@ -3973,6 +4027,62 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         ? `${mergedContextPrefix}\n\n${enrichedRouteText}`
         : enrichedRouteText
 
+      if (isHostInternalChatModelId(effectiveLlmModel, availableModels)) {
+        await ensureLaunchSecret()
+        const headers = electronFetchHeaders()
+        const rowHost = availableModels.find((m) => m.name === effectiveLlmModel)
+        if (rowHost?.hostAi && rowHost.hostAvailable === false) {
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              role: 'assistant' as const,
+              text: "This Host model is not available. Pick another model or check the model and AI settings on the Host machine.",
+            },
+          ])
+          setIsLlmLoading(false)
+          return
+        }
+        let hostMsgsSidebar = buildHostInternalMessagesFromSimpleChat(
+          newMessages as Parameters<typeof buildHostInternalMessagesFromSimpleChat>[0],
+          {
+            docCtx: docCtx ? { name: docCtx.name, text: docCtx.text } : null,
+            focusPrefix: mergedContextPrefix,
+            useFreshPayload: false,
+            freshUserContent: enrichedRouteTextForLlm,
+            lastUserImageUrl: currentTurnImageUrl ?? null,
+            ocrText,
+          },
+        )
+        if (beapAttachmentLlmPrefix) {
+          hostMsgsSidebar = [...hostMsgsSidebar]
+          for (let i = hostMsgsSidebar.length - 1; i >= 0; i--) {
+            if (hostMsgsSidebar[i].role === 'user') {
+              hostMsgsSidebar[i] = {
+                ...hostMsgsSidebar[i],
+                content: `${beapAttachmentLlmPrefix}\n\n${hostMsgsSidebar[i].content}`,
+              }
+              break
+            }
+          }
+        }
+        const persistedHost = loadPersistedWrChatExtensionModel()
+        const rSidebar = await runWrChatHostInferenceForExtensionSurface({
+          origin: 'sidebar_wrchat',
+          selectedModelId: effectiveLlmModel,
+          availableModels,
+          hostMessages: hostMsgsSidebar,
+          baseUrl,
+          headers,
+          fallbackUsed: persistedHost?.selectionSource === 'auto',
+        })
+        setChatMessages((prev) => [...prev, { role: 'assistant' as const, text: rSidebar.assistantText }])
+        appendOptSidebarIfOpt('assistant', rSidebar.assistantText)
+        routeAssistantToInboxIfPending(rSidebar.assistantText)
+        scrollToBottom()
+        setIsLlmLoading(false)
+        return
+      }
+
       // =================================================================
       // STEP 3: ROUTE INPUT + BUILD LLM MESSAGES (in parallel)
       // routeInput decides which agents receive the input.
@@ -4158,8 +4268,10 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
       
       if (errorMsg.includes('No models installed') || errorMsg.includes('Please go to LLM Settings')) {
         errorMsg = `⚠️ No LLM model installed!\n\nTo get started:\n1. Click Admin toggle at top\n2. Go to LLM Settings\n3. Install a trusted lightweight model:\n   • TinyLlama (0.6GB) - Recommended\n   • Gemma 2B Q2_K (0.9GB) - Google\n   • StableLM (1.0GB) - Stability AI\n\nThen come back and chat!`
-      } else {
+      } else if (resolveWrChatExecutionTransport(effectiveLlmModel, availableModels) === 'local_ollama') {
         errorMsg = `⚠️ Error: ${errorMsg}\n\nTip: Make sure Ollama is running and a trusted model is installed in LLM Settings.`
+      } else {
+        errorMsg = `⚠️ Error: ${errorMsg}`
       }
       
       setChatMessages(prev => [...prev, { role: 'assistant' as const, text: errorMsg }])

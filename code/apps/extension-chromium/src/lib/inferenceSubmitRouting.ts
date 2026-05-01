@@ -82,6 +82,8 @@ export function formatInternalInferenceErrorCode(
     /** BEAP ingest / top-chat path not ready — prefer LAN ODL model rows when BEAP blocks. */
     HOST_AI_DIRECT_PEER_BEAP_MISSING:
       'Host AI · BEAP / top-chat ingest is not available on this pairing. Pick a Host model that uses direct LAN Ollama, fix Host BEAP advertisement, or use Refresh (↻).',
+    HOST_INTERNAL_REQUIRES_SANDBOX:
+      'Host WR Chat from the browser extension needs WR Desk running in sandbox mode with a paired Host. Use dashboard WR Chat or a local/cloud model here.',
   }
   if (M[c]) return M[c]!
   const fb = messageFallback?.trim()
