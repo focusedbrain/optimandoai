@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   classifyInboxRowForAi,
   inboxRowIsClonedPlainEmail,
-  logInboxReplyTransportResolution,
+  logInboxReplyTransportDecision,
   resolveInboxReplyTransport,
   resolveInboxReplyTransportMeta,
 } from '../inboxAiCloneClassification'
@@ -70,7 +70,7 @@ describe('inboxAiCloneClassification', () => {
         beap_package_json: null,
       }
       expect(resolveInboxReplyTransport(row)).toBe('email')
-      expect(resolveInboxReplyTransportMeta(row).routerReason).toBe('source_email_plain_or_depackaged_storage')
+      expect(resolveInboxReplyTransportMeta(row).routerReason).toBe('source_type_email_plain')
     })
 
     it('direct_beap + clone provenance original email_plain → email (sandbox P2P clone of plain mail)', () => {
@@ -87,7 +87,22 @@ describe('inboxAiCloneClassification', () => {
         beap_package_json: null,
       }
       expect(resolveInboxReplyTransport(row)).toBe('email')
-      expect(resolveInboxReplyTransportMeta(row).routerReason).toBe('sandbox_p2p_clone_of_plain_email')
+      expect(resolveInboxReplyTransportMeta(row).routerReason).toBe('sandbox_clone_plain_email_provenance')
+    })
+
+    it('direct_beap + depackaged_json inbox_sandbox_clone_provenance original_source_type email_plain → email', () => {
+      const dep = JSON.stringify({
+        inbox_sandbox_clone_provenance: { original_source_type: 'email_plain' },
+      })
+      const row = {
+        source_type: 'direct_beap',
+        handshake_id: 'hs1',
+        depackaged_json: dep,
+        body_text: '',
+        beap_package_json: null,
+      }
+      expect(inboxRowIsClonedPlainEmail(row)).toBe(true)
+      expect(resolveInboxReplyTransport(row)).toBe('email')
     })
 
     it('direct_beap without clone provenance → native_beap', () => {
@@ -117,7 +132,7 @@ describe('inboxAiCloneClassification', () => {
       expect(resolveInboxReplyTransport(row)).toBe('native_beap')
     })
 
-    it('depackaged storage label → email (legacy ingest)', () => {
+    it('unknown source_type without clone provenance → native_beap (not email from source_type alone)', () => {
       const row = {
         source_type: 'depackaged',
         handshake_id: null,
@@ -125,10 +140,10 @@ describe('inboxAiCloneClassification', () => {
         body_text: '',
         beap_package_json: null,
       }
-      expect(resolveInboxReplyTransport(row)).toBe('email')
+      expect(resolveInboxReplyTransport(row)).toBe('native_beap')
     })
 
-    it('email transport stays email when From is empty (UI must fail closed; no BEAP fallback)', () => {
+    it('email_plain keeps email transport when From is empty (UI fail-closed; resolver unchanged)', () => {
       const row = {
         source_type: 'email_plain',
         handshake_id: null,
@@ -140,8 +155,8 @@ describe('inboxAiCloneClassification', () => {
     })
   })
 
-  describe('logInboxReplyTransportResolution', () => {
-    it('logs structured payload without throwing', () => {
+  describe('logInboxReplyTransportDecision', () => {
+    it('logs messageId, source_type, clone flag, transport, selectedPath (no bodies)', () => {
       const spy = vi.spyOn(console, 'info').mockImplementation(() => {})
       const row = {
         source_type: 'direct_beap',
@@ -152,19 +167,22 @@ describe('inboxAiCloneClassification', () => {
         body_text: '',
         beap_package_json: null,
       }
-      logInboxReplyTransportResolution(row, {
+      logInboxReplyTransportDecision(row, {
         messageId: 'mid-1',
         phase: 'send_draft',
-        derivedMessageKind: 'depackaged',
-        hasFromAddress: true,
-        accountId: 'acc-1',
+        selectedPath: 'email_send',
       })
       expect(spy).toHaveBeenCalled()
       const raw = String(spy.mock.calls[0]?.[0] ?? '')
-      expect(raw).toContain('[INBOX_REPLY_TRANSPORT]')
-      expect(raw).toContain('mid-1')
-      expect(raw).toContain('email')
-      expect(raw).not.toContain('@')
+      const idx = raw.indexOf('{')
+      expect(idx).toBeGreaterThan(-1)
+      const o = JSON.parse(raw.slice(idx)) as Record<string, unknown>
+      expect(o.messageId).toBe('mid-1')
+      expect(o.source_type).toBe('direct_beap')
+      expect(o.inboxRowIsClonedPlainEmail).toBe(true)
+      expect(o.resolvedReplyTransport).toBe('email')
+      expect(o.selectedPath).toBe('email_send')
+      expect(o.phase).toBe('send_draft')
       spy.mockRestore()
     })
   })

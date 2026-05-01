@@ -125,8 +125,8 @@ export function classifyInboxRowForAi(row: InboxMessageAiClassificationRow): { i
 export type InboxReplyTransport = 'email' | 'native_beap'
 
 export type InboxReplyTransportRouterReason =
-  | 'source_email_plain_or_depackaged_storage'
-  | 'sandbox_p2p_clone_of_plain_email'
+  | 'source_type_email_plain'
+  | 'sandbox_clone_plain_email_provenance'
   | 'default_native_beap'
 
 export type InboxReplyTransportResolutionMeta = {
@@ -135,18 +135,17 @@ export type InboxReplyTransportResolutionMeta = {
 }
 
 /**
- * Same semantic gate as AI/kind classification: plain-email origin always uses email transport,
- * including sandbox P2P rows stored as `direct_beap` with clone provenance of `email_plain`.
- *
- * `depackaged` is treated like `email_plain` for transport (legacy storage label).
+ * Outbound reply/send transport: never gate on `source_type === 'direct_beap'` alone.
+ * Returns `email` when the row is stored as plain mail OR is a sandbox/P2P clone whose provenance
+ * says the original Host row was `email_plain` (see {@link inboxRowIsClonedPlainEmail}).
  */
 export function resolveInboxReplyTransportMeta(row: InboxMessageAiClassificationRow): InboxReplyTransportResolutionMeta {
   const st = String(row.source_type ?? '')
-  if (st === 'email_plain' || st === 'depackaged') {
-    return { transport: 'email', routerReason: 'source_email_plain_or_depackaged_storage' }
+  if (st === 'email_plain') {
+    return { transport: 'email', routerReason: 'source_type_email_plain' }
   }
   if (inboxRowIsClonedPlainEmail(row)) {
-    return { transport: 'email', routerReason: 'sandbox_p2p_clone_of_plain_email' }
+    return { transport: 'email', routerReason: 'sandbox_clone_plain_email_provenance' }
   }
   return { transport: 'native_beap', routerReason: 'default_native_beap' }
 }
@@ -155,41 +154,32 @@ export function resolveInboxReplyTransport(row: InboxMessageAiClassificationRow)
   return resolveInboxReplyTransportMeta(row).transport
 }
 
-export type LogInboxReplyTransportInput = {
-  messageId: string
-  phase: 'reply' | 'send_draft'
-  /** Set when known (e.g. after listing accounts). Omit / null when not applicable or unknown. */
-  accountId?: string | null
-  /** True only if code incorrectly fell back to BEAP after choosing email (should stay false). */
-  fallbackUsed?: boolean
-  derivedMessageKind?: 'handshake' | 'depackaged' | null
-  hasFromAddress: boolean
-}
+/** Temporary debug: which UX/IPC path was selected after transport resolution. */
+export type InboxReplySelectedPath = 'email_send' | 'native_beap_compose' | 'blocked_missing_email_metadata'
 
-/**
- * Structured observability for reply/send routing. Avoids logging full addresses, bodies, or payloads.
- */
-export function logInboxReplyTransportResolution(
+export function logInboxReplyTransportDecision(
   row: InboxMessageAiClassificationRow,
-  input: LogInboxReplyTransportInput,
+  opts: {
+    messageId: string
+    phase: 'reply' | 'send_draft'
+    selectedPath: InboxReplySelectedPath
+  },
 ): void {
-  const { transport, routerReason } = resolveInboxReplyTransportMeta(row)
-  const clonedPlain = inboxRowIsClonedPlainEmail(row)
   const st = String(row.source_type ?? '')
+  const clonedPlain = inboxRowIsClonedPlainEmail(row)
+  const transport = resolveInboxReplyTransport(row)
   const payload = {
-    scope: 'inbox_reply_transport',
-    messageId: input.messageId,
-    phase: input.phase,
+    messageId: opts.messageId,
     source_type: st,
-    resolvedReplyTransport: transport,
-    routerReason,
     inboxRowIsClonedPlainEmail: clonedPlain,
-    derivedMessageKind: input.derivedMessageKind ?? null,
-    hasFromAddress: input.hasFromAddress,
-    hasRecipient: input.hasFromAddress,
-    accountId: input.accountId ?? null,
-    fallbackUsed: input.fallbackUsed ?? false,
+    resolvedReplyTransport: transport,
+    selectedPath: opts.selectedPath,
+    phase: opts.phase,
   }
   // eslint-disable-next-line no-console
   console.info(`[INBOX_REPLY_TRANSPORT] ${JSON.stringify(payload)}`)
 }
+
+/** User-visible / toast copy when `resolveInboxReplyTransport` is `email` but SMTP metadata is missing. */
+export const INBOX_EMAIL_REPLY_METADATA_MISSING =
+  'Cannot send email reply because email metadata is missing'

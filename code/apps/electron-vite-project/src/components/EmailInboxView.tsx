@@ -62,7 +62,8 @@ import { tryParsePartialAnalysis, tryParseAnalysis, tryParseAnalysisWithMeta, ty
 import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import {
-  logInboxReplyTransportResolution,
+  INBOX_EMAIL_REPLY_METADATA_MISSING,
+  logInboxReplyTransportDecision,
   resolveInboxReplyTransport,
 } from '../lib/inboxAiCloneClassification'
 import { autosortDiagLog, DEBUG_AUTOSORT_DIAGNOSTICS } from '../lib/autosortDiagnostics'
@@ -3314,20 +3315,24 @@ export default function EmailInboxView({
   )
 
   const handleReply = useCallback((msg: InboxMessage) => {
-    const derivedKind = deriveInboxMessageKind(msg)
     const replyTransport = resolveInboxReplyTransport(msg)
+    const shouldSendEmail = replyTransport === 'email'
     const hasFrom = !!msg.from_address?.trim()
-    logInboxReplyTransportResolution(msg, {
-      messageId: msg.id,
-      phase: 'reply',
-      derivedMessageKind: derivedKind,
-      hasFromAddress: hasFrom,
-    })
-    if (replyTransport === 'email') {
+    if (shouldSendEmail) {
       if (!hasFrom) {
-        setSendEmailToast({ type: 'error', message: 'No sender address for reply' })
+        logInboxReplyTransportDecision(msg, {
+          messageId: msg.id,
+          phase: 'reply',
+          selectedPath: 'blocked_missing_email_metadata',
+        })
+        setSendEmailToast({ type: 'error', message: INBOX_EMAIL_REPLY_METADATA_MISSING })
         return
       }
+      logInboxReplyTransportDecision(msg, {
+        messageId: msg.id,
+        phase: 'reply',
+        selectedPath: 'email_send',
+      })
       setComposeMode('email')
       setComposeReplyTo({
         to: msg.from_address || '',
@@ -3336,56 +3341,65 @@ export default function EmailInboxView({
       })
       return
     }
+    logInboxReplyTransportDecision(msg, {
+      messageId: msg.id,
+      phase: 'reply',
+      selectedPath: 'native_beap_compose',
+    })
     setAiPanelCollapsed(false)
     useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
   }, [])
 
   const handleSendDraft = useCallback(
     async (draft: string, msg: InboxMessage, attachments?: DraftAttachment[]): Promise<boolean> => {
-      const derivedKind = deriveInboxMessageKind(msg)
       const replyTransport = resolveInboxReplyTransport(msg)
-      const hasFrom = !!msg.from_address?.trim()
+      const shouldSendEmail = replyTransport === 'email'
 
-      if (replyTransport === 'native_beap') {
-        logInboxReplyTransportResolution(msg, {
+      if (!shouldSendEmail) {
+        logInboxReplyTransportDecision(msg, {
           messageId: msg.id,
           phase: 'send_draft',
-          derivedMessageKind: derivedKind,
-          hasFromAddress: hasFrom,
+          selectedPath: 'native_beap_compose',
         })
         navigator.clipboard?.writeText(draft).catch(() => {})
         setComposeMode('beap')
         return false
       }
 
-      logInboxReplyTransportResolution(msg, {
-        messageId: msg.id,
-        phase: 'send_draft',
-        derivedMessageKind: derivedKind,
-        hasFromAddress: hasFrom,
-      })
-
       const to = msg.from_address?.trim()
       if (!to) {
-        setSendEmailToast({ type: 'error', message: 'No sender address' })
+        logInboxReplyTransportDecision(msg, {
+          messageId: msg.id,
+          phase: 'send_draft',
+          selectedPath: 'blocked_missing_email_metadata',
+        })
+        setSendEmailToast({ type: 'error', message: INBOX_EMAIL_REPLY_METADATA_MISSING })
         return false
       }
       if (typeof window.emailAccounts?.listAccounts !== 'function' || typeof window.emailAccounts?.sendEmail !== 'function') {
-        setSendEmailToast({ type: 'error', message: 'Email send not available' })
+        logInboxReplyTransportDecision(msg, {
+          messageId: msg.id,
+          phase: 'send_draft',
+          selectedPath: 'blocked_missing_email_metadata',
+        })
+        setSendEmailToast({ type: 'error', message: INBOX_EMAIL_REPLY_METADATA_MISSING })
         return false
       }
       const accountsRes = await window.emailAccounts.listAccounts()
       if (!accountsRes?.ok || !accountsRes.data?.length) {
-        setSendEmailToast({ type: 'error', message: 'No email account connected' })
+        logInboxReplyTransportDecision(msg, {
+          messageId: msg.id,
+          phase: 'send_draft',
+          selectedPath: 'blocked_missing_email_metadata',
+        })
+        setSendEmailToast({ type: 'error', message: INBOX_EMAIL_REPLY_METADATA_MISSING })
         return false
       }
       const accountId = accountsRes.data[0].id
-      logInboxReplyTransportResolution(msg, {
+      logInboxReplyTransportDecision(msg, {
         messageId: msg.id,
         phase: 'send_draft',
-        derivedMessageKind: derivedKind,
-        hasFromAddress: true,
-        accountId,
+        selectedPath: 'email_send',
       })
       const subject = msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject || '(No subject)'}`
       const fullBody = (draft || '').trim() + '\n\n—\nAutomate your inbox. Try wrdesk.com\nhttps://wrdesk.com'
