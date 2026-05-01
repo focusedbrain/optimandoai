@@ -3807,7 +3807,12 @@ Rules:
         let qbeapReply: string | null = null
         let pbeapReply: string | null = null
 
-        if (incomingQbeap.trim().length > 0) {
+        /** Skip LLM when the incoming field has no meaningful text (cloned/depackaged rows often lack qbeap). */
+        const MIN_INCOMING_FIELD_CHARS = 20
+        const qbeapTrimmed = (incomingQbeap ?? '').trim()
+        const pbeapTrimmed = (incomingPbeap ?? '').trim()
+
+        if (qbeapTrimmed.length >= MIN_INCOMING_FIELD_CHARS) {
           const qbeapUserPrompt = `You are replying to one specific field (qbeap — the inner / encrypted-facing layer) from an email.
 
 From: ${sender}
@@ -3826,6 +3831,11 @@ Write a reply specifically to the qbeap field above. Output ONLY the reply text.
             })
           ).trim()
           qbeapReply = out ? out.slice(0, 8000) : null
+        } else {
+          console.log(
+            `[AI-DRAFT] qbeap call skipped: incoming qbeap empty or too short (${qbeapTrimmed.length} chars, need ${MIN_INCOMING_FIELD_CHARS})`,
+          )
+          qbeapReply = null
         }
         console.log('[AI-DRAFT] Native BEAP qbeap reply length:', (qbeapReply ?? '').trim().length)
 
@@ -3835,7 +3845,7 @@ Write a reply specifically to the qbeap field above. Output ONLY the reply text.
           }) as { ok: false; error: string; message: string }
         }
 
-        if (incomingPbeap.trim().length > 0) {
+        if (pbeapTrimmed.length >= MIN_INCOMING_FIELD_CHARS) {
           const pbeapUserPrompt = `You are replying to one specific field (pbeap — the public / transport-facing layer) from an email.
 
 From: ${sender}
@@ -3854,6 +3864,11 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
             })
           ).trim()
           pbeapReply = out ? out.slice(0, 4000) : null
+        } else {
+          console.log(
+            `[AI-DRAFT] pbeap call skipped: incoming pbeap empty or too short (${pbeapTrimmed.length} chars, need ${MIN_INCOMING_FIELD_CHARS})`,
+          )
+          pbeapReply = null
         }
         console.log('[AI-DRAFT] Native BEAP pbeap reply length:', (pbeapReply ?? '').trim().length)
 
@@ -3874,8 +3889,8 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
         console.log(
           `[AI-DRAFT] Native BEAP per-field diagnostics ${JSON.stringify({
             contentTask: 'draft+draft',
-            incomingPbeapLen: incomingPbeap.trim().length,
-            incomingQbeapLen: incomingQbeap.trim().length,
+            incomingPbeapLen: pbeapTrimmed.length,
+            incomingQbeapLen: qbeapTrimmed.length,
             qbeapReplyLen: qTrim.length,
             pbeapReplyLen: pTrim.length,
             model: aiExecDraft?.model ?? '',
@@ -4190,30 +4205,62 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
     'archiveReason',
   ] as const
 
-  function parsedAnalysisKeys(text: string): string[] {
-    const start = text.indexOf('{')
-    const end = text.lastIndexOf('}')
-    if (start < 0 || end <= start) return []
+  const MIN_ANALYSIS_REQUIRED_KEYS_PRESENT = 3
+
+  function parseAnalysisJsonObjectFromStreamText(text: string): Record<string, unknown> | null {
+    const trimmed = text.trim()
+    if (!trimmed) return null
+    const start = trimmed.indexOf('{')
+    const end = trimmed.lastIndexOf('}')
+    if (start < 0 || end <= start) return null
     try {
-      const parsed = JSON.parse(text.slice(start, end + 1)) as unknown
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? Object.keys(parsed) : []
+      const parsed = JSON.parse(trimmed.slice(start, end + 1)) as unknown
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+      return parsed as Record<string, unknown>
     } catch {
-      return []
+      return null
     }
   }
 
+  function requiredAnalysisKeyPresent(parsed: Record<string, unknown>, k: string): boolean {
+    if (!Object.prototype.hasOwnProperty.call(parsed, k)) return false
+    const v = parsed[k]
+    if (v === null || v === undefined) return false
+    if (k === 'actionItems') return Array.isArray(v)
+    if (k === 'needsReply') return typeof v === 'boolean'
+    if (k === 'urgencyScore') return typeof v === 'number' && Number.isFinite(v)
+    if (typeof v === 'string') return v.trim().length > 0
+    return true
+  }
+
+  /** Accepts partial JSON: production UX prefers showing some fields over failing the stream. */
   function assertMinimumAnalysisOutput(text: string): void {
-    const keys = parsedAnalysisKeys(text)
-    const missing = REQUIRED_ANALYSIS_KEYS.filter((k) => !keys.includes(k))
-    if (text.trim().length < 200 && missing.length > 0) {
+    const UNPARSEABLE_SHORT_MAX = 50
+    const parsed = parseAnalysisJsonObjectFromStreamText(text)
+    if (!parsed) {
+      if (text.trim().length < UNPARSEABLE_SHORT_MAX) {
+        throw new Error(`Analysis output unparseable and too short (${text.trim().length} chars)`)
+      }
+      return
+    }
+    const allKeys = Object.keys(parsed)
+    if (allKeys.length <= 1) {
+      throw new Error(`Analysis output too sparse: expected a fuller JSON object, got a single-key object`)
+    }
+    const present = REQUIRED_ANALYSIS_KEYS.filter((k) => requiredAnalysisKeyPresent(parsed, k))
+    if (present.length < MIN_ANALYSIS_REQUIRED_KEYS_PRESENT) {
+      const missing = REQUIRED_ANALYSIS_KEYS.filter((k) => !present.includes(k))
       console.warn(
         `[INBOX_ANALYSIS_TOO_SHORT] ${JSON.stringify({
           cumulativeChars: text.length,
-          parsedKeys: keys,
+          parsedKeys: allKeys,
+          presentRequiredKeys: present,
           missingKeys: missing,
         })}`,
       )
-      throw new Error(`Analysis output too short (${text.length} chars) and missing required keys: ${missing.join(', ')}`)
+      throw new Error(
+        `Analysis output too sparse: only ${present.length}/${REQUIRED_ANALYSIS_KEYS.length} required keys with usable values (${missing.slice(0, 6).join(', ')}${missing.length > 6 ? ', …' : ''})`,
+      )
     }
   }
 

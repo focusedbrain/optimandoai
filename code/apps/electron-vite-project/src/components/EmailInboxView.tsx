@@ -5,7 +5,7 @@
  * When message selected: right = 50/50 message + AI workspace.
  */
 
-import { useEffect, useCallback, useState, useRef, useMemo, type MouseEvent } from 'react'
+import { useEffect, useCallback, useState, useRef, useMemo, type CSSProperties, type MouseEvent } from 'react'
 import EmailInboxToolbar from './EmailInboxToolbar'
 import { emailInboxSyncWindowSelectValue } from './EmailInboxSyncControls'
 import EmailMessageDetail from './EmailMessageDetail'
@@ -197,9 +197,9 @@ function resolveNativeBeapDraftFields(data: NativeBeapDraftData): {
 
 /**
  * Maps `inbox:aiAnalyzeMessageError` payloads to banners. Main uses `buildInboxAiAnalyzeErrorPayload`:
- * — `LLM_TIMEOUT`/`InboxLlmTimeoutError` → `inboxErrorCode: 'timeout'`, legacy `error: 'timeout'`
- * — Abort stream → thrown `LLM_ABORTED` retained on `payload.message`
- * — `assertMinimumAnalysisOutput` → message includes `Analysis output too short` / `[INBOX_ANALYSIS_TOO_SHORT]`
+ * — `LLM_TIMEOUT`/`InboxLlmTimeoutError` → `inboxErrorCode: 'timeout'`
+ * — Abort stream → `LLM_ABORTED` on `payload.message`
+ * — `assertMinimumAnalysisOutput` → sparse / unparseable analysis (still surfaced softly in UI)
  */
 function inboxAnalyzeStreamPrivilegedBannerMessage(payload: {
   error?: string
@@ -211,15 +211,70 @@ function inboxAnalyzeStreamPrivilegedBannerMessage(payload: {
   const errField = typeof payload.error === 'string' ? payload.error : ''
 
   if (code === 'timeout' || errField === 'timeout' || raw.startsWith('LLM_TIMEOUT')) {
-    return 'Analysis took too long (>45s) and timed out. The host may be busy. Try again.'
+    return 'Analysis is taking longer than usual. Try again when convenient.'
   }
   if (raw === 'LLM_ABORTED' || raw.startsWith('LLM_ABORTED')) {
-    return 'Analysis was cancelled.'
+    return 'Analysis stopped. You can try again if you still need it.'
   }
-  if (raw.includes('Analysis output too short') || raw.includes('[INBOX_ANALYSIS_TOO_SHORT]')) {
-    return 'The AI returned an incomplete response. Try again or check that your model is responding properly.'
+  if (
+    raw.includes('Analysis output too') ||
+    raw.includes('too sparse') ||
+    raw.includes('unparseable') ||
+    raw.includes('[INBOX_ANALYSIS_TOO_SHORT]')
+  ) {
+    return 'Analysis unavailable for this message. Try again or continue without it.'
   }
   return null
+}
+
+/** Calm, non-alarming copy for the analysis notice (maps legacy / technical strings from IPC helpers). */
+function softenAnalysisBannerMessage(message: string): string {
+  const m = message.trim()
+  if (!m) return ''
+  if (m.startsWith('Analysis is taking longer') || m.startsWith('Analysis stopped') || m.startsWith('Analysis unavailable')) {
+    return m
+  }
+  if (/LLM_TIMEOUT|timed out|timeout/i.test(m) && /analysis|ollama/i.test(m)) {
+    return 'Analysis is taking longer than usual. Try again when convenient.'
+  }
+  if (/cancelled|aborted|LLM_ABORTED/i.test(m)) {
+    return 'Analysis stopped. You can try again if you still need it.'
+  }
+  if (/too short|too sparse|unparseable|incomplete|INBOX_ANALYSIS/i.test(m)) {
+    return 'Analysis unavailable for this message. Try again or continue without it.'
+  }
+  if (/Select an AI model first/i.test(m)) return m
+  if (/not reachable|unreachable/i.test(m)) {
+    return 'Analysis is not available right now. Check your connection and try again.'
+  }
+  if (/AI generation failed|generation failed/i.test(m)) {
+    return 'Could not analyze this message. Try again when convenient.'
+  }
+  if (/Database error|Database unavailable/i.test(m)) {
+    return 'Analysis could not run. Try again in a moment.'
+  }
+  return 'Could not analyze this message. Try again when convenient.'
+}
+
+const analysisSoftNoticeBarStyle: CSSProperties = {
+  marginBottom: 10,
+  fontSize: 12,
+  lineHeight: 1.5,
+  color: '#64748b',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  flexWrap: 'wrap',
+}
+
+const analysisSoftNoticeRetryStyle: CSSProperties = {
+  fontSize: 12,
+  color: '#64748b',
+  textDecoration: 'underline',
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  padding: 0,
 }
 
 /** AI preview line for list rows — aligns with Bulk (summary / reason / sort_reason). */
@@ -1380,13 +1435,20 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           </div>
         ) : null}
         {analysisError && !analysisStreamParseFailed ? (
-          <div className="inbox-detail-ai-error-banner">
-            <span>{analysisError}</span>
-            <button type="button" onClick={handleRetryAnalysis} disabled={analysisLoading}>Retry</button>
+          <div style={analysisSoftNoticeBarStyle} role="note">
+            <span>{softenAnalysisBannerMessage(analysisError)}</span>
+            <button
+              type="button"
+              onClick={handleRetryAnalysis}
+              disabled={analysisLoading}
+              style={analysisSoftNoticeRetryStyle}
+            >
+              Try again
+            </button>
             {import.meta.env.DEV && inboxAiAnalyzeDebug && (
               <pre
                 className="inbox-detail-ai-debug-json"
-                style={{ marginTop: 8, fontSize: 11, opacity: 0.85, whiteSpace: 'pre-wrap' }}
+                style={{ marginTop: 8, fontSize: 11, opacity: 0.85, whiteSpace: 'pre-wrap', width: '100%' }}
               >
                 {JSON.stringify(inboxAiAnalyzeDebug, null, 2)}
               </pre>
@@ -1403,14 +1465,21 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           <div className="inbox-detail-ai-section inbox-detail-ai-section--tab-panel">
             <div className="ai-analysis-body">
             {analysisStreamParseFailed && (
-              <div className="inbox-detail-ai-error-banner" style={{ marginBottom: 12 }}>
-                <span>
-                  Analysis unavailable — the AI response could not be parsed. Check the developer console for{' '}
-                  <code style={{ fontSize: '0.95em' }}>[INBOX_ANALYSIS_PARSE_FAIL]</code>.
-                </span>
-                <button type="button" onClick={handleRetryAnalysis} disabled={analysisLoading}>
-                  Retry
+              <div style={{ ...analysisSoftNoticeBarStyle, marginBottom: 12 }} role="note">
+                <span>We couldn&apos;t read the analysis for this message. Try again if you need it.</span>
+                <button
+                  type="button"
+                  onClick={handleRetryAnalysis}
+                  disabled={analysisLoading}
+                  style={analysisSoftNoticeRetryStyle}
+                >
+                  Try again
                 </button>
+                {import.meta.env.DEV && (
+                  <span className="inbox-detail-ai-muted" style={{ fontSize: 11 }}>
+                    See console <code>[INBOX_ANALYSIS_PARSE_FAIL]</code>
+                  </span>
+                )}
               </div>
             )}
             {/* Response Needed */}
@@ -1422,7 +1491,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                 ) : analysis ? (
                   <span className="inbox-detail-ai-response-needed">
                     <span className="inbox-detail-ai-dot" style={{ background: analysis.needsReply ? '#ef4444' : '#22c55e' }} />
-                    {analysis.needsReply ? 'Yes' : 'No'} — {analysis.needsReplyReason || '—'}
+                    {analysis.needsReply ? 'Yes' : 'No'}
+                    {(analysis.needsReplyReason || '').trim() ? ` — ${analysis.needsReplyReason}` : ''}
                   </span>
                 ) : (
                   <span className="inbox-detail-ai-muted">—</span>
@@ -1430,21 +1500,20 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
               </div>
             </div>
 
-            {/* Summary */}
-            <div className="inbox-detail-ai-row" ref={summaryRef}>
-              <span className="inbox-detail-ai-row-label">Summary</span>
-              <div className="inbox-detail-ai-row-value">
-                {summarizeLoading ? (
-                  <span className="inbox-detail-ai-skeleton-inline" style={{ width: '80%' }} aria-busy="true" />
-                ) : analysisLoading && !receivedFields.has('summary') ? (
-                  <span className="inbox-detail-ai-skeleton-inline" style={{ width: '80%' }} />
-                ) : analysis?.summary ? (
-                  <span className="inbox-detail-ai-text">{analysis.summary}</span>
-                ) : (
-                  <span className="inbox-detail-ai-muted">—</span>
-                )}
+            {(analysisLoading || !!(analysis?.summary ?? '').trim()) && (
+              <div className="inbox-detail-ai-row" ref={summaryRef}>
+                <span className="inbox-detail-ai-row-label">Summary</span>
+                <div className="inbox-detail-ai-row-value">
+                  {summarizeLoading ? (
+                    <span className="inbox-detail-ai-skeleton-inline" style={{ width: '80%' }} aria-busy="true" />
+                  ) : analysisLoading && !receivedFields.has('summary') ? (
+                    <span className="inbox-detail-ai-skeleton-inline" style={{ width: '80%' }} />
+                  ) : analysis?.summary ? (
+                    <span className="inbox-detail-ai-text">{analysis.summary}</span>
+                  ) : null}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Urgency */}
             <div className="inbox-detail-ai-row">
@@ -1456,7 +1525,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                   <InboxUrgencyMeter
                     score={analysis.urgencyScore}
                     variant="panel"
-                    reason={analysis.urgencyReason || '—'}
+                    reason={(analysis.urgencyReason || '').trim() ? analysis.urgencyReason : '—'}
                   />
                 ) : (
                   <span className="inbox-detail-ai-muted">—</span>
@@ -1464,7 +1533,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
               </div>
             </div>
 
-            {/* Action Items */}
+            {/* Action Items — omit row when idle and empty */}
+            {(analysisLoading || !!(analysis?.actionItems && analysis.actionItems.length > 0)) && (
             <div className="inbox-detail-ai-row">
               <span className="inbox-detail-ai-row-label">Action Items</span>
               <div className="inbox-detail-ai-row-value">
@@ -1479,11 +1549,10 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                       </li>
                     ))}
                   </ul>
-                ) : (
-                  <span className="inbox-detail-ai-muted">None.</span>
-                )}
+                ) : null}
               </div>
             </div>
+            )}
 
             {/* Suggested action */}
             <div className="inbox-detail-ai-row">
@@ -1495,8 +1564,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                   <>
                     <span className="inbox-detail-ai-text">
                       {analysis.archiveRecommendation === 'archive'
-                        ? `Consider archiving — ${analysis.archiveReason || '—'}`
-                        : `Keep for now — ${analysis.archiveReason || '—'}`}
+                        ? `Consider archiving${(analysis.archiveReason || '').trim() ? ` — ${analysis.archiveReason}` : ''}`
+                        : `Keep for now${(analysis.archiveReason || '').trim() ? ` — ${analysis.archiveReason}` : ''}`}
                     </span>
                     {analysis.archiveRecommendation === 'archive' && onArchive && (
                       <button
