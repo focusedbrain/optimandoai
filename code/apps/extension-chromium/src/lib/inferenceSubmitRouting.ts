@@ -83,7 +83,7 @@ export function formatInternalInferenceErrorCode(
     HOST_AI_DIRECT_PEER_BEAP_MISSING:
       'Host AI · BEAP / top-chat ingest is not available on this pairing. Pick a Host model that uses direct LAN Ollama, fix Host BEAP advertisement, or use Refresh (↻).',
     HOST_INTERNAL_REQUIRES_SANDBOX:
-      'Host WR Chat from the browser extension needs WR Desk running in sandbox mode with a paired Host. Use dashboard WR Chat or a local/cloud model here.',
+      'Host WR Chat (extension) needs this device to be the sandbox peer in an active internal Host handshake (same rule as Hybrid Search). Use dashboard WR Chat or pick a local/cloud model.',
   }
   if (M[c]) return M[c]!
   const fb = messageFallback?.trim()

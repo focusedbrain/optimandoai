@@ -27,6 +27,7 @@ import { registerOrchestratorIPC } from './main/orchestrator/ipc'
 import { broadcastOrchestratorModeChanged } from './main/orchestrator/broadcastModeChange'
 import {
   ensurePairingCodeRegistered,
+  getInstanceId,
   getOrchestratorMode,
   isSandboxMode,
   regeneratePairingCode,
@@ -9554,19 +9555,95 @@ async function runDeviceKeyMigration(
     // POST /api/llm/host-internal-completion — Sandbox WR Chat / extension: same execution as `internal-inference:requestCompletion` (no local Ollama).
     httpApp.post('/api/llm/host-internal-completion', async (req, res) => {
       try {
-        if (!isSandboxMode()) {
+        const body = req.body ?? {}
+        const handshake_id = typeof body.handshake_id === 'string' ? body.handshake_id.trim() : ''
+        const messages = body.messages
+        const target_id_raw = typeof body.target_id === 'string' ? body.target_id.trim() : ''
+        const debugOrigin =
+          typeof body.debug_wrchat_origin === 'string' ? body.debug_wrchat_origin.trim().slice(0, 48) : ''
+
+        const resolveAi = await import('./main/llm/resolveAiExecutionContext')
+        const dbAccess = await import('./main/internalInference/dbAccess')
+        const hostAiEffectiveRole = await import('./main/internalInference/hostAiEffectiveRole')
+        const { getHandshakeRecord, listHandshakeRecords } = await import('./main/handshake/db')
+        const { HandshakeState } = await import('./main/handshake/types')
+        const { peerCoordinationDeviceId } = await import('./main/internalInference/policy')
+        const { readStoredAiExecutionContext } = await import('./main/llm/aiExecutionContextStore')
+
+        const om = getOrchestratorMode()
+        const inst = getInstanceId().trim()
+        const persistedSandbox = isSandboxMode()
+        const db = await dbAccess.getHandshakeDbForInternalInference()
+        const ledger = hostAiEffectiveRole.getHostAiLedgerRoleSummaryFromDb(db, inst, String(om.mode))
+        const internalRows =
+          db != null
+            ? listHandshakeRecords(db as any, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })
+            : []
+        const rec = db && handshake_id ? getHandshakeRecord(db, handshake_id) : null
+        const peerHostForHandshake = rec ? peerCoordinationDeviceId(rec) : null
+        let executionContextLane: string | null = null
+        let executionContextModel: string | null = null
+        try {
+          const storedCtx = readStoredAiExecutionContext()
+          executionContextLane = storedCtx?.lane != null ? String(storedCtx.lane) : null
+          executionContextModel =
+            typeof storedCtx?.model === 'string' && storedCtx.model.trim() ? storedCtx.model.trim() : null
+        } catch {
+          /* noop */
+        }
+
+        const effectiveSandbox = await resolveAi.isEffectiveSandboxSideForAiExecution()
+
+        const guardLogBase = {
+          tag: 'HOST_INTERNAL_WRCHAT_GUARD',
+          origin: debugOrigin || null,
+          selectedModelId: target_id_raw || null,
+          resolvedExecutionTransport: 'host_cross_device' as const,
+          sandboxModePersisted: persistedSandbox,
+          sandboxModeSource: 'orchestrator-mode.json:mode===sandbox',
+          hasPairedHost: effectiveSandbox,
+          pairedHostSource:
+            'resolveAiExecutionContext.isEffectiveSandboxSideForAiExecution (persisted sandbox OR ledger.can_probe_host_endpoint)',
+          ledgerCanProbeHost: ledger.can_probe_host_endpoint,
+          ledgerEffectiveHostAiRole: ledger.effective_host_ai_role,
+          ledgerOrchestratorMismatch: ledger.any_orchestrator_mismatch,
+          hostTargetId: target_id_raw || null,
+          targetDeviceId: peerHostForHandshake?.trim() || null,
+          handshakeId: handshake_id || null,
+          internalHandshakeId: handshake_id || null,
+          hostTargetChecking: false,
+          gavHostTargetsCount: internalRows.length,
+          executionContextModel,
+          executionContextLane,
+        }
+
+        console.log(`[HOST_INTERNAL_WRCHAT_GUARD] ${JSON.stringify({ ...guardLogBase, guardResult: 'precheck' })}`)
+
+        if (!effectiveSandbox) {
+          console.log(
+            `[HOST_INTERNAL_WRCHAT_GUARD] ${JSON.stringify({
+              ...guardLogBase,
+              guardResult: 'reject',
+              guardFailureReason: 'not_effective_sandbox_side_for_host_ai',
+            })}`,
+          )
           res.status(400).json({
             ok: false,
             error:
-              'Host-internal WR Chat completion requires WR Desk in sandbox mode with a paired Host.',
+              'Host-internal WR Chat requires this device to be the sandbox peer in an active internal handshake with a Host (same ledger check as Hybrid Search). If you use Host AI here, set orchestrator mode to Sandbox or repair the internal pairing in Handshakes.',
             code: 'HOST_INTERNAL_REQUIRES_SANDBOX',
           })
           return
         }
-        const body = req.body ?? {}
-        const handshake_id = typeof body.handshake_id === 'string' ? body.handshake_id.trim() : ''
-        const messages = body.messages
+
         if (!handshake_id || !Array.isArray(messages) || messages.length < 1) {
+          console.log(
+            `[HOST_INTERNAL_WRCHAT_GUARD] ${JSON.stringify({
+              ...guardLogBase,
+              guardResult: 'reject',
+              guardFailureReason: 'missing_handshake_or_messages',
+            })}`,
+          )
           res.status(400).json({ ok: false, error: 'handshake_id and messages[] required' })
           return
         }
@@ -9580,6 +9657,11 @@ async function runDeviceKeyMigration(
             return
           }
         }
+
+        console.log(
+          `[HOST_INTERNAL_WRCHAT_GUARD] ${JSON.stringify({ ...guardLogBase, guardResult: 'pass', guardFailureReason: null })}`,
+        )
+
         const model =
           typeof body.model === 'string' && body.model.trim() ? body.model.trim().slice(0, 200) : undefined
         const execution_transport =

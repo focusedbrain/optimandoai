@@ -145,6 +145,8 @@ export async function postWrChatHostInternalCompletionHttp(args: {
   execution_transport?: 'ollama_direct'
   timeoutMs?: number
   targetId?: string
+  /** Logged by main-process guard only; no message bodies. */
+  debugWrchatOrigin?: WrChatSubmitOrigin
 }): Promise<
   | { ok: true; output: string; model?: string }
   | { ok: false; code?: string; message: string }
@@ -163,6 +165,9 @@ export async function postWrChatHostInternalCompletionHttp(args: {
         execution_transport: args.execution_transport,
         timeout_ms: args.timeoutMs ?? 120_000,
         target_id: args.targetId ?? args.handshakeId,
+        ...(args.debugWrchatOrigin
+          ? { debug_wrchat_origin: args.debugWrchatOrigin }
+          : {}),
       }),
       signal: AbortSignal.timeout(Math.min((args.timeoutMs ?? 120_000) + 15_000, 620_000)),
     })
@@ -237,6 +242,7 @@ export async function runWrChatHostInferenceForExtensionSurface(opts: {
     execution_transport,
     timeoutMs: 120_000,
     targetId: opts.selectedModelId,
+    debugWrchatOrigin: opts.origin,
   })
 
   if (post.ok) {
