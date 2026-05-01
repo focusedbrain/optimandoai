@@ -89,7 +89,7 @@ describe('inboxAiCloneClassification', () => {
         beap_package_json: null,
       }
       expect(resolveInboxReplyTransport(row)).toBe('email')
-      expect(resolveInboxReplyTransportMeta(row).routerReason).toBe('sandbox_clone_plain_email_provenance')
+      expect(resolveInboxReplyTransportMeta(row).routerReason).toBe('original_source_type_email_plain')
     })
 
     it('direct_beap + depackaged_json inbox_sandbox_clone_provenance original_source_type email_plain → email', () => {
@@ -105,6 +105,56 @@ describe('inboxAiCloneClassification', () => {
       }
       expect(inboxRowIsClonedPlainEmail(row)).toBe(true)
       expect(resolveInboxReplyTransport(row)).toBe('email')
+    })
+
+    it('direct_beap + provenance original_response_path email → email', () => {
+      const dep = JSON.stringify({
+        inbox_sandbox_clone_provenance: {
+          original_source_type: 'direct_beap',
+          original_response_path: 'email',
+        },
+      })
+      const row = {
+        source_type: 'direct_beap',
+        handshake_id: 'hs1',
+        depackaged_json: dep,
+        body_text: '',
+        beap_package_json: null,
+      }
+      expect(resolveInboxReplyMode(row)).toBe('email')
+      expect(resolveInboxReplyTransportMeta(row).routerReason).toBe('original_response_path_email')
+    })
+
+    it('direct_beap + provenance reply_transport email → email', () => {
+      const dep = JSON.stringify({
+        inbox_sandbox_clone_provenance: {
+          original_source_type: 'direct_beap',
+          reply_transport: 'email',
+        },
+      })
+      const row = {
+        source_type: 'direct_beap',
+        handshake_id: 'hs1',
+        depackaged_json: dep,
+        body_text: '',
+        beap_package_json: null,
+      }
+      expect(resolveInboxReplyMode(row)).toBe('email')
+      expect(resolveInboxReplyTransportMeta(row).routerReason).toBe('reply_transport_email')
+    })
+
+    it('direct_beap + handshake_id + top-level sandbox original_source_type email_plain → email', () => {
+      const row = {
+        source_type: 'direct_beap',
+        sandbox_clone: true,
+        original_source_type: 'email_plain',
+        handshake_id: 'hs1',
+        depackaged_json: null,
+        body_text: '',
+        beap_package_json: null,
+      }
+      expect(resolveInboxReplyMode(row)).toBe('email')
+      expect(resolveInboxReplyTransportMeta(row).routerReason).toBe('original_source_type_email_plain')
     })
 
     it('direct_beap without clone provenance → native_beap', () => {
@@ -183,8 +233,10 @@ describe('inboxAiCloneClassification', () => {
       const o = JSON.parse(raw.slice(idx)) as Record<string, unknown>
       expect(o.messageId).toBe('mid-1')
       expect(o.source_type).toBe('direct_beap')
+      expect(o.sandboxClone).toBe(true)
+      expect(o.original_source_type).toBe('email_plain')
       expect(o.inboxRowIsClonedPlainEmail).toBe(true)
-      expect(o.resolvedReplyTransport).toBe('email')
+      expect(o.resolvedResponsePath).toBe('email')
       expect(o.selectedPath).toBe('email_send')
       expect(o.phase).toBe('send_draft')
       spy.mockRestore()

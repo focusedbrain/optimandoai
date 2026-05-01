@@ -259,7 +259,11 @@ describe('prepareBeapInboxSandboxClone', () => {
     expect(r.ok).toBe(true)
     if (r.ok) {
       expect(r.source_type).toBe('email_plain')
+      expect(r.original_response_path).toBe('email')
+      expect(r.reply_transport).toBe('email')
       expect(r.encrypted_text).toContain('plain body')
+      expect(r.encrypted_text).toContain('"original_response_path":"email"')
+      expect(r.encrypted_text).toContain('"reply_transport":"email"')
     }
   })
 
@@ -285,6 +289,8 @@ describe('prepareBeapInboxSandboxClone', () => {
     expect(r.ok).toBe(true)
     if (r.ok) {
       expect(r.source_type).toBe('email_plain')
+      expect(r.original_response_path).toBe('email')
+      expect(r.reply_transport).toBe('email')
       expect(r.encrypted_text).toContain('body for clone')
     }
   })

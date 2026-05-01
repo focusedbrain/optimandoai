@@ -32,6 +32,8 @@ function buildCloneMetadata(
         clone_reason: p.clone_reason,
         original_message_id: p.source_message_id,
         original_inbox_source_type: p.source_type,
+        original_response_path: p.original_response_path,
+        reply_transport: p.reply_transport,
         original_sender: p.from_address ?? null,
         original_received_at: p.original_received_at ?? null,
         cloned_at: atIso,
@@ -54,6 +56,8 @@ function buildCloneMetadata(
 export type BeapInboxCloneAuditMetadata = {
   original_message_id: string
   original_source_type: string
+  original_response_path: 'email' | 'native_beap'
+  reply_transport: 'email' | 'native_beap'
   original_sender: string | null
   original_received_at: string | null
   cloned_at: string
@@ -126,6 +130,8 @@ export async function cloneBeapInboxToSandbox(
   const cloneMetadata: BeapInboxCloneAuditMetadata = {
     original_message_id: preparePayload.source_message_id,
     original_source_type: preparePayload.source_type,
+    original_response_path: preparePayload.original_response_path,
+    reply_transport: preparePayload.reply_transport,
     original_sender: preparePayload.from_address ?? null,
     original_received_at: preparePayload.original_received_at ?? null,
     cloned_at: at,

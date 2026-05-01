@@ -1414,6 +1414,16 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
   const usesEmailReplyTransport = replyMode === 'email'
 
+  useEffect(() => {
+    if (!message) return
+    logInboxReplyTransportDecision(message, {
+      messageId,
+      phase: 'render',
+      selectedPath: replyMode === 'email' ? 'email_send' : 'native_beap_compose',
+      selectedUiSchema: replyMode,
+    })
+  }, [message, messageId, replyMode])
+
   const inboxAiWorkInFlight = analysisLoading || draftLoading
   /** Combined / single-flight labels shown in `inbox-detail-ai-loading`. */
   const inboxAiWorkLabel =

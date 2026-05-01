@@ -10,6 +10,8 @@ export interface BeapInboxClonePrepareOk {
   ok?: true
   source_message_id: string
   source_type: string
+  original_response_path: 'email' | 'native_beap'
+  reply_transport: 'email' | 'native_beap'
   original_handshake_id: string | null
   original_received_at: string | null
   subject: string

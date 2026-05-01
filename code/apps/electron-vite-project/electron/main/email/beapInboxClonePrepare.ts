@@ -5,6 +5,7 @@
 
 import { extractInboxMessageRedirectSourceFromRow } from './beapRedirectSource'
 import { getHandshakeRecord } from '../handshake/db'
+import { resolveInboxReplyMode } from '../../../src/lib/inboxAiCloneClassification'
 import {
   isEligibleActiveInternalHostSandboxRecord,
   listAvailableInternalSandboxes,
@@ -16,6 +17,8 @@ export type BeapInboxClonePrepareOk = {
   ok: true
   source_message_id: string
   source_type: string
+  original_response_path: 'email' | 'native_beap'
+  reply_transport: 'email' | 'native_beap'
   original_handshake_id: string | null
   original_received_at: string | null
   subject: string
@@ -212,9 +215,14 @@ export function prepareBeapInboxSandboxClone(
       ? 'external_link_or_artifact_review'
       : 'sandbox_test'
   const provTriggered = (cloneOptions?.triggered_url ?? '').trim()
+  const originalResponsePath = resolveInboxReplyMode(row)
+  const replyTransport = originalResponsePath
   const provenance = {
     source_message_id: extracted.message_id,
     original_source_type: extracted.source_type,
+    original_response_path: originalResponsePath,
+    reply_transport: replyTransport,
+    sandbox_clone: true,
     original_handshake_id: extracted.original_handshake_id,
     clone_reason: reason,
     cloned_at: new Date().toISOString(),
@@ -242,6 +250,8 @@ export function prepareBeapInboxSandboxClone(
     ok: true,
     source_message_id: extracted.message_id,
     source_type: extracted.source_type,
+    original_response_path: originalResponsePath,
+    reply_transport: replyTransport,
     original_handshake_id: extracted.original_handshake_id,
     original_received_at: receivedAt,
     subject: extracted.subject,
