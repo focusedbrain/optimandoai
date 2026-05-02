@@ -24,6 +24,7 @@ import {
 } from './policy'
 import { getCanonHandshakeDbForHostAiPolicy } from './dbAccess'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
+import { buildHostOllamaDirectBaseUrl } from './hostAiOllamaDirectLanIp'
 import { resolveHostAiRemoteInferencePolicy } from './hostAiRemoteInferencePolicyResolve'
 import { InternalInferenceErrorCode } from './errors'
 import { ollamaManager } from '../llm/ollama-manager'
@@ -188,6 +189,13 @@ export async function handleGetInternalInferencePolicy(
       : 'Host AI · —'
 
   const hostDev = getInstanceId().trim()
+
+  // Provide the HOST's LAN Ollama URL so the Sandbox can route inference via ollama_direct even
+  // when the P2P/WebRTC capability exchange hasn't completed yet. Uses the Sandbox's client IP to
+  // pick the correct HOST LAN interface (same /24 preferred). Synchronous — no extra I/O.
+  const ollamaDirectBaseUrl = allowSandboxInference ? (buildHostOllamaDirectBaseUrl(ip) ?? null) : null
+  const ollamaDirectAvailable = allowSandboxInference && !!defaultChatModel && !!ollamaDirectBaseUrl
+
   console.log(
     `[HOST_AI_MODEL_ROSTER_RESPONSE] ${JSON.stringify({
       handshakeId,
@@ -197,6 +205,8 @@ export async function handleGetInternalInferencePolicy(
       source: 'ollama_list',
       cacheAgeMs: null,
       modelsCount: availableOllamaModels.length,
+      ollamaDirectBaseUrl: ollamaDirectBaseUrl ?? null,
+      ollamaDirectAvailable,
     })}`,
   )
 
@@ -217,6 +227,9 @@ export async function handleGetInternalInferencePolicy(
       directReachable: true,
       policyEnabled: allowSandboxInference,
       inferenceErrorCode,
+      ollamaDirectBaseUrl,
+      ollamaDirectAvailable,
+      endpointOwnerDeviceId: hostDev,
     }),
   )
 }

@@ -126,23 +126,17 @@ function parseAndValidateDirectBaseUrl(
 }
 
 /**
- * Validates Host `ollama_direct_*` fields and stores an internal route candidate when accepted.
- * Does not GET Ollama; does not affect chat execution.
+ * Core validation logic shared by wire-based and policy-response-based evaluation.
  */
-export function evaluateSandboxHostAiOllamaDirectFromCapabilitiesWire(p: {
-  handshakeId: string
-  currentDeviceId: string
-  peerHostDeviceId: string
-  wire: InternalInferenceCapabilitiesResultWire
+function evaluateSandboxHostAiOllamaDirectCore(p: {
+  hid: string
+  cur: string
+  peer: string
+  ownerRaw: string
+  baseUrlRaw: string
+  avail: boolean
 }): void {
-  const hid = String(p.handshakeId ?? '').trim()
-  const cur = String(p.currentDeviceId ?? '').trim()
-  const peer = String(p.peerHostDeviceId ?? '').trim()
-  const w = p.wire
-
-  const ownerRaw = typeof w.endpoint_owner_device_id === 'string' ? w.endpoint_owner_device_id.trim() : ''
-  const baseUrlRaw = typeof w.ollama_direct_base_url === 'string' ? w.ollama_direct_base_url.trim() : ''
-  const avail = w.ollama_direct_available === true
+  const { hid, cur, peer, ownerRaw, baseUrlRaw, avail } = p
 
   const emit = (
     accepted: boolean,
@@ -208,4 +202,48 @@ export function evaluateSandboxHostAiOllamaDirectFromCapabilitiesWire(p: {
     validated_at_ms: Date.now(),
   }
   emit(true, null, 'ollama_direct_candidate_accepted', cand)
+}
+
+/**
+ * Validates Host `ollama_direct_*` fields and stores an internal route candidate when accepted.
+ * Does not GET Ollama; does not affect chat execution.
+ */
+export function evaluateSandboxHostAiOllamaDirectFromCapabilitiesWire(p: {
+  handshakeId: string
+  currentDeviceId: string
+  peerHostDeviceId: string
+  wire: InternalInferenceCapabilitiesResultWire
+}): void {
+  const w = p.wire
+  evaluateSandboxHostAiOllamaDirectCore({
+    hid: String(p.handshakeId ?? '').trim(),
+    cur: String(p.currentDeviceId ?? '').trim(),
+    peer: String(p.peerHostDeviceId ?? '').trim(),
+    ownerRaw: typeof w.endpoint_owner_device_id === 'string' ? w.endpoint_owner_device_id.trim() : '',
+    baseUrlRaw: typeof w.ollama_direct_base_url === 'string' ? w.ollama_direct_base_url.trim() : '',
+    avail: w.ollama_direct_available === true,
+  })
+}
+
+/**
+ * Same validation as {@link evaluateSandboxHostAiOllamaDirectFromCapabilitiesWire} but accepts flat fields
+ * sourced from the HTTP policy response (GET /beap/internal-inference-policy) rather than the P2P wire.
+ * Called when the P2P capability exchange is unavailable and the policy fallback succeeds.
+ */
+export function evaluateSandboxHostAiOllamaDirectFromPolicyResponse(p: {
+  handshakeId: string
+  currentDeviceId: string
+  peerHostDeviceId: string
+  ollamaDirectAvailable: boolean
+  ollamaDirectBaseUrl: string
+  endpointOwnerDeviceId: string
+}): void {
+  evaluateSandboxHostAiOllamaDirectCore({
+    hid: String(p.handshakeId ?? '').trim(),
+    cur: String(p.currentDeviceId ?? '').trim(),
+    peer: String(p.peerHostDeviceId ?? '').trim(),
+    ownerRaw: String(p.endpointOwnerDeviceId ?? '').trim(),
+    baseUrlRaw: String(p.ollamaDirectBaseUrl ?? '').trim(),
+    avail: p.ollamaDirectAvailable === true,
+  })
 }

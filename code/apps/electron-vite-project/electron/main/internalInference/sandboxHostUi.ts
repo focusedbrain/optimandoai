@@ -52,7 +52,10 @@ import {
 } from './transport/decideInternalInferenceTransport'
 import { resolveHostAiRoute } from './transport/hostAiRouteResolve'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
-import { getSandboxOllamaDirectRouteCandidate } from './sandboxHostAiOllamaDirectCandidate'
+import {
+  evaluateSandboxHostAiOllamaDirectFromPolicyResponse,
+  getSandboxOllamaDirectRouteCandidate,
+} from './sandboxHostAiOllamaDirectCandidate'
 import { fetchSandboxOllamaDirectTags } from './sandboxHostAiOllamaDirectTags'
 import { logSbxHostAiRefreshDecision } from './sandboxHostAiListRefreshDecision'
 import {
@@ -430,6 +433,11 @@ export type HostInternalInferencePolicyPayload = {
   directReachable?: boolean
   policyEnabled?: boolean
   inferenceErrorCode?: string
+  /** HOST's LAN Ollama base URL (e.g. http://192.168.1.x:11434) for ollama_direct route. */
+  ollamaDirectBaseUrl?: string | null
+  ollamaDirectAvailable?: boolean
+  /** Coordination device ID of the Host that owns the Ollama endpoint. */
+  endpointOwnerDeviceId?: string
 }
 
 export type ProbeHostPolicyResult =
@@ -1379,6 +1387,22 @@ async function probeHostInferencePolicyFromSandboxImpl(
     if (letterOk) {
       p2pClassificationDetail(`classification=${letterOk}`)
     }
+
+    // When the Host includes its LAN Ollama URL, populate the ollama_direct route candidate so
+    // inference can proceed immediately without waiting for the P2P/WebRTC session.
+    const policyOllamaDirectBaseUrl = typeof j.ollamaDirectBaseUrl === 'string' ? j.ollamaDirectBaseUrl.trim() : ''
+    const policyEndpointOwnerDeviceId = typeof j.endpointOwnerDeviceId === 'string' ? j.endpointOwnerDeviceId.trim() : ''
+    if (policyOllamaDirectBaseUrl && policyEndpointOwnerDeviceId && peerHostDev) {
+      evaluateSandboxHostAiOllamaDirectFromPolicyResponse({
+        handshakeId: hid,
+        currentDeviceId: getInstanceId().trim(),
+        peerHostDeviceId: peerHostDev,
+        ollamaDirectAvailable: j.ollamaDirectAvailable === true,
+        ollamaDirectBaseUrl: policyOllamaDirectBaseUrl,
+        endpointOwnerDeviceId: policyEndpointOwnerDeviceId,
+      })
+    }
+
     return {
       ok: true as const,
       allowSandboxInference: allow,
