@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { tryParseP2pSignalRequest, P2P_SIGNAL_MAX_BODY_BYTES } from '../src/p2pSignal.ts'
 
 function iceBase(overrides: Record<string, unknown> = {}) {
@@ -144,6 +144,10 @@ describe('p2p_host_ai_direct_beap_ad', () => {
 })
 
 describe('p2p_host_ai_direct_beap_ad_request', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('accepts 60s ttl without endpoint_url', () => {
     const t0 = Date.now()
     const body = JSON.stringify({
@@ -163,6 +167,24 @@ describe('p2p_host_ai_direct_beap_ad_request', () => {
     if (r.ok) expect(r.signalType).toBe('p2p_host_ai_direct_beap_ad_request')
   })
 
+  it('accepts 90s ttl (Electron republish request)', () => {
+    const t0 = Date.now()
+    const body = JSON.stringify({
+      schema_version: 1,
+      signal_type: 'p2p_host_ai_direct_beap_ad_request',
+      handshake_id: 'h1',
+      correlation_id: 'c1',
+      session_id: 's1',
+      sender_device_id: 'dev-sand',
+      receiver_device_id: 'dev-host',
+      created_at: new Date(t0).toISOString(),
+      expires_at: new Date(t0 + 90_000).toISOString(),
+      owner_role: 'sandbox',
+    })
+    const r = tryParseP2pSignalRequest(body, P2P_SIGNAL_MAX_BODY_BYTES)
+    expect(r.ok).toBe(true)
+  })
+
   it('rejects owner_role host on request envelope', () => {
     const t0 = Date.now()
     const body = JSON.stringify({
@@ -180,5 +202,44 @@ describe('p2p_host_ai_direct_beap_ad_request', () => {
     const r = tryParseP2pSignalRequest(body, P2P_SIGNAL_MAX_BODY_BYTES)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('field_required')
+  })
+
+  it('accepts envelope when expires_at is slightly in the past (parse clock skew grace)', () => {
+    const t0 = 1_700_000_000_000
+    vi.useFakeTimers({ now: t0 })
+    const body = JSON.stringify({
+      schema_version: 1,
+      signal_type: 'p2p_host_ai_direct_beap_ad_request',
+      handshake_id: 'h1',
+      correlation_id: 'c1',
+      session_id: 's1',
+      sender_device_id: 'dev-sand',
+      receiver_device_id: 'dev-host',
+      created_at: new Date(t0 - 120_000).toISOString(),
+      expires_at: new Date(t0 - 30_000).toISOString(),
+      owner_role: 'sandbox',
+    })
+    const r = tryParseP2pSignalRequest(body, P2P_SIGNAL_MAX_BODY_BYTES)
+    expect(r.ok).toBe(true)
+  })
+
+  it('rejects envelope when expires_at is older than parse grace', () => {
+    const t0 = 1_700_000_000_000
+    vi.useFakeTimers({ now: t0 })
+    const body = JSON.stringify({
+      schema_version: 1,
+      signal_type: 'p2p_host_ai_direct_beap_ad_request',
+      handshake_id: 'h1',
+      correlation_id: 'c1',
+      session_id: 's1',
+      sender_device_id: 'dev-sand',
+      receiver_device_id: 'dev-host',
+      created_at: new Date(t0 - 200_000).toISOString(),
+      expires_at: new Date(t0 - 90_000).toISOString(),
+      owner_role: 'sandbox',
+    })
+    const r = tryParseP2pSignalRequest(body, P2P_SIGNAL_MAX_BODY_BYTES)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toBe('expired')
   })
 })

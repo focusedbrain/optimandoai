@@ -10,7 +10,7 @@ import { maybeHandleP2pInferenceRelaySignal } from './p2pSessionManagerStub'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeRecord } from '../handshake/db'
 import {
-  assertLedgerRolesSandboxToHost,
+  assertHostReceivesRequestFromSandbox,
   assertRecordForServiceRpc,
   coordinationDeviceIdForHandshakeDeviceRole,
 } from './policy'
@@ -132,21 +132,27 @@ async function handleHostAiDirectBeapAdRequestFromRelay(
   const sender = typeof p.sender_device_id === 'string' ? p.sender_device_id.trim() : ''
   const receiver = typeof p.receiver_device_id === 'string' ? p.receiver_device_id.trim() : ''
   const localId = getInstanceId().trim()
-  console.log(
-    `[HOST_AI_BEAP_AD_REQUEST_RECV] ${JSON.stringify({
-      handshakeId: hid,
-      senderDeviceId: sender,
-      receiverDeviceId: receiver,
-      localDeviceId: localId,
-      relayMessageId,
-    })}`,
-  )
-  if (!hid || localId !== receiver) {
+
+  const logReceived = (extra: Record<string, unknown>) => {
+    console.log(
+      `[HOST_AI_ENDPOINT_REPUBLISH_RECEIVED] ${JSON.stringify({
+        handshakeId: hid || null,
+        requesterDeviceId: sender || null,
+        localDeviceId: localId,
+        ...extra,
+      })}`,
+    )
+  }
+
+  if (!hid) {
+    logReceived({ validPairing: false, willPublish: false, reason: 'no_handshake' })
     return
   }
+
   const r0 = getHandshakeRecord(db, hid)
   const ar = assertRecordForServiceRpc(r0)
   if (!ar.ok) {
+    logReceived({ validPairing: false, willPublish: false, reason: 'not_active_internal' })
     console.log(
       `[HOST_AI_BEAP_AD_REQUEST_REJECTED] ${JSON.stringify({
         handshakeId: hid,
@@ -156,30 +162,49 @@ async function handleHostAiDirectBeapAdRequestFromRelay(
     )
     return
   }
-  if (!assertLedgerRolesSandboxToHost(ar.record).ok) {
+  const hostRecv = assertHostReceivesRequestFromSandbox(ar.record, sender)
+  if (!hostRecv.ok) {
+    logReceived({ validPairing: false, willPublish: false, reason: 'not_host_for_sandbox_peer' })
     console.log(
       `[HOST_AI_BEAP_AD_REQUEST_REJECTED] ${JSON.stringify({
         handshakeId: hid,
-        reason: 'not_sandbox_to_host_ledger',
+        reason: 'not_host_for_sandbox_peer',
+        code: hostRecv.code,
         relayMessageId,
       })}`,
     )
     return
   }
-  const expectSandbox = (coordinationDeviceIdForHandshakeDeviceRole(ar.record, 'sandbox') ?? '').trim()
   const expectHost = (coordinationDeviceIdForHandshakeDeviceRole(ar.record, 'host') ?? '').trim()
-  if (!expectSandbox || sender !== expectSandbox || localId !== expectHost) {
+  const pairingOk = Boolean(expectHost) && localId === expectHost && receiver === expectHost
+
+  if (!pairingOk) {
+    logReceived({
+      validPairing: false,
+      willPublish: false,
+      reason: 'wrong_host_target',
+    })
     console.log(
       `[HOST_AI_BEAP_AD_REQUEST_REJECTED] ${JSON.stringify({
         handshakeId: hid,
-        reason: 'wrong_parties',
-        expectedSandboxDeviceId: expectSandbox,
+        reason: 'wrong_host_target',
         expectedHostDeviceId: expectHost,
         relayMessageId,
       })}`,
     )
     return
   }
+
+  logReceived({ validPairing: true, willPublish: true })
+  console.log(
+    `[HOST_AI_BEAP_AD_REQUEST_RECV] ${JSON.stringify({
+      handshakeId: hid,
+      senderDeviceId: sender,
+      receiverDeviceId: receiver,
+      localDeviceId: localId,
+      relayMessageId,
+    })}`,
+  )
   const { publishHostAiDirectBeapAdvertisementsForEligibleHost } = await import('./hostAiDirectBeapAdPublish')
   await publishHostAiDirectBeapAdvertisementsForEligibleHost(db, {
     context: 'sandbox_peer_republish_request_ws',

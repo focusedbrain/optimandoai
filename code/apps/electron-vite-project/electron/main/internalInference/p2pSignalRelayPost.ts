@@ -140,6 +140,26 @@ function coordinationBaseUrl(db: any): string | null {
   return u || null
 }
 
+function parseCoordinationP2pSignalPostError(bodyText: string): string | undefined {
+  const t = typeof bodyText === 'string' ? bodyText.trim() : ''
+  if (!t) return undefined
+  try {
+    const o = JSON.parse(t) as Record<string, unknown>
+    if (typeof o.reason === 'string' && o.reason.trim()) {
+      return o.reason.trim()
+    }
+    if (typeof o.code === 'string' && o.code.trim()) {
+      return o.code.trim()
+    }
+    if (typeof o.error === 'string' && o.error.trim()) {
+      return o.error.trim()
+    }
+  } catch {
+    /* ignore */
+  }
+  return undefined
+}
+
 export function shouldSendHostAiP2pSignalViaCoordination(
   db: any,
   p2pEndpoint: string | null | undefined,
@@ -644,7 +664,8 @@ export async function postHostAiDirectBeapAdToCoordination(params: {
   }
 }
 
-const HOST_AI_DIRECT_BEAP_AD_REQUEST_TTL_MS = 60_000
+/** Within coordination `p2p_host_ai_direct_beap_ad_request` max TTL (120s); extra margin vs clock skew. */
+const HOST_AI_DIRECT_BEAP_AD_REQUEST_TTL_MS = 90_000
 
 export function buildHostAiDirectBeapAdRequestBody(params: {
   handshakeId: string
@@ -676,14 +697,19 @@ export async function postHostAiDirectBeapAdRequestToCoordination(params: {
   handshakeId: string
   senderDeviceId: string
   receiverDeviceId: string
-}): Promise<{ ok: boolean; status: number }> {
+}): Promise<{
+  ok: boolean
+  status: number
+  bodyText: string
+  errorBodyCode?: string
+}> {
   const base = coordinationBaseUrl(params.db)
   if (!base) {
-    return { ok: false, status: 0 }
+    return { ok: false, status: 0, bodyText: '' }
   }
   const token = getAccessToken()
   if (!token?.trim()) {
-    return { ok: false, status: 401 }
+    return { ok: false, status: 401, bodyText: '' }
   }
   const hid = params.handshakeId.trim()
   const sessionId = `host_ai_beap_ad_req:${hid}:${randomUUID()}`
@@ -696,8 +722,14 @@ export async function postHostAiDirectBeapAdRequestToCoordination(params: {
   const postFn = p2pSignalRelayPostTestHooks.post ?? postP2pSignalToCoordinationWithOptionalAuthRetry
   try {
     const res = await postFn(base, token.trim(), body)
-    return { ok: res.status === 200 || res.status === 202, status: res.status }
+    const errCode = res.status === 400 ? parseCoordinationP2pSignalPostError(res.bodyText) : undefined
+    return {
+      ok: res.status === 200 || res.status === 202,
+      status: res.status,
+      bodyText: res.bodyText,
+      errorBodyCode: errCode,
+    }
   } catch {
-    return { ok: false, status: 0 }
+    return { ok: false, status: 0, bodyText: '' }
   }
 }

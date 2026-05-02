@@ -124,12 +124,28 @@ export async function sandboxMaybeRequestHostDirectBeapAdvertisement(
       })}`,
     )
 
+    const relayBase = cfg.coordination_url?.trim() ?? ''
+    const relayEndpoint = relayBase ? `${relayBase.replace(/\/$/, '')}/beap/p2p-signal` : ''
+
     const postRes = await postHostAiDirectBeapAdRequestToCoordination({
       db,
       handshakeId: hid,
       senderDeviceId: dr.localCoordinationDeviceId,
       receiverDeviceId: dr.peerCoordinationDeviceId,
     })
+
+    console.log(
+      `[HOST_AI_ENDPOINT_REPUBLISH_REQUEST] ${JSON.stringify({
+        handshakeId: hid,
+        requesterDeviceId: dr.localCoordinationDeviceId,
+        targetDeviceId: dr.peerCoordinationDeviceId,
+        relayEndpoint,
+        payloadType: 'p2p_host_ai_direct_beap_ad_request',
+        status: postRes.ok ? 'ok' : `http_${postRes.status}`,
+        errorBodyCode: postRes.errorBodyCode ?? null,
+      })}`,
+    )
+
     if (!postRes.ok) {
       console.log(
         `[HOST_AI_PEER_ENDPOINT_MISSING] ${JSON.stringify({

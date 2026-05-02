@@ -7,6 +7,8 @@ import {
   resetP2pSignalRelayOutboundStateForTests,
   sendHostAiP2pSignalOutbound,
   P2P_SIGNAL_WIRE_SCHEMA_VERSION,
+  buildHostAiDirectBeapAdRequestBody,
+  postHostAiDirectBeapAdRequestToCoordination,
 } from '../p2pSignalRelayPost'
 
 const failMock = vi.fn()
@@ -351,5 +353,37 @@ describe('p2pSignalRelayPost', () => {
     })
     expect(failMock).not.toHaveBeenCalled()
     expect(n).toBe(3)
+  })
+
+  it('buildHostAiDirectBeapAdRequestBody: 90s TTL, sandbox owner_role, coordination signal_type', () => {
+    const body = buildHostAiDirectBeapAdRequestBody({
+      handshakeId: 'hs-req',
+      sessionId: 'host_ai_beap_ad_req:hs-req:x',
+      senderDeviceId: 'dev-sand',
+      receiverDeviceId: 'dev-host',
+    })
+    const p = JSON.parse(body) as Record<string, unknown>
+    expect(p.signal_type).toBe('p2p_host_ai_direct_beap_ad_request')
+    expect(p.owner_role).toBe('sandbox')
+    expect(p.schema_version).toBe(P2P_SIGNAL_WIRE_SCHEMA_VERSION)
+    const c0 = Date.parse(String(p.created_at))
+    const c1 = Date.parse(String(p.expires_at))
+    expect(c1 - c0).toBe(90_000)
+  })
+
+  it('postHostAiDirectBeapAdRequestToCoordination: 400 response exposes errorBodyCode from JSON reason', async () => {
+    p2pSignalRelayPostTestHooks.post = async () => ({
+      status: 400,
+      bodyText: JSON.stringify({ error: 'P2P_SIGNAL_REJECTED', reason: 'expired' }),
+    })
+    const r = await postHostAiDirectBeapAdRequestToCoordination({
+      db,
+      handshakeId: 'hs1',
+      senderDeviceId: 'a',
+      receiverDeviceId: 'b',
+    })
+    expect(r.ok).toBe(false)
+    expect(r.status).toBe(400)
+    expect(r.errorBodyCode).toBe('expired')
   })
 })

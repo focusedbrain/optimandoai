@@ -43,7 +43,7 @@ vi.mock('../hostAiEffectiveRole', () => ({
   }),
 }))
 
-const postReq = vi.hoisted(() => vi.fn(async () => ({ ok: true, status: 200 })))
+const postReq = vi.hoisted(() => vi.fn(async () => ({ ok: true, status: 200, bodyText: '' })))
 vi.mock('../p2pSignalRelayPost', () => ({
   postHostAiDirectBeapAdRequestToCoordination: (...a: unknown[]) => postReq(...a),
 }))

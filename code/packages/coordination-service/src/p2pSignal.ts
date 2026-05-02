@@ -24,6 +24,13 @@ export type P2pSignalType = (typeof P2P_SIGNAL_TYPES)[number]
 export const P2P_SIGNAL_SCHEMA_VERSION = 1
 export const P2P_SIGNAL_MAX_BODY_BYTES = 16_384
 
+/**
+ * Inbound parse-time grace for `expires_at` vs server clock.
+ * Mirrors Electron `WEBRTC_EXPIRY_CLOCK_SKEW_GRACE_MS` in relay consumer (`relayP2pSignalHandler.ts`)
+ * so same-principal devices with modest skew do not get `expired` → HTTP 400 on POST `/beap/p2p-signal`.
+ */
+export const P2P_SIGNAL_EXPIRY_PARSE_GRACE_MS = 60_000
+
 /** User-content / BEAP-inbox keys that must never appear in a p2p_signal body. */
 const FORBIDDEN_TOP_LEVEL_KEYS = new Set(['prompt', 'messages', 'completion', 'document', 'capsule'])
 
@@ -168,7 +175,7 @@ export function tryParseP2pSignalRequest(
     return { ok: false, reason: 'field_required', httpStatus: 400 }
   }
   const now = Date.now()
-  if (c1 < now) {
+  if (c1 < now - P2P_SIGNAL_EXPIRY_PARSE_GRACE_MS) {
     return { ok: false, reason: 'expired', httpStatus: 400 }
   }
   const ttl = c1 - c0
