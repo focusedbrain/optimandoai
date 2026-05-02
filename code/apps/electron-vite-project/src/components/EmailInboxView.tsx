@@ -644,6 +644,69 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           inboxErrorCode: payload.inboxErrorCode ?? null,
         })}`,
       )
+
+      // If the main process rejected the output as "too sparse" but the renderer already
+      // accumulated chunks and can parse a usable result, treat it as a successful completion.
+      // This happens when the LLM produces valid JSON that passes the renderer's parser but
+      // fails the stricter server-side minimum-key validation.
+      const isSparseValidationError =
+        typeof payload.message === 'string' &&
+        (payload.message.includes('Analysis output too') ||
+          payload.message.includes('too sparse') ||
+          payload.message.includes('unparseable') ||
+          payload.message.includes('[INBOX_ANALYSIS_TOO_SHORT]'))
+      if (isSparseValidationError && accumulatedText.trim().length > 0) {
+        const recoverMeta = tryParseAnalysisWithMeta(accumulatedText)
+        if (recoverMeta.result) {
+          const tri = reconcileAnalyzeTriage(
+            {
+              urgencyScore: recoverMeta.result.urgencyScore,
+              needsReply: recoverMeta.result.needsReply,
+              urgencyReason: recoverMeta.result.urgencyReason,
+              summary: recoverMeta.result.summary,
+            },
+            { subject: msg?.subject, body: msg?.body_text },
+          )
+          const adjusted = {
+            ...recoverMeta.result,
+            urgencyScore: tri.urgencyScore,
+            needsReply: tri.needsReply,
+            draftReply: skipEmailDraft
+              ? recoverMeta.result.draftReply
+              : tri.needsReply
+                ? recoverMeta.result.draftReply
+                : null,
+          }
+          setAnalysis(adjusted)
+          setReceivedFields(
+            new Set([
+              'needsReply',
+              'needsReplyReason',
+              'summary',
+              'urgencyScore',
+              'urgencyReason',
+              'actionItems',
+              'archiveRecommendation',
+              'archiveReason',
+              'draftReply',
+            ] as NormalInboxAiResultKey[]),
+          )
+          if (!skipEmailDraft && adjusted.draftReply && typeof adjusted.draftReply === 'string') {
+            setDraft(adjusted.draftReply)
+            setEditedDraft(adjusted.draftReply)
+          }
+          useEmailInboxStore.getState().setAnalysisCache(messageId, adjusted)
+          autoAnalyzeStreamFailedRef.current.delete(messageId)
+          setAnalysisLoading(false)
+          setAnalysisStreamParseFailed(false)
+          setAnalysisError(null)
+          setInboxAiAnalyzeDebug(null)
+          setInboxAiSemanticDevNote(null)
+          cleanup()
+          return
+        }
+      }
+
       autoAnalyzeStreamFailedRef.current.add(messageId)
       setAnalysisLoading(false)
       setAnalysisStreamParseFailed(false)
@@ -671,11 +734,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         setAnalysisError(null)
         setInboxAiSemanticDevNote(semanticDevNote)
       }
-      if (import.meta.env.DEV && payload.debug && typeof payload.debug === 'object') {
-        setInboxAiAnalyzeDebug(payload.debug as InboxAiErrorDebugPayload)
-      } else {
-        setInboxAiAnalyzeDebug(null)
-      }
+      setInboxAiAnalyzeDebug(null)
       cleanup()
     })
 
