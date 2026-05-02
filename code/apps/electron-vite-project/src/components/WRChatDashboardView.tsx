@@ -289,13 +289,13 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
           hostIdToTarget.set(r.id, r)
         }
       }
-      const fromGav = mapHostTargetsToGavModelEntries(discovered.gavForHook) as unknown as SelectorAvailableModel[]
-      const seen = new Set(discovered.models.map((m) => m.id))
-      const extras = fromGav.filter((row) => !seen.has(row.id))
-      const modelSource: SelectorAvailableModel[] = orderModelsLocalHostCloud([
-        ...discovered.models,
-        ...extras,
-      ])
+      const modelSource: SelectorAvailableModel[] =
+        !discovered.models.some((m) => m.type === 'host_internal') && discovered.gavForHook.length > 0
+          ? orderModelsLocalHostCloud([
+              ...discovered.models,
+              ...(mapHostTargetsToGavModelEntries(discovered.gavForHook) as unknown as SelectorAvailableModel[]),
+            ])
+          : discovered.models
       const baseRows = wrChatModelOptionsFromSelectorModels(modelSource) as WrChatModelOption[]
       const withSizes = baseRows.map((row) => {
         if (row.section !== 'local') {

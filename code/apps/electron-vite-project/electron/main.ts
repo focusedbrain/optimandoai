@@ -2458,6 +2458,14 @@ async function setupFileLogging() {
     if (!fs.default.existsSync(logDir)) {
       fs.default.mkdirSync(logDir, { recursive: true })
     }
+    // Rotate log if it exceeds 50 MB to prevent synchronous I/O bottlenecks
+    try {
+      const stat = fs.default.statSync(logPath)
+      if (stat.size > 50 * 1024 * 1024) {
+        const bakPath = logPath.replace('.log', `.${Date.now()}.bak`)
+        fs.default.renameSync(logPath, bakPath)
+      }
+    } catch { /* file not found — first run */ }
     // Write initial marker
     fs.default.appendFileSync(logPath, `\n===== Electron Console Log Started: ${new Date().toISOString()} =====\n`)
     
