@@ -20,6 +20,27 @@ vi.mock('../webrtc/webrtcTransportIpc', () => ({
   registerWebrtcTransportIpc: vi.fn(),
 }))
 
+vi.mock('../../orchestrator/orchestratorModeStore', () => ({
+  isHostMode: () => false,
+  isSandboxMode: () => true,
+}))
+
+vi.mock('../hostInferencePolicyStore', () => ({
+  getHostInternalInferencePolicy: () => ({}),
+  setHostInternalInferencePolicy: () => ({}),
+}))
+
+vi.mock('../sandboxRequest', () => ({
+  runSandboxPongTestFromHostHandshake: vi.fn(),
+}))
+
+vi.mock('../p2pSession/p2pInferenceSessionManager', () => ({
+  closeSession: vi.fn(),
+  ensureHostAiP2pSession: vi.fn(),
+  getSessionState: vi.fn(),
+  P2pSessionLogReason: { unknown: 'unknown' },
+}))
+
 const listSandboxHostInternalInferenceTargetsMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({
     ok: true as const,
@@ -30,6 +51,7 @@ const listSandboxHostInternalInferenceTargetsMock = vi.hoisted(() =>
 
 vi.mock('../listInferenceTargets', () => ({
   listSandboxHostInternalInferenceTargets: () => listSandboxHostInternalInferenceTargetsMock(),
+  invalidateProbeCache: vi.fn(),
 }))
 
 import {
@@ -85,5 +107,17 @@ describe('model selector lifecycle — listTargets IPC cache (two probes)', () =
     await dispatchListInferenceTargetsIpc(arg)
 
     expect(listSandboxHostInternalInferenceTargetsMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('forceRefresh bypasses IPC TTL cache within window', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const arg = { coalesceHandshakeId: 'hs-lifecycle-1' }
+    await dispatchListInferenceTargetsIpc(arg)
+    await dispatchListInferenceTargetsIpc({ ...arg, forceRefresh: true })
+
+    expect(listSandboxHostInternalInferenceTargetsMock).toHaveBeenCalledTimes(2)
+
+    logSpy.mockRestore()
   })
 })

@@ -40,8 +40,8 @@ export async function appendHostRowsFromListInference<T extends HostModelRow>(op
   }
   const inf = (window as unknown as {
     internalInference?: {
-      listTargets?: (opts?: { coalesceHandshakeId?: string }) => Promise<unknown>
-      listInferenceTargets?: (opts?: { coalesceHandshakeId?: string }) => Promise<unknown>
+      listTargets?: (opts?: { coalesceHandshakeId?: string; forceRefresh?: boolean }) => Promise<unknown>
+      listInferenceTargets?: (opts?: { coalesceHandshakeId?: string; forceRefresh?: boolean }) => Promise<unknown>
     }
   }).internalInference
   const listFn = typeof inf?.listTargets === 'function' ? inf.listTargets : inf?.listInferenceTargets

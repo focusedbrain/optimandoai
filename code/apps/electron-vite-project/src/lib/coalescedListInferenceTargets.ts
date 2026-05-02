@@ -30,10 +30,10 @@ export function resetCoalescedListInferenceTargetsForTests(): void {
 }
 
 /**
- * Single-flight + short TTL replay for list-targets IPC. Passes only `{ coalesceHandshakeId }` through to `listFn`.
+ * Single-flight + short TTL replay for list-targets IPC. Passes `{ coalesceHandshakeId, forceRefresh }` through to `listFn`.
  */
 export function coalescedListInferenceTargetsInvoke(
-  listFn: (opts?: { coalesceHandshakeId?: string }) => Promise<unknown>,
+  listFn: (opts?: { coalesceHandshakeId?: string; forceRefresh?: boolean }) => Promise<unknown>,
   opts?: CoalescedListInferenceInvokeOpts,
 ): Promise<unknown> {
   const key = cacheKey(opts)
@@ -56,12 +56,14 @@ export function coalescedListInferenceTargetsInvoke(
     return existing
   }
 
-  const ipcArg =
-    opts?.coalesceHandshakeId != null && String(opts.coalesceHandshakeId).trim()
-      ? { coalesceHandshakeId: String(opts.coalesceHandshakeId).trim() }
-      : undefined
-
-  const p = listFn(ipcArg)
+  const ipcArg: { coalesceHandshakeId?: string; forceRefresh?: boolean } = {}
+  if (opts?.coalesceHandshakeId != null && String(opts.coalesceHandshakeId).trim()) {
+    ipcArg.coalesceHandshakeId = String(opts.coalesceHandshakeId).trim()
+  }
+  if (bypassCache) {
+    ipcArg.forceRefresh = true
+  }
+  const p = listFn(Object.keys(ipcArg).length > 0 ? ipcArg : undefined)
     .then((result) => {
       recentlyCompleted.set(key, { result, at: Date.now() })
       return result

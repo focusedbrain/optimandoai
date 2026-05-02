@@ -68,6 +68,7 @@ export function buildSyntheticOkProbeFromOllamaDirectTags(
       hostDefaultModelSource = 'ollama_tags_primary_order'
       hostOllamaSyntheticFallbackUsed = true
     }
+    const hostAvailableModelIds = [...new Set(tagNames)].sort((a, b) => a.localeCompare(b))
     return {
       ...base,
       defaultChatModel: chosen,
@@ -76,6 +77,7 @@ export function buildSyntheticOkProbeFromOllamaDirectTags(
       inferenceErrorCode: undefined,
       hostDefaultModelSource,
       hostOllamaSyntheticFallbackUsed,
+      hostAvailableModelIds,
     }
   }
 

@@ -418,6 +418,8 @@ export function classifyP2pCapabilityProbeFailure(args: {
 export type HostInternalInferencePolicyPayload = {
   allowSandboxInference?: boolean
   defaultChatModel?: string
+  /** Ollama model ids installed on Host and allowed for remote inference (see Host GET handler). */
+  availableOllamaModels?: string[]
   provider?: string
   modelId?: string | null
   displayLabel?: string
@@ -458,6 +460,8 @@ export type ProbeHostPolicyResult =
         | 'http_internal_inference_policy'
       /** True when LAN `/api/tags` order was used despite a relay roster active hint (mismatch / missing tag). */
       hostOllamaSyntheticFallbackUsed?: boolean
+      /** From Host policy GET or capabilities wire — all selectable Host Ollama models for this handshake. */
+      hostAvailableModelIds?: string[]
     }
   | {
       ok: false
@@ -668,6 +672,7 @@ export function mapCapabilitiesWireToProbe(
         ? undefined
         : hostErr
       : hostErr ?? InternalInferenceErrorCode.PROBE_NO_MODELS
+  const hostAvailableModelIds = enabledModels.map((e) => String(e.model ?? '').trim()).filter(Boolean)
   return {
     ok: true,
     allowSandboxInference: allow,
@@ -683,6 +688,7 @@ export function mapCapabilitiesWireToProbe(
     policyEnabledFromHost: allow,
     inferenceErrorCode,
     hostDefaultModelSource: 'capabilities_wire',
+    hostAvailableModelIds: hostAvailableModelIds.length > 0 ? hostAvailableModelIds : undefined,
   }
 }
 
@@ -1332,6 +1338,26 @@ async function probeHostInferencePolicyFromSandboxImpl(
     const dcmFromLegacy = typeof j.defaultChatModel === 'string' && j.defaultChatModel.trim() ? j.defaultChatModel.trim() : undefined
     const dcmFromId = typeof j.modelId === 'string' && j.modelId.trim() ? j.modelId.trim() : undefined
     const dcm = dcmFromId ?? dcmFromLegacy
+    const rosterRaw = j.availableOllamaModels
+    let hostAvailableModelIds: string[] | undefined
+    if (Array.isArray(rosterRaw)) {
+      hostAvailableModelIds = [...new Set(rosterRaw.map((x) => String(x ?? '').trim()).filter(Boolean))]
+    }
+    if ((!hostAvailableModelIds || hostAvailableModelIds.length === 0) && dcm) {
+      hostAvailableModelIds = [dcm]
+    }
+    const peerHostDev = (coordinationDeviceIdForHandshakeDeviceRole(ar.record, 'host') ?? '').trim()
+    console.log(
+      `[HOST_AI_MODEL_ROSTER_RECEIVED] ${JSON.stringify({
+        handshakeId: hid,
+        peerHostDeviceId: peerHostDev || null,
+        modelsReceived: hostAvailableModelIds ?? [],
+        activeModelIdReceived: dcm ?? null,
+        source: 'http_internal_inference_policy',
+        cacheHit: false,
+        cacheAgeMs: 0,
+      })}`,
+    )
     let modelId: string | null | undefined
     if (j.modelId === null) {
       modelId = null
@@ -1369,6 +1395,7 @@ async function probeHostInferencePolicyFromSandboxImpl(
       inferenceErrorCode: infErr,
       p2pProbeClassification: letterOk,
       hostDefaultModelSource: 'http_internal_inference_policy',
+      hostAvailableModelIds,
     }
   } catch (e) {
     clearTimeout(timer)

@@ -62,11 +62,11 @@ export async function resolveModelForInternalInference(
     return { model: req }
   }
 
-  if (allowlist.length === 1) {
-    return { model: allowlist[0]! }
-  }
-
   if (allowlist.length > 0) {
+    const active = await ollamaManager.getEffectiveChatModelName()
+    if (active && names.has(active) && allowlist.includes(active)) {
+      return { model: active }
+    }
     return { model: allowlist[0]! }
   }
 

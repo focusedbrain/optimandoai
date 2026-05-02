@@ -591,10 +591,10 @@ function buildInternalInferenceRequestCompletionPayload(params: unknown) {
 contextBridge.exposeInMainWorld('internalInference', {
   listHostCandidates: () => ipcRenderer.invoke('internal-inference:listHostCandidates'),
   /** @deprecated Prefer `listTargets` — identical IPC. */
-  listInferenceTargets: (opts?: { coalesceHandshakeId?: string }) =>
+  listInferenceTargets: (opts?: { coalesceHandshakeId?: string; forceRefresh?: boolean }) =>
     ipcRenderer.invoke('internal-inference:listInferenceTargets', opts ?? {}),
   /** Host AI rows for Sandbox (same as `listInferenceTargets`). */
-  listTargets: (opts?: { coalesceHandshakeId?: string }) =>
+  listTargets: (opts?: { coalesceHandshakeId?: string; forceRefresh?: boolean }) =>
     ipcRenderer.invoke('internal-inference:listTargets', opts ?? {}),
   probeHostPolicy: (handshakeId: unknown) => {
     const id = typeof handshakeId === 'string' ? handshakeId.trim() : ''

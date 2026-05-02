@@ -151,10 +151,16 @@ export async function handleGetInternalInferencePolicy(
   const hostComputerName = (orchName || '').trim() || os.hostname()
 
   let defaultChatModel: string | undefined
+  let availableOllamaModels: string[] = []
   if (allowSandboxInference) {
     try {
-      const { resolveModelForInternalInference } = await import('../llm/internalHostInferenceOllama')
+      const installed = await ollamaManager.listModels()
+      const names = installed.map((m) => String(m.name ?? '').trim()).filter(Boolean)
       const allow = hostPolicy.modelAllowlist ?? []
+      const filtered = allow.length === 0 ? names : names.filter((n) => allow.includes(n))
+      availableOllamaModels = [...new Set(filtered)].sort((a, b) => a.localeCompare(b))
+
+      const { resolveModelForInternalInference } = await import('../llm/internalHostInferenceOllama')
       let resolved = await resolveModelForInternalInference(undefined, allow)
       if (!('model' in resolved)) {
         const st = await ollamaManager.getStatus()
@@ -181,12 +187,25 @@ export async function handleGetInternalInferencePolicy(
       ? `Host AI · ${modelId}`
       : 'Host AI · —'
 
+  const hostDev = getInstanceId().trim()
+  console.log(
+    `[HOST_AI_MODEL_ROSTER_RESPONSE] ${JSON.stringify({
+      handshakeId,
+      hostDeviceId: hostDev || null,
+      availableModels: availableOllamaModels,
+      activeModelId: modelId,
+      source: 'ollama_list',
+      cacheAgeMs: null,
+      modelsCount: availableOllamaModels.length,
+    })}`,
+  )
+
   res.writeHead(200, { 'Content-Type': 'application/json', ...hostDirectP2pAdvertisementHeaders(policyDb) })
   res.end(
     JSON.stringify({
       allowSandboxInference,
       defaultChatModel,
-      // ── STEP 6: model + Host metadata (MVP: live active / allowlist-resolved Ollama model per GET) ──
+      availableOllamaModels,
       provider: 'ollama' as const,
       modelId,
       displayLabel,
@@ -195,7 +214,6 @@ export async function handleGetInternalInferencePolicy(
       hostOrchestratorRoleLabel: 'Host orchestrator' as const,
       internalIdentifier6,
       internalIdentifierDisplay,
-      /** Caller reached Host over direct P2P (this endpoint is not exposed on relay-only routes). */
       directReachable: true,
       policyEnabled: allowSandboxInference,
       inferenceErrorCode,

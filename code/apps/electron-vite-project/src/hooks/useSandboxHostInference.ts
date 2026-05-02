@@ -202,8 +202,8 @@ export function useSandboxHostInference(
     }
     const api = (window as unknown as {
       internalInference?: {
-        listTargets?: (opts?: { coalesceHandshakeId?: string }) => Promise<unknown>
-        listInferenceTargets?: (opts?: { coalesceHandshakeId?: string }) => Promise<unknown>
+        listTargets?: (opts?: { coalesceHandshakeId?: string; forceRefresh?: boolean }) => Promise<unknown>
+        listInferenceTargets?: (opts?: { coalesceHandshakeId?: string; forceRefresh?: boolean }) => Promise<unknown>
         listHostCandidates?: () => Promise<unknown>
       }
     }).internalInference

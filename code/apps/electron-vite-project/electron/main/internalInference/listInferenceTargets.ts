@@ -3213,65 +3213,97 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       continue
     }
 
-    const primaryLabel = probe.displayLabelFromHost?.trim() || `Host AI · ${defaultChatModel}`
     const secondary = secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay)
-    const pProbe = probe as { inferenceErrorCode?: string; providerFromHost?: string }
+    const pProbe = probe as {
+      inferenceErrorCode?: string
+      providerFromHost?: string
+      hostAvailableModelIds?: string[]
+      displayLabelFromHost?: string
+    }
     const ollamaWireHostReachable =
       pProbe.providerFromHost === 'ollama' &&
       pProbe.inferenceErrorCode !== InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE &&
       String(pProbe.inferenceErrorCode ?? '') !== 'OLLAMA_UNAVAILABLE'
-    /** Successful WebRTC/policy probe — authoritative BEAP path (distinct from LAN `ollama_direct` `/api/tags`). */
-    const t: HostTargetDraft = {
-      kind: 'host_internal',
-      id: buildHostTargetId(hid, defaultChatModel),
-      label: primaryLabel,
-      display_label: primaryLabel,
-      displayTitle: primaryLabel,
-      displaySubtitle: secondary,
-      model: defaultChatModel,
-      model_id: defaultChatModel,
-      provider: 'host_internal',
-      handshake_id: hid,
-      host_device_id: hostDevice,
-      host_computer_name: hm.hostName,
-      host_pairing_code: hm.digits6,
-      host_orchestrator_role: 'host',
-      host_orchestrator_role_label: hm.roleLabel,
-      internal_identifier_6: hm.digits6,
-      secondary_label: secondary,
-      direct_reachable: true,
-      policy_enabled: true,
-      available: true,
-      availability: 'available',
-      unavailable_reason: null,
-      host_role: 'Host',
-      selector_phase: listDec.selectorPhase === 'legacy_http_available' ? 'legacy_http_available' : 'ready',
-      ...baseMetaFromDec(listDec, leK),
-      p2pUiPhase: 'ready',
-      failureCode: null,
-      hostWireOllamaReachable: ollamaWireHostReachable,
-      host_ai_target_status: 'beap_ready',
-      hostActiveModel: defaultChatModel,
-      canChat: true,
-      canUseTopChatTools: true,
-      canUseOllamaDirect: ollamaWireHostReachable,
-      trusted: true,
-    }
+    const fromProbe = Array.isArray(pProbe.hostAvailableModelIds)
+      ? [...new Set(pProbe.hostAvailableModelIds.map((x) => String(x ?? '').trim()).filter(Boolean))]
+      : []
+    const rosterSet = new Set(fromProbe)
+    if (defaultChatModel) rosterSet.add(defaultChatModel)
+    const rosterSorted = [...rosterSet].sort((a, b) => a.localeCompare(b))
+    const hostActiveModelForRows = defaultChatModel
+    const orderedPolicyModels =
+      hostActiveModelForRows && rosterSorted.includes(hostActiveModelForRows)
+        ? [hostActiveModelForRows, ...rosterSorted.filter((m) => m !== hostActiveModelForRows)]
+        : rosterSorted
+    const displayFromHost = pProbe.displayLabelFromHost?.trim()
     const transportProbeLabel = listDec.preferredTransport === 'legacy_http' ? 'direct_http' : 'webrtc_p2p'
+    let pushedPolicy = 0
+    for (const dm of orderedPolicyModels) {
+      if (!dm) continue
+      pushedPolicy += 1
+      const primaryLabel =
+        displayFromHost && dm === hostActiveModelForRows ? displayFromHost : `Host AI · ${dm}`
+      /** Successful WebRTC/policy probe — authoritative BEAP path (distinct from LAN `ollama_direct` `/api/tags`). */
+      const t: HostTargetDraft = {
+        kind: 'host_internal',
+        id: buildHostTargetId(hid, dm),
+        label: primaryLabel,
+        display_label: primaryLabel,
+        displayTitle: primaryLabel,
+        displaySubtitle: secondary,
+        model: dm,
+        model_id: dm,
+        provider: 'host_internal',
+        handshake_id: hid,
+        host_device_id: hostDevice,
+        host_computer_name: hm.hostName,
+        host_pairing_code: hm.digits6,
+        host_orchestrator_role: 'host',
+        host_orchestrator_role_label: hm.roleLabel,
+        internal_identifier_6: hm.digits6,
+        secondary_label: secondary,
+        direct_reachable: true,
+        policy_enabled: true,
+        available: true,
+        availability: 'available',
+        unavailable_reason: null,
+        host_role: 'Host',
+        selector_phase: listDec.selectorPhase === 'legacy_http_available' ? 'legacy_http_available' : 'ready',
+        ...baseMetaFromDec(listDec, leK),
+        p2pUiPhase: 'ready',
+        failureCode: null,
+        hostWireOllamaReachable: ollamaWireHostReachable,
+        host_ai_target_status: 'beap_ready',
+        hostActiveModel: hostActiveModelForRows,
+        canChat: true,
+        canUseTopChatTools: true,
+        canUseOllamaDirect: ollamaWireHostReachable,
+        trusted: true,
+      }
+      console.log(
+        `[HOST_AI_TARGET_MODEL_ADD] ${JSON.stringify({
+          handshakeId: hid,
+          modelId: dm,
+          modelSource: 'host_policy_or_caps_probe',
+          activeModel: hostActiveModelForRows,
+          visibleInModelSelector: true,
+        })}`,
+      )
+      targets.push(
+        finalizeItem({
+          ...t,
+          beapReady: true,
+          ollamaDirectReady: ollamaWireHostReachable,
+          visibleInModelSelector: true,
+          trustedForBeap: true,
+        }),
+      )
+    }
     console.log(`[HOST_AI_CAPABILITY_PROBE] transport=${transportProbeLabel} ok=true handshake=${hid}`)
     console.log(
-      `${L} beap_target_available=true ollama_direct_available=${ollamaWireHostReachable} transport=${transportProbeLabel} models=1 handshake=${hid} model=${defaultChatModel}`,
+      `${L} beap_target_available=true ollama_direct_available=${ollamaWireHostReachable} transport=${transportProbeLabel} models=${pushedPolicy} handshake=${hid} model=${hostActiveModelForRows}`,
     )
-    console.log(`${L} target_added handshake=${hid} model=${defaultChatModel}`)
-    targets.push(
-      finalizeItem({
-        ...t,
-        beapReady: true,
-        ollamaDirectReady: ollamaWireHostReachable,
-        visibleInModelSelector: true,
-        trustedForBeap: true,
-      }),
-    )
+    console.log(`${L} target_added handshake=${hid} model=${hostActiveModelForRows} rows=${pushedPolicy}`)
   }
 
   /**

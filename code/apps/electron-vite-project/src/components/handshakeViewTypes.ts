@@ -435,7 +435,7 @@ declare global {
         }>
       }>
       /** Full Host AI rows (availability + model label) for model selectors. @deprecated use listTargets */
-      listInferenceTargets: (opts?: { coalesceHandshakeId?: string }) => Promise<{
+      listInferenceTargets: (opts?: { coalesceHandshakeId?: string; forceRefresh?: boolean }) => Promise<{
         ok: boolean
         targets?: Array<{
           kind: 'host_internal'
@@ -463,7 +463,7 @@ declare global {
         }>
       }>
       /** Same as `listInferenceTargets` (internal-inference:listTargets). */
-      listTargets: (opts?: { coalesceHandshakeId?: string }) => Promise<{
+      listTargets: (opts?: { coalesceHandshakeId?: string; forceRefresh?: boolean }) => Promise<{
         ok: boolean
         targets?: Array<{
           kind: 'host_internal'

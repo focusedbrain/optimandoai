@@ -38,12 +38,14 @@ let lastListInferenceGlobalCache: { completedAt: number; result: ListSandboxHost
 /** Parallel IPC invokes join this promise; sequential duplicates use TTL cache above. */
 let listInferenceTargetsInflight: Promise<ListSandboxHostInferenceResult> | null = null
 
-function parseListTargetsCoalesceHandshakeId(raw: unknown): string {
+function parseListInferenceTargetsIpcArg(raw: unknown): { coalesceHandshakeId: string; forceRefresh: boolean } {
   if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
-    return ''
+    return { coalesceHandshakeId: '', forceRefresh: false }
   }
-  const o = raw as { coalesceHandshakeId?: unknown }
-  return typeof o.coalesceHandshakeId === 'string' ? o.coalesceHandshakeId.trim() : ''
+  const o = raw as { coalesceHandshakeId?: unknown; forceRefresh?: unknown }
+  const coalesceHandshakeId = typeof o.coalesceHandshakeId === 'string' ? o.coalesceHandshakeId.trim() : ''
+  const forceRefresh = o.forceRefresh === true
+  return { coalesceHandshakeId, forceRefresh }
 }
 
 function noteListInferenceTargetsIpcCache(result: ListSandboxHostInferenceResult): void {
@@ -102,8 +104,13 @@ function parseP2pSessionCloseReason(r: unknown): P2pSessionLogReasonType {
  * Shared by IPC handlers and lifecycle tests (Prompt 7: model selector reopen within TTL).
  */
 export async function dispatchListInferenceTargetsIpc(rawArg?: unknown): Promise<ListSandboxHostInferenceResult> {
-  const coalesceHandshakeId = parseListTargetsCoalesceHandshakeId(rawArg)
+  const { coalesceHandshakeId, forceRefresh } = parseListInferenceTargetsIpcArg(rawArg)
   const now = Date.now()
+  if (forceRefresh) {
+    resetListInferenceTargetsIpcCacheForOrchestrator()
+    const { invalidateProbeCache } = await import('./listInferenceTargets')
+    invalidateProbeCache()
+  }
   const cached = tryListInferenceTargetsIpcCache(coalesceHandshakeId, now)
   if (cached) {
     return cached

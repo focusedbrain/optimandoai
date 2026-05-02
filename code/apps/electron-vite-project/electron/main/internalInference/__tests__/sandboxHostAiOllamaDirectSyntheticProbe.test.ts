@@ -42,7 +42,7 @@ describe('buildSyntheticOkProbeFromOllamaDirectTags', () => {
     })
     expect(probe.defaultChatModel).toBe('gemma2:12b')
     expect(probe.hostDefaultModelSource).toBe('peer_relay_active_model')
-    expect(probe.hostOllamaSyntheticFallbackUsed).toBe(false)
+    expect(probe.hostAvailableModelIds).toEqual(['gemma2:12b', 'llama3.1:8b'])
   })
 
   it('falls back to first tag when relay active is not in tags', () => {
