@@ -237,6 +237,10 @@ export async function openLedger(sessionToken: string): Promise<any> {
     console.warn('[LEDGER] Handshake schema migration warning:', err?.message)
   }
 
+  // Drain any WAL left by the previous session so reads stay fast.
+  // PASSIVE: copies WAL frames that have no readers blocking them; safe to ignore errors.
+  try { db.pragma('wal_checkpoint(PASSIVE)') } catch { /* ignore — non-critical */ }
+
   _ledgerDb = db
   _ledgerSessionId = sessionToken
   console.log('[LEDGER] Handshake ledger opened')
