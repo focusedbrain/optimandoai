@@ -82,7 +82,7 @@ describe('resolveHostAiRoute', () => {
         peerDirectAdvertisement: {
           url: localBeap,
           ownerDeviceId: 'dev-host-1',
-          source: 'http_header',
+          source: 'memory_map',
         },
         localBeapEndpoint: localBeap,
       }),
@@ -108,13 +108,13 @@ describe('resolveHostAiRoute', () => {
     }
   })
 
-  it('accepts verified direct HTTP only from peer advertisement with matching owner', () => {
+  it('accepts verified direct HTTP from memory_map advertisement with matching owner', () => {
     const r = resolveHostAiRoute(
       baseInput({
         peerDirectAdvertisement: {
           url: 'http://real-host.test:51249/beap/ingest',
           ownerDeviceId: 'dev-host-1',
-          source: 'relay',
+          source: 'memory_map',
         },
       }),
     )
@@ -123,7 +123,24 @@ describe('resolveHostAiRoute', () => {
       expect(r.route.transport).toBe('direct_http')
       expect(r.route.endpoint).toContain('real-host.test')
       expect(r.route.isVerifiedPeerHost).toBe(true)
-      expect(r.route.source).toBe('server_attested_relay')
+      expect(r.route.source).toBe('host_advertisement')
+    }
+  })
+
+  it('accepts verified direct HTTP from ledger_fallback with matching owner', () => {
+    const r = resolveHostAiRoute(
+      baseInput({
+        peerDirectAdvertisement: {
+          url: 'http://real-host.test:51249/beap/ingest',
+          ownerDeviceId: 'dev-host-1',
+          source: 'ledger_fallback',
+        },
+      }),
+    )
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.route.transport).toBe('direct_http')
+      expect(r.route.source).toBe('ledger_candidate')
     }
   })
 
@@ -133,7 +150,7 @@ describe('resolveHostAiRoute', () => {
         peerDirectAdvertisement: {
           url: 'http://real-host.test/beap/ingest',
           ownerDeviceId: 'wrong-host',
-          source: 'http_header',
+          source: 'memory_map',
         },
       }),
     )
@@ -154,7 +171,7 @@ describe('resolveHostAiRoute', () => {
         peerDirectAdvertisement: {
           url: 'http://real-host.test/beap/ingest',
           ownerDeviceId: 'dev-host-1',
-          source: 'http_header',
+          source: 'memory_map',
         },
       }),
     )

@@ -25,6 +25,7 @@ import type { HandshakeRecord } from '../../handshake/types'
 import {
   clearHostAdvertisedMvpDirectForHandshake,
   getHostPublishedMvpDirectP2pIngestUrl,
+  ingestUrlMatchesThisDevicesMvpDirectBeap,
   normalizeP2pIngestUrl,
   peekHostAdvertisedMvpDirectEntry,
   resolveSandboxToHostHttpDirectIngest,
@@ -33,7 +34,12 @@ import {
   inferenceDirectHttpTrust,
   type InferenceDirectHttpTrustReason,
 } from './inferenceDirectHttpTrust'
-import { hostAiCanonicalDirectHttpViable, resolveHostAiRoute, type HostAiCanonicalRouteResolveInput } from './hostAiRouteResolve'
+import {
+  hostAiCanonicalDirectHttpViable,
+  resolveHostAiRoute,
+  type HostAiCanonicalRouteResolveInput,
+  type HostAiPeerDirectAdvertisement,
+} from './hostAiRouteResolve'
 
 const L = '[HOST_AI_TRANSPORT]'
 
@@ -240,6 +246,46 @@ function isInternalTrustedSandboxHost(
   return Boolean(hr && hr.handshake_type === 'internal' && trust && roles.ledgerSandboxToHost)
 }
 
+type HostAdvertisedPeek = ReturnType<typeof peekHostAdvertisedMvpDirectEntry>
+
+/**
+ * Prefer {@link peekHostAdvertisedMvpDirectEntry} (live relay/header/hydration). If missing or malformed,
+ * fall back to persisted `p2p_endpoint` for the same handshake so `resolveHostAiRoute` is not blind
+ * after a cold start (Layer 2).
+ */
+export function buildPeerDirectAdvertisement(
+  db: unknown,
+  mapEntry: HostAdvertisedPeek,
+  record: HandshakeRecord,
+): HostAiPeerDirectAdvertisement | null {
+  if (mapEntry) {
+    const url = (mapEntry.url ?? '').trim()
+    const owner = String(mapEntry.ownerDeviceId ?? '').trim()
+    if (url && owner) {
+      return { url: normalizeP2pIngestUrl(url), ownerDeviceId: owner, source: 'memory_map' }
+    }
+  }
+
+  const ledgerRaw = (record.p2p_endpoint ?? '').trim()
+  const ledgerOwner = (coordinationDeviceIdForHandshakeDeviceRole(record, 'host') ?? '').trim()
+  if (!ledgerRaw || !ledgerOwner) return null
+
+  const lower = ledgerRaw.toLowerCase()
+  if (!lower.startsWith('http://') && !lower.startsWith('https://')) return null
+  if (!ledgerRaw.includes('/beap/')) return null
+
+  const dbAny = db as any
+  if (db && p2pEndpointKind(dbAny, ledgerRaw) === 'relay') return null
+  if (db && p2pEndpointMvpClass(dbAny, ledgerRaw) !== 'direct_lan') return null
+  if (db && ingestUrlMatchesThisDevicesMvpDirectBeap(dbAny, ledgerRaw)) return null
+
+  return {
+    url: normalizeP2pIngestUrl(ledgerRaw),
+    ownerDeviceId: ledgerOwner,
+    source: 'ledger_fallback',
+  }
+}
+
 export function buildHostAiCanonicalRouteResolveInputForDecider(
   db: unknown,
   handshakeRecord: HandshakeRecord,
@@ -252,13 +298,7 @@ export function buildHostAiCanonicalRouteResolveInputForDecider(
   const peerHost = (coordinationDeviceIdForHandshakeDeviceRole(handshakeRecord, 'host') ?? '').trim()
   const roles = deriveInternalHostAiPeerRoles(handshakeRecord, localId)
   const ent = peekHostAdvertisedMvpDirectEntry(hid)
-  const peerDirectAdvertisement = ent?.url?.trim()
-    ? {
-        url: ent.url,
-        ownerDeviceId: String(ent.ownerDeviceId ?? '').trim(),
-        source: ent.adSource === 'relay' ? ('relay' as const) : ('http_header' as const),
-      }
-    : null
+  const peerDirectAdvertisement = buildPeerDirectAdvertisement(db, ent, handshakeRecord)
   const p2pKind = legacyEndpointInfo.p2pEndpointKind
   const relayAttested = p2pKind === 'relay' && relayHostAiP2pSignaling === 'supported'
   return {

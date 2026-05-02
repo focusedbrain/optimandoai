@@ -107,7 +107,7 @@ describe('Host AI log contracts — resolveHostAiRoute (emitLog)', () => {
         peerDirectAdvertisement: {
           url: localBeap,
           ownerDeviceId: 'dev-host-1',
-          source: 'http_header',
+          source: 'memory_map',
         },
         localBeapEndpoint: localBeap,
       }),
@@ -142,8 +142,8 @@ describe('Host AI log contracts — resolveHostAiRoute (emitLog)', () => {
         peerDirectAdvertisement: {
           url: 'http://real-host.test/beap/ingest',
           ownerDeviceId: 'dev-host-1',
-          source: 'invalid' as 'http_header',
-        },
+          source: 'invalid',
+        } as any,
       }),
       { emitLog: true },
     )
@@ -160,7 +160,7 @@ describe('Host AI log contracts — resolveHostAiRoute (emitLog)', () => {
         peerDirectAdvertisement: {
           url: 'http://other.test/beap/ingest',
           ownerDeviceId: 'wrong-owner',
-          source: 'http_header',
+          source: 'memory_map',
         },
       }),
       { emitLog: true },
@@ -177,7 +177,7 @@ describe('Host AI log contracts — resolveHostAiRoute (emitLog)', () => {
         peerDirectAdvertisement: {
           url: 'http://real-host.test:51249/beap/ingest',
           ownerDeviceId: 'dev-host-1',
-          source: 'relay',
+          source: 'memory_map',
         },
       }),
       { emitLog: true },
@@ -202,7 +202,7 @@ describe('Host AI log contracts — resolveHostAiRoute (emitLog)', () => {
         peerDirectAdvertisement: {
           url: 'http://real-host.test/beap/ingest',
           ownerDeviceId: 'dev-host-1',
-          source: 'http_header',
+          source: 'memory_map',
         },
       }),
       { emitLog: true },

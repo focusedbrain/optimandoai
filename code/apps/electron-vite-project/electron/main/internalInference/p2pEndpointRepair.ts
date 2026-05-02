@@ -5,6 +5,7 @@
 
 import { getHandshakeRecord, listHandshakeRecords, updateHandshakeRecord } from '../handshake/db'
 import { getInstanceId, getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
+import { getAccessToken } from '../../../src/auth/session'
 import { getHostAiLedgerRoleSummaryFromDb } from './hostAiEffectiveRole'
 import { HandshakeState, type HandshakeRecord } from '../handshake/types'
 import { getP2PConfig, computeLocalP2PEndpoint } from '../p2p/p2pConfig'
@@ -19,6 +20,7 @@ import {
   assertLedgerRolesSandboxToHost,
   assertRecordForServiceRpc,
   coordinationDeviceIdForHandshakeDeviceRole,
+  deriveInternalHostAiPeerRoles,
   p2pEndpointKind,
   p2pEndpointMvpClass,
   type P2pMvpEndpointClass,
@@ -27,8 +29,12 @@ import type { HostAiBeapAdOllamaModelWireEntry } from './hostAiBeapAdOllamaModel
 
 export const P2P_DIRECT_P2P_ENDPOINT_HEADER = 'X-BEAP-Direct-P2P-Endpoint'
 
-/** In-memory only (process lifetime). `relay` = authenticated coordination `p2p_host_ai_direct_beap_ad`. */
-export type HostAiPeerBeapAdSource = 'http_header' | 'relay'
+/**
+ * In-memory only (process lifetime).
+ * `relay` = authenticated coordination `p2p_host_ai_direct_beap_ad`.
+ * `ledger_hydration` = seeded from persisted `p2p_endpoint` on startup / list (see `hydrateHostAdvertisedMapFromLedger`).
+ */
+export type HostAiPeerBeapAdSource = 'http_header' | 'relay' | 'ledger_hydration'
 
 /** Sandbox: Ollama roster from Host `host_ai_route.capabilities` on relay BEAP ad (same principal / verified owner). */
 export type HostAiPeerAdvertisedOllamaRoster = {
@@ -44,6 +50,10 @@ type PeerHeaderEntry = {
   ownerDeviceId: string | null
   adSource: HostAiPeerBeapAdSource
   ollamaRoster?: HostAiPeerAdvertisedOllamaRoster | null
+  /** Set when this entry came from {@link hydrateHostAdvertisedMapFromLedger}. */
+  hydratedAt?: number
+  /** ISO timestamp string used for hydration bookkeeping (`activated_at` or `created_at`). */
+  ledgerLastSeenAt?: string | null
 }
 
 let appP2pLedgerStartupPassDone = false
@@ -53,6 +63,10 @@ const hostAdvertisedMvpDirectByHandshake = new Map<string, PeerHeaderEntry>()
 
 /** Monotonic ad_seq for relay push only (rejects stale). */
 const hostAiRelayBeapAdLastSeq = new Map<string, number>()
+
+/** Layer 3: throttle coordination republish requests when map miss + ledger fallback (per handshake). */
+const lastBeapAdRefreshOnMapMissAtByHandshake = new Map<string, number>()
+const MAP_MISS_BEAP_AD_REFRESH_MIN_INTERVAL_MS = 30_000
 
 const p2pEnsureCacheInvalidators: Array<(handshakeId: string) => void> = []
 
@@ -77,6 +91,7 @@ function invalidateP2pEnsureCachesForHandshake(handshakeId: string): void {
 export function resetHostAdvertisedMvpDirectForTests(): void {
   hostAdvertisedMvpDirectByHandshake.clear()
   hostAiRelayBeapAdLastSeq.clear()
+  lastBeapAdRefreshOnMapMissAtByHandshake.clear()
 }
 
 /** @internal — vitest: seed the in-memory map as if the peer Host advertised a header. */
@@ -98,7 +113,8 @@ export function setHostAdvertisedMvpDirectForTests(
         ? null
         : String(meta.ownerDeviceId).trim() || null
       : null
-  const adSource: HostAiPeerBeapAdSource = meta?.adSource === 'relay' ? 'relay' : 'http_header'
+  const adSource: HostAiPeerBeapAdSource =
+    meta?.adSource === 'relay' ? 'relay' : meta?.adSource === 'ledger_hydration' ? 'ledger_hydration' : 'http_header'
   hostAdvertisedMvpDirectByHandshake.set(hid, {
     url: normalizeP2pIngestUrl(t),
     ownerDeviceId: owner,
@@ -118,6 +134,101 @@ export function peekHostAdvertisedMvpDirectEntry(handshakeId: string): PeerHeade
   const hid = String(handshakeId ?? '').trim()
   if (!hid) return null
   return hostAdvertisedMvpDirectByHandshake.get(hid) ?? null
+}
+
+/**
+ * Hydrate the in-memory peer Host BEAP advertisement map from persisted handshake rows.
+ * Call once early in a Sandbox session (e.g. first `listSandboxHostInternalInferenceTargets`) so
+ * `resolveHostAiRoute` sees a `peerDirectAdvertisement` when the DB already holds a verified LAN ingest
+ * but no relay/header ad has arrived in this process yet.
+ *
+ * **Freshness:** `HandshakeRecord` has no `last_seen_at`. We do not apply a wall-clock age cut-off on
+ * `activated_at` / `created_at` because long-lived ACTIVE pairs would never hydrate. Rows are still
+ * gated by ACTIVE, internal, `assertRecordForServiceRpc`, sandbox→host roles, and MVP direct_lan class.
+ */
+export async function hydrateHostAdvertisedMapFromLedger(
+  db: any,
+  getActiveHandshakes: () => Promise<HandshakeRecord[]>,
+  logTag: string = 'hydrate',
+): Promise<{ hydrated: number; skipped: number }> {
+  let hydrated = 0
+  let skipped = 0
+  if (!db) {
+    console.log(`[HOST_AI_MAP_HYDRATION] ${JSON.stringify({ tag: logTag, hydrated: 0, skipped: 0, reason: 'no_db' })}`)
+    return { hydrated: 0, skipped: 0 }
+  }
+
+  const records = await getActiveHandshakes()
+  const localId = getInstanceId().trim()
+
+  for (const rec of records) {
+    const hid = String(rec.handshake_id ?? '').trim()
+    if (!hid) {
+      skipped++
+      continue
+    }
+    if (peekHostAdvertisedMvpDirectEntry(hid)) {
+      skipped++
+      continue
+    }
+    if (rec.handshake_type !== 'internal' || rec.state !== HandshakeState.ACTIVE) {
+      skipped++
+      continue
+    }
+    if (!assertLedgerRolesSandboxToHost(rec).ok) {
+      skipped++
+      continue
+    }
+    const roles = deriveInternalHostAiPeerRoles(rec, localId)
+    if (!roles.ok || roles.localRole !== 'sandbox' || roles.peerRole !== 'host') {
+      skipped++
+      continue
+    }
+    const ar = assertRecordForServiceRpc(rec)
+    if (!ar.ok) {
+      skipped++
+      continue
+    }
+    const urlRaw = (ar.record.p2p_endpoint ?? '').trim()
+    if (!urlRaw) {
+      skipped++
+      continue
+    }
+    if (p2pEndpointMvpClass(db, urlRaw) !== 'direct_lan') {
+      skipped++
+      continue
+    }
+    if (ingestUrlMatchesThisDevicesMvpDirectBeap(db, urlRaw)) {
+      skipped++
+      continue
+    }
+    const owner = (coordinationDeviceIdForHandshakeDeviceRole(ar.record, 'host') ?? '').trim()
+    if (!owner) {
+      skipped++
+      continue
+    }
+
+    const ledgerLastSeenAt =
+      (typeof ar.record.activated_at === 'string' && ar.record.activated_at.trim()) ||
+      (typeof ar.record.created_at === 'string' && ar.record.created_at.trim()) ||
+      null
+
+    const url = normalizeP2pIngestUrl(urlRaw)
+    hostAdvertisedMvpDirectByHandshake.set(hid, {
+      url,
+      ownerDeviceId: owner,
+      adSource: 'ledger_hydration',
+      ollamaRoster: null,
+      hydratedAt: Date.now(),
+      ledgerLastSeenAt,
+    })
+    hydrated++
+  }
+
+  console.log(
+    `[HOST_AI_MAP_HYDRATION] ${JSON.stringify({ tag: logTag, hydrated, skipped, total: records.length })}`,
+  )
+  return { hydrated, skipped }
 }
 
 /** Sandbox: last Host-advertised MVP direct ingest URL seen for this handshake (response header), if any. */
@@ -155,6 +266,93 @@ export function ingestUrlMatchesThisDevicesMvpDirectBeap(db: any, url: string | 
   const t = typeof url === 'string' ? url.trim() : ''
   if (!t) return false
   return normalizeP2pIngestUrl(t) === normalizeP2pIngestUrl(pub)
+}
+
+function ledgerRowHasViableDirectBeapForMapRefresh(db: any, record: HandshakeRecord): boolean {
+  const ledgerRaw = (record.p2p_endpoint ?? '').trim()
+  if (!ledgerRaw || !db) return false
+  const lower = ledgerRaw.toLowerCase()
+  if (!lower.startsWith('http://') && !lower.startsWith('https://')) return false
+  if (!ledgerRaw.includes('/beap/')) return false
+  if (p2pEndpointKind(db, ledgerRaw) === 'relay') return false
+  if (p2pEndpointMvpClass(db, ledgerRaw) !== 'direct_lan') return false
+  if (ingestUrlMatchesThisDevicesMvpDirectBeap(db, ledgerRaw)) return false
+  return Boolean((coordinationDeviceIdForHandshakeDeviceRole(record, 'host') ?? '').trim())
+}
+
+/**
+ * When the in-memory BEAP advertisement map is empty but the ledger already holds a usable LAN ingest,
+ * POST `p2p_host_ai_direct_beap_ad_request` to coordination (non-blocking). The inbound ad handler
+ * repopulates the map for the next selector/probe cycle.
+ */
+export function requestBeapAdRefreshIfMapMiss(db: any, hid: string, record: HandshakeRecord, context: string): void {
+  void runRequestBeapAdRefreshIfMapMiss(db, hid, record, context).catch((err: unknown) => {
+    console.log(
+      `[HOST_AI_MAP_REFRESH] ${JSON.stringify({
+        hid: String(hid ?? '').trim(),
+        err: String(err),
+        context,
+        stage: 'unhandled',
+      })}`,
+    )
+  })
+}
+
+async function runRequestBeapAdRefreshIfMapMiss(
+  db: any,
+  hid: string,
+  record: HandshakeRecord,
+  context: string,
+): Promise<void> {
+  const hidT = String(hid ?? '').trim()
+  if (!db || !hidT || !record) return
+  if (peekHostAdvertisedMvpDirectEntry(hidT)?.url?.trim()) return
+  if (!ledgerRowHasViableDirectBeapForMapRefresh(db, record)) return
+
+  const localId = getInstanceId().trim()
+  const modeHint = String(getOrchestratorMode().mode)
+  const ledgerSum = getHostAiLedgerRoleSummaryFromDb(db, localId, modeHint)
+  if (!ledgerSum.can_probe_host_endpoint || ledgerSum.effective_host_ai_role !== 'sandbox') return
+
+  const cfg = getP2PConfig(db)
+  if (!cfg.use_coordination || !cfg.coordination_url?.trim()) return
+
+  const dr = deriveInternalHostAiPeerRoles(record, localId)
+  if (!dr.ok || dr.localRole !== 'sandbox' || dr.peerRole !== 'host') return
+
+  const now = Date.now()
+  const last = lastBeapAdRefreshOnMapMissAtByHandshake.get(hidT) ?? 0
+  if (now - last < MAP_MISS_BEAP_AD_REFRESH_MIN_INTERVAL_MS) return
+  lastBeapAdRefreshOnMapMissAtByHandshake.set(hidT, now)
+
+  const token = getAccessToken()
+  if (!token?.trim()) {
+    console.log(`[HOST_AI_MAP_REFRESH] ${JSON.stringify({ hid: hidT, reason: 'no_bearer', context })}`)
+    return
+  }
+
+  console.log(
+    `[HOST_AI_MAP_REFRESH] ${JSON.stringify({
+      hid: hidT,
+      peer: dr.peerCoordinationDeviceId,
+      context,
+      action: 'p2p_host_ai_direct_beap_ad_request',
+    })}`,
+  )
+
+  const { postHostAiDirectBeapAdRequestToCoordination } = await import('./p2pSignalRelayPost')
+  const postRes = await postHostAiDirectBeapAdRequestToCoordination({
+    db,
+    handshakeId: hidT,
+    senderDeviceId: dr.localCoordinationDeviceId,
+    receiverDeviceId: dr.peerCoordinationDeviceId,
+  })
+
+  if (!postRes.ok) {
+    console.log(
+      `[HOST_AI_MAP_REFRESH] ${JSON.stringify({ hid: hidT, context, status: postRes.status, ok: false })}`,
+    )
+  }
 }
 
 type DenyCode =
@@ -363,6 +561,30 @@ export function resolveSandboxToHostHttpDirectIngest(
       )
     }
     const url = normalizeP2pIngestUrl(peerAd)
+    if (peerEnt?.adSource === 'ledger_hydration') {
+      return {
+        ok: true,
+        url,
+        selected_endpoint_source: 'internal_handshake_ledger',
+        selected_endpoint_provenance: 'internal_handshake_ledger',
+        local_beap_endpoint: localPub,
+        peer_advertised_beap_endpoint: peerAd,
+        ledger_p2p_endpoint: ledger,
+        repaired_from_local_endpoint: repairedFromLocal,
+        resolutionCategory: 'accepted_ledger',
+        hostDeviceId,
+        acceptedCandidate: buildCand({
+          url,
+          source: 'internal_handshake_ledger',
+          hostDeviceId,
+          handshakeId: hid,
+          observedBy,
+          trust: 'ledger_trusted',
+          ownerRole: 'host',
+          reject: null,
+        }),
+      }
+    }
     if (fromRelay) {
       return {
         ok: true,

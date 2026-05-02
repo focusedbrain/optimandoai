@@ -59,7 +59,13 @@ import {
 import { InternalInferenceErrorCode } from './errors'
 import { clearHostAiTransportDecideDedupeCache, logHostAiTransportDecideListLine } from './hostAiTransportDecideLog'
 import { hostHasActiveInternalLedgerHostPeerSandboxFromDb } from './hostAiInternalPairingLedger'
-import { peekHostAdvertisedMvpDirectEntry, registerP2pEnsureCacheInvalidator, type HostAiPeerAdvertisedOllamaRoster } from './p2pEndpointRepair'
+import {
+  hydrateHostAdvertisedMapFromLedger,
+  peekHostAdvertisedMvpDirectEntry,
+  registerP2pEnsureCacheInvalidator,
+  requestBeapAdRefreshIfMapMiss,
+  type HostAiPeerAdvertisedOllamaRoster,
+} from './p2pEndpointRepair'
 import {
   hostAiPairingListBlock,
   recordHostAiLedgerAsymmetric,
@@ -88,6 +94,14 @@ import { hostAiUserFacingMessageFromTarget } from '../../../src/lib/hostAiUiDiag
 import type { HostAiTargetStatus } from './hostAiTargetStatus'
 
 const L = '[HOST_INFERENCE_TARGETS]'
+/** One-shot: seed `hostAdvertisedMvpDirectByHandshake` from DB before first list probe (cold start). */
+let hostAiPeerAdvertisedMapHydrated = false
+
+/** @internal vitest — allow re-hydration across test cases. */
+export function resetHostAiPeerAdvertisedMapHydrationForTests(): void {
+  hostAiPeerAdvertisedMapHydrated = false
+}
+
 /** Log fields: `beap_target_available` = BEAP / top-chat path trusted and ready; `ollama_direct_available` = LAN Ollama tags path usable (do not conflate the two). */
 
 function hostOllamaDirectSyntheticProbeMeta(
@@ -1521,6 +1535,15 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     return { ok: true, targets: [], refreshMeta: { hadCapabilitiesProbed: false } }
   }
 
+  if (!hostAiPeerAdvertisedMapHydrated) {
+    await hydrateHostAdvertisedMapFromLedger(
+      db,
+      async () => listHandshakeRecords(db, { state: HandshakeState.ACTIVE, handshake_type: 'internal' }),
+      'list_targets_init',
+    )
+    hostAiPeerAdvertisedMapHydrated = true
+  }
+
   {
     const fList = getP2pInferenceFlags()
     const skipListRepair =
@@ -2529,6 +2552,9 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
 
     if (!probe.ok) {
       const code = probe.code
+      if (code === InternalInferenceErrorCode.HOST_AI_DIRECT_PEER_BEAP_MISSING) {
+        requestBeapAdRefreshIfMapMiss(db, hid, r, 'list_targets_probe_beap_missing')
+      }
       if (
         code === InternalInferenceErrorCode.PROBE_RATE_LIMITED &&
         (typeof probe !== 'object' || !('message' in probe) || (probe as { message?: string }).message !== 'probe_rate_limited_cooldown')

@@ -14,6 +14,7 @@ import { InternalInferenceErrorCode } from './errors'
 import {
   ingestUrlMatchesThisDevicesMvpDirectBeap,
   peekHostAdvertisedMvpDirectEntry,
+  requestBeapAdRefreshIfMapMiss,
   resolveSandboxToHostHttpDirectIngest,
 } from './p2pEndpointRepair'
 import { deriveInternalHostAiPeerRoles } from './policy'
@@ -62,6 +63,9 @@ export async function sandboxMaybeRequestHostDirectBeapAdvertisement(
     }
     const ingestRes = resolveSandboxToHostHttpDirectIngest(db, hid, r, '')
     if (ingestRes.ok) {
+      if (ingestRes.resolutionCategory === 'accepted_ledger') {
+        requestBeapAdRefreshIfMapMiss(db, hid, r, context)
+      }
       continue
     }
     const missingPeerAd =

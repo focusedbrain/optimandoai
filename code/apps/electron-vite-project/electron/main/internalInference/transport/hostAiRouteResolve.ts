@@ -14,11 +14,14 @@ import type {
   HostAiRouteResolveResult,
 } from './hostAiRouteCandidate'
 
+/** How {@link HostAiPeerDirectAdvertisement} was constructed for the resolver (memory vs persisted fallback). */
+export type HostAiPeerAdvertisementOrigin = 'memory_map' | 'ledger_fallback'
+
 export type HostAiPeerDirectAdvertisement = {
   url: string
   ownerDeviceId: string
-  /** `http_header` = Host-attested on HTTP; `relay` = coordination / control-plane attested. */
-  source: 'http_header' | 'relay'
+  /** `memory_map` = {@link peekHostAdvertisedMvpDirectEntry}; `ledger_fallback` = `p2p_endpoint` + host coordination id. */
+  source: HostAiPeerAdvertisementOrigin
 }
 
 export type HostAiWebrtcRouteState = {
@@ -35,7 +38,8 @@ export type HostAiRelayRouteState = {
 }
 
 /**
- * Full resolver input. `ledgerP2pEndpoint` is an untrusted ledger hint (never sufficient for direct HTTP).
+ * Resolver input. `ledgerP2pEndpoint` is still a raw hint for counting/diagnostics; viable direct HTTP uses
+ * `peerDirectAdvertisement` (memory map entry and/or ledger fallback from the decider).
  */
 export type HostAiCanonicalRouteResolveInput = {
   handshakeId: string
@@ -44,6 +48,7 @@ export type HostAiCanonicalRouteResolveInput = {
   record: HandshakeRecord
   roles: DeriveInternalHostAiPeerRolesResult
   webrtc: HostAiWebrtcRouteState | null
+  /** Peer Host BEAP advertisement for direct HTTP (memory map and/or ledger fallback from decider). */
   peerDirectAdvertisement: HostAiPeerDirectAdvertisement | null
   /** This process’s published MVP direct BEAP URL, for self-detection only (same normalization as repair). */
   localBeapEndpoint: string | null
@@ -61,6 +66,8 @@ export type HostAiRouteResolveLogPayload = {
   candidate_count: number
   selected_transport: 'webrtc_dc' | 'direct_http' | 'relay_tunnel' | 'none'
   selected_endpoint_source: string
+  /** Same layering as {@link HostAiProbeRouteLogPayload.peer_ad_source}. */
+  peer_ad_source: 'memory_map' | 'ledger_fallback' | 'none'
   direct_http_available: boolean
   webrtc_available: boolean
   relay_available: boolean
@@ -110,11 +117,11 @@ function directHttpViable(input: HostAiCanonicalRouteResolveInput): boolean {
   const peer = input.peerHostDeviceId.trim()
   if (!ad.ownerDeviceId.trim() || ad.ownerDeviceId.trim() !== peer) return false
   if (urlMatchesLocalBeap(input.localBeapEndpoint, ad.url)) return false
-  if (ad.source !== 'http_header' && ad.source !== 'relay') return false
+  if (ad.source !== 'memory_map' && ad.source !== 'ledger_fallback') return false
   return true
 }
 
-/** True when sandbox→Host roles align and direct HTTP is peer-advertised / attested (not raw ledger syntax). */
+/** True when sandbox→Host roles align and direct HTTP has a verified peer advertisement (map or ledger fallback). */
 export function hostAiCanonicalDirectHttpViable(input: HostAiCanonicalRouteResolveInput): boolean {
   if (!input.roles.ok) return false
   if (input.roles.localRole !== 'sandbox' || input.roles.peerRole !== 'host') return false
@@ -129,7 +136,7 @@ function relayViable(input: HostAiCanonicalRouteResolveInput): boolean {
 }
 
 function adSourceToCandidateSource(ad: HostAiPeerDirectAdvertisement): HostAiRouteCandidateSource {
-  return ad.source === 'relay' ? 'server_attested_relay' : 'host_advertisement'
+  return ad.source === 'ledger_fallback' ? 'ledger_candidate' : 'host_advertisement'
 }
 
 function emitResolveLog(p: HostAiRouteResolveLogPayload, enabled: boolean): void {
@@ -167,6 +174,7 @@ function fail(
       candidate_count: candidateCount(input),
       selected_transport: 'none',
       selected_endpoint_source: 'none',
+      peer_ad_source: input.peerDirectAdvertisement?.source ?? 'none',
       direct_http_available: partial.direct_http_available ?? directOk,
       webrtc_available: partial.webrtc_available ?? webrtcOk,
       relay_available: partial.relay_available ?? relayOk,
@@ -252,6 +260,7 @@ export function resolveHostAiRoute(
         candidate_count: candidateCount(input),
         selected_transport: 'none',
         selected_endpoint_source: 'none',
+        peer_ad_source: 'none',
         direct_http_available: false,
         webrtc_available: false,
         relay_available: false,
@@ -352,6 +361,7 @@ export function resolveHostAiRoute(
         candidate_count: cc,
         selected_transport: 'webrtc_dc',
         selected_endpoint_source: 'webrtc_session',
+        peer_ad_source: input.peerDirectAdvertisement?.source ?? 'none',
         direct_http_available: directOk,
         webrtc_available: true,
         relay_available: relayOk,
@@ -374,7 +384,10 @@ export function resolveHostAiRoute(
       endpoint: normalizeP2pIngestUrl(ad.url.trim()),
       source: adSourceToCandidateSource(ad),
       isVerifiedPeerHost: true,
-      provenance: { attestationType: ad.source, notes: 'peer_or_control_plane_attested' },
+      provenance: {
+        attestationType: ad.source,
+        notes: ad.source === 'ledger_fallback' ? 'ledger_row_resolver_fallback' : 'peer_beap_map_entry',
+      },
     }
     emitResolveLog(
       {
@@ -386,6 +399,7 @@ export function resolveHostAiRoute(
         candidate_count: cc,
         selected_transport: 'direct_http',
         selected_endpoint_source: route.source,
+        peer_ad_source: ad.source,
         direct_http_available: true,
         webrtc_available: webrtcOk,
         relay_available: relayOk,
@@ -421,6 +435,7 @@ export function resolveHostAiRoute(
         candidate_count: cc,
         selected_transport: 'relay_tunnel',
         selected_endpoint_source: 'server_attested_relay',
+        peer_ad_source: input.peerDirectAdvertisement?.source ?? 'none',
         direct_http_available: directOk,
         webrtc_available: webrtcOk,
         relay_available: true,

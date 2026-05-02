@@ -517,6 +517,8 @@ export async function listHostCapabilities(
   const localSandbox = cids.requester
   const peerHost = cids.targetHost
 
+  let probeRoutePeerAdSource: 'memory_map' | 'ledger_fallback' | 'none' = 'none'
+
   let routeRes: HostAiRouteResolveResult | null = null
   if (db && decInput) {
     const canonical = buildHostAiCanonicalRouteResolveInputForDecider(
@@ -526,12 +528,14 @@ export async function listHostCapabilities(
       decInput.relayHostAiP2pSignaling ?? 'na',
       decInput.legacyEndpointInfo,
     )
+    probeRoutePeerAdSource = canonical.peerDirectAdvertisement?.source ?? 'none'
     routeRes = resolveHostAiRoute(canonical, { emitLog: false })
     if (routeRes.ok) {
       logHostAiProbeRoute({
         handshake_id: hid,
         selected_route_kind: routeRes.route.transport,
         selected_endpoint_source: routeRes.route.source,
+        peer_ad_source: probeRoutePeerAdSource,
         endpoint_owner_device_id: routeRes.route.ownerDeviceId,
         local_device_id: localSandbox,
         peer_host_device_id: peerHost,
@@ -543,6 +547,7 @@ export async function listHostCapabilities(
         handshake_id: hid,
         selected_route_kind: 'none',
         selected_endpoint_source: 'none',
+        peer_ad_source: probeRoutePeerAdSource,
         endpoint_owner_device_id: null,
         local_device_id: localSandbox,
         peer_host_device_id: peerHost,
@@ -603,6 +608,7 @@ export async function listHostCapabilities(
         handshake_id: hid,
         selected_route_kind: routeRes?.ok ? routeRes.route.transport : 'none',
         selected_endpoint_source: routeRes?.ok ? routeRes.route.source : 'none',
+        peer_ad_source: probeRoutePeerAdSource,
         endpoint_owner_device_id: routeRes?.ok ? routeRes.route.ownerDeviceId : null,
         local_device_id: localSandbox,
         peer_host_device_id: peerHost,
@@ -763,6 +769,7 @@ export async function listHostCapabilities(
           handshake_id: hid,
           selected_route_kind: 'direct_http',
           selected_endpoint_source: 'verified_peer_fallback',
+          peer_ad_source: probeRoutePeerAdSource,
           endpoint_owner_device_id: peerHost,
           local_device_id: localSandbox,
           peer_host_device_id: peerHost,
@@ -791,6 +798,7 @@ export async function listHostCapabilities(
         handshake_id: hid,
         selected_route_kind: routeRes.ok ? routeRes.route.transport : 'none',
         selected_endpoint_source: routeRes.ok ? routeRes.route.source : 'none',
+        peer_ad_source: probeRoutePeerAdSource,
         endpoint_owner_device_id: routeRes.ok ? routeRes.route.ownerDeviceId : null,
         local_device_id: localSandbox,
         peer_host_device_id: peerHost,
@@ -825,6 +833,7 @@ export async function listHostCapabilities(
       handshake_id: hid,
       selected_route_kind: 'direct_http',
       selected_endpoint_source: routeRes.route.source,
+      peer_ad_source: probeRoutePeerAdSource,
       endpoint_owner_device_id: routeRes.route.ownerDeviceId,
       local_device_id: localSandbox,
       peer_host_device_id: peerHost,
