@@ -1523,14 +1523,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
             >
               Try again
             </button>
-            {import.meta.env.DEV && inboxAiAnalyzeDebug && (
-              <pre
-                className="inbox-detail-ai-debug-json"
-                style={{ marginTop: 8, fontSize: 11, opacity: 0.85, whiteSpace: 'pre-wrap', width: '100%' }}
-              >
-                {JSON.stringify(inboxAiAnalyzeDebug, null, 2)}
-              </pre>
-            )}
           </div>
         ) : null}
         {import.meta.env.DEV && inboxAiSemanticDevNote && (
@@ -1749,14 +1741,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           >
                             Retry
                           </button>
-                          {import.meta.env.DEV && draftErrorDebug && (
-                            <pre
-                              className="inbox-detail-ai-debug-json"
-                              style={{ marginTop: 8, fontSize: 11, opacity: 0.85, whiteSpace: 'pre-wrap' }}
-                            >
-                              {JSON.stringify(draftErrorDebug, null, 2)}
-                            </pre>
-                          )}
                         </div>
                       )}
                       <div
@@ -2096,14 +2080,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                         <button type="button" onClick={handleRetryDraft}>
                           Retry
                         </button>
-                        {import.meta.env.DEV && draftErrorDebug && (
-                          <pre
-                            className="inbox-detail-ai-debug-json"
-                            style={{ marginTop: 8, fontSize: 11, opacity: 0.85, whiteSpace: 'pre-wrap' }}
-                          >
-                            {JSON.stringify(draftErrorDebug, null, 2)}
-                          </pre>
-                        )}
                       </div>
                     )}
                     {draftRefineConnected && draftRefineMessageId === messageId && (

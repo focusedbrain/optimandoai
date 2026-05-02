@@ -31,9 +31,9 @@ export type InboxAiErrorDebug = {
   inferenceRoutingReason?: string
 }
 
-/** Enable richer IPC error payloads (lane, baseUrl, …). */
+/** Enable richer IPC error payloads (lane, baseUrl, …). Internal use only — never expose in UI. */
 export function inboxAiDevDebugEnabled(): boolean {
-  return process.env.NODE_ENV === 'development' || process.env.WRDESK_INBOX_AI_DEBUG === '1'
+  return process.env.WRDESK_INBOX_AI_DEBUG === '1'
 }
 
 const REMOTE_OLLAMA_CODES = new Set<string>([
