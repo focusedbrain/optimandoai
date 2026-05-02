@@ -10,6 +10,7 @@ import { HandshakeState, type HandshakeRecord } from '../../handshake/types'
 import { getHandshakeRecord } from '../../handshake/db'
 import {
   applyHostAiDirectBeapAdFromRelayPayload,
+  peekHostAdvertisedMvpDirectEntry,
   peekHostAdvertisedMvpDirectP2pEndpoint,
   resetHostAdvertisedMvpDirectForTests,
   resetP2pEndpointRepairSessionGates,
@@ -288,6 +289,33 @@ describe('applyHostAiDirectBeapAdFromRelayPayload', () => {
     const r = applyHostAiDirectBeapAdFromRelayPayload(db, basePayload() as any, 'rm-1')
     expect(r).toEqual({ ok: true })
     expect(peekHostAdvertisedMvpDirectP2pEndpoint('hs-apply')).toMatch(/192\.168\.1\.20/)
+  })
+
+  it('persists ollama roster from host_ai_route.capabilities', () => {
+    vi.mocked(getHandshakeRecord).mockReturnValue(relayRow('hs-apply') as any)
+    const rosterBody = basePayload({
+      host_ai_route: {
+        type: 'host_ai.route_advertisement',
+        capabilities: {
+          provider: 'ollama',
+          models_count: 2,
+          available: true,
+          models: [
+            { id: 'gemma2:12b', name: 'gemma2:12b', provider: 'ollama', available: true, active: true },
+            { id: 'llama3.1:8b', name: 'llama3.1:8b', provider: 'ollama', available: true, active: false },
+          ],
+          active_model_id: 'gemma2:12b',
+          active_model_name: 'gemma2:12b',
+          model_source: 'test',
+          max_concurrent_local_models: 1,
+        },
+      },
+    })
+    const r = applyHostAiDirectBeapAdFromRelayPayload(db, rosterBody as any, 'rm-roster')
+    expect(r).toEqual({ ok: true })
+    const ent = peekHostAdvertisedMvpDirectEntry('hs-apply')
+    expect(ent?.ollamaRoster?.active_model_id).toBe('gemma2:12b')
+    expect(ent?.ollamaRoster?.models).toHaveLength(2)
   })
 
   it('rejects stale ad_seq', () => {

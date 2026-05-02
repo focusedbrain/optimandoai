@@ -28,7 +28,7 @@ import {
   recordHostAiReciprocalCapabilitiesSuccess,
 } from './hostAiPairingStateStore'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
-import { ingestUrlMatchesThisDevicesMvpDirectBeap } from './p2pEndpointRepair'
+import { ingestUrlMatchesThisDevicesMvpDirectBeap, peekHostAdvertisedMvpDirectEntry } from './p2pEndpointRepair'
 import { getP2pInferenceFlags } from './p2pInferenceFlags'
 import { P2pSessionPhase, getSessionState } from './p2pSession/p2pInferenceSessionManager'
 import {
@@ -450,6 +450,14 @@ export type ProbeHostPolicyResult =
       terminalNoModel?: boolean
       /** A–Q direct P2P capability-probe label (J = no active local model; P = Ollama down on Host; Q = transport not ready). */
       p2pProbeClassification?: P2pCapabilityProbeLetter
+      /** Where `defaultChatModel` was chosen (Host AI selector merge / logs). */
+      hostDefaultModelSource?:
+        | 'capabilities_wire'
+        | 'peer_relay_active_model'
+        | 'ollama_tags_primary_order'
+        | 'http_internal_inference_policy'
+      /** True when LAN `/api/tags` order was used despite a relay roster active hint (mismatch / missing tag). */
+      hostOllamaSyntheticFallbackUsed?: boolean
     }
   | {
       ok: false
@@ -674,6 +682,7 @@ export function mapCapabilitiesWireToProbe(
     directP2pPath: true,
     policyEnabledFromHost: allow,
     inferenceErrorCode,
+    hostDefaultModelSource: 'capabilities_wire',
   }
 }
 
@@ -1006,6 +1015,7 @@ async function probeHostInferencePolicyFromSandboxImpl(
         const out = buildSyntheticOkProbeFromOllamaDirectTags(odTagsIpc, {
           hostComputerName: hn,
           pairingDigits,
+          peerAdvertisedOllamaRoster: peekHostAdvertisedMvpDirectEntry(hid)?.ollamaRoster ?? null,
         })
         const letterOk = p2pProbeLetterForOkInferenceCode(out.inferenceErrorCode)
         probeDone(true)
@@ -1358,6 +1368,7 @@ async function probeHostInferencePolicyFromSandboxImpl(
       policyEnabledFromHost: typeof j.policyEnabled === 'boolean' ? j.policyEnabled : undefined,
       inferenceErrorCode: infErr,
       p2pProbeClassification: letterOk,
+      hostDefaultModelSource: 'http_internal_inference_policy',
     }
   } catch (e) {
     clearTimeout(timer)

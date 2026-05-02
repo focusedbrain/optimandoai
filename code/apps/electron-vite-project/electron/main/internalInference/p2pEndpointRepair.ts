@@ -23,13 +23,28 @@ import {
   p2pEndpointMvpClass,
   type P2pMvpEndpointClass,
 } from './policy'
+import type { HostAiBeapAdOllamaModelWireEntry } from './hostAiBeapAdOllamaModelCount'
 
 export const P2P_DIRECT_P2P_ENDPOINT_HEADER = 'X-BEAP-Direct-P2P-Endpoint'
 
 /** In-memory only (process lifetime). `relay` = authenticated coordination `p2p_host_ai_direct_beap_ad`. */
 export type HostAiPeerBeapAdSource = 'http_header' | 'relay'
 
-type PeerHeaderEntry = { url: string; ownerDeviceId: string | null; adSource: HostAiPeerBeapAdSource }
+/** Sandbox: Ollama roster from Host `host_ai_route.capabilities` on relay BEAP ad (same principal / verified owner). */
+export type HostAiPeerAdvertisedOllamaRoster = {
+  models: HostAiBeapAdOllamaModelWireEntry[]
+  active_model_id: string | null
+  active_model_name: string | null
+  model_source: string | null
+  max_concurrent_local_models: number
+}
+
+type PeerHeaderEntry = {
+  url: string
+  ownerDeviceId: string | null
+  adSource: HostAiPeerBeapAdSource
+  ollamaRoster?: HostAiPeerAdvertisedOllamaRoster | null
+}
 
 let appP2pLedgerStartupPassDone = false
 
@@ -68,7 +83,7 @@ export function resetHostAdvertisedMvpDirectForTests(): void {
 export function setHostAdvertisedMvpDirectForTests(
   handshakeId: string,
   url: string | null | undefined,
-  meta?: { ownerDeviceId?: string | null; adSource?: HostAiPeerBeapAdSource },
+  meta?: { ownerDeviceId?: string | null; adSource?: HostAiPeerBeapAdSource; ollamaRoster?: HostAiPeerAdvertisedOllamaRoster | null },
 ): void {
   const hid = String(handshakeId ?? '').trim()
   if (!hid) return
@@ -88,6 +103,7 @@ export function setHostAdvertisedMvpDirectForTests(
     url: normalizeP2pIngestUrl(t),
     ownerDeviceId: owner,
     adSource,
+    ollamaRoster: meta?.ollamaRoster,
   })
 }
 
@@ -489,6 +505,69 @@ export function normalizeP2pIngestUrl(s: string): string {
   }
 }
 
+function parseHostAiOllamaRosterFromRelayHostAiRoute(raw: Record<string, unknown>): HostAiPeerAdvertisedOllamaRoster | null {
+  const har = raw.host_ai_route
+  if (!har || typeof har !== 'object' || Array.isArray(har)) return null
+  const cap = (har as Record<string, unknown>).capabilities
+  if (!cap || typeof cap !== 'object' || Array.isArray(cap)) return null
+  const c = cap as Record<string, unknown>
+  const mc =
+    typeof c.models_count === 'number' && Number.isFinite(c.models_count) ? Math.max(0, Math.floor(c.models_count)) : null
+  const activeIdRaw =
+    typeof c.active_model_id === 'string' && c.active_model_id.trim()
+      ? c.active_model_id.trim()
+      : typeof c.active_model_name === 'string' && c.active_model_name.trim()
+        ? c.active_model_name.trim()
+        : null
+  const activeNameRaw =
+    typeof c.active_model_name === 'string' && c.active_model_name.trim()
+      ? c.active_model_name.trim()
+      : activeIdRaw
+  const modelSource = typeof c.model_source === 'string' && c.model_source.trim() ? c.model_source.trim() : null
+  /** Product: Host Ollama remote inference uses one loaded local model at a time (VRAM). */
+  const maxConcurrentLocalModels = 1
+
+  const modelsOut: HostAiBeapAdOllamaModelWireEntry[] = []
+  if (Array.isArray(c.models)) {
+    for (const m of c.models) {
+      if (!m || typeof m !== 'object' || Array.isArray(m)) continue
+      const mo = m as Record<string, unknown>
+      const name =
+        typeof mo.name === 'string' && mo.name.trim()
+          ? mo.name.trim()
+          : typeof mo.id === 'string' && mo.id.trim()
+            ? mo.id.trim()
+            : ''
+      if (!name) continue
+      const id = typeof mo.id === 'string' && mo.id.trim() ? mo.id.trim() : name
+      const available = mo.available !== false
+      const active = mo.active === true || (activeIdRaw != null && (id === activeIdRaw || name === activeIdRaw))
+      modelsOut.push({ id, name, provider: 'ollama', available, active })
+    }
+  }
+
+  if (modelsOut.length === 0 && !activeIdRaw && (mc == null || mc === 0)) {
+    return null
+  }
+  let active_model_id: string | null = activeIdRaw
+  let active_model_name: string | null = activeNameRaw
+  if (!active_model_id && modelsOut.length > 0) {
+    const one = modelsOut.find((m) => m.active)
+    if (one) {
+      active_model_id = one.id
+      active_model_name = one.name
+    }
+  }
+
+  return {
+    models: modelsOut,
+    active_model_id,
+    active_model_name,
+    model_source: modelSource,
+    max_concurrent_local_models: maxConcurrentLocalModels,
+  }
+}
+
 /**
  * Sandbox: apply Host AI direct-BEAP advertisement delivered on the **authenticated** coordination
  * relay (`p2p_host_ai_direct_beap_ad`) before the first successful HTTP cap probe.
@@ -601,10 +680,23 @@ export function applyHostAiDirectBeapAdFromRelayPayload(
     return { ok: false, reason: 'owner_role' }
   }
   hostAiRelayBeapAdLastSeq.set(hid, adSeq)
+  const ollamaRoster = parseHostAiOllamaRosterFromRelayHostAiRoute(raw)
+  if (ollamaRoster) {
+    console.log(
+      `[HOST_AI_MODEL_ROSTER_RECEIVED] ${JSON.stringify({
+        handshakeId: hid,
+        hostDeviceId: expectHost,
+        models: ollamaRoster.models.map((m) => m.name),
+        activeModelId: ollamaRoster.active_model_id,
+        source: 'relay_beap_ad',
+      })}`,
+    )
+  }
   hostAdvertisedMvpDirectByHandshake.set(hid, {
     url: normalizeP2pIngestUrl(advRaw),
     ownerDeviceId: expectHost,
     adSource: 'relay',
+    ollamaRoster: ollamaRoster ?? null,
   })
   const r = ar.record
   const current = (r.p2p_endpoint ?? '').trim()
@@ -681,10 +773,12 @@ export function tryRepairP2pEndpointFromHostAdvertisement(
     return
   }
   const hostId = (coordinationDeviceIdForHandshakeDeviceRole(ar.record, 'host') ?? '').trim() || null
+  const prev = hostAdvertisedMvpDirectByHandshake.get(hid)
   hostAdvertisedMvpDirectByHandshake.set(hid, {
     url: normalizeP2pIngestUrl(advRaw),
     ownerDeviceId: hostId,
     adSource: 'http_header',
+    ollamaRoster: prev?.ollamaRoster ?? null,
   })
   const r = ar.record
   const current = (r.p2p_endpoint ?? '').trim()

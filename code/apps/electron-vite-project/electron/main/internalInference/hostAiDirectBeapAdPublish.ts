@@ -18,8 +18,8 @@ import {
 } from './hostAiRemoteInferencePolicyResolve'
 import { getHostAiLedgerRoleSummaryFromDb } from './hostAiEffectiveRole'
 import { isHostAiLedgerAsymmetricTerminal } from './hostAiPairingStateStore'
-import { hostAiBeapAdLocalOllamaModelCount } from './hostAiBeapAdOllamaModelCount'
-import { postHostAiDirectBeapAdToCoordination } from './p2pSignalRelayPost'
+import { hostAiBeapAdLocalOllamaModelRoster } from './hostAiBeapAdOllamaModelCount'
+import { postHostAiDirectBeapAdToCoordination, type HostAiBeapAdSignalOllamaCapabilities } from './p2pSignalRelayPost'
 import {
   assertRecordForServiceRpc,
   coordinationDeviceIdForHandshakeDeviceRole,
@@ -257,7 +257,17 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
     return
   }
 
-  const ollama = await hostAiBeapAdLocalOllamaModelCount()
+  const ollama = await hostAiBeapAdLocalOllamaModelRoster()
+  const ollamaCaps: HostAiBeapAdSignalOllamaCapabilities = {
+    provider: 'ollama',
+    models_count: ollama.models_count,
+    available: ollama.models_count > 0,
+    models: ollama.models,
+    active_model_id: ollama.active_model_id,
+    active_model_name: ollama.active_model_name,
+    model_source: ollama.model_source,
+    max_concurrent_local_models: 1,
+  }
   if (!ollama.ollama_ok || ollama.models_count < 1) {
     console.log(
       `[HOST_AI_HOST_BEAP_AD_PUBLISH] ${JSON.stringify({
@@ -313,6 +323,17 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
     }
     const seq = nextAdSeq(hid)
     console.log(
+      `[HOST_AI_MODEL_ROSTER_PUBLISH] ${JSON.stringify({
+        handshakeId: hid,
+        hostDeviceId: localId,
+        models: ollama.models.map((m) => m.name),
+        activeModelId: ollama.active_model_id,
+        activeModelName: ollama.active_model_name,
+        modelSource: ollama.model_source,
+        maxConcurrentLocalModels: 1,
+      })}`,
+    )
+    console.log(
       `[HOST_AI_HOST_BEAP_AD_PUBLISH] ${JSON.stringify({
         handshakeId: hid,
         localDeviceId: localId,
@@ -337,7 +358,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
       senderDeviceId: dr.localCoordinationDeviceId,
       receiverDeviceId: dr.peerCoordinationDeviceId,
       adSeq: seq,
-      modelsCount: ollama.models_count,
+      ollamaCapabilities: ollamaCaps,
     })
     attemptedPost += 1
     const relayOk = res.ok

@@ -14,12 +14,23 @@ vi.mock('../dbAccess', () => ({
 }))
 
 const getHostUrl = vi.hoisted(() => vi.fn<(_db: unknown) => string | null>())
-const hostAiBeapAdLocalOllamaModelCountMock = vi.hoisted(() =>
-  vi.fn(async () => ({ ollama_ok: true as const, models_count: 1 })),
+const hostAiBeapAdLocalOllamaModelRosterMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    ollama_ok: true as const,
+    models_count: 1,
+    models: [{ id: 'm', name: 'm', provider: 'ollama' as const, available: true, active: true }],
+    active_model_id: 'm',
+    active_model_name: 'm',
+    model_source: 'test',
+  })),
 )
 
 vi.mock('../hostAiBeapAdOllamaModelCount', () => ({
-  hostAiBeapAdLocalOllamaModelCount: (...a: unknown[]) => hostAiBeapAdLocalOllamaModelCountMock(...a),
+  hostAiBeapAdLocalOllamaModelRoster: (...a: unknown[]) => hostAiBeapAdLocalOllamaModelRosterMock(...a),
+  hostAiBeapAdLocalOllamaModelCount: async () => {
+    const r = await hostAiBeapAdLocalOllamaModelRosterMock()
+    return { ollama_ok: r.ollama_ok, models_count: r.models_count }
+  },
 }))
 
 vi.mock('../p2pEndpointRepair', () => ({
@@ -115,8 +126,15 @@ describe('publishHostAiDirectBeapAdvertisementsForEligibleHost', () => {
     getHostUrl.mockReset()
     postBeapAd.mockReset()
     postBeapAd.mockImplementation(async () => ({ ok: true, status: 200 }))
-    hostAiBeapAdLocalOllamaModelCountMock.mockReset()
-    hostAiBeapAdLocalOllamaModelCountMock.mockImplementation(async () => ({ ollama_ok: true, models_count: 1 }))
+    hostAiBeapAdLocalOllamaModelRosterMock.mockReset()
+    hostAiBeapAdLocalOllamaModelRosterMock.mockImplementation(async () => ({
+      ollama_ok: true,
+      models_count: 1,
+      models: [{ id: 'm', name: 'm', provider: 'ollama' as const, available: true, active: true }],
+      active_model_id: 'm',
+      active_model_name: 'm',
+      model_source: 'test',
+    }))
     const { resetHostAiDirectBeapAdPublishStateForTests } = await import('../hostAiDirectBeapAdPublish')
     resetHostAiDirectBeapAdPublishStateForTests()
   })
@@ -129,14 +147,36 @@ describe('publishHostAiDirectBeapAdvertisementsForEligibleHost', () => {
     await publishHostAiDirectBeapAdvertisementsForEligibleHost({} as any, { context: 'test_early_no_url' })
     expect(postBeapAd).not.toHaveBeenCalled()
     await publishHostAiDirectBeapAdvertisementsForEligibleHost({} as any, { context: 'test_later_url' })
+    expect(postBeapAd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ollamaCapabilities: expect.objectContaining({
+          active_model_id: 'm',
+          max_concurrent_local_models: 1,
+        }),
+      }),
+    )
     expect(postBeapAd).toHaveBeenCalledTimes(1)
   })
 
   it('early ollama_models_gate schedules retry and publishes when models appear', async () => {
     vi.useFakeTimers()
-    hostAiBeapAdLocalOllamaModelCountMock
-      .mockResolvedValueOnce({ ollama_ok: true, models_count: 0 })
-      .mockResolvedValue({ ollama_ok: true, models_count: 1 })
+    hostAiBeapAdLocalOllamaModelRosterMock
+      .mockResolvedValueOnce({
+        ollama_ok: true,
+        models_count: 0,
+        models: [],
+        active_model_id: null,
+        active_model_name: null,
+        model_source: 't',
+      })
+      .mockResolvedValue({
+        ollama_ok: true,
+        models_count: 1,
+        models: [{ id: 'm', name: 'm', provider: 'ollama' as const, available: true, active: true }],
+        active_model_id: 'm',
+        active_model_name: 'm',
+        model_source: 't',
+      })
     getHostUrl.mockReturnValue('http://192.168.1.2:51249/beap/ingest')
     const { publishHostAiDirectBeapAdvertisementsForEligibleHost } = await import('../hostAiDirectBeapAdPublish')
     await publishHostAiDirectBeapAdvertisementsForEligibleHost({} as any, { context: 't_ollama_retry' })

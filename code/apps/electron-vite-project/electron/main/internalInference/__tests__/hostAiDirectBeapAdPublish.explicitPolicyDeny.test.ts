@@ -37,6 +37,14 @@ vi.mock('../p2pSignalRelayPost', () => ({
 
 vi.mock('../hostAiBeapAdOllamaModelCount', () => ({
   hostAiBeapAdLocalOllamaModelCount: vi.fn(async () => ({ ollama_ok: true, models_count: 1 })),
+  hostAiBeapAdLocalOllamaModelRoster: vi.fn(async () => ({
+    ollama_ok: true,
+    models_count: 1,
+    models: [],
+    active_model_id: 'm',
+    active_model_name: 'm',
+    model_source: 't',
+  })),
 }))
 
 vi.mock('../handshake/db', () => ({

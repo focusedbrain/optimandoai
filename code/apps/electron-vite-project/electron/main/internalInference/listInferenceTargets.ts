@@ -59,7 +59,7 @@ import {
 import { InternalInferenceErrorCode } from './errors'
 import { clearHostAiTransportDecideDedupeCache, logHostAiTransportDecideListLine } from './hostAiTransportDecideLog'
 import { hostHasActiveInternalLedgerHostPeerSandboxFromDb } from './hostAiInternalPairingLedger'
-import { peekHostAdvertisedMvpDirectEntry, registerP2pEnsureCacheInvalidator } from './p2pEndpointRepair'
+import { peekHostAdvertisedMvpDirectEntry, registerP2pEnsureCacheInvalidator, type HostAiPeerAdvertisedOllamaRoster } from './p2pEndpointRepair'
 import {
   hostAiPairingListBlock,
   recordHostAiLedgerAsymmetric,
@@ -89,6 +89,22 @@ import type { HostAiTargetStatus } from './hostAiTargetStatus'
 
 const L = '[HOST_INFERENCE_TARGETS]'
 /** Log fields: `beap_target_available` = BEAP / top-chat path trusted and ready; `ollama_direct_available` = LAN Ollama tags path usable (do not conflate the two). */
+
+function hostOllamaDirectSyntheticProbeMeta(
+  handshakeId: string,
+  meta: { hostName: string; digits6: string },
+): {
+  hostComputerName: string
+  pairingDigits: string
+  peerAdvertisedOllamaRoster: HostAiPeerAdvertisedOllamaRoster | null
+} {
+  const peek = peekHostAdvertisedMvpDirectEntry(handshakeId)
+  return {
+    hostComputerName: meta.hostName,
+    pairingDigits: meta.digits6,
+    peerAdvertisedOllamaRoster: peek?.ollamaRoster ?? null,
+  }
+}
 
 /**
  * `/api/tags` classification allows skipping BEAP/WebRTC policy work for model listing — LAN ODL is not gated by the BEAP transport selector.
@@ -2257,10 +2273,10 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         sandboxOllamaDirectTagsAllowListTransportBypass(odTagsPrefetch)
       ) {
         /** BEAP/policy HTTP on cooldown — Ollama LAN tags already enumerated ⇒ list via `ollama_direct` only. */
-        probe = buildSyntheticOkProbeFromOllamaDirectTags(odTagsPrefetch, {
-          hostComputerName: ml0.hostName,
-          pairingDigits: ml0.digits6,
-        })
+        probe = buildSyntheticOkProbeFromOllamaDirectTags(
+          odTagsPrefetch,
+          hostOllamaDirectSyntheticProbeMeta(hid, { hostName: ml0.hostName, digits6: ml0.digits6 }),
+        )
         hadCapabilitiesProbed = false
       } else {
         probe = {
@@ -2273,10 +2289,10 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         hadCapabilitiesProbed = true
       }
     } else if (bypassOllamaDirectLan && odTagsPrefetch) {
-      probe = buildSyntheticOkProbeFromOllamaDirectTags(odTagsPrefetch, {
-        hostComputerName: ml0.hostName,
-        pairingDigits: ml0.digits6,
-      })
+      probe = buildSyntheticOkProbeFromOllamaDirectTags(
+        odTagsPrefetch,
+        hostOllamaDirectSyntheticProbeMeta(hid, { hostName: ml0.hostName, digits6: ml0.digits6 }),
+      )
       hadCapabilitiesProbed = false
     } else if (webrtcP2pListDirect) {
       try {
@@ -2453,10 +2469,10 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       sandboxOllamaDirectTagsAllowListTransportBypass(odTagsPrefetch)
     ) {
       /** BEAP/caps/policy failed — LAN `/api/tags` already classified — keep Host Ollama models (not BEAP gated). */
-      probe = buildSyntheticOkProbeFromOllamaDirectTags(odTagsPrefetch, {
-        hostComputerName: ml0.hostName,
-        pairingDigits: ml0.digits6,
-      })
+      probe = buildSyntheticOkProbeFromOllamaDirectTags(
+        odTagsPrefetch,
+        hostOllamaDirectSyntheticProbeMeta(hid, { hostName: ml0.hostName, digits6: ml0.digits6 }),
+      )
       hadCapabilitiesProbed = false
     }
 
@@ -2488,10 +2504,10 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         sandboxOllamaDirectTagsAllowListTransportBypass(tagsRecover) &&
         (tagsRecover.classification === 'available' || tagsRecover.classification === 'no_models')
       ) {
-        probe = buildSyntheticOkProbeFromOllamaDirectTags(tagsRecover, {
-          hostComputerName: ml0.hostName,
-          pairingDigits: ml0.digits6,
-        })
+        probe = buildSyntheticOkProbeFromOllamaDirectTags(
+          tagsRecover,
+          hostOllamaDirectSyntheticProbeMeta(hid, { hostName: ml0.hostName, digits6: ml0.digits6 }),
+        )
         hadCapabilitiesProbed = false
       }
     }
@@ -3072,6 +3088,26 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           `${L} beap_target_available=false ollama_direct_available=true transport=${transportProbeLabel} handshake=${hid} ollama_direct_models=${pushed} reason=${peerEndpointMissingUntrusted ? 'peer_host_endpoint_missing' : 'trust_misrouting'}`,
         )
       }
+      const visibleModels = orderedOdModels.map((rm) => rm.model.trim()).filter(Boolean)
+      const pOk = probe && typeof probe === 'object' && 'ok' in probe && (probe as { ok: boolean }).ok
+      const selectedHostModelSource =
+        pOk && 'hostDefaultModelSource' in probe
+          ? String((probe as { hostDefaultModelSource?: string }).hostDefaultModelSource ?? '')
+          : ''
+      const fallbackUsed =
+        pOk && 'hostOllamaSyntheticFallbackUsed' in probe
+          ? Boolean((probe as { hostOllamaSyntheticFallbackUsed?: boolean }).hostOllamaSyntheticFallbackUsed)
+          : false
+      console.log(
+        `[HOST_AI_MODEL_SELECTOR_MERGE] ${JSON.stringify({
+          handshakeId: hid,
+          hostDeviceId: hostDevice,
+          visibleModels,
+          selectedHostModelId: hostActiveModel || visibleModels[0] || null,
+          selectedHostModelSource: selectedHostModelSource || 'capabilities_or_policy_probe',
+          fallbackUsed,
+        })}`,
+      )
       continue
     }
 

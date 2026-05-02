@@ -23,6 +23,7 @@ import {
   coordinationP2pSignal403IsRegistryDrift,
   reregisterInternalHandshakeAfterCoordinationP2pSignal403,
 } from '../p2p/relaySync'
+import type { HostAiBeapAdOllamaModelWireEntry } from './hostAiBeapAdOllamaModelCount'
 
 export { P2P_SIGNAL_WIRE_SCHEMA_VERSION }
 
@@ -643,6 +644,19 @@ export async function sendHostAiP2pSignalOutbound(params: {
 /** Must stay within coordination-service `tryParseP2pSignalRequest` TTL for `p2p_host_ai_direct_beap_ad` (60s–600s). */
 const HOST_AI_BEAP_AD_TTL_MS = 300_000
 
+/** Nested in `host_ai_route.capabilities` on relay BEAP ads — Sandbox merges into selector (no transport change). */
+export type HostAiBeapAdSignalOllamaCapabilities = {
+  provider: 'ollama'
+  models_count: number
+  available: boolean
+  models: HostAiBeapAdOllamaModelWireEntry[]
+  active_model_id: string | null
+  active_model_name: string | null
+  model_source: string
+  /** Host Ollama runs one loaded model at a time for remote inference (VRAM). */
+  max_concurrent_local_models: 1
+}
+
 export function buildHostAiDirectBeapAdSignalBody(params: {
   handshakeId: string
   sessionId: string
@@ -650,13 +664,13 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
   receiverDeviceId: string
   endpointUrl: string
   adSeq: number
-  modelsCount: number
+  ollamaCapabilities: HostAiBeapAdSignalOllamaCapabilities
 }): string {
   const correlationId = randomUUID()
   const t0 = Date.now()
   const createdAt = new Date(t0).toISOString()
   const expiresAt = new Date(t0 + HOST_AI_BEAP_AD_TTL_MS).toISOString()
-  const mc = Math.max(0, Math.floor(Number(params.modelsCount) || 0))
+  const caps = params.ollamaCapabilities
   return JSON.stringify({
     schema_version: P2P_SIGNAL_WIRE_SCHEMA_VERSION,
     signal_type: 'p2p_host_ai_direct_beap_ad',
@@ -683,7 +697,7 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
         { kind: 'relay' as const, available: true },
         { kind: 'webrtc' as const, available: true },
       ],
-      capabilities: { provider: 'ollama' as const, models_count: mc, available: mc > 0 },
+      capabilities: caps,
     },
   })
 }
@@ -695,7 +709,7 @@ export async function postHostAiDirectBeapAdToCoordination(params: {
   senderDeviceId: string
   receiverDeviceId: string
   adSeq: number
-  modelsCount?: number
+  ollamaCapabilities: HostAiBeapAdSignalOllamaCapabilities
 }): Promise<{ ok: boolean; status: number; bodyText?: string }> {
   const base = coordinationBaseUrl(params.db)
   if (!base) {
@@ -714,7 +728,7 @@ export async function postHostAiDirectBeapAdToCoordination(params: {
     receiverDeviceId: params.receiverDeviceId.trim(),
     endpointUrl: params.endpointUrl.trim(),
     adSeq: params.adSeq,
-    modelsCount: params.modelsCount ?? 0,
+    ollamaCapabilities: params.ollamaCapabilities,
   })
   const postFn = p2pSignalRelayPostTestHooks.post ?? postP2pSignalToCoordinationWithOptionalAuthRetry
   const endpoint = `${base.replace(/\/$/, '')}/beap/p2p-signal`

@@ -15,7 +15,19 @@ import {
   p2pSignalRelayPostTestHooks,
   postHostAiDirectBeapAdToCoordination,
   resetP2pSignalRelayOutboundStateForTests,
+  type HostAiBeapAdSignalOllamaCapabilities,
 } from '../p2pSignalRelayPost'
+
+const testOllamaCaps = (n: number): HostAiBeapAdSignalOllamaCapabilities => ({
+  provider: 'ollama',
+  models_count: n,
+  available: n > 0,
+  models: [],
+  active_model_id: null,
+  active_model_name: null,
+  model_source: 'test',
+  max_concurrent_local_models: 1,
+})
 
 const reregMock = vi.hoisted(() => vi.fn(async () => ({ ok: true as const })))
 
@@ -79,7 +91,7 @@ describe('postHostAiDirectBeapAdToCoordination — 403 registry drift recovery',
       senderDeviceId: 'dev-host-1',
       receiverDeviceId: 'dev-sand-1',
       adSeq: 3,
-      modelsCount: 2,
+      ollamaCapabilities: testOllamaCaps(2),
     })
     expect(r.ok).toBe(true)
     expect(r.status).toBe(200)
@@ -103,7 +115,7 @@ describe('postHostAiDirectBeapAdToCoordination — 403 registry drift recovery',
         senderDeviceId: 'dev-host-1',
         receiverDeviceId: 'dev-sand-1',
         adSeq: 1,
-        modelsCount: 1,
+        ollamaCapabilities: testOllamaCaps(1),
       })
       expect(r.ok).toBe(false)
       expect(r.status).toBe(403)
