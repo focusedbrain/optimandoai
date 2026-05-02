@@ -579,7 +579,7 @@ export function validateStoredSelectionForOrchestratorWithDiagnostics(
         )) ||
       isHostInferenceTargetPendingForRestore(t)
     return {
-      modelId: stored.id,
+      modelId: t.id,
       diagnostics: {
         provider: 'host_ai',
         saved: stored.id,

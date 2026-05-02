@@ -3157,6 +3157,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         for (const rm of orderedOdModels) {
           const dm = rm.model.trim()
           if (!dm) continue
+          if (hostActiveModel && dm !== hostActiveModel) continue
           pushed += 1
           const primaryLabel = `Host AI · ${dm}`
           const t: HostTargetDraft = {
@@ -3220,6 +3221,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         for (const rm of orderedOdModels) {
           const dm = rm.model.trim()
           if (!dm) continue
+          if (hostActiveModel && dm !== hostActiveModel) continue
           pushed += 1
           const primaryLabel = `Host AI · ${dm}`
           /** Exactly one logical `available` row per handshake avoids double-count in `list_done`; extra model rows remain selector-visible via `visibleInModelSelector`. */
@@ -3429,6 +3431,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     let pushedPolicy = 0
     for (const dm of orderedPolicyModels) {
       if (!dm) continue
+      if (hostActiveModelForRows && dm !== hostActiveModelForRows) continue
       pushedPolicy += 1
       const primaryLabel =
         displayFromHost && dm === hostActiveModelForRows ? displayFromHost : `Host AI · ${dm}`
