@@ -19,6 +19,10 @@ import { recordP2pRelaySignaling429Storm, resetP2pRelaySignalingCircuitForTests 
 import { failHostAiP2pSessionForTerminalSignalingError, getSessionState } from './p2pSession/p2pInferenceSessionManager'
 import { P2P_SIGNAL_WIRE_SCHEMA_VERSION } from './p2pSignalWireSchemaVersion'
 import { getOutboundQueueAuthRefresh } from '../handshake/outboundQueue'
+import {
+  coordinationP2pSignal403IsRegistryDrift,
+  reregisterInternalHandshakeAfterCoordinationP2pSignal403,
+} from '../p2p/relaySync'
 
 export { P2P_SIGNAL_WIRE_SCHEMA_VERSION }
 
@@ -158,6 +162,81 @@ function parseCoordinationP2pSignalPostError(bodyText: string): string | undefin
     /* ignore */
   }
   return undefined
+}
+
+function jwtExpMsFromBearer(token: string | null | undefined): number | null {
+  if (!token?.trim()) return null
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+    const p = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as { exp?: number }
+    return typeof p.exp === 'number' ? p.exp * 1000 : null
+  } catch {
+    return null
+  }
+}
+
+/** Non-sensitive realm hint from JWT email claim (domain only). */
+function accountEmailDomainHintFromBearer(token: string | null | undefined): string | null {
+  if (!token?.trim()) return null
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+    const p = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as { email?: string }
+    const em = typeof p.email === 'string' ? p.email.trim() : ''
+    if (em.includes('@')) return em.split('@')[1]!.toLowerCase()
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+function logHostAiRelayPostFailed(args: {
+  status: number
+  statusText: string
+  bodyText: string
+  endpoint: string
+  messageType: string
+  handshakeId: string
+  localDeviceId: string
+  peerDeviceId: string
+  tokenPresent: boolean
+  tokenExpiresAt: number | null
+  accountEmailDomain: string | null
+  clientKind: 'local_client' | 'holder_client' | 'unknown'
+}): void {
+  let responseBodyCode: string | null = null
+  let responseBodyMessage: string | null = null
+  try {
+    const o = JSON.parse(args.bodyText) as { error?: string; reason?: string; detail?: unknown; code?: string }
+    responseBodyCode =
+      (typeof o.error === 'string' && o.error) || (typeof o.code === 'string' && o.code) || null
+    if (typeof o.reason === 'string' && o.reason) {
+      responseBodyMessage = o.reason
+    } else if (o.detail !== undefined) {
+      const d = o.detail
+      responseBodyMessage = typeof d === 'string' ? d.slice(0, 500) : JSON.stringify(d).slice(0, 500)
+    }
+  } catch {
+    responseBodyMessage = args.bodyText ? args.bodyText.slice(0, 200) : null
+  }
+  console.log(
+    `[HOST_AI_RELAY_POST_FAILED] ${JSON.stringify({
+      status: args.status,
+      statusText: args.statusText,
+      responseBodyCode,
+      responseBodyMessage,
+      endpoint: args.endpoint,
+      messageType: args.messageType,
+      handshakeId: args.handshakeId,
+      localDeviceId: args.localDeviceId,
+      peerDeviceId: args.peerDeviceId,
+      accountEmailDomain: args.accountEmailDomain,
+      tokenPresent: args.tokenPresent,
+      tokenExpiresAt: args.tokenExpiresAt,
+      clientKind: args.clientKind,
+    })}`,
+  )
 }
 
 export function shouldSendHostAiP2pSignalViaCoordination(
@@ -617,14 +696,14 @@ export async function postHostAiDirectBeapAdToCoordination(params: {
   receiverDeviceId: string
   adSeq: number
   modelsCount?: number
-}): Promise<{ ok: boolean; status: number }> {
+}): Promise<{ ok: boolean; status: number; bodyText?: string }> {
   const base = coordinationBaseUrl(params.db)
   if (!base) {
-    return { ok: false, status: 0 }
+    return { ok: false, status: 0, bodyText: '' }
   }
   const token = getAccessToken()
   if (!token?.trim()) {
-    return { ok: false, status: 401 }
+    return { ok: false, status: 401, bodyText: '' }
   }
   const hid = params.handshakeId.trim()
   const sessionId = `host_ai_beap_ad:${hid}:${params.adSeq}`
@@ -638,8 +717,31 @@ export async function postHostAiDirectBeapAdToCoordination(params: {
     modelsCount: params.modelsCount ?? 0,
   })
   const postFn = p2pSignalRelayPostTestHooks.post ?? postP2pSignalToCoordinationWithOptionalAuthRetry
+  const endpoint = `${base.replace(/\/$/, '')}/beap/p2p-signal`
+  const messageType = 'p2p_host_ai_direct_beap_ad'
+  const localDev = getInstanceId().trim()
+  const peerDev = params.receiverDeviceId.trim()
+
+  const finalizeFailureLog = (res: { status: number; bodyText: string }) => {
+    const tok = getAccessToken()
+    logHostAiRelayPostFailed({
+      status: res.status,
+      statusText: '',
+      bodyText: res.bodyText,
+      endpoint,
+      messageType,
+      handshakeId: hid,
+      localDeviceId: localDev,
+      peerDeviceId: peerDev,
+      tokenPresent: Boolean(tok?.trim()),
+      tokenExpiresAt: jwtExpMsFromBearer(tok),
+      accountEmailDomain: accountEmailDomainHintFromBearer(tok),
+      clientKind: 'unknown',
+    })
+  }
+
   try {
-    const res = await postFn(base, token.trim(), body)
+    let res = await postFn(base, token.trim(), body)
     if (res.status === 400) {
       let peer = ''
       try {
@@ -658,9 +760,26 @@ export async function postHostAiDirectBeapAdToCoordination(params: {
         kind: 'host_ai_direct_beap_ad',
       })
     }
-    return { ok: res.status === 200 || res.status === 202, status: res.status }
+
+    const isOk = (r: { status: number }) => r.status === 200 || r.status === 202
+    if (!isOk(res) && res.status === 403 && coordinationP2pSignal403IsRegistryDrift(res.bodyText)) {
+      const rereg = await reregisterInternalHandshakeAfterCoordinationP2pSignal403(params.db, hid)
+      if (rereg.ok) {
+        const tok2 = getAccessToken()
+        if (tok2?.trim()) {
+          res = await postFn(base, tok2.trim(), body)
+        }
+      }
+    }
+
+    if (!isOk(res)) {
+      finalizeFailureLog(res)
+    }
+    return { ok: isOk(res), status: res.status, bodyText: res.bodyText }
   } catch {
-    return { ok: false, status: 0 }
+    const res = { status: 0, bodyText: '' }
+    finalizeFailureLog(res)
+    return { ok: false, status: 0, bodyText: '' }
   }
 }
 

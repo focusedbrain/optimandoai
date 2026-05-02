@@ -217,3 +217,77 @@ export async function registerHandshakeWithRelay(
     return { success: false, error: msg }
   }
 }
+
+const REGISTRY_DRIFT_P2P_SIGNAL_ERRORS = new Set([
+  'RELAY_SENDER_UNAUTHORIZED',
+  'RELAY_RECIPIENT_RESOLUTION_FAILED',
+  'RELAY_RECEIVER_DEVICE_MISMATCH',
+])
+
+/** True when coordination `/beap/p2p-signal` returned 403 with a registry/routing code (stale register-handshake). */
+export function coordinationP2pSignal403IsRegistryDrift(bodyText: string): boolean {
+  const t = typeof bodyText === 'string' ? bodyText.trim() : ''
+  if (!t) return false
+  try {
+    const o = JSON.parse(t) as { error?: string }
+    return typeof o.error === 'string' && REGISTRY_DRIFT_P2P_SIGNAL_ERRORS.has(o.error)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Re-run `/beap/register-handshake` for an internal row so coordination `coordination_handshake_registry`
+ * matches JWT `sub` and current coordination device ids (fixes `relay_post_403` on Host BEAP ads).
+ */
+export async function reregisterInternalHandshakeAfterCoordinationP2pSignal403(
+  db: any,
+  handshakeId: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  const hid = String(handshakeId ?? '').trim()
+  if (!db || !hid) return { ok: false, reason: 'no_db_or_handshake' }
+  const record = getHandshakeRecord(db, hid)
+  if (!record || record.handshake_type !== 'internal') {
+    return { ok: false, reason: 'not_internal' }
+  }
+  const cfg = getP2PConfig(db)
+  if (!cfg.use_coordination || !cfg.coordination_url?.trim()) {
+    return { ok: false, reason: 'no_coordination' }
+  }
+  const { getCoordinationOidcToken, getCurrentSession } = await import('../handshake/ipc')
+  const session = getCurrentSession()
+  if (!session) return { ok: false, reason: 'no_session' }
+  const token = await getCoordinationOidcToken()
+  if (!token?.trim()) return { ok: false, reason: 'no_token' }
+
+  const { coordinationRegistryUserIdsForSession } = await import('./relayIdentity')
+  const regUserIds = coordinationRegistryUserIdsForSession(session, {
+    handshake_type: record.handshake_type,
+    initiator: record.initiator,
+    acceptor: record.acceptor,
+  })
+
+  const reReg = await registerHandshakeWithRelay(db, hid, '', '', async () => token.trim(), {
+    initiator_user_id: regUserIds.initiator_user_id,
+    acceptor_user_id: regUserIds.acceptor_user_id,
+    initiator_email: record.initiator?.email ?? '',
+    acceptor_email: record.acceptor?.email ?? '',
+    handshake_type: 'internal',
+    ...(record.initiator_coordination_device_id?.trim()
+      ? { initiator_device_id: record.initiator_coordination_device_id.trim() }
+      : {}),
+    ...(record.acceptor_coordination_device_id?.trim()
+      ? { acceptor_device_id: record.acceptor_coordination_device_id.trim() }
+      : {}),
+  })
+  if (!reReg.success) {
+    return { ok: false, reason: reReg.error ?? 'reregister_failed' }
+  }
+  console.log(
+    `[HOST_AI_COORDINATION_REGISTRY_REREG] ${JSON.stringify({
+      handshakeId: hid,
+      context: 'after_p2p_signal_403',
+    })}`,
+  )
+  return { ok: true }
+}
