@@ -1492,6 +1492,114 @@ function ensureAtLeastOneHostTargetWhenLedgerProvesSandboxToHost(
 }
 
 /**
+ * When a BEAP / caps / policy probe fails, still surface LAN `ollama_direct` selector rows if
+ * {@link getSandboxOllamaDirectRouteCandidate} has an accepted `base_url` and `/api/tags` succeeds.
+ * Does not clear BEAP failure state — adds ODL rows alongside probe diagnostics when applicable.
+ */
+async function tryEmitOllamaDirectOnlyRowsAfterBeapProbeFailure(p: {
+  targets: HostInternalInferenceListItem[]
+  hid: string
+  hostDevice: string
+  ml0: ReturnType<typeof metaLocal>
+  listDec: HostAiTransportDeciderResult
+  leK: HostListLegacyEndpointKind
+  odTagsPrefetch: SandboxOllamaDirectTagsFetchResult | null
+  beapFailureCode: string
+}): Promise<boolean> {
+  const { targets, hid, hostDevice, ml0, listDec, leK, odTagsPrefetch, beapFailureCode } = p
+  if (!hostDevice.trim()) return false
+  const odRescue = getSandboxOllamaDirectRouteCandidate(hid)
+  const baseUrlStr = typeof odRescue?.base_url === 'string' ? odRescue.base_url.trim() : ''
+  if (!odRescue || !baseUrlStr) return false
+
+  let tagsNow = odTagsPrefetch
+  if (!tagsNow || !sandboxOllamaDirectTagsAllowListTransportBypass(tagsNow)) {
+    tagsNow = await fetchSandboxOllamaDirectTags({
+      handshakeId: hid,
+      currentDeviceId: getInstanceId().trim(),
+      peerHostDeviceId: hostDevice,
+      candidate: odRescue,
+    })
+  }
+  if (!tagsNow || !sandboxOllamaDirectTagsAllowListTransportBypass(tagsNow)) return false
+  if (tagsNow.classification !== 'available' || tagsNow.models.length === 0) return false
+
+  const secondary = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
+  const transportProbeLabel = listDec.preferredTransport === 'legacy_http' ? 'direct_http' : 'webrtc_p2p'
+  const laneStatusUntrusted: HostAiTargetStatus = 'ollama_direct_only'
+  const peek = peekHostAdvertisedMvpDirectEntry(hid)
+  const hostActiveModel =
+    peek?.ollamaRoster?.active_model_id?.trim() || peek?.ollamaRoster?.active_model_name?.trim() || null
+  const orderedOdModels =
+    hostActiveModel && tagsNow.models.some((rm) => rm.model.trim() === hostActiveModel)
+      ? [
+          ...tagsNow.models.filter((rm) => rm.model.trim() === hostActiveModel),
+          ...tagsNow.models.filter((rm) => rm.model.trim() !== hostActiveModel),
+        ]
+      : tagsNow.models
+
+  let pushed = 0
+  for (const rm of orderedOdModels) {
+    const dm = rm.model.trim()
+    if (!dm) continue
+    pushed += 1
+    const primaryLabel = `Host AI · ${dm}`
+    const laneRowAvailable = pushed === 1
+    const t: HostTargetDraft = {
+      kind: 'host_internal',
+      id: buildHostTargetId(hid, dm),
+      label: primaryLabel,
+      display_label: primaryLabel,
+      displayTitle: primaryLabel,
+      displaySubtitle: secondary,
+      model: dm,
+      model_id: dm,
+      provider: 'host_internal',
+      handshake_id: hid,
+      host_device_id: hostDevice,
+      host_computer_name: ml0.hostName,
+      host_pairing_code: ml0.digits6,
+      host_orchestrator_role: 'host',
+      host_orchestrator_role_label: ml0.roleLabel,
+      internal_identifier_6: ml0.digits6,
+      secondary_label: secondary,
+      direct_reachable: true,
+      policy_enabled: true,
+      available: laneRowAvailable,
+      availability: 'ollama_direct_lane',
+      unavailable_reason: null,
+      host_role: 'Host',
+      ...baseMetaFromDec(listDec, leK),
+      selector_phase: 'ready',
+      p2pUiPhase: 'ready',
+      failureCode: null,
+      beapFailureCode,
+      ollamaDirectFailureCode: null,
+      hostWireOllamaReachable: true,
+      execution_transport: 'ollama_direct',
+      host_ai_target_status: laneStatusUntrusted,
+      beapReady: false,
+      ollamaDirectReady: true,
+      hostActiveModel,
+      visibleInModelSelector: true,
+      trustedForBeap: false,
+      canChat: false,
+      canUseTopChatTools: false,
+      canUseOllamaDirect: true,
+      trusted: false,
+    }
+    targets.push(finalizeItem(t))
+  }
+  console.log(
+    `[HOST_AI_CAPABILITY_PROBE] transport=${transportProbeLabel} ok=tags_only handshake=${hid} source=ollama_direct_rescue_after_beap_fail tags_models=${pushed}`,
+  )
+  console.log(
+    `${L} beap_target_available=false ollama_direct_available=true transport=${transportProbeLabel} handshake=${hid} ollama_direct_models=${pushed} reason=beap_probe_failed_od_rescue`,
+  )
+  return pushed > 0
+}
+
+/**
  * Returns Host AI targets for Sandbox: ACTIVE internal, same principal, this device Sandbox ↔ peer Host.
  * When persisted mode is "host" but the ledger still shows an ACTIVE internal Sandbox↔Host row (mis-set file), lists anyway.
  * Real Host machines with no such ledger row get an empty list.
@@ -2452,6 +2560,19 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           failureCode: InternalInferenceErrorCode.PROBE_HOST_ERROR,
         }
         hadCapabilitiesProbed = true
+        const rescuedWebrtcThrow = await tryEmitOllamaDirectOnlyRowsAfterBeapProbeFailure({
+          targets,
+          hid,
+          hostDevice,
+          ml0,
+          listDec,
+          leK,
+          odTagsPrefetch,
+          beapFailureCode: InternalInferenceErrorCode.PROBE_HOST_ERROR,
+        })
+        if (rescuedWebrtcThrow) {
+          continue
+        }
         targets.push(finalizeItem(t))
         continue
       }
@@ -2493,6 +2614,19 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           ...baseMetaFromDec(listDec, leK),
           p2pUiPhase: 'probe_gateway_error',
           failureCode: InternalInferenceErrorCode.PROBE_HOST_ERROR,
+        }
+        const rescuedPolicyThrow = await tryEmitOllamaDirectOnlyRowsAfterBeapProbeFailure({
+          targets,
+          hid,
+          hostDevice,
+          ml0,
+          listDec,
+          leK,
+          odTagsPrefetch,
+          beapFailureCode: InternalInferenceErrorCode.PROBE_HOST_ERROR,
+        })
+        if (rescuedPolicyThrow) {
+          continue
         }
         targets.push(finalizeItem(t))
         continue
@@ -2747,6 +2881,21 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       const pr = isPolicyForbid ? 'POLICY_DISABLED' : 'CAPABILITY_PROBE_FAILED'
       if (structured) {
         console.log(`${L} beap_target_available=false reason=${structured} handshake=${hid} probe_code=${String(code)}`)
+      }
+      if (!isPolicyForbid) {
+        const rescuedProbeFail = await tryEmitOllamaDirectOnlyRowsAfterBeapProbeFailure({
+          targets,
+          hid,
+          hostDevice,
+          ml0,
+          listDec,
+          leK,
+          odTagsPrefetch,
+          beapFailureCode: String(code),
+        })
+        if (rescuedProbeFail) {
+          continue
+        }
       }
       console.log(`${L} target_disabled handshake=${hid} reason=${pr} detail=probe_${capabilityProbeLogDetailToken(String(code))}`)
       targets.push(finalizeItem(t))

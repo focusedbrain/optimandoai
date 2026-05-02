@@ -5,6 +5,7 @@
  */
 
 import { getSandboxOllamaDirectRouteCandidate } from '../internalInference/sandboxHostAiOllamaDirectCandidate'
+import { peekHostAdvertisedMvpDirectEntry } from '../internalInference/p2pEndpointRepair'
 import { listSandboxHostInternalInferenceTargets } from '../internalInference/listInferenceTargets'
 import { getHandshakeDbForInternalInference } from '../internalInference/dbAccess'
 import { getHostAiLedgerRoleSummaryFromDb } from '../internalInference/hostAiEffectiveRole'
@@ -14,7 +15,18 @@ import type { AiExecutionContext, ResolveAiExecutionContextResult } from './aiEx
 import { readStoredAiExecutionContext } from './aiExecutionContextStore'
 
 export const NO_AI_MODEL_SELECTED = 'No AI model selected'
-const PREFERRED_SANDBOX_DEFAULT_MODEL = 'llama3.1:8b'
+
+/** Host active Ollama model from coordination-delivered peer roster (`peekHostAdvertisedMvpDirectEntry.ollamaRoster`), when it matches remote tags. */
+function preferredModelFromPeerOllamaRoster(handshakeId: string, remoteModels: string[]): string | null {
+  const hid = String(handshakeId ?? '').trim()
+  if (!hid || remoteModels.length === 0) return null
+  const peek = peekHostAdvertisedMvpDirectEntry(hid)
+  const id = peek?.ollamaRoster?.active_model_id?.trim() || ''
+  if (id && remoteModels.includes(id)) return id
+  const name = peek?.ollamaRoster?.active_model_name?.trim() || ''
+  if (name && remoteModels.includes(name)) return name
+  return null
+}
 
 function enrichOllamaDirectBase(ctx: AiExecutionContext): AiExecutionContext {
   if (ctx.lane !== 'ollama_direct') return ctx
@@ -76,10 +88,11 @@ async function fallbackFromListSandbox(storedOverride?: AiExecutionContext | nul
       !explicit && hostActiveModel && remoteModels.includes(hostActiveModel)
         ? odl.find((x) => rowModelName(x) === hostActiveModel)
         : undefined
+    const primaryHid = String(odl[0]?.handshake_id ?? '').trim()
+    const rosterPreferredModel =
+      !explicit && !hostActive && primaryHid ? preferredModelFromPeerOllamaRoster(primaryHid, remoteModels) : null
     const preferredDefault =
-      !explicit && !hostActive && remoteModels.includes(PREFERRED_SANDBOX_DEFAULT_MODEL)
-        ? odl.find((x) => rowModelName(x) === PREFERRED_SANDBOX_DEFAULT_MODEL)
-        : undefined
+      rosterPreferredModel != null ? odl.find((x) => rowModelName(x) === rosterPreferredModel) : undefined
     const t = (explicit ?? hostActive ?? preferredDefault ?? odl[0])!
     const model = rowModelName(t)
     const models = [
@@ -94,7 +107,7 @@ async function fallbackFromListSandbox(storedOverride?: AiExecutionContext | nul
       : hostActive
         ? 'preferred_host_active_model'
         : preferredDefault
-          ? 'preferred_default_model'
+          ? 'preferred_peer_roster_active_model'
           : 'first_available_remote_model'
     console.log(
       `[AI_EXEC_MODEL_FALLBACK] ${JSON.stringify({
@@ -154,10 +167,13 @@ async function fallbackFromListSandbox(storedOverride?: AiExecutionContext | nul
       !explicit && hostActiveModel && remoteModels.includes(hostActiveModel)
         ? beap.find((x) => rowModelName(x) === hostActiveModel)
         : undefined
+    const primaryBeapHid = String(beap[0]?.handshake_id ?? '').trim()
+    const rosterPreferredBeap =
+      !explicit && !hostActive && primaryBeapHid
+        ? preferredModelFromPeerOllamaRoster(primaryBeapHid, remoteModels)
+        : null
     const preferredDefault =
-      !explicit && !hostActive && remoteModels.includes(PREFERRED_SANDBOX_DEFAULT_MODEL)
-        ? beap.find((x) => rowModelName(x) === PREFERRED_SANDBOX_DEFAULT_MODEL)
-        : undefined
+      rosterPreferredBeap != null ? beap.find((x) => rowModelName(x) === rosterPreferredBeap) : undefined
     const t = (explicit ?? hostActive ?? preferredDefault ?? beap[0])!
     const model = rowModelName(t)
     const fallbackReason = explicit
@@ -165,7 +181,7 @@ async function fallbackFromListSandbox(storedOverride?: AiExecutionContext | nul
       : hostActive
         ? 'preferred_host_active_model'
         : preferredDefault
-          ? 'preferred_default_model'
+          ? 'preferred_peer_roster_active_model'
           : 'first_available_remote_model'
     console.log(
       `[AI_EXEC_MODEL_FALLBACK] ${JSON.stringify({
