@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
 import {
   GROUP_CLOUD,
   GROUP_HOST_MODELS,
@@ -1345,7 +1345,26 @@ export default function HybridSearch({
         })
       }
     }
-  }, [selectedModel, availableModels, gavHostTargets])
+    if (
+      orchIsHost &&
+      selectedModel &&
+      !isHostInferenceModelId(selectedModel) &&
+      availableModels.some((m) => m.id === selectedModel && m.type === 'local')
+    ) {
+      if (typeof window.llm?.setActiveModel === 'function') {
+        void window.llm.setActiveModel(selectedModel)
+      }
+    }
+  }, [selectedModel, availableModels, gavHostTargets, orchIsHost])
+
+  useLayoutEffect(() => {
+    const api = window.llm
+    if (!api?.onActiveModelChanged) return
+    return api.onActiveModelChanged(() => {
+      orchestratorChatModelRestoredRef.current = false
+      void loadModels()
+    })
+  }, [loadModels])
 
   // App resume and account switch: refetch (Host hook also reloads on handshake-list-refresh + orchestrator-mode-changed).
   useEffect(() => {

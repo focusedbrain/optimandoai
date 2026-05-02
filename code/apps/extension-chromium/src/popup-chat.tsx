@@ -56,6 +56,7 @@ import {
   clearPersistedWrChatExtensionModel,
 } from './lib/wrChatExtensionModelPersistence'
 import { runWrChatExtensionPreSend, wrChatExtensionDebugLog } from './lib/wrChatExtensionPreSend'
+import { isHostInferenceRouteId } from './lib/hostInferenceRouteIds'
 import { getVaultStatus } from './vault/api'
 import type { ClientSendFailureDebug, OutboundRequestDebugSnapshot } from './handshake/handshakeRpc'
 import {
@@ -409,6 +410,9 @@ function PopupChatApp() {
     setActiveLlmModel(name)
     activeLlmModelRef.current = name
     persistWrChatExtensionModelId(name, 'user')
+    if (!isHostInferenceRouteId(name)) {
+      void electronRpc('llm.activateModel', { modelId: name }, 12_000)
+    }
     wrChatExtensionDebugLog('model_select_changed', {
       origin: 'popup_wrchat',
       selectedModelUi: name,

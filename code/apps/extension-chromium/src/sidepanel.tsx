@@ -87,6 +87,7 @@ import {
   clearPersistedWrChatExtensionModel,
 } from './lib/wrChatExtensionModelPersistence'
 import { runWrChatExtensionPreSend, wrChatExtensionDebugLog } from './lib/wrChatExtensionPreSend'
+import { isHostInferenceRouteId } from './lib/hostInferenceRouteIds'
 import { isHostInternalChatModelId } from './lib/inferenceSubmitRouting'
 import {
   buildHostInternalMessagesFromSimpleChat,
@@ -4382,6 +4383,9 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
     setActiveLlmModel(modelName)
     activeLlmModelRef.current = modelName
     persistWrChatExtensionModelId(modelName, 'user')
+    if (!isHostInferenceRouteId(modelName)) {
+      void electronRpc('llm.activateModel', { modelId: modelName }, 12_000)
+    }
     wrChatExtensionDebugLog('model_select_changed', {
       origin: 'sidebar_wrchat',
       selectedModelUi: modelName,

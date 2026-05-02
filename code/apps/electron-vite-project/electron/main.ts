@@ -9544,6 +9544,16 @@ async function runDeviceKeyMigration(
             toStore = { ...toStore, baseUrl: base, peerDeviceId: peer }
           }
         }
+        if (!isSandboxMode() && toStore.lane === 'local') {
+          const { ollamaManager } = await import('./main/llm/ollama-manager')
+          const pref = await ollamaManager.setActiveModelPreference(toStore.model)
+          if (!pref.ok) {
+            res.status(400).json({ ok: false, error: pref.error })
+            return
+          }
+          const { broadcastActiveOllamaModelChanged } = await import('./main/llm/broadcastActiveModel')
+          broadcastActiveOllamaModelChanged(toStore.model)
+        }
         writeStoredAiExecutionContext(toStore)
         res.json({ ok: true })
       } catch (error: any) {

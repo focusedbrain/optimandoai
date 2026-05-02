@@ -240,6 +240,14 @@ export function registerLlmHandlers() {
           toStore = { ...toStore, baseUrl: base, peerDeviceId: peer }
         }
       }
+      if (!isSandboxMode() && toStore.lane === 'local') {
+        const pref = await ollamaManager.setActiveModelPreference(toStore.model)
+        if (!pref.ok) {
+          return { ok: false as const, error: pref.error }
+        }
+        _getStatusCache = null
+        broadcastActiveOllamaModelChanged(toStore.model)
+      }
       writeStoredAiExecutionContext(toStore)
       _getStatusCache = null
       return { ok: true as const }
