@@ -5,6 +5,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HandshakeState, type HandshakeRecord } from '../../handshake/types'
 
+vi.mock('../../handshake/ledger', () => ({
+  getLedgerDb: () => null,
+}))
+
+vi.mock('../dbAccess', () => ({
+  getCanonHandshakeDbForHostAiPolicy: vi.fn(async (fb: unknown) => fb ?? null),
+}))
+
 const getHostUrl = vi.hoisted(() => vi.fn<(_db: unknown) => string | null>())
 const hostAiBeapAdLocalOllamaModelCountMock = vi.hoisted(() =>
   vi.fn(async () => ({ ollama_ok: true as const, models_count: 1 })),

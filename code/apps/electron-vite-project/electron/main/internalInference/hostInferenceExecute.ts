@@ -7,8 +7,10 @@ import * as internalHostOllama from '../llm/internalHostInferenceOllama'
 import type { InternalHostInferenceMessage } from '../llm/internalHostInferenceOllama'
 import { ollamaManager } from '../llm/ollama-manager'
 import { InternalInferenceErrorCode } from './errors'
+import { getHandshakeDbForInternalInference } from './dbAccess'
 import { tryAcquireHostInferenceSlot } from './hostInferenceConcurrency'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
+import { resolveHostAiRemoteInferencePolicyBestEffort } from './hostAiRemoteInferencePolicyResolve'
 import type {
   InternalInferenceErrorWire,
   InternalInferenceResultWire,
@@ -93,6 +95,8 @@ export async function runHostInternalInference(
   }
 }> {
   const policy = getHostInternalInferencePolicy()
+  const dbExec = await getHandshakeDbForInternalInference()
+  const policyRes = resolveHostAiRemoteInferencePolicyBestEffort(dbExec)
   const t0 = Date.now()
   const promptStr = JSON.stringify(ctx.messages)
   const promptBytes = Buffer.byteLength(promptStr, 'utf8')
@@ -100,7 +104,7 @@ export async function runHostInternalInference(
 
   const baseLog = { prompt_bytes: promptBytes, message_count: messageCount }
 
-  if (!policy.allowSandboxInference) {
+  if (!policyRes.allowRemoteInference) {
     return {
       wire: buildHostInferenceErrorWire(
         {

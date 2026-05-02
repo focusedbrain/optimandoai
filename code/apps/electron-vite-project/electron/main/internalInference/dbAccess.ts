@@ -34,3 +34,13 @@ export async function getHandshakeDbForInternalInference(): Promise<any | null> 
   }
   return db ?? null
 }
+
+/**
+ * Ledger-first DB for Host AI policy / advertisement (matches {@link getHandshakeDbForInternalInference}).
+ * Use for policy resolution and publish when callers pass a vault or stale handle.
+ */
+export async function getCanonHandshakeDbForHostAiPolicy(fallback: unknown | null): Promise<unknown | null> {
+  const primary = await getHandshakeDbForInternalInference()
+  if (primary) return primary
+  return fallback ?? null
+}

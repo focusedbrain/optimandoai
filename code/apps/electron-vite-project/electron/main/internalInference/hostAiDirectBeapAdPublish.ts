@@ -11,7 +11,11 @@ import { listHandshakeRecords } from '../handshake/db'
 import { HandshakeState } from '../handshake/types'
 import { getInstanceId, getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { getP2PConfig } from '../p2p/p2pConfig'
-import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
+import {
+  hostAiBeapAdPublishShouldRetryAfterPolicyDenial,
+  logHostAiRemotePolicyDecision,
+  resolveHostAiRemoteInferencePolicy,
+} from './hostAiRemoteInferencePolicyResolve'
 import { getHostAiLedgerRoleSummaryFromDb } from './hostAiEffectiveRole'
 import { isHostAiLedgerAsymmetricTerminal } from './hostAiPairingStateStore'
 import { hostAiBeapAdLocalOllamaModelCount } from './hostAiBeapAdOllamaModelCount'
@@ -82,25 +86,45 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
   db: any,
   input: { context: string },
 ): Promise<void> {
-  if (!db) {
+  const { getCanonHandshakeDbForHostAiPolicy } = await import('./dbAccess')
+  const canonDb = await getCanonHandshakeDbForHostAiPolicy(db ?? null)
+  if (!canonDb) {
+    console.log(
+      `[HOST_AI_HOST_BEAP_AD_PUBLISH] ${JSON.stringify({
+        handshakeId: null,
+        skipReason: 'no_canon_handshake_db',
+        published: false,
+        context: input.context,
+      })}`,
+    )
     return
   }
   const localId = getInstanceId().trim()
   const modeHint = String(getOrchestratorMode().mode)
-  const cfg = getP2PConfig(db)
+  const cfg = getP2PConfig(canonDb)
   const coordinationReady = Boolean(cfg.use_coordination && cfg.coordination_url?.trim())
-  const pol = getHostInternalInferencePolicy()
+  const policyRes = resolveHostAiRemoteInferencePolicy(canonDb)
   const endpointRepair = await import('./p2pEndpointRepair')
-  const directUrl = endpointRepair.getHostPublishedMvpDirectP2pIngestUrl(db)
+  const directUrl = endpointRepair.getHostPublishedMvpDirectP2pIngestUrl(canonDb)
   const p2pEndpointReady = Boolean(directUrl?.trim())
-  const ledger = getHostAiLedgerRoleSummaryFromDb(db, localId, modeHint)
+  logHostAiRemotePolicyDecision(canonDb, policyRes, {
+    context: input.context,
+    endpointPresent: p2pEndpointReady,
+    canonDbUsed: true,
+  })
+  const ledger = getHostAiLedgerRoleSummaryFromDb(canonDb, localId, modeHint)
   const effectiveRole = ledger.effective_host_ai_role
   const canPublish = ledger.can_publish_host_endpoint === true
 
   const logAttemptBase = (extra: Record<string, unknown>) =>
     console.log(`[HOST_AI_HOST_BEAP_AD_PUBLISH] ${JSON.stringify(extra)}`)
 
-  if (!pol?.allowSandboxInference) {
+  if (!policyRes.allowRemoteInference) {
+    const skipReason = policyRes.explicitUserDisabled
+      ? 'explicit_user_disabled_remote_inference'
+      : policyRes.denialReason
+        ? `host_inference_policy_${policyRes.denialReason}`
+        : 'host_inference_policy_denies_remote'
     logAttemptBase({
       handshakeId: null,
       localDeviceId: localId,
@@ -112,11 +136,16 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
       coordinationReady,
       ollamaOk: null,
       modelsCount: null,
-      skipReason: 'host_inference_policy_denies_remote',
+      skipReason,
       published: false,
+      policyDecision: policyRes.policySource,
+      policyDenialReason: policyRes.denialReason ?? null,
+      explicitUserDisabled: policyRes.explicitUserDisabled,
       context: input.context,
     })
-    scheduleHostAiBeapAdRepublishRetry(db, 'policy_off')
+    if (hostAiBeapAdPublishShouldRetryAfterPolicyDenial(policyRes)) {
+      scheduleHostAiBeapAdRepublishRetry(canonDb, 'policy_off')
+    }
     return
   }
   if (!coordinationReady) {
@@ -135,7 +164,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
       published: false,
       context: input.context,
     })
-    scheduleHostAiBeapAdRepublishRetry(db, 'no_coordination')
+    scheduleHostAiBeapAdRepublishRetry(canonDb, 'no_coordination')
     return
   }
 
@@ -157,7 +186,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         context: input.context,
       })}`,
     )
-    scheduleHostAiBeapAdRepublishRetry(db, 'no_mvp_direct_endpoint')
+    scheduleHostAiBeapAdRepublishRetry(canonDb, 'no_mvp_direct_endpoint')
     return
   }
 
@@ -203,7 +232,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
     return
   }
 
-  const hdrs = endpointRepair.hostDirectP2pAdvertisementHeaders(db)
+  const hdrs = endpointRepair.hostDirectP2pAdvertisementHeaders(canonDb)
   const headerVal = hdrs[endpointRepair.P2P_DIRECT_P2P_ENDPOINT_HEADER]
   const hasHeader = typeof headerVal === 'string' && headerVal.trim().length > 0
   if (!hasHeader) {
@@ -224,7 +253,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         context: input.context,
       })}`,
     )
-    scheduleHostAiBeapAdRepublishRetry(db, 'no_beap_endpoint_header')
+    scheduleHostAiBeapAdRepublishRetry(canonDb, 'no_beap_endpoint_header')
     return
   }
 
@@ -247,13 +276,13 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         context: input.context,
       })}`,
     )
-    scheduleHostAiBeapAdRepublishRetry(db, 'ollama_models_gate')
+    scheduleHostAiBeapAdRepublishRetry(canonDb, 'ollama_models_gate')
     return
   }
 
   const now = Date.now()
   if (now - lastHostBeapAdPublishAllAt < publishCooldownMs) {
-    scheduleHostAiBeapAdRepublishRetry(db, 'publish_cooldown')
+    scheduleHostAiBeapAdRepublishRetry(canonDb, 'publish_cooldown')
     return
   }
   lastHostBeapAdPublishAllAt = now
@@ -264,7 +293,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         JSON.stringify({ configured_mode: modeHint, effective_host_ai_role: ledger.effective_host_ai_role, context: input.context }),
     )
   }
-  const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })
+  const rows = listHandshakeRecords(canonDb, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })
   let published = 0
   let attemptedPost = 0
   for (const r of rows) {
@@ -302,7 +331,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
       })}`,
     )
     const res = await postHostAiDirectBeapAdToCoordination({
-      db,
+      db: canonDb,
       handshakeId: hid,
       endpointUrl: directUrl,
       senderDeviceId: dr.localCoordinationDeviceId,
@@ -337,6 +366,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         `[HOST_AI_HOST_BEAP_AD_PUBLISHED] ${JSON.stringify({
           handshakeId: hid,
           endpointOwnerDeviceId: dr.localCoordinationDeviceId,
+          endpoint: directUrl,
           endpointKind: 'direct_lan',
           modelsCount: ollama.models_count,
           ttlMs,
@@ -363,6 +393,6 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
       `[HOST_AI_HOST_BEAP_AD_PUBLISH] done count=${published} context=${input.context} endpoint=${directUrl}`,
     )
   } else if (attemptedPost > 0 && republishTimer == null) {
-    scheduleHostAiBeapAdRepublishRetry(db, 'all_relay_posts_failed')
+    scheduleHostAiBeapAdRepublishRetry(canonDb, 'all_relay_posts_failed')
   }
 }

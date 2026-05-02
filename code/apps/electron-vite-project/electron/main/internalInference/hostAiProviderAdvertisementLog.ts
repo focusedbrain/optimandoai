@@ -10,11 +10,18 @@ import { getHandshakeDbForInternalInference } from './dbAccess'
 import { getEffectiveHostAiRoleForHandshake, getHostAiLedgerRoleSummaryFromDb } from './hostAiEffectiveRole'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
 import {
+  logHostAiRemotePolicyDecision,
+  resolveHostAiRemoteInferencePolicy,
+} from './hostAiRemoteInferencePolicyResolve'
+import {
   getHostPublishedMvpDirectP2pIngestUrl,
   hostDirectP2pAdvertisementHeaders,
   P2P_DIRECT_P2P_ENDPOINT_HEADER,
 } from './p2pEndpointRepair'
 import { hasActiveInternalLedgerLocalHostPeerSandboxForHostUi } from './listInferenceTargets'
+import { deriveProviderAdvertisementBlockedReason } from './hostAiProviderAdvertisementBlockedReason'
+
+export { deriveProviderAdvertisementBlockedReason } from './hostAiProviderAdvertisementBlockedReason'
 
 export type HostAiProviderAdvertisementPayload = {
   db_open_ok: boolean
@@ -71,29 +78,6 @@ export type HostAiProviderAdvertisementPayload = {
   }
 }
 
-/** Why provider advertisement failed — single primary reason for support / `[HOST_AI_PROVIDER_ADVERTISEMENT_BLOCKED]`. */
-export function deriveProviderAdvertisementBlockedReason(p: {
-  effective_role: HostAiProviderAdvertisementPayload['host_ai_ledger']['effective_host_ai_role']
-  can_publish_host_endpoint: boolean
-  policyAllowsRemote: boolean | null | undefined
-  ollama_ok: boolean
-  models_count: number
-  host_published_direct_endpoint: string | null
-  advertisement_headers_can_generate: boolean
-}): string {
-  if (p.effective_role === 'sandbox') return 'sandbox_device_must_not_publish_host_ad'
-  if (p.effective_role === 'mixed') return 'ledger_role_mixed_cannot_publish_host_ad'
-  if (p.effective_role !== 'host') return 'effective_host_ai_role_not_host'
-  if (!p.can_publish_host_endpoint) return 'cannot_publish_host_endpoint'
-  if (p.policyAllowsRemote !== true) return 'host_inference_policy_denies_remote'
-  if (!p.ollama_ok) return 'ollama_discovery_failed'
-  if (p.models_count < 1) return 'no_ollama_models'
-  if (p.host_published_direct_endpoint == null || String(p.host_published_direct_endpoint).trim() === '')
-    return 'no_host_published_direct_endpoint'
-  if (!p.advertisement_headers_can_generate) return 'advertisement_headers_not_generatable'
-  return 'unknown'
-}
-
 export async function buildHostAiProviderAdvertisementPayload(input: {
   ledgerProvesInternalSandboxToHost: boolean
   mergeHostInternalInference: boolean
@@ -145,7 +129,16 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
     mayPublishEndpointAsLedgerHost && headersTechnicallyGeneratable,
   )
 
-  const policyAllowsRemote = polH?.allowSandboxInference === true
+  const policyRes = dbProv ? resolveHostAiRemoteInferencePolicy(dbProv) : null
+  const policyAllowsRemote = policyRes?.allowRemoteInference === true
+  const policyExplicitUserDisabled = policyRes?.explicitUserDisabled === true
+  const policyDenialReason = policyRes?.denialReason ?? null
+  if (dbProv && policyRes) {
+    logHostAiRemotePolicyDecision(dbProv, policyRes, {
+      context: 'host_ai_provider_advertisement',
+      endpointPresent: Boolean(mvpListenerUrl?.trim()),
+    })
+  }
   /** Full Host AI provider lane: host-only ledger + policy + reachable Ollama with models + MVP listener + outbound headers. */
   const advertisedAsHostAi = Boolean(
     mayPublishEndpointAsLedgerHost &&
@@ -162,6 +155,8 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
         effective_role: ledger.effective_host_ai_role,
         can_publish_host_endpoint: ledger.can_publish_host_endpoint,
         policyAllowsRemote,
+        policyExplicitUserDisabled,
+        policyDenialReason,
         ollama_ok: input.ollamaDiscoveryOk,
         models_count: input.ollamaModelCount,
         host_published_direct_endpoint: hostPublishedEndpoint,

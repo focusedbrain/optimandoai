@@ -22,7 +22,9 @@ import {
   coordinationDeviceIdForHandshakeDeviceRole,
   deriveInternalHostAiPeerRoles,
 } from './policy'
+import { getCanonHandshakeDbForHostAiPolicy } from './dbAccess'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
+import { resolveHostAiRemoteInferencePolicy } from './hostAiRemoteInferencePolicyResolve'
 import { InternalInferenceErrorCode } from './errors'
 import { ollamaManager } from '../llm/ollama-manager'
 import { hostDirectP2pAdvertisementHeaders } from './p2pEndpointRepair'
@@ -138,7 +140,9 @@ export async function handleGetInternalInferencePolicy(
   }
 
   const hostPolicy = getHostInternalInferencePolicy()
-  const { allowSandboxInference } = hostPolicy
+  const policyDb = (await getCanonHandshakeDbForHostAiPolicy(db)) as typeof db
+  const policyRes = resolveHostAiRemoteInferencePolicy(policyDb)
+  const allowSandboxInference = policyRes.allowRemoteInference
   const hostRec = ar.record
   const { digits6: internalIdentifier6, display: internalIdentifierDisplay } = formatInternalIdentifier6(
     hostRec.internal_peer_pairing_code,
@@ -177,7 +181,7 @@ export async function handleGetInternalInferencePolicy(
       ? `Host AI · ${modelId}`
       : 'Host AI · —'
 
-  res.writeHead(200, { 'Content-Type': 'application/json', ...hostDirectP2pAdvertisementHeaders(db) })
+  res.writeHead(200, { 'Content-Type': 'application/json', ...hostDirectP2pAdvertisementHeaders(policyDb) })
   res.end(
     JSON.stringify({
       allowSandboxInference,

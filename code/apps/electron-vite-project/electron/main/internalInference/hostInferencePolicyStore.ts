@@ -1,6 +1,8 @@
 /**
  * Host-only persisted policy for Sandbox → Host internal inference (Ollama, direct P2P).
- * - `allowSandboxInference` defaults to **false** (explicit product opt-in via settings / IPC).
+ * - Persisted `allowSandboxInference` remains the UI / IPC mirror of user intent.
+ * - `remoteHostInferenceUserChoice` records **explicit** allow vs deny from settings; when `unset`, pairing + ledger
+ *   gates in `resolveHostAiRemoteInferencePolicy` decide (default allow for valid internal same-principal Host↔Sandbox).
  * - Size, duration, concurrency, and per-handshake rate are bounded; model selection follows
  *   allowlist / active local model (see `hostInferenceExecute`).
  */
@@ -9,9 +11,19 @@ import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
 
+export type RemoteHostInferenceUserChoice = 'allow' | 'deny' | 'unset'
+
 export interface HostInternalInferencePolicy {
-  /** Must be true before the Host runs any Ollama for internal inference. Default false. */
+  /**
+   * Mirror of persisted toggle; may be false while {@link remoteHostInferenceUserChoice} is `unset`
+   * (legacy files) — use `resolveHostAiRemoteInferencePolicy` for whether remote inference is allowed.
+   */
   allowSandboxInference: boolean
+  /**
+   * `allow` / `deny`: user explicitly set Host inference sharing in settings (via IPC).
+   * `unset`: no explicit choice on disk (legacy or default) — pairing + ledger rules apply.
+   */
+  remoteHostInferenceUserChoice: RemoteHostInferenceUserChoice
   /**
    * If non-empty, each entry must be installed; the requested `model` (if any) must be in the list.
    * If empty, an explicit request must be installed; else the active Ollama chat model (if installed), else the first local model.
@@ -39,6 +51,7 @@ export interface HostInternalInferencePolicy {
 
 const DEFAULT_POLICY: HostInternalInferencePolicy = {
   allowSandboxInference: false,
+  remoteHostInferenceUserChoice: 'unset',
   modelAllowlist: [],
   maxPromptBytes: 256_000,
   maxOutputBytes: 256_000,
@@ -67,9 +80,21 @@ function readDisk(): HostInternalInferencePolicy {
   }
 }
 
+function normalizeRemoteChoice(p: Partial<HostInternalInferencePolicy>): RemoteHostInferenceUserChoice {
+  const c = p.remoteHostInferenceUserChoice
+  if (c === 'deny') return 'deny'
+  if (c === 'allow') return 'allow'
+  if (c === 'unset') return 'unset'
+  if (p.allowSandboxInference === true) return 'allow'
+  return 'unset'
+}
+
 function normalizePolicy(p: Partial<HostInternalInferencePolicy>): HostInternalInferencePolicy {
+  const allowSandboxInference = p.allowSandboxInference === true
+  const remoteHostInferenceUserChoice = normalizeRemoteChoice({ ...p, allowSandboxInference })
   return {
-    allowSandboxInference: p.allowSandboxInference === true,
+    allowSandboxInference,
+    remoteHostInferenceUserChoice,
     modelAllowlist: Array.isArray(p.modelAllowlist)
       ? p.modelAllowlist.map((s) => String(s).trim()).filter(Boolean)
       : [],
@@ -124,7 +149,28 @@ export function getHostInternalInferencePolicy(): HostInternalInferencePolicy {
 
 export function setHostInternalInferencePolicy(partial: Partial<HostInternalInferencePolicy>): HostInternalInferencePolicy {
   const cur = loadCached()
-  const merged = normalizePolicy({ ...cur, ...partial })
+  const mergeIn: Partial<HostInternalInferencePolicy> = { ...cur, ...partial }
+  /**
+   * `allowSandboxInference: false` must mean explicit user deny **only** when the IPC payload does not also
+   * carry `remoteHostInferenceUserChoice: 'unset'` (e.g. merged `getHostPolicy()` spread). Otherwise we would
+   * persist `deny` on every settings save and block Host advertisement after restart.
+   */
+  if ('allowSandboxInference' in partial) {
+    mergeIn.allowSandboxInference = partial.allowSandboxInference === true
+    if (partial.allowSandboxInference === true) {
+      mergeIn.remoteHostInferenceUserChoice = 'allow'
+    } else if ('remoteHostInferenceUserChoice' in partial && partial.remoteHostInferenceUserChoice !== undefined) {
+      const rc = partial.remoteHostInferenceUserChoice
+      if (rc === 'deny' || rc === 'allow' || rc === 'unset') {
+        mergeIn.remoteHostInferenceUserChoice = rc
+      } else {
+        mergeIn.remoteHostInferenceUserChoice = 'deny'
+      }
+    } else {
+      mergeIn.remoteHostInferenceUserChoice = 'deny'
+    }
+  }
+  const merged = normalizePolicy(mergeIn)
   cached = merged
   try {
     fs.mkdirSync(path.dirname(storePath()), { recursive: true })
@@ -137,5 +183,5 @@ export function setHostInternalInferencePolicy(partial: Partial<HostInternalInfe
 
 /** @internal tests */
 export function _resetHostInferencePolicyForTests(p: HostInternalInferencePolicy): void {
-  cached = { ...p }
+  cached = normalizePolicy({ ...DEFAULT_POLICY, ...p })
 }

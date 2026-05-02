@@ -8,7 +8,9 @@ import { createHash } from 'node:crypto'
 import type { HandshakeRecord } from '../handshake/types'
 import { getInstanceId, getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { ollamaManager } from '../llm/ollama-manager'
+import { getHandshakeDbForInternalInference } from './dbAccess'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
+import { resolveHostAiRemoteInferencePolicyBestEffort } from './hostAiRemoteInferencePolicyResolve'
 import { InternalInferenceErrorCode } from './errors'
 import { coordinationDeviceIdForHandshakeDeviceRole, deriveInternalHostAiPeerRoles } from './policy'
 import {
@@ -108,7 +110,10 @@ export async function buildInternalInferenceCapabilitiesResult(
   request: { request_id: string; created_at: string },
 ): Promise<{ wire: InternalInferenceCapabilitiesResultWire; meta: HostInferenceCapabilitiesBuildMeta }> {
   const hostPolicy = getHostInternalInferencePolicy()
-  const { allowSandboxInference, modelAllowlist } = hostPolicy
+  const dbCaps = await getHandshakeDbForInternalInference()
+  const policyRes = resolveHostAiRemoteInferencePolicyBestEffort(dbCaps)
+  const allowSandboxInference = policyRes.allowRemoteInference
+  const { modelAllowlist } = hostPolicy
   const { deviceName: orchName } = getOrchestratorMode()
   const hostComputerName = (orchName || '').trim() || 'This computer (Host)'
   const hostPairingCode = digits6FromPairing(record.internal_peer_pairing_code)

@@ -58,6 +58,7 @@ import {
 } from './sandboxHostUi'
 import { InternalInferenceErrorCode } from './errors'
 import { clearHostAiTransportDecideDedupeCache, logHostAiTransportDecideListLine } from './hostAiTransportDecideLog'
+import { hostHasActiveInternalLedgerHostPeerSandboxFromDb } from './hostAiInternalPairingLedger'
 import { peekHostAdvertisedMvpDirectEntry, registerP2pEnsureCacheInvalidator } from './p2pEndpointRepair'
 import {
   hostAiPairingListBlock,
@@ -754,13 +755,6 @@ function rowProvesLocalSandboxToHostForHostAi(r: HandshakeRecord): boolean {
   return dr.ok && dr.localRole === 'sandbox' && dr.peerRole === 'host'
 }
 
-/** This instance is Host and peer is Sandbox (same account) — not the Host AI discovery client role. */
-function rowProvesLocalHostPeerSandboxForHostAi(r: HandshakeRecord): boolean {
-  if (!handshakeSamePrincipal(r)) return false
-  const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
-  return dr.ok && dr.localRole === 'host' && dr.peerRole === 'sandbox'
-}
-
 function mapRoleGateFromDerived(d: DerivedInternalRoles): HostInternalInferenceRejectReason {
   if (d.localDeviceRole !== 'sandbox') return 'LOCAL_NOT_SANDBOX'
   if (d.peerDeviceRole !== 'host') return 'PEER_NOT_HOST'
@@ -1373,17 +1367,6 @@ export async function hasActiveInternalLedgerSandboxToHostForHostAi(): Promise<b
   return anyActiveRowProvesLocalSandboxToHostFromDb(db)
 }
 
-function anyActiveRowProvesLocalHostPeerSandboxFromDb(db: unknown): boolean {
-  const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE })
-  for (const r0 of rows) {
-    if (r0.handshake_type !== 'internal' || r0.state !== HandshakeState.ACTIVE) continue
-    if (rowProvesLocalHostPeerSandboxForHostAi(r0)) {
-      return true
-    }
-  }
-  return false
-}
-
 /**
  * `orchestrator:getMode`: this device is the Host side of an ACTIVE internal same-principal row (hide Host AI ↻ in UI).
  */
@@ -1392,7 +1375,7 @@ export async function hasActiveInternalLedgerLocalHostPeerSandboxForHostUi(): Pr
   if (!db) {
     return false
   }
-  return anyActiveRowProvesLocalHostPeerSandboxFromDb(db)
+  return hostHasActiveInternalLedgerHostPeerSandboxFromDb(db)
 }
 
 /**

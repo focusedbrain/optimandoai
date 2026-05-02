@@ -13,7 +13,7 @@ import { getInstanceId, getOrchestratorMode } from '../../orchestrator/orchestra
 import { getP2pInferenceFlags } from '../p2pInferenceFlags'
 import { getHandshakeDbForInternalInference } from '../dbAccess'
 import { InternalInferenceErrorCode, type InternalInferenceErrorCodeType } from '../errors'
-import { getHostInternalInferencePolicy } from '../hostInferencePolicyStore'
+import { resolveHostAiRemoteInferencePolicyBestEffort } from '../hostAiRemoteInferencePolicyResolve'
 import { newHostAiCorrelationChain } from '../hostAiStageLog'
 import {
   HostAiWebrtcStartError,
@@ -755,7 +755,7 @@ function authorizeInternalP2pSession(
     return { ok: true }
   }
   if (localRole === 'host' && peerRole === 'sandbox') {
-    if (!getHostInternalInferencePolicy().allowSandboxInference) {
+    if (!resolveHostAiRemoteInferencePolicyBestEffort().allowRemoteInference) {
       return {
         ok: false,
         code: InternalInferenceErrorCode.HOST_INFERENCE_DISABLED,
