@@ -39,6 +39,8 @@ export type SelectorAvailableModel =
       canUseOllamaDirect?: boolean
       ollamaDirectReady?: boolean
       visibleInModelSelector?: boolean
+      hostActiveModel?: string | null
+      isHostActiveModel?: boolean
       remoteLane?: HostModelRemoteLane
       execution_transport?: HostRowMeta['execution_transport']
       failureCode?: string | null
@@ -194,6 +196,8 @@ export function wrChatModelOptionsFromSelectorModels(models: SelectorAvailableMo
           section: 'host' as const,
           p2pUiPhase: m.p2pUiPhase,
           execution_transport: m.execution_transport,
+          hostActiveModel: m.hostActiveModel,
+          isHostActiveModel: m.isHostActiveModel,
         }
       }
     }

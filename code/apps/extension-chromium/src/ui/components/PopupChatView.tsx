@@ -149,6 +149,8 @@ export interface PopupChatViewProps {
     execution_transport?: 'ollama_direct'
     /** Bare Host Ollama tag from discovery (fills wire `model` when route id has no embedded tag). */
     hostLocalModelName?: string
+    hostActiveModel?: string | null
+    isHostActiveModel?: boolean
     section?: 'local' | 'host' | 'cloud'
   }>
   activeLlmModel?: string
@@ -1216,6 +1218,18 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             line2: hostComputerNameH,
           })
           try {
+            console.log(
+              `[AI_REQUEST_BEGIN] ${JSON.stringify({
+                origin: 'dashboard_wrchat',
+                selectedModelId: modelId,
+                selectionSource: rowH?.isHostActiveModel ? 'host_active' : 'user',
+                hostActiveModelId: rowH?.hostActiveModel ?? null,
+                resolvedModelId: wireModel ?? parsedH.model ?? null,
+                executionTransport: execTH,
+                handshakeId: parsedH.handshakeId ?? null,
+                routeKind: execTH,
+              })}`,
+            )
             if (import.meta.env.DEV && wrChatEmbedContext === 'dashboard') {
               console.debug('[WR Chat:Dashboard] dashboard_wrchat.inference_job', {
                 origin: 'dashboard_wrchat',
@@ -1237,13 +1251,36 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             })) as { ok?: boolean; output?: string; code?: string; message?: string }
             if (r && 'ok' in r && r.ok && typeof (r as { output?: string }).output === 'string') {
               const text = appendHostAiAttributionLine((r as { output: string }).output, hostComputerNameH)
+              console.log(
+                `[AI_RENDERER_RESPONSE_RECEIVED] ${JSON.stringify({
+                  origin: 'dashboard_wrchat',
+                  modelId: wireModel ?? parsedH.model ?? null,
+                  outputLength: String((r as { output: string }).output ?? '').length,
+                })}`,
+              )
               setMessages((prev) => [...prev, { role: 'assistant', text }])
             } else {
               const er = r as { ok: false; code: string; message: string }
+              console.log(
+                `[AI_REQUEST_ERROR] ${JSON.stringify({
+                  origin: 'dashboard_wrchat',
+                  modelId: wireModel ?? parsedH.model ?? null,
+                  errorCode: er.code,
+                  errorMessage: er.message,
+                })}`,
+              )
               const msg = formatInternalInferenceErrorCode(er.code, er.message)
               setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${msg}` }])
             }
-          } catch {
+          } catch (err) {
+            console.log(
+              `[AI_REQUEST_ERROR] ${JSON.stringify({
+                origin: 'dashboard_wrchat',
+                modelId: wireModel ?? parsedH.model ?? null,
+                errorCode: null,
+                errorMessage: err instanceof Error ? err.message : String(err),
+              })}`,
+            )
             setMessages((prev) => [...prev, { role: 'assistant', text: `❌ ${formatInternalInferenceErrorCode(undefined)}` }])
           } finally {
             setHostInternalRunUi(null)

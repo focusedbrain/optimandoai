@@ -103,6 +103,14 @@ export async function runHostInternalInference(
   const messageCount = ctx.messages.length
 
   const baseLog = { prompt_bytes: promptBytes, message_count: messageCount }
+  console.log(
+    `[AI_HOST_EXEC_BEGIN] ${JSON.stringify({
+      handshakeId: ctx.handshakeId,
+      modelId: ctx.modelRequested?.trim() || null,
+      provider: 'ollama',
+      routeKind: 'host_internal',
+    })}`,
+  )
 
   if (!policyRes.allowRemoteInference) {
     return {
@@ -131,6 +139,14 @@ export async function runHostInternalInference(
       eff = null
     }
     if (!eff) {
+      console.log(
+        `[AI_REQUEST_ERROR] ${JSON.stringify({
+          origin: 'host_internal_execution',
+          modelId: requested,
+          errorCode: InternalInferenceErrorCode.HOST_NO_ACTIVE_LOCAL_LLM,
+          errorMessage: 'no active model',
+        })}`,
+      )
       return {
         wire: buildHostInferenceErrorWire(
           {
@@ -151,6 +167,14 @@ export async function runHostInternalInference(
       }
     }
     if (eff.trim() !== requested) {
+      console.log(
+        `[AI_REQUEST_ERROR] ${JSON.stringify({
+          origin: 'host_internal_execution',
+          modelId: requested,
+          errorCode: InternalInferenceErrorCode.MODEL_UNAVAILABLE,
+          errorMessage: 'model not active on Host',
+        })}`,
+      )
       return {
         wire: buildHostInferenceErrorWire(
           {
@@ -197,6 +221,21 @@ export async function runHostInternalInference(
       maxTokens: ctx.options?.max_tokens,
       timeoutMs: policy.timeoutMs,
     })
+    console.log(
+      `[AI_HOST_EXEC_FIRST_CHUNK] ${JSON.stringify({
+        handshakeId: ctx.handshakeId,
+        modelId: out.model,
+        chunkReceived: String(out.text ?? '').length > 0,
+      })}`,
+    )
+    console.log(
+      `[AI_HOST_EXEC_DONE] ${JSON.stringify({
+        handshakeId: ctx.handshakeId,
+        modelId: out.model,
+        outputLength: String(out.text ?? '').length,
+        finishReason: 'complete',
+      })}`,
+    )
     const outBytes = Buffer.byteLength(out.text, 'utf8')
     if (outBytes > policy.maxOutputBytes) {
       return {
@@ -241,6 +280,14 @@ export async function runHostInternalInference(
     }
   } catch (e) {
     const m = mapOllamaError(e)
+    console.log(
+      `[AI_REQUEST_ERROR] ${JSON.stringify({
+        origin: 'host_internal_execution',
+        modelId: ctx.modelRequested?.trim() || null,
+        errorCode: m.code,
+        errorMessage: m.message,
+      })}`,
+    )
     return {
       wire: buildHostInferenceErrorWire(
         {

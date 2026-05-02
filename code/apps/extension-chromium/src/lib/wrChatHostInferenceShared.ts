@@ -26,6 +26,8 @@ export type WrChatHostSelectorRow = {
   execution_transport?: 'ollama_direct'
   displayTitle?: string
   hostComputerName?: string
+  hostActiveModel?: string | null
+  isHostActiveModel?: boolean
   /** When status merge includes bare tag (optional). */
   hostLocalModelName?: string
 }
@@ -217,6 +219,18 @@ export async function runWrChatHostInferenceForExtensionSurface(opts: {
     execution_transport: execution_transport ?? 'beap',
     fallbackUsed: opts.fallbackUsed,
   })
+  console.log(
+    `[AI_REQUEST_BEGIN] ${JSON.stringify({
+      origin: opts.origin,
+      selectedModelId: opts.selectedModelId,
+      selectionSource: row?.isHostActiveModel ? 'host_active' : 'user',
+      hostActiveModelId: row?.hostActiveModel ?? null,
+      resolvedModelId: wireModel ?? parsed?.model ?? null,
+      executionTransport: execution_transport ?? 'beap',
+      handshakeId: parsed?.handshakeId ?? null,
+      routeKind: execution_transport ?? 'beap',
+    })}`,
+  )
 
   if (row?.hostAi && row.hostAvailable === false) {
     return {
@@ -246,12 +260,27 @@ export async function runWrChatHostInferenceForExtensionSurface(opts: {
   })
 
   if (post.ok) {
+    console.log(
+      `[AI_RENDERER_RESPONSE_RECEIVED] ${JSON.stringify({
+        origin: opts.origin,
+        modelId: wireModel ?? parsed?.model ?? null,
+        outputLength: String(post.output ?? '').length,
+      })}`,
+    )
     return {
       success: true,
       assistantText: appendHostAiAttributionLine(post.output, hostComputerName),
     }
   }
   const msg = formatInternalInferenceErrorCode(post.code, post.message)
+  console.log(
+    `[AI_REQUEST_ERROR] ${JSON.stringify({
+      origin: opts.origin,
+      modelId: wireModel ?? parsed?.model ?? null,
+      errorCode: post.code,
+      errorMessage: post.message,
+    })}`,
+  )
   if (
     post.message === BRIDGE_UNAVAILABLE ||
     /fetch/i.test(post.message) ||

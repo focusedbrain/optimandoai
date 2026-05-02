@@ -48,6 +48,10 @@ import {
   areNormalizedHostAiTargetListsEqual,
   serializeMergedSelectorModelsForStableUi,
 } from '../lib/hostAiTargetUiNormalization'
+import {
+  getFirstAvailableHostModelId,
+  getHostActiveModelIdFromTargets,
+} from '../lib/hostActiveModelSelection'
 import './WRChatDashboardView.css'
 
 type WrChatModelOption = {
@@ -72,6 +76,8 @@ type WrChatModelOption = {
   execution_transport?: 'ollama_direct'
   /** Host Ollama tag from listTargets (legacy `host-inference:` / placeholder route ids). */
   hostLocalModelName?: string
+  hostActiveModel?: string | null
+  isHostActiveModel?: boolean
 }
 
 function wrChatModelsForPersist(models: WrChatModelOption[]) {
@@ -330,6 +336,8 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
           hostComputerName: t?.host_computer_name?.trim() || row.hostComputerName,
           execution_transport: t?.execution_transport ?? row.execution_transport,
           hostLocalModelName: typeof hostLocalModelName === 'string' ? hostLocalModelName.trim() : undefined,
+          hostActiveModel: t?.hostActiveModel ?? row.hostActiveModel ?? null,
+          isHostActiveModel: t?.isHostActiveModel === true || row.isHostActiveModel === true,
         }
       })
     }
@@ -382,11 +390,19 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
     })
 
     let preferred: string | undefined = d.activeModel as string | undefined
-    let preferredSource: 'stored' | 'status_active' | 'host_single' | 'local_default' | 'host_default' | null =
+    let preferredSource:
+      | 'stored'
+      | 'status_active'
+      | 'host_single'
+      | 'local_default'
+      | 'host_default'
+      | 'host_active'
+      | null =
       preferred ? 'status_active' : null
     const names = mergedWithHostUi.map((m) => m.name)
     const stored = readWrChatInferenceSelection()
-    if (stored) {
+    const hostActive = getHostActiveModelIdFromTargets(discovered.gavForHook)
+    if (stored?.selectionSource === 'user') {
       const hostRowsForValidate = mergedWithHostUi
         .filter((m) => m.hostAi)
         .map((m) => ({
@@ -412,6 +428,25 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
     } else {
       setInferenceSelectionPersistError(null)
     }
+    if (hostActive && preferredSource !== 'stored') {
+      preferred = hostActive
+      preferredSource = 'host_active'
+      setInferenceSelectionPersistError(null)
+    } else if (stored && preferredSource !== 'stored') {
+      const hostRowsForValidate = mergedWithHostUi
+        .filter((m) => m.hostAi)
+        .map((m) => ({
+          name: m.name,
+          hostAi: true as const,
+          hostAvailable: m.hostAvailable === true,
+          hostTargetChecking: m.hostTargetChecking === true,
+        }))
+      const v = validateStoredSelectionForWrChat(stored, names, hostRowsForValidate)
+      if (!v.error && v.modelId) {
+        preferred = v.modelId
+        preferredSource = 'stored'
+      }
+    }
     if (!preferred && hostRows.length === 1 && hostRows[0]?.hostAvailable) {
       preferred = hostRows[0].name
       preferredSource = 'host_single'
@@ -422,7 +457,10 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
       preferredSource = 'local_default'
     }
     if (!preferred && hostRows.length > 0) {
-      preferred = hostRows[0].name
+      preferred = getFirstAvailableHostModelId(
+        hostRows.map((m) => ({ id: m.name, type: 'host_internal', hostTargetAvailable: m.hostAvailable })),
+        discovered.gavForHook,
+      ) ?? hostRows[0].name
       preferredSource = 'host_default'
     }
     setActiveLlmModel(preferred)
@@ -635,7 +673,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
     if (next) {
       setActiveLlmModel(next)
       setInferenceSelectionPersistError(null)
-      persistWrChatModelId(next, wrChatModelsForPersist(availableModels))
+      persistWrChatModelId(next, wrChatModelsForPersist(availableModels), 'user')
       const payload = buildAiExecutionContextIpcPayload(next, gavHostTargets)
       if (payload && typeof window.llm?.setAiExecutionContext === 'function') {
         void window.llm.setAiExecutionContext({ ...payload, selectionSource: 'user' })
@@ -655,7 +693,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
       const speech = peekDashboardWrChatSpeechOpenMeta()
       const focusMode = useChatFocusStore.getState().chatFocusMode
       const persisted = readWrChatInferenceSelection()
-      const selectionSource: 'user' | 'auto' = persisted ? 'user' : 'auto'
+      const selectionSource: 'user' | 'auto' = persisted?.selectionSource === 'user' ? 'user' : 'auto'
       const payload = buildAiExecutionContextIpcPayload(resolvedModelId, gavHostTargets)
       const row = availableModels.find((m) => m.name === resolvedModelId)
       wrChatDashboardDebug('dashboard_wrchat.send_creation', {
@@ -697,7 +735,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
     (name: string) => {
       setActiveLlmModel(name)
       setInferenceSelectionPersistError(null)
-      persistWrChatModelId(name, wrChatModelsForPersist(availableModels))
+      persistWrChatModelId(name, wrChatModelsForPersist(availableModels), 'user')
       const payload = buildAiExecutionContextIpcPayload(name, gavHostTargets)
       const speech = peekDashboardWrChatSpeechOpenMeta()
       const focusMode = useChatFocusStore.getState().chatFocusMode

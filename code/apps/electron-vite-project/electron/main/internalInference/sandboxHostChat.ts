@@ -117,6 +117,18 @@ export async function runSandboxHostInferenceChat(params: {
   if (odDirect) {
     const mlog = (params.model ?? '').trim()
     console.log(
+      `[AI_REQUEST_BEGIN] ${JSON.stringify({
+        origin: 'sandbox_host_chat',
+        selectedModelId: mlog || null,
+        selectionSource: null,
+        hostActiveModelId: null,
+        resolvedModelId: mlog || null,
+        executionTransport: 'ollama_direct',
+        handshakeId: hid,
+        routeKind: 'ollama_direct',
+      })}`,
+    )
+    console.log(
       `[HOST_AI_CHAT_ROUTE] handshake=${hid} model=${mlog} lane=ollama_direct ollamaDirectReady=true beapReady=false`,
     )
 
@@ -172,8 +184,23 @@ export async function runSandboxHostInferenceChat(params: {
     try {
       const pr = await promise
       if (pr.kind === 'error') {
+        console.log(
+          `[AI_REQUEST_ERROR] ${JSON.stringify({
+            origin: 'sandbox_host_chat',
+            modelId: mlog || null,
+            errorCode: pr.code,
+            errorMessage: pr.message,
+          })}`,
+        )
         return { ok: false, code: pr.code, message: pr.message }
       }
+      console.log(
+        `[AI_RENDERER_RESPONSE_RECEIVED] ${JSON.stringify({
+          origin: 'sandbox_host_chat',
+          modelId: pr.model ?? params.model ?? null,
+          outputLength: String(pr.output ?? '').length,
+        })}`,
+      )
       return {
         ok: true,
         request_id: requestId,
@@ -216,6 +243,18 @@ export async function runSandboxHostInferenceChat(params: {
   const fcRoute = decChat.failureCode == null ? 'null' : String(decChat.failureCode)
   console.log(
     `[HOST_AI_CHAT_ROUTE] handshake=${hid} status=${decChat.selectorPhase} lane=beap canChat=${canChatRoute} transport=${transportLog} failureCode=${fcRoute}`,
+  )
+  console.log(
+    `[AI_REQUEST_BEGIN] ${JSON.stringify({
+      origin: 'sandbox_host_chat',
+      selectedModelId: params.model?.trim() || null,
+      selectionSource: null,
+      hostActiveModelId: null,
+      resolvedModelId: params.model?.trim() || null,
+      executionTransport: 'beap',
+      handshakeId: hid,
+      routeKind: transportLog,
+    })}`,
   )
 
   if (!endpointGateOk) {
@@ -282,8 +321,23 @@ export async function runSandboxHostInferenceChat(params: {
   try {
     const pr = await promise
     if (pr.kind === 'error') {
+      console.log(
+        `[AI_REQUEST_ERROR] ${JSON.stringify({
+          origin: 'sandbox_host_chat',
+          modelId: wire.model ?? null,
+          errorCode: pr.code,
+          errorMessage: pr.message,
+        })}`,
+      )
       return { ok: false, code: pr.code, message: pr.message }
     }
+    console.log(
+      `[AI_RENDERER_RESPONSE_RECEIVED] ${JSON.stringify({
+        origin: 'sandbox_host_chat',
+        modelId: pr.model ?? wire.model ?? null,
+        outputLength: String(pr.output ?? '').length,
+      })}`,
+    )
     return {
       ok: true,
       request_id: requestId,

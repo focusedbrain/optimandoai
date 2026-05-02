@@ -13,11 +13,20 @@ export type WrChatSelectorRow = {
   hostAi?: boolean
   section?: 'host' | 'cloud'
   execution_transport?: 'ollama_direct'
+  hostActiveModel?: string | null
+  isHostActiveModel?: boolean
 }
 
 export function buildWrChatSelectorModelsFromLlmStatus(data: {
   modelsInstalled?: Array<{ name?: string; size?: number }>
-  wrChatAvailableModels?: Array<{ id: string; displayName: string; kind: string; execution_transport?: 'ollama_direct' }>
+  wrChatAvailableModels?: Array<{
+    id: string
+    displayName: string
+    kind: string
+    execution_transport?: 'ollama_direct'
+    hostActiveModel?: string | null
+    isHostActiveModel?: boolean
+  }>
 }): WrChatSelectorRow[] {
   const merged = data.wrChatAvailableModels
   if (Array.isArray(merged) && merged.length > 0) {
@@ -28,6 +37,8 @@ export function buildWrChatSelectorModelsFromLlmStatus(data: {
       hostAi: r.kind === 'host_internal',
       section: r.kind === 'cloud' ? 'cloud' : r.kind === 'host_internal' ? 'host' : undefined,
       execution_transport: r.execution_transport,
+      hostActiveModel: r.hostActiveModel ?? null,
+      isHostActiveModel: r.isHostActiveModel === true,
     }))
   }
   const locals = data.modelsInstalled ?? []
@@ -55,6 +66,8 @@ export function wrChatModelButtonShortLabel(modelId: string, rows: WrChatSelecto
 
 export function chooseDefaultWrChatModel(rows: WrChatSelectorRow[]): string | null {
   if (rows.length === 0) return null
+  const hostActive = rows.find((r) => r.hostAi === true && r.isHostActiveModel === true)
+  if (hostActive) return hostActive.name
   const preferred = rows.find((r) => r.name === 'llama3.1:8b' || r.name.endsWith(':llama3.1:8b'))
   return (preferred ?? rows[0]).name
 }

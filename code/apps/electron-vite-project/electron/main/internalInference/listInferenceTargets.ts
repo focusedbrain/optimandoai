@@ -1046,6 +1046,8 @@ export interface HostInternalInferenceListItem {
   ollamaDirectReady?: boolean
   /** Host's active/default model when the policy/caps probe supplied it. */
   hostActiveModel?: string | null
+  /** True when this row's model is the Host active/default model. */
+  isHostActiveModel?: boolean
   /** Selector should show at least one model row when true (OR of BEAP + Ollama-direct lanes); independent of legacy `available`. */
   visibleInModelSelector?: boolean
   /** BEAP-route trust (distinct from ledger same-principal `trusted`). */
@@ -1054,8 +1056,13 @@ export interface HostInternalInferenceListItem {
 
 export type HostInferenceHostTargetDraft = Omit<
   HostInternalInferenceListItem,
-  'host_selector_state' | 'secondaryLabel' | 'hostSelectorState' | 'type' | 'inferenceTargetContext'
->
+  | 'host_selector_state'
+  | 'secondaryLabel'
+  | 'hostSelectorState'
+  | 'type'
+  | 'inferenceTargetContext'
+  | 'hostTargetAvailable'
+> & { hostTargetAvailable?: boolean }
 type HostTargetDraft = HostInferenceHostTargetDraft
 
 function epKindToListKind(
@@ -1327,6 +1334,14 @@ function finalizeItem(t: HostTargetDraft): HostInternalInferenceListItem {
 
   return {
     ...t,
+    isHostActiveModel:
+      typeof t.isHostActiveModel === 'boolean'
+        ? t.isHostActiveModel
+        : Boolean(
+            t.hostActiveModel &&
+              (String(t.model ?? '').trim() === String(t.hostActiveModel).trim() ||
+                String(t.model_id ?? '').trim() === String(t.hostActiveModel).trim()),
+          ),
     type: 'host_internal',
     inferenceTargetContext: 'host_remote',
     displayTitle: t.displayTitle ?? t.label,
@@ -3062,7 +3077,6 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
             ...baseMetaFromDec(listDec, leK),
             selector_phase: 'ready',
             p2pUiPhase: 'ready',
-            inference_error_code: null,
             failureCode: null,
             beapFailureCode: beapFc,
             ollamaDirectFailureCode: null,
@@ -3265,6 +3279,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         direct_reachable: true,
         policy_enabled: true,
         available: true,
+        hostTargetAvailable: true,
         availability: 'available',
         unavailable_reason: null,
         host_role: 'Host',

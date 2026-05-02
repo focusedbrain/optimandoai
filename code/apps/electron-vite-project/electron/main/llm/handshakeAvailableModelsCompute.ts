@@ -39,6 +39,8 @@ export type HandshakeUiModelRow =
       hostSelectorState: 'available' | 'checking' | 'unavailable'
       p2pUiPhase?: string
       execution_transport?: 'ollama_direct'
+      hostActiveModel?: string | null
+      isHostActiveModel?: boolean
     }
   | {
       id: string
@@ -54,6 +56,8 @@ export type WrChatAvailableModelRow = {
   kind: 'local_ollama' | 'host_internal' | 'cloud'
   displaySubtitle?: string
   execution_transport?: 'ollama_direct'
+  hostActiveModel?: string | null
+  isHostActiveModel?: boolean
 }
 
 export type ComputeHandshakeAvailableModelsOpts = {
@@ -85,6 +89,8 @@ export function handshakeModelsToWrChatRows(models: HandshakeUiModelRow[]): WrCh
         kind: 'host_internal',
         displaySubtitle: m.displaySubtitle?.trim() ? m.displaySubtitle : undefined,
         execution_transport: m.execution_transport,
+        hostActiveModel: m.hostActiveModel ?? null,
+        isHostActiveModel: m.isHostActiveModel === true,
       }
     }
     if (m.type === 'cloud') {
@@ -157,6 +163,11 @@ export async function computeHandshakeAvailableModels(
               : ''
           const sub = subFromMain || (t.secondary_label || '').trim()
           const p2pUiPhase = (t as { p2pUiPhase?: string }).p2pUiPhase
+          const hostActiveModel =
+            typeof (t as { hostActiveModel?: unknown }).hostActiveModel === 'string'
+              ? String((t as { hostActiveModel: string }).hostActiveModel).trim()
+              : null
+          const isHostActiveModel = (t as { isHostActiveModel?: unknown }).isHostActiveModel === true
           hostForChat.push({
             id: t.id,
             name: title,
@@ -168,6 +179,8 @@ export async function computeHandshakeAvailableModels(
             hostTargetAvailable: t.available,
             hostSelectorState: t.host_selector_state,
             execution_transport: t.execution_transport,
+            hostActiveModel,
+            isHostActiveModel,
             ...(p2pUiPhase ? { p2pUiPhase } : {}),
           })
         }

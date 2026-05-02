@@ -33,6 +33,8 @@ export function mapHostTargetsToGavModelEntries(targets: HostInferenceTargetRow[
   canUseOllamaDirect?: boolean
   ollamaDirectReady?: boolean
   visibleInModelSelector?: boolean
+  hostActiveModel?: string | null
+  isHostActiveModel?: boolean
   /** Explicit chat dispatch lane — derived from `execution_transport` on the IPC row. */
   remoteLane?: HostModelRemoteLane
   execution_transport?: HostInferenceTargetRow['execution_transport']
@@ -59,6 +61,8 @@ export function mapHostTargetsToGavModelEntries(targets: HostInferenceTargetRow[
         canUseOllamaDirect: t.canUseOllamaDirect,
         ollamaDirectReady: t.ollamaDirectReady,
         visibleInModelSelector: t.visibleInModelSelector,
+        hostActiveModel: t.hostActiveModel,
+        isHostActiveModel: t.isHostActiveModel,
         remoteLane: inferHostModelRemoteLane(t),
         execution_transport: t.execution_transport,
         failureCode: t.failureCode,

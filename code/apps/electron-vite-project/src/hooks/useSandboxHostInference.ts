@@ -86,6 +86,10 @@ export type HostInferenceTargetRow = {
   trusted?: boolean
   beapReady?: boolean
   ollamaDirectReady?: boolean
+  /** Host active/default model id for this roster, from Host policy/capabilities. */
+  hostActiveModel?: string | null
+  /** True when this row is the Host active/default model. */
+  isHostActiveModel?: boolean
   visibleInModelSelector?: boolean
   trustedForBeap?: boolean
   /** When main sends trust diagnostics; shown in dev/debug only. */

@@ -1232,7 +1232,9 @@ function SidepanelOrchestrator() {
         }
       }
       const persistedOk =
-        persisted?.modelId && models.some((m) => m.name === persisted.modelId) ? persisted.modelId : null
+        persisted?.selectionSource === 'user' && persisted.modelId && models.some((m) => m.name === persisted.modelId)
+          ? persisted.modelId
+          : null
 
       if (persistedOk) {
         if (currentModel !== persistedOk || !modelStillExists) {
@@ -1285,7 +1287,9 @@ function SidepanelOrchestrator() {
             }
           }
           const persistedOk =
-            persisted?.modelId && rows.some((m) => m.name === persisted.modelId) ? persisted.modelId : null
+            persisted?.selectionSource === 'user' && persisted.modelId && rows.some((m) => m.name === persisted.modelId)
+              ? persisted.modelId
+              : null
 
           if (persistedOk) {
             if (currentModel !== persistedOk || !modelExists) {

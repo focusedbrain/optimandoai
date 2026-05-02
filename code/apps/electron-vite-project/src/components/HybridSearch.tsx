@@ -88,8 +88,14 @@ import {
   clearPersistedHostAiInferenceSelection,
   isHostInternalSelectionStaleForOrchestratorUi,
   type ValidateSelectionResultWithDiagnostics,
+  type InferenceSelectionSource,
 } from '../lib/inferenceSelectionPersistence'
 import { buildAiExecutionContextIpcPayload } from '../lib/aiExecutionContextFromSelection'
+import {
+  getFirstAvailableHostModelId,
+  getHostActiveModelIdFromModels,
+  getHostActiveModelIdFromTargets,
+} from '../lib/hostActiveModelSelection'
 
 function formatOrchestratorSelectionLogValue(v: string | null): string {
   if (v == null || v === '') return 'null'
@@ -658,6 +664,7 @@ export default function HybridSearch({
   const [mode, setMode] = useState<SearchMode>('chat')
   const [scope, setScope] = useState<SearchScope>(() => defaultScope(activeView))
   const [selectedModel, setSelectedModel] = useState('')
+  const selectedModelSourceRef = useRef<InferenceSelectionSource>('fallback_first_available')
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   /** Host rows from the same `getAvailableModels` call as `availableModels` (main merges listTargets). */
   const [gavHostTargets, setGavHostTargets] = useState<HostInferenceTargetRow[]>([])
@@ -1329,10 +1336,13 @@ export default function HybridSearch({
 
   useEffect(() => {
     if (selectedModel) {
-      persistOrchestratorModelId(selectedModel, availableModels)
+      persistOrchestratorModelId(selectedModel, availableModels, selectedModelSourceRef.current)
       const payload = buildAiExecutionContextIpcPayload(selectedModel, gavHostTargets)
       if (payload && typeof window.llm?.setAiExecutionContext === 'function') {
-        void window.llm.setAiExecutionContext(payload)
+        void window.llm.setAiExecutionContext({
+          ...payload,
+          selectionSource: selectedModelSourceRef.current === 'user' ? 'user' : 'auto',
+        })
       }
     }
   }, [selectedModel, availableModels, gavHostTargets])
@@ -1377,7 +1387,9 @@ export default function HybridSearch({
     setInferenceSelectionPersistError(null)
     const stored = readOrchestratorInferenceSelection()
     const hasLocal = availableModels.some((m) => m.type === 'local')
-    if (stored) {
+    const hostActivePreferred =
+      getHostActiveModelIdFromModels(availableModels) ?? getHostActiveModelIdFromTargets(hostInf.inferenceTargets)
+    if (stored && stored.selectionSource === 'user') {
       const v = validateStoredSelectionForOrchestratorWithDiagnostics(
         stored,
         availableModels,
@@ -1400,20 +1412,42 @@ export default function HybridSearch({
         return
       }
       if (v.modelId) {
+        selectedModelSourceRef.current = 'user'
+        setSelectedModel(v.modelId)
+        orchestratorChatModelRestoredRef.current = true
+        return
+      }
+    }
+    if (hostActivePreferred) {
+      selectedModelSourceRef.current = 'host_active'
+      setSelectedModel(hostActivePreferred)
+      orchestratorChatModelRestoredRef.current = true
+      return
+    }
+    if (stored) {
+      const v = validateStoredSelectionForOrchestratorWithDiagnostics(
+        stored,
+        availableModels,
+        hostInf.inferenceTargets,
+        hostInf.treatAsSandboxForHostInternal,
+        hasLocal,
+      )
+      logOrchestratorModelSelectionValidateIfChanged(lastOrchestratorSelectionValidateLogKeyRef, v)
+      if (!v.error && v.modelId) {
+        selectedModelSourceRef.current = 'persisted'
         setSelectedModel(v.modelId)
         orchestratorChatModelRestoredRef.current = true
         return
       }
     }
     const firstCloud = availableModels.find((m) => m.type === 'cloud')?.id
-    const firstHost =
-      availableModels.find((m) => m.type === 'host_internal' && m.hostTargetAvailable)?.id ??
-      hostInf.inferenceTargets.find((t) => hostInferenceTargetMenuSelectable(t))?.id
+    const firstHost = getFirstAvailableHostModelId(availableModels, hostInf.inferenceTargets)
     const firstLocal = availableModels.find((m) => m.type === 'local')?.id
     const preferred =
       (hostInf.treatAsSandboxForHostInternal ? firstCloud ?? firstHost ?? firstLocal : firstLocal ?? firstCloud) ??
       availableModels[0]?.id ??
       ''
+    selectedModelSourceRef.current = 'fallback_first_available'
     setSelectedModel((prev) => {
       if (isHostInferenceModelId(prev)) {
         if (availableModels.some((m) => m.id === prev)) {
@@ -1785,6 +1819,18 @@ export default function HybridSearch({
               })}`,
             )
             try {
+              console.log(
+                `[AI_REQUEST_BEGIN] ${JSON.stringify({
+                  origin: 'hybrid_search',
+                  selectedModelId: selectedModel,
+                  selectionSource: selectedModelSourceRef.current,
+                  hostActiveModelId: target.hostActiveModel ?? null,
+                  resolvedModelId: modelParam ?? null,
+                  executionTransport: remoteLane,
+                  handshakeId: hid,
+                  routeKind: remoteLane,
+                })}`,
+              )
               const r = (await run({
                 targetId: selectedModel,
                 handshakeId: hid,
@@ -1797,14 +1843,37 @@ export default function HybridSearch({
                 | { ok: false; code: string; message: string }
               if (r && 'ok' in r && r.ok) {
                 const out = (r as { output: string }).output
+                console.log(
+                  `[AI_RENDERER_RESPONSE_RECEIVED] ${JSON.stringify({
+                    origin: 'hybrid_search',
+                    modelId: modelParam ?? null,
+                    outputLength: String(out ?? '').length,
+                  })}`,
+                )
                 setResponse(appendHostAiAttributionLine(out, hostComputerName))
                 setHostInfSuccess(true)
               } else {
                 const er = r as { ok: false; code: string; message: string }
+                console.log(
+                  `[AI_REQUEST_ERROR] ${JSON.stringify({
+                    origin: 'hybrid_search',
+                    modelId: modelParam ?? null,
+                    errorCode: er.code,
+                    errorMessage: er.message,
+                  })}`,
+                )
                 setResponse(formatInternalInferenceErrorCode(er.code, er.message))
                 setHostInfSuccess(false)
               }
-            } catch {
+            } catch (err) {
+              console.log(
+                `[AI_REQUEST_ERROR] ${JSON.stringify({
+                  origin: 'hybrid_search',
+                  modelId: modelParam ?? null,
+                  errorCode: null,
+                  errorMessage: err instanceof Error ? err.message : String(err),
+                })}`,
+              )
               setResponse(formatInternalInferenceErrorCode(undefined))
               setHostInfSuccess(false)
             } finally {
@@ -2908,10 +2977,16 @@ export default function HybridSearch({
                           models = availableModels
                         }
                         if (models && models.length > 0) {
+                          const hostActive =
+                            getHostActiveModelIdFromModels(models) ?? getHostActiveModelIdFromTargets(hostInf.inferenceTargets)
                           const preferred =
+                            (hostActive ? models.find((m) => m.id === hostActive) : undefined) ??
                             models.find((m) => m.type === 'local') ??
                             models.find((m) => m.type === 'host_internal') ??
                             models[0]
+                          if (hostActive && preferred?.id === hostActive) {
+                            selectedModelSourceRef.current = 'host_active'
+                          }
                           setSelectedModel((prev) => {
                             if (isHostInferenceModelId(prev)) {
                               return prev
@@ -2979,7 +3054,7 @@ export default function HybridSearch({
                           role="menuitem"
                           className={`hs-model-item${selectedModel === m.id ? ' hs-model-item--active' : ''}`}
                           title={`Local model: ${m.name}`}
-                          onClick={() => { setSelectedModel(m.id); setModelMenuOpen(false) }}
+                          onClick={() => { selectedModelSourceRef.current = 'user'; setSelectedModel(m.id); setModelMenuOpen(false) }}
                         >
                           {m.name}
                           {selectedModel === m.id && <span className="hs-model-check">✓</span>}
@@ -3035,6 +3110,7 @@ export default function HybridSearch({
                                 className={`hs-model-item hs-model-item--host hs-model-item--host-compact${active ? ' hs-model-item--active' : ''}${hostItemMod}`}
                                 onClick={() => {
                                   if (!m.hostTargetAvailable) return
+                                  selectedModelSourceRef.current = 'user'
                                   setSelectedModel(id)
                                   setModelMenuOpen(false)
                                 }}
@@ -3076,7 +3152,7 @@ export default function HybridSearch({
                           role="menuitem"
                           className={`hs-model-item${selectedModel === m.id ? ' hs-model-item--active' : ''}`}
                           title={`Cloud: ${m.name} (${m.provider})`}
-                          onClick={() => { setSelectedModel(m.id); setModelMenuOpen(false) }}
+                          onClick={() => { selectedModelSourceRef.current = 'user'; setSelectedModel(m.id); setModelMenuOpen(false) }}
                         >
                           {m.name}
                           {selectedModel === m.id && <span className="hs-model-check">✓</span>}

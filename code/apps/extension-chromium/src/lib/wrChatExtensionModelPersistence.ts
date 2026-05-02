@@ -64,7 +64,7 @@ export function loadPersistedWrChatExtensionModel(): {
     const id = localStorage.getItem(WRCHAT_EXT_ACTIVE_MODEL_KEY)?.trim()
     if (!id) return null
     const meta = parseMeta(localStorage.getItem(WRCHAT_EXT_META_KEY))
-    return { modelId: id, selectionSource: meta?.selectionSource ?? 'user' }
+    return { modelId: id, selectionSource: meta?.selectionSource ?? 'auto' }
   } catch {
     return null
   }

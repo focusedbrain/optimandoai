@@ -11,6 +11,11 @@ import { hostInferenceTargetMenuSelectable } from './hostAiTargetConnectionPrese
 const SELECTION_V = 1 as const
 
 export type InferenceSelectionKind = 'local_ollama' | 'cloud' | 'host_internal'
+export type InferenceSelectionSource =
+  | 'user'
+  | 'host_active'
+  | 'persisted'
+  | 'fallback_first_available'
 
 export interface StoredInferenceSelectionV1 {
   v: typeof SELECTION_V
@@ -20,6 +25,7 @@ export interface StoredInferenceSelectionV1 {
   model: string
   handshake_id?: string
   account_key?: string
+  selectionSource?: InferenceSelectionSource
 }
 
 /** Legacy unscoped (pre–STEP 7) — `llama3` or (deprecated unscoped) host id. */
@@ -72,6 +78,13 @@ function parseJson(raw: string | null): StoredInferenceSelectionV1 | null {
       model: r.model,
       handshake_id: typeof r.handshake_id === 'string' && r.handshake_id.trim() ? r.handshake_id.trim() : undefined,
       account_key: typeof r.account_key === 'string' ? r.account_key : undefined,
+      selectionSource:
+        r.selectionSource === 'user' ||
+        r.selectionSource === 'host_active' ||
+        r.selectionSource === 'persisted' ||
+        r.selectionSource === 'fallback_first_available'
+          ? r.selectionSource
+          : undefined,
     }
   } catch {
     return null
@@ -91,6 +104,7 @@ function inferKindFromId(
 export function toStoredSelection(
   id: string,
   availableModels: Array<{ id: string; type: 'local' | 'cloud' | 'host_internal' }>,
+  selectionSource?: InferenceSelectionSource,
 ): StoredInferenceSelectionV1 {
   const kind = inferKindFromId(id, availableModels)
   if (kind === 'host_internal') {
@@ -101,20 +115,22 @@ export function toStoredSelection(
       id,
       model: p?.model?.trim() || '',
       handshake_id: p?.handshakeId,
+      selectionSource,
     })
   }
-  return stampAccount({ v: SELECTION_V, kind, id, model: id })
+  return stampAccount({ v: SELECTION_V, kind, id, model: id, selectionSource })
 }
 
 export function persistOrchestratorModelId(
   id: string,
   availableModels: Array<{ id: string; type: 'local' | 'cloud' | 'host_internal' }>,
+  selectionSource: InferenceSelectionSource = 'user',
 ): void {
   if (!id) {
     clearOrchestratorInferenceSelection()
     return
   }
-  const body = toStoredSelection(id, availableModels)
+  const body = toStoredSelection(id, availableModels, selectionSource)
   const stamped = stampAccount(body)
   try {
     localStorage.setItem(orchV1Key(), JSON.stringify(stamped))
@@ -703,12 +719,13 @@ export function readWrChatInferenceSelection(): StoredInferenceSelectionV1 | nul
 export function persistWrChatModelId(
   id: string,
   availableModels: Array<{ id: string; type: 'local' | 'cloud' | 'host_internal' }>,
+  selectionSource: InferenceSelectionSource = 'user',
 ): void {
   if (!id) {
     clearWrChatInferenceSelection()
     return
   }
-  const body = toStoredSelection(id, availableModels)
+  const body = toStoredSelection(id, availableModels, selectionSource)
   const stamped = stampAccount(body)
   try {
     localStorage.setItem(wrV1Key(), JSON.stringify(stamped))
