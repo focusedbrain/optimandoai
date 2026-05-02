@@ -142,3 +142,43 @@ describe('p2p_host_ai_direct_beap_ad', () => {
     if (!r.ok) expect(r.reason).toBe('signaling_ttl')
   })
 })
+
+describe('p2p_host_ai_direct_beap_ad_request', () => {
+  it('accepts 60s ttl without endpoint_url', () => {
+    const t0 = Date.now()
+    const body = JSON.stringify({
+      schema_version: 1,
+      signal_type: 'p2p_host_ai_direct_beap_ad_request',
+      handshake_id: 'h1',
+      correlation_id: 'c1',
+      session_id: 's1',
+      sender_device_id: 'dev-sand',
+      receiver_device_id: 'dev-host',
+      created_at: new Date(t0).toISOString(),
+      expires_at: new Date(t0 + 60_000).toISOString(),
+      owner_role: 'sandbox',
+    })
+    const r = tryParseP2pSignalRequest(body, P2P_SIGNAL_MAX_BODY_BYTES)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.signalType).toBe('p2p_host_ai_direct_beap_ad_request')
+  })
+
+  it('rejects owner_role host on request envelope', () => {
+    const t0 = Date.now()
+    const body = JSON.stringify({
+      schema_version: 1,
+      signal_type: 'p2p_host_ai_direct_beap_ad_request',
+      handshake_id: 'h1',
+      correlation_id: 'c1',
+      session_id: 's1',
+      sender_device_id: 'dev-sand',
+      receiver_device_id: 'dev-host',
+      created_at: new Date(t0).toISOString(),
+      expires_at: new Date(t0 + 60_000).toISOString(),
+      owner_role: 'host',
+    })
+    const r = tryParseP2pSignalRequest(body, P2P_SIGNAL_MAX_BODY_BYTES)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toBe('field_required')
+  })
+})

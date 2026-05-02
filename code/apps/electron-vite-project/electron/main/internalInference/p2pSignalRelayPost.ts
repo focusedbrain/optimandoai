@@ -18,6 +18,7 @@ import { logHostAiSignalSchemaRejected } from './hostAiP2pSignalSchemaRejectLog'
 import { recordP2pRelaySignaling429Storm, resetP2pRelaySignalingCircuitForTests } from './p2pSignalRelayCircuit'
 import { failHostAiP2pSessionForTerminalSignalingError, getSessionState } from './p2pSession/p2pInferenceSessionManager'
 import { P2P_SIGNAL_WIRE_SCHEMA_VERSION } from './p2pSignalWireSchemaVersion'
+import { getOutboundQueueAuthRefresh } from '../handshake/outboundQueue'
 
 export { P2P_SIGNAL_WIRE_SCHEMA_VERSION }
 
@@ -281,6 +282,35 @@ async function postP2pSignalToCoordination(
 }
 
 /**
+ * One bounded auth refresh + single retry when coordination returns 401/403 (matches outbound queue refresh).
+ */
+async function postP2pSignalToCoordinationWithOptionalAuthRetry(
+  coordinationUrl: string,
+  bearer: string,
+  body: string,
+): Promise<{ status: number; bodyText: string }> {
+  if (p2pSignalRelayPostTestHooks.post) {
+    return p2pSignalRelayPostTestHooks.post(coordinationUrl, bearer, body)
+  }
+  let res = await postP2pSignalToCoordination(coordinationUrl, bearer, body)
+  if (res.status === 401 || res.status === 403) {
+    const refresh = getOutboundQueueAuthRefresh()
+    if (refresh) {
+      try {
+        await refresh()
+      } catch {
+        /* keep res */
+      }
+      const tok2 = getAccessToken()
+      if (tok2?.trim()) {
+        res = await postP2pSignalToCoordination(coordinationUrl, tok2.trim(), body)
+      }
+    }
+  }
+  return res
+}
+
+/**
  * Sends offer / answer / ICE to coordination.
  * ICE: `iceEnd` skips POST; `iceCandidateJson === ''` sends `candidate: ""` (end-of-trickle envelope).
  * ICE transport errors are non-fatal until streak thresholds; offer/answer remain session-fatal.
@@ -388,7 +418,7 @@ export async function sendHostAiP2pSignalOutbound(params: {
       `[P2P_SIGNAL_OUT] sending type=${params.kind} handshake=${hid} session=${redactIdForLog(sid)} target_device=${receiver} bytes=${Buffer.byteLength(body, 'utf8')}`,
     )
 
-    const postFn = p2pSignalRelayPostTestHooks.post ?? postP2pSignalToCoordination
+    const postFn = p2pSignalRelayPostTestHooks.post ?? postP2pSignalToCoordinationWithOptionalAuthRetry
     const max429 = p2pSignalRelayPostTestHooks.max429Retries ?? MAX_429_RETRIES_PER_MESSAGE
 
     let lastStatus = 0
@@ -521,11 +551,13 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
   receiverDeviceId: string
   endpointUrl: string
   adSeq: number
+  modelsCount: number
 }): string {
   const correlationId = randomUUID()
   const t0 = Date.now()
   const createdAt = new Date(t0).toISOString()
   const expiresAt = new Date(t0 + HOST_AI_BEAP_AD_TTL_MS).toISOString()
+  const mc = Math.max(0, Math.floor(Number(params.modelsCount) || 0))
   return JSON.stringify({
     schema_version: P2P_SIGNAL_WIRE_SCHEMA_VERSION,
     signal_type: 'p2p_host_ai_direct_beap_ad',
@@ -552,7 +584,7 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
         { kind: 'relay' as const, available: true },
         { kind: 'webrtc' as const, available: true },
       ],
-      capabilities: { provider: 'ollama' as const, models_count: 0, available: true },
+      capabilities: { provider: 'ollama' as const, models_count: mc, available: mc > 0 },
     },
   })
 }
@@ -564,6 +596,7 @@ export async function postHostAiDirectBeapAdToCoordination(params: {
   senderDeviceId: string
   receiverDeviceId: string
   adSeq: number
+  modelsCount?: number
 }): Promise<{ ok: boolean; status: number }> {
   const base = coordinationBaseUrl(params.db)
   if (!base) {
@@ -582,8 +615,9 @@ export async function postHostAiDirectBeapAdToCoordination(params: {
     receiverDeviceId: params.receiverDeviceId.trim(),
     endpointUrl: params.endpointUrl.trim(),
     adSeq: params.adSeq,
+    modelsCount: params.modelsCount ?? 0,
   })
-  const postFn = p2pSignalRelayPostTestHooks.post ?? postP2pSignalToCoordination
+  const postFn = p2pSignalRelayPostTestHooks.post ?? postP2pSignalToCoordinationWithOptionalAuthRetry
   try {
     const res = await postFn(base, token.trim(), body)
     if (res.status === 400) {
@@ -604,6 +638,64 @@ export async function postHostAiDirectBeapAdToCoordination(params: {
         kind: 'host_ai_direct_beap_ad',
       })
     }
+    return { ok: res.status === 200 || res.status === 202, status: res.status }
+  } catch {
+    return { ok: false, status: 0 }
+  }
+}
+
+const HOST_AI_DIRECT_BEAP_AD_REQUEST_TTL_MS = 60_000
+
+export function buildHostAiDirectBeapAdRequestBody(params: {
+  handshakeId: string
+  sessionId: string
+  senderDeviceId: string
+  receiverDeviceId: string
+}): string {
+  const correlationId = randomUUID()
+  const t0 = Date.now()
+  const createdAt = new Date(t0).toISOString()
+  const expiresAt = new Date(t0 + HOST_AI_DIRECT_BEAP_AD_REQUEST_TTL_MS).toISOString()
+  return JSON.stringify({
+    schema_version: P2P_SIGNAL_WIRE_SCHEMA_VERSION,
+    signal_type: 'p2p_host_ai_direct_beap_ad_request',
+    handshake_id: params.handshakeId,
+    correlation_id: correlationId,
+    session_id: params.sessionId,
+    sender_device_id: params.senderDeviceId,
+    receiver_device_id: params.receiverDeviceId,
+    created_at: createdAt,
+    expires_at: expiresAt,
+    owner_role: 'sandbox',
+  })
+}
+
+/** Sandbox → Host: coordination POST asks paired Host to republish LAN BEAP advertisement. */
+export async function postHostAiDirectBeapAdRequestToCoordination(params: {
+  db: any
+  handshakeId: string
+  senderDeviceId: string
+  receiverDeviceId: string
+}): Promise<{ ok: boolean; status: number }> {
+  const base = coordinationBaseUrl(params.db)
+  if (!base) {
+    return { ok: false, status: 0 }
+  }
+  const token = getAccessToken()
+  if (!token?.trim()) {
+    return { ok: false, status: 401 }
+  }
+  const hid = params.handshakeId.trim()
+  const sessionId = `host_ai_beap_ad_req:${hid}:${randomUUID()}`
+  const body = buildHostAiDirectBeapAdRequestBody({
+    handshakeId: hid,
+    sessionId,
+    senderDeviceId: params.senderDeviceId.trim(),
+    receiverDeviceId: params.receiverDeviceId.trim(),
+  })
+  const postFn = p2pSignalRelayPostTestHooks.post ?? postP2pSignalToCoordinationWithOptionalAuthRetry
+  try {
+    const res = await postFn(base, token.trim(), body)
     return { ok: res.status === 200 || res.status === 202, status: res.status }
   } catch {
     return { ok: false, status: 0 }

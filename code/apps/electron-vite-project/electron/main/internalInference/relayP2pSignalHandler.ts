@@ -7,6 +7,13 @@
 import { applyHostAiDirectBeapAdFromRelayPayload } from './p2pEndpointRepair'
 import { redactIdForLog } from './internalInferenceLogRedact'
 import { maybeHandleP2pInferenceRelaySignal } from './p2pSessionManagerStub'
+import { getInstanceId } from '../orchestrator/orchestratorModeStore'
+import { getHandshakeRecord } from '../handshake/db'
+import {
+  assertLedgerRolesSandboxToHost,
+  assertRecordForServiceRpc,
+  coordinationDeviceIdForHandshakeDeviceRole,
+} from './policy'
 
 const FORBIDDEN_KEYS = new Set(['prompt', 'messages', 'completion', 'document', 'capsule'])
 
@@ -19,8 +26,9 @@ const WEBRTC_SIGNAL_TYPES = new Set([
 ])
 
 const BEAP_AD_TYPE = 'p2p_host_ai_direct_beap_ad'
+const BEAP_AD_REQUEST_TYPE = 'p2p_host_ai_direct_beap_ad_request'
 
-const ALL_P2P_SIGNAL_TYPES = new Set([...WEBRTC_SIGNAL_TYPES, BEAP_AD_TYPE])
+const ALL_P2P_SIGNAL_TYPES = new Set([...WEBRTC_SIGNAL_TYPES, BEAP_AD_TYPE, BEAP_AD_REQUEST_TYPE])
 
 type P2pSignalDrop = 'forbidden_key' | 'schema' | 'type' | 'field' | 'expired' | 'ttl' | 'parse' | 'stale'
 
@@ -115,6 +123,69 @@ function evaluateWebRtcInferenceSignalLifetime(
   return { ok: true }
 }
 
+async function handleHostAiDirectBeapAdRequestFromRelay(
+  db: any,
+  p: Record<string, unknown>,
+  relayMessageId: string,
+): Promise<void> {
+  const hid = typeof p.handshake_id === 'string' ? p.handshake_id.trim() : ''
+  const sender = typeof p.sender_device_id === 'string' ? p.sender_device_id.trim() : ''
+  const receiver = typeof p.receiver_device_id === 'string' ? p.receiver_device_id.trim() : ''
+  const localId = getInstanceId().trim()
+  console.log(
+    `[HOST_AI_BEAP_AD_REQUEST_RECV] ${JSON.stringify({
+      handshakeId: hid,
+      senderDeviceId: sender,
+      receiverDeviceId: receiver,
+      localDeviceId: localId,
+      relayMessageId,
+    })}`,
+  )
+  if (!hid || localId !== receiver) {
+    return
+  }
+  const r0 = getHandshakeRecord(db, hid)
+  const ar = assertRecordForServiceRpc(r0)
+  if (!ar.ok) {
+    console.log(
+      `[HOST_AI_BEAP_AD_REQUEST_REJECTED] ${JSON.stringify({
+        handshakeId: hid,
+        reason: 'not_active_internal',
+        relayMessageId,
+      })}`,
+    )
+    return
+  }
+  if (!assertLedgerRolesSandboxToHost(ar.record).ok) {
+    console.log(
+      `[HOST_AI_BEAP_AD_REQUEST_REJECTED] ${JSON.stringify({
+        handshakeId: hid,
+        reason: 'not_sandbox_to_host_ledger',
+        relayMessageId,
+      })}`,
+    )
+    return
+  }
+  const expectSandbox = (coordinationDeviceIdForHandshakeDeviceRole(ar.record, 'sandbox') ?? '').trim()
+  const expectHost = (coordinationDeviceIdForHandshakeDeviceRole(ar.record, 'host') ?? '').trim()
+  if (!expectSandbox || sender !== expectSandbox || localId !== expectHost) {
+    console.log(
+      `[HOST_AI_BEAP_AD_REQUEST_REJECTED] ${JSON.stringify({
+        handshakeId: hid,
+        reason: 'wrong_parties',
+        expectedSandboxDeviceId: expectSandbox,
+        expectedHostDeviceId: expectHost,
+        relayMessageId,
+      })}`,
+    )
+    return
+  }
+  const { publishHostAiDirectBeapAdvertisementsForEligibleHost } = await import('./hostAiDirectBeapAdPublish')
+  await publishHostAiDirectBeapAdvertisementsForEligibleHost(db, {
+    context: 'sandbox_peer_republish_request_ws',
+  })
+}
+
 /**
  * @returns true if the message was a p2p_signal and handled (consumed) — do not process as capsule
  */
@@ -162,6 +233,7 @@ export function tryHandleCoordinationP2pSignal(
   }
   const now = Date.now()
   const isBeapAd = st === BEAP_AD_TYPE
+  const isBeapAdRequest = st === BEAP_AD_REQUEST_TYPE
 
   if (isBeapAd) {
     const ttl = c1 - c0
@@ -181,6 +253,22 @@ export function tryHandleCoordinationP2pSignal(
       return true
     }
     logHostAiSignalTtl(p, { c0, c1, now, decision: 'allow', reason: 'ok_beap_ad' })
+  } else if (isBeapAdRequest) {
+    const ttl = c1 - c0
+    if (ttl > 120_000) {
+      logHostAiSignalTtl(p, { c0, c1, now, decision: 'drop', reason: 'beap_ad_request_ttl_too_long' })
+      logDropped(p.handshake_id, 'ttl', relayMessageId)
+      return true
+    }
+    const life = evaluateWebRtcInferenceSignalLifetime(p, c0, c1, now)
+    if (!life.ok) {
+      logDropped(p.handshake_id, life.drop, relayMessageId)
+      return true
+    }
+    if (p.owner_role != null && p.owner_role !== 'sandbox') {
+      logDropped(p.handshake_id, 'field', relayMessageId)
+      return true
+    }
   } else {
     const life = evaluateWebRtcInferenceSignalLifetime(p, c0, c1, now)
     if (!life.ok) {
@@ -213,6 +301,18 @@ export function tryHandleCoordinationP2pSignal(
       return true
     }
     applyHostAiDirectBeapAdFromRelayPayload(db, p, relayMessageId)
+    return true
+  }
+
+  if (isBeapAdRequest) {
+    const db = getDb?.()
+    if (!db) {
+      console.log(
+        `[P2P_SIGNAL_RECV] type=host_ai_beap_ad_request handshake=${hid} reason=no_db relay_message_id=${relayMessageId}`,
+      )
+      return true
+    }
+    void handleHostAiDirectBeapAdRequestFromRelay(db, p, relayMessageId).catch(() => {})
     return true
   }
 

@@ -230,6 +230,11 @@ export function setOutboundQueueAuthRefresh(fn?: (() => Promise<void>) | undefin
   _refreshSession = fn
 }
 
+/** For P2P signaling / Host AI relay POST retries after 401 (same session refresh as outbound queue). */
+export function getOutboundQueueAuthRefresh(): (() => Promise<void>) | undefined {
+  return _refreshSession
+}
+
 let _autoDrainTimer: ReturnType<typeof setTimeout> | null = null
 
 /** @internal tests */

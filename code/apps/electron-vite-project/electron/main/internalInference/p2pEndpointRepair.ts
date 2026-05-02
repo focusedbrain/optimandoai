@@ -504,80 +504,100 @@ export function applyHostAiDirectBeapAdFromRelayPayload(
   const advRaw = typeof raw.endpoint_url === 'string' ? raw.endpoint_url.trim() : ''
   const adSeq = raw.ad_seq
   const expRaw = typeof raw.expires_at === 'string' ? raw.expires_at.trim() : ''
+  const reject = (reason: string): { ok: false; reason: string } => {
+    console.log(`[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid || null, reason, relayMessageId })}`)
+    return { ok: false, reason }
+  }
   if (!db || !hid) {
     console.log(
-      `[HOST_AI_ENDPOINT_AD_RECEIVED] ok=false reason=no_db relay_message_id=${relayMessageId} handshake=(n/a)`,
+      `[HOST_AI_ENDPOINT_AD_RECEIVED] ${JSON.stringify({
+        handshakeId: null,
+        ownerDeviceId: sender || null,
+        urlPresent: Boolean(advRaw),
+        source: 'relay',
+        seq: adSeq,
+        expiresAt: expRaw || null,
+        ok: false,
+        reason: 'no_db',
+        relayMessageId,
+      })}`,
     )
-    return { ok: false, reason: 'no_db' }
+    return reject('no_db')
   }
   console.log(
-    `[HOST_AI_ENDPOINT_AD_RECEIVED] handshake=${hid} sender=${sender} seq=${adSeq} relay_message_id=${relayMessageId}`,
+    `[HOST_AI_ENDPOINT_AD_RECEIVED] ${JSON.stringify({
+      handshakeId: hid,
+      ownerDeviceId: sender || null,
+      urlPresent: Boolean(advRaw),
+      source: 'relay',
+      seq: adSeq,
+      expiresAt: expRaw || null,
+      relayMessageId,
+    })}`,
   )
   if (typeof adSeq !== 'number' || !Number.isInteger(adSeq) || adSeq < 0) {
-    console.log(
-      `[HOST_AI_ENDPOINT_AD_ACCEPTED] ok=false reason=invalid_seq handshake=${hid} relay_message_id=${relayMessageId}`,
-    )
+    console.log(`[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'invalid_seq', relayMessageId })}`)
     return { ok: false, reason: 'invalid_seq' }
   }
   const prevSeq = hostAiRelayBeapAdLastSeq.get(hid) ?? -1
   if (adSeq <= prevSeq) {
     console.log(
-      `[HOST_AI_ENDPOINT_AD_ACCEPTED] ok=false reason=stale_seq handshake=${hid} seq=${adSeq} prev_seq=${prevSeq} relay_message_id=${relayMessageId}`,
+      `[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({
+        handshakeId: hid,
+        reason: 'stale_seq',
+        seq: adSeq,
+        prevSeq,
+        relayMessageId,
+      })}`,
     )
     return { ok: false, reason: 'stale_seq' }
   }
   if (expRaw) {
     const expMs = Date.parse(expRaw)
     if (Number.isNaN(expMs) || expMs < Date.now()) {
-      console.log(
-        `[HOST_AI_ENDPOINT_AD_ACCEPTED] ok=false reason=expired handshake=${hid} relay_message_id=${relayMessageId}`,
-      )
+      console.log(`[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'expired', relayMessageId })}`)
       return { ok: false, reason: 'expired' }
     }
   }
   if (!advRaw) {
-    console.log(
-      `[HOST_AI_ENDPOINT_AD_ACCEPTED] ok=false reason=no_endpoint_url handshake=${hid} relay_message_id=${relayMessageId}`,
-    )
+    console.log(`[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'no_endpoint_url', relayMessageId })}`)
     return { ok: false, reason: 'no_endpoint_url' }
   }
   if (p2pEndpointMvpClass(db, advRaw) !== 'direct_lan') {
-    console.log(
-      `[HOST_AI_ENDPOINT_AD_ACCEPTED] ok=false reason=not_mvp_direct handshake=${hid} relay_message_id=${relayMessageId}`,
-    )
+    console.log(`[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'not_mvp_direct', relayMessageId })}`)
     return { ok: false, reason: 'not_mvp_direct' }
   }
   if (ingestUrlMatchesThisDevicesMvpDirectBeap(db, advRaw)) {
     console.log(
-      `[HOST_AI_ENDPOINT_AD_ACCEPTED] ok=false reason=same_as_local_sandbox_beap handshake=${hid} relay_message_id=${relayMessageId}`,
+      `[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'same_as_local_sandbox_beap', relayMessageId })}`,
     )
     return { ok: false, reason: 'same_as_local_sandbox_beap' }
   }
   const r0 = getHandshakeRecord(db, hid)
   const ar = assertRecordForServiceRpc(r0)
   if (!ar.ok) {
-    console.log(
-      `[HOST_AI_ENDPOINT_AD_ACCEPTED] ok=false reason=not_active_internal_handshake handshake=${hid} relay_message_id=${relayMessageId}`,
-    )
+    console.log(`[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'not_active_internal', relayMessageId })}`)
     return { ok: false, reason: 'not_active_internal' }
   }
   if (!assertLedgerRolesSandboxToHost(ar.record).ok) {
-    console.log(
-      `[HOST_AI_ENDPOINT_AD_ACCEPTED] ok=false reason=not_sandbox_to_host_ledger handshake=${hid} relay_message_id=${relayMessageId}`,
-    )
+    console.log(`[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'not_sandbox_to_host', relayMessageId })}`)
     return { ok: false, reason: 'not_sandbox_to_host' }
   }
   const expectHost = (coordinationDeviceIdForHandshakeDeviceRole(ar.record, 'host') ?? '').trim()
   if (!expectHost || sender !== expectHost) {
     console.log(
-      `[HOST_AI_ENDPOINT_AD_ACCEPTED] ok=false reason=wrong_owner handshake=${hid} expected_host=${expectHost} sender=${sender} relay_message_id=${relayMessageId}`,
+      `[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({
+        handshakeId: hid,
+        reason: 'wrong_owner',
+        expectedHostDeviceId: expectHost,
+        senderDeviceId: sender,
+        relayMessageId,
+      })}`,
     )
     return { ok: false, reason: 'wrong_owner' }
   }
   if (raw.owner_role != null && raw.owner_role !== 'host') {
-    console.log(
-      `[HOST_AI_ENDPOINT_AD_ACCEPTED] ok=false reason=owner_role_not_host handshake=${hid} relay_message_id=${relayMessageId}`,
-    )
+    console.log(`[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'owner_role_not_host', relayMessageId })}`)
     return { ok: false, reason: 'owner_role' }
   }
   hostAiRelayBeapAdLastSeq.set(hid, adSeq)
@@ -590,7 +610,8 @@ export function applyHostAiDirectBeapAdFromRelayPayload(
   const current = (r.p2p_endpoint ?? '').trim()
   const newNorm = normalizeP2pIngestUrl(advRaw)
   const oldNorm = current ? normalizeP2pIngestUrl(current) : ''
-  if (newNorm !== oldNorm) {
+  const dbUpdated = newNorm !== oldNorm
+  if (dbUpdated) {
     const oldKind = kindForLog(db, current || null)
     const newKind = kindForLog(db, advRaw)
     console.log(
@@ -601,7 +622,15 @@ export function applyHostAiDirectBeapAdFromRelayPayload(
   }
   invalidateP2pEnsureCachesForHandshake(hid)
   console.log(
-    `[HOST_AI_ENDPOINT_AD_ACCEPTED] ok=true handshake=${hid} endpoint=${newNorm} seq=${adSeq} owner=${expectHost} relay_message_id=${relayMessageId}`,
+    `[HOST_AI_ENDPOINT_AD_ACCEPTED] ${JSON.stringify({
+      handshakeId: hid,
+      ownerDeviceId: expectHost,
+      endpointKind: 'direct_lan',
+      dbUpdated,
+      endpoint: newNorm,
+      seq: adSeq,
+      relayMessageId,
+    })}`,
   )
   return { ok: true }
 }

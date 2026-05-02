@@ -16,6 +16,8 @@ export const P2P_SIGNAL_TYPES = [
   'p2p_inference_error',
   /** Host AI: authenticated relay envelope for the peer sandbox before first direct HTTP (bootstrap). */
   'p2p_host_ai_direct_beap_ad',
+  /** Sandbox → Host: ask paired Host to republish `p2p_host_ai_direct_beap_ad` (no endpoint in body). */
+  'p2p_host_ai_direct_beap_ad_request',
 ] as const
 export type P2pSignalType = (typeof P2P_SIGNAL_TYPES)[number]
 
@@ -173,7 +175,14 @@ export function tryParseP2pSignalRequest(
   if (ttl <= 0) {
     return { ok: false, reason: 'expired', httpStatus: 400 }
   }
-  if (signalType === 'p2p_host_ai_direct_beap_ad') {
+  if (signalType === 'p2p_host_ai_direct_beap_ad_request') {
+    if (ttl > 120_000) {
+      return { ok: false, reason: 'signaling_ttl', httpStatus: 400 }
+    }
+    if (p.owner_role != null && p.owner_role !== 'sandbox') {
+      return { ok: false, reason: 'field_required', httpStatus: 400 }
+    }
+  } else if (signalType === 'p2p_host_ai_direct_beap_ad') {
     if (ttl < 60_000 || ttl > 600_000) {
       return { ok: false, reason: 'signaling_ttl', httpStatus: 400 }
     }

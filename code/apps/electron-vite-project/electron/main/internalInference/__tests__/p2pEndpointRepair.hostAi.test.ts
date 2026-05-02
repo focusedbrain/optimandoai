@@ -21,6 +21,11 @@ import {
 
 vi.mock('../../orchestrator/orchestratorModeStore', () => ({
   getInstanceId: () => 'dev-sand-1',
+  getOrchestratorMode: () => ({ mode: 'sandbox' as const }),
+}))
+
+vi.mock('../hostAiPairingStateStore', () => ({
+  isHostAiLedgerAsymmetricTerminal: () => false,
 }))
 
 const updateHandshakeRecord = vi.fn()

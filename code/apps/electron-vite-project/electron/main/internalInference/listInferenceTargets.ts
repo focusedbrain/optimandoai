@@ -1512,9 +1512,10 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     const skipListRepair =
       fList.p2pInferenceWebrtcEnabled && fList.p2pInferenceEnabled && !fList.p2pInferenceHttpFallback
     if (!skipListRepair) {
-      void import('./p2pEndpointRepair')
-        .then((m) => m.runP2pEndpointRepairPass(db, 'list_inference_targets'))
-        .catch(() => {})
+      const repair = await import('./p2pEndpointRepair')
+      repair.runP2pEndpointRepairPass(db, 'list_inference_targets')
+      const { sandboxMaybeRequestHostDirectBeapAdvertisement } = await import('./sandboxHostAiDirectBeapAdRequest')
+      await sandboxMaybeRequestHostDirectBeapAdvertisement(db, 'list_inference_targets').catch(() => {})
     }
   }
 

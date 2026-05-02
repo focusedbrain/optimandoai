@@ -1,16 +1,17 @@
 /**
  * Host AI: relay `p2p_host_ai_direct_beap_ad` publish must not arm cooldown before MVP direct URL exists.
+ * Republish retries when Ollama or MVP URL gate clears after startup.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HandshakeState, type HandshakeRecord } from '../../handshake/types'
-import { resetHostAiDirectBeapAdPublishStateForTests } from '../hostAiDirectBeapAdPublish'
 
 const getHostUrl = vi.hoisted(() => vi.fn<(_db: unknown) => string | null>())
+const hostAiBeapAdLocalOllamaModelCountMock = vi.hoisted(() =>
+  vi.fn(async () => ({ ollama_ok: true as const, models_count: 1 })),
+)
 
-vi.mock('../llm/ollama-manager', () => ({
-  ollamaManager: {
-    listModels: vi.fn(async () => [{ name: 'm1', size: 1, digest: '', modified_at: '' }]),
-  },
+vi.mock('../hostAiBeapAdOllamaModelCount', () => ({
+  hostAiBeapAdLocalOllamaModelCount: (...a: unknown[]) => hostAiBeapAdLocalOllamaModelCountMock(...a),
 }))
 
 vi.mock('../p2pEndpointRepair', () => ({
@@ -102,10 +103,13 @@ vi.mock('../hostAiPairingStateStore', () => ({
 }))
 
 describe('publishHostAiDirectBeapAdvertisementsForEligibleHost', () => {
-  afterEach(() => {
-    vi.clearAllMocks()
+  beforeEach(async () => {
     getHostUrl.mockReset()
+    postBeapAd.mockReset()
     postBeapAd.mockImplementation(async () => ({ ok: true, status: 200 }))
+    hostAiBeapAdLocalOllamaModelCountMock.mockReset()
+    hostAiBeapAdLocalOllamaModelCountMock.mockImplementation(async () => ({ ollama_ok: true, models_count: 1 }))
+    const { resetHostAiDirectBeapAdPublishStateForTests } = await import('../hostAiDirectBeapAdPublish')
     resetHostAiDirectBeapAdPublishStateForTests()
   })
 
@@ -118,5 +122,32 @@ describe('publishHostAiDirectBeapAdvertisementsForEligibleHost', () => {
     expect(postBeapAd).not.toHaveBeenCalled()
     await publishHostAiDirectBeapAdvertisementsForEligibleHost({} as any, { context: 'test_later_url' })
     expect(postBeapAd).toHaveBeenCalledTimes(1)
+  })
+
+  it('early ollama_models_gate schedules retry and publishes when models appear', async () => {
+    vi.useFakeTimers()
+    hostAiBeapAdLocalOllamaModelCountMock
+      .mockResolvedValueOnce({ ollama_ok: true, models_count: 0 })
+      .mockResolvedValue({ ollama_ok: true, models_count: 1 })
+    getHostUrl.mockReturnValue('http://192.168.1.2:51249/beap/ingest')
+    const { publishHostAiDirectBeapAdvertisementsForEligibleHost } = await import('../hostAiDirectBeapAdPublish')
+    await publishHostAiDirectBeapAdvertisementsForEligibleHost({} as any, { context: 't_ollama_retry' })
+    expect(postBeapAd).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(postBeapAd).toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  it('early no_mvp_direct_endpoint schedules retry and publishes when URL appears on retry path', async () => {
+    vi.useFakeTimers()
+    getHostUrl
+      .mockReturnValueOnce(null)
+      .mockReturnValue('http://192.168.1.2:51249/beap/ingest')
+    const { publishHostAiDirectBeapAdvertisementsForEligibleHost } = await import('../hostAiDirectBeapAdPublish')
+    await publishHostAiDirectBeapAdvertisementsForEligibleHost({} as any, { context: 't_url_first' })
+    expect(postBeapAd).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(postBeapAd).toHaveBeenCalled()
+    vi.useRealTimers()
   })
 })
