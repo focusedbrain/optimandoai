@@ -762,36 +762,46 @@ describe('coordination-service', () => {
     }
   })
 
-  test('CS_21_initiate_internal_no_route: registry has no acceptor device → 404 no_route_for_internal_initiate', async () => {
+  test('CS_21_initiate_internal_no_route: sender device not registered → 404 no_route_for_internal_initiate', async () => {
+    // Category 2 fix (PR 4): the original test registered only the initiator device,
+    // which the same-principal registration guard (added alongside PR 1) now rejects with
+    // 400 (INTERNAL_RELAY_REGISTRATION_MISSING_ACCEPTOR_DEVICE_ID). That meant the row
+    // was never written, so isSenderAuthorized returned false → 403, not the expected 404.
+    //
+    // The 404 path is still reachable: register a valid same-principal handshake (both
+    // device IDs), then send an initiate from an unregistered sender device ID. The routing
+    // lookup returns null → 404 no_route_for_internal_initiate, which is the contract the
+    // test is verifying.
     const hsId = 'hs-cs21'
     const userId = 'sameuser21'
     const devA = 'dev-a-21'
-    const devGhost = 'dev-ghost-21'
-    // Register only the initiator device — acceptor_device_id omitted.
+    const devB = 'dev-b-21'
+    const devUnknown = 'dev-unknown-21'
     await request(port, 'POST', '/beap/register-handshake', {
       body: JSON.stringify({
         handshake_id: hsId,
         initiator_user_id: userId,
         acceptor_user_id: userId,
         initiator_device_id: devA,
+        acceptor_device_id: devB,
       }),
       auth: `test-${userId}-pro`,
       contentType: 'application/json',
     })
 
+    // Send initiate from a device ID that is not registered on the handshake.
+    // getRecipientForSender returns null → initRoute null → 404.
     const r = await request(port, 'POST', '/beap/capsule', {
-      body: internalInitiateCapsule(hsId, devA, devGhost),
+      body: internalInitiateCapsule(hsId, devUnknown, devB),
       auth: `test-${userId}-pro`,
       contentType: 'application/json',
     })
     expect(r.status).toBe(404)
     const body = JSON.parse(r.body)
     expect(body.error).toBe('no_route_for_internal_initiate')
-    // Detail must NOT name which side is missing — that would leak whether the
-    // peer device exists in the account.
     expect(body.detail).not.toMatch(/acceptor|initiator/i)
-    expect(body.detail).not.toContain(devA)
-    expect(body.detail).not.toContain(devGhost)
+    expect(body.detail).not.toContain(devUnknown)
+    expect(body.detail).not.toContain(devB)
   })
 
   test('CS_22_initiate_missing_sender_device_id: 400 initiate_missing_routing_fields', async () => {
@@ -875,6 +885,115 @@ describe('coordination-service', () => {
     })
     expect(r2.status).toBe(400)
     expect(JSON.parse(r2.body).error).toBe('initiate_external_not_allowed')
+  })
+
+  // ── Register-handshake JWT principal binding (PR 1/5 security fix) ─────────
+  //
+  // The authenticated JWT sub must equal at least one of initiator_user_id or
+  // acceptor_user_id. Without this check a third party could write arbitrary
+  // user IDs into the registry and exploit downstream trust (e.g. the
+  // same-principal unmetered predicate added in PR 3/5).
+
+  test('CS_REG_01: initiator is caller → 200 registered', async () => {
+    const hsId = 'hs-reg-01'
+    // Token sub = 'reg01init'; matches initiator_user_id.
+    const r = await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'reg01init',
+        acceptor_user_id: 'reg01acc',
+      }),
+      auth: 'test-reg01init-pro',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(200)
+    expect(JSON.parse(r.body).registered).toBe(true)
+    const row = relay!.store
+      .getDb()
+      .prepare(`SELECT initiator_user_id FROM coordination_handshake_registry WHERE handshake_id = ?`)
+      .get(hsId) as { initiator_user_id: string } | undefined
+    expect(row?.initiator_user_id).toBe('reg01init')
+  })
+
+  test('CS_REG_02: acceptor is caller → 200 registered', async () => {
+    const hsId = 'hs-reg-02'
+    // Token sub = 'reg02acc'; matches acceptor_user_id only.
+    const r = await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'reg02init',
+        acceptor_user_id: 'reg02acc',
+      }),
+      auth: 'test-reg02acc-pro',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(200)
+    expect(JSON.parse(r.body).registered).toBe(true)
+    const row = relay!.store
+      .getDb()
+      .prepare(`SELECT acceptor_user_id FROM coordination_handshake_registry WHERE handshake_id = ?`)
+      .get(hsId) as { acceptor_user_id: string } | undefined
+    expect(row?.acceptor_user_id).toBe('reg02acc')
+  })
+
+  test('CS_REG_03: third-party caller → 403 handshake_principal_mismatch, no row written', async () => {
+    const hsId = 'hs-reg-03'
+    // Token sub = 'reg03attacker'; matches neither principal.
+    const r = await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'reg03victim-a',
+        acceptor_user_id: 'reg03victim-b',
+      }),
+      auth: 'test-reg03attacker-pro',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(403)
+    expect(JSON.parse(r.body).error).toBe('handshake_principal_mismatch')
+    // Registry must have no row for this handshake.
+    const count = relay!.store
+      .getDb()
+      .prepare(`SELECT COUNT(*) as c FROM coordination_handshake_registry WHERE handshake_id = ?`)
+      .get(hsId) as { c: number }
+    expect(count.c).toBe(0)
+  })
+
+  test('CS_REG_04: spoofed self-pair (attacker asserts victim IDs for both slots) → 403, no row', async () => {
+    const hsId = 'hs-reg-04'
+    // The attack PR 3/5 must block: caller is 'reg04attacker', but both body
+    // user IDs are 'reg04victim', which would have produced a same-principal
+    // registry row granting unmetered access on the victim's behalf.
+    const r = await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'reg04victim',
+        acceptor_user_id: 'reg04victim',
+        initiator_device_id: 'dev-a',
+        acceptor_device_id: 'dev-b',
+      }),
+      auth: 'test-reg04attacker-pro',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(403)
+    expect(JSON.parse(r.body).error).toBe('handshake_principal_mismatch')
+    const count = relay!.store
+      .getDb()
+      .prepare(`SELECT COUNT(*) as c FROM coordination_handshake_registry WHERE handshake_id = ?`)
+      .get(hsId) as { c: number }
+    expect(count.c).toBe(0)
+  })
+
+  test('CS_REG_05: missing acceptor_user_id → 400', async () => {
+    const r = await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: 'hs-reg-05',
+        initiator_user_id: 'reg05user',
+        // acceptor_user_id intentionally omitted
+      }),
+      auth: 'test-reg05user-pro',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(400)
   })
 
   test('health: GET /health → 200 with status when healthy', async () => {
@@ -1335,6 +1454,15 @@ describe('coordination-service', () => {
   })
 
   test('CS_30_flush_queued_after_202: recipient offline 202, then connect; flush-queued is safe (0 left)', async () => {
+    // Category 1 + 2 fix (PR 4):
+    //   - handleConnection already drains pending capsules on WS connect via
+    //     deliverPendingToWs (inside wsManager). The server-side flush was always there;
+    //     the test was failing because the 'message' listener was attached AFTER wsConnect
+    //     resolved, racing with the flush that fired during the WS handshake.
+    //   - Fix: pass the onMessage callback to wsConnect so the listener is registered
+    //     before the 'open' event, guaranteeing the flush message is captured.
+    //   - After receiving the capsule the WS client sends an explicit ack (protocol-correct),
+    //     which sets acknowledged_at so flush-queued correctly returns delivered = 0.
     const hsId = 'hs-flush-after'
     await request(port, 'POST', '/beap/register-handshake', {
       body: JSON.stringify({
@@ -1351,14 +1479,22 @@ describe('coordination-service', () => {
       contentType: 'application/json',
     })
     expect(r1.status).toBe(202)
-    const recipientWs = await wsConnect(port, 'test-recipientF-pro')
     let got = 0
-    recipientWs.on('message', (data) => {
-      const msg = JSON.parse(data.toString()) as { type?: string }
-      if (msg.type === 'capsule') got++
+    const receivedIds: string[] = []
+    const recipientWs = await wsConnect(port, 'test-recipientF-pro', (data) => {
+      const msg = JSON.parse(data.toString()) as { type?: string; id?: string }
+      if (msg.type === 'capsule') {
+        got++
+        if (msg.id) receivedIds.push(msg.id)
+      }
     })
     await new Promise((r) => setTimeout(r, 250))
     expect(got).toBeGreaterThanOrEqual(1)
+    // Ack received capsules so flush-queued sees acknowledged_at IS NOT NULL.
+    if (receivedIds.length > 0) {
+      recipientWs.send(JSON.stringify({ type: 'ack', ids: receivedIds }))
+      await new Promise((r) => setTimeout(r, 100))
+    }
     const rFlush = await request(port, 'POST', '/beap/flush-queued', {
       auth: 'test-recipientF-pro',
     })
@@ -1589,8 +1725,14 @@ describe('coordination-service', () => {
   })
 
   test('CS_P2P_05: expired signal (expires_at in the past) → 400', async () => {
-    const t0 = new Date(Date.now() - 120_000)
-    const t1 = new Date(Date.now() - 60_000)
+    // Category 2 fix (PR 4): the original test used expires_at = Date.now() - 60_000,
+    // which sits exactly on the P2P_SIGNAL_EXPIRY_PARSE_GRACE_MS (60 s) boundary.
+    // The expiry check is `expires_at < now - grace`, so when expires_at === now - grace
+    // the condition is false (not expired), parsed.ok = true, and isSenderAuthorized
+    // fires first → 403 instead of 400.  Use 10 minutes in the past; no grace period
+    // covers that, making the test deterministic regardless of clock skew or CPU load.
+    const t0 = new Date(Date.now() - 660_000) // created_at  10m ago
+    const t1 = new Date(Date.now() - 600_000) // expires_at  10m ago
     const r = await request(port, 'POST', '/beap/p2p-signal', {
       body: JSON.stringify({
         schema_version: 1,
@@ -1672,6 +1814,391 @@ describe('coordination-service', () => {
       contentType: 'application/json',
     })
     expect(r.status).toBe(403)
+  })
+
+  // ─── PR 4 — Sandbox entitlement gate ─────────────────────────────────────────
+  //
+  // The entitlement gate lives on /beap/capsule and fires when
+  // metadata.inbox_response_path.sandbox_clone === true.
+  // All test packages are synthetic (no real BEAP signatures).
+
+  /** Build a capsule body that carries sandbox_clone = true (or false/absent). */
+  function sandboxCapsule(handshakeId: string, senderId: string, sandboxClone?: boolean): string {
+    const base = JSON.parse(validBeapCapsule(handshakeId, senderId)) as Record<string, unknown>
+    if (sandboxClone !== undefined) {
+      base.metadata = { inbox_response_path: { sandbox_clone: sandboxClone } }
+    }
+    return JSON.stringify(base)
+  }
+
+  test('CS_SBX_01: free-tier sandbox clone → 403 sandbox_entitlement_required, no row stored', async () => {
+    if (!relay) return
+    const hsId = 'hs-sbx-01'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({ handshake_id: hsId, initiator_user_id: 'sbxinit01', acceptor_user_id: 'sbxacc01' }),
+      auth: 'test-sbxinit01-free',
+      contentType: 'application/json',
+    })
+    const before = (relay.store.getDb().prepare('SELECT COUNT(*) as c FROM coordination_capsules').get() as { c: number }).c
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: sandboxCapsule(hsId, 'sbxinit01', true),
+      auth: 'test-sbxinit01-free',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(403)
+    const j = JSON.parse(r.body) as { error?: string; upgrade_url?: string }
+    expect(j.error).toBe('sandbox_entitlement_required')
+    expect(j.upgrade_url).toBe('https://wrdesk.com/pricing')
+    const after = (relay.store.getDb().prepare('SELECT COUNT(*) as c FROM coordination_capsules').get() as { c: number }).c
+    expect(after).toBe(before)
+  })
+
+  test('CS_SBX_02: pro-tier sandbox clone → accepted (200/202)', async () => {
+    const hsId = 'hs-sbx-02'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({ handshake_id: hsId, initiator_user_id: 'sbxinit02', acceptor_user_id: 'sbxacc02' }),
+      auth: 'test-sbxinit02-pro',
+      contentType: 'application/json',
+    })
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: sandboxCapsule(hsId, 'sbxinit02', true),
+      auth: 'test-sbxinit02-pro',
+      contentType: 'application/json',
+    })
+    expect([200, 202]).toContain(r.status)
+  })
+
+  test('CS_SBX_03: publisher-tier sandbox clone → accepted (200/202)', async () => {
+    const hsId = 'hs-sbx-03'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({ handshake_id: hsId, initiator_user_id: 'sbxinit03', acceptor_user_id: 'sbxacc03' }),
+      auth: 'test-sbxinit03-publisher',
+      contentType: 'application/json',
+    })
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: sandboxCapsule(hsId, 'sbxinit03', true),
+      auth: 'test-sbxinit03-publisher',
+      contentType: 'application/json',
+    })
+    expect([200, 202]).toContain(r.status)
+  })
+
+  test('CS_SBX_04: free-tier non-sandbox capsule → entitlement gate does not fire', async () => {
+    const hsId = 'hs-sbx-04'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({ handshake_id: hsId, initiator_user_id: 'sbxinit04', acceptor_user_id: 'sbxacc04' }),
+      auth: 'test-sbxinit04-free',
+      contentType: 'application/json',
+    })
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: sandboxCapsule(hsId, 'sbxinit04', false),
+      auth: 'test-sbxinit04-free',
+      contentType: 'application/json',
+    })
+    expect(r.status).not.toBe(403)
+  })
+
+  test(
+    'CS_SBX_05: free-tier same-principal sandbox clone → 403 (unmetered path does not waive entitlement)',
+    async () => {
+      // This is the architecturally important test: PR 3's same-principal skip removes
+      // the transport charge but must not also remove the feature entitlement check.
+      // The gate runs after the same-principal predicate, so samePrincipalRelay = true
+      // does NOT bypass the 403.
+      if (!relay) return
+      const hsId = 'hs-sbx-05'
+      const user = 'sbxsp05'
+      await request(port, 'POST', '/beap/register-handshake', {
+        body: JSON.stringify({
+          handshake_id: hsId,
+          initiator_user_id: user,
+          acceptor_user_id: user,
+          initiator_device_id: 'dev-host-sbx05',
+          acceptor_device_id: 'dev-sbx-sbx05',
+        }),
+        auth: `test-${user}-free`,
+        contentType: 'application/json',
+      })
+      const before = (relay.store.getDb().prepare('SELECT COUNT(*) as c FROM coordination_capsules').get() as { c: number }).c
+      const body = JSON.parse(sandboxCapsule(hsId, user, true)) as Record<string, unknown>
+      body.sender_device_id = 'dev-host-sbx05'
+      body.receiver_device_id = 'dev-sbx-sbx05'
+      const r = await request(port, 'POST', '/beap/capsule', {
+        body: JSON.stringify(body),
+        auth: `test-${user}-free`,
+        contentType: 'application/json',
+      })
+      expect(r.status).toBe(403)
+      const j = JSON.parse(r.body) as { error?: string }
+      expect(j.error).toBe('sandbox_entitlement_required')
+      const after = (relay.store.getDb().prepare('SELECT COUNT(*) as c FROM coordination_capsules').get() as { c: number }).c
+      expect(after).toBe(before)
+    },
+  )
+
+  test('CS_SBX_06: missing metadata → entitlement gate does not fire', async () => {
+    const hsId = 'hs-sbx-06'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({ handshake_id: hsId, initiator_user_id: 'sbxinit06', acceptor_user_id: 'sbxacc06' }),
+      auth: 'test-sbxinit06-free',
+      contentType: 'application/json',
+    })
+    // No metadata field at all.
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: validBeapCapsule(hsId, 'sbxinit06'),
+      auth: 'test-sbxinit06-free',
+      contentType: 'application/json',
+    })
+    expect(r.status).not.toBe(403)
+  })
+
+  test('CS_SBX_07: entitlement check fires before storeCapsule — 403 leaves store unchanged', async () => {
+    if (!relay) return
+    const hsId = 'hs-sbx-07'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({ handshake_id: hsId, initiator_user_id: 'sbxinit07', acceptor_user_id: 'sbxacc07' }),
+      auth: 'test-sbxinit07-free',
+      contentType: 'application/json',
+    })
+    const before = (relay.store.getDb().prepare('SELECT COUNT(*) as c FROM coordination_capsules').get() as { c: number }).c
+    await request(port, 'POST', '/beap/capsule', {
+      body: sandboxCapsule(hsId, 'sbxinit07', true),
+      auth: 'test-sbxinit07-free',
+      contentType: 'application/json',
+    })
+    const after = (relay.store.getDb().prepare('SELECT COUNT(*) as c FROM coordination_capsules').get() as { c: number }).c
+    expect(after).toBe(before)
+  })
+
+  // ─── PR 3 — Same-principal unmetered BEAP transport ─────────────────────────
+  //
+  // Unit tests: isSamePrincipalHandshake predicate (direct registry calls)
+
+  test('REG_PRED_01: isSamePrincipalHandshake: same-user row → true', async () => {
+    if (!relay) return
+    const hsId = 'hs-pred-01'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'preduser01',
+        acceptor_user_id: 'preduser01',
+        initiator_device_id: 'dev-a-pred01',
+        acceptor_device_id: 'dev-b-pred01',
+      }),
+      auth: 'test-preduser01-pro',
+      contentType: 'application/json',
+    })
+    expect(relay.handshakeRegistry.isSamePrincipalHandshake(hsId)).toBe(true)
+  })
+
+  test('REG_PRED_02: isSamePrincipalHandshake: cross-user row → false', async () => {
+    if (!relay) return
+    const hsId = 'hs-pred-02'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'predinit02',
+        acceptor_user_id: 'predacc02',
+      }),
+      auth: 'test-predinit02-pro',
+      contentType: 'application/json',
+    })
+    expect(relay.handshakeRegistry.isSamePrincipalHandshake(hsId)).toBe(false)
+  })
+
+  test('REG_PRED_03: isSamePrincipalHandshake: no row for handshake ID → false', () => {
+    if (!relay) return
+    expect(relay.handshakeRegistry.isSamePrincipalHandshake('hs-does-not-exist-pred03')).toBe(false)
+  })
+
+  // Integration tests: /beap/capsule — same-principal unmetered
+
+  test(
+    'CS_SP3_01: same-principal capsule: sends past free-tier monthly limit → no 429 (regression for original bug)',
+    async () => {
+      if (!relay) return
+      const hsId = 'hs-sp3-01'
+      const user = 'sp3user01'
+      const devHost = 'dev-host-sp301'
+      const devSbx = 'dev-sbx-sp301'
+      await request(port, 'POST', '/beap/register-handshake', {
+        body: JSON.stringify({
+          handshake_id: hsId,
+          initiator_user_id: user,
+          acceptor_user_id: user,
+          initiator_device_id: devHost,
+          acceptor_device_id: devSbx,
+        }),
+        auth: `test-${user}-free`,
+        contentType: 'application/json',
+      })
+
+      // Pre-fill the monthly counter to exactly the free-tier monthly limit (100).
+      // Without the same-principal skip, every subsequent send would return 429.
+      for (let i = 0; i < 100; i++) {
+        relay.rateLimiter.recordCapsuleSent(user)
+      }
+
+      const sbxWs = await wsConnectWithDevice(port, `test-${user}-free`, devSbx)
+      await new Promise((r) => setTimeout(r, 80))
+
+      // Send 10 more capsules — all must succeed despite the exhausted monthly budget.
+      for (let i = 0; i < 10; i++) {
+        const r = await request(port, 'POST', '/beap/capsule', {
+          body: samePrincipalCapsule(hsId, user, devHost, devSbx),
+          auth: `test-${user}-free`,
+          contentType: 'application/json',
+        })
+        expect(r.status, `capsule #${i + 1} returned ${r.status}: ${r.body}`).not.toBe(429)
+      }
+      sbxWs.close()
+    },
+  )
+
+  test('CS_SP3_02: cross-user capsule: sends past free-tier per-minute limit → 429 still fires', async () => {
+    const hsId = 'hs-sp3-02'
+    const initUser = 'sp3init02'
+    const accUser = 'sp3acc02'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: initUser,
+        acceptor_user_id: accUser,
+      }),
+      auth: `test-${initUser}-free`,
+      contentType: 'application/json',
+    })
+    // Free tier: capsulesPerMinute = 5. The 6th send within the same minute must 429.
+    const statuses: number[] = []
+    for (let i = 0; i < 10; i++) {
+      const r = await request(port, 'POST', '/beap/capsule', {
+        body: validBeapCapsule(hsId, initUser),
+        auth: `test-${initUser}-free`,
+        contentType: 'application/json',
+      })
+      statuses.push(r.status)
+    }
+    expect(statuses.some((s) => s === 429)).toBe(true)
+  })
+
+  test('CS_SP3_03: caller not a principal on same-principal handshake → 403, unmetered path not taken', async () => {
+    const hsId = 'hs-sp3-03'
+    const owner = 'sp3owner03'
+    const intruder = 'sp3intruder03'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: owner,
+        acceptor_user_id: owner,
+        initiator_device_id: 'dev-host-sp303',
+        acceptor_device_id: 'dev-sbx-sp303',
+      }),
+      auth: `test-${owner}-pro`,
+      contentType: 'application/json',
+    })
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: validBeapCapsule(hsId, intruder),
+      auth: `test-${intruder}-pro`,
+      contentType: 'application/json',
+    })
+    // isSenderAuthorized fires before the same-principal check; intruder gets 403.
+    expect(r.status).toBe(403)
+  })
+
+  // Integration tests: /beap/p2p-signal — same-principal unmetered
+
+  test(
+    'CS_SP3_04: same-principal p2p-signal (non-ICE): sends past free-tier monthly limit → no 429',
+    async () => {
+      if (!relay) return
+      const hsId = 'hs-sp3-04'
+      const user = 'sp3user04'
+      const devHost = 'dev-host-sp304'
+      const devSbx = 'dev-sbx-sp304'
+      await request(port, 'POST', '/beap/register-handshake', {
+        body: JSON.stringify({
+          handshake_id: hsId,
+          initiator_user_id: user,
+          acceptor_user_id: user,
+          initiator_device_id: devHost,
+          acceptor_device_id: devSbx,
+        }),
+        auth: `test-${user}-free`,
+        contentType: 'application/json',
+      })
+
+      // Pre-fill monthly counter past the free-tier limit.
+      for (let i = 0; i < 100; i++) {
+        relay.rateLimiter.recordCapsuleSent(user)
+      }
+
+      const sbxWs = await wsConnectWithDevice(port, `test-${user}-free`, devSbx)
+      await new Promise((r) => setTimeout(r, 80))
+
+      const t0 = new Date()
+      for (let i = 0; i < 10; i++) {
+        const r = await request(port, 'POST', '/beap/p2p-signal', {
+          body: JSON.stringify({
+            schema_version: 1,
+            signal_type: 'p2p_inference_offer',
+            correlation_id: `c-sp304-${i}`,
+            session_id: `sess-sp304-${i}`,
+            handshake_id: hsId,
+            sender_device_id: devHost,
+            receiver_device_id: devSbx,
+            created_at: t0.toISOString(),
+            expires_at: new Date(t0.getTime() + 30_000).toISOString(),
+            sdp: 'v=0',
+          }),
+          auth: `test-${user}-free`,
+          contentType: 'application/json',
+        })
+        expect(r.status, `signal #${i + 1} returned ${r.status}: ${r.body}`).not.toBe(429)
+      }
+      sbxWs.close()
+    },
+  )
+
+  test('CS_SP3_05: ICE skip still bypasses rate limit on cross-user p2p-signal (regression guard)', async () => {
+    const hsId = 'hs-sp3-05'
+    const initUser = 'sp3ice05init'
+    const accUser = 'sp3ice05acc'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: initUser,
+        acceptor_user_id: accUser,
+        initiator_device_id: 'dev-init-sp305',
+        acceptor_device_id: 'dev-acc-sp305',
+      }),
+      auth: `test-${initUser}-free`,
+      contentType: 'application/json',
+    })
+    // Send 6 ICE candidates (above the 5/minute free limit).
+    // All must succeed — skipCapsuleRateLimitForIce must still work independently
+    // of the same-principal skip path added in this PR.
+    const t0 = new Date()
+    const statuses: number[] = []
+    for (let i = 0; i < 6; i++) {
+      const r = await request(port, 'POST', '/beap/p2p-signal', {
+        body: JSON.stringify({
+          schema_version: 1,
+          signal_type: 'p2p_inference_ice',
+          correlation_id: `c-ice-sp305-${i}`,
+          session_id: 'sess-sp305',
+          handshake_id: hsId,
+          sender_device_id: 'dev-init-sp305',
+          receiver_device_id: 'dev-acc-sp305',
+          created_at: t0.toISOString(),
+          expires_at: new Date(t0.getTime() + 30_000).toISOString(),
+          candidate: `candidate:${i}`,
+        }),
+        auth: `test-${initUser}-free`,
+        contentType: 'application/json',
+      })
+      statuses.push(r.status)
+    }
+    expect(statuses.every((s) => s !== 429)).toBe(true)
   })
 
   test('CS_P2P_08: successful p2p-signal does not insert coordination_capsules', async () => {
@@ -1756,5 +2283,12 @@ describe('coordination-service fail-close', () => {
     expect(r.status).toBe(503)
     const body = JSON.parse(r.body)
     expect(body.status).toBe('degraded')
+  })
+
+  test('REG_PRED_04: isSamePrincipalHandshake: storage closed → false, no exception propagates', () => {
+    // relay.store is already closed by the preceding test in this suite.
+    if (!relay) return
+    expect(() => relay!.handshakeRegistry.isSamePrincipalHandshake('any-handshake-id')).not.toThrow()
+    expect(relay.handshakeRegistry.isSamePrincipalHandshake('any-handshake-id')).toBe(false)
   })
 })

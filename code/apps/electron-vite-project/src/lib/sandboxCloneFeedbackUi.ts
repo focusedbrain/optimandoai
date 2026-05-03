@@ -6,6 +6,8 @@ import {
   SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE,
 } from './beapInboxHostSandboxClickPolicy'
 
+export const SANDBOX_UPGRADE_URL_FALLBACK = 'https://wrdesk.com/pricing'
+
 export const SANDBOX_CLONE_COPY = {
   successLive: 'Message cloned and sent to Sandbox.',
   successQueued:
@@ -15,6 +17,11 @@ export const SANDBOX_CLONE_COPY = {
   failedGeneric: 'Sandbox clone failed. Please try again.',
   cloning: 'Cloning message to Sandbox…',
   checking: 'Checking internal Sandbox handshakes…',
+  entitlementRequired: {
+    title: 'Sandbox mode requires an upgrade',
+    body: 'Sandbox clone is a paid feature. Upgrade to continue using sandbox orchestration.',
+    action: 'View pricing',
+  },
 } as const
 
 export type SandboxCloneFeedbackVariant = 'success' | 'queued' | 'info' | 'error' | 'loading' | 'warning'
@@ -29,6 +36,12 @@ export type SandboxCloneFeedbackView = {
   persistUntilDismiss: boolean
   /** Shown in aria-label / title for support; not the main badge line. */
   screenReaderDetail?: string
+  /** Optional heading shown above the message (e.g. entitlement-required state). */
+  title?: string
+  /** When present, renders a primary action button/link (e.g. "View pricing"). */
+  actionLabel?: string
+  /** URL opened when the action button is clicked. */
+  actionUrl?: string
 }
 
 export function viewSandboxKeyingIncomplete(): SandboxCloneFeedbackView {
@@ -68,6 +81,21 @@ export function viewSandboxNoOrchestrator(): SandboxCloneFeedbackView {
     variant: 'info',
     message: SANDBOX_CLONE_COPY.noOrchestrator,
     persistUntilDismiss: true,
+  }
+}
+
+/**
+ * State A — entitlement required (403 sandbox_entitlement_required).
+ * No retry button; action is "upgrade", not "try again."
+ */
+export function viewSandboxEntitlementRequired(upgradeUrl?: string): SandboxCloneFeedbackView {
+  return {
+    variant: 'error',
+    title: SANDBOX_CLONE_COPY.entitlementRequired.title,
+    message: SANDBOX_CLONE_COPY.entitlementRequired.body,
+    persistUntilDismiss: true,
+    actionLabel: SANDBOX_CLONE_COPY.entitlementRequired.action,
+    actionUrl: upgradeUrl || SANDBOX_UPGRADE_URL_FALLBACK,
   }
 }
 

@@ -6,6 +6,7 @@
 import * as jose from 'jose'
 import { createHash } from 'node:crypto'
 import type { StoreAdapter } from './store.js'
+import { resolveRelayTier } from './tierResolution.js'
 
 // Production startup guard — refuse to run with TEST_MODE in production
 if (process.env.COORD_TEST_MODE === '1') {
@@ -23,6 +24,14 @@ export interface ValidatedIdentity {
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000
+
+/**
+ * Increment when the tier-resolution algorithm changes.
+ * Old cache rows hash to unreachable keys and expire naturally via TTL;
+ * no DB migration or operational coordination is needed at deploy time.
+ * Exported so tests can verify the versioning invariant.
+ */
+export const RESOLVER_VERSION = 2
 
 export interface AuthAdapter {
   extractBearerToken(authHeader: string | undefined): string | null
@@ -49,7 +58,7 @@ export function createAuth(
   }
 
   function tokenHash(token: string): string {
-    return createHash('sha256').update(token).digest('hex')
+    return createHash('sha256').update(`v${RESOLVER_VERSION}:${token}`).digest('hex')
   }
 
   function getCachedIdentity(tokenHashVal: string): ValidatedIdentity | null {
@@ -103,14 +112,14 @@ export function createAuth(
 
         const sub = payload.sub
         const email = typeof payload.email === 'string' ? payload.email : (payload.email as string[])?.[0] ?? ''
-        const tier = typeof payload.tier === 'string' ? payload.tier : (payload.wrdesk_tier as string) ?? 'free'
+        const tier = resolveRelayTier(payload as Record<string, unknown>)
 
         if (!sub || typeof sub !== 'string') return null
 
         const identity: ValidatedIdentity = {
           userId: sub,
           email: email || (payload.preferred_username as string) || sub,
-          tier: tier || 'free',
+          tier,
         }
 
         cacheIdentity(hash, identity, CACHE_TTL_MS)

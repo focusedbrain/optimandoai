@@ -10,7 +10,7 @@ export interface TierLimits {
   maxStored: number
 }
 
-const TIER_LIMITS: Record<string, TierLimits> = {
+export const TIER_LIMITS: Record<string, TierLimits> = {
   free: { capsulesPerMonth: 100, capsulesPerMinute: 5, maxStored: 50 },
   pro: { capsulesPerMonth: 10_000, capsulesPerMinute: 50, maxStored: 1_000 },
   publisher: { capsulesPerMonth: 50_000, capsulesPerMinute: 100, maxStored: 5_000 },

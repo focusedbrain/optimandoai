@@ -2,6 +2,7 @@
  * Status banner for Sandbox clone outcomes — uses theme tokens (App.css `.sandbox-clone-fb*`), not page-inherited colors.
  */
 import type { SandboxCloneFeedbackVariant, SandboxCloneFeedbackView } from '../lib/sandboxCloneFeedbackUi'
+import { openAppExternalUrl } from '../lib/openAppExternalUrl'
 
 const VARIANT_CLASS: Record<SandboxCloneFeedbackVariant, string> = {
   success: 'sandbox-clone-fb--success',
@@ -34,7 +35,7 @@ export type SandboxCloneFeedbackBadgeProps = {
 }
 
 export default function SandboxCloneFeedbackBadge({ view, onDismiss, className, maxWidth = 400 }: SandboxCloneFeedbackBadgeProps) {
-  const detail = [view.screenReaderDetail, view.message].filter(Boolean).join(' — ')
+  const detail = [view.screenReaderDetail, view.title, view.message].filter(Boolean).join(' — ')
   const vClass = VARIANT_CLASS[view.variant]
   return (
     <div
@@ -45,7 +46,18 @@ export default function SandboxCloneFeedbackBadge({ view, onDismiss, className, 
       aria-label={detail}
     >
       <IconGlyph variant={view.variant} />
+      {view.title ? <p className="sandbox-clone-fb__title">{view.title}</p> : null}
       <p className="sandbox-clone-fb__msg">{view.message}</p>
+      {view.actionUrl && view.actionLabel ? (
+        <button
+          type="button"
+          className="sandbox-clone-fb__action"
+          onClick={() => { void openAppExternalUrl(view.actionUrl!) }}
+          aria-label={view.actionLabel}
+        >
+          {view.actionLabel}
+        </button>
+      ) : null}
       {view.persistUntilDismiss && onDismiss ? (
         <button type="button" className="sandbox-clone-fb__dismiss" onClick={onDismiss} aria-label="Dismiss Sandbox clone message">
           ×

@@ -46,6 +46,16 @@ export interface HandshakeRegistryAdapter {
     senderDeviceId?: string,
   ): RecipientRoute | null
   isSenderAuthorized(handshakeId: string, senderUserId: string): boolean
+  /**
+   * True iff a registry row exists for `handshakeId` and both user IDs are
+   * identical — i.e. both endpoints belong to the same `wrdesk_user_id`.
+   *
+   * This is the relay's server-side authority for granting same-principal
+   * unmetered BEAP transport (PR 3). The predicate reads only the registry;
+   * it is not influenced by any client-supplied field. Returns `false` for
+   * missing rows, mismatched IDs, or any read error — never throws.
+   */
+  isSamePrincipalHandshake(handshakeId: string): boolean
 }
 
 export function createHandshakeRegistry(store: StoreAdapter): HandshakeRegistryAdapter {
@@ -155,6 +165,15 @@ export function createHandshakeRegistry(store: StoreAdapter): HandshakeRegistryA
       const h = this.getHandshake(handshakeId)
       if (!h) return false
       return h.initiator_user_id === senderUserId || h.acceptor_user_id === senderUserId
+    },
+
+    isSamePrincipalHandshake(handshakeId: string): boolean {
+      try {
+        const h = this.getHandshake(handshakeId)
+        return h !== null && h.initiator_user_id === h.acceptor_user_id
+      } catch {
+        return false
+      }
     },
   }
 }

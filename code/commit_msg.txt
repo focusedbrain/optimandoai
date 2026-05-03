@@ -1,0 +1,33 @@
+feat(relay+ui): five-PR BEAP rate-limit and entitlement refactor (build183)
+
+PR 1 - Register-handshake JWT principal binding
+  Bind POST /beap/register-handshake to the authenticated JWT sub claim;
+  reject with 403 if neither principal matches, 400 if principal IDs missing.
+
+PR 2 - Tier resolution refactor with cache versioning
+  Extract resolveRelayTier (wrdesk_plan > realm_access.roles > tier >
+  wrdesk_tier > free) into tierResolution.ts; bump RESOLVER_VERSION=2 to
+  invalidate stale coordination_token_cache entries.
+
+PR 3 - Same-principal unmetered BEAP transport
+  isSamePrincipalHandshake predicate on relay registry; skip
+  rateLimiter.checkRateLimit and recordCapsuleSent for same-user
+  /beap/capsule and /beap/p2p-signal. Decouple TIER_RANK from
+  capsulesPerMonth to explicit ordered constant.
+
+PR 4 - Sandbox entitlement gate and pre-existing test fixes
+  Gate sandbox_clone capsules at /beap/capsule after auth; 403 with
+  sandbox_entitlement_required for free-tier callers. Fix CS_21
+  (test wrong - missing device IDs), CS_22 (code bug - early
+  sender_device_id guard), CS_30 (race + ack protocol), CS_P2P_05
+  (grace period boundary).
+
+PR 5 - Client UI: distinguish entitlement errors from rate-limit errors
+  BeapPackageBuilder: detect 403 sandbox_entitlement_required from
+  response_body_snippet; return SANDBOX_ENTITLEMENT_REQUIRED + upgradeUrl,
+  queued:false. beapInboxCloneToSandbox: surface entitlement variant in
+  result type and sandboxCloneFeedbackFromOutcome.
+  sandboxCloneFeedbackUi: add title/actionLabel/actionUrl fields and
+  viewSandboxEntitlementRequired factory (fallback: wrdesk.com/pricing).
+  SandboxCloneFeedbackBadge: render title and View-pricing action button.
+  19 new client tests (CS_ENT_01-07); 0 new relay-suite failures.

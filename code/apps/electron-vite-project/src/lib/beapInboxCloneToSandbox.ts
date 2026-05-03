@@ -15,7 +15,7 @@ import type {
 import type { DeliveryResult } from '@ext/beap-messages/services/BeapPackageBuilder'
 import '../components/handshakeViewTypes'
 import { mapCoordinationDeliveryToMatrixMode } from './beapSandboxCloneDeliverySemantics'
-import { SANDBOX_CLONE_COPY, type SandboxCloneFeedbackView } from './sandboxCloneFeedbackUi'
+import { SANDBOX_CLONE_COPY, viewSandboxEntitlementRequired, type SandboxCloneFeedbackView } from './sandboxCloneFeedbackUi'
 import { SANDBOX_CLONE_INBOX_LEAD_IN } from './inboxMessageSandboxClone'
 
 function buildCloneMetadata(
@@ -79,6 +79,7 @@ export type BeapInboxCloneToSandboxResult =
       deliveryMode: 'live' | 'queued' | 'failed' | 'unknown'
       cloneMetadata: BeapInboxCloneAuditMetadata
     }
+  | { success: false; error: string; code: 'SANDBOX_ENTITLEMENT_REQUIRED'; upgradeUrl?: string }
   | { success: false; error: string; code?: 'SANDBOX_SEND_FAILED' }
 
 /**
@@ -127,6 +128,16 @@ export async function cloneBeapInboxToSandbox(
 
   const delivery = await executeDeliveryAction(config)
   if (!delivery.success) {
+    if (delivery.code === 'SANDBOX_ENTITLEMENT_REQUIRED') {
+      // eslint-disable-next-line no-console
+      console.log('[BEAP_SANDBOX_CLONE] entitlement_required', { http_status: 403, relay_error: 'sandbox_entitlement_required' })
+      return {
+        success: false,
+        code: 'SANDBOX_ENTITLEMENT_REQUIRED',
+        error: 'sandbox_entitlement_required',
+        ...(delivery.upgradeUrl ? { upgradeUrl: delivery.upgradeUrl } : {}),
+      }
+    }
     return { success: false, code: 'SANDBOX_SEND_FAILED', error: delivery.message || 'Send failed' }
   }
 
@@ -227,6 +238,14 @@ export function sandboxCloneFeedbackFromOutcome(
   view: SandboxCloneFeedbackView
 } {
   if (r && 'success' in r && r.success === false) {
+    if ('code' in r && r.code === 'SANDBOX_ENTITLEMENT_REQUIRED') {
+      const upgradeUrl = 'upgradeUrl' in r ? (r.upgradeUrl as string | undefined) : undefined
+      return {
+        kind: 'error',
+        text: 'Sandbox mode requires an upgrade',
+        view: viewSandboxEntitlementRequired(upgradeUrl),
+      }
+    }
     const f = r as BeapInboxClonePrepareFailure
     const detail = sandboxCloneFailureUserText(f.error, f.code)
     return {

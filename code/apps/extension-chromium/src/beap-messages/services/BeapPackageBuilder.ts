@@ -675,6 +675,8 @@ export interface DeliveryResult {
   p2pRelayAcceptedPendingIngest?: boolean
   /** Build / preflight / client-side exception — DEBUG button (no transport round-trip). */
   clientSendFailureDebug?: ClientSendFailureDebug
+  /** Present when relay rejected with sandbox_entitlement_required — URL to open for upgrade. */
+  upgradeUrl?: string
   details?: {
     to?: string
     filename?: string
@@ -2371,6 +2373,24 @@ export async function executeP2PAction(
         ...(!ingestConfirmed && { p2pRelayAcceptedPendingIngest: true }),
         ...(queuedOffline && { queued: true as const }),
         ...(relay && { coordinationRelayDelivery: relay }),
+      }
+    }
+    // 403 sandbox_entitlement_required — distinct from generic REQUEST_INVALID failures.
+    if (result?.http_status === 403 && result?.response_body_snippet) {
+      try {
+        const b = JSON.parse(result.response_body_snippet) as Record<string, unknown>
+        if (typeof b.error === 'string' && b.error === 'sandbox_entitlement_required') {
+          return {
+            success: false,
+            action: 'sent',
+            message: 'sandbox_entitlement_required',
+            code: 'SANDBOX_ENTITLEMENT_REQUIRED',
+            queued: false,
+            ...(typeof b.upgrade_url === 'string' ? { upgradeUrl: b.upgrade_url } : {}),
+          }
+        }
+      } catch {
+        // non-JSON body — fall through to generic handler
       }
     }
     const errMsg = result?.error ?? 'P2P delivery failed'

@@ -13,6 +13,7 @@ import type { CoordinationConfig } from './config.js'
 import { createStore } from './store.js'
 import { createAuth } from './auth.js'
 import { createRateLimiter } from './rateLimiter.js'
+import { hasSandboxEntitlement } from './entitlements.js'
 import { createHandshakeRegistry, type HandshakeEntry } from './handshakeRegistry.js'
 import { createPairingCodeRegistry } from './pairingCodeRegistry.js'
 import { createWsManager } from './wsManager.js'
@@ -233,6 +234,25 @@ function createRequestHandler(
           sendError(res, 400)
           return
         }
+        // Bind the authenticated caller to at least one principal in the registry row.
+        // This closes the attack where a third party asserts two victim user IDs in the
+        // body and obtains registry-derived trust (e.g. the same-principal unmetered path
+        // added in a subsequent PR). The relay's own validated JWT sub is the authority;
+        // the body values are untrusted input until this check passes.
+        //
+        // Device-ID-to-user binding is out of scope here — it requires a per-user device
+        // registry that does not yet exist and belongs in a dedicated follow-up.
+        if (identity.userId !== initiatorUserId && identity.userId !== acceptorUserId) {
+          log.info('register-handshake principal mismatch', {
+            route: '/beap/register-handshake',
+            authenticated_user: identity.userId,
+            initiator_user_id: initiatorUserId,
+            acceptor_user_id: acceptorUserId,
+          })
+          sendError(res, 403, { error: 'handshake_principal_mismatch' })
+          return
+        }
+
         const samePrincipalReg = initiatorUserId === acceptorUserId
         if (samePrincipalReg) {
           if (!initiatorDeviceId) {
@@ -602,7 +622,14 @@ function createRequestHandler(
         }
         /** ICE bursts (many candidates/s) must not share BEAP capsule tier limits (429 → client backoff). */
         const skipCapsuleRateLimitForIce = parsed.signalType === 'p2p_inference_ice'
-        if (!skipCapsuleRateLimitForIce) {
+        /**
+         * Same-principal signals are unmetered: both sides belong to the same wrdesk_user_id,
+         * so this traffic cannot be abused across account boundaries. The samePrincipal flag is
+         * derived purely from the registry row fetched above — the caller cannot influence it.
+         * The two skip conditions are independent; either being true bypasses the limiter.
+         */
+        const skipRateLimitSignal = skipCapsuleRateLimitForIce || samePrincipal
+        if (!skipRateLimitSignal) {
           const rateCheck = rateLimiter.checkRateLimit(identity.userId, identity, recipientPending)
           if (!rateCheck.ok) {
             sendError(res, 429, { error: 'Rate limit exceeded' })
@@ -615,7 +642,7 @@ function createRequestHandler(
         console.log(
           `[P2P_SIGNAL] accepted handshake=${parsed.handshakeId} signal=${parsed.signalType} session=${parsed.sessionId} bytes=${byteLen}`,
         )
-        if (!skipCapsuleRateLimitForIce) {
+        if (!skipRateLimitSignal) {
           rateLimiter.recordCapsuleSent(identity.userId)
         }
         const pushed = wsManager.pushP2pSignal(
@@ -802,6 +829,19 @@ function createRequestHandler(
           regEntryPreRoute != null &&
           regEntryPreRoute.initiator_user_id === regEntryPreRoute.acceptor_user_id
 
+        // For same-principal non-package capsules, sender_device_id is required for routing.
+        // Check this before getRecipientForSender so the caller receives a specific 400
+        // (missing field) rather than the generic 403 (ambiguous routing) that fires when
+        // the routing lookup returns null due to an empty sender device ID.
+        if (samePrincipalRelay && !isMessagePackage && !senderDeviceId) {
+          sendError(res, 400, {
+            error: 'internal_capsule',
+            code: 'INTERNAL_CAPSULE_MISSING_DEVICE_ID',
+            detail: 'sender_device_id is required for same-principal relay capsules',
+          })
+          return
+        }
+
         const recipientRoute = handshakeRegistry.getRecipientForSender(
           handshakeId,
           identity.userId,
@@ -867,15 +907,57 @@ function createRequestHandler(
           sendError(res, 503, { error: 'Storage unavailable' })
           return
         }
-        const rateCheck = rateLimiter.checkRateLimit(identity.userId, identity, recipientPending)
-        if (!rateCheck.ok) {
-          sendError(res, 429, {
-            error: 'Rate limit exceeded',
-            limit: rateCheck.limit,
-            tier: rateCheck.tier,
-            upgrade_url: 'https://wrdesk.com/pricing',
-          })
-          return
+        /**
+         * Same-principal capsules are unmetered: both endpoints belong to the same
+         * wrdesk_user_id, so this traffic is device-to-device sync for a single user
+         * and cannot be abused cross-account. samePrincipalRelay is derived from the
+         * registry row fetched above — the caller cannot influence it. isSenderAuthorized
+         * (checked earlier) has already confirmed identity.userId is one of the principals.
+         */
+        if (!samePrincipalRelay) {
+          const rateCheck = rateLimiter.checkRateLimit(identity.userId, identity, recipientPending)
+          if (!rateCheck.ok) {
+            sendError(res, 429, {
+              error: 'Rate limit exceeded',
+              limit: rateCheck.limit,
+              tier: rateCheck.tier,
+              upgrade_url: 'https://wrdesk.com/pricing',
+            })
+            return
+          }
+        }
+
+        /**
+         * Sandbox entitlement gate — authorization-at-the-boundary.
+         *
+         * Sandbox orchestration is the paid feature. This gate runs on every
+         * capsule that carries metadata.inbox_response_path.sandbox_clone = true,
+         * regardless of same-principal status: a free-tier user syncing their own
+         * devices does not get sandbox access for free. The unmetered path (PR 3)
+         * removes the transport charge; it does not waive feature entitlement.
+         *
+         * Position: after isSenderAuthorized and same-principal evaluation, but
+         * before storeCapsule, so unentitled callers receive an immediate 403 with
+         * an upgrade URL rather than a silent acceptance followed by server-side
+         * failure.
+         */
+        {
+          const metaMaybe = parsed?.metadata
+          const irp =
+            metaMaybe != null && typeof metaMaybe === 'object'
+              ? (metaMaybe as Record<string, unknown>).inbox_response_path
+              : undefined
+          const isSandboxClone =
+            irp != null &&
+            typeof irp === 'object' &&
+            (irp as Record<string, unknown>).sandbox_clone === true
+          if (isSandboxClone && !hasSandboxEntitlement(identity.tier)) {
+            sendError(res, 403, {
+              error: 'sandbox_entitlement_required',
+              upgrade_url: 'https://wrdesk.com/pricing',
+            })
+            return
+          }
         }
 
         const rawInput = {
@@ -906,7 +988,9 @@ function createRequestHandler(
           sendError(res, 503, { error: 'Storage unavailable' })
           return
         }
-        rateLimiter.recordCapsuleSent(identity.userId)
+        if (!samePrincipalRelay) {
+          rateLimiter.recordCapsuleSent(identity.userId)
+        }
 
         const lookupUsedGetClientByDevice =
           recipientRoute.deviceId != null && String(recipientRoute.deviceId).trim().length > 0
