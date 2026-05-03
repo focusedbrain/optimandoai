@@ -1,6 +1,7 @@
 // === TEMPORARY DEBUG LOG VIEWER (remove before production) ===
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import type { EmailInboxBridge } from './handshakeViewTypes'
+import { buildClipboardText, filterLogEntries } from '../lib/debugLogClipboard'
 
 export interface MainProcessLogEntry {
   ts: string
@@ -13,7 +14,9 @@ export function DebugLogViewer() {
   const [logs, setLogs] = useState<MainProcessLogEntry[]>([])
   const [filter, setFilter] = useState('')
   const [nativeBeapCount, setNativeBeapCount] = useState<number | null>(null)
+  const [copyFeedback, setCopyFeedback] = useState<{ ok: boolean; msg?: string } | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     const w = window as Window & {
@@ -58,18 +61,43 @@ export function DebugLogViewer() {
     }
   }, [open])
 
-  const filtered = filter
-    ? logs.filter((l) => {
-        const q = filter.toLowerCase()
-        if (filter === 'Error') {
-          return l.level === 'error' || l.line.toLowerCase().includes('error')
-        }
-        return l.line.toLowerCase().includes(q) || l.level.toLowerCase().includes(q)
-      })
-    : logs
+  const filtered = filterLogEntries(logs, filter)
 
   const levelColor = (l: string) =>
     l === 'error' ? '#ff6666' : l === 'warn' ? '#ffaa00' : '#aaaaaa'
+
+  const copyLogs = useCallback(async (entries: MainProcessLogEntry[], plain: boolean) => {
+    const text = buildClipboardText(entries, plain)
+    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopyFeedback({ ok: true })
+      copyTimeoutRef.current = setTimeout(() => setCopyFeedback(null), 1500)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setCopyFeedback({ ok: false, msg: msg.slice(0, 60) })
+      copyTimeoutRef.current = setTimeout(() => setCopyFeedback(null), 3000)
+    }
+  }, [])
+
+  const chipBtn = (label: string, active: boolean, onClick: () => void) => (
+    <button
+      key={label}
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: '2px 8px',
+        borderRadius: 4,
+        border: 'none',
+        background: active ? '#555' : '#333',
+        color: '#eee',
+        cursor: 'pointer',
+        fontSize: 11,
+      }}
+    >
+      {label}
+    </button>
+  )
 
   if (!open) {
     return (
@@ -141,39 +169,94 @@ export function DebugLogViewer() {
             color: '#eee',
           }}
         />
-        <button
-          type="button"
-          onClick={() => setFilter('')}
-          style={{
-            padding: '2px 8px',
-            borderRadius: 4,
-            border: 'none',
-            background: filter === '' ? '#555' : '#333',
-            color: '#eee',
-            cursor: 'pointer',
-            fontSize: 11,
-          }}
-        >
-          All
-        </button>
-        {(['P2P', 'Coordination', 'BEAP', 'Error', 'insert'] as const).map((f) => (
+        {chipBtn('All', filter === '', () => setFilter(''))}
+        {(['P2P', 'Coordination', 'BEAP', 'Error', 'insert'] as const).map((f) =>
+          chipBtn(f, filter === f, () => setFilter(filter === f ? '' : f)),
+        )}
+        {/* ── Copy controls ── */}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginLeft: 4 }}>
           <button
-            key={f}
             type="button"
-            onClick={() => setFilter(filter === f ? '' : f)}
+            onClick={() => void copyLogs(filtered, false)}
+            title={`Copy ${filtered.length} visible line(s) with timestamps`}
             style={{
               padding: '2px 8px',
-              borderRadius: 4,
+              borderRadius: '4px 0 0 4px',
               border: 'none',
-              background: filter === f ? '#555' : '#333',
-              color: '#eee',
+              background: '#1a4a6b',
+              color: '#90cdf4',
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 'bold',
+            }}
+          >
+            📋 Copy filtered ({filtered.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => void copyLogs(filtered, true)}
+            title="Copy visible lines — payload only, no HH:MM:SS [LEVEL] prefix"
+            style={{
+              padding: '2px 6px',
+              borderRadius: '0 4px 4px 0',
+              border: 'none',
+              borderLeft: '1px solid #0d2d45',
+              background: '#0f3354',
+              color: '#63b3ed',
+              cursor: 'pointer',
+              fontSize: 10,
+            }}
+          >
+            plain
+          </button>
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+          <button
+            type="button"
+            onClick={() => void copyLogs(logs, false)}
+            title={`Copy all ${logs.length} buffered lines regardless of filter`}
+            style={{
+              padding: '2px 8px',
+              borderRadius: '4px 0 0 4px',
+              border: 'none',
+              background: '#2d3748',
+              color: '#a0aec0',
               cursor: 'pointer',
               fontSize: 11,
             }}
           >
-            {f}
+            📋 Copy all ({logs.length})
           </button>
-        ))}
+          <button
+            type="button"
+            onClick={() => void copyLogs(logs, true)}
+            title="Copy all buffered lines — payload only, no HH:MM:SS [LEVEL] prefix"
+            style={{
+              padding: '2px 6px',
+              borderRadius: '0 4px 4px 0',
+              border: 'none',
+              borderLeft: '1px solid #1a202c',
+              background: '#1a202c',
+              color: '#718096',
+              cursor: 'pointer',
+              fontSize: 10,
+            }}
+          >
+            plain
+          </button>
+        </span>
+        {copyFeedback && (
+          <span
+            style={{
+              fontSize: 11,
+              color: copyFeedback.ok ? '#4ade80' : '#f87171',
+              fontWeight: 'bold',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {copyFeedback.ok ? '✓ Copied!' : `✗ ${copyFeedback.msg ?? 'Copy failed'}`}
+          </span>
+        )}
         <button
           type="button"
           onClick={() => setLogs([])}
