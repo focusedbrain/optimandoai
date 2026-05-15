@@ -11231,19 +11231,25 @@ async function runDeviceKeyMigration(
       broadcastToExtensions({ type: 'P2P_BEAP_RECEIVED', handshakeId })
       const db = getHandshakeDb()
       if (!db) return
-      try {
-        void processPendingP2PBeapEmails(db).then((n) => {
+      // Each operation is failure-isolated: a rejection in one must not prevent
+      // the others from running.
+      void (async () => {
+        try {
+          const n = await processPendingP2PBeapEmails(db)
           if (n > 0) notifyBeapInboxDashboard(handshakeId)
-          void retryPendingQbeapDecrypt(db).then((r) => {
-            if (r > 0) notifyBeapInboxDashboard(handshakeId)
-          })
-          // B-5.1: drain extension merge retry buffer on P2P BEAP arrival
-          // (implies a sandbox may now be connected).
-          void drainExtensionMergeBuffer(db, getCurrentSession() ?? null)
-        })
-      } catch (e: unknown) {
-        console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
-      }
+        } catch {}
+
+        try {
+          const r = await retryPendingQbeapDecrypt(db)
+          if (r > 0) notifyBeapInboxDashboard(handshakeId)
+        } catch {}
+
+        // B-5.1: drain extension merge retry buffer on P2P BEAP arrival
+        // (implies a sandbox may now be connected).
+        try {
+          await drainExtensionMergeBuffer(db, getCurrentSession() ?? null)
+        } catch {}
+      })()
     })
 
     async function getOidcToken(): Promise<string | null> {
@@ -11336,23 +11342,31 @@ async function runDeviceKeyMigration(
             console.warn('[HANDSHAKE_HEALTH] import_failed', (e as Error)?.message ?? e)
           })
       }
-      try {
-        void processPendingP2PBeapEmails(handshakeDb).then((drained) => {
+      // Each operation is failure-isolated: a rejection in one must not prevent
+      // the others from running. Previously these were chained in .then() so a
+      // processPendingP2PBeapEmails rejection silently skipped the drain.
+      void (async () => {
+        try {
+          const drained = await processPendingP2PBeapEmails(handshakeDb)
           if (drained > 0) notifyBeapInboxDashboard(null)
-          void retryPendingQbeapDecrypt(handshakeDb).then((r) => {
-            if (r > 0) notifyBeapInboxDashboard(null)
-          })
-          // B-5.1: drain extension merge retry buffer on health-check trigger.
-          // Canonical drain cadence: every 10s via tryP2PStartup.
-          // Do NOT add additional periodic drains elsewhere — multiple drain cadences
-          // produce redundant work and CPU overhead.
-          // Event-driven drains (P2P_BEAP_RECEIVED, vault unlock) are fine;
-          // periodic drains belong here only.
-          void drainExtensionMergeBuffer(handshakeDb, getCurrentSession() ?? null)
-        })
-      } catch (e: unknown) {
-        console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
-      }
+        } catch {}
+
+        try {
+          const r = await retryPendingQbeapDecrypt(handshakeDb)
+          if (r > 0) notifyBeapInboxDashboard(null)
+        } catch {}
+
+        // B-5.1: drain extension merge retry buffer on health-check trigger.
+        // Canonical drain cadence: every 10s via tryP2PStartup.
+        // Do NOT add additional periodic drains elsewhere — multiple drain cadences
+        // produce redundant work and CPU overhead.
+        // Event-driven drain: P2P_BEAP_RECEIVED handler only.
+        // Vault unlock does NOT drain this buffer — it drains the outbound queue/context syncs.
+        // Periodic drains belong here only.
+        try {
+          await drainExtensionMergeBuffer(handshakeDb, getCurrentSession() ?? null)
+        } catch {}
+      })()
       processOutboundQueue(handshakeDb, getOidcToken).catch((err) => {
         console.warn('[P2P] processOutboundQueue error:', err?.message)
       })
