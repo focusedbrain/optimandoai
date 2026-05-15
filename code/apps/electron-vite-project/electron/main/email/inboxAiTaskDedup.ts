@@ -35,6 +35,49 @@ type InflightEntry = {
 
 const inboxAiTaskInflight = new Map<string, InflightEntry>()
 
+// ---------------------------------------------------------------------------
+// Global concurrency gate for local (Ollama) inbox AI analysis.
+// Running multiple 12B inferences simultaneously saturates CPU/GPU.
+// Cloud lanes are allowed more concurrency since they are I/O-bound.
+// ---------------------------------------------------------------------------
+const MAX_LOCAL_ANALYSIS_CONCURRENT = 1
+const MAX_CLOUD_ANALYSIS_CONCURRENT = 3
+
+let localAnalysisActive = 0
+const localAnalysisQueue: Array<() => void> = []
+
+function acquireAnalysisSlot(lane: string): Promise<() => void> {
+  const isLocal = lane === 'local' || lane === 'unset'
+  const max = isLocal ? MAX_LOCAL_ANALYSIS_CONCURRENT : MAX_CLOUD_ANALYSIS_CONCURRENT
+  const counter = { get: () => (isLocal ? localAnalysisActive : 0) }
+
+  if (isLocal && localAnalysisActive < max) {
+    localAnalysisActive++
+    return Promise.resolve(() => {
+      localAnalysisActive = Math.max(0, localAnalysisActive - 1)
+      const next = localAnalysisQueue.shift()
+      if (next) next()
+    })
+  }
+
+  if (!isLocal) {
+    // Cloud is not rate-limited here; semaphore only applies to local.
+    return Promise.resolve(() => { /* no-op */ })
+  }
+
+  // Queue this request until a slot opens.
+  return new Promise<() => void>((resolve) => {
+    localAnalysisQueue.push(() => {
+      localAnalysisActive++
+      resolve(() => {
+        localAnalysisActive = Math.max(0, localAnalysisActive - 1)
+        const next = localAnalysisQueue.shift()
+        if (next) next()
+      })
+    })
+  })
+}
+
 type AnalysisStreamReplayState = {
   messageId: string
   requestId: string
@@ -232,7 +275,14 @@ export async function runInboxAiTaskWithDedup<T extends Record<string, unknown>>
     abortControllers.set(messageId, ac)
   }
 
+  // Extract lane from taskKey (format: kind:messageId:model:lane)
+  const taskKeyParts = taskKey.split(':')
+  const taskLane = taskKeyParts[taskKeyParts.length - 1] ?? 'local'
+
   const promise = (async (): Promise<T> => {
+    // Acquire a concurrency slot before calling Ollama. For local lane this
+    // serialises analysis requests so only one 12B inference runs at a time.
+    const releaseSlot = await acquireAnalysisSlot(taskLane)
     try {
       const result = await run(requestId, ac.signal)
       const terminalState: InflightEntry['state'] = ac.signal.aborted ? 'aborted' : 'done'
@@ -261,6 +311,7 @@ export async function runInboxAiTaskWithDedup<T extends Record<string, unknown>>
       )
       throw err
     } finally {
+      releaseSlot()
       if (abortControllers?.get(messageId) === ac) {
         abortControllers.delete(messageId)
       }
