@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
@@ -8,8 +9,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = __dirname
 const extSrc = path.resolve(root, '../extension-chromium/src')
 
-/** Parsed by scripts/kill-wr-desk.cjs and clear-build-caches (extension); keep in sync with extension outDir. */
-const ORCHESTRATOR_BUILD_STAMP = 'build183'
+/**
+ * Single source of truth with `extension-chromium/vite.config.ts` `build.outDir`
+ * (same regex as scripts/clear-build-caches.cjs). Avoids stale hardcoded stamps after `git pull`.
+ */
+function readExtensionOutDirStamp(): string {
+  const extVite = path.join(root, '../extension-chromium/vite.config.ts')
+  try {
+    const src = fs.readFileSync(extVite, 'utf8')
+    const m = src.match(/outDir:\s*['"]([^'"]+)['"]/)
+    if (m?.[1]) return m[1]
+  } catch {
+    /* ignore */
+  }
+  return 'build0'
+}
+const ORCHESTRATOR_BUILD_STAMP = readExtensionOutDirStamp()
 
 const oauthId =
   process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() ||
@@ -41,10 +56,9 @@ export default defineConfig({
     electron({
       main: {
         entry: 'electron/main.ts',
-        onstart(args) {
-          if (!args.startup.includes('--hidden')) {
-            args.startup.push('--hidden')
-          }
+        onstart({ startup }) {
+          // vite-plugin-electron: `startup` is a function; argv default is ['.', '--no-sandbox'].
+          void startup(['.', '--no-sandbox', '--hidden'])
         },
         vite: {
           define: {
@@ -53,6 +67,17 @@ export default defineConfig({
             __BUILD_TIME_GOOGLE_OAUTH_CLIENT_ID__: JSON.stringify(oauthId),
             __BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__: JSON.stringify(oauthSecret),
           },
+          plugins: [
+            {
+              name: 'externalize-ws-and-native-optional',
+              enforce: 'pre',
+              resolveId(id) {
+                if (id === 'ws' || id === 'bufferutil' || id === 'utf-8-validate') {
+                  return { id, external: true }
+                }
+              },
+            },
+          ],
           build: {
             // ws relies on dynamic prototype methods (Sender.mask / Receiver.mask).
             // Esbuild minification rewrites them to t.mask and the runtime crashes
@@ -62,6 +87,10 @@ export default defineConfig({
             rollupOptions: {
               external: [
                 'canvas',
+                /** Also listed here; `resolveId` above ensures Vite does not bundle `ws` (avoids broken optional peer stubs). */
+                'ws',
+                'bufferutil',
+                'utf-8-validate',
                 'better-sqlite3',
                 'keytar',
                 'tesseract.js',
