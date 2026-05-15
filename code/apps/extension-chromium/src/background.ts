@@ -1725,11 +1725,11 @@ function startHeartbeat() {
         ws.send(JSON.stringify({ type: 'ping', from: 'extension', timestamp: Date.now() }));
       } catch (err) {
         stopHeartbeat();
-        connectToWebSocketServer();
+        if (!isConnecting) connectToWebSocketServer();
       }
     } else {
       stopHeartbeat();
-      connectToWebSocketServer();
+      if (!isConnecting) connectToWebSocketServer();
     }
   }, 8000);  // 8 seconds (was 5s)
 }
@@ -1796,10 +1796,10 @@ function toggleSidebars() {
 // Keep service worker alive with alarms (survives suspension)
 function setupKeepAlive() {
   // Create an alarm that fires every 25 seconds to keep service worker active
-  chrome.alarms.create('keepAlive', { periodInMinutes: 0.4 }); // ~24 seconds
+  chrome.alarms.create('keepAlive', { periodInMinutes: 0.5 }); // ~30 seconds (service worker keepalive only)
   
-  // Connection check alarm - every 12 seconds (was 6s)
-  chrome.alarms.create('checkConnection', { periodInMinutes: 0.2 }); // ~12 seconds
+  // Connection check alarm - every 60 seconds (was 12s; autoConnectInterval handles fast retry)
+  chrome.alarms.create('checkConnection', { periodInMinutes: 1 }); // 60 seconds
 }
 
 // Handle alarms
@@ -1807,8 +1807,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'keepAlive') {
     // Just wake up - the alarm listener itself keeps the service worker alive
   } else if (alarm.name === 'checkConnection') {
-    // Check and reconnect if needed
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
+    // Check and reconnect if needed — skip if a connection attempt is already in flight
+    if (!isConnecting && (!ws || ws.readyState !== WebSocket.OPEN)) {
       connectToWebSocketServer();
     }
   }
