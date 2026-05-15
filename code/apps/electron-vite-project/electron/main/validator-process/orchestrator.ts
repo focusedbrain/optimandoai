@@ -23,7 +23,8 @@
  */
 
 import { fork, type ChildProcess } from 'child_process'
-import { join } from 'path'
+import { dirname, join } from 'path'
+import { fileURLToPath } from 'url'
 import { randomUUID } from 'crypto'
 
 import type { VaultService } from '../vault/service'
@@ -46,9 +47,12 @@ const STARTUP_TIMEOUT_MS = 10_000
 const SHUTDOWN_TIMEOUT_MS = 5_000
 const PING_TIMEOUT_MS = 3_000
 
+/** Bundled main-process ESM — no global `__dirname`; anchor next to the emitted main chunk. */
+const moduleDir = dirname(fileURLToPath(import.meta.url))
+
 // The compiled subprocess entry point path.  Tests override this via
 // setValidatorWorkerPath() before starting the orchestrator.
-let workerPath = join(__dirname, 'index.js')
+let workerPath = join(moduleDir, 'index.js')
 
 /** Override the subprocess entry path (used by tests with tsx). */
 export function setValidatorWorkerPath(path: string): void {

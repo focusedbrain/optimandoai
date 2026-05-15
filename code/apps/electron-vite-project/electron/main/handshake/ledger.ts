@@ -17,7 +17,8 @@
  *     (only hashes, which are non-reversible)
  */
 
-import { join } from 'path'
+import { dirname, join } from 'path'
+import { fileURLToPath } from 'url'
 import { existsSync, mkdirSync } from 'fs'
 import { createRequire } from 'module'
 import { homedir } from 'os'
@@ -25,6 +26,8 @@ import { createHash, createHmac } from 'crypto'
 import { migrateHandshakeTables } from './db'
 
 const _require = createRequire(import.meta.url)
+
+const moduleDir = dirname(fileURLToPath(import.meta.url))
 
 // ── SQLite loader (same pattern as orchestrator-db) ──────────────────────────
 
@@ -39,7 +42,7 @@ async function loadSQLite(): Promise<any> {
       const path = _require('path')
       // Try app-local node_modules first (pnpm workspace — not in flat node_modules)
       try {
-        _DatabaseConstructor = _require(path.join(__dirname, '..', 'node_modules', 'better-sqlite3'))
+        _DatabaseConstructor = _require(path.join(moduleDir, '..', 'node_modules', 'better-sqlite3'))
       } catch {
         const { app } = _require('electron')
         const resourcesPath = path.dirname(app.getAppPath())
