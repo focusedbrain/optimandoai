@@ -77,6 +77,31 @@ export default defineConfig({
                 }
               },
             },
+            {
+              // Compile the validator subprocess as a standalone CJS file so that
+              // child_process.fork() can find it at dist-electron/validator-process/index.js.
+              // The main Vite bundle cannot serve as the fork target because
+              // import.meta.url in the bundle resolves to dist-electron/main-*.js,
+              // not to the validator-process subdirectory.
+              name: 'build-validator-subprocess',
+              closeBundle: async () => {
+                const { build } = await import('esbuild')
+                const outFile = path.join(root, 'dist-electron', 'validator-process', 'index.js')
+                await build({
+                  entryPoints: [path.join(root, 'electron/main/validator-process/index.ts')],
+                  outfile: outFile,
+                  bundle: true,
+                  platform: 'node',
+                  format: 'cjs',
+                  target: 'node20',
+                  // Resolve @repo/ingestion-core from source — no pre-built dist required.
+                  alias: {
+                    '@repo/ingestion-core': path.resolve(root, '../../packages/ingestion-core/src/index.ts'),
+                  },
+                })
+                console.log('[build-validator-subprocess] Emitted:', outFile)
+              },
+            },
           ],
           build: {
             // ws relies on dynamic prototype methods (Sender.mask / Receiver.mask).

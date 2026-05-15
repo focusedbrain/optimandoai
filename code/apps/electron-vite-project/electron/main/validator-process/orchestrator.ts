@@ -52,7 +52,8 @@ const moduleDir = dirname(fileURLToPath(import.meta.url))
 
 // The compiled subprocess entry point path.  Tests override this via
 // setValidatorWorkerPath() before starting the orchestrator.
-let workerPath = join(moduleDir, 'index.js')
+// build-validator-subprocess Vite plugin emits this file alongside the main bundle.
+let workerPath = join(moduleDir, 'validator-process', 'index.js')
 
 /** Override the subprocess entry path (used by tests with tsx). */
 export function setValidatorWorkerPath(path: string): void {
