@@ -1,15 +1,20 @@
 /**
  * CPU Runaway Fix G2 — Batched refreshFromMain in P2P Pending Queue
  *
- * Verifies the call-count contract introduced by the G2 fix:
+ * Verifies the call-count contract introduced by the G2 fix (replace mode):
  *
- *   §1  K items pending → refreshFromMain called exactly ONCE, in patch mode,
- *       with exactly K rowIds.
+ *   §1  K items pending → refreshFromMain called exactly ONCE, in replace mode.
  *   §2  All items fail to merge → refreshFromMain is NOT called at all.
- *   §3  Some items fail to merge → patch call carries only the successful rowIds.
+ *   §3  Some items fail to merge → replace refresh still fires (≥1 success).
  *   §4  globalProcessing guard — concurrent call returns early without touching store.
  *   §5  refreshFromMain throws → error is swallowed; no uncaught rejection.
  *   §6  cachePackage is still called per-item (in-loop behaviour preserved).
+ *
+ * Why replace and not patch:
+ *   patch mode enforces Decision D — it only updates rows already in the loaded
+ *   window.  P2P BEAPs are new rows; patch silently skips them.  A single
+ *   replace-mode call after the batch preserves the CPU saving (1 call for K
+ *   items) while correctly making new arrivals visible.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -96,16 +101,13 @@ beforeEach(() => {
 })
 
 // ---------------------------------------------------------------------------
-// §1  K items pending → refreshFromMain called exactly once in patch mode
+// §1  K items pending → refreshFromMain called exactly once in replace mode
 // ---------------------------------------------------------------------------
-describe('§1 K items → single patch refresh', () => {
-  it('calls refreshFromMain exactly once with all K rowIds when K=50', async () => {
+describe('§1 K items → single replace refresh', () => {
+  it('calls refreshFromMain exactly once with kind:replace when K=50 items all succeed', async () => {
     const K = 50
     const items = Array.from({ length: K }, (_, i) => makePendingItem(i))
     mockGetPendingP2PBeapMessages.mockResolvedValue(items)
-    mockImportBeapMessage.mockImplementation((_pkg: string, _src: string) =>
-      Promise.resolve(makeImportSuccess(items.findIndex((it) => it.package_json === _pkg))),
-    )
     // Use index-based mocks so each item gets its own messageId
     items.forEach((_, i) => {
       mockImportBeapMessage.mockResolvedValueOnce(makeImportSuccess(i))
@@ -117,11 +119,8 @@ describe('§1 K items → single patch refresh', () => {
 
     expect(mockRefreshFromMain).toHaveBeenCalledTimes(1)
     const call = mockRefreshFromMain.mock.calls[0][0]
-    expect(call).toMatchObject({ kind: 'patch' })
-    expect((call as { kind: string; rowIds: string[] }).rowIds).toHaveLength(K)
-
-    const expectedIds = Array.from({ length: K }, (_, i) => `msg-${i}`)
-    expect((call as { kind: string; rowIds: string[] }).rowIds).toEqual(expect.arrayContaining(expectedIds))
+    // replace mode: no rowIds, just { kind: 'replace' }
+    expect(call).toEqual({ kind: 'replace' })
   })
 })
 
@@ -145,10 +144,10 @@ describe('§2 all merges fail → no refresh', () => {
 })
 
 // ---------------------------------------------------------------------------
-// §3  Partial failure → patch carries only the successful rowIds
+// §3  Partial failure → replace refresh still fires (≥1 success)
 // ---------------------------------------------------------------------------
-describe('§3 partial merge failure → patch with successful ids only', () => {
-  it('includes only successfully merged rowIds in the patch call', async () => {
+describe('§3 partial merge failure → replace refresh fires for batch with ≥1 success', () => {
+  it('calls refreshFromMain once with kind:replace when some merges succeed and some fail', async () => {
     const items = [makePendingItem(0), makePendingItem(1), makePendingItem(2)]
     mockGetPendingP2PBeapMessages.mockResolvedValue(items)
 
@@ -169,12 +168,10 @@ describe('§3 partial merge failure → patch with successful ids only', () => {
 
     await processPendingP2PBeapQueue()
 
+    // At least one merge succeeded → one replace refresh fires
     expect(mockRefreshFromMain).toHaveBeenCalledTimes(1)
-    const call = mockRefreshFromMain.mock.calls[0][0] as { kind: string; rowIds: string[] }
-    expect(call.kind).toBe('patch')
-    expect(call.rowIds).toEqual(expect.arrayContaining(['msg-0', 'msg-2']))
-    expect(call.rowIds).not.toContain('msg-1')
-    expect(call.rowIds).toHaveLength(2)
+    const call = mockRefreshFromMain.mock.calls[0][0] as { kind: string }
+    expect(call.kind).toBe('replace')
   })
 })
 

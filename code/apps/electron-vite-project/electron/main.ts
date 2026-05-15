@@ -11237,18 +11237,24 @@ async function runDeviceKeyMigration(
         try {
           const n = await processPendingP2PBeapEmails(db)
           if (n > 0) notifyBeapInboxDashboard(handshakeId)
-        } catch {}
+        } catch (e) {
+          console.warn('[P2P_BEAP_RECEIVED] processPendingP2PBeapEmails error:', (e as Error)?.message ?? e)
+        }
 
         try {
           const r = await retryPendingQbeapDecrypt(db)
           if (r > 0) notifyBeapInboxDashboard(handshakeId)
-        } catch {}
+        } catch (e) {
+          console.warn('[P2P_BEAP_RECEIVED] retryPendingQbeapDecrypt error:', (e as Error)?.message ?? e)
+        }
 
         // B-5.1: drain extension merge retry buffer on P2P BEAP arrival
         // (implies a sandbox may now be connected).
         try {
           await drainExtensionMergeBuffer(db, getCurrentSession() ?? null)
-        } catch {}
+        } catch (e) {
+          console.warn('[P2P_BEAP_RECEIVED] drainExtensionMergeBuffer error:', (e as Error)?.message ?? e)
+        }
       })()
     })
 
@@ -11349,12 +11355,16 @@ async function runDeviceKeyMigration(
         try {
           const drained = await processPendingP2PBeapEmails(handshakeDb)
           if (drained > 0) notifyBeapInboxDashboard(null)
-        } catch {}
+        } catch (e) {
+          console.warn('[tryP2PStartup] processPendingP2PBeapEmails error:', (e as Error)?.message ?? e)
+        }
 
         try {
           const r = await retryPendingQbeapDecrypt(handshakeDb)
           if (r > 0) notifyBeapInboxDashboard(null)
-        } catch {}
+        } catch (e) {
+          console.warn('[tryP2PStartup] retryPendingQbeapDecrypt error:', (e as Error)?.message ?? e)
+        }
 
         // B-5.1: drain extension merge retry buffer on health-check trigger.
         // Canonical drain cadence: every 10s via tryP2PStartup.
@@ -11365,7 +11375,9 @@ async function runDeviceKeyMigration(
         // Periodic drains belong here only.
         try {
           await drainExtensionMergeBuffer(handshakeDb, getCurrentSession() ?? null)
-        } catch {}
+        } catch (e) {
+          console.warn('[tryP2PStartup] drainExtensionMergeBuffer error:', (e as Error)?.message ?? e)
+        }
       })()
       processOutboundQueue(handshakeDb, getOidcToken).catch((err) => {
         console.warn('[P2P] processOutboundQueue error:', err?.message)
