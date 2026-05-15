@@ -158,6 +158,38 @@ export function peerKeyMaterialFromBackendRow(raw: Record<string, unknown>): {
   }
 }
 
+/**
+ * Converts a HandshakeRecord to a SelectedHandshakeRecipient suitable for use as
+ * BeapPackageConfig.selectedRecipient in private (qBEAP) send paths.
+ *
+ * Used by the extension reply path (PR 6 / Decision B — thin-config reconciliation)
+ * to build a full crypto-keyed recipient from a `handshake.get` IPC response,
+ * replacing the thin reply config that only carried handshake_id and email and
+ * therefore couldn't complete qBEAP key agreement.
+ *
+ * Callers MUST verify hasHandshakeKeyMaterial(record) before calling; this function
+ * does not abort — it faithfully copies whatever keys are present.
+ */
+export function handshakeRecordToRecipient(record: HandshakeRecord): SelectedHandshakeRecipient {
+  const fpFull =
+    record.peerX25519PublicKey ??
+    `fp${record.handshake_id.replace(/[^a-z0-9]/gi, '').slice(0, 40)}`
+  const fpShort = fpFull.length > 12 ? `${fpFull.slice(0, 4)}…${fpFull.slice(-4)}` : fpFull
+  return {
+    handshake_id: record.handshake_id,
+    counterparty_email: record.counterparty_email,
+    counterparty_user_id: record.counterparty_user_id,
+    sharing_mode: record.sharing_mode ?? 'reciprocal',
+    receiver_fingerprint_full: fpFull,
+    receiver_fingerprint_short: fpShort,
+    receiver_display_name: record.counterparty_email.split('@')[0] || 'peer',
+    peerX25519PublicKey: record.peerX25519PublicKey,
+    peerPQPublicKey: record.peerPQPublicKey,
+    p2pEndpoint: record.p2pEndpoint ?? null,
+    localX25519PublicKey: record.localX25519PublicKey,
+  }
+}
+
 export type HandshakeKeyMaterialStatus = 'complete' | 'missing_x25519' | 'missing_pq' | 'missing_both'
 
 export function handshakeKeyMaterialStatus(

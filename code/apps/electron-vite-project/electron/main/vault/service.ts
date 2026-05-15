@@ -465,6 +465,35 @@ export class VaultService {
     console.log('[VAULT] ✅ Vault locked')
   }
 
+  // ==========================================================================
+  // Application Key Derivation — Phase B
+  // ==========================================================================
+
+  /**
+   * Derive a purpose-specific application key from the vault master key.
+   *
+   * Uses HKDF-SHA256 (the same primitive already used internally for
+   * field-encryption keys via `deriveFieldKey`).  The `info` parameter is
+   * the application-purpose discriminator and MUST be versioned per its
+   * caller's needs (e.g. 'validator-seal-key-v1') so that future algorithm
+   * or schema changes produce a different key.
+   *
+   * Returns null if the vault is not unlocked.  Caller is responsible for
+   * zeroizing the returned Buffer when no longer needed.
+   *
+   * @param info  Application-purpose discriminator.  MUST include a version
+   *              suffix.  The HKDF context is 'beap-application-key-
+   *              derivation-v1' (fixed) and `info` is the per-purpose label.
+   */
+  deriveApplicationKey(info: string): Buffer | null {
+    if (!this.session?.vmk) return null
+    return deriveFieldKey(
+      this.session.vmk,
+      'beap-application-key-derivation-v1',
+      info,
+    )
+  }
+
   /**
    * Get vault status
    */

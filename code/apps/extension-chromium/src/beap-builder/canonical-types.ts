@@ -13,6 +13,9 @@
  */
 
 import type { Handshake } from '../handshake/types'
+import type { CanonicalAgentConfig } from '../types/CanonicalAgentConfig'
+import type { CanonicalAgentBoxConfig } from '../types/CanonicalAgentBoxConfig'
+import type { CanonicalDisplayGridConfig } from '../types/CanonicalDisplayGridConfig'
 
 // =============================================================================
 // Capability Classes (Envelope-Declared)
@@ -210,22 +213,8 @@ export interface CapsuleAttachment {
   hasTranscript: boolean
 }
 
-/**
- * Session reference for automation
- */
-export interface CapsuleSessionRef {
-  /** Session ID */
-  sessionId: string
-  
-  /** Session display name */
-  sessionName: string
-  
-  /** Required capability class */
-  requiredCapability: CapabilityClass
-  
-  /** Whether envelope supports this capability */
-  envelopeSupports: boolean
-}
+// CapsuleSessionRef removed in PR 5.3.1 — dead type; canonical artefact path
+// (session_import_artefact) supersedes it. No live code constructed an instance.
 
 /**
  * BEAP Capsule - Task payload
@@ -233,7 +222,6 @@ export interface CapsuleSessionRef {
  * INVARIANTS:
  * - Cannot expand envelope capabilities
  * - Only contains semantic content (no raw artefacts)
- * - Session refs must be envelope-supported
  */
 export interface BeapCapsule {
   /** Capsule version */
@@ -248,9 +236,6 @@ export interface BeapCapsule {
   /** Parsed attachments (semantic content only) */
   attachments: CapsuleAttachment[]
   
-  /** Session references (automation context) */
-  sessionRefs: CapsuleSessionRef[]
-  
   /** Data/automation request text */
   dataRequest: string
   
@@ -259,6 +244,18 @@ export interface BeapCapsule {
   
   /** Hash for envelope binding */
   hash: string | null
+
+  /**
+   * Optional session import artefact (Canon A.3.054.8).
+   * Exactly one may appear per Capsule; absence is conformant.
+   * Reconstructed only after envelope verification, eligibility check,
+   * integrity validation, and authenticated decryption.
+   *
+   * Validated by validateSessionImportArtefact in the Validator stage.
+   * The builder serializes this field in PR 3. This declaration enables
+   * TypeScript consumers to reference the field before PR 3 lands.
+   */
+  session_import_artefact?: SessionImportArtefact
 }
 
 // =============================================================================
@@ -292,9 +289,6 @@ export interface CapsuleBuilderContext {
   
   /** Reply-to package ID */
   replyToPackageId?: string
-  
-  /** Available sessions for selection */
-  availableSessions?: CapsuleSessionRef[]
 }
 
 // =============================================================================
@@ -330,9 +324,6 @@ export interface CapsuleState {
   
   /** Attachments being processed */
   attachments: CapsuleAttachment[]
-  
-  /** Selected sessions */
-  selectedSessions: CapsuleSessionRef[]
   
   /** Data/automation request */
   dataRequest: string
@@ -415,5 +406,297 @@ export interface ApplyResult {
   
   /** Error message (if failed) */
   error: string | null
+}
+
+// =============================================================================
+// Quarantine Clone Transport — Phase B PR B-3
+// Canon: Phase B Architecture, Amendment 2 to B-3, Decision B
+// =============================================================================
+
+/**
+ * Metadata marker for a quarantine-clone package sent via the clone-messages
+ * transport from host to sandbox.
+ *
+ * When `sandbox_clone_quarantine` is `true`, the `encryptedMessage` field of
+ * the wrapping `BeapPackageConfig` carries an opaque quarantine blob (the
+ * original BEAP-bearing email bytes encrypted with X25519 + HKDF + AES-256-GCM
+ * using the sandbox's `peer_x25519_public_key_b64` as the encryption target).
+ * The sandbox receiver detects this flag and routes to the quarantine-decrypt
+ * path instead of normal qBEAP depackaging.
+ *
+ * ## Transport shape
+ *
+ * ```
+ * BeapPackageConfig {
+ *   encryptedMessage: "<base64 quarantine ciphertext>",
+ *   inboxResponsePathMetadata: {
+ *     sandbox_clone_quarantine: true,
+ *     // plus original transport metadata (sender, received_at, rejection_reason)
+ *   }
+ * }
+ * ```
+ *
+ * ## Security properties
+ *
+ * - The encrypted blob is independently bound to the sandbox's X25519 private key.
+ * - Tampering with `sandbox_clone_quarantine` in transit does not grant access to
+ *   the plaintext; the encryption is bound to the receiver's key regardless of flag.
+ * - The validator runs over the incoming package on the sandbox side regardless of
+ *   the flag value.
+ *
+ * ## Sandbox-side handling
+ *
+ * The sandbox receive path detects this flag *before* attempting qBEAP depackaging:
+ *
+ * ```typescript
+ * if (incoming.metadata?.sandbox_clone_quarantine === true) {
+ *   const originalBeapBytes = await decryptQuarantineBlob(incoming.encryptedMessage, vault)
+ *   return processBeapBytesAsRegularEmail(originalBeapBytes, ...)
+ * }
+ * ```
+ *
+ * If the sandbox also cannot depackage the original bytes, the sandbox UI shows a
+ * final-state notice and offers [ Delete from Sandbox ] / [ Keep for Audit ] actions.
+ *
+ * per Phase B Architecture, Amendment 2 to Prompt B-3, Decision B.
+ */
+export interface QuarantineCloneTransportMetadata {
+  /**
+   * Discriminator flag. Must be exactly `true` when present.
+   * Signals that `encryptedMessage` is a quarantine blob, not a qBEAP payload.
+   */
+  sandbox_clone_quarantine: true
+  /** Original transport sender (IMAP From: address or equivalent). */
+  transport_sender?: string
+  /** ISO-8601 timestamp when the host first received the original message. */
+  transport_received_at?: string
+  /** Size of the original quarantine blob in bytes. */
+  blob_size_bytes?: number
+  /**
+   * Plain-language rejection reason from the host's validator.
+   * The sandbox renders this verbatim in its final-state UI if it also fails.
+   */
+  rejection_reason?: string
+}
+
+// =============================================================================
+// Session Import Artefact Types
+// Canon A.3.054.8, Annex I v10 — PR 1/7
+// =============================================================================
+
+/**
+ * Canonical purpose identifier for a session import artefact.
+ *
+ * Decision A (PR 4/8): v1.0.0 has exactly one value: 'session_share'.
+ * The only purpose a session import artefact has in Phase A is "the sender
+ * shares a session so the receiver can import and possibly run it."
+ * Future purposes are added in v1.1.0 when those features exist.
+ *
+ * The validator enforces enum membership: any other value is rejected with
+ * 'ARTEFACT_PURPOSE_INVALID'. per A.3.054.8, I.11.5.
+ */
+export type PurposeIdentifier = 'session_share'
+
+/**
+ * Scope constraints for the declared purpose.
+ *
+ * TODO (canon-owner decision): Only `max_sessions` is defined for v1.0.0
+ * as a minimal placeholder. The full scope constraint shape (e.g., allowed
+ * page domains, execution environments, data categories) requires a
+ * canon-owner decision before additional fields can be added.
+ *
+ * The validator enforces closed-world checking on this type: unknown keys
+ * beyond `max_sessions` are rejected.
+ *
+ * per A.3.054.8
+ */
+export interface ScopeConstraints {
+  /** Maximum number of sessions that may be imported in one artefact. */
+  max_sessions?: number
+}
+
+/**
+ * Cryptographic binding to a BEAP handshake.
+ * Declares that this artefact is valid only within the context of the
+ * named handshake. Null when unbound.
+ *
+ * per A.3.054.8
+ */
+export interface HandshakeBinding {
+  /** Handshake ID matching BeapEnvelope.handshakeId. */
+  handshake_id: string
+  /** RFC 3339 UTC timestamp when binding was established. */
+  bound_at: string
+}
+
+/**
+ * Declared purpose and scope constraints for the artefact.
+ * per A.3.054.8
+ */
+export interface ArtefactPurpose {
+  /** Canonical purpose identifier. 'session_share' in v1.0.0. per A.3.054.8. */
+  declared_purpose: PurposeIdentifier
+  /** Scope constraints qualifying the declared purpose. */
+  scope_constraints: ScopeConstraints
+}
+
+/**
+ * Orchestrator session content — the only valid session_kind in v1.0.0.
+ *
+ * Resolution 2: 'workflow_graph' and 'composite' session_kinds are reserved
+ * for future protocol versions. A v1.0.0 receiver MUST reject them.
+ * The validator rejects any session_kind !== 'orchestrator_session'.
+ *
+ * per A.3.054.8
+ */
+export interface OrchestratorSessionContent {
+  /** Session kind discriminator. Must be 'orchestrator_session' in v1.0.0. */
+  session_kind: 'orchestrator_session'
+  /** Unique identifier for this session (matches orchestrator session key). */
+  session_id: string
+  /** Human-readable session display name. */
+  session_name: string
+  /**
+   * Agent configurations for this session.
+   * Canonical format (CanonicalAgentConfig schema v2.1.0).
+   */
+  agents: CanonicalAgentConfig[]
+  /**
+   * Agent box configurations for this session.
+   * Canonical format (CanonicalAgentBoxConfig schema v1.0.0).
+   * Each box carries gridSessionId + slotId linkage back to display_grids[].
+   */
+  agent_boxes: CanonicalAgentBoxConfig[]
+  /**
+   * Display grid configurations for this session.
+   * Canonical format (CanonicalDisplayGridConfig schema v1.0.0).
+   * MUST NOT contain agentBoxes[] — boxes are declared in agent_boxes[] only.
+   */
+  display_grids: CanonicalDisplayGridConfig[]
+  /**
+   * Capabilities required to run this session.
+   * Must be non-empty when requested_action === 'import_and_offer_run'.
+   *
+   * Decision B (PR 4/8): typed as CapabilityClass[] per canon. Vocabulary is
+   * closed; seven values defined. per A.3.054.8.
+   */
+  capabilities_required: CapabilityClass[]
+}
+
+/**
+ * Artefact session.
+ *
+ * In v1.0.0, exactly equal to OrchestratorSessionContent (not a discriminated
+ * union). Future protocol versions may add 'workflow_graph' and 'composite'
+ * session_kinds as discriminated branches; a v1.0.0 receiver MUST reject them.
+ *
+ * per A.3.054.8
+ */
+export type ArtefactSession = OrchestratorSessionContent
+
+/**
+ * One processing event in the artefact policy.
+ * per A.3.054.9.1
+ */
+export interface ProcessingEvent {
+  /** Whether this event is semantic (read-only analysis) or actuating (side-effecting). */
+  event_class: 'semantic_processing' | 'actuating_processing'
+  /** Execution boundary: NONE = in-process only, LOCAL = on-device, REMOTE = network. */
+  boundary: 'NONE' | 'LOCAL' | 'REMOTE'
+  /** Data scope: MINIMAL = minimal required data, SELECTED = user-selected, FULL = all data. */
+  scope: 'MINIMAL' | 'SELECTED' | 'FULL'
+}
+
+/**
+ * Policy governing how the artefact's sessions may be processed.
+ * per A.3.054.9.1
+ */
+export interface ArtefactPolicy {
+  /** Ordered list of processing events declared by the sender. */
+  processing_events: ProcessingEvent[]
+}
+
+/**
+ * Requested action by the sender.
+ *
+ * import_only: recipient imports but does not offer to run agents.
+ * import_and_offer_run: recipient imports and presents a 'Run Automation'
+ * option to the user.
+ *
+ * per A.3.054.8
+ */
+export type RequestedAction = 'import_only' | 'import_and_offer_run'
+
+/**
+ * Reference to a sensitive sub-capsule (ciphertext pointer only).
+ *
+ * ciphertext_ref references existing BEAP cryptographic primitives (the same
+ * primitives used for artefactsEnc). This PR does not introduce new
+ * cryptographic primitives. The key derivation and decryption path is PR 3's
+ * responsibility.
+ *
+ * Non-null implies requested_action === 'import_and_offer_run'.
+ *
+ * per A.3.054.8
+ */
+export interface SensitiveSubcapsuleRef {
+  /** Reference into the BEAP encrypted artefacts store. No key material here. */
+  ciphertext_ref: string
+  /** Purpose identifier gating access to this sub-capsule. per A.3.054.8. */
+  gate_purpose: PurposeIdentifier
+}
+
+/**
+ * Session import artefact — declarative, schema-versioned, logical JSON.
+ *
+ * INVARIANTS (Canon A.3.054.8):
+ * - Exactly one may appear per Capsule.
+ * - Non-executable: the Validator structurally validates it; it does not
+ *   execute, render, or interpret the content.
+ * - Reconstructed only after envelope verification, eligibility check,
+ *   integrity validation, and authenticated decryption.
+ * - schema_version '1.0.0' receivers MUST reject any other value.
+ *
+ * per Canon A.3.054.8, Annex I v10
+ */
+export interface SessionImportArtefact {
+  /** Schema version. Must be exactly '1.0.0' for this receiver. */
+  schema_version: '1.0.0'
+  /** UUID v4 uniquely identifying this artefact instance. */
+  artefact_id: string
+  /** RFC 3339 UTC creation timestamp. */
+  created_at: string
+  /**
+   * Cryptographic binding to a BEAP handshake, or null if unbound.
+   * per A.3.054.8
+   */
+  handshake_binding: HandshakeBinding | null
+  /**
+   * Declared purpose and scope constraints.
+   * per A.3.054.8
+   */
+  purpose: ArtefactPurpose
+  /**
+   * Session content array. Must contain at least one session.
+   * In v1.0.0, all entries must have session_kind === 'orchestrator_session'.
+   * per A.3.054.8
+   */
+  sessions: ArtefactSession[]
+  /**
+   * Processing policy declared by the sender.
+   * per A.3.054.9.1
+   */
+  policy: ArtefactPolicy
+  /**
+   * Requested action for the recipient.
+   * per A.3.054.8
+   */
+  requested_action: RequestedAction
+  /**
+   * Reference to a sensitive sub-capsule, or null.
+   * Non-null MUST imply requested_action === 'import_and_offer_run'.
+   * per A.3.054.8
+   */
+  sensitive_subcapsule: SensitiveSubcapsuleRef | null
 }
 

@@ -480,6 +480,10 @@ contextBridge.exposeInMainWorld('orchestrator', {
   },
   connect: () => ipcRenderer.invoke('orchestrator:connect'),
   listSessions: () => ipcRenderer.invoke('orchestrator:listSessions'),
+  getSession: (id: unknown) => {
+    if (typeof id !== 'string') throw new TypeError('orchestrator.getSession: id must be a string')
+    return ipcRenderer.invoke('orchestrator:getSession', id)
+  },
 })
 
 contextBridge.exposeInMainWorld('orchestratorMode', {

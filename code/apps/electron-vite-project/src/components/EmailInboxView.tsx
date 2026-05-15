@@ -83,6 +83,7 @@ import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import '../components/handshakeViewTypes'
 import { executeDeliveryAction, type BeapPackageConfig } from '@ext/beap-messages/services/BeapPackageBuilder'
+import { buildSessionImportArtefact, type BuildArtefactInput } from '@ext/beap-builder/buildSessionImportArtefact'
 import { getSigningKeyPair } from '@ext/beap-messages/services/beapCrypto'
 import { hasHandshakeKeyMaterial, type SelectedHandshakeRecipient } from '@ext/handshake/rpcTypes'
 import { listHandshakes } from '../shims/handshakeRpc'
@@ -1333,6 +1334,44 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         senderFp.length > 12 ? `${senderFp.slice(0, 4)}…${senderFp.slice(-4)}` : senderFp
       const pub = capsulePublicText.trim()
       const enc = capsuleEncryptedText.trim()
+
+      // Artefact construction — Decision E: bind at send time.
+      let sessionImportArtefact: BeapPackageConfig['sessionImportArtefact'] = undefined
+      if (selectedSessionId) {
+        const api = window.orchestrator
+        if (typeof api?.getSession !== 'function') {
+          setSendResult({ success: false, error: 'Orchestrator getSession IPC not available' })
+          return
+        }
+        const sessionRes = await api.getSession(selectedSessionId) as {
+          success: boolean
+          data?: { id: string; name: string; config: Record<string, unknown> }
+          error?: string
+        }
+        if (!sessionRes.success || !sessionRes.data) {
+          setSendResult({ success: false, error: `Could not fetch session: ${sessionRes.error ?? 'not found'}` })
+          return
+        }
+        const cfg = sessionRes.data.config
+        const handshakeId = typeof raw.handshake_id === 'string' ? raw.handshake_id : null
+        const boundAt = typeof raw.created_at === 'string' ? raw.created_at : new Date().toISOString()
+        const input: BuildArtefactInput = {
+          sessionId: sessionRes.data.id,
+          sessionName: sessionRes.data.name,
+          agents: Array.isArray(cfg.agents) ? (cfg.agents as any[]) : [],
+          agentBoxes: Array.isArray(cfg.agentBoxes ?? cfg.agent_boxes) ? ((cfg.agentBoxes ?? cfg.agent_boxes) as any[]) : [],
+          displayGrids: Array.isArray(cfg.displayGrids ?? cfg.display_grids) ? ((cfg.displayGrids ?? cfg.display_grids) as any[]) : [],
+          capabilitiesRequired: Array.isArray(cfg.capabilities_required) ? (cfg.capabilities_required as any[]) : [],
+          handshakeBinding: handshakeId ? { handshake_id: handshakeId, bound_at: boundAt } : null,
+        }
+        const built = buildSessionImportArtefact(input)
+        if (!built.ok) {
+          setSendResult({ success: false, error: `Could not build session artefact: ${built.reason}` })
+          return
+        }
+        sessionImportArtefact = built.artefact
+      }
+
       const config: BeapPackageConfig = {
         recipientMode: 'private',
         deliveryMethod: 'p2p',
@@ -1342,6 +1381,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         messageBody: pub,
         encryptedMessage: enc || undefined,
         attachments: [],
+        ...(sessionImportArtefact ? { sessionImportArtefact } : {}),
       }
       const delivery = await executeDeliveryAction(config)
       if (delivery.success) {

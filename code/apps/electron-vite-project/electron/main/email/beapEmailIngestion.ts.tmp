@@ -1,0 +1,27 @@
+/**
+ * BEAP Ingestion — Validate-before-write pipeline for P2P-arrived BEAP packages.
+ *
+ * Phase B, PR B-4: the old `p2p_pending_beap` staging path has been replaced.
+ * P2P entry points (coordinationWs, p2pServer, relayPull, main.ts file-import IPC,
+ * beapSync.ts Strategy 1b) now call `processBeapPackageInline` directly, which runs
+ * the validator subprocess and writes a sealed `inbox_messages` or sealed
+ * `quarantine_messages` row without any SQLite-backed staging step.
+ *
+ * The module also provides:
+ * - `processBeapPackageInline` — main entry point for all P2P ingestion.
+ * - `processSandboxQuarantineReceive` — sandbox-side decrypt of host-quarantined blobs.
+ * - `retryPendingQbeapDecrypt` — sealed-update backfill for pre-B-4 unsealed rows
+ *   (uses `resealWithDecryptedContent` from sealedContentUpdate.ts — PR B-7.2).
+ * - `processPendingP2PBeapEmails` — deprecated no-op stub (was the old drain function).
+ *
+ * Phase B, PR B-7.2: The old `tryQbeapDecryptInbox` / `createQbeapDecryptInboxStmts`
+ * helpers have been removed.  They performed raw `db.prepare().run()` writes without a
+ * seal and had no production callers (`retryPendingQbeapDecrypt` was already migrated
+ * to the sealed gate in PR B-4).  The canonical re-seal helper for this path is now
+ * `resealWithDecryptedContent` in `sealedContentUpdate.ts`.
+ *
+ * @version 2.1.0 (Phase B, PR B-7.2)
+ */
+
+import { createHash, randomUUID } from 'crypto'
+  db.prepare(`INSERT INTO inbox_messages (id) VALUES (?)`); // DELIBERATE BYPASS TEST

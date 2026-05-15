@@ -18,6 +18,15 @@ vi.mock('../../handshake/db', async (importOriginal) => {
   return { ...mod, getHandshakeRecord }
 })
 
+// B-9 Decision B: beapInboxClonePrepare now uses sealedQuery instead of raw
+// db.prepare().get().  Unit tests for pure prepare logic mock sealedQuery to
+// pass through to the test DB's .all() method (seal verification is tested in
+// the dedicated b9OutboundCloneIntegrity.test.ts integration tests).
+vi.mock('../../sealed-storage', () => ({
+  sealedQuery: (db: any, sql: string, args: unknown[]) =>
+    db.prepare(sql).all(...args),
+}))
+
 function makeSession(): SSOSession {
   return {
     wrdesk_user_id: 'u-regression',
@@ -74,7 +83,12 @@ function makeEligibleEntry(over: Partial<InternalSandboxListEntry> = {}): Intern
 function makeInboxDb(row: Record<string, unknown> | undefined) {
   return {
     prepare: (_sql: string) => ({
+      // .get() kept for legacy callers; .all() used by the sealedQuery mock.
       get: (id: string) => (row && String(row.id) === String(id) ? row : undefined),
+      all: (...args: unknown[]) => {
+        const id = args[0]
+        return row && String(row.id) === String(id) ? [row] : []
+      },
     }),
   }
 }
@@ -246,6 +260,7 @@ describe('prepareBeapInboxSandboxClone', () => {
       subject: 'S',
       body_text: 'plain body',
       depackaged_json: null,
+      depackaged_metadata: null,
       has_attachments: 0,
       from_address: 'from@x.com',
       account_id: 'acc-1',
@@ -261,9 +276,10 @@ describe('prepareBeapInboxSandboxClone', () => {
       expect(r.source_type).toBe('email_plain')
       expect(r.original_response_path).toBe('email')
       expect(r.reply_transport).toBe('email')
+      // PR 5.2 / Decision B: encrypted_text is source body only — no provenance appended.
       expect(r.encrypted_text).toContain('plain body')
-      expect(r.encrypted_text).toContain('"original_response_path":"email"')
-      expect(r.encrypted_text).toContain('"reply_transport":"email"')
+      expect(r.encrypted_text).not.toContain('"original_response_path"')
+      expect(r.encrypted_text).not.toContain('inbox_sandbox_clone_provenance')
     }
   })
 
@@ -276,6 +292,7 @@ describe('prepareBeapInboxSandboxClone', () => {
       subject: 'S',
       body_text: 'body for clone path',
       depackaged_json: null,
+      depackaged_metadata: null,
       has_attachments: 0,
       from_address: 'from@x.com',
       account_id: 'acc-1',
@@ -304,6 +321,7 @@ describe('prepareBeapInboxSandboxClone', () => {
       subject: 'S',
       body_text: 'x',
       depackaged_json: null,
+      depackaged_metadata: null,
       has_attachments: 0,
       from_address: 'from@x.com',
       account_id: 'acc-1',
@@ -321,8 +339,12 @@ describe('prepareBeapInboxSandboxClone', () => {
     if (r.ok) {
       expect(r.clone_reason).toBe('external_link_or_artifact_review')
       expect(r.triggered_url).toBe('https://example.com/risk')
-      expect(r.encrypted_text).toContain('external_link_or_artifact_review')
-      expect(r.encrypted_text).toContain('https://example.com/risk')
+      // PR 5.2 / Decision B: provenance is NOT in encrypted_text; it lives in the metadata column.
+      expect(r.encrypted_text).not.toContain('external_link_or_artifact_review')
+      expect(r.encrypted_text).not.toContain('inbox_sandbox_clone_provenance')
+      // These are surfaced via prepare payload fields instead:
+      expect(r.clone_reason).toBe('external_link_or_artifact_review')
+      expect(r.triggered_url).toBe('https://example.com/risk')
     }
   })
 

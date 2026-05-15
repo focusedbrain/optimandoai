@@ -56,7 +56,7 @@ Ordered path from manual Pull to SQLite `inbox_messages` insert:
    - **Must succeed:** `detectAndRouteMessage` completes; on throw, caught per message (~579–581), no increment.
 
 9. **`messageRouter.ts` — `detectAndRouteMessage`** (~168+)  
-   - **Persistence:** `INSERT INTO inbox_messages` (~283–313) with new UUID `id`, `account_id`, `email_message_id` from `resolveStorageEmailMessageId` (~143–160), then attachments and `insertPendingP2PBeap` / `insertPendingPlainEmail` (~429–452).  
+   - **Persistence:** `INSERT INTO inbox_messages` with new UUID `id`, `account_id`, `email_message_id`; all message types (P2P, qBEAP, pBEAP, plain email) sealed at insertion. `insertPendingP2PBeap` / `insertPendingPlainEmail` staging steps were removed in Phase B PR B-3.1.  
    - **Must succeed:** SQL run; throws if constraint/DB error → caught in orchestrator loop.
 
 10. **Post-pull (IPC)** — `processPendingPlainEmails`, `processPendingP2PBeapEmails`, remote queue enqueue (~2298–2320). **Not required** for the row to exist in `inbox_messages`; affects downstream pipelines.

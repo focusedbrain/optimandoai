@@ -6,6 +6,7 @@
 import { extractInboxMessageRedirectSourceFromRow } from './beapRedirectSource'
 import { getHandshakeRecord } from '../handshake/db'
 import { resolveInboxReplyMode } from '../../../src/lib/inboxAiCloneClassification'
+import { sealedQuery } from '../sealed-storage'
 import {
   isEligibleActiveInternalHostSandboxRecord,
   listAvailableInternalSandboxes,
@@ -23,6 +24,11 @@ export type BeapInboxClonePrepareOk = {
   original_received_at: string | null
   subject: string
   public_text: string
+  /**
+   * PR 5.2 / Decision B: source body bytes, no provenance appended.
+   * Provenance moves to `inboxResponsePathMetadata.sandbox_clone_provenance` in the
+   * new qBEAP package, keeping the cloned body byte-equivalent to the source.
+   */
   encrypted_text: string
   has_attachments: boolean
   content_warning?: string
@@ -45,6 +51,12 @@ export type BeapInboxClonePrepareOk = {
   account_tag: string | null
   /** Set when the user invoked clone from the external-link warning dialog. */
   triggered_url?: string | null
+  /**
+   * PR 5.2 / Decision A: session import artefact extracted from the source row's
+   * canonical `depackaged_json`. Null when absent or extraction fails.
+   * Passed to BeapPackageConfig.sessionImportArtefact by the renderer.
+   */
+  session_import_artefact: Record<string, unknown> | null
 }
 
 export type BeapInboxClonePrepareOptions = {
@@ -100,27 +112,41 @@ export function prepareBeapInboxSandboxClone(
     return { ok: false, error: 'sourceMessageId is required' }
   }
 
-  const row = db
-    .prepare(
-      `SELECT id, source_type, handshake_id, subject, body_text, depackaged_json, beap_package_json, has_attachments, from_address, account_id, received_at, ingested_at
-       FROM inbox_messages WHERE id = ?`,
-    )
-    .get(srcId) as
-    | {
-        id: string
-        source_type?: string | null
-        handshake_id?: string | null
-        subject?: string | null
-        body_text?: string | null
-        depackaged_json?: string | null
-        beap_package_json?: string | null
-        has_attachments?: number | null
-        from_address?: string | null
-        account_id?: string | null
-        received_at?: string | null
-        ingested_at?: string | null
-      }
-    | undefined
+  // B-9 Decision B: source read goes through sealedQuery so the parent seal is
+  // verified and tampered rows are filtered before their content is extracted.
+  // A tampered row returns an empty array → MESSAGE_NOT_FOUND → no clone.
+  // seal and seal_input_json are included in the SELECT so sealedQuery can
+  // verify the HMAC; they are not used by the prepare logic itself.
+  const sealedRows = sealedQuery<{
+    id: string
+    source_type?: string | null
+    handshake_id?: string | null
+    subject?: string | null
+    body_text?: string | null
+    depackaged_json?: string | null
+    depackaged_metadata?: string | null
+    beap_package_json?: string | null
+    has_attachments?: number | null
+    from_address?: string | null
+    account_id?: string | null
+    received_at?: string | null
+    ingested_at?: string | null
+    seal: string
+    seal_input_json: string
+  }>(
+    db,
+    // PR 5.2 / Step A: include depackaged_metadata so the prepare function can
+    // use it for format-based routing and artefact extraction fallbacks.
+    `SELECT id, source_type, handshake_id, subject, body_text,
+            depackaged_json, depackaged_metadata,
+            beap_package_json, has_attachments, from_address,
+            account_id, received_at, ingested_at,
+            seal, seal_input_json
+     FROM inbox_messages WHERE id = ?`,
+    [srcId],
+    'depackaged_json',
+  )
+  const row = sealedRows[0]
 
   if (!row) {
     return { ok: false, code: 'MESSAGE_NOT_FOUND', error: 'Inbox message was not found.' }
@@ -217,19 +243,10 @@ export function prepareBeapInboxSandboxClone(
   const provTriggered = (cloneOptions?.triggered_url ?? '').trim()
   const originalResponsePath = resolveInboxReplyMode(row)
   const replyTransport = originalResponsePath
-  const provenance = {
-    source_message_id: extracted.message_id,
-    original_source_type: extracted.source_type,
-    original_response_path: originalResponsePath,
-    reply_transport: replyTransport,
-    sandbox_clone: true,
-    original_handshake_id: extracted.original_handshake_id,
-    clone_reason: reason,
-    cloned_at: new Date().toISOString(),
-    target_sandbox_handshake_id: tgtId,
-    ...(provTriggered ? { triggered_url: provTriggered } : {}),
-  }
-  const encWithProvenance = `${extracted.encrypted_text}\n\n---\n${JSON.stringify({ inbox_sandbox_clone_provenance: provenance })}`
+
+  // PR 5.2 / Decision B: body is source bytes only — provenance moves to
+  // `inboxResponsePathMetadata.sandbox_clone_provenance` in the new qBEAP package.
+  // No provenance append here.
 
   const live = entry.live_status_optional ?? 'coordination_disabled'
   const receivedAt = row.received_at?.trim() || row.ingested_at?.trim() || null
@@ -246,6 +263,9 @@ export function prepareBeapInboxSandboxClone(
 
   const deviceName = entry.peer_device_name?.trim() || null
 
+  // PR 5.2 / Decision A: extract session import artefact from canonical position.
+  const session_import_artefact = extractSourceSessionImportArtefact(row.depackaged_json)
+
   return {
     ok: true,
     source_message_id: extracted.message_id,
@@ -256,7 +276,7 @@ export function prepareBeapInboxSandboxClone(
     original_received_at: receivedAt,
     subject: extracted.subject,
     public_text: extracted.public_text,
-    encrypted_text: encWithProvenance,
+    encrypted_text: extracted.encrypted_text,
     has_attachments: (row.has_attachments ?? 0) > 0,
     ...(extracted.content_warning ? { content_warning: extracted.content_warning } : {}),
     from_address: row.from_address?.trim() || null,
@@ -273,5 +293,34 @@ export function prepareBeapInboxSandboxClone(
     p2p_endpoint_set: entry.p2p_endpoint_set,
     account_tag: accountTag,
     ...(provTriggered ? { triggered_url: provTriggered } : {}),
+    session_import_artefact,
+  }
+}
+
+/**
+ * PR 5.2 / Step B: Extract the session import artefact from the canonical top-level
+ * position in `depackaged_json`. Returns null when absent, malformed, or not an object.
+ *
+ * Does NOT validate the artefact's structure — the sandbox's receive pipeline
+ * (validator gate per PR 2 / 2.1 / 2.2) is the canonical validation point.
+ * If extraction fails, clone proceeds without an artefact per Decision E.
+ */
+function extractSourceSessionImportArtefact(
+  depackaged_json: string | null | undefined,
+): Record<string, unknown> | null {
+  if (!depackaged_json?.trim()) return null
+  try {
+    const parsed = JSON.parse(depackaged_json) as Record<string, unknown>
+    const artefact = parsed.session_import_artefact
+    if (artefact && typeof artefact === 'object' && !Array.isArray(artefact)) {
+      return artefact as Record<string, unknown>
+    }
+    return null
+  } catch (err) {
+    console.warn(
+      '[CLONE_PREPARE] extractSourceSessionImportArtefact: failed to parse depackaged_json —',
+      (err as Error)?.message ?? err,
+    )
+    return null
   }
 }

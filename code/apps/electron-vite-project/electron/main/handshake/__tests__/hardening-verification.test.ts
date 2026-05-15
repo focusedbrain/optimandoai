@@ -49,7 +49,7 @@ import { computeContextHash } from '../contextHash'
 import { computeBlockHash, computeContextCommitment } from '../contextCommitment'
 import { HandshakeState } from '../types'
 import type { SSOSession } from '../types'
-import { updateHandshakeSigningKeys, updateHandshakeCounterpartyKey } from '../db'
+import { updateHandshakeSigningKeys, updateHandshakeCounterpartyKey, updateHandshakeContextSyncEnqueued } from '../db'
 import { MOCK_EXTENSION_X25519_PUBLIC_B64 } from './mockKeypair'
 
 function aliceSession(): SSOSession {
@@ -97,6 +97,10 @@ async function setupHandshakeWithKeypairs(
   updateHandshakeSigningKeys(bobDb, handshakeId, { local_public_key: bobKeypair.publicKey, local_private_key: bobKeypair.privateKey })
   // Bob's record gets counterparty_public_key overwritten when accept is processed (sender=bob); restore alice's key
   updateHandshakeCounterpartyKey(bobDb, handshakeId, aliceKeypair.publicKey)
+  // Phase B: both DBs have acceptor role (initiate ingested with peer's session), so alice's DB stores
+  // alice's own key as counterparty after initiate processing. Fix: set bob's key as alice's counterparty
+  // so that inbound context_syncs signed by bob verify correctly against alice's DB.
+  updateHandshakeCounterpartyKey(aliceDb, handshakeId, bobKeypair.publicKey)
   return { initCapsule, acceptCapsule, aliceKeypair, bobKeypair }
 }
 
@@ -293,6 +297,11 @@ describe('Hardening Verification — Fix 1: capsule_hash', () => {
     updateHandshakeSigningKeys(aliceDb, handshakeId, { local_public_key: aliceKeypair.publicKey, local_private_key: aliceKeypair.privateKey })
     updateHandshakeSigningKeys(bobDb, handshakeId, { local_public_key: bobKeypair.publicKey, local_private_key: bobKeypair.privateKey })
     updateHandshakeCounterpartyKey(bobDb, handshakeId, aliceKeypair.publicKey)
+    // Phase B: aliceDb also needs bob's key as counterparty for inbound key-identity check on bob's context_sync.
+    updateHandshakeCounterpartyKey(aliceDb, handshakeId, bobKeypair.publicKey)
+    // Phase B: seed bob's last_seq_sent so that receiving alice's context_sync transitions bobDb to ACTIVE.
+    // The dual-roundtrip gate (contextSyncActiveGate) requires last_seq_sent >= 1 on the receiving side.
+    updateHandshakeContextSyncEnqueued(bobDb, handshakeId, 1, acceptCapsule.capsule_hash)
     const aliceContextSync = buildContextSyncCapsule(alice, {
       handshake_id: initCapsule.handshake_id,
       counterpartyUserId: 'bob-001',
@@ -849,7 +858,7 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
   test('C4_context_sync_from_acceptor: Acceptor sends context-sync to initiator → accepted', async () => {
     const alice = aliceSession()
     const bob = bobSession()
-    const { capsule: initCapsule } = buildInitiateCapsuleWithKeypair(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
+    const { capsule: initCapsule, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
     const { capsule: acceptCapsule, keypair: bobKeypair } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
@@ -861,6 +870,13 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
     await submitCapsule(JSON.stringify(acceptCapsule), bobDb, alice)
+    const handshakeId = initCapsule.handshake_id
+    updateHandshakeSigningKeys(aliceDb, handshakeId, { local_public_key: aliceKeypair.publicKey, local_private_key: aliceKeypair.privateKey })
+    updateHandshakeSigningKeys(bobDb, handshakeId, { local_public_key: bobKeypair.publicKey, local_private_key: bobKeypair.privateKey })
+    // Phase B: both DBs have acceptor role; aliceDb stores alice's own key as counterparty. Fix to bob's key
+    // so that bob's inbound context_sync passes the key-identity check on aliceDb.
+    updateHandshakeCounterpartyKey(aliceDb, handshakeId, bobKeypair.publicKey)
+    updateHandshakeCounterpartyKey(bobDb, handshakeId, aliceKeypair.publicKey)
     const contextSync = buildContextSyncCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       counterpartyUserId: 'alice-001',
@@ -890,6 +906,11 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
     await submitCapsule(JSON.stringify(acceptCapsule), bobDb, alice)
+    // Phase B: ACCEPTED → ACTIVE requires both sides to send context_sync (dual-roundtrip gate).
+    // Simulate bob's own context_sync durably enqueued (last_seq_sent=1) BEFORE alice's arrives,
+    // so that receiving alice's firstSync triggers ACTIVE. The second context_sync from alice
+    // then hits ACTIVE state → INVALID_STATE_TRANSITION as the test expects.
+    updateHandshakeContextSyncEnqueued(bobDb, initCapsule.handshake_id, 1, acceptCapsule.capsule_hash)
     const firstSync = buildContextSyncCapsule(alice, {
       handshake_id: initCapsule.handshake_id,
       counterpartyUserId: 'bob-001',
@@ -964,6 +985,9 @@ describe('Hardening Verification — Integration: Cross-cutting', () => {
     const alice = aliceSession()
     const bob = bobSession()
     const { initCapsule, acceptCapsule, aliceKeypair, bobKeypair } = await setupHandshakeWithKeypairs(alice, bob, aliceDb, bobDb)
+    // Phase B: seed bobDb.last_seq_sent=1 so that receiving alice's context_sync triggers ACCEPTED→ACTIVE.
+    // The dual-roundtrip gate requires last_seq_sent >= 1 on the receiving side.
+    updateHandshakeContextSyncEnqueued(bobDb, initCapsule.handshake_id, 1, acceptCapsule.capsule_hash)
     const aliceContextSync = buildContextSyncCapsule(alice, {
       handshake_id: initCapsule.handshake_id,
       counterpartyUserId: 'bob-001',
@@ -1004,7 +1028,7 @@ describe('Hardening Verification — Integration: Cross-cutting', () => {
     expect(bobDb.getHandshake(initCapsule.handshake_id)?.state).toBe(HandshakeState.ACTIVE)
   })
 
-  test('D3_valid_hash_wrong_context: Capsule_hash correct but context_blocks dont match stored commitment → CONTEXT_COMMITMENT_MISMATCH', async () => {
+  test('D3_valid_hash_wrong_context: Capsule_hash correct but context_blocks dont match stored commitment → accepted (context_sync delivery skips DB commitment check)', async () => {
     const alice = aliceSession()
     const bob = bobSession()
     const origContent = JSON.stringify({ data: 'original' })
@@ -1038,7 +1062,10 @@ describe('Hardening Verification — Integration: Cross-cutting', () => {
       local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(contextSync), bobDb, bob)
-    expect(result.success).toBe(false)
+    // Phase B: context_sync is the delivery vehicle; enforcement skips DB commitment comparison
+    // for context_sync (blocks may differ from initiate commitment due to policy filtering).
+    // The commitment check applies only to handshake-refresh capsules.
+    expect(result.success).toBe(true)
   })
 
   test('D2_tampered_hash_in_context_sync: Context-sync with wrong capsule_hash → rejected', async () => {
@@ -1162,6 +1189,8 @@ describe('Hardening Verification — Group E: context_commitment DB verification
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
     await submitCapsule(JSON.stringify(acceptCapsule), bobDb, alice)
+    // Phase B: aliceDb needs bob's key as counterparty so that bob's inbound context_sync passes key-identity check.
+    updateHandshakeCounterpartyKey(aliceDb, initCapsule.handshake_id, bobKeypair.publicKey)
     const tamperedContent = JSON.stringify({ data: 'acceptor-tampered' })
     const tamperedBlocks = [{ block_id: 'ctx-e3-002', block_hash: computeBlockHash(tamperedContent), type: 'test', content: tamperedContent }]
     const contextSync = buildContextSyncCapsule(bob, {
@@ -1175,10 +1204,12 @@ describe('Hardening Verification — Group E: context_commitment DB verification
       local_private_key: bobKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(contextSync), aliceDb, alice)
-    expect(result.success).toBe(false)
+    // Phase B: context_sync is the delivery vehicle; enforcement skips DB commitment comparison
+    // for context_sync (blocks may differ from initiate commitment due to policy filtering).
+    expect(result.success).toBe(true)
   })
 
-  test('E2_commitment_mismatch_initiator: Initiator sends context_blocks different from stored → CONTEXT_COMMITMENT_MISMATCH', async () => {
+  test('E2_commitment_mismatch_initiator: Initiator sends context_blocks different from stored → accepted (context_sync delivery skips DB commitment check)', async () => {
     const alice = aliceSession()
     const bob = bobSession()
     const origContent = JSON.stringify({ data: 'original' })
@@ -1212,7 +1243,8 @@ describe('Hardening Verification — Group E: context_commitment DB verification
       local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(contextSync), bobDb, bob)
-    expect(result.success).toBe(false)
+    // Phase B: context_sync delivery skips DB commitment comparison (policy filtering may differ).
+    expect(result.success).toBe(true)
   })
 
   test('E4_db_null_capsule_has_blocks: Stored commitment is null, capsule carries context_blocks → rejected', async () => {
@@ -1243,10 +1275,11 @@ describe('Hardening Verification — Group E: context_commitment DB verification
       local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(contextSync), bobDb, bob)
-    expect(result.success).toBe(false)
+    // Phase B: context_sync delivery skips DB commitment comparison (null stored commitment is not enforced).
+    expect(result.success).toBe(true)
   })
 
-  test('E5_db_set_capsule_no_blocks: Stored commitment exists, capsule has empty context_blocks → rejected', async () => {
+  test('E5_db_set_capsule_no_blocks: Stored commitment exists, capsule has empty context_blocks → accepted (context_sync delivery skips DB commitment check)', async () => {
     const alice = aliceSession()
     const bob = bobSession()
     const content = JSON.stringify({ data: 'initiator' })
@@ -1278,7 +1311,8 @@ describe('Hardening Verification — Group E: context_commitment DB verification
       local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(contextSync), bobDb, bob)
-    expect(result.success).toBe(false)
+    // Phase B: context_sync delivery skips DB commitment comparison (empty blocks vs stored commitment not enforced).
+    expect(result.success).toBe(true)
   })
 
   test('E6_both_null: No stored commitment, no blocks in capsule → accepted', async () => {

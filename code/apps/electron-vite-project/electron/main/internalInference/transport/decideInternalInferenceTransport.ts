@@ -7,7 +7,7 @@
  * List targets and intent routing must not branch on p2p_endpoint_kind alone; use this result.
  */
 import { InternalInferenceErrorCode } from '../errors'
-import { isWebRtcHostAiArchitectureEnabled, type P2pInferenceFlagSnapshot } from '../p2pInferenceFlags'
+import { getP2pInferenceFlags, isWebRtcHostAiArchitectureEnabled, type P2pInferenceFlagSnapshot } from '../p2pInferenceFlags'
 import {
   coordinationDeviceIdForHandshakeDeviceRole,
   p2pEndpointKind,
@@ -292,13 +292,27 @@ export function buildHostAiCanonicalRouteResolveInputForDecider(
   sessionState: HostAiSessionStateInput | null,
   relayHostAiP2pSignaling: 'supported' | 'missing' | 'na',
   legacyEndpointInfo: LegacyEndpointInfo,
+  options?: {
+    /**
+     * When true, the ledger `p2p_endpoint` is NOT used as a fallback for `peerDirectAdvertisement`.
+     * Only a live memory-map entry from `peekHostAdvertisedMvpDirectEntry` is accepted.
+     * Use when the HTTP probe is suppressed and the route resolver must determine "no peer BEAP"
+     * without relying on an unverified ledger URL (e.g., P2P disabled + no peer-advertised map entry).
+     */
+    suppressLedgerFallbackPeerAd?: boolean
+  },
 ): HostAiCanonicalRouteResolveInput {
   const hid = String(handshakeRecord.handshake_id ?? '').trim()
   const localId = getInstanceId().trim()
   const peerHost = (coordinationDeviceIdForHandshakeDeviceRole(handshakeRecord, 'host') ?? '').trim()
   const roles = deriveInternalHostAiPeerRoles(handshakeRecord, localId)
   const ent = peekHostAdvertisedMvpDirectEntry(hid)
-  const peerDirectAdvertisement = buildPeerDirectAdvertisement(db, ent, handshakeRecord)
+  const peerDirectAdvertisement =
+    options?.suppressLedgerFallbackPeerAd
+      ? ent
+        ? buildPeerDirectAdvertisement(db, ent, handshakeRecord)
+        : null
+      : buildPeerDirectAdvertisement(db, ent, handshakeRecord)
   const p2pKind = legacyEndpointInfo.p2pEndpointKind
   const relayAttested = p2pKind === 'relay' && relayHostAiP2pSignaling === 'supported'
   return {
@@ -342,14 +356,30 @@ function computeHostAiRouteFieldsForDecider(
   | 'inferenceTrustedUrl'
   | 'inferenceHandshakeTrustReason'
 > {
+  const hid = String(handshakeRecord.handshake_id ?? '').trim()
+  // Compute probe-skip guard before building the canonical so the same flag can gate
+  // both the HTTP-probe call AND the direct-HTTP "verified" flag. When the probe is
+  // suppressed due to DC being up or P2P being fully disabled with no peer-map entry,
+  // the ledger-fallback peer advertisement is not trusted evidence for direct HTTP.
+  const peekEnt = peekHostAdvertisedMvpDirectEntry(hid)
+  const skipHttpProbe =
+    sessionState?.dataChannelUp === true ||
+    (!getP2pInferenceFlags().p2pInferenceEnabled && !peekEnt)
+  // When P2P is off and there is no memory-map peer advertisement, suppress the ledger
+  // fallback so the route resolver surfaces HOST_AI_DIRECT_PEER_BEAP_MISSING instead of
+  // treating the raw `p2p_endpoint` as a verified peer ingest address.
+  const suppressLedgerFallback = skipHttpProbe && sessionState?.dataChannelUp !== true
   const canonical = buildHostAiCanonicalRouteResolveInputForDecider(
     db,
     handshakeRecord,
     sessionState,
     relayHostAiP2pSignaling,
     legacyEndpointInfo,
+    { suppressLedgerFallbackPeerAd: suppressLedgerFallback },
   )
-  const verified = hostAiCanonicalDirectHttpViable(canonical)
+  // Do not mark direct HTTP as "verified" via a ledger-fallback entry when the probe is
+  // suppressed — the call-site resolver surfaces the correct error code instead.
+  const verified = !skipHttpProbe && hostAiCanonicalDirectHttpViable(canonical)
   let ingestUrl: string | null = null
   if (verified && canonical.peerDirectAdvertisement?.url?.trim()) {
     ingestUrl = normalizeP2pIngestUrl(canonical.peerDirectAdvertisement.url.trim())
@@ -368,14 +398,13 @@ function computeHostAiRouteFieldsForDecider(
   }
   const inferenceTrust = (() => {
     const roles = canonical.roles
-    const hid = String(handshakeRecord.handshake_id ?? '').trim()
     const token = handshakeRecord.counterparty_p2p_token ?? null
     const localBeap = getHostPublishedMvpDirectP2pIngestUrl(db as any)
 
     if (roles.ok && roles.localRole === 'sandbox' && roles.peerRole === 'host') {
       const cur = getInstanceId().trim()
       const peerHostDev = (coordinationDeviceIdForHandshakeDeviceRole(handshakeRecord, 'host') ?? '').trim()
-      const peekEnt = peekHostAdvertisedMvpDirectEntry(hid)
+      // peekEnt and skipHttpProbe are captured from the outer scope.
       if (
         peekEnt?.ownerDeviceId &&
         String(peekEnt.ownerDeviceId).trim() === cur &&
@@ -388,20 +417,22 @@ function computeHostAiRouteFieldsForDecider(
         clearHostAdvertisedMvpDirectForHandshake(hid)
       }
 
-      const res = resolveSandboxToHostHttpDirectIngest(db as any, hid, handshakeRecord, '')
-      if (res.ok) {
-        return inferenceDirectHttpTrust({
-          handshakeRecord,
-          roles,
-          counterpartyP2pToken: token,
-          localBeapEndpoint: localBeap,
-          sandboxPeerLanEndpoint: res.url,
-        })
+      if (!skipHttpProbe) {
+        const res = resolveSandboxToHostHttpDirectIngest(db as any, hid, handshakeRecord, '')
+        if (res.ok) {
+          return inferenceDirectHttpTrust({
+            handshakeRecord,
+            roles,
+            counterpartyP2pToken: token,
+            localBeapEndpoint: localBeap,
+            sandboxPeerLanEndpoint: res.url,
+          })
+        }
+        /** Never fall through to handshake-only trust: ledger `p2p_endpoint` may equal this sandbox's BEAP. */
+        console.log(
+          `[HOST_AI_ENDPOINT_REJECTED] handshake=${hid} reason=sandbox_resolve_denied deny_detail=${res.host_ai_endpoint_deny_detail} code=${res.code}`,
+        )
       }
-      /** Never fall through to handshake-only trust: ledger `p2p_endpoint` may equal this sandbox’s BEAP → `self_loop_detected`. */
-      console.log(
-        `[HOST_AI_ENDPOINT_REJECTED] handshake=${hid} reason=sandbox_resolve_denied deny_detail=${res.host_ai_endpoint_deny_detail} code=${res.code}`,
-      )
       return {
         trusted: false,
         reason: 'peer_host_endpoint_missing',

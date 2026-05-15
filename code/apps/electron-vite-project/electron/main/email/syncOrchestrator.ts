@@ -14,7 +14,9 @@
 
 import { processPendingP2PBeapEmails } from './beapEmailIngestion'
 import { notifyBeapInboxDashboard } from './beapInboxDashboardNotify'
-import { processPendingPlainEmails } from './plainEmailIngestion'
+// processPendingPlainEmails removed — plain_email_inbox was dropped in schema
+// v65 (Phase B, PR B-3).  Plain emails are now handled inline by
+// detectAndRouteMessage (Phase B, PR B-3, Amendment 1).
 import {
   drainOrchestratorRemoteQueueBounded,
   enqueueRemoteOpsForLocalLifecycleState,
@@ -995,7 +997,6 @@ export function startAutoSync(
       }
 
       const result = await syncAccountEmails(db, { accountId })
-      processPendingPlainEmails(db)
       const beapDrained = await processPendingP2PBeapEmails(db)
       if (beapDrained > 0) notifyBeapInboxDashboard(null)
       try {

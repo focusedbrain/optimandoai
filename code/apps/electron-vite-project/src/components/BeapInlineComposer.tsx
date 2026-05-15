@@ -16,6 +16,7 @@ import {
   executeDeliveryAction,
   type BeapPackageConfig,
 } from '@ext/beap-messages/services/BeapPackageBuilder';
+import { buildSessionImportArtefact, type BuildArtefactInput } from '@ext/beap-builder/buildSessionImportArtefact';
 
 import { getSigningKeyPair } from '@ext/beap-messages/services/beapCrypto';
 
@@ -607,6 +608,44 @@ export function BeapInlineComposer({
         }
       }
 
+      // Artefact construction — Decision E: bind at send time.
+      let builtSessionImportArtefact: BeapPackageConfig['sessionImportArtefact'] = undefined;
+      if (sessionId) {
+        const api = window.orchestrator;
+        if (typeof api?.getSession !== 'function') {
+          setSendError('Orchestrator getSession IPC not available');
+          setSending(false);
+          return;
+        }
+        const sessionRes = await api.getSession(sessionId) as {
+          success: boolean;
+          data?: { id: string; name: string; config: Record<string, unknown> };
+          error?: string;
+        };
+        if (!sessionRes.success || !sessionRes.data) {
+          setSendError(`Could not fetch session: ${sessionRes.error ?? 'not found'}`);
+          setSending(false);
+          return;
+        }
+        const cfg = sessionRes.data.config;
+        const input: BuildArtefactInput = {
+          sessionId: sessionRes.data.id,
+          sessionName: sessionRes.data.name,
+          agents: Array.isArray(cfg.agents) ? (cfg.agents as any[]) : [],
+          agentBoxes: Array.isArray(cfg.agentBoxes ?? cfg.agent_boxes) ? ((cfg.agentBoxes ?? cfg.agent_boxes) as any[]) : [],
+          displayGrids: Array.isArray(cfg.displayGrids ?? cfg.display_grids) ? ((cfg.displayGrids ?? cfg.display_grids) as any[]) : [],
+          capabilitiesRequired: Array.isArray(cfg.capabilities_required) ? (cfg.capabilities_required as any[]) : [],
+          handshakeBinding: null,
+        };
+        const built = buildSessionImportArtefact(input);
+        if (!built.ok) {
+          setSendError(`Could not build session artefact: ${built.reason}`);
+          setSending(false);
+          return;
+        }
+        builtSessionImportArtefact = built.artefact;
+      }
+
       const config: BeapPackageConfig = {
         recipientMode,
 
@@ -631,6 +670,8 @@ export function BeapInlineComposer({
         ...(recipientMode === 'private' && encryptedMessage.trim()
           ? { encryptedMessage: encryptedMessage.trim() }
           : {}),
+
+        ...(builtSessionImportArtefact ? { sessionImportArtefact: builtSessionImportArtefact } : {}),
       };
 
       const logPayload = {

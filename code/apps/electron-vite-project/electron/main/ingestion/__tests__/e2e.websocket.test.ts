@@ -138,6 +138,8 @@ describe('E2E WebSocket — ingestion.ingest RPC', () => {
       ...validBeapCapsule(),
       capsule_type: 'accept',
       sharing_mode: 'receive-only',
+      // Phase B: accept capsules also require countersigned_hash
+      countersigned_hash: 'e'.repeat(128),
     }
 
     const result = await sendIngestionRpc(

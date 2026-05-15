@@ -13,7 +13,6 @@ import type {
   BuilderRequiredResult,
   BuilderRequiredReason,
   CapsuleAttachment,
-  CapsuleSessionRef,
   NetworkConstraints
 } from './canonical-types'
 
@@ -29,7 +28,7 @@ export interface BuilderDecisionContext {
   attachments: CapsuleAttachment[] | { id: string }[]
   
   /** Sessions selected */
-  selectedSessions: CapsuleSessionRef[] | { sessionId: string }[]
+  selectedSessions: { sessionId: string }[]
   
   /** Data/automation request text */
   dataRequest: string

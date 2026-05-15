@@ -2,6 +2,7 @@
  * ListenerManager Unit Tests
  */
 
+import { vi } from 'vitest'
 import { ListenerManager } from '../ListenerManager'
 import { TriggerRegistry } from '../triggers/TriggerRegistry'
 import { WorkflowRegistry } from '../workflows/WorkflowRegistry'
@@ -188,7 +189,7 @@ describe('ListenerManager', () => {
     })
 
     it('should call reasoning callback', async () => {
-      const reasoningCallback = jest.fn().mockResolvedValue({ response: 'LLM response' })
+      const reasoningCallback = vi.fn().mockResolvedValue({ response: 'LLM response' })
       manager.setReasoningCallback(reasoningCallback)
       
       manager.register(createTestAutomation())
@@ -229,7 +230,7 @@ describe('ListenerManager', () => {
     })
 
     it('should warn when starting twice', () => {
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation()
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       
       manager.start()
       manager.start()
@@ -248,7 +249,7 @@ describe('ListenerManager', () => {
         patterns: ['Help']
       }))
       
-      const processSpy = jest.spyOn(manager, 'processEvent')
+      const processSpy = vi.spyOn(manager, 'processEvent')
       
       manager.start()
       chatTrigger.handleMessage({ text: '@Help me please' })

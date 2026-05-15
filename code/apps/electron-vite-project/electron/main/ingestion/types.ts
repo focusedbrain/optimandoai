@@ -75,11 +75,23 @@ export interface ValidatedCapsule {
   readonly schema_version: number;
 }
 
+/**
+ * Closed-world payload produced by the Validator (local electron-app copy).
+ * Mirrors `packages/ingestion-core/src/types.ts::ValidatedCapsulePayload`.
+ *
+ * Consumers that need capsule-type-specific wire fields not enumerated here
+ * cast to `Record<string, any>` explicitly (see ipc.ts, enforcement.ts).
+ */
 export interface ValidatedCapsulePayload {
   readonly capsule_type: CapsuleType;
   readonly handshake_id?: string;
   readonly schema_version: number;
-  readonly [key: string]: unknown;
+  readonly sender_public_key?: string;
+  readonly sender_signature?: string;
+  readonly countersigned_hash?: string;
+  readonly capsule_hash?: string;
+  readonly sender_id?: string;
+  readonly session_import_artefact?: Readonly<Record<string, unknown>>;
 }
 
 export type CapsuleType =

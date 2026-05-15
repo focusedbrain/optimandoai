@@ -41,11 +41,11 @@ const registerHandshakeMock = vi.hoisted(() => vi.fn())
 // orchestratorModeStore.getInstanceId drives `getLocalDeviceIdForRelay()` which gates
 // the internal-endpoint validation and seeds the initiator's relay device id.
 const INSTANCE_ID = '11111111-1111-4111-8111-111111111111'
-vi.mock('../orchestrator/orchestratorModeStore', () => ({
+vi.mock('../../orchestrator/orchestratorModeStore', () => ({
   getInstanceId: vi.fn(() => INSTANCE_ID),
 }))
 
-vi.mock('../device-keys/deviceKeyStore', () => ({
+vi.mock('../../device-keys/deviceKeyStore', () => ({
   getDeviceX25519PublicKey: vi.fn(async () => 'dGVzdC14MjU1MTktcHViLWtleS1iNjQ='),
   getDeviceX25519KeyPair: vi.fn(),
   DeviceKeyNotFoundError: class extends Error {
@@ -57,7 +57,7 @@ vi.mock('../../p2p/relaySync', () => ({
   registerHandshakeWithRelay: (...args: unknown[]) => registerHandshakeMock(...args),
 }))
 
-import { handleHandshakeRPC, setSSOSessionProvider, _resetSSOSessionProvider } from '../ipc'
+import { handleHandshakeRPC, setSSOSessionProvider, _resetSSOSessionProvider, setOidcTokenProvider } from '../ipc'
 import { buildTestSession } from '../sessionFactory'
 import { migrateHandshakeTables } from '../db'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
@@ -94,6 +94,7 @@ describe.skipIf(!sqliteAvailable)('handshake.initiate internal — coordination 
     registerHandshakeMock.mockReset()
     registerHandshakeMock.mockResolvedValue({ success: true })
     _resetSSOSessionProvider()
+    setOidcTokenProvider(async () => 'test-oidc-token')
     setSSOSessionProvider(() =>
       buildTestSession({
         wrdesk_user_id: 'user-int',
@@ -136,6 +137,7 @@ describe.skipIf(!sqliteAvailable)('handshake.initiate internal — coordination 
         counterparty_device_id: PEER_ID,
         counterparty_device_role: 'sandbox',
         counterparty_computer_name: 'SandboxBox',
+        counterparty_pairing_code: '123456',
         p2pAuthToken: 'test-oidc-token',
       } as any,
       db,
@@ -169,32 +171,29 @@ describe.skipIf(!sqliteAvailable)('handshake.initiate internal — coordination 
     expect(String(init?.method ?? 'POST').toUpperCase()).toBe('POST')
     const body = typeof init?.body === 'string' ? init.body : ''
     const parsed = body ? JSON.parse(body) : {}
-    // Accept either a wrapped envelope (`{ capsule: {...} }`) or the capsule directly —
-    // both shapes have surfaced in the repo's transport history; what matters is that the
-    // initiate capsule carries the receiver_device_id that the relay routes on.
+    // Phase 3 pairing-code routing: the initiate capsule uses receiver_pairing_code (not
+    // receiver_device_id). The relay routes by sender_device_id + recipient email; the
+    // acceptor device is identified solely by the 6-digit pairing code.
     const capsule = parsed.capsule ?? parsed
     expect(capsule?.capsule_type).toBe('initiate')
     expect(capsule?.handshake_id).toBe(result.handshake_id)
-    const receiverId =
-      capsule?.receiver_device_id ??
-      capsule?.internalWire?.receiver_device_id ??
-      capsule?.internal_wire?.receiver_device_id
+    // receiver_pairing_code replaces receiver_device_id for new internal initiate capsules
+    expect(capsule?.receiver_pairing_code).toBe('123456')
     const senderId =
       capsule?.sender_device_id ??
       capsule?.internalWire?.sender_device_id ??
       capsule?.internal_wire?.sender_device_id
-    expect(receiverId).toBe(PEER_ID)
     expect(senderId).toBe(INSTANCE_ID)
 
     // Renderer-visible delivery status.
     expect(result.relay_delivery).toBe('pushed_live')
     expect(result.relay_error).toBeUndefined()
 
-    // Queue row drained on success.
-    const remaining = db
-      .prepare(`SELECT COUNT(*) AS c FROM outbound_capsule_queue WHERE handshake_id = ?`)
-      .get(result.handshake_id) as { c: number }
-    expect(remaining.c).toBe(0)
+    // Queue row drained on success — marked 'sent' after 2xx delivery.
+    const sentRow = db
+      .prepare(`SELECT status FROM outbound_capsule_queue WHERE handshake_id = ? LIMIT 1`)
+      .get(result.handshake_id) as { status: string } | undefined
+    expect(sentRow?.status).toBe('sent')
   })
 
   test('coordination failure surfaces relay_delivery=coordination_unavailable (fallback to download)', async () => {
@@ -212,6 +211,7 @@ describe.skipIf(!sqliteAvailable)('handshake.initiate internal — coordination 
         counterparty_device_id: PEER_ID,
         counterparty_device_role: 'sandbox',
         counterparty_computer_name: 'SandboxBox',
+        counterparty_pairing_code: '123456',
         p2pAuthToken: 'test-oidc-token',
       } as any,
       db,

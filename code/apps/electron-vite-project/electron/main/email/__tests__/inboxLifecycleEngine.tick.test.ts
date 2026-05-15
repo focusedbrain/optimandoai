@@ -69,6 +69,7 @@ describe('runInboxLifecycleTick', () => {
           return {
             run: (...args: unknown[]) => {
               promotionRuns.push(args)
+              return { changes: 1, lastInsertRowid: 0 }
             },
           }
         }
@@ -81,7 +82,7 @@ describe('runInboxLifecycleTick', () => {
           }
         }
         if (sql.includes('lifecycle_final_delete_queued_utc')) {
-          return { run: vi.fn() }
+          return { run: vi.fn().mockReturnValue({ changes: 1, lastInsertRowid: 0 }) }
         }
         throw new Error(`Unexpected SQL in lifecycle mock: ${sql.slice(0, 70)}`)
       }),

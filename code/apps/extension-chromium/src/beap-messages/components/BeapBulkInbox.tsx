@@ -61,7 +61,7 @@ import { useMediaQuery, BULK_GRID_1COL, BULK_GRID_3COL } from '../hooks/useMedia
 import { useBeapInboxStore } from '../useBeapInboxStore'
 import { useViewOriginalArtefact } from '../hooks/useViewOriginalArtefact'
 import { usePendingP2PBeapIngestion } from '../../handshake/usePendingP2PBeapIngestion'
-import { usePendingPlainEmailIngestion } from '../../handshake/usePendingPlainEmailIngestion'
+import { getValidationState } from '../validationState'
 
 // =============================================================================
 // Constants
@@ -311,6 +311,8 @@ interface BatchToolbarProps {
   pageIndex: number
   totalPages: number
   totalCount: number
+  /** Phase B, PR B-8.1: true when there are more rows available from main to load. */
+  hasMore?: boolean
   onPrev: () => void
   onNext: () => void
   batchAiEnabled: boolean
@@ -334,6 +336,7 @@ const BatchToolbar: React.FC<BatchToolbarProps> = ({
   pageIndex,
   totalPages,
   totalCount,
+  hasMore = false,
   onPrev,
   onNext,
   batchAiEnabled,
@@ -452,10 +455,14 @@ const BatchToolbar: React.FC<BatchToolbarProps> = ({
         </span>
         <button
           onClick={onNext}
-          disabled={pageIndex >= totalPages - 1}
-          style={{ ...btnBase, opacity: pageIndex >= totalPages - 1 ? 0.4 : 1, cursor: pageIndex >= totalPages - 1 ? 'default' : 'pointer' }}
+          disabled={pageIndex >= totalPages - 1 && !hasMore}
+          style={{
+            ...btnBase,
+            opacity: pageIndex >= totalPages - 1 && !hasMore ? 0.4 : 1,
+            cursor: pageIndex >= totalPages - 1 && !hasMore ? 'default' : 'pointer',
+          }}
         >
-          Next →
+          {pageIndex >= totalPages - 1 && hasMore ? 'Load More →' : 'Next →'}
         </button>
       </div>
 
@@ -616,6 +623,13 @@ const MessagePairCell: React.FC<MessagePairCellProps> = ({
     message,
     replyComposerConfig ?? {},
   )
+
+  // Decision B / C (PR 7): validated-mark gate + canonical artefact position check.
+  // Only show the indicator when validation passed AND the artefact is present.
+  // Do not re-validate, re-decrypt, or re-locate. Read only.
+  const _validationState = getValidationState(message.validated_at, message.validation_reason)
+  const hasSessionIndicator = _validationState === 'validated' && message.session_import_artefact != null
+
   const textColor  = isProfessional ? '#1f2937' : 'white'
   const mutedColor = isProfessional ? '#6b7280' : 'rgba(255,255,255,0.55)'
   const dimColor   = isProfessional ? '#9ca3af' : 'rgba(255,255,255,0.35)'
@@ -696,6 +710,25 @@ const MessagePairCell: React.FC<MessagePairCellProps> = ({
               }}
             >
               {urgencyLabel.text}
+            </span>
+          )}
+          {/* Decision A / B (PR 7): session indicator — passive metadata only.
+              Shown only when validatedMark is affirmatively true AND the canonical
+              artefact position carries a SessionImportArtefact. No automation trigger
+              in the list. Open the row to act on the session (detail view). */}
+          {hasSessionIndicator && (
+            <span
+              aria-label="session attached"
+              title="This message carries a session import artefact — open to run automation"
+              style={{
+                fontSize: '9px', fontWeight: 600,
+                padding: '2px 5px', borderRadius: '3px',
+                color: '#22c55e', background: 'rgba(34,197,94,0.15)',
+                textTransform: 'uppercase', letterSpacing: '0.3px',
+                flexShrink: 0,
+              }}
+            >
+              Session
             </span>
           )}
         </div>
@@ -1160,10 +1193,11 @@ export const BeapBulkInbox = React.forwardRef<BeapBulkInboxHandle, BeapBulkInbox
     const setDraftReply      = useBeapInboxStore((s) => s.setDraftReply)
     const selectMessage      = useBeapInboxStore((s) => s.selectMessage)
     const selectedMessageId  = useBeapInboxStore((s) => s.selectedMessageId)
+    // Phase B, PR B-8.1: pagination
+    const loadMoreFromMain   = useBeapInboxStore((s) => s.loadMoreFromMain)
 
     // P2P pending BEAP ingestion (polls, imports, verifies, acks)
     usePendingP2PBeapIngestion()
-    usePendingPlainEmailIngestion()
 
     // Responsive grid columns: <900px → 1, 900–1600px → 2, >1600px → 3
     const is1Col = useMediaQuery(BULK_GRID_1COL)
@@ -1186,7 +1220,7 @@ export const BeapBulkInbox = React.forwardRef<BeapBulkInboxHandle, BeapBulkInbox
       // eslint-disable-next-line react-hooks/exhaustive-deps
       [getBulkViewPage, batchSize, pageIndex, selectedMessageId]
     )
-    const { messages, totalPages, totalCount } = page
+    const { messages, totalPages, totalCount, hasMore } = page
 
     useEffect(() => {
       console.log('[BEAP Bulk] Mounted')
@@ -1326,7 +1360,11 @@ export const BeapBulkInbox = React.forwardRef<BeapBulkInboxHandle, BeapBulkInbox
       let count = 0
       for (const msg of messages) {
         if (msg.urgency === 'irrelevant') {
-          archiveMessage(msg.messageId)
+          // Phase B, PR B-8: archiveMessage is now async (IPC wrapper).
+          // Fire-and-forget; optimistic local update happens inside the method.
+          archiveMessage(msg.messageId).catch((err) => {
+            console.warn('[BeapBulkInbox] archiveMessage failed:', msg.messageId, err)
+          })
           count++
         }
       }
@@ -1414,8 +1452,18 @@ export const BeapBulkInbox = React.forwardRef<BeapBulkInboxHandle, BeapBulkInbox
           pageIndex={pageIndex}
           totalPages={totalPages}
           totalCount={totalCount}
+          hasMore={hasMore}
           onPrev={() => setPageIndex((i) => Math.max(0, i - 1))}
-          onNext={() => setPageIndex((i) => Math.min(totalPages - 1, i + 1))}
+          onNext={() => {
+            const nextIdx = pageIndex + 1
+            // Phase B, PR B-8.1: if we're at the last loaded page and more rows
+            // exist on main, fetch them before advancing the page index.
+            if (nextIdx >= totalPages && hasMore) {
+              loadMoreFromMain().then(() => { setPageIndex(nextIdx) })
+            } else {
+              setPageIndex((i) => Math.min(totalPages - 1, i + 1))
+            }
+          }}
           batchAiEnabled={batchAiEnabled}
           onBatchAiToggle={handleBatchAiToggle}
           onArchiveAllIrrelevant={handleArchiveAllIrrelevant}

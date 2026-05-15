@@ -666,7 +666,8 @@ describe('background.ts exports WebMCP constants', () => {
     expect(senderGatePos).toBeLessThan(handlerStart)
 
     // Within the handler: circuit breaker → schema → per-tab → global
-    const handlerSource = source.slice(handlerStart, handlerStart + 5000)
+    // Use 10000 chars to ensure _webMcpGlobalTimestamps (Layer 5) is included
+    const handlerSource = source.slice(handlerStart, handlerStart + 10000)
     const cbPos = handlerSource.indexOf('_webMcpCbOpenedAt')
     const schemaPos = handlerSource.indexOf('!params.itemId')
     const perTabPos = handlerSource.indexOf('_webMcpRateMap')
@@ -1451,10 +1452,13 @@ describe('EXPORT_AUDIT_LOG — source-level verification', () => {
     const bgPath = path.resolve(__dirname, '..', '..', '..', 'background.ts')
     const source = fs.readFileSync(bgPath, 'utf-8')
 
-    // The restore block must check age against VSBT_MAX_AGE_MS
-    const restoreStart = source.indexOf("Restored VSBT from session storage")
+    // The restore block must check age against VSBT_MAX_AGE_MS.
+    // The comment in background.ts is "// Restore VSBT from session storage on service-worker startup"
+    const restoreStart = source.indexOf("// Restore VSBT from session storage on service-worker startup")
     expect(restoreStart).toBeGreaterThan(0)
-    const restoreBlock = source.slice(restoreStart - 500, restoreStart + 200)
+    // Slice 500 chars before + 600 chars after the comment to capture the
+    // entire restore block (VSBT_MAX_AGE_MS is ~350 chars after the comment).
+    const restoreBlock = source.slice(restoreStart - 500, restoreStart + 600)
     expect(restoreBlock).toContain('VSBT_MAX_AGE_MS')
     expect(restoreBlock).toContain('_vsbtAt')
   })

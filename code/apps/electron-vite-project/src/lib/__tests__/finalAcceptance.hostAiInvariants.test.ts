@@ -104,7 +104,8 @@ describe('FINAL ACCEPTANCE — Sandbox (ledger: local Sandbox, peer Host)', () =
   })
 
   it('Host AI row is considered present for selector when gav carries host_internal or merged rows (top + WR use same shape)', () => {
-    const viaGav = discoveryHasHostInternalRows([{ kind: 'host_internal' }], [])
+    // discoveryHasHostInternalRows requires kind='host_internal' AND available/canChat/visibleInModelSelector
+    const viaGav = discoveryHasHostInternalRows([{ kind: 'host_internal', available: true }], [])
     const viaSelector = discoveryHasHostInternalRows([], [{ section: 'host' }])
     expect(viaGav).toBe(true)
     expect(viaSelector).toBe(true)
@@ -189,6 +190,8 @@ describe('FINAL ACCEPTANCE — main + selector invariants (static)', () => {
   it('main: getAvailableModels path still merges local/cloud with internal Host rows', () => {
     const mainSrc = readFileSync(gavPath, 'utf-8')
     expect(mainSrc).toContain('getAvailableModels')
-    expect(mainSrc).toMatch(/hostInferenceTargets|listSandboxHostInternalInferenceTargets/)
+    // Phase B: getAvailableModels delegates to computeHandshakeAvailableModels which calls
+    // listSandboxHostInternalInferenceTargets. Check that the IPC handler delegates to the compute module.
+    expect(mainSrc).toContain('computeHandshakeAvailableModels')
   })
 })

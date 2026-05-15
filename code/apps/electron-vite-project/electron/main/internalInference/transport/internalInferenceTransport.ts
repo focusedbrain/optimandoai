@@ -521,12 +521,19 @@ export async function listHostCapabilities(
 
   let routeRes: HostAiRouteResolveResult | null = null
   if (db && decInput) {
+    // Mirror the probe-skip guard from the decider: when P2P is off and there is no
+    // memory-map peer ad, the canonical route resolver should not treat the raw ledger
+    // `p2p_endpoint` as a verified peer address — suppress ledger fallback so the
+    // resolver surfaces HOST_AI_DIRECT_PEER_BEAP_MISSING correctly.
+    const suppressLedgerFallback =
+      !f.p2pInferenceEnabled && !peekHostAdvertisedMvpDirectP2pEndpoint(hid)
     const canonical = buildHostAiCanonicalRouteResolveInputForDecider(
       db,
       record,
       decInput.sessionState,
       decInput.relayHostAiP2pSignaling ?? 'na',
       decInput.legacyEndpointInfo,
+      { suppressLedgerFallbackPeerAd: suppressLedgerFallback },
     )
     probeRoutePeerAdSource = canonical.peerDirectAdvertisement?.source ?? 'none'
     routeRes = resolveHostAiRoute(canonical, { emitLog: false })

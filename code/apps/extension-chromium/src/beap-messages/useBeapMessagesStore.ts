@@ -1,9 +1,18 @@
 /**
- * BEAP Messages Store
- * 
- * Zustand store for managing BEAP messages UI state.
- * Integrates with Outbox store for delivery tracking.
- * 
+ * BEAP Messages Store — DEMO / VERIFICATION-FLOW ONLY
+ *
+ * This store backs the import verification UI flow (importPipeline.ts) and
+ * the outbox/messenger demo flows. It is initialised with SEED_MESSAGES and
+ * exposes resetToSeedData() for development.
+ *
+ * IMPORTANT (Phase B, PR B-8):
+ *   This store is NOT the production inbox. The production inbox is
+ *   useBeapInboxStore, which is a read-only mirror of Electron main's
+ *   sealed storage.
+ *
+ *   Do not add production inbox messages here, do not read from this store
+ *   in any production UI path that should display sealed inbox content.
+ *
  * @version 2.0.0
  */
 

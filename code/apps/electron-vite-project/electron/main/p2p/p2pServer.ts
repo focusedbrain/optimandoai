@@ -9,7 +9,8 @@
 import http from 'http'
 import https from 'https'
 import { readFileSync } from 'fs'
-import { getHandshakeRecord, getHandshakeIdByCounterpartyP2PToken, insertPendingP2PBeap } from '../handshake/db'
+import { getHandshakeRecord, getHandshakeIdByCounterpartyP2PToken } from '../handshake/db'
+import { processBeapPackageInline } from '../email/beapEmailIngestion'
 import { handleIngestionRPC } from '../ingestion/ipc'
 import { processIncomingInput } from '../ingestion/ingestionPipeline'
 import { insertIngestionAuditRecord, insertQuarantineRecord } from '../ingestion/persistenceDb'
@@ -282,12 +283,26 @@ function createP2PRequestHandler(
       }
     }
 
-    // BEAP message package (qBEAP/pBEAP): store in p2p_pending_beap for extension ingestion
+    // BEAP message package (qBEAP/pBEAP): validate-before-write via sealed pipeline
     if (isBeapMessagePackage(parsed)) {
       ensureHandshakeMigration(db)
-      insertPendingP2PBeap(db, handshakeId, body)
-      console.log('[P2P-RECV] BEAP message inserted into pending table (local P2P HTTP)', handshakeId)
-      notifyBeapRecipientPending(handshakeId)
+      const ssoSessionForBeap = getSsoSession()
+      processBeapPackageInline(db, body, handshakeId, {
+        session: ssoSessionForBeap ?? null,
+        sourceType: 'p2p',
+        receivedAt: new Date().toISOString(),
+      }).then((r) => {
+        if (r.outcome === 'inbox') {
+          console.log('[P2P-RECV] BEAP message sealed into inbox (local P2P HTTP)', handshakeId)
+          notifyBeapRecipientPending(handshakeId)
+        } else if (r.outcome === 'quarantine') {
+          console.log('[P2P-RECV] BEAP message quarantined (local P2P HTTP)', handshakeId)
+        } else {
+          console.warn('[P2P-RECV] BEAP inline processing failed (local P2P HTTP)', handshakeId, r.error)
+        }
+      }).catch((err: any) => {
+        console.error('[P2P-RECV] processBeapPackageInline error:', err?.message ?? err)
+      })
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ accepted: true }))
       return

@@ -51,8 +51,11 @@ describe('sendCapsuleViaCoordination — relay HTTP semantics', () => {
     expect(r.coordinationRelayDelivery).toBe('queued_recipient_offline')
   })
 
-  test('with db: internal context_sync missing wire — blocks before fetch', async () => {
-    const fetchMock = vi.fn()
+  test('with db: internal context_sync with complete record — wire fields auto-filled, fetch is called', async () => {
+    // Phase B change: applyContextSyncInternalRoutingFromRecord auto-fills sender/receiver
+    // wire fields from the DB record. With a complete record, validation passes and fetch is
+    // called (pre-Phase-B: caller had to supply wire fields; missing fields blocked before fetch).
+    const fetchMock = vi.fn().mockResolvedValue({ status: 500, ok: false, headers: new Headers(), text: async () => 'err' })
     vi.stubGlobal('fetch', fetchMock)
     const spy = vi.spyOn(handshakeDb, 'getHandshakeRecord').mockReturnValue({
       handshake_id: 'hs-int',
@@ -76,9 +79,8 @@ describe('sendCapsuleViaCoordination — relay HTTP semantics', () => {
     )
 
     spy.mockRestore()
-    expect(fetchMock).not.toHaveBeenCalled()
+    // Wire fields are auto-filled from the record → validation passes → fetch is called.
+    expect(fetchMock).toHaveBeenCalled()
     expect(r.success).toBe(false)
-    expect(r.localRelayValidationFailed).toBe(true)
-    expect(r.error).toContain('LOCAL_INTERNAL_RELAY_VALIDATION_FAILED')
   })
 })

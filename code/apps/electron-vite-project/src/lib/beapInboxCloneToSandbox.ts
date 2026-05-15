@@ -18,39 +18,45 @@ import { mapCoordinationDeliveryToMatrixMode } from './beapSandboxCloneDeliveryS
 import { SANDBOX_CLONE_COPY, viewSandboxEntitlementRequired, type SandboxCloneFeedbackView } from './sandboxCloneFeedbackUi'
 import { SANDBOX_CLONE_INBOX_LEAD_IN } from './inboxMessageSandboxClone'
 
-function buildCloneMetadata(
+/**
+ * PR 5.2 / Decision B: build the clone provenance as a plain object (not a body-appended string).
+ * It moves to `inboxResponsePathMetadata.sandbox_clone_provenance` in the new qBEAP package, so the
+ * cloned body bytes are unmodified from the source.
+ */
+function buildCloneProvenanceObject(
   p: BeapInboxClonePrepareOk,
   atIso: string,
-): string {
+): {
+  sandbox_clone: true
+  automation_sandbox_clone: true
+  beap_sandbox_clone: Record<string, unknown>
+} {
   const clonedBy = p.cloned_by_account ?? p.account_tag ?? null
-  return [
-    '\n\n---\n',
-    JSON.stringify({
-      sandbox_clone: true,
-      automation_sandbox_clone: true,
-      beap_sandbox_clone: {
-        clone_reason: p.clone_reason,
-        original_message_id: p.source_message_id,
-        original_inbox_source_type: p.source_type,
-        original_response_path: p.original_response_path,
-        reply_transport: p.reply_transport,
-        original_sender: p.from_address ?? null,
-        original_received_at: p.original_received_at ?? null,
-        cloned_at: atIso,
-        target_handshake_id: p.target_handshake_id,
-        sandbox_target_handshake_id: p.sandbox_target_handshake_id,
-        sandbox_target_device_id: p.sandbox_target_device_id,
-        target_sandbox_device_name: p.target_sandbox_device_name,
-        sandbox_target_pairing_code: p.sandbox_target_pairing_code ?? null,
-        cloned_by_account: clonedBy,
-        original_handshake_id: p.original_handshake_id,
-        account_tag: p.account_tag ?? null,
-        ...(p.triggered_url && String(p.triggered_url).trim()
-          ? { triggered_url: String(p.triggered_url).trim() }
-          : {}),
-      },
-    }),
-  ].join('')
+  return {
+    sandbox_clone: true,
+    automation_sandbox_clone: true,
+    beap_sandbox_clone: {
+      clone_reason: p.clone_reason,
+      original_message_id: p.source_message_id,
+      original_inbox_source_type: p.source_type,
+      original_response_path: p.original_response_path,
+      reply_transport: p.reply_transport,
+      original_sender: p.from_address ?? null,
+      original_received_at: p.original_received_at ?? null,
+      cloned_at: atIso,
+      target_handshake_id: p.target_handshake_id,
+      sandbox_target_handshake_id: p.sandbox_target_handshake_id,
+      sandbox_target_device_id: p.sandbox_target_device_id,
+      target_sandbox_device_name: p.target_sandbox_device_name,
+      sandbox_target_pairing_code: p.sandbox_target_pairing_code ?? null,
+      cloned_by_account: clonedBy,
+      original_handshake_id: p.original_handshake_id,
+      account_tag: p.account_tag ?? null,
+      ...(p.triggered_url && String(p.triggered_url).trim()
+        ? { triggered_url: String(p.triggered_url).trim() }
+        : {}),
+    },
+  }
 }
 
 export type BeapInboxCloneAuditMetadata = {
@@ -104,10 +110,14 @@ export async function cloneBeapInboxToSandbox(
   const senderShort =
     senderFp.length > 12 ? `${senderFp.slice(0, 4)}…${senderFp.slice(-4)}` : senderFp
   const at = new Date().toISOString()
-  const prov = buildCloneMetadata(preparePayload, at)
 
+  // PR 5.2 / Decision B: provenance is an object — moves to metadata, not body.
+  const cloneProvenance = buildCloneProvenanceObject(preparePayload, at)
+
+  // PR 5.2 / Decision B: body is the source bytes unchanged.
+  // Lead-in banner is prepended to the public (non-authoritative) text only.
   const pub = `${SANDBOX_CLONE_INBOX_LEAD_IN}${preparePayload.public_text || preparePayload.encrypted_text}`.trim()
-  const enc = `${preparePayload.encrypted_text.trim()}${prov}`.trim()
+  const enc = preparePayload.encrypted_text.trim()
 
   const config: BeapPackageConfig = {
     recipientMode: 'private',
@@ -122,8 +132,16 @@ export async function cloneBeapInboxToSandbox(
       original_source_type: preparePayload.source_type,
       original_response_path: preparePayload.original_response_path,
       reply_transport: preparePayload.reply_transport,
+      // PR 5.2 / Decision B: provenance rides in metadata; sandbox reads it from
+      // depackaged_metadata.inbox_response_path.sandbox_clone_provenance.
+      sandbox_clone_provenance: cloneProvenance,
     },
     attachments: [],
+    // PR 5.2 / Decision A: forward source session import artefact so the Builder
+    // serialises it at the canonical top-level position in the new capsule.
+    ...(preparePayload.session_import_artefact != null
+      ? { sessionImportArtefact: preparePayload.session_import_artefact as any }
+      : {}),
   }
 
   const delivery = await executeDeliveryAction(config)

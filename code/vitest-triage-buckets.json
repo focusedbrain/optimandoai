@@ -1,0 +1,725 @@
+{
+  "summary": {
+    "1": 101,
+    "2": 0,
+    "5": 41,
+    "CAT3": 4,
+    "DEFER_QB09": 1
+  },
+  "buckets": [
+    {
+      "cat": 5,
+      "grp": "Autofill fingerprint / chrome API mock incomplete",
+      "notes": "checkFingerprintValid chain",
+      "count": 14,
+      "samples": [
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/committer.test.ts",
+          "title": "commitInsert commits value when all checks pass"
+        },
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/committer.test.ts",
+          "title": "commitInsert commits multiple fields atomically"
+        },
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/committer.test.ts",
+          "title": "commitInsert writes ZERO fields if any target fails safety checks"
+        }
+      ]
+    },
+    {
+      "cat": 5,
+      "grp": "Electron app chain (getPath / userData)",
+      "notes": "getPath undefined",
+      "count": 11,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/electron/main/vault/rpcAuth.test.ts",
+          "title": "RPC handler signature — tier is required handleVaultRPC accepts 3 arguments (method, params, tier)"
+        },
+        {
+          "file": "apps/electron-vite-project/electron/main/email/__tests__/b4P2PRelayMigration.test.ts",
+          "title": "B-4 §1 — processBeapPackageInline §1.1 valid pBEAP with known handshake → sealed inbox row (outcome: inbox)"
+        },
+        {
+          "file": "apps/electron-vite-project/electron/main/email/__tests__/b4P2PRelayMigration.test.ts",
+          "title": "B-4 §1 — processBeapPackageInline §1.2 pBEAP with unknown/no handshake → sealed quarantine row (outcome: quarantine)"
+        }
+      ]
+    },
+    {
+      "cat": 5,
+      "grp": "WRVault Write Canary gate in Vitest DOM",
+      "notes": null,
+      "count": 9,
+      "samples": [
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/committer.test.ts",
+          "title": "setValueSafely sets value via native setter and reports success"
+        },
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/committer.test.ts",
+          "title": "setValueSafely falls back to direct_assign when native setter is absent"
+        },
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/committer.test.ts",
+          "title": "setValueSafely rejects disabled input with READONLY_ELEMENT error"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (hardening.test.ts.test)",
+      "notes": "AssertionError: expected 'ELEMENT_HIDDEN' to be 'ELEMENT_OFFSCREEN' // Object.is equality\n    at C:\\",
+      "count": 9,
+      "samples": [
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/__tests__/hardening.test.ts",
+          "title": "guardElement returns ELEMENT_OFFSCREEN for element outside viewport"
+        },
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/__tests__/hardening.test.ts",
+          "title": "guardElement returns ELEMENT_NOT_FOCUSABLE for element inside [inert]"
+        },
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/__tests__/hardening.test.ts",
+          "title": "evaluateSafeMode allows auto-insert with single profile + high confidence + login context"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (listInferenceTargets.step8.test.ts.test)",
+      "notes": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Deskt",
+      "count": 8,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/electron/main/internalInference/__tests__/listInferenceTargets.step8.test.ts",
+          "title": "STEP 8 — listInferenceTargets / target discovery Sandbox + ACTIVE internal Host handshake returns an available Host AI target when probe has model"
+        },
+        {
+          "file": "apps/electron-vite-project/electron/main/internalInference/__tests__/listInferenceTargets.step8.test.ts",
+          "title": "STEP 8 — capabilities-driven availability Host with no default model returns model_unavailable + MODEL_UNAVAILABLE"
+        },
+        {
+          "file": "apps/electron-vite-project/electron/main/internalInference/__tests__/listInferenceTargets.step8.test.ts",
+          "title": "STEP 8 — capabilities-driven availability Direct P2P unavailable from probe maps to direct_unreachable (HOST_DIRECT_P2P_UNAVAILABLE)"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (evaluator.test.ts.test)",
+      "notes": "TypeError: Cannot read properties of undefined (reading 'length')\n    at Module.intersectIngress (C:",
+      "count": 8,
+      "samples": [
+        {
+          "file": "apps/extension-chromium/src/policy/engine/__tests__/evaluator.test.ts",
+          "title": "computeEffectivePolicy should apply NBP restrictions when present"
+        },
+        {
+          "file": "apps/extension-chromium/src/policy/engine/__tests__/evaluator.test.ts",
+          "title": "computeEffectivePolicy should apply HSP restrictions"
+        },
+        {
+          "file": "apps/extension-chromium/src/policy/engine/__tests__/evaluator.test.ts",
+          "title": "computeEffectivePolicy should track denials from each layer"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (fieldScanner.test.ts.test)",
+      "notes": "TypeError: Cannot read properties of undefined (reading 'escape')\n    at resolveLabel (C:\\Users\\osca",
+      "count": 7,
+      "samples": [
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/fieldScanner.test.ts",
+          "title": "collectCandidates detects fields via label text"
+        },
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/fieldScanner.test.ts",
+          "title": "collectCandidates detects fields via placeholder text"
+        },
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/fieldScanner.test.ts",
+          "title": "collectCandidates applies anti-signals for search inputs"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (b5ExtensionMerge.test.ts.test)",
+      "notes": "AssertionError: expected 'ARTEFACT_PURPOSE_INVALID' to be null\n    at C:\\Users\\oscar\\OneDrive\\Deskto",
+      "count": 7,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/electron/main/email/__tests__/b5ExtensionMerge.test.ts",
+          "title": "B-5 §E — validateDecryptedBeapContent: beap_message content type §E.6 beap_message with valid session_import_artefact + attachments_canonical → accepted"
+        },
+        {
+          "file": "apps/electron-vite-project/electron/main/email/__tests__/b5ExtensionMerge.test.ts",
+          "title": "B-5 §F — mergeExtensionDepackaged sealed gate §F.1 valid content → sealed inbox row; seal and seal_input_json populated"
+        },
+        {
+          "file": "apps/electron-vite-project/electron/main/email/__tests__/b5ExtensionMerge.test.ts",
+          "title": "B-5 §F — mergeExtensionDepackaged sealed gate §F.2 canonical content built with content_type:beap_message + attachments_canonical"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (BeapPackageBuilder.test.ts.test)",
+      "notes": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Deskt",
+      "count": 7,
+      "samples": [
+        {
+          "file": "apps/extension-chromium/src/beap-messages/services/__tests__/BeapPackageBuilder.test.ts",
+          "title": "Transport Leak Prevention should never include encrypted content in qBEAP package transport fields"
+        },
+        {
+          "file": "apps/extension-chromium/src/beap-messages/services/__tests__/BeapPackageBuilder.test.ts",
+          "title": "Transport Leak Prevention should succeed when public transport text matches encrypted message (independent fields)"
+        },
+        {
+          "file": "apps/extension-chromium/src/beap-messages/services/__tests__/BeapPackageBuilder.test.ts",
+          "title": "Policy Gating should pass qBEAP build when policy requires encrypted message and it is provided"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (datavault-classifier.test.ts.test)",
+      "notes": "TypeError: Cannot read properties of undefined (reading 'escape')\n    at resolveLabel (C:\\Users\\osca",
+      "count": 7,
+      "samples": [
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/__tests__/datavault-classifier.test.ts",
+          "title": "DataVault classifier — name/id patterns detects phone via id=\"phone\""
+        },
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/__tests__/datavault-classifier.test.ts",
+          "title": "DataVault classifier — German keywords detects \"Hausnummer\" as street number via name"
+        },
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/__tests__/datavault-classifier.test.ts",
+          "title": "DataVault fill engine — select elements fills a select by matching option value"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (sessionImportArtefact.test.ts.test)",
+      "notes": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Deskt",
+      "count": 6,
+      "samples": [
+        {
+          "file": "apps/extension-chromium/src/beap-messages/services/__tests__/sessionImportArtefact.test.ts",
+          "title": "qBEAP serialization — session_import_artefact (PR 3/8) 6. config without sessionImportArtefact → build succeeds (no regression)"
+        },
+        {
+          "file": "apps/extension-chromium/src/beap-messages/services/__tests__/sessionImportArtefact.test.ts",
+          "title": "qBEAP serialization — session_import_artefact (PR 3/8) 7. config with valid sessionImportArtefact → build succeeds"
+        },
+        {
+          "file": "apps/extension-chromium/src/beap-messages/services/__tests__/sessionImportArtefact.test.ts",
+          "title": "qBEAP serialization — session_import_artefact (PR 3/8) 8. config with artefact containing agentBoxes → build succeeds (strip applied silently)"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (migration.test.ts.test)",
+      "notes": "AssertionError: expected '/**\\n * RecipientHandshakeSelect Comp…' not to contain 'peerX25519PublicKe",
+      "count": 5,
+      "samples": [
+        {
+          "file": "apps/extension-chromium/src/handshake/__tests__/migration.test.ts",
+          "title": "Migration — old store mutations removed from new code T11: new RecipientHandshakeSelect has no BEAP_SEND_EMAIL"
+        },
+        {
+          "file": "apps/extension-chromium/src/handshake/__tests__/migration.test.ts",
+          "title": "Migration — old store mutations removed from new code T12: new RecipientHandshakeSelect has no X25519/ML-KEM fields"
+        },
+        {
+          "file": "apps/extension-chromium/src/handshake/__tests__/migration.test.ts",
+          "title": "Migration — old store mutations removed from new code rpcTypes.ts defines HandshakeRecord without X25519"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (b7IpcContentUpdates.test.ts.test)",
+      "notes": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Deskt",
+      "count": 5,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/electron/main/email/__tests__/b7IpcContentUpdates.test.ts",
+          "title": "B-7 §2 — resealWithAiAnalysis §2.1 valid row + valid seal → new seal written; canonical includes ai_analysis_json"
+        },
+        {
+          "file": "apps/electron-vite-project/electron/main/email/__tests__/b7IpcContentUpdates.test.ts",
+          "title": "B-7 §2 — resealWithAiAnalysis §2.6 aiAnalysisData = null → removes ai_analysis_json from canonical; re-seals"
+        },
+        {
+          "file": "apps/electron-vite-project/electron/main/email/__tests__/b7IpcContentUpdates.test.ts",
+          "title": "B-7 §2 — resealWithAiAnalysis §2.7 pre-Phase-B row (no seal) → forward-migration: sealed write succeeds"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (datavault-improvements.test.ts.test)",
+      "notes": "TypeError: Cannot read properties of undefined (reading 'escape')\n    at resolveRawLabel (C:\\Users\\o",
+      "count": 5,
+      "samples": [
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/__tests__/datavault-improvements.test.ts",
+          "title": "Site Learning — fingerprint building builds a fingerprint from an input element"
+        },
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/__tests__/datavault-improvements.test.ts",
+          "title": "Site Learning — fingerprint building produces a non-empty labelHash for elements with labels"
+        },
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/__tests__/datavault-improvements.test.ts",
+          "title": "Site Learning — fingerprint building does not contain PII values in the fingerprint"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (handshakeRefresh.test.ts.test)",
+      "notes": "AssertionError: expected undefined to be 'text' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive",
+      "count": 4,
+      "samples": [
+        {
+          "file": "apps/extension-chromium/src/beap-builder/__tests__/handshakeRefresh.test.ts",
+          "title": "buildContextBlocks T8: constructs correct block from user message"
+        },
+        {
+          "file": "apps/extension-chromium/src/beap-builder/__tests__/handshakeRefresh.test.ts",
+          "title": "buildContextBlocks defaults block_type to text"
+        },
+        {
+          "file": "apps/extension-chromium/src/beap-builder/__tests__/handshakeRefresh.test.ts",
+          "title": "buildContextBlocks preserves scope_id when provided"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (b72DecryptedContentReseal.test.ts.test)",
+      "notes": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Deskt",
+      "count": 4,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/electron/main/email/__tests__/b72DecryptedContentReseal.test.ts",
+          "title": "B-7.2 §1 — resealWithDecryptedContent §1.1 pending row → validator called; row sealed; content written"
+        },
+        {
+          "file": "apps/electron-vite-project/electron/main/email/__tests__/b72DecryptedContentReseal.test.ts",
+          "title": "B-7.2 §1 — resealWithDecryptedContent §1.6 childWrites executed atomically with parent UPDATE"
+        },
+        {
+          "file": "apps/electron-vite-project/electron/main/email/__tests__/b72DecryptedContentReseal.test.ts",
+          "title": "B-7.2 §1 — resealWithDecryptedContent §1.9 attachmentCount > 0 → has_attachments=1 written correctly"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (mergeExtensionDepackaged.validation.test.ts.test)",
+      "notes": "SqliteError: no such table: inbox_attachments\n    at Database.prepare (C:\\Users\\oscar\\OneDrive\\Deskt",
+      "count": 4,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/electron/main/email/__tests__/mergeExtensionDepackaged.validation.test.ts",
+          "title": "mergeExtensionDepackaged — content validation (PR B-5) TEST-INT-1. merge with no artefact → sealed row written, seal present"
+        },
+        {
+          "file": "apps/electron-vite-project/electron/main/email/__tests__/mergeExtensionDepackaged.validation.test.ts",
+          "title": "mergeExtensionDepackaged — content validation (PR B-5) TEST-INT-2. merge with valid session_import_artefact → sealed row"
+        },
+        {
+          "file": "apps/electron-vite-project/electron/main/email/__tests__/mergeExtensionDepackaged.validation.test.ts",
+          "title": "mergeExtensionDepackaged — content validation (PR B-5) TEST-INT-3. merge with malformed artefact → validator rejects → ok: false"
+        }
+      ]
+    },
+    {
+      "cat": 5,
+      "grp": "Non-better-sqlite3 stub db",
+      "notes": null,
+      "count": 4,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/electron/main/internalInference/__tests__/hostAiPeerEndpointAndAdvertisement.test.ts",
+          "title": "buildHostAiProviderAdvertisementPayload (gating) Test 2: effective sandbox (ledger) with configured host file must not publish Host AI"
+        },
+        {
+          "file": "apps/electron-vite-project/electron/main/internalInference/__tests__/hostAiPeerEndpointAndAdvertisement.test.ts",
+          "title": "buildHostAiProviderAdvertisementPayload (gating) Test 1: ledger host + can_publish + policy → advertised_as_host_ai and owner = current device"
+        },
+        {
+          "file": "apps/electron-vite-project/electron/main/internalInference/__tests__/hostAiPeerEndpointAndAdvertisement.test.ts",
+          "title": "buildHostAiProviderAdvertisementPayload (gating) ledger host with zero models must not advertise as Host AI provider"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (scan-dos-caps.test.ts.test)",
+      "notes": "AssertionError: expected \"querySelectorAll\" to not be called at all, but actually been called 40 tim",
+      "count": 4,
+      "samples": [
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/__tests__/scan-dos-caps.test.ts",
+          "title": "TreeWalker-based scan (no querySelectorAll) does not call querySelectorAll on the scan root"
+        },
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/__tests__/scan-dos-caps.test.ts",
+          "title": "HA mode — stricter caps HA mode applies lower element cap"
+        },
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/__tests__/scan-dos-caps.test.ts",
+          "title": "HA mode — stricter caps non-HA mode allows more elements than HA mode"
+        }
+      ]
+    },
+    {
+      "cat": "CAT3",
+      "grp": "OCR markup strictness (Category 3 per audit)",
+      "notes": "AssertionError: expected true to be false // Object.is equality\n    at C:\\Users\\oscar\\OneD",
+      "count": 2,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/electron/main/vault/hsContextOcrJob.test.ts",
+          "title": "validateExtractedText rejects HTML/markup-like extraction"
+        },
+        {
+          "file": "apps/electron-vite-project/electron/main/vault/hsContextOcrJob.test.ts",
+          "title": "validateExtractedText rejects content with tag-like markup"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (b4P2PRelayMigration.test.ts.test)",
+      "notes": "SqliteError: no such column: relationship_id\n    at Database.prepare (C:\\Users\\oscar\\OneDrive\\Deskto",
+      "count": 2,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/electron/main/email/__tests__/b4P2PRelayMigration.test.ts",
+          "title": "B-4 §3 — Schema migration v66 §3.1 migrateHandshakeTables creates tables up to v66 and p2p_pending_beap is absent"
+        },
+        {
+          "file": "apps/electron-vite-project/electron/main/email/__tests__/b4P2PRelayMigration.test.ts",
+          "title": "B-4 §3 — Schema migration v66 §3.2 after v66, insertPendingP2PBeap is a no-op (does not throw or write)"
+        }
+      ]
+    },
+    {
+      "cat": "CAT3",
+      "grp": "Host AI routing correctness matrix legacy",
+      "notes": null,
+      "count": 2,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/electron/main/internalInference/__tests__/hostAiRoutingCorrectness.regression.test.ts",
+          "title": "Host AI routing regression (expected failures until resolver hardens) (2) direct_http_available must be false without any trust source (no BEAP attestation, no inference bearer trust)"
+        },
+        {
+          "file": "apps/electron-vite-project/electron/main/internalInference/__tests__/hostAiRoutingCorrectness.regression.test.ts",
+          "title": "Host AI routing regression (expected failures until resolver hardens) (2b) transport decider must not select legacy_http without any trust source (no BEAP attestation, no inference bearer trust)"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (background-sender-gate.test.ts.test)",
+      "notes": "AssertionError: expected -1 to be greater than 4358\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\",
+      "count": 2,
+      "samples": [
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/__tests__/background-sender-gate.test.ts",
+          "title": "background.ts exports WebMCP constants defense layers are ordered: sender → circuit → schema → per-tab → global"
+        },
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/__tests__/background-sender-gate.test.ts",
+          "title": "EXPORT_AUDIT_LOG — source-level verification session storage restore checks TTL before restoring VSBT"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (ThisDeviceCard.test.tsx.test)",
+      "notes": "AssertionError: expected '<div data-testid=\"this-device-card\" s…' to contain 'Read this code aloud o",
+      "count": 1,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/src/components/ThisDeviceCard.test.tsx",
+          "title": "ThisDeviceCard renders the 6-digit pairing code formatted as XXX-XXX with a Regenerate button"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (beapInboxActionTooltips.test.ts.test)",
+      "notes": "AssertionError: expected 'Clone the entire BEAP message to your…' to be 'Clone this BEAP message and",
+      "count": 1,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/src/lib/__tests__/beapInboxActionTooltips.test.ts",
+          "title": "beapInboxActionTooltips Sandbox: same hover regardless of tri-state (relay is not a visibility input)"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (finalAcceptance.hostAiInvariants.test.ts.test)",
+      "notes": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Deskt",
+      "count": 1,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/src/lib/__tests__/finalAcceptance.hostAiInvariants.test.ts",
+          "title": "FINAL ACCEPTANCE — Sandbox (ledger: local Sandbox, peer Host) Host AI row is considered present for selector when gav carries host_internal or merged rows (top + WR use same shape)"
+        }
+      ]
+    },
+    {
+      "cat": 5,
+      "grp": "BOM in static TS source reads (migration / fs.readFile)",
+      "notes": "UTF-8 BOM prefix",
+      "count": 1,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/src/lib/__tests__/finalAcceptance.hostAiInvariants.test.ts",
+          "title": "FINAL ACCEPTANCE — main + selector invariants (static) main: getAvailableModels path still merges local/cloud with internal Host rows"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (inboxMessageSandboxClone.test.ts.test)",
+      "notes": "AssertionError: expected undefined to be 'Konge-AS1' // Object.is equality\n    at C:\\Users\\oscar\\One",
+      "count": 1,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/src/lib/__tests__/inboxMessageSandboxClone.test.ts",
+          "title": "inboxMessageUsesNativeBeapPbeapQbeapSplit extractSandboxCloneUiMeta reads depackaged beap_sandbox_clone"
+        }
+      ]
+    },
+    {
+      "cat": 5,
+      "grp": "jsdom value setter (input/textarea quirks)",
+      "notes": null,
+      "count": 1,
+      "samples": [
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/committer.test.ts",
+          "title": "setValueSafely sets empty string value (clearing a field)"
+        }
+      ]
+    },
+    {
+      "cat": 5,
+      "grp": "Validator subprocess unavailable on ingest",
+      "notes": null,
+      "count": 1,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/electron/main/email/__tests__/messageRouter.ingestTransaction.test.ts",
+          "title": "detectAndRouteMessage transaction (requires native better-sqlite3) ingests two attachments with the same provider id when they belong to different inbox rows"
+        }
+      ]
+    },
+    {
+      "cat": "DEFER_QB09",
+      "grp": "QB_09 outbound queue retry (Question C)",
+      "notes": null,
+      "count": 1,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/electron/main/handshake/__tests__/outboundQueue.backoff.test.ts",
+          "title": "outboundQueue: backoff & transport QB_09_post_failure_autodrain_retries_without_second_user_call"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (internalInference.directHost.regression.test.ts.test)",
+      "notes": "Error: [vitest] No \"BrowserWindow\" export is defined on the \"electron\" mock. Did you forget to retur",
+      "count": 1,
+      "samples": [
+        {
+          "file": "apps/electron-vite-project/electron/main/internalInference/__tests__/internalInference.directHost.regression.test.ts",
+          "title": "runSandboxHostInferenceChat (Sandbox entry) Host mode cannot use Sandbox host-chat entry point"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (security-regression.test.ts.test)",
+      "notes": "AssertionError: expected 'number' to be 'undefined' // Object.is equality\n    at C:\\Users\\oscar\\OneD",
+      "count": 1,
+      "samples": [
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/__tests__/security-regression.test.ts",
+          "title": "§6 Replay attack on encrypted records (AAD binding) AAD_SCHEMA_VERSION is a positive integer"
+        }
+      ]
+    },
+    {
+      "cat": 1,
+      "grp": "Assertion/snapshot (writes-kill-switch.test.ts.test)",
+      "notes": "AssertionError: expected '// ==================================…' to contain 'import { initWritesKil",
+      "count": 1,
+      "samples": [
+        {
+          "file": "apps/extension-chromium/src/vault/autofill/__tests__/writes-kill-switch.test.ts",
+          "title": "writesKillSwitch module contract is initialized in autofillOrchestrator"
+        }
+      ]
+    }
+  ],
+  "filesSorted": [
+    [
+      "apps/extension-chromium/src/vault/autofill/committer.test.ts",
+      24
+    ],
+    [
+      "apps/electron-vite-project/electron/main/email/__tests__/b4P2PRelayMigration.test.ts",
+      10
+    ],
+    [
+      "apps/extension-chromium/src/vault/autofill/__tests__/hardening.test.ts",
+      9
+    ],
+    [
+      "apps/electron-vite-project/electron/main/internalInference/__tests__/listInferenceTargets.step8.test.ts",
+      8
+    ],
+    [
+      "apps/extension-chromium/src/policy/engine/__tests__/evaluator.test.ts",
+      8
+    ],
+    [
+      "apps/extension-chromium/src/vault/autofill/fieldScanner.test.ts",
+      7
+    ],
+    [
+      "apps/electron-vite-project/electron/main/email/__tests__/b5ExtensionMerge.test.ts",
+      7
+    ],
+    [
+      "apps/extension-chromium/src/beap-messages/services/__tests__/BeapPackageBuilder.test.ts",
+      7
+    ],
+    [
+      "apps/extension-chromium/src/vault/autofill/__tests__/datavault-classifier.test.ts",
+      7
+    ],
+    [
+      "apps/extension-chromium/src/beap-messages/services/__tests__/sessionImportArtefact.test.ts",
+      6
+    ],
+    [
+      "apps/extension-chromium/src/handshake/__tests__/migration.test.ts",
+      5
+    ],
+    [
+      "apps/electron-vite-project/electron/main/email/__tests__/b7IpcContentUpdates.test.ts",
+      5
+    ],
+    [
+      "apps/extension-chromium/src/vault/autofill/__tests__/datavault-improvements.test.ts",
+      5
+    ],
+    [
+      "apps/extension-chromium/src/beap-builder/__tests__/handshakeRefresh.test.ts",
+      4
+    ],
+    [
+      "apps/electron-vite-project/electron/main/email/__tests__/b72DecryptedContentReseal.test.ts",
+      4
+    ],
+    [
+      "apps/electron-vite-project/electron/main/email/__tests__/mergeExtensionDepackaged.validation.test.ts",
+      4
+    ],
+    [
+      "apps/extension-chromium/src/vault/autofill/__tests__/scan-dos-caps.test.ts",
+      4
+    ],
+    [
+      "apps/electron-vite-project/electron/main/internalInference/__tests__/hostAiPeerEndpointAndAdvertisement.test.ts",
+      3
+    ],
+    [
+      "apps/electron-vite-project/electron/main/vault/hsContextOcrJob.test.ts",
+      2
+    ],
+    [
+      "apps/electron-vite-project/src/lib/__tests__/finalAcceptance.hostAiInvariants.test.ts",
+      2
+    ],
+    [
+      "apps/electron-vite-project/electron/main/internalInference/__tests__/hostAiRoutingCorrectness.regression.test.ts",
+      2
+    ],
+    [
+      "apps/extension-chromium/src/vault/autofill/__tests__/background-sender-gate.test.ts",
+      2
+    ],
+    [
+      "apps/electron-vite-project/src/components/ThisDeviceCard.test.tsx",
+      1
+    ],
+    [
+      "apps/electron-vite-project/electron/main/vault/rpcAuth.test.ts",
+      1
+    ],
+    [
+      "apps/electron-vite-project/src/lib/__tests__/beapInboxActionTooltips.test.ts",
+      1
+    ],
+    [
+      "apps/electron-vite-project/src/lib/__tests__/inboxMessageSandboxClone.test.ts",
+      1
+    ],
+    [
+      "apps/electron-vite-project/electron/main/email/__tests__/messageRouter.ingestTransaction.test.ts",
+      1
+    ],
+    [
+      "apps/electron-vite-project/electron/main/handshake/__tests__/outboundQueue.backoff.test.ts",
+      1
+    ],
+    [
+      "apps/electron-vite-project/electron/main/handshake/__tests__/revocation.test.ts",
+      1
+    ],
+    [
+      "apps/electron-vite-project/electron/main/ingestion/__tests__/hardening.test.ts",
+      1
+    ],
+    [
+      "apps/electron-vite-project/electron/main/internalInference/__tests__/internalInference.directHost.regression.test.ts",
+      1
+    ],
+    [
+      "apps/electron-vite-project/electron/main/internalInference/__tests__/internalInferenceService.test.ts",
+      1
+    ],
+    [
+      "apps/extension-chromium/src/vault/autofill/__tests__/security-regression.test.ts",
+      1
+    ],
+    [
+      "apps/extension-chromium/src/vault/autofill/__tests__/writes-kill-switch.test.ts",
+      1
+    ]
+  ]
+}

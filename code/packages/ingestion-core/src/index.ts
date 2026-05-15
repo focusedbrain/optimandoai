@@ -19,7 +19,9 @@ export {
   detectBeapMessagePackage,
 } from './beapDetection.js';
 export { ingestInput } from './ingestor.js';
-export { validateCapsule } from './validator.js';
+export { validateCapsule, validateSessionImportArtefact } from './validator.js';
+export { validateDecryptedBeapContent, CONTENT_VALIDATOR_VERSION } from './contentValidator.js';
+export type { ContentValidationResult } from './contentValidator.js';
 export { routeValidatedCapsule } from './distributionGate.js';
 export { buildPlainDraftPayload } from './plainTransform.js';
 export {
@@ -46,8 +48,21 @@ export type {
   DetectionMethod,
   ValidationResult,
   ValidationReasonCode,
+  ArtefactValidationResult,
   DistributionTarget,
   DistributionDecision,
 } from './types.js';
 
 export { INGESTION_CONSTANTS } from './types.js';
+
+// Phase B — Sealed Validation IPC protocol
+export type {
+  ValidateRequest,
+  SealedContent,
+  SealedQuarantine,
+  ValidateResponse,
+  SubprocessControlMessage,
+  SubprocessAckMessage,
+  SubprocessOutboundMessage,
+  SubprocessInboundMessage,
+} from './sealedValidation.js';

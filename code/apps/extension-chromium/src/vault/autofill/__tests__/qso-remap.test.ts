@@ -235,7 +235,10 @@ describe('Selector Strategy', () => {
 
     it('uses aria-label as fallback', () => {
       const el = makeInput({ type: 'text', 'aria-label': 'Email address' })
-      expect(buildSelector(el)).toBe('input[aria-label="Email address"]')
+      // CSS.escape (polyfilled in test/setup.ts) escapes the space:
+      // 'Email address' → 'Email\ address'. The selector uses it inside
+      // a quoted attribute value, so both forms match the same element.
+      expect(buildSelector(el)).toBe('input[aria-label="Email\\ address"]')
     })
   })
 

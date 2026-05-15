@@ -8,6 +8,21 @@ import { createRequire } from 'module'
 
 const registerHandshakeMock = vi.hoisted(() => vi.fn())
 
+// outboundQueue.ts re-registers stale-registry 403s by dynamically importing './ipc'.
+// ipc.ts transitively loads emailTransport → messageRouter → gateway, which calls
+// app.getPath at module load time. Mock electron before any dynamic imports run.
+vi.mock('electron', () => ({
+  app: { getPath: () => process.env.TEMP ?? process.env.TMPDIR ?? '/tmp' },
+  safeStorage: { isEncryptionAvailable: () => false },
+  ipcMain: { handle: () => undefined, on: () => undefined, removeHandler: () => undefined },
+  BrowserWindow: class {
+    webContents = { send: () => undefined }
+    static getAllWindows() {
+      return []
+    }
+  },
+}))
+
 vi.mock('../../p2p/relaySync', () => ({
   registerHandshakeWithRelay: (...args: unknown[]) => registerHandshakeMock(...args),
 }))
@@ -425,7 +440,7 @@ describe.skipIf(!hasSqlite)('outboundQueue: backoff & transport', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1)
     expect(r.code).toBe('REQUEST_INVALID')
     expect(r.queued).toBe(false)
-    expect(r.failure_class).toBe('PAYLOAD_PERMANENT')
+    expect(r.failure_class).toBe('SCHEMA_PERMANENT')
     expect(r.healing_status).toBe('STOPPED_REQUIRES_FIX')
     expect(r.http_status).toBe(400)
     expect(r.response_body_snippet).toContain('invalid capsule')
@@ -440,7 +455,7 @@ describe.skipIf(!hasSqlite)('outboundQueue: backoff & transport', () => {
       `SELECT status, error, failure_class FROM outbound_capsule_queue WHERE handshake_id = ?`,
     ).get('hs-qb-16') as { status: string; error: string; failure_class: string | null }
     expect(row.status).toBe('failed')
-    expect(row.failure_class).toBe('PAYLOAD_PERMANENT')
+    expect(row.failure_class).toBe('SCHEMA_PERMANENT')
     expect(row.error).toContain('HTTP 400')
 
     await vi.advanceTimersByTimeAsync(60_000)
@@ -490,13 +505,15 @@ describe.skipIf(!hasSqlite)('outboundQueue: backoff & transport', () => {
 
     expect(r.code).toBe('REQUEST_INVALID')
     expect(r.queued).toBe(false)
-    expect(r.failure_class).toBe('PAYLOAD_PERMANENT')
+    expect(r.failure_class).toBe('SCHEMA_PERMANENT')
     expect(r.healing_status).toBe('STOPPED_REQUIRES_FIX')
     expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
   test('QB_18_http_400_emits_request_diagnostics_logs', async () => {
+    // outbound_request_diagnostics is logged via console.info; terminal_http_400 via console.warn
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     upsertP2PConfig(db, {
       relay_mode: 'remote',
       use_coordination: false,
@@ -509,10 +526,12 @@ describe.skipIf(!hasSqlite)('outboundQueue: backoff & transport', () => {
     await processOutboundQueue(db)
 
     const allInfo = infoSpy.mock.calls.map((c) => String(c[1] ?? c[0])).join('\n')
+    const allWarn = warnSpy.mock.calls.map((c) => String(c[1] ?? c[0])).join('\n')
     expect(allInfo).toContain('outbound_request_diagnostics')
-    expect(allInfo).toContain('terminal_http_400')
+    expect(allWarn).toContain('terminal_http_400')
     expect(allInfo).toContain('request_shape')
     infoSpy.mockRestore()
+    warnSpy.mockRestore()
   })
 
   test('QB_14_preflight_config_permanent_does_not_schedule_autodrain', async () => {

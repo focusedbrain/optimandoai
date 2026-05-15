@@ -55,6 +55,7 @@ import type {
 } from '../types/sandboxOrchestratorAvailability'
 import { defaultSandboxAvailability } from '../types/sandboxOrchestratorAvailability'
 import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
+import { getValidationState } from '../utils/validationState'
 import { InboxBeapSourceBadgeDetail } from './InboxBeapSourceBadge'
 import BeapRedirectDialog from './BeapRedirectDialog'
 import { listHandshakes } from '../shims/handshakeRpc'
@@ -140,10 +141,52 @@ function getAutomationTags(p: Record<string, unknown>): string[] {
   return tags.filter((t): t is string => typeof t === 'string')
 }
 
-function getSessionRefs(p: Record<string, unknown>): Array<Record<string, unknown>> {
-  const r = p.sessionRefs
-  if (!Array.isArray(r)) return []
-  return r.filter((x): x is Record<string, unknown> => x !== null && typeof x === 'object')
+/**
+ * Resolve session refs for the inbox detail view.
+ *
+ * Decision A — PR 5: reads canonical artefact position first.
+ * Falls back to legacy `sessionRefs` array for pre-canon rows.
+ *
+ * NOTE (Step E gap): `depackaged_json` does not yet include
+ * `session_import_artefact` at its root for qBEAP or pBEAP rows — the
+ * depackager wrappers (`tryQbeapDecryptInbox`, `beapPackageToMainProcessDepackaged`)
+ * must be updated to hoist this field. Until then the canonical check will
+ * always fall through to the legacy path. Decision F (PR 5): the validated-mark
+ * gate is enforced regardless of which resolver path fires.
+ *
+ * @returns Array of session refs in a shape compatible with SessionImportDialog.
+ */
+/**
+ * Resolve session refs for the inbox detail view.
+ *
+ * PR 5.1 / Decision C: reads ONLY from the canonical `session_import_artefact` position.
+ * Legacy `sessionRefs` fallback is removed — after the v63 migration, `depackaged_json`
+ * carries the canonical plaintext, so the artefact is at its canonical position or absent
+ * (conformant absence → no session affordance, which is correct).
+ */
+function getArtefactSessionRefs(
+  p: Record<string, unknown>,
+): { refs: Array<Record<string, unknown>>; requestedAction?: 'import_only' | 'import_and_offer_run' } {
+  const canonicalArtefact = p.session_import_artefact
+  if (canonicalArtefact != null && typeof canonicalArtefact === 'object') {
+    const artefact = canonicalArtefact as Record<string, unknown>
+    const sessions = artefact.sessions
+    if (Array.isArray(sessions) && sessions.length > 0) {
+      const refs = sessions
+        .filter((s): s is Record<string, unknown> => s !== null && typeof s === 'object')
+        .map((s) => ({
+          sessionId: typeof s.session_id === 'string' ? s.session_id : String(s.session_id ?? ''),
+          sessionName: typeof s.session_name === 'string' ? s.session_name : undefined,
+        }))
+      const requestedAction =
+        artefact.requested_action === 'import_only' || artefact.requested_action === 'import_and_offer_run'
+          ? (artefact.requested_action as 'import_only' | 'import_and_offer_run')
+          : undefined
+      return { refs, requestedAction }
+    }
+  }
+  // Conformant absence — no artefact at the canonical position.
+  return { refs: [] }
 }
 
 /** Join string fields from shallow nested objects (e.g. contact cards) instead of raw JSON. */
@@ -211,11 +254,24 @@ function isPlaceholder(s: string): boolean {
 }
 
 /** Main-process ingest placeholder before extension Stage-5 merge or native decrypt. */
-function isPendingQbeapDepackaged(dp: Record<string, unknown> | null): boolean {
-  if (!dp) return false
-  if (dp.format === 'beap_qbeap_decrypted') return false
-  if (dp.format === 'beap_qbeap_outbound') return false
-  return dp.format === 'beap_qbeap_pending_main'
+/** PR 5.1: read format from depackaged_metadata (primary) or depackaged_json (legacy fallback). */
+function depackagedFormatFromMessage(
+  parsedMeta: Record<string, unknown> | null,
+  parsedDep: Record<string, unknown> | null,
+): string {
+  const fmt =
+    (parsedMeta != null && typeof parsedMeta.format === 'string' ? parsedMeta.format : null) ??
+    (parsedDep != null && typeof parsedDep.format === 'string' ? parsedDep.format : null) ??
+    ''
+  return fmt
+}
+
+function isPendingQbeapDepackaged(
+  parsedMeta: Record<string, unknown> | null,
+  dp: Record<string, unknown> | null,
+): boolean {
+  const fmt = depackagedFormatFromMessage(parsedMeta, dp)
+  return fmt === 'beap_qbeap_pending_main'
 }
 
 function partyEmail(p: unknown): string | null {
@@ -387,6 +443,17 @@ export default function EmailMessageDetail({
       return null
     }
   }, [message?.depackaged_json])
+
+  // PR 5.1 / Decision B: wrapper metadata (format identifier, source). Primary source
+  // for format-based routing; depackaged_json falls back for pre-migration rows.
+  const parsedDepackagedMeta = useMemo(() => {
+    if (!message?.depackaged_metadata) return null
+    try {
+      return JSON.parse(message.depackaged_metadata) as Record<string, unknown>
+    } catch {
+      return null
+    }
+  }, [message?.depackaged_metadata])
 
   const parsedPackage = useMemo(() => {
     if (!message?.beap_package_json) return null
@@ -678,7 +745,9 @@ export default function EmailMessageDetail({
   const isOutboundQbeap =
     message != null &&
     useNativePbeapQbeapSplit &&
-    (parsedDepackaged?.format === 'beap_qbeap_outbound' || isBeapQbeapOutboundEcho(message))
+    // PR 5.1: check depackaged_metadata first; fallback to depackaged_json (legacy) or store helper.
+    (depackagedFormatFromMessage(parsedDepackagedMeta, parsedDepackaged) === 'beap_qbeap_outbound' ||
+      isBeapQbeapOutboundEcho(message))
   /** Host-only Sandbox clone icon — not gated on native/depackaged BEAP shape (inbox is BEAP-only). */
   const showSandboxCloneIcon = canShowSandboxCloneAction({
     modeReady,
@@ -1077,7 +1146,16 @@ export default function EmailMessageDetail({
   const beapSandboxDetailTip = beapHostSandboxCloneTooltipForAvailability(sandboxAvailability, 'detail')
 
   const automationTags = parsedDepackaged ? getAutomationTags(parsedDepackaged) : []
-  const sessionRefsList = parsedDepackaged ? getSessionRefs(parsedDepackaged) : []
+  const { refs: sessionRefsList, requestedAction: artefactRequestedAction } = parsedDepackaged
+    ? getArtefactSessionRefs(parsedDepackaged)
+    : { refs: [] as Array<Record<string, unknown>>, requestedAction: undefined }
+
+  // Decision B — PR 5: validated-mark gate. Artefact UI is hidden for any
+  // row whose validation state is not 'validated'. See Canon I.3.4.
+  const validationState = useMemo(
+    () => getValidationState(message.validated_at, message.validation_reason),
+    [message.validated_at, message.validation_reason],
+  )
 
   const handleStar = useCallback(() => {
     toggleStar(message.id)
@@ -1375,7 +1453,7 @@ export default function EmailMessageDetail({
 
                   {!publicBody && !encryptedBody ? (
                     <div className="beap-body-section" style={{ opacity: 0.5 }}>
-                      {parsedDepackaged && isPendingQbeapDepackaged(parsedDepackaged) ? (
+                      {isPendingQbeapDepackaged(parsedDepackagedMeta, parsedDepackaged) ? (
                         <>
                           Waiting for decryption… Content will appear when the extension processes this message (merge into
                           the desktop inbox).
@@ -1401,7 +1479,20 @@ export default function EmailMessageDetail({
                 </div>
               ) : null}
 
-              {parsedDepackaged && sessionRefsList.length > 0 ? (
+              {/* Validation gate (Decision B — PR 5). Non-validated banners. */}
+              {validationState === 'rejected' ? (
+                <div className="beap-body-section beap-validation-banner beap-validation-rejected">
+                  <strong>Validation rejected</strong>
+                  {' — '}
+                  This message did not pass security validation and cannot be acted on.
+                </div>
+              ) : validationState === 'pending' ? (
+                <div className="beap-body-section beap-validation-banner beap-validation-pending">
+                  Validation status unknown for this message.
+                </div>
+              ) : null}
+              {/* Session attachment — only rendered when validated (Decision B). */}
+              {parsedDepackaged && sessionRefsList.length > 0 && validationState === 'validated' ? (
                 <div className="beap-body-section beap-session-indicator">
                   <div className="beap-body-label">⚙️ Attached Session</div>
                   {sessionRefsList.map((ref, i) => {
@@ -1419,6 +1510,8 @@ export default function EmailMessageDetail({
                           ? String(cap)
                           : ''
                     const status = importStatus[sessionId]
+                    // Decision E — PR 5: hide Run Automation button for import_only.
+                    const showRunBtn = artefactRequestedAction !== 'import_only'
                     return (
                       <div key={`${sessionId}-${i}`} className="beap-session-ref">
                         <span className="beap-session-name">{sessionName || sessionId}</span>
@@ -1432,14 +1525,16 @@ export default function EmailMessageDetail({
                             {status === 'error' ? (
                               <span className="beap-session-import-error">Import failed</span>
                             ) : null}
+                            {showRunBtn && (
                             <button
                               type="button"
                               className="beap-session-import-btn"
                               onClick={() => setImportingSession(ref)}
                               disabled={status === 'importing'}
                             >
-                              {status === 'importing' ? 'Importing…' : status === 'error' ? 'Retry' : '▶ Import & Run'}
+                              {status === 'importing' ? 'Importing…' : status === 'error' ? 'Retry' : '▶ Run Automation'}
                             </button>
+                            )}
                           </>
                         )}
                       </div>
@@ -1502,7 +1597,20 @@ export default function EmailMessageDetail({
                 </div>
               ) : null}
 
-              {isSandboxBeapClone && parsedDepackaged && sessionRefsList.length > 0 ? (
+              {/* Validation gate (Decision B — PR 5) for sandbox clone path. */}
+              {isSandboxBeapClone && validationState === 'rejected' ? (
+                <div className="beap-body-section beap-validation-banner beap-validation-rejected" style={{ marginTop: 12 }}>
+                  <strong>Validation rejected</strong>
+                  {' — '}
+                  This message did not pass security validation and cannot be acted on.
+                </div>
+              ) : isSandboxBeapClone && validationState === 'pending' ? (
+                <div className="beap-body-section beap-validation-banner beap-validation-pending" style={{ marginTop: 12 }}>
+                  Validation status unknown for this message.
+                </div>
+              ) : null}
+              {/* Session attachment — only rendered when validated (Decision B). */}
+              {isSandboxBeapClone && parsedDepackaged && sessionRefsList.length > 0 && validationState === 'validated' ? (
                 <div className="beap-body-section beap-session-indicator" style={{ marginTop: 12 }}>
                   <div className="beap-body-label">⚙️ Attached Session</div>
                   {sessionRefsList.map((ref, i) => {
@@ -1520,6 +1628,8 @@ export default function EmailMessageDetail({
                           ? String(cap)
                           : ''
                     const status = importStatus[sessionId]
+                    // Decision E — PR 5: hide Run Automation button for import_only.
+                    const showRunBtn = artefactRequestedAction !== 'import_only'
                     return (
                       <div key={`sbx-s-${sessionId}-${i}`} className="beap-session-ref">
                         <span className="beap-session-name">{sessionName || sessionId}</span>
@@ -1533,14 +1643,16 @@ export default function EmailMessageDetail({
                             {status === 'error' ? (
                               <span className="beap-session-import-error">Import failed</span>
                             ) : null}
+                            {showRunBtn && (
                             <button
                               type="button"
                               className="beap-session-import-btn"
                               onClick={() => setImportingSession(ref)}
                               disabled={status === 'importing'}
                             >
-                              {status === 'importing' ? 'Importing…' : status === 'error' ? 'Retry' : '▶ Import & Run'}
+                              {status === 'importing' ? 'Importing…' : status === 'error' ? 'Retry' : '▶ Run Automation'}
                             </button>
+                            )}
                           </>
                         )}
                       </div>

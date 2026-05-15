@@ -1,27 +1,42 @@
 /**
- * BEAP Email Ingestion — Drains `p2p_pending_beap` after Pull / auto-sync.
+ * BEAP Ingestion — Validate-before-write pipeline for P2P-arrived BEAP packages.
  *
- * Extension sandbox (`verifyImportedMessage` / `sandboxDepackage`) is not available
- * in the Electron main process. This module performs a **main-process equivalent**:
- * - **pBEAP**: base64-decode `payload` → capsule JSON → body / title / attachments (no signature verification).
- * - **qBEAP**: decrypt in main when local BEAP keys exist on `handshakes` (schema v50); else metadata excerpt.
- * - **Handshake capsules** (schema_version + capsule_type): structural preview for inbox UI.
+ * Phase B, PR B-4: the old `p2p_pending_beap` staging path has been replaced.
+ * P2P entry points (coordinationWs, p2pServer, relayPull, main.ts file-import IPC,
+ * beapSync.ts Strategy 1b) now call `processBeapPackageInline` directly, which runs
+ * the validator subprocess and writes a sealed `inbox_messages` or sealed
+ * `quarantine_messages` row without any SQLite-backed staging step.
  *
- * Updates matching `inbox_messages` rows (`beap_package_json` match). When no row exists
- * (e.g. P2P relay delivered only to `p2p_pending_beap`), inserts a `direct_beap` inbox row
- * then depackages. Marks pending rows processed so Pull does not stall on the extension poll loop.
+ * The module also provides:
+ * - `processBeapPackageInline` — main entry point for all P2P ingestion.
+ * - `processSandboxQuarantineReceive` — sandbox-side decrypt of host-quarantined blobs.
+ * - `retryPendingQbeapDecrypt` — sealed-update backfill for pre-B-4 unsealed rows
+ *   (uses `resealWithDecryptedContent` from sealedContentUpdate.ts — PR B-7.2).
+ * - `processPendingP2PBeapEmails` — deprecated no-op stub (was the old drain function).
  *
- * @version 1.0.0
+ * Phase B, PR B-7.2: The old `tryQbeapDecryptInbox` / `createQbeapDecryptInboxStmts`
+ * helpers have been removed.  They performed raw `db.prepare().run()` writes without a
+ * seal and had no production callers (`retryPendingQbeapDecrypt` was already migrated
+ * to the sealed gate in PR B-4).  The canonical re-seal helper for this path is now
+ * `resealWithDecryptedContent` in `sealedContentUpdate.ts`.
+ *
+ * @version 2.1.0 (Phase B, PR B-7.2)
  */
 
 import { createHash, randomUUID } from 'crypto'
 
 import { decryptQBeapPackage } from '../beap/decryptQBeapPackage'
 import { getHandshakeRecord } from '../handshake/db'
+import type { ProvenanceMetadata } from '@repo/ingestion-core'
 import { evaluateAutoresponder } from '../beap/autoresponderEvaluator'
 import { logAutoresponderDecision } from '../beap/autoresponderAudit'
-import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
-import { makeInboxAttachmentStorageId } from './messageRouter'
+import { makeInboxAttachmentStorageId, buildQuarantineCanonicalJson, findPairedSandboxHandshake } from './messageRouter'
+import { validatorOrchestrator } from '../validator-process/orchestrator'
+import { prepareSealedInsert, prepareSealedOperationalUpdate } from '../sealed-storage/index'
+import { resealWithDecryptedContent } from './sealedContentUpdate'
+import { decryptQuarantineBlob, encryptForQuarantine } from '../quarantine-encrypt/index'
+import { writeQuarantineBlob, type QuarantineBlobFile } from '../quarantine-blob-storage/index'
+import type { SSOSession } from '../handshake/types'
 
 const BATCH_SIZE = 100
 
@@ -58,7 +73,19 @@ export function isOutboundQbeapEcho(
 }
 
 /** depackaged_json for sender's own qBEAP echo (not decryptable locally). */
-export function buildOutboundQbeapDepackagedJson(packageJson: string, fallback: InboxRowFallback): string {
+/**
+ * Canonical depackaged content + wrapper metadata for an outbound qBEAP echo.
+ *
+ * PR 5.1 / Decision A+B+D:
+ * - `depackaged_json`: canonical placeholder shape. Sender can't decrypt their own
+ *   ciphertext, so subject/body are sourced from the email fallback. No
+ *   `session_import_artefact` (encrypted for recipient, not visible to sender).
+ * - `depackaged_metadata`: wrapper info (format, source, header summaries).
+ */
+export function buildOutboundQbeapDepackagedJson(
+  packageJson: string,
+  fallback: InboxRowFallback,
+): { depackaged_json: string; depackaged_metadata: string } {
   let senderFingerprint: string | undefined
   let contentHash: string | undefined
   let version: unknown
@@ -74,25 +101,23 @@ export function buildOutboundQbeapDepackagedJson(packageJson: string, fallback: 
   } catch {
     /* keep defaults */
   }
-  return JSON.stringify({
-    schema_version: '1.0.0',
+  const depackaged_json = JSON.stringify({
+    subject: fallback.subject ?? '',
+    body: OUTBOUND_QBEAP_BODY_PLACEHOLDER,
+    has_authoritative_encrypted: true,
+  })
+  const depackaged_metadata = JSON.stringify({
     format: 'beap_qbeap_outbound',
     encoding: 'qBEAP',
     note: 'Outbound message — encrypted for recipient, not decryptable by sender',
-    header_summary: {
-      sender_fingerprint: senderFingerprint,
-      content_hash: contentHash,
-      version,
-    },
-    body: { text: (fallback.body_text ?? '').slice(0, 12_000) },
+    header_summary: { sender_fingerprint: senderFingerprint, content_hash: contentHash, version },
     email_fallback_header: {
       subject: fallback.subject ?? '',
       from: fallback.from_address ?? '',
     },
-    metadata: {
-      source: 'main_process_p2p_outbound_echo',
-    },
+    source: 'main_process_p2p_outbound_echo',
   })
+  return { depackaged_json, depackaged_metadata }
 }
 
 function getHandshakePartyEmails(
@@ -249,24 +274,13 @@ export function ensureInboxAttachmentsFromBeapPackageJson(
       ts,
     )
   }
-  db.prepare(`UPDATE inbox_messages SET has_attachments = 1, attachment_count = ? WHERE id = ?`).run(
-    attMeta.length,
-    messageId,
-  )
+  prepareSealedOperationalUpdate(
+    db,
+    `UPDATE inbox_messages SET has_attachments = 1, attachment_count = ? WHERE id = ?`,
+  ).run(attMeta.length, messageId)
   return attMeta.length - existingCount
 }
 
-function resolveP2PPendingPackageColumnExpr(db: any): string {
-  try {
-    const cols = db.prepare(`PRAGMA table_info(p2p_pending_beap)`).all() as Array<{ name: string }>
-    const names = new Set(cols.map((c) => c.name))
-    if (names.has('raw_package') && names.has('package_json')) return 'COALESCE(package_json, raw_package)'
-    if (names.has('raw_package')) return 'raw_package'
-    return 'package_json'
-  } catch {
-    return 'package_json'
-  }
-}
 
 /**
  * Best-effort subject/body for `inbox_messages` before depackaging (P2P path has no email envelope).
@@ -335,26 +349,38 @@ export interface InboxRowFallback {
  * Build depackaged_json for orchestrator inbox UI + downstream embedding queue.
  * Best-effort only; never throws.
  */
+/**
+ * PR 5.1 / Decision A+B: depackaged content pair for inbox_messages row.
+ *
+ * - `depackaged_json`: canonical capsule plaintext (bytes the Validator approved), or
+ *   `null` when no canonical plaintext is available yet (qBEAP pending, errors, handshake).
+ * - `depackaged_metadata`: wrapper metadata (format identifier, source tag, header summaries)
+ *   that does NOT form part of the validated content but is kept for ops / routing.
+ */
+export interface BeapDepackagedPair {
+  depackaged_json: string | null
+  depackaged_metadata: string
+}
+
 export function beapPackageToMainProcessDepackaged(
   packageJson: string,
   fallback: InboxRowFallback,
-): string {
+): BeapDepackagedPair {
   const emailSubject = fallback.subject ?? ''
   const from = fallback.from_address ?? ''
   const bodyExcerpt = (fallback.body_text ?? '').slice(0, 12_000)
 
-  const baseError = (reason: string) =>
-    JSON.stringify({
-      schema_version: '1.0.0',
+  const baseError = (reason: string): BeapDepackagedPair => ({
+    depackaged_json: null,
+    depackaged_metadata: JSON.stringify({
       format: 'beap_main_process_error',
       error_reason: reason,
       header: { subject: emailSubject, from },
-      body: { text: bodyExcerpt },
-      metadata: {
-        source: 'main_process_pending_beap',
-        note: 'Could not extract BEAP structure; email fields retained for context.',
-      },
-    })
+      body_excerpt: bodyExcerpt,
+      source: 'main_process_pending_beap',
+      note: 'Could not extract BEAP structure; email fields retained for context.',
+    }),
+  })
 
   let parsed: unknown
   try {
@@ -371,19 +397,19 @@ export function beapPackageToMainProcessDepackaged(
 
   // ── Handshake capsule (attachment/body) — not a qBEAP/pBEAP message package
   if (typeof p.schema_version === 'number' && typeof p.capsule_type === 'string') {
-    return JSON.stringify({
-      schema_version: '1.0.0',
-      format: 'beap_handshake_capsule_email',
-      capsule_type: p.capsule_type,
-      capsule_schema_version: p.schema_version,
-      header: { subject: emailSubject, from },
-      body: { text: bodyExcerpt },
-      capsule_keys: Object.keys(p).slice(0, 40),
-      metadata: {
+    return {
+      depackaged_json: null,
+      depackaged_metadata: JSON.stringify({
+        format: 'beap_handshake_capsule_email',
+        capsule_type: p.capsule_type,
+        capsule_schema_version: p.schema_version,
+        header: { subject: emailSubject, from },
+        body_excerpt: bodyExcerpt,
+        capsule_keys: Object.keys(p).slice(0, 40),
         source: 'main_process_pending_beap',
         note: 'Handshake capsule from email; cryptographic processing may still run in extension. Structural preview for inbox.',
-      },
-    })
+      }),
+    }
   }
 
   const header = p.header as Record<string, unknown> | undefined
@@ -397,55 +423,25 @@ export function beapPackageToMainProcessDepackaged(
   const contentHash = typeof header.content_hash === 'string' ? header.content_hash : undefined
   const version = header.version
 
-  // ── pBEAP: plaintext base64 payload → capsule JSON (mirrors decodePBeapPackage decode step)
+  // ── pBEAP: plaintext base64 payload → capsule JSON is the canonical plaintext
+  // (PR 5.1 / Decision A). `depackaged_json` becomes the raw capsule JSON so the
+  // Validator's approval applies to exactly the bytes the UI reads.
   if (encoding === 'pBEAP' && typeof p.payload === 'string') {
     try {
       const capsuleJson = Buffer.from(p.payload, 'base64').toString('utf8')
-      const capsule = JSON.parse(capsuleJson) as Record<string, unknown>
-      const bodyText = String(capsule.body ?? capsule.transport_plaintext ?? '')
-      const title =
-        typeof capsule.title === 'string' && capsule.title.trim()
-          ? capsule.title
-          : emailSubject
-
-      const attachments: Array<{
-        filename: string
-        content_type: string
-        size: number
-        content_id?: string
-      }> = []
-
-      if (Array.isArray(capsule.attachments)) {
-        for (const a of capsule.attachments) {
-          if (!a || typeof a !== 'object') continue
-          const o = a as Record<string, unknown>
-          attachments.push({
-            filename: String(o.originalName ?? o.filename ?? o.name ?? 'attachment'),
-            content_type: String(o.originalType ?? o.mimeType ?? 'application/octet-stream'),
-            size: typeof o.originalSize === 'number' ? o.originalSize : Number(o.sizeBytes ?? 0) || 0,
-            content_id: typeof o.id === 'string' ? o.id : undefined,
-          })
-        }
-      }
-
-      return JSON.stringify({
-        schema_version: '1.0.0',
-        format: 'beap_message_main_process',
-        encoding: 'pBEAP',
-        trust_note:
-          'Public pBEAP payload decoded in main process without Stage-5 sandbox signature / gate verification.',
-        header: {
-          subject: title,
-          from,
+      return {
+        depackaged_json: capsuleJson,
+        depackaged_metadata: JSON.stringify({
+          format: 'beap_message_main_process',
+          encoding: 'pBEAP',
+          trust_note:
+            'Public pBEAP payload decoded in main process without Stage-5 sandbox signature / gate verification.',
+          header_from: from,
           sender_fingerprint: senderFingerprint,
-        },
-        body: { text: bodyText },
-        attachments,
-        metadata: {
           source: 'main_process_pending_beap',
           decoded_at: new Date().toISOString(),
-        },
-      })
+        }),
+      }
     } catch (e) {
       console.warn(
         '[BeapEmailIngestion] pBEAP payload decode failed, falling back to metadata:',
@@ -454,147 +450,644 @@ export function beapPackageToMainProcessDepackaged(
     }
   }
 
-  // ── qBEAP: cannot decrypt in main
+  // ── qBEAP: cannot decrypt in main. No canonical plaintext yet — stored as null.
+  // `depackaged_metadata` holds the format identifier so routing/retry queries work.
   if (encoding === 'qBEAP') {
-    return JSON.stringify({
-      schema_version: '1.0.0',
-      format: 'beap_qbeap_pending_main',
-      encoding: 'qBEAP',
-      header_summary: {
-        sender_fingerprint: senderFingerprint,
-        content_hash: contentHash,
-        version,
-      },
-      body: { text: bodyExcerpt },
-      email_fallback_header: {
-        subject: emailSubject,
-        from,
-      },
-      metadata: {
+    return {
+      depackaged_json: null,
+      depackaged_metadata: JSON.stringify({
+        format: 'beap_qbeap_pending_main',
+        encoding: 'qBEAP',
+        header_summary: { sender_fingerprint: senderFingerprint, content_hash: contentHash, version },
+        email_fallback_header: { subject: emailSubject, from },
         source: 'main_process_pending_beap',
         note: 'qBEAP requires extension sandbox and keys; email excerpt retained for search/context.',
-      },
-    })
+      }),
+    }
   }
 
-  // Unknown encoding but has header — still surface email + header hints
-  return JSON.stringify({
-    schema_version: '1.0.0',
-    format: 'beap_message_main_process_partial',
-    encoding: typeof encoding === 'string' ? encoding : 'unknown',
-    header_summary: {
-      sender_fingerprint: senderFingerprint,
-      content_hash: contentHash,
-      version,
-    },
-    body: { text: bodyExcerpt },
-    metadata: {
+  // Unknown encoding but has header
+  return {
+    depackaged_json: null,
+    depackaged_metadata: JSON.stringify({
+      format: 'beap_message_main_process_partial',
+      encoding: typeof encoding === 'string' ? encoding : 'unknown',
+      header_summary: { sender_fingerprint: senderFingerprint, content_hash: contentHash, version },
+      body_excerpt: bodyExcerpt,
       source: 'main_process_pending_beap',
       note: 'Unrecognised BEAP message shape for main-process decode; email fields retained.',
+    }),
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase B, PR B-4 — P2P Inline Validator-Before-Write + Sandbox Quarantine Receive
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Phase B, PR B-7.2: `QbeapDecryptInboxStmts`, `createQbeapDecryptInboxStmts`,
+// and `tryQbeapDecryptInbox` have been removed.  These helpers performed raw
+// `db.prepare().run()` writes with no seal and had no production callers.
+// The canonical re-seal helper is now `resealWithDecryptedContent` in
+// `sealedContentUpdate.ts`.  `retryPendingQbeapDecrypt` (below) is refactored
+// to use `resealWithDecryptedContent`.
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Decision A: P2P relay reuses messageRouter's validate-before-write pattern.
+// Decision C: Sandbox-side quarantine receive: detect sandbox_clone_quarantine
+//   flag, qBEAP-decrypt outer clone, decryptQuarantineBlob inner layer, then
+//   re-process original BEAP bytes through the same inline flow.
+//
+// per Phase B Architecture, Implementation Prompt B-4/11.
+
+/** Sentinel value used for sandbox-final-state quarantine rows (no blob to store). */
+const SANDBOX_FINAL_STATE_BLOB_ID = '__sandbox_final_state__'
+const SANDBOX_FINAL_STATE_BLOB_SHA = 'sandbox_final_state_no_blob'
+
+// P2P_BEAP_ACCOUNT_ID is declared at module scope (line 44); no re-declaration needed here.
+
+const P2P_INBOX_INSERT_SQL = `
+  INSERT INTO inbox_messages (
+    id, source_type, handshake_id, account_id, email_message_id,
+    from_address, from_name, to_addresses, cc_addresses,
+    subject, body_text, body_html, beap_package_json,
+    depackaged_json, has_attachments, attachment_count, received_at, ingested_at,
+    imap_remote_mailbox, imap_rfc_message_id,
+    validated_at, validator_version, validation_reason,
+    seal, seal_input_json
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+const P2P_QUARANTINE_INSERT_SQL = `
+  INSERT INTO quarantine_messages (
+    id, transport_sender, transport_received_at, transport_folder,
+    blob_size_bytes, blob_storage_id, blob_sha256, rejection_reason,
+    paired_sandbox_handshake_id,
+    seal, seal_input_json
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+export interface P2PInlineResult {
+  outcome: 'inbox' | 'quarantine' | 'error'
+  rowId?: string
+  error?: string
+}
+
+function buildP2PProvenance(
+  handshakeId: string,
+  transportSender: string | null,
+  sourceType: ProvenanceMetadata['source_type'],
+  packageJson: string,
+): ProvenanceMetadata {
+  return {
+    source_type: sourceType,
+    origin_classification: 'external',
+    ingested_at: new Date().toISOString(),
+    transport_metadata: {
+      sender_address: transportSender ?? undefined,
+      message_id: handshakeId,
     },
+    input_classification: 'beap_capsule_present',
+    raw_input_hash: createHash('sha256').update(packageJson, 'utf8').digest('hex'),
+    ingestor_version: '1.0.0',
+  }
+}
+
+interface P2PInboxWriteParams {
+  rowId: string
+  handshakeId: string
+  sourceType: string
+  depackagedJson: string
+  depackagedMetadata: string
+  packageJson: string
+  transportSender: string | null
+  preview: { subject: string; body_text: string; from_address: string | null }
+  receivedAt: string
+  now: string
+  transportFolder: string
+  seal: string
+  sealInputJson: string
+  validatedAt: string
+  validatorVersion: string
+  validationReason: string | null
+}
+
+function writeP2PInboxRow(db: any, p: P2PInboxWriteParams): P2PInlineResult {
+  const insertInbox = prepareSealedInsert(db, P2P_INBOX_INSERT_SQL)
+  insertInbox.run(
+    [
+      p.rowId,
+      p.sourceType,
+      p.handshakeId,
+      P2P_BEAP_ACCOUNT_ID,
+      `p2p-${p.rowId}`,
+      p.transportSender,
+      null,
+      '[]',
+      '[]',
+      p.preview.subject,
+      p.preview.body_text,
+      null,
+      p.packageJson,
+      p.depackagedJson,
+      0,
+      0,
+      p.receivedAt,
+      p.now,
+      p.transportFolder,
+      null,
+      p.validatedAt,
+      p.validatorVersion,
+      p.validationReason,
+      p.seal,
+      p.sealInputJson,
+    ],
+    {
+      seal: p.seal,
+      seal_input_json: p.sealInputJson,
+      canonical_json: p.depackagedJson,
+      row_id: p.rowId,
+    },
+  )
+  return { outcome: 'inbox', rowId: p.rowId }
+}
+
+interface P2PQuarantineWriteParams {
+  rejectionReason: string
+  transportSender: string | null
+  receivedAt: string
+  transportFolder: string
+  now: string
+  session?: SSOSession | null
+  /** When true, writes a sandbox-final-state quarantine row (no blob encryption). */
+  isSandboxFinalState?: boolean
+  sandboxFinalStateHandshakeId?: string
+}
+
+async function writeP2PQuarantineRow(
+  db: any,
+  packageJson: string,
+  handshakeId: string,
+  p: P2PQuarantineWriteParams,
+): Promise<P2PInlineResult> {
+  const quarantineId = randomUUID()
+
+  let blobStorageId: string
+  let blobSha256: string
+  let blobSizeBytes: number
+  let pairedSandboxHandshakeId: string
+
+  if (p.isSandboxFinalState) {
+    // Sandbox is the final destination — no sub-sandbox to encrypt for.
+    // Use sentinel values to mark this as a final-state row.
+    blobStorageId = SANDBOX_FINAL_STATE_BLOB_ID
+    blobSha256 = SANDBOX_FINAL_STATE_BLOB_SHA
+    blobSizeBytes = 0
+    pairedSandboxHandshakeId = p.sandboxFinalStateHandshakeId ?? handshakeId
+  } else {
+    const sandboxHandshake = findPairedSandboxHandshake(db, p.session ?? null)
+    if (!sandboxHandshake) {
+      // No paired sandbox: write a final-state quarantine row with sentinels.
+      blobStorageId = SANDBOX_FINAL_STATE_BLOB_ID
+      blobSha256 = SANDBOX_FINAL_STATE_BLOB_SHA
+      blobSizeBytes = 0
+      pairedSandboxHandshakeId = handshakeId
+    } else {
+      const emailBytes = Buffer.from(packageJson, 'utf-8')
+      const encResult = encryptForQuarantine(emailBytes, sandboxHandshake.peer_x25519_public_key_b64)
+      if (!encResult.ok) {
+        console.error('[P2P-INLINE] encryptForQuarantine failed:', encResult.error)
+        blobStorageId = SANDBOX_FINAL_STATE_BLOB_ID
+        blobSha256 = SANDBOX_FINAL_STATE_BLOB_SHA
+        blobSizeBytes = 0
+        pairedSandboxHandshakeId = handshakeId
+      } else {
+        const blobResult = writeQuarantineBlob(encResult.blob)
+        blobStorageId = blobResult.storage_id
+        blobSha256 = blobResult.blob_sha256
+        blobSizeBytes = blobResult.blob_size_bytes
+        pairedSandboxHandshakeId = sandboxHandshake.handshake_id
+      }
+    }
+  }
+
+  const qCanonicalJson = buildQuarantineCanonicalJson({
+    id: quarantineId,
+    blob_storage_id: blobStorageId,
+    blob_sha256: blobSha256,
+    rejection_reason: p.rejectionReason,
+    paired_sandbox_handshake_id: pairedSandboxHandshakeId,
+  })
+
+  const qProvenance = buildP2PProvenance(handshakeId, p.transportSender, 'p2p', packageJson)
+  const qResp = await validatorOrchestrator.validate({
+    envelope: {},
+    plaintext_or_encrypted: { kind: 'plaintext', content: qCanonicalJson },
+    provenance: qProvenance,
+    target_row_id: quarantineId,
+  })
+
+  if (!qResp.outcome.ok) {
+    throw new Error(`P2P quarantine validator rejected (structural bug): ${qResp.outcome.sealed_quarantine.rejection_reason}`)
+  }
+
+  const qSealed = qResp.outcome.sealed
+  const insertQ = prepareSealedInsert(db, P2P_QUARANTINE_INSERT_SQL)
+  insertQ.run(
+    [
+      quarantineId,
+      p.transportSender ?? handshakeId,
+      p.receivedAt,
+      p.transportFolder,
+      blobSizeBytes,
+      blobStorageId,
+      blobSha256,
+      p.rejectionReason,
+      pairedSandboxHandshakeId,
+      qSealed.seal,
+      qSealed.seal_input_json,
+    ],
+    {
+      seal: qSealed.seal,
+      seal_input_json: qSealed.seal_input_json,
+      canonical_json: qCanonicalJson,
+      row_id: quarantineId,
+    },
+  )
+  return { outcome: 'quarantine', rowId: quarantineId }
+}
+
+/**
+ * Sandbox-side quarantine receive branch (Decision C, Phase B PR B-4).
+ *
+ * Called when the incoming P2P package has
+ * `metadata.inbox_response_path.sandbox_clone_quarantine === true`.
+ *
+ * Flow:
+ *   1. qBEAP-decrypt the outer clone package → body = QuarantineBlobFile JSON.
+ *   2. Parse body as QuarantineBlobFile.
+ *   3. decryptQuarantineBlob using local X25519 private key.
+ *   4. Process decrypted original BEAP bytes through processBeapPackageInline.
+ *   5. Any failure → sandbox-side final-state quarantine row.
+ *
+ * Encoding contract (host side, to be implemented in a future PR for the
+ * clone-to-sandbox IPC): encryptedMessage = JSON.stringify(QuarantineBlobFile).
+ * After qBEAP decrypt, decryptedContent.body = the QuarantineBlobFile JSON string.
+ */
+async function processSandboxQuarantineReceiveInternal(
+  db: any,
+  pkg: Record<string, unknown>,
+  packageJson: string,
+  handshakeId: string,
+  opts: {
+    rowId: string
+    receivedAt: string
+    transportFolder: string
+    now: string
+    session?: SSOSession | null
+  },
+): Promise<P2PInlineResult> {
+  const writeFinaState = (reason: string) =>
+    writeP2PQuarantineRow(db, packageJson, handshakeId, {
+      rejectionReason: reason,
+      transportSender: null,
+      receivedAt: opts.receivedAt,
+      transportFolder: opts.transportFolder,
+      now: opts.now,
+      session: opts.session,
+      isSandboxFinalState: true,
+      sandboxFinalStateHandshakeId: handshakeId,
+    })
+
+  // Step 1: qBEAP-decrypt the outer clone package.
+  let decrypted: Awaited<ReturnType<typeof decryptQBeapPackage>> | null = null
+  try {
+    decrypted = await decryptQBeapPackage(packageJson, handshakeId, db)
+  } catch {
+    /* fall through */
+  }
+  if (!decrypted?.body) {
+    console.warn('[P2P-INLINE] Sandbox quarantine receive: outer qBEAP decrypt failed for handshake', handshakeId)
+    return writeFinaState('blob_decrypt_failed')
+  }
+
+  // Step 2: Parse body as QuarantineBlobFile.
+  let blobFile: QuarantineBlobFile | null = null
+  try {
+    blobFile = JSON.parse(decrypted.body) as QuarantineBlobFile
+    if (blobFile.version !== 'quarantine-v1') throw new Error(`Unsupported blob version: ${blobFile.version}`)
+  } catch (e: unknown) {
+    console.warn('[P2P-INLINE] Sandbox quarantine receive: blob parse failed:', (e as Error)?.message ?? e)
+    return writeFinaState('blob_parse_failed')
+  }
+
+  // Step 3: Decrypt quarantine blob using local X25519 private key.
+  const hsRecord = getHandshakeRecord(db, handshakeId)
+  const localPrivKey = hsRecord?.local_x25519_private_key_b64?.trim()
+  if (!localPrivKey) {
+    console.warn('[P2P-INLINE] Sandbox quarantine receive: local_x25519_private_key_b64 missing for handshake', handshakeId)
+    return writeFinaState('blob_decrypt_failed_no_local_key')
+  }
+
+  const decryptResult = decryptQuarantineBlob(blobFile, localPrivKey)
+  if (!decryptResult.ok) {
+    console.warn('[P2P-INLINE] Sandbox quarantine receive: decryptQuarantineBlob failed:', decryptResult.error)
+    return writeFinaState('blob_decrypt_failed')
+  }
+
+  // Step 4: Process decrypted original BEAP bytes as a regular P2P message.
+  // The isSandboxDecryptedBlob flag causes depackage failure to write
+  // a sandbox-final-state quarantine row instead of another blob-encrypted row.
+  const originalPackageJson = decryptResult.plaintext.toString('utf-8')
+  console.log('[P2P-INLINE] Sandbox quarantine receive: blob decrypted, processing original BEAP bytes for handshake', handshakeId)
+  return processBeapPackageInlineInternal(db, originalPackageJson, handshakeId, {
+    receivedAt: opts.receivedAt,
+    transportFolder: opts.transportFolder,
+    session: opts.session,
+    isSandboxDecryptedBlob: true,
   })
 }
 
-/** Prepared statements for qBEAP decrypt → inbox update (shared by P2P drain + retry). */
-export type QbeapDecryptInboxStmts = {
-  updateInboxDecrypted: any
-  deleteAttForMessage: any
-  insertAtt: any
-  updateAttEnc: any
-  updateAttSha: any
+/**
+ * Internal implementation of processBeapPackageInline that accepts an
+ * `isSandboxDecryptedBlob` flag to control quarantine fallback behaviour.
+ *
+ * When `isSandboxDecryptedBlob = true`, a depackage failure writes a
+ * sandbox-final-state quarantine row (no blob encryption, sentinel values)
+ * instead of encrypting for a sub-sandbox.
+ */
+async function processBeapPackageInlineInternal(
+  db: any,
+  packageJson: string,
+  handshakeId: string,
+  options: {
+    receivedAt?: string
+    transportSender?: string | null
+    transportFolder?: string
+    session?: SSOSession | null
+    sourceType?: ProvenanceMetadata['source_type']
+    isSandboxDecryptedBlob?: boolean
+  },
+): Promise<P2PInlineResult> {
+  const now = new Date().toISOString()
+  const receivedAt = options.receivedAt ?? now
+  const transportFolder = options.transportFolder ?? 'p2p'
+  const sourceType = options.sourceType ?? 'p2p'
+  const rowId = randomUUID()
+
+  // ── Parse outer package ──────────────────────────────────────────────────
+  let pkg: Record<string, unknown>
+  let pkgEncoding: string | undefined
+  try {
+    pkg = JSON.parse(packageJson.trim()) as Record<string, unknown>
+    const h = pkg.header as Record<string, unknown> | undefined
+    pkgEncoding = typeof h?.encoding === 'string' ? h.encoding : undefined
+  } catch {
+    pkg = {}
+    pkgEncoding = undefined
+  }
+
+  // ── Sandbox quarantine receive branch (Decision C) ────────────────────────
+  // Only check when NOT already processing a decrypted blob (avoids re-entry).
+  if (!options.isSandboxDecryptedBlob) {
+    const outerMeta = pkg.metadata as Record<string, unknown> | undefined
+    const inboxResponsePath = outerMeta?.inbox_response_path as Record<string, unknown> | undefined
+    if (inboxResponsePath?.sandbox_clone_quarantine === true) {
+      return processSandboxQuarantineReceiveInternal(db, pkg, packageJson, handshakeId, {
+        rowId,
+        receivedAt,
+        transportFolder,
+        now,
+        session: options.session,
+      })
+    }
+  }
+
+  // ── Transport sender resolution ───────────────────────────────────────────
+  const parties = handshakeId ? getHandshakePartyEmails(db, handshakeId) : { counterpartyEmail: null, localEmail: null }
+  const transportSender = options.transportSender ?? parties.counterpartyEmail
+
+  // ── Preview extraction ────────────────────────────────────────────────────
+  const preview = extractP2PBeapInboxPreview(packageJson)
+
+  // ── Outbound echo check ────────────────────────────────────────────────────
+  if (isOutboundQbeapEcho(packageJson, handshakeId, db)) {
+    const { depackaged_json: dpJson, depackaged_metadata: dpMeta } = buildOutboundQbeapDepackagedJson(
+      packageJson,
+      { id: rowId, subject: preview.subject, from_address: transportSender, body_text: preview.body_text },
+    )
+    const provenance = buildP2PProvenance(handshakeId, transportSender, sourceType, packageJson)
+    const resp = await validatorOrchestrator.validate({
+      envelope: pkg,
+      plaintext_or_encrypted: { kind: 'plaintext', content: dpJson },
+      provenance,
+      target_row_id: rowId,
+    })
+    if (!resp.outcome.ok) {
+      throw new Error(`P2P inline: validator rejected outbound qBEAP echo: ${resp.outcome.sealed_quarantine.rejection_reason}`)
+    }
+    const sealed = resp.outcome.sealed
+    return writeP2PInboxRow(db, {
+      rowId, handshakeId, sourceType: 'direct_beap',
+      depackagedJson: sealed.canonical_json,
+      depackagedMetadata: dpMeta,
+      packageJson, transportSender, preview,
+      receivedAt, now, transportFolder,
+      seal: sealed.seal, sealInputJson: sealed.seal_input_json,
+      validatedAt: sealed.validated_at, validatorVersion: sealed.validator_version,
+      validationReason: null,
+    })
+  }
+
+  // ── Inline depackage ───────────────────────────────────────────────────────
+  let canonicalJson: string | null = null
+  let depackageError: string | null = null
+  let depackagedMetadata: string | null = null
+
+  if (pkgEncoding === 'qBEAP') {
+    try {
+      const decr = await decryptQBeapPackage(packageJson, handshakeId, db)
+      if (decr?.rawCapsuleJson) {
+        canonicalJson = decr.rawCapsuleJson
+        depackagedMetadata = JSON.stringify({
+          format: 'beap_qbeap_decrypted',
+          encoding: 'qBEAP',
+          source: 'main_process_p2p_inline',
+          decrypted_at: now,
+        })
+      } else {
+        depackageError = 'qBEAP decrypt returned null (missing handshake key or malformed package)'
+      }
+    } catch (err: unknown) {
+      depackageError = `qBEAP decrypt error: ${err instanceof Error ? err.message : String(err)}`
+    }
+  } else if (pkgEncoding === 'pBEAP') {
+    try {
+      const payloadB64 = (pkg.payload as string | undefined) ?? ''
+      if (!payloadB64.trim()) {
+        depackageError = 'pBEAP package has no payload field'
+      } else {
+        canonicalJson = Buffer.from(payloadB64, 'base64').toString('utf-8')
+        depackagedMetadata = JSON.stringify({
+          format: 'beap_message_main_process',
+          encoding: 'pBEAP',
+          source: 'main_process_p2p_inline',
+          trust_note: 'Public pBEAP payload decoded in main process without Stage-5 sandbox signature / gate verification.',
+        })
+      }
+    } catch (err: unknown) {
+      depackageError = `pBEAP decode error: ${err instanceof Error ? err.message : String(err)}`
+    }
+  } else if (typeof pkg.schema_version === 'number' && typeof pkg.capsule_type === 'string') {
+    // Handshake capsule — the outer JSON is canonical.
+    canonicalJson = packageJson
+    depackagedMetadata = JSON.stringify({
+      format: 'beap_handshake_capsule_p2p',
+      capsule_type: pkg.capsule_type,
+      source: 'main_process_p2p_inline',
+    })
+  } else {
+    depackageError = `Unrecognised BEAP package shape; encoding=${pkgEncoding ?? 'missing'}`
+  }
+
+  // ── Validate and write sealed inbox row ────────────────────────────────────
+  if (canonicalJson !== null) {
+    const provenance = buildP2PProvenance(handshakeId, transportSender, sourceType, packageJson)
+    const resp = await validatorOrchestrator.validate({
+      envelope: pkg,
+      plaintext_or_encrypted: { kind: 'plaintext', content: canonicalJson },
+      provenance,
+      target_row_id: rowId,
+    })
+    if (resp.outcome.ok) {
+      const sealed = resp.outcome.sealed
+      return writeP2PInboxRow(db, {
+        rowId, handshakeId, sourceType: 'direct_beap',
+        depackagedJson: sealed.canonical_json,
+        depackagedMetadata: depackagedMetadata ?? '',
+        packageJson, transportSender, preview,
+        receivedAt, now, transportFolder,
+        seal: sealed.seal, sealInputJson: sealed.seal_input_json,
+        validatedAt: sealed.validated_at, validatorVersion: sealed.validator_version,
+        validationReason: null,
+      })
+    }
+    depackageError = `validator rejected: ${resp.outcome.sealed_quarantine.rejection_reason}`
+  }
+
+  // ── Quarantine path ────────────────────────────────────────────────────────
+  const rejectionReason = depackageError ?? 'depackage_failed'
+  console.warn('[P2P-INLINE] Routing to quarantine, reason:', rejectionReason, 'handshake:', handshakeId)
+  return writeP2PQuarantineRow(db, packageJson, handshakeId, {
+    rejectionReason,
+    transportSender,
+    receivedAt,
+    transportFolder,
+    now,
+    session: options.session,
+    isSandboxFinalState: options.isSandboxDecryptedBlob === true,
+    sandboxFinalStateHandshakeId: handshakeId,
+  })
 }
 
-export function createQbeapDecryptInboxStmts(db: any): QbeapDecryptInboxStmts {
-  return {
-    updateInboxDecrypted: db.prepare(`
-    UPDATE inbox_messages SET
-      depackaged_json = ?,
-      body_text = ?,
-      subject = ?,
-      has_attachments = ?,
-      attachment_count = ?,
-      embedding_status = 'pending'
-    WHERE id = ?
-  `),
-    deleteAttForMessage: db.prepare(`DELETE FROM inbox_attachments WHERE message_id = ?`),
-    insertAtt: db.prepare(`
-    INSERT INTO inbox_attachments (id, message_id, filename, content_type, size_bytes, content_id, storage_path, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `),
-    updateAttEnc: db.prepare(`
-    UPDATE inbox_attachments SET encryption_key = ?, encryption_iv = ?, encryption_tag = ?, storage_encrypted = ? WHERE id = ?
-  `),
-    updateAttSha: db.prepare(`UPDATE inbox_attachments SET content_sha256 = ? WHERE id = ?`),
+/**
+ * Inline P2P BEAP package ingestion — Phase B, PR B-4.
+ *
+ * Replaces the two-stage `insertPendingP2PBeap → processPendingP2PBeapEmails`
+ * pattern.  Called directly from P2P entry points (coordinationWs, p2pServer,
+ * relayPull) and from the `handshake:importBeapMessage` IPC handler.
+ *
+ * Decision A — validate-before-write: no row is written before the validator
+ *   subprocess has produced a cryptographic seal.
+ *
+ * Decision B — P2P quarantine path: messages that cannot be depackaged go to
+ *   `quarantine_messages` with `transport_folder = transportFolder` (e.g. 'p2p').
+ *
+ * Decision C — sandbox quarantine receive: packages with
+ *   `metadata.inbox_response_path.sandbox_clone_quarantine === true` are
+ *   routed through `processSandboxQuarantineReceive` instead.
+ *
+ * @param sourceType  SourceType for provenance (caller supplies 'p2p',
+ *   'p2p_relay', 'relay_pull', 'coordination_ws', etc.).
+ */
+export async function processBeapPackageInline(
+  db: any,
+  packageJson: string,
+  handshakeId: string,
+  options: {
+    receivedAt?: string
+    transportSender?: string | null
+    transportFolder?: string
+    session?: SSOSession | null
+    sourceType?: ProvenanceMetadata['source_type']
+  } = {},
+): Promise<P2PInlineResult> {
+  try {
+    return await processBeapPackageInlineInternal(db, packageJson, handshakeId, options)
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[P2P-INLINE] Unhandled error in processBeapPackageInline:', msg)
+    return { outcome: 'error', error: msg }
   }
 }
 
 /**
- * Decrypt qBEAP in main and persist to `inbox_messages` + attachments. Returns depackaged JSON for autoresponder.
+ * Public entry point for the sandbox-side quarantine receive branch.
+ * Accepts a raw outer qBEAP package JSON string (the clone message as
+ * received at the sandbox) plus the handshake identifier for the paired host.
+ *
+ * Used by tests and future host-side clone IPC integration.
  */
-export async function tryQbeapDecryptInbox(
+export async function processSandboxQuarantineReceive(
   db: any,
-  stmts: QbeapDecryptInboxStmts,
-  inbox: InboxRowFallback,
-  pkg: string,
-  handshakeId: string | null | undefined,
-): Promise<{ decrypted: boolean; depackagedJson?: string }> {
-  if (!handshakeId || !pkg.trim()) return { decrypted: false }
+  outerPackageJson: string,
+  handshakeId: string,
+  opts: {
+    receivedAt?: string
+    transportFolder?: string
+    session?: SSOSession | null
+  } = {},
+): Promise<P2PInlineResult> {
+  const now = new Date().toISOString()
+  let pkg: Record<string, unknown>
   try {
-    const hdr = JSON.parse(pkg) as { header?: { encoding?: string } }
-    if (hdr.header?.encoding !== 'qBEAP') return { decrypted: false }
-    const dec = await decryptQBeapPackage(pkg, handshakeId, db)
-    if (!dec) return { decrypted: false }
-
-    const depackagedJson = JSON.stringify({
-      schema_version: '1.0.0',
-      format: 'beap_qbeap_decrypted',
-      encoding: 'qBEAP',
-      subject: dec.subject,
-      body: { text: dec.body },
-      transport_plaintext: dec.transport_plaintext,
-      automation: dec.automation,
-      metadata: { source: 'main_process_qbeap_decrypt' },
+    pkg = JSON.parse(outerPackageJson.trim()) as Record<string, unknown>
+  } catch {
+    pkg = {}
+  }
+  try {
+    return await processSandboxQuarantineReceiveInternal(db, pkg, outerPackageJson, handshakeId, {
+      rowId: randomUUID(),
+      receivedAt: opts.receivedAt ?? now,
+      transportFolder: opts.transportFolder ?? 'p2p',
+      now,
+      session: opts.session,
     })
-    stmts.deleteAttForMessage.run(inbox.id)
-    const nowIso = new Date().toISOString()
-    for (const att of dec.attachments) {
-      if (!att.bytes || att.bytes.length === 0) continue
-      const rowAttId = makeInboxAttachmentStorageId(inbox.id, att.id)
-      try {
-        const w = writeEncryptedAttachmentFile(inbox.id, att.id, att.filename, att.bytes)
-        stmts.insertAtt.run(
-          rowAttId,
-          inbox.id,
-          att.filename.slice(0, 500),
-          att.contentType.slice(0, 200),
-          att.size,
-          att.id,
-          w.storagePath,
-          nowIso,
-        )
-        stmts.updateAttEnc.run(w.encryptionKeyStored, w.ivB64, w.tagB64, 1, rowAttId)
-        stmts.updateAttSha.run(createHash('sha256').update(att.bytes).digest('hex'), rowAttId)
-      } catch (attErr) {
-        console.warn('[BEAP-INBOX] Attachment write failed:', (attErr as Error)?.message)
-      }
-    }
-    const attCount = dec.attachments.filter((a) => a.bytes && a.bytes.length > 0).length
-    const bodyText = dec.transport_plaintext || dec.body || inbox.body_text || ''
-    const subj = dec.subject || inbox.subject || ''
-    stmts.updateInboxDecrypted.run(depackagedJson, bodyText, subj, attCount > 0 ? 1 : 0, attCount, inbox.id)
-    return { decrypted: true, depackagedJson }
-  } catch (decErr) {
-    console.warn('[BEAP-INBOX] qBEAP decrypt skipped:', (decErr as Error)?.message ?? decErr)
-    return { decrypted: false }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[P2P-INLINE] Error in processSandboxQuarantineReceive:', msg)
+    return { outcome: 'error', error: msg }
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 /** Run `retryPendingQbeapDecrypt` at most once per process (avoids timer spam from tryP2PStartup). */
 let pendingQbeapDecryptRetryRan = false
 
 /**
- * One-time-style retry: inbox rows that were stored with `beap_qbeap_pending_main` (decrypt not available
- * at ingest) are attempted again using current handshake keys — e.g. after Linux deploy or key sync.
+ * One-time legacy backfill: inbox rows written by the pre-B-4 P2P path
+ * with format `beap_qbeap_pending_main` are retried using current handshake
+ * keys and, on success, updated via the sealed-storage gate.
+ *
+ * Phase B, PR B-4 migration: this function now uses `prepareSealedUpdate`
+ * with a validator subprocess call so each successfully decrypted row
+ * receives a valid seal and becomes readable by the gate's read-path.
+ *
+ * SAFETY GUARD: the query explicitly excludes rows with a non-NULL `seal`
+ * column (B-3+ sealed rows written by detectAndRouteMessage or
+ * processBeapPackageInline).  B-3+ rows were fully depackaged at ingest;
+ * overwriting their depackaged_json without re-sealing would invalidate
+ * the existing seal.
  */
 export async function retryPendingQbeapDecrypt(db: any): Promise<number> {
   if (!db) return 0
@@ -612,10 +1105,18 @@ export async function retryPendingQbeapDecrypt(db: any): Promise<number> {
     try {
       rows = db
         .prepare(
+          // PR 5.1: format moved from depackaged_json to depackaged_metadata.
+          // Check both columns so the query works on pre-migration rows (old format
+          // still in depackaged_json) and post-migration rows (format in depackaged_metadata).
+          // PR B-3.1 safety guard: exclude sealed rows (seal IS NOT NULL).
           `SELECT id, beap_package_json, handshake_id, subject, from_address, body_text
            FROM inbox_messages
            WHERE source_type = 'direct_beap'
-             AND depackaged_json LIKE '%beap_qbeap_pending_main%'
+             AND (seal IS NULL OR seal = '')
+             AND (
+               depackaged_metadata LIKE '%beap_qbeap_pending_main%'
+               OR (depackaged_metadata IS NULL AND depackaged_json LIKE '%beap_qbeap_pending_main%')
+             )
              AND beap_package_json IS NOT NULL
              AND TRIM(COALESCE(beap_package_json, '')) != ''
              AND handshake_id IS NOT NULL
@@ -629,18 +1130,12 @@ export async function retryPendingQbeapDecrypt(db: any): Promise<number> {
 
     if (!rows.length) return 0
 
-    console.log(`[RETRY-DECRYPT] Found ${rows.length} inbox row(s) with qBEAP pending (main); attempting decrypt`)
-
-    const stmts = createQbeapDecryptInboxStmts(db)
-
-    const updateOutboundRow = db.prepare(
-      `UPDATE inbox_messages SET depackaged_json = ?, body_text = ?, embedding_status = 'pending' WHERE id = ?`,
-    )
+    console.log(`[RETRY-DECRYPT] Found ${rows.length} inbox row(s) with qBEAP pending (main); attempting sealed backfill`)
 
     for (const row of rows) {
       const pkg = String(row.beap_package_json ?? '').trim()
       if (!pkg) continue
-      const inbox: InboxRowFallback = {
+      const fallback: InboxRowFallback = {
         id: row.id,
         subject: row.subject,
         from_address: row.from_address,
@@ -648,17 +1143,57 @@ export async function retryPendingQbeapDecrypt(db: any): Promise<number> {
       }
       try {
         if (isOutboundQbeapEcho(pkg, row.handshake_id, db)) {
-          const outboundDp = buildOutboundQbeapDepackagedJson(pkg, inbox)
-          updateOutboundRow.run(outboundDp, OUTBOUND_QBEAP_BODY_PLACEHOLDER, row.id)
+          const { depackaged_json: dpJson, depackaged_metadata: dpMeta } =
+            buildOutboundQbeapDepackagedJson(pkg, fallback)
+          const provenance = buildP2PProvenance(row.handshake_id, row.from_address, 'p2p', pkg)
+          let dpMetaObj: Record<string, unknown>
+          try { dpMetaObj = JSON.parse(dpMeta) as Record<string, unknown> } catch { dpMetaObj = {} }
+          const res = await resealWithDecryptedContent(db, {
+            rowId: row.id,
+            rawCapsuleJson: dpJson,
+            bodyText: OUTBOUND_QBEAP_BODY_PLACEHOLDER,
+            subject: fallback.subject ?? '',
+            depackagedMetadata: dpMetaObj,
+            provenance,
+            attachmentCount: 0,
+          })
+          if (!res.ok) {
+            console.warn(`[RETRY-DECRYPT] Outbound echo reseal failed id=${row.id}: ${res.error}`)
+            continue
+          }
           fixed++
-          console.log(`[RETRY-DECRYPT] Outbound qBEAP echo detected, skipping decrypt id=${row.id}`)
+          console.log(`[RETRY-DECRYPT] Outbound qBEAP echo sealed id=${row.id}`)
           continue
         }
-        const q = await tryQbeapDecryptInbox(db, stmts, inbox, pkg, row.handshake_id)
-        if (q.decrypted) {
-          fixed++
-          console.log(`[RETRY-DECRYPT] Decrypted inbox message id=${row.id}`)
+
+        const decrypted = await decryptQBeapPackage(pkg, row.handshake_id, db)
+        if (!decrypted?.rawCapsuleJson) {
+          console.warn(`[RETRY-DECRYPT] Cannot decrypt id=${row.id} (handshake key unavailable)`)
+          continue
         }
+
+        const provenance = buildP2PProvenance(row.handshake_id, row.from_address, 'p2p', pkg)
+        const attCount = decrypted.attachments?.length ?? 0
+        const res = await resealWithDecryptedContent(db, {
+          rowId: row.id,
+          rawCapsuleJson: decrypted.rawCapsuleJson,
+          bodyText: decrypted.body ?? fallback.body_text ?? '',
+          subject: decrypted.subject || fallback.subject || 'BEAP message',
+          depackagedMetadata: {
+            format: 'beap_qbeap_decrypted',
+            encoding: 'qBEAP',
+            source: 'retry_pending_qbeap_decrypt_b4',
+            decrypted_at: new Date().toISOString(),
+          },
+          provenance,
+          attachmentCount: attCount,
+        })
+        if (!res.ok) {
+          console.warn(`[RETRY-DECRYPT] reseal failed id=${row.id}: ${res.error}`)
+          continue
+        }
+        fixed++
+        console.log(`[RETRY-DECRYPT] Sealed legacy row id=${row.id}`)
       } catch (e) {
         console.warn(`[RETRY-DECRYPT] Error for id=${row.id}:`, (e as Error)?.message ?? e)
       }
@@ -671,200 +1206,38 @@ export async function retryPendingQbeapDecrypt(db: any): Promise<number> {
 }
 
 /**
- * Process pending rows in `p2p_pending_beap` in batches until drained.
- * Matches `inbox_messages` via `beap_package_json` = `package_json`; if none, inserts `direct_beap`.
+ * Decode the pBEAP payload from a BEAP package JSON and return the raw
+ * capsule object for content validation (PR 2.1/7).
+ *
+ * The `session_import_artefact` field lives inside the capsule, not in the
+ * outer `depackaged_json` wrapper produced by `beapPackageToMainProcessDepackaged`.
+ * Validators must receive the raw capsule to detect artefact presence.
+ *
+ * Returns `null` for non-pBEAP packages (qBEAP, handshake, malformed).
+ * Never throws.
+ *
+ * per Canon A.3.054.8, Annex I.3.3
  */
-export async function processPendingP2PBeapEmails(db: any): Promise<number> {
-  if (!db) return 0
-
-  let drained = 0
-
-  const pkgExpr = resolveP2PPendingPackageColumnExpr(db)
-  const selectBatch = db.prepare(
-    `SELECT id, handshake_id, ${pkgExpr} AS package_json, created_at FROM p2p_pending_beap
-     WHERE processed = 0 ORDER BY created_at ASC LIMIT ?`,
-  )
-
-  const selectInbox = db.prepare(
-    `SELECT id, subject, from_address, body_text FROM inbox_messages
-     WHERE beap_package_json IS NOT NULL AND beap_package_json = ?
-     LIMIT 1`,
-  )
-
-  const updateInbox = db.prepare(
-    `UPDATE inbox_messages SET depackaged_json = ?, embedding_status = 'pending' WHERE id = ?`,
-  )
-
-  const qbeapStmts = createQbeapDecryptInboxStmts(db)
-
-  const insertDirectBeap = db.prepare(`
-    INSERT INTO inbox_messages (
-      id, source_type, handshake_id, account_id, email_message_id,
-      from_address, from_name, to_addresses, cc_addresses,
-      subject, body_text, body_html, beap_package_json,
-      has_attachments, attachment_count, received_at, ingested_at,
-      imap_remote_mailbox, imap_rfc_message_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `)
-
-  const markProcessed = db.prepare(`UPDATE p2p_pending_beap SET processed = 1 WHERE id = ?`)
-
-  const updateInboxOutbound = db.prepare(
-    `UPDATE inbox_messages SET depackaged_json = ?, body_text = ?, embedding_status = 'pending' WHERE id = ?`,
-  )
-
+export function extractPBeapCapsule(packageJson: string): unknown | null {
   try {
-    const pendingCountRow = db.prepare(`SELECT COUNT(*) as c FROM p2p_pending_beap WHERE processed = 0`).get() as { c: number }
-    const pendingTotal = pendingCountRow?.c ?? 0
-    if (pendingTotal > 0) {
-      console.log(`[BEAP-INBOX] Processing ${pendingTotal} pending P2P BEAP message(s)`)
-    }
-
-    for (;;) {
-      const rows = selectBatch.all(BATCH_SIZE) as Array<{
-        id: number
-        handshake_id: string
-        package_json: string
-        created_at: string
-      }>
-
-      if (!rows.length) break
-
-      for (const row of rows) {
-        try {
-          const pkg = row.package_json != null ? String(row.package_json) : ''
-          if (!pkg.trim()) {
-            console.warn('[BEAP-INBOX] Skipping pending row with empty package id=', row.id)
-            markProcessed.run(row.id)
-            drained++
-            continue
-          }
-
-          let inbox = selectInbox.get(pkg) as InboxRowFallback | undefined
-
-          const ensureAttachmentsForInboxMessage = (messageId: string) => {
-            ensureInboxAttachmentsFromBeapPackageJson(db, messageId, pkg)
-          }
-
-          if (!inbox) {
-            const preview = extractP2PBeapInboxPreview(pkg)
-            const parties = row.handshake_id ? getHandshakePartyEmails(db, row.handshake_id) : { counterpartyEmail: null, localEmail: null }
-            const fromAddr =
-              (preview.from_address && String(preview.from_address).trim()) ||
-              (parties.counterpartyEmail && parties.counterpartyEmail.trim()) ||
-              null
-            const toJson = parties.localEmail ? JSON.stringify([parties.localEmail]) : '[]'
-            const attMeta = extractAttachmentsFromBeapPackageJson(pkg)
-            const attCount = attMeta.length
-            const inboxId = randomUUID()
-            const now = new Date().toISOString()
-            const receivedAt = row.created_at && String(row.created_at).trim() ? String(row.created_at) : now
-            insertDirectBeap.run(
-              inboxId,
-              'direct_beap',
-              row.handshake_id,
-              P2P_BEAP_ACCOUNT_ID,
-              `p2p-pending-${row.id}`,
-              fromAddr,
-              null,
-              toJson,
-              '[]',
-              preview.subject,
-              preview.body_text,
-              null,
-              pkg,
-              attCount > 0 ? 1 : 0,
-              attCount,
-              receivedAt,
-              now,
-              'P2P_DIRECT',
-              null,
-            )
-            if (attCount > 0) {
-              ensureInboxAttachmentsFromBeapPackageJson(db, inboxId, pkg)
-            }
-            inbox = {
-              id: inboxId,
-              subject: preview.subject,
-              from_address: fromAddr,
-              body_text: preview.body_text,
-            }
-          } else {
-            ensureAttachmentsForInboxMessage(inbox.id)
-          }
-
-          if (row.handshake_id && isOutboundQbeapEcho(pkg, row.handshake_id, db)) {
-            const outboundDp = buildOutboundQbeapDepackagedJson(pkg, inbox)
-            updateInboxOutbound.run(outboundDp, OUTBOUND_QBEAP_BODY_PLACEHOLDER, inbox.id)
-            console.log('[BEAP-INBOX] Outbound message detected, skipping decrypt:', inbox.id)
-            try {
-              const evaluation = evaluateAutoresponder({
-                messageId: inbox.id,
-                handshakeId: row.handshake_id ?? null,
-                depackagedJson: outboundDp,
-              })
-              logAutoresponderDecision(evaluation)
-              if (evaluation.decision === 'policy-consent') {
-                console.log(
-                  '[Autoresponder] policy-consent detected; auto-send disabled (receiver authority / manual consent).',
-                  inbox.id,
-                )
-              }
-            } catch (evalErr: unknown) {
-              console.warn('[Autoresponder] evaluation failed:', (evalErr as Error)?.message ?? evalErr)
-            }
-            markProcessed.run(row.id)
-            drained++
-            console.log(`[BEAP-INBOX] Message imported: handshake=${row.handshake_id} messageId=${inbox.id}`)
-            continue
-          }
-
-          let depackagedJson = beapPackageToMainProcessDepackaged(pkg, inbox)
-          const qbeapTry = await tryQbeapDecryptInbox(db, qbeapStmts, inbox, pkg, row.handshake_id)
-          if (qbeapTry.decrypted && qbeapTry.depackagedJson) {
-            depackagedJson = qbeapTry.depackagedJson
-          } else {
-            updateInbox.run(depackagedJson, inbox.id)
-          }
-
-          try {
-            const evaluation = evaluateAutoresponder({
-              messageId: inbox.id,
-              handshakeId: row.handshake_id ?? null,
-              depackagedJson,
-            })
-            logAutoresponderDecision(evaluation)
-            if (evaluation.decision === 'policy-consent') {
-              // Autoresponder send path is intentionally NOT implemented — user must send manually.
-              console.log(
-                '[Autoresponder] policy-consent detected; auto-send disabled (receiver authority / manual consent).',
-                inbox.id,
-              )
-            }
-          } catch (evalErr: unknown) {
-            console.warn('[Autoresponder] evaluation failed:', (evalErr as Error)?.message ?? evalErr)
-          }
-
-          markProcessed.run(row.id)
-          drained++
-          console.log(`[BEAP-INBOX] Message imported: handshake=${row.handshake_id} messageId=${inbox.id}`)
-        } catch (e: unknown) {
-          console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
-          console.error('[BeapEmailIngestion] Error processing pending id', row.id, (e as Error)?.message)
-          try {
-            markProcessed.run(row.id)
-            drained++
-          } catch {
-            /* non-fatal */
-          }
-        }
-      }
-    }
-  } catch (e: unknown) {
-    console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
-    console.error('[BeapEmailIngestion] Query error:', (e as Error)?.message)
-    return drained
+    const pkg = JSON.parse(packageJson.trim()) as Record<string, unknown>
+    const header = pkg.header as Record<string, unknown> | undefined
+    if (header?.encoding !== 'pBEAP') return null
+    if (typeof pkg.payload !== 'string') return null
+    const capsuleJson = Buffer.from(pkg.payload, 'base64').toString('utf8')
+    return JSON.parse(capsuleJson)
+  } catch {
+    return null
   }
-
-  return drained
 }
+
+/**
+ * @deprecated Phase B, PR B-4 — P2P entry points now call `processBeapPackageInline`
+ * directly (validate-before-write). The `p2p_pending_beap` staging table has been
+ * dropped in schema migration v66. This stub exists only to avoid breaking callers
+ * that have not yet been updated; it is a no-op and always returns 0.
+ */
+export async function processPendingP2PBeapEmails(_db: any): Promise<number> {
+  return 0
+}
+

@@ -70,6 +70,12 @@ export interface DecryptedQBeapContent {
     tags: string[]
     tagSource: string
   }
+  /**
+   * The raw capsule JSON string exactly as decrypted — byte-equivalent to the
+   * plaintext the Validator approved (PR 5.1 / Decision A). Stored directly as
+   * `depackaged_json` so the bytes the UI sees match the bytes the validator signed.
+   */
+  rawCapsuleJson: string
 }
 
 function fromBase64(s: string): Uint8Array {
@@ -612,6 +618,9 @@ export async function decryptQBeapPackage(
       transport_plaintext,
       attachments: decryptedAttachments,
       automation,
+      // PR 5.1 / Decision A: preserve the raw capsule JSON so the validator sees
+      // bytes identical to the sealed canonical content (used by retryPendingQbeapDecrypt).
+      rawCapsuleJson: capsuleJson,
     }
   } catch (e) {
     console.error('[qBEAP-decrypt] Decryption failed at step:', cryptoStep, (e as Error)?.message ?? e)

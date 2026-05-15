@@ -8,12 +8,12 @@
  *   - Handshake capsules: JSON with `schema_version` + `capsule_type` (initiate/accept/refresh/revoke)
  *     → ingestion-core via handleIngestionRPC
  *   - qBEAP/pBEAP message packages: JSON with `header` + `metadata` + (`envelope` or `payload`)
- *     → p2p_pending_beap → extension sandbox depackaging (same as P2P path)
+ *     → processBeapPackageInline (validate-before-write, sealed inbox or quarantine row)
  *
  * Non-BEAP emails are ignored. Duplicate message IDs are not reprocessed.
  */
 
-import { insertPendingP2PBeap, insertPendingPlainEmail } from '../handshake/db'
+import { processBeapPackageInline } from './beapEmailIngestion'
 import type { SSOSession } from '../handshake/types'
 import { handleIngestionRPC } from '../ingestion/ipc'
 import type { SanitizedMessage, SanitizedMessageDetail, AttachmentMeta, ExtractedAttachmentText } from './types'
@@ -226,7 +226,7 @@ export async function processEmailForBeap(
     }
   }
 
-  // Strategy 1b: Detect qBEAP/pBEAP message package in email body (route to p2p_pending_beap)
+  // Strategy 1b: Detect qBEAP/pBEAP message package in email body — inline validate-before-write
   const msgPkgDetection = detectBeapMessagePackage(message.bodyText)
   if (msgPkgDetection.detected && msgPkgDetection.packageJson) {
     try {
@@ -235,12 +235,21 @@ export async function processEmailForBeap(
         subject: message.subject?.slice(0, 80),
         messageId: message.id,
       })
-      insertPendingP2PBeap(db, '__email_import__', msgPkgDetection.packageJson)
+      const handshakeId = (() => {
+        try { return (JSON.parse(msgPkgDetection.packageJson) as any)?.handshake_id?.trim() || '__email_import__' } catch { return '__email_import__' }
+      })()
+      await processBeapPackageInline(db, msgPkgDetection.packageJson, handshakeId, {
+        session: ssoSession,
+        sourceType: 'email',
+        transportSender: message.from?.email ?? null,
+        receivedAt: new Date().toISOString(),
+        transportFolder: 'email_body',
+      })
       processedMessageIds.add(messageKey)
       return { submitted: true }
     } catch (err: any) {
       processedMessageIds.add(messageKey)
-      return { submitted: false, error: err?.message ?? 'Failed to queue message package' }
+      return { submitted: false, error: err?.message ?? 'Failed to process message package' }
     }
   }
 
@@ -300,7 +309,7 @@ export async function processEmailForBeap(
             continue
           }
 
-          // Try qBEAP/pBEAP message package (p2p_pending_beap → extension sandbox)
+          // Try qBEAP/pBEAP message package — inline validate-before-write
           const msgPkgDetection = detectBeapMessagePackage(extracted.text)
           if (msgPkgDetection.detected && msgPkgDetection.packageJson) {
             console.log('[BEAP Sync] Message package detected in attachment:', {
@@ -309,7 +318,16 @@ export async function processEmailForBeap(
               attachment: att.filename,
               messageId: message.id,
             })
-            insertPendingP2PBeap(db, '__email_import__', msgPkgDetection.packageJson)
+            const handshakeId = (() => {
+              try { return (JSON.parse(msgPkgDetection.packageJson) as any)?.handshake_id?.trim() || '__email_import__' } catch { return '__email_import__' }
+            })()
+            await processBeapPackageInline(db, msgPkgDetection.packageJson, handshakeId, {
+              session: ssoSession,
+              sourceType: 'email',
+              transportSender: message.from?.email ?? null,
+              receivedAt: new Date().toISOString(),
+              transportFolder: 'email_attachment',
+            })
             anySubmitted = true
           }
         } catch (attErr: any) {
@@ -326,35 +344,16 @@ export async function processEmailForBeap(
     }
   }
 
-  // Strategy 3: Plain email (Canon §6) — convert to depackaged BeapMessage for AI inbox
-  try {
-    const plainMsg = plainEmailToBeapMessage(message, accountId)
-    let enrichedMsg = plainMsg
-    if (message.hasAttachments && _emailListAttachmentsFn) {
-      try {
-        const attachments = await _emailListAttachmentsFn(accountId, message.id)
-        enrichedMsg = enrichWithAttachments(plainMsg, attachments.map((a) => ({
-          id: a.id,
-          filename: a.filename || 'attachment',
-          mimeType: a.mimeType || 'application/octet-stream',
-          size: a.size || 0,
-        })))
-      } catch {
-        // Non-fatal: keep msg without attachment metadata
-      }
-    }
-    insertPendingPlainEmail(db, accountId, message.id, JSON.stringify(enrichedMsg))
-    processedMessageIds.add(messageKey)
-    console.log('[BEAP Sync] Plain email queued for inbox:', {
-      sender: message.from?.email,
-      subject: message.subject?.slice(0, 80),
-      messageId: message.id,
-    })
-    return { submitted: true }
-  } catch (err: any) {
-    processedMessageIds.add(messageKey)
-    return { submitted: false, error: err?.message ?? 'Failed to queue plain email' }
-  }
+  // Strategy 3: Plain email — no-op in this path.
+  // Phase B, PR B-3: plain emails are now handled inline by detectAndRouteMessage
+  // (via syncOrchestrator).  The plain_email_inbox staging table was dropped in
+  // schema v65.  This function (processEmailForBeap) is called only from
+  // runBeapSyncCycle, which is a legacy periodic-poll path that is no longer
+  // invoked in the main sync flow (syncOrchestrator calls detectAndRouteMessage
+  // directly).  Plain email deduplication is handled by the syncOrchestrator's
+  // existingIds check, so no staging is needed here.
+  processedMessageIds.add(messageKey)
+  return { submitted: false }
 }
 
 /**

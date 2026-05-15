@@ -284,9 +284,11 @@ export function useBulkClassification(
             status = 'classified'
           }
 
-          // Progressive store update: single-message batchClassify
+          // Progressive store update: single-message batchClassify (async IPC wrapper)
           const classificationMap = new Map([[messageId, result.classification]])
-          batchClassify([messageId], classificationMap)
+          batchClassify([messageId], classificationMap).catch((err) => {
+            console.warn('[useBulkClassification] batchClassify IPC error for', messageId, err)
+          })
 
           // Update per-message state
           setMessageStates((prev) => {

@@ -440,6 +440,160 @@ export async function ackPendingPlainEmail(id: number): Promise<void> {
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase B, PR B-8: Extension BEAP Inbox — sealed read + IPC mutations
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Shape of a sealed inbox row returned by handshake.beapInbox.list. */
+export interface BeapInboxRow {
+  id: string
+  handshake_id: string | null
+  subject: string | null
+  body_text: string | null
+  depackaged_json: string | null
+  received_at: number
+  read_status: number
+  archived: number
+  has_attachments: number
+  attachment_count: number
+  ai_analysis_json: string | null
+  urgency_score: number | null
+  from_address: string | null
+  from_name: string | null
+  source_type: string | null
+  attachments: Array<{
+    attachment_id: string
+    filename: string | null
+    mime_type: string | null
+    size_bytes: number | null
+    content_sha256: string | null
+  }>
+}
+
+/** Response envelope returned by getBeapInboxMessages. */
+export interface BeapInboxListResponse {
+  items: BeapInboxRow[]
+  /**
+   * Opaque cursor for fetching the next batch. null = no more rows.
+   * Pass this as `cursor` in the next call to getBeapInboxMessages.
+   * The renderer must not interpret or construct cursor values.
+   */
+  nextCursor: string | null
+}
+
+/**
+ * Fetch a batch of non-deleted sealed inbox rows from Electron main's `inbox_messages`.
+ * Main runs sealedQuery — tampered or unsealed rows are excluded in reject mode.
+ *
+ * Phase B, PR B-8.1: cursor-based pagination.
+ * - Pass `cursor: null` (or omit) for the first batch.
+ * - Pass the `nextCursor` from the previous response to fetch the next batch.
+ * - `nextCursor === null` in the response means no more rows exist.
+ */
+export async function getBeapInboxMessages(
+  opts: { cursor?: string | null; limit?: number } = {}
+): Promise<BeapInboxListResponse> {
+  const res = await sendHandshakeRpc<{
+    success: boolean
+    items?: BeapInboxRow[]
+    nextCursor?: string | null
+    error?: string
+  }>(
+    'handshake.beapInbox.list',
+    { cursor: opts.cursor ?? null, limit: opts.limit },
+    20_000,
+  )
+  if (!res?.success) throw new Error(res?.error ?? 'beapInbox.list failed')
+  return { items: res.items ?? [], nextCursor: res.nextCursor ?? null }
+}
+
+/**
+ * Fetch specific rows by id — used by patch mode after mutations.
+ * Rows that fail seal verification are excluded (same gate as beapInbox.list).
+ * Rows not present in the response were deleted or failed verification.
+ *
+ * Phase B, PR B-8.2.
+ */
+export async function getBeapInboxMany(
+  opts: { rowIds: readonly string[] }
+): Promise<{ rows: BeapInboxRow[] }> {
+  const res = await sendHandshakeRpc<{
+    success: boolean
+    rows?: BeapInboxRow[]
+    error?: string
+  }>(
+    'handshake.beapInbox.getMany',
+    { rowIds: opts.rowIds },
+    20_000,
+  )
+  if (!res?.success) throw new Error(res?.error ?? 'beapInbox.getMany failed')
+  return { rows: res.rows ?? [] }
+}
+
+/**
+ * Phase B, PR B-8.2: mutation client functions now return `{ rowId }` so the
+ * renderer can call refreshFromMain({ kind: 'patch', rowIds: [rowId] }) after
+ * the mutation succeeds, updating only the affected row without a full replace.
+ */
+
+/** Mark a message as read or unread. */
+export async function beapInboxMarkRead(messageId: string, read: boolean): Promise<{ rowId: string }> {
+  const res = await sendHandshakeRpc<{ success: boolean; rowId?: string; error?: string }>(
+    'handshake.beapInbox.markRead',
+    { messageId, read },
+  )
+  if (!res?.success) throw new Error(res?.error ?? 'beapInbox.markRead failed')
+  return { rowId: res.rowId ?? messageId }
+}
+
+/** Archive a message (sets archived = 1). */
+export async function beapInboxArchive(messageId: string): Promise<{ rowId: string }> {
+  const res = await sendHandshakeRpc<{ success: boolean; rowId?: string; error?: string }>(
+    'handshake.beapInbox.archive',
+    { messageId },
+  )
+  if (!res?.success) throw new Error(res?.error ?? 'beapInbox.archive failed')
+  return { rowId: res.rowId ?? messageId }
+}
+
+/** Unarchive a message (sets archived = 0). */
+export async function beapInboxUnarchive(messageId: string): Promise<{ rowId: string }> {
+  const res = await sendHandshakeRpc<{ success: boolean; rowId?: string; error?: string }>(
+    'handshake.beapInbox.unarchive',
+    { messageId },
+  )
+  if (!res?.success) throw new Error(res?.error ?? 'beapInbox.unarchive failed')
+  return { rowId: res.rowId ?? messageId }
+}
+
+/**
+ * Persist AI classification for a message.
+ * Main re-seals `ai_analysis_json` via resealWithAiAnalysis (Decision A).
+ */
+export async function beapInboxClassify(
+  messageId: string,
+  aiAnalysis: Record<string, unknown> | null,
+  urgencyScore?: number | null,
+): Promise<{ rowId: string }> {
+  const res = await sendHandshakeRpc<{ success: boolean; rowId?: string; error?: string }>(
+    'handshake.beapInbox.classify',
+    { messageId, aiAnalysis, urgencyScore },
+    30_000,
+  )
+  if (!res?.success) throw new Error(res?.error ?? 'beapInbox.classify failed')
+  return { rowId: res.rowId ?? messageId }
+}
+
+/** Override urgency score (operational column — no reseal needed). */
+export async function beapInboxSetUrgency(messageId: string, urgencyScore: number): Promise<{ rowId: string }> {
+  const res = await sendHandshakeRpc<{ success: boolean; rowId?: string; error?: string }>(
+    'handshake.beapInbox.setUrgency',
+    { messageId, urgencyScore },
+  )
+  if (!res?.success) throw new Error(res?.error ?? 'beapInbox.setUrgency failed')
+  return { rowId: res.rowId ?? messageId }
+}
+
 /**
  * Send a BEAP package via P2P relay to the handshake counterparty.
  * @param handshakeId - Handshake ID for the recipient

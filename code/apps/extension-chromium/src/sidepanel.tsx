@@ -58,6 +58,7 @@ import { getThemeTokens } from './shared/ui/lightboxTheme'
 import { formatWatchdogAlert, type WatchdogThreat } from './utils/formatWatchdogAlert'
 import { WRGuardWorkspace, useWRGuardStore } from './wrguard'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, BeapMessageListView, BeapBulkInbox, initBeapPqAuth } from './beap-messages'
+import { buildSessionImportArtefact, type BuildArtefactInput } from './beap-builder/buildSessionImportArtefact'
 import type { BeapBulkInboxHandle } from './beap-messages'
 import type { RecipientMode, SelectedHandshakeRecipient, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
 import { BeapInboxView } from './beap-messages/components/BeapInboxView'
@@ -606,23 +607,27 @@ function SidepanelOrchestrator() {
   } = useHandshakes('active')
 
   // Load available sessions for Draft Email session selector
-  // Sessions are stored in chrome.storage.local (same as Sessions History modal)
+  // Sessions are read from the canonical orchestrator source (SQLite via background bridge).
   const loadAvailableSessions = useCallback(() => {
-    chrome.storage.local.get(null, (allData) => {
+    chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS_FROM_SQLITE' }, (response) => {
       if (chrome.runtime.lastError) {
         console.warn('[BEAP Sessions] Error:', chrome.runtime.lastError.message)
         setAvailableSessions([])
         return
       }
-      
-      // Filter for session keys (format: session_*)
-      const sessionEntries = Object.entries(allData).filter(([key]) => key.startsWith('session_'))
-      
+      if (!response?.success || !response.sessions || typeof response.sessions !== 'object') {
+        setAvailableSessions([])
+        return
+      }
+
+      const sessionEntries = Object.entries(response.sessions as Record<string, unknown>)
+        .filter(([key]) => key.startsWith('session_'))
+
       if (sessionEntries.length === 0) {
         setAvailableSessions([])
         return
       }
-      
+
       const sessions: SessionOption[] = sessionEntries
         .map(([key, data]: [string, any]) => {
           const name = sessionListLabel(data, key)
@@ -631,12 +636,11 @@ function SidepanelOrchestrator() {
         })
         .filter(s => s.key)
         .sort((a, b) => {
-          // Sort by timestamp descending (newest first)
           const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0
           const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0
           return timeB - timeA
         })
-      
+
       setAvailableSessions(sessions)
     })
   }, [])
@@ -798,6 +802,41 @@ function SidepanelOrchestrator() {
           mime: att.mime,
           base64: att.dataBase64
         }))
+        // Artefact construction — Decision E: bind at send time.
+        // Session data is read from the canonical orchestrator source (SQLite via background bridge).
+        let sidepanelSessionArtefact: BeapPackageConfig['sessionImportArtefact'] = undefined
+        if (beapDraftSessionId) {
+          const sessionData = await new Promise<Record<string, unknown> | null>((resolve) => {
+            chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey: beapDraftSessionId }, (response) => {
+              if (chrome.runtime.lastError || !response?.success || !response?.session) { resolve(null); return }
+              resolve(response.session as Record<string, unknown>)
+            })
+          })
+          if (!sessionData) {
+            // Host unreachable or locked: notify user and send without the artefact.
+            setNotification({ message: 'Session unavailable — unlock the host application to attach a session.', type: 'error' })
+            setTimeout(() => setNotification(null), 8000)
+            // sidepanelSessionArtefact remains undefined; send proceeds without it.
+          } else {
+            const input: BuildArtefactInput = {
+              sessionId: beapDraftSessionId,
+              sessionName: typeof sessionData.name === 'string' ? sessionData.name : beapDraftSessionId,
+              agents: Array.isArray(sessionData.agents) ? (sessionData.agents as any[]) : [],
+              agentBoxes: Array.isArray(sessionData.agentBoxes ?? sessionData.agent_boxes) ? ((sessionData.agentBoxes ?? sessionData.agent_boxes) as any[]) : [],
+              displayGrids: Array.isArray(sessionData.displayGrids ?? sessionData.display_grids) ? ((sessionData.displayGrids ?? sessionData.display_grids) as any[]) : [],
+              capabilitiesRequired: Array.isArray(sessionData.capabilities_required) ? (sessionData.capabilities_required as any[]) : [],
+              handshakeBinding: null,
+            }
+            const built = buildSessionImportArtefact(input)
+            if (!built.ok) {
+              setNotification({ message: `Could not build session artefact: ${built.reason}`, type: 'error' })
+              setTimeout(() => setNotification(null), 5000)
+              return
+            }
+            sidepanelSessionArtefact = built.artefact
+          }
+        }
+
         const config: BeapPackageConfig = {
           recipientMode: beapRecipientMode,
           deliveryMethod: handshakeDelivery as DeliveryMethod,
@@ -811,7 +850,8 @@ function SidepanelOrchestrator() {
           originalFiles: originalFiles.length > 0 ? originalFiles : undefined,
           ...(beapRecipientMode === 'private' && {
             encryptedMessage: beapDraftEncryptedMessage.trim() || undefined
-          })
+          }),
+          ...(sidepanelSessionArtefact ? { sessionImportArtefact: sidepanelSessionArtefact } : {}),
         }
         
         if (beapRecipientMode === 'private' && !beapDraftEncryptedMessage.trim()) {

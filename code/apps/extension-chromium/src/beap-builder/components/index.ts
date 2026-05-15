@@ -6,7 +6,7 @@
 
 export { DeliveryOptions } from './DeliveryOptions'
 export { EnvelopeSection } from './EnvelopeSection'
-export { CapsuleSection } from './CapsuleSection'
+// CapsuleSection removed in PR 5.3.1 — dead component (never rendered); used CapsuleSessionRef.
 export { VisionFallbackButton } from './VisionFallbackButton'
 export { BeapDocumentReaderModal } from './BeapDocumentReaderModal'
 export { AttachmentStatusBadge } from './AttachmentStatusBadge'

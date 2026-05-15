@@ -129,7 +129,9 @@ describe('handshake.accept internal endpoint validation', () => {
     )
 
     expect((result as any).success).toBe(false)
-    expect(String((result as any).error ?? '')).toContain('INTERNAL_ENDPOINT_ID_COLLISION')
+    // Phase B: pairing-code device-mismatch check fires before the endpoint-pair
+    // distinctness check when the record carries internal_peer_device_id.
+    expect(String((result as any).error ?? '')).toContain('INTERNAL_PEER_DEVICE_MISMATCH')
   })
 
   test('rejects when acceptor role matches initiator role', async () => {

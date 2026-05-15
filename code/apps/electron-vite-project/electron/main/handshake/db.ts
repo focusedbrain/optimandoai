@@ -1054,6 +1054,109 @@ const HANDSHAKE_MIGRATIONS: Array<{
       'Schema v60: handshakes.local_p2p_auth_token — symmetric P2P Bearer: each side mints a local token for outbound BEAP; counterparty_p2p_token stores the peer token from their capsules.',
     sql: [`ALTER TABLE handshakes ADD COLUMN local_p2p_auth_token TEXT`],
   },
+  {
+    version: 61,
+    description:
+      'Schema v61 (PR 2/7): inbox_messages validated mark — validated_at, validator_version, validation_reason. ' +
+      'Written by validateDecryptedBeapContent after every qBEAP decrypt or extension merge. ' +
+      'NULL validated_at = not yet validated (legacy rows or pending decryption). ' +
+      'Non-null validation_reason = artefact structural check failed; inbox UI MUST NOT render artefact affordances. ' +
+      'per Canon A.3.054.8, Annex I.3.3, Annex I.3.4.',
+    sql: [
+      `ALTER TABLE inbox_messages ADD COLUMN validated_at TEXT`,
+      `ALTER TABLE inbox_messages ADD COLUMN validator_version TEXT`,
+      `ALTER TABLE inbox_messages ADD COLUMN validation_reason TEXT`,
+    ],
+  },
+  {
+    version: 62,
+    description:
+      'Schema v62 (PR 2.2/8): backfill sentinel — records that the v62 pass has been ' +
+      'initiated for this DB. Backfill function removed in PR 5.3 (no production customers, ' +
+      'every database is post-canonical). Sentinel kept for version-table continuity. ' +
+      'per Canon I.3.1, I.3.3, I.3.4.',
+    sql: [],
+  },
+  {
+    version: 63,
+    description:
+      'Schema v63 (PR 5.1/8): depackaged_metadata column — separates wrapper metadata ' +
+      '(format identifier, source tag, header summaries) from validated content. ' +
+      'After this migration depackaged_json carries the canonical capsule plaintext ' +
+      '(byte-equivalent to the bytes the Validator approved, per Canon I.3.3 / I.3.4) ' +
+      'while depackaged_metadata carries operational context. ' +
+      'Backfill function removed in PR 5.3 (no production customers). ' +
+      'per Canon A.3.054.8, Annex I.3.3, Annex I.3.4.',
+    sql: [`ALTER TABLE inbox_messages ADD COLUMN depackaged_metadata TEXT`],
+  },
+  {
+    version: 64,
+    description:
+      'Schema v64 (Phase B, PR B-1): cryptographic seal columns for inbox_messages and ' +
+      'inbox_attachments.  seal stores HMAC-SHA256 over seal_input_json under a key derived ' +
+      'from the vault master key.  seal_input_json stores the exact JSON that was HMAC\'d, ' +
+      'binding content_sha256, nonce, row_id, outcome_class, validator_version, and ' +
+      'validated_at.  Existing rows have NULL in these columns; they will be rejected by the ' +
+      'sealed storage gate once PR B-2 switches to reject mode (no legacy data migration per ' +
+      'Phase B architecture decision 1.5).  ' +
+      'per Phase B Architecture, Sections 2.1, 2.3.',
+    sql: [
+      `ALTER TABLE inbox_messages ADD COLUMN seal TEXT`,
+      `ALTER TABLE inbox_messages ADD COLUMN seal_input_json TEXT`,
+      `ALTER TABLE inbox_attachments ADD COLUMN seal TEXT`,
+      `ALTER TABLE inbox_attachments ADD COLUMN seal_input_json TEXT`,
+    ],
+  },
+  {
+    version: 65,
+    description:
+      'Schema v65 (Phase B, PR B-3): introduce quarantine_messages for BEAP-bearing emails the ' +
+      'host cannot depackage; drop plain_email_inbox (email path now validates inline at arrival ' +
+      'so the staging table is obsolete).  p2p_pending_beap is retained — it still serves P2P ' +
+      'relay paths that are migrated in B-4+.  ' +
+      'per Phase B Architecture, Decision E (Amendment 1 to B-3) and Decision C (Amendment 2 to B-3).',
+    sql: [
+      // quarantine_messages: sealed table for BEAP emails the host cannot depackage.
+      // The blob_storage_id references an AES-256-GCM-encrypted file under
+      // <userData>/inbox-quarantine-blobs/<storage_id>. The blob ciphertext is
+      // encrypted to the paired sandbox's peer_x25519_public_key_b64 using hybrid
+      // X25519+HKDF+AES-GCM so only the sandbox can decrypt it.
+      // seal / seal_input_json bind the row metadata canonically; the canonical_json
+      // is reconstructed from the row's immutable columns for read-path verification.
+      `CREATE TABLE IF NOT EXISTS quarantine_messages (
+        id TEXT PRIMARY KEY,
+        transport_sender TEXT NOT NULL,
+        transport_received_at TEXT NOT NULL,
+        transport_folder TEXT NOT NULL,
+        blob_size_bytes INTEGER NOT NULL,
+        blob_storage_id TEXT NOT NULL,
+        blob_sha256 TEXT NOT NULL,
+        rejection_reason TEXT NOT NULL,
+        paired_sandbox_handshake_id TEXT NOT NULL,
+        cloned_to_sandbox_at TEXT,
+        seal TEXT NOT NULL,
+        seal_input_json TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_quarantine_received_at
+         ON quarantine_messages(transport_received_at DESC)`,
+      // Drop plain_email_inbox: the email ingestion path now validates plain emails
+      // inline at arrival (via the validator subprocess) and writes a sealed row
+      // directly to inbox_messages. The staging table is no longer written.
+      `DROP TABLE IF EXISTS plain_email_inbox`,
+    ],
+  },
+  {
+    version: 66,
+    description:
+      'Schema v66 (Phase B, PR B-4): drop p2p_pending_beap — P2P relay entry points ' +
+      '(coordinationWs, p2pServer, relayPull) now call processBeapPackageInline directly ' +
+      '(validate-before-write sealed pipeline).  The staging table is no longer written ' +
+      'by any production path.  ' +
+      'per Phase B Architecture Decision A (PR B-4), "no SQLite-backed staging table".',
+    sql: [
+      `DROP TABLE IF EXISTS p2p_pending_beap`,
+    ],
+  },
 ]
 
 /**
@@ -1064,17 +1167,10 @@ const HANDSHAKE_MIGRATIONS: Array<{
  * Types/default match `HANDSHAKE_MIGRATIONS` + messageRouter / ipc / syncOrchestrator usage.
  */
 const EMAIL_PIPELINE_COLUMN_REPAIRS: ReadonlyArray<{ table: string; column: string; ddl: string }> = [
-  // ── p2p_pending_beap (BEAP queue — insertPendingP2PBeap, beapEmailIngestion) ──
-  { table: 'p2p_pending_beap', column: 'handshake_id', ddl: 'TEXT' },
-  { table: 'p2p_pending_beap', column: 'package_json', ddl: 'TEXT' },
-  { table: 'p2p_pending_beap', column: 'created_at', ddl: "TEXT DEFAULT (datetime('now'))" },
-  { table: 'p2p_pending_beap', column: 'processed', ddl: 'INTEGER NOT NULL DEFAULT 0' },
-  // ── plain_email_inbox (plainEmailIngestion, insertPendingPlainEmail) ──
-  { table: 'plain_email_inbox', column: 'message_json', ddl: 'TEXT' },
-  { table: 'plain_email_inbox', column: 'account_id', ddl: 'TEXT' },
-  { table: 'plain_email_inbox', column: 'email_message_id', ddl: 'TEXT' },
-  { table: 'plain_email_inbox', column: 'created_at', ddl: "TEXT DEFAULT (datetime('now'))" },
-  { table: 'plain_email_inbox', column: 'processed', ddl: 'INTEGER NOT NULL DEFAULT 0' },
+  // p2p_pending_beap was dropped in schema v66 (Phase B, PR B-4).
+  // Column repair entries removed; the table no longer exists.
+  // plain_email_inbox was dropped in schema v65 (Phase B, PR B-3).
+  // Column repair entries removed; the table no longer exists.
   // ── inbox_messages (v29 + v30–v37) ──
   { table: 'inbox_messages', column: 'source_type', ddl: "TEXT DEFAULT 'email_plain'" },
   { table: 'inbox_messages', column: 'handshake_id', ddl: 'TEXT' },
@@ -1089,6 +1185,8 @@ const EMAIL_PIPELINE_COLUMN_REPAIRS: ReadonlyArray<{ table: string; column: stri
   { table: 'inbox_messages', column: 'body_html', ddl: 'TEXT' },
   { table: 'inbox_messages', column: 'beap_package_json', ddl: 'TEXT' },
   { table: 'inbox_messages', column: 'depackaged_json', ddl: 'TEXT' },
+  // PR 5.1 / Decision B: wrapper metadata column (format identifier + operational wrapper fields).
+  { table: 'inbox_messages', column: 'depackaged_metadata', ddl: 'TEXT' },
   { table: 'inbox_messages', column: 'has_attachments', ddl: 'INTEGER DEFAULT 0' },
   { table: 'inbox_messages', column: 'attachment_count', ddl: 'INTEGER DEFAULT 0' },
   { table: 'inbox_messages', column: 'received_at', ddl: "TEXT DEFAULT (datetime('now'))" },
@@ -1124,6 +1222,10 @@ const EMAIL_PIPELINE_COLUMN_REPAIRS: ReadonlyArray<{ table: string; column: stri
   { table: 'inbox_messages', column: 'imap_remote_mailbox', ddl: 'TEXT' },
   { table: 'inbox_messages', column: 'imap_rfc_message_id', ddl: 'TEXT' },
   { table: 'inbox_messages', column: 'last_autosort_session_id', ddl: 'TEXT' },
+  // ── inbox_messages validated mark (v61, PR 2/7) ──
+  { table: 'inbox_messages', column: 'validated_at', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'validator_version', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'validation_reason', ddl: 'TEXT' },
   // ── inbox_attachments (messageRouter, ipc) ──
   { table: 'inbox_attachments', column: 'message_id', ddl: 'TEXT' },
   { table: 'inbox_attachments', column: 'filename', ddl: 'TEXT' },
@@ -1190,11 +1292,10 @@ const EMAIL_PIPELINE_COLUMN_REPAIRS: ReadonlyArray<{ table: string; column: stri
 
 /** Indexes that may be missing if the table predates them; all use IF NOT EXISTS. */
 const EMAIL_PIPELINE_INDEX_REPAIRS: ReadonlyArray<string> = [
-  `CREATE INDEX IF NOT EXISTS idx_p2p_pending_beap_handshake ON p2p_pending_beap(handshake_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_p2p_pending_beap_created ON p2p_pending_beap(created_at)`,
-  `CREATE INDEX IF NOT EXISTS idx_p2p_pending_beap_processed ON p2p_pending_beap(processed)`,
-  `CREATE INDEX IF NOT EXISTS idx_plain_email_inbox_processed ON plain_email_inbox(processed)`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_plain_email_inbox_dedup ON plain_email_inbox(account_id, email_message_id)`,
+  // p2p_pending_beap index repairs removed — table was dropped in schema v66
+  // (Phase B, PR B-4).  Repair entries would throw on DBs that ran v66.
+  // plain_email_inbox index repairs removed — table was dropped in schema v65
+  // (Phase B, PR B-3).  Repair entries would throw on DBs that ran v65.
   `CREATE INDEX IF NOT EXISTS idx_inbox_messages_source_type ON inbox_messages(source_type)`,
   `CREATE INDEX IF NOT EXISTS idx_inbox_messages_handshake_id ON inbox_messages(handshake_id)`,
   `CREATE INDEX IF NOT EXISTS idx_inbox_messages_account_id ON inbox_messages(account_id)`,
@@ -1437,6 +1538,10 @@ export function backfillLocalX25519PublicKey(
 }
 
 
+
+// backfillValidatedMark removed in PR 5.3/8 — no production customers; every database is
+// post-canonical and every row uses canonical schema. The v62 migration sentinel is kept
+// in the migrations array for version-table continuity.
 
 export function serializeHandshakeRecord(record: HandshakeRecord): any {
   return {
@@ -1786,12 +1891,32 @@ export function needsCanonicalRelayDeviceIdForCoordination(db: any): boolean {
 }
 
 /**
- * P2P BEAP package blobs (if any) for a handshake — used by the offline
+ * BEAP package blobs (if any) for a handshake — used by the offline
  * `counterpartyRepair` dev tool to recover a wire `sender_public_key` when the row
  * is poisoned. Read-only; does not touch verification.
+ *
+ * Phase B, PR B-4: queries `inbox_messages.beap_package_json` now that
+ * `p2p_pending_beap` has been dropped in schema v66.  Retains the old
+ * `p2p_pending_beap` fallback for databases that haven't yet run v66.
  */
 export function getP2pPendingPackageJsonsForHandshake(db: any, handshakeId: string): string[] {
   try {
+    // Primary path: sealed inbox rows written by processBeapPackageInline (B-4+).
+    const inboxRows = db.prepare(
+      `SELECT beap_package_json AS j FROM inbox_messages
+       WHERE handshake_id = ? AND beap_package_json IS NOT NULL
+         AND trim(coalesce(beap_package_json,'')) != ''`,
+    ).all(handshakeId) as Array<{ j: string }>
+    if (inboxRows.length > 0) return inboxRows.map((r) => r.j)
+  } catch {
+    /* fall through to legacy path */
+  }
+  try {
+    // Legacy fallback: pre-v66 DBs that still have the staging table.
+    const tableExists = db.prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='p2p_pending_beap'`
+    ).get()
+    if (!tableExists) return []
     const cols = getColumnNames(db, 'p2p_pending_beap')
     if (!cols.has('package_json') && !cols.has('raw_package')) return []
     const col = cols.has('package_json') ? 'package_json' : 'raw_package'
@@ -1915,9 +2040,18 @@ export function insertAuditLogEntry(db: any, entry: AuditLogEntry): void {
   )
 }
 
-// ── P2P Pending BEAP ──
+// ── P2P Pending BEAP (deprecated — table dropped in schema v66, PR B-4) ──
+// All callers migrated to processBeapPackageInline (validate-before-write).
+// These functions are retained as no-ops for build compatibility until
+// all import sites are removed.
 
+/** @deprecated Phase B PR B-4 — use processBeapPackageInline instead. No-op on v66+ DBs. */
 export function insertPendingP2PBeap(db: any, handshakeId: string, packageJson: string): void {
+  // Guard: table was dropped in schema v66 — silently no-op if absent.
+  try {
+    const tableRow = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='p2p_pending_beap'`).get()
+    if (!tableRow) return
+  } catch { return }
   const now = new Date().toISOString()
   const cols = getColumnNames(db, 'p2p_pending_beap')
   const columns: string[] = []
@@ -2031,52 +2165,13 @@ export function deletePendingP2PBeap(db: any, id: number): void {
   } catch { /* non-fatal */ }
 }
 
-// ── Plain Email Inbox (Canon §6 depackaged emails) ──
-
-export interface PendingPlainEmailEntry {
-  id: number
-  message_json: string
-  account_id: string
-  email_message_id: string
-  created_at: string
-}
-
-export function insertPendingPlainEmail(
-  db: any,
-  accountId: string,
-  emailMessageId: string,
-  messageJson: string,
-): void {
-  if (!db) return
-  try {
-    const now = new Date().toISOString()
-    db.prepare(
-      `INSERT OR IGNORE INTO plain_email_inbox (message_json, account_id, email_message_id, created_at, processed)
-       VALUES (?, ?, ?, ?, 0)`
-    ).run(messageJson, accountId, emailMessageId, now)
-  } catch (e) {
-    console.warn('[DB] insertPendingPlainEmail error:', (e as Error)?.message)
-  }
-}
-
-export function getPendingPlainEmails(db: any): PendingPlainEmailEntry[] {
-  if (!db) return []
-  try {
-    const rows = db.prepare(
-      'SELECT id, message_json, account_id, email_message_id, created_at FROM plain_email_inbox WHERE processed = 0 ORDER BY created_at ASC'
-    ).all() as PendingPlainEmailEntry[]
-    return rows
-  } catch {
-    return []
-  }
-}
-
-export function markPlainEmailProcessed(db: any, id: number): void {
-  if (!db) return
-  try {
-    db.prepare('UPDATE plain_email_inbox SET processed = 1 WHERE id = ?').run(id)
-  } catch { /* non-fatal */ }
-}
+// plain_email_inbox helpers removed — Phase B, PR B-3.1 (Gap 2 closure).
+// The plain_email_inbox table was dropped in schema v65 (PR B-3).
+// insertPendingPlainEmail / getPendingPlainEmails / markPlainEmailProcessed
+// are dead code; their callers (beapSync.ts, ipc.ts, syncOrchestrator.ts)
+// have been updated to remove the calls.  Plain emails are now written
+// inline by detectAndRouteMessage (messageRouter.ts) via the sealed-storage
+// gate, not via the staging table.
 
 // ── Expiry Helpers ──
 
@@ -2272,3 +2367,9 @@ export function updateContextStoreStatusBulk(
   ).run(toStatus, handshakeId, fromStatus)
   return result.changes
 }
+
+
+// ── Post-migration backfill: v63_migrate_depackaged_json_to_canonical ────────────────────────────
+
+// migrateDepackagedJsonToCanonical removed in PR 5.3/8 � no production customers;
+// every database is post-canonical. The v63 migration DDL (ALTER TABLE) remains.

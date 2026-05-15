@@ -34,18 +34,23 @@ export interface AutoresponderEvaluation {
 export function evaluateAutoresponder(params: {
   messageId: string
   handshakeId: string | null
+  /** PR 5.1: canonical capsule plaintext JSON, or null for rows without validated content. */
   depackagedJson: string | null
   // Future: handshake policy, processing events
 }): AutoresponderEvaluation {
   const { messageId, handshakeId, depackagedJson } = params
   const timestamp = Date.now()
 
-  // Step 1: Check for session attachments
+  // Step 1: Check for session attachments — PR 5.1 / Decision C: read from canonical
+  // `session_import_artefact` position only. Legacy `sessionRefs` fallback removed.
   let sessionRefs: any[] = []
   if (depackagedJson) {
     try {
       const parsed = JSON.parse(depackagedJson)
-      sessionRefs = parsed.sessionRefs || []
+      const artefact = parsed?.session_import_artefact
+      if (artefact != null && typeof artefact === 'object' && Array.isArray(artefact.sessions)) {
+        sessionRefs = artefact.sessions
+      }
     } catch {
       // Invalid JSON — no sessions
     }

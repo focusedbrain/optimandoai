@@ -397,6 +397,8 @@ describe('STEP 8 — listInferenceTargets / target discovery', () => {
     isSandboxModeMock.mockReturnValue(true)
     listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
     seedVerifiedPeerDirectBeapForInternalRow()
+    // Phase B: DC must be down so that the HTTP probe is not suppressed (skipHttpProbe = false).
+    isDcUpListMock.mockReturnValue(false)
     probeHostInferencePolicyFromSandboxMock.mockResolvedValue({
       ok: true as const,
       allowSandboxInference: true,
@@ -428,6 +430,9 @@ describe('STEP 8 — capabilities-driven availability', () => {
     isSandboxModeMock.mockReturnValue(true)
     listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
     seedVerifiedPeerDirectBeapForInternalRow()
+    // Phase B: dataChannelUp=true suppresses the HTTP probe (skipHttpProbe=true → verifiedDirect=false).
+    // These tests exercise legacy-HTTP capability probing, so DC must be DOWN.
+    isDcUpListMock.mockReturnValue(false)
   })
 
   it('Host with no default model returns model_unavailable + MODEL_UNAVAILABLE', async () => {
@@ -678,6 +683,7 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
     isSandboxModeMock.mockReturnValue(true)
     listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
     seedVerifiedPeerDirectBeapForInternalRow()
+    isDcUpListMock.mockReturnValue(false)
     probeHostInferencePolicyFromSandboxMock.mockResolvedValue({
       ok: true as const,
       allowSandboxInference: true,
@@ -701,6 +707,7 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
     isSandboxModeMock.mockReturnValue(true)
     listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
     seedVerifiedPeerDirectBeapForInternalRow()
+    isDcUpListMock.mockReturnValue(false)
     probeHostInferencePolicyFromSandboxMock
       .mockResolvedValueOnce({
         ok: true as const,
@@ -1109,6 +1116,7 @@ describe('STEP 10 — named regression (main: listSandboxHostInternalInferenceTa
     getHandshakeDbMock.mockResolvedValue({})
     listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
     seedVerifiedPeerDirectBeapForInternalRow()
+    isDcUpListMock.mockReturnValue(false)
     probeHostInferencePolicyFromSandboxMock.mockResolvedValue({
       ok: true as const,
       allowSandboxInference: true,
@@ -1161,6 +1169,7 @@ describe('STEP 10 — named regression (main: listSandboxHostInternalInferenceTa
     isSandboxModeMock.mockReturnValue(true)
     listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
     seedVerifiedPeerDirectBeapForInternalRow()
+    isDcUpListMock.mockReturnValue(false)
     probeHostInferencePolicyFromSandboxMock.mockResolvedValue({
       ok: true as const,
       allowSandboxInference: true,

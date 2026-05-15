@@ -916,6 +916,7 @@ import {
 } from './main/p2p/coordinationWsHolder'
 import { setBeapRecipientPendingNotifier } from './main/p2p/beapRecipientNotify'
 import { processPendingP2PBeapEmails, retryPendingQbeapDecrypt } from './main/email/beapEmailIngestion'
+import { drainExtensionMergeBuffer } from './main/email/mergeExtensionDepackaged'
 import { getAuditForMessage, getAutoresponderAuditLog } from './main/beap/autoresponderAudit'
 import { setBeapInboxDashboardNotifier, notifyBeapInboxDashboard } from './main/email/beapInboxDashboardNotify'
 import { getP2PConfig, upsertP2PConfig, computeLocalP2PEndpoint } from './main/p2p/p2pConfig'
@@ -3661,9 +3662,20 @@ app.whenReady().then(async () => {
         }
         const db = await getLedgerDbOrOpen()
         if (!db) return { success: false, error: 'Database unavailable. Please log in first.' }
-        const { insertPendingP2PBeap } = await import('./main/handshake/db')
-        insertPendingP2PBeap(db, '__file_import__', packageJson)
-        return { success: true }
+        const { processBeapPackageInline } = await import('./main/email/beapEmailIngestion')
+        const ssoSession = getCurrentSession()
+        const handshakeId = (() => {
+          try { return (JSON.parse(packageJson) as any)?.handshake_id?.trim() || '__file_import__' } catch { return '__file_import__' }
+        })()
+        const r = await processBeapPackageInline(db, packageJson, handshakeId, {
+          session: ssoSession ?? null,
+          sourceType: 'p2p',
+          receivedAt: new Date().toISOString(),
+          transportFolder: 'file_import',
+        })
+        if (r.outcome === 'inbox') return { success: true }
+        if (r.outcome === 'quarantine') return { success: true, quarantined: true }
+        return { success: false, error: r.error ?? 'Processing failed' }
       } catch (err: any) {
         console.error('[BEAP:IMPORT]', err?.message)
         return { success: false, error: err?.message ?? 'Import failed' }
@@ -3762,6 +3774,24 @@ app.whenReady().then(async () => {
       } catch (err: any) {
         console.error('[MAIN] orchestrator:listSessions', err?.message ?? err)
         return { success: false, error: err?.message ?? 'LIST_FAILED', data: [] }
+      }
+    })
+
+    ipcMain.handle('orchestrator:getSession', async (_e, id: unknown) => {
+      if (typeof id !== 'string' || !id.trim()) {
+        return { success: false, error: 'INVALID_SESSION_ID' }
+      }
+      try {
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const service = getOrchestratorService()
+        const session = await service.getSession(id.trim())
+        if (!session) {
+          return { success: false, error: 'SESSION_NOT_FOUND' }
+        }
+        return { success: true, data: { id: session.id, name: session.name, config: session.config } }
+      } catch (err: any) {
+        console.error('[MAIN] orchestrator:getSession', err?.message ?? err)
+        return { success: false, error: err?.message ?? 'GET_SESSION_FAILED' }
       }
     })
 
@@ -6922,7 +6952,8 @@ async function runDeviceKeyMigration(
           res.status(503).json({ ok: false, error: 'Database unavailable' })
           return
         }
-        const result = mergeExtensionDepackaged(db, req.body)
+        const ssoSession = getCurrentSession()
+        const result = await mergeExtensionDepackaged(db, req.body, ssoSession ?? null)
         if (!result.ok) {
           res.status(400).json({ ok: false, error: result.error ?? 'merge failed' })
           return
@@ -11204,6 +11235,9 @@ async function runDeviceKeyMigration(
           void retryPendingQbeapDecrypt(db).then((r) => {
             if (r > 0) notifyBeapInboxDashboard(handshakeId)
           })
+          // B-5.1: drain extension merge retry buffer on P2P BEAP arrival
+          // (implies a sandbox may now be connected).
+          void drainExtensionMergeBuffer(db, getCurrentSession() ?? null)
         })
       } catch (e: unknown) {
         console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
@@ -11306,6 +11340,8 @@ async function runDeviceKeyMigration(
           void retryPendingQbeapDecrypt(handshakeDb).then((r) => {
             if (r > 0) notifyBeapInboxDashboard(null)
           })
+          // B-5.1: drain extension merge retry buffer on health-check trigger.
+          void drainExtensionMergeBuffer(handshakeDb, getCurrentSession() ?? null)
         })
       } catch (e: unknown) {
         console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
@@ -11470,7 +11506,7 @@ async function runDeviceKeyMigration(
     tryP2PStartup()
     setInterval(tryP2PStartup, 10_000)
 
-    // Refresh P2P health queue counts every 60s
+    // Refresh P2P health queue counts every 60s + drain extension merge retry buffer (B-5.1)
     setInterval(() => {
       const db = getHandshakeDb()
       if (!db) return
@@ -11482,6 +11518,8 @@ async function runDeviceKeyMigration(
           else if (r.status === 'failed') failed = r.cnt
         }
         setP2PHealthQueueCounts(pending, failed)
+        // B-5.1: drain extension merge retry buffer on 60-second tick.
+        void drainExtensionMergeBuffer(db, getCurrentSession() ?? null)
       } catch {}
     }, 60_000)
 

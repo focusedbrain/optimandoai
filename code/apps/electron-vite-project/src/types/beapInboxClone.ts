@@ -34,6 +34,11 @@ export interface BeapInboxClonePrepareOk {
   account_tag: string | null
   /** Present when the clone was triggered from the external-link warning (audit / provenance). */
   triggered_url?: string | null
+  /**
+   * PR 5.2 / Decision A: session import artefact from source row's canonical `depackaged_json`.
+   * Null when absent. Passed to `BeapPackageConfig.sessionImportArtefact` by the renderer.
+   */
+  session_import_artefact?: Record<string, unknown> | null
 }
 
 /** Main-process prepare path (not including host envelope errors). */

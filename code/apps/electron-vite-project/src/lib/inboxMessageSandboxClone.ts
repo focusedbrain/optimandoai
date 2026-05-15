@@ -104,23 +104,18 @@ function shortenId(id: string): string {
   return `${t.slice(0, 8)}…${t.slice(-4)}`
 }
 
-function beapCloneBlockFromObject(root: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
-  if (!root) return null
-  const b = root.beap_sandbox_clone
-  if (b && typeof b === 'object' && b !== null) return b as Record<string, unknown>
-  return null
-}
-
 /**
- * Best-effort metadata for the Sandbox Clone disclosure. Prefers `depackaged_json.beap_sandbox_clone`.
+ * Metadata for the Sandbox Clone disclosure.
+ * Reads clone provenance from `beap_package_json.metadata.inbox_response_path.sandbox_clone_provenance`
+ * (the canonical location since PR 5.2). Legacy body-embedded provenance and
+ * `depackaged_json.beap_sandbox_clone` fallbacks removed in PR 5.3.
  */
 export function extractSandboxCloneUiMeta(
   m: InboxMessage | null | undefined,
-  depackaged: Record<string, unknown> | null,
+  _depackaged: Record<string, unknown> | null,
 ): SandboxCloneUiMeta {
   if (!m) return {}
-  const b =
-    beapCloneBlockFromObject(depackaged) || beapCloneBlockFromObject(tryParseInBodyJson(m.body_text))
+  const b = tryGetCloneBlockFromPackageJson(m)
   if (!b) return {}
   const clonedAt =
     typeof b.cloned_at === 'string' && b.cloned_at.trim() ? b.cloned_at.trim() : undefined
@@ -164,20 +159,29 @@ export function extractSandboxCloneUiMeta(
   }
 }
 
-function tryParseInBodyJson(s: string | null | undefined): Record<string, unknown> | null {
-  if (!s || !s.includes('beap_sandbox_clone')) return null
-  const sep = '\n\n---\n'
-  const i = s.lastIndexOf(sep)
-  if (i < 0) return null
+/**
+ * PR 5.2 / Decision B: read the `beap_sandbox_clone` block from the new metadata location.
+ * Clone provenance now lives at `beap_package_json.metadata.inbox_response_path.sandbox_clone_provenance`
+ * instead of being appended to body text.
+ */
+function tryGetCloneBlockFromPackageJson(m: InboxMessage): Record<string, unknown> | null {
+  const pkgStr = m.beap_package_json
+  if (!pkgStr?.trim()) return null
   try {
-    const j = JSON.parse(s.slice(i + sep.length).trim()) as unknown
-    if (j && typeof j === 'object' && (j as Record<string, unknown>).beap_sandbox_clone != null) {
-      return j as Record<string, unknown>
-    }
+    const pkg = JSON.parse(pkgStr) as Record<string, unknown>
+    const metadata = pkg.metadata as Record<string, unknown> | null | undefined
+    if (!metadata) return null
+    const irp = metadata.inbox_response_path as Record<string, unknown> | null | undefined
+    if (!irp) return null
+    const prov = irp.sandbox_clone_provenance
+    if (!prov || typeof prov !== 'object' || Array.isArray(prov)) return null
+    const provObj = prov as Record<string, unknown>
+    const b = provObj.beap_sandbox_clone
+    if (b && typeof b === 'object' && b !== null) return b as Record<string, unknown>
+    return null
   } catch {
-    /* */
+    return null
   }
-  return null
 }
 
 /**

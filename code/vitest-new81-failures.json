@@ -1,0 +1,536 @@
+[
+  {
+    "key": "apps/extension-chromium/src/automation/__tests__/ListenerManager.test.ts::ListenerManager processEvent should call reasoning callback",
+    "file": "apps/extension-chromium/src/automation/__tests__/ListenerManager.test.ts",
+    "title": "ListenerManager processEvent should call reasoning callback",
+    "head": "ReferenceError: jest is not defined\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\automation\\__tests__\\ListenerManager.test.ts:191:33\n   "
+  },
+  {
+    "key": "apps/extension-chromium/src/automation/__tests__/ListenerManager.test.ts::ListenerManager start / stop should warn when starting twice",
+    "file": "apps/extension-chromium/src/automation/__tests__/ListenerManager.test.ts",
+    "title": "ListenerManager start / stop should warn when starting twice",
+    "head": "ReferenceError: jest is not defined\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\automation\\__tests__\\ListenerManager.test.ts:232:26\n   "
+  },
+  {
+    "key": "apps/extension-chromium/src/automation/__tests__/ListenerManager.test.ts::ListenerManager integration with TriggerRegistry should process events from registered triggers",
+    "file": "apps/extension-chromium/src/automation/__tests__/ListenerManager.test.ts",
+    "title": "ListenerManager integration with TriggerRegistry should process events from registered triggers",
+    "head": "ReferenceError: jest is not defined\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\automation\\__tests__\\ListenerManager.test.ts:251:26\n   "
+  },
+  {
+    "key": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts::TriggerRegistry subscribe should return unsubscribe function",
+    "file": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts",
+    "title": "TriggerRegistry subscribe should return unsubscribe function",
+    "head": "ReferenceError: jest is not defined\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\automation\\__tests__\\TriggerRegistry.test.ts:81:24\n    "
+  },
+  {
+    "key": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts::ChatTrigger handleMessage should not emit when trigger is not active",
+    "file": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts",
+    "title": "ChatTrigger handleMessage should not emit when trigger is not active",
+    "head": "ReferenceError: jest is not defined\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\automation\\__tests__\\TriggerRegistry.test.ts:210:24\n   "
+  },
+  {
+    "key": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts::CronTrigger schedule should schedule a job",
+    "file": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts",
+    "title": "CronTrigger schedule should schedule a job",
+    "head": "ReferenceError: jest is not defined\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\automation\\__tests__\\TriggerRegistry.test.ts:245:5\n    "
+  },
+  {
+    "key": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts::CronTrigger schedule should throw for invalid cron expression",
+    "file": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts",
+    "title": "CronTrigger schedule should throw for invalid cron expression",
+    "head": "ReferenceError: jest is not defined\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\automation\\__tests__\\TriggerRegistry.test.ts:245:5\n    "
+  },
+  {
+    "key": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts::CronTrigger unschedule should remove scheduled job",
+    "file": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts",
+    "title": "CronTrigger unschedule should remove scheduled job",
+    "head": "ReferenceError: jest is not defined\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\automation\\__tests__\\TriggerRegistry.test.ts:245:5\n    "
+  },
+  {
+    "key": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts::CronTrigger triggerNow should manually trigger a job",
+    "file": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts",
+    "title": "CronTrigger triggerNow should manually trigger a job",
+    "head": "ReferenceError: jest is not defined\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\automation\\__tests__\\TriggerRegistry.test.ts:245:5\n    "
+  },
+  {
+    "key": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts::CronTrigger cron expression parsing should parse every minute expression",
+    "file": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts",
+    "title": "CronTrigger cron expression parsing should parse every minute expression",
+    "head": "ReferenceError: jest is not defined\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\automation\\__tests__\\TriggerRegistry.test.ts:245:5\n    "
+  },
+  {
+    "key": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts::CronTrigger cron expression parsing should parse specific minute expression",
+    "file": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts",
+    "title": "CronTrigger cron expression parsing should parse specific minute expression",
+    "head": "ReferenceError: jest is not defined\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\automation\\__tests__\\TriggerRegistry.test.ts:245:5\n    "
+  },
+  {
+    "key": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts::CronTrigger cron expression parsing should parse step expression",
+    "file": "apps/extension-chromium/src/automation/__tests__/TriggerRegistry.test.ts",
+    "title": "CronTrigger cron expression parsing should parse step expression",
+    "head": "ReferenceError: jest is not defined\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\automation\\__tests__\\TriggerRegistry.test.ts:245:5\n    "
+  },
+  {
+    "key": "apps/extension-chromium/src/nlp/__tests__/NlpClassifier.test.ts::NlpClassifier error handling should never throw on malformed input",
+    "file": "apps/extension-chromium/src/nlp/__tests__/NlpClassifier.test.ts",
+    "title": "NlpClassifier error handling should never throw on malformed input",
+    "head": "Error: promise rejected \"TypeError: Cannot read properties of null…\" instead of resolving\n    at _Assertion.__VITEST_RESOLVES__ (file:///C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean"
+  },
+  {
+    "key": "apps/extension-chromium/src/nlp/__tests__/NlpClassifier.test.ts::NlpClassifier integration scenario should correctly classify German appointment text",
+    "file": "apps/extension-chromium/src/nlp/__tests__/NlpClassifier.test.ts",
+    "title": "NlpClassifier integration scenario should correctly classify German appointment text",
+    "head": "AssertionError: expected undefined to be defined\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\nlp\\__tests__\\NlpClassifier.test.ts:225:26"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/acceptX25519Binding.internal.regression.test.ts::acceptX25519Binding — internal R4_internal_handshake_accept_without_senderX25519PublicKeyB64_does_not_fail_ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/acceptX25519Binding.internal.regression.test.ts",
+    "title": "acceptX25519Binding — internal R4_internal_handshake_accept_without_senderX25519PublicKeyB64_does_not_fail_ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED",
+    "head": "AssertionError: expected 'INTERNAL_PEER_DEVICE_MISMATCH: This h…' to contain 'INTERNAL_ENDPOINT_ID_COLLISION'\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\elec"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts::Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §1 first batch (cursor = null) §1.1 returns items and non-null nextCursor when rows === limit",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts",
+    "title": "Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §1 first batch (cursor = null) §1.1 returns items and non-null nextCursor when rows === limit",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts::Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §1 first batch (cursor = null) §1.2 encodes last row's received_at and id in nextCursor",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts",
+    "title": "Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §1 first batch (cursor = null) §1.2 encodes last row's received_at and id in nextCursor",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts::Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §1 first batch (cursor = null) §1.3 returns nextCursor = null when rows < limit",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts",
+    "title": "Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §1 first batch (cursor = null) §1.3 returns nextCursor = null when rows < limit",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts::Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §1 first batch (cursor = null) §1.4 returns empty items and nextCursor = null when no rows",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts",
+    "title": "Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §1 first batch (cursor = null) §1.4 returns empty items and nextCursor = null when no rows",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts::Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §2 second batch (cursor provided) §2.1 passes cursor position to sealedQuery (no overlap with first batch)",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts",
+    "title": "Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §2 second batch (cursor provided) §2.1 passes cursor position to sealedQuery (no overlap with first batch)",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts::Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §2 second batch (cursor provided) §2.2 cursor query SQL uses the cursor-predicate form",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts",
+    "title": "Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §2 second batch (cursor provided) §2.2 cursor query SQL uses the cursor-predicate form",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts::Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §3 last batch §3.1 nextCursor is null when returned rows < effective limit",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts",
+    "title": "Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §3 last batch §3.1 nextCursor is null when returned rows < effective limit",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts::Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §4 limit parameter §4.1 respects explicit limit",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts",
+    "title": "Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §4 limit parameter §4.1 respects explicit limit",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts::Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §4 limit parameter §4.2 clamps limit at 1000",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts",
+    "title": "Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §4 limit parameter §4.2 clamps limit at 1000",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts::Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §4 limit parameter §4.3 defaults to 200 when limit omitted",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts",
+    "title": "Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §4 limit parameter §4.3 defaults to 200 when limit omitted",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts::Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §5 malformed cursor §5.1 ignores invalid cursor and returns first-batch query (no crash)",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts",
+    "title": "Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §5 malformed cursor §5.1 ignores invalid cursor and returns first-batch query (no crash)",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts::Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §6 gate-verified reads (sealedQuery, not raw db.prepare) §6.1 list handler calls sealedQuery stub, not db.prepare",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b81BeapInboxPagination.test.ts",
+    "title": "Phase B PR B-8.1 — handshake.beapInbox.list cursor pagination §6 gate-verified reads (sealedQuery, not raw db.prepare) §6.1 list handler calls sealedQuery stub, not db.prepare",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts::Phase B PR B-8 — handshake.beapInbox IPC §1 handshake.beapInbox.list §1.1 returns sealed inbox rows as items array",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts",
+    "title": "Phase B PR B-8 — handshake.beapInbox IPC §1 handshake.beapInbox.list §1.1 returns sealed inbox rows as items array",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts::Phase B PR B-8 — handshake.beapInbox IPC §1 handshake.beapInbox.list §1.2 returns empty array when no rows",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts",
+    "title": "Phase B PR B-8 — handshake.beapInbox IPC §1 handshake.beapInbox.list §1.2 returns empty array when no rows",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts::Phase B PR B-8 — handshake.beapInbox IPC §1 handshake.beapInbox.list §1.4 includes attachments from inbox_attachments",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts",
+    "title": "Phase B PR B-8 — handshake.beapInbox IPC §1 handshake.beapInbox.list §1.4 includes attachments from inbox_attachments",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts::Phase B PR B-8 — handshake.beapInbox IPC §2 handshake.beapInbox.markRead §2.1 sets read_status = 1 when read = true and returns rowId",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts",
+    "title": "Phase B PR B-8 — handshake.beapInbox IPC §2 handshake.beapInbox.markRead §2.1 sets read_status = 1 when read = true and returns rowId",
+    "head": "TypeError: Cannot read properties of undefined (reading 'changes')\n    at SealedOperationalStatement.run (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-p"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts::Phase B PR B-8 — handshake.beapInbox IPC §2 handshake.beapInbox.markRead §2.2 sets read_status = 0 when read = false",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts",
+    "title": "Phase B PR B-8 — handshake.beapInbox IPC §2 handshake.beapInbox.markRead §2.2 sets read_status = 0 when read = false",
+    "head": "TypeError: Cannot read properties of undefined (reading 'changes')\n    at SealedOperationalStatement.run (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-p"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts::Phase B PR B-8 — handshake.beapInbox IPC §3 handshake.beapInbox.archive §3.1 sets archived = 1 and returns rowId",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts",
+    "title": "Phase B PR B-8 — handshake.beapInbox IPC §3 handshake.beapInbox.archive §3.1 sets archived = 1 and returns rowId",
+    "head": "TypeError: Cannot read properties of undefined (reading 'changes')\n    at SealedOperationalStatement.run (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-p"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts::Phase B PR B-8 — handshake.beapInbox IPC §4 handshake.beapInbox.unarchive §4.1 sets archived = 0 and returns rowId",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts",
+    "title": "Phase B PR B-8 — handshake.beapInbox IPC §4 handshake.beapInbox.unarchive §4.1 sets archived = 0 and returns rowId",
+    "head": "TypeError: Cannot read properties of undefined (reading 'changes')\n    at SealedOperationalStatement.run (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-p"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts::Phase B PR B-8 — handshake.beapInbox IPC §5 handshake.beapInbox.classify §5.1 calls resealWithAiAnalysis with provided analysis",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts",
+    "title": "Phase B PR B-8 — handshake.beapInbox IPC §5 handshake.beapInbox.classify §5.1 calls resealWithAiAnalysis with provided analysis",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\handshake\\__te"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts::Phase B PR B-8 — handshake.beapInbox IPC §5 handshake.beapInbox.classify §5.2 returns failure when resealWithAiAnalysis fails",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts",
+    "title": "Phase B PR B-8 — handshake.beapInbox IPC §5 handshake.beapInbox.classify §5.2 returns failure when resealWithAiAnalysis fails",
+    "head": "AssertionError: expected 'sealedQuery (SELECT id, depackaged_js…' to match /validator reject/\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-projec"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts::Phase B PR B-8 — handshake.beapInbox IPC §5 handshake.beapInbox.classify §5.3 updates urgency_score operationally after successful reseal",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts",
+    "title": "Phase B PR B-8 — handshake.beapInbox IPC §5 handshake.beapInbox.classify §5.3 updates urgency_score operationally after successful reseal",
+    "head": "AssertionError: expected undefined to be defined\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\handshake\\__tests__\\b8BeapInb"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts::Phase B PR B-8 — handshake.beapInbox IPC §6 handshake.beapInbox.setUrgency §6.1 updates urgency_score and returns rowId",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts",
+    "title": "Phase B PR B-8 — handshake.beapInbox IPC §6 handshake.beapInbox.setUrgency §6.1 updates urgency_score and returns rowId",
+    "head": "TypeError: Cannot read properties of undefined (reading 'changes')\n    at SealedOperationalStatement.run (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-p"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts::Phase B PR B-8 — handshake.beapInbox IPC §7 handshake.beapInbox.getMany (B-8.2) §7.1 returns rows that exist and pass sealedQuery",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts",
+    "title": "Phase B PR B-8 — handshake.beapInbox IPC §7 handshake.beapInbox.getMany (B-8.2) §7.1 returns rows that exist and pass sealedQuery",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts::Phase B PR B-8 — handshake.beapInbox IPC §7 handshake.beapInbox.getMany (B-8.2) §7.5 ignores non-string entries in rowIds",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts",
+    "title": "Phase B PR B-8 — handshake.beapInbox IPC §7 handshake.beapInbox.getMany (B-8.2) §7.5 ignores non-string entries in rowIds",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts::Phase B PR B-8 — handshake.beapInbox IPC §7 handshake.beapInbox.getMany (B-8.2) §7.6 clamps rowIds to 500 entries",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts",
+    "title": "Phase B PR B-8 — handshake.beapInbox IPC §7 handshake.beapInbox.getMany (B-8.2) §7.6 clamps rowIds to 500 entries",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts::Phase B PR B-8 — handshake.beapInbox IPC §7 handshake.beapInbox.getMany (B-8.2) §7.7 uses an IN-clause predicate (structural proof of sealedQuery usage)",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts",
+    "title": "Phase B PR B-8 — handshake.beapInbox IPC §7 handshake.beapInbox.getMany (B-8.2) §7.7 uses an IN-clause predicate (structural proof of sealedQuery usage)",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts::Phase B PR B-8 — handshake.beapInbox IPC §7 handshake.beapInbox.getMany (B-8.2) §7.8 includes attachments from inbox_attachments",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/b8BeapInboxIpc.test.ts",
+    "title": "Phase B PR B-8 — handshake.beapInbox IPC §7 handshake.beapInbox.getMany (B-8.2) §7.8 includes attachments from inbox_attachments",
+    "head": "SealVerificationError: sealedQuery (SELECT id, handshake_id, subject, body_text, depackaged_json): key provider not bound — vault must be unlocked for sealed reads\n    at Module.sealedQuery (C:\\Users\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/e2e.roundtrip.test.ts::BEAP E2E Round-Trip — Two-Party Flow T18: full initiate → accept → refresh round-trip with context block proofs",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/e2e.roundtrip.test.ts",
+    "title": "BEAP E2E Round-Trip — Two-Party Flow T18: full initiate → accept → refresh round-trip with context block proofs",
+    "head": "AssertionError: expected 'ACCEPTED' to be 'ACTIVE' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\hands"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/ipc.handshake.test.ts::Handshake IPC — handshake.initiate initiate with policy_selections persists policy and uses it for block governance",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/ipc.handshake.test.ts",
+    "title": "Handshake IPC — handshake.initiate initiate with policy_selections persists policy and uses it for block governance",
+    "head": "AssertionError: expected { …(3) } to deeply equal { cloud_ai: true, internal_ai: true }\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\elec"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/ipc.handshake.test.ts::Handshake IPC — handshake.initiate initiate with context_blocks + per-item policy_mode override uses item policy for governance",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/ipc.handshake.test.ts",
+    "title": "Handshake IPC — handshake.initiate initiate with context_blocks + per-item policy_mode override uses item policy for governance",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\handshake\\__te"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/ipc.handshake.test.ts::Handshake IPC — handshake.initiate initiate with only policy_selections (legacy, no per-item) remains stable",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/ipc.handshake.test.ts",
+    "title": "Handshake IPC — handshake.initiate initiate with only policy_selections (legacy, no per-item) remains stable",
+    "head": "AssertionError: expected { …(3) } to deeply equal { cloud_ai: true, internal_ai: false }\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\ele"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/ipc.handshake.test.ts::Handshake IPC — handshake.accept accept with policy_selections persists policy for block governance",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/ipc.handshake.test.ts",
+    "title": "Handshake IPC — handshake.accept accept with policy_selections persists policy for block governance",
+    "head": "AssertionError: expected { …(3) } to deeply equal { cloud_ai: false, internal_ai: true }\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\ele"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/ipc.handshake.test.ts::Handshake IPC — handshake.accept accept with context_blocks + per-item policy_mode override uses item policy for governance",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/ipc.handshake.test.ts",
+    "title": "Handshake IPC — handshake.accept accept with context_blocks + per-item policy_mode override uses item policy for governance",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\handshake\\__te"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/ipc.internal.accept.validation.test.ts::handshake.accept internal endpoint validation rejects when local orchestrator id matches initiator coordination id (same device)",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/ipc.internal.accept.validation.test.ts",
+    "title": "handshake.accept internal endpoint validation rejects when local orchestrator id matches initiator coordination id (same device)",
+    "head": "AssertionError: expected 'INTERNAL_PEER_DEVICE_MISMATCH: This c…' to contain 'INTERNAL_ENDPOINT_ID_COLLISION'\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\elec"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/ipc.internal.deviceId.test.ts::handshake.initiate internal — no orchestrator device_id fails fast with INTERNAL_ENDPOINT_INCOMPLETE",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/ipc.internal.deviceId.test.ts",
+    "title": "handshake.initiate internal — no orchestrator device_id fails fast with INTERNAL_ENDPOINT_INCOMPLETE",
+    "head": "AssertionError: expected 'INTERNAL_PAIRING_CODE_INVALID: The pa…' to contain 'INTERNAL_ENDPOINT_INCOMPLETE'\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electr"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/handshake/__tests__/p2pTransport.coordination.test.ts::sendCapsuleViaCoordination — relay HTTP semantics with db: internal context_sync missing wire — blocks before fetch",
+    "file": "apps/electron-vite-project/electron/main/handshake/__tests__/p2pTransport.coordination.test.ts",
+    "title": "sendCapsuleViaCoordination — relay HTTP semantics with db: internal context_sync missing wire — blocks before fetch",
+    "head": "AssertionError: expected \"spy\" to not be called at all, but actually been called 1 times\n\nReceived: \n\n  1st spy call:\n\n    Array [\n      \"https://coord.example/beap/capsule\",\n      Object {\n        \"b"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/authorization.test.ts::Execution Authorization Gate expired handshake → HANDSHAKE_INACTIVE",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/authorization.test.ts",
+    "title": "Execution Authorization Gate expired handshake → HANDSHAKE_INACTIVE",
+    "head": "AssertionError: expected true to be false // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\ingestion\\__te"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.http.test.ts::E2E HTTP — POST /api/ingestion/ingest H1: valid BEAP capsule → 200, validated, routed to handshake_pipeline",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.http.test.ts",
+    "title": "E2E HTTP — POST /api/ingestion/ingest H1: valid BEAP capsule → 200, validated, routed to handshake_pipeline",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\ingestion\\__te"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.http.test.ts::E2E HTTP — POST /api/ingestion/ingest H3: oversized payload → rejected, no parsing",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.http.test.ts",
+    "title": "E2E HTTP — POST /api/ingestion/ingest H3: oversized payload → rejected, no parsing",
+    "head": "SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON\n    at JSON.parse (<anonymous>)\n    at parseJSONFromBytes (node:internal/deps/undici/undici:5852:19)\n    at successSteps (node:inte"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.http.test.ts::E2E HTTP — POST /api/ingestion/ingest H4: future timestamp → validator passes, routed to handshake_pipeline",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.http.test.ts",
+    "title": "E2E HTTP — POST /api/ingestion/ingest H4: future timestamp → validator passes, routed to handshake_pipeline",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\ingestion\\__te"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.http.test.ts::E2E HTTP — POST /api/ingestion/ingest H5: rawInput with text/plain mime_type, valid BEAP JSON → detected via JSON structure",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.http.test.ts",
+    "title": "E2E HTTP — POST /api/ingestion/ingest H5: rawInput with text/plain mime_type, valid BEAP JSON → detected via JSON structure",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\ingestion\\__te"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.ipc.test.ts::E2E IPC — ingest-external-input I1: valid capsule via IPC → success, routed through full pipeline",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.ipc.test.ts",
+    "title": "E2E IPC — ingest-external-input I1: valid capsule via IPC → success, routed through full pipeline",
+    "head": "AssertionError: expected 'rejected' to be 'validated' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\in"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.ipc.test.ts::E2E IPC — ingest-external-input I-extra: revoke capsule via IPC → validated, routed to handshake_pipeline",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.ipc.test.ts",
+    "title": "E2E IPC — ingest-external-input I-extra: revoke capsule via IPC → validated, routed to handshake_pipeline",
+    "head": "AssertionError: expected 'rejected' to be 'validated' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\in"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts::E2E Transport — HTTP (via ingestion RPC handler) 1: valid BEAP capsule → validated, routed to handshake_pipeline",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts",
+    "title": "E2E Transport — HTTP (via ingestion RPC handler) 1: valid BEAP capsule → validated, routed to handshake_pipeline",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\ingestion\\__te"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts::E2E Transport — HTTP (via ingestion RPC handler) 4: future timestamp → validator passes (timestamp is not Validator's job)",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts",
+    "title": "E2E Transport — HTTP (via ingestion RPC handler) 4: future timestamp → validator passes (timestamp is not Validator's job)",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\ingestion\\__te"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts::E2E Transport — HTTP (via ingestion RPC handler) 5: wrong content-type, valid BEAP JSON → still detected via JSON structure",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts",
+    "title": "E2E Transport — HTTP (via ingestion RPC handler) 5: wrong content-type, valid BEAP JSON → still detected via JSON structure",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\ingestion\\__te"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts::E2E Transport — WebSocket RPC (via handleIngestionRPC) 6: valid BEAP via ingestion.ingest RPC → routes through pipeline",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts",
+    "title": "E2E Transport — WebSocket RPC (via handleIngestionRPC) 6: valid BEAP via ingestion.ingest RPC → routes through pipeline",
+    "head": "AssertionError: expected 'Missing required field: sender_public…' to match /vault|session|log in/i\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-p"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts::E2E Transport — IPC (Extension simulation via handleIngestionRPC) 10: valid input via extension source → routed through full pipeline",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts",
+    "title": "E2E Transport — IPC (Extension simulation via handleIngestionRPC) 10: valid input via extension source → routed through full pipeline",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\ingestion\\__te"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts::E2E Observability — Audit Records validated capsule audit record has all required fields",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts",
+    "title": "E2E Observability — Audit Records validated capsule audit record has all required fields",
+    "head": "AssertionError: expected 'rejected' to be 'validated' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\in"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts::E2E Concurrency 16: 20 identical requests in parallel produce same raw_input_hash",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts",
+    "title": "E2E Concurrency 16: 20 identical requests in parallel produce same raw_input_hash",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\ingestion\\__te"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts::E2E Transport — Additional Guarantees accept capsule with sharing_mode routes to handshake_pipeline",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts",
+    "title": "E2E Transport — Additional Guarantees accept capsule with sharing_mode routes to handshake_pipeline",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\ingestion\\__te"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts::E2E Transport — Additional Guarantees revoke capsule routes to handshake_pipeline",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts",
+    "title": "E2E Transport — Additional Guarantees revoke capsule routes to handshake_pipeline",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\ingestion\\__te"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts::E2E Transport — Additional Guarantees file_upload source type propagated through pipeline",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts",
+    "title": "E2E Transport — Additional Guarantees file_upload source type propagated through pipeline",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\ingestion\\__te"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts::E2E Transport — Additional Guarantees ValidatedCapsule has immutable provenance from original input",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.transport.test.ts",
+    "title": "E2E Transport — Additional Guarantees ValidatedCapsule has immutable provenance from original input",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\ingestion\\__te"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.websocket.test.ts::E2E WebSocket — ingestion.ingest RPC W1: valid capsule → success, routed to handshake_pipeline",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.websocket.test.ts",
+    "title": "E2E WebSocket — ingestion.ingest RPC W1: valid capsule → success, routed to handshake_pipeline",
+    "head": "AssertionError: expected 'rejected' to be 'validated' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\in"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.websocket.test.ts::E2E WebSocket — ingestion.ingest RPC W-extra: accept capsule → validated, routed to handshake_pipeline",
+    "file": "apps/electron-vite-project/electron/main/ingestion/__tests__/e2e.websocket.test.ts",
+    "title": "E2E WebSocket — ingestion.ingest RPC W-extra: accept capsule → validated, routed to handshake_pipeline",
+    "head": "AssertionError: expected 'rejected' to be 'validated' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\in"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/llm/__tests__/diagnostics.test.ts::Rotating Logger should write logs with timestamp",
+    "file": "apps/electron-vite-project/electron/main/llm/__tests__/diagnostics.test.ts",
+    "title": "Rotating Logger should write logs with timestamp",
+    "head": "AssertionError: expected '[2026-05-13T07:13:34.552Z] [INFO] [Ha…' to contain 'Test log entry'\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-projec"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/llm/__tests__/diagnostics.test.ts::Rotating Logger should handle different log levels",
+    "file": "apps/electron-vite-project/electron/main/llm/__tests__/diagnostics.test.ts",
+    "title": "Rotating Logger should handle different log levels",
+    "head": "AssertionError: expected '[2026-05-13T07:13:34.552Z] [INFO] [Ha…' to contain '[ERROR]'\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\elect"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/llm/__tests__/diagnostics.test.ts::User-Friendly Error Messages should convert timeout errors",
+    "file": "apps/electron-vite-project/electron/main/llm/__tests__/diagnostics.test.ts",
+    "title": "User-Friendly Error Messages should convert timeout errors",
+    "head": "AssertionError: expected 'Error: Model load timed out after 90s…' to contain 'Model loading timed out'\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vi"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/llm/__tests__/hardware-capability.test.ts::Hardware Capability Checker CPU Generation Detection should detect Intel generation from model name",
+    "file": "apps/electron-vite-project/electron/main/llm/__tests__/hardware-capability.test.ts",
+    "title": "Hardware Capability Checker CPU Generation Detection should detect Intel generation from model name",
+    "head": "Error: Test timed out in 5000ms.\nIf this is a long-running test, pass a timeout value as the last argument or configure it globally with \"testTimeout\".\n    at Timeout.<anonymous> (file:///C:/Users/osc"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/llm/__tests__/hardware-capability.test.ts::Hardware Capability Checker Edge Cases should cache results",
+    "file": "apps/electron-vite-project/electron/main/llm/__tests__/hardware-capability.test.ts",
+    "title": "Hardware Capability Checker Edge Cases should cache results",
+    "head": "Error: Test timed out in 5000ms.\nIf this is a long-running test, pass a timeout value as the last argument or configure it globally with \"testTimeout\".\n    at Timeout.<anonymous> (file:///C:/Users/osc"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts::P3: P2P Server — Input Hardening P3_01_valid_capsule_accepted",
+    "file": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts",
+    "title": "P3: P2P Server — Input Hardening P3_01_valid_capsule_accepted",
+    "head": "AssertionError: expected 422 to be 200 // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\p2p\\__tests__\\p2p"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts::P3: P2P Server — Input Hardening P3_06_missing_handshake_id",
+    "file": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts",
+    "title": "P3: P2P Server — Input Hardening P3_06_missing_handshake_id",
+    "head": "AssertionError: expected 422 to be 400 // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\p2p\\__tests__\\p2p"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts::P4: P2P Server — Authentication P4_01_valid_token",
+    "file": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts",
+    "title": "P4: P2P Server — Authentication P4_01_valid_token",
+    "head": "AssertionError: expected 422 to be 200 // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\p2p\\__tests__\\p2p"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts::P6: Auto-Trigger P6_01_auto_trigger_after_accept",
+    "file": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts",
+    "title": "P6: Auto-Trigger P6_01_auto_trigger_after_accept",
+    "head": "AssertionError: expected 0 to be greater than or equal to 1\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\p2p\\__tests__\\p2p-"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts::P6: Auto-Trigger P6_05_no_reverse_on_seq2",
+    "file": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts",
+    "title": "P6: Auto-Trigger P6_05_no_reverse_on_seq2",
+    "head": "Error: privateKey must be hex (64-char seed or PKCS#8 DER)\n    at Module.signCapsuleHash (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts::P6: Auto-Trigger P6_07_no_double_trigger",
+    "file": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts",
+    "title": "P6: Auto-Trigger P6_07_no_double_trigger",
+    "head": "Error: privateKey must be hex (64-char seed or PKCS#8 DER)\n    at Module.signCapsuleHash (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts::P7: Full Roundtrip P7_01_full_happy_path",
+    "file": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts",
+    "title": "P7: Full Roundtrip P7_01_full_happy_path",
+    "head": "Error: privateKey must be hex (64-char seed or PKCS#8 DER)\n    at Module.signCapsuleHash (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts::P7: Full Roundtrip P7_02_one_side_offline",
+    "file": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts",
+    "title": "P7: Full Roundtrip P7_02_one_side_offline",
+    "head": "Error: privateKey must be hex (64-char seed or PKCS#8 DER)\n    at Module.signCapsuleHash (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts::P7: Full Roundtrip P7_03_tampered_capsule_rejected",
+    "file": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts",
+    "title": "P7: Full Roundtrip P7_03_tampered_capsule_rejected",
+    "head": "Error: privateKey must be hex (64-char seed or PKCS#8 DER)\n    at Module.signCapsuleHash (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts::P7: Full Roundtrip P7_04_wrong_token_rejected",
+    "file": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts",
+    "title": "P7: Full Roundtrip P7_04_wrong_token_rejected",
+    "head": "Error: privateKey must be hex (64-char seed or PKCS#8 DER)\n    at Module.signCapsuleHash (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts::P7: Full Roundtrip P7_05_context_matches_commitment",
+    "file": "apps/electron-vite-project/electron/main/p2p/__tests__/p2p-transport.test.ts",
+    "title": "P7: Full Roundtrip P7_05_context_matches_commitment",
+    "head": "Error: privateKey must be hex (64-char seed or PKCS#8 DER)\n    at Module.signCapsuleHash (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\"
+  },
+  {
+    "key": "apps/electron-vite-project/electron/main/p2p/__tests__/relayPull.messageRelay.test.ts::pullFromRelay message_relay validated message_relay inserts row and ACKs after insert",
+    "file": "apps/electron-vite-project/electron/main/p2p/__tests__/relayPull.messageRelay.test.ts",
+    "title": "pullFromRelay message_relay validated message_relay inserts row and ACKs after insert",
+    "head": "AssertionError: expected +0 to be 1 // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\p2p\\__tests__\\relayP"
+  }
+]

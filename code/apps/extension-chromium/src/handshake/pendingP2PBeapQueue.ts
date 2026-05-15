@@ -1,39 +1,20 @@
 /**
  * Shared processor for p2p_pending_beap rows (P2P / coordination / local ingest).
  * Used by usePendingP2PBeapIngestion (poll + push) and push-triggered runs.
+ *
+ * Phase B, PR B-8: After Stage-5 verification succeeds, writes through
+ * Electron main's sealed-storage gate (mergeDepackagedToElectron), caches
+ * the package for "View Original", then refreshes the store from main's
+ * sealed rows.  The renderer store is never mutated directly with inbox
+ * content — it is a read-only mirror of main.
  */
 
 import { getPendingP2PBeapMessages, ackPendingP2PBeap, getHandshake } from './handshakeRpc'
 import { importBeapMessage, verifyImportedMessage } from '../ingress/importPipeline'
-import { buildElectronMergePayload } from '../ingress/electronDepackagedSync'
-import type { SanitisedDecryptedPackage } from '../beap-messages/sandbox/sandboxProtocol'
+import { mergeDepackagedToElectron } from '../ingress/electronDepackagedSync'
+import { useBeapInboxStore } from '../beap-messages/useBeapInboxStore'
 
 let globalProcessing = false
-
-/** Push Stage-5 decrypted content to Electron inbox DB (localhost HTTP via background). */
-function mergeDepackagedToElectron(
-  packageJson: string,
-  handshakeId: string,
-  pkg: SanitisedDecryptedPackage,
-): Promise<{ ok: boolean; error?: string }> {
-  const payload = buildElectronMergePayload(packageJson, handshakeId, pkg)
-  return new Promise((resolve, reject) => {
-    try {
-      chrome.runtime.sendMessage(
-        { type: 'ELECTRON_INBOX_MERGE_DEPACKAGED', payload },
-        (response: { ok?: boolean; error?: string } | undefined) => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message))
-            return
-          }
-          resolve(response ?? { ok: false, error: 'no response' })
-        },
-      )
-    } catch (e) {
-      reject(e)
-    }
-  })
-}
 
 async function buildVerifyOptions(
   handshakeId: string,
@@ -52,7 +33,8 @@ async function buildVerifyOptions(
 }
 
 /**
- * Drain pending P2P BEAP rows: import, verify, ack. Idempotent with globalProcessing guard.
+ * Drain pending P2P BEAP rows: import, verify, merge-to-main, cache, refresh.
+ * Idempotent with globalProcessing guard.
  */
 export async function processPendingP2PBeapQueue(): Promise<void> {
   if (globalProcessing) return
@@ -69,32 +51,37 @@ export async function processPendingP2PBeapQueue(): Promise<void> {
         const verifyOptions = await buildVerifyOptions(item.handshake_id)
         const verifyResult = await verifyImportedMessage(importResult.messageId, verifyOptions)
         if (verifyResult.success) {
-          if (verifyResult.sanitisedPackage) {
-            const pkg = verifyResult.sanitisedPackage
+          const pkg = verifyResult.sanitisedPackage
+          if (pkg) {
+            const handshakeId = verifyResult.resolvedHandshakeId ?? item.handshake_id
+            console.log('[MERGE] About to merge depackaged to Electron:', {
+              ingressMessageId: importResult.messageId,
+              handshakeId,
+              hasBody: !!(pkg.capsule?.body && String(pkg.capsule.body).trim()),
+              hasTransport: !!(pkg.capsule?.transport_plaintext && String(pkg.capsule.transport_plaintext).trim()),
+              attachmentCount: pkg.capsule?.attachments?.length ?? 0,
+              artefactCount: pkg.artefacts?.length ?? 0,
+            })
+            let r = await mergeDepackagedToElectron(item.package_json, handshakeId, pkg)
+            for (let attempt = 0; attempt < 3; attempt++) {
+              if (r.ok) break
+              const retryable =
+                typeof r.error === 'string' && /no inbox row|matches this package/i.test(r.error)
+              if (!retryable || attempt >= 2) break
+              await new Promise((z) => setTimeout(z, 2000))
+              console.log('[MERGE] Retrying merge after inbox row delay (attempt ' + (attempt + 2) + '/3)')
+              r = await mergeDepackagedToElectron(item.package_json, handshakeId, pkg)
+            }
+            if (!r.ok) {
+              console.warn('[P2P→Electron] merge-depackaged:', r.error ?? 'failed')
+            }
+            // Phase B, PR B-8: cache package for "View Original" and refresh store
+            // from main's sealed rows (never populate the store directly).
+            useBeapInboxStore.getState().cachePackage(pkg, handshakeId)
             try {
-              console.log('[MERGE] About to merge depackaged to Electron:', {
-                ingressMessageId: importResult.messageId,
-                handshakeId: item.handshake_id,
-                hasBody: !!(pkg.capsule?.body && String(pkg.capsule.body).trim()),
-                hasTransport: !!(pkg.capsule?.transport_plaintext && String(pkg.capsule.transport_plaintext).trim()),
-                attachmentCount: pkg.capsule?.attachments?.length ?? 0,
-                artefactCount: pkg.artefacts?.length ?? 0,
-              })
-              let r = await mergeDepackagedToElectron(item.package_json, item.handshake_id, pkg)
-              for (let attempt = 0; attempt < 3; attempt++) {
-                if (r.ok) break
-                const retryable =
-                  typeof r.error === 'string' && /no inbox row|matches this package/i.test(r.error)
-                if (!retryable || attempt >= 2) break
-                await new Promise((z) => setTimeout(z, 2000))
-                console.log('[MERGE] Retrying merge after inbox row delay (attempt ' + (attempt + 2) + '/3)')
-                r = await mergeDepackagedToElectron(item.package_json, item.handshake_id, pkg)
-              }
-              if (!r.ok) {
-                console.warn('[P2P→Electron] merge-depackaged:', r.error ?? 'failed')
-              }
-            } catch (syncErr) {
-              console.warn('[P2P→Electron] merge depackaged failed (inbox may show placeholders):', syncErr)
+              await useBeapInboxStore.getState().refreshFromMain()
+            } catch (refreshErr) {
+              console.warn('[P2P→Electron] refreshFromMain failed (inbox may be stale):', refreshErr)
             }
           }
           await ackPendingP2PBeap(item.id)

@@ -26,8 +26,30 @@ type InboxRow = {
   subject?: string | null
   body_text?: string | null
   depackaged_json?: string | null
+  /** PR 5.1: format + operational metadata separated from validated content. */
+  depackaged_metadata?: string | null
   beap_package_json?: string | null
   has_attachments?: number | null
+}
+
+/**
+ * PR 5.1: read the format identifier from `depackaged_metadata` (primary) with a
+ * fallback to `depackaged_json` for rows that pre-date the v63 migration.
+ */
+function depackagedFormatFromPair(
+  depackaged_metadata: string | null | undefined,
+  depackaged_json: string | null | undefined,
+): string | null {
+  for (const src of [depackaged_metadata, depackaged_json]) {
+    if (!src?.trim()) continue
+    try {
+      const d = JSON.parse(src) as { format?: string }
+      if (typeof d.format === 'string') return d.format
+    } catch {
+      /* continue */
+    }
+  }
+  return null
 }
 
 /** Inbox `source_type` values that represent a received BEAP row (P2P direct or email-carried / depackaged). */
@@ -36,14 +58,8 @@ export function isReceivedBeapInboxSourceType(st: string | null | undefined): bo
   return t === 'direct_beap' || t === 'email_beap'
 }
 
-function depackFormatFromRow(dep: string | null | undefined): string | null {
-  if (!dep?.trim()) return null
-  try {
-    const d = JSON.parse(dep) as { format?: string }
-    return typeof d.format === 'string' ? d.format : null
-  } catch {
-    return null
-  }
+function depackFormatFromRow(dep: string | null | undefined, meta?: string | null): string | null {
+  return depackagedFormatFromPair(meta, dep)
 }
 
 /**
@@ -54,12 +70,13 @@ export function inboxRowIsReceivedBeapForRedirectOrClone(row: {
   source_type?: string | null
   beap_package_json?: string | null
   depackaged_json?: string | null
+  depackaged_metadata?: string | null
 }): boolean {
   const st = String(row.source_type ?? '')
   if (st === 'direct_beap' || st === 'email_beap') return true
   if (st !== 'email_plain') return false
   if (row.beap_package_json && String(row.beap_package_json).trim().length > 0) return true
-  const fmt = depackFormatFromRow(row.depackaged_json)
+  const fmt = depackFormatFromRow(row.depackaged_json, row.depackaged_metadata)
   if (!fmt) return false
   if (fmt === 'beap_qbeap_outbound') return false
   if (fmt.startsWith('beap_')) return true
@@ -95,7 +112,8 @@ function tryExtractBeapStructuredText(row: InboxRow): {
   if (dep) {
     try {
       const d = JSON.parse(dep) as Record<string, unknown>
-      const fmt = typeof d.format === 'string' ? d.format : ''
+      // PR 5.1: read format from depackaged_metadata first; fall back to depackaged_json for legacy rows.
+      const fmt = depackagedFormatFromPair(row.depackaged_metadata, row.depackaged_json) ?? ''
 
       if (fmt === 'beap_qbeap_outbound') {
         const raw = String(row.body_text ?? '').trim()

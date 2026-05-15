@@ -12,6 +12,7 @@
   },
   "version": "0.0.1",
   "scripts": {
+    "postinstall": "node -e \"try{const{execSync}=require('child_process');const bin=require.resolve('prebuild-install/bin');execSync('node '+JSON.stringify(bin)+' --runtime node',{cwd:require('path').join(__dirname,'node_modules','better-sqlite3'),stdio:'inherit'})}catch(e){console.warn('better-sqlite3 prebuild install skipped:',e.message)}\"",
     "test": "vitest --passWithNoTests",
     "test:email-lifecycle": "vitest run apps/electron-vite-project/electron/main/email/domain/mailboxLifecycleMapping.test.ts apps/electron-vite-project/electron/main/email/domain/customImapSmtpPayloadValidation.test.ts apps/electron-vite-project/electron/main/email/domain/syncLastSyncAnchorPolicy.test.ts apps/electron-vite-project/electron/main/email/domain/securityModeNormalize.test.ts apps/electron-vite-project/electron/main/email/__tests__/inboxOrchestratorRemoteQueue.enqueue.test.ts apps/electron-vite-project/electron/main/email/__tests__/inboxLifecycleEngine.tick.test.ts apps/electron-vite-project/electron/main/email/__tests__/emailInboxAttachmentInvariants.test.ts apps/electron-vite-project/electron/main/email/__tests__/messageRouter.ingestTransaction.test.ts apps/electron-vite-project/electron/main/email/googleOAuthBuiltin.test.ts apps/electron-vite-project/electron/main/email/gmailOAuthResolve.test.ts apps/electron-vite-project/src/components/bulkInboxAttachmentHydration.test.ts apps/electron-vite-project/src/utils/syncFailureUi.test.ts apps/extension-chromium/src/shared/email/connectEmail.launch.test.ts",
     "test:webmcp": "vitest run apps/extension-chromium/src/vault/autofill/webMcpAdapter.test.ts apps/extension-chromium/src/vault/autofill/__tests__/background-sender-gate.test.ts apps/extension-chromium/src/vault/autofill/__tests__/webmcp-isolation.test.ts",
@@ -23,6 +24,7 @@
     "test:quarantine": "vitest run apps/extension-chromium/src/vault/autofill/committer.test.ts apps/extension-chromium/src/vault/autofill/__tests__/hardening.test.ts apps/extension-chromium/src/vault/autofill/__tests__/security-regression.test.ts apps/extension-chromium/src/vault/autofill/fieldScanner.test.ts",
     "check:write-boundary": "bash scripts/check-write-boundary.sh",
     "check:write-boundary:win": "powershell -ExecutionPolicy Bypass -File scripts/check-write-boundary.ps1",
+    "check:inbox-validator-gate": "bash scripts/check-inbox-validator-gate.sh",
     "release:manifest": "node scripts/release/generate-manifest.mjs",
     "release:sign": "node scripts/release/sign-manifest.mjs",
     "release:verify": "node scripts/release/verify-manifest.mjs",

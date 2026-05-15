@@ -19,6 +19,7 @@
  */
 
 import { randomUUID } from 'crypto'
+import { prepareSealedOperationalUpdate } from '../sealed-storage/index'
 import type {
   OrchestratorRemoteApplyResult,
   OrchestratorRemoteOperation,
@@ -443,7 +444,8 @@ export async function processOrchestratorRemoteQueueBatch(
   const resetPendingTransient = db.prepare(
     `UPDATE remote_orchestrator_mutation_queue SET status = 'pending', last_error = ?, updated_at = ? WHERE id = ?`,
   )
-  const touchMessageError = db.prepare(
+  const touchMessageError = prepareSealedOperationalUpdate(
+    db,
     `UPDATE inbox_messages SET remote_orchestrator_last_error = ? WHERE id = ?`,
   )
 
@@ -642,7 +644,8 @@ export async function processOrchestratorRemoteQueueBatch(
         touchMessageError.run(null, r.message_id)
         if (apply.imapUidAfterMove != null && apply.imapMailboxAfterMove != null) {
           try {
-            db.prepare(
+            prepareSealedOperationalUpdate(
+              db,
               `UPDATE inbox_messages SET email_message_id = ?, imap_remote_mailbox = ? WHERE id = ?`,
             ).run(apply.imapUidAfterMove, apply.imapMailboxAfterMove, r.message_id)
           } catch (persistErr: any) {
@@ -1664,7 +1667,7 @@ export function migrateInboxAccountIdAndClearQueue(
     changes?: number
   }
   const queueRowsDeleted = typeof qDel?.changes === 'number' ? qDel.changes : 0
-  const mUp = db.prepare(`UPDATE inbox_messages SET account_id = ? WHERE account_id = ?`).run(toId, fromId) as {
+  const mUp = prepareSealedOperationalUpdate(db, `UPDATE inbox_messages SET account_id = ? WHERE account_id = ?`).run(toId, fromId) as {
     changes?: number
   }
   const messagesUpdated = typeof mUp?.changes === 'number' ? mUp.changes : 0

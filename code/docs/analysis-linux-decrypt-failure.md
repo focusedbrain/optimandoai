@@ -1,4 +1,5 @@
 # Linux qBEAP Decrypt — Analysis Report
+> **Phase B note (B-7.2):** 	ryQbeapDecryptInbox and its call-site in eapEmailIngestion.ts were removed in PR B-7.2 as dead production code. The late-decryption path now routes through esealWithDecryptedContent in the sealed-storage gate. References to 	ryQbeapDecryptInbox below are historical (pre-B-7.2 architecture).
 
 **Scope:** Codebase analysis only (no code changes).  
 **Question:** Why does qBEAP show “Waiting for decryption…” on Linux while Windows decrypts, for the same repo build? Why is Reply inert on native BEAP on Linux?

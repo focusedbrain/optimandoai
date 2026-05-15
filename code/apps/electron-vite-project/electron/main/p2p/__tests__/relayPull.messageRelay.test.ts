@@ -1,13 +1,15 @@
 /**
- * Relay pull — message_relay capsules must reach p2p_pending_beap (parity with coordinationWs).
+ * Relay pull — message_relay capsules are processed via processBeapPackageInline
+ * (Phase B change: previously inserted directly into p2p_pending_beap).
  */
 
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createRequire } from 'module'
 import { pullFromRelay } from '../relayPull'
 import * as ingestionPipeline from '../../ingestion/ingestionPipeline'
+import * as beapEmailIngestion from '../../email/beapEmailIngestion'
 import { upsertP2PConfig } from '../p2pConfig'
-import { migrateHandshakeTables, getPendingP2PBeapMessages } from '../../handshake/db'
+import { migrateHandshakeTables } from '../../handshake/db'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
 import { buildTestSession } from '../../handshake/sessionFactory'
 import type { IngestionAuditRecord } from '../../ingestion/types'
@@ -56,18 +58,22 @@ function auditBase(overrides: Partial<IngestionAuditRecord> = {}): IngestionAudi
 describe('pullFromRelay message_relay', () => {
   let processSpy: ReturnType<typeof vi.spyOn>
   let fetchSpy: ReturnType<typeof vi.spyOn>
+  let beapSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
     processSpy = vi.spyOn(ingestionPipeline, 'processIncomingInput')
     fetchSpy = vi.spyOn(globalThis, 'fetch')
+    // Phase B: message_relay path calls processBeapPackageInline; mock to avoid real pipeline.
+    beapSpy = vi.spyOn(beapEmailIngestion, 'processBeapPackageInline').mockResolvedValue({ outcome: 'inbox' } as any)
   })
 
   afterEach(() => {
     processSpy.mockRestore()
     fetchSpy.mockRestore()
+    beapSpy.mockRestore()
   })
 
-  test('validated message_relay inserts row and ACKs after insert', async () => {
+  test('validated message_relay calls processBeapPackageInline and ACKs', async () => {
     if (skipIfNoSqlite()) return
 
     const db = createTestDb()
@@ -108,10 +114,14 @@ describe('pullFromRelay message_relay', () => {
 
     await pullFromRelay(db, () => buildTestSession())
 
-    const pending = getPendingP2PBeapMessages(db)
-    expect(pending.length).toBe(1)
-    expect(pending[0].handshake_id).toBe('hs-from-validated')
-    expect(pending[0].package_json).toBe(capsuleJson)
+    // Phase B change: message_relay capsules are processed via processBeapPackageInline
+    // (sealed inbox pipeline) rather than inserted directly into p2p_pending_beap.
+    expect(beapSpy).toHaveBeenCalledWith(
+      db,
+      capsuleJson,
+      'hs-from-validated',
+      expect.objectContaining({ sourceType: 'p2p_relay' }),
+    )
 
     const ackCalls = fetchSpy.mock.calls.filter((c) => String(c[0]).includes('/ack'))
     expect(ackCalls.length).toBe(1)

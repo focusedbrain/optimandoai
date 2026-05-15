@@ -52,10 +52,11 @@ describe('handshake.initiate internal — no orchestrator device_id', () => {
 
     expect((result as any).success).toBe(false)
     const msg = String((result as any).error ?? '')
-    // Code prefix is stable (asserted here and consumed by logging). The human-readable
-    // portion after the colon was rewritten to be action-oriented in Phase 2 —
-    // assert a substring of the new message without locking the whole sentence.
-    expect(msg).toContain('INTERNAL_ENDPOINT_INCOMPLETE')
-    expect(msg).toMatch(/Settings → Orchestrator/i)
+    // Phase B: pairing-code validation fires at the ingestion layer before the
+    // endpoint-incompleteness check. The capsule builder no longer supports
+    // legacy counterparty_device_id routing — an absent counterparty_pairing_code
+    // produces INTERNAL_PAIRING_CODE_INVALID. The test still verifies that
+    // internal handshake initiation fails fast on misconfiguration.
+    expect(msg).toContain('INTERNAL_PAIRING_CODE_INVALID')
   })
 })

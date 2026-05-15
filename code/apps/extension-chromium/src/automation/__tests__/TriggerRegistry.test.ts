@@ -2,6 +2,7 @@
  * TriggerRegistry Unit Tests
  */
 
+import { vi } from 'vitest'
 import { TriggerRegistry } from '../triggers/TriggerRegistry'
 import { ChatTrigger } from '../triggers/ChatTrigger'
 import { CronTrigger } from '../triggers/CronTrigger'
@@ -78,7 +79,7 @@ describe('TriggerRegistry', () => {
     })
 
     it('should return unsubscribe function', () => {
-      const callback = jest.fn()
+      const callback = vi.fn()
       const unsubscribe = registry.subscribe(callback)
       
       expect(typeof unsubscribe).toBe('function')
@@ -207,7 +208,7 @@ describe('ChatTrigger', () => {
     })
 
     it('should not emit when trigger is not active', () => {
-      const callback = jest.fn()
+      const callback = vi.fn()
       trigger.subscribe(callback)
       
       // Not started
@@ -242,13 +243,13 @@ describe('CronTrigger', () => {
   let trigger: CronTrigger
 
   beforeEach(() => {
-    jest.useFakeTimers()
+    vi.useFakeTimers()
     trigger = new CronTrigger('test-cron', 1000) // 1 second check interval for testing
   })
 
   afterEach(() => {
     trigger.stop()
-    jest.useRealTimers()
+    vi.useRealTimers()
   })
 
   describe('schedule', () => {

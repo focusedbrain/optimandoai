@@ -298,6 +298,15 @@ interface OrchestratorBridge {
   /** Opens orchestrator SQLite (same as POST /api/orchestrator/connect). */
   connect: () => Promise<{ success: boolean; data?: unknown; error?: string }>
   listSessions: () => Promise<{ success: boolean; data?: unknown[]; error?: string }>
+  /**
+   * Fetch full session content by ID (agents, agent_boxes, display_grids, config).
+   * Added PR 4/8 to support artefact construction at send time.
+   */
+  getSession: (id: string) => Promise<{
+    success: boolean
+    data?: { id: string; name: string; config: Record<string, unknown> }
+    error?: string
+  }>
 }
 
 /** BEAP capsule / inline composer bridge (preload). */

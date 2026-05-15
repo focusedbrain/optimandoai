@@ -20,9 +20,11 @@ import {
   refreshInternalHandshakePersistenceFlags,
   getPendingP2PBeapMessages,
   markP2PPendingBeapProcessed,
-  getPendingPlainEmails,
-  markPlainEmailProcessed,
+  // getPendingPlainEmails / markPlainEmailProcessed removed — Phase B, PR B-3.1.
+  // plain_email_inbox table was dropped in schema v65.
 } from './db'
+import { sealedQuery, prepareSealedOperationalUpdate } from '../sealed-storage'
+import { resealWithAiAnalysis } from '../email/sealedContentUpdate'
 import { isInternalCoordinationIdentityComplete } from './internalPersistence'
 import { queryContextBlocks, queryContextBlocksWithGovernance } from './contextBlocks'
 import { authorizeAction, diagnoseHandshakeInactive, isHandshakeActive } from './enforcement'
@@ -723,15 +725,13 @@ export async function handleHandshakeRPC(
     }
 
     case 'handshake.getPendingPlainEmails': {
-      const items = getPendingPlainEmails(db)
-      return { type: 'plain-email-list', items }
+      // Phase B, PR B-3.1 (Gap 2): plain_email_inbox was dropped in schema v65.
+      // Return empty list to avoid breaking callers that poll this endpoint.
+      return { type: 'plain-email-list', items: [] }
     }
 
     case 'handshake.ackPendingPlainEmail': {
-      const { id } = params as { id: number }
-      if (typeof id !== 'number') return { success: false, error: 'id is required' }
-      if (!db) return { success: false, error: 'Database unavailable' }
-      markPlainEmailProcessed(db, id)
+      // Phase B, PR B-3.1 (Gap 2): plain_email_inbox was dropped; no-op.
       return { success: true }
     }
 
@@ -3053,6 +3053,230 @@ export async function handleHandshakeRPC(
         console.error('[IPC] beap.deriveSharedSecret failed:', e)
         return { success: false, error: String(e) }
       }
+    }
+
+    // ── Phase B, PR B-8: Extension BEAP Inbox — sealed read + operational mutations ──
+    // ── Phase B, PR B-8.1: cursor-based pagination helpers ──
+
+    case 'handshake.beapInbox.list': {
+      if (!db) return { success: false, error: 'Database unavailable' }
+      const { cursor = null, limit = 200 } = (params ?? {}) as {
+        cursor?: string | null
+        limit?: number
+      }
+      const effectiveLimit = Math.min(typeof limit === 'number' && limit > 0 ? limit : 200, 1000)
+
+      // Decode an opaque cursor produced by this handler.
+      // Cursor encodes { t: received_at (ms epoch), i: message id } as base64url JSON.
+      // The renderer treats cursors as opaque strings; they must not contain PII.
+      const decodeCursor = (raw: string): { received_at: number; id: string } | null => {
+        try {
+          const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown
+          if (
+            parsed !== null && typeof parsed === 'object' &&
+            typeof (parsed as Record<string, unknown>).t === 'number' &&
+            typeof (parsed as Record<string, unknown>).i === 'string'
+          ) {
+            return { received_at: (parsed as { t: number; i: string }).t, id: (parsed as { t: number; i: string }).i }
+          }
+          return null
+        } catch { return null }
+      }
+
+      type InboxRow = {
+        id: string; handshake_id: string | null; subject: string | null; body_text: string | null
+        depackaged_json: string | null; received_at: number; read_status: number; archived: number
+        has_attachments: number; attachment_count: number; ai_analysis_json: string | null
+        urgency_score: number | null; from_address: string | null; from_name: string | null
+        source_type: string | null; seal: string | null; seal_input_json: string | null
+      }
+
+      const pos = cursor ? decodeCursor(cursor) : null
+
+      // Stable sort: received_at DESC, id DESC (id is UUID — string comparison gives
+      // a consistent tiebreaker when two messages share the same millisecond).
+      const rows = pos
+        ? sealedQuery<InboxRow>(
+            db,
+            `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
+                    has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
+                    source_type, seal, seal_input_json
+             FROM inbox_messages
+             WHERE deleted = 0
+               AND (received_at < ? OR (received_at = ? AND id < ?))
+             ORDER BY received_at DESC, id DESC
+             LIMIT ?`,
+            [pos.received_at, pos.received_at, pos.id, effectiveLimit],
+            'depackaged_json',
+          )
+        : sealedQuery<InboxRow>(
+            db,
+            `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
+                    has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
+                    source_type, seal, seal_input_json
+             FROM inbox_messages
+             WHERE deleted = 0
+             ORDER BY received_at DESC, id DESC
+             LIMIT ?`,
+            [effectiveLimit],
+            'depackaged_json',
+          )
+
+      let attStmt: { all: (id: string) => Array<{ attachment_id: string; filename: string | null; mime_type: string | null; size_bytes: number | null; content_sha256: string | null }> } | null = null
+      try {
+        attStmt = db.prepare(
+          `SELECT attachment_id, filename, mime_type, size_bytes, content_sha256 FROM inbox_attachments WHERE message_id = ?`,
+        ) as typeof attStmt
+      } catch { /* inbox_attachments absent — attachments array will be empty */ }
+
+      const items = rows.map((row) => ({
+        id: row.id,
+        handshake_id: row.handshake_id,
+        subject: row.subject,
+        body_text: row.body_text,
+        depackaged_json: row.depackaged_json,
+        received_at: row.received_at,
+        read_status: row.read_status,
+        archived: row.archived,
+        has_attachments: row.has_attachments,
+        attachment_count: row.attachment_count,
+        ai_analysis_json: row.ai_analysis_json,
+        urgency_score: row.urgency_score,
+        from_address: row.from_address,
+        from_name: row.from_name,
+        source_type: row.source_type,
+        attachments: attStmt ? attStmt.all(row.id) : [],
+      }))
+
+      // nextCursor is non-null only when there may be more rows (received exactly effectiveLimit).
+      const lastRow = items[items.length - 1]
+      const nextCursor: string | null =
+        lastRow && rows.length === effectiveLimit
+          ? Buffer.from(JSON.stringify({ t: lastRow.received_at, i: lastRow.id })).toString('base64url')
+          : null
+
+      return { success: true, items, nextCursor }
+    }
+
+    // ── Phase B, PR B-8.2: getMany — gate-verified read for patch mode ──────────
+
+    case 'handshake.beapInbox.getMany': {
+      if (!db) return { success: false, error: 'Database unavailable' }
+      const { rowIds } = (params ?? {}) as { rowIds?: unknown }
+      if (!Array.isArray(rowIds) || rowIds.length === 0) return { success: true, rows: [] }
+      // Clamp to 500 ids — prevents unbounded query construction.
+      const ids = (rowIds as unknown[])
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+        .slice(0, 500)
+      if (ids.length === 0) return { success: true, rows: [] }
+
+      type InboxRow = {
+        id: string; handshake_id: string | null; subject: string | null; body_text: string | null
+        depackaged_json: string | null; received_at: number; read_status: number; archived: number
+        has_attachments: number; attachment_count: number; ai_analysis_json: string | null
+        urgency_score: number | null; from_address: string | null; from_name: string | null
+        source_type: string | null; seal: string | null; seal_input_json: string | null
+      }
+
+      const placeholders = ids.map(() => '?').join(', ')
+      const rows = sealedQuery<InboxRow>(
+        db,
+        `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
+                has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
+                source_type, seal, seal_input_json
+         FROM inbox_messages
+         WHERE deleted = 0 AND id IN (${placeholders})`,
+        ids,
+        'depackaged_json',
+      )
+
+      let attStmt: { all: (id: string) => Array<{ attachment_id: string; filename: string | null; mime_type: string | null; size_bytes: number | null; content_sha256: string | null }> } | null = null
+      try {
+        attStmt = db.prepare(
+          `SELECT attachment_id, filename, mime_type, size_bytes, content_sha256 FROM inbox_attachments WHERE message_id = ?`,
+        ) as typeof attStmt
+      } catch { /* inbox_attachments absent */ }
+
+      const result = rows.map((row) => ({
+        id: row.id,
+        handshake_id: row.handshake_id,
+        subject: row.subject,
+        body_text: row.body_text,
+        depackaged_json: row.depackaged_json,
+        received_at: row.received_at,
+        read_status: row.read_status,
+        archived: row.archived,
+        has_attachments: row.has_attachments,
+        attachment_count: row.attachment_count,
+        ai_analysis_json: row.ai_analysis_json,
+        urgency_score: row.urgency_score,
+        from_address: row.from_address,
+        from_name: row.from_name,
+        source_type: row.source_type,
+        attachments: attStmt ? attStmt.all(row.id) : [],
+      }))
+      return { success: true, rows: result }
+    }
+
+    // ── Mutation handlers — each now returns rowId for patch-mode refresh ──────
+
+    case 'handshake.beapInbox.markRead': {
+      if (!db) return { success: false, error: 'Database unavailable' }
+      const { messageId, read } = (params ?? {}) as { messageId?: string; read?: boolean }
+      if (!messageId) return { success: false, error: 'messageId is required' }
+      prepareSealedOperationalUpdate(
+        db, `UPDATE inbox_messages SET read_status = ? WHERE id = ?`
+      ).run(read ? 1 : 0, messageId)
+      return { success: true, rowId: messageId }
+    }
+
+    case 'handshake.beapInbox.archive': {
+      if (!db) return { success: false, error: 'Database unavailable' }
+      const { messageId } = (params ?? {}) as { messageId?: string }
+      if (!messageId) return { success: false, error: 'messageId is required' }
+      prepareSealedOperationalUpdate(
+        db, `UPDATE inbox_messages SET archived = 1 WHERE id = ?`
+      ).run(messageId)
+      return { success: true, rowId: messageId }
+    }
+
+    case 'handshake.beapInbox.unarchive': {
+      if (!db) return { success: false, error: 'Database unavailable' }
+      const { messageId } = (params ?? {}) as { messageId?: string }
+      if (!messageId) return { success: false, error: 'messageId is required' }
+      prepareSealedOperationalUpdate(
+        db, `UPDATE inbox_messages SET archived = 0 WHERE id = ?`
+      ).run(messageId)
+      return { success: true, rowId: messageId }
+    }
+
+    case 'handshake.beapInbox.classify': {
+      if (!db) return { success: false, error: 'Database unavailable' }
+      const { messageId, aiAnalysis, urgencyScore } = (params ?? {}) as {
+        messageId?: string
+        aiAnalysis?: Record<string, unknown> | null
+        urgencyScore?: number | null
+      }
+      if (!messageId) return { success: false, error: 'messageId is required' }
+      const resealResult = await resealWithAiAnalysis(db, messageId, aiAnalysis ?? null)
+      if (!resealResult.ok) return { success: false, error: resealResult.error }
+      if (typeof urgencyScore === 'number') {
+        prepareSealedOperationalUpdate(
+          db, `UPDATE inbox_messages SET urgency_score = ? WHERE id = ?`
+        ).run(urgencyScore, messageId)
+      }
+      return { success: true, rowId: messageId }
+    }
+
+    case 'handshake.beapInbox.setUrgency': {
+      if (!db) return { success: false, error: 'Database unavailable' }
+      const { messageId, urgencyScore } = (params ?? {}) as { messageId?: string; urgencyScore?: number }
+      if (!messageId) return { success: false, error: 'messageId is required' }
+      if (typeof urgencyScore !== 'number') return { success: false, error: 'urgencyScore must be a number' }
+      prepareSealedOperationalUpdate(
+        db, `UPDATE inbox_messages SET urgency_score = ? WHERE id = ?`
+      ).run(urgencyScore, messageId)
+      return { success: true, rowId: messageId }
     }
 
     default:

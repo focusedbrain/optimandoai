@@ -27,15 +27,33 @@ export type BeapSessionImportResolution =
 
 export interface BeapSessionImportResolutionValid {
   status: 'valid'
-  /** Raw JSON object as parsed from semanticContent (before canonical normalization). */
+  /** Raw JSON object as parsed (before canonical normalization). */
   rawPayload: Record<string, unknown>
-  normalized: NormalizedSessionImport
-  source: {
-    kind: 'attachment_semantic_json'
-    attachmentId: string
-    filename: string
-    mimeType: string
-  }
+  /**
+   * Normalized session import. Present for legacy attachment resolutions.
+   * Absent for canonical artefact resolutions — consumers should check
+   * `source.kind` to distinguish.
+   */
+  normalized?: NormalizedSessionImport
+  /**
+   * For canonical artefact resolutions: the artefact's requested_action
+   * (Decision E — PR 5). Controls Run Automation button visibility.
+   * Absent for legacy attachment resolutions (show button for backward compat).
+   */
+  requestedAction?: 'import_only' | 'import_and_offer_run'
+  source:
+    | {
+        kind: 'attachment_semantic_json'
+        attachmentId: string
+        filename: string
+        mimeType: string
+      }
+    | {
+        /** Canonical capsule-level artefact (PR 3 / Decision A — PR 5). */
+        kind: 'canonical_artefact'
+        artefactId: string
+        sessionName: string
+      }
 }
 
 export interface BeapSessionImportResolutionInvalid {
@@ -202,11 +220,42 @@ function tryAttachment(
 
 /**
  * Scan `message.attachments` in order; return the first valid importable session or an invalid/none result.
+ *
+ * Resolution order (Decision A — PR 5):
+ *  1. Canonical: `message.session_import_artefact` (top-level capsule field, PR 3).
+ *  2. Legacy fallback: `attachment.semanticContent` scan (pre-canon messages).
+ *
+ * The validated-mark gate (Decision B — PR 5) is enforced separately in the
+ * rendering layer (`BeapMessageDetailPanel`, `EmailMessageDetail`). This function
+ * only resolves the payload; it does NOT enforce validation state.
  */
 export function resolveBeapSessionImportPayload(
   message: BeapMessage,
   options?: { pageUrlFallback?: string },
 ): BeapSessionImportResolution {
+  // Decision A — PR 5: canonical artefact position takes priority.
+  // session_import_artefact is mapped from the decrypted capsule by
+  // sanitisedPackageToBeapMessage. For Electron inbox messages, this field
+  // will be populated once the depackager wrappers hoist it (see Step E gap).
+  if (message.session_import_artefact != null) {
+    const artefact = message.session_import_artefact
+    const sessions = artefact.sessions
+    if (Array.isArray(sessions) && sessions.length > 0) {
+      const s = sessions[0]
+      return {
+        status: 'valid',
+        rawPayload: s as unknown as Record<string, unknown>,
+        requestedAction: artefact.requested_action,
+        source: {
+          kind: 'canonical_artefact',
+          artefactId: artefact.artefact_id,
+          sessionName: typeof s.session_name === 'string' ? s.session_name : artefact.artefact_id,
+        },
+      }
+    }
+  }
+
+  // Legacy fallback: scan attachment.semanticContent (pre-canon messages).
   const pageUrl = options?.pageUrlFallback
   if (!message.attachments || message.attachments.length === 0) {
     return {
@@ -256,7 +305,11 @@ export function beapSessionImportActionsEnabled(resolution: BeapSessionImportRes
 /** Short string for banners, tooltips, or aria-label on disabled controls. */
 export function beapSessionImportUiHint(resolution: BeapSessionImportResolution): string {
   if (resolution.status === 'valid') {
-    return `Importable session: ${resolution.source.filename}`
+    const label =
+      resolution.source.kind === 'canonical_artefact'
+        ? resolution.source.sessionName
+        : resolution.source.filename
+    return `Importable session: ${label}`
   }
   return resolution.reason
 }

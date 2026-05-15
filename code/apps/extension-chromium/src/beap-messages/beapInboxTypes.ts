@@ -294,6 +294,48 @@ export interface BeapMessage {
    * explicit archive queries.
    */
   archived: boolean
+
+  // -------------------------------------------------------------------------
+  // Validation mark (PR 2 / 2.2 — receive-side gate; PR 5 — UI gate)
+  // -------------------------------------------------------------------------
+
+  /**
+   * ISO-8601 UTC timestamp set when the receive-side validation gate cleared
+   * this message. For extension inbox messages, set to the depackaging
+   * timestamp when all pipeline gates pass (`allGatesPassed === true`).
+   * Null when validation was not performed or skipped.
+   *
+   * Per Canon I.3.4 and Decision B (PR 5): artefact-related UI MUST NOT
+   * render unless this is non-null and `validation_reason` is null.
+   */
+  validated_at?: string | null
+
+  /**
+   * Validation rejection reason code. Null when validation passed.
+   * Any non-null value renders a rejection banner (Decision C — PR 5).
+   */
+  validation_reason?: string | null
+
+  // -------------------------------------------------------------------------
+  // Canonical session import artefact (PR 3 / Decision A — PR 5)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Canonical session import artefact from the capsule plaintext (PR 3).
+   * Present when the sender included one via the PR 4 / 4.1 sender UI.
+   * Absent for pre-canon messages (those use the legacy attachment resolver).
+   *
+   * Mapped from the decrypted capsule by `sanitisedPackageToBeapMessage`.
+   * The legacy resolver (`attachment.semanticContent`) remains as fallback —
+   * see `sessionImportPayloadResolver.ts` for the resolution chain.
+   *
+   * NOTE (Step E gap): `depackaged_json` stored in the Electron inbox DB
+   * does not yet include `session_import_artefact` at its root. The
+   * extension's in-memory `BeapMessage` carries it via this field. Electron's
+   * `EmailMessageDetail` will activate the canonical read path once the
+   * qBEAP/pBEAP depackager wrappers are updated to hoist this field.
+   */
+  session_import_artefact?: import('../beap-builder/canonical-types').SessionImportArtefact | null
 }
 
 // =============================================================================
@@ -310,9 +352,17 @@ export interface BulkViewPage {
   /** 0-based page index. */
   pageIndex: number
 
-  /** Total number of pages for this batch size. */
+  /** Total number of pages based on rows currently loaded in the store. */
   totalPages: number
 
-  /** Total message count (unarchived). */
+  /** Total message count (unarchived) among loaded rows. */
   totalCount: number
+
+  /**
+   * Phase B, PR B-8.1: true if there are more rows available from main
+   * beyond what is currently loaded in the store.
+   * When true and the user is on the last loaded page, the UI should
+   * trigger loadMoreFromMain() rather than disabling the Next button.
+   */
+  hasMore: boolean
 }

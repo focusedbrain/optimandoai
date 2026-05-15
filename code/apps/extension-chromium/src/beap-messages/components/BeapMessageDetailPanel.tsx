@@ -44,6 +44,7 @@ import {
   resolveBeapSessionImportPayload,
   beapSessionImportActionsEnabled,
 } from '../sessionImportPayloadResolver'
+import { getValidationState } from '../validationState'
 import { requestBeapSessionEditInActiveTab } from '../beapSessionEditBridge'
 import {
   requestBeapRunAutomationInActiveTab,
@@ -266,6 +267,22 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
 
   const sessionImportResolution = useMemo(() => resolveBeapSessionImportPayload(message), [message])
   const canImportSessionForAutomation = beapSessionImportActionsEnabled(sessionImportResolution)
+
+  // Decision B — PR 5: validated-mark gate. Artefact UI is hidden for any
+  // row whose validation state is not 'validated'. See Canon I.3.4.
+  const validationState = useMemo(
+    () => getValidationState(message.validated_at, message.validation_reason),
+    [message.validated_at, message.validation_reason],
+  )
+
+  // Decision E — PR 5: requested_action controls Run Automation visibility.
+  // For canonical artefact: read from resolution. For legacy: show button.
+  const showRunAutomationButton = useMemo(() => {
+    if (validationState !== 'validated') return false
+    if (sessionImportResolution.status !== 'valid') return false
+    if (sessionImportResolution.requestedAction === 'import_only') return false
+    return true
+  }, [validationState, sessionImportResolution])
 
   const integrationIdentity = useMemo(() => beapIntegrationIdentityFromMessage(message), [message])
   const integrationIdentityOk = useMemo(
@@ -605,7 +622,48 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
           </div>
         )}
 
-        {/* Session export resolver + Edit working copy (Run automation: later). */}
+        {/* Session automation payload — validation gate (Decision B — PR 5). */}
+        {/* Non-validated states: render a muted banner; no actionable affordance. */}
+        {validationState === 'rejected' && (
+          <div
+            style={{
+              marginBottom: '14px',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              fontSize: '12px',
+              lineHeight: 1.45,
+              border: `1px solid ${isProfessional ? 'rgba(239,68,68,0.3)' : 'rgba(239,68,68,0.4)'}`,
+              background: isProfessional ? 'rgba(239,68,68,0.06)' : 'rgba(239,68,68,0.12)',
+              color: isProfessional ? '#b91c1c' : '#fca5a5',
+            }}
+            role="alert"
+            aria-label="Validation rejected"
+          >
+            <span style={{ fontWeight: 600 }}>Validation rejected</span>
+            {' — '}
+            This message did not pass security validation and cannot be acted on.
+          </div>
+        )}
+        {validationState === 'pending' && (
+          <div
+            style={{
+              marginBottom: '14px',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              fontSize: '12px',
+              lineHeight: 1.45,
+              border: `1px solid ${borderColor}`,
+              background: isProfessional ? 'rgba(107,114,128,0.06)' : 'rgba(255,255,255,0.04)',
+              color: mutedColor,
+            }}
+            role="status"
+            aria-label="Validation status unknown"
+          >
+            Validation status unknown for this message.
+          </div>
+        )}
+        {/* Session payload section — only rendered when validated (Decision B). */}
+        {validationState === 'validated' && (
         <div
           style={{
             marginBottom: '14px',
@@ -650,8 +708,11 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
           <div>
             {sessionImportResolution.status === 'valid' && (
               <>
-                Ready — {sessionImportResolution.source.filename}{' '}
-                {sessionImportResolution.rawPayload.version === '1.0.0' ? '(v1.0.0 export)' : '(legacy)'}
+                {sessionImportResolution.source.kind === 'canonical_artefact'
+                  ? `Ready — ${sessionImportResolution.source.sessionName} (canonical artefact)`
+                  : `Ready — ${sessionImportResolution.source.filename} ${
+                      sessionImportResolution.rawPayload.version === '1.0.0' ? '(v1.0.0 export)' : '(legacy)'
+                    }`}
               </>
             )}
             {sessionImportResolution.status === 'invalid' && (
@@ -680,6 +741,8 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
                 >
                   {editSessionBusy ? 'Opening…' : 'Edit session (working copy)'}
                 </button>
+                {/* Decision E — PR 5: only show Run Automation for import_and_offer_run. */}
+                {showRunAutomationButton && (
                 <button
                   type="button"
                   disabled={runAutomationBusy || editSessionBusy}
@@ -699,6 +762,7 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
                 >
                   {runAutomationBusy ? 'Running…' : 'Run Automation'}
                 </button>
+                )}
               </div>
               <div style={{ fontSize: '10px', color: dimColor, marginTop: '6px' }}>
                 Edit: import + minimal activation, unlock, Agents manager (no run). Run Automation: new working session,
@@ -885,6 +949,7 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
             </div>
           )}
         </div>
+        )} {/* end validationState === 'validated' */}
 
         {/* Attachments */}
         {message.attachments.length > 0 && (
@@ -1581,7 +1646,11 @@ export const BeapMessageDetailPanel = React.forwardRef<
       onAttachmentSelect?.('', null)
       return
     }
-    markAsRead(selectedMessage.messageId)
+    // Phase B, PR B-8: markAsRead is now an async IPC wrapper.
+    // Fire-and-forget; UI reflects the optimistic local update immediately.
+    markAsRead(selectedMessage.messageId).catch((err) => {
+      console.warn('[BeapMessageDetailPanel] markAsRead failed:', err)
+    })
     onSetSearchContext?.(getSearchContextLabel(selectedMessage))
     // Reset attachment selection when message changes
     setSelectedAttachmentId(null)

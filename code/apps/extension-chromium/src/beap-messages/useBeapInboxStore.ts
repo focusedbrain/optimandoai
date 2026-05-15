@@ -1,20 +1,25 @@
 /**
  * useBeapInboxStore
  *
- * Reactive Zustand store that is the single source of truth for all received
- * BEAP messages. Consumed by:
- *   - Inbox view         (inboxView)
- *   - Handshake panel    (handshakeView)
- *   - Bulk inbox         (bulkView)
+ * Phase B, PR B-8: Renderer stores are read-only mirrors of main-process
+ * sealed storage. Every mutation that affects inbox content or operational
+ * state goes through an IPC wrapper to Electron main's sealed-storage gate.
  *
- * Data model: Map<messageId, BeapMessage> for O(1) access by ID.
- * Derived views are computed inline (not cached) — Zustand's shallow
- * equality prevents unnecessary re-renders for array-typed selectors.
+ * One-way data flow (Decision A):
+ *   Reads : main sealed storage → refreshFromMain() → store.messages
+ *   Writes: renderer requests IPC → main validates/seals → renderer refreshes
  *
- * Ordering convention: all view arrays are sorted newest-first
- * (timestamp descending) unless otherwise noted.
+ * The store exposes:
+ *   • Selectors / getters  (unchanged from pre-B-8)
+ *   • IPC-wrapper mutators (now async; return { ok, error })
+ *   • refreshFromMain()    (re-loads from main's sealedQuery result)
+ *   • cachePackage()       (in-memory only; preserves "View Original" artefacts)
  *
- * @version 1.0.0
+ * Pure UI-local state (no inbox content, no persistence):
+ *   selectMessage, setDraftReply, toggleAttachmentSelected — these remain
+ *   synchronous and renderer-local.
+ *
+ * @version 2.0.0
  */
 
 import { create } from 'zustand'
@@ -26,186 +31,187 @@ import type {
   UrgencyLevel,
 } from './beapInboxTypes'
 import type { SanitisedDecryptedPackage } from './sandbox/sandboxProtocol'
-import { sanitisedPackageToBeapMessage } from './sanitisedPackageToBeapMessage'
+import {
+  getBeapInboxMessages,
+  getBeapInboxMany,
+  beapInboxMarkRead,
+  beapInboxArchive,
+  beapInboxUnarchive,
+  beapInboxClassify,
+  beapInboxSetUrgency,
+} from '../handshake/handshakeRpc'
+import { inboxRowToBeapMessage } from './inboxRowToBeapMessage'
 
 // =============================================================================
 // Store Interface
 // =============================================================================
+
+/** Result returned by all async IPC-wrapper mutations. */
+export interface MutationResult {
+  ok: boolean
+  error?: string
+}
+
+/**
+ * Controls how refreshFromMain loads rows from main.
+ *
+ * replace (default) — clears the store and loads the first batch (cursor=null).
+ *   Called on mount and after mutations in previous PRs.
+ *
+ * extend — appends the next batch using the provided cursor.
+ *   Called by loadMoreFromMain() / Next button pagination.
+ *
+ * patch (Phase B, PR B-8.2) — fetches only the specified rows via beapInbox.getMany
+ *   and merges them into the existing store at their current positions.
+ *   Other rows are untouched. The user's page position is preserved.
+ *   Rows not returned by main (deleted/unavailable) are removed from the store.
+ *   Rows not already in the store are NOT added (Decision D).
+ */
+export type RefreshMode =
+  | { kind: 'replace' }
+  | { kind: 'extend'; cursor: string }
+  | { kind: 'patch'; rowIds: readonly string[] }
 
 interface BeapInboxState {
   // ---------------------------------------------------------------------------
   // Core state
   // ---------------------------------------------------------------------------
 
-  /**
-   * All received messages indexed by messageId.
-   * Map gives O(1) lookup; derived views iterate values() when needed.
-   */
+  /** All received messages indexed by messageId. Populated via refreshFromMain(). */
   messages: Map<string, BeapMessage>
 
   /**
-   * Sanitised packages keyed by messageId.
-   * Used for retrieving original artefacts when user clicks "View Original".
+   * In-memory package cache keyed by messageId.
+   * Populated by cachePackage() after a successful merge-to-main.
+   * Used exclusively by the "View Original" feature.
+   * NOT replaced during refreshFromMain() — survives across refreshes.
    */
   packages: Map<string, SanitisedDecryptedPackage>
 
   /** Currently selected message ID (null when nothing is selected). */
   selectedMessageId: string | null
 
-  /** Message IDs marked "new" for ~1s after addMessage (R.14 animation). */
+  /** Message IDs marked "new" for ~1s after first appearance (R.14 animation). */
   newMessageIds: Set<string>
+
+  /** True while refreshFromMain() is in flight. */
+  isRefreshing: boolean
+
+  /**
+   * Opaque cursor for fetching the next batch of rows from main.
+   * null = all rows already loaded (or store not yet populated).
+   * Set by refreshFromMain after each successful fetch.
+   */
+  nextCursor: string | null
 
   // ---------------------------------------------------------------------------
   // Queries
   // ---------------------------------------------------------------------------
 
-  /** True if message was recently added (for slide-down animation). */
   isNewMessage: (messageId: string) => boolean
-
-  /** Get a single message by ID. O(1). */
   getMessageById: (messageId: string) => BeapMessage | null
-
-  /** Get the sanitised package for a message (for artefact retrieval). */
   getPackageForMessage: (messageId: string) => SanitisedDecryptedPackage | null
-
-  /** Get the currently selected message. */
   getSelectedMessage: () => BeapMessage | null
-
-  /**
-   * Inbox view: all non-archived messages, sorted by timestamp descending.
-   * Equivalent to the "All Messages" tab in the inbox UI.
-   */
   getInboxMessages: () => BeapMessage[]
-
-  /**
-   * Handshake view: messages filtered to a single handshake relationship,
-   * sorted by timestamp descending.
-   * Returns [] when handshakeId has no associated messages.
-   */
   getHandshakeMessages: (handshakeId: string) => BeapMessage[]
-
-  /**
-   * Bulk view: paginated inbox messages.
-   * `batchSize` must be 12 or 24 (throws on invalid value).
-   * `pageIndex` is 0-based.
-   */
   getBulkViewPage: (batchSize: 12 | 24, pageIndex: number) => BulkViewPage
-
-  /**
-   * Pending deletion view: messages with a `deletionScheduled` entry where
-   * the grace period has NOT yet elapsed at the time of the call.
-   */
   getPendingDeletionMessages: () => BeapMessage[]
-
-  /**
-   * Urgent view: non-archived messages with urgency === 'urgent', newest-first.
-   */
   getUrgentMessages: () => BeapMessage[]
-
-  /**
-   * Derive reply mode from a message.
-   * 'beap' when handshakeId is present; 'email' for depackaged messages.
-   */
   getResponseMode: (message: BeapMessage) => 'beap' | 'email'
 
   // ---------------------------------------------------------------------------
-  // Actions
+  // State-from-main
   // ---------------------------------------------------------------------------
 
   /**
-   * Add a received message from a sanitised sandbox package.
-   * Derives all fields via `sanitisedPackageToBeapMessage`.
-   * If a message with the same messageId already exists, it is overwritten
-   * (idempotent import from the same capsule).
+   * Query main's sealed inbox rows and update store.messages.
+   * Calls handshake.beapInbox.list (VAULT_RPC) → sealedQuery on main side.
    *
-   * @param pkg         Sanitised package from Stage 5 sandbox boundary.
-   * @param handshakeId Handshake ID if known; null for depackaged emails.
-   * @returns The newly created BeapMessage.
+   * Phase B, PR B-8.1:
+   *   replace (default) — replaces store with first batch; resets nextCursor.
+   *   extend            — appends next batch using store.nextCursor; updates nextCursor.
+   *
+   * In replace mode, preserves packages cache and UI-local state
+   * (selectedMessageId, drafts, attachment selection).
    */
-  addMessage: (
-    pkg: SanitisedDecryptedPackage,
-    handshakeId: string | null,
-  ) => BeapMessage
+  refreshFromMain: (mode?: RefreshMode) => Promise<void>
 
   /**
-   * Add a plain (non-BEAP) email as a depackaged BeapMessage (Canon §6).
-   * No package; message is injected directly. Shows with ✉️ icon.
-   *
-   * @param msg BeapMessage from plainEmailToBeapMessage (Electron).
-   * @returns The added message.
+   * Convenience wrapper: fetch the next batch from main and append to the store.
+   * No-op if nextCursor is null (all rows already loaded).
    */
-  addPlainEmailMessage: (msg: BeapMessage) => BeapMessage
-
-  /** Select a message (pass null to deselect). */
-  selectMessage: (messageId: string | null) => void
+  loadMoreFromMain: () => Promise<void>
 
   /**
-   * Apply AI classifications to a batch of messages in one atomic update.
+   * Cache a SanitisedDecryptedPackage in-memory for "View Original".
+   * Called after a successful merge-to-main. Never persisted.
+   * Also marks the message as "new" briefly for the slide-down animation.
+   */
+  cachePackage: (pkg: SanitisedDecryptedPackage, handshakeId: string | null) => void
+
+  // ---------------------------------------------------------------------------
+  // IPC-wrapper mutators (async; update store only after main confirms)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Mark a message as read or unread via main's operational gate.
+   */
+  markAsRead: (messageId: string, read?: boolean) => Promise<MutationResult>
+
+  /**
+   * Archive a message via main's operational gate.
+   */
+  archiveMessage: (messageId: string) => Promise<MutationResult>
+
+  /**
+   * Unarchive a message via main's operational gate.
+   */
+  unarchiveMessage: (messageId: string) => Promise<MutationResult>
+
+  /**
+   * Apply AI classifications to a batch of messages.
+   * Each classification is sent to main via resealWithAiAnalysis (Decision A).
    * Missing messageIds are silently ignored.
-   * Also updates `urgency` on each message to match classification.urgency.
    */
   batchClassify: (
     messageIds: string[],
     classifications: Map<string, AiClassification>,
-  ) => void
-
-  /**
-   * Schedule a message for deletion after a grace period.
-   * If the message is already scheduled, the schedule is reset (not stacked).
-   * Does nothing if the messageId does not exist.
-   */
-  scheduleDeletion: (messageId: string, gracePeriodMs: number) => void
-
-  /**
-   * Cancel a pending deletion.
-   * Removes the `deletionScheduled` field from the message.
-   * Does nothing if the messageId does not exist or has no scheduled deletion.
-   */
-  cancelDeletion: (messageId: string) => void
-
-  /**
-   * Archive a message.
-   * Sets `archived = true`. The message disappears from `inboxView` and
-   * handshake views but remains accessible by ID.
-   */
-  archiveMessage: (messageId: string) => void
-
-  /**
-   * Unarchive a message (restore to inbox).
-   * Sets `archived = false`.
-   */
-  unarchiveMessage: (messageId: string) => void
-
-  /**
-   * Set or update the draft reply for a message.
-   * Pass `null` to clear an existing draft.
-   */
-  setDraftReply: (messageId: string, draft: DraftReply | null) => void
-
-  /**
-   * Mark a message as read.
-   */
-  markAsRead: (messageId: string) => void
+  ) => Promise<void>
 
   /**
    * Manually override the urgency level for a message.
-   * Useful when the receiver disagrees with AI classification.
+   * Translates UrgencyLevel to an urgency_score and writes via main's
+   * operational gate.
    */
-  setUrgency: (messageId: string, urgency: UrgencyLevel) => void
+  setUrgency: (messageId: string, urgency: UrgencyLevel) => Promise<MutationResult>
+
+  // ---------------------------------------------------------------------------
+  // Pure UI-local state (synchronous; no IPC; not inbox content)
+  // ---------------------------------------------------------------------------
+
+  /** Select a message (pass null to deselect). */
+  selectMessage: (messageId: string | null) => void
+
+  /** Set or update the draft reply for a message. Pass null to clear. */
+  setDraftReply: (messageId: string, draft: DraftReply | null) => void
+
+  /** Toggle attachment selection state (bulk inbox view — UI only). */
+  toggleAttachmentSelected: (messageId: string, attachmentId: string) => void
 
   /**
-   * Toggle attachment selection state (used in bulk inbox view).
-   * Does nothing if the message or attachment does not exist.
+   * Schedule a message for deletion after a grace period.
+   * Local-only: drives the pending-deletion UI without a DB write.
+   * The actual purge (purgeExpiredDeletions) removes entries from the Map.
    */
-  toggleAttachmentSelected: (
-    messageId: string,
-    attachmentId: string,
-  ) => void
+  scheduleDeletion: (messageId: string, gracePeriodMs: number) => void
+
+  /** Cancel a pending deletion. */
+  cancelDeletion: (messageId: string) => void
 
   /**
    * Remove expired (grace period elapsed) messages that were scheduled for
-   * deletion. Intended to be called periodically (e.g. on tab focus).
-   * Returns the IDs of deleted messages.
+   * deletion. Local-only UI state management.
+   * Returns the IDs of removed messages.
    */
   purgeExpiredDeletions: () => string[]
 }
@@ -214,15 +220,10 @@ interface BeapInboxState {
 // Helpers
 // =============================================================================
 
-/** Sort messages newest-first by timestamp. Pure function, no side effects. */
 function sortByTimestampDesc(msgs: BeapMessage[]): BeapMessage[] {
   return [...msgs].sort((a, b) => b.timestamp - a.timestamp)
 }
 
-/**
- * Update a single message in an immutable Map.
- * Returns a new Map; the original is not mutated.
- */
 function updateMessage(
   map: Map<string, BeapMessage>,
   messageId: string,
@@ -235,17 +236,29 @@ function updateMessage(
   return next
 }
 
+/** Translate UrgencyLevel → numeric urgency_score for main's operational column. */
+function urgencyToScore(urgency: UrgencyLevel): number {
+  switch (urgency) {
+    case 'urgent':           return 90
+    case 'action-required':  return 65
+    case 'normal':           return 40
+    case 'irrelevant':       return 5
+  }
+}
+
+const NEW_MESSAGE_TTL_MS = 1000
+
 // =============================================================================
 // Store Implementation
 // =============================================================================
-
-const NEW_MESSAGE_TTL_MS = 1000
 
 export const useBeapInboxStore = create<BeapInboxState>((set, get) => ({
   messages: new Map(),
   packages: new Map(),
   selectedMessageId: null,
   newMessageIds: new Set(),
+  isRefreshing: false,
+  nextCursor: null,
 
   // ---------------------------------------------------------------------------
   // Queries
@@ -253,13 +266,9 @@ export const useBeapInboxStore = create<BeapInboxState>((set, get) => ({
 
   isNewMessage: (messageId) => get().newMessageIds.has(messageId),
 
-  getMessageById: (messageId) => {
-    return get().messages.get(messageId) ?? null
-  },
+  getMessageById: (messageId) => get().messages.get(messageId) ?? null,
 
-  getPackageForMessage: (messageId) => {
-    return get().packages.get(messageId) ?? null
-  },
+  getPackageForMessage: (messageId) => get().packages.get(messageId) ?? null,
 
   getSelectedMessage: () => {
     const { messages, selectedMessageId } = get()
@@ -268,9 +277,7 @@ export const useBeapInboxStore = create<BeapInboxState>((set, get) => ({
   },
 
   getInboxMessages: () => {
-    const msgs = Array.from(get().messages.values()).filter(
-      (m) => !m.archived,
-    )
+    const msgs = Array.from(get().messages.values()).filter((m) => !m.archived)
     return sortByTimestampDesc(msgs)
   },
 
@@ -282,14 +289,13 @@ export const useBeapInboxStore = create<BeapInboxState>((set, get) => ({
   },
 
   getBulkViewPage: (batchSize, pageIndex) => {
-    const all = get().getInboxMessages() // already sorted, non-archived
+    const all = get().getInboxMessages()
     const totalCount = all.length
     const totalPages = Math.max(1, Math.ceil(totalCount / batchSize))
     const safePageIndex = Math.min(Math.max(0, pageIndex), totalPages - 1)
     const start = safePageIndex * batchSize
-    const messages = all.slice(start, start + batchSize)
-
-    return { messages, pageIndex: safePageIndex, totalPages, totalCount }
+    const hasMore = get().nextCursor !== null
+    return { messages: all.slice(start, start + batchSize), pageIndex: safePageIndex, totalPages, totalCount, hasMore }
   },
 
   getPendingDeletionMessages: () => {
@@ -307,112 +313,208 @@ export const useBeapInboxStore = create<BeapInboxState>((set, get) => ({
     return sortByTimestampDesc(msgs)
   },
 
-  getResponseMode: (message) => {
-    return message.handshakeId !== null ? 'beap' : 'email'
+  getResponseMode: (message) => (message.handshakeId !== null ? 'beap' : 'email'),
+
+  // ---------------------------------------------------------------------------
+  // State-from-main
+  // ---------------------------------------------------------------------------
+
+  refreshFromMain: async (mode: RefreshMode = { kind: 'replace' }) => {
+    // ── Patch mode: targeted in-place update for specific rows (B-8.2) ────────
+    // Patch does NOT use isRefreshing — it's a lightweight targeted update that
+    // should not block concurrent replace/extend operations.
+    if (mode.kind === 'patch') {
+      if (mode.rowIds.length === 0) return
+      try {
+        const { rows: updatedRows } = await getBeapInboxMany({ rowIds: mode.rowIds })
+        const updatedMap = new Map(updatedRows.map((r) => [r.id, r]))
+        const requestedSet = new Set(mode.rowIds)
+        set((state) => {
+          const next = new Map(state.messages)
+          for (const rowId of requestedSet) {
+            // Decision D: only update rows already in the current window.
+            if (!next.has(rowId)) continue
+            const updatedRow = updatedMap.get(rowId)
+            if (updatedRow) {
+              const existing = next.get(rowId)
+              const msg = inboxRowToBeapMessage(updatedRow)
+              next.set(rowId, {
+                ...msg,
+                draftReply: existing?.draftReply,
+                deletionScheduled: existing?.deletionScheduled,
+                attachments: msg.attachments.map((att, i) => ({
+                  ...att,
+                  selected:
+                    existing?.attachments[i]?.attachmentId === att.attachmentId
+                      ? (existing.attachments[i]?.selected ?? false)
+                      : false,
+                })),
+              })
+            } else {
+              // Row not returned by main (deleted or failed seal verification) — remove.
+              next.delete(rowId)
+            }
+          }
+          return { messages: next }
+        })
+      } catch (err) {
+        console.warn('[BeapInboxStore] refreshFromMain (patch) failed:', err)
+      }
+      return
+    }
+
+    // ── Replace / extend: full batch loads ────────────────────────────────────
+    if (get().isRefreshing) return
+    set({ isRefreshing: true })
+    try {
+      const cursor = mode.kind === 'extend' ? mode.cursor : null
+      const { items, nextCursor } = await getBeapInboxMessages({ cursor })
+      const existingMessages = get().messages
+
+      if (mode.kind === 'replace') {
+        const next = new Map<string, BeapMessage>()
+        for (const row of items) {
+          const msg = inboxRowToBeapMessage(row)
+          // Preserve local-only UI state that isn't reflected in the sealed row.
+          const existing = existingMessages.get(msg.messageId)
+          next.set(msg.messageId, {
+            ...msg,
+            draftReply: existing?.draftReply,
+            deletionScheduled: existing?.deletionScheduled,
+            // Keep per-attachment selection state.
+            attachments: msg.attachments.map((att, i) => ({
+              ...att,
+              selected: existing?.attachments[i]?.attachmentId === att.attachmentId
+                ? (existing.attachments[i]?.selected ?? false)
+                : false,
+            })),
+          })
+        }
+        set({ messages: next, nextCursor })
+      } else {
+        // extend: append rows not already present; preserve existing entries (with their UI state).
+        const next = new Map(existingMessages)
+        for (const row of items) {
+          if (!next.has(row.id)) {
+            next.set(row.id, inboxRowToBeapMessage(row))
+          }
+        }
+        set({ messages: next, nextCursor })
+      }
+    } catch (err) {
+      console.warn('[BeapInboxStore] refreshFromMain failed:', err)
+    } finally {
+      set({ isRefreshing: false })
+    }
   },
 
-  // ---------------------------------------------------------------------------
-  // Actions
-  // ---------------------------------------------------------------------------
+  loadMoreFromMain: async () => {
+    const { nextCursor } = get()
+    if (!nextCursor) return
+    await get().refreshFromMain({ kind: 'extend', cursor: nextCursor })
+  },
 
-  addMessage: (pkg, handshakeId) => {
-    const msg = sanitisedPackageToBeapMessage(pkg, handshakeId)
+  cachePackage: (pkg, _handshakeId) => {
+    const hash = pkg.header.content_hash
+    const messageId = hash.length <= 16 ? hash : hash.slice(0, 16)
     set((state) => {
-      const next = new Map(state.messages)
-      next.set(msg.messageId, msg)
       const nextPkgs = new Map(state.packages)
-      nextPkgs.set(msg.messageId, pkg)
+      nextPkgs.set(messageId, pkg)
       const nextNew = new Set(state.newMessageIds)
-      nextNew.add(msg.messageId)
-      return { messages: next, packages: nextPkgs, newMessageIds: nextNew }
+      nextNew.add(messageId)
+      return { packages: nextPkgs, newMessageIds: nextNew }
     })
     setTimeout(() => {
       set((state) => {
         const nextNew = new Set(state.newMessageIds)
-        nextNew.delete(msg.messageId)
+        nextNew.delete(messageId)
         return nextNew.size !== state.newMessageIds.size ? { newMessageIds: nextNew } : {}
       })
     }, NEW_MESSAGE_TTL_MS)
-    return msg
   },
 
-  addPlainEmailMessage: (msg) => {
-    set((state) => {
-      const next = new Map(state.messages)
-      next.set(msg.messageId, msg)
-      const nextNew = new Set(state.newMessageIds)
-      nextNew.add(msg.messageId)
-      return { messages: next, newMessageIds: nextNew }
-    })
-    setTimeout(() => {
-      set((state) => {
-        const nextNew = new Set(state.newMessageIds)
-        nextNew.delete(msg.messageId)
-        return nextNew.size !== state.newMessageIds.size ? { newMessageIds: nextNew } : {}
-      })
-    }, NEW_MESSAGE_TTL_MS)
-    return msg
+  // ---------------------------------------------------------------------------
+  // IPC-wrapper mutators
+  // ---------------------------------------------------------------------------
+
+  markAsRead: async (messageId, read = true) => {
+    try {
+      const { rowId } = await beapInboxMarkRead(messageId, read)
+      // Patch: fetch the updated row from main and merge it in place (B-8.2).
+      // No optimistic update — store only changes after main confirms (Decision A).
+      await get().refreshFromMain({ kind: 'patch', rowIds: [rowId] })
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: (err as Error)?.message ?? 'markAsRead failed' }
+    }
   },
+
+  archiveMessage: async (messageId) => {
+    try {
+      const { rowId } = await beapInboxArchive(messageId)
+      await get().refreshFromMain({ kind: 'patch', rowIds: [rowId] })
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: (err as Error)?.message ?? 'archiveMessage failed' }
+    }
+  },
+
+  unarchiveMessage: async (messageId) => {
+    try {
+      const { rowId } = await beapInboxUnarchive(messageId)
+      await get().refreshFromMain({ kind: 'patch', rowIds: [rowId] })
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: (err as Error)?.message ?? 'unarchiveMessage failed' }
+    }
+  },
+
+  batchClassify: async (messageIds, classifications) => {
+    const errors: string[] = []
+    const patchIds: string[] = []
+    for (const id of messageIds) {
+      const classification = classifications.get(id)
+      if (!classification) continue
+      const aiAnalysis: Record<string, unknown> = {
+        urgency: classification.urgency,
+        confidence: classification.confidence,
+        summary: classification.summary,
+        suggestedAction: classification.suggestedAction,
+      }
+      const urgencyScore = urgencyToScore(classification.urgency)
+      try {
+        const { rowId } = await beapInboxClassify(id, aiAnalysis, urgencyScore)
+        patchIds.push(rowId)
+      } catch (err) {
+        errors.push(`${id}: ${(err as Error)?.message ?? 'classify failed'}`)
+      }
+    }
+    // One patch round-trip for all successfully classified rows (Decision E).
+    if (patchIds.length > 0) {
+      await get().refreshFromMain({ kind: 'patch', rowIds: patchIds })
+    }
+    if (errors.length > 0) {
+      console.warn('[BeapInboxStore] batchClassify partial failures:', errors)
+    }
+  },
+
+  setUrgency: async (messageId, urgency) => {
+    try {
+      const urgencyScore = urgencyToScore(urgency)
+      const { rowId } = await beapInboxSetUrgency(messageId, urgencyScore)
+      await get().refreshFromMain({ kind: 'patch', rowIds: [rowId] })
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: (err as Error)?.message ?? 'setUrgency failed' }
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // Pure UI-local state
+  // ---------------------------------------------------------------------------
 
   selectMessage: (messageId) => {
     set({ selectedMessageId: messageId })
-  },
-
-  batchClassify: (messageIds, classifications) => {
-    set((state) => {
-      let next = state.messages
-      for (const id of messageIds) {
-        const classification = classifications.get(id)
-        if (!classification) continue
-        next = updateMessage(next, id, (m) => ({
-          ...m,
-          aiClassification: classification,
-          urgency: classification.urgency,
-        }))
-      }
-      // Only trigger a re-render if the map reference changed.
-      return next === state.messages ? {} : { messages: next }
-    })
-  },
-
-  scheduleDeletion: (messageId, gracePeriodMs) => {
-    set((state) => ({
-      messages: updateMessage(state.messages, messageId, (m) => ({
-        ...m,
-        deletionScheduled: {
-          scheduledAt: Date.now(),
-          gracePeriodMs,
-        },
-      })),
-    }))
-  },
-
-  cancelDeletion: (messageId) => {
-    set((state) => ({
-      messages: updateMessage(state.messages, messageId, (m) => {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { deletionScheduled: _removed, ...rest } = m
-        return rest as BeapMessage
-      }),
-    }))
-  },
-
-  archiveMessage: (messageId) => {
-    set((state) => ({
-      messages: updateMessage(state.messages, messageId, (m) => ({
-        ...m,
-        archived: true,
-      })),
-    }))
-  },
-
-  unarchiveMessage: (messageId) => {
-    set((state) => ({
-      messages: updateMessage(state.messages, messageId, (m) => ({
-        ...m,
-        archived: false,
-      })),
-    }))
   },
 
   setDraftReply: (messageId, draft) => {
@@ -428,34 +530,33 @@ export const useBeapInboxStore = create<BeapInboxState>((set, get) => ({
     }))
   },
 
-  markAsRead: (messageId) => {
-    set((state) => ({
-      messages: updateMessage(state.messages, messageId, (m) => ({
-        ...m,
-        isRead: true,
-      })),
-    }))
-  },
-
-  setUrgency: (messageId, urgency) => {
-    set((state) => ({
-      messages: updateMessage(state.messages, messageId, (m) => ({
-        ...m,
-        urgency,
-      })),
-    }))
-  },
-
   toggleAttachmentSelected: (messageId, attachmentId) => {
     set((state) => ({
       messages: updateMessage(state.messages, messageId, (m) => ({
         ...m,
         attachments: m.attachments.map((att) =>
-          att.attachmentId === attachmentId
-            ? { ...att, selected: !att.selected }
-            : att,
+          att.attachmentId === attachmentId ? { ...att, selected: !att.selected } : att,
         ),
       })),
+    }))
+  },
+
+  scheduleDeletion: (messageId, gracePeriodMs) => {
+    set((state) => ({
+      messages: updateMessage(state.messages, messageId, (m) => ({
+        ...m,
+        deletionScheduled: { scheduledAt: Date.now(), gracePeriodMs },
+      })),
+    }))
+  },
+
+  cancelDeletion: (messageId) => {
+    set((state) => ({
+      messages: updateMessage(state.messages, messageId, (m) => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { deletionScheduled: _removed, ...rest } = m
+        return rest as BeapMessage
+      }),
     }))
   },
 
@@ -466,9 +567,7 @@ export const useBeapInboxStore = create<BeapInboxState>((set, get) => ({
     get().messages.forEach((msg, id) => {
       if (!msg.deletionScheduled) return
       const { scheduledAt, gracePeriodMs } = msg.deletionScheduled
-      if (now >= scheduledAt + gracePeriodMs) {
-        toDelete.push(id)
-      }
+      if (now >= scheduledAt + gracePeriodMs) toDelete.push(id)
     })
 
     if (toDelete.length === 0) return toDelete
@@ -490,29 +589,21 @@ export const useBeapInboxStore = create<BeapInboxState>((set, get) => ({
 // =============================================================================
 // Selector Hooks
 // =============================================================================
-// Fine-grained hooks that subscribe to only the slice of state they need,
-// preventing unnecessary re-renders.
 
-/** All non-archived inbox messages, newest-first. */
 export const useInboxView = () =>
   useBeapInboxStore((state) => state.getInboxMessages())
 
-/** Messages for a specific handshake, newest-first. */
 export const useHandshakeMessages = (handshakeId: string) =>
   useBeapInboxStore((state) => state.getHandshakeMessages(handshakeId))
 
-/** A single page of the bulk inbox. */
 export const useBulkViewPage = (batchSize: 12 | 24, pageIndex: number) =>
   useBeapInboxStore((state) => state.getBulkViewPage(batchSize, pageIndex))
 
-/** Messages scheduled for deletion where grace period not yet elapsed. */
 export const usePendingDeletionMessages = () =>
   useBeapInboxStore((state) => state.getPendingDeletionMessages())
 
-/** Urgent (urgency === 'urgent') non-archived messages, newest-first. */
 export const useUrgentMessages = () =>
   useBeapInboxStore((state) => state.getUrgentMessages())
 
-/** Currently selected message. */
 export const useSelectedBeapMessage = () =>
   useBeapInboxStore((state) => state.getSelectedMessage())

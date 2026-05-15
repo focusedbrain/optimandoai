@@ -614,6 +614,14 @@ export function diagnoseHandshakeInactive(
   if (record.state !== HS.ACTIVE) {
     return { active: false, reason: `Handshake is in state '${record.state}', expected 'ACTIVE'` }
   }
+  // Defense-in-depth: deny if expires_at is set and in the past, even if state is ACTIVE.
+  // Guards against the background expiry process running late or a stale state transition.
+  // This check is unconditional — no grace period, no test bypass.
+  if (record.expires_at !== null && record.expires_at !== undefined) {
+    if (new Date(record.expires_at).getTime() < now.getTime()) {
+      return { active: false, reason: `Handshake expired at ${record.expires_at}` }
+    }
+  }
   return { active: true }
 }
 

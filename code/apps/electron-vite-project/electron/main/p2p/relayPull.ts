@@ -11,7 +11,8 @@ import { processHandshakeCapsule } from '../handshake/enforcement'
 import { maybeEnqueueInitialContextSyncAfterInboundAccept } from '../handshake/contextSyncEnqueue'
 import { canonicalRebuild } from '../handshake/canonicalRebuild'
 import { buildDefaultReceiverPolicy } from '../handshake/types'
-import { migrateHandshakeTables, insertPendingP2PBeap } from '../handshake/db'
+import { migrateHandshakeTables } from '../handshake/db'
+import { processBeapPackageInline } from '../email/beapEmailIngestion'
 import {
   insertIngestionAuditRecord,
   insertQuarantineRecord,
@@ -160,9 +161,19 @@ export async function pullFromRelay(
           '__relay_message__'
         const capsuleJson = cap.capsule_json
         try {
-          insertPendingP2PBeap(db, handshakeId, capsuleJson)
-          console.log('[P2P-RECV] BEAP message inserted into pending table (relay pull)', handshakeId)
-          notifyBeapRecipientPending(handshakeId)
+          const r = await processBeapPackageInline(db, capsuleJson, handshakeId, {
+            session: ssoSession,
+            sourceType: 'p2p_relay',
+            receivedAt: new Date().toISOString(),
+          })
+          if (r.outcome === 'inbox') {
+            console.log('[P2P-RECV] BEAP message sealed into inbox (relay pull)', handshakeId)
+            notifyBeapRecipientPending(handshakeId)
+          } else if (r.outcome === 'quarantine') {
+            console.log('[P2P-RECV] BEAP message quarantined (relay pull)', handshakeId)
+          } else {
+            console.warn('[P2P-RECV] BEAP inline processing failed (relay pull)', handshakeId, r.error)
+          }
           accepted++
           idsToAck.push(cap.id)
         } catch {

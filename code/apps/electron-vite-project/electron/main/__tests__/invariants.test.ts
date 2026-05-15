@@ -9,7 +9,7 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { routeValidatedCapsule } from '../ingestion/distributionGate'
+import { routeValidatedCapsule } from '../ingestion'
 import { executeToolRequest } from '../execution/executeToolRequest'
 import { registerTool, _resetRegistryForTesting } from '../execution/toolRegistry'
 import type { ValidatedCapsule, CandidateCapsuleEnvelope } from '../ingestion/types'

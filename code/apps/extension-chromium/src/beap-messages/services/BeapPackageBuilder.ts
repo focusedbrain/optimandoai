@@ -12,7 +12,8 @@ import type { RecipientMode, SelectedRecipient } from '../components/RecipientMo
 import type { SelectedHandshakeRecipient } from '../../handshake/rpcTypes'
 import type { DeliveryMethod } from '../components/DeliveryMethodPanel'
 import type { BeapBuildResult } from '../../beap-builder/types'
-import type { CapsuleAttachment } from '../../beap-builder/canonical-types'
+import type { CapsuleAttachment, SessionImportArtefact, QuarantineCloneTransportMetadata } from '../../beap-builder/canonical-types'
+import { stripAgentBoxesFromGrids } from './stripAgentBoxesFromGrids'
 import { assertNoSemanticContentInTransport } from '../../beap-builder/parserService'
 import type {
   OutboundRequestDebugSnapshot,
@@ -360,6 +361,26 @@ export interface BeapPackageConfig {
     original_source_type?: 'email_plain' | 'email_beap' | 'direct_beap' | string
     original_response_path?: 'email' | 'native_beap'
     reply_transport?: 'email' | 'native_beap'
+    /**
+     * PR 5.2 / Decision B: clone provenance as a structured object.
+     * Replaces the old body-appended `inbox_sandbox_clone_provenance` JSON block.
+     * Contains `sandbox_clone`, `automation_sandbox_clone`, and `beap_sandbox_clone` sub-fields
+     * so sandbox-side clone detection walkers still find the expected keys.
+     */
+    sandbox_clone_provenance?: Record<string, unknown>
+    /**
+     * Phase B, PR B-3 (Amendment 2, Decision B): quarantine clone transport marker
+     * and associated metadata. See `QuarantineCloneTransportMetadata` in
+     * `canonical-types.ts` for the full interface contract and security notes.
+     *
+     * When present with value `true`, the `encryptedMessage` field carries an opaque
+     * quarantine blob rather than a regular qBEAP payload.
+     */
+    sandbox_clone_quarantine?: QuarantineCloneTransportMetadata['sandbox_clone_quarantine']
+    transport_sender?: QuarantineCloneTransportMetadata['transport_sender']
+    transport_received_at?: QuarantineCloneTransportMetadata['transport_received_at']
+    blob_size_bytes?: QuarantineCloneTransportMetadata['blob_size_bytes']
+    rejection_reason?: QuarantineCloneTransportMetadata['rejection_reason']
   }
   /**
    * Policy signals for build validation.
@@ -408,6 +429,23 @@ export interface BeapPackageConfig {
    * preference that MUST be confirmed by explicit receiver-side consent).
    */
   processingEvents?: ProcessingEventDeclaration[] | ProcessingEventOffer
+  /**
+   * Session import artefact per Canon A.3.054.8.
+   *
+   * When present, exactly one artefact is serialized at the top-level
+   * `session_import_artefact` key inside the capsule plaintext (qBEAP) or
+   * pBEAP payload, alongside `subject`, `body`, and `attachments`.
+   *
+   * The Builder strips runtime `agentBoxes[]` from display grid entries
+   * before serialization (see `stripAgentBoxesFromGrids`).
+   *
+   * The Builder does NOT run structural validation here — the Validator
+   * is the sole authority on conformance (Annex I.3.3). A malformed
+   * artefact will be rejected by the receiver's validate pass.
+   *
+   * per Canon A.3.054.8, A.3.054.7, A.3.054.10
+   */
+  sessionImportArtefact?: SessionImportArtefact
 }
 
 export interface BeapEnvelopeHeader {
@@ -1361,7 +1399,15 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
       isMedia: att.isMedia
     })) || [],
     // Automation metadata (capsule-bound)
-    automation: automationMeta
+    automation: automationMeta,
+    // PR 3/8: session import artefact at canonical top-level position.
+    // Conditional spread keeps the key absent when no artefact is provided
+    // (absent ≠ null; key must not appear on the wire per A.3.054.8).
+    // stripAgentBoxesFromGrids removes runtime-only agentBoxes[] from grid
+    // entries before serialization (PR 1 canon-owner amendment).
+    ...(config.sessionImportArtefact
+      ? { session_import_artefact: stripAgentBoxesFromGrids(config.sessionImportArtefact) }
+      : {}),
   })
   
   // ==========================================================================
@@ -1853,7 +1899,12 @@ async function buildPBeapPackage(config: BeapPackageConfig): Promise<BeapPackage
       rasterProof: att.rasterProof,
       isMedia: att.isMedia
     })) || [],
-    audit_notice: 'This is a public BEAP package. Content is not encrypted and is fully auditable.'
+    audit_notice: 'This is a public BEAP package. Content is not encrypted and is fully auditable.',
+    // PR 3/8: session import artefact at canonical top-level position (pBEAP path).
+    // Same conditional-spread pattern as qBEAP; same strip pass.
+    ...(config.sessionImportArtefact
+      ? { session_import_artefact: stripAgentBoxesFromGrids(config.sessionImportArtefact) }
+      : {}),
   })
   const payloadEncoded = safeBase64Encode(payloadPlain) // Base64 for transport, not encryption
 

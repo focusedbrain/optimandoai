@@ -5,7 +5,7 @@
  * auto-trigger flows, and full roundtrip.
  */
 
-import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
+import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
 import { createRequire } from 'module'
 import http from 'http'
 import { sendCapsuleViaHttp } from '../../handshake/p2pTransport'
@@ -16,7 +16,7 @@ import {
 } from '../../handshake/outboundQueue'
 import { createP2PServer } from '../p2pServer'
 import { resetRateLimitsForTests, setForcePublicP2pRateLimitsForTests } from '../rateLimiter'
-import { migrateHandshakeTables, insertHandshakeRecord } from '../../handshake/db'
+import { migrateHandshakeTables, insertHandshakeRecord, updateHandshakeCounterpartyKey } from '../../handshake/db'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
 import { buildTestSession } from '../../handshake/sessionFactory'
 import {
@@ -29,9 +29,10 @@ import { INGESTION_CONSTANTS } from '../../ingestion/types'
 import { handleHandshakeRPC, setSSOSessionProvider, _resetSSOSessionProvider } from '../../handshake/ipc'
 import { getContextStoreByHandshake, insertContextStoreEntry } from '../../handshake/db'
 import { computeBlockHash } from '../../handshake/contextCommitment'
-import { mockKeypairFields, MOCK_EXTENSION_X25519_PUBLIC_B64 } from '../../handshake/__tests__/mockKeypair'
+import { mockKeypairFields, TEST_KEYPAIR, MOCK_EXTENSION_X25519_PUBLIC_B64 } from '../../handshake/__tests__/mockKeypair'
 import type { HandshakeRecord } from '../../handshake/types'
 import { upsertP2PConfig } from '../p2pConfig'
+import { vaultService } from '../../vault/rpc'
 import type { P2PConfig } from '../p2pConfig'
 import type { Server } from 'http'
 
@@ -125,6 +126,9 @@ async function createValidHandshakeWithContextSync(db: any): Promise<{
       'UPDATE handshakes SET local_p2p_auth_token = ?, counterparty_p2p_token = ? WHERE handshake_id = ?',
     ).run(authToken, authToken, initiate.handshake_id)
   }
+  // Align counterparty_public_key in DB with the signing key used by test capsules so
+  // that ingestion-pipeline signature verification passes (Phase B added sig checks).
+  updateHandshakeCounterpartyKey(db, initiate.handshake_id, TEST_KEYPAIR.publicKey)
   return {
     handshakeId: initiate.handshake_id,
     authToken,
@@ -572,7 +576,9 @@ describe('P3: P2P Server — Input Hardening', () => {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
       body: JSON.stringify({ foo: 'bar' }),
     })
-    expect(res.status).toBe(400)
+    // Phase B: server routes all POST bodies through the BEAP ingestor;
+    // schema validation failure returns 422 (not 400).
+    expect(res.status).toBe(422)
   })
 
   test('P3_07_wrong_http_method', async () => {
@@ -869,6 +875,11 @@ describe('P6: Auto-Trigger', () => {
 
   test('P6_01_auto_trigger_after_accept', async () => {
     if (skipIfNoSqlite()) return
+    // Phase B: coordination mode is the default but requires an OIDC token (unavailable in tests).
+    // Disable coordination so the direct P2P path calls tryEnqueueContextSync synchronously.
+    upsertP2PConfig(db, { coordination_enabled: false })
+    // Phase B: tryEnqueueContextSync checks vault status; unlock it for this test.
+    const vaultSpy = vi.spyOn(vaultService, 'getStatus').mockReturnValue({ isUnlocked: true } as any)
     const initiator = buildTestSession({ wrdesk_user_id: 'i', email: 'i@t.com' })
     const acceptor = buildTestSession({ wrdesk_user_id: 'a', email: 'a@t.com' })
     const content = 'test-block-content'
@@ -893,6 +904,7 @@ describe('P6: Auto-Trigger', () => {
     expect(acceptResult.success ?? acceptResult.local_result?.success).toBe(true)
     await new Promise((r) => setImmediate(r))
     const rows = db.prepare('SELECT * FROM outbound_capsule_queue WHERE handshake_id = ?').all(initiate.handshake_id)
+    vaultSpy.mockRestore()
     expect(rows.length).toBeGreaterThanOrEqual(1)
     expect(rows.some((r: any) => r.status === 'pending')).toBe(true)
   })
@@ -1004,6 +1016,7 @@ describe('P6: Auto-Trigger', () => {
       last_seq_received: 1,
       last_capsule_hash_received: 'prev-hash',
       context_blocks: [],
+      ...mockKeypairFields(),
     })
     const rec = contextSync as unknown as Record<string, unknown>
     rec.seq = 2
@@ -1072,6 +1085,7 @@ describe('P6: Auto-Trigger', () => {
       last_seq_received: 0,
       last_capsule_hash_received: (setup.contextSyncCapsule as any).last_capsule_hash_received ?? '',
       context_blocks: [],
+      ...mockKeypairFields(),
     })
     const rec = contextSync as unknown as Record<string, unknown>
     rec.seq = 1
@@ -1169,6 +1183,7 @@ async function createTwoHostSetup(): Promise<{
           type: b.type,
           content: b.content ?? '',
         })),
+        ...mockKeypairFields(),
       })
       enqueueOutboundCapsule(dbB, initiate.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
     }
@@ -1180,6 +1195,9 @@ async function createTwoHostSetup(): Promise<{
   dbB.prepare(
     'UPDATE handshakes SET local_p2p_auth_token = ?, counterparty_p2p_token = ? WHERE handshake_id = ?',
   ).run(tokenB, tokenA, initiate.handshake_id)
+  // Align A's counterparty_public_key with the key used to sign B's context-sync
+  // capsule so that ingestion-pipeline signature verification passes (Phase B).
+  updateHandshakeCounterpartyKey(dbA, initiate.handshake_id, TEST_KEYPAIR.publicKey)
 
   const configA: P2PConfig = {
     enabled: true,
@@ -1302,7 +1320,8 @@ describe('P7: Full Roundtrip', () => {
       await new Promise((r) => setImmediate(r))
       await processOutboundQueue(setup.hostB.db)
       const rows = setup.hostB.db.prepare('SELECT * FROM outbound_capsule_queue WHERE handshake_id = ?').all(setup.handshakeId)
-      expect(rows.some((r: any) => r.retry_count >= 1 || r.status === 'failed')).toBe(true)
+      // Phase B: 401 does not increment retry_count; item stays pending with failure_class AUTH_RECOVERABLE.
+      expect(rows.some((r: any) => r.retry_count >= 1 || r.status === 'failed' || r.failure_class === 'AUTH_RECOVERABLE')).toBe(true)
     } finally {
       await new Promise<void>((r) => setup.hostA.p2pServer.close(() => r()))
       await new Promise<void>((r) => setup.hostB.p2pServer.close(() => r()))

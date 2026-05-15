@@ -17,7 +17,8 @@ import {
   insertIngestionAuditRecord,
   insertQuarantineRecord,
 } from '../ingestion/persistenceDb'
-import { getHandshakeRecord, insertPendingP2PBeap, needsCanonicalRelayDeviceIdForCoordination } from '../handshake/db'
+import { getHandshakeRecord, needsCanonicalRelayDeviceIdForCoordination } from '../handshake/db'
+import { processBeapPackageInline } from '../email/beapEmailIngestion'
 import { maybeEnqueueInitialContextSyncAfterInboundAccept } from './coordinationHandshakePostIngest'
 import { retryDeferredInitialContextSyncForInternalHandshake } from '../handshake/contextSyncEnqueue'
 import {
@@ -280,7 +281,7 @@ async function processCapsuleInternal(
     const { distribution } = result
     if (distribution.target === 'message_relay') {
       console.log('[Coordination] BEAP capsule received via WS push')
-      // BEAP message package (qBEAP/pBEAP): route to p2p_pending_beap for extension ingestion
+      // BEAP message package (qBEAP/pBEAP): validate-before-write via sealed pipeline (B-4)
       const msgCapsule = distribution.validated_capsule!.capsule
       const handshakeId =
         (msgCapsule?.handshake_id as string)?.trim() ||
@@ -290,14 +291,22 @@ async function processCapsuleInternal(
         '__relay_message__'
       const capsuleJson = typeof capsule === 'string' ? capsule : JSON.stringify(capsule)
       if (db) {
-        try {
-          insertPendingP2PBeap(db, handshakeId, capsuleJson)
-          console.log('[P2P-RECV] BEAP message inserted into pending table', handshakeId)
-          console.log('[Coordination] Message package routed to p2p_pending_beap, handshake=', handshakeId)
-          notifyBeapRecipientPending(handshakeId)
-        } catch (err: any) {
-          console.error('[Coordination] insertPendingP2PBeap failed:', err?.message ?? err)
-        }
+        processBeapPackageInline(db, capsuleJson, handshakeId, {
+          session: ssoSession,
+          sourceType: 'coordination_ws',
+          receivedAt: new Date().toISOString(),
+        }).then((r) => {
+          if (r.outcome === 'inbox') {
+            console.log('[Coordination] BEAP message sealed into inbox, handshake=', handshakeId)
+            notifyBeapRecipientPending(handshakeId)
+          } else if (r.outcome === 'quarantine') {
+            console.log('[Coordination] BEAP message quarantined, handshake=', handshakeId)
+          } else {
+            console.warn('[Coordination] BEAP inline processing failed, handshake=', handshakeId, r.error)
+          }
+        }).catch((err: any) => {
+          console.error('[Coordination] processBeapPackageInline failed:', err?.message ?? err)
+        })
       }
       setP2PHealthCoordinationLastPush()
       sendAckFn([id])

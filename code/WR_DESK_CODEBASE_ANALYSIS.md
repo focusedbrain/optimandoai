@@ -193,7 +193,7 @@ interface HandshakeRecord {
 }
 ```
 
-**Storage:** SQLite vault DB (`handshake/db.ts`). Tables: `handshakes`, `context_blocks`, `context_block_versions`, `context_embeddings`, `seen_capsule_hashes`, `audit_log`, `outbound_capsule_queue`, `p2p_config`, `p2p_pending_beap`, `plain_email_inbox`.
+**Storage:** SQLite vault DB (`handshake/db.ts`). Tables: `handshakes`, `context_blocks`, `context_block_versions`, `context_embeddings`, `seen_capsule_hashes`, `audit_log`, `outbound_capsule_queue`, `p2p_config`, `inbox_messages`. (`p2p_pending_beap` and `plain_email_inbox` were dropped in Phase B, PR B-3.1; all message types now land in the sealed `inbox_messages` table.)
 
 **Attachments:** `context_blocks` store `payload` (JSON); documents are stored in vault with `payload_ref` for large content.
 
@@ -263,7 +263,7 @@ interface HandshakeRecord {
 ### Where "Pull Emails" Fits
 
 - `email:syncAccount` exists; `email:listMessages` lists messages.
-- `beapSync.ts` polls `runBeapSyncCycle` every 30s; fetches emails, detects BEAP, inserts into `p2p_pending_beap` or `plain_email_inbox`.
+- `beapSync.ts` polls `runBeapSyncCycle` every 30s; fetches emails, detects BEAP, routes through `messageRouter.ts` → validator subprocess → sealed `inbox_messages` row.
 - A "Pull emails" button would call `email:syncAccount` or trigger a manual sync cycle.
 
 ### Existing Email Fetching
@@ -300,8 +300,7 @@ interface HandshakeRecord {
 | audit_log | Audit trail |
 | outbound_capsule_queue | Outbound capsule queue |
 | p2p_config | P2P config |
-| p2p_pending_beap | Pending BEAP message packages (id, handshake_id, package_json, created_at, processed) |
-| plain_email_inbox | Plain emails (id, message_json, account_id, email_message_id, created_at, processed) |
+| inbox_messages | Sealed inbox rows for all BEAP message types (P2P, qBEAP, pBEAP, plain email). Replaced `p2p_pending_beap` + `plain_email_inbox` (dropped in B-3.1). |
 
 ### Migrations
 
@@ -509,16 +508,15 @@ interface HandshakeRecord {
 
 ### Risks / Blockers
 
-- **qBEAP/pBEAP in email:** `detectBeapInBody` must be extended or a parallel detector added.
-- **Plain email → BEAP:** `plainEmailConverter` exists; `plain_email_inbox` table exists; `getPendingPlainEmails`/`ackPendingPlainEmail` exist; need to wire `usePendingPlainEmailIngestion` and UI similar to P2P BEAP.
+- **qBEAP/pBEAP in email:** Handled by Phase B (`messageRouter.ts` + validator subprocess). All message types — P2P, qBEAP, pBEAP, plain email — now route through the same canonical validation pipeline into `inbox_messages`.
 
-### Implementation Order
+### Implementation Order (post-Phase-B status)
 
-1. **Extend `beapSync`** for qBEAP/pBEAP in email attachments (detect + route to `p2p_pending_beap`).
-2. **Wire plain email ingestion** — `usePendingPlainEmailIngestion` and UI.
-3. **Add "Pull emails" button** — call `email:syncAccount` or trigger sync.
-4. **Email inbox list** — new view or extend BeapInboxDashboard to show plain emails from `plain_email_inbox`.
-5. **Remote mailbox deletion** — new IPC handler + provider API if supported.
+1. ~~**Extend `beapSync`** for qBEAP/pBEAP in email attachments~~ — **Done** (Phase B B-3 / B-7).
+2. ~~**Wire plain email ingestion**~~ — **Done**: plain email routes through `messageRouter.ts` → validator → `inbox_messages`; `usePendingPlainEmailIngestion` removed in B-8.3.
+3. **Add "Pull emails" button** — call `email:syncAccount` or trigger sync (still pending).
+4. ~~**Email inbox list from `plain_email_inbox`**~~ — **Superseded**: all inbox state including plain email lives in `useBeapInboxStore` as a read-only mirror of main's sealed `inbox_messages` storage (B-8).
+5. **Remote mailbox deletion** — new IPC handler + provider API if supported (still pending).
 
 ### Complexity Estimates
 

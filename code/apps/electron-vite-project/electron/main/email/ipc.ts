@@ -249,13 +249,17 @@ import {
   waitForInboxAiTask,
   type InboxAiStreamInvokeOpts,
 } from './inboxAiTaskDedup'
-import { processPendingPlainEmails } from './plainEmailIngestion'
+// processPendingPlainEmails removed — plain_email_inbox was dropped in schema
+// v65 (Phase B, PR B-3).  Plain emails are now written inline by
+// detectAndRouteMessage; no staging drain is needed.
 import { resolveInboxReplyMode } from '../../../src/lib/inboxAiCloneClassification'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
 import { streamInboxOllamaAnalyzeWithSandboxRouting } from './inboxOllamaChatStreamSandbox'
 import { buildInboxAiAnalyzeErrorPayload, buildInboxAiDraftIpcFailure } from './inboxAiErrorMapping'
 import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } from '../../../src/lib/inboxSortSourceWeighting'
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
+import { resealWithAiAnalysis, resealWithPdfExtraction } from './sealedContentUpdate'
+import { prepareSealedOperationalUpdate } from '../sealed-storage'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
 import { inboxLlmChat, isLlmAvailable, INBOX_LLM_TIMEOUT_MS, resolveInboxLlmSettings, preResolveInboxLlm, type ResolvedLlmContext } from './inboxLlmChat'
 import { maybePrewarmOllamaForBulkClassify, type OllamaBulkPrewarmDiag } from '../llm/ollamaBulkPrewarm'
@@ -1761,7 +1765,7 @@ export function registerInboxHandlers(
   ipcMain.handle('autosort:deleteSession', async (_e, sessionId: string) => {
     const db = await resolveDb()
     if (!db) return
-    db.prepare('UPDATE inbox_messages SET last_autosort_session_id = NULL WHERE last_autosort_session_id = ?').run(sessionId)
+    prepareSealedOperationalUpdate(db, 'UPDATE inbox_messages SET last_autosort_session_id = NULL WHERE last_autosort_session_id = ?').run(sessionId)
     db.prepare('DELETE FROM autosort_sessions WHERE id = ?').run(sessionId)
   })
 
@@ -1969,8 +1973,8 @@ Rules:
           const resetPendingTransient = db.prepare(
             `UPDATE remote_orchestrator_mutation_queue SET status = 'pending', last_error = ?, updated_at = ? WHERE id = ?`,
           )
-          const touchMsgErr = db.prepare(`UPDATE inbox_messages SET remote_orchestrator_last_error = ? WHERE id = ?`)
-          const touchMsgErrNull = db.prepare(`UPDATE inbox_messages SET remote_orchestrator_last_error = NULL WHERE id = ?`)
+          const touchMsgErr = prepareSealedOperationalUpdate(db, `UPDATE inbox_messages SET remote_orchestrator_last_error = ? WHERE id = ?`)
+          const touchMsgErrNull = prepareSealedOperationalUpdate(db, `UPDATE inbox_messages SET remote_orchestrator_last_error = NULL WHERE id = ?`)
 
           let batchMoved = 0
           let batchSkipped = 0
@@ -2064,7 +2068,7 @@ Rules:
                 markCompleted.run(rowNow, r.id)
                 if (apply.imapUidAfterMove != null && apply.imapMailboxAfterMove != null) {
                   try {
-                    db.prepare(`UPDATE inbox_messages SET email_message_id = ?, imap_remote_mailbox = ? WHERE id = ?`).run(
+                    prepareSealedOperationalUpdate(db, `UPDATE inbox_messages SET email_message_id = ?, imap_remote_mailbox = ? WHERE id = ?`).run(
                       apply.imapUidAfterMove,
                       apply.imapMailboxAfterMove,
                       r.message_id,
@@ -2631,11 +2635,6 @@ Rules:
     }
 
     try {
-      processPendingPlainEmails(db)
-    } catch (e: any) {
-      console.warn('[Inbox] Plain email post-sync processing:', e?.message)
-    }
-    try {
       const beapDrained = await processPendingP2PBeapEmails(db)
       if (beapDrained > 0) notifyBeapInboxDashboard(null)
     } catch (e: any) {
@@ -3153,7 +3152,7 @@ Rules:
       }
       const atts = db.prepare('SELECT * FROM inbox_attachments WHERE message_id = ?').all(messageId) as any[]
       row.attachments = atts
-      db.prepare('UPDATE inbox_messages SET read_status = 1 WHERE id = ?').run(messageId)
+      prepareSealedOperationalUpdate(db, 'UPDATE inbox_messages SET read_status = 1 WHERE id = ?').run(messageId)
       return { ok: true, data: row }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Get failed' }
@@ -3312,7 +3311,7 @@ Rules:
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      const stmt = db.prepare('UPDATE inbox_messages SET read_status = ? WHERE id = ?')
+      const stmt = prepareSealedOperationalUpdate(db, 'UPDATE inbox_messages SET read_status = ? WHERE id = ?')
       for (const id of messageIds ?? []) stmt.run(read ? 1 : 0, id)
       return { ok: true }
     } catch (err: any) {
@@ -3326,7 +3325,7 @@ Rules:
       if (!db) return { ok: false, error: 'Database unavailable' }
       const row = db.prepare('SELECT starred FROM inbox_messages WHERE id = ?').get(messageId) as { starred?: number } | undefined
       const next = row?.starred === 1 ? 0 : 1
-      db.prepare('UPDATE inbox_messages SET starred = ? WHERE id = ?').run(next, messageId)
+      prepareSealedOperationalUpdate(db, 'UPDATE inbox_messages SET starred = ? WHERE id = ?').run(next, messageId)
       return { ok: true, data: { starred: next === 1 } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Toggle failed' }
@@ -3338,7 +3337,7 @@ Rules:
       const db = await resolveDbWithDiag('inbox:archiveMessages')
       if (!db) return { ok: false, error: 'Database unavailable' }
       const ids = messageIds ?? []
-      const stmt = db.prepare('UPDATE inbox_messages SET archived = 1 WHERE id = ?')
+      const stmt = prepareSealedOperationalUpdate(db, 'UPDATE inbox_messages SET archived = 1 WHERE id = ?')
       for (const id of ids) stmt.run(id)
       fireRemoteOrchestratorSync(db, ids, 'archive')
       return { ok: true }
@@ -3352,7 +3351,7 @@ Rules:
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
       const ids = messageIds ?? []
-      const stmt = db.prepare('UPDATE inbox_messages SET sort_category = ? WHERE id = ?')
+      const stmt = prepareSealedOperationalUpdate(db, 'UPDATE inbox_messages SET sort_category = ? WHERE id = ?')
       for (const id of ids) stmt.run(category ?? null, id)
       try {
         enqueueRemoteOpsForLocalLifecycleState(db, ids)
@@ -3526,52 +3525,20 @@ Rules:
 
         const pageCount =
           typeof result.pageCount === 'number' && result.pageCount > 0 ? result.pageCount : null
-        db.prepare(
-          `UPDATE inbox_attachments SET extracted_text = ?, text_extraction_status = ?, text_extraction_error = ?,
-           content_sha256 = ?, extracted_text_sha256 = ?, page_count = ?
-           WHERE id = ?`,
-        ).run(text, status, errMsg, contentSha256, extractedTextSha256, pageCount, attachmentId)
-
-        // Merge extracted text + status + hashes into depackaged_json (same shape as ingest-time depackaging)
-        const messageId = row.message_id
-        if (messageId) {
-          try {
-            const msgRow = db.prepare('SELECT depackaged_json FROM inbox_messages WHERE id = ?').get(messageId) as
-              | { depackaged_json?: string }
-              | undefined
-            const depackaged = msgRow?.depackaged_json
-            if (depackaged) {
-              const parsed = JSON.parse(depackaged) as {
-                attachments?: Array<{
-                  id?: string
-                  content_id?: string
-                  extracted_text?: string
-                  extraction_status?: string
-                  extraction_error?: string | null
-                  content_sha256?: string
-                  extracted_text_sha256?: string
-                }>
-              }
-              if (Array.isArray(parsed.attachments)) {
-                let updated = false
-                for (const att of parsed.attachments) {
-                  if (att.content_id === attachmentId || att.id === attachmentId) {
-                    att.extracted_text = text
-                    att.extraction_status = status
-                    att.extraction_error = errMsg
-                    att.content_sha256 = contentSha256
-                    att.extracted_text_sha256 = extractedTextSha256
-                    updated = true
-                    break
-                  }
-                }
-                if (updated) {
-                  db.prepare('UPDATE inbox_messages SET depackaged_json = ? WHERE id = ?').run(JSON.stringify(parsed), messageId)
-                }
-              }
-            }
-          } catch (mergeErr: any) {
-            console.warn('[Inbox IPC] Failed to merge extracted_text into depackaged:', mergeErr?.message)
+        // B-7: re-seal parent message + child attachment write through the sealed gate.
+        const sealResult = await resealWithPdfExtraction(db, attachmentId, {
+          text,
+          status,
+          error: errMsg,
+          contentSha256,
+          extractedTextSha256,
+          pageCount,
+        })
+        if (!sealResult.ok) {
+          console.warn('[Inbox IPC] PDF extraction re-seal failed:', sealResult.error)
+          return {
+            ok: false,
+            error: `PDF text extraction could not be persisted: ${sealResult.error}. The original attachment is preserved unchanged.`,
           }
         }
 
@@ -3591,7 +3558,7 @@ Rules:
           },
         }
       }
-      db.prepare('UPDATE inbox_attachments SET text_extraction_status = ? WHERE id = ?').run('skipped', attachmentId)
+      prepareSealedOperationalUpdate(db, 'UPDATE inbox_attachments SET text_extraction_status = ? WHERE id = ?').run('skipped', attachmentId)
       return {
         ok: true,
         data: {
@@ -3681,7 +3648,7 @@ Rules:
       const summary = await inboxLlmChat({ system: systemPrompt, user: userPrompt, contentTask: { kind: 'summary' } })
       console.log('[AI-SUMMARIZE] Raw LLM response:', summary.substring(0, 500))
 
-      /** Persist to ai_analysis_json so analysis survives clearBulkAiOutputsForIds. */
+      /** B-7: persist to ai_analysis_json via sealed re-seal so the seal covers this addition. */
       const existingRow = db.prepare('SELECT ai_analysis_json FROM inbox_messages WHERE id = ?').get(messageId) as { ai_analysis_json?: string | null } | undefined
       let merged: Record<string, unknown> = {}
       if (existingRow?.ai_analysis_json) {
@@ -3691,7 +3658,11 @@ Rules:
       }
       merged.summary = summary.slice(0, 1000)
       merged.status = merged.status ?? 'summarized'
-      db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(JSON.stringify(merged), messageId)
+      const sealRes = await resealWithAiAnalysis(db, messageId, merged)
+      if (!sealRes.ok) {
+        console.warn('[AI-SUMMARIZE] re-seal failed (AI result discarded):', sealRes.error)
+        return { ok: false, error: `AI analysis could not be applied: ${sealRes.error}` }
+      }
 
       return { ok: true, data: { summary } }
     } catch (err: any) {
@@ -3933,7 +3904,12 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
             isNativeBeap: true,
           }) as { ok: false; error: string; message: string }
         }
-        db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(JSON.stringify(merged), messageId)
+        // B-7: sealed re-seal replaces the raw UPDATE.
+        const sealResNative = await resealWithAiAnalysis(db, messageId, merged)
+        if (!sealResNative.ok) {
+          console.warn('[AI-DRAFT:native-beap] re-seal failed (draft discarded):', sealResNative.error)
+          return buildInboxAiDraftIpcFailure(new Error(sealResNative.error ?? 'seal failed'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }, { isNativeBeap: true }) as { ok: false; error: string; message: string }
+        }
 
         console.log(
           `[AI-DRAFT] Native BEAP IPC per-field response ${JSON.stringify({
@@ -4001,7 +3977,7 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
         }
       }
 
-      /** Persist to ai_analysis_json so analysis survives clearBulkAiOutputsForIds. */
+      /** B-7: persist draft via sealed re-seal. */
       const existingRow = db.prepare('SELECT ai_analysis_json FROM inbox_messages WHERE id = ?').get(messageId) as { ai_analysis_json?: string | null } | undefined
       let merged: Record<string, unknown> = {}
       if (existingRow?.ai_analysis_json) {
@@ -4018,7 +3994,16 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
           message: string
         }
       }
-      db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(JSON.stringify(merged), messageId)
+      // B-7: sealed re-seal replaces the raw UPDATE.
+      const sealResDraft = await resealWithAiAnalysis(db, messageId, merged)
+      if (!sealResDraft.ok) {
+        console.warn('[AI-DRAFT] re-seal failed (draft discarded):', sealResDraft.error)
+        return buildInboxAiDraftIpcFailure(new Error(sealResDraft.error ?? 'seal failed'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }) as {
+          ok: false
+          error: string
+          message: string
+        }
+      }
 
       return { ok: true, data: { draft } }
     } catch (err: unknown) {
@@ -4697,7 +4682,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
     // Stamp session membership immediately — even if classify fails, this message is part of the session
     if (sessionId) {
       try {
-        db.prepare('UPDATE inbox_messages SET last_autosort_session_id = ? WHERE id = ?').run(sessionId, messageId)
+        prepareSealedOperationalUpdate(db, 'UPDATE inbox_messages SET last_autosort_session_id = ? WHERE id = ?').run(sessionId, messageId)
       } catch (e) {
         console.error('[AutoSort] Failed to stamp session on message:', messageId, e)
       }
@@ -4846,36 +4831,15 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
         )
       }
       const nowIso = new Date().toISOString()
-      if (isUrgent) {
-        db.prepare(
-          `UPDATE inbox_messages SET archived = 0, pending_delete = 0, pending_delete_at = NULL, pending_review_at = NULL,
-           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
-        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
-      } else if (pendingReview) {
-        db.prepare(
-          `UPDATE inbox_messages SET archived = 0, pending_delete = 0, pending_delete_at = NULL,
-           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ?, pending_review_at = ? WHERE id = ?`,
-        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, nowIso, messageId)
-      } else if (validCategory === 'archive') {
-        db.prepare(
-          `UPDATE inbox_messages SET archived = 1, pending_delete = 0, pending_delete_at = NULL, pending_review_at = NULL,
-           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
-        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
-      } else if (pendingDelete) {
-        db.prepare(
-          `UPDATE inbox_messages SET archived = 0, pending_delete = 1, pending_delete_at = ?, pending_review_at = NULL,
-           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
-        ).run(nowIso, effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
-      } else {
-        /** Clear `pending_review_at` whenever we leave the review workflow — otherwise rows stay excluded from the main inbox tab (`filter=all`) while `sort_category` reads `normal`, which looks like “analyzed but not sorted.” */
-        db.prepare(
-          `UPDATE inbox_messages SET archived = 0, pending_delete = 0, pending_delete_at = NULL, pending_review_at = NULL,
-           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
-        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
-      }
 
-      /** Persist AI analysis for sorted messages — survives clearBulkAiOutputsForIds. */
-      const aiAnalysisJson = JSON.stringify({
+      /**
+       * B-7.1 Decision D — re-seal content FIRST, operational columns SECOND.
+       * If re-seal fails we abort before touching any operational column, leaving
+       * the row fully consistent with its existing seal.  If re-seal succeeds and
+       * the subsequent operational UPDATE fails, the content seal is still valid;
+       * only the sort bucket is stale — a strictly better failure mode.
+       */
+      const aiAnalysisData = {
         category: effectiveSortCategory,
         urgencyScore: urgency,
         urgencyReason: reason || '',
@@ -4888,8 +4852,45 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
         actionItems: [],
         draftReply: needsReply ? (parsed.draftReply ?? null) : null,
         status: 'classified',
-      })
-      db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(aiAnalysisJson, messageId)
+      }
+      const sealResClassify = await resealWithAiAnalysis(db, messageId, aiAnalysisData)
+      if (!sealResClassify.ok) {
+        console.error('[CLASSIFY] re-seal failed — aborting classification, no operational writes:', sealResClassify.error)
+        return { messageId, error: `re-seal failed: ${sealResClassify.error}` }
+      }
+
+      if (isUrgent) {
+        prepareSealedOperationalUpdate(
+          db,
+          `UPDATE inbox_messages SET archived = 0, pending_delete = 0, pending_delete_at = NULL, pending_review_at = NULL,
+           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
+        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
+      } else if (pendingReview) {
+        prepareSealedOperationalUpdate(
+          db,
+          `UPDATE inbox_messages SET archived = 0, pending_delete = 0, pending_delete_at = NULL,
+           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ?, pending_review_at = ? WHERE id = ?`,
+        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, nowIso, messageId)
+      } else if (validCategory === 'archive') {
+        prepareSealedOperationalUpdate(
+          db,
+          `UPDATE inbox_messages SET archived = 1, pending_delete = 0, pending_delete_at = NULL, pending_review_at = NULL,
+           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
+        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
+      } else if (pendingDelete) {
+        prepareSealedOperationalUpdate(
+          db,
+          `UPDATE inbox_messages SET archived = 0, pending_delete = 1, pending_delete_at = ?, pending_review_at = NULL,
+           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
+        ).run(nowIso, effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
+      } else {
+        /** Clear `pending_review_at` whenever we leave the review workflow — otherwise rows stay excluded from the main inbox tab (`filter=all`) while `sort_category` reads `normal`, which looks like “analyzed but not sorted.” */
+        prepareSealedOperationalUpdate(
+          db,
+          `UPDATE inbox_messages SET archived = 0, pending_delete = 0, pending_delete_at = NULL, pending_review_at = NULL,
+           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
+        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
+      }
 
       /** Single path: DB columns are source of truth; skips if `imap_remote_mailbox` already matches; supersedes stale queue rows. All classified categories (including urgent) enqueue remote lifecycle ops. */
       let remoteEnqueue: { enqueued: number; skipped: number; skipReasons: string[] } | undefined
@@ -5154,8 +5155,14 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      JSON.parse(analysisJson)
-      db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(analysisJson, messageId)
+      // Validate JSON and parse to object for re-seal.
+      const parsedAnalysis = JSON.parse(analysisJson) as Record<string, unknown>
+      // B-7: sealed re-seal replaces the raw UPDATE.
+      const sealRes = await resealWithAiAnalysis(db, messageId, parsedAnalysis)
+      if (!sealRes.ok) {
+        console.warn('[Inbox IPC] persistManualBulkAnalysis re-seal failed:', sealRes.error)
+        return { ok: false, error: `AI analysis could not be applied: ${sealRes.error}` }
+      }
       return { ok: true }
     } catch (e: any) {
       console.warn('[Inbox IPC] persistManualBulkAnalysis failed:', e?.message)
@@ -5300,7 +5307,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       if (!db) return { ok: false, error: 'Database unavailable' }
       const ids = messageIds ?? []
       const now = new Date().toISOString()
-      const stmt = db.prepare('UPDATE inbox_messages SET pending_delete = 1, pending_delete_at = ? WHERE id = ?')
+      const stmt = prepareSealedOperationalUpdate(db, 'UPDATE inbox_messages SET pending_delete = 1, pending_delete_at = ? WHERE id = ?')
       for (const id of ids) stmt.run(now, id)
       fireRemoteOrchestratorSync(db, ids, 'pending_delete')
       return { ok: true, data: { marked: ids.length } }
@@ -5317,8 +5324,9 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       if (idList.length === 0) return { ok: true }
       const now = new Date().toISOString()
       const placeholders = idList.map(() => '?').join(',')
-      db.prepare(
-        `UPDATE inbox_messages SET sort_category = 'pending_review', pending_review_at = ? WHERE id IN (${placeholders})`
+      prepareSealedOperationalUpdate(
+        db,
+        `UPDATE inbox_messages SET sort_category = 'pending_review', pending_review_at = ? WHERE id IN (${placeholders})`,
       ).run(now, ...idList)
       fireRemoteOrchestratorSync(db, idList, 'pending_review')
       return { ok: true }
@@ -5331,9 +5339,14 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      /* FIX-H3: Reset color coding — clear sort_category, sort_reason, ai_analysis_json so message looks unsorted */
-      db.prepare(
-        'UPDATE inbox_messages SET pending_delete = 0, pending_delete_at = NULL, sort_category = NULL, sort_reason = NULL, ai_analysis_json = NULL WHERE id = ?'
+      // B-7: content clear (ai_analysis_json) goes through the sealed gate.
+      const sealRes = await resealWithAiAnalysis(db, messageId, null)
+      if (!sealRes.ok) {
+        console.warn('[CANCEL-PENDING-DELETE] re-seal failed:', sealRes.error)
+      }
+      prepareSealedOperationalUpdate(
+        db,
+        'UPDATE inbox_messages SET pending_delete = 0, pending_delete_at = NULL, sort_category = NULL, sort_reason = NULL WHERE id = ?',
       ).run(messageId)
       return { ok: true, data: { cancelled: true } }
     } catch (err: any) {
@@ -5345,9 +5358,14 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      /* FIX-H3: Reset color coding — clear ai_analysis_json so message looks unsorted */
-      db.prepare(
-        'UPDATE inbox_messages SET sort_category = NULL, sort_reason = NULL, pending_review_at = NULL, ai_analysis_json = NULL WHERE id = ?'
+      // B-7: content clear (ai_analysis_json) goes through the sealed gate.
+      const sealRes = await resealWithAiAnalysis(db, messageId, null)
+      if (!sealRes.ok) {
+        console.warn('[CANCEL-PENDING-REVIEW] re-seal failed:', sealRes.error)
+      }
+      prepareSealedOperationalUpdate(
+        db,
+        'UPDATE inbox_messages SET sort_category = NULL, sort_reason = NULL, pending_review_at = NULL WHERE id = ?',
       ).run(messageId)
       return { ok: true, data: { cancelled: true } }
     } catch (err: any) {
@@ -5359,9 +5377,14 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      /* FIX-H3: Reset color coding — clear sort_category, sort_reason, ai_analysis_json so message looks unsorted */
-      db.prepare(
-        'UPDATE inbox_messages SET archived = 0, sort_category = NULL, sort_reason = NULL, ai_analysis_json = NULL WHERE id = ?'
+      // B-7: content clear (ai_analysis_json) goes through the sealed gate.
+      const sealRes = await resealWithAiAnalysis(db, messageId, null)
+      if (!sealRes.ok) {
+        console.warn('[UNARCHIVE] re-seal failed:', sealRes.error)
+      }
+      prepareSealedOperationalUpdate(
+        db,
+        'UPDATE inbox_messages SET archived = 0, sort_category = NULL, sort_reason = NULL WHERE id = ?',
       ).run(messageId)
       return { ok: true, data: { unarchived: true } }
     } catch (err: any) {

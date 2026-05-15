@@ -195,6 +195,24 @@ describe('Execution Authorization Gate', () => {
     }
   })
 
+  // Decision B (B-8.4d-i): Defense-in-depth — expired handshakes are denied at
+  // authorization regardless of state. Guards against the background expiry process
+  // running late or a stale state transition leaving the record as ACTIVE past its
+  // expiry window.
+  test('state ACTIVE but expires_at past → HANDSHAKE_INACTIVE (defense-in-depth against stale state from background expiry process)', () => {
+    const db = makeMockDb({
+      'hs-001': makeHandshakeRow({
+        state: 'ACTIVE',
+        expires_at: new Date(Date.now() - 86400000).toISOString(),
+      }),
+    })
+    const result = authorizeToolInvocation(db, makeRequest())
+    expect(result.authorized).toBe(false)
+    if (!result.authorized) {
+      expect(result.reason).toBe('HANDSHAKE_INACTIVE')
+    }
+  })
+
   // Additional: Wildcard scope allows any
   test('wildcard scope allows any requested scope', () => {
     const db = makeMockDb({ 'hs-001': makeHandshakeRow() })
