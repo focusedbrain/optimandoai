@@ -1,4 +1,4 @@
-﻿import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
+import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
 import { loginWithKeycloak, prepareLoginUrl, setUrlOpener } from '../src/auth/login'
 import { saveRefreshToken, clearRefreshToken } from '../src/auth/tokenStore'
 import { ensureSession, updateSessionFromTokens, clearSession, getCachedUserInfo, getAccessToken } from '../src/auth/session'
@@ -9949,30 +9949,11 @@ async function runDeviceKeyMigration(
     httpApp.get('/api/email/credentials/gmail', async (_req, res) => {
       try {
         console.log('[HTTP-EMAIL] GET /api/email/credentials/gmail')
-        const { checkExistingCredentials, isVaultUnlocked } = await import('./main/email/credentials')
-        const result = await checkExistingCredentials('gmail')
-        const canConnect =
-          !!result.credentials || result.builtinOAuthAvailable === true
-        const {
-          isEmailDeveloperModeEnabled,
-          getStandardConnectBuiltinClientDiagnostics,
-        } = await import('./main/email/googleOAuthBuiltin')
-        const std = getStandardConnectBuiltinClientDiagnostics()
+        const { buildGmailCredentialsCheckPayload } = await import('./main/email/gmailCredentialsCheckPayload')
+        const data = await buildGmailCredentialsCheckPayload()
         res.json({
           ok: true,
-          data: {
-            configured: canConnect,
-            developerCredentialsStored: !!result.credentials,
-            builtinOAuthAvailable: result.builtinOAuthAvailable === true,
-            developerModeEnabled: isEmailDeveloperModeEnabled(),
-            clientId: result.clientId,
-            source: result.source,
-            credentials: result.credentials,
-            hasSecret: result.hasSecret,
-            vaultUnlocked: isVaultUnlocked(),
-            standardConnectBundledClientFingerprint: std.standardConnectBundledClientFingerprint,
-            standardConnectBuiltinSourceKind: std.standardConnectBuiltinSourceKind,
-          },
+          data,
         })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error checking Gmail credentials:', error)
@@ -9999,6 +9980,27 @@ async function runDeviceKeyMigration(
         res.json({ ok: result.ok, savedToVault: result.savedToVault, error: result.error })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error saving Gmail credentials:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    /** Persist bundled-desktop pairing secret locally (safeStorage userData); never in shipped bundle. */
+    httpApp.post('/api/email/credentials/gmail/builtin-supplement', async (req, res) => {
+      try {
+        const clientSecret = (req.body as { clientSecret?: string })?.clientSecret
+        const { resolveBuiltinGoogleOAuthClientWithMeta } = await import('./main/email/googleOAuthBuiltin')
+        const { saveBuiltinGoogleOAuthSupplementSecret } = await import('./main/email/builtinGoogleOAuthSupplement')
+        const meta = resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true })
+        if (!meta?.clientId?.trim()) {
+          res
+            .status(400)
+            .json({ ok: false, error: 'Email provider not configured (no bundled Google OAuth client id).' })
+          return
+        }
+        const r = saveBuiltinGoogleOAuthSupplementSecret(meta.clientId, String(clientSecret ?? ''))
+        res.json(r.ok ? { ok: true } : { ok: false, error: r.error })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] builtin-supplement:', error)
         res.status(500).json({ ok: false, error: error.message })
       }
     })

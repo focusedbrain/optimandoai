@@ -1259,6 +1259,9 @@ contextBridge.exposeInMainWorld('emailAccounts', {
       storeInVault ?? true,
     ),
   checkGmailCredentials: () => ipcRenderer.invoke('email:checkGmailCredentials'),
+  /** Pair bundled Gmail Desktop OAuth client with secret stored locally via OS encryption (userData). */
+  saveBuiltinGoogleOAuthSupplement: (clientSecret: string) =>
+    ipcRenderer.invoke('email:saveBuiltinGoogleOAuthSupplement', clientSecret),
   /** Packaged Gmail OAuth runtime proof (fingerprints only — see main process gmail_standard_connect_flow_proof logs). */
   getGmailOAuthRuntimeDiagnostics: () => ipcRenderer.invoke('email:getGmailOAuthRuntimeDiagnostics'),
   checkOutlookCredentials: () => ipcRenderer.invoke('email:checkOutlookCredentials'),

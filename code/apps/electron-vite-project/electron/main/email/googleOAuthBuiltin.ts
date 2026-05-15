@@ -26,15 +26,17 @@
  *
  * Placeholder values in the bundled file (e.g. REPLACE_WITH_…) are rejected so CI must inject a real id.
  *
- * **Secret file vs build-time define:** `google-oauth-client-secret.txt` is gitignored; CI/local builds run
- * `prepare-google-oauth-resource.cjs` so the file exists before packaging. If the id is read from a resource path
- * but the sibling secret file is missing or still a placeholder, {@link resolveBuiltinGoogleOAuthClientSecret} falls back to `__BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__`
- * when it matches the same client id as `__BUILD_TIME_GOOGLE_OAUTH_CLIENT_ID__` (CI can set both env vars at `vite build`).
+ * **Secret file vs local supplement:** OAuth `client_secret` is never required at **build** time.
+ * Ships may omit `google-oauth-client-secret.txt`; users can add the pairing secret in-app (stored under
+ * `userData` with OS encryption via {@link builtinGoogleOAuthSupplement}). Env / sibling resource file /
+ * build-time define remain optional backwards-compatible sources.
  */
 
 import { app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
+
+import { loadBuiltinGoogleOAuthSupplementSecret } from './builtinGoogleOAuthSupplement'
 
 const ENV_KEYS = ['WR_DESK_GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_ID'] as const
 
@@ -286,6 +288,16 @@ export function resolveBuiltinGoogleOAuthClientSecret(
       }
     }
   }
+  if (normalized == null && res.clientId?.trim()) {
+    const sup = loadBuiltinGoogleOAuthSupplementSecret(res.clientId.trim())
+    if (sup) {
+      console.log(
+        '[gmail_oauth_secret_supply]',
+        JSON.stringify({ reason: 'user_supplement_os_encrypted_userdata', rawLineLength: sup.length }),
+      )
+      return sup
+    }
+  }
   return normalized ?? undefined
 }
 
@@ -476,6 +488,34 @@ export function isBuiltinGmailOAuthConfigured(): boolean {
 }
 
 /**
+ * Standard Gmail Connect (built-in Desktop client): both client id and a usable `client_secret` are available
+ * (resource / env / build-time / user supplement).
+ */
+export function isBuiltinStandardConnectReady(): boolean {
+  const meta = resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true })
+  if (!meta?.clientId) return false
+  return !!resolveBuiltinGoogleOAuthClientSecret(meta)
+}
+
+export type GmailBuiltinProviderStatus = 'not_configured' | 'credentials_incomplete' | 'ready'
+
+export function getGmailBuiltinProviderStatus(): {
+  status: GmailBuiltinProviderStatus
+  hasBundledClientId: boolean
+  hasEffectiveClientSecret: boolean
+} {
+  const meta = resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true })
+  if (!meta?.clientId) {
+    return { status: 'not_configured', hasBundledClientId: false, hasEffectiveClientSecret: false }
+  }
+  const sec = resolveBuiltinGoogleOAuthClientSecret(meta)
+  if (sec) {
+    return { status: 'ready', hasBundledClientId: true, hasEffectiveClientSecret: true }
+  }
+  return { status: 'credentials_incomplete', hasBundledClientId: true, hasEffectiveClientSecret: false }
+}
+
+/**
  * Fingerprint + source for the client id **standard Connect Google** (`builtin_public`) resolves to
  * (`resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true })`).
  * Safe for UI — no full client id string.
@@ -508,9 +548,8 @@ export function getPackagedResourceGoogleOAuthClientId(): string | null {
 }
 
 export const BUILTIN_GMAIL_OAUTH_SECRET_MISSING_WARN =
-  '[Gmail OAuth] ⚠ Builtin client_id is configured but client_secret is missing or placeholder. ' +
-  'Gmail connect will fail at token exchange. ' +
-  'Set GOOGLE_OAUTH_CLIENT_SECRET in env or update resources/google-oauth-client-secret.txt with the real GOCSPX-... value.'
+  '[Gmail OAuth] Builtin Desktop client_id is present but client_secret is missing or placeholder. ' +
+  'Standard Connect Gmail will not succeed until the pairing secret is set (Integrations / encrypted local supplement), env/resource secret at build time, or Advanced developer OAuth.'
 
 /** One operational warning per process (startup resource check + standard connect resolve share this). */
 let warnedGmailOAuthBuiltinSecretOperational = false
@@ -701,6 +740,11 @@ const OAUTH_DIAG_WHITELIST_KEYS = new Set([
   'packagedStandardConnectEnvIgnored',
   'bundledFirstLineClientIdFingerprint',
   'builtinClientSecretResourceMissingOrPlaceholder',
+  'gmailBuiltinProviderStatus',
+  'builtinStandardConnectReady',
+  'configured_gate',
+  'hasBundledClientId',
+  'hasEffectiveClientSecret',
   'processResourcesPath',
   'googleOAuthResourceFilePath',
   'resourceFileExists',

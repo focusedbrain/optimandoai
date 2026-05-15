@@ -1,4 +1,4 @@
-﻿import { handleElectronRpc, type ElectronRpcRequest } from './rpc/electronRpc'
+import { handleElectronRpc, type ElectronRpcRequest } from './rpc/electronRpc'
 import { WEBMCP_RESULT_VERSION } from './vault/autofill/webMcpConstants'
 import type { BgWebMcpErrorCode } from './vault/autofill/webMcpAdapter'
 import { extractAllTabsDom } from './utils/watchdogDomExtract'
@@ -4033,6 +4033,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true
     }
     
+    case 'EMAIL_SAVE_BUILTIN_GOOGLE_OAUTH_SUPPLEMENT': {
+      electronRequest('/api/email/credentials/gmail/builtin-supplement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientSecret: msg.clientSecret }),
+      })
+        .then((result) => {
+          sendResponse(result.ok ? { ok: true } : { ok: false, error: result.error })
+        })
+        .catch((err) => {
+          console.error('[BG] EMAIL_SAVE_BUILTIN_GOOGLE_OAUTH_SUPPLEMENT error:', err)
+          sendResponse({ ok: false, error: err?.message || 'Failed to save supplement' })
+        })
+      return true
+    }
+
     case 'EMAIL_CHECK_OUTLOOK_CREDENTIALS': {
       
       electronRequest('/api/email/credentials/outlook')

@@ -645,7 +645,9 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     'email:getImapReconnectHints', 'email:updateImapCredentials',
     'email:getImapPresets', 'email:setGmailCredentials', 'email:connectGmail',
     'email:getGmailOAuthRuntimeDiagnostics', 'email:showGmailSetup',
-    'email:checkGmailCredentials', 'email:checkOutlookCredentials', 'email:checkZohoCredentials',
+    'email:checkGmailCredentials',
+    'email:saveBuiltinGoogleOAuthSupplement',
+    'email:checkOutlookCredentials', 'email:checkZohoCredentials',
     'email:setOutlookCredentials', 'email:connectOutlook', 'email:showOutlookSetup',
     'email:setZohoCredentials', 'email:connectZoho',
     'email:connectImap', 'email:connectCustomMailbox',
@@ -851,31 +853,37 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
    */
   ipcMain.handle('email:checkGmailCredentials', async () => {
     try {
-      const { isEmailDeveloperModeEnabled, getStandardConnectBuiltinClientDiagnostics } = await import(
-        './googleOAuthBuiltin'
-      )
-      const result = await checkExistingCredentials('gmail')
-      const canConnect =
-        !!result.credentials || result.builtinOAuthAvailable === true
-      const std = getStandardConnectBuiltinClientDiagnostics()
+      const { buildGmailCredentialsCheckPayload } = await import('./gmailCredentialsCheckPayload')
+      const data = await buildGmailCredentialsCheckPayload()
       return {
         ok: true,
-        data: {
-          configured: canConnect,
-          developerCredentialsStored: !!result.credentials,
-          builtinOAuthAvailable: result.builtinOAuthAvailable === true,
-          developerModeEnabled: isEmailDeveloperModeEnabled(),
-          clientId: result.clientId,
-          source: result.source,
-          credentials: result.credentials,
-          hasSecret: result.hasSecret,
-          vaultUnlocked: isVaultUnlocked(),
-          standardConnectBundledClientFingerprint: std.standardConnectBundledClientFingerprint,
-          standardConnectBuiltinSourceKind: std.standardConnectBuiltinSourceKind,
-        },
+        data,
       }
     } catch (error: any) {
       return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('email:saveBuiltinGoogleOAuthSupplement', async (_e, clientSecret: string | undefined) => {
+    try {
+      const {
+        resolveBuiltinGoogleOAuthClientWithMeta,
+      } = await import('./googleOAuthBuiltin')
+      const { saveBuiltinGoogleOAuthSupplementSecret } = await import('./builtinGoogleOAuthSupplement')
+      const meta = resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true })
+      if (!meta?.clientId?.trim()) {
+        return {
+          ok: false,
+          error:
+            'Email provider is not configured: this build has no bundled Google OAuth client id. Contact your administrator or use Advanced OAuth.',
+        }
+      }
+      const r = saveBuiltinGoogleOAuthSupplementSecret(meta.clientId, String(clientSecret ?? ''))
+      return r.ok ? { ok: true } : { ok: false, error: r.error }
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error)
+      console.error('[Email IPC] saveBuiltinGoogleOAuthSupplement:', msg)
+      return { ok: false, error: msg }
     }
   })
 

@@ -340,6 +340,8 @@ declare global {
           configured: boolean
           developerCredentialsStored?: boolean
           builtinOAuthAvailable?: boolean
+          builtinStandardConnectReady?: boolean
+          gmailBuiltinProviderStatus?: 'not_configured' | 'credentials_incomplete' | 'ready'
           /** Unpackaged app or WR_DESK_EMAIL_DEVELOPER_MODE / WR_DESK_DEVELOPER_MODE */
           developerModeEnabled?: boolean
           clientId?: string
@@ -353,6 +355,8 @@ declare global {
         }
         error?: string
       }>
+      /** Pair bundled Gmail OAuth Desktop client id with client_secret stored only under userData (OS encryption). */
+      saveBuiltinGoogleOAuthSupplement?: (clientSecret: string) => Promise<{ ok: boolean; error?: string }>
       /** Packaged Gmail OAuth runtime proof (fingerprints + paths — no secrets / full client ids / tokens). */
       getGmailOAuthRuntimeDiagnostics?: () => Promise<{
         ok: boolean

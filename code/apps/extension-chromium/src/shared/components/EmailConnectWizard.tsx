@@ -41,6 +41,8 @@ type GmailConnectFailureDebug = {
   raw?: string
 }
 
+type GmailBuiltinProviderStatusUi = 'not_configured' | 'credentials_incomplete' | 'ready'
+
 /** Align reconnect hints / legacy values with `<select>` option values (`ssl` | `starttls` | `none`). */
 function coerceSecurityModeUi(v: unknown, fallback: SecurityModeUi): SecurityModeUi {
   const k = typeof v === 'string' ? v.toLowerCase().trim().replace(/\s+/g, '') : ''
@@ -150,6 +152,8 @@ export function EmailConnectWizard({
   const [gmailOAuthMeta, setGmailOAuthMeta] = useState<{
     configured: boolean
     builtinOAuthAvailable: boolean
+    builtinStandardConnectReady?: boolean
+    gmailBuiltinProviderStatus?: GmailBuiltinProviderStatusUi
     /** Electron / native: show Advanced OAuth UI (env or unpackaged dev). */
     developerModeEnabled?: boolean
     /** Fingerprint for standard Connect built-in client (from main checkGmailCredentials). */
@@ -170,6 +174,9 @@ export function EmailConnectWizard({
   const [gmailOAuthDiagRows, setGmailOAuthDiagRows] = useState<{ key: string; value: string }[] | null>(null)
   const [gmailOAuthDiagError, setGmailOAuthDiagError] = useState<string | null>(null)
   const [gmailOAuthDiagLoading, setGmailOAuthDiagLoading] = useState(false)
+  /** Built-in Desktop OAuth: paste pairing client_secret (stored encrypted via desktop API only). */
+  const [builtinOAuthSecretLocal, setBuiltinOAuthSecretLocal] = useState('')
+  const [builtinOAuthSecretSaving, setBuiltinOAuthSecretSaving] = useState(false)
 
   const isPro = theme === 'professional'
   const textColor = isPro ? '#0f172a' : 'white'
@@ -206,6 +213,8 @@ export function EmailConnectWizard({
     setGmailOAuthDiagRows(null)
     setGmailOAuthDiagError(null)
     setGmailOAuthDiagLoading(false)
+    setBuiltinOAuthSecretLocal('')
+    setBuiltinOAuthSecretSaving(false)
   }, [])
 
   useEffect(() => {
@@ -319,6 +328,8 @@ export function EmailConnectWizard({
     configured: boolean
     developerCredentialsStored?: boolean
     builtinOAuthAvailable?: boolean
+    builtinStandardConnectReady?: boolean
+    gmailBuiltinProviderStatus?: GmailBuiltinProviderStatusUi
     developerModeEnabled?: boolean
     clientId?: string
     clientSecret?: string
@@ -326,40 +337,89 @@ export function EmailConnectWizard({
     hasSecret?: boolean
     standardConnectBundledClientFingerprint?: string | null
   }> => {
+    const mapPayload = (d: Record<string, unknown> | undefined) => ({
+      configured: !!d?.configured,
+      developerCredentialsStored: !!d?.developerCredentialsStored,
+      builtinOAuthAvailable: !!d?.builtinOAuthAvailable,
+      builtinStandardConnectReady: d?.builtinStandardConnectReady === true,
+      gmailBuiltinProviderStatus: (typeof d?.gmailBuiltinProviderStatus === 'string'
+        ? d.gmailBuiltinProviderStatus
+        : undefined) as GmailBuiltinProviderStatusUi | undefined,
+      developerModeEnabled: d?.developerModeEnabled === true,
+      clientId: d?.clientId as string | undefined,
+      clientSecret: (d?.credentials as { clientSecret?: string } | undefined)?.clientSecret,
+      source: (d?.source ?? (d?.configured ? 'temporary' : 'none')) as
+        | 'vault'
+        | 'vault-migrated'
+        | 'temporary'
+        | 'none',
+      hasSecret: d?.hasSecret ?? false,
+      standardConnectBundledClientFingerprint: (d?.standardConnectBundledClientFingerprint as string | null | undefined) ?? null,
+    })
+
     if (isElectron()) {
       const res = await (window as any).emailAccounts?.checkGmailCredentials?.()
-      if (!res?.ok) return { configured: false }
-      const d = res.data
-      return {
-        configured: !!d?.configured,
-        developerCredentialsStored: !!d?.developerCredentialsStored,
-        builtinOAuthAvailable: !!d?.builtinOAuthAvailable,
-        developerModeEnabled: d?.developerModeEnabled === true,
-        clientId: d?.clientId,
-        clientSecret: (d?.credentials as any)?.clientSecret,
-        source: d?.source || (d?.configured ? 'temporary' : 'none'),
-        hasSecret: d?.hasSecret ?? false,
-        standardConnectBundledClientFingerprint: d?.standardConnectBundledClientFingerprint ?? null,
-      }
+      if (!res?.ok) return { configured: false, gmailBuiltinProviderStatus: 'not_configured' }
+      return mapPayload(res.data as Record<string, unknown> | undefined)
     }
     if (isExtension()) {
       const res = await chrome.runtime.sendMessage({ type: 'EMAIL_CHECK_GMAIL_CREDENTIALS' })
-      if (!res?.ok) return { configured: false }
-      const d = res.data
-      return {
-        configured: !!d?.configured,
-        developerCredentialsStored: !!d?.developerCredentialsStored,
-        builtinOAuthAvailable: !!d?.builtinOAuthAvailable,
-        developerModeEnabled: d?.developerModeEnabled === true,
-        clientId: d?.clientId,
-        clientSecret: (d?.credentials as any)?.clientSecret,
-        source: d?.source || (d?.configured ? 'temporary' : 'none'),
-        hasSecret: d?.hasSecret ?? false,
-        standardConnectBundledClientFingerprint: d?.standardConnectBundledClientFingerprint ?? null,
-      }
+      if (!res?.ok) return { configured: false, gmailBuiltinProviderStatus: 'not_configured' }
+      return mapPayload(res.data as Record<string, unknown> | undefined)
     }
-    return { configured: false }
+    return { configured: false, gmailBuiltinProviderStatus: 'not_configured' }
   }, [])
+
+  const saveBuiltinOAuthPairingSecret = useCallback(async (): Promise<boolean> => {
+    setCredError(null)
+    const sec = builtinOAuthSecretLocal.trim()
+    if (sec.length < 10) {
+      setCredError('Paste the OAuth client secret (typically GOCSPX-…) from Google Cloud for this Desktop OAuth client.')
+      return false
+    }
+    setBuiltinOAuthSecretSaving(true)
+    try {
+      if (isElectron()) {
+        const fn = (window as any).emailAccounts?.saveBuiltinGoogleOAuthSupplement
+        if (typeof fn !== 'function') {
+          setCredError('This desktop build does not support saving the pairing secret locally. Update the app.')
+          return false
+        }
+        const res = await fn(sec)
+        if (!res?.ok) {
+          setCredError(res?.error || 'Could not save client secret securely.')
+          return false
+        }
+      } else if (isExtension()) {
+        const res = await chrome.runtime.sendMessage({
+          type: 'EMAIL_SAVE_BUILTIN_GOOGLE_OAUTH_SUPPLEMENT',
+          clientSecret: sec,
+        })
+        if (!res?.ok) {
+          setCredError(res?.error || 'Could not save client secret securely.')
+          return false
+        }
+      } else {
+        setCredError('Saving requires the desktop app or browser extension.')
+        return false
+      }
+      setBuiltinOAuthSecretLocal('')
+      setSaveFeedback('Pairing secret saved with OS-backed encryption. You can use Connect Google.')
+      setTimeout(() => setSaveFeedback(null), 5000)
+      const check = await checkGmailCreds()
+      setGmailOAuthMeta({
+        configured: !!check.configured,
+        builtinOAuthAvailable: !!check.builtinOAuthAvailable,
+        builtinStandardConnectReady: !!check.builtinStandardConnectReady,
+        gmailBuiltinProviderStatus: check.gmailBuiltinProviderStatus,
+        developerModeEnabled: check.developerModeEnabled === true,
+        standardConnectBundledClientFingerprint: check.standardConnectBundledClientFingerprint ?? null,
+      })
+      return true
+    } finally {
+      setBuiltinOAuthSecretSaving(false)
+    }
+  }, [builtinOAuthSecretLocal, checkGmailCreds])
 
   const checkOutlookCreds = useCallback(async (): Promise<{
     configured: boolean
@@ -636,6 +696,8 @@ export function EmailConnectWizard({
           setGmailOAuthMeta({
             configured: !!check.configured,
             builtinOAuthAvailable: !!check.builtinOAuthAvailable,
+            builtinStandardConnectReady: !!check.builtinStandardConnectReady,
+            gmailBuiltinProviderStatus: check.gmailBuiltinProviderStatus,
             developerModeEnabled: check.developerModeEnabled === true,
             standardConnectBundledClientFingerprint: check.standardConnectBundledClientFingerprint ?? null,
           })
@@ -769,11 +831,20 @@ export function EmailConnectWizard({
     if (provider === 'gmail') {
       if (!showGmailAdvanced) {
         if (!gmailOAuthMeta?.configured) {
-          setCredError(
-            gmailOAuthMeta?.developerModeEnabled
-              ? 'Google sign-in is not configured for this build. Add the app OAuth client id to the build, or use Advanced to supply your own OAuth client.'
-              : 'Google sign-in is not available in this version of the app. Please update the app or contact support.',
-          )
+          const st = gmailOAuthMeta?.gmailBuiltinProviderStatus
+          if (st === 'credentials_incomplete') {
+            setCredError(
+              'Google OAuth pairing secret is missing. Paste and save it under Integrations below (stored encrypted locally), then try Connect Google again.',
+            )
+          } else if (st === 'not_configured') {
+            setCredError(
+              gmailOAuthMeta?.developerModeEnabled
+                ? 'Email provider not configured. Use Advanced to supply your own OAuth client, or configure the bundled Desktop client id at build time.'
+                : 'Email provider not configured.',
+            )
+          } else {
+            setCredError('Email provider not configured.')
+          }
           return
         }
         if (connectSyncWindowDays === 0) {
@@ -1474,6 +1545,21 @@ export function EmailConnectWizard({
                           </span>
                         </div>
                       )}
+                      {(isElectron() || isExtension()) &&
+                        gmailOAuthMeta?.builtinStandardConnectReady &&
+                        gmailOAuthMeta?.gmailBuiltinProviderStatus === 'ready' && (
+                          <div
+                            style={{
+                              fontSize: '11px',
+                              color: isPro ? '#15803d' : 'rgba(134,239,172,0.95)',
+                              marginBottom: 10,
+                              lineHeight: 1.45,
+                            }}
+                          >
+                            Google OAuth provider is ready for this device. After Connect Google succeeds, your Gmail account is
+                            linked.
+                          </div>
+                        )}
                       {gmailOAuthMeta && !gmailOAuthMeta.configured && (
                         <div
                           style={{
@@ -1486,19 +1572,98 @@ export function EmailConnectWizard({
                             lineHeight: 1.5,
                           }}
                         >
-                          {gmailOAuthMeta.developerModeEnabled ? (
+                          {gmailOAuthMeta.gmailBuiltinProviderStatus === 'credentials_incomplete' ? (
                             <>
-                              Google sign-in is not configured for this build. Set the app Google OAuth client id at build
-                              time (environment or bundled resources file), or open Advanced to use your own OAuth client.
+                              The app includes a Google OAuth client id, but the pairing <strong>client secret</strong> is not
+                              set for this machine. Add it under Integrations below — it is stored with OS-backed encryption and is
+                              not bundled in the app.
+                            </>
+                          ) : gmailOAuthMeta.gmailBuiltinProviderStatus === 'not_configured' ? (
+                            <>
+                              <strong>Email provider not configured.</strong>{' '}
+                              {gmailOAuthMeta.developerModeEnabled ? (
+                                <>
+                                  Set a bundled Desktop OAuth client id at build time, paste a pairing secret under Integrations
+                                  when the built-in client is present, or open Advanced to use your own OAuth client.
+                                </>
+                              ) : (
+                                <>Contact your administrator or check for an update that ships provider credentials.</>
+                              )}
                             </>
                           ) : (
                             <>
-                              Google sign-in is not available in this version of the app. Please check for an update or
-                              contact support.
+                              <strong>Email provider not configured.</strong> Complete OAuth setup before connecting Gmail.
                             </>
                           )}
                         </div>
                       )}
+                      {gmailOAuthMeta?.gmailBuiltinProviderStatus === 'credentials_incomplete' &&
+                        (isElectron() || isExtension()) && (
+                          <div
+                            style={{
+                              marginBottom: 12,
+                              padding: '12px',
+                              borderRadius: '8px',
+                              border: `1px solid ${borderColor}`,
+                              background: isPro ? '#f8fafc' : 'rgba(255,255,255,0.06)',
+                            }}
+                          >
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: textColor, marginBottom: 8 }}>
+                              Integrations — Google (built-in client)
+                            </div>
+                            <div style={{ fontSize: '11px', color: mutedColor, marginBottom: 10, lineHeight: 1.45 }}>
+                              Paste the Desktop OAuth client secret from Google Cloud Console (same project as the bundled
+                              client id). It is saved only on this device using OS encryption.
+                            </div>
+                            <label
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                color: mutedColor,
+                                marginBottom: 4,
+                                display: 'block',
+                              }}
+                            >
+                              OAuth client secret (pairing)
+                            </label>
+                            <input
+                              type="password"
+                              value={builtinOAuthSecretLocal}
+                              onChange={(e) => setBuiltinOAuthSecretLocal(e.target.value)}
+                              placeholder="GOCSPX-…"
+                              autoComplete="off"
+                              style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                background: inputBg,
+                                border: `1px solid ${borderColor}`,
+                                borderRadius: '8px',
+                                fontSize: '13px',
+                                color: textColor,
+                                marginBottom: 8,
+                              }}
+                            />
+                            <button
+                              type="button"
+                              disabled={builtinOAuthSecretSaving}
+                              onClick={() => void saveBuiltinOAuthPairingSecret()}
+                              style={{
+                                width: '100%',
+                                padding: '10px',
+                                fontSize: '13px',
+                                fontWeight: 600,
+                                borderRadius: '8px',
+                                border: 'none',
+                                cursor: builtinOAuthSecretSaving ? 'wait' : 'pointer',
+                                opacity: builtinOAuthSecretSaving ? 0.7 : 1,
+                                background: isPro ? '#0f172a' : 'rgba(255,255,255,0.14)',
+                                color: isPro ? '#fff' : 'rgba(255,255,255,0.95)',
+                              }}
+                            >
+                              {builtinOAuthSecretSaving ? 'Saving…' : 'Save pairing secret locally'}
+                            </button>
+                          </div>
+                        )}
                       {existingGmail && (
                         <div style={{ fontSize: '11px', color: mutedColor, marginBottom: 8 }}>
                           Custom OAuth credentials may be saved for Advanced. The standard Connect Google button always uses
@@ -1526,7 +1691,9 @@ export function EmailConnectWizard({
                       >
                         Connect Google
                       </button>
-                      {(gmailOAuthMeta?.developerModeEnabled === true || !!existingGmail) && (
+                      {(gmailOAuthMeta?.developerModeEnabled === true ||
+                        !!existingGmail ||
+                        gmailOAuthMeta?.gmailBuiltinProviderStatus === 'credentials_incomplete') && (
                         <button
                           type="button"
                           onClick={() => {

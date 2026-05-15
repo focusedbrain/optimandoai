@@ -1,11 +1,10 @@
 /**
  * Runs before `vite build` / electron-builder (see package.json `build`, `rebuild`, etc.).
- * Ensures gitignored `resources/google-oauth-client-*.txt` exist with real values for packaging via extraResources.
+ * Ensures gitignored `resources/google-oauth-client-*.txt` can exist with real values for packaging via extraResources.
  *
  * Client id: env overwrites file when set; in strict CI, placeholder on-disk id fails.
- * Client secret: if `resources/google-oauth-client-secret.txt` already has a non-placeholder value, leave it;
- *   otherwise write from GOOGLE_OAUTH_CLIENT_SECRET or WR_DESK_GOOGLE_OAUTH_CLIENT_SECRET;
- *   if still missing, exit with a clear error (so GitHub never needs secrets in source).
+ * Client secret: OPTIONAL at build time — missing secret warns only (never exits). Builds succeed without
+ * `resources/google-oauth-client-secret.txt` / GOOGLE_OAUTH_CLIENT_SECRET; end users may supply the Desktop pairing secret at runtime (encrypted local storage).
  */
 
 const fs = require('fs')
@@ -104,19 +103,20 @@ if (!secretReady && envSecret) {
 }
 
 if (!secretReady) {
-  console.error(
-    'Build failed: Google OAuth client secret not found. Place it in resources/google-oauth-client-secret.txt or set GOOGLE_OAUTH_CLIENT_SECRET env var.',
+  console.warn(
+    '[prepare-google-oauth] Google OAuth client secret will not be embedded for this build (no env var and no valid resources/google-oauth-client-secret.txt). ' +
+      'Build continues; end users can paste the Desktop pairing secret in-app (stored encrypted locally, not bundled).',
   )
-  process.exit(1)
 }
 
-if (strict && fs.existsSync(targetId) && fs.existsSync(targetSecret)) {
+if (strict && fs.existsSync(targetId)) {
   const idLine = firstDataLine(fs.readFileSync(targetId, 'utf8'))
-  const secLine = firstDataLine(fs.readFileSync(targetSecret, 'utf8'))
-  if (!isPlaceholderLine(idLine) && isPlaceholderSecretLine(secLine)) {
-    console.error(
-      '[prepare-google-oauth] FATAL: Valid Google OAuth client id but client secret is missing or placeholder. Set GOOGLE_OAUTH_CLIENT_SECRET (or WR_DESK_GOOGLE_OAUTH_CLIENT_SECRET).',
+  const secExists = fs.existsSync(targetSecret)
+  const secLine = secExists ? firstDataLine(fs.readFileSync(targetSecret, 'utf8')) : ''
+  if (!isPlaceholderLine(idLine) && (!secExists || isPlaceholderSecretLine(secLine))) {
+    console.warn(
+      '[prepare-google-oauth] Packaging note: valid OAuth client id on disk but client secret missing or placeholder. ' +
+        'CI may set WR_DESK_GOOGLE_OAUTH_CLIENT_SECRET, or rely on per-machine Integrations setup.',
     )
-    process.exit(1)
   }
 }
