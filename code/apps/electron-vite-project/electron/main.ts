@@ -914,7 +914,7 @@ import {
   disconnectCoordinationWsForAccountSwitch,
   getCoordinationWsClient,
 } from './main/p2p/coordinationWsHolder'
-import { setBeapRecipientPendingNotifier } from './main/p2p/beapRecipientNotify'
+import { setBeapRecipientPendingNotifier, notifyBeapRecipientPending } from './main/p2p/beapRecipientNotify'
 import { processPendingP2PBeapEmails, retryPendingQbeapDecrypt } from './main/email/beapEmailIngestion'
 import { drainExtensionMergeBuffer } from './main/email/mergeExtensionDepackaged'
 import { getAuditForMessage, getAutoresponderAuditLog } from './main/beap/autoresponderAudit'
@@ -3673,7 +3673,11 @@ app.whenReady().then(async () => {
           receivedAt: new Date().toISOString(),
           transportFolder: 'file_import',
         })
-        if (r.outcome === 'inbox') return { success: true }
+        if (r.outcome === 'inbox') {
+          // Notify the extension so it calls refreshFromMain and shows the new row.
+          notifyBeapRecipientPending(handshakeId)
+          return { success: true }
+        }
         if (r.outcome === 'quarantine') return { success: true, quarantined: true }
         return { success: false, error: r.error ?? 'Processing failed' }
       } catch (err: any) {
