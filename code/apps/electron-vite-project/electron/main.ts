@@ -5350,7 +5350,10 @@ app.whenReady().then(async () => {
     console.log('[ENTITLEMENT_REFRESH] startup refresh failed:', err?.message || err)
   })
   setInterval(() => {
-    refreshEntitlements(true, 'interval').catch(() => {})
+    // force=false: ensureSession returns the cached token when still valid (60s buffer),
+    // avoiding a Keycloak round-trip on every tick. Keycloak is still called when the
+    // token actually expires (ensureSession → refreshWithKeycloak in session.ts).
+    refreshEntitlements(false, 'interval').catch(() => {})
   }, ENTITLEMENT_REFRESH_INTERVAL_MS)
   console.log('[ENTITLEMENT_REFRESH] 60s interval started')
 
@@ -11326,6 +11329,10 @@ async function runDeviceKeyMigration(
     setPairingCodeRegistrar(orchestratorPairingCodeRegistrar)
 
     let handshakeHealthStartupEmitted = false
+    // Single-flight guard: prevents overlapping async IIFEs if processPendingP2PBeapEmails,
+    // retryPendingQbeapDecrypt, or drainExtensionMergeBuffer take longer than 10 s.
+    // Without this guard N overlapping calls would each invoke the validator subprocess.
+    let p2pBeapDrainRunning = false
     function tryP2PStartup(): void {
       const handshakeDb = getHandshakeDb()
       if (!handshakeDb) {
@@ -11351,34 +11358,42 @@ async function runDeviceKeyMigration(
       // Each operation is failure-isolated: a rejection in one must not prevent
       // the others from running. Previously these were chained in .then() so a
       // processPendingP2PBeapEmails rejection silently skipped the drain.
-      void (async () => {
-        try {
-          const drained = await processPendingP2PBeapEmails(handshakeDb)
-          if (drained > 0) notifyBeapInboxDashboard(null)
-        } catch (e) {
-          console.warn('[tryP2PStartup] processPendingP2PBeapEmails error:', (e as Error)?.message ?? e)
-        }
+      // p2pBeapDrainRunning prevents overlapping IIFEs when any step takes >10s.
+      if (!p2pBeapDrainRunning) {
+        p2pBeapDrainRunning = true
+        void (async () => {
+          try {
+            try {
+              const drained = await processPendingP2PBeapEmails(handshakeDb)
+              if (drained > 0) notifyBeapInboxDashboard(null)
+            } catch (e) {
+              console.warn('[tryP2PStartup] processPendingP2PBeapEmails error:', (e as Error)?.message ?? e)
+            }
 
-        try {
-          const r = await retryPendingQbeapDecrypt(handshakeDb)
-          if (r > 0) notifyBeapInboxDashboard(null)
-        } catch (e) {
-          console.warn('[tryP2PStartup] retryPendingQbeapDecrypt error:', (e as Error)?.message ?? e)
-        }
+            try {
+              const r = await retryPendingQbeapDecrypt(handshakeDb)
+              if (r > 0) notifyBeapInboxDashboard(null)
+            } catch (e) {
+              console.warn('[tryP2PStartup] retryPendingQbeapDecrypt error:', (e as Error)?.message ?? e)
+            }
 
-        // B-5.1: drain extension merge retry buffer on health-check trigger.
-        // Canonical drain cadence: every 10s via tryP2PStartup.
-        // Do NOT add additional periodic drains elsewhere — multiple drain cadences
-        // produce redundant work and CPU overhead.
-        // Event-driven drain: P2P_BEAP_RECEIVED handler only.
-        // Vault unlock does NOT drain this buffer — it drains the outbound queue/context syncs.
-        // Periodic drains belong here only.
-        try {
-          await drainExtensionMergeBuffer(handshakeDb, getCurrentSession() ?? null)
-        } catch (e) {
-          console.warn('[tryP2PStartup] drainExtensionMergeBuffer error:', (e as Error)?.message ?? e)
-        }
-      })()
+            // B-5.1: drain extension merge retry buffer on health-check trigger.
+            // Canonical drain cadence: every 10s via tryP2PStartup.
+            // Do NOT add additional periodic drains elsewhere — multiple drain cadences
+            // produce redundant work and CPU overhead.
+            // Event-driven drain: P2P_BEAP_RECEIVED handler only.
+            // Vault unlock does NOT drain this buffer — it drains the outbound queue/context syncs.
+            // Periodic drains belong here only.
+            try {
+              await drainExtensionMergeBuffer(handshakeDb, getCurrentSession() ?? null)
+            } catch (e) {
+              console.warn('[tryP2PStartup] drainExtensionMergeBuffer error:', (e as Error)?.message ?? e)
+            }
+          } finally {
+            p2pBeapDrainRunning = false
+          }
+        })()
+      }
       processOutboundQueue(handshakeDb, getOidcToken).catch((err) => {
         console.warn('[P2P] processOutboundQueue error:', err?.message)
       })

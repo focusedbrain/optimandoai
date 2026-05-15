@@ -8,6 +8,7 @@
 
 import { useEffect, useRef } from 'react'
 import { processPendingP2PBeapQueue } from './pendingP2PBeapQueue'
+import { useBeapInboxStore } from '../beap-messages/useBeapInboxStore'
 
 const POLL_INTERVAL_MS = 5_000
 
@@ -38,7 +39,17 @@ export function usePendingP2PBeapIngestion(): void {
       if (msg?.type === 'P2P_BEAP_RECEIVED') {
         console.log('[P2P-POLL] Immediate processing triggered by push notification', msg.handshakeId ?? '')
         void processPendingP2PBeapQueue().then(
-          () => {
+          async () => {
+            // The canonical pipeline (processBeapPackageInline) already wrote the
+            // sealed row to inbox_messages before broadcasting P2P_BEAP_RECEIVED.
+            // The pending queue table was dropped in v66, so mergedCount is always
+            // 0 and pendingP2PBeapQueue never calls refreshFromMain itself.
+            // Force a replace-refresh here so the extension store picks up the new row.
+            try {
+              await useBeapInboxStore.getState().refreshFromMain({ kind: 'replace' })
+            } catch {
+              /* non-fatal — inbox may show on next poll */
+            }
             try {
               sendResponse({ ok: true })
             } catch {
