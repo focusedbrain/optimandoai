@@ -9,6 +9,8 @@
  * No background loops — only `maybePrewarmOllamaForBulkClassify` from `inbox:aiClassifyBatch`.
  */
 
+import { assertGpuInferenceAvailable } from '../inference/inferenceGate'
+
 const OLLAMA_CHAT = 'http://127.0.0.1:11434/api/chat'
 
 /** If we prewarmed this model recently, skip — longer bulk keep_alive usually keeps it loaded. */
@@ -36,6 +38,7 @@ export type OllamaBulkPrewarmDiag = {
     | 'skipped_cooldown'
     | 'skipped_not_first_chunk'
     | 'skipped_ollama_unreachable'
+    | 'skipped_gpu_inference_blocked'
     | 'failed'
   wallMs?: number
   /** From Ollama JSON load_duration (ns → ms), when action === 'ran'. */
@@ -89,6 +92,7 @@ export async function maybePrewarmOllamaForBulkClassify(
   const ac = new AbortController()
   const to = setTimeout(() => ac.abort(), 60_000)
   try {
+    await assertGpuInferenceAvailable()
     const res = await fetch(OLLAMA_CHAT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -120,7 +124,16 @@ export async function maybePrewarmOllamaForBulkClassify(
       followingClassifyLikelyResident: true,
       residentBeforePrewarm: wasAlreadyHot ? true : undefined,
     }
-  } catch {
+  } catch (e: unknown) {
+    const name = e instanceof Error ? e.name : ''
+    if (name === 'InferenceUnavailableError') {
+      const wallMs = Math.round(performance.now() - wallT0)
+      return {
+        action: 'skipped_gpu_inference_blocked',
+        wallMs,
+        followingClassifyLikelyResident: false,
+      }
+    }
     const wallMs = Math.round(performance.now() - wallT0)
     return {
       action: 'skipped_ollama_unreachable',

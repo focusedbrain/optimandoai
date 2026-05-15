@@ -9,6 +9,7 @@ import {
   ollamaRuntimeInFlightDelta,
   ollamaRuntimeLog,
 } from '../llm/ollamaRuntimeDiagnostics'
+import { assertGpuInferenceAvailableForChatBase } from '../inference/inferenceGate'
 
 export type StreamSender = (channel: string, payload: unknown) => void
 export type OnToken = (token: string) => void
@@ -29,7 +30,12 @@ export async function streamOllamaChat(
     ollamaRuntimeLog('streamOllamaChat:start', { model, inFlight: inflightStart })
   }
   try {
-    const chatUrl = `${baseUrl.replace(/\/$/, '')}/api/chat`
+    const normBase = baseUrl.replace(/\/$/, '')
+    await assertGpuInferenceAvailableForChatBase({
+      baseUrlNoTrailingSlash: normBase,
+      modelId: model || 'llama3',
+    })
+    const chatUrl = `${normBase}/api/chat`
     const res = await fetch(chatUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

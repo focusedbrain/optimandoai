@@ -8,6 +8,7 @@ import { InternalInferenceErrorCode } from './errors'
 import { getSandboxOllamaDirectRouteCandidate } from './sandboxHostAiOllamaDirectCandidate'
 import { classifyOllamaDirectFetchTransportFailure } from './sandboxOllamaDirectTransport'
 import { refreshSandboxOllamaDirectFromHostCapabilities } from './sandboxOllamaDirectCapsRefresh'
+import { InferenceUnavailableError, assertGpuInferenceAvailableForRemoteOllama } from '../inference/inferenceGate'
 
 export type SbxHostAiOllamaDirectChatLogPayload = {
   handshake_id: string
@@ -213,6 +214,19 @@ export async function executeSandboxHostAiOllamaDirectChat(
   if (Object.keys(opts).length > 0) body.options = opts
 
   try {
+    try {
+      await assertGpuInferenceAvailableForRemoteOllama(base, modelReq)
+    } catch (ge) {
+      if (ge instanceof InferenceUnavailableError) {
+        failLog(false, null, InternalInferenceErrorCode.GPU_INFERENCE_UNAVAILABLE)
+        return {
+          ok: false,
+          code: InternalInferenceErrorCode.GPU_INFERENCE_UNAVAILABLE,
+          message: ge.userMessage,
+        }
+      }
+      throw ge
+    }
     console.log(
       `[SBX_HOST_AI_OLLAMA_DIRECT_CHAT_FETCH_BEGIN] ${JSON.stringify({
         url: chatUrl,

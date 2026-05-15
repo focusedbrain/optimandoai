@@ -6,6 +6,7 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron'
 import { hardwareService } from './hardware'
 import { ollamaManager } from './ollama-manager'
+import { getGpuStatus } from '../inference/gpuStatus'
 import { DEBUG_ACTIVE_OLLAMA_MODEL } from './activeOllamaModelStore'
 import { broadcastActiveOllamaModelChanged } from './broadcastActiveModel'
 import { MODEL_CATALOG, getModelConfig } from './config'
@@ -55,6 +56,18 @@ export function registerLlmHandlers() {
     } catch (error: any) {
       console.error('[LLM IPC] Get status failed:', error)
       return { ok: false, error: error.message }
+    }
+  })
+
+  /** GPU / offload diagnostics for UI (cached ~60s inside getGpuStatus). */
+  ipcMain.handle('llm:getGpuStatus', async () => {
+    try {
+      const data = await getGpuStatus()
+      return { ok: true, data }
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error ?? 'unknown')
+      console.error('[LLM IPC] getGpuStatus failed:', error)
+      return { ok: false, error: msg }
     }
   })
   

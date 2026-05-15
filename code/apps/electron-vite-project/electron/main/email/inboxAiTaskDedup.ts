@@ -6,6 +6,7 @@
 import { randomUUID } from 'crypto'
 import { readStoredAiExecutionContext } from '../llm/aiExecutionContextStore'
 import { resolveInboxLlmSettings } from './inboxLlmChat'
+import { assertGpuInferenceAvailable, InferenceUnavailableError } from '../inference/inferenceGate'
 
 export type InboxAiStreamInvokeOpts = { supersede?: boolean }
 
@@ -36,81 +37,47 @@ type InflightEntry = {
 const inboxAiTaskInflight = new Map<string, InflightEntry>()
 
 // ---------------------------------------------------------------------------
-// Local Ollama GPU guard + timeout circuit-breaker.
+// Local Ollama GPU gate (global {@link assertGpuInferenceAvailable}) + timeout circuit-breaker.
 //
-// GPUs handle concurrent 12B inference fine. CPUs cannot — a 12B model on CPU
-// takes >45 s per request, making the timeout the effective result and burning
-// 100 % CPU on every core for the entire duration.
+// CPUs cannot sustain large local models — a 12B model on CPU takes >45 s per request,
+// making the timeout the effective result and burning 100 % CPU for the entire duration.
 //
 // Two-layer protection:
-//   1. GPU pre-flight (/api/ps): if model is loaded with size_vram==0 the
-//      model is running on CPU only — skip analysis immediately.
-//   2. Timeout circuit-breaker: 3 consecutive LLM_TIMEOUT errors open the
-//      circuit for CIRCUIT_RECOVERY_MS.  Resets on any successful response.
+//   1. Global GPU inference gate (cached /api/ps + driver diagnostics via gpuStatus).
+//   2. Timeout circuit-breaker: 3 consecutive LLM_TIMEOUT errors open the circuit for CIRCUIT_RECOVERY_MS.
 // ---------------------------------------------------------------------------
 
-const LOCAL_OLLAMA_BASE = 'http://127.0.0.1:11434'
-const GPU_CHECK_CACHE_MS = 60_000
 const CIRCUIT_TIMEOUT_THRESHOLD = 3
 const CIRCUIT_RECOVERY_MS = 10 * 60_000 // 10 minutes
-
-let gpuCheckCachedAt = 0
-let gpuCheckResult: 'gpu' | 'cpu_only' | 'unknown' = 'unknown'
 
 let consecutiveTimeouts = 0
 let circuitOpenAt: number | null = null
 
-/** Returns true when local Ollama should be skipped due to confirmed CPU-only mode or open circuit. */
-async function localOllamaBlocked(model: string): Promise<{ blocked: true; reason: string } | { blocked: false }> {
-  // Circuit breaker
+/** Returns true when local Ollama should be skipped due to open timeout circuit or GPU gate. */
+async function localOllamaBlocked(): Promise<{ blocked: true; reason: string } | { blocked: false }> {
   if (circuitOpenAt !== null) {
     const elapsed = Date.now() - circuitOpenAt
     if (elapsed < CIRCUIT_RECOVERY_MS) {
       const remainMin = Math.ceil((CIRCUIT_RECOVERY_MS - elapsed) / 60_000)
-      return { blocked: true, reason: `local Ollama circuit open (CPU-only mode detected; retries in ~${remainMin}m)` }
+      return {
+        blocked: true,
+        reason: `local Ollama circuit open (repeated timeouts; retries in ~${remainMin}m)`,
+      }
     }
-    // Circuit recovery — reset and probe again
     consecutiveTimeouts = 0
     circuitOpenAt = null
-    gpuCheckResult = 'unknown'
-    gpuCheckCachedAt = 0
   }
 
-  // GPU pre-flight (cached)
-  if (Date.now() - gpuCheckCachedAt > GPU_CHECK_CACHE_MS) {
-    try {
-      const res = await fetch(`${LOCAL_OLLAMA_BASE}/api/ps`, {
-        signal: AbortSignal.timeout(3000),
-      })
-      if (res.ok) {
-        const data = (await res.json()) as { models?: Array<{ name?: string; size_vram?: number }> }
-        const running = Array.isArray(data?.models) ? data.models : []
-        const bare = model.split(':')[0] ?? model
-        const match = running.find((m) => {
-          const n = (m.name ?? '').toLowerCase()
-          return n === model.toLowerCase() || n.startsWith(bare.toLowerCase())
-        })
-        if (match) {
-          const vram = typeof match.size_vram === 'number' ? match.size_vram : -1
-          gpuCheckResult = vram > 0 ? 'gpu' : 'cpu_only'
-          gpuCheckCachedAt = Date.now()
-          if (gpuCheckResult === 'cpu_only') {
-            console.warn(`[INBOX_AI] Ollama model "${model}" loaded with size_vram=0 — CPU-only mode. Inbox AI analysis disabled.`)
-            circuitOpenAt = Date.now()
-            return { blocked: true, reason: 'Ollama is running in CPU-only mode (no GPU/VRAM detected). Inbox AI disabled to prevent thermal overload.' }
-          }
-        } else {
-          // Model not yet loaded — let first request proceed; GPU status unknown
-          gpuCheckResult = 'unknown'
-          gpuCheckCachedAt = Date.now()
-        }
+  try {
+    await assertGpuInferenceAvailable()
+  } catch (e) {
+    if (e instanceof InferenceUnavailableError) {
+      return {
+        blocked: true,
+        reason: `${e.userMessage} Inbox AI is disabled for this path until GPU inference is available.`,
       }
-    } catch {
-      // /api/ps unreachable — don't block; circuit-breaker will catch CPU timeouts
     }
-  } else if (gpuCheckResult === 'cpu_only') {
-    circuitOpenAt = circuitOpenAt ?? Date.now()
-    return { blocked: true, reason: 'Ollama running in CPU-only mode (cached check).' }
+    throw e
   }
 
   return { blocked: false }
@@ -122,15 +89,13 @@ function recordLocalOllamaOutcome(timedOut: boolean): void {
     consecutiveTimeouts++
     if (consecutiveTimeouts >= CIRCUIT_TIMEOUT_THRESHOLD) {
       circuitOpenAt = Date.now()
-      gpuCheckResult = 'cpu_only'
       console.warn(
-        `[INBOX_AI] ${consecutiveTimeouts} consecutive LLM_TIMEOUT errors — local Ollama appears to be in CPU-only mode. Inbox AI disabled for ${CIRCUIT_RECOVERY_MS / 60_000} minutes.`,
+        `[INBOX_AI] ${consecutiveTimeouts} consecutive LLM_TIMEOUT errors — local Ollama appears overloaded. Inbox AI disabled for ${CIRCUIT_RECOVERY_MS / 60_000} minutes.`,
       )
     }
   } else {
     consecutiveTimeouts = 0
     circuitOpenAt = null
-    if (gpuCheckResult === 'cpu_only') gpuCheckResult = 'gpu'
   }
 }
 
@@ -334,14 +299,13 @@ export async function runInboxAiTaskWithDedup<T extends Record<string, unknown>>
   // Extract lane and model from taskKey (format: kind:messageId:model:lane)
   const taskKeyParts = taskKey.split(':')
   const taskLane = taskKeyParts[taskKeyParts.length - 1] ?? 'local'
-  const taskModel = taskKeyParts[2] ?? ''
   const isLocalLane = taskLane === 'local' || taskLane === 'unset'
 
   const promise = (async (): Promise<T> => {
     // GPU guard: skip local Ollama when running in CPU-only mode.
     // GPU can handle concurrent inferences; CPU cannot handle them at all.
     if (isLocalLane) {
-      const blocked = await localOllamaBlocked(taskModel)
+      const blocked = await localOllamaBlocked()
       if (blocked.blocked) {
         console.warn(`[INBOX_AI] Skipping local Ollama analysis for ${messageId}: ${blocked.reason}`)
         throw new Error(`LLM_UNAVAILABLE: ${blocked.reason}`)

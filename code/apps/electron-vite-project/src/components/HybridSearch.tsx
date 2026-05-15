@@ -10,6 +10,7 @@ import {
 import type { ChangeEvent, MutableRefObject } from 'react'
 import './HybridSearch.css'
 import './handshakeViewTypes'
+import { GpuInferenceBarBadge } from './GpuInferenceBarBadge'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 import { useAiDraftContextStore } from '../stores/useAiDraftContextStore'
@@ -2823,9 +2824,8 @@ export default function HybridSearch({
               </div>
             )}
           </div>
+          <GpuInferenceBarBadge />
         </div>
-
-        {/* ── Centre: main input ── */}
         {selectedHandshakeId && (
           <span
             style={{ marginRight: '6px', fontSize: '16px', color: '#4c1d95', lineHeight: 1, flexShrink: 0, cursor: 'default' }}

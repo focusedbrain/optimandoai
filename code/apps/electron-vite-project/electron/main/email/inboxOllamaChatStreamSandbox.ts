@@ -15,8 +15,17 @@ import { planSandboxHostChatExecution, type BeapContentAiTask } from '../interna
 import { isEffectiveSandboxSideForAiExecution } from '../llm/resolveAiExecutionContext'
 import type { AiExecutionContext } from '../llm/aiExecutionTypes'
 import { bareOllamaModelNameForApi } from '../../../src/lib/hostInferenceModelIds'
+import {
+  assertGpuInferenceAvailable,
+  assertGpuInferenceAvailableForRemoteOllama,
+  isLikelyLoopbackOrigin,
+} from '../inference/inferenceGate'
 
 const LOCAL_OLLAMA_BASE = 'http://127.0.0.1:11434'
+
+export type InboxOllamaGpuChatGate =
+  | { kind: 'local' }
+  | { kind: 'remote'; origin: string; modelBare: string }
 
 export type InboxOllamaStreamFetchDiag = {
   surface: string
@@ -88,6 +97,7 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
   modelId: string,
   opts: {
     diag: InboxOllamaStreamFetchDiag
+    gpuChatGate: InboxOllamaGpuChatGate
     /** IPC / caller cancellation — merged with inner timeout controller */
     abortSignal?: AbortSignal
     responseFormat?: 'json'
@@ -113,6 +123,14 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
   let finalText = ''
   let sawDone = false
   try {
+    if (opts.gpuChatGate.kind === 'local') {
+      await assertGpuInferenceAvailable()
+    } else {
+      await assertGpuInferenceAvailableForRemoteOllama(
+        opts.gpuChatGate.origin,
+        opts.gpuChatGate.modelBare,
+      )
+    }
     const requestOptions = opts.responseFormat === 'json'
       ? { temperature: 0, top_p: 0.9, num_predict: 1024 }
       : undefined
@@ -361,6 +379,7 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
   if (!effectiveSandbox) {
     yield* streamOllamaChatNdjsonFromBaseUrl(LOCAL_OLLAMA_BASE, systemPrompt, userPrompt, bareModel, {
       diag: baseDiag('local', LOCAL_OLLAMA_BASE),
+      gpuChatGate: { kind: 'local' },
       abortSignal: streamOpts?.abortSignal,
       responseFormat: 'json',
       expectedSchemaKeys,
@@ -384,8 +403,10 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
     streamBase &&
     plan.mode === 'ollama_direct'
   ) {
+    const odOrigin = streamBase.trim().replace(/\/$/, '')
     yield* streamOllamaChatNdjsonFromBaseUrl(streamBase, systemPrompt, userPrompt, bareModel, {
       diag: baseDiag('ollama_direct', streamBase),
+      gpuChatGate: { kind: 'remote', origin: odOrigin, modelBare: bareModel },
       abortSignal: streamOpts?.abortSignal,
       responseFormat,
       expectedSchemaKeys,
@@ -394,8 +415,10 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
   }
 
   if (plan.mode === 'ollama_direct' && streamBase) {
+    const odOrigin = streamBase.trim().replace(/\/$/, '')
     yield* streamOllamaChatNdjsonFromBaseUrl(streamBase, systemPrompt, userPrompt, bareModel, {
       diag: baseDiag('ollama_direct', streamBase),
+      gpuChatGate: { kind: 'remote', origin: odOrigin, modelBare: bareModel },
       abortSignal: streamOpts?.abortSignal,
       responseFormat,
       expectedSchemaKeys,
@@ -420,8 +443,12 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
   logSandboxInferenceSend(target, 'inbox_ai_stream')
 
   const tb = target.baseUrl.trim().replace(/\/$/, '')
+  const gpuChatGate: InboxOllamaGpuChatGate = isLikelyLoopbackOrigin(tb)
+    ? { kind: 'local' }
+    : { kind: 'remote', origin: tb, modelBare: bareModel }
   yield* streamOllamaChatNdjsonFromBaseUrl(tb, systemPrompt, userPrompt, bareModel, {
     diag: baseDiag(target.kind === 'local_sandbox' ? 'local_sandbox' : 'cross_device', tb),
+    gpuChatGate,
     abortSignal: streamOpts?.abortSignal,
     responseFormat,
     expectedSchemaKeys,

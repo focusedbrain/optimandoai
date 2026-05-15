@@ -20,6 +20,7 @@ import {
   ollamaRuntimeRecordChatTiming,
   type OllamaRuntimeRequestTrace,
 } from '../llm/ollamaRuntimeDiagnostics'
+import { assertGpuInferenceAvailableForChatBase } from '../inference/inferenceGate'
 
 /**
  * Set true only during local debugging.
@@ -243,6 +244,11 @@ export class OllamaProvider implements AIProvider {
     const model = options?.model ?? this.chatModel
     const stream = options?.stream ?? false
     const send = options?.send ?? (() => {})
+
+    await assertGpuInferenceAvailableForChatBase({
+      baseUrlNoTrailingSlash: this.baseUrl,
+      modelId: model,
+    })
 
     if (stream && send) {
       const streamUrl = `${this.baseUrl}/api/chat`

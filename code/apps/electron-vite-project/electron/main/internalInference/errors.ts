@@ -96,6 +96,8 @@ export const InternalInferenceErrorCode = {
   OLLAMA_LAN_NOT_REACHABLE: 'OLLAMA_LAN_NOT_REACHABLE',
   /** Sandbox → Host Ollama LAN: no validated `ollama_direct` base URL for this handshake (or owner mismatch). */
   OLLAMA_DIRECT_INVALID_ENDPOINT: 'OLLAMA_DIRECT_INVALID_ENDPOINT',
+  /** Sandbox → Host Ollama LAN: CPU-only / partial-GPU inference blocked (thermal safety gate). */
+  GPU_INFERENCE_UNAVAILABLE: 'GPU_INFERENCE_UNAVAILABLE',
   /** Sandbox → Host Ollama LAN: `POST /api/chat` failed (network / non-HTTP success) before a model-level error. */
   OLLAMA_DIRECT_CHAT_UNREACHABLE: 'OLLAMA_DIRECT_CHAT_UNREACHABLE',
   /** Sandbox → Host Ollama LAN: Ollama reports the requested model is not available. */

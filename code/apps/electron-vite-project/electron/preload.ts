@@ -1502,6 +1502,10 @@ contextBridge.exposeInMainWorld('integrity', {
 // ── Local LLM (Ollama) — status + active model (shared with Backend Configuration persistence) ──
 contextBridge.exposeInMainWorld('llm', {
   getStatus: () => ipcRenderer.invoke('llm:getStatus'),
+  getGpuStatus: () =>
+    ipcRenderer.invoke('llm:getGpuStatus') as Promise<
+      { ok: true; data: Record<string, unknown> } | { ok: false; error: string }
+    >,
   setActiveModel: (modelId: string) => {
     assertString(modelId, 'modelId')
     return ipcRenderer.invoke('llm:setActiveModel', modelId)

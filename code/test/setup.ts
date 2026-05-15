@@ -79,3 +79,10 @@ if (typeof window !== 'undefined') {
     Object.defineProperty(window, 'innerWidth', { value: 1024, writable: true, configurable: true })
   }
 }
+
+// ── Electron main: GPU inference gate (Vitest defaults) ────────────────────
+// Production must leave WRDESK_ALLOW_CPU_INFERENCE unset so Ollama calls require
+// verified GPU offload. Tests default-on so fetch mocks do not hit nvidia-smi.
+if (process.env.WRDESK_ALLOW_CPU_INFERENCE == null || process.env.WRDESK_ALLOW_CPU_INFERENCE === '') {
+  process.env.WRDESK_ALLOW_CPU_INFERENCE = '1'
+}

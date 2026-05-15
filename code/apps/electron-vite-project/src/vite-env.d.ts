@@ -238,6 +238,15 @@ interface LlmOllamaStatus {
   }>
 }
 
+/** Main-process GPU offload diagnostics (`llm:getGpuStatus`). */
+interface GpuStatusForUi {
+  available: boolean
+  reason: string | null
+  detail: Record<string, unknown>
+  userMessage: string
+  technicalSummary: string
+}
+
 /** Block reason returned by `llm:resolveAutosortRuntime`. */
 type AutosortBlockReason =
   | 'provider_not_ollama'
@@ -265,6 +274,7 @@ interface ResolvedInboxRuntime {
 
 interface LlmBridge {
   getStatus: () => Promise<{ ok: true; data: LlmOllamaStatus } | { ok: false; error: string }>
+  getGpuStatus: () => Promise<{ ok: true; data: GpuStatusForUi } | { ok: false; error: string }>
   setActiveModel: (modelId: string) => Promise<{ ok: true } | { ok: false; error: string }>
   setAiExecutionContext: (
     ctx: Record<string, unknown>,
