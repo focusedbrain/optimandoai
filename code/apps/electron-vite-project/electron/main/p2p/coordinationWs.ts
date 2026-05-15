@@ -496,6 +496,10 @@ export function createCoordinationWsClient(
   const startHeartbeat = (): void => {
     if (heartbeatTimer) return
     lastActivityAt = Date.now()
+    // 15 s interval — half the server's apparent 30 s inactivity timeout.
+    // Both a WebSocket-level PING frame and an application-level {"type":"ping"}
+    // message are sent so either style of activity tracking on the relay keeps
+    // the connection alive.
     heartbeatTimer = setInterval(() => {
       if (!ws || ws.readyState !== WebSocket.OPEN) return
 
@@ -503,6 +507,12 @@ export function createCoordinationWsClient(
         ws.ping()
       } catch (err: any) {
         console.warn('[Coordination] Heartbeat ping failed:', err?.message)
+      }
+
+      try {
+        ws.send(JSON.stringify({ type: 'ping' }))
+      } catch {
+        // Non-fatal — WS-frame ping already sent above.
       }
 
       const staleSec = (Date.now() - lastActivityAt) / 1000
@@ -513,7 +523,7 @@ export function createCoordinationWsClient(
         setP2PHealthCoordinationDisconnected()
         scheduleReconnect()
       }
-    }, 30_000)
+    }, 15_000)
   }
 
   const stopHeartbeat = (): void => {
