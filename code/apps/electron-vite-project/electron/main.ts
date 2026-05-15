@@ -11343,6 +11343,11 @@ async function runDeviceKeyMigration(
             if (r > 0) notifyBeapInboxDashboard(null)
           })
           // B-5.1: drain extension merge retry buffer on health-check trigger.
+          // Canonical drain cadence: every 10s via tryP2PStartup.
+          // Do NOT add additional periodic drains elsewhere — multiple drain cadences
+          // produce redundant work and CPU overhead.
+          // Event-driven drains (P2P_BEAP_RECEIVED, vault unlock) are fine;
+          // periodic drains belong here only.
           void drainExtensionMergeBuffer(handshakeDb, getCurrentSession() ?? null)
         })
       } catch (e: unknown) {
@@ -11508,7 +11513,9 @@ async function runDeviceKeyMigration(
     tryP2PStartup()
     setInterval(tryP2PStartup, 10_000)
 
-    // Refresh P2P health queue counts every 60s + drain extension merge retry buffer (B-5.1)
+    // Refresh P2P health queue counts every 60s.
+    // Buffer drain is NOT done here — the 10s tryP2PStartup tick is the canonical
+    // drain cadence (runs 6× per 60s window, making this call redundant).
     setInterval(() => {
       const db = getHandshakeDb()
       if (!db) return
@@ -11520,8 +11527,6 @@ async function runDeviceKeyMigration(
           else if (r.status === 'failed') failed = r.cnt
         }
         setP2PHealthQueueCounts(pending, failed)
-        // B-5.1: drain extension merge retry buffer on 60-second tick.
-        void drainExtensionMergeBuffer(db, getCurrentSession() ?? null)
       } catch {}
     }, 60_000)
 
