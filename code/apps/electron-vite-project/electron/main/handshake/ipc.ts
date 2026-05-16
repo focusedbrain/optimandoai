@@ -897,31 +897,44 @@ export async function handleHandshakeRPC(
     }
 
     case 'handshake.sendBeapViaP2P': {
-      const { handshakeId, packageJson, sendSource } = params as {
+      const { handshakeId, packageJson, sendSource, _beapMsgId } = params as {
         handshakeId: string
         packageJson: string
         sendSource?: string
+        _beapMsgId?: string
       }
+      const _msgId = _beapMsgId ?? `main-${Date.now().toString(36)}`
+      console.log(`[BEAP_MSG_MAIN] received messageId=${_msgId} handshake=${handshakeId ?? 'none'} payloadBytes=${typeof packageJson === 'string' ? packageJson.length : 0}`)
       if (!handshakeId || !packageJson) {
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=missing_required_params`)
         return { success: false, error: 'handshakeId and packageJson are required' }
       }
       if (sendSource !== USER_PACKAGE_BUILDER_SEND_SOURCE) {
         console.warn('[P2P-SEND] Blocked — sendSource must be user_package_builder, got:', sendSource)
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=invalid_send_source`)
         return {
           success: false,
           error:
             'BEAP P2P send requires explicit user action (Send). Automatic or background sends are disabled.',
         }
       }
-      if (!db) return { success: false, error: 'Database unavailable' }
+      if (!db) {
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=db_unavailable`)
+        return { success: false, error: 'Database unavailable' }
+      }
       const activeCheck = diagnoseHandshakeInactive(db, handshakeId, new Date())
       if (!activeCheck.active) {
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=handshake_inactive`)
         return { success: false, error: activeCheck.reason }
       }
       const record = getHandshakeRecord(db, handshakeId)
-      if (!record) return { success: false, error: 'Handshake not found' }
+      if (!record) {
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=handshake_not_found`)
+        return { success: false, error: 'Handshake not found' }
+      }
       const targetEndpoint = record.p2p_endpoint?.trim()
       if (!targetEndpoint) {
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=no_p2p_endpoint`)
         return { success: false, error: 'Recipient has no P2P endpoint' }
       }
 
@@ -938,6 +951,7 @@ export async function handleHandshakeRPC(
           'Delete and re-establish the handshake.',
           { handshakeId, state: record.state },
         )
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=ERR_HANDSHAKE_LOCAL_KEY_MISSING`)
         return {
           success: false,
           queued: false,
@@ -953,6 +967,7 @@ export async function handleHandshakeRPC(
       try {
         pkg = JSON.parse(packageJson) as object
       } catch (err: any) {
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=invalid_package_json`)
         return { success: false, error: `Invalid package: ${err?.message ?? 'decode failed'}` }
       }
       // Main-process diagnostic: compare DB peer_* / local_* to wire header (sender keys in package).
@@ -1012,6 +1027,7 @@ export async function handleHandshakeRPC(
             'Receiver will derive a wrong ECDH secret. Blocking send.',
             { handshakeId, localKeyPrefix: handshakeLocalKey.substring(0, 24), headerKeyPrefix: headerSenderKey.substring(0, 24) },
           )
+          console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=ERR_HANDSHAKE_LOCAL_KEY_MISMATCH`)
           return {
             success: false,
             // queued: false is required so callers do not append "— queued for retry".
@@ -1028,6 +1044,13 @@ export async function handleHandshakeRPC(
 
       // `pkg` is parsed JSON: BEAP message package (header/metadata/envelope|payload) from the extension,
       // or a capsule envelope — coordination `/beap/capsule` accepts both (see coordination-service).
+      const pkgHeader = (pkg as Record<string, unknown>).header
+      const pkgEncoding = pkgHeader && typeof pkgHeader === 'object'
+        ? (pkgHeader as Record<string, unknown>).encoding as string | undefined
+        : undefined
+      console.log(`[BEAP_MSG_SEND] package_created messageId=${_msgId} encoding=${pkgEncoding ?? 'unknown'} handshake=${handshakeId}`)
+      console.log(`[BEAP_MSG_SEND] target_selected messageId=${_msgId} handshake=${handshakeId} peer=${record.counterparty_email ?? 'unknown'} endpoint=${targetEndpoint} transport=relay_queue`)
+      console.log(`[BEAP_MSG_SEND] send_attempt messageId=${_msgId} handshake=${handshakeId}`)
       console.log(`[P2P-SEND] Enqueuing capsule for handshake ${handshakeId} → ${targetEndpoint}`)
       const enqCap = enqueueOutboundCapsule(db, handshakeId, targetEndpoint, pkg)
       if (!enqCap.enqueued) {
@@ -1037,6 +1060,7 @@ export async function handleHandshakeRPC(
           message: enqCap.message,
           missing_fields: enqCap.missing_fields,
         })
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=enqueue_validation_failed invariant=${enqCap.invariant}`)
         return {
           success: false,
           delivered: false,
@@ -1058,8 +1082,10 @@ export async function handleHandshakeRPC(
           error: d.error,
         }),
       )
+      console.log(`[BEAP_MSG_SEND] send_response messageId=${_msgId} relayAccepted=${d.relayTransportAccepted === true} delivered=${d.delivered ?? false} code=${d.code ?? 'none'} relay=${d.coordinationRelayDelivery ?? 'none'}`)
       // Failure: no HTTP transport success to relay/direct (or terminal HTTP error), or outbound backoff.
       if (d.relayTransportAccepted !== true) {
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=${d.error ?? 'relay_rejected'} code=${d.code ?? 'none'}`)
         return {
           success: false,
           delivered: d.delivered,

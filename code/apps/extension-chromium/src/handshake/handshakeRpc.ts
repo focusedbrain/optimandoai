@@ -738,12 +738,14 @@ export type SendBeapViaP2PResult = {
 
 export async function sendBeapViaP2P(
   handshakeId: string,
-  packageJson: string
+  packageJson: string,
+  options?: { _beapMsgId?: string },
 ): Promise<SendBeapViaP2PResult> {
   return sendHandshakeRpc<SendBeapViaP2PResult>('handshake.sendBeapViaP2P', {
     handshakeId,
     packageJson,
     sendSource: 'user_package_builder',
+    ...(options?._beapMsgId ? { _beapMsgId: options._beapMsgId } : {}),
   })
 }
 

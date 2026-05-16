@@ -458,6 +458,7 @@ export async function ackPendingPlainEmail(id: number): Promise<void> {
 export async function sendBeapViaP2P(
   handshakeId: string,
   packageJson: string,
+  options?: { _beapMsgId?: string },
 ): Promise<{
   success: boolean
   error?: string
@@ -467,7 +468,7 @@ export async function sendBeapViaP2P(
   [key: string]: unknown
 }> {
   const fn = (window.handshakeView as any)?.sendBeapViaP2P
-  if (typeof fn === 'function') return fn(handshakeId, packageJson)
+  if (typeof fn === 'function') return fn(handshakeId, packageJson, options?._beapMsgId)
   throw new Error('sendBeapViaP2P not available (handshakeView bridge missing)')
 }
 

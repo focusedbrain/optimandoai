@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
+﻿import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
 import { loginWithKeycloak, prepareLoginUrl, setUrlOpener } from '../src/auth/login'
 import { saveRefreshToken, clearRefreshToken } from '../src/auth/tokenStore'
 import { ensureSession, updateSessionFromTokens, clearSession, getCachedUserInfo, getAccessToken } from '../src/auth/session'
@@ -3333,6 +3333,7 @@ app.whenReady().then(async () => {
               handshakeId: p.handshakeId,
               packageJson: p.packageJson,
               sendSource: 'user_package_builder',
+              ...(typeof p._beapMsgId === 'string' && p._beapMsgId ? { _beapMsgId: p._beapMsgId } : {}),
             },
             db,
           )

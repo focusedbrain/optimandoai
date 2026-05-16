@@ -819,7 +819,7 @@ contextBridge.exposeInMainWorld('handshakeView', {
     }
     return ipcRenderer.invoke('handshake:importBeapMessage', packageJson)
   },
-  sendBeapViaP2P: (handshakeId: unknown, packageJson: unknown) => {
+  sendBeapViaP2P: (handshakeId: unknown, packageJson: unknown, beapMsgId?: unknown) => {
     const id = assertString(handshakeId, 'handshakeId')
     const P2P_MAX = 100 * 1024 * 1024
     let json: string
@@ -847,10 +847,12 @@ contextBridge.exposeInMainWorld('handshakeView', {
     if (json.length > P2P_MAX) {
       throw new Error(`packageJson: exceeds ${P2P_MAX} bytes (got ${json.length})`)
     }
+    const msgId = typeof beapMsgId === 'string' && beapMsgId.length > 0 ? beapMsgId : undefined
     return ipcRenderer.invoke('handshake:sendBeapViaP2P', {
       handshakeId: id,
       packageJson: json,
       sendSource: 'user_package_builder',
+      ...(msgId ? { _beapMsgId: msgId } : {}),
     })
   },
   checkHandshakeSendReady: (handshakeId: unknown) => {

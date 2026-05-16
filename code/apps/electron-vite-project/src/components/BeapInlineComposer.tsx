@@ -166,8 +166,11 @@ export function BeapInlineComposer({
 
   const [sendSuccess, setSendSuccess] = useState(false);
 
-  /** Live push vs HTTP 202 relay queue (peer offline) — for banner copy and outbox. */
-  const [sendSuccessMode, setSendSuccessMode] = useState<'live' | 'queued_relay' | null>(null);
+  /**
+   * Live push (green, ACK confirmed) vs relay-accepted-pending (amber, no ingest ACK yet) vs
+   * HTTP 202 relay queue (orange, recipient offline) — for banner copy and outbox.
+   */
+  const [sendSuccessMode, setSendSuccessMode] = useState<'live' | 'relay_pending' | 'queued_relay' | null>(null);
 
   const sendSuccessCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -506,6 +509,9 @@ export function BeapInlineComposer({
   }, [fingerprintFull]);
 
   const handleSend = useCallback(async () => {
+    const messageId = crypto.randomUUID();
+    console.log(`[BEAP_MSG_UI] send_clicked messageId=${messageId}`);
+
     setSendError(null);
 
     setSendSuccess(false);
@@ -647,6 +653,8 @@ export function BeapInlineComposer({
       }
 
       const config: BeapPackageConfig = {
+        _beapMsgId: messageId,
+
         recipientMode,
 
         deliveryMethod,
@@ -683,8 +691,11 @@ export function BeapInlineComposer({
       };
 
       console.log('[BeapInlineComposer] send payload:', logPayload);
+      console.log(`[BEAP_MSG_IPC] invoke messageId=${messageId} handshake=${recipientMode === 'private' ? (selectedHandshakeId ?? 'none') : 'public'} delivery=${deliveryMethod}`);
 
       const result = await executeDeliveryAction(config);
+
+      console.log(`[BEAP_MSG_IPC] response messageId=${messageId} success=${result.success} queued=${result.queued ?? false} relayDelivery=${result.coordinationRelayDelivery ?? 'none'} ingestConfirmed=${(result as any).recipientIngestConfirmed ?? false}`);
 
       if (result.success) {
         try {
@@ -730,9 +741,21 @@ export function BeapInlineComposer({
           /* fire-and-forget */
         }
 
-        setSendSuccessMode(
-          result.queued || result.coordinationRelayDelivery === 'queued_recipient_offline' ? 'queued_relay' : 'live',
-        );
+        const ackConfirmed = (result as any).recipientIngestConfirmed === true;
+        const queuedOffline = result.queued === true || result.coordinationRelayDelivery === 'queued_recipient_offline';
+        const relayPending = !ackConfirmed && !queuedOffline && ((result as any).p2pRelayAcceptedPendingIngest === true || deliveryMethod === 'p2p');
+
+        if (ackConfirmed) {
+          console.log(`[BEAP_MSG_SEND] ack_received messageId=${messageId}`);
+          setSendSuccessMode('live');
+        } else if (queuedOffline) {
+          console.log(`[BEAP_MSG_SEND] send_response messageId=${messageId} status=queued_relay`);
+          setSendSuccessMode('queued_relay');
+        } else {
+          // Relay accepted but ingest not yet confirmed — show amber pending, not green success
+          console.log(`[BEAP_MSG_SEND] send_response messageId=${messageId} status=relay_accepted_pending_ingest`);
+          setSendSuccessMode(relayPending ? 'relay_pending' : 'live');
+        }
         setSendSuccess(true);
 
         sendSuccessCloseTimerRef.current = setTimeout(() => {
@@ -744,10 +767,13 @@ export function BeapInlineComposer({
           onSent();
         }, 2000);
       } else {
+        console.log(`[BEAP_MSG_SEND] failed messageId=${messageId} reason=${result.message ?? 'unknown'}`);
         setSendError(result.message || 'Send failed');
       }
     } catch (e) {
-      setSendError(e instanceof Error ? e.message : 'Send failed');
+      const errMsg = e instanceof Error ? e.message : 'Send failed';
+      console.log(`[BEAP_MSG_SEND] failed messageId=${messageId} reason=${errMsg}`);
+      setSendError(errMsg);
     } finally {
       setSending(false);
     }
@@ -1465,9 +1491,19 @@ export function BeapInlineComposer({
           {sendSuccess && (
             <div
               style={{
-                background: sendSuccessMode === 'queued_relay' ? '#ffedd5' : '#dcfce7',
-                color: sendSuccessMode === 'queued_relay' ? '#9a3412' : '#166534',
-                border: `1px solid ${sendSuccessMode === 'queued_relay' ? '#fdba74' : '#86efac'}`,
+                background:
+                  sendSuccessMode === 'queued_relay' ? '#ffedd5'
+                  : sendSuccessMode === 'relay_pending' ? '#fef9c3'
+                  : '#dcfce7',
+                color:
+                  sendSuccessMode === 'queued_relay' ? '#9a3412'
+                  : sendSuccessMode === 'relay_pending' ? '#713f12'
+                  : '#166534',
+                border: `1px solid ${
+                  sendSuccessMode === 'queued_relay' ? '#fdba74'
+                  : sendSuccessMode === 'relay_pending' ? '#fde68a'
+                  : '#86efac'
+                }`,
                 borderRadius: 6,
                 padding: '10px 16px',
                 fontSize: 13,
@@ -1477,10 +1513,16 @@ export function BeapInlineComposer({
                 gap: 8,
               }}
             >
-              {sendSuccessMode === 'queued_relay' ? '⏳' : '✅'}{' '}
+              {sendSuccessMode === 'queued_relay'
+                ? '⏳'
+                : sendSuccessMode === 'relay_pending'
+                ? '📡'
+                : '✅'}{' '}
               {sendSuccessMode === 'queued_relay'
                 ? 'Queued at relay (recipient offline — not live delivery)'
-                : 'BEAP™ message sent successfully'}
+                : sendSuccessMode === 'relay_pending'
+                ? 'Sent to relay — delivery pending (no ACK yet)'
+                : 'BEAP™ message delivered (ACK confirmed)'}
             </div>
           )}
 

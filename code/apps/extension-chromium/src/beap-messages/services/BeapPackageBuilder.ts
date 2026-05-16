@@ -305,6 +305,11 @@ export interface BeapPackageConfig {
   senderFingerprint: string
   senderFingerprintShort: string
   /**
+   * Correlation id generated in the UI at send_clicked time.
+   * Propagated through IPC to the main-process handler for `[BEAP_MSG_*]` log correlation.
+   */
+  _beapMsgId?: string
+  /**
    * Set to true by executeDeliveryAction when checkHandshakeSendReady confirms the handshake
    * has local_x25519_private_key_b64 stored (old-flow / pre-migration handshake).
    * When true, BeapPackageBuilder skips the device-key-vs-handshake-key invariant check and
@@ -2359,7 +2364,11 @@ export async function executeP2PAction(
       }
     }
     const { sendBeapViaP2P } = await import('../../handshake/handshakeRpc')
-    const result = await sendBeapViaP2P(handshakeId, serialized.json)
+    const _msgOpts = config._beapMsgId ? { _beapMsgId: config._beapMsgId } : undefined
+    if (config._beapMsgId) {
+      console.log(`[BEAP_MSG_SEND] send_attempt messageId=${config._beapMsgId} handshake=${handshakeId}`)
+    }
+    const result = await sendBeapViaP2P(handshakeId, serialized.json, _msgOpts)
     const rpc = result as SendBeapViaP2PResult & { outbound_debug?: OutboundRequestDebugSnapshot }
     if (rpc.success === true && rpc.delivered === undefined) {
       console.warn(

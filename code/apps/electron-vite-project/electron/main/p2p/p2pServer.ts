@@ -285,6 +285,13 @@ function createP2PRequestHandler(
 
     // BEAP message package (qBEAP/pBEAP): validate-before-write via sealed pipeline
     if (isBeapMessagePackage(parsed)) {
+      // Derive a correlation id for this specific ingest (correlation header or fallback)
+      const ingestMsgId = beapCorr?.trim() || `recv-${handshakeId.slice(0, 8)}-${Date.now().toString(36)}`
+      const pkgHeader = parsed.header as Record<string, unknown> | undefined
+      const pkgEncoding = pkgHeader && typeof pkgHeader === 'object'
+        ? (pkgHeader.encoding as string | undefined)
+        : undefined
+      console.log(`[BEAP_MSG_RECEIVE] ingest_received messageId=${ingestMsgId} handshake=${handshakeId} encoding=${pkgEncoding ?? 'unknown'} sourceIp=${ip}`)
       ensureHandshakeMigration(db)
       const ssoSessionForBeap = getSsoSession()
       processBeapPackageInline(db, body, handshakeId, {
@@ -293,14 +300,21 @@ function createP2PRequestHandler(
         receivedAt: new Date().toISOString(),
       }).then((r) => {
         if (r.outcome === 'inbox') {
+          console.log(`[BEAP_MSG_RECEIVE] decrypt_success messageId=${ingestMsgId} handshake=${handshakeId}`)
+          console.log(`[BEAP_MSG_RECEIVE] delivery_success messageId=${ingestMsgId} handshake=${handshakeId}`)
+          console.log(`[BEAP_MSG_RECEIVE] ack_sent messageId=${ingestMsgId} handshake=${handshakeId} outcome=inbox`)
+          console.log(`[BEAP_DELIVERY] persist_success messageId=${ingestMsgId} handshake=${handshakeId} outcome=inbox rowId=${r.rowId ?? 'unknown'}`)
           console.log('[P2P-RECV] BEAP message sealed into inbox (local P2P HTTP)', handshakeId)
           notifyBeapRecipientPending(handshakeId)
         } else if (r.outcome === 'quarantine') {
+          console.log(`[BEAP_MSG_RECEIVE] failed messageId=${ingestMsgId} handshake=${handshakeId} reason=quarantined`)
           console.log('[P2P-RECV] BEAP message quarantined (local P2P HTTP)', handshakeId)
         } else {
+          console.log(`[BEAP_MSG_RECEIVE] failed messageId=${ingestMsgId} handshake=${handshakeId} reason=${r.error ?? 'processing_failed'}`)
           console.warn('[P2P-RECV] BEAP inline processing failed (local P2P HTTP)', handshakeId, r.error)
         }
       }).catch((err: any) => {
+        console.log(`[BEAP_MSG_RECEIVE] failed messageId=${ingestMsgId} handshake=${handshakeId} reason=exception`)
         console.error('[P2P-RECV] processBeapPackageInline error:', err?.message ?? err)
       })
       res.writeHead(200, { 'Content-Type': 'application/json' })

@@ -834,6 +834,8 @@ async function processBeapPackageInlineInternal(
   const sourceType = options.sourceType ?? 'p2p'
   const rowId = randomUUID()
 
+  console.log(`[BEAP_DELIVERY] native_message_received messageId=${rowId} handshake=${handshakeId} sourceType=${sourceType}`)
+
   // ── Parse outer package ──────────────────────────────────────────────────
   let pkg: Record<string, unknown>
   let pkgEncoding: string | undefined
@@ -886,7 +888,9 @@ async function processBeapPackageInlineInternal(
       throw new Error(`P2P inline: validator rejected outbound qBEAP echo: ${resp.outcome.sealed_quarantine.rejection_reason}`)
     }
     const sealed = resp.outcome.sealed
-    return writeP2PInboxRow(db, {
+    console.log(`[BEAP_DELIVERY] direct_message_classified messageId=${rowId} classification=outbound_echo`)
+    console.log(`[BEAP_DELIVERY] persist_attempt messageId=${rowId} handshake=${handshakeId}`)
+    const echoResult = writeP2PInboxRow(db, {
       rowId, handshakeId, sourceType: 'direct_beap',
       depackagedJson: sealed.canonical_json,
       depackagedMetadata: dpMeta,
@@ -896,6 +900,10 @@ async function processBeapPackageInlineInternal(
       validatedAt: sealed.validated_at, validatorVersion: sealed.validator_version,
       validationReason: null,
     })
+    if (echoResult.outcome === 'inbox') {
+      console.log(`[BEAP_DELIVERY] persist_success messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
+    }
+    return echoResult
   }
 
   // ── Inline depackage ───────────────────────────────────────────────────────
@@ -960,7 +968,9 @@ async function processBeapPackageInlineInternal(
     })
     if (resp.outcome.ok) {
       const sealed = resp.outcome.sealed
-      return writeP2PInboxRow(db, {
+      console.log(`[BEAP_DELIVERY] direct_message_classified messageId=${rowId} encoding=${pkgEncoding ?? 'handshake'} handshake=${handshakeId}`)
+      console.log(`[BEAP_DELIVERY] persist_attempt messageId=${rowId} handshake=${handshakeId}`)
+      const inlineResult = writeP2PInboxRow(db, {
         rowId, handshakeId, sourceType: 'direct_beap',
         depackagedJson: sealed.canonical_json,
         depackagedMetadata: depackagedMetadata ?? '',
@@ -970,6 +980,10 @@ async function processBeapPackageInlineInternal(
         validatedAt: sealed.validated_at, validatorVersion: sealed.validator_version,
         validationReason: null,
       })
+      if (inlineResult.outcome === 'inbox') {
+        console.log(`[BEAP_DELIVERY] persist_success messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
+      }
+      return inlineResult
     }
     depackageError = `validator rejected: ${resp.outcome.sealed_quarantine.rejection_reason}`
   }

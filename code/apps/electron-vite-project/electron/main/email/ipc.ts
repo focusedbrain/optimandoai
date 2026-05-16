@@ -4396,6 +4396,13 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
             return { started: false }
           }
 
+          // Defense-in-depth: direct P2P BEAP messages must not be auto-analyzed via inbox triage.
+          // The renderer guard handles the auto path; this guard protects bulk sort and any other callers.
+          if (row.source_type === 'direct_beap') {
+            console.log(`[BEAP_INBOX_TRIAGE] skipped_primary_delivery messageId=${messageId} reason=direct_beap_message`)
+            return { started: false }
+          }
+
           const settings = resolveInboxLlmSettings()
           if (settings.provider.toLowerCase() === 'ollama') {
             const { resolveAiExecutionContextForLlm } = await import('../llm/resolveAiExecutionContext')
