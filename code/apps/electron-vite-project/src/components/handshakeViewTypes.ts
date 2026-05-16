@@ -612,6 +612,8 @@ export interface EmailInboxBridge {
   onNewMessages: (handler: (data: unknown) => void) => () => void
   /** After P2P BEAP pending rows are imported into `inbox_messages`. */
   onBeapInboxUpdated?: (handler: (data: { handshakeId: string | null }) => void) => () => void
+  /** Receiver persisted a direct_beap row — ACK for sender delivery confirmation. */
+  onBeapDeliveryAck?: (handler: (data: { handshakeId: string; rowId: string }) => void) => () => void
   /** Each background drain batch: `{ processed, pending, failed, deferred }` (deferred = pull-lock). */
   onDrainProgress?: (handler: (data: unknown) => void) => () => void
   /** Simple drain: `{ status: 'moved'|'skipped', op, msgId }` per completed row. */

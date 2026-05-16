@@ -1321,6 +1321,17 @@ contextBridge.exposeInMainWorld('emailInbox', {
       ipcRenderer.removeListener('inbox:beapInboxUpdated', fn)
     }
   },
+  /**
+   * Receiver persisted a direct_beap inbox row — main broadcasts this to all windows so the
+   * sender UI can confirm delivery and switch from amber relay_pending to green delivered.
+   */
+  onBeapDeliveryAck: (handler: (data: { handshakeId: string; rowId: string }) => void) => {
+    const fn = (_e: Electron.IpcRendererEvent, data: { handshakeId: string; rowId: string }) => handler(data)
+    ipcRenderer.on('inbox:beapDeliveryAck', fn)
+    return () => {
+      ipcRenderer.removeListener('inbox:beapDeliveryAck', fn)
+    }
+  },
   /** Remote orchestrator drain batch progress (main → renderer debug activity log). */
   onDrainProgress: (handler: (data: unknown) => void) => {
     const fn = (_e: Electron.IpcRendererEvent, data: unknown) => handler(data)

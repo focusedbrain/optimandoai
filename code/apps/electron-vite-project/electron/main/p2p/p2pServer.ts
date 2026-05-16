@@ -30,6 +30,7 @@ import {
   type P2PConfig,
 } from './p2pConfig'
 import { notifyBeapRecipientPending } from './beapRecipientNotify'
+import { notifyBeapDeliveryAck } from './beapDeliveryAck'
 import {
   checkIpLimit,
   checkHandshakeLimit,
@@ -300,12 +301,16 @@ function createP2PRequestHandler(
         receivedAt: new Date().toISOString(),
       }).then((r) => {
         if (r.outcome === 'inbox') {
+          const rowId = r.rowId ?? 'unknown'
           console.log(`[BEAP_MSG_RECEIVE] decrypt_success messageId=${ingestMsgId} handshake=${handshakeId}`)
           console.log(`[BEAP_MSG_RECEIVE] delivery_success messageId=${ingestMsgId} handshake=${handshakeId}`)
-          console.log(`[BEAP_MSG_RECEIVE] ack_sent messageId=${ingestMsgId} handshake=${handshakeId} outcome=inbox`)
-          console.log(`[BEAP_DELIVERY] persist_success messageId=${ingestMsgId} handshake=${handshakeId} outcome=inbox rowId=${r.rowId ?? 'unknown'}`)
-          console.log('[P2P-RECV] BEAP message sealed into inbox (local P2P HTTP)', handshakeId)
+          console.log(`[BEAP_DELIVERY] persist_success messageId=${ingestMsgId} handshake=${handshakeId} outcome=inbox rowId=${rowId}`)
+          console.log(`[BEAP_DELIVERY] ui_notify_sent messageId=${ingestMsgId} handshake=${handshakeId} rowId=${rowId}`)
+          console.log(`[BEAP_DELIVERY] ack_sent messageId=${ingestMsgId} handshake=${handshakeId} rowId=${rowId}`)
+          console.log(`[BEAP_MSG_RECEIVE] ack_sent messageId=${ingestMsgId} handshake=${handshakeId} rowId=${rowId}`)
+          notifyBeapDeliveryAck(handshakeId, rowId)
           notifyBeapRecipientPending(handshakeId)
+          console.log('[P2P-RECV] BEAP message sealed into inbox (local P2P HTTP)', handshakeId)
         } else if (r.outcome === 'quarantine') {
           console.log(`[BEAP_MSG_RECEIVE] failed messageId=${ingestMsgId} handshake=${handshakeId} reason=quarantined`)
           console.log('[P2P-RECV] BEAP message quarantined (local P2P HTTP)', handshakeId)

@@ -167,12 +167,20 @@ export function BeapInlineComposer({
   const [sendSuccess, setSendSuccess] = useState(false);
 
   /**
-   * Live push (green, ACK confirmed) vs relay-accepted-pending (amber, no ingest ACK yet) vs
-   * HTTP 202 relay queue (orange, recipient offline) — for banner copy and outbox.
+   * live  = green, ACK confirmed (receiver persisted)
+   * relay_pending = amber, transport accepted, waiting for receiver ACK
+   * queued_relay  = orange, recipient offline / queued at relay
    */
   const [sendSuccessMode, setSendSuccessMode] = useState<'live' | 'relay_pending' | 'queued_relay' | null>(null);
 
   const sendSuccessCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** handshakeId used for the current in-flight send — used to correlate ACK event. */
+  const pendingAckHandshakeRef = useRef<string | null>(null);
+  /** messageId (correlation ID) for the current in-flight send. */
+  const pendingAckMessageIdRef = useRef<string | null>(null);
+  /** Timeout handle for delivery-unconfirmed state (30 s after transport_accepted). */
+  const ackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const connect = useDraftRefineStore((s) => s.connect);
 
@@ -193,6 +201,39 @@ export function BeapInlineComposer({
 
     return handshakeRecordToSelectedRecipient(raw);
   }, [handshakeRows, recipientMode, selectedHandshakeId]);
+
+  // Subscribe to receiver delivery ACK when we are in relay_pending mode.
+  // Matches by handshakeId (same-machine only; cross-machine will timeout).
+  useEffect(() => {
+    if (sendSuccessMode !== 'relay_pending' || !sendSuccess) return
+    if (!window.emailInbox?.onBeapDeliveryAck) return
+
+    const handshakeAtSend = pendingAckHandshakeRef.current
+    const messageIdAtSend = pendingAckMessageIdRef.current
+
+    const unsub = window.emailInbox.onBeapDeliveryAck((data) => {
+      if (handshakeAtSend && data.handshakeId !== handshakeAtSend) return
+      console.log(`[BEAP_MSG_SEND] ack_received messageId=${messageIdAtSend ?? 'unknown'} handshake=${data.handshakeId} rowId=${data.rowId}`)
+      // Clear pending timeout
+      if (ackTimeoutRef.current) {
+        clearTimeout(ackTimeoutRef.current)
+        ackTimeoutRef.current = null
+      }
+      setSendSuccessMode('live')
+      // Start 2 s close timer now that we have green confirmation
+      if (sendSuccessCloseTimerRef.current) clearTimeout(sendSuccessCloseTimerRef.current)
+      sendSuccessCloseTimerRef.current = setTimeout(() => {
+        sendSuccessCloseTimerRef.current = null
+        setSendSuccess(false)
+        setSendSuccessMode(null)
+        pendingAckHandshakeRef.current = null
+        pendingAckMessageIdRef.current = null
+        onSent()
+      }, 2000)
+    })
+
+    return unsub
+  }, [sendSuccessMode, sendSuccess, onSent])
 
   useEffect(() => {
     const loadFp = async () => {
@@ -743,29 +784,60 @@ export function BeapInlineComposer({
 
         const ackConfirmed = (result as any).recipientIngestConfirmed === true;
         const queuedOffline = result.queued === true || result.coordinationRelayDelivery === 'queued_recipient_offline';
-        const relayPending = !ackConfirmed && !queuedOffline && ((result as any).p2pRelayAcceptedPendingIngest === true || deliveryMethod === 'p2p');
+
+        // Clear any previous ACK timeout from a prior send.
+        if (ackTimeoutRef.current) {
+          clearTimeout(ackTimeoutRef.current)
+          ackTimeoutRef.current = null
+        }
 
         if (ackConfirmed) {
+          // Receiver confirmed ingest in-band (same process / inline delivery).
           console.log(`[BEAP_MSG_SEND] ack_received messageId=${messageId}`);
           setSendSuccessMode('live');
+          setSendSuccess(true);
+          sendSuccessCloseTimerRef.current = setTimeout(() => {
+            sendSuccessCloseTimerRef.current = null;
+            setSendSuccess(false);
+            setSendSuccessMode(null);
+            pendingAckHandshakeRef.current = null;
+            pendingAckMessageIdRef.current = null;
+            onSent();
+          }, 2000);
         } else if (queuedOffline) {
+          // Recipient offline — queued at relay; no live ACK possible.
           console.log(`[BEAP_MSG_SEND] send_response messageId=${messageId} status=queued_relay`);
           setSendSuccessMode('queued_relay');
+          setSendSuccess(true);
+          sendSuccessCloseTimerRef.current = setTimeout(() => {
+            sendSuccessCloseTimerRef.current = null;
+            setSendSuccess(false);
+            setSendSuccessMode(null);
+            pendingAckHandshakeRef.current = null;
+            pendingAckMessageIdRef.current = null;
+            onSent();
+          }, 2000);
         } else {
-          // Relay accepted but ingest not yet confirmed — show amber pending, not green success
-          console.log(`[BEAP_MSG_SEND] send_response messageId=${messageId} status=relay_accepted_pending_ingest`);
-          setSendSuccessMode(relayPending ? 'relay_pending' : 'live');
+          // Transport accepted — relay delivered to peer ingest endpoint.
+          // Green only appears after receiver ACK (via inbox:beapDeliveryAck IPC event).
+          // Show amber pending and wait up to 30 s for the ACK.
+          const deliveredLive = !!(result as any).deliveredLive || !!(result as any).delivered_peer_live;
+          console.log(`[BEAP_MSG_SEND] transport_accepted messageId=${messageId} relayAccepted=true deliveredLive=${deliveredLive}`);
+          console.log(`[BEAP_MSG_SEND] ack_wait_start messageId=${messageId} handshake=${recipientMode === 'private' ? (selectedHandshakeId ?? 'none') : 'public'}`);
+          pendingAckHandshakeRef.current = recipientMode === 'private' ? (selectedHandshakeId ?? null) : null;
+          pendingAckMessageIdRef.current = messageId;
+          setSendSuccessMode('relay_pending');
+          setSendSuccess(true);
+          // 30 s timeout: if no ACK arrives, log delivery_unconfirmed and keep amber banner.
+          ackTimeoutRef.current = setTimeout(() => {
+            ackTimeoutRef.current = null;
+            // Only log if still in relay_pending (not already resolved by ACK).
+            console.log(`[BEAP_MSG_SEND] delivery_unconfirmed messageId=${messageId} reason=timeout`);
+            pendingAckHandshakeRef.current = null;
+            pendingAckMessageIdRef.current = null;
+            // Keep amber banner visible; user can dismiss manually.
+          }, 30_000);
         }
-        setSendSuccess(true);
-
-        sendSuccessCloseTimerRef.current = setTimeout(() => {
-          sendSuccessCloseTimerRef.current = null;
-
-          setSendSuccess(false);
-          setSendSuccessMode(null);
-
-          onSent();
-        }, 2000);
       } else {
         console.log(`[BEAP_MSG_SEND] failed messageId=${messageId} reason=${result.message ?? 'unknown'}`);
         setSendError(result.message || 'Send failed');
@@ -1521,8 +1593,8 @@ export function BeapInlineComposer({
               {sendSuccessMode === 'queued_relay'
                 ? 'Queued at relay (recipient offline — not live delivery)'
                 : sendSuccessMode === 'relay_pending'
-                ? 'Sent to relay — delivery pending (no ACK yet)'
-                : 'BEAP™ message delivered (ACK confirmed)'}
+                ? 'Transport accepted — awaiting delivery confirmation…'
+                : 'BEAP™ message delivered (receiver confirmed)'}
             </div>
           )}
 

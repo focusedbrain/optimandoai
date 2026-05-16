@@ -919,6 +919,7 @@ import { processPendingP2PBeapEmails, retryPendingQbeapDecrypt } from './main/em
 import { drainExtensionMergeBuffer } from './main/email/mergeExtensionDepackaged'
 import { getAuditForMessage, getAutoresponderAuditLog } from './main/beap/autoresponderAudit'
 import { setBeapInboxDashboardNotifier, notifyBeapInboxDashboard } from './main/email/beapInboxDashboardNotify'
+import { setBeapDeliveryAckNotifier } from './main/p2p/beapDeliveryAck'
 import { getP2PConfig, upsertP2PConfig, computeLocalP2PEndpoint } from './main/p2p/p2pConfig'
 import { getP2PHealth, setP2PHealthQueueCounts, setP2PHealthSelfTest, setP2PHealthRelayMode } from './main/p2p/p2pHealth'
 import { getQueueStatus, getQueueEntries } from './main/handshake/outboundQueue'
@@ -2716,6 +2717,14 @@ app.whenReady().then(async () => {
           console.log('[BEAP-INBOX] Notifying dashboard of new BEAP messages')
           for (const w of BrowserWindow.getAllWindows()) {
             w.webContents.send('inbox:beapInboxUpdated', { handshakeId })
+          }
+        })
+        setBeapDeliveryAckNotifier((handshakeId, rowId) => {
+          console.log(`[BEAP_DELIVERY] ack_broadcast handshake=${handshakeId} rowId=${rowId}`)
+          for (const w of BrowserWindow.getAllWindows()) {
+            if (!w.isDestroyed()) {
+              w.webContents.send('inbox:beapDeliveryAck', { handshakeId, rowId })
+            }
           }
         })
         console.log('[MAIN] Inbox IPC handlers registered (includes inbox:dashboardSnapshot)')

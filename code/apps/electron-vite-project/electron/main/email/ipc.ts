@@ -4324,6 +4324,22 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
     }
     const analyzeDedupeKey = buildInboxAiTaskKey('analysis-stream', messageId, tkModel, tkLane)
     const supersede = !!opts?.supersede
+
+    // Guard: direct_beap messages must never enter the AI task queue.
+    // Check source_type before replay / dedup so AI_TASK_START is never emitted.
+    {
+      const dbGuard = await resolveDbWithDiag('inbox:aiAnalyzeMessageStream:guard')
+      if (dbGuard) {
+        const guardRow = dbGuard
+          .prepare('SELECT source_type FROM inbox_messages WHERE id = ?')
+          .get(messageId) as { source_type?: string | null } | undefined
+        if (guardRow?.source_type === 'direct_beap') {
+          console.log(`[BEAP_INBOX_TRIAGE] skipped_primary_delivery messageId=${messageId} reason=direct_beap_message`)
+          return { started: false }
+        }
+      }
+    }
+
     if (!supersede && !event.sender.isDestroyed()) {
       const replayState = replayAnalysisStreamState(analyzeDedupeKey, (channel, payload) => {
         if (!event.sender.isDestroyed()) event.sender.send(channel, payload)
