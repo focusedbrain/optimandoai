@@ -17,7 +17,7 @@ COPY packages/coordination-service/ packages/coordination-service/
 
 # Install and build inside container — native modules compile for container Node ABI
 RUN corepack enable pnpm \
-  && pnpm install --frozen-lockfile \
+  && pnpm install --no-frozen-lockfile \
   && pnpm --filter @repo/ingestion-core build \
   && pnpm --filter @repo/coordination-service build
 
