@@ -53,7 +53,21 @@ const moduleDir = dirname(fileURLToPath(import.meta.url))
 // The compiled subprocess entry point path.  Tests override this via
 // setValidatorWorkerPath() before starting the orchestrator.
 // build-validator-subprocess Vite plugin emits this file alongside the main bundle.
-let workerPath = join(moduleDir, 'validator-process', 'index.js')
+//
+// In the packaged Electron app the orchestrator module lives inside app.asar, so
+// moduleDir resolves to a path like:
+//   .../resources/app.asar/dist-electron/
+// Electron does NOT patch child_process.fork/spawn for asar virtual paths — the OS
+// kernel cannot open files inside the archive.  electron-builder extracts the
+// validator-process directory to app.asar.unpacked via the asarUnpack config entry.
+// We rewrite the path here so fork() always receives a real filesystem path.
+let workerPath = (() => {
+  const raw = join(moduleDir, 'validator-process', 'index.js')
+  if (raw.includes('app.asar') && !raw.includes('app.asar.unpacked')) {
+    return raw.replace(/app\.asar([/\\])/g, 'app.asar.unpacked$1')
+  }
+  return raw
+})()
 
 /** Override the subprocess entry path (used by tests with tsx). */
 export function setValidatorWorkerPath(path: string): void {
@@ -127,6 +141,8 @@ export class ValidatorOrchestrator {
    * memory.  The main process holds the key only during this window.
    */
   async start(vault: VaultService, execArgv?: string[]): Promise<void> {
+    console.log('[VALIDATOR_ORCHESTRATOR] start() called, workerPath:', workerPath)
+
     if (this.subprocess && !this.subprocess.killed) {
       throw new Error('[VALIDATOR_ORCHESTRATOR] Subprocess already running')
     }
@@ -199,6 +215,7 @@ export class ValidatorOrchestrator {
     })
 
     this.liveness = 'running'
+    console.log('[VALIDATOR_ORCHESTRATOR] start() success, liveness=running')
     this._startHealthcheck()
 
     // Bind the key provider to the storage gate.  Called after the subprocess

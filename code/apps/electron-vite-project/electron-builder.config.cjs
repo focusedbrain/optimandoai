@@ -85,6 +85,10 @@ module.exports = {
     'node_modules/whatwg-url/**',
     'node_modules/tr46/**',
     'node_modules/webidl-conversions/**',
+    // Validator subprocess: child_process.fork() cannot open files inside app.asar.
+    // Electron does not patch fork/spawn for asar virtual paths — the OS would get ENOENT.
+    // Unpacking here ensures the file lands on the real filesystem at package time.
+    'dist-electron/validator-process/**',
   ],
   extraResources,
   win: {
