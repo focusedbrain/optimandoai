@@ -848,6 +848,8 @@ contextBridge.exposeInMainWorld('handshakeView', {
       throw new Error(`packageJson: exceeds ${P2P_MAX} bytes (got ${json.length})`)
     }
     const msgId = typeof beapMsgId === 'string' && beapMsgId.length > 0 ? beapMsgId : undefined
+    const msgLog = msgId ?? 'none'
+    console.log(`[BEAP_MSG_IPC] invoke channel=handshake:sendBeapViaP2P messageId=${msgLog}`)
     return ipcRenderer.invoke('handshake:sendBeapViaP2P', {
       handshakeId: id,
       packageJson: json,
@@ -1496,7 +1498,12 @@ contextBridge.exposeInMainWorld('beapInbox', {
     cloneReason?: 'sandbox_test' | 'external_link_or_artifact_review'
     triggeredUrl?: string
     _cloneId?: string
-  }) => ipcRenderer.invoke('inbox:cloneBeapToSandbox', payload),
+  }) => {
+    const cloneId =
+      typeof payload._cloneId === 'string' && payload._cloneId.trim().length > 0 ? payload._cloneId.trim() : 'none'
+    console.log(`[CLONE_IPC] invoke channel=inbox:cloneBeapToSandbox cloneId=${cloneId}`)
+    return ipcRenderer.invoke('inbox:cloneBeapToSandbox', payload)
+  },
 })
 
 contextBridge.exposeInMainWorld('autosortSession', {

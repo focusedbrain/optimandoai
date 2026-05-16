@@ -904,7 +904,9 @@ export async function handleHandshakeRPC(
         _beapMsgId?: string
       }
       const _msgId = _beapMsgId ?? `main-${Date.now().toString(36)}`
-      console.log(`[BEAP_MSG_MAIN] received messageId=${_msgId} handshake=${handshakeId ?? 'none'} payloadBytes=${typeof packageJson === 'string' ? packageJson.length : 0}`)
+      console.log(
+        `[BEAP_MSG_MAIN] received channel=handshake:sendBeapViaP2P messageId=${_msgId} handshake=${handshakeId ?? 'none'} payloadBytes=${typeof packageJson === 'string' ? packageJson.length : 0}`,
+      )
       if (!handshakeId || !packageJson) {
         console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=missing_required_params`)
         return { success: false, error: 'handshakeId and packageJson are required' }

@@ -1,5 +1,10 @@
 /// <reference types="vite/client" />
 
+/** Build-time stamps from `vite.config.ts` define (renderer + preload). */
+declare const __WR_RUNTIME_GIT_COMMIT__: string
+declare const __WR_RUNTIME_GIT_BRANCH__: string
+declare const __ORCHESTRATOR_BUILD_STAMP__: string
+
 declare module 'ws'
 
 interface CapturePresetPayload {

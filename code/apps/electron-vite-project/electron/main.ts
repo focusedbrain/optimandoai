@@ -691,6 +691,58 @@ function validateLaunchSecret(incoming: string): boolean {
 
 /** Injected by Vite `define` when the main bundle is built â€” proves which compile is running. */
 declare const __ORCHESTRATOR_BUILD_STAMP__: string | undefined
+declare const __WR_RUNTIME_GIT_COMMIT__: string | undefined
+declare const __WR_RUNTIME_GIT_BRANCH__: string | undefined
+
+function runtimeIdentityCommit(): string {
+  return typeof __WR_RUNTIME_GIT_COMMIT__ !== 'undefined' && String(__WR_RUNTIME_GIT_COMMIT__).trim()
+    ? String(__WR_RUNTIME_GIT_COMMIT__).trim()
+    : 'dev'
+}
+
+function runtimeIdentityBranch(): string {
+  return typeof __WR_RUNTIME_GIT_BRANCH__ !== 'undefined' && String(__WR_RUNTIME_GIT_BRANCH__).trim()
+    ? String(__WR_RUNTIME_GIT_BRANCH__).trim()
+    : 'dev'
+}
+
+/** Single-line startup / reload marker; also written via main `console.*` file hook when enabled. */
+function logRuntimeIdentityLine(loadedRendererUrl: string): void {
+  const pid = process.pid
+  const branch = runtimeIdentityBranch()
+  const commit = runtimeIdentityCommit()
+  const stamp = orchestratorBuildMeta().orchestratorBuildStamp
+  let appPath = ''
+  let userDataPath = ''
+  try {
+    appPath = app.getAppPath()
+    userDataPath = app.getPath('userData')
+  } catch {
+    appPath = '(app-path-unavailable)'
+    userDataPath = '(user-data-unavailable)'
+  }
+  const electronAppPath = process.execPath
+  console.log(
+    `[pid=${pid}] [RUNTIME_IDENTITY] branch=${branch} commit=${commit} buildStamp=${stamp} appPath=${appPath} userDataPath=${userDataPath} processType=main electronAppPath=${electronAppPath} loadedRendererUrl=${loadedRendererUrl}`,
+  )
+}
+
+function logLogIdentityLine(): void {
+  const pid = process.pid
+  let appPath = ''
+  let userDataPath = ''
+  try {
+    appPath = app.getAppPath()
+    userDataPath = app.getPath('userData')
+  } catch {
+    appPath = '(app-path-unavailable)'
+    userDataPath = '(user-data-unavailable)'
+  }
+  const p = typeof logPath === 'string' ? logPath : ''
+  console.log(
+    `[pid=${pid}] [LOG_IDENTITY] path=${p || '(electron-console-not-initialized)'} pid=${pid} cwd=${process.cwd()} appPath=${appPath} userDataPath=${userDataPath}`,
+  )
+}
 
 function orchestratorBuildMeta(): { orchestratorBuildStamp: string; orchestratorAppPath: string } {
   const orchestratorBuildStamp =
@@ -1288,6 +1340,12 @@ async function createWindow() {
 
   // Test active push message to Renderer-process.
   win.webContents.on('did-finish-load', () => {
+    try {
+      const url = win?.webContents.getURL() ?? '(no-url)'
+      logRuntimeIdentityLine(url)
+    } catch {
+      logRuntimeIdentityLine('(could-not-read-renderer-url)')
+    }
     win?.webContents.send('main-process-message', (new Date).toLocaleString())
   })
 
@@ -2764,6 +2822,9 @@ app.whenReady().then(async () => {
     // Setup console logging to file for debugging
     await setupFileLogging()
 
+    logRuntimeIdentityLine('(pending-dashboard-load)')
+    logLogIdentityLine()
+
     try {
       const { bootstrapOcrRouterFromOrchestratorKeys } = await import('./main/ocr/cloudConfigFromOptimandoKeys')
       await bootstrapOcrRouterFromOrchestratorKeys()
@@ -3235,7 +3296,14 @@ app.whenReady().then(async () => {
 
     ipcMain.handle(
       'handshake:sendBeapViaP2P',
-      async (_e, payload: { handshakeId: string; packageJson: string; sendSource?: string }) => {
+      async (_e, payload: { handshakeId: string; packageJson: string; sendSource?: string; _beapMsgId?: string }) => {
+      const ipcMsg =
+        typeof payload?._beapMsgId === 'string' && payload._beapMsgId.trim().length > 0
+          ? payload._beapMsgId.trim()
+          : 'none'
+      console.log(
+        `[pid=${process.pid}] [BEAP_MSG_MAIN] ipc_entry channel=handshake:sendBeapViaP2P messageId=${ipcMsg}`,
+      )
       try {
         const db = await getLedgerDbOrOpen()
         if (!db) return { success: false, error: 'Database unavailable' }

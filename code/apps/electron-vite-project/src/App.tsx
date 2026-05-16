@@ -117,6 +117,20 @@ function App() {
     ensureWrdeskChromeShim()
   }, [])
 
+  /** Runtime parity with main `[RUNTIME_IDENTITY]` compile-time stamp (verify wrong-build vs DevTools/console). */
+  useEffect(() => {
+    try {
+      const commit = typeof __WR_RUNTIME_GIT_COMMIT__ !== 'undefined' ? __WR_RUNTIME_GIT_COMMIT__ : '(no-define)'
+      const buildStamp =
+        typeof __ORCHESTRATOR_BUILD_STAMP__ !== 'undefined' ? __ORCHESTRATOR_BUILD_STAMP__ : '(no-define)'
+      console.log(
+        `[RENDERER_IDENTITY] commit=${commit} buildStamp=${buildStamp} location=${window.location.href} component=App`,
+      )
+    } catch {
+      console.log('[RENDERER_IDENTITY] commit=(error) buildStamp=(error) component=App')
+    }
+  }, [])
+
   useEffect(() => {
     const onProjectAssistantCreate = () => {
       setActiveView('analysis')

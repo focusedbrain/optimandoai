@@ -451,7 +451,9 @@ export async function beapInboxCloneToSandboxApi(params: {
 }): Promise<BeapInboxCloneToSandboxResult | BeapInboxClonePrepareFailure> {
   const cloneId = crypto.randomUUID()
   // eslint-disable-next-line no-console
-  console.log(`[CLONE_UI] clicked cloneId=${cloneId} sourceMessageId=${params.sourceMessageId} targetHandshake=${params.targetHandshakeId ?? 'auto'}`)
+  console.log(`[CLONE_UI] clicked cloneId=${cloneId} sourceMessageId=${params.sourceMessageId}`)
+  // eslint-disable-next-line no-console
+  console.log(`[CLONE_RENDERER] handler_started cloneId=${cloneId} sourceMessageId=${params.sourceMessageId}`)
 
   const fn = window.beapInbox?.cloneBeapToSandbox ?? window.beapInbox?.cloneToSandboxPrepare
   if (typeof fn !== 'function') {
@@ -461,7 +463,7 @@ export async function beapInboxCloneToSandboxApi(params: {
   }
 
   // eslint-disable-next-line no-console
-  console.log(`[CLONE_IPC] invoke cloneId=${cloneId} channel=inbox:cloneBeapToSandbox`)
+  console.log(`[CLONE_IPC] invoke channel=inbox:cloneBeapToSandbox cloneId=${cloneId}`)
   const r = await fn({
     sourceMessageId: params.sourceMessageId,
     ...(params.targetHandshakeId ? { targetHandshakeId: params.targetHandshakeId } : {}),

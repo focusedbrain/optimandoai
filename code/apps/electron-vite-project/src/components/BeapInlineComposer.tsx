@@ -554,7 +554,8 @@ export function BeapInlineComposer({
 
   const handleSend = useCallback(async () => {
     const messageId = crypto.randomUUID();
-    console.log(`[BEAP_MSG_UI] send_clicked messageId=${messageId}`);
+    console.log(`[BEAP_MSG_UI] click messageId=${messageId}`);
+    console.log(`[BEAP_MSG_RENDERER] handleSend_start messageId=${messageId}`);
 
     setSendError(null);
 
@@ -735,11 +736,13 @@ export function BeapInlineComposer({
       };
 
       console.log('[BeapInlineComposer] send payload:', logPayload);
-      console.log(`[BEAP_MSG_IPC] invoke messageId=${messageId} handshake=${recipientMode === 'private' ? (selectedHandshakeId ?? 'none') : 'public'} delivery=${deliveryMethod}`);
+      console.log(`[BEAP_MSG_RENDERER] before_executeDeliveryAction messageId=${messageId}`);
 
       const result = await executeDeliveryAction(config);
 
-      console.log(`[BEAP_MSG_IPC] response messageId=${messageId} success=${result.success} queued=${result.queued ?? false} relayDelivery=${result.coordinationRelayDelivery ?? 'none'} ingestConfirmed=${(result as any).recipientIngestConfirmed ?? false}`);
+      console.log(
+        `[BEAP_MSG_RENDERER] after_executeDeliveryAction messageId=${messageId} result=${result.success}`,
+      );
 
       if (result.success) {
         try {
