@@ -79,16 +79,22 @@ export type BeapInboxCloneErrorCode =
   | 'TARGET_HANDSHAKE_REQUIRED'
   | 'SANDBOX_TARGET_NOT_CONNECTED'
   | 'PREPARE_FAILED'
-  /** Outer vault not ready or validator seal gate not bound — sealed inbox reads require outer vault + bound key provider. */
+  /** Outer vault session not active — vault exists but was not unlocked (or auto-locked). */
   | 'outer_vault_or_key_provider_unavailable'
+  /** No vault found for the current SSO account — vault not created or all vaults are legacy-unclaimed. */
+  | 'outer_vault_unavailable'
 
-/** User-facing copy when sealed-storage gate blocks clone prepare (avoid leaking gate internals). */
+/** User-facing copy when the vault session is not active (vault exists but locked). */
 export const CLONE_PREPARE_SEAL_GATE_USER_MESSAGE =
-  'Vault must be unlocked before cloning this message.'
+  'Your vault must be unlocked before cloning this message. Enter your master password and try again.'
+
+/** User-facing copy when no vault exists for the current account. */
+export const CLONE_PREPARE_VAULT_UNAVAILABLE_MESSAGE =
+  'No vault found for your account. Create or claim a vault to enable cloning.'
 
 export type ClonePrepareSealGateResult =
   | { ok: true }
-  | { ok: false; code: 'outer_vault_or_key_provider_unavailable'; error: string }
+  | { ok: false; code: 'outer_vault_or_key_provider_unavailable' | 'outer_vault_unavailable'; error: string }
 
 /**
  * Preflight for sandbox clone prepare: sealedQuery requires `bindKeyProvider`
@@ -103,39 +109,38 @@ export type ClonePrepareSealGateResult =
  * All outcomes map to `ClonePrepareSealGateResult` for the existing ipc.ts caller.
  */
 export async function ensureSealedStorageReadyForSandboxClone(cloneId: string): Promise<ClonePrepareSealGateResult> {
-  const status = vaultService.getStatus()
+  // Quick pre-check for the [CLONE_PREPARE] sealed_storage_check log.
   // outerVaultReady: outer vault session active (master-password unlocked, VMK in memory).
   // The inner vault (HA mode) must NOT be required for clone prepare.
-  const outerVaultReady = status?.isUnlocked === true
-
+  const outerVaultReady = vaultService.getStatus().isUnlocked === true
   const keyProviderBound = isKeyProviderBound()
 
   console.log(
     `[CLONE_PREPARE] sealed_storage_check cloneId=${cloneId} outerVaultReady=${outerVaultReady} keyProviderBound=${keyProviderBound}`,
   )
 
-  if (keyProviderBound) {
+  // Fast path: key provider bound AND vault still active (guards against stale binding after auto-lock).
+  if (keyProviderBound && outerVaultReady) {
     console.log(`[CLONE_PREPARE] sealed_storage_ready cloneId=${cloneId} ready=true`)
     return { ok: true }
   }
 
-  if (!outerVaultReady) {
-    console.log(
-      `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=outer_vault_or_key_provider_unavailable`,
-    )
-    return {
-      ok: false,
-      code: 'outer_vault_or_key_provider_unavailable',
-      error: CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
-    }
-  }
-
-  console.log(`[CLONE_PREPARE] sealed_storage_rebind_attempt cloneId=${cloneId}`)
+  // Full probe via ensureValidatorAndSealedStorageReady — emits [OUTER_VAULT_CHECK] and [VALIDATOR_READY_CHECK].
   const result = await ensureValidatorAndSealedStorageReady('clone_prepare')
 
   if (!result.ok) {
+    if (result.code === 'outer_vault_unavailable') {
+      console.log(
+        `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=outer_vault_unavailable`,
+      )
+      return {
+        ok: false,
+        code: 'outer_vault_unavailable',
+        error: CLONE_PREPARE_VAULT_UNAVAILABLE_MESSAGE,
+      }
+    }
     console.log(
-      `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=outer_vault_or_key_provider_unavailable`,
+      `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=outer_vault_or_key_provider_unavailable code=${result.code}`,
     )
     return {
       ok: false,

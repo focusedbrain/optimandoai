@@ -51,6 +51,7 @@ export type BeapInboxClonePrepareErrorCode =
   | 'SANDBOX_TARGET_NOT_CONNECTED'
   | 'PREPARE_FAILED'
   | 'outer_vault_or_key_provider_unavailable'
+  | 'outer_vault_unavailable'
 
 export type BeapInboxCloneNoSandboxDetails = {
   eligible_count: 0
