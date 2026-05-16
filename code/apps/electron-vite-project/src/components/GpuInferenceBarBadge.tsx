@@ -1,16 +1,27 @@
 /**
  * Toolbar badge: surfaces local Ollama GPU offload readiness without requiring a failed chat attempt.
+ *
+ * Option B (UX): when the Host-AI ledger proves this device is the Sandbox side of an ACTIVE internal
+ * pairing (`orchestrator:getMode` → `ledgerProvesInternalSandboxToHost`, same handshake authority that
+ * backs `getHostAiLedgerRoleSummaryFromDb` / `effective_host_ai_role` for cross-device inference),
+ * local `nvidia-smi` is irrelevant — hide the badge so we do not show a false "GPU Issue".
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 
 type BadgeVisual = 'loading' | 'ok' | 'issue'
 
 export function GpuInferenceBarBadge(): JSX.Element | null {
+  const { ready: orchestratorModeReady, ledgerProvesInternalSandboxToHost } = useOrchestratorMode()
+
   const [visual, setVisual] = useState<BadgeVisual>('loading')
   const [titleParts, setTitleParts] = useState<string>('Checking GPU offload…')
 
   const refresh = useCallback(async () => {
+    if (!orchestratorModeReady || ledgerProvesInternalSandboxToHost) {
+      return
+    }
     const api = typeof window !== 'undefined' ? window.llm : undefined
     if (!api?.getGpuStatus) return
     try {
@@ -32,9 +43,12 @@ export function GpuInferenceBarBadge(): JSX.Element | null {
       setVisual('issue')
       setTitleParts(e instanceof Error ? e.message : 'GPU status refresh failed.')
     }
-  }, [])
+  }, [orchestratorModeReady, ledgerProvesInternalSandboxToHost])
 
   useEffect(() => {
+    if (!orchestratorModeReady || ledgerProvesInternalSandboxToHost) {
+      return
+    }
     void refresh()
     const id = window.setInterval(() => void refresh(), 45_000)
     const api = typeof window !== 'undefined' ? window.llm : undefined
@@ -47,9 +61,17 @@ export function GpuInferenceBarBadge(): JSX.Element | null {
         /* ignore */
       }
     }
-  }, [refresh])
+  }, [refresh, orchestratorModeReady, ledgerProvesInternalSandboxToHost])
 
   if (typeof window === 'undefined' || !window.llm?.getGpuStatus) {
+    return null
+  }
+
+  if (!orchestratorModeReady) {
+    return null
+  }
+
+  if (ledgerProvesInternalSandboxToHost) {
     return null
   }
 
