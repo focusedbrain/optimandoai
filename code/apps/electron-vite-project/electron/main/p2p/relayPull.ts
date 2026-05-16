@@ -171,6 +171,8 @@ export async function pullFromRelay(
             notifyBeapRecipientPending(handshakeId)
           } else if (r.outcome === 'quarantine') {
             console.log('[P2P-RECV] BEAP message quarantined (relay pull)', handshakeId)
+          } else if (r.outcome === 'skipped') {
+            console.log('[P2P-RECV] BEAP capsule skipped (handshake protocol packet, relay pull)', handshakeId)
           } else {
             console.warn('[P2P-RECV] BEAP inline processing failed (relay pull)', handshakeId, r.error)
           }

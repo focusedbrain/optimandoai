@@ -297,6 +297,8 @@ function createP2PRequestHandler(
           notifyBeapRecipientPending(handshakeId)
         } else if (r.outcome === 'quarantine') {
           console.log('[P2P-RECV] BEAP message quarantined (local P2P HTTP)', handshakeId)
+        } else if (r.outcome === 'skipped') {
+          console.log('[P2P-RECV] BEAP capsule skipped (handshake protocol packet, local P2P HTTP)', handshakeId)
         } else {
           console.warn('[P2P-RECV] BEAP inline processing failed (local P2P HTTP)', handshakeId, r.error)
         }

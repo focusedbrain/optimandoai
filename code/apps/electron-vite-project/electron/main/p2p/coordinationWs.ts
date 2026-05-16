@@ -301,6 +301,8 @@ async function processCapsuleInternal(
             notifyBeapRecipientPending(handshakeId)
           } else if (r.outcome === 'quarantine') {
             console.log('[Coordination] BEAP message quarantined, handshake=', handshakeId)
+          } else if (r.outcome === 'skipped') {
+            console.log('[Coordination] BEAP capsule skipped (handshake protocol packet), handshake=', handshakeId)
           } else {
             console.warn('[Coordination] BEAP inline processing failed, handshake=', handshakeId, r.error)
           }

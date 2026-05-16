@@ -527,7 +527,14 @@ const P2P_QUARANTINE_INSERT_SQL = `
 `
 
 export interface P2PInlineResult {
-  outcome: 'inbox' | 'quarantine' | 'error'
+  /**
+   * `inbox`     — row written to inbox_messages (user-readable BEAP message).
+   * `quarantine`— row written to quarantine_messages (validator rejected or decrypt failed).
+   * `error`     — unhandled exception; no row written.
+   * `skipped`   — capsule recognised but intentionally not written to inbox
+   *               (e.g. handshake-protocol capsules that carry no user content).
+   */
+  outcome: 'inbox' | 'quarantine' | 'error' | 'skipped'
   rowId?: string
   error?: string
 }
@@ -862,6 +869,29 @@ async function processBeapPackageInlineInternal(
     }
   }
 
+  // ── Handshake capsule guard ───────────────────────────────────────────────
+  // Capsules with top-level `schema_version` (number) + `capsule_type` (string) are
+  // handshake-protocol packets (initiate / accept / revoke / etc.).  They carry no
+  // user-readable content and must never be stored as inbox rows — doing so causes
+  // them to appear in the inbox and be sent to the Ollama analysis pipeline, which
+  // produces misleading summaries like "Encrypted BEAP handshake message…".
+  //
+  // Legitimate entry points for handshake capsules:
+  //   coordinationWs → processHandshakeCapsule (distribution.target='handshake_pipeline')
+  //   p2pServer      → already guarded by isBeapMessagePackage() which excludes capsule_type
+  //
+  // If a handshake capsule reaches here it was misclassified by the relay distribution
+  // router (e.g. labelled message_relay instead of handshake_pipeline).  The correct
+  // recovery is to silently skip it — the handshake processing path will handle it
+  // separately via its own distribution branch.
+  if (typeof pkg.schema_version === 'number' && typeof pkg.capsule_type === 'string') {
+    console.log(
+      '[P2P-INLINE] Skipping handshake capsule (not an inbox message)',
+      JSON.stringify({ capsule_type: pkg.capsule_type, schema_version: pkg.schema_version, handshakeId }),
+    )
+    return { outcome: 'skipped' }
+  }
+
   // ── Transport sender resolution ───────────────────────────────────────────
   const parties = handshakeId ? getHandshakePartyEmails(db, handshakeId) : { counterpartyEmail: null, localEmail: null }
   const transportSender = options.transportSender ?? parties.counterpartyEmail
@@ -937,14 +967,6 @@ async function processBeapPackageInlineInternal(
     } catch (err: unknown) {
       depackageError = `pBEAP decode error: ${err instanceof Error ? err.message : String(err)}`
     }
-  } else if (typeof pkg.schema_version === 'number' && typeof pkg.capsule_type === 'string') {
-    // Handshake capsule — the outer JSON is canonical.
-    canonicalJson = packageJson
-    depackagedMetadata = JSON.stringify({
-      format: 'beap_handshake_capsule_p2p',
-      capsule_type: pkg.capsule_type,
-      source: 'main_process_p2p_inline',
-    })
   } else {
     depackageError = `Unrecognised BEAP package shape; encoding=${pkgEncoding ?? 'missing'}`
   }
