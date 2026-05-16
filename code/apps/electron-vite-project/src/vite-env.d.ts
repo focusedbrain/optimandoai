@@ -238,6 +238,22 @@ interface LlmOllamaStatus {
   }>
 }
 
+/**
+ * Tier-ranked inference capability (`llm:resolveInferenceCapability`).
+ * Sandbox devices get `hostHardware` reflecting the *Windows host* GPU/CPU,
+ * not the local Linux probe.
+ */
+interface InferenceCapabilityForUi {
+  backend: 'remote-host' | 'local-gpu' | 'local-cpu' | 'unavailable'
+  hostHardware: 'gpu' | 'cpu' | 'unknown'
+  modelName?: string
+  remoteBaseUrl?: string
+  handshakeId?: string
+  peerDeviceId?: string
+  unavailableReason?: string
+  userMessage?: string
+}
+
 /** Main-process GPU offload diagnostics (`llm:getGpuStatus`). */
 interface GpuStatusForUi {
   available: boolean
@@ -282,6 +298,9 @@ interface LlmBridge {
   onActiveModelChanged: (cb: (data: { modelId: string }) => void) => () => void
   resolveAutosortRuntime: () => Promise<
     { ok: true; data: ResolvedInboxRuntime } | { ok: false; error: string }
+  >
+  resolveInferenceCapability: () => Promise<
+    { ok: true; data: InferenceCapabilityForUi } | { ok: false; error: string }
   >
 }
 
