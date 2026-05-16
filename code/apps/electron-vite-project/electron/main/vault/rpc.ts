@@ -170,10 +170,15 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
       case 'vault.create': {
         const parsed = CreateVaultRequestSchema.parse(params)
         const vaultId = await vaultService.createVault(parsed.masterPassword, parsed.vaultName || 'My Vault', parsed.vaultId)
-        // Phase B: start validator subprocess after vault creation (vault is unlocked).
-        validatorOrchestrator.start(vaultService).catch((err) => {
+        // Phase B: await validator subprocess startup so it is ready before the
+        // first BEAP message arrives.  Errors are non-fatal for vault UX.
+        try {
+          console.log('[VAULT_RPC] Starting validator subprocess after vault.create …')
+          await validatorOrchestrator.start(vaultService)
+          console.log('[VAULT_RPC] Validator subprocess ready after vault.create.')
+        } catch (err: any) {
           console.error('[VAULT_RPC] Failed to start validator subprocess after create:', err?.message ?? err)
-        })
+        }
         return { success: true, message: 'Vault created successfully', vaultId, sessionToken: vaultService.getSessionToken() }
       }
 
@@ -181,12 +186,15 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
         const parsed = UnlockVaultRequestSchema.parse(params)
         const token = await vaultService.unlock(parsed.masterPassword, parsed.vaultId || 'default')
         setupEmbeddingServiceRef(vaultService)
-        // Phase B: start validator subprocess after vault unlock.
-        // Errors here are non-fatal for vault unlock itself; the validation
-        // service surfaces unavailability via onValidationServiceUnavailable.
-        validatorOrchestrator.start(vaultService).catch((err) => {
+        // Phase B: await validator subprocess startup so it is ready before the
+        // first BEAP message arrives.  Errors are non-fatal for vault UX.
+        try {
+          console.log('[VAULT_RPC] Starting validator subprocess after vault.unlock …')
+          await validatorOrchestrator.start(vaultService)
+          console.log('[VAULT_RPC] Validator subprocess ready after vault.unlock.')
+        } catch (err: any) {
           console.error('[VAULT_RPC] Failed to start validator subprocess:', err?.message ?? err)
-        })
+        }
         return { success: true, token, sessionToken: vaultService.getSessionToken() }
       }
 
@@ -194,9 +202,11 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
         clearEmbeddingServiceRef()
         // Phase B: stop validator subprocess before locking the vault so the
         // seal key is cleared while the vault is still accessible.
-        validatorOrchestrator.stop().catch((err) => {
+        try {
+          await validatorOrchestrator.stop()
+        } catch (err: any) {
           console.error('[VAULT_RPC] Error stopping validator subprocess:', err?.message ?? err)
-        })
+        }
         vaultService.lock()
         return { success: true, message: 'Vault locked' }
       }

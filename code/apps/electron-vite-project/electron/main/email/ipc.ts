@@ -4450,6 +4450,29 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
 
           const isNativeBeapStream = resolveInboxReplyMode(row) === 'native_beap'
 
+          // Guard: do not send encrypted BEAP content to Ollama.
+          // A native-BEAP row whose depackaged_json is absent has not been
+          // decrypted by the extension yet.  Running inbox analysis on the raw
+          // wire bytes would produce "Encrypted BEAP handshake message…" summaries.
+          // The correct path is: extension decrypts → mergeExtensionDepackaged →
+          // depackaged_json is populated → user retriggers analysis.
+          if (isNativeBeapStream && !row.depackaged_json && row.beap_package_json) {
+            console.log(`[INBOX_ANALYSIS] Skipping analysis for undecrypted BEAP row ${messageId} — awaiting extension decrypt.`)
+            if (!event.sender.isDestroyed()) {
+              event.sender.send(
+                'inbox:aiAnalyzeMessageError',
+                buildInboxAiAnalyzeErrorPayload(
+                  Object.assign(new Error('BEAP_CONTENT_AWAITING_DECRYPT'), {
+                    inboxFailureCode: 'beap_awaiting_decrypt',
+                  }),
+                  { messageId, operation: 'analyze_stream', aiExecution: aiExec, model: ollamaModelForStream },
+                ),
+              )
+            }
+            markAnalysisStreamReplayError(analyzeDedupeKey)
+            return { started: false }
+          }
+
           const sender = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
           const body = isNativeBeapStream
             ? buildNativeBeapAnalyzeBody(row)

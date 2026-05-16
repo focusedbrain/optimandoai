@@ -209,7 +209,14 @@ export function getInboxReplyModeMetadata(row: InboxMessageAiClassificationRow):
 function rowIsActualNativeBeap(row: InboxMessageAiClassificationRow): boolean {
   const st = String(row.source_type ?? '')
   const hid = row.handshake_id != null ? String(row.handshake_id).trim() : ''
-  return st === 'direct_beap' || (!!hid && st !== 'email_plain')
+  if (st === 'direct_beap') return true
+  if (!!hid && st !== 'email_plain') return true
+  // A row stored as email_plain can still carry a BEAP package (e.g. when
+  // messageRouter falls back to the plain-email path after a depackage failure).
+  // Classify it as native_beap so it never reaches the plain-email Ollama prompt.
+  const pkg = row.beap_package_json
+  if (pkg != null && typeof pkg === 'string' && pkg.trim().length > 0) return true
+  return false
 }
 
 /** Shared renderer / AI / send semantics for inbox replies. */
@@ -218,7 +225,12 @@ export type InboxReplyMode = 'email' | 'native_beap'
 export function resolveInboxReplyMode(row: InboxMessageAiClassificationRow): InboxReplyMode {
   const st = String(row.source_type ?? '')
   if (st === 'email_plain') {
-    return 'email'
+    // If the row carries a BEAP package (messageRouter depackage-fallback scenario)
+    // do NOT short-circuit to 'email'; rowIsActualNativeBeap will classify it
+    // correctly so the encrypted payload never reaches the plain-email Ollama prompt.
+    const pkg = row.beap_package_json
+    const hasBeapPkg = pkg != null && typeof pkg === 'string' && pkg.trim().length > 0
+    if (!hasBeapPkg) return 'email'
   }
   const meta = getInboxReplyModeMetadata(row)
   if (meta.originalSourceType === 'email_plain') {

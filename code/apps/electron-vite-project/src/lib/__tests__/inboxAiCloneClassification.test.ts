@@ -261,6 +261,86 @@ describe('inboxAiCloneClassification', () => {
     })
   })
 
+  // ── beap_package_json classifier (fix: email_plain fallback rows) ───────────
+  describe('beap_package_json presence overrides email_plain classification', () => {
+    const qBeapPkg = JSON.stringify({ header: { encoding: 'qBEAP', sender_fingerprint: 'abc' }, payload: 'base64==' })
+
+    it('email_plain with beap_package_json → native_beap (blocks plain-email Ollama path)', () => {
+      const row = {
+        source_type: 'email_plain',
+        handshake_id: '__email_import__',
+        depackaged_json: null,
+        body_text: '(Encrypted qBEAP — open in extension for full content)',
+        beap_package_json: qBeapPkg,
+      }
+      expect(resolveInboxReplyMode(row)).toBe('native_beap')
+      expect(classifyInboxRowForAi(row).isNativeBeap).toBe(true)
+    })
+
+    it('email_plain with beap_package_json and no handshake_id → native_beap', () => {
+      const row = {
+        source_type: 'email_plain',
+        handshake_id: null,
+        depackaged_json: null,
+        body_text: 'encrypted beap stuff',
+        beap_package_json: qBeapPkg,
+      }
+      expect(resolveInboxReplyMode(row)).toBe('native_beap')
+      expect(classifyInboxRowForAi(row).isNativeBeap).toBe(true)
+    })
+
+    it('email_plain with null beap_package_json → email (no false positive for normal mail)', () => {
+      const row = {
+        source_type: 'email_plain',
+        handshake_id: null,
+        depackaged_json: null,
+        body_text: 'hello world',
+        beap_package_json: null,
+      }
+      expect(resolveInboxReplyMode(row)).toBe('email')
+      expect(classifyInboxRowForAi(row).isNativeBeap).toBe(false)
+    })
+
+    it('email_plain with empty beap_package_json string → email (no false positive)', () => {
+      const row = {
+        source_type: 'email_plain',
+        handshake_id: null,
+        depackaged_json: null,
+        body_text: 'hello',
+        beap_package_json: '   ',
+      }
+      expect(resolveInboxReplyMode(row)).toBe('email')
+    })
+
+    it('direct_beap clone-of-plain with beap_package_json → still email (clone provenance wins)', () => {
+      const dep = JSON.stringify({
+        beap_sandbox_clone: { original_inbox_source_type: 'email_plain', clone_reason: 'test' },
+      })
+      const row = {
+        source_type: 'direct_beap',
+        handshake_id: 'hs-1',
+        depackaged_json: dep,
+        body_text: '',
+        beap_package_json: qBeapPkg,
+      }
+      // Clone-of-plain provenance wins; beap_package_json does not override it.
+      expect(resolveInboxReplyMode(row)).toBe('email')
+      expect(classifyInboxRowForAi(row).isNativeBeap).toBe(false)
+    })
+
+    it('direct_beap without clone provenance + beap_package_json → native_beap', () => {
+      const row = {
+        source_type: 'direct_beap',
+        handshake_id: 'hs-2',
+        depackaged_json: null,
+        body_text: '',
+        beap_package_json: qBeapPkg,
+      }
+      expect(resolveInboxReplyMode(row)).toBe('native_beap')
+      expect(classifyInboxRowForAi(row).isNativeBeap).toBe(true)
+    })
+  })
+
   describe('logInboxReplyTransportDecision', () => {
     it('logs messageId, source_type, clone flag, transport, selectedPath (no bodies)', () => {
       const spy = vi.spyOn(console, 'info').mockImplementation(() => {})

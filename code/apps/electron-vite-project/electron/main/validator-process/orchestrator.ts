@@ -114,6 +114,13 @@ export class ValidatorOrchestrator {
   /** In-flight ping resolver (one at a time) */
   private pingResolver: { resolve: () => void; reject: (e: Error) => void } | null = null
 
+  /**
+   * Deduplicates concurrent vault.create / vault.unlock RPCs that both call
+   * start().  A second caller awaits the same Promise rather than forking a
+   * second subprocess.
+   */
+  private startInFlight: Promise<void> | null = null
+
   /** For tests: exposes liveness without coupling to internals. */
   getLiveness(): OrchestratorLiveness {
     return this.liveness
@@ -122,15 +129,32 @@ export class ValidatorOrchestrator {
   /**
    * Start the validator subprocess after vault unlock.
    *
+   * Idempotent: returns immediately if the subprocess is already running.
+   * Deduplicates concurrent callers: if startup is already in progress the
+   * second caller awaits the same Promise instead of forking a duplicate.
+   *
    * Derives the seal key from the vault, forks the subprocess, sends the
    * startup message, waits for ack, then zeroizes the key in main process
    * memory.  The main process holds the key only during this window.
    */
   async start(vault: VaultService, execArgv?: string[]): Promise<void> {
-    if (this.subprocess && !this.subprocess.killed) {
-      throw new Error('[VALIDATOR_ORCHESTRATOR] Subprocess already running')
+    if (this.liveness === 'running' && this.subprocess && !this.subprocess.killed) {
+      console.log('[VALIDATOR_ORCHESTRATOR] Subprocess already running — skipping duplicate start.')
+      return
     }
+    if (this.startInFlight) {
+      console.log('[VALIDATOR_ORCHESTRATOR] Startup already in progress — awaiting in-flight start.')
+      return this.startInFlight
+    }
+    console.log('[VALIDATOR_ORCHESTRATOR] Validator initialization starting.')
+    this.startInFlight = this._doStart(vault, execArgv).finally(() => {
+      this.startInFlight = null
+    })
+    return this.startInFlight
+  }
 
+  private async _doStart(vault: VaultService, execArgv?: string[]): Promise<void> {
+    console.log('[VALIDATOR_ORCHESTRATOR] Forking validator subprocess.')
     // Derive the seal key.  The key lives in a local variable and is zeroized
     // immediately after the IPC send — it is NOT stored in any field.
     const sealKey = vault.deriveApplicationKey(SEAL_KEY_INFO)
@@ -198,6 +222,7 @@ export class ValidatorOrchestrator {
       // has NO stored copy; the only live copy is inside the subprocess.
     })
 
+    console.log('[VALIDATOR_ORCHESTRATOR] Validator subprocess ready (startup_ack received); liveness→running.')
     this.liveness = 'running'
     this._startHealthcheck()
 
