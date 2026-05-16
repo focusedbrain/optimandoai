@@ -8,7 +8,7 @@ import { extractInboxMessageRedirectSourceFromRow } from './beapRedirectSource'
 import { getHandshakeRecord } from '../handshake/db'
 import { resolveInboxReplyMode } from '../../../src/lib/inboxAiCloneClassification'
 import { isKeyProviderBound, sealedQuery, SealVerificationError } from '../sealed-storage'
-import { validatorOrchestrator } from '../validator-process/orchestrator'
+import { ensureValidatorAndSealedStorageReady } from '../validatorReadiness'
 import { vaultService } from '../vault/service'
 import {
   isEligibleActiveInternalHostSandboxRecord,
@@ -86,10 +86,6 @@ export type BeapInboxCloneErrorCode =
 export const CLONE_PREPARE_SEAL_GATE_USER_MESSAGE =
   'Vault must be unlocked before cloning this message.'
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
 export type ClonePrepareSealGateResult =
   | { ok: true }
   | { ok: false; code: 'vault_locked_or_key_provider_unbound'; error: string }
@@ -98,56 +94,30 @@ export type ClonePrepareSealGateResult =
  * Preflight for sandbox clone prepare: sealedQuery requires `bindKeyProvider`
  * (wired when `ValidatorOrchestrator.start` completes after vault unlock/create).
  *
- * - If vault is locked → fail closed with `vault_locked_or_key_provider_unbound`.
- * - If another path already bound the provider → succeed immediately.
- * - Otherwise poll briefly for an in-flight `validatorOrchestrator.start` from vault RPC,
- *   then invoke `start` when still unbound (handles races with duplicate start throws).
+ * Delegates to `ensureValidatorAndSealedStorageReady` which handles:
+ * - Fast path when key provider is already bound.
+ * - Vault locked → immediate failure.
+ * - In-flight start (vault.unlock fired start() non-awaited): polls up to 15 s.
+ * - Unstarted or dead subprocess: awaits start() directly.
+ *
+ * All outcomes map to `ClonePrepareSealGateResult` for the existing ipc.ts caller.
  */
 export async function ensureSealedStorageReadyForSandboxClone(cloneId: string): Promise<ClonePrepareSealGateResult> {
   const status = vaultService.getStatus()
-  if (!status?.isUnlocked) {
-    console.log(
-      `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=vault_locked_or_key_provider_unbound`,
-    )
-    return {
-      ok: false,
-      code: 'vault_locked_or_key_provider_unbound',
-      error: CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
-    }
-  }
+  const vaultUnlocked = status?.isUnlocked === true
 
-  if (isKeyProviderBound()) {
+  const keyProviderBound = isKeyProviderBound()
+
+  console.log(
+    `[CLONE_PREPARE] sealed_storage_check cloneId=${cloneId} vaultUnlocked=${vaultUnlocked} keyProviderBound=${keyProviderBound}`,
+  )
+
+  if (keyProviderBound) {
     console.log(`[CLONE_PREPARE] sealed_storage_ready cloneId=${cloneId} ready=true`)
     return { ok: true }
   }
 
-  const pollMs = 50
-  const waitInFlightMs = 10_000
-  const deadlinePoll = Date.now() + waitInFlightMs
-  while (Date.now() < deadlinePoll) {
-    if (isKeyProviderBound()) {
-      console.log(`[CLONE_PREPARE] sealed_storage_ready cloneId=${cloneId} ready=true`)
-      return { ok: true }
-    }
-    await delay(pollMs)
-  }
-
-  try {
-    await validatorOrchestrator.start(vaultService)
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    if (msg.includes('Subprocess already running')) {
-      const deadlineDup = Date.now() + 3_000
-      while (Date.now() < deadlineDup) {
-        if (isKeyProviderBound()) {
-          console.log(`[CLONE_PREPARE] sealed_storage_ready cloneId=${cloneId} ready=true`)
-          return { ok: true }
-        }
-        await delay(pollMs)
-      }
-    } else {
-      console.warn('[CLONE_PREPARE] validatorOrchestrator.start failed during clone seal gate:', msg)
-    }
+  if (!vaultUnlocked) {
     console.log(
       `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=vault_locked_or_key_provider_unbound`,
     )
@@ -158,7 +128,10 @@ export async function ensureSealedStorageReadyForSandboxClone(cloneId: string): 
     }
   }
 
-  if (!isKeyProviderBound()) {
+  console.log(`[CLONE_PREPARE] sealed_storage_rebind_attempt cloneId=${cloneId}`)
+  const result = await ensureValidatorAndSealedStorageReady('clone_prepare')
+
+  if (!result.ok) {
     console.log(
       `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=vault_locked_or_key_provider_unbound`,
     )

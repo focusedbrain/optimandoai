@@ -32,6 +32,7 @@ import { evaluateAutoresponder } from '../beap/autoresponderEvaluator'
 import { logAutoresponderDecision } from '../beap/autoresponderAudit'
 import { makeInboxAttachmentStorageId, buildQuarantineCanonicalJson, findPairedSandboxHandshake } from './messageRouter'
 import { validatorOrchestrator } from '../validator-process/orchestrator'
+import { ensureValidatorAndSealedStorageReady } from '../validatorReadiness'
 import { prepareSealedInsert, prepareSealedOperationalUpdate } from '../sealed-storage/index'
 import { resealWithDecryptedContent } from './sealedContentUpdate'
 import { decryptQuarantineBlob, encryptForQuarantine } from '../quarantine-encrypt/index'
@@ -873,6 +874,24 @@ async function processBeapPackageInlineInternal(
   const isSandboxClone = !options.isSandboxDecryptedBlob && inboxResponsePathForCloneDetect?.sandbox_clone === true
   if (isSandboxClone) {
     console.log(`[CLONE_RECEIVE] ingest_received cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
+  }
+
+  // ── Validator / sealed-storage readiness preflight ───────────────────────
+  // Must run before any validatorOrchestrator.validate() or sealedQuery() call.
+  // vault.unlock fires validatorOrchestrator.start() non-awaited; if a BEAP
+  // message arrives before the startup ack, liveness is still 'not_started'
+  // and validate() throws 'Validation service unavailable'.  This helper
+  // awaits the in-flight start (or restarts a dead subprocess) so all
+  // subsequent validate() and sealedQuery() calls see a ready state.
+  {
+    const _validatorReady = await ensureValidatorAndSealedStorageReady('beap_receive')
+    if (!_validatorReady.ok) {
+      const _reason = _validatorReady.code === 'vault_locked'
+        ? 'validator_unavailable_vault_locked'
+        : _validatorReady.code
+      console.log(`[BEAP_DELIVERY] validator_unavailable messageId=${rowId} reason=${_reason}`)
+      return { outcome: 'error', error: _reason }
+    }
   }
 
   // ── Sandbox quarantine receive branch (Decision C) ────────────────────────
