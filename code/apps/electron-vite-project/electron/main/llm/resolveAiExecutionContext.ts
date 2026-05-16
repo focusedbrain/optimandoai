@@ -13,6 +13,8 @@ import { getInstanceId, getOrchestratorMode, isSandboxMode } from '../orchestrat
 import { ollamaManager } from './ollama-manager'
 import type { AiExecutionContext, ResolveAiExecutionContextResult } from './aiExecutionTypes'
 import { readStoredAiExecutionContext } from './aiExecutionContextStore'
+import { isGpuInferenceAvailable } from '../inference/inferenceGate'
+import { isCpuSafeModel } from '../inference/inferenceCapabilityResolver'
 
 export const NO_AI_MODEL_SELECTED = 'No AI model selected'
 
@@ -53,7 +55,8 @@ function logModelSelectionDecision(payload: Record<string, unknown>): void {
   console.log(`[MODEL_SELECTION_DECISION] ${JSON.stringify(payload)}`)
 }
 
-async function fallbackFromListSandbox(storedOverride?: AiExecutionContext | null): Promise<AiExecutionContext | null> {
+/** Exported for the inference capability IPC handler. */
+export async function fallbackFromListSandbox(storedOverride?: AiExecutionContext | null): Promise<AiExecutionContext | null> {
   const { targets } = await listSandboxHostInternalInferenceTargets()
   const visible = (t: (typeof targets)[0]) => t.visibleInModelSelector !== false
   const stored = storedOverride === undefined ? readStoredAiExecutionContext() : storedOverride
@@ -221,11 +224,26 @@ async function fallbackFromListSandbox(storedOverride?: AiExecutionContext | nul
 async function tryLocalContext(): Promise<AiExecutionContext | null> {
   const name = await ollamaManager.getEffectiveChatModelName()
   if (!name) return null
-  return {
-    lane: 'local',
-    model: name,
-    baseUrl: 'http://127.0.0.1:11434',
+
+  // Capability gate: only route to local when hardware can actually run the model.
+  // GPU → allowed always.  No GPU → only CPU-safe models (or dev override).
+  const gpuOk = await isGpuInferenceAvailable()
+  if (gpuOk) {
+    return { lane: 'local', model: name, baseUrl: 'http://127.0.0.1:11434' }
   }
+
+  const allowCpuOverride =
+    (process.env.WRDESK_ALLOW_CPU_INFERENCE ?? '').trim() === '1' ||
+    /^true$/i.test(process.env.WRDESK_ALLOW_CPU_INFERENCE ?? '')
+
+  if (allowCpuOverride || isCpuSafeModel(name)) {
+    return { lane: 'local', model: name, baseUrl: 'http://127.0.0.1:11434' }
+  }
+
+  // Model is too large for CPU and no GPU — decline local routing so the caller
+  // can surface a clear NO_AI_MODEL_SELECTED or capability-based error.
+  console.warn(`[RESOLVE_AI_CTX] Local context blocked: '${name}' requires GPU or remote host inference.`)
+  return null
 }
 
 /**

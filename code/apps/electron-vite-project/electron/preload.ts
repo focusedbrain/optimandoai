@@ -1528,6 +1528,11 @@ contextBridge.exposeInMainWorld('llm', {
     }
   },
   resolveAutosortRuntime: () => ipcRenderer.invoke('llm:resolveAutosortRuntime'),
+  resolveInferenceCapability: () =>
+    ipcRenderer.invoke('llm:resolveInferenceCapability') as Promise<
+      | { ok: true; data: InferenceCapabilityForUi }
+      | { ok: false; error: string }
+    >,
 })
 
 // ── Lifecycle (main→renderer notifications) ──────────────────────────────

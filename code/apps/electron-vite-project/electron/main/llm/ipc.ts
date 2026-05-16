@@ -6,7 +6,16 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron'
 import { hardwareService } from './hardware'
 import { ollamaManager } from './ollama-manager'
-import { getGpuStatus } from '../inference/gpuStatus'
+import { getGpuStatus, getGpuInferenceStatusRemote } from '../inference/gpuStatus'
+import { isGpuInferenceAvailable } from '../inference/inferenceGate'
+import {
+  isCpuSafeModel,
+  resolveInferenceCapabilityFromInput,
+} from '../inference/inferenceCapabilityResolver'
+import {
+  isEffectiveSandboxSideForAiExecution,
+  fallbackFromListSandbox,
+} from './resolveAiExecutionContext'
 import { DEBUG_ACTIVE_OLLAMA_MODEL } from './activeOllamaModelStore'
 import { broadcastActiveOllamaModelChanged } from './broadcastActiveModel'
 import { MODEL_CATALOG, getModelConfig } from './config'
@@ -337,5 +346,91 @@ export function registerLlmHandlers() {
     }
   })
   
+  /**
+   * Tier-ranked inference capability for top-chat badge and routing decisions.
+   *
+   * Resolution (in order):
+   *   1. remote-host  sandbox + healthy paired host
+   *      → also probes host Ollama GPU status so badge shows GPU/CPU, not "Remote"
+   *   2. local-gpu    local Ollama with full GPU offload
+   *   3. local-cpu    local Ollama + CPU-safe model (or WRDESK_ALLOW_CPU_INFERENCE=1)
+   *   4. unavailable  none of the above
+   *
+   * Sandbox devices must call this for their badge — NOT getGpuStatus(),
+   * which probes the local (Linux) machine and maps to "GPU Issue".
+   */
+  ipcMain.handle('llm:resolveInferenceCapability', async () => {
+    try {
+      const [isSandbox, localGpuAvailable, modelName] = await Promise.all([
+        isEffectiveSandboxSideForAiExecution(),
+        isGpuInferenceAvailable(),
+        ollamaManager.getEffectiveChatModelName(),
+      ])
+
+      const allowCpuOverride =
+        (process.env.WRDESK_ALLOW_CPU_INFERENCE ?? '').trim() === '1' ||
+        /^true$/i.test(process.env.WRDESK_ALLOW_CPU_INFERENCE ?? '')
+
+      let remoteContext: {
+        modelName?: string | null
+        baseUrl?: string | null
+        handshakeId?: string | null
+        peerDeviceId?: string | null
+      } | null = null
+      // gpuAvailable is local by default; overridden below for sandbox path.
+      let gpuAvailable = localGpuAvailable
+
+      if (isSandbox) {
+        const fb = await fallbackFromListSandbox()
+        if (fb) {
+          remoteContext = {
+            modelName: fb.model,
+            baseUrl: fb.baseUrl ?? null,
+            handshakeId: fb.handshakeId ?? null,
+            peerDeviceId: fb.peerDeviceId ?? null,
+          }
+
+          // Probe the *host* Ollama GPU status (skip local nvidia-smi via remote scope).
+          // This tells the badge whether the Windows host is using GPU or CPU.
+          const hostBaseUrl = (fb.baseUrl ?? '').trim().replace(/\/$/, '')
+          if (hostBaseUrl) {
+            const hostGpu = await getGpuInferenceStatusRemote(hostBaseUrl, fb.model ?? '')
+            gpuAvailable = hostGpu.available
+          } else {
+            gpuAvailable = false
+          }
+        }
+      }
+
+      // For CPU-fallback detection on local path: nvidia-smi early-return on
+      // platforms without NVIDIA sets ollamaRunning:false even if Ollama IS running.
+      // Do an independent lightweight probe so CPU-safe models aren't blocked.
+      let ollamaRunning = localGpuAvailable // gpu probe reaching Ollama implies it is running
+      if (!ollamaRunning && !isSandbox) {
+        try {
+          const base = ollamaManager.getBaseUrl().replace(/\/$/, '')
+          const r = await fetch(`${base}/api/version`, { signal: AbortSignal.timeout(3_000) })
+          ollamaRunning = r.ok
+        } catch {
+          ollamaRunning = false
+        }
+      }
+
+      const result = resolveInferenceCapabilityFromInput({
+        isSandbox,
+        remoteContext,
+        gpuAvailable,
+        ollamaRunning,
+        modelName: modelName ?? null,
+        allowCpuOverride,
+      })
+      return { ok: true as const, data: result }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err ?? 'unknown')
+      console.error('[LLM IPC] resolveInferenceCapability failed:', err)
+      return { ok: false as const, error: msg }
+    }
+  })
+
   console.log('[LLM IPC] Handlers registered successfully')
 }
