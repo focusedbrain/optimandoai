@@ -8,6 +8,20 @@
  * Do NOT use globally.  The helper is idempotent (safe to call concurrently
  * or repeatedly) and exits immediately when the key provider is already bound.
  *
+ * Vault boundary
+ * ──────────────
+ * Only the OUTER vault is required here.  The outer vault is defined by
+ * `vaultService.getStatus().isUnlocked` being true, which means the vault
+ * session exists (KEK + VMK in memory after master-password unlock).
+ * `vault.deriveApplicationKey` uses the VMK from that session to derive the
+ * HMAC seal key for both the validator subprocess and the sealed-storage
+ * key provider.
+ *
+ * The inner vault (HA mode — `ha.lock` / `ha.unlock`) gates vault CRUD item
+ * operations inside handleVaultRPC.  BEAP messaging, BEAP receive validation,
+ * sealed inbox writes, and BEAP cloning do NOT route through that HA guard and
+ * MUST NOT require HA unlock.  This helper is explicitly inner-vault-free.
+ *
  * Root cause this fixes
  * ─────────────────────
  * vault.unlock / vault.create fire `validatorOrchestrator.start()` with
@@ -27,7 +41,7 @@ import { validatorOrchestrator } from './validator-process/orchestrator'
 import { vaultService } from './vault/service'
 
 export type ValidatorReadyCode =
-  | 'vault_locked'
+  | 'outer_vault_not_ready'
   | 'start_failed'
   | 'not_ready_after_start'
 
@@ -43,8 +57,11 @@ function delay(ms: number): Promise<void> {
  * Ensure the validator subprocess is running and the sealed-storage key
  * provider is bound before a security-critical operation.
  *
+ * Requires the OUTER vault only (master-password session, VMK in memory).
+ * The inner vault (HA mode) is NOT required and NOT checked.
+ *
  * - Fast path  (key provider already bound): returns immediately.
- * - Vault locked: returns `{ ok: false, code: 'vault_locked' }`.
+ * - Outer vault not ready: returns `{ ok: false, code: 'outer_vault_not_ready' }`.
  * - Subprocess in-flight (started by vault.unlock but ack not yet received):
  *   polls up to 15 s for `bindKeyProvider` to be called.
  * - Subprocess not started or dead: awaits `start()` directly.
@@ -59,26 +76,28 @@ export async function ensureValidatorAndSealedStorageReady(
   // ── Fast path ─────────────────────────────────────────────────────────────
   if (isKeyProviderBound()) {
     console.log(
-      `[VALIDATOR_READY_CHECK] ready reason=${reason} vaultUnlocked=true validatorRunning=${validatorOrchestrator.getLiveness() === 'running'} keyProviderBound=true`,
+      `[VALIDATOR_READY_CHECK] ready reason=${reason} outerVaultReady=true validatorRunning=${validatorOrchestrator.getLiveness() === 'running'} keyProviderBound=true`,
     )
     return { ok: true }
   }
 
   const status = vaultService.getStatus()
-  const vaultUnlocked = status?.isUnlocked === true
+  // outerVaultReady: outer vault session is active (master-password unlocked, VMK in memory).
+  // The inner vault (HA mode) is irrelevant — BEAP ops must not require it.
+  const outerVaultReady = status?.isUnlocked === true
   const validatorRunning = validatorOrchestrator.getLiveness() === 'running'
   const keyProviderBound = isKeyProviderBound()
 
   console.log(
-    `[VALIDATOR_READY_CHECK] reason=${reason} vaultUnlocked=${vaultUnlocked} validatorRunning=${validatorRunning} keyProviderBound=${keyProviderBound}`,
+    `[VALIDATOR_READY_CHECK] reason=${reason} outerVaultReady=${outerVaultReady} validatorRunning=${validatorRunning} keyProviderBound=${keyProviderBound}`,
   )
 
-  if (!vaultUnlocked) {
-    console.log(`[VALIDATOR_READY_CHECK] failed reason=${reason} code=vault_locked`)
+  if (!outerVaultReady) {
+    console.log(`[VALIDATOR_READY_CHECK] failed reason=${reason} code=outer_vault_not_ready`)
     return {
       ok: false,
-      code: 'vault_locked',
-      error: 'Vault is locked — cannot start validator or perform sealed operations.',
+      code: 'outer_vault_not_ready',
+      error: 'Outer vault not ready — cannot start validator or perform sealed operations.',
     }
   }
 

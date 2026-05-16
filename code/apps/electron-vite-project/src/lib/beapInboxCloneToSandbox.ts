@@ -345,7 +345,7 @@ function sandboxCloneFailureUserText(
   if (code === 'MESSAGE_NOT_FOUND') {
     return 'Inbox message was not found.'
   }
-  if (code === 'vault_locked_or_key_provider_unbound') {
+  if (code === 'outer_vault_or_key_provider_unavailable') {
     return err.trim() || 'Vault must be unlocked before cloning this message.'
   }
   if (code === 'NO_ACTIVE_SANDBOX_HANDSHAKE') {

@@ -50,7 +50,7 @@ export type BeapInboxClonePrepareErrorCode =
   | 'TARGET_HANDSHAKE_REQUIRED'
   | 'SANDBOX_TARGET_NOT_CONNECTED'
   | 'PREPARE_FAILED'
-  | 'vault_locked_or_key_provider_unbound'
+  | 'outer_vault_or_key_provider_unavailable'
 
 export type BeapInboxCloneNoSandboxDetails = {
   eligible_count: 0

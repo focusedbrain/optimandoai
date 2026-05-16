@@ -79,8 +79,8 @@ export type BeapInboxCloneErrorCode =
   | 'TARGET_HANDSHAKE_REQUIRED'
   | 'SANDBOX_TARGET_NOT_CONNECTED'
   | 'PREPARE_FAILED'
-  /** Vault locked or validator seal gate not bound — sealed inbox reads require an unlocked vault + bound key provider. */
-  | 'vault_locked_or_key_provider_unbound'
+  /** Outer vault not ready or validator seal gate not bound — sealed inbox reads require outer vault + bound key provider. */
+  | 'outer_vault_or_key_provider_unavailable'
 
 /** User-facing copy when sealed-storage gate blocks clone prepare (avoid leaking gate internals). */
 export const CLONE_PREPARE_SEAL_GATE_USER_MESSAGE =
@@ -88,7 +88,7 @@ export const CLONE_PREPARE_SEAL_GATE_USER_MESSAGE =
 
 export type ClonePrepareSealGateResult =
   | { ok: true }
-  | { ok: false; code: 'vault_locked_or_key_provider_unbound'; error: string }
+  | { ok: false; code: 'outer_vault_or_key_provider_unavailable'; error: string }
 
 /**
  * Preflight for sandbox clone prepare: sealedQuery requires `bindKeyProvider`
@@ -104,12 +104,14 @@ export type ClonePrepareSealGateResult =
  */
 export async function ensureSealedStorageReadyForSandboxClone(cloneId: string): Promise<ClonePrepareSealGateResult> {
   const status = vaultService.getStatus()
-  const vaultUnlocked = status?.isUnlocked === true
+  // outerVaultReady: outer vault session active (master-password unlocked, VMK in memory).
+  // The inner vault (HA mode) must NOT be required for clone prepare.
+  const outerVaultReady = status?.isUnlocked === true
 
   const keyProviderBound = isKeyProviderBound()
 
   console.log(
-    `[CLONE_PREPARE] sealed_storage_check cloneId=${cloneId} vaultUnlocked=${vaultUnlocked} keyProviderBound=${keyProviderBound}`,
+    `[CLONE_PREPARE] sealed_storage_check cloneId=${cloneId} outerVaultReady=${outerVaultReady} keyProviderBound=${keyProviderBound}`,
   )
 
   if (keyProviderBound) {
@@ -117,13 +119,13 @@ export async function ensureSealedStorageReadyForSandboxClone(cloneId: string): 
     return { ok: true }
   }
 
-  if (!vaultUnlocked) {
+  if (!outerVaultReady) {
     console.log(
-      `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=vault_locked_or_key_provider_unbound`,
+      `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=outer_vault_or_key_provider_unavailable`,
     )
     return {
       ok: false,
-      code: 'vault_locked_or_key_provider_unbound',
+      code: 'outer_vault_or_key_provider_unavailable',
       error: CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
     }
   }
@@ -133,11 +135,11 @@ export async function ensureSealedStorageReadyForSandboxClone(cloneId: string): 
 
   if (!result.ok) {
     console.log(
-      `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=vault_locked_or_key_provider_unbound`,
+      `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=outer_vault_or_key_provider_unavailable`,
     )
     return {
       ok: false,
-      code: 'vault_locked_or_key_provider_unbound',
+      code: 'outer_vault_or_key_provider_unavailable',
       error: CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
     }
   }
@@ -226,7 +228,7 @@ export function prepareBeapInboxSandboxClone(
       console.warn('[CLONE_PREPARE] sealedQuery SealVerificationError:', err.message)
       return {
         ok: false,
-        code: 'vault_locked_or_key_provider_unbound',
+        code: 'outer_vault_or_key_provider_unavailable',
         error: CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
       }
     }

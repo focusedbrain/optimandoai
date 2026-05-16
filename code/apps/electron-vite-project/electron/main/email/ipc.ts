@@ -3238,7 +3238,7 @@ Rules:
    *
    * Host only: clone is a Host → Sandbox orchestration path (same identity, internal handshake).
    * On failure, `code` may include `NO_ACTIVE_SANDBOX_HANDSHAKE`, `MESSAGE_NOT_FOUND`,
-   * `vault_locked_or_key_provider_unbound`, `MESSAGE_CONTENT_NOT_EXTRACTABLE`,
+   * `outer_vault_or_key_provider_unavailable`, `MESSAGE_CONTENT_NOT_EXTRACTABLE`,
    * `TARGET_HANDSHAKE_REQUIRED`, or `NOT_HOST_ORCHESTRATOR` (envelope) for structured UI.
    */
   async function handleBeapInboxCloneToSandbox(

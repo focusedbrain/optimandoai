@@ -886,8 +886,8 @@ async function processBeapPackageInlineInternal(
   {
     const _validatorReady = await ensureValidatorAndSealedStorageReady('beap_receive')
     if (!_validatorReady.ok) {
-      const _reason = _validatorReady.code === 'vault_locked'
-        ? 'validator_unavailable_vault_locked'
+      const _reason = _validatorReady.code === 'outer_vault_not_ready'
+        ? 'validator_unavailable_outer_vault_not_ready'
         : _validatorReady.code
       console.log(`[BEAP_DELIVERY] validator_unavailable messageId=${rowId} reason=${_reason}`)
       return { outcome: 'error', error: _reason }
