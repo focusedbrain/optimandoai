@@ -415,12 +415,14 @@ declare global {
         targetHandshakeId?: string
         cloneReason?: 'sandbox_test' | 'external_link_or_artifact_review'
         triggeredUrl?: string
+        _cloneId?: string
       }) => Promise<CloneBeapToSandboxIpcResult>
       cloneBeapToSandbox?: (payload: {
         sourceMessageId: string
         targetHandshakeId?: string
         cloneReason?: 'sandbox_test' | 'external_link_or_artifact_review'
         triggeredUrl?: string
+        _cloneId?: string
       }) => Promise<CloneBeapToSandboxIpcResult>
     }
     /** AutoSort run CRUD + session summary (IPC). */

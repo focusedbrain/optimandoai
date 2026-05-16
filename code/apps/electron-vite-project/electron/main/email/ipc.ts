@@ -3246,9 +3246,12 @@ Rules:
           targetHandshakeId?: string
           cloneReason?: 'sandbox_test' | 'external_link_or_artifact_review'
           triggeredUrl?: string
+          _cloneId?: string
         }
       | undefined,
   ) {
+    const cloneId = (typeof payload?._cloneId === 'string' && payload._cloneId.trim()) || 'unknown'
+    console.log(`[CLONE_MAIN] received cloneId=${cloneId} sourceMessageId=${payload?.sourceMessageId ?? 'none'} targetHandshakeId=${payload?.targetHandshakeId ?? 'auto'}`)
     try {
       if (!isHostMode()) {
         return {

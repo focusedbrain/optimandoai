@@ -1487,6 +1487,7 @@ contextBridge.exposeInMainWorld('beapInbox', {
     targetHandshakeId?: string
     cloneReason?: 'sandbox_test' | 'external_link_or_artifact_review'
     triggeredUrl?: string
+    _cloneId?: string
   }) => ipcRenderer.invoke('inbox:beapInboxCloneToSandboxPrepare', payload),
   /** Product IPC: `inbox:cloneBeapToSandbox` — same prepare contract as `cloneToSandboxPrepare`. */
   cloneBeapToSandbox: (payload: {
@@ -1494,6 +1495,7 @@ contextBridge.exposeInMainWorld('beapInbox', {
     targetHandshakeId?: string
     cloneReason?: 'sandbox_test' | 'external_link_or_artifact_review'
     triggeredUrl?: string
+    _cloneId?: string
   }) => ipcRenderer.invoke('inbox:cloneBeapToSandbox', payload),
 })
 

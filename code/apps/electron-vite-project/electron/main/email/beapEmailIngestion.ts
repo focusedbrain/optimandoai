@@ -848,6 +848,14 @@ async function processBeapPackageInlineInternal(
     pkgEncoding = undefined
   }
 
+  // Detect sandbox clone early so receiver logs use [CLONE_RECEIVE] prefix.
+  const outerMetaForCloneDetect = pkg.metadata as Record<string, unknown> | undefined
+  const inboxResponsePathForCloneDetect = outerMetaForCloneDetect?.inbox_response_path as Record<string, unknown> | undefined
+  const isSandboxClone = !options.isSandboxDecryptedBlob && inboxResponsePathForCloneDetect?.sandbox_clone === true
+  if (isSandboxClone) {
+    console.log(`[CLONE_RECEIVE] ingest_received cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
+  }
+
   // ── Sandbox quarantine receive branch (Decision C) ────────────────────────
   // Only check when NOT already processing a decrypted blob (avoids re-entry).
   if (!options.isSandboxDecryptedBlob) {
@@ -902,6 +910,11 @@ async function processBeapPackageInlineInternal(
     })
     if (echoResult.outcome === 'inbox') {
       console.log(`[BEAP_DELIVERY] persist_success messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
+      if (isSandboxClone) {
+        console.log(`[CLONE_RECEIVE] persist_success cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
+        console.log(`[CLONE_RECEIVE] ui_notify_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId}`)
+        console.log(`[CLONE_RECEIVE] ack_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
+      }
     }
     return echoResult
   }
@@ -968,8 +981,13 @@ async function processBeapPackageInlineInternal(
     })
     if (resp.outcome.ok) {
       const sealed = resp.outcome.sealed
-      console.log(`[BEAP_DELIVERY] direct_message_classified messageId=${rowId} encoding=${pkgEncoding ?? 'handshake'} handshake=${handshakeId}`)
-      console.log(`[BEAP_DELIVERY] persist_attempt messageId=${rowId} handshake=${handshakeId}`)
+      if (isSandboxClone) {
+        console.log(`[CLONE_RECEIVE] classified_as_clone cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} encoding=${pkgEncoding ?? 'qBEAP'} handshake=${handshakeId}`)
+        console.log(`[CLONE_RECEIVE] persist_attempt cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
+      } else {
+        console.log(`[BEAP_DELIVERY] direct_message_classified messageId=${rowId} encoding=${pkgEncoding ?? 'handshake'} handshake=${handshakeId}`)
+        console.log(`[BEAP_DELIVERY] persist_attempt messageId=${rowId} handshake=${handshakeId}`)
+      }
       const inlineResult = writeP2PInboxRow(db, {
         rowId, handshakeId, sourceType: 'direct_beap',
         depackagedJson: sealed.canonical_json,
@@ -981,7 +999,13 @@ async function processBeapPackageInlineInternal(
         validationReason: null,
       })
       if (inlineResult.outcome === 'inbox') {
-        console.log(`[BEAP_DELIVERY] persist_success messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
+        if (isSandboxClone) {
+          console.log(`[CLONE_RECEIVE] persist_success cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
+          console.log(`[CLONE_RECEIVE] ui_notify_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId}`)
+          console.log(`[CLONE_RECEIVE] ack_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
+        } else {
+          console.log(`[BEAP_DELIVERY] persist_success messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
+        }
       }
       return inlineResult
     }
