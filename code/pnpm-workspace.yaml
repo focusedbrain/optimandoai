@@ -2,3 +2,9 @@
   - "apps/*"
   - "packages/*"
   - "!**/node_modules/**"
+
+allowBuilds:
+  better-sqlite3: true
+  canvas: true
+  esbuild: true
+  electron: true
