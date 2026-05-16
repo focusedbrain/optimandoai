@@ -1067,6 +1067,7 @@ const EMAIL_PIPELINE_COLUMN_REPAIRS: ReadonlyArray<{ table: string; column: stri
   // ── p2p_pending_beap (BEAP queue — insertPendingP2PBeap, beapEmailIngestion) ──
   { table: 'p2p_pending_beap', column: 'handshake_id', ddl: 'TEXT' },
   { table: 'p2p_pending_beap', column: 'package_json', ddl: 'TEXT' },
+  { table: 'p2p_pending_beap', column: 'raw_package', ddl: 'TEXT' },
   { table: 'p2p_pending_beap', column: 'created_at', ddl: "TEXT DEFAULT (datetime('now'))" },
   { table: 'p2p_pending_beap', column: 'processed', ddl: 'INTEGER NOT NULL DEFAULT 0' },
   // ── plain_email_inbox (plainEmailIngestion, insertPendingPlainEmail) ──
@@ -1230,11 +1231,108 @@ function getColumnNames(db: any, table: string): Set<string> {
   }
 }
 
+const P2P_PENDING_BEAP_INDEX_SQL: ReadonlyArray<string> = [
+  `CREATE INDEX IF NOT EXISTS idx_p2p_pending_beap_handshake ON p2p_pending_beap(handshake_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_p2p_pending_beap_created ON p2p_pending_beap(created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_p2p_pending_beap_processed ON p2p_pending_beap(processed)`,
+]
+
+/**
+ * Idempotent CREATE + column repair + index ensure for `p2p_pending_beap`.
+ * Must run before insert/drain/coalesced reads so Sandbox WS ingest and `processPendingP2PBeapEmails`
+ * never hit "no such table" or missing package columns when `migrateHandshakeTables` has not run yet.
+ */
+export function ensureP2PPendingBeapSchema(db: any, opts?: { silent?: boolean }): void {
+  if (!db) return
+  const silent = opts?.silent === true
+  if (!silent) console.log('[BEAP-INBOX][DB] p2p_pending_schema_begin')
+  let repaired = false
+  try {
+    if (!tableExistsInDb(db, 'p2p_pending_beap')) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS p2p_pending_beap (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          handshake_id TEXT NOT NULL,
+          package_json TEXT,
+          raw_package TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          processed INTEGER NOT NULL DEFAULT 0
+        )
+      `)
+      repaired = true
+    }
+
+    let cols = getColumnNames(db, 'p2p_pending_beap')
+    if (cols.size === 0 && tableExistsInDb(db, 'p2p_pending_beap')) {
+      throw new Error('p2p_pending_beap: PRAGMA table_info returned no columns')
+    }
+
+    const addColumn = (name: string, ddl: string) => {
+      if (cols.has(name)) return
+      try {
+        db.exec(`ALTER TABLE p2p_pending_beap ADD COLUMN ${name} ${ddl}`)
+        cols.add(name)
+        repaired = true
+      } catch (e: any) {
+        const msg = e?.message ?? String(e)
+        if (msg.includes('duplicate column') || msg.includes('duplicate column name')) return
+        throw e
+      }
+    }
+
+    addColumn('handshake_id', 'TEXT')
+    addColumn('package_json', 'TEXT')
+    addColumn('raw_package', 'TEXT')
+    addColumn('created_at', "TEXT DEFAULT (datetime('now'))")
+    addColumn('processed', 'INTEGER NOT NULL DEFAULT 0')
+
+    cols = getColumnNames(db, 'p2p_pending_beap')
+    if (cols.has('package_json') && cols.has('raw_package')) {
+      try {
+        const upd = db.prepare(
+          `UPDATE p2p_pending_beap SET package_json = raw_package
+           WHERE (package_json IS NULL OR TRIM(COALESCE(package_json, '')) = '')
+             AND raw_package IS NOT NULL
+             AND TRIM(COALESCE(raw_package, '')) != ''`,
+        )
+        const info = upd.run()
+        const n = typeof info?.changes === 'number' ? info.changes : 0
+        if (n > 0) {
+          repaired = true
+        }
+      } catch {
+        /* non-fatal */
+      }
+    }
+
+    for (const sql of P2P_PENDING_BEAP_INDEX_SQL) {
+      try {
+        db.prepare(sql).run()
+      } catch (e: any) {
+        const msg = e?.message ?? String(e)
+        if (msg.includes('already exists') || msg.includes('duplicate')) continue
+        throw e
+      }
+    }
+
+    if (repaired) {
+      console.log('[BEAP-INBOX][DB] p2p_pending_schema_repaired')
+    } else if (!silent) {
+      console.log('[BEAP-INBOX][DB] p2p_pending_schema_ok')
+    }
+  } catch (e: any) {
+    console.error('[BEAP-INBOX][DB] p2p_pending_schema_failed', e?.message ?? e)
+    throw e
+  }
+}
+
 /**
  * Idempotent repairs after versioned migrations — fixes `CREATE IF NOT EXISTS` gaps.
  */
 export function ensureEmailPipelineSchemaRepairs(db: any): void {
   if (!db) return
+
+  ensureP2PPendingBeapSchema(db, { silent: true })
 
   const columnCache = new Map<string, Set<string>>()
   const colsFor = (table: string): Set<string> => {
@@ -1274,6 +1372,8 @@ export function ensureEmailPipelineSchemaRepairs(db: any): void {
 }
 
 export function migrateHandshakeTables(db: any): void {
+  if (!db) return
+  ensureP2PPendingBeapSchema(db, { silent: true })
   // Ensure migrations table exists first
   try {
     db.prepare(`CREATE TABLE IF NOT EXISTS handshake_schema_migrations (
@@ -1792,11 +1892,17 @@ export function needsCanonicalRelayDeviceIdForCoordination(db: any): boolean {
  */
 export function getP2pPendingPackageJsonsForHandshake(db: any, handshakeId: string): string[] {
   try {
+    ensureP2PPendingBeapSchema(db, { silent: true })
     const cols = getColumnNames(db, 'p2p_pending_beap')
     if (!cols.has('package_json') && !cols.has('raw_package')) return []
-    const col = cols.has('package_json') ? 'package_json' : 'raw_package'
+    const pkgExpr =
+      cols.has('raw_package') && cols.has('package_json')
+        ? 'COALESCE(package_json, raw_package)'
+        : cols.has('package_json')
+          ? 'package_json'
+          : 'raw_package'
     const rows = db.prepare(
-      `SELECT ${col} AS j FROM p2p_pending_beap WHERE handshake_id = ? AND trim(coalesce(${col},'')) != ''`,
+      `SELECT ${pkgExpr} AS j FROM p2p_pending_beap WHERE handshake_id = ? AND trim(coalesce(${pkgExpr},'')) != ''`,
     ).all(handshakeId) as Array<{ j: string }>
     return rows.map((r) => r.j)
   } catch {
@@ -1918,6 +2024,11 @@ export function insertAuditLogEntry(db: any, entry: AuditLogEntry): void {
 // ── P2P Pending BEAP ──
 
 export function insertPendingP2PBeap(db: any, handshakeId: string, packageJson: string): void {
+  ensureP2PPendingBeapSchema(db)
+  console.log('[BEAP-INBOX][DB] insert_pending_begin', {
+    handshake_id: handshakeId,
+    package_len: typeof packageJson === 'string' ? packageJson.length : 0,
+  })
   const now = new Date().toISOString()
   const cols = getColumnNames(db, 'p2p_pending_beap')
   const columns: string[] = []
@@ -1979,9 +2090,18 @@ export function insertPendingP2PBeap(db: any, handshakeId: string, packageJson: 
     throw new Error('p2p_pending_beap: no insertable columns')
   }
   console.log('[P2P-RECV] insertPendingP2PBeap columns:', columns.join(', '))
-  db.prepare(
-    `INSERT INTO p2p_pending_beap (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`
-  ).run(...values)
+  try {
+    db.prepare(
+      `INSERT INTO p2p_pending_beap (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+    ).run(...values)
+    console.log('[BEAP-INBOX][DB] insert_pending_ok', { handshake_id: handshakeId })
+  } catch (e: any) {
+    console.error('[BEAP-INBOX][DB] insert_pending_failed', {
+      handshake_id: handshakeId,
+      error: e?.message ?? String(e),
+    })
+    throw e
+  }
 }
 
 export interface PendingP2PBeapEntry {
@@ -1993,6 +2113,11 @@ export interface PendingP2PBeapEntry {
 
 export function getPendingP2PBeapMessages(db: any): PendingP2PBeapEntry[] {
   if (!db) return []
+  try {
+    ensureP2PPendingBeapSchema(db, { silent: true })
+  } catch {
+    return []
+  }
   try {
     const cols = getColumnNames(db, 'p2p_pending_beap')
     const pkgExpr =
@@ -2020,6 +2145,7 @@ export function getPendingP2PBeapMessages(db: any): PendingP2PBeapEntry[] {
 export function markP2PPendingBeapProcessed(db: any, id: number): void {
   if (!db) return
   try {
+    ensureP2PPendingBeapSchema(db, { silent: true })
     db.prepare('UPDATE p2p_pending_beap SET processed = 1 WHERE id = ?').run(id)
   } catch { /* non-fatal */ }
 }
@@ -2027,6 +2153,7 @@ export function markP2PPendingBeapProcessed(db: any, id: number): void {
 export function deletePendingP2PBeap(db: any, id: number): void {
   if (!db) return
   try {
+    ensureP2PPendingBeapSchema(db, { silent: true })
     db.prepare('DELETE FROM p2p_pending_beap WHERE id = ?').run(id)
   } catch { /* non-fatal */ }
 }

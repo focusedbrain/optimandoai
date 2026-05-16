@@ -17,7 +17,7 @@
 import { createHash, randomUUID } from 'crypto'
 
 import { decryptQBeapPackage } from '../beap/decryptQBeapPackage'
-import { getHandshakeRecord, migrateHandshakeTables } from '../handshake/db'
+import { getHandshakeRecord, migrateHandshakeTables, ensureP2PPendingBeapSchema } from '../handshake/db'
 import { evaluateAutoresponder } from '../beap/autoresponderEvaluator'
 import { logAutoresponderDecision } from '../beap/autoresponderAudit'
 import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
@@ -684,6 +684,7 @@ export async function retryPendingQbeapDecrypt(db: any): Promise<number> {
     body_text: string | null
   }>
   try {
+    ensureP2PPendingBeapSchema(db)
     try {
       migrateHandshakeTables(db)
     } catch (mig: unknown) {
@@ -766,6 +767,12 @@ export async function retryPendingQbeapDecrypt(db: any): Promise<number> {
  */
 export async function processPendingP2PBeapEmails(db: any): Promise<number> {
   if (!db) return 0
+
+  try {
+    ensureP2PPendingBeapSchema(db)
+  } catch {
+    return 0
+  }
 
   try {
     migrateHandshakeTables(db)
