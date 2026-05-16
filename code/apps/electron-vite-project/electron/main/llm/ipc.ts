@@ -7,6 +7,15 @@ import { ipcMain, IpcMainInvokeEvent } from 'electron'
 import { hardwareService } from './hardware'
 import { ollamaManager } from './ollama-manager'
 import { getGpuStatus } from '../inference/gpuStatus'
+import { isGpuInferenceAvailable } from '../inference/inferenceGate'
+import {
+  isCpuSafeModel,
+  resolveInferenceCapabilityFromInput,
+} from '../inference/inferenceCapabilityResolver'
+import {
+  isEffectiveSandboxSideForAiExecution,
+  fallbackFromListSandbox,
+} from './resolveAiExecutionContext'
 import { DEBUG_ACTIVE_OLLAMA_MODEL } from './activeOllamaModelStore'
 import { broadcastActiveOllamaModelChanged } from './broadcastActiveModel'
 import { MODEL_CATALOG, getModelConfig } from './config'
@@ -337,5 +346,81 @@ export function registerLlmHandlers() {
     }
   })
   
+  /**
+   * Tier-ranked inference capability for UI display.
+   *
+   * Resolution order:
+   *   1. remote-host  — sandbox + healthy paired host
+   *   2. local-gpu    — local Ollama with GPU offload
+   *   3. local-cpu    — local Ollama + CPU-safe model
+   *   4. unavailable  — none of the above
+   *
+   * The badge/status component should call this instead of `getGpuStatus()`
+   * directly so the UI reflects the actual inference routing, not just GPU
+   * hardware presence.
+   */
+  ipcMain.handle('llm:resolveInferenceCapability', async () => {
+    try {
+      const [isSandbox, gpuAvailable, modelName] = await Promise.all([
+        isEffectiveSandboxSideForAiExecution(),
+        isGpuInferenceAvailable(),
+        ollamaManager.getEffectiveChatModelName(),
+      ])
+
+      let remoteContext: {
+        modelName?: string | null
+        baseUrl?: string | null
+        handshakeId?: string | null
+        peerDeviceId?: string | null
+      } | null = null
+
+      if (isSandbox) {
+        const fb = await fallbackFromListSandbox()
+        if (fb) {
+          remoteContext = {
+            modelName: fb.model,
+            baseUrl: fb.baseUrl ?? null,
+            handshakeId: fb.handshakeId ?? null,
+            peerDeviceId: fb.peerDeviceId ?? null,
+          }
+        }
+      }
+
+      // For CPU detection: GPU probe may stop early on platforms without NVIDIA
+      // and report ollamaRunning:false even when Ollama IS running.  Do a
+      // lightweight independent health-check so we don't block CPU-safe models.
+      let ollamaRunning = gpuAvailable // if GPU probe reached Ollama it is obviously running
+      if (!ollamaRunning) {
+        try {
+          const base = ollamaManager.getBaseUrl().replace(/\/$/, '')
+          const r = await fetch(`${base}/api/version`, {
+            signal: AbortSignal.timeout(3_000),
+          })
+          ollamaRunning = r.ok
+        } catch {
+          ollamaRunning = false
+        }
+      }
+
+      const allowCpuOverride =
+        (process.env.WRDESK_ALLOW_CPU_INFERENCE ?? '').trim() === '1' ||
+        /^true$/i.test(process.env.WRDESK_ALLOW_CPU_INFERENCE ?? '')
+
+      const result = resolveInferenceCapabilityFromInput({
+        isSandbox,
+        remoteContext,
+        gpuAvailable,
+        ollamaRunning,
+        modelName: modelName ?? null,
+        allowCpuOverride,
+      })
+      return { ok: true as const, data: result }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err ?? 'unknown')
+      console.error('[LLM IPC] resolveInferenceCapability failed:', err)
+      return { ok: false as const, error: msg }
+    }
+  })
+
   console.log('[LLM IPC] Handlers registered successfully')
 }
