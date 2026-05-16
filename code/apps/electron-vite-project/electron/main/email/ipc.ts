@@ -26,7 +26,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { fileURLToPath } from 'node:url'
 import { extractInboxMessageRedirectSourceFromRow } from './beapRedirectSource'
-import { prepareBeapInboxSandboxClone } from './beapInboxClonePrepare'
+import { ensureSealedStorageReadyForSandboxClone, prepareBeapInboxSandboxClone } from './beapInboxClonePrepare'
 import { isHostMode } from '../orchestrator/orchestratorModeStore'
 
 /** Per-call ⚡ logs for `inbox:aiAnalyzeMessage` — keep false in production. */
@@ -3230,12 +3230,15 @@ Rules:
   })
 
   /**
-   * Validate internal sandbox target, and extract cloneable plaintext (ledger + SSO session; no vault unlock).
-   * Does not build or send the BEAP package (renderer uses BeapPackageBuilder + executeDeliveryAction).
+   * Validate internal sandbox target, and extract cloneable plaintext (ledger + SSO session).
+   * Source inbox rows are read via `sealedQuery` — requires vault unlocked + validator seal gate
+   * (`ensureSealedStorageReadyForSandboxClone` before prepare). Does not build or send the BEAP
+   * package (renderer uses BeapPackageBuilder + executeDeliveryAction).
    * `inbox:cloneBeapToSandbox` is the product channel name; both invoke the same logic.
    *
    * Host only: clone is a Host → Sandbox orchestration path (same identity, internal handshake).
-   * On failure, `code` may include `NO_ACTIVE_SANDBOX_HANDSHAKE`, `MESSAGE_NOT_FOUND`, `MESSAGE_CONTENT_NOT_EXTRACTABLE`,
+   * On failure, `code` may include `NO_ACTIVE_SANDBOX_HANDSHAKE`, `MESSAGE_NOT_FOUND`,
+   * `vault_locked_or_key_provider_unbound`, `MESSAGE_CONTENT_NOT_EXTRACTABLE`,
    * `TARGET_HANDSHAKE_REQUIRED`, or `NOT_HOST_ORCHESTRATOR` (envelope) for structured UI.
    */
   async function handleBeapInboxCloneToSandbox(
@@ -3294,15 +3297,28 @@ Rules:
 
       const cr = payload?.cloneReason
       const tu = typeof payload?.triggeredUrl === 'string' ? payload.triggeredUrl.trim() : ''
-      const cloneOptions =
+      console.log(`[CLONE_PREPARE] start cloneId=${cloneId} sourceMessageId=${srcId} targetHandshakeId=${tgt ?? 'auto'}`)
+
+      const sealGate = await ensureSealedStorageReadyForSandboxClone(cloneId)
+      if (!sealGate.ok) {
+        console.log(`[CLONE_PREPARE] failed cloneId=${cloneId} reason=${sealGate.error} code=${sealGate.code}`)
+        return {
+          success: false,
+          error: sealGate.error,
+          code: sealGate.code,
+        }
+      }
+
+      const cloneOptsMerged =
         cr === 'external_link_or_artifact_review'
           ? {
               clone_reason: 'external_link_or_artifact_review' as const,
               ...(tu ? { triggered_url: tu } : {}),
+              clone_audit_id: cloneId,
             }
-          : undefined
-      console.log(`[CLONE_PREPARE] start cloneId=${cloneId} sourceMessageId=${srcId} targetHandshakeId=${tgt ?? 'auto'}`)
-      const prep = prepareBeapInboxSandboxClone(db, session, srcId, tgt, accountTag, cloneOptions)
+          : { clone_audit_id: cloneId }
+
+      const prep = prepareBeapInboxSandboxClone(db, session, srcId, tgt, accountTag, cloneOptsMerged)
       if (!prep.ok) {
         const failCode = prep.code != null ? String(prep.code) : 'none'
         const failMsg = typeof prep.error === 'string' ? prep.error : 'prepare_failed'

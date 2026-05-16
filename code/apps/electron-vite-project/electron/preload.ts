@@ -1480,7 +1480,7 @@ contextBridge.exposeInMainWorld('emailInbox', {
     ipcRenderer.invoke('inbox:reconcileImapRemoteLifecycle', accountId),
 })
 
-/** BEAP inbox automation helpers (vault-gated; main validates + extract only for sandbox clone). */
+/** BEAP inbox automation helpers (`inbox:cloneBeapToSandbox`): sealed inbox reads require unlocked vault + validator seal gate on main before extract + sandbox clone prepare. */
 contextBridge.exposeInMainWorld('beapInbox', {
   cloneToSandboxPrepare: (payload: {
     sourceMessageId: string

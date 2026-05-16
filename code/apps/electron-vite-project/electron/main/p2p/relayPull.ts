@@ -167,14 +167,22 @@ export async function pullFromRelay(
           })
           if (r.outcome === 'inbox') {
             console.log('[P2P-RECV] BEAP message sealed into inbox (relay pull)', handshakeId)
+            accepted++
+            idsToAck.push(cap.id)
           } else if (r.outcome === 'quarantine') {
             console.log('[P2P-RECV] BEAP message quarantined (relay pull)', handshakeId)
+            accepted++
+            idsToAck.push(cap.id)
           } else {
-            console.warn('[P2P-RECV] BEAP inline processing failed (relay pull)', handshakeId, r.error)
+            const failReason = r.error ?? 'processing_failed'
+            console.warn('[P2P-RECV] BEAP inline processing failed (relay pull)', handshakeId, failReason)
+            console.log(`[RELAY_PULL] relay_ack_not_sent relayId=${cap.id} reason=${failReason}`)
+            rejected++
           }
-          accepted++
-          idsToAck.push(cap.id)
-        } catch {
+        } catch (err: unknown) {
+          const reason = err instanceof Error ? err.message : String(err)
+          console.warn('[P2P-RECV] BEAP inline processing threw (relay pull)', handshakeId, reason)
+          console.log(`[RELAY_PULL] relay_ack_not_sent relayId=${cap.id} reason=${reason}`)
           rejected++
         }
         continue

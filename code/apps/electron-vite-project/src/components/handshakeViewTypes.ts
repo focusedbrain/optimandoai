@@ -408,7 +408,7 @@ declare global {
     }
     /** Email Inbox IPC bridge (inbox_messages, sync, deletion, attachments, AI placeholders) */
     emailInbox?: EmailInboxBridge
-    /** BEAP inbox → sandbox: `inbox:cloneBeapToSandbox` / `inbox:beapInboxCloneToSandboxPrepare` (ledger + session; no vault unlock; no ciphertext in prepare). */
+    /** BEAP inbox → sandbox: `inbox:cloneBeapToSandbox` — sealed source read requires unlocked vault + validator seal gate; main extracts plaintext only (renderer builds qBEAP). */
     beapInbox?: {
       cloneToSandboxPrepare: (payload: {
         sourceMessageId: string

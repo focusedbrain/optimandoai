@@ -5,7 +5,7 @@
  * Receives capsules via push, sends ACKs after processing, auto-reconnects on disconnect.
  */
 
-import { createHash } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import WebSocket from 'ws'
 import type { P2PConfig } from './p2pConfig'
 import type { SSOSession } from '../handshake/types'
@@ -288,28 +288,47 @@ async function processCapsuleInternal(
           ? ((msgCapsule.header as Record<string, unknown>)?.receiver_binding as Record<string, unknown>)?.handshake_id as string
           : undefined)?.trim() ||
         '__relay_message__'
-      const capsuleJson = typeof capsule === 'string' ? capsule : JSON.stringify(capsule)
-      if (db) {
-        processBeapPackageInline(db, capsuleJson, handshakeId, {
+      const ingestMsgId = randomUUID()
+      console.log(
+        `[BEAP_MSG_RECEIVE] ingest_received messageId=${ingestMsgId} relayId=${id} handshake=${handshakeId} transport=coordination_ws`,
+      )
+      if (!db) {
+        console.log(`[COORDINATION_WS] relay_ack_not_sent relayId=${id} reason=no_db`)
+        return
+      }
+      console.log(`[BEAP_MSG_RECEIVE] validation_started messageId=${ingestMsgId}`)
+      let r: Awaited<ReturnType<typeof processBeapPackageInline>>
+      try {
+        r = await processBeapPackageInline(db, capsuleJson, handshakeId, {
           session: ssoSession,
           sourceType: 'coordination_ws',
           receivedAt: new Date().toISOString(),
-        }).then((r) => {
-          if (r.outcome === 'inbox') {
-            const rowId = r.rowId ?? 'unknown'
-            console.log('[Coordination] BEAP message sealed into inbox, handshake=', handshakeId)
-            console.log(`[BEAP_MSG_RECEIVE] ack_sent messageId=coord-${handshakeId.slice(0, 8)} handshake=${handshakeId} rowId=${rowId}`)
-          } else if (r.outcome === 'quarantine') {
-            console.log('[Coordination] BEAP message quarantined, handshake=', handshakeId)
-          } else {
-            console.warn('[Coordination] BEAP inline processing failed, handshake=', handshakeId, r.error)
-          }
-        }).catch((err: any) => {
-          console.error('[Coordination] processBeapPackageInline failed:', err?.message ?? err)
         })
+      } catch (err: unknown) {
+        const reason = err instanceof Error ? err.message : String(err)
+        console.error('[Coordination] processBeapPackageInline failed:', reason)
+        console.log(`[COORDINATION_WS] relay_ack_not_sent relayId=${id} reason=${reason}`)
+        return
       }
-      setP2PHealthCoordinationLastPush()
-      sendAckFn([id])
+
+      if (r.outcome === 'inbox') {
+        console.log('[Coordination] BEAP message sealed into inbox, handshake=', handshakeId)
+        setP2PHealthCoordinationLastPush()
+        console.log(`[COORDINATION_WS] relay_ack_sent_after_persist relayId=${id} outcome=inbox`)
+        sendAckFn([id])
+        return
+      }
+      if (r.outcome === 'quarantine') {
+        console.log('[Coordination] BEAP message quarantined, handshake=', handshakeId)
+        setP2PHealthCoordinationLastPush()
+        console.log(`[COORDINATION_WS] relay_ack_sent_after_persist relayId=${id} outcome=quarantine`)
+        sendAckFn([id])
+        return
+      }
+
+      const failReason = r.error ?? 'processing_failed'
+      console.warn('[Coordination] BEAP inline processing failed, handshake=', handshakeId, failReason)
+      console.log(`[COORDINATION_WS] relay_ack_not_sent relayId=${id} reason=${failReason}`)
       return
     }
     if (distribution.target !== 'handshake_pipeline') {

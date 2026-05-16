@@ -1,12 +1,15 @@
 /**
  * Validate + extract plaintext for BEAP inbox → internal sandbox clone (new package in renderer; no wire reuse).
+ * Source rows are read **only** via `sealedQuery` (vault-unlocked seal gate — see `ensureSealedStorageReadyForSandboxClone`).
  * Eligibility: internal ACTIVE host↔sandbox, same identity, peer sandbox role, keys + relay (see internalSandboxesApi).
  */
 
 import { extractInboxMessageRedirectSourceFromRow } from './beapRedirectSource'
 import { getHandshakeRecord } from '../handshake/db'
 import { resolveInboxReplyMode } from '../../../src/lib/inboxAiCloneClassification'
-import { sealedQuery } from '../sealed-storage'
+import { isKeyProviderBound, sealedQuery, SealVerificationError } from '../sealed-storage'
+import { validatorOrchestrator } from '../validator-process/orchestrator'
+import { vaultService } from '../vault/service'
 import {
   isEligibleActiveInternalHostSandboxRecord,
   listAvailableInternalSandboxes,
@@ -60,9 +63,11 @@ export type BeapInboxClonePrepareOk = {
 }
 
 export type BeapInboxClonePrepareOptions = {
-  clone_reason: 'sandbox_test' | 'external_link_or_artifact_review'
+  clone_reason?: 'sandbox_test' | 'external_link_or_artifact_review'
   /** URL the user was about to open; embedded in provenance (not a wire reuse). */
   triggered_url?: string
+  /** Correlates `[CLONE_PREPARE]` logs with renderer `_cloneId` / IPC clone id. */
+  clone_audit_id?: string
 }
 
 /** Structured failure for `inbox:cloneBeapToSandbox` / prepare (UI + logs). */
@@ -74,6 +79,99 @@ export type BeapInboxCloneErrorCode =
   | 'TARGET_HANDSHAKE_REQUIRED'
   | 'SANDBOX_TARGET_NOT_CONNECTED'
   | 'PREPARE_FAILED'
+  /** Vault locked or validator seal gate not bound — sealed inbox reads require an unlocked vault + bound key provider. */
+  | 'vault_locked_or_key_provider_unbound'
+
+/** User-facing copy when sealed-storage gate blocks clone prepare (avoid leaking gate internals). */
+export const CLONE_PREPARE_SEAL_GATE_USER_MESSAGE =
+  'Vault must be unlocked before cloning this message.'
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+export type ClonePrepareSealGateResult =
+  | { ok: true }
+  | { ok: false; code: 'vault_locked_or_key_provider_unbound'; error: string }
+
+/**
+ * Preflight for sandbox clone prepare: sealedQuery requires `bindKeyProvider`
+ * (wired when `ValidatorOrchestrator.start` completes after vault unlock/create).
+ *
+ * - If vault is locked → fail closed with `vault_locked_or_key_provider_unbound`.
+ * - If another path already bound the provider → succeed immediately.
+ * - Otherwise poll briefly for an in-flight `validatorOrchestrator.start` from vault RPC,
+ *   then invoke `start` when still unbound (handles races with duplicate start throws).
+ */
+export async function ensureSealedStorageReadyForSandboxClone(cloneId: string): Promise<ClonePrepareSealGateResult> {
+  const status = vaultService.getStatus()
+  if (!status?.isUnlocked) {
+    console.log(
+      `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=vault_locked_or_key_provider_unbound`,
+    )
+    return {
+      ok: false,
+      code: 'vault_locked_or_key_provider_unbound',
+      error: CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
+    }
+  }
+
+  if (isKeyProviderBound()) {
+    console.log(`[CLONE_PREPARE] sealed_storage_ready cloneId=${cloneId} ready=true`)
+    return { ok: true }
+  }
+
+  const pollMs = 50
+  const waitInFlightMs = 10_000
+  const deadlinePoll = Date.now() + waitInFlightMs
+  while (Date.now() < deadlinePoll) {
+    if (isKeyProviderBound()) {
+      console.log(`[CLONE_PREPARE] sealed_storage_ready cloneId=${cloneId} ready=true`)
+      return { ok: true }
+    }
+    await delay(pollMs)
+  }
+
+  try {
+    await validatorOrchestrator.start(vaultService)
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('Subprocess already running')) {
+      const deadlineDup = Date.now() + 3_000
+      while (Date.now() < deadlineDup) {
+        if (isKeyProviderBound()) {
+          console.log(`[CLONE_PREPARE] sealed_storage_ready cloneId=${cloneId} ready=true`)
+          return { ok: true }
+        }
+        await delay(pollMs)
+      }
+    } else {
+      console.warn('[CLONE_PREPARE] validatorOrchestrator.start failed during clone seal gate:', msg)
+    }
+    console.log(
+      `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=vault_locked_or_key_provider_unbound`,
+    )
+    return {
+      ok: false,
+      code: 'vault_locked_or_key_provider_unbound',
+      error: CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
+    }
+  }
+
+  if (!isKeyProviderBound()) {
+    console.log(
+      `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=vault_locked_or_key_provider_unbound`,
+    )
+    return {
+      ok: false,
+      code: 'vault_locked_or_key_provider_unbound',
+      error: CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
+    }
+  }
+
+  console.log(`[CLONE_PREPARE] sealed_storage_ready cloneId=${cloneId} ready=true`)
+  return { ok: true }
+}
 
 export type BeapInboxCloneNoSandboxDetails = {
   eligible_count: 0
@@ -112,12 +210,14 @@ export function prepareBeapInboxSandboxClone(
     return { ok: false, error: 'sourceMessageId is required' }
   }
 
+  const auditCloneId = cloneOptions?.clone_audit_id ?? 'unknown'
+
   // B-9 Decision B: source read goes through sealedQuery so the parent seal is
   // verified and tampered rows are filtered before their content is extracted.
   // A tampered row returns an empty array → MESSAGE_NOT_FOUND → no clone.
   // seal and seal_input_json are included in the SELECT so sealedQuery can
   // verify the HMAC; they are not used by the prepare logic itself.
-  const sealedRows = sealedQuery<{
+  let sealedRows: Array<{
     id: string
     source_type?: string | null
     handshake_id?: string | null
@@ -133,24 +233,39 @@ export function prepareBeapInboxSandboxClone(
     ingested_at?: string | null
     seal: string
     seal_input_json: string
-  }>(
-    db,
-    // PR 5.2 / Step A: include depackaged_metadata so the prepare function can
-    // use it for format-based routing and artefact extraction fallbacks.
-    `SELECT id, source_type, handshake_id, subject, body_text,
-            depackaged_json, depackaged_metadata,
-            beap_package_json, has_attachments, from_address,
-            account_id, received_at, ingested_at,
-            seal, seal_input_json
-     FROM inbox_messages WHERE id = ?`,
-    [srcId],
-    'depackaged_json',
-  )
+  }>
+  try {
+    sealedRows = sealedQuery(
+      db,
+      // PR 5.2 / Step A: include depackaged_metadata so the prepare function can
+      // use it for format-based routing and artefact extraction fallbacks.
+      `SELECT id, source_type, handshake_id, subject, body_text,
+              depackaged_json, depackaged_metadata,
+              beap_package_json, has_attachments, from_address,
+              account_id, received_at, ingested_at,
+              seal, seal_input_json
+       FROM inbox_messages WHERE id = ?`,
+      [srcId],
+      'depackaged_json',
+    )
+  } catch (err: unknown) {
+    if (err instanceof SealVerificationError) {
+      console.warn('[CLONE_PREPARE] sealedQuery SealVerificationError:', err.message)
+      return {
+        ok: false,
+        code: 'vault_locked_or_key_provider_unbound',
+        error: CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
+      }
+    }
+    throw err
+  }
   const row = sealedRows[0]
 
   if (!row) {
     return { ok: false, code: 'MESSAGE_NOT_FOUND', error: 'Inbox message was not found.' }
   }
+
+  console.log(`[CLONE_PREPARE] source_loaded cloneId=${auditCloneId} sourceMessageId=${srcId}`)
 
   const list = listAvailableInternalSandboxes(db, session)
   if (!list.success) {
