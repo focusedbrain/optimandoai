@@ -1161,6 +1161,53 @@ process.on('SIGINT', () => {
 })
 
 // Handle uncaught exceptions to prevent crashes
+function serializeUnknownRejectionReason(reason: unknown): string {
+  if (reason == null) return String(reason)
+  if (reason instanceof Error) {
+    const any = reason as NodeJS.ErrnoException & { code?: string }
+    const payload: Record<string, unknown> = {
+      name: reason.name,
+      message: reason.message,
+      stack: reason.stack,
+    }
+    if (any.code != null) payload.code = any.code
+    if (any.errno != null) payload.errno = any.errno
+    if (reason.cause instanceof Error) {
+      const cCode = (reason.cause as NodeJS.ErrnoException).code
+      payload.cause = {
+        name: reason.cause.name,
+        message: reason.cause.message,
+        stack: reason.cause.stack,
+        ...(cCode != null ? { code: cCode } : {}),
+      }
+    } else if (reason.cause != null) {
+      payload.cause = reason.cause
+    }
+    try {
+      return JSON.stringify(payload)
+    } catch {
+      return `${reason.name}: ${reason.message}`
+    }
+  }
+  if (typeof reason === 'object') {
+    try {
+      const o = reason as Record<string, unknown>
+      const snapshot: Record<string, unknown> = { kind: 'object' }
+      for (const k of Object.getOwnPropertyNames(o)) {
+        try {
+          snapshot[k] = (o as Record<string, unknown> & { [key: string]: unknown })[k]
+        } catch {
+          snapshot[k] = '[unreadable]'
+        }
+      }
+      return JSON.stringify(snapshot)
+    } catch {
+      return String(reason)
+    }
+  }
+  return String(reason)
+}
+
 process.on('uncaughtException', (err: any) => {
   // Silently ignore EPIPE errors (broken stdout/stderr pipe from background terminal)
   if (err?.code === 'EPIPE') return
@@ -1172,8 +1219,12 @@ process.on('uncaughtException', (err: any) => {
 })
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('[MAIN] Unhandled rejection at:', promise, 'reason:', reason)
-  // Don't exit - try to keep running
+  console.error(
+    '[MAIN] Unhandled rejection:',
+    serializeUnknownRejectionReason(reason),
+    'promise:',
+    promise,
+  )
 })
 
 
@@ -2503,20 +2554,6 @@ app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('disable-gpu')
 app.commandLine.appendSwitch('disable-gpu-compositing')
 app.commandLine.appendSwitch('no-sandbox')
-
-// Add crash handlers
-process.on('uncaughtException', (error: any) => {
-  // Silently ignore EPIPE errors (broken stdout/stderr pipe from background terminal)
-  if (error?.code === 'EPIPE') return
-  const detail = error instanceof Error
-    ? `${error.message}\n${error.stack}`
-    : JSON.stringify(error, Object.getOwnPropertyNames(error || {}))
-  console.error('[MAIN] Uncaught exception:', detail)
-})
-
-process.on('unhandledRejection', (reason) => {
-  console.error('[MAIN] Unhandled rejection:', reason)
-})
 
 // Prevent app from quitting when all windows are closed
 app.on('window-all-closed', () => {
@@ -11198,16 +11235,17 @@ async function runDeviceKeyMigration(
       broadcastToExtensions({ type: 'P2P_BEAP_RECEIVED', handshakeId })
       const db = getHandshakeDb()
       if (!db) return
-      try {
-        void processPendingP2PBeapEmails(db).then((n) => {
+      void processPendingP2PBeapEmails(db)
+        .then((n) => {
           if (n > 0) notifyBeapInboxDashboard(handshakeId)
-          void retryPendingQbeapDecrypt(db).then((r) => {
-            if (r > 0) notifyBeapInboxDashboard(handshakeId)
-          })
+          return retryPendingQbeapDecrypt(db)
         })
-      } catch (e: unknown) {
-        console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
-      }
+        .then((r) => {
+          if (r > 0) notifyBeapInboxDashboard(handshakeId)
+        })
+        .catch((e) => {
+          console.error('[BEAP-INBOX] processPending/retry chain failed:', serializeUnknownRejectionReason(e))
+        })
     })
 
     async function getOidcToken(): Promise<string | null> {
@@ -11300,16 +11338,17 @@ async function runDeviceKeyMigration(
             console.warn('[HANDSHAKE_HEALTH] import_failed', (e as Error)?.message ?? e)
           })
       }
-      try {
-        void processPendingP2PBeapEmails(handshakeDb).then((drained) => {
+      void processPendingP2PBeapEmails(handshakeDb)
+        .then((drained) => {
           if (drained > 0) notifyBeapInboxDashboard(null)
-          void retryPendingQbeapDecrypt(handshakeDb).then((r) => {
-            if (r > 0) notifyBeapInboxDashboard(null)
-          })
+          return retryPendingQbeapDecrypt(handshakeDb)
         })
-      } catch (e: unknown) {
-        console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
-      }
+        .then((r) => {
+          if (r > 0) notifyBeapInboxDashboard(null)
+        })
+        .catch((e) => {
+          console.error('[BEAP-INBOX] processPending/retry chain failed:', serializeUnknownRejectionReason(e))
+        })
       processOutboundQueue(handshakeDb, getOidcToken).catch((err) => {
         console.warn('[P2P] processOutboundQueue error:', err?.message)
       })

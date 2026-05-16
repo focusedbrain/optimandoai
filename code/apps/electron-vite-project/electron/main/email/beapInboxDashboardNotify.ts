@@ -10,9 +10,11 @@ export function setBeapInboxDashboardNotifier(fn: (handshakeId: string | null) =
 }
 
 export function notifyBeapInboxDashboard(handshakeId: string | null): void {
+  console.log('[BEAP-INBOX][UI] refresh_requested', { handshakeId })
   try {
     _notify?.(handshakeId)
-  } catch {
-    /* non-fatal */
+    console.log('[BEAP-INBOX][UI] refresh_done', { handshakeId })
+  } catch (e) {
+    console.warn('[BEAP-INBOX][UI] refresh_failed', { handshakeId, error: (e as Error)?.message ?? e })
   }
 }

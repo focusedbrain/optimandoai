@@ -17,7 +17,7 @@
 import { createHash, randomUUID } from 'crypto'
 
 import { decryptQBeapPackage } from '../beap/decryptQBeapPackage'
-import { getHandshakeRecord } from '../handshake/db'
+import { getHandshakeRecord, migrateHandshakeTables } from '../handshake/db'
 import { evaluateAutoresponder } from '../beap/autoresponderEvaluator'
 import { logAutoresponderDecision } from '../beap/autoresponderAudit'
 import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
@@ -27,6 +27,81 @@ const BATCH_SIZE = 100
 
 /** Sentinel account_id for P2P-ingested rows (no email account). */
 const P2P_BEAP_ACCOUNT_ID = '__p2p_beap__'
+
+export function formatBeapInboxDbError(err: unknown): string {
+  if (err == null) return String(err)
+  if (err instanceof Error) {
+    const any = err as NodeJS.ErrnoException & { code?: string }
+    const payload: Record<string, unknown> = {
+      name: err.name,
+      message: err.message,
+      stack: err.stack,
+    }
+    if (any.code != null) payload.code = any.code
+    if (any.errno != null) payload.errno = any.errno
+    if (err.cause instanceof Error) {
+      const cCode = (err.cause as NodeJS.ErrnoException).code
+      payload.cause = {
+        name: err.cause.name,
+        message: err.cause.message,
+        stack: err.cause.stack,
+        ...(cCode != null ? { code: cCode } : {}),
+      }
+    } else if (err.cause != null) {
+      payload.cause = err.cause
+    }
+    try {
+      return JSON.stringify(payload)
+    } catch {
+      return `${err.name}: ${err.message}`
+    }
+  }
+  if (typeof err === 'object') {
+    try {
+      const o = err as Record<string, unknown>
+      const snapshot: Record<string, unknown> = {}
+      for (const k of Object.getOwnPropertyNames(o)) {
+        try {
+          snapshot[k] = (o as any)[k]
+        } catch {
+          snapshot[k] = '[unreadable]'
+        }
+      }
+      return JSON.stringify(snapshot)
+    } catch {
+      return String(err)
+    }
+  }
+  return String(err)
+}
+
+/** Best-effort fields for [BEAP-INBOX] trace logs (clone / transport id). */
+function beapPackageTraceMeta(pkg: string): { sandbox_clone?: boolean; transport_message_id?: string | null } {
+  const meta: { sandbox_clone?: boolean; transport_message_id?: string | null } = {}
+  if (!pkg) return meta
+  if (/sandbox_clone"?\s*:\s*true/.test(pkg)) {
+    meta.sandbox_clone = true
+  }
+  try {
+    const j = JSON.parse(pkg.trim()) as Record<string, unknown>
+    const mid =
+      (typeof j.message_id === 'string' && j.message_id.trim()) ||
+      (typeof j.id === 'string' && j.id.trim()) ||
+      (typeof (j as { messageId?: unknown }).messageId === 'string' && String((j as { messageId: string }).messageId).trim())
+    const header = j.header as Record<string, unknown> | undefined
+    let headerMid: string | null = null
+    if (header && typeof header === 'object') {
+      const h = header as { message_id?: unknown; messageId?: unknown }
+      if (typeof h.message_id === 'string' && h.message_id.trim()) headerMid = h.message_id.trim()
+      else if (typeof h.messageId === 'string' && h.messageId.trim()) headerMid = h.messageId.trim()
+    }
+    const resolved = (mid && String(mid)) || headerMid
+    if (resolved) meta.transport_message_id = resolved
+  } catch {
+    /* ignore */
+  }
+  return meta
+}
 
 const OUTBOUND_QBEAP_BODY_PLACEHOLDER = '(Sent qBEAP message — see Sent tab for details)'
 
@@ -610,6 +685,12 @@ export async function retryPendingQbeapDecrypt(db: any): Promise<number> {
   }>
   try {
     try {
+      migrateHandshakeTables(db)
+    } catch (mig: unknown) {
+      console.error('[RETRY-DECRYPT] migrateHandshakeTables failed:', formatBeapInboxDbError(mig))
+      return 0
+    }
+    try {
       rows = db
         .prepare(
           `SELECT id, beap_package_json, handshake_id, subject, from_address, body_text
@@ -623,7 +704,7 @@ export async function retryPendingQbeapDecrypt(db: any): Promise<number> {
         )
         .all() as typeof rows
     } catch (e) {
-      console.warn('[RETRY-DECRYPT] Query failed:', (e as Error)?.message ?? e)
+      console.warn('[RETRY-DECRYPT] Query failed:', formatBeapInboxDbError(e))
       return 0
     }
 
@@ -631,7 +712,13 @@ export async function retryPendingQbeapDecrypt(db: any): Promise<number> {
 
     console.log(`[RETRY-DECRYPT] Found ${rows.length} inbox row(s) with qBEAP pending (main); attempting decrypt`)
 
-    const stmts = createQbeapDecryptInboxStmts(db)
+    let stmts: QbeapDecryptInboxStmts
+    try {
+      stmts = createQbeapDecryptInboxStmts(db)
+    } catch (e) {
+      console.error('[RETRY-DECRYPT] createQbeapDecryptInboxStmts failed:', formatBeapInboxDbError(e))
+      return 0
+    }
 
     const updateOutboundRow = db.prepare(
       `UPDATE inbox_messages SET depackaged_json = ?, body_text = ?, embedding_status = 'pending' WHERE id = ?`,
@@ -660,10 +747,13 @@ export async function retryPendingQbeapDecrypt(db: any): Promise<number> {
           console.log(`[RETRY-DECRYPT] Decrypted inbox message id=${row.id}`)
         }
       } catch (e) {
-        console.warn(`[RETRY-DECRYPT] Error for id=${row.id}:`, (e as Error)?.message ?? e)
+        console.warn(`[RETRY-DECRYPT] Error for id=${row.id}:`, formatBeapInboxDbError(e))
       }
     }
 
+    return fixed
+  } catch (e: unknown) {
+    console.error('[RETRY-DECRYPT] Unexpected failure:', formatBeapInboxDbError(e))
     return fixed
   } finally {
     pendingQbeapDecryptRetryRan = true
@@ -677,27 +767,35 @@ export async function retryPendingQbeapDecrypt(db: any): Promise<number> {
 export async function processPendingP2PBeapEmails(db: any): Promise<number> {
   if (!db) return 0
 
+  try {
+    migrateHandshakeTables(db)
+  } catch (e: unknown) {
+    console.error('[BEAP-INBOX] migrateHandshakeTables failed:', formatBeapInboxDbError(e))
+    return 0
+  }
+
   let drained = 0
 
-  const pkgExpr = resolveP2PPendingPackageColumnExpr(db)
-  const selectBatch = db.prepare(
-    `SELECT id, handshake_id, ${pkgExpr} AS package_json, created_at FROM p2p_pending_beap
-     WHERE processed = 0 ORDER BY created_at ASC LIMIT ?`,
-  )
+  try {
+    const pkgExpr = resolveP2PPendingPackageColumnExpr(db)
+    const selectBatch = db.prepare(
+      `SELECT id, handshake_id, ${pkgExpr} AS package_json, created_at FROM p2p_pending_beap
+       WHERE processed = 0 ORDER BY created_at ASC LIMIT ?`,
+    )
 
-  const selectInbox = db.prepare(
-    `SELECT id, subject, from_address, body_text FROM inbox_messages
-     WHERE beap_package_json IS NOT NULL AND beap_package_json = ?
-     LIMIT 1`,
-  )
+    const selectInbox = db.prepare(
+      `SELECT id, subject, from_address, body_text FROM inbox_messages
+       WHERE beap_package_json IS NOT NULL AND beap_package_json = ?
+       LIMIT 1`,
+    )
 
-  const updateInbox = db.prepare(
-    `UPDATE inbox_messages SET depackaged_json = ?, embedding_status = 'pending' WHERE id = ?`,
-  )
+    const updateInbox = db.prepare(
+      `UPDATE inbox_messages SET depackaged_json = ?, embedding_status = 'pending' WHERE id = ?`,
+    )
 
-  const qbeapStmts = createQbeapDecryptInboxStmts(db)
+    const qbeapStmts = createQbeapDecryptInboxStmts(db)
 
-  const insertDirectBeap = db.prepare(`
+    const insertDirectBeap = db.prepare(`
     INSERT INTO inbox_messages (
       id, source_type, handshake_id, account_id, email_message_id,
       from_address, from_name, to_addresses, cc_addresses,
@@ -707,13 +805,12 @@ export async function processPendingP2PBeapEmails(db: any): Promise<number> {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
-  const markProcessed = db.prepare(`UPDATE p2p_pending_beap SET processed = 1 WHERE id = ?`)
+    const markProcessed = db.prepare(`UPDATE p2p_pending_beap SET processed = 1 WHERE id = ?`)
 
-  const updateInboxOutbound = db.prepare(
-    `UPDATE inbox_messages SET depackaged_json = ?, body_text = ?, embedding_status = 'pending' WHERE id = ?`,
-  )
+    const updateInboxOutbound = db.prepare(
+      `UPDATE inbox_messages SET depackaged_json = ?, body_text = ?, embedding_status = 'pending' WHERE id = ?`,
+    )
 
-  try {
     const pendingCountRow = db.prepare(`SELECT COUNT(*) as c FROM p2p_pending_beap WHERE processed = 0`).get() as { c: number }
     const pendingTotal = pendingCountRow?.c ?? 0
     if (pendingTotal > 0) {
@@ -757,29 +854,60 @@ export async function processPendingP2PBeapEmails(db: any): Promise<number> {
             const attMeta = extractAttachmentsFromBeapPackageJson(pkg)
             const attCount = attMeta.length
             const inboxId = randomUUID()
+            const traceMeta = beapPackageTraceMeta(pkg)
             const now = new Date().toISOString()
             const receivedAt = row.created_at && String(row.created_at).trim() ? String(row.created_at) : now
-            insertDirectBeap.run(
-              inboxId,
-              'direct_beap',
-              row.handshake_id,
-              P2P_BEAP_ACCOUNT_ID,
-              `p2p-pending-${row.id}`,
-              fromAddr,
-              null,
-              toJson,
-              '[]',
-              preview.subject,
-              preview.body_text,
-              null,
-              pkg,
-              attCount > 0 ? 1 : 0,
-              attCount,
-              receivedAt,
-              now,
-              'P2P_DIRECT',
-              null,
-            )
+            console.log('[BEAP-INBOX][DB] insert_begin', {
+              operation: 'insertDirectBeap',
+              table: 'inbox_messages',
+              p2p_pending_row_id: row.id,
+              inbox_message_id: inboxId,
+              handshake_id: row.handshake_id,
+              ...traceMeta,
+            })
+            try {
+              insertDirectBeap.run(
+                inboxId,
+                'direct_beap',
+                row.handshake_id,
+                P2P_BEAP_ACCOUNT_ID,
+                `p2p-pending-${row.id}`,
+                fromAddr,
+                null,
+                toJson,
+                '[]',
+                preview.subject,
+                preview.body_text,
+                null,
+                pkg,
+                attCount > 0 ? 1 : 0,
+                attCount,
+                receivedAt,
+                now,
+                'P2P_DIRECT',
+                null,
+              )
+              console.log('[BEAP-INBOX][DB] insert_ok', {
+                operation: 'insertDirectBeap',
+                table: 'inbox_messages',
+                p2p_pending_row_id: row.id,
+                inbox_message_id: inboxId,
+                handshake_id: row.handshake_id,
+                ...traceMeta,
+              })
+            } catch (insErr: unknown) {
+              console.error('[BEAP-INBOX][DB] insert_failed', {
+                operation: 'insertDirectBeap',
+                table: 'inbox_messages',
+                sql: 'INSERT INTO inbox_messages (... 19 columns ...)',
+                p2p_pending_row_id: row.id,
+                inbox_message_id: inboxId,
+                handshake_id: row.handshake_id,
+                ...traceMeta,
+                error: formatBeapInboxDbError(insErr),
+              })
+              throw insErr
+            }
             if (attCount > 0) {
               ensureInboxAttachmentsFromBeapPackageJson(db, inboxId, pkg)
             }
@@ -824,7 +952,30 @@ export async function processPendingP2PBeapEmails(db: any): Promise<number> {
           if (qbeapTry.decrypted && qbeapTry.depackagedJson) {
             depackagedJson = qbeapTry.depackagedJson
           } else {
-            updateInbox.run(depackagedJson, inbox.id)
+            try {
+              console.log('[BEAP-INBOX][DB] update_begin', {
+                operation: 'updateInboxDepackaged',
+                table: 'inbox_messages',
+                inbox_message_id: inbox.id,
+                handshake_id: row.handshake_id,
+                ...beapPackageTraceMeta(pkg),
+              })
+              updateInbox.run(depackagedJson, inbox.id)
+              console.log('[BEAP-INBOX][DB] update_ok', {
+                operation: 'updateInboxDepackaged',
+                table: 'inbox_messages',
+                inbox_message_id: inbox.id,
+              })
+            } catch (updErr: unknown) {
+              console.error('[BEAP-INBOX][DB] update_failed', {
+                operation: 'UPDATE inbox_messages SET depackaged_json, embedding_status',
+                table: 'inbox_messages',
+                inbox_message_id: inbox.id,
+                handshake_id: row.handshake_id,
+                error: formatBeapInboxDbError(updErr),
+              })
+              throw updErr
+            }
           }
 
           try {
@@ -849,8 +1000,13 @@ export async function processPendingP2PBeapEmails(db: any): Promise<number> {
           drained++
           console.log(`[BEAP-INBOX] Message imported: handshake=${row.handshake_id} messageId=${inbox.id}`)
         } catch (e: unknown) {
-          console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
-          console.error('[BeapEmailIngestion] Error processing pending id', row.id, (e as Error)?.message)
+          console.error('[BEAP-INBOX][DB] row_import_failed', {
+            p2p_pending_row_id: row.id,
+            handshake_id: row.handshake_id,
+            error: formatBeapInboxDbError(e),
+          })
+          console.error('[BEAP-INBOX] Import failed:', formatBeapInboxDbError(e))
+          console.error('[BeapEmailIngestion] Error processing pending id', row.id, formatBeapInboxDbError(e))
           try {
             markProcessed.run(row.id)
             drained++
@@ -861,8 +1017,12 @@ export async function processPendingP2PBeapEmails(db: any): Promise<number> {
       }
     }
   } catch (e: unknown) {
-    console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
-    console.error('[BeapEmailIngestion] Query error:', (e as Error)?.message)
+    console.error('[BEAP-INBOX][DB] process_failed', {
+      operation: 'processPendingP2PBeapEmails_prepare_or_batch',
+      error: formatBeapInboxDbError(e),
+    })
+    console.error('[BEAP-INBOX] Import failed (batch):', formatBeapInboxDbError(e))
+    console.error('[BeapEmailIngestion] Query error:', formatBeapInboxDbError(e))
     return drained
   }
 

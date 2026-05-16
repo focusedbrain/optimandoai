@@ -228,7 +228,7 @@ import type {
   OrchestratorRemoteApplyResult,
   OrchestratorRemoteOperation,
 } from './domain/orchestratorRemoteTypes'
-import { ensureInboxAttachmentsFromBeapPackageJson, processPendingP2PBeapEmails } from './beapEmailIngestion'
+import { ensureInboxAttachmentsFromBeapPackageJson, formatBeapInboxDbError, processPendingP2PBeapEmails } from './beapEmailIngestion'
 import { notifyBeapInboxDashboard } from './beapInboxDashboardNotify'
 import type { InboxListFilterOptions } from './inboxWhereClause'
 import { buildInboxMessagesWhereClause } from './inboxWhereClause'
@@ -3070,10 +3070,14 @@ Rules:
     limit?: number
     offset?: number
   } = {}) => {
+    const traceLists = process.env.OG_BEAP_INBOX_TRACE === '1'
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
       const { limit = 50, offset = 0, ...filterOpts } = options ?? {}
+      if (traceLists) {
+        console.log('[BEAP-INBOX][DB] list_begin', { limit, offset, filterKeys: Object.keys(filterOpts) })
+      }
       const { where, params } = buildInboxMessagesWhereClause(filterOpts)
       const countRow = db.prepare(`SELECT COUNT(*) as total FROM inbox_messages ${where}`).get(...params) as { total: number }
       const total = countRow?.total ?? 0
@@ -3093,8 +3097,12 @@ Rules:
         m.attachments = attStmt.all(m.id) as any[]
       }
 
+      if (traceLists) {
+        console.log('[BEAP-INBOX][DB] list_ok', { total, limit, offset, returned: rows.length })
+      }
       return { ok: true, data: { messages: rows, total } }
     } catch (err: any) {
+      console.error('[BEAP-INBOX][DB] list_failed', { error: formatBeapInboxDbError(err) })
       return { ok: false, error: err?.message ?? 'List failed' }
     }
   })
