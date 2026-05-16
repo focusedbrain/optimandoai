@@ -167,11 +167,14 @@ export function BeapInlineComposer({
   const [sendSuccess, setSendSuccess] = useState(false);
 
   /**
-   * live  = green, ACK confirmed (receiver persisted)
+   * live  = green, ACK confirmed (receiver persisted, same-app IPC)
    * relay_pending = amber, transport accepted, waiting for receiver ACK
+   * delivery_unconfirmed = transport accepted, ACK timeout (typical cross-device)
    * queued_relay  = orange, recipient offline / queued at relay
    */
-  const [sendSuccessMode, setSendSuccessMode] = useState<'live' | 'relay_pending' | 'queued_relay' | null>(null);
+  const [sendSuccessMode, setSendSuccessMode] = useState<
+    'live' | 'relay_pending' | 'queued_relay' | 'delivery_unconfirmed' | null
+  >(null);
 
   const sendSuccessCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -828,14 +831,13 @@ export function BeapInlineComposer({
           pendingAckMessageIdRef.current = messageId;
           setSendSuccessMode('relay_pending');
           setSendSuccess(true);
-          // 30 s timeout: if no ACK arrives, log delivery_unconfirmed and keep amber banner.
           ackTimeoutRef.current = setTimeout(() => {
             ackTimeoutRef.current = null;
-            // Only log if still in relay_pending (not already resolved by ACK).
+            if (pendingAckMessageIdRef.current !== messageId) return;
             console.log(`[BEAP_MSG_SEND] delivery_unconfirmed messageId=${messageId} reason=timeout`);
             pendingAckHandshakeRef.current = null;
             pendingAckMessageIdRef.current = null;
-            // Keep amber banner visible; user can dismiss manually.
+            setSendSuccessMode('delivery_unconfirmed');
           }, 30_000);
         }
       } else {
@@ -1566,14 +1568,17 @@ export function BeapInlineComposer({
                 background:
                   sendSuccessMode === 'queued_relay' ? '#ffedd5'
                   : sendSuccessMode === 'relay_pending' ? '#fef9c3'
+                  : sendSuccessMode === 'delivery_unconfirmed' ? '#fff7ed'
                   : '#dcfce7',
                 color:
                   sendSuccessMode === 'queued_relay' ? '#9a3412'
                   : sendSuccessMode === 'relay_pending' ? '#713f12'
+                  : sendSuccessMode === 'delivery_unconfirmed' ? '#9a3412'
                   : '#166534',
                 border: `1px solid ${
                   sendSuccessMode === 'queued_relay' ? '#fdba74'
                   : sendSuccessMode === 'relay_pending' ? '#fde68a'
+                  : sendSuccessMode === 'delivery_unconfirmed' ? '#fdba74'
                   : '#86efac'
                 }`,
                 borderRadius: 6,
@@ -1589,11 +1594,15 @@ export function BeapInlineComposer({
                 ? '⏳'
                 : sendSuccessMode === 'relay_pending'
                 ? '📡'
+                : sendSuccessMode === 'delivery_unconfirmed'
+                ? '⚠️'
                 : '✅'}{' '}
               {sendSuccessMode === 'queued_relay'
                 ? 'Queued at relay (recipient offline — not live delivery)'
                 : sendSuccessMode === 'relay_pending'
                 ? 'Transport accepted — awaiting delivery confirmation…'
+                : sendSuccessMode === 'delivery_unconfirmed'
+                ? 'Delivery unconfirmed — transport succeeded but no receiver acknowledgement (typical cross-device). Check the recipient inbox.'
                 : 'BEAP™ message delivered (receiver confirmed)'}
             </div>
           )}

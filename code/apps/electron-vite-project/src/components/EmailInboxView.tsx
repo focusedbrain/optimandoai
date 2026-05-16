@@ -758,7 +758,10 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       if (DEBUG_AUTOSORT_DIAGNOSTICS) {
         console.warn('⚡ EmailInboxView calling aiAnalyzeMessageStream', new Date().toISOString(), { messageId })
       }
-      const res = await window.emailInbox.aiAnalyzeMessageStream(messageId, { supersede: !!opts?.supersede })
+      const res = await window.emailInbox.aiAnalyzeMessageStream(messageId, {
+        supersede: !!opts?.supersede,
+        manual: !!opts?.manual,
+      })
       const deduped = res?.deduped === true
       if (res?.started === false && !deduped) {
         autoAnalyzeStreamFailedRef.current.add(messageId)
@@ -3238,7 +3241,23 @@ export default function EmailInboxView({
 
   const handleInboxRowSandbox = useCallback(
     (_e: MouseEvent, m: InboxMessage) => {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] click_start messageId=${m.id}`, {
+        hostModeReady,
+        orchestratorMode,
+      })
       if (!hostModeReady || orchestratorMode !== 'host') {
+        const blockedReason =
+          orchestratorMode === 'sandbox'
+            ? 'not_host_sandbox_instance'
+            : !hostModeReady
+              ? 'orchestrator_mode_not_ready'
+              : 'not_host'
+        // eslint-disable-next-line no-console
+        console.log(`[BEAP_SANDBOX_CLONE] blocked reason=${blockedReason} messageId=${m.id}`, {
+          hostModeReady,
+          orchestratorMode,
+        })
         if (orchestratorMode === 'sandbox') {
           logSandboxTargetResolution({
             source: 'inbox_row',
@@ -3294,6 +3313,9 @@ export default function EmailInboxView({
           identityCompleteRows,
           incompleteRows,
         } = resolved
+        const primaryTarget = sendableTargets[0]
+        // eslint-disable-next-line no-console
+        console.log(`[BEAP_SANDBOX_CLONE] target_selected messageId=${m.id} handshake=${primaryTarget?.handshake_id ?? 'none'} peer=${primaryTarget?.peer_device_name ?? primaryTarget?.peer_device_id ?? 'unknown'}`)
         // eslint-disable-next-line no-console
         console.log('[BEAP_SANDBOX_CLONE] click', {
           message_id: m.id,
@@ -3307,6 +3329,8 @@ export default function EmailInboxView({
           activeIdentityCompleteHostSandboxCount: identityCompleteRows.length,
           identityIncompleteHostSandboxCount: incompleteRows.length,
         })
+        // eslint-disable-next-line no-console
+        console.log(`[BEAP_SANDBOX_CLONE] policy_result messageId=${m.id} action=${next} reason=host_sandbox_routing_fresh_list sendable_count=${sendableTargets.length}`)
         logSandboxTargetResolution({
           source: 'inbox_row',
           messageId: m.id,
@@ -3323,11 +3347,15 @@ export default function EmailInboxView({
           reason: 'host_sandbox_routing_fresh_list',
         })
         if (next === 'loading_refresh') {
+          // eslint-disable-next-line no-console
+          console.log(`[BEAP_SANDBOX_CLONE] blocked reason=loading_refresh messageId=${m.id}`)
           setSandboxRowFeedback(viewSandboxChecking())
           window.setTimeout(() => setSandboxRowFeedback(null), 5000)
           return
         }
         if (next === 'open_unavailable_dialog') {
+          // eslint-disable-next-line no-console
+          console.log(`[BEAP_SANDBOX_CLONE] blocked reason=no_active_target messageId=${m.id}`)
           // eslint-disable-next-line no-console
           console.log('[BEAP_SANDBOX_CLONE] no_active_target_show_setup', { message_id: m.id })
           setSandboxRowFeedback(viewSandboxNoOrchestrator())
@@ -3336,12 +3364,16 @@ export default function EmailInboxView({
         }
         if (next === 'keying_incomplete') {
           // eslint-disable-next-line no-console
+          console.log(`[BEAP_SANDBOX_CLONE] blocked reason=keying_incomplete messageId=${m.id}`)
+          // eslint-disable-next-line no-console
           console.log('[BEAP_SANDBOX_CLONE] keying_incomplete', { message_id: m.id })
           setSandboxRowFeedback(viewSandboxKeyingIncomplete())
           window.setTimeout(() => setSandboxRowFeedback(null), 8000)
           return
         }
         if (next === 'identity_incomplete') {
+          // eslint-disable-next-line no-console
+          console.log(`[BEAP_SANDBOX_CLONE] blocked reason=identity_incomplete messageId=${m.id}`)
           // eslint-disable-next-line no-console
           console.log('[BEAP_SANDBOX_CLONE] identity_incomplete', { message_id: m.id })
           setSandboxRowFeedback(viewSandboxIdentityIncomplete())

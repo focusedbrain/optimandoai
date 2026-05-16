@@ -759,7 +759,15 @@ export default function EmailMessageDetail({
 
   const handleHostSandboxClick = useCallback(async () => {
     if (!message) return
+    // eslint-disable-next-line no-console
+    console.log(`[BEAP_SANDBOX_CLONE] click_start messageId=${message.id}`, {
+      modeReady,
+      orchestratorMode,
+      source: 'message_detail',
+    })
     if (orchestratorMode === 'sandbox' || (internalSandboxListReady && authoritativeDeviceInternalRole === 'sandbox')) {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=not_host_sandbox_instance messageId=${message.id}`)
       logSandboxTargetResolution({
         source: 'message_detail',
         messageId: message.id,
@@ -778,6 +786,11 @@ export default function EmailMessageDetail({
       return
     }
     if (!modeReady || orchestratorMode !== 'host') {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=not_host messageId=${message.id}`, {
+        modeReady,
+        orchestratorMode,
+      })
       logSandboxTargetResolution({
         source: 'message_detail',
         messageId: message.id,
@@ -806,6 +819,8 @@ export default function EmailMessageDetail({
       if (!snap.success) {
         // eslint-disable-next-line no-console
         console.log('[BEAP_SANDBOX_CLONE] list_refresh_failed', { message_id: message.id, error: snap.error })
+        // eslint-disable-next-line no-console
+        console.log(`[BEAP_SANDBOX_CLONE] blocked reason=list_refresh_failed messageId=${message.id}`)
         const v = viewSandboxListLoadFailed(snap.error)
         setHostSandboxInlineFeedback(v)
         if (!v.persistUntilDismiss) {
@@ -821,12 +836,11 @@ export default function EmailMessageDetail({
       liveN = res.liveEligibleCount
       activeN = res.activeHostSandboxCount
     }
+    const primaryTarget = sendable[0]
     // eslint-disable-next-line no-console
-    console.log('[BEAP_SANDBOX_CLONE] click', {
-      message_id: message.id,
-      host_mode: true,
-      active_sandbox_count: activeN,
-    })
+    console.log(
+      `[BEAP_SANDBOX_CLONE] target_selected messageId=${message.id} handshake=${primaryTarget?.handshake_id ?? 'none'} peer=${primaryTarget?.peer_device_name ?? primaryTarget?.peer_device_id ?? 'unknown'}`,
+    )
     const next = resolveHostSandboxCloneClickAction({
       internalListLoading: internalSandboxesRefresh ? false : (internalSandboxListLoading ?? false),
       listLastSuccess: listOk,
@@ -834,6 +848,11 @@ export default function EmailMessageDetail({
       activeIdentityCompleteHostSandboxCount: idCompleteN,
       identityIncompleteHostSandboxCount: idIncompN,
     })
+    const policyRoutingReason = internalSandboxesRefresh ? 'host_sandbox_routing_fresh_list' : 'host_sandbox_routing'
+    // eslint-disable-next-line no-console
+    console.log(
+      `[BEAP_SANDBOX_CLONE] policy_result messageId=${message.id} action=${next} reason=${policyRoutingReason} sendable_count=${sendable.length}`,
+    )
     logSandboxTargetResolution({
       source: 'message_detail',
       messageId: message.id,
@@ -850,12 +869,16 @@ export default function EmailMessageDetail({
       reason: internalSandboxesRefresh ? 'host_sandbox_routing_fresh_list' : 'host_sandbox_routing',
     })
     if (next === 'loading_refresh') {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=loading_refresh messageId=${message.id}`)
       onRequestInternalSandboxListRefresh?.()
       setHostSandboxInlineFeedback(viewSandboxChecking())
       window.setTimeout(() => setHostSandboxInlineFeedback(null), 5000)
       return
     }
     if (next === 'open_unavailable_dialog') {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=no_active_target messageId=${message.id}`)
       // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] no_active_target_show_setup', { message_id: message.id })
       setHostSandboxInlineFeedback(viewSandboxNoOrchestrator())
@@ -864,12 +887,16 @@ export default function EmailMessageDetail({
     }
     if (next === 'keying_incomplete') {
       // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=keying_incomplete messageId=${message.id}`)
+      // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] keying_incomplete', { message_id: message.id })
       setHostSandboxInlineFeedback(viewSandboxKeyingIncomplete())
       window.setTimeout(() => setHostSandboxInlineFeedback(null), 8000)
       return
     }
     if (next === 'identity_incomplete') {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=identity_incomplete messageId=${message.id}`)
       // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] identity_incomplete', { message_id: message.id })
       setHostSandboxInlineFeedback(viewSandboxIdentityIncomplete())
@@ -954,7 +981,15 @@ export default function EmailMessageDetail({
 
   const handleLinkWarningSandbox = useCallback(async () => {
     if (!message || !pendingLinkUrl) return
+    // eslint-disable-next-line no-console
+    console.log(`[BEAP_SANDBOX_CLONE] click_start messageId=${message.id}`, {
+      modeReady,
+      orchestratorMode,
+      source: 'external_link_dialog',
+    })
     if (orchestratorMode === 'sandbox' || (internalSandboxListReady && authoritativeDeviceInternalRole === 'sandbox')) {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=not_host_sandbox_instance messageId=${message.id}`)
       logSandboxTargetResolution({
         source: 'external_link_dialog',
         messageId: message.id,
@@ -973,6 +1008,11 @@ export default function EmailMessageDetail({
       return
     }
     if (!modeReady || orchestratorMode !== 'host') {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=not_host messageId=${message.id}`, {
+        modeReady,
+        orchestratorMode,
+      })
       logSandboxTargetResolution({
         source: 'external_link_dialog',
         messageId: message.id,
@@ -1001,6 +1041,8 @@ export default function EmailMessageDetail({
       if (!snap.success) {
         // eslint-disable-next-line no-console
         console.log('[BEAP_SANDBOX_CLONE] list_refresh_failed', { message_id: message.id, error: snap.error })
+        // eslint-disable-next-line no-console
+        console.log(`[BEAP_SANDBOX_CLONE] blocked reason=list_refresh_failed messageId=${message.id}`)
         const v = viewSandboxListLoadFailed(snap.error)
         setHostSandboxInlineFeedback(v)
         if (!v.persistUntilDismiss) {
@@ -1016,12 +1058,11 @@ export default function EmailMessageDetail({
       liveN = res.liveEligibleCount
       activeN = res.activeHostSandboxCount
     }
+    const linkPrimaryTarget = sendable[0]
     // eslint-disable-next-line no-console
-    console.log('[BEAP_SANDBOX_CLONE] click', {
-      message_id: message.id,
-      host_mode: true,
-      active_sandbox_count: activeN,
-    })
+    console.log(
+      `[BEAP_SANDBOX_CLONE] target_selected messageId=${message.id} handshake=${linkPrimaryTarget?.handshake_id ?? 'none'} peer=${linkPrimaryTarget?.peer_device_name ?? linkPrimaryTarget?.peer_device_id ?? 'unknown'}`,
+    )
     const next = resolveHostSandboxCloneClickAction({
       internalListLoading: internalSandboxesRefresh ? false : (internalSandboxListLoading ?? false),
       listLastSuccess: listOk,
@@ -1029,6 +1070,11 @@ export default function EmailMessageDetail({
       activeIdentityCompleteHostSandboxCount: idCompleteN,
       identityIncompleteHostSandboxCount: idIncompN,
     })
+    const linkPolicyRoutingReason = internalSandboxesRefresh ? 'host_sandbox_routing_fresh_list' : 'host_sandbox_routing'
+    // eslint-disable-next-line no-console
+    console.log(
+      `[BEAP_SANDBOX_CLONE] policy_result messageId=${message.id} action=${next} reason=${linkPolicyRoutingReason} sendable_count=${sendable.length}`,
+    )
     logSandboxTargetResolution({
       source: 'external_link_dialog',
       messageId: message.id,
@@ -1045,10 +1091,14 @@ export default function EmailMessageDetail({
       reason: internalSandboxesRefresh ? 'host_sandbox_routing_fresh_list' : 'host_sandbox_routing',
     })
     if (next === 'loading_refresh') {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=loading_refresh messageId=${message.id}`)
       onRequestInternalSandboxListRefresh?.()
       return
     }
     if (next === 'open_unavailable_dialog') {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=no_active_target messageId=${message.id}`)
       // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] no_active_target_show_setup', { message_id: message.id })
       setHostSandboxInlineFeedback(viewSandboxNoOrchestrator())
@@ -1057,12 +1107,16 @@ export default function EmailMessageDetail({
     }
     if (next === 'keying_incomplete') {
       // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=keying_incomplete messageId=${message.id}`)
+      // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] keying_incomplete', { message_id: message.id })
       setHostSandboxInlineFeedback(viewSandboxKeyingIncomplete())
       window.setTimeout(() => setHostSandboxInlineFeedback(null), 8000)
       return
     }
     if (next === 'identity_incomplete') {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=identity_incomplete messageId=${message.id}`)
       // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] identity_incomplete', { message_id: message.id })
       setHostSandboxInlineFeedback(viewSandboxIdentityIncomplete())

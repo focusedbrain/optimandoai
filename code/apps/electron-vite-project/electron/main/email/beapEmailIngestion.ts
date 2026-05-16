@@ -37,8 +37,27 @@ import { resealWithDecryptedContent } from './sealedContentUpdate'
 import { decryptQuarantineBlob, encryptForQuarantine } from '../quarantine-encrypt/index'
 import { writeQuarantineBlob, type QuarantineBlobFile } from '../quarantine-blob-storage/index'
 import type { SSOSession } from '../handshake/types'
+import { notifyBeapInboxDashboard } from './beapInboxDashboardNotify'
+import { notifyBeapDeliveryAck } from '../p2p/beapDeliveryAck'
+import { notifyBeapRecipientPending } from '../p2p/beapRecipientNotify'
 
 const BATCH_SIZE = 100
+
+/**
+ * After a sealed `direct_beap` row is committed to `inbox_messages`:
+ * broadcast dashboard/inbox refresh (matches `App.tsx` `onBeapInboxUpdated`) + extension hook,
+ * and optionally emit local `inbox:beapDeliveryAck` (same-process sender confirmation only).
+ */
+function finalizeDirectBeapInboxPersistence(handshakeId: string, rowId: string, emitPeerDeliveryAck: boolean): void {
+  console.log(`[BEAP_DELIVERY] persist_success messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
+  console.log(`[BEAP_DELIVERY] ui_notify_sent messageId=${rowId} handshake=${handshakeId} rowId=${rowId}`)
+  notifyBeapInboxDashboard(handshakeId)
+  notifyBeapRecipientPending(handshakeId)
+  if (emitPeerDeliveryAck) {
+    console.log(`[BEAP_DELIVERY] ack_sent messageId=${rowId} handshake=${handshakeId} rowId=${rowId}`)
+    notifyBeapDeliveryAck(handshakeId, rowId)
+  }
+}
 
 /** Sentinel account_id for P2P-ingested rows (no email account). */
 const P2P_BEAP_ACCOUNT_ID = '__p2p_beap__'
@@ -909,12 +928,13 @@ async function processBeapPackageInlineInternal(
       validationReason: null,
     })
     if (echoResult.outcome === 'inbox') {
-      console.log(`[BEAP_DELIVERY] persist_success messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
       if (isSandboxClone) {
         console.log(`[CLONE_RECEIVE] persist_success cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
         console.log(`[CLONE_RECEIVE] ui_notify_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId}`)
         console.log(`[CLONE_RECEIVE] ack_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
       }
+      // Outbound qBEAP echo: refresh inbox + extension; do not emit delivery ACK (not a peer-received message).
+      finalizeDirectBeapInboxPersistence(handshakeId, rowId, false)
     }
     return echoResult
   }
@@ -1003,9 +1023,8 @@ async function processBeapPackageInlineInternal(
           console.log(`[CLONE_RECEIVE] persist_success cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
           console.log(`[CLONE_RECEIVE] ui_notify_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId}`)
           console.log(`[CLONE_RECEIVE] ack_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
-        } else {
-          console.log(`[BEAP_DELIVERY] persist_success messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
         }
+        finalizeDirectBeapInboxPersistence(handshakeId, rowId, true)
       }
       return inlineResult
     }

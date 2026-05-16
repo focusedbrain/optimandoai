@@ -1390,7 +1390,7 @@ contextBridge.exposeInMainWorld('emailInbox', {
   aiDraftReply: (id: string, opts?: { supersede?: boolean }) =>
     ipcRenderer.invoke('inbox:aiDraftReply', id, opts ?? {}),
   aiAnalyzeMessage: (id: string) => ipcRenderer.invoke('inbox:aiAnalyzeMessage', id),
-  aiAnalyzeMessageStream: (messageId: string, opts?: { supersede?: boolean }) =>
+  aiAnalyzeMessageStream: (messageId: string, opts?: { supersede?: boolean; manual?: boolean }) =>
     ipcRenderer.invoke('inbox:aiAnalyzeMessageStream', messageId, opts ?? {}),
   onAiAnalyzeChunk: (cb: (data: { messageId: string; chunk: string }) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, data: { messageId: string; chunk: string }) => cb(data)

@@ -3254,6 +3254,7 @@ Rules:
     console.log(`[CLONE_MAIN] received cloneId=${cloneId} sourceMessageId=${payload?.sourceMessageId ?? 'none'} targetHandshakeId=${payload?.targetHandshakeId ?? 'auto'}`)
     try {
       if (!isHostMode()) {
+        console.log(`[CLONE_MAIN] blocked cloneId=${cloneId} reason=not_host_orchestrator code=NOT_HOST_ORCHESTRATOR`)
         return {
           success: false,
           code: 'NOT_HOST_ORCHESTRATOR' as const,
@@ -3264,16 +3265,19 @@ Rules:
       const { getCurrentSession } = await import('../handshake/ipc')
       const session = getCurrentSession()
       if (!session) {
+        console.log(`[CLONE_MAIN] blocked cloneId=${cloneId} reason=unauthenticated code=UNAUTHENTICATED`)
         return { success: false, code: 'UNAUTHENTICATED' as const, error: 'Not logged in' }
       }
 
       const db = await resolveDb()
       if (!db) {
+        console.log(`[CLONE_MAIN] blocked cloneId=${cloneId} reason=db_unavailable code=DB_UNAVAILABLE`)
         return { success: false, code: 'DB_UNAVAILABLE' as const, error: 'Database unavailable' }
       }
 
       const srcId = typeof payload?.sourceMessageId === 'string' ? payload.sourceMessageId.trim() : ''
       if (!srcId) {
+        console.log(`[CLONE_MAIN] blocked cloneId=${cloneId} reason=missing_source_message_id`)
         return { success: false, error: 'sourceMessageId is required' }
       }
 
@@ -3297,8 +3301,12 @@ Rules:
               ...(tu ? { triggered_url: tu } : {}),
             }
           : undefined
+      console.log(`[CLONE_PREPARE] start cloneId=${cloneId} sourceMessageId=${srcId} targetHandshakeId=${tgt ?? 'auto'}`)
       const prep = prepareBeapInboxSandboxClone(db, session, srcId, tgt, accountTag, cloneOptions)
       if (!prep.ok) {
+        const failCode = prep.code != null ? String(prep.code) : 'none'
+        const failMsg = typeof prep.error === 'string' ? prep.error : 'prepare_failed'
+        console.log(`[CLONE_PREPARE] failed cloneId=${cloneId} reason=${failMsg} code=${failCode}`)
         return {
           success: false,
           error: prep.error,
@@ -3308,9 +3316,12 @@ Rules:
         }
       }
 
+      console.log(`[CLONE_PREPARE] success cloneId=${cloneId} sourceMessageId=${srcId}`)
       return { success: true, prepare: prep }
     } catch (err: any) {
-      return { success: false, error: err?.message ?? 'beapInboxCloneToSandboxPrepare failed' }
+      const em = err?.message ?? 'beapInboxCloneToSandboxPrepare failed'
+      console.log(`[CLONE_PREPARE] failed cloneId=${cloneId} reason=exception error=${em}`)
+      return { success: false, error: em }
     }
   }
 
@@ -4327,19 +4338,33 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
     }
     const analyzeDedupeKey = buildInboxAiTaskKey('analysis-stream', messageId, tkModel, tkLane)
     const supersede = !!opts?.supersede
+    const manual = opts?.manual === true
 
-    // Guard: direct_beap messages must never enter the AI task queue.
-    // Check source_type before replay / dedup so AI_TASK_START is never emitted.
-    {
-      const dbGuard = await resolveDbWithDiag('inbox:aiAnalyzeMessageStream:guard')
-      if (dbGuard) {
-        const guardRow = dbGuard
-          .prepare('SELECT source_type FROM inbox_messages WHERE id = ?')
-          .get(messageId) as { source_type?: string | null } | undefined
-        if (guardRow?.source_type === 'direct_beap') {
-          console.log(`[BEAP_INBOX_TRIAGE] skipped_primary_delivery messageId=${messageId} reason=direct_beap_message`)
-          return { started: false }
-        }
+    const dbPre = await resolveDbCore()
+    if (!dbPre) {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(
+          'inbox:aiAnalyzeMessageError',
+          buildInboxAiAnalyzeErrorPayload(new Error('Database unavailable'), {
+            messageId,
+            operation: 'analyze_stream',
+            aiExecution: undefined,
+            model: undefined,
+          }),
+        )
+      }
+      return { started: false }
+    }
+
+    // Auto path: direct_beap must never enter runInboxAiTaskWithDedup (no AI_TASK_START).
+    // Manual path: user explicitly requested analysis — allowed for direct_beap.
+    if (!manual) {
+      const guardRow = dbPre
+        .prepare('SELECT source_type FROM inbox_messages WHERE id = ?')
+        .get(messageId) as { source_type?: string | null } | undefined
+      if (guardRow?.source_type === 'direct_beap') {
+        console.log(`[BEAP_INBOX_TRIAGE] skipped_primary_delivery messageId=${messageId} reason=direct_beap_message`)
+        return { started: false }
       }
     }
 
@@ -4415,9 +4440,8 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
             return { started: false }
           }
 
-          // Defense-in-depth: direct P2P BEAP messages must not be auto-analyzed via inbox triage.
-          // The renderer guard handles the auto path; this guard protects bulk sort and any other callers.
-          if (row.source_type === 'direct_beap') {
+          // Defense-in-depth: same as pre-dedup guard — skip auto triage for direct_beap only.
+          if (row.source_type === 'direct_beap' && !manual) {
             console.log(`[BEAP_INBOX_TRIAGE] skipped_primary_delivery messageId=${messageId} reason=direct_beap_message`)
             return { started: false }
           }

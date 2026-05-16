@@ -24,7 +24,6 @@ import { internalRelayCapsuleWireOptsFromRecord } from '../handshake/internalCoo
 import type { ContextBlockForCommitment } from '../handshake/contextCommitment'
 import type { SSOSession } from '../handshake/types'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
-import { notifyBeapRecipientPending } from './beapRecipientNotify'
 import {
   setP2PHealthRelayPullSuccess,
   setP2PHealthRelayPullFailure,
@@ -168,7 +167,6 @@ export async function pullFromRelay(
           })
           if (r.outcome === 'inbox') {
             console.log('[P2P-RECV] BEAP message sealed into inbox (relay pull)', handshakeId)
-            notifyBeapRecipientPending(handshakeId)
           } else if (r.outcome === 'quarantine') {
             console.log('[P2P-RECV] BEAP message quarantined (relay pull)', handshakeId)
           } else {

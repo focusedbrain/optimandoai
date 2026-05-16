@@ -28,8 +28,6 @@ import {
   setP2PHealthCoordinationLastPush,
   setP2PHealthCoordinationReconnectAttempts,
 } from './p2pHealth'
-import { notifyBeapRecipientPending } from './beapRecipientNotify'
-import { notifyBeapDeliveryAck } from './beapDeliveryAck'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { computeSamePrincipalCoordinationSkipOwn } from './coordinationSamePrincipalInbound'
 import { requestCoordinationFlushQueued } from './coordinationFlushQueued'
@@ -300,11 +298,7 @@ async function processCapsuleInternal(
           if (r.outcome === 'inbox') {
             const rowId = r.rowId ?? 'unknown'
             console.log('[Coordination] BEAP message sealed into inbox, handshake=', handshakeId)
-            console.log(`[BEAP_DELIVERY] persist_success messageId=coord-${handshakeId.slice(0, 8)} handshake=${handshakeId} rowId=${rowId}`)
-            console.log(`[BEAP_DELIVERY] ui_notify_sent messageId=coord-${handshakeId.slice(0, 8)} handshake=${handshakeId} rowId=${rowId}`)
-            console.log(`[BEAP_DELIVERY] ack_sent messageId=coord-${handshakeId.slice(0, 8)} handshake=${handshakeId} rowId=${rowId}`)
-            notifyBeapDeliveryAck(handshakeId, rowId)
-            notifyBeapRecipientPending(handshakeId)
+            console.log(`[BEAP_MSG_RECEIVE] ack_sent messageId=coord-${handshakeId.slice(0, 8)} handshake=${handshakeId} rowId=${rowId}`)
           } else if (r.outcome === 'quarantine') {
             console.log('[Coordination] BEAP message quarantined, handshake=', handshakeId)
           } else {

@@ -8,7 +8,7 @@ import { readStoredAiExecutionContext } from '../llm/aiExecutionContextStore'
 import { resolveInboxLlmSettings } from './inboxLlmChat'
 import { assertGpuInferenceAvailable, InferenceUnavailableError } from '../inference/inferenceGate'
 
-export type InboxAiStreamInvokeOpts = { supersede?: boolean }
+export type InboxAiStreamInvokeOpts = { supersede?: boolean; manual?: boolean }
 
 export function buildInboxAiTaskKey(taskKind: string, messageId: string, model: string, lane: string): string {
   return `${taskKind}:${messageId}:${model}:${lane}`

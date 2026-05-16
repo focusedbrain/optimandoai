@@ -704,7 +704,7 @@ export interface EmailInboxBridge {
   aiAnalyzeMessage: (id: string) => Promise<{ ok: boolean; data?: NormalInboxAiResult; error?: string }>
   aiAnalyzeMessageStream: (
     messageId: string,
-    opts?: { supersede?: boolean },
+    opts?: { supersede?: boolean; manual?: boolean },
   ) => Promise<{ started: boolean; requestId?: string; deduped?: boolean }>
   onAiAnalyzeChunk: (cb: (data: { messageId: string; chunk: string }) => void) => () => void
   onAiAnalyzeDone: (cb: (data: { messageId: string }) => void) => () => void
