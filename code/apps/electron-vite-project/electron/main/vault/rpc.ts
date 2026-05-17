@@ -169,7 +169,9 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
 
       case 'vault.create': {
         const parsed = CreateVaultRequestSchema.parse(params)
+        console.log('[VAULT_SESSION_TRACE] outer_unlock_attempt', { vaultId: parsed.vaultId ?? '(auto)', caller: 'vault.create_RPC', triggerReason: 'user_action_create_vault', currentSessionState: vaultService.getStatus().isUnlocked ? 'unlocked' : 'locked', timestamp: new Date().toISOString() })
         const vaultId = await vaultService.createVault(parsed.masterPassword, parsed.vaultName || 'My Vault', parsed.vaultId)
+        console.log('[VAULT_SESSION_TRACE] outer_unlock_success', { vaultId, caller: 'vault.create_RPC', newSessionState: vaultService.getStatus().isUnlocked ? 'unlocked' : 'locked', timestamp: new Date().toISOString() })
         // Phase B: start validator subprocess after vault creation (vault is unlocked).
         validatorOrchestrator.start(vaultService).catch((err) => {
           console.error('[VAULT_RPC] Failed to start validator subprocess after create:', err?.message ?? err)
@@ -179,7 +181,10 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
 
       case 'vault.unlock': {
         const parsed = UnlockVaultRequestSchema.parse(params)
-        const token = await vaultService.unlock(parsed.masterPassword, parsed.vaultId || 'default')
+        const unlockVaultId = parsed.vaultId || 'default'
+        console.log('[VAULT_SESSION_TRACE] outer_unlock_attempt', { vaultId: unlockVaultId, caller: 'vault.unlock_RPC', triggerReason: 'user_action_unlock_vault', currentSessionState: vaultService.getStatus().isUnlocked ? 'unlocked' : 'locked', timestamp: new Date().toISOString() })
+        const token = await vaultService.unlock(parsed.masterPassword, unlockVaultId)
+        console.log('[VAULT_SESSION_TRACE] outer_unlock_success', { vaultId: unlockVaultId, caller: 'vault.unlock_RPC', newSessionState: vaultService.getStatus().isUnlocked ? 'unlocked' : 'locked', timestamp: new Date().toISOString() })
         setupEmbeddingServiceRef(vaultService)
         // Phase B: start validator subprocess after vault unlock.
         // Errors here are non-fatal for vault unlock itself; the validation
@@ -191,6 +196,7 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
       }
 
       case 'vault.lock': {
+        console.log('[VAULT_SESSION_TRACE] outer_lock_attempt', { vaultId: vaultService.getStatus().currentVaultId ?? 'default', caller: 'vault.lock_RPC', triggerReason: 'user_action_lock_vault', previousSessionState: vaultService.getStatus().isUnlocked ? 'unlocked' : 'locked', timestamp: new Date().toISOString() })
         clearEmbeddingServiceRef()
         // Phase B: stop validator subprocess before locking the vault so the
         // seal key is cleared while the vault is still accessible.
@@ -557,6 +563,7 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
   } catch (error: any) {
     console.error(`[VAULT RPC] Error in ${method}:`, error)
     console.error(`[VAULT RPC] Error message:`, error?.message)
+    console.log('[VAULT_SESSION_TRACE] outer_unlock_failure', { method, error: error?.message ?? String(error), errorCode: error?.code ?? null, timestamp: new Date().toISOString() })
     return {
       success: false,
       error: error?.message || error?.toString() || 'Unknown error occurred',

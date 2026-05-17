@@ -113,6 +113,7 @@ function probeOuterVaultState(reason: string): OuterVaultProbe {
     console.log(
       `[OUTER_VAULT_CHECK] selected_vault id=${selectedVaultId} account=${accountId} legacy=false legacyVaults=${legacyVaultCount} foreignVaults=${foreignVaultCount}`,
     )
+    console.log('[VAULT_SESSION_TRACE] vault_selection', { callSite: `OUTER_VAULT_CHECK_${reason}`, wrdeskUserId: accountId, candidateVaults: (status?.availableVaults ?? []).map(v => ({ id: v.id, legacy: false })), selectedVaultId, selectionCriteria: 'first_non_legacy_for_current_sso_account', timestamp: new Date().toISOString() })
   } else {
     console.log(
       `[OUTER_VAULT_CHECK] no_account_vault reason=${reason} account=${accountId} legacyVaults=${legacyVaultCount} foreignVaults=${foreignVaultCount} — outer vault unavailable`,

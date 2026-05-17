@@ -388,6 +388,7 @@ let _vaultServiceRef: {
  * @param reason Optional caller label for autosort diagnostics (no effect when DEBUG_AUTOSORT_DIAGNOSTICS is false).
  */
 function lockVaultIfLoaded(reason?: string): void {
+  console.log('[VAULT_SESSION_TRACE] outer_lock_attempt', { vaultId: 'unknown_sync', caller: 'lockVaultIfLoaded', triggerReason: reason ?? 'unspecified', previousSessionState: _vaultServiceRef ? 'loaded' : 'not_loaded', timestamp: new Date().toISOString() })
   recordVaultLock(reason)
   const ctx = getAutosortDiagMainState()
   if (ctx.bulkSortActive) {
@@ -452,6 +453,7 @@ async function testLoginOnce(): Promise<void> {
  */
 async function checkStartupSession(): Promise<boolean> {
   console.log('[AUTH] Checking for valid session at startup...')
+  console.log('[VAULT_SESSION_TRACE] auth_event', { eventName: 'startup_session_check', wrdeskUserId: 'unknown_pre_session', willAttemptVaultUnlock: false, timestamp: new Date().toISOString() })
   try {
     const session = await ensureSession()
     if (session.accessToken) {
@@ -548,6 +550,7 @@ async function openDashboardWindow(): Promise<void> {
  */
 async function requestLogin(): Promise<{ ok: boolean; error?: string; tier?: string }> {
   console.log('[AUTH] Login requested - starting Keycloak SSO flow...')
+  console.log('[VAULT_SESSION_TRACE] auth_event', { eventName: 'login_flow_start', wrdeskUserId: 'unknown_pre_login', willAttemptVaultUnlock: false, timestamp: new Date().toISOString() })
   try {
     const tokens = await loginWithKeycloak()
     
@@ -562,6 +565,7 @@ async function requestLogin(): Promise<{ ok: boolean; error?: string; tier?: str
     
     // Mark session as valid
     hasValidSession = true
+    console.log('[VAULT_SESSION_TRACE] auth_event', { eventName: 'login_complete', wrdeskUserId: userInfo?.wrdesk_user_id ?? userInfo?.sub ?? 'unknown', willAttemptVaultUnlock: false, timestamp: new Date().toISOString() })
     
     // Use canonical tier from session
     const tier = userInfo?.canonical_tier ?? resolveTier(
@@ -5006,12 +5010,15 @@ app.whenReady().then(async () => {
     })
 
     ipcMain.handle('vault:unlockWithPassword', async (_e, password: string, vaultId?: string) => {
+      const ipcUnlockVaultId = vaultId || 'default'
+      console.log('[VAULT_SESSION_TRACE] outer_unlock_attempt', { vaultId: ipcUnlockVaultId, caller: 'vault:unlockWithPassword_IPC', triggerReason: 'renderer_password_submit', currentSessionState: 'unknown_pre_import', timestamp: new Date().toISOString() })
       try {
         if (typeof password !== 'string' || password.length === 0) {
           return { success: false, error: 'Password is required' }
         }
         const { vaultService, setupEmbeddingServiceRef } = await import('./main/vault/rpc')
-        await vaultService.unlock(password, vaultId || 'default')
+        await vaultService.unlock(password, ipcUnlockVaultId)
+        console.log('[VAULT_SESSION_TRACE] outer_unlock_success', { vaultId: ipcUnlockVaultId, caller: 'vault:unlockWithPassword_IPC', newSessionState: vaultService.getStatus().isUnlocked ? 'unlocked' : 'locked', timestamp: new Date().toISOString() })
         const db = getLedgerDb() ?? vaultService.getHsProfileDb?.() ?? null
         setupEmbeddingServiceRef(vaultService, db)
         completePendingContextSyncs(db, getCurrentSession())
@@ -5020,6 +5027,7 @@ app.whenReady().then(async () => {
         try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
         return { success: true }
       } catch (err: any) {
+        console.log('[VAULT_SESSION_TRACE] outer_unlock_failure', { vaultId: ipcUnlockVaultId, caller: 'vault:unlockWithPassword_IPC', error: err?.message ?? String(err), errorCode: err?.code ?? null, timestamp: new Date().toISOString() })
         return { success: false, error: err?.message ?? 'Unlock failed' }
       }
     })
@@ -6707,6 +6715,7 @@ async function runDeviceKeyMigration(
             
             if (msg.type === 'AUTH_STATUS') {
               console.log('[AUTH] ===== AUTH_STATUS (WebSocket) =====')
+              console.log('[VAULT_SESSION_TRACE] auth_event', { eventName: 'auth_status_check', wrdeskUserId: 'resolving', willAttemptVaultUnlock: false, timestamp: new Date().toISOString() })
               try {
                 let session = await ensureSession()
                 let loggedIn = session.accessToken !== null

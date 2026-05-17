@@ -1894,6 +1894,7 @@ export class VaultService {
 
     this.autoLockTimer = setTimeout(() => {
       console.log('[VAULT] Autolock timeout reached')
+      console.log('[VAULT_SESSION_TRACE] outer_lock_attempt', { vaultId: this.currentVaultId, caller: 'startAutoLockTimer_callback', triggerReason: 'idle_timeout', previousSessionState: this.session ? 'unlocked' : 'locked', autoLockMinutes: this.settings.autoLockMinutes, timestamp: new Date().toISOString() })
       this.lock()
     }, timeoutMs)
   }
