@@ -200,34 +200,20 @@ export async function openLedger(sessionToken: string): Promise<any> {
   // Verify the key is correct (catches wrong-session re-opens)
   try {
     db.prepare('SELECT count(*) FROM sqlite_master').get()
-  } catch {
+  } catch (verifyErr: any) {
     db.close()
-    // Key mismatch — likely a different user on the same machine.
-    // Remove the stale file and create a fresh ledger for this session.
-    console.warn('[LEDGER] Key mismatch on existing ledger file — recreating for new session')
-    try {
-      const { unlinkSync } = await import('fs')
-      unlinkSync(dbPath)
-    } catch { /* if we can't delete, the new DB open below will fail too */ }
-    const db2 = new Database(dbPath)
-    db2.pragma(`key = "x'${hexKey}'"`)
-    db2.pragma('cipher_page_size = 4096')
-    db2.pragma('kdf_iter = 64000')
-    db2.pragma('cipher_hmac_algorithm = HMAC_SHA512')
-    db2.pragma('cipher_kdf_algorithm = PBKDF2_HMAC_SHA512')
-    db2.pragma('journal_mode = WAL')
-    db2.pragma('synchronous = NORMAL')
-    db2.pragma('foreign_keys = ON')
-    db2.pragma('cache_size = -4000')
-    db2.pragma('temp_store = MEMORY')
-    applySchema(db2)
-    try { migrateHandshakeTables(db2) } catch (err: any) {
-      console.warn('[LEDGER] Handshake schema migration warning (recreated):', err?.message)
-    }
-    _ledgerDb = db2
-    _ledgerSessionId = sessionToken
-    console.log('[LEDGER] Handshake ledger recreated for new session')
-    return db2
+    // Key verification failed — preserve the file so no data is lost.
+    // Callers receive null and surface "ledger unavailable" to the user.
+    // Use resetLedger() explicitly (via a future recovery UI) if the file
+    // must be discarded after manual confirmation.
+    const safeMsg = typeof verifyErr?.message === 'string'
+      ? verifyErr.message.replace(/x'[0-9a-fA-F]+'/g, '<key_redacted>')
+      : 'unknown error'
+    console.error(
+      `[LEDGER] Failed to open ledger with current session key. ` +
+      `Ledger file preserved. Error: ${safeMsg} Path: ${dbPath}`,
+    )
+    return null
   }
 
   applySchema(db)
@@ -262,6 +248,28 @@ export function closeLedger(): void {
     _ledgerDb = null
     _ledgerSessionId = null
     console.log('[LEDGER] Handshake ledger closed (session key discarded)')
+  }
+}
+
+/**
+ * Explicit recovery path. Wire to UI in a later prompt. Do not call from automatic flows.
+ *
+ * Deletes the ledger file at `dbPath` so a subsequent `openLedger` call can create a
+ * fresh database. Closes any open connection first. Returns `{ ok: true }` on success or
+ * `{ ok: false; error: string }` if the file could not be removed.
+ */
+export async function resetLedger(
+  dbPath: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  closeLedger()
+  try {
+    const { unlinkSync } = await import('fs')
+    unlinkSync(dbPath)
+    return { ok: true }
+  } catch (err: any) {
+    const msg = typeof err?.message === 'string' ? err.message : String(err)
+    console.error(`[LEDGER] resetLedger failed to delete ${dbPath}: ${msg}`)
+    return { ok: false, error: msg }
   }
 }
 
