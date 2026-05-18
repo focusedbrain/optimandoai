@@ -19,7 +19,7 @@ import { enqueueOutboundCapsule, processOutboundQueue, logProcessOutboundQueueFa
 import { formatLocalInternalRelayValidationJson } from './internalRelayOutboundGuards'
 import { persistContextBlocks } from './contextBlocks'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
-import { vaultService } from '../vault/rpc'
+import { isInnerVaultUnlocked } from '../vault/vaultCanon'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { internalRelayCapsuleWireOptsFromRecord } from './internalCoordinationWire'
 import {
@@ -61,8 +61,7 @@ export function tryEnqueueContextSync(
 ): TryEnqueueContextSyncResult {
   const getVaultStatus = opts.getVaultStatus ?? (() => {
     try {
-      const status = vaultService.getStatus()
-      return status
+      return { isUnlocked: isInnerVaultUnlocked() }
     } catch (err: any) {
       console.error('[ContextSync] Failed to read vault status:', err?.message ?? err)
       return { isUnlocked: false }
@@ -74,7 +73,7 @@ export function tryEnqueueContextSync(
   if (!status?.isUnlocked) {
     try {
       updateHandshakeContextSyncPending(db, handshakeId, true)
-      console.log('[ContextSync] Deferred — vault is locked. handshake:', handshakeId)
+      console.log('[ContextSync] Deferred — inner vault is locked. handshake:', handshakeId)
       return {
         success: false,
         reason: 'VAULT_LOCKED',
