@@ -11,6 +11,7 @@ import { ml_kem768 } from '@noble/post-quantum/ml-kem'
 
 import { getHandshakeRecord } from '../handshake/db'
 import { computeEnvelopeAadBytes } from './beapEnvelopeAad'
+import { safeFingerprint } from '../security/cryptoFingerprint'
 
 const wc = webcrypto as Crypto
 
@@ -27,6 +28,14 @@ const HKDF_ARTEFACT = 'BEAP v1 artefact'
 const HKDF_INNER_ENVELOPE = 'BEAP v2 inner-envelope'
 
 function logGcmDecryptInputs(label: string, nonceB64: string, ciphertextB64: string, tagB64?: string) {
+  if (!QBEAP_DBG) {
+    console.log('[qBEAP-decrypt] AES-GCM sizing', label, {
+      nonceChars: typeof nonceB64 === 'string' ? nonceB64.length : 0,
+      ciphertextChars: typeof ciphertextB64 === 'string' ? ciphertextB64.length : 0,
+      hasSeparateTag: !!(tagB64 && String(tagB64).trim()),
+    })
+    return
+  }
   let nonceBytes: Buffer
   let ciphertextBytes: Buffer
   try {
@@ -208,6 +217,13 @@ async function decryptChunkSequence(
 }
 
 /**
+ * Optional observability hooks — callers keep receiving `null` on failure (backwards compatible).
+ */
+export interface DecryptQBeapCallOptions {
+  reportFailure?: (info: { code: string; handshakeId: string; retryable: boolean }) => void
+}
+
+/**
  * Decrypt a qBEAP JSON package using local keys from the handshake row.
  * @returns null if keys missing, package invalid, or crypto fails.
  */
@@ -215,9 +231,20 @@ export async function decryptQBeapPackage(
   packageJson: string,
   handshakeId: string,
   db: unknown,
+  options?: DecryptQBeapCallOptions,
 ): Promise<DecryptedQBeapContent | null> {
+  const hid = handshakeId?.trim() || '(unknown)'
+  const reportFail = (code: string, retryable: boolean): void => {
+    try {
+      options?.reportFailure?.({ code, handshakeId: hid, retryable })
+    } catch {
+      /* non-fatal */
+    }
+  }
+
   if (!db || !handshakeId?.trim()) {
     console.warn('[qBEAP-decrypt] Missing db or handshakeId')
+    reportFail('MISSING_DB_OR_HANDSHAKE_ID', false)
     return null
   }
 
@@ -226,6 +253,7 @@ export async function decryptQBeapPackage(
     pkg = JSON.parse(packageJson) as Record<string, unknown>
   } catch {
     console.warn('[qBEAP-decrypt] Invalid package JSON')
+    reportFail('INVALID_PACKAGE_JSON', false)
     return null
   }
 
@@ -237,6 +265,7 @@ export async function decryptQBeapPackage(
   const hs = getHandshakeRecord(db as any, handshakeId.trim())
   if (!hs) {
     console.warn('[qBEAP-decrypt] Handshake not found:', handshakeId)
+    reportFail('HANDSHAKE_NOT_FOUND', false)
     return null
   }
 
@@ -252,7 +281,9 @@ export async function decryptQBeapPackage(
       const { getDeviceX25519KeyPair } = await import('../device-keys/deviceKeyStore')
       const deviceKp = await getDeviceX25519KeyPair()
       localX25519PrivB64 = deviceKp.privateKey
-      console.log('[qBEAP-decrypt] Using orchestrator-DB device private key for handshake:', handshakeId)
+      if (QBEAP_DBG) {
+        console.log('[qBEAP-decrypt] Using orchestrator-DB device private key for handshake:', handshakeId)
+      }
     } catch (e) {
       console.warn('[qBEAP-decrypt] Failed to load device private key from orchestrator DB for handshake:', handshakeId, e)
     }
@@ -261,6 +292,7 @@ export async function decryptQBeapPackage(
   const cryptoHdr = header.crypto as Record<string, unknown> | undefined
   if (!cryptoHdr) {
     console.warn('[qBEAP-decrypt] No header.crypto')
+    reportFail('MISSING_HEADER_CRYPTO', false)
     return null
   }
 
@@ -280,65 +312,67 @@ export async function decryptQBeapPackage(
 
   const peLog = pkg.payloadEnc as Record<string, unknown> | undefined
   const chLog = peLog?.chunking as Record<string, unknown> | undefined
-  console.log(
-    '[qBEAP-decrypt] Package header.crypto:',
-    JSON.stringify({
-      hasPq: !!pq,
-      kemCiphertextLen: kemCiphertextB64.length,
-      senderX25519Len: senderX25519PubB64.length,
-      saltLen: saltB64.length,
-      hasPayloadEnc: !!peLog,
-      payloadNonceLen: typeof peLog?.nonce === 'string' ? peLog.nonce.length : 0,
-      payloadCiphertextLen: typeof peLog?.ciphertext === 'string' ? peLog.ciphertext.length : 0,
-      hasChunking: !!(chLog && Array.isArray(chLog.chunks)),
-      chunkCount: Array.isArray(chLog?.chunks) ? (chLog.chunks as unknown[]).length : 0,
-      topLevelChunkCount: Array.isArray(peLog?.chunks) ? (peLog.chunks as unknown[]).length : 0,
-      artefactCount: Array.isArray(pkg.artefactsEnc) ? pkg.artefactsEnc.length : 0,
-      hasInnerEnvelope: typeof (pkg as Record<string, unknown>).innerEnvelopeCiphertext === 'string',
-      hasSeparatePayloadTag: !!(peLog && (typeof peLog.tag === 'string' || typeof peLog.authTag === 'string')),
-    }),
-  )
+  if (QBEAP_DBG) {
+    console.log(
+      '[qBEAP-decrypt] Package header.crypto:',
+      JSON.stringify({
+        hasPq: !!pq,
+        kemCiphertextLen: kemCiphertextB64.length,
+        senderX25519Len: senderX25519PubB64.length,
+        saltLen: saltB64.length,
+        hasPayloadEnc: !!peLog,
+        payloadNonceLen: typeof peLog?.nonce === 'string' ? peLog.nonce.length : 0,
+        payloadCiphertextLen: typeof peLog?.ciphertext === 'string' ? peLog.ciphertext.length : 0,
+        hasChunking: !!(chLog && Array.isArray(chLog.chunks)),
+        chunkCount: Array.isArray(chLog?.chunks) ? (chLog.chunks as unknown[]).length : 0,
+        topLevelChunkCount: Array.isArray(peLog?.chunks) ? (peLog.chunks as unknown[]).length : 0,
+        artefactCount: Array.isArray(pkg.artefactsEnc) ? pkg.artefactsEnc.length : 0,
+        hasInnerEnvelope: typeof (pkg as Record<string, unknown>).innerEnvelopeCiphertext === 'string',
+        hasSeparatePayloadTag: !!(peLog && (typeof peLog.tag === 'string' || typeof peLog.authTag === 'string')),
+      }),
+    )
 
-  console.log('[qBEAP-decrypt] Key material:', {
-    hasLocalX25519Priv: !!localX25519PrivB64,
-    localX25519PrivLen: localX25519PrivB64?.length,
-    hasLocalMlkemSecret: !!localMlkemSecretB64,
-    localMlkemSecretLen: localMlkemSecretB64?.length,
-    peerX25519PubLen: hs.peer_x25519_public_key_b64?.length,
-    peerMlkemPubLen: hs.peer_mlkem768_public_key_b64?.length,
-  })
+    console.log('[qBEAP-decrypt] Key material:', {
+      hasLocalX25519Priv: !!localX25519PrivB64,
+      localX25519PrivLen: localX25519PrivB64?.length,
+      hasLocalMlkemSecret: !!localMlkemSecretB64,
+      localMlkemSecretLen: localMlkemSecretB64?.length,
+      peerX25519PubLen: hs.peer_x25519_public_key_b64?.length,
+      peerMlkemPubLen: hs.peer_mlkem768_public_key_b64?.length,
+    })
+
+    console.log(
+      '[qBEAP-decrypt] KEY IDENTITY CHECK:',
+      JSON.stringify({
+        ourLocalX25519Fp: hs.local_x25519_public_key_b64 ? safeFingerprint(hs.local_x25519_public_key_b64) : undefined,
+        ourLocalX25519PrivExists: !!hs.local_x25519_private_key_b64,
+        ourLocalMlkemFp: hs.local_mlkem768_public_key_b64 ? safeFingerprint(hs.local_mlkem768_public_key_b64) : undefined,
+        ourLocalMlkemSecExists: !!hs.local_mlkem768_secret_key_b64,
+        theirPeerX25519Fp: hs.peer_x25519_public_key_b64 ? safeFingerprint(hs.peer_x25519_public_key_b64) : undefined,
+        theirPeerMlkemFp: hs.peer_mlkem768_public_key_b64 ? safeFingerprint(hs.peer_mlkem768_public_key_b64) : undefined,
+        headerSenderX25519Fp: senderX25519PubB64 ? safeFingerprint(senderX25519PubB64) : undefined,
+        handshakeId,
+        ourRole: hs.local_role || (hs as { role?: string }).role || 'unknown',
+      }),
+    )
+    console.log('[qBEAP-decrypt] Key match check:', {
+      receiverX25519InHeader: receiverX25519InHeader ? `${receiverX25519InHeader.slice(0, 12)}…` : 'NOT IN HEADER',
+      ourLocalX25519PubLen: hs.local_x25519_public_key_b64?.length,
+      x25519Match:
+        receiverX25519InHeader && hs.local_x25519_public_key_b64
+          ? receiverX25519InHeader === hs.local_x25519_public_key_b64.trim()
+          : null,
+      receiverMlkemInHeader: receiverMlkemInHeader ? `${receiverMlkemInHeader.slice(0, 12)}…` : 'NOT IN HEADER',
+      ourLocalMlkemPubLen: hs.local_mlkem768_public_key_b64?.length,
+      mlkemMatch:
+        receiverMlkemInHeader && hs.local_mlkem768_public_key_b64
+          ? receiverMlkemInHeader === hs.local_mlkem768_public_key_b64.trim()
+          : null,
+    })
+  }
+
   // === DIAGNOSTIC: Compare sender's peer key to our local key ===
-  // The sender encrypted using their peer_x25519_public_key_b64 for us
-  // which should equal our local_x25519_public_key_b64.
-  // The sender put their OWN device public key in the header.
-  // We don't have the sender's peer_* here, but we can check what
-  // the sender SHOULD have used by looking at our own local public key
-  // and the handshake state.
-  console.log('[qBEAP-decrypt] KEY IDENTITY CHECK:', JSON.stringify({
-    ourLocalX25519Pub: hs.local_x25519_public_key_b64?.substring(0, 24),
-    ourLocalX25519PrivExists: !!hs.local_x25519_private_key_b64,
-    ourLocalMlkemPub: hs.local_mlkem768_public_key_b64?.substring(0, 24),
-    ourLocalMlkemSecExists: !!hs.local_mlkem768_secret_key_b64,
-    theirPeerX25519Pub: hs.peer_x25519_public_key_b64?.substring(0, 24),
-    theirPeerMlkemPub: hs.peer_mlkem768_public_key_b64?.substring(0, 24),
-    headerSenderX25519: senderX25519PubB64 ? senderX25519PubB64.substring(0, 24) : undefined,
-    handshakeId,
-    ourRole: hs.local_role || (hs as { role?: string }).role || 'unknown',
-  }))
-  console.log('[qBEAP-decrypt] Key match check:', {
-    receiverX25519InHeader: receiverX25519InHeader ? `${receiverX25519InHeader.slice(0, 12)}…` : 'NOT IN HEADER',
-    ourLocalX25519PubLen: hs.local_x25519_public_key_b64?.length,
-    x25519Match:
-      receiverX25519InHeader && hs.local_x25519_public_key_b64
-        ? receiverX25519InHeader === hs.local_x25519_public_key_b64.trim()
-        : null,
-    receiverMlkemInHeader: receiverMlkemInHeader ? `${receiverMlkemInHeader.slice(0, 12)}…` : 'NOT IN HEADER',
-    ourLocalMlkemPubLen: hs.local_mlkem768_public_key_b64?.length,
-    mlkemMatch:
-      receiverMlkemInHeader && hs.local_mlkem768_public_key_b64
-        ? receiverMlkemInHeader === hs.local_mlkem768_public_key_b64.trim()
-        : null,
-  })
+  // Full key-substring dumps only when WR_QBEAP_DECRYPT_DEBUG=1 (block above).
 
   // ── Receiver-side identity check ────────────────────────────────────────────
   // The sender's key in the header MUST match what we recorded as our peer's key
@@ -350,25 +384,31 @@ export async function decryptQBeapPackage(
     const match = hsPeerX25519 && senderX25519PubB64
       ? hsPeerX25519 === senderX25519PubB64
       : null
-    console.log('[qBEAP-decrypt] RECEIVER KEY CHECK:', JSON.stringify({
-      handshakeId,
-      hsPeerX25519: hsPeerX25519.substring(0, 24) || 'NULL',
-      headerSenderX25519: senderX25519PubB64.substring(0, 24) || 'NULL',
-      match,
-    }))
-    if (hsPeerX25519 && senderX25519PubB64 && !match) {
-      console.error(
-        '[qBEAP-decrypt] ERR_HEADER_SENDER_KEY_MISMATCH:',
-        'header.senderX25519 ≠ hs.peer_x25519. ECDH would produce wrong shared secret.',
-        'Re-establish handshake to resync peer keys.',
-        { handshakeId, hsPeerX25519Prefix: hsPeerX25519.substring(0, 24), headerPrefix: senderX25519PubB64.substring(0, 24) },
+    if (QBEAP_DBG) {
+      console.log(
+        '[qBEAP-decrypt] RECEIVER KEY CHECK:',
+        JSON.stringify({
+          handshakeId,
+          hsPeerX25519Fp: hsPeerX25519 ? safeFingerprint(hsPeerX25519) : 'NULL',
+          headerSenderX25519Fp: senderX25519PubB64 ? safeFingerprint(senderX25519PubB64) : 'NULL',
+          match,
+        }),
       )
+    }
+    if (hsPeerX25519 && senderX25519PubB64 && !match) {
+      console.error('[qBEAP-decrypt] ERR_HEADER_SENDER_KEY_MISMATCH', {
+        handshakeId,
+        hsPeerFingerprint: safeFingerprint(hsPeerX25519),
+        headerSenderFingerprint: safeFingerprint(senderX25519PubB64),
+      })
+      reportFail('HEADER_PEER_KEY_MISMATCH', false)
       return null
     }
   }
 
   if (!senderX25519PubB64 || !saltB64) {
     console.warn('[qBEAP-decrypt] Missing sender X25519 public or salt')
+    reportFail('MISSING_HEADER_KEY_MATERIAL', false)
     return null
   }
 
@@ -378,6 +418,7 @@ export async function decryptQBeapPackage(
       handshakeId,
       '(re-establish handshake for native qBEAP decrypt)',
     )
+    reportFail('LOCAL_X25519_PRIVATE_KEY_UNAVAILABLE', true)
     return null
   }
 
@@ -388,42 +429,55 @@ export async function decryptQBeapPackage(
     const localPriv = fromBase64(localX25519PrivB64)
     if (peerPub.length !== 32 || localPriv.length !== 32) {
       console.warn('[qBEAP-decrypt] Invalid X25519 key length')
+      reportFail('INVALID_X25519_KEY_LENGTH', false)
       return null
     }
 
     cryptoStep = 'x25519-dh'
     const x25519Secret = x25519.getSharedSecret(localPriv, peerPub)
-    console.log('[qBEAP-decrypt] X25519 result:', {
-      secretLength: x25519Secret.length,
-      secretHex: QBEAP_DBG ? hexPreview(x25519Secret) : '(set WR_QBEAP_DECRYPT_DEBUG=1)',
-    })
+    if (QBEAP_DBG) {
+      console.log('[qBEAP-decrypt] X25519 result:', {
+        secretLength: x25519Secret.length,
+        secretHex: hexPreview(x25519Secret),
+      })
+    }
 
     let sharedSecret: Uint8Array
     if (kemCiphertextB64) {
       if (!localMlkemSecretB64) {
         console.warn('[qBEAP-decrypt] Hybrid package requires local ML-KEM secret for handshake:', handshakeId)
+        reportFail('LOCAL_MLKEM_SECRET_UNAVAILABLE', true)
         return null
       }
       cryptoStep = 'mlkem-decapsulate'
       const ct = fromBase64(kemCiphertextB64)
       const sk = fromBase64(localMlkemSecretB64)
       const mlkemSecret = ml_kem768.decapsulate(ct, sk)
-      console.log('[qBEAP-decrypt] ML-KEM decapsulate result:', {
-        secretLength: mlkemSecret.length,
-        secretHex: QBEAP_DBG ? hexPreview(mlkemSecret) : '(set WR_QBEAP_DECRYPT_DEBUG=1)',
-      })
+      if (QBEAP_DBG) {
+        console.log('[qBEAP-decrypt] ML-KEM decapsulate result:', {
+          secretLength: mlkemSecret.length,
+          secretHex: hexPreview(mlkemSecret),
+        })
+      }
       cryptoStep = 'hybrid-concat'
       const hybrid = new Uint8Array(mlkemSecret.length + x25519Secret.length)
       hybrid.set(mlkemSecret, 0)
       hybrid.set(x25519Secret, mlkemSecret.length)
       sharedSecret = hybrid
-      console.log('[qBEAP-decrypt] Hybrid secret (ML-KEM || X25519):', {
-        length: hybrid.length,
-        hex: QBEAP_DBG ? hexPreview(hybrid, 16) : '(set WR_QBEAP_DECRYPT_DEBUG=1)',
-      })
+      if (QBEAP_DBG) {
+        console.log('[qBEAP-decrypt] Hybrid secret (ML-KEM || X25519):', {
+          length: hybrid.length,
+          hex: hexPreview(hybrid, 16),
+        })
+      }
     } else {
       sharedSecret = x25519Secret
-      console.log('[qBEAP-decrypt] X25519-only shared secret (no PQ ciphertext), length:', sharedSecret.length)
+      if (QBEAP_DBG) {
+        console.log(
+          '[qBEAP-decrypt] X25519-only shared secret (no PQ ciphertext), length:',
+          sharedSecret.length,
+        )
+      }
     }
 
     cryptoStep = 'hkdf'
@@ -431,13 +485,15 @@ export async function decryptQBeapPackage(
     const capsuleKey = await hkdfDerive(sharedSecret, saltBytes, HKDF_CAPSULE, 32)
     const artefactKey = await hkdfDerive(sharedSecret, saltBytes, HKDF_ARTEFACT, 32)
     const innerEnvelopeKey = await hkdfDerive(sharedSecret, saltBytes, HKDF_INNER_ENVELOPE, 32)
-    console.log('[qBEAP-decrypt] Derived keys:', {
-      capsuleKeyLen: capsuleKey.length,
-      artefactKeyLen: artefactKey.length,
-      innerEnvelopeKeyLen: innerEnvelopeKey.length,
-      capsuleKeyHex: QBEAP_DBG ? hexPreview(capsuleKey) : '(set WR_QBEAP_DECRYPT_DEBUG=1)',
-      hkdfLabels: [HKDF_CAPSULE, HKDF_ARTEFACT, HKDF_INNER_ENVELOPE],
-    })
+    if (QBEAP_DBG) {
+      console.log('[qBEAP-decrypt] Derived keys:', {
+        capsuleKeyLen: capsuleKey.length,
+        artefactKeyLen: artefactKey.length,
+        innerEnvelopeKeyLen: innerEnvelopeKey.length,
+        capsuleKeyHex: hexPreview(capsuleKey),
+        hkdfLabels: [HKDF_CAPSULE, HKDF_ARTEFACT, HKDF_INNER_ENVELOPE],
+      })
+    }
     void innerEnvelopeKey
 
     /** Per canon A.3.054.10 — same bytes as extension `encryptCapsulePayloadChunked` / `encryptChunks` AAD. */
@@ -445,7 +501,7 @@ export async function decryptQBeapPackage(
     try {
       const aad = computeEnvelopeAadBytes(header as Record<string, unknown>)
       envelopeAadBytes = aad.length > 0 ? aad : undefined
-      console.log('[qBEAP-decrypt] Envelope AAD length:', aad.length)
+      if (QBEAP_DBG) console.log('[qBEAP-decrypt] Envelope AAD length:', aad.length)
     } catch (e) {
       console.warn('[qBEAP-decrypt] computeEnvelopeAadBytes failed:', (e as Error)?.message ?? e)
     }
@@ -453,6 +509,7 @@ export async function decryptQBeapPackage(
     const payloadEnc = pkg.payloadEnc as Record<string, unknown> | undefined
     if (!payloadEnc) {
       console.warn('[qBEAP-decrypt] Missing payloadEnc')
+      reportFail('MISSING_PAYLOAD_ENC', false)
       return null
     }
 
@@ -469,22 +526,24 @@ export async function decryptQBeapPackage(
             : typeof c0.gcmTag === 'string'
               ? c0.gcmTag
               : undefined
-      console.log(
-        '[qBEAP-decrypt] Chunk 0 structure:',
-        JSON.stringify({
-          hasNonce: !!c0.nonce,
-          nonceLen: typeof c0.nonce === 'string' ? c0.nonce.length : 0,
-          hasCiphertext: !!c0.ciphertext,
-          ciphertextLen: typeof c0.ciphertext === 'string' ? c0.ciphertext.length : 0,
-          hasTag: !!c0.tag,
-          tagLen: typeof c0.tag === 'string' ? c0.tag.length : 0,
-          hasAuthTag: !!c0.authTag,
-          authTagLen: typeof c0.authTag === 'string' ? c0.authTag.length : 0,
-          hasSha256Cipher: !!c0.sha256Cipher,
-          index: c0.index,
-          allKeys: c0 && typeof c0 === 'object' ? Object.keys(c0) : [],
-        }),
-      )
+      if (QBEAP_DBG) {
+        console.log(
+          '[qBEAP-decrypt] Chunk 0 structure:',
+          JSON.stringify({
+            hasNonce: !!c0.nonce,
+            nonceLen: typeof c0.nonce === 'string' ? c0.nonce.length : 0,
+            hasCiphertext: !!c0.ciphertext,
+            ciphertextLen: typeof c0.ciphertext === 'string' ? c0.ciphertext.length : 0,
+            hasTag: !!c0.tag,
+            tagLen: typeof c0.tag === 'string' ? c0.tag.length : 0,
+            hasAuthTag: !!c0.authTag,
+            authTagLen: typeof c0.authTag === 'string' ? c0.authTag.length : 0,
+            hasSha256Cipher: !!c0.sha256Cipher,
+            index: c0.index,
+            allKeys: c0 && typeof c0 === 'object' ? Object.keys(c0) : [],
+          }),
+        )
+      }
       cryptoStep = 'aes-gcm-capsule-chunks'
       logGcmDecryptInputs('capsule-chunk-0', c0.nonce, c0.ciphertext, c0tag)
       const combined = await decryptChunkSequence(capsuleKey, chunks, envelopeAadBytes)
@@ -512,6 +571,7 @@ export async function decryptQBeapPackage(
       const actual = await sha256HexUtf8(capsuleJson)
       if (actual.toLowerCase() !== payloadEnc.sha256Plain.trim().toLowerCase()) {
         console.warn('[qBEAP-decrypt] Capsule sha256Plain mismatch')
+        reportFail('CAPSULE_DIGEST_MISMATCH', false)
         return null
       }
     }
@@ -624,6 +684,7 @@ export async function decryptQBeapPackage(
     }
   } catch (e) {
     console.error('[qBEAP-decrypt] Decryption failed at step:', cryptoStep, (e as Error)?.message ?? e)
+    reportFail('DECRYPT_CRYPTO_FAILED', cryptoStep !== 'init')
     return null
   }
 }

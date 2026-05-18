@@ -64,7 +64,7 @@ import {
 } from './db'
 import { tryEnqueueContextSync, retryDeferredInitialContextSyncForInternalHandshake } from './contextSyncEnqueue'
 import { deriveRelationshipId } from './relationshipId'
-import { enqueueOutboundCapsule, processOutboundQueue, type ProcessOutboundQueueResult } from './outboundQueue'
+import { enqueueOutboundCapsule, logProcessOutboundQueueFailure, processOutboundQueue, type ProcessOutboundQueueResult } from './outboundQueue'
 import { randomBytes, randomUUID } from 'crypto'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
@@ -93,7 +93,11 @@ import { coordinationRegistryUserIdsForSession } from '../p2p/relayIdentity'
 import {
   getPairingCode as getOrchestratorPairingCode,
 } from '../orchestrator/orchestratorModeStore'
+import { safeFingerprint } from '../security/cryptoFingerprint'
 import { filterHandshakeRecordsForCurrentSession } from './handshakeAccountIsolation'
+
+/** Set `WR_P2P_SEND_KEY_DIAG=1` to log legacy key-substring diagnostics (default: fingerprint-only on errors). */
+const P2P_SEND_KEY_DIAG = process.env.WR_P2P_SEND_KEY_DIAG === '1'
 
 /** Coordination registry must use JWT `sub` for both parties when the handshake is same-account, or same-user device routing never engages. */
 function coordinationAcceptorUserIdForRegistration(
@@ -984,18 +988,31 @@ export async function handleHandshakeRPC(
               : {}
         const senderX25519B64 =
           typeof hdr.senderX25519PublicKeyB64 === 'string' ? hdr.senderX25519PublicKeyB64 : ''
-        console.log(
-          '[P2P-SEND] SENDER KEY CHECK:',
-          JSON.stringify({
-            ourPeerX25519ForRecipient: record.peer_x25519_public_key_b64?.substring(0, 24) || 'NULL',
-            ourPeerMlkemForRecipient: record.peer_mlkem768_public_key_b64?.substring(0, 24) || 'NULL',
-            ourLocalX25519Pub: record.local_x25519_public_key_b64?.substring(0, 24) || 'NULL',
-            ourLocalMlkemPub: record.local_mlkem768_public_key_b64?.substring(0, 24) || 'NULL',
-            headerSenderX25519: senderX25519B64 ? senderX25519B64.substring(0, 24) : 'N/A',
-            handshakeId,
-            ourRole: record.local_role || 'unknown',
-          }),
-        )
+        if (P2P_SEND_KEY_DIAG) {
+          console.log(
+            '[P2P-SEND] SENDER KEY CHECK:',
+            JSON.stringify({
+              ourPeerX25519ForRecipientFp: record.peer_x25519_public_key_b64 ? safeFingerprint(record.peer_x25519_public_key_b64) : 'NULL',
+              ourPeerMlkemForRecipientFp: record.peer_mlkem768_public_key_b64 ? safeFingerprint(record.peer_mlkem768_public_key_b64) : 'NULL',
+              ourLocalX25519Fp: record.local_x25519_public_key_b64 ? safeFingerprint(record.local_x25519_public_key_b64) : 'NULL',
+              ourLocalMlkemFp: record.local_mlkem768_public_key_b64 ? safeFingerprint(record.local_mlkem768_public_key_b64) : 'NULL',
+              headerSenderX25519Fp: senderX25519B64 ? safeFingerprint(senderX25519B64) : 'N/A',
+              handshakeId,
+              ourRole: record.local_role || 'unknown',
+            }),
+          )
+        } else {
+          console.log(
+            '[P2P-SEND] SENDER KEY fingerprint check',
+            JSON.stringify({
+              handshakeId,
+              headerSenderFp: senderX25519B64 ? safeFingerprint(senderX25519B64) : null,
+              handshakeLocalPubFp: record.local_x25519_public_key_b64
+                ? safeFingerprint(record.local_x25519_public_key_b64.trim())
+                : null,
+            }),
+          )
+        }
       } catch (e) {
         console.log('[P2P-SEND] Key check parse error:', e)
       }
@@ -1016,19 +1033,33 @@ export async function handleHandshakeRPC(
             : ''
         const handshakeLocalKey = record.local_x25519_public_key_b64?.trim() ?? ''
         const keyMatch = headerSenderKey && handshakeLocalKey && headerSenderKey === handshakeLocalKey
-        console.log('[P2P-SEND] BOUND KEY CHECK:', JSON.stringify({
-          handshakeId,
-          localX25519: handshakeLocalKey.substring(0, 24) || 'NULL',
-          handshakeLocalX25519: handshakeLocalKey.substring(0, 24) || 'NULL',
-          headerSenderX25519: headerSenderKey.substring(0, 24) || 'NULL',
-          match: keyMatch,
-        }))
-        if (headerSenderKey && handshakeLocalKey && !keyMatch) {
-          console.error(
-            '[P2P-SEND] ERR_HANDSHAKE_LOCAL_KEY_MISMATCH: header senderX25519 ≠ handshake local_x25519.',
-            'Receiver will derive a wrong ECDH secret. Blocking send.',
-            { handshakeId, localKeyPrefix: handshakeLocalKey.substring(0, 24), headerKeyPrefix: headerSenderKey.substring(0, 24) },
+        if (P2P_SEND_KEY_DIAG) {
+          console.log(
+            '[P2P-SEND] BOUND KEY CHECK:',
+            JSON.stringify({
+              handshakeId,
+              localX25519Fp: handshakeLocalKey ? safeFingerprint(handshakeLocalKey) : 'NULL',
+              handshakeLocalX25519Fp: handshakeLocalKey ? safeFingerprint(handshakeLocalKey) : 'NULL',
+              headerSenderX25519Fp: headerSenderKey ? safeFingerprint(headerSenderKey) : 'NULL',
+              match: keyMatch,
+            }),
           )
+        } else if (handshakeLocalKey && headerSenderKey) {
+          console.log(
+            '[P2P-SEND] BOUND KEY fingerprints',
+            JSON.stringify({
+              handshakeId,
+              match: keyMatch,
+              handshakeLocalFp: safeFingerprint(handshakeLocalKey),
+              headerSenderFp: safeFingerprint(headerSenderKey),
+            }),
+          )
+        }
+        if (headerSenderKey && handshakeLocalKey && !keyMatch) {
+          console.error('[P2P-SEND] ERR_HANDSHAKE_LOCAL_KEY_MISMATCH', handshakeId, {
+            handshakeLocalFp: safeFingerprint(handshakeLocalKey),
+            headerSenderFp: safeFingerprint(headerSenderKey),
+          })
           console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=ERR_HANDSHAKE_LOCAL_KEY_MISMATCH`)
           return {
             success: false,
@@ -1156,9 +1187,16 @@ export async function handleHandshakeRPC(
           const { getDeviceX25519PublicKey: getDevPub } = await import('../device-keys/deviceKeyStore')
           const currentDeviceKey = await getDevPub()
           if (currentDeviceKey && currentDeviceKey.trim() !== record.local_x25519_public_key_b64.trim()) {
+            const oldPub = record.local_x25519_public_key_b64
             console.log(
               '[HANDSHAKE] checkSendReady: auto-repairing local_x25519_public_key_b64 — device key changed since accept.',
-              { handshakeId, old: record.local_x25519_public_key_b64.substring(0, 24), new: currentDeviceKey.substring(0, 24) },
+              P2P_SEND_KEY_DIAG
+                ? { handshakeId, oldFp: safeFingerprint(oldPub), newFp: safeFingerprint(currentDeviceKey) }
+                : {
+                    handshakeId,
+                    oldFp: safeFingerprint(oldPub.trim()),
+                    newFp: safeFingerprint(currentDeviceKey.trim()),
+                  },
             )
             updateHandshakeRecord(db, { ...record, local_x25519_public_key_b64: currentDeviceKey })
             localX25519PublicKey = currentDeviceKey
@@ -2495,7 +2533,10 @@ export async function handleHandshakeRPC(
             console.log('[HANDSHAKE-DEBUG] processOutboundQueue starting (coordination path)', handshake_id)
             processOutboundQueue(db, _getOidcToken)
               .then(() => console.log('[HANDSHAKE-DEBUG] processOutboundQueue settled (coordination path)', handshake_id))
-              .catch((e) => console.log('[HANDSHAKE-DEBUG] processOutboundQueue rejected (coordination path)', handshake_id, e))
+              .catch((e) => {
+                console.log('[HANDSHAKE-DEBUG] processOutboundQueue rejected (coordination path)', handshake_id, e)
+                logProcessOutboundQueueFailure(`handshake.accept.coordination[${handshake_id}]`, e)
+              })
             // Replay any context_sync that arrived before the accept was processed (acceptor path).
             // The initiator's context_sync may have been buffered because our record didn't have
             // counterparty_public_key yet. Now that we've accepted, replay it immediately.
@@ -2529,6 +2570,8 @@ export async function handleHandshakeRPC(
 
       // Auto-trigger P2P context-sync: enqueue when ACCEPTED, or defer if vault locked
       let contextSyncStatus: 'sent' | 'vault_locked' | 'skipped' = 'skipped'
+      let context_sync_user_state: string | undefined
+      let context_sync_user_message: string | undefined
       if (localResult.success && db) {
         // NOTE: for coordination mode, context_sync is enqueued inside the setImmediate above
         // (after the accept capsule) to guarantee ordering. Here we only handle non-coordination
@@ -2539,12 +2582,19 @@ export async function handleHandshakeRPC(
             lastCapsuleHash: capsule.capsule_hash,
           })
           contextSyncStatus = contextResult.success ? 'sent' : (contextResult.reason === 'VAULT_LOCKED' ? 'vault_locked' : 'skipped')
+          if (!contextResult.success && contextResult.userVisible === true) {
+            context_sync_user_state = contextResult.state
+            context_sync_user_message = contextResult.message
+          }
           if (contextResult.success) {
             setImmediate(() => {
               console.log('[HANDSHAKE-DEBUG] processOutboundQueue (non-coordination) scheduled', handshake_id)
               processOutboundQueue(db, _getOidcToken)
                 .then(() => console.log('[HANDSHAKE-DEBUG] processOutboundQueue settled (non-coordination)', handshake_id))
-                .catch((e) => console.log('[HANDSHAKE-DEBUG] processOutboundQueue rejected (non-coordination)', handshake_id, e))
+                .catch((e) => {
+                  console.log('[HANDSHAKE-DEBUG] processOutboundQueue rejected (non-coordination)', handshake_id, e)
+                  logProcessOutboundQueueFailure(`handshake.accept.direct_p2p[${handshake_id}]`, e)
+                })
             })
           }
         } else {
@@ -2556,6 +2606,12 @@ export async function handleHandshakeRPC(
             '[HANDSHAKE-DEBUG] Coordination mode: context_sync is attempted asynchronously after accept; check context_sync_pending on the row for deferrals',
             handshake_id,
           )
+          if (localResult.success) {
+            context_sync_user_state = context_sync_user_state ?? 'completion_pending'
+            context_sync_user_message =
+              context_sync_user_message ??
+              'Secure exchange may still finish in the background (context sync). Unlock your vault when ready if this handshake stalls.'
+          }
         }
       }
 
@@ -2582,7 +2638,14 @@ export async function handleHandshakeRPC(
           ? 'Handshake accepted. Unlock your vault to complete the secure exchange.'
           : contextSyncStatus === 'sent'
             ? 'Handshake accepted. Completing exchange...'
-            : undefined,
+            : context_sync_user_message,
+        /** Additive UX: explicit pending/retry semantics without changing legacy `context_sync_status` values. */
+        context_sync_user_state,
+        context_sync_user_message:
+          context_sync_user_message ??
+          (contextSyncStatus === 'vault_locked'
+            ? 'Context sync is waiting for secure vault access.'
+            : undefined),
       }
     }
 
