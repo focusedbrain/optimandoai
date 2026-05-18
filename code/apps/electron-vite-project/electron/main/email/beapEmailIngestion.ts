@@ -44,6 +44,13 @@ import { notifyBeapRecipientPending } from '../p2p/beapRecipientNotify'
 
 const BATCH_SIZE = 100
 
+/** Structured visibility for qBEAP decrypt null returns (main-process logs only). */
+function reportQbeapDecryptFailure(ctx: string) {
+  return (info: { code: string; handshakeId: string; retryable: boolean }): void => {
+    console.warn(`[${ctx}] qBEAP decrypt failure`, info)
+  }
+}
+
 /**
  * After a sealed `direct_beap` row is committed to `inbox_messages`:
  * broadcast dashboard/inbox refresh (matches `App.tsx` `onBeapInboxUpdated`) + extension hook,
@@ -781,7 +788,9 @@ async function processSandboxQuarantineReceiveInternal(
   // Step 1: qBEAP-decrypt the outer clone package.
   let decrypted: Awaited<ReturnType<typeof decryptQBeapPackage>> | null = null
   try {
-    decrypted = await decryptQBeapPackage(packageJson, handshakeId, db)
+    decrypted = await decryptQBeapPackage(packageJson, handshakeId, db, {
+      reportFailure: reportQbeapDecryptFailure('P2P-INLINE-SANDBOX'),
+    })
   } catch {
     /* fall through */
   }
@@ -968,7 +977,9 @@ async function processBeapPackageInlineInternal(
 
   if (pkgEncoding === 'qBEAP') {
     try {
-      const decr = await decryptQBeapPackage(packageJson, handshakeId, db)
+      const decr = await decryptQBeapPackage(packageJson, handshakeId, db, {
+        reportFailure: reportQbeapDecryptFailure('P2P-INLINE'),
+      })
       if (decr?.rawCapsuleJson) {
         canonicalJson = decr.rawCapsuleJson
         depackagedMetadata = JSON.stringify({
@@ -1245,7 +1256,9 @@ export async function retryPendingQbeapDecrypt(db: any): Promise<number> {
           continue
         }
 
-        const decrypted = await decryptQBeapPackage(pkg, row.handshake_id, db)
+        const decrypted = await decryptQBeapPackage(pkg, row.handshake_id, db, {
+          reportFailure: reportQbeapDecryptFailure('RETRY-DECRYPT'),
+        })
         if (!decrypted?.rawCapsuleJson) {
           console.warn(`[RETRY-DECRYPT] Cannot decrypt id=${row.id} (handshake key unavailable)`)
           continue

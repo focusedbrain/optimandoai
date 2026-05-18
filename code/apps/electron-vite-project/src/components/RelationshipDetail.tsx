@@ -11,6 +11,7 @@
 
 import { useEffect, useState } from 'react'
 import VaultStatusIndicator from './VaultStatusIndicator'
+import SecureContextSyncPendingBanner from './SecureContextSyncPendingBanner'
 import HandshakeContextSection from './HandshakeContextSection'
 import { DEFAULT_AI_POLICY, type PolicySelection } from './PolicyRadioGroup'
 import { parsePolicyToMode } from '@shared/handshake/policyUtils'
@@ -357,6 +358,15 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
         />
       )}
 
+      {record.context_sync_pending && (record.state === 'ACCEPTED' || record.state === 'ACTIVE') && (
+        <SecureContextSyncPendingBanner
+          handshakeId={record.handshake_id}
+          vaultUnlocked={vaultStatus?.isUnlocked !== false}
+          handshakeType={record.handshake_type}
+          internalCoordinationIdentityComplete={record.internal_coordination_identity_complete}
+        />
+      )}
+
       {/* ── State notice for non-context states ── */}
       {record.state === 'PENDING_ACCEPT' && (
         <div style={{
@@ -650,7 +660,9 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
                       color: contextSyncPending ? '#f59e0b' : bothCommitments ? '#22c55e' : '#f59e0b',
                     }}>
                       {contextSyncPending
-                        ? '⏳ Context delivery in progress'
+                        ? (vaultStatus?.isUnlocked === false
+                          ? '⏳ Context delivery pending — unlock your vault when ready (sync will retry automatically).'
+                          : '⏳ Context delivery in progress (will retry if relay or queue is not ready).')
                         : bothCommitments
                           ? '✓ Both context commitments are signed into the capsule chain'
                           : '⏳ Awaiting counterparty commitment'}

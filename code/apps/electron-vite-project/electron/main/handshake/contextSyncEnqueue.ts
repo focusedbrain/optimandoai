@@ -15,7 +15,7 @@ import type { ContextBlockInput } from './types'
 import { getHandshakeRecord, updateHandshakeContextSyncPending, updateHandshakeContextSyncEnqueued } from './db'
 import { getContextStoreByHandshake } from './db'
 import { buildContextSyncCapsuleWithContent } from './capsuleBuilder'
-import { enqueueOutboundCapsule, processOutboundQueue } from './outboundQueue'
+import { enqueueOutboundCapsule, processOutboundQueue, logProcessOutboundQueueFailure } from './outboundQueue'
 import { formatLocalInternalRelayValidationJson } from './internalRelayOutboundGuards'
 import { persistContextBlocks } from './contextBlocks'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
@@ -39,9 +39,15 @@ export interface TryEnqueueContextSyncOpts {
   getVaultStatus?: () => { isUnlocked: boolean }
 }
 
+/** Additive UX fields — existing callers rely only on success + reason (optional). */
 export interface TryEnqueueContextSyncResult {
   success: boolean
   reason?: string
+  /** User-visible deferral (e.g. unlock when ready); does not change protocol or DB semantics. */
+  state?: string
+  userVisible?: boolean
+  action?: string
+  message?: string
 }
 
 /**
@@ -69,7 +75,15 @@ export function tryEnqueueContextSync(
     try {
       updateHandshakeContextSyncPending(db, handshakeId, true)
       console.log('[ContextSync] Deferred — vault is locked. handshake:', handshakeId)
-      return { success: false, reason: 'VAULT_LOCKED' }
+      return {
+        success: false,
+        reason: 'VAULT_LOCKED',
+        state: 'queued_until_unlock',
+        userVisible: true,
+        action: 'UNLOCK_WHEN_READY',
+        message:
+          'Handshake context sync is waiting for secure vault access. Unlock your vault when you are ready.',
+      }
     } catch (err: any) {
       console.warn('[ContextSync] Failed to set context_sync_pending:', err?.message)
       return { success: false, reason: 'DB_ERROR' }
@@ -106,7 +120,15 @@ export function tryEnqueueContextSync(
     } catch (err: any) {
       console.warn('[ContextSync] Failed to set context_sync_pending (INTERNAL_RELAY):', err?.message)
     }
-    return { success: false, reason: 'INTERNAL_RELAY_ENDPOINTS_INCOMPLETE' }
+    return {
+      success: false,
+      reason: 'INTERNAL_RELAY_ENDPOINTS_INCOMPLETE',
+      state: 'relay_identity_pending',
+      userVisible: true,
+      action: 'COMPLETE_PAIRING_WHEN_READY',
+      message:
+        'Context sync is waiting until coordination device identifiers are available for this handshake.',
+    }
   }
 
   // Resolve the target endpoint: use the stored p2p_endpoint (counterparty's direct address),
@@ -324,7 +346,9 @@ export function maybeEnqueueInitialContextSyncAfterInboundAccept(
     })
     setImmediate(() => {
       void import('./ipc').then((m) => {
-        processOutboundQueue(db, m.getCoordinationOidcToken).catch(() => {})
+        processOutboundQueue(db, m.getCoordinationOidcToken).catch((err) =>
+          logProcessOutboundQueueFailure('post_accept_context_sync', err),
+        )
       })
     })
   } else {
@@ -361,7 +385,9 @@ export function retryDeferredInitialContextSyncForInternalHandshake(
   })
   if (result.success && getOidcToken) {
     setImmediate(() => {
-      void processOutboundQueue(db, getOidcToken)
+      void processOutboundQueue(db, getOidcToken).catch((err) =>
+        logProcessOutboundQueueFailure('retry_deferred_initial_context_sync', err),
+      )
     })
   }
 }

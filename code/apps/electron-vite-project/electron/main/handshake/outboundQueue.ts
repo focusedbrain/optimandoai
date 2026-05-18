@@ -230,6 +230,21 @@ export function setOutboundQueueAuthRefresh(fn?: (() => Promise<void>) | undefin
   _refreshSession = fn
 }
 
+/**
+ * Structured warning when async `processOutboundQueue` rejects (serialized drain, fire-and-forget callbacks).
+ * Does not mutate queue rows — pending items remain retryable via existing backoff / next drain.
+ * Updates P2P health banner so dashboards are not blind to failures.
+ */
+export function logProcessOutboundQueueFailure(operation: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err)
+  console.warn('[OutboundQueue] Processing failed; pending capsule(s) unchanged:', operation, message)
+  try {
+    setP2PHealthOutboundFailure(`Outbound queue processing error (${operation}): ${message}`)
+  } catch {
+    /* non-fatal */
+  }
+}
+
 /** For P2P signaling / Host AI relay POST retries after 401 (same session refresh as outbound queue). */
 export function getOutboundQueueAuthRefresh(): (() => Promise<void>) | undefined {
   return _refreshSession
@@ -257,9 +272,10 @@ function scheduleAutoDrain(
   _autoDrainTimer = setTimeout(() => {
     _autoDrainTimer = null
     console.info('[P2P-QUEUE]', JSON.stringify({ event: 'retry_attempt_started', trigger: 'auto', ...meta }))
-    processOutboundQueue(db, getOidcToken).catch((e) =>
-      console.warn('[P2P-QUEUE]', JSON.stringify({ event: 'autodrain_error', error: String(e) })),
-    )
+    processOutboundQueue(db, getOidcToken).catch((e) => {
+      console.warn('[P2P-QUEUE]', JSON.stringify({ event: 'autodrain_error', error: String(e) }))
+      logProcessOutboundQueueFailure('autodrain', e)
+    })
   }, total)
 }
 
@@ -754,7 +770,7 @@ export async function processOutboundQueue(
   getOidcToken?: () => Promise<string | null>,
 ): Promise<ProcessOutboundQueueResult> {
   const run = _drainChain.then(() => processOutboundQueueInner(db, getOidcToken))
-  _drainChain = run.then(() => {}).catch(() => {})
+  _drainChain = run.then(() => {}).catch((e) => logProcessOutboundQueueFailure('serialized_drain_chain', e))
   return run as Promise<ProcessOutboundQueueResult>
 }
 

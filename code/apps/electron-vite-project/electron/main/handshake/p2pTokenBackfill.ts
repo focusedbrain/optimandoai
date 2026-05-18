@@ -10,7 +10,7 @@ import {
   updateHandshakeRecord,
 } from './db'
 import { buildRefreshCapsule } from './capsuleBuilder'
-import { enqueueOutboundCapsule, processOutboundQueue } from './outboundQueue'
+import { enqueueOutboundCapsule, logProcessOutboundQueueFailure, processOutboundQueue } from './outboundQueue'
 import { internalRelayCapsuleWireOptsFromRecord } from './internalCoordinationWire'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
@@ -113,5 +113,7 @@ export function runActiveHandshakeLocalP2pTokenBackfill(
     }
   }
 
-  void processOutboundQueue(db, getOidcToken).catch(() => {})
+  void processOutboundQueue(db, getOidcToken).catch((err) =>
+    logProcessOutboundQueueFailure('p2pTokenBackfill.after_active_refresh_enqueue', err),
+  )
 }

@@ -503,7 +503,9 @@ export async function detectAndRouteMessage(
     // ── Inline depackage ──
     if (encoding === 'qBEAP') {
       try {
-        const decrypted = await decryptQBeapPackage(beapPackageJson, handshakeId ?? '', db)
+        const decrypted = await decryptQBeapPackage(beapPackageJson, handshakeId ?? '', db, {
+          reportFailure: (info) => console.warn('[messageRouter] qBEAP decrypt failure', info),
+        })
         if (decrypted?.rawCapsuleJson) {
           canonicalJson = decrypted.rawCapsuleJson
         } else {

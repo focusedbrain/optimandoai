@@ -957,7 +957,7 @@ import {
   buildLedgerSessionToken,
 } from './main/handshake/ledger'
 import { setEmailSendFn } from './main/handshake/emailTransport'
-import { processOutboundQueue, setOutboundQueueAuthRefresh } from './main/handshake/outboundQueue'
+import { processOutboundQueue, setOutboundQueueAuthRefresh, logProcessOutboundQueueFailure } from './main/handshake/outboundQueue'
 import { pullFromRelay } from './main/p2p/relayPull'
 import { createP2PServer, logP2pServerDisabledState } from './main/p2p/p2pServer'
 import { createCoordinationWsClient } from './main/p2p/coordinationWs'
@@ -3164,7 +3164,7 @@ app.whenReady().then(async () => {
                   } catch {
                     return null
                   }
-                }).catch(() => {})
+                }).catch((err) => logProcessOutboundQueueFailure('dashboard:vault_unlock_followup', err))
               }
               try {
                 win?.webContents.send('handshake-list-refresh')
@@ -4996,7 +4996,7 @@ app.whenReady().then(async () => {
         const db = getLedgerDb() ?? vaultService.getHsProfileDb?.() ?? null
         setupEmbeddingServiceRef(vaultService, db)
         completePendingContextSyncs(db, getCurrentSession())
-        if (db) setImmediate(() => processOutboundQueue(db, getOidcToken).catch(() => {}))
+        if (db) setImmediate(() => processOutboundQueue(db, getOidcToken).catch((err) => logProcessOutboundQueueFailure('ipc:vault_unlockForHandshake', err)))
         try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
         try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
         return { success: true }
@@ -5015,7 +5015,7 @@ app.whenReady().then(async () => {
         const db = getLedgerDb() ?? vaultService.getHsProfileDb?.() ?? null
         setupEmbeddingServiceRef(vaultService, db)
         completePendingContextSyncs(db, getCurrentSession())
-        if (db) setImmediate(() => processOutboundQueue(db, getOidcToken).catch(() => {}))
+        if (db) setImmediate(() => processOutboundQueue(db, getOidcToken).catch((err) => logProcessOutboundQueueFailure('ipc:vault_unlockWithPassword', err)))
         try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
         try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
         return { success: true }
@@ -5927,7 +5927,7 @@ async function runDeviceKeyMigration(
                       const { vaultService: vs } = await import('./main/vault/rpc')
                       const db = getLedgerDb() ?? vs.getDb?.() ?? null
                       completePendingContextSyncs(db, getCurrentSession())
-                      if (db) processOutboundQueue(db, getOidcToken).catch(() => {})
+                      if (db) processOutboundQueue(db, getOidcToken).catch((err) => logProcessOutboundQueueFailure('ws:vault.unlock_or_create', err))
                       try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
                       try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
                     } catch (e) { /* non-fatal */ }
@@ -7705,6 +7705,7 @@ async function runDeviceKeyMigration(
           if (handshakeDb) {
             processOutboundQueue(handshakeDb, getOidcToken).catch((err) => {
               console.warn('[P2P] Queue flush after login error:', err?.message)
+              logProcessOutboundQueueFailure('http:auth_login_outbound_flush', err)
             })
           }
           res.json({ ok: true, tier: result.tier })
@@ -8698,7 +8699,7 @@ async function runDeviceKeyMigration(
         res.json({ success: true, sessionToken: vaultService.getSessionToken() })
         setImmediate(() => {
           completePendingContextSyncs(db, getCurrentSession())
-          if (db) processOutboundQueue(db, getOidcToken).catch(() => {})
+          if (db) processOutboundQueue(db, getOidcToken).catch((err) => logProcessOutboundQueueFailure('http:vault_unlock', err))
           try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
         })
       } catch (error: any) {
@@ -11478,6 +11479,7 @@ async function runDeviceKeyMigration(
       }
       processOutboundQueue(handshakeDb, getOidcToken).catch((err) => {
         console.warn('[P2P] processOutboundQueue error:', err?.message)
+        logProcessOutboundQueueFailure('tryP2PStartup_startup_drain', err)
       })
 
       void import('./main/handshake/p2pTokenBackfill')
@@ -11516,7 +11518,9 @@ async function runDeviceKeyMigration(
               lastSeqReceived: 0,
             })
             if (result.success) {
-              processOutboundQueue(handshakeDb, getOidcToken).catch(() => {})
+              processOutboundQueue(handshakeDb, getOidcToken).catch((err) =>
+                logProcessOutboundQueueFailure(`p2p:stuck_accepted_retrigger[${row.handshake_id}]`, err),
+              )
             }
           }
         } catch (err: any) {
