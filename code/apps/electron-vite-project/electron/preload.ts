@@ -1325,10 +1325,11 @@ contextBridge.exposeInMainWorld('emailInbox', {
   },
   /**
    * Receiver persisted a direct_beap inbox row — main broadcasts this to all windows so the
-   * sender UI can confirm delivery and switch from amber relay_pending to green delivered.
+   * sender UI can confirm delivery and switch from amber relay_pending to a terminal state.
+   * W3-P6+: payload includes optional `status`, `reasonCode`, `retryable` for richer UI feedback.
    */
-  onBeapDeliveryAck: (handler: (data: { handshakeId: string; rowId: string }) => void) => {
-    const fn = (_e: Electron.IpcRendererEvent, data: { handshakeId: string; rowId: string }) => handler(data)
+  onBeapDeliveryAck: (handler: (data: { handshakeId: string; rowId: string; status?: 'ok' | 'error'; reasonCode?: string; retryable?: boolean }) => void) => {
+    const fn = (_e: Electron.IpcRendererEvent, data: { handshakeId: string; rowId: string; status?: 'ok' | 'error'; reasonCode?: string; retryable?: boolean }) => handler(data)
     ipcRenderer.on('inbox:beapDeliveryAck', fn)
     return () => {
       ipcRenderer.removeListener('inbox:beapDeliveryAck', fn)

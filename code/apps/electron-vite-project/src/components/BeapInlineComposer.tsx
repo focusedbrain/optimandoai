@@ -43,6 +43,7 @@ import { listHandshakes } from '../shims/handshakeRpc';
 import { handshakeRecordToSelectedRecipient } from '../lib/handshakeRecipientMap';
 
 import './handshakeViewTypes';
+import type { BeapDeliveryAckData } from './handshakeViewTypes';
 
 import '../styles/dashboard-base.css';
 
@@ -59,6 +60,45 @@ import { AiDraftContextRail } from './AiDraftContextRail';
 import { ComposerAttachmentButton } from './ComposerAttachmentButton';
 
 import { DraftRefineLabel } from './DraftRefineLabel';
+
+/**
+ * Maps an incoming delivery ack to a SendSuccessMode terminal state.
+ * Falls back to 'live' for older receivers that don't emit `status`/`reasonCode`.
+ */
+function ackToState(
+  ack: BeapDeliveryAckData,
+): 'live' | 'delivered_deferred_inner_vault' | 'delivered_failed_keys' | 'failed_receiver_validator' | 'delivered_failed_unknown' {
+  if (ack.status == null) {
+    // Old receiver build — no structured ack fields; preserve existing 'live' behaviour.
+    return 'live'
+  }
+
+  if (ack.status === 'ok') {
+    // Receiver positively acked (W3-P6+). Treat as delivered.
+    return 'live'
+  }
+
+  // ack.status === 'error'
+  switch (ack.reasonCode) {
+    case 'inner_vault_locked':
+      return 'delivered_deferred_inner_vault'
+    case 'key_provider_unbound':
+      return 'delivered_failed_keys'
+    case 'validator_unhealthy':
+      return 'failed_receiver_validator'
+    case 'ledger_db_unavailable':
+      // Closest semantic match: receiver infra unavailable.
+      return 'failed_receiver_validator'
+    case 'outer_vault_inactive':
+      // Receiver SSO session ended — transport-level failure.
+      return 'delivered_failed_unknown'
+    case 'ok':
+    case undefined:
+    default:
+      // Relay stripped fields or unrecognised code — graceful fallback.
+      return 'delivered_failed_unknown'
+  }
+}
 
 export interface BeapInlineComposerProps {
   onClose: () => void;
@@ -167,13 +207,27 @@ export function BeapInlineComposer({
   const [sendSuccess, setSendSuccess] = useState(false);
 
   /**
-   * live  = green, ACK confirmed (receiver persisted, same-app IPC)
-   * relay_pending = amber, transport accepted, waiting for receiver ACK
-   * delivery_unconfirmed = transport accepted, ACK timeout (typical cross-device)
-   * queued_relay  = orange, recipient offline / queued at relay
+   * live                          = green, ACK confirmed (receiver persisted, same-app IPC)
+   * relay_pending                 = amber, transport accepted, waiting for receiver ACK (transient)
+   * delivery_unconfirmed          = transport accepted, ACK timeout (typical cross-device, 30 s fallback)
+   * queued_relay                  = orange, recipient offline / queued at relay
+   * delivered_processing          = receiver acked positively (status=ok)
+   * delivered_deferred_inner_vault = receiver got capsule but needs master-password unlock first
+   * delivered_failed_keys         = receiver missing keys to decrypt (key_provider_unbound)
+   * failed_receiver_validator     = receiver's validator subprocess unhealthy
+   * delivered_failed_unknown      = receiver acked an error with no recognised reason code
    */
   const [sendSuccessMode, setSendSuccessMode] = useState<
-    'live' | 'relay_pending' | 'queued_relay' | 'delivery_unconfirmed' | null
+    | 'live'
+    | 'relay_pending'
+    | 'queued_relay'
+    | 'delivery_unconfirmed'
+    | 'delivered_processing'
+    | 'delivered_deferred_inner_vault'
+    | 'delivered_failed_keys'
+    | 'failed_receiver_validator'
+    | 'delivered_failed_unknown'
+    | null
   >(null);
 
   const sendSuccessCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -216,23 +270,33 @@ export function BeapInlineComposer({
 
     const unsub = window.emailInbox.onBeapDeliveryAck((data) => {
       if (handshakeAtSend && data.handshakeId !== handshakeAtSend) return
-      console.log(`[BEAP_MSG_SEND] ack_received messageId=${messageIdAtSend ?? 'unknown'} handshake=${data.handshakeId} rowId=${data.rowId}`)
-      // Clear pending timeout
+      console.log(`[BEAP_MSG_SEND] ack_received messageId=${messageIdAtSend ?? 'unknown'} handshake=${data.handshakeId} rowId=${data.rowId} status=${data.status ?? 'none'} reasonCode=${data.reasonCode ?? 'none'} retryable=${data.retryable ?? 'none'}`)
+      // Clear pending 30 s timeout — ack arrived.
       if (ackTimeoutRef.current) {
         clearTimeout(ackTimeoutRef.current)
         ackTimeoutRef.current = null
       }
-      setSendSuccessMode('live')
-      // Start 2 s close timer now that we have green confirmation
-      if (sendSuccessCloseTimerRef.current) clearTimeout(sendSuccessCloseTimerRef.current)
-      sendSuccessCloseTimerRef.current = setTimeout(() => {
-        sendSuccessCloseTimerRef.current = null
-        setSendSuccess(false)
-        setSendSuccessMode(null)
+      const newMode = ackToState(data)
+      setSendSuccessMode(newMode)
+      if (newMode === 'live') {
+        // Green confirmation — auto-close after 2 s.
+        if (sendSuccessCloseTimerRef.current) clearTimeout(sendSuccessCloseTimerRef.current)
+        sendSuccessCloseTimerRef.current = setTimeout(() => {
+          sendSuccessCloseTimerRef.current = null
+          setSendSuccess(false)
+          setSendSuccessMode(null)
+          pendingAckHandshakeRef.current = null
+          pendingAckMessageIdRef.current = null
+          onSent()
+        }, 2000)
+      } else {
+        // Terminal failure / deferred state — clear pending refs but keep the banner
+        // visible so the sender can read the error. User dismisses manually via Cancel.
+        // TODO(W4): add retry-button for retryable states (delivered_deferred_inner_vault,
+        //           delivered_failed_keys) once re-send semantics are wired.
         pendingAckHandshakeRef.current = null
         pendingAckMessageIdRef.current = null
-        onSent()
-      }, 2000)
+      }
     })
 
     return unsub
@@ -1569,19 +1633,34 @@ export function BeapInlineComposer({
             <div
               style={{
                 background:
-                  sendSuccessMode === 'queued_relay' ? '#ffedd5'
-                  : sendSuccessMode === 'relay_pending' ? '#fef9c3'
-                  : sendSuccessMode === 'delivery_unconfirmed' ? '#fff7ed'
+                  sendSuccessMode === 'queued_relay'                  ? '#ffedd5'
+                  : sendSuccessMode === 'relay_pending'               ? '#fef9c3'
+                  : sendSuccessMode === 'delivery_unconfirmed'        ? '#fff7ed'
+                  : sendSuccessMode === 'delivered_processing'        ? '#fef9c3'
+                  : sendSuccessMode === 'delivered_deferred_inner_vault' ? '#dbeafe'
+                  : sendSuccessMode === 'delivered_failed_keys'       ? '#fff7ed'
+                  : sendSuccessMode === 'failed_receiver_validator'   ? '#fff7ed'
+                  : sendSuccessMode === 'delivered_failed_unknown'    ? '#fef2f2'
                   : '#dcfce7',
                 color:
-                  sendSuccessMode === 'queued_relay' ? '#9a3412'
-                  : sendSuccessMode === 'relay_pending' ? '#713f12'
-                  : sendSuccessMode === 'delivery_unconfirmed' ? '#9a3412'
+                  sendSuccessMode === 'queued_relay'                  ? '#9a3412'
+                  : sendSuccessMode === 'relay_pending'               ? '#713f12'
+                  : sendSuccessMode === 'delivery_unconfirmed'        ? '#9a3412'
+                  : sendSuccessMode === 'delivered_processing'        ? '#713f12'
+                  : sendSuccessMode === 'delivered_deferred_inner_vault' ? '#1e40af'
+                  : sendSuccessMode === 'delivered_failed_keys'       ? '#9a3412'
+                  : sendSuccessMode === 'failed_receiver_validator'   ? '#9a3412'
+                  : sendSuccessMode === 'delivered_failed_unknown'    ? '#991b1b'
                   : '#166534',
                 border: `1px solid ${
-                  sendSuccessMode === 'queued_relay' ? '#fdba74'
-                  : sendSuccessMode === 'relay_pending' ? '#fde68a'
-                  : sendSuccessMode === 'delivery_unconfirmed' ? '#fdba74'
+                  sendSuccessMode === 'queued_relay'                  ? '#fdba74'
+                  : sendSuccessMode === 'relay_pending'               ? '#fde68a'
+                  : sendSuccessMode === 'delivery_unconfirmed'        ? '#fdba74'
+                  : sendSuccessMode === 'delivered_processing'        ? '#fde68a'
+                  : sendSuccessMode === 'delivered_deferred_inner_vault' ? '#93c5fd'
+                  : sendSuccessMode === 'delivered_failed_keys'       ? '#fdba74'
+                  : sendSuccessMode === 'failed_receiver_validator'   ? '#fdba74'
+                  : sendSuccessMode === 'delivered_failed_unknown'    ? '#fecaca'
                   : '#86efac'
                 }`,
                 borderRadius: 6,
@@ -1593,12 +1672,14 @@ export function BeapInlineComposer({
                 gap: 8,
               }}
             >
-              {sendSuccessMode === 'queued_relay'
-                ? '⏳'
-                : sendSuccessMode === 'relay_pending'
-                ? '📡'
-                : sendSuccessMode === 'delivery_unconfirmed'
-                ? '⚠️'
+              {sendSuccessMode === 'queued_relay'                  ? '⏳'
+                : sendSuccessMode === 'relay_pending'             ? '📡'
+                : sendSuccessMode === 'delivery_unconfirmed'      ? '⚠️'
+                : sendSuccessMode === 'delivered_processing'      ? '⏳'
+                : sendSuccessMode === 'delivered_deferred_inner_vault' ? '🔒'
+                : sendSuccessMode === 'delivered_failed_keys'     ? '🔑'
+                : sendSuccessMode === 'failed_receiver_validator' ? '⚠️'
+                : sendSuccessMode === 'delivered_failed_unknown'  ? '❌'
                 : '✅'}{' '}
               {sendSuccessMode === 'queued_relay'
                 ? 'Queued at relay (recipient offline — not live delivery)'
@@ -1606,6 +1687,16 @@ export function BeapInlineComposer({
                 ? 'Transport accepted — awaiting delivery confirmation…'
                 : sendSuccessMode === 'delivery_unconfirmed'
                 ? 'Delivery unconfirmed — transport succeeded but no receiver acknowledgement (typical cross-device). Check the recipient inbox.'
+                : sendSuccessMode === 'delivered_processing'
+                ? 'Delivered — recipient is processing your message…'
+                : sendSuccessMode === 'delivered_deferred_inner_vault'
+                ? 'Delivered — recipient needs to unlock their vault to read this confidential message.'
+                : sendSuccessMode === 'delivered_failed_keys'
+                ? 'Delivered — recipient cannot decrypt (missing keys). Please re-establish the handshake.'
+                : sendSuccessMode === 'failed_receiver_validator'
+                ? "Delivery problem — recipient's app encountered an internal error. They may need to restart."
+                : sendSuccessMode === 'delivered_failed_unknown'
+                ? 'Delivery problem — recipient could not process this message.'
                 : 'BEAP™ message delivered (receiver confirmed)'}
             </div>
           )}
