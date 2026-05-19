@@ -3191,7 +3191,7 @@ export async function handleHandshakeRPC(
             db,
             `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
                     has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
-                    source_type, seal, seal_input_json
+                    source_type, seal, seal_input_json, seal_key_source
              FROM inbox_messages
              WHERE deleted = 0
                AND (received_at < ? OR (received_at = ? AND id < ?))
@@ -3204,7 +3204,7 @@ export async function handleHandshakeRPC(
             db,
             `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
                     has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
-                    source_type, seal, seal_input_json
+                    source_type, seal, seal_input_json, seal_key_source
              FROM inbox_messages
              WHERE deleted = 0
              ORDER BY received_at DESC, id DESC
@@ -3274,7 +3274,7 @@ export async function handleHandshakeRPC(
         db,
         `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
                 has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
-                source_type, seal, seal_input_json
+                source_type, seal, seal_input_json, seal_key_source
          FROM inbox_messages
          WHERE deleted = 0 AND id IN (${placeholders})`,
         ids,

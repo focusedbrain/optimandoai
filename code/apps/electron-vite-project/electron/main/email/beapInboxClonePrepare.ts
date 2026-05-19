@@ -223,7 +223,7 @@ export function prepareBeapInboxSandboxClone(
               depackaged_json, depackaged_metadata,
               beap_package_json, has_attachments, from_address,
               account_id, received_at, ingested_at,
-              seal, seal_input_json
+              seal, seal_input_json, seal_key_source
        FROM inbox_messages WHERE id = ?`,
       [srcId],
       'depackaged_json',

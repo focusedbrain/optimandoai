@@ -1174,6 +1174,20 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE inbox_messages ADD COLUMN raw_capsule_json TEXT NULL`,
     ],
   },
+  {
+    version: 68,
+    description:
+      "Schema v68 (W4-P10): per-row seal key source tagging for source-aware sealed storage reads. " +
+      "seal_key_source identifies which key provider sealed each inbox_messages row: " +
+      "'vmk' = inner VMK-derived key (master-password vault), " +
+      "'ledger' = outer ledger-derived key (SSO session identity). " +
+      "NOT NULL DEFAULT 'vmk' backfills all existing rows as VMK-sealed without re-sealing. " +
+      "CHECK constraint prevents unknown values at the DB layer. " +
+      "Prerequisite for W4-P11 source-aware BEAP routing (non-confidential rows use ledger key).",
+    sql: [
+      `ALTER TABLE inbox_messages ADD COLUMN seal_key_source TEXT NOT NULL DEFAULT 'vmk' CHECK (seal_key_source IN ('vmk', 'ledger'))`,
+    ],
+  },
 ]
 
 /**
@@ -1248,6 +1262,10 @@ const EMAIL_PIPELINE_COLUMN_REPAIRS: ReadonlyArray<{ table: string; column: stri
   { table: 'inbox_messages', column: 'pending_first_seen_at', ddl: 'TEXT' },
   { table: 'inbox_messages', column: 'pending_last_retry_at', ddl: 'TEXT' },
   { table: 'inbox_messages', column: 'raw_capsule_json', ddl: 'TEXT' },
+  // ── inbox_messages seal key source column (v68, W4-P10) ──
+  // NOTE: repair entry omits CHECK constraint (not supported in ALTER TABLE ADD COLUMN on older SQLite);
+  // the versioned v68 migration includes the CHECK. The repair is a safety net for pre-migration DBs.
+  { table: 'inbox_messages', column: 'seal_key_source', ddl: "TEXT NOT NULL DEFAULT 'vmk'" },
   // ── inbox_attachments (messageRouter, ipc) ──
   { table: 'inbox_attachments', column: 'message_id', ddl: 'TEXT' },
   { table: 'inbox_attachments', column: 'filename', ddl: 'TEXT' },

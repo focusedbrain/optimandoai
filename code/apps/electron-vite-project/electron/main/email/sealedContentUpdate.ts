@@ -169,7 +169,7 @@ function readCanonicalForReseal(
 ): { canonicalContent: Record<string, unknown>; rawAiAnalysis: string | null } | { error: string } {
   const sealedRows = sealedQuery<InboxSealedRow>(
     db,
-    'SELECT id, depackaged_json, seal, seal_input_json, ai_analysis_json FROM inbox_messages WHERE id = ?',
+    'SELECT id, depackaged_json, seal, seal_input_json, ai_analysis_json, seal_key_source FROM inbox_messages WHERE id = ?',
     [messageId],
     'depackaged_json',
   )

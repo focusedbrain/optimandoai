@@ -464,6 +464,23 @@ export function runSealedTransaction(
 export type SealedRow = Record<string, unknown> & {
   seal?: string | null
   seal_input_json?: string | null
+  /**
+   * Which key provider sealed this row. Written by the ingestion path at insert
+   * time; read here to pick the correct provider at verification time.
+   * 'vmk'    → inner (VMK-derived, master-password vault)
+   * 'ledger' → outer (ledger-derived, SSO session identity)
+   * undefined/null → treated as 'vmk' (defensive default for legacy rows).
+   */
+  seal_key_source?: string | null
+}
+
+/**
+ * Map a row's `seal_key_source` to the corresponding KeySource for the
+ * provider registry.  Defensive: NULL or any unknown value falls back to
+ * 'inner' (the legacy behaviour, matching all rows written before W4-P10).
+ */
+function rowKeySource(row: SealedRow): KeySource {
+  return row.seal_key_source === 'ledger' ? 'outer' : 'inner'
 }
 
 /**
@@ -534,9 +551,12 @@ export function sealedQuery<T extends SealedRow>(
       continue
     }
 
+    // ── Determine which key source this row uses ─────────────────────────────
+    const source = rowKeySource(row)
+
     // ── No key provider (log-only mode only; reject mode throws above) ───────
-    if (!_providers.inner) {
-      console.warn(`[SEALED_STORAGE:log-only] ${ctx}: no key provider bound, skipping seal verification`)
+    if (!_providers[source]) {
+      console.warn(`[SEALED_STORAGE:log-only] ${ctx}: no key provider bound (source='${source}'), skipping seal verification`)
       verified.push(row)
       continue
     }
@@ -570,9 +590,9 @@ export function sealedQuery<T extends SealedRow>(
     }
 
     // ── HMAC check ───────────────────────────────────────────────────────────
-    const key = getKey('inner')
+    const key = getKey(source)
     if (!key) {
-      console.warn(`[SEALED_STORAGE:log-only] ${ctx}: vault locked, skipping HMAC check`)
+      console.warn(`[SEALED_STORAGE:log-only] ${ctx}: vault locked (source='${source}'), skipping HMAC check`)
       verified.push(row)
       continue
     }

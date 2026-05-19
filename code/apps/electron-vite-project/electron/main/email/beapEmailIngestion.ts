@@ -540,8 +540,9 @@ const P2P_INBOX_INSERT_SQL = `
     depackaged_json, has_attachments, attachment_count, received_at, ingested_at,
     imap_remote_mailbox, imap_rfc_message_id,
     validated_at, validator_version, validation_reason,
-    seal, seal_input_json
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    seal, seal_input_json,
+    seal_key_source
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 /**
@@ -556,8 +557,9 @@ const P2P_INBOX_PLACEHOLDER_INSERT_SQL = `
     from_address, subject, received_at, ingested_at,
     imap_remote_mailbox,
     pending_reason_code, pending_first_seen_at, pending_last_retry_at,
-    raw_capsule_json
-  ) VALUES (?, 'direct_beap', ?, ?, ?, ?, ?, ?, ?, 'p2p', ?, ?, ?, ?)
+    raw_capsule_json,
+    seal_key_source
+  ) VALUES (?, 'direct_beap', ?, ?, ?, ?, ?, ?, ?, 'p2p', ?, ?, ?, ?, 'vmk')
 `
 
 interface P2PInboxPlaceholderParams {
@@ -675,6 +677,7 @@ function writeP2PInboxRow(db: any, p: P2PInboxWriteParams): P2PInlineResult {
       p.validationReason,
       p.seal,
       p.sealInputJson,
+      'vmk',  // seal_key_source: W4-P11 will route non-confidential rows to 'ledger'
     ],
     {
       seal: p.seal,
