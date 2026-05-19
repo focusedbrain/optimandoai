@@ -28,6 +28,47 @@ import {
   setP2PHealthRelayPullSuccess,
   setP2PHealthRelayPullFailure,
 } from './p2pHealth'
+import type { ReasonCode } from '../vault/capabilityBroker'
+
+/**
+ * Map a legacy error string from processBeapPackageInline to a canonical
+ * ReasonCode.  See coordinationWs.ts for the full mapping rationale.
+ */
+function mapErrorToReasonCode(error: string): { reasonCode: ReasonCode; retryable: boolean } {
+  if (
+    error.includes('outer_vault_not_ready') ||
+    error.includes('outer_vault_unavailable') ||
+    error.includes('vault_not_ready') ||
+    error.includes('vault_unavailable')
+  ) {
+    return { reasonCode: 'inner_vault_locked', retryable: true }
+  }
+  if (error.includes('start_failed') || error.includes('not_ready_after_start')) {
+    return { reasonCode: 'validator_unhealthy', retryable: true }
+  }
+  if (error.includes('key_provider') || error.includes('key provider')) {
+    return { reasonCode: 'key_provider_unbound', retryable: true }
+  }
+  if (error.includes('validator') || error.includes('Validation service')) {
+    return { reasonCode: 'validator_unhealthy', retryable: true }
+  }
+  return { reasonCode: 'validator_unhealthy', retryable: true }
+}
+
+/**
+ * Returns true when a better-sqlite3 error is a primary-key constraint
+ * violation (expected during dedup inserts).
+ */
+function isDuplicatePrimaryKey(err: unknown): boolean {
+  if (err instanceof Error) {
+    const code = (err as any).code as string | undefined
+    return (
+      code === 'SQLITE_CONSTRAINT_PRIMARYKEY' ||
+      code === 'SQLITE_CONSTRAINT'
+    )
+  }
+  return false
+}
 
 const migratedDbs = new WeakSet<object>()
 
@@ -141,9 +182,19 @@ export async function pullFromRelay(
               validation_details: result.reason,
               provenance_json: JSON.stringify(result.audit),
             })
-          } catch { /* dedup */ }
+          } catch (quarantineErr: unknown) {
+            if (isDuplicatePrimaryKey(quarantineErr)) {
+              // Expected: same capsule arrived twice; quarantine already recorded. No-op.
+            } else {
+              console.warn('[QUARANTINE] unexpected insert error', {
+                message: (quarantineErr as any)?.message,
+                capsuleId: cap.id,
+              })
+            }
+          }
         }
         console.warn('[Relay] Capsule rejected:', result.reason)
+        console.log(`[RELAY_PULL] relay_ack_sent relayId=${cap.id} reason=ok retryable=false outcome=quarantine_ingestion_rejected`)
         rejected++
         idsToAck.push(cap.id)
         continue
@@ -167,23 +218,29 @@ export async function pullFromRelay(
           })
           if (r.outcome === 'inbox') {
             console.log('[P2P-RECV] BEAP message sealed into inbox (relay pull)', handshakeId)
+            console.log(`[RELAY_PULL] relay_ack_sent relayId=${cap.id} reason=ok retryable=false outcome=inbox`)
             accepted++
             idsToAck.push(cap.id)
           } else if (r.outcome === 'quarantine') {
             console.log('[P2P-RECV] BEAP message quarantined (relay pull)', handshakeId)
+            console.log(`[RELAY_PULL] relay_ack_sent relayId=${cap.id} reason=ok retryable=false outcome=quarantine`)
             accepted++
             idsToAck.push(cap.id)
           } else {
             const failReason = r.error ?? 'processing_failed'
             console.warn('[P2P-RECV] BEAP inline processing failed (relay pull)', handshakeId, failReason)
-            console.log(`[RELAY_PULL] relay_ack_not_sent relayId=${cap.id} reason=${failReason}`)
+            const { reasonCode, retryable } = mapErrorToReasonCode(failReason)
+            console.log(`[RELAY_PULL] relay_ack_sent relayId=${cap.id} reason=${reasonCode} retryable=${retryable}`)
             rejected++
+            idsToAck.push(cap.id)
           }
         } catch (err: unknown) {
           const reason = err instanceof Error ? err.message : String(err)
           console.warn('[P2P-RECV] BEAP inline processing threw (relay pull)', handshakeId, reason)
-          console.log(`[RELAY_PULL] relay_ack_not_sent relayId=${cap.id} reason=${reason}`)
+          const { reasonCode, retryable } = mapErrorToReasonCode(reason)
+          console.log(`[RELAY_PULL] relay_ack_sent relayId=${cap.id} reason=${reasonCode} retryable=${retryable}`)
           rejected++
+          idsToAck.push(cap.id)
         }
         continue
       }

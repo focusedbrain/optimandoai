@@ -34,6 +34,54 @@ import { requestCoordinationFlushQueued } from './coordinationFlushQueued'
 import { getCanonicalRelayDeviceId, logDeviceIdBinding } from './relayDeviceBinding'
 import { relayIdentitySnapshot } from './relayIdentity'
 import { tryHandleCoordinationP2pSignal } from '../internalInference/relayP2pSignalHandler'
+import type { ReasonCode } from '../vault/capabilityBroker'
+
+/**
+ * Map a legacy error string returned by processBeapPackageInline (or thrown
+ * by it) to a canonical ReasonCode from the capability broker.
+ *
+ * The legacy strings use the inverted outer/inner naming from before W2-P4.
+ * "outer_vault_not_ready" / "outer_vault_unavailable" both mean the inner
+ * vault (vaultService master-password session) is not unlocked, per W2-P4
+ * canon.  Do not change the legacy strings — they are external and consumed
+ * by UI / callers.  Only the mapping here uses the canonical names.
+ */
+function mapErrorToReasonCode(error: string): { reasonCode: ReasonCode; retryable: boolean } {
+  if (
+    error.includes('outer_vault_not_ready') ||
+    error.includes('outer_vault_unavailable') ||
+    error.includes('vault_not_ready') ||
+    error.includes('vault_unavailable')
+  ) {
+    return { reasonCode: 'inner_vault_locked', retryable: true }
+  }
+  if (error.includes('start_failed') || error.includes('not_ready_after_start')) {
+    return { reasonCode: 'validator_unhealthy', retryable: true }
+  }
+  if (error.includes('key_provider') || error.includes('key provider')) {
+    return { reasonCode: 'key_provider_unbound', retryable: true }
+  }
+  if (error.includes('validator') || error.includes('Validation service')) {
+    return { reasonCode: 'validator_unhealthy', retryable: true }
+  }
+  // Generic fallback — maps to the closest existing code.
+  return { reasonCode: 'validator_unhealthy', retryable: true }
+}
+
+/**
+ * Returns true when a better-sqlite3 error is a primary-key constraint
+ * violation (expected during dedup inserts).
+ */
+function isDuplicatePrimaryKey(err: unknown): boolean {
+  if (err instanceof Error) {
+    const code = (err as any).code as string | undefined
+    return (
+      code === 'SQLITE_CONSTRAINT_PRIMARYKEY' ||
+      code === 'SQLITE_CONSTRAINT'
+    )
+  }
+  return false
+}
 
 /**
  * In-memory buffer for context_sync capsules that arrived before the accept was processed.
@@ -232,7 +280,8 @@ async function processCapsuleInternal(
 
   if (!db) {
     console.error('[Coordination] DB check: FAILED — getHandshakeDb() returned null')
-    console.error('[Coordination] NOT acknowledging — capsule will be retried by relay')
+    console.log(`[COORDINATION_WS] relay_ack_sent relayId=${id} reason=ledger_db_unavailable retryable=true`)
+    sendAckFn([id])
     return
   }
   console.log('[Coordination] DB check: OK')
@@ -271,8 +320,18 @@ async function processCapsuleInternal(
             validation_details: result.reason,
             provenance_json: JSON.stringify(result.audit),
           })
-        } catch { /* dedup */ }
+        } catch (quarantineErr: unknown) {
+          if (isDuplicatePrimaryKey(quarantineErr)) {
+            // Expected: same capsule arrived twice; quarantine already recorded. No-op.
+          } else {
+            console.warn('[QUARANTINE] unexpected insert error', {
+              message: (quarantineErr as any)?.message,
+              capsuleId: id,
+            })
+          }
+        }
       }
+      console.log(`[COORDINATION_WS] relay_ack_sent relayId=${id} reason=ok retryable=false outcome=quarantine_ingestion_rejected`)
       sendAckFn([id])
       return
     }
@@ -293,7 +352,8 @@ async function processCapsuleInternal(
         `[BEAP_MSG_RECEIVE] ingest_received messageId=${ingestMsgId} relayId=${id} handshake=${handshakeId} transport=coordination_ws`,
       )
       if (!db) {
-        console.log(`[COORDINATION_WS] relay_ack_not_sent relayId=${id} reason=no_db`)
+        console.log(`[COORDINATION_WS] relay_ack_sent relayId=${id} reason=ledger_db_unavailable retryable=true`)
+        sendAckFn([id])
         return
       }
       console.log(`[BEAP_MSG_RECEIVE] validation_started messageId=${ingestMsgId}`)
@@ -307,28 +367,32 @@ async function processCapsuleInternal(
       } catch (err: unknown) {
         const reason = err instanceof Error ? err.message : String(err)
         console.error('[Coordination] processBeapPackageInline failed:', reason)
-        console.log(`[COORDINATION_WS] relay_ack_not_sent relayId=${id} reason=${reason}`)
+        const { reasonCode, retryable } = mapErrorToReasonCode(reason)
+        console.log(`[COORDINATION_WS] relay_ack_sent relayId=${id} reason=${reasonCode} retryable=${retryable}`)
+        sendAckFn([id])
         return
       }
 
       if (r.outcome === 'inbox') {
         console.log('[Coordination] BEAP message sealed into inbox, handshake=', handshakeId)
         setP2PHealthCoordinationLastPush()
-        console.log(`[COORDINATION_WS] relay_ack_sent_after_persist relayId=${id} outcome=inbox`)
+        console.log(`[COORDINATION_WS] relay_ack_sent relayId=${id} reason=ok retryable=false outcome=inbox`)
         sendAckFn([id])
         return
       }
       if (r.outcome === 'quarantine') {
         console.log('[Coordination] BEAP message quarantined, handshake=', handshakeId)
         setP2PHealthCoordinationLastPush()
-        console.log(`[COORDINATION_WS] relay_ack_sent_after_persist relayId=${id} outcome=quarantine`)
+        console.log(`[COORDINATION_WS] relay_ack_sent relayId=${id} reason=ok retryable=false outcome=quarantine`)
         sendAckFn([id])
         return
       }
 
       const failReason = r.error ?? 'processing_failed'
       console.warn('[Coordination] BEAP inline processing failed, handshake=', handshakeId, failReason)
-      console.log(`[COORDINATION_WS] relay_ack_not_sent relayId=${id} reason=${failReason}`)
+      const { reasonCode: failCode, retryable: failRetryable } = mapErrorToReasonCode(failReason)
+      console.log(`[COORDINATION_WS] relay_ack_sent relayId=${id} reason=${failCode} retryable=${failRetryable}`)
+      sendAckFn([id])
       return
     }
     if (distribution.target !== 'handshake_pipeline') {
@@ -469,8 +533,9 @@ async function processCapsuleInternal(
     console.log('[Coordination] ACK sent for:', id)
   } catch (err: any) {
     console.error('[Coordination] Capsule processing failed:', err?.message ?? err, err)
-    console.error('[Coordination] NOT acknowledging — capsule will be retried')
-    // Do NOT sendAckFn — let relay retry
+    // relay_ack_skipped: unhandled exception in the pipeline — capsuleId may be
+    // partially parsed.  Not acking lets the relay retry on reconnect.
+    console.log(`[COORDINATION_WS] relay_ack_skipped relayId=${id} reason=pipeline_exception message=${err?.message ?? 'unknown'}`)
   }
 }
 
