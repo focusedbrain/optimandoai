@@ -5,7 +5,7 @@
  * When message selected: right = 50/50 message + AI workspace.
  */
 
-import { useEffect, useCallback, useState, useRef, useMemo, type CSSProperties, type MouseEvent } from 'react'
+import { useEffect, useCallback, useState, useRef, useMemo, type CSSProperties, type MouseEvent, type FormEvent } from 'react'
 import EmailInboxToolbar from './EmailInboxToolbar'
 import { emailInboxSyncWindowSelectValue } from './EmailInboxSyncControls'
 import EmailMessageDetail from './EmailMessageDetail'
@@ -2338,6 +2338,190 @@ interface InboxMessageRowProps {
   onRedirectInRow?: (e: MouseEvent, message: InboxMessage) => void
 }
 
+/** Reason-code → UI text map for placeholder rows (W3-P8). */
+const PENDING_REASON_UI: Record<string, { subjectText: string; chipText: string }> = {
+  inner_vault_locked: {
+    subjectText: 'Confidential message awaiting vault unlock',
+    chipText: 'Unlock vault to view',
+  },
+  key_provider_unbound: {
+    subjectText: 'Message awaiting storage initialisation',
+    chipText: 'Setting up storage…',
+  },
+  validator_unhealthy: {
+    subjectText: 'Message awaiting service recovery',
+    chipText: 'Validation service unavailable',
+  },
+  ledger_db_unavailable: {
+    subjectText: 'Message awaiting session ready',
+    chipText: 'Session not ready',
+  },
+}
+
+/**
+ * Placeholder row variant for blocked/deferred capsules (W3-P8).
+ * Rendered instead of the normal row when `message.pending_reason_code` is non-null.
+ *
+ * Inner-vault-locked CTA: shows an inline password form.
+ * NOTE: No centralised vault unlock dialog exists in this renderer (stop-and-report
+ * condition per W3-P8 Step 6).  The inline form calls
+ * `window.handshakeView.unlockVaultWithPassword` directly, which is the same IPC
+ * path used elsewhere in the app.  A dedicated modal component is a follow-up (W4).
+ */
+function PendingInboxRow({
+  message,
+  selected,
+  onMouseEnter,
+}: {
+  message: InboxMessage
+  selected: boolean
+  onMouseEnter?: () => void
+}) {
+  const reasonCode = message.pending_reason_code ?? ''
+  const ui = PENDING_REASON_UI[reasonCode] ?? { subjectText: 'Pending message', chipText: reasonCode || 'Pending' }
+  const isVaultLocked = reasonCode === 'inner_vault_locked'
+
+  const [showUnlockForm, setShowUnlockForm] = useState(false)
+  const [unlockPassword, setUnlockPassword] = useState('')
+  const [unlockState, setUnlockState] = useState<'idle' | 'unlocking' | 'error'>('idle')
+
+  const handleChipClick = (e: MouseEvent) => {
+    e.stopPropagation()
+    if (isVaultLocked) setShowUnlockForm((v) => !v)
+  }
+
+  const handleUnlockSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!unlockPassword.trim()) return
+    setUnlockState('unlocking')
+    try {
+      const result = await window.handshakeView?.unlockVaultWithPassword(unlockPassword)
+      if (result?.success) {
+        setUnlockPassword('')
+        setShowUnlockForm(false)
+        setUnlockState('idle')
+      } else {
+        setUnlockState('error')
+      }
+    } catch {
+      setUnlockState('error')
+    }
+  }
+
+  return (
+    <div
+      onMouseEnter={onMouseEnter}
+      className={`inbox-message-row ${selected ? 'inbox-message-row--selected' : ''}`}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        padding: '10px 14px',
+        borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+        cursor: isVaultLocked ? 'default' : 'default',
+        background: 'rgba(59,130,246,0.05)',
+        borderLeft: '3px solid rgba(59,130,246,0.4)',
+        opacity: 0.85,
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 500,
+            color: 'var(--color-text-muted, #94a3b8)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {message.from_address || '(unknown sender)'}
+        </span>
+        <span style={{ flexShrink: 0, fontSize: 10, color: 'var(--color-text-muted, #94a3b8)' }}>
+          {formatRelativeDate(message.received_at)}
+        </span>
+      </div>
+      <div
+        style={{
+          fontSize: 12,
+          color: 'var(--color-text-muted, #94a3b8)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontStyle: 'italic',
+        }}
+      >
+        {ui.subjectText}
+      </div>
+      <div>
+        <button
+          type="button"
+          onClick={handleChipClick}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            fontSize: 10,
+            fontWeight: 600,
+            padding: '3px 8px',
+            borderRadius: 10,
+            border: '1px solid rgba(59,130,246,0.5)',
+            background: 'rgba(59,130,246,0.12)',
+            color: '#93c5fd',
+            cursor: isVaultLocked ? 'pointer' : 'default',
+          }}
+        >
+          🔒 {ui.chipText}
+        </button>
+      </div>
+      {showUnlockForm && (
+        <form
+          onSubmit={(e: FormEvent) => void handleUnlockSubmit(e)}
+          onClick={(e) => e.stopPropagation()}
+          style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}
+        >
+          <input
+            type="password"
+            placeholder="Master password"
+            value={unlockPassword}
+            onChange={(e) => { setUnlockPassword(e.target.value); setUnlockState('idle') }}
+            autoFocus
+            style={{
+              fontSize: 12,
+              padding: '6px 8px',
+              borderRadius: 6,
+              border: `1px solid ${unlockState === 'error' ? '#ef4444' : 'rgba(255,255,255,0.15)'}`,
+              background: 'rgba(255,255,255,0.05)',
+              color: 'var(--color-text, #e2e8f0)',
+              outline: 'none',
+            }}
+          />
+          {unlockState === 'error' && (
+            <span style={{ fontSize: 10, color: '#ef4444' }}>Incorrect password — try again.</span>
+          )}
+          <button
+            type="submit"
+            disabled={unlockState === 'unlocking' || !unlockPassword.trim()}
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              padding: '5px 10px',
+              borderRadius: 6,
+              border: 'none',
+              background: unlockState === 'unlocking' ? 'rgba(99,102,241,0.5)' : '#6366f1',
+              color: '#ffffff',
+              cursor: unlockState === 'unlocking' ? 'wait' : 'pointer',
+            }}
+          >
+            {unlockState === 'unlocking' ? 'Unlocking…' : 'Unlock vault'}
+          </button>
+        </form>
+      )}
+    </div>
+  )
+}
+
 function InboxMessageRow({
   message,
   selected,
@@ -2353,6 +2537,11 @@ function InboxMessageRow({
   onSandboxInRow,
   onRedirectInRow,
 }: InboxMessageRowProps) {
+  // Placeholder variant for blocked/deferred capsules (W3-P8).
+  if (message.pending_reason_code) {
+    return <PendingInboxRow message={message} selected={selected} onMouseEnter={onMouseEnter} />
+  }
+
   const canRowAction = isInboxMessageActionable(message)
   const canRowRedirect = Boolean(onRedirectInRow) && canRowAction
   const canShowParams = useMemo(

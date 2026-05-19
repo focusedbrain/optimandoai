@@ -112,6 +112,16 @@ export interface InboxMessage {
            * this column instead of `depackaged_json`.
            */
           depackaged_metadata?: string | null
+  /**
+   * W3-P8: non-null when capsule arrived but could not be processed (inner vault locked,
+   * validator unhealthy, key provider unbound, etc.).  Null for fully-processed rows.
+   * Value is a ReasonCode string (mirrors capabilityBroker.ReasonCode — no runtime import).
+   */
+  pending_reason_code?: string | null
+  /** W3-P8: ISO timestamp of first blocked arrival; stays across retries. */
+  pending_first_seen_at?: string | null
+  /** W3-P8: ISO timestamp of most recent retry attempt. */
+  pending_last_retry_at?: string | null
 }
 
 /** Payload fields returned by main `classifySingleMessage` on success (authoritative DB row). */

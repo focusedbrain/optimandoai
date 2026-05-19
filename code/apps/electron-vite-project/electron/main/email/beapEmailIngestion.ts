@@ -544,6 +544,54 @@ const P2P_INBOX_INSERT_SQL = `
   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
+/**
+ * Minimal placeholder row — written when a capsule arrives but processing is blocked
+ * (inner vault locked, validator unhealthy, etc.).  Uses plain db.prepare() since
+ * sealed-storage is unavailable in the same conditions that trigger a placeholder.
+ * INSERT OR IGNORE: first arrival wins; duplicate relay deliveries are silently dropped.
+ */
+const P2P_INBOX_PLACEHOLDER_INSERT_SQL = `
+  INSERT OR IGNORE INTO inbox_messages (
+    id, source_type, handshake_id, account_id, email_message_id,
+    from_address, subject, received_at, ingested_at,
+    imap_remote_mailbox,
+    pending_reason_code, pending_first_seen_at, pending_last_retry_at,
+    raw_capsule_json
+  ) VALUES (?, 'direct_beap', ?, ?, ?, ?, ?, ?, ?, 'p2p', ?, ?, ?, ?)
+`
+
+interface P2PInboxPlaceholderParams {
+  rowId: string
+  handshakeId: string
+  transportSender: string | null
+  receivedAt: string
+  now: string
+  pendingReasonCode: string
+  rawCapsuleJson: string
+}
+
+function writeP2PInboxPlaceholder(db: any, p: P2PInboxPlaceholderParams): void {
+  try {
+    db.prepare(P2P_INBOX_PLACEHOLDER_INSERT_SQL).run(
+      p.rowId,
+      p.handshakeId,
+      P2P_BEAP_ACCOUNT_ID,
+      `p2p-${p.rowId}`,
+      p.transportSender,
+      '(pending — capsule awaiting processing)',
+      p.receivedAt,
+      p.now,
+      p.pendingReasonCode,
+      p.receivedAt,
+      p.now,
+      p.rawCapsuleJson,
+    )
+    console.log(`[BEAP_DELIVERY] placeholder_written messageId=${p.rowId} reason=${p.pendingReasonCode} handshake=${p.handshakeId}`)
+  } catch (err: unknown) {
+    console.warn('[P2P-INLINE] writeP2PInboxPlaceholder failed:', (err as Error)?.message ?? err)
+  }
+}
+
 const P2P_QUARANTINE_INSERT_SQL = `
   INSERT INTO quarantine_messages (
     id, transport_sender, transport_received_at, transport_folder,
@@ -902,6 +950,29 @@ async function processBeapPackageInlineInternal(
             ? 'validator_unavailable_outer_vault_unavailable'
             : _validatorReady.code
       console.log(`[BEAP_DELIVERY] validator_unavailable messageId=${rowId} reason=${_reason}`)
+
+      // Write a placeholder row so the inbox shows something visible rather than
+      // silently dropping the capsule (W3-P8).  Uses a plain INSERT (no sealed-storage
+      // gate) because the vault/validator that backs the gate is the thing that's down.
+      // Map the legacy error string to a canonical ReasonCode for the UI chip.
+      const _placeholderReason: string =
+        _reason.includes('outer_vault') || _reason.includes('vault_not_ready') || _reason.includes('vault_unavailable')
+          ? 'inner_vault_locked'
+          : _reason.includes('key_provider')
+            ? 'key_provider_unbound'
+            : 'validator_unhealthy'
+      const _transportSenderEarly = options.transportSender ?? null
+      writeP2PInboxPlaceholder(db, {
+        rowId,
+        handshakeId,
+        transportSender: _transportSenderEarly,
+        receivedAt,
+        now,
+        pendingReasonCode: _placeholderReason,
+        rawCapsuleJson: packageJson,
+      })
+      notifyBeapInboxDashboard(handshakeId)
+
       return { outcome: 'error', error: _reason }
     }
   }
@@ -1295,6 +1366,107 @@ export async function retryPendingQbeapDecrypt(db: any): Promise<number> {
   } finally {
     pendingQbeapDecryptRetryRan = true
   }
+}
+
+/**
+ * Multi-shot retry: scans `inbox_messages` where `pending_reason_code IS NOT NULL`
+ * and re-attempts `processBeapPackageInline` for each row whose blocking condition
+ * has cleared (per `capabilityBroker.canPerform`).
+ *
+ * Unlike `retryPendingQbeapDecrypt` this function has NO one-shot guard — it is
+ * safe to call multiple times per process (e.g. after vault unlock, on P2P startup).
+ *
+ * On success the placeholder row is deleted and a new sealed `inbox_messages` row
+ * is written by the inline pipeline.  A `inbox:beapInboxUpdated` broadcast triggers
+ * a full list refresh in the renderer; a `inbox:beapDeliveryAck` broadcast (no status
+ * field) triggers the W3-P7 sender state transition `delivered_deferred_inner_vault →
+ * live` via the fallback path in `ackToState`.
+ *
+ * On failure (still blocked) only `pending_last_retry_at` is updated.
+ */
+export async function retryPendingInboxPlaceholders(db: any): Promise<number> {
+  if (!db) return 0
+
+  let rows: Array<{
+    id: string
+    handshake_id: string
+    pending_reason_code: string
+    raw_capsule_json: string | null
+    received_at: string
+    from_address: string | null
+  }>
+
+  try {
+    rows = db
+      .prepare(
+        `SELECT id, handshake_id, pending_reason_code, raw_capsule_json, received_at, from_address
+         FROM inbox_messages
+         WHERE pending_reason_code IS NOT NULL
+           AND raw_capsule_json IS NOT NULL
+           AND TRIM(COALESCE(raw_capsule_json, '')) != ''
+           AND source_type = 'direct_beap'`,
+      )
+      .all() as typeof rows
+  } catch (e) {
+    console.warn('[RETRY-PLACEHOLDER] Query failed:', (e as Error)?.message ?? e)
+    return 0
+  }
+
+  if (!rows.length) return 0
+
+  console.log(`[RETRY-PLACEHOLDER] Found ${rows.length} placeholder row(s); checking capability`)
+
+  const { canPerform } = await import('../vault/capabilityBroker')
+  const capability = canPerform('beap_receive')
+
+  const now = new Date().toISOString()
+  if (!capability.allowed) {
+    // Still blocked — refresh retry timestamps and exit.
+    for (const row of rows) {
+      try {
+        db.prepare(`UPDATE inbox_messages SET pending_last_retry_at = ? WHERE id = ?`).run(now, row.id)
+      } catch { /* best-effort */ }
+    }
+    console.log(`[RETRY-PLACEHOLDER] Still blocked reason=${capability.reasonCode}; updated ${rows.length} retry timestamps`)
+    return 0
+  }
+
+  let fixed = 0
+  for (const row of rows) {
+    const capsule = row.raw_capsule_json?.trim()
+    if (!capsule) continue
+    try {
+      const result = await processBeapPackageInline(db, capsule, row.handshake_id, {
+        receivedAt: row.received_at,
+        transportSender: row.from_address,
+        transportFolder: 'p2p',
+        sourceType: 'p2p',
+      })
+      if (result.outcome === 'inbox') {
+        // New sealed row written — delete the placeholder.
+        try {
+          db.prepare(
+            `DELETE FROM inbox_messages WHERE id = ? AND pending_reason_code IS NOT NULL`,
+          ).run(row.id)
+        } catch { /* best-effort */ }
+        fixed++
+        console.log(`[RETRY-PLACEHOLDER] Upgraded placeholder id=${row.id} → new inbox rowId=${result.rowId ?? '?'}`)
+        notifyBeapInboxDashboard(row.handshake_id)
+        // Notify the sender (no status field → W3-P7 ackToState returns 'live' via fallback).
+        notifyBeapDeliveryAck(row.handshake_id, row.id)
+      } else {
+        // Still failed — update retry timestamp only.
+        try {
+          db.prepare(`UPDATE inbox_messages SET pending_last_retry_at = ? WHERE id = ?`).run(now, row.id)
+        } catch { /* best-effort */ }
+        console.warn(`[RETRY-PLACEHOLDER] Retry failed id=${row.id} outcome=${result.outcome} error=${result.error ?? ''}`)
+      }
+    } catch (e) {
+      console.warn(`[RETRY-PLACEHOLDER] Error for id=${row.id}:`, (e as Error)?.message ?? e)
+    }
+  }
+
+  return fixed
 }
 
 /**

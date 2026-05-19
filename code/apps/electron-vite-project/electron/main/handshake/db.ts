@@ -1157,6 +1157,23 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `DROP TABLE IF EXISTS p2p_pending_beap`,
     ],
   },
+  {
+    version: 67,
+    description:
+      'Schema v67 (W3-P8): inbox_messages placeholder columns for blocked/deferred capsules. ' +
+      'pending_reason_code: non-null when capsule arrived but could not be processed (inner_vault_locked, ' +
+      'validator_unhealthy, etc); null for fully-processed rows. ' +
+      'pending_first_seen_at: ISO timestamp of first blocked arrival; stays across retries. ' +
+      'pending_last_retry_at: ISO timestamp of most recent retry attempt; used to throttle retries. ' +
+      'raw_capsule_json: original encrypted capsule bytes for self-contained retry (survives relay outages). ' +
+      'All four columns default to NULL; existing rows are unaffected.',
+    sql: [
+      `ALTER TABLE inbox_messages ADD COLUMN pending_reason_code TEXT NULL`,
+      `ALTER TABLE inbox_messages ADD COLUMN pending_first_seen_at TEXT NULL`,
+      `ALTER TABLE inbox_messages ADD COLUMN pending_last_retry_at TEXT NULL`,
+      `ALTER TABLE inbox_messages ADD COLUMN raw_capsule_json TEXT NULL`,
+    ],
+  },
 ]
 
 /**
@@ -1226,6 +1243,11 @@ const EMAIL_PIPELINE_COLUMN_REPAIRS: ReadonlyArray<{ table: string; column: stri
   { table: 'inbox_messages', column: 'validated_at', ddl: 'TEXT' },
   { table: 'inbox_messages', column: 'validator_version', ddl: 'TEXT' },
   { table: 'inbox_messages', column: 'validation_reason', ddl: 'TEXT' },
+  // ── inbox_messages placeholder columns (v67, W3-P8) ──
+  { table: 'inbox_messages', column: 'pending_reason_code', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'pending_first_seen_at', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'pending_last_retry_at', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'raw_capsule_json', ddl: 'TEXT' },
   // ── inbox_attachments (messageRouter, ipc) ──
   { table: 'inbox_attachments', column: 'message_id', ddl: 'TEXT' },
   { table: 'inbox_attachments', column: 'filename', ddl: 'TEXT' },

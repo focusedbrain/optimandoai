@@ -967,7 +967,7 @@ import {
   getCoordinationWsClient,
 } from './main/p2p/coordinationWsHolder'
 import { setBeapRecipientPendingNotifier, notifyBeapRecipientPending } from './main/p2p/beapRecipientNotify'
-import { processPendingP2PBeapEmails, retryPendingQbeapDecrypt } from './main/email/beapEmailIngestion'
+import { processPendingP2PBeapEmails, retryPendingQbeapDecrypt, retryPendingInboxPlaceholders } from './main/email/beapEmailIngestion'
 import { drainExtensionMergeBuffer } from './main/email/mergeExtensionDepackaged'
 import { getAuditForMessage, getAutoresponderAuditLog } from './main/beap/autoresponderAudit'
 import { setBeapInboxDashboardNotifier, notifyBeapInboxDashboard } from './main/email/beapInboxDashboardNotify'
@@ -5016,6 +5016,8 @@ app.whenReady().then(async () => {
         setupEmbeddingServiceRef(vaultService, db)
         completePendingContextSyncs(db, getCurrentSession())
         if (db) setImmediate(() => processOutboundQueue(db, getOidcToken).catch((err) => logProcessOutboundQueueFailure('ipc:vault_unlockWithPassword', err)))
+        // Retry any inbox placeholder rows that were blocked by vault lock (W3-P8).
+        if (db) setImmediate(() => retryPendingInboxPlaceholders(db).catch((err) => console.warn('[RETRY-PLACEHOLDER] post-unlock retry error:', (err as Error)?.message ?? err)))
         try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
         try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
         return { success: true }
