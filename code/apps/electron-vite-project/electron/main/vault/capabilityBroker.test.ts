@@ -2,12 +2,17 @@
  * Tests: canPerform() maps vault/key-provider/validator state to the
  * correct CapabilityResult.
  *
- * All 16 required scenarios from W2-P5 are covered, plus edge cases.
- * Modules are fully stubbed so no real vault, DB, or subprocess is needed.
+ * W4-P11 update: the broker is now classification-aware.
+ *   Non-confidential (default, no ctx): checks outer key only.
+ *   Confidential (ctx with handshakeId whose classification is confidential):
+ *     checks inner vault + inner key + validator.
+ *
+ * All modules are fully stubbed — no real vault, DB, or subprocess needed.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { VaultStatusReport } from './vaultCanon'
+import type { HandshakeClassification } from './vaultCanon'
 
 // ---------------------------------------------------------------------------
 // Stubs — set per-test via the mutable `state` object
@@ -16,8 +21,10 @@ import type { VaultStatusReport } from './vaultCanon'
 const state = {
   outerActive: true,
   innerUnlocked: true,
-  keyProviderBound: true,
+  innerKeyProviderBound: true,
+  outerKeyProviderBound: true,
   validatorRunning: true,
+  handshakeClassification: 'non_confidential' as HandshakeClassification,
 }
 
 function makeReport(): VaultStatusReport {
@@ -37,10 +44,12 @@ vi.mock('./vaultCanon', () => ({
   isInnerVaultUnlocked: () => state.innerUnlocked,
   getOuterVaultDb: () => null,
   getInnerVaultDb: () => null,
+  getHandshakeClassification: (_id: string) => state.handshakeClassification,
 }))
 
 vi.mock('../sealed-storage', () => ({
-  isKeyProviderBound: () => state.keyProviderBound,
+  isKeyProviderBound: (source = 'inner') =>
+    source === 'outer' ? state.outerKeyProviderBound : state.innerKeyProviderBound,
 }))
 
 vi.mock('../validator-process/orchestrator', () => ({
@@ -59,121 +68,259 @@ import { canPerform } from './capabilityBroker'
 function allReady() {
   state.outerActive = true
   state.innerUnlocked = true
-  state.keyProviderBound = true
+  state.innerKeyProviderBound = true
+  state.outerKeyProviderBound = true
   state.validatorRunning = true
+  state.handshakeClassification = 'non_confidential'
 }
 
 // ---------------------------------------------------------------------------
-// Required scenario matrix
+// Non-confidential path (default — no ctx, all beap_* ops)
 // ---------------------------------------------------------------------------
 
-describe('canPerform — beap_send priority order (tests 1–5)', () => {
+describe('canPerform — non-confidential beap_send (outer path, no ctx)', () => {
   beforeEach(allReady)
 
-  // Row 1
-  it("returns outer_vault_inactive when outer inactive, inner locked, key unbound, validator stopped", () => {
+  it('outer_vault_inactive when outer inactive regardless of everything else', () => {
     state.outerActive = false
     state.innerUnlocked = false
-    state.keyProviderBound = false
+    state.innerKeyProviderBound = false
+    state.outerKeyProviderBound = false
     state.validatorRunning = false
     const r = canPerform('beap_send')
     expect(r.allowed).toBe(false)
     expect(r.reasonCode).toBe('outer_vault_inactive')
   })
 
-  // Row 2
-  it("returns inner_vault_locked when outer active but inner locked", () => {
+  it('key_provider_unbound when outer active but outer key not bound (inner locked)', () => {
     state.innerUnlocked = false
-    state.keyProviderBound = false
-    state.validatorRunning = false
-    const r = canPerform('beap_send')
-    expect(r.allowed).toBe(false)
-    expect(r.reasonCode).toBe('inner_vault_locked')
-  })
-
-  // Row 3
-  it("returns key_provider_unbound when outer+inner ready but key provider not bound", () => {
-    state.keyProviderBound = false
+    state.innerKeyProviderBound = false
+    state.outerKeyProviderBound = false
     state.validatorRunning = false
     const r = canPerform('beap_send')
     expect(r.allowed).toBe(false)
     expect(r.reasonCode).toBe('key_provider_unbound')
   })
 
-  // Row 4
-  it("returns validator_unhealthy when outer+inner+key ready but validator stopped", () => {
+  it('key_provider_unbound when outer+inner ready but outer key not bound', () => {
+    state.outerKeyProviderBound = false
     state.validatorRunning = false
     const r = canPerform('beap_send')
+    expect(r.allowed).toBe(false)
+    expect(r.reasonCode).toBe('key_provider_unbound')
+  })
+
+  it('ok when outer key is bound, even when inner locked and validator stopped', () => {
+    // Non-confidential: inner vault and validator are NOT required.
+    state.innerUnlocked = false
+    state.innerKeyProviderBound = false
+    state.validatorRunning = false
+    const r = canPerform('beap_send')
+    expect(r.allowed).toBe(true)
+    expect(r.reasonCode).toBe('ok')
+  })
+
+  it('ok when all conditions met for beap_send', () => {
+    const r = canPerform('beap_send')
+    expect(r.allowed).toBe(true)
+    expect(r.reasonCode).toBe('ok')
+  })
+})
+
+describe('canPerform — non-confidential beap_receive (outer path, no ctx)', () => {
+  beforeEach(allReady)
+
+  it('key_provider_unbound when outer key not bound (inner locked)', () => {
+    state.innerUnlocked = false
+    state.innerKeyProviderBound = false
+    state.outerKeyProviderBound = false
+    state.validatorRunning = false
+    const r = canPerform('beap_receive')
+    expect(r.allowed).toBe(false)
+    expect(r.reasonCode).toBe('key_provider_unbound')
+  })
+
+  it('ok for beap_receive with only outer vault (SSO-only)', () => {
+    state.innerUnlocked = false
+    state.innerKeyProviderBound = false
+    state.validatorRunning = false
+    const r = canPerform('beap_receive')
+    expect(r.allowed).toBe(true)
+    expect(r.reasonCode).toBe('ok')
+  })
+
+  it('ok for beap_receive when all ready', () => {
+    const r = canPerform('beap_receive')
+    expect(r.allowed).toBe(true)
+    expect(r.reasonCode).toBe('ok')
+  })
+})
+
+describe('canPerform — non-confidential beap_clone (outer path, no ctx)', () => {
+  beforeEach(allReady)
+
+  it('key_provider_unbound for beap_clone when outer key not bound', () => {
+    state.innerUnlocked = false
+    state.innerKeyProviderBound = false
+    state.outerKeyProviderBound = false
+    state.validatorRunning = false
+    const r = canPerform('beap_clone')
+    expect(r.allowed).toBe(false)
+    expect(r.reasonCode).toBe('key_provider_unbound')
+  })
+
+  it('ok for beap_clone with only outer vault (SSO-only)', () => {
+    state.innerUnlocked = false
+    state.innerKeyProviderBound = false
+    state.validatorRunning = false
+    const r = canPerform('beap_clone')
+    expect(r.allowed).toBe(true)
+    expect(r.reasonCode).toBe('ok')
+  })
+
+  it('ok for beap_clone when all ready', () => {
+    const r = canPerform('beap_clone')
+    expect(r.allowed).toBe(true)
+    expect(r.reasonCode).toBe('ok')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Classification-aware: W4-P11 matrix (Table from prompt)
+// ---------------------------------------------------------------------------
+
+describe('canPerform — W4-P11 classification matrix (beap_send with ctx)', () => {
+  beforeEach(allReady)
+
+  const CONF_CTX = { handshakeId: 'hs-confidential' }
+  const NC_CTX = { handshakeId: 'hs-non-confidential' }
+
+  // Non-confidential: inner locked, outer key bound → ok
+  it('ok for beap_send non_confidential when inner locked but outer key bound', () => {
+    state.innerUnlocked = false
+    state.innerKeyProviderBound = false
+    state.handshakeClassification = 'non_confidential'
+    const r = canPerform('beap_send', NC_CTX)
+    expect(r.allowed).toBe(true)
+    expect(r.reasonCode).toBe('ok')
+  })
+
+  // Confidential: inner locked → inner_vault_locked
+  it('inner_vault_locked for beap_send confidential when inner locked', () => {
+    state.innerUnlocked = false
+    state.innerKeyProviderBound = false
+    state.outerKeyProviderBound = true
+    state.handshakeClassification = 'confidential'
+    const r = canPerform('beap_send', CONF_CTX)
+    expect(r.allowed).toBe(false)
+    expect(r.reasonCode).toBe('inner_vault_locked')
+  })
+
+  // Non-confidential: outer key unbound → key_provider_unbound
+  it('key_provider_unbound for beap_send non_confidential when outer key not bound', () => {
+    state.innerUnlocked = false
+    state.outerKeyProviderBound = false
+    state.handshakeClassification = 'non_confidential'
+    const r = canPerform('beap_send', NC_CTX)
+    expect(r.allowed).toBe(false)
+    expect(r.reasonCode).toBe('key_provider_unbound')
+  })
+
+  // Both vaults unlocked + non_confidential → ok
+  it('ok for beap_send non_confidential when all ready', () => {
+    state.handshakeClassification = 'non_confidential'
+    const r = canPerform('beap_send', NC_CTX)
+    expect(r.allowed).toBe(true)
+    expect(r.reasonCode).toBe('ok')
+  })
+
+  // Both vaults unlocked + confidential → ok
+  it('ok for beap_send confidential when all ready', () => {
+    state.handshakeClassification = 'confidential'
+    const r = canPerform('beap_send', CONF_CTX)
+    expect(r.allowed).toBe(true)
+    expect(r.reasonCode).toBe('ok')
+  })
+
+  // Confidential: inner key unbound → key_provider_unbound
+  it('key_provider_unbound for beap_send confidential when inner key not bound', () => {
+    state.innerKeyProviderBound = false
+    state.validatorRunning = false
+    state.handshakeClassification = 'confidential'
+    const r = canPerform('beap_send', CONF_CTX)
+    expect(r.allowed).toBe(false)
+    expect(r.reasonCode).toBe('key_provider_unbound')
+  })
+
+  // Confidential: inner key bound but validator stopped → validator_unhealthy
+  it('validator_unhealthy for beap_send confidential when validator stopped', () => {
+    state.validatorRunning = false
+    state.handshakeClassification = 'confidential'
+    const r = canPerform('beap_send', CONF_CTX)
     expect(r.allowed).toBe(false)
     expect(r.reasonCode).toBe('validator_unhealthy')
   })
 
-  // Row 5
-  it("returns ok when all conditions met for beap_send", () => {
-    const r = canPerform('beap_send')
+  // Same patterns for beap_receive
+  it('ok for beap_receive non_confidential with only outer vault', () => {
+    state.innerUnlocked = false
+    state.innerKeyProviderBound = false
+    state.validatorRunning = false
+    state.handshakeClassification = 'non_confidential'
+    const r = canPerform('beap_receive', NC_CTX)
     expect(r.allowed).toBe(true)
     expect(r.reasonCode).toBe('ok')
   })
-})
 
-describe('canPerform — beap_receive (tests 6–7)', () => {
-  beforeEach(allReady)
-
-  // Row 6
-  it("returns inner_vault_locked for beap_receive when inner locked", () => {
+  it('inner_vault_locked for beap_receive confidential when inner locked', () => {
     state.innerUnlocked = false
-    state.keyProviderBound = false
-    state.validatorRunning = false
-    const r = canPerform('beap_receive')
+    state.innerKeyProviderBound = false
+    state.handshakeClassification = 'confidential'
+    const r = canPerform('beap_receive', CONF_CTX)
     expect(r.allowed).toBe(false)
     expect(r.reasonCode).toBe('inner_vault_locked')
   })
 
-  // Row 7
-  it("returns ok for beap_receive when all ready", () => {
-    const r = canPerform('beap_receive')
+  // Same patterns for beap_clone
+  it('ok for beap_clone non_confidential with only outer vault', () => {
+    state.innerUnlocked = false
+    state.innerKeyProviderBound = false
+    state.validatorRunning = false
+    state.handshakeClassification = 'non_confidential'
+    const r = canPerform('beap_clone', NC_CTX)
     expect(r.allowed).toBe(true)
     expect(r.reasonCode).toBe('ok')
   })
-})
 
-describe('canPerform — beap_clone (tests 8–9)', () => {
-  beforeEach(allReady)
-
-  // Row 8
-  it("returns inner_vault_locked for beap_clone when inner locked", () => {
+  it('inner_vault_locked for beap_clone confidential when inner locked', () => {
     state.innerUnlocked = false
-    state.keyProviderBound = false
-    state.validatorRunning = false
-    const r = canPerform('beap_clone')
+    state.innerKeyProviderBound = false
+    state.handshakeClassification = 'confidential'
+    const r = canPerform('beap_clone', CONF_CTX)
     expect(r.allowed).toBe(false)
     expect(r.reasonCode).toBe('inner_vault_locked')
   })
-
-  // Row 9
-  it("returns ok for beap_clone when all ready", () => {
-    const r = canPerform('beap_clone')
-    expect(r.allowed).toBe(true)
-    expect(r.reasonCode).toBe('ok')
-  })
 })
 
-describe('canPerform — context_sync (tests 10–11)', () => {
+// ---------------------------------------------------------------------------
+// context_sync (unchanged from W2-P5)
+// ---------------------------------------------------------------------------
+
+describe('canPerform — context_sync', () => {
   beforeEach(allReady)
 
-  // Row 10
-  it("returns inner_vault_locked for context_sync when inner locked", () => {
+  it('inner_vault_locked for context_sync when inner locked', () => {
     state.innerUnlocked = false
-    state.keyProviderBound = false
+    state.innerKeyProviderBound = false
     state.validatorRunning = false
     const r = canPerform('context_sync')
     expect(r.allowed).toBe(false)
     expect(r.reasonCode).toBe('inner_vault_locked')
   })
 
-  // Row 11: context_sync does NOT require key provider or validator
-  it("returns ok for context_sync when outer+inner ready, even if key/validator not ready", () => {
-    state.keyProviderBound = false
+  it('ok for context_sync when outer+inner ready, even if key/validator not ready', () => {
+    state.innerKeyProviderBound = false
+    state.outerKeyProviderBound = false
     state.validatorRunning = false
     const r = canPerform('context_sync')
     expect(r.allowed).toBe(true)
@@ -181,93 +328,51 @@ describe('canPerform — context_sync (tests 10–11)', () => {
   })
 })
 
-describe('canPerform — beap_receive_confidential (tests 12–13)', () => {
+// ---------------------------------------------------------------------------
+// beap_receive_confidential / inbox_read_confidential (always-inner)
+// ---------------------------------------------------------------------------
+
+describe('canPerform — beap_receive_confidential (always inner)', () => {
   beforeEach(allReady)
 
-  // Row 12
-  it("returns inner_vault_locked for beap_receive_confidential when inner locked", () => {
+  it('inner_vault_locked when inner locked', () => {
     state.innerUnlocked = false
-    state.keyProviderBound = false
+    state.innerKeyProviderBound = false
     state.validatorRunning = false
     const r = canPerform('beap_receive_confidential')
     expect(r.allowed).toBe(false)
     expect(r.reasonCode).toBe('inner_vault_locked')
   })
 
-  // Row 13
-  it("returns ok for beap_receive_confidential when all ready", () => {
+  it('ok when all ready', () => {
     const r = canPerform('beap_receive_confidential')
     expect(r.allowed).toBe(true)
     expect(r.reasonCode).toBe('ok')
   })
 })
 
-describe('canPerform — inbox_read_confidential (tests 14–15)', () => {
+describe('canPerform — inbox_read_confidential (always inner)', () => {
   beforeEach(allReady)
 
-  // Row 14
-  it("returns inner_vault_locked for inbox_read_confidential when inner locked", () => {
+  it('inner_vault_locked when inner locked', () => {
     state.innerUnlocked = false
-    state.keyProviderBound = false
+    state.innerKeyProviderBound = false
     state.validatorRunning = false
     const r = canPerform('inbox_read_confidential')
     expect(r.allowed).toBe(false)
     expect(r.reasonCode).toBe('inner_vault_locked')
   })
 
-  // Row 15
-  it("returns ok for inbox_read_confidential when all ready", () => {
+  it('ok when all ready', () => {
     const r = canPerform('inbox_read_confidential')
     expect(r.allowed).toBe(true)
     expect(r.reasonCode).toBe('ok')
   })
 })
 
-describe('canPerform — outer vault takes priority over all other state (test 16)', () => {
-  beforeEach(allReady)
-
-  // Row 16: outer inactive even though inner/key/validator are all ready
-  it("returns outer_vault_inactive for beap_send when outer inactive despite everything else ready", () => {
-    state.outerActive = false
-    const r = canPerform('beap_send')
-    expect(r.allowed).toBe(false)
-    expect(r.reasonCode).toBe('outer_vault_inactive')
-  })
-})
-
 // ---------------------------------------------------------------------------
-// Additional edge cases
+// Outer vault takes priority over all other state
 // ---------------------------------------------------------------------------
-
-describe('canPerform — retryStrategy values', () => {
-  beforeEach(allReady)
-
-  it("outer_vault_inactive has retryStrategy=user_action", () => {
-    state.outerActive = false
-    expect(canPerform('beap_send').retryStrategy).toBe('user_action')
-  })
-
-  it("inner_vault_locked has retryStrategy=auto_on_unlock", () => {
-    state.innerUnlocked = false
-    expect(canPerform('beap_send').retryStrategy).toBe('auto_on_unlock')
-  })
-
-  it("key_provider_unbound has retryStrategy=transient", () => {
-    state.keyProviderBound = false
-    state.validatorRunning = false
-    expect(canPerform('beap_send').retryStrategy).toBe('transient')
-  })
-
-  it("validator_unhealthy has retryStrategy=transient", () => {
-    state.validatorRunning = false
-    expect(canPerform('beap_send').retryStrategy).toBe('transient')
-  })
-
-  it("context_sync inner_vault_locked has retryStrategy=auto_on_unlock", () => {
-    state.innerUnlocked = false
-    expect(canPerform('context_sync').retryStrategy).toBe('auto_on_unlock')
-  })
-})
 
 describe('canPerform — outer inactive applies to all operations', () => {
   beforeEach(() => {
@@ -289,10 +394,43 @@ describe('canPerform — outer inactive applies to all operations', () => {
   }
 })
 
+// ---------------------------------------------------------------------------
+// retryStrategy values
+// ---------------------------------------------------------------------------
+
+describe('canPerform — retryStrategy values', () => {
+  beforeEach(allReady)
+
+  it('outer_vault_inactive has retryStrategy=user_action', () => {
+    state.outerActive = false
+    expect(canPerform('beap_send').retryStrategy).toBe('user_action')
+  })
+
+  it('non-confidential key_provider_unbound has retryStrategy=transient', () => {
+    state.outerKeyProviderBound = false
+    expect(canPerform('beap_send').retryStrategy).toBe('transient')
+  })
+
+  it('confidential inner_vault_locked has retryStrategy=auto_on_unlock', () => {
+    state.handshakeClassification = 'confidential'
+    state.innerUnlocked = false
+    expect(canPerform('beap_send', { handshakeId: 'hs-conf' }).retryStrategy).toBe('auto_on_unlock')
+  })
+
+  it('context_sync inner_vault_locked has retryStrategy=auto_on_unlock', () => {
+    state.innerUnlocked = false
+    expect(canPerform('context_sync').retryStrategy).toBe('auto_on_unlock')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ok result shape
+// ---------------------------------------------------------------------------
+
 describe('canPerform — ok result shape', () => {
   beforeEach(allReady)
 
-  it("ok result has allowed=true, empty userMessage, reasonCode=ok", () => {
+  it('ok result has allowed=true, empty userMessage, reasonCode=ok', () => {
     const r = canPerform('beap_send')
     expect(r).toEqual({
       allowed: true,

@@ -71,6 +71,45 @@ export interface VaultStatusReport {
   reasonHints: string[]
 }
 
+/**
+ * Per-handshake confidentiality classification.
+ *
+ * 'non_confidential' — SSO login is sufficient to seal/unseal inbox rows.
+ *                      Uses the outer (ledger-derived) key.
+ * 'confidential'     — Master-password vault must be unlocked.
+ *                      Uses the inner (VMK-derived) key.
+ */
+export type HandshakeClassification = 'confidential' | 'non_confidential'
+
+/**
+ * Read the confidentiality classification for a handshake.
+ *
+ * For W4-P11, all handshakes return 'non_confidential' because:
+ *   1. There is no FK from the handshakes table to hs_context_profiles in
+ *      the vault DB.  No lookup path exists without an inner-vault join.
+ *   2. hs_context_profiles is only readable when the inner vault is unlocked.
+ *      A locked-vault-safe fallback is required for the SSO-only BEAP path.
+ *   3. All existing handshakes predate the classification feature and are
+ *      non-confidential by design.
+ *
+ * Consequences:
+ *   - SSO-only users can receive/send/clone all BEAP messages (outer path).
+ *   - The 'confidential' branch in capabilityBroker/validatorReadiness is
+ *     scaffolded but not exercised until W4-P12 mirrors scope into the ledger.
+ *
+ * W4-P12 will mirror the profile scope into the ledger's handshakes table
+ * so classification can be read regardless of inner vault state.
+ *
+ * Stop-and-report note: the `hs_context_profiles` scope column exists at
+ * vault/db.ts:605 but there is no FK from the handshakes table to profiles.
+ * Until that FK is established, the fallback is the correct safe behaviour.
+ */
+export function getHandshakeClassification(
+  _handshakeId: string,
+): HandshakeClassification {
+  return 'non_confidential'
+}
+
 /** Snapshot of both vault layers for diagnostic logging. */
 export function getVaultStatusReport(): VaultStatusReport {
   const outer = isOuterVaultActive()

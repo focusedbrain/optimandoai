@@ -6,16 +6,16 @@
  * binding, and validator liveness.  Maps to a structured result with a
  * canonical reasonCode.
  *
- * This module encodes the current (pre-Wave-4) behavior: every BEAP
- * operation requires the inner vault to be unlocked.  Wave 4 will modify
- * the mapping table so non-confidential BEAP operations require only the
- * outer vault (SSO ledger).
- *
- * No callers are wired up in this prompt.  Future prompts will route gate
- * decisions through canPerform().
+ * Routing table (W4-P11):
+ *   Non-confidential BEAP (default): outer vault active + outer key bound → ok.
+ *     No inner vault or validator subprocess required (SSO-only path).
+ *   Confidential BEAP: inner vault unlocked + inner key bound + validator running.
+ *   Explicit-confidential ops (beap_receive_confidential, inbox_read_confidential):
+ *     always require inner vault regardless of handshake classification.
+ *   context_sync: requires inner vault (unchanged).
  */
 
-import { getVaultStatusReport } from './vaultCanon'
+import { getVaultStatusReport, getHandshakeClassification } from './vaultCanon'
 import { isKeyProviderBound } from '../sealed-storage'
 import { validatorOrchestrator } from '../validator-process/orchestrator'
 
@@ -60,15 +60,24 @@ const OK: CapabilityResult = {
  *
  * Priority order (checked top-to-bottom):
  *   1. Outer vault inactive (SSO logged out) → outer_vault_inactive
- *   2. Inner vault locked (master password not entered) → inner_vault_locked
- *   3. Key provider not bound (sealed-storage not ready) → key_provider_unbound
- *   4. Validator subprocess not running → validator_unhealthy
- *   5. All clear → ok
+ *   2. Classification-dependent checks:
+ *      Non-confidential (default): outer key provider bound → ok
+ *      Confidential:               inner vault unlocked + inner key bound
+ *                                  + validator running → ok
+ *   3. All clear → ok
  *
- * context_sync skips checks 3–4: it only needs the inner vault to build and
- * enqueue; it does not directly call sealed-storage or the validator.
+ * ctx.handshakeId, if provided, is used to derive the classification.
+ * Callers that don't have a handshake id (e.g. generic send-side checks)
+ * default to 'non_confidential', which is the permissive branch.
+ *
+ * context_sync: unchanged — always requires inner vault, no key/validator check.
+ * beap_receive_confidential / inbox_read_confidential: always require inner vault
+ * regardless of classification (they are explicitly confidential operations).
  */
-export function canPerform(op: OperationKind): CapabilityResult {
+export function canPerform(
+  op: OperationKind,
+  ctx?: { handshakeId?: string },
+): CapabilityResult {
   const status = getVaultStatusReport()
 
   // Always require the outer vault (SSO session / ledger).
@@ -81,29 +90,72 @@ export function canPerform(op: OperationKind): CapabilityResult {
     }
   }
 
-  // Wave 2 mapping table — encodes today's behavior.
-  // Every BEAP operation requires inner vault unlocked.
-  // Wave 4 will add a branch here for non-confidential ops that need
-  // only outerActive + ledger seal key bound + validator running.
   switch (op) {
     case 'beap_send':
     case 'beap_receive':
-    case 'beap_clone':
+    case 'beap_clone': {
+      const classification = ctx?.handshakeId
+        ? getHandshakeClassification(ctx.handshakeId)
+        : 'non_confidential'
+
+      if (classification === 'confidential') {
+        // Confidential path: inner vault + inner key + validator required.
+        if (!status.innerUnlocked) {
+          return {
+            allowed: false,
+            reasonCode: 'inner_vault_locked',
+            userMessage: 'Please unlock your vault to view this confidential message.',
+            retryStrategy: 'auto_on_unlock',
+          }
+        }
+        if (!isKeyProviderBound('inner')) {
+          return {
+            allowed: false,
+            reasonCode: 'key_provider_unbound',
+            userMessage: 'Storage is initializing. Please wait.',
+            retryStrategy: 'transient',
+          }
+        }
+        if (validatorOrchestrator.getLiveness() !== 'running') {
+          return {
+            allowed: false,
+            reasonCode: 'validator_unhealthy',
+            userMessage: 'Validation service is unavailable. Please restart the app.',
+            retryStrategy: 'transient',
+          }
+        }
+      } else {
+        // Non-confidential path: outer key bound is sufficient.
+        // No inner vault or validator required for SSO-only BEAP.
+        if (!isKeyProviderBound('outer')) {
+          return {
+            allowed: false,
+            reasonCode: 'key_provider_unbound',
+            userMessage: 'Session storage is initializing. Please wait.',
+            retryStrategy: 'transient',
+          }
+        }
+      }
+      return OK
+    }
+
     case 'beap_receive_confidential':
     case 'inbox_read_confidential': {
+      // Always require inner vault regardless of handshake classification —
+      // these operation kinds are explicitly confidential.
       if (!status.innerUnlocked) {
         return {
           allowed: false,
           reasonCode: 'inner_vault_locked',
-          userMessage: 'Please unlock your vault to continue.',
+          userMessage: 'Please unlock your vault to view this confidential message.',
           retryStrategy: 'auto_on_unlock',
         }
       }
-      if (!isKeyProviderBound()) {
+      if (!isKeyProviderBound('inner')) {
         return {
           allowed: false,
           reasonCode: 'key_provider_unbound',
-          userMessage: 'Storage is not ready. Please wait or restart the app.',
+          userMessage: 'Storage is initializing. Please wait.',
           retryStrategy: 'transient',
         }
       }
@@ -119,6 +171,7 @@ export function canPerform(op: OperationKind): CapabilityResult {
     }
 
     case 'context_sync': {
+      // Unchanged: context_sync defers when inner locked.
       if (!status.innerUnlocked) {
         return {
           allowed: false,

@@ -64,7 +64,7 @@
 import { isKeyProviderBound } from './sealed-storage'
 import { validatorOrchestrator } from './validator-process/orchestrator'
 import { vaultService } from './vault/service'
-import { isInnerVaultUnlocked } from './vault/vaultCanon'
+import { isInnerVaultUnlocked, getHandshakeClassification } from './vault/vaultCanon'
 import { getCachedUserInfo } from '../../src/auth/session'
 
 export type ValidatorReadyCode =
@@ -166,18 +166,37 @@ function probeInnerVaultState(reason: string): InnerVaultProbe {
  *   polls up to 15 s for `bindKeyProvider` to be called.
  * - Subprocess not started or dead: awaits `start()` directly.
  *
- * @param reason  Caller context written into logs (e.g. `'beap_receive'`, `'clone_prepare'`).
+ * @param reason       Caller context written into logs (e.g. `'beap_receive'`).
+ * @param handshakeId  Optional: the handshake being processed.  When provided,
+ *                     used to derive classification and enable the outer-key
+ *                     fast path for non-confidential BEAP (SSO-only).
  */
 export async function ensureValidatorAndSealedStorageReady(
   reason: string,
+  handshakeId?: string,
 ): Promise<ValidatorReadyResult> {
-  // ── Fast path ─────────────────────────────────────────────────────────────
+  // ── Non-confidential fast path (outer key) ────────────────────────────────
+  // For non-confidential BEAP: the outer (ledger-derived) key is sufficient.
+  // No inner vault, no validator subprocess required.
+  // This enables SSO-only users to send/receive/clone non-confidential BEAP.
+  const classification = handshakeId
+    ? getHandshakeClassification(handshakeId)
+    : 'non_confidential'
+
+  if (classification === 'non_confidential' && isKeyProviderBound('outer')) {
+    console.log(
+      `[VALIDATOR_READY_CHECK] ready reason=${reason} classification=non_confidential outerActive=true keyProviderBound(outer)=true`,
+    )
+    return { ok: true }
+  }
+
+  // ── Confidential fast path (inner key) ────────────────────────────────────
   // Verify BOTH: key provider bound AND inner vault still unlocked.
   // The auto-lock timer (VaultService) can clear `session` without stopping
   // the validator, leaving a stale binding whose closure returns null.
-  if (isKeyProviderBound() && isInnerVaultUnlocked()) {
+  if (isKeyProviderBound('inner') && isInnerVaultUnlocked()) {
     console.log(
-      `[VALIDATOR_READY_CHECK] ready reason=${reason} outerVaultReady=true validatorRunning=${validatorOrchestrator.getLiveness() === 'running'} keyProviderBound=true`,
+      `[VALIDATOR_READY_CHECK] ready reason=${reason} classification=${classification} outerVaultReady=true validatorRunning=${validatorOrchestrator.getLiveness() === 'running'} keyProviderBound=true`,
     )
     return { ok: true }
   }
@@ -185,10 +204,10 @@ export async function ensureValidatorAndSealedStorageReady(
   // ── Probe inner vault (vaultService) state ────────────────────────────────
   const probe = probeInnerVaultState(reason)
   const validatorRunning = validatorOrchestrator.getLiveness() === 'running'
-  const keyProviderBound = isKeyProviderBound()
+  const keyProviderBound = isKeyProviderBound('inner')
 
   console.log(
-    `[VALIDATOR_READY_CHECK] reason=${reason} outerVaultReady=${probe.innerVaultReady} validatorRunning=${validatorRunning} keyProviderBound=${keyProviderBound}`,
+    `[VALIDATOR_READY_CHECK] reason=${reason} classification=${classification} outerVaultReady=${probe.innerVaultReady} validatorRunning=${validatorRunning} keyProviderBound=${keyProviderBound}`,
   )
 
   if (!probe.innerVaultFound) {
@@ -237,7 +256,7 @@ export async function ensureValidatorAndSealedStorageReady(
       const POLL_DEADLINE_MS = 15_000
       const deadline = Date.now() + POLL_DEADLINE_MS
       while (Date.now() < deadline) {
-        if (isKeyProviderBound()) break
+        if (isKeyProviderBound('inner')) break
         await delay(POLL_MS)
       }
     } else {
@@ -253,7 +272,7 @@ export async function ensureValidatorAndSealedStorageReady(
   }
 
   // ── Final readiness check ─────────────────────────────────────────────────
-  if (!isKeyProviderBound()) {
+  if (!isKeyProviderBound('inner')) {
     console.log(
       `[VALIDATOR_READY_CHECK] failed reason=${reason} code=not_ready_after_start`,
     )

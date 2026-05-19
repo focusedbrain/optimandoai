@@ -110,21 +110,33 @@ export type ClonePrepareSealGateResult =
  */
 export async function ensureSealedStorageReadyForSandboxClone(cloneId: string): Promise<ClonePrepareSealGateResult> {
   // Quick pre-check for the [CLONE_PREPARE] sealed_storage_check log.
-  // outerVaultReady: outer vault session active (master-password unlocked, VMK in memory).
-  // The inner vault (HA mode) must NOT be required for clone prepare.
-  const outerVaultReady = vaultService.getStatus().isUnlocked === true
-  const keyProviderBound = isKeyProviderBound()
+  // outerKeyBound: outer (ledger-derived) key provider ready — sufficient for
+  //   reading non-confidential inbox rows (seal_key_source='ledger').
+  // innerVaultReady: inner vault session active — needed for reading
+  //   confidential inbox rows (seal_key_source='vmk').
+  // sealedQuery is source-aware (W4-P10): it picks the right provider per row.
+  // The gate allows cloning if EITHER provider is bound.
+  const innerVaultReady = vaultService.getStatus().isUnlocked === true
+  const outerKeyBound = isKeyProviderBound('outer')
+  const innerKeyBound = isKeyProviderBound('inner')
 
   console.log(
-    `[CLONE_PREPARE] sealed_storage_check cloneId=${cloneId} outerVaultReady=${outerVaultReady} keyProviderBound=${keyProviderBound}`,
+    `[CLONE_PREPARE] sealed_storage_check cloneId=${cloneId} outerKeyBound=${outerKeyBound} innerKeyBound=${innerKeyBound} innerVaultReady=${innerVaultReady}`,
   )
 
-  // Fast path: key provider bound AND vault still active (guards against stale binding after auto-lock).
-  if (keyProviderBound && outerVaultReady) {
-    console.log(`[CLONE_PREPARE] sealed_storage_ready cloneId=${cloneId} ready=true`)
+  // Fast path: outer key bound (SSO-only, non-confidential rows) — always sufficient.
+  if (outerKeyBound) {
+    console.log(`[CLONE_PREPARE] sealed_storage_ready cloneId=${cloneId} ready=true path=outer_key`)
     return { ok: true }
   }
 
+  // Fast path: inner key bound AND vault still active (guards stale binding after auto-lock).
+  if (innerKeyBound && innerVaultReady) {
+    console.log(`[CLONE_PREPARE] sealed_storage_ready cloneId=${cloneId} ready=true path=inner_key`)
+    return { ok: true }
+  }
+
+  // Neither provider is bound (or inner stale) — full probe for proper error code + logging.
   // Full probe via ensureValidatorAndSealedStorageReady — emits [OUTER_VAULT_CHECK] and [VALIDATOR_READY_CHECK].
   const result = await ensureValidatorAndSealedStorageReady('clone_prepare')
 

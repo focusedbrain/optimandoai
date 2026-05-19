@@ -281,18 +281,22 @@ export class SealedStatement {
    *   3. sha256(canonical_json) === seal_input_json.content_sha256 (content binding).
    *   4. HMAC-SHA256(seal_input_json, key) === seal (forgery protection).
    *
+   * @param source  Which key provider to use for HMAC verification.
+   *                'inner' (default) — VMK-derived key (validator subprocess path).
+   *                'outer'           — Ledger-derived key (SSO-only / non-confidential path).
+   *
    * In reject mode any failure throws SealVerificationError and the
    * containing transaction rolls back.  In log-only mode failures are warned
    * and the write proceeds.
    */
-  run(bindArgs: unknown[], sealParams: SealBindParams): SealedRunResult {
+  run(bindArgs: unknown[], sealParams: SealBindParams, source: KeySource = 'inner'): SealedRunResult {
     const ctx = `${this._operation} (${this._sql.slice(0, 60)})`
 
     // ── 1. Require key provider ──────────────────────────────────────────────
-    if (!_providers.inner) {
+    if (!_providers[source]) {
       if (!enforceOrWarn(
         false,
-        `${ctx}: key provider not bound — vault must be unlocked for inbox writes`,
+        `${ctx}: key provider not bound (source='${source}') — vault must be unlocked for inbox writes`,
       )) {
         // log-only mode: proceed without verification
         return this._exec(bindArgs)
@@ -348,7 +352,7 @@ export class SealedStatement {
     }
 
     // ── 6. HMAC verification ─────────────────────────────────────────────────
-    if (!verifyHmacWithProvider(sealParams.seal, sealParams.seal_input_json, ctx) &&
+    if (!verifyHmacWithProvider(sealParams.seal, sealParams.seal_input_json, ctx, source) &&
         SEALED_STORAGE_MODE !== 'reject') {
       // log-only: HMAC failed but mode allows proceeding
     }
@@ -365,6 +369,43 @@ export class SealedStatement {
 // ─────────────────────────────────────────────────────────────────────────────
 // Factory functions
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Compute a seal for a new inbox row in the main process using the key
+ * provider for `source`.  Used by the non-confidential (outer/ledger-key)
+ * BEAP ingestion path to seal rows without going through the validator
+ * subprocess (which requires the inner vault / VMK to be unlocked).
+ *
+ * The returned `{seal, seal_input_json}` can be passed directly to
+ * `SealedStatement.run(bindArgs, params, source)`.
+ *
+ * Throws `SealKeyNotBoundError` if the provider for `source` is not bound.
+ */
+export function computeSeal(
+  canonicalJson: string,
+  rowId: string,
+  source: KeySource = 'inner',
+): { seal: string; seal_input_json: string } {
+  const key = getKey(source)
+  if (key == null) throw new SealKeyNotBoundError(source)
+
+  const content_sha256 = createHash('sha256').update(canonicalJson, 'utf8').digest('hex')
+  const seal_input_json = JSON.stringify({
+    row_id: rowId,
+    content_sha256,
+    seal_source: source,
+    sealed_at: new Date().toISOString(),
+  })
+
+  let seal: string
+  try {
+    seal = createHmac('sha256', key).update(seal_input_json, 'utf8').digest('base64')
+  } finally {
+    key.fill(0)
+  }
+
+  return { seal, seal_input_json }
+}
 
 export function prepareSealedInsert(db: Database, sql: string): SealedStatement {
   const stmt = db.prepare(sql)

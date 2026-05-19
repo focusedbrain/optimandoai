@@ -33,7 +33,9 @@ import { logAutoresponderDecision } from '../beap/autoresponderAudit'
 import { makeInboxAttachmentStorageId, buildQuarantineCanonicalJson, findPairedSandboxHandshake } from './messageRouter'
 import { validatorOrchestrator } from '../validator-process/orchestrator'
 import { ensureValidatorAndSealedStorageReady } from '../validatorReadiness'
-import { prepareSealedInsert, prepareSealedOperationalUpdate } from '../sealed-storage/index'
+import { prepareSealedInsert, prepareSealedOperationalUpdate, computeSeal } from '../sealed-storage/index'
+import type { KeySource } from '../sealed-storage/index'
+import { getHandshakeClassification } from '../vault/vaultCanon'
 import { resealWithDecryptedContent } from './sealedContentUpdate'
 import { decryptQuarantineBlob, encryptForQuarantine } from '../quarantine-encrypt/index'
 import { writeQuarantineBlob, type QuarantineBlobFile } from '../quarantine-blob-storage/index'
@@ -643,12 +645,15 @@ interface P2PInboxWriteParams {
   transportFolder: string
   seal: string
   sealInputJson: string
-  validatedAt: string
-  validatorVersion: string
+  validatedAt: string | null
+  validatorVersion: string | null
   validationReason: string | null
+  /** Which key provider was used to compute the seal. Determines seal_key_source tag. */
+  sealProviderSource: KeySource
 }
 
 function writeP2PInboxRow(db: any, p: P2PInboxWriteParams): P2PInlineResult {
+  const sealKeySource = p.sealProviderSource === 'outer' ? 'ledger' : 'vmk'
   const insertInbox = prepareSealedInsert(db, P2P_INBOX_INSERT_SQL)
   insertInbox.run(
     [
@@ -677,7 +682,7 @@ function writeP2PInboxRow(db: any, p: P2PInboxWriteParams): P2PInlineResult {
       p.validationReason,
       p.seal,
       p.sealInputJson,
-      'vmk',  // seal_key_source: W4-P11 will route non-confidential rows to 'ledger'
+      sealKeySource,
     ],
     {
       seal: p.seal,
@@ -685,7 +690,9 @@ function writeP2PInboxRow(db: any, p: P2PInboxWriteParams): P2PInlineResult {
       canonical_json: p.depackagedJson,
       row_id: p.rowId,
     },
+    p.sealProviderSource,
   )
+  console.log(`[BEAP_DELIVERY] inbox_row_inserted messageId=${p.rowId} seal_key_source=${sealKeySource} handshake=${p.handshakeId}`)
   return { outcome: 'inbox', rowId: p.rowId }
 }
 
@@ -937,14 +944,12 @@ async function processBeapPackageInlineInternal(
   }
 
   // ── Validator / sealed-storage readiness preflight ───────────────────────
-  // Must run before any validatorOrchestrator.validate() or sealedQuery() call.
-  // vault.unlock fires validatorOrchestrator.start() non-awaited; if a BEAP
-  // message arrives before the startup ack, liveness is still 'not_started'
-  // and validate() throws 'Validation service unavailable'.  This helper
-  // awaits the in-flight start (or restarts a dead subprocess) so all
-  // subsequent validate() and sealedQuery() calls see a ready state.
+  // For non-confidential handshakes (all current handshakes per W4-P11 fallback):
+  //   passes if the outer (ledger) key is bound — no validator subprocess needed.
+  // For confidential handshakes (future, once W4-P12 mirrors scope into ledger):
+  //   requires inner vault + inner key + validator subprocess.
   {
-    const _validatorReady = await ensureValidatorAndSealedStorageReady('beap_receive')
+    const _validatorReady = await ensureValidatorAndSealedStorageReady('beap_receive', handshakeId)
     if (!_validatorReady.ok) {
       const _reason =
         _validatorReady.code === 'outer_vault_not_ready'
@@ -1031,6 +1036,7 @@ async function processBeapPackageInlineInternal(
       seal: sealed.seal, sealInputJson: sealed.seal_input_json,
       validatedAt: sealed.validated_at, validatorVersion: sealed.validator_version,
       validationReason: null,
+      sealProviderSource: 'inner',
     })
     if (echoResult.outcome === 'inbox') {
       if (isSandboxClone) {
@@ -1097,45 +1103,96 @@ async function processBeapPackageInlineInternal(
     depackageError = `Unrecognised BEAP package shape; encoding=${pkgEncoding ?? 'missing'}`
   }
 
-  // ── Validate and write sealed inbox row ────────────────────────────────────
+  // ── Seal and write inbox row ─────────────────────────────────────────────
+  // Classification determines which seal key to use:
+  //   non_confidential → computeSeal with 'outer' provider (no validator subprocess)
+  //   confidential     → validatorOrchestrator.validate() with 'inner' provider
+  //
+  // For W4-P11 all handshakes classify as non_confidential (fallback).
+  // The confidential branch is scaffolded for W4-P12.
   if (canonicalJson !== null) {
-    const provenance = buildP2PProvenance(handshakeId, transportSender, sourceType, packageJson)
-    const resp = await validatorOrchestrator.validate({
-      envelope: pkg,
-      plaintext_or_encrypted: { kind: 'plaintext', content: canonicalJson },
-      provenance,
-      target_row_id: rowId,
-    })
-    if (resp.outcome.ok) {
-      const sealed = resp.outcome.sealed
-      if (isSandboxClone) {
-        console.log(`[CLONE_RECEIVE] classified_as_clone cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} encoding=${pkgEncoding ?? 'qBEAP'} handshake=${handshakeId}`)
-        console.log(`[CLONE_RECEIVE] persist_attempt cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
-      } else {
-        console.log(`[BEAP_DELIVERY] direct_message_classified messageId=${rowId} encoding=${pkgEncoding ?? 'handshake'} handshake=${handshakeId}`)
-        console.log(`[BEAP_DELIVERY] persist_attempt messageId=${rowId} handshake=${handshakeId}`)
+    const classification = getHandshakeClassification(handshakeId)
+    const sealProviderSource: KeySource = classification === 'confidential' ? 'inner' : 'outer'
+
+    if (classification === 'non_confidential') {
+      // ── Non-confidential path: outer key, no validator subprocess ─────────
+      let sealResult: { seal: string; seal_input_json: string } | null = null
+      try {
+        sealResult = computeSeal(canonicalJson, rowId, 'outer')
+      } catch (err: unknown) {
+        depackageError = `outer seal computation failed: ${err instanceof Error ? err.message : String(err)}`
+        // sealResult stays null — fall through to quarantine path below.
       }
-      const inlineResult = writeP2PInboxRow(db, {
-        rowId, handshakeId, sourceType: 'direct_beap',
-        depackagedJson: sealed.canonical_json,
-        depackagedMetadata: depackagedMetadata ?? '',
-        packageJson, transportSender, preview,
-        receivedAt, now, transportFolder,
-        seal: sealed.seal, sealInputJson: sealed.seal_input_json,
-        validatedAt: sealed.validated_at, validatorVersion: sealed.validator_version,
-        validationReason: null,
-      })
-      if (inlineResult.outcome === 'inbox') {
+      if (sealResult !== null) {
         if (isSandboxClone) {
-          console.log(`[CLONE_RECEIVE] persist_success cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
-          console.log(`[CLONE_RECEIVE] ui_notify_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId}`)
-          console.log(`[CLONE_RECEIVE] ack_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
+          console.log(`[CLONE_RECEIVE] classified_as_clone cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} encoding=${pkgEncoding ?? 'qBEAP'} handshake=${handshakeId}`)
+          console.log(`[CLONE_RECEIVE] persist_attempt cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
+        } else {
+          console.log(`[BEAP_DELIVERY] direct_message_classified messageId=${rowId} encoding=${pkgEncoding ?? 'handshake'} classification=non_confidential handshake=${handshakeId}`)
+          console.log(`[BEAP_DELIVERY] persist_attempt messageId=${rowId} handshake=${handshakeId}`)
         }
-        finalizeDirectBeapInboxPersistence(handshakeId, rowId, true)
+        const inlineResult = writeP2PInboxRow(db, {
+          rowId, handshakeId, sourceType: 'direct_beap',
+          depackagedJson: canonicalJson,
+          depackagedMetadata: depackagedMetadata ?? '',
+          packageJson, transportSender, preview,
+          receivedAt, now, transportFolder,
+          seal: sealResult.seal, sealInputJson: sealResult.seal_input_json,
+          validatedAt: null, validatorVersion: null,
+          validationReason: null,
+          sealProviderSource,
+        })
+        if (inlineResult.outcome === 'inbox') {
+          if (isSandboxClone) {
+            console.log(`[CLONE_RECEIVE] persist_success cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
+            console.log(`[CLONE_RECEIVE] ui_notify_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId}`)
+            console.log(`[CLONE_RECEIVE] ack_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
+          }
+          finalizeDirectBeapInboxPersistence(handshakeId, rowId, true)
+        }
+        return inlineResult
       }
-      return inlineResult
+    } else {
+      // ── Confidential path: inner vault + validator subprocess ─────────────
+      const provenance = buildP2PProvenance(handshakeId, transportSender, sourceType, packageJson)
+      const resp = await validatorOrchestrator.validate({
+        envelope: pkg,
+        plaintext_or_encrypted: { kind: 'plaintext', content: canonicalJson },
+        provenance,
+        target_row_id: rowId,
+      })
+      if (resp.outcome.ok) {
+        const sealed = resp.outcome.sealed
+        if (isSandboxClone) {
+          console.log(`[CLONE_RECEIVE] classified_as_clone cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} encoding=${pkgEncoding ?? 'qBEAP'} handshake=${handshakeId}`)
+          console.log(`[CLONE_RECEIVE] persist_attempt cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
+        } else {
+          console.log(`[BEAP_DELIVERY] direct_message_classified messageId=${rowId} encoding=${pkgEncoding ?? 'handshake'} classification=confidential handshake=${handshakeId}`)
+          console.log(`[BEAP_DELIVERY] persist_attempt messageId=${rowId} handshake=${handshakeId}`)
+        }
+        const inlineResult = writeP2PInboxRow(db, {
+          rowId, handshakeId, sourceType: 'direct_beap',
+          depackagedJson: sealed.canonical_json,
+          depackagedMetadata: depackagedMetadata ?? '',
+          packageJson, transportSender, preview,
+          receivedAt, now, transportFolder,
+          seal: sealed.seal, sealInputJson: sealed.seal_input_json,
+          validatedAt: sealed.validated_at, validatorVersion: sealed.validator_version,
+          validationReason: null,
+          sealProviderSource,
+        })
+        if (inlineResult.outcome === 'inbox') {
+          if (isSandboxClone) {
+            console.log(`[CLONE_RECEIVE] persist_success cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
+            console.log(`[CLONE_RECEIVE] ui_notify_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId}`)
+            console.log(`[CLONE_RECEIVE] ack_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
+          }
+          finalizeDirectBeapInboxPersistence(handshakeId, rowId, true)
+        }
+        return inlineResult
+      }
+      depackageError = `validator rejected: ${resp.outcome.sealed_quarantine.rejection_reason}`
     }
-    depackageError = `validator rejected: ${resp.outcome.sealed_quarantine.rejection_reason}`
   }
 
   // ── Quarantine path ────────────────────────────────────────────────────────
