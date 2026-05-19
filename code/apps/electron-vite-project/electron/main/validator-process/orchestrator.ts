@@ -201,10 +201,11 @@ export class ValidatorOrchestrator {
     this.liveness = 'running'
     this._startHealthcheck()
 
-    // Bind the key provider to the storage gate.  Called after the subprocess
-    // is confirmed running so the gate is only active when the full validation
-    // pipeline is healthy.
-    bindKeyProvider(() => vault.deriveApplicationKey(SEAL_KEY_INFO))
+    // Bind the inner (VMK-derived) key provider to the storage gate.  Called
+    // after the subprocess is confirmed running so the gate is only active
+    // when the full validation pipeline is healthy.
+    bindKeyProvider(() => vault.deriveApplicationKey(SEAL_KEY_INFO), 'inner')
+    console.log('[SEAL] inner seal key bound')
   }
 
   /**
@@ -212,9 +213,11 @@ export class ValidatorOrchestrator {
    * Sends shutdown message; if no ack within timeout, SIGKILL.
    */
   async stop(): Promise<void> {
-    // Unbind the key provider immediately so the gate rejects all subsequent
-    // operations even before the subprocess finishes shutting down.
-    unbindKeyProvider()
+    // Unbind the inner key provider immediately so the gate rejects all
+    // subsequent sealed operations even before the subprocess finishes
+    // shutting down.
+    unbindKeyProvider('inner')
+    console.log('[SEAL] inner seal key unbound')
 
     this._stopHealthcheck()
 

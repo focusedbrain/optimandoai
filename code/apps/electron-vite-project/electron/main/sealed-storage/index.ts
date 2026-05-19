@@ -40,28 +40,77 @@ export const SEALED_STORAGE_MODE: 'log-only' | 'reject' = 'reject'
  */
 export type SealKeyProvider = () => Buffer | null
 
-let _sealKeyProvider: SealKeyProvider | null = null
-
 /**
- * Register the key provider.  Called by ValidatorOrchestrator after the
- * validator subprocess starts successfully and the vault is confirmed unlocked.
+ * Which key derivation path a sealed row uses.
+ *
+ * 'inner' — VMK-derived key (master-password vault, existing path).
+ * 'outer' — Ledger-derived key (SSO session identity, new in W4-P9).
+ *
+ * The default across all APIs is 'inner' so that every existing caller
+ * continues to work without modification.
  */
-export function bindKeyProvider(fn: SealKeyProvider): void {
-  _sealKeyProvider = fn
+export type KeySource = 'inner' | 'outer'
+
+interface SealProviderRegistry {
+  inner: SealKeyProvider | null
+  outer: SealKeyProvider | null
+}
+
+const _providers: SealProviderRegistry = {
+  inner: null,
+  outer: null,
 }
 
 /**
- * Clear the key provider.  Called by ValidatorOrchestrator on stop() (vault
- * lock or app exit).  After this call all gate operations fail until a new
- * provider is bound on next unlock.
+ * Thrown when a seal operation is attempted for a source whose provider is
+ * not currently bound.  The `source` field lets consumers act on it
+ * (e.g. capabilityBroker can distinguish inner vs. outer unavailability).
  */
-export function unbindKeyProvider(): void {
-  _sealKeyProvider = null
+export class SealKeyNotBoundError extends Error {
+  readonly source: KeySource
+  constructor(source: KeySource) {
+    super(`Seal key provider for source '${source}' is not bound`)
+    this.name = 'SealKeyNotBoundError'
+    this.source = source
+  }
 }
 
-/** For tests: check whether a provider is currently bound. */
-export function isKeyProviderBound(): boolean {
-  return _sealKeyProvider !== null
+/**
+ * Register a key provider for the given source slot.
+ *
+ * 'inner' (default) — called by ValidatorOrchestrator after vault unlock.
+ * 'outer'           — called by openLedger after SSO login.
+ *
+ * Both providers may be bound simultaneously (normal state when both vaults
+ * are open).
+ */
+export function bindKeyProvider(fn: SealKeyProvider, source: KeySource = 'inner'): void {
+  _providers[source] = fn
+}
+
+/**
+ * Clear the provider for the given source slot.
+ *
+ * 'inner' (default) — called by ValidatorOrchestrator on stop().
+ * 'outer'           — called by closeLedger on SSO logout.
+ */
+export function unbindKeyProvider(source: KeySource = 'inner'): void {
+  _providers[source] = null
+}
+
+/** Returns true if the provider for the given source slot is currently bound. */
+export function isKeyProviderBound(source: KeySource = 'inner'): boolean {
+  return _providers[source] !== null
+}
+
+/**
+ * Internal: invoke the provider for `source` and return the derived key,
+ * or null if the slot is unbound or the provider returns null.
+ */
+function getKey(source: KeySource): Buffer | null {
+  const p = _providers[source]
+  if (p == null) return null
+  return p()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -146,29 +195,35 @@ function enforceOrWarn(condition: boolean, message: string): boolean {
 
 /**
  * Verify HMAC-SHA256 of sealInputJson against seal under the key returned by
- * the key provider.  The key buffer is zeroized immediately in a finally block.
+ * the provider for `source`.  The key buffer is zeroized immediately in a
+ * finally block.
  *
  * Throws SealVerificationError (reject mode) or logs warning (log-only mode)
  * if:
- *   - No key provider is bound
+ *   - No key provider is bound for the given source
  *   - Provider returns null (vault locked)
  *   - HMAC does not match
  *
  * Returns true on success; false only in log-only mode on failure.
  */
-function verifyHmacWithProvider(seal: string, sealInputJson: string, opContext: string): boolean {
-  if (!_sealKeyProvider) {
+function verifyHmacWithProvider(
+  seal: string,
+  sealInputJson: string,
+  opContext: string,
+  source: KeySource = 'inner',
+): boolean {
+  if (!_providers[source]) {
     return enforceOrWarn(
       false,
-      `${opContext}: key provider not bound — vault must be unlocked to perform sealed operations`,
+      `${opContext}: key provider not bound (source='${source}') — vault must be unlocked to perform sealed operations`,
     )
   }
 
-  const key = _sealKeyProvider()
+  const key = getKey(source)
   if (!key) {
     return enforceOrWarn(
       false,
-      `${opContext}: key provider returned null — vault is locked`,
+      `${opContext}: key provider returned null (source='${source}') — vault is locked`,
     )
   }
 
@@ -234,7 +289,7 @@ export class SealedStatement {
     const ctx = `${this._operation} (${this._sql.slice(0, 60)})`
 
     // ── 1. Require key provider ──────────────────────────────────────────────
-    if (!_sealKeyProvider) {
+    if (!_providers.inner) {
       if (!enforceOrWarn(
         false,
         `${ctx}: key provider not bound — vault must be unlocked for inbox writes`,
@@ -440,7 +495,7 @@ export function sealedQuery<T extends SealedRow>(
   const ctx = `sealedQuery (${sql.slice(0, 60)})`
 
   // Require key provider in reject mode.
-  if (SEALED_STORAGE_MODE === 'reject' && !_sealKeyProvider) {
+  if (SEALED_STORAGE_MODE === 'reject' && !_providers.inner) {
     throw new SealVerificationError(
       `${ctx}: key provider not bound — vault must be unlocked for sealed reads`,
     )
@@ -480,7 +535,7 @@ export function sealedQuery<T extends SealedRow>(
     }
 
     // ── No key provider (log-only mode only; reject mode throws above) ───────
-    if (!_sealKeyProvider) {
+    if (!_providers.inner) {
       console.warn(`[SEALED_STORAGE:log-only] ${ctx}: no key provider bound, skipping seal verification`)
       verified.push(row)
       continue
@@ -515,7 +570,7 @@ export function sealedQuery<T extends SealedRow>(
     }
 
     // ── HMAC check ───────────────────────────────────────────────────────────
-    const key = _sealKeyProvider()
+    const key = getKey('inner')
     if (!key) {
       console.warn(`[SEALED_STORAGE:log-only] ${ctx}: vault locked, skipping HMAC check`)
       verified.push(row)

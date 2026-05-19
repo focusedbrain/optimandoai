@@ -24,6 +24,8 @@ import { createRequire } from 'module'
 import { homedir } from 'os'
 import { createHash, createHmac } from 'crypto'
 import { migrateHandshakeTables } from './db'
+import { bindKeyProvider, unbindKeyProvider } from '../sealed-storage/index'
+import { deriveLedgerSealKey } from '../sealed-storage/ledgerSealKey'
 
 const _require = createRequire(import.meta.url)
 
@@ -233,6 +235,16 @@ export async function openLedger(sessionToken: string): Promise<any> {
   _ledgerDb = db
   _ledgerSessionId = sessionToken
   console.log('[LEDGER] Handshake ledger opened')
+
+  // Bind the outer (ledger-derived) seal key provider.  The seal key is
+  // derived from the same stable session token used for DB encryption (a
+  // SHA-256 hash of sub+iss), so it is stable across bearer-token refreshes.
+  // Different info string ('ledger-seal-key-v1') ensures this key is
+  // cryptographically independent from the DB encryption key.
+  const sealKey = deriveLedgerSealKey(sessionToken)
+  bindKeyProvider(() => sealKey, 'outer')
+  console.log('[SEAL] ledger seal key bound')
+
   return db
 }
 
@@ -247,6 +259,8 @@ export function closeLedger(): void {
     try { _ledgerDb.close() } catch { /* ignore */ }
     _ledgerDb = null
     _ledgerSessionId = null
+    unbindKeyProvider('outer')
+    console.log('[SEAL] ledger seal key unbound')
     console.log('[LEDGER] Handshake ledger closed (session key discarded)')
   }
 }
