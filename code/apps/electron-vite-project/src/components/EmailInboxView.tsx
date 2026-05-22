@@ -2356,6 +2356,10 @@ const PENDING_REASON_UI: Record<string, { subjectText: string; chipText: string 
     subjectText: 'Message awaiting session ready',
     chipText: 'Session not ready',
   },
+  outer_vault_inactive: {
+    subjectText: 'Message awaiting sign-in',
+    chipText: 'Sign in to view',
+  },
 }
 
 /**
