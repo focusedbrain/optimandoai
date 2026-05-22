@@ -92,6 +92,8 @@ import {
   type DocumentSearchMatch,
 } from './hsContextProfileService'
 import type { CreateProfileInput, UpdateProfileInput } from './hsContextProfileService'
+import { getLedgerDb } from '../handshake/ledger'
+import { syncHandshakesForProfile } from '../handshake/handshakeConfidentiality'
 import {
   saveAnthropicApiKey as _saveAnthropicApiKey,
   getAnthropicApiKeyAsync as _getAnthropicApiKeyAsync,
@@ -1366,7 +1368,15 @@ export class VaultService {
   updateHsProfile(tier: VaultTier, profileId: string, updates: UpdateProfileInput) {
     this.ensureUnlocked()
     this.updateActivity()
-    return updateProfile(this.db!, tier, profileId, updates)
+    const summary = updateProfile(this.db!, tier, profileId, updates)
+    if (updates.scope !== undefined) {
+      try {
+        syncHandshakesForProfile(getLedgerDb(), this.db, profileId)
+      } catch (e) {
+        console.warn('[VAULT] Could not refresh handshake confidentiality after profile scope change:', e)
+      }
+    }
+    return summary
   }
 
   archiveHsProfile(tier: VaultTier, profileId: string) {

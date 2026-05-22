@@ -2777,15 +2777,13 @@ app.whenReady().then(async () => {
             w.webContents.send('inbox:beapInboxUpdated', { handshakeId })
           }
         })
-        setBeapDeliveryAckNotifier((handshakeId, rowId) => {
-          console.log(`[BEAP_DELIVERY] ack_broadcast handshake=${handshakeId} rowId=${rowId}`)
+        setBeapDeliveryAckNotifier((payload) => {
+          console.log(
+            `[BEAP_DELIVERY] ack_broadcast handshake=${payload.handshakeId} rowId=${payload.rowId} status=${payload.status ?? 'ok'} reason=${payload.reasonCode ?? 'none'}`,
+          )
           for (const w of BrowserWindow.getAllWindows()) {
             if (!w.isDestroyed()) {
-              w.webContents.send('inbox:beapDeliveryAck', {
-                handshakeId,
-                rowId,
-                status: 'ok',
-              })
+              w.webContents.send('inbox:beapDeliveryAck', payload)
             }
           }
         })

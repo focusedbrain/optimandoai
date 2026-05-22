@@ -1,9 +1,18 @@
 /**
  * Receiver-side delivery ACK notifier.
- * Called after a direct_beap row is successfully persisted to inbox_messages.
  * Wired from main.ts via setBeapDeliveryAckNotifier → broadcasts inbox:beapDeliveryAck
  * to all renderer windows so the sender UI can confirm delivery.
  */
+
+import type { ReasonCode } from '../vault/capabilityBroker'
+
+export type BeapDeliveryAckPayload = {
+  handshakeId: string
+  rowId: string
+  status?: 'ok' | 'error'
+  reasonCode?: ReasonCode
+  retryable?: boolean
+}
 
 type DeliveryAckWaiter = {
   handshakeId: string
@@ -15,9 +24,9 @@ const deliveryAckWaiters: DeliveryAckWaiter[] = []
 const RECENT_ACK_TTL_MS = 60_000
 const recentAckByHandshake = new Map<string, { rowId: string; at: number }>()
 
-let _notify: ((handshakeId: string, rowId: string) => void) | null = null
+let _notify: ((payload: BeapDeliveryAckPayload) => void) | null = null
 
-export function setBeapDeliveryAckNotifier(fn: (handshakeId: string, rowId: string) => void): void {
+export function setBeapDeliveryAckNotifier(fn: (payload: BeapDeliveryAckPayload) => void): void {
   _notify = fn
 }
 
@@ -62,17 +71,28 @@ export function waitForBeapDeliveryAck(handshakeId: string, timeoutMs: number): 
   })
 }
 
-export function notifyBeapDeliveryAck(handshakeId: string, rowId: string): void {
+export function notifyBeapDeliveryAck(
+  handshakeId: string,
+  rowId: string,
+  extras?: Pick<BeapDeliveryAckPayload, 'status' | 'reasonCode' | 'retryable'>,
+): void {
   const hid = String(handshakeId ?? '').trim()
   const rid = String(rowId ?? '').trim()
-  if (hid && rid) {
+  const payload: BeapDeliveryAckPayload = {
+    handshakeId: hid,
+    rowId: rid,
+    status: extras?.status ?? 'ok',
+    ...(extras?.reasonCode ? { reasonCode: extras.reasonCode } : {}),
+    ...(extras?.retryable === true ? { retryable: true } : {}),
+  }
+  if (hid && rid && payload.status === 'ok') {
     recentAckByHandshake.set(hid, { rowId: rid, at: Date.now() })
     for (const w of [...deliveryAckWaiters]) {
       if (w.handshakeId === hid) w.resolve(rid)
     }
   }
   try {
-    _notify?.(handshakeId, rowId)
+    _notify?.(payload)
   } catch {
     /* non-fatal */
   }

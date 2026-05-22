@@ -1188,6 +1188,21 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE inbox_messages ADD COLUMN seal_key_source TEXT NOT NULL DEFAULT 'vmk' CHECK (seal_key_source IN ('vmk', 'ledger'))`,
     ],
   },
+  {
+    version: 69,
+    description:
+      'Schema v69 (W4-P12): mirror hs_context_profiles.scope on ledger handshakes for SSO-readable ' +
+      'BEAP confidentiality routing; link table handshake_hs_profiles for profile→handshake updates.',
+    sql: [
+      `ALTER TABLE handshakes ADD COLUMN confidentiality_scope TEXT NOT NULL DEFAULT 'non_confidential' CHECK (confidentiality_scope IN ('non_confidential','confidential'))`,
+      `CREATE TABLE IF NOT EXISTS handshake_hs_profiles (
+        handshake_id TEXT NOT NULL,
+        profile_id TEXT NOT NULL,
+        PRIMARY KEY (handshake_id, profile_id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_hsp_profile ON handshake_hs_profiles(profile_id)`,
+    ],
+  },
 ]
 
 /**

@@ -1,8 +1,6 @@
 /**
  * Validate + extract plaintext for BEAP inbox → internal sandbox clone (new package in renderer; no wire reuse).
- * Source rows are read via `sealedQuery` when the bound key can verify the seal; depackaged
- * email rows with conformant ingest stamps may use a trusted read when only the outer key is bound
- * (see `readInboxRowForClonePrepare`). Seal gate: `ensureSealedStorageReadyForSandboxClone`.
+ * Source rows are read only via `sealedQuery` (full HMAC verify). Seal gate: `ensureSealedStorageReadyForSandboxClone`.
  * Eligibility: internal ACTIVE host↔sandbox, same identity, peer sandbox role, keys + relay (see internalSandboxesApi).
  */
 
@@ -14,9 +12,8 @@ import {
   type InboxMessageAiClassificationRow,
 } from '../../../src/lib/inboxAiCloneClassification'
 import { isKeyProviderUsable, sealedQuery, SealVerificationError } from '../sealed-storage'
-import { ensureValidatorAndSealedStorageReady } from '../validatorReadiness'
-import { vaultService } from '../vault/service'
 import { getHandshakeClassification } from '../vault/vaultCanon'
+import { canPerform } from '../vault/capabilityBroker'
 import {
   isEligibleActiveInternalHostSandboxRecord,
   listAvailableInternalSandboxes,
@@ -185,109 +182,19 @@ export function cloneProvenanceOriginalInboxSourceType(
   return String(row.source_type ?? 'direct_beap').trim() || 'direct_beap'
 }
 
-/** Ingest stamps that allow trusted clone read when only the outer (SSO) key is bound. */
-const CONFORMANT_VALIDATION_REASONS_FOR_CLONE = new Set<string>([
-  'plain_email_no_validation_required',
-  'non_confidential_ledger_sealed',
-])
-
-export function isConformantInboxValidationForCloneRead(
-  validatedAt: string | null | undefined,
-  validationReason: string | null | undefined,
-): boolean {
-  if (!validatedAt?.trim()) return false
-  if (validationReason && CONFORMANT_VALIDATION_REASONS_FOR_CLONE.has(validationReason)) return true
-  return validationReason == null
-}
-
-/** True when validation_reason is a non-conformant validator rejection (not plain-email / ledger stamps). */
-export function isExplicitValidatorRejectionForClone(
-  validationReason: string | null | undefined,
-): boolean {
-  const reason = validationReason?.trim()
-  if (!reason) return false
-  return !CONFORMANT_VALIDATION_REASONS_FOR_CLONE.has(reason)
-}
-
 /**
- * Rows the inbox UI already listed may skip HMAC verify on clone prepare when the outer (SSO)
- * key is bound but VMK verification would fail (email depackaged rows, sandbox clones of plain mail).
- */
-export function inboxCloneAllowsTrustedRead(opts: {
-  sourceType: string | null
-  handshakeId: string | null
-  validatedAt?: string | null
-  validationReason?: string | null
-  seal?: string | null
-  sealInputJson?: string | null
-  cloneSignalRow?: InboxMessageAiClassificationRow | null
-}): boolean {
-  if (!opts.seal?.trim() || !opts.sealInputJson?.trim()) return false
-  if (isExplicitValidatorRejectionForClone(opts.validationReason)) return false
-
-  if (isDepackagedEmailInboxSourceType(opts.sourceType)) {
-    return true
-  }
-
-  const st = String(opts.sourceType ?? '').trim()
-  if (st !== 'direct_beap') return false
-  if (getHandshakeClassification(String(opts.handshakeId ?? '').trim()) === 'confidential') {
-    return false
-  }
-  if (opts.validationReason === 'non_confidential_ledger_sealed') return true
-  if (opts.cloneSignalRow && inboxRowIsClonedPlainEmail(opts.cloneSignalRow)) return true
-  if (isConformantInboxValidationForCloneRead(opts.validatedAt, opts.validationReason)) return true
-  if (opts.validatedAt?.trim() && !opts.validationReason?.trim()) return true
-  return false
-}
-
-/**
- * Inbox `listMessages` / `getMessage` do not run `sealedQuery`; clone prepare must not fail with
- * MESSAGE_NOT_FOUND for the same row the UI already listed. Matches list visibility: non-confidential
- * row with extractable body/depackaged content (seal columns optional — VMK HMAC may fail under outer-only).
- */
-export function inboxCloneAllowsTrustedReadFromListBoundary(opts: {
-  sourceType: string | null
-  handshakeId: string | null
-  validationReason?: string | null
-  depackagedJson?: string | null
-  beapPackageJson?: string | null
-  bodyText?: string | null
-}): boolean {
-  if (isExplicitValidatorRejectionForClone(opts.validationReason)) return false
-  const hasContent = Boolean(
-    opts.depackagedJson?.trim() || opts.beapPackageJson?.trim() || opts.bodyText?.trim(),
-  )
-  if (!hasContent) return false
-  if (isDepackagedEmailInboxSourceType(opts.sourceType)) return true
-  if (getHandshakeClassification(String(opts.handshakeId ?? '').trim()) === 'confidential') {
-    return false
-  }
-  const st = String(opts.sourceType ?? '').trim()
-  return st === 'direct_beap' || st === 'email_beap'
-}
-
-function inboxCloneAllowsTrustedReadCombined(
-  opts: Parameters<typeof inboxCloneAllowsTrustedRead>[0] & {
-    beapPackageJson?: string | null
-    bodyText?: string | null
-  },
-): boolean {
-  return inboxCloneAllowsTrustedRead(opts) || inboxCloneAllowsTrustedReadFromListBoundary(opts)
-}
-
-/**
- * Inner vault is required for clone only when the message class demands it:
- * - Depackaged email (`email_plain` / `email_beap`): never (SSO outer path).
- * - Native BEAP: only when the source handshake is classified confidential.
- *
- * `seal_key_source` alone is not used — VMK seals on plain email are not confidential.
+ * Inner vault is required for clone when:
+ * - Native BEAP on a confidential handshake, or
+ * - Row was sealed with the inner (VMK) key (`seal_key_source='vmk'`).
+ * Depackaged email (`email_plain` / `email_beap`) is never confidential.
  */
 export function inboxCloneRequiresInnerVault(opts: {
   sourceType: string | null
   handshakeId: string | null
+  sealKeySource?: 'ledger' | 'vmk' | null
 }): boolean {
   if (isDepackagedEmailInboxSourceType(opts.sourceType)) return false
+  if (opts.sealKeySource === 'vmk') return true
   const hs = String(opts.handshakeId ?? '').trim()
   if (!hs) return false
   return getHandshakeClassification(hs) === 'confidential'
@@ -338,7 +245,7 @@ export function probeInboxMessageCloneVaultRequirement(
       sourceType,
       handshakeId,
       sealKeySource,
-      requiresInnerVault: inboxCloneRequiresInnerVault({ sourceType, handshakeId }),
+      requiresInnerVault: inboxCloneRequiresInnerVault({ sourceType, handshakeId, sealKeySource }),
       isDepackagedEmail,
     }
   } catch {
@@ -375,56 +282,65 @@ export type ClonePrepareSealGateResult =
  */
 export async function ensureSealedStorageReadyForSandboxClone(
   cloneId: string,
-  opts?: { requiresInnerVault?: boolean; sourceSealKeySource?: 'ledger' | 'vmk' | null },
+  opts?: {
+    requiresInnerVault?: boolean
+    sourceSealKeySource?: 'ledger' | 'vmk' | null
+    handshakeId?: string | null
+  },
 ): Promise<ClonePrepareSealGateResult> {
   const sourceNeedsInner =
     opts?.requiresInnerVault ??
     inboxSealKeySourceRequiresInnerVault(opts?.sourceSealKeySource ?? null)
+  const handshakeId = String(opts?.handshakeId ?? '').trim() || undefined
 
-  // Quick pre-check for the [CLONE_PREPARE] sealed_storage_check log.
-  const innerVaultReady = vaultService.getStatus().isUnlocked === true
   const outerKeyBound = isKeyProviderUsable('outer')
   const innerKeyBound = isKeyProviderUsable('inner')
-
   console.log(
-    `[CLONE_PREPARE] sealed_storage_check cloneId=${cloneId} outerKeyBound=${outerKeyBound} innerKeyBound=${innerKeyBound} innerVaultReady=${innerVaultReady} sourceNeedsInner=${sourceNeedsInner} sourceSealKeySource=${opts?.sourceSealKeySource ?? 'unknown'}`,
+    `[CLONE_PREPARE] sealed_storage_check cloneId=${cloneId} outerKeyBound=${outerKeyBound} innerKeyBound=${innerKeyBound} sourceNeedsInner=${sourceNeedsInner} handshake=${handshakeId ?? 'none'}`,
   )
 
-  // Fast path: outer key bound — sufficient only for ledger-sealed source rows.
-  if (!sourceNeedsInner && outerKeyBound) {
-    console.log(`[CLONE_PREPARE] sealed_storage_ready cloneId=${cloneId} ready=true path=outer_key`)
-    return { ok: true }
-  }
-
-  // Fast path: inner key bound AND vault still active (guards stale binding after auto-lock).
-  if (innerKeyBound && innerVaultReady) {
-    console.log(`[CLONE_PREPARE] sealed_storage_ready cloneId=${cloneId} ready=true path=inner_key`)
-    return { ok: true }
-  }
-
-  // Neither provider is bound (or inner stale) — full probe for proper error code + logging.
-  // Full probe via ensureValidatorAndSealedStorageReady — emits [OUTER_VAULT_CHECK] and [VALIDATOR_READY_CHECK].
-  const result = await ensureValidatorAndSealedStorageReady('clone_prepare')
-
-  if (!result.ok) {
-    if (result.code === 'outer_vault_unavailable') {
-      console.log(
-        `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=outer_vault_unavailable`,
-      )
+  const gate = canPerform('beap_clone', handshakeId ? { handshakeId } : undefined)
+  if (!gate.allowed) {
+    if (gate.reasonCode === 'outer_vault_inactive') {
       return {
         ok: false,
-        code: 'outer_vault_unavailable',
-        error: CLONE_PREPARE_VAULT_UNAVAILABLE_MESSAGE,
+        code: 'outer_vault_or_key_provider_unavailable',
+        error: gate.userMessage || CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
       }
     }
-    const innerRequired = sourceNeedsInner
-    console.log(
-      `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=${innerRequired ? 'inner_vault_or_key_provider_unavailable' : 'outer_vault_or_key_provider_unavailable'} code=${result.code}`,
-    )
+    if (sourceNeedsInner || gate.reasonCode === 'inner_vault_locked') {
+      return {
+        ok: false,
+        code: 'inner_vault_or_key_provider_unavailable',
+        error: CLONE_PREPARE_INNER_VAULT_USER_MESSAGE,
+      }
+    }
+    if (gate.reasonCode === 'key_provider_unbound') {
+      return {
+        ok: false,
+        code: 'outer_vault_or_key_provider_unavailable',
+        error: CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
+      }
+    }
     return {
       ok: false,
-      code: innerRequired ? 'inner_vault_or_key_provider_unavailable' : 'outer_vault_or_key_provider_unavailable',
-      error: innerRequired ? CLONE_PREPARE_INNER_VAULT_USER_MESSAGE : CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
+      code: sourceNeedsInner ? 'inner_vault_or_key_provider_unavailable' : 'outer_vault_or_key_provider_unavailable',
+      error: gate.userMessage || CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
+    }
+  }
+
+  if (sourceNeedsInner && !isKeyProviderUsable('inner')) {
+    return {
+      ok: false,
+      code: 'inner_vault_or_key_provider_unavailable',
+      error: CLONE_PREPARE_INNER_VAULT_USER_MESSAGE,
+    }
+  }
+  if (!sourceNeedsInner && !isKeyProviderUsable('outer') && !isKeyProviderUsable('inner')) {
+    return {
+      ok: false,
+      code: 'outer_vault_or_key_provider_unavailable',
+      error: CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
     }
   }
 
@@ -472,84 +388,8 @@ const CLONE_PREPARE_INBOX_SELECT = `SELECT id, source_type, handshake_id, subjec
        FROM inbox_messages WHERE id = ?`
 
 /**
- * Load and verify an inbox row for clone prepare.
- * Depackaged email with conformant ingest stamps: trusted read when outer-only (not confidential).
- * All other rows: `sealedQuery` (full HMAC verify with bound inner or outer key).
+ * Load and verify an inbox row for clone prepare via `sealedQuery` only.
  */
-type ClonePrepareInboxMetaRow = {
-  source_type?: string | null
-  handshake_id?: string | null
-  validated_at?: string | null
-  validation_reason?: string | null
-  seal?: string | null
-  seal_input_json?: string | null
-  depackaged_json?: string | null
-  beap_package_json?: string | null
-  body_text?: string | null
-  body_html?: string | null
-}
-
-function loadInboxMetaForClonePrepare(db: any, srcId: string): ClonePrepareInboxMetaRow | null {
-  const row = db
-    .prepare(
-      `SELECT id, source_type, handshake_id, validated_at, validation_reason, seal, seal_input_json,
-              depackaged_json, beap_package_json, body_text, body_html
-       FROM inbox_messages WHERE id = ?`,
-    )
-    .get(srcId) as (ClonePrepareInboxMetaRow & { id?: string }) | undefined
-  if (!row?.id) return null
-  return row
-}
-
-function buildCloneTrustedReadOpts(meta: ClonePrepareInboxMetaRow): {
-  sourceType: string | null
-  handshakeId: string | null
-  validatedAt: string | null | undefined
-  validationReason: string | null | undefined
-  seal: string | null | undefined
-  sealInputJson: string | null | undefined
-  depackagedJson: string | null | undefined
-  beapPackageJson: string | null | undefined
-  bodyText: string | null | undefined
-  cloneSignalRow: InboxMessageAiClassificationRow
-} {
-  return {
-    sourceType: meta.source_type != null ? String(meta.source_type) : null,
-    handshakeId: meta.handshake_id != null ? String(meta.handshake_id) : null,
-    validatedAt: meta.validated_at,
-    validationReason: meta.validation_reason,
-    seal: meta.seal,
-    sealInputJson: meta.seal_input_json,
-    depackagedJson: meta.depackaged_json,
-    beapPackageJson: meta.beap_package_json,
-    bodyText: meta.body_text,
-    cloneSignalRow: {
-      source_type: meta.source_type,
-      handshake_id: meta.handshake_id,
-      depackaged_json: meta.depackaged_json,
-      beap_package_json: meta.beap_package_json,
-      body_text: meta.body_text,
-      body_html: meta.body_html,
-    },
-  }
-}
-
-/** Same visibility as inbox list — before `sealedQuery` (which can drop VMK rows under outer-only key). */
-function tryTrustedCloneRowRead(
-  db: any,
-  srcId: string,
-  meta: ClonePrepareInboxMetaRow,
-): ClonePrepareInboxRow | null {
-  const trustedReadOpts = buildCloneTrustedReadOpts(meta)
-  if (!inboxCloneAllowsTrustedReadCombined(trustedReadOpts)) return null
-  const trusted = db.prepare(CLONE_PREPARE_INBOX_SELECT).get(srcId) as ClonePrepareInboxRow | undefined
-  if (!trusted?.id) return null
-  if (inboxCloneAllowsTrustedRead(trustedReadOpts)) {
-    if (!trusted.seal?.trim() || !trusted.seal_input_json?.trim()) return null
-  }
-  return trusted
-}
-
 export function readInboxRowForClonePrepare(
   db: any,
   srcId: string,
@@ -558,8 +398,8 @@ export function readInboxRowForClonePrepare(
   const requiresInnerVault = vaultReq?.requiresInnerVault ?? false
   const sealKeySource = vaultReq?.sealKeySource ?? null
 
-  const meta = loadInboxMetaForClonePrepare(db, srcId)
-  if (!meta) {
+  const exists = db.prepare('SELECT id FROM inbox_messages WHERE id = ?').get(srcId) as { id?: string } | undefined
+  if (!exists?.id) {
     console.log(`[CLONE_PREPARE] source_missing sourceMessageId=${srcId}`)
     return {
       ok: false,
@@ -569,16 +409,6 @@ export function readInboxRowForClonePrepare(
         error: 'Inbox message was not found or could not be verified.',
       },
     }
-  }
-
-  const trustedReadOpts = buildCloneTrustedReadOpts(meta)
-  const trustedFirst = tryTrustedCloneRowRead(db, srcId, meta)
-  if (trustedFirst) {
-    const viaListBoundary = inboxCloneAllowsTrustedReadFromListBoundary(trustedReadOpts)
-    console.log(
-      `[CLONE_PREPARE] source_loaded_trusted_clone_read sourceMessageId=${srcId} source_type=${meta.source_type ?? 'unknown'} validation_reason=${meta.validation_reason ?? 'null'} list_boundary=${viaListBoundary}`,
-    )
-    return { ok: true, row: trustedFirst }
   }
 
   let sealedRows: ClonePrepareInboxRow[] = []
@@ -591,23 +421,26 @@ export function readInboxRowForClonePrepare(
         ok: false,
         result: {
           ok: false,
-          code: 'outer_vault_or_key_provider_unavailable',
-          error: CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
+          code: requiresInnerVault || sealKeySource === 'vmk'
+            ? 'inner_vault_or_key_provider_unavailable'
+            : 'outer_vault_or_key_provider_unavailable',
+          error: requiresInnerVault || sealKeySource === 'vmk'
+            ? CLONE_PREPARE_INNER_VAULT_USER_MESSAGE
+            : CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
         },
       }
     }
     throw err
   }
+
   if (sealedRows[0]) {
-    console.log(
-      `[CLONE_PREPARE] source_loaded_sealed_query sourceMessageId=${srcId} source_type=${meta.source_type ?? 'unknown'}`,
-    )
+    console.log(`[CLONE_PREPARE] source_loaded_sealed_query sourceMessageId=${srcId}`)
     return { ok: true, row: sealedRows[0] }
   }
 
   if (requiresInnerVault && !isKeyProviderUsable('inner')) {
     console.log(
-      `[CLONE_PREPARE] source_read_blocked sourceMessageId=${srcId} reason=inner_vault_required sealedQuery=empty trustedRead=false`,
+      `[CLONE_PREPARE] source_read_blocked sourceMessageId=${srcId} reason=inner_vault_required sealedQuery=empty`,
     )
     return {
       ok: false,
@@ -633,26 +466,10 @@ export function readInboxRowForClonePrepare(
       },
     }
   }
-  const st = meta.source_type != null ? String(meta.source_type) : 'unknown'
-  const trustedEligible = inboxCloneAllowsTrustedReadCombined(trustedReadOpts)
+
   console.log(
-    `[CLONE_PREPARE] source_read_blocked sourceMessageId=${srcId} source_type=${st} seal_key_source=${sealKeySource ?? 'unknown'} sealedQuery=empty trustedReadEligible=${trustedEligible} requiresInnerVault=${requiresInnerVault}`,
+    `[CLONE_PREPARE] source_read_blocked sourceMessageId=${srcId} seal_key_source=${sealKeySource ?? 'unknown'} requiresInnerVault=${requiresInnerVault}`,
   )
-  if (
-    sealKeySource === 'vmk' &&
-    !requiresInnerVault &&
-    !isKeyProviderUsable('inner') &&
-    (st === 'direct_beap' || st === 'email_beap')
-  ) {
-    return {
-      ok: false,
-      result: {
-        ok: false,
-        code: 'inner_vault_or_key_provider_unavailable',
-        error: CLONE_PREPARE_INNER_VAULT_USER_MESSAGE,
-      },
-    }
-  }
   return {
     ok: false,
     result: {

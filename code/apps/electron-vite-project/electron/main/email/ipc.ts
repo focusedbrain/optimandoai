@@ -264,7 +264,12 @@ import { buildInboxAiAnalyzeErrorPayload, buildInboxAiDraftIpcFailure } from './
 import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } from '../../../src/lib/inboxSortSourceWeighting'
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { resealWithAiAnalysis, resealWithPdfExtraction } from './sealedContentUpdate'
-import { prepareSealedOperationalUpdate } from '../sealed-storage'
+import { prepareSealedOperationalUpdate, sealedQuery } from '../sealed-storage'
+import {
+  filterInboxRowsWithVerifiedSeals,
+  isInboxPlaceholderRow,
+  loadVerifiedInboxMessageById,
+} from './inboxSealedRead'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
 import { inboxLlmChat, isLlmAvailable, INBOX_LLM_TIMEOUT_MS, resolveInboxLlmSettings, preResolveInboxLlm, type ResolvedLlmContext } from './inboxLlmChat'
 import { maybePrewarmOllamaForBulkClassify, type OllamaBulkPrewarmDiag } from '../llm/ollamaBulkPrewarm'
@@ -3099,13 +3104,15 @@ Rules:
          FROM inbox_messages ${where} ORDER BY received_at DESC LIMIT ? OFFSET ?`
       ).all(...qParams) as any[]
 
+      const verifiedRows = filterInboxRowsWithVerifiedSeals(db, rows)
+
       const attStmt = db.prepare('SELECT * FROM inbox_attachments WHERE message_id = ?')
-      for (const m of rows) {
+      for (const m of verifiedRows) {
         // Always attach rows: flags can be stale (e.g. P2P backfill) or out of sync with inbox_attachments.
         m.attachments = attStmt.all(m.id) as any[]
       }
 
-      return { ok: true, data: { messages: rows, total } }
+      return { ok: true, data: { messages: verifiedRows, total } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'List failed' }
     }
@@ -3156,8 +3163,8 @@ Rules:
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      const row = db.prepare('SELECT * FROM inbox_messages WHERE id = ?').get(messageId) as any
-      if (!row) return { ok: false, error: 'Message not found' }
+      const row = loadVerifiedInboxMessageById(db, messageId)
+      if (!row) return { ok: false, error: 'Message not found or seal verification failed' }
       const st = row.source_type as string | undefined
       const pkgJson = row.beap_package_json as string | null | undefined
       if ((st === 'direct_beap' || st === 'email_beap') && pkgJson) {
@@ -3181,23 +3188,8 @@ Rules:
       if (!db) return { ok: false, error: 'Database unavailable' }
       const id = typeof messageId === 'string' ? messageId.trim() : ''
       if (!id) return { ok: false, error: 'messageId required' }
-      const row = db
-        .prepare(
-          `SELECT id, source_type, handshake_id, subject, body_text, depackaged_json, beap_package_json, has_attachments, received_at, ingested_at, account_id, from_address
-           FROM inbox_messages WHERE id = ?`,
-        )
-        .get(id) as
-        | {
-            id: string
-            source_type?: string | null
-            handshake_id?: string | null
-            subject?: string | null
-            body_text?: string | null
-            depackaged_json?: string | null
-            beap_package_json?: string | null
-            has_attachments?: number | null
-          }
-        | undefined
+      const row = loadVerifiedInboxMessageById(db, id)
+      if (!row) return { ok: false, error: 'Message not found or seal verification failed' }
       const extracted = extractInboxMessageRedirectSourceFromRow(row)
       if (!extracted.ok) return extracted
 
@@ -3308,6 +3300,7 @@ Rules:
       const sealGate = await ensureSealedStorageReadyForSandboxClone(cloneId, {
         requiresInnerVault: cloneVaultReq?.requiresInnerVault ?? false,
         sourceSealKeySource: cloneVaultReq?.sealKeySource ?? probeInboxMessageSealKeySource(db, srcId),
+        handshakeId: cloneVaultReq?.handshakeId ?? null,
       })
       if (!sealGate.ok) {
         console.log(`[CLONE_PREPARE] failed cloneId=${cloneId} reason=${sealGate.error} code=${sealGate.code}`)

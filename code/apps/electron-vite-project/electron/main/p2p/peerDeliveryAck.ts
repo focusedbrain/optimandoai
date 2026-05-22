@@ -41,7 +41,12 @@ export function resolveSenderDeliveryAckEndpoint(db: any, handshakeId: string): 
 }
 
 /** Fire-and-forget: notify sender over direct HTTP (Bearer = counterparty_p2p_token on recipient ledger). */
-export function postPeerDeliveryAckToSender(db: any, handshakeId: string, rowId: string): void {
+export function postPeerDeliveryAckToSender(
+  db: any,
+  handshakeId: string,
+  rowId: string,
+  extras?: { status?: 'ok' | 'error'; reasonCode?: string; retryable?: boolean },
+): void {
   const hid = String(handshakeId ?? '').trim()
   const rid = String(rowId ?? '').trim()
   if (!hid || !rid || !db) return
@@ -67,7 +72,13 @@ export function postPeerDeliveryAckToSender(db: any, handshakeId: string, rowId:
           Authorization: `Bearer ${token}`,
           'X-BEAP-Handshake': hid,
         },
-        body: JSON.stringify({ handshake_id: hid, row_id: rid, status: 'ok' }),
+        body: JSON.stringify({
+          handshake_id: hid,
+          row_id: rid,
+          status: extras?.status ?? 'ok',
+          ...(extras?.reasonCode ? { reason_code: extras.reasonCode } : {}),
+          ...(extras?.retryable === true ? { retryable: true } : {}),
+        }),
         signal: controller.signal,
       })
       if (res.ok) {

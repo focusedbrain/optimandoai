@@ -1,10 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
-  inboxCloneAllowsTrustedRead,
-  inboxCloneAllowsTrustedReadFromListBoundary,
   inboxCloneRequiresInnerVault,
+  inboxSealKeySourceRequiresInnerVault,
   isDepackagedEmailInboxSourceType,
-  isConformantInboxValidationForCloneRead,
   probeInboxMessageCloneVaultRequirement,
 } from '../beapInboxClonePrepare'
 
@@ -27,56 +25,10 @@ describe('inbox clone vault requirement', () => {
     ).toBe(false)
   })
 
-  it('conformant validation stamps for trusted depackaged read', () => {
-    expect(
-      isConformantInboxValidationForCloneRead(
-        '2025-01-01T00:00:00.000Z',
-        'plain_email_no_validation_required',
-      ),
-    ).toBe(true)
-    expect(isConformantInboxValidationForCloneRead('2025-01-01T00:00:00.000Z', 'rejected')).toBe(
-      false,
-    )
-    expect(isConformantInboxValidationForCloneRead(null, 'plain_email_no_validation_required')).toBe(
-      false,
-    )
-  })
-
-  it('inboxCloneAllowsTrustedRead for direct_beap sandbox clone of plain email', () => {
-    const dep = JSON.stringify({
-      inbox_sandbox_clone_provenance: { original_source_type: 'email_plain', sandbox_clone: true },
-    })
-    expect(
-      inboxCloneAllowsTrustedRead({
-        sourceType: 'direct_beap',
-        handshakeId: 'hs-1',
-        seal: 'seal',
-        sealInputJson: '{}',
-        validatedAt: '2025-01-01T00:00:00.000Z',
-        validationReason: null,
-        cloneSignalRow: {
-          source_type: 'direct_beap',
-          handshake_id: 'hs-1',
-          depackaged_json: dep,
-        },
-      }),
-    ).toBe(true)
-  })
-
-  it('list-boundary trusted read allows email_plain with body and no seal columns', () => {
-    expect(
-      inboxCloneAllowsTrustedReadFromListBoundary({
-        sourceType: 'email_plain',
-        handshakeId: 'hs-1',
-        bodyText: 'Newsletter body',
-      }),
-    ).toBe(true)
-    expect(
-      inboxCloneAllowsTrustedReadFromListBoundary({
-        sourceType: 'email_plain',
-        handshakeId: 'hs-1',
-      }),
-    ).toBe(false)
+  it('vmk seal key source always requires inner vault', () => {
+    expect(inboxSealKeySourceRequiresInnerVault('vmk')).toBe(true)
+    expect(inboxSealKeySourceRequiresInnerVault('ledger')).toBe(false)
+    expect(inboxSealKeySourceRequiresInnerVault(null)).toBe(false)
   })
 
   it('probeInboxMessageCloneVaultRequirement marks email_plain as outer-only', () => {

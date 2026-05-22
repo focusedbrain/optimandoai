@@ -435,7 +435,18 @@ async function processCapsuleInternal(
 
       const failReason = r.error ?? 'processing_failed'
       console.warn('[Coordination] BEAP inline processing failed, handshake=', handshakeId, failReason)
-      const { reasonCode: failCode, retryable: failRetryable } = mapErrorToReasonCode(failReason)
+      const failCode = r.reasonCode ?? mapErrorToReasonCode(failReason).reasonCode
+      const failRetryable = r.retryable ?? mapErrorToReasonCode(failReason).retryable
+      if (r.rowId) {
+        publishBeapIngestAckOverCoordinationRelay({
+          relayId: id,
+          handshakeId,
+          rowId: r.rowId,
+          status: 'error',
+          reasonCode: failCode,
+          retryable: failRetryable,
+        })
+      }
       console.log(`[COORDINATION_WS] relay_ack_sent relayId=${id} reason=${failCode} retryable=${failRetryable}`)
       sendAckFn([id])
       return
@@ -883,10 +894,27 @@ export function createCoordinationWsClient(
             const hid = typeof ackMsg.handshake_id === 'string' ? ackMsg.handshake_id.trim() : ''
             const rowId = typeof ackMsg.row_id === 'string' ? ackMsg.row_id.trim() : ''
             if (hid && rowId) {
+              const ackStatus = ackMsg.status === 'error' ? 'error' : 'ok'
+              const reasonCode =
+                typeof ackMsg.reason_code === 'string' &&
+                [
+                  'ok',
+                  'outer_vault_inactive',
+                  'inner_vault_locked',
+                  'key_provider_unbound',
+                  'validator_unhealthy',
+                  'ledger_db_unavailable',
+                ].includes(ackMsg.reason_code)
+                  ? (ackMsg.reason_code as ReasonCode)
+                  : undefined
               console.log(
-                `[BEAP_DELIVERY] coordination_ingest_ack_received handshake=${hid} rowId=${rowId} status=${ackMsg.status ?? 'ok'}`,
+                `[BEAP_DELIVERY] coordination_ingest_ack_received handshake=${hid} rowId=${rowId} status=${ackStatus} reason=${reasonCode ?? 'none'}`,
               )
-              notifyBeapDeliveryAck(hid, rowId)
+              notifyBeapDeliveryAck(hid, rowId, {
+                status: ackStatus,
+                ...(reasonCode && reasonCode !== 'ok' ? { reasonCode } : {}),
+                ...(ackMsg.retryable === true ? { retryable: true } : {}),
+              })
             }
             return
           }

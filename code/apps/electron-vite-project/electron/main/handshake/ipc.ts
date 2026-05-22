@@ -38,6 +38,7 @@ import {
 } from './capsuleBuilder'
 import { submitCapsuleViaRpc } from './capsuleTransport'
 import { persistInitiatorHandshakeRecord } from './initiatorPersist'
+import { attachHandshakeProfilesAndSyncScope } from './handshakeConfidentiality'
 import { persistRecipientHandshakeRecord } from './recipientPersist'
 import { sendCapsuleViaEmail } from './emailTransport'
 import { computeBlockHash, type ContextBlockForCommitment } from './contextCommitment'
@@ -934,6 +935,17 @@ export async function handleHandshakeRPC(
         console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=handshake_inactive`)
         return { success: false, error: activeCheck.reason }
       }
+      const { canPerform } = await import('../vault/capabilityBroker')
+      const sendCap = canPerform('beap_send', { handshakeId })
+      if (!sendCap.allowed) {
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=${sendCap.reasonCode}`)
+        return {
+          success: false,
+          queued: false,
+          error: sendCap.userMessage,
+          code: sendCap.reasonCode,
+        }
+      }
       const record = getHandshakeRecord(db, handshakeId)
       if (!record) {
         console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=handshake_not_found`)
@@ -1442,6 +1454,13 @@ export async function handleHandshakeRPC(
           canonicalBlockPolicyMap,
           keyAgreement,
         )
+        if (localResult.success && profileIds.length > 0) {
+          try {
+            attachHandshakeProfilesAndSyncScope(db, handshakeId, profileIds)
+          } catch (e) {
+            console.warn('[HANDSHAKE] Could not mirror handshake confidentiality scope on initiate:', e)
+          }
+        }
         if (localResult.success && (p2pAuthToken || getP2PConfig(db).use_coordination) && receiverEmail) {
           // Registration is blocking: if the relay doesn't know this handshake exists, the
           // accept capsule will 403. Use session.sub (JWT sub claim) — NOT wrdesk_user_id —
@@ -2366,6 +2385,13 @@ export async function handleHandshakeRPC(
       )
 
       if (localResult.success && db) {
+        if (profileIds.length > 0) {
+          try {
+            attachHandshakeProfilesAndSyncScope(db, handshake_id, profileIds)
+          } catch (e) {
+            console.warn('[HANDSHAKE] Could not mirror handshake confidentiality scope on accept:', e)
+          }
+        }
         try {
           const accCoordDev = getLocalDeviceIdForRelay()
           if (record.handshake_type === 'internal' && accCoordDev?.trim()) {
