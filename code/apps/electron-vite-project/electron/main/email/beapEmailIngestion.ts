@@ -25,7 +25,7 @@
 
 import { createHash, randomUUID } from 'crypto'
 
-import { decryptQBeapPackage } from '../beap/decryptQBeapPackage'
+import { decryptQBeapPackage, type DecryptedQBeapContent } from '../beap/decryptQBeapPackage'
 import { getHandshakeRecord } from '../handshake/db'
 import type { ProvenanceMetadata } from '@repo/ingestion-core'
 import { evaluateAutoresponder } from '../beap/autoresponderEvaluator'
@@ -372,6 +372,64 @@ export function extractP2PBeapInboxPreview(packageJson: string): {
   } catch {
     return fallback
   }
+}
+
+/** Keep in sync with renderer `SANDBOX_CLONE_INBOX_LEAD_IN` (beapInboxCloneToSandbox / inboxMessageSandboxClone). */
+const SANDBOX_CLONE_INBOX_LEAD_IN =
+  '[BEAP sandbox clone — sent by you]\n' +
+  'This is a test clone for your sandbox; the original inbox message is unchanged. New qBEAP only — no original ciphertext reuse.\n' +
+  'Automation: sandbox_clone=true in metadata below.\n\n'
+
+/** Clone receive only — strip synthetic lead-in so inbox body matches Host-visible content. */
+export function stripSandboxCloneLeadInBodyText(raw: string | null | undefined): string {
+  const s = raw ?? ''
+  if (!s) return ''
+  if (s.startsWith(SANDBOX_CLONE_INBOX_LEAD_IN)) return s.slice(SANDBOX_CLONE_INBOX_LEAD_IN.length)
+  if (s.startsWith('[BEAP sandbox clone — sent by you]')) {
+    return s.slice('[BEAP sandbox clone — sent by you]'.length).replace(/^\n+/, '')
+  }
+  return s
+}
+
+/** After inline qBEAP decrypt, replace the pre-decrypt placeholder in `body_text`. */
+export function applyDecryptedQBeapToInboxPreview(
+  preview: { subject: string; body_text: string; from_address: string | null },
+  decrypted: DecryptedQBeapContent,
+  opts?: { stripCloneLeadIn?: boolean },
+): { subject: string; body_text: string; from_address: string | null } {
+  let body =
+    (decrypted.body ?? '').trim() ||
+    (decrypted.transport_plaintext ?? '').trim()
+  if (opts?.stripCloneLeadIn) body = stripSandboxCloneLeadInBodyText(body)
+  const subject = (decrypted.subject ?? '').trim() || preview.subject
+  return {
+    ...preview,
+    subject,
+    body_text: body ? body.slice(0, 50_000) : preview.body_text,
+  }
+}
+
+/**
+ * Depackaged-email sandbox clones: store depackaged_json in the same shape the Host inbox UI
+ * already renders (format + body), not raw inner capsule only.
+ */
+export function buildEmailStyleDepackagedJsonFromDecrypt(
+  decrypted: DecryptedQBeapContent,
+  opts?: { stripCloneLeadIn?: boolean },
+): string {
+  let body =
+    (decrypted.body ?? '').trim() ||
+    (decrypted.transport_plaintext ?? '').trim()
+  if (opts?.stripCloneLeadIn) body = stripSandboxCloneLeadInBodyText(body)
+  const transport = stripSandboxCloneLeadInBodyText(
+    (decrypted.transport_plaintext ?? '').trim() || body,
+  )
+  return JSON.stringify({
+    format: 'beap_qbeap_decrypted',
+    subject: (decrypted.subject ?? '').trim() || undefined,
+    body: body || transport,
+    ...(transport ? { transport_plaintext: transport } : {}),
+  })
 }
 
 export interface InboxRowFallback {
@@ -1061,6 +1119,9 @@ async function processBeapPackageInlineInternal(
   let canonicalJson: string | null = null
   let depackageError: string | null = null
   let depackagedMetadata: string | null = null
+  let decryptedQbeap: DecryptedQBeapContent | null = null
+  const cloneEmailResponsePath =
+    isSandboxClone && inboxResponsePathForCloneDetect?.original_response_path === 'email'
 
   if (pkgEncoding === 'qBEAP') {
     try {
@@ -1068,12 +1129,18 @@ async function processBeapPackageInlineInternal(
         reportFailure: reportQbeapDecryptFailure('P2P-INLINE'),
       })
       if (decr?.rawCapsuleJson) {
+        decryptedQbeap = decr
         canonicalJson = decr.rawCapsuleJson
         depackagedMetadata = JSON.stringify({
           format: 'beap_qbeap_decrypted',
           encoding: 'qBEAP',
-          source: 'main_process_p2p_inline',
+          source: cloneEmailResponsePath
+            ? 'main_process_p2p_inline_sandbox_clone_email'
+            : 'main_process_p2p_inline',
           decrypted_at: now,
+        })
+        preview = applyDecryptedQBeapToInboxPreview(preview, decr, {
+          stripCloneLeadIn: isSandboxClone,
         })
       } else {
         depackageError = 'qBEAP decrypt returned null (missing handshake key or malformed package)'
@@ -1120,12 +1187,19 @@ async function processBeapPackageInlineInternal(
   if (canonicalJson !== null) {
     const classification = getHandshakeClassification(handshakeId)
     const sealProviderSource: KeySource = classification === 'confidential' ? 'inner' : 'outer'
+    const rowSourceType = cloneEmailResponsePath ? 'email_beap' : 'direct_beap'
+    let depackagedJsonForRow = canonicalJson
+    if (cloneEmailResponsePath && decryptedQbeap) {
+      depackagedJsonForRow = buildEmailStyleDepackagedJsonFromDecrypt(decryptedQbeap, {
+        stripCloneLeadIn: true,
+      })
+    }
 
     if (classification === 'non_confidential') {
       // ── Non-confidential path: outer key, no validator subprocess ─────────
       let sealResult: { seal: string; seal_input_json: string } | null = null
       try {
-        sealResult = computeSeal(canonicalJson, rowId, 'outer')
+        sealResult = computeSeal(depackagedJsonForRow, rowId, 'outer')
       } catch (err: unknown) {
         depackageError = `outer seal computation failed: ${err instanceof Error ? err.message : String(err)}`
         // sealResult stays null — fall through to quarantine path below.
@@ -1140,8 +1214,8 @@ async function processBeapPackageInlineInternal(
         }
         const outerValidatedAt = new Date().toISOString()
         const inlineResult = writeP2PInboxRow(db, {
-          rowId, handshakeId, sourceType: 'direct_beap',
-          depackagedJson: canonicalJson,
+          rowId, handshakeId, sourceType: rowSourceType,
+          depackagedJson: depackagedJsonForRow,
           depackagedMetadata: depackagedMetadata ?? '',
           packageJson, transportSender, preview,
           receivedAt, now, transportFolder,
@@ -1153,7 +1227,9 @@ async function processBeapPackageInlineInternal(
         })
         if (inlineResult.outcome === 'inbox') {
           if (isSandboxClone) {
-            console.log(`[CLONE_RECEIVE] persist_success cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
+            console.log(
+              `[CLONE_RECEIVE] persist_success cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId} outcome=inbox source_type=${rowSourceType} body_len=${preview.body_text.length}`,
+            )
             console.log(`[CLONE_RECEIVE] ui_notify_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId}`)
             console.log(`[CLONE_RECEIVE] ack_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
           }
@@ -1166,7 +1242,7 @@ async function processBeapPackageInlineInternal(
       const provenance = buildP2PProvenance(handshakeId, transportSender, sourceType, packageJson)
       const resp = await validatorOrchestrator.validate({
         envelope: pkg,
-        plaintext_or_encrypted: { kind: 'plaintext', content: canonicalJson },
+        plaintext_or_encrypted: { kind: 'plaintext', content: depackagedJsonForRow },
         provenance,
         target_row_id: rowId,
       })
@@ -1179,9 +1255,13 @@ async function processBeapPackageInlineInternal(
           console.log(`[BEAP_DELIVERY] direct_message_classified messageId=${rowId} encoding=${pkgEncoding ?? 'handshake'} classification=confidential handshake=${handshakeId}`)
           console.log(`[BEAP_DELIVERY] persist_attempt messageId=${rowId} handshake=${handshakeId}`)
         }
+        const sealedCanonical =
+          cloneEmailResponsePath && decryptedQbeap
+            ? buildEmailStyleDepackagedJsonFromDecrypt(decryptedQbeap, { stripCloneLeadIn: true })
+            : sealed.canonical_json
         const inlineResult = writeP2PInboxRow(db, {
-          rowId, handshakeId, sourceType: 'direct_beap',
-          depackagedJson: sealed.canonical_json,
+          rowId, handshakeId, sourceType: rowSourceType,
+          depackagedJson: sealedCanonical,
           depackagedMetadata: depackagedMetadata ?? '',
           packageJson, transportSender, preview,
           receivedAt, now, transportFolder,
@@ -1192,7 +1272,9 @@ async function processBeapPackageInlineInternal(
         })
         if (inlineResult.outcome === 'inbox') {
           if (isSandboxClone) {
-            console.log(`[CLONE_RECEIVE] persist_success cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
+            console.log(
+              `[CLONE_RECEIVE] persist_success cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId} outcome=inbox source_type=${rowSourceType}`,
+            )
             console.log(`[CLONE_RECEIVE] ui_notify_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId}`)
             console.log(`[CLONE_RECEIVE] ack_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
           }

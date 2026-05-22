@@ -607,14 +607,25 @@ export default function EmailMessageDetail({
   const nonNativeBodyLinkParts = useMemo(() => {
     if (!message || inboxMessageUsesNativeBeapPbeapQbeapSplit(message)) return null
     if (inboxMessageIsSandboxBeapClone(message)) {
-      const stripped = stripSandboxCloneLeadInFromBodyText(message.body_text)
+      let visible = stripSandboxCloneLeadInFromBodyText(message.body_text)
+      if (!visible.trim() || isPlaceholder(visible)) {
+        if (parsedDepackaged) {
+          const fromDep =
+            extractBodyText(parsedDepackaged.body) ||
+            extractBodyText(parsedDepackaged.content) ||
+            extractBodyText(parsedDepackaged.transport_plaintext) ||
+            ''
+          const t = stripSandboxCloneLeadInFromBodyText(fromDep.trim())
+          if (t.trim() && !isPlaceholder(t)) visible = t
+        }
+      }
       return beapInboxMessageBodyToLinkParts({
-        body_text: stripped,
-        body_html: null,
+        body_text: visible,
+        body_html: message.body_html,
       })
     }
     return beapInboxMessageBodyToLinkParts(message)
-  }, [message])
+  }, [message, parsedDepackaged])
 
   const fromDisplay = useMemo((): ReactNode => {
     if (!message) return '—'
