@@ -36,6 +36,7 @@ import { relayIdentitySnapshot } from './relayIdentity'
 import { tryHandleCoordinationP2pSignal } from '../internalInference/relayP2pSignalHandler'
 import type { ReasonCode } from '../vault/capabilityBroker'
 import { notifyBeapDeliveryAck } from './beapDeliveryAck'
+import { postPeerDeliveryAckToSender } from './peerDeliveryAck'
 
 /** Send JSON on the open coordination WS (recipient → relay → sender ingest ack). */
 let _coordinationWsJsonSender: ((payload: Record<string, unknown>) => boolean) | null = null
@@ -370,12 +371,18 @@ async function processCapsuleInternal(
       console.log('[Coordination] BEAP capsule received via WS push')
       // BEAP message package (qBEAP/pBEAP): validate-before-write via sealed pipeline (B-4)
       const msgCapsule = distribution.validated_capsule!.capsule
-      const handshakeId =
-        (msgCapsule?.handshake_id as string)?.trim() ||
-        (msgCapsule?.header && typeof msgCapsule.header === 'object'
-          ? ((msgCapsule.header as Record<string, unknown>)?.receiver_binding as Record<string, unknown>)?.handshake_id as string
-          : undefined)?.trim() ||
-        '__relay_message__'
+      let handshakeId = (msgCapsule?.handshake_id as string)?.trim() || ''
+      if (!handshakeId || handshakeId === '__relay_message__') {
+        const header = msgCapsule?.header
+        if (header && typeof header === 'object') {
+          const rb = (header as Record<string, unknown>).receiver_binding
+          if (rb && typeof rb === 'object') {
+            const hid = (rb as Record<string, unknown>).handshake_id
+            if (typeof hid === 'string' && hid.trim()) handshakeId = hid.trim()
+          }
+        }
+      }
+      if (!handshakeId) handshakeId = '__relay_message__'
       const ingestMsgId = randomUUID()
       console.log(
         `[BEAP_MSG_RECEIVE] ingest_received messageId=${ingestMsgId} relayId=${id} handshake=${handshakeId} transport=coordination_ws`,
@@ -412,7 +419,7 @@ async function processCapsuleInternal(
             rowId: r.rowId,
             status: 'ok',
           })
-          notifyBeapDeliveryAck(handshakeId, r.rowId)
+          postPeerDeliveryAckToSender(db, handshakeId, r.rowId)
         }
         console.log(`[COORDINATION_WS] relay_ack_sent relayId=${id} reason=ok retryable=false outcome=inbox`)
         sendAckFn([id])

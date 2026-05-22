@@ -183,6 +183,45 @@ export function inboxCloneAllowsTrustedRead(opts: {
 }
 
 /**
+ * Inbox `listMessages` / `getMessage` do not run `sealedQuery`; clone prepare must not fail with
+ * MESSAGE_NOT_FOUND for the same row the UI already listed. Trusted read for any non-confidential
+ * row that has seal columns and extractable depackaged / body / package content.
+ */
+export function inboxCloneAllowsTrustedReadFromListBoundary(opts: {
+  sourceType: string | null
+  handshakeId: string | null
+  validationReason?: string | null
+  seal?: string | null
+  sealInputJson?: string | null
+  depackagedJson?: string | null
+  beapPackageJson?: string | null
+  bodyText?: string | null
+}): boolean {
+  if (!opts.seal?.trim() || !opts.sealInputJson?.trim()) return false
+  if (isExplicitValidatorRejectionForClone(opts.validationReason)) return false
+  if (isDepackagedEmailInboxSourceType(opts.sourceType)) return true
+  if (getHandshakeClassification(String(opts.handshakeId ?? '').trim()) === 'confidential') {
+    return false
+  }
+  const st = String(opts.sourceType ?? '').trim()
+  if (st === 'direct_beap' || st === 'email_beap') {
+    return Boolean(
+      opts.depackagedJson?.trim() || opts.beapPackageJson?.trim() || opts.bodyText?.trim(),
+    )
+  }
+  return false
+}
+
+function inboxCloneAllowsTrustedReadCombined(
+  opts: Parameters<typeof inboxCloneAllowsTrustedRead>[0] & {
+    beapPackageJson?: string | null
+    bodyText?: string | null
+  },
+): boolean {
+  return inboxCloneAllowsTrustedRead(opts) || inboxCloneAllowsTrustedReadFromListBoundary(opts)
+}
+
+/**
  * Inner vault is required for clone only when the message class demands it:
  * - Depackaged email (`email_plain` / `email_beap`): never (SSO outer path).
  * - Native BEAP: only when the source handshake is classified confidential.
@@ -457,17 +496,19 @@ export function readInboxRowForClonePrepare(
     body_text: meta.body_text,
     body_html: meta.body_html,
   }
-  if (
-    inboxCloneAllowsTrustedRead({
-      sourceType: meta.source_type != null ? String(meta.source_type) : null,
-      handshakeId: meta.handshake_id != null ? String(meta.handshake_id) : null,
-      validatedAt: meta.validated_at,
-      validationReason: meta.validation_reason,
-      seal: meta.seal,
-      sealInputJson: meta.seal_input_json,
-      cloneSignalRow,
-    })
-  ) {
+  const trustedReadOpts = {
+    sourceType: meta.source_type != null ? String(meta.source_type) : null,
+    handshakeId: meta.handshake_id != null ? String(meta.handshake_id) : null,
+    validatedAt: meta.validated_at,
+    validationReason: meta.validation_reason,
+    seal: meta.seal,
+    sealInputJson: meta.seal_input_json,
+    depackagedJson: meta.depackaged_json,
+    beapPackageJson: meta.beap_package_json,
+    bodyText: meta.body_text,
+    cloneSignalRow,
+  }
+  if (inboxCloneAllowsTrustedReadCombined(trustedReadOpts)) {
     const trusted = db.prepare(CLONE_PREPARE_INBOX_SELECT).get(srcId) as ClonePrepareInboxRow | undefined
     if (trusted?.id && trusted.seal && trusted.seal_input_json) {
       console.log(
@@ -478,6 +519,9 @@ export function readInboxRowForClonePrepare(
   }
 
   if (requiresInnerVault && !isKeyProviderUsable('inner')) {
+    console.log(
+      `[CLONE_PREPARE] source_read_blocked sourceMessageId=${srcId} reason=inner_vault_required sealedQuery=empty trustedRead=false`,
+    )
     return {
       ok: false,
       result: {
@@ -499,6 +543,26 @@ export function readInboxRowForClonePrepare(
         ok: false,
         code: 'outer_vault_or_key_provider_unavailable',
         error: CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
+      },
+    }
+  }
+  const st = meta.source_type != null ? String(meta.source_type) : 'unknown'
+  const trustedEligible = inboxCloneAllowsTrustedReadCombined(trustedReadOpts)
+  console.log(
+    `[CLONE_PREPARE] source_read_blocked sourceMessageId=${srcId} source_type=${st} seal_key_source=${sealKeySource ?? 'unknown'} sealedQuery=empty trustedReadEligible=${trustedEligible} requiresInnerVault=${requiresInnerVault}`,
+  )
+  if (
+    sealKeySource === 'vmk' &&
+    !requiresInnerVault &&
+    !isKeyProviderUsable('inner') &&
+    (st === 'direct_beap' || st === 'email_beap')
+  ) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        code: 'inner_vault_or_key_provider_unavailable',
+        error: CLONE_PREPARE_INNER_VAULT_USER_MESSAGE,
       },
     }
   }

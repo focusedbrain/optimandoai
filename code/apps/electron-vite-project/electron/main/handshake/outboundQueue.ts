@@ -22,6 +22,11 @@ export { mapSendResultToQueueOutcome, type CoordinationQueueTransportOutcome } f
 import { getHandshakeRecord } from './db'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getP2PConfig } from '../p2p/p2pConfig'
+import { getCoordinationWsClient } from '../p2p/coordinationWsHolder'
+import {
+  normalizeP2pIngestUrl,
+  peekHostAdvertisedMvpDirectEntry,
+} from '../internalInference/p2pEndpointRepair'
 import { isCoordinationRelayNativeBeap } from '../../../../../packages/ingestion-core/src/beapDetection.ts'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
 import {
@@ -198,6 +203,44 @@ function isDirectBeapIngestEndpoint(endpoint: string): boolean {
   return u.includes('/beap/ingest')
 }
 
+/** Resolve peer LAN `/beap/ingest` when the queue row still points at coordination relay. */
+function resolvePeerDirectBeapIngestEndpoint(
+  db: any,
+  handshakeId: string,
+  queueTargetEndpoint: string,
+): string | null {
+  const seen = new Set<string>()
+  const tryOne = (raw: string | null | undefined): string | null => {
+    const t = typeof raw === 'string' ? raw.trim() : ''
+    if (!t || !isDirectBeapIngestEndpoint(t)) return null
+    const n = normalizeP2pIngestUrl(t)
+    if (seen.has(n)) return null
+    seen.add(n)
+    return n
+  }
+  for (const raw of [queueTargetEndpoint, peekHostAdvertisedMvpDirectEntry(handshakeId)?.url]) {
+    const u = tryOne(raw)
+    if (u) return u
+  }
+  const rec = getHandshakeRecord(db, handshakeId)
+  return tryOne(rec?.p2p_endpoint)
+}
+
+async function ensureSenderCoordinationWsForDeliveryAck(): Promise<void> {
+  try {
+    const client = getCoordinationWsClient()
+    if (!client || client.isConnected()) return
+    await Promise.race([
+      client.connect(),
+      new Promise<void>((_, reject) => {
+        setTimeout(() => reject(new Error('coordination_ws_connect_timeout')), 4000)
+      }),
+    ])
+  } catch {
+    /* non-fatal — HTTP relay may still succeed; ACK may arrive via IPC wait */
+  }
+}
+
 /** Prefer direct POST to peer `/beap/ingest` so HTTP body can confirm inbox persistence. */
 function shouldRetryViaCoordinationAfterDirectFailure(result: SendCapsuleResult): boolean {
   if (result.success) return false
@@ -216,13 +259,17 @@ async function tryDirectNativeBeapIngestSend(
   capsule: object,
 ): Promise<SendCapsuleResult | null> {
   if (!isCoordinationRelayNativeBeap(capsule as Record<string, unknown>)) return null
-  const endpoint = String(row.target_endpoint ?? '').trim()
-  if (!endpoint || !isDirectBeapIngestEndpoint(endpoint)) return null
+  const endpoint = resolvePeerDirectBeapIngestEndpoint(
+    db,
+    row.handshake_id,
+    String(row.target_endpoint ?? ''),
+  )
+  if (!endpoint) return null
   const record = getHandshakeRecord(db, row.handshake_id)
   if (!record) return null
   const bearerToken = record.local_p2p_auth_token ?? null
   let result = await sendCapsuleViaHttp(capsule, endpoint, row.handshake_id, bearerToken)
-  const freshEp = record.p2p_endpoint?.trim()
+  const freshEp = resolvePeerDirectBeapIngestEndpoint(db, row.handshake_id, record.p2p_endpoint ?? '')
   const errText = (result.error ?? '').toLowerCase()
   if (
     !result.success &&
@@ -1001,6 +1048,7 @@ async function processOutboundQueueInner(
           getOidcToken,
         )
       } else {
+        await ensureSenderCoordinationWsForDeliveryAck()
         logInternalHsTraceOutbound(db, row.handshake_id, capsule, 'send_with_session_token')
         result = await sendCapsuleViaCoordination(capsule, targetUrl, token!, row.handshake_id, db)
       }

@@ -259,27 +259,25 @@ export function BeapInlineComposer({
     return handshakeRecordToSelectedRecipient(raw);
   }, [handshakeRows, recipientMode, selectedHandshakeId]);
 
-  // Subscribe to receiver delivery ACK when we are in relay_pending mode.
-  // Matches by handshakeId (same-machine only; cross-machine will timeout).
+  // Always listen for receiver delivery ACK while a send is pending (avoids race: ACK can
+  // arrive before relay_pending UI state is committed).
   useEffect(() => {
-    if (sendSuccessMode !== 'relay_pending' || !sendSuccess) return
     if (!window.emailInbox?.onBeapDeliveryAck) return
 
-    const handshakeAtSend = pendingAckHandshakeRef.current
-    const messageIdAtSend = pendingAckMessageIdRef.current
-
     const unsub = window.emailInbox.onBeapDeliveryAck((data) => {
+      const messageIdAtSend = pendingAckMessageIdRef.current
+      if (!messageIdAtSend) return
+      const handshakeAtSend = pendingAckHandshakeRef.current
       if (handshakeAtSend && data.handshakeId !== handshakeAtSend) return
-      console.log(`[BEAP_MSG_SEND] ack_received messageId=${messageIdAtSend ?? 'unknown'} handshake=${data.handshakeId} rowId=${data.rowId} status=${data.status ?? 'none'} reasonCode=${data.reasonCode ?? 'none'} retryable=${data.retryable ?? 'none'}`)
-      // Clear pending 30 s timeout — ack arrived.
+      console.log(`[BEAP_MSG_SEND] ack_received messageId=${messageIdAtSend} handshake=${data.handshakeId} rowId=${data.rowId} status=${data.status ?? 'none'} reasonCode=${data.reasonCode ?? 'none'} retryable=${data.retryable ?? 'none'}`)
       if (ackTimeoutRef.current) {
         clearTimeout(ackTimeoutRef.current)
         ackTimeoutRef.current = null
       }
       const newMode = ackToState(data)
+      setSendSuccess(true)
       setSendSuccessMode(newMode)
       if (newMode === 'live') {
-        // Green confirmation — auto-close after 2 s.
         if (sendSuccessCloseTimerRef.current) clearTimeout(sendSuccessCloseTimerRef.current)
         sendSuccessCloseTimerRef.current = setTimeout(() => {
           sendSuccessCloseTimerRef.current = null
@@ -290,17 +288,13 @@ export function BeapInlineComposer({
           onSent()
         }, 2000)
       } else {
-        // Terminal failure / deferred state — clear pending refs but keep the banner
-        // visible so the sender can read the error. User dismisses manually via Cancel.
-        // TODO(W4): add retry-button for retryable states (delivered_deferred_inner_vault,
-        //           delivered_failed_keys) once re-send semantics are wired.
         pendingAckHandshakeRef.current = null
         pendingAckMessageIdRef.current = null
       }
     })
 
     return unsub
-  }, [sendSuccessMode, sendSuccess, onSent])
+  }, [onSent])
 
   useEffect(() => {
     const loadFp = async () => {
@@ -802,6 +796,9 @@ export function BeapInlineComposer({
       console.log('[BeapInlineComposer] send payload:', logPayload);
       console.log(`[BEAP_MSG_RENDERER] before_executeDeliveryAction messageId=${messageId}`);
 
+      pendingAckHandshakeRef.current = recipientMode === 'private' ? (selectedHandshakeId ?? null) : null
+      pendingAckMessageIdRef.current = messageId
+
       const result = await executeDeliveryAction(config);
 
       console.log(
@@ -862,6 +859,12 @@ export function BeapInlineComposer({
         }
 
         if (ackConfirmed) {
+          if (ackTimeoutRef.current) {
+            clearTimeout(ackTimeoutRef.current)
+            ackTimeoutRef.current = null
+          }
+          pendingAckHandshakeRef.current = null
+          pendingAckMessageIdRef.current = null
           // Receiver confirmed ingest in-band (same process / inline delivery).
           console.log(`[BEAP_MSG_SEND] ack_received messageId=${messageId}`);
           setSendSuccessMode('live');
@@ -909,11 +912,15 @@ export function BeapInlineComposer({
         }
       } else {
         console.log(`[BEAP_MSG_SEND] failed messageId=${messageId} reason=${result.message ?? 'unknown'}`);
+        pendingAckHandshakeRef.current = null
+        pendingAckMessageIdRef.current = null
         setSendError(result.message || 'Send failed');
       }
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : 'Send failed';
       console.log(`[BEAP_MSG_SEND] failed messageId=${messageId} reason=${errMsg}`);
+      pendingAckHandshakeRef.current = null
+      pendingAckMessageIdRef.current = null
       setSendError(errMsg);
     } finally {
       setSending(false);

@@ -214,14 +214,65 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
     }
   })
 
-  it('native direct_beap vmk row + outer-only → MESSAGE_NOT_FOUND (no trusted read for native)', () => {
+  it('native direct_beap vmk row + depackaged body + outer-only → prepare succeeds (list-boundary trusted read)', () => {
     if (!ctx.db) return
 
     const entry = makeEligibleEntry()
     mockHappyList([entry])
     getHandshakeRecord.mockReturnValue(makeHandshakeRecord(entry.handshake_id))
 
-    const { msgId } = insertDirectBeapRow(ctx, { sealKeySource: 'vmk', useOuterSeal: false })
+    const msgId = randomUUID()
+    const dep = JSON.stringify({
+      body: { text: 'native beap visible in inbox' },
+      format: 'beap_qbeap_decrypted',
+    })
+    const s = ctx.buildValidSealForRowId(msgId, dep)
+    ctx.db
+      .prepare(
+        `INSERT INTO inbox_messages
+           (id, source_type, handshake_id, subject, body_text, depackaged_json,
+            has_attachments, from_address, account_id, received_at, ingested_at,
+            seal, seal_input_json, seal_key_source)
+         VALUES (?, 'direct_beap', 'hs-orig', 'Native', 'native beap visible in inbox', ?,
+                 0, 'peer@test', 'acc', '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z',
+                 ?, ?, 'vmk')`,
+      )
+      .run(msgId, dep, s.seal, s.seal_input_json)
+
+    const r = prepareBeapInboxSandboxClone(ctx.db as any, makeSession(), msgId, entry.handshake_id, 'tag')
+
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.encrypted_text).toContain('native beap visible in inbox')
+    }
+  })
+
+  it('native direct_beap vmk row without depackaged content + outer-only → MESSAGE_NOT_FOUND', () => {
+    if (!ctx.db) return
+
+    const entry = makeEligibleEntry()
+    mockHappyList([entry])
+    getHandshakeRecord.mockReturnValue(makeHandshakeRecord(entry.handshake_id))
+
+    const msgId = randomUUID()
+    const canonical = JSON.stringify({
+      id: msgId,
+      subject: 'Clone gate test',
+      body: { text: 'clone me' },
+      format: 'beap_qbeap_decrypted',
+    })
+    const s = ctx.buildValidSealForRowId(msgId, canonical)
+    ctx.db
+      .prepare(
+        `INSERT INTO inbox_messages
+           (id, source_type, handshake_id, subject, body_text, depackaged_json,
+            has_attachments, from_address, account_id, received_at, ingested_at,
+            seal, seal_input_json, seal_key_source)
+         VALUES (?, 'direct_beap', 'hs-orig', 'Clone gate test', 'clone me', NULL,
+                 0, 'from@test', 'acc', '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z',
+                 ?, ?, 'vmk')`,
+      )
+      .run(msgId, s.seal, s.seal_input_json)
 
     const r = prepareBeapInboxSandboxClone(ctx.db as any, makeSession(), msgId, entry.handshake_id, 'tag')
 

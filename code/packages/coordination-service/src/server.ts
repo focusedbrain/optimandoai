@@ -1167,14 +1167,19 @@ export async function createServer(config: CoordinationConfig): Promise<{
           if (!relayId || !handshakeId || !rowId || !recipientUserId) return
           const route = store.getCapsuleRelayRoute(relayId)
           if (!route || route.recipientUserId !== recipientUserId) return
-          const pushed = wsManager.pushBeapIngestAck(route.senderUserId, route.senderDeviceId, {
-            relay_id: relayId,
-            handshake_id: handshakeId,
-            row_id: rowId,
-            status: msg.status === 'error' ? 'error' : 'ok',
-            ...(typeof msg.reason_code === 'string' ? { reason_code: msg.reason_code } : {}),
-            ...(msg.retryable === true ? { retryable: true } : {}),
-          })
+          const pushed = wsManager.pushBeapIngestAck(
+            route.senderUserId,
+            route.senderDeviceId,
+            {
+              relay_id: relayId,
+              handshake_id: handshakeId,
+              row_id: rowId,
+              status: msg.status === 'error' ? 'error' : 'ok',
+              ...(typeof msg.reason_code === 'string' ? { reason_code: msg.reason_code } : {}),
+              ...(msg.retryable === true ? { retryable: true } : {}),
+            },
+            ws,
+          )
           if (pushed) {
             console.log(
               '[RELAY-QUEUE] beap_ingest_ack_forwarded',

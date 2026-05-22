@@ -42,6 +42,7 @@ import { writeQuarantineBlob, type QuarantineBlobFile } from '../quarantine-blob
 import type { SSOSession } from '../handshake/types'
 import { notifyBeapInboxDashboard } from './beapInboxDashboardNotify'
 import { notifyBeapDeliveryAck } from '../p2p/beapDeliveryAck'
+import { postPeerDeliveryAckToSender } from '../p2p/peerDeliveryAck'
 import { notifyBeapRecipientPending } from '../p2p/beapRecipientNotify'
 
 const BATCH_SIZE = 100
@@ -58,7 +59,12 @@ function reportQbeapDecryptFailure(ctx: string) {
  * broadcast dashboard/inbox refresh (matches `App.tsx` `onBeapInboxUpdated`) + extension hook,
  * and optionally emit local `inbox:beapDeliveryAck` (same-process sender confirmation only).
  */
-function finalizeDirectBeapInboxPersistence(handshakeId: string, rowId: string, emitPeerDeliveryAck: boolean): void {
+function finalizeDirectBeapInboxPersistence(
+  db: any,
+  handshakeId: string,
+  rowId: string,
+  emitPeerDeliveryAck: boolean,
+): void {
   console.log(`[BEAP_DELIVERY] persist_success messageId=${rowId} handshake=${handshakeId} outcome=inbox`)
   console.log(`[BEAP_DELIVERY] ui_notify_sent messageId=${rowId} handshake=${handshakeId} rowId=${rowId}`)
   notifyBeapInboxDashboard(handshakeId)
@@ -66,6 +72,7 @@ function finalizeDirectBeapInboxPersistence(handshakeId: string, rowId: string, 
   if (emitPeerDeliveryAck) {
     console.log(`[BEAP_DELIVERY] ack_sent messageId=${rowId} handshake=${handshakeId} rowId=${rowId}`)
     notifyBeapDeliveryAck(handshakeId, rowId)
+    postPeerDeliveryAckToSender(db, handshakeId, rowId)
   }
 }
 
@@ -1045,7 +1052,7 @@ async function processBeapPackageInlineInternal(
         console.log(`[CLONE_RECEIVE] ack_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
       }
       // Outbound qBEAP echo: refresh inbox + extension; do not emit delivery ACK (not a peer-received message).
-      finalizeDirectBeapInboxPersistence(handshakeId, rowId, false)
+      finalizeDirectBeapInboxPersistence(db, handshakeId, rowId, false)
     }
     return echoResult
   }
@@ -1150,7 +1157,7 @@ async function processBeapPackageInlineInternal(
             console.log(`[CLONE_RECEIVE] ui_notify_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId}`)
             console.log(`[CLONE_RECEIVE] ack_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
           }
-          finalizeDirectBeapInboxPersistence(handshakeId, rowId, true)
+          finalizeDirectBeapInboxPersistence(db, handshakeId, rowId, true)
         }
         return inlineResult
       }
@@ -1189,7 +1196,7 @@ async function processBeapPackageInlineInternal(
             console.log(`[CLONE_RECEIVE] ui_notify_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId}`)
             console.log(`[CLONE_RECEIVE] ack_sent cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} handshake=${handshakeId}`)
           }
-          finalizeDirectBeapInboxPersistence(handshakeId, rowId, true)
+          finalizeDirectBeapInboxPersistence(db, handshakeId, rowId, true)
         }
         return inlineResult
       }
@@ -1516,6 +1523,7 @@ export async function retryPendingInboxPlaceholders(db: any): Promise<number> {
         notifyBeapInboxDashboard(row.handshake_id)
         // Notify the sender (no status field → W3-P7 ackToState returns 'live' via fallback).
         notifyBeapDeliveryAck(row.handshake_id, row.id)
+        postPeerDeliveryAckToSender(db, row.handshake_id, row.id)
       } else {
         // Still failed — update retry timestamp only.
         try {
