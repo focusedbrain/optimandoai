@@ -184,32 +184,28 @@ export function inboxCloneAllowsTrustedRead(opts: {
 
 /**
  * Inbox `listMessages` / `getMessage` do not run `sealedQuery`; clone prepare must not fail with
- * MESSAGE_NOT_FOUND for the same row the UI already listed. Trusted read for any non-confidential
- * row that has seal columns and extractable depackaged / body / package content.
+ * MESSAGE_NOT_FOUND for the same row the UI already listed. Matches list visibility: non-confidential
+ * row with extractable body/depackaged content (seal columns optional — VMK HMAC may fail under outer-only).
  */
 export function inboxCloneAllowsTrustedReadFromListBoundary(opts: {
   sourceType: string | null
   handshakeId: string | null
   validationReason?: string | null
-  seal?: string | null
-  sealInputJson?: string | null
   depackagedJson?: string | null
   beapPackageJson?: string | null
   bodyText?: string | null
 }): boolean {
-  if (!opts.seal?.trim() || !opts.sealInputJson?.trim()) return false
   if (isExplicitValidatorRejectionForClone(opts.validationReason)) return false
+  const hasContent = Boolean(
+    opts.depackagedJson?.trim() || opts.beapPackageJson?.trim() || opts.bodyText?.trim(),
+  )
+  if (!hasContent) return false
   if (isDepackagedEmailInboxSourceType(opts.sourceType)) return true
   if (getHandshakeClassification(String(opts.handshakeId ?? '').trim()) === 'confidential') {
     return false
   }
   const st = String(opts.sourceType ?? '').trim()
-  if (st === 'direct_beap' || st === 'email_beap') {
-    return Boolean(
-      opts.depackagedJson?.trim() || opts.beapPackageJson?.trim() || opts.bodyText?.trim(),
-    )
-  }
-  return false
+  return st === 'direct_beap' || st === 'email_beap'
 }
 
 function inboxCloneAllowsTrustedReadCombined(
@@ -446,6 +442,55 @@ function loadInboxMetaForClonePrepare(db: any, srcId: string): ClonePrepareInbox
   return row
 }
 
+function buildCloneTrustedReadOpts(meta: ClonePrepareInboxMetaRow): {
+  sourceType: string | null
+  handshakeId: string | null
+  validatedAt: string | null | undefined
+  validationReason: string | null | undefined
+  seal: string | null | undefined
+  sealInputJson: string | null | undefined
+  depackagedJson: string | null | undefined
+  beapPackageJson: string | null | undefined
+  bodyText: string | null | undefined
+  cloneSignalRow: InboxMessageAiClassificationRow
+} {
+  return {
+    sourceType: meta.source_type != null ? String(meta.source_type) : null,
+    handshakeId: meta.handshake_id != null ? String(meta.handshake_id) : null,
+    validatedAt: meta.validated_at,
+    validationReason: meta.validation_reason,
+    seal: meta.seal,
+    sealInputJson: meta.seal_input_json,
+    depackagedJson: meta.depackaged_json,
+    beapPackageJson: meta.beap_package_json,
+    bodyText: meta.body_text,
+    cloneSignalRow: {
+      source_type: meta.source_type,
+      handshake_id: meta.handshake_id,
+      depackaged_json: meta.depackaged_json,
+      beap_package_json: meta.beap_package_json,
+      body_text: meta.body_text,
+      body_html: meta.body_html,
+    },
+  }
+}
+
+/** Same visibility as inbox list — before `sealedQuery` (which can drop VMK rows under outer-only key). */
+function tryTrustedCloneRowRead(
+  db: any,
+  srcId: string,
+  meta: ClonePrepareInboxMetaRow,
+): ClonePrepareInboxRow | null {
+  const trustedReadOpts = buildCloneTrustedReadOpts(meta)
+  if (!inboxCloneAllowsTrustedReadCombined(trustedReadOpts)) return null
+  const trusted = db.prepare(CLONE_PREPARE_INBOX_SELECT).get(srcId) as ClonePrepareInboxRow | undefined
+  if (!trusted?.id) return null
+  if (inboxCloneAllowsTrustedRead(trustedReadOpts)) {
+    if (!trusted.seal?.trim() || !trusted.seal_input_json?.trim()) return null
+  }
+  return trusted
+}
+
 export function readInboxRowForClonePrepare(
   db: any,
   srcId: string,
@@ -467,6 +512,16 @@ export function readInboxRowForClonePrepare(
     }
   }
 
+  const trustedReadOpts = buildCloneTrustedReadOpts(meta)
+  const trustedFirst = tryTrustedCloneRowRead(db, srcId, meta)
+  if (trustedFirst) {
+    const viaListBoundary = inboxCloneAllowsTrustedReadFromListBoundary(trustedReadOpts)
+    console.log(
+      `[CLONE_PREPARE] source_loaded_trusted_clone_read sourceMessageId=${srcId} source_type=${meta.source_type ?? 'unknown'} validation_reason=${meta.validation_reason ?? 'null'} list_boundary=${viaListBoundary}`,
+    )
+    return { ok: true, row: trustedFirst }
+  }
+
   let sealedRows: ClonePrepareInboxRow[] = []
   try {
     sealedRows = sealedQuery(db, CLONE_PREPARE_INBOX_SELECT, [srcId], 'depackaged_json') as ClonePrepareInboxRow[]
@@ -485,37 +540,10 @@ export function readInboxRowForClonePrepare(
     throw err
   }
   if (sealedRows[0]) {
+    console.log(
+      `[CLONE_PREPARE] source_loaded_sealed_query sourceMessageId=${srcId} source_type=${meta.source_type ?? 'unknown'}`,
+    )
     return { ok: true, row: sealedRows[0] }
-  }
-
-  const cloneSignalRow: InboxMessageAiClassificationRow = {
-    source_type: meta.source_type,
-    handshake_id: meta.handshake_id,
-    depackaged_json: meta.depackaged_json,
-    beap_package_json: meta.beap_package_json,
-    body_text: meta.body_text,
-    body_html: meta.body_html,
-  }
-  const trustedReadOpts = {
-    sourceType: meta.source_type != null ? String(meta.source_type) : null,
-    handshakeId: meta.handshake_id != null ? String(meta.handshake_id) : null,
-    validatedAt: meta.validated_at,
-    validationReason: meta.validation_reason,
-    seal: meta.seal,
-    sealInputJson: meta.seal_input_json,
-    depackagedJson: meta.depackaged_json,
-    beapPackageJson: meta.beap_package_json,
-    bodyText: meta.body_text,
-    cloneSignalRow,
-  }
-  if (inboxCloneAllowsTrustedReadCombined(trustedReadOpts)) {
-    const trusted = db.prepare(CLONE_PREPARE_INBOX_SELECT).get(srcId) as ClonePrepareInboxRow | undefined
-    if (trusted?.id && trusted.seal && trusted.seal_input_json) {
-      console.log(
-        `[CLONE_PREPARE] source_loaded_trusted_clone_read sourceMessageId=${srcId} source_type=${meta.source_type ?? 'unknown'} validation_reason=${meta.validation_reason ?? 'null'}`,
-      )
-      return { ok: true, row: trusted }
-    }
   }
 
   if (requiresInnerVault && !isKeyProviderUsable('inner')) {

@@ -282,6 +282,36 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
     }
   })
 
+  it('email_plain vmk row + body_text only (no depackaged_json) + outer-only → prepare succeeds', () => {
+    if (!ctx.db) return
+
+    const entry = makeEligibleEntry()
+    mockHappyList([entry])
+    getHandshakeRecord.mockReturnValue(makeHandshakeRecord(entry.handshake_id))
+
+    const msgId = randomUUID()
+    const s = ctx.buildValidSealForRowId(msgId, '{}')
+    ctx.db
+      .prepare(
+        `INSERT INTO inbox_messages
+           (id, source_type, handshake_id, subject, body_text, depackaged_json,
+            has_attachments, from_address, account_id, received_at, ingested_at,
+            validated_at, validation_reason, seal, seal_input_json, seal_key_source)
+         VALUES (?, 'email_plain', 'hs-orig', 'Plain body only', 'Hello from IMAP', NULL,
+                 0, 'news@example.com', 'acc', '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z',
+                 '2025-01-01T00:00:00.000Z', 'plain_email_no_validation_required',
+                 ?, ?, 'vmk')`,
+      )
+      .run(msgId, s.seal, s.seal_input_json)
+
+    const r = prepareBeapInboxSandboxClone(ctx.db as any, makeSession(), msgId, entry.handshake_id, 'tag')
+
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.encrypted_text).toContain('Hello from IMAP')
+    }
+  })
+
   it('email_plain vmk row + outer-only + conformant validation → prepare succeeds', () => {
     if (!ctx.db) return
 

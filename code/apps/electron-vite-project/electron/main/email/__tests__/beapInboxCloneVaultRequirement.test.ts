@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   inboxCloneAllowsTrustedRead,
+  inboxCloneAllowsTrustedReadFromListBoundary,
   inboxCloneRequiresInnerVault,
   isDepackagedEmailInboxSourceType,
   isConformantInboxValidationForCloneRead,
@@ -60,6 +61,22 @@ describe('inbox clone vault requirement', () => {
         },
       }),
     ).toBe(true)
+  })
+
+  it('list-boundary trusted read allows email_plain with body and no seal columns', () => {
+    expect(
+      inboxCloneAllowsTrustedReadFromListBoundary({
+        sourceType: 'email_plain',
+        handshakeId: 'hs-1',
+        bodyText: 'Newsletter body',
+      }),
+    ).toBe(true)
+    expect(
+      inboxCloneAllowsTrustedReadFromListBoundary({
+        sourceType: 'email_plain',
+        handshakeId: 'hs-1',
+      }),
+    ).toBe(false)
   })
 
   it('probeInboxMessageCloneVaultRequirement marks email_plain as outer-only', () => {
