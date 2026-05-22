@@ -6,7 +6,7 @@ import type { InboxMessage } from '../stores/useEmailInboxStore'
 import { resolveInboxSessionArtefact } from './inboxSessionArtefact'
 
 export type RunBeapSessionAutomationResult =
-  | { ok: true }
+  | { ok: true; sessionKey?: string; executed?: string[] }
   | { ok: false; error: string }
 
 export async function runBeapSessionAutomationForMessage(
@@ -43,8 +43,19 @@ export async function runBeapSessionAutomationForMessage(
           'Chromium extension is not connected. Open a web tab with WR enabled, then retry Run Automation.',
       }
     }
+    if (err === 'RUN_AUTOMATION_TIMEOUT') {
+      return {
+        ok: false,
+        error:
+          'Run Automation timed out. Ensure a normal web tab is active with the extension loaded, then retry.',
+      }
+    }
     return { ok: false, error: err }
   }
 
-  return { ok: true }
+  return {
+    ok: true,
+    sessionKey: result.sessionKey,
+    executed: result.executed,
+  }
 }

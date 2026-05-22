@@ -3931,7 +3931,12 @@ app.whenReady().then(async () => {
           sourceMessageId,
           handshakeId,
         })
-        return { success: true, dispatched: result.dispatched }
+        return {
+          success: true,
+          dispatched: result.dispatched,
+          sessionKey: result.sessionKey,
+          executed: result.executed,
+        }
       } catch (err: any) {
         console.error('[MAIN] orchestrator:importSessionFromBeap', err?.message ?? err)
         return { success: false, error: err?.message ?? 'IMPORT_FAILED' }
@@ -6041,6 +6046,30 @@ async function runDeviceKeyMigration(
               return
             }
             
+
+            // ===== BEAP Run Automation result (extension → main) =====
+            if (msg.type === 'BEAP_DESKTOP_RUN_AUTOMATION_RESULT') {
+              const reqId = typeof msg.requestId === 'string' ? msg.requestId : ''
+              if (reqId) {
+                const { completeBeapRunAutomationWaiter } = await import(
+                  './main/orchestrator-db/beapRunAutomationWaiter'
+                )
+                if (msg.success === true) {
+                  completeBeapRunAutomationWaiter(reqId, {
+                    ok: true,
+                    sessionKey: typeof msg.sessionKey === 'string' ? msg.sessionKey : undefined,
+                    executed: Array.isArray(msg.executed) ? (msg.executed as string[]) : undefined,
+                  })
+                } else {
+                  completeBeapRunAutomationWaiter(reqId, {
+                    ok: false,
+                    error: typeof msg.error === 'string' ? msg.error : 'RUN_AUTOMATION_FAILED',
+                    phase: typeof msg.phase === 'string' ? msg.phase : undefined,
+                  })
+                }
+              }
+              return
+            }
 
             // ===== BEAP EXPORT DEVICE KEY RESPONSE (migration, Electron-side callback) =====
             if (msg.type === 'BEAP_EXPORT_DEVICE_KEY_RESPONSE') {

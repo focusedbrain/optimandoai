@@ -1316,8 +1316,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           typeof message.data?.fallbackModel === 'string' && message.data.fallbackModel.trim()
             ? message.data.fallbackModel.trim()
             : 'tinyllama'
+        const sessionKey =
+          typeof message.data?.sessionKey === 'string' && message.data.sessionKey.trim()
+            ? message.data.sessionKey.trim()
+            : undefined
         // Run path: full activation + executeModeRunAgents — not routeInput / WR Chat (Edit uses BEAP_EDIT_SESSION_IMPORT only).
-        const out = await fn({ importData, fallbackModel })
+        const out = await fn({ importData, fallbackModel, sessionKey })
         if (out.ok) {
           sendResponse({
             success: true,
@@ -44768,11 +44772,16 @@ ${pageText}
   globalLightboxFunctions.runBeapAutomation = async (payload: {
     importData: unknown
     fallbackModel: string
+    sessionKey?: string
   }) => {
-    const { importData, fallbackModel } = payload
+    const { importData, fallbackModel, sessionKey: presetSessionKey } = payload
     assertBeapTabImportPayload(importData)
     const result = await runCanonicalSessionImport({
       importData,
+      sessionKey:
+        typeof presetSessionKey === 'string' && presetSessionKey.trim()
+          ? presetSessionKey.trim()
+          : undefined,
       activation: 'activate_full',
       intent: 'standard',
       storageSet: storageSet as (
@@ -44782,17 +44791,17 @@ ${pageText}
       host: createSessionImportActivationHost(),
       pageUrlFallback: window.location.href,
     })
-    const sessionKey = result.sessionKey
+    const activeSessionKey = result.sessionKey
     const { executeModeRunAgents } = await import('./services/modeRunExecution')
     const runResult = await executeModeRunAgents({
-      modeLinkedSessionId: sessionKey,
-      currentOrchestratorSessionId: sessionKey,
-      sessionKey,
+      modeLinkedSessionId: activeSessionKey,
+      currentOrchestratorSessionId: activeSessionKey,
+      sessionKey: activeSessionKey,
       fallbackModel,
       inputText: '',
       processedMessages: [{ role: 'user', content: '' }],
     })
-    return interpretBeapAutomationModeRun(sessionKey, runResult)
+    return interpretBeapAutomationModeRun(activeSessionKey, runResult)
   }
 
   globalLightboxFunctions.openWRVaultLightbox = openWRVaultLightbox

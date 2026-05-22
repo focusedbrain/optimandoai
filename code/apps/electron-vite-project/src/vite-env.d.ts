@@ -328,7 +328,13 @@ interface OrchestratorBridge {
     importArtefact: Record<string, unknown>
     sourceMessageId: string
     handshakeId: string | null
-  }) => Promise<{ success: boolean; dispatched?: boolean; error?: string }>
+  }) => Promise<{
+    success: boolean
+    dispatched?: boolean
+    sessionKey?: string
+    executed?: string[]
+    error?: string
+  }>
   /** Opens orchestrator SQLite (same as POST /api/orchestrator/connect). */
   connect: () => Promise<{ success: boolean; data?: unknown; error?: string }>
   listSessions: () => Promise<{ success: boolean; data?: unknown[]; error?: string }>

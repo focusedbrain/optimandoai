@@ -3,21 +3,18 @@
  * Keeps invalid payloads from reaching tab handlers; does not replace sessionImportPayloadResolver UI gating.
  */
 
+import { unwrapSessionImportPayloadForTab } from '../services/sessionImportArtefactUnwrap'
+
 export type BeapImportPayloadGuardResult =
   | { ok: true; payload: Record<string, unknown> }
   | { ok: false; reason: string }
 
 /**
  * Tab bridges require a plain object payload (structured-clone safe). Arrays / primitives are rejected.
+ * Unwraps SessionImportArtefact wrappers and maps orchestrator session content to tab-import shape.
  */
 export function narrowBeapImportPayloadForBridge(importData: unknown): BeapImportPayloadGuardResult {
-  if (importData === null || importData === undefined) {
-    return { ok: false, reason: 'Import payload is missing.' }
-  }
-  if (typeof importData !== 'object' || Array.isArray(importData)) {
-    return { ok: false, reason: 'Import payload must be a session object, not an array or primitive.' }
-  }
-  return { ok: true, payload: importData as Record<string, unknown> }
+  return unwrapSessionImportPayloadForTab(importData)
 }
 
 export function narrowBeapFallbackModel(fallbackModel: unknown, fallbackWhenEmpty: string): string {

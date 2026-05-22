@@ -10,6 +10,11 @@
  */
 
 import { sessionDisplayLabel } from '../utils/sessionDisplayLabel'
+import {
+  isOrchestratorSessionContent,
+  isSessionImportArtefactWrapper,
+  orchestratorSessionContentToTabImport,
+} from './sessionImportArtefactUnwrap'
 
 export type SessionImportActivationIntent =
   /** Persist working copy only (same as legacy “Load later”). */
@@ -101,9 +106,6 @@ export function createNewImportSessionKey(): string {
 }
 
 /**
- * Validate and map file/API payload → session blob (before persist).
- */
-/**
  * Try to normalize import data without throwing (for validators / BEAP inbox).
  */
 export function safeNormalizeImportedSessionPayload(
@@ -127,8 +129,17 @@ export function normalizeImportedSessionPayload(
   }
 
   const raw = importData as Record<string, unknown>
-  const isExportFormat = raw.version === '1.0.0'
   const pageUrl = options?.pageUrl ?? (typeof window !== 'undefined' ? window.location.href : '')
+
+  if (isSessionImportArtefactWrapper(raw)) {
+    const sessions = raw.sessions as unknown[]
+    if (sessions.length > 0 && sessions[0] && typeof sessions[0] === 'object' && !Array.isArray(sessions[0])) {
+      return normalizeImportedSessionPayload(sessions[0], options)
+    }
+    throw new Error('Session import artefact has no importable session')
+  }
+
+  const isExportFormat = raw.version === '1.0.0'
 
   let sessionData: Record<string, unknown>
 
@@ -166,11 +177,22 @@ export function normalizeImportedSessionPayload(
 
     sessionData._importedMemory = raw.memory || null
     sessionData._importedContext = raw.context || null
+  } else if (isOrchestratorSessionContent(raw)) {
+    sessionData = orchestratorSessionContentToTabImport(raw, pageUrl)
   } else {
     sessionData = {
       ...raw,
       isLocked: true,
       timestamp: (raw.timestamp as string) || new Date().toISOString(),
+    }
+    if (!Array.isArray(sessionData.agentBoxes) && Array.isArray(raw.agent_boxes)) {
+      sessionData.agentBoxes = raw.agent_boxes
+    }
+    if (!Array.isArray(sessionData.displayGrids) && Array.isArray(raw.display_grids)) {
+      sessionData.displayGrids = raw.display_grids
+    }
+    if (typeof sessionData.tabName !== 'string' && typeof raw.session_name === 'string') {
+      sessionData.tabName = raw.session_name
     }
   }
 

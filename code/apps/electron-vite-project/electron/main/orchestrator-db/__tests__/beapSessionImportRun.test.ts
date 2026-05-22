@@ -30,8 +30,8 @@ function validRunArtefact(overrides: Record<string, unknown> = {}): Record<strin
         session_kind: 'orchestrator_session',
         session_id: 'session_1714000000000',
         session_name: 'Test Session',
-        agents: [],
-        agent_boxes: [],
+        agents: [{ id: 'a1', name: 'Agent', mode: 'mode_trigger' }],
+        agent_boxes: [{ id: 'b1', identifier: 'box', agents: [] }],
         display_grids: [],
         capabilities_required: ['session_control'],
       },
@@ -43,6 +43,14 @@ function validRunArtefact(overrides: Record<string, unknown> = {}): Record<strin
     sensitive_subcapsule: null,
     ...overrides,
   }
+}
+
+function successWaiter() {
+  return vi.fn(async () => ({
+    ok: true as const,
+    sessionKey: 'session_test',
+    executed: ['Agent'],
+  }))
 }
 
 describe('importAndRunBeapSessionFromArtefact', () => {
@@ -64,6 +72,7 @@ describe('importAndRunBeapSessionFromArtefact', () => {
         orchestrator: orchestrator as any,
         broadcastToExtensions: vi.fn(),
         extensionClientCount: () => 1,
+        waitForRunAutomationResult: successWaiter(),
       },
     )
     expect(r).toEqual({ success: false, error: 'INVALID_ARTEFACT' })
@@ -85,6 +94,7 @@ describe('importAndRunBeapSessionFromArtefact', () => {
         },
       ],
     })
+    const waitForRunAutomationResult = successWaiter()
     const r = await importAndRunBeapSessionFromArtefact(
       {
         sessionId: 'session_1714000000000',
@@ -97,10 +107,12 @@ describe('importAndRunBeapSessionFromArtefact', () => {
         orchestrator: orchestrator as any,
         broadcastToExtensions: broadcast,
         extensionClientCount: () => 1,
+        waitForRunAutomationResult,
       },
     )
-    expect(r).toEqual({ success: true, dispatched: true })
+    expect(r.success).toBe(true)
     expect(broadcast).toHaveBeenCalled()
+    expect(orchestrator.set).toHaveBeenCalled()
   })
 
   it('rejects handshake binding mismatch', async () => {
@@ -118,14 +130,16 @@ describe('importAndRunBeapSessionFromArtefact', () => {
         orchestrator: orchestrator as any,
         broadcastToExtensions: vi.fn(),
         extensionClientCount: () => 1,
+        waitForRunAutomationResult: successWaiter(),
       },
     )
     expect(r).toEqual({ success: false, error: 'HANDSHAKE_BINDING_MISMATCH' })
   })
 
-  it('dispatches to extension when valid', async () => {
+  it('dispatches unwrapped tab payload to extension when valid', async () => {
     const broadcast = vi.fn()
     const artefact = validRunArtefact()
+    const waitForRunAutomationResult = successWaiter()
     const r = await importAndRunBeapSessionFromArtefact(
       {
         sessionId: 'session_1714000000000',
@@ -138,16 +152,28 @@ describe('importAndRunBeapSessionFromArtefact', () => {
         orchestrator: orchestrator as any,
         broadcastToExtensions: broadcast,
         extensionClientCount: () => 1,
+        waitForRunAutomationResult,
       },
     )
-    expect(r).toEqual({ success: true, dispatched: true })
+    expect(r.success).toBe(true)
     expect(broadcast).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'BEAP_DESKTOP_RUN_AUTOMATION',
-        importData: artefact,
         sourceMessageId: 'msg-1',
+        sessionKey: expect.stringMatching(/^session_/),
+        importData: expect.objectContaining({
+          tabName: 'Test Session',
+          agentBoxes: expect.any(Array),
+          agents: expect.any(Array),
+        }),
       }),
     )
+    expect(r).toMatchObject({
+      success: true,
+      dispatched: true,
+      sessionKey: 'session_test',
+      executed: ['Agent'],
+    })
   })
 
   it('fails when extension bridge is offline', async () => {
@@ -163,6 +189,7 @@ describe('importAndRunBeapSessionFromArtefact', () => {
         orchestrator: orchestrator as any,
         broadcastToExtensions: vi.fn(),
         extensionClientCount: () => 0,
+        waitForRunAutomationResult: successWaiter(),
       },
     )
     expect(r).toEqual({ success: false, error: 'EXTENSION_NOT_CONNECTED' })

@@ -3,14 +3,23 @@
  *
  * - Re-validates `session_import_artefact` via ingestion-core (validator authority).
  * - Enforces handshake binding when present.
- * - Dispatches execution to the Chromium extension over the localhost WS bridge only
- *   after validation passes — no trusted-read bypass.
+ * - Unwraps artefact → tab-import shape before extension dispatch.
+ * - Persists working copy to orchestrator KV before run.
+ * - Waits for extension execution result when waiter is configured.
  */
 
 import { validateSessionImportArtefact } from '@repo/ingestion-core'
 import type { OrchestratorService } from './service'
+import {
+  newBeapImportSessionKey,
+  unwrapSessionImportPayloadForTab,
+} from './sessionImportArtefactUnwrap'
+import type { BeapRunAutomationWaitResult } from './beapRunAutomationWaiter'
+import { registerBeapRunAutomationWaiter } from './beapRunAutomationWaiter'
 
 export const BEAP_DESKTOP_RUN_AUTOMATION_WS_TYPE = 'BEAP_DESKTOP_RUN_AUTOMATION' as const
+export const BEAP_DESKTOP_RUN_AUTOMATION_RESULT_WS_TYPE =
+  'BEAP_DESKTOP_RUN_AUTOMATION_RESULT' as const
 
 export type BeapSessionImportRunRequest = {
   sessionId: string
@@ -21,13 +30,18 @@ export type BeapSessionImportRunRequest = {
 }
 
 export type BeapSessionImportRunResult =
-  | { success: true; dispatched: boolean }
+  | { success: true; dispatched: boolean; sessionKey?: string; executed?: string[] }
   | { success: false; error: string }
 
 export type BeapSessionImportRunDeps = {
   orchestrator: OrchestratorService
   broadcastToExtensions: (message: Record<string, unknown>) => void
   extensionClientCount: () => number
+  /** When set, blocks until extension reports run outcome (or timeout). */
+  waitForRunAutomationResult?: (
+    requestId: string,
+    timeoutMs: number,
+  ) => Promise<BeapRunAutomationWaitResult>
 }
 
 function readHandshakeIdFromBinding(binding: unknown): string | null {
@@ -36,9 +50,16 @@ function readHandshakeIdFromBinding(binding: unknown): string | null {
   return typeof id === 'string' && id.trim() ? id.trim() : null
 }
 
+function newRequestId(): string {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `beap_run_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+  }
+}
+
 /**
- * Validate artefact and optionally dispatch Run Automation to the extension.
- * Does not persist a duplicate copy — the extension import pipeline owns working-copy storage.
+ * Validate artefact, persist working copy, dispatch Run Automation to extension, await result.
  */
 export async function importAndRunBeapSessionFromArtefact(
   req: BeapSessionImportRunRequest,
@@ -81,8 +102,33 @@ export async function importAndRunBeapSessionFromArtefact(
     }
   }
 
-  // Audit metadata only — never log artefact body (Annex I).
+  const unwrapped = unwrapSessionImportPayloadForTab(artefact)
+  if (!unwrapped.ok) {
+    return { success: false, error: unwrapped.reason }
+  }
+
+  const sessionKey = newBeapImportSessionKey()
+  const tabPayload = {
+    ...unwrapped.payload,
+    tabName:
+      typeof unwrapped.payload.tabName === 'string' && unwrapped.payload.tabName.trim()
+        ? unwrapped.payload.tabName
+        : req.sessionName || 'Imported Session',
+    isLocked: true,
+    lastOpenedAt: new Date().toISOString(),
+    beapImportSourceMessageId: req.sourceMessageId,
+    beapImportSourceSessionId: req.sessionId,
+  }
+
   await deps.orchestrator.connect().catch(() => undefined)
+
+  try {
+    await deps.orchestrator.set(sessionKey, tabPayload)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return { success: false, error: `ORCHESTRATOR_PERSIST_FAILED: ${msg}` }
+  }
+
   const auditKey = `beap_import_audit_${req.sourceMessageId.slice(0, 120)}`
   if (auditKey.length <= 512) {
     try {
@@ -92,6 +138,7 @@ export async function importAndRunBeapSessionFromArtefact(
         sessionName: req.sessionName.slice(0, 500),
         handshakeId: req.handshakeId,
         importedAt: Date.now(),
+        workingSessionKey: sessionKey,
         artefactId:
           typeof artefactObj.artefact_id === 'string' ? artefactObj.artefact_id : undefined,
       })
@@ -104,13 +151,32 @@ export async function importAndRunBeapSessionFromArtefact(
     return { success: false, error: 'EXTENSION_NOT_CONNECTED' }
   }
 
+  const requestId = newRequestId()
+  const waitForResult =
+    deps.waitForRunAutomationResult ??
+    ((id: string, ms: number) => registerBeapRunAutomationWaiter(id, ms))
+
+  const resultPromise = waitForResult(requestId, 120_000)
+
   deps.broadcastToExtensions({
     type: BEAP_DESKTOP_RUN_AUTOMATION_WS_TYPE,
-    importData: artefact,
+    requestId,
+    sessionKey,
+    importData: tabPayload,
     sourceMessageId: req.sourceMessageId,
     handshakeId: req.handshakeId,
     fallbackModel: 'tinyllama',
   })
 
-  return { success: true, dispatched: true }
+  const exec = await resultPromise
+  if (!exec.ok) {
+    return { success: false, error: exec.error ?? 'RUN_AUTOMATION_FAILED' }
+  }
+
+  return {
+    success: true,
+    dispatched: true,
+    sessionKey: exec.sessionKey ?? sessionKey,
+    executed: exec.executed,
+  }
 }

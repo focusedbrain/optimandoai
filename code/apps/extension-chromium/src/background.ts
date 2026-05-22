@@ -1344,23 +1344,68 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               }
             } else if (data.type === 'BEAP_DESKTOP_RUN_AUTOMATION') {
               const importData = data.importData
+              const requestId = typeof data.requestId === 'string' ? data.requestId : ''
+              const sessionKey = typeof data.sessionKey === 'string' ? data.sessionKey : undefined
               const fallbackModel =
                 typeof data.fallbackModel === 'string' && data.fallbackModel.trim()
                   ? data.fallbackModel.trim()
                   : 'tinyllama'
               if (importData == null || typeof importData !== 'object' || Array.isArray(importData)) {
                 console.warn('[BG] BEAP_DESKTOP_RUN_AUTOMATION: invalid importData — skipped')
+                if (requestId && ws && ws.readyState === WebSocket.OPEN) {
+                  ws.send(
+                    JSON.stringify({
+                      type: 'BEAP_DESKTOP_RUN_AUTOMATION_RESULT',
+                      requestId,
+                      success: false,
+                      error: 'INVALID_IMPORT_DATA',
+                      phase: 'init',
+                    }),
+                  )
+                }
               } else {
                 void (async () => {
                   try {
                     const { requestBeapRunAutomationInActiveTab } = await import(
                       './beap-messages/beapSessionRunBridge'
                     )
-                    const result = await requestBeapRunAutomationInActiveTab(importData, { fallbackModel })
+                    const result = await requestBeapRunAutomationInActiveTab(importData, {
+                      fallbackModel,
+                      sessionKey,
+                    })
+                    if (requestId && ws && ws.readyState === WebSocket.OPEN) {
+                      ws.send(
+                        JSON.stringify({
+                          type: 'BEAP_DESKTOP_RUN_AUTOMATION_RESULT',
+                          requestId,
+                          success: result.success,
+                          error: result.success ? undefined : result.error,
+                          phase: result.success ? undefined : result.phase,
+                          sessionKey: result.success
+                            ? result.sessionKey
+                            : 'sessionKey' in result
+                              ? result.sessionKey
+                              : undefined,
+                          executed: result.success ? result.executed : undefined,
+                        }),
+                      )
+                    }
                     if (!result.success) {
                       console.warn('[BG] BEAP_DESKTOP_RUN_AUTOMATION failed:', result.error, result.phase)
                     }
                   } catch (e) {
+                    const err = e instanceof Error ? e.message : String(e)
+                    if (requestId && ws && ws.readyState === WebSocket.OPEN) {
+                      ws.send(
+                        JSON.stringify({
+                          type: 'BEAP_DESKTOP_RUN_AUTOMATION_RESULT',
+                          requestId,
+                          success: false,
+                          error: err,
+                          phase: 'import',
+                        }),
+                      )
+                    }
                     console.warn('[BG] BEAP_DESKTOP_RUN_AUTOMATION error:', e)
                   }
                 })()

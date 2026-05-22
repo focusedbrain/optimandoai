@@ -41,7 +41,7 @@ export function readBeapRunFallbackLlmModel(): string {
 
 export function requestBeapRunAutomationInActiveTab(
   importData: unknown,
-  options?: { fallbackModel?: string },
+  options?: { fallbackModel?: string; sessionKey?: string },
 ): Promise<BeapRunAutomationResponse> {
   const narrowed = narrowBeapImportPayloadForBridge(importData)
   if (!narrowed.ok) {
@@ -61,7 +61,14 @@ export function requestBeapRunAutomationInActiveTab(
       }
       chrome.tabs.sendMessage(
         tabId,
-        { type: BEAP_RUN_AUTOMATION_TYPE, data: { importData: payload, fallbackModel } },
+        {
+          type: BEAP_RUN_AUTOMATION_TYPE,
+          data: {
+            importData: payload,
+            fallbackModel,
+            sessionKey: typeof options?.sessionKey === 'string' ? options.sessionKey : undefined,
+          },
+        },
         (response) => {
           if (chrome.runtime.lastError) {
             resolve({
