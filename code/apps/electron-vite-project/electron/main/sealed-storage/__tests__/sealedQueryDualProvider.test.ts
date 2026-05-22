@@ -128,6 +128,35 @@ describe('sealedQuery — dual provider entry gate (W4-P10)', () => {
     expect(rows).toHaveLength(0)
   })
 
+  it('outer provider survives computeSeal zeroize — ledger row still verifies', () => {
+    if (!ctx.db) return
+
+    bindOuterOnly()
+
+    const msgId = randomUUID()
+    const content = { id: msgId, body: 'survives seal zeroize' }
+    const canonical = JSON.stringify(content)
+    computeSeal(canonical, msgId, 'outer')
+    const { seal, seal_input_json } = computeSeal(canonical, msgId, 'outer')
+
+    ctx.db
+      .prepare(
+        `INSERT INTO inbox_messages
+           (id, depackaged_json, seal, seal_input_json, seal_key_source)
+         VALUES (?, ?, ?, ?, 'ledger')`,
+      )
+      .run(msgId, canonical, seal, seal_input_json)
+
+    const rows = sealedQuery(
+      ctx.db,
+      'SELECT id, depackaged_json, seal, seal_input_json, seal_key_source FROM inbox_messages WHERE id = ?',
+      [msgId],
+      'depackaged_json',
+    )
+
+    expect(rows).toHaveLength(1)
+  })
+
   it('inner provider only + vmk row succeeds verification', () => {
     if (!ctx.db) return
 

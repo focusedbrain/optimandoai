@@ -103,6 +103,14 @@ export function isKeyProviderBound(source: KeySource = 'inner'): boolean {
   return _providers[source] !== null
 }
 
+/** Bound and returns a non-empty key (guards stale inner binding after auto-lock). */
+export function isKeyProviderUsable(source: KeySource = 'inner'): boolean {
+  const p = _providers[source]
+  if (p == null) return false
+  const key = p()
+  return key != null && key.length > 0
+}
+
 /**
  * Internal: invoke the provider for `source` and return the derived key,
  * or null if the slot is unbound or the provider returns null.
@@ -111,6 +119,13 @@ function getKey(source: KeySource): Buffer | null {
   const p = _providers[source]
   if (p == null) return null
   return p()
+}
+
+/** Copy provider key for HMAC — callers must zeroize the copy, never the provider buffer. */
+function sealKeyCopy(source: KeySource): Buffer | null {
+  const key = getKey(source)
+  if (key == null) return null
+  return Buffer.from(key)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -219,7 +234,7 @@ function verifyHmacWithProvider(
     )
   }
 
-  const key = getKey(source)
+  const key = sealKeyCopy(source)
   if (!key) {
     return enforceOrWarn(
       false,
@@ -386,7 +401,7 @@ export function computeSeal(
   rowId: string,
   source: KeySource = 'inner',
 ): { seal: string; seal_input_json: string } {
-  const key = getKey(source)
+  const key = sealKeyCopy(source)
   if (key == null) throw new SealKeyNotBoundError(source)
 
   const content_sha256 = createHash('sha256').update(canonicalJson, 'utf8').digest('hex')
@@ -639,7 +654,7 @@ export function sealedQuery<T extends SealedRow>(
     }
 
     // ── HMAC check ───────────────────────────────────────────────────────────
-    const key = getKey(source)
+    const key = sealKeyCopy(source)
     if (!key) {
       recordTamper('missing_seal', ctx, `key_provider_null source='${source}'`)
       if (SEALED_STORAGE_MODE === 'reject') continue

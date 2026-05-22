@@ -61,7 +61,7 @@
  * dead/unstarted subprocess) before returning, so callers see a ready state.
  */
 
-import { isKeyProviderBound } from './sealed-storage'
+import { isKeyProviderBound, isKeyProviderUsable } from './sealed-storage'
 import { validatorOrchestrator } from './validator-process/orchestrator'
 import { vaultService } from './vault/service'
 import { isInnerVaultUnlocked, getHandshakeClassification } from './vault/vaultCanon'
@@ -183,7 +183,7 @@ export async function ensureValidatorAndSealedStorageReady(
     ? getHandshakeClassification(handshakeId)
     : 'non_confidential'
 
-  if (classification === 'non_confidential' && isKeyProviderBound('outer')) {
+  if (classification === 'non_confidential' && isKeyProviderUsable('outer')) {
     console.log(
       `[VALIDATOR_READY_CHECK] ready reason=${reason} classification=non_confidential outerActive=true keyProviderBound(outer)=true`,
     )
@@ -194,7 +194,7 @@ export async function ensureValidatorAndSealedStorageReady(
   // Verify BOTH: key provider bound AND inner vault still unlocked.
   // The auto-lock timer (VaultService) can clear `session` without stopping
   // the validator, leaving a stale binding whose closure returns null.
-  if (isKeyProviderBound('inner') && isInnerVaultUnlocked()) {
+  if (isKeyProviderUsable('inner') && isInnerVaultUnlocked()) {
     console.log(
       `[VALIDATOR_READY_CHECK] ready reason=${reason} classification=${classification} outerVaultReady=true validatorRunning=${validatorOrchestrator.getLiveness() === 'running'} keyProviderBound=true`,
     )

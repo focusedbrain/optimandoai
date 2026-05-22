@@ -241,8 +241,8 @@ export async function openLedger(sessionToken: string): Promise<any> {
   // SHA-256 hash of sub+iss), so it is stable across bearer-token refreshes.
   // Different info string ('ledger-seal-key-v1') ensures this key is
   // cryptographically independent from the DB encryption key.
-  const sealKey = deriveLedgerSealKey(sessionToken)
-  bindKeyProvider(() => sealKey, 'outer')
+  // Fresh derivation per getKey() — computeSeal/sealedQuery zeroize working key copies only.
+  bindKeyProvider(() => deriveLedgerSealKey(sessionToken), 'outer')
   console.log('[SEAL] ledger seal key bound')
 
   return db

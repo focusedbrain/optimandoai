@@ -7,7 +7,7 @@
 import { extractInboxMessageRedirectSourceFromRow } from './beapRedirectSource'
 import { getHandshakeRecord } from '../handshake/db'
 import { resolveInboxReplyMode } from '../../../src/lib/inboxAiCloneClassification'
-import { isKeyProviderBound, sealedQuery, SealVerificationError } from '../sealed-storage'
+import { isKeyProviderBound, isKeyProviderUsable, sealedQuery, SealVerificationError } from '../sealed-storage'
 import { ensureValidatorAndSealedStorageReady } from '../validatorReadiness'
 import { vaultService } from '../vault/service'
 import {
@@ -148,8 +148,8 @@ export async function ensureSealedStorageReadyForSandboxClone(cloneId: string): 
   // sealedQuery is source-aware (W4-P10): it picks the right provider per row.
   // The gate allows cloning if EITHER provider is bound.
   const innerVaultReady = vaultService.getStatus().isUnlocked === true
-  const outerKeyBound = isKeyProviderBound('outer')
-  const innerKeyBound = isKeyProviderBound('inner')
+  const outerKeyBound = isKeyProviderUsable('outer')
+  const innerKeyBound = isKeyProviderUsable('inner')
 
   console.log(
     `[CLONE_PREPARE] sealed_storage_check cloneId=${cloneId} outerKeyBound=${outerKeyBound} innerKeyBound=${innerKeyBound} innerVaultReady=${innerVaultReady}`,
@@ -239,7 +239,7 @@ export function prepareBeapInboxSandboxClone(
   console.log(
     `[CLONE_PREPARE] source_seal_key_source cloneId=${auditCloneId} sourceMessageId=${srcId} seal_key_source=${sealKeySource ?? 'missing'}`,
   )
-  if (inboxSealKeySourceRequiresInnerVault(sealKeySource) && !isKeyProviderBound('inner')) {
+  if (inboxSealKeySourceRequiresInnerVault(sealKeySource) && !isKeyProviderUsable('inner')) {
     console.log(
       `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${auditCloneId} reason=inner_vault_required seal_key_source=${sealKeySource ?? 'unknown'} innerKeyBound=false`,
     )
@@ -249,7 +249,7 @@ export function prepareBeapInboxSandboxClone(
       error: CLONE_PREPARE_INNER_VAULT_USER_MESSAGE,
     }
   }
-  if (sealKeySource === 'ledger' && !isKeyProviderBound('outer') && !isKeyProviderBound('inner')) {
+  if (sealKeySource === 'ledger' && !isKeyProviderUsable('outer') && !isKeyProviderUsable('inner')) {
     return {
       ok: false,
       code: 'outer_vault_or_key_provider_unavailable',
@@ -307,7 +307,23 @@ export function prepareBeapInboxSandboxClone(
   const row = sealedRows[0]
 
   if (!row) {
-    return { ok: false, code: 'MESSAGE_NOT_FOUND', error: 'Inbox message was not found.' }
+    if (sealKeySource !== null) {
+      if (inboxSealKeySourceRequiresInnerVault(sealKeySource) && !isKeyProviderUsable('inner')) {
+        return {
+          ok: false,
+          code: 'inner_vault_or_key_provider_unavailable',
+          error: CLONE_PREPARE_INNER_VAULT_USER_MESSAGE,
+        }
+      }
+      if (sealKeySource === 'ledger' && !isKeyProviderUsable('outer') && !isKeyProviderUsable('inner')) {
+        return {
+          ok: false,
+          code: 'outer_vault_or_key_provider_unavailable',
+          error: CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
+        }
+      }
+    }
+    return { ok: false, code: 'MESSAGE_NOT_FOUND', error: 'Inbox message was not found or could not be verified.' }
   }
 
   console.log(`[CLONE_PREPARE] source_loaded cloneId=${auditCloneId} sourceMessageId=${srcId}`)
