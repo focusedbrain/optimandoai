@@ -38,7 +38,8 @@ function buildCloneProvenanceObject(
     beap_sandbox_clone: {
       clone_reason: p.clone_reason,
       original_message_id: p.source_message_id,
-      original_inbox_source_type: p.source_type,
+      original_inbox_source_type:
+        p.provenance_original_inbox_source_type?.trim() || p.source_type,
       original_response_path: p.original_response_path,
       reply_transport: p.reply_transport,
       original_sender: p.from_address ?? null,
@@ -170,8 +171,15 @@ export async function cloneBeapInboxToSandbox(
   const pub = `${SANDBOX_CLONE_INBOX_LEAD_IN}${preparePayload.public_text || preparePayload.encrypted_text}`.trim()
   const enc = preparePayload.encrypted_text.trim()
 
+  const isNativeBeapClone = preparePayload.original_response_path === 'native_beap'
+  const provenanceSourceType =
+    preparePayload.provenance_original_inbox_source_type?.trim() ||
+    (isNativeBeapClone ? preparePayload.source_type : 'email_plain')
+
   // eslint-disable-next-line no-console
-  console.log(`[CLONE_PACKAGE] created cloneId=${cloneId} type=qBEAP handshake=${preparePayload.target_handshake_id} sourceType=${preparePayload.source_type}`)
+  console.log(
+    `[CLONE_PACKAGE] created cloneId=${cloneId} wire=qBEAP profile=${isNativeBeapClone ? 'native_beap' : 'depackaged_email'} handshake=${preparePayload.target_handshake_id} dbSourceType=${preparePayload.source_type} provenanceSourceType=${provenanceSourceType}`,
+  )
 
   const config: BeapPackageConfig = {
     recipientMode: 'private',
@@ -183,7 +191,7 @@ export async function cloneBeapInboxToSandbox(
     encryptedMessage: enc,
     inboxResponsePathMetadata: {
       sandbox_clone: true,
-      original_source_type: preparePayload.source_type,
+      original_source_type: provenanceSourceType,
       original_response_path: preparePayload.original_response_path,
       reply_transport: preparePayload.reply_transport,
       // PR 5.2 / Decision B: provenance rides in metadata; sandbox reads it from
@@ -193,9 +201,8 @@ export async function cloneBeapInboxToSandbox(
     attachments: [],
     // Correlation ID for cross-layer tracing (CLONE_* logs).
     _beapMsgId: cloneId,
-    // PR 5.2 / Decision A: forward source session import artefact so the Builder
-    // serialises it at the canonical top-level position in the new capsule.
-    ...(preparePayload.session_import_artefact != null
+    // PR 5.2 / Decision A: session import only for native BEAP (depackaged email has no session).
+    ...(isNativeBeapClone && preparePayload.session_import_artefact != null
       ? { sessionImportArtefact: preparePayload.session_import_artefact as any }
       : {}),
   }

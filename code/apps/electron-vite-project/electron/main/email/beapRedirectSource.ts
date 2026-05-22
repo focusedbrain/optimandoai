@@ -215,6 +215,32 @@ function extractGenericInboxText(row: InboxRow): { publicText: string; encText: 
 }
 
 /**
+ * Sandbox clone prepare only — depackaged-email rows must not use the BEAP structured extractor
+ * (which can surface qBEAP transport lines). Redirect keeps using {@link extractInboxMessageRedirectSourceFromRow}.
+ */
+export function extractClonePrepareSourceFromRow(
+  row: InboxRow | null | undefined,
+  responsePath: 'email' | 'native_beap',
+): BeapRedirectSourceResult {
+  if (!row?.id) return { ok: false, error: 'Message not found' }
+  if (responsePath === 'email') {
+    const subject = String(row.subject ?? '').trim() || '(No subject)'
+    const g = extractGenericInboxText(row)
+    return {
+      ok: true,
+      message_id: row.id,
+      source_type: String(row.source_type ?? 'email_plain'),
+      original_handshake_id: row.handshake_id?.trim() || null,
+      subject,
+      public_text: g.publicText,
+      encrypted_text: g.encText,
+      ...(g.warning ? { content_warning: g.warning } : {}),
+    }
+  }
+  return extractInboxMessageRedirectSourceFromRow(row)
+}
+
+/**
  * Normalized source for every inbox message (`prepareInboxMessageRedirectSource` / clone prepare).
  * Always succeeds for an existing row with an id.
  */

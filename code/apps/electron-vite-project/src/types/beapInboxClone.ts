@@ -39,6 +39,8 @@ export interface BeapInboxClonePrepareOk {
    * Null when absent. Passed to `BeapPackageConfig.sessionImportArtefact` by the renderer.
    */
   session_import_artefact?: Record<string, unknown> | null
+  /** Sandbox provenance `original_inbox_source_type` (email_plain for depackaged-email clones). */
+  provenance_original_inbox_source_type?: string
 }
 
 /** Main-process prepare path (not including host envelope errors). */

@@ -285,6 +285,74 @@ describe('prepareBeapInboxSandboxClone', () => {
     }
   })
 
+  test('email_beap depackaged mail without session uses email response path and plain extraction', () => {
+    const row = {
+      id: 'm-eb-plain',
+      source_type: 'email_beap',
+      beap_package_json: null,
+      handshake_id: 'hs-imap',
+      subject: 'Newsletter',
+      body_text: 'Readable newsletter body',
+      depackaged_json: JSON.stringify({
+        format: 'beap_qbeap_decrypted',
+        transport_plaintext: 'ENCRYPTED_TRANSPORT_SHOULD_NOT_WIN',
+        body: 'Readable newsletter body',
+      }),
+      depackaged_metadata: JSON.stringify({ format: 'beap_qbeap_decrypted' }),
+      has_attachments: 0,
+      from_address: 'news@example.com',
+      account_id: 'acc-1',
+      received_at: '2020-01-01T00:00:00.000Z',
+      ingested_at: null,
+    }
+    mockHappyList([makeEligibleEntry()])
+    getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
+    const db = makeInboxDb(row)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-eb-plain', undefined, null)
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.original_response_path).toBe('email')
+      expect(r.reply_transport).toBe('email')
+      expect(r.provenance_original_inbox_source_type).toBe('email_plain')
+      expect(r.session_import_artefact).toBeNull()
+      expect(r.encrypted_text).toContain('Readable newsletter body')
+      expect(r.encrypted_text).not.toContain('ENCRYPTED_TRANSPORT_SHOULD_NOT_WIN')
+    }
+  })
+
+  test('direct_beap with session artefact uses native response path', () => {
+    const row = {
+      id: 'm-native',
+      source_type: 'direct_beap',
+      beap_package_json: null,
+      handshake_id: 'hs-peer',
+      subject: 'Native',
+      body_text: 'native body',
+      depackaged_json: JSON.stringify({
+        format: 'beap_qbeap_decrypted',
+        body: 'native body',
+        transport_plaintext: 'native body',
+        session_import_artefact: { artefact_id: 'art-n', sessions: [{ session_id: 's1' }] },
+      }),
+      depackaged_metadata: JSON.stringify({ format: 'beap_qbeap_decrypted' }),
+      has_attachments: 0,
+      from_address: 'peer@example.com',
+      account_id: '__p2p__',
+      received_at: '2020-01-01T00:00:00.000Z',
+      ingested_at: null,
+    }
+    mockHappyList([makeEligibleEntry()])
+    getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
+    const db = makeInboxDb(row)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-native', undefined, null)
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.original_response_path).toBe('native_beap')
+      expect(r.provenance_original_inbox_source_type).toBe('direct_beap')
+      expect(r.session_import_artefact).toMatchObject({ artefact_id: 'art-n' })
+    }
+  })
+
   test('email_plain with beap_package_json is accepted as received BEAP for prepare', () => {
     const row = {
       id: 'm-ep-pkg',

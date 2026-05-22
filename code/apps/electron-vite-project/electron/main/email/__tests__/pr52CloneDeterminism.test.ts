@@ -33,6 +33,7 @@ vi.mock('../../handshake/db', async (importOriginal) => {
 vi.mock('../../sealed-storage', () => ({
   sealedQuery: (db: any, sql: string, args: unknown[]) =>
     db.prepare(sql).all(...args),
+  isKeyProviderUsable: () => true,
 }))
 
 import { prepareBeapInboxSandboxClone } from '../beapInboxClonePrepare'

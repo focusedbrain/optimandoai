@@ -6,7 +6,7 @@
  * Eligibility: internal ACTIVE host↔sandbox, same identity, peer sandbox role, keys + relay (see internalSandboxesApi).
  */
 
-import { extractInboxMessageRedirectSourceFromRow } from './beapRedirectSource'
+import { extractClonePrepareSourceFromRow } from './beapRedirectSource'
 import { getHandshakeRecord } from '../handshake/db'
 import {
   inboxRowIsClonedPlainEmail,
@@ -64,9 +64,14 @@ export type BeapInboxClonePrepareOk = {
   /**
    * PR 5.2 / Decision A: session import artefact extracted from the source row's
    * canonical `depackaged_json`. Null when absent or extraction fails.
-   * Passed to BeapPackageConfig.sessionImportArtefact by the renderer.
+   * Passed to BeapPackageConfig.sessionImportArtefact by the renderer (native BEAP clones only).
    */
   session_import_artefact: Record<string, unknown> | null
+  /**
+   * Provenance `original_inbox_source_type` for the sandbox row — `email_plain` when the clone
+   * profile is depackaged email even if the DB row is `email_beap`.
+   */
+  provenance_original_inbox_source_type: string
 }
 
 export type BeapInboxClonePrepareOptions = {
@@ -124,6 +129,60 @@ export function probeInboxMessageSealKeySource(
 export function isDepackagedEmailInboxSourceType(sourceType: string | null | undefined): boolean {
   const st = String(sourceType ?? '').trim()
   return st === 'email_plain' || st === 'email_beap'
+}
+
+function depackagedFormatForCloneRow(row: {
+  depackaged_json?: string | null
+  depackaged_metadata?: string | null
+}): string | null {
+  for (const src of [row.depackaged_metadata, row.depackaged_json]) {
+    if (!src?.trim()) continue
+    try {
+      const d = JSON.parse(src) as { format?: string }
+      if (typeof d.format === 'string') return d.format
+    } catch {
+      /* continue */
+    }
+  }
+  return null
+}
+
+/**
+ * Clone-only response-path semantics. Do not use {@link resolveInboxReplyMode} here — it treats
+ * `email_beap` + `handshake_id` as native BEAP and breaks sandbox AI / body layout for depackaged mail.
+ */
+export function resolveClonePrepareResponsePath(
+  row: InboxMessageAiClassificationRow & {
+    depackaged_metadata?: string | null
+  },
+): 'email' | 'native_beap' {
+  if (inboxRowIsClonedPlainEmail(row)) return 'email'
+  const st = String(row.source_type ?? '').trim()
+  if (st === 'email_plain' || st === 'email_beap') {
+    return rowHasNativeBeapSessionForClone(row) ? 'native_beap' : 'email'
+  }
+  if (st === 'direct_beap') {
+    const fmt = depackagedFormatForCloneRow(row)
+    if (rowHasNativeBeapSessionForClone(row)) return 'native_beap'
+    if (fmt === 'beap_qbeap_decrypted' || fmt === 'beap_qbeap_pending_main') return 'native_beap'
+    return 'native_beap'
+  }
+  return resolveInboxReplyMode(row) === 'native_beap' ? 'native_beap' : 'email'
+}
+
+function rowHasNativeBeapSessionForClone(row: {
+  depackaged_json?: string | null
+}): boolean {
+  return extractSourceSessionImportArtefact(row.depackaged_json) != null
+}
+
+/** Provenance field on the sandbox clone — keeps depackaged-email clones on the email AI path. */
+export function cloneProvenanceOriginalInboxSourceType(
+  row: { source_type?: string | null },
+  responsePath: 'email' | 'native_beap',
+): string {
+  if (responsePath === 'email') return 'email_plain'
+  return String(row.source_type ?? 'direct_beap').trim() || 'direct_beap'
 }
 
 /** Ingest stamps that allow trusted clone read when only the outer (SSO) key is bound. */
@@ -735,7 +794,8 @@ export function prepareBeapInboxSandboxClone(
     }
   }
 
-  const extracted = extractInboxMessageRedirectSourceFromRow(row)
+  const cloneResponsePath = resolveClonePrepareResponsePath(row)
+  const extracted = extractClonePrepareSourceFromRow(row, cloneResponsePath)
   if (!extracted.ok) {
     return {
       ok: false,
@@ -750,8 +810,9 @@ export function prepareBeapInboxSandboxClone(
       ? 'external_link_or_artifact_review'
       : 'sandbox_test'
   const provTriggered = (cloneOptions?.triggered_url ?? '').trim()
-  const originalResponsePath = resolveInboxReplyMode(row)
-  const replyTransport = originalResponsePath
+  const originalResponsePath = cloneResponsePath
+  const replyTransport = cloneResponsePath
+  const provenanceOriginalInboxSourceType = cloneProvenanceOriginalInboxSourceType(row, cloneResponsePath)
 
   // PR 5.2 / Decision B: body is source bytes only — provenance moves to
   // `inboxResponsePathMetadata.sandbox_clone_provenance` in the new qBEAP package.
@@ -772,8 +833,13 @@ export function prepareBeapInboxSandboxClone(
 
   const deviceName = entry.peer_device_name?.trim() || null
 
-  // PR 5.2 / Decision A: extract session import artefact from canonical position.
-  const session_import_artefact = extractSourceSessionImportArtefact(row.depackaged_json)
+  // PR 5.2 / Decision A: session import only for native BEAP clones (depackaged email has none).
+  const session_import_artefact =
+    cloneResponsePath === 'native_beap' ? extractSourceSessionImportArtefact(row.depackaged_json) : null
+
+  console.log(
+    `[CLONE_PREPARE] clone_profile cloneId=${auditCloneId} sourceMessageId=${srcId} db_source_type=${row.source_type ?? 'unknown'} response_path=${cloneResponsePath} provenance_source_type=${provenanceOriginalInboxSourceType} has_session=${session_import_artefact != null}`,
+  )
 
   return {
     ok: true,
@@ -781,6 +847,7 @@ export function prepareBeapInboxSandboxClone(
     source_type: extracted.source_type,
     original_response_path: originalResponsePath,
     reply_transport: replyTransport,
+    provenance_original_inbox_source_type: provenanceOriginalInboxSourceType,
     original_handshake_id: extracted.original_handshake_id,
     original_received_at: receivedAt,
     subject: extracted.subject,

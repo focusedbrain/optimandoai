@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'vitest'
 import {
   extractBeapRedirectSourceFromRow,
+  extractClonePrepareSourceFromRow,
   inboxRowIsReceivedBeapForRedirectOrClone,
   isReceivedBeapInboxSourceType,
 } from '../beapRedirectSource'
@@ -95,6 +96,29 @@ describe('beapRedirectSource (redirect + sandbox clone extraction)', () => {
     if (r.ok) {
       expect(r.encrypted_text).toContain('Hello from IMAP')
       expect(r.subject).toBe('Meeting')
+    }
+  })
+
+  test('clone prepare email path uses generic body not transport_plaintext', () => {
+    const dep = JSON.stringify({
+      format: 'beap_qbeap_decrypted',
+      transport_plaintext: 'transport-only',
+      body: 'Email clone body',
+    })
+    const r = extractClonePrepareSourceFromRow(
+      {
+        id: 'm-clone-email',
+        source_type: 'email_beap',
+        body_text: 'Email clone body',
+        depackaged_json: dep,
+        handshake_id: 'hs-1',
+      },
+      'email',
+    )
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.encrypted_text).toContain('Email clone body')
+      expect(r.encrypted_text).not.toContain('transport-only')
     }
   })
 
