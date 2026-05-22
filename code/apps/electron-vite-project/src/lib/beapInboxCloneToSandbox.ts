@@ -348,7 +348,7 @@ function sandboxCloneFailureUserText(
   if (code === 'outer_vault_unavailable') {
     return err.trim() || 'No vault found for your account. Create or claim a vault to enable cloning.'
   }
-  if (code === 'outer_vault_or_key_provider_unavailable') {
+  if (code === 'outer_vault_or_key_provider_unavailable' || code === 'inner_vault_or_key_provider_unavailable') {
     return err.trim() || 'Your vault must be unlocked before cloning this message. Enter your master password and try again.'
   }
   if (code === 'NO_ACTIVE_SANDBOX_HANDSHAKE') {

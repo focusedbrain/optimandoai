@@ -83,10 +83,41 @@ export type BeapInboxCloneErrorCode =
   | 'outer_vault_or_key_provider_unavailable'
   /** No vault found for the current SSO account — vault not created or all vaults are legacy-unclaimed. */
   | 'outer_vault_unavailable'
+  /** Source row uses VMK seal (seal_key_source vmk/null) but inner key provider is not bound. */
+  | 'inner_vault_or_key_provider_unavailable'
 
 /** User-facing copy when the vault session is not active (vault exists but locked). */
 export const CLONE_PREPARE_SEAL_GATE_USER_MESSAGE =
   'Your vault must be unlocked before cloning this message. Enter your master password and try again.'
+
+/** Same UX as seal gate — master-password vault required for VMK-sealed inbox rows. */
+export const CLONE_PREPARE_INNER_VAULT_USER_MESSAGE = CLONE_PREPARE_SEAL_GATE_USER_MESSAGE
+
+/**
+ * Metadata-only probe: which seal key verifies this inbox row (no canonical content read).
+ */
+export function probeInboxMessageSealKeySource(
+  db: {
+    prepare: (sql: string) => { get: (...args: unknown[]) => { seal_key_source?: string | null } | undefined }
+  },
+  messageId: string,
+): 'ledger' | 'vmk' | null {
+  try {
+    const row = db
+      .prepare('SELECT seal_key_source FROM inbox_messages WHERE id = ?')
+      .get(messageId) as { seal_key_source?: string | null } | undefined
+    if (!row) return null
+    return row.seal_key_source === 'ledger' ? 'ledger' : 'vmk'
+  } catch {
+    return null
+  }
+}
+
+/** True when prepare must use the inner (VMK) key provider before sealedQuery. */
+export function inboxSealKeySourceRequiresInnerVault(sealKeySource: 'ledger' | 'vmk' | null): boolean {
+  if (sealKeySource === null) return false
+  return sealKeySource !== 'ledger'
+}
 
 /** User-facing copy when no vault exists for the current account. */
 export const CLONE_PREPARE_VAULT_UNAVAILABLE_MESSAGE =
@@ -203,6 +234,28 @@ export function prepareBeapInboxSandboxClone(
   }
 
   const auditCloneId = cloneOptions?.clone_audit_id ?? 'unknown'
+
+  const sealKeySource = probeInboxMessageSealKeySource(db, srcId)
+  console.log(
+    `[CLONE_PREPARE] source_seal_key_source cloneId=${auditCloneId} sourceMessageId=${srcId} seal_key_source=${sealKeySource ?? 'missing'}`,
+  )
+  if (inboxSealKeySourceRequiresInnerVault(sealKeySource) && !isKeyProviderBound('inner')) {
+    console.log(
+      `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${auditCloneId} reason=inner_vault_required seal_key_source=${sealKeySource ?? 'unknown'} innerKeyBound=false`,
+    )
+    return {
+      ok: false,
+      code: 'inner_vault_or_key_provider_unavailable',
+      error: CLONE_PREPARE_INNER_VAULT_USER_MESSAGE,
+    }
+  }
+  if (sealKeySource === 'ledger' && !isKeyProviderBound('outer') && !isKeyProviderBound('inner')) {
+    return {
+      ok: false,
+      code: 'outer_vault_or_key_provider_unavailable',
+      error: CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
+    }
+  }
 
   // B-9 Decision B: source read goes through sealedQuery so the parent seal is
   // verified and tampered rows are filtered before their content is extracted.

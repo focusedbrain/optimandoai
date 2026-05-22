@@ -120,7 +120,8 @@ export function createHarnessDb(): HarnessDatabase {
       source_type TEXT,
       account_id TEXT,
       seal TEXT,
-      seal_input_json TEXT
+      seal_input_json TEXT,
+      seal_key_source TEXT NOT NULL DEFAULT 'vmk'
     );
     CREATE TABLE IF NOT EXISTS inbox_attachments (
       id TEXT PRIMARY KEY,
@@ -218,7 +219,7 @@ export function createSealedStorageTestContext(options?: {
   const dek = Buffer.from(TEST_DEK)
   const keyProvider: SealKeyProvider = () => Buffer.from(dek)
 
-  bindKeyProvider(keyProvider)
+  bindKeyProvider(keyProvider, 'inner')
   clearTamperingEvents()
 
   const db = createHarnessDb()
@@ -236,7 +237,8 @@ export function createSealedStorageTestContext(options?: {
     },
 
     cleanup() {
-      unbindKeyProvider()
+      unbindKeyProvider('inner')
+      unbindKeyProvider('outer')
       clearTamperingEvents()
       if (db) {
         try { db.close() } catch { /* already closed */ }

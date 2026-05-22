@@ -52,6 +52,7 @@ export type BeapInboxClonePrepareErrorCode =
   | 'PREPARE_FAILED'
   | 'outer_vault_or_key_provider_unavailable'
   | 'outer_vault_unavailable'
+  | 'inner_vault_or_key_provider_unavailable'
 
 export type BeapInboxCloneNoSandboxDetails = {
   eligible_count: 0

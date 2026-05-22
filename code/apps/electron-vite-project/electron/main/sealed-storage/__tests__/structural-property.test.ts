@@ -592,11 +592,13 @@ describe('Test 5 — Quarantine isolation (pending PR B-10)', () => {
 
 describe('Test 6 — Logout invalidation: unbound key provider blocks all operations', () => {
   test('unbinding key provider causes sealedQuery to throw SealVerificationError', () => {
-    bindKeyProvider(() => Buffer.from(TEST_KEY))
-    expect(isKeyProviderBound()).toBe(true)
+    bindKeyProvider(() => Buffer.from(TEST_KEY), 'inner')
+    expect(isKeyProviderBound('inner')).toBe(true)
 
-    unbindKeyProvider()
-    expect(isKeyProviderBound()).toBe(false)
+    unbindKeyProvider('inner')
+    unbindKeyProvider('outer')
+    expect(isKeyProviderBound('inner')).toBe(false)
+    expect(isKeyProviderBound('outer')).toBe(false)
 
     const db = mockDb([{ id: 'r1', depackaged_json: '{}', seal: 'x', seal_input_json: '{}' }])
     expect(() =>

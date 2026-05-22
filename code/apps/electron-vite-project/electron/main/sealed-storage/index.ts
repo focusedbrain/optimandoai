@@ -551,11 +551,17 @@ export function sealedQuery<T extends SealedRow>(
   canonicalJsonColumn: string,
 ): T[] {
   const ctx = `sealedQuery (${sql.slice(0, 60)})`
+  const innerProviderBound = _providers.inner != null
+  const outerProviderBound = _providers.outer != null
 
-  // Require key provider in reject mode.
-  if (SEALED_STORAGE_MODE === 'reject' && !_providers.inner) {
+  console.log(
+    `[SEALED_QUERY] entry_gate mode=${SEALED_STORAGE_MODE} innerProviderBound=${innerProviderBound} outerProviderBound=${outerProviderBound} context=${ctx}`,
+  )
+
+  // Reject mode: at least one key provider must be bound (W4-P10 per-row source selection).
+  if (SEALED_STORAGE_MODE === 'reject' && !innerProviderBound && !outerProviderBound) {
     throw new SealVerificationError(
-      `${ctx}: key provider not bound — vault must be unlocked for sealed reads`,
+      `${ctx}: no seal key provider bound (inner=false outer=false) — unlock vault or sign in for sealed reads`,
     )
   }
 
@@ -595,8 +601,10 @@ export function sealedQuery<T extends SealedRow>(
     // ── Determine which key source this row uses ─────────────────────────────
     const source = rowKeySource(row)
 
-    // ── No key provider (log-only mode only; reject mode throws above) ───────
+    // ── No key provider for this row's seal_key_source ───────────────────────
     if (!_providers[source]) {
+      recordTamper('missing_seal', ctx, `no_key_provider source='${source}'`)
+      if (SEALED_STORAGE_MODE === 'reject') continue
       console.warn(`[SEALED_STORAGE:log-only] ${ctx}: no key provider bound (source='${source}'), skipping seal verification`)
       verified.push(row)
       continue
@@ -633,6 +641,8 @@ export function sealedQuery<T extends SealedRow>(
     // ── HMAC check ───────────────────────────────────────────────────────────
     const key = getKey(source)
     if (!key) {
+      recordTamper('missing_seal', ctx, `key_provider_null source='${source}'`)
+      if (SEALED_STORAGE_MODE === 'reject') continue
       console.warn(`[SEALED_STORAGE:log-only] ${ctx}: vault locked (source='${source}'), skipping HMAC check`)
       verified.push(row)
       continue
