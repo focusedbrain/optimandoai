@@ -1103,6 +1103,9 @@ export async function handleHandshakeRPC(
           code: 'LOCAL_INTERNAL_RELAY_VALIDATION_FAILED',
         }
       }
+      // Register before transport — ingest ACK can arrive while processOutboundQueue is in flight.
+      const BEAP_INGEST_ACK_WAIT_MS = 15_000
+      const ackWaitPromise = waitForBeapDeliveryAck(handshakeId, BEAP_INGEST_ACK_WAIT_MS)
       const deliveryResult = await processOutboundQueue(db, _getOidcToken)
       const d = deliveryResult as ProcessOutboundQueueResult
       console.log(
@@ -1118,12 +1121,15 @@ export async function handleHandshakeRPC(
       )
       let ingestConfirmed = d.recipient_ingest_confirmed === true
       let ingestRowId = typeof d.ingest_row_id === 'string' ? d.ingest_row_id : undefined
-      if (!ingestConfirmed && ackRowIdFromWait) {
-        ingestConfirmed = true
-        ingestRowId = ackRowIdFromWait
-        console.log(
-          `[BEAP_MSG_SEND] ingest_ack_wait_resolved messageId=${_msgId} handshake=${handshakeId} rowId=${ackRowIdFromWait}`,
-        )
+      if (!ingestConfirmed) {
+        const ackRowIdFromWait = await ackWaitPromise
+        if (ackRowIdFromWait) {
+          ingestConfirmed = true
+          ingestRowId = ackRowIdFromWait
+          console.log(
+            `[BEAP_MSG_SEND] ingest_ack_wait_resolved messageId=${_msgId} handshake=${handshakeId} rowId=${ackRowIdFromWait}`,
+          )
+        }
       }
       console.log(
         `[BEAP_MSG_SEND] send_response messageId=${_msgId} relayAccepted=${d.relayTransportAccepted === true} delivered=${d.delivered ?? false} code=${d.code ?? 'none'} relay=${d.coordinationRelayDelivery ?? 'none'} recipientIngestConfirmed=${ingestConfirmed}`,
