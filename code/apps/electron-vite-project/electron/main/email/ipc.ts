@@ -29,6 +29,7 @@ import { extractInboxMessageRedirectSourceFromRow } from './beapRedirectSource'
 import {
   ensureSealedStorageReadyForSandboxClone,
   prepareBeapInboxSandboxClone,
+  probeInboxMessageCloneVaultRequirement,
   probeInboxMessageSealKeySource,
 } from './beapInboxClonePrepare'
 import { isHostMode } from '../orchestrator/orchestratorModeStore'
@@ -3303,8 +3304,11 @@ Rules:
       const tu = typeof payload?.triggeredUrl === 'string' ? payload.triggeredUrl.trim() : ''
       console.log(`[CLONE_PREPARE] start cloneId=${cloneId} sourceMessageId=${srcId} targetHandshakeId=${tgt ?? 'auto'}`)
 
-      const sourceSealKeySource = probeInboxMessageSealKeySource(db, srcId)
-      const sealGate = await ensureSealedStorageReadyForSandboxClone(cloneId, { sourceSealKeySource })
+      const cloneVaultReq = probeInboxMessageCloneVaultRequirement(db, srcId)
+      const sealGate = await ensureSealedStorageReadyForSandboxClone(cloneId, {
+        requiresInnerVault: cloneVaultReq?.requiresInnerVault ?? false,
+        sourceSealKeySource: cloneVaultReq?.sealKeySource ?? probeInboxMessageSealKeySource(db, srcId),
+      })
       if (!sealGate.ok) {
         console.log(`[CLONE_PREPARE] failed cloneId=${cloneId} reason=${sealGate.error} code=${sealGate.code}`)
         return {

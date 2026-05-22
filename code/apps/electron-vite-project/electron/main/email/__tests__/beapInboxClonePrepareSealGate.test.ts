@@ -11,7 +11,6 @@ import {
 } from '../../sealed-storage/index'
 import { deriveLedgerSealKey } from '../../sealed-storage/ledgerSealKey'
 import { prepareBeapInboxSandboxClone } from '../beapInboxClonePrepare'
-import { CLONE_PREPARE_INNER_VAULT_USER_MESSAGE } from '../beapInboxClonePrepare'
 import type { InternalSandboxListEntry } from '../../handshake/internalSandboxesApi'
 import { HandshakeState, type HandshakeRecord, type SSOSession } from '../../handshake/types'
 import {
@@ -177,7 +176,7 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
     }
   })
 
-  it('vmk row + outer-only provider → inner_vault_or_key_provider_unavailable', () => {
+  it('native direct_beap vmk row + outer-only → MESSAGE_NOT_FOUND (no trusted read for native)', () => {
     if (!ctx.db) return
 
     const entry = makeEligibleEntry()
@@ -190,8 +189,44 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
 
     expect(r.ok).toBe(false)
     if (!r.ok) {
-      expect(r.code).toBe('inner_vault_or_key_provider_unavailable')
-      expect(r.error).toBe(CLONE_PREPARE_INNER_VAULT_USER_MESSAGE)
+      expect(r.code).toBe('MESSAGE_NOT_FOUND')
+    }
+  })
+
+  it('email_plain vmk row + outer-only + conformant validation → prepare succeeds', () => {
+    if (!ctx.db) return
+
+    const entry = makeEligibleEntry()
+    mockHappyList([entry])
+    getHandshakeRecord.mockReturnValue(makeHandshakeRecord(entry.handshake_id))
+
+    const msgId = randomUUID()
+    const canonical = JSON.stringify({
+      id: msgId,
+      subject: 'XING newsletter',
+      body: { text: 'depackaged email body' },
+      format: 'email_plain',
+    })
+    const s = ctx.buildValidSealForRowId(msgId, canonical)
+    ctx.db
+      .prepare(
+        `INSERT INTO inbox_messages
+           (id, source_type, handshake_id, subject, body_text, depackaged_json,
+            has_attachments, from_address, account_id, received_at, ingested_at,
+            validated_at, validation_reason, seal, seal_input_json, seal_key_source)
+         VALUES (?, 'email_plain', 'hs-orig', 'XING newsletter', 'depackaged email body', ?,
+                 0, 'news@xing.com', 'acc', '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z',
+                 '2025-01-01T00:00:00.000Z', 'plain_email_no_validation_required',
+                 ?, ?, 'vmk')`,
+      )
+      .run(msgId, canonical, s.seal, s.seal_input_json)
+
+    const r = prepareBeapInboxSandboxClone(ctx.db as any, makeSession(), msgId, entry.handshake_id, 'tag')
+
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.source_type).toBe('email_plain')
+      expect(r.encrypted_text).toContain('depackaged email body')
     }
   })
 
