@@ -69,22 +69,38 @@ describe('importAndRunBeapSessionFromArtefact', () => {
     expect(r).toEqual({ success: false, error: 'INVALID_ARTEFACT' })
   })
 
-  it('rejects import_only artefacts on Run Automation path', async () => {
+  it('allows import_only artefacts when user explicitly runs automation', async () => {
+    const broadcast = vi.fn()
+    const artefact = validRunArtefact({
+      requested_action: 'import_only',
+      sessions: [
+        {
+          session_kind: 'orchestrator_session',
+          session_id: 'session_1714000000000',
+          session_name: 'Test Session',
+          agents: [],
+          agent_boxes: [],
+          display_grids: [],
+          capabilities_required: [],
+        },
+      ],
+    })
     const r = await importAndRunBeapSessionFromArtefact(
       {
-        sessionId: 's1',
-        sessionName: 'S',
-        importArtefact: validRunArtefact({ requested_action: 'import_only', sessions: [{ session_kind: 'orchestrator_session', session_id: 's', session_name: 'n', agents: [], agent_boxes: [], display_grids: [], capabilities_required: [] }] }),
+        sessionId: 'session_1714000000000',
+        sessionName: 'Test Session',
+        importArtefact: artefact,
         sourceMessageId: 'msg-1',
         handshakeId: null,
       },
       {
         orchestrator: orchestrator as any,
-        broadcastToExtensions: vi.fn(),
+        broadcastToExtensions: broadcast,
         extensionClientCount: () => 1,
       },
     )
-    expect(r).toEqual({ success: false, error: 'IMPORT_ONLY_ARTEFACT' })
+    expect(r).toEqual({ success: true, dispatched: true })
+    expect(broadcast).toHaveBeenCalled()
   })
 
   it('rejects handshake binding mismatch', async () => {

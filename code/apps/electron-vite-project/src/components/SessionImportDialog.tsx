@@ -57,7 +57,7 @@ export default function SessionImportDialog({
             Cancel
           </button>
           <button type="button" className="session-import-confirm" onClick={onConfirm} disabled={importing}>
-            {importing ? 'Importing…' : '▶ Run Automation'}
+            {importing ? 'Running…' : 'Run Automation'}
           </button>
         </div>
       </div>

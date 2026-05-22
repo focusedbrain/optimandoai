@@ -3228,6 +3228,7 @@ export async function handleHandshakeRPC(
         has_attachments: number; attachment_count: number; ai_analysis_json: string | null
         urgency_score: number | null; from_address: string | null; from_name: string | null
         source_type: string | null; seal: string | null; seal_input_json: string | null
+        validated_at: string | null; validation_reason: string | null
       }
 
       const pos = cursor ? decodeCursor(cursor) : null
@@ -3239,7 +3240,8 @@ export async function handleHandshakeRPC(
             db,
             `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
                     has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
-                    source_type, seal, seal_input_json, seal_key_source
+                    source_type, seal, seal_input_json, seal_key_source,
+                    validated_at, validation_reason
              FROM inbox_messages
              WHERE deleted = 0
                AND (received_at < ? OR (received_at = ? AND id < ?))
@@ -3252,7 +3254,8 @@ export async function handleHandshakeRPC(
             db,
             `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
                     has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
-                    source_type, seal, seal_input_json, seal_key_source
+                    source_type, seal, seal_input_json, seal_key_source,
+                    validated_at, validation_reason
              FROM inbox_messages
              WHERE deleted = 0
              ORDER BY received_at DESC, id DESC
@@ -3284,6 +3287,8 @@ export async function handleHandshakeRPC(
         from_address: row.from_address,
         from_name: row.from_name,
         source_type: row.source_type,
+        validated_at: row.validated_at,
+        validation_reason: row.validation_reason,
         attachments: attStmt ? attStmt.all(row.id) : [],
       }))
 
@@ -3315,6 +3320,7 @@ export async function handleHandshakeRPC(
         has_attachments: number; attachment_count: number; ai_analysis_json: string | null
         urgency_score: number | null; from_address: string | null; from_name: string | null
         source_type: string | null; seal: string | null; seal_input_json: string | null
+        validated_at: string | null; validation_reason: string | null
       }
 
       const placeholders = ids.map(() => '?').join(', ')
@@ -3322,7 +3328,8 @@ export async function handleHandshakeRPC(
         db,
         `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
                 has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
-                source_type, seal, seal_input_json, seal_key_source
+                source_type, seal, seal_input_json, seal_key_source,
+                validated_at, validation_reason
          FROM inbox_messages
          WHERE deleted = 0 AND id IN (${placeholders})`,
         ids,
@@ -3352,6 +3359,8 @@ export async function handleHandshakeRPC(
         from_address: row.from_address,
         from_name: row.from_name,
         source_type: row.source_type,
+        validated_at: row.validated_at,
+        validation_reason: row.validation_reason,
         attachments: attStmt ? attStmt.all(row.id) : [],
       }))
       return { success: true, rows: result }

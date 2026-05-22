@@ -163,8 +163,8 @@ export function inboxRowToBeapMessage(row: BeapInboxRow): BeapMessage {
     urgency,
     archived: row.archived === 1,
     aiClassification,
-    validated_at: null,
-    validation_reason: null,
+    validated_at: row.validated_at ?? null,
+    validation_reason: row.validation_reason ?? null,
     session_import_artefact: sessionImportArtefact ?? null,
   }
 }

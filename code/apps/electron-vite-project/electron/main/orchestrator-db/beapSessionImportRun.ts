@@ -66,9 +66,8 @@ export async function importAndRunBeapSessionFromArtefact(
 
   const artefactObj = artefact as Record<string, unknown>
   if (artefactObj.requested_action === 'import_only') {
-    return { success: false, error: 'IMPORT_ONLY_ARTEFACT' }
-  }
-  if (artefactObj.requested_action !== 'import_and_offer_run') {
+    // Explicit Run Automation click is user consent to import + execute anyway.
+  } else if (artefactObj.requested_action !== 'import_and_offer_run') {
     return { success: false, error: 'UNSUPPORTED_REQUESTED_ACTION' }
   }
 

@@ -38,7 +38,7 @@ import {
 import SandboxCloneFeedbackBadge from './SandboxCloneFeedbackBadge'
 import { InboxBeapSourceBadgeListRow } from './InboxBeapSourceBadge'
 import { beapHostSandboxCloneTooltipForAvailability, beapInboxRedirectTooltipPropsForRow } from '../lib/beapInboxActionTooltips'
-import { InboxRedirectActionIcon, InboxSandboxCloneActionIcon } from './InboxActionIcons'
+import { InboxRedirectActionIcon, InboxSandboxCloneActionIcon, InboxRunAutomationActionIcon } from './InboxActionIcons'
 import type {
   AuthoritativeDeviceInternalRole,
   SandboxOrchestratorAvailability,
@@ -88,6 +88,9 @@ import { getSigningKeyPair } from '@ext/beap-messages/services/beapCrypto'
 import { hasHandshakeKeyMaterial, type SelectedHandshakeRecipient } from '@ext/handshake/rpcTypes'
 import { listHandshakes } from '../shims/handshakeRpc'
 import { UI_BADGE } from '../styles/uiContrastTokens'
+import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
+import { canShowInboxRunAutomation, capabilitiesForSessionAttach, resolveInboxSessionArtefact } from '../lib/inboxSessionArtefact'
+import { runBeapSessionAutomationForMessage } from '../lib/runBeapSessionAutomation'
 
 /** Local HTTP API for orchestrator DB (matches `HTTP_PORT` in electron/main.ts). */
 
@@ -1377,7 +1380,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           agents: Array.isArray(cfg.agents) ? (cfg.agents as any[]) : [],
           agentBoxes: Array.isArray(cfg.agentBoxes ?? cfg.agent_boxes) ? ((cfg.agentBoxes ?? cfg.agent_boxes) as any[]) : [],
           displayGrids: Array.isArray(cfg.displayGrids ?? cfg.display_grids) ? ((cfg.displayGrids ?? cfg.display_grids) as any[]) : [],
-          capabilitiesRequired: Array.isArray(cfg.capabilities_required) ? (cfg.capabilities_required as any[]) : [],
+          capabilitiesRequired: capabilitiesForSessionAttach(cfg as Record<string, unknown>) as any[],
           handshakeBinding: handshakeId ? { handshake_id: handshakeId, bound_at: boundAt } : null,
         }
         const built = buildSessionImportArtefact(input)
@@ -2334,8 +2337,10 @@ interface InboxMessageRowProps {
   /** Drives Sandbox button hover (connected / offline / not configured). */
   sandboxAvailability: SandboxOrchestratorAvailability
   onSandboxInRow?: (e: MouseEvent, message: InboxMessage) => void
-  /** Row-level Redirect (forwarding); independent of Sandbox clone eligibility. */
-  onRedirectInRow?: (e: MouseEvent, message: InboxMessage) => void
+  /** Row-level Run Automation (import + execute attached session). */
+  onRunAutomationInRow?: (e: MouseEvent, message: InboxMessage) => void
+  /** When true, row shows the Run Automation icon. */
+  canRowRunAutomation?: boolean
 }
 
 /** Reason-code → UI text map for placeholder rows (W3-P8). */
@@ -2540,6 +2545,8 @@ function InboxMessageRow({
   sandboxAvailability,
   onSandboxInRow,
   onRedirectInRow,
+  onRunAutomationInRow,
+  canRowRunAutomation = false,
 }: InboxMessageRowProps) {
   // Placeholder variant for blocked/deferred capsules (W3-P8).
   if (message.pending_reason_code) {
@@ -2710,6 +2717,18 @@ function InboxMessageRow({
           </div>
         )}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          {canRowRunAutomation && onRunAutomationInRow && (
+            <InboxRunAutomationActionIcon
+              row
+              title="Run Automation — import and execute attached session"
+              ariaLabel="Run Automation"
+              onClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                onRunAutomationInRow(e, message)
+              }}
+            />
+          )}
           {canRowRedirect && onRedirectInRow && (
             <InboxRedirectActionIcon
               row
@@ -2914,6 +2933,9 @@ export default function EmailInboxView({
     useState<BeapSandboxUnavailableVariant>('not_configured')
   const [sandboxRowFeedback, setSandboxRowFeedback] = useState<SandboxCloneFeedbackView | null>(null)
   const [beapRedirectForMessage, setBeapRedirectForMessage] = useState<InboxMessage | null>(null)
+  const [beapRunAutomationForMessage, setBeapRunAutomationForMessage] = useState<InboxMessage | null>(null)
+  const [runAutomationImporting, setRunAutomationImporting] = useState(false)
+  const [runAutomationRowFeedback, setRunAutomationRowFeedback] = useState<{ type: 'error'; message: string } | null>(null)
 
   const [leftPanelTab, setLeftPanelTab] = useState<'inbox' | 'sent'>('inbox')
   const [sentMessages, setSentMessages] = useState<Array<Record<string, unknown>>>([])
@@ -3636,6 +3658,51 @@ export default function EmailInboxView({
     ],
   )
 
+  const runAutomationDialogSessionRef = useMemo((): SessionImportDialogSessionRef | null => {
+    if (!beapRunAutomationForMessage) return null
+    const { refs } = resolveInboxSessionArtefact(beapRunAutomationForMessage)
+    if (refs.length === 0) return null
+    const primary = refs[0]
+    const cap = primary.requiredCapability
+    return {
+      sessionId: primary.sessionId,
+      sessionName: primary.sessionName,
+      requiredCapability:
+        cap != null && typeof cap === 'object'
+          ? JSON.stringify(cap)
+          : cap != null
+            ? String(cap)
+            : undefined,
+    }
+  }, [beapRunAutomationForMessage])
+
+  const handleInboxRowRunAutomation = useCallback((_e: MouseEvent, m: InboxMessage) => {
+    if (!canShowInboxRunAutomation(m)) return
+    setBeapRunAutomationForMessage(m)
+    setRunAutomationRowFeedback(null)
+  }, [])
+
+  const handleConfirmRunAutomation = useCallback(async () => {
+    if (!beapRunAutomationForMessage) return
+    setRunAutomationImporting(true)
+    setRunAutomationRowFeedback(null)
+    try {
+      const result = await runBeapSessionAutomationForMessage(beapRunAutomationForMessage)
+      if (!result.ok) {
+        setRunAutomationRowFeedback({ type: 'error', message: result.error })
+        return
+      }
+      setBeapRunAutomationForMessage(null)
+    } catch (e) {
+      setRunAutomationRowFeedback({
+        type: 'error',
+        message: e instanceof Error ? e.message : String(e),
+      })
+    } finally {
+      setRunAutomationImporting(false)
+    }
+  }, [beapRunAutomationForMessage])
+
   const handleReply = useCallback((msg: InboxMessage) => {
     const replyMode = resolveInboxReplyMode(msg)
     const shouldSendEmail = replyMode === 'email'
@@ -4135,6 +4202,8 @@ export default function EmailInboxView({
                 sandboxAvailability={sandboxAvailability}
                 onSandboxInRow={handleInboxRowSandbox}
                 onRedirectInRow={(_e, m) => setBeapRedirectForMessage(m)}
+                canRowRunAutomation={canShowInboxRunAutomation(msg)}
+                onRunAutomationInRow={handleInboxRowRunAutomation}
               />
             ))
           )}
@@ -4386,6 +4455,40 @@ export default function EmailInboxView({
           }}
         />
       )}
+
+      {beapRunAutomationForMessage && runAutomationDialogSessionRef ? (
+        <SessionImportDialog
+          sessionRef={runAutomationDialogSessionRef}
+          messageId={beapRunAutomationForMessage.id}
+          onConfirm={() => void handleConfirmRunAutomation()}
+          onCancel={() => {
+            if (!runAutomationImporting) {
+              setBeapRunAutomationForMessage(null)
+              setRunAutomationRowFeedback(null)
+            }
+          }}
+          importing={runAutomationImporting}
+        />
+      ) : null}
+
+      {runAutomationRowFeedback ? (
+        <div
+          role="alert"
+          style={{
+            position: 'fixed',
+            bottom: 88,
+            right: 20,
+            zIndex: 200,
+            maxWidth: 360,
+            padding: '10px 14px',
+            borderRadius: 8,
+            fontSize: 12,
+            ...UI_BADGE.red,
+          }}
+        >
+          {runAutomationRowFeedback.message}
+        </div>
+      ) : null}
 
       {connectEmailFlowModal}
 

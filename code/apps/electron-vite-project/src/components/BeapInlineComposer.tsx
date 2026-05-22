@@ -53,7 +53,8 @@ import { ConnectEmailLaunchSource } from '@ext/shared/email/connectEmailFlow';
 
 import { EmailAccountSelector } from './shared/EmailAccountSelector';
 
-import { extractTextForPackagePreview } from '../lib/beapPackageAttachmentPreview';
+import { extractTextForPackagePreview } from '../lib/beapPackageAttachmentPreview'
+import { capabilitiesForSessionAttach } from '../lib/inboxSessionArtefact';
 
 import { AiDraftContextRail } from './AiDraftContextRail';
 
@@ -743,7 +744,7 @@ export function BeapInlineComposer({
           agents: Array.isArray(cfg.agents) ? (cfg.agents as any[]) : [],
           agentBoxes: Array.isArray(cfg.agentBoxes ?? cfg.agent_boxes) ? ((cfg.agentBoxes ?? cfg.agent_boxes) as any[]) : [],
           displayGrids: Array.isArray(cfg.displayGrids ?? cfg.display_grids) ? ((cfg.displayGrids ?? cfg.display_grids) as any[]) : [],
-          capabilitiesRequired: Array.isArray(cfg.capabilities_required) ? (cfg.capabilities_required as any[]) : [],
+          capabilitiesRequired: capabilitiesForSessionAttach(cfg) as any[],
           handshakeBinding: null,
         };
         const built = buildSessionImportArtefact(input);

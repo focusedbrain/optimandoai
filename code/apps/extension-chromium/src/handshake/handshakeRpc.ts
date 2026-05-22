@@ -461,6 +461,8 @@ export interface BeapInboxRow {
   from_address: string | null
   from_name: string | null
   source_type: string | null
+  validated_at: string | null
+  validation_reason: string | null
   attachments: Array<{
     attachment_id: string
     filename: string | null

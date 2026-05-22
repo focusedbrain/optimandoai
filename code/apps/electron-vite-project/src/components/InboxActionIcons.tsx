@@ -17,3 +17,10 @@ type SandboxProps = Omit<BeapActionIconButtonProps, 'kind'>
 export function InboxSandboxCloneActionIcon(props: SandboxProps) {
   return <BeapActionIconButton kind="sandbox" {...props} />
 }
+
+type RunAutomationProps = Omit<BeapActionIconButtonProps, 'kind'>
+
+/** Run Automation — import + execute attached session from list row or detail. */
+export function InboxRunAutomationActionIcon(props: RunAutomationProps) {
+  return <BeapActionIconButton kind="runAutomation" {...props} />
+}
