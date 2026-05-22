@@ -125,7 +125,14 @@ export const CLONE_PREPARE_VAULT_UNAVAILABLE_MESSAGE =
 
 export type ClonePrepareSealGateResult =
   | { ok: true }
-  | { ok: false; code: 'outer_vault_or_key_provider_unavailable' | 'outer_vault_unavailable'; error: string }
+  | {
+      ok: false
+      code:
+        | 'outer_vault_or_key_provider_unavailable'
+        | 'outer_vault_unavailable'
+        | 'inner_vault_or_key_provider_unavailable'
+      error: string
+    }
 
 /**
  * Preflight for sandbox clone prepare: sealedQuery requires `bindKeyProvider`
@@ -139,24 +146,23 @@ export type ClonePrepareSealGateResult =
  *
  * All outcomes map to `ClonePrepareSealGateResult` for the existing ipc.ts caller.
  */
-export async function ensureSealedStorageReadyForSandboxClone(cloneId: string): Promise<ClonePrepareSealGateResult> {
+export async function ensureSealedStorageReadyForSandboxClone(
+  cloneId: string,
+  opts?: { sourceSealKeySource?: 'ledger' | 'vmk' | null },
+): Promise<ClonePrepareSealGateResult> {
+  const sourceNeedsInner = inboxSealKeySourceRequiresInnerVault(opts?.sourceSealKeySource ?? null)
+
   // Quick pre-check for the [CLONE_PREPARE] sealed_storage_check log.
-  // outerKeyBound: outer (ledger-derived) key provider ready — sufficient for
-  //   reading non-confidential inbox rows (seal_key_source='ledger').
-  // innerVaultReady: inner vault session active — needed for reading
-  //   confidential inbox rows (seal_key_source='vmk').
-  // sealedQuery is source-aware (W4-P10): it picks the right provider per row.
-  // The gate allows cloning if EITHER provider is bound.
   const innerVaultReady = vaultService.getStatus().isUnlocked === true
   const outerKeyBound = isKeyProviderUsable('outer')
   const innerKeyBound = isKeyProviderUsable('inner')
 
   console.log(
-    `[CLONE_PREPARE] sealed_storage_check cloneId=${cloneId} outerKeyBound=${outerKeyBound} innerKeyBound=${innerKeyBound} innerVaultReady=${innerVaultReady}`,
+    `[CLONE_PREPARE] sealed_storage_check cloneId=${cloneId} outerKeyBound=${outerKeyBound} innerKeyBound=${innerKeyBound} innerVaultReady=${innerVaultReady} sourceNeedsInner=${sourceNeedsInner} sourceSealKeySource=${opts?.sourceSealKeySource ?? 'unknown'}`,
   )
 
-  // Fast path: outer key bound (SSO-only, non-confidential rows) — always sufficient.
-  if (outerKeyBound) {
+  // Fast path: outer key bound — sufficient only for ledger-sealed source rows.
+  if (!sourceNeedsInner && outerKeyBound) {
     console.log(`[CLONE_PREPARE] sealed_storage_ready cloneId=${cloneId} ready=true path=outer_key`)
     return { ok: true }
   }
@@ -182,13 +188,14 @@ export async function ensureSealedStorageReadyForSandboxClone(cloneId: string): 
         error: CLONE_PREPARE_VAULT_UNAVAILABLE_MESSAGE,
       }
     }
+    const innerRequired = sourceNeedsInner
     console.log(
-      `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=outer_vault_or_key_provider_unavailable code=${result.code}`,
+      `[CLONE_PREPARE] sealed_storage_unavailable cloneId=${cloneId} reason=${innerRequired ? 'inner_vault_or_key_provider_unavailable' : 'outer_vault_or_key_provider_unavailable'} code=${result.code}`,
     )
     return {
       ok: false,
-      code: 'outer_vault_or_key_provider_unavailable',
-      error: CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
+      code: innerRequired ? 'inner_vault_or_key_provider_unavailable' : 'outer_vault_or_key_provider_unavailable',
+      error: innerRequired ? CLONE_PREPARE_INNER_VAULT_USER_MESSAGE : CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
     }
   }
 

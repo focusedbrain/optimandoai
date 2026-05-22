@@ -1131,6 +1131,7 @@ async function processBeapPackageInlineInternal(
           console.log(`[BEAP_DELIVERY] direct_message_classified messageId=${rowId} encoding=${pkgEncoding ?? 'handshake'} classification=non_confidential handshake=${handshakeId}`)
           console.log(`[BEAP_DELIVERY] persist_attempt messageId=${rowId} handshake=${handshakeId}`)
         }
+        const outerValidatedAt = new Date().toISOString()
         const inlineResult = writeP2PInboxRow(db, {
           rowId, handshakeId, sourceType: 'direct_beap',
           depackagedJson: canonicalJson,
@@ -1138,8 +1139,9 @@ async function processBeapPackageInlineInternal(
           packageJson, transportSender, preview,
           receivedAt, now, transportFolder,
           seal: sealResult.seal, sealInputJson: sealResult.seal_input_json,
-          validatedAt: null, validatorVersion: null,
-          validationReason: null,
+          validatedAt: outerValidatedAt,
+          validatorVersion: 'outer-ledger-v1',
+          validationReason: 'non_confidential_ledger_sealed',
           sealProviderSource,
         })
         if (inlineResult.outcome === 'inbox') {

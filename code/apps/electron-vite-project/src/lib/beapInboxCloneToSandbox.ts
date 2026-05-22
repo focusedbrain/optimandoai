@@ -206,6 +206,8 @@ export async function cloneBeapInboxToSandbox(
   console.log(`[CLONE_SEND] send_attempt cloneId=${cloneId}`)
 
   const delivery = await executeDeliveryAction(config)
+  const deliveryIngestConfirmed = (delivery as { recipientIngestConfirmed?: boolean }).recipientIngestConfirmed === true
+
   if (!delivery.success) {
     if (delivery.code === 'SANDBOX_ENTITLEMENT_REQUIRED') {
       // eslint-disable-next-line no-console
@@ -234,6 +236,18 @@ export async function cloneBeapInboxToSandbox(
     const cloneMetadata: BeapInboxCloneAuditMetadata = buildCloneMetadata(preparePayload, at, tu)
     void insertOutboxEntry(delivery, deliveryMode, cloneMetadata, preparePayload, raw, pub, enc, cloneId)
     return { success: true, delivery, deliveryMode, cloneId, cloneMetadata }
+  }
+
+  if (deliveryIngestConfirmed) {
+    // eslint-disable-next-line no-console
+    console.log(`[CLONE_SEND] ack_received cloneId=${cloneId} handshake=${preparePayload.target_handshake_id} path=http_ingest_response`)
+    const tuConfirmed =
+      preparePayload.triggered_url != null && String(preparePayload.triggered_url).trim()
+        ? String(preparePayload.triggered_url).trim()
+        : null
+    const cloneMetadataConfirmed = buildCloneMetadata(preparePayload, at, tuConfirmed)
+    void insertOutboxEntry(delivery, 'live', cloneMetadataConfirmed, preparePayload, raw, pub, enc, cloneId)
+    return { success: true, delivery, deliveryMode: 'live', cloneId, cloneMetadata: cloneMetadataConfirmed }
   }
 
   // Transport accepted — wait for receiver ACK before declaring live delivery.
@@ -382,12 +396,21 @@ export function sandboxCloneFeedbackFromOutcome(
     }
     const f = r as BeapInboxClonePrepareFailure
     const detail = sandboxCloneFailureUserText(f.error, f.code)
+    const showDetail =
+      f.code === 'inner_vault_or_key_provider_unavailable' ||
+      f.code === 'outer_vault_or_key_provider_unavailable' ||
+      f.code === 'outer_vault_unavailable' ||
+      f.code === 'MESSAGE_NOT_FOUND' ||
+      f.code === 'MESSAGE_CONTENT_NOT_EXTRACTABLE' ||
+      f.code === 'NO_ACTIVE_SANDBOX_HANDSHAKE' ||
+      f.code === 'SANDBOX_SEND_FAILED'
+    const message = showDetail ? detail : SANDBOX_CLONE_COPY.failedGeneric
     return {
       kind: 'error',
-      text: SANDBOX_CLONE_COPY.failedGeneric,
+      text: message,
       view: {
         variant: 'error',
-        message: SANDBOX_CLONE_COPY.failedGeneric,
+        message,
         persistUntilDismiss: true,
         screenReaderDetail: detail,
       },

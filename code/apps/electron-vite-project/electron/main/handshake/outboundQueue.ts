@@ -183,6 +183,9 @@ export interface ProcessOutboundQueueResult {
    * to relay or 200 to direct P2P). **Includes HTTP 202** (recipient offline queue) — not peer live delivery.
    */
   relayTransportAccepted?: boolean
+  /** Direct POST /beap/ingest returned persisted_inbox (cross-process delivery confirmation). */
+  recipient_ingest_confirmed?: boolean
+  ingest_row_id?: string
 }
 
 function jitterMs(max = 400): number {

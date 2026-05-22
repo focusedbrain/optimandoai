@@ -13,35 +13,31 @@
 /**
  * Discriminated validation state for an inbox row.
  *
- * - `validated` — validated_at set, no rejection reason
- * - `rejected`  — any non-null validation_reason
- * - `pending`   — validated_at null AND validation_reason null (defended against
- *                 future bugs; should not occur in production after PR 2.2)
- *
- * `unrecoverable_legacy` removed in PR 5.3 — no production customers; no rows
- * in this state. per Canon Decision D (PR 5.3).
+ * - `validated` — passed the applicable gate (validator or conformant non-BEAP stamp)
+ * - `rejected`  — validator rejection or tamper reason
+ * - `pending`   — no stamp yet (should not occur for production ingest paths)
  */
 export type ValidationState =
   | 'validated'
   | 'rejected'
   | 'pending'
 
+/** Rows that passed ingest without a BEAP validator rejection (still require validated_at). */
+const CONFORMANT_VALIDATION_REASONS = new Set<string>([
+  'plain_email_no_validation_required',
+  'non_confidential_ledger_sealed',
+])
+
 /**
  * Derive the validation state for a BEAP inbox row.
- *
- * Three branches, one invariant per branch. Both `BeapMessageDetailPanel`
- * (extension) and `EmailMessageDetail` (Electron) import their respective
- * copy of this function.
- *
- * @param validated_at     ISO-8601 UTC timestamp from the validation gate,
- *                         or null/undefined when not yet validated.
- * @param validation_reason  Rejection reason code, or null/undefined when
- *                         validation passed or is still pending.
  */
 export function getValidationState(
   validated_at: string | null | undefined,
   validation_reason: string | null | undefined,
 ): ValidationState {
+  if (validation_reason && CONFORMANT_VALIDATION_REASONS.has(validation_reason)) {
+    return validated_at != null ? 'validated' : 'pending'
+  }
   if (validated_at != null && !validation_reason) return 'validated'
   if (validation_reason != null) return 'rejected'
   return 'pending'

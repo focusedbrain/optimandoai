@@ -26,7 +26,11 @@ import * as os from 'os'
 import * as path from 'path'
 import { fileURLToPath } from 'node:url'
 import { extractInboxMessageRedirectSourceFromRow } from './beapRedirectSource'
-import { ensureSealedStorageReadyForSandboxClone, prepareBeapInboxSandboxClone } from './beapInboxClonePrepare'
+import {
+  ensureSealedStorageReadyForSandboxClone,
+  prepareBeapInboxSandboxClone,
+  probeInboxMessageSealKeySource,
+} from './beapInboxClonePrepare'
 import { isHostMode } from '../orchestrator/orchestratorModeStore'
 
 /** Per-call ⚡ logs for `inbox:aiAnalyzeMessage` — keep false in production. */
@@ -3299,7 +3303,8 @@ Rules:
       const tu = typeof payload?.triggeredUrl === 'string' ? payload.triggeredUrl.trim() : ''
       console.log(`[CLONE_PREPARE] start cloneId=${cloneId} sourceMessageId=${srcId} targetHandshakeId=${tgt ?? 'auto'}`)
 
-      const sealGate = await ensureSealedStorageReadyForSandboxClone(cloneId)
+      const sourceSealKeySource = probeInboxMessageSealKeySource(db, srcId)
+      const sealGate = await ensureSealedStorageReadyForSandboxClone(cloneId, { sourceSealKeySource })
       if (!sealGate.ok) {
         console.log(`[CLONE_PREPARE] failed cloneId=${cloneId} reason=${sealGate.error} code=${sealGate.code}`)
         return {

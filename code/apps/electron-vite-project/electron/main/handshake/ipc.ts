@@ -65,6 +65,7 @@ import {
 import { tryEnqueueContextSync, retryDeferredInitialContextSyncForInternalHandshake } from './contextSyncEnqueue'
 import { deriveRelationshipId } from './relationshipId'
 import { enqueueOutboundCapsule, logProcessOutboundQueueFailure, processOutboundQueue, type ProcessOutboundQueueResult } from './outboundQueue'
+import { notifyBeapDeliveryAck } from '../p2p/beapDeliveryAck'
 import { randomBytes, randomUUID } from 'crypto'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
@@ -1115,7 +1116,14 @@ export async function handleHandshakeRPC(
           error: d.error,
         }),
       )
-      console.log(`[BEAP_MSG_SEND] send_response messageId=${_msgId} relayAccepted=${d.relayTransportAccepted === true} delivered=${d.delivered ?? false} code=${d.code ?? 'none'} relay=${d.coordinationRelayDelivery ?? 'none'}`)
+      const ingestConfirmed = d.recipient_ingest_confirmed === true
+      const ingestRowId = typeof d.ingest_row_id === 'string' ? d.ingest_row_id : undefined
+      console.log(
+        `[BEAP_MSG_SEND] send_response messageId=${_msgId} relayAccepted=${d.relayTransportAccepted === true} delivered=${d.delivered ?? false} code=${d.code ?? 'none'} relay=${d.coordinationRelayDelivery ?? 'none'} recipientIngestConfirmed=${ingestConfirmed}`,
+      )
+      if (ingestConfirmed && ingestRowId) {
+        notifyBeapDeliveryAck(handshakeId, ingestRowId)
+      }
       // Failure: no HTTP transport success to relay/direct (or terminal HTTP error), or outbound backoff.
       if (d.relayTransportAccepted !== true) {
         console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=${d.error ?? 'relay_rejected'} code=${d.code ?? 'none'}`)
@@ -1145,7 +1153,8 @@ export async function handleHandshakeRPC(
         success: true,
         delivered: d.delivered,
         relayTransportAccepted: true,
-        recipient_ingest_confirmed: false,
+        recipient_ingest_confirmed: ingestConfirmed,
+        ...(ingestRowId ? { ingest_row_id: ingestRowId } : {}),
         ...(d.code === 'QUEUED_RECIPIENT_OFFLINE' ? { queued: true as const } : {}),
         ...(d.code && { code: d.code }),
         ...(d.healing_status !== undefined && { healing_status: d.healing_status }),

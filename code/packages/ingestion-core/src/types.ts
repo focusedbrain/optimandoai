@@ -226,7 +226,9 @@ export type ValidationReasonCode =
   // Closed vocabulary enforcement (PR 4/8) — purpose identifier not in the pinned vocabulary
   | 'ARTEFACT_PURPOSE_INVALID'
   // Plain email rows carry no BEAP capsule; the row is conformant but validation is not applicable.
-  | 'plain_email_no_validation_required';
+  | 'plain_email_no_validation_required'
+  /** P2P non-confidential path: outer (ledger) seal without validator subprocess (W4-P11). */
+  | 'non_confidential_ledger_sealed';
 
 /**
  * Discriminated result type for validateSessionImportArtefact.
