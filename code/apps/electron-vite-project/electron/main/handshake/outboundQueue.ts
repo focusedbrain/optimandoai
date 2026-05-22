@@ -22,6 +22,7 @@ export { mapSendResultToQueueOutcome, type CoordinationQueueTransportOutcome } f
 import { getHandshakeRecord } from './db'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getP2PConfig } from '../p2p/p2pConfig'
+import { isCoordinationRelayNativeBeap } from '../../../../../packages/ingestion-core/src/beapDetection.ts'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
 import {
   setP2PHealthOutboundSuccess,
@@ -190,6 +191,74 @@ export interface ProcessOutboundQueueResult {
 
 function jitterMs(max = 400): number {
   return Math.floor(Math.random() * max)
+}
+
+function isDirectBeapIngestEndpoint(endpoint: string): boolean {
+  const u = endpoint.trim().toLowerCase()
+  return u.includes('/beap/ingest')
+}
+
+/** Prefer direct POST to peer `/beap/ingest` so HTTP body can confirm inbox persistence. */
+function shouldRetryViaCoordinationAfterDirectFailure(result: SendCapsuleResult): boolean {
+  if (result.success) return false
+  const err = (result.error ?? '').toLowerCase()
+  if (result.statusCode != null && result.statusCode >= 400 && result.statusCode < 500) {
+    return result.statusCode === 401 || result.statusCode === 403 || result.statusCode === 429
+  }
+  return /connection refused|econnrefused|enotfound|getaddrinfo|timeout|aborted|fetch failed|network/.test(
+    err,
+  )
+}
+
+async function tryDirectNativeBeapIngestSend(
+  db: any,
+  row: { handshake_id: string; target_endpoint: string },
+  capsule: object,
+): Promise<SendCapsuleResult | null> {
+  if (!isCoordinationRelayNativeBeap(capsule as Record<string, unknown>)) return null
+  const endpoint = String(row.target_endpoint ?? '').trim()
+  if (!endpoint || !isDirectBeapIngestEndpoint(endpoint)) return null
+  const record = getHandshakeRecord(db, row.handshake_id)
+  if (!record) return null
+  const bearerToken = record.local_p2p_auth_token ?? null
+  let result = await sendCapsuleViaHttp(capsule, endpoint, row.handshake_id, bearerToken)
+  const freshEp = record.p2p_endpoint?.trim()
+  const errText = (result.error ?? '').toLowerCase()
+  if (
+    !result.success &&
+    freshEp &&
+    freshEp !== endpoint &&
+    /connection refused|econnrefused|enotfound|getaddrinfo|could not resolve/.test(errText)
+  ) {
+    result = await sendCapsuleViaHttp(capsule, freshEp, row.handshake_id, bearerToken)
+  }
+  if (result.success) {
+    console.info(
+      '[P2P-QUEUE]',
+      JSON.stringify({
+        event: 'direct_beap_ingest_attempt',
+        handshake_id: row.handshake_id,
+        endpoint,
+        recipient_ingest_confirmed: result.recipientIngestConfirmed === true,
+        ingest_row_id: result.ingestRowId ?? null,
+      }),
+    )
+    return result
+  }
+  if (shouldRetryViaCoordinationAfterDirectFailure(result)) {
+    console.info(
+      '[P2P-QUEUE]',
+      JSON.stringify({
+        event: 'direct_beap_ingest_fallback_coordination',
+        handshake_id: row.handshake_id,
+        endpoint,
+        error: result.error ?? null,
+        http_status: result.statusCode ?? null,
+      }),
+    )
+    return null
+  }
+  return result
 }
 
 function classifySendFailure(
@@ -884,7 +953,10 @@ async function processOutboundQueueInner(
     )
     let result: SendCapsuleResult
 
-    if (config.use_coordination && getOidcToken) {
+    const directFirst = await tryDirectNativeBeapIngestSend(db, row, capsule)
+    if (directFirst) {
+      result = directFirst
+    } else if (config.use_coordination && getOidcToken) {
       const token = await getOidcToken()
       const targetUrl = config.coordination_url?.trim() ?? ''
       if (!token?.trim()) {

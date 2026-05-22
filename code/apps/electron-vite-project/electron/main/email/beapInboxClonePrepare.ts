@@ -8,7 +8,11 @@
 
 import { extractInboxMessageRedirectSourceFromRow } from './beapRedirectSource'
 import { getHandshakeRecord } from '../handshake/db'
-import { resolveInboxReplyMode } from '../../../src/lib/inboxAiCloneClassification'
+import {
+  inboxRowIsClonedPlainEmail,
+  resolveInboxReplyMode,
+  type InboxMessageAiClassificationRow,
+} from '../../../src/lib/inboxAiCloneClassification'
 import { isKeyProviderUsable, sealedQuery, SealVerificationError } from '../sealed-storage'
 import { ensureValidatorAndSealedStorageReady } from '../validatorReadiness'
 import { vaultService } from '../vault/service'
@@ -135,6 +139,47 @@ export function isConformantInboxValidationForCloneRead(
   if (!validatedAt?.trim()) return false
   if (validationReason && CONFORMANT_VALIDATION_REASONS_FOR_CLONE.has(validationReason)) return true
   return validationReason == null
+}
+
+/** True when validation_reason is a non-conformant validator rejection (not plain-email / ledger stamps). */
+export function isExplicitValidatorRejectionForClone(
+  validationReason: string | null | undefined,
+): boolean {
+  const reason = validationReason?.trim()
+  if (!reason) return false
+  return !CONFORMANT_VALIDATION_REASONS_FOR_CLONE.has(reason)
+}
+
+/**
+ * Rows the inbox UI already listed may skip HMAC verify on clone prepare when the outer (SSO)
+ * key is bound but VMK verification would fail (email depackaged rows, sandbox clones of plain mail).
+ */
+export function inboxCloneAllowsTrustedRead(opts: {
+  sourceType: string | null
+  handshakeId: string | null
+  validatedAt?: string | null
+  validationReason?: string | null
+  seal?: string | null
+  sealInputJson?: string | null
+  cloneSignalRow?: InboxMessageAiClassificationRow | null
+}): boolean {
+  if (!opts.seal?.trim() || !opts.sealInputJson?.trim()) return false
+  if (isExplicitValidatorRejectionForClone(opts.validationReason)) return false
+
+  if (isDepackagedEmailInboxSourceType(opts.sourceType)) {
+    return true
+  }
+
+  const st = String(opts.sourceType ?? '').trim()
+  if (st !== 'direct_beap') return false
+  if (getHandshakeClassification(String(opts.handshakeId ?? '').trim()) === 'confidential') {
+    return false
+  }
+  if (opts.validationReason === 'non_confidential_ledger_sealed') return true
+  if (opts.cloneSignalRow && inboxRowIsClonedPlainEmail(opts.cloneSignalRow)) return true
+  if (isConformantInboxValidationForCloneRead(opts.validatedAt, opts.validationReason)) return true
+  if (opts.validatedAt?.trim() && !opts.validationReason?.trim()) return true
+  return false
 }
 
 /**
@@ -337,6 +382,31 @@ const CLONE_PREPARE_INBOX_SELECT = `SELECT id, source_type, handshake_id, subjec
  * Depackaged email with conformant ingest stamps: trusted read when outer-only (not confidential).
  * All other rows: `sealedQuery` (full HMAC verify with bound inner or outer key).
  */
+type ClonePrepareInboxMetaRow = {
+  source_type?: string | null
+  handshake_id?: string | null
+  validated_at?: string | null
+  validation_reason?: string | null
+  seal?: string | null
+  seal_input_json?: string | null
+  depackaged_json?: string | null
+  beap_package_json?: string | null
+  body_text?: string | null
+  body_html?: string | null
+}
+
+function loadInboxMetaForClonePrepare(db: any, srcId: string): ClonePrepareInboxMetaRow | null {
+  const row = db
+    .prepare(
+      `SELECT id, source_type, handshake_id, validated_at, validation_reason, seal, seal_input_json,
+              depackaged_json, beap_package_json, body_text, body_html
+       FROM inbox_messages WHERE id = ?`,
+    )
+    .get(srcId) as (ClonePrepareInboxMetaRow & { id?: string }) | undefined
+  if (!row?.id) return null
+  return row
+}
+
 export function readInboxRowForClonePrepare(
   db: any,
   srcId: string,
@@ -344,6 +414,19 @@ export function readInboxRowForClonePrepare(
 ): { ok: true; row: ClonePrepareInboxRow } | { ok: false; result: BeapInboxClonePrepareResult } {
   const requiresInnerVault = vaultReq?.requiresInnerVault ?? false
   const sealKeySource = vaultReq?.sealKeySource ?? null
+
+  const meta = loadInboxMetaForClonePrepare(db, srcId)
+  if (!meta) {
+    console.log(`[CLONE_PREPARE] source_missing sourceMessageId=${srcId}`)
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        code: 'MESSAGE_NOT_FOUND',
+        error: 'Inbox message was not found or could not be verified.',
+      },
+    }
+  }
 
   let sealedRows: ClonePrepareInboxRow[] = []
   try {
@@ -366,32 +449,31 @@ export function readInboxRowForClonePrepare(
     return { ok: true, row: sealedRows[0] }
   }
 
-  if (vaultReq?.isDepackagedEmail) {
-    const meta = db
-      .prepare(
-        'SELECT validated_at, validation_reason, seal, seal_input_json FROM inbox_messages WHERE id = ?',
+  const cloneSignalRow: InboxMessageAiClassificationRow = {
+    source_type: meta.source_type,
+    handshake_id: meta.handshake_id,
+    depackaged_json: meta.depackaged_json,
+    beap_package_json: meta.beap_package_json,
+    body_text: meta.body_text,
+    body_html: meta.body_html,
+  }
+  if (
+    inboxCloneAllowsTrustedRead({
+      sourceType: meta.source_type != null ? String(meta.source_type) : null,
+      handshakeId: meta.handshake_id != null ? String(meta.handshake_id) : null,
+      validatedAt: meta.validated_at,
+      validationReason: meta.validation_reason,
+      seal: meta.seal,
+      sealInputJson: meta.seal_input_json,
+      cloneSignalRow,
+    })
+  ) {
+    const trusted = db.prepare(CLONE_PREPARE_INBOX_SELECT).get(srcId) as ClonePrepareInboxRow | undefined
+    if (trusted?.id && trusted.seal && trusted.seal_input_json) {
+      console.log(
+        `[CLONE_PREPARE] source_loaded_trusted_clone_read sourceMessageId=${srcId} source_type=${meta.source_type ?? 'unknown'} validation_reason=${meta.validation_reason ?? 'null'}`,
       )
-      .get(srcId) as
-      | {
-          validated_at?: string | null
-          validation_reason?: string | null
-          seal?: string | null
-          seal_input_json?: string | null
-        }
-      | undefined
-    if (
-      meta &&
-      meta.seal?.trim() &&
-      meta.seal_input_json?.trim() &&
-      isConformantInboxValidationForCloneRead(meta.validated_at, meta.validation_reason)
-    ) {
-      const trusted = db.prepare(CLONE_PREPARE_INBOX_SELECT).get(srcId) as ClonePrepareInboxRow | undefined
-      if (trusted?.id && trusted.seal && trusted.seal_input_json) {
-        console.log(
-          `[CLONE_PREPARE] source_loaded_trusted_depackaged_email sourceMessageId=${srcId} validation_reason=${meta.validation_reason ?? 'null'}`,
-        )
-        return { ok: true, row: trusted }
-      }
+      return { ok: true, row: trusted }
     }
   }
 

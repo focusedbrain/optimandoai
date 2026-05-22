@@ -128,6 +128,12 @@ export interface WsManagerAdapter {
     payload: Record<string, unknown>,
   ): boolean
   pushSystemEvent(recipientUserId: string, event: string, payload?: Record<string, unknown>): boolean
+  /** Cross-device BEAP delivery confirmation → sender coordination WS (not stored in DB). */
+  pushBeapIngestAck(
+    senderUserId: string,
+    senderDeviceId: string | null,
+    payload: Record<string, unknown>,
+  ): boolean
   handleAck(userId: string, ids: string[]): void
   getConnectedCount(): number
   startHeartbeat(intervalMs: number): ReturnType<typeof setInterval>
@@ -279,6 +285,22 @@ export function createWsManager(store: StoreAdapter): WsManagerAdapter {
       if (!target) return false
       try {
         target.ws.send(JSON.stringify({ type: 'p2p_signal', id, payload }))
+        return true
+      } catch {
+        return false
+      }
+    },
+
+    pushBeapIngestAck(
+      senderUserId: string,
+      senderDeviceId: string | null,
+      payload: Record<string, unknown>,
+    ): boolean {
+      const d = (senderDeviceId ?? '').trim()
+      const target = d.length > 0 ? getClientByDevice(senderUserId, d) : getClient(senderUserId)
+      if (!target) return false
+      try {
+        target.ws.send(JSON.stringify({ type: 'beap_ingest_ack', ...payload }))
         return true
       } catch {
         return false

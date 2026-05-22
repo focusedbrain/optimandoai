@@ -35,6 +35,35 @@ import { getCanonicalRelayDeviceId, logDeviceIdBinding } from './relayDeviceBind
 import { relayIdentitySnapshot } from './relayIdentity'
 import { tryHandleCoordinationP2pSignal } from '../internalInference/relayP2pSignalHandler'
 import type { ReasonCode } from '../vault/capabilityBroker'
+import { notifyBeapDeliveryAck } from './beapDeliveryAck'
+
+/** Send JSON on the open coordination WS (recipient → relay → sender ingest ack). */
+let _coordinationWsJsonSender: ((payload: Record<string, unknown>) => boolean) | null = null
+
+export function publishBeapIngestAckOverCoordinationRelay(opts: {
+  relayId: string
+  handshakeId: string
+  rowId: string
+  status?: 'ok' | 'error'
+  reasonCode?: ReasonCode
+  retryable?: boolean
+}): void {
+  if (!_coordinationWsJsonSender) return
+  const ok = _coordinationWsJsonSender({
+    type: 'beap_ingest_ack',
+    relay_id: opts.relayId,
+    handshake_id: opts.handshakeId,
+    row_id: opts.rowId,
+    status: opts.status ?? 'ok',
+    ...(opts.reasonCode ? { reason_code: opts.reasonCode } : {}),
+    ...(opts.retryable === true ? { retryable: true } : {}),
+  })
+  if (ok) {
+    console.log(
+      `[BEAP_DELIVERY] coordination_ingest_ack_published relayId=${opts.relayId} handshake=${opts.handshakeId} rowId=${opts.rowId}`,
+    )
+  }
+}
 
 /**
  * Map a legacy error string returned by processBeapPackageInline (or thrown
@@ -376,6 +405,15 @@ async function processCapsuleInternal(
       if (r.outcome === 'inbox') {
         console.log('[Coordination] BEAP message sealed into inbox, handshake=', handshakeId)
         setP2PHealthCoordinationLastPush()
+        if (r.rowId) {
+          publishBeapIngestAckOverCoordinationRelay({
+            relayId: id,
+            handshakeId,
+            rowId: r.rowId,
+            status: 'ok',
+          })
+          notifyBeapDeliveryAck(handshakeId, r.rowId)
+        }
         console.log(`[COORDINATION_WS] relay_ack_sent relayId=${id} reason=ok retryable=false outcome=inbox`)
         sendAckFn([id])
         return
@@ -775,6 +813,15 @@ export function createCoordinationWsClient(
         setP2PHealthCoordinationReconnectAttempts(0)
         flushAcks()
         startHeartbeat()
+        _coordinationWsJsonSender = (payload) => {
+          if (!ws || ws.readyState !== WebSocket.OPEN) return false
+          try {
+            ws.send(JSON.stringify(payload))
+            return true
+          } catch {
+            return false
+          }
+        }
         console.log('[Coordination] Connected to relay WebSocket — ready to receive capsules')
         console.log('[WS-DEBUG] WebSocket state:', ws?.readyState, 'connected to:', wsUrl)
         console.log('[RELAY-WS] Connected to:', wsUrl)
@@ -815,6 +862,25 @@ export function createCoordinationWsClient(
           // System events (e.g. tier_changed) are no longer processed — tier/entitlement
           // updates come from /api/vault/status and auth status polling only.
           if (msg?.type === 'system_event') {
+            return
+          }
+
+          if (msg?.type === 'beap_ingest_ack') {
+            const ackMsg = msg as {
+              handshake_id?: string
+              row_id?: string
+              status?: string
+              reason_code?: string
+              retryable?: boolean
+            }
+            const hid = typeof ackMsg.handshake_id === 'string' ? ackMsg.handshake_id.trim() : ''
+            const rowId = typeof ackMsg.row_id === 'string' ? ackMsg.row_id.trim() : ''
+            if (hid && rowId) {
+              console.log(
+                `[BEAP_DELIVERY] coordination_ingest_ack_received handshake=${hid} rowId=${rowId} status=${ackMsg.status ?? 'ok'}`,
+              )
+              notifyBeapDeliveryAck(hid, rowId)
+            }
             return
           }
 
@@ -930,6 +996,7 @@ export function createCoordinationWsClient(
 
       ws.on('close', () => {
         ws = null
+        _coordinationWsJsonSender = null
         stopHeartbeat()
         setP2PHealthCoordinationDisconnected()
         if (intentionalShutdown) {

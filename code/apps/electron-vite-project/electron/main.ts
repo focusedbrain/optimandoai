@@ -2781,7 +2781,11 @@ app.whenReady().then(async () => {
           console.log(`[BEAP_DELIVERY] ack_broadcast handshake=${handshakeId} rowId=${rowId}`)
           for (const w of BrowserWindow.getAllWindows()) {
             if (!w.isDestroyed()) {
-              w.webContents.send('inbox:beapDeliveryAck', { handshakeId, rowId })
+              w.webContents.send('inbox:beapDeliveryAck', {
+                handshakeId,
+                rowId,
+                status: 'ok',
+              })
             }
           }
         })

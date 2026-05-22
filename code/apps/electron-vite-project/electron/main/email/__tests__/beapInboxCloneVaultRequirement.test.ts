@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  inboxCloneAllowsTrustedRead,
   inboxCloneRequiresInnerVault,
   isDepackagedEmailInboxSourceType,
   isConformantInboxValidationForCloneRead,
@@ -38,6 +39,27 @@ describe('inbox clone vault requirement', () => {
     expect(isConformantInboxValidationForCloneRead(null, 'plain_email_no_validation_required')).toBe(
       false,
     )
+  })
+
+  it('inboxCloneAllowsTrustedRead for direct_beap sandbox clone of plain email', () => {
+    const dep = JSON.stringify({
+      inbox_sandbox_clone_provenance: { original_source_type: 'email_plain', sandbox_clone: true },
+    })
+    expect(
+      inboxCloneAllowsTrustedRead({
+        sourceType: 'direct_beap',
+        handshakeId: 'hs-1',
+        seal: 'seal',
+        sealInputJson: '{}',
+        validatedAt: '2025-01-01T00:00:00.000Z',
+        validationReason: null,
+        cloneSignalRow: {
+          source_type: 'direct_beap',
+          handshake_id: 'hs-1',
+          depackaged_json: dep,
+        },
+      }),
+    ).toBe(true)
   })
 
   it('probeInboxMessageCloneVaultRequirement marks email_plain as outer-only', () => {

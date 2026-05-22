@@ -1143,11 +1143,49 @@ export async function createServer(config: CoordinationConfig): Promise<{
     ws.on('message', (data: Buffer | string) => {
       try {
         const text = typeof data === 'string' ? data : data.toString('utf8')
-        const msg = JSON.parse(text) as { type?: string; ids?: unknown }
+        const msg = JSON.parse(text) as {
+          type?: string
+          ids?: unknown
+          relay_id?: unknown
+          handshake_id?: unknown
+          row_id?: unknown
+          status?: unknown
+          reason_code?: unknown
+          retryable?: unknown
+        }
         if (msg?.type === 'ack' && Array.isArray(msg.ids)) {
           const ids = msg.ids.filter((x): x is string => typeof x === 'string')
           const userId = wsManager.getUserIdForWs(ws)
           if (userId) wsManager.handleAck(userId, ids)
+          return
+        }
+        if (msg?.type === 'beap_ingest_ack') {
+          const relayId = typeof msg.relay_id === 'string' ? msg.relay_id.trim() : ''
+          const handshakeId = typeof msg.handshake_id === 'string' ? msg.handshake_id.trim() : ''
+          const rowId = typeof msg.row_id === 'string' ? msg.row_id.trim() : ''
+          const recipientUserId = wsManager.getUserIdForWs(ws)
+          if (!relayId || !handshakeId || !rowId || !recipientUserId) return
+          const route = store.getCapsuleRelayRoute(relayId)
+          if (!route || route.recipientUserId !== recipientUserId) return
+          const pushed = wsManager.pushBeapIngestAck(route.senderUserId, route.senderDeviceId, {
+            relay_id: relayId,
+            handshake_id: handshakeId,
+            row_id: rowId,
+            status: msg.status === 'error' ? 'error' : 'ok',
+            ...(typeof msg.reason_code === 'string' ? { reason_code: msg.reason_code } : {}),
+            ...(msg.retryable === true ? { retryable: true } : {}),
+          })
+          if (pushed) {
+            console.log(
+              '[RELAY-QUEUE] beap_ingest_ack_forwarded',
+              JSON.stringify({
+                relay_id: relayId,
+                handshake_id: handshakeId,
+                sender_user_id: route.senderUserId,
+                sender_device_id: route.senderDeviceId,
+              }),
+            )
+          }
         }
       } catch {
         // ignore malformed

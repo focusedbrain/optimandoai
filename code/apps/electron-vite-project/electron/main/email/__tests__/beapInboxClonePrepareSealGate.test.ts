@@ -176,6 +176,44 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
     }
   })
 
+  it('direct_beap sandbox-clone-of-plain vmk row + outer-only → prepare succeeds (trusted read)', () => {
+    if (!ctx.db) return
+
+    const entry = makeEligibleEntry()
+    mockHappyList([entry])
+    getHandshakeRecord.mockReturnValue(makeHandshakeRecord(entry.handshake_id))
+
+    const msgId = randomUUID()
+    const dep = JSON.stringify({
+      body: { text: 'cloned from newsletter' },
+      inbox_sandbox_clone_provenance: {
+        original_source_type: 'email_plain',
+        original_response_path: 'email',
+        sandbox_clone: true,
+      },
+    })
+    const s = ctx.buildValidSealForRowId(msgId, dep)
+    ctx.db
+      .prepare(
+        `INSERT INTO inbox_messages
+           (id, source_type, handshake_id, subject, body_text, depackaged_json,
+            has_attachments, from_address, account_id, received_at, ingested_at,
+            validated_at, validation_reason, seal, seal_input_json, seal_key_source)
+         VALUES (?, 'direct_beap', 'hs-orig', 'Clone plain', 'cloned from newsletter', ?,
+                 0, 'news@example.com', 'acc', '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z',
+                 '2025-01-01T00:00:00.000Z', NULL,
+                 ?, ?, 'vmk')`,
+      )
+      .run(msgId, dep, s.seal, s.seal_input_json)
+
+    const r = prepareBeapInboxSandboxClone(ctx.db as any, makeSession(), msgId, entry.handshake_id, 'tag')
+
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.encrypted_text).toContain('cloned from newsletter')
+    }
+  })
+
   it('native direct_beap vmk row + outer-only → MESSAGE_NOT_FOUND (no trusted read for native)', () => {
     if (!ctx.db) return
 

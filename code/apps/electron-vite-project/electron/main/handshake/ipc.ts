@@ -1121,8 +1121,8 @@ export async function handleHandshakeRPC(
       console.log(
         `[BEAP_MSG_SEND] send_response messageId=${_msgId} relayAccepted=${d.relayTransportAccepted === true} delivered=${d.delivered ?? false} code=${d.code ?? 'none'} relay=${d.coordinationRelayDelivery ?? 'none'} recipientIngestConfirmed=${ingestConfirmed}`,
       )
-      if (ingestConfirmed && ingestRowId) {
-        notifyBeapDeliveryAck(handshakeId, ingestRowId)
+      if (ingestConfirmed) {
+        notifyBeapDeliveryAck(handshakeId, ingestRowId ?? `ingest-${_msgId}`)
       }
       // Failure: no HTTP transport success to relay/direct (or terminal HTTP error), or outbound backoff.
       if (d.relayTransportAccepted !== true) {
