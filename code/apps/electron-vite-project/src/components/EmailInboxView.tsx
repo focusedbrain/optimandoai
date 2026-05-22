@@ -2342,7 +2342,7 @@ interface InboxMessageRowProps {
 const PENDING_REASON_UI: Record<string, { subjectText: string; chipText: string }> = {
   inner_vault_locked: {
     subjectText: 'Confidential message awaiting vault unlock',
-    chipText: 'Unlock vault to view',
+    chipText: 'Unlock high-assurance vault',
   },
   key_provider_unbound: {
     subjectText: 'Message awaiting storage initialisation',

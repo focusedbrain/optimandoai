@@ -501,10 +501,11 @@ export function runSealedTransaction(
   parentBindArgs: unknown[],
   sealParams: SealBindParams,
   childWrites: ReadonlyArray<() => void>,
+  source: KeySource = 'inner',
 ): SealedRunResult {
   let result: SealedRunResult | undefined
   const txn = (db as any).transaction(() => {
-    result = sealedInsert.run(parentBindArgs, sealParams)
+    result = sealedInsert.run(parentBindArgs, sealParams, source)
     for (const write of childWrites) {
       write()
     }
@@ -564,6 +565,7 @@ export function sealedQuery<T extends SealedRow>(
   sql: string,
   bindArgs: unknown[],
   canonicalJsonColumn: string,
+  options?: { forceKeySource?: KeySource },
 ): T[] {
   const ctx = `sealedQuery (${sql.slice(0, 60)})`
   const innerProviderBound = _providers.inner != null
@@ -614,7 +616,7 @@ export function sealedQuery<T extends SealedRow>(
     }
 
     // ── Determine which key source this row uses ─────────────────────────────
-    const source = rowKeySource(row)
+    const source = options?.forceKeySource ?? rowKeySource(row)
 
     // ── No key provider for this row's seal_key_source ───────────────────────
     if (!_providers[source]) {

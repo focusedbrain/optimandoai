@@ -38,7 +38,7 @@ import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pd
 import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
 import { decryptQBeapPackage } from '../beap/decryptQBeapPackage'
 import { validatorOrchestrator } from '../validator-process/orchestrator'
-import { prepareSealedInsert, runSealedTransaction, type ChildAttachmentDescriptor } from '../sealed-storage/index'
+import { prepareSealedInsert, runSealedTransaction, computeSeal, type ChildAttachmentDescriptor } from '../sealed-storage/index'
 import {
   listAvailableInternalSandboxes,
   isEligibleActiveInternalHostSandboxRecord,
@@ -263,8 +263,9 @@ const INBOX_INSERT_SQL = `
     depackaged_json, has_attachments, attachment_count, received_at, ingested_at,
     imap_remote_mailbox, imap_rfc_message_id,
     validated_at, validator_version, validation_reason,
-    seal, seal_input_json
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    seal, seal_input_json,
+    seal_key_source
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 const QUARANTINE_INSERT_SQL = `
@@ -468,6 +469,7 @@ export async function detectAndRouteMessage(
     depackagedJson: string
     seal: string
     sealInputJson: string
+    sealKeySource: 'ledger'
     validatedAt: string
     validatorVersion: string
     validationReason: string | null
@@ -542,12 +544,14 @@ export async function detectAndRouteMessage(
 
       if (resp.outcome.ok) {
         const sealed = resp.outcome.sealed
+        const { seal, seal_input_json } = computeSeal(sealed.canonical_json, inboxMessageId, 'outer')
         writePayload = {
           kind: 'inbox',
           sourceType: 'email_beap',
           depackagedJson: sealed.canonical_json,
-          seal: sealed.seal,
-          sealInputJson: sealed.seal_input_json,
+          seal,
+          sealInputJson: seal_input_json,
+          sealKeySource: 'ledger',
           validatedAt: sealed.validated_at,
           validatorVersion: sealed.validator_version,
           validationReason: null,
@@ -736,6 +740,7 @@ export async function detectAndRouteMessage(
     writePayload.validationReason,
     writePayload.seal,
     writePayload.sealInputJson,
+    writePayload.sealKeySource ?? 'ledger',
   ]
 
   const childWrites = attMetas.map((m) => () => {
@@ -766,6 +771,7 @@ export async function detectAndRouteMessage(
       row_id: inboxMessageId,
     },
     childWrites,
+    'outer',
   )
 
   return {
@@ -836,32 +842,18 @@ async function buildPlainEmailInboxPayload(
     ...(attachmentsCanonical.length > 0 ? { attachments_canonical: attachmentsCanonical } : {}),
   }
   const canonicalJson = JSON.stringify(canonicalObj)
+  const nowIso = new Date().toISOString()
+  const { seal, seal_input_json } = computeSeal(canonicalJson, inboxMessageId, 'outer')
 
-  const provenance = buildProvenance(fromAddr, messageId, bodyText, 'plain_external_content')
-  const resp = await validatorOrchestrator.validate({
-    envelope: {},
-    plaintext_or_encrypted: { kind: 'plaintext', content: canonicalJson },
-    provenance,
-    target_row_id: inboxMessageId,
-  })
-
-  if (!resp.outcome.ok) {
-    // plain_email content is always structurally valid — should not happen.
-    throw new Error(
-      `[MessageRouter] plain_email validator rejected unexpectedly: ${resp.outcome.sealed_quarantine.rejection_reason}`,
-    )
-  }
-
-  const sealed = resp.outcome.sealed
   return {
     kind: 'inbox',
     sourceType: 'email_plain',
-    depackagedJson: sealed.canonical_json,
-    seal: sealed.seal,
-    sealInputJson: sealed.seal_input_json,
-    validatedAt: sealed.validated_at,
-    validatorVersion: sealed.validator_version,
-    // plain_email rows are conformant; BEAP validation is simply not applicable.
+    depackagedJson: canonicalJson,
+    seal,
+    sealInputJson: seal_input_json,
+    sealKeySource: 'ledger',
+    validatedAt: nowIso,
+    validatorVersion: 'outer-ledger-v1',
     validationReason: 'plain_email_no_validation_required',
   }
 }

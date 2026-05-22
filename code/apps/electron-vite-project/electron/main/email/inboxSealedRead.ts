@@ -1,20 +1,32 @@
 /**
  * Inbox row reads that enforce seal HMAC verification for all sealed content.
  * Placeholder rows (pending_reason_code) have no seal yet and pass through unchanged.
- * When the required key provider is unavailable, list reads return sanitized deferred rows
- * (metadata only + pending_reason_code) instead of silently omitting the message.
+ *
+ * Vault policy (not the stale seal_key_source column alone):
+ * - Depackaged email + non-confidential BEAP → outer (ledger / SSO) seal.
+ * - Confidential handshake BEAP → inner (VMK) seal.
  */
 
 import {
   sealedQuery,
   isKeyProviderUsable,
   SealVerificationError,
+  computeSeal,
   type SealedRow,
+  type KeySource,
 } from '../sealed-storage'
 import type { ReasonCode } from '../vault/capabilityBroker'
+import {
+  allowsLegacyOuterReseal,
+  inboxRowRequiresInnerVault,
+  verificationKeySourcesForInboxRow,
+} from './inboxRowSealPolicy'
 
 export type InboxPlaceholderRow = {
   pending_reason_code?: string | null
+  validation_reason?: string | null
+  source_type?: string | null
+  handshake_id?: string | null
 }
 
 export function isInboxPlaceholderRow(row: InboxPlaceholderRow | null | undefined): boolean {
@@ -33,22 +45,12 @@ const SENSITIVE_LIST_FIELDS = [
   'ai_analysis_json',
 ] as const
 
-function rowSealKeySource(row: SealedRow): 'ledger' | 'vmk' {
-  return row.seal_key_source === 'ledger' ? 'ledger' : 'vmk'
-}
-
-function providerSourceForRow(row: SealedRow): 'inner' | 'outer' {
-  return rowSealKeySource(row) === 'ledger' ? 'outer' : 'inner'
-}
-
-function deferredReasonForRow(row: SealedRow): ReasonCode {
-  const source = providerSourceForRow(row)
-  if (source === 'outer' && !isKeyProviderUsable('outer')) {
-    return 'outer_vault_inactive'
+function deferredReasonForRow(row: SealedRow & InboxPlaceholderRow): ReasonCode {
+  if (inboxRowRequiresInnerVault(row)) {
+    if (!isKeyProviderUsable('inner')) return 'inner_vault_locked'
+    return 'key_provider_unbound'
   }
-  if (source === 'inner' && !isKeyProviderUsable('inner')) {
-    return 'inner_vault_locked'
-  }
+  if (!isKeyProviderUsable('outer')) return 'outer_vault_inactive'
   return 'key_provider_unbound'
 }
 
@@ -65,10 +67,51 @@ export function toDeferredInboxListRow<T extends SealedRow & InboxPlaceholderRow
   return out
 }
 
+function tryVerifyWithKeySource<T extends SealedRow>(
+  db: any,
+  rowId: string,
+  source: KeySource,
+): T | null {
+  const verified = sealedQuery<T>(db, VERIFY_SELECT, [rowId], 'depackaged_json', {
+    forceKeySource: source,
+  })
+  return verified[0] ?? null
+}
+
+function resealInboxRowToLedger(db: any, rowId: string, canonicalJson: string): boolean {
+  if (!isKeyProviderUsable('outer')) return false
+  try {
+    const { seal, seal_input_json } = computeSeal(canonicalJson, rowId, 'outer')
+    db.prepare(
+      `UPDATE inbox_messages SET seal = ?, seal_input_json = ?, seal_key_source = 'ledger' WHERE id = ?`,
+    ).run(seal, seal_input_json, rowId)
+    console.log(`[INBOX_SEAL_READ] migrated_row_to_ledger id=${rowId}`)
+    return true
+  } catch (err: unknown) {
+    console.warn(
+      `[INBOX_SEAL_READ] migrate_row_to_ledger_failed id=${rowId}:`,
+      err instanceof Error ? err.message : err,
+    )
+    return false
+  }
+}
+
+function tryLegacyOuterReseal<T extends SealedRow & InboxPlaceholderRow>(
+  db: any,
+  row: T,
+): T | null {
+  if (!allowsLegacyOuterReseal(row) || inboxRowRequiresInnerVault(row)) return null
+  if (!isKeyProviderUsable('outer')) return null
+  const canonical = row.depackaged_json
+  if (typeof canonical !== 'string' || !canonical.trim()) return null
+  const id = String(row.id)
+  if (!resealInboxRowToLedger(db, id, canonical)) return null
+  return tryVerifyWithKeySource<T>(db, id, 'outer')
+}
+
 /**
- * Return the row if it is a placeholder, passes sealedQuery verification, or can be
- * shown as a deferred list row when the seal key is temporarily unavailable.
- * Returns null only when verification fails with a bound key (tamper / invalid seal).
+ * Return the row if it is a placeholder, passes seal verification, was migrated to
+ * ledger, or can be shown as a deferred list row when keys are temporarily unavailable.
  */
 export function verifyInboxMessageRowOrNull<T extends SealedRow & InboxPlaceholderRow>(
   db: any,
@@ -77,38 +120,47 @@ export function verifyInboxMessageRowOrNull<T extends SealedRow & InboxPlacehold
   if (!row?.id) return null
   if (isInboxPlaceholderRow(row)) return row
 
-  const providerSource = providerSourceForRow(row)
-  if (!isKeyProviderUsable(providerSource)) {
+  const rowId = String(row.id)
+  const sources = verificationKeySourcesForInboxRow(row)
+
+  for (const source of sources) {
+    if (!isKeyProviderUsable(source)) continue
+    try {
+      const verified = tryVerifyWithKeySource<T>(db, rowId, source)
+      if (!verified) continue
+      if (source === 'inner' && !inboxRowRequiresInnerVault(row) && isKeyProviderUsable('outer')) {
+        const canonical = verified.depackaged_json
+        if (typeof canonical === 'string' && canonical.trim()) {
+          resealInboxRowToLedger(db, rowId, canonical)
+          const outerVerified = tryVerifyWithKeySource<T>(db, rowId, 'outer')
+          if (outerVerified) return outerVerified
+        }
+      }
+      return verified
+    } catch (err: unknown) {
+      if (!(err instanceof SealVerificationError)) throw err
+    }
+  }
+
+  const legacy = tryLegacyOuterReseal(db, row)
+  if (legacy) return legacy
+
+  const anyProvider =
+    isKeyProviderUsable('outer') ||
+    isKeyProviderUsable('inner') ||
+    sources.some((s) => isKeyProviderUsable(s))
+  if (!anyProvider) {
     const reason = deferredReasonForRow(row)
     console.log(
-      `[INBOX_SEAL_READ] deferred_list row=${row.id} reason=${reason} seal_key_source=${rowSealKeySource(row)}`,
+      `[INBOX_SEAL_READ] deferred_list row=${rowId} reason=${reason} policy=${inboxRowRequiresInnerVault(row) ? 'inner' : 'outer'}`,
     )
     return toDeferredInboxListRow(row, reason)
   }
 
-  try {
-    const verified = sealedQuery<T>(db, VERIFY_SELECT, [row.id], 'depackaged_json')
-    if (verified[0]) return verified[0]
-  } catch (err: unknown) {
-    if (err instanceof SealVerificationError) {
-      const reason = deferredReasonForRow(row)
-      console.log(
-        `[INBOX_SEAL_READ] deferred_list row=${row.id} reason=${reason} (sealedQuery: ${err.message})`,
-      )
-      return toDeferredInboxListRow(row, reason)
-    }
-    throw err
-  }
-
-  console.warn(
-    `[INBOX_SEAL_READ] seal_reject row=${row.id} seal_key_source=${rowSealKeySource(row)} provider=${providerSource}`,
-  )
+  console.warn(`[INBOX_SEAL_READ] seal_reject row=${rowId} policy=${inboxRowRequiresInnerVault(row) ? 'inner' : 'outer'}`)
   return null
 }
 
-/**
- * Load a single inbox row by id with seal verification (placeholders exempt).
- */
 export function loadVerifiedInboxMessageById<T extends SealedRow & InboxPlaceholderRow>(
   db: any,
   messageId: string,
@@ -120,10 +172,6 @@ export function loadVerifiedInboxMessageById<T extends SealedRow & InboxPlacehol
   return verifyInboxMessageRowOrNull(db, raw)
 }
 
-/**
- * Filter a list from raw SQL: verified rows, placeholders, and deferred rows when keys
- * are unavailable. Tampered/invalid seals are omitted.
- */
 export function filterInboxRowsWithVerifiedSeals<T extends SealedRow & InboxPlaceholderRow>(
   db: any,
   rows: T[],

@@ -12,7 +12,6 @@ import {
   type InboxMessageAiClassificationRow,
 } from '../../../src/lib/inboxAiCloneClassification'
 import { isKeyProviderUsable, sealedQuery, SealVerificationError } from '../sealed-storage'
-import { getHandshakeClassification } from '../vault/vaultCanon'
 import { canPerform } from '../vault/capabilityBroker'
 import {
   isEligibleActiveInternalHostSandboxRecord,
@@ -122,11 +121,12 @@ export function probeInboxMessageSealKeySource(
   }
 }
 
-/** Depackaged IMAP/email rows — never require inner vault for sandbox clone. */
-export function isDepackagedEmailInboxSourceType(sourceType: string | null | undefined): boolean {
-  const st = String(sourceType ?? '').trim()
-  return st === 'email_plain' || st === 'email_beap'
-}
+import {
+  isDepackagedEmailInboxSourceType,
+  inboxRowRequiresInnerVault,
+} from './inboxRowSealPolicy'
+
+export { isDepackagedEmailInboxSourceType } from './inboxRowSealPolicy'
 
 function depackagedFormatForCloneRow(row: {
   depackaged_json?: string | null
@@ -193,11 +193,10 @@ export function inboxCloneRequiresInnerVault(opts: {
   handshakeId: string | null
   sealKeySource?: 'ledger' | 'vmk' | null
 }): boolean {
-  if (isDepackagedEmailInboxSourceType(opts.sourceType)) return false
-  if (opts.sealKeySource === 'vmk') return true
-  const hs = String(opts.handshakeId ?? '').trim()
-  if (!hs) return false
-  return getHandshakeClassification(hs) === 'confidential'
+  return inboxRowRequiresInnerVault({
+    source_type: opts.sourceType,
+    handshake_id: opts.handshakeId,
+  })
 }
 
 /** @deprecated Use `inboxCloneRequiresInnerVault` — kept for tests that assert legacy seal_key_source helper. */
