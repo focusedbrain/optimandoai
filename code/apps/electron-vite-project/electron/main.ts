@@ -3897,40 +3897,41 @@ app.whenReady().then(async () => {
         if (!sessionId || !sourceMessageId) {
           return { success: false, error: 'MISSING_FIELDS' }
         }
-        const config =
-          p.config && typeof p.config === 'object' && p.config !== null
-            ? (p.config as Record<string, unknown>)
-            : {}
+        const importArtefact = p.importArtefact
+        if (importArtefact == null || typeof importArtefact !== 'object' || Array.isArray(importArtefact)) {
+          return { success: false, error: 'MISSING_IMPORT_ARTEFACT' }
+        }
         const handshakeId =
           p.handshakeId === null || p.handshakeId === undefined
             ? null
-            : String(p.handshakeId)
+            : String(p.handshakeId).trim().slice(0, 500) || null
         const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const { importAndRunBeapSessionFromArtefact } = await import('./main/orchestrator-db/beapSessionImportRun')
         const orchestratorService = getOrchestratorService()
-        const now = Date.now()
-        const importedId = `beap-import-${sessionId}-${now}`
-        await orchestratorService.saveSession({
-          id: importedId,
-          name: sessionName,
-          config: {
-            ...config,
-            importedFrom: 'beap-message',
+        const result = await importAndRunBeapSessionFromArtefact(
+          {
+            sessionId,
+            sessionName,
+            importArtefact,
             sourceMessageId,
             handshakeId,
-            importedAt: now,
-            beapSourceSessionId: sessionId,
           },
-          created_at: now,
-          updated_at: now,
-          tags: ['beap-import'],
-        })
+          {
+            orchestrator: orchestratorService,
+            broadcastToExtensions,
+            extensionClientCount: () => wsClients.filter((s: { readyState: number }) => s.readyState === WebSocket.OPEN).length,
+          },
+        )
+        if (!result.success) {
+          return { success: false, error: result.error }
+        }
         beapSessionImportPolicyHook({
-          importedSessionId: importedId,
+          importedSessionId: sessionId,
           sourceSessionId: sessionId,
           sourceMessageId,
           handshakeId,
         })
-        return { success: true, sessionId: importedId }
+        return { success: true, dispatched: result.dispatched }
       } catch (err: any) {
         console.error('[MAIN] orchestrator:importSessionFromBeap', err?.message ?? err)
         return { success: false, error: err?.message ?? 'IMPORT_FAILED' }

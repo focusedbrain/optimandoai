@@ -1342,6 +1342,29 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               } catch {
                 /* no receiver (e.g. inbox not open) â€” 5s poll will catch pending rows */
               }
+            } else if (data.type === 'BEAP_DESKTOP_RUN_AUTOMATION') {
+              const importData = data.importData
+              const fallbackModel =
+                typeof data.fallbackModel === 'string' && data.fallbackModel.trim()
+                  ? data.fallbackModel.trim()
+                  : 'tinyllama'
+              if (importData == null || typeof importData !== 'object' || Array.isArray(importData)) {
+                console.warn('[BG] BEAP_DESKTOP_RUN_AUTOMATION: invalid importData — skipped')
+              } else {
+                void (async () => {
+                  try {
+                    const { requestBeapRunAutomationInActiveTab } = await import(
+                      './beap-messages/beapSessionRunBridge'
+                    )
+                    const result = await requestBeapRunAutomationInActiveTab(importData, { fallbackModel })
+                    if (!result.success) {
+                      console.warn('[BG] BEAP_DESKTOP_RUN_AUTOMATION failed:', result.error, result.phase)
+                    }
+                  } catch (e) {
+                    console.warn('[BG] BEAP_DESKTOP_RUN_AUTOMATION error:', e)
+                  }
+                })()
+              }
             } else if (data.type === 'SHOW_TRIGGER_PROMPT') {
               chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
                 const tabUrl = tabs[0]?.url || ''

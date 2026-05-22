@@ -315,7 +315,7 @@ function assertSavePreset(v: unknown): object {
 function assertBeapSessionImportPayload(v: unknown): {
   sessionId: string
   sessionName: string
-  config: Record<string, unknown>
+  importArtefact: Record<string, unknown>
   sourceMessageId: string
   handshakeId: string | null
 } {
@@ -332,15 +332,21 @@ function assertBeapSessionImportPayload(v: unknown): {
   if (!sourceMessageId || sourceMessageId.length > 500) {
     throw new Error('importSessionFromBeap: sourceMessageId required')
   }
-  const config =
-    o.config && typeof o.config === 'object' && o.config !== null
-      ? (o.config as Record<string, unknown>)
-      : {}
+  const importArtefact = o.importArtefact
+  if (importArtefact == null || typeof importArtefact !== 'object' || Array.isArray(importArtefact)) {
+    throw new Error('importSessionFromBeap: importArtefact required')
+  }
   let handshakeId: string | null = null
   if (o.handshakeId !== undefined && o.handshakeId !== null) {
     handshakeId = String(o.handshakeId).slice(0, 500)
   }
-  return { sessionId, sessionName, config, sourceMessageId, handshakeId }
+  return {
+    sessionId,
+    sessionName,
+    importArtefact: importArtefact as Record<string, unknown>,
+    sourceMessageId,
+    handshakeId,
+  }
 }
 
 /**

@@ -325,10 +325,10 @@ interface OrchestratorBridge {
   importSessionFromBeap: (payload: {
     sessionId: string
     sessionName: string
-    config: Record<string, unknown>
+    importArtefact: Record<string, unknown>
     sourceMessageId: string
     handshakeId: string | null
-  }) => Promise<{ success: boolean; sessionId?: string; error?: string }>
+  }) => Promise<{ success: boolean; dispatched?: boolean; error?: string }>
   /** Opens orchestrator SQLite (same as POST /api/orchestrator/connect). */
   connect: () => Promise<{ success: boolean; data?: unknown; error?: string }>
   listSessions: () => Promise<{ success: boolean; data?: unknown[]; error?: string }>

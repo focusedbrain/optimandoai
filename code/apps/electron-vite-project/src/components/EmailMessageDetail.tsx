@@ -730,15 +730,25 @@ export default function EmailMessageDetail({
       if (!mid) {
         throw new Error('No message context')
       }
+      const artefact = parsedDepackaged?.session_import_artefact
+      if (artefact == null || typeof artefact !== 'object' || Array.isArray(artefact)) {
+        throw new Error('Session artefact missing from validated message')
+      }
       const result = await api.importSessionFromBeap({
         sessionId,
         sessionName,
-        config: raw,
+        importArtefact: artefact as Record<string, unknown>,
         sourceMessageId: mid,
         handshakeId: message?.handshake_id ?? null,
       })
       if (!result?.success) {
-        throw new Error(result?.error || 'Import failed')
+        const err = result?.error || 'Import failed'
+        if (err === 'EXTENSION_NOT_CONNECTED') {
+          throw new Error(
+            'Chromium extension is not connected. Open a web tab with WR enabled, then retry Run Automation.',
+          )
+        }
+        throw new Error(err)
       }
       setImportStatus((prev) => ({ ...prev, [sessionId]: 'imported' }))
       setImportingSession(null)
@@ -746,7 +756,7 @@ export default function EmailMessageDetail({
       console.error('Session import failed:', e)
       setImportStatus((prev) => ({ ...prev, [sessionId]: 'error' }))
     }
-  }, [message?.id, message?.handshake_id])
+  }, [message?.id, message?.handshake_id, parsedDepackaged])
 
   const dialogSessionRef = useMemo(
     () => (importingSession ? sessionRefToDialogProps(importingSession) : null),
