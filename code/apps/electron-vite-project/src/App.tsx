@@ -480,7 +480,8 @@ function App() {
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 width: 26, height: 26, padding: 0, borderRadius: 6,
-                background: '#2563eb', color: '#fff', border: 'none',
+                background: 'transparent', color: 'var(--text-secondary)',
+                border: '1px solid var(--border)',
                 fontSize: 13, cursor: 'pointer', flexShrink: 0,
               }}
             >
@@ -493,8 +494,9 @@ function App() {
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 height: 26, padding: '0 7px', borderRadius: 6,
-                background: '#7c3aed', color: '#fff', border: 'none',
-                fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                background: 'transparent', color: 'var(--text-secondary)',
+                border: '1px solid var(--border)',
+                fontSize: 10, fontWeight: 600, cursor: 'pointer',
                 letterSpacing: '0.3px', flexShrink: 0,
               }}
             >
