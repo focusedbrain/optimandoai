@@ -37493,6 +37493,8 @@ ${pageText}
 
                     ${session.isActive ? `<span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background:${csTheme().accentGrad}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; white-space: nowrap; pointer-events: none; z-index: 1;">ACTIVE</span>` : ''}
 
+                    ${session.sessionOrigin === 'beap_import' ? `<span style="display: inline-flex; align-items: center; gap: 3px; background: rgba(124,58,237,0.18); color: #a78bfa; border: 1px solid rgba(124,58,237,0.35); padding: 2px 7px; border-radius: 10px; font-size: 9px; font-weight: 700; letter-spacing: 0.4px; white-space: nowrap; flex-shrink: 0; margin-left: 4px;">&#11835; IMPORTED</span>` : ''}
+
                     <span class="session-save-indicator" data-session-id="${session.id}" style="position: absolute; right: ${session.isActive ? '50px' : '8px'}; top: 50%; transform: translateY(-50%); display: none; color: ${csTheme().accentColor}; font-size: 14px; cursor: pointer; z-index: 2;" title="Click to save">💾</span>
 
                   </div>

@@ -2814,6 +2814,9 @@ export interface EmailInboxViewProps {
   onNavigateToHandshake?: (handshakeId: string) => void
   /** Inbox “Open Handshakes” from Sandbox help and similar affordances. */
   onOpenHandshakesView?: () => void
+  /** When set by the parent (e.g. a header button), opens the compose panel. Reset via onComposeRequestHandled. */
+  composeRequest?: 'email' | 'beap' | null
+  onComposeRequestHandled?: () => void
 }
 
 export default function EmailInboxView({
@@ -2825,6 +2828,8 @@ export default function EmailInboxView({
   onSelectAttachment,
   onNavigateToHandshake,
   onOpenHandshakesView,
+  composeRequest,
+  onComposeRequestHandled,
 }: EmailInboxViewProps) {
   const {
     messages,
@@ -2994,6 +2999,22 @@ export default function EmailInboxView({
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [composeMode])
+
+  // Honour a compose request from the parent (e.g. header button in App.tsx).
+  useEffect(() => {
+    if (!composeRequest) return
+    if (composeRequest === 'email') {
+      setComposeMode('email')
+      setComposeReplyTo(null)
+      selectMessage(null)
+    } else if (composeRequest === 'beap') {
+      setComposeMode('beap')
+      setComposeReplyTo(null)
+      selectMessage(null)
+    }
+    onComposeRequestHandled?.()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [composeRequest])
 
   const loadProviderAccounts = useCallback(async () => {
     if (typeof window.emailAccounts?.listAccounts !== 'function') {
@@ -4572,6 +4593,62 @@ export default function EmailInboxView({
           </button>
         </div>
       ) : null}
+
+      {/* Compose buttons ? floating bottom-right */}
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 20,
+          right: 20,
+          display: 'flex',
+          gap: 8,
+          alignItems: 'center',
+          zIndex: 100,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => handleComposeClick(handleOpenEmailCompose)}
+          title="New Email"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            padding: '10px 14px',
+            borderRadius: 24,
+            background: '#2563eb',
+            color: '#fff',
+            border: 'none',
+            fontSize: 14,
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(37,99,235,0.3)',
+          }}
+        >
+          ✉️+
+        </button>
+        <button
+          type="button"
+          onClick={() => handleComposeClick(handleOpenBeapDraft)}
+          title="New BEAP™ Message"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '10px 18px',
+            borderRadius: 24,
+            background: '#7c3aed',
+            color: '#fff',
+            border: 'none',
+            fontSize: 14,
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(124,58,237,0.3)',
+          }}
+        >
+          + BEAP
+        </button>
+      </div>
 
       {connectEmailFlowModal}
 
