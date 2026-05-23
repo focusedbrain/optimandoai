@@ -1,4 +1,4 @@
-﻿'use strict'
+'use strict'
 
 const path = require('path')
 const fs = require('fs')
@@ -6,11 +6,11 @@ const fs = require('fs')
 const appDir = __dirname
 
 /**
- * Parsed by scripts/kill-wr-desk.cjs â€” must contain a line matching:
- *   return 'C:\\build-output\\build040'
+ * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
+ *   return 'C:\\build-output\\build041'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build040'
+  return 'C:\\build-output\\build041'
 }
 
 const workspaceRoot = path.resolve(appDir, '../..')
@@ -30,7 +30,7 @@ function tesseractCoreWasmPath() {
   ])
 }
 
-// worker.min.js is the browser build â€” NOT used in Electron (Node worker_threads).
+// worker.min.js is the browser build — NOT used in Electron (Node worker_threads).
 // tesseract.js resolves its own Node-compatible worker from the asarUnpacked package.
 // Only the WASM core needs to be extracted as an extraResource.
 
@@ -56,8 +56,8 @@ module.exports = {
   /** pnpm hoists `electron` to the workspace root; electron-builder looks in app/node_modules first. */
   electronVersion: '30.5.1',
   appId: 'com.optimandoai.wrdesk',
-  productName: 'WR Deskâ„¢',
-  copyright: 'Copyright Â© Optimando AI',
+  productName: 'WR Desk™',
+  copyright: 'Copyright © Optimando AI',
   /** Avoid winCodeSign tool download/extract (fails on Windows without symlink privilege for darwin symlinks in the archive). */
   forceCodeSigning: false,
   directories: {
@@ -96,7 +96,7 @@ module.exports = {
      * `pnpm run build:portable` separately.
      */
     target: ['dir'],
-    /** ASCII-only, no spaces â€” spaces in the .exe name have caused 0-byte or broken PE files on some Windows pack runs. */
+    /** ASCII-only, no spaces — spaces in the .exe name have caused 0-byte or broken PE files on some Windows pack runs. */
     artifactName: 'WR-Desk-Setup-${version}.${ext}',
     executableName: 'WRDeskT',
     signAndEditExecutable: false,
@@ -111,7 +111,7 @@ module.exports = {
    * Host AI HTTP safety net: `p2pInferenceFlags.ts` defaults `WRDESK_P2P_INFERENCE_HTTP_FALLBACK`
    * and `WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT` to **on** when unset (direct-LAN HTTP + compat;
    * WebRTC for cross-network; HTTP fallback catches transient DC failures).
-   * Electron-builder cannot inject main-process env â€” for packaged installs that must pin behavior,
+   * Electron-builder cannot inject main-process env — for packaged installs that must pin behavior,
    * set explicitly at launch, e.g. `WRDESK_P2P_INFERENCE_HTTP_FALLBACK=1` and
    * `WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT=1` (redundant with defaults but documents intent).
    * See `docs/HOST_AI_DIAGNOSTIC_LOGS.md`.

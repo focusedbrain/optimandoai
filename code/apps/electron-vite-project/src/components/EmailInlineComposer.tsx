@@ -31,7 +31,9 @@ const draftFocusRing = '0 0 0 1px #6366f1'
 export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineComposerProps) {
   const border = '1px solid #e2e8f0'
   const muted = '#64748b'
-  const fg = '#e2e8f0'
+  // Use a dark-on-light palette matching the BEAP composer so the title and
+  // close button are always sharp regardless of the host CSS variable theme.
+  const textPrimary = '#0f172a'
   const hintOnRail = '#475569'
 
   const [to, setTo] = useState(replyTo?.to ?? '')
@@ -221,13 +223,13 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
     <div
       className="email-inline-composer"
       style={{
-        background: 'var(--color-bg, #0f172a)',
-        color: fg,
+        background: '#f8fafc',
+        color: textPrimary,
         fontFamily: 'inherit',
       }}
     >
       <div className="compose-grid" style={{ gap: 0 }}>
-        <div className="composer-main-column" style={{ borderRight: border }}>
+        <div className="composer-main-column" style={{ borderRight: border, background: '#f8fafc' }}>
           <div
             className="compose-field-fixed"
             style={{
@@ -236,9 +238,10 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
               justifyContent: 'space-between',
               padding: '12px 16px',
               borderBottom: border,
+              background: '#ffffff',
             }}
           >
-            <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.02em' }}>New Email</span>
+            <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.02em', color: textPrimary }}>New Email</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <button
                 type="button"
@@ -248,10 +251,10 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
                   lineHeight: 1,
                   padding: '4px 10px',
                   cursor: 'pointer',
-                  background: 'transparent',
-                  border,
+                  background: '#ffffff',
+                  border: '1px solid #cbd5e1',
                   borderRadius: 6,
-                  color: fg,
+                  color: textPrimary,
                 }}
                 aria-label="Close composer"
               >
@@ -488,7 +491,7 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
                   borderRadius: 8,
                   border,
                   background: 'transparent',
-                  color: fg,
+                  color: textPrimary,
                   cursor: 'pointer',
                 }}
               >
