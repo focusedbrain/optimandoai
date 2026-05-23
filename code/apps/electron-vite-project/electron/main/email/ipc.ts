@@ -4407,17 +4407,8 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
       return { started: false }
     }
 
-    // Auto path: direct_beap must never enter runInboxAiTaskWithDedup (no AI_TASK_START).
-    // Manual path: user explicitly requested analysis — allowed for direct_beap.
-    if (!manual) {
-      const guardRow = dbPre
-        .prepare('SELECT source_type FROM inbox_messages WHERE id = ?')
-        .get(messageId) as { source_type?: string | null } | undefined
-      if (guardRow?.source_type === 'direct_beap') {
-        console.log(`[BEAP_INBOX_TRIAGE] skipped_primary_delivery messageId=${messageId} reason=direct_beap_message`)
-        return { started: false }
-      }
-    }
+    // direct_beap messages are now allowed through the auto analysis path so that
+    // analysis runs immediately when the user opens a native BEAP inbox message.
 
     if (!supersede && !event.sender.isDestroyed()) {
       const replayState = replayAnalysisStreamState(analyzeDedupeKey, (channel, payload) => {
@@ -4491,11 +4482,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
             return { started: false }
           }
 
-          // Defense-in-depth: same as pre-dedup guard — skip auto triage for direct_beap only.
-          if (row.source_type === 'direct_beap' && !manual) {
-            console.log(`[BEAP_INBOX_TRIAGE] skipped_primary_delivery messageId=${messageId} reason=direct_beap_message`)
-            return { started: false }
-          }
+          // direct_beap messages are analyzed on open — no auto-triage guard here.
 
           const settings = resolveInboxLlmSettings()
           if (settings.provider.toLowerCase() === 'ollama') {

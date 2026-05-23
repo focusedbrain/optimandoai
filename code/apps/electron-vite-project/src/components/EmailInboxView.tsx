@@ -398,16 +398,11 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     }
     if (!window.emailInbox?.aiAnalyzeMessageStream || !window.emailInbox.onAiAnalyzeChunk) return
 
-    // Direct P2P BEAP messages must be shown as delivered messages — not routed through inbox AI triage.
-    // Analysis may optionally be triggered manually later, after the message is already visible.
+    // Note: direct_beap messages are now auto-analyzed on open, same as other messages.
+    // The previous guard (skip auto for direct_beap) blocked analysis when the user
+    // opened the message, requiring a manual checkbox toggle to trigger it.
     if (msg?.source_type === 'direct_beap') {
-      if (!manual) {
-        console.log(`[BEAP_INBOX_TRIAGE] skipped_primary_delivery messageId=${messageId} reason=direct_beap_message`)
-        console.log(`[BEAP_DELIVERY] ui_visible messageId=${messageId}`)
-        setAnalysisLoading(false)
-        return
-      }
-      console.log(`[BEAP_INBOX_TRIAGE] optional_analysis_started messageId=${messageId} visible=true`)
+      console.log(`[BEAP_INBOX_TRIAGE] analysis_started messageId=${messageId} manual=${manual}`)
     }
 
     const skipEmailDraft = !!(msg && resolveInboxReplyMode(msg) === 'native_beap')
