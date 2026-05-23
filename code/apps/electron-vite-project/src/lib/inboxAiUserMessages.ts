@@ -49,8 +49,13 @@ function userMessageForInboxAiCode(
     }
     case 'inference_routing_unavailable':
       return payload.message?.trim() || 'Inference is not available on this device.'
-    case 'database_error':
-      return payload.message?.trim() || 'Database error.'
+    case 'database_error': {
+      const detail = payload.message?.trim() ?? ''
+      if (detail.includes('Validation service') || detail.includes('validator')) {
+        return 'The secure storage service is still starting up. Please wait a moment and retry.'
+      }
+      return detail || 'Database error.'
+    }
     case 'timeout':
       return 'Analysis timed out. Ollama may be slow or unavailable.'
     default:

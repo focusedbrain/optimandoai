@@ -264,6 +264,7 @@ import { buildInboxAiAnalyzeErrorPayload, buildInboxAiDraftIpcFailure } from './
 import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } from '../../../src/lib/inboxSortSourceWeighting'
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { resealWithAiAnalysis, resealWithPdfExtraction } from './sealedContentUpdate'
+import { ensureValidatorAndSealedStorageReady } from '../validatorReadiness'
 import { prepareSealedOperationalUpdate, sealedQuery } from '../sealed-storage'
 import {
   filterInboxRowsWithVerifiedSeals,
@@ -3952,10 +3953,21 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
           }) as { ok: false; error: string; message: string }
         }
         // B-7: sealed re-seal replaces the raw UPDATE.
-        const sealResNative = await resealWithAiAnalysis(db, messageId, merged)
-        if (!sealResNative.ok) {
-          console.warn('[AI-DRAFT:native-beap] re-seal failed (draft discarded):', sealResNative.error)
-          return buildInboxAiDraftIpcFailure(new Error(sealResNative.error ?? 'seal failed'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }, { isNativeBeap: true }) as { ok: false; error: string; message: string }
+        // Ensure the validator subprocess is running before attempting re-seal — the
+        // subprocess is started non-awaited by vault.unlock, so it may still be
+        // initialising when the AI draft completes.  This wait is bounded to 15 s.
+        const validatorReadyNative = await ensureValidatorAndSealedStorageReady('ai_draft_reseal_beap')
+        if (!validatorReadyNative.ok) {
+          console.warn('[AI-DRAFT:native-beap] validator not ready for re-seal, returning draft without persisting:', validatorReadyNative.error)
+          // Return the successfully generated draft even though we cannot re-seal it.
+          // The draft text is still useful; the user can copy/use it.  Seal will be
+          // written on next successful re-seal (e.g. next AI draft or analysis run).
+        } else {
+          const sealResNative = await resealWithAiAnalysis(db, messageId, merged)
+          if (!sealResNative.ok) {
+            console.warn('[AI-DRAFT:native-beap] re-seal failed (draft not persisted):', sealResNative.error)
+            // Don't block the draft on a transient seal failure — return the content.
+          }
         }
 
         console.log(
@@ -4042,13 +4054,16 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
         }
       }
       // B-7: sealed re-seal replaces the raw UPDATE.
-      const sealResDraft = await resealWithAiAnalysis(db, messageId, merged)
-      if (!sealResDraft.ok) {
-        console.warn('[AI-DRAFT] re-seal failed (draft discarded):', sealResDraft.error)
-        return buildInboxAiDraftIpcFailure(new Error(sealResDraft.error ?? 'seal failed'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }) as {
-          ok: false
-          error: string
-          message: string
+      // Guard: ensure the validator subprocess is running before re-seal.
+      const validatorReadyDraft = await ensureValidatorAndSealedStorageReady('ai_draft_reseal_email')
+      if (!validatorReadyDraft.ok) {
+        console.warn('[AI-DRAFT] validator not ready for re-seal, returning draft without persisting:', validatorReadyDraft.error)
+        // Still return the generated draft — seal will catch up on the next write.
+      } else {
+        const sealResDraft = await resealWithAiAnalysis(db, messageId, merged)
+        if (!sealResDraft.ok) {
+          console.warn('[AI-DRAFT] re-seal failed (draft not persisted):', sealResDraft.error)
+          // Non-fatal: return the draft anyway so the user isn't blocked.
         }
       }
 
