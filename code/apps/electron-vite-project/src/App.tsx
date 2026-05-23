@@ -456,9 +456,8 @@ function App() {
               />
             </label>
           </div>
-          {/* Compact shortcuts: handshake nav icon (always) + compose buttons (inbox only) */}
+          {/* Compact shortcuts: handshake + compose icons — always visible */}
           <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 4, flexShrink: 0 }}>
-            {/* Handshakes icon — replaces the old text button, always visible */}
             <button
               type="button"
               onClick={() => setActiveView('handshakes')}
@@ -474,37 +473,33 @@ function App() {
             >
               🤝
             </button>
-            {activeView === 'beap-inbox' && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => { setActiveView('beap-inbox'); setInboxComposeRequest('email') }}
-                  title="New Email"
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    width: 26, height: 26, padding: 0, borderRadius: 6,
-                    background: '#2563eb', color: '#fff', border: 'none',
-                    fontSize: 13, cursor: 'pointer', flexShrink: 0,
-                  }}
-                >
-                  ✉
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setActiveView('beap-inbox'); setInboxComposeRequest('beap') }}
-                  title="New BEAP™ Message"
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    height: 26, padding: '0 7px', borderRadius: 6,
-                    background: '#7c3aed', color: '#fff', border: 'none',
-                    fontSize: 10, fontWeight: 700, cursor: 'pointer',
-                    letterSpacing: '0.3px', flexShrink: 0,
-                  }}
-                >
-                  BEAP
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              onClick={() => { setActiveView('beap-inbox'); setInboxComposeRequest('email') }}
+              title="New Email"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 26, height: 26, padding: 0, borderRadius: 6,
+                background: '#2563eb', color: '#fff', border: 'none',
+                fontSize: 13, cursor: 'pointer', flexShrink: 0,
+              }}
+            >
+              ✉
+            </button>
+            <button
+              type="button"
+              onClick={() => { setActiveView('beap-inbox'); setInboxComposeRequest('beap') }}
+              title="New BEAP™ Message"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                height: 26, padding: '0 7px', borderRadius: 6,
+                background: '#7c3aed', color: '#fff', border: 'none',
+                fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                letterSpacing: '0.3px', flexShrink: 0,
+              }}
+            >
+              BEAP
+            </button>
           </div>
           <div
             className="app-header__wr-watchdog"
