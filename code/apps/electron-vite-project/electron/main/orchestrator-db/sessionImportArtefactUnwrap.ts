@@ -1,5 +1,10 @@
 /**
  * Electron-side mirror of extension sessionImportArtefactUnwrap (no cross-package import at runtime).
+ *
+ * Supports both schema versions:
+ *   v1.0.0 — sessions[0] is OrchestratorSessionContent → mapped via orchestratorSessionContentToTabImport
+ *   v1.1.0 — sessions[0] may be FullSessionExportContent → session_export blob returned directly
+ *             so the Electron main process stores the complete KV blob verbatim.
  */
 
 export type SessionImportUnwrapResult =
@@ -7,7 +12,7 @@ export type SessionImportUnwrapResult =
   | { ok: false; reason: string }
 
 function isSessionImportArtefactWrapper(obj: Record<string, unknown>): boolean {
-  return obj.schema_version === '1.0.0' && Array.isArray(obj.sessions)
+  return (obj.schema_version === '1.0.0' || obj.schema_version === '1.1.0') && Array.isArray(obj.sessions)
 }
 
 function isOrchestratorSessionContent(obj: Record<string, unknown>): boolean {
@@ -22,6 +27,10 @@ function isOrchestratorSessionContent(obj: Record<string, unknown>): boolean {
     )
   }
   return false
+}
+
+function isFullSessionExportContent(obj: Record<string, unknown>): boolean {
+  return obj.session_kind === 'full_session_export'
 }
 
 function orchestratorSessionContentToTabImport(raw: Record<string, unknown>): Record<string, unknown> {
@@ -88,6 +97,16 @@ export function unwrapSessionImportPayloadForTab(importData: unknown): SessionIm
       return { ok: false, reason: 'Session import artefact has no importable session.' }
     }
     raw = sessions[0] as Record<string, unknown>
+  }
+
+  // v1.1.0 path: full session blob — return session_export directly so the Electron
+  // main process stores the complete KV blob to SQLite verbatim (all fields intact).
+  if (isFullSessionExportContent(raw)) {
+    const blob = raw.session_export
+    if (typeof blob !== 'object' || blob === null || Array.isArray(blob)) {
+      return { ok: false, reason: 'full_session_export: session_export must be a non-null object.' }
+    }
+    return { ok: true, payload: blob as Record<string, unknown> }
   }
 
   if (isOrchestratorSessionContent(raw)) {

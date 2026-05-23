@@ -361,6 +361,11 @@ export default function EmailMessageDetail({
   const [linkSandboxInfoOpen, setLinkSandboxInfoOpen] = useState(false)
   const [importingSession, setImportingSession] = useState<Record<string, unknown> | null>(null)
   const [importStatus, setImportStatus] = useState<Record<string, 'idle' | 'importing' | 'imported' | 'error'>>({})
+  const [runAutomationToast, setRunAutomationToast] = useState<{
+    type: 'success' | 'error'
+    message: string
+    retryRef?: Record<string, unknown>
+  } | null>(null)
   const [hostSandboxBusy, setHostSandboxBusy] = useState(false)
   const [hostSandboxInlineFeedback, setHostSandboxInlineFeedback] = useState<SandboxCloneFeedbackView | null>(null)
   const {
@@ -674,18 +679,37 @@ export default function EmailMessageDetail({
     const sessionId = typeof raw.sessionId === 'string' ? raw.sessionId : String(raw.sessionId ?? '')
     if (!message) return
     setImportStatus((prev) => ({ ...prev, [sessionId]: 'importing' }))
+    setRunAutomationToast(null)
     try {
       const result = await runBeapSessionAutomationForMessage(message)
       if (!result.ok) {
-        throw new Error(result.error)
+        setImportStatus((prev) => ({ ...prev, [sessionId]: 'error' }))
+        setImportingSession(null)
+        setRunAutomationToast({ type: 'error', message: result.error, retryRef: raw })
+        return
       }
       setImportStatus((prev) => ({ ...prev, [sessionId]: 'imported' }))
       setImportingSession(null)
+      const name = result.sessionName || sessionId
+      setRunAutomationToast({
+        type: 'success',
+        message: `Running automation \u201c${name}\u201d \u2014 the grid tab will appear shortly.`,
+      })
     } catch (e) {
-      console.error('Session import failed:', e)
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[BEAP_RUN] unexpected error messageId=' + message.id, e)
       setImportStatus((prev) => ({ ...prev, [sessionId]: 'error' }))
+      setImportingSession(null)
+      setRunAutomationToast({ type: 'error', message: msg, retryRef: raw })
     }
   }, [message])
+
+  // Auto-dismiss the run-automation toast after 6 s (errors stay until dismissed manually).
+  useEffect(() => {
+    if (!runAutomationToast || runAutomationToast.type === 'error') return
+    const id = setTimeout(() => setRunAutomationToast(null), 6000)
+    return () => clearTimeout(id)
+  }, [runAutomationToast])
 
   const dialogSessionRef = useMemo(
     () => (importingSession ? sessionRefToDialogProps(importingSession) : null),
@@ -1573,6 +1597,72 @@ export default function EmailMessageDetail({
         )}
       </div>
     </div>
+    {runAutomationToast && (
+      <div
+        role="alert"
+        style={{
+          position: 'fixed',
+          bottom: 88,
+          right: 20,
+          zIndex: 300,
+          maxWidth: 380,
+          padding: '10px 14px',
+          borderRadius: 8,
+          fontSize: 12,
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 8,
+          ...(runAutomationToast.type === 'success' ? UI_BADGE.green : UI_BADGE.red),
+        }}
+      >
+        <span style={{ flexShrink: 0, fontWeight: 700, fontSize: 14 }}>
+          {runAutomationToast.type === 'success' ? '✓' : '✕'}
+        </span>
+        <span style={{ flex: 1 }}>{runAutomationToast.message}</span>
+        {runAutomationToast.type === 'error' && runAutomationToast.retryRef && (
+          <button
+            type="button"
+            onClick={() => {
+              const ref = runAutomationToast.retryRef!
+              setRunAutomationToast(null)
+              setImportingSession(ref)
+            }}
+            style={{
+              flexShrink: 0,
+              marginLeft: 6,
+              padding: '2px 8px',
+              fontSize: 11,
+              fontWeight: 600,
+              borderRadius: 5,
+              border: '1px solid #fca5a5',
+              background: '#fff',
+              color: '#991b1b',
+              cursor: 'pointer',
+            }}
+          >
+            Retry
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => setRunAutomationToast(null)}
+          aria-label="Dismiss"
+          style={{
+            flexShrink: 0,
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: 14,
+            lineHeight: 1,
+            color: 'inherit',
+            opacity: 0.6,
+            padding: 0,
+          }}
+        >
+          ×
+        </button>
+      </div>
+    )}
     </>
   )
 }

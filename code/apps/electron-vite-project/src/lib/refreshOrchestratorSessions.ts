@@ -12,7 +12,12 @@ function mapRow(r: unknown): OrchestratorSession | null {
   if (!id) return null
   const name = typeof o.name === 'string' ? o.name : 'Session'
   const createdAt = pickSessionIsoDate(o)
-  return { id, name, createdAt }
+  const rawOrigin = o.sessionOrigin
+  const sessionOrigin: OrchestratorSession['sessionOrigin'] =
+    rawOrigin === 'beap_import' || rawOrigin === 'file_import' || rawOrigin === 'local'
+      ? rawOrigin
+      : undefined
+  return { id, name, createdAt, sessionOrigin }
 }
 
 /** IPC / HTTP may send `created_at` as ISO string or ms number (legacy Session rows). */

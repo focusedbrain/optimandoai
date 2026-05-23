@@ -55,15 +55,21 @@ function makeSessionData() {
   return {
     name: 'My Reply Session',
     agents: [],
-    agent_boxes: [],
-    display_grids: [],
+    agentBoxes: [],
+    displayGrids: [],
+    helperTabs: null,
+    hybridViews: [],
+    goals: { shortTerm: '', midTerm: '', longTerm: '' },
+    uiConfig: { leftSidebarWidth: 350, rightSidebarWidth: 450, bottomSidebarHeight: 45 },
+    url: 'https://example.com',
     capabilities_required: ['data_access'],
   }
 }
 
 /**
  * Mirrors the artefact construction pattern used in both EmailInboxView and
- * useReplyComposer (PR 6 / Decision A — reuse unchanged from PR 4).
+ * useReplyComposer (PR 6 / Decision A).
+ * Updated for schema v1.1.0: sessionBlob carries the full KV object verbatim.
  */
 function buildReplyArtefact(params: {
   sessionKey: string
@@ -74,13 +80,7 @@ function buildReplyArtefact(params: {
   const input: BuildArtefactInput = {
     sessionId: sessionKey,
     sessionName: typeof sessionData.name === 'string' ? sessionData.name : sessionKey,
-    agents: Array.isArray(sessionData.agents) ? (sessionData.agents as any[]) : [],
-    agentBoxes: Array.isArray(sessionData.agentBoxes ?? sessionData.agent_boxes)
-      ? ((sessionData.agentBoxes ?? sessionData.agent_boxes) as any[])
-      : [],
-    displayGrids: Array.isArray(sessionData.displayGrids ?? sessionData.display_grids)
-      ? ((sessionData.displayGrids ?? sessionData.display_grids) as any[])
-      : [],
+    sessionBlob: sessionData,
     capabilitiesRequired: Array.isArray(sessionData.capabilities_required)
       ? (sessionData.capabilities_required as any[])
       : [],
@@ -141,9 +141,7 @@ describe('Electron reply path — session artefact construction (PR 6 / Decision
     const built = buildSessionImportArtefact({
       sessionId: '',
       sessionName: 'Test',
-      agents: [],
-      agentBoxes: [],
-      displayGrids: [],
+      sessionBlob: {},
       capabilitiesRequired: [],
       handshakeBinding: null,
     })
@@ -211,9 +209,7 @@ describe('Extension reply path — session artefact construction (PR 6 / Decisio
     const built = buildSessionImportArtefact({
       sessionId: '',
       sessionName: 'X',
-      agents: [],
-      agentBoxes: [],
-      displayGrids: [],
+      sessionBlob: {},
       capabilitiesRequired: [],
       handshakeBinding: null,
     })
@@ -388,9 +384,7 @@ describe('Failure-path UX — selectedSessionId lifecycle (PR 6 / Decision D)', 
       const built = buildSessionImportArtefact({
         sessionId: '',  // invalid → ok:false
         sessionName: 'X',
-        agents: [],
-        agentBoxes: [],
-        displayGrids: [],
+        sessionBlob: {},
         capabilitiesRequired: [],
         handshakeBinding: null,
       })
@@ -436,23 +430,38 @@ describe('Failure-path UX — selectedSessionId lifecycle (PR 6 / Decision D)', 
 // Regression: PR 4 construction logic is reused unchanged (Decision A)
 // =============================================================================
 
-describe('PR 4 artefact helper reused unchanged (Decision A)', () => {
-  it('buildSessionImportArtefact signature and output shape unchanged from PR 4', () => {
+describe('buildSessionImportArtefact v1.1.0 — full blob path (Decision F)', () => {
+  it('artefact uses schema_version 1.1.0 and embeds sessionBlob verbatim in session_export', () => {
+    const blob = {
+      agents: [{ id: 'a1' }],
+      agentBoxes: [{ id: 'b1' }],
+      displayGrids: [{ layout: 'grid-2x2' }],
+      helperTabs: [{ url: 'https://example.com' }],
+      hybridViews: [{ id: '0' }],
+      goals: { shortTerm: 'g1', midTerm: '', longTerm: '' },
+      url: 'https://example.com',
+      memory: { notes: 'mem' },
+      context: { items: [] },
+    }
     const result = buildSessionImportArtefact({
       sessionId: 'session_regression',
       sessionName: 'Regression Session',
-      agents: [],
-      agentBoxes: [],
-      displayGrids: [],
+      sessionBlob: blob,
       capabilitiesRequired: ['data_access', 'session_control'],
       handshakeBinding: { handshake_id: 'hs-reg', bound_at: '2026-05-08T00:00:00Z' },
     })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.artefact.schema_version).toBe('1.0.0')
+    expect(result.artefact.schema_version).toBe('1.1.0')
     expect(result.artefact.purpose.declared_purpose).toBe('session_share')
-    expect(result.artefact.sessions[0].capabilities_required).toContain('data_access')
+    const s0 = result.artefact.sessions[0]
+    expect(s0.session_kind).toBe('full_session_export')
+    expect(s0.capabilities_required).toContain('data_access')
     expect(result.artefact.handshake_binding?.handshake_id).toBe('hs-reg')
+    // session_export is the blob verbatim
+    if (s0.session_kind === 'full_session_export') {
+      expect(s0.session_export).toEqual(blob)
+    }
   })
 })

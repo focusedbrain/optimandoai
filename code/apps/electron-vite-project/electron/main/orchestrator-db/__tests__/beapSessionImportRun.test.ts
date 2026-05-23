@@ -45,14 +45,6 @@ function validRunArtefact(overrides: Record<string, unknown> = {}): Record<strin
   }
 }
 
-function successWaiter() {
-  return vi.fn(async () => ({
-    ok: true as const,
-    sessionKey: 'session_test',
-    executed: ['Agent'],
-  }))
-}
-
 describe('importAndRunBeapSessionFromArtefact', () => {
   const orchestrator = {
     connect: vi.fn(async () => undefined),
@@ -72,7 +64,6 @@ describe('importAndRunBeapSessionFromArtefact', () => {
         orchestrator: orchestrator as any,
         broadcastToExtensions: vi.fn(),
         extensionClientCount: () => 1,
-        waitForRunAutomationResult: successWaiter(),
       },
     )
     expect(r).toEqual({ success: false, error: 'INVALID_ARTEFACT' })
@@ -94,7 +85,6 @@ describe('importAndRunBeapSessionFromArtefact', () => {
         },
       ],
     })
-    const waitForRunAutomationResult = successWaiter()
     const r = await importAndRunBeapSessionFromArtefact(
       {
         sessionId: 'session_1714000000000',
@@ -107,7 +97,6 @@ describe('importAndRunBeapSessionFromArtefact', () => {
         orchestrator: orchestrator as any,
         broadcastToExtensions: broadcast,
         extensionClientCount: () => 1,
-        waitForRunAutomationResult,
       },
     )
     expect(r.success).toBe(true)
@@ -130,16 +119,16 @@ describe('importAndRunBeapSessionFromArtefact', () => {
         orchestrator: orchestrator as any,
         broadcastToExtensions: vi.fn(),
         extensionClientCount: () => 1,
-        waitForRunAutomationResult: successWaiter(),
       },
     )
     expect(r).toEqual({ success: false, error: 'HANDSHAKE_BINDING_MISMATCH' })
   })
 
-  it('dispatches unwrapped tab payload to extension when valid', async () => {
+  it('AC-1/AC-2: broadcasts PRESENT_ORCHESTRATOR_DISPLAY_GRID with session blob — no active-tab query', async () => {
+    // Verifies the core fix: Electron now routes through the dashboard/session-history pipeline,
+    // so the grid opens regardless of which tab or application has focus.
     const broadcast = vi.fn()
     const artefact = validRunArtefact()
-    const waitForRunAutomationResult = successWaiter()
     const r = await importAndRunBeapSessionFromArtefact(
       {
         sessionId: 'session_1714000000000',
@@ -152,31 +141,32 @@ describe('importAndRunBeapSessionFromArtefact', () => {
         orchestrator: orchestrator as any,
         broadcastToExtensions: broadcast,
         extensionClientCount: () => 1,
-        waitForRunAutomationResult,
       },
     )
     expect(r.success).toBe(true)
+    // Must broadcast the same message type used by the dashboard (PRESENT_ORCHESTRATOR_DISPLAY_GRID),
+    // NOT the legacy active-tab BEAP_DESKTOP_RUN_AUTOMATION.
     expect(broadcast).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'BEAP_DESKTOP_RUN_AUTOMATION',
-        sourceMessageId: 'msg-1',
-        sessionKey: expect.stringMatching(/^session_/),
-        importData: expect.objectContaining({
+        type: 'PRESENT_ORCHESTRATOR_DISPLAY_GRID',
+        sessionKey: expect.any(String),
+        session: expect.objectContaining({
           tabName: 'Test Session',
           agentBoxes: expect.any(Array),
           agents: expect.any(Array),
         }),
+        source: 'beap-inbox',
       }),
     )
-    expect(r).toMatchObject({
-      success: true,
-      dispatched: true,
-      sessionKey: 'session_test',
-      executed: ['Agent'],
-    })
+    expect(broadcast).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'BEAP_DESKTOP_RUN_AUTOMATION' }),
+    )
+    expect(r).toMatchObject({ success: true, dispatched: true, sessionKey: expect.any(String) })
   })
 
-  it('fails when extension bridge is offline', async () => {
+  it('AC-3: fails immediately with EXTENSION_NOT_CONNECTED when no Chrome extension is connected', async () => {
+    // Simulates "no Chrome window open" — extensionClientCount() === 0 means the extension
+    // background WS is unreachable.  The call must return an error without hanging.
     const r = await importAndRunBeapSessionFromArtefact(
       {
         sessionId: 's1',
@@ -189,7 +179,6 @@ describe('importAndRunBeapSessionFromArtefact', () => {
         orchestrator: orchestrator as any,
         broadcastToExtensions: vi.fn(),
         extensionClientCount: () => 0,
-        waitForRunAutomationResult: successWaiter(),
       },
     )
     expect(r).toEqual({ success: false, error: 'EXTENSION_NOT_CONNECTED' })

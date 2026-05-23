@@ -28,6 +28,8 @@ import {
   setP2PHealthRelayPullSuccess,
   setP2PHealthRelayPullFailure,
 } from './p2pHealth'
+import { publishBeapIngestAckOverCoordinationRelay } from './coordinationWs'
+import { postPeerDeliveryAckToSender } from './peerDeliveryAck'
 import type { ReasonCode } from '../vault/capabilityBroker'
 
 /**
@@ -218,6 +220,15 @@ export async function pullFromRelay(
           })
           if (r.outcome === 'inbox') {
             console.log('[P2P-RECV] BEAP message sealed into inbox (relay pull)', handshakeId)
+            if (r.rowId) {
+              publishBeapIngestAckOverCoordinationRelay({
+                relayId: cap.id,
+                handshakeId,
+                rowId: r.rowId,
+                status: 'ok',
+              })
+              postPeerDeliveryAckToSender(db, handshakeId, r.rowId)
+            }
             console.log(`[RELAY_PULL] relay_ack_sent relayId=${cap.id} reason=ok retryable=false outcome=inbox`)
             accepted++
             idsToAck.push(cap.id)
@@ -229,8 +240,19 @@ export async function pullFromRelay(
           } else {
             const failReason = r.error ?? 'processing_failed'
             console.warn('[P2P-RECV] BEAP inline processing failed (relay pull)', handshakeId, failReason)
-            const { reasonCode, retryable } = mapErrorToReasonCode(failReason)
-            console.log(`[RELAY_PULL] relay_ack_sent relayId=${cap.id} reason=${reasonCode} retryable=${retryable}`)
+            const failCode = r.reasonCode ?? mapErrorToReasonCode(failReason).reasonCode
+            const failRetryable = r.retryable ?? mapErrorToReasonCode(failReason).retryable
+            if (r.rowId) {
+              publishBeapIngestAckOverCoordinationRelay({
+                relayId: cap.id,
+                handshakeId,
+                rowId: r.rowId,
+                status: 'error',
+                reasonCode: failCode,
+                retryable: failRetryable,
+              })
+            }
+            console.log(`[RELAY_PULL] relay_ack_sent relayId=${cap.id} reason=${failCode} retryable=${failRetryable}`)
             rejected++
             idsToAck.push(cap.id)
           }

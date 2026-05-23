@@ -5,7 +5,8 @@
  * - Enforces handshake binding when present.
  * - Unwraps artefact → tab-import shape before extension dispatch.
  * - Persists working copy to orchestrator KV before run.
- * - Waits for extension execution result when waiter is configured.
+ * - Broadcasts PRESENT_ORCHESTRATOR_DISPLAY_GRID — the same pipeline used by the
+ *   dashboard and session-history row — so activation is tab-focus-independent.
  */
 
 import { validateSessionImportArtefact } from '@repo/ingestion-core'
@@ -14,9 +15,8 @@ import {
   newBeapImportSessionKey,
   unwrapSessionImportPayloadForTab,
 } from './sessionImportArtefactUnwrap'
-import type { BeapRunAutomationWaitResult } from './beapRunAutomationWaiter'
-import { registerBeapRunAutomationWaiter } from './beapRunAutomationWaiter'
 
+/** @deprecated Electron no longer sends this — kept for old-build backward compat references only. */
 export const BEAP_DESKTOP_RUN_AUTOMATION_WS_TYPE = 'BEAP_DESKTOP_RUN_AUTOMATION' as const
 export const BEAP_DESKTOP_RUN_AUTOMATION_RESULT_WS_TYPE =
   'BEAP_DESKTOP_RUN_AUTOMATION_RESULT' as const
@@ -37,25 +37,12 @@ export type BeapSessionImportRunDeps = {
   orchestrator: OrchestratorService
   broadcastToExtensions: (message: Record<string, unknown>) => void
   extensionClientCount: () => number
-  /** When set, blocks until extension reports run outcome (or timeout). */
-  waitForRunAutomationResult?: (
-    requestId: string,
-    timeoutMs: number,
-  ) => Promise<BeapRunAutomationWaitResult>
 }
 
 function readHandshakeIdFromBinding(binding: unknown): string | null {
   if (binding == null || typeof binding !== 'object' || Array.isArray(binding)) return null
   const id = (binding as Record<string, unknown>).handshake_id
   return typeof id === 'string' && id.trim() ? id.trim() : null
-}
-
-function newRequestId(): string {
-  try {
-    return crypto.randomUUID()
-  } catch {
-    return `beap_run_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
-  }
 }
 
 /**
@@ -116,6 +103,7 @@ export async function importAndRunBeapSessionFromArtefact(
         : req.sessionName || 'Imported Session',
     isLocked: true,
     lastOpenedAt: new Date().toISOString(),
+    sessionOrigin: 'beap_import' as const,
     beapImportSourceMessageId: req.sourceMessageId,
     beapImportSourceSessionId: req.sessionId,
   }
@@ -151,32 +139,21 @@ export async function importAndRunBeapSessionFromArtefact(
     return { success: false, error: 'EXTENSION_NOT_CONNECTED' }
   }
 
-  const requestId = newRequestId()
-  const waitForResult =
-    deps.waitForRunAutomationResult ??
-    ((id: string, ms: number) => registerBeapRunAutomationWaiter(id, ms))
-
-  const resultPromise = waitForResult(requestId, 120_000)
-
+  // Use the same pipeline as the dashboard and session-history row:
+  // broadcast PRESENT_ORCHESTRATOR_DISPLAY_GRID with the full session blob so
+  // background.ts mirrors it to chrome.storage.local and calls
+  // maybePresentOrchestratorDisplayGridSession — no active-tab query involved.
   deps.broadcastToExtensions({
-    type: BEAP_DESKTOP_RUN_AUTOMATION_WS_TYPE,
-    requestId,
+    type: 'PRESENT_ORCHESTRATOR_DISPLAY_GRID',
     sessionKey,
-    importData: tabPayload,
-    sourceMessageId: req.sourceMessageId,
-    handshakeId: req.handshakeId,
+    session: tabPayload,
+    source: 'beap-inbox',
     fallbackModel: 'tinyllama',
   })
-
-  const exec = await resultPromise
-  if (!exec.ok) {
-    return { success: false, error: exec.error ?? 'RUN_AUTOMATION_FAILED' }
-  }
 
   return {
     success: true,
     dispatched: true,
-    sessionKey: exec.sessionKey ?? sessionKey,
-    executed: exec.executed,
+    sessionKey,
   }
 }

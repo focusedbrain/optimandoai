@@ -109,6 +109,23 @@ gridDiv.className = 'grid-container layout-' + layout;
  * Load saved configurations from SQLite via background script
  * Uses locationId pattern: grid_{sessionId}_{layout}_slot{N}
  */
+/**
+ * Signal background that this grid tab surface is fully rendered (agent boxes positioned).
+ * Background's BEAP_GRID_SURFACE_READY handler will call executeModeRunAgents if a pending
+ * BEAP run is registered for this sessionKey.  Best-effort — never throws.
+ */
+function signalGridSurfaceReady() {
+    if (typeof chrome === 'undefined' || !chrome.runtime || !sessionKey) return;
+    try {
+        chrome.runtime.sendMessage(
+            { type: 'BEAP_GRID_SURFACE_READY', sessionKey: sessionKey },
+            function() { if (chrome.runtime.lastError) { /* no listener — fine */ } }
+        );
+    } catch (e) {
+        // Non-fatal: background may have been killed and restarted before ready signal.
+    }
+}
+
 if (typeof chrome !== 'undefined' && chrome.runtime && sessionKey) {
     
     // Request session from SQLite via background script (same as grid-script.js does)
@@ -121,11 +138,14 @@ if (typeof chrome !== 'undefined' && chrome.runtime && sessionKey) {
             console.error('❌ SQLite is required - check Electron app!');
             // Create empty slots on error
             createSlots(config.slots, {});
+            // Still signal ready so BEAP execution can proceed via storage fallback.
+            signalGridSurfaceReady();
             return;
         }
         
         if (!response || !response.success || !response.session) {
             createSlots(config.slots, {});
+            signalGridSurfaceReady();
             return;
         }
         
@@ -159,11 +179,17 @@ if (typeof chrome !== 'undefined' && chrome.runtime && sessionKey) {
         } else {
         }
         
-        createSlots(config.slots, savedSlotsByLocation)
+        createSlots(config.slots, savedSlotsByLocation);
+        // (a) Session blob already in chrome.storage.local (set before this tab opened).
+        // (b) Grid tab has rendered — we just called createSlots().
+        // (c) Agent boxes are positioned — createSlots() placed them in the DOM.
+        // (d) Hybrid tabs: not managed by grid-display.js; execution proceeds without them.
+        signalGridSurfaceReady();
     });
 } else {
     // No storage available, create empty slots
     createSlots(config.slots, {});
+    signalGridSurfaceReady();
 }
 
 /**

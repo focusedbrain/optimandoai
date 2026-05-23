@@ -56,7 +56,8 @@ export default function SessionImportDialog({
             the inbox) before running on your host orchestrator.
           </p>
           <p className="session-import-warning">
-            You can review and revoke imported sessions at any time from Sessions History.
+            You can review and revoke imported sessions at any time from the{' '}
+            <strong>Received Automations</strong> section in Sessions History.
           </p>
         </div>
         <div className="session-import-actions">

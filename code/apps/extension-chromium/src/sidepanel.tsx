@@ -136,6 +136,8 @@ type SessionOption = {
   key: string
   name: string
   timestamp: string
+  /** Read-time origin: 'beap_import' | 'file_import' | 'local' (default when absent). */
+  origin: 'local' | 'beap_import' | 'file_import'
 }
 
 /** Shape of `llm.status` body (flat or nested under `.data`). */
@@ -632,7 +634,10 @@ function SidepanelOrchestrator() {
         .map(([key, data]: [string, any]) => {
           const name = sessionListLabel(data, key)
           const timestamp = data?.timestamp || data?.lastOpenedAt || data?.createdAt || ''
-          return { key, name, timestamp }
+          const rawOrigin = data?.sessionOrigin
+          const origin: SessionOption['origin'] =
+            rawOrigin === 'beap_import' || rawOrigin === 'file_import' ? rawOrigin : 'local'
+          return { key, name, timestamp, origin }
         })
         .filter(s => s.key)
         .sort((a, b) => {
@@ -821,9 +826,7 @@ function SidepanelOrchestrator() {
             const input: BuildArtefactInput = {
               sessionId: beapDraftSessionId,
               sessionName: typeof sessionData.name === 'string' ? sessionData.name : beapDraftSessionId,
-              agents: Array.isArray(sessionData.agents) ? (sessionData.agents as any[]) : [],
-              agentBoxes: Array.isArray(sessionData.agentBoxes ?? sessionData.agent_boxes) ? ((sessionData.agentBoxes ?? sessionData.agent_boxes) as any[]) : [],
-              displayGrids: Array.isArray(sessionData.displayGrids ?? sessionData.display_grids) ? ((sessionData.displayGrids ?? sessionData.display_grids) as any[]) : [],
+              sessionBlob: sessionData as Record<string, unknown>,
               capabilitiesRequired: Array.isArray(sessionData.capabilities_required) ? (sessionData.capabilities_required as any[]) : [],
               handshakeBinding: null,
             }
@@ -6968,9 +6971,20 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
                           }}
                         >
                           <option value="" style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
-                          {availableSessions.map((s) => (
-                            <option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>
-                          ))}
+                          {availableSessions.some(s => s.origin !== 'beap_import') && (
+                            <optgroup label="My Sessions">
+                              {availableSessions.filter(s => s.origin !== 'beap_import').map((s) => (
+                                <option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {availableSessions.some(s => s.origin === 'beap_import') && (
+                            <optgroup label="Received Automations">
+                              {availableSessions.filter(s => s.origin === 'beap_import').map((s) => (
+                                <option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>
+                              ))}
+                            </optgroup>
+                          )}
                         </select>
                       </div>
                       {/* Attachments Input */}
@@ -8535,7 +8549,8 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
                       <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Session (optional)</label>
                       <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'standard' ? '#ffffff' : '#1e293b', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.25)', color: theme === 'standard' ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
                         <option value="" style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
-                        {availableSessions.map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
+                        {availableSessions.some(s => s.origin !== 'beap_import') && (<optgroup label="My Sessions">{availableSessions.filter(s => s.origin !== 'beap_import').map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}</optgroup>)}
+                        {availableSessions.some(s => s.origin === 'beap_import') && (<optgroup label="Received Automations">{availableSessions.filter(s => s.origin === 'beap_import').map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}</optgroup>)}
                       </select>
                     </div>
                     <div>
@@ -9912,7 +9927,8 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
                       <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Session (optional)</label>
                       <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'standard' ? '#ffffff' : '#1e293b', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.25)', color: theme === 'standard' ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
                         <option value="" style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
-                        {availableSessions.map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
+                        {availableSessions.some(s => s.origin !== 'beap_import') && (<optgroup label="My Sessions">{availableSessions.filter(s => s.origin !== 'beap_import').map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}</optgroup>)}
+                        {availableSessions.some(s => s.origin === 'beap_import') && (<optgroup label="Received Automations">{availableSessions.filter(s => s.origin === 'beap_import').map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}</optgroup>)}
                       </select>
                     </div>
                     <div>

@@ -360,7 +360,9 @@ export class OrchestratorService {
    * (same keys as GET_ALL_SESSIONS_FROM_SQLITE / `/api/orchestrator/get-all` filter).
    * The table alone is often empty while history lives under `session_*`.
    */
-  async listAllSessionsForUi(): Promise<Array<{ id: string; name: string; created_at: string }>> {
+  async listAllSessionsForUi(): Promise<
+    Array<{ id: string; name: string; created_at: string; sessionOrigin?: string }>
+  > {
     await this.ensureConnected()
 
     const tableRows = await this.listSessions()
@@ -371,7 +373,7 @@ export class OrchestratorService {
       allKv = {}
     }
 
-    const byId = new Map<string, { id: string; name: string; created_at: string }>()
+    const byId = new Map<string, { id: string; name: string; created_at: string; sessionOrigin?: string }>()
 
     for (const row of tableRows) {
       const ca = row.created_at
@@ -398,8 +400,12 @@ export class OrchestratorService {
             : typeof v.createdAt === 'string' && v.createdAt
               ? v.createdAt
               : new Date().toISOString()
+      const sessionOrigin =
+        v.sessionOrigin === 'beap_import' || v.sessionOrigin === 'file_import'
+          ? (v.sessionOrigin as string)
+          : undefined // legacy rows: omit; read-time default is 'local'
       if (!byId.has(key)) {
-        byId.set(key, { id: key, name, created_at: ts })
+        byId.set(key, { id: key, name, created_at: ts, sessionOrigin })
       }
     }
 

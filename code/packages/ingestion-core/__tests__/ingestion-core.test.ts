@@ -853,8 +853,10 @@ describe('PR4-VAL: Validator vocabulary tightening (PR 4/8)', () => {
   });
 
   // Test 14 / Round-trip helper conformance — PR4-RT-14
-  // Replicated fixture (mirrors buildSessionImportArtefact output shape).
-  test('PR4-RT-14: well-formed artefact from builder shape → passes validator', () => {
+  // v1.0.0 backward-compat fixture: OrchestratorSessionContent sessions still valid.
+  // buildSessionImportArtefact now produces v1.1.0 (full_session_export); this test
+  // verifies the v1.0.0 path remains accepted for legacy capsules.
+  test('PR4-RT-14: well-formed v1.0.0 artefact (orchestrator_session) → passes validator', () => {
     const artefact = {
       schema_version: '1.0.0' as const,
       artefact_id: crypto.randomUUID(),

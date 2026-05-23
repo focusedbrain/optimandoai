@@ -741,9 +741,7 @@ export function BeapInlineComposer({
         const input: BuildArtefactInput = {
           sessionId: sessionRes.data.id,
           sessionName: sessionRes.data.name,
-          agents: Array.isArray(cfg.agents) ? (cfg.agents as any[]) : [],
-          agentBoxes: Array.isArray(cfg.agentBoxes ?? cfg.agent_boxes) ? ((cfg.agentBoxes ?? cfg.agent_boxes) as any[]) : [],
-          displayGrids: Array.isArray(cfg.displayGrids ?? cfg.display_grids) ? ((cfg.displayGrids ?? cfg.display_grids) as any[]) : [],
+          sessionBlob: cfg,
           capabilitiesRequired: capabilitiesForSessionAttach(cfg) as any[],
           handshakeBinding: null,
         };

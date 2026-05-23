@@ -73,6 +73,13 @@ export interface OrchestratorSession {
   id: string
   name: string
   createdAt: IsoDateString
+  /**
+   * Where the session came from.  Absent on legacy rows — treat those as `'local'`.
+   * 'beap_import'  → received from another user via a BEAP capsule.
+   * 'file_import'  → loaded from a local export file.
+   * 'local'        → built by the user in WR Chat (default).
+   */
+  sessionOrigin?: 'local' | 'beap_import' | 'file_import'
 }
 
 // ── Auto-optimization interval helpers ───────────────────────────────────────

@@ -131,6 +131,16 @@ const ORCHESTRATOR_SESSION_KEYS = new Set([
   'agents', 'agent_boxes', 'display_grids', 'capabilities_required',
 ]);
 
+/**
+ * FullSessionExportContent — new session_kind introduced in schema v1.1.0.
+ * Carries the complete session KV blob opaquely in session_export.
+ * session_export is validated as a non-null object but not recursively closed-world checked.
+ */
+const FULL_SESSION_EXPORT_KEYS = new Set([
+  'session_kind', 'session_id', 'session_name',
+  'capabilities_required', 'session_export',
+]);
+
 const PROCESSING_EVENT_KEYS = new Set(['event_class', 'boundary', 'scope']);
 
 const ARTEFACT_POLICY_KEYS = new Set(['processing_events']);
@@ -179,7 +189,9 @@ const CANONICAL_AGENT_BOX_CONFIG_TOP_KEYS = new Set([
 
 // --- Enum value sets ---
 const VALID_REQUESTED_ACTIONS = new Set(['import_only', 'import_and_offer_run']);
-const VALID_SESSION_KINDS = new Set(['orchestrator_session']);
+/** v1.0.0 only accepts 'orchestrator_session'; v1.1.0+ also accepts 'full_session_export'. */
+const VALID_SESSION_KINDS_V1_0 = new Set(['orchestrator_session']);
+const VALID_SESSION_KINDS_V1_1 = new Set(['orchestrator_session', 'full_session_export']);
 const VALID_EVENT_CLASSES = new Set(['semantic_processing', 'actuating_processing']);
 const VALID_BOUNDARIES = new Set(['NONE', 'LOCAL', 'REMOTE']);
 const VALID_SCOPES = new Set(['MINIMAL', 'SELECTED', 'FULL']);
@@ -285,10 +297,51 @@ function validateDisplayGridEntry(
   return null;
 }
 
-/** Validate one OrchestratorSessionContent entry. Returns null on success. */
+/**
+ * Validate one FullSessionExportContent entry (schema v1.1.0+). Returns null on success.
+ * session_export is an opaque blob — validated as a non-null object but not recursively
+ * closed-world checked.
+ */
+function validateFullSessionExportEntry(
+  s: Record<string, unknown>,
+  path: string,
+): ArtefactValidationResult | null {
+  const keysCheck = checkNoUnknownKeys(s, FULL_SESSION_EXPORT_KEYS, path);
+  if (keysCheck) return keysCheck;
+
+  if (typeof s.session_id !== 'string' || s.session_id.length === 0) {
+    return failArtefact('STRUCTURAL_INTEGRITY_FAILURE', `${path}.session_id must be a non-empty string`);
+  }
+  if (typeof s.session_name !== 'string') {
+    return failArtefact('STRUCTURAL_INTEGRITY_FAILURE', `${path}.session_name must be a string`);
+  }
+  if (!('capabilities_required' in s) || !Array.isArray(s.capabilities_required)) {
+    return failArtefact('STRUCTURAL_INTEGRITY_FAILURE', `${path}.capabilities_required must be an array`);
+  }
+  for (let k = 0; k < (s.capabilities_required as unknown[]).length; k++) {
+    const cap = (s.capabilities_required as unknown[])[k];
+    if (typeof cap !== 'string') {
+      return failArtefact('STRUCTURAL_INTEGRITY_FAILURE', `${path}.capabilities_required[${k}] must be a string`);
+    }
+    if (!VALID_CAPABILITY_CLASSES.has(cap)) {
+      return failArtefact('INVALID_ENUM_VALUE', `${path}.capabilities_required[${k}]: unknown capability '${cap}'`);
+    }
+  }
+  // session_export: must be a non-null, non-array object; contents are opaque.
+  if (!('session_export' in s)) {
+    return failArtefact('MISSING_REQUIRED_FIELD', `${path}.session_export is required`);
+  }
+  if (typeof s.session_export !== 'object' || s.session_export === null || Array.isArray(s.session_export)) {
+    return failArtefact('STRUCTURAL_INTEGRITY_FAILURE', `${path}.session_export must be a non-null object`);
+  }
+  return null;
+}
+
+/** Validate one session entry. Dispatches on session_kind, version-aware. Returns null on success. */
 function validateSessionEntry(
   session: unknown,
   idx: number,
+  schemaVersion: string,
 ): ArtefactValidationResult | null {
   const path = `sessions[${idx}]`;
   if (typeof session !== 'object' || session === null || Array.isArray(session)) {
@@ -296,20 +349,28 @@ function validateSessionEntry(
   }
   const s = session as Record<string, unknown>;
 
-  // Closed-world check on session object
-  const sessCheck = checkNoUnknownKeys(s, ORCHESTRATOR_SESSION_KEYS, path);
-  if (sessCheck) return sessCheck;
-
-  // session_kind: must be 'orchestrator_session' in v1.0.0
+  // session_kind presence and vocabulary check (version-aware).
   if (!('session_kind' in s)) {
     return failArtefact('MISSING_REQUIRED_FIELD', `${path}.session_kind is required`);
   }
-  if (!VALID_SESSION_KINDS.has(s.session_kind as string)) {
+  const validKinds = schemaVersion === '1.0.0' ? VALID_SESSION_KINDS_V1_0 : VALID_SESSION_KINDS_V1_1;
+  if (!validKinds.has(s.session_kind as string)) {
+    const allowed = [...validKinds].map(k => `'${k}'`).join(', ');
     return failArtefact(
       'ARTEFACT_SESSION_KIND_INVALID',
-      `${path}.session_kind must be 'orchestrator_session' in v1.0.0, got: ${String(s.session_kind)}`,
+      `${path}.session_kind must be one of ${allowed} in schema v${schemaVersion}, got: ${String(s.session_kind)}`,
     );
   }
+
+  // Dispatch to session-kind-specific validator.
+  if (s.session_kind === 'full_session_export') {
+    return validateFullSessionExportEntry(s, path);
+  }
+
+  // OrchestratorSessionContent (session_kind === 'orchestrator_session'):
+  // Closed-world check on session object
+  const sessCheck = checkNoUnknownKeys(s, ORCHESTRATOR_SESSION_KEYS, path);
+  if (sessCheck) return sessCheck;
 
   if (typeof s.session_id !== 'string' || s.session_id.length === 0) {
     return failArtefact('STRUCTURAL_INTEGRITY_FAILURE', `${path}.session_id must be a non-empty string`);
@@ -402,9 +463,15 @@ export function validateSessionImportArtefact(artefact: unknown): ArtefactValida
   const topCheck = checkNoUnknownKeys(obj, ARTEFACT_TOP_LEVEL_KEYS, 'SessionImportArtefact');
   if (topCheck) return topCheck;
 
-  // 2. schema_version exact match
-  if (obj.schema_version !== '1.0.0') {
-    return failArtefact('SCHEMA_VERSION_UNSUPPORTED', `schema_version must be '1.0.0', got: ${String(obj.schema_version)}`);
+  // 2. schema_version — accept '1.0.0' (stable) and '1.1.0' (full-blob path).
+  //    Any other value surfaces SCHEMA_VERSION_UNSUPPORTED so the UI can show
+  //    "update required" rather than silently dropping fields.
+  const schemaVersion = obj.schema_version as string;
+  if (schemaVersion !== '1.0.0' && schemaVersion !== '1.1.0') {
+    return failArtefact(
+      'SCHEMA_VERSION_UNSUPPORTED',
+      `schema_version must be '1.0.0' or '1.1.0', got: ${String(obj.schema_version)} — please update your application`,
+    );
   }
 
   // 3. Required-field presence
@@ -484,7 +551,7 @@ export function validateSessionImportArtefact(artefact: unknown): ArtefactValida
     return failArtefact('STRUCTURAL_INTEGRITY_FAILURE', 'sessions must contain at least one entry');
   }
   for (let i = 0; i < (obj.sessions as unknown[]).length; i++) {
-    const sessionResult = validateSessionEntry((obj.sessions as unknown[])[i], i);
+    const sessionResult = validateSessionEntry((obj.sessions as unknown[])[i], i, schemaVersion);
     if (sessionResult) return sessionResult;
   }
 

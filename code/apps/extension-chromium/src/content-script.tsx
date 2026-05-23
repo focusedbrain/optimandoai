@@ -42011,9 +42011,14 @@ ${pageText}
    */
   async function processSessionImport(importData: any) {
     const sessionKey = createNewImportSessionKey()
-    const { sessionData } = normalizeImportedSessionPayload(importData, {
+    const { sessionData, isExportFormat } = normalizeImportedSessionPayload(importData, {
       pageUrl: window.location.href,
     })
+
+    // Tag the session so the UI can separate file-imported sessions from locally-built ones.
+    if (isExportFormat) {
+      ;(sessionData as Record<string, unknown>).sessionOrigin = 'file_import'
+    }
 
     await persistImportedSessionRecord(
       storageSet as (items: Record<string, unknown>, callback?: () => void) => void | Promise<void>,
@@ -44743,6 +44748,7 @@ ${pageText}
     assertBeapTabImportPayload(importData)
     const result = await runCanonicalSessionImport({
       importData,
+      origin: 'beap_import',
       activation: 'activate_minimal',
       intent: 'prepare_edit',
       storageSet: storageSet as (
@@ -44778,6 +44784,7 @@ ${pageText}
     assertBeapTabImportPayload(importData)
     const result = await runCanonicalSessionImport({
       importData,
+      origin: 'beap_import',
       sessionKey:
         typeof presetSessionKey === 'string' && presetSessionKey.trim()
           ? presetSessionKey.trim()

@@ -2,28 +2,28 @@
  * stripAgentBoxesFromGrids — Builder-side runtime normalization (PR 3/8)
  *
  * The artefact's canonical wire format (per Canon A.3.054.8, PR 1 amendment)
- * does NOT carry `agentBoxes[]` inside `display_grids[]` entries. Agent boxes
- * are declared at the top level via `OrchestratorSessionContent.agent_boxes[]`,
- * with `gridSessionId` + `slotId` linkage fields on each box entry.
+ * does NOT carry `agentBoxes[]` inside `display_grids[]` entries for
+ * OrchestratorSessionContent sessions. Agent boxes are declared at the top level
+ * via `OrchestratorSessionContent.agent_boxes[]`.
  *
- * Runtime persistence paths (e.g. `GRID_SAVE` in `background.ts`) may attach
- * `agentBoxes[]` to grid objects. The Builder strips this field before
- * serialization so the wire capsule is always in canonical form.
+ * FullSessionExportContent sessions (v1.1.0) carry the complete blob opaquely in
+ * `session_export` — no stripping is applied to them, as `session_export` is not
+ * recursively validated by the ingestion-core validator.
  *
- * The receiver's `validateSessionImportArtefact` rejects artefacts whose grid
- * entries carry `agentBoxes` (ARTEFACT_UNKNOWN_KEY), making this normalization
- * load-bearing: without it, the receiver-side validator would reject every
- * artefact produced from live runtime state.
+ * The receiver's `validateSessionImportArtefact` rejects OrchestratorSessionContent
+ * grid entries that carry `agentBoxes` (ARTEFACT_UNKNOWN_KEY), making this
+ * normalization load-bearing for v1.0.0-style sessions from live runtime state.
  *
  * Per Canon A.3.054.7: Capsule Builder excludes embedded active content.
  * Per Canon A.3.054.8: Artefact wire format follows canonical type declarations.
  */
 
-import type { SessionImportArtefact, OrchestratorSessionContent } from '../../beap-builder/canonical-types'
+import type { SessionImportArtefact, OrchestratorSessionContent, FullSessionExportContent } from '../../beap-builder/canonical-types'
 
 /**
  * Returns a copy of `artefact` with `agentBoxes[]` stripped from every
- * `display_grids[]` entry in every session.
+ * `display_grids[]` entry in every OrchestratorSessionContent session.
+ * FullSessionExportContent sessions are passed through untouched.
  *
  * Pure transformation — does not mutate the input object.
  * Never throws; delegates no-op path when no sessions present.
@@ -39,7 +39,14 @@ export function stripAgentBoxesFromGrids(
   }
 }
 
-function stripFromSession(session: OrchestratorSessionContent): OrchestratorSessionContent {
+function stripFromSession(
+  session: OrchestratorSessionContent | FullSessionExportContent,
+): OrchestratorSessionContent | FullSessionExportContent {
+  if (session.session_kind === 'full_session_export') {
+    // FullSessionExportContent: session_export is opaque — nothing to strip.
+    return session
+  }
+  // OrchestratorSessionContent: strip agentBoxes from display_grids entries.
   return {
     ...session,
     display_grids: session.display_grids.map((grid) => {

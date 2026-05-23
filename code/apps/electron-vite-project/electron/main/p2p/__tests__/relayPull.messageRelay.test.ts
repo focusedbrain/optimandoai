@@ -8,6 +8,8 @@ import { createRequire } from 'module'
 import { pullFromRelay } from '../relayPull'
 import * as ingestionPipeline from '../../ingestion/ingestionPipeline'
 import * as beapEmailIngestion from '../../email/beapEmailIngestion'
+import * as coordinationWs from '../coordinationWs'
+import * as peerDeliveryAck from '../peerDeliveryAck'
 import { upsertP2PConfig } from '../p2pConfig'
 import { migrateHandshakeTables } from '../../handshake/db'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
@@ -59,18 +61,27 @@ describe('pullFromRelay message_relay', () => {
   let processSpy: ReturnType<typeof vi.spyOn>
   let fetchSpy: ReturnType<typeof vi.spyOn>
   let beapSpy: ReturnType<typeof vi.spyOn>
+  let ingestAckSpy: ReturnType<typeof vi.spyOn>
+  let peerAckSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
     processSpy = vi.spyOn(ingestionPipeline, 'processIncomingInput')
     fetchSpy = vi.spyOn(globalThis, 'fetch')
     // Phase B: message_relay path calls processBeapPackageInline; mock to avoid real pipeline.
-    beapSpy = vi.spyOn(beapEmailIngestion, 'processBeapPackageInline').mockResolvedValue({ outcome: 'inbox' } as any)
+    beapSpy = vi.spyOn(beapEmailIngestion, 'processBeapPackageInline').mockResolvedValue({
+      outcome: 'inbox',
+      rowId: 'inbox-row-1',
+    } as any)
+    ingestAckSpy = vi.spyOn(coordinationWs, 'publishBeapIngestAckOverCoordinationRelay').mockImplementation(() => {})
+    peerAckSpy = vi.spyOn(peerDeliveryAck, 'postPeerDeliveryAckToSender').mockImplementation(() => {})
   })
 
   afterEach(() => {
     processSpy.mockRestore()
     fetchSpy.mockRestore()
     beapSpy.mockRestore()
+    ingestAckSpy.mockRestore()
+    peerAckSpy.mockRestore()
   })
 
   test('validated message_relay calls processBeapPackageInline and ACKs', async () => {
@@ -127,5 +138,13 @@ describe('pullFromRelay message_relay', () => {
     expect(ackCalls.length).toBe(1)
     const ackBody = JSON.parse((ackCalls[0][1] as RequestInit)?.body as string)
     expect(ackBody.ids).toEqual(['cap-ack-1'])
+
+    expect(ingestAckSpy).toHaveBeenCalledWith({
+      relayId: 'cap-ack-1',
+      handshakeId: 'hs-from-validated',
+      rowId: 'inbox-row-1',
+      status: 'ok',
+    })
+    expect(peerAckSpy).toHaveBeenCalledWith(db, 'hs-from-validated', 'inbox-row-1')
   })
 })

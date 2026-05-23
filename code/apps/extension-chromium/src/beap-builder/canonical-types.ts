@@ -584,15 +584,56 @@ export interface OrchestratorSessionContent {
 }
 
 /**
- * Artefact session.
+ * Full session export content — new in schema v1.1.0.
  *
- * In v1.0.0, exactly equal to OrchestratorSessionContent (not a discriminated
- * union). Future protocol versions may add 'workflow_graph' and 'composite'
- * session_kinds as discriminated branches; a v1.0.0 receiver MUST reject them.
+ * Carries the complete session KV blob (all fields that the file-export path
+ * serializes) as an opaque `session_export` object. The receiver delegates
+ * `session_export` directly to `normalizeImportedSessionPayload`, which
+ * produces a session object byte-equivalent to a file import of the same
+ * source session.
+ *
+ * Closed-world key set (enforced by ingestion-core validator for v1.1.0+):
+ *   session_kind, session_id, session_name, capabilities_required, session_export
+ *
+ * v1.0.0 receivers MUST reject artefacts whose schema_version is '1.1.0';
+ * they surface SCHEMA_VERSION_UNSUPPORTED which the UI maps to "update required".
+ *
+ * per A.3.054.8 (v1.1.0 extension)
+ */
+export interface FullSessionExportContent {
+  /** Session kind discriminator. Must be 'full_session_export' in v1.1.0. */
+  session_kind: 'full_session_export'
+  /** Unique identifier for this session (matches orchestrator session key). */
+  session_id: string
+  /** Human-readable session display name (displayed before the blob is decoded). */
+  session_name: string
+  /**
+   * Capabilities required to run this session.
+   * Must be non-empty when requested_action === 'import_and_offer_run'.
+   */
+  capabilities_required: CapabilityClass[]
+  /**
+   * Complete session KV blob as stored in the orchestrator DB / chrome.storage.local.
+   * Treated as opaque by the v1.1.0 validator (not recursively closed-world checked).
+   * Contains all fields produced by the file-export serializer:
+   *   tabName, sessionAlias, timestamp, url, isLocked, agents, agentBoxes,
+   *   displayGrids, helperTabs, hybridViews, goals, uiConfig, userIntentDetection,
+   *   customAgents, hiddenBuiltins, numberMap, nextNumber, memory, context, etc.
+   */
+  session_export: Record<string, unknown>
+}
+
+/**
+ * Artefact session — discriminated union.
+ *
+ * v1.0.0: only OrchestratorSessionContent ('orchestrator_session').
+ * v1.1.0: adds FullSessionExportContent ('full_session_export') which carries
+ *          the complete session blob; OrchestratorSessionContent is still accepted
+ *          for backward compat with old senders.
  *
  * per A.3.054.8
  */
-export type ArtefactSession = OrchestratorSessionContent
+export type ArtefactSession = OrchestratorSessionContent | FullSessionExportContent
 
 /**
  * One processing event in the artefact policy.
@@ -660,8 +701,14 @@ export interface SensitiveSubcapsuleRef {
  * per Canon A.3.054.8, Annex I v10
  */
 export interface SessionImportArtefact {
-  /** Schema version. Must be exactly '1.0.0' for this receiver. */
-  schema_version: '1.0.0'
+  /**
+   * Schema version.
+   * '1.0.0' — sessions must be OrchestratorSessionContent.
+   * '1.1.0' — sessions may be FullSessionExportContent (full KV blob path)
+   *            or OrchestratorSessionContent (backward compat).
+   * Receivers MUST reject unknown future versions with SCHEMA_VERSION_UNSUPPORTED.
+   */
+  schema_version: '1.0.0' | '1.1.0'
   /** UUID v4 uniquely identifying this artefact instance. */
   artefact_id: string
   /** RFC 3339 UTC creation timestamp. */
@@ -678,7 +725,8 @@ export interface SessionImportArtefact {
   purpose: ArtefactPurpose
   /**
    * Session content array. Must contain at least one session.
-   * In v1.0.0, all entries must have session_kind === 'orchestrator_session'.
+   * v1.0.0: all entries must have session_kind === 'orchestrator_session'.
+   * v1.1.0: entries may be 'full_session_export' or 'orchestrator_session'.
    * per A.3.054.8
    */
   sessions: ArtefactSession[]

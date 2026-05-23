@@ -348,7 +348,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     'full_reply_missing' | 'full_reply_suspiciously_short' | null
   >(null)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
-  const [availableSessions, setAvailableSessions] = useState<Array<{ id: string; name: string }>>([])
+  const [availableSessions, setAvailableSessions] = useState<
+    Array<{ id: string; name: string; sessionOrigin?: string }>
+  >([])
   const [capsuleAttachments, setCapsuleAttachments] = useState<File[]>([])
   const [sendingCapsule, setSendingCapsule] = useState(false)
   const [sendResult, setSendResult] = useState<{ success: boolean; error?: string } | null>(null)
@@ -1111,10 +1113,10 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         await api.connect()
         const json = (await api.listSessions()) as {
           success?: boolean
-          data?: Array<{ id: string; name: string }>
+          data?: Array<{ id: string; name: string; sessionOrigin?: string }>
         }
         if (json.success && Array.isArray(json.data)) {
-          setAvailableSessions(json.data.map((s) => ({ id: s.id, name: s.name })))
+          setAvailableSessions(json.data.map((s) => ({ id: s.id, name: s.name, sessionOrigin: s.sessionOrigin })))
         } else {
           setAvailableSessions([])
         }
@@ -1377,9 +1379,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         const input: BuildArtefactInput = {
           sessionId: sessionRes.data.id,
           sessionName: sessionRes.data.name,
-          agents: Array.isArray(cfg.agents) ? (cfg.agents as any[]) : [],
-          agentBoxes: Array.isArray(cfg.agentBoxes ?? cfg.agent_boxes) ? ((cfg.agentBoxes ?? cfg.agent_boxes) as any[]) : [],
-          displayGrids: Array.isArray(cfg.displayGrids ?? cfg.display_grids) ? ((cfg.displayGrids ?? cfg.display_grids) as any[]) : [],
+          sessionBlob: cfg,
           capabilitiesRequired: capabilitiesForSessionAttach(cfg as Record<string, unknown>) as any[],
           handshakeBinding: handshakeId ? { handshake_id: handshakeId, bound_at: boundAt } : null,
         }
@@ -2070,11 +2070,24 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           onChange={(e) => setSelectedSessionId(e.target.value || null)}
                         >
                           <option value="">— No session —</option>
-                          {availableSessions.map((s) => (
-                            <option key={s.id} value={s.id}>
-                              {s.name}
-                            </option>
-                          ))}
+                          {availableSessions.some(s => s.sessionOrigin !== 'beap_import') && (
+                            <optgroup label="My Sessions">
+                              {availableSessions
+                                .filter(s => s.sessionOrigin !== 'beap_import')
+                                .map((s) => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                            </optgroup>
+                          )}
+                          {availableSessions.some(s => s.sessionOrigin === 'beap_import') && (
+                            <optgroup label="Received Automations">
+                              {availableSessions
+                                .filter(s => s.sessionOrigin === 'beap_import')
+                                .map((s) => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                            </optgroup>
+                          )}
                         </select>
                       </div>
                       <div className="capsule-draft-field">
@@ -2935,7 +2948,10 @@ export default function EmailInboxView({
   const [beapRedirectForMessage, setBeapRedirectForMessage] = useState<InboxMessage | null>(null)
   const [beapRunAutomationForMessage, setBeapRunAutomationForMessage] = useState<InboxMessage | null>(null)
   const [runAutomationImporting, setRunAutomationImporting] = useState(false)
-  const [runAutomationRowFeedback, setRunAutomationRowFeedback] = useState<{ type: 'error'; message: string } | null>(null)
+  const [runAutomationRowFeedback, setRunAutomationRowFeedback] = useState<{
+    type: 'success' | 'error'
+    message: string
+  } | null>(null)
 
   const [leftPanelTab, setLeftPanelTab] = useState<'inbox' | 'sent'>('inbox')
   const [sentMessages, setSentMessages] = useState<Array<Record<string, unknown>>>([])
@@ -3693,15 +3709,26 @@ export default function EmailInboxView({
         return
       }
       setBeapRunAutomationForMessage(null)
-    } catch (e) {
+      const name = result.sessionName || result.sessionKey || 'session'
       setRunAutomationRowFeedback({
-        type: 'error',
-        message: e instanceof Error ? e.message : String(e),
+        type: 'success',
+        message: `Running automation \u201c${name}\u201d \u2014 grid tab will appear shortly.`,
       })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[BEAP_RUN] unexpected error messageId=' + beapRunAutomationForMessage.id, e)
+      setRunAutomationRowFeedback({ type: 'error', message: msg })
     } finally {
       setRunAutomationImporting(false)
     }
   }, [beapRunAutomationForMessage])
+
+  // Auto-dismiss success feedback after 6 s; errors stay until dismissed or retried.
+  useEffect(() => {
+    if (!runAutomationRowFeedback || runAutomationRowFeedback.type === 'error') return
+    const id = setTimeout(() => setRunAutomationRowFeedback(null), 6000)
+    return () => clearTimeout(id)
+  }, [runAutomationRowFeedback])
 
   const handleReply = useCallback((msg: InboxMessage) => {
     const replyMode = resolveInboxReplyMode(msg)
@@ -4479,14 +4506,58 @@ export default function EmailInboxView({
             bottom: 88,
             right: 20,
             zIndex: 200,
-            maxWidth: 360,
+            maxWidth: 380,
             padding: '10px 14px',
             borderRadius: 8,
             fontSize: 12,
-            ...UI_BADGE.red,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 8,
+            ...(runAutomationRowFeedback.type === 'success' ? UI_BADGE.green : UI_BADGE.red),
           }}
         >
-          {runAutomationRowFeedback.message}
+          <span style={{ flexShrink: 0, fontWeight: 700, fontSize: 14 }}>
+            {runAutomationRowFeedback.type === 'success' ? '✓' : '✕'}
+          </span>
+          <span style={{ flex: 1 }}>{runAutomationRowFeedback.message}</span>
+          {runAutomationRowFeedback.type === 'error' && (
+            <button
+              type="button"
+              onClick={() => void handleConfirmRunAutomation()}
+              style={{
+                flexShrink: 0,
+                marginLeft: 4,
+                padding: '2px 8px',
+                fontSize: 11,
+                fontWeight: 600,
+                borderRadius: 5,
+                border: '1px solid #fca5a5',
+                background: '#fff',
+                color: '#991b1b',
+                cursor: 'pointer',
+              }}
+            >
+              Retry
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setRunAutomationRowFeedback(null)}
+            aria-label="Dismiss"
+            style={{
+              flexShrink: 0,
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: 14,
+              lineHeight: 1,
+              color: 'inherit',
+              opacity: 0.6,
+              padding: 0,
+            }}
+          >
+            ×
+          </button>
         </div>
       ) : null}
 

@@ -1,6 +1,11 @@
 /**
- * Unwrap SessionImportArtefact wrappers and map OrchestratorSessionContent (snake_case)
+ * Unwrap SessionImportArtefact wrappers and map session content (snake_case)
  * into tab-import shape (camelCase) expected by sessionImportCore activation.
+ *
+ * Supports both schema versions:
+ *   v1.0.0 — sessions[0] is OrchestratorSessionContent → mapped via orchestratorSessionContentToTabImport
+ *   v1.1.0 — sessions[0] may be FullSessionExportContent → session_export blob returned directly
+ *             (caller or normalizeImportedSessionPayload handles the blob)
  */
 
 export type SessionImportUnwrapResult =
@@ -8,7 +13,7 @@ export type SessionImportUnwrapResult =
   | { ok: false; reason: string }
 
 export function isSessionImportArtefactWrapper(obj: Record<string, unknown>): boolean {
-  return obj.schema_version === '1.0.0' && Array.isArray(obj.sessions)
+  return (obj.schema_version === '1.0.0' || obj.schema_version === '1.1.0') && Array.isArray(obj.sessions)
 }
 
 export function isOrchestratorSessionContent(obj: Record<string, unknown>): boolean {
@@ -23,6 +28,10 @@ export function isOrchestratorSessionContent(obj: Record<string, unknown>): bool
     )
   }
   return false
+}
+
+export function isFullSessionExportContent(obj: Record<string, unknown>): boolean {
+  return obj.session_kind === 'full_session_export'
 }
 
 export function orchestratorSessionContentToTabImport(
@@ -94,6 +103,16 @@ export function unwrapSessionImportPayloadForTab(
       return { ok: false, reason: 'Session import artefact has no importable session.' }
     }
     raw = sessions[0] as Record<string, unknown>
+  }
+
+  // v1.1.0 path: full session blob — return session_export directly so downstream
+  // normalizeImportedSessionPayload receives the complete KV object unchanged.
+  if (isFullSessionExportContent(raw)) {
+    const blob = raw.session_export
+    if (typeof blob !== 'object' || blob === null || Array.isArray(blob)) {
+      return { ok: false, reason: 'full_session_export: session_export must be a non-null object.' }
+    }
+    return { ok: true, payload: blob as Record<string, unknown> }
   }
 
   if (isOrchestratorSessionContent(raw)) {

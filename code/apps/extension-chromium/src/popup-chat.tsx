@@ -886,9 +886,7 @@ function PopupChatApp() {
           const input: BuildArtefactInput = {
             sessionId: beapDraftSessionId,
             sessionName: typeof sessionData.name === 'string' ? sessionData.name : beapDraftSessionId,
-            agents: Array.isArray(sessionData.agents) ? (sessionData.agents as any[]) : [],
-            agentBoxes: Array.isArray(sessionData.agentBoxes ?? sessionData.agent_boxes) ? ((sessionData.agentBoxes ?? sessionData.agent_boxes) as any[]) : [],
-            displayGrids: Array.isArray(sessionData.displayGrids ?? sessionData.display_grids) ? ((sessionData.displayGrids ?? sessionData.display_grids) as any[]) : [],
+            sessionBlob: sessionData as Record<string, unknown>,
             capabilitiesRequired: Array.isArray(sessionData.capabilities_required) ? (sessionData.capabilities_required as any[]) : [],
             handshakeBinding: null,
           }

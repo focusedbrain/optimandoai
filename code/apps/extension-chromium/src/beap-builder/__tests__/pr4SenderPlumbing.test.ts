@@ -6,6 +6,13 @@
  *  15–18. Validator vocabulary tightening (purpose + capabilities)
  *  19–27. Integration: helper output passes validator; round-trip.
  *
+ * Schema v1.1.0 (Decision F): buildSessionImportArtefact now embeds the full
+ * session KV blob in session_export (FullSessionExportContent, session_kind
+ * 'full_session_export'). All unit tests updated to reflect the new contract:
+ *   - Input field `sessionBlob` replaces the old `agents / agentBoxes / displayGrids`.
+ *   - schema_version is '1.1.0'.
+ *   - sessions[0].session_kind is 'full_session_export'.
+ *
  * Surfaces integration tests (19–25) cover the construction logic only —
  * actual UI components are not rendered (React renderer not available in
  * Vitest node environment). The construction logic is extracted and tested
@@ -23,17 +30,20 @@ import type { BuildArtefactInput } from '../buildSessionImportArtefact'
 // Fixtures
 // =============================================================================
 
-const VALID_AGENTS: any[] = []
-const VALID_AGENT_BOXES: any[] = []
-const VALID_DISPLAY_GRIDS: any[] = []
+const BASE_BLOB: Record<string, unknown> = {
+  tabName: 'Test Session',
+  agents: [],
+  agentBoxes: [],
+  displayGrids: [],
+  helperTabs: null,
+  hybridViews: [],
+}
 
 function baseInput(overrides: Partial<BuildArtefactInput> = {}): BuildArtefactInput {
   return {
     sessionId: 'session_abc123',
     sessionName: 'Test Session',
-    agents: VALID_AGENTS,
-    agentBoxes: VALID_AGENT_BOXES,
-    displayGrids: VALID_DISPLAY_GRIDS,
+    sessionBlob: BASE_BLOB,
     capabilitiesRequired: [],
     handshakeBinding: null,
     ...overrides,
@@ -134,12 +144,12 @@ describe('buildSessionImportArtefact — unit tests', () => {
     expect(result.artefact.sensitive_subcapsule).toBeNull()
   })
 
-  // Test 11 — schema_version
-  it('schema_version === "1.0.0" always', () => {
+  // Test 11 — schema_version (Decision F: now '1.1.0')
+  it('schema_version === "1.1.0" (full-blob path, Decision F)', () => {
     const result = buildSessionImportArtefact(baseInput())
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.artefact.schema_version).toBe('1.0.0')
+    expect(result.artefact.schema_version).toBe('1.1.0')
   })
 
   // Test 12 — artefact_id is UUID v4
@@ -156,31 +166,33 @@ describe('buildSessionImportArtefact — unit tests', () => {
     const result = buildSessionImportArtefact(baseInput())
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    // Ends with Z (UTC) and is a valid ISO string
     expect(result.artefact.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
     expect(result.artefact.created_at.endsWith('Z') || result.artefact.created_at.includes('+')).toBe(true)
     expect(new Date(result.artefact.created_at).getTime()).not.toBeNaN()
   })
 
-  // Test 14 — helper produces a well-formed artefact (structural checks)
-  // The cross-package integration test (helper → validateSessionImportArtefact)
-  // lives in packages/ingestion-core/__tests__/ingestion-core.test.ts (tests 14, 26, 27)
-  // since ingestion-core is not a dependency of this package.
-  it('output is structurally well-formed (schema_version, artefact_id, purpose, sessions)', () => {
+  // Test 14 — helper produces a well-formed artefact (structural checks, Decision F)
+  it('output is structurally well-formed — v1.1.0 / full_session_export', () => {
+    const blob = { tabName: 'My Session', agents: [{ id: 'a1' }], agentBoxes: [] }
     const result = buildSessionImportArtefact(baseInput({
       sessionId: 'session_xyz',
       sessionName: 'My Session',
+      sessionBlob: blob,
       capabilitiesRequired: ['ui_actions'],
     }))
     expect(result.ok).toBe(true)
     if (!result.ok) return
     const a = result.artefact
-    expect(a.schema_version).toBe('1.0.0')
+    expect(a.schema_version).toBe('1.1.0')
     expect(a.purpose.declared_purpose).toBe('session_share')
     expect(a.sessions).toHaveLength(1)
-    expect(a.sessions[0].session_kind).toBe('orchestrator_session')
+    expect(a.sessions[0].session_kind).toBe('full_session_export')
     expect(a.sessions[0].capabilities_required).toContain('ui_actions')
     expect(a.requested_action).toBe('import_and_offer_run')
+    // session_export carries the full blob verbatim
+    if (a.sessions[0].session_kind === 'full_session_export') {
+      expect(a.sessions[0].session_export).toEqual(blob)
+    }
   })
 })
 
@@ -204,6 +216,7 @@ describe('sender surface artefact construction logic', () => {
     const result = buildSessionImportArtefact(baseInput({
       sessionId: 'session_email_123',
       sessionName: 'Email Session',
+      sessionBlob: { tabName: 'Email Session', agents: [], agentBoxes: [] },
       capabilitiesRequired: ['network_egress'],
       handshakeBinding: { handshake_id: 'hk-abc', bound_at: '2026-05-04T10:00:00Z' },
     }))
@@ -216,8 +229,6 @@ describe('sender surface artefact construction logic', () => {
 
   // Test 20 — EmailInboxView: no session → artefact undefined (no helper call)
   it('EmailInboxView: no session → no artefact construction', () => {
-    // When selectedSessionId is null, the sender does not call buildSessionImportArtefact.
-    // This is a compile-time / control-flow invariant. We verify the helper is not needed:
     const noSession = null
     expect(noSession).toBeNull()
   })
@@ -227,7 +238,6 @@ describe('sender surface artefact construction logic', () => {
     const result = buildSessionImportArtefact(baseInput({ sessionId: '' }))
     expect(result.ok).toBe(false)
     if (result.ok) return
-    // Caller would display result.reason and NOT clear selectedSessionId
     expect(typeof result.reason).toBe('string')
     expect(result.reason.length).toBeGreaterThan(0)
   })
@@ -288,4 +298,6 @@ describe('sender surface artefact construction logic', () => {
 // live in packages/ingestion-core/__tests__/ingestion-core.test.ts.
 // The artefact fixture is constructed inline there; ingestion-core can
 // access it directly. See PR4-RT-26 and PR4-RT-27 in that file.
+// Full round-trip + field-parity tests live in
+// src/beap-builder/__tests__/buildSessionImportArtefact.test.ts (RT-1, FP-1).
 // =============================================================================

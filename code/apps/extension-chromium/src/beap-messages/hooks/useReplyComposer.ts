@@ -430,9 +430,7 @@ export function useReplyComposer(
             const artefactInput: BuildArtefactInput = {
               sessionId: selectedSessionId,
               sessionName: typeof sessionData.name === 'string' ? sessionData.name : selectedSessionId,
-              agents: Array.isArray(sessionData.agents) ? (sessionData.agents as any[]) : [],
-              agentBoxes: Array.isArray(sessionData.agentBoxes ?? sessionData.agent_boxes) ? ((sessionData.agentBoxes ?? sessionData.agent_boxes) as any[]) : [],
-              displayGrids: Array.isArray(sessionData.displayGrids ?? sessionData.display_grids) ? ((sessionData.displayGrids ?? sessionData.display_grids) as any[]) : [],
+              sessionBlob: sessionData as Record<string, unknown>,
               capabilitiesRequired: Array.isArray(sessionData.capabilities_required) ? (sessionData.capabilities_required as any[]) : [],
               handshakeBinding: message.handshakeId
                 ? { handshake_id: message.handshakeId, bound_at: new Date().toISOString() }
