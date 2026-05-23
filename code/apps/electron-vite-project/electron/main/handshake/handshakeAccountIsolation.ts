@@ -2,8 +2,9 @@
  * Account isolation for handshake list / recipient pickers: hide rows that do not
  * belong to the current SSO session, without mutating the DB.
  */
-import { isSameAccountHandshakeEmails } from '../../../../../packages/shared/src/handshake/receiverEmailValidation'
+import { isSameAccountHandshakeEmails, validateReceiverEmail } from '../../../../../packages/shared/src/handshake/receiverEmailValidation'
 import type { HandshakeRecord, PartyIdentity, SSOSession } from './types'
+import { HandshakeState } from './types'
 
 export type HandshakeRowVisibility = { ok: true } | { ok: false; reason: string }
 
@@ -45,6 +46,13 @@ export function samePrincipalForInternal(
   return true
 }
 
+/** Acceptor-side file import: party identity is not bound until accept (`recipientPersist.ts`). */
+function isPendingAcceptorPartyForSession(r: HandshakeRecord, session: SSOSession): boolean {
+  if (r.local_role !== 'acceptor') return false
+  if (r.state !== HandshakeState.PENDING_REVIEW) return false
+  return validateReceiverEmail(r.receiver_email, session.email).valid
+}
+
 /**
  * Returns whether a persisted handshake row may be returned to the current session
  * (list / BEAP recipient picker). Does not read the DB; hide-only semantics.
@@ -65,11 +73,13 @@ export function handshakeRowVisibilityForSession(
     }
     if (sessionMatchesParty(session, r.initiator)) return { ok: true }
     if (r.acceptor && sessionMatchesParty(session, r.acceptor)) return { ok: true }
+    if (isPendingAcceptorPartyForSession(r, session)) return { ok: true }
     return { ok: false, reason: 'internal_session_not_party' }
   }
 
   if (sessionMatchesParty(session, r.initiator)) return { ok: true }
   if (r.acceptor && sessionMatchesParty(session, r.acceptor)) return { ok: true }
+  if (isPendingAcceptorPartyForSession(r, session)) return { ok: true }
   return { ok: false, reason: 'standard_session_not_party' }
 }
 

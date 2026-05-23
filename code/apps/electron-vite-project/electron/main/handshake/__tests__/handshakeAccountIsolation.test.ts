@@ -155,4 +155,144 @@ describe('handshakeAccountIsolation', () => {
       warn.mockRestore()
     }
   })
+
+  test('external pending acceptor with matching receiver_email → visible (regression fix)', () => {
+    const r = minimalRow({
+      handshake_id: 'h-pending-ext',
+      handshake_type: 'standard',
+      state: HandshakeState.PENDING_REVIEW,
+      local_role: 'acceptor',
+      acceptor: null,
+      receiver_email: 'b@test.com',
+      initiator: party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' }),
+    })
+    expect(handshakeRowVisibilityForSession(r, sessionB)).toEqual({ ok: true })
+  })
+
+  test('internal pending acceptor with matching receiver_email → visible (regression fix)', () => {
+    const r = minimalRow({
+      handshake_id: 'h-pending-int',
+      handshake_type: 'internal',
+      state: HandshakeState.PENDING_REVIEW,
+      local_role: 'acceptor',
+      acceptor: null,
+      receiver_email: 'a@test.com',
+      initiator: party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' }),
+    })
+    expect(handshakeRowVisibilityForSession(r, sessionA)).toEqual({ ok: true })
+  })
+
+  test('foreign pending row with non-matching receiver_email → hidden (regression guard)', () => {
+    const r = minimalRow({
+      handshake_id: 'h-foreign-pending',
+      handshake_type: 'standard',
+      state: HandshakeState.PENDING_REVIEW,
+      local_role: 'acceptor',
+      acceptor: null,
+      receiver_email: 'b@test.com',
+      initiator: party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' }),
+    })
+    const sessionC = buildTestSession({
+      wrdesk_user_id: 'user-c',
+      email: 'c@test.com',
+      sub: 'sub-c',
+      iss,
+    })
+    expect(handshakeRowVisibilityForSession(r, sessionC)).toEqual({
+      ok: false,
+      reason: 'standard_session_not_party',
+    })
+  })
+
+  test('active cross-account row, unrelated session → hidden', () => {
+    const r = minimalRow({
+      handshake_id: 'h-active-foreign',
+      handshake_type: 'standard',
+      state: HandshakeState.ACTIVE,
+      local_role: 'initiator',
+      initiator: party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' }),
+      acceptor: party({ email: 'b@test.com', wrdesk_user_id: 'user-b', iss, sub: 'sub-b' }),
+    })
+    const sessionC = buildTestSession({
+      wrdesk_user_id: 'user-c',
+      email: 'c@test.com',
+      sub: 'sub-c',
+      iss,
+    })
+    expect(handshakeRowVisibilityForSession(r, sessionC)).toEqual({
+      ok: false,
+      reason: 'standard_session_not_party',
+    })
+  })
+
+  test('active row, current user is initiator → visible (unchanged)', () => {
+    const r = minimalRow({
+      handshake_id: 'h-active-initiator',
+      handshake_type: 'standard',
+      state: HandshakeState.ACTIVE,
+      local_role: 'initiator',
+      initiator: party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' }),
+      acceptor: party({ email: 'b@test.com', wrdesk_user_id: 'user-b', iss, sub: 'sub-b' }),
+    })
+    expect(handshakeRowVisibilityForSession(r, sessionA)).toEqual({ ok: true })
+  })
+
+  test('active row, current user is acceptor → visible (unchanged)', () => {
+    const r = minimalRow({
+      handshake_id: 'h-active-acceptor',
+      handshake_type: 'standard',
+      state: HandshakeState.ACTIVE,
+      local_role: 'acceptor',
+      initiator: party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' }),
+      acceptor: party({ email: 'b@test.com', wrdesk_user_id: 'user-b', iss, sub: 'sub-b' }),
+    })
+    expect(handshakeRowVisibilityForSession(r, sessionB)).toEqual({ ok: true })
+  })
+
+  test('initiator-side pending PENDING_ACCEPT → visible (unchanged)', () => {
+    const r = minimalRow({
+      handshake_id: 'h-pending-out',
+      handshake_type: 'standard',
+      state: HandshakeState.PENDING_ACCEPT,
+      local_role: 'initiator',
+      acceptor: null,
+      receiver_email: 'b@test.com',
+      initiator: party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' }),
+    })
+    expect(handshakeRowVisibilityForSession(r, sessionA)).toEqual({ ok: true })
+  })
+
+  test('legacy null receiver_email pending acceptor → visible via validateReceiverEmail backward-compat', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const r = minimalRow({
+        handshake_id: 'h-legacy-receiver',
+        handshake_type: 'standard',
+        state: HandshakeState.PENDING_REVIEW,
+        local_role: 'acceptor',
+        acceptor: null,
+        receiver_email: null,
+        initiator: party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' }),
+      })
+      expect(handshakeRowVisibilityForSession(r, sessionB)).toEqual({ ok: true })
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  test('acceptor in non-pending state does not use pending acceptor helper', () => {
+    const r = minimalRow({
+      handshake_id: 'h-acceptor-active-no-match',
+      handshake_type: 'standard',
+      state: HandshakeState.ACCEPTED,
+      local_role: 'acceptor',
+      receiver_email: 'b@test.com',
+      initiator: party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' }),
+      acceptor: party({ email: 'c@test.com', wrdesk_user_id: 'user-c', iss, sub: 'sub-c' }),
+    })
+    expect(handshakeRowVisibilityForSession(r, sessionB)).toEqual({
+      ok: false,
+      reason: 'standard_session_not_party',
+    })
+  })
 })
