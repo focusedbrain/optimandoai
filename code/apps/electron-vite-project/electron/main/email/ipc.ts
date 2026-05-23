@@ -3734,11 +3734,18 @@ Rules:
       )
     }
 
-    return runInboxAiTaskWithDedup(
+    // runInboxAiTaskWithDedup can reject before the inner run() callback starts
+    // (e.g. LLM_UNAVAILABLE from the GPU gate / circuit-breaker checked before run()).
+    // Catch those outer rejections here so the renderer always gets a structured
+    // { ok: false, inboxErrorCode, message } shape instead of a raw IPC exception.
+    let _outerIsNativeBeap = false
+    try {
+    return await runInboxAiTaskWithDedup(
       taskKey,
       { supersede, supersedeKeyPrefix: `draft:${messageId}:`, messageId },
       async (_requestId, _signal) => {
     let isNativeBeap = false
+    _outerIsNativeBeap = false // reset per-run
     let aiExecDraft: import('../llm/aiExecutionTypes').AiExecutionContext | undefined
     try {
       const db = await resolveDb()
@@ -4055,6 +4062,7 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
         }
       }
       console.error('[AI-DRAFT] error:', err)
+      _outerIsNativeBeap = isNativeBeap
       return buildInboxAiDraftIpcFailure(err, { aiExecution: aiExecDraft, model: aiExecDraft?.model }, isNativeBeap ? { isNativeBeap: true } : undefined) as {
         ok: false
         error: string
@@ -4063,6 +4071,16 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
     }
       },
     )
+    } catch (outerErr) {
+      // Handles pre-run rejections from runInboxAiTaskWithDedup (e.g. LLM_UNAVAILABLE from
+      // GPU gate / circuit-breaker) that bypass the inner try/catch above.
+      console.error('[AI-DRAFT] outer rejection (pre-run):', outerErr)
+      return buildInboxAiDraftIpcFailure(outerErr, {}, _outerIsNativeBeap ? { isNativeBeap: true } : undefined) as {
+        ok: false
+        error: string
+        message: string
+      }
+    }
   })
 
   ipcMain.handle('inbox:aiAnalyzeMessage', async (_e, messageId: string) => {

@@ -1261,11 +1261,23 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         setDraftErrorMessage(userMessage || 'AI generation failed for the selected model.')
         if (import.meta.env.DEV) setDraftErrorDebug(debug ?? null)
       }
-    } catch {
+    } catch (caughtErr: unknown) {
       // Discard errors that belong to a message the user has already navigated away from.
       if (messageRef.current?.id !== capturedMessageId) return
       setDraftError(true)
-      setDraftErrorMessage('AI generation failed for the selected model.')
+      // Try to surface a meaningful message from the thrown error rather than the generic fallback.
+      // This handles cases where the IPC call itself rejects (e.g. LLM_UNAVAILABLE from GPU gate /
+      // circuit breaker thrown before runInboxAiTaskWithDedup reaches the inner run callback).
+      const rawMsg = caughtErr instanceof Error ? caughtErr.message : String(caughtErr ?? '')
+      const { userMessage } = inboxAiDraftReplyErrorDisplay({
+        ok: false,
+        inboxErrorCode: rawMsg.startsWith('LLM_UNAVAILABLE:') ? 'local_ollama_unreachable'
+          : rawMsg.startsWith('LLM_TIMEOUT') ? 'timeout'
+          : rawMsg === 'No AI model selected' ? 'no_model_selected'
+          : 'generation_failed',
+        message: rawMsg,
+      })
+      setDraftErrorMessage(userMessage || 'AI generation failed for the selected model.')
       setDraftErrorDebug(null)
     } finally {
       if (messageRef.current?.id === capturedMessageId) {

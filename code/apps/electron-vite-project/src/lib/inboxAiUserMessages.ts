@@ -37,8 +37,16 @@ function userMessageForInboxAiCode(
     case 'beap_endpoint_missing':
       return 'Top-chat BEAP tools are unavailable because the host BEAP endpoint is not advertised. Remote Ollama direct can still be used.'
     case 'generation_failed':
-    case 'llm_error':
+    case 'llm_error': {
+      // Surface the backend error detail when it is more specific than the generic label.
+      // This covers Ollama API errors (e.g. context length exceeded, model not found) that
+      // are not caught by any other classification branch.
+      const detail = payload.message?.trim()
+      if (detail && detail !== 'AI generation failed for the selected model.' && detail.length < 200) {
+        return `AI generation failed: ${detail}`
+      }
       return 'AI generation failed for the selected model.'
+    }
     case 'inference_routing_unavailable':
       return payload.message?.trim() || 'Inference is not available on this device.'
     case 'database_error':
