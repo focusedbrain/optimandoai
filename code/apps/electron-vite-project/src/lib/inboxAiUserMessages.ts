@@ -18,8 +18,20 @@ function userMessageForInboxAiCode(
   switch (code) {
     case 'no_model_selected':
       return 'Select an AI model first.'
-    case 'local_ollama_unreachable':
+    case 'local_ollama_unreachable': {
+      const raw = payload.message ?? ''
+      if (raw.includes('circuit open') || raw.includes('repeated timeouts')) {
+        // Extract "retries in ~Xm" hint if present so the user knows when to expect recovery.
+        const retryHint = raw.match(/retries in ~[^)]+/)?.[0]
+        return retryHint
+          ? `Local Ollama is temporarily paused after repeated timeouts (${retryHint}).`
+          : 'Local Ollama is temporarily paused after repeated timeouts — it will recover automatically.'
+      }
+      if (raw.includes('GPU inference') || raw.includes('CPU-only') || raw.includes('Inbox AI is disabled')) {
+        return 'Inbox AI is paused — GPU inference is unavailable on this device.'
+      }
       return 'Local Ollama is not reachable.'
+    }
     case 'remote_ollama_unreachable':
       return 'Remote Ollama is not reachable on the host device.'
     case 'beap_endpoint_missing':

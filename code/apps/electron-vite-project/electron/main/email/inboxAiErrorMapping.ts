@@ -109,6 +109,13 @@ export function classifyInboxAiError(
     return { code: 'timeout', debug: debugBase }
   }
 
+  // Circuit-breaker or GPU-gate block: thrown as `LLM_UNAVAILABLE: <reason>`.
+  // Classify as local_ollama_unreachable so the renderer can surface a meaningful message
+  // (e.g. "paused after repeated timeouts") rather than the generic generation-failed banner.
+  if (msg.startsWith('LLM_UNAVAILABLE:')) {
+    return { code: 'local_ollama_unreachable', debug: { ...debugBase, failureCode: 'llm_unavailable' } }
+  }
+
   if (isInferenceRoutingUnavailableError(err)) {
     const ir = err
     return {

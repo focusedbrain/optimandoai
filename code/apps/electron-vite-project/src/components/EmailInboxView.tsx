@@ -1130,6 +1130,10 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
   const handleDraftReply = useCallback(async (opts?: { supersede?: boolean }) => {
     if (!window.emailInbox?.aiDraftReply) return
+    // Capture the message this invocation is for. After the async IPC round-trip we
+    // check whether the user has navigated to a different message; if so we silently
+    // discard the stale result rather than showing an error banner on the wrong message.
+    const capturedMessageId = messageId
     setDraftLoading(true)
     setDraft(null)
     setDraftError(false)
@@ -1139,6 +1143,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setCapsuleDraftIssue(null)
     try {
       const res = await window.emailInbox.aiDraftReply(messageId, opts)
+      // Stale-response guard: discard if the panel has moved to a different message.
+      if (messageRef.current?.id !== capturedMessageId) return
       const data = res.data
       const native = isNativeBeap && data?.capsuleDraft
       const payload = res as {
@@ -1256,11 +1262,15 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         if (import.meta.env.DEV) setDraftErrorDebug(debug ?? null)
       }
     } catch {
+      // Discard errors that belong to a message the user has already navigated away from.
+      if (messageRef.current?.id !== capturedMessageId) return
       setDraftError(true)
       setDraftErrorMessage('AI generation failed for the selected model.')
       setDraftErrorDebug(null)
     } finally {
-      setDraftLoading(false)
+      if (messageRef.current?.id === capturedMessageId) {
+        setDraftLoading(false)
+      }
     }
     draftRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [messageId, isNativeBeap])
@@ -3961,6 +3971,8 @@ export default function EmailInboxView({
                 }
               : undefined
           }
+          onEmailCompose={() => handleComposeClick(handleOpenEmailCompose)}
+          onBeapCompose={() => handleComposeClick(handleOpenBeapDraft)}
           internalSandbox={
             showInternalSandboxInboxRow
               ? {
@@ -4563,61 +4575,6 @@ export default function EmailInboxView({
 
       {connectEmailFlowModal}
 
-      {/* Compose buttons — floating bottom-right */}
-      <div
-        style={{
-          position: 'fixed',
-          bottom: 20,
-          right: 20,
-          display: 'flex',
-          gap: 8,
-          alignItems: 'center',
-          zIndex: 100,
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => handleComposeClick(handleOpenEmailCompose)}
-          title="New Email"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-            padding: '10px 14px',
-            borderRadius: 24,
-            background: '#2563eb',
-            color: '#fff',
-            border: 'none',
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: 'pointer',
-            boxShadow: '0 2px 8px rgba(37,99,235,0.3)',
-          }}
-        >
-          ✉️+
-        </button>
-        <button
-          type="button"
-          onClick={() => handleComposeClick(handleOpenBeapDraft)}
-          title="New BEAP™ Message"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '10px 18px',
-            borderRadius: 24,
-            background: '#7c3aed',
-            color: '#fff',
-            border: 'none',
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: 'pointer',
-            boxShadow: '0 2px 8px rgba(124,58,237,0.3)',
-          }}
-        >
-          + BEAP
-        </button>
-      </div>
 
       {/* EmailComposeOverlay disabled — use EmailInlineComposer via composeMode === 'email' (Prompt 3) */}
       {/* {showEmailCompose && (
