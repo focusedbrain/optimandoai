@@ -17,7 +17,7 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - [x] **P3.3** — REMOTE_EDGE pod manifest (ingestor → validator → depackager → certifier; no sealer; uid 10104 certifier)
 - [x] **P3.4** — Certifier role `/certify` HTTP server (Ed25519 signing; env validation; depackager → certifier routing)
 - [x] **P3.5** — LOCAL_VERIFY pod manifest (ingestor → verifier → validator → depackager → sealer; preloaded JWKS)
-- [ ] **P3.6** — Verifier role container (`/verify-cert` on LOCAL_VERIFY)
+- [x] **P3.6** — Verifier role container (`/verify-cert` on LOCAL_VERIFY; full §2.3 acceptance rule)
 - [ ] **P3.7** — Keycloak attestation flow (`sso_attestation` JWT; resolve Decision 6)
 - [ ] **P3.8** — Edge key lifecycle in Electron
 - [ ] **P3.9** — pod-client edge routing
@@ -35,7 +35,7 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 | P3.3 | ✅ done | P3.3: REMOTE_EDGE pod manifest (no sealer; certifier holds Ed25519 key) |
 | P3.4 | ✅ done | P3.4: certifier role container with Ed25519 signing |
 | P3.5 | ✅ done | P3.5: LOCAL_VERIFY pod manifest |
-| P3.6 | ⬜ pending | — |
+| P3.6 | ✅ done | P3.6: verifier role container with full acceptance rule |
 | P3.7 | ⬜ pending | — |
 | P3.8 | ⬜ pending | — |
 | P3.9 | ⬜ pending | — |
@@ -117,3 +117,11 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - **Secrets:** `POD_AUTH_SECRET` all five containers; `SEAL_KEY_HEX` sealer only (same as LOCAL_HOST).
 - **Smoke:** `scripts/local-verify-smoke.sh` — test JWKS, mint cert via `@repo/beap-cert`, positive + tampered ingest; exits with `TODO P3.6` until verifier HTTP lands.
 - **README:** new §"Running a LOCAL_VERIFY pod" with JWKS trade-off table and apply commands.
+
+### P3.6
+
+- **`verifier.ts`:** Full HTTP server on :18105 — POST `/verify-cert` (X-Pod-Auth), GET `/health`, GET `/ready`. Loads `LOCAL_SSO_SUB`, `TRUSTED_EDGE_POD_IDS`, `KEYCLOAK_JWKS_JSON` at startup; refuses if missing. Applies §2.3 acceptance rule in order (8 reason codes). Logs reason + 8-char cert correlation hash only.
+- **JWT:** `jose@5.10.0` pinned; `compactVerify` for signature (step 4), manual `exp` check (step 5). Edge Ed25519 pubkey from attestation `edge_pubkey` claim (`ed25519:<hex>`).
+- **Ingestor wiring:** When `VERIFIER_BASE` is set, POST `/ingest` requires `edge_certificate` and calls `/verify-cert` before validator (first-pass gate; P3.7 adds post-validation re-check).
+- **Tests:** 21 verifier tests (happy path, all 8 reason codes, HTTP, startup failure, log safety). Full beap-pod suite: 109 pass.
+- **Smoke:** `local-verify-smoke.sh` updated with `edge_pubkey` + `exp` in attestation JWT; TODO P3.6 removed.

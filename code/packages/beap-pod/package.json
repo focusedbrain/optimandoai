@@ -16,6 +16,7 @@
     "@noble/post-quantum": "^0.2.1",
     "@repo/beap-cert": "workspace:*",
     "@repo/ingestion-core": "workspace:*",
+    "jose": "5.10.0",
     "sanitize-html": "^2.17.4"
   },
   "devDependencies": {

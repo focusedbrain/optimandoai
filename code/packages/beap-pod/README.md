@@ -365,8 +365,7 @@ bash packages/beap-pod/scripts/local-verify-smoke.sh
 bash packages/beap-pod/scripts/local-verify-smoke.sh --skip-build
 ```
 
-Until **P3.6** (verifier `/verify-cert` HTTP server), the smoke script exits
-with an explicit `TODO P3.6` message after posting a test message — expected.
+Requires Linux/podman. Tests cert verification (positive + tampered cert rejection) through the full LOCAL_VERIFY pipeline.
 
 ---
 
@@ -524,7 +523,7 @@ packages/beap-pod/
 ├── scripts/
 │   ├── pod-smoke.sh            LOCAL_HOST automated smoke test
 │   ├── remote-edge-smoke.sh    REMOTE_EDGE smoke test
-│   └── local-verify-smoke.sh   LOCAL_VERIFY smoke test (TODO P3.6 until verifier live)
+│   └── local-verify-smoke.sh   LOCAL_VERIFY smoke test
 ├── src/
 │   ├── roles/
 │   │   ├── ingestor.ts         HTTP server, port 18100

@@ -1,18 +1,16 @@
 #!/usr/bin/env bash
-# BEAP LOCAL_VERIFY pod smoke test — Phase 3 (P3.5)
+# BEAP LOCAL_VERIFY pod smoke test — Phase 3 (P3.5 / P3.6)
 #
 # Usage:
 #   bash packages/beap-pod/scripts/local-verify-smoke.sh [--skip-build]
 #
-# What it tests (once P3.6 verifier logic lands):
+# What it tests:
 #   1. Builds (or reuses) beap-components:dev.
 #   2. Generates POD_AUTH_SECRET, SEAL_KEY_HEX, test JWKS, LOCAL_SSO_SUB.
 #   3. Mints a test edge certificate (same @repo/beap-cert paths as the edge certifier).
 #   4. Starts the LOCAL_VERIFY pod with preloaded JWKS (no verifier egress).
 #   5. Posts (message + edge_certificate) to /ingest — expects sealed payload.
 #   6. Negative: tampered certificate → verification failure, no seal.
-#
-# Until P3.6 (verifier /verify-cert HTTP server), steps 5–6 fail with TODO P3.6.
 #
 # Requirements:
 #   podman ≥ 4.0, bash, curl, openssl, envsubst, node ≥ 18
@@ -34,10 +32,6 @@ trap 'rm -rf "$TMPDIR_SMOKE"; smoke_teardown' EXIT INT TERM
 log()  { echo "[local-verify-smoke] $*"; }
 pass() { echo "[local-verify-smoke] PASS: $*"; }
 fail() { echo "[local-verify-smoke] FAIL: $*" >&2; exit 1; }
-todo_p36() {
-  echo "[local-verify-smoke] TODO P3.6: verifier /verify-cert not implemented yet — expected until P3.6 lands." >&2
-  exit 1
-}
 
 SKIP_BUILD=false
 for arg in "$@"; do
@@ -85,6 +79,8 @@ function hex(bytes) {
 const localSsoSub = 'smoke-local-verify-user';
 const edgePodId = randomUUID();
 const edgeSecretKey = ed25519.utils.randomSecretKey();
+const edgePublicKey = ed25519.getPublicKey(edgeSecretKey);
+const edgePubkeyClaim = `ed25519:${hex(edgePublicKey)}`;
 
 const jwksKeyBytes = Buffer.alloc(32, 7);
 const jwksKeyB64 = jwksKeyBytes.toString('base64url');
@@ -108,7 +104,15 @@ function signJwt(payload) {
   return `${data}.${sig}`;
 }
 
-const ssoAttestation = signJwt({ sub: localSsoSub, pod_id: edgePodId, iss: 'beap-local-verify-smoke' });
+const nowSec = Math.floor(Date.now() / 1000);
+const ssoAttestation = signJwt({
+  sub: localSsoSub,
+  pod_id: edgePodId,
+  edge_pubkey: edgePubkeyClaim,
+  iss: 'beap-local-verify-smoke',
+  exp: nowSec + 86400,
+  iat: nowSec - 60,
+});
 
 const capsuleJson = JSON.stringify({
   subject: 'local-verify-smoke',
@@ -243,7 +247,7 @@ fi
 
 if ! echo "$INGEST_RESP" | grep -q '"seal"'; then
   podman pod logs --names "$POD_NAME" 2>/dev/null | tail -80 || true
-  todo_p36
+  fail "Positive /ingest did not return sealed payload"
 fi
 
 pass "Positive path returned sealed payload"
@@ -271,7 +275,7 @@ if echo "$TAMPER_RESP" | grep -q '"seal"'; then
 fi
 
 if [ "$HTTP_TAMPER" = "200" ] && ! echo "$TAMPER_RESP" | grep -qiE 'verif|reject|cert|unauthor'; then
-  todo_p36
+  fail "Tampered certificate should be rejected with verification failure"
 fi
 
 pass "Tampered certificate rejected (no seal)"

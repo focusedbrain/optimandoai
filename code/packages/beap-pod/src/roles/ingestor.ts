@@ -29,6 +29,17 @@ const DEFAULT_PORT = 18100;
 const DEFAULT_VALIDATOR_BASE = 'http://127.0.0.1:18101';
 const VERSION = process.env['POD_VERSION'] ?? '1.0.0';
 
+/** Edge certificate from a REMOTE_EDGE pod (LOCAL_VERIFY mode). */
+interface EdgeCertificateWire {
+  v: number;
+  package_hash: string;
+  edge_pod_id: string;
+  expires_at: string;
+  sso_attestation: string;
+  edge_signature: string;
+  [key: string]: unknown;
+}
+
 // ── Wire types ────────────────────────────────────────────────────────────────
 
 /** JSON envelope expected in POST /ingest body. */
@@ -54,12 +65,16 @@ interface IngestRequestBody {
     x25519_priv_b64: string;
     mlkem_secret_b64?: string;
   };
+  /** LOCAL_VERIFY: edge certificate from REMOTE_EDGE certifier (P3.6). */
+  edge_certificate?: EdgeCertificateWire;
 }
 
 // ── Config (dependency-injectable for testing) ────────────────────────────────
 
 export interface IngestorConfig {
   validatorBase?: string;
+  /** When set (LOCAL_VERIFY), POST /ingest verifies edge_certificate via /verify-cert first. */
+  verifierBase?: string;
   version?: string;
   /**
    * Body-size limit in bytes applied at the HTTP layer, before ingestInput().
@@ -135,6 +150,7 @@ async function readBody(
 function makeHandler(
   authedFetch: typeof fetch,
   validatorBase: string,
+  verifierBase: string | undefined,
   version: string,
   maxBodyBytes: number,
   timeoutMs: number,
@@ -152,6 +168,13 @@ function makeHandler(
     // 200 only when the validator container is also ready.
     if (req.method === 'GET' && path === '/ready') {
       try {
+        if (verifierBase) {
+          const vr = await authedFetch(`${verifierBase}/ready`);
+          if (!vr.ok) {
+            sendJson(res, 503, { status: 'not_ready', role: ROLE, reason: 'verifier_not_ready' });
+            return;
+          }
+        }
         const r = await authedFetch(`${validatorBase}/ready`);
         if (r.ok) {
           sendJson(res, 200, { status: 'ready', role: ROLE });
@@ -223,6 +246,32 @@ function makeHandler(
         // ingestInput is synchronous — produce the CandidateCapsuleEnvelope
         const candidate = ingestInput(rawInput, sourceType, transportMeta);
 
+        // ④b LOCAL_VERIFY: verify edge certificate before validation (P3.6 first pass)
+        if (verifierBase) {
+          if (!parsed.edge_certificate) {
+            sendJson(res, 400, { error: 'Missing edge_certificate for LOCAL_VERIFY ingest' });
+            return;
+          }
+          const verifyRes = await authedFetch(`${verifierBase}/verify-cert`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              raw_package_bytes_b64: Buffer.from(parsed.body, 'utf8').toString('base64'),
+              certificate: parsed.edge_certificate,
+            }),
+            signal: controller.signal,
+          });
+          const verifyJson = (await verifyRes.json()) as { ok?: boolean; reason?: string };
+          if (!verifyJson.ok) {
+            sendJson(res, 403, {
+              error: 'Certificate verification failed',
+              verification_failed: true,
+              reason: verifyJson.reason ?? 'UNKNOWN',
+            });
+            return;
+          }
+        }
+
         // ⑤ Forward to validator; relay the response status + body verbatim
         const validatorRes = await authedFetch(`${validatorBase}/validate`, {
           method: 'POST',
@@ -265,13 +314,14 @@ function makeHandler(
  */
 export function createIngestorServer(secret: string, config?: IngestorConfig): http.Server {
   const validatorBase = config?.validatorBase ?? DEFAULT_VALIDATOR_BASE;
+  const verifierBase = config?.verifierBase ?? process.env['VERIFIER_BASE'];
   const version = config?.version ?? VERSION;
   const maxBodyBytes = config?.maxBodyBytes ?? INGESTION_CONSTANTS.MAX_RAW_INPUT_BYTES;
   const timeoutMs = config?.timeoutMs ?? INGESTION_CONSTANTS.PIPELINE_TIMEOUT_MS;
   const authedFetch = config?.authedFetch ?? podAuthFetch(secret);
 
   return http.createServer(
-    makeHandler(authedFetch, validatorBase, version, maxBodyBytes, timeoutMs),
+    makeHandler(authedFetch, validatorBase, verifierBase, version, maxBodyBytes, timeoutMs),
   );
 }
 
