@@ -57,7 +57,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - [x] **P5.7** — Replacement-budget circuit breaker
 - [x] **P5.8** — Pod-level replacement escalation on container-replacement failure
 - [x] **P5.9** — Stuck container detection via health probes with supervisor-signed reports
-- [ ] **P5.10** — Host-initiated nuclear pod reset
+- [x] **P5.10** — Host-initiated nuclear pod reset
 - [ ] **P5.11** — End-to-end tests, manual verification recipe, and strategy doc §5 closeout
 
 ---
@@ -76,7 +76,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 | P5.7 | ✅ done | `2432e3f9` |
 | P5.8 | ✅ done | `067ee08b` |
 | P5.9 | ✅ done | `fa31accb` |
-| P5.10 | ⬜ pending | — |
+| P5.10 | ✅ done | — |
 | P5.11 | ⬜ pending | — |
 
 ---
@@ -182,3 +182,12 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - Schema: `DiagnosticReportV1.signer: 'edge' | 'supervisor'` in `@repo/beap-cert`; `reportStore` verifies against edge or supervisor public key.
 - SSH: `buildContainerHealthProbeCommand`, `buildKillContainerCommand` in `ssh/deploy.ts`.
 - Tests: `supervisor/__tests__/stuckDetection.test.ts`.
+
+### P5.10
+
+- `nuclearReset.ts`: remote wipe (`pod stop`, `pod rm`, `volume prune`, manifest + quarantine cleanup) → desktop purge of diagnostic/quarantine copies → fresh keypair + SSO attestation → redeploy via `deployEdgePod`.
+- Dashboard: `NuclearResetModal` — type hostname + `RESET` + required reason + SSH key; kebab menu and replacement-exhausted flow.
+- IPC: `replica:nuclearReset` streams `replica:action-progress`.
+- Edge-fetch accounts on replica → `degraded` / `replica_reset` + re-authorize notification.
+- Audit: `nuclear_reset` with user reason + `confirmation_user_input_hash` (audit log never deleted).
+- Tests: `__tests__/nuclearReset.test.ts`, `nuclearResetModal.test.tsx`.
