@@ -1175,7 +1175,7 @@ let popupIsOpen = false
 app.on('before-quit', async () => {
   isAppQuitting = true
   
-  // P1.8: stop local pod on app quit (Linux only; non-fatal).
+  // P1.8: stop local pod on app quit (non-fatal).
   try {
     const { stopLocalPod: _stopPod } = await import('./main/local-pod/index.js')
     await _stopPod()

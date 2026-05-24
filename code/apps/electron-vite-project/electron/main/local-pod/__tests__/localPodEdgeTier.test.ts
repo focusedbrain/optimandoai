@@ -8,6 +8,13 @@ import { dirname, join } from 'node:path'
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 
+vi.mock('electron', () => ({
+  Notification: Object.assign(
+    vi.fn().mockImplementation(() => ({ show: vi.fn() })),
+    { isSupported: vi.fn(() => true) },
+  ),
+}))
+
 import {
   startLocalPod,
   restartLocalPod,
@@ -46,6 +53,16 @@ function makeCapturingExecutor() {
   return { executor, calls, getContent: () => capturedContent }
 }
 
+const passPodmanCheck = async (): Promise<void> => {}
+
+function localPodStartOpts(executor: PodmanExecutor, extra?: Record<string, unknown>) {
+  return {
+    executor,
+    podmanCheck: passPodmanCheck,
+    ...extra,
+  }
+}
+
 describe('edge_tier.enabled mode switching', () => {
   beforeEach(() => {
     _resetStateForTest()
@@ -64,11 +81,9 @@ describe('edge_tier.enabled mode switching', () => {
     const vault = makeMockVault()
     const { executor, calls, getContent } = makeCapturingExecutor()
 
-    await startLocalPod(vault, {
-      platform: 'linux',
+    await startLocalPod(vault, localPodStartOpts(executor, {
       manifestPath: FIXTURE_LOCAL_HOST,
-      executor,
-    })
+    }))
 
     expect(calls.filter((c) => c.args[0] === 'play')).toHaveLength(1)
     const content = getContent()
@@ -96,16 +111,14 @@ describe('edge_tier.enabled mode switching', () => {
       cached_jwks_json: jwks,
     })
 
-    await startLocalPod(vault, {
-      platform: 'linux',
+    await startLocalPod(vault, localPodStartOpts(executor, {
       manifestPath: FIXTURE_LOCAL_VERIFY,
       podName: 'beap-pod-local-verify-test',
-      executor,
       startContext: {
         localSsoSub: 'user-sub-abc',
         jwksJson: jwks,
       },
-    })
+    }))
 
     const content = getContent()
     expect(content).toContain('user-sub-abc')
@@ -119,12 +132,10 @@ describe('edge_tier.enabled mode switching', () => {
     const { executor, calls, getContent } = makeCapturingExecutor()
     const jwks = JSON.stringify({ keys: [] })
 
-    await startLocalPod(vault, {
-      platform: 'linux',
+    await startLocalPod(vault, localPodStartOpts(executor, {
       manifestPath: FIXTURE_LOCAL_HOST,
-      executor,
       podName: 'beap-pod-test',
-    })
+    }))
 
     expect(calls.filter((c) => c.args[0] === 'play')).toHaveLength(1)
     expect(getContent()).not.toContain('LOCAL_SSO_SUB')
@@ -148,12 +159,10 @@ describe('edge_tier.enabled mode switching', () => {
       edgeTier: loadEdgeTierSettings(),
       localSsoSub: 'user-sub-restart',
       jwksJson: jwks,
-    }, {
-      platform: 'linux',
+    }, localPodStartOpts(executor, {
       manifestPath: FIXTURE_LOCAL_VERIFY,
       podName: 'beap-pod-local-verify-test',
-      executor,
-    })
+    }))
 
     const playCalls = calls.filter((c) => c.args[0] === 'play')
     expect(playCalls.length).toBe(2)

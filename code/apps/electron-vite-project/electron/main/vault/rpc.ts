@@ -186,7 +186,7 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
         validatorOrchestrator.start(vaultService).catch((err) => {
           console.error('[VAULT_RPC] Failed to start validator after create:', err?.message ?? err)
         })
-        // P1.8 + P3.8: start local pod in parallel (Linux only; non-fatal).
+        // P1.8 + P3.8: start local pod in parallel (non-fatal).
         startLocalPodAfterVaultUnlock()
         return { success: true, message: 'Vault created successfully', vaultId, sessionToken: vaultService.getSessionToken() }
       }
@@ -199,7 +199,7 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
         validatorOrchestrator.start(vaultService).catch((err) => {
           console.error('[VAULT_RPC] Failed to start validator:', err?.message ?? err)
         })
-        // P1.8 + P3.8: start local pod in parallel (Linux only; non-fatal).
+        // P1.8 + P3.8: start local pod in parallel (non-fatal).
         startLocalPodAfterVaultUnlock()
         return { success: true, token, sessionToken: vaultService.getSessionToken() }
       }
@@ -210,7 +210,7 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
         validatorOrchestrator.stop().catch((err) => {
           console.error('[VAULT_RPC] Error stopping validator:', err?.message ?? err)
         })
-        // P1.8: stop local pod on vault lock (Linux only; non-fatal).
+        // P1.8: stop local pod on vault lock (non-fatal).
         stopLocalPod().catch((err) => {
           console.error('[VAULT_RPC] Error stopping local pod:', err?.message ?? err)
         })

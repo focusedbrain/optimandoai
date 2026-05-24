@@ -1,7 +1,10 @@
 /**
  * Local pod lifecycle manager — Phase 1, P1.8; LOCAL_VERIFY mode — Phase 3, P3.8.
  *
- * startLocalPod() — called after vault unlock.  Linux-only; no-op on other platforms.
+ * Local pod runs on any host with Podman installed (Linux native, Windows or macOS
+ * via Podman Desktop / podman machine).
+ *
+ * startLocalPod() — called after vault unlock.
  * stopLocalPod()  — called on vault-lock and app-quit.
  * restartLocalPod() — graceful stop + start when edge-tier settings change.
  */
@@ -27,12 +30,15 @@ import {
   startVerifierLogTail,
   stopVerifierLogTail,
 } from '../edge-tier/verifierLogTailer.js'
+import { assertPodmanReady, PodmanSetupError } from './podmanDetect.js'
+import { notifyLocalPodSetupIssue } from './notify.js'
 
 // ── Module-level state ─────────────────────────────────────────────────────────
 
 let _activePod: ActivePod | null = null
 let _startPromise: Promise<void> | null = null
 let _restartPromise: Promise<void> | null = null
+let _podSetupError: PodmanSetupError | null = null
 
 // ── Public API ─────────────────────────────────────────────────────────────────
 
@@ -43,10 +49,17 @@ export interface LocalPodStartContext {
 }
 
 export interface LocalPodOptions extends PodRunnerOptions {
-  /** Override the platform string used for the Linux guard (tests). */
-  platform?: NodeJS.Platform | string
+  /** Injectable Podman readiness check (tests). Default: assertPodmanReady. */
+  podmanCheck?: () => Promise<void>
   /** Edge-tier / SSO context for LOCAL_VERIFY mode selection. */
   startContext?: LocalPodStartContext
+}
+
+export { PodmanSetupError } from './podmanDetect.js'
+
+/** Last Podman setup failure, if the local pod could not start. */
+export function getLocalPodSetupError(): PodmanSetupError | null {
+  return _podSetupError
 }
 
 export function buildLocalPodStartContext(
@@ -64,15 +77,6 @@ export async function startLocalPod(
   vault: { deriveApplicationKey(info: string): Buffer | null },
   options?: LocalPodOptions,
 ): Promise<void> {
-  const platform = options?.platform ?? process.platform
-
-  if (platform !== 'linux') {
-    console.log(
-      `[LOCAL_POD] local pod only supported on Linux in Phase 1 — skipping on ${platform}`,
-    )
-    return
-  }
-
   if (_activePod) {
     console.log('[LOCAL_POD] pod already running — skipping start')
     return
@@ -133,6 +137,7 @@ export function _resetStateForTest(): void {
   _activePod = null
   _startPromise = null
   _restartPromise = null
+  _podSetupError = null
 }
 
 // ── Internal ───────────────────────────────────────────────────────────────────
@@ -141,6 +146,24 @@ async function _doStart(
   vault: { deriveApplicationKey(info: string): Buffer | null },
   options?: LocalPodOptions,
 ): Promise<void> {
+  const podmanCheck = options?.podmanCheck ?? assertPodmanReady
+
+  try {
+    await podmanCheck()
+    _podSetupError = null
+  } catch (err) {
+    if (err instanceof PodmanSetupError) {
+      _podSetupError = err
+      notifyLocalPodSetupIssue(err.userMessage)
+      return
+    }
+    const message =
+      err instanceof Error ? err.message : 'Podman readiness check failed unexpectedly'
+    _podSetupError = new PodmanSetupError('not_installed', message)
+    notifyLocalPodSetupIssue(message)
+    return
+  }
+
   const podAuthSecret = generatePodAuthSecret()
   const sealKeyHex = deriveSealKeyHex(vault)
 
@@ -195,6 +218,7 @@ async function _doStart(
 
   try {
     _activePod = await applyPodManifest(podAuthSecret, sealKeyHex, runnerOpts)
+    _podSetupError = null
     console.log(`[LOCAL_POD] Pod started: ${_activePod.podName}`)
     if (edgeEnabled) {
       startVerifierLogTail(runnerOpts.podName ?? DEFAULT_LOCAL_VERIFY_POD_NAME)

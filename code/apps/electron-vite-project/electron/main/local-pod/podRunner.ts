@@ -1,7 +1,8 @@
 /**
  * Pod runner — Phase 1, P1.8; LOCAL_VERIFY env injection — Phase 3, P3.8.
  *
- * Applies the BEAP pod manifest via `podman play kube` and manages the pod
+ * Applies the BEAP pod manifest via `podman play kube` on any desktop host where
+ * Podman is installed (Linux native; Windows/macOS via Podman Desktop).
  * lifecycle (stop + remove on teardown).
  *
  * Secret injection strategy:

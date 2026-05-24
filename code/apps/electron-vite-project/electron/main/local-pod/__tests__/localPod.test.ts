@@ -1,19 +1,7 @@
 /**
- * Local pod runner — unit tests (P1.8)
+ * Local pod runner — unit tests (P1.8; cross-platform Podman detect)
  *
- * Covers:
- *   1. Non-Linux platform → startLocalPod resolves without invoking podman.
- *   2. Linux platform → startLocalPod calls executor with correct podman argv.
- *   3. Secrets never appear in podman argv (they go in the temp manifest file).
- *   4. Vault locked (deriveSealKeyHex returns null) → pod not started, no crash.
- *   5. Concurrent startLocalPod calls join the same in-flight Promise.
- *   6. stopLocalPod calls executor with 'pod stop' then 'pod rm'.
- *   7. stopLocalPod is a no-op when no pod is running.
- *   8. Executor error → non-fatal; startLocalPod resolves without throwing.
- *   9. applyPodManifest substitutes ${POD_AUTH_SECRET} and ${SEAL_KEY_HEX}
- *      in the manifest written to disk before invoking the executor.
- *  10. generatePodAuthSecret returns a 64-char hex string (32 bytes).
- *  11. deriveSealKeyHex returns null when vault returns null key.
+ * Covers Podman feature-detect, start/stop lifecycle, secret handling, and manifest substitution.
  */
 
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -21,9 +9,18 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { readFileSync } from 'node:fs'
 
+vi.mock('electron', () => ({
+  Notification: Object.assign(
+    vi.fn().mockImplementation(() => ({ show: vi.fn() })),
+    { isSupported: vi.fn(() => true) },
+  ),
+}))
+
 import {
   startLocalPod,
   stopLocalPod,
+  getLocalPodSetupError,
+  PodmanSetupError,
   _resetStateForTest,
 } from '../index.js'
 import {
@@ -36,8 +33,30 @@ import {
   deriveSealKeyHex,
   POD_SEAL_KEY_INFO,
 } from '../secrets.js'
+import { PODMAN_SETUP_MESSAGES } from '../podmanDetect.js'
+import { Notification } from 'electron'
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+/** Podman readiness check that always passes (tests). */
+const passPodmanCheck = async (): Promise<void> => {}
+
+/** Podman readiness check that throws the given setup error. */
+function failPodmanCheck(code: 'not_installed' | 'machine_not_running') {
+  return async (): Promise<void> => {
+    throw new PodmanSetupError(code, PODMAN_SETUP_MESSAGES[code])
+  }
+}
+
+/** Default start options for tests that expect a successful pod start. */
+function startOpts(executor: PodmanExecutor, extra?: Record<string, unknown>) {
+  return {
+    manifestPath: FIXTURE_MANIFEST,
+    executor,
+    podmanCheck: passPodmanCheck,
+    ...extra,
+  }
+}
+
+// ── Helpers (continued) ────────────────────────────────────────────────────────
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -123,58 +142,68 @@ describe('deriveSealKeyHex', () => {
   })
 })
 
-// ── Suite 2: platform guard ────────────────────────────────────────────────────
+// ── Suite 2: Podman feature-detect ─────────────────────────────────────────────
 
-describe('startLocalPod — non-Linux platform', () => {
-  test('resolves without invoking podman on win32', async () => {
+describe('startLocalPod — Podman feature-detect', () => {
+  test('podman not on PATH → setup error recorded, executor not invoked, notification shown', async () => {
     const executor = makeNoopExecutor()
     const vault = makeMockVault()
 
     await startLocalPod(vault, {
-      platform: 'win32',
       manifestPath: FIXTURE_MANIFEST,
       executor,
+      podmanCheck: failPodmanCheck('not_installed'),
     })
 
     expect(executor).not.toHaveBeenCalled()
+    expect(getLocalPodSetupError()?.code).toBe('not_installed')
+    expect(getLocalPodSetupError()?.userMessage).toBe(PODMAN_SETUP_MESSAGES.not_installed)
+    expect(Notification).toHaveBeenCalled()
   })
 
-  test('resolves without invoking podman on darwin', async () => {
+  test('win32/darwin with no running machine → machine_not_running error', async () => {
     const executor = makeNoopExecutor()
     const vault = makeMockVault()
 
     await startLocalPod(vault, {
-      platform: 'darwin',
       manifestPath: FIXTURE_MANIFEST,
       executor,
+      podmanCheck: failPodmanCheck('machine_not_running'),
     })
 
     expect(executor).not.toHaveBeenCalled()
+    expect(getLocalPodSetupError()?.code).toBe('machine_not_running')
+    expect(getLocalPodSetupError()?.userMessage).toBe(
+      PODMAN_SETUP_MESSAGES.machine_not_running,
+    )
   })
 })
 
-// ── Suite 3: Linux start ───────────────────────────────────────────────────────
+// ── Suite 3: cross-platform start ──────────────────────────────────────────────
 
-describe('startLocalPod — Linux platform', () => {
-  test('calls executor with podman play kube + manifest path', async () => {
-    const { executor, calls } = makeCapturingExecutor()
-    const vault = makeMockVault()
+describe.each(['linux', 'win32', 'darwin'] as const)(
+  'startLocalPod — %s with Podman ready',
+  (platform) => {
+    test('calls executor with podman play kube + manifest path', async () => {
+      const { executor, calls } = makeCapturingExecutor()
+      const vault = makeMockVault()
 
-    await startLocalPod(vault, {
-      platform: 'linux',
-      manifestPath: FIXTURE_MANIFEST,
-      executor,
+      await startLocalPod(vault, startOpts(executor))
+
+      expect(calls.length).toBe(1)
+      const [args] = calls.map((c) => c.args)
+      expect(args![0]).toBe('play')
+      expect(args![1]).toBe('kube')
+      expect(typeof args![2]).toBe('string')
+      expect(args![2]!.endsWith('.yaml')).toBe(true)
+      void platform
     })
+  },
+)
 
-    expect(calls.length).toBe(1)
-    const [args] = calls.map(c => c.args)
-    expect(args![0]).toBe('play')
-    expect(args![1]).toBe('kube')
-    // Third arg is a temp file path (the substituted manifest)
-    expect(typeof args![2]).toBe('string')
-    expect(args![2]!.endsWith('.yaml')).toBe(true)
-  })
+// ── Suite 4: start lifecycle ───────────────────────────────────────────────────
 
+describe('startLocalPod — lifecycle', () => {
   test('secrets do NOT appear in podman argv (they are in the temp manifest file)', async () => {
     // We cannot inspect the temp file (it is deleted by the time the executor
     // is called), but we CAN assert that no hex secret string appears in argv.
@@ -190,11 +219,7 @@ describe('startLocalPod — Linux platform', () => {
       deriveApplicationKey: vi.fn(() => Buffer.from(knownKeyHex, 'hex')),
     }
 
-    await startLocalPod(vault, {
-      platform: 'linux',
-      manifestPath: FIXTURE_MANIFEST,
-      executor,
-    })
+    await startLocalPod(vault, startOpts(executor))
 
     // Secret strings must not appear in argv
     const argvStr = capturedArgs.join(' ')
@@ -211,9 +236,9 @@ describe('startLocalPod — Linux platform', () => {
 
     await expect(
       startLocalPod(vault, {
-        platform: 'linux',
         manifestPath: FIXTURE_MANIFEST,
         executor,
+        podmanCheck: passPodmanCheck,
       }),
     ).resolves.toBeUndefined()
 
@@ -228,9 +253,9 @@ describe('startLocalPod — Linux platform', () => {
 
     await expect(
       startLocalPod(vault, {
-        platform: 'linux',
         manifestPath: FIXTURE_MANIFEST,
         executor,
+        podmanCheck: passPodmanCheck,
       }),
     ).resolves.toBeUndefined()
   })
@@ -246,16 +271,8 @@ describe('startLocalPod — Linux platform', () => {
     const vault = makeMockVault()
 
     // Start two concurrent calls
-    const p1 = startLocalPod(vault, {
-      platform: 'linux',
-      manifestPath: FIXTURE_MANIFEST,
-      executor,
-    })
-    const p2 = startLocalPod(vault, {
-      platform: 'linux',
-      manifestPath: FIXTURE_MANIFEST,
-      executor,
-    })
+    const p1 = startLocalPod(vault, startOpts(executor))
+    const p2 = startLocalPod(vault, startOpts(executor))
 
     // Release the executor latch
     resolveExecutor()
@@ -269,16 +286,8 @@ describe('startLocalPod — Linux platform', () => {
     const { executor, calls } = makeCapturingExecutor()
     const vault = makeMockVault()
 
-    await startLocalPod(vault, {
-      platform: 'linux',
-      manifestPath: FIXTURE_MANIFEST,
-      executor,
-    })
-    await startLocalPod(vault, {
-      platform: 'linux',
-      manifestPath: FIXTURE_MANIFEST,
-      executor,
-    })
+    await startLocalPod(vault, startOpts(executor))
+    await startLocalPod(vault, startOpts(executor))
 
     // Only one `play kube` call
     const playKubeCalls = calls.filter(c => c.args[0] === 'play')
@@ -294,9 +303,7 @@ describe('stopLocalPod', () => {
     const vault = makeMockVault()
 
     await startLocalPod(vault, {
-      platform: 'linux',
-      manifestPath: FIXTURE_MANIFEST,
-      executor,
+      ...startOpts(executor),
       podName: 'beap-pod',
     })
 

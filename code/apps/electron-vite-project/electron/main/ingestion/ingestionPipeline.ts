@@ -39,6 +39,7 @@ import {
 } from '@repo/pod-client'
 import type { PodClient, EdgeReplica } from '@repo/pod-client'
 import { loadEdgeTierSettings } from '../edge-tier/settings.js'
+import { getLocalPodSetupError } from '../local-pod/index.js'
 
 function getPodBaseUrl(): string {
   return process.env['WR_POD_BASE_URL'] ?? 'http://127.0.0.1:18100'
@@ -93,6 +94,24 @@ async function processIncomingInputViaPod(
   const startTime = performance.now()
   const originClassification: OriginClassification =
     sourceType === 'internal' ? 'internal' : 'external'
+
+  const podSetupError = getLocalPodSetupError()
+  if (podSetupError) {
+    const durationMs = Math.round(performance.now() - startTime)
+    console.error(`[pod-hot-path] local pod unavailable: ${podSetupError.userMessage}`)
+    return {
+      success: false,
+      reason: podSetupError.userMessage,
+      audit: buildAuditRecord(
+        'pod_error',
+        sourceType,
+        originClassification,
+        'plain_external_content',
+        'error',
+        durationMs,
+      ),
+    }
+  }
 
   // Pod HTTP transport requires a string body; base64-encode Buffers.
   if (!rawInput) {
