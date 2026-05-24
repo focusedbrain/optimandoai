@@ -16,9 +16,9 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - [x] **P3.2** — Certifier and verifier role stubs + dispatcher routing (real `/certify` and `/verify-cert` in P3.4 and P3.6)
 - [x] **P3.3** — REMOTE_EDGE pod manifest (ingestor → validator → depackager → certifier; no sealer; uid 10104 certifier)
 - [x] **P3.4** — Certifier role `/certify` HTTP server (Ed25519 signing; env validation; depackager → certifier routing)
-- [ ] **P3.5** — Keycloak attestation flow (`sso_attestation` JWT; resolve Decision 6)
+- [x] **P3.5** — LOCAL_VERIFY pod manifest (ingestor → verifier → validator → depackager → sealer; preloaded JWKS)
 - [ ] **P3.6** — Verifier role container (`/verify-cert` on LOCAL_VERIFY)
-- [ ] **P3.7** — LOCAL_VERIFY pod manifest (ingestor → verifier → validator → depackager → sealer)
+- [ ] **P3.7** — Keycloak attestation flow (`sso_attestation` JWT; resolve Decision 6)
 - [ ] **P3.8** — Edge key lifecycle in Electron
 - [ ] **P3.9** — pod-client edge routing
 - [ ] **P3.10** — LOCAL_VERIFY ingestion wiring + E2E manual round-trip
@@ -34,7 +34,7 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 | P3.2 | ✅ done | P3.2: add certifier and verifier role stubs to dispatcher |
 | P3.3 | ✅ done | P3.3: REMOTE_EDGE pod manifest (no sealer; certifier holds Ed25519 key) |
 | P3.4 | ✅ done | P3.4: certifier role container with Ed25519 signing |
-| P3.5 | ⬜ pending | — |
+| P3.5 | ✅ done | P3.5: LOCAL_VERIFY pod manifest |
 | P3.6 | ⬜ pending | — |
 | P3.7 | ⬜ pending | — |
 | P3.8 | ⬜ pending | — |
@@ -107,3 +107,13 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - **Containerfile:** builds and copies `@repo/beap-cert`.
 - **Tests:** 15 certifier tests (happy path, dual-sign timestamps, 401, startup exit 1, snapshot, log safety). Full beap-pod suite: 88 pass.
 - **Smoke:** `remote-edge-smoke.sh` updated with valid pBEAP wire ingest envelope; expects `edge_certificate` in response (Linux/podman).
+
+### P3.5
+
+- **New manifest:** `pod-local-verify.yaml` — five containers (ingestor 10100, verifier 10105, validator 10101, depackager 10102, sealer 10103). Flow: ingestor → verifier → validator → depackager → sealer. Only :18100 exposed on host.
+- **Verifier env:** `LOCAL_SSO_SUB`, `TRUSTED_EDGE_POD_IDS`, `KEYCLOAK_JWKS_JSON` (preloaded; no egress). Startup validation deferred to P3.6. Alternative `KEYCLOAK_JWKS_URL` documented for Phase 4+.
+- **Ingestor:** `VERIFIER_BASE=http://127.0.0.1:18105`, `POD_MODE=LOCAL_VERIFY`; routing through verifier wired in P3.6.
+- **Seccomp:** verifier uses `RuntimeDefault` (mirrors validator); sealer keeps `beap-sealer.json`.
+- **Secrets:** `POD_AUTH_SECRET` all five containers; `SEAL_KEY_HEX` sealer only (same as LOCAL_HOST).
+- **Smoke:** `scripts/local-verify-smoke.sh` — test JWKS, mint cert via `@repo/beap-cert`, positive + tampered ingest; exits with `TODO P3.6` until verifier HTTP lands.
+- **README:** new §"Running a LOCAL_VERIFY pod" with JWKS trade-off table and apply commands.
