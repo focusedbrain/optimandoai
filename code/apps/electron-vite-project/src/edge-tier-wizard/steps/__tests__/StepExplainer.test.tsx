@@ -96,7 +96,6 @@ describe('StepExplainer accessibility structure', () => {
     const html = renderExplainer('free')
     expect(html).toContain('<article')
     expect(html).toContain('<h2')
-    expect(html).toContain('<h3')
     expect(html).toContain('<section')
     expect(html).toContain('role="region"')
     expect(html).toContain('Refresh plan tier to check upgrade')

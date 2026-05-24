@@ -5,7 +5,6 @@
 import type { CSSProperties } from 'react'
 
 import {
-  EMAIL_ON_EDGE_SECTION,
   EXPLAINER_HEADLINE,
   EXPLAINER_OVERVIEW,
   type ExplainerSection,
@@ -96,7 +95,6 @@ export function StepExplainer({
         data-testid="wizard-explainer-scroll"
       >
         <ExplainerSectionBlock section={EXPLAINER_OVERVIEW} />
-        <ExplainerSectionBlock section={EMAIL_ON_EDGE_SECTION} />
       </div>
 
       <footer data-testid="wizard-explainer-cta">
