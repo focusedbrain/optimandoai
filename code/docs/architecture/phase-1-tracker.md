@@ -11,7 +11,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 - [x] **P1.0** — Branch and tracker *(this file)*
 - [x] **P1.1** — Single image + role dispatcher with stubs
 - [x] **P1.2** — Inter-container X-Pod-Auth shared helper
-- [ ] **P1.3** — Enforce `MAX_STRING_LENGTH` and `ALLOWED_CONTENT_TYPES` in the ingestor
+- [x] **P1.3** — Ingestor role container
 - [ ] **P1.4** — Implement pod `/depackage` with injectable key material
 - [ ] **P1.5** — Extract depackaging core to a standalone Node-compatible package
 - [ ] **P1.6** — Add `PodClient` module to the Electron app
@@ -31,7 +31,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 | P1.0 | ✅ done | *(this commit)* |
 | P1.1 | ✅ done | P1.1: single image + role dispatcher with stubs |
 | P1.2 | ✅ done | P1.2: inter-container X-Pod-Auth helper |
-| P1.3 | ⬜ pending | — |
+| P1.3 | ✅ done | P1.3: ingestor role container |
 | P1.4 | ⬜ pending | — |
 | P1.5 | ⬜ pending | — |
 | P1.6 | ⬜ pending | — |
@@ -47,6 +47,21 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 ## Notes & deviations
 
 *(Record any decisions made differently from the strategy here, with rationale.)*
+
+### P1.3
+
+- Strategy listed P1.3 as "Enforce MAX_STRING_LENGTH / ALLOWED_CONTENT_TYPES". The explicit P1.3 prompt
+  replaces that scope with the full ingestor role container; tracker description updated.
+- Added `@repo/ingestion-core: workspace:*` to `dependencies` in `beap-pod/package.json`.
+- Containerfile updated: builder now copies `packages/ingestion-core/`, builds it before `beap-pod`,
+  and the runtime stage copies its dist/ so the symlink in `node_modules/@repo/ingestion-core`
+  resolves correctly inside the container.
+- `createIngestorServer(secret, config?)` accepts injectable `authedFetch` for tests; production
+  defaults to `podAuthFetch(secret)`.
+- `Connection: close` added to 413 responses. Without it, a client that declared a large
+  `Content-Length` but didn't send the full body caused a ~4 s connection-drain wait.
+- 7 tests added across 5 suites (happy path, validator rejection, oversized body ×2, /ready ×2,
+  /health); 25/25 pass in 434 ms total.
 
 ### P1.2
 

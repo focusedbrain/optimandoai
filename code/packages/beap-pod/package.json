@@ -11,7 +11,9 @@
     "test:ci": "vitest run --reporter=verbose",
     "docker:build": "cd ../.. && podman build -t beap-components:dev -f packages/beap-pod/Containerfile ."
   },
-  "dependencies": {},
+  "dependencies": {
+    "@repo/ingestion-core": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "typescript": "^5.5.0",
