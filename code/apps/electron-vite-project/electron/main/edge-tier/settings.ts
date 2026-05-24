@@ -11,6 +11,9 @@ import { homedir } from 'node:os'
 
 export type EdgeFallbackPolicy = 'reject' | 'local_only'
 
+/** Whether native P2P BEAP must route through the edge ingestor before local acceptance. */
+export type NativeBeapRouting = 'require_edge' | 'direct'
+
 /** One REMOTE_EDGE replica the user trusts for LOCAL_VERIFY. */
 export interface EdgeReplica {
   host: string
@@ -26,6 +29,8 @@ export interface EdgeTierSettings {
   enabled: boolean
   replicas: EdgeReplica[]
   fallback_policy: EdgeFallbackPolicy
+  /** P2P native BEAP routing when edge tier is enabled. Default: direct local path. */
+  native_beap_routing: NativeBeapRouting
   /** Preloaded JWKS for LOCAL_VERIFY verifier (no runtime Keycloak egress). */
   cached_jwks_json?: string
   cached_jwks_fetched_at?: string
@@ -35,6 +40,7 @@ export const DEFAULT_EDGE_TIER_SETTINGS: EdgeTierSettings = {
   enabled: false,
   replicas: [],
   fallback_policy: 'reject',
+  native_beap_routing: 'direct',
 }
 
 const SETTINGS_FILENAME = 'edge-tier-settings.json'
@@ -100,10 +106,13 @@ export function normalizeEdgeTierSettings(raw: unknown): EdgeTierSettings {
     : []
   const fallback =
     o.fallback_policy === 'local_only' ? 'local_only' : 'reject'
+  const nativeBeapRouting: NativeBeapRouting =
+    o.native_beap_routing === 'require_edge' ? 'require_edge' : 'direct'
   return {
     enabled: o.enabled === true,
     replicas,
     fallback_policy: fallback,
+    native_beap_routing: nativeBeapRouting,
     cached_jwks_json:
       typeof o.cached_jwks_json === 'string' ? o.cached_jwks_json : undefined,
     cached_jwks_fetched_at:
@@ -144,6 +153,15 @@ export function setEdgeTierEnabled(enabled: boolean): EdgeTierSettings {
 export function setEdgeTierFallbackPolicy(fallback_policy: EdgeFallbackPolicy): EdgeTierSettings {
   const current = loadEdgeTierSettings()
   const next = { ...current, fallback_policy }
+  saveEdgeTierSettings(next)
+  return next
+}
+
+export function setEdgeTierNativeBeapRouting(
+  native_beap_routing: NativeBeapRouting,
+): EdgeTierSettings {
+  const current = loadEdgeTierSettings()
+  const next = { ...current, native_beap_routing }
   saveEdgeTierSettings(next)
   return next
 }
@@ -191,5 +209,6 @@ export function edgeTierRequiresPodRestart(before: EdgeTierSettings, after: Edge
   if (before.enabled !== after.enabled) return true
   if (formatTrustedEdgePodIds(before) !== formatTrustedEdgePodIds(after)) return true
   if (before.cached_jwks_json !== after.cached_jwks_json) return true
+  if (before.native_beap_routing !== after.native_beap_routing) return true
   return false
 }

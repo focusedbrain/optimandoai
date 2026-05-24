@@ -33,45 +33,11 @@ import {
   routeValidatedCapsule,
 } from '@repo/ingestion-core'
 import {
-  createPodClient,
   PodIngestHttpError,
   PodEdgeUnreachableError,
 } from '@repo/pod-client'
-import type { PodClient, EdgeReplica } from '@repo/pod-client'
-import { loadEdgeTierSettings } from '../edge-tier/settings.js'
+import { buildIngestPodClient } from './podClientFactory.js'
 import { getLocalPodSetupError } from '../local-pod/index.js'
-
-function getPodBaseUrl(): string {
-  return process.env['WR_POD_BASE_URL'] ?? 'http://127.0.0.1:18100'
-}
-
-function mapEdgeReplicasFromSettings(): EdgeReplica[] | null {
-  const settings = loadEdgeTierSettings()
-  if (!settings.enabled || settings.replicas.length === 0) {
-    return null
-  }
-  return settings.replicas.map((r) => ({
-    host: r.host,
-    port: r.port,
-    edge_pod_id: r.edge_pod_id,
-    public_key: r.edge_public_key,
-    attestation_jwt: r.sso_attestation_jwt,
-  }))
-}
-
-// Pod client is created per-call so tests can inject different base URLs by
-// changing WR_POD_BASE_URL between tests without singleton staleness.
-function makePodClient(): PodClient {
-  const client = createPodClient({
-    baseUrl: getPodBaseUrl(),
-    // Allow the full pipeline timeout plus 2 s HTTP overhead.
-    requestTimeoutMs: INGESTION_CONSTANTS.PIPELINE_TIMEOUT_MS + 2_000,
-  })
-  const replicas = mapEdgeReplicasFromSettings()
-  const settings = loadEdgeTierSettings()
-  client.configureEdgeTier(replicas, settings.fallback_policy)
-  return client
-}
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
@@ -157,7 +123,7 @@ async function processIncomingInputViaPod(
   let podStatus: number
 
   try {
-    const client = makePodClient()
+    const client = buildIngestPodClient('default')
     const podResult = await client.ingest(
       {
         body: bodyStr,

@@ -27,8 +27,8 @@ import { createHash, randomUUID } from 'crypto'
 
 import { getHandshakeRecord } from '../handshake/db'
 import type { ProvenanceMetadata } from '@repo/ingestion-core'
-import { createPodClient } from '@repo/pod-client'
 import type { DepackageKeys } from '@repo/pod-client'
+import { buildIngestPodClient } from '../ingestion/podClientFactory.js'
 import { evaluateAutoresponder } from '../beap/autoresponderEvaluator'
 import { logAutoresponderDecision } from '../beap/autoresponderAudit'
 import { makeInboxAttachmentStorageId, buildQuarantineCanonicalJson, findPairedSandboxHandshake } from './messageRouter'
@@ -131,8 +131,7 @@ async function depackageQBeapViaPod(
     mlkem_secret_b64: hs.local_mlkem768_secret_key_b64?.trim() || undefined,
   }
 
-  const baseUrl = process.env['WR_POD_BASE_URL'] ?? 'http://127.0.0.1:18100'
-  const client = createPodClient({ baseUrl, requestTimeoutMs: 15_000 })
+  const client = buildIngestPodClient('native_beap')
 
   let podBody: Record<string, unknown>
   try {

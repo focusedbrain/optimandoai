@@ -2,7 +2,10 @@
  * Wizard handlers — unit tests (P4.4)
  */
 
-import { describe, test, expect, vi, beforeEach } from 'vitest'
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 
 vi.mock('../../edge-tier/ssh/client.js', () => ({
   SshClient: class {
@@ -32,8 +35,14 @@ import {
 import type { TargetProbe } from '../../edge-tier/ssh/types.js'
 import type { InstallEvent } from '../../edge-tier/ssh/install-podman.js'
 import type { DeployEvent } from '../../edge-tier/ssh/deploy.js'
+import {
+  _setSettingsPathForTest,
+  loadEdgeTierSettings,
+  DEFAULT_EDGE_TIER_SETTINGS,
+} from '../../edge-tier/settings.js'
 
 const SSH_KEY = '-----BEGIN OPENSSH PRIVATE KEY-----\ntest-key\n-----END OPENSSH PRIVATE KEY-----'
+let settingsTempDir = ''
 
 function makeProbe(): TargetProbe {
   return {
@@ -197,11 +206,27 @@ describe('wizardGenerateAndDeploy', () => {
 })
 
 describe('wizardVerifyAndSwitch', () => {
+  beforeEach(() => {
+    settingsTempDir = mkdtempSync(join(tmpdir(), 'wizard-verify-settings-'))
+    _setSettingsPathForTest(join(settingsTempDir, 'edge-tier-settings.json'))
+  })
+
+  afterEach(() => {
+    _setSettingsPathForTest(null)
+    rmSync(settingsTempDir, { recursive: true, force: true })
+  })
+
   test('delegates to verifyRoundTrip', async () => {
     const verifyRoundTrip = vi.fn(async () => ({ verified: true }))
     const result = await wizardVerifyAndSwitch(makeDeps({ verifyRoundTrip }), 0)
     expect(verifyRoundTrip).toHaveBeenCalledWith(0, expect.objectContaining({ vault: expect.any(Object) }))
     expect(result.verified).toBe(true)
+  })
+
+  test('persists native_beap_routing before verify', async () => {
+    const verifyRoundTrip = vi.fn(async () => ({ verified: true }))
+    await wizardVerifyAndSwitch(makeDeps({ verifyRoundTrip }), 0, 'require_edge')
+    expect(loadEdgeTierSettings().native_beap_routing).toBe('require_edge')
   })
 })
 

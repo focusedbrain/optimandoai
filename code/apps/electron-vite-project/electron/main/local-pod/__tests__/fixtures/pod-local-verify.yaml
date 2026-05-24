@@ -6,6 +6,13 @@ metadata:
 spec:
   restartPolicy: OnFailure
   containers:
+    - name: ingestor
+      image: beap-components:dev
+      env:
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+        - name: LOCAL_VERIFY_ALLOW_DIRECT_P2P
+          value: "${LOCAL_VERIFY_ALLOW_DIRECT_P2P}"
     - name: verifier
       image: beap-components:dev
       env:

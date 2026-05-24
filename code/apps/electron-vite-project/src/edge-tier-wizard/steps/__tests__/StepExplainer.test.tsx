@@ -92,14 +92,12 @@ describe('StepExplainer refresh', () => {
 })
 
 describe('StepExplainer accessibility structure', () => {
-  it('uses semantic headings and lists', () => {
+  it('uses semantic headings and sections', () => {
     const html = renderExplainer('free')
     expect(html).toContain('<article')
     expect(html).toContain('<h2')
     expect(html).toContain('<h3')
     expect(html).toContain('<section')
-    expect(html).toContain('<ul')
-    expect(html).toContain('<li')
     expect(html).toContain('role="region"')
     expect(html).toContain('Refresh plan tier to check upgrade')
   })

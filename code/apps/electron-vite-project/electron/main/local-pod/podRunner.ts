@@ -40,6 +40,8 @@ export interface LocalVerifyEnv {
   localSsoSub: string
   trustedEdgePodIds: string
   keycloakJwksJson: string
+  /** When true, LOCAL_VERIFY accepts cert-less P2P ingest (native BEAP direct path). */
+  allowDirectP2p: boolean
 }
 
 export interface PodRunnerOptions {
@@ -125,6 +127,7 @@ export async function applyPodManifest(
       .replace(/\$\{LOCAL_SSO_SUB\}/g, localVerify.localSsoSub)
       .replace(/\$\{TRUSTED_EDGE_POD_IDS\}/g, localVerify.trustedEdgePodIds)
       .replace(/__KEYCLOAK_JWKS_JSON__/g, localVerify.keycloakJwksJson)
+      .replace(/\$\{LOCAL_VERIFY_ALLOW_DIRECT_P2P\}/g, localVerify.allowDirectP2p ? '1' : '0')
   }
 
   const tmpDir = mkdtempSync(join(tmpdir(), 'beap-pod-'))

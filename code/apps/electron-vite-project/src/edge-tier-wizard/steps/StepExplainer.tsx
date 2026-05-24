@@ -8,8 +8,6 @@ import {
   EMAIL_ON_EDGE_SECTION,
   EXPLAINER_HEADLINE,
   EXPLAINER_OVERVIEW,
-  THREE_THREATS,
-  WHAT_IT_DOES_NOT_PROTECT_AGAINST,
   type ExplainerSection,
 } from '../copy/explainerCopy.js'
 import { WIZARD_UPGRADE_URL } from '../copy.js'
@@ -98,23 +96,6 @@ export function StepExplainer({
         data-testid="wizard-explainer-scroll"
       >
         <ExplainerSectionBlock section={EXPLAINER_OVERVIEW} />
-
-        <section style={sectionStyle} aria-labelledby="wizard-explainer-threats-heading">
-          <h3 id="wizard-explainer-threats-heading" style={{ margin: '0 0 8px', fontSize: 14 }}>
-            Threats addressed
-          </h3>
-          <ul style={{ margin: 0, paddingLeft: 20, color: '#cbd5e1' }}>
-            {THREE_THREATS.map((threat) => (
-              <li key={threat.name} style={{ marginBottom: 12 }}>
-                <strong>{threat.name}</strong>
-                <p style={{ margin: '4px 0', color: '#94a3b8' }}>{threat.description}</p>
-                <p style={{ margin: '4px 0 0', color: '#cbd5e1' }}>{threat.defense}</p>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <ExplainerSectionBlock section={WHAT_IT_DOES_NOT_PROTECT_AGAINST} />
         <ExplainerSectionBlock section={EMAIL_ON_EDGE_SECTION} />
       </div>
 

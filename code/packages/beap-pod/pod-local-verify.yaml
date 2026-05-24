@@ -102,6 +102,8 @@ spec:
           value: "1.0.0"
         - name: POD_AUTH_SECRET
           value: "${POD_AUTH_SECRET}"
+        - name: LOCAL_VERIFY_ALLOW_DIRECT_P2P
+          value: "${LOCAL_VERIFY_ALLOW_DIRECT_P2P}"
       ports:
         - containerPort: 18100
           hostPort: 18100

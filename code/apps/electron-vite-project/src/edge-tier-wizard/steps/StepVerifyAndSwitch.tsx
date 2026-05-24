@@ -5,6 +5,10 @@
 import type { CSSProperties } from 'react'
 import { btnPrimary } from '../styles.js'
 import { StepErrorActions, StepLoading } from './StepCommon.js'
+import {
+  NATIVE_BEAP_ROUTING_COPY,
+  type NativeBeapRoutingOption,
+} from '../copy/nativeBeapRoutingCopy.js'
 
 export interface StepVerifyAndSwitchProps {
   loading: boolean
@@ -12,6 +16,8 @@ export interface StepVerifyAndSwitchProps {
   verified: boolean | null
   reason?: string
   confirmed: boolean
+  nativeBeapRouting: NativeBeapRoutingOption
+  onNativeBeapRoutingChange: (routing: NativeBeapRoutingOption) => void
   onConfirmUnderstand: () => void
   onVerify: () => void
   onCancelWizard: () => void
@@ -23,17 +29,65 @@ export function StepVerifyAndSwitch({
   verified,
   reason,
   confirmed,
+  nativeBeapRouting,
+  onNativeBeapRoutingChange,
   onConfirmUnderstand,
   onVerify,
   onCancelWizard,
 }: StepVerifyAndSwitchProps) {
   return (
     <div data-testid="wizard-step-verify">
-      <h2 style={{ margin: '0 0 8px', fontSize: 16 }}>Verify &amp; enable edge tier</h2>
+      <h2 style={{ margin: '0 0 8px', fontSize: 16 }}>Verify &amp; enable Edge Ingestor</h2>
       <p style={{ color: '#94a3b8', marginTop: 0 }}>
-        We send a synthetic BEAP message through your new edge replica and verify the certificate
-        locally. If verification succeeds, edge tier routing is enabled.
+        We send a synthetic BEAP message through your Edge Ingestor and verify the certificate
+        locally. If verification succeeds, high-assurance routing is enabled.
       </p>
+
+      <div style={{ marginBottom: 16 }} data-testid="wizard-native-beap-routing">
+        <h3 style={{ margin: '0 0 8px', fontSize: 14 }}>Native BEAP routing</h3>
+        <p style={{ margin: '0 0 10px', fontSize: 12, color: '#94a3b8' }}>
+          Choose whether P2P native BEAP capsules must go through the Edge Ingestor or may be
+          received directly on this computer.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {(['direct', 'require_edge'] as const).map((value) => (
+            <label
+              key={value}
+              data-testid={`wizard-native-beap-routing-${value}`}
+              style={{
+                display: 'flex',
+                gap: 8,
+                alignItems: 'flex-start',
+                padding: 10,
+                borderRadius: 6,
+                border: `1px solid ${nativeBeapRouting === value ? '#6366f1' : '#334155'}`,
+                background: nativeBeapRouting === value ? 'rgba(99,102,241,0.12)' : 'transparent',
+                cursor: verified === true || loading ? 'not-allowed' : 'pointer',
+                opacity: verified === true || loading ? 0.6 : 1,
+              }}
+            >
+              <input
+                type="radio"
+                name="wizard-native-beap-routing"
+                value={value}
+                checked={nativeBeapRouting === value}
+                disabled={verified === true || loading}
+                onChange={() => onNativeBeapRoutingChange(value)}
+                style={{ marginTop: 3 }}
+              />
+              <span>
+                <strong style={{ display: 'block', fontSize: 13, color: '#e2e8f0' }}>
+                  {NATIVE_BEAP_ROUTING_COPY[value].label}
+                </strong>
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                  {NATIVE_BEAP_ROUTING_COPY[value].description}
+                </span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+
       <StepErrorActions error={error} onRetry={onVerify} onCancelWizard={onCancelWizard} />
       {verified === true && (
         <div
@@ -47,7 +101,7 @@ export function StepVerifyAndSwitch({
             marginBottom: 12,
           }}
         >
-          Verification succeeded. Edge tier routing is now enabled.
+          Verification succeeded. Edge Ingestor routing is now enabled.
         </div>
       )}
       {verified === false && (
@@ -64,7 +118,7 @@ export function StepVerifyAndSwitch({
             onChange={() => onConfirmUnderstand()}
           />
           <span style={{ fontSize: 12, color: '#cbd5e1' }}>
-            I understand this will route BEAP validation through my edge replica when verification
+            I understand this will route BEAP validation through my Edge Ingestor when verification
             succeeds.
           </span>
         </label>
@@ -78,7 +132,7 @@ export function StepVerifyAndSwitch({
           data-testid="wizard-verify-run"
           onClick={onVerify}
         >
-          Verify and enable edge tier
+          Verify and enable Edge Ingestor
         </button>
       )}
     </div>

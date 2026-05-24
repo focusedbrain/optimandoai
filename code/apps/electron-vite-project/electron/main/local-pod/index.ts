@@ -207,6 +207,7 @@ async function _doStart(
       localSsoSub,
       trustedEdgePodIds,
       keycloakJwksJson: jwksJson,
+      allowDirectP2p: edgeTier.native_beap_routing !== 'require_edge',
     }
 
     console.log('[LOCAL_POD] Starting LOCAL_VERIFY pod...')

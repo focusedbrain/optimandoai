@@ -55,6 +55,7 @@ export interface WizardGenerateDeployInput {
 
 export interface WizardVerifyInput {
   readonly replicaIndex: number
+  readonly nativeBeapRouting?: 'require_edge' | 'direct'
 }
 
 export interface WizardVerifyResult {

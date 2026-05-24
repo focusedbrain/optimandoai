@@ -181,6 +181,38 @@ describe('LOCAL_VERIFY mode', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  test('direct P2P allowed: missing certificate + source_type p2p → validator path', async () => {
+    vi.stubEnv('LOCAL_VERIFY_ALLOW_DIRECT_P2P', '1');
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ depackaged: { rawCapsuleJson: '{}' } }), { status: 200 }),
+    );
+
+    const { status, json } = await postIngest(baseUrl, {
+      body: '{"wire":"package"}',
+      source_type: 'p2p',
+    });
+
+    expect(status).toBe(200);
+    expect(json).toMatchObject({ depackaged: { rawCapsuleJson: '{}' } });
+    expect(mockFetch).toHaveBeenCalledOnce();
+    expect((mockFetch.mock.calls[0] as [string])[0]).toContain('/validate');
+    vi.unstubAllEnvs();
+  });
+
+  test('direct P2P disabled: missing certificate + source_type p2p → CERT_MISSING', async () => {
+    vi.stubEnv('LOCAL_VERIFY_ALLOW_DIRECT_P2P', '0');
+
+    const { status, json } = await postIngest(baseUrl, {
+      body: '{"wire":"package"}',
+      source_type: 'p2p',
+    });
+
+    expect(status).toBe(403);
+    expect(json).toMatchObject({ verification_failed: true, reason: CERT_MISSING });
+    expect(mockFetch).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+  });
+
   test('deep verify fail: sealer NOT called, no seal returned', async () => {
     mockFetch
       .mockResolvedValueOnce(

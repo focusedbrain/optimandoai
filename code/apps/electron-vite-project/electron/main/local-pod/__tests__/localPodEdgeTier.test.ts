@@ -108,6 +108,7 @@ describe('edge_tier.enabled mode switching', () => {
         },
       ],
       fallback_policy: 'reject',
+      native_beap_routing: 'direct',
       cached_jwks_json: jwks,
     })
 
@@ -125,6 +126,8 @@ describe('edge_tier.enabled mode switching', () => {
     expect(content).toContain('11111111-1111-4111-8111-111111111111')
     expect(content).toContain(jwks)
     expect(content).not.toContain('__KEYCLOAK_JWKS_JSON__')
+    expect(content).toContain('LOCAL_VERIFY_ALLOW_DIRECT_P2P')
+    expect(content).toMatch(/LOCAL_VERIFY_ALLOW_DIRECT_P2P[\s\S]*value: "1"/)
   })
 
   test('toggling edge_tier.enabled triggers pod restart in correct mode', async () => {

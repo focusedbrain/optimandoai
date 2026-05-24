@@ -1652,7 +1652,7 @@ contextBridge.exposeInMainWorld('wizard', {
     replicaIndex: number
     totalReplicas: number
   }) => ipcRenderer.invoke('wizard:generateAndDeploy', input),
-  verifyAndSwitch: (input: { replicaIndex: number }) =>
+  verifyAndSwitch: (input: { replicaIndex: number; nativeBeapRouting?: 'require_edge' | 'direct' }) =>
     ipcRenderer.invoke('wizard:verifyAndSwitch', input),
   cancel: (operationId: string) => ipcRenderer.invoke('wizard:cancel', operationId),
   getLocalPodRequirement: () =>

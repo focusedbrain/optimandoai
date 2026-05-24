@@ -229,7 +229,11 @@ export function registerWizardIpcHandlers(): void {
 
   ipcMain.handle('wizard:verifyAndSwitch', async (_event, input: unknown) => {
     const parsed = parseVerifyInput(input)
-    const result = await wizardVerifyAndSwitch(getDeps(), parsed.replicaIndex)
+    const result = await wizardVerifyAndSwitch(
+      getDeps(),
+      parsed.replicaIndex,
+      parsed.nativeBeapRouting ?? 'direct',
+    )
     const state = result.verified
       ? dispatch({ type: 'VERIFY_SUCCESS' })
       : dispatch({
@@ -295,11 +299,14 @@ function parseGenerateDeployInput(input: unknown): WizardGenerateDeployInput {
 
 function parseVerifyInput(input: unknown): WizardVerifyInput {
   if (typeof input !== 'object' || input === null) {
-    return { replicaIndex: 0 }
+    return { replicaIndex: 0, nativeBeapRouting: 'direct' }
   }
   const o = input as Record<string, unknown>
+  const nativeBeapRouting =
+    o.nativeBeapRouting === 'require_edge' ? 'require_edge' : 'direct'
   return {
     replicaIndex: typeof o.replicaIndex === 'number' ? o.replicaIndex : 0,
+    nativeBeapRouting,
   }
 }
 

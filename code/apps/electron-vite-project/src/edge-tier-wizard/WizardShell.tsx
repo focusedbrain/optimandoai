@@ -22,6 +22,7 @@ import { StepProbeAndPrepare } from './steps/StepProbeAndPrepare.js'
 import { StepReplicaCount } from './steps/StepReplicaCount.js'
 import { StepGenerateAndDeploy } from './steps/StepGenerateAndDeploy.js'
 import { StepVerifyAndSwitch } from './steps/StepVerifyAndSwitch.js'
+import type { NativeBeapRoutingOption } from './copy/nativeBeapRoutingCopy.js'
 import { StepFinale } from './steps/StepFinale.js'
 
 export interface WizardShellProps {
@@ -56,7 +57,10 @@ export interface WizardBridgeLike {
     replicaIndex: number
     totalReplicas: number
   }) => Promise<{ ok: boolean; state: WizardPublicState }>
-  verifyAndSwitch: (input: { replicaIndex: number }) => Promise<{
+  verifyAndSwitch: (input: {
+    replicaIndex: number
+    nativeBeapRouting?: 'require_edge' | 'direct'
+  }) => Promise<{
     verified: boolean
     reason?: string
     state: WizardPublicState
@@ -110,6 +114,7 @@ export function WizardShell({
   const [deployLogs, setDeployLogs] = useState<LogEvent[]>([])
   const [replicaCountDraft, setReplicaCountDraft] = useState(2)
   const [verifyConfirmed, setVerifyConfirmed] = useState(false)
+  const [nativeBeapRouting, setNativeBeapRouting] = useState<NativeBeapRoutingOption>('direct')
   const [verifyResult, setVerifyResult] = useState<boolean | null>(null)
   const [verifyReason, setVerifyReason] = useState<string | undefined>()
   const [currentTier, setCurrentTier] = useState<string>('free')
@@ -387,7 +392,10 @@ export function WizardShell({
       const w = ensureWizard()
       setLoading(true)
       setLocalError(null)
-      const result = await w.verifyAndSwitch({ replicaIndex: state.replicaIndex })
+      const result = await w.verifyAndSwitch({
+        replicaIndex: state.replicaIndex,
+        nativeBeapRouting,
+      })
       setVerifyResult(result.verified)
       setVerifyReason(result.reason)
       syncState(result.state)
@@ -397,7 +405,7 @@ export function WizardShell({
     } finally {
       setLoading(false)
     }
-  }, [ensureWizard, state, syncState])
+  }, [ensureWizard, state, syncState, nativeBeapRouting])
 
   const handleOpenEmailAccounts = useCallback(() => {
     if (typeof window !== 'undefined') {
@@ -555,6 +563,8 @@ export function WizardShell({
                 verified={verifyResult}
                 reason={verifyReason}
                 confirmed={verifyConfirmed}
+                nativeBeapRouting={nativeBeapRouting}
+                onNativeBeapRoutingChange={setNativeBeapRouting}
                 onConfirmUnderstand={() => setVerifyConfirmed((v) => !v)}
                 onVerify={() => void handleVerify()}
                 onCancelWizard={() => void handleCancelOperation()}
