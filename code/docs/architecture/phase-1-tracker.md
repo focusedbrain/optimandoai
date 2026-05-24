@@ -13,7 +13,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 - [x] **P1.2** — Inter-container X-Pod-Auth shared helper
 - [x] **P1.3** — Ingestor role container
 - [x] **P1.4** — Validator role container
-- [ ] **P1.5** — Extract depackaging core to a standalone Node-compatible package
+- [x] **P1.5** — Depackager role container (qBEAP/pBEAP decrypt, 6-gate pipeline, HTML sanitization, wall-clock timeout)
 - [ ] **P1.6** — Add `PodClient` module to the Electron app
 - [ ] **P1.7** — Add pod URL config and readiness gate to Electron
 - [ ] **P1.8** — Route structural validation through the pod (Linux only)
@@ -33,7 +33,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 | P1.2 | ✅ done | P1.2: inter-container X-Pod-Auth helper |
 | P1.3 | ✅ done | P1.3: ingestor role container |
 | P1.4 | ✅ done | P1.4: validator role container, close MAX_STRING_LENGTH/ALLOWED_CONTENT_TYPES gaps |
-| P1.5 | ⬜ pending | — |
+| P1.5 | ✅ done | P1.5: depackager role container with HTML sanitization and timeout |
 | P1.6 | ⬜ pending | — |
 | P1.7 | ⬜ pending | — |
 | P1.8 | ⬜ pending | — |
@@ -47,6 +47,53 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 ## Notes & deviations
 
 *(Record any decisions made differently from the strategy here, with rationale.)*
+
+### P1.5
+
+- Strategy described P1.5 as "Extract depackaging core to a standalone Node-compatible package". The
+  explicit P1.5 prompt redefines this step as the full depackager **role container** (HTTP server +
+  ported crypto + 6-gate pipeline + HTML sanitization + wall-clock timeout); tracker updated.
+- **New files:**
+  - `packages/beap-pod/src/roles/depackagePipeline.ts` — crypto helpers + 6-gate pipeline
+    (ported; do not import from Electron or extension sources). Exports `runDepackagePipeline`,
+    `hkdfDerive`, `aesGcmDecrypt`, `computeEnvelopeAadBytes`, `fromBase64`, `toBase64` for tests.
+  - `packages/beap-pod/src/roles/depackager.ts` — HTTP server (replaces stub). Ports logic from
+    `decryptQBeapPackage.ts` + `depackagingPipeline.ts` + `beapEnvelopeAad.ts` (all cited inline).
+  - `packages/beap-pod/src/roles/__tests__/depackager.test.ts` — 10 tests.
+- **New dependencies added to `beap-pod`:**
+  - `sanitize-html` + `@types/sanitize-html` — HTML sanitization with documented strict allow-list.
+  - `@noble/curves` — X25519 ECDH (`x25519.getSharedSecret`).
+  - `@noble/post-quantum` — ML-KEM-768 (`ml_kem768.decapsulate`) for hybrid qBEAP packages.
+- **Pipeline deviations from source code:**
+  - No Electron DB / `getHandshakeRecord`; receiver X25519 private key injected via config (env var
+    `BEAP_LOCAL_X25519_PRIV_B64` in production, `localX25519PrivB64` in tests).
+  - Gate 1: structural-only (no `knownSenders` matching — sender identity pinning deferred to P1.11).
+  - Gate 5: skipped by default (`skipSignatureVerification: true`) — Ed25519 verify wired in P1.11.
+  - HKDF labels, hybrid secret order (ML-KEM ∥ X25519), AAD computation match the Electron and
+    extension implementations exactly (verified in the round-trip test).
+- **HTML sanitization allow-list** (`HTML_SANITIZE_OPTIONS` in `depackager.ts`):
+  - `<script>`, `<style>`, `<iframe>`, `<object>`, `<embed>`, `<form>`, `<input>` not listed → stripped.
+  - No `on*` event handlers (not in `allowedAttributes` → stripped by sanitize-html).
+  - `allowedSchemes: ['http', 'https', 'mailto']` — javascript: and data: stripped from href/src.
+  - `allowedSchemesByTag.img: ['http', 'https']` — data: URLs in `<img src>` stripped.
+  - No `style=` attribute (CSS injection prevention).
+- **Wall-clock timeout:** `AbortController` + `setTimeout(cfg.timeoutMs)` wraps the sealer `fetch`
+  call. Default 5 s, configurable via `DEPACKAGER_TIMEOUT_MS` env / `timeoutMs` config. Returns 504
+  with `{ code: 'DEPACKAGER_TIMEOUT' }`. The mock in the test listens on the AbortSignal (mirroring
+  real `fetch` behaviour), ensuring the 504 fires at ~150 ms in the test.
+- **`/ready` endpoint** returns 503 when `localX25519PrivB64` is not configured.
+- **Test coverage (10 tests):**
+  1. Round-trip qBEAP — deterministic X25519 keys, AES-256-GCM encrypt in test, depackager decrypts.
+  2. Malformed structural — missing header → 422 from `validateBeapStructure`.
+  3. Corrupted ciphertext — passes structural but fails gate 4 (AES-GCM auth tag) → 422 gate=4.
+  4. HTML sanitization unit — `sanitizeBeapBody` strips `<script>`, `onclick`, `javascript:`, `data:`.
+  5. HTML sanitization E2E — pBEAP package with dirty body; sanitized body forwarded to sealer.
+  6. Wall-clock timeout — 504 within 2 s with `timeoutMs: 150`.
+  7. Auth enforcement — 401 without X-Pod-Auth.
+  8. `/health` — 200.
+  9. `/ready` with key — 200.
+  10. `/ready` without key — 503.
+- **Verification:** 43/43 beap-pod tests pass; 60/60 ingestion-core tests pass (regression clean).
 
 ### P1.4
 
