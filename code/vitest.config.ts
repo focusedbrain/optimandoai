@@ -26,6 +26,7 @@ export default defineConfig({
       // Jest → Vitest shim for the 2 llm tests still importing @jest/globals.
       { find: '@jest/globals', replacement: path.resolve(repoRoot, 'node_modules/vitest/dist/index.js') },
       { find: '@repo/ingestion-core', replacement: path.resolve(repoRoot, 'packages/ingestion-core/src/index.ts') },
+      { find: '@repo/email-fetch', replacement: path.resolve(repoRoot, 'packages/email-fetch/src/index.ts') },
       { find: '@repo/pod-client', replacement: path.resolve(repoRoot, 'packages/pod-client/src/index.ts') },
       {
         find: '@ext/handshake/handshakeRpc',

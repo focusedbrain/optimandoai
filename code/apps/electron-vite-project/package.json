@@ -32,6 +32,7 @@
   "dependencies": {
     "@noble/curves": "^1.9.7",
     "@noble/post-quantum": "^0.2.1",
+    "@repo/email-fetch": "workspace:*",
     "@repo/ingestion-core": "workspace:*",
     "@repo/pod-client": "workspace:*",
     "@repo/shared-beap-ui": "workspace:*",

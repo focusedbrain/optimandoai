@@ -64,6 +64,9 @@ importers:
       '@noble/post-quantum':
         specifier: ^0.2.1
         version: 0.2.1
+      '@repo/email-fetch':
+        specifier: workspace:*
+        version: link:../../packages/email-fetch
       '@repo/ingestion-core':
         specifier: workspace:*
         version: link:../../packages/ingestion-core
@@ -343,6 +346,9 @@ importers:
       '@repo/beap-cert':
         specifier: workspace:*
         version: link:../beap-cert
+      '@repo/email-fetch':
+        specifier: workspace:*
+        version: link:../email-fetch
       '@repo/ingestion-core':
         specifier: workspace:*
         version: link:../ingestion-core
@@ -390,6 +396,25 @@ importers:
       '@types/ws':
         specifier: ^8.18.0
         version: 8.18.1
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.2
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@20.19.11)(happy-dom@20.8.7(bufferutil@4.1.0)(utf-8-validate@6.0.6))(jsdom@26.1.0(bufferutil@4.1.0)(canvas@3.2.0)(utf-8-validate@6.0.6))
+
+  packages/email-fetch:
+    dependencies:
+      imap:
+        specifier: ^0.8.19
+        version: 0.8.19
+    devDependencies:
+      '@types/imap':
+        specifier: ^0.8.42
+        version: 0.8.43
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.11
       typescript:
         specifier: ^5.5.0
         version: 5.9.2
@@ -7196,6 +7221,14 @@ snapshots:
       chai: 5.3.3
       tinyrainbow: 2.0.0
 
+  '@vitest/mocker@2.1.9(vite@5.4.20(@types/node@20.19.11))':
+    dependencies:
+      '@vitest/spy': 2.1.9
+      estree-walker: 3.0.3
+      magic-string: 0.30.18
+    optionalDependencies:
+      vite: 5.4.20(@types/node@20.19.11)
+
   '@vitest/mocker@2.1.9(vite@5.4.20(@types/node@25.6.0))':
     dependencies:
       '@vitest/spy': 2.1.9
@@ -10837,7 +10870,7 @@ snapshots:
   vitest@2.1.9(@types/node@20.19.11)(happy-dom@20.8.7(bufferutil@4.1.0)(utf-8-validate@6.0.6))(jsdom@26.1.0(bufferutil@4.1.0)(canvas@3.2.0)(utf-8-validate@6.0.6)):
     dependencies:
       '@vitest/expect': 2.1.9
-      '@vitest/mocker': 2.1.9(vite@5.4.20(@types/node@25.6.0))
+      '@vitest/mocker': 2.1.9(vite@5.4.20(@types/node@20.19.11))
       '@vitest/pretty-format': 2.1.9
       '@vitest/runner': 2.1.9
       '@vitest/snapshot': 2.1.9

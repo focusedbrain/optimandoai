@@ -10,6 +10,7 @@
 import { app, shell } from 'electron'
 import type { IncomingHttpHeaders } from 'http'
 import * as https from 'https'
+import { refreshMicrosoftAccessToken } from '@repo/email-fetch'
 import * as fs from 'fs'
 import * as path from 'path'
 import { 
@@ -856,66 +857,30 @@ export class OutlookProvider extends BaseEmailProvider {
     const oauthConfig = oauthConfigRaw as OutlookCreds
 
     const tenant = oauthConfig.tenantId || 'organizations'
-    return new Promise((resolve, reject) => {
-      const postParams: Record<string, string> = {
-        client_id: oauthConfig.clientId,
-        refresh_token: this.refreshToken!,
-        grant_type: 'refresh_token',
-        scope: OUTLOOK_SCOPES.join(' ')
-      }
-      
-      if (oauthConfig.clientSecret) {
-        postParams.client_secret = oauthConfig.clientSecret
-      }
-      
-      const postData = new URLSearchParams(postParams).toString()
-      
-      const options = {
-        hostname: 'login.microsoftonline.com',
-        path: `/${tenant}/oauth2/v2.0/token`,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Content-Length': Buffer.byteLength(postData)
-        }
-      }
-      
-      const req = https.request(options, (res) => {
-        let data = ''
-        res.on('data', chunk => { data += chunk })
-        res.on('end', () => {
-          try {
-            const json = JSON.parse(data)
-            if (json.error) {
-              reject(new Error(json.error_description || json.error))
-            } else {
-              this.accessToken = json.access_token
-              if (json.refresh_token) {
-                this.refreshToken = json.refresh_token
-              }
-              this.tokenExpiresAt = Date.now() + (json.expires_in * 1000)
-              
-              // Persist new tokens via callback
-              if (this.onTokenRefresh && this.refreshToken) {
-                this.onTokenRefresh({
-                  accessToken: this.accessToken!,
-                  refreshToken: this.refreshToken,
-                  expiresAt: this.tokenExpiresAt
-                })
-              }
-              
-              resolve()
-            }
-          } catch (err) {
-            reject(err)
-          }
-        })
+    try {
+      const result = await refreshMicrosoftAccessToken({
+        clientId: oauthConfig.clientId,
+        clientSecret: oauthConfig.clientSecret,
+        refreshToken: this.refreshToken,
+        tenantId: tenant,
+        scopes: OUTLOOK_SCOPES,
       })
-      
-      req.on('error', reject)
-      req.write(postData)
-      req.end()
-    })
+      this.accessToken = result.accessToken
+      if (result.refreshToken) {
+        this.refreshToken = result.refreshToken
+      }
+      this.tokenExpiresAt = Date.now() + result.expiresInSeconds * 1000
+
+      if (this.onTokenRefresh && this.refreshToken) {
+        this.onTokenRefresh({
+          accessToken: this.accessToken!,
+          refreshToken: this.refreshToken,
+          expiresAt: this.tokenExpiresAt,
+        })
+      }
+    } catch (err) {
+      throw err instanceof Error ? err : new Error(String(err))
+    }
   }
   
   /**

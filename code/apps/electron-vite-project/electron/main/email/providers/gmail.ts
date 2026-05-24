@@ -9,6 +9,7 @@
 
 import { app, shell } from 'electron'
 import * as https from 'https'
+import { refreshGoogleAccessToken } from '@repo/email-fetch'
 import * as fs from 'fs'
 import * as path from 'path'
 import { randomBytes, createHash } from 'node:crypto'
@@ -1155,105 +1156,41 @@ export class GmailProvider extends BaseEmailProvider {
       secretSource,
     })
 
-    return new Promise((resolve, reject) => {
-      const body = new URLSearchParams({
-        client_id: clientId,
-        refresh_token: this.refreshToken!,
-        grant_type: 'refresh_token',
+    try {
+      const result = await refreshGoogleAccessToken({
+        clientId,
+        clientSecret: refreshClientSecret,
+        refreshToken: this.refreshToken,
       })
-      if (refreshClientSecret) {
-        body.set('client_secret', refreshClientSecret)
+      logOAuthDiagnostic('token_refresh_success', { provider: 'gmail' })
+      this.accessToken = result.accessToken
+      if (result.refreshToken) {
+        this.refreshToken = result.refreshToken
       }
+      this.tokenExpiresAt = Date.now() + result.expiresInSeconds * 1000
 
-      const postData = body.toString()
-      
-      const options = {
-        hostname: 'oauth2.googleapis.com',
-        path: '/token',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Content-Length': Buffer.byteLength(postData)
-        }
-      }
-      
-      const req = https.request(options, (res) => {
-        let data = ''
-        res.on('data', chunk => { data += chunk })
-        res.on('end', () => {
-          const refreshStatus = res.statusCode ?? 0
-          try {
-            const json = JSON.parse(data)
-            if (json.error) {
-              console.error('[Gmail] Token refresh FAILED:', json.error, json.error_description)
-              logOAuthDiagnostic('token_refresh_failure', {
-                provider: 'gmail',
-                error: json.error,
-              })
-              const ge = json.error
-              const googleErrStr =
-                typeof ge === 'string' ? ge : ge != null ? JSON.stringify(ge).slice(0, 200) : null
-              const googleDesc =
-                typeof json.error_description === 'string' ? json.error_description : null
-              const msg = googleDesc || googleErrStr || `HTTP ${refreshStatus}`
-              reject(
-                attachOauthDebug(new Error(msg), {
-                  step: 'token_refresh',
-                  httpStatus: refreshStatus,
-                  googleError: googleErrStr,
-                  googleErrorDescription: googleDesc,
-                  responseBody: data.substring(0, 500),
-                }),
-              )
-            } else {
-              logOAuthDiagnostic('token_refresh_success', { provider: 'gmail' })
-              this.accessToken = json.access_token
-              if (json.refresh_token) {
-                this.refreshToken = json.refresh_token
-              }
-              this.tokenExpiresAt = Date.now() + (json.expires_in * 1000)
-
-              if (this.onTokenRefresh && this.refreshToken) {
-                this.onTokenRefresh({
-                  accessToken: this.accessToken!,
-                  refreshToken: this.refreshToken,
-                  expiresAt: this.tokenExpiresAt,
-                })
-              }
-
-              resolve()
-            }
-          } catch (err) {
-            const wrapped =
-              err instanceof Error ? err : new Error(err != null ? String(err) : 'parse failed')
-            reject(
-              attachOauthDebug(wrapped, {
-                step: 'token_refresh',
-                httpStatus: refreshStatus,
-                googleError: 'parse_error',
-                googleErrorDescription: wrapped.message,
-                responseBody: data.substring(0, 500),
-              }),
-            )
-          }
+      if (this.onTokenRefresh && this.refreshToken) {
+        this.onTokenRefresh({
+          accessToken: this.accessToken!,
+          refreshToken: this.refreshToken,
+          expiresAt: this.tokenExpiresAt,
         })
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('[Gmail] Token refresh FAILED:', message)
+      logOAuthDiagnostic('token_refresh_failure', {
+        provider: 'gmail',
+        error: message,
       })
-      
-      req.on('error', (e) =>
-        reject(
-          attachOauthDebug(e instanceof Error ? e : new Error(String(e)), {
-            step: 'token_refresh',
-            httpStatus: null,
-            googleError: null,
-            googleErrorDescription: null,
-            responseBody: null,
-            raw: (e instanceof Error ? e.message : String(e)).substring(0, 500),
-          }),
-        ),
-      )
-      req.write(postData)
-      req.end()
-    })
+      throw attachOauthDebug(err instanceof Error ? err : new Error(message), {
+        step: 'token_refresh',
+        httpStatus: null,
+        googleError: message,
+        googleErrorDescription: message,
+        responseBody: null,
+      })
+    }
   }
   
   private async apiRequest(method: string, endpoint: string, body?: any): Promise<any> {

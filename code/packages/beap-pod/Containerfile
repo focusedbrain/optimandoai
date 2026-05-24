@@ -24,11 +24,13 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/beap-pod/ packages/beap-pod/
 COPY packages/beap-cert/ packages/beap-cert/
 COPY packages/ingestion-core/ packages/ingestion-core/
+COPY packages/email-fetch/ packages/email-fetch/
 
 RUN corepack enable pnpm \
   && pnpm install --frozen-lockfile \
   && pnpm --filter @repo/ingestion-core build \
   && pnpm --filter @repo/beap-cert build \
+  && pnpm --filter @repo/email-fetch build \
   && pnpm --filter @repo/beap-pod build
 
 # ── stage 2: runtime ─────────────────────────────────────────────────────────
@@ -44,6 +46,7 @@ COPY --from=builder /build/package.json /build/pnpm-lock.yaml /build/pnpm-worksp
 COPY --from=builder /build/packages/beap-pod/ packages/beap-pod/
 COPY --from=builder /build/packages/beap-cert/ packages/beap-cert/
 COPY --from=builder /build/packages/ingestion-core/ packages/ingestion-core/
+COPY --from=builder /build/packages/email-fetch/ packages/email-fetch/
 COPY --from=builder /build/node_modules/ node_modules/
 
 # Copy the role dispatcher — must be executable
