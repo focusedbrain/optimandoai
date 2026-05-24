@@ -3605,8 +3605,7 @@ body {
 
 .bulk-view-provider-body {
   border-top: 1px solid #e2e8f0;
-  max-height: 280px;
-  overflow-y: auto;
+  overflow: visible;
 }
 
 /* Content block inside `.bulk-view-root` scroll; no inner vertical scrollport. */
