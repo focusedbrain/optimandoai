@@ -49,9 +49,9 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 
 - [x] **P5.0** — Tracker, strategy deviation note, threat-model container-replacement section
 - [x] **P5.1** — Pod manifests: `restartPolicy: Never` for trust-sensitive containers
-- [ ] **P5.2** — Supervisor package scaffold and container health probe loop
+- [x] **P5.2** — Diagnostic report schema, allowlist filtering, signing
 - [ ] **P5.3** — Replace path: `podman rm -f` + per-container `podman play kube`
-- [ ] **P5.4** — Hardened diagnostic report schema and emission
+- [ ] **P5.4** — Diagnostic report emission and transport (role generators + storage)
 - [ ] **P5.5** — Crash-message quarantine store; fetch loop resume from next message
 - [ ] **P5.6** — Dashboard quarantine indicators (existence + timestamp inline)
 - [ ] **P5.7** — Replacement-budget circuit breaker
@@ -68,7 +68,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 |------|-------|--------|
 | P5.0 | ✅ done | `f9f6c287` |
 | P5.1 | ✅ done | `8b3864a6` |
-| P5.2 | ⬜ pending | — |
+| P5.2 | ✅ done | *(this commit)* |
 | P5.3 | ⬜ pending | — |
 | P5.4 | ⬜ pending | — |
 | P5.5 | ⬜ pending | — |
