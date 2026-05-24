@@ -370,24 +370,36 @@ async function handleExitedContainer(
 
   if (result.success) {
     recordReplacementCompleted(replicaId, role, nowMs, true)
-    await deliverQuarantineKeyToReplica(ssh, replicaId, vault).catch((err) => {
-      console.warn(
-        `[SUPERVISOR] quarantine key re-delivery failed replica=${replicaId}:`,
-        err instanceof Error ? err.message : err,
-      )
-    })
-    appendSupervisorAudit({
-      event: 'container_replaced',
-      replica_id: replicaId,
-      container_role: role,
-      report_filename: reportFilename,
-      duration_ms: result.replacement_duration_ms,
-      success: true,
-    })
+    if (result.escalated_to_pod) {
+      appendSupervisorAudit({
+        event: 'pod_replaced',
+        replica_id: replicaId,
+        container_role: role,
+        report_filename: reportFilename,
+        duration_ms: result.replacement_duration_ms,
+        success: true,
+        reason: result.pod_escalation_reason,
+      })
+    } else {
+      await deliverQuarantineKeyToReplica(ssh, replicaId, vault).catch((err) => {
+        console.warn(
+          `[SUPERVISOR] quarantine key re-delivery failed replica=${replicaId}:`,
+          err instanceof Error ? err.message : err,
+        )
+      })
+      appendSupervisorAudit({
+        event: 'container_replaced',
+        replica_id: replicaId,
+        container_role: role,
+        report_filename: reportFilename,
+        duration_ms: result.replacement_duration_ms,
+        success: true,
+      })
+    }
   } else {
     recordReplacementCompleted(replicaId, role, nowMs, false)
     appendSupervisorAudit({
-      event: 'container_replaced_failed',
+      event: result.escalated_to_pod ? 'pod_replaced_failed' : 'container_replaced_failed',
       replica_id: replicaId,
       container_role: role,
       report_filename: reportFilename,

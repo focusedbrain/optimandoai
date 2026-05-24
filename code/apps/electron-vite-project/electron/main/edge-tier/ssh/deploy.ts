@@ -94,6 +94,14 @@ export function buildPreDeployCleanupCommand(): string {
   return `podman pod rm -f ${REMOTE_POD_NAME} 2>/dev/null || true`
 }
 
+export function buildPodStopCommand(): string {
+  return wrapHistorySafe(`podman pod stop ${REMOTE_POD_NAME} 2>/dev/null || true`)
+}
+
+export function buildPodRmCommand(): string {
+  return wrapHistorySafe(`podman pod rm -f ${REMOTE_POD_NAME} 2>/dev/null || true`)
+}
+
 export function buildTeardownCommand(): string {
   return wrapHistorySafe(
     `podman pod stop ${REMOTE_POD_NAME} 2>/dev/null || true; podman pod rm ${REMOTE_POD_NAME} 2>/dev/null || true; rm -f ${REMOTE_MANIFEST_PATH}`,

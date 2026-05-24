@@ -346,3 +346,41 @@ async function syncRemoteStates(
   }
   notifyEdgeFetchStateChanged()
 }
+
+/** Re-deliver quarantine + mail-fetcher account keys after whole-pod replacement (P5.8). */
+export async function redeliverAllReplicaCredentials(
+  replica: EdgeReplica,
+  ssh: ReplicaActionSshRunner,
+  vault: EdgeTierPodVault,
+): Promise<void> {
+  const replicaId = replica.edge_pod_id
+
+  await deliverQuarantineKeyToReplica(ssh, replicaId, vault).catch((err) => {
+    console.warn(
+      `[SUPERVISOR] quarantine key re-delivery failed replica=${replicaId}:`,
+      err instanceof Error ? err.message : err,
+    )
+  })
+
+  if (!isVaultAvailableForAccountKeys(vault)) {
+    return
+  }
+
+  const ownedAccounts = emailGateway.listAccountsSync().filter(
+    (a) => a.edgeFetch?.replicaId?.toLowerCase() === replicaId.toLowerCase(),
+  )
+
+  for (const row of ownedAccounts) {
+    await deliverKeyForAccount(replicaId, row.id, ssh, vault)
+  }
+
+  try {
+    const remoteAccounts = await _deps.getAccountStatus(ssh)
+    await syncRemoteStates(replicaId, remoteAccounts)
+  } catch (err) {
+    console.warn(
+      `[SUPERVISOR] credential redelivery status sync failed replica=${replicaId}:`,
+      err instanceof Error ? err.message : err,
+    )
+  }
+}

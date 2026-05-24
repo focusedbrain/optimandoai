@@ -2,22 +2,34 @@
  * Single-container replacement on REMOTE_EDGE pod (P5.4).
  *
  * Replace-not-restart: podman rm -f + podman run --pod (joins existing pod network).
+ * On certain failures, escalates to whole-pod replacement (P5.8).
  */
+
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import type { EdgeReplica } from '../settings.js'
 import type { EdgeTierPodVault } from '../podLifecycle.js'
 import type { ReplicaActionSshRunner } from '../replicaActions.js'
 import { loadEncryptedEdgePrivateKeyHex } from '../keyStorage.js'
+import { redeliverAllReplicaCredentials } from '../rebootRecovery.js'
 import {
+  buildAllHealthCommand,
   buildContainerHealthCommand,
+  buildPodRmCommand,
+  buildPodStopCommand,
+  buildPodmanPlayCommand,
+  buildRemoveManifestCommand,
   DEFAULT_HEALTH_POLL_MS,
   DEFAULT_HEALTH_TIMEOUT_MS,
+  REMOTE_MANIFEST_PATH,
   REMOTE_POD_NAME,
   shellQuote,
   wrapHistorySafe,
 } from '../ssh/deploy.js'
 import {
   findContainerSpec,
+  REMOTE_EDGE_SUPERVISOR_CONTAINERS,
   type RemoteEdgeContainerRole,
   type RemoteEdgeContainerSpec,
 } from './containers.js'
@@ -27,14 +39,31 @@ export interface ReplacementResultSuccess {
   success: true
   new_container_id: string
   replacement_duration_ms: number
+  escalated_to_pod?: boolean
+  pod_escalation_reason?: string
 }
 
 export interface ReplacementResultFailure {
   success: false
   reason: string
+  escalated_to_pod?: boolean
 }
 
 export type ReplacementResult = ReplacementResultSuccess | ReplacementResultFailure
+
+export interface PodReplacementResultSuccess {
+  success: true
+  replacement_duration_ms: number
+  escalation_reason: string
+}
+
+export interface PodReplacementResultFailure {
+  success: false
+  reason: string
+  escalation_reason: string
+}
+
+export type PodReplacementResult = PodReplacementResultSuccess | PodReplacementResultFailure
 
 export interface ReplaceContainerArgs {
   replica: EdgeReplica
@@ -49,7 +78,16 @@ export interface ReplaceDeps {
   sleep?: (ms: number) => Promise<void>
   healthTimeoutMs?: number
   healthPollMs?: number
+  readManifestYaml?: () => string
+  redeliverCredentials?: (
+    replica: EdgeReplica,
+    ssh: ReplicaActionSshRunner,
+    vault: EdgeTierPodVault,
+  ) => Promise<void>
 }
+
+const RESTORE_MAX_ATTEMPTS = 2
+const RESTORE_RETRY_DELAY_MS = 500
 
 interface PodmanInspectState {
   Status?: string
@@ -144,6 +182,55 @@ async function readPodAuthSecret(
   return secret.length > 0 ? secret : null
 }
 
+function readPodAuthSecretFromInspect(inspect: PodmanInspectEntry | null): string | null {
+  const env = inspect?.Config?.Env ?? []
+  for (const line of env) {
+    if (line.startsWith('POD_AUTH_SECRET=')) {
+      const value = line.slice('POD_AUTH_SECRET='.length).trim()
+      return value.length > 0 ? value : null
+    }
+  }
+  return null
+}
+
+async function readPodAuthSecretWithFallback(ssh: ReplicaActionSshRunner): Promise<string | null> {
+  for (const spec of REMOTE_EDGE_SUPERVISOR_CONTAINERS) {
+    const fromExec = await readPodAuthSecret(ssh, spec.containerName)
+    if (fromExec) return fromExec
+  }
+
+  const ingestor = findContainerSpec('ingestor').containerName
+  const inspectResult = await ssh.run(buildInspectContainerCommand(ingestor))
+  if (inspectResult.code === 0) {
+    const fromInspect = readPodAuthSecretFromInspect(parseInspect(inspectResult.stdout))
+    if (fromInspect) return fromInspect
+  }
+  return null
+}
+
+function readRemoteEdgeManifestTemplate(): string {
+  const fromEnv = process.env['BEAP_REMOTE_EDGE_MANIFEST']
+  if (fromEnv) return readFileSync(fromEnv, 'utf8')
+  return readFileSync(
+    join(process.cwd(), 'packages', 'beap-pod', 'pod-remote-edge.yaml'),
+    'utf8',
+  )
+}
+
+/** Failure modes that trigger whole-pod replacement (P5.8). */
+export function shouldEscalateToPodReplace(reason: string): boolean {
+  if (reason === 'health_timeout') return true
+  if (reason.startsWith('restore_failed:')) return true
+  if (/podman_play_failed|pod_state_corrupt|invalid pod|no such pod|inconsistent state/i.test(reason)) {
+    return true
+  }
+  if (reason.startsWith('podman_run_failed:')) {
+    const detail = reason.slice('podman_run_failed:'.length)
+    return /corrupt|invalid|state|no such pod|inconsistent/i.test(detail)
+  }
+  return false
+}
+
 function parseInspect(stdout: string): PodmanInspectEntry | null {
   try {
     const parsed = JSON.parse(stdout) as PodmanInspectEntry[] | PodmanInspectEntry
@@ -227,7 +314,115 @@ export function buildContainerIdCommand(containerName: string): string {
   return `podman inspect ${containerName} --format ${shellQuote('{{.Id}}')}`
 }
 
-export async function replaceContainer(
+export async function replacePod(
+  args: ReplaceContainerArgs & { escalationReason: string },
+  deps: ReplaceDeps = {},
+): Promise<PodReplacementResult> {
+  const started = Date.now()
+  const sleep = deps.sleep ?? defaultSleep
+  const healthTimeoutMs = deps.healthTimeoutMs ?? DEFAULT_HEALTH_TIMEOUT_MS
+  const healthPollMs = deps.healthPollMs ?? DEFAULT_HEALTH_POLL_MS
+  const certTtlSeconds = args.certTtlSeconds ?? 86400
+  const readManifest = deps.readManifestYaml ?? readRemoteEdgeManifestTemplate
+  const redeliver = deps.redeliverCredentials ?? redeliverAllReplicaCredentials
+
+  const podAuthSecret = await readPodAuthSecretWithFallback(args.ssh)
+  if (!podAuthSecret) {
+    return {
+      success: false,
+      reason: 'pod_auth_secret_unavailable',
+      escalation_reason: args.escalationReason,
+    }
+  }
+
+  const privateKeyHex = loadEncryptedEdgePrivateKeyHex(args.replica.edge_pod_id, args.vault)
+  if (!privateKeyHex) {
+    return {
+      success: false,
+      reason: 'edge_private_key_unavailable',
+      escalation_reason: args.escalationReason,
+    }
+  }
+
+  const manifestYaml = readManifest()
+  await args.ssh.uploadContent(manifestYaml, REMOTE_MANIFEST_PATH)
+  const chmodResult = await args.ssh.run(`chmod 600 ${REMOTE_MANIFEST_PATH}`)
+  if (chmodResult.code !== 0) {
+    return {
+      success: false,
+      reason: `manifest_chmod_failed:${chmodResult.code ?? 'unknown'}`,
+      escalation_reason: args.escalationReason,
+    }
+  }
+
+  const stopResult = await args.ssh.run(buildPodStopCommand())
+  if (stopResult.code !== 0) {
+    return {
+      success: false,
+      reason: `pod_stop_failed:${stopResult.stderr.trim() || stopResult.code}`,
+      escalation_reason: args.escalationReason,
+    }
+  }
+
+  const rmResult = await args.ssh.run(buildPodRmCommand())
+  if (rmResult.code !== 0) {
+    return {
+      success: false,
+      reason: `pod_rm_failed:${rmResult.stderr.trim() || rmResult.code}`,
+      escalation_reason: args.escalationReason,
+    }
+  }
+
+  const playCmd = buildPodmanPlayCommand({
+    podAuthSecret,
+    privateKeyHex,
+    podId: args.replica.edge_pod_id,
+    attestationJwt: args.replica.sso_attestation_jwt,
+    certTtlSeconds,
+    manifestPath: REMOTE_MANIFEST_PATH,
+  })
+  const playResult = await args.ssh.run(playCmd)
+  if (playResult.code !== 0) {
+    const detail = playResult.stderr.trim() || String(playResult.code)
+    return {
+      success: false,
+      reason: `podman_play_failed:${detail}`,
+      escalation_reason: args.escalationReason,
+    }
+  }
+
+  const healthCmd = buildAllHealthCommand()
+  const deadline = Date.now() + healthTimeoutMs
+  let healthy = false
+  while (Date.now() < deadline) {
+    const healthResult = await args.ssh.run(healthCmd)
+    if (healthResult.code === 0) {
+      healthy = true
+      break
+    }
+    await sleep(healthPollMs)
+  }
+
+  if (!healthy) {
+    return {
+      success: false,
+      reason: 'pod_health_timeout',
+      escalation_reason: args.escalationReason,
+    }
+  }
+
+  await redeliver(args.replica, args.ssh, args.vault)
+
+  await args.ssh.run(buildRemoveManifestCommand())
+
+  return {
+    success: true,
+    replacement_duration_ms: Date.now() - started,
+    escalation_reason: args.escalationReason,
+  }
+}
+
+async function replaceContainerSingle(
   args: ReplaceContainerArgs,
   deps: ReplaceDeps = {},
 ): Promise<ReplacementResult> {
@@ -298,12 +493,24 @@ export async function replaceContainer(
   }
 
   if (args.queuePosition !== undefined) {
-    const restore = await postRoleRestore(args.ssh, spec, args.queuePosition)
-    if (restore.status !== 200) {
-      return {
-        success: false,
-        reason: `restore_failed:HTTP_${restore.status}`,
+    let restoreOk = false
+    for (let attempt = 0; attempt < RESTORE_MAX_ATTEMPTS; attempt++) {
+      const restore = await postRoleRestore(args.ssh, spec, args.queuePosition)
+      if (restore.status === 200) {
+        restoreOk = true
+        break
       }
+      if (attempt < RESTORE_MAX_ATTEMPTS - 1) {
+        await sleep(RESTORE_RETRY_DELAY_MS)
+      } else {
+        return {
+          success: false,
+          reason: `restore_failed:HTTP_${restore.status}`,
+        }
+      }
+    }
+    if (!restoreOk) {
+      return { success: false, reason: 'restore_failed:unknown' }
     }
   }
 
@@ -314,6 +521,41 @@ export async function replaceContainer(
     success: true,
     new_container_id: newContainerId,
     replacement_duration_ms: Date.now() - started,
+  }
+}
+
+export async function replaceContainer(
+  args: ReplaceContainerArgs,
+  deps: ReplaceDeps = {},
+): Promise<ReplacementResult> {
+  const containerResult = await replaceContainerSingle(args, deps)
+  if (containerResult.success) {
+    return containerResult
+  }
+
+  if (!shouldEscalateToPodReplace(containerResult.reason)) {
+    return containerResult
+  }
+
+  const podResult = await replacePod(
+    { ...args, escalationReason: containerResult.reason },
+    deps,
+  )
+
+  if (podResult.success) {
+    return {
+      success: true,
+      new_container_id: REMOTE_POD_NAME,
+      replacement_duration_ms: podResult.replacement_duration_ms,
+      escalated_to_pod: true,
+      pod_escalation_reason: podResult.escalation_reason,
+    }
+  }
+
+  return {
+    success: false,
+    reason: `pod_escalation_failed:${podResult.reason}`,
+    escalated_to_pod: true,
   }
 }
 
