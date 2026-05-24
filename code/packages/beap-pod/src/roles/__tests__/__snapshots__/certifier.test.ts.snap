@@ -1,0 +1,12 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildEdgeCertificate > certificate structure snapshot (dynamic fields stripped) 1`] = `
+{
+  "capsule_canonical_hash": "sha256:60a6fb44c40e9e7ddda5a4f0d878933677c01947e27f5d13fa29c777866eecca",
+  "edge_pod_id": "550e8400-e29b-41d4-a716-446655440000",
+  "package_hash": "sha256:1c27324f013705cbf0c49f3d3bb103c7069ed5988889d426c10cfc25684f0a31",
+  "sso_attestation": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0In0.stub",
+  "v": 1,
+  "validation_result_digest": "sha256:8daf09a6fc31937457dd77e9c25ce4b21349d605b561a8c5d557841bf964c9a0",
+}
+`;

@@ -84,6 +84,7 @@ export function sanitizeBeapBody(html: string): string {
 
 export interface DepackagerConfig {
   sealerBase?: string;
+  certifierBase?: string;
   version?: string;
   maxBodyBytes?: number;
   timeoutMs?: number;
@@ -128,7 +129,8 @@ async function readBody(
 
 function makeHandler(
   secret: string,
-  cfg: Required<Omit<DepackagerConfig, 'localMlkemSecretB64'>> & Pick<DepackagerConfig, 'localMlkemSecretB64'>,
+  cfg: Required<Omit<DepackagerConfig, 'localMlkemSecretB64' | 'certifierBase' | 'sealerBase'>> &
+    Pick<DepackagerConfig, 'localMlkemSecretB64' | 'certifierBase' | 'sealerBase'>,
 ): http.RequestListener {
   const authMiddleware = createPodAuthMiddleware(secret);
 
@@ -180,7 +182,11 @@ function makeHandler(
           }
 
           // ④ Parse envelope
-          let body: { validated: unknown; depackage_keys?: { x25519_priv_b64: string; mlkem_secret_b64?: string } };
+          let body: {
+            validated: unknown;
+            depackage_keys?: { x25519_priv_b64: string; mlkem_secret_b64?: string };
+            raw_package_bytes_b64?: string;
+          };
           try {
             body = JSON.parse(data.toString('utf8')) as typeof body;
           } catch {
@@ -265,34 +271,69 @@ function makeHandler(
             rawCapsuleJson: pipelineResult.capsulePlaintext,
           };
 
-          // ⑩ Forward to sealer; augment response with depackaged content
-          let sealerRes: Response;
+          // ⑩ Forward to sealer (LOCAL_HOST) or certifier (REMOTE_EDGE)
+          const certifierBase = cfg.certifierBase?.trim();
+          const useCertifier = Boolean(certifierBase && certifierBase.length > 0);
+
+          const canonicalCapsuleBytes = Buffer.from(JSON.stringify(validated['capsule']), 'utf8');
+          const canonicalValidationResultBytes = Buffer.from(JSON.stringify(validated), 'utf8');
+          const rawPackageBytesB64 =
+            typeof body.raw_package_bytes_b64 === 'string' && body.raw_package_bytes_b64.length > 0
+              ? body.raw_package_bytes_b64
+              : Buffer.from(JSON.stringify(capsule), 'utf8').toString('base64');
+
+          let downstreamRes: Response;
           try {
-            sealerRes = await cfg.authedFetch(`${cfg.sealerBase}/seal`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ depackaged }),
-              signal: controller.signal,
-            });
+            if (useCertifier) {
+              downstreamRes = await cfg.authedFetch(`${certifierBase}/certify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  depackaged,
+                  raw_package_bytes_b64: rawPackageBytesB64,
+                  canonical_capsule_bytes_b64: canonicalCapsuleBytes.toString('base64'),
+                  canonical_validation_result_bytes_b64: canonicalValidationResultBytes.toString('base64'),
+                }),
+                signal: controller.signal,
+              });
+            } else {
+              downstreamRes = await cfg.authedFetch(`${cfg.sealerBase}/seal`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ depackaged }),
+                signal: controller.signal,
+              });
+            }
           } catch (e) {
             if (timedOut) {
               sendJson(res, 504, { error: 'Depackager timeout', code: 'DEPACKAGER_TIMEOUT' });
             } else {
-              sendJson(res, 502, { error: 'Sealer unreachable' });
+              sendJson(res, 502, {
+                error: useCertifier ? 'Certifier unreachable' : 'Sealer unreachable',
+              });
             }
             return;
           }
 
-          if (!sealerRes.ok) {
-            const sealerText = await sealerRes.text();
-            res.writeHead(sealerRes.status, { 'Content-Type': 'application/json' });
-            res.end(sealerText);
+          if (!downstreamRes.ok) {
+            const downstreamText = await downstreamRes.text();
+            res.writeHead(downstreamRes.status, { 'Content-Type': 'application/json' });
+            res.end(downstreamText);
             return;
           }
 
-          // Merge sealer result with depackaged content so Electron can store both.
-          const sealerJson = (await sealerRes.json()) as Record<string, unknown>;
-          sendJson(res, 200, { ...sealerJson, depackaged });
+          const downstreamJson = (await downstreamRes.json()) as Record<string, unknown>;
+          if (useCertifier) {
+            sendJson(res, 200, {
+              ...downstreamJson,
+              depackaged,
+              depackaged_payload: depackaged,
+              edge_certificate:
+                downstreamJson['edge_certificate'] ?? downstreamJson['certificate'],
+            });
+          } else {
+            sendJson(res, 200, { ...downstreamJson, depackaged });
+          }
         } finally {
           clearTimeout(timeoutHandle);
         }
@@ -309,6 +350,11 @@ function makeHandler(
 // ── Public API ─────────────────────────────────────────────────────────────────
 
 export function createDepackagerServer(secret: string, config?: DepackagerConfig): http.Server {
+  const certifierBase =
+    config?.certifierBase ??
+    (process.env['POD_MODE'] === 'REMOTE_EDGE' ? process.env['CERTIFIER_BASE'] : undefined) ??
+    process.env['CERTIFIER_BASE'] ??
+    '';
   const sealerBase = config?.sealerBase ?? DEFAULT_SEALER_BASE;
   const version = config?.version ?? VERSION;
   const maxBodyBytes = config?.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
@@ -321,6 +367,7 @@ export function createDepackagerServer(secret: string, config?: DepackagerConfig
   return http.createServer(
     makeHandler(secret, {
       sealerBase,
+      certifierBase: certifierBase || undefined,
       version,
       maxBodyBytes,
       timeoutMs,

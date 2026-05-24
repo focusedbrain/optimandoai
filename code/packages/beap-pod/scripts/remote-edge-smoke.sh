@@ -41,7 +41,7 @@ log()  { echo "[remote-edge-smoke] $*"; }
 pass() { echo "[remote-edge-smoke] PASS: $*"; }
 fail() { echo "[remote-edge-smoke] FAIL: $*" >&2; exit 1; }
 todo_p34() {
-  echo "[remote-edge-smoke] TODO P3.4: certifier /certify not implemented yet — expected failure until P3.4 lands." >&2
+  echo "[remote-edge-smoke] TODO P3.4: expected edge_certificate missing from /ingest response." >&2
   exit 1
 }
 
@@ -146,45 +146,52 @@ for i in $(seq 1 45); do
   sleep 1
 done
 
-BODY_TEXT='{"subject":"remote-edge-smoke","body":"<p>Hello REMOTE_EDGE</p>"}'
-BODY_SHA256="$(echo -n "$BODY_TEXT" | openssl dgst -sha256 -hex | awk '{print $2}')"
-TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-PBEAP_JSON="$(cat <<ENDJSON
-{
-  "header": {
-    "capsule_type": "message_package",
-    "schema_version": 1,
-    "sender_key_id": "smoke-sender-remote",
-    "receiver_key_id": "smoke-receiver-remote",
-    "timestamp": "${TIMESTAMP}",
-    "transport_encoding": "pBEAP"
+log "Building pBEAP wire package for /ingest..."
+INGEST_PAYLOAD="$(cd "$REPO_ROOT" && node --input-type=module <<'EOF'
+const capsuleJson = JSON.stringify({
+  subject: 'remote-edge-smoke',
+  body: '<p>Hello REMOTE_EDGE</p>',
+  transport_plaintext: '',
+});
+const payloadB64 = Buffer.from(capsuleJson).toString('base64');
+const pkg = {
+  header: {
+    version: '1.0',
+    encoding: 'pBEAP',
+    sender_fingerprint: 'remote-edge-smoke-fp',
+    template_hash: 'd'.repeat(64),
+    policy_hash: 'e'.repeat(64),
+    content_hash: 'f'.repeat(64),
   },
-  "metadata": {
-    "client_version": "remote-edge-smoke",
-    "subject": "REMOTE_EDGE smoke test"
+  metadata: { created_at: Date.now() },
+  payload: payloadB64,
+  signature: {
+    signature: Buffer.alloc(64).toString('base64'),
+    algorithm: 'Ed25519',
+    keyId: 'smoke-key',
   },
-  "transport": {
-    "kind": "plaintext",
-    "body": ${BODY_TEXT},
-    "integrity": {
-      "sha256": "${BODY_SHA256}"
-    }
-  },
-  "payload": "",
-  "signature": { "value": "smoke-sig" }
-}
-ENDJSON
+};
+const bodyString = JSON.stringify(pkg);
+const dummyKey = Buffer.alloc(32, 1).toString('base64');
+process.stdout.write(
+  JSON.stringify({
+    body: bodyString,
+    source_type: 'api',
+    mime_type: 'application/json',
+    depackage_keys: { x25519_priv_b64: dummyKey },
+  }),
+);
+EOF
 )"
 
 RAW_BYTES_FILE="$TMPDIR_SMOKE/pbeap.raw.json"
-printf '%s' "$PBEAP_JSON" > "$RAW_BYTES_FILE"
+node -e "const fs=require('fs'); const p=JSON.parse(process.argv[1]); fs.writeFileSync(process.argv[2], p.body);" "$INGEST_PAYLOAD" "$RAW_BYTES_FILE"
 
 RESP_FILE="$TMPDIR_SMOKE/ingest-response.json"
 HTTP_CODE="$(curl -s -o "$RESP_FILE" -w "%{http_code}" \
   -X POST \
   -H "Content-Type: application/json" \
-  -d "$PBEAP_JSON" \
+  -d "$INGEST_PAYLOAD" \
   http://127.0.0.1:18100/ingest 2>/dev/null || echo 000)"
 INGEST_RESP="$(cat "$RESP_FILE" 2>/dev/null || echo '')"
 log "/ingest HTTP $HTTP_CODE → ${INGEST_RESP:0:400}..."
@@ -192,10 +199,12 @@ log "/ingest HTTP $HTTP_CODE → ${INGEST_RESP:0:400}..."
 if [ "$HTTP_CODE" -ge 500 ] 2>/dev/null; then
   log "Container logs:"
   podman pod logs --names "$POD_NAME" 2>/dev/null | tail -60 || true
-  fail "/ingest returned 5xx ($HTTP_CODE) — certifier stub may have crashed the pipeline"
+  fail "/ingest returned 5xx ($HTTP_CODE) — check pod logs"
 fi
 
 if ! echo "$INGEST_RESP" | grep -qE '"edge_certificate"|"certificate"'; then
+  log "Container logs:"
+  podman pod logs --names "$POD_NAME" 2>/dev/null | tail -60 || true
   todo_p34
 fi
 

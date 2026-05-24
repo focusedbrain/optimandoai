@@ -229,6 +229,7 @@ function makeHandler(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             candidate,
+            raw_package_bytes_b64: Buffer.from(parsed.body, 'utf8').toString('base64'),
             ...(parsed.depackage_keys ? { depackage_keys: parsed.depackage_keys } : {}),
           }),
           signal: controller.signal,

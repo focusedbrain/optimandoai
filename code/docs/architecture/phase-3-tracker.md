@@ -15,7 +15,7 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - [x] **P3.1** — Certificate format library (`@repo/beap-cert`: types, canonical serialization, Ed25519 sign/verify, hash helpers)
 - [x] **P3.2** — Certifier and verifier role stubs + dispatcher routing (real `/certify` and `/verify-cert` in P3.4 and P3.6)
 - [x] **P3.3** — REMOTE_EDGE pod manifest (ingestor → validator → depackager → certifier; no sealer; uid 10104 certifier)
-- [ ] **P3.4** — Certifier role `/certify` HTTP server (Ed25519 signing; env validation; depackager → certifier routing)
+- [x] **P3.4** — Certifier role `/certify` HTTP server (Ed25519 signing; env validation; depackager → certifier routing)
 - [ ] **P3.5** — Keycloak attestation flow (`sso_attestation` JWT; resolve Decision 6)
 - [ ] **P3.6** — Verifier role container (`/verify-cert` on LOCAL_VERIFY)
 - [ ] **P3.7** — LOCAL_VERIFY pod manifest (ingestor → verifier → validator → depackager → sealer)
@@ -33,7 +33,7 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 | P3.1 | ✅ done | P3.1: beap-cert library for certificate format and signing |
 | P3.2 | ✅ done | P3.2: add certifier and verifier role stubs to dispatcher |
 | P3.3 | ✅ done | P3.3: REMOTE_EDGE pod manifest (no sealer; certifier holds Ed25519 key) |
-| P3.4 | ⬜ pending | — |
+| P3.4 | ✅ done | P3.4: certifier role container with Ed25519 signing |
 | P3.5 | ⬜ pending | — |
 | P3.6 | ⬜ pending | — |
 | P3.7 | ⬜ pending | — |
@@ -99,3 +99,11 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - **Containerfile:** unchanged (single image uid 10100; per-role uids in manifest only).
 - **Smoke:** `scripts/remote-edge-smoke.sh` — dry-run, keygen, stub JWT, ingest POST, cert verify via `@repo/beap-cert`; exits with `TODO P3.4` until certifier HTTP lands.
 - **README:** new §"Running a REMOTE_EDGE pod" with manual secret generation and `podman play kube` command.
+
+### P3.4
+
+- **`certifier.ts`:** Full HTTP server on :18104 — POST `/certify` (X-Pod-Auth), GET `/health`, GET `/ready`. Loads `EDGE_PRIVATE_KEY_HEX`, `EDGE_POD_ID`, `SSO_ATTESTATION_JWT`, `CERT_TTL_SECONDS` at startup; zeroes private-key env var after decode. Signs via `@repo/beap-cert.signCertificate`. Returns `{ depackaged_payload, edge_certificate, certificate }`. No SSO JWT verification (P3.6). No outbound network.
+- **Pipeline wiring:** Ingestor passes `raw_package_bytes_b64`; validator forwards to depackager; depackager routes to `/certify` when `CERTIFIER_BASE` or `POD_MODE=REMOTE_EDGE` is set.
+- **Containerfile:** builds and copies `@repo/beap-cert`.
+- **Tests:** 15 certifier tests (happy path, dual-sign timestamps, 401, startup exit 1, snapshot, log safety). Full beap-pod suite: 88 pass.
+- **Smoke:** `remote-edge-smoke.sh` updated with valid pBEAP wire ingest envelope; expects `edge_certificate` in response (Linux/podman).

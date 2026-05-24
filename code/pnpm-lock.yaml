@@ -337,6 +337,9 @@ importers:
       '@noble/post-quantum':
         specifier: ^0.2.1
         version: 0.2.1
+      '@repo/beap-cert':
+        specifier: workspace:*
+        version: link:../beap-cert
       '@repo/ingestion-core':
         specifier: workspace:*
         version: link:../ingestion-core

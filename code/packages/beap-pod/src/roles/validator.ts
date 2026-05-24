@@ -153,7 +153,11 @@ function makeHandler(
       }
 
       // ③ Parse envelope
-      let parsed: { candidate: unknown; depackage_keys?: { x25519_priv_b64: string; mlkem_secret_b64?: string } };
+      let parsed: {
+        candidate: unknown;
+        depackage_keys?: { x25519_priv_b64: string; mlkem_secret_b64?: string };
+        raw_package_bytes_b64?: string;
+      };
       try {
         parsed = JSON.parse(data.toString('utf8')) as typeof parsed;
       } catch {
@@ -217,6 +221,9 @@ function makeHandler(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               validated,
+              ...(parsed.raw_package_bytes_b64
+                ? { raw_package_bytes_b64: parsed.raw_package_bytes_b64 }
+                : {}),
               ...(parsed.depackage_keys ? { depackage_keys: parsed.depackage_keys } : {}),
             }),
           });
