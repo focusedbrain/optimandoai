@@ -215,7 +215,51 @@ interface IntegrityBridge {
 interface EdgeTierBridge {
   getStatus: () => Promise<Record<string, unknown>>
   getVerifications: (limit?: number) => Promise<Array<Record<string, unknown>>>
+  getLocalPodRequirement?: () => Promise<{ ok: boolean; message: string | null }>
   onVerificationsUpdated?: (handler: () => void) => () => void
+}
+
+interface WizardBridge {
+  getState: () => Promise<Record<string, unknown>>
+  reset: () => Promise<Record<string, unknown>>
+  authenticate: () => Promise<{
+    ok: boolean
+    plan?: string
+    sub?: string
+    error?: string
+    state: Record<string, unknown>
+  }>
+  setVmCredentials: (input: {
+    host: string
+    port?: number
+    user: string
+    key: string
+    passphrase?: string
+  }) => Promise<{ state: Record<string, unknown> }>
+  setReplicaCount: (count: number) => Promise<{ state: Record<string, unknown> }>
+  probe: () => Promise<{ probe: Record<string, unknown>; state: Record<string, unknown> }>
+  installPodman: (input: {
+    operationId: string
+    probe: Record<string, unknown>
+  }) => Promise<{ ok: boolean; state: Record<string, unknown> }>
+  generateAndDeploy: (input: {
+    operationId: string
+    replicaIndex: number
+    totalReplicas: number
+  }) => Promise<{ ok: boolean; state: Record<string, unknown> }>
+  verifyAndSwitch: (input: { replicaIndex: number }) => Promise<{
+    verified: boolean
+    reason?: string
+    state: Record<string, unknown>
+  }>
+  cancel: (operationId: string) => Promise<{ cancelled: boolean }>
+  getLocalPodRequirement?: () => Promise<{ ok: boolean; message: string | null }>
+  onInstallPodmanProgress?: (
+    handler: (payload: { operationId: string; event: Record<string, unknown> }) => void,
+  ) => () => void
+  onGenerateAndDeployProgress?: (
+    handler: (payload: { operationId: string; event: Record<string, unknown> }) => void,
+  ) => () => void
 }
 
 /** Ollama status payload from `ollamaManager.getStatus()` / `llm:getStatus`. */
@@ -385,6 +429,7 @@ interface Window {
   appShell?: AppShellBridge
   integrity?: IntegrityBridge
   edgeTier?: EdgeTierBridge
+  wizard?: WizardBridge
   debugLogs?: DebugLogsBridge
   orchestrator?: OrchestratorBridge
   beap?: BeapBridge

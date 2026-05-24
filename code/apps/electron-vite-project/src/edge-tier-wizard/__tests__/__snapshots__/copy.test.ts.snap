@@ -1,0 +1,7 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`wizard copy snapshots > STEP2_VM_HELP matches snapshot 1`] = `"Provide any Linux VPS you have root SSH access to. We don't store provider credentials. We don't recommend a host. Common choices include cloud providers (AWS, Azure, DigitalOcean, GCP, Hetzner, Linode, OVH, Vultr) and self-hosted servers. Use whichever you trust."`;
+
+exports[`wizard copy snapshots > STEP4 replica help matches snapshot 1`] = `"Each replica is an independent edge pod on its own VM. If one is attacked or down, the others keep validating. Most users pick 2."`;
+
+exports[`wizard copy snapshots > STEP4 replica help matches snapshot 2`] = `"If you choose more than one replica, you will provide VM credentials and prepare each host separately. Replicas do not need to share a provider or region."`;

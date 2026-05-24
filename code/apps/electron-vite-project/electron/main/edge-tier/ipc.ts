@@ -5,6 +5,7 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { getEdgeTierStatusSnapshot } from './status.js'
 import { getRecentEdgeVerifications } from './verificationAudit.js'
+import { getLocalPodSetupError } from '../local-pod/index.js'
 
 export function registerEdgeTierIpcHandlers(): void {
   ipcMain.handle('edge-tier:get-status', async () => {
@@ -16,7 +17,12 @@ export function registerEdgeTierIpcHandlers(): void {
     return getRecentEdgeVerifications(n)
   })
 
-  console.log('[MAIN] IPC handlers registered: edge-tier:get-status, edge-tier:get-verifications')
+  ipcMain.handle('edge-tier:get-local-pod-requirement', async () => {
+    const err = getLocalPodSetupError()
+    return { ok: !err, message: err?.userMessage ?? null }
+  })
+
+  console.log('[MAIN] IPC handlers registered: edge-tier:get-status, edge-tier:get-verifications, edge-tier:get-local-pod-requirement')
 }
 
 export function notifyEdgeVerificationsUpdated(): void {

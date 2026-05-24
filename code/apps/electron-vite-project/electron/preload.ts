@@ -1541,10 +1541,58 @@ contextBridge.exposeInMainWorld('integrity', {
 contextBridge.exposeInMainWorld('edgeTier', {
   getStatus: () => ipcRenderer.invoke('edge-tier:get-status'),
   getVerifications: (limit?: number) => ipcRenderer.invoke('edge-tier:get-verifications', limit),
+  getLocalPodRequirement: () =>
+    ipcRenderer.invoke('edge-tier:get-local-pod-requirement') as Promise<{
+      ok: boolean
+      message: string | null
+    }>,
   onVerificationsUpdated: (handler: () => void) => {
     const fn = () => handler()
     ipcRenderer.on('edge-tier:verifications-updated', fn)
     return () => ipcRenderer.removeListener('edge-tier:verifications-updated', fn)
+  },
+})
+
+contextBridge.exposeInMainWorld('wizard', {
+  getState: () => ipcRenderer.invoke('wizard:getState'),
+  reset: () => ipcRenderer.invoke('wizard:reset'),
+  authenticate: () => ipcRenderer.invoke('wizard:authenticate'),
+  setVmCredentials: (input: Record<string, unknown>) =>
+    ipcRenderer.invoke('wizard:setVmCredentials', input),
+  setReplicaCount: (count: number) => ipcRenderer.invoke('wizard:setReplicaCount', count),
+  probe: () => ipcRenderer.invoke('wizard:probe'),
+  installPodman: (input: { operationId: string; probe: unknown }) =>
+    ipcRenderer.invoke('wizard:installPodman', input),
+  generateAndDeploy: (input: {
+    operationId: string
+    replicaIndex: number
+    totalReplicas: number
+  }) => ipcRenderer.invoke('wizard:generateAndDeploy', input),
+  verifyAndSwitch: (input: { replicaIndex: number }) =>
+    ipcRenderer.invoke('wizard:verifyAndSwitch', input),
+  cancel: (operationId: string) => ipcRenderer.invoke('wizard:cancel', operationId),
+  getLocalPodRequirement: () =>
+    ipcRenderer.invoke('edge-tier:get-local-pod-requirement') as Promise<{
+      ok: boolean
+      message: string | null
+    }>,
+  onInstallPodmanProgress: (
+    handler: (payload: { operationId: string; event: Record<string, unknown> }) => void,
+  ) => {
+    const fn = (_e: Electron.IpcRendererEvent, payload: unknown) => {
+      if (payload && typeof payload === 'object') handler(payload as { operationId: string; event: Record<string, unknown> })
+    }
+    ipcRenderer.on('wizard:installPodman-progress', fn)
+    return () => ipcRenderer.removeListener('wizard:installPodman-progress', fn)
+  },
+  onGenerateAndDeployProgress: (
+    handler: (payload: { operationId: string; event: Record<string, unknown> }) => void,
+  ) => {
+    const fn = (_e: Electron.IpcRendererEvent, payload: unknown) => {
+      if (payload && typeof payload === 'object') handler(payload as { operationId: string; event: Record<string, unknown> })
+    }
+    ipcRenderer.on('wizard:generateAndDeploy-progress', fn)
+    return () => ipcRenderer.removeListener('wizard:generateAndDeploy-progress', fn)
   },
 })
 

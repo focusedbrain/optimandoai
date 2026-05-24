@@ -7,6 +7,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
+import { EdgeTierWizardModal } from '../edge-tier-wizard/index.js'
+
 export interface EdgeVerificationRow {
   timestamp: string
   edge_pod_id: string
@@ -38,6 +40,7 @@ export interface EdgeTierAdminPanelFormProps {
   verifications: EdgeVerificationRow[]
   loading?: boolean
   error?: string | null
+  onSetupEdgeTier?: () => void
 }
 
 function formatTs(iso: string | undefined | null): string {
@@ -62,6 +65,7 @@ export function EdgeTierAdminPanelForm({
   verifications,
   loading,
   error,
+  onSetupEdgeTier,
 }: EdgeTierAdminPanelFormProps) {
   return (
     <div
@@ -72,7 +76,27 @@ export function EdgeTierAdminPanelForm({
         color: '#e2e8f0',
       }}
     >
-      <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13 }}>Edge tier status</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ fontWeight: 700, fontSize: 13 }}>Edge tier status</div>
+        {onSetupEdgeTier && (
+          <button
+            type="button"
+            data-testid="edge-tier-setup-button"
+            onClick={onSetupEdgeTier}
+            style={{
+              padding: '4px 10px',
+              fontSize: 11,
+              borderRadius: 6,
+              border: '1px solid #6366f1',
+              background: '#312e81',
+              color: '#e0e7ff',
+              cursor: 'pointer',
+            }}
+          >
+            Set up edge tier
+          </button>
+        )}
+      </div>
       {loading && <div style={{ color: '#94a3b8', marginBottom: 8 }}>Loading…</div>}
       {error && <div style={{ color: '#ef4444', marginBottom: 8 }}>{error}</div>}
       {status && (
@@ -166,7 +190,7 @@ export function EdgeTierAdminPanelForm({
       )}
       <p style={{ marginTop: 12, fontSize: 10, color: '#64748b', lineHeight: 1.4 }}>
         Read-only audit trail sourced from the LOCAL_VERIFY verifier container. Each row is one
-        /verify-cert check (shallow before validation, deep after). Phase 4 adds the setup wizard.
+        /verify-cert check (shallow before validation, deep after).
       </p>
     </div>
   )
@@ -174,6 +198,7 @@ export function EdgeTierAdminPanelForm({
 
 export function EdgeTierAdminPanel() {
   const [open, setOpen] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(false)
   const [status, setStatus] = useState<EdgeTierStatusView | null>(null)
   const [verifications, setVerifications] = useState<EdgeVerificationRow[]>([])
   const [loading, setLoading] = useState(false)
@@ -212,6 +237,7 @@ export function EdgeTierAdminPanel() {
 
   return (
     <>
+      <EdgeTierWizardModal open={wizardOpen} onClose={() => setWizardOpen(false)} />
       <button
         type="button"
         data-testid="edge-tier-admin-toggle"
@@ -255,6 +281,7 @@ export function EdgeTierAdminPanel() {
             verifications={verifications}
             loading={loading}
             error={error}
+            onSetupEdgeTier={() => setWizardOpen(true)}
           />
         </div>
       )}

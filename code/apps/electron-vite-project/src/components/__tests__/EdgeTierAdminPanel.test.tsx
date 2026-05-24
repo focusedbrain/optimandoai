@@ -69,4 +69,16 @@ describe('EdgeTierAdminPanelForm', () => {
     )
     expect(html).toContain('No verification events recorded yet')
   })
+
+  it('renders setup button when handler provided', () => {
+    const html = renderToStaticMarkup(
+      <EdgeTierAdminPanelForm
+        status={sampleStatus}
+        verifications={[]}
+        onSetupEdgeTier={() => undefined}
+      />,
+    )
+    expect(html).toContain('edge-tier-setup-button')
+    expect(html).toContain('Set up edge tier')
+  })
 })

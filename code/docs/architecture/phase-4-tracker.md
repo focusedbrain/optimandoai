@@ -28,12 +28,9 @@ P3.8 building blocks: `apps/electron-vite-project/scripts/edge-cli.ts`, `apps/el
 - [x] **P4.2** — Remote Podman installer (distro-native apt/dnf/yum, idempotent, structured install events)
 - [x] **P4.3** — Remote pod deployer (ephemeral key delivery via env, health poll, rollback on failure)
 - [x] **P4.4** — Wizard state machine + IPC handlers (six steps, streaming progress, AbortSignal cancel)
-- [ ] **P4.5** — Wizard UI (six steps, live log panels; no provider integration)
-- [ ] **P4.6** — Step 4 replica count UI + per-replica VM credential loop
-- [ ] **P4.7** — Step 5–6 deploy + verify UI wiring (live deploy log; uses P4.3 deployer)
-- [ ] **P4.8** — Step 6 verify and switch over (synthetic BEAP through edge, enable `edge_tier`)
-- [ ] **P4.9** — Status dashboard (replica list, health, per-replica actions, rotation, verification log)
-- [ ] **P4.10** — Phase 4 verification pass + manual test documentation
+- [x] **P4.5** — Wizard UI (six-step flow, live log panels, provider-agnostic copy)
+- [ ] **P4.6** — Status dashboard (replica list, health, per-replica actions, rotation, verification log; extends Phase 3 dev panel)
+- [ ] **P4.7** — Phase 4 verification pass + manual test documentation
 
 ---
 
@@ -46,12 +43,9 @@ P3.8 building blocks: `apps/electron-vite-project/scripts/edge-cli.ts`, `apps/el
 | P4.2 | ✅ done | P4.2: Remote Podman installer |
 | P4.3 | ✅ done | P4.3: Remote pod deployer with ephemeral key delivery |
 | P4.4 | ✅ done | P4.4: wizard state machine and IPC handlers |
-| P4.5 | ⬜ pending | — |
+| P4.5 | ✅ done | P4.5: wizard UI for six-step flow |
 | P4.6 | ⬜ pending | — |
 | P4.7 | ⬜ pending | — |
-| P4.8 | ⬜ pending | — |
-| P4.9 | ⬜ pending | — |
-| P4.10 | ⬜ pending | — |
 
 ---
 
@@ -71,12 +65,12 @@ A paid user with a **Linux VPS they brought themselves** can deploy an edge repl
 | --- | --- |
 | Step 1 — Re-authenticate | P4.4 (IPC), P4.5 (UI) |
 | Step 2 — Provide the VM | P4.5 (UI) |
-| Step 3 — Probe and prepare | P4.1, P4.2, P4.4 (IPC), P4.5 (UI) |
-| Step 4 — Replica count | P4.5–P4.6 (UI) |
-| Step 5 — Generate identity and deploy | P4.3 (deployer), P4.4 (IPC), P4.7 (UI) |
-| Step 6 — Verify and switch over | P4.4 (IPC), P4.8 |
-| §4.2 Status dashboard | P4.9 |
-| End-of-phase verification | P4.10 |
+| Step 3 — Probe and prepare | P4.1, P4.2, P4.4 (IPC), P4.5 (UI + live install log) |
+| Step 4 — Replica count | P4.5 (UI) |
+| Step 5 — Generate identity and deploy | P4.3 (deployer), P4.4 (IPC), P4.5 (UI + live deploy log) |
+| Step 6 — Verify and switch over | P4.4 (IPC), P4.5 (UI) |
+| §4.2 Status dashboard | P4.6 |
+| End-of-phase verification | P4.7 |
 
 ---
 
@@ -86,9 +80,8 @@ A paid user with a **Linux VPS they brought themselves** can deploy an edge repl
 
 ### P4.0
 
-- Step titles P4.1–P4.10 derived from strategy §4 (SSH module, Podman installer, remote deployer, wizard backend + UI, dashboard, verification). Titles may be refined when individual prompts are run; deviations will be noted here.
-- Phase 3 `edge-cli.ts` is the reference implementation for deploy flows until P4.7 wizard UI calls `wizard:generateAndDeploy`.
-- Phase 3 dev UI (`EdgeTierAdminPanel.tsx`) is read-only; P4.9 promotes it to the full status dashboard per §4.2.
+- Step titles P4.1–P4.7 derived from strategy §4 (SSH module, Podman installer, remote deployer, wizard backend + UI, dashboard, verification). Titles may be refined when individual prompts are run; deviations will be noted here.
+- Phase 3 dev UI (`EdgeTierAdminPanel.tsx`) is read-only; P4.6 promotes it to the full status dashboard per §4.2.
 - Supported distros at launch: Debian/Ubuntu/Fedora/RHEL family (strategy §9 decision #4). Probe via `/etc/os-release` over SSH.
 
 ### P4.1
@@ -125,3 +118,11 @@ A paid user with a **Linux VPS they brought themselves** can deploy an edge repl
 - **Cancel:** `wizard:cancel` aborts long-running install/deploy; deploy teardown runs on cancel.
 - **Verify:** synthetic edge→local via `@repo/pod-client` edge routing; enables `edge_tier` on success (`verify.ts`).
 - **Tests:** 19 pass in `wizard/__tests__/` (state machine, handler delegation, cancellation, secret leak guards).
+
+### P4.5
+
+- **Module:** `src/edge-tier-wizard/` — `WizardShell.tsx` + six step components + `LiveLogPanel.tsx`.
+- **Entry:** "Set up edge tier" button in `EdgeTierAdminPanelForm`.
+- **Preload:** `window.wizard` bridge (invoke + install/deploy progress listeners); `edge-tier:get-local-pod-requirement` gate at wizard entry.
+- **Copy:** provider names only in `copy.ts` STEP2 help (alphabetized illustrative list); snapshot + grep guard tests.
+- **Tests:** 13 pass in renderer (`edge-tier-wizard/__tests__/` + updated `EdgeTierAdminPanel.test.tsx`).
