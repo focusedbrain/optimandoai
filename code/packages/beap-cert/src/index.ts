@@ -5,7 +5,27 @@
  * Pure crypto + serialization — no HTTP, no key storage, no SSO attestation checks.
  */
 
-export { canonicalizeForSigning } from './canonical.js';
+export { canonicalizeForSigning, canonicalizeStableJson } from './canonical.js';
+export {
+  buildMessageUnderProcessing,
+  filterEnvelopeFrom,
+  filterEnvelopeSubject,
+  filterEnvelopeTo,
+  signDiagnosticReport,
+  UNSAFE_ENVELOPE_PLACEHOLDER,
+  verifyDiagnosticReport,
+} from './diagnosticReport.js';
+export type {
+  DiagnosticContainerRole,
+  DiagnosticExceptionKind,
+  DiagnosticReportFailure,
+  DiagnosticReportMessageUnderProcessing,
+  DiagnosticReportSystemMetrics,
+  DiagnosticReportV1,
+  DiagnosticStage,
+  UnsignedDiagnosticReportV1,
+  VerifyDiagnosticReportResult,
+} from './diagnosticReport.js';
 export { bytesToHex, formatEdgeSignature, parseEdgeSignature } from './encoding.js';
 export {
   capsuleCanonicalHash,
