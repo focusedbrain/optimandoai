@@ -1,4 +1,5 @@
 import { FallbackPolicySettings } from './FallbackPolicySettings.js'
+import { KnownHostsSettings } from './KnownHostsSettings.js'
 import type { DashboardFallbackPolicy } from './types.js'
 
 export interface GlobalActionsPanelProps {
@@ -68,6 +69,7 @@ export function GlobalActionsPanel({
         onChange={onFallbackPolicyChange}
         disabled={policySaving}
       />
+      <KnownHostsSettings disabled={policySaving} />
     </section>
   )
 }

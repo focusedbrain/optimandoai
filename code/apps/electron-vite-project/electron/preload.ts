@@ -1567,6 +1567,9 @@ contextBridge.exposeInMainWorld('edgeTier', {
     ipcRenderer.on('edge-tier:verifications-updated', fn)
     return () => ipcRenderer.removeListener('edge-tier:verifications-updated', fn)
   },
+  listKnownHosts: () => ipcRenderer.invoke('edge-tier:list-known-hosts'),
+  removeKnownHost: (input: { host: string; port: number }) =>
+    ipcRenderer.invoke('edge-tier:remove-known-host', input) as Promise<{ ok: boolean }>,
 })
 
 contextBridge.exposeInMainWorld('dashboard', {

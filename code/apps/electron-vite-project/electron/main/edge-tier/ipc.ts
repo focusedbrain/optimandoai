@@ -15,6 +15,10 @@ import { initReplicaActionIpc, registerReplicaActionIpcHandlers } from './replic
 import { initGlobalActionIpc, registerGlobalActionIpcHandlers } from './globalActionsIpc.js'
 import { initRebootRecovery, startRebootRecoveryPolling } from './rebootRecovery.js'
 import type { EdgeTierPodVault } from './podLifecycle.js'
+import {
+  listKnownHostFingerprints,
+  removeFingerprint,
+} from './ssh/hostKeyStore.js'
 
 export function initEdgeTierIpc(vault: EdgeTierPodVault): void {
   initReplicaActionIpc(vault)
@@ -51,7 +55,25 @@ export function registerEdgeTierIpcHandlers(): void {
     return { ok: !err, message: err?.userMessage ?? null }
   })
 
-  console.log('[MAIN] IPC handlers registered: edge-tier:get-status, edge-tier:get-verifications, edge-tier:get-local-pod-requirement')
+  ipcMain.handle('edge-tier:list-known-hosts', async () => {
+    return listKnownHostFingerprints()
+  })
+
+  ipcMain.handle('edge-tier:remove-known-host', async (_event, raw: unknown) => {
+    if (typeof raw !== 'object' || raw === null) {
+      throw new Error('Invalid remove-known-host input')
+    }
+    const o = raw as Record<string, unknown>
+    if (typeof o.host !== 'string' || typeof o.port !== 'number') {
+      throw new Error('host and port are required')
+    }
+    const removed = removeFingerprint(o.host, o.port)
+    return { ok: removed }
+  })
+
+  console.log(
+    '[MAIN] IPC handlers registered: edge-tier:get-status, edge-tier:get-verifications, edge-tier:get-local-pod-requirement, edge-tier:list-known-hosts, edge-tier:remove-known-host',
+  )
 }
 
 export function notifyEdgeVerificationsUpdated(): void {

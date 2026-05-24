@@ -217,6 +217,17 @@ interface EdgeTierBridge {
   getVerifications: (limit?: number) => Promise<Array<Record<string, unknown>>>
   getLocalPodRequirement?: () => Promise<{ ok: boolean; message: string | null }>
   onVerificationsUpdated?: (handler: () => void) => () => void
+  listKnownHosts?: () => Promise<
+    Array<{
+      host: string
+      port: number
+      key_type: string
+      fingerprint_sha256: string
+      first_seen: string
+      last_verified: string
+    }>
+  >
+  removeKnownHost?: (input: { host: string; port: number }) => Promise<{ ok: boolean }>
 }
 
 interface DashboardBridge {

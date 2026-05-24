@@ -10,7 +10,8 @@ import type { ReplicaStatus } from '../../edge-tier-dashboard/types.js'
 import type { ReplicaActionKind } from '../../edge-tier-dashboard/replicaActions.js'
 import type { SshKeyEntryFormValues } from '../../edge-tier-dashboard/SshKeyEntryForm.js'
 import type { LogEvent } from '../../edge-tier-wizard/types.js'
-import { healthColor, healthLabel } from '../../edge-tier-dashboard/format.js'
+import { HostKeyMismatchModal } from '../../edge-tier-dashboard/HostKeyMismatchModal.js'
+import { extractHostKeyMismatch, type HostKeyMismatchPayload } from '../../edge-tier-dashboard/hostKeyMismatchTypes.js'
 import {
   EDGE_INGESTOR_ADD_BUTTON,
   EDGE_INGESTOR_EMPTY_HINT,
@@ -87,6 +88,11 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
   const [actionRunning, setActionRunning] = useState(false)
   const [actionLogs, setActionLogs] = useState<LogEvent[]>([])
   const [actionError, setActionError] = useState<string | null>(null)
+  const [hostKeyMismatch, setHostKeyMismatch] = useState<{
+    payload: HostKeyMismatchPayload
+    retry: () => Promise<void>
+  } | null>(null)
+  const [hostKeyTrustBusy, setHostKeyTrustBusy] = useState(false)
   const progressUnsubRef = useRef<(() => void) | null>(null)
 
   const refreshReplicas = useCallback(async () => {
@@ -179,6 +185,14 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
             break
         }
         if (!result.ok) {
+          const mismatch = extractHostKeyMismatch(result)
+          if (mismatch) {
+            setHostKeyMismatch({
+              payload: mismatch,
+              retry: async () => runReplicaAction(values),
+            })
+            return
+          }
           setActionError(result.error ?? 'Action failed')
           return
         }
@@ -220,6 +234,24 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
     setWizardOpen(false)
     void refreshReplicas()
   }
+
+  const handleTrustHostKey = useCallback(async () => {
+    if (!hostKeyMismatch) return
+    setHostKeyTrustBusy(true)
+    try {
+      await window.edgeTier?.removeKnownHost?.({
+        host: hostKeyMismatch.payload.host,
+        port: hostKeyMismatch.payload.port,
+      })
+      const retry = hostKeyMismatch.retry
+      setHostKeyMismatch(null)
+      await retry()
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setHostKeyTrustBusy(false)
+    }
+  }, [hostKeyMismatch])
 
   return (
     <>
@@ -428,6 +460,15 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
       ) : null}
 
       <EdgeTierWizardModal open={wizardOpen} onClose={handleWizardClose} />
+
+      {hostKeyMismatch ? (
+        <HostKeyMismatchModal
+          payload={hostKeyMismatch.payload}
+          busy={hostKeyTrustBusy}
+          onTrustNewKey={() => void handleTrustHostKey()}
+          onCancel={() => setHostKeyMismatch(null)}
+        />
+      ) : null}
     </>
   )
 }

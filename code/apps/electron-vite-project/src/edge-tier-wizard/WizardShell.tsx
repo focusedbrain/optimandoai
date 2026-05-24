@@ -24,6 +24,8 @@ import { StepGenerateAndDeploy } from './steps/StepGenerateAndDeploy.js'
 import { StepVerifyAndSwitch } from './steps/StepVerifyAndSwitch.js'
 import type { NativeBeapRoutingOption } from './copy/nativeBeapRoutingCopy.js'
 import { StepFinale } from './steps/StepFinale.js'
+import { HostKeyMismatchModal } from '../edge-tier-dashboard/HostKeyMismatchModal.js'
+import { extractHostKeyMismatch, type HostKeyMismatchPayload } from '../edge-tier-dashboard/hostKeyMismatchTypes.js'
 
 export interface WizardShellProps {
   onClose: () => void
@@ -119,6 +121,11 @@ export function WizardShell({
   const [verifyResult, setVerifyResult] = useState<boolean | null>(null)
   const [verifyReason, setVerifyReason] = useState<string | undefined>()
   const [currentTier, setCurrentTier] = useState<string>('free')
+  const [hostKeyMismatch, setHostKeyMismatch] = useState<{
+    payload: HostKeyMismatchPayload
+    retry: () => Promise<void>
+  } | null>(null)
+  const [hostKeyTrustBusy, setHostKeyTrustBusy] = useState(false)
   const [waitingForUpgrade, setWaitingForUpgrade] = useState(false)
 
   const operationIdRef = useRef<string | null>(null)
@@ -298,8 +305,17 @@ export function WizardShell({
       const w = ensureWizard()
       setProbing(true)
       setLocalError(null)
-      const { state: next } = await w.probe()
-      syncState(next)
+      const result = await w.probe()
+      const mismatch = extractHostKeyMismatch(result)
+      if (mismatch) {
+        setHostKeyMismatch({
+          payload: mismatch,
+          retry: handleProbe,
+        })
+        if (result.state) syncState(result.state as WizardPublicState)
+        return
+      }
+      if (result.state) syncState(result.state as WizardPublicState)
     } catch (err) {
       setLocalError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -425,6 +441,24 @@ export function WizardShell({
   const progressIdx = useMemo(() => (state ? stepIndex(state.step) : 0), [state])
 
   const stepError = localError ?? state?.error?.message ?? null
+
+  const handleTrustHostKey = useCallback(async () => {
+    if (!hostKeyMismatch) return
+    setHostKeyTrustBusy(true)
+    try {
+      await window.edgeTier.removeKnownHost({
+        host: hostKeyMismatch.payload.host,
+        port: hostKeyMismatch.payload.port,
+      })
+      const retry = hostKeyMismatch.retry
+      setHostKeyMismatch(null)
+      await retry()
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setHostKeyTrustBusy(false)
+    }
+  }, [hostKeyMismatch])
 
   return (
     <div style={wizardOverlayStyle} data-testid="edge-tier-wizard">
@@ -592,6 +626,14 @@ export function WizardShell({
           </>
         )}
       </div>
+      {hostKeyMismatch && (
+        <HostKeyMismatchModal
+          payload={hostKeyMismatch.payload}
+          busy={hostKeyTrustBusy}
+          onTrustNewKey={() => void handleTrustHostKey()}
+          onCancel={() => setHostKeyMismatch(null)}
+        />
+      )}
     </div>
   )
 }

@@ -6,6 +6,8 @@ import { VerificationsList } from './VerificationsList.js'
 import { ReplicaDetail } from './ReplicaDetail.js'
 import { ReplicaActionModal } from './ReplicaActionModal.js'
 import { LastReplicaPrompt } from './LastReplicaPrompt.js'
+import { HostKeyMismatchModal } from './HostKeyMismatchModal.js'
+import { extractHostKeyMismatch, type HostKeyMismatchPayload } from './hostKeyMismatchTypes.js'
 import type { SshKeyEntryFormValues } from './SshKeyEntryForm.js'
 import { GlobalActionsPanel } from './GlobalActionsPanel.js'
 import { RotateKeysModal } from './RotateKeysModal.js'
@@ -197,6 +199,11 @@ export function DashboardShell() {
     completed_replica_ids: string[]
   } | null>(null)
   const [policySaving, setPolicySaving] = useState(false)
+  const [hostKeyMismatch, setHostKeyMismatch] = useState<{
+    payload: HostKeyMismatchPayload
+    retry: () => Promise<void>
+  } | null>(null)
+  const [hostKeyTrustBusy, setHostKeyTrustBusy] = useState(false)
   const progressUnsubRef = useRef<(() => void) | null>(null)
   const globalProgressUnsubRef = useRef<(() => void) | null>(null)
 
@@ -316,6 +323,14 @@ export function DashboardShell() {
             break
         }
         if (!result.ok) {
+          const mismatch = extractHostKeyMismatch(result)
+          if (mismatch) {
+            setHostKeyMismatch({
+              payload: mismatch,
+              retry: async () => runReplicaAction(values),
+            })
+            return
+          }
           setActionError(result.error ?? 'Action failed')
           return
         }
@@ -406,6 +421,14 @@ export function DashboardShell() {
           passphrase: values.passphrase.trim() || undefined,
         })
         if (!result.ok) {
+          const mismatch = extractHostKeyMismatch(result)
+          if (mismatch) {
+            setHostKeyMismatch({
+              payload: mismatch,
+              retry: async () => runRotateAllKeys(values),
+            })
+            return
+          }
           setRotateError(result.error ?? 'Rotation failed')
           if (result.partial_failure) {
             setRotatePartialFailure({
@@ -428,6 +451,22 @@ export function DashboardShell() {
     },
     [refresh],
   )
+
+  const handleTrustHostKey = useCallback(async () => {
+    if (!hostKeyMismatch) return
+    setHostKeyTrustBusy(true)
+    try {
+      await window.edgeTier?.removeKnownHost?.({
+        host: hostKeyMismatch.payload.host,
+        port: hostKeyMismatch.payload.port,
+      })
+      const retry = hostKeyMismatch.retry
+      setHostKeyMismatch(null)
+      await retry()
+    } finally {
+      setHostKeyTrustBusy(false)
+    }
+  }, [hostKeyMismatch])
 
   return (
     <>
@@ -510,6 +549,14 @@ export function DashboardShell() {
             setWizardOpen(false)
             void refresh()
           }}
+        />
+      )}
+      {hostKeyMismatch && (
+        <HostKeyMismatchModal
+          payload={hostKeyMismatch.payload}
+          busy={hostKeyTrustBusy}
+          onTrustNewKey={() => void handleTrustHostKey()}
+          onCancel={() => setHostKeyMismatch(null)}
         />
       )}
     </>

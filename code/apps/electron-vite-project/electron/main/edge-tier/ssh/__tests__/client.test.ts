@@ -69,6 +69,7 @@ describe('SshClient', () => {
       host: '127.0.0.1',
       username: 'root',
       privateKey: '-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----',
+      skipHostKeyPinning: true,
     })
 
     const result = await ssh.run('echo hi')
@@ -89,6 +90,7 @@ describe('SshClient', () => {
       host: '127.0.0.1',
       username: 'root',
       privateKey: '-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----',
+      skipHostKeyPinning: true,
     })
 
     await expect(ssh.run('false')).rejects.toThrow('exec failed')
@@ -104,6 +106,7 @@ describe('SshClient', () => {
         host: '127.0.0.1',
         username: 'root',
         privateKey: '-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----',
+        skipHostKeyPinning: true,
       }),
     ).rejects.toThrow('connect failed')
     expect(client.end).toHaveBeenCalled()

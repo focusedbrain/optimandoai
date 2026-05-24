@@ -17,6 +17,7 @@ import type { EdgeTierPodVault } from './podLifecycle.js'
 import { getReplicaActionDeps } from './replicaActionsIpc.js'
 import { assertNoSecretsInRendererPayload } from '../wizard/handlers.js'
 import { sshSecretBuffersFromStrings } from '../security/sshSecretBuffers.js'
+import { toHostKeyAwareFailure } from './ssh/hostKeyIpc.js'
 import { notifyDashboardUpdated } from './dashboard.js'
 
 let _vault: EdgeTierPodVault | null = null
@@ -97,23 +98,29 @@ export function registerGlobalActionIpcHandlers(): void {
   ipcMain.handle('global:rotateAllEdgeKeys', async (event: IpcMainInvokeEvent, raw) => {
     const input = parseRotateInput(raw)
     let partialFailure: GlobalActionEvent['partial_failure'] | undefined
-    for await (const actionEvent of rotateAllEdgeKeys(input, getReplicaActionDeps())) {
-      sendGlobalActionProgress(event.sender, input.operationId, actionEvent)
-      if (actionEvent.partial_failure) partialFailure = actionEvent.partial_failure
-      if (actionEvent.kind === 'error') {
-        notifyDashboardUpdated()
-        return {
-          ok: false,
-          error: actionEvent.message,
-          partial_failure: partialFailure,
+    try {
+      for await (const actionEvent of rotateAllEdgeKeys(input, getReplicaActionDeps())) {
+        sendGlobalActionProgress(event.sender, input.operationId, actionEvent)
+        if (actionEvent.partial_failure) partialFailure = actionEvent.partial_failure
+        if (actionEvent.kind === 'error') {
+          notifyDashboardUpdated()
+          return {
+            ok: false,
+            error: actionEvent.message,
+            partial_failure: partialFailure,
+          }
+        }
+        if (actionEvent.kind === 'done') {
+          notifyDashboardUpdated()
+          return { ok: true }
         }
       }
-      if (actionEvent.kind === 'done') {
-        notifyDashboardUpdated()
-        return { ok: true }
-      }
+      return { ok: false, error: 'Rotation ended without completion', partial_failure: partialFailure }
+    } catch (err) {
+      const failure = toHostKeyAwareFailure(err)
+      notifyDashboardUpdated()
+      return { ...failure, partial_failure: partialFailure }
     }
-    return { ok: false, error: 'Rotation ended without completion', partial_failure: partialFailure }
   })
 
   ipcMain.handle('global:pauseEdgeTier', async () => {

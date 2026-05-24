@@ -23,6 +23,8 @@ describe('GlobalActionsPanel', () => {
     expect(html).toContain('global-rotate-keys')
     expect(html).toContain('global-pause-edge-tier')
     expect(html).toContain('edge-fallback-policy-settings')
+    expect(html).toContain('edge-known-hosts-settings')
+    expect(html).toContain('Known hosts')
   })
 })
 

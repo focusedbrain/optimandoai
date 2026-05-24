@@ -30,6 +30,7 @@ import type {
   WizardVerifyInput,
 } from './types.js'
 import { _resetWizardSshSessionForTest, clearWizardVmCredentials } from './sshSession.js'
+import { toHostKeyAwareFailure } from '../edge-tier/ssh/hostKeyIpc.js'
 
 let _wizardState: WizardState = { ...INITIAL_WIZARD_STATE }
 let _handlerDeps: WizardHandlerDeps | null = null
@@ -172,8 +173,20 @@ export function registerWizardIpcHandlers(): void {
   })
 
   ipcMain.handle('wizard:probe', async () => {
-    const probe = await wizardProbe(getDeps())
-    return { probe, state: applyProbeResult(probe) }
+    try {
+      const probe = await wizardProbe(getDeps())
+      return { probe, state: applyProbeResult(probe) }
+    } catch (err) {
+      const failure = toHostKeyAwareFailure(err)
+      return {
+        probe: null,
+        ...failure,
+        state: dispatch({
+          type: 'PROBE_FAILED',
+          message: failure.error,
+        }),
+      }
+    }
   })
 
   ipcMain.handle(

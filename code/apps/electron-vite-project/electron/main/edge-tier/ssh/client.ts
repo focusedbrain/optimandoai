@@ -2,11 +2,14 @@
  * Typed SSH client for edge VM wizard operations — Phase 4 (P4.1).
  *
  * Built on ssh2 (pinned in package.json). No provider APIs — SSH to user VPS only.
+ *
+ * P4.5.13: host key TOFU via ssh2 hostVerifier + persisted fingerprints (see hostKeyStore.ts).
  */
 
 import { EventEmitter } from 'node:events'
 import { Client, type ConnectConfig } from 'ssh2'
 
+import { assertHostKeyTrusted, HostKeyMismatchError } from './hostKeyPinning.js'
 import type {
   RunResult,
   SshCommandRunner,
@@ -15,6 +18,7 @@ import type {
 } from './types.js'
 
 export type { SshConnectOptions, RunResult, SshProgressEvent }
+export { HostKeyMismatchError } from './hostKeyPinning.js'
 
 const DEFAULT_READY_TIMEOUT_MS = 30_000
 const DEFAULT_RUN_TIMEOUT_MS = 120_000
@@ -22,12 +26,15 @@ const DEFAULT_RUN_TIMEOUT_MS = 120_000
 export interface SshClientConnectOptions extends SshConnectOptions {
   /** Inject a ssh2 Client (tests). */
   clientFactory?: () => Client
+  /** Skip TOFU host key pinning (unit tests only). */
+  skipHostKeyPinning?: boolean
 }
 
 export class SshClient extends EventEmitter implements SshCommandRunner {
   private client: Client | null = null
   private readonly clientFactory: () => Client
   private connected = false
+  private pendingHostKeyMismatch: HostKeyMismatchError | null = null
 
   constructor(clientFactory?: () => Client) {
     super()
@@ -45,25 +52,49 @@ export class SshClient extends EventEmitter implements SshCommandRunner {
 
     const client = this.clientFactory()
     this.client = client
+    this.pendingHostKeyMismatch = null
 
     const privateKey =
       typeof options.privateKey === 'string'
         ? options.privateKey
         : options.privateKey
 
+    const host = options.host
+    const port = options.port ?? 22
+
     const config: ConnectConfig = {
-      host: options.host,
-      port: options.port ?? 22,
+      host,
+      port,
       username: options.username,
       privateKey,
       passphrase: options.passphrase,
       readyTimeout: options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
     }
 
+    if (!options.skipHostKeyPinning) {
+      config.hostVerifier = (hostKey: Buffer) => {
+        try {
+          return assertHostKeyTrusted({ host, port, hostKey })
+        } catch (err) {
+          if (err instanceof HostKeyMismatchError) {
+            this.pendingHostKeyMismatch = err
+            return false
+          }
+          throw err
+        }
+      }
+    }
+
     await new Promise<void>((resolve, reject) => {
       const onError = (err: Error) => {
         cleanup()
         void this.disconnect()
+        if (this.pendingHostKeyMismatch) {
+          const mismatch = this.pendingHostKeyMismatch
+          this.pendingHostKeyMismatch = null
+          reject(mismatch)
+          return
+        }
         reject(err)
       }
 

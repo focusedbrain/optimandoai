@@ -16,6 +16,7 @@ import {
 } from './replicaActions.js'
 import { assertNoSecretsInRendererPayload } from '../wizard/handlers.js'
 import { sshSecretBuffersFromStrings } from '../security/sshSecretBuffers.js'
+import { toHostKeyAwareFailure } from './ssh/hostKeyIpc.js'
 import { notifyDashboardUpdated, _clearReplicaHealthCacheEntry } from './dashboard.js'
 
 let _actionDeps: ReplicaActionDeps | null = null
@@ -94,26 +95,37 @@ async function runReplicaActionStream(
   event: IpcMainInvokeEvent,
   input: ReplicaActionInput & { operationId: string },
   generator: AsyncGenerator<ReplicaActionEvent>,
-): Promise<{ ok: boolean; result?: ReplicaActionEvent['result']; error?: string }> {
+): Promise<{
+  ok: boolean
+  result?: ReplicaActionEvent['result']
+  error?: string
+  hostKeyMismatch?: import('../edge-tier/ssh/hostKeyPinning.js').HostKeyMismatchPayload
+}> {
   let lastResult: ReplicaActionEvent['result'] | undefined
   let failed = false
-  for await (const actionEvent of generator) {
-    sendReplicaActionProgress(event.sender, input.operationId, actionEvent)
-    if (actionEvent.result) lastResult = actionEvent.result
-    if (actionEvent.kind === 'error') {
-      failed = true
-      return { ok: false, error: actionEvent.message }
-    }
-    if (actionEvent.kind === 'done') {
-      if (actionEvent.result?.action === 'remove' || actionEvent.result?.action === 'redeploy') {
-        _clearReplicaHealthCacheEntry(input.replicaId)
-        if (actionEvent.result.newReplica) {
-          _clearReplicaHealthCacheEntry(actionEvent.result.newReplica.edge_pod_id)
-        }
+  try {
+    for await (const actionEvent of generator) {
+      sendReplicaActionProgress(event.sender, input.operationId, actionEvent)
+      if (actionEvent.result) lastResult = actionEvent.result
+      if (actionEvent.kind === 'error') {
+        failed = true
+        return { ok: false, error: actionEvent.message }
       }
-      notifyDashboardUpdated()
-      return { ok: true, result: lastResult }
+      if (actionEvent.kind === 'done') {
+        if (actionEvent.result?.action === 'remove' || actionEvent.result?.action === 'redeploy') {
+          _clearReplicaHealthCacheEntry(input.replicaId)
+          if (actionEvent.result.newReplica) {
+            _clearReplicaHealthCacheEntry(actionEvent.result.newReplica.edge_pod_id)
+          }
+        }
+        notifyDashboardUpdated()
+        return { ok: true, result: lastResult }
+      }
     }
+  } catch (err) {
+    const failure = toHostKeyAwareFailure(err)
+    assertNoSecretsInRendererPayload(failure)
+    return failure
   }
   if (failed) return { ok: false, error: 'Action failed' }
   return { ok: false, error: 'Action ended without completion' }
