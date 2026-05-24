@@ -1593,6 +1593,8 @@ contextBridge.exposeInMainWorld('dashboard', {
   },
   restartReplica: (input: Record<string, unknown>) => ipcRenderer.invoke('replica:restart', input),
   redeployReplica: (input: Record<string, unknown>) => ipcRenderer.invoke('replica:redeploy', input),
+  nuclearResetReplica: (input: Record<string, unknown>) =>
+    ipcRenderer.invoke('replica:nuclearReset', input),
   removeReplica: (input: Record<string, unknown>) => ipcRenderer.invoke('replica:remove', input),
   disableEdgeTier: () => ipcRenderer.invoke('dashboard:disableEdgeTier') as Promise<{ ok: boolean }>,
   pauseEdgeTier: () => ipcRenderer.invoke('global:pauseEdgeTier') as Promise<{ ok: boolean }>,

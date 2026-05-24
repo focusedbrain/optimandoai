@@ -16,6 +16,7 @@ export type SupervisorAuditEventKind =
   | 'replacement_budget_cleared'
   | 'pod_replaced'
   | 'pod_replaced_failed'
+  | 'nuclear_reset'
 
 export interface SupervisorAuditEntry {
   timestamp: string
@@ -29,6 +30,7 @@ export interface SupervisorAuditEntry {
   message_hash?: string
   envelope_from?: string
   confirmation_timestamp?: string
+  confirmation_user_input_hash?: string
 }
 
 const AUDIT_FILENAME = 'edge-tier-audit.log'

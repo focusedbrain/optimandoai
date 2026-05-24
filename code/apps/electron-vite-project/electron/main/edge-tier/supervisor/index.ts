@@ -49,6 +49,7 @@ import {
 import { notifyReplacementBudgetExhausted } from './replacementBudgetNotify.js'
 
 export { getReplacementBudgetNotifications, resumeAutomaticRecovery, clearReplacementBudgetOnNuclearReset, _resetReplacementBudgetForTest }
+export { resetHealthProbeState } from './supervisorPoll.js'
 export type { ReplacementBudgetNotification }
 export { HEALTH_PROBE_INTERVAL_MS, HEALTH_PROBE_TIMEOUT_MS, STUCK_THRESHOLD_CONSECUTIVE_FAILURES } from './supervisorPoll.js'
 

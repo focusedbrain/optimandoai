@@ -14,6 +14,7 @@ import { RotateKeysModal } from './RotateKeysModal.js'
 import { PauseEdgeTierModal } from './PauseEdgeTierModal.js'
 import { QuarantinePanel } from './QuarantinePanel.js'
 import { ReplacementExhaustedModal } from './ReplacementExhaustedModal.js'
+import { NuclearResetModal } from './NuclearResetModal.js'
 import type {
   DashboardUpdatePayload,
   ReplicaStatus,
@@ -54,6 +55,7 @@ export interface DashboardShellViewProps {
   onCloseDetail: () => void
   onLaunchWizard: () => void
   onReplicaAction?: (action: ReplicaActionKind, replica: ReplicaStatus) => void
+  onNuclearReset?: (replica: ReplicaStatus) => void
   fallbackPolicy?: DashboardFallbackPolicy
   onRotateKeys?: () => void
   onPauseEdgeTier?: () => void
@@ -80,6 +82,7 @@ export function DashboardShellView({
   onCloseDetail,
   onLaunchWizard,
   onReplicaAction,
+  onNuclearReset,
   fallbackPolicy = 'reject',
   onRotateKeys,
   onPauseEdgeTier,
@@ -267,6 +270,7 @@ export function DashboardShellView({
           replicas={replicas}
           onViewDetails={onViewDetails}
           onReplicaAction={onReplicaAction}
+          onNuclearReset={onNuclearReset}
           onViewReplacementExhausted={onViewReplacementExhausted}
         />
       ) : activeTab === 'verifications' ? (
@@ -325,6 +329,10 @@ export function DashboardShell() {
   const [sandboxView, setSandboxView] = useState<SandboxViewContent | null>(null)
   const [replacementExhaustedReplica, setReplacementExhaustedReplica] =
     useState<ReplicaStatus | null>(null)
+  const [nuclearResetReplica, setNuclearResetReplica] = useState<ReplicaStatus | null>(null)
+  const [nuclearResetRunning, setNuclearResetRunning] = useState(false)
+  const [nuclearResetLogs, setNuclearResetLogs] = useState<LogEvent[]>([])
+  const [nuclearResetError, setNuclearResetError] = useState<string | null>(null)
   const progressUnsubRef = useRef<(() => void) | null>(null)
   const globalProgressUnsubRef = useRef<(() => void) | null>(null)
 
@@ -479,6 +487,86 @@ export function DashboardShell() {
     [actionModal, closeActionModal, refresh],
   )
 
+  const closeNuclearResetModal = useCallback(() => {
+    progressUnsubRef.current?.()
+    progressUnsubRef.current = null
+    setNuclearResetReplica(null)
+    setNuclearResetRunning(false)
+    setNuclearResetLogs([])
+    setNuclearResetError(null)
+  }, [])
+
+  const runNuclearReset = useCallback(
+    async (values: {
+      ssh: SshKeyEntryFormValues
+      hostConfirm: string
+      resetConfirm: string
+      reason: string
+    }) => {
+      if (!nuclearResetReplica) return
+      const bridge = window.dashboard
+      if (!bridge?.nuclearResetReplica) {
+        setNuclearResetError('Nuclear reset unavailable')
+        return
+      }
+
+      const operationId = crypto.randomUUID()
+      setNuclearResetRunning(true)
+      setNuclearResetError(null)
+      setNuclearResetLogs([])
+
+      progressUnsubRef.current?.()
+      progressUnsubRef.current = bridge.onReplicaActionProgress(({ operationId: id, event }) => {
+        if (id !== operationId) return
+        setNuclearResetLogs((prev) => [
+          ...prev,
+          {
+            kind: event.kind as LogEvent['kind'],
+            message: String(event.message ?? ''),
+            stage_name: typeof event.stage_name === 'string' ? event.stage_name : undefined,
+          },
+        ])
+      })
+
+      const input = {
+        operationId,
+        replicaId: nuclearResetReplica.edge_pod_id,
+        sshUser: values.ssh.sshUser.trim(),
+        sshPort: Number(values.ssh.sshPort) || 22,
+        sshKey: values.ssh.sshKey,
+        passphrase: values.ssh.passphrase.trim() || undefined,
+        hostConfirm: values.hostConfirm,
+        resetConfirm: values.resetConfirm,
+        reason: values.reason.trim(),
+      }
+
+      try {
+        const result = await bridge.nuclearResetReplica(input)
+        if (!result.ok) {
+          const mismatch = extractHostKeyMismatch(result)
+          if (mismatch) {
+            setHostKeyMismatch({
+              payload: mismatch,
+              retry: async () => runNuclearReset(values),
+            })
+            return
+          }
+          setNuclearResetError(result.error ?? 'Nuclear reset failed')
+          return
+        }
+        closeNuclearResetModal()
+        void refresh()
+      } catch (err) {
+        setNuclearResetError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setNuclearResetRunning(false)
+        progressUnsubRef.current?.()
+        progressUnsubRef.current = null
+      }
+    },
+    [closeNuclearResetModal, nuclearResetReplica, refresh],
+  )
+
   const handleDisableEdgeTier = useCallback(async () => {
     const bridge = window.dashboard
     if (!bridge?.pauseEdgeTier) return
@@ -611,6 +699,11 @@ export function DashboardShell() {
           setActionLogs([])
           setActionError(null)
         }}
+        onNuclearReset={(replica) => {
+          setNuclearResetReplica(replica)
+          setNuclearResetLogs([])
+          setNuclearResetError(null)
+        }}
         fallbackPolicy={payload?.fallback_policy ?? 'reject'}
         onRotateKeys={() => {
           setRotateOpen(true)
@@ -707,13 +800,20 @@ export function DashboardShell() {
           }}
           onNuclearReset={() => {
             setReplacementExhaustedReplica(null)
-            setActionModal({
-              action: 'redeploy',
-              replica: replacementExhaustedReplica,
-            })
-            setActionLogs([])
-            setActionError(null)
+            setNuclearResetReplica(replacementExhaustedReplica)
+            setNuclearResetLogs([])
+            setNuclearResetError(null)
           }}
+        />
+      )}
+      {nuclearResetReplica && (
+        <NuclearResetModal
+          replica={nuclearResetReplica}
+          running={nuclearResetRunning}
+          logEvents={nuclearResetLogs}
+          error={nuclearResetError}
+          onClose={closeNuclearResetModal}
+          onSubmit={(values) => void runNuclearReset(values)}
         />
       )}
     </>

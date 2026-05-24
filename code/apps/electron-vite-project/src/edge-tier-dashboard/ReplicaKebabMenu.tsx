@@ -5,9 +5,10 @@ import type { ReplicaActionKind } from './replicaActions.js'
 export interface ReplicaKebabMenuProps {
   replica: ReplicaStatus
   onAction: (action: ReplicaActionKind, replica: ReplicaStatus) => void
+  onNuclearReset?: (replica: ReplicaStatus) => void
 }
 
-export function ReplicaKebabMenu({ replica, onAction }: ReplicaKebabMenuProps) {
+export function ReplicaKebabMenu({ replica, onAction, onNuclearReset }: ReplicaKebabMenuProps) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -78,6 +79,30 @@ export function ReplicaKebabMenu({ replica, onAction }: ReplicaKebabMenuProps) {
               {action.charAt(0).toUpperCase() + action.slice(1)}
             </button>
           ))}
+          {onNuclearReset && (
+            <button
+              type="button"
+              data-testid={`replica-action-nuclear-reset-${replica.edge_pod_id}`}
+              onClick={() => {
+                setOpen(false)
+                onNuclearReset(replica)
+              }}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                padding: '8px 12px',
+                border: 'none',
+                borderTop: '1px solid var(--border)',
+                background: 'transparent',
+                cursor: 'pointer',
+                color: '#991b1b',
+                fontWeight: 600,
+              }}
+            >
+              Nuclear reset
+            </button>
+          )}
         </div>
       )}
     </div>

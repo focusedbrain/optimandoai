@@ -238,6 +238,7 @@ interface DashboardBridge {
   fetchReplicaLogs: (edgePodId: string) => Promise<{ ok: boolean; lines?: string[]; error?: string }>
   restartReplica: (input: Record<string, unknown>) => Promise<{ ok: boolean; error?: string; result?: Record<string, unknown> }>
   redeployReplica: (input: Record<string, unknown>) => Promise<{ ok: boolean; error?: string; result?: Record<string, unknown> }>
+  nuclearResetReplica: (input: Record<string, unknown>) => Promise<{ ok: boolean; error?: string; result?: Record<string, unknown> }>
   removeReplica: (input: Record<string, unknown>) => Promise<{ ok: boolean; error?: string; result?: Record<string, unknown> }>
   disableEdgeTier: () => Promise<{ ok: boolean }>
   pauseEdgeTier: () => Promise<{ ok: boolean }>

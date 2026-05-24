@@ -7,6 +7,7 @@ export interface ReplicasListProps {
   replicas: ReplicaStatus[]
   onViewDetails: (replica: ReplicaStatus) => void
   onReplicaAction?: (action: ReplicaActionKind, replica: ReplicaStatus) => void
+  onNuclearReset?: (replica: ReplicaStatus) => void
   onViewReplacementExhausted?: (replica: ReplicaStatus) => void
 }
 
@@ -14,6 +15,7 @@ export function ReplicasList({
   replicas,
   onViewDetails,
   onReplicaAction,
+  onNuclearReset,
   onViewReplacementExhausted,
 }: ReplicasListProps) {
   if (replicas.length === 0) {
@@ -95,7 +97,11 @@ export function ReplicasList({
                     View details
                   </button>
                   {onReplicaAction && (
-                    <ReplicaKebabMenu replica={replica} onAction={onReplicaAction} />
+                    <ReplicaKebabMenu
+                      replica={replica}
+                      onAction={onReplicaAction}
+                      onNuclearReset={onNuclearReset}
+                    />
                   )}
                 </div>
               </td>

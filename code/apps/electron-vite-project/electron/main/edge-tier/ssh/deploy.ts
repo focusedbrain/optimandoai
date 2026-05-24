@@ -134,6 +134,17 @@ export function buildKillContainerCommand(containerName: string): string {
   return wrapHistorySafe(`podman kill --signal=SIGKILL ${containerName}`)
 }
 
+/** Remote VM wipe sequence for nuclear reset (P5.10). Stop/rm errors are ignored. */
+export function buildNuclearResetRemoteCommands(): string[] {
+  return [
+    wrapHistorySafe(`podman pod stop ${REMOTE_POD_NAME} 2>/dev/null || true`),
+    wrapHistorySafe(`podman pod rm -f ${REMOTE_POD_NAME} 2>/dev/null || true`),
+    wrapHistorySafe('podman volume prune --force 2>/dev/null || true'),
+    'rm -rf /tmp/beap-pod-*.yaml 2>/dev/null || true',
+    'rm -rf /var/lib/quarantine 2>/dev/null || true',
+  ]
+}
+
 export function buildAllHealthCommand(): string {
   return CONTAINER_HEALTH_CHECKS.map(({ container, port }) =>
     buildContainerHealthCommand(container, port),

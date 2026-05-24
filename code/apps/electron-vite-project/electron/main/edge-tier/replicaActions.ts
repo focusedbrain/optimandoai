@@ -59,9 +59,11 @@ function zeroizeReplicaActionInput(input: ReplicaActionInput): void {
 }
 
 export interface ReplicaActionResult {
-  readonly action: ReplicaActionKind
+  readonly action: ReplicaActionKind | 'nuclear_reset'
   readonly wasLastReplica?: boolean
   readonly newReplica?: Pick<EdgeReplica, 'edge_pod_id' | 'edge_public_key' | 'host' | 'port'>
+  readonly oldReplicaId?: string
+  readonly degradedAccountIds?: string[]
 }
 
 export interface ReplicaActionEvent {

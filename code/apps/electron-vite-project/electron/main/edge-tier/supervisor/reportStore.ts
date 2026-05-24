@@ -5,7 +5,7 @@
  * (logged only — may indicate VM compromise).
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync, rmSync } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
 import { homedir } from 'node:os'
 
@@ -148,6 +148,14 @@ export function deleteReport(replicaId: string, filename: string): boolean {
   if (!existsSync(path)) return false
   unlinkSync(path)
   return true
+}
+
+/** Remove all diagnostic reports and local quarantine copies for a replica (P5.10). */
+export function deleteReplicaDiagnosticData(replicaId: string): void {
+  const dir = listReplicaDir(replicaId)
+  if (existsSync(dir)) {
+    rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 /** Resolve stored path for audit log reference. */
