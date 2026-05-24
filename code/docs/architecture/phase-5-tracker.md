@@ -77,7 +77,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 | P5.8 | ✅ done | `067ee08b` |
 | P5.9 | ✅ done | `fa31accb` |
 | P5.10 | ✅ done | `d81d4441` |
-| P5.11 | ✅ done | *(this commit)* |
+| P5.11 | ✅ done | `ac72d9b8` |
 
 ---
 
