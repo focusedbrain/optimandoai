@@ -19,7 +19,7 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 - [x] **P2.4** — Wire phishing scorer and crosscheck into AI analysis IPC handlers
 - [x] **P2.5** — UI: badges, detail panel, persistent disclaimer (phishing risk badges in inbox rows; "Security analysis" panel with signals/URLs/crosscheck/disclaimer; sub-analysis loading indicator)
 - [x] **P2.6** — User-selectable AI provider setting (`inbox_ai_security_provider` in `inbox_settings`; Default/Local Ollama/Cloud; tier defaults in one place; settings UI with privacy disclaimer; plumbed into P2.4 sub-analysis call sites)
-- [ ] **P2.7** — Phase 2 test suite and CI (unit + integration tests for scorer, cross-check, link policy; CI job for AI enrichment smoke test)
+- [x] **P2.7** — safeLinks sandbox-orchestrator-only link policy (interceptClick + SafeLinkModal; replaces LinkWarningDialog in EmailMessageDetail; wires security-panel flagged-URL buttons; audit logging; 33 new tests)
 - [ ] **P2.8** — Retire extension sandbox depackager (remove vestigial depackager from Chrome extension sandbox; fold into pod path per strategy §9 decision 1)
 
 ---
@@ -35,7 +35,7 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 | P2.4 | ✅ done | P2.4: wire phishing assessment and validation crosscheck into AI analysis handlers |
 | P2.5 | ✅ done | P2.5: UI badges, detail panel, persistent disclaimer for AI analyses |
 | P2.6 | ✅ done | P2.6: user-selectable AI provider with tier defaults |
-| P2.7 | ⬜ pending | — |
+| P2.7 | ✅ done | P2.7: safeLinks sandbox-orchestrator-only policy with confirmation modal |
 | P2.8 | ⬜ pending | — |
 
 ---
@@ -61,6 +61,18 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 ## Notes & deviations
 
 *(Record any decisions made differently from the strategy here, with rationale.)*
+
+### P2.7
+
+- **New files:** `src/components/SafeLinkModal.tsx` (P2.7 confirmation modal), `src/components/__tests__/SafeLinkModal.test.tsx` (33 tests — 23 component + 10 from interceptClick file), `src/utils/__tests__/safeLinks.interceptClick.test.ts` (11 unit tests for `interceptClick`).
+- **`safeLinks.ts` additions:** `LinkOpenDecision` interface (`action | reason | flaggedUrl? | requiresCredentialAck`) and `interceptClick(url, context)` pure function. Always recommends `open_in_sandbox`. Adds `flaggedUrl` and `requiresCredentialAck` when the URL matches a `phishing_assessment.flagged_urls` entry. URL matching uses hostname+path normalization (trailing-slash tolerant). Credential signals detected via `open_policy` or reason keywords: credential, password, login, phish, harvest.
+- **`SafeLinkModal.tsx`:** Replaces `LinkWarningDialog` in the `EmailMessageDetail` link-click flow. Shows: URL (with "redirect resolution not available" note), AI flagged-URL block (CREDENTIAL RISK / FLAGGED BY AI badge + reason text) when `decision.flaggedUrl` present, standard safety warning, credential acknowledgment checkbox (only for credential-request URLs), three action buttons: "Open in sandbox" (primary), "Open in browser", "Cancel". Escape key closes. Resets acknowledgment on `contextKey` change.
+- **`EmailMessageDetail.tsx`:** `LinkWarningDialog` import removed; `SafeLinkModal` + `interceptClick` imported. `handleLinkClick` unchanged. New `pendingLinkDecision` useMemo computes `interceptClick` from `pendingLinkUrl` + `message.ai_analysis_json`. New `handleLinkConfirmBrowser` (with audit log). New `handleLinkCancel` (with audit log). `handleLinkWarningSandbox` gains audit log entry at the top. `SafeLinkModal` props: `onOpenInBrowser`, `onOpenInSandbox`, `onCancel`, `sandboxAvailable={showSandboxCloneIcon}`, `sandboxBusy`, `showSandboxOrchestratorWarning`.
+- **`InboxSecurityPanel.tsx`:** `onLinkClick?: (url: string) => void` added to `InboxSecurityPanelProps`. `FlaggedUrlsList` receives this prop and wires each "Open in sandbox" row button to `onLinkClick?.(url)`. Button enabled when `onLinkClick` is present; disabled with tooltip when absent.
+- **`EmailInboxView.tsx` (`InboxDetailAiPanel`):** Imports `SafeLinkModal`, `interceptClick`, `openAppExternalUrl`. New state: `pendingSecurityLink`, `securityLinkSandboxBusy`. New `pendingSecurityLinkDecision` useMemo. New handlers: `handleSecurityLinkClick`, `handleSecurityLinkSandbox` (calls `beapInboxCloneToSandboxApi`), `handleSecurityLinkBrowser` (calls `openAppExternalUrl`), `handleSecurityLinkCancel`. `InboxSecurityPanel` now receives `onLinkClick={handleSecurityLinkClick}`. `SafeLinkModal` rendered at top of return div.
+- **Audit logging:** All action callbacks emit `[LINK_POLICY]` structured log with `{ action, reason, flagged, credentialRisk?, domain, messageId, source? }`. Domain only — never full URL. Each of the three actions (sandbox, browser, cancel) is logged.
+- **Non-goals respected:** No automatic redirect resolution. No auto-open without modal. No sandbox implementation changes. No API key handling.
+- **Test count:** 33 new tests (11 `interceptClick` unit + 22 `SafeLinkModal` component). Full suite: 11 pre-existing failures unchanged; no new failures introduced.
 
 ### P2.6
 

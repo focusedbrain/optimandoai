@@ -78,7 +78,7 @@ function SignalsList({ signals }: { signals: PhishingAssessmentUi['signals'] }) 
   )
 }
 
-function FlaggedUrlsList({ urls }: { urls: PhishingAssessmentUi['flagged_urls'] }) {
+function FlaggedUrlsList({ urls, onLinkClick }: { urls: PhishingAssessmentUi['flagged_urls']; onLinkClick?: (url: string) => void }) {
   if (!urls.length) return null
   return (
     <div style={{ marginTop: 8 }}>
@@ -114,11 +114,16 @@ function FlaggedUrlsList({ urls }: { urls: PhishingAssessmentUi['flagged_urls'] 
               </div>
               <div style={{ fontSize: 10, color: 'var(--color-text-muted, #94a3b8)' }}>{u.reason}</div>
             </div>
-            {/* Sandbox button: rendered disabled until P2.7 wires the actual flow */}
+            {/* Sandbox button: P2.7 – triggers the link-open confirmation modal */}
             <button
               type="button"
-              disabled
-              title="Sandbox link-open is available in a future update"
+              disabled={!onLinkClick}
+              onClick={() => onLinkClick?.(u.url)}
+              title={
+                onLinkClick
+                  ? 'Open via sandbox orchestrator confirmation'
+                  : 'Sandbox link-open unavailable in this context'
+              }
               style={{
                 flexShrink: 0,
                 fontSize: 10,
@@ -126,9 +131,9 @@ function FlaggedUrlsList({ urls }: { urls: PhishingAssessmentUi['flagged_urls'] 
                 borderRadius: 4,
                 border: '1px solid rgba(148,163,184,0.3)',
                 background: 'transparent',
-                color: 'var(--color-text-muted, #94a3b8)',
-                cursor: 'not-allowed',
-                opacity: 0.6,
+                color: onLinkClick ? 'var(--color-text, #e2e8f0)' : 'var(--color-text-muted, #94a3b8)',
+                cursor: onLinkClick ? 'pointer' : 'not-allowed',
+                opacity: onLinkClick ? 1 : 0.6,
               }}
             >
               Open in sandbox
@@ -200,9 +205,11 @@ export interface InboxSecurityPanelProps {
   crosscheck?: ValidationCrosscheckUi
   /** True while inbox:aiSubAnalysisStarted has been received but Complete has not yet arrived. */
   loading?: boolean
+  /** When provided, enables the "Open in sandbox" button on each flagged URL row. */
+  onLinkClick?: (url: string) => void
 }
 
-export function InboxSecurityPanel({ phishing, crosscheck, loading }: InboxSecurityPanelProps) {
+export function InboxSecurityPanel({ phishing, crosscheck, loading, onLinkClick }: InboxSecurityPanelProps) {
   const hasData = !!(phishing || crosscheck)
   if (!hasData && !loading) return null
 
@@ -236,7 +243,7 @@ export function InboxSecurityPanel({ phishing, crosscheck, loading }: InboxSecur
           <div>
             <PhishingScoreRow score={phishing.score} label={phishing.label} />
             <SignalsList signals={phishing.signals} />
-            <FlaggedUrlsList urls={phishing.flagged_urls} />
+            <FlaggedUrlsList urls={phishing.flagged_urls} onLinkClick={onLinkClick} />
           </div>
         )}
 

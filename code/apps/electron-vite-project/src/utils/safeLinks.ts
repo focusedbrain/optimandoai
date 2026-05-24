@@ -219,3 +219,90 @@ export function beapInboxMessageBodyToLinkParts(m: { body_html?: string | null; 
   if (h && String(h).trim()) return extractLinkPartsFromHtml(h)
   return extractLinkParts(m.body_text || '(No body)')
 }
+
+// ── P2.7: Link intercept policy ──────────────────────────────────────────────
+
+/**
+ * Recommended action after evaluating a link-click against the message's AI analysis.
+ * `action` is always `'open_in_sandbox'` from `interceptClick` — the caller records the
+ * user's final choice separately.
+ */
+export interface LinkOpenDecision {
+  action: 'open_in_sandbox' | 'open_in_browser' | 'cancel'
+  reason: string
+  /** Present when the URL appears in ai_analysis.phishing_assessment.flagged_urls. */
+  flaggedUrl?: { url: string; reason: string; open_policy?: string }
+  /**
+   * True when `flaggedUrl` carries a credential-request signal.
+   * The modal must gate "Open in browser" behind an explicit acknowledgment checkbox.
+   */
+  requiresCredentialAck: boolean
+}
+
+type FlaggedUrlEntry = { url: string; reason: string; open_policy?: string }
+
+function normUrlForMatch(u: string): string {
+  try {
+    const p = new URL(u)
+    // strip trailing slash from path for comparison
+    const path = p.pathname.endsWith('/') && p.pathname.length > 1 ? p.pathname.slice(0, -1) : p.pathname
+    return `${p.protocol}//${p.hostname}${path}`.toLowerCase()
+  } catch {
+    return u.toLowerCase().replace(/\/$/, '')
+  }
+}
+
+function findFlaggedEntry(url: string, entries: FlaggedUrlEntry[]): FlaggedUrlEntry | undefined {
+  const norm = normUrlForMatch(url)
+  return entries.find((f) => f.url === url || normUrlForMatch(f.url) === norm)
+}
+
+function isCredentialRequestEntry(entry: FlaggedUrlEntry): boolean {
+  const policy = (entry.open_policy ?? '').toLowerCase()
+  const reason = entry.reason.toLowerCase()
+  return (
+    policy.includes('credential') ||
+    reason.includes('credential') ||
+    reason.includes('password') ||
+    reason.includes('login') ||
+    reason.includes('phish') ||
+    reason.includes('harvest')
+  )
+}
+
+/**
+ * Evaluate a link-click against the message's AI analysis and return a recommended
+ * `LinkOpenDecision`. Always recommends `'open_in_sandbox'`. Adds `flaggedUrl` and
+ * `requiresCredentialAck` when the URL appears in `phishing_assessment.flagged_urls`.
+ *
+ * Call this synchronously from the click handler; pass the result to `SafeLinkModal`
+ * to configure the confirmation flow.
+ */
+export function interceptClick(
+  url: string,
+  context: {
+    message_id: string
+    ai_analysis?: {
+      phishing_assessment?: {
+        flagged_urls?: FlaggedUrlEntry[]
+      }
+    }
+  },
+): LinkOpenDecision {
+  const entries = context.ai_analysis?.phishing_assessment?.flagged_urls ?? []
+  const match = findFlaggedEntry(url, entries)
+  if (match) {
+    const credReq = isCredentialRequestEntry(match)
+    return {
+      action: 'open_in_sandbox',
+      reason: credReq ? 'credential_request_flagged' : 'url_flagged',
+      flaggedUrl: match,
+      requiresCredentialAck: credReq,
+    }
+  }
+  return {
+    action: 'open_in_sandbox',
+    reason: 'all_links_default_to_sandbox',
+    requiresCredentialAck: false,
+  }
+}

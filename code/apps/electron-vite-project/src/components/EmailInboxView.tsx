@@ -22,6 +22,9 @@ import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import type { NormalInboxAiResult } from '../types/inboxAi'
 import { InboxSecurityPanel, InboxPhishingBadge } from './InboxSecurityPanel'
 import { InboxAiProviderSettings } from './InboxAiProviderSettings'
+import SafeLinkModal from './SafeLinkModal'
+import { interceptClick } from '../utils/safeLinks'
+import { openAppExternalUrl } from '../lib/openAppExternalUrl'
 import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
 import { resolveActiveSandboxCloneTargets } from '../lib/resolveActiveSandboxCloneTargets'
@@ -344,6 +347,93 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const [visibleSections, setVisibleSections] = useState<Set<string>>(() => new Set(['summary', 'draft', 'analysis']))
   const [subAnalysisLoading, setSubAnalysisLoading] = useState(false)
   const [showAiProviderSettings, setShowAiProviderSettings] = useState(false)
+
+  // ── P2.7: security-panel link-click → SafeLinkModal ───────────────────────
+  const [pendingSecurityLink, setPendingSecurityLink] = useState<string | null>(null)
+  const [securityLinkSandboxBusy, setSecurityLinkSandboxBusy] = useState(false)
+
+  const pendingSecurityLinkDecision = useMemo(() => {
+    if (!pendingSecurityLink) return null
+    const aiAnalysis = message?.ai_analysis_json
+      ? (() => {
+          try {
+            return JSON.parse(message.ai_analysis_json) as Record<string, unknown>
+          } catch {
+            return undefined
+          }
+        })()
+      : undefined
+    return interceptClick(pendingSecurityLink, {
+      message_id: message?.id ?? '',
+      ai_analysis: aiAnalysis as Parameters<typeof interceptClick>[1]['ai_analysis'],
+    })
+  }, [pendingSecurityLink, message?.id, message?.ai_analysis_json])
+
+  const handleSecurityLinkClick = useCallback((url: string) => setPendingSecurityLink(url), [])
+
+  const handleSecurityLinkSandbox = useCallback(async () => {
+    if (!message || !pendingSecurityLink) return
+    // eslint-disable-next-line no-console
+    console.log(
+      `[LINK_POLICY] ${JSON.stringify({
+        action: 'open_in_sandbox',
+        source: 'security_panel',
+        reason: pendingSecurityLinkDecision?.reason ?? 'all_links_default_to_sandbox',
+        flagged: !!pendingSecurityLinkDecision?.flaggedUrl,
+        domain: (() => {
+          try { return new URL(pendingSecurityLink).hostname } catch { return 'unknown' }
+        })(),
+        messageId: message.id,
+      })}`,
+    )
+    setSecurityLinkSandboxBusy(true)
+    try {
+      await beapInboxCloneToSandboxApi({
+        sourceMessageId: message.id,
+        cloneReason: 'external_link_or_artifact_review',
+        triggeredUrl: pendingSecurityLink,
+      })
+      setPendingSecurityLink(null)
+    } finally {
+      setSecurityLinkSandboxBusy(false)
+    }
+  }, [message, pendingSecurityLink, pendingSecurityLinkDecision])
+
+  const handleSecurityLinkBrowser = useCallback(async () => {
+    if (!pendingSecurityLink) return
+    // eslint-disable-next-line no-console
+    console.log(
+      `[LINK_POLICY] ${JSON.stringify({
+        action: 'open_in_browser',
+        source: 'security_panel',
+        reason: pendingSecurityLinkDecision?.reason ?? 'all_links_default_to_sandbox',
+        flagged: !!pendingSecurityLinkDecision?.flaggedUrl,
+        domain: (() => {
+          try { return new URL(pendingSecurityLink).hostname } catch { return 'unknown' }
+        })(),
+        messageId: message?.id,
+      })}`,
+    )
+    await openAppExternalUrl(pendingSecurityLink)
+    setPendingSecurityLink(null)
+  }, [pendingSecurityLink, pendingSecurityLinkDecision, message?.id])
+
+  const handleSecurityLinkCancel = useCallback(() => {
+    if (pendingSecurityLink) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[LINK_POLICY] ${JSON.stringify({
+          action: 'cancel',
+          source: 'security_panel',
+          domain: (() => {
+            try { return new URL(pendingSecurityLink).hostname } catch { return 'unknown' }
+          })(),
+          messageId: message?.id,
+        })}`,
+      )
+    }
+    setPendingSecurityLink(null)
+  }, [pendingSecurityLink, message?.id])
   const [capsulePublicText, setCapsulePublicText] = useState('')
   const [capsuleEncryptedText, setCapsuleEncryptedText] = useState('')
   const [capsulePublicSource, setCapsulePublicSource] = useState('none')
@@ -1587,6 +1677,17 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
   return (
     <div className="inbox-detail-ai-inner inbox-detail-ai-premium" role="complementary" aria-label="AI email analysis">
+      {/* P2.7: SafeLinkModal for flagged-URL clicks from the security panel */}
+      <SafeLinkModal
+        isOpen={!!pendingSecurityLink && !!pendingSecurityLinkDecision}
+        url={pendingSecurityLink ?? ''}
+        contextKey={message ? `${message.id}:${pendingSecurityLink ?? ''}` : ''}
+        decision={pendingSecurityLinkDecision ?? { action: 'open_in_sandbox', reason: 'all_links_default_to_sandbox', requiresCredentialAck: false }}
+        onOpenInSandbox={() => void handleSecurityLinkSandbox()}
+        onOpenInBrowser={() => void handleSecurityLinkBrowser()}
+        onCancel={handleSecurityLinkCancel}
+        sandboxBusy={securityLinkSandboxBusy}
+      />
       <div className="inbox-detail-ai-action-bar">
         <button
           type="button"
@@ -1833,6 +1934,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
               phishing={sec.phishing}
               crosscheck={sec.crosscheck}
               loading={subAnalysisLoading}
+              onLinkClick={handleSecurityLinkClick}
             />
           )
         })()}

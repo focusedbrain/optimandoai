@@ -7,7 +7,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { InboxMessage } from '../stores/useEmailInboxStore'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 import InboxAttachmentRow from './InboxAttachmentRow'
-import LinkWarningDialog from './LinkWarningDialog'
+import SafeLinkModal from './SafeLinkModal'
+import { interceptClick } from '../utils/safeLinks'
 import SandboxLinkInfoDialog from './SandboxLinkInfoDialog'
 import { openAppExternalUrl } from '../lib/openAppExternalUrl'
 import BeapMessageSafeLinkParts from './BeapMessageSafeLinkParts'
@@ -945,16 +946,80 @@ export default function EmailMessageDetail({
   ])
 
   const handleLinkClick = useCallback((url: string) => setPendingLinkUrl(url), [])
-  const handleLinkConfirm = useCallback(async () => {
-    if (pendingLinkUrl) {
-      await openAppExternalUrl(pendingLinkUrl)
+
+  const pendingLinkDecision = useMemo(() => {
+    if (!pendingLinkUrl) return null
+    const aiAnalysis = message?.ai_analysis_json
+      ? (() => {
+          try {
+            return JSON.parse(message.ai_analysis_json) as Record<string, unknown>
+          } catch {
+            return undefined
+          }
+        })()
+      : undefined
+    return interceptClick(pendingLinkUrl, {
+      message_id: message?.id ?? '',
+      ai_analysis: aiAnalysis as Parameters<typeof interceptClick>[1]['ai_analysis'],
+    })
+  }, [pendingLinkUrl, message?.id, message?.ai_analysis_json])
+
+  const handleLinkConfirmBrowser = useCallback(async () => {
+    if (!pendingLinkUrl || !pendingLinkDecision) return
+    // eslint-disable-next-line no-console
+    console.log(
+      `[LINK_POLICY] ${JSON.stringify({
+        action: 'open_in_browser',
+        reason: pendingLinkDecision.reason,
+        flagged: !!pendingLinkDecision.flaggedUrl,
+        credentialRisk: pendingLinkDecision.requiresCredentialAck,
+        domain: (() => {
+          try { return new URL(pendingLinkUrl).hostname } catch { return 'unknown' }
+        })(),
+        messageId: message?.id,
+      })}`,
+    )
+    await openAppExternalUrl(pendingLinkUrl)
+    setPendingLinkUrl(null)
+  }, [pendingLinkUrl, pendingLinkDecision, message?.id])
+
+  const handleLinkConfirm = handleLinkConfirmBrowser
+
+  const handleLinkCancel = useCallback(() => {
+    if (!pendingLinkUrl || !pendingLinkDecision) {
       setPendingLinkUrl(null)
+      return
     }
-  }, [pendingLinkUrl])
-  const handleLinkCancel = useCallback(() => setPendingLinkUrl(null), [])
+    // eslint-disable-next-line no-console
+    console.log(
+      `[LINK_POLICY] ${JSON.stringify({
+        action: 'cancel',
+        reason: pendingLinkDecision.reason,
+        flagged: !!pendingLinkDecision.flaggedUrl,
+        domain: (() => {
+          try { return new URL(pendingLinkUrl).hostname } catch { return 'unknown' }
+        })(),
+        messageId: message?.id,
+      })}`,
+    )
+    setPendingLinkUrl(null)
+  }, [pendingLinkUrl, pendingLinkDecision, message?.id])
 
   const handleLinkWarningSandbox = useCallback(async () => {
     if (!message || !pendingLinkUrl) return
+    // eslint-disable-next-line no-console
+    console.log(
+      `[LINK_POLICY] ${JSON.stringify({
+        action: 'open_in_sandbox',
+        reason: pendingLinkDecision?.reason ?? 'all_links_default_to_sandbox',
+        flagged: !!pendingLinkDecision?.flaggedUrl,
+        credentialRisk: !!pendingLinkDecision?.requiresCredentialAck,
+        domain: (() => {
+          try { return new URL(pendingLinkUrl).hostname } catch { return 'unknown' }
+        })(),
+        messageId: message.id,
+      })}`,
+    )
     // eslint-disable-next-line no-console
     console.log(`[BEAP_SANDBOX_CLONE] click_start messageId=${message.id}`, {
       modeReady,
@@ -1138,6 +1203,7 @@ export default function EmailMessageDetail({
   }, [
     message,
     pendingLinkUrl,
+    pendingLinkDecision,
     modeReady,
     orchestratorMode,
     internalSandboxListReady,
@@ -1197,14 +1263,15 @@ export default function EmailMessageDetail({
 
   return (
     <>
-      <LinkWarningDialog
-        isOpen={!!pendingLinkUrl}
+      <SafeLinkModal
+        isOpen={!!pendingLinkUrl && !!pendingLinkDecision}
         url={pendingLinkUrl || ''}
         contextKey={message ? `${message.id}:${pendingLinkUrl || ''}` : ''}
-        onConfirm={() => void handleLinkConfirm()}
+        decision={pendingLinkDecision ?? { action: 'open_in_sandbox', reason: 'all_links_default_to_sandbox', requiresCredentialAck: false }}
+        onOpenInBrowser={() => void handleLinkConfirmBrowser()}
+        onOpenInSandbox={() => void handleLinkWarningSandbox()}
         onCancel={handleLinkCancel}
-        showSandboxAction={showSandboxCloneIcon}
-        onSandbox={handleLinkWarningSandbox}
+        sandboxAvailable={showSandboxCloneIcon}
         sandboxBusy={linkDialogSandboxBusy}
         showSandboxOrchestratorWarning={
           orchestratorMode === 'sandbox' ||
