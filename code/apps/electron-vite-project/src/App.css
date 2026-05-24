@@ -1023,7 +1023,11 @@ body {
   min-width: 320px;
 }
 
-/* Provider section contrast fix — light blue bg needs dark text for readability */
+/* Collapsible accounts + edge ingestor in inbox center panel */
+.inbox-accounts-edge-panel {
+  flex-shrink: 0;
+}
+
 .inbox-provider-section,
 .bulk-view-provider-body {
   color: #1e293b;

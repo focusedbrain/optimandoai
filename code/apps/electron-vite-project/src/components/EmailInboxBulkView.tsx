@@ -20,11 +20,10 @@ import { useShallow } from 'zustand/react/shallow'
 import EmailMessageDetail from './EmailMessageDetail'
 import { BeapInlineComposer } from './BeapInlineComposer'
 import { EmailInlineComposer } from './EmailInlineComposer'
-import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import { SyncFailureBanner } from './SyncFailureBanner'
-import { EdgeIngestorSection } from './EdgeIngestorSection'
+import { EmailAccountsAndEdgeIngestorPanel } from './EmailAccountsAndEdgeIngestorPanel'
 import EmailInboxSyncControls from './EmailInboxSyncControls'
 import { InboxMessageKindSelect } from './InboxMessageKindSelect'
 import LinkWarningDialog from './LinkWarningDialog'
@@ -5963,50 +5962,20 @@ export default function EmailInboxBulkView({
         />
       ) : null}
 
-      {/* Edge Ingestor — optional high-assurance mode */}
-      <EdgeIngestorSection variant="bulk" />
-
-      {/* Collapsible provider/account section */}
-      <div className={`bulk-view-provider-section ${providerSectionExpanded ? 'bulk-view-provider-section--expanded' : ''}`}>
-        <button
-          type="button"
-          className="bulk-view-provider-toggle"
-          onClick={() => setProviderSectionExpanded((v) => !v)}
-          aria-expanded={providerSectionExpanded}
-        >
-          <span style={{ fontSize: 14 }}>🔗</span>
-          <span style={{ fontSize: 12, fontWeight: 600 }}>Email Accounts</span>
-          {providerAccounts.length > 0 && (
-            <span style={{ fontSize: 11, color: MUTED }}>({providerAccounts.length})</span>
-          )}
-          <span
-            style={{
-              marginLeft: 'auto',
-              fontSize: 10,
-              transform: providerSectionExpanded ? 'rotate(180deg)' : 'none',
-              transition: 'transform 0.2s',
-            }}
-          >
-            ▼
-          </span>
-        </button>
-        {providerSectionExpanded && (
-          <div className="bulk-view-provider-body">
-              <EmailProvidersSection
-                theme="professional"
-                emailAccounts={providerAccounts}
-              isLoadingEmailAccounts={isLoadingProviderAccounts}
-              selectedEmailAccountId={selectedProviderAccountId}
-              onConnectEmail={handleConnectEmail}
-              onDisconnectEmail={handleDisconnectEmail}
-              onSetProcessingPaused={handleSetProcessingPaused}
-              onSelectEmailAccount={setSelectedProviderAccountId}
-              onUpdateImapCredentials={handleUpdateImapCredentials}
-              listAccountsError={providerListError}
-              />
-          </div>
-        )}
-      </div>
+      <EmailAccountsAndEdgeIngestorPanel
+        expanded={providerSectionExpanded}
+        onExpandedChange={setProviderSectionExpanded}
+        theme="professional"
+        emailAccounts={providerAccounts}
+        isLoadingEmailAccounts={isLoadingProviderAccounts}
+        selectedEmailAccountId={selectedProviderAccountId}
+        onConnectEmail={handleConnectEmail}
+        onDisconnectEmail={handleDisconnectEmail}
+        onSetProcessingPaused={handleSetProcessingPaused}
+        onSelectEmailAccount={setSelectedProviderAccountId}
+        onUpdateImapCredentials={handleUpdateImapCredentials}
+        listAccountsError={providerListError}
+      />
 
       {/* Content — list + chrome (scrolls with `.bulk-view-root`) */}
       <div className="bulk-view-content" style={{ position: 'relative' }}>

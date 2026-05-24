@@ -13,9 +13,8 @@ import { type DraftAttachment } from './EmailComposeOverlay'
 import { EmailInlineComposer } from './EmailInlineComposer'
 import BeapMessageImportZone from './BeapMessageImportZone'
 import { BeapInlineComposer } from './BeapInlineComposer'
-import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { EmailEdgeFetchControls } from './email-edge-fetch'
-import { EdgeIngestorSection } from './EdgeIngestorSection'
+import { EmailAccountsAndEdgeIngestorPanel } from './EmailAccountsAndEdgeIngestorPanel'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { SyncFailureBanner } from './SyncFailureBanner'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
@@ -4460,22 +4459,20 @@ export default function EmailInboxView({
               borderRight: '1px solid var(--color-border, rgba(255,255,255,0.08))',
             }}
           >
-            <EdgeIngestorSection variant="inbox" />
-            <div className="inbox-provider-section" data-testid="email-accounts-settings-section">
-              <EmailProvidersSection
-                theme="professional"
-                emailAccounts={providerAccounts}
-                isLoadingEmailAccounts={isLoadingProviderAccounts}
-                selectedEmailAccountId={selectedProviderAccountId}
-                onConnectEmail={handleConnectEmail}
-                onDisconnectEmail={handleDisconnectEmail}
-                onSetProcessingPaused={handleSetProcessingPaused}
-                onSelectEmailAccount={setSelectedProviderAccountId}
-                onUpdateImapCredentials={handleUpdateImapCredentials}
-                listAccountsError={providerListError}
-                renderAccountExtra={(account) => <EmailEdgeFetchControls account={account} />}
-              />
-              {primaryAccountId && window.emailInbox?.patchAccountSyncPreferences && (
+            <EmailAccountsAndEdgeIngestorPanel
+              theme="professional"
+              emailAccounts={providerAccounts}
+              isLoadingEmailAccounts={isLoadingProviderAccounts}
+              selectedEmailAccountId={selectedProviderAccountId}
+              onConnectEmail={handleConnectEmail}
+              onDisconnectEmail={handleDisconnectEmail}
+              onSetProcessingPaused={handleSetProcessingPaused}
+              onSelectEmailAccount={setSelectedProviderAccountId}
+              onUpdateImapCredentials={handleUpdateImapCredentials}
+              listAccountsError={providerListError}
+              renderAccountExtra={(account) => <EmailEdgeFetchControls account={account} />}
+              footer={
+                primaryAccountId && window.emailInbox?.patchAccountSyncPreferences ? (
                 <div
                   style={{
                     padding: '12px 18px',
@@ -4521,8 +4518,9 @@ export default function EmailInboxView({
                     ) : null}
                   </div>
                 </div>
-              )}
-            </div>
+              ) : null
+              }
+            />
             <div
               style={{
                 flex: 1,

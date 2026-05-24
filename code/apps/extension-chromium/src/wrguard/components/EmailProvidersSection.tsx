@@ -142,6 +142,8 @@ export interface EmailProvidersSectionProps {
   listAccountsError?: string | null
   /** Optional per-account footer (e.g. edge fetch controls). */
   renderAccountExtra?: (account: EmailAccount) => React.ReactNode
+  /** When true, omit outer section chrome — used inside EmailAccountsAndEdgeIngestorPanel. */
+  embedded?: boolean
 }
 
 export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
@@ -156,6 +158,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
   onSetProcessingPaused,
   listAccountsError,
   renderAccountExtra,
+  embedded = false,
 }) => {
   const defaultEmailAccountRowId = pickDefaultEmailAccountRowId(emailAccounts)
   const isLightTheme = theme === 'professional' || theme === 'standard'
@@ -169,15 +172,17 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
   
   return (
     <div style={{ 
-      padding: '16px 18px', 
-      borderBottom: `1px solid ${borderColor}`,
-        background: isLightTheme ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)'
+      padding: embedded ? '0 16px 16px' : '16px 18px', 
+      borderBottom: embedded ? 'none' : `1px solid ${borderColor}`,
+        background: embedded ? 'transparent' : isLightTheme ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)'
     }}>
       {/* Header with Connect Email button */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '16px' }}>🔗</span>
-          <span style={{ fontSize: '13px', fontWeight: '600', color: textColor }}>Connected Email Accounts</span>
+          {!embedded ? <span style={{ fontSize: '16px' }}>🔗</span> : null}
+          <span style={{ fontSize: embedded ? '12px' : '13px', fontWeight: '600', color: textColor }}>
+            {embedded ? 'Email accounts' : 'Connected Email Accounts'}
+          </span>
         </div>
         <button
           type="button"
