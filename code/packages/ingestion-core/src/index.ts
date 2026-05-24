@@ -20,7 +20,7 @@ export {
 } from './beapDetection.js';
 export { ingestInput } from './ingestor.js';
 export { validateCapsule, validateSessionImportArtefact } from './validator.js';
-export { validateDecryptedBeapContent, CONTENT_VALIDATOR_VERSION } from './contentValidator.js';
+export { validateDecryptedBeapContent, CONTENT_VALIDATOR_VERSION, validateAiAnalysisField } from './contentValidator.js';
 export type {
   ContentValidationResult,
   AiAnalysisJson,

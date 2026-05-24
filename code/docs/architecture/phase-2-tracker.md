@@ -14,7 +14,7 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 
 - [x] **P2.0** — Confirm branch and create Phase 2 tracker *(this file)*
 - [x] **P2.1** — Add post-seal AI enrichment hook (enrichment point attached to the sealed row; advisory only, never gating)
-- [ ] **P2.2** — Phishing/scam scorer (lightweight model invoked after seal; result stored in enrichment column)
+- [x] **P2.2** — Phishing/scam scorer (lightweight model invoked after seal; result stored in enrichment column)
 - [ ] **P2.3** — Validation cross-check (AI plausibility check vs structural validator outcome; discrepancy flagged, not blocking)
 - [ ] **P2.4** — Tighten link-open policy (restrict external link navigation to pod-cleared URLs; block `javascript:` / `data:` on all platforms)
 - [ ] **P2.5** — AI output schema + sealed storage enrichment column (`ai_analysis` JSONB column on `inbox_messages`; sealed alongside main payload)
@@ -30,7 +30,7 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 |------|-------|--------|
 | P2.0 | ✅ done | P2.0: phase 2 tracker |
 | P2.1 | ✅ done | P2.1: extend ai_analysis_json schema with phishing_assessment and validation_crosscheck |
-| P2.2 | ⬜ pending | — |
+| P2.2 | ✅ done | P2.2: phishing-assessment module with provider-agnostic structured output |
 | P2.3 | ⬜ pending | — |
 | P2.4 | ⬜ pending | — |
 | P2.5 | ⬜ pending | — |
@@ -61,6 +61,15 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 ## Notes & deviations
 
 *(Record any decisions made differently from the strategy here, with rationale.)*
+
+### P2.2
+
+- **New files:** `email/ai/phishingAssessor.prompt.ts` (prompt builder + `DISCLAIMER_VERSION`), `email/ai/phishingAssessor.ts` (`assessPhishing`), `email/ai/__tests__/phishingAssessor.test.ts` (14 tests).
+- **`LlmProvider` type:** alias of `ResolvedLlmContext & { timeoutMs? }` — callers can pass `preResolveInboxLlm()` directly with no adaption.
+- **Single source of truth:** schema validation calls `validateAiAnalysisField` (exported from `@repo/ingestion-core` in P2.1) via a thin wrapper `validateAssessmentCandidate`. No duplicated validation logic.
+- **`generated_at` / `model` stamping:** the assessor overwrites whatever the model returns with the actual `new Date().toISOString()` and `provider.model`. Model-provided timestamps are unreliable; this ensures the field is authoritative.
+- **Markdown fence stripping:** responses wrapped in \`\`\`json … \`\`\` are silently stripped before JSON.parse. Any remaining non-JSON text → `malformed_output`.
+- **ingestion-core index update:** `validateAiAnalysisField` added to exports.
 
 ### P2.1
 
