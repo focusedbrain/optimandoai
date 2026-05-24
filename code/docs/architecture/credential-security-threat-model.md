@@ -40,6 +40,21 @@ Does **not** cover vault master-password KDF, OAuth refresh tokens, or BEAP sign
 
 ---
 
+## Container replacement model (Phase 5)
+
+Phase 5 supervisor design (**replace-not-restart**) applies to BEAP pod containers on the edge VM and local pod, not to SSH credential handling above.
+
+When a trust-sensitive container (ingestor, validator, depackager, sealer, certifier, mail-fetcher) fails:
+
+1. The supervisor **destroys** the container (`podman rm -f`) and **creates a new instance** from the immutable image (`podman play kube` for that container). It does **not** use `podman restart` or Podman `restartPolicy: OnFailure` for those roles.
+2. **Implication:** compromise or corruption confined to one container instance does **not** persist across replacement — ephemeral container state (memory, tmpfs, local files in the container rootfs) is discarded with the instance.
+3. **Boundary:** the only deliberate state handed off across replacement is **queue position** (where the mail-fetch / ingest pipeline resumes). Quarantined crash-causing messages are stored separately (P5.5), not replayed automatically.
+4. **Residual risk:** an attacker who can repeatedly trigger container crashes forces the supervisor to spend replacement budget (CPU, brief unavailability, operator noise). Mitigation: **replacement-budget circuit breaker** (P5.7) stops unbounded replace loops and surfaces the condition to the user.
+
+Pod manifests move to `restartPolicy: Never` for trust-sensitive containers in P5.1 so Podman does not silently restart failed containers ahead of the supervisor.
+
+---
+
 ## Memory locking (mlock) status
 
 Implementation: `electron/main/security/secureMemory.ts` surveys **libsodium-wrappers** (already a dependency for vault crypto) for:
@@ -95,6 +110,8 @@ Until then:
 | `security/secretScrubber.ts` | Log / IPC scrubbing |
 | `edge-tier/ssh/hostKeyStore.ts` | TOFU host key pins |
 | `security/__tests__/credentialConsumers.snapshot.test.ts` | Registry of in-memory credential holders |
+
+Phase 5 supervisor / container replacement is documented in the **Container replacement model** section above; implementation lives in `packages/pod-supervisor/` (P5.2+).
 
 ---
 
