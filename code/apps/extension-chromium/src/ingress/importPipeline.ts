@@ -598,6 +598,9 @@ export async function verifyImportedMessage(
 
   // ------------------------------------------------------------------
   // Step 3: Route to Stage 5 sandbox
+  // TODO(phase-1.5): Replace with pod call once the extension has a
+  // pod-client path. Both active callers (P2P queue + file import) are
+  // category-(b) per the P2.8 audit — pod routing not yet available.
   // ------------------------------------------------------------------
   let sandboxResponse
   try {

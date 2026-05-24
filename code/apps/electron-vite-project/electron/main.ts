@@ -7065,6 +7065,10 @@ async function runDeviceKeyMigration(
     })
 
     // POST /api/inbox/merge-depackaged â€” Chromium extension Stage-5 â†’ local inbox_messages (decrypted body + optional attachment bytes)
+    // TODO(phase-1.5): This endpoint and mergeExtensionDepackaged.ts are the Electron receiver for the
+    // extension's sandbox depackager. Once the extension routes depackaging through the pod (phase-1.5),
+    // this endpoint will no longer receive new traffic and can be removed. All callers are category-(b)
+    // per the P2.8 audit (file imports + extension P2P BEAP have no pod alternative yet).
     httpApp.post('/api/inbox/merge-depackaged', async (req, res) => {
       try {
         const { mergeExtensionDepackaged, notifyInboxDepackagedMerged } = await import('./main/email/mergeExtensionDepackaged')
@@ -11378,6 +11382,7 @@ async function runDeviceKeyMigration(
 
         // B-5.1: drain extension merge retry buffer on P2P BEAP arrival
         // (implies a sandbox may now be connected).
+        // TODO(phase-1.5): Once extension uses pod routing, remove drainExtensionMergeBuffer call.
         try {
           await drainExtensionMergeBuffer(db, getCurrentSession() ?? null)
         } catch (e) {

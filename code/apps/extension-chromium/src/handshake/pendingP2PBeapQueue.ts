@@ -68,6 +68,9 @@ export async function processPendingP2PBeapQueue(): Promise<void> {
           continue
         }
         const verifyOptions = await buildVerifyOptions(item.handshake_id)
+        // TODO(phase-1.5): Replace verifyImportedMessage (sandbox path) with pod-client call.
+        // P2.8 audit: this caller is category-(b) — Electron's pod handles the same P2P messages
+        // on the Electron side, but the extension has no pod-routing yet. Retire after phase-1.5.
         const verifyResult = await verifyImportedMessage(importResult.messageId, verifyOptions)
         if (verifyResult.success) {
           const pkg = verifyResult.sanitisedPackage

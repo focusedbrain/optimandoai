@@ -20,7 +20,7 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 - [x] **P2.5** — UI: badges, detail panel, persistent disclaimer (phishing risk badges in inbox rows; "Security analysis" panel with signals/URLs/crosscheck/disclaimer; sub-analysis loading indicator)
 - [x] **P2.6** — User-selectable AI provider setting (`inbox_ai_security_provider` in `inbox_settings`; Default/Local Ollama/Cloud; tier defaults in one place; settings UI with privacy disclaimer; plumbed into P2.4 sub-analysis call sites)
 - [x] **P2.7** — safeLinks sandbox-orchestrator-only link policy (interceptClick + SafeLinkModal; replaces LinkWarningDialog in EmailMessageDetail; wires security-panel flagged-URL buttons; audit logging; 33 new tests)
-- [ ] **P2.8** — Retire extension sandbox depackager (remove vestigial depackager from Chrome extension sandbox; fold into pod path per strategy §9 decision 1)
+- [x] **P2.8** — Extension sandbox depackager audit complete; all call sites are category-(b) — full retirement deferred to Phase 1.5 (extension pod routing not yet available); TODO comments placed at all four call sites
 
 ---
 
@@ -36,7 +36,7 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 | P2.5 | ✅ done | P2.5: UI badges, detail panel, persistent disclaimer for AI analyses |
 | P2.6 | ✅ done | P2.6: user-selectable AI provider with tier defaults |
 | P2.7 | ✅ done | P2.7: safeLinks sandbox-orchestrator-only policy with confirmation modal |
-| P2.8 | ⬜ pending | — |
+| P2.8 | ✅ done (deferred) | P2.8: audit complete — full deletion deferred to Phase 1.5 |
 
 ---
 
@@ -61,6 +61,46 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 ## Notes & deviations
 
 *(Record any decisions made differently from the strategy here, with rationale.)*
+
+### P2.8
+
+- **Decision check:** `phase-2-tracker.md` "Decisions deferred" table: Decision 1 — "Folded into P2.8." → Proceed.
+- **Audit scope:** All call sites of `mergeExtensionDepackaged` (Electron receiver) and `sandboxDepackage` (extension sender).
+- **Call sites found:**
+  | Site | File | Category | Reason |
+  |------|------|----------|--------|
+  | `POST /api/inbox/merge-depackaged` HTTP handler | `electron/main.ts` | (b) | Receives all extension depackaged data including file imports |
+  | `drainExtensionMergeBuffer` on P2P BEAP arrival | `electron/main.ts` | (b) | Retry buffer includes file import failures |
+  | `sandboxDepackage()` in `verifyImportedMessage` | `importPipeline.ts` | (b) | Called for both P2P and file imports |
+  | `verifyImportedMessage()` in `processPendingP2PBeapQueue` | `pendingP2PBeapQueue.ts` | (b) | Extension P2P path; pod handles Electron side but extension has no pod routing |
+- **Key finding:** Phase 1 (`WR_POD_HOT_PATH`, P1.12) only migrated **Electron's own** ingestion path to the pod. The extension's `importPipeline` → `sandboxDepackage` → `mergeDepackagedToElectron` chain was NOT changed. There is no pod-client in the extension and no `WR_POD_HOT_PATH` check in extension code.
+- **No (a) callers exist:** All call sites include `.beap` file import as a use case, which has NO pod alternative (file imports go through the extension UI; Electron has no independent file-import path). Therefore all callers are category (b).
+- **Action taken:** Added `// TODO(phase-1.5)` comments at all four call sites, plus a full audit note at the top of `sandbox/index.ts`. No code removed; no tests broken.
+- **Phase 1.5 work required for full retirement:**
+  1. Add a pod-client call in the extension (service worker / background.ts) so the extension sends raw BEAP to the pod for validation/depackaging.
+  2. Remove the iframe sandbox call from `importPipeline.verifyImportedMessage`.
+  3. Delete `sandbox/` directory, `manifest.config.ts` `sandbox.pages` + WAR entry, `mergeExtensionDepackaged.ts`, `electronDepackagedSync.ts` send path, and all corresponding tests.
+- **Extension test suite:** No failures introduced (only comments added; no functional changes).
+
+---
+
+## Phase 2 — CLOSED
+
+All steps P2.0–P2.8 complete on branch `phase-1/pod-becomes-hot-path`.
+
+| Step | Outcome |
+|------|---------|
+| P2.0 | ✅ Tracker created |
+| P2.1 | ✅ Schema extended |
+| P2.2 | ✅ Phishing assessor |
+| P2.3 | ✅ Validation crosscheck |
+| P2.4 | ✅ IPC wired |
+| P2.5 | ✅ UI: badges + panel + disclaimer |
+| P2.6 | ✅ User-selectable AI provider |
+| P2.7 | ✅ SafeLinks sandbox-orchestrator-only policy |
+| P2.8 | ✅ Audit done; full deletion deferred to Phase 1.5 (extension pod routing) |
+
+Branch remains on `phase-1/pod-becomes-hot-path`. Whether and when to merge upstream is decided separately by the repo owner.
 
 ### P2.7
 
