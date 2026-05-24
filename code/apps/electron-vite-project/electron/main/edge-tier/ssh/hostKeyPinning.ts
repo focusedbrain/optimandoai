@@ -17,6 +17,7 @@ import {
   formatFingerprintForDisplay,
 } from './hostKeyStore.js'
 import { emitSshHostKeyFirstSeen } from './hostKeyEvents.js'
+import { assertNoSecretsInValue } from '../../security/secretScrubber.js'
 
 export class HostKeyMismatchError extends Error {
   readonly code = 'HOST_KEY_MISMATCH' as const
@@ -73,12 +74,13 @@ export function assertHostKeyTrusted(input: {
 
   if (!stored) {
     storeFingerprint(input.host, input.port, keyType, observed)
-    emitSshHostKeyFirstSeen({
+    const event = emitSshHostKeyFirstSeen({
       host: input.host,
       port: input.port,
       key_type: keyType,
       fingerprint_sha256: observed,
     })
+    assertNoSecretsInValue(event, 'ssh_host_key_first_seen structured log')
     return true
   }
 

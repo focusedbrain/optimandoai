@@ -238,7 +238,7 @@ describe('assertNoSecretsInRendererPayload', () => {
   test('throws when SSH key present in payload', () => {
     expect(() =>
       assertNoSecretsInRendererPayload({ key: SSH_KEY }),
-    ).toThrow(/SSH private key/)
+    ).toThrow(/Credential secret detected/)
   })
 
   test('allows public wizard state', () => {

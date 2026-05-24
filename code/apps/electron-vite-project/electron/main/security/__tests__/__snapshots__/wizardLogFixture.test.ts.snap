@@ -1,0 +1,13 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`wizard credential log fixture > matches snapshot for scrubbed log structure 1`] = `
+{
+  "levels": {
+    "log": 1,
+  },
+  "lineCount": 1,
+  "prefixes": [
+    "[WIZARD]",
+  ],
+}
+`;

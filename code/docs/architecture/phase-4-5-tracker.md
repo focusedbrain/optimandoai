@@ -47,7 +47,7 @@ Manual test: [`phase-4-5-manual-test.md`](phase-4-5-manual-test.md)
 - [x] **P4.5.11** — Move SSH file reading from renderer to main process
 - [x] **P4.5.12** — Zero credentials on every exit path
 - [x] **P4.5.13** — SSH host key pinning (TOFU) with mismatch confirmation UI
-- [ ] **P4.5.14** — *(pending)*
+- [x] **P4.5.14** — Scrub credentials from logs and IPC payloads; CI regression net
 - [ ] **P4.5.15** — *(pending)*
 
 ---
@@ -70,6 +70,7 @@ Manual test: [`phase-4-5-manual-test.md`](phase-4-5-manual-test.md)
 | P4.5.11 | ✅ done | P4.5.11: read SSH key files in main process; renderer never sees PEM bytes |
 | P4.5.12 | ✅ done | P4.5.12: zero credentials on every exit path; passphrase as Buffer not string |
 | P4.5.13 | ✅ done | P4.5.13: SSH host key pinning with TOFU and explicit mismatch confirmation |
+| P4.5.14 | ✅ done | P4.5.14: scrub credentials from logs and IPC payloads; add CI regression net |
 
 ---
 

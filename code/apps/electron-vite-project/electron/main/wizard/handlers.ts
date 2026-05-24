@@ -26,6 +26,7 @@ import {
 import type { TargetProbe } from '../edge-tier/ssh/types.js'
 
 import { bufferToUtf8, bufferToUtf8Optional } from '../security/sshSecretBuffers.js'
+import { assertNoSecretsInValue } from '../security/secretScrubber.js'
 import { readAndValidateSshKeyFile } from './readSshKeyFile.js'
 import {
   clearWizardVmCredentials,
@@ -270,12 +271,7 @@ export async function wizardVerifyAndSwitch(
   return verify(replicaIndex, { vault: deps.vault })
 }
 
+/** @deprecated Use assertNoSecretsInValue — kept for existing IPC call sites (P4.5.14). */
 export function assertNoSecretsInRendererPayload(payload: unknown): void {
-  const json = JSON.stringify(payload)
-  if (json.includes('BEGIN OPENSSH PRIVATE KEY')) {
-    throw new Error('SSH private key leaked to renderer payload')
-  }
-  if (json.includes('"privateKey"')) {
-    throw new Error('privateKey field leaked to renderer payload')
-  }
+  assertNoSecretsInValue(payload, 'renderer IPC payload')
 }

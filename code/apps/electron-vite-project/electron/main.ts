@@ -45,6 +45,9 @@ import express from 'express'
 import * as http from 'node:http'
 import * as net from 'net'
 import * as crypto from 'crypto'
+import { installMainProcessLogScrubbing } from './main/security/mainProcessLogger.js'
+
+installMainProcessLogScrubbing()
 
 function stripDataUriPrefixForLlm(s: string): string {
   if (!s.startsWith('data:')) return s
@@ -97,34 +100,8 @@ const DEBUG_AUTH_STATUS_HTTP = false
 // -----------------------------------------------------------------------------
 // Diagnostic log signatures (pairing, rate limits, endpoint repair, WebRTC, probes):
 //   docs/HOST_AI_DIAGNOSTIC_LOGS.md — section "Diagnostic log signatures"
-// Main-process lines are mirrored to renderers via broadcastMainProcessLog below.
+// Main-process lines are mirrored to renderers via installMainProcessLogScrubbing (P4.5.14).
 // -----------------------------------------------------------------------------
-// === TEMPORARY DEBUG LOG CAPTURE (remove before production) ===
-const _originalLog = console.log
-const _originalError = console.error
-const _originalWarn = console.warn
-
-function formatMainLogArg(a: unknown): string {
-  if (typeof a === 'string') return a
-  try {
-    return JSON.stringify(a)
-  } catch {
-    return String(a)
-  }
-}
-
-function broadcastMainProcessLog(level: string, args: unknown[]) {
-  const line = args.map(formatMainLogArg).join(' ')
-  const entry = { ts: new Date().toISOString(), level, line }
-  try {
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (win.isDestroyed()) continue
-      win.webContents.send('main-process-log', entry)
-    }
-  } catch {
-    /* never throw from logging */
-  }
-}
 
 /** When extension/background saves a session KV row (e.g. rename), notify dashboard renderers to refetch session lists. */
 function broadcastOrchestratorSessionDisplayUpdated(sessionKey: string) {
@@ -142,20 +119,6 @@ function broadcastOrchestratorSessionDisplayUpdated(sessionKey: string) {
     /* noop */
   }
 }
-
-console.log = (...args: unknown[]) => {
-  _originalLog(...args)
-  broadcastMainProcessLog('log', args)
-}
-console.error = (...args: unknown[]) => {
-  _originalError(...args)
-  broadcastMainProcessLog('error', args)
-}
-console.warn = (...args: unknown[]) => {
-  _originalWarn(...args)
-  broadcastMainProcessLog('warn', args)
-}
-// === END TEMPORARY DEBUG LOG CAPTURE ===
 
 // ============================================================================
 // INSTANT LOGOUT - Split into fast sync (UI lock) + slow async (cleanup)
