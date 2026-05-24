@@ -33,7 +33,7 @@ Phase 4 ref: `docs/architecture/phase-4-tracker.md`
 - [x] **P4.5.1** — Enterprise-tone explainer copy module (`copy/explainerCopy.ts`)
 - [x] **P4.5.2** — Wizard intro step: explainer + tier-aware CTA (`StepExplainer`, `wizard:refreshTier`)
 - [x] **P4.5.3** — Reusable tier badge + refresh control (`TierBadgeWithRefresh`)
-- [ ] **P4.5.4** — Upgrade gate at deploy step + pricing URL + refresh-plan UX (`isPaidTier`, `ensureSession(true)`)
+- [x] **P4.5.4** — mail-fetcher role stub (`packages/beap-pod/src/roles/mail-fetcher.ts`)
 - [ ] **P4.5.5** — Edge-tier settings shape for email-on-edge migrated accounts
 - [ ] **P4.5.6** — REMOTE_EDGE mail-ingest role + pod manifest extension (strategy §11)
 - [ ] **P4.5.7** — Desktop OAuth mint + wrapped credential transfer to edge (strategy §11.5)
@@ -51,7 +51,7 @@ Phase 4 ref: `docs/architecture/phase-4-tracker.md`
 | P4.5.1 | ✅ done | P4.5.1: enterprise-tone explainer copy module |
 | P4.5.2 | ✅ done | P4.5.2: wizard intro step with explainer and tier-aware CTA |
 | P4.5.3 | ✅ done | P4.5.3: TierBadgeWithRefresh reusable component |
-| P4.5.4 | ⬜ pending | — |
+| P4.5.4 | ✅ done | P4.5.4: mail-fetcher role stub |
 | P4.5.5 | ⬜ pending | — |
 | P4.5.6 | ⬜ pending | — |
 | P4.5.7 | ⬜ pending | — |

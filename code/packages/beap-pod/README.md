@@ -41,6 +41,7 @@ All inter-container traffic stays on loopback; authenticated via the shared
 | sealer    | 18103 | 10103 | HMAC-SHA256 seal over depackaged content; strictest seccomp profile |
 | certifier | 18104 | 10104 | REMOTE_EDGE only: Ed25519 edge certificate; strict seccomp; no seal |
 | verifier  | 18105 | 10105 | LOCAL_VERIFY only: `/verify-cert` (P3.6+) |
+| mail-fetcher | 18106 | 10106 | REMOTE_EDGE only: email fetch stub (P4.5.4); real logic in P4.5.5+ |
 
 ---
 
