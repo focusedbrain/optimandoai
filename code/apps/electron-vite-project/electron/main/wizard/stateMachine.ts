@@ -12,7 +12,7 @@ import type {
 } from './types.js'
 
 export const INITIAL_WIZARD_STATE: WizardState = {
-  step: 'authenticate',
+  step: 'explainer',
   replicaIndex: 0,
   totalReplicas: 1,
   deployedReplicas: [],
@@ -46,6 +46,9 @@ export function wizardReducer(state: WizardState, event: WizardEvent): WizardSta
   switch (event.type) {
     case 'RESET':
       return { ...INITIAL_WIZARD_STATE }
+
+    case 'EXPLAINER_CONTINUE':
+      return clearError({ ...state, step: 'authenticate' })
 
     case 'AUTH_SUCCESS':
       return clearError({

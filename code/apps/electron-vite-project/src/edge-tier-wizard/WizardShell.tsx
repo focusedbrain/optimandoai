@@ -1,10 +1,11 @@
 /**
- * Edge tier wizard shell — six-step flow (P4.5).
+ * Edge tier wizard shell — seven-step flow (P4.5.2).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { LOCAL_POD_REQUIRED_MESSAGE, STEP_LABELS, WIZARD_TITLE } from './copy.js'
+import { LOCAL_POD_REQUIRED_MESSAGE, STEP_LABELS, WIZARD_TITLE, WIZARD_UPGRADE_URL } from './copy.js'
+import { openAppExternalUrl } from '../lib/openAppExternalUrl.js'
 import type { LogEvent, WizardPublicState } from './types.js'
 import {
   btnDanger,
@@ -13,6 +14,7 @@ import {
   wizardOverlayStyle,
   wizardPanelStyle,
 } from './styles.js'
+import { StepExplainer } from './steps/StepExplainer.js'
 import { StepAuthenticate } from './steps/StepAuthenticate.js'
 import { StepProvideVm, type StepProvideVmFormValues } from './steps/StepProvideVm.js'
 import { StepProbeAndPrepare } from './steps/StepProbeAndPrepare.js'
@@ -31,6 +33,8 @@ export interface WizardShellProps {
 export interface WizardBridgeLike {
   getState: () => Promise<WizardPublicState>
   reset: () => Promise<WizardPublicState>
+  refreshTier: () => Promise<{ tier: string; isPaidTier: boolean }>
+  continueFromExplainer: () => Promise<{ state: WizardPublicState }>
   authenticate: () => Promise<{ ok: boolean; plan?: string; sub?: string; error?: string; state: WizardPublicState }>
   setVmCredentials: (input: {
     host: string
@@ -65,6 +69,7 @@ type ShellMode = 'running' | 'cancelled' | 'complete' | 'blocked'
 
 function stepIndex(step: WizardPublicState['step']): number {
   const order: WizardPublicState['step'][] = [
+    'explainer',
     'authenticate',
     'provide_vm',
     'probe_and_prepare',
@@ -103,6 +108,9 @@ export function WizardShell({
   const [verifyConfirmed, setVerifyConfirmed] = useState(false)
   const [verifyResult, setVerifyResult] = useState<boolean | null>(null)
   const [verifyReason, setVerifyReason] = useState<string | undefined>()
+  const [currentTier, setCurrentTier] = useState<string>('free')
+  const [waitingForUpgrade, setWaitingForUpgrade] = useState(false)
+  const [refreshingTier, setRefreshingTier] = useState(false)
 
   const operationIdRef = useRef<string | null>(null)
   const deployAttemptedRef = useRef(false)
@@ -116,6 +124,20 @@ export function WizardShell({
     if (!wizard) throw new Error('Wizard IPC unavailable')
     return wizard
   }, [wizard])
+
+  const loadAuthTier = useCallback(async () => {
+    if (typeof window === 'undefined' || !window.auth?.getStatus) return
+    try {
+      const status = await window.auth.getStatus()
+      if (status?.tier) setCurrentTier(String(status.tier))
+    } catch {
+      /* keep last known tier */
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadAuthTier()
+  }, [loadAuthTier])
 
   useEffect(() => {
     if (!wizard) {
@@ -178,10 +200,49 @@ export function WizardShell({
     setVerifyReason(undefined)
     setVerifyConfirmed(false)
     setLocalError(null)
+    setWaitingForUpgrade(false)
+    setRefreshingTier(false)
+    void loadAuthTier()
     const s = await wizard.reset()
     syncState(s)
     setMode('running')
-  }, [wizard, syncState])
+  }, [wizard, syncState, loadAuthTier])
+
+  const handleContinueFromExplainer = useCallback(async () => {
+    try {
+      const w = ensureWizard()
+      setLocalError(null)
+      const { state: next } = await w.continueFromExplainer()
+      syncState(next)
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : String(err))
+    }
+  }, [ensureWizard, syncState])
+
+  const handleUpgradeNow = useCallback(async () => {
+    setWaitingForUpgrade(true)
+    setLocalError(null)
+    await openAppExternalUrl(WIZARD_UPGRADE_URL)
+  }, [])
+
+  const handleRefreshTier = useCallback(async () => {
+    try {
+      const w = ensureWizard()
+      setRefreshingTier(true)
+      setLocalError(null)
+      const result = await w.refreshTier()
+      setCurrentTier(result.tier)
+      if (result.isPaidTier) {
+        setWaitingForUpgrade(false)
+        const { state: next } = await w.continueFromExplainer()
+        syncState(next)
+      }
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRefreshingTier(false)
+    }
+  }, [ensureWizard, syncState])
 
   const handleAuthenticate = useCallback(async () => {
     try {
@@ -410,6 +471,17 @@ export function WizardShell({
                 </div>
               ))}
             </div>
+
+            {state.step === 'explainer' && (
+              <StepExplainer
+                tier={currentTier}
+                waitingForUpgrade={waitingForUpgrade}
+                refreshingTier={refreshingTier}
+                onContinue={() => void handleContinueFromExplainer()}
+                onUpgrade={() => void handleUpgradeNow()}
+                onRefreshTier={() => void handleRefreshTier()}
+              />
+            )}
 
             {state.step === 'authenticate' && (
               <StepAuthenticate

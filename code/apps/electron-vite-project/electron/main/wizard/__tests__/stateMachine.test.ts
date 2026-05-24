@@ -22,8 +22,15 @@ function okProbe(overrides: Partial<TargetProbe> = {}): TargetProbe {
 }
 
 describe('wizardReducer', () => {
+  test('explainer continue moves to authenticate', () => {
+    expect(INITIAL_WIZARD_STATE.step).toBe('explainer')
+    const next = wizardReducer(INITIAL_WIZARD_STATE, { type: 'EXPLAINER_CONTINUE' })
+    expect(next.step).toBe('authenticate')
+  })
+
   test('authenticate success moves to provide_vm', () => {
-    const next = wizardReducer(INITIAL_WIZARD_STATE, {
+    const onAuth = wizardReducer(INITIAL_WIZARD_STATE, { type: 'EXPLAINER_CONTINUE' })
+    const next = wizardReducer(onAuth, {
       type: 'AUTH_SUCCESS',
       plan: 'pro',
       sub: 'user-123',
@@ -33,7 +40,8 @@ describe('wizardReducer', () => {
   })
 
   test('authenticate failure records error', () => {
-    const next = wizardReducer(INITIAL_WIZARD_STATE, {
+    const onAuth = wizardReducer(INITIAL_WIZARD_STATE, { type: 'EXPLAINER_CONTINUE' })
+    const next = wizardReducer(onAuth, {
       type: 'AUTH_FAILED',
       message: 'not paid',
     })
@@ -42,7 +50,8 @@ describe('wizardReducer', () => {
   })
 
   test('vm credentials move to probe_and_prepare', () => {
-    const state = wizardReducer(INITIAL_WIZARD_STATE, {
+    let state = wizardReducer(INITIAL_WIZARD_STATE, { type: 'EXPLAINER_CONTINUE' })
+    state = wizardReducer(state, {
       type: 'AUTH_SUCCESS',
       plan: 'pro',
       sub: 'user-123',
@@ -56,7 +65,8 @@ describe('wizardReducer', () => {
   })
 
   test('probe success with podman moves first replica to replica_count', () => {
-    let state = wizardReducer(INITIAL_WIZARD_STATE, {
+    let state = wizardReducer(INITIAL_WIZARD_STATE, { type: 'EXPLAINER_CONTINUE' })
+    state = wizardReducer(state, {
       type: 'AUTH_SUCCESS',
       plan: 'pro',
       sub: 'u',

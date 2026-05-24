@@ -3,6 +3,7 @@
  */
 
 export type WizardStep =
+  | 'explainer'
   | 'authenticate'
   | 'provide_vm'
   | 'probe_and_prepare'

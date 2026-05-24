@@ -84,6 +84,18 @@ export function readRemoteEdgeManifestTemplate(): string {
   )
 }
 
+export async function wizardRefreshTier(
+  deps: WizardHandlerDeps,
+): Promise<{ tier: Tier; isPaidTier: boolean }> {
+  const ensure = deps.ensureSession ?? ensureSession
+  const getInfo = deps.getCachedUserInfo ?? getCachedUserInfo
+
+  await ensure(true)
+  const info = getInfo()
+  const tier = info?.canonical_tier ?? resolveTier(info?.wrdesk_plan, info?.roles ?? [], info?.sso_tier)
+  return { tier, isPaidTier: isPaidTier(tier) }
+}
+
 export async function wizardAuthenticate(deps: WizardHandlerDeps): Promise<WizardAuthenticateResponse> {
   const ensure = deps.ensureSession ?? ensureSession
   const getInfo = deps.getCachedUserInfo ?? getCachedUserInfo

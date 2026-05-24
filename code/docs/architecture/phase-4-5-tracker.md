@@ -31,7 +31,7 @@ Phase 4 ref: `docs/architecture/phase-4-tracker.md`
 
 - [x] **P4.5.0** — Confirm branch and create Phase 4.5 tracker *(this file)*
 - [x] **P4.5.1** — Enterprise-tone explainer copy module (`copy/explainerCopy.ts`)
-- [ ] **P4.5.2** — Wizard explainer shell UI (consumes `explainerCopy.ts`)
+- [x] **P4.5.2** — Wizard intro step: explainer + tier-aware CTA (`StepExplainer`, `wizard:refreshTier`)
 - [ ] **P4.5.3** — Free-tier wizard entry (explainer visible; no paid block at launch)
 - [ ] **P4.5.4** — Upgrade gate at deploy step + pricing URL + refresh-plan UX (`isPaidTier`, `ensureSession(true)`)
 - [ ] **P4.5.5** — Edge-tier settings shape for email-on-edge migrated accounts
@@ -49,7 +49,7 @@ Phase 4 ref: `docs/architecture/phase-4-tracker.md`
 |------|-------|--------|
 | P4.5.0 | ✅ done | P4.5.0: phase 4.5 tracker |
 | P4.5.1 | ✅ done | P4.5.1: enterprise-tone explainer copy module |
-| P4.5.2 | ⬜ pending | — |
+| P4.5.2 | ✅ done | P4.5.2: wizard intro step with explainer and tier-aware CTA |
 | P4.5.3 | ⬜ pending | — |
 | P4.5.4 | ⬜ pending | — |
 | P4.5.5 | ⬜ pending | — |

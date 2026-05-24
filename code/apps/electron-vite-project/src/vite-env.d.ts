@@ -252,6 +252,8 @@ interface DashboardBridge {
 interface WizardBridge {
   getState: () => Promise<Record<string, unknown>>
   reset: () => Promise<Record<string, unknown>>
+  refreshTier: () => Promise<{ tier: string; isPaidTier: boolean }>
+  continueFromExplainer: () => Promise<{ state: Record<string, unknown> }>
   authenticate: () => Promise<{
     ok: boolean
     plan?: string

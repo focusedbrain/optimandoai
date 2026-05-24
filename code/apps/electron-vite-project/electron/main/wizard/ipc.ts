@@ -14,6 +14,7 @@ import {
   wizardGenerateAndDeploy,
   wizardInstallPodman,
   wizardProbe,
+  wizardRefreshTier,
   wizardStoreVmCredentials,
   wizardVerifyAndSwitch,
   assertNoSecretsInRendererPayload,
@@ -104,6 +105,15 @@ export function initWizardIpc(vault: EdgeTierPodVault): void {
 }
 
 export function registerWizardIpcHandlers(): void {
+  ipcMain.handle('wizard:refreshTier', async () => {
+    const result = await wizardRefreshTier(getDeps())
+    return result
+  })
+
+  ipcMain.handle('wizard:continueFromExplainer', async () => {
+    return { state: dispatch({ type: 'EXPLAINER_CONTINUE' }) }
+  })
+
   ipcMain.handle('wizard:getState', async () => getPublicState())
 
   ipcMain.handle('wizard:reset', async () => {
@@ -238,7 +248,7 @@ export function registerWizardIpcHandlers(): void {
   })
 
   console.log(
-    '[MAIN] IPC handlers registered: wizard:getState, wizard:authenticate, wizard:probe, wizard:installPodman, wizard:generateAndDeploy, wizard:verifyAndSwitch, wizard:cancel',
+    '[MAIN] IPC handlers registered: wizard:getState, wizard:refreshTier, wizard:continueFromExplainer, wizard:authenticate, wizard:probe, wizard:installPodman, wizard:generateAndDeploy, wizard:verifyAndSwitch, wizard:cancel',
   )
 }
 

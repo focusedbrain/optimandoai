@@ -24,8 +24,9 @@ describe('wizard copy snapshots', () => {
     expect(STEP4_REPLICA_MULTI_NOTE).toMatchSnapshot()
   })
 
-  it('step labels are six steps', () => {
-    expect(STEP_LABELS).toHaveLength(6)
+  it('step labels are seven steps', () => {
+    expect(STEP_LABELS).toHaveLength(7)
+    expect(STEP_LABELS[0]).toBe('Overview')
     expect(LOCAL_POD_REQUIRED_MESSAGE).toContain('Podman')
   })
 })

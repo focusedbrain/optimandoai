@@ -9,6 +9,7 @@ import type { InstallEvent } from '../edge-tier/ssh/install-podman.js'
 import type { DeployEvent } from '../edge-tier/ssh/deploy.js'
 
 export type WizardStep =
+  | 'explainer'
   | 'authenticate'
   | 'provide_vm'
   | 'probe_and_prepare'

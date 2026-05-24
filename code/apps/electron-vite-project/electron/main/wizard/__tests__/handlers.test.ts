@@ -18,6 +18,7 @@ import {
   wizardGenerateAndDeploy,
   wizardInstallPodman,
   wizardProbe,
+  wizardRefreshTier,
   wizardStoreVmCredentials,
   wizardVerifyAndSwitch,
   assertNoSecretsInRendererPayload,
@@ -67,6 +68,39 @@ function makeDeps(overrides: Partial<WizardHandlerDeps> = {}): WizardHandlerDeps
 
 beforeEach(() => {
   _resetWizardSshSessionForTest()
+})
+
+describe('wizardRefreshTier', () => {
+  test('refreshes session and returns tier flags', async () => {
+    const ensureSession = vi.fn(async () => ({ accessToken: 'sso-token' }))
+    const result = await wizardRefreshTier(
+      makeDeps({
+        ensureSession,
+        getCachedUserInfo: vi.fn(() => ({
+          sub: 'user-1',
+          wrdesk_plan: 'publisher',
+          canonical_tier: 'publisher',
+          roles: [],
+        })),
+      }),
+    )
+    expect(ensureSession).toHaveBeenCalledWith(true)
+    expect(result).toEqual({ tier: 'publisher', isPaidTier: true })
+  })
+
+  test('returns free tier when session has no paid plan', async () => {
+    const result = await wizardRefreshTier(
+      makeDeps({
+        getCachedUserInfo: vi.fn(() => ({
+          sub: 'user-1',
+          wrdesk_plan: 'free',
+          canonical_tier: 'free',
+          roles: [],
+        })),
+      }),
+    )
+    expect(result).toEqual({ tier: 'free', isPaidTier: false })
+  })
 })
 
 describe('wizardAuthenticate', () => {

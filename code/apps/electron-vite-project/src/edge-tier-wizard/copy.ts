@@ -19,7 +19,11 @@ export const LOCAL_POD_REQUIRED_MESSAGE =
 
 export const WIZARD_TITLE = 'Set up edge tier'
 
+/** Wizard upgrade target — Phase 4.5 hard rule (do not share with sandbox/coordination URLs). */
+export const WIZARD_UPGRADE_URL = 'https://wrdesk.com/?page_id=1080&v=5f02f0889301'
+
 export const STEP_LABELS = [
+  'Overview',
   'Sign in',
   'Provide VM',
   'Probe & prepare',

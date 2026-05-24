@@ -1620,6 +1620,10 @@ contextBridge.exposeInMainWorld('dashboard', {
 contextBridge.exposeInMainWorld('wizard', {
   getState: () => ipcRenderer.invoke('wizard:getState'),
   reset: () => ipcRenderer.invoke('wizard:reset'),
+  refreshTier: () =>
+    ipcRenderer.invoke('wizard:refreshTier') as Promise<{ tier: string; isPaidTier: boolean }>,
+  continueFromExplainer: () =>
+    ipcRenderer.invoke('wizard:continueFromExplainer') as Promise<{ state: Record<string, unknown> }>,
   authenticate: () => ipcRenderer.invoke('wizard:authenticate'),
   setVmCredentials: (input: Record<string, unknown>) =>
     ipcRenderer.invoke('wizard:setVmCredentials', input),
