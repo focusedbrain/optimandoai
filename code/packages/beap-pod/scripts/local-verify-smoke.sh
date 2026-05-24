@@ -9,7 +9,7 @@
 #   2. Generates POD_AUTH_SECRET, SEAL_KEY_HEX, test JWKS, LOCAL_SSO_SUB.
 #   3. Mints a test edge certificate (same @repo/beap-cert paths as the edge certifier).
 #   4. Starts the LOCAL_VERIFY pod with preloaded JWKS (no verifier egress).
-#   5. Posts (message + edge_certificate) to /ingest — expects sealed payload.
+#   5. Posts (message + edge_certificate) to /ingest — shallow + deep verify, sealed payload.
 #   6. Negative: tampered certificate → verification failure, no seal.
 #
 # Requirements:
@@ -65,6 +65,7 @@ SMOKE_ARTIFACTS="$TMPDIR_SMOKE/artifacts.json"
 (cd "$REPO_ROOT" && node --input-type=module <<'EOF' > "$SMOKE_ARTIFACTS"
 import { createHmac, randomUUID } from 'node:crypto';
 import { ed25519 } from '@noble/curves/ed25519.js';
+import { ingestInput, validateCapsule } from '@repo/ingestion-core';
 import {
   capsuleCanonicalHash,
   packageHash,
@@ -139,8 +140,20 @@ const pkg = {
 };
 const bodyString = JSON.stringify(pkg);
 const rawPackageBytes = Buffer.from(bodyString, 'utf8');
-const canonicalCapsuleBytes = Buffer.from(JSON.stringify(pkg), 'utf8');
-const canonicalValidationResultBytes = Buffer.from(JSON.stringify({ valid: true, smoke: true }), 'utf8');
+
+const candidate = ingestInput(
+  { body: bodyString, mime_type: 'application/json' },
+  'api',
+  {},
+);
+const validation = validateCapsule(candidate);
+if (!validation.success) {
+  console.error('Smoke fixture validation failed:', validation);
+  process.exit(1);
+}
+const validated = validation.validated;
+const canonicalCapsuleBytes = Buffer.from(JSON.stringify(validated.capsule), 'utf8');
+const canonicalValidationResultBytes = Buffer.from(JSON.stringify(validated), 'utf8');
 
 const now = new Date();
 const unsigned = {
@@ -270,12 +283,12 @@ HTTP_TAMPER="$(curl -s -o "$RESP_TAMPER" -w "%{http_code}" \
 TAMPER_RESP="$(cat "$RESP_TAMPER" 2>/dev/null || echo '')"
 log "Tampered /ingest HTTP $HTTP_TAMPER → ${TAMPER_RESP:0:300}..."
 
-if echo "$TAMPER_RESP" | grep -q '"seal"'; then
-  fail "Tampered certificate must not produce a seal"
-fi
-
 if [ "$HTTP_TAMPER" = "200" ] && ! echo "$TAMPER_RESP" | grep -qiE 'verif|reject|cert|unauthor'; then
   fail "Tampered certificate should be rejected with verification failure"
+fi
+
+if echo "$TAMPER_RESP" | grep -q '"seal"'; then
+  fail "Tampered certificate must not produce a seal"
 fi
 
 pass "Tampered certificate rejected (no seal)"

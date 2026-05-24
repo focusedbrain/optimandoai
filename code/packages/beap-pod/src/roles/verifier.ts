@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { compactVerify, createLocalJWKSet, decodeJwt } from 'jose';
 import type { CompactVerifyGetKey, JSONWebKeySet, JWTVerifyGetKey } from 'jose';
-import { packageHash, verifyCertificate } from '@repo/beap-cert';
+import { packageHash, verifyCertificate, capsuleCanonicalHash, validationResultDigest } from '@repo/beap-cert';
 import type { EdgeCertificate } from '@repo/beap-cert';
 import { requirePodAuthSecret, createPodAuthMiddleware } from '../shared/podAuth.js';
 
@@ -44,6 +44,8 @@ export const VERIFY_REASON = {
   SSO_SUB_MISMATCH: 'SSO_SUB_MISMATCH',
   ATTESTATION_POD_ID_MISMATCH: 'ATTESTATION_POD_ID_MISMATCH',
   EDGE_SIGNATURE_INVALID: 'EDGE_SIGNATURE_INVALID',
+  CAPSULE_CANONICAL_HASH_MISMATCH: 'CAPSULE_CANONICAL_HASH_MISMATCH',
+  VALIDATION_RESULT_DIGEST_MISMATCH: 'VALIDATION_RESULT_DIGEST_MISMATCH',
 } as const;
 
 export type VerifyReasonCode = (typeof VERIFY_REASON)[keyof typeof VERIFY_REASON];
@@ -67,6 +69,7 @@ export interface VerifyCertInput {
   rawPackageBytes: Uint8Array;
   certificate: EdgeCertificate;
   expectedCapsuleCanonicalBytes?: Uint8Array;
+  expectedValidationResultBytes?: Uint8Array;
 }
 
 export function parseLocalSsoSub(value: string | undefined): string {
@@ -289,6 +292,23 @@ export async function verifyCertificateAcceptance(
     return { ok: false, reason: VERIFY_REASON.EDGE_SIGNATURE_INVALID };
   }
 
+  // Deep checks (§2.3) — only when local validator output is supplied (second pass).
+  if (input.expectedCapsuleCanonicalBytes !== undefined) {
+    const expectedCapsuleHash = capsuleCanonicalHash(input.expectedCapsuleCanonicalBytes);
+    if (cert.capsule_canonical_hash !== expectedCapsuleHash) {
+      logRejection(VERIFY_REASON.CAPSULE_CANONICAL_HASH_MISMATCH, correlation);
+      return { ok: false, reason: VERIFY_REASON.CAPSULE_CANONICAL_HASH_MISMATCH };
+    }
+  }
+
+  if (input.expectedValidationResultBytes !== undefined) {
+    const expectedDigest = validationResultDigest(input.expectedValidationResultBytes);
+    if (cert.validation_result_digest !== expectedDigest) {
+      logRejection(VERIFY_REASON.VALIDATION_RESULT_DIGEST_MISMATCH, correlation);
+      return { ok: false, reason: VERIFY_REASON.VALIDATION_RESULT_DIGEST_MISMATCH };
+    }
+  }
+
   return { ok: true, edge_pod_id: cert.edge_pod_id, sub: attSub };
 }
 
@@ -427,10 +447,17 @@ function makeHandler(
         'expected_capsule_canonical_bytes',
       );
 
+      const expectedValidationResultBytes = decodeBytesField(
+        body,
+        'expected_validation_result_bytes_b64',
+        'expected_validation_result_bytes',
+      );
+
       const result = await verifyCertificateAcceptance(state, {
         rawPackageBytes,
         certificate: certRaw,
         ...(expectedCapsuleCanonicalBytes ? { expectedCapsuleCanonicalBytes } : {}),
+        ...(expectedValidationResultBytes ? { expectedValidationResultBytes } : {}),
       });
 
       sendJson(res, 200, result as unknown as Record<string, unknown>);

@@ -4,20 +4,16 @@
 # Usage:
 #   bash packages/beap-pod/scripts/remote-edge-smoke.sh [--skip-build]
 #
-# What it tests (once P3.4 certifier logic lands):
+# What it tests:
 #   1. Builds (or reuses) the beap-components:dev image.
 #   2. Generates ephemeral POD_AUTH_SECRET and a test Ed25519 keypair.
 #   3. Generates a stub SSO attestation JWT (smoke-only; not Keycloak).
 #   4. Installs the certifier seccomp profile.
 #   5. Starts the REMOTE_EDGE pod via `podman play kube`.
 #   6. Posts a synthetic pBEAP message to /ingest.
-#   7. Asserts the response includes an edge certificate whose Ed25519 signature
-#      verifies against the test public key, expires_at is in the future, and
-#      package_hash matches the posted raw bytes.
+#   7. Asserts the response includes { depackaged_payload, certificate } and
+#      the Ed25519 signature verifies against the test public key.
 #   8. Tears down the pod.
-#
-# Until P3.4 (certifier /certify HTTP server), step 7 fails with an explicit
-# "TODO P3.4" message — that is expected.
 #
 # Requirements:
 #   podman ≥ 4.0, bash, curl, openssl, envsubst, node ≥ 18
@@ -40,10 +36,6 @@ trap 'rm -rf "$TMPDIR_SMOKE"; smoke_teardown' EXIT INT TERM
 log()  { echo "[remote-edge-smoke] $*"; }
 pass() { echo "[remote-edge-smoke] PASS: $*"; }
 fail() { echo "[remote-edge-smoke] FAIL: $*" >&2; exit 1; }
-todo_p34() {
-  echo "[remote-edge-smoke] TODO P3.4: expected edge_certificate missing from /ingest response." >&2
-  exit 1
-}
 
 SKIP_BUILD=false
 for arg in "$@"; do
@@ -202,10 +194,10 @@ if [ "$HTTP_CODE" -ge 500 ] 2>/dev/null; then
   fail "/ingest returned 5xx ($HTTP_CODE) — check pod logs"
 fi
 
-if ! echo "$INGEST_RESP" | grep -qE '"edge_certificate"|"certificate"'; then
+if ! echo "$INGEST_RESP" | grep -qE '"certificate"|"edge_certificate"'; then
   log "Container logs:"
   podman pod logs --names "$POD_NAME" 2>/dev/null | tail -60 || true
-  todo_p34
+  fail "Expected certificate in REMOTE_EDGE /ingest response"
 fi
 
 cat > "$TMPDIR_SMOKE/verify-cert.mjs" <<VERIFYEOF
@@ -213,7 +205,7 @@ import { readFileSync } from 'node:fs';
 import { verifyCertificate, packageHash } from '${BEAP_CERT_DIR//\\/\/}/dist/index.js';
 
 const resp = JSON.parse(readFileSync('${RESP_FILE//\\/\/}', 'utf8'));
-const cert = resp.edge_certificate ?? resp.certificate;
+const cert = resp.certificate ?? resp.edge_certificate;
 if (!cert) {
   console.error('No edge_certificate in response');
   process.exit(2);
@@ -245,9 +237,6 @@ VERIFYEOF
 
 VERIFY_OUT="$(node "$TMPDIR_SMOKE/verify-cert.mjs" 2>&1)" || {
   echo "$VERIFY_OUT" >&2
-  if echo "$VERIFY_OUT" | grep -q 'No edge_certificate'; then
-    todo_p34
-  fi
   fail "Certificate verification failed: $VERIFY_OUT"
 }
 

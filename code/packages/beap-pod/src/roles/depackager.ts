@@ -85,6 +85,8 @@ export function sanitizeBeapBody(html: string): string {
 export interface DepackagerConfig {
   sealerBase?: string;
   certifierBase?: string;
+  /** LOCAL_VERIFY: return verify_metadata + depackaged_for_seal; ingestor seals after deep cert check. */
+  deferSeal?: boolean;
   version?: string;
   maxBodyBytes?: number;
   timeoutMs?: number;
@@ -296,6 +298,17 @@ function makeHandler(
                 }),
                 signal: controller.signal,
               });
+            } else if (cfg.deferSeal) {
+              // LOCAL_VERIFY: ingestor runs deep cert check, then calls sealer (P3.7).
+              sendJson(res, 200, {
+                pending_seal: true,
+                verify_metadata: {
+                  canonical_capsule_bytes_b64: canonicalCapsuleBytes.toString('base64'),
+                  canonical_validation_result_bytes_b64: canonicalValidationResultBytes.toString('base64'),
+                },
+                depackaged_for_seal: depackaged,
+              });
+              return;
             } else {
               downstreamRes = await cfg.authedFetch(`${cfg.sealerBase}/seal`, {
                 method: 'POST',
@@ -355,6 +368,9 @@ export function createDepackagerServer(secret: string, config?: DepackagerConfig
     (process.env['POD_MODE'] === 'REMOTE_EDGE' ? process.env['CERTIFIER_BASE'] : undefined) ??
     process.env['CERTIFIER_BASE'] ??
     '';
+  const deferSeal =
+    config?.deferSeal ??
+    process.env['POD_MODE'] === 'LOCAL_VERIFY';
   const sealerBase = config?.sealerBase ?? DEFAULT_SEALER_BASE;
   const version = config?.version ?? VERSION;
   const maxBodyBytes = config?.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
@@ -368,6 +384,7 @@ export function createDepackagerServer(secret: string, config?: DepackagerConfig
     makeHandler(secret, {
       sealerBase,
       certifierBase: certifierBase || undefined,
+      deferSeal,
       version,
       maxBodyBytes,
       timeoutMs,

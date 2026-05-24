@@ -18,10 +18,10 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - [x] **P3.4** — Certifier role `/certify` HTTP server (Ed25519 signing; env validation; depackager → certifier routing)
 - [x] **P3.5** — LOCAL_VERIFY pod manifest (ingestor → verifier → validator → depackager → sealer; preloaded JWKS)
 - [x] **P3.6** — Verifier role container (`/verify-cert` on LOCAL_VERIFY; full §2.3 acceptance rule)
-- [ ] **P3.7** — Keycloak attestation flow (`sso_attestation` JWT; resolve Decision 6)
-- [ ] **P3.8** — Edge key lifecycle in Electron
-- [ ] **P3.9** — pod-client edge routing
-- [ ] **P3.10** — LOCAL_VERIFY ingestion wiring + E2E manual round-trip
+- [x] **P3.7** — Ingestor LOCAL_VERIFY flow (shallow verify → validator → deep verify → seal; POD_MODE branching)
+- [ ] **P3.8** — Keycloak attestation flow (`sso_attestation` JWT; resolve Decision 6)
+- [ ] **P3.9** — Edge key lifecycle in Electron
+- [ ] **P3.10** — pod-client edge routing + E2E manual round-trip
 
 ---
 
@@ -36,7 +36,7 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 | P3.4 | ✅ done | P3.4: certifier role container with Ed25519 signing |
 | P3.5 | ✅ done | P3.5: LOCAL_VERIFY pod manifest |
 | P3.6 | ✅ done | P3.6: verifier role container with full acceptance rule |
-| P3.7 | ⬜ pending | — |
+| P3.7 | ✅ done | P3.7: ingestor LOCAL_VERIFY flow with shallow-then-deep verification |
 | P3.8 | ⬜ pending | — |
 | P3.9 | ⬜ pending | — |
 | P3.10 | ⬜ pending | — |
@@ -125,3 +125,11 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - **Ingestor wiring:** When `VERIFIER_BASE` is set, POST `/ingest` requires `edge_certificate` and calls `/verify-cert` before validator (first-pass gate; P3.7 adds post-validation re-check).
 - **Tests:** 21 verifier tests (happy path, all 8 reason codes, HTTP, startup failure, log safety). Full beap-pod suite: 109 pass.
 - **Smoke:** `local-verify-smoke.sh` updated with `edge_pubkey` + `exp` in attestation JWT; TODO P3.6 removed.
+
+### P3.7
+
+- **`ingestor.ts`:** `POD_MODE` branching — `LOCAL_HOST` (unchanged), `LOCAL_VERIFY` (6-step shallow→validate→deep→seal), `REMOTE_EDGE` (returns `{ depackaged_payload, certificate }`). `CERT_MISSING` when LOCAL_VERIFY lacks cert.
+- **`depackager.ts`:** `deferSeal` when `POD_MODE=LOCAL_VERIFY` — returns `verify_metadata` + `depackaged_for_seal`; ingestor calls sealer after deep verify.
+- **`verifier.ts`:** Deep checks — `CAPSULE_CANONICAL_HASH_MISMATCH`, `VALIDATION_RESULT_DIGEST_MISMATCH` when `expected_*_bytes` supplied (second `/verify-cert` pass).
+- **Tests:** `ingestor.modes.test.ts` (LOCAL_HOST unchanged, LOCAL_VERIFY happy/shallow-fail/deep-fail/CERT_MISSING, REMOTE_EDGE shape); 3 new verifier deep-check tests. Full suite: 117 pass.
+- **Smoke:** `local-verify-smoke.sh` mints cert hashes via `ingestInput`+`validateCapsule` (matches depackager); `remote-edge-smoke.sh` expects shaped `{ certificate, depackaged_payload }`.

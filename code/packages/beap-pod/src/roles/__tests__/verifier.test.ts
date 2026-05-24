@@ -317,6 +317,51 @@ describe('verifyCertificateAcceptance — reason codes', () => {
     );
     expect(result).toEqual({ ok: false, reason: VERIFY_REASON.EDGE_SIGNATURE_INVALID });
   });
+
+  test('CAPSULE_CANONICAL_HASH_MISMATCH on deep check', async () => {
+    const { state, rawPackageBytes, certificate } = await buildFixture();
+    const wrongCapsule = Uint8Array.from(Buffer.from('{"wrong":true}', 'utf8'));
+    const result = await verifyCertificateAcceptance(
+      state,
+      { rawPackageBytes, certificate, expectedCapsuleCanonicalBytes: wrongCapsule },
+      FIXED_NOW,
+    );
+    expect(result).toEqual({ ok: false, reason: VERIFY_REASON.CAPSULE_CANONICAL_HASH_MISMATCH });
+  });
+
+  test('VALIDATION_RESULT_DIGEST_MISMATCH on deep check', async () => {
+    const { state, rawPackageBytes, certificate } = await buildFixture();
+    const capsuleBytes = Uint8Array.from(Buffer.from('{"capsule":true}', 'utf8'));
+    const wrongValidation = Uint8Array.from(Buffer.from('{"valid":false}', 'utf8'));
+    const result = await verifyCertificateAcceptance(
+      state,
+      {
+        rawPackageBytes,
+        certificate,
+        expectedCapsuleCanonicalBytes: capsuleBytes,
+        expectedValidationResultBytes: wrongValidation,
+      },
+      FIXED_NOW,
+    );
+    expect(result).toEqual({ ok: false, reason: VERIFY_REASON.VALIDATION_RESULT_DIGEST_MISMATCH });
+  });
+
+  test('deep check passes when hashes match cert', async () => {
+    const { state, rawPackageBytes, certificate } = await buildFixture();
+    const capsuleBytes = Uint8Array.from(Buffer.from('{"capsule":true}', 'utf8'));
+    const validationBytes = Uint8Array.from(Buffer.from('{"valid":true}', 'utf8'));
+    const result = await verifyCertificateAcceptance(
+      state,
+      {
+        rawPackageBytes,
+        certificate,
+        expectedCapsuleCanonicalBytes: capsuleBytes,
+        expectedValidationResultBytes: validationBytes,
+      },
+      FIXED_NOW,
+    );
+    expect(result.ok).toBe(true);
+  });
 });
 
 describe('verifier HTTP server', () => {
