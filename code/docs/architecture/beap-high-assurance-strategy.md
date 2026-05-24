@@ -4,7 +4,7 @@
 **Based on:** `beap-ingestor-audit-prompt.md` results, 2026-05-24  
 **Branch:** `phase-1/pod-becomes-hot-path` (Phases 1–3 complete; held for review — do not merge to `main` until downstream phases sign off)
 
-**Trackers:** [Phase 1](phase-1-tracker.md) · [Phase 2](phase-2-tracker.md) · [Phase 3](phase-3-tracker.md) · [Phase 3 manual E2E](phase-3-manual-test.md)
+**Trackers:** [Phase 1](phase-1-tracker.md) · [Phase 2](phase-2-tracker.md) · [Phase 3](phase-3-tracker.md) · [Phase 3 manual E2E](phase-3-manual-test.md) · [Phase 5](phase-5-tracker.md) · [Phase 5 manual E2E](phase-5-manual-test.md)
 
 | Phase | Status |
 | --- | --- |
@@ -13,7 +13,7 @@
 | Phase 2 — AI analysis enhancement | ✅ SHIPPED 2026-05 |
 | Phase 3 — Certification | ✅ SHIPPED 2026-05-24 |
 | Phase 4 — Wizard | 🔜 next |
-| Phase 5 — Supervisor / self-heal / LB | planned |
+| Phase 5 — Supervisor / replace-not-restart / quarantine | ✅ SHIPPED 2026-05-24 |
 | Phase 6 — Polish | planned |
 
 ---
@@ -367,27 +367,68 @@ Persisted to `edge-tier-settings.json`. When `enabled=false`, Electron starts a 
 
 ---
 
-## 5. Self-healing and load balancing
+## 5. Self-healing supervisor (Phase 5 — ✅ SHIPPED 2026-05-24)
 
-A small supervisor in `packages/pod-supervisor/` inside Electron. Not Kubernetes. K8s for at-most-three-replicas-per-user is overkill and a maintenance tax. **Not yet implemented — Phase 5.**
+**Status:** complete on `phase-1/pod-becomes-hot-path`, commits P5.0–P5.11. Tracker: [`phase-5-tracker.md`](phase-5-tracker.md). Manual E2E: [`phase-5-manual-test.md`](phase-5-manual-test.md).
 
-### 5.1 Self-heal
+A desktop **PodSupervisor** in `apps/electron-vite-project/electron/main/edge-tier/supervisor/` polls each REMOTE_EDGE replica over SSH every **10 s**. Not Kubernetes — at-most-three-replicas-per-user does not warrant a cluster control plane.
 
-- Each container in the pod has `RestartPolicy=on-failure` in the pod's quadlet / `podman play kube` manifest. Process crashes are handled at the podman level out of the box.
-- The whole pod has a single readiness gate that aggregates all containers' `/ready` — pod is ready only when every container is ready.
-- Supervisor health-pings every 5 s, hits each container's `/health`. Three consecutive misses on any container → mark replica unhealthy.
-- Unhealthy → first try restarting just the failing container; if that fails twice → redeploy the whole pod on the VM from the stored deployment manifest. For remote replicas this means re-running the SSH bootstrap path with stored credentials. If credentials are no longer valid, surface to the user — don't store anything that survives without the user's blessing.
+### 5.1 What shipped
 
-### 5.2 Load balancing (`packages/pod-client/`)
+**Replace-not-restart (P5.1, P5.4).** All trust-sensitive containers in `pod.yaml`, `pod-remote-edge.yaml`, and `pod-local-verify.yaml` use pod-level `restartPolicy: Never`. Podman must not auto-restart failed roles. On exit, the supervisor `podman rm -f`s the dead container and recreates it with `podman run --pod` against the existing pod network (`beap-pod-remote-edge`). Only **queue position** crosses the replacement boundary via `POST /restore`.
 
-- Round-robin across healthy edge replicas, default
-- Optional least-connections for latency-sensitive customers
-- Per-replica circuit breaker: 5 consecutive failures → 60 s quarantine
-- Hedged requests for paid tier: send to two edges in parallel, take the first valid cert. Costs 2× requests, halves p95 latency. Default off.
+**Hardened diagnostic reports (P5.2, P5.3).** `@repo/beap-cert` defines `DiagnosticReportV1`: enumerated exception class/stage, code symbol paths, numeric metrics, message hash/size, IMAP-attested envelope fields, allowlist-filtered subject. No exception `.message` strings, no body-derived headers. Edge roles sign with the edge key; supervisor-authored stuck reports use `signer: 'supervisor'` (P5.9).
 
-**Phase 3:** single replica only; `PodEdgeUnreachableError` when edge down and `fallback_policy=reject`.
+**Sandbox-routed report viewing (P5.6).** The dashboard shows quarantine metadata only (timestamp, sender-reported from, truncated subject, failed role). Full diagnostic reports and quarantined message bodies open in the **sandbox orchestrator** (`diagnostic_report` / `raw_email_body` modes) — monospace plain text, no linkification.
 
-### 5.3 Fallback policy — **default to reject**
+**Message quarantine (P5.5, P5.6).** Crash-causing mail is AES-256-GCM encrypted on edge tmpfs (`/var/lib/quarantine`), picked up to desktop `userData/diagnostic-reports/{replica_id}/quarantine/{hash}/`, and listed in the dashboard **Quarantine** tab. The mail-fetcher skip-list advances to the **next** UNSEEN message; the crash message is never silently dropped. Discard requires typed confirmation (from or subject) and deletes from both desktop and edge.
+
+**Replacement budget (P5.7).** Per-(replica, role) sliding window: **3 replacements in 60 s** → `replacement_exhausted`; automatic recovery pauses until **Resume automatic recovery** or nuclear reset. Pod-level replacement (P5.8) does **not** count against this budget.
+
+**Pod-level escalation (P5.8).** When container replacement fails (`health_timeout`, `restore_failed`, podman corruption), the supervisor escalates: `podman pod stop` → `podman pod rm -f` → `podman play kube` with the same env injection as deploy. Edge signing key, SSO JWT, SSH host key, and pod-level tmpfs (quarantine) are preserved; credentials are re-delivered.
+
+**Stuck container detection (P5.9).** Running containers are probed via `curl /health` each poll cycle (5 s timeout). **3 consecutive failures** → `podman kill --signal=SIGKILL` → standard replace path with a supervisor-signed `StuckHealthProbeError` report.
+
+**Nuclear reset (P5.10).** Dashboard modal: type replica **hostname** + **`RESET`** + reason + SSH key. Remote wipe (pod, volumes, quarantine, manifest) → desktop purge of local diagnostic/quarantine copies → fresh Ed25519 keypair + SSO attestation → redeploy. Edge-fetch accounts transition to **degraded** / `replica_reset`; re-authorize required. Append-only audit retains `nuclear_reset` with hashed confirmation input.
+
+**Audit trail.** Append-only `edge-tier-audit.log` in Electron userData records `container_replaced`, `pod_replaced`, `message_quarantined`, `message_discarded`, `replacement_budget_exhausted`, `replacement_budget_cleared`, and `nuclear_reset`.
+
+### 5.2 Deviations from the original §5 design
+
+The pre–Phase 5 text below assumed Podman `RestartPolicy=OnFailure`, 5 s health pings, container restart then whole-pod redeploy, and a `@repo/pod-client` load-balancing circuit breaker. **Phase 5 superseded that design.** Explicit deltas:
+
+| Topic | Original §5 (pre–Phase 5) | Phase 5 as shipped |
+| --- | --- | --- |
+| Container recovery | `restartPolicy: OnFailure`; supervisor may restart failing container | `restartPolicy: Never`; supervisor **`podman rm -f` + recreate** per container |
+| Failure semantics | Podman restart carries container state forward | **Replace-not-restart** — fresh container from immutable image; only queue position persists |
+| Health cadence | Health ping every **5 s** | Supervisor poll every **10 s**; stuck probes use **5 s** curl timeout |
+| Unhealthy action | Restart container; redeploy whole pod after two restart failures | Replace container; **pod replace** only on container-replace failure (not after N restarts) |
+| Crash-causing mail | Not specified | **Quarantine model** — message preserved; fetch loop advances |
+| Diagnostics | Not specified | **Hardened report schema** + Ed25519 signing |
+| Report viewing | Not specified | **Sandbox routing** — dashboard metadata only |
+| Abuse / flapping | Per-replica **load-client** circuit breaker (§5.2) | **Replacement-budget** circuit breaker on supervisor (3/60 s) |
+| Load balancing | Round-robin, hedged requests, least-connections | **Not shipped in Phase 5** — `@repo/pod-client` remains single-replica (Phase 3) |
+| Supervisor location | `packages/pod-supervisor/` standalone package | **`electron/main/edge-tier/supervisor/`** inside the Electron app |
+| Remote pod name | Generic `beap-pod` in early drafts | **`beap-pod-remote-edge`** in manifests and SSH helpers |
+
+Future readers: if code differs from older strategy slides or pre-P5.0 §5 text, **trust this table and the phase-5 tracker**, not the original self-heal bullets.
+
+<details>
+<summary>Original §5 self-heal design (superseded — do not implement)</summary>
+
+- Each container had `RestartPolicy=on-failure`; Podman handled process crashes.
+- Supervisor health-pinged every 5 s; three consecutive misses → unhealthy.
+- Unhealthy → restart failing container; two restart failures → redeploy whole pod from stored manifest.
+
+</details>
+
+### 5.3 Load balancing — not shipped (deferred)
+
+Round-robin across healthy edge replicas, least-connections, hedged parallel requests, and the per-replica **5 failures → 60 s quarantine** circuit breaker in `@repo/pod-client` remain **planned**, not implemented in Phase 5.
+
+**Current behavior (Phase 3 + 5):** single replica; `PodEdgeUnreachableError` when edge is down and `fallback_policy=reject`. Supervisor replacement budget covers **replacement storms**, not client-side replica selection.
+
+### 5.4 Fallback policy — **default to reject** (Phase 3, unchanged)
 
 If 0 healthy edge replicas:
 
@@ -396,13 +437,23 @@ If 0 healthy edge replicas:
 
 Default-reject is correct for high-assurance customers: silently downgrading erases the security property they're paying for, without their knowledge. The wizard asks once during setup.
 
-### 5.4 What this is not
+### 5.5 What this phase does not protect against
+
+Phase 5 hardens **remote edge container** recovery and crash-message handling. It does **not** protect against:
+
+- **Same-user malware on the desktop.** Malware running as the logged-in user can read VMK-wrapped keys, SSH credentials, quarantine decrypt paths, and supervisor signing material from the Electron process. Replacement and quarantine assume the desktop operator is benign.
+- **Debugger attached to a running supervisor.** A debugger on the Electron main process can alter replacement decisions, suppress quarantine pickup, or exfiltrate report plaintext before sandbox display. Runtime integrity of the supervisor is out of scope.
+- **VM-host-level compromise.** A hostile VPS provider or root on the edge VM can tamper with containers, quarantine blobs, or diagnostic reports regardless of replace-not-restart. Mitigation is bring-your-own-VM trust and digest-pinned images — not supervisor magic.
+
+See also §8 for shared-bug, fully-owned-desktop, Keycloak, and hostile-pod-operator residual risks.
+
+### 5.6 What this is not
 
 - Not a scheduler. Replicas are configured by the wizard, not autoscaled.
 - Not a service mesh. mTLS between local and edge is enough.
-- Not a control plane. Each user owns their replicas; Anthropic does not.
+- Not a control plane. Each user owns their replicas; the vendor does not operate them.
 
-Keeping these out of scope is the "efficient complexity" you asked for.
+Keeping these out of scope is the "efficient complexity" design goal.
 
 ---
 
@@ -573,14 +624,25 @@ Exit criteria met: round-trip cert flow works manually; no wizard yet (Phase 4).
 
 Exit criteria: a paid user with a Linux VPS they brought themselves can deploy an edge and route traffic through it from the wizard alone.
 
-### Phase 5 — Supervisor / self-heal / load balance (1 week)
+### Phase 5 — Supervisor / replace-not-restart / quarantine ✅ SHIPPED (2026-05-24)
 
-- Health probes and unhealthy detection
-- Round-robin client; circuit breaker
-- Redeploy on failure for remote replicas
-- Fallback policy with badge
+**Status:** complete on `phase-1/pod-becomes-hot-path`, commits P5.0–P5.11. Same branch as Phases 1–3.
 
-Exit criteria: killing a replica triggers redeploy; killing all replicas triggers configured fallback.
+**What shipped:**
+
+- **`restartPolicy: Never`** on all trust-sensitive pod manifests; supervisor replace-not-restart over SSH
+- **Hardened diagnostic reports** (`@repo/beap-cert`, edge + supervisor signing)
+- **Message quarantine** on edge tmpfs with desktop pickup and dashboard review
+- **Sandbox-routed** report and body viewing (dashboard metadata only)
+- **Replacement budget** (3/60 s per replica+role) with resume and notifications
+- **Pod-level escalation** when container replacement fails (preserves keys and quarantine tmpfs)
+- **Stuck container detection** via `/health` probes and SIGKILL
+- **Nuclear reset** from dashboard (new keypair, new `edge_pod_id`, re-authorize edge-fetch accounts)
+- **Manual E2E procedure** — [`phase-5-manual-test.md`](phase-5-manual-test.md)
+
+Exit criteria met: container failure triggers replace-not-restart; crash-causing messages quarantine; reports are hardened and sandbox-viewed; replacement storms pause; host can nuclear-reset a replica.
+
+**Not in Phase 5:** `@repo/pod-client` multi-replica round-robin / hedged requests (deferred).
 
 ### Phase 6 — Polish (1 week)
 
@@ -649,12 +711,16 @@ These were open before Phase 1; resolutions recorded here and in phase trackers.
 | `apps/electron-vite-project/electron/main/local-pod/notify.ts` | Desktop notification when pod cannot start |
 | `apps/electron-vite-project/scripts/edge-cli.ts` | Dev/manual edge deploy CLI (SSH to Linux targets) |
 | `apps/electron-vite-project/src/components/EdgeTierAdminPanel.tsx` | Dev status + verification audit UI |
+| `apps/electron-vite-project/electron/main/edge-tier/supervisor/` | PodSupervisor — replace-not-restart, report/quarantine pickup, budget, escalation (Phase 5) |
+| `apps/electron-vite-project/src/edge-tier-dashboard/` | Edge tier dashboard — quarantine panel, replacement exhausted, nuclear reset (Phase 5) |
+| `apps/electron-vite-project/src/sandbox-orchestrator/` | Sandbox-isolated diagnostic report and quarantine body viewing (Phase 5) |
+| `packages/beap-pod/src/shared/quarantine/` | Edge quarantine store and mail-fetcher skip-list (Phase 5) |
+| `packages/beap-pod/src/shared/reportGenerator.ts` | Hardened diagnostic report generation on role failure (Phase 5) |
 
 **New (planned):**
 
 | Path | Phase |
 | --- | --- |
-| `packages/pod-supervisor/` | Phase 5 |
 | `packages/wizard/` (or feature-flagged area in electron app) | Phase 4 |
 
 **Substantially changed:**

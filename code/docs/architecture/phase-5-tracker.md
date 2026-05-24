@@ -58,7 +58,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - [x] **P5.8** — Pod-level replacement escalation on container-replacement failure
 - [x] **P5.9** — Stuck container detection via health probes with supervisor-signed reports
 - [x] **P5.10** — Host-initiated nuclear pod reset
-- [ ] **P5.11** — End-to-end tests, manual verification recipe, and strategy doc §5 closeout
+- [x] **P5.11** — End-to-end tests, manual verification recipe, and strategy doc §5 closeout
 
 ---
 
@@ -77,7 +77,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 | P5.8 | ✅ done | `067ee08b` |
 | P5.9 | ✅ done | `fa31accb` |
 | P5.10 | ✅ done | `d81d4441` |
-| P5.11 | ⬜ pending | — |
+| P5.11 | ✅ done | *(this commit)* |
 
 ---
 
@@ -90,7 +90,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 | Diagnostic reports | Hardened schema only; full report viewable only via sandbox |
 | Abuse resistance | Replacement-budget circuit breaker stops replacement storms |
 | Nuclear reset | Host can wipe and recreate pod state from dashboard |
-| Automated tests | Phase 5 vitest green; manual recipe in P5.10 |
+| Automated tests | Phase 5 vitest green; manual recipe in P5.11 (`phase-5-manual-test.md`) |
 
 ---
 
@@ -191,3 +191,30 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - Edge-fetch accounts on replica → `degraded` / `replica_reset` + re-authorize notification.
 - Audit: `nuclear_reset` with user reason + `confirmation_user_input_hash` (audit log never deleted).
 - Tests: `__tests__/nuclearReset.test.ts`, `nuclearResetModal.test.tsx`.
+
+### P5.11
+
+- Strategy doc §5 rewritten to **Phase 5 — SHIPPED** with deviations table and residual-risk §5.5.
+- Manual E2E recipe: `docs/architecture/phase-5-manual-test.md` (six tests: crash, quarantine, budget, pod escalation, stuck detection, nuclear reset).
+- Phase 5 closed on `phase-1/pod-becomes-hot-path`; do not merge to `main` until downstream sign-off.
+
+---
+
+## Phase 5 done — 2026-05-24
+
+All steps P5.0–P5.11 complete on branch `phase-1/pod-becomes-hot-path`.
+
+| Deliverable | Location |
+|-------------|----------|
+| Replace-not-restart manifests | `packages/beap-pod/pod*.yaml` |
+| Hardened reports | `packages/beap-cert`, `packages/beap-pod/src/shared/reportGenerator.ts` |
+| Supervisor | `apps/electron-vite-project/electron/main/edge-tier/supervisor/` |
+| Quarantine + dashboard | `src/edge-tier-dashboard/QuarantinePanel.tsx`, quarantine IPC |
+| Sandbox viewing | `src/sandbox-orchestrator/` |
+| Nuclear reset | `electron/main/edge-tier/nuclearReset.ts`, `NuclearResetModal.tsx` |
+| Strategy §5 | `docs/architecture/beap-high-assurance-strategy.md` |
+| Manual test | `docs/architecture/phase-5-manual-test.md` |
+
+**Deferred beyond Phase 5:** `@repo/pod-client` multi-replica load balancing and hedged requests (original §5.2).
+
+**Next phase:** Phase 4 wizard (if not already complete on branch) or Phase 6 polish per strategy roadmap.
