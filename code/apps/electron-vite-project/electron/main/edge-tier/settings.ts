@@ -31,16 +31,21 @@ export interface EdgeTierSettings {
   fallback_policy: EdgeFallbackPolicy
   /** P2P native BEAP routing when edge tier is enabled. Default: direct local path. */
   native_beap_routing: NativeBeapRouting
+  /** Quarantine retention on edge and desktop (days). Default: 30. */
+  quarantine_retention_days?: number
   /** Preloaded JWKS for LOCAL_VERIFY verifier (no runtime Keycloak egress). */
   cached_jwks_json?: string
   cached_jwks_fetched_at?: string
 }
+
+export const DEFAULT_QUARANTINE_RETENTION_DAYS = 30
 
 export const DEFAULT_EDGE_TIER_SETTINGS: EdgeTierSettings = {
   enabled: false,
   replicas: [],
   fallback_policy: 'reject',
   native_beap_routing: 'direct',
+  quarantine_retention_days: DEFAULT_QUARANTINE_RETENTION_DAYS,
 }
 
 const SETTINGS_FILENAME = 'edge-tier-settings.json'
@@ -108,11 +113,17 @@ export function normalizeEdgeTierSettings(raw: unknown): EdgeTierSettings {
     o.fallback_policy === 'local_only' ? 'local_only' : 'reject'
   const nativeBeapRouting: NativeBeapRouting =
     o.native_beap_routing === 'require_edge' ? 'require_edge' : 'direct'
+  const quarantineRetentionRaw = o.quarantine_retention_days
+  const quarantine_retention_days =
+    typeof quarantineRetentionRaw === 'number' && quarantineRetentionRaw > 0
+      ? Math.floor(quarantineRetentionRaw)
+      : DEFAULT_QUARANTINE_RETENTION_DAYS
   return {
     enabled: o.enabled === true,
     replicas,
     fallback_policy: fallback,
     native_beap_routing: nativeBeapRouting,
+    quarantine_retention_days,
     cached_jwks_json:
       typeof o.cached_jwks_json === 'string' ? o.cached_jwks_json : undefined,
     cached_jwks_fetched_at:

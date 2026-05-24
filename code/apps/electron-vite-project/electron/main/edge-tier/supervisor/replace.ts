@@ -115,7 +115,7 @@ const ROLE_ENV_OVERRIDES: Record<
     POD_MODE: 'REMOTE_EDGE',
     PORT: '18106',
     MAIL_FETCHER_HOST: '127.0.0.1',
-    MAIL_FETCHER_CREDENTIALS_DIR: '/tmp/mail-fetcher-credentials',
+    MAIL_FETCHER_CREDENTIALS_DIR: '/var/lib/mail-fetcher',
     INGESTOR_BASE: 'http://127.0.0.1:18100',
     POD_VERSION: '1.0.0',
   },

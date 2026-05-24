@@ -13,8 +13,12 @@ import {
 import { AccountRegistry } from './accountRegistry.js';
 import { CredentialStore } from './credentialStore.js';
 import { createIngestClient } from './ingestClient.js';
-import type { DeliverKeyBody, StartAccountBody, StopAccountBody } from './types.js';
+import type { DeliverKeyBody, StartAccountBody, StopAccountBody, DeliverQuarantineKeyBody } from './types.js';
 import { MAIL_FETCHER_EGRESS_NOTE } from './types.js';
+import { QuarantineStore } from '../../shared/quarantine/index.js';
+import { setQuarantineKeyFromHex } from '../../shared/quarantine/keyStore.js';
+import { QuarantineSkipStore } from './quarantineSkipStore.js';
+import { startQuarantineCleanupTask } from './quarantineCleanup.js';
 
 export const ROLE = 'mail-fetcher';
 export const DEFAULT_PORT = 18106;
@@ -74,12 +78,17 @@ export function createMailFetcherServer(config: MailFetcherSupervisorConfig = {}
   const ingestorBase = config.ingestorBase ?? process.env['INGESTOR_BASE'] ?? 'http://127.0.0.1:18100';
 
   const store = new CredentialStore(credentialsDir);
+  const skipStore = new QuarantineSkipStore(`${credentialsDir}/quarantine_skip`);
+  const quarantineStore = new QuarantineStore();
+  const stopQuarantineCleanup = startQuarantineCleanupTask(quarantineStore);
   const registry =
     config.registry ??
     new AccountRegistry({
       store,
       ingest: createIngestClient(ingestorBase),
       diagnostics: config.diagnostics,
+      skipStore,
+      quarantineStore,
     });
 
   void store.ensureRoot().then(() => registry.restoreFromTmpfs());
@@ -146,6 +155,9 @@ export function createMailFetcherServer(config: MailFetcherSupervisorConfig = {}
           sendJson(res, 400, { error: 'missing required fields' });
           return;
         }
+        if (body.quarantine_key) {
+          setQuarantineKeyFromHex(body.quarantine_key);
+        }
         await registry.deliverKey(body.account_id, body.account_key);
         sendJson(res, 200, { ok: true, account_id: body.account_id, state: 'active' });
       } catch (err) {
@@ -171,8 +183,27 @@ export function createMailFetcherServer(config: MailFetcherSupervisorConfig = {}
       return;
     }
 
+    if (method === 'POST' && url === '/quarantine/deliver_key') {
+      try {
+        const body = (await readJsonBody(req)) as DeliverQuarantineKeyBody;
+        if (!body.quarantine_key) {
+          sendJson(res, 400, { error: 'missing quarantine_key' });
+          return;
+        }
+        setQuarantineKeyFromHex(body.quarantine_key);
+        sendJson(res, 200, { ok: true });
+      } catch (err) {
+        sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
     sendJson(res, 404, { error: 'Not found' });
   }
+
+  server.on('close', () => {
+    stopQuarantineCleanup();
+  });
 
   return server;
 }

@@ -23,7 +23,12 @@ import {
   untrackMessageProcessing,
   type RoleDiagnosticRuntime,
 } from '../../shared/roleDiagnostic.js';
-import { messageContextFromEnvelope } from '../../shared/reportGenerator.js';
+import {
+  hashMessageBytes,
+  messageContextFromEnvelope,
+} from '../../shared/reportGenerator.js';
+import { QuarantineStore, hasQuarantineKey } from '../../shared/quarantine/index.js';
+import { QuarantineSkipStore } from './quarantineSkipStore.js';
 
 export interface AccountLoopLogger {
   info(message: string): void;
@@ -40,6 +45,8 @@ export interface AccountLoopDeps {
   readonly fetchUnseen?: typeof fetchUnseenRfc822Messages;
   readonly markSeen?: typeof markImapMessageSeen;
   readonly diagnostics?: RoleDiagnosticRuntime;
+  readonly quarantineStore?: QuarantineStore;
+  readonly skipStore?: QuarantineSkipStore;
 }
 
 export interface AccountLoopHandle {
@@ -53,6 +60,8 @@ export function startAccountLoop(deps: AccountLoopDeps): AccountLoopHandle {
   const pollIntervalMs = deps.pollIntervalMs ?? 60_000;
   const fetchUnseen = deps.fetchUnseen ?? fetchUnseenRfc822Messages;
   const markSeen = deps.markSeen ?? markImapMessageSeen;
+  const quarantineStore = deps.quarantineStore ?? new QuarantineStore();
+  const skipStore = deps.skipStore;
 
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -79,7 +88,19 @@ export function startAccountLoop(deps: AccountLoopDeps): AccountLoopHandle {
       };
 
       const messages = await fetchUnseen(session, { maxMessages: 20 });
+      const eligible: FetchedRfc822Message[] = [];
       for (const msg of messages) {
+        const hash = hashMessageBytes(msg.rfc822);
+        if (skipStore && (await skipStore.isSkipped(deps.accountId, msg.uid, hash))) {
+          continue;
+        }
+        if (await quarantineStore.hasEntry(hash)) {
+          continue;
+        }
+        eligible.push(msg);
+      }
+
+      for (const msg of eligible) {
         await handleMessage(msg, accessToken);
       }
 
@@ -121,6 +142,43 @@ export function startAccountLoop(deps: AccountLoopDeps): AccountLoopHandle {
     }
   }
 
+  async function quarantineIngestFailure(msg: FetchedRfc822Message): Promise<void> {
+    const hash = hashMessageBytes(msg.rfc822);
+    if (!hasQuarantineKey()) {
+      log.structured({
+        type: MAIL_FETCHER_ACCOUNT_EVENT,
+        account_id: deps.accountId,
+        event: 'quarantine_key_missing',
+        category: 'internal',
+      });
+      return;
+    }
+
+    await quarantineStore.writeEntry({
+      hash,
+      rawBytes: msg.rfc822,
+      envelopeFrom: msg.from,
+      envelopeTo: deps.creds.email,
+      envelopeDate: new Date(0).toISOString(),
+      envelopeSubject: msg.messageId || `uid-${msg.uid}`,
+      failedContainerRole: 'mail-fetcher',
+      failedStage: 'imap_fetch',
+      accountId: deps.accountId,
+      imapUid: msg.uid,
+    });
+
+    if (skipStore) {
+      await skipStore.addSkipped(deps.accountId, msg.uid, hash);
+    }
+
+    log.structured({
+      type: MAIL_FETCHER_ACCOUNT_EVENT,
+      account_id: deps.accountId,
+      event: 'message_quarantined',
+      category: 'ingest',
+    });
+  }
+
   async function handleMessage(msg: FetchedRfc822Message, accessToken: string): Promise<void> {
     trackMessageProcessing(
       messageContextFromEnvelope({
@@ -147,7 +205,8 @@ export function startAccountLoop(deps: AccountLoopDeps): AccountLoopHandle {
           event: 'ingest_rejected',
           category: 'ingest',
         });
-        throw new BeapPodError('UnknownError');
+        await quarantineIngestFailure(msg);
+        return;
       }
 
       await markSeen(

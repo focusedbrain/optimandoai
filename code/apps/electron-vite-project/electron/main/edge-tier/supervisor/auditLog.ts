@@ -10,6 +10,7 @@ export type SupervisorAuditEventKind =
   | 'container_replaced'
   | 'container_replaced_failed'
   | 'container_unreachable'
+  | 'message_quarantined'
 
 export interface SupervisorAuditEntry {
   timestamp: string
@@ -20,6 +21,8 @@ export interface SupervisorAuditEntry {
   duration_ms?: number
   success: boolean
   reason?: string
+  message_hash?: string
+  envelope_from?: string
 }
 
 const AUDIT_FILENAME = 'edge-tier-audit.log'

@@ -16,6 +16,7 @@ import {
 
 import { DEFAULT_DIAGNOSTIC_REPORTS_DIR } from './diagnosticConstants.js';
 import { getMessageProcessingContext } from './messageWatchdog.js';
+import { QuarantineStore, hasQuarantineKey } from './quarantine/index.js';
 
 const VALID_EXCEPTION_KINDS = new Set<DiagnosticExceptionKind>([
   'RangeError',
@@ -35,6 +36,7 @@ export interface ReportMessageContext {
   envelopeTo: string;
   envelopeDate: string;
   envelopeSubject: string;
+  rawBytes?: Buffer;
 }
 
 export interface BuildAndWriteReportArgs {
@@ -235,6 +237,7 @@ export async function buildAndWriteReport(
   const reportsDir = deps.reportsDir ?? process.env['DIAGNOSTIC_REPORTS_DIR'] ?? DEFAULT_DIAGNOSTIC_REPORTS_DIR;
   const writeFileFn = deps.writeFileFn ?? writeFile;
   const mkdirFn = deps.mkdirFn ?? mkdir;
+  const messageContext = args.messageContext ?? getMessageProcessingContext();
 
   await mkdirFn(reportsDir, { recursive: true });
   const filename = reportFilename(
@@ -243,6 +246,28 @@ export async function buildAndWriteReport(
   );
   const fullPath = `${reportsDir}/${filename}`;
   await writeFileFn(fullPath, JSON.stringify(signed), 'utf8');
+
+  if (messageContext?.rawBytes && hasQuarantineKey()) {
+    try {
+      const store = new QuarantineStore();
+      await store.writeEntry({
+        hash: messageContext.hash,
+        rawBytes: messageContext.rawBytes,
+        envelopeFrom: messageContext.envelopeFrom,
+        envelopeTo: messageContext.envelopeTo,
+        envelopeDate: messageContext.envelopeDate,
+        envelopeSubject: messageContext.envelopeSubject,
+        failedContainerRole: args.role,
+        failedStage: args.stage,
+      });
+    } catch (err) {
+      console.warn(
+        '[beap-pod] quarantine write failed:',
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   return fullPath;
 }
 
@@ -264,5 +289,6 @@ export function messageContextFromEnvelope(fields: {
     envelopeTo: fields.envelopeTo ?? '',
     envelopeDate: fields.envelopeDate ?? new Date(0).toISOString(),
     envelopeSubject: fields.envelopeSubject ?? '',
+    rawBytes: Buffer.isBuffer(fields.rawBytes) ? fields.rawBytes : Buffer.from(fields.rawBytes),
   };
 }

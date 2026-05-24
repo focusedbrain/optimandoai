@@ -80,6 +80,10 @@ spec:
       emptyDir:
         medium: Memory
         sizeLimit: 64Mi
+    - name: tmp-quarantine
+      emptyDir:
+        medium: Memory
+        sizeLimit: 256Mi
 
   containers:
 
@@ -122,6 +126,8 @@ spec:
       volumeMounts:
         - name: tmp-ingestor
           mountPath: /tmp
+        - name: tmp-quarantine
+          mountPath: /var/lib/quarantine
       livenessProbe:
         httpGet:
           path: /health
@@ -178,6 +184,8 @@ spec:
       volumeMounts:
         - name: tmp-validator
           mountPath: /tmp
+        - name: tmp-quarantine
+          mountPath: /var/lib/quarantine
       livenessProbe:
         httpGet:
           path: /health
@@ -239,6 +247,8 @@ spec:
           mountPath: /tmp
         - name: tmp-depackage-scratch
           mountPath: /tmp/depackage
+        - name: tmp-quarantine
+          mountPath: /var/lib/quarantine
       livenessProbe:
         httpGet:
           path: /health
@@ -312,6 +322,8 @@ spec:
       volumeMounts:
         - name: tmp-certifier
           mountPath: /tmp
+        - name: tmp-quarantine
+          mountPath: /var/lib/quarantine
       livenessProbe:
         httpGet:
           path: /health
@@ -374,6 +386,8 @@ spec:
       volumeMounts:
         - name: tmp-mail-fetcher
           mountPath: /var/lib/mail-fetcher
+        - name: tmp-quarantine
+          mountPath: /var/lib/quarantine
       livenessProbe:
         httpGet:
           path: /health

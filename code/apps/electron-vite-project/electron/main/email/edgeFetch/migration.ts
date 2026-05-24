@@ -24,6 +24,7 @@ import {
   mapProviderToEmailFetch,
 } from './credentialBundle.js'
 import { mailFetcherRemoteRequest } from './mailFetcherRemote.js'
+import { deliverQuarantineKeyToReplica } from '../../edge-tier/quarantineDeliver.js'
 import type { EdgeFetchMigrationInput, EdgeFetchSshCredentials } from './types.js'
 import { notifyEdgeFetchStateChanged } from './events.js'
 import { rememberSupervisorSshSession } from './supervisorPoll.js'
@@ -126,6 +127,7 @@ async function setEdgeFetchMeta(
 async function transferToMailFetcher(
   ssh: ReplicaActionSshRunner,
   account: EmailAccountConfig,
+  replicaId: string,
   vault: EdgeTierPodVault,
 ): Promise<void> {
   const fetchProvider = mapProviderToEmailFetch(account.provider)
@@ -151,6 +153,11 @@ async function transferToMailFetcher(
   })
   if (deliver.status !== 200) {
     throw new Error(String(deliver.json.error ?? `deliver_key failed (${deliver.status})`))
+  }
+
+  const quarantineDeliver = await deliverQuarantineKeyToReplica(ssh, replicaId, vault)
+  if (!quarantineDeliver.ok) {
+    throw new Error(quarantineDeliver.error ?? 'quarantine key delivery failed')
   }
 }
 
@@ -184,7 +191,7 @@ export async function migrateAccountToEdge(input: EdgeFetchMigrationInput): Prom
 
     const refreshed = await refreshOAuthForAccount(accountId)
     await withReplicaSsh(input.replicaId, input, async (ssh) => {
-      await transferToMailFetcher(ssh, refreshed, vault)
+      await transferToMailFetcher(ssh, refreshed, input.replicaId, vault)
     })
 
     await emailGateway.setProcessingPaused(accountId, true)

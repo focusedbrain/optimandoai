@@ -14,7 +14,10 @@ import { VaultLockedError } from '../accountKeyStorage.js'
 import { appendSupervisorAudit } from './auditLog.js'
 import { REMOTE_EDGE_SUPERVISOR_CONTAINERS, type RemoteEdgeContainerRole } from './containers.js'
 import { pickupDiagnosticReports } from './reportPickup.js'
-import { reportStorageFilename } from './reportStore.js'
+import { pickupQuarantineEntries } from './quarantinePickup.js'
+import { reportStorageFilename, getReport } from './reportStore.js'
+import { cleanupLocalQuarantine, getLocalQuarantineRetentionDays } from './quarantineStore.js'
+import { deliverQuarantineKeyToReplica } from '../quarantineDeliver.js'
 import { inspectContainerStatus, replaceContainer } from './replace.js'
 
 export const SUPERVISOR_POLL_INTERVAL_MS = 10_000
@@ -152,6 +155,8 @@ export async function runSupervisorPollCycle(): Promise<void> {
     return
   }
 
+  cleanupLocalQuarantine(getLocalQuarantineRetentionDays(settings.quarantine_retention_days))
+
   const replicaStatuses: ReplicaSupervisorStatus[] = []
   for (const replica of settings.replicas) {
     replicaStatuses.push(await pollReplica(replica, vault))
@@ -259,10 +264,33 @@ async function handleExitedContainer(
 ): Promise<void> {
   const replicaId = replica.edge_pod_id
   const pickup = await _deps.pickupReports(ssh, replicaId, replica.edge_public_key, containerName)
-  const storedReport = pickup.reports.find((r) => r.storeResult.stored)
+  const storedReports = pickup.reports.filter((r) => r.storeResult.stored)
+  const storedReport = storedReports[0]
   const reportFilename = storedReport
     ? reportStorageFilename(replicaId, storedReport.filename)
     : undefined
+
+  if (storedReports.length > 0) {
+    const reportContents = storedReports
+      .map((r) => getReport(replicaId, r.filename) ?? '')
+      .filter(Boolean)
+    const quarantinePickup = await pickupQuarantineEntries(
+      ssh,
+      replicaId,
+      containerName,
+      reportContents,
+    )
+    for (const entry of quarantinePickup.entries) {
+      appendSupervisorAudit({
+        event: 'message_quarantined',
+        replica_id: replicaId,
+        container_role: entry.failed_container_role,
+        message_hash: entry.hash,
+        envelope_from: entry.envelope_from,
+        success: true,
+      })
+    }
+  }
 
   const queuePosition = 0
 
@@ -278,6 +306,12 @@ async function handleExitedContainer(
   )
 
   if (result.success) {
+    await deliverQuarantineKeyToReplica(ssh, replicaId, vault).catch((err) => {
+      console.warn(
+        `[SUPERVISOR] quarantine key re-delivery failed replica=${replicaId}:`,
+        err instanceof Error ? err.message : err,
+      )
+    })
     appendSupervisorAudit({
       event: 'container_replaced',
       replica_id: replicaId,

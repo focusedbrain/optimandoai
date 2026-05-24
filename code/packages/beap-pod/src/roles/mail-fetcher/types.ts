@@ -27,6 +27,13 @@ export interface DeliverKeyBody {
   readonly account_id: string;
   /** 32-byte account key as hex — memory only after delivery. */
   readonly account_key: string;
+  /** Optional per-replica quarantine encryption key (32-byte hex). */
+  readonly quarantine_key?: string;
+}
+
+export interface DeliverQuarantineKeyBody {
+  /** 32-byte quarantine key as hex — memory only after delivery. */
+  readonly quarantine_key: string;
 }
 
 export interface StopAccountBody {

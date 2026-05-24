@@ -24,6 +24,7 @@ import { appendEdgeRecoveryAudit } from './verificationAudit.js'
 import { notifyRecoveryEvent } from './recoveryNotify.js'
 import { notifyEdgeVerificationsUpdated } from './ipc.js'
 import { notifyEdgeFetchStateChanged } from '../email/edgeFetch/events.js'
+import { deliverQuarantineKeyToReplica } from './quarantineDeliver.js'
 import {
   mailFetcherGetAccountStatus,
   mailFetcherRemoteRequest,
@@ -166,6 +167,13 @@ async function recoverReplica(replica: EdgeReplica, vault: EdgeTierPodVault): Pr
     ssh = await _deps.connectSsh(replica, replicaId, sshCreds)
     const remoteAccounts = await _deps.getAccountStatus(ssh)
     const awaiting = remoteAccounts.filter((a) => a.state === 'awaiting_key')
+
+    await deliverQuarantineKeyToReplica(ssh, replicaId, vault).catch((err) => {
+      console.warn(
+        `[EDGE_RECOVERY] quarantine key delivery failed replica=${replicaId}:`,
+        err instanceof Error ? err.message : err,
+      )
+    })
 
     for (const remote of awaiting) {
       await deliverKeyForAccount(replicaId, remote.account_id, ssh, vault)

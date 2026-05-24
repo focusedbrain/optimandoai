@@ -52,7 +52,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - [x] **P5.2** — Diagnostic report schema, allowlist filtering, signing
 - [x] **P5.3** — Role containers generate hardened diagnostic reports on failure
 - [x] **P5.4** — Supervisor: container replacement, report pickup, queue handoff
-- [ ] **P5.5** — Crash-message quarantine store; fetch loop resume from next message
+- [x] **P5.5** — Crash-message quarantine store; fetch loop resume from next message
 - [ ] **P5.6** — Dashboard quarantine indicators (existence + timestamp inline)
 - [ ] **P5.7** — Replacement-budget circuit breaker
 - [ ] **P5.8** — Sandbox-orchestrated full diagnostic report viewer
@@ -71,7 +71,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 | P5.2 | ✅ done | `6cc47e12` |
 | P5.3 | ✅ done | `3b7dcd97` |
 | P5.4 | ✅ done | `be6320e9` |
-| P5.5 | ⬜ pending | — |
+| P5.5 | ✅ done | *(pending commit)* |
 | P5.6 | ⬜ pending | — |
 | P5.7 | ⬜ pending | — |
 | P5.8 | ⬜ pending | — |

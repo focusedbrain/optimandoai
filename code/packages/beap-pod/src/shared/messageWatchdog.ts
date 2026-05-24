@@ -9,6 +9,8 @@ export interface MessageProcessingContext {
   envelopeTo: string;
   envelopeDate: string;
   envelopeSubject: string;
+  /** Raw message bytes held in memory during processing for quarantine (P5.5). */
+  rawBytes?: Buffer;
 }
 
 let currentMessage: MessageProcessingContext | null = null;

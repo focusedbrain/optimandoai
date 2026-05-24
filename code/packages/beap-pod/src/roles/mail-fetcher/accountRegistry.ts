@@ -18,6 +18,8 @@ import type { IngestClient } from './ingestClient.js';
 import type { MailFetcherAccountState, MailFetcherAccountStatus } from './types.js';
 import { MAIL_FETCHER_ACCOUNT_EVENT } from './types.js';
 import type { RoleDiagnosticRuntime } from '../../shared/roleDiagnostic.js';
+import type { QuarantineStore } from '../../shared/quarantine/index.js';
+import type { QuarantineSkipStore } from './quarantineSkipStore.js';
 
 export interface AccountRegistryDeps {
   readonly store: CredentialStore;
@@ -26,6 +28,8 @@ export interface AccountRegistryDeps {
   readonly loopFactory?: (deps: AccountLoopDeps) => AccountLoopHandle;
   readonly now?: () => Date;
   readonly diagnostics?: RoleDiagnosticRuntime;
+  readonly quarantineStore?: QuarantineStore;
+  readonly skipStore?: QuarantineSkipStore;
 }
 
 interface AccountRecord {
@@ -46,6 +50,8 @@ export class AccountRegistry {
   private readonly now: () => Date;
 
   private readonly diagnostics?: RoleDiagnosticRuntime;
+  private readonly quarantineStore?: QuarantineStore;
+  private readonly skipStore?: QuarantineSkipStore;
 
   constructor(deps: AccountRegistryDeps) {
     this.store = deps.store;
@@ -54,6 +60,8 @@ export class AccountRegistry {
     this.loopFactory = deps.loopFactory ?? startAccountLoop;
     this.now = deps.now ?? (() => new Date());
     this.diagnostics = deps.diagnostics;
+    this.quarantineStore = deps.quarantineStore;
+    this.skipStore = deps.skipStore;
   }
 
   async restoreFromTmpfs(): Promise<void> {
@@ -109,6 +117,8 @@ export class AccountRegistry {
         tokenCache: this.tokenCache,
         logger,
         diagnostics: this.diagnostics,
+        quarantineStore: this.quarantineStore,
+        skipStore: this.skipStore,
       });
 
       rec.creds = creds;
