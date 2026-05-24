@@ -11,15 +11,15 @@ import { act, type ComponentProps } from 'react'
 
 import { StepExplainer } from '../StepExplainer.js'
 
-const noop = () => undefined
+const noopRefresh = async () => ({ tier: 'free' })
 
 function renderExplainer(tier: string, overrides: Partial<ComponentProps<typeof StepExplainer>> = {}) {
   return renderToStaticMarkup(
     <StepExplainer
       tier={tier}
-      onContinue={noop}
-      onUpgrade={noop}
-      onRefreshTier={noop}
+      onContinue={() => undefined}
+      onUpgrade={() => undefined}
+      onRefreshTier={noopRefresh}
       {...overrides}
     />,
   )
@@ -37,8 +37,8 @@ describe('StepExplainer CTA', () => {
     const html = renderExplainer('free')
     expect(html).toContain('wizard-explainer-upgrade')
     expect(html).toContain('Upgrade Now')
-    expect(html).toContain('wizard-tier-badge-refresh')
-    expect(html).toContain('wizard-tier-refresh')
+    expect(html).toContain('tier-badge-with-refresh')
+    expect(html).toContain('tier-badge-refresh')
     expect(html).toContain('Already upgraded? Click the refresh icon to re-check your plan.')
     expect(html).not.toContain('wizard-explainer-continue')
   })
@@ -68,18 +68,24 @@ describe('StepExplainer refresh', () => {
     container.remove()
   })
 
-  it('clicking refresh on free tier invokes onRefreshTier', () => {
-    const onRefreshTier = vi.fn()
-    act(() => {
+  it('clicking refresh on free tier invokes onRefreshTier', async () => {
+    const onRefreshTier = vi.fn(async () => ({ tier: 'free' }))
+    await act(async () => {
       root.render(
-        <StepExplainer tier="free" onContinue={noop} onUpgrade={noop} onRefreshTier={onRefreshTier} />,
+        <StepExplainer
+          tier="free"
+          onContinue={() => undefined}
+          onUpgrade={() => undefined}
+          onRefreshTier={onRefreshTier}
+        />,
       )
     })
 
-    const refreshBtn = container.querySelector('[data-testid="wizard-tier-refresh"]') as HTMLButtonElement
+    const refreshBtn = container.querySelector('[data-testid="tier-badge-refresh"]') as HTMLButtonElement
     expect(refreshBtn).toBeTruthy()
-    act(() => {
+    await act(async () => {
       refreshBtn.click()
+      await Promise.resolve()
     })
     expect(onRefreshTier).toHaveBeenCalledTimes(1)
   })
@@ -95,7 +101,7 @@ describe('StepExplainer accessibility structure', () => {
     expect(html).toContain('<ul')
     expect(html).toContain('<li')
     expect(html).toContain('role="region"')
-    expect(html).toContain('aria-label="Refresh plan tier"')
+    expect(html).toContain('Refresh plan tier to check upgrade')
   })
 })
 

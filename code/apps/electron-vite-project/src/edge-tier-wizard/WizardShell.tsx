@@ -110,7 +110,6 @@ export function WizardShell({
   const [verifyReason, setVerifyReason] = useState<string | undefined>()
   const [currentTier, setCurrentTier] = useState<string>('free')
   const [waitingForUpgrade, setWaitingForUpgrade] = useState(false)
-  const [refreshingTier, setRefreshingTier] = useState(false)
 
   const operationIdRef = useRef<string | null>(null)
   const deployAttemptedRef = useRef(false)
@@ -201,7 +200,6 @@ export function WizardShell({
     setVerifyConfirmed(false)
     setLocalError(null)
     setWaitingForUpgrade(false)
-    setRefreshingTier(false)
     void loadAuthTier()
     const s = await wizard.reset()
     syncState(s)
@@ -225,10 +223,9 @@ export function WizardShell({
     await openAppExternalUrl(WIZARD_UPGRADE_URL)
   }, [])
 
-  const handleRefreshTier = useCallback(async () => {
+  const handleRefreshTier = useCallback(async (): Promise<{ tier: string }> => {
     try {
       const w = ensureWizard()
-      setRefreshingTier(true)
       setLocalError(null)
       const result = await w.refreshTier()
       setCurrentTier(result.tier)
@@ -237,10 +234,10 @@ export function WizardShell({
         const { state: next } = await w.continueFromExplainer()
         syncState(next)
       }
+      return { tier: result.tier }
     } catch (err) {
       setLocalError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setRefreshingTier(false)
+      throw err
     }
   }, [ensureWizard, syncState])
 
@@ -476,10 +473,9 @@ export function WizardShell({
               <StepExplainer
                 tier={currentTier}
                 waitingForUpgrade={waitingForUpgrade}
-                refreshingTier={refreshingTier}
                 onContinue={() => void handleContinueFromExplainer()}
                 onUpgrade={() => void handleUpgradeNow()}
-                onRefreshTier={() => void handleRefreshTier()}
+                onRefreshTier={handleRefreshTier}
               />
             )}
 

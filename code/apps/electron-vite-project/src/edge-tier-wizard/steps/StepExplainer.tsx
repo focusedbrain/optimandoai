@@ -14,15 +14,15 @@ import {
 } from '../copy/explainerCopy.js'
 import { WIZARD_UPGRADE_URL } from '../copy.js'
 import { btnPrimary } from '../styles.js'
-import { formatWizardTierLabel, isEnterpriseExplainerTier, isWizardPaidTier } from '../wizardTier.js'
+import { TierBadgeWithRefresh } from '../../components/TierBadgeWithRefresh.js'
+import { isEnterpriseExplainerTier, isWizardPaidTier } from '../wizardTier.js'
 
 export interface StepExplainerProps {
   tier: string
   waitingForUpgrade?: boolean
-  refreshingTier?: boolean
   onContinue: () => void
   onUpgrade: () => void
-  onRefreshTier: () => void
+  onRefreshTier: () => Promise<{ tier: string }>
 }
 
 const explainerScrollStyle: CSSProperties = {
@@ -58,63 +58,9 @@ function ExplainerSectionBlock({ section }: { section: ExplainerSection }) {
   )
 }
 
-/** Minimal tier badge + refresh control — full reusable component lands in P4.5.3. */
-function TierBadgeRefresh({
-  tier,
-  refreshing,
-  onRefresh,
-}: {
-  tier: string
-  refreshing: boolean
-  onRefresh: () => void
-}) {
-  return (
-    <div
-      data-testid="wizard-tier-badge-refresh"
-      role="group"
-      aria-label="Current plan tier"
-      style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}
-    >
-      <span
-        data-testid="wizard-tier-badge"
-        style={{
-          fontSize: 12,
-          padding: '4px 10px',
-          borderRadius: 999,
-          background: '#1e293b',
-          border: '1px solid #475569',
-          color: '#e2e8f0',
-        }}
-      >
-        {formatWizardTierLabel(tier)}
-      </span>
-      <button
-        type="button"
-        data-testid="wizard-tier-refresh"
-        aria-label="Refresh plan tier"
-        disabled={refreshing}
-        onClick={onRefresh}
-        style={{
-          padding: '4px 8px',
-          borderRadius: 6,
-          border: '1px solid #475569',
-          background: '#0f172a',
-          color: '#94a3b8',
-          cursor: refreshing ? 'wait' : 'pointer',
-          fontSize: 14,
-          lineHeight: 1,
-        }}
-      >
-        ↻
-      </button>
-    </div>
-  )
-}
-
 export function StepExplainer({
   tier,
   waitingForUpgrade = false,
-  refreshingTier = false,
   onContinue,
   onUpgrade,
   onRefreshTier,
@@ -182,7 +128,11 @@ export function StepExplainer({
             <button type="button" style={btnPrimary} data-testid="wizard-explainer-upgrade" onClick={onUpgrade}>
               Upgrade Now
             </button>
-            <TierBadgeRefresh tier={tier} refreshing={refreshingTier} onRefresh={onRefreshTier} />
+            <TierBadgeWithRefresh
+              initialTier={tier}
+              displayHint="upgrade-prompt"
+              onRefresh={onRefreshTier}
+            />
             <p
               data-testid="wizard-explainer-upgrade-hint"
               style={{ margin: '10px 0 0', fontSize: 12, color: '#94a3b8' }}
