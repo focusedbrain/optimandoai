@@ -30,8 +30,8 @@ Phase 4 ref: `docs/architecture/phase-4-tracker.md`
 ## Steps
 
 - [x] **P4.5.0** — Confirm branch and create Phase 4.5 tracker *(this file)*
-- [ ] **P4.5.1** — Plan upgrade flow audit doc (`beap-plan-upgrade-flow-audit.md`)
-- [ ] **P4.5.2** — Wizard explainer shell + enterprise-tone copy (strategy §4)
+- [x] **P4.5.1** — Enterprise-tone explainer copy module (`copy/explainerCopy.ts`)
+- [ ] **P4.5.2** — Wizard explainer shell UI (consumes `explainerCopy.ts`)
 - [ ] **P4.5.3** — Free-tier wizard entry (explainer visible; no paid block at launch)
 - [ ] **P4.5.4** — Upgrade gate at deploy step + pricing URL + refresh-plan UX (`isPaidTier`, `ensureSession(true)`)
 - [ ] **P4.5.5** — Edge-tier settings shape for email-on-edge migrated accounts
@@ -48,7 +48,7 @@ Phase 4 ref: `docs/architecture/phase-4-tracker.md`
 | Step | State | Commit |
 |------|-------|--------|
 | P4.5.0 | ✅ done | P4.5.0: phase 4.5 tracker |
-| P4.5.1 | ⬜ pending | — |
+| P4.5.1 | ✅ done | P4.5.1: enterprise-tone explainer copy module |
 | P4.5.2 | ⬜ pending | — |
 | P4.5.3 | ⬜ pending | — |
 | P4.5.4 | ⬜ pending | — |
@@ -85,7 +85,14 @@ Phase 4 set up the edge as certificate authority for messages handed to it. Phas
 
 - Tracker created on `phase-1/pod-becomes-hot-path` after Phase 4 closeout (`P4.9`).
 - **P4.5.1–P4.5.10 titles** are scoped from the Phase 4.5 implementation prompt sequence header (explainer → upgrade gate → email-on-edge). Refine step titles when individual prompts are run if the sequence doc differs.
-- `docs/architecture/beap-plan-upgrade-flow-audit.md` referenced but **not yet committed** — P4.5.1.
+- `docs/architecture/beap-plan-upgrade-flow-audit.md` referenced in strategy refs; audit content lives in conversation / to be committed separately if needed.
+
+### P4.5.1
+
+- **Module:** `src/edge-tier-wizard/copy/explainerCopy.ts` — structured constants: headline, overview (3 paragraphs), three threats, limitations, email-on-edge (2 paragraphs).
+- **Tests:** 8 pass in `copy/__tests__/explainerCopy.test.ts` (5 snapshot + 3 structure); snapshots lock tone.
+- **UI:** none this step — P4.5.2 integrates copy into wizard entry shell.
+- Terminology: “off-band pod” / “this computer” (not marketing “edge tier” in explainer body).
 - Strategy §11 (email source on edge) referenced in prompts; verify section exists in `beap-high-assurance-strategy.md` before P4.5.5+ (may be local-only until strategy update lands).
 - `git pull` had no upstream tracking branch configured; branch already on `phase-1/pod-becomes-hot-path`.
 - Working tree had unstaged `beap-high-assurance-strategy.md` at P4.5.0 start — left untouched (not part of P4.5.0 commit).
