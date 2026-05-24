@@ -12,7 +12,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 - [x] **P1.1** — Single image + role dispatcher with stubs
 - [x] **P1.2** — Inter-container X-Pod-Auth shared helper
 - [x] **P1.3** — Ingestor role container
-- [ ] **P1.4** — Implement pod `/depackage` with injectable key material
+- [x] **P1.4** — Validator role container
 - [ ] **P1.5** — Extract depackaging core to a standalone Node-compatible package
 - [ ] **P1.6** — Add `PodClient` module to the Electron app
 - [ ] **P1.7** — Add pod URL config and readiness gate to Electron
@@ -32,7 +32,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 | P1.1 | ✅ done | P1.1: single image + role dispatcher with stubs |
 | P1.2 | ✅ done | P1.2: inter-container X-Pod-Auth helper |
 | P1.3 | ✅ done | P1.3: ingestor role container |
-| P1.4 | ⬜ pending | — |
+| P1.4 | ✅ done | P1.4: validator role container, close MAX_STRING_LENGTH/ALLOWED_CONTENT_TYPES gaps |
 | P1.5 | ⬜ pending | — |
 | P1.6 | ⬜ pending | — |
 | P1.7 | ⬜ pending | — |
@@ -47,6 +47,33 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 ## Notes & deviations
 
 *(Record any decisions made differently from the strategy here, with rationale.)*
+
+### P1.4
+
+- Strategy listed P1.4 as "Implement pod `/depackage` with injectable key material". The explicit P1.4
+  prompt redefines this step as the full validator role container (HTTP server) with the two audit-gap
+  closures; tracker description updated.
+- Two new `ValidationReasonCode` values added to `ingestion-core/src/types.ts`:
+  `PAYLOAD_STRING_TOO_LONG` and `CONTENT_TYPE_NOT_ALLOWED`. These are stable string literals so
+  Electron and UI code can switch on them without a future rename.
+- `findOversizedString(value, maxLen)` helper added to `ingestion-core/src/stringLengthCheck.ts`
+  and exported from `@repo/ingestion-core`. The validator role calls it on `candidate.raw_payload`
+  before delegating to `validateCapsule()`, closing the MAX_STRING_LENGTH audit gap.
+- `ALLOWED_CONTENT_TYPES` enforcement lives in the validator role (strategy §1.3: "canonical rules
+  in the validator"). The check normalises MIME type by stripping parameters (`text/plain; charset=…`
+  → `text/plain`). Absent `mime_type` is allowed (permissive for back-compat with callers that
+  don't set it).
+- `createValidatorServer(secret, config?)` accepts injectable `authedFetch` (for tests) and
+  `maxStringLength` (for tests with smaller limits). Production uses `podAuthFetch(secret)` and
+  `INGESTION_CONSTANTS.MAX_STRING_LENGTH` (5 MiB).
+- Auth gate uses `res.once('finish', …)` + `next()` pattern to safely await the synchronous
+  `createPodAuthMiddleware` without leaking into subsequent handler logic.
+- Message-package capsules (`capsule_type === 'message_package'`) are forwarded to the depackager
+  stub at `http://127.0.0.1:18102/depackage`; handshake capsules return directly with
+  `needs_depackaging: false`.
+- 8 tests across 6 suites (valid handshake, oversized string, disallowed MIME, message-package
+  forward, pod-auth ×2, /health + /ready); 33/33 beap-pod tests pass in 463 ms.
+- `@repo/ingestion-core` regression: 60/60 tests still pass after types and helper additions.
 
 ### P1.3
 

@@ -228,7 +228,11 @@ export type ValidationReasonCode =
   // Plain email rows carry no BEAP capsule; the row is conformant but validation is not applicable.
   | 'plain_email_no_validation_required'
   /** P2P non-confidential path: outer (ledger) seal without validator subprocess (W4-P11). */
-  | 'non_confidential_ledger_sealed';
+  | 'non_confidential_ledger_sealed'
+  /** A string field in the candidate payload exceeds MAX_STRING_LENGTH (validator role, P1.4). */
+  | 'PAYLOAD_STRING_TOO_LONG'
+  /** MIME type carried in transport metadata is not in the ALLOWED_CONTENT_TYPES list (validator role, P1.4). */
+  | 'CONTENT_TYPE_NOT_ALLOWED';
 
 /**
  * Discriminated result type for validateSessionImportArtefact.

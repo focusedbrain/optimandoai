@@ -55,6 +55,10 @@ export type {
 
 export { INGESTION_CONSTANTS } from './types.js';
 
+// Validator-role enforcement helpers (P1.4)
+export { findOversizedString } from './stringLengthCheck.js';
+export type { StringLengthViolation } from './stringLengthCheck.js';
+
 // Phase B — Sealed Validation IPC protocol
 export type {
   ValidateRequest,
