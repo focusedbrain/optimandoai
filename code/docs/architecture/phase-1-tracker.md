@@ -14,7 +14,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 - [x] **P1.3** — Ingestor role container
 - [x] **P1.4** — Validator role container
 - [x] **P1.5** — Depackager role container (qBEAP/pBEAP decrypt, 6-gate pipeline, HTML sanitization, wall-clock timeout)
-- [ ] **P1.6** — Add `PodClient` module to the Electron app
+- [x] **P1.6** — Sealer role container (HMAC-SHA256 seal, byte-identical to validator-process computeSeal)
 - [ ] **P1.7** — Add pod URL config and readiness gate to Electron
 - [ ] **P1.8** — Route structural validation through the pod (Linux only)
 - [ ] **P1.9** — Route depackaging through the pod (Linux only)
@@ -34,7 +34,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 | P1.3 | ✅ done | P1.3: ingestor role container |
 | P1.4 | ✅ done | P1.4: validator role container, close MAX_STRING_LENGTH/ALLOWED_CONTENT_TYPES gaps |
 | P1.5 | ✅ done | P1.5: depackager role container with HTML sanitization and timeout |
-| P1.6 | ⬜ pending | — |
+| P1.6 | ✅ done | P1.6: sealer role container with HMAC seal |
 | P1.7 | ⬜ pending | — |
 | P1.8 | ⬜ pending | — |
 | P1.9 | ⬜ pending | — |
@@ -47,6 +47,41 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 ## Notes & deviations
 
 *(Record any decisions made differently from the strategy here, with rationale.)*
+
+### P1.6
+
+- **New file:** `packages/beap-pod/src/roles/sealer.ts` — replaces stub. HTTP server on
+  `127.0.0.1:18103`. Accepts `POST /seal` (X-Pod-Auth required), `GET /health`, `GET /ready`.
+- **Seal computation** (`computeSealPod`): byte-identical to `computeSeal()` in
+  `apps/electron-vite-project/electron/main/validator-process/index.ts`. Algorithm:
+  1. `contentSha256 = SHA-256(canonicalJson, 'utf8').hex`
+  2. `nonce = randomBytes(32).base64` (fresh per invocation)
+  3. `sealInput = { content_sha256, nonce, row_id, outcome_class, validator_version, validated_at }` (stable key order)
+  4. `sealInputJson = JSON.stringify(sealInput)`
+  5. `seal = HMAC-SHA256(key, sealInputJson, 'utf8').base64`
+  6. Returns `{ seal, sealInputJson }`
+- **Key lifecycle:**
+  - `SEAL_KEY_HEX` (hex-encoded, min 32 bytes) read once at startup via `parseSealKeyHex()`.
+  - Env var immediately overwritten with `'0'.repeat(len)` then deleted — no long-lived copy.
+  - `parseSealKeyHex` throws (not `process.exit`) so unit tests can assert on error messages.
+  - `startSealerServer` catches the error, logs the message (never the key), and calls `process.exit(1)`.
+  - SIGTERM handler zeroizes the in-memory `sealKey` Buffer before `server.close()`.
+- **Security properties confirmed by grep:**
+  - All three `console.*` calls: (a) FATAL startup error (message from `parseSealKeyHex`, never echoes key), (b) `sealer ready` line (port + version only), (c) SIGTERM log. No key material in any log.
+  - No outbound `fetch` or `http.request` — role is purely receive-and-respond.
+  - `verifySealPod` uses `timingSafeEqual` (mirrors `verifySeal` in `validator-process/index.ts`).
+- **Request body** (`POST /seal`): `{ canonicalJson?, depackaged?: { rawCapsuleJson?, … }, rowId?, outcomeClass?, validatorVersion?, validatedAt? }`. `canonicalJson` overrides `depackaged.rawCapsuleJson` when both present. Absent `rowId` → random UUID. Absent `outcomeClass` → `'validated'`.
+- **Test coverage (30 tests):**
+  1–6. `computeSealPod` — structure, `content_sha256` SHA-256 identity, valid HMAC, wrong-key fails, exact key order, fresh nonces.
+  7–9. tampered input — different content/row_id → different seal; tampered sealInputJson fails `verifySealPod`.
+  10–18. `parseSealKeyHex` — undefined, empty, whitespace, non-hex, odd-length, too short, exact 32 B, 64 B, case-insensitive.
+  19–21. `verifySealPod` — valid true, wrong key false, tampered false.
+  22–27. HTTP server — round-trip with `canonicalJson`, `depackaged.rawCapsuleJson`, auto-rowId, missing content → 400, 401 without auth.
+  28–29. `/health` → 200 `{ status:'ok', role:'sealer' }`, `/ready` → 200 `{ status:'ready' }`.
+  30. log-safety — error messages never echo key value.
+- **Verification:** 73/73 beap-pod tests pass; 0 regressions.
+- **Non-goal (confirmed):** `computeSeal()` in `validator-process/index.ts` unchanged. Key rotation deferred to Phase 3+.
+- **P1.7 note:** seccomp profile for the sealer role (read/write/futex/exit only, per §1.3 hardening) to be noted in the pod manifest during P1.7.
 
 ### P1.5
 
