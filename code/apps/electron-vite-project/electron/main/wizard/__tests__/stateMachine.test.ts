@@ -108,7 +108,7 @@ describe('wizardReducer', () => {
     expect(state.vmCredentials).toBeUndefined()
   })
 
-  test('verify success on last replica completes wizard', () => {
+  test('verify success on last replica moves to finale', () => {
     let state = {
       ...INITIAL_WIZARD_STATE,
       replicaIndex: 1,
@@ -116,7 +116,7 @@ describe('wizardReducer', () => {
       step: 'verify_and_switch' as const,
     }
     state = wizardReducer(state, { type: 'VERIFY_SUCCESS' })
-    expect(state.step).toBe('complete')
+    expect(state.step).toBe('finale')
     expect(state.lastVerify?.verified).toBe(true)
   })
 

@@ -24,9 +24,10 @@ describe('wizard copy snapshots', () => {
     expect(STEP4_REPLICA_MULTI_NOTE).toMatchSnapshot()
   })
 
-  it('step labels are seven steps', () => {
-    expect(STEP_LABELS).toHaveLength(7)
+  it('step labels are eight steps', () => {
+    expect(STEP_LABELS).toHaveLength(8)
     expect(STEP_LABELS[0]).toBe('Overview')
+    expect(STEP_LABELS[7]).toBe('Email on edge')
     expect(LOCAL_POD_REQUIRED_MESSAGE).toContain('Podman')
   })
 })

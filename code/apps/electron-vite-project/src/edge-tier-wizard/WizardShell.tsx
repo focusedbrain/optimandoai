@@ -1,11 +1,12 @@
 /**
- * Edge tier wizard shell — seven-step flow (P4.5.2).
+ * Edge tier wizard shell — eight-step flow (P4.5.9).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { LOCAL_POD_REQUIRED_MESSAGE, STEP_LABELS, WIZARD_TITLE, WIZARD_UPGRADE_URL } from './copy.js'
 import { openAppExternalUrl } from '../lib/openAppExternalUrl.js'
+import { WRDESK_OPEN_EMAIL_ACCOUNTS_SETTINGS } from '../lib/wrdeskUiEvents.js'
 import type { LogEvent, WizardPublicState } from './types.js'
 import {
   btnDanger,
@@ -21,6 +22,7 @@ import { StepProbeAndPrepare } from './steps/StepProbeAndPrepare.js'
 import { StepReplicaCount } from './steps/StepReplicaCount.js'
 import { StepGenerateAndDeploy } from './steps/StepGenerateAndDeploy.js'
 import { StepVerifyAndSwitch } from './steps/StepVerifyAndSwitch.js'
+import { StepFinale } from './steps/StepFinale.js'
 
 export interface WizardShellProps {
   onClose: () => void
@@ -65,7 +67,7 @@ export interface WizardBridgeLike {
   onGenerateAndDeployProgress?: (handler: (payload: { operationId: string; event: LogEvent }) => void) => () => void
 }
 
-type ShellMode = 'running' | 'cancelled' | 'complete' | 'blocked'
+type ShellMode = 'running' | 'cancelled' | 'blocked'
 
 function stepIndex(step: WizardPublicState['step']): number {
   const order: WizardPublicState['step'][] = [
@@ -76,8 +78,10 @@ function stepIndex(step: WizardPublicState['step']): number {
     'replica_count',
     'generate_and_deploy',
     'verify_and_switch',
+    'finale',
     'complete',
   ]
+  if (step === 'complete') return order.indexOf('finale')
   const idx = order.indexOf(step)
   return idx >= 0 ? idx : 0
 }
@@ -116,7 +120,6 @@ export function WizardShell({
 
   const syncState = useCallback((next: WizardPublicState) => {
     setState(next)
-    if (next.step === 'complete') setMode('complete')
   }, [])
 
   const ensureWizard = useCallback(() => {
@@ -396,8 +399,16 @@ export function WizardShell({
     }
   }, [ensureWizard, state, syncState])
 
+  const handleOpenEmailAccounts = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(WRDESK_OPEN_EMAIL_ACCOUNTS_SETTINGS))
+    }
+    onClose()
+  }, [onClose])
+
   const showCancel =
     mode === 'running' &&
+    state?.step !== 'finale' &&
     state?.step !== 'complete' &&
     !(state?.step === 'verify_and_switch' && verifyResult === true)
 
@@ -430,18 +441,6 @@ export function WizardShell({
             <p style={{ color: '#94a3b8' }}>The current operation was stopped.</p>
             <button type="button" style={btnSecondary} onClick={() => void handleStartOver()}>
               Start over
-            </button>
-          </div>
-        )}
-
-        {mode === 'complete' && (
-          <div data-testid="wizard-complete">
-            <h2 style={{ fontSize: 16 }}>Edge tier is ready</h2>
-            <p style={{ color: '#94a3b8' }}>
-              All replicas are deployed and verified. You can manage them from the edge tier panel.
-            </p>
-            <button type="button" style={btnSecondary} onClick={onClose}>
-              Done
             </button>
           </div>
         )}
@@ -559,6 +558,14 @@ export function WizardShell({
                 onConfirmUnderstand={() => setVerifyConfirmed((v) => !v)}
                 onVerify={() => void handleVerify()}
                 onCancelWizard={() => void handleCancelOperation()}
+              />
+            )}
+
+            {(state.step === 'finale' || state.step === 'complete') && (
+              <StepFinale
+                totalReplicas={state.totalReplicas}
+                onOpenEmailAccounts={handleOpenEmailAccounts}
+                onLater={onClose}
               />
             )}
 

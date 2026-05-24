@@ -16,6 +16,7 @@ export type WizardStep =
   | 'replica_count'
   | 'generate_and_deploy'
   | 'verify_and_switch'
+  | 'finale'
   | 'complete'
 
 /** VM connection info safe to expose to the renderer. */

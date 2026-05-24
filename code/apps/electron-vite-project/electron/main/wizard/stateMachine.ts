@@ -129,7 +129,7 @@ export function wizardReducer(state: WizardState, event: WizardEvent): WizardSta
       }
       return clearError({
         ...state,
-        step: 'complete',
+        step: 'finale',
         lastVerify: verified,
       })
     }

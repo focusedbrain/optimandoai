@@ -10,6 +10,7 @@ export type WizardStep =
   | 'replica_count'
   | 'generate_and_deploy'
   | 'verify_and_switch'
+  | 'finale'
   | 'complete'
 
 export interface WizardVmCredentialsPublic {

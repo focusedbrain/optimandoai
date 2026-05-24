@@ -4459,7 +4459,7 @@ export default function EmailInboxView({
               borderRight: '1px solid var(--color-border, rgba(255,255,255,0.08))',
             }}
           >
-            <div className="inbox-provider-section">
+            <div className="inbox-provider-section" data-testid="email-accounts-settings-section">
               <EmailProvidersSection
                 theme="professional"
                 emailAccounts={providerAccounts}

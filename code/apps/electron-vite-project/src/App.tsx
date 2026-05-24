@@ -21,6 +21,8 @@ import { ensureWrdeskChromeShim } from './shims/wrChatDashboardChrome'
 import {
   WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS,
   WRDESK_OPTIMIZATION_GUARD_TOAST,
+  WRDESK_OPEN_EMAIL_ACCOUNTS_SETTINGS,
+  WRDESK_EXPAND_EMAIL_ACCOUNTS_SECTION,
 } from './lib/wrdeskUiEvents'
 import { readWrChatInferenceSelection } from './lib/inferenceSelectionPersistence'
 import { wrChatDashboardDebug } from './lib/wrChatDashboardLog'
@@ -131,6 +133,16 @@ function App() {
     } catch {
       console.log('[RENDERER_IDENTITY] commit=(error) buildStamp=(error) component=App')
     }
+  }, [])
+
+  useEffect(() => {
+    const onOpenEmailAccounts = () => {
+      setActiveView('beap-inbox')
+      setInboxBulkMode(false)
+      window.dispatchEvent(new CustomEvent(WRDESK_EXPAND_EMAIL_ACCOUNTS_SECTION))
+    }
+    window.addEventListener(WRDESK_OPEN_EMAIL_ACCOUNTS_SETTINGS, onOpenEmailAccounts)
+    return () => window.removeEventListener(WRDESK_OPEN_EMAIL_ACCOUNTS_SETTINGS, onOpenEmailAccounts)
   }, [])
 
   useEffect(() => {

@@ -38,3 +38,9 @@ export type WrdeskOptimizationRunResultsDetail = {
   completedAt: string
   results: AgentRunResult[]
 }
+
+/** Navigate to inbox email accounts settings (App.tsx listens). */
+export const WRDESK_OPEN_EMAIL_ACCOUNTS_SETTINGS = 'wrdesk:open-email-accounts-settings'
+
+/** Expand the collapsible email accounts section (EmailInboxBulkView listens). */
+export const WRDESK_EXPAND_EMAIL_ACCOUNTS_SECTION = 'wrdesk:expand-email-accounts-section'

@@ -29,6 +29,7 @@ import { InboxMessageKindSelect } from './InboxMessageKindSelect'
 import LinkWarningDialog from './LinkWarningDialog'
 import SandboxLinkInfoDialog from './SandboxLinkInfoDialog'
 import { openAppExternalUrl } from '../lib/openAppExternalUrl'
+import { WRDESK_EXPAND_EMAIL_ACCOUNTS_SECTION } from '../lib/wrdeskUiEvents'
 import BeapMessageSafeLinkParts from './BeapMessageSafeLinkParts'
 import { beapInboxMessageBodyToLinkParts } from '../utils/safeLinks'
 import { BulkOllamaModelSelect } from './BulkOllamaModelSelect'
@@ -1924,6 +1925,12 @@ export default function EmailInboxBulkView({
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
   const [expandedCardIds, setExpandedCardIds] = useState<Set<string>>(new Set())
   const [providerSectionExpanded, setProviderSectionExpanded] = useState(false)
+
+  useEffect(() => {
+    const expand = () => setProviderSectionExpanded(true)
+    window.addEventListener(WRDESK_EXPAND_EMAIL_ACCOUNTS_SECTION, expand)
+    return () => window.removeEventListener(WRDESK_EXPAND_EMAIL_ACCOUNTS_SECTION, expand)
+  }, [])
 
   const toggleCardExpand = useCallback((id: string) => {
     setExpandedCardIds((prev) => {

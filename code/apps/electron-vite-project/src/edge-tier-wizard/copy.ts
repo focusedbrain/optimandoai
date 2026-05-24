@@ -30,4 +30,5 @@ export const STEP_LABELS = [
   'Replica count',
   'Deploy',
   'Verify & enable',
+  'Email on edge',
 ] as const
