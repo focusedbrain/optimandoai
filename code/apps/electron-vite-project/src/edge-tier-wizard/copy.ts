@@ -17,7 +17,7 @@ export const STEP4_REPLICA_MULTI_NOTE =
 export const LOCAL_POD_REQUIRED_MESSAGE =
   'This wizard requires Podman on your computer to run the local verification pod. Install Podman Desktop from podman.io, ensure a machine is running (Windows/macOS), then restart the app.'
 
-export const WIZARD_TITLE = 'Set up edge tier'
+export const WIZARD_TITLE = 'Set up Edge Ingestor'
 
 /** Wizard upgrade target — Phase 4.5 hard rule (do not share with sandbox/coordination URLs). */
 export const WIZARD_UPGRADE_URL = 'https://wrdesk.com/?page_id=1080&v=5f02f0889301'

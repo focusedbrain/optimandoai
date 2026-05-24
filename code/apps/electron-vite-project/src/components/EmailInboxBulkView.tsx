@@ -24,6 +24,7 @@ import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSec
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import { SyncFailureBanner } from './SyncFailureBanner'
+import { EdgeIngestorSection } from './EdgeIngestorSection'
 import EmailInboxSyncControls from './EmailInboxSyncControls'
 import { InboxMessageKindSelect } from './InboxMessageKindSelect'
 import LinkWarningDialog from './LinkWarningDialog'
@@ -5961,6 +5962,9 @@ export default function EmailInboxBulkView({
           onRemoveAccount={handleDisconnectEmail}
         />
       ) : null}
+
+      {/* Edge Ingestor — optional high-assurance mode */}
+      <EdgeIngestorSection variant="bulk" />
 
       {/* Collapsible provider/account section */}
       <div className={`bulk-view-provider-section ${providerSectionExpanded ? 'bulk-view-provider-section--expanded' : ''}`}>

@@ -12,6 +12,11 @@ import { RotateKeysModal } from './RotateKeysModal.js'
 import { PauseEdgeTierModal } from './PauseEdgeTierModal.js'
 import type { DashboardUpdatePayload, ReplicaStatus, DashboardFallbackPolicy } from './types.js'
 import type { ReplicaActionKind } from './replicaActions.js'
+import {
+  EDGE_INGESTOR_NOT_CONFIGURED_BODY,
+  EDGE_INGESTOR_NOT_CONFIGURED_TITLE,
+  EDGE_INGESTOR_SETUP_BUTTON,
+} from '../components/edge-ingestor/edgeIngestorCopy.js'
 
 export type DashboardTab = 'replicas' | 'verifications'
 
@@ -69,9 +74,9 @@ export function DashboardShellView({
           borderRadius: 10,
         }}
       >
-        <h2 style={{ marginTop: 0, fontSize: 18 }}>Edge tier is not configured</h2>
+        <h2 style={{ marginTop: 0, fontSize: 18 }}>{EDGE_INGESTOR_NOT_CONFIGURED_TITLE}</h2>
         <p style={{ color: 'var(--text-secondary)', marginBottom: 20 }}>
-          Start the wizard to deploy your first replica.
+          {EDGE_INGESTOR_NOT_CONFIGURED_BODY}
         </p>
         <button
           type="button"
@@ -86,7 +91,7 @@ export function DashboardShellView({
             fontWeight: 600,
           }}
         >
-          Set up edge tier
+          {EDGE_INGESTOR_SETUP_BUTTON}
         </button>
       </div>
     )
@@ -95,9 +100,9 @@ export function DashboardShellView({
   return (
     <div data-testid="edge-dashboard" style={{ padding: '24px 32px', maxWidth: 960, margin: '0 auto' }}>
       <header style={{ marginBottom: 20 }}>
-        <h1 style={{ margin: '0 0 4px', fontSize: 20 }}>Edge tier</h1>
+        <h1 style={{ margin: '0 0 4px', fontSize: 20 }}>Edge Ingestor</h1>
         <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 13 }}>
-          Replica health and recent certificate verifications.
+          Off-band replica health and recent certificate verifications.
         </p>
       </header>
 

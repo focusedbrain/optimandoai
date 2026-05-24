@@ -55,7 +55,8 @@ describe('DashboardShellView', () => {
     )
     expect(html).toMatchSnapshot()
     expect(html).toContain('edge-dashboard-empty')
-    expect(html).toContain('Start the wizard to deploy your first replica')
+    expect(html).toContain('Edge Ingestor is not configured')
+    expect(html).toContain('depackaging unit and validator off band')
   })
 
   it('matches snapshot for list state with replicas and verifications tab', () => {

@@ -15,6 +15,7 @@ import BeapMessageImportZone from './BeapMessageImportZone'
 import { BeapInlineComposer } from './BeapInlineComposer'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { EmailEdgeFetchControls } from './email-edge-fetch'
+import { EdgeIngestorSection } from './EdgeIngestorSection'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { SyncFailureBanner } from './SyncFailureBanner'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
@@ -4459,6 +4460,7 @@ export default function EmailInboxView({
               borderRight: '1px solid var(--color-border, rgba(255,255,255,0.08))',
             }}
           >
+            <EdgeIngestorSection variant="inbox" />
             <div className="inbox-provider-section" data-testid="email-accounts-settings-section">
               <EmailProvidersSection
                 theme="professional"

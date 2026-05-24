@@ -37,10 +37,9 @@ import { HandshakeHealthOrchestratorBanner } from './components/HandshakeHealthO
 import { useActiveHandshakeHealthBanner } from './hooks/useActiveHandshakeHealthBanner'
 // === TEMPORARY DEBUG LOG VIEWER (remove before production) ===
 import { DebugLogViewer } from './components/DebugLogViewer'
-import { DashboardShell } from './edge-tier-dashboard/index.js'
 // === END TEMPORARY DEBUG LOG VIEWER ===
 
-type DashboardView = 'analysis' | 'wr-chat' | 'handshakes' | 'beap-inbox' | 'edge-tier'
+type DashboardView = 'analysis' | 'wr-chat' | 'handshakes' | 'beap-inbox'
 type ExtensionTheme = 'pro' | 'dark' | 'standard'
 
 function mapThemeToCss(theme: ExtensionTheme): string {
@@ -469,20 +468,6 @@ function App() {
               />
             </label>
           </div>
-          <div
-            role="button"
-            tabIndex={0}
-            className={`nav-tab${activeView === 'edge-tier' ? ' nav-tab--active' : ''}`}
-            onClick={() => setActiveView('edge-tier')}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                setActiveView('edge-tier')
-              }
-            }}
-          >
-            Edge tier
-          </div>
           {/* Compact shortcuts: handshake + compose icons — always visible */}
           <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 4, flexShrink: 0 }}>
             <button
@@ -644,8 +629,6 @@ function App() {
           )
         ) : activeView === 'wr-chat' ? (
           <WrChatDashboardPanel extensionTheme={extensionTheme} />
-        ) : activeView === 'edge-tier' ? (
-          <DashboardShell />
         ) : (
           <AnalysisCanvas 
             deepLinkPayload={deepLinkPayload ?? undefined}
