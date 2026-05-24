@@ -70,7 +70,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 | P5.1 | ✅ done | `8b3864a6` |
 | P5.2 | ✅ done | `6cc47e12` |
 | P5.3 | ✅ done | `3b7dcd97` |
-| P5.4 | ✅ done | *(pending commit)* |
+| P5.4 | ✅ done | `be6320e9` |
 | P5.5 | ⬜ pending | — |
 | P5.6 | ⬜ pending | — |
 | P5.7 | ⬜ pending | — |
