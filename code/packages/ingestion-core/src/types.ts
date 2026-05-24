@@ -232,7 +232,11 @@ export type ValidationReasonCode =
   /** A string field in the candidate payload exceeds MAX_STRING_LENGTH (validator role, P1.4). */
   | 'PAYLOAD_STRING_TOO_LONG'
   /** MIME type carried in transport metadata is not in the ALLOWED_CONTENT_TYPES list (validator role, P1.4). */
-  | 'CONTENT_TYPE_NOT_ALLOWED';
+  | 'CONTENT_TYPE_NOT_ALLOWED'
+  /** ai_analysis_json.phishing_assessment is present but malformed (P2.1). */
+  | 'AI_PHISHING_ASSESSMENT_INVALID'
+  /** ai_analysis_json.validation_crosscheck is present but malformed (P2.1). */
+  | 'AI_VALIDATION_CROSSCHECK_INVALID';
 
 /**
  * Discriminated result type for validateSessionImportArtefact.

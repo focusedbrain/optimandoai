@@ -319,23 +319,154 @@ function validateAttachmentsCanonical(
 }
 
 // ---------------------------------------------------------------------------
-// AI analysis canonical field validation (Phase B, PR B-7)
+// AI analysis canonical field validation (Phase B, PR B-7 / P2.1)
 // ---------------------------------------------------------------------------
+
+// ISO 8601 basic check: accepts YYYY-MM-DDTHH:MM:SS[.frac][Z|±HH:MM]
+const ISO_8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
+
+// ── TypeScript types for ai_analysis_json sub-fields (P2.1) ──────────────────
+
+export type PhishingLabel = 'low' | 'elevated' | 'high';
+export type CrosscheckConfidence = 'low' | 'medium' | 'high';
+
+/** Shape of ai_analysis_json.phishing_assessment (P2.1). */
+export interface PhishingAssessment {
+  /** Integer in the range 0..100 (inclusive). */
+  score: number;
+  label: PhishingLabel;
+  /** Array of signal strings or objects describing why the score was assigned. */
+  signals: unknown[];
+  /** URLs extracted from the message that the scorer flagged. */
+  flagged_urls: unknown[];
+  /** Version token for the disclaimer text rendered to the user. */
+  disclaimer_version: string;
+  /** Model identifier string (e.g. "wrdesk-phishing-v1"). */
+  model: string;
+  /** ISO 8601 timestamp of when the assessment was generated. */
+  generated_at: string;
+}
+
+/** Shape of ai_analysis_json.validation_crosscheck (P2.1). */
+export interface ValidationCrosscheck {
+  /** Whether the AI assessment agrees with the structural validator's outcome. */
+  agrees_with_validator: boolean;
+  /** Array of finding strings or objects produced by the cross-check. */
+  findings: unknown[];
+  confidence: CrosscheckConfidence;
+  /** Model identifier string. */
+  model: string;
+  /** ISO 8601 timestamp of when the cross-check was generated. */
+  generated_at: string;
+}
+
+/** Top-level type for the ai_analysis_json column (P2.1). */
+export interface AiAnalysisJson {
+  phishing_assessment?: PhishingAssessment;
+  validation_crosscheck?: ValidationCrosscheck;
+  [key: string]: unknown;
+}
+
+// ── Sub-field validators ──────────────────────────────────────────────────────
+
+const PHISHING_LABELS: ReadonlySet<string> = new Set(['low', 'elevated', 'high']);
+const CROSSCHECK_CONFIDENCES: ReadonlySet<string> = new Set(['low', 'medium', 'high']);
+
+/**
+ * Returns a human-readable error string if `v` is not a valid PhishingAssessment,
+ * or null if it is valid.
+ */
+function validatePhishingAssessment(v: unknown): string | null {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) {
+    return 'phishing_assessment must be a non-array object';
+  }
+  const a = v as Record<string, unknown>;
+
+  if (
+    typeof a['score'] !== 'number' ||
+    !Number.isInteger(a['score']) ||
+    (a['score'] as number) < 0 ||
+    (a['score'] as number) > 100
+  ) {
+    return 'phishing_assessment.score must be an integer in 0..100';
+  }
+
+  if (typeof a['label'] !== 'string' || !PHISHING_LABELS.has(a['label'] as string)) {
+    return 'phishing_assessment.label must be "low", "elevated", or "high"';
+  }
+
+  if (!Array.isArray(a['signals'])) {
+    return 'phishing_assessment.signals must be an array';
+  }
+
+  if (!Array.isArray(a['flagged_urls'])) {
+    return 'phishing_assessment.flagged_urls must be an array';
+  }
+
+  if (typeof a['disclaimer_version'] !== 'string') {
+    return 'phishing_assessment.disclaimer_version must be a string';
+  }
+
+  if (typeof a['model'] !== 'string') {
+    return 'phishing_assessment.model must be a string';
+  }
+
+  if (typeof a['generated_at'] !== 'string' || !ISO_8601_RE.test(a['generated_at'])) {
+    return 'phishing_assessment.generated_at must be an ISO 8601 string';
+  }
+
+  return null;
+}
+
+/**
+ * Returns a human-readable error string if `v` is not a valid ValidationCrosscheck,
+ * or null if it is valid.
+ */
+function validateValidationCrosscheck(v: unknown): string | null {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) {
+    return 'validation_crosscheck must be a non-array object';
+  }
+  const a = v as Record<string, unknown>;
+
+  if (typeof a['agrees_with_validator'] !== 'boolean') {
+    return 'validation_crosscheck.agrees_with_validator must be a boolean';
+  }
+
+  if (!Array.isArray(a['findings'])) {
+    return 'validation_crosscheck.findings must be an array';
+  }
+
+  if (typeof a['confidence'] !== 'string' || !CROSSCHECK_CONFIDENCES.has(a['confidence'] as string)) {
+    return 'validation_crosscheck.confidence must be "low", "medium", or "high"';
+  }
+
+  if (typeof a['model'] !== 'string') {
+    return 'validation_crosscheck.model must be a string';
+  }
+
+  if (typeof a['generated_at'] !== 'string' || !ISO_8601_RE.test(a['generated_at'])) {
+    return 'validation_crosscheck.generated_at must be an ISO 8601 string';
+  }
+
+  return null;
+}
 
 /**
  * Validates the optional `ai_analysis_json` field that may appear on any
  * content type after the AI analysis write path (PR B-7).
  *
  * `ai_analysis_json` is AI-generated advisory output. The validator checks
- * structural conformance only (the field is a non-array object or null) —
- * it does NOT validate the semantic correctness of the AI's analysis.
+ * structural conformance only — it does NOT validate the semantic correctness
+ * of the AI's analysis.
  *
  * Absence is conformant. `null` is conformant (represents "cleared").
- * Any non-array, non-primitive object is conformant.
+ * When present, the top-level value must be a non-array object. When the
+ * optional sub-fields `phishing_assessment` or `validation_crosscheck` are
+ * present they must match their respective schemas exactly (P2.1).
  *
- * per Phase B Architecture, PR B-7, Decision C.
+ * per Phase B Architecture, PR B-7 / P2.1.
  */
-function validateAiAnalysisField(
+export function validateAiAnalysisField(
   obj: Record<string, unknown>,
   validated_at: string,
   validator_version: string,
@@ -353,6 +484,37 @@ function validateAiAnalysisField(
       validation_details: `${context}: ai_analysis_json must be a non-array object or null when present`,
     };
   }
+
+  const ai = v as Record<string, unknown>;
+
+  // Validate phishing_assessment sub-field (P2.1).
+  if ('phishing_assessment' in ai && ai['phishing_assessment'] != null) {
+    const err = validatePhishingAssessment(ai['phishing_assessment']);
+    if (err !== null) {
+      console.warn(`[ContentValidator] ${context}: ${err}`);
+      return {
+        validated_at,
+        validator_version,
+        validation_reason: 'AI_PHISHING_ASSESSMENT_INVALID',
+        validation_details: `${context}: ${err}`,
+      };
+    }
+  }
+
+  // Validate validation_crosscheck sub-field (P2.1).
+  if ('validation_crosscheck' in ai && ai['validation_crosscheck'] != null) {
+    const err = validateValidationCrosscheck(ai['validation_crosscheck']);
+    if (err !== null) {
+      console.warn(`[ContentValidator] ${context}: ${err}`);
+      return {
+        validated_at,
+        validator_version,
+        validation_reason: 'AI_VALIDATION_CROSSCHECK_INVALID',
+        validation_details: `${context}: ${err}`,
+      };
+    }
+  }
+
   return null;
 }
 

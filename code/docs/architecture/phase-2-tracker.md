@@ -13,7 +13,7 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 ## Steps
 
 - [x] **P2.0** — Confirm branch and create Phase 2 tracker *(this file)*
-- [ ] **P2.1** — Add post-seal AI enrichment hook (enrichment point attached to the sealed row; advisory only, never gating)
+- [x] **P2.1** — Add post-seal AI enrichment hook (enrichment point attached to the sealed row; advisory only, never gating)
 - [ ] **P2.2** — Phishing/scam scorer (lightweight model invoked after seal; result stored in enrichment column)
 - [ ] **P2.3** — Validation cross-check (AI plausibility check vs structural validator outcome; discrepancy flagged, not blocking)
 - [ ] **P2.4** — Tighten link-open policy (restrict external link navigation to pod-cleared URLs; block `javascript:` / `data:` on all platforms)
@@ -29,7 +29,7 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 | Step | State | Commit |
 |------|-------|--------|
 | P2.0 | ✅ done | P2.0: phase 2 tracker |
-| P2.1 | ⬜ pending | — |
+| P2.1 | ✅ done | P2.1: extend ai_analysis_json schema with phishing_assessment and validation_crosscheck |
 | P2.2 | ⬜ pending | — |
 | P2.3 | ⬜ pending | — |
 | P2.4 | ⬜ pending | — |
@@ -61,6 +61,13 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 ## Notes & deviations
 
 *(Record any decisions made differently from the strategy here, with rationale.)*
+
+### P2.1
+
+- **Step title refined:** tracker listed P2.1 as "Add post-seal AI enrichment hook". The actual P2.1 prompt is schema-only — it extends the `ai_analysis_json` structural validator (in `ingestion-core/contentValidator.ts`) to accept two optional sub-fields: `phishing_assessment` and `validation_crosscheck`. The enrichment hook that populates those fields is implemented in P2.2/P2.3.
+- **Location of changes:** `packages/ingestion-core/src/types.ts` (two new `ValidationReasonCode` values), `packages/ingestion-core/src/contentValidator.ts` (extended `validateAiAnalysisField`, new TypeScript interfaces), `packages/ingestion-core/__tests__/contentValidator.aiAnalysis.test.ts` (27 new tests).
+- **`validateAiAnalysisField` exported:** previously private; now exported so test files can call it directly if needed. Call path is unchanged: `validateBeapMessageContent` and `validatePlainEmailContent` call it internally.
+- **ISO 8601 regex:** accepts `YYYY-MM-DDTHH:MM:SS[.frac][Z|±HH:MM]`. More exotic ISO 8601 forms (week dates, ordinal dates) are not accepted — AI producers are expected to emit standard UTC or offset timestamps.
 
 ### P2.0
 

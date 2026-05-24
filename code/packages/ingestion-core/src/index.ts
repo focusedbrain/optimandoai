@@ -21,7 +21,14 @@ export {
 export { ingestInput } from './ingestor.js';
 export { validateCapsule, validateSessionImportArtefact } from './validator.js';
 export { validateDecryptedBeapContent, CONTENT_VALIDATOR_VERSION } from './contentValidator.js';
-export type { ContentValidationResult } from './contentValidator.js';
+export type {
+  ContentValidationResult,
+  AiAnalysisJson,
+  PhishingAssessment,
+  ValidationCrosscheck,
+  PhishingLabel,
+  CrosscheckConfidence,
+} from './contentValidator.js';
 export { routeValidatedCapsule } from './distributionGate.js';
 export { buildPlainDraftPayload } from './plainTransform.js';
 export {
