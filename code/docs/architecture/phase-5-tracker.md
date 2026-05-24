@@ -67,7 +67,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 | Step | State | Commit |
 |------|-------|--------|
 | P5.0 | ✅ done | `f9f6c287` |
-| P5.1 | ✅ done | *(this commit)* |
+| P5.1 | ✅ done | `8b3864a6` |
 | P5.2 | ⬜ pending | — |
 | P5.3 | ⬜ pending | — |
 | P5.4 | ⬜ pending | — |
