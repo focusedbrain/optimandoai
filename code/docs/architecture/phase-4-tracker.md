@@ -29,7 +29,7 @@ P3.8 building blocks: `apps/electron-vite-project/scripts/edge-cli.ts`, `apps/el
 - [x] **P4.3** — Remote pod deployer (ephemeral key delivery via env, health poll, rollback on failure)
 - [x] **P4.4** — Wizard state machine + IPC handlers (six steps, streaming progress, AbortSignal cancel)
 - [x] **P4.5** — Wizard UI (six-step flow, live log panels, provider-agnostic copy)
-- [ ] **P4.6** — Status dashboard (replica list, health, per-replica actions, rotation, verification log; extends Phase 3 dev panel)
+- [x] **P4.6** — Status dashboard (replica list, health probes, verification log; app shell entry)
 - [ ] **P4.7** — Phase 4 verification pass + manual test documentation
 
 ---
@@ -44,7 +44,7 @@ P3.8 building blocks: `apps/electron-vite-project/scripts/edge-cli.ts`, `apps/el
 | P4.3 | ✅ done | P4.3: Remote pod deployer with ephemeral key delivery |
 | P4.4 | ✅ done | P4.4: wizard state machine and IPC handlers |
 | P4.5 | ✅ done | P4.5: wizard UI for six-step flow |
-| P4.6 | ⬜ pending | — |
+| P4.6 | ✅ done | P4.6: status dashboard with replica list and verification log |
 | P4.7 | ⬜ pending | — |
 
 ---

@@ -4,10 +4,26 @@
 
 import { ipcMain, BrowserWindow } from 'electron'
 import { getEdgeTierStatusSnapshot } from './status.js'
-import { getRecentEdgeVerifications } from './verificationAudit.js'
+import { getRecentEdgeVerifications, onEdgeVerificationAppended } from './verificationAudit.js'
 import { getLocalPodSetupError } from '../local-pod/index.js'
+import {
+  onVerifierVerificationIngested,
+  registerDashboardIpcHandlers,
+  notifyDashboardUpdated,
+} from './dashboard.js'
+
+let _dashboardHookInstalled = false
+
+function ensureDashboardVerificationHook(): void {
+  if (_dashboardHookInstalled) return
+  _dashboardHookInstalled = true
+  onEdgeVerificationAppended(onVerifierVerificationIngested)
+}
 
 export function registerEdgeTierIpcHandlers(): void {
+  ensureDashboardVerificationHook()
+  registerDashboardIpcHandlers()
+
   ipcMain.handle('edge-tier:get-status', async () => {
     return getEdgeTierStatusSnapshot()
   })
@@ -26,6 +42,7 @@ export function registerEdgeTierIpcHandlers(): void {
 }
 
 export function notifyEdgeVerificationsUpdated(): void {
+  notifyDashboardUpdated()
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
       win.webContents.send('edge-tier:verifications-updated')

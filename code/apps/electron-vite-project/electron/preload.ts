@@ -1553,6 +1553,27 @@ contextBridge.exposeInMainWorld('edgeTier', {
   },
 })
 
+contextBridge.exposeInMainWorld('dashboard', {
+  getReplicas: () => ipcRenderer.invoke('dashboard:getReplicas'),
+  getVerifications: (limit?: number) => ipcRenderer.invoke('dashboard:getVerifications', limit),
+  subscribeUpdates: () => ipcRenderer.invoke('dashboard:subscribeUpdates') as Promise<{ ok: boolean }>,
+  onUpdates: (handler: (payload: unknown) => void) => {
+    const fn = (_event: unknown, payload: unknown) => handler(payload)
+    ipcRenderer.on('dashboard:updates', fn)
+    return () => ipcRenderer.removeListener('dashboard:updates', fn)
+  },
+  fetchReplicaLogs: (edgePodId: string) => {
+    if (typeof edgePodId !== 'string' || edgePodId.length === 0 || edgePodId.length > 200) {
+      return Promise.reject(new Error('edgePodId: expected non-empty string (max 200 chars)'))
+    }
+    return ipcRenderer.invoke('dashboard:fetchReplicaLogs', edgePodId) as Promise<{
+      ok: boolean
+      lines?: string[]
+      error?: string
+    }>
+  },
+})
+
 contextBridge.exposeInMainWorld('wizard', {
   getState: () => ipcRenderer.invoke('wizard:getState'),
   reset: () => ipcRenderer.invoke('wizard:reset'),

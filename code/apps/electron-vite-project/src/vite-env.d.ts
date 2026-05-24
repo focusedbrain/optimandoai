@@ -219,6 +219,14 @@ interface EdgeTierBridge {
   onVerificationsUpdated?: (handler: () => void) => () => void
 }
 
+interface DashboardBridge {
+  getReplicas: () => Promise<Array<Record<string, unknown>>>
+  getVerifications: (limit?: number) => Promise<Array<Record<string, unknown>>>
+  subscribeUpdates: () => Promise<{ ok: boolean }>
+  onUpdates: (handler: (payload: Record<string, unknown>) => void) => () => void
+  fetchReplicaLogs: (edgePodId: string) => Promise<{ ok: boolean; lines?: string[]; error?: string }>
+}
+
 interface WizardBridge {
   getState: () => Promise<Record<string, unknown>>
   reset: () => Promise<Record<string, unknown>>
@@ -429,6 +437,7 @@ interface Window {
   appShell?: AppShellBridge
   integrity?: IntegrityBridge
   edgeTier?: EdgeTierBridge
+  dashboard?: DashboardBridge
   wizard?: WizardBridge
   debugLogs?: DebugLogsBridge
   orchestrator?: OrchestratorBridge

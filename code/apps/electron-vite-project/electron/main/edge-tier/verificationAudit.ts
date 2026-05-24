@@ -136,6 +136,18 @@ function updateReplicaStats(
   }
 }
 
+let _appendListeners: Array<(record: EdgeVerificationRecord) => void> = []
+
+/** Test seam — subscribe to new verification records (in-memory dashboard ring). */
+export function onEdgeVerificationAppended(
+  listener: (record: EdgeVerificationRecord) => void,
+): () => void {
+  _appendListeners.push(listener)
+  return () => {
+    _appendListeners = _appendListeners.filter((l) => l !== listener)
+  }
+}
+
 export function appendEdgeVerification(record: EdgeVerificationRecord): void {
   const store = loadStore()
   const verifications = [...store.verifications, record]
@@ -145,6 +157,9 @@ export function appendEdgeVerification(record: EdgeVerificationRecord): void {
   const replica_stats = { ...store.replica_stats }
   updateReplicaStats(replica_stats, record)
   saveStore({ verifications, replica_stats })
+  for (const listener of _appendListeners) {
+    listener(record)
+  }
 }
 
 export function ingestVerifierLogLine(line: string): boolean {
@@ -159,10 +174,26 @@ export function getRecentEdgeVerifications(limit = MAX_EDGE_VERIFICATIONS): Edge
   return store.verifications.slice(-limit).reverse()
 }
 
+export function countVerifiedSince(
+  edgePodId: string,
+  windowMs: number,
+  nowMs: number = Date.now(),
+): number {
+  const since = nowMs - windowMs
+  const key = edgePodId.toLowerCase()
+  return loadStore().verifications.filter((v) => {
+    if (v.edge_pod_id.toLowerCase() !== key) return false
+    if (v.result !== 'verified') return false
+    const ts = Date.parse(v.timestamp)
+    return !Number.isNaN(ts) && ts >= since
+  }).length
+}
+
 export function getReplicaVerificationStats(): Record<string, ReplicaVerificationStats> {
   return { ...loadStore().replica_stats }
 }
 
 export function _resetAuditStoreForTest(): void {
   _storeCache = null
+  _appendListeners = []
 }
