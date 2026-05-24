@@ -20,7 +20,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 - [x] **P1.9** — pod-client package (@repo/pod-client): thin HTTP wrapper for ingestor
 - [ ] **P1.9** — Route depackaging through the pod (Linux only)
 - [x] **P1.10** — Wire Electron through pod-client behind WR_POD_HOT_PATH feature flag (off by default)
-- [ ] **P1.11** — Add per-session auth on the pod channel
+- [x] **P1.11** — CI: build single image + run multi-container smoke test (`pod.yml`)
 - [ ] **P1.12** — Verification pass
 
 ---
@@ -40,7 +40,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 | P1.8 | ✅ done | P1.8: minimal local-pod runner in Electron (Linux only) |
 | P1.9 | ✅ done | P1.9: pod-client package (@repo/pod-client) |
 | P1.10 | ✅ done | P1.10: wire ingestion through pod-client behind WR_POD_HOT_PATH (off by default) |
-| P1.11 | ⬜ pending | — |
+| P1.11 | ✅ done | P1.11: CI build single image + run pod smoke test |
 | P1.12 | ⬜ pending | — |
 
 ---
@@ -48,6 +48,25 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 ## Notes & deviations
 
 *(Record any decisions made differently from the strategy here, with rationale.)*
+
+### P1.11
+
+- **Separate workflow file:** `code/.github/workflows/pod.yml` (not added to `tests.yml`) — separate concerns; pod job requires podman which `tests.yml` doesn't need.
+- **Triggers:** `push` and `pull_request` to `phase-1/**` only.  `main` explicitly excluded per task non-goal (trigger extension is a post-Phase-1 decision).
+- **`build-and-smoke` job** (`ubuntu-latest`, sequential steps = fail-fast):
+  1. Print `podman version` — ubuntu-24.04 ships podman ≥ 4.9; satisfies `≥ 4.0` requirement.
+  2. Ensure `envsubst` is available (gettext-base).
+  3. `podman build -t beap-components:ci -f code/packages/beap-pod/Containerfile code/` — build context is git root.
+  4. `podman tag beap-components:ci beap-components:dev` — pod.yaml references `:dev`.
+  5. `bash packages/beap-pod/scripts/pod-smoke.sh --skip-build` — reuses image already built in step 3.
+  6. Dump pod logs on failure for easier debugging.
+- **`parity-tests` job** (matrix: `flag-off` / `flag-on`, parallel with build-and-smoke):
+  - `WR_POD_HOT_PATH=''` (off): runs parity test file + full ingestion suite regression.
+  - `WR_POD_HOT_PATH='1'` (on): runs parity test file only (full suite not safe with live pod absent).
+  - No container dependency — mock server is started inside the test file.
+- **pnpm caching:** `actions/cache@v4` keyed on `pnpm-lock.yaml` hash for `build-and-smoke`; `actions/setup-node` `cache: pnpm` for `parity-tests`.
+- **Podman layer cache:** Not cached across runs (GitHub Actions ephemeral runners; no registry push in Phase 1).  Build time is dominated by the `pnpm install` step inside the container, which benefits from the pnpm store cache.
+- **Non-goals confirmed:** No Windows/macOS runners; no registry push; no remote VM.
 
 ### P1.10
 

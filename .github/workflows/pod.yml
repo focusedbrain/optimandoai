@@ -1,0 +1,161 @@
+name: BEAP Pod CI — Phase 1
+
+# ── Triggers ───────────────────────────────────────────────────────────────────
+# Scoped to phase-1/** only.  Do NOT add main here; that decision belongs to the
+# merge/rebase step at the end of Phase 1 (not a Phase 1 decision).
+on:
+  push:
+    branches: ['phase-1/**']
+  pull_request:
+    branches: ['phase-1/**']
+
+# Cancel in-progress runs on the same branch so force-pushes don't pile up.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# All jobs are Linux-only.  Windows / macOS runners are explicitly out of scope
+# for Phase 1 (non-goal, see P1.11 tracker note).
+
+jobs:
+
+  # ── Job 1: Build the beap-components image, then run the pod smoke test ───────
+  # Steps are sequential so a build failure aborts before the smoke test runs
+  # ("fail fast" requirement from P1.11).
+  build-and-smoke:
+    name: Build image + pod smoke test
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: code
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm is required inside the Containerfile builder stage (pnpm install).
+      # We install it on the host so corepack can resolve it during `podman build`
+      # — the build context includes the lockfile, not a pre-installed node_modules.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Cache the pnpm content-addressable store keyed on the lockfile.
+      # Hits reduce `pnpm install` inside the container builder stage because
+      # the host's pnpm store is mounted into the build via the pnpm cache
+      # volume.  (Podman-in-CI does not share layers between runs; this is the
+      # best available caching option without a registry push.)
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-store-pod-${{ hashFiles('code/pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-pod-
+
+      # Print podman version for reproducibility / debugging.
+      # ubuntu-latest (24.04) ships podman ≥ 4.9 which satisfies the ≥ 4.0
+      # requirement in pod-smoke.sh.
+      - name: Print podman version
+        run: podman version
+
+      # Ensure envsubst is available (gettext-base on Debian/Ubuntu).
+      # ubuntu-latest includes it by default; this is a guard.
+      - name: Ensure envsubst is available
+        run: |
+          command -v envsubst >/dev/null 2>&1 || sudo apt-get install -y --no-install-recommends gettext-base
+
+      # ── Build step ────────────────────────────────────────────────────────────
+      # Build context is the repo root (one level above the working-directory).
+      # Uses the pinned base image digest in the Containerfile.
+      # This step MUST succeed before the smoke test step runs (fail-fast).
+      - name: Build beap-components:ci image
+        working-directory: .
+        run: |
+          podman build \
+            --tag beap-components:ci \
+            --file code/packages/beap-pod/Containerfile \
+            code/
+          echo "Image built successfully"
+
+      # Tag :ci as :dev so pod.yaml (which references beap-components:dev) finds it.
+      - name: Tag beap-components:dev alias
+        run: podman tag beap-components:ci beap-components:dev
+
+      # ── Smoke test step ───────────────────────────────────────────────────────
+      # Passes --skip-build so the script reuses the image we just built.
+      # The EXIT trap in pod-smoke.sh tears down the pod and cleans secrets
+      # even when the test fails.
+      - name: Run pod smoke test
+        run: bash packages/beap-pod/scripts/pod-smoke.sh --skip-build
+
+      # Dump pod logs on failure to aid debugging without re-running locally.
+      - name: Dump pod logs on failure
+        if: failure()
+        run: podman pod logs --names beap-pod 2>/dev/null || true
+
+  # ── Job 2: Parity tests — flag OFF and flag ON (matrix) ──────────────────────
+  # Verifies that processIncomingInput produces correct results in both routing
+  # modes.  Uses an in-process mock server (no real pod required) so this job
+  # runs in parallel with build-and-smoke without any container dependency.
+  parity-tests:
+    name: Parity tests (WR_POD_HOT_PATH=${{ matrix.pod_hot_path }})
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: code
+
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # flag OFF: validates default behaviour and regression guard
+          - pod_hot_path: ''
+            label: flag-off
+          # flag ON: validates the pod routing path via mock ingestor server
+          - pod_hot_path: '1'
+            label: flag-on
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: code/pnpm-lock.yaml
+
+      - name: Install dependencies (no scripts)
+        run: pnpm install --ignore-scripts --no-frozen-lockfile
+
+      # Run the parity test file explicitly so failures are surfaced clearly
+      # without re-running the entire ingestion suite.
+      - name: Run parity tests (${{ matrix.label }})
+        env:
+          WR_POD_HOT_PATH: ${{ matrix.pod_hot_path }}
+        run: |
+          pnpm vitest run \
+            apps/electron-vite-project/electron/main/ingestion/__tests__/podHotPath.parity.test.ts \
+            --reporter=verbose
+
+      # Run the full ingestion test suite (flag off only) as a regression guard.
+      # With flag=on the full suite is not run because existing tests are not
+      # designed for a live pod (they would hit connection errors at port 18100).
+      - name: Run full ingestion suite (flag-off regression)
+        if: matrix.label == 'flag-off'
+        run: |
+          pnpm vitest run \
+            apps/electron-vite-project/electron/main/ingestion/__tests__/ \
+            --reporter=verbose
