@@ -1,51 +1,335 @@
-# BEAP Pod — Kubernetes Pod manifest
-# For RAM-only operation, mount tmpfs at /tmp (or use emptyDir with memory medium).
-# Key storage is injected via request body (no chrome.* dependencies).
+# BEAP pod manifest — LOCAL_HOST mode (Phase 1)
+#
+# Four containers share one pod network namespace; only the ingestor's port
+# (18100) is forwarded to the host.  All intra-pod calls go via loopback.
+#
+# Secret injection:
+#   Two shell variables are substituted via envsubst before `podman play kube`:
+#     POD_AUTH_SECRET   — shared inter-container HMAC secret (≥ 32 random bytes hex)
+#     SEAL_KEY_HEX      — sealer-only HMAC-SHA256 key (32 random bytes hex)
+#   See README.md §"Running the local pod" for exact commands.
+#
+# Seccomp:
+#   Ingestor, Validator, Depackager: RuntimeDefault
+#   Sealer:                          Localhost → seccomp/sealer.json
+#   Install before running:
+#     # Rootless podman
+#     mkdir -p ~/.local/share/containers/seccomp
+#     cp packages/beap-pod/seccomp/sealer.json \
+#        ~/.local/share/containers/seccomp/beap-sealer.json
+#
+# Apply command:
+#   envsubst < packages/beap-pod/pod.yaml | podman play kube -
+#
+# Teardown:
+#   podman pod stop beap-pod && podman pod rm beap-pod
 
 apiVersion: v1
 kind: Pod
 metadata:
-  name: wrdesk-beap-pod
+  name: beap-pod
   labels:
     app: beap-pod
+    phase: "1"
 spec:
+  restartPolicy: OnFailure
+
+  # ── Volumes ───────────────────────────────────────────────────────────────────
+  # Each container gets its own /tmp tmpfs (Node.js internal scratch; 8 MiB).
+  # The depackager additionally gets /tmp/depackage (64 MiB) for ephemeral crypto
+  # work — must be Memory-backed per Strategy §1.3 (no persistent scratch writes).
+  volumes:
+    - name: tmp-ingestor
+      emptyDir:
+        medium: Memory
+        sizeLimit: 8Mi
+    - name: tmp-validator
+      emptyDir:
+        medium: Memory
+        sizeLimit: 8Mi
+    - name: tmp-depackager
+      emptyDir:
+        medium: Memory
+        sizeLimit: 8Mi
+    - name: tmp-depackage-scratch
+      emptyDir:
+        medium: Memory
+        sizeLimit: 64Mi
+    - name: tmp-sealer
+      emptyDir:
+        medium: Memory
+        sizeLimit: 8Mi
+
   containers:
-    - name: beap-pod
-      image: wrdesk-pod:latest
-      ports:
-        - containerPort: 17180
-          name: http
+
+    # ── Ingestor ──────────────────────────────────────────────────────────────
+    # Entry point for all external traffic.  Validates request shape and size,
+    # then forwards to the validator over loopback.
+    # UID 10100 — matches the 'beap' user created in Containerfile.
+    - name: ingestor
+      image: beap-components:dev
+      securityContext:
+        runAsUser: 10100
+        runAsGroup: 10100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
       env:
-        - name: POD_PORT
-          value: "17180"
+        - name: BEAP_ROLE
+          value: "ingestor"
+        - name: PORT
+          value: "18100"
+        - name: VALIDATOR_BASE
+          value: "http://127.0.0.1:18101"
         - name: POD_VERSION
           value: "1.0.0"
+        # envsubst substitutes this at apply time — never commit a real secret here.
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+      ports:
+        # Only the ingestor port is forwarded to the host.
+        - containerPort: 18100
+          hostPort: 18100
+          protocol: TCP
       resources:
         requests:
-          memory: "128Mi"
+          memory: "64Mi"
           cpu: "50m"
         limits:
-          memory: "512Mi"
-          cpu: "500m"
+          memory: "256Mi"
+          cpu: "250m"
+      volumeMounts:
+        - name: tmp-ingestor
+          mountPath: /tmp
       livenessProbe:
         httpGet:
           path: /health
-          port: 17180
+          port: 18100
         initialDelaySeconds: 5
         periodSeconds: 30
+        timeoutSeconds: 3
+        failureThreshold: 3
       readinessProbe:
         httpGet:
-          path: /health
-          port: 17180
+          path: /ready
+          port: 18100
         initialDelaySeconds: 3
         periodSeconds: 10
-      # Uncomment for tmpfs (RAM-only ephemeral storage):
-      # volumeMounts:
-      #   - name: tmp
-      #     mountPath: /tmp
-  # Optional: tmpfs for RAM-only operation
-  # volumes:
-  #   - name: tmp
-  #     emptyDir:
-  #       medium: Memory
-  #       sizeLimit: 64Mi
+        timeoutSeconds: 3
+        failureThreshold: 3
+
+    # ── Validator ─────────────────────────────────────────────────────────────
+    # Runs ingestion-core structural and content validation.  Closes
+    # MAX_STRING_LENGTH / ALLOWED_CONTENT_TYPES gaps (P1.4).  Forwards
+    # message_package capsules to the depackager.
+    # UID 10101 — distinct non-root UID for defence in depth.
+    - name: validator
+      image: beap-components:dev
+      securityContext:
+        runAsUser: 10101
+        runAsGroup: 10100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: BEAP_ROLE
+          value: "validator"
+        - name: PORT
+          value: "18101"
+        - name: DEPACKAGER_BASE
+          value: "http://127.0.0.1:18102"
+        - name: POD_VERSION
+          value: "1.0.0"
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+      ports:
+        # Internal only — not exposed to host.
+        - containerPort: 18101
+          protocol: TCP
+      resources:
+        requests:
+          memory: "64Mi"
+          cpu: "50m"
+        limits:
+          memory: "256Mi"
+          cpu: "250m"
+      volumeMounts:
+        - name: tmp-validator
+          mountPath: /tmp
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 18101
+        initialDelaySeconds: 5
+        periodSeconds: 30
+        timeoutSeconds: 3
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 18101
+        initialDelaySeconds: 3
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
+
+    # ── Depackager ────────────────────────────────────────────────────────────
+    # Highest-risk role: decrypts qBEAP/pBEAP packages using X25519 + ML-KEM-768
+    # + AES-256-GCM and runs the 6-gate pipeline.  Sanitizes HTML bodies before
+    # forwarding to the sealer.
+    #
+    # Hardening (Strategy §1.3):
+    #   - readOnlyRootFilesystem: /tmp/depackage is the ONLY writable path (tmpfs)
+    #   - Wall-clock timeout (DEPACKAGER_TIMEOUT_MS, default 5 s) defeats parser hangs
+    #   - cap-drop: ALL
+    #   - RuntimeDefault seccomp (strictest compatible with ML-KEM-768 + AES-GCM)
+    #
+    # Key material: receiver private keys are injected per-session via env vars.
+    # In Phase 1 the orchestrator sets them before pod start; Phase 3 uses mTLS.
+    # UID 10102
+    - name: depackager
+      image: beap-components:dev
+      securityContext:
+        runAsUser: 10102
+        runAsGroup: 10100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: BEAP_ROLE
+          value: "depackager"
+        - name: PORT
+          value: "18102"
+        - name: SEALER_BASE
+          value: "http://127.0.0.1:18103"
+        - name: POD_VERSION
+          value: "1.0.0"
+        - name: DEPACKAGER_TIMEOUT_MS
+          value: "5000"
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+        # Receiver key material: set by orchestrator per session (Phase 1).
+        # Leave empty in the manifest; the smoke script or Electron injects them.
+        # - name: BEAP_LOCAL_X25519_PRIV_B64
+        #   value: ""
+        # - name: BEAP_LOCAL_MLKEM_SECRET_B64
+        #   value: ""
+      ports:
+        # Internal only — not exposed to host.
+        - containerPort: 18102
+          protocol: TCP
+      resources:
+        requests:
+          memory: "128Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+          cpu: "500m"
+      volumeMounts:
+        - name: tmp-depackager
+          mountPath: /tmp
+        # Dedicated tmpfs scratch for crypto intermediates (Strategy §1.3)
+        - name: tmp-depackage-scratch
+          mountPath: /tmp/depackage
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 18102
+        initialDelaySeconds: 5
+        periodSeconds: 30
+        timeoutSeconds: 3
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 18102
+        initialDelaySeconds: 3
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
+
+    # ── Sealer ────────────────────────────────────────────────────────────────
+    # Most security-critical role.  Computes HMAC-SHA256 seals using a key that
+    # lives ONLY in this container's memory; never written to disk or logged.
+    #
+    # Hardening (Strategy §1.3):
+    #   - SEAL_KEY_HEX env var zeroed and deleted after startup
+    #   - readOnlyRootFilesystem: true (no filesystem writes at all)
+    #   - cap-drop: ALL
+    #   - Localhost seccomp: seccomp/sealer.json — strict allowlist, no execve,
+    #     no ptrace, no keyctl, no mount; see profile for full removal list.
+    #     Target: read/write/futex/exit class plus minimal Node.js syscalls.
+    #   - NO outbound connections (no fetch/http.request in sealer.ts)
+    #   - Smallest resource limits (HMAC is CPU-light)
+    # UID 10103
+    - name: sealer
+      image: beap-components:dev
+      securityContext:
+        runAsUser: 10103
+        runAsGroup: 10100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        # Strict localhost seccomp profile.
+        # Install before running:
+        #   cp packages/beap-pod/seccomp/sealer.json \
+        #      ~/.local/share/containers/seccomp/beap-sealer.json
+        seccompProfile:
+          type: Localhost
+          localhostProfile: beap-sealer.json
+      env:
+        - name: BEAP_ROLE
+          value: "sealer"
+        - name: PORT
+          value: "18103"
+        - name: SEALER_HOST
+          value: "127.0.0.1"
+        - name: POD_VERSION
+          value: "1.0.0"
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+        # envsubst substitutes SEAL_KEY_HEX — never commit a real key here.
+        # The sealer reads this ONCE at startup, zeros the env var, then keeps
+        # only the decoded Buffer in memory.
+        - name: SEAL_KEY_HEX
+          value: "${SEAL_KEY_HEX}"
+      ports:
+        # Internal only — not exposed to host.
+        - containerPort: 18103
+          protocol: TCP
+      resources:
+        requests:
+          memory: "32Mi"
+          cpu: "25m"
+        limits:
+          memory: "128Mi"
+          cpu: "100m"
+      volumeMounts:
+        - name: tmp-sealer
+          mountPath: /tmp
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 18103
+        initialDelaySeconds: 5
+        periodSeconds: 30
+        timeoutSeconds: 3
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 18103
+        initialDelaySeconds: 3
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3

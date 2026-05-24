@@ -15,7 +15,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 - [x] **P1.4** — Validator role container
 - [x] **P1.5** — Depackager role container (qBEAP/pBEAP decrypt, 6-gate pipeline, HTML sanitization, wall-clock timeout)
 - [x] **P1.6** — Sealer role container (HMAC-SHA256 seal, byte-identical to validator-process computeSeal)
-- [ ] **P1.7** — Add pod URL config and readiness gate to Electron
+- [x] **P1.7** — Pod manifest (podman play kube): 4-container pod with hardening, seccomp, smoke test
 - [ ] **P1.8** — Route structural validation through the pod (Linux only)
 - [ ] **P1.9** — Route depackaging through the pod (Linux only)
 - [ ] **P1.10** — Make validator subprocess seal come from the pod (remove encrypted-variant stubs)
@@ -35,7 +35,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 | P1.4 | ✅ done | P1.4: validator role container, close MAX_STRING_LENGTH/ALLOWED_CONTENT_TYPES gaps |
 | P1.5 | ✅ done | P1.5: depackager role container with HTML sanitization and timeout |
 | P1.6 | ✅ done | P1.6: sealer role container with HMAC seal |
-| P1.7 | ⬜ pending | — |
+| P1.7 | ✅ done | P1.7: multi-container pod manifest with hardening |
 | P1.8 | ⬜ pending | — |
 | P1.9 | ⬜ pending | — |
 | P1.10 | ⬜ pending | — |
@@ -47,6 +47,55 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 ## Notes & deviations
 
 *(Record any decisions made differently from the strategy here, with rationale.)*
+
+### P1.7
+
+- **Replaced `pod.yaml`:** old manifest had one container (`wrdesk-beap-pod`, port 17180, no security
+  context). New manifest defines four containers: `ingestor`, `validator`, `depackager`, `sealer`.
+- **Pod name:** `beap-pod` (was `wrdesk-beap-pod`).
+- **Port exposure:** only `ingestor:18100` has `hostPort: 18100`. The validator (18101), depackager
+  (18102), and sealer (18103) ports are container-internal; reachable on loopback within the pod.
+- **UIDs:** ingestor=10100, validator=10101, depackager=10102, sealer=10103 — each with its own
+  non-root UID for defence-in-depth. All run in `runAsGroup: 10100` (the `beap` group created in
+  the Containerfile); files in `/app` are world-readable (root:root 644) so all UIDs can execute.
+- **Security context (all containers):** `allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true`,
+  `capabilities.drop: ["ALL"]`.
+- **Seccomp:**
+  - Ingestor, Validator, Depackager: `RuntimeDefault` (OCI default; ML-KEM-768 + AES-GCM require V8 JIT).
+  - Sealer: `Localhost: beap-sealer.json` — strict deny-by-default allowlist. Key removals vs OCI default:
+    `execve/execveat`, `fork/vfork`, `ptrace`, `process_vm_*`, `keyctl/add_key/request_key`, `bpf`,
+    `perf_event_open`, `mount/umount/pivot_root/chroot`, `unshare/setns`, `unlink/mkdir/chmod/chown/*`
+    (belt-and-suspenders for `readOnlyRootFilesystem`), `swapon`, `syslog`, `acct`, `quotactl`,
+    `setuid/setgid/capset`. See `seccomp/sealer.json._doc.removed_from_oci_runtime_default` for the
+    full annotated list.
+  - Phase-3 target: compile sealer to a standalone binary to reduce to read/write/futex/exit class.
+- **Volumes:** each container has a small `/tmp` emptyDir (Memory, 8 MiB). The depackager additionally
+  gets `/tmp/depackage` (Memory, 64 MiB) for ephemeral crypto intermediates — Strategy §1.3 requirement.
+- **Secret injection:** `${POD_AUTH_SECRET}` and `${SEAL_KEY_HEX}` are `envsubst` placeholders in
+  `pod.yaml`. Apply command: `envsubst < packages/beap-pod/pod.yaml | podman play kube -`. Reason:
+  avoids committing secrets; avoids Kubernetes Secrets overhead for Phase 1 local operation.
+  Real secret management (vault-backed injection) deferred to Phase 3.
+- **`restartPolicy: OnFailure`** at pod level.
+- **Resource limits:**
+  - Sealer: requests 32Mi/25m, limits 128Mi/100m (smallest — HMAC only).
+  - Ingestor, Validator: requests 64Mi/50m, limits 256Mi/250m.
+  - Depackager: requests 128Mi/100m, limits 512Mi/500m (largest — ML-KEM-768 + AES-GCM).
+- **`seccomp/sealer.json`:** new file. Deny-by-default seccomp profile for the sealer. All syscall
+  groups annotated with `comment` field. Top-level `_doc` object documents removed syscalls (ignored
+  by seccomp parser).
+- **`scripts/pod-smoke.sh`:** new file. Covers: image build → generate secrets → install seccomp
+  profile → `podman play kube` → poll for readiness → `/health` assertion → handshake capsule
+  (ingestor→validator) → pBEAP capsule (full pipeline) → teardown. Exits 0 on success; EXIT trap
+  tears down the pod regardless. The pBEAP test asserts non-5xx and opportunistically checks for a
+  `"seal"` field in the response; a structural mismatch is logged but not a hard failure (full
+  sealed-payload E2E is covered by the Vitest round-trip test in P1.5).
+- **`README.md`:** rewritten. Documents: architecture diagram, role table, step-by-step `podman play
+  kube` commands, secret generation, seccomp installation, smoke test usage, all env vars.
+- **Strategy deviation:** the strategy §1.7 describes "Add pod URL config and readiness gate to
+  Electron". The explicit P1.7 prompt redefines this step as the pod manifest itself; the Electron
+  wiring is deferred to P1.8/P1.9. Tracker description updated.
+- **Verification:** `pnpm --filter @repo/beap-pod test` still passes 73/73 (no code changes).
+  Runtime verification (`podman play kube` → 30s readiness) requires Linux with rootless podman.
 
 ### P1.6
 
