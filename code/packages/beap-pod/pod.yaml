@@ -23,6 +23,11 @@
 #
 # Teardown:
 #   podman pod stop beap-pod && podman pod rm beap-pod
+#
+# Restart policy (Phase 5 — P5.1):
+#   restartPolicy: Never — Podman must NOT auto-restart failed containers.
+#   All roles in this pod (ingestor, validator, depackager, sealer) are trust-sensitive.
+#   The BEAP supervisor on the desktop replaces failed containers explicitly (P5.2+).
 
 apiVersion: v1
 kind: Pod
@@ -32,7 +37,8 @@ metadata:
     app: beap-pod
     phase: "1"
 spec:
-  restartPolicy: OnFailure
+  # Never — supervisor replaces trust-sensitive containers; no Podman auto-restart.
+  restartPolicy: Never
 
   # ── Volumes ───────────────────────────────────────────────────────────────────
   # Each container gets its own /tmp tmpfs (Node.js internal scratch; 8 MiB).

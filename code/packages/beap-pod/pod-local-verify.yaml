@@ -36,6 +36,11 @@
 #
 # Teardown:
 #   podman pod stop beap-pod-local-verify && podman pod rm beap-pod-local-verify
+#
+# Restart policy (Phase 5 — P5.1):
+#   restartPolicy: Never — Podman must NOT auto-restart failed containers.
+#   All roles (ingestor, verifier, validator, depackager, sealer) are trust-sensitive.
+#   The BEAP supervisor on the desktop replaces failed containers explicitly (P5.2+).
 
 apiVersion: v1
 kind: Pod
@@ -46,7 +51,8 @@ metadata:
     phase: "3"
     pod_mode: LOCAL_VERIFY
 spec:
-  restartPolicy: OnFailure
+  # Never — supervisor replaces trust-sensitive containers; no Podman auto-restart.
+  restartPolicy: Never
 
   volumes:
     - name: tmp-ingestor

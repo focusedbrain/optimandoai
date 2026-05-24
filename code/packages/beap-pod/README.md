@@ -47,6 +47,8 @@ All inter-container traffic stays on loopback; authenticated via the shared
 
 ## Running the local pod
 
+Container restart is handled by the BEAP supervisor on the desktop, not by Podman. A failed container stays down until the supervisor replaces it from the immutable image.
+
 ### Prerequisites
 
 ```bash
@@ -149,6 +151,8 @@ podman pod rm   beap-pod
 ---
 
 ## Running a REMOTE_EDGE pod
+
+Container restart is handled by the BEAP supervisor on the desktop, not by Podman. A failed container stays down until the supervisor replaces it from the immutable image.
 
 REMOTE_EDGE mode runs on a user-owned Linux VM (paid tier). The edge validates
 and depackages inbound BEAP traffic, then **certifies** the result with an
@@ -265,6 +269,8 @@ bash packages/beap-pod/scripts/remote-edge-smoke.sh --skip-build
 ---
 
 ## Running a LOCAL_VERIFY pod
+
+Container restart is handled by the BEAP supervisor on the desktop, not by Podman. A failed container stays down until the supervisor replaces it from the immutable image.
 
 LOCAL_VERIFY mode runs on the user's desktop (Electron). It accepts inbound BEAP
 traffic that includes an **edge certificate** from a REMOTE_EDGE pod the user
