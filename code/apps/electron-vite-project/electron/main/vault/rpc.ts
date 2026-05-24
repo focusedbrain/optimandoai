@@ -17,6 +17,7 @@ import {
   validatorOrchestrator,
   onValidationServiceUnavailable,
 } from '../validator-process/orchestrator'
+import { startLocalPod, stopLocalPod } from '../local-pod/index.js'
 
 // Export vaultService for HTTP API handlers
 export { vaultService }
@@ -174,6 +175,10 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
         validatorOrchestrator.start(vaultService).catch((err) => {
           console.error('[VAULT_RPC] Failed to start validator subprocess after create:', err?.message ?? err)
         })
+        // P1.8: start local pod in parallel (Linux only; non-fatal).
+        startLocalPod(vaultService).catch((err) => {
+          console.error('[VAULT_RPC] Failed to start local pod after create:', err?.message ?? err)
+        })
         return { success: true, message: 'Vault created successfully', vaultId, sessionToken: vaultService.getSessionToken() }
       }
 
@@ -187,6 +192,10 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
         validatorOrchestrator.start(vaultService).catch((err) => {
           console.error('[VAULT_RPC] Failed to start validator subprocess:', err?.message ?? err)
         })
+        // P1.8: start local pod in parallel (Linux only; non-fatal).
+        startLocalPod(vaultService).catch((err) => {
+          console.error('[VAULT_RPC] Failed to start local pod:', err?.message ?? err)
+        })
         return { success: true, token, sessionToken: vaultService.getSessionToken() }
       }
 
@@ -196,6 +205,10 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
         // seal key is cleared while the vault is still accessible.
         validatorOrchestrator.stop().catch((err) => {
           console.error('[VAULT_RPC] Error stopping validator subprocess:', err?.message ?? err)
+        })
+        // P1.8: stop local pod on vault lock (Linux only; non-fatal).
+        stopLocalPod().catch((err) => {
+          console.error('[VAULT_RPC] Error stopping local pod:', err?.message ?? err)
         })
         vaultService.lock()
         return { success: true, message: 'Vault locked' }

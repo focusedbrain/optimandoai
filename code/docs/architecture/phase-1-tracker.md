@@ -16,7 +16,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 - [x] **P1.5** — Depackager role container (qBEAP/pBEAP decrypt, 6-gate pipeline, HTML sanitization, wall-clock timeout)
 - [x] **P1.6** — Sealer role container (HMAC-SHA256 seal, byte-identical to validator-process computeSeal)
 - [x] **P1.7** — Pod manifest (podman play kube): 4-container pod with hardening, seccomp, smoke test
-- [ ] **P1.8** — Route structural validation through the pod (Linux only)
+- [x] **P1.8** — Minimal local-pod runner in Electron (Linux only: startLocalPod / stopLocalPod)
 - [ ] **P1.9** — Route depackaging through the pod (Linux only)
 - [ ] **P1.10** — Make validator subprocess seal come from the pod (remove encrypted-variant stubs)
 - [ ] **P1.11** — Add per-session auth on the pod channel
@@ -36,7 +36,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 | P1.5 | ✅ done | P1.5: depackager role container with HTML sanitization and timeout |
 | P1.6 | ✅ done | P1.6: sealer role container with HMAC seal |
 | P1.7 | ✅ done | P1.7: multi-container pod manifest with hardening |
-| P1.8 | ⬜ pending | — |
+| P1.8 | ✅ done | P1.8: minimal local-pod runner in Electron (Linux only) |
 | P1.9 | ⬜ pending | — |
 | P1.10 | ⬜ pending | — |
 | P1.11 | ⬜ pending | — |
@@ -47,6 +47,61 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 ## Notes & deviations
 
 *(Record any decisions made differently from the strategy here, with rationale.)*
+
+### P1.8
+
+- **New directory:** `apps/electron-vite-project/electron/main/local-pod/` — 4 files.
+- **`secrets.ts`:**
+  - `generatePodAuthSecret()` — `randomBytes(32).toString('hex')`.
+  - `deriveSealKeyHex(vault)` — calls `vault.deriveApplicationKey('pod-seal-key-v1')`;
+    key Buffer is zeroized after hex conversion; returns null if vault is locked.
+  - Key info label `'pod-seal-key-v1'` is intentionally distinct from the validator-subprocess
+    label `'validator-seal-key-v1'` so the two keys are independent.
+- **`podRunner.ts`:**
+  - `applyPodManifest(podAuthSecret, sealKeyHex, options?)`:
+    reads manifest template → string-replaces `${POD_AUTH_SECRET}` / `${SEAL_KEY_HEX}` in memory →
+    writes mode-0600 temp file → `podman play kube <tmpFile>` → deletes temp file (always, even on
+    error) → returns `ActivePod { podName, stop() }`.
+  - Secrets never appear in podman argv; they are only in the temp file, which is deleted immediately.
+  - `PodmanExecutor` is injectable (defaults to `execFileAsync('podman', ...)`) for unit tests.
+  - Manifest path: priority order: (1) `options.manifestPath`, (2) `BEAP_POD_MANIFEST` env var,
+    (3) `process.cwd()/packages/beap-pod/pod.yaml` (dev mode default).
+  - Timeout: 60 s (generous for image pull on first run).
+  - `teardownPod` runs `pod stop --time 10 <name>` then `pod rm <name>`; errors are logged, not thrown.
+- **`index.ts`:**
+  - Module-level `_activePod` / `_startPromise` for singleton pod state (same pattern as `ValidatorOrchestrator`).
+  - `startLocalPod(vault, options?)`:
+    - `options.platform` (default `process.platform`) — Linux guard; logs and returns immediately
+      on non-Linux platforms.
+    - Already-running guard: no-op if `_activePod` is set.
+    - In-flight join: if `_startPromise` is set, returns the same Promise (prevents duplicate pods).
+    - Errors are caught and logged (never thrown) — in-process validation path keeps running.
+  - `stopLocalPod()`: calls `_activePod.stop()` if a pod is running; no-op otherwise.
+  - `_resetStateForTest()` exported for test isolation.
+- **Wiring in `vault/rpc.ts`:**
+  - `vault.create` and `vault.unlock`: `startLocalPod(vaultService).catch(...)` added after
+    `validatorOrchestrator.start()` — same non-awaited `.catch()` pattern.
+  - `vault.lock`: `stopLocalPod().catch(...)` added after `validatorOrchestrator.stop()`.
+- **Wiring in `main.ts`:**
+  - `app.on('before-quit')`: dynamic `import('./main/local-pod/index.js')` + `await stopLocalPod()`
+    added before the OAuth server shutdown, wrapped in try/catch.
+- **Tests (21 tests, all pass):**
+  - `generatePodAuthSecret`: 64-char hex, fresh per call.
+  - `deriveSealKeyHex`: correct return, null when locked, Buffer zeroized.
+  - Platform guard: win32 and darwin → executor not called.
+  - Linux start: executor called with `['play', 'kube', <tmpPath>]`, secrets not in argv.
+  - Locked vault → no-op.
+  - Executor error → non-fatal.
+  - Concurrent start → single executor call.
+  - Second start after completion → no-op.
+  - Stop: `['pod', 'stop', ...]` then `['pod', 'rm', ...]` with correct pod name.
+  - No-op stop when no pod running.
+  - Secret substitution: placeholders replaced in temp manifest content.
+  - Temp manifest deleted after success and after executor error.
+  - `resolveManifestPath`: priority order tested.
+- **Strategy deviation:** Strategy §1.8 describes "Route structural validation through the pod".
+  The explicit P1.8 prompt redefines this step as the local-pod runner module; structural routing
+  is deferred to P1.9. Tracker description updated.
 
 ### P1.7
 

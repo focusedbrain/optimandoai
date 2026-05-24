@@ -1175,6 +1175,14 @@ let popupIsOpen = false
 app.on('before-quit', async () => {
   isAppQuitting = true
   
+  // P1.8: stop local pod on app quit (Linux only; non-fatal).
+  try {
+    const { stopLocalPod: _stopPod } = await import('./main/local-pod/index.js')
+    await _stopPod()
+  } catch (err) {
+    console.error('[MAIN] Error stopping local pod:', (err as Error)?.message ?? err)
+  }
+
   // Shutdown OAuth server manager
   try {
     const { oauthServerManager } = await import('./main/email/oauth-server')

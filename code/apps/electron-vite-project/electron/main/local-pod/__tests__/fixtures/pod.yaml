@@ -1,0 +1,16 @@
+# Minimal pod manifest fixture for P1.8 unit tests.
+# Contains the two substitution placeholders used by podRunner.ts.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: beap-pod-test
+spec:
+  restartPolicy: OnFailure
+  containers:
+    - name: test-container
+      image: beap-components:dev
+      env:
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+        - name: SEAL_KEY_HEX
+          value: "${SEAL_KEY_HEX}"
