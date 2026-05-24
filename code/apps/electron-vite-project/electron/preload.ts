@@ -1295,6 +1295,22 @@ contextBridge.exposeInMainWorld('emailAccounts', {
   },
 })
 
+contextBridge.exposeInMainWorld('emailEdgeFetch', {
+  getEligibility: () => ipcRenderer.invoke('email:edgeFetch:getEligibility'),
+  getSnapshots: () => ipcRenderer.invoke('email:edgeFetch:getSnapshots'),
+  migrateToEdge: (input: unknown) => ipcRenderer.invoke('email:edgeFetch:migrateToEdge', input),
+  migrateBack: (input: unknown) => ipcRenderer.invoke('email:edgeFetch:migrateBack', input),
+  reauthorize: (input: unknown) => ipcRenderer.invoke('email:edgeFetch:reauthorize', input),
+  refreshStatus: (input: unknown) => ipcRenderer.invoke('email:edgeFetch:refreshStatus', input),
+  onStateChanged: (callback: (snapshots: unknown) => void) => {
+    const fn = (_e: Electron.IpcRendererEvent, snapshots: unknown) => callback(snapshots)
+    ipcRenderer.on('email:edgeFetchStateChanged', fn)
+    return () => {
+      ipcRenderer.removeListener('email:edgeFetchStateChanged', fn)
+    }
+  },
+})
+
 // ── Email Inbox ───────────────────────────────────────────────────────────
 contextBridge.exposeInMainWorld('emailInbox', {
   /** DevTools: `window.emailInbox.debugQueueStatus().then(console.log)` */

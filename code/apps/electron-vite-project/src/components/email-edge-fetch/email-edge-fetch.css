@@ -1,0 +1,149 @@
+.edge-fetch-row {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(15, 23, 42, 0.15);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.edge-fetch-row-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  min-width: 0;
+}
+
+.edge-fetch-row-label {
+  color: #64748b;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 9px;
+}
+
+.edge-fetch-row-progress,
+.edge-fetch-row-detail,
+.edge-fetch-row-error {
+  color: #64748b;
+  line-height: 1.35;
+}
+
+.edge-fetch-row-error {
+  color: #b91c1c;
+}
+
+.edge-fetch-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.edge-fetch-row-actions button {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(15, 23, 42, 0.15);
+  background: #fff;
+  cursor: pointer;
+}
+
+.edge-fetch-row-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.edge-fetch-btn-highlight {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%) !important;
+  color: #fff !important;
+  border: none !important;
+}
+
+.edge-fetch-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 16px;
+}
+
+.edge-fetch-modal {
+  background: #fff;
+  color: #0f172a;
+  border-radius: 10px;
+  max-width: 480px;
+  width: 100%;
+  padding: 20px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+}
+
+.edge-fetch-modal h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.edge-fetch-modal-lead,
+.edge-fetch-modal-warning {
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0 0 12px;
+}
+
+.edge-fetch-modal-warning {
+  color: #b45309;
+  background: rgba(251, 191, 36, 0.15);
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.edge-fetch-consent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.edge-fetch-consent-item {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  align-items: flex-start;
+}
+
+.edge-fetch-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.edge-fetch-status-dl {
+  margin: 0;
+  font-size: 13px;
+}
+
+.edge-fetch-status-dl > div {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.edge-fetch-status-dl dt {
+  font-weight: 600;
+  color: #64748b;
+}
+
+.edge-fetch-status-dl dd {
+  margin: 0;
+}

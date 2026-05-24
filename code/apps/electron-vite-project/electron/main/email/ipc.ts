@@ -33,6 +33,7 @@ import {
   probeInboxMessageSealKeySource,
 } from './beapInboxClonePrepare'
 import { isHostMode } from '../orchestrator/orchestratorModeStore'
+import { registerEdgeFetchIpcHandlers } from './edgeFetch/ipc.js'
 
 /** Per-call ⚡ logs for `inbox:aiAnalyzeMessage` — keep false in production. */
 const DEBUG_INBOX_AI_IPC_VERBOSE = false
@@ -1454,6 +1455,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     }
   })
   
+  registerEdgeFetchIpcHandlers()
   console.log('[Email IPC] Handlers registered')
 }
 

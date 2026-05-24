@@ -426,6 +426,22 @@ async function syncAccountEmailsImpl(
     }
   }
 
+  const edgeState = pausedCfg?.edgeFetch?.state
+  if (
+    edgeState === 'active' ||
+    edgeState === 'awaiting_key' ||
+    edgeState === 'migrating' ||
+    edgeState === 'migrating_back'
+  ) {
+    emailDebugLog('[SYNC-DEBUG] syncAccountEmailsImpl skipped — edge fetch', { accountId, edgeState })
+    return {
+      ...result,
+      listedFromProvider: 0,
+      skippedDuplicate: 0,
+      skipReason: 'edge_fetch',
+    }
+  }
+
   try {
     const accountInfo = await emailGateway.getAccount(accountId)
     if (accountInfo?.provider === 'imap') {

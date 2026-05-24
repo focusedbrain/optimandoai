@@ -798,6 +798,11 @@ class EmailGateway implements IEmailGateway {
     return this.accounts.map((acc) => this.toAccountInfo(acc))
   }
 
+  /** Synchronous snapshot for edge-fetch supervisor (in-memory accounts). */
+  listAccountsSync(): EmailAccountInfo[] {
+    return this.accounts.map((acc) => this.toAccountInfo(acc))
+  }
+
   /** Last load/save/decrypt diagnostics for IPC/HTTP (not a second source of truth). */
   getPersistenceDiagnostics(): EmailAccountsPersistenceDiagnostics {
     return {
@@ -895,6 +900,9 @@ class EmailGateway implements IEmailGateway {
         ? mergeImapSmtpCredentials(prev.smtp as Record<string, unknown>, patchSmtp as Partial<Record<string, unknown>>) as
             NonNullable<EmailAccountConfig['smtp']>
         : (patchSmtp as NonNullable<EmailAccountConfig['smtp']>)
+    }
+    if ('edgeFetch' in restUpdates && restUpdates.edgeFetch === undefined) {
+      delete merged.edgeFetch
     }
 
     this.accounts[index] = merged
@@ -2434,6 +2442,18 @@ class EmailGateway implements IEmailGateway {
         syncWindowDays: typeof account.sync?.syncWindowDays === 'number' ? account.sync.syncWindowDays : 30,
         maxMessagesPerPull: typeof account.sync?.maxMessagesPerPull === 'number' ? account.sync.maxMessagesPerPull : 500,
       },
+      ...(account.edgeFetch
+        ? {
+            edgeFetch: {
+              replicaId: account.edgeFetch.replicaId,
+              state: account.edgeFetch.state,
+              remoteState: account.edgeFetch.remoteState,
+              lastError: account.edgeFetch.lastError,
+              lastRemoteSyncAt: account.edgeFetch.lastRemoteSyncAt,
+              updatedAt: account.edgeFetch.updatedAt,
+            },
+          }
+        : {}),
     }
   }
   

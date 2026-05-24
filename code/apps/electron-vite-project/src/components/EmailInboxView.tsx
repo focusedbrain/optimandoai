@@ -14,6 +14,7 @@ import { EmailInlineComposer } from './EmailInlineComposer'
 import BeapMessageImportZone from './BeapMessageImportZone'
 import { BeapInlineComposer } from './BeapInlineComposer'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
+import { EmailEdgeFetchControls } from './email-edge-fetch'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { SyncFailureBanner } from './SyncFailureBanner'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
@@ -4470,6 +4471,7 @@ export default function EmailInboxView({
                 onSelectEmailAccount={setSelectedProviderAccountId}
                 onUpdateImapCredentials={handleUpdateImapCredentials}
                 listAccountsError={providerListError}
+                renderAccountExtra={(account) => <EmailEdgeFetchControls account={account} />}
               />
               {primaryAccountId && window.emailInbox?.patchAccountSyncPreferences && (
                 <div

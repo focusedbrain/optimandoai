@@ -36,7 +36,7 @@ Phase 4 ref: `docs/architecture/phase-4-tracker.md`
 - [x] **P4.5.4** — mail-fetcher role stub (`packages/beap-pod/src/roles/mail-fetcher.ts`)
 - [x] **P4.5.5** — mail-fetcher implementation (`packages/email-fetch`, supervisor API, fetch loop)
 - [x] **P4.5.6** — REMOTE_EDGE mail-fetcher container in pod manifest + smoke/README (strategy §11.7)
-- [ ] **P4.5.7** — Desktop OAuth mint + wrapped credential transfer to edge (strategy §11.5)
+- [x] **P4.5.7** — Per-account fetch-via-edge UI with consent dialog and state display (strategy §11.3, §11.8)
 - [ ] **P4.5.8** — Desktop inbox: disable IMAP for edge-migrated accounts (no desktop fallback)
 - [ ] **P4.5.9** — Wizard email migration finale step + account opt-in UI
 - [ ] **P4.5.10** — End-to-end manual test + phase closeout
@@ -54,7 +54,7 @@ Phase 4 ref: `docs/architecture/phase-4-tracker.md`
 | P4.5.4 | ✅ done | P4.5.4: mail-fetcher role stub |
 | P4.5.5 | ✅ done | P4.5.5: mail-fetcher implementation with per-account fetch loop and supervisor API |
 | P4.5.6 | ✅ done | P4.5.6: add mail-fetcher container to REMOTE_EDGE pod manifest |
-| P4.5.7 | ⬜ pending | — |
+| P4.5.7 | ✅ done | P4.5.7: per-account fetch-via-edge UI with consent dialog and state display |
 | P4.5.8 | ⬜ pending | — |
 | P4.5.9 | ⬜ pending | — |
 | P4.5.10 | ⬜ pending | — |

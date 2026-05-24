@@ -446,6 +446,26 @@ interface BeapBridge {
   }>
 }
 
+interface EmailEdgeFetchBridge {
+  getEligibility: () => Promise<{
+    ok: boolean
+    data?: {
+      canMigrate: boolean
+      reason?: string
+      edgeReady: boolean
+      isPaidTier: boolean
+      replicas: Array<{ edge_pod_id: string; host: string; port: number }>
+    }
+    error?: string
+  }>
+  getSnapshots: () => Promise<{ ok: boolean; data?: unknown[]; error?: string }>
+  migrateToEdge: (input: unknown) => Promise<{ ok: boolean; data?: unknown[]; error?: string }>
+  migrateBack: (input: unknown) => Promise<{ ok: boolean; data?: unknown[]; error?: string }>
+  reauthorize: (input: unknown) => Promise<{ ok: boolean; data?: unknown[]; error?: string }>
+  refreshStatus: (input: unknown) => Promise<{ ok: boolean; data?: unknown[]; error?: string }>
+  onStateChanged: (callback: (snapshots: unknown) => void) => () => void
+}
+
 interface Window {
   /**
    * Project WIKI AI insert bridge: assigned by `ProjectOptimizationPanel` when a field or
@@ -472,4 +492,6 @@ interface Window {
   letterComposer?: LetterComposerBridge
   /** User-installed LibreOffice — `soffice` detection and PDF conversion. */
   libreoffice?: LibreOfficeBridge
+  /** Per-account edge mail-fetch migration (P4.5.7). */
+  emailEdgeFetch?: EmailEdgeFetchBridge
 }

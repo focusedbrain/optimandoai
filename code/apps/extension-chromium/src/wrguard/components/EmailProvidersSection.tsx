@@ -140,6 +140,8 @@ export interface EmailProvidersSectionProps {
   onSetProcessingPaused?: (accountId: string, paused: boolean) => void | Promise<void>
   /** Load/list/bridge failure — do not present as “no accounts” without context. */
   listAccountsError?: string | null
+  /** Optional per-account footer (e.g. edge fetch controls). */
+  renderAccountExtra?: (account: EmailAccount) => React.ReactNode
 }
 
 export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
@@ -153,6 +155,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
   onUpdateImapCredentials,
   onSetProcessingPaused,
   listAccountsError,
+  renderAccountExtra,
 }) => {
   const defaultEmailAccountRowId = pickDefaultEmailAccountRowId(emailAccounts)
   const isLightTheme = theme === 'professional' || theme === 'standard'
@@ -394,6 +397,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                         </button>
                       </div>
                     ) : null}
+                    {typeof renderAccountExtra === 'function' ? renderAccountExtra(account) : null}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>

@@ -398,6 +398,11 @@ export interface EmailAccountConfig {
   
   /** Updated timestamp */
   updatedAt: number
+
+  /**
+   * Edge mail-fetcher migration state (strategy §11.8). Omitted = local fetch only.
+   */
+  edgeFetch?: import('./edgeFetch/types.js').EdgeFetchAccountMeta
 }
 
 /** Safe summary of a mailbox slice for UI / IPC (no folder passwords). */
@@ -438,6 +443,16 @@ export interface EmailAccountInfo {
     /** Smart Sync window days (0 = all mail). */
     syncWindowDays?: number
     maxMessagesPerPull?: number
+  }
+
+  /** Edge fetch state (no secrets). */
+  edgeFetch?: {
+    replicaId: string
+    state: import('./edgeFetch/types.js').EdgeFetchLocalState
+    remoteState?: import('./edgeFetch/types.js').MailFetcherRemoteState
+    lastError?: string
+    lastRemoteSyncAt?: string
+    updatedAt: number
   }
 }
 
