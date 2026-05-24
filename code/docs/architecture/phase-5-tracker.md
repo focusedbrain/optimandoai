@@ -53,7 +53,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - [x] **P5.3** — Role containers generate hardened diagnostic reports on failure
 - [x] **P5.4** — Supervisor: container replacement, report pickup, queue handoff
 - [x] **P5.5** — Crash-message quarantine store; fetch loop resume from next message
-- [ ] **P5.6** — Dashboard quarantine indicators (existence + timestamp inline)
+- [x] **P5.6** — Dashboard quarantine review UI; sandbox-routed report and body viewing
 - [ ] **P5.7** — Replacement-budget circuit breaker
 - [ ] **P5.8** — Sandbox-orchestrated full diagnostic report viewer
 - [ ] **P5.9** — Host-initiated nuclear pod reset
@@ -72,7 +72,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 | P5.3 | ✅ done | `3b7dcd97` |
 | P5.4 | ✅ done | `be6320e9` |
 | P5.5 | ✅ done | `3d67dc5c` |
-| P5.6 | ⬜ pending | — |
+| P5.6 | ✅ done | `1cdbd229` |
 | P5.7 | ⬜ pending | — |
 | P5.8 | ⬜ pending | — |
 | P5.9 | ⬜ pending | — |
@@ -146,3 +146,14 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - Supervisor: picks up quarantine entries alongside diagnostic reports; local store at `userData/diagnostic-reports/{replica_id}/quarantine/{hash}/`; audit `message_quarantined`.
 - Settings: `quarantine_retention_days` (default 30) in `edge-tier-settings.json`.
 - Tests: `quarantine.test.ts`, `mail-fetcher.quarantine.test.ts`, `supervisor/__tests__/quarantine.test.ts`.
+
+### P5.6
+
+- `src/edge-tier-dashboard/QuarantinePanel.tsx`: per-replica counts, list rows (timestamp, sender-reported from, truncated subject, failed role); no body preview or HTML.
+- Actions: view report/body via sandbox orchestrator; discard with typed confirmation (from or subject) + SSH edge delete.
+- `src/sandbox-orchestrator/`: `diagnostic_report` and `raw_email_body` modes — monospace plain-text `SandboxViewerModal` (no link-ification, no HTML).
+- Main IPC: `dashboard:getQuarantineSummary`, `dashboard:listQuarantine`, `dashboard:prepareSandboxView`, `dashboard:discardQuarantine`.
+- Body decrypt in main process only for IPC handoff; plaintext buffer zeroized after encode.
+- Dashboard payload includes `quarantine_summary`; recent-failures indicator on main view.
+- Audit: `message_discarded` with hash and `confirmation_timestamp`.
+- Tests: `QuarantinePanel.test.tsx`, `quarantineDashboard.test.ts`, dashboard snapshot update.
