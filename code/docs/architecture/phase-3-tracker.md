@@ -13,7 +13,7 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 
 - [x] **P3.0** — Confirm branch and create Phase 3 tracker *(this file)*
 - [x] **P3.1** — Certificate format library (`@repo/beap-cert`: types, canonical serialization, Ed25519 sign/verify, hash helpers)
-- [ ] **P3.2** — Certifier role container (`/certify` on REMOTE_EDGE; Ed25519 signing; holds private key in memory only)
+- [x] **P3.2** — Certifier and verifier role stubs + dispatcher routing (real `/certify` and `/verify-cert` in P3.4 and P3.6)
 - [ ] **P3.3** — Keycloak attestation flow (`sso_attestation` JWT binding `edge_pod_id` to `sub`; resolve Decision 6)
 - [ ] **P3.4** — Verifier role container (`/verify-cert` on LOCAL_VERIFY; attested edge public keys; rejects on failure → quarantine)
 - [ ] **P3.5** — REMOTE_EDGE pod manifest (ingestor → validator → depackager → certifier; no sealer)
@@ -31,7 +31,7 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 |------|-------|--------|
 | P3.0 | ✅ done | P3.0: phase 3 tracker |
 | P3.1 | ✅ done | P3.1: beap-cert library for certificate format and signing |
-| P3.2 | ⬜ pending | — |
+| P3.2 | ✅ done | P3.2: add certifier and verifier role stubs to dispatcher |
 | P3.3 | ⬜ pending | — |
 | P3.4 | ⬜ pending | — |
 | P3.5 | ⬜ pending | — |
@@ -80,4 +80,12 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - **Signing / verification:** `@noble/curves/ed25519`; signature format `ed25519:<hex>` (64-byte sig → 128 hex chars).
 - **Hash helpers:** `sha256Hex`, `packageHash`, `capsuleCanonicalHash`, `validationResultDigest` — all return `sha256:<lowercase-hex>`.
 - **Tests:** 12 pass (round-trip sign/verify, wrong key, tamper, canonical stability, hash fixtures).
-- **Not imported by pod yet** — certifier (P3.2) and verifier (P3.4) will consume this package.
+- **Not imported by pod yet** — certifier (P3.4) and verifier (P3.6) will consume this package.
+
+### P3.2
+
+- **New stubs:** `src/roles/certifier.ts` (logs `role: certifier`, exits 0 after 5 s), `src/roles/verifier.ts` (logs `role: verifier`, exits 0 immediately).
+- **entrypoint.sh:** routes `BEAP_ROLE=certifier|verifier` to compiled role binaries.
+- **Containerfile:** unchanged except comments — single image uid 10100 remains; per-role uids 10100..10105 are assigned in pod manifests (P3.3/P3.5), not in the image.
+- **tsconfig:** no change — `src/**/*.ts` already compiles new role files.
+- **Verification:** `pnpm --filter @repo/beap-pod build` passes; node dispatch of certifier/verifier stubs confirmed on Windows. `podman build/run` not available on this host — CI/Linux manual check pending.
