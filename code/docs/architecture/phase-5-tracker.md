@@ -54,7 +54,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - [x] **P5.4** — Supervisor: container replacement, report pickup, queue handoff
 - [x] **P5.5** — Crash-message quarantine store; fetch loop resume from next message
 - [x] **P5.6** — Dashboard quarantine review UI; sandbox-routed report and body viewing
-- [ ] **P5.7** — Replacement-budget circuit breaker
+- [x] **P5.7** — Replacement-budget circuit breaker
 - [ ] **P5.8** — Sandbox-orchestrated full diagnostic report viewer
 - [ ] **P5.9** — Host-initiated nuclear pod reset
 - [ ] **P5.10** — End-to-end tests and manual verification recipe
@@ -73,7 +73,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 | P5.4 | ✅ done | `be6320e9` |
 | P5.5 | ✅ done | `3d67dc5c` |
 | P5.6 | ✅ done | `1cdbd229` |
-| P5.7 | ⬜ pending | — |
+| P5.7 | ✅ done | — |
 | P5.8 | ⬜ pending | — |
 | P5.9 | ⬜ pending | — |
 | P5.10 | ⬜ pending | — |
