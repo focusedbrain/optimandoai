@@ -24,7 +24,7 @@ P3.8 building blocks: `apps/electron-vite-project/scripts/edge-cli.ts`, `apps/el
 ## Steps
 
 - [x] **P4.0** — Confirm branch and create Phase 4 tracker *(this file)*
-- [ ] **P4.1** — SSH transport module (`/etc/os-release` distro probe, sudo check, remote exec; no provider APIs)
+- [x] **P4.1** — SSH transport module (`/etc/os-release` distro probe, sudo check, remote exec; no provider APIs)
 - [ ] **P4.2** — Wizard scaffold + Step 1 re-authenticate (fresh SSO token, `wrdesk_plan` paid-tier gate)
 - [ ] **P4.3** — Step 2 provide-the-VM UI (host, port, username, SSH key file + passphrase; no provider credentials)
 - [ ] **P4.4** — Step 3 probe and prepare (distro report, Podman install if missing, user confirm before install)
@@ -41,7 +41,7 @@ P3.8 building blocks: `apps/electron-vite-project/scripts/edge-cli.ts`, `apps/el
 | Step | State | Commit |
 |------|-------|--------|
 | P4.0 | ✅ done | P4.0: phase 4 tracker |
-| P4.1 | ⬜ pending | — |
+| P4.1 | ✅ done | P4.1: SSH client and distro probe |
 | P4.2 | ⬜ pending | — |
 | P4.3 | ⬜ pending | — |
 | P4.4 | ⬜ pending | — |
@@ -88,3 +88,13 @@ A paid user with a **Linux VPS they brought themselves** can deploy an edge repl
 - Phase 3 `edge-cli.ts` is the reference implementation for deploy flows until P4.6 extracts shared library functions the wizard calls directly.
 - Phase 3 dev UI (`EdgeTierAdminPanel.tsx`) is read-only; P4.8 promotes it to the full status dashboard per §4.2.
 - Supported distros at launch: Debian/Ubuntu/Fedora/RHEL family (strategy §9 decision #4). Probe via `/etc/os-release` over SSH.
+
+### P4.1
+
+- **Dependency:** `ssh2@1.16.0` (pinned) in `apps/electron-vite-project` main-process dependencies.
+- **Module:** `electron/main/edge-tier/ssh/` — `SshClient` (connect, run, SFTP upload, progress events, disconnect-on-error), `probeTarget()` + pure `interpretProbeCommands()` / `classifyDistro()` for tests.
+- **Launch support:** Debian, Ubuntu, Fedora, RHEL, Rocky, Alma. Refused at probe: Alpine, Arch, openSUSE (+ clear message).
+- **Missing Podman** recorded in probe but does **not** fail verdict (installer is a later step).
+- **No provider APIs.** SSH to user-supplied VPS only.
+- **Tests:** 16 pass (fixtures for each supported/unsupported distro, sudo cases, mock SSH runner, mock ssh2 client disconnect).
+- **edge-cli.ts** still shells out to `ssh` for now; wizard uses `SshClient`. CLI migration optional in P4.6.
