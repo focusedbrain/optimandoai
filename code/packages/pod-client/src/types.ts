@@ -81,7 +81,18 @@ export interface PodClient {
     rawInput: RawInput,
     sourceType: SourceType,
     transportMeta?: Partial<TransportMetadata>,
+    depackageKeys?: DepackageKeys,
   ): Promise<PodIngestResult>;
+}
+
+/**
+ * Per-request qBEAP decryption keys.
+ * Electron looks these up from the handshake record and passes them to the pod
+ * so the depackager can decrypt qBEAP-encrypted messages.
+ */
+export interface DepackageKeys {
+  readonly x25519_priv_b64: string;
+  readonly mlkem_secret_b64?: string;
 }
 
 // ── Result & error types ──────────────────────────────────────────────────────

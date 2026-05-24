@@ -40,7 +40,7 @@ import {
 } from '../../apps/electron-vite-project/electron/main/sealed-storage/index.js'
 import {
   computeSealForTest,
-} from '../../apps/electron-vite-project/electron/main/validator-process/index.js'
+} from '../../apps/electron-vite-project/electron/main/validation/__testUtils__.js'
 import { CONTENT_VALIDATOR_VERSION } from '@repo/ingestion-core'
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,6 +1,48 @@
-import { describe, test, expect, vi } from 'vitest'
+import { describe, test, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
+import http from 'node:http'
+import { ingestInput, validateCapsule } from '@repo/ingestion-core'
+import type { CandidateCapsuleEnvelope } from '@repo/ingestion-core'
 import { processIncomingInput } from '../ingestionPipeline'
 import type { RawInput, TransportMetadata } from '../types'
+
+// ── Mock pod server (P1.12) ──
+interface MockServer { baseUrl: string; stop(): Promise<void> }
+function startMockPodIngestor(): Promise<MockServer> {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer(async (req, res) => {
+      if (req.method !== 'POST' || req.url !== '/ingest') {
+        res.writeHead(404); res.end(JSON.stringify({ error: 'Not found' })); return
+      }
+      const chunks: Buffer[] = []
+      for await (const c of req as AsyncIterable<Buffer>) chunks.push(c)
+      const raw = Buffer.concat(chunks).toString('utf8')
+      let parsed: Record<string, unknown>
+      try { parsed = JSON.parse(raw) as Record<string, unknown> }
+      catch { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Invalid JSON' })); return }
+      const rawInput = { body: String(parsed['body'] ?? ''), mime_type: parsed['mime_type'] as string | undefined }
+      const sourceType = (parsed['source_type'] as string) ?? 'api'
+      let candidate: CandidateCapsuleEnvelope
+      try { candidate = ingestInput(rawInput, sourceType as any, {}) }
+      catch (err) { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: String(err) })); return }
+      const vr = validateCapsule(candidate)
+      const json = vr.success
+        ? JSON.stringify({ valid: true, needs_depackaging: false, validated: vr.validated })
+        : JSON.stringify({ valid: false, reason: vr.reason, details: vr.details })
+      res.writeHead(vr.success ? 200 : 422, { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(json)) })
+      res.end(json)
+    })
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address() as { port: number }
+      resolve({ baseUrl: `http://127.0.0.1:${port}`, stop: () => new Promise<void>((res, rej) => { server.close((err) => (err ? rej(err) : res())) }) })
+    })
+    server.once('error', reject)
+  })
+}
+let mockServer: MockServer
+beforeAll(async () => { mockServer = await startMockPodIngestor() })
+afterAll(async () => { await mockServer.stop() })
+beforeEach(() => { process.env['WR_POD_BASE_URL'] = mockServer.baseUrl })
+afterEach(() => { delete process.env['WR_POD_BASE_URL'] })
 
 function validBeapPayload(): Record<string, unknown> {
   return {

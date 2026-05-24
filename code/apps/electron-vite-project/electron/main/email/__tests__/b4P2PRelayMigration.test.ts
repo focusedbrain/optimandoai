@@ -183,7 +183,7 @@ describe.skipIf(!Database)('B-4 §1 — processBeapPackageInline', () => {
 
     // Mock validatorOrchestrator — dynamically compute a valid seal using TEST_DEK so the
     // sealed-storage gate (reject mode) accepts the write.
-    const orchestratorMod = await import('../../validator-process/orchestrator')
+    const orchestratorMod = await import('../../validation/inProcessValidator')
     const validateSpy = vi.spyOn(orchestratorMod.validatorOrchestrator, 'validate').mockImplementation(async (args: any) => {
       const rowId = String(args.target_row_id ?? '')
       const canonicalJson = '{"canonical":true}'
@@ -221,7 +221,7 @@ describe.skipIf(!Database)('B-4 §1 — processBeapPackageInline', () => {
     // First call: inbox validator rejects (unknown handshake / ARTEFACT_UNKNOWN_KEY).
     // Second call: quarantine validator approves with a valid seal (writeP2PQuarantineRow
     // calls validatorOrchestrator.validate once more and requires ok: true).
-    const orchestratorMod = await import('../../validator-process/orchestrator')
+    const orchestratorMod = await import('../../validation/inProcessValidator')
     let callCount = 0
     vi.spyOn(orchestratorMod.validatorOrchestrator, 'validate').mockImplementation(async (args: any) => {
       callCount++
@@ -265,7 +265,7 @@ describe.skipIf(!Database)('B-4 §1 — processBeapPackageInline', () => {
 
     // Corrupted input: no first call succeeds since there's no canonical JSON to validate.
     // The code goes directly to writeP2PQuarantineRow which calls validate once (ok: true required).
-    const orchestratorMod = await import('../../validator-process/orchestrator')
+    const orchestratorMod = await import('../../validation/inProcessValidator')
     vi.spyOn(orchestratorMod.validatorOrchestrator, 'validate').mockImplementation(async (args: any) => {
       const rowId = String(args.target_row_id ?? '')
       const canonicalJson = typeof args.plaintext_or_encrypted?.content === 'string'
@@ -314,7 +314,7 @@ describe.skipIf(!Database)('B-4 §2 — processSandboxQuarantineReceive', () => 
     // The outer qBEAP decrypt in processSandboxQuarantineReceiveInternal will fail because
     // there's no matching handshake in the DB — that triggers writeFinaState('blob_decrypt_failed').
     // writeP2PQuarantineRow calls validatorOrchestrator.validate once and requires ok: true.
-    const orchestratorMod = await import('../../validator-process/orchestrator')
+    const orchestratorMod = await import('../../validation/inProcessValidator')
     vi.spyOn(orchestratorMod.validatorOrchestrator, 'validate').mockImplementation(async (args: any) => {
       const rowId = String(args.target_row_id ?? '')
       const canonicalJson = typeof args.plaintext_or_encrypted?.content === 'string'

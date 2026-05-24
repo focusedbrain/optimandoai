@@ -1,5 +1,8 @@
 # BEAP Ingestor / Validator / Depackager — Architecture & Code State Audit
 
+> **⚠ SUPERSEDED by Phase 1 (2026-05-24)**
+> This audit document is a historical record. The architecture it describes has been replaced by the multi-container pod ingestion path. See `docs/architecture/phase-1-tracker.md` (P1.0 – P1.12) and `docs/architecture/beap-high-assurance-strategy.md` for the current state. Do not delete this file.
+
 **Audit date:** 2026-05-24  
 **Repository root:** `code/code/` (pnpm monorepo)  
 **Scope:** Ingestor, Validator, Depackager — discovery pass, no redesigns.

@@ -71,18 +71,18 @@ import {
   type SealKeyProvider,
 } from '../index'
 
-// ── Subprocess imports (for Tests 6–7) ───────────────────────────────────────
+// ── Test utilities (P1.12 — moved from validator-process, no subprocess) ────
 
 import {
   computeSealForTest,
   verifySeal,
-} from '../../validator-process/index'
+} from '../../validation/__testUtils__'
 import {
   startTestValidator,
   deriveTestSealKey,
   makeTestValidateRequest,
-} from '../../validator-process/test-session'
-import type { ValidatorOrchestrator } from '../../validator-process/orchestrator'
+} from '../../validation/__testUtils__'
+import type { ValidatorOrchestrator } from '../../validation/inProcessValidator'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test fixtures
@@ -650,45 +650,26 @@ describe('Test 6 — Logout invalidation: unbound key provider blocks all operat
   )
 })
 
-// ── C7: Subprocess crash recovery ─────────────────────────────────────────────
+// ── C7: In-process validator lifecycle ───────────────────────────────────────
 
-describe('Test 7 — Subprocess crash recovery', () => {
-  test('after crash, validate() rejects; gate key provider is unbound by stop()', async () => {
+describe('Test 7 — In-process validator lifecycle (P1.12 replacement)', () => {
+  test('stop() unbinds key provider and validate() throws after stop', async () => {
     const handle = await startTestValidator()
     expect(handle.orchestrator.getLiveness()).toBe('running')
     expect(isKeyProviderBound()).toBe(true)
 
-    // Simulate crash by killing the subprocess directly.
-    const proc = (
-      handle.orchestrator as unknown as {
-        subprocess: { kill: (sig?: string) => void } | null
-      }
-    ).subprocess
-    expect(proc).not.toBeNull()
-    proc!.kill('SIGKILL')
-
-    // Wait for the orchestrator to detect the crash.
-    await new Promise<void>((resolve) => {
-      const poll = setInterval(() => {
-        if (handle.orchestrator.getLiveness() === 'dead') {
-          clearInterval(poll)
-          resolve()
-        }
-      }, 200)
-      setTimeout(() => { clearInterval(poll); resolve() }, 12_000)
-    })
-
-    expect(handle.orchestrator.getLiveness()).toBe('dead')
-
-    // validate() must throw.
-    await expect(
-      handle.orchestrator.validate(makeTestValidateRequest()),
-    ).rejects.toThrow(/unavailable/i)
-
-    // Call stop() to trigger unbindKeyProvider.
+    // Stop the validator.
     await handle.stop()
+
+    // Liveness must reflect stopped state.
+    expect(handle.orchestrator.getLiveness()).toBe('dead')
 
     // Key provider must be unbound after stop().
     expect(isKeyProviderBound()).toBe(false)
-  }, 25_000)
+
+    // validate() must throw when not started.
+    await expect(
+      handle.orchestrator.validate(makeTestValidateRequest()),
+    ).rejects.toThrow(/unavailable/i)
+  })
 })

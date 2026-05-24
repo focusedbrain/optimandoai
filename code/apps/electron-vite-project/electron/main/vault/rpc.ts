@@ -16,7 +16,7 @@ import { x25519 } from '@noble/curves/ed25519'
 import {
   validatorOrchestrator,
   onValidationServiceUnavailable,
-} from '../validator-process/orchestrator'
+} from '../validation/inProcessValidator'
 import { startLocalPod, stopLocalPod } from '../local-pod/index.js'
 
 // Export vaultService for HTTP API handlers
@@ -171,9 +171,9 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
       case 'vault.create': {
         const parsed = CreateVaultRequestSchema.parse(params)
         const vaultId = await vaultService.createVault(parsed.masterPassword, parsed.vaultName || 'My Vault', parsed.vaultId)
-        // Phase B: start validator subprocess after vault creation (vault is unlocked).
+        // P1.12: start in-process validator (binds sealed-storage key provider) after vault creation.
         validatorOrchestrator.start(vaultService).catch((err) => {
-          console.error('[VAULT_RPC] Failed to start validator subprocess after create:', err?.message ?? err)
+          console.error('[VAULT_RPC] Failed to start validator after create:', err?.message ?? err)
         })
         // P1.8: start local pod in parallel (Linux only; non-fatal).
         startLocalPod(vaultService).catch((err) => {
@@ -186,11 +186,9 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
         const parsed = UnlockVaultRequestSchema.parse(params)
         const token = await vaultService.unlock(parsed.masterPassword, parsed.vaultId || 'default')
         setupEmbeddingServiceRef(vaultService)
-        // Phase B: start validator subprocess after vault unlock.
-        // Errors here are non-fatal for vault unlock itself; the validation
-        // service surfaces unavailability via onValidationServiceUnavailable.
+        // P1.12: start in-process validator (binds sealed-storage key provider) after vault unlock.
         validatorOrchestrator.start(vaultService).catch((err) => {
-          console.error('[VAULT_RPC] Failed to start validator subprocess:', err?.message ?? err)
+          console.error('[VAULT_RPC] Failed to start validator:', err?.message ?? err)
         })
         // P1.8: start local pod in parallel (Linux only; non-fatal).
         startLocalPod(vaultService).catch((err) => {
@@ -201,10 +199,9 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
 
       case 'vault.lock': {
         clearEmbeddingServiceRef()
-        // Phase B: stop validator subprocess before locking the vault so the
-        // seal key is cleared while the vault is still accessible.
+        // P1.12: stop in-process validator (unbinds key provider) before vault lock.
         validatorOrchestrator.stop().catch((err) => {
-          console.error('[VAULT_RPC] Error stopping validator subprocess:', err?.message ?? err)
+          console.error('[VAULT_RPC] Error stopping validator:', err?.message ?? err)
         })
         // P1.8: stop local pod on vault lock (Linux only; non-fatal).
         stopLocalPod().catch((err) => {

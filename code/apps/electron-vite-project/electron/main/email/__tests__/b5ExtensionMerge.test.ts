@@ -343,7 +343,7 @@ describe.skipIf(!Database)('B-5 §F — mergeExtensionDepackaged sealed gate', (
     bindKeyProvider(() => TEST_DEK)
     clearTamperingEvents()
 
-    const orchMod = await import('../../validator-process/orchestrator')
+    const orchMod = await import('../../validation/inProcessValidator')
     validateMock = vi.spyOn(orchMod.validatorOrchestrator, 'validate') as any
   })
 

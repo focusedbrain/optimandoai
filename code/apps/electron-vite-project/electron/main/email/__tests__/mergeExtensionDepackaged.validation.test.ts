@@ -192,7 +192,7 @@ describe.skipIf(!Database)('mergeExtensionDepackaged — content validation (PR 
     clearTamperingEvents()
 
     // Mock validator orchestrator via spyOn (dynamic import to avoid hoisting issues)
-    const orchMod = await import('../../validator-process/orchestrator')
+    const orchMod = await import('../../validation/inProcessValidator')
     validateMock = vi.spyOn(orchMod.validatorOrchestrator, 'validate') as any
     validateMock.mockResolvedValue(makeSealedOutcome())
   })

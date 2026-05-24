@@ -243,7 +243,7 @@ describe.skipIf(!Database)('B-7 §2 — resealWithAiAnalysis', () => {
     bindKeyProvider(() => TEST_DEK)
     clearTamperingEvents()
 
-    const orchMod = await import('../../validator-process/orchestrator')
+    const orchMod = await import('../../validation/inProcessValidator')
     validateMock = vi.spyOn(orchMod.validatorOrchestrator, 'validate') as any
   })
 
@@ -415,7 +415,7 @@ describe.skipIf(!Database)('B-7 §3 — resealWithPdfExtraction', () => {
     db = makeDb()
     bindKeyProvider(() => TEST_DEK)
     clearTamperingEvents()
-    const orchMod = await import('../../validator-process/orchestrator')
+    const orchMod = await import('../../validation/inProcessValidator')
     validateMock = vi.spyOn(orchMod.validatorOrchestrator, 'validate') as any
   })
 

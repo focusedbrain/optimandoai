@@ -17,7 +17,7 @@
 
 import { getVaultStatusReport, getHandshakeClassification } from './vaultCanon'
 import { isKeyProviderBound } from '../sealed-storage'
-import { validatorOrchestrator } from '../validator-process/orchestrator'
+import { validatorOrchestrator } from '../validation/inProcessValidator'
 
 export type OperationKind =
   | 'beap_send'

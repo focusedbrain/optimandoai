@@ -1,5 +1,29 @@
 # Entry Point Audit — BEAP Ingestion Layer
 
+> **Updated: P1.12 (2026-05-24)** — The pod is now the exclusive ingestion path.
+> `processIncomingInput()` always calls `processIncomingInputViaPod()` which POSTs
+> to the local BEAP pod at `http://127.0.0.1:18100` (or `WR_POD_BASE_URL` in tests).
+> The in-process validation path (`validator-process/` subprocess) and
+> `decryptQBeapPackage.ts` have been removed.
+
+## Flow (P1.12 onwards)
+
+```
+External input
+    │
+    ▼
+processIncomingInput()   [ingestion/ingestionPipeline.ts]
+    │
+    ▼
+HTTP POST /ingest        [pod ingestor role @ 127.0.0.1:18100]
+    │
+    ▼  (pod-internal)
+validator role → depackager role → sealer role
+    │
+    ▼
+PodIngestResult → distribution gate → handshake_pipeline / sandbox / quarantine
+```
+
 ## Purpose
 
 This document inventories all external input entry points into the Electron main process and confirms that every path routes through `processIncomingInput()` before reaching the handshake layer.

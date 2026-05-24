@@ -131,7 +131,7 @@ describe.skipIf(!Database)('detectAndRouteMessage transaction (requires native b
 
     // Phase B: detectAndRouteMessage calls validatorOrchestrator.validate for all email types.
     // Return a valid HMAC-sealed outcome so runSealedTransaction succeeds.
-    const orchMod = await import('../../validator-process/orchestrator')
+    const orchMod = await import('../../validation/inProcessValidator')
     validateMock = vi.spyOn(orchMod.validatorOrchestrator, 'validate').mockImplementation(async (args: any) => {
       const rowId = String(args.target_row_id ?? 'row-unknown')
       const canonicalJson = args.plaintext_or_encrypted?.content ?? '{}'

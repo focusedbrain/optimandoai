@@ -153,9 +153,9 @@ function makeHandler(
       }
 
       // ③ Parse envelope
-      let parsed: { candidate: unknown };
+      let parsed: { candidate: unknown; depackage_keys?: { x25519_priv_b64: string; mlkem_secret_b64?: string } };
       try {
-        parsed = JSON.parse(data.toString('utf8')) as { candidate: unknown };
+        parsed = JSON.parse(data.toString('utf8')) as typeof parsed;
       } catch {
         sendJson(res, 400, { error: 'Invalid JSON body' });
         return;
@@ -215,7 +215,10 @@ function makeHandler(
           const depackageRes = await authedFetch(`${depackagerBase}/depackage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ validated }),
+            body: JSON.stringify({
+              validated,
+              ...(parsed.depackage_keys ? { depackage_keys: parsed.depackage_keys } : {}),
+            }),
           });
           const depackageText = await depackageRes.text();
           res.writeHead(depackageRes.status, { 'Content-Type': 'application/json' });

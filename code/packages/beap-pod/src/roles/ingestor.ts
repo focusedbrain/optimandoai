@@ -45,6 +45,15 @@ interface IngestRequestBody {
   message_id?: string;
   sender_address?: string;
   recipient_address?: string;
+  /**
+   * Optional per-request qBEAP decryption keys.
+   * Provided by Electron when the package is qBEAP-encrypted;
+   * forwarded verbatim to the validator → depackager pipeline.
+   */
+  depackage_keys?: {
+    x25519_priv_b64: string;
+    mlkem_secret_b64?: string;
+  };
 }
 
 // ── Config (dependency-injectable for testing) ────────────────────────────────
@@ -218,7 +227,10 @@ function makeHandler(
         const validatorRes = await authedFetch(`${validatorBase}/validate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ candidate }),
+          body: JSON.stringify({
+            candidate,
+            ...(parsed.depackage_keys ? { depackage_keys: parsed.depackage_keys } : {}),
+          }),
           signal: controller.signal,
         });
 

@@ -30,7 +30,7 @@ import {
   buildQuarantineCanonicalJson,
   findPairedSandboxHandshake,
 } from './messageRouter'
-import { validatorOrchestrator } from '../validator-process/orchestrator'
+import { validatorOrchestrator } from '../validation/inProcessValidator'
 import { prepareSealedUpdate, prepareSealedInsert, prepareSealedOperationalUpdate, runSealedTransaction } from '../sealed-storage/index'
 import { encryptForQuarantine } from '../quarantine-encrypt/index'
 import { writeQuarantineBlob } from '../quarantine-blob-storage/index'

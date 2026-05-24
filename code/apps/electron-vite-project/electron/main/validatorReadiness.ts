@@ -62,7 +62,7 @@
  */
 
 import { isKeyProviderBound, isKeyProviderUsable } from './sealed-storage'
-import { validatorOrchestrator } from './validator-process/orchestrator'
+import { validatorOrchestrator } from './validation/inProcessValidator'
 import { vaultService } from './vault/service'
 import { isInnerVaultUnlocked, getHandshakeClassification } from './vault/vaultCanon'
 import { getCachedUserInfo } from '../../src/auth/session'

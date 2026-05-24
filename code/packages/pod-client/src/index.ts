@@ -18,6 +18,7 @@ export type {
   RawInput,
   SourceType,
   TransportMetadata,
+  DepackageKeys,
 } from './types.js'
 
 export { PodIngestHttpError, PodTimeoutError, PodConnectionError } from './types.js'

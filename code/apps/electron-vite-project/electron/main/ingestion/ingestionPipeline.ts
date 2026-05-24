@@ -1,29 +1,20 @@
 /**
- * Pipeline Orchestrator
+ * Pipeline Orchestrator — Pod Hot Path (P1.12)
  *
- * Coordinates the two-stage ingestion flow:
- *   1. Ingestor → CandidateCapsuleEnvelope
- *   2. Validator → <ValidatedCapsule>
+ * All ingestion is routed through the local BEAP pod ingestor
+ * (http://127.0.0.1:18100 by default, or WR_POD_BASE_URL in tests).
+ *
+ * Flow:
+ *   1. Ingestor  → CandidateCapsuleEnvelope
+ *   2. Validator → ValidatedCapsule / 422 rejection
  *   3. Distribution Gate → route to handshake_pipeline / sandbox / quarantine
  *
- * Stateless — no database writes until distribution.
- * Fail-closed at every stage.
- *
- * Feature flag: WR_POD_HOT_PATH
- * ──────────────────────────────
- * When WR_POD_HOT_PATH=1, ingestion is routed through the local BEAP pod's
- * ingestor (http://127.0.0.1:18100 by default, or WR_POD_BASE_URL).  The
- * existing in-process path is the fallback and is never modified.
- *
- * Flag default: OFF.  Flip to ON in P1.12 after parity verification.
- *
- * Logs: when the pod path is active, all log lines are prefixed [pod-hot-path]
- * so traces are unambiguous.
+ * Fail-closed: if the pod is unreachable, ingestion returns an error.
+ * All log lines are prefixed [pod-hot-path] for unambiguous tracing.
  *
  * Pod response shape (from packages/beap-pod/src/roles/validator.ts):
  *   Rejection (422):  { valid: false, reason: ValidationReasonCode, details: string }
  *   Success (200):    { valid: true, needs_depackaging: false, validated: <ValidatedCapsule> }
- *   (message_package capsules are forwarded to the depackager; response varies)
  */
 
 import type {
@@ -39,32 +30,13 @@ import type {
 } from './types'
 import { INGESTION_CONSTANTS } from './types'
 import {
-  ingestInput,
-  validateCapsule,
   routeValidatedCapsule,
-  prepareCoordinationRelayNativeBeapRawInput,
 } from '@repo/ingestion-core'
 import {
   createPodClient,
   PodIngestHttpError,
 } from '@repo/pod-client'
 import type { PodClient } from '@repo/pod-client'
-
-// ── Feature flag ──────────────────────────────────────────────────────────────
-
-/**
- * Returns true when the pod hot path is enabled.
- *
- * Checked dynamically so tests can toggle by setting process.env before each call.
- *
- * Environment variables:
- *   WR_POD_HOT_PATH   "1" to enable; any other value (including unset) → disabled.
- *   WR_POD_BASE_URL   Override ingestor base URL (default: http://127.0.0.1:18100).
- *                     Useful in tests to point at a mock server.
- */
-export function isPodHotPathEnabled(): boolean {
-  return process.env['WR_POD_HOT_PATH'] === '1'
-}
 
 function getPodBaseUrl(): string {
   return process.env['WR_POD_BASE_URL'] ?? 'http://127.0.0.1:18100'
@@ -87,128 +59,11 @@ export async function processIncomingInput(
   sourceType: SourceType,
   transportMeta: TransportMetadata,
 ): Promise<IngestionResult> {
-  if (isPodHotPathEnabled()) {
-    console.log('[pod-hot-path] routing ingestion through pod ingestor')
-    return processIncomingInputViaPod(rawInput, sourceType, transportMeta)
-  }
-  return processIncomingInputInProcess(rawInput, sourceType, transportMeta)
+  console.log('[pod-hot-path] routing ingestion through pod ingestor')
+  return processIncomingInputViaPod(rawInput, sourceType, transportMeta)
 }
 
-// ── In-process path (original — unchanged) ────────────────────────────────────
-
-async function processIncomingInputInProcess(
-  rawInput: RawInput,
-  sourceType: SourceType,
-  transportMeta: TransportMetadata,
-): Promise<IngestionResult> {
-  const startTime = performance.now()
-
-  try {
-    const inputForIngest =
-      sourceType === 'coordination_ws'
-        ? prepareCoordinationRelayNativeBeapRawInput(rawInput)
-        : rawInput
-    // Stage 1: Ingest
-    const candidate = ingestInput(inputForIngest, sourceType, transportMeta)
-
-    // Wall-clock budget check after ingestion
-    const postIngestMs = performance.now() - startTime
-    if (postIngestMs > INGESTION_CONSTANTS.PIPELINE_TIMEOUT_MS) {
-      const audit = buildAuditRecord(
-        candidate.provenance.raw_input_hash,
-        candidate.provenance.source_type,
-        candidate.provenance.origin_classification,
-        candidate.provenance.input_classification,
-        'error',
-        Math.round(postIngestMs),
-      )
-      return {
-        success: false,
-        reason: `Pipeline timeout exceeded (${Math.round(postIngestMs)}ms > ${INGESTION_CONSTANTS.PIPELINE_TIMEOUT_MS}ms)`,
-        audit,
-      }
-    }
-
-    // Stage 2: Validate
-    const validationResult = validateCapsule(candidate)
-    const durationMs = Math.round(performance.now() - startTime)
-
-    // Wall-clock budget check after validation
-    if (durationMs > INGESTION_CONSTANTS.PIPELINE_TIMEOUT_MS) {
-      const audit = buildAuditRecord(
-        candidate.provenance.raw_input_hash,
-        candidate.provenance.source_type,
-        candidate.provenance.origin_classification,
-        candidate.provenance.input_classification,
-        'error',
-        durationMs,
-      )
-      return {
-        success: false,
-        reason: `Pipeline timeout exceeded (${durationMs}ms > ${INGESTION_CONSTANTS.PIPELINE_TIMEOUT_MS}ms)`,
-        audit,
-      }
-    }
-
-    if (!validationResult.success) {
-      const audit = buildAuditRecord(
-        candidate.provenance.raw_input_hash,
-        candidate.provenance.source_type,
-        candidate.provenance.origin_classification,
-        candidate.provenance.input_classification,
-        'rejected',
-        durationMs,
-        validationResult.reason,
-      )
-
-      return {
-        success: false,
-        reason: validationResult.details,
-        validation_reason_code: validationResult.reason,
-        audit,
-      }
-    }
-
-    // Stage 3: Distribution
-    const distribution: DistributionDecision = routeValidatedCapsule(validationResult.validated)
-    const finalDurationMs = Math.round(performance.now() - startTime)
-
-    const audit = buildAuditRecord(
-      candidate.provenance.raw_input_hash,
-      candidate.provenance.source_type,
-      candidate.provenance.origin_classification,
-      candidate.provenance.input_classification,
-      'validated',
-      finalDurationMs,
-      undefined,
-      distribution.target,
-    )
-
-    return {
-      success: true,
-      distribution,
-      audit,
-    }
-  } catch (err: any) {
-    const durationMs = Math.round(performance.now() - startTime)
-    const audit = buildAuditRecord(
-      'error',
-      sourceType,
-      sourceType === 'internal' ? 'internal' : 'external',
-      'plain_external_content',
-      'error',
-      durationMs,
-    )
-
-    return {
-      success: false,
-      reason: err?.message ?? 'Unhandled ingestion pipeline error',
-      audit,
-    }
-  }
-}
-
-// ── Pod hot path ──────────────────────────────────────────────────────────────
+// ── Pod path ──────────────────────────────────────────────────────────────────
 
 async function processIncomingInputViaPod(
   rawInput: RawInput,
@@ -220,9 +75,44 @@ async function processIncomingInputViaPod(
     sourceType === 'internal' ? 'internal' : 'external'
 
   // Pod HTTP transport requires a string body; base64-encode Buffers.
+  if (!rawInput) {
+    const durationMs = Math.round(performance.now() - startTime)
+    return {
+      success: false,
+      reason: 'null rawInput',
+      audit: buildAuditRecord(
+        'error',
+        sourceType,
+        originClassification,
+        'plain_external_content',
+        'error',
+        durationMs,
+      ),
+    }
+  }
+
   const bodyStr = Buffer.isBuffer(rawInput.body)
     ? rawInput.body.toString('base64')
     : rawInput.body
+
+  // Pre-flight size guard — avoid sending oversized payloads to the pod.
+  const bodyByteLength = Buffer.byteLength(bodyStr, 'utf8')
+  if (bodyByteLength > INGESTION_CONSTANTS.MAX_RAW_INPUT_BYTES) {
+    const durationMs = Math.round(performance.now() - startTime)
+    return {
+      success: false,
+      validation_reason_code: 'INGESTION_ERROR_PROPAGATED',
+      reason: `Input body (${bodyByteLength} bytes) exceeds limit of ${INGESTION_CONSTANTS.MAX_RAW_INPUT_BYTES} bytes`,
+      audit: buildAuditRecord(
+        'rejected',
+        sourceType,
+        originClassification,
+        'plain_external_content',
+        'rejected',
+        durationMs,
+      ),
+    }
+  }
 
   let podBody: unknown
   let podStatus: number

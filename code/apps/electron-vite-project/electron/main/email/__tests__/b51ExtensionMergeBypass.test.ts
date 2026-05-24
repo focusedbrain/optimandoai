@@ -305,7 +305,7 @@ describe.skipIf(!Database)('B-5.1 §2 — No inbox writes on failure path (no sa
     clearPendingMergeBuffer()
     mockFindPairedSandboxHandshake.mockReturnValue(null)
 
-    const orchMod = await import('../../validator-process/orchestrator')
+    const orchMod = await import('../../validation/inProcessValidator')
     validateMock = vi.spyOn(orchMod.validatorOrchestrator, 'validate') as any
     validateMock.mockResolvedValue(makeRejectionOutcome('MISSING_REQUIRED_FIELD'))
   })
@@ -415,7 +415,7 @@ describe.skipIf(!Database)('B-5.1 §3 — drainExtensionMergeBuffer', () => {
     clearPendingMergeBuffer()
     mockFindPairedSandboxHandshake.mockReturnValue(null)
 
-    const orchMod = await import('../../validator-process/orchestrator')
+    const orchMod = await import('../../validation/inProcessValidator')
     validateMock = vi.spyOn(orchMod.validatorOrchestrator, 'validate') as any
   })
 

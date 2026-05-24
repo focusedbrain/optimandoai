@@ -36,8 +36,9 @@ import type { SanitizedMessageDetail } from './types'
 import { emailGateway } from './gateway'
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
-import { decryptQBeapPackage } from '../beap/decryptQBeapPackage'
-import { validatorOrchestrator } from '../validator-process/orchestrator'
+import { createPodClient } from '@repo/pod-client'
+import type { DepackageKeys } from '@repo/pod-client'
+import { validatorOrchestrator } from '../validation/inProcessValidator'
 import { prepareSealedInsert, runSealedTransaction, computeSeal, type ChildAttachmentDescriptor } from '../sealed-storage/index'
 import {
   listAvailableInternalSandboxes,
@@ -505,13 +506,25 @@ export async function detectAndRouteMessage(
     // ── Inline depackage ──
     if (encoding === 'qBEAP') {
       try {
-        const decrypted = await decryptQBeapPackage(beapPackageJson, handshakeId ?? '', db, {
-          reportFailure: (info) => console.warn('[messageRouter] qBEAP decrypt failure', info),
-        })
-        if (decrypted?.rawCapsuleJson) {
-          canonicalJson = decrypted.rawCapsuleJson
+        const hs = getHandshakeRecord(db, handshakeId ?? '')
+        const x25519PrivB64 = hs?.local_x25519_private_key_b64?.trim()
+        if (!x25519PrivB64) {
+          depackageError = 'qBEAP decrypt: missing handshake key'
         } else {
-          depackageError = 'qBEAP decrypt returned null (missing handshake key or malformed package)'
+          const depackageKeys: DepackageKeys = {
+            x25519_priv_b64: x25519PrivB64,
+            mlkem_secret_b64: hs?.local_mlkem768_secret_key_b64?.trim() || undefined,
+          }
+          const baseUrl = process.env['WR_POD_BASE_URL'] ?? 'http://127.0.0.1:18100'
+          const client = createPodClient({ baseUrl, requestTimeoutMs: 15_000 })
+          const podResult = await client.ingest({ body: beapPackageJson }, 'p2p', undefined, depackageKeys)
+          const podBody = podResult.body as Record<string, unknown>
+          const depackaged = podBody?.['depackaged'] as Record<string, unknown> | undefined
+          if (typeof depackaged?.['rawCapsuleJson'] === 'string') {
+            canonicalJson = depackaged['rawCapsuleJson'] as string
+          } else {
+            depackageError = 'qBEAP decrypt returned null (missing handshake key or malformed package)'
+          }
         }
       } catch (err: unknown) {
         depackageError = err instanceof Error ? err.message : String(err)

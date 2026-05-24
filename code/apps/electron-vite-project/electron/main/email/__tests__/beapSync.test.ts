@@ -8,7 +8,10 @@
  *   - Deduplicates already-processed messages
  */
 
-import { describe, test, expect, beforeEach, vi } from 'vitest'
+import { describe, test, expect, beforeEach, beforeAll, afterAll, afterEach, vi } from 'vitest'
+import http from 'node:http'
+import { ingestInput, validateCapsule } from '@repo/ingestion-core'
+import type { CandidateCapsuleEnvelope } from '@repo/ingestion-core'
 import {
   detectBeapInBody,
   detectBeapInSubject,
@@ -124,6 +127,39 @@ describe('BEAP Email Sync — Detection', () => {
 describe('BEAP Email Sync — Pipeline Submission', () => {
   let db: ReturnType<typeof createHandshakeTestDb>
 
+  // ── Mock pod server for this describe block ──
+  let podServer: { baseUrl: string; stop(): Promise<void> }
+  beforeAll(async () => {
+    podServer = await new Promise<typeof podServer>((resolve, reject) => {
+      const s = http.createServer(async (req, res) => {
+        if (req.method !== 'POST' || req.url !== '/ingest') { res.writeHead(404); res.end('{}'); return }
+        const chunks: Buffer[] = []
+        for await (const c of req as AsyncIterable<Buffer>) chunks.push(c)
+        let parsed: Record<string, unknown>
+        try { parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown> }
+        catch { res.writeHead(400); res.end(JSON.stringify({ error: 'bad json' })); return }
+        const rawInput = { body: String(parsed['body'] ?? ''), mime_type: parsed['mime_type'] as string | undefined }
+        let candidate: CandidateCapsuleEnvelope
+        try { candidate = ingestInput(rawInput, (parsed['source_type'] as string ?? 'api') as any, {}) }
+        catch (err) { res.writeHead(500); res.end(JSON.stringify({ error: String(err) })); return }
+        const vr = validateCapsule(candidate)
+        const json = vr.success
+          ? JSON.stringify({ valid: true, needs_depackaging: false, validated: vr.validated })
+          : JSON.stringify({ valid: false, reason: vr.reason, details: vr.details })
+        res.writeHead(vr.success ? 200 : 422, { 'Content-Type': 'application/json' })
+        res.end(json)
+      })
+      s.listen(0, '127.0.0.1', () => {
+        const { port } = s.address() as { port: number }
+        resolve({ baseUrl: `http://127.0.0.1:${port}`, stop: () => new Promise<void>((r, j) => s.close((e) => e ? j(e) : r())) })
+      })
+      s.once('error', reject)
+    })
+  })
+  afterAll(async () => { await podServer.stop() })
+  beforeEach(() => { process.env['WR_POD_BASE_URL'] = podServer.baseUrl })
+  afterEach(() => { delete process.env['WR_POD_BASE_URL'] })
+
   beforeEach(() => {
     db = createHandshakeTestDb()
     migrateIngestionTables(db)
@@ -170,6 +206,37 @@ describe('BEAP Email Sync — Pipeline Submission', () => {
 
 describe('BEAP Email Sync — Cycle', () => {
   let db: ReturnType<typeof createHandshakeTestDb>
+  let podServer2: { baseUrl: string; stop(): Promise<void> }
+  beforeAll(async () => {
+    podServer2 = await new Promise<typeof podServer2>((resolve, reject) => {
+      const s = http.createServer(async (req, res) => {
+        if (req.method !== 'POST' || req.url !== '/ingest') { res.writeHead(404); res.end('{}'); return }
+        const chunks: Buffer[] = []
+        for await (const c of req as AsyncIterable<Buffer>) chunks.push(c)
+        let parsed: Record<string, unknown>
+        try { parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown> }
+        catch { res.writeHead(400); res.end(JSON.stringify({ error: 'bad json' })); return }
+        const rawInput = { body: String(parsed['body'] ?? ''), mime_type: parsed['mime_type'] as string | undefined }
+        let candidate: CandidateCapsuleEnvelope
+        try { candidate = ingestInput(rawInput, (parsed['source_type'] as string ?? 'api') as any, {}) }
+        catch (err) { res.writeHead(500); res.end(JSON.stringify({ error: String(err) })); return }
+        const vr = validateCapsule(candidate)
+        const json = vr.success
+          ? JSON.stringify({ valid: true, needs_depackaging: false, validated: vr.validated })
+          : JSON.stringify({ valid: false, reason: vr.reason, details: vr.details })
+        res.writeHead(vr.success ? 200 : 422, { 'Content-Type': 'application/json' })
+        res.end(json)
+      })
+      s.listen(0, '127.0.0.1', () => {
+        const { port } = s.address() as { port: number }
+        resolve({ baseUrl: `http://127.0.0.1:${port}`, stop: () => new Promise<void>((r, j) => s.close((e) => e ? j(e) : r())) })
+      })
+      s.once('error', reject)
+    })
+  })
+  afterAll(async () => { await podServer2.stop() })
+  beforeEach(() => { process.env['WR_POD_BASE_URL'] = podServer2.baseUrl })
+  afterEach(() => { delete process.env['WR_POD_BASE_URL'] })
 
   beforeEach(() => {
     db = createHandshakeTestDb()

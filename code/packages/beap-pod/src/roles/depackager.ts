@@ -180,9 +180,9 @@ function makeHandler(
           }
 
           // ④ Parse envelope
-          let body: { validated: unknown };
+          let body: { validated: unknown; depackage_keys?: { x25519_priv_b64: string; mlkem_secret_b64?: string } };
           try {
-            body = JSON.parse(data.toString('utf8')) as { validated: unknown };
+            body = JSON.parse(data.toString('utf8')) as typeof body;
           } catch {
             sendJson(res, 400, { error: 'Invalid JSON body' });
             return;
@@ -213,8 +213,9 @@ function makeHandler(
             return;
           }
 
-          // ⑦ Key material — from config (env in production, injected in tests)
-          const localX25519PrivB64 = cfg.localX25519PrivB64;
+          // ⑦ Key material — per-request keys take precedence over config
+          const localX25519PrivB64 = body.depackage_keys?.x25519_priv_b64 ?? cfg.localX25519PrivB64;
+          const localMlkemSecretB64 = body.depackage_keys?.mlkem_secret_b64 ?? cfg.localMlkemSecretB64;
           if (!localX25519PrivB64) {
             sendJson(res, 503, { error: 'Depackager not configured: missing local key material' });
             return;
@@ -223,7 +224,7 @@ function makeHandler(
           // ⑧ 6-gate depackaging pipeline
           const pipelineResult = await runDepackagePipeline(capsule, {
             localX25519PrivB64,
-            localMlkemSecretB64: cfg.localMlkemSecretB64,
+            localMlkemSecretB64,
             skipSignatureVerification: cfg.skipSignatureVerification,
           });
 
@@ -264,7 +265,7 @@ function makeHandler(
             rawCapsuleJson: pipelineResult.capsulePlaintext,
           };
 
-          // ⑩ Forward to sealer
+          // ⑩ Forward to sealer; augment response with depackaged content
           let sealerRes: Response;
           try {
             sealerRes = await cfg.authedFetch(`${cfg.sealerBase}/seal`, {
@@ -282,9 +283,16 @@ function makeHandler(
             return;
           }
 
-          const sealerText = await sealerRes.text();
-          res.writeHead(sealerRes.status, { 'Content-Type': 'application/json' });
-          res.end(sealerText);
+          if (!sealerRes.ok) {
+            const sealerText = await sealerRes.text();
+            res.writeHead(sealerRes.status, { 'Content-Type': 'application/json' });
+            res.end(sealerText);
+            return;
+          }
+
+          // Merge sealer result with depackaged content so Electron can store both.
+          const sealerJson = (await sealerRes.json()) as Record<string, unknown>;
+          sendJson(res, 200, { ...sealerJson, depackaged });
         } finally {
           clearTimeout(timeoutHandle);
         }

@@ -18,10 +18,10 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 - [x] **P1.7** — Pod manifest (podman play kube): 4-container pod with hardening, seccomp, smoke test
 - [x] **P1.8** — Minimal local-pod runner in Electron (Linux only: startLocalPod / stopLocalPod)
 - [x] **P1.9** — pod-client package (@repo/pod-client): thin HTTP wrapper for ingestor
-- [ ] **P1.9** — Route depackaging through the pod (Linux only)
+- [x] **P1.9** — Route depackaging through the pod (Linux only)
 - [x] **P1.10** — Wire Electron through pod-client behind WR_POD_HOT_PATH feature flag (off by default)
 - [x] **P1.11** — CI: build single image + run multi-container smoke test (`pod.yml`)
-- [ ] **P1.12** — Verification pass
+- [x] **P1.12** — Flip the flag, retire the in-process paths
 
 ---
 
@@ -41,7 +41,13 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 | P1.9 | ✅ done | P1.9: pod-client package (@repo/pod-client) |
 | P1.10 | ✅ done | P1.10: wire ingestion through pod-client behind WR_POD_HOT_PATH (off by default) |
 | P1.11 | ✅ done | P1.11: CI build single image + run pod smoke test |
-| P1.12 | ⬜ pending | — |
+| P1.12 | ✅ done | P1.12: flip pod hot path on by default and retire in-process paths |
+
+---
+
+## 🎉 Phase 1 done — 2026-05-24
+
+Phase 1 is complete. As of this commit the BEAP multi-container pod (ingestor → validator → depackager → sealer) is the **exclusive ingestion path** in Electron on Linux. All in-process alternatives have been removed: the `validator-process` subprocess, the `decryptQBeapPackage.ts` host depackager, and the `WR_POD_HOT_PATH` feature flag. Every `processIncomingInput()` call goes through the pod; fail-closed behaviour is enforced by returning an error if the pod is unreachable. The in-process `ValidatorOrchestrator` (from `validation/inProcessValidator.ts`) provides sealing and key-provider binding for re-seal operations that don't go through the full pod pipeline. The branch `phase-1/pod-becomes-hot-path` is the Phase 1 deliverable; merging to `main` is a separate decision for the repo owner.
 
 ---
 

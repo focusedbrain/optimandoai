@@ -184,7 +184,7 @@ describe.skipIf(!Database)('B-7.2 §1 — resealWithDecryptedContent', () => {
     db = makeDb()
     bindKeyProvider(() => TEST_DEK)
     clearTamperingEvents()
-    const orchMod = await import('../../validator-process/orchestrator')
+    const orchMod = await import('../../validation/inProcessValidator')
     validateMock = vi.spyOn(orchMod.validatorOrchestrator, 'validate') as any
   })
 
@@ -461,13 +461,26 @@ describe.skipIf(!Database)('B-7.2 §2 — retryPendingQbeapDecrypt migration inv
         '{"format":"beap_qbeap_pending_main"}', NULL, NULL)
     `).run(rowId, `ext-${rowId}`, now, now)
 
-    // Mock decryptQBeapPackage to return a fake decrypted payload.
-    const decryptMod = await import('../../beap/decryptQBeapPackage')
-    vi.spyOn(decryptMod, 'decryptQBeapPackage').mockResolvedValue({
-      rawCapsuleJson: JSON.stringify({ content_type: 'beap_message', attachments_canonical: [] }),
-      body: 'decrypted body',
-      subject: 'decrypted subject',
-      attachments: [],
+    // Mock createPodClient to simulate pod returning depackaged content (replaces decryptQBeapPackage mock).
+    const podClientMod = await import('@repo/pod-client')
+    vi.spyOn(podClientMod, 'createPodClient').mockReturnValue({
+      ingest: vi.fn().mockResolvedValue({
+        body: {
+          depackaged: {
+            rawCapsuleJson: JSON.stringify({ content_type: 'beap_message', attachments_canonical: [] }),
+            body: 'decrypted body',
+            subject: 'decrypted subject',
+          },
+        },
+      }),
+    } as any)
+
+    // Also mock getHandshakeRecord so depackageQBeapViaPod can get the key.
+    const handshakeDbMod = await import('../../handshake/db')
+    vi.spyOn(handshakeDbMod, 'getHandshakeRecord').mockReturnValue({
+      handshake_id: 'hs-123',
+      local_x25519_private_key_b64: 'ZmFrZWtleWJhc2U2NAo=',
+      local_mlkem768_secret_key_b64: null,
     } as any)
 
     resealMock.mockResolvedValue({ ok: true })

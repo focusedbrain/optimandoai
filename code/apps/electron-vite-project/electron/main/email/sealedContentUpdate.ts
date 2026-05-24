@@ -28,7 +28,7 @@
 
 import { createHash } from 'crypto'
 import { prepareSealedUpdate, runSealedTransaction, sealedQuery, type SealedRow } from '../sealed-storage/index'
-import { validatorOrchestrator } from '../validator-process/orchestrator'
+import { validatorOrchestrator } from '../validation/inProcessValidator'
 import type { ProvenanceMetadata } from '@repo/ingestion-core'
 
 // ─────────────────────────────────────────────────────────────────────────────

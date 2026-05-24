@@ -52,7 +52,7 @@ vi.mock('../sealed-storage', () => ({
     source === 'outer' ? state.outerKeyProviderBound : state.innerKeyProviderBound,
 }))
 
-vi.mock('../validator-process/orchestrator', () => ({
+vi.mock('../validation/inProcessValidator', () => ({
   validatorOrchestrator: {
     getLiveness: () => (state.validatorRunning ? 'running' : 'dead'),
   },

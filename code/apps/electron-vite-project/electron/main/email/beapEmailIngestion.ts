@@ -25,13 +25,14 @@
 
 import { createHash, randomUUID } from 'crypto'
 
-import { decryptQBeapPackage, type DecryptedQBeapContent } from '../beap/decryptQBeapPackage'
 import { getHandshakeRecord } from '../handshake/db'
 import type { ProvenanceMetadata } from '@repo/ingestion-core'
+import { createPodClient } from '@repo/pod-client'
+import type { DepackageKeys } from '@repo/pod-client'
 import { evaluateAutoresponder } from '../beap/autoresponderEvaluator'
 import { logAutoresponderDecision } from '../beap/autoresponderAudit'
 import { makeInboxAttachmentStorageId, buildQuarantineCanonicalJson, findPairedSandboxHandshake } from './messageRouter'
-import { validatorOrchestrator } from '../validator-process/orchestrator'
+import { validatorOrchestrator } from '../validation/inProcessValidator'
 import type { ReasonCode } from '../vault/capabilityBroker'
 import { prepareSealedInsert, prepareSealedOperationalUpdate, computeSeal } from '../sealed-storage/index'
 import type { KeySource } from '../sealed-storage/index'
@@ -80,6 +81,90 @@ function finalizeDirectBeapInboxPersistence(
 const P2P_BEAP_ACCOUNT_ID = '__p2p_beap__'
 
 const OUTBOUND_QBEAP_BODY_PLACEHOLDER = '(Sent qBEAP message — see Sent tab for details)'
+
+// ── Pod-based qBEAP depackage (P1.12 — replaces in-process decryptQBeapPackage) ────
+
+/**
+ * Depackaged qBEAP content as returned by the pod's depackager.
+ * Structurally compatible with the old DecryptedQBeapContent interface.
+ * Attachments are not included (Phase 2 concern; pod doesn't return bytes).
+ */
+interface DepackagedQBeapContent {
+  subject: string
+  body: string
+  transport_plaintext: string
+  rawCapsuleJson?: string
+  attachments: never[]
+  automation: undefined
+}
+
+/**
+ * Decrypt a qBEAP package via the pod ingestor.
+ *
+ * Reads the handshake's X25519 private key from the DB, sends the raw
+ * package to the pod with per-request key material, and returns a
+ * DepackagedQBeapContent shaped like the old DecryptedQBeapContent.
+ *
+ * Returns null when:
+ *   - Handshake record is missing or has no local key
+ *   - Pod is unreachable or returns an error
+ *   - Pod response is missing the depackaged content field
+ */
+async function depackageQBeapViaPod(
+  packageJson: string,
+  handshakeId: string,
+  db: unknown,
+  opts?: { reportFailure?: (info: { reason: string; handshakeId: string }) => void },
+): Promise<DepackagedQBeapContent | null> {
+  const hs = getHandshakeRecord(db as any, handshakeId.trim())
+  if (!hs) {
+    opts?.reportFailure?.({ reason: 'missing_handshake_record', handshakeId })
+    return null
+  }
+  const x25519PrivB64 = hs.local_x25519_private_key_b64?.trim()
+  if (!x25519PrivB64) {
+    opts?.reportFailure?.({ reason: 'missing_x25519_private_key', handshakeId })
+    return null
+  }
+  const depackageKeys: DepackageKeys = {
+    x25519_priv_b64: x25519PrivB64,
+    mlkem_secret_b64: hs.local_mlkem768_secret_key_b64?.trim() || undefined,
+  }
+
+  const baseUrl = process.env['WR_POD_BASE_URL'] ?? 'http://127.0.0.1:18100'
+  const client = createPodClient({ baseUrl, requestTimeoutMs: 15_000 })
+
+  let podBody: Record<string, unknown>
+  try {
+    const result = await client.ingest(
+      { body: packageJson },
+      'p2p',
+      undefined,
+      depackageKeys,
+    )
+    podBody = result.body as Record<string, unknown>
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    opts?.reportFailure?.({ reason: `pod_error: ${msg}`, handshakeId })
+    return null
+  }
+
+  const depackaged = podBody?.['depackaged'] as Record<string, unknown> | undefined
+  if (!depackaged || typeof depackaged['rawCapsuleJson'] !== 'string') {
+    opts?.reportFailure?.({ reason: 'pod_missing_depackaged_content', handshakeId })
+    return null
+  }
+
+  return {
+    subject: typeof depackaged['subject'] === 'string' ? depackaged['subject'] : '',
+    body: typeof depackaged['body'] === 'string' ? depackaged['body'] : '',
+    transport_plaintext: typeof depackaged['transport_plaintext'] === 'string'
+      ? depackaged['transport_plaintext'] : '',
+    rawCapsuleJson: depackaged['rawCapsuleJson'] as string,
+    attachments: [],
+    automation: undefined,
+  }
+}
 
 /**
  * Relay echo of our own qBEAP send: `header.sender_fingerprint` matches Ed25519 `handshakes.local_public_key`.
@@ -394,7 +479,7 @@ export function stripSandboxCloneLeadInBodyText(raw: string | null | undefined):
 /** After inline qBEAP decrypt, replace the pre-decrypt placeholder in `body_text`. */
 export function applyDecryptedQBeapToInboxPreview(
   preview: { subject: string; body_text: string; from_address: string | null },
-  decrypted: DecryptedQBeapContent,
+  decrypted: DepackagedQBeapContent,
   opts?: { stripCloneLeadIn?: boolean },
 ): { subject: string; body_text: string; from_address: string | null } {
   let body =
@@ -414,7 +499,7 @@ export function applyDecryptedQBeapToInboxPreview(
  * already renders (format + body), not raw inner capsule only.
  */
 export function buildEmailStyleDepackagedJsonFromDecrypt(
-  decrypted: DecryptedQBeapContent,
+  decrypted: DepackagedQBeapContent,
   opts?: { stripCloneLeadIn?: boolean },
 ): string {
   let body =
@@ -913,9 +998,9 @@ async function processSandboxQuarantineReceiveInternal(
     })
 
   // Step 1: qBEAP-decrypt the outer clone package.
-  let decrypted: Awaited<ReturnType<typeof decryptQBeapPackage>> | null = null
+  let decrypted: DepackagedQBeapContent | null = null
   try {
-    decrypted = await decryptQBeapPackage(packageJson, handshakeId, db, {
+    decrypted = await depackageQBeapViaPod(packageJson, handshakeId, db, {
       reportFailure: reportQbeapDecryptFailure('P2P-INLINE-SANDBOX'),
     })
   } catch {
@@ -1115,13 +1200,13 @@ async function processBeapPackageInlineInternal(
   let canonicalJson: string | null = null
   let depackageError: string | null = null
   let depackagedMetadata: string | null = null
-  let decryptedQbeap: DecryptedQBeapContent | null = null
+  let decryptedQbeap: DepackagedQBeapContent | null = null
   const cloneEmailResponsePath =
     isSandboxClone && inboxResponsePathForCloneDetect?.original_response_path === 'email'
 
   if (pkgEncoding === 'qBEAP') {
     try {
-      const decr = await decryptQBeapPackage(packageJson, handshakeId, db, {
+      const decr = await depackageQBeapViaPod(packageJson, handshakeId, db, {
         reportFailure: reportQbeapDecryptFailure('P2P-INLINE'),
       })
       if (decr?.rawCapsuleJson) {
@@ -1474,7 +1559,7 @@ export async function retryPendingQbeapDecrypt(db: any): Promise<number> {
           continue
         }
 
-        const decrypted = await decryptQBeapPackage(pkg, row.handshake_id, db, {
+        const decrypted = await depackageQBeapViaPod(pkg, row.handshake_id, db, {
           reportFailure: reportQbeapDecryptFailure('RETRY-DECRYPT'),
         })
         if (!decrypted?.rawCapsuleJson) {

@@ -14,12 +14,79 @@
  *   - Audit records created for every pipeline execution
  */
 
-import { describe, test, expect, vi, beforeEach } from 'vitest'
+import { describe, test, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
+import http from 'node:http'
+import { ingestInput, validateCapsule } from '@repo/ingestion-core'
+import type { CandidateCapsuleEnvelope } from '@repo/ingestion-core'
 import { handleIngestionRPC } from '../ipc'
 import { handleHandshakeRPC } from '../../handshake/ipc'
 import { processIncomingInput } from '../ingestionPipeline'
 import { INGESTION_CONSTANTS } from '../types'
 import type { RawInput, TransportMetadata } from '../types'
+
+// ── Mock Pod Server (P1.12: pod is the only path, so tests need a mock) ──
+
+interface MockServer { baseUrl: string; stop(): Promise<void> }
+
+function startMockPodIngestor(): Promise<MockServer> {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer(async (req, res) => {
+      if (req.method !== 'POST' || req.url !== '/ingest') {
+        res.writeHead(404); res.end(JSON.stringify({ error: 'Not found' })); return
+      }
+      const chunks: Buffer[] = []
+      for await (const c of req as AsyncIterable<Buffer>) chunks.push(c)
+      const raw = Buffer.concat(chunks).toString('utf8')
+      let parsed: Record<string, unknown>
+      try { parsed = JSON.parse(raw) as Record<string, unknown> }
+      catch { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Invalid JSON' })); return }
+
+      const rawInput = {
+        body: String(parsed['body'] ?? ''),
+        headers: parsed['headers'] as Record<string, string> | undefined,
+        mime_type: parsed['mime_type'] as string | undefined,
+        filename: parsed['filename'] as string | undefined,
+      }
+      const sourceType = (parsed['source_type'] as string) ?? 'api'
+      const transportMeta = {
+        channel_id: parsed['channel_id'] as string | undefined,
+        message_id: parsed['message_id'] as string | undefined,
+        sender_address: parsed['sender_address'] as string | undefined,
+        recipient_address: parsed['recipient_address'] as string | undefined,
+      }
+
+      let candidate: CandidateCapsuleEnvelope
+      try { candidate = ingestInput(rawInput, sourceType as any, transportMeta) }
+      catch (err) { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'ingestInput threw', details: String(err) })); return }
+
+      const validationResult = validateCapsule(candidate)
+      const sendJson = (status: number, body: unknown) => {
+        const json = JSON.stringify(body)
+        res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(json)) })
+        res.end(json)
+      }
+
+      if (!validationResult.success) {
+        sendJson(422, { valid: false, reason: validationResult.reason, details: validationResult.details })
+        return
+      }
+      const validated = validationResult.validated
+      sendJson(200, { valid: true, needs_depackaging: validated.capsule.capsule_type === 'message_package', validated })
+    })
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address() as { port: number }
+      resolve({ baseUrl: `http://127.0.0.1:${port}`, stop: () => new Promise<void>((res, rej) => { server.close((err) => (err ? rej(err) : res())) }) })
+    })
+    server.once('error', reject)
+  })
+}
+
+let mockServer: MockServer
+
+beforeAll(async () => { mockServer = await startMockPodIngestor() })
+afterAll(async () => { await mockServer.stop() })
+beforeEach(() => { process.env['WR_POD_BASE_URL'] = mockServer.baseUrl })
+afterEach(() => { delete process.env['WR_POD_BASE_URL'] })
 
 // ── Test Data Builders ──
 
@@ -155,7 +222,7 @@ describe('E2E Transport — HTTP (via ingestion RPC handler)', () => {
     expect(result.success).toBe(false)
     if (!result.success) {
       expect(result.validation_reason_code).toBe('INGESTION_ERROR_PROPAGATED')
-      expect(result.reason).toContain('exceeds limit')
+      expect(result.reason).toMatch(/exceeds limit/i)
     }
 
     // Audit
@@ -345,7 +412,7 @@ describe('E2E Transport — IPC (Extension simulation via handleIngestionRPC)', 
 
     expect(result.success).toBe(false)
     if (!result.success) {
-      expect(result.reason).toContain('exceeds limit')
+      expect(result.reason).toMatch(/exceeds limit/i)
     }
   })
 

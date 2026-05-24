@@ -25,6 +25,7 @@ import type {
   SourceType,
   TransportMetadata,
   PodIngestResult,
+  DepackageKeys,
 } from './types.js'
 import { PodIngestHttpError, PodTimeoutError, PodConnectionError } from './types.js'
 
@@ -48,8 +49,9 @@ export function createPodClient(config: PodClientConfig): PodClient {
       rawInput: RawInput,
       sourceType: SourceType,
       transportMeta?: Partial<TransportMetadata>,
+      depackageKeys?: DepackageKeys,
     ): Promise<PodIngestResult> {
-      return ingestWithRetry(baseUrl, requestTimeoutMs, rawInput, sourceType, transportMeta, 0)
+      return ingestWithRetry(baseUrl, requestTimeoutMs, rawInput, sourceType, transportMeta, depackageKeys, 0)
     },
   }
 }
@@ -62,10 +64,11 @@ async function ingestWithRetry(
   rawInput: RawInput,
   sourceType: SourceType,
   transportMeta: Partial<TransportMetadata> | undefined,
+  depackageKeys: DepackageKeys | undefined,
   attempt: number,
 ): Promise<PodIngestResult> {
   try {
-    return await ingestOnce(baseUrl, timeoutMs, rawInput, sourceType, transportMeta)
+    return await ingestOnce(baseUrl, timeoutMs, rawInput, sourceType, transportMeta, depackageKeys)
   } catch (err) {
     // 4xx / 5xx → never retry
     if (err instanceof PodIngestHttpError) throw err
@@ -79,6 +82,7 @@ async function ingestWithRetry(
         rawInput,
         sourceType,
         transportMeta,
+        depackageKeys,
         attempt + 1,
       )
     }
@@ -94,6 +98,7 @@ async function ingestOnce(
   rawInput: RawInput,
   sourceType: SourceType,
   transportMeta: Partial<TransportMetadata> | undefined,
+  depackageKeys: DepackageKeys | undefined,
 ): Promise<PodIngestResult> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -110,6 +115,7 @@ async function ingestOnce(
   if (transportMeta?.message_id !== undefined) envelope['message_id'] = transportMeta.message_id
   if (transportMeta?.sender_address !== undefined) envelope['sender_address'] = transportMeta.sender_address
   if (transportMeta?.recipient_address !== undefined) envelope['recipient_address'] = transportMeta.recipient_address
+  if (depackageKeys !== undefined) envelope['depackage_keys'] = depackageKeys
 
   const requestBody = JSON.stringify(envelope)
 
