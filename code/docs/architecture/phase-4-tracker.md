@@ -25,14 +25,15 @@ P3.8 building blocks: `apps/electron-vite-project/scripts/edge-cli.ts`, `apps/el
 
 - [x] **P4.0** — Confirm branch and create Phase 4 tracker *(this file)*
 - [x] **P4.1** — SSH transport module (`/etc/os-release` distro probe, sudo check, remote exec; no provider APIs)
-- [ ] **P4.2** — Wizard scaffold + Step 1 re-authenticate (fresh SSO token, `wrdesk_plan` paid-tier gate)
-- [ ] **P4.3** — Step 2 provide-the-VM UI (host, port, username, SSH key file + passphrase; no provider credentials)
-- [ ] **P4.4** — Step 3 probe and prepare (distro report, Podman install if missing, user confirm before install)
-- [ ] **P4.5** — Step 4 replica count (1/2/3) + per-replica VM credential loop
-- [ ] **P4.6** — Step 5 generate identity and deploy (wrap `edge-cli` keygen/register/deploy; live deploy log stream; key off VM disk)
-- [ ] **P4.7** — Step 6 verify and switch over (synthetic BEAP through edge, local cert check, enable `edge_tier`)
-- [ ] **P4.8** — Status dashboard (replica list, health, per-replica actions, rotation, verification log; extends Phase 3 dev panel)
-- [ ] **P4.9** — Phase 4 verification pass + manual test documentation
+- [x] **P4.2** — Remote Podman installer (distro-native apt/dnf/yum, idempotent, structured install events)
+- [ ] **P4.3** — Wizard scaffold + Step 1 re-authenticate (fresh SSO token, `wrdesk_plan` paid-tier gate)
+- [ ] **P4.4** — Step 2 provide-the-VM UI (host, port, username, SSH key file + passphrase; no provider credentials)
+- [ ] **P4.5** — Step 3 probe and prepare (distro report, Podman install if missing, user confirm before install)
+- [ ] **P4.6** — Step 4 replica count (1/2/3) + per-replica VM credential loop
+- [ ] **P4.7** — Step 5 generate identity and deploy (wrap `edge-cli` keygen/register/deploy; live deploy log stream; key off VM disk)
+- [ ] **P4.8** — Step 6 verify and switch over (synthetic BEAP through edge, local cert check, enable `edge_tier`)
+- [ ] **P4.9** — Status dashboard (replica list, health, per-replica actions, rotation, verification log; extends Phase 3 dev panel)
+- [ ] **P4.10** — Phase 4 verification pass + manual test documentation
 
 ---
 
@@ -42,7 +43,7 @@ P3.8 building blocks: `apps/electron-vite-project/scripts/edge-cli.ts`, `apps/el
 |------|-------|--------|
 | P4.0 | ✅ done | P4.0: phase 4 tracker |
 | P4.1 | ✅ done | P4.1: SSH client and distro probe |
-| P4.2 | ⬜ pending | — |
+| P4.2 | ✅ done | P4.2: Remote Podman installer |
 | P4.3 | ⬜ pending | — |
 | P4.4 | ⬜ pending | — |
 | P4.5 | ⬜ pending | — |
@@ -50,6 +51,7 @@ P3.8 building blocks: `apps/electron-vite-project/scripts/edge-cli.ts`, `apps/el
 | P4.7 | ⬜ pending | — |
 | P4.8 | ⬜ pending | — |
 | P4.9 | ⬜ pending | — |
+| P4.10 | ⬜ pending | — |
 
 ---
 
@@ -67,14 +69,14 @@ A paid user with a **Linux VPS they brought themselves** can deploy an edge repl
 
 | Strategy §4.1 step | Tracker steps |
 | --- | --- |
-| Step 1 — Re-authenticate | P4.2 |
-| Step 2 — Provide the VM | P4.3 |
-| Step 3 — Probe and prepare | P4.1 (SSH module), P4.4 (UI + flow) |
-| Step 4 — Replica count | P4.5 |
-| Step 5 — Generate identity and deploy | P4.6 |
-| Step 6 — Verify and switch over | P4.7 |
-| §4.2 Status dashboard | P4.8 |
-| End-of-phase verification | P4.9 |
+| Step 1 — Re-authenticate | P4.3 |
+| Step 2 — Provide the VM | P4.4 |
+| Step 3 — Probe and prepare | P4.1 (SSH module), P4.2 (Podman installer), P4.5 (UI + flow) |
+| Step 4 — Replica count | P4.6 |
+| Step 5 — Generate identity and deploy | P4.7 |
+| Step 6 — Verify and switch over | P4.8 |
+| §4.2 Status dashboard | P4.9 |
+| End-of-phase verification | P4.10 |
 
 ---
 
@@ -84,9 +86,9 @@ A paid user with a **Linux VPS they brought themselves** can deploy an edge repl
 
 ### P4.0
 
-- Step titles P4.1–P4.9 derived from strategy §4 (six wizard steps + SSH module + dashboard + verification). Titles may be refined when individual prompts are run; deviations will be noted here.
-- Phase 3 `edge-cli.ts` is the reference implementation for deploy flows until P4.6 extracts shared library functions the wizard calls directly.
-- Phase 3 dev UI (`EdgeTierAdminPanel.tsx`) is read-only; P4.8 promotes it to the full status dashboard per §4.2.
+- Step titles P4.1–P4.10 derived from strategy §4 (SSH module, Podman installer, six wizard steps, dashboard, verification). Titles may be refined when individual prompts are run; deviations will be noted here.
+- Phase 3 `edge-cli.ts` is the reference implementation for deploy flows until P4.7 extracts shared library functions the wizard calls directly.
+- Phase 3 dev UI (`EdgeTierAdminPanel.tsx`) is read-only; P4.9 promotes it to the full status dashboard per §4.2.
 - Supported distros at launch: Debian/Ubuntu/Fedora/RHEL family (strategy §9 decision #4). Probe via `/etc/os-release` over SSH.
 
 ### P4.1
@@ -97,4 +99,12 @@ A paid user with a **Linux VPS they brought themselves** can deploy an edge repl
 - **Missing Podman** recorded in probe but does **not** fail verdict (installer is a later step).
 - **No provider APIs.** SSH to user-supplied VPS only.
 - **Tests:** 16 pass (fixtures for each supported/unsupported distro, sudo cases, mock SSH runner, mock ssh2 client disconnect).
-- **edge-cli.ts** still shells out to `ssh` for now; wizard uses `SshClient`. CLI migration optional in P4.6.
+- **edge-cli.ts** still shells out to `ssh` for now; wizard uses `SshClient`. CLI migration optional in P4.7.
+
+### P4.2
+
+- **Module:** `electron/main/edge-tier/ssh/install-podman.ts` — `installPodman(client, probe)` async generator yielding structured `InstallEvent` (`log` | `stage` | `done` | `error`).
+- **Package managers:** Debian/Ubuntu `apt-get`; Fedora `dnf`; RHEL family `dnf` with `yum` fallback. `sudo -n` when probe is non-root. No third-party repos, no curl|bash, no signature bypass.
+- **Idempotent:** skips install when `podman --version` reports major ≥ 4.
+- **Post-install:** version verify (refuses < 4.0); optional `systemctl --user enable --now podman.socket` (non-fatal on failure).
+- **Tests:** 12 pass in `ssh/__tests__/install-podman.test.ts` (distro commands, idempotency, version-too-old, event stream shape).

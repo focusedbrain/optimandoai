@@ -11,6 +11,14 @@ export {
   evaluateProbeVerdict,
   buildTargetProbe,
 } from './osRelease.js'
+export {
+  installPodman,
+  collectInstallPodmanEvents,
+  buildPodmanInstallCommand,
+  parsePodmanMajorVersion,
+  MIN_PODMAN_MAJOR,
+} from './install-podman.js'
+export type { InstallEvent, InstallEventKind } from './install-podman.js'
 export type {
   SshConnectOptions,
   SshCommandRunner,
