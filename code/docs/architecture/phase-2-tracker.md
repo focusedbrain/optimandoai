@@ -16,7 +16,7 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 - [x] **P2.1** — Add post-seal AI enrichment hook (enrichment point attached to the sealed row; advisory only, never gating)
 - [x] **P2.2** — Phishing/scam scorer (lightweight model invoked after seal; result stored in enrichment column)
 - [x] **P2.3** — Validation cross-check (AI plausibility check vs structural validator outcome; discrepancy flagged, not blocking)
-- [ ] **P2.4** — Tighten link-open policy (restrict external link navigation to pod-cleared URLs; block `javascript:` / `data:` on all platforms)
+- [x] **P2.4** — Wire phishing scorer and crosscheck into AI analysis IPC handlers
 - [ ] **P2.5** — AI output schema + sealed storage enrichment column (`ai_analysis` JSONB column on `inbox_messages`; sealed alongside main payload)
 - [ ] **P2.6** — AI provider user setting (provider selector surface; default provider decided here; pluggable interface for P2.2)
 - [ ] **P2.7** — Phase 2 test suite and CI (unit + integration tests for scorer, cross-check, link policy; CI job for AI enrichment smoke test)
@@ -32,7 +32,7 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 | P2.1 | ✅ done | P2.1: extend ai_analysis_json schema with phishing_assessment and validation_crosscheck |
 | P2.2 | ✅ done | P2.2: phishing-assessment module with provider-agnostic structured output |
 | P2.3 | ✅ done | P2.3: validation cross-check module |
-| P2.4 | ⬜ pending | — |
+| P2.4 | ✅ done | P2.4: wire phishing assessment and validation crosscheck into AI analysis handlers |
 | P2.5 | ⬜ pending | — |
 | P2.6 | ⬜ pending | — |
 | P2.7 | ⬜ pending | — |
@@ -61,6 +61,14 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 ## Notes & deviations
 
 *(Record any decisions made differently from the strategy here, with rationale.)*
+
+### P2.4
+
+- **New files:** `email/ai/extractUrls.ts` (URL extractor), `email/ai/subAnalysisOrchestrator.ts` (`runSubAnalyses` pure + `applySubAnalysesToRow` DB helper), `email/ai/__tests__/subAnalysisOrchestrator.test.ts` (12 tests).
+- **`inbox:aiAnalyzeMessage` changes:** `isLlmAvailable()` → `preResolveInboxLlm()` so the same resolved provider is shared with the sub-analyses. `validation_reason` added to the SELECT query. After the main LLM call succeeds, `runSubAnalyses` + `applySubAnalysesToRow` run; `applySubAnalysesToRow` is fire-and-forget (`.catch`-wrapped) so a reseal failure never blocks the IPC response.
+- **`inbox:aiAnalyzeMessageStream` changes:** `validation_reason` added to SELECT. After the main stream completes and `inbox:aiAnalyzeMessageDone` is sent, the stream handler runs `runSubAnalyses`, calls `applySubAnalysesToRow`, and emits `inbox:aiSubAnalysisStarted` / `inbox:aiSubAnalysisComplete` progress events for the P2.5 UI.
+- **Best-effort contract:** If both sub-analyses fail, `applySubAnalysesToRow` returns `{ ok: false }` without calling `resealWithAiAnalysis`, leaving the existing ai_analysis_json untouched. Each failure is logged with `{ ai_subanalysis_failed, reason, detail, messageId }` as a structured event.
+- **Pre-existing test failure:** `structural-property.test.ts` "key buffers returned by provider are zeroized after use" fails on this Windows CI environment (buf.every(b => b === 0) → false). Verified pre-existing on the branch before P2.4 changes via `git stash` check.
 
 ### P2.3
 

@@ -264,6 +264,7 @@ import { buildInboxAiAnalyzeErrorPayload, buildInboxAiDraftIpcFailure } from './
 import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } from '../../../src/lib/inboxSortSourceWeighting'
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { resealWithAiAnalysis, resealWithPdfExtraction } from './sealedContentUpdate'
+import { runSubAnalyses, applySubAnalysesToRow } from './ai/subAnalysisOrchestrator'
 import { ensureValidatorAndSealedStorageReady } from '../validatorReadiness'
 import { prepareSealedOperationalUpdate, sealedQuery } from '../sealed-storage'
 import {
@@ -4116,7 +4117,7 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
       if (!db) return { ok: false, error: 'Database unavailable' }
       const row = db
         .prepare(
-          'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id, depackaged_json, beap_package_json FROM inbox_messages WHERE id = ?',
+          'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id, depackaged_json, beap_package_json, validation_reason FROM inbox_messages WHERE id = ?',
         )
         .get(messageId) as
         | {
@@ -4129,13 +4130,14 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
             handshake_id?: string | null
             depackaged_json?: string | null
             beap_package_json?: string | null
+            validation_reason?: string | null
           }
         | undefined
       if (!row) return { ok: false, error: 'Message not found' }
       console.log('[AI-ANALYZE] Message fetched:', { from: row.from_address, subject: row.subject, bodyLength: (row.body_text ?? '').length })
 
-      const available = await isLlmAvailable()
-      if (!available) {
+      const resolvedLlm = await preResolveInboxLlm()
+      if (!resolvedLlm) {
         return { ok: true, data: { error: 'No AI provider available. Check Backend settings (local model or cloud API key).' } }
       }
 
@@ -4183,7 +4185,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
 
       console.log('[AI-ANALYZE] System prompt length:', systemPrompt.length)
       console.log('[AI-ANALYZE] Calling LLM...')
-      const raw = await inboxLlmChat({ system: systemPrompt, user: userPrompt, contentTask: { kind: 'analysis' } })
+      const raw = await inboxLlmChat({ system: systemPrompt, user: userPrompt, resolvedContext: resolvedLlm, contentTask: { kind: 'analysis' } })
       console.log('[AI-ANALYZE] Raw LLM response:', raw.substring(0, 500))
       const parsed = parseAiJson(raw) as {
         needsReply?: boolean
@@ -4233,6 +4235,13 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
       }
 
       console.log('[AI-ANALYZE] Parsed result:', JSON.stringify({ needsReply, needsReplyReason: needsReplyReason.slice(0, 80), summary: summary.slice(0, 80), urgencyScore, archiveRecommendation, hasDraftReply: !!draftReply }).slice(0, 500))
+
+      // P2.4: run phishing assessment + validation crosscheck in parallel (best-effort).
+      // These run after the main analysis — a sub-analysis failure never blocks the response.
+      const subOutcome = await runSubAnalyses(row, resolvedLlm)
+      applySubAnalysesToRow(db, messageId, subOutcome).catch((e: unknown) => {
+        console.log(`[AI_ANALYZE] ${JSON.stringify({ ai_subanalysis_apply_error: true, error: (e as Error)?.message ?? String(e), messageId })}`)
+      })
 
       return {
         ok: true,
@@ -4460,7 +4469,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
           }
           const row = db
             .prepare(
-              'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id, depackaged_json, beap_package_json FROM inbox_messages WHERE id = ?',
+              'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id, depackaged_json, beap_package_json, validation_reason FROM inbox_messages WHERE id = ?',
             )
             .get(messageId) as
             | {
@@ -4473,6 +4482,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
                 handshake_id?: string | null
                 depackaged_json?: string | null
                 beap_package_json?: string | null
+                validation_reason?: string | null
               }
             | undefined
           if (!row) {
@@ -4678,6 +4688,30 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
                 requestId,
               })}`,
             )
+
+            // P2.4: run phishing assessment + validation crosscheck after the main stream.
+            // Build the provider context from whatever was resolved for the main stream.
+            const streamProvider = ollamaModelForStream && aiExec
+              ? { model: ollamaModelForStream, provider: 'ollama', aiExecution: aiExec }
+              : (await preResolveInboxLlm())
+            if (streamProvider && !signal.aborted && !event.sender.isDestroyed()) {
+              if (!event.sender.isDestroyed()) {
+                event.sender.send('inbox:aiSubAnalysisStarted', { messageId, kinds: ['phishing', 'crosscheck'] })
+              }
+              const subOutcome = await runSubAnalyses(row, streamProvider)
+              await applySubAnalysesToRow(db, messageId, subOutcome).catch((e: unknown) => {
+                console.log(`[AI_ANALYZE_STREAM] ${JSON.stringify({ ai_subanalysis_apply_error: true, error: (e as Error)?.message ?? String(e), messageId })}`)
+              })
+              if (!event.sender.isDestroyed()) {
+                event.sender.send('inbox:aiSubAnalysisComplete', {
+                  messageId,
+                  phishing: !!subOutcome.phishing_assessment,
+                  crosscheck: !!subOutcome.validation_crosscheck,
+                  failures: subOutcome.failures.map((f) => ({ kind: f.kind, reason: f.reason })),
+                })
+              }
+            }
+
             streamStartedOk = true
           }
         } catch (err: unknown) {
