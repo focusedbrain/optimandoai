@@ -10,7 +10,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 
 - [x] **P1.0** — Branch and tracker *(this file)*
 - [x] **P1.1** — Single image + role dispatcher with stubs
-- [ ] **P1.2** — Add CI job to build and smoke-test the pod image
+- [x] **P1.2** — Inter-container X-Pod-Auth shared helper
 - [ ] **P1.3** — Enforce `MAX_STRING_LENGTH` and `ALLOWED_CONTENT_TYPES` in the ingestor
 - [ ] **P1.4** — Implement pod `/depackage` with injectable key material
 - [ ] **P1.5** — Extract depackaging core to a standalone Node-compatible package
@@ -30,7 +30,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 |------|-------|--------|
 | P1.0 | ✅ done | *(this commit)* |
 | P1.1 | ✅ done | P1.1: single image + role dispatcher with stubs |
-| P1.2 | ⬜ pending | — |
+| P1.2 | ✅ done | P1.2: inter-container X-Pod-Auth helper |
 | P1.3 | ⬜ pending | — |
 | P1.4 | ⬜ pending | — |
 | P1.5 | ⬜ pending | — |
@@ -47,6 +47,19 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 ## Notes & deviations
 
 *(Record any decisions made differently from the strategy here, with rationale.)*
+
+### P1.2
+
+- Strategy doc listed P1.2 as "CI job". The explicit P1.2 prompt redefines it as the inter-container
+  auth helper; tracker description updated to match.
+- Header name: `X-Pod-Auth` (per prompt). Strategy §1.11 says `Authorization: Bearer`; that wording
+  applies to the P1.11 session-auth wiring. P1.2 establishes the helper — P1.11 may rename the header
+  if needed.
+- Constant-time comparison: HMAC-SHA256 with a per-process random key normalises both operands to
+  32 bytes before calling `timingSafeEqual`, preventing length-leak side-channels without a separate
+  fixed-length padding scheme.
+- `POD_AUTH_SECRET` appears only in `src/shared/podAuth.ts` and its test file (verified by grep).
+- 9 tests added (3 middleware, 2 fetch-wrapper, 3 requirePodAuthSecret); total 18/18 pass.
 
 ### P1.1
 
