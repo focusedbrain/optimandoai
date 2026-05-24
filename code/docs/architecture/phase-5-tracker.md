@@ -71,7 +71,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 | P5.2 | ✅ done | `6cc47e12` |
 | P5.3 | ✅ done | `3b7dcd97` |
 | P5.4 | ✅ done | `be6320e9` |
-| P5.5 | ✅ done | *(pending commit)* |
+| P5.5 | ✅ done | `3d67dc5c` |
 | P5.6 | ⬜ pending | — |
 | P5.7 | ⬜ pending | — |
 | P5.8 | ⬜ pending | — |
@@ -135,3 +135,14 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - Wired into edge-tier IPC lifecycle alongside reboot recovery poll.
 - Tests: `supervisor/__tests__/supervisor.test.ts` (mock SSH/podman E2E, signature valid/invalid, audit log, restore call).
 - Follow-up: role-side `POST /restore` handlers in `@repo/beap-pod` (generic queue-position handoff per role) — supervisor client ready; endpoints land with queue semantics in a later step.
+
+### P5.5
+
+- Pod-level tmpfs volume `tmp-quarantine` (256 Mi) mounted at `/var/lib/quarantine` on all REMOTE_EDGE trust-sensitive roles.
+- `packages/beap-pod/src/shared/quarantine/`: AES-256-GCM encrypted `raw_bytes` + `metadata.json` per message hash; key via `POST /quarantine/deliver_key`.
+- `reportGenerator.buildAndWriteReport`: quarantines raw bytes when `messageContext.rawBytes` present and key delivered.
+- Mail-fetcher: ingest failure → quarantine + UID skip-list; loop continues to next UNSEEN; periodic retention cleanup (default 30 days).
+- Desktop: VMK-wrapped `quarantine_key` per replica (`edge-quarantine-keys.json`); delivered on migration, reboot recovery, and post-replacement.
+- Supervisor: picks up quarantine entries alongside diagnostic reports; local store at `userData/diagnostic-reports/{replica_id}/quarantine/{hash}/`; audit `message_quarantined`.
+- Settings: `quarantine_retention_days` (default 30) in `edge-tier-settings.json`.
+- Tests: `quarantine.test.ts`, `mail-fetcher.quarantine.test.ts`, `supervisor/__tests__/quarantine.test.ts`.
