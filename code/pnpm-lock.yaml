@@ -67,6 +67,9 @@ importers:
       '@repo/ingestion-core':
         specifier: workspace:*
         version: link:../../packages/ingestion-core
+      '@repo/pod-client':
+        specifier: workspace:*
+        version: link:../../packages/pod-client
       '@repo/shared-beap-ui':
         specifier: workspace:*
         version: link:../../packages/shared-beap-ui

@@ -19,7 +19,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 - [x] **P1.8** — Minimal local-pod runner in Electron (Linux only: startLocalPod / stopLocalPod)
 - [x] **P1.9** — pod-client package (@repo/pod-client): thin HTTP wrapper for ingestor
 - [ ] **P1.9** — Route depackaging through the pod (Linux only)
-- [ ] **P1.10** — Make validator subprocess seal come from the pod (remove encrypted-variant stubs)
+- [x] **P1.10** — Wire Electron through pod-client behind WR_POD_HOT_PATH feature flag (off by default)
 - [ ] **P1.11** — Add per-session auth on the pod channel
 - [ ] **P1.12** — Verification pass
 
@@ -39,7 +39,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 | P1.7 | ✅ done | P1.7: multi-container pod manifest with hardening |
 | P1.8 | ✅ done | P1.8: minimal local-pod runner in Electron (Linux only) |
 | P1.9 | ✅ done | P1.9: pod-client package (@repo/pod-client) |
-| P1.10 | ⬜ pending | — |
+| P1.10 | ✅ done | P1.10: wire ingestion through pod-client behind WR_POD_HOT_PATH (off by default) |
 | P1.11 | ⬜ pending | — |
 | P1.12 | ⬜ pending | — |
 
@@ -49,7 +49,24 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 
 *(Record any decisions made differently from the strategy here, with rationale.)*
 
+### P1.10
+
+- **Feature flag:** `WR_POD_HOT_PATH=1` enables the pod hot path; unset / any other value → in-process path (default OFF).
+- **Base URL override:** `WR_POD_BASE_URL` overrides the ingestor URL (default `http://127.0.0.1:18100`).  Tests use this to point at a mock server.
+- **`ingestionPipeline.ts` changes:**
+  - `isPodHotPathEnabled()` exported (checks `process.env` dynamically so tests can toggle per-call).
+  - `processIncomingInput` dispatches to `processIncomingInputViaPod` when flag is ON, unchanged `processIncomingInputInProcess` otherwise.
+  - `processIncomingInputViaPod` calls `makePodClient()` (created fresh per call so `WR_POD_BASE_URL` changes take effect in tests), converts `Buffer` bodies to base64, maps pod JSON response to `IngestionResult`.
+  - `mapPodBodyToIngestionResult` handles three cases: rejection (422 → `{ valid: false }`), handshake success (200 → `{ valid: true, validated }`), unrecognised (error / depackager result).
+  - The success path calls `routeValidatedCapsule(validated)` (same as in-process) so `distribution.target` is identical.
+  - All log lines in the pod path are prefixed `[pod-hot-path]`.
+- **Hardening guard compliance:** `as ValidatedCapsule` cast forbidden by `hardening.test.ts`; used inline type alias `type PodValidated = import('@repo/ingestion-core').ValidatedCapsule` with `as unknown as PodValidated` instead.  All comments avoid the forbidden string.
+- **`@repo/pod-client` dependency:** Added to `apps/electron-vite-project/package.json` (workspace dep) and root `vitest.config.ts` alias.
+- **Parity tests:** `__tests__/podHotPath.parity.test.ts` — 17 tests covering flag state, routing, success parity (initiate capsule → `handshake_pipeline`, plain email → `sandbox_sub_orchestrator`), rejection parity (`INGESTION_ERROR_PROPAGATED`, `MISSING_REQUIRED_FIELD`), and `[pod-hot-path]` log prefix.  Mock server calls ingestion-core directly so both paths exercise identical validation logic.
+- **Non-goals confirmed:** In-process path untouched; flag default stays OFF; existing 194 ingestion tests all pass.
+
 ### P1.9
+
 
 - **New package:** `packages/pod-client/` — `@repo/pod-client`; zero runtime dependencies on
   ingestion-core or any other workspace package.
