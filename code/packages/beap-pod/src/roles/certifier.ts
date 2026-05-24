@@ -28,6 +28,15 @@ import {
 } from '@repo/beap-cert';
 import type { EdgeCertificate, UnsignedCertificate } from '@repo/beap-cert';
 import { requirePodAuthSecret, createPodAuthMiddleware } from '../shared/podAuth.js';
+import {
+  createRoleDiagnosticRuntime,
+  healthResponseForRole,
+  trackMessageProcessing,
+  untrackMessageProcessing,
+  wrapRoleRequestListener,
+  type RoleDiagnosticRuntime,
+} from '../shared/roleDiagnostic.js';
+import { messageContextFromEnvelope } from '../shared/reportGenerator.js';
 
 const ROLE = 'certifier';
 const DEFAULT_PORT = 18104;
@@ -42,6 +51,7 @@ export interface CertifierConfig {
   version?: string;
   maxBodyBytes?: number;
   certTtlSeconds?: number;
+  diagnostics?: RoleDiagnosticRuntime;
 }
 
 export interface CertifierRuntimeState {
@@ -217,6 +227,7 @@ function makeHandler(
   state: CertifierRuntimeState,
   version: string,
   maxBodyBytes: number,
+  diagnostics: RoleDiagnosticRuntime,
 ): http.RequestListener {
   const authMiddleware = createPodAuthMiddleware(secret);
   const podAuthReady = secret.length > 0;
@@ -225,7 +236,8 @@ function makeHandler(
     const path = (req.url ?? '').split('?')[0]!;
 
     if (req.method === 'GET' && path === '/health') {
-      sendJson(res, 200, { status: 'ok', role: ROLE, version });
+      const health = healthResponseForRole(diagnostics, version);
+      sendJson(res, health.statusCode, health.body);
       return;
     }
 
@@ -302,11 +314,25 @@ function makeHandler(
         return;
       }
 
-      const certificate = buildEdgeCertificate(state, {
-        rawPackageBytes,
-        canonicalCapsuleBytes,
-        canonicalValidationResultBytes,
-      });
+      trackMessageProcessing(
+        messageContextFromEnvelope({
+          rawBytes: rawPackageBytes,
+          envelopeSubject:
+            typeof (depackaged as Record<string, unknown>)['subject'] === 'string'
+              ? ((depackaged as Record<string, unknown>)['subject'] as string)
+              : '',
+        }),
+      );
+      let certificate;
+      try {
+        certificate = buildEdgeCertificate(state, {
+          rawPackageBytes,
+          canonicalCapsuleBytes,
+          canonicalValidationResultBytes,
+        });
+      } finally {
+        untrackMessageProcessing();
+      }
 
       sendJson(res, 200, {
         certified: true,
@@ -328,7 +354,17 @@ export function createCertifierServer(
 ): http.Server {
   const version = config?.version ?? VERSION;
   const maxBodyBytes = config?.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
-  return http.createServer(makeHandler(secret, state, version, maxBodyBytes));
+  const diagnostics =
+    config?.diagnostics ??
+    createRoleDiagnosticRuntime(ROLE, {
+      deps: { signingKey: state.privateKey, edgePodId: state.edgePodId },
+    });
+  return http.createServer(
+    wrapRoleRequestListener(
+      diagnostics,
+      makeHandler(secret, state, version, maxBodyBytes, diagnostics),
+    ),
+  );
 }
 
 export function startCertifierServer(): void {

@@ -4,6 +4,12 @@
 
 import http from 'node:http';
 import { createPodAuthMiddleware, requirePodAuthSecret } from '../../shared/podAuth.js';
+import {
+  createRoleDiagnosticRuntime,
+  healthResponseForRole,
+  wrapRoleRequestListener,
+  type RoleDiagnosticRuntime,
+} from '../../shared/roleDiagnostic.js';
 import { AccountRegistry } from './accountRegistry.js';
 import { CredentialStore } from './credentialStore.js';
 import { createIngestClient } from './ingestClient.js';
@@ -19,6 +25,7 @@ export interface MailFetcherSupervisorConfig {
   readonly ingestorBase?: string;
   readonly registry?: AccountRegistry;
   readonly podAuthSecret?: string;
+  readonly diagnostics?: RoleDiagnosticRuntime;
 }
 
 const MAX_BODY_BYTES = 256 * 1024;
@@ -72,17 +79,22 @@ export function createMailFetcherServer(config: MailFetcherSupervisorConfig = {}
     new AccountRegistry({
       store,
       ingest: createIngestClient(ingestorBase),
+      diagnostics: config.diagnostics,
     });
 
   void store.ensureRoot().then(() => registry.restoreFromTmpfs());
 
-  const server = http.createServer((req, res) => {
+  const diagnostics = config.diagnostics ?? createRoleDiagnosticRuntime(ROLE);
+
+  const server = http.createServer(
+    wrapRoleRequestListener(diagnostics, (req, res) => {
     const url = req.url?.split('?')[0] ?? '/';
     const method = req.method ?? 'GET';
 
     // Probe endpoints — no X-Pod-Auth (matches ingestor/validator pattern).
     if (method === 'GET' && url === '/health') {
-      sendJson(res, 200, { status: 'ok', role: ROLE, version, egress: MAIL_FETCHER_EGRESS_NOTE });
+      const health = healthResponseForRole(diagnostics, version, { egress: MAIL_FETCHER_EGRESS_NOTE });
+      sendJson(res, health.statusCode, health.body);
       return;
     }
     if (method === 'GET' && url === '/ready') {
@@ -93,7 +105,8 @@ export function createMailFetcherServer(config: MailFetcherSupervisorConfig = {}
     auth(req, res, () => {
       void handleAuthed(req, res);
     });
-  });
+    }),
+  );
 
   async function handleAuthed(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const url = req.url?.split('?')[0] ?? '/';

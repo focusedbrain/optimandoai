@@ -24,6 +24,15 @@ import sanitizeHtml from 'sanitize-html';
 import type { IOptions as SanitizeOptions } from 'sanitize-html';
 import { requirePodAuthSecret, createPodAuthMiddleware, podAuthFetch } from '../shared/podAuth.js';
 import {
+  createRoleDiagnosticRuntime,
+  healthResponseForRole,
+  trackMessageProcessing,
+  untrackMessageProcessing,
+  wrapRoleRequestListener,
+  type RoleDiagnosticRuntime,
+} from '../shared/roleDiagnostic.js';
+import { messageContextFromEnvelope } from '../shared/reportGenerator.js';
+import {
   runDepackagePipeline,
   type LocalBeapPackage,
 } from './depackagePipeline.js';
@@ -94,6 +103,7 @@ export interface DepackagerConfig {
   localX25519PrivB64?: string;
   localMlkemSecretB64?: string;
   skipSignatureVerification?: boolean;
+  diagnostics?: RoleDiagnosticRuntime;
 }
 
 // ── HTTP helpers ───────────────────────────────────────────────────────────────
@@ -131,8 +141,10 @@ async function readBody(
 
 function makeHandler(
   secret: string,
-  cfg: Required<Omit<DepackagerConfig, 'localMlkemSecretB64' | 'certifierBase' | 'sealerBase'>> &
-    Pick<DepackagerConfig, 'localMlkemSecretB64' | 'certifierBase' | 'sealerBase'>,
+  cfg: Required<Omit<DepackagerConfig, 'localMlkemSecretB64' | 'certifierBase' | 'sealerBase' | 'diagnostics'>> &
+    Pick<DepackagerConfig, 'localMlkemSecretB64' | 'certifierBase' | 'sealerBase'> & {
+      diagnostics: RoleDiagnosticRuntime;
+    },
 ): http.RequestListener {
   const authMiddleware = createPodAuthMiddleware(secret);
 
@@ -141,7 +153,8 @@ function makeHandler(
 
     // ── GET /health ────────────────────────────────────────────────────────────
     if (req.method === 'GET' && path === '/health') {
-      sendJson(res, 200, { status: 'ok', role: ROLE, version: cfg.version });
+      const health = healthResponseForRole(cfg.diagnostics, cfg.version);
+      sendJson(res, health.statusCode, health.body);
       return;
     }
 
@@ -230,11 +243,22 @@ function makeHandler(
           }
 
           // ⑧ 6-gate depackaging pipeline
-          const pipelineResult = await runDepackagePipeline(capsule, {
-            localX25519PrivB64,
-            localMlkemSecretB64,
-            skipSignatureVerification: cfg.skipSignatureVerification,
-          });
+          trackMessageProcessing(
+            messageContextFromEnvelope({
+              rawBytes: data,
+              envelopeSubject: typeof capsule['subject'] === 'string' ? capsule['subject'] : '',
+            }),
+          );
+          let pipelineResult;
+          try {
+            pipelineResult = await runDepackagePipeline(capsule, {
+              localX25519PrivB64,
+              localMlkemSecretB64,
+              skipSignatureVerification: cfg.skipSignatureVerification,
+            });
+          } finally {
+            untrackMessageProcessing();
+          }
 
           if (!pipelineResult.success) {
             sendJson(res, 422, {
@@ -379,20 +403,25 @@ export function createDepackagerServer(secret: string, config?: DepackagerConfig
   const localX25519PrivB64 = config?.localX25519PrivB64 ?? process.env['BEAP_LOCAL_X25519_PRIV_B64'] ?? '';
   const localMlkemSecretB64 = config?.localMlkemSecretB64 ?? process.env['BEAP_LOCAL_MLKEM_SECRET_B64'];
   const skipSignatureVerification = config?.skipSignatureVerification ?? true;
+  const diagnostics = config?.diagnostics ?? createRoleDiagnosticRuntime(ROLE);
 
   return http.createServer(
-    makeHandler(secret, {
-      sealerBase,
-      certifierBase: certifierBase || undefined,
-      deferSeal,
-      version,
-      maxBodyBytes,
-      timeoutMs,
-      authedFetch,
-      localX25519PrivB64,
-      localMlkemSecretB64,
-      skipSignatureVerification,
-    }),
+    wrapRoleRequestListener(
+      diagnostics,
+      makeHandler(secret, {
+        sealerBase,
+        certifierBase: certifierBase || undefined,
+        deferSeal,
+        version,
+        maxBodyBytes,
+        timeoutMs,
+        authedFetch,
+        localX25519PrivB64,
+        localMlkemSecretB64,
+        skipSignatureVerification,
+        diagnostics,
+      }),
+    ),
   );
 }
 

@@ -31,6 +31,15 @@ import { resolve } from 'node:path';
 import { ingestInput, INGESTION_CONSTANTS } from '@repo/ingestion-core';
 import type { RawInput, SourceType, TransportMetadata } from '@repo/ingestion-core';
 import { requirePodAuthSecret, podAuthFetch } from '../shared/podAuth.js';
+import {
+  createRoleDiagnosticRuntime,
+  healthResponseForRole,
+  trackMessageProcessing,
+  untrackMessageProcessing,
+  wrapRoleRequestListener,
+  type RoleDiagnosticRuntime,
+} from '../shared/roleDiagnostic.js';
+import { messageContextFromEnvelope } from '../shared/reportGenerator.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -97,6 +106,7 @@ export interface IngestorConfig {
   maxBodyBytes?: number;
   timeoutMs?: number;
   authedFetch?: typeof fetch;
+  diagnostics?: RoleDiagnosticRuntime;
 }
 
 export function parsePodMode(value: string | undefined): PodMode {
@@ -387,12 +397,14 @@ function makeHandler(
   version: string,
   maxBodyBytes: number,
   timeoutMs: number,
+  diagnostics: RoleDiagnosticRuntime,
 ): http.RequestListener {
   return async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
     const path = (req.url ?? '').split('?')[0]!;
 
     if (req.method === 'GET' && path === '/health') {
-      sendJson(res, 200, { status: 'ok', role: ROLE, version, pod_mode: podMode });
+      const health = healthResponseForRole(diagnostics, version, { pod_mode: podMode });
+      sendJson(res, health.statusCode, health.body);
       return;
     }
 
@@ -468,6 +480,15 @@ function makeHandler(
       const timer = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
+        trackMessageProcessing(
+          messageContextFromEnvelope({
+            rawBytes: data,
+            envelopeFrom: parsed.sender_address ?? '',
+            envelopeTo: parsed.recipient_address ?? '',
+            envelopeDate: new Date().toISOString(),
+            envelopeSubject: parsed.message_id ?? '',
+          }),
+        );
         const candidate = ingestInput(rawInput, sourceType, transportMeta);
 
         if (podMode === 'LOCAL_VERIFY') {
@@ -512,6 +533,7 @@ function makeHandler(
           sendJson(res, 502, { error: 'Upstream validator error' });
         }
       } finally {
+        untrackMessageProcessing();
         clearTimeout(timer);
       }
       return;
@@ -534,17 +556,22 @@ export function createIngestorServer(secret: string, config?: IngestorConfig): h
   const maxBodyBytes = config?.maxBodyBytes ?? INGESTION_CONSTANTS.MAX_RAW_INPUT_BYTES;
   const timeoutMs = config?.timeoutMs ?? INGESTION_CONSTANTS.PIPELINE_TIMEOUT_MS;
   const authedFetch = config?.authedFetch ?? podAuthFetch(secret);
+  const diagnostics = config?.diagnostics ?? createRoleDiagnosticRuntime(ROLE);
 
   return http.createServer(
-    makeHandler(
-      authedFetch,
-      podMode,
-      validatorBase,
-      verifierBase,
-      sealerBase,
-      version,
-      maxBodyBytes,
-      timeoutMs,
+    wrapRoleRequestListener(
+      diagnostics,
+      makeHandler(
+        authedFetch,
+        podMode,
+        validatorBase,
+        verifierBase,
+        sealerBase,
+        version,
+        maxBodyBytes,
+        timeoutMs,
+        diagnostics,
+      ),
     ),
   );
 }

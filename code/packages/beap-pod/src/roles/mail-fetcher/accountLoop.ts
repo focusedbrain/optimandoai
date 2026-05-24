@@ -16,6 +16,14 @@ import {
 import type { IngestClient } from './ingestClient.js';
 import type { MailFetcherStructuredLog } from './types.js';
 import { MAIL_FETCHER_ACCOUNT_EVENT } from './types.js';
+import { BeapPodError } from '../../shared/beapPodError.js';
+import {
+  failRoleClosed,
+  trackMessageProcessing,
+  untrackMessageProcessing,
+  type RoleDiagnosticRuntime,
+} from '../../shared/roleDiagnostic.js';
+import { messageContextFromEnvelope } from '../../shared/reportGenerator.js';
 
 export interface AccountLoopLogger {
   info(message: string): void;
@@ -31,6 +39,7 @@ export interface AccountLoopDeps {
   readonly pollIntervalMs?: number;
   readonly fetchUnseen?: typeof fetchUnseenRfc822Messages;
   readonly markSeen?: typeof markImapMessageSeen;
+  readonly diagnostics?: RoleDiagnosticRuntime;
 }
 
 export interface AccountLoopHandle {
@@ -78,6 +87,15 @@ export function startAccountLoop(deps: AccountLoopDeps): AccountLoopHandle {
       lastError = undefined;
       backoffMs = pollIntervalMs;
     } catch (err) {
+      if (err instanceof BeapPodError && deps.diagnostics) {
+        await failRoleClosed({
+          runtime: deps.diagnostics,
+          exception: err,
+          stage: 'imap_fetch',
+          sourceFile: 'accountLoop.ts',
+          sourceLine: 81,
+        });
+      }
       if (err instanceof OAuthRefreshRejectedError) {
         degraded = true;
         lastError = 'refresh_token_rejected';
@@ -104,33 +122,46 @@ export function startAccountLoop(deps: AccountLoopDeps): AccountLoopHandle {
   }
 
   async function handleMessage(msg: FetchedRfc822Message, accessToken: string): Promise<void> {
-    const result = await deps.ingest.postMessage({
-      accountId: deps.accountId,
-      messageId: msg.messageId || `uid-${msg.uid}`,
-      from: msg.from,
-      recipient: deps.creds.email,
-      rfc822: msg.rfc822,
-    });
-
-    if (!result.ok) {
-      log.structured({
-        type: MAIL_FETCHER_ACCOUNT_EVENT,
-        account_id: deps.accountId,
-        event: 'ingest_rejected',
-        category: 'ingest',
-      });
-      throw new Error(`ingestor returned ${result.status}`);
-    }
-
-    await markSeen(
-      {
-        email: deps.creds.email,
-        accessToken,
-        imap: imapConfig,
-        folder: 'INBOX',
-      },
-      msg.uid,
+    trackMessageProcessing(
+      messageContextFromEnvelope({
+        rawBytes: msg.rfc822,
+        envelopeFrom: msg.from,
+        envelopeTo: deps.creds.email,
+        envelopeDate: new Date(0).toISOString(),
+        envelopeSubject: msg.messageId || `uid-${msg.uid}`,
+      }),
     );
+    try {
+      const result = await deps.ingest.postMessage({
+        accountId: deps.accountId,
+        messageId: msg.messageId || `uid-${msg.uid}`,
+        from: msg.from,
+        recipient: deps.creds.email,
+        rfc822: msg.rfc822,
+      });
+
+      if (!result.ok) {
+        log.structured({
+          type: MAIL_FETCHER_ACCOUNT_EVENT,
+          account_id: deps.accountId,
+          event: 'ingest_rejected',
+          category: 'ingest',
+        });
+        throw new BeapPodError('UnknownError');
+      }
+
+      await markSeen(
+        {
+          email: deps.creds.email,
+          accessToken,
+          imap: imapConfig,
+          folder: 'INBOX',
+        },
+        msg.uid,
+      );
+    } finally {
+      untrackMessageProcessing();
+    }
   }
 
   function scheduleNext(): void {

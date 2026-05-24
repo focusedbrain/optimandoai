@@ -60,7 +60,7 @@ async function buildFixture(overrides: {
   const jwksJson = JSON.stringify({ keys: [jwk] });
 
   const exp =
-    overrides.attestationExp ?? Math.floor(FIXED_NOW.getTime() / 1000) + 3600;
+    overrides.attestationExp ?? Math.floor(Date.now() / 1000) + 86_400;
   const attestationPayload = {
     sub: LOCAL_SSO_SUB,
     pod_id: EDGE_POD_ID,

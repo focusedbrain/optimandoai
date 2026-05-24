@@ -17,6 +17,7 @@ import { startAccountLoop, type AccountLoopHandle, type AccountLoopDeps } from '
 import type { IngestClient } from './ingestClient.js';
 import type { MailFetcherAccountState, MailFetcherAccountStatus } from './types.js';
 import { MAIL_FETCHER_ACCOUNT_EVENT } from './types.js';
+import type { RoleDiagnosticRuntime } from '../../shared/roleDiagnostic.js';
 
 export interface AccountRegistryDeps {
   readonly store: CredentialStore;
@@ -24,6 +25,7 @@ export interface AccountRegistryDeps {
   readonly tokenCache?: AccessTokenCache;
   readonly loopFactory?: (deps: AccountLoopDeps) => AccountLoopHandle;
   readonly now?: () => Date;
+  readonly diagnostics?: RoleDiagnosticRuntime;
 }
 
 interface AccountRecord {
@@ -43,12 +45,15 @@ export class AccountRegistry {
   private readonly loopFactory: (deps: AccountLoopDeps) => AccountLoopHandle;
   private readonly now: () => Date;
 
+  private readonly diagnostics?: RoleDiagnosticRuntime;
+
   constructor(deps: AccountRegistryDeps) {
     this.store = deps.store;
     this.ingest = deps.ingest;
     this.tokenCache = deps.tokenCache ?? new AccessTokenCache();
     this.loopFactory = deps.loopFactory ?? startAccountLoop;
     this.now = deps.now ?? (() => new Date());
+    this.diagnostics = deps.diagnostics;
   }
 
   async restoreFromTmpfs(): Promise<void> {
@@ -103,6 +108,7 @@ export class AccountRegistry {
         ingest: this.ingest,
         tokenCache: this.tokenCache,
         logger,
+        diagnostics: this.diagnostics,
       });
 
       rec.creds = creds;

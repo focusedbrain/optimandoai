@@ -24,6 +24,15 @@ import type { CompactVerifyGetKey, JSONWebKeySet, JWTVerifyGetKey } from 'jose';
 import { packageHash, verifyCertificate, capsuleCanonicalHash, validationResultDigest } from '@repo/beap-cert';
 import type { EdgeCertificate } from '@repo/beap-cert';
 import { requirePodAuthSecret, createPodAuthMiddleware } from '../shared/podAuth.js';
+import {
+  createRoleDiagnosticRuntime,
+  healthResponseForRole,
+  trackMessageProcessing,
+  untrackMessageProcessing,
+  wrapRoleRequestListener,
+  type RoleDiagnosticRuntime,
+} from '../shared/roleDiagnostic.js';
+import { messageContextFromEnvelope } from '../shared/reportGenerator.js';
 
 const ROLE = 'verifier';
 
@@ -78,6 +87,7 @@ export type VerifyCertResult = VerifyCertSuccess | VerifyCertFailure;
 export interface VerifierConfig {
   version?: string;
   maxBodyBytes?: number;
+  diagnostics?: RoleDiagnosticRuntime;
 }
 
 export interface VerifierRuntimeState {
@@ -394,6 +404,7 @@ function makeHandler(
   state: VerifierRuntimeState,
   version: string,
   maxBodyBytes: number,
+  diagnostics: RoleDiagnosticRuntime,
 ): http.RequestListener {
   const authMiddleware = createPodAuthMiddleware(secret);
   const podAuthReady = secret.length > 0;
@@ -402,7 +413,8 @@ function makeHandler(
     const path = (req.url ?? '').split('?')[0]!;
 
     if (req.method === 'GET' && path === '/health') {
-      sendJson(res, 200, { status: 'ok', role: ROLE, version });
+      const health = healthResponseForRole(diagnostics, version);
+      sendJson(res, health.statusCode, health.body);
       return;
     }
 
@@ -476,12 +488,23 @@ function makeHandler(
 
       const phase: 'shallow' | 'deep' = expectedCapsuleCanonicalBytes ? 'deep' : 'shallow';
 
-      const result = await verifyCertificateAcceptance(state, {
-        rawPackageBytes,
-        certificate: certRaw,
-        ...(expectedCapsuleCanonicalBytes ? { expectedCapsuleCanonicalBytes } : {}),
-        ...(expectedValidationResultBytes ? { expectedValidationResultBytes } : {}),
-      });
+      trackMessageProcessing(
+        messageContextFromEnvelope({
+          rawBytes: rawPackageBytes,
+          envelopeSubject: certRaw.edge_pod_id,
+        }),
+      );
+      let result;
+      try {
+        result = await verifyCertificateAcceptance(state, {
+          rawPackageBytes,
+          certificate: certRaw,
+          ...(expectedCapsuleCanonicalBytes ? { expectedCapsuleCanonicalBytes } : {}),
+          ...(expectedValidationResultBytes ? { expectedValidationResultBytes } : {}),
+        });
+      } finally {
+        untrackMessageProcessing();
+      }
 
       emitVerificationAuditLine({
         timestamp: new Date().toISOString(),
@@ -506,7 +529,13 @@ export function createVerifierServer(
 ): http.Server {
   const version = config?.version ?? VERSION;
   const maxBodyBytes = config?.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
-  return http.createServer(makeHandler(secret, state, version, maxBodyBytes));
+  const diagnostics = config?.diagnostics ?? createRoleDiagnosticRuntime(ROLE);
+  return http.createServer(
+    wrapRoleRequestListener(
+      diagnostics,
+      makeHandler(secret, state, version, maxBodyBytes, diagnostics),
+    ),
+  );
 }
 
 export function startVerifierServer(): void {

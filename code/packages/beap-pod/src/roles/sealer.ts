@@ -27,6 +27,15 @@ import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { requirePodAuthSecret, createPodAuthMiddleware } from '../shared/podAuth.js';
+import {
+  createRoleDiagnosticRuntime,
+  healthResponseForRole,
+  trackMessageProcessing,
+  untrackMessageProcessing,
+  wrapRoleRequestListener,
+  type RoleDiagnosticRuntime,
+} from '../shared/roleDiagnostic.js';
+import { messageContextFromEnvelope } from '../shared/reportGenerator.js';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -131,6 +140,7 @@ export function verifySealPod(sealInputJson: string, expectedSeal: string, key: 
 export interface SealerConfig {
   version?: string;
   maxBodyBytes?: number;
+  diagnostics?: RoleDiagnosticRuntime;
 }
 
 // ── HTTP helpers ───────────────────────────────────────────────────────────────
@@ -171,6 +181,7 @@ function makeHandler(
   sealKey: Buffer,
   version: string,
   maxBodyBytes: number,
+  diagnostics: RoleDiagnosticRuntime,
 ): http.RequestListener {
   const authMiddleware = createPodAuthMiddleware(secret);
 
@@ -179,7 +190,8 @@ function makeHandler(
 
     // ── GET /health ────────────────────────────────────────────────────────────
     if (req.method === 'GET' && path === '/health') {
-      sendJson(res, 200, { status: 'ok', role: ROLE, version });
+      const health = healthResponseForRole(diagnostics, version);
+      sendJson(res, health.statusCode, health.body);
       return;
     }
 
@@ -220,16 +232,15 @@ function makeHandler(
         return;
       }
 
+      const depackaged = body['depackaged'] as Record<string, unknown> | undefined;
+
       // ④ Extract canonicalJson
       // Prefer explicit canonicalJson field; fall back to depackaged.rawCapsuleJson.
       let canonicalJson: string | undefined;
       if (typeof body['canonicalJson'] === 'string') {
         canonicalJson = body['canonicalJson'];
-      } else {
-        const dep = body['depackaged'] as Record<string, unknown> | undefined;
-        if (dep && typeof dep['rawCapsuleJson'] === 'string') {
-          canonicalJson = dep['rawCapsuleJson'];
-        }
+      } else if (depackaged && typeof depackaged['rawCapsuleJson'] === 'string') {
+        canonicalJson = depackaged['rawCapsuleJson'];
       }
       if (canonicalJson === undefined) {
         sendJson(res, 400, {
@@ -259,14 +270,26 @@ function makeHandler(
           : new Date().toISOString();
 
       // ⑥ Compute seal (key is in memory; never leaves this function scope)
-      const { seal, sealInputJson } = computeSealPod(
-        canonicalJson,
-        rowId,
-        outcomeClass,
-        validatorVersion,
-        validatedAt,
-        sealKey,
+      trackMessageProcessing(
+        messageContextFromEnvelope({
+          rawBytes: Buffer.from(canonicalJson, 'utf8'),
+          envelopeSubject: typeof depackaged?.['subject'] === 'string' ? depackaged['subject'] : '',
+        }),
       );
+      let sealResult;
+      try {
+        sealResult = computeSealPod(
+          canonicalJson,
+          rowId,
+          outcomeClass,
+          validatorVersion,
+          validatedAt,
+          sealKey,
+        );
+      } finally {
+        untrackMessageProcessing();
+      }
+      const { seal, sealInputJson } = sealResult;
 
       sendJson(res, 200, { sealed: true, seal, sealInputJson, rowId });
       return;
@@ -285,7 +308,13 @@ export function createSealerServer(
 ): http.Server {
   const version = config?.version ?? VERSION;
   const maxBodyBytes = config?.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
-  return http.createServer(makeHandler(secret, sealKey, version, maxBodyBytes));
+  const diagnostics = config?.diagnostics ?? createRoleDiagnosticRuntime(ROLE);
+  return http.createServer(
+    wrapRoleRequestListener(
+      diagnostics,
+      makeHandler(secret, sealKey, version, maxBodyBytes, diagnostics),
+    ),
+  );
 }
 
 export function startSealerServer(): void {

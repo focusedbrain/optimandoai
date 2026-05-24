@@ -1,0 +1,36 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`role diagnostic reports > stuck watchdog writes StuckHealthProbeError report 1`] = `
+{
+  "certificate": StringMatching /\\^ed25519:/,
+  "edge_pod_id": "550e8400-e29b-41d4-a716-446655440000",
+  "failed_container": {
+    "container_id_short": "testcont1234",
+    "previous_uptime_seconds": 0,
+    "role": "validator",
+  },
+  "failure": {
+    "exception_kind": "StuckHealthProbeError",
+    "source_file_basename": "roleDiagnostic.ts",
+    "source_line": 48,
+    "stage": "pod_internal",
+  },
+  "message_under_processing": {
+    "envelope_date_iso8601": "2026-05-24T10:00:00.000Z",
+    "envelope_from": "from@example.com",
+    "envelope_subject_filtered": "stuck-subject",
+    "envelope_to": "to@example.com",
+    "sha256_hex": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "size_bytes": 128,
+  },
+  "replica_id": "replica-0",
+  "report_v": 1,
+  "system_metrics_at_failure": {
+    "container_uptime_seconds": Any<Number>,
+    "cpu_percent": Any<Number>,
+    "fd_count": Any<Number>,
+    "memory_mb": Any<Number>,
+  },
+  "timestamp_iso8601": Any<String>,
+}
+`;
