@@ -17,6 +17,7 @@ export const SSH_CREDENTIAL_CONSUMER_FILES = [
   'wizard/ipc.ts',
   'wizard/sshSession.ts',
   'security/sshSecretBuffers.ts',
+  'security/secureMemory.ts',
   'security/zeroize.ts',
 ].sort()
 

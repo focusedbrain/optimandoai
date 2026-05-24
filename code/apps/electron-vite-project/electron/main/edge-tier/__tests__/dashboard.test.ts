@@ -9,6 +9,10 @@ import { tmpdir } from 'node:os'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
+  app: {
+    on: vi.fn(),
+    getPath: vi.fn(() => '/tmp/vitest-electron-mock'),
+  },
 }))
 
 import {

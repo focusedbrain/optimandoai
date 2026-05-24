@@ -2,6 +2,7 @@
  * SSH credential buffers — convert renderer strings to zeroable Buffers at IPC boundary.
  */
 
+import { allocateCredentialBufferFromUtf8, initSecureMemory } from './secureMemory.js'
 import { zeroizeBuffer } from './zeroize.js'
 
 export interface SshSecretBuffers {
@@ -13,9 +14,10 @@ export function sshSecretBuffersFromStrings(
   sshKey: string,
   passphrase?: string,
 ): SshSecretBuffers {
+  void initSecureMemory()
   return {
-    sshKey: Buffer.from(sshKey, 'utf8'),
-    passphrase: passphrase ? Buffer.from(passphrase, 'utf8') : undefined,
+    sshKey: allocateCredentialBufferFromUtf8(sshKey),
+    passphrase: passphrase ? allocateCredentialBufferFromUtf8(passphrase) : undefined,
   }
 }
 

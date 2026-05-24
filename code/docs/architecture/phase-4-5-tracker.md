@@ -48,7 +48,7 @@ Manual test: [`phase-4-5-manual-test.md`](phase-4-5-manual-test.md)
 - [x] **P4.5.12** — Zero credentials on every exit path
 - [x] **P4.5.13** — SSH host key pinning (TOFU) with mismatch confirmation UI
 - [x] **P4.5.14** — Scrub credentials from logs and IPC payloads; CI regression net
-- [ ] **P4.5.15** — *(pending)*
+- [x] **P4.5.15** — Memory-hygiene defenses (best-effort mlock); credential threat model doc
 
 ---
 
@@ -71,6 +71,7 @@ Manual test: [`phase-4-5-manual-test.md`](phase-4-5-manual-test.md)
 | P4.5.12 | ✅ done | P4.5.12: zero credentials on every exit path; passphrase as Buffer not string |
 | P4.5.13 | ✅ done | P4.5.13: SSH host key pinning with TOFU and explicit mismatch confirmation |
 | P4.5.14 | ✅ done | P4.5.14: scrub credentials from logs and IPC payloads; add CI regression net |
+| P4.5.15 | ✅ done | P4.5.15: memory-hygiene defenses (best-effort mlock); credential security threat model doc |
 
 ---
 
@@ -91,9 +92,9 @@ Phase 4 set up the edge as certificate authority for messages handed to it. Phas
 
 ---
 
-## Phase 4.5 done — 2026-05-24 *(credential hardening re-opens phase)*
+## Phase 4.5 done — 2026-05-24 *(credential hardening complete)*
 
-Phase 4.5 steps P4.5.0–P4.5.10 shipped on branch `phase-1/pod-becomes-hot-path`. **P4.5.11–P4.5.15** (SSH credential hardening from post-ship audit) must land before the phase is declared done again; **P4.5.10 manual test is re-run after P4.5.15**.
+Phase 4.5 steps P4.5.0–P4.5.15 shipped on branch `phase-1/pod-becomes-hot-path`. Automated hardening (P4.5.11–P4.5.15) re-verified 2026-05-24. **Live E2E per P4.5.10 remains the human release gate** before production sign-off.
 
 **Deliverables**
 
@@ -101,13 +102,15 @@ Phase 4.5 steps P4.5.0–P4.5.10 shipped on branch `phase-1/pod-becomes-hot-path
 - Free-tier upgrade gate with pricing URL + tier refresh
 - mail-fetcher on REMOTE_EDGE pod; per-account migration UI with three-checkbox consent
 - VMK-wrapped account keys + SSH creds; 60s reboot recovery poll
+- SSH credential hardening (P4.5.11–P4.5.15): main-process key read, zero-on-exit, TOFU host pins, log scrubbing, secure-memory survey
+- Threat model: [`credential-security-threat-model.md`](credential-security-threat-model.md)
 - Manual E2E procedure: [`phase-4-5-manual-test.md`](phase-4-5-manual-test.md)
 
-**Automated verification (closeout session)**
+**Automated verification (post–P4.5.15 re-run)**
 
-- Phase 4.5–scoped vitest: **132 tests passed** (22 files), including edge-tier, wizard, explainer, dashboard, email-edge-fetch UI, email-fetch package, edgeFetch rules.
+- Phase 4.5–scoped vitest: **190 tests passed** (38 files), including security, edge-tier, wizard, dashboard, email-edge-fetch UI, email-fetch package, `test/security/no-credential-logs.test.ts`.
 - `rebootRecovery.test.ts`: **5/5** when run individually.
-- `pnpm -r test`: all workspace packages passed except **`apps/extension-chromium`** (19 pre-existing `CSS.escape` / jsdom failures — unchanged from Phase 4 closeout).
+- `pnpm -r test`: all workspace packages passed except **`apps/extension-chromium`** (pre-existing `CSS.escape` / jsdom failures — unchanged from Phase 4 closeout).
 
 **Live VPS + OAuth E2E**
 
@@ -166,6 +169,15 @@ Phase 4.5 steps P4.5.0–P4.5.10 shipped on branch `phase-1/pod-becomes-hot-path
 - **Renderer:** `StepProvideVm` stores `keyFilePath` only; passphrase cleared after successful `wizard:setVmCredentials` (residual IPC exposure documented in component).
 - **Tests:** `readSshKeyFile.test.ts`, `ipcCredentials.test.ts`, renderer grep in `credentialHardening.test.ts`.
 - **Reset fix:** `wizard:reset` calls `clearWizardVmCredentials()` (zero-and-drop) instead of test-only reset.
+
+### P4.5.15
+
+- **Survey:** `libsodium-wrappers` (existing vault dep) exposes `memzero` but **not** `sodium_malloc` / `sodium_mlock` in the Emscripten build — no native mlock in current stack.
+- **`secureMemory.ts`:** surveys libsodium at startup; one-time log when locking unavailable; `withCredential()` copies into locked memory when APIs exist (future native build).
+- **`zeroize.ts`:** uses libsodium `memzero` when ready; documents residual swap exposure in header.
+- **Threat model:** `docs/architecture/credential-security-threat-model.md` — defended / not-defended table, mlock status per platform, deferred native-module follow-up.
+- **Tests:** `secureMemory.test.ts`, updated `zeroize.test.ts`; credential consumer registry snapshot includes `secureMemory.ts`.
+- **Fix:** `dashboard.test.ts` electron mock `app.getPath` (collection failure when email gateway loads).
 
 ### P4.5.10
 

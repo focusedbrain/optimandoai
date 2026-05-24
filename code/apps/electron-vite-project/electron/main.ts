@@ -2950,6 +2950,7 @@ app.whenReady().then(async () => {
 
     void import('./main/security/registerCredentialShutdown.js')
       .then((m) => m.registerCredentialShutdownHandlers())
+    void import('./main/security/zeroize.js').then((m) => m.initSecureMemory())
       .catch((e) => console.error('[MAIN] Credential shutdown registration failed:', e))
 
     void import('./main/letter/letterComposerIpc')

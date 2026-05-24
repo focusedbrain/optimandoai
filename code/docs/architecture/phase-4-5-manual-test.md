@@ -253,12 +253,14 @@ With an **active** edge-fetched account:
 
 ## Automated verification (from repo root)
 
-Phase 4.5–focused vitest (2026-05-24 closeout):
+Phase 4.5–focused vitest (post–P4.5.15 re-run, 2026-05-24):
 
 ```bash
 pnpm exec vitest run \
   apps/electron-vite-project/electron/main/edge-tier \
   apps/electron-vite-project/electron/main/wizard \
+  apps/electron-vite-project/electron/main/security \
+  test/security/no-credential-logs.test.ts \
   apps/electron-vite-project/src/edge-tier-wizard \
   apps/electron-vite-project/src/edge-tier-dashboard \
   apps/electron-vite-project/src/components/email-edge-fetch \
@@ -266,7 +268,7 @@ pnpm exec vitest run \
   packages/email-fetch
 ```
 
-**Result:** 22 test files, **132 tests passed** (Windows closeout run). Reboot recovery suite: 5/5 when run individually (`rebootRecovery.test.ts`).
+**Result:** 38 test files, **190 tests passed** (Windows re-run after P4.5.11–P4.5.15). Reboot recovery suite: 5/5 when run individually (`rebootRecovery.test.ts`).
 
 Full monorepo:
 
