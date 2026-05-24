@@ -19,6 +19,24 @@ export {
   MIN_PODMAN_MAJOR,
 } from './install-podman.js'
 export type { InstallEvent, InstallEventKind } from './install-podman.js'
+export {
+  deployEdgePod,
+  collectDeployEvents,
+  buildPodmanPlayCommand,
+  buildAllHealthCommand,
+  buildTeardownCommand,
+  buildPreDeployCleanupCommand,
+  REMOTE_MANIFEST_PATH,
+  REMOTE_POD_NAME,
+  DEFAULT_HEALTH_TIMEOUT_MS,
+} from './deploy.js'
+export type {
+  DeployArgs,
+  DeployEvent,
+  DeployEventKind,
+  DeployReplicaState,
+  DeploySshClient,
+} from './deploy.js'
 export type {
   SshConnectOptions,
   SshCommandRunner,
