@@ -68,7 +68,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 |------|-------|--------|
 | P5.0 | ✅ done | `f9f6c287` |
 | P5.1 | ✅ done | `8b3864a6` |
-| P5.2 | ✅ done | *(this commit)* |
+| P5.2 | ✅ done | `6cc47e12` |
 | P5.3 | ⬜ pending | — |
 | P5.4 | ⬜ pending | — |
 | P5.5 | ⬜ pending | — |
@@ -109,3 +109,10 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 
 - Pod-level `restartPolicy: Never` in `pod.yaml`, `pod-remote-edge.yaml`, and `pod-local-verify.yaml` (all containers in each pod are trust-sensitive).
 - Manifest header comments document supervisor-managed replacement; README sections for LOCAL_HOST, REMOTE_EDGE, and LOCAL_VERIFY note that Podman does not auto-restart.
+
+### P5.2
+
+- `packages/beap-cert/src/diagnosticReport.ts`: `DiagnosticReportV1` schema, envelope allowlist filtering, Ed25519 signing via `canonicalizeStableJson` (same stable JSON rules as message certs).
+- Distinct from message certs: `report_v: 1` vs `v: 1`; signature field is `certificate` not `edge_signature`.
+- Tests: enum coverage, round-trip verify, filtering edge cases, canonical bytes snapshot.
+- Role-side report generation and transport deferred to P5.3/P5.4.
