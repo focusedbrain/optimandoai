@@ -17,6 +17,10 @@ import { initRebootRecovery, startRebootRecoveryPolling } from './rebootRecovery
 import { initPodSupervisor, startPodSupervisor } from './supervisor/index.js'
 import type { EdgeTierPodVault } from './podLifecycle.js'
 import {
+  initQuarantineDashboardIpc,
+  registerQuarantineDashboardIpcHandlers,
+} from './quarantineIpc.js'
+import {
   listKnownHostFingerprints,
   removeFingerprint,
 } from './ssh/hostKeyStore.js'
@@ -26,6 +30,7 @@ export function initEdgeTierIpc(vault: EdgeTierPodVault): void {
   initGlobalActionIpc(vault)
   initRebootRecovery(vault)
   initPodSupervisor(vault)
+  initQuarantineDashboardIpc(vault)
   startRebootRecoveryPolling()
   startPodSupervisor()
 }
@@ -43,6 +48,7 @@ export function registerEdgeTierIpcHandlers(): void {
   registerDashboardIpcHandlers()
   registerReplicaActionIpcHandlers()
   registerGlobalActionIpcHandlers()
+  registerQuarantineDashboardIpcHandlers()
 
   ipcMain.handle('edge-tier:get-status', async () => {
     return getEdgeTierStatusSnapshot()

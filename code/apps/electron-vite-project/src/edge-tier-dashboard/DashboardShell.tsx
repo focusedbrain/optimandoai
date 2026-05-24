@@ -12,15 +12,34 @@ import type { SshKeyEntryFormValues } from './SshKeyEntryForm.js'
 import { GlobalActionsPanel } from './GlobalActionsPanel.js'
 import { RotateKeysModal } from './RotateKeysModal.js'
 import { PauseEdgeTierModal } from './PauseEdgeTierModal.js'
-import type { DashboardUpdatePayload, ReplicaStatus, DashboardFallbackPolicy } from './types.js'
+import { QuarantinePanel } from './QuarantinePanel.js'
+import type {
+  DashboardUpdatePayload,
+  ReplicaStatus,
+  DashboardFallbackPolicy,
+  QuarantineDashboardSummary,
+} from './types.js'
 import type { ReplicaActionKind } from './replicaActions.js'
+import {
+  SandboxViewerModal,
+  registerSandboxViewShowHandler,
+  quarantineMonoStyle,
+  SANDBOX_AUDIT_PALETTE,
+} from '../sandbox-orchestrator/index.js'
+import type { SandboxViewContent } from '../sandbox-orchestrator/index.js'
 import {
   EDGE_INGESTOR_NOT_CONFIGURED_BODY,
   EDGE_INGESTOR_NOT_CONFIGURED_TITLE,
   EDGE_INGESTOR_SETUP_BUTTON,
 } from '../components/edge-ingestor/edgeIngestorCopy.js'
 
-export type DashboardTab = 'replicas' | 'verifications'
+export type DashboardTab = 'replicas' | 'verifications' | 'quarantine'
+
+const emptyQuarantineSummary: QuarantineDashboardSummary = {
+  total_count: 0,
+  by_replica: [],
+  recent_failures: [],
+}
 
 export interface DashboardShellViewProps {
   edgeTierEnabled: boolean
@@ -38,6 +57,9 @@ export interface DashboardShellViewProps {
   onPauseEdgeTier?: () => void
   onFallbackPolicyChange?: (policy: DashboardFallbackPolicy) => void
   policySaving?: boolean
+  quarantineSummary?: QuarantineDashboardSummary
+  selectedQuarantineReplicaId?: string | null
+  onSelectQuarantineReplica?: (replicaId: string | null) => void
   loading?: boolean
   error?: string | null
   fetchLogs?: (edgePodId: string) => Promise<{ ok: boolean; lines?: string[]; error?: string }>
@@ -59,6 +81,9 @@ export function DashboardShellView({
   onPauseEdgeTier,
   onFallbackPolicyChange,
   policySaving,
+  quarantineSummary = emptyQuarantineSummary,
+  selectedQuarantineReplicaId = null,
+  onSelectQuarantineReplica,
   loading,
   error,
   fetchLogs,
@@ -122,6 +147,46 @@ export function DashboardShellView({
         />
       )}
 
+      {quarantineSummary.total_count > 0 && (
+        <div
+          data-testid="edge-dashboard-recent-failures"
+          style={{
+            ...quarantineMonoStyle,
+            marginBottom: 16,
+            padding: '8px 10px',
+            background: SANDBOX_AUDIT_PALETTE.panelBg,
+            border: `1px solid ${SANDBOX_AUDIT_PALETTE.panelBorder}`,
+            borderRadius: 6,
+          }}
+        >
+          Recent failures: {quarantineSummary.total_count} quarantined message
+          {quarantineSummary.total_count === 1 ? '' : 's'}
+          {activeTab !== 'quarantine' && onSelectQuarantineReplica && (
+            <>
+              {' '}
+              —{' '}
+              <button
+                type="button"
+                data-testid="edge-dashboard-open-quarantine"
+                onClick={() => onTabChange('quarantine')}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  padding: 0,
+                  cursor: 'pointer',
+                  color: SANDBOX_AUDIT_PALETTE.header,
+                  fontFamily: SANDBOX_AUDIT_PALETTE.mono,
+                  fontSize: 11,
+                  textDecoration: 'underline',
+                }}
+              >
+                Review quarantine
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         <button
           type="button"
@@ -153,6 +218,21 @@ export function DashboardShellView({
         >
           Verifications
         </button>
+        <button
+          type="button"
+          data-testid="edge-dashboard-tab-quarantine"
+          onClick={() => onTabChange('quarantine')}
+          style={{
+            padding: '6px 12px',
+            borderRadius: 6,
+            border: '1px solid var(--border)',
+            background: activeTab === 'quarantine' ? '#e2e8f0' : 'transparent',
+            fontWeight: activeTab === 'quarantine' ? 600 : 400,
+            cursor: 'pointer',
+          }}
+        >
+          Quarantine
+        </button>
       </div>
 
       {activeTab === 'replicas' ? (
@@ -161,8 +241,15 @@ export function DashboardShellView({
           onViewDetails={onViewDetails}
           onReplicaAction={onReplicaAction}
         />
-      ) : (
+      ) : activeTab === 'verifications' ? (
         <VerificationsList verifications={verifications} />
+      ) : (
+        <QuarantinePanel
+          summary={quarantineSummary}
+          selectedReplicaId={selectedQuarantineReplicaId}
+          onSelectReplica={onSelectQuarantineReplica ?? (() => undefined)}
+          replicas={replicas.map((r) => ({ edge_pod_id: r.edge_pod_id, host: r.host }))}
+        />
       )}
 
       {selectedReplica && (
@@ -204,6 +291,10 @@ export function DashboardShell() {
     retry: () => Promise<void>
   } | null>(null)
   const [hostKeyTrustBusy, setHostKeyTrustBusy] = useState(false)
+  const [selectedQuarantineReplicaId, setSelectedQuarantineReplicaId] = useState<string | null>(
+    null,
+  )
+  const [sandboxView, setSandboxView] = useState<SandboxViewContent | null>(null)
   const progressUnsubRef = useRef<(() => void) | null>(null)
   const globalProgressUnsubRef = useRef<(() => void) | null>(null)
 
@@ -245,6 +336,11 @@ export function DashboardShell() {
     } finally {
       setLoading(false)
     }
+  }, [])
+
+  useEffect(() => {
+    registerSandboxViewShowHandler((view) => setSandboxView(view))
+    return () => registerSandboxViewShowHandler(null)
   }, [])
 
   useEffect(() => {
@@ -495,6 +591,9 @@ export function DashboardShell() {
         onPauseEdgeTier={() => setPauseOpen(true)}
         onFallbackPolicyChange={(policy) => void handleFallbackPolicyChange(policy)}
         policySaving={policySaving}
+        quarantineSummary={payload?.quarantine_summary ?? emptyQuarantineSummary}
+        selectedQuarantineReplicaId={selectedQuarantineReplicaId}
+        onSelectQuarantineReplica={setSelectedQuarantineReplicaId}
         loading={loading && !payload}
         error={error}
         fetchLogs={fetchLogs}
@@ -559,6 +658,7 @@ export function DashboardShell() {
           onCancel={() => setHostKeyMismatch(null)}
         />
       )}
+      <SandboxViewerModal view={sandboxView} onClose={() => setSandboxView(null)} />
     </>
   )
 }

@@ -1634,6 +1634,24 @@ contextBridge.exposeInMainWorld('dashboard', {
     ipcRenderer.on('global:action-progress', fn)
     return () => ipcRenderer.removeListener('global:action-progress', fn)
   },
+  getQuarantineSummary: () => ipcRenderer.invoke('dashboard:getQuarantineSummary'),
+  listQuarantine: (replicaId?: string) =>
+    ipcRenderer.invoke('dashboard:listQuarantine', replicaId),
+  prepareSandboxView: (input: {
+    mode: 'diagnostic_report' | 'raw_email_body'
+    replicaId: string
+    hash: string
+  }) => ipcRenderer.invoke('dashboard:prepareSandboxView', input) as Promise<{
+    ok: boolean
+    textContent?: string
+    error?: string
+  }>,
+  discardQuarantine: (input: Record<string, unknown>) =>
+    ipcRenderer.invoke('dashboard:discardQuarantine', input) as Promise<{
+      ok: boolean
+      error?: string
+      needs_ssh?: boolean
+    }>,
 })
 
 contextBridge.exposeInMainWorld('wizard', {

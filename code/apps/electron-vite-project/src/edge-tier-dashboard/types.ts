@@ -2,6 +2,33 @@ export type ReplicaHealth = 'healthy' | 'unhealthy' | 'unknown'
 
 export type DashboardFallbackPolicy = 'reject' | 'downgrade_with_badge'
 
+export interface QuarantineReplicaSummary {
+  replica_id: string
+  count: number
+  latest_at: string | null
+}
+
+export interface QuarantineDashboardSummary {
+  total_count: number
+  by_replica: QuarantineReplicaSummary[]
+  recent_failures: Array<{
+    replica_id: string
+    hash: string
+    quarantined_at: string
+    failed_role: string
+  }>
+}
+
+export interface QuarantineListItem {
+  replica_id: string
+  hash: string
+  quarantined_at: string
+  envelope_from: string
+  envelope_subject_filtered: string
+  failed_role: string
+  report_filename: string | null
+}
+
 export interface ReplicaStatus {
   host: string
   port: number
@@ -27,4 +54,5 @@ export interface DashboardUpdatePayload {
   fallback_policy: DashboardFallbackPolicy
   replicas: ReplicaStatus[]
   verifications: VerificationEvent[]
+  quarantine_summary?: QuarantineDashboardSummary
 }

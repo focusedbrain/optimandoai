@@ -125,3 +125,23 @@ export function getLocalQuarantineRetentionDays(settingsRetention?: number): num
   }
   return 30
 }
+
+function quarantineEntryDir(replicaId: string, hash: string): string {
+  return quarantineDir(replicaId, hash)
+}
+
+export function readLocalQuarantineRawBytesWire(
+  replicaId: string,
+  hash: string,
+): string | null {
+  const path = join(quarantineEntryDir(replicaId, hash), 'raw_bytes')
+  if (!existsSync(path)) return null
+  return readFileSync(path, 'utf8')
+}
+
+export function deleteLocalQuarantineEntry(replicaId: string, hash: string): boolean {
+  const dir = quarantineEntryDir(replicaId, hash)
+  if (!existsSync(dir)) return false
+  rmSync(dir, { recursive: true, force: true })
+  return true
+}

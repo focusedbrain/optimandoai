@@ -14,6 +14,7 @@ import {
   type EdgeVerificationRecord,
   MAX_EDGE_VERIFICATIONS,
 } from './verificationAudit.js'
+import { buildQuarantineDashboardSummary } from './quarantineDashboard.js'
 
 export type ReplicaHealth = 'healthy' | 'unhealthy' | 'unknown'
 
@@ -37,6 +38,7 @@ export interface DashboardUpdatePayload {
   fallback_policy: DashboardFallbackPolicy
   replicas: ReplicaStatus[]
   verifications: VerificationEvent[]
+  quarantine_summary: ReturnType<typeof buildQuarantineDashboardSummary>
 }
 
 export const HEALTH_PROBE_INTERVAL_MS = 30_000
@@ -154,6 +156,7 @@ export function buildDashboardUpdatePayload(): DashboardUpdatePayload {
     fallback_policy: toDashboardFallbackPolicy(settings.fallback_policy),
     replicas: getDashboardReplicas(),
     verifications: getDashboardVerifications(),
+    quarantine_summary: buildQuarantineDashboardSummary(),
   }
 }
 

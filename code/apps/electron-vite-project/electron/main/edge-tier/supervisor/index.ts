@@ -18,6 +18,7 @@ import { pickupQuarantineEntries } from './quarantinePickup.js'
 import { reportStorageFilename, getReport } from './reportStore.js'
 import { cleanupLocalQuarantine, getLocalQuarantineRetentionDays } from './quarantineStore.js'
 import { deliverQuarantineKeyToReplica } from '../quarantineDeliver.js'
+import { notifyDashboardUpdated } from '../dashboard.js'
 import { inspectContainerStatus, replaceContainer } from './replace.js'
 
 export const SUPERVISOR_POLL_INTERVAL_MS = 10_000
@@ -290,6 +291,7 @@ async function handleExitedContainer(
         success: true,
       })
     }
+    notifyDashboardUpdated()
   }
 
   const queuePosition = 0

@@ -258,6 +258,18 @@ interface DashboardBridge {
   onGlobalActionProgress: (
     handler: (payload: { operationId: string; event: Record<string, unknown> }) => void,
   ) => () => void
+  getQuarantineSummary: () => Promise<Record<string, unknown>>
+  listQuarantine: (replicaId?: string) => Promise<Array<Record<string, unknown>>>
+  prepareSandboxView: (input: {
+    mode: 'diagnostic_report' | 'raw_email_body'
+    replicaId: string
+    hash: string
+  }) => Promise<{ ok: boolean; textContent?: string; error?: string }>
+  discardQuarantine: (input: Record<string, unknown>) => Promise<{
+    ok: boolean
+    error?: string
+    needs_ssh?: boolean
+  }>
 }
 
 interface WizardBridge {
