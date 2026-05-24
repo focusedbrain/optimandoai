@@ -265,6 +265,7 @@ import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } fro
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { resealWithAiAnalysis, resealWithPdfExtraction } from './sealedContentUpdate'
 import { runSubAnalyses, applySubAnalysesToRow } from './ai/subAnalysisOrchestrator'
+import { normalizeAiProviderSetting, resolveSecurityAiProvider } from './ai/inboxAiProviderSetting'
 import { ensureValidatorAndSealedStorageReady } from '../validatorReadiness'
 import { prepareSealedOperationalUpdate, sealedQuery } from '../sealed-storage'
 import {
@@ -273,7 +274,7 @@ import {
   loadVerifiedInboxMessageById,
 } from './inboxSealedRead'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
-import { inboxLlmChat, isLlmAvailable, INBOX_LLM_TIMEOUT_MS, resolveInboxLlmSettings, preResolveInboxLlm, type ResolvedLlmContext } from './inboxLlmChat'
+import { inboxLlmChat, isLlmAvailable, INBOX_LLM_TIMEOUT_MS, resolveInboxLlmSettings, preResolveInboxLlm, preResolveOllamaLlm, preResolveCloudLlm, type ResolvedLlmContext } from './inboxLlmChat'
 import { maybePrewarmOllamaForBulkClassify, type OllamaBulkPrewarmDiag } from '../llm/ollamaBulkPrewarm'
 
 /** Per-page strings from DB `extracted_text` (extraction joins pages with \\n\\n). */
@@ -1551,6 +1552,7 @@ export function registerInboxHandlers(
   getDb: () => Promise<any> | any,
   mainWindow?: BrowserWindow | null,
   _getAnthropicApiKey?: GetAnthropicApiKey,
+  getTier?: () => string,
 ): void {
   console.log('[INBOX-IPC] registerInboxHandlers called')
 
@@ -4238,7 +4240,15 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
 
       // P2.4: run phishing assessment + validation crosscheck in parallel (best-effort).
       // These run after the main analysis — a sub-analysis failure never blocks the response.
-      const subOutcome = await runSubAnalyses(row, resolvedLlm)
+      // P2.6: use the user's security provider setting (may differ from the main analysis provider).
+      const securityProviderSetting = normalizeAiProviderSetting(getInboxSetting(db, 'inbox_ai_security_provider'))
+      const securityProvider = await resolveSecurityAiProvider(
+        securityProviderSetting,
+        getTier ? getTier() : 'unknown',
+        { ollama: preResolveOllamaLlm, cloud: preResolveCloudLlm },
+      )
+      const subAnalysisProvider = securityProvider ?? resolvedLlm
+      const subOutcome = await runSubAnalyses(row, subAnalysisProvider)
       applySubAnalysesToRow(db, messageId, subOutcome).catch((e: unknown) => {
         console.log(`[AI_ANALYZE] ${JSON.stringify({ ai_subanalysis_apply_error: true, error: (e as Error)?.message ?? String(e), messageId })}`)
       })
@@ -4690,10 +4700,18 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
             )
 
             // P2.4: run phishing assessment + validation crosscheck after the main stream.
-            // Build the provider context from whatever was resolved for the main stream.
-            const streamProvider = ollamaModelForStream && aiExec
+            // P2.6: resolve security provider from user setting.
+            const secProvSetting = normalizeAiProviderSetting(getInboxSetting(db, 'inbox_ai_security_provider'))
+            const secProvResolved = await resolveSecurityAiProvider(
+              secProvSetting,
+              getTier ? getTier() : 'unknown',
+              { ollama: preResolveOllamaLlm, cloud: preResolveCloudLlm },
+            )
+            // Fall back to the stream's main provider if security provider is unavailable.
+            const streamProviderBase = ollamaModelForStream && aiExec
               ? { model: ollamaModelForStream, provider: 'ollama', aiExecution: aiExec }
               : (await preResolveInboxLlm())
+            const streamProvider = secProvResolved ?? streamProviderBase
             if (streamProvider && !signal.aborted && !event.sender.isDestroyed()) {
               if (!event.sender.isDestroyed()) {
                 event.sender.send('inbox:aiSubAnalysisStarted', { messageId, kinds: ['phishing', 'crosscheck'] })
@@ -5818,6 +5836,8 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       const batchSize = getInboxSetting(db, 'inbox_batch_size')
       const batchSizeNum = typeof batchSize === 'number' ? batchSize : (typeof batchSize === 'string' ? parseInt(batchSize, 10) : 10)
       const validBatch = [10, 12, 24, 48].includes(batchSizeNum) ? batchSizeNum : 10
+      const aiSecurityProviderRaw = getInboxSetting(db, 'inbox_ai_security_provider')
+      const aiSecurityProvider = normalizeAiProviderSetting(aiSecurityProviderRaw)
       return {
         ok: true,
         data: {
@@ -5825,6 +5845,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
           sortRules: typeof sortRules === 'string' ? sortRules : '',
           contextDocs: Array.isArray(contextDocs) ? contextDocs : [],
           batchSize: validBatch,
+          aiSecurityProvider,
         },
       }
     } catch (err: any) {
@@ -5832,7 +5853,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
     }
   })
 
-  ipcMain.handle('inbox:setInboxSettings', async (_e, partial: { tone?: string; sortRules?: string; batchSize?: number }) => {
+  ipcMain.handle('inbox:setInboxSettings', async (_e, partial: { tone?: string; sortRules?: string; batchSize?: number; aiSecurityProvider?: unknown }) => {
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
@@ -5840,6 +5861,10 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       if (partial.sortRules !== undefined) setInboxSetting(db, 'inbox_ai_sort_rules', partial.sortRules)
       if (partial.batchSize !== undefined && [10, 12, 24, 48].includes(partial.batchSize)) {
         setInboxSetting(db, 'inbox_batch_size', partial.batchSize)
+      }
+      if (partial.aiSecurityProvider !== undefined) {
+        const normalized = normalizeAiProviderSetting(partial.aiSecurityProvider)
+        setInboxSetting(db, 'inbox_ai_security_provider', normalized)
       }
       return { ok: true }
     } catch (err: any) {

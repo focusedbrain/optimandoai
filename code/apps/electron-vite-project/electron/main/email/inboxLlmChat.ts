@@ -182,6 +182,33 @@ export async function preResolveInboxLlm(): Promise<ResolvedLlmContext | null> {
   return { model: settings.model ?? '', provider: settings.provider }
 }
 
+/**
+ * P2.6 — Resolve Ollama context only, ignoring the ocrRouter cloud preference.
+ * Returns null if no Ollama model is available.
+ */
+export async function preResolveOllamaLlm(): Promise<ResolvedLlmContext | null> {
+  const r = await resolveAiExecutionContextForLlm()
+  if (!r.ok) return null
+  if (DEBUG_ACTIVE_OLLAMA_MODEL) {
+    console.warn('[ActiveOllamaModel] preResolveOllamaLlm →', r.ctx.model, r.ctx.lane)
+  }
+  return { model: r.ctx.model, provider: 'ollama', aiExecution: r.ctx }
+}
+
+/**
+ * P2.6 — Resolve cloud context only, ignoring the ocrRouter preference.
+ * Returns null if no cloud provider has an API key configured.
+ */
+export async function preResolveCloudLlm(): Promise<ResolvedLlmContext | null> {
+  const cloud = firstCloudRagSettings()
+  if (!cloud) return null
+  const vp = visionForRagSettings(cloud)
+  if (!vp) return null
+  const key = ocrRouter.getApiKey(vp)
+  if (typeof key !== 'string' || !key.trim()) return null
+  return { model: cloud.model ?? '', provider: cloud.provider }
+}
+
 export interface InboxLlmChatParams {
   system: string
   user: string

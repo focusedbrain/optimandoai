@@ -21,6 +21,7 @@ import { useEmailInboxStore, activeEmailAccountIdsForSync, type InboxMessage } f
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import type { NormalInboxAiResult } from '../types/inboxAi'
 import { InboxSecurityPanel, InboxPhishingBadge } from './InboxSecurityPanel'
+import { InboxAiProviderSettings } from './InboxAiProviderSettings'
 import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
 import { resolveActiveSandboxCloneTargets } from '../lib/resolveActiveSandboxCloneTargets'
@@ -342,6 +343,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const [draftSubFocused, setDraftSubFocused] = useState(false)
   const [visibleSections, setVisibleSections] = useState<Set<string>>(() => new Set(['summary', 'draft', 'analysis']))
   const [subAnalysisLoading, setSubAnalysisLoading] = useState(false)
+  const [showAiProviderSettings, setShowAiProviderSettings] = useState(false)
   const [capsulePublicText, setCapsulePublicText] = useState('')
   const [capsuleEncryptedText, setCapsuleEncryptedText] = useState('')
   const [capsulePublicSource, setCapsulePublicSource] = useState('none')
@@ -1650,8 +1652,26 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
             🗑️
           </button>
         ) : null}
+        {/* P2.6: AI provider settings gear */}
+        <button
+          type="button"
+          className={`inbox-detail-ai-action-btn${showAiProviderSettings ? ' inbox-detail-ai-action-btn--active' : ''}`}
+          onClick={() => setShowAiProviderSettings((v) => !v)}
+          aria-label="AI analysis settings"
+          aria-pressed={showAiProviderSettings}
+          title="AI analysis settings"
+          style={{ marginLeft: 'auto', opacity: 0.7 }}
+        >
+          ⚙
+        </button>
       </div>
       <div className="inbox-detail-ai-scroll">
+        {/* P2.6: AI provider settings panel — shown when gear icon is toggled */}
+        {showAiProviderSettings && (
+          <div className="inbox-detail-ai-section inbox-detail-ai-section--tab-panel">
+            <InboxAiProviderSettings onSaved={() => setShowAiProviderSettings(false)} />
+          </div>
+        )}
         {inboxAiWorkInFlight && inboxAiWorkLabel ? (
           <div className="inbox-detail-ai-loading" role="status" aria-live="polite" aria-busy="true">
             <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>

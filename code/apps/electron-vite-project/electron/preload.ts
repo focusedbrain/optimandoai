@@ -1486,7 +1486,7 @@ contextBridge.exposeInMainWorld('emailInbox', {
   cancelPendingReview: (messageId: string) => ipcRenderer.invoke('inbox:cancelPendingReview', messageId),
   unarchive: (messageId: string) => ipcRenderer.invoke('inbox:unarchive', messageId),
   getInboxSettings: () => ipcRenderer.invoke('inbox:getInboxSettings'),
-  setInboxSettings: (partial: { tone?: string; sortRules?: string; batchSize?: number }) => ipcRenderer.invoke('inbox:setInboxSettings', partial),
+  setInboxSettings: (partial: { tone?: string; sortRules?: string; batchSize?: number; aiSecurityProvider?: unknown }) => ipcRenderer.invoke('inbox:setInboxSettings', partial),
   selectAndUploadContextDoc: () => ipcRenderer.invoke('inbox:selectAndUploadContextDoc'),
   deleteContextDoc: (docId: string) => ipcRenderer.invoke('inbox:deleteContextDoc', docId),
   listContextDocs: () => ipcRenderer.invoke('inbox:listContextDocs'),

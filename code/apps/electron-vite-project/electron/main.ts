@@ -2778,7 +2778,7 @@ app.whenReady().then(async () => {
         }
       }
       try {
-        registerInboxHandlers(getInboxDb, null, getAnthropicApiKey)
+        registerInboxHandlers(getInboxDb, null, getAnthropicApiKey, () => currentTier)
         setBeapInboxDashboardNotifier((handshakeId) => {
           console.log('[BEAP-INBOX] Notifying dashboard of new BEAP messages')
           for (const w of BrowserWindow.getAllWindows()) {

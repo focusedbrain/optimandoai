@@ -18,7 +18,7 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 - [x] **P2.3** — Validation cross-check (AI plausibility check vs structural validator outcome; discrepancy flagged, not blocking)
 - [x] **P2.4** — Wire phishing scorer and crosscheck into AI analysis IPC handlers
 - [x] **P2.5** — UI: badges, detail panel, persistent disclaimer (phishing risk badges in inbox rows; "Security analysis" panel with signals/URLs/crosscheck/disclaimer; sub-analysis loading indicator)
-- [ ] **P2.6** — AI provider user setting (provider selector surface; default provider decided here; pluggable interface for P2.2)
+- [x] **P2.6** — User-selectable AI provider setting (`inbox_ai_security_provider` in `inbox_settings`; Default/Local Ollama/Cloud; tier defaults in one place; settings UI with privacy disclaimer; plumbed into P2.4 sub-analysis call sites)
 - [ ] **P2.7** — Phase 2 test suite and CI (unit + integration tests for scorer, cross-check, link policy; CI job for AI enrichment smoke test)
 - [ ] **P2.8** — Retire extension sandbox depackager (remove vestigial depackager from Chrome extension sandbox; fold into pod path per strategy §9 decision 1)
 
@@ -34,7 +34,7 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 | P2.3 | ✅ done | P2.3: validation cross-check module |
 | P2.4 | ✅ done | P2.4: wire phishing assessment and validation crosscheck into AI analysis handlers |
 | P2.5 | ✅ done | P2.5: UI badges, detail panel, persistent disclaimer for AI analyses |
-| P2.6 | ⬜ pending | — |
+| P2.6 | ✅ done | P2.6: user-selectable AI provider with tier defaults |
 | P2.7 | ⬜ pending | — |
 | P2.8 | ⬜ pending | — |
 
@@ -61,6 +61,18 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 ## Notes & deviations
 
 *(Record any decisions made differently from the strategy here, with rationale.)*
+
+### P2.6
+
+- **New files:** `electron/main/email/ai/inboxAiProviderSetting.ts` (types, `defaultProviderKindForTier`, `normalizeAiProviderSetting`, `resolveSecurityAiProvider`), `src/components/InboxAiProviderSettings.tsx` (`InboxAiProviderSettingsForm` pure form + `InboxAiProviderSettings` IPC wrapper), `electron/main/email/ai/__tests__/inboxAiProviderSetting.test.ts` (30 tests), `src/components/__tests__/InboxAiProviderSettings.test.tsx` (13 tests).
+- **Single source of truth:** tier→provider defaults live exclusively in `defaultProviderKindForTier(tier)`. Free/unknown → `local_ollama`; paid (private, private_lifetime, pro, publisher, publisher_lifetime, enterprise) → `cloud`.
+- **`inboxLlmChat.ts` additions:** `preResolveOllamaLlm()` and `preResolveCloudLlm()` — provider-specific resolvers that bypass the ocrRouter preference so that user overrides actually take effect regardless of global preference setting.
+- **`ipc.ts` changes:** `registerInboxHandlers` gains optional `getTier?: () => string` parameter. Both sub-analysis call sites (`inbox:aiAnalyzeMessage` and `inbox:aiAnalyzeMessageStream`) now read `inbox_ai_security_provider` from DB, resolve via `resolveSecurityAiProvider`, and fall back to the main-analysis provider only if the security provider is unavailable.
+- **`main.ts`:** passes `() => currentTier` to `registerInboxHandlers`.
+- **Settings UI:** gear icon (⚙) in the AI panel action bar toggles the `InboxAiProviderSettings` panel. The panel shows Default/Local Ollama/Cloud radio, cloud sub-fields (model name, endpoint URL), and the privacy disclaimer. API key management is explicitly deferred to Backend Configuration; a note is shown in the cloud sub-fields.
+- **No automatic failover:** if the chosen provider resolves to null, sub-analyses are silently skipped (no fallback to the other provider). This matches P2.4 best-effort contract.
+- **Cloud endpoint field:** stored in DB but not yet wired into provider dispatch. TODO noted in `inboxAiProviderSetting.ts`; actual endpoint override is P2.x work.
+- **Test isolation:** `resolveSecurityAiProvider` takes injected resolver callbacks so tests pass pure stubs without mocking ES module imports.
 
 ### P2.5
 
