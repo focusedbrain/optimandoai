@@ -2968,7 +2968,9 @@ app.whenReady().then(async () => {
     console.log('[MAIN] IPC handler registered: integrity:status')
 
     void import('./main/edge-tier/ipc.js')
-      .then((m) => {
+      .then(async (m) => {
+        const { vaultService } = await import('./main/vault/rpc.js')
+        m.initEdgeTierIpc(vaultService)
         m.registerEdgeTierIpcHandlers()
       })
       .catch((e) => console.error('[MAIN] Edge tier IPC registration failed:', e))

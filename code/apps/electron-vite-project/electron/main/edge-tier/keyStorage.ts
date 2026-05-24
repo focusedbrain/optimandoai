@@ -129,3 +129,9 @@ export function loadEncryptedEdgePrivateKeyHex(
   if (!record) return null
   return decryptEdgePrivateKeyHex(record.ciphertext_b64, vault)
 }
+
+export function removeEncryptedEdgePrivateKey(edgePodId: string): void {
+  const store = loadKeyStore()
+  const keys = store.keys.filter((k) => k.edge_pod_id.toLowerCase() !== edgePodId.toLowerCase())
+  saveKeyStore({ keys })
+}

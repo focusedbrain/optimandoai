@@ -30,7 +30,7 @@ P3.8 building blocks: `apps/electron-vite-project/scripts/edge-cli.ts`, `apps/el
 - [x] **P4.4** — Wizard state machine + IPC handlers (six steps, streaming progress, AbortSignal cancel)
 - [x] **P4.5** — Wizard UI (six-step flow, live log panels, provider-agnostic copy)
 - [x] **P4.6** — Status dashboard (replica list, health probes, verification log; app shell entry)
-- [ ] **P4.7** — Phase 4 verification pass + manual test documentation
+- [x] **P4.7** — Replica actions (restart, redeploy, remove) + manual test documentation
 
 ---
 
@@ -45,7 +45,7 @@ P3.8 building blocks: `apps/electron-vite-project/scripts/edge-cli.ts`, `apps/el
 | P4.4 | ✅ done | P4.4: wizard state machine and IPC handlers |
 | P4.5 | ✅ done | P4.5: wizard UI for six-step flow |
 | P4.6 | ✅ done | P4.6: status dashboard with replica list and verification log |
-| P4.7 | ⬜ pending | — |
+| P4.7 | ✅ done | P4.7: replica restart/redeploy/remove actions |
 
 ---
 

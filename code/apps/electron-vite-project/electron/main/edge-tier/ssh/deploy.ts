@@ -100,6 +100,10 @@ export function buildTeardownCommand(): string {
   )
 }
 
+export function buildRestartCommand(): string {
+  return wrapHistorySafe(`podman pod restart ${REMOTE_POD_NAME}`)
+}
+
 export function buildRemoveManifestCommand(): string {
   return `rm -f ${REMOTE_MANIFEST_PATH}`
 }

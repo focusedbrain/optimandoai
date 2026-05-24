@@ -1572,6 +1572,21 @@ contextBridge.exposeInMainWorld('dashboard', {
       error?: string
     }>
   },
+  restartReplica: (input: Record<string, unknown>) => ipcRenderer.invoke('replica:restart', input),
+  redeployReplica: (input: Record<string, unknown>) => ipcRenderer.invoke('replica:redeploy', input),
+  removeReplica: (input: Record<string, unknown>) => ipcRenderer.invoke('replica:remove', input),
+  disableEdgeTier: () => ipcRenderer.invoke('dashboard:disableEdgeTier') as Promise<{ ok: boolean }>,
+  onReplicaActionProgress: (
+    handler: (payload: { operationId: string; event: Record<string, unknown> }) => void,
+  ) => {
+    const fn = (_event: unknown, payload: unknown) => {
+      if (payload && typeof payload === 'object') {
+        handler(payload as { operationId: string; event: Record<string, unknown> })
+      }
+    }
+    ipcRenderer.on('replica:action-progress', fn)
+    return () => ipcRenderer.removeListener('replica:action-progress', fn)
+  },
 })
 
 contextBridge.exposeInMainWorld('wizard', {

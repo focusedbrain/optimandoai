@@ -11,6 +11,11 @@ import {
   registerDashboardIpcHandlers,
   notifyDashboardUpdated,
 } from './dashboard.js'
+import { initReplicaActionIpc, registerReplicaActionIpcHandlers } from './replicaActionsIpc.js'
+
+export function initEdgeTierIpc(vault: import('./podLifecycle.js').EdgeTierPodVault): void {
+  initReplicaActionIpc(vault)
+}
 
 let _dashboardHookInstalled = false
 
@@ -23,6 +28,7 @@ function ensureDashboardVerificationHook(): void {
 export function registerEdgeTierIpcHandlers(): void {
   ensureDashboardVerificationHook()
   registerDashboardIpcHandlers()
+  registerReplicaActionIpcHandlers()
 
   ipcMain.handle('edge-tier:get-status', async () => {
     return getEdgeTierStatusSnapshot()

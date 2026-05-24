@@ -225,6 +225,13 @@ interface DashboardBridge {
   subscribeUpdates: () => Promise<{ ok: boolean }>
   onUpdates: (handler: (payload: Record<string, unknown>) => void) => () => void
   fetchReplicaLogs: (edgePodId: string) => Promise<{ ok: boolean; lines?: string[]; error?: string }>
+  restartReplica: (input: Record<string, unknown>) => Promise<{ ok: boolean; error?: string; result?: Record<string, unknown> }>
+  redeployReplica: (input: Record<string, unknown>) => Promise<{ ok: boolean; error?: string; result?: Record<string, unknown> }>
+  removeReplica: (input: Record<string, unknown>) => Promise<{ ok: boolean; error?: string; result?: Record<string, unknown> }>
+  disableEdgeTier: () => Promise<{ ok: boolean }>
+  onReplicaActionProgress: (
+    handler: (payload: { operationId: string; event: Record<string, unknown> }) => void,
+  ) => () => void
 }
 
 interface WizardBridge {

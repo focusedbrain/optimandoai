@@ -70,6 +70,7 @@ describe('DashboardShellView', () => {
         onViewDetails={() => undefined}
         onCloseDetail={() => undefined}
         onLaunchWizard={() => undefined}
+        onReplicaAction={() => undefined}
       />,
     )
     expect(html).toMatchSnapshot()

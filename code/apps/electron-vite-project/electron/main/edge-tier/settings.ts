@@ -150,6 +150,31 @@ export function upsertEdgeReplica(replica: EdgeReplica): EdgeTierSettings {
   return next
 }
 
+export function removeEdgeReplica(edgePodId: string): {
+  settings: EdgeTierSettings
+  wasLast: boolean
+} {
+  const current = loadEdgeTierSettings()
+  const replicas = current.replicas.filter(
+    (r) => r.edge_pod_id.toLowerCase() !== edgePodId.toLowerCase(),
+  )
+  const wasLast = current.replicas.length === 1 && replicas.length === 0
+  const next = { ...current, replicas }
+  saveEdgeTierSettings(next)
+  return { settings: next, wasLast }
+}
+
+export function replaceEdgeReplica(oldPodId: string, replica: EdgeReplica): EdgeTierSettings {
+  const current = loadEdgeTierSettings()
+  const replicas = current.replicas.filter(
+    (r) => r.edge_pod_id.toLowerCase() !== oldPodId.toLowerCase(),
+  )
+  replicas.push(replica)
+  const next = { ...current, replicas }
+  saveEdgeTierSettings(next)
+  return next
+}
+
 /** Comma-separated edge pod UUIDs for TRUSTED_EDGE_POD_IDS env injection. */
 export function formatTrustedEdgePodIds(settings: EdgeTierSettings): string {
   return settings.replicas.map((r) => r.edge_pod_id).join(',')

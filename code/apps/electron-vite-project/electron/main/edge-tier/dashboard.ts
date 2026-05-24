@@ -194,6 +194,10 @@ export function notifyDashboardUpdated(): void {
   }
 }
 
+export function _clearReplicaHealthCacheEntry(replicaId: string): void {
+  _healthCache.delete(replicaId.toLowerCase())
+}
+
 export async function fetchReplicaLogs(
   edgePodId: string,
 ): Promise<{ ok: true; lines: string[] } | { ok: false; error: string }> {

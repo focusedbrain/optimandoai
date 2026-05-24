@@ -1,12 +1,15 @@
 import type { ReplicaStatus } from './types.js'
 import { formatTimestamp, formatCertsPerMinute, healthColor, healthLabel } from './format.js'
+import { ReplicaKebabMenu } from './ReplicaKebabMenu.js'
+import type { ReplicaActionKind } from './replicaActions.js'
 
 export interface ReplicasListProps {
   replicas: ReplicaStatus[]
   onViewDetails: (replica: ReplicaStatus) => void
+  onReplicaAction?: (action: ReplicaActionKind, replica: ReplicaStatus) => void
 }
 
-export function ReplicasList({ replicas, onViewDetails }: ReplicasListProps) {
+export function ReplicasList({ replicas, onViewDetails, onReplicaAction }: ReplicasListProps) {
   if (replicas.length === 0) {
     return (
       <p data-testid="edge-dashboard-replicas-empty" style={{ color: 'var(--text-secondary)', margin: 0 }}>
@@ -45,21 +48,26 @@ export function ReplicasList({ replicas, onViewDetails }: ReplicasListProps) {
               </td>
               <td style={{ padding: '6px 8px' }}>{formatCertsPerMinute(replica.certs_per_minute)}</td>
               <td style={{ padding: '6px 8px' }}>
-                <button
-                  type="button"
-                  data-testid={`replica-view-details-${replica.edge_pod_id}`}
-                  onClick={() => onViewDetails(replica)}
-                  style={{
-                    padding: '4px 10px',
-                    fontSize: 11,
-                    borderRadius: 6,
-                    border: '1px solid var(--border)',
-                    background: 'transparent',
-                    cursor: 'pointer',
-                  }}
-                >
-                  View details
-                </button>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    data-testid={`replica-view-details-${replica.edge_pod_id}`}
+                    onClick={() => onViewDetails(replica)}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: 11,
+                      borderRadius: 6,
+                      border: '1px solid var(--border)',
+                      background: 'transparent',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    View details
+                  </button>
+                  {onReplicaAction && (
+                    <ReplicaKebabMenu replica={replica} onAction={onReplicaAction} />
+                  )}
+                </div>
               </td>
             </tr>
           ))}

@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { EdgeTierWizardModal } from '../edge-tier-wizard/index.js'
+import type { LogEvent } from '../edge-tier-wizard/types.js'
 import { ReplicasList } from './ReplicasList.js'
 import { VerificationsList } from './VerificationsList.js'
 import { ReplicaDetail } from './ReplicaDetail.js'
+import { ReplicaActionModal } from './ReplicaActionModal.js'
+import { LastReplicaPrompt } from './LastReplicaPrompt.js'
+import type { SshKeyEntryFormValues } from './SshKeyEntryForm.js'
 import type { DashboardUpdatePayload, ReplicaStatus } from './types.js'
+import type { ReplicaActionKind } from './replicaActions.js'
 
 export type DashboardTab = 'replicas' | 'verifications'
 
@@ -17,6 +22,7 @@ export interface DashboardShellViewProps {
   onViewDetails: (replica: ReplicaStatus) => void
   onCloseDetail: () => void
   onLaunchWizard: () => void
+  onReplicaAction?: (action: ReplicaActionKind, replica: ReplicaStatus) => void
   loading?: boolean
   error?: string | null
   fetchLogs?: (edgePodId: string) => Promise<{ ok: boolean; lines?: string[]; error?: string }>
@@ -32,6 +38,7 @@ export function DashboardShellView({
   onViewDetails,
   onCloseDetail,
   onLaunchWizard,
+  onReplicaAction,
   loading,
   error,
   fetchLogs,
@@ -118,7 +125,11 @@ export function DashboardShellView({
       </div>
 
       {activeTab === 'replicas' ? (
-        <ReplicasList replicas={replicas} onViewDetails={onViewDetails} />
+        <ReplicasList
+          replicas={replicas}
+          onViewDetails={onViewDetails}
+          onReplicaAction={onReplicaAction}
+        />
       ) : (
         <VerificationsList verifications={verifications} />
       )}
@@ -137,6 +148,24 @@ export function DashboardShell() {
   const [wizardOpen, setWizardOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [actionModal, setActionModal] = useState<{
+    replica: ReplicaStatus
+    action: ReplicaActionKind
+  } | null>(null)
+  const [actionRunning, setActionRunning] = useState(false)
+  const [actionLogs, setActionLogs] = useState<LogEvent[]>([])
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [showLastReplicaPrompt, setShowLastReplicaPrompt] = useState(false)
+  const progressUnsubRef = useRef<(() => void) | null>(null)
+
+  const closeActionModal = useCallback(() => {
+    progressUnsubRef.current?.()
+    progressUnsubRef.current = null
+    setActionModal(null)
+    setActionRunning(false)
+    setActionLogs([])
+    setActionError(null)
+  }, [])
 
   const refresh = useCallback(async () => {
     const bridge = window.dashboard
@@ -194,6 +223,86 @@ export function DashboardShell() {
     return bridge.fetchReplicaLogs(edgePodId)
   }, [])
 
+  const runReplicaAction = useCallback(
+    async (values: SshKeyEntryFormValues) => {
+      if (!actionModal) return
+      const bridge = window.dashboard
+      if (!bridge) {
+        setActionError('Dashboard bridge unavailable')
+        return
+      }
+
+      const operationId = crypto.randomUUID()
+      setActionRunning(true)
+      setActionError(null)
+      setActionLogs([])
+
+      progressUnsubRef.current?.()
+      progressUnsubRef.current = bridge.onReplicaActionProgress(({ operationId: id, event }) => {
+        if (id !== operationId) return
+        setActionLogs((prev) => [
+          ...prev,
+          {
+            kind: event.kind as LogEvent['kind'],
+            message: String(event.message ?? ''),
+            stage_name: typeof event.stage_name === 'string' ? event.stage_name : undefined,
+          },
+        ])
+      })
+
+      const input = {
+        operationId,
+        replicaId: actionModal.replica.edge_pod_id,
+        sshUser: values.sshUser.trim(),
+        sshPort: Number(values.sshPort) || 22,
+        sshKey: values.sshKey,
+        passphrase: values.passphrase.trim() || undefined,
+      }
+
+      try {
+        let result: { ok: boolean; error?: string; result?: { wasLastReplica?: boolean } }
+        switch (actionModal.action) {
+          case 'restart':
+            result = await bridge.restartReplica(input)
+            break
+          case 'redeploy':
+            result = await bridge.redeployReplica(input)
+            break
+          case 'remove':
+            result = await bridge.removeReplica(input)
+            break
+        }
+        if (!result.ok) {
+          setActionError(result.error ?? 'Action failed')
+          return
+        }
+        if (result.result?.wasLastReplica) {
+          closeActionModal()
+          setShowLastReplicaPrompt(true)
+          void refresh()
+          return
+        }
+        closeActionModal()
+        void refresh()
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setActionRunning(false)
+        progressUnsubRef.current?.()
+        progressUnsubRef.current = null
+      }
+    },
+    [actionModal, closeActionModal, refresh],
+  )
+
+  const handleDisableEdgeTier = useCallback(async () => {
+    const bridge = window.dashboard
+    if (!bridge?.disableEdgeTier) return
+    await bridge.disableEdgeTier()
+    setShowLastReplicaPrompt(false)
+    void refresh()
+  }, [refresh])
+
   return (
     <>
       <DashboardShellView
@@ -206,10 +315,36 @@ export function DashboardShell() {
         onViewDetails={setSelectedReplica}
         onCloseDetail={() => setSelectedReplica(null)}
         onLaunchWizard={() => setWizardOpen(true)}
+        onReplicaAction={(action, replica) => {
+          setActionModal({ action, replica })
+          setActionLogs([])
+          setActionError(null)
+        }}
         loading={loading && !payload}
         error={error}
         fetchLogs={fetchLogs}
       />
+      {actionModal && (
+        <ReplicaActionModal
+          replica={actionModal.replica}
+          action={actionModal.action}
+          running={actionRunning}
+          logEvents={actionLogs}
+          error={actionError}
+          onClose={closeActionModal}
+          onSubmit={(values) => void runReplicaAction(values)}
+        />
+      )}
+      {showLastReplicaPrompt && (
+        <LastReplicaPrompt
+          onAddReplica={() => {
+            setShowLastReplicaPrompt(false)
+            setWizardOpen(true)
+          }}
+          onDisableEdgeTier={() => void handleDisableEdgeTier()}
+          onDismiss={() => setShowLastReplicaPrompt(false)}
+        />
+      )}
       {wizardOpen && (
         <EdgeTierWizardModal
           open={wizardOpen}
