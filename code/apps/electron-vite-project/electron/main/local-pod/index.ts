@@ -1,53 +1,61 @@
 /**
- * Local pod lifecycle manager — Phase 1, P1.8.
+ * Local pod lifecycle manager — Phase 1, P1.8; LOCAL_VERIFY mode — Phase 3, P3.8.
  *
- * startLocalPod() — called after vault unlock (same callsite as
- *   validatorOrchestrator.start).  Linux-only; no-op on other platforms.
- *   Errors are caught and logged; they never crash the app.  The existing
- *   in-process validation path (validatorOrchestrator) keeps running in
- *   parallel; the pod-client (P1.9) will route calls through the pod.
- *
- * stopLocalPod()  — called on vault-lock and app-quit.  Runs `podman pod
- *   stop && podman pod rm`.  Safe to call when no pod is running.
- *
- * Platform guard: startLocalPod() checks process.platform === 'linux' (or
- *   options.platform in tests) and logs a clear message before returning when
- *   not on Linux.  Phase 2 adds Windows/macOS support.
- *
- * Module state: _activePod and _startPromise are module-level so that
- *   concurrent calls to startLocalPod() join the same Promise.  Tests call
- *   _resetStateForTest() in afterEach to isolate state.
+ * startLocalPod() — called after vault unlock.  Linux-only; no-op on other platforms.
+ * stopLocalPod()  — called on vault-lock and app-quit.
+ * restartLocalPod() — graceful stop + start when edge-tier settings change.
  */
 
 import { generatePodAuthSecret, deriveSealKeyHex } from './secrets.js'
-import { applyPodManifest, type ActivePod, type PodRunnerOptions } from './podRunner.js'
+import {
+  applyPodManifest,
+  resolveManifestPath,
+  resolveLocalVerifyManifestPath,
+  DEFAULT_POD_NAME,
+  DEFAULT_LOCAL_VERIFY_POD_NAME,
+  type ActivePod,
+  type PodRunnerOptions,
+} from './podRunner.js'
+import {
+  loadEdgeTierSettings,
+  formatTrustedEdgePodIds,
+  type EdgeTierSettings,
+} from '../edge-tier/settings.js'
+import { getCachedJwksJson } from '../edge-tier/jwks.js'
+import { getLocalSsoSub } from '../edge-tier/sessionBridge.js'
 
 // ── Module-level state ─────────────────────────────────────────────────────────
 
 let _activePod: ActivePod | null = null
 let _startPromise: Promise<void> | null = null
+let _restartPromise: Promise<void> | null = null
 
 // ── Public API ─────────────────────────────────────────────────────────────────
 
-export interface LocalPodOptions extends PodRunnerOptions {
-  /**
-   * Override the platform string used for the Linux guard.
-   * Defaults to process.platform.  Tests pass 'linux' or 'win32' explicitly.
-   */
-  platform?: NodeJS.Platform | string
+export interface LocalPodStartContext {
+  edgeTier?: EdgeTierSettings
+  localSsoSub?: string | null
+  jwksJson?: string | null
 }
 
-/**
- * Start the BEAP local pod (Linux only).
- *
- * - On non-Linux platforms: logs a message and returns immediately.
- * - If the pod is already running: no-op.
- * - If a start is already in progress: joins that Promise.
- * - Errors are caught internally and logged — never propagated.
- *
- * @param vault   Vault service instance (must be unlocked; provides seal key).
- * @param options Override manifest path, pod name, platform, or executor (tests).
- */
+export interface LocalPodOptions extends PodRunnerOptions {
+  /** Override the platform string used for the Linux guard (tests). */
+  platform?: NodeJS.Platform | string
+  /** Edge-tier / SSO context for LOCAL_VERIFY mode selection. */
+  startContext?: LocalPodStartContext
+}
+
+export function buildLocalPodStartContext(
+  overrides?: Partial<LocalPodStartContext>,
+): LocalPodStartContext {
+  const edgeTier = overrides?.edgeTier ?? loadEdgeTierSettings()
+  return {
+    edgeTier,
+    localSsoSub: overrides?.localSsoSub ?? getLocalSsoSub(),
+    jwksJson: overrides?.jwksJson ?? getCachedJwksJson(edgeTier),
+  }
+}
+
 export async function startLocalPod(
   vault: { deriveApplicationKey(info: string): Buffer | null },
   options?: LocalPodOptions,
@@ -67,7 +75,6 @@ export async function startLocalPod(
   }
 
   if (_startPromise) {
-    // A start is in flight — join it rather than forking a second pod.
     return _startPromise
   }
 
@@ -78,12 +85,29 @@ export async function startLocalPod(
   return _startPromise
 }
 
-/**
- * Stop the BEAP local pod.
- *
- * Called on vault-lock and app-quit.  Safe when no pod is running.
- * Errors are logged and not rethrown.
- */
+export async function restartLocalPod(
+  vault: { deriveApplicationKey(info: string): Buffer | null },
+  context?: LocalPodStartContext,
+  options?: LocalPodOptions,
+): Promise<void> {
+  if (_restartPromise) {
+    return _restartPromise
+  }
+
+  _restartPromise = (async () => {
+    console.log('[LOCAL_POD] Restarting pod to apply new configuration...')
+    await stopLocalPod()
+    await startLocalPod(vault, {
+      ...options,
+      startContext: context ?? buildLocalPodStartContext(),
+    })
+  })().finally(() => {
+    _restartPromise = null
+  })
+
+  return _restartPromise
+}
+
 export async function stopLocalPod(): Promise<void> {
   if (!_activePod) return
 
@@ -103,6 +127,7 @@ export async function stopLocalPod(): Promise<void> {
 export function _resetStateForTest(): void {
   _activePod = null
   _startPromise = null
+  _restartPromise = null
 }
 
 // ── Internal ───────────────────────────────────────────────────────────────────
@@ -115,28 +140,59 @@ async function _doStart(
   const sealKeyHex = deriveSealKeyHex(vault)
 
   if (!sealKeyHex) {
-    console.error(
-      '[LOCAL_POD] Vault is locked — cannot derive seal key; pod not started',
-    )
+    console.error('[LOCAL_POD] Vault is locked — cannot derive seal key; pod not started')
     return
   }
 
-  console.log('[LOCAL_POD] Starting pod...')
-  try {
-    // Extract only the PodRunnerOptions subset from LocalPodOptions
-    const runnerOpts: PodRunnerOptions = {
-      manifestPath: options?.manifestPath,
-      podName: options?.podName,
-      executor: options?.executor,
+  const ctx = options?.startContext ?? buildLocalPodStartContext()
+  const edgeTier = ctx.edgeTier ?? loadEdgeTierSettings()
+  const edgeEnabled = edgeTier.enabled === true
+
+  const runnerOpts: PodRunnerOptions = {
+    manifestPath: options?.manifestPath,
+    podName: options?.podName,
+    executor: options?.executor,
+  }
+
+  if (edgeEnabled) {
+    const localSsoSub = ctx.localSsoSub ?? getLocalSsoSub()
+    const jwksJson = ctx.jwksJson ?? getCachedJwksJson(edgeTier)
+    const trustedEdgePodIds = formatTrustedEdgePodIds(edgeTier)
+
+    if (!localSsoSub) {
+      console.error('[LOCAL_POD] LOCAL_VERIFY requires an active SSO session (LOCAL_SSO_SUB)')
+      return
     }
+    if (!jwksJson) {
+      console.error('[LOCAL_POD] LOCAL_VERIFY requires cached Keycloak JWKS')
+      return
+    }
+    if (!trustedEdgePodIds) {
+      console.error('[LOCAL_POD] LOCAL_VERIFY requires at least one trusted edge replica')
+      return
+    }
+
+    runnerOpts.manifestPath =
+      options?.manifestPath ?? resolveLocalVerifyManifestPath()
+    runnerOpts.podName = options?.podName ?? DEFAULT_LOCAL_VERIFY_POD_NAME
+    runnerOpts.localVerify = {
+      localSsoSub,
+      trustedEdgePodIds,
+      keycloakJwksJson: jwksJson,
+    }
+
+    console.log('[LOCAL_POD] Starting LOCAL_VERIFY pod...')
+  } else {
+    runnerOpts.manifestPath = options?.manifestPath ?? resolveManifestPath()
+    runnerOpts.podName = options?.podName ?? DEFAULT_POD_NAME
+    console.log('[LOCAL_POD] Starting LOCAL_HOST pod...')
+  }
+
+  try {
     _activePod = await applyPodManifest(podAuthSecret, sealKeyHex, runnerOpts)
     console.log(`[LOCAL_POD] Pod started: ${_activePod.podName}`)
   } catch (err) {
-    // Non-fatal: in-process validation path continues to work.
-    console.error(
-      '[LOCAL_POD] Failed to start pod:',
-      (err as Error).message ?? err,
-    )
+    console.error('[LOCAL_POD] Failed to start pod:', (err as Error).message ?? err)
     _activePod = null
   }
 }

@@ -1,0 +1,21 @@
+# LOCAL_VERIFY pod manifest fixture for P3.8 unit tests.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: beap-pod-local-verify-test
+spec:
+  restartPolicy: OnFailure
+  containers:
+    - name: verifier
+      image: beap-components:dev
+      env:
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+        - name: SEAL_KEY_HEX
+          value: "${SEAL_KEY_HEX}"
+        - name: LOCAL_SSO_SUB
+          value: "${LOCAL_SSO_SUB}"
+        - name: TRUSTED_EDGE_POD_IDS
+          value: "${TRUSTED_EDGE_POD_IDS}"
+        - name: KEYCLOAK_JWKS_JSON
+          value: "__KEYCLOAK_JWKS_JSON__"

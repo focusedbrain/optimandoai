@@ -19,9 +19,8 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - [x] **P3.5** — LOCAL_VERIFY pod manifest (ingestor → verifier → validator → depackager → sealer; preloaded JWKS)
 - [x] **P3.6** — Verifier role container (`/verify-cert` on LOCAL_VERIFY; full §2.3 acceptance rule)
 - [x] **P3.7** — Ingestor LOCAL_VERIFY flow (shallow verify → validator → deep verify → seal; POD_MODE branching)
-- [ ] **P3.8** — Keycloak attestation flow (`sso_attestation` JWT; resolve Decision 6)
-- [ ] **P3.9** — Edge key lifecycle in Electron
-- [ ] **P3.10** — pod-client edge routing + E2E manual round-trip
+- [x] **P3.8** — Electron edge-tier settings, keygen, JWKS, LOCAL_VERIFY mode switching (`edge-tier/` module, `edge-cli`, pod restart)
+- [ ] **P3.9** — pod-client edge routing + E2E manual round-trip
 
 ---
 
@@ -37,9 +36,8 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 | P3.5 | ✅ done | P3.5: LOCAL_VERIFY pod manifest |
 | P3.6 | ✅ done | P3.6: verifier role container with full acceptance rule |
 | P3.7 | ✅ done | P3.7: ingestor LOCAL_VERIFY flow with shallow-then-deep verification |
-| P3.8 | ⬜ pending | — |
+| P3.8 | ✅ done | P3.8: Electron edge-tier settings, keygen, JWKS, mode-switching local pod |
 | P3.9 | ⬜ pending | — |
-| P3.10 | ⬜ pending | — |
 
 ---
 
@@ -58,7 +56,7 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 | Decision | Resolution |
 |----------|------------|
 | **Decision 4 — Certificate TTL** | Default 24 h per strategy §2.2. Will be user-settable in the Phase 4 wizard. |
-| **Decision 6 — Keycloak attestation mechanism** | Custom claim vs token-exchange grant — pick in P3.3. |
+| **Decision 6 — Keycloak attestation mechanism** | **Token exchange (RFC 8693)** — `requestSsoAttestation()` uses OAuth 2.0 token exchange against Keycloak with audience `beap-edge-attestation` and custom params `edge_pod_id` / `edge_pubkey`. Dev stub via `BEAP_ATTESTATION_STUB=1`. |
 
 ---
 
@@ -133,3 +131,10 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - **`verifier.ts`:** Deep checks — `CAPSULE_CANONICAL_HASH_MISMATCH`, `VALIDATION_RESULT_DIGEST_MISMATCH` when `expected_*_bytes` supplied (second `/verify-cert` pass).
 - **Tests:** `ingestor.modes.test.ts` (LOCAL_HOST unchanged, LOCAL_VERIFY happy/shallow-fail/deep-fail/CERT_MISSING, REMOTE_EDGE shape); 3 new verifier deep-check tests. Full suite: 117 pass.
 - **Smoke:** `local-verify-smoke.sh` mints cert hashes via `ingestInput`+`validateCapsule` (matches depackager); `remote-edge-smoke.sh` expects shaped `{ certificate, depackaged_payload }`.
+
+### P3.8
+
+- **`electron/main/edge-tier/`:** `EdgeTierSettings` persisted to `edge-tier-settings.json` (`enabled`, `replicas[]`, `fallback_policy`, cached JWKS). Ed25519 `generateEdgeKeypair()`. Private keys encrypted to VMK-derived key (`edge-private-key-v1`) — never plaintext on disk. JWKS fetch/cache on app start + verification failure. SSO attestation via **token exchange** (Decision 6).
+- **Local pod:** `edge_tier.enabled=false` → `pod.yaml` (LOCAL_HOST); `true` → `pod-local-verify.yaml` with `LOCAL_SSO_SUB`, `KEYCLOAK_JWKS_JSON`, `TRUSTED_EDGE_POD_IDS`. `restartLocalPod()` on settings change (vault RPC refreshes JWKS on unlock).
+- **CLI:** `scripts/edge-cli.ts` — `generate-keypair`, `register-edge`, `deploy-edge` (Linux SSH targets only via `uname -s`), `enable-edge-tier` / `disable-edge-tier` for dev toggling.
+- **Tests:** keygen round-trip, JWKS cache, encrypted key storage, attestation stub, LOCAL_VERIFY mode switch + restart (mock podman). 9 new tests pass.
