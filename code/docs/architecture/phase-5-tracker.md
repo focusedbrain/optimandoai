@@ -55,7 +55,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - [x] **P5.5** — Crash-message quarantine store; fetch loop resume from next message
 - [x] **P5.6** — Dashboard quarantine review UI; sandbox-routed report and body viewing
 - [x] **P5.7** — Replacement-budget circuit breaker
-- [ ] **P5.8** — Sandbox-orchestrated full diagnostic report viewer
+- [x] **P5.8** — Pod-level replacement escalation on container-replacement failure
 - [ ] **P5.9** — Host-initiated nuclear pod reset
 - [ ] **P5.10** — End-to-end tests and manual verification recipe
 - [ ] **P5.11** — Strategy doc §5 update and phase closeout
@@ -74,7 +74,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 | P5.5 | ✅ done | `3d67dc5c` |
 | P5.6 | ✅ done | `1cdbd229` |
 | P5.7 | ✅ done | `2432e3f9` |
-| P5.8 | ⬜ pending | — |
+| P5.8 | ✅ done | `067ee08b` |
 | P5.9 | ⬜ pending | — |
 | P5.10 | ⬜ pending | — |
 | P5.11 | ⬜ pending | — |
@@ -166,3 +166,11 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - Dashboard: degraded replica row **Recovery paused** indicator, `ReplacementExhaustedModal` (reports, resume, nuclear redeploy).
 - IPC: `dashboard:resumeAutomaticRecovery`, `dashboard:listDiagnosticReportsForRole`, `dashboard:getReplacementBudgetNotifications`.
 - Tests: `supervisor/__tests__/replacementBudget.test.ts`.
+
+### P5.8
+
+- `supervisor/replace.ts`: on container-replacement failure (`health_timeout`, repeated `restore_failed`, podman play/run corruption errors), escalates to whole-pod replace — `podman pod stop` → `podman pod rm -f` → `podman play kube` with same env injection as P4.3 deploy.
+- `replacePod`: re-delivers all credentials via `redeliverAllReplicaCredentials` (quarantine key + owned account keys); preserves edge signing key, SSO JWT, SSH host key, and pod-level tmpfs state.
+- Audit: `pod_replaced` / `pod_replaced_failed` (distinct from `container_replaced`); pod replacement not counted against P5.7 replacement budget.
+- SSH helpers: `buildPodStopCommand`, `buildPodRmCommand` in `ssh/deploy.ts`.
+- Tests: `supervisor/__tests__/replaceEscalation.test.ts`.
