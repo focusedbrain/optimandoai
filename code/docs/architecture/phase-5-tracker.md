@@ -73,7 +73,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 | P5.4 | ✅ done | `be6320e9` |
 | P5.5 | ✅ done | `3d67dc5c` |
 | P5.6 | ✅ done | `1cdbd229` |
-| P5.7 | ✅ done | — |
+| P5.7 | ✅ done | `2432e3f9` |
 | P5.8 | ⬜ pending | — |
 | P5.9 | ⬜ pending | — |
 | P5.10 | ⬜ pending | — |
@@ -157,3 +157,12 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - Dashboard payload includes `quarantine_summary`; recent-failures indicator on main view.
 - Audit: `message_discarded` with hash and `confirmation_timestamp`.
 - Tests: `QuarantinePanel.test.tsx`, `quarantineDashboard.test.ts`, dashboard snapshot update.
+
+### P5.7
+
+- `supervisor/replacementBudget.ts`: per-(replica, role) sliding window — `MAX_REPLACEMENTS=3`, `WINDOW_SECONDS=60`; exhaustion stops replace attempts and sets state `replacement_exhausted`.
+- Budget resets after `HEALTHY_PERIOD_SECONDS` (60s) continuous healthy uptime post-success, or manual **Resume automatic recovery** / nuclear redeploy.
+- Audit: `replacement_budget_exhausted`, `replacement_budget_cleared`; OS + renderer notifications persist until user action.
+- Dashboard: degraded replica row **Recovery paused** indicator, `ReplacementExhaustedModal` (reports, resume, nuclear redeploy).
+- IPC: `dashboard:resumeAutomaticRecovery`, `dashboard:listDiagnosticReportsForRole`, `dashboard:getReplacementBudgetNotifications`.
+- Tests: `supervisor/__tests__/replacementBudget.test.ts`.
