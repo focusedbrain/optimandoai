@@ -39,7 +39,7 @@ Original §5 assumed Podman `restartPolicy: OnFailure` plus supervisor health pi
 | Report viewing | Not specified | **Sandbox routing** — dashboard inline metadata only |
 | Abuse / flapping | Per-replica circuit breaker (§5.2 load client) | **Replacement-budget circuit breaker** on supervisor (P5.7) |
 
-**Current manifests (pre–P5.1):** `packages/beap-pod/pod.yaml`, `pod-remote-edge.yaml`, and `pod-local-verify.yaml` all use `restartPolicy: OnFailure` — to be changed in P5.1.
+**Current manifests (post–P5.1):** `packages/beap-pod/pod.yaml`, `pod-remote-edge.yaml`, and `pod-local-verify.yaml` use pod-level `restartPolicy: Never` for all trust-sensitive roles — supervisor replaces failed containers (P5.2+).
 
 This deviation is recorded here in P5.0 and reflected in the strategy doc itself in **P5.11**.
 
@@ -48,7 +48,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 ## Steps
 
 - [x] **P5.0** — Tracker, strategy deviation note, threat-model container-replacement section
-- [ ] **P5.1** — Pod manifests: `restartPolicy: Never` for trust-sensitive containers
+- [x] **P5.1** — Pod manifests: `restartPolicy: Never` for trust-sensitive containers
 - [ ] **P5.2** — Supervisor package scaffold and container health probe loop
 - [ ] **P5.3** — Replace path: `podman rm -f` + per-container `podman play kube`
 - [ ] **P5.4** — Hardened diagnostic report schema and emission
@@ -66,8 +66,8 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 
 | Step | State | Commit |
 |------|-------|--------|
-| P5.0 | ✅ done | *(pending commit)* |
-| P5.1 | ⬜ pending | — |
+| P5.0 | ✅ done | `f9f6c287` |
+| P5.1 | ✅ done | *(this commit)* |
 | P5.2 | ⬜ pending | — |
 | P5.3 | ⬜ pending | — |
 | P5.4 | ⬜ pending | — |
@@ -104,3 +104,8 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - Step titles P5.1–P5.11 scoped from Phase 5 prompt sequence header (replace-not-restart supervisor, quarantine, hardened reports, sandbox routing, nuclear reset). Refine titles when individual prompts are run if the sequence doc differs.
 - Threat model: added **Container replacement model** section in `credential-security-threat-model.md` (initial pass; P5.1+ may extend as supervisor lands).
 - Baseline pod manifests: all three YAML files still `restartPolicy: OnFailure` until P5.1.
+
+### P5.1
+
+- Pod-level `restartPolicy: Never` in `pod.yaml`, `pod-remote-edge.yaml`, and `pod-local-verify.yaml` (all containers in each pod are trust-sensitive).
+- Manifest header comments document supervisor-managed replacement; README sections for LOCAL_HOST, REMOTE_EDGE, and LOCAL_VERIFY note that Podman does not auto-restart.
