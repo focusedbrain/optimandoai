@@ -20,6 +20,7 @@ import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccou
 import { useEmailInboxStore, activeEmailAccountIdsForSync, type InboxMessage } from '../stores/useEmailInboxStore'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import type { NormalInboxAiResult } from '../types/inboxAi'
+import { InboxSecurityPanel, InboxPhishingBadge } from './InboxSecurityPanel'
 import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
 import { resolveActiveSandboxCloneTargets } from '../lib/resolveActiveSandboxCloneTargets'
@@ -58,7 +59,7 @@ import {
   resolveHostSandboxCloneClickAction,
   sandboxCloneUnavailableDialogVariant,
 } from '../lib/beapInboxHostSandboxClickPolicy'
-import { tryParsePartialAnalysis, tryParseAnalysis, tryParseAnalysisWithMeta, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
+import { tryParsePartialAnalysis, tryParseAnalysis, tryParseAnalysisWithMeta, parseSecurityAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
 import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
 import {
   INBOX_EMAIL_REPLY_METADATA_MISSING,
@@ -340,6 +341,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const [actionChecked, setActionChecked] = useState<Record<number, boolean>>({})
   const [draftSubFocused, setDraftSubFocused] = useState(false)
   const [visibleSections, setVisibleSections] = useState<Set<string>>(() => new Set(['summary', 'draft', 'analysis']))
+  const [subAnalysisLoading, setSubAnalysisLoading] = useState(false)
   const [capsulePublicText, setCapsulePublicText] = useState('')
   const [capsuleEncryptedText, setCapsuleEncryptedText] = useState('')
   const [capsulePublicSource, setCapsulePublicSource] = useState('none')
@@ -382,6 +384,17 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   useEffect(() => {
     messageRef.current = message
   }, [message])
+
+  useEffect(() => {
+    if (!window.emailInbox?.onAiSubAnalysisStarted || !window.emailInbox?.onAiSubAnalysisComplete) return
+    const unsubStart = window.emailInbox.onAiSubAnalysisStarted((data) => {
+      if (data.messageId === messageId) setSubAnalysisLoading(true)
+    })
+    const unsubComplete = window.emailInbox.onAiSubAnalysisComplete((data) => {
+      if (data.messageId === messageId) setSubAnalysisLoading(false)
+    })
+    return () => { unsubStart(); unsubComplete() }
+  }, [messageId])
 
   const replyMode = message ? resolveInboxReplyMode(message) : 'email'
   const isNativeBeap = replyMode === 'native_beap'
@@ -1792,6 +1805,18 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           </div>
         )}
 
+        {/* P2.5: Security analysis section (phishing + crosscheck + disclaimer) */}
+        {visibleSections.has('analysis') && (() => {
+          const sec = parseSecurityAnalysis(message?.ai_analysis_json ?? null)
+          return (
+            <InboxSecurityPanel
+              phishing={sec.phishing}
+              crosscheck={sec.crosscheck}
+              loading={subAnalysisLoading}
+            />
+          )
+        })()}
+
         {visibleSections.has('summary') && !visibleSections.has('analysis') && (
           <div className="inbox-detail-ai-section inbox-detail-ai-section--tab-panel">
             <div className="inbox-detail-ai-section-heading">SUMMARY</div>
@@ -2802,6 +2827,11 @@ function InboxMessageRow({
               {message.sort_category}
             </span>
           )}
+          {/* P2.5: phishing risk / needs-review badges */}
+          {(() => {
+            const sec = parseSecurityAnalysis(message.ai_analysis_json ?? null)
+            return <InboxPhishingBadge phishing={sec.phishing} crosscheck={sec.crosscheck} />
+          })()}
         </div>
       </div>
     </div>

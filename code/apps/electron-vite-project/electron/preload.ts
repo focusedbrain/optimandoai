@@ -1435,6 +1435,16 @@ contextBridge.exposeInMainWorld('emailInbox', {
     ipcRenderer.on('inbox:aiAnalyzeMessageError', handler)
     return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageError', handler)
   },
+  onAiSubAnalysisStarted: (cb: (data: { messageId: string; kinds: string[] }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { messageId: string; kinds: string[] }) => cb(data)
+    ipcRenderer.on('inbox:aiSubAnalysisStarted', handler)
+    return () => ipcRenderer.removeListener('inbox:aiSubAnalysisStarted', handler)
+  },
+  onAiSubAnalysisComplete: (cb: (data: { messageId: string; phishing: boolean; crosscheck: boolean; failures: Array<{ kind: string; reason: string }> }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { messageId: string; phishing: boolean; crosscheck: boolean; failures: Array<{ kind: string; reason: string }> }) => cb(data)
+    ipcRenderer.on('inbox:aiSubAnalysisComplete', handler)
+    return () => ipcRenderer.removeListener('inbox:aiSubAnalysisComplete', handler)
+  },
   aiCategorize: (ids: string[]) => ipcRenderer.invoke('inbox:aiCategorize', ids),
   aiClassifySingle: (messageId: string, sessionId?: string) =>
     ipcRenderer.invoke('inbox:aiClassifySingle', messageId, sessionId),

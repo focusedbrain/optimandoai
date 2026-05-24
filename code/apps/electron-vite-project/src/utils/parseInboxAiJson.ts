@@ -3,7 +3,12 @@
  * Extracts fields from incomplete or complete LLM JSON output.
  */
 
-import type { NormalInboxAiResult } from '../types/inboxAi'
+import type {
+  NormalInboxAiResult,
+  SecurityAnalysis,
+  PhishingAssessmentUi,
+  ValidationCrosscheckUi,
+} from '../types/inboxAi'
 
 /** Normalize LLM `draftReply` (string, JSON string, or capsule object). */
 export function normalizeDraftReplyField(
@@ -344,4 +349,85 @@ export function tryParsePartialAnalysis(
   }
 
   return receivedKeys.length > 0 ? { partial: { ...DEFAULTS, ...result }, receivedKeys } : null
+}
+
+// ── Security analysis (P2.5) ─────────────────────────────────────────────────
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+function parsePhishingAssessment(raw: unknown): PhishingAssessmentUi | undefined {
+  if (!isPlainObject(raw)) return undefined
+  const score = typeof raw.score === 'number' ? raw.score : undefined
+  const label = raw.label === 'low' || raw.label === 'elevated' || raw.label === 'high' ? raw.label : undefined
+  if (score === undefined || label === undefined) return undefined
+  const signals = Array.isArray(raw.signals)
+    ? raw.signals
+        .filter(isPlainObject)
+        .map((s) => ({
+          kind: String(s.kind ?? ''),
+          evidence: String(s.evidence ?? ''),
+          weight: typeof s.weight === 'number' ? s.weight : undefined,
+        }))
+    : []
+  const flagged_urls = Array.isArray(raw.flagged_urls)
+    ? raw.flagged_urls
+        .filter(isPlainObject)
+        .map((u) => ({
+          url: String(u.url ?? ''),
+          reason: String(u.reason ?? ''),
+          open_policy: typeof u.open_policy === 'string' ? u.open_policy : undefined,
+        }))
+    : []
+  return {
+    score,
+    label,
+    signals,
+    flagged_urls,
+    disclaimer_version: String(raw.disclaimer_version ?? 'v1'),
+    model: typeof raw.model === 'string' ? raw.model : undefined,
+    generated_at: typeof raw.generated_at === 'string' ? raw.generated_at : undefined,
+  }
+}
+
+function parseValidationCrosscheck(raw: unknown): ValidationCrosscheckUi | undefined {
+  if (!isPlainObject(raw)) return undefined
+  if (typeof raw.agrees_with_validator !== 'boolean') return undefined
+  const confidence =
+    raw.confidence === 'low' || raw.confidence === 'medium' || raw.confidence === 'high'
+      ? raw.confidence
+      : 'low'
+  const findings = Array.isArray(raw.findings)
+    ? raw.findings
+        .filter(isPlainObject)
+        .map((f) => ({ kind: String(f.kind ?? ''), evidence: String(f.evidence ?? '') }))
+    : []
+  return {
+    agrees_with_validator: raw.agrees_with_validator,
+    findings,
+    confidence,
+    model: typeof raw.model === 'string' ? raw.model : undefined,
+    generated_at: typeof raw.generated_at === 'string' ? raw.generated_at : undefined,
+  }
+}
+
+/**
+ * Parse phishing_assessment and validation_crosscheck from the ai_analysis_json column.
+ * Returns an empty object when the column is absent or neither sub-field is present.
+ */
+export function parseSecurityAnalysis(rawAiJson: string | null | undefined): SecurityAnalysis {
+  if (!rawAiJson?.trim()) return {}
+  let obj: Record<string, unknown>
+  try {
+    const parsed = JSON.parse(rawAiJson)
+    if (!isPlainObject(parsed)) return {}
+    obj = parsed
+  } catch {
+    return {}
+  }
+  return {
+    phishing: parsePhishingAssessment(obj.phishing_assessment),
+    crosscheck: parseValidationCrosscheck(obj.validation_crosscheck),
+  }
 }

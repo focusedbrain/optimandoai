@@ -17,7 +17,7 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 - [x] **P2.2** — Phishing/scam scorer (lightweight model invoked after seal; result stored in enrichment column)
 - [x] **P2.3** — Validation cross-check (AI plausibility check vs structural validator outcome; discrepancy flagged, not blocking)
 - [x] **P2.4** — Wire phishing scorer and crosscheck into AI analysis IPC handlers
-- [ ] **P2.5** — AI output schema + sealed storage enrichment column (`ai_analysis` JSONB column on `inbox_messages`; sealed alongside main payload)
+- [x] **P2.5** — UI: badges, detail panel, persistent disclaimer (phishing risk badges in inbox rows; "Security analysis" panel with signals/URLs/crosscheck/disclaimer; sub-analysis loading indicator)
 - [ ] **P2.6** — AI provider user setting (provider selector surface; default provider decided here; pluggable interface for P2.2)
 - [ ] **P2.7** — Phase 2 test suite and CI (unit + integration tests for scorer, cross-check, link policy; CI job for AI enrichment smoke test)
 - [ ] **P2.8** — Retire extension sandbox depackager (remove vestigial depackager from Chrome extension sandbox; fold into pod path per strategy §9 decision 1)
@@ -33,7 +33,7 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 | P2.2 | ✅ done | P2.2: phishing-assessment module with provider-agnostic structured output |
 | P2.3 | ✅ done | P2.3: validation cross-check module |
 | P2.4 | ✅ done | P2.4: wire phishing assessment and validation crosscheck into AI analysis handlers |
-| P2.5 | ⬜ pending | — |
+| P2.5 | ✅ done | P2.5: UI badges, detail panel, persistent disclaimer for AI analyses |
 | P2.6 | ⬜ pending | — |
 | P2.7 | ⬜ pending | — |
 | P2.8 | ⬜ pending | — |
@@ -61,6 +61,19 @@ Phase 1 ref: `docs/architecture/phase-1-tracker.md`
 ## Notes & deviations
 
 *(Record any decisions made differently from the strategy here, with rationale.)*
+
+### P2.5
+
+- **New files:** `src/components/InboxSecurityPanel.tsx` (`InboxSecurityPanel` + `InboxPhishingBadge` + `SECURITY_DISCLAIMER` constant), `src/components/__tests__/InboxSecurityPanel.test.tsx` (27 tests), `src/utils/__tests__/parseInboxAiJson.security.test.ts` (12 tests).
+- **`parseSecurityAnalysis`** added to `src/utils/parseInboxAiJson.ts`: parses `phishing_assessment` and `validation_crosscheck` from the `ai_analysis_json` column string, returning typed `SecurityAnalysis` (tolerant of absent/invalid sub-fields).
+- **Security types** added to `src/types/inboxAi.ts`: `PhishingAssessmentUi`, `ValidationCrosscheckUi`, `SecurityAnalysis`, `PhishingLabel`, `PhishingSignalUi`, `FlaggedUrlUi`, `CrosscheckFindingUi`.
+- **Inbox row badges:** `InboxPhishingBadge` rendered inside `InboxMessageRow` (in `EmailInboxView.tsx`). Shows red "phishing risk" for `high`, yellow for `elevated`, grey "needs review" when `crosscheck.agrees_with_validator === false`. No badge when analysis not run or both sub-analyses failed.
+- **AI panel section:** `InboxSecurityPanel` appended after "Suggested action" row inside the `visibleSections.has('analysis')` block. Renders score, label, signals, flagged URLs (with disabled "Open in sandbox" buttons — wired in P2.7), crosscheck disagreement, and the persistent disclaimer.
+- **Sub-analysis loading indicator:** `subAnalysisLoading` state in `InboxDetailAiPanel`, driven by `inbox:aiSubAnalysisStarted` / `inbox:aiSubAnalysisComplete` IPC events. Shows "analyzing security signals…" while sub-analyses run.
+- **Preload additions:** `onAiSubAnalysisStarted` and `onAiSubAnalysisComplete` added to `electron/preload.ts` and typed in `src/components/handshakeViewTypes.ts`.
+- **Disclaimer wording is byte-identical** to strategy §6.1: `"AI phishing analysis can miss attacks. Open links only via the sandbox orchestrator. Do not enter credentials based on email contents."`
+- **Non-goals respected:** HTML sanitization unchanged, message display not gated on AI analysis, actual sandbox link-open deferred to P2.7.
+- **Test pattern:** `renderToStaticMarkup` (no jsdom) — same approach as existing `ThisDeviceCard.test.tsx`.
 
 ### P2.4
 

@@ -742,6 +742,8 @@ export interface EmailInboxBridge {
       debug?: InboxAiErrorDebugPayload
     }) => void,
   ) => () => void
+  onAiSubAnalysisStarted: (cb: (data: { messageId: string; kinds: string[] }) => void) => () => void
+  onAiSubAnalysisComplete: (cb: (data: { messageId: string; phishing: boolean; crosscheck: boolean; failures: Array<{ kind: string; reason: string }> }) => void) => () => void
   aiCategorize: (ids: string[]) => Promise<{ ok: boolean; data?: { classifications?: BulkClassification[] }; error?: string }>
   aiClassifySingle?: (
     messageId: string,

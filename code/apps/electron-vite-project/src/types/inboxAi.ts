@@ -174,3 +174,54 @@ export type AiOutputs = Record<string, BulkAiResultEntry>
  * - Editable before send (user can modify text)
  * - Not locked or treated as final — always a starting point for the user
  */
+
+// ── Security analysis (P2.5) ────────────────────────────────────────────────
+
+/** Phishing label as produced by assessPhishing (mirrors P2.1 schema). */
+export type PhishingLabel = 'low' | 'elevated' | 'high'
+
+/** A signal from the phishing assessor. */
+export interface PhishingSignalUi {
+  kind: string
+  evidence: string
+  weight?: number
+}
+
+/** A flagged URL from the phishing assessor. */
+export interface FlaggedUrlUi {
+  url: string
+  reason: string
+  open_policy?: string
+}
+
+/** Typed shape of ai_analysis_json.phishing_assessment for UI consumption. */
+export interface PhishingAssessmentUi {
+  score: number
+  label: PhishingLabel
+  signals: PhishingSignalUi[]
+  flagged_urls: FlaggedUrlUi[]
+  disclaimer_version: string
+  model?: string
+  generated_at?: string
+}
+
+/** A finding from the validation crosscheck. */
+export interface CrosscheckFindingUi {
+  kind: string
+  evidence: string
+}
+
+/** Typed shape of ai_analysis_json.validation_crosscheck for UI consumption. */
+export interface ValidationCrosscheckUi {
+  agrees_with_validator: boolean
+  findings: CrosscheckFindingUi[]
+  confidence: 'low' | 'medium' | 'high'
+  model?: string
+  generated_at?: string
+}
+
+/** Parsed security sub-analyses from ai_analysis_json. */
+export interface SecurityAnalysis {
+  phishing?: PhishingAssessmentUi
+  crosscheck?: ValidationCrosscheckUi
+}
