@@ -68,14 +68,41 @@ export interface PodClientConfig {
   readonly requestTimeoutMs: number;
 }
 
+/** REMOTE_EDGE replica the pod-client may route through before LOCAL_VERIFY. */
+export interface EdgeReplica {
+  readonly host: string;
+  readonly port: number;
+  readonly edge_pod_id: string;
+  /** Ed25519 public key claim, e.g. `ed25519:<hex>`. */
+  readonly public_key: string;
+  /** Keycloak attestation JWT binding pod id + public key to user sub. */
+  readonly attestation_jwt: string;
+}
+
+export type EdgeFallbackPolicy = 'reject' | 'local_only';
+
 export interface PodClient {
+  /**
+   * Enable or disable edge-tier routing.
+   *
+   * `null` disables edge tier (local pod only). When replicas are set, ingest()
+   * POSTs to the first replica, then relays `{ body, edge_certificate }` to
+   * the local pod (LOCAL_VERIFY path). The pod-client does not verify certs.
+   */
+  configureEdgeTier(
+    replicas: EdgeReplica[] | null,
+    fallbackPolicy?: EdgeFallbackPolicy,
+  ): void;
+
   /**
    * Send a raw message through the pod ingest pipeline.
    *
    * Resolves with a PodIngestResult on HTTP 2xx.
    * Rejects with PodIngestHttpError on HTTP 4xx/5xx.
    * Rejects with PodTimeoutError when the request exceeds requestTimeoutMs.
-   * Rejects with PodConnectionError on network failures (retried once).
+   * Rejects with PodConnectionError on network failures to the local pod (retried once).
+   * Rejects with PodEdgeUnreachableError when edge tier is enabled but the edge replica
+   * is unreachable and fallback_policy is `reject`.
    */
   ingest(
     rawInput: RawInput,
@@ -151,6 +178,26 @@ export class PodConnectionError extends Error {
   constructor(message: string, cause: Error) {
     super(message)
     this.name = 'PodConnectionError'
+    this.cause = cause
+  }
+}
+
+/**
+ * Thrown when edge tier is enabled but the selected edge replica is unreachable
+ * and fallback_policy is `reject` (Phase 3 default).
+ */
+export class PodEdgeUnreachableError extends Error {
+  readonly code = 'EDGE_UNREACHABLE' as const;
+  readonly replica: Pick<EdgeReplica, 'host' | 'port' | 'edge_pod_id'>;
+  readonly cause: Error;
+
+  constructor(
+    replica: Pick<EdgeReplica, 'host' | 'port' | 'edge_pod_id'>,
+    cause: Error,
+  ) {
+    super(`Edge replica unreachable (${replica.host}:${replica.port}): ${cause.message}`)
+    this.name = 'PodEdgeUnreachableError'
+    this.replica = replica
     this.cause = cause
   }
 }

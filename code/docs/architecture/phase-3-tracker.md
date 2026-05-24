@@ -20,7 +20,7 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - [x] **P3.6** — Verifier role container (`/verify-cert` on LOCAL_VERIFY; full §2.3 acceptance rule)
 - [x] **P3.7** — Ingestor LOCAL_VERIFY flow (shallow verify → validator → deep verify → seal; POD_MODE branching)
 - [x] **P3.8** — Electron edge-tier settings, keygen, JWKS, LOCAL_VERIFY mode switching (`edge-tier/` module, `edge-cli`, pod restart)
-- [ ] **P3.9** — pod-client edge routing + E2E manual round-trip
+- [x] **P3.9** — pod-client edge-tier routing (single replica, reject fallback)
 
 ---
 
@@ -37,7 +37,7 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 | P3.6 | ✅ done | P3.6: verifier role container with full acceptance rule |
 | P3.7 | ✅ done | P3.7: ingestor LOCAL_VERIFY flow with shallow-then-deep verification |
 | P3.8 | ✅ done | P3.8: Electron edge-tier settings, keygen, JWKS, mode-switching local pod |
-| P3.9 | ⬜ pending | — |
+| P3.9 | ✅ done | P3.9: pod-client edge-tier routing (single replica, reject fallback) |
 
 ---
 
@@ -138,3 +138,9 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - **Local pod:** `edge_tier.enabled=false` → `pod.yaml` (LOCAL_HOST); `true` → `pod-local-verify.yaml` with `LOCAL_SSO_SUB`, `KEYCLOAK_JWKS_JSON`, `TRUSTED_EDGE_POD_IDS`. `restartLocalPod()` on settings change (vault RPC refreshes JWKS on unlock).
 - **CLI:** `scripts/edge-cli.ts` — `generate-keypair`, `register-edge`, `deploy-edge` (Linux SSH targets only via `uname -s`), `enable-edge-tier` / `disable-edge-tier` for dev toggling.
 - **Tests:** keygen round-trip, JWKS cache, encrypted key storage, attestation stub, LOCAL_VERIFY mode switch + restart (mock podman). 9 new tests pass.
+
+### P3.9
+
+- **`@repo/pod-client`:** `EdgeReplica` type; `configureEdgeTier(replicas | null, fallbackPolicy?)`. Edge enabled → POST edge `/ingest` → relay `{ body, edge_certificate }` to local LOCAL_VERIFY ingestor. First replica only (Phase 5: health-aware round-robin). `PodEdgeUnreachableError` (`EDGE_UNREACHABLE`) when edge unreachable and `fallback_policy=reject`.
+- **`ingestionPipeline.ts`:** reads `edge-tier-settings.json` on each call; maps replicas into pod-client; handles `EDGE_UNREACHABLE` and cert verification rejections from local pod.
+- **Tests:** 4 pod-client edge tests + 3 electron `podHotPath.edgeTier` tests (disabled path, edge→local success, edge unreachable). Full pod-client suite: 19 pass.

@@ -35,21 +35,41 @@ import {
 import {
   createPodClient,
   PodIngestHttpError,
+  PodEdgeUnreachableError,
 } from '@repo/pod-client'
-import type { PodClient } from '@repo/pod-client'
+import type { PodClient, EdgeReplica } from '@repo/pod-client'
+import { loadEdgeTierSettings } from '../edge-tier/settings.js'
 
 function getPodBaseUrl(): string {
   return process.env['WR_POD_BASE_URL'] ?? 'http://127.0.0.1:18100'
 }
 
+function mapEdgeReplicasFromSettings(): EdgeReplica[] | null {
+  const settings = loadEdgeTierSettings()
+  if (!settings.enabled || settings.replicas.length === 0) {
+    return null
+  }
+  return settings.replicas.map((r) => ({
+    host: r.host,
+    port: r.port,
+    edge_pod_id: r.edge_pod_id,
+    public_key: r.edge_public_key,
+    attestation_jwt: r.sso_attestation_jwt,
+  }))
+}
+
 // Pod client is created per-call so tests can inject different base URLs by
 // changing WR_POD_BASE_URL between tests without singleton staleness.
 function makePodClient(): PodClient {
-  return createPodClient({
+  const client = createPodClient({
     baseUrl: getPodBaseUrl(),
     // Allow the full pipeline timeout plus 2 s HTTP overhead.
     requestTimeoutMs: INGESTION_CONSTANTS.PIPELINE_TIMEOUT_MS + 2_000,
   })
+  const replicas = mapEdgeReplicasFromSettings()
+  const settings = loadEdgeTierSettings()
+  client.configureEdgeTier(replicas, settings.fallback_policy)
+  return client
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -139,6 +159,23 @@ async function processIncomingInputViaPod(
     console.log(`[pod-hot-path] pod responded with status ${podStatus}`)
   } catch (err) {
     const durationMs = Math.round(performance.now() - startTime)
+    if (err instanceof PodEdgeUnreachableError) {
+      console.error(`[pod-hot-path] edge unreachable: ${err.message}`)
+      return {
+        success: false,
+        validation_reason_code: 'EDGE_UNREACHABLE' as ValidationReasonCode,
+        reason: err.message,
+        audit: buildAuditRecord(
+          'edge_unreachable',
+          sourceType,
+          originClassification,
+          'plain_external_content',
+          'rejected',
+          durationMs,
+          'EDGE_UNREACHABLE',
+        ),
+      }
+    }
     if (err instanceof PodIngestHttpError) {
       // HTTP error response — map to pipeline result
       podBody = err.body
@@ -191,6 +228,28 @@ function mapPodBodyToIngestionResult(
 ): IngestionResult {
   const durationMs = Math.round(performance.now() - startTime)
   const body = (podBody ?? {}) as Record<string, unknown>
+
+  // ── LOCAL_VERIFY cert gate rejection (403 from ingestor/verifier) ─────────
+  if (body['verification_failed'] === true && typeof body['reason'] === 'string') {
+    const reason = body['reason'] as ValidationReasonCode
+    const details =
+      typeof body['error'] === 'string' ? body['error'] : `Verification failed: ${reason}`
+    console.log(`[pod-hot-path] pod cert verification failed: reason=${reason}`)
+    return {
+      success: false,
+      reason: details,
+      validation_reason_code: reason,
+      audit: buildAuditRecord(
+        'pod_cert_rejected',
+        sourceType,
+        originClassification,
+        'plain_external_content',
+        'rejected',
+        durationMs,
+        reason,
+      ),
+    }
+  }
 
   // ── Rejection case: validator rejected the capsule ────────────────────────
   if (body['valid'] === false) {

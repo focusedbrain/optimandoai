@@ -19,6 +19,13 @@ export type {
   SourceType,
   TransportMetadata,
   DepackageKeys,
+  EdgeReplica,
+  EdgeFallbackPolicy,
 } from './types.js'
 
-export { PodIngestHttpError, PodTimeoutError, PodConnectionError } from './types.js'
+export {
+  PodIngestHttpError,
+  PodTimeoutError,
+  PodConnectionError,
+  PodEdgeUnreachableError,
+} from './types.js'

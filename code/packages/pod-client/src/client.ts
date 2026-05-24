@@ -3,19 +3,15 @@
  *
  * Thin HTTP client for the BEAP pod ingestor (POST /ingest).
  *
- * Retry policy
- * ────────────
- * Connection errors (ECONNREFUSED, ECONNRESET, etc.) are retried once.  This
- * handles the window where startLocalPod() is called and the pod containers
- * are still reaching ready state.
+ * Phase 3 (P3.9): optional edge-tier routing — POST to REMOTE_EDGE first,
+ * then relay `{ body, edge_certificate }` to the local LOCAL_VERIFY ingestor.
+ * The client does not verify certificates; that is the local verifier's job.
  *
- * Timeout errors and HTTP errors (4xx, 5xx) are NOT retried.
+ * Retry policy (local pod leg)
+ * ────────────────────────────
+ * Connection errors (ECONNREFUSED, ECONNRESET, etc.) are retried once.
  *
- * Secrets / auth
- * ──────────────
- * The ingestor's POST /ingest endpoint is the pod's external boundary and
- * does NOT require X-Pod-Auth.  Only the internal container-to-container
- * endpoints use pod-auth.  This client sends no auth header.
+ * Edge leg: single attempt — unreachable edge → EDGE_UNREACHABLE (reject policy).
  */
 
 import type {
@@ -26,37 +22,131 @@ import type {
   TransportMetadata,
   PodIngestResult,
   DepackageKeys,
+  EdgeReplica,
+  EdgeFallbackPolicy,
 } from './types.js'
-import { PodIngestHttpError, PodTimeoutError, PodConnectionError } from './types.js'
+import {
+  PodIngestHttpError,
+  PodTimeoutError,
+  PodConnectionError,
+  PodEdgeUnreachableError,
+} from './types.js'
 
-/** Maximum number of retry attempts on connection error (0 = one attempt, 1 = one retry). */
+/** Maximum retry attempts on local-pod connection error (1 retry). */
 const MAX_RETRIES = 1
 
-/**
- * Create a PodClient configured with the given base URL and per-request timeout.
- *
- * @example
- * const client = createPodClient({
- *   baseUrl: 'http://127.0.0.1:18100',
- *   requestTimeoutMs: 12_000,
- * })
- */
 export function createPodClient(config: PodClientConfig): PodClient {
   const { baseUrl, requestTimeoutMs } = config
+  let edgeReplicas: EdgeReplica[] | null = null
+  let fallbackPolicy: EdgeFallbackPolicy = 'reject'
 
-  return {
-    ingest(
-      rawInput: RawInput,
-      sourceType: SourceType,
-      transportMeta?: Partial<TransportMetadata>,
-      depackageKeys?: DepackageKeys,
-    ): Promise<PodIngestResult> {
-      return ingestWithRetry(baseUrl, requestTimeoutMs, rawInput, sourceType, transportMeta, depackageKeys, 0)
+  const client: PodClient = {
+    configureEdgeTier(replicas, policy) {
+      edgeReplicas = replicas
+      if (policy) fallbackPolicy = policy
+      if (replicas === null) fallbackPolicy = 'reject'
+    },
+
+    ingest(rawInput, sourceType, transportMeta, depackageKeys) {
+      if (edgeReplicas && edgeReplicas.length > 0) {
+        return ingestViaEdge(
+          baseUrl,
+          requestTimeoutMs,
+          edgeReplicas[0]!,
+          fallbackPolicy,
+          rawInput,
+          sourceType,
+          transportMeta,
+          depackageKeys,
+        )
+      }
+      return ingestWithRetry(
+        baseUrl,
+        requestTimeoutMs,
+        rawInput,
+        sourceType,
+        transportMeta,
+        depackageKeys,
+        0,
+      )
     },
   }
+
+  return client
 }
 
-// ── Retry wrapper ─────────────────────────────────────────────────────────────
+function edgeBaseUrl(replica: EdgeReplica): string {
+  return `http://${replica.host}:${replica.port}`
+}
+
+async function ingestViaEdge(
+  localBaseUrl: string,
+  timeoutMs: number,
+  replica: EdgeReplica,
+  fallbackPolicy: EdgeFallbackPolicy,
+  rawInput: RawInput,
+  sourceType: SourceType,
+  transportMeta: Partial<TransportMetadata> | undefined,
+  depackageKeys: DepackageKeys | undefined,
+): Promise<PodIngestResult> {
+  let edgeResult: PodIngestResult
+  try {
+    edgeResult = await postIngestOnce(
+      edgeBaseUrl(replica),
+      timeoutMs,
+      rawInput,
+      sourceType,
+      transportMeta,
+      depackageKeys,
+    )
+  } catch (err) {
+    if (fallbackPolicy === 'local_only') {
+      // Phase 4/5 — downgrade path not implemented in pod-client yet.
+      return ingestWithRetry(
+        localBaseUrl,
+        timeoutMs,
+        rawInput,
+        sourceType,
+        transportMeta,
+        depackageKeys,
+        0,
+      )
+    }
+    const cause = err instanceof Error ? err : new Error(String(err))
+    if (
+      err instanceof PodConnectionError ||
+      err instanceof PodTimeoutError ||
+      (err instanceof Error && err.name === 'AbortError')
+    ) {
+      throw new PodEdgeUnreachableError(
+        { host: replica.host, port: replica.port, edge_pod_id: replica.edge_pod_id },
+        cause,
+      )
+    }
+    throw err
+  }
+
+  const edgeBody = (edgeResult.body ?? {}) as Record<string, unknown>
+  const certificate = edgeBody['certificate'] ?? edgeBody['edge_certificate']
+  if (certificate == null) {
+    throw new PodIngestHttpError(502, {
+      error: 'Edge ingest did not return certificate',
+      edge_body: edgeResult.body,
+    })
+  }
+
+  // Relay original raw bytes + certificate to local LOCAL_VERIFY ingestor.
+  return ingestWithRetry(
+    localBaseUrl,
+    timeoutMs,
+    rawInput,
+    sourceType,
+    transportMeta,
+    depackageKeys,
+    0,
+    { edge_certificate: certificate },
+  )
+}
 
 async function ingestWithRetry(
   baseUrl: string,
@@ -66,15 +156,22 @@ async function ingestWithRetry(
   transportMeta: Partial<TransportMetadata> | undefined,
   depackageKeys: DepackageKeys | undefined,
   attempt: number,
+  extraFields?: Record<string, unknown>,
 ): Promise<PodIngestResult> {
   try {
-    return await ingestOnce(baseUrl, timeoutMs, rawInput, sourceType, transportMeta, depackageKeys)
+    return await postIngestOnce(
+      baseUrl,
+      timeoutMs,
+      rawInput,
+      sourceType,
+      transportMeta,
+      depackageKeys,
+      extraFields,
+    )
   } catch (err) {
-    // 4xx / 5xx → never retry
     if (err instanceof PodIngestHttpError) throw err
-    // Timeout → never retry (absolute wall-clock limit)
     if (err instanceof PodTimeoutError) throw err
-    // Connection error → retry once
+    if (err instanceof PodEdgeUnreachableError) throw err
     if (err instanceof PodConnectionError && attempt < MAX_RETRIES) {
       return ingestWithRetry(
         baseUrl,
@@ -84,26 +181,20 @@ async function ingestWithRetry(
         transportMeta,
         depackageKeys,
         attempt + 1,
+        extraFields,
       )
     }
     throw err
   }
 }
 
-// ── Single attempt ────────────────────────────────────────────────────────────
-
-async function ingestOnce(
-  baseUrl: string,
-  timeoutMs: number,
+function buildIngestEnvelope(
   rawInput: RawInput,
   sourceType: SourceType,
   transportMeta: Partial<TransportMetadata> | undefined,
   depackageKeys: DepackageKeys | undefined,
-): Promise<PodIngestResult> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-
-  // Build the request envelope expected by IngestRequestBody (ingestor.ts)
+  extraFields?: Record<string, unknown>,
+): Record<string, unknown> {
   const envelope: Record<string, unknown> = {
     body: rawInput.body,
     source_type: sourceType,
@@ -113,10 +204,40 @@ async function ingestOnce(
   if (rawInput.headers !== undefined) envelope['headers'] = rawInput.headers
   if (transportMeta?.channel_id !== undefined) envelope['channel_id'] = transportMeta.channel_id
   if (transportMeta?.message_id !== undefined) envelope['message_id'] = transportMeta.message_id
-  if (transportMeta?.sender_address !== undefined) envelope['sender_address'] = transportMeta.sender_address
-  if (transportMeta?.recipient_address !== undefined) envelope['recipient_address'] = transportMeta.recipient_address
+  if (transportMeta?.sender_address !== undefined) {
+    envelope['sender_address'] = transportMeta.sender_address
+  }
+  if (transportMeta?.recipient_address !== undefined) {
+    envelope['recipient_address'] = transportMeta.recipient_address
+  }
   if (depackageKeys !== undefined) envelope['depackage_keys'] = depackageKeys
+  if (extraFields) {
+    for (const [key, value] of Object.entries(extraFields)) {
+      envelope[key] = value
+    }
+  }
+  return envelope
+}
 
+async function postIngestOnce(
+  baseUrl: string,
+  timeoutMs: number,
+  rawInput: RawInput,
+  sourceType: SourceType,
+  transportMeta: Partial<TransportMetadata> | undefined,
+  depackageKeys: DepackageKeys | undefined,
+  extraFields?: Record<string, unknown>,
+): Promise<PodIngestResult> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+  const envelope = buildIngestEnvelope(
+    rawInput,
+    sourceType,
+    transportMeta,
+    depackageKeys,
+    extraFields,
+  )
   const requestBody = JSON.stringify(envelope)
 
   let response: Response
@@ -141,7 +262,6 @@ async function ingestOnce(
     clearTimeout(timer)
   }
 
-  // Parse response body — treat parse failures as null body (not fatal)
   let body: unknown = null
   try {
     body = await response.json()
