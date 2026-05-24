@@ -23,6 +23,10 @@ import {
 } from '../edge-tier/settings.js'
 import { getCachedJwksJson } from '../edge-tier/jwks.js'
 import { getLocalSsoSub } from '../edge-tier/sessionBridge.js'
+import {
+  startVerifierLogTail,
+  stopVerifierLogTail,
+} from '../edge-tier/verifierLogTailer.js'
 
 // ── Module-level state ─────────────────────────────────────────────────────────
 
@@ -109,6 +113,7 @@ export async function restartLocalPod(
 }
 
 export async function stopLocalPod(): Promise<void> {
+  stopVerifierLogTail()
   if (!_activePod) return
 
   const pod = _activePod
@@ -191,6 +196,11 @@ async function _doStart(
   try {
     _activePod = await applyPodManifest(podAuthSecret, sealKeyHex, runnerOpts)
     console.log(`[LOCAL_POD] Pod started: ${_activePod.podName}`)
+    if (edgeEnabled) {
+      startVerifierLogTail(runnerOpts.podName ?? DEFAULT_LOCAL_VERIFY_POD_NAME)
+    } else {
+      stopVerifierLogTail()
+    }
   } catch (err) {
     console.error('[LOCAL_POD] Failed to start pod:', (err as Error).message ?? err)
     _activePod = null

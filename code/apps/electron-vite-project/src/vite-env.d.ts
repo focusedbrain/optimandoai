@@ -212,6 +212,12 @@ interface IntegrityBridge {
   getStatus: () => Promise<IntegrityStatus>
 }
 
+interface EdgeTierBridge {
+  getStatus: () => Promise<Record<string, unknown>>
+  getVerifications: (limit?: number) => Promise<Array<Record<string, unknown>>>
+  onVerificationsUpdated?: (handler: () => void) => () => void
+}
+
 /** Ollama status payload from `ollamaManager.getStatus()` / `llm:getStatus`. */
 interface LlmOllamaStatus {
   installed: boolean
@@ -378,6 +384,7 @@ interface Window {
   /** System browser for external links (not an in-app BrowserWindow). */
   appShell?: AppShellBridge
   integrity?: IntegrityBridge
+  edgeTier?: EdgeTierBridge
   debugLogs?: DebugLogsBridge
   orchestrator?: OrchestratorBridge
   beap?: BeapBridge

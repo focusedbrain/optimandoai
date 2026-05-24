@@ -1538,6 +1538,16 @@ contextBridge.exposeInMainWorld('integrity', {
   getStatus: () => ipcRenderer.invoke('integrity:status'),
 })
 
+contextBridge.exposeInMainWorld('edgeTier', {
+  getStatus: () => ipcRenderer.invoke('edge-tier:get-status'),
+  getVerifications: (limit?: number) => ipcRenderer.invoke('edge-tier:get-verifications', limit),
+  onVerificationsUpdated: (handler: () => void) => {
+    const fn = () => handler()
+    ipcRenderer.on('edge-tier:verifications-updated', fn)
+    return () => ipcRenderer.removeListener('edge-tier:verifications-updated', fn)
+  },
+})
+
 // ── Local LLM (Ollama) — status + active model (shared with Backend Configuration persistence) ──
 contextBridge.exposeInMainWorld('llm', {
   getStatus: () => ipcRenderer.invoke('llm:getStatus'),

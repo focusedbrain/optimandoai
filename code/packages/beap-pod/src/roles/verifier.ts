@@ -26,6 +26,27 @@ import type { EdgeCertificate } from '@repo/beap-cert';
 import { requirePodAuthSecret, createPodAuthMiddleware } from '../shared/podAuth.js';
 
 const ROLE = 'verifier';
+
+/** JSON audit line type — Electron tails verifier stdout and parses these (P3.10). */
+export const BEAP_EDGE_VERIFICATION_AUDIT_TYPE = 'beap_edge_verification';
+
+export interface EdgeVerificationAuditLine {
+  type: typeof BEAP_EDGE_VERIFICATION_AUDIT_TYPE;
+  timestamp: string;
+  edge_pod_id: string;
+  sub: string;
+  /** `verified` or a VerifyReasonCode string. */
+  result: string;
+  phase: 'shallow' | 'deep';
+}
+
+export function emitVerificationAuditLine(event: Omit<EdgeVerificationAuditLine, 'type'>): void {
+  const line: EdgeVerificationAuditLine = {
+    type: BEAP_EDGE_VERIFICATION_AUDIT_TYPE,
+    ...event,
+  };
+  process.stdout.write(`${JSON.stringify(line)}\n`);
+}
 const DEFAULT_PORT = 18105;
 const DEFAULT_MAX_BODY_BYTES = 32 * 1024 * 1024;
 const VERSION = process.env['POD_VERSION'] ?? '1.0.0';
@@ -453,11 +474,21 @@ function makeHandler(
         'expected_validation_result_bytes',
       );
 
+      const phase: 'shallow' | 'deep' = expectedCapsuleCanonicalBytes ? 'deep' : 'shallow';
+
       const result = await verifyCertificateAcceptance(state, {
         rawPackageBytes,
         certificate: certRaw,
         ...(expectedCapsuleCanonicalBytes ? { expectedCapsuleCanonicalBytes } : {}),
         ...(expectedValidationResultBytes ? { expectedValidationResultBytes } : {}),
+      });
+
+      emitVerificationAuditLine({
+        timestamp: new Date().toISOString(),
+        edge_pod_id: certRaw.edge_pod_id,
+        sub: result.ok ? result.sub : state.localSsoSub,
+        result: result.ok ? 'verified' : result.reason,
+        phase,
       });
 
       sendJson(res, 200, result as unknown as Record<string, unknown>);

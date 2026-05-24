@@ -21,8 +21,26 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - [x] **P3.7** — Ingestor LOCAL_VERIFY flow (shallow verify → validator → deep verify → seal; POD_MODE branching)
 - [x] **P3.8** — Electron edge-tier settings, keygen, JWKS, LOCAL_VERIFY mode switching (`edge-tier/` module, `edge-cli`, pod restart)
 - [x] **P3.9** — pod-client edge-tier routing (single replica, reject fallback)
+- [x] **P3.10** — End-to-end manual verification + audit-trail surfacing (verifier JSON audit, Edge tier dev panel)
 
 ---
+
+## Phase 3 done — 2026-05-24
+
+Per-message cryptographic certification (Phase 3) is **complete** on branch `phase-1/pod-becomes-hot-path`.
+
+| Criterion | Status |
+|-----------|--------|
+| `@repo/beap-cert` + certifier/verifier roles | ✅ |
+| REMOTE_EDGE + LOCAL_VERIFY manifests + ingestor modes | ✅ |
+| Electron edge-tier settings, JWKS, CLI, pod mode switch | ✅ |
+| `@repo/pod-client` edge routing | ✅ |
+| Audit trail + dev status UI | ✅ |
+| Manual E2E procedure documented | ✅ [`phase-3-manual-test.md`](phase-3-manual-test.md) |
+
+**Not in Phase 3:** setup wizard (Phase 4), replica failover/LB (Phase 5), telemetry export (Phase 6).
+
+**Do not merge to `main`** until downstream phases sign off.
 
 ## Status summary
 
@@ -38,6 +56,7 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 | P3.7 | ✅ done | P3.7: ingestor LOCAL_VERIFY flow with shallow-then-deep verification |
 | P3.8 | ✅ done | P3.8: Electron edge-tier settings, keygen, JWKS, mode-switching local pod |
 | P3.9 | ✅ done | P3.9: pod-client edge-tier routing (single replica, reject fallback) |
+| P3.10 | ✅ done | P3.10: end-to-end edge verification + audit-trail surfacing |
 
 ---
 
@@ -144,3 +163,11 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - **`@repo/pod-client`:** `EdgeReplica` type; `configureEdgeTier(replicas | null, fallbackPolicy?)`. Edge enabled → POST edge `/ingest` → relay `{ body, edge_certificate }` to local LOCAL_VERIFY ingestor. First replica only (Phase 5: health-aware round-robin). `PodEdgeUnreachableError` (`EDGE_UNREACHABLE`) when edge unreachable and `fallback_policy=reject`.
 - **`ingestionPipeline.ts`:** reads `edge-tier-settings.json` on each call; maps replicas into pod-client; handles `EDGE_UNREACHABLE` and cert verification rejections from local pod.
 - **Tests:** 4 pod-client edge tests + 3 electron `podHotPath.edgeTier` tests (disabled path, edge→local success, edge unreachable). Full pod-client suite: 19 pass.
+
+### P3.10
+
+- **Verifier audit:** each `/verify-cert` emits one JSON stdout line (`type: beap_edge_verification`) with `timestamp`, `edge_pod_id`, `sub`, `result`, `phase` (shallow/deep).
+- **Electron:** `verificationAudit.ts` ring buffer (50) + `podman logs -f` tailer on LOCAL_VERIFY start; IPC `edge-tier:get-status`, `edge-tier:get-verifications`.
+- **UI:** `EdgeTierAdminPanel` (bottom-right dev toggle) — edge tier status + Edge verifications table (read-only).
+- **Manual E2E:** [`phase-3-manual-test.md`](phase-3-manual-test.md) — deploy edge, enable tier, positive/negative paths.
+- **Tests:** verifier audit line, verificationAudit store, EdgeTierAdminPanel render tests.

@@ -2967,6 +2967,12 @@ app.whenReady().then(async () => {
     })
     console.log('[MAIN] IPC handler registered: integrity:status')
 
+    void import('./main/edge-tier/ipc.js')
+      .then((m) => {
+        m.registerEdgeTierIpcHandlers()
+      })
+      .catch((e) => console.error('[MAIN] Edge tier IPC registration failed:', e))
+
     void import('./main/letter/letterComposerIpc')
       .then((m) => {
         m.registerLetterComposerIpcHandlers()

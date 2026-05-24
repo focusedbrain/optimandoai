@@ -372,20 +372,36 @@ describe('verifier HTTP server', () => {
   });
 
   test('POST /verify-cert happy path', async () => {
-    const { state, rawPackageBytes, certificate } = await buildFixture();
-    server = createVerifierServer(TEST_SECRET, state);
-    await startServer(server);
+    const writes: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      const { state, rawPackageBytes, certificate } = await buildFixture();
+      server = createVerifierServer(TEST_SECRET, state);
+      await startServer(server);
 
-    const result = await postVerifyCert(
-      server,
-      {
-        raw_package_bytes_b64: Buffer.from(rawPackageBytes).toString('base64'),
-        certificate,
-      },
-      TEST_SECRET,
-    );
-    expect(result.status).toBe(200);
-    expect(result.json).toEqual({ ok: true, edge_pod_id: EDGE_POD_ID, sub: LOCAL_SSO_SUB });
+      const result = await postVerifyCert(
+        server,
+        {
+          raw_package_bytes_b64: Buffer.from(rawPackageBytes).toString('base64'),
+          certificate,
+        },
+        TEST_SECRET,
+      );
+      expect(result.status).toBe(200);
+      expect(result.json).toEqual({ ok: true, edge_pod_id: EDGE_POD_ID, sub: LOCAL_SSO_SUB });
+
+      const auditChunk = writes.find((w) => w.includes('beap_edge_verification'));
+      expect(auditChunk).toBeDefined();
+      const audit = JSON.parse(auditChunk!.trim());
+      expect(audit.result).toBe('verified');
+      expect(audit.phase).toBe('shallow');
+      expect(audit.edge_pod_id).toBe(EDGE_POD_ID);
+    } finally {
+      stdoutSpy.mockRestore();
+    }
   });
 
   test('missing X-Pod-Auth → 401', async () => {

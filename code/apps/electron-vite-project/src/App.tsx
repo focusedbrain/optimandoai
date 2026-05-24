@@ -35,6 +35,7 @@ import { HandshakeHealthOrchestratorBanner } from './components/HandshakeHealthO
 import { useActiveHandshakeHealthBanner } from './hooks/useActiveHandshakeHealthBanner'
 // === TEMPORARY DEBUG LOG VIEWER (remove before production) ===
 import { DebugLogViewer } from './components/DebugLogViewer'
+import { EdgeTierAdminPanel } from './components/EdgeTierAdminPanel'
 // === END TEMPORARY DEBUG LOG VIEWER ===
 
 type DashboardView = 'analysis' | 'wr-chat' | 'handshakes' | 'beap-inbox'
@@ -649,6 +650,7 @@ function App() {
         )}
         {/* === TEMPORARY DEBUG LOG VIEWER (remove before production) === */}
         <DebugLogViewer />
+        <EdgeTierAdminPanel />
         {/* === END TEMPORARY DEBUG LOG VIEWER === */}
       </main>
       <AddModeWizardHost theme={extensionTheme} />
