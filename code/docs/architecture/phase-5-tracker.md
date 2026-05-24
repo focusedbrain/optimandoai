@@ -56,9 +56,9 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - [x] **P5.6** — Dashboard quarantine review UI; sandbox-routed report and body viewing
 - [x] **P5.7** — Replacement-budget circuit breaker
 - [x] **P5.8** — Pod-level replacement escalation on container-replacement failure
-- [ ] **P5.9** — Host-initiated nuclear pod reset
-- [ ] **P5.10** — End-to-end tests and manual verification recipe
-- [ ] **P5.11** — Strategy doc §5 update and phase closeout
+- [x] **P5.9** — Stuck container detection via health probes with supervisor-signed reports
+- [ ] **P5.10** — Host-initiated nuclear pod reset
+- [ ] **P5.11** — End-to-end tests, manual verification recipe, and strategy doc §5 closeout
 
 ---
 
@@ -75,7 +75,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 | P5.6 | ✅ done | `1cdbd229` |
 | P5.7 | ✅ done | `2432e3f9` |
 | P5.8 | ✅ done | `067ee08b` |
-| P5.9 | ⬜ pending | — |
+| P5.9 | ✅ done | — |
 | P5.10 | ⬜ pending | — |
 | P5.11 | ⬜ pending | — |
 
@@ -174,3 +174,11 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - Audit: `pod_replaced` / `pod_replaced_failed` (distinct from `container_replaced`); pod replacement not counted against P5.7 replacement budget.
 - SSH helpers: `buildPodStopCommand`, `buildPodRmCommand` in `ssh/deploy.ts`.
 - Tests: `supervisor/__tests__/replaceEscalation.test.ts`.
+
+### P5.9
+
+- `supervisor/supervisorPoll.ts`: liveness probes on running containers (`HEALTH_PROBE_INTERVAL_MS=10s`, `HEALTH_PROBE_TIMEOUT_MS=5s`, `STUCK_THRESHOLD_CONSECUTIVE_FAILURES=3`).
+- Stuck path: `podman kill --signal=SIGKILL` → standard `replaceContainer`; supervisor-authored `StuckHealthProbeError` report (`signer: 'supervisor'`) signed with desktop VMK-wrapped key (`supervisorSigningKey.ts`).
+- Schema: `DiagnosticReportV1.signer: 'edge' | 'supervisor'` in `@repo/beap-cert`; `reportStore` verifies against edge or supervisor public key.
+- SSH: `buildContainerHealthProbeCommand`, `buildKillContainerCommand` in `ssh/deploy.ts`.
+- Tests: `supervisor/__tests__/stuckDetection.test.ts`.
