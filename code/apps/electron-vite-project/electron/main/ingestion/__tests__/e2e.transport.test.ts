@@ -51,6 +51,9 @@ function validBeapPayload(): Record<string, unknown> {
       wrStampStatus: null,
     },
     wrdesk_policy_version: '1.0',
+    // Phase B: crypto fields required by capsule validator
+    sender_public_key: 'c'.repeat(64),
+    sender_signature: 'd'.repeat(128),
   }
 }
 
@@ -508,6 +511,8 @@ describe('E2E Transport — Additional Guarantees', () => {
       ...validBeapPayload(),
       capsule_type: 'accept',
       sharing_mode: 'receive-only',
+      // Phase B: accept capsules also require countersigned_hash
+      countersigned_hash: 'e'.repeat(128),
     }
     const result = await processIncomingInput(
       { body: JSON.stringify(payload) },
@@ -530,6 +535,9 @@ describe('E2E Transport — Additional Guarantees', () => {
       sender_id: 'user-1',
       capsule_hash: 'c'.repeat(64),
       timestamp: new Date().toISOString(),
+      // Phase B: revoke capsules require sender_public_key and sender_signature
+      sender_public_key: 'c'.repeat(64),
+      sender_signature: 'd'.repeat(128),
     }
     const result = await processIncomingInput(
       { body: JSON.stringify(payload) },

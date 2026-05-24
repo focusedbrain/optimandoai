@@ -312,7 +312,8 @@ describe('Host AI E2E — sandbox ↔ host (HTTP capabilities path)', () => {
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.ok).toBe(true)
     expect(r.refreshMeta.hadCapabilitiesProbed).toBe(true)
-    expect(r.targets).toHaveLength(1)
+    // Phase B: isSandboxMode=false here, so all capability-wire models are emitted (one row per model).
+    expect(r.targets).toHaveLength(2)
     const t = r.targets[0]!
     expect(t.kind).toBe('host_internal')
     expect(t.available).toBe(true)

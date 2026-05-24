@@ -11,6 +11,11 @@ import {
   orchestratorDBExists,
   getOrchestratorDBPath,
 } from './db'
+import {
+  isOrchestratorKvSessionKey,
+  kvBlobToOrchestratorSession,
+  resolveOrchestratorSessionDisplayName,
+} from './sessionKeyUtils'
 
 export class OrchestratorService {
   private db: any | null = null
@@ -268,24 +273,36 @@ export class OrchestratorService {
   }
 
   /**
-   * Get session by ID
+   * Get session by ID.
+   * Resolves the `sessions` table first, then WR Chat KV keys (`session_*`, `archive_session_*`)
+   * — same sources as {@link listAllSessionsForUi}.
    */
   async getSession(id: string): Promise<Session | undefined> {
     await this.ensureConnected()
 
     try {
       const row = this.db.prepare('SELECT id, name, config_json, created_at, updated_at, tags FROM sessions WHERE id = ?').get(id)
-      if (!row) {
+      if (row) {
+        return {
+          id: row.id,
+          name: row.name,
+          config: JSON.parse(row.config_json),
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          tags: row.tags ? JSON.parse(row.tags) : undefined,
+        }
+      }
+
+      if (!isOrchestratorKvSessionKey(id)) {
         return undefined
       }
-      return {
-        id: row.id,
-        name: row.name,
-        config: JSON.parse(row.config_json),
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-        tags: row.tags ? JSON.parse(row.tags) : undefined,
+
+      const kv = await this.get<Record<string, unknown>>(id)
+      if (kv == null || typeof kv !== 'object' || Array.isArray(kv)) {
+        return undefined
       }
+
+      return kvBlobToOrchestratorSession(id, kv)
     } catch (error: any) {
       console.error(`[ORCHESTRATOR] Error getting session "${id}":`, error)
       throw error
@@ -343,7 +360,9 @@ export class OrchestratorService {
    * (same keys as GET_ALL_SESSIONS_FROM_SQLITE / `/api/orchestrator/get-all` filter).
    * The table alone is often empty while history lives under `session_*`.
    */
-  async listAllSessionsForUi(): Promise<Array<{ id: string; name: string; created_at: string }>> {
+  async listAllSessionsForUi(): Promise<
+    Array<{ id: string; name: string; created_at: string; sessionOrigin?: string }>
+  > {
     await this.ensureConnected()
 
     const tableRows = await this.listSessions()
@@ -354,7 +373,7 @@ export class OrchestratorService {
       allKv = {}
     }
 
-    const byId = new Map<string, { id: string; name: string; created_at: string }>()
+    const byId = new Map<string, { id: string; name: string; created_at: string; sessionOrigin?: string }>()
 
     for (const row of tableRows) {
       const ca = row.created_at
@@ -372,20 +391,7 @@ export class OrchestratorService {
         key.startsWith('session_') || key.startsWith('archive_session_')
       if (!isKvSession || value == null || typeof value !== 'object') continue
       const v = value as Record<string, unknown>
-      // Mirrors `sessionDisplayLabel` in apps/extension-chromium/src/utils/sessionDisplayLabel.ts — keep in sync.
-      const ne = (x: unknown): string | null => {
-        if (x == null || typeof x !== 'string') return null
-        const t = x.trim()
-        return t.length > 0 ? t : null
-      }
-      const baseName =
-        ne(v.sessionAlias) ??
-        ne(v.tabName) ??
-        ne(v.name) ??
-        ne(v.sessionName) ??
-        ne(key) ??
-        'Unnamed session'
-      const name = key.startsWith('archive_session_') ? `Archived: ${baseName}` : baseName
+      const name = resolveOrchestratorSessionDisplayName(key, v)
       const ts =
         typeof v.timestamp === 'string' && v.timestamp
           ? v.timestamp
@@ -394,8 +400,12 @@ export class OrchestratorService {
             : typeof v.createdAt === 'string' && v.createdAt
               ? v.createdAt
               : new Date().toISOString()
+      const sessionOrigin =
+        v.sessionOrigin === 'beap_import' || v.sessionOrigin === 'file_import'
+          ? (v.sessionOrigin as string)
+          : undefined // legacy rows: omit; read-time default is 'local'
       if (!byId.has(key)) {
-        byId.set(key, { id: key, name, created_at: ts })
+        byId.set(key, { id: key, name, created_at: ts, sessionOrigin })
       }
     }
 

@@ -10,6 +10,8 @@ export type SendCapsuleSuccessShape = {
   success: true
   statusCode?: number
   coordinationRelayDelivery?: RelayDeliveryMode
+  recipientIngestConfirmed?: boolean
+  ingestRowId?: string
 }
 
 export type CoordinationQueueTransportOutcome = {
@@ -19,6 +21,8 @@ export type CoordinationQueueTransportOutcome = {
   coordinationRelayDelivery?: RelayDeliveryMode
   relayTransportAccepted: boolean
   http_status?: number
+  recipient_ingest_confirmed?: boolean
+  ingest_row_id?: string
 }
 
 /**
@@ -27,6 +31,13 @@ export type CoordinationQueueTransportOutcome = {
  * - Direct 200 (no `coordinationRelayDelivery`) → DELIVERED_LIVE
  */
 export function mapSendResultToQueueOutcome(result: SendCapsuleSuccessShape): CoordinationQueueTransportOutcome {
+  const ingestConfirmed = result.recipientIngestConfirmed === true
+  const ingestRowId =
+    typeof result.ingestRowId === 'string' && result.ingestRowId.length > 0 ? result.ingestRowId : undefined
+  const ingestFields = ingestConfirmed
+    ? { recipient_ingest_confirmed: true as const, ...(ingestRowId ? { ingest_row_id: ingestRowId } : {}) }
+    : {}
+
   if (result.coordinationRelayDelivery === 'queued_recipient_offline') {
     return {
       delivered: false,
@@ -35,6 +46,7 @@ export function mapSendResultToQueueOutcome(result: SendCapsuleSuccessShape): Co
       coordinationRelayDelivery: 'queued_recipient_offline',
       relayTransportAccepted: true,
       http_status: result.statusCode,
+      ...ingestFields,
     }
   }
   if (result.coordinationRelayDelivery === 'pushed_live') {
@@ -45,6 +57,7 @@ export function mapSendResultToQueueOutcome(result: SendCapsuleSuccessShape): Co
       coordinationRelayDelivery: 'pushed_live',
       relayTransportAccepted: true,
       http_status: result.statusCode,
+      ...ingestFields,
     }
   }
   return {
@@ -53,5 +66,6 @@ export function mapSendResultToQueueOutcome(result: SendCapsuleSuccessShape): Co
     code: 'DELIVERED_LIVE',
     relayTransportAccepted: true,
     http_status: result.statusCode,
+    ...ingestFields,
   }
 }

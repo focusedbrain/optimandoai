@@ -113,7 +113,9 @@ describe('Handshake IPC — handshake.initiate', () => {
 
     const record = getHandshakeRecord(db, result.handshake_id)
     expect(record).toBeDefined()
-    expect(record!.policy_selections).toEqual({ cloud_ai: true, internal_ai: true })
+    // Phase B: legacy { cloud_ai, internal_ai } normalises to the 3-key structure.
+    // { cloud_ai: true, internal_ai: true } → invalid, defensively mapped to 'local_only'
+    expect(record!.policy_selections).toEqual({ ai_processing_mode: 'local_only', cloud_ai: false, internal_ai: true })
   })
 
   test('initiate without policy_selections uses fallback (no crash)', async () => {
@@ -150,7 +152,9 @@ describe('Handshake IPC — handshake.initiate', () => {
         content,
         scope_id: 'initiator',
         policy_mode: 'override',
-        policy: { cloud_ai: true, internal_ai: true },
+        // Phase B: { cloud_ai: true, internal_ai: true } normalises to 'local_only' (cloud_ai_allowed: false).
+        // Use { cloud_ai: true, internal_ai: false } → 'internal_and_cloud' to get cloud_ai_allowed: true.
+        policy: { cloud_ai: true, internal_ai: false },
       }],
     }, db)
 
@@ -182,7 +186,8 @@ describe('Handshake IPC — handshake.initiate', () => {
     expect(result.success).toBe(true)
     expect(result.handshake_id).toBeTruthy()
     const record = getHandshakeRecord(db, result.handshake_id)
-    expect(record?.policy_selections).toEqual({ cloud_ai: true, internal_ai: false })
+    // Phase B: { cloud_ai: true, internal_ai: false } → 'internal_and_cloud' → 3-key object
+    expect(record?.policy_selections).toEqual({ ai_processing_mode: 'internal_and_cloud', cloud_ai: true, internal_ai: false })
   })
 })
 
@@ -265,7 +270,8 @@ describe('Handshake IPC — handshake.accept', () => {
 
     const record = getHandshakeRecord(db, handshakeId)
     expect(record).toBeDefined()
-    expect(record!.policy_selections).toEqual({ cloud_ai: false, internal_ai: true })
+    // Phase B: { cloud_ai: false, internal_ai: true } → 'local_only' → 3-key object
+    expect(record!.policy_selections).toEqual({ ai_processing_mode: 'local_only', cloud_ai: false, internal_ai: true })
   })
 
   test('accept with context_blocks + per-item policy_mode override uses item policy for governance', async () => {
@@ -291,7 +297,9 @@ describe('Handshake IPC — handshake.accept', () => {
         content,
         scope_id: 'acceptor',
         policy_mode: 'override',
-        policy: { cloud_ai: true, internal_ai: true },
+        // Phase B: { cloud_ai: true, internal_ai: true } normalises to 'local_only' (cloud_ai_allowed: false).
+        // Use { cloud_ai: true, internal_ai: false } → 'internal_and_cloud' to get cloud_ai_allowed: true.
+        policy: { cloud_ai: true, internal_ai: false },
       }],
     }, db)
 

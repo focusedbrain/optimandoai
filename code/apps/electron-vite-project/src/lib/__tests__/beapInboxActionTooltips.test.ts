@@ -11,7 +11,7 @@ import {
 import { defaultSandboxAvailability } from '../../types/sandboxOrchestratorAvailability'
 
 const SANDBOX_HOVER =
-  'Clone this BEAP message and send it to the Sandbox orchestrator. If the Sandbox is offline, the clone will be queued.'
+  'Clone the entire BEAP message to your Sandbox orchestrator so content can be inspected on isolated hardware. If the Sandbox is offline, the clone will be queued.'
 
 describe('beapInboxActionTooltips', () => {
   test('Sandbox: same hover regardless of tri-state (relay is not a visibility input)', () => {

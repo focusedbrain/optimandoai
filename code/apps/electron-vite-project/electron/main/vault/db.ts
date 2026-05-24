@@ -6,11 +6,14 @@
 import { join, dirname } from 'path'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { createRequire } from 'module'
+import { fileURLToPath } from 'url'
 import { homedir } from 'os'
 import type { SessionUserInfo } from '../../../src/auth/session'
 import { hasVaultOwnerMetadata, vaultOwnerMatchesSession, type VaultOwnerRecord } from './vaultOwnerIdentity'
 
 const require = createRequire(import.meta.url)
+
+const moduleDir = dirname(fileURLToPath(import.meta.url))
 
 // Lazy-load better-sqlite3 to avoid module loading issues
 let DatabaseConstructor: any = null
@@ -31,7 +34,7 @@ async function loadSQLCipher(): Promise<any> {
         // Second try: app-local node_modules (pnpm workspace — module not in flat node_modules)
         if (!sqlite3) try {
           const path = require('path')
-          const appNodeModules = path.join(__dirname, '..', 'node_modules', 'better-sqlite3')
+          const appNodeModules = path.join(moduleDir, '..', 'node_modules', 'better-sqlite3')
           console.log('[VAULT DB] Trying app node_modules path:', appNodeModules)
           sqlite3 = require(appNodeModules)
           console.log('[VAULT DB] better-sqlite3 loaded from app node_modules')

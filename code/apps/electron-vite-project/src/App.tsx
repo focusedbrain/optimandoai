@@ -99,6 +99,7 @@ function App() {
   const [dashboardComposeMode, setDashboardComposeMode] = useState<'email' | 'beap' | 'letter' | null>(
     null,
   )
+  const [inboxComposeRequest, setInboxComposeRequest] = useState<'email' | 'beap' | null>(null)
   const [showInitiateModal, setShowInitiateModal] = useState(false)
   const [selectedHandshakeId, setSelectedHandshakeId] = useState<string | null>(null)
   const [selectedHandshakeEmail, setSelectedHandshakeEmail] = useState<string | null>(null)
@@ -115,6 +116,20 @@ function App() {
   /** Install before any embedded @ext UI (e.g. Add Automation wizard) calls `chrome.runtime.sendMessage`. */
   useEffect(() => {
     ensureWrdeskChromeShim()
+  }, [])
+
+  /** Runtime parity with main `[RUNTIME_IDENTITY]` compile-time stamp (verify wrong-build vs DevTools/console). */
+  useEffect(() => {
+    try {
+      const commit = typeof __WR_RUNTIME_GIT_COMMIT__ !== 'undefined' ? __WR_RUNTIME_GIT_COMMIT__ : '(no-define)'
+      const buildStamp =
+        typeof __ORCHESTRATOR_BUILD_STAMP__ !== 'undefined' ? __ORCHESTRATOR_BUILD_STAMP__ : '(no-define)'
+      console.log(
+        `[RENDERER_IDENTITY] commit=${commit} buildStamp=${buildStamp} location=${window.location.href} component=App`,
+      )
+    } catch {
+      console.log('[RENDERER_IDENTITY] commit=(error) buildStamp=(error) component=App')
+    }
   }, [])
 
   useEffect(() => {
@@ -419,12 +434,6 @@ function App() {
         </div>
         <nav className="app-header__nav">
           {/* Dashboard via logo only. WR Chat: WrMultiTriggerBar speech bubble switches to wr-chat — no nav tab. */}
-          <button
-            className={`nav-tab${activeView === 'handshakes' ? ' nav-tab--active' : ''}`}
-            onClick={() => setActiveView('handshakes')}
-          >
-            Handshakes
-          </button>
           <div
             role="button"
             tabIndex={0}
@@ -446,6 +455,53 @@ function App() {
                 onChange={(e) => setInboxBulkMode(e.target.checked)}
               />
             </label>
+          </div>
+          {/* Compact shortcuts: handshake + compose icons — always visible */}
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 4, flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => setActiveView('handshakes')}
+              title="Handshakes"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 26, height: 26, padding: 0, borderRadius: 6,
+                background: activeView === 'handshakes' ? '#e2e3e6' : 'transparent',
+                color: activeView === 'handshakes' ? '#0f172a' : 'var(--text-secondary)',
+                border: activeView === 'handshakes' ? '1px solid #c8cacd' : '1px solid var(--border)',
+                fontSize: 15, cursor: 'pointer', flexShrink: 0,
+              }}
+            >
+              🤝
+            </button>
+            <button
+              type="button"
+              onClick={() => { setActiveView('beap-inbox'); setInboxComposeRequest('email') }}
+              title="New Email"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 26, height: 26, padding: 0, borderRadius: 6,
+                background: 'transparent', color: 'var(--text-secondary)',
+                border: '1px solid var(--border)',
+                fontSize: 13, cursor: 'pointer', flexShrink: 0,
+              }}
+            >
+              ✉
+            </button>
+            <button
+              type="button"
+              onClick={() => { setActiveView('beap-inbox'); setInboxComposeRequest('beap') }}
+              title="New BEAP™ Message"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                height: 26, padding: '0 7px', borderRadius: 6,
+                background: 'transparent', color: 'var(--text-secondary)',
+                border: '1px solid var(--border)',
+                fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                letterSpacing: '0.3px', flexShrink: 0,
+              }}
+            >
+              BEAP
+            </button>
           </div>
           <div
             className="app-header__wr-watchdog"
@@ -555,6 +611,8 @@ function App() {
               onSelectAttachment={setSelectedAttachmentId}
               onNavigateToHandshake={handleNavigateToHandshakeFromInbox}
               onOpenHandshakesView={handleOpenHandshakesViewFromInbox}
+              composeRequest={inboxComposeRequest}
+              onComposeRequestHandled={() => setInboxComposeRequest(null)}
             />
           )
         ) : activeView === 'wr-chat' ? (

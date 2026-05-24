@@ -5,6 +5,7 @@
 
 import { ollamaManager } from './ollama-manager'
 import { InboxLlmTimeoutError } from '../email/inboxLlmChat'
+import { assertGpuInferenceAvailable } from '../inference/inferenceGate'
 
 export interface InternalHostInferenceMessage {
   role: 'system' | 'user' | 'assistant'
@@ -128,6 +129,7 @@ export async function runInternalHostOllamaInference(
   }
 
   try {
+    await assertGpuInferenceAvailable()
     const response = await fetch(`${base}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

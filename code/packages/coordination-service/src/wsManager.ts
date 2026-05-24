@@ -128,6 +128,13 @@ export interface WsManagerAdapter {
     payload: Record<string, unknown>,
   ): boolean
   pushSystemEvent(recipientUserId: string, event: string, payload?: Record<string, unknown>): boolean
+  /** Cross-device BEAP delivery confirmation → sender coordination WS (not stored in DB). */
+  pushBeapIngestAck(
+    senderUserId: string,
+    senderDeviceId: string | null,
+    payload: Record<string, unknown>,
+    excludeWs?: WebSocket,
+  ): boolean
   handleAck(userId: string, ids: string[]): void
   getConnectedCount(): number
   startHeartbeat(intervalMs: number): ReturnType<typeof setInterval>
@@ -283,6 +290,36 @@ export function createWsManager(store: StoreAdapter): WsManagerAdapter {
       } catch {
         return false
       }
+    },
+
+    pushBeapIngestAck(
+      senderUserId: string,
+      senderDeviceId: string | null,
+      payload: Record<string, unknown>,
+      excludeWs?: WebSocket,
+    ): boolean {
+      const msg = JSON.stringify({ type: 'beap_ingest_ack', ...payload })
+      const d = (senderDeviceId ?? '').trim()
+      const trySend = (client: ConnectedClient | undefined): boolean => {
+        if (!client) return false
+        if (excludeWs && client.ws === excludeWs) return false
+        try {
+          client.ws.send(msg)
+          return true
+        } catch {
+          return false
+        }
+      }
+      if (d.length > 0) {
+        if (trySend(getClientByDevice(senderUserId, d))) return true
+      } else if (trySend(getClient(senderUserId))) {
+        return true
+      }
+      for (const client of getClientsByUser(senderUserId)) {
+        if (d.length > 0 && client.deviceId === d) continue
+        if (trySend(client)) return true
+      }
+      return false
     },
 
     pushSystemEvent(

@@ -1,10 +1,141 @@
-﻿import { handleElectronRpc, type ElectronRpcRequest } from './rpc/electronRpc'
+import { handleElectronRpc, type ElectronRpcRequest } from './rpc/electronRpc'
 import { WEBMCP_RESULT_VERSION } from './vault/autofill/webMcpConstants'
 import type { BgWebMcpErrorCode } from './vault/autofill/webMcpAdapter'
 import { extractAllTabsDom } from './utils/watchdogDomExtract'
 import { maybePresentOrchestratorDisplayGridSession } from './services/presentOrchestratorDisplayGridSession'
 import { findOpenSessionSurface } from './services/sessionSurfaceResolver'
 import { activateSessionForOptimization } from './services/sessionActivationForOptimization'
+
+// ---------------------------------------------------------------------------
+// Pending BEAP runs — in-memory registry keyed by sessionKey.
+//
+// Lifecycle:
+//   registerPendingBeapRun(sk, model) — called by BEAP_INBOX_PRESENT_GRID and
+//     PRESENT_ORCHESTRATOR_DISPLAY_GRID(source=beap-inbox) BEFORE the grid tab
+//     opens, so the ready signal never races with registration.
+//
+//   triggerPendingBeapRun(sk) — called by BEAP_GRID_SURFACE_READY once the
+//     grid tab reports its surface is painted and agent boxes are positioned.
+//     The `triggered` flag makes repeated ready signals no-ops (idempotent).
+//     Idempotency policy: CONTINUE — if a run was already started for this
+//     sessionKey, do not restart it. Re-clicking Run Automation on the same
+//     capsule always generates a fresh sessionKey, so it naturally starts a
+//     new pipeline; only the grid-tab's own duplicate ready-pings are no-ops.
+//
+//   Safety timeout: 30 s after registration without a ready signal → entry is
+//     removed so stale Map entries do not accumulate in long-lived SWs.
+// ---------------------------------------------------------------------------
+
+type PendingBeapRun = {
+  fallbackModel: string
+  registeredAt: number
+  triggered: boolean
+  timeoutId: ReturnType<typeof setTimeout>
+}
+
+const pendingBeapRuns = new Map<string, PendingBeapRun>()
+
+const BEAP_RUN_READY_TIMEOUT_MS = 30_000
+
+/** Emitted by grid-display.js after createSlots() paints all agent-box slots. */
+const BEAP_GRID_SURFACE_READY = 'BEAP_GRID_SURFACE_READY' as const
+
+function registerPendingBeapRun(sessionKey: string, fallbackModel: string): void {
+  if (pendingBeapRuns.has(sessionKey)) return
+  const timeoutId = setTimeout(() => {
+    pendingBeapRuns.delete(sessionKey)
+    console.log('[BG] BEAP pending run expired (no ready signal in 30 s):', sessionKey)
+  }, BEAP_RUN_READY_TIMEOUT_MS)
+  pendingBeapRuns.set(sessionKey, {
+    fallbackModel: fallbackModel || 'tinyllama',
+    registeredAt: Date.now(),
+    triggered: false,
+    timeoutId,
+  })
+  console.log('[BG] BEAP pending run registered:', sessionKey, '— waiting for grid ready signal')
+}
+
+/**
+ * Called when the grid tab reports its surface is ready.
+ * Runs executeModeRunAgents in background (storage-fallback path) and writes
+ * the result to chrome.storage.local under beap_run_result_<sessionKey>.
+ *
+ * Ordering guarantee:
+ *   (a) Session blob already in chrome.storage.local (set before grid tab opened).
+ *   (b) Grid tabs rendered  ← this function is called only after grid signals ready.
+ *   (c) Agent boxes positioned ← grid-display.js sends ready AFTER createSlots().
+ *   (d) Hybrid tabs: not yet managed in presentOrchestratorDisplayGridSession;
+ *       execution will still succeed as agents read from storage, not hybrid tabs.
+ */
+async function triggerPendingBeapRun(sessionKey: string): Promise<void> {
+  const pending = pendingBeapRuns.get(sessionKey)
+  if (!pending) {
+    console.log('[BG] BEAP_GRID_SURFACE_READY: no pending run for', sessionKey, '— ignoring')
+    return
+  }
+  if (pending.triggered) {
+    console.log('[BG] BEAP_GRID_SURFACE_READY: run already triggered for', sessionKey, '— no-op (idempotent)')
+    return
+  }
+  pending.triggered = true
+  clearTimeout(pending.timeoutId)
+  pendingBeapRuns.delete(sessionKey)
+  console.log('[BG] BEAP run triggered for', sessionKey, '— calling executeModeRunAgents')
+
+  try {
+    const { executeModeRunAgents } = await import('./services/modeRunExecution')
+    const { interpretBeapAutomationModeRun } = await import('./services/beapRunAutomationResult')
+
+    const runResult = await executeModeRunAgents({
+      modeLinkedSessionId: sessionKey,
+      currentOrchestratorSessionId: sessionKey,
+      sessionKey,
+      fallbackModel: pending.fallbackModel,
+      inputText: '',
+      processedMessages: [{ role: 'user', content: '' }],
+    })
+
+    const interpreted = interpretBeapAutomationModeRun(sessionKey, runResult)
+    console.log('[BG] BEAP run result:', sessionKey, interpreted.ok ? 'ok' : interpreted.error)
+
+    try {
+      await chrome.storage.local.set({
+        [`beap_run_result_${sessionKey}`]: {
+          ...interpreted,
+          completedAt: Date.now(),
+        },
+      })
+    } catch (e) {
+      console.warn('[BG] Failed to persist BEAP run result:', e)
+    }
+
+    try {
+      chrome.runtime.sendMessage({
+        type: 'BEAP_RUN_AUTOMATION_COMPLETE',
+        sessionKey,
+        result: interpreted,
+      })
+    } catch {
+      /* sidepanel/popup may not be open — best-effort notification */
+    }
+  } catch (e) {
+    console.error('[BG] executeModeRunAgents threw:', e)
+    const errMsg = e instanceof Error ? e.message : String(e)
+    try {
+      await chrome.storage.local.set({
+        [`beap_run_result_${sessionKey}`]: {
+          ok: false,
+          sessionKey,
+          phase: 'mode_run',
+          error: errMsg,
+          completedAt: Date.now(),
+        },
+      })
+    } catch {
+      /* non-fatal */
+    }
+  }
+}
 
 try {
   const m = chrome.runtime.getManifest()
@@ -1342,6 +1473,51 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               } catch {
                 /* no receiver (e.g. inbox not open) â€” 5s poll will catch pending rows */
               }
+            } else if (data.type === 'BEAP_DESKTOP_RUN_AUTOMATION') {
+              // Legacy backward-compat path: old Electron builds (pre-orchestrator-pipeline) used to
+              // send this message. Current Electron sends PRESENT_ORCHESTRATOR_DISPLAY_GRID instead.
+              // Route to the same grid-presentation pipeline so old builds also work without an active tab.
+              const importData = data.importData
+              const requestId = typeof data.requestId === 'string' ? data.requestId : ''
+              const sessionKey =
+                typeof data.sessionKey === 'string' && data.sessionKey.trim()
+                  ? data.sessionKey.trim()
+                  : `beap_import_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+              if (importData == null || typeof importData !== 'object' || Array.isArray(importData)) {
+                console.warn('[BG] BEAP_DESKTOP_RUN_AUTOMATION (legacy): invalid importData — skipped')
+              } else {
+                void (async () => {
+                  try {
+                    const blob = importData as Record<string, unknown>
+                    await chrome.storage.local.set({ [sessionKey]: blob })
+                    await maybePresentOrchestratorDisplayGridSession(sessionKey, blob)
+                    if (requestId && ws && ws.readyState === WebSocket.OPEN) {
+                      ws.send(
+                        JSON.stringify({
+                          type: 'BEAP_DESKTOP_RUN_AUTOMATION_RESULT',
+                          requestId,
+                          success: true,
+                          sessionKey,
+                        }),
+                      )
+                    }
+                  } catch (e) {
+                    const err = e instanceof Error ? e.message : String(e)
+                    if (requestId && ws && ws.readyState === WebSocket.OPEN) {
+                      ws.send(
+                        JSON.stringify({
+                          type: 'BEAP_DESKTOP_RUN_AUTOMATION_RESULT',
+                          requestId,
+                          success: false,
+                          error: err,
+                          phase: 'import',
+                        }),
+                      )
+                    }
+                    console.warn('[BG] BEAP_DESKTOP_RUN_AUTOMATION (legacy) error:', e)
+                  }
+                })()
+              }
             } else if (data.type === 'SHOW_TRIGGER_PROMPT') {
               chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
                 const tabUrl = tabs[0]?.url || ''
@@ -1583,6 +1759,14 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                     console.warn('[BG] PRESENT_ORCHESTRATOR_DISPLAY_GRID: no session blob for', sessionKey)
                     return
                   }
+                  // Register pending BEAP run BEFORE opening grid tab so ready signal cannot race.
+                  if (data.source === 'beap-inbox') {
+                    const fm =
+                      typeof data.fallbackModel === 'string' && (data.fallbackModel as string).trim()
+                        ? (data.fallbackModel as string).trim()
+                        : 'tinyllama'
+                    registerPendingBeapRun(sessionKey, fm)
+                  }
                   await maybePresentOrchestratorDisplayGridSession(sessionKey, sessionBlob)
                 } catch (e) {
                   console.warn('[BG] PRESENT_ORCHESTRATOR_DISPLAY_GRID failed:', e)
@@ -1725,11 +1909,11 @@ function startHeartbeat() {
         ws.send(JSON.stringify({ type: 'ping', from: 'extension', timestamp: Date.now() }));
       } catch (err) {
         stopHeartbeat();
-        connectToWebSocketServer();
+        if (!isConnecting) connectToWebSocketServer();
       }
     } else {
       stopHeartbeat();
-      connectToWebSocketServer();
+      if (!isConnecting) connectToWebSocketServer();
     }
   }, 8000);  // 8 seconds (was 5s)
 }
@@ -1796,10 +1980,10 @@ function toggleSidebars() {
 // Keep service worker alive with alarms (survives suspension)
 function setupKeepAlive() {
   // Create an alarm that fires every 25 seconds to keep service worker active
-  chrome.alarms.create('keepAlive', { periodInMinutes: 0.4 }); // ~24 seconds
+  chrome.alarms.create('keepAlive', { periodInMinutes: 0.5 }); // ~30 seconds (service worker keepalive only)
   
-  // Connection check alarm - every 12 seconds (was 6s)
-  chrome.alarms.create('checkConnection', { periodInMinutes: 0.2 }); // ~12 seconds
+  // Connection check alarm - every 60 seconds (was 12s; autoConnectInterval handles fast retry)
+  chrome.alarms.create('checkConnection', { periodInMinutes: 1 }); // 60 seconds
 }
 
 // Handle alarms
@@ -1807,8 +1991,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'keepAlive') {
     // Just wake up - the alarm listener itself keeps the service worker alive
   } else if (alarm.name === 'checkConnection') {
-    // Check and reconnect if needed
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
+    // Check and reconnect if needed — skip if a connection attempt is already in flight
+    if (!isConnecting && (!ws || ws.readyState !== WebSocket.OPEN)) {
       connectToWebSocketServer();
     }
   }
@@ -2271,6 +2455,97 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
       })
     return true
+  }
+
+  // Extension-inbox "Run Automation" → orchestrator display-grid pipeline.
+  // Receives the full SessionImportArtefact (or a rawPayload sessions[0] shape for
+  // legacy messages), unwraps it, persists to chrome.storage.local, and calls
+  // maybePresentOrchestratorDisplayGridSession — identical to the dashboard path.
+  if (msg.type === 'BEAP_INBOX_PRESENT_GRID') {
+    const importArtefact = (msg as Record<string, unknown>).importArtefact
+    const presetSessionKey =
+      typeof (msg as Record<string, unknown>).sessionKey === 'string'
+        ? ((msg as Record<string, unknown>).sessionKey as string).trim()
+        : ''
+    void (async () => {
+      try {
+        const { unwrapSessionImportPayloadForTab } = await import(
+          './services/sessionImportArtefactUnwrap'
+        )
+        const unwrapped = unwrapSessionImportPayloadForTab(importArtefact)
+        if (!unwrapped.ok) {
+          try {
+            sendResponse({ success: false, error: unwrapped.reason })
+          } catch {
+            /* channel closed */
+          }
+          return
+        }
+        const sk =
+          presetSessionKey ||
+          `beap_import_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+        // Tag with origin metadata so the UI can separate it from locally-built sessions.
+        const artefactSourceSessionId =
+          importArtefact && typeof importArtefact === 'object'
+            ? ((importArtefact as Record<string, unknown>).session_id as string | undefined)
+            : undefined
+        const taggedPayload: Record<string, unknown> = {
+          ...(unwrapped.payload as Record<string, unknown>),
+          sessionOrigin: 'beap_import',
+          ...(typeof artefactSourceSessionId === 'string' && artefactSourceSessionId
+            ? { beapImportSourceSessionId: artefactSourceSessionId }
+            : {}),
+        }
+        try {
+          await chrome.storage.local.set({ [sk]: taggedPayload })
+        } catch (e) {
+          try {
+            sendResponse({ success: false, error: 'STORAGE_PERSIST_FAILED' })
+          } catch {
+            /* channel closed */
+          }
+          return
+        }
+        // Register before opening the grid tab so the ready signal cannot race.
+        const fallbackModel =
+          typeof (msg as Record<string, unknown>).fallbackModel === 'string'
+            ? ((msg as Record<string, unknown>).fallbackModel as string).trim()
+            : 'tinyllama'
+        registerPendingBeapRun(sk, fallbackModel)
+        await maybePresentOrchestratorDisplayGridSession(sk, taggedPayload)
+        try {
+          sendResponse({ success: true, sessionKey: sk })
+        } catch {
+          /* channel closed */
+        }
+      } catch (e) {
+        try {
+          sendResponse({ success: false, error: e instanceof Error ? e.message : String(e) })
+        } catch {
+          /* channel closed */
+        }
+      }
+    })()
+    return true
+  }
+
+  // Grid tab surface ready → trigger pending BEAP mode run.
+  // Sent by grid-display.js after createSlots() paints all agent-box slots.
+  // See registerPendingBeapRun / triggerPendingBeapRun at top of background.ts.
+  if (msg.type === BEAP_GRID_SURFACE_READY) {
+    const sk =
+      typeof (msg as Record<string, unknown>).sessionKey === 'string'
+        ? ((msg as Record<string, unknown>).sessionKey as string).trim()
+        : ''
+    if (sk) {
+      void triggerPendingBeapRun(sk)
+    }
+    try {
+      sendResponse({ ok: true })
+    } catch {
+      /* channel closed */
+    }
+    return false
   }
 
   if (msg.type === 'BEAP_ENSURE_LAUNCH_SECRET') {
@@ -4033,6 +4308,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true
     }
     
+    case 'EMAIL_SAVE_BUILTIN_GOOGLE_OAUTH_SUPPLEMENT': {
+      electronRequest('/api/email/credentials/gmail/builtin-supplement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientSecret: msg.clientSecret }),
+      })
+        .then((result) => {
+          sendResponse(result.ok ? { ok: true } : { ok: false, error: result.error })
+        })
+        .catch((err) => {
+          console.error('[BG] EMAIL_SAVE_BUILTIN_GOOGLE_OAUTH_SUPPLEMENT error:', err)
+          sendResponse({ ok: false, error: err?.message || 'Failed to save supplement' })
+        })
+      return true
+    }
+
     case 'EMAIL_CHECK_OUTLOOK_CREDENTIALS': {
       
       electronRequest('/api/email/credentials/outlook')

@@ -26,6 +26,8 @@ import { useBeapInboxStore } from '../useBeapInboxStore'
 import { buildPackage, executeEmailAction } from '../services'
 import type { BeapPackageConfig } from '../services'
 import { deriveReplySubject, EMAIL_SIGNATURE } from './useReplyComposer'
+import { getHandshake } from '../../handshake/handshakeRpc'
+import { hasHandshakeKeyMaterial, handshakeRecordToRecipient } from '../../handshake/rpcTypes'
 
 // =============================================================================
 // Types
@@ -122,14 +124,28 @@ export function useBulkSend(config: UseBulkSendConfig = {}): UseBulkSendReturn {
       if (draft.mode === 'beap') {
         const beapRecipientMode =
           message.encoding === 'pBEAP' ? 'public' : 'private'
+
+        // Thin-config closure (PR 7 Step C / Decision D): fetch the full handshake
+        // record to include peer crypto keys required for qBEAP key agreement.
+        // Mirrors useReplyComposer's PR 6 pattern exactly — same helper, same guard.
+        // pBEAP (public) bulk sends skip this — selectedRecipient stays null.
+        let fullRecipient = null
+        if (beapRecipientMode === 'private') {
+          const handshakeRecord = await getHandshake(message.handshakeId!)
+          if (!hasHandshakeKeyMaterial(handshakeRecord)) {
+            const err = 'Handshake is missing X25519 / ML-KEM keys — re-establish the handshake for qBEAP.'
+            console.error(
+              '[BEAP-SEND] Thin-config guard failed — full debug:',
+              JSON.stringify({ message: err, phase: 'handshake_key_guard', handshake_id: message.handshakeId }),
+            )
+            return { success: false, error: err }
+          }
+          fullRecipient = handshakeRecordToRecipient(handshakeRecord)
+        }
+
         const packageConfig: BeapPackageConfig = {
           recipientMode: beapRecipientMode,
-          selectedRecipient: beapRecipientMode === 'private' ? {
-            handshake_id: message.handshakeId!,
-            counterparty_email: message.senderEmail,
-            counterparty_user_id: '',
-            sharing_mode: 'reciprocal',
-          } : null,
+          selectedRecipient: fullRecipient,
           deliveryMethod: 'email',
           emailTo: message.senderEmail,
           subject: deriveReplySubject(message),

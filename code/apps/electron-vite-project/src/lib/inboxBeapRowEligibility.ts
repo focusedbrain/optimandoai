@@ -12,25 +12,35 @@
 
 import type { InboxMessage } from '../stores/useEmailInboxStore'
 
-export function depackagedFormatFromJson(depackaged_json: string | null | undefined): string | null {
-  if (!depackaged_json?.trim()) return null
-  try {
-    const d = JSON.parse(depackaged_json) as { format?: unknown }
-    return typeof d.format === 'string' ? d.format : null
-  } catch {
-    return null
+/**
+ * Read the format identifier from `depackaged_metadata` (PR 5.1 primary) with a
+ * fallback to `depackaged_json` for rows that pre-date the v63 migration.
+ */
+export function depackagedFormatFromJson(
+  depackaged_json: string | null | undefined,
+  depackaged_metadata?: string | null,
+): string | null {
+  for (const src of [depackaged_metadata, depackaged_json]) {
+    if (!src?.trim()) continue
+    try {
+      const d = JSON.parse(src) as { format?: unknown }
+      if (typeof d.format === 'string') return d.format
+    } catch {
+      /* continue */
+    }
   }
+  return null
 }
 
 /**
  * `email_plain` row that still represents received BEAP content (capsule on disk and/or depackaged BEAP JSON).
  */
 export function isEmailPlainRowWithBeapPayload(
-  m: Pick<InboxMessage, 'source_type' | 'beap_package_json' | 'depackaged_json'>,
+  m: Pick<InboxMessage, 'source_type' | 'beap_package_json' | 'depackaged_json' | 'depackaged_metadata'>,
 ): boolean {
   if (m.source_type !== 'email_plain') return false
   if (m.beap_package_json && String(m.beap_package_json).trim().length > 0) return true
-  const fmt = depackagedFormatFromJson(m.depackaged_json)
+  const fmt = depackagedFormatFromJson(m.depackaged_json, m.depackaged_metadata)
   if (!fmt) return false
   if (fmt === 'beap_qbeap_outbound') return false
   if (fmt.startsWith('beap_')) return true
@@ -42,7 +52,7 @@ export function isEmailPlainRowWithBeapPayload(
  * Received BEAP-capable message: native/email BEAP types, or depackaged BEAP stored as `email_plain` with signals.
  */
 export function isReceivedBeapInboxMessage(
-  m: Pick<InboxMessage, 'source_type' | 'beap_package_json' | 'depackaged_json'> | null | undefined,
+  m: Pick<InboxMessage, 'source_type' | 'beap_package_json' | 'depackaged_json' | 'depackaged_metadata'> | null | undefined,
 ): boolean {
   if (!m) return false
   const t = m.source_type

@@ -4,6 +4,30 @@
  */
 
 import type { VerifiedContextBlock } from './contextEscaping'
+
+/**
+ * Canonical reason codes emitted by the receiver (W3-P6+).
+ * Mirrors ReasonCode from electron/main/vault/capabilityBroker — type-only,
+ * no runtime import from the main process.
+ */
+export type BeapAckReasonCode =
+  | 'ok'
+  | 'outer_vault_inactive'
+  | 'inner_vault_locked'
+  | 'key_provider_unbound'
+  | 'validator_unhealthy'
+  | 'ledger_db_unavailable'
+
+/** Payload delivered by the `inbox:beapDeliveryAck` IPC event (W3-P6+). */
+export interface BeapDeliveryAckData {
+  handshakeId: string
+  rowId: string
+  /** Present when receiver runs W3-P6+ build. Missing on older builds → fallback to 'live'. */
+  status?: 'ok' | 'error'
+  /** Canonical reason from capabilityBroker. Absent when relay strips the field. */
+  reasonCode?: BeapAckReasonCode
+  retryable?: boolean
+}
 import type { NormalInboxAiResult, BulkClassification } from '../types/inboxAi'
 import type { BeapInboxClonePrepareOk, CloneBeapToSandboxIpcResult } from '../types/beapInboxClone'
 import type { InboxAiErrorDebugPayload } from '../lib/inboxAiUserMessages'
@@ -340,6 +364,8 @@ declare global {
           configured: boolean
           developerCredentialsStored?: boolean
           builtinOAuthAvailable?: boolean
+          builtinStandardConnectReady?: boolean
+          gmailBuiltinProviderStatus?: 'not_configured' | 'credentials_incomplete' | 'ready'
           /** Unpackaged app or WR_DESK_EMAIL_DEVELOPER_MODE / WR_DESK_DEVELOPER_MODE */
           developerModeEnabled?: boolean
           clientId?: string
@@ -353,6 +379,8 @@ declare global {
         }
         error?: string
       }>
+      /** Pair bundled Gmail OAuth Desktop client id with client_secret stored only under userData (OS encryption). */
+      saveBuiltinGoogleOAuthSupplement?: (clientSecret: string) => Promise<{ ok: boolean; error?: string }>
       /** Packaged Gmail OAuth runtime proof (fingerprints + paths — no secrets / full client ids / tokens). */
       getGmailOAuthRuntimeDiagnostics?: () => Promise<{
         ok: boolean
@@ -404,19 +432,21 @@ declare global {
     }
     /** Email Inbox IPC bridge (inbox_messages, sync, deletion, attachments, AI placeholders) */
     emailInbox?: EmailInboxBridge
-    /** BEAP inbox → sandbox: `inbox:cloneBeapToSandbox` / `inbox:beapInboxCloneToSandboxPrepare` (ledger + session; no vault unlock; no ciphertext in prepare). */
+    /** BEAP inbox → sandbox: `inbox:cloneBeapToSandbox` — sealed source read requires unlocked vault + validator seal gate; main extracts plaintext only (renderer builds qBEAP). */
     beapInbox?: {
       cloneToSandboxPrepare: (payload: {
         sourceMessageId: string
         targetHandshakeId?: string
         cloneReason?: 'sandbox_test' | 'external_link_or_artifact_review'
         triggeredUrl?: string
+        _cloneId?: string
       }) => Promise<CloneBeapToSandboxIpcResult>
       cloneBeapToSandbox?: (payload: {
         sourceMessageId: string
         targetHandshakeId?: string
         cloneReason?: 'sandbox_test' | 'external_link_or_artifact_review'
         triggeredUrl?: string
+        _cloneId?: string
       }) => Promise<CloneBeapToSandboxIpcResult>
     }
     /** AutoSort run CRUD + session summary (IPC). */
@@ -608,6 +638,8 @@ export interface EmailInboxBridge {
   onNewMessages: (handler: (data: unknown) => void) => () => void
   /** After P2P BEAP pending rows are imported into `inbox_messages`. */
   onBeapInboxUpdated?: (handler: (data: { handshakeId: string | null }) => void) => () => void
+  /** Receiver persisted a direct_beap row — ACK for sender delivery confirmation (W3-P6+). */
+  onBeapDeliveryAck?: (handler: (data: BeapDeliveryAckData) => void) => () => void
   /** Each background drain batch: `{ processed, pending, failed, deferred }` (deferred = pull-lock). */
   onDrainProgress?: (handler: (data: unknown) => void) => () => void
   /** Simple drain: `{ status: 'moved'|'skipped', op, msgId }` per completed row. */
@@ -696,7 +728,7 @@ export interface EmailInboxBridge {
   aiAnalyzeMessage: (id: string) => Promise<{ ok: boolean; data?: NormalInboxAiResult; error?: string }>
   aiAnalyzeMessageStream: (
     messageId: string,
-    opts?: { supersede?: boolean },
+    opts?: { supersede?: boolean; manual?: boolean },
   ) => Promise<{ started: boolean; requestId?: string; deduped?: boolean }>
   onAiAnalyzeChunk: (cb: (data: { messageId: string; chunk: string }) => void) => () => void
   onAiAnalyzeDone: (cb: (data: { messageId: string }) => void) => () => void

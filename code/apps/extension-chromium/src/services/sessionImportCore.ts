@@ -10,6 +10,13 @@
  */
 
 import { sessionDisplayLabel } from '../utils/sessionDisplayLabel'
+import {
+  isOrchestratorSessionContent,
+  isSessionImportArtefactWrapper,
+  isFullSessionExportContent,
+  orchestratorSessionContentToTabImport,
+} from './sessionImportArtefactUnwrap'
+import type { SessionOrigin } from './sessionOrigin'
 
 export type SessionImportActivationIntent =
   /** Persist working copy only (same as legacy “Load later”). */
@@ -81,6 +88,12 @@ export interface CanonicalSessionImportOptions {
   storageSet: (items: Record<string, unknown>, callback?: () => void) => void | Promise<void>
   /** Required when `activation` is not `none`. */
   host?: SessionImportActivationHost
+  /**
+   * Explicit origin tag written to the persisted session blob.
+   * If omitted and `isExportFormat` is true, defaults to `'file_import'`.
+   * Local sessions omit the field entirely and default to `'local'` at read time.
+   */
+  origin?: SessionOrigin
 }
 
 export interface CanonicalSessionImportResult {
@@ -100,9 +113,6 @@ export function createNewImportSessionKey(): string {
   return `session_${Date.now()}`
 }
 
-/**
- * Validate and map file/API payload → session blob (before persist).
- */
 /**
  * Try to normalize import data without throwing (for validators / BEAP inbox).
  */
@@ -127,8 +137,27 @@ export function normalizeImportedSessionPayload(
   }
 
   const raw = importData as Record<string, unknown>
-  const isExportFormat = raw.version === '1.0.0'
   const pageUrl = options?.pageUrl ?? (typeof window !== 'undefined' ? window.location.href : '')
+
+  if (isSessionImportArtefactWrapper(raw)) {
+    const sessions = raw.sessions as unknown[]
+    if (sessions.length > 0 && sessions[0] && typeof sessions[0] === 'object' && !Array.isArray(sessions[0])) {
+      return normalizeImportedSessionPayload(sessions[0], options)
+    }
+    throw new Error('Session import artefact has no importable session')
+  }
+
+  // v1.1.0 full_session_export: delegate session_export blob to the same normalization
+  // path used by file import — no BEAP-specific branch, just session-kind dispatch.
+  if (isFullSessionExportContent(raw)) {
+    const blob = raw.session_export
+    if (typeof blob !== 'object' || blob === null || Array.isArray(blob)) {
+      throw new Error('full_session_export: session_export must be a non-null object')
+    }
+    return normalizeImportedSessionPayload(blob, options)
+  }
+
+  const isExportFormat = raw.version === '1.0.0'
 
   let sessionData: Record<string, unknown>
 
@@ -166,11 +195,22 @@ export function normalizeImportedSessionPayload(
 
     sessionData._importedMemory = raw.memory || null
     sessionData._importedContext = raw.context || null
+  } else if (isOrchestratorSessionContent(raw)) {
+    sessionData = orchestratorSessionContentToTabImport(raw, pageUrl)
   } else {
     sessionData = {
       ...raw,
       isLocked: true,
       timestamp: (raw.timestamp as string) || new Date().toISOString(),
+    }
+    if (!Array.isArray(sessionData.agentBoxes) && Array.isArray(raw.agent_boxes)) {
+      sessionData.agentBoxes = raw.agent_boxes
+    }
+    if (!Array.isArray(sessionData.displayGrids) && Array.isArray(raw.display_grids)) {
+      sessionData.displayGrids = raw.display_grids
+    }
+    if (typeof sessionData.tabName !== 'string' && typeof raw.session_name === 'string') {
+      sessionData.tabName = raw.session_name
     }
   }
 
@@ -272,6 +312,17 @@ export async function runCanonicalSessionImport(
   const { sessionData, isExportFormat } = normalizeImportedSessionPayload(options.importData, {
     pageUrl: options.pageUrlFallback,
   })
+
+  // Apply origin tag unless the blob already carries one (e.g. pre-tagged by beapSessionImportRun).
+  // Only tag when there is a positive signal — local sessions omit the field entirely and
+  // default to 'local' at read time (AC-6: no migration required).
+  if (!sessionData.sessionOrigin) {
+    if (options.origin) {
+      sessionData.sessionOrigin = options.origin
+    } else if (isExportFormat) {
+      sessionData.sessionOrigin = 'file_import' satisfies SessionOrigin
+    }
+  }
 
   await persistImportedSessionRecord(options.storageSet, sessionKey, sessionData)
 

@@ -3,7 +3,7 @@
  * Tests edge cases: no AVX2, low RAM, HDD, Vulkan fail
  */
 
-import { describe, it, expect, jest } from '@jest/globals'
+import { describe, it, expect, vi as jest } from 'vitest'
 import { HardwareCapabilityChecker, type CPUCapabilities, type DiskInfo } from '../hardware-capability-check'
 
 describe('Hardware Capability Checker', () => {

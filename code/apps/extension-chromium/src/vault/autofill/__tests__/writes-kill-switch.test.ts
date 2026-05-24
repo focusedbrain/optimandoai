@@ -372,7 +372,7 @@ describe('writesKillSwitch module contract', () => {
       path.resolve(__dirname, '..', 'autofillOrchestrator.ts'),
       'utf-8',
     )
-    expect(src).toContain("import { initWritesKillSwitch } from './writesKillSwitch'")
+    expect(src).toContain("import { initWritesKillSwitch, areWritesDisabled } from './writesKillSwitch'")
     expect(src).toContain('initWritesKillSwitch()')
   })
 

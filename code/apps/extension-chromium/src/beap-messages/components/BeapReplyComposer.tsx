@@ -369,6 +369,47 @@ export const BeapReplyComposer: React.FC<BeapReplyComposerProps> = ({
         </div>
       )}
 
+      {/* ── Session selector (BEAP mode only) ────────────────────── */}
+      {isBeap && state.availableSessions.length > 0 && (
+        <div
+          style={{
+            padding: '6px 10px',
+            borderTop: `1px solid ${borderColor}`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <label
+            style={{ fontSize: '10px', color: dimColor, whiteSpace: 'nowrap' }}
+          >
+            Session (optional)
+          </label>
+          <select
+            value={state.selectedSessionId ?? ''}
+            onChange={(e) => actions.setSelectedSessionId(e.target.value || null)}
+            disabled={state.isSending}
+            style={{
+              flex: 1,
+              fontSize: '11px',
+              padding: '3px 6px',
+              borderRadius: '5px',
+              border: `1px solid ${inputBorder}`,
+              background: inputBg,
+              color: textColor,
+              cursor: state.isSending ? 'default' : 'pointer',
+            }}
+          >
+            <option value="">— None —</option>
+            {state.availableSessions.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* ── Error banner (E2E.7: Retry + clear) ───────────────────── */}
       {state.error && (
         <div

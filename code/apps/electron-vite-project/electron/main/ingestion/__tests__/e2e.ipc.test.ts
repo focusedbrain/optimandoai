@@ -119,6 +119,9 @@ describe('E2E IPC — ingest-external-input', () => {
       sender_id: 'user-1',
       capsule_hash: 'c'.repeat(64),
       timestamp: new Date().toISOString(),
+      // Phase B: revoke capsules require sender_public_key and sender_signature
+      sender_public_key: 'c'.repeat(64),
+      sender_signature: 'd'.repeat(128),
     }
 
     const result = await ipc.invoke(

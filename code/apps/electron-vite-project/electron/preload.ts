@@ -315,7 +315,7 @@ function assertSavePreset(v: unknown): object {
 function assertBeapSessionImportPayload(v: unknown): {
   sessionId: string
   sessionName: string
-  config: Record<string, unknown>
+  importArtefact: Record<string, unknown>
   sourceMessageId: string
   handshakeId: string | null
 } {
@@ -332,15 +332,21 @@ function assertBeapSessionImportPayload(v: unknown): {
   if (!sourceMessageId || sourceMessageId.length > 500) {
     throw new Error('importSessionFromBeap: sourceMessageId required')
   }
-  const config =
-    o.config && typeof o.config === 'object' && o.config !== null
-      ? (o.config as Record<string, unknown>)
-      : {}
+  const importArtefact = o.importArtefact
+  if (importArtefact == null || typeof importArtefact !== 'object' || Array.isArray(importArtefact)) {
+    throw new Error('importSessionFromBeap: importArtefact required')
+  }
   let handshakeId: string | null = null
   if (o.handshakeId !== undefined && o.handshakeId !== null) {
     handshakeId = String(o.handshakeId).slice(0, 500)
   }
-  return { sessionId, sessionName, config, sourceMessageId, handshakeId }
+  return {
+    sessionId,
+    sessionName,
+    importArtefact: importArtefact as Record<string, unknown>,
+    sourceMessageId,
+    handshakeId,
+  }
 }
 
 /**
@@ -480,6 +486,10 @@ contextBridge.exposeInMainWorld('orchestrator', {
   },
   connect: () => ipcRenderer.invoke('orchestrator:connect'),
   listSessions: () => ipcRenderer.invoke('orchestrator:listSessions'),
+  getSession: (id: unknown) => {
+    if (typeof id !== 'string') throw new TypeError('orchestrator.getSession: id must be a string')
+    return ipcRenderer.invoke('orchestrator:getSession', id)
+  },
 })
 
 contextBridge.exposeInMainWorld('orchestratorMode', {
@@ -815,7 +825,7 @@ contextBridge.exposeInMainWorld('handshakeView', {
     }
     return ipcRenderer.invoke('handshake:importBeapMessage', packageJson)
   },
-  sendBeapViaP2P: (handshakeId: unknown, packageJson: unknown) => {
+  sendBeapViaP2P: (handshakeId: unknown, packageJson: unknown, beapMsgId?: unknown) => {
     const id = assertString(handshakeId, 'handshakeId')
     const P2P_MAX = 100 * 1024 * 1024
     let json: string
@@ -843,10 +853,14 @@ contextBridge.exposeInMainWorld('handshakeView', {
     if (json.length > P2P_MAX) {
       throw new Error(`packageJson: exceeds ${P2P_MAX} bytes (got ${json.length})`)
     }
+    const msgId = typeof beapMsgId === 'string' && beapMsgId.length > 0 ? beapMsgId : undefined
+    const msgLog = msgId ?? 'none'
+    console.log(`[BEAP_MSG_IPC] invoke channel=handshake:sendBeapViaP2P messageId=${msgLog}`)
     return ipcRenderer.invoke('handshake:sendBeapViaP2P', {
       handshakeId: id,
       packageJson: json,
       sendSource: 'user_package_builder',
+      ...(msgId ? { _beapMsgId: msgId } : {}),
     })
   },
   checkHandshakeSendReady: (handshakeId: unknown) => {
@@ -1255,6 +1269,9 @@ contextBridge.exposeInMainWorld('emailAccounts', {
       storeInVault ?? true,
     ),
   checkGmailCredentials: () => ipcRenderer.invoke('email:checkGmailCredentials'),
+  /** Pair bundled Gmail Desktop OAuth client with secret stored locally via OS encryption (userData). */
+  saveBuiltinGoogleOAuthSupplement: (clientSecret: string) =>
+    ipcRenderer.invoke('email:saveBuiltinGoogleOAuthSupplement', clientSecret),
   /** Packaged Gmail OAuth runtime proof (fingerprints only — see main process gmail_standard_connect_flow_proof logs). */
   getGmailOAuthRuntimeDiagnostics: () => ipcRenderer.invoke('email:getGmailOAuthRuntimeDiagnostics'),
   checkOutlookCredentials: () => ipcRenderer.invoke('email:checkOutlookCredentials'),
@@ -1310,6 +1327,18 @@ contextBridge.exposeInMainWorld('emailInbox', {
     ipcRenderer.on('inbox:beapInboxUpdated', fn)
     return () => {
       ipcRenderer.removeListener('inbox:beapInboxUpdated', fn)
+    }
+  },
+  /**
+   * Receiver persisted a direct_beap inbox row — main broadcasts this to all windows so the
+   * sender UI can confirm delivery and switch from amber relay_pending to a terminal state.
+   * W3-P6+: payload includes optional `status`, `reasonCode`, `retryable` for richer UI feedback.
+   */
+  onBeapDeliveryAck: (handler: (data: { handshakeId: string; rowId: string; status?: 'ok' | 'error'; reasonCode?: string; retryable?: boolean }) => void) => {
+    const fn = (_e: Electron.IpcRendererEvent, data: { handshakeId: string; rowId: string; status?: 'ok' | 'error'; reasonCode?: string; retryable?: boolean }) => handler(data)
+    ipcRenderer.on('inbox:beapDeliveryAck', fn)
+    return () => {
+      ipcRenderer.removeListener('inbox:beapDeliveryAck', fn)
     }
   },
   /** Remote orchestrator drain batch progress (main → renderer debug activity log). */
@@ -1370,7 +1399,7 @@ contextBridge.exposeInMainWorld('emailInbox', {
   aiDraftReply: (id: string, opts?: { supersede?: boolean }) =>
     ipcRenderer.invoke('inbox:aiDraftReply', id, opts ?? {}),
   aiAnalyzeMessage: (id: string) => ipcRenderer.invoke('inbox:aiAnalyzeMessage', id),
-  aiAnalyzeMessageStream: (messageId: string, opts?: { supersede?: boolean }) =>
+  aiAnalyzeMessageStream: (messageId: string, opts?: { supersede?: boolean; manual?: boolean }) =>
     ipcRenderer.invoke('inbox:aiAnalyzeMessageStream', messageId, opts ?? {}),
   onAiAnalyzeChunk: (cb: (data: { messageId: string; chunk: string }) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, data: { messageId: string; chunk: string }) => cb(data)
@@ -1460,13 +1489,14 @@ contextBridge.exposeInMainWorld('emailInbox', {
     ipcRenderer.invoke('inbox:reconcileImapRemoteLifecycle', accountId),
 })
 
-/** BEAP inbox automation helpers (vault-gated; main validates + extract only for sandbox clone). */
+/** BEAP inbox automation helpers (`inbox:cloneBeapToSandbox`): sealed inbox reads require unlocked vault + validator seal gate on main before extract + sandbox clone prepare. */
 contextBridge.exposeInMainWorld('beapInbox', {
   cloneToSandboxPrepare: (payload: {
     sourceMessageId: string
     targetHandshakeId?: string
     cloneReason?: 'sandbox_test' | 'external_link_or_artifact_review'
     triggeredUrl?: string
+    _cloneId?: string
   }) => ipcRenderer.invoke('inbox:beapInboxCloneToSandboxPrepare', payload),
   /** Product IPC: `inbox:cloneBeapToSandbox` — same prepare contract as `cloneToSandboxPrepare`. */
   cloneBeapToSandbox: (payload: {
@@ -1474,7 +1504,13 @@ contextBridge.exposeInMainWorld('beapInbox', {
     targetHandshakeId?: string
     cloneReason?: 'sandbox_test' | 'external_link_or_artifact_review'
     triggeredUrl?: string
-  }) => ipcRenderer.invoke('inbox:cloneBeapToSandbox', payload),
+    _cloneId?: string
+  }) => {
+    const cloneId =
+      typeof payload._cloneId === 'string' && payload._cloneId.trim().length > 0 ? payload._cloneId.trim() : 'none'
+    console.log(`[CLONE_IPC] invoke channel=inbox:cloneBeapToSandbox cloneId=${cloneId}`)
+    return ipcRenderer.invoke('inbox:cloneBeapToSandbox', payload)
+  },
 })
 
 contextBridge.exposeInMainWorld('autosortSession', {
@@ -1495,6 +1531,10 @@ contextBridge.exposeInMainWorld('integrity', {
 // ── Local LLM (Ollama) — status + active model (shared with Backend Configuration persistence) ──
 contextBridge.exposeInMainWorld('llm', {
   getStatus: () => ipcRenderer.invoke('llm:getStatus'),
+  getGpuStatus: () =>
+    ipcRenderer.invoke('llm:getGpuStatus') as Promise<
+      { ok: true; data: Record<string, unknown> } | { ok: false; error: string }
+    >,
   setActiveModel: (modelId: string) => {
     assertString(modelId, 'modelId')
     return ipcRenderer.invoke('llm:setActiveModel', modelId)
@@ -1517,6 +1557,11 @@ contextBridge.exposeInMainWorld('llm', {
     }
   },
   resolveAutosortRuntime: () => ipcRenderer.invoke('llm:resolveAutosortRuntime'),
+  resolveInferenceCapability: () =>
+    ipcRenderer.invoke('llm:resolveInferenceCapability') as Promise<
+      | { ok: true; data: InferenceCapabilityForUi }
+      | { ok: false; error: string }
+    >,
 })
 
 // ── Lifecycle (main→renderer notifications) ──────────────────────────────

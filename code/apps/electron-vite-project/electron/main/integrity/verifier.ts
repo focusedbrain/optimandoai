@@ -19,9 +19,13 @@
 
 import { createHash } from 'node:crypto'
 import { readFileSync, existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join, resolve, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { execSync } from 'node:child_process'
 import { app } from 'electron'
+
+/** Bundled main-process ESM lives under dist-electron/ — same anchor as other main modules. */
+const mainBundleDir = dirname(fileURLToPath(import.meta.url))
 
 // ============================================================================
 // §1  Types
@@ -50,7 +54,8 @@ function getResourcesPath(): string {
   if (app.isPackaged) {
     return process.resourcesPath
   }
-  return resolve(__dirname, '..', '..')
+  // Dev: previously `resolve(__dirname,'..','..')` from electron/main/integrity/ → electron/
+  return join(resolve(mainBundleDir, '..'), 'electron')
 }
 
 function getManifestPath(): string {
@@ -111,7 +116,7 @@ function checkConfigHashes(manifest: any): IntegrityCheck {
     return { name: 'config-hashes', status: 'skip', detail: 'No config hashes in manifest' }
   }
 
-  const basePath = app.isPackaged ? process.resourcesPath : resolve(__dirname, '..', '..', '..', '..')
+  const basePath = app.isPackaged ? process.resourcesPath : resolve(mainBundleDir, '..')
   let checked = 0
   let failed = 0
 

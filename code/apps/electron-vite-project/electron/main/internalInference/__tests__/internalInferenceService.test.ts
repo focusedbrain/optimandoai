@@ -236,7 +236,9 @@ describe('host dispatch with mocks', () => {
 
   beforeEach(async () => {
     stubP2pInferenceEnvLegacyHttpOnlyForTests()
-    getIxDbSpy = vi.spyOn(dbAccess, 'getHandshakeDbForInternalInference').mockResolvedValue({} as any)
+    // Return null (not {}) so resolveHostAiRemoteInferencePolicyBestEffort falls
+    // back to the policy store instead of trying db.prepare() on an empty object.
+    getIxDbSpy = vi.spyOn(dbAccess, 'getHandshakeDbForInternalInference').mockResolvedValue(null as any)
     getHandshakeRecord.mockReset()
     isHostModeMock.mockReturnValue(true)
     isSandboxModeMock.mockReturnValue(false)

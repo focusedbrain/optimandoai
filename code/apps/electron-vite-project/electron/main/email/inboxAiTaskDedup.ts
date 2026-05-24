@@ -6,8 +6,9 @@
 import { randomUUID } from 'crypto'
 import { readStoredAiExecutionContext } from '../llm/aiExecutionContextStore'
 import { resolveInboxLlmSettings } from './inboxLlmChat'
+import { assertGpuInferenceAvailable, InferenceUnavailableError } from '../inference/inferenceGate'
 
-export type InboxAiStreamInvokeOpts = { supersede?: boolean }
+export type InboxAiStreamInvokeOpts = { supersede?: boolean; manual?: boolean }
 
 export function buildInboxAiTaskKey(taskKind: string, messageId: string, model: string, lane: string): string {
   return `${taskKind}:${messageId}:${model}:${lane}`
@@ -34,6 +35,69 @@ type InflightEntry = {
 }
 
 const inboxAiTaskInflight = new Map<string, InflightEntry>()
+
+// ---------------------------------------------------------------------------
+// Local Ollama GPU gate (global {@link assertGpuInferenceAvailable}) + timeout circuit-breaker.
+//
+// CPUs cannot sustain large local models — a 12B model on CPU takes >45 s per request,
+// making the timeout the effective result and burning 100 % CPU for the entire duration.
+//
+// Two-layer protection:
+//   1. Global GPU inference gate (cached /api/ps + driver diagnostics via gpuStatus).
+//   2. Timeout circuit-breaker: 3 consecutive LLM_TIMEOUT errors open the circuit for CIRCUIT_RECOVERY_MS.
+// ---------------------------------------------------------------------------
+
+const CIRCUIT_TIMEOUT_THRESHOLD = 3
+const CIRCUIT_RECOVERY_MS = 10 * 60_000 // 10 minutes
+
+let consecutiveTimeouts = 0
+let circuitOpenAt: number | null = null
+
+/** Returns true when local Ollama should be skipped due to open timeout circuit or GPU gate. */
+async function localOllamaBlocked(): Promise<{ blocked: true; reason: string } | { blocked: false }> {
+  if (circuitOpenAt !== null) {
+    const elapsed = Date.now() - circuitOpenAt
+    if (elapsed < CIRCUIT_RECOVERY_MS) {
+      const remainMin = Math.ceil((CIRCUIT_RECOVERY_MS - elapsed) / 60_000)
+      return {
+        blocked: true,
+        reason: `local Ollama circuit open (repeated timeouts; retries in ~${remainMin}m)`,
+      }
+    }
+    consecutiveTimeouts = 0
+    circuitOpenAt = null
+  }
+
+  try {
+    await assertGpuInferenceAvailable()
+  } catch (e) {
+    if (e instanceof InferenceUnavailableError) {
+      return {
+        blocked: true,
+        reason: `${e.userMessage} Inbox AI is disabled for this path until GPU inference is available.`,
+      }
+    }
+    throw e
+  }
+
+  return { blocked: false }
+}
+
+/** Record the outcome of a local Ollama inference to drive the circuit-breaker. */
+function recordLocalOllamaOutcome(timedOut: boolean): void {
+  if (timedOut) {
+    consecutiveTimeouts++
+    if (consecutiveTimeouts >= CIRCUIT_TIMEOUT_THRESHOLD) {
+      circuitOpenAt = Date.now()
+      console.warn(
+        `[INBOX_AI] ${consecutiveTimeouts} consecutive LLM_TIMEOUT errors — local Ollama appears overloaded. Inbox AI disabled for ${CIRCUIT_RECOVERY_MS / 60_000} minutes.`,
+      )
+    }
+  } else {
+    consecutiveTimeouts = 0
+    circuitOpenAt = null
+  }
+}
 
 type AnalysisStreamReplayState = {
   messageId: string
@@ -232,7 +296,22 @@ export async function runInboxAiTaskWithDedup<T extends Record<string, unknown>>
     abortControllers.set(messageId, ac)
   }
 
+  // Extract lane and model from taskKey (format: kind:messageId:model:lane)
+  const taskKeyParts = taskKey.split(':')
+  const taskLane = taskKeyParts[taskKeyParts.length - 1] ?? 'local'
+  const isLocalLane = taskLane === 'local' || taskLane === 'unset'
+
   const promise = (async (): Promise<T> => {
+    // GPU guard: skip local Ollama when running in CPU-only mode.
+    // GPU can handle concurrent inferences; CPU cannot handle them at all.
+    if (isLocalLane) {
+      const blocked = await localOllamaBlocked()
+      if (blocked.blocked) {
+        console.warn(`[INBOX_AI] Skipping local Ollama analysis for ${messageId}: ${blocked.reason}`)
+        throw new Error(`LLM_UNAVAILABLE: ${blocked.reason}`)
+      }
+    }
+
     try {
       const result = await run(requestId, ac.signal)
       const terminalState: InflightEntry['state'] = ac.signal.aborted ? 'aborted' : 'done'
@@ -244,13 +323,16 @@ export async function runInboxAiTaskWithDedup<T extends Record<string, unknown>>
         messageId,
         elapsedMs: Date.now() - startedAt,
       })
+      if (isLocalLane) recordLocalOllamaOutcome(false)
       return result
     } catch (err) {
       const terminalState = classifyTerminalState(err, ac.signal)
+      const isTimeout = terminalState === 'timeout'
+      if (isLocalLane && isTimeout) recordLocalOllamaOutcome(true)
       const cur = inboxAiTaskInflight.get(taskKey)
       if (cur?.requestId === requestId) cur.state = terminalState
       logInboxAiTaskTerminal(
-        terminalState === 'timeout' ? 'TIMEOUT' : terminalState === 'aborted' ? 'ABORTED' : 'ERROR',
+        isTimeout ? 'TIMEOUT' : terminalState === 'aborted' ? 'ABORTED' : 'ERROR',
         {
           taskKey,
           requestId,

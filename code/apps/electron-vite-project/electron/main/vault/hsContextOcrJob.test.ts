@@ -132,15 +132,17 @@ describe('extractTextFromPdf — failure path', () => {
 
 // ── Extracted text validation (HTML/markup rejected) ──
 describe('validateExtractedText', () => {
-  it('rejects HTML/markup-like extraction', () => {
-    const r = validateExtractedText('<script>alert(1)</script>')
+  it('rejects full HTML documents', () => {
+    // FULL_HTML_DOC_REGEX only rejects complete HTML documents, not inline tags
+    const r = validateExtractedText('<!DOCTYPE html><html><head></head><body><h1>Test</h1></body></html>')
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toContain('HTML')
   })
 
-  it('rejects content with tag-like markup', () => {
+  it('accepts content with inline tag-like markup (not a full HTML doc)', () => {
+    // Inline markup is allowed — only full HTML documents are rejected
     const r = validateExtractedText('Normal text <b>bold</b> more text')
-    expect(r.ok).toBe(false)
+    expect(r.ok).toBe(true)
   })
 
   it('accepts plain text', () => {

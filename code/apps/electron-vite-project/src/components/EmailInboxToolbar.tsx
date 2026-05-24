@@ -37,6 +37,10 @@ export interface EmailInboxToolbarProps {
   onBulkArchive: () => void
   onBulkMoveToPendingReview?: () => void
   onBulkCategorize?: () => void
+  /** Open a new email compose form. Placed as a small button next to the Type selector. */
+  onEmailCompose?: () => void
+  /** Open the BEAP capsule composer. Placed as a small button next to the Type selector. */
+  onBeapCompose?: () => void
   /**
    * Internal Host→Sandbox handshakes from `internalSandboxes.listAvailable` (ledger; no vault unlock).
    * Omitted when the feature is not active or the user has no internal sandbox rows.
@@ -86,6 +90,8 @@ export default function EmailInboxToolbar({
   onBulkArchive,
   onBulkMoveToPendingReview,
   onBulkCategorize,
+  onEmailCompose,
+  onBeapCompose,
   internalSandbox,
 }: EmailInboxToolbarProps) {
   const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
@@ -172,6 +178,59 @@ export default function EmailInboxToolbar({
             value={messageKind}
             onChange={onMessageKindChange}
           />
+          {(onEmailCompose || onBeapCompose) && (
+            <div style={{ display: 'flex', gap: 4, marginLeft: 6 }}>
+              {onEmailCompose && (
+                <button
+                  type="button"
+                  onClick={onEmailCompose}
+                  title="New Email"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 26,
+                    height: 26,
+                    padding: 0,
+                    borderRadius: 6,
+                    background: '#2563eb',
+                    color: '#fff',
+                    border: 'none',
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                  }}
+                >
+                  ✉
+                </button>
+              )}
+              {onBeapCompose && (
+                <button
+                  type="button"
+                  onClick={onBeapCompose}
+                  title="New BEAP™ Message"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: 26,
+                    padding: '0 7px',
+                    borderRadius: 6,
+                    background: '#7c3aed',
+                    color: '#fff',
+                    border: 'none',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    letterSpacing: '0.3px',
+                    flexShrink: 0,
+                  }}
+                >
+                  BEAP
+                </button>
+              )}
+            </div>
+          )}
         </div>
         <div className="inbox-toolbar-settings-row">
           <EmailInboxSyncControls

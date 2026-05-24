@@ -109,6 +109,20 @@ export function classifyInboxAiError(
     return { code: 'timeout', debug: debugBase }
   }
 
+  // Circuit-breaker or GPU-gate block: thrown as `LLM_UNAVAILABLE: <reason>`.
+  // Classify as local_ollama_unreachable so the renderer can surface a meaningful message
+  // (e.g. "paused after repeated timeouts") rather than the generic generation-failed banner.
+  if (msg.startsWith('LLM_UNAVAILABLE:')) {
+    return { code: 'local_ollama_unreachable', debug: { ...debugBase, failureCode: 'llm_unavailable' } }
+  }
+
+  // Validator subprocess not yet running (race between vault.unlock non-awaited start
+  // and first AI draft request). Map to database_error so the renderer shows a specific
+  // retry-oriented message rather than the generic generation-failed banner.
+  if (msg === 'Validation service unavailable' || msg.includes('Validation service unavailable')) {
+    return { code: 'database_error', debug: { ...debugBase, failureCode: 'validator_unavailable' } }
+  }
+
   if (isInferenceRoutingUnavailableError(err)) {
     const ir = err
     return {

@@ -491,12 +491,11 @@ describe('§6 Replay attack on encrypted records (AAD binding)', () => {
   })
 
   it('AAD_SCHEMA_VERSION is a positive integer', () => {
-    // AAD_SCHEMA_VERSION should exist and be a positive number.
-    // If this fails, the AAD construction has been broken.
-    expect(typeof AAD_SCHEMA_VERSION).toBe('undefined')
-    // Note: AAD_SCHEMA_VERSION is exported from crypto.ts (Electron-only).
-    // In the shared originPolicy.ts, we test the origin concepts instead.
-    // This test documents the invariant for manual verification.
+    // AAD_SCHEMA_VERSION is mirrored as a local constant (value=1) in this
+    // JSDOM test file since the real constant lives in Electron-only crypto.ts.
+    // We verify the mirror is a positive number to document the invariant.
+    expect(typeof AAD_SCHEMA_VERSION).toBe('number')
+    expect(AAD_SCHEMA_VERSION).toBeGreaterThan(0)
   })
 })
 

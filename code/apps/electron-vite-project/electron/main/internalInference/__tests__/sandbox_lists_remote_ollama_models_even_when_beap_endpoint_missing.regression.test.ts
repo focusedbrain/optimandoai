@@ -308,7 +308,7 @@ describe('sandbox_lists_remote_ollama_models_even_when_beap_endpoint_missing', (
     vi.clearAllMocks()
   })
 
-  it('lists two remote ODL rows while BEAP is missing (trusted=false, HOST_AI_DIRECT_PEER_BEAP_MISSING)', async () => {
+  it('lists one remote ODL row while BEAP is missing (trusted=false, HOST_AI_DIRECT_PEER_BEAP_MISSING; Phase B: sandbox mode shows active model only)', async () => {
     const logs: string[] = []
     const logSpy = vi.spyOn(console, 'log').mockImplementation((msg?: unknown, ...rest: unknown[]) => {
       const line = typeof msg === 'string' ? `${msg}${rest.join(' ')}` : String(msg)
@@ -320,7 +320,8 @@ describe('sandbox_lists_remote_ollama_models_even_when_beap_endpoint_missing', (
 
     expect(r.ok).toBe(true)
     const ts = r.targets ?? []
-    expect(ts.length).toBe(2)
+    // Phase B: sandbox mode + hostActiveModel='model-a' → only the active model row is emitted.
+    expect(ts.length).toBe(1)
 
     const listDone = logs.find((l) => l.includes('[HOST_INFERENCE_TARGETS]') && l.includes('list_done'))
     expect(listDone).toBeDefined()
@@ -330,9 +331,10 @@ describe('sandbox_lists_remote_ollama_models_even_when_beap_endpoint_missing', (
     expect(listDone!).toMatch(/beap_ready_count=0\b/)
 
     const aggregatedModels = [...new Set(ts.map((x) => String(x.model ?? '').trim()))].sort()
-    expect(aggregatedModels).toEqual(['model-a', 'model-b'])
-    /** Equivalent to IPC consumers that join per-model selector rows (`models.length` on the handshake). */
-    expect(aggregatedModels.length).toBe(2)
+    // Phase B: sandbox mode collapses to the active model only; 'model-b' is filtered out by the
+    // isSandboxMode && hostActiveModel guard in listInferenceTargets.
+    expect(aggregatedModels).toEqual(['model-a'])
+    expect(aggregatedModels.length).toBe(1)
 
     expect(logs.some((l) => l.includes('peer_host_endpoint_missing'))).toBe(true)
     const odOnlyLog = logs.find(
@@ -340,14 +342,16 @@ describe('sandbox_lists_remote_ollama_models_even_when_beap_endpoint_missing', (
         l.includes('[HOST_INFERENCE_TARGETS]') &&
         l.includes('beap_target_available=false') &&
         l.includes('ollama_direct_available=true') &&
-        l.includes('ollama_direct_models=2'),
+        // Phase B: sandbox mode emits 1 model row (active only); pushed counter reflects sandbox filter.
+        l.includes('ollama_direct_models=1'),
     )
     expect(odOnlyLog).toBeDefined()
 
     const summary = logs.find((l) => l.includes('[HOST_AI_TARGET_SUMMARY]'))
     expect(summary).toBeDefined()
     expect(String(summary)).toMatch(/status=ollama_direct_only/)
-    expect(String(summary)).toMatch(/modelsCount=2\b/)
+    // Phase B: modelsCountByHid counts only pushed rows (sandbox filter reduces to 1).
+    expect(String(summary)).toMatch(/modelsCount=1\b/)
     expect(String(summary)).toMatch(/visibleInModelSelector=true\b/)
 
     const target = ts.find((t) => String(t.model) === 'model-a')

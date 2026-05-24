@@ -112,7 +112,7 @@ Scope: manual pull via **`window.emailInbox.syncAccount(accountId)`** → **`inb
 | **Output** | `{ type: 'beap' \| 'plain', inboxMessageId, … }` |
 | **Failure** | DB/constraint errors throw → caught in orchestrator per-message loop (~571–573) |
 
-**Writes:** `INSERT INTO inbox_messages` (~283–313); then either **`insertPendingP2PBeap`** or **`plain_email_inbox`** row with JSON snapshot (~429+).
+**Writes:** `INSERT INTO sealed inbox_messages` row. (Staging inserts into `p2p_pending_beap` / `plain_email_inbox` were removed in Phase B PR B-3.1; all types now land directly in `inbox_messages`.)
 
 ---
 

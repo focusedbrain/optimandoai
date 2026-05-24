@@ -18,19 +18,44 @@ function userMessageForInboxAiCode(
   switch (code) {
     case 'no_model_selected':
       return 'Select an AI model first.'
-    case 'local_ollama_unreachable':
+    case 'local_ollama_unreachable': {
+      const raw = payload.message ?? ''
+      if (raw.includes('circuit open') || raw.includes('repeated timeouts')) {
+        // Extract "retries in ~Xm" hint if present so the user knows when to expect recovery.
+        const retryHint = raw.match(/retries in ~[^)]+/)?.[0]
+        return retryHint
+          ? `Local Ollama is temporarily paused after repeated timeouts (${retryHint}).`
+          : 'Local Ollama is temporarily paused after repeated timeouts — it will recover automatically.'
+      }
+      if (raw.includes('GPU inference') || raw.includes('CPU-only') || raw.includes('Inbox AI is disabled')) {
+        return 'Inbox AI is paused — GPU inference is unavailable on this device.'
+      }
       return 'Local Ollama is not reachable.'
+    }
     case 'remote_ollama_unreachable':
       return 'Remote Ollama is not reachable on the host device.'
     case 'beap_endpoint_missing':
       return 'Top-chat BEAP tools are unavailable because the host BEAP endpoint is not advertised. Remote Ollama direct can still be used.'
     case 'generation_failed':
-    case 'llm_error':
+    case 'llm_error': {
+      // Surface the backend error detail when it is more specific than the generic label.
+      // This covers Ollama API errors (e.g. context length exceeded, model not found) that
+      // are not caught by any other classification branch.
+      const detail = payload.message?.trim()
+      if (detail && detail !== 'AI generation failed for the selected model.' && detail.length < 200) {
+        return `AI generation failed: ${detail}`
+      }
       return 'AI generation failed for the selected model.'
+    }
     case 'inference_routing_unavailable':
       return payload.message?.trim() || 'Inference is not available on this device.'
-    case 'database_error':
-      return payload.message?.trim() || 'Database error.'
+    case 'database_error': {
+      const detail = payload.message?.trim() ?? ''
+      if (detail.includes('Validation service') || detail.includes('validator')) {
+        return 'The secure storage service is still starting up. Please wait a moment and retry.'
+      }
+      return detail || 'Database error.'
+    }
     case 'timeout':
       return 'Analysis timed out. Ollama may be slow or unavailable.'
     default:

@@ -18,6 +18,17 @@ vi.mock('../../handshake/db', async (importOriginal) => {
   return { ...mod, getHandshakeRecord }
 })
 
+// B-9 Decision B: beapInboxClonePrepare now uses sealedQuery instead of raw
+// db.prepare().get().  Unit tests for pure prepare logic mock sealedQuery to
+// pass through to the test DB's .all() method (seal verification is tested in
+// the dedicated b9OutboundCloneIntegrity.test.ts integration tests).
+vi.mock('../../sealed-storage', () => ({
+  sealedQuery: (db: any, sql: string, args: unknown[]) =>
+    db.prepare(sql).all(...args),
+  isKeyProviderUsable: () => true,
+  SealVerificationError: class SealVerificationError extends Error {},
+}))
+
 function makeSession(): SSOSession {
   return {
     wrdesk_user_id: 'u-regression',
@@ -74,7 +85,12 @@ function makeEligibleEntry(over: Partial<InternalSandboxListEntry> = {}): Intern
 function makeInboxDb(row: Record<string, unknown> | undefined) {
   return {
     prepare: (_sql: string) => ({
+      // .get() kept for legacy callers; .all() used by the sealedQuery mock.
       get: (id: string) => (row && String(row.id) === String(id) ? row : undefined),
+      all: (...args: unknown[]) => {
+        const id = args[0]
+        return row && String(row.id) === String(id) ? [row] : []
+      },
     }),
   }
 }
@@ -246,6 +262,7 @@ describe('prepareBeapInboxSandboxClone', () => {
       subject: 'S',
       body_text: 'plain body',
       depackaged_json: null,
+      depackaged_metadata: null,
       has_attachments: 0,
       from_address: 'from@x.com',
       account_id: 'acc-1',
@@ -261,9 +278,78 @@ describe('prepareBeapInboxSandboxClone', () => {
       expect(r.source_type).toBe('email_plain')
       expect(r.original_response_path).toBe('email')
       expect(r.reply_transport).toBe('email')
+      // PR 5.2 / Decision B: encrypted_text is source body only — no provenance appended.
       expect(r.encrypted_text).toContain('plain body')
-      expect(r.encrypted_text).toContain('"original_response_path":"email"')
-      expect(r.encrypted_text).toContain('"reply_transport":"email"')
+      expect(r.encrypted_text).not.toContain('"original_response_path"')
+      expect(r.encrypted_text).not.toContain('inbox_sandbox_clone_provenance')
+    }
+  })
+
+  test('email_beap depackaged mail without session uses email response path and plain extraction', () => {
+    const row = {
+      id: 'm-eb-plain',
+      source_type: 'email_beap',
+      beap_package_json: null,
+      handshake_id: 'hs-imap',
+      subject: 'Newsletter',
+      body_text: 'Readable newsletter body',
+      depackaged_json: JSON.stringify({
+        format: 'beap_qbeap_decrypted',
+        transport_plaintext: 'ENCRYPTED_TRANSPORT_SHOULD_NOT_WIN',
+        body: 'Readable newsletter body',
+      }),
+      depackaged_metadata: JSON.stringify({ format: 'beap_qbeap_decrypted' }),
+      has_attachments: 0,
+      from_address: 'news@example.com',
+      account_id: 'acc-1',
+      received_at: '2020-01-01T00:00:00.000Z',
+      ingested_at: null,
+    }
+    mockHappyList([makeEligibleEntry()])
+    getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
+    const db = makeInboxDb(row)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-eb-plain', undefined, null)
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.original_response_path).toBe('email')
+      expect(r.reply_transport).toBe('email')
+      expect(r.provenance_original_inbox_source_type).toBe('email_plain')
+      expect(r.session_import_artefact).toBeNull()
+      expect(r.encrypted_text).toContain('Readable newsletter body')
+      expect(r.encrypted_text).not.toContain('ENCRYPTED_TRANSPORT_SHOULD_NOT_WIN')
+    }
+  })
+
+  test('direct_beap with session artefact uses native response path', () => {
+    const row = {
+      id: 'm-native',
+      source_type: 'direct_beap',
+      beap_package_json: null,
+      handshake_id: 'hs-peer',
+      subject: 'Native',
+      body_text: 'native body',
+      depackaged_json: JSON.stringify({
+        format: 'beap_qbeap_decrypted',
+        body: 'native body',
+        transport_plaintext: 'native body',
+        session_import_artefact: { artefact_id: 'art-n', sessions: [{ session_id: 's1' }] },
+      }),
+      depackaged_metadata: JSON.stringify({ format: 'beap_qbeap_decrypted' }),
+      has_attachments: 0,
+      from_address: 'peer@example.com',
+      account_id: '__p2p__',
+      received_at: '2020-01-01T00:00:00.000Z',
+      ingested_at: null,
+    }
+    mockHappyList([makeEligibleEntry()])
+    getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
+    const db = makeInboxDb(row)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-native', undefined, null)
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.original_response_path).toBe('native_beap')
+      expect(r.provenance_original_inbox_source_type).toBe('direct_beap')
+      expect(r.session_import_artefact).toMatchObject({ artefact_id: 'art-n' })
     }
   })
 
@@ -276,6 +362,7 @@ describe('prepareBeapInboxSandboxClone', () => {
       subject: 'S',
       body_text: 'body for clone path',
       depackaged_json: null,
+      depackaged_metadata: null,
       has_attachments: 0,
       from_address: 'from@x.com',
       account_id: 'acc-1',
@@ -304,6 +391,7 @@ describe('prepareBeapInboxSandboxClone', () => {
       subject: 'S',
       body_text: 'x',
       depackaged_json: null,
+      depackaged_metadata: null,
       has_attachments: 0,
       from_address: 'from@x.com',
       account_id: 'acc-1',
@@ -321,8 +409,12 @@ describe('prepareBeapInboxSandboxClone', () => {
     if (r.ok) {
       expect(r.clone_reason).toBe('external_link_or_artifact_review')
       expect(r.triggered_url).toBe('https://example.com/risk')
-      expect(r.encrypted_text).toContain('external_link_or_artifact_review')
-      expect(r.encrypted_text).toContain('https://example.com/risk')
+      // PR 5.2 / Decision B: provenance is NOT in encrypted_text; it lives in the metadata column.
+      expect(r.encrypted_text).not.toContain('external_link_or_artifact_review')
+      expect(r.encrypted_text).not.toContain('inbox_sandbox_clone_provenance')
+      // These are surfaced via prepare payload fields instead:
+      expect(r.clone_reason).toBe('external_link_or_artifact_review')
+      expect(r.triggered_url).toBe('https://example.com/risk')
     }
   })
 

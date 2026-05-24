@@ -18,6 +18,7 @@ import {
   enqueueOrchestratorRemoteMutations,
   scheduleOrchestratorRemoteDrain,
 } from './inboxOrchestratorRemoteQueue'
+import { prepareSealedOperationalUpdate } from '../sealed-storage/index'
 
 const LOG = '[InboxLifecycle]'
 
@@ -110,7 +111,8 @@ export async function runInboxLifecycleTick(
       )
       .all(reviewCutoff) as Array<{ id: string }>
 
-    const updatePromotion = db.prepare(
+    const updatePromotion = prepareSealedOperationalUpdate(
+      db,
       `UPDATE inbox_messages SET
          pending_delete = 1,
          pending_delete_at = ?,
@@ -173,7 +175,8 @@ export async function runInboxLifecycleTick(
       )
       .all(deleteCutoff) as Array<{ id: string }>
 
-    const markQueued = db.prepare(
+    const markQueued = prepareSealedOperationalUpdate(
+      db,
       `UPDATE inbox_messages SET lifecycle_final_delete_queued_utc = ? WHERE id = ?`,
     )
 

@@ -24,6 +24,9 @@ import type {
 } from './types'
 import { useIngressStore } from './useIngressStore'
 import { useBeapMessagesStore } from '../beap-messages/useBeapMessagesStore'
+// Phase B, PR B-8: useBeapInboxStore is only used as a read-only mirror.
+// Direct addMessage calls are removed; the store is populated via
+// mergeDepackagedToElectron + refreshFromMain after each verified message.
 import { useBeapInboxStore } from '../beap-messages/useBeapInboxStore'
 import { useWRGuardStore } from '../wrguard'
 import {
@@ -37,6 +40,7 @@ import { getHandshake, getHandshakeMlkemSecret } from '../handshake/handshakeRpc
 import { parseBeapFile } from '../beap-messages/services/beapDecrypt'
 import { deriveSharedSecretX25519 } from '../beap-messages/services/x25519KeyAgreement'
 import { pqDecapsulate } from '../beap-messages/services/beapCrypto'
+import { mergeDepackagedToElectron } from './electronDepackagedSync'
 
 // =============================================================================
 // Verification Result
@@ -54,6 +58,17 @@ export interface VerifyImportedMessageResult {
   failureStage?: string
   /** Validated capsule data — present on success only. */
   sanitisedPackage?: SanitisedDecryptedPackage
+  /**
+   * Resolved handshake ID (may differ from the option passed in, e.g. after
+   * Fix-A file-import handshake resolution). Present on success only.
+   * Phase B, PR B-8: exposed so callers can pass it to mergeDepackagedToElectron.
+   */
+  resolvedHandshakeId?: string | null
+  /**
+   * Raw package JSON as read from ingress store.
+   * Phase B, PR B-8: exposed so callers can pass it to mergeDepackagedToElectron.
+   */
+  rawPackageJson?: string
 }
 
 // =============================================================================
@@ -464,6 +479,22 @@ export async function importFromFile(
     })
 
     if (verifyResult.success) {
+      // Phase B, PR B-8: write through main's sealed gate and refresh the store.
+      const pkg = verifyResult.sanitisedPackage
+      const handshakeId = verifyResult.resolvedHandshakeId ?? '__file_import__'
+      const rawJson = verifyResult.rawPackageJson
+      if (pkg && rawJson) {
+        try {
+          const mergeResult = await mergeDepackagedToElectron(rawJson, handshakeId, pkg)
+          if (!mergeResult.ok) {
+            console.warn('[importFromFile] merge-to-main failed:', mergeResult.error)
+          }
+          useBeapInboxStore.getState().cachePackage(pkg, handshakeId)
+          await useBeapInboxStore.getState().refreshFromMain()
+        } catch (syncErr) {
+          console.warn('[importFromFile] Electron sync error (inbox may be stale):', syncErr)
+        }
+      }
       return importResult
     }
 
@@ -602,14 +633,16 @@ export async function verifyImportedMessage(
 
     acceptMessage(messageId, envelopeSummary, capsuleMetadata, pkg)
 
-    // Populate BEAP inbox store so messages appear in BeapInboxView, handshake view, bulk inbox
-    if (
-      pkg.allGatesPassed &&
-      pkg.authorizedProcessing?.decision === 'AUTHORIZED'
-    ) {
-      const handshakeId = resolveHandshakeId(pkg, augmentedOptions)
-      useBeapInboxStore.getState().addMessage(pkg, handshakeId)
-    }
+    // Phase B, PR B-8: Do NOT call useBeapInboxStore.addMessage() directly.
+    // The caller (P2P queue, file import, etc.) is responsible for:
+    //   1. Calling mergeDepackagedToElectron() to write through the sealed gate.
+    //   2. Calling useBeapInboxStore.getState().cachePackage(pkg, handshakeId).
+    //   3. Calling useBeapInboxStore.getState().refreshFromMain().
+    // This ensures the renderer's store is always a mirror of main's sealed rows.
+    const resolvedHandshakeId =
+      pkg.allGatesPassed && pkg.authorizedProcessing?.decision === 'AUTHORIZED'
+        ? resolveHandshakeId(pkg, augmentedOptions)
+        : null
 
     console.log(`[Ingress] Stage 5 verification succeeded for message ${messageId}`)
 
@@ -617,6 +650,8 @@ export async function verifyImportedMessage(
       success: true,
       messageId,
       sanitisedPackage: pkg,
+      resolvedHandshakeId,
+      rawPackageJson: payload.rawData,
     }
   }
 

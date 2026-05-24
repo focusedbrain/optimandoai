@@ -1,7 +1,8 @@
 /**
  * P2P Ingestion Server — Separate HTTP server for external capsule delivery.
  *
- * Exposes POST /beap/ingest, GET /beap/p2p-reachability (no-body direct P2P reachability),
+ * Exposes POST /beap/ingest, POST /beap/delivery-ack (cross-process sender confirmation),
+ * GET /beap/p2p-reachability (no-body direct P2P reachability),
  * and GET /beap/internal-inference-policy (Host policy for Sandbox direct P2P inference).
  * Binds to 0.0.0.0 on configurable port. Auth via handshake-bound Bearer token. Rate limited.
  */
@@ -9,7 +10,8 @@
 import http from 'http'
 import https from 'https'
 import { readFileSync } from 'fs'
-import { getHandshakeRecord, getHandshakeIdByCounterpartyP2PToken, insertPendingP2PBeap } from '../handshake/db'
+import { getHandshakeRecord, getHandshakeIdByCounterpartyP2PToken } from '../handshake/db'
+import { processBeapPackageInline } from '../email/beapEmailIngestion'
 import { handleIngestionRPC } from '../ingestion/ipc'
 import { processIncomingInput } from '../ingestion/ingestionPipeline'
 import { insertIngestionAuditRecord, insertQuarantineRecord } from '../ingestion/persistenceDb'
@@ -28,7 +30,6 @@ import {
   p2pIngestUrlHostname,
   type P2PConfig,
 } from './p2pConfig'
-import { notifyBeapRecipientPending } from './beapRecipientNotify'
 import {
   checkIpLimit,
   checkHandshakeLimit,
@@ -55,6 +56,7 @@ import {
   readBeapCorrelationIdFromIncoming,
   readBeapHandshakeHintFromIncoming,
 } from './beapIngressLog'
+import { notifyBeapDeliveryAck } from './beapDeliveryAck'
 
 const MAX_BODY_BYTES = INGESTION_CONSTANTS.MAX_RAW_INPUT_BYTES
 
@@ -147,6 +149,69 @@ function sendGenericError(
   res.end(JSON.stringify({ error: errorMsg }))
 }
 
+async function handlePostBeapDeliveryAck(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  getDb: () => any,
+): Promise<void> {
+  const ip = getClientIp(req)
+  const beapCorr = readBeapCorrelationIdFromIncoming(req)
+  const contentType = req.headers['content-type'] ?? ''
+  if (!contentType.includes('application/json')) {
+    sendGenericError(res, 415, ip, 'content_type', null, beapCorr)
+    return
+  }
+  const chunks: Buffer[] = []
+  let totalSize = 0
+  for await (const chunk of req) {
+    totalSize += chunk.length
+    if (totalSize > 8192) {
+      sendGenericError(res, 413, ip, 'body_too_large', null, beapCorr)
+      return
+    }
+    chunks.push(chunk as Buffer)
+  }
+  const body = Buffer.concat(chunks).toString('utf8')
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(body) as Record<string, unknown>
+  } catch {
+    sendGenericError(res, 400, ip, 'invalid_json', null, beapCorr)
+    return
+  }
+  const handshakeId =
+    (typeof parsed.handshake_id === 'string' && parsed.handshake_id.trim()) ||
+    (typeof parsed.handshakeId === 'string' && parsed.handshakeId.trim()) ||
+    ''
+  const rowId =
+    (typeof parsed.row_id === 'string' && parsed.row_id.trim()) ||
+    (typeof parsed.rowId === 'string' && parsed.rowId.trim()) ||
+    ''
+  if (!handshakeId || !rowId) {
+    sendGenericError(res, 400, ip, 'missing_fields', handshakeId || null, beapCorr)
+    return
+  }
+  const db = getDb()
+  if (!db) {
+    sendGenericError(res, 503, ip, 'vault_locked', handshakeId, beapCorr)
+    return
+  }
+  ensureHandshakeMigration(db)
+  const authHeader = req.headers.authorization
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null
+  const record = getHandshakeRecord(db, handshakeId)
+  const expectedToken = record?.counterparty_p2p_token ?? null
+  if (!expectedToken || token !== expectedToken) {
+    recordAuthFailure(ip)
+    sendGenericError(res, 401, ip, 'auth', handshakeId, beapCorr)
+    return
+  }
+  console.log(`[BEAP_DELIVERY] delivery_ack_http_received handshake=${handshakeId} rowId=${rowId}`)
+  notifyBeapDeliveryAck(handshakeId, rowId)
+  res.writeHead(200, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify({ ok: true, handshake_id: handshakeId, row_id: rowId }))
+}
+
 function createP2PRequestHandler(
   getDb: () => any,
   getSsoSession: () => SSOSession | undefined,
@@ -160,6 +225,11 @@ function createP2PRequestHandler(
     }
     if (req.method === 'GET' && pathOnly === '/beap/internal-inference-policy') {
       await handleGetInternalInferencePolicy(req, res, getDb)
+      return
+    }
+
+    if (req.method === 'POST' && pathOnly === '/beap/delivery-ack') {
+      await handlePostBeapDeliveryAck(req, res, getDb)
       return
     }
 
@@ -282,14 +352,77 @@ function createP2PRequestHandler(
       }
     }
 
-    // BEAP message package (qBEAP/pBEAP): store in p2p_pending_beap for extension ingestion
+    // BEAP message package (qBEAP/pBEAP): validate-before-write via sealed pipeline
     if (isBeapMessagePackage(parsed)) {
+      // Derive a correlation id for this specific ingest (correlation header or fallback)
+      const ingestMsgId = beapCorr?.trim() || `recv-${handshakeId.slice(0, 8)}-${Date.now().toString(36)}`
+      const pkgHeader = parsed.header as Record<string, unknown> | undefined
+      const pkgEncoding = pkgHeader && typeof pkgHeader === 'object'
+        ? (pkgHeader.encoding as string | undefined)
+        : undefined
+      console.log(`[BEAP_MSG_RECEIVE] ingest_received messageId=${ingestMsgId} handshake=${handshakeId} encoding=${pkgEncoding ?? 'unknown'} sourceIp=${ip}`)
       ensureHandshakeMigration(db)
-      insertPendingP2PBeap(db, handshakeId, body)
-      console.log('[P2P-RECV] BEAP message inserted into pending table (local P2P HTTP)', handshakeId)
-      notifyBeapRecipientPending(handshakeId)
-      res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ accepted: true }))
+      const ssoSessionForBeap = getSsoSession()
+      try {
+        const r = await processBeapPackageInline(db, body, handshakeId, {
+          session: ssoSessionForBeap ?? null,
+          sourceType: 'p2p',
+          receivedAt: new Date().toISOString(),
+        })
+        if (r.outcome === 'inbox') {
+          const rowId = r.rowId ?? 'unknown'
+          console.log(`[BEAP_MSG_RECEIVE] decrypt_success messageId=${ingestMsgId} handshake=${handshakeId}`)
+          console.log(`[BEAP_MSG_RECEIVE] delivery_success messageId=${ingestMsgId} handshake=${handshakeId} rowId=${rowId}`)
+          console.log(`[BEAP_MSG_RECEIVE] ack_sent messageId=${ingestMsgId} handshake=${handshakeId} rowId=${rowId}`)
+          console.log('[P2P-RECV] BEAP message sealed into inbox (local P2P HTTP)', handshakeId)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(
+            JSON.stringify({
+              accepted: true,
+              persisted_inbox: true,
+              row_id: rowId,
+              correlation_id: ingestMsgId,
+            }),
+          )
+          return
+        }
+        if (r.outcome === 'quarantine') {
+          console.log(`[BEAP_MSG_RECEIVE] failed messageId=${ingestMsgId} handshake=${handshakeId} reason=quarantined`)
+          console.log('[P2P-RECV] BEAP message quarantined (local P2P HTTP)', handshakeId)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(
+            JSON.stringify({
+              accepted: true,
+              persisted_inbox: false,
+              outcome: 'quarantine',
+              row_id: r.rowId ?? null,
+              correlation_id: ingestMsgId,
+            }),
+          )
+          return
+        }
+        console.log(`[BEAP_MSG_RECEIVE] failed messageId=${ingestMsgId} handshake=${handshakeId} reason=${r.error ?? 'processing_failed'}`)
+        console.warn('[P2P-RECV] BEAP inline processing failed (local P2P HTTP)', handshakeId, r.error)
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            accepted: false,
+            error: r.error ?? 'processing_failed',
+            correlation_id: ingestMsgId,
+          }),
+        )
+      } catch (err: any) {
+        console.log(`[BEAP_MSG_RECEIVE] failed messageId=${ingestMsgId} handshake=${handshakeId} reason=exception`)
+        console.error('[P2P-RECV] processBeapPackageInline error:', err?.message ?? err)
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            accepted: false,
+            error: err instanceof Error ? err.message : String(err),
+            correlation_id: ingestMsgId,
+          }),
+        )
+      }
       return
     }
 

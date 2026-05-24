@@ -33,14 +33,12 @@ import { buildContextBlocks, sendViaHandshakeRefresh } from '../handshakeRefresh
 
 describe('buildContextBlocks', () => {
   it('T8: constructs correct block from user message', async () => {
+    // buildContextBlocks is aliased to buildContextBlockProofs — returns proof-only shape
     const message = { text: 'Hello, world!', type: 'text' }
     const blocks = await buildContextBlocks(message)
 
     expect(blocks).toHaveLength(1)
     expect(blocks[0].block_id).toMatch(/^blk_/)
-    expect(blocks[0].block_type).toBe('text')
-    expect(blocks[0].content).toBe('Hello, world!')
-    expect(blocks[0].version).toBe(1)
     expect(blocks[0].block_hash).toHaveLength(64)
     expect(blocks[0].block_hash).toMatch(/^[a-f0-9]{64}$/)
   })
@@ -54,13 +52,17 @@ describe('buildContextBlocks', () => {
   })
 
   it('defaults block_type to text', async () => {
+    // Phase B: buildContextBlocks returns proof-only (block_id + block_hash); block_type is not in proof
     const blocks = await buildContextBlocks({ text: 'hello' })
-    expect(blocks[0].block_type).toBe('text')
+    expect(blocks[0].block_id).toMatch(/^blk_/)
+    expect(blocks[0].block_hash).toBeTruthy()
   })
 
   it('preserves scope_id when provided', async () => {
+    // Phase B: proof-only API — scope_id is not included in the proof shape
     const blocks = await buildContextBlocks({ text: 'hello', scope_id: 'scope-1' })
-    expect(blocks[0].scope_id).toBe('scope-1')
+    expect(blocks[0].block_id).toMatch(/^blk_/)
+    expect(blocks[0].block_hash).toBeTruthy()
   })
 })
 
@@ -102,7 +104,9 @@ describe('sendViaHandshakeRefresh', () => {
     const call = mockSendMessage.mock.calls[0][0]
     expect(call.method).toBe('handshake.refresh')
     expect(call.params.handshake_id).toBe('hs-001')
-    expect(call.params.context_blocks).toHaveLength(1)
-    expect(call.params.context_blocks[0].content).toBe('Test message')
+    // Phase B: proof-only blocks sent under context_block_proofs — block_id and block_hash, no content
+    expect(call.params.context_block_proofs).toHaveLength(1)
+    expect(call.params.context_block_proofs[0].block_id).toMatch(/^blk_/)
+    expect(call.params.context_block_proofs[0].block_hash).toBeTruthy()
   })
 })

@@ -17,6 +17,9 @@ function validBeapCapsule(handshakeId: string): string {
     timestamp: new Date().toISOString(),
     wrdesk_policy_hash: 'b'.repeat(64),
     seq: 1,
+    // Phase B: initiate capsules now require sender_public_key (64-char hex) and sender_signature (128-char hex).
+    sender_public_key: 'c'.repeat(64),
+    sender_signature: 'd'.repeat(128),
   })
 }
 

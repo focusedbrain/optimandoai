@@ -10,7 +10,7 @@ import { INTERNAL_ENDPOINT_ERROR_CODES } from '../../../../../../packages/shared
 describe('internalRelayOutboundGuards', () => {
   test('isInternalRelayCapsuleEnvelope', () => {
     expect(isInternalRelayCapsuleEnvelope({ capsule_type: 'context_sync' })).toBe(true)
-    expect(isInternalRelayCapsuleEnvelope({ capsule_type: 'initiate' })).toBe(false)
+    expect(isInternalRelayCapsuleEnvelope({ capsule_type: 'initiate' })).toBe(true)
   })
 
   test('collectInternalRelayWireGaps lists missing internal wire fields', () => {

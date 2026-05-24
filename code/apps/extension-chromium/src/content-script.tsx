@@ -1316,8 +1316,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           typeof message.data?.fallbackModel === 'string' && message.data.fallbackModel.trim()
             ? message.data.fallbackModel.trim()
             : 'tinyllama'
+        const sessionKey =
+          typeof message.data?.sessionKey === 'string' && message.data.sessionKey.trim()
+            ? message.data.sessionKey.trim()
+            : undefined
         // Run path: full activation + executeModeRunAgents — not routeInput / WR Chat (Edit uses BEAP_EDIT_SESSION_IMPORT only).
-        const out = await fn({ importData, fallbackModel })
+        const out = await fn({ importData, fallbackModel, sessionKey })
         if (out.ok) {
           sendResponse({
             success: true,
@@ -37489,6 +37493,8 @@ ${pageText}
 
                     ${session.isActive ? `<span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background:${csTheme().accentGrad}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; white-space: nowrap; pointer-events: none; z-index: 1;">ACTIVE</span>` : ''}
 
+                    ${session.sessionOrigin === 'beap_import' ? `<span style="display: inline-flex; align-items: center; gap: 3px; background: rgba(124,58,237,0.18); color: #a78bfa; border: 1px solid rgba(124,58,237,0.35); padding: 2px 7px; border-radius: 10px; font-size: 9px; font-weight: 700; letter-spacing: 0.4px; white-space: nowrap; flex-shrink: 0; margin-left: 4px;">&#11835; IMPORTED</span>` : ''}
+
                     <span class="session-save-indicator" data-session-id="${session.id}" style="position: absolute; right: ${session.isActive ? '50px' : '8px'}; top: 50%; transform: translateY(-50%); display: none; color: ${csTheme().accentColor}; font-size: 14px; cursor: pointer; z-index: 2;" title="Click to save">💾</span>
 
                   </div>
@@ -37504,6 +37510,8 @@ ${pageText}
                 </div>
 
                 <div style="display: flex; gap: 6px; align-items: flex-start; flex-shrink: 0;">
+
+                                    <button type="button" class="run-automation-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #059669, #047857); border: none; color: white; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600; transition: all 0.2s ease; display: inline-flex; align-items: center; gap: 4px;" title="Run this automation" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">▶ Run</button>
 
                   <button type="button" class="edit-session-name-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, ${csTheme().accent}, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Focus session name field" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">✏️</button>
 
@@ -37748,6 +37756,21 @@ ${pageText}
       overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
 
       
+
+      // "Run Automation" button — delegates to the matching .session-item click
+      overlay.querySelectorAll<HTMLElement>('.run-automation-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation()
+          e.preventDefault()
+          const sessionId = btn.getAttribute('data-session-id')
+          if (sessionId) {
+            const sessionItem = overlay.querySelector<HTMLElement>(`.session-item[data-session-id="${sessionId}"]`)
+            if (sessionItem) {
+              sessionItem.click()
+            }
+          }
+        })
+      })
 
       // Add direct event listeners to agent box overview buttons
 
@@ -42007,9 +42030,14 @@ ${pageText}
    */
   async function processSessionImport(importData: any) {
     const sessionKey = createNewImportSessionKey()
-    const { sessionData } = normalizeImportedSessionPayload(importData, {
+    const { sessionData, isExportFormat } = normalizeImportedSessionPayload(importData, {
       pageUrl: window.location.href,
     })
+
+    // Tag the session so the UI can separate file-imported sessions from locally-built ones.
+    if (isExportFormat) {
+      ;(sessionData as Record<string, unknown>).sessionOrigin = 'file_import'
+    }
 
     await persistImportedSessionRecord(
       storageSet as (items: Record<string, unknown>, callback?: () => void) => void | Promise<void>,
@@ -44739,6 +44767,7 @@ ${pageText}
     assertBeapTabImportPayload(importData)
     const result = await runCanonicalSessionImport({
       importData,
+      origin: 'beap_import',
       activation: 'activate_minimal',
       intent: 'prepare_edit',
       storageSet: storageSet as (
@@ -44768,11 +44797,17 @@ ${pageText}
   globalLightboxFunctions.runBeapAutomation = async (payload: {
     importData: unknown
     fallbackModel: string
+    sessionKey?: string
   }) => {
-    const { importData, fallbackModel } = payload
+    const { importData, fallbackModel, sessionKey: presetSessionKey } = payload
     assertBeapTabImportPayload(importData)
     const result = await runCanonicalSessionImport({
       importData,
+      origin: 'beap_import',
+      sessionKey:
+        typeof presetSessionKey === 'string' && presetSessionKey.trim()
+          ? presetSessionKey.trim()
+          : undefined,
       activation: 'activate_full',
       intent: 'standard',
       storageSet: storageSet as (
@@ -44782,17 +44817,17 @@ ${pageText}
       host: createSessionImportActivationHost(),
       pageUrlFallback: window.location.href,
     })
-    const sessionKey = result.sessionKey
+    const activeSessionKey = result.sessionKey
     const { executeModeRunAgents } = await import('./services/modeRunExecution')
     const runResult = await executeModeRunAgents({
-      modeLinkedSessionId: sessionKey,
-      currentOrchestratorSessionId: sessionKey,
-      sessionKey,
+      modeLinkedSessionId: activeSessionKey,
+      currentOrchestratorSessionId: activeSessionKey,
+      sessionKey: activeSessionKey,
       fallbackModel,
       inputText: '',
       processedMessages: [{ role: 'user', content: '' }],
     })
-    return interpretBeapAutomationModeRun(sessionKey, runResult)
+    return interpretBeapAutomationModeRun(activeSessionKey, runResult)
   }
 
   globalLightboxFunctions.openWRVaultLightbox = openWRVaultLightbox

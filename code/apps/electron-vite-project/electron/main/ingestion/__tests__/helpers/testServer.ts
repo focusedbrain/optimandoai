@@ -21,7 +21,10 @@ export interface TestServerContext {
 
 export async function startTestServer(): Promise<TestServerContext> {
   const app = express()
-  app.use(express.json({ limit: '50mb' }))
+  // Limit must exceed MAX_RAW_INPUT_BYTES (100 MB) so oversized-payload tests
+  // pass through to the ingestion handler rather than being rejected here with
+  // a 413 HTML response that the test cannot JSON-parse.
+  app.use(express.json({ limit: '200mb' }))
 
   const db = createTestDb()
 

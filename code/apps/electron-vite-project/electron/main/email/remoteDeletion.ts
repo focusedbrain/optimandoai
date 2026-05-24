@@ -11,6 +11,7 @@ import { randomUUID } from 'crypto'
 import { existsSync, unlinkSync } from 'fs'
 import { emailGateway } from './gateway'
 import { isGatewayOrphanAccountError } from './gatewayOrphanAccountError'
+import { prepareSealedOperationalUpdate } from '../sealed-storage/index'
 
 const P2P_BEAP_ACCOUNT_ID = '__p2p_beap__'
 
@@ -67,9 +68,13 @@ export function purgeDirectBeapMessageLocal(
       }
       db.prepare('DELETE FROM inbox_attachments WHERE message_id = ?').run(messageId)
       db.prepare('DELETE FROM deletion_queue WHERE message_id = ?').run(messageId)
+      // p2p_pending_beap was dropped in schema v66 (Phase B, PR B-4).
+      // The DELETE is preserved as a no-op guard for pre-v66 DBs.
       const pkg = row.beap_package_json
       if (pkg != null && String(pkg).trim()) {
-        db.prepare('DELETE FROM p2p_pending_beap WHERE package_json = ?').run(String(pkg))
+        try {
+          db.prepare('DELETE FROM p2p_pending_beap WHERE package_json = ?').run(String(pkg))
+        } catch { /* table absent on v66+ DBs — expected */ }
       }
       db.prepare('DELETE FROM inbox_messages WHERE id = ?').run(messageId)
     })
@@ -184,7 +189,8 @@ export function queueRemoteDeletion(
         const nowIso = new Date().toISOString()
         const reason = `orphan_gateway_account|${nowIso}|account_id=${row.account_id}|${msg.slice(0, 400)}`
         try {
-          db.prepare(
+          prepareSealedOperationalUpdate(
+            db,
             `UPDATE inbox_messages SET lifecycle_remote_delete_skip_reason = ? WHERE id = ?`,
           ).run(reason, messageId)
         } catch (updErr: any) {
@@ -206,8 +212,9 @@ export function queueRemoteDeletion(
     const gracePeriodEnds = graceEnd.toISOString()
     const nowStr = now.toISOString()
 
-    db.prepare(
-      `UPDATE inbox_messages SET deleted = 1, deleted_at = ?, purge_after = ? WHERE id = ?`
+    prepareSealedOperationalUpdate(
+      db,
+      `UPDATE inbox_messages SET deleted = 1, deleted_at = ?, purge_after = ? WHERE id = ?`,
     ).run(nowStr, gracePeriodEnds, messageId)
     const queueId = randomUUID()
 
@@ -236,8 +243,9 @@ export function cancelRemoteDeletion(db: any, messageId: string): boolean {
     if (!row) return false
 
     db.prepare('UPDATE deletion_queue SET cancelled = 1 WHERE id = ?').run(row.id)
-    db.prepare(
-      'UPDATE inbox_messages SET deleted = 0, deleted_at = NULL, purge_after = NULL WHERE id = ?'
+    prepareSealedOperationalUpdate(
+      db,
+      'UPDATE inbox_messages SET deleted = 0, deleted_at = NULL, purge_after = NULL WHERE id = ?',
     ).run(messageId)
 
     return true
@@ -281,8 +289,9 @@ export async function executePendingDeletions(db: any): Promise<ExecutePendingDe
         db.prepare(
           'UPDATE deletion_queue SET executed = 1, executed_at = ?, execution_error = NULL WHERE id = ?'
         ).run(now, r.id)
-        db.prepare(
-          'UPDATE inbox_messages SET remote_deleted = 1, remote_deleted_at = ? WHERE id = ?'
+        prepareSealedOperationalUpdate(
+          db,
+          'UPDATE inbox_messages SET remote_deleted = 1, remote_deleted_at = ? WHERE id = ?',
         ).run(now, r.message_id)
         result.executed++
       } catch (err: any) {

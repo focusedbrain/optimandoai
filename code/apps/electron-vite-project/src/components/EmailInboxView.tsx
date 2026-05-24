@@ -5,7 +5,7 @@
  * When message selected: right = 50/50 message + AI workspace.
  */
 
-import { useEffect, useCallback, useState, useRef, useMemo, type CSSProperties, type MouseEvent } from 'react'
+import { useEffect, useCallback, useState, useRef, useMemo, type CSSProperties, type MouseEvent, type FormEvent } from 'react'
 import EmailInboxToolbar from './EmailInboxToolbar'
 import { emailInboxSyncWindowSelectValue } from './EmailInboxSyncControls'
 import EmailMessageDetail from './EmailMessageDetail'
@@ -38,7 +38,7 @@ import {
 import SandboxCloneFeedbackBadge from './SandboxCloneFeedbackBadge'
 import { InboxBeapSourceBadgeListRow } from './InboxBeapSourceBadge'
 import { beapHostSandboxCloneTooltipForAvailability, beapInboxRedirectTooltipPropsForRow } from '../lib/beapInboxActionTooltips'
-import { InboxRedirectActionIcon, InboxSandboxCloneActionIcon } from './InboxActionIcons'
+import { InboxRedirectActionIcon, InboxSandboxCloneActionIcon, InboxRunAutomationActionIcon } from './InboxActionIcons'
 import type {
   AuthoritativeDeviceInternalRole,
   SandboxOrchestratorAvailability,
@@ -83,10 +83,14 @@ import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import '../components/handshakeViewTypes'
 import { executeDeliveryAction, type BeapPackageConfig } from '@ext/beap-messages/services/BeapPackageBuilder'
+import { buildSessionImportArtefact, type BuildArtefactInput } from '@ext/beap-builder/buildSessionImportArtefact'
 import { getSigningKeyPair } from '@ext/beap-messages/services/beapCrypto'
 import { hasHandshakeKeyMaterial, type SelectedHandshakeRecipient } from '@ext/handshake/rpcTypes'
 import { listHandshakes } from '../shims/handshakeRpc'
 import { UI_BADGE } from '../styles/uiContrastTokens'
+import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
+import { canShowInboxRunAutomation, capabilitiesForSessionAttach, resolveInboxSessionArtefact } from '../lib/inboxSessionArtefact'
+import { runBeapSessionAutomationForMessage } from '../lib/runBeapSessionAutomation'
 
 /** Local HTTP API for orchestrator DB (matches `HTTP_PORT` in electron/main.ts). */
 
@@ -344,7 +348,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     'full_reply_missing' | 'full_reply_suspiciously_short' | null
   >(null)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
-  const [availableSessions, setAvailableSessions] = useState<Array<{ id: string; name: string }>>([])
+  const [availableSessions, setAvailableSessions] = useState<
+    Array<{ id: string; name: string; sessionOrigin?: string }>
+  >([])
   const [capsuleAttachments, setCapsuleAttachments] = useState<File[]>([])
   const [sendingCapsule, setSendingCapsule] = useState(false)
   const [sendResult, setSendResult] = useState<{ success: boolean; error?: string } | null>(null)
@@ -391,6 +397,14 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       console.log('[ANALYSIS] runAnalysisStream triggered for:', messageId)
     }
     if (!window.emailInbox?.aiAnalyzeMessageStream || !window.emailInbox.onAiAnalyzeChunk) return
+
+    // Note: direct_beap messages are now auto-analyzed on open, same as other messages.
+    // The previous guard (skip auto for direct_beap) blocked analysis when the user
+    // opened the message, requiring a manual checkbox toggle to trigger it.
+    if (msg?.source_type === 'direct_beap') {
+      console.log(`[BEAP_INBOX_TRIAGE] analysis_started messageId=${messageId} manual=${manual}`)
+    }
+
     const skipEmailDraft = !!(msg && resolveInboxReplyMode(msg) === 'native_beap')
     const cached = useEmailInboxStore.getState().analysisCache[messageId]
     if (cached) {
@@ -744,7 +758,10 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       if (DEBUG_AUTOSORT_DIAGNOSTICS) {
         console.warn('⚡ EmailInboxView calling aiAnalyzeMessageStream', new Date().toISOString(), { messageId })
       }
-      const res = await window.emailInbox.aiAnalyzeMessageStream(messageId, { supersede: !!opts?.supersede })
+      const res = await window.emailInbox.aiAnalyzeMessageStream(messageId, {
+        supersede: !!opts?.supersede,
+        manual: !!opts?.manual,
+      })
       const deduped = res?.deduped === true
       if (res?.started === false && !deduped) {
         autoAnalyzeStreamFailedRef.current.add(messageId)
@@ -1091,10 +1108,10 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         await api.connect()
         const json = (await api.listSessions()) as {
           success?: boolean
-          data?: Array<{ id: string; name: string }>
+          data?: Array<{ id: string; name: string; sessionOrigin?: string }>
         }
         if (json.success && Array.isArray(json.data)) {
-          setAvailableSessions(json.data.map((s) => ({ id: s.id, name: s.name })))
+          setAvailableSessions(json.data.map((s) => ({ id: s.id, name: s.name, sessionOrigin: s.sessionOrigin })))
         } else {
           setAvailableSessions([])
         }
@@ -1108,6 +1125,10 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
   const handleDraftReply = useCallback(async (opts?: { supersede?: boolean }) => {
     if (!window.emailInbox?.aiDraftReply) return
+    // Capture the message this invocation is for. After the async IPC round-trip we
+    // check whether the user has navigated to a different message; if so we silently
+    // discard the stale result rather than showing an error banner on the wrong message.
+    const capturedMessageId = messageId
     setDraftLoading(true)
     setDraft(null)
     setDraftError(false)
@@ -1117,6 +1138,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setCapsuleDraftIssue(null)
     try {
       const res = await window.emailInbox.aiDraftReply(messageId, opts)
+      // Stale-response guard: discard if the panel has moved to a different message.
+      if (messageRef.current?.id !== capturedMessageId) return
       const data = res.data
       const native = isNativeBeap && data?.capsuleDraft
       const payload = res as {
@@ -1233,12 +1256,28 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         setDraftErrorMessage(userMessage || 'AI generation failed for the selected model.')
         if (import.meta.env.DEV) setDraftErrorDebug(debug ?? null)
       }
-    } catch {
+    } catch (caughtErr: unknown) {
+      // Discard errors that belong to a message the user has already navigated away from.
+      if (messageRef.current?.id !== capturedMessageId) return
       setDraftError(true)
-      setDraftErrorMessage('AI generation failed for the selected model.')
+      // Try to surface a meaningful message from the thrown error rather than the generic fallback.
+      // This handles cases where the IPC call itself rejects (e.g. LLM_UNAVAILABLE from GPU gate /
+      // circuit breaker thrown before runInboxAiTaskWithDedup reaches the inner run callback).
+      const rawMsg = caughtErr instanceof Error ? caughtErr.message : String(caughtErr ?? '')
+      const { userMessage } = inboxAiDraftReplyErrorDisplay({
+        ok: false,
+        inboxErrorCode: rawMsg.startsWith('LLM_UNAVAILABLE:') ? 'local_ollama_unreachable'
+          : rawMsg.startsWith('LLM_TIMEOUT') ? 'timeout'
+          : rawMsg === 'No AI model selected' ? 'no_model_selected'
+          : 'generation_failed',
+        message: rawMsg,
+      })
+      setDraftErrorMessage(userMessage || 'AI generation failed for the selected model.')
       setDraftErrorDebug(null)
     } finally {
-      setDraftLoading(false)
+      if (messageRef.current?.id === capturedMessageId) {
+        setDraftLoading(false)
+      }
     }
     draftRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [messageId, isNativeBeap])
@@ -1333,6 +1372,42 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         senderFp.length > 12 ? `${senderFp.slice(0, 4)}…${senderFp.slice(-4)}` : senderFp
       const pub = capsulePublicText.trim()
       const enc = capsuleEncryptedText.trim()
+
+      // Artefact construction — Decision E: bind at send time.
+      let sessionImportArtefact: BeapPackageConfig['sessionImportArtefact'] = undefined
+      if (selectedSessionId) {
+        const api = window.orchestrator
+        if (typeof api?.getSession !== 'function') {
+          setSendResult({ success: false, error: 'Orchestrator getSession IPC not available' })
+          return
+        }
+        const sessionRes = await api.getSession(selectedSessionId) as {
+          success: boolean
+          data?: { id: string; name: string; config: Record<string, unknown> }
+          error?: string
+        }
+        if (!sessionRes.success || !sessionRes.data) {
+          setSendResult({ success: false, error: `Could not fetch session: ${sessionRes.error ?? 'not found'}` })
+          return
+        }
+        const cfg = sessionRes.data.config
+        const handshakeId = typeof raw.handshake_id === 'string' ? raw.handshake_id : null
+        const boundAt = typeof raw.created_at === 'string' ? raw.created_at : new Date().toISOString()
+        const input: BuildArtefactInput = {
+          sessionId: sessionRes.data.id,
+          sessionName: sessionRes.data.name,
+          sessionBlob: cfg,
+          capabilitiesRequired: capabilitiesForSessionAttach(cfg as Record<string, unknown>) as any[],
+          handshakeBinding: handshakeId ? { handshake_id: handshakeId, bound_at: boundAt } : null,
+        }
+        const built = buildSessionImportArtefact(input)
+        if (!built.ok) {
+          setSendResult({ success: false, error: `Could not build session artefact: ${built.reason}` })
+          return
+        }
+        sessionImportArtefact = built.artefact
+      }
+
       const config: BeapPackageConfig = {
         recipientMode: 'private',
         deliveryMethod: 'p2p',
@@ -1342,6 +1417,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         messageBody: pub,
         encryptedMessage: enc || undefined,
         attachments: [],
+        ...(sessionImportArtefact ? { sessionImportArtefact } : {}),
       }
       const delivery = await executeDeliveryAction(config)
       if (delivery.success) {
@@ -2011,11 +2087,24 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           onChange={(e) => setSelectedSessionId(e.target.value || null)}
                         >
                           <option value="">— No session —</option>
-                          {availableSessions.map((s) => (
-                            <option key={s.id} value={s.id}>
-                              {s.name}
-                            </option>
-                          ))}
+                          {availableSessions.some(s => s.sessionOrigin !== 'beap_import') && (
+                            <optgroup label="My Sessions">
+                              {availableSessions
+                                .filter(s => s.sessionOrigin !== 'beap_import')
+                                .map((s) => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                            </optgroup>
+                          )}
+                          {availableSessions.some(s => s.sessionOrigin === 'beap_import') && (
+                            <optgroup label="Received Automations">
+                              {availableSessions
+                                .filter(s => s.sessionOrigin === 'beap_import')
+                                .map((s) => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                            </optgroup>
+                          )}
                         </select>
                       </div>
                       <div className="capsule-draft-field">
@@ -2278,8 +2367,198 @@ interface InboxMessageRowProps {
   /** Drives Sandbox button hover (connected / offline / not configured). */
   sandboxAvailability: SandboxOrchestratorAvailability
   onSandboxInRow?: (e: MouseEvent, message: InboxMessage) => void
-  /** Row-level Redirect (forwarding); independent of Sandbox clone eligibility. */
-  onRedirectInRow?: (e: MouseEvent, message: InboxMessage) => void
+  /** Row-level Run Automation (import + execute attached session). */
+  onRunAutomationInRow?: (e: MouseEvent, message: InboxMessage) => void
+  /** When true, row shows the Run Automation icon. */
+  canRowRunAutomation?: boolean
+}
+
+/** Reason-code → UI text map for placeholder rows (W3-P8). */
+const PENDING_REASON_UI: Record<string, { subjectText: string; chipText: string }> = {
+  inner_vault_locked: {
+    subjectText: 'Confidential message awaiting vault unlock',
+    chipText: 'Unlock high-assurance vault',
+  },
+  key_provider_unbound: {
+    subjectText: 'Message awaiting storage initialisation',
+    chipText: 'Setting up storage…',
+  },
+  validator_unhealthy: {
+    subjectText: 'Message awaiting service recovery',
+    chipText: 'Validation service unavailable',
+  },
+  ledger_db_unavailable: {
+    subjectText: 'Message awaiting session ready',
+    chipText: 'Session not ready',
+  },
+  outer_vault_inactive: {
+    subjectText: 'Message awaiting sign-in',
+    chipText: 'Sign in to view',
+  },
+}
+
+/**
+ * Placeholder row variant for blocked/deferred capsules (W3-P8).
+ * Rendered instead of the normal row when `message.pending_reason_code` is non-null.
+ *
+ * Inner-vault-locked CTA: shows an inline password form.
+ * NOTE: No centralised vault unlock dialog exists in this renderer (stop-and-report
+ * condition per W3-P8 Step 6).  The inline form calls
+ * `window.handshakeView.unlockVaultWithPassword` directly, which is the same IPC
+ * path used elsewhere in the app.  A dedicated modal component is a follow-up (W4).
+ */
+function PendingInboxRow({
+  message,
+  selected,
+  onMouseEnter,
+}: {
+  message: InboxMessage
+  selected: boolean
+  onMouseEnter?: () => void
+}) {
+  const reasonCode = message.pending_reason_code ?? ''
+  const ui = PENDING_REASON_UI[reasonCode] ?? { subjectText: 'Pending message', chipText: reasonCode || 'Pending' }
+  const isVaultLocked = reasonCode === 'inner_vault_locked'
+
+  const [showUnlockForm, setShowUnlockForm] = useState(false)
+  const [unlockPassword, setUnlockPassword] = useState('')
+  const [unlockState, setUnlockState] = useState<'idle' | 'unlocking' | 'error'>('idle')
+
+  const handleChipClick = (e: MouseEvent) => {
+    e.stopPropagation()
+    if (isVaultLocked) setShowUnlockForm((v) => !v)
+  }
+
+  const handleUnlockSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!unlockPassword.trim()) return
+    setUnlockState('unlocking')
+    try {
+      const result = await window.handshakeView?.unlockVaultWithPassword(unlockPassword)
+      if (result?.success) {
+        setUnlockPassword('')
+        setShowUnlockForm(false)
+        setUnlockState('idle')
+      } else {
+        setUnlockState('error')
+      }
+    } catch {
+      setUnlockState('error')
+    }
+  }
+
+  return (
+    <div
+      onMouseEnter={onMouseEnter}
+      className={`inbox-message-row ${selected ? 'inbox-message-row--selected' : ''}`}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        padding: '10px 14px',
+        borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+        cursor: isVaultLocked ? 'default' : 'default',
+        background: 'rgba(59,130,246,0.05)',
+        borderLeft: '3px solid rgba(59,130,246,0.4)',
+        opacity: 0.85,
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 500,
+            color: 'var(--color-text-muted, #94a3b8)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {message.from_address || '(unknown sender)'}
+        </span>
+        <span style={{ flexShrink: 0, fontSize: 10, color: 'var(--color-text-muted, #94a3b8)' }}>
+          {formatRelativeDate(message.received_at)}
+        </span>
+      </div>
+      <div
+        style={{
+          fontSize: 12,
+          color: 'var(--color-text-muted, #94a3b8)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontStyle: 'italic',
+        }}
+      >
+        {ui.subjectText}
+      </div>
+      <div>
+        <button
+          type="button"
+          onClick={handleChipClick}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            fontSize: 10,
+            fontWeight: 600,
+            padding: '3px 8px',
+            borderRadius: 10,
+            border: '1px solid rgba(59,130,246,0.5)',
+            background: 'rgba(59,130,246,0.12)',
+            color: '#93c5fd',
+            cursor: isVaultLocked ? 'pointer' : 'default',
+          }}
+        >
+          🔒 {ui.chipText}
+        </button>
+      </div>
+      {showUnlockForm && (
+        <form
+          onSubmit={(e: FormEvent) => void handleUnlockSubmit(e)}
+          onClick={(e) => e.stopPropagation()}
+          style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}
+        >
+          <input
+            type="password"
+            placeholder="Master password"
+            value={unlockPassword}
+            onChange={(e) => { setUnlockPassword(e.target.value); setUnlockState('idle') }}
+            autoFocus
+            style={{
+              fontSize: 12,
+              padding: '6px 8px',
+              borderRadius: 6,
+              border: `1px solid ${unlockState === 'error' ? '#ef4444' : 'rgba(255,255,255,0.15)'}`,
+              background: 'rgba(255,255,255,0.05)',
+              color: 'var(--color-text, #e2e8f0)',
+              outline: 'none',
+            }}
+          />
+          {unlockState === 'error' && (
+            <span style={{ fontSize: 10, color: '#ef4444' }}>Incorrect password — try again.</span>
+          )}
+          <button
+            type="submit"
+            disabled={unlockState === 'unlocking' || !unlockPassword.trim()}
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              padding: '5px 10px',
+              borderRadius: 6,
+              border: 'none',
+              background: unlockState === 'unlocking' ? 'rgba(99,102,241,0.5)' : '#6366f1',
+              color: '#ffffff',
+              cursor: unlockState === 'unlocking' ? 'wait' : 'pointer',
+            }}
+          >
+            {unlockState === 'unlocking' ? 'Unlocking…' : 'Unlock vault'}
+          </button>
+        </form>
+      )}
+    </div>
+  )
 }
 
 function InboxMessageRow({
@@ -2296,7 +2575,14 @@ function InboxMessageRow({
   sandboxAvailability,
   onSandboxInRow,
   onRedirectInRow,
+  onRunAutomationInRow,
+  canRowRunAutomation = false,
 }: InboxMessageRowProps) {
+  // Placeholder variant for blocked/deferred capsules (W3-P8).
+  if (message.pending_reason_code) {
+    return <PendingInboxRow message={message} selected={selected} onMouseEnter={onMouseEnter} />
+  }
+
   const canRowAction = isInboxMessageActionable(message)
   const canRowRedirect = Boolean(onRedirectInRow) && canRowAction
   const canShowParams = useMemo(
@@ -2461,6 +2747,18 @@ function InboxMessageRow({
           </div>
         )}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          {canRowRunAutomation && onRunAutomationInRow && (
+            <InboxRunAutomationActionIcon
+              row
+              title="Run Automation — import and execute attached session"
+              ariaLabel="Run Automation"
+              onClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                onRunAutomationInRow(e, message)
+              }}
+            />
+          )}
           {canRowRedirect && onRedirectInRow && (
             <InboxRedirectActionIcon
               row
@@ -2523,6 +2821,9 @@ export interface EmailInboxViewProps {
   onNavigateToHandshake?: (handshakeId: string) => void
   /** Inbox “Open Handshakes” from Sandbox help and similar affordances. */
   onOpenHandshakesView?: () => void
+  /** When set by the parent (e.g. a header button), opens the compose panel. Reset via onComposeRequestHandled. */
+  composeRequest?: 'email' | 'beap' | null
+  onComposeRequestHandled?: () => void
 }
 
 export default function EmailInboxView({
@@ -2534,6 +2835,8 @@ export default function EmailInboxView({
   onSelectAttachment,
   onNavigateToHandshake,
   onOpenHandshakesView,
+  composeRequest,
+  onComposeRequestHandled,
 }: EmailInboxViewProps) {
   const {
     messages,
@@ -2665,6 +2968,12 @@ export default function EmailInboxView({
     useState<BeapSandboxUnavailableVariant>('not_configured')
   const [sandboxRowFeedback, setSandboxRowFeedback] = useState<SandboxCloneFeedbackView | null>(null)
   const [beapRedirectForMessage, setBeapRedirectForMessage] = useState<InboxMessage | null>(null)
+  const [beapRunAutomationForMessage, setBeapRunAutomationForMessage] = useState<InboxMessage | null>(null)
+  const [runAutomationImporting, setRunAutomationImporting] = useState(false)
+  const [runAutomationRowFeedback, setRunAutomationRowFeedback] = useState<{
+    type: 'success' | 'error'
+    message: string
+  } | null>(null)
 
   const [leftPanelTab, setLeftPanelTab] = useState<'inbox' | 'sent'>('inbox')
   const [sentMessages, setSentMessages] = useState<Array<Record<string, unknown>>>([])
@@ -2697,6 +3006,22 @@ export default function EmailInboxView({
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [composeMode])
+
+  // Honour a compose request from the parent (e.g. header button in App.tsx).
+  useEffect(() => {
+    if (!composeRequest) return
+    if (composeRequest === 'email') {
+      setComposeMode('email')
+      setComposeReplyTo(null)
+      selectMessage(null)
+    } else if (composeRequest === 'beap') {
+      setComposeMode('beap')
+      setComposeReplyTo(null)
+      selectMessage(null)
+    }
+    onComposeRequestHandled?.()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [composeRequest])
 
   const loadProviderAccounts = useCallback(async () => {
     if (typeof window.emailAccounts?.listAccounts !== 'function') {
@@ -3185,7 +3510,23 @@ export default function EmailInboxView({
 
   const handleInboxRowSandbox = useCallback(
     (_e: MouseEvent, m: InboxMessage) => {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] click_start messageId=${m.id}`, {
+        hostModeReady,
+        orchestratorMode,
+      })
       if (!hostModeReady || orchestratorMode !== 'host') {
+        const blockedReason =
+          orchestratorMode === 'sandbox'
+            ? 'not_host_sandbox_instance'
+            : !hostModeReady
+              ? 'orchestrator_mode_not_ready'
+              : 'not_host'
+        // eslint-disable-next-line no-console
+        console.log(`[BEAP_SANDBOX_CLONE] blocked reason=${blockedReason} messageId=${m.id}`, {
+          hostModeReady,
+          orchestratorMode,
+        })
         if (orchestratorMode === 'sandbox') {
           logSandboxTargetResolution({
             source: 'inbox_row',
@@ -3241,6 +3582,9 @@ export default function EmailInboxView({
           identityCompleteRows,
           incompleteRows,
         } = resolved
+        const primaryTarget = sendableTargets[0]
+        // eslint-disable-next-line no-console
+        console.log(`[BEAP_SANDBOX_CLONE] target_selected messageId=${m.id} handshake=${primaryTarget?.handshake_id ?? 'none'} peer=${primaryTarget?.peer_device_name ?? primaryTarget?.peer_device_id ?? 'unknown'}`)
         // eslint-disable-next-line no-console
         console.log('[BEAP_SANDBOX_CLONE] click', {
           message_id: m.id,
@@ -3254,6 +3598,8 @@ export default function EmailInboxView({
           activeIdentityCompleteHostSandboxCount: identityCompleteRows.length,
           identityIncompleteHostSandboxCount: incompleteRows.length,
         })
+        // eslint-disable-next-line no-console
+        console.log(`[BEAP_SANDBOX_CLONE] policy_result messageId=${m.id} action=${next} reason=host_sandbox_routing_fresh_list sendable_count=${sendableTargets.length}`)
         logSandboxTargetResolution({
           source: 'inbox_row',
           messageId: m.id,
@@ -3270,11 +3616,15 @@ export default function EmailInboxView({
           reason: 'host_sandbox_routing_fresh_list',
         })
         if (next === 'loading_refresh') {
+          // eslint-disable-next-line no-console
+          console.log(`[BEAP_SANDBOX_CLONE] blocked reason=loading_refresh messageId=${m.id}`)
           setSandboxRowFeedback(viewSandboxChecking())
           window.setTimeout(() => setSandboxRowFeedback(null), 5000)
           return
         }
         if (next === 'open_unavailable_dialog') {
+          // eslint-disable-next-line no-console
+          console.log(`[BEAP_SANDBOX_CLONE] blocked reason=no_active_target messageId=${m.id}`)
           // eslint-disable-next-line no-console
           console.log('[BEAP_SANDBOX_CLONE] no_active_target_show_setup', { message_id: m.id })
           setSandboxRowFeedback(viewSandboxNoOrchestrator())
@@ -3283,12 +3633,16 @@ export default function EmailInboxView({
         }
         if (next === 'keying_incomplete') {
           // eslint-disable-next-line no-console
+          console.log(`[BEAP_SANDBOX_CLONE] blocked reason=keying_incomplete messageId=${m.id}`)
+          // eslint-disable-next-line no-console
           console.log('[BEAP_SANDBOX_CLONE] keying_incomplete', { message_id: m.id })
           setSandboxRowFeedback(viewSandboxKeyingIncomplete())
           window.setTimeout(() => setSandboxRowFeedback(null), 8000)
           return
         }
         if (next === 'identity_incomplete') {
+          // eslint-disable-next-line no-console
+          console.log(`[BEAP_SANDBOX_CLONE] blocked reason=identity_incomplete messageId=${m.id}`)
           // eslint-disable-next-line no-console
           console.log('[BEAP_SANDBOX_CLONE] identity_incomplete', { message_id: m.id })
           setSandboxRowFeedback(viewSandboxIdentityIncomplete())
@@ -3357,6 +3711,62 @@ export default function EmailInboxView({
       fetchMessages,
     ],
   )
+
+  const runAutomationDialogSessionRef = useMemo((): SessionImportDialogSessionRef | null => {
+    if (!beapRunAutomationForMessage) return null
+    const { refs } = resolveInboxSessionArtefact(beapRunAutomationForMessage)
+    if (refs.length === 0) return null
+    const primary = refs[0]
+    const cap = primary.requiredCapability
+    return {
+      sessionId: primary.sessionId,
+      sessionName: primary.sessionName,
+      requiredCapability:
+        cap != null && typeof cap === 'object'
+          ? JSON.stringify(cap)
+          : cap != null
+            ? String(cap)
+            : undefined,
+    }
+  }, [beapRunAutomationForMessage])
+
+  const handleInboxRowRunAutomation = useCallback((_e: MouseEvent, m: InboxMessage) => {
+    if (!canShowInboxRunAutomation(m)) return
+    setBeapRunAutomationForMessage(m)
+    setRunAutomationRowFeedback(null)
+  }, [])
+
+  const handleConfirmRunAutomation = useCallback(async () => {
+    if (!beapRunAutomationForMessage) return
+    setRunAutomationImporting(true)
+    setRunAutomationRowFeedback(null)
+    try {
+      const result = await runBeapSessionAutomationForMessage(beapRunAutomationForMessage)
+      if (!result.ok) {
+        setRunAutomationRowFeedback({ type: 'error', message: result.error })
+        return
+      }
+      setBeapRunAutomationForMessage(null)
+      const name = result.sessionName || result.sessionKey || 'session'
+      setRunAutomationRowFeedback({
+        type: 'success',
+        message: `Running automation \u201c${name}\u201d \u2014 grid tab will appear shortly.`,
+      })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[BEAP_RUN] unexpected error messageId=' + beapRunAutomationForMessage.id, e)
+      setRunAutomationRowFeedback({ type: 'error', message: msg })
+    } finally {
+      setRunAutomationImporting(false)
+    }
+  }, [beapRunAutomationForMessage])
+
+  // Auto-dismiss success feedback after 6 s; errors stay until dismissed or retried.
+  useEffect(() => {
+    if (!runAutomationRowFeedback || runAutomationRowFeedback.type === 'error') return
+    const id = setTimeout(() => setRunAutomationRowFeedback(null), 6000)
+    return () => clearTimeout(id)
+  }, [runAutomationRowFeedback])
 
   const handleReply = useCallback((msg: InboxMessage) => {
     const replyMode = resolveInboxReplyMode(msg)
@@ -3589,6 +3999,8 @@ export default function EmailInboxView({
                 }
               : undefined
           }
+          onEmailCompose={() => handleComposeClick(handleOpenEmailCompose)}
+          onBeapCompose={() => handleComposeClick(handleOpenBeapDraft)}
           internalSandbox={
             showInternalSandboxInboxRow
               ? {
@@ -3857,6 +4269,8 @@ export default function EmailInboxView({
                 sandboxAvailability={sandboxAvailability}
                 onSandboxInRow={handleInboxRowSandbox}
                 onRedirectInRow={(_e, m) => setBeapRedirectForMessage(m)}
+                canRowRunAutomation={canShowInboxRunAutomation(msg)}
+                onRunAutomationInRow={handleInboxRowRunAutomation}
               />
             ))
           )}
@@ -4109,9 +4523,85 @@ export default function EmailInboxView({
         />
       )}
 
-      {connectEmailFlowModal}
+      {beapRunAutomationForMessage && runAutomationDialogSessionRef ? (
+        <SessionImportDialog
+          sessionRef={runAutomationDialogSessionRef}
+          messageId={beapRunAutomationForMessage.id}
+          onConfirm={() => void handleConfirmRunAutomation()}
+          onCancel={() => {
+            if (!runAutomationImporting) {
+              setBeapRunAutomationForMessage(null)
+              setRunAutomationRowFeedback(null)
+            }
+          }}
+          importing={runAutomationImporting}
+        />
+      ) : null}
 
-      {/* Compose buttons — floating bottom-right */}
+      {runAutomationRowFeedback ? (
+        <div
+          role="alert"
+          style={{
+            position: 'fixed',
+            bottom: 88,
+            right: 20,
+            zIndex: 200,
+            maxWidth: 380,
+            padding: '10px 14px',
+            borderRadius: 8,
+            fontSize: 12,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 8,
+            ...(runAutomationRowFeedback.type === 'success' ? UI_BADGE.green : UI_BADGE.red),
+          }}
+        >
+          <span style={{ flexShrink: 0, fontWeight: 700, fontSize: 14 }}>
+            {runAutomationRowFeedback.type === 'success' ? '✓' : '✕'}
+          </span>
+          <span style={{ flex: 1 }}>{runAutomationRowFeedback.message}</span>
+          {runAutomationRowFeedback.type === 'error' && (
+            <button
+              type="button"
+              onClick={() => void handleConfirmRunAutomation()}
+              style={{
+                flexShrink: 0,
+                marginLeft: 4,
+                padding: '2px 8px',
+                fontSize: 11,
+                fontWeight: 600,
+                borderRadius: 5,
+                border: '1px solid #fca5a5',
+                background: '#fff',
+                color: '#991b1b',
+                cursor: 'pointer',
+              }}
+            >
+              Retry
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setRunAutomationRowFeedback(null)}
+            aria-label="Dismiss"
+            style={{
+              flexShrink: 0,
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: 14,
+              lineHeight: 1,
+              color: 'inherit',
+              opacity: 0.6,
+              padding: 0,
+            }}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+
+      {/* Compose buttons ? floating bottom-right */}
       <div
         style={{
           position: 'fixed',
@@ -4166,6 +4656,9 @@ export default function EmailInboxView({
           + BEAP
         </button>
       </div>
+
+      {connectEmailFlowModal}
+
 
       {/* EmailComposeOverlay disabled — use EmailInlineComposer via composeMode === 'email' (Prompt 3) */}
       {/* {showEmailCompose && (

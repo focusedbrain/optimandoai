@@ -35,6 +35,9 @@ export function validBeapCapsule(): Record<string, unknown> {
       wrStampStatus: null,
     },
     wrdesk_policy_version: '1.0',
+    // Phase B: crypto fields required by capsule validator
+    sender_public_key: 'c'.repeat(64),
+    sender_signature: 'd'.repeat(128),
   }
 }
 

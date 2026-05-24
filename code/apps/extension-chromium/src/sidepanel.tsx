@@ -58,6 +58,7 @@ import { getThemeTokens } from './shared/ui/lightboxTheme'
 import { formatWatchdogAlert, type WatchdogThreat } from './utils/formatWatchdogAlert'
 import { WRGuardWorkspace, useWRGuardStore } from './wrguard'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, BeapMessageListView, BeapBulkInbox, initBeapPqAuth } from './beap-messages'
+import { buildSessionImportArtefact, type BuildArtefactInput } from './beap-builder/buildSessionImportArtefact'
 import type { BeapBulkInboxHandle } from './beap-messages'
 import type { RecipientMode, SelectedHandshakeRecipient, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
 import { BeapInboxView } from './beap-messages/components/BeapInboxView'
@@ -135,6 +136,8 @@ type SessionOption = {
   key: string
   name: string
   timestamp: string
+  /** Read-time origin: 'beap_import' | 'file_import' | 'local' (default when absent). */
+  origin: 'local' | 'beap_import' | 'file_import'
 }
 
 /** Shape of `llm.status` body (flat or nested under `.data`). */
@@ -606,37 +609,43 @@ function SidepanelOrchestrator() {
   } = useHandshakes('active')
 
   // Load available sessions for Draft Email session selector
-  // Sessions are stored in chrome.storage.local (same as Sessions History modal)
+  // Sessions are read from the canonical orchestrator source (SQLite via background bridge).
   const loadAvailableSessions = useCallback(() => {
-    chrome.storage.local.get(null, (allData) => {
+    chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS_FROM_SQLITE' }, (response) => {
       if (chrome.runtime.lastError) {
         console.warn('[BEAP Sessions] Error:', chrome.runtime.lastError.message)
         setAvailableSessions([])
         return
       }
-      
-      // Filter for session keys (format: session_*)
-      const sessionEntries = Object.entries(allData).filter(([key]) => key.startsWith('session_'))
-      
+      if (!response?.success || !response.sessions || typeof response.sessions !== 'object') {
+        setAvailableSessions([])
+        return
+      }
+
+      const sessionEntries = Object.entries(response.sessions as Record<string, unknown>)
+        .filter(([key]) => key.startsWith('session_'))
+
       if (sessionEntries.length === 0) {
         setAvailableSessions([])
         return
       }
-      
+
       const sessions: SessionOption[] = sessionEntries
         .map(([key, data]: [string, any]) => {
           const name = sessionListLabel(data, key)
           const timestamp = data?.timestamp || data?.lastOpenedAt || data?.createdAt || ''
-          return { key, name, timestamp }
+          const rawOrigin = data?.sessionOrigin
+          const origin: SessionOption['origin'] =
+            rawOrigin === 'beap_import' || rawOrigin === 'file_import' ? rawOrigin : 'local'
+          return { key, name, timestamp, origin }
         })
         .filter(s => s.key)
         .sort((a, b) => {
-          // Sort by timestamp descending (newest first)
           const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0
           const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0
           return timeB - timeA
         })
-      
+
       setAvailableSessions(sessions)
     })
   }, [])
@@ -798,6 +807,39 @@ function SidepanelOrchestrator() {
           mime: att.mime,
           base64: att.dataBase64
         }))
+        // Artefact construction — Decision E: bind at send time.
+        // Session data is read from the canonical orchestrator source (SQLite via background bridge).
+        let sidepanelSessionArtefact: BeapPackageConfig['sessionImportArtefact'] = undefined
+        if (beapDraftSessionId) {
+          const sessionData = await new Promise<Record<string, unknown> | null>((resolve) => {
+            chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey: beapDraftSessionId }, (response) => {
+              if (chrome.runtime.lastError || !response?.success || !response?.session) { resolve(null); return }
+              resolve(response.session as Record<string, unknown>)
+            })
+          })
+          if (!sessionData) {
+            // Host unreachable or locked: notify user and send without the artefact.
+            setNotification({ message: 'Session unavailable — unlock the host application to attach a session.', type: 'error' })
+            setTimeout(() => setNotification(null), 8000)
+            // sidepanelSessionArtefact remains undefined; send proceeds without it.
+          } else {
+            const input: BuildArtefactInput = {
+              sessionId: beapDraftSessionId,
+              sessionName: typeof sessionData.name === 'string' ? sessionData.name : beapDraftSessionId,
+              sessionBlob: sessionData as Record<string, unknown>,
+              capabilitiesRequired: Array.isArray(sessionData.capabilities_required) ? (sessionData.capabilities_required as any[]) : [],
+              handshakeBinding: null,
+            }
+            const built = buildSessionImportArtefact(input)
+            if (!built.ok) {
+              setNotification({ message: `Could not build session artefact: ${built.reason}`, type: 'error' })
+              setTimeout(() => setNotification(null), 5000)
+              return
+            }
+            sidepanelSessionArtefact = built.artefact
+          }
+        }
+
         const config: BeapPackageConfig = {
           recipientMode: beapRecipientMode,
           deliveryMethod: handshakeDelivery as DeliveryMethod,
@@ -811,7 +853,8 @@ function SidepanelOrchestrator() {
           originalFiles: originalFiles.length > 0 ? originalFiles : undefined,
           ...(beapRecipientMode === 'private' && {
             encryptedMessage: beapDraftEncryptedMessage.trim() || undefined
-          })
+          }),
+          ...(sidepanelSessionArtefact ? { sessionImportArtefact: sidepanelSessionArtefact } : {}),
         }
         
         if (beapRecipientMode === 'private' && !beapDraftEncryptedMessage.trim()) {
@@ -6928,9 +6971,20 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
                           }}
                         >
                           <option value="" style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
-                          {availableSessions.map((s) => (
-                            <option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>
-                          ))}
+                          {availableSessions.some(s => s.origin !== 'beap_import') && (
+                            <optgroup label="My Sessions">
+                              {availableSessions.filter(s => s.origin !== 'beap_import').map((s) => (
+                                <option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {availableSessions.some(s => s.origin === 'beap_import') && (
+                            <optgroup label="Received Automations">
+                              {availableSessions.filter(s => s.origin === 'beap_import').map((s) => (
+                                <option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>
+                              ))}
+                            </optgroup>
+                          )}
                         </select>
                       </div>
                       {/* Attachments Input */}
@@ -8495,7 +8549,8 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
                       <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Session (optional)</label>
                       <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'standard' ? '#ffffff' : '#1e293b', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.25)', color: theme === 'standard' ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
                         <option value="" style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
-                        {availableSessions.map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
+                        {availableSessions.some(s => s.origin !== 'beap_import') && (<optgroup label="My Sessions">{availableSessions.filter(s => s.origin !== 'beap_import').map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}</optgroup>)}
+                        {availableSessions.some(s => s.origin === 'beap_import') && (<optgroup label="Received Automations">{availableSessions.filter(s => s.origin === 'beap_import').map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}</optgroup>)}
                       </select>
                     </div>
                     <div>
@@ -9872,7 +9927,8 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
                       <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Session (optional)</label>
                       <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'standard' ? '#ffffff' : '#1e293b', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.25)', color: theme === 'standard' ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
                         <option value="" style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
-                        {availableSessions.map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
+                        {availableSessions.some(s => s.origin !== 'beap_import') && (<optgroup label="My Sessions">{availableSessions.filter(s => s.origin !== 'beap_import').map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}</optgroup>)}
+                        {availableSessions.some(s => s.origin === 'beap_import') && (<optgroup label="Received Automations">{availableSessions.filter(s => s.origin === 'beap_import').map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}</optgroup>)}
                       </select>
                     </div>
                     <div>

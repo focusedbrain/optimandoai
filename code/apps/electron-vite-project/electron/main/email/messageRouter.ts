@@ -1,19 +1,53 @@
 /**
- * Message Router — Detects BEAP content in incoming emails and routes to ingestion paths.
+ * Message Router — Phase B, PR B-3
  *
- * Inserts into inbox_messages AND into p2p_pending_beap (BEAP) or plain_email_inbox (plain)
- * so existing depackaging pipelines continue to work.
+ * Detects BEAP content in incoming emails and routes to the sealed-storage
+ * pipeline.  Validation runs BEFORE any inbox-bound write.
  *
- * @version 1.0.0
+ * Architecture decision (Phase B, Section 2.1 + Amendment 1 to B-3):
+ *   "Validator runs before storage; no row exists in inbox_messages until a
+ *    valid seal has been produced."
+ *
+ * Flow:
+ *   1. Detect BEAP vs plain (sync, same heuristics as pre-B-3).
+ *   2. BEAP path:
+ *      a. Try inline depackaging (qBEAP decrypt or pBEAP extract).
+ *      b. If depackage succeeds → validate canonical content via orchestrator
+ *         → write sealed inbox_messages row.
+ *      c. If depackage fails → quarantine: encrypt email bytes to sandbox's
+ *         X25519 public key → write sealed quarantine_messages row.
+ *   3. Plain email path:
+ *      a. Build canonical plain_email content object.
+ *      b. Validate via orchestrator (always ok for conformant plain emails).
+ *      c. Write sealed inbox_messages row with validation_reason 'plain_email_no_validation_required'.
+ *
+ * p2p_pending_beap and plain_email_inbox staging tables are no longer written
+ * by this module.  p2p_pending_beap was dropped in schema v66 (Phase B, PR B-4)
+ * after P2P relay entry points were migrated to processBeapPackageInline.
+ * plain_email_inbox was dropped in schema v65.
+ *
+ * @version 2.0.0 (Phase B, PR B-3)
  */
 
 import { createHash, randomUUID } from 'crypto'
-import { insertPendingP2PBeap, insertPendingPlainEmail } from '../handshake/db'
+
 import { plainEmailToBeapMessage, enrichWithAttachments } from './plainEmailConverter'
 import type { SanitizedMessageDetail } from './types'
 import { emailGateway } from './gateway'
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
+import { decryptQBeapPackage } from '../beap/decryptQBeapPackage'
+import { validatorOrchestrator } from '../validator-process/orchestrator'
+import { prepareSealedInsert, runSealedTransaction, computeSeal, type ChildAttachmentDescriptor } from '../sealed-storage/index'
+import {
+  listAvailableInternalSandboxes,
+  isEligibleActiveInternalHostSandboxRecord,
+} from '../handshake/internalSandboxesApi'
+import { getHandshakeRecord } from '../handshake/db'
+import { encryptForQuarantine } from '../quarantine-encrypt/index'
+import { writeQuarantineBlob } from '../quarantine-blob-storage/index'
+import type { SSOSession } from '../handshake/types'
+import type { ProvenanceMetadata } from '@repo/ingestion-core'
 
 // ── Types ──
 
@@ -42,12 +76,13 @@ export interface RawEmailMessage {
 }
 
 export interface DetectAndRouteResult {
-  type: 'beap' | 'plain'
+  type: 'beap' | 'plain' | 'quarantine'
   messageId: string
+  /** inbox_messages.id or quarantine_messages.id */
   inboxMessageId: string
 }
 
-// ── Detection helpers (mirror beapSync logic) ──
+// ── Detection helpers (same heuristics as pre-B-3) ──
 
 function detectBeapCapsule(text: string): { detected: boolean; capsuleJson?: string } {
   if (!text || typeof text !== 'string') return { detected: false }
@@ -64,9 +99,7 @@ function detectBeapCapsule(text: string): { detected: boolean; capsuleJson?: str
     ) {
       return { detected: true, capsuleJson: trimmed }
     }
-  } catch {
-    /* not valid JSON */
-  }
+  } catch { /* not valid JSON */ }
   return { detected: false }
 }
 
@@ -79,21 +112,15 @@ function detectBeapMessagePackage(text: string): { detected: boolean; packageJso
     if (
       typeof parsed === 'object' &&
       parsed !== null &&
-      'header' in parsed &&
-      parsed.header != null &&
-      typeof parsed.header === 'object' &&
-      'metadata' in parsed &&
-      parsed.metadata != null &&
-      typeof parsed.metadata === 'object' &&
+      'header' in parsed && parsed.header != null && typeof parsed.header === 'object' &&
+      'metadata' in parsed && parsed.metadata != null && typeof parsed.metadata === 'object' &&
       ('envelope' in parsed || 'payload' in parsed)
     ) {
       const enc = parsed.header?.encoding
       if (enc != null && !['qBEAP', 'pBEAP'].includes(enc)) return { detected: false }
       return { detected: true, packageJson: trimmed }
     }
-  } catch {
-    /* not valid JSON */
-  }
+  } catch { /* not valid JSON */ }
   return { detected: false }
 }
 
@@ -136,27 +163,20 @@ function extractHandshakeId(parsed: Record<string, unknown>): string | null {
  * Primary key for `inbox_attachments.id`. Provider attachment ids are only unique per remote
  * message; prefixing with our inbox row id avoids PRIMARY KEY collisions across local messages.
  */
-export function makeInboxAttachmentStorageId(inboxMessageId: string, providerAttachmentId: string | undefined): string {
+export function makeInboxAttachmentStorageId(
+  inboxMessageId: string,
+  providerAttachmentId: string | undefined,
+): string {
   const trimmed = typeof providerAttachmentId === 'string' ? providerAttachmentId.trim() : ''
   if (trimmed.length > 0) return `${inboxMessageId}__${trimmed}`
   return randomUUID()
 }
 
-// ── Main router ──
+// ── Email ID resolution ──
 
-/**
- * Value stored in `inbox_messages.email_message_id` and passed to the remote orchestrator queue.
- * - **IMAP:** must be the numeric mailbox UID (MOVE / fetch use UID). Prefer `uid`, then `id`; RFC
- *   Message-ID must live only in `headers.messageId` → `imap_rfc_message_id`.
- * - **Gmail / Microsoft:** keep provider message id (`messageId` / `id` as supplied by sync).
- */
 function resolveStorageEmailMessageId(accountId: string, rawMsg: RawEmailMessage): string {
   let provider: string | null = null
-  try {
-    provider = emailGateway.getProviderSync(accountId)
-  } catch {
-    provider = null
-  }
+  try { provider = emailGateway.getProviderSync(accountId) } catch { provider = null }
 
   const pick = (s: string | undefined): string | undefined => {
     const t = typeof s === 'string' ? s.trim() : ''
@@ -166,19 +186,113 @@ function resolveStorageEmailMessageId(accountId: string, rawMsg: RawEmailMessage
   if (provider === 'imap') {
     return pick(rawMsg.uid) ?? pick(rawMsg.id) ?? pick(rawMsg.messageId) ?? randomUUID()
   }
-
   return pick(rawMsg.messageId) ?? pick(rawMsg.id) ?? pick(rawMsg.uid) ?? randomUUID()
 }
 
+// ── Provenance builder ──
+
+function buildProvenance(
+  fromAddr: string,
+  messageId: string,
+  bodyText: string,
+  inputClassification: ProvenanceMetadata['input_classification'],
+): ProvenanceMetadata {
+  return {
+    source_type: 'email',
+    origin_classification: 'external',
+    ingested_at: new Date().toISOString(),
+    transport_metadata: { sender_address: fromAddr, message_id: messageId },
+    input_classification: inputClassification,
+    raw_input_hash: createHash('sha256').update(bodyText, 'utf8').digest('hex'),
+    ingestor_version: '1.0.0',
+  }
+}
+
+// ── Quarantine canonical JSON ──
+
 /**
- * Detect BEAP content and route to the correct ingestion path.
- * Inserts into inbox_messages and into p2p_pending_beap (BEAP) or plain_email_inbox (plain).
- * PDFs: text is extracted at ingest (no Vision fallback — same as inbox IPC policy).
+ * Canonical JSON for a quarantine_messages row seal.
+ *
+ * Only the immutable, security-relevant fields are included.  These are the
+ * fields the read-path reconstructs to verify the seal on retrieval.
+ * Mutable fields (cloned_to_sandbox_at) are excluded.
+ */
+export function buildQuarantineCanonicalJson(fields: {
+  id: string
+  blob_storage_id: string
+  blob_sha256: string
+  rejection_reason: string
+  paired_sandbox_handshake_id: string
+}): string {
+  return JSON.stringify({
+    content_type: 'host_quarantine',
+    id: fields.id,
+    blob_storage_id: fields.blob_storage_id,
+    blob_sha256: fields.blob_sha256,
+    rejection_reason: fields.rejection_reason,
+    paired_sandbox_handshake_id: fields.paired_sandbox_handshake_id,
+  })
+}
+
+// ── Sandbox handshake lookup ──
+
+export function findPairedSandboxHandshake(
+  db: any,
+  session: SSOSession | null | undefined,
+): { handshake_id: string; peer_x25519_public_key_b64: string } | null {
+  if (!db || !session) return null
+  const result = listAvailableInternalSandboxes(db, session)
+  if (!result.success) return null
+  const keyed = result.sandboxes.find((s) => s.sandbox_keying_complete)
+  if (!keyed) return null
+  const record = getHandshakeRecord(db, keyed.handshake_id)
+  if (!record) return null
+  if (!isEligibleActiveInternalHostSandboxRecord(record, session)) return null
+  const pub = record.peer_x25519_public_key_b64?.trim()
+  if (!pub) return null
+  return { handshake_id: keyed.handshake_id, peer_x25519_public_key_b64: pub }
+}
+
+// ── Prepared SQL constants ──
+
+const INBOX_INSERT_SQL = `
+  INSERT INTO inbox_messages (
+    id, source_type, handshake_id, account_id, email_message_id,
+    from_address, from_name, to_addresses, cc_addresses,
+    subject, body_text, body_html, beap_package_json,
+    depackaged_json, has_attachments, attachment_count, received_at, ingested_at,
+    imap_remote_mailbox, imap_rfc_message_id,
+    validated_at, validator_version, validation_reason,
+    seal, seal_input_json,
+    seal_key_source
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+const QUARANTINE_INSERT_SQL = `
+  INSERT INTO quarantine_messages (
+    id, transport_sender, transport_received_at, transport_folder,
+    blob_size_bytes, blob_storage_id, blob_sha256, rejection_reason,
+    paired_sandbox_handshake_id,
+    seal, seal_input_json
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+// ── Main router ──
+
+/**
+ * Detect BEAP content and route to the correct sealed-storage ingestion path.
+ *
+ * Phase B invariant: no row is written to inbox_messages or quarantine_messages
+ * until a valid cryptographic seal has been produced by the validator subprocess.
+ *
+ * @param session  Current SSO session used for sandbox lookup in quarantine path.
+ *                 Pass null when session is unavailable.
  */
 export async function detectAndRouteMessage(
   db: any,
   accountId: string,
   rawMsg: RawEmailMessage,
+  session?: SSOSession | null,
 ): Promise<DetectAndRouteResult> {
   const messageId = resolveStorageEmailMessageId(accountId, rawMsg)
   const inboxMessageId = randomUUID()
@@ -195,73 +309,54 @@ export async function detectAndRouteMessage(
   const bodyHtml = rawMsg.html ?? null
   const subject = rawMsg.subject ?? ''
   const attachments = rawMsg.attachments ?? []
+  const folderRaw =
+    rawMsg.folder != null && String(rawMsg.folder).trim() !== '' ? String(rawMsg.folder).trim() : 'INBOX'
+  const imapRemoteMailbox = folderRaw || 'INBOX'
+  const imapRfcMessageId = rawMsg.headers?.messageId?.trim() || null
+  const hasAttachments = attachments.length > 0
+
+  // ── Step 1: Detect BEAP vs plain (sync) ──────────────────────────────────
 
   let beapPackageJson: string | null = null
   let handshakeId: string | null = null
   let detectedType: 'beap' | 'plain' = 'plain'
 
-  // Detection priority 1: .beap file attachment or application/x-beap
   for (const att of attachments) {
     if (!isBeapAttachment(att)) continue
     const content = att.content
     if (!content || content.length === 0) continue
     const text = content.toString('utf-8')
     if (text.length > 65536) continue
-
     const capsule = detectBeapCapsule(text)
     if (capsule.detected && capsule.capsuleJson) {
       beapPackageJson = capsule.capsuleJson
-      try {
-        handshakeId = extractHandshakeId(JSON.parse(capsule.capsuleJson)) ?? '__email_import__'
-      } catch {
-        handshakeId = '__email_import__'
-      }
-      detectedType = 'beap'
-      break
+      try { handshakeId = extractHandshakeId(JSON.parse(capsule.capsuleJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
+      detectedType = 'beap'; break
     }
-
     const pkg = detectBeapMessagePackage(text)
     if (pkg.detected && pkg.packageJson) {
       beapPackageJson = pkg.packageJson
-      try {
-        handshakeId = extractHandshakeId(JSON.parse(pkg.packageJson)) ?? '__email_import__'
-      } catch {
-        handshakeId = '__email_import__'
-      }
-      detectedType = 'beap'
-      break
+      try { handshakeId = extractHandshakeId(JSON.parse(pkg.packageJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
+      detectedType = 'beap'; break
     }
   }
 
-  // Detection priority 2: Body is handshake capsule
   if (detectedType === 'plain' && bodyText.trim().startsWith('{')) {
     const capsule = detectBeapCapsule(bodyText)
     if (capsule.detected && capsule.capsuleJson) {
       beapPackageJson = capsule.capsuleJson
-      try {
-        handshakeId = extractHandshakeId(JSON.parse(capsule.capsuleJson)) ?? '__email_import__'
-      } catch {
-        handshakeId = '__email_import__'
-      }
+      try { handshakeId = extractHandshakeId(JSON.parse(capsule.capsuleJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
       detectedType = 'beap'
     }
   }
-
-  // Detection priority 3: Body is qBEAP/pBEAP message package
   if (detectedType === 'plain' && bodyText.trim().startsWith('{')) {
     const pkg = detectBeapMessagePackage(bodyText)
     if (pkg.detected && pkg.packageJson) {
       beapPackageJson = pkg.packageJson
-      try {
-        handshakeId = extractHandshakeId(JSON.parse(pkg.packageJson)) ?? '__email_import__'
-      } catch {
-        handshakeId = '__email_import__'
-      }
+      try { handshakeId = extractHandshakeId(JSON.parse(pkg.packageJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
       detectedType = 'beap'
     }
   }
-
-  // Detection priority 4: JSON attachment with BEAP structure
   if (detectedType === 'plain') {
     for (const att of attachments) {
       if (!isJsonAttachment(att)) continue
@@ -274,217 +369,491 @@ export async function detectAndRouteMessage(
         if (detectBeapInJson(parsed)) {
           beapPackageJson = text
           handshakeId = extractHandshakeId(parsed) ?? '__email_import__'
-          detectedType = 'beap'
-          break
+          detectedType = 'beap'; break
         }
-      } catch {
-        /* not valid JSON */
-      }
+      } catch { /* not valid JSON */ }
     }
   }
 
-  // Build inbox_messages row
-  const hasAttachments = attachments.length > 0
-  /** Fresh INBOX pulls must persist a non-empty mailbox — used by lifecycle observed-bucket (exact match vs configured folder names). */
-  const folderRaw =
-    rawMsg.folder != null && String(rawMsg.folder).trim() !== '' ? String(rawMsg.folder).trim() : 'INBOX'
-  const imapRemoteMailbox = folderRaw || 'INBOX'
-  const imapRfcMessageId = rawMsg.headers?.messageId?.trim() || null
-  const insertInbox = db.prepare(`
-    INSERT INTO inbox_messages (
-      id, source_type, handshake_id, account_id, email_message_id,
-      from_address, from_name, to_addresses, cc_addresses,
-      subject, body_text, body_html, beap_package_json,
-      has_attachments, attachment_count, received_at, ingested_at,
-      imap_remote_mailbox, imap_rfc_message_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `)
+  // ── Step 2a: Attachment preprocessing (Att-2, PR B-3.1) ──────────────────
+  //
+  // Runs BEFORE the validator call so that attachment content_sha256 values
+  // can be included in the canonical content that the seal binds.  The seal
+  // therefore covers the attachment list, satisfying the Att-2 property:
+  //   "any post-write tampering with an inbox_attachments row's content is
+  //    detectable at read time via the parent message seal."
+  //
+  // Att-2 scope note: this preprocessing applies to plain_email rows only.
+  // For email_beap rows, the canonical_json is the BEAP capsule plaintext
+  // (a protocol-defined format).  Augmenting it would change the
+  // depackaged_json format expected by existing consumers.  BEAP attachment
+  // sealing requires a depackaged_json format migration deferred to B-5.
 
-  // Store attachments to disk and register in inbox_attachments (sync path only — PDF extraction runs after commit)
+  type AttMeta = {
+    attId: string
+    storagePath: string | null
+    encKey: string | null
+    encIv: string | null
+    encTag: string | null
+    storageEncrypted: number
+    contentSha256: string | null
+    extractedText: string | null
+    extractionStatus: string | null
+    extractionError: string | null
+    extractedTextSha256: string | null
+    att: (typeof attachments)[number]
+  }
+  const attMetas: AttMeta[] = []
+
+  // For plain emails we always need attachment metadata before calling the
+  // validator.  For BEAP we still preprocess (attachment writes are in the
+  // same transaction), but content_sha256s are not yet bound to the seal.
+  for (const att of attachments) {
+    const attId = makeInboxAttachmentStorageId(inboxMessageId, att.id)
+    let storagePath: string | null = null
+    let encKey: string | null = null
+    let encIv: string | null = null
+    let encTag: string | null = null
+    let storageEncrypted = 0
+    let contentSha256: string | null = null
+    let extractedText: string | null = null
+    let extractionStatus: string | null = null
+    let extractionError: string | null = null
+    let extractedTextSha256: string | null = null
+
+    if (att.content && att.content.length > 0) {
+      try {
+        const w = writeEncryptedAttachmentFile(inboxMessageId, attId, att.filename, att.content)
+        storagePath = w.storagePath; encKey = w.encryptionKeyStored
+        encIv = w.ivB64; encTag = w.tagB64; storageEncrypted = 1
+      } catch (e) {
+        console.warn('[MessageRouter] Failed to store attachment:', att.filename, e)
+      }
+      contentSha256 = createHash('sha256').update(att.content).digest('hex')
+    }
+
+    if (isPdfFile(att.contentType || '', att.filename) && att.content && att.content.length > 0) {
+      try {
+        const result = await extractPdfText(att.content)
+        extractedText = result.text ?? ''
+        extractedTextSha256 = createHash('sha256').update(extractedText, 'utf8').digest('hex')
+        const { status, error: errMsg } = resolveInboxPdfExtractionStatus(result)
+        extractionStatus = status; extractionError = errMsg
+      } catch (e: any) {
+        extractionStatus = 'failed'; extractionError = e?.message ?? String(e) ?? 'Extraction crashed'
+      }
+    }
+
+    attMetas.push({
+      attId, storagePath, encKey, encIv, encTag, storageEncrypted,
+      contentSha256, extractedText, extractionStatus, extractionError, extractedTextSha256, att,
+    })
+  }
+
+  // Build the Att-2 attachment canonical array (used for plain_email sealing).
+  const attachmentsCanonical: ChildAttachmentDescriptor[] = attMetas.map((m) => ({
+    attachment_id: m.attId,
+    filename: m.att.filename || 'attachment',
+    content_type: m.att.contentType || 'application/octet-stream',
+    size_bytes: m.att.size ?? 0,
+    content_sha256: m.contentSha256,
+    extracted_text_sha256: m.extractedTextSha256 ?? null,
+  }))
+
+  // ── Step 2b: Async pre-work — depackage + validate (no DB writes yet) ──────
+
+  // Sealed payload for inbox write
+  type InboxPayload = {
+    kind: 'inbox'
+    sourceType: 'email_beap' | 'email_plain'
+    depackagedJson: string
+    seal: string
+    sealInputJson: string
+    sealKeySource: 'ledger'
+    validatedAt: string
+    validatorVersion: string
+    validationReason: string | null
+  }
+  // Sealed payload for quarantine write
+  type QuarantinePayload = {
+    kind: 'quarantine'
+    quarantineId: string
+    blobStorageId: string
+    blobSha256: string
+    blobSizeBytes: number
+    rejectionReason: string
+    pairedSandboxHandshakeId: string
+    seal: string
+    sealInputJson: string
+  }
+  type WritePayload = InboxPayload | QuarantinePayload
+
+  // Definite assignment: all code paths in the BEAP and plain branches
+  // assign writePayload.  The `!` suppresses the TS definite-assignment check
+  // which cannot trace through async branches.
+  let writePayload!: WritePayload
+
+  if (detectedType === 'beap' && beapPackageJson) {
+    const packageObj = (() => {
+      try { return JSON.parse(beapPackageJson) as Record<string, unknown> } catch { return null }
+    })()
+    const encoding = (packageObj?.header as Record<string, unknown> | null)?.encoding
+
+    let canonicalJson: string | null = null
+    let depackageError: string | null = null
+
+    // ── Inline depackage ──
+    if (encoding === 'qBEAP') {
+      try {
+        const decrypted = await decryptQBeapPackage(beapPackageJson, handshakeId ?? '', db, {
+          reportFailure: (info) => console.warn('[messageRouter] qBEAP decrypt failure', info),
+        })
+        if (decrypted?.rawCapsuleJson) {
+          canonicalJson = decrypted.rawCapsuleJson
+        } else {
+          depackageError = 'qBEAP decrypt returned null (missing handshake key or malformed package)'
+        }
+      } catch (err: unknown) {
+        depackageError = err instanceof Error ? err.message : String(err)
+      }
+    } else if (encoding === 'pBEAP') {
+      try {
+        const payloadB64 = (packageObj?.payload as string | undefined) ?? ''
+        if (!payloadB64.trim()) {
+          depackageError = 'pBEAP package has no payload field'
+        } else {
+          canonicalJson = Buffer.from(payloadB64, 'base64').toString('utf-8')
+        }
+      } catch (err: unknown) {
+        depackageError = err instanceof Error ? err.message : String(err)
+      }
+    } else {
+      // Handshake capsule or other known BEAP structure — JSON itself is canonical.
+      canonicalJson = beapPackageJson
+    }
+
+    if (canonicalJson !== null) {
+      // ── Validate depackaged content ──
+      const provenance = buildProvenance(fromAddr, messageId, bodyText, 'beap_capsule_present')
+      const resp = await validatorOrchestrator.validate({
+        envelope: packageObj ?? {},
+        plaintext_or_encrypted: { kind: 'plaintext', content: canonicalJson },
+        provenance,
+        target_row_id: inboxMessageId,
+      })
+
+      if (resp.outcome.ok) {
+        const sealed = resp.outcome.sealed
+        const { seal, seal_input_json } = computeSeal(sealed.canonical_json, inboxMessageId, 'outer')
+        writePayload = {
+          kind: 'inbox',
+          sourceType: 'email_beap',
+          depackagedJson: sealed.canonical_json,
+          seal,
+          sealInputJson: seal_input_json,
+          sealKeySource: 'ledger',
+          validatedAt: sealed.validated_at,
+          validatorVersion: sealed.validator_version,
+          validationReason: null,
+        }
+      } else {
+        depackageError = `validator rejected: ${resp.outcome.sealed_quarantine.rejection_reason}`
+        canonicalJson = null
+      }
+    }
+
+    if (canonicalJson === null) {
+      // ── Quarantine path ──
+      const rejectionReason = depackageError ?? 'depackage_failed'
+      const sandboxHandshake = findPairedSandboxHandshake(db, session)
+
+      if (!sandboxHandshake) {
+        console.warn('[MessageRouter] No sandbox for quarantine; falling back to plain inbox row:', messageId)
+        writePayload = await buildPlainEmailInboxPayload(
+          inboxMessageId, messageId, accountId, rawMsg, fromAddr,
+          fromName, subject, bodyText, bodyHtml, toList, ccList,
+          receivedAt, attachmentsCanonical,
+        )
+      } else {
+        const emailBytes = Buffer.from(beapPackageJson, 'utf-8')
+        const encResult = encryptForQuarantine(emailBytes, sandboxHandshake.peer_x25519_public_key_b64)
+
+        if (!encResult.ok) {
+          console.error('[MessageRouter] encryptForQuarantine failed:', encResult.error)
+          writePayload = await buildPlainEmailInboxPayload(
+            inboxMessageId, messageId, accountId, rawMsg, fromAddr,
+            fromName, subject, bodyText, bodyHtml, toList, ccList,
+            receivedAt, attachmentsCanonical,
+          )
+        } else {
+          const blobResult = writeQuarantineBlob(encResult.blob)
+          const quarantineId = randomUUID()
+          const qCanonicalJson = buildQuarantineCanonicalJson({
+            id: quarantineId,
+            blob_storage_id: blobResult.storage_id,
+            blob_sha256: blobResult.blob_sha256,
+            rejection_reason: rejectionReason,
+            paired_sandbox_handshake_id: sandboxHandshake.handshake_id,
+          })
+
+          const qProvenance = buildProvenance(fromAddr, messageId, bodyText, 'beap_capsule_present')
+          const qResp = await validatorOrchestrator.validate({
+            envelope: {},
+            plaintext_or_encrypted: { kind: 'plaintext', content: qCanonicalJson },
+            provenance: qProvenance,
+            target_row_id: quarantineId,
+          })
+
+          if (!qResp.outcome.ok) {
+            // Structural bug: host_quarantine content should always pass.
+            console.error('[MessageRouter] quarantine validator rejected (bug):', qResp.outcome.sealed_quarantine.rejection_reason)
+            writePayload = await buildPlainEmailInboxPayload(
+              inboxMessageId, messageId, accountId, rawMsg, fromAddr,
+              fromName, subject, bodyText, bodyHtml, toList, ccList,
+              receivedAt, attachmentsCanonical,
+            )
+          } else {
+            const qSealed = qResp.outcome.sealed
+            writePayload = {
+              kind: 'quarantine',
+              quarantineId,
+              blobStorageId: blobResult.storage_id,
+              blobSha256: blobResult.blob_sha256,
+              blobSizeBytes: blobResult.blob_size_bytes,
+              rejectionReason,
+              pairedSandboxHandshakeId: sandboxHandshake.handshake_id,
+              seal: qSealed.seal,
+              sealInputJson: qSealed.seal_input_json,
+            }
+          }
+        }
+      }
+    }
+  } else {
+    // ── Plain email path (attachmentsCanonical already built in Step 2a) ──
+    writePayload = await buildPlainEmailInboxPayload(
+      inboxMessageId, messageId, accountId, rawMsg, fromAddr,
+      fromName, subject, bodyText, bodyHtml, toList, ccList,
+      receivedAt, attachmentsCanonical,
+    )
+  }
+
+  // ── Step 4: Atomic sealed DB write ───────────────────────────────────────
+
+  if (writePayload.kind === 'quarantine') {
+    const qCanonJson = buildQuarantineCanonicalJson({
+      id: writePayload.quarantineId,
+      blob_storage_id: writePayload.blobStorageId,
+      blob_sha256: writePayload.blobSha256,
+      rejection_reason: writePayload.rejectionReason,
+      paired_sandbox_handshake_id: writePayload.pairedSandboxHandshakeId,
+    })
+
+    const sealedQ = prepareSealedInsert(db, QUARANTINE_INSERT_SQL)
+    sealedQ.run(
+      [
+        writePayload.quarantineId,
+        fromAddr,
+        receivedAt,
+        imapRemoteMailbox,
+        writePayload.blobSizeBytes,
+        writePayload.blobStorageId,
+        writePayload.blobSha256,
+        writePayload.rejectionReason,
+        writePayload.pairedSandboxHandshakeId,
+        writePayload.seal,
+        writePayload.sealInputJson,
+      ],
+      {
+        seal: writePayload.seal,
+        seal_input_json: writePayload.sealInputJson,
+        canonical_json: qCanonJson,
+        row_id: writePayload.quarantineId,
+      },
+    )
+
+    return { type: 'quarantine', messageId, inboxMessageId: writePayload.quarantineId }
+  }
+
+  // ── Step 3: Atomic sealed DB write (Att-2, PR B-3.1) ─────────────────────
+  //
+  // The inbox_messages row is written via SealedStatement (gate enforces seal
+  // verification before write).  inbox_attachments rows are written as raw
+  // child writes inside the SAME db.transaction(), per Option Att-2.
+  //
+  // Att-2 security guarantee: for plain_email rows, the canonical_json passed
+  // to the validator (and therefore covered by the seal) includes
+  // attachments_canonical with each attachment's content_sha256.  Any
+  // post-write tampering with inbox_attachments.content_sha256 is detectable
+  // at read time because the parent seal would no longer verify against the
+  // original canonical_json.
+  //
+  // For email_beap rows, the canonical_json is the raw BEAP capsule JSON
+  // (protocol-defined format).  Attachment SHA-256s are NOT yet in the seal.
+  // Full BEAP attachment sealing requires a depackaged_json format migration
+  // deferred to B-5.
+  const sealedInbox = prepareSealedInsert(db, INBOX_INSERT_SQL)
+
   const insertAtt = db.prepare(`
     INSERT INTO inbox_attachments (id, message_id, filename, content_type, size_bytes, content_id, storage_path, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `)
-  const updateContentSha256 = db.prepare(`
-    UPDATE inbox_attachments SET content_sha256 = ? WHERE id = ?
-  `)
-  const updatePdfExtracted = db.prepare(`
+  const updateContentSha = db.prepare(`UPDATE inbox_attachments SET content_sha256 = ? WHERE id = ?`)
+  const updatePdfOk = db.prepare(`
     UPDATE inbox_attachments
-    SET extracted_text = ?, text_extraction_status = ?, text_extraction_error = ?, extracted_text_sha256 = ?, page_count = ?
+    SET extracted_text = ?, text_extraction_status = ?, text_extraction_error = ?,
+        extracted_text_sha256 = ?, page_count = ?
     WHERE id = ?
   `)
-  const updatePdfFailed = db.prepare(`
-    UPDATE inbox_attachments
-    SET text_extraction_status = 'failed', text_extraction_error = ?
-    WHERE id = ?
+  const updatePdfFail = db.prepare(`
+    UPDATE inbox_attachments SET text_extraction_status = 'failed', text_extraction_error = ? WHERE id = ?
   `)
-  const updateAttEncryption = db.prepare(`
+  const updateAttEnc = db.prepare(`
     UPDATE inbox_attachments
     SET encryption_key = ?, encryption_iv = ?, encryption_tag = ?, storage_encrypted = ?
     WHERE id = ?
   `)
 
-  type RoutedAtt = (typeof attachments)[number]
-  const routed: Array<{ attId: string; att: RoutedAtt }> = []
+  const parentBindArgs = [
+    inboxMessageId,
+    writePayload.sourceType,
+    handshakeId,
+    accountId,
+    messageId,
+    fromAddr,
+    fromName,
+    JSON.stringify(toAddrs),
+    JSON.stringify(ccAddrs),
+    subject,
+    bodyText,
+    bodyHtml,
+    beapPackageJson,
+    writePayload.depackagedJson,
+    hasAttachments ? 1 : 0,
+    attachments.length,
+    receivedAt,
+    now,
+    imapRemoteMailbox,
+    imapRfcMessageId,
+    writePayload.validatedAt,
+    writePayload.validatorVersion,
+    writePayload.validationReason,
+    writePayload.seal,
+    writePayload.sealInputJson,
+    writePayload.sealKeySource ?? 'ledger',
+  ]
 
-  const runAttachmentIngestTx = db.transaction(() => {
-    insertInbox.run(
-      inboxMessageId,
-      detectedType === 'beap' ? 'email_beap' : 'email_plain',
-      handshakeId,
-      accountId,
-      messageId,
-      fromAddr,
-      fromName,
-      JSON.stringify(toAddrs),
-      JSON.stringify(ccAddrs),
-      subject,
-      bodyText,
-      bodyHtml,
-      beapPackageJson,
-      hasAttachments ? 1 : 0,
-      attachments.length,
-      receivedAt,
-      now,
-      imapRemoteMailbox,
-      imapRfcMessageId,
+  const childWrites = attMetas.map((m) => () => {
+    insertAtt.run(
+      m.attId, inboxMessageId,
+      m.att.filename || 'attachment', m.att.contentType || 'application/octet-stream',
+      m.att.size ?? 0, m.att.contentId ?? null, m.storagePath, now,
     )
-
-    for (const att of attachments) {
-      const attId = makeInboxAttachmentStorageId(inboxMessageId, att.id)
-      let storagePath: string | null = null
-      let encKey: string | null = null
-      let encIv: string | null = null
-      let encTag: string | null = null
-      let storageEncrypted = 0
-      if (att.content && att.content.length > 0) {
-        try {
-          const w = writeEncryptedAttachmentFile(inboxMessageId, attId, att.filename, att.content)
-          storagePath = w.storagePath
-          encKey = w.encryptionKeyStored
-          encIv = w.ivB64
-          encTag = w.tagB64
-          storageEncrypted = 1
-        } catch (e) {
-          console.warn('[MessageRouter] Failed to store attachment:', att.filename, e)
-        }
-      }
-      insertAtt.run(
-        attId,
-        inboxMessageId,
-        att.filename || 'attachment',
-        att.contentType || 'application/octet-stream',
-        att.size ?? 0,
-        att.contentId ?? null,
-        storagePath,
-        now,
-      )
-      if (storageEncrypted && encKey && encIv && encTag) {
-        updateAttEncryption.run(encKey, encIv, encTag, storageEncrypted, attId)
-      }
-
-      if (att.content && att.content.length > 0) {
-        const contentSha256 = createHash('sha256').update(att.content).digest('hex')
-        updateContentSha256.run(contentSha256, attId)
-      }
-
-      routed.push({ attId, att })
+    if (m.storageEncrypted && m.encKey && m.encIv && m.encTag) {
+      updateAttEnc.run(m.encKey, m.encIv, m.encTag, m.storageEncrypted, m.attId)
+    }
+    if (m.contentSha256) updateContentSha.run(m.contentSha256, m.attId)
+    if (m.extractionStatus === 'failed') {
+      updatePdfFail.run(m.extractionError, m.attId)
+    } else if (m.extractionStatus) {
+      updatePdfOk.run(m.extractedText, m.extractionStatus, m.extractionError, m.extractedTextSha256, null, m.attId)
     }
   })
 
-  try {
-    runAttachmentIngestTx()
-  } catch (e) {
-    routed.length = 0
-    throw e
-  }
-
-  /** Metadata for plain_email_inbox JSON (includes PDF text when extracted at ingest). */
-  const plainAttachmentMeta: Array<{
-    id: string
-    filename: string
-    mimeType: string
-    size: number
-    extracted_text?: string
-    extraction_status?: string
-    extraction_error?: string | null
-    content_sha256?: string
-    extracted_text_sha256?: string
-  }> = []
-
-  for (const { attId, att } of routed) {
-    let contentSha256: string | undefined
-    if (att.content && att.content.length > 0) {
-      contentSha256 = createHash('sha256').update(att.content).digest('hex')
-    }
-
-    let extractedText: string | undefined
-    let extractionStatus: string | undefined
-    let extractionError: string | null | undefined
-    let extractedTextSha256: string | undefined
-    if (isPdfFile(att.contentType || '', att.filename) && att.content && att.content.length > 0) {
-      try {
-        const result = await extractPdfText(att.content)
-        const text = result.text ?? ''
-        const textHash = createHash('sha256').update(text, 'utf8').digest('hex')
-        const { status, error: errMsg } = resolveInboxPdfExtractionStatus(result)
-        const pc = typeof result.pageCount === 'number' && result.pageCount > 0 ? result.pageCount : null
-        updatePdfExtracted.run(text, status, errMsg, textHash, pc, attId)
-        extractedText = text
-        extractionStatus = status
-        extractionError = errMsg
-        extractedTextSha256 = textHash
-      } catch (e: any) {
-        console.error('[MessageRouter] PDF extraction failed:', att.filename, e)
-        const msg = e?.message ?? String(e) ?? 'Extraction crashed'
-        updatePdfFailed.run(msg, attId)
-        extractionStatus = 'failed'
-        extractionError = msg
-      }
-    }
-
-    plainAttachmentMeta.push({
-      id: attId,
-      filename: att.filename || 'attachment',
-      mimeType: att.contentType || 'application/octet-stream',
-      size: att.size ?? 0,
-      ...(extractedText !== undefined && { extracted_text: extractedText }),
-      ...(extractionStatus !== undefined && { extraction_status: extractionStatus }),
-      ...(extractionError !== undefined && { extraction_error: extractionError }),
-      ...(contentSha256 !== undefined && { content_sha256: contentSha256 }),
-      ...(extractedTextSha256 !== undefined && { extracted_text_sha256: extractedTextSha256 }),
-    })
-  }
-
-  if (detectedType === 'beap' && beapPackageJson) {
-    insertPendingP2PBeap(db, handshakeId!, beapPackageJson)
-  } else {
-    // Plain email: insert into plain_email_inbox for existing pipeline
-    const sanitizedDetail: SanitizedMessageDetail = {
-      id: messageId,
-      accountId,
-      subject,
-      from: { email: fromAddr, name: fromName ?? undefined },
-      to: toList.map((r) => ({ email: r.address ?? (r as any).email ?? '', name: r.name })),
-      cc: ccList.length ? ccList.map((r) => ({ email: r.address ?? (r as any).email ?? '', name: r.name })) : undefined,
-      date: receivedAt,
-      timestamp: new Date(receivedAt).getTime(),
-      snippet: bodyText.slice(0, 100),
-      flags: { seen: false, flagged: false, answered: false, draft: false, deleted: false, labels: [] },
-      folder: 'INBOX',
-      hasAttachments,
-      attachmentCount: attachments.length,
-      bodyText,
-      bodySafeHtml: bodyHtml ?? undefined,
-    }
-    const plainMsg = plainEmailToBeapMessage(sanitizedDetail, accountId)
-    const enrichedMsg = enrichWithAttachments(plainMsg, plainAttachmentMeta)
-    insertPendingPlainEmail(db, accountId, messageId, JSON.stringify(enrichedMsg))
-  }
+  runSealedTransaction(
+    db,
+    sealedInbox,
+    parentBindArgs,
+    {
+      seal: writePayload.seal,
+      seal_input_json: writePayload.sealInputJson,
+      canonical_json: writePayload.depackagedJson,
+      row_id: inboxMessageId,
+    },
+    childWrites,
+    'outer',
+  )
 
   return {
-    type: detectedType,
+    type: writePayload.sourceType === 'email_beap' ? 'beap' : 'plain',
     messageId,
     inboxMessageId,
+  }
+}
+
+// ── Plain email inbox payload builder ────────────────────────────────────────
+
+async function buildPlainEmailInboxPayload(
+  inboxMessageId: string,
+  messageId: string,
+  accountId: string,
+  rawMsg: RawEmailMessage,
+  fromAddr: string,
+  fromName: string | null,
+  subject: string,
+  bodyText: string,
+  bodyHtml: string | null,
+  toList: Array<{ address: string; name?: string }>,
+  ccList: Array<{ address: string; name?: string }>,
+  receivedAt: string,
+  attachmentsCanonical: ChildAttachmentDescriptor[],
+): Promise<{
+  kind: 'inbox'
+  sourceType: 'email_plain'
+  depackagedJson: string
+  seal: string
+  sealInputJson: string
+  validatedAt: string
+  validatorVersion: string
+  validationReason: 'plain_email_no_validation_required'
+}> {
+  const attachments = rawMsg.attachments ?? []
+  const sanitized: SanitizedMessageDetail = {
+    id: messageId,
+    accountId,
+    subject,
+    from: { email: fromAddr, name: fromName ?? undefined },
+    to: toList.map((r) => ({ email: r.address ?? (r as any).email ?? '', name: r.name })),
+    cc: ccList.length ? ccList.map((r) => ({ email: r.address ?? (r as any).email ?? '', name: r.name })) : undefined,
+    date: receivedAt,
+    timestamp: new Date(receivedAt).getTime(),
+    snippet: bodyText.slice(0, 100),
+    flags: { seen: false, flagged: false, answered: false, draft: false, deleted: false, labels: [] },
+    folder: 'INBOX',
+    hasAttachments: (attachments?.length ?? 0) > 0,
+    attachmentCount: attachments?.length ?? 0,
+    bodyText,
+    bodySafeHtml: bodyHtml ?? undefined,
+  }
+  const plainMsg = plainEmailToBeapMessage(sanitized, accountId)
+  const enriched = enrichWithAttachments(plainMsg, attachmentsCanonical.map((a) => ({
+    id: a.attachment_id,
+    filename: a.filename,
+    mimeType: a.content_type,
+    size: a.size_bytes,
+  })))
+  // Att-2 (PR B-3.1): include attachments_canonical so the seal covers each
+  // attachment's content_sha256.  Validator verifies the array structure.
+  const canonicalObj = {
+    content_type: 'plain_email' as const,
+    transport_sender: fromAddr,
+    transport_received_at: receivedAt,
+    ...enriched,
+    ...(attachmentsCanonical.length > 0 ? { attachments_canonical: attachmentsCanonical } : {}),
+  }
+  const canonicalJson = JSON.stringify(canonicalObj)
+  const nowIso = new Date().toISOString()
+  const { seal, seal_input_json } = computeSeal(canonicalJson, inboxMessageId, 'outer')
+
+  return {
+    kind: 'inbox',
+    sourceType: 'email_plain',
+    depackagedJson: canonicalJson,
+    seal,
+    sealInputJson: seal_input_json,
+    sealKeySource: 'ledger',
+    validatedAt: nowIso,
+    validatorVersion: 'outer-ledger-v1',
+    validationReason: 'plain_email_no_validation_required',
   }
 }

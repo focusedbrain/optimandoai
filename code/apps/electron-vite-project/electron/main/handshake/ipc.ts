@@ -20,9 +20,11 @@ import {
   refreshInternalHandshakePersistenceFlags,
   getPendingP2PBeapMessages,
   markP2PPendingBeapProcessed,
-  getPendingPlainEmails,
-  markPlainEmailProcessed,
+  // getPendingPlainEmails / markPlainEmailProcessed removed — Phase B, PR B-3.1.
+  // plain_email_inbox table was dropped in schema v65.
 } from './db'
+import { sealedQuery, prepareSealedOperationalUpdate } from '../sealed-storage'
+import { resealWithAiAnalysis } from '../email/sealedContentUpdate'
 import { isInternalCoordinationIdentityComplete } from './internalPersistence'
 import { queryContextBlocks, queryContextBlocksWithGovernance } from './contextBlocks'
 import { authorizeAction, diagnoseHandshakeInactive, isHandshakeActive } from './enforcement'
@@ -36,6 +38,7 @@ import {
 } from './capsuleBuilder'
 import { submitCapsuleViaRpc } from './capsuleTransport'
 import { persistInitiatorHandshakeRecord } from './initiatorPersist'
+import { attachHandshakeProfilesAndSyncScope } from './handshakeConfidentiality'
 import { persistRecipientHandshakeRecord } from './recipientPersist'
 import { sendCapsuleViaEmail } from './emailTransport'
 import { computeBlockHash, type ContextBlockForCommitment } from './contextCommitment'
@@ -62,7 +65,8 @@ import {
 } from './db'
 import { tryEnqueueContextSync, retryDeferredInitialContextSyncForInternalHandshake } from './contextSyncEnqueue'
 import { deriveRelationshipId } from './relationshipId'
-import { enqueueOutboundCapsule, processOutboundQueue, type ProcessOutboundQueueResult } from './outboundQueue'
+import { enqueueOutboundCapsule, logProcessOutboundQueueFailure, processOutboundQueue, type ProcessOutboundQueueResult } from './outboundQueue'
+import { notifyBeapDeliveryAck, waitForBeapDeliveryAck } from '../p2p/beapDeliveryAck'
 import { randomBytes, randomUUID } from 'crypto'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
@@ -91,7 +95,11 @@ import { coordinationRegistryUserIdsForSession } from '../p2p/relayIdentity'
 import {
   getPairingCode as getOrchestratorPairingCode,
 } from '../orchestrator/orchestratorModeStore'
+import { safeFingerprint } from '../security/cryptoFingerprint'
 import { filterHandshakeRecordsForCurrentSession } from './handshakeAccountIsolation'
+
+/** Set `WR_P2P_SEND_KEY_DIAG=1` to log legacy key-substring diagnostics (default: fingerprint-only on errors). */
+const P2P_SEND_KEY_DIAG = process.env.WR_P2P_SEND_KEY_DIAG === '1'
 
 /** Coordination registry must use JWT `sub` for both parties when the handshake is same-account, or same-user device routing never engages. */
 function coordinationAcceptorUserIdForRegistration(
@@ -723,15 +731,13 @@ export async function handleHandshakeRPC(
     }
 
     case 'handshake.getPendingPlainEmails': {
-      const items = getPendingPlainEmails(db)
-      return { type: 'plain-email-list', items }
+      // Phase B, PR B-3.1 (Gap 2): plain_email_inbox was dropped in schema v65.
+      // Return empty list to avoid breaking callers that poll this endpoint.
+      return { type: 'plain-email-list', items: [] }
     }
 
     case 'handshake.ackPendingPlainEmail': {
-      const { id } = params as { id: number }
-      if (typeof id !== 'number') return { success: false, error: 'id is required' }
-      if (!db) return { success: false, error: 'Database unavailable' }
-      markPlainEmailProcessed(db, id)
+      // Phase B, PR B-3.1 (Gap 2): plain_email_inbox was dropped; no-op.
       return { success: true }
     }
 
@@ -897,31 +903,57 @@ export async function handleHandshakeRPC(
     }
 
     case 'handshake.sendBeapViaP2P': {
-      const { handshakeId, packageJson, sendSource } = params as {
+      const { handshakeId, packageJson, sendSource, _beapMsgId } = params as {
         handshakeId: string
         packageJson: string
         sendSource?: string
+        _beapMsgId?: string
       }
+      const _msgId = _beapMsgId ?? `main-${Date.now().toString(36)}`
+      console.log(
+        `[BEAP_MSG_MAIN] received channel=handshake:sendBeapViaP2P messageId=${_msgId} handshake=${handshakeId ?? 'none'} payloadBytes=${typeof packageJson === 'string' ? packageJson.length : 0}`,
+      )
       if (!handshakeId || !packageJson) {
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=missing_required_params`)
         return { success: false, error: 'handshakeId and packageJson are required' }
       }
       if (sendSource !== USER_PACKAGE_BUILDER_SEND_SOURCE) {
         console.warn('[P2P-SEND] Blocked — sendSource must be user_package_builder, got:', sendSource)
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=invalid_send_source`)
         return {
           success: false,
           error:
             'BEAP P2P send requires explicit user action (Send). Automatic or background sends are disabled.',
         }
       }
-      if (!db) return { success: false, error: 'Database unavailable' }
+      if (!db) {
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=db_unavailable`)
+        return { success: false, error: 'Database unavailable' }
+      }
       const activeCheck = diagnoseHandshakeInactive(db, handshakeId, new Date())
       if (!activeCheck.active) {
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=handshake_inactive`)
         return { success: false, error: activeCheck.reason }
       }
+      const { canPerform } = await import('../vault/capabilityBroker')
+      const sendCap = canPerform('beap_send', { handshakeId })
+      if (!sendCap.allowed) {
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=${sendCap.reasonCode}`)
+        return {
+          success: false,
+          queued: false,
+          error: sendCap.userMessage,
+          code: sendCap.reasonCode,
+        }
+      }
       const record = getHandshakeRecord(db, handshakeId)
-      if (!record) return { success: false, error: 'Handshake not found' }
+      if (!record) {
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=handshake_not_found`)
+        return { success: false, error: 'Handshake not found' }
+      }
       const targetEndpoint = record.p2p_endpoint?.trim()
       if (!targetEndpoint) {
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=no_p2p_endpoint`)
         return { success: false, error: 'Recipient has no P2P endpoint' }
       }
 
@@ -938,6 +970,7 @@ export async function handleHandshakeRPC(
           'Delete and re-establish the handshake.',
           { handshakeId, state: record.state },
         )
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=ERR_HANDSHAKE_LOCAL_KEY_MISSING`)
         return {
           success: false,
           queued: false,
@@ -953,6 +986,7 @@ export async function handleHandshakeRPC(
       try {
         pkg = JSON.parse(packageJson) as object
       } catch (err: any) {
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=invalid_package_json`)
         return { success: false, error: `Invalid package: ${err?.message ?? 'decode failed'}` }
       }
       // Main-process diagnostic: compare DB peer_* / local_* to wire header (sender keys in package).
@@ -967,18 +1001,31 @@ export async function handleHandshakeRPC(
               : {}
         const senderX25519B64 =
           typeof hdr.senderX25519PublicKeyB64 === 'string' ? hdr.senderX25519PublicKeyB64 : ''
-        console.log(
-          '[P2P-SEND] SENDER KEY CHECK:',
-          JSON.stringify({
-            ourPeerX25519ForRecipient: record.peer_x25519_public_key_b64?.substring(0, 24) || 'NULL',
-            ourPeerMlkemForRecipient: record.peer_mlkem768_public_key_b64?.substring(0, 24) || 'NULL',
-            ourLocalX25519Pub: record.local_x25519_public_key_b64?.substring(0, 24) || 'NULL',
-            ourLocalMlkemPub: record.local_mlkem768_public_key_b64?.substring(0, 24) || 'NULL',
-            headerSenderX25519: senderX25519B64 ? senderX25519B64.substring(0, 24) : 'N/A',
-            handshakeId,
-            ourRole: record.local_role || 'unknown',
-          }),
-        )
+        if (P2P_SEND_KEY_DIAG) {
+          console.log(
+            '[P2P-SEND] SENDER KEY CHECK:',
+            JSON.stringify({
+              ourPeerX25519ForRecipientFp: record.peer_x25519_public_key_b64 ? safeFingerprint(record.peer_x25519_public_key_b64) : 'NULL',
+              ourPeerMlkemForRecipientFp: record.peer_mlkem768_public_key_b64 ? safeFingerprint(record.peer_mlkem768_public_key_b64) : 'NULL',
+              ourLocalX25519Fp: record.local_x25519_public_key_b64 ? safeFingerprint(record.local_x25519_public_key_b64) : 'NULL',
+              ourLocalMlkemFp: record.local_mlkem768_public_key_b64 ? safeFingerprint(record.local_mlkem768_public_key_b64) : 'NULL',
+              headerSenderX25519Fp: senderX25519B64 ? safeFingerprint(senderX25519B64) : 'N/A',
+              handshakeId,
+              ourRole: record.local_role || 'unknown',
+            }),
+          )
+        } else {
+          console.log(
+            '[P2P-SEND] SENDER KEY fingerprint check',
+            JSON.stringify({
+              handshakeId,
+              headerSenderFp: senderX25519B64 ? safeFingerprint(senderX25519B64) : null,
+              handshakeLocalPubFp: record.local_x25519_public_key_b64
+                ? safeFingerprint(record.local_x25519_public_key_b64.trim())
+                : null,
+            }),
+          )
+        }
       } catch (e) {
         console.log('[P2P-SEND] Key check parse error:', e)
       }
@@ -999,19 +1046,34 @@ export async function handleHandshakeRPC(
             : ''
         const handshakeLocalKey = record.local_x25519_public_key_b64?.trim() ?? ''
         const keyMatch = headerSenderKey && handshakeLocalKey && headerSenderKey === handshakeLocalKey
-        console.log('[P2P-SEND] BOUND KEY CHECK:', JSON.stringify({
-          handshakeId,
-          localX25519: handshakeLocalKey.substring(0, 24) || 'NULL',
-          handshakeLocalX25519: handshakeLocalKey.substring(0, 24) || 'NULL',
-          headerSenderX25519: headerSenderKey.substring(0, 24) || 'NULL',
-          match: keyMatch,
-        }))
-        if (headerSenderKey && handshakeLocalKey && !keyMatch) {
-          console.error(
-            '[P2P-SEND] ERR_HANDSHAKE_LOCAL_KEY_MISMATCH: header senderX25519 ≠ handshake local_x25519.',
-            'Receiver will derive a wrong ECDH secret. Blocking send.',
-            { handshakeId, localKeyPrefix: handshakeLocalKey.substring(0, 24), headerKeyPrefix: headerSenderKey.substring(0, 24) },
+        if (P2P_SEND_KEY_DIAG) {
+          console.log(
+            '[P2P-SEND] BOUND KEY CHECK:',
+            JSON.stringify({
+              handshakeId,
+              localX25519Fp: handshakeLocalKey ? safeFingerprint(handshakeLocalKey) : 'NULL',
+              handshakeLocalX25519Fp: handshakeLocalKey ? safeFingerprint(handshakeLocalKey) : 'NULL',
+              headerSenderX25519Fp: headerSenderKey ? safeFingerprint(headerSenderKey) : 'NULL',
+              match: keyMatch,
+            }),
           )
+        } else if (handshakeLocalKey && headerSenderKey) {
+          console.log(
+            '[P2P-SEND] BOUND KEY fingerprints',
+            JSON.stringify({
+              handshakeId,
+              match: keyMatch,
+              handshakeLocalFp: safeFingerprint(handshakeLocalKey),
+              headerSenderFp: safeFingerprint(headerSenderKey),
+            }),
+          )
+        }
+        if (headerSenderKey && handshakeLocalKey && !keyMatch) {
+          console.error('[P2P-SEND] ERR_HANDSHAKE_LOCAL_KEY_MISMATCH', handshakeId, {
+            handshakeLocalFp: safeFingerprint(handshakeLocalKey),
+            headerSenderFp: safeFingerprint(headerSenderKey),
+          })
+          console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=ERR_HANDSHAKE_LOCAL_KEY_MISMATCH`)
           return {
             success: false,
             // queued: false is required so callers do not append "— queued for retry".
@@ -1028,6 +1090,13 @@ export async function handleHandshakeRPC(
 
       // `pkg` is parsed JSON: BEAP message package (header/metadata/envelope|payload) from the extension,
       // or a capsule envelope — coordination `/beap/capsule` accepts both (see coordination-service).
+      const pkgHeader = (pkg as Record<string, unknown>).header
+      const pkgEncoding = pkgHeader && typeof pkgHeader === 'object'
+        ? (pkgHeader as Record<string, unknown>).encoding as string | undefined
+        : undefined
+      console.log(`[BEAP_MSG_SEND] package_created messageId=${_msgId} encoding=${pkgEncoding ?? 'unknown'} handshake=${handshakeId}`)
+      console.log(`[BEAP_MSG_SEND] target_selected messageId=${_msgId} handshake=${handshakeId} peer=${record.counterparty_email ?? 'unknown'} endpoint=${targetEndpoint} transport=relay_queue`)
+      console.log(`[BEAP_MSG_SEND] send_attempt messageId=${_msgId} handshake=${handshakeId}`)
       console.log(`[P2P-SEND] Enqueuing capsule for handshake ${handshakeId} → ${targetEndpoint}`)
       const enqCap = enqueueOutboundCapsule(db, handshakeId, targetEndpoint, pkg)
       if (!enqCap.enqueued) {
@@ -1037,6 +1106,7 @@ export async function handleHandshakeRPC(
           message: enqCap.message,
           missing_fields: enqCap.missing_fields,
         })
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=enqueue_validation_failed invariant=${enqCap.invariant}`)
         return {
           success: false,
           delivered: false,
@@ -1045,6 +1115,9 @@ export async function handleHandshakeRPC(
           code: 'LOCAL_INTERNAL_RELAY_VALIDATION_FAILED',
         }
       }
+      // Register before transport — ingest ACK can arrive while processOutboundQueue is in flight.
+      const BEAP_INGEST_ACK_WAIT_MS = 15_000
+      const ackWaitPromise = waitForBeapDeliveryAck(handshakeId, BEAP_INGEST_ACK_WAIT_MS)
       const deliveryResult = await processOutboundQueue(db, _getOidcToken)
       const d = deliveryResult as ProcessOutboundQueueResult
       console.log(
@@ -1058,8 +1131,27 @@ export async function handleHandshakeRPC(
           error: d.error,
         }),
       )
+      let ingestConfirmed = d.recipient_ingest_confirmed === true
+      let ingestRowId = typeof d.ingest_row_id === 'string' ? d.ingest_row_id : undefined
+      if (!ingestConfirmed) {
+        const ackRowIdFromWait = await ackWaitPromise
+        if (ackRowIdFromWait) {
+          ingestConfirmed = true
+          ingestRowId = ackRowIdFromWait
+          console.log(
+            `[BEAP_MSG_SEND] ingest_ack_wait_resolved messageId=${_msgId} handshake=${handshakeId} rowId=${ackRowIdFromWait}`,
+          )
+        }
+      }
+      console.log(
+        `[BEAP_MSG_SEND] send_response messageId=${_msgId} relayAccepted=${d.relayTransportAccepted === true} delivered=${d.delivered ?? false} code=${d.code ?? 'none'} relay=${d.coordinationRelayDelivery ?? 'none'} recipientIngestConfirmed=${ingestConfirmed}`,
+      )
+      if (ingestConfirmed) {
+        notifyBeapDeliveryAck(handshakeId, ingestRowId ?? `ingest-${_msgId}`)
+      }
       // Failure: no HTTP transport success to relay/direct (or terminal HTTP error), or outbound backoff.
       if (d.relayTransportAccepted !== true) {
+        console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=${d.error ?? 'relay_rejected'} code=${d.code ?? 'none'}`)
         return {
           success: false,
           delivered: d.delivered,
@@ -1086,7 +1178,8 @@ export async function handleHandshakeRPC(
         success: true,
         delivered: d.delivered,
         relayTransportAccepted: true,
-        recipient_ingest_confirmed: false,
+        recipient_ingest_confirmed: ingestConfirmed,
+        ...(ingestRowId ? { ingest_row_id: ingestRowId } : {}),
         ...(d.code === 'QUEUED_RECIPIENT_OFFLINE' ? { queued: true as const } : {}),
         ...(d.code && { code: d.code }),
         ...(d.healing_status !== undefined && { healing_status: d.healing_status }),
@@ -1128,9 +1221,16 @@ export async function handleHandshakeRPC(
           const { getDeviceX25519PublicKey: getDevPub } = await import('../device-keys/deviceKeyStore')
           const currentDeviceKey = await getDevPub()
           if (currentDeviceKey && currentDeviceKey.trim() !== record.local_x25519_public_key_b64.trim()) {
+            const oldPub = record.local_x25519_public_key_b64
             console.log(
               '[HANDSHAKE] checkSendReady: auto-repairing local_x25519_public_key_b64 — device key changed since accept.',
-              { handshakeId, old: record.local_x25519_public_key_b64.substring(0, 24), new: currentDeviceKey.substring(0, 24) },
+              P2P_SEND_KEY_DIAG
+                ? { handshakeId, oldFp: safeFingerprint(oldPub), newFp: safeFingerprint(currentDeviceKey) }
+                : {
+                    handshakeId,
+                    oldFp: safeFingerprint(oldPub.trim()),
+                    newFp: safeFingerprint(currentDeviceKey.trim()),
+                  },
             )
             updateHandshakeRecord(db, { ...record, local_x25519_public_key_b64: currentDeviceKey })
             localX25519PublicKey = currentDeviceKey
@@ -1354,6 +1454,13 @@ export async function handleHandshakeRPC(
           canonicalBlockPolicyMap,
           keyAgreement,
         )
+        if (localResult.success && profileIds.length > 0) {
+          try {
+            attachHandshakeProfilesAndSyncScope(db, handshakeId, profileIds)
+          } catch (e) {
+            console.warn('[HANDSHAKE] Could not mirror handshake confidentiality scope on initiate:', e)
+          }
+        }
         if (localResult.success && (p2pAuthToken || getP2PConfig(db).use_coordination) && receiverEmail) {
           // Registration is blocking: if the relay doesn't know this handshake exists, the
           // accept capsule will 403. Use session.sub (JWT sub claim) — NOT wrdesk_user_id —
@@ -2278,6 +2385,13 @@ export async function handleHandshakeRPC(
       )
 
       if (localResult.success && db) {
+        if (profileIds.length > 0) {
+          try {
+            attachHandshakeProfilesAndSyncScope(db, handshake_id, profileIds)
+          } catch (e) {
+            console.warn('[HANDSHAKE] Could not mirror handshake confidentiality scope on accept:', e)
+          }
+        }
         try {
           const accCoordDev = getLocalDeviceIdForRelay()
           if (record.handshake_type === 'internal' && accCoordDev?.trim()) {
@@ -2467,7 +2581,10 @@ export async function handleHandshakeRPC(
             console.log('[HANDSHAKE-DEBUG] processOutboundQueue starting (coordination path)', handshake_id)
             processOutboundQueue(db, _getOidcToken)
               .then(() => console.log('[HANDSHAKE-DEBUG] processOutboundQueue settled (coordination path)', handshake_id))
-              .catch((e) => console.log('[HANDSHAKE-DEBUG] processOutboundQueue rejected (coordination path)', handshake_id, e))
+              .catch((e) => {
+                console.log('[HANDSHAKE-DEBUG] processOutboundQueue rejected (coordination path)', handshake_id, e)
+                logProcessOutboundQueueFailure(`handshake.accept.coordination[${handshake_id}]`, e)
+              })
             // Replay any context_sync that arrived before the accept was processed (acceptor path).
             // The initiator's context_sync may have been buffered because our record didn't have
             // counterparty_public_key yet. Now that we've accepted, replay it immediately.
@@ -2501,6 +2618,8 @@ export async function handleHandshakeRPC(
 
       // Auto-trigger P2P context-sync: enqueue when ACCEPTED, or defer if vault locked
       let contextSyncStatus: 'sent' | 'vault_locked' | 'skipped' = 'skipped'
+      let context_sync_user_state: string | undefined
+      let context_sync_user_message: string | undefined
       if (localResult.success && db) {
         // NOTE: for coordination mode, context_sync is enqueued inside the setImmediate above
         // (after the accept capsule) to guarantee ordering. Here we only handle non-coordination
@@ -2511,12 +2630,19 @@ export async function handleHandshakeRPC(
             lastCapsuleHash: capsule.capsule_hash,
           })
           contextSyncStatus = contextResult.success ? 'sent' : (contextResult.reason === 'VAULT_LOCKED' ? 'vault_locked' : 'skipped')
+          if (!contextResult.success && contextResult.userVisible === true) {
+            context_sync_user_state = contextResult.state
+            context_sync_user_message = contextResult.message
+          }
           if (contextResult.success) {
             setImmediate(() => {
               console.log('[HANDSHAKE-DEBUG] processOutboundQueue (non-coordination) scheduled', handshake_id)
               processOutboundQueue(db, _getOidcToken)
                 .then(() => console.log('[HANDSHAKE-DEBUG] processOutboundQueue settled (non-coordination)', handshake_id))
-                .catch((e) => console.log('[HANDSHAKE-DEBUG] processOutboundQueue rejected (non-coordination)', handshake_id, e))
+                .catch((e) => {
+                  console.log('[HANDSHAKE-DEBUG] processOutboundQueue rejected (non-coordination)', handshake_id, e)
+                  logProcessOutboundQueueFailure(`handshake.accept.direct_p2p[${handshake_id}]`, e)
+                })
             })
           }
         } else {
@@ -2528,6 +2654,12 @@ export async function handleHandshakeRPC(
             '[HANDSHAKE-DEBUG] Coordination mode: context_sync is attempted asynchronously after accept; check context_sync_pending on the row for deferrals',
             handshake_id,
           )
+          if (localResult.success) {
+            context_sync_user_state = context_sync_user_state ?? 'completion_pending'
+            context_sync_user_message =
+              context_sync_user_message ??
+              'Secure exchange may still finish in the background (context sync). Unlock your vault when ready if this handshake stalls.'
+          }
         }
       }
 
@@ -2554,7 +2686,14 @@ export async function handleHandshakeRPC(
           ? 'Handshake accepted. Unlock your vault to complete the secure exchange.'
           : contextSyncStatus === 'sent'
             ? 'Handshake accepted. Completing exchange...'
-            : undefined,
+            : context_sync_user_message,
+        /** Additive UX: explicit pending/retry semantics without changing legacy `context_sync_status` values. */
+        context_sync_user_state,
+        context_sync_user_message:
+          context_sync_user_message ??
+          (contextSyncStatus === 'vault_locked'
+            ? 'Context sync is waiting for secure vault access.'
+            : undefined),
       }
     }
 
@@ -3053,6 +3192,239 @@ export async function handleHandshakeRPC(
         console.error('[IPC] beap.deriveSharedSecret failed:', e)
         return { success: false, error: String(e) }
       }
+    }
+
+    // ── Phase B, PR B-8: Extension BEAP Inbox — sealed read + operational mutations ──
+    // ── Phase B, PR B-8.1: cursor-based pagination helpers ──
+
+    case 'handshake.beapInbox.list': {
+      if (!db) return { success: false, error: 'Database unavailable' }
+      const { cursor = null, limit = 200 } = (params ?? {}) as {
+        cursor?: string | null
+        limit?: number
+      }
+      const effectiveLimit = Math.min(typeof limit === 'number' && limit > 0 ? limit : 200, 1000)
+
+      // Decode an opaque cursor produced by this handler.
+      // Cursor encodes { t: received_at (ms epoch), i: message id } as base64url JSON.
+      // The renderer treats cursors as opaque strings; they must not contain PII.
+      const decodeCursor = (raw: string): { received_at: number; id: string } | null => {
+        try {
+          const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown
+          if (
+            parsed !== null && typeof parsed === 'object' &&
+            typeof (parsed as Record<string, unknown>).t === 'number' &&
+            typeof (parsed as Record<string, unknown>).i === 'string'
+          ) {
+            return { received_at: (parsed as { t: number; i: string }).t, id: (parsed as { t: number; i: string }).i }
+          }
+          return null
+        } catch { return null }
+      }
+
+      type InboxRow = {
+        id: string; handshake_id: string | null; subject: string | null; body_text: string | null
+        depackaged_json: string | null; received_at: number; read_status: number; archived: number
+        has_attachments: number; attachment_count: number; ai_analysis_json: string | null
+        urgency_score: number | null; from_address: string | null; from_name: string | null
+        source_type: string | null; seal: string | null; seal_input_json: string | null
+        validated_at: string | null; validation_reason: string | null
+      }
+
+      const pos = cursor ? decodeCursor(cursor) : null
+
+      // Stable sort: received_at DESC, id DESC (id is UUID — string comparison gives
+      // a consistent tiebreaker when two messages share the same millisecond).
+      const rows = pos
+        ? sealedQuery<InboxRow>(
+            db,
+            `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
+                    has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
+                    source_type, seal, seal_input_json, seal_key_source,
+                    validated_at, validation_reason
+             FROM inbox_messages
+             WHERE deleted = 0
+               AND (received_at < ? OR (received_at = ? AND id < ?))
+             ORDER BY received_at DESC, id DESC
+             LIMIT ?`,
+            [pos.received_at, pos.received_at, pos.id, effectiveLimit],
+            'depackaged_json',
+          )
+        : sealedQuery<InboxRow>(
+            db,
+            `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
+                    has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
+                    source_type, seal, seal_input_json, seal_key_source,
+                    validated_at, validation_reason
+             FROM inbox_messages
+             WHERE deleted = 0
+             ORDER BY received_at DESC, id DESC
+             LIMIT ?`,
+            [effectiveLimit],
+            'depackaged_json',
+          )
+
+      let attStmt: { all: (id: string) => Array<{ attachment_id: string; filename: string | null; mime_type: string | null; size_bytes: number | null; content_sha256: string | null }> } | null = null
+      try {
+        attStmt = db.prepare(
+          `SELECT attachment_id, filename, mime_type, size_bytes, content_sha256 FROM inbox_attachments WHERE message_id = ?`,
+        ) as typeof attStmt
+      } catch { /* inbox_attachments absent — attachments array will be empty */ }
+
+      const items = rows.map((row) => ({
+        id: row.id,
+        handshake_id: row.handshake_id,
+        subject: row.subject,
+        body_text: row.body_text,
+        depackaged_json: row.depackaged_json,
+        received_at: row.received_at,
+        read_status: row.read_status,
+        archived: row.archived,
+        has_attachments: row.has_attachments,
+        attachment_count: row.attachment_count,
+        ai_analysis_json: row.ai_analysis_json,
+        urgency_score: row.urgency_score,
+        from_address: row.from_address,
+        from_name: row.from_name,
+        source_type: row.source_type,
+        validated_at: row.validated_at,
+        validation_reason: row.validation_reason,
+        attachments: attStmt ? attStmt.all(row.id) : [],
+      }))
+
+      // nextCursor is non-null only when there may be more rows (received exactly effectiveLimit).
+      const lastRow = items[items.length - 1]
+      const nextCursor: string | null =
+        lastRow && rows.length === effectiveLimit
+          ? Buffer.from(JSON.stringify({ t: lastRow.received_at, i: lastRow.id })).toString('base64url')
+          : null
+
+      return { success: true, items, nextCursor }
+    }
+
+    // ── Phase B, PR B-8.2: getMany — gate-verified read for patch mode ──────────
+
+    case 'handshake.beapInbox.getMany': {
+      if (!db) return { success: false, error: 'Database unavailable' }
+      const { rowIds } = (params ?? {}) as { rowIds?: unknown }
+      if (!Array.isArray(rowIds) || rowIds.length === 0) return { success: true, rows: [] }
+      // Clamp to 500 ids — prevents unbounded query construction.
+      const ids = (rowIds as unknown[])
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+        .slice(0, 500)
+      if (ids.length === 0) return { success: true, rows: [] }
+
+      type InboxRow = {
+        id: string; handshake_id: string | null; subject: string | null; body_text: string | null
+        depackaged_json: string | null; received_at: number; read_status: number; archived: number
+        has_attachments: number; attachment_count: number; ai_analysis_json: string | null
+        urgency_score: number | null; from_address: string | null; from_name: string | null
+        source_type: string | null; seal: string | null; seal_input_json: string | null
+        validated_at: string | null; validation_reason: string | null
+      }
+
+      const placeholders = ids.map(() => '?').join(', ')
+      const rows = sealedQuery<InboxRow>(
+        db,
+        `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
+                has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
+                source_type, seal, seal_input_json, seal_key_source,
+                validated_at, validation_reason
+         FROM inbox_messages
+         WHERE deleted = 0 AND id IN (${placeholders})`,
+        ids,
+        'depackaged_json',
+      )
+
+      let attStmt: { all: (id: string) => Array<{ attachment_id: string; filename: string | null; mime_type: string | null; size_bytes: number | null; content_sha256: string | null }> } | null = null
+      try {
+        attStmt = db.prepare(
+          `SELECT attachment_id, filename, mime_type, size_bytes, content_sha256 FROM inbox_attachments WHERE message_id = ?`,
+        ) as typeof attStmt
+      } catch { /* inbox_attachments absent */ }
+
+      const result = rows.map((row) => ({
+        id: row.id,
+        handshake_id: row.handshake_id,
+        subject: row.subject,
+        body_text: row.body_text,
+        depackaged_json: row.depackaged_json,
+        received_at: row.received_at,
+        read_status: row.read_status,
+        archived: row.archived,
+        has_attachments: row.has_attachments,
+        attachment_count: row.attachment_count,
+        ai_analysis_json: row.ai_analysis_json,
+        urgency_score: row.urgency_score,
+        from_address: row.from_address,
+        from_name: row.from_name,
+        source_type: row.source_type,
+        validated_at: row.validated_at,
+        validation_reason: row.validation_reason,
+        attachments: attStmt ? attStmt.all(row.id) : [],
+      }))
+      return { success: true, rows: result }
+    }
+
+    // ── Mutation handlers — each now returns rowId for patch-mode refresh ──────
+
+    case 'handshake.beapInbox.markRead': {
+      if (!db) return { success: false, error: 'Database unavailable' }
+      const { messageId, read } = (params ?? {}) as { messageId?: string; read?: boolean }
+      if (!messageId) return { success: false, error: 'messageId is required' }
+      prepareSealedOperationalUpdate(
+        db, `UPDATE inbox_messages SET read_status = ? WHERE id = ?`
+      ).run(read ? 1 : 0, messageId)
+      return { success: true, rowId: messageId }
+    }
+
+    case 'handshake.beapInbox.archive': {
+      if (!db) return { success: false, error: 'Database unavailable' }
+      const { messageId } = (params ?? {}) as { messageId?: string }
+      if (!messageId) return { success: false, error: 'messageId is required' }
+      prepareSealedOperationalUpdate(
+        db, `UPDATE inbox_messages SET archived = 1 WHERE id = ?`
+      ).run(messageId)
+      return { success: true, rowId: messageId }
+    }
+
+    case 'handshake.beapInbox.unarchive': {
+      if (!db) return { success: false, error: 'Database unavailable' }
+      const { messageId } = (params ?? {}) as { messageId?: string }
+      if (!messageId) return { success: false, error: 'messageId is required' }
+      prepareSealedOperationalUpdate(
+        db, `UPDATE inbox_messages SET archived = 0 WHERE id = ?`
+      ).run(messageId)
+      return { success: true, rowId: messageId }
+    }
+
+    case 'handshake.beapInbox.classify': {
+      if (!db) return { success: false, error: 'Database unavailable' }
+      const { messageId, aiAnalysis, urgencyScore } = (params ?? {}) as {
+        messageId?: string
+        aiAnalysis?: Record<string, unknown> | null
+        urgencyScore?: number | null
+      }
+      if (!messageId) return { success: false, error: 'messageId is required' }
+      const resealResult = await resealWithAiAnalysis(db, messageId, aiAnalysis ?? null)
+      if (!resealResult.ok) return { success: false, error: resealResult.error }
+      if (typeof urgencyScore === 'number') {
+        prepareSealedOperationalUpdate(
+          db, `UPDATE inbox_messages SET urgency_score = ? WHERE id = ?`
+        ).run(urgencyScore, messageId)
+      }
+      return { success: true, rowId: messageId }
+    }
+
+    case 'handshake.beapInbox.setUrgency': {
+      if (!db) return { success: false, error: 'Database unavailable' }
+      const { messageId, urgencyScore } = (params ?? {}) as { messageId?: string; urgencyScore?: number }
+      if (!messageId) return { success: false, error: 'messageId is required' }
+      if (typeof urgencyScore !== 'number') return { success: false, error: 'urgencyScore must be a number' }
+      prepareSealedOperationalUpdate(
+        db, `UPDATE inbox_messages SET urgency_score = ? WHERE id = ?`
+      ).run(urgencyScore, messageId)
+      return { success: true, rowId: messageId }
     }
 
     default:

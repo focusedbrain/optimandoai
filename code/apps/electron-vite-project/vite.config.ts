@@ -1,4 +1,6 @@
+import fs from 'node:fs'
 import path from 'node:path'
+import { execSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -8,8 +10,34 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = __dirname
 const extSrc = path.resolve(root, '../extension-chromium/src')
 
-/** Parsed by scripts/kill-wr-desk.cjs and clear-build-caches (extension); keep in sync with extension outDir. */
-const ORCHESTRATOR_BUILD_STAMP = 'build185'
+/**
+ * Single source of truth with `extension-chromium/vite.config.ts` `build.outDir`
+ * (same regex as scripts/clear-build-caches.cjs). Avoids stale hardcoded stamps after `git pull`.
+ */
+function readExtensionOutDirStamp(): string {
+  const extVite = path.join(root, '../extension-chromium/vite.config.ts')
+  try {
+    const src = fs.readFileSync(extVite, 'utf8')
+    const m = src.match(/outDir:\s*['"]([^'"]+)['"]/)
+    if (m?.[1]) return m[1]
+  } catch {
+    /* ignore */
+  }
+  return 'build0'
+}
+const ORCHESTRATOR_BUILD_STAMP = readExtensionOutDirStamp()
+
+function gitMetaFromClosestRepo(fromDir: string): { branch: string; commit: string } {
+  try {
+    const cwd = execSync('git rev-parse --show-toplevel', { cwd: fromDir, encoding: 'utf8' }).trim()
+    const commit = execSync('git rev-parse HEAD', { cwd: cwd || fromDir, encoding: 'utf8' }).trim()
+    const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: cwd || fromDir, encoding: 'utf8' }).trim()
+    return { branch, commit }
+  } catch {
+    return { branch: 'unknown', commit: 'unknown' }
+  }
+}
+const RUNTIME_IDENTITY_GIT_META = gitMetaFromClosestRepo(root)
 
 const oauthId =
   process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() ||
@@ -23,6 +51,11 @@ const oauthSecret =
 export default defineConfig({
   base: './',
   publicDir: 'public',
+  define: {
+    __ORCHESTRATOR_BUILD_STAMP__: JSON.stringify(ORCHESTRATOR_BUILD_STAMP),
+    __WR_RUNTIME_GIT_BRANCH__: JSON.stringify(RUNTIME_IDENTITY_GIT_META.branch),
+    __WR_RUNTIME_GIT_COMMIT__: JSON.stringify(RUNTIME_IDENTITY_GIT_META.commit),
+  },
   resolve: {
     alias: [
       { find: /^@shared\/(.+)$/, replacement: path.resolve(root, '../../packages/shared/src/$1') },
@@ -41,18 +74,55 @@ export default defineConfig({
     electron({
       main: {
         entry: 'electron/main.ts',
-        onstart(args) {
-          if (!args.startup.includes('--hidden')) {
-            args.startup.push('--hidden')
-          }
+        onstart({ startup }) {
+          // vite-plugin-electron: `startup` is a function; argv default is ['.', '--no-sandbox'].
+          void startup(['.', '--no-sandbox', '--hidden'])
         },
         vite: {
           define: {
             __ORCHESTRATOR_BUILD_STAMP__: JSON.stringify(ORCHESTRATOR_BUILD_STAMP),
+            __WR_RUNTIME_GIT_BRANCH__: JSON.stringify(RUNTIME_IDENTITY_GIT_META.branch),
+            __WR_RUNTIME_GIT_COMMIT__: JSON.stringify(RUNTIME_IDENTITY_GIT_META.commit),
             __WRDESK_HOST_AI_P2P_BUNDLE_DEFAULTS_ON__: true,
             __BUILD_TIME_GOOGLE_OAUTH_CLIENT_ID__: JSON.stringify(oauthId),
             __BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__: JSON.stringify(oauthSecret),
           },
+          plugins: [
+            {
+              name: 'externalize-ws-and-native-optional',
+              enforce: 'pre',
+              resolveId(id) {
+                if (id === 'ws' || id === 'bufferutil' || id === 'utf-8-validate') {
+                  return { id, external: true }
+                }
+              },
+            },
+            {
+              // Compile the validator subprocess as a standalone CJS file so that
+              // child_process.fork() can find it at dist-electron/validator-process/index.js.
+              // The main Vite bundle cannot serve as the fork target because
+              // import.meta.url in the bundle resolves to dist-electron/main-*.js,
+              // not to the validator-process subdirectory.
+              name: 'build-validator-subprocess',
+              closeBundle: async () => {
+                const { build } = await import('esbuild')
+                const outFile = path.join(root, 'dist-electron', 'validator-process', 'index.js')
+                await build({
+                  entryPoints: [path.join(root, 'electron/main/validator-process/index.ts')],
+                  outfile: outFile,
+                  bundle: true,
+                  platform: 'node',
+                  format: 'cjs',
+                  target: 'node20',
+                  // Resolve @repo/ingestion-core from source — no pre-built dist required.
+                  alias: {
+                    '@repo/ingestion-core': path.resolve(root, '../../packages/ingestion-core/src/index.ts'),
+                  },
+                })
+                console.log('[build-validator-subprocess] Emitted:', outFile)
+              },
+            },
+          ],
           build: {
             // ws relies on dynamic prototype methods (Sender.mask / Receiver.mask).
             // Esbuild minification rewrites them to t.mask and the runtime crashes
@@ -62,6 +132,10 @@ export default defineConfig({
             rollupOptions: {
               external: [
                 'canvas',
+                /** Also listed here; `resolveId` above ensures Vite does not bundle `ws` (avoids broken optional peer stubs). */
+                'ws',
+                'bufferutil',
+                'utf-8-validate',
                 'better-sqlite3',
                 'keytar',
                 'tesseract.js',

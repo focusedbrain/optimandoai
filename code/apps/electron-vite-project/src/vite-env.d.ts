@@ -1,5 +1,10 @@
 /// <reference types="vite/client" />
 
+/** Build-time stamps from `vite.config.ts` define (renderer + preload). */
+declare const __WR_RUNTIME_GIT_COMMIT__: string
+declare const __WR_RUNTIME_GIT_BRANCH__: string
+declare const __ORCHESTRATOR_BUILD_STAMP__: string
+
 declare module 'ws'
 
 interface CapturePresetPayload {
@@ -238,6 +243,31 @@ interface LlmOllamaStatus {
   }>
 }
 
+/**
+ * Tier-ranked inference capability (`llm:resolveInferenceCapability`).
+ * Sandbox devices get `hostHardware` reflecting the *Windows host* GPU/CPU,
+ * not the local Linux probe.
+ */
+interface InferenceCapabilityForUi {
+  backend: 'remote-host' | 'local-gpu' | 'local-cpu' | 'unavailable'
+  hostHardware: 'gpu' | 'cpu' | 'unknown'
+  modelName?: string
+  remoteBaseUrl?: string
+  handshakeId?: string
+  peerDeviceId?: string
+  unavailableReason?: string
+  userMessage?: string
+}
+
+/** Main-process GPU offload diagnostics (`llm:getGpuStatus`). */
+interface GpuStatusForUi {
+  available: boolean
+  reason: string | null
+  detail: Record<string, unknown>
+  userMessage: string
+  technicalSummary: string
+}
+
 /** Block reason returned by `llm:resolveAutosortRuntime`. */
 type AutosortBlockReason =
   | 'provider_not_ollama'
@@ -265,6 +295,7 @@ interface ResolvedInboxRuntime {
 
 interface LlmBridge {
   getStatus: () => Promise<{ ok: true; data: LlmOllamaStatus } | { ok: false; error: string }>
+  getGpuStatus: () => Promise<{ ok: true; data: GpuStatusForUi } | { ok: false; error: string }>
   setActiveModel: (modelId: string) => Promise<{ ok: true } | { ok: false; error: string }>
   setAiExecutionContext: (
     ctx: Record<string, unknown>,
@@ -272,6 +303,9 @@ interface LlmBridge {
   onActiveModelChanged: (cb: (data: { modelId: string }) => void) => () => void
   resolveAutosortRuntime: () => Promise<
     { ok: true; data: ResolvedInboxRuntime } | { ok: false; error: string }
+  >
+  resolveInferenceCapability: () => Promise<
+    { ok: true; data: InferenceCapabilityForUi } | { ok: false; error: string }
   >
 }
 
@@ -291,13 +325,28 @@ interface OrchestratorBridge {
   importSessionFromBeap: (payload: {
     sessionId: string
     sessionName: string
-    config: Record<string, unknown>
+    importArtefact: Record<string, unknown>
     sourceMessageId: string
     handshakeId: string | null
-  }) => Promise<{ success: boolean; sessionId?: string; error?: string }>
+  }) => Promise<{
+    success: boolean
+    dispatched?: boolean
+    sessionKey?: string
+    executed?: string[]
+    error?: string
+  }>
   /** Opens orchestrator SQLite (same as POST /api/orchestrator/connect). */
   connect: () => Promise<{ success: boolean; data?: unknown; error?: string }>
   listSessions: () => Promise<{ success: boolean; data?: unknown[]; error?: string }>
+  /**
+   * Fetch full session content by ID (agents, agent_boxes, display_grids, config).
+   * Added PR 4/8 to support artefact construction at send time.
+   */
+  getSession: (id: string) => Promise<{
+    success: boolean
+    data?: { id: string; name: string; config: Record<string, unknown> }
+    error?: string
+  }>
 }
 
 /** BEAP capsule / inline composer bridge (preload). */

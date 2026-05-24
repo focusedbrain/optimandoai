@@ -58,7 +58,15 @@ vi.mock('../p2pEndpointRepair', async (importOriginal) => {
 })
 
 vi.mock('../hostInferencePolicyStore', () => ({
-  getHostInternalInferencePolicy: () => ({ allowSandboxInference: true, timeoutMs: 12_000 }),
+  getHostInternalInferencePolicy: () => ({
+    allowSandboxInference: true,
+    timeoutMs: 12_000,
+    remoteHostInferenceUserChoice: 'unset',
+  }),
+}))
+
+vi.mock('../hostAiInternalPairingLedger', () => ({
+  hostHasActiveInternalLedgerHostPeerSandboxFromDb: () => true,
 }))
 
 describe('buildHostAiProviderAdvertisementPayload (gating)', () => {

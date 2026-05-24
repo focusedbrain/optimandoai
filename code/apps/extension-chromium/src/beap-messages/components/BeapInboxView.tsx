@@ -64,7 +64,6 @@ import { useBeapInboxStore } from '../useBeapInboxStore'
 import { useInboxKeyboardNav } from '../hooks/useInboxKeyboardNav'
 import { useMediaQuery, NARROW_VIEWPORT } from '../hooks/useMediaQuery'
 import { usePendingP2PBeapIngestion } from '../../handshake/usePendingP2PBeapIngestion'
-import { usePendingPlainEmailIngestion } from '../../handshake/usePendingPlainEmailIngestion'
 
 // =============================================================================
 // Public API
@@ -218,7 +217,6 @@ export const BeapInboxView = React.forwardRef<BeapInboxViewHandle, BeapInboxView
 
     // P2P pending BEAP ingestion (polls, imports, verifies, acks)
     usePendingP2PBeapIngestion()
-    usePendingPlainEmailIngestion()
 
     // Local state
     const [isLoading, setIsLoading]   = useState(true)
@@ -226,6 +224,17 @@ export const BeapInboxView = React.forwardRef<BeapInboxViewHandle, BeapInboxView
 
     // Refs to child handles
     const detailPanelRef = useRef<BeapMessageDetailPanelHandle>(null)
+
+    // Phase B, PR B-8: On mount, pull current sealed inbox state from main.
+    // This ensures the store is a mirror of main's gate-verified rows whenever
+    // the inbox view is opened.
+    const refreshFromMain = useBeapInboxStore((s) => s.refreshFromMain)
+    useEffect(() => {
+      refreshFromMain().catch((err) => {
+        console.warn('[BeapInboxView] refreshFromMain on mount failed:', err)
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     // Simulate initial load (real data arrives from store; just brief skeleton)
     useEffect(() => {

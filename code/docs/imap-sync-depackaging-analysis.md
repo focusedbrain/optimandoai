@@ -44,7 +44,7 @@
 | Sync orchestrator | `syncOrchestrator.ts` | Serialized `syncAccountEmails`, Smart Sync options, dedupe, calls gateway + `detectAndRouteMessage` |
 | IMAP provider | `ImapProvider` in `imap.ts` | node-imap session, SEARCH/UID fetch, RFC822 parse via **mailparser `simpleParser`** on full fetch |
 | OAuth providers | `gmail.ts`, `outlook.ts`, `zoho.ts` | REST/graph list + fetch |
-| Routing / ingest | `messageRouter.ts` | Insert `inbox_messages` + `plain_email_inbox` or `p2p_pending_beap` |
+| Routing / ingest | `messageRouter.ts` | Insert sealed `inbox_messages` row (all types). Staging tables `plain_email_inbox` / `p2p_pending_beap` dropped in Phase B PR B-3.1. |
 | Depackage (async) | `plainEmailIngestion.ts`, `beapEmailIngestion.ts` | Update `depackaged_json` etc. after pull |
 | Remote mirror | `inboxOrchestratorRemoteQueue.ts` | Queue mailbox moves; IMAP-specific throttling/ping |
 
@@ -57,8 +57,7 @@
     → runInboxAccountPullKind → syncAccountEmails(db, { accountId })
          → emailGateway.listMessages (per folder) → getConnectedProvider → ImapProvider.fetchMessages / OAuth fetchMessages
          → for each listed id: getMessage → fetch full body → sanitize
-         → detectAndRouteMessage → INSERT inbox_messages (+ plain_email_inbox OR p2p_pending_beap)
-    → processPendingPlainEmails / processPendingP2PBeapEmails
+         → detectAndRouteMessage → INSERT sealed inbox_messages row (all types; staging tables removed in B-3.1)
     → enqueue remote ops + scheduleOrchestratorRemoteDrain (bounded)
     → renderer refresh: store calls emailInbox.listMessages (SQLite), not gateway email:listMessages
 ```
@@ -93,7 +92,7 @@
 8. **Per-message fetch — Verified:** `getMessage` → `ImapProvider.fetchMessage` → tries INBOX then lifecycle folders; **`simpleParser(buffer)`** on RFC822.
 9. **Checkpoint — Verified:** SQLite `email_sync_state`: `last_sync_at`, `last_uid`, `sync_cursor`, `last_error`, `auto_sync_enabled`, `sync_interval_ms`. Bootstrap vs incremental decided in `syncOrchestrator` from **`last_sync_at` NULL vs set**.
 10. **Dedup — Verified:** `getExistingEmailMessageIds` on `inbox_messages.email_message_id` vs listed `msg.id` (IMAP UID string).
-11. **Depackaging pipeline — Verified:** Same `detectAndRouteMessage` as OAuth; plain path enqueues **`plain_email_inbox`**; BEAP path **`p2p_pending_beap`**. Post-sync **`processPendingPlainEmails`** / **`processPendingP2PBeapEmails`** fills **`depackaged_json`** etc.
+11. **Ingestion pipeline (post-Phase-B B-3.1):** Same `detectAndRouteMessage` as OAuth; all message types (plain email and BEAP) now write a sealed `inbox_messages` row directly. Staging tables `plain_email_inbox` / `p2p_pending_beap` and their drain functions (`processPendingPlainEmails` / `processPendingP2PBeapEmails`) were removed in B-3.1.
 12. **UI — Verified:** Same `emailInbox.listMessages` from SQLite.
 
 **Verified:** Codebase search shows **no `UIDVALIDITY`** handling string in `electron-vite-project` — UIDs are treated as stable only insofar as the server and folder don’t reset; **Inference:** mailbox rebuild on server could theoretically desync UID semantics without explicit UIDVALIDITY storage (not implemented here).
@@ -200,18 +199,17 @@
 1. **List phase:** Headers (and partial body in list fetch options) → `RawEmailMessage` with **`id` = UID** for IMAP.
 2. **Detail phase:** `fetchMessage` loads RFC822 → **`simpleParser(buffer)`** (`mailparser`) → mapped to `RawEmailMessage` in `imap.ts`.
 3. **Routing:** `detectAndRouteMessage` uses BEAP heuristics on attachments/body → **`email_beap`** vs **`email_plain`**.
-4. **Plain path:** After `inbox_messages` insert, row queued in **`plain_email_inbox`** with JSON snapshot; **`processPendingPlainEmails`** runs **`convertPlainToBeapFormat`** → updates **`depackaged_json`**, **`embedding_status: 'pending'`**.
-5. **BEAP path:** **`p2p_pending_beap`** → **`processPendingP2PBeapEmails`** / **`beapPackageToMainProcessDepackaged`** (main-process approximation; extension sandbox not used here).
+4. **Plain path (post-Phase-B B-3.1):** Inserts a sealed `inbox_messages` row directly. `plain_email_inbox` staging table and `processPendingPlainEmails` drain were removed in B-3.1.
+5. **BEAP path (post-Phase-B B-3.1):** Routes through `messageRouter.ts` → validator subprocess → sealed `inbox_messages` row. `p2p_pending_beap` staging table and `processPendingP2PBeapEmails` drain were removed in B-3.1.
 
 ### IMAP vs OAuth depackaging (Verified)
 
-- **Same** `detectAndRouteMessage`, same SQLite schema, same pending queues.
+- **Same** `detectAndRouteMessage`, same SQLite schema.
 - **Different** raw acquisition (IMAP `simpleParser` on main vs API provider body assembly).
 
 ### Parser errors (Verified)
 
 - **`simpleParser`:** promise in IMAP fetch path; failures propagate as rejected `fetchMessage` → orchestrator records error for that message id.
-- **`plainEmailIngestion`:** per-row try/catch logs and marks `plain_email_inbox` processed to avoid infinite loop.
 
 ---
 

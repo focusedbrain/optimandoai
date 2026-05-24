@@ -13,6 +13,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as beapCrypto from '../beapCrypto'
+import * as x25519Module from '../x25519KeyAgreement'
 import {
   buildPackage,
   buildDraftEmailPackage,
@@ -76,6 +77,13 @@ beforeEach(() => {
   vi.spyOn(beapCrypto, 'pqEncapsulate').mockResolvedValue({
     kemCiphertextB64: mockKemCt,
     sharedSecretBytes: mockMlkemSs,
+  })
+  // getDeviceX25519PublicKey and deriveSharedSecretX25519 both call sendBeapRpc → chrome.runtime.sendMessage,
+  // which is absent in jsdom. Mock both exports so crypto paths in buildQBeapPackage succeed.
+  vi.spyOn(x25519Module, 'getDeviceX25519PublicKey').mockResolvedValue(VALID_X25519_PUBLIC_KEY_B64)
+  vi.spyOn(x25519Module, 'deriveSharedSecretX25519').mockResolvedValue({
+    sharedSecret: new Uint8Array(32).fill(0xaa),
+    method: 'X25519_ECDH',
   })
 })
 

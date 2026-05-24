@@ -55,6 +55,8 @@ import type {
 } from '../types/sandboxOrchestratorAvailability'
 import { defaultSandboxAvailability } from '../types/sandboxOrchestratorAvailability'
 import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
+import BeapSessionAutomationPanel from './BeapSessionAutomationPanel'
+import { runBeapSessionAutomationForMessage } from '../lib/runBeapSessionAutomation'
 import { InboxBeapSourceBadgeDetail } from './InboxBeapSourceBadge'
 import BeapRedirectDialog from './BeapRedirectDialog'
 import { listHandshakes } from '../shims/handshakeRpc'
@@ -140,12 +142,6 @@ function getAutomationTags(p: Record<string, unknown>): string[] {
   return tags.filter((t): t is string => typeof t === 'string')
 }
 
-function getSessionRefs(p: Record<string, unknown>): Array<Record<string, unknown>> {
-  const r = p.sessionRefs
-  if (!Array.isArray(r)) return []
-  return r.filter((x): x is Record<string, unknown> => x !== null && typeof x === 'object')
-}
-
 /** Join string fields from shallow nested objects (e.g. contact cards) instead of raw JSON. */
 function humanizeObjectStrings(o: Record<string, unknown>, depth: number): string {
   if (depth > 3) return ''
@@ -211,11 +207,24 @@ function isPlaceholder(s: string): boolean {
 }
 
 /** Main-process ingest placeholder before extension Stage-5 merge or native decrypt. */
-function isPendingQbeapDepackaged(dp: Record<string, unknown> | null): boolean {
-  if (!dp) return false
-  if (dp.format === 'beap_qbeap_decrypted') return false
-  if (dp.format === 'beap_qbeap_outbound') return false
-  return dp.format === 'beap_qbeap_pending_main'
+/** PR 5.1: read format from depackaged_metadata (primary) or depackaged_json (legacy fallback). */
+function depackagedFormatFromMessage(
+  parsedMeta: Record<string, unknown> | null,
+  parsedDep: Record<string, unknown> | null,
+): string {
+  const fmt =
+    (parsedMeta != null && typeof parsedMeta.format === 'string' ? parsedMeta.format : null) ??
+    (parsedDep != null && typeof parsedDep.format === 'string' ? parsedDep.format : null) ??
+    ''
+  return fmt
+}
+
+function isPendingQbeapDepackaged(
+  parsedMeta: Record<string, unknown> | null,
+  dp: Record<string, unknown> | null,
+): boolean {
+  const fmt = depackagedFormatFromMessage(parsedMeta, dp)
+  return fmt === 'beap_qbeap_pending_main'
 }
 
 function partyEmail(p: unknown): string | null {
@@ -352,6 +361,11 @@ export default function EmailMessageDetail({
   const [linkSandboxInfoOpen, setLinkSandboxInfoOpen] = useState(false)
   const [importingSession, setImportingSession] = useState<Record<string, unknown> | null>(null)
   const [importStatus, setImportStatus] = useState<Record<string, 'idle' | 'importing' | 'imported' | 'error'>>({})
+  const [runAutomationToast, setRunAutomationToast] = useState<{
+    type: 'success' | 'error'
+    message: string
+    retryRef?: Record<string, unknown>
+  } | null>(null)
   const [hostSandboxBusy, setHostSandboxBusy] = useState(false)
   const [hostSandboxInlineFeedback, setHostSandboxInlineFeedback] = useState<SandboxCloneFeedbackView | null>(null)
   const {
@@ -387,6 +401,17 @@ export default function EmailMessageDetail({
       return null
     }
   }, [message?.depackaged_json])
+
+  // PR 5.1 / Decision B: wrapper metadata (format identifier, source). Primary source
+  // for format-based routing; depackaged_json falls back for pre-migration rows.
+  const parsedDepackagedMeta = useMemo(() => {
+    if (!message?.depackaged_metadata) return null
+    try {
+      return JSON.parse(message.depackaged_metadata) as Record<string, unknown>
+    } catch {
+      return null
+    }
+  }, [message?.depackaged_metadata])
 
   const parsedPackage = useMemo(() => {
     if (!message?.beap_package_json) return null
@@ -540,14 +565,25 @@ export default function EmailMessageDetail({
   const nonNativeBodyLinkParts = useMemo(() => {
     if (!message || inboxMessageUsesNativeBeapPbeapQbeapSplit(message)) return null
     if (inboxMessageIsSandboxBeapClone(message)) {
-      const stripped = stripSandboxCloneLeadInFromBodyText(message.body_text)
+      let visible = stripSandboxCloneLeadInFromBodyText(message.body_text)
+      if (!visible.trim() || isPlaceholder(visible)) {
+        if (parsedDepackaged) {
+          const fromDep =
+            extractBodyText(parsedDepackaged.body) ||
+            extractBodyText(parsedDepackaged.content) ||
+            extractBodyText(parsedDepackaged.transport_plaintext) ||
+            ''
+          const t = stripSandboxCloneLeadInFromBodyText(fromDep.trim())
+          if (t.trim() && !isPlaceholder(t)) visible = t
+        }
+      }
       return beapInboxMessageBodyToLinkParts({
-        body_text: stripped,
-        body_html: null,
+        body_text: visible,
+        body_html: message.body_html,
       })
     }
     return beapInboxMessageBodyToLinkParts(message)
-  }, [message])
+  }, [message, parsedDepackaged])
 
   const fromDisplay = useMemo((): ReactNode => {
     if (!message) return '—'
@@ -641,34 +677,39 @@ export default function EmailMessageDetail({
 
   const handleSessionImport = useCallback(async (raw: Record<string, unknown>) => {
     const sessionId = typeof raw.sessionId === 'string' ? raw.sessionId : String(raw.sessionId ?? '')
-    const sessionName = typeof raw.sessionName === 'string' ? raw.sessionName : sessionId
+    if (!message) return
     setImportStatus((prev) => ({ ...prev, [sessionId]: 'importing' }))
+    setRunAutomationToast(null)
     try {
-      const api = window.orchestrator
-      if (!api?.importSessionFromBeap) {
-        throw new Error('Orchestrator bridge unavailable')
-      }
-      const mid = message?.id
-      if (!mid) {
-        throw new Error('No message context')
-      }
-      const result = await api.importSessionFromBeap({
-        sessionId,
-        sessionName,
-        config: raw,
-        sourceMessageId: mid,
-        handshakeId: message?.handshake_id ?? null,
-      })
-      if (!result?.success) {
-        throw new Error(result?.error || 'Import failed')
+      const result = await runBeapSessionAutomationForMessage(message)
+      if (!result.ok) {
+        setImportStatus((prev) => ({ ...prev, [sessionId]: 'error' }))
+        setImportingSession(null)
+        setRunAutomationToast({ type: 'error', message: result.error, retryRef: raw })
+        return
       }
       setImportStatus((prev) => ({ ...prev, [sessionId]: 'imported' }))
       setImportingSession(null)
+      const name = result.sessionName || sessionId
+      setRunAutomationToast({
+        type: 'success',
+        message: `Running automation \u201c${name}\u201d \u2014 the grid tab will appear shortly.`,
+      })
     } catch (e) {
-      console.error('Session import failed:', e)
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[BEAP_RUN] unexpected error messageId=' + message.id, e)
       setImportStatus((prev) => ({ ...prev, [sessionId]: 'error' }))
+      setImportingSession(null)
+      setRunAutomationToast({ type: 'error', message: msg, retryRef: raw })
     }
-  }, [message?.id, message?.handshake_id])
+  }, [message])
+
+  // Auto-dismiss the run-automation toast after 6 s (errors stay until dismissed manually).
+  useEffect(() => {
+    if (!runAutomationToast || runAutomationToast.type === 'error') return
+    const id = setTimeout(() => setRunAutomationToast(null), 6000)
+    return () => clearTimeout(id)
+  }, [runAutomationToast])
 
   const dialogSessionRef = useMemo(
     () => (importingSession ? sessionRefToDialogProps(importingSession) : null),
@@ -678,7 +719,9 @@ export default function EmailMessageDetail({
   const isOutboundQbeap =
     message != null &&
     useNativePbeapQbeapSplit &&
-    (parsedDepackaged?.format === 'beap_qbeap_outbound' || isBeapQbeapOutboundEcho(message))
+    // PR 5.1: check depackaged_metadata first; fallback to depackaged_json (legacy) or store helper.
+    (depackagedFormatFromMessage(parsedDepackagedMeta, parsedDepackaged) === 'beap_qbeap_outbound' ||
+      isBeapQbeapOutboundEcho(message))
   /** Host-only Sandbox clone icon — not gated on native/depackaged BEAP shape (inbox is BEAP-only). */
   const showSandboxCloneIcon = canShowSandboxCloneAction({
     modeReady,
@@ -690,7 +733,15 @@ export default function EmailMessageDetail({
 
   const handleHostSandboxClick = useCallback(async () => {
     if (!message) return
+    // eslint-disable-next-line no-console
+    console.log(`[BEAP_SANDBOX_CLONE] click_start messageId=${message.id}`, {
+      modeReady,
+      orchestratorMode,
+      source: 'message_detail',
+    })
     if (orchestratorMode === 'sandbox' || (internalSandboxListReady && authoritativeDeviceInternalRole === 'sandbox')) {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=not_host_sandbox_instance messageId=${message.id}`)
       logSandboxTargetResolution({
         source: 'message_detail',
         messageId: message.id,
@@ -709,6 +760,11 @@ export default function EmailMessageDetail({
       return
     }
     if (!modeReady || orchestratorMode !== 'host') {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=not_host messageId=${message.id}`, {
+        modeReady,
+        orchestratorMode,
+      })
       logSandboxTargetResolution({
         source: 'message_detail',
         messageId: message.id,
@@ -737,6 +793,8 @@ export default function EmailMessageDetail({
       if (!snap.success) {
         // eslint-disable-next-line no-console
         console.log('[BEAP_SANDBOX_CLONE] list_refresh_failed', { message_id: message.id, error: snap.error })
+        // eslint-disable-next-line no-console
+        console.log(`[BEAP_SANDBOX_CLONE] blocked reason=list_refresh_failed messageId=${message.id}`)
         const v = viewSandboxListLoadFailed(snap.error)
         setHostSandboxInlineFeedback(v)
         if (!v.persistUntilDismiss) {
@@ -752,12 +810,11 @@ export default function EmailMessageDetail({
       liveN = res.liveEligibleCount
       activeN = res.activeHostSandboxCount
     }
+    const primaryTarget = sendable[0]
     // eslint-disable-next-line no-console
-    console.log('[BEAP_SANDBOX_CLONE] click', {
-      message_id: message.id,
-      host_mode: true,
-      active_sandbox_count: activeN,
-    })
+    console.log(
+      `[BEAP_SANDBOX_CLONE] target_selected messageId=${message.id} handshake=${primaryTarget?.handshake_id ?? 'none'} peer=${primaryTarget?.peer_device_name ?? primaryTarget?.peer_device_id ?? 'unknown'}`,
+    )
     const next = resolveHostSandboxCloneClickAction({
       internalListLoading: internalSandboxesRefresh ? false : (internalSandboxListLoading ?? false),
       listLastSuccess: listOk,
@@ -765,6 +822,11 @@ export default function EmailMessageDetail({
       activeIdentityCompleteHostSandboxCount: idCompleteN,
       identityIncompleteHostSandboxCount: idIncompN,
     })
+    const policyRoutingReason = internalSandboxesRefresh ? 'host_sandbox_routing_fresh_list' : 'host_sandbox_routing'
+    // eslint-disable-next-line no-console
+    console.log(
+      `[BEAP_SANDBOX_CLONE] policy_result messageId=${message.id} action=${next} reason=${policyRoutingReason} sendable_count=${sendable.length}`,
+    )
     logSandboxTargetResolution({
       source: 'message_detail',
       messageId: message.id,
@@ -781,12 +843,16 @@ export default function EmailMessageDetail({
       reason: internalSandboxesRefresh ? 'host_sandbox_routing_fresh_list' : 'host_sandbox_routing',
     })
     if (next === 'loading_refresh') {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=loading_refresh messageId=${message.id}`)
       onRequestInternalSandboxListRefresh?.()
       setHostSandboxInlineFeedback(viewSandboxChecking())
       window.setTimeout(() => setHostSandboxInlineFeedback(null), 5000)
       return
     }
     if (next === 'open_unavailable_dialog') {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=no_active_target messageId=${message.id}`)
       // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] no_active_target_show_setup', { message_id: message.id })
       setHostSandboxInlineFeedback(viewSandboxNoOrchestrator())
@@ -795,12 +861,16 @@ export default function EmailMessageDetail({
     }
     if (next === 'keying_incomplete') {
       // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=keying_incomplete messageId=${message.id}`)
+      // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] keying_incomplete', { message_id: message.id })
       setHostSandboxInlineFeedback(viewSandboxKeyingIncomplete())
       window.setTimeout(() => setHostSandboxInlineFeedback(null), 8000)
       return
     }
     if (next === 'identity_incomplete') {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=identity_incomplete messageId=${message.id}`)
       // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] identity_incomplete', { message_id: message.id })
       setHostSandboxInlineFeedback(viewSandboxIdentityIncomplete())
@@ -885,7 +955,15 @@ export default function EmailMessageDetail({
 
   const handleLinkWarningSandbox = useCallback(async () => {
     if (!message || !pendingLinkUrl) return
+    // eslint-disable-next-line no-console
+    console.log(`[BEAP_SANDBOX_CLONE] click_start messageId=${message.id}`, {
+      modeReady,
+      orchestratorMode,
+      source: 'external_link_dialog',
+    })
     if (orchestratorMode === 'sandbox' || (internalSandboxListReady && authoritativeDeviceInternalRole === 'sandbox')) {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=not_host_sandbox_instance messageId=${message.id}`)
       logSandboxTargetResolution({
         source: 'external_link_dialog',
         messageId: message.id,
@@ -904,6 +982,11 @@ export default function EmailMessageDetail({
       return
     }
     if (!modeReady || orchestratorMode !== 'host') {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=not_host messageId=${message.id}`, {
+        modeReady,
+        orchestratorMode,
+      })
       logSandboxTargetResolution({
         source: 'external_link_dialog',
         messageId: message.id,
@@ -932,6 +1015,8 @@ export default function EmailMessageDetail({
       if (!snap.success) {
         // eslint-disable-next-line no-console
         console.log('[BEAP_SANDBOX_CLONE] list_refresh_failed', { message_id: message.id, error: snap.error })
+        // eslint-disable-next-line no-console
+        console.log(`[BEAP_SANDBOX_CLONE] blocked reason=list_refresh_failed messageId=${message.id}`)
         const v = viewSandboxListLoadFailed(snap.error)
         setHostSandboxInlineFeedback(v)
         if (!v.persistUntilDismiss) {
@@ -947,12 +1032,11 @@ export default function EmailMessageDetail({
       liveN = res.liveEligibleCount
       activeN = res.activeHostSandboxCount
     }
+    const linkPrimaryTarget = sendable[0]
     // eslint-disable-next-line no-console
-    console.log('[BEAP_SANDBOX_CLONE] click', {
-      message_id: message.id,
-      host_mode: true,
-      active_sandbox_count: activeN,
-    })
+    console.log(
+      `[BEAP_SANDBOX_CLONE] target_selected messageId=${message.id} handshake=${linkPrimaryTarget?.handshake_id ?? 'none'} peer=${linkPrimaryTarget?.peer_device_name ?? linkPrimaryTarget?.peer_device_id ?? 'unknown'}`,
+    )
     const next = resolveHostSandboxCloneClickAction({
       internalListLoading: internalSandboxesRefresh ? false : (internalSandboxListLoading ?? false),
       listLastSuccess: listOk,
@@ -960,6 +1044,11 @@ export default function EmailMessageDetail({
       activeIdentityCompleteHostSandboxCount: idCompleteN,
       identityIncompleteHostSandboxCount: idIncompN,
     })
+    const linkPolicyRoutingReason = internalSandboxesRefresh ? 'host_sandbox_routing_fresh_list' : 'host_sandbox_routing'
+    // eslint-disable-next-line no-console
+    console.log(
+      `[BEAP_SANDBOX_CLONE] policy_result messageId=${message.id} action=${next} reason=${linkPolicyRoutingReason} sendable_count=${sendable.length}`,
+    )
     logSandboxTargetResolution({
       source: 'external_link_dialog',
       messageId: message.id,
@@ -976,10 +1065,14 @@ export default function EmailMessageDetail({
       reason: internalSandboxesRefresh ? 'host_sandbox_routing_fresh_list' : 'host_sandbox_routing',
     })
     if (next === 'loading_refresh') {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=loading_refresh messageId=${message.id}`)
       onRequestInternalSandboxListRefresh?.()
       return
     }
     if (next === 'open_unavailable_dialog') {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=no_active_target messageId=${message.id}`)
       // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] no_active_target_show_setup', { message_id: message.id })
       setHostSandboxInlineFeedback(viewSandboxNoOrchestrator())
@@ -988,12 +1081,16 @@ export default function EmailMessageDetail({
     }
     if (next === 'keying_incomplete') {
       // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=keying_incomplete messageId=${message.id}`)
+      // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] keying_incomplete', { message_id: message.id })
       setHostSandboxInlineFeedback(viewSandboxKeyingIncomplete())
       window.setTimeout(() => setHostSandboxInlineFeedback(null), 8000)
       return
     }
     if (next === 'identity_incomplete') {
+      // eslint-disable-next-line no-console
+      console.log(`[BEAP_SANDBOX_CLONE] blocked reason=identity_incomplete messageId=${message.id}`)
       // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] identity_incomplete', { message_id: message.id })
       setHostSandboxInlineFeedback(viewSandboxIdentityIncomplete())
@@ -1077,7 +1174,6 @@ export default function EmailMessageDetail({
   const beapSandboxDetailTip = beapHostSandboxCloneTooltipForAvailability(sandboxAvailability, 'detail')
 
   const automationTags = parsedDepackaged ? getAutomationTags(parsedDepackaged) : []
-  const sessionRefsList = parsedDepackaged ? getSessionRefs(parsedDepackaged) : []
 
   const handleStar = useCallback(() => {
     toggleStar(message.id)
@@ -1375,7 +1471,7 @@ export default function EmailMessageDetail({
 
                   {!publicBody && !encryptedBody ? (
                     <div className="beap-body-section" style={{ opacity: 0.5 }}>
-                      {parsedDepackaged && isPendingQbeapDepackaged(parsedDepackaged) ? (
+                      {isPendingQbeapDepackaged(parsedDepackagedMeta, parsedDepackaged) ? (
                         <>
                           Waiting for decryption… Content will appear when the extension processes this message (merge into
                           the desktop inbox).
@@ -1398,53 +1494,6 @@ export default function EmailMessageDetail({
                       </span>
                     ))}
                   </div>
-                </div>
-              ) : null}
-
-              {parsedDepackaged && sessionRefsList.length > 0 ? (
-                <div className="beap-body-section beap-session-indicator">
-                  <div className="beap-body-label">⚙️ Attached Session</div>
-                  {sessionRefsList.map((ref, i) => {
-                    const sessionId =
-                      typeof ref.sessionId === 'string' ? ref.sessionId : String(ref.sessionId ?? '')
-                    const sessionName =
-                      typeof ref.sessionName === 'string'
-                        ? ref.sessionName
-                        : sessionId || 'Session'
-                    const cap = ref.requiredCapability
-                    const capLabel =
-                      cap != null && typeof cap === 'object'
-                        ? JSON.stringify(cap)
-                        : cap != null
-                          ? String(cap)
-                          : ''
-                    const status = importStatus[sessionId]
-                    return (
-                      <div key={`${sessionId}-${i}`} className="beap-session-ref">
-                        <span className="beap-session-name">{sessionName || sessionId}</span>
-                        {capLabel ? (
-                          <span className="beap-session-capability">Requires: {capLabel}</span>
-                        ) : null}
-                        {status === 'imported' ? (
-                          <span className="beap-session-imported">✓ Imported</span>
-                        ) : (
-                          <>
-                            {status === 'error' ? (
-                              <span className="beap-session-import-error">Import failed</span>
-                            ) : null}
-                            <button
-                              type="button"
-                              className="beap-session-import-btn"
-                              onClick={() => setImportingSession(ref)}
-                              disabled={status === 'importing'}
-                            >
-                              {status === 'importing' ? 'Importing…' : status === 'error' ? 'Retry' : '▶ Import & Run'}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    )
-                  })}
                 </div>
               ) : null}
             </div>
@@ -1501,56 +1550,16 @@ export default function EmailMessageDetail({
                   </div>
                 </div>
               ) : null}
-
-              {isSandboxBeapClone && parsedDepackaged && sessionRefsList.length > 0 ? (
-                <div className="beap-body-section beap-session-indicator" style={{ marginTop: 12 }}>
-                  <div className="beap-body-label">⚙️ Attached Session</div>
-                  {sessionRefsList.map((ref, i) => {
-                    const sessionId =
-                      typeof ref.sessionId === 'string' ? ref.sessionId : String(ref.sessionId ?? '')
-                    const sessionName =
-                      typeof ref.sessionName === 'string'
-                        ? ref.sessionName
-                        : sessionId || 'Session'
-                    const cap = ref.requiredCapability
-                    const capLabel =
-                      cap != null && typeof cap === 'object'
-                        ? JSON.stringify(cap)
-                        : cap != null
-                          ? String(cap)
-                          : ''
-                    const status = importStatus[sessionId]
-                    return (
-                      <div key={`sbx-s-${sessionId}-${i}`} className="beap-session-ref">
-                        <span className="beap-session-name">{sessionName || sessionId}</span>
-                        {capLabel ? (
-                          <span className="beap-session-capability">Requires: {capLabel}</span>
-                        ) : null}
-                        {status === 'imported' ? (
-                          <span className="beap-session-imported">✓ Imported</span>
-                        ) : (
-                          <>
-                            {status === 'error' ? (
-                              <span className="beap-session-import-error">Import failed</span>
-                            ) : null}
-                            <button
-                              type="button"
-                              className="beap-session-import-btn"
-                              onClick={() => setImportingSession(ref)}
-                              disabled={status === 'importing'}
-                            >
-                              {status === 'importing' ? 'Importing…' : status === 'error' ? 'Retry' : '▶ Import & Run'}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              ) : null}
             </>
           )}
         </div>
+
+        <BeapSessionAutomationPanel
+          message={message}
+          importStatus={importStatus}
+          onRunAutomation={(ref) => setImportingSession(ref)}
+          style={{ marginTop: 12 }}
+        />
 
         {/* Attachments — all source types; rows load even when list omitted attachment join */}
         {showAttachmentsBlock && (
@@ -1588,6 +1597,72 @@ export default function EmailMessageDetail({
         )}
       </div>
     </div>
+    {runAutomationToast && (
+      <div
+        role="alert"
+        style={{
+          position: 'fixed',
+          bottom: 88,
+          right: 20,
+          zIndex: 300,
+          maxWidth: 380,
+          padding: '10px 14px',
+          borderRadius: 8,
+          fontSize: 12,
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 8,
+          ...(runAutomationToast.type === 'success' ? UI_BADGE.green : UI_BADGE.red),
+        }}
+      >
+        <span style={{ flexShrink: 0, fontWeight: 700, fontSize: 14 }}>
+          {runAutomationToast.type === 'success' ? '✓' : '✕'}
+        </span>
+        <span style={{ flex: 1 }}>{runAutomationToast.message}</span>
+        {runAutomationToast.type === 'error' && runAutomationToast.retryRef && (
+          <button
+            type="button"
+            onClick={() => {
+              const ref = runAutomationToast.retryRef!
+              setRunAutomationToast(null)
+              setImportingSession(ref)
+            }}
+            style={{
+              flexShrink: 0,
+              marginLeft: 6,
+              padding: '2px 8px',
+              fontSize: 11,
+              fontWeight: 600,
+              borderRadius: 5,
+              border: '1px solid #fca5a5',
+              background: '#fff',
+              color: '#991b1b',
+              cursor: 'pointer',
+            }}
+          >
+            Retry
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => setRunAutomationToast(null)}
+          aria-label="Dismiss"
+          style={{
+            flexShrink: 0,
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: 14,
+            lineHeight: 1,
+            color: 'inherit',
+            opacity: 0.6,
+            padding: 0,
+          }}
+        >
+          ×
+        </button>
+      </div>
+    )}
     </>
   )
 }

@@ -26,10 +26,12 @@ export default function SessionImportDialog({
   return (
     <div className="session-import-overlay">
       <div className="session-import-dialog">
-        <div className="session-import-header">⚠️ Session Import Consent</div>
+        <div className="session-import-header">Run Automation — session import consent</div>
         <div className="session-import-body">
           <p>
-            This BEAP message contains a workflow session that can be imported and executed on your system.
+            This BEAP message contains a <strong>validated text instruction set</strong> (a workflow
+            session). No executable code is run from the message itself — only structured agent
+            instructions that your orchestrator applies under your policy and handshake agreement.
           </p>
           <div className="session-import-details">
             <div>
@@ -45,11 +47,17 @@ export default function SessionImportDialog({
             </div>
           </div>
           <p className="session-import-warning">
-            Importing this session will store it in your orchestrator database. Execution will occur under
-            capability constraints defined by your policy and the handshake agreement.
+            Importing stores a working copy in your orchestrator database, then activates it in the
+            active browser tab and runs eligible mode-trigger agents.
           </p>
           <p className="session-import-warning">
-            <strong>You can review and revoke this session at any time.</strong>
+            <strong>Sensitive automation</strong> involving PII, credentials, or critical actions
+            should be tested in a <strong>Sandbox environment</strong> first (use Sandbox clone from
+            the inbox) before running on your host orchestrator.
+          </p>
+          <p className="session-import-warning">
+            You can review and revoke imported sessions at any time from the{' '}
+            <strong>Received Automations</strong> section in Sessions History.
           </p>
         </div>
         <div className="session-import-actions">
@@ -57,7 +65,7 @@ export default function SessionImportDialog({
             Cancel
           </button>
           <button type="button" className="session-import-confirm" onClick={onConfirm} disabled={importing}>
-            {importing ? 'Importing…' : '▶ Import & Run'}
+            {importing ? 'Running…' : 'Run Automation'}
           </button>
         </div>
       </div>

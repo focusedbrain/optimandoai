@@ -89,7 +89,7 @@ export {
 export { DeliveryOptions } from './components/DeliveryOptions'
 export {
   EnvelopeSection,
-  CapsuleSection,
+  // CapsuleSection removed in PR 5.3.1 — dead component (never rendered).
   ExecutionBoundarySection,
   ExecutionBoundaryPanel,
   EnvelopeSummaryPanel,

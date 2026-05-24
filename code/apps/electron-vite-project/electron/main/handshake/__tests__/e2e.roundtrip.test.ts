@@ -34,7 +34,7 @@ import {
 import { mockKeypairFields } from './mockKeypair'
 import { HandshakeState } from '../types'
 import type { SSOSession } from '../types'
-import { updateHandshakeSigningKeys, updateHandshakeCounterpartyKey } from '../db'
+import { updateHandshakeSigningKeys, updateHandshakeCounterpartyKey, updateHandshakeContextSyncEnqueued } from '../db'
 
 function aliceSession(): SSOSession {
   return buildTestSession({
@@ -184,6 +184,8 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     updateHandshakeSigningKeys(aliceDb, handshakeId, { local_public_key: aliceKeypair.publicKey, local_private_key: aliceKeypair.privateKey })
     updateHandshakeSigningKeys(bobDb, handshakeId, { local_public_key: bobKeypair.publicKey, local_private_key: bobKeypair.privateKey })
     updateHandshakeCounterpartyKey(bobDb, handshakeId, aliceKeypair.publicKey)
+    // Phase B: Alice also needs Bob's key registered to verify Bob's context_sync.
+    updateHandshakeCounterpartyKey(aliceDb, handshakeId, bobKeypair.publicKey)
 
     // ═══════════════════════════════════════════════════════════════════
     // STEP 3a: Both parties send context-sync (first post-activation required)
@@ -219,12 +221,16 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     expect(aliceContextSync.seq).toBe(1)
     expect(bobContextSync.seq).toBe(1)
 
+    // Phase B: ACCEPTED → ACTIVE requires last_seq_sent >= 1 on the receiving side.
+    // Register each party's outbound context_sync as "sent" before the peer processes it.
+    updateHandshakeContextSyncEnqueued(bobDb, handshakeId, 1, bobContextSync.capsule_hash)
     const bobContextSyncResult = await submitCapsule(JSON.stringify(aliceContextSync), bobDb, bob)
     expect(bobContextSyncResult.success).toBe(true)
     expect(bobContextSyncResult.handshake_result?.handshakeRecord?.last_seq_received).toBe(1)
     // context_sync (seq 1) received → ACCEPTED → ACTIVE
     expect(bobContextSyncResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.ACTIVE)
 
+    updateHandshakeContextSyncEnqueued(aliceDb, handshakeId, 1, aliceContextSync.capsule_hash)
     const aliceContextSyncResult = await submitCapsule(JSON.stringify(bobContextSync), aliceDb, alice)
     expect(aliceContextSyncResult.success).toBe(true)
     expect(aliceContextSyncResult.handshake_result?.handshakeRecord?.last_seq_received).toBe(1)

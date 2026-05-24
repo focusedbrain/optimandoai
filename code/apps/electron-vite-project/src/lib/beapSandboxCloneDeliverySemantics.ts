@@ -3,7 +3,7 @@
  * Pure — no crypto; used by sandbox clone + regression tests.
  */
 
-export type SandboxCloneMatrixDelivery = 'live' | 'queued' | 'failed' | 'unknown'
+export type SandboxCloneMatrixDelivery = 'live' | 'queued' | 'failed' | 'unknown' | 'relay_pending'
 
 export function mapCoordinationDeliveryToMatrixMode(d: {
   success: boolean

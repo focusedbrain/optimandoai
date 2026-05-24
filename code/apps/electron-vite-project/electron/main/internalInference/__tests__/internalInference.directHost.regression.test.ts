@@ -60,6 +60,8 @@ vi.mock('electron', () => ({
     getPath: () => join(process.cwd(), 'tmp-ev-regression'),
     getAppPath: () => process.cwd(),
   },
+  // p2pInferenceSessionManager imports BrowserWindow from 'electron'
+  BrowserWindow: { getAllWindows: () => [] },
 }))
 
 function party(uid: string): PartyIdentity {

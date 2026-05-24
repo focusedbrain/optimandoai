@@ -95,16 +95,26 @@ describe('inboxMessageUsesNativeBeapPbeapQbeapSplit', () => {
   })
 
   it('extractSandboxCloneUiMeta reads depackaged beap_sandbox_clone', () => {
-    const dep = JSON.stringify({
-      beap_sandbox_clone: {
-        cloned_at: '2025-01-15T12:00:00.000Z',
-        original_message_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-        target_sandbox_device_name: 'Konge-AS1',
-        original_handshake_id: '11111111-2222-3333-4444-555555555555',
+    // Phase B (PR 5.2): clone provenance lives in beap_package_json at
+    // metadata.inbox_response_path.sandbox_clone_provenance.beap_sandbox_clone
+    const cloneBlock = {
+      cloned_at: '2025-01-15T12:00:00.000Z',
+      original_message_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      target_sandbox_device_name: 'Konge-AS1',
+      original_handshake_id: '11111111-2222-3333-4444-555555555555',
+    }
+    const beapPkg = JSON.stringify({
+      metadata: {
+        inbox_response_path: {
+          sandbox_clone_provenance: {
+            beap_sandbox_clone: cloneBlock,
+          },
+        },
       },
     })
+    const dep = JSON.stringify({ beap_sandbox_clone: cloneBlock })
     const meta = extractSandboxCloneUiMeta(
-      { ...base, depackaged_json: dep },
+      { ...base, beap_package_json: beapPkg, depackaged_json: dep },
       JSON.parse(dep) as Record<string, unknown>,
     )
     expect(meta.targetSandboxName).toBe('Konge-AS1')

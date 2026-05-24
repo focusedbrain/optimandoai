@@ -26,7 +26,12 @@ import * as os from 'os'
 import * as path from 'path'
 import { fileURLToPath } from 'node:url'
 import { extractInboxMessageRedirectSourceFromRow } from './beapRedirectSource'
-import { prepareBeapInboxSandboxClone } from './beapInboxClonePrepare'
+import {
+  ensureSealedStorageReadyForSandboxClone,
+  prepareBeapInboxSandboxClone,
+  probeInboxMessageCloneVaultRequirement,
+  probeInboxMessageSealKeySource,
+} from './beapInboxClonePrepare'
 import { isHostMode } from '../orchestrator/orchestratorModeStore'
 
 /** Per-call ⚡ logs for `inbox:aiAnalyzeMessage` — keep false in production. */
@@ -249,13 +254,23 @@ import {
   waitForInboxAiTask,
   type InboxAiStreamInvokeOpts,
 } from './inboxAiTaskDedup'
-import { processPendingPlainEmails } from './plainEmailIngestion'
+// processPendingPlainEmails removed — plain_email_inbox was dropped in schema
+// v65 (Phase B, PR B-3).  Plain emails are now written inline by
+// detectAndRouteMessage; no staging drain is needed.
 import { resolveInboxReplyMode } from '../../../src/lib/inboxAiCloneClassification'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
 import { streamInboxOllamaAnalyzeWithSandboxRouting } from './inboxOllamaChatStreamSandbox'
 import { buildInboxAiAnalyzeErrorPayload, buildInboxAiDraftIpcFailure } from './inboxAiErrorMapping'
 import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } from '../../../src/lib/inboxSortSourceWeighting'
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
+import { resealWithAiAnalysis, resealWithPdfExtraction } from './sealedContentUpdate'
+import { ensureValidatorAndSealedStorageReady } from '../validatorReadiness'
+import { prepareSealedOperationalUpdate, sealedQuery } from '../sealed-storage'
+import {
+  filterInboxRowsWithVerifiedSeals,
+  isInboxPlaceholderRow,
+  loadVerifiedInboxMessageById,
+} from './inboxSealedRead'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
 import { inboxLlmChat, isLlmAvailable, INBOX_LLM_TIMEOUT_MS, resolveInboxLlmSettings, preResolveInboxLlm, type ResolvedLlmContext } from './inboxLlmChat'
 import { maybePrewarmOllamaForBulkClassify, type OllamaBulkPrewarmDiag } from '../llm/ollamaBulkPrewarm'
@@ -641,7 +656,9 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     'email:getImapReconnectHints', 'email:updateImapCredentials',
     'email:getImapPresets', 'email:setGmailCredentials', 'email:connectGmail',
     'email:getGmailOAuthRuntimeDiagnostics', 'email:showGmailSetup',
-    'email:checkGmailCredentials', 'email:checkOutlookCredentials', 'email:checkZohoCredentials',
+    'email:checkGmailCredentials',
+    'email:saveBuiltinGoogleOAuthSupplement',
+    'email:checkOutlookCredentials', 'email:checkZohoCredentials',
     'email:setOutlookCredentials', 'email:connectOutlook', 'email:showOutlookSetup',
     'email:setZohoCredentials', 'email:connectZoho',
     'email:connectImap', 'email:connectCustomMailbox',
@@ -847,31 +864,37 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
    */
   ipcMain.handle('email:checkGmailCredentials', async () => {
     try {
-      const { isEmailDeveloperModeEnabled, getStandardConnectBuiltinClientDiagnostics } = await import(
-        './googleOAuthBuiltin'
-      )
-      const result = await checkExistingCredentials('gmail')
-      const canConnect =
-        !!result.credentials || result.builtinOAuthAvailable === true
-      const std = getStandardConnectBuiltinClientDiagnostics()
+      const { buildGmailCredentialsCheckPayload } = await import('./gmailCredentialsCheckPayload')
+      const data = await buildGmailCredentialsCheckPayload()
       return {
         ok: true,
-        data: {
-          configured: canConnect,
-          developerCredentialsStored: !!result.credentials,
-          builtinOAuthAvailable: result.builtinOAuthAvailable === true,
-          developerModeEnabled: isEmailDeveloperModeEnabled(),
-          clientId: result.clientId,
-          source: result.source,
-          credentials: result.credentials,
-          hasSecret: result.hasSecret,
-          vaultUnlocked: isVaultUnlocked(),
-          standardConnectBundledClientFingerprint: std.standardConnectBundledClientFingerprint,
-          standardConnectBuiltinSourceKind: std.standardConnectBuiltinSourceKind,
-        },
+        data,
       }
     } catch (error: any) {
       return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('email:saveBuiltinGoogleOAuthSupplement', async (_e, clientSecret: string | undefined) => {
+    try {
+      const {
+        resolveBuiltinGoogleOAuthClientWithMeta,
+      } = await import('./googleOAuthBuiltin')
+      const { saveBuiltinGoogleOAuthSupplementSecret } = await import('./builtinGoogleOAuthSupplement')
+      const meta = resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true })
+      if (!meta?.clientId?.trim()) {
+        return {
+          ok: false,
+          error:
+            'Email provider is not configured: this build has no bundled Google OAuth client id. Contact your administrator or use Advanced OAuth.',
+        }
+      }
+      const r = saveBuiltinGoogleOAuthSupplementSecret(meta.clientId, String(clientSecret ?? ''))
+      return r.ok ? { ok: true } : { ok: false, error: r.error }
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error)
+      console.error('[Email IPC] saveBuiltinGoogleOAuthSupplement:', msg)
+      return { ok: false, error: msg }
     }
   })
 
@@ -1761,7 +1784,7 @@ export function registerInboxHandlers(
   ipcMain.handle('autosort:deleteSession', async (_e, sessionId: string) => {
     const db = await resolveDb()
     if (!db) return
-    db.prepare('UPDATE inbox_messages SET last_autosort_session_id = NULL WHERE last_autosort_session_id = ?').run(sessionId)
+    prepareSealedOperationalUpdate(db, 'UPDATE inbox_messages SET last_autosort_session_id = NULL WHERE last_autosort_session_id = ?').run(sessionId)
     db.prepare('DELETE FROM autosort_sessions WHERE id = ?').run(sessionId)
   })
 
@@ -1969,8 +1992,8 @@ Rules:
           const resetPendingTransient = db.prepare(
             `UPDATE remote_orchestrator_mutation_queue SET status = 'pending', last_error = ?, updated_at = ? WHERE id = ?`,
           )
-          const touchMsgErr = db.prepare(`UPDATE inbox_messages SET remote_orchestrator_last_error = ? WHERE id = ?`)
-          const touchMsgErrNull = db.prepare(`UPDATE inbox_messages SET remote_orchestrator_last_error = NULL WHERE id = ?`)
+          const touchMsgErr = prepareSealedOperationalUpdate(db, `UPDATE inbox_messages SET remote_orchestrator_last_error = ? WHERE id = ?`)
+          const touchMsgErrNull = prepareSealedOperationalUpdate(db, `UPDATE inbox_messages SET remote_orchestrator_last_error = NULL WHERE id = ?`)
 
           let batchMoved = 0
           let batchSkipped = 0
@@ -2064,7 +2087,7 @@ Rules:
                 markCompleted.run(rowNow, r.id)
                 if (apply.imapUidAfterMove != null && apply.imapMailboxAfterMove != null) {
                   try {
-                    db.prepare(`UPDATE inbox_messages SET email_message_id = ?, imap_remote_mailbox = ? WHERE id = ?`).run(
+                    prepareSealedOperationalUpdate(db, `UPDATE inbox_messages SET email_message_id = ?, imap_remote_mailbox = ? WHERE id = ?`).run(
                       apply.imapUidAfterMove,
                       apply.imapMailboxAfterMove,
                       r.message_id,
@@ -2631,11 +2654,6 @@ Rules:
     }
 
     try {
-      processPendingPlainEmails(db)
-    } catch (e: any) {
-      console.warn('[Inbox] Plain email post-sync processing:', e?.message)
-    }
-    try {
       const beapDrained = await processPendingP2PBeapEmails(db)
       if (beapDrained > 0) notifyBeapInboxDashboard(null)
     } catch (e: any) {
@@ -3091,16 +3109,18 @@ Rules:
          FROM inbox_messages ${where} ORDER BY received_at DESC LIMIT ? OFFSET ?`
       ).all(...qParams) as any[]
 
+      const verifiedRows = filterInboxRowsWithVerifiedSeals(db, rows)
+
       const attStmt = db.prepare('SELECT * FROM inbox_attachments WHERE message_id = ?')
-      for (const m of rows) {
+      for (const m of verifiedRows) {
         // Always attach rows: flags can be stale (e.g. P2P backfill) or out of sync with inbox_attachments.
         m.attachments = attStmt.all(m.id) as any[]
       }
 
       if (traceLists) {
-        console.log('[BEAP-INBOX][DB] list_ok', { total, limit, offset, returned: rows.length })
+        console.log('[BEAP-INBOX][DB] list_ok', { total, limit, offset, returned: verifiedRows.length })
       }
-      return { ok: true, data: { messages: rows, total } }
+      return { ok: true, data: { messages: verifiedRows, total } }
     } catch (err: any) {
       console.error('[BEAP-INBOX][DB] list_failed', { error: formatBeapInboxDbError(err) })
       return { ok: false, error: err?.message ?? 'List failed' }
@@ -3152,8 +3172,8 @@ Rules:
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      const row = db.prepare('SELECT * FROM inbox_messages WHERE id = ?').get(messageId) as any
-      if (!row) return { ok: false, error: 'Message not found' }
+      const row = loadVerifiedInboxMessageById(db, messageId)
+      if (!row) return { ok: false, error: 'Message not found or seal verification failed' }
       const st = row.source_type as string | undefined
       const pkgJson = row.beap_package_json as string | null | undefined
       if ((st === 'direct_beap' || st === 'email_beap') && pkgJson) {
@@ -3161,7 +3181,7 @@ Rules:
       }
       const atts = db.prepare('SELECT * FROM inbox_attachments WHERE message_id = ?').all(messageId) as any[]
       row.attachments = atts
-      db.prepare('UPDATE inbox_messages SET read_status = 1 WHERE id = ?').run(messageId)
+      prepareSealedOperationalUpdate(db, 'UPDATE inbox_messages SET read_status = 1 WHERE id = ?').run(messageId)
       return { ok: true, data: row }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Get failed' }
@@ -3177,23 +3197,8 @@ Rules:
       if (!db) return { ok: false, error: 'Database unavailable' }
       const id = typeof messageId === 'string' ? messageId.trim() : ''
       if (!id) return { ok: false, error: 'messageId required' }
-      const row = db
-        .prepare(
-          `SELECT id, source_type, handshake_id, subject, body_text, depackaged_json, beap_package_json, has_attachments, received_at, ingested_at, account_id, from_address
-           FROM inbox_messages WHERE id = ?`,
-        )
-        .get(id) as
-        | {
-            id: string
-            source_type?: string | null
-            handshake_id?: string | null
-            subject?: string | null
-            body_text?: string | null
-            depackaged_json?: string | null
-            beap_package_json?: string | null
-            has_attachments?: number | null
-          }
-        | undefined
+      const row = loadVerifiedInboxMessageById(db, id)
+      if (!row) return { ok: false, error: 'Message not found or seal verification failed' }
       const extracted = extractInboxMessageRedirectSourceFromRow(row)
       if (!extracted.ok) return extracted
 
@@ -3231,12 +3236,15 @@ Rules:
   })
 
   /**
-   * Validate internal sandbox target, and extract cloneable plaintext (ledger + SSO session; no vault unlock).
-   * Does not build or send the BEAP package (renderer uses BeapPackageBuilder + executeDeliveryAction).
+   * Validate internal sandbox target, and extract cloneable plaintext (ledger + SSO session).
+   * Source inbox rows are read via `sealedQuery` — requires vault unlocked + validator seal gate
+   * (`ensureSealedStorageReadyForSandboxClone` before prepare). Does not build or send the BEAP
+   * package (renderer uses BeapPackageBuilder + executeDeliveryAction).
    * `inbox:cloneBeapToSandbox` is the product channel name; both invoke the same logic.
    *
    * Host only: clone is a Host → Sandbox orchestration path (same identity, internal handshake).
-   * On failure, `code` may include `NO_ACTIVE_SANDBOX_HANDSHAKE`, `MESSAGE_NOT_FOUND`, `MESSAGE_CONTENT_NOT_EXTRACTABLE`,
+   * On failure, `code` may include `NO_ACTIVE_SANDBOX_HANDSHAKE`, `MESSAGE_NOT_FOUND`,
+   * `outer_vault_unavailable`, `outer_vault_or_key_provider_unavailable`, `MESSAGE_CONTENT_NOT_EXTRACTABLE`,
    * `TARGET_HANDSHAKE_REQUIRED`, or `NOT_HOST_ORCHESTRATOR` (envelope) for structured UI.
    */
   async function handleBeapInboxCloneToSandbox(
@@ -3247,11 +3255,15 @@ Rules:
           targetHandshakeId?: string
           cloneReason?: 'sandbox_test' | 'external_link_or_artifact_review'
           triggeredUrl?: string
+          _cloneId?: string
         }
       | undefined,
   ) {
+    const cloneId = (typeof payload?._cloneId === 'string' && payload._cloneId.trim()) || 'unknown'
+    console.log(`[CLONE_MAIN] received cloneId=${cloneId} sourceMessageId=${payload?.sourceMessageId ?? 'none'} targetHandshakeId=${payload?.targetHandshakeId ?? 'auto'}`)
     try {
       if (!isHostMode()) {
+        console.log(`[CLONE_MAIN] blocked cloneId=${cloneId} reason=not_host_orchestrator code=NOT_HOST_ORCHESTRATOR`)
         return {
           success: false,
           code: 'NOT_HOST_ORCHESTRATOR' as const,
@@ -3262,16 +3274,19 @@ Rules:
       const { getCurrentSession } = await import('../handshake/ipc')
       const session = getCurrentSession()
       if (!session) {
+        console.log(`[CLONE_MAIN] blocked cloneId=${cloneId} reason=unauthenticated code=UNAUTHENTICATED`)
         return { success: false, code: 'UNAUTHENTICATED' as const, error: 'Not logged in' }
       }
 
       const db = await resolveDb()
       if (!db) {
+        console.log(`[CLONE_MAIN] blocked cloneId=${cloneId} reason=db_unavailable code=DB_UNAVAILABLE`)
         return { success: false, code: 'DB_UNAVAILABLE' as const, error: 'Database unavailable' }
       }
 
       const srcId = typeof payload?.sourceMessageId === 'string' ? payload.sourceMessageId.trim() : ''
       if (!srcId) {
+        console.log(`[CLONE_MAIN] blocked cloneId=${cloneId} reason=missing_source_message_id`)
         return { success: false, error: 'sourceMessageId is required' }
       }
 
@@ -3288,15 +3303,37 @@ Rules:
 
       const cr = payload?.cloneReason
       const tu = typeof payload?.triggeredUrl === 'string' ? payload.triggeredUrl.trim() : ''
-      const cloneOptions =
+      console.log(`[CLONE_PREPARE] start cloneId=${cloneId} sourceMessageId=${srcId} targetHandshakeId=${tgt ?? 'auto'}`)
+
+      const cloneVaultReq = probeInboxMessageCloneVaultRequirement(db, srcId)
+      const sealGate = await ensureSealedStorageReadyForSandboxClone(cloneId, {
+        requiresInnerVault: cloneVaultReq?.requiresInnerVault ?? false,
+        sourceSealKeySource: cloneVaultReq?.sealKeySource ?? probeInboxMessageSealKeySource(db, srcId),
+        handshakeId: cloneVaultReq?.handshakeId ?? null,
+      })
+      if (!sealGate.ok) {
+        console.log(`[CLONE_PREPARE] failed cloneId=${cloneId} reason=${sealGate.error} code=${sealGate.code}`)
+        return {
+          success: false,
+          error: sealGate.error,
+          code: sealGate.code,
+        }
+      }
+
+      const cloneOptsMerged =
         cr === 'external_link_or_artifact_review'
           ? {
               clone_reason: 'external_link_or_artifact_review' as const,
               ...(tu ? { triggered_url: tu } : {}),
+              clone_audit_id: cloneId,
             }
-          : undefined
-      const prep = prepareBeapInboxSandboxClone(db, session, srcId, tgt, accountTag, cloneOptions)
+          : { clone_audit_id: cloneId }
+
+      const prep = prepareBeapInboxSandboxClone(db, session, srcId, tgt, accountTag, cloneOptsMerged)
       if (!prep.ok) {
+        const failCode = prep.code != null ? String(prep.code) : 'none'
+        const failMsg = typeof prep.error === 'string' ? prep.error : 'prepare_failed'
+        console.log(`[CLONE_PREPARE] failed cloneId=${cloneId} reason=${failMsg} code=${failCode}`)
         return {
           success: false,
           error: prep.error,
@@ -3306,9 +3343,12 @@ Rules:
         }
       }
 
+      console.log(`[CLONE_PREPARE] success cloneId=${cloneId} sourceMessageId=${srcId}`)
       return { success: true, prepare: prep }
     } catch (err: any) {
-      return { success: false, error: err?.message ?? 'beapInboxCloneToSandboxPrepare failed' }
+      const em = err?.message ?? 'beapInboxCloneToSandboxPrepare failed'
+      console.log(`[CLONE_PREPARE] failed cloneId=${cloneId} reason=exception error=${em}`)
+      return { success: false, error: em }
     }
   }
 
@@ -3320,7 +3360,7 @@ Rules:
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      const stmt = db.prepare('UPDATE inbox_messages SET read_status = ? WHERE id = ?')
+      const stmt = prepareSealedOperationalUpdate(db, 'UPDATE inbox_messages SET read_status = ? WHERE id = ?')
       for (const id of messageIds ?? []) stmt.run(read ? 1 : 0, id)
       return { ok: true }
     } catch (err: any) {
@@ -3334,7 +3374,7 @@ Rules:
       if (!db) return { ok: false, error: 'Database unavailable' }
       const row = db.prepare('SELECT starred FROM inbox_messages WHERE id = ?').get(messageId) as { starred?: number } | undefined
       const next = row?.starred === 1 ? 0 : 1
-      db.prepare('UPDATE inbox_messages SET starred = ? WHERE id = ?').run(next, messageId)
+      prepareSealedOperationalUpdate(db, 'UPDATE inbox_messages SET starred = ? WHERE id = ?').run(next, messageId)
       return { ok: true, data: { starred: next === 1 } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Toggle failed' }
@@ -3346,7 +3386,7 @@ Rules:
       const db = await resolveDbWithDiag('inbox:archiveMessages')
       if (!db) return { ok: false, error: 'Database unavailable' }
       const ids = messageIds ?? []
-      const stmt = db.prepare('UPDATE inbox_messages SET archived = 1 WHERE id = ?')
+      const stmt = prepareSealedOperationalUpdate(db, 'UPDATE inbox_messages SET archived = 1 WHERE id = ?')
       for (const id of ids) stmt.run(id)
       fireRemoteOrchestratorSync(db, ids, 'archive')
       return { ok: true }
@@ -3360,7 +3400,7 @@ Rules:
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
       const ids = messageIds ?? []
-      const stmt = db.prepare('UPDATE inbox_messages SET sort_category = ? WHERE id = ?')
+      const stmt = prepareSealedOperationalUpdate(db, 'UPDATE inbox_messages SET sort_category = ? WHERE id = ?')
       for (const id of ids) stmt.run(category ?? null, id)
       try {
         enqueueRemoteOpsForLocalLifecycleState(db, ids)
@@ -3534,52 +3574,20 @@ Rules:
 
         const pageCount =
           typeof result.pageCount === 'number' && result.pageCount > 0 ? result.pageCount : null
-        db.prepare(
-          `UPDATE inbox_attachments SET extracted_text = ?, text_extraction_status = ?, text_extraction_error = ?,
-           content_sha256 = ?, extracted_text_sha256 = ?, page_count = ?
-           WHERE id = ?`,
-        ).run(text, status, errMsg, contentSha256, extractedTextSha256, pageCount, attachmentId)
-
-        // Merge extracted text + status + hashes into depackaged_json (same shape as ingest-time depackaging)
-        const messageId = row.message_id
-        if (messageId) {
-          try {
-            const msgRow = db.prepare('SELECT depackaged_json FROM inbox_messages WHERE id = ?').get(messageId) as
-              | { depackaged_json?: string }
-              | undefined
-            const depackaged = msgRow?.depackaged_json
-            if (depackaged) {
-              const parsed = JSON.parse(depackaged) as {
-                attachments?: Array<{
-                  id?: string
-                  content_id?: string
-                  extracted_text?: string
-                  extraction_status?: string
-                  extraction_error?: string | null
-                  content_sha256?: string
-                  extracted_text_sha256?: string
-                }>
-              }
-              if (Array.isArray(parsed.attachments)) {
-                let updated = false
-                for (const att of parsed.attachments) {
-                  if (att.content_id === attachmentId || att.id === attachmentId) {
-                    att.extracted_text = text
-                    att.extraction_status = status
-                    att.extraction_error = errMsg
-                    att.content_sha256 = contentSha256
-                    att.extracted_text_sha256 = extractedTextSha256
-                    updated = true
-                    break
-                  }
-                }
-                if (updated) {
-                  db.prepare('UPDATE inbox_messages SET depackaged_json = ? WHERE id = ?').run(JSON.stringify(parsed), messageId)
-                }
-              }
-            }
-          } catch (mergeErr: any) {
-            console.warn('[Inbox IPC] Failed to merge extracted_text into depackaged:', mergeErr?.message)
+        // B-7: re-seal parent message + child attachment write through the sealed gate.
+        const sealResult = await resealWithPdfExtraction(db, attachmentId, {
+          text,
+          status,
+          error: errMsg,
+          contentSha256,
+          extractedTextSha256,
+          pageCount,
+        })
+        if (!sealResult.ok) {
+          console.warn('[Inbox IPC] PDF extraction re-seal failed:', sealResult.error)
+          return {
+            ok: false,
+            error: `PDF text extraction could not be persisted: ${sealResult.error}. The original attachment is preserved unchanged.`,
           }
         }
 
@@ -3599,7 +3607,7 @@ Rules:
           },
         }
       }
-      db.prepare('UPDATE inbox_attachments SET text_extraction_status = ? WHERE id = ?').run('skipped', attachmentId)
+      prepareSealedOperationalUpdate(db, 'UPDATE inbox_attachments SET text_extraction_status = ? WHERE id = ?').run('skipped', attachmentId)
       return {
         ok: true,
         data: {
@@ -3689,7 +3697,7 @@ Rules:
       const summary = await inboxLlmChat({ system: systemPrompt, user: userPrompt, contentTask: { kind: 'summary' } })
       console.log('[AI-SUMMARIZE] Raw LLM response:', summary.substring(0, 500))
 
-      /** Persist to ai_analysis_json so analysis survives clearBulkAiOutputsForIds. */
+      /** B-7: persist to ai_analysis_json via sealed re-seal so the seal covers this addition. */
       const existingRow = db.prepare('SELECT ai_analysis_json FROM inbox_messages WHERE id = ?').get(messageId) as { ai_analysis_json?: string | null } | undefined
       let merged: Record<string, unknown> = {}
       if (existingRow?.ai_analysis_json) {
@@ -3699,7 +3707,11 @@ Rules:
       }
       merged.summary = summary.slice(0, 1000)
       merged.status = merged.status ?? 'summarized'
-      db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(JSON.stringify(merged), messageId)
+      const sealRes = await resealWithAiAnalysis(db, messageId, merged)
+      if (!sealRes.ok) {
+        console.warn('[AI-SUMMARIZE] re-seal failed (AI result discarded):', sealRes.error)
+        return { ok: false, error: `AI analysis could not be applied: ${sealRes.error}` }
+      }
 
       return { ok: true, data: { summary } }
     } catch (err: any) {
@@ -3731,11 +3743,18 @@ Rules:
       )
     }
 
-    return runInboxAiTaskWithDedup(
+    // runInboxAiTaskWithDedup can reject before the inner run() callback starts
+    // (e.g. LLM_UNAVAILABLE from the GPU gate / circuit-breaker checked before run()).
+    // Catch those outer rejections here so the renderer always gets a structured
+    // { ok: false, inboxErrorCode, message } shape instead of a raw IPC exception.
+    let _outerIsNativeBeap = false
+    try {
+    return await runInboxAiTaskWithDedup(
       taskKey,
       { supersede, supersedeKeyPrefix: `draft:${messageId}:`, messageId },
       async (_requestId, _signal) => {
     let isNativeBeap = false
+    _outerIsNativeBeap = false // reset per-run
     let aiExecDraft: import('../llm/aiExecutionTypes').AiExecutionContext | undefined
     try {
       const db = await resolveDb()
@@ -3941,7 +3960,23 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
             isNativeBeap: true,
           }) as { ok: false; error: string; message: string }
         }
-        db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(JSON.stringify(merged), messageId)
+        // B-7: sealed re-seal replaces the raw UPDATE.
+        // Ensure the validator subprocess is running before attempting re-seal — the
+        // subprocess is started non-awaited by vault.unlock, so it may still be
+        // initialising when the AI draft completes.  This wait is bounded to 15 s.
+        const validatorReadyNative = await ensureValidatorAndSealedStorageReady('ai_draft_reseal_beap')
+        if (!validatorReadyNative.ok) {
+          console.warn('[AI-DRAFT:native-beap] validator not ready for re-seal, returning draft without persisting:', validatorReadyNative.error)
+          // Return the successfully generated draft even though we cannot re-seal it.
+          // The draft text is still useful; the user can copy/use it.  Seal will be
+          // written on next successful re-seal (e.g. next AI draft or analysis run).
+        } else {
+          const sealResNative = await resealWithAiAnalysis(db, messageId, merged)
+          if (!sealResNative.ok) {
+            console.warn('[AI-DRAFT:native-beap] re-seal failed (draft not persisted):', sealResNative.error)
+            // Don't block the draft on a transient seal failure — return the content.
+          }
+        }
 
         console.log(
           `[AI-DRAFT] Native BEAP IPC per-field response ${JSON.stringify({
@@ -4009,7 +4044,7 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
         }
       }
 
-      /** Persist to ai_analysis_json so analysis survives clearBulkAiOutputsForIds. */
+      /** B-7: persist draft via sealed re-seal. */
       const existingRow = db.prepare('SELECT ai_analysis_json FROM inbox_messages WHERE id = ?').get(messageId) as { ai_analysis_json?: string | null } | undefined
       let merged: Record<string, unknown> = {}
       if (existingRow?.ai_analysis_json) {
@@ -4026,7 +4061,19 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
           message: string
         }
       }
-      db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(JSON.stringify(merged), messageId)
+      // B-7: sealed re-seal replaces the raw UPDATE.
+      // Guard: ensure the validator subprocess is running before re-seal.
+      const validatorReadyDraft = await ensureValidatorAndSealedStorageReady('ai_draft_reseal_email')
+      if (!validatorReadyDraft.ok) {
+        console.warn('[AI-DRAFT] validator not ready for re-seal, returning draft without persisting:', validatorReadyDraft.error)
+        // Still return the generated draft — seal will catch up on the next write.
+      } else {
+        const sealResDraft = await resealWithAiAnalysis(db, messageId, merged)
+        if (!sealResDraft.ok) {
+          console.warn('[AI-DRAFT] re-seal failed (draft not persisted):', sealResDraft.error)
+          // Non-fatal: return the draft anyway so the user isn't blocked.
+        }
+      }
 
       return { ok: true, data: { draft } }
     } catch (err: unknown) {
@@ -4038,6 +4085,7 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
         }
       }
       console.error('[AI-DRAFT] error:', err)
+      _outerIsNativeBeap = isNativeBeap
       return buildInboxAiDraftIpcFailure(err, { aiExecution: aiExecDraft, model: aiExecDraft?.model }, isNativeBeap ? { isNativeBeap: true } : undefined) as {
         ok: false
         error: string
@@ -4046,6 +4094,16 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
     }
       },
     )
+    } catch (outerErr) {
+      // Handles pre-run rejections from runInboxAiTaskWithDedup (e.g. LLM_UNAVAILABLE from
+      // GPU gate / circuit-breaker) that bypass the inner try/catch above.
+      console.error('[AI-DRAFT] outer rejection (pre-run):', outerErr)
+      return buildInboxAiDraftIpcFailure(outerErr, {}, _outerIsNativeBeap ? { isNativeBeap: true } : undefined) as {
+        ok: false
+        error: string
+        message: string
+      }
+    }
   })
 
   ipcMain.handle('inbox:aiAnalyzeMessage', async (_e, messageId: string) => {
@@ -4339,6 +4397,27 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
     }
     const analyzeDedupeKey = buildInboxAiTaskKey('analysis-stream', messageId, tkModel, tkLane)
     const supersede = !!opts?.supersede
+    const manual = opts?.manual === true
+
+    const dbPre = await resolveDbCore()
+    if (!dbPre) {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(
+          'inbox:aiAnalyzeMessageError',
+          buildInboxAiAnalyzeErrorPayload(new Error('Database unavailable'), {
+            messageId,
+            operation: 'analyze_stream',
+            aiExecution: undefined,
+            model: undefined,
+          }),
+        )
+      }
+      return { started: false }
+    }
+
+    // direct_beap messages are now allowed through the auto analysis path so that
+    // analysis runs immediately when the user opens a native BEAP inbox message.
+
     if (!supersede && !event.sender.isDestroyed()) {
       const replayState = replayAnalysisStreamState(analyzeDedupeKey, (channel, payload) => {
         if (!event.sender.isDestroyed()) event.sender.send(channel, payload)
@@ -4410,6 +4489,8 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
             }
             return { started: false }
           }
+
+          // direct_beap messages are analyzed on open — no auto-triage guard here.
 
           const settings = resolveInboxLlmSettings()
           if (settings.provider.toLowerCase() === 'ollama') {
@@ -4705,7 +4786,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
     // Stamp session membership immediately — even if classify fails, this message is part of the session
     if (sessionId) {
       try {
-        db.prepare('UPDATE inbox_messages SET last_autosort_session_id = ? WHERE id = ?').run(sessionId, messageId)
+        prepareSealedOperationalUpdate(db, 'UPDATE inbox_messages SET last_autosort_session_id = ? WHERE id = ?').run(sessionId, messageId)
       } catch (e) {
         console.error('[AutoSort] Failed to stamp session on message:', messageId, e)
       }
@@ -4854,36 +4935,15 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
         )
       }
       const nowIso = new Date().toISOString()
-      if (isUrgent) {
-        db.prepare(
-          `UPDATE inbox_messages SET archived = 0, pending_delete = 0, pending_delete_at = NULL, pending_review_at = NULL,
-           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
-        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
-      } else if (pendingReview) {
-        db.prepare(
-          `UPDATE inbox_messages SET archived = 0, pending_delete = 0, pending_delete_at = NULL,
-           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ?, pending_review_at = ? WHERE id = ?`,
-        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, nowIso, messageId)
-      } else if (validCategory === 'archive') {
-        db.prepare(
-          `UPDATE inbox_messages SET archived = 1, pending_delete = 0, pending_delete_at = NULL, pending_review_at = NULL,
-           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
-        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
-      } else if (pendingDelete) {
-        db.prepare(
-          `UPDATE inbox_messages SET archived = 0, pending_delete = 1, pending_delete_at = ?, pending_review_at = NULL,
-           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
-        ).run(nowIso, effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
-      } else {
-        /** Clear `pending_review_at` whenever we leave the review workflow — otherwise rows stay excluded from the main inbox tab (`filter=all`) while `sort_category` reads `normal`, which looks like “analyzed but not sorted.” */
-        db.prepare(
-          `UPDATE inbox_messages SET archived = 0, pending_delete = 0, pending_delete_at = NULL, pending_review_at = NULL,
-           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
-        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
-      }
 
-      /** Persist AI analysis for sorted messages — survives clearBulkAiOutputsForIds. */
-      const aiAnalysisJson = JSON.stringify({
+      /**
+       * B-7.1 Decision D — re-seal content FIRST, operational columns SECOND.
+       * If re-seal fails we abort before touching any operational column, leaving
+       * the row fully consistent with its existing seal.  If re-seal succeeds and
+       * the subsequent operational UPDATE fails, the content seal is still valid;
+       * only the sort bucket is stale — a strictly better failure mode.
+       */
+      const aiAnalysisData = {
         category: effectiveSortCategory,
         urgencyScore: urgency,
         urgencyReason: reason || '',
@@ -4896,8 +4956,45 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
         actionItems: [],
         draftReply: needsReply ? (parsed.draftReply ?? null) : null,
         status: 'classified',
-      })
-      db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(aiAnalysisJson, messageId)
+      }
+      const sealResClassify = await resealWithAiAnalysis(db, messageId, aiAnalysisData)
+      if (!sealResClassify.ok) {
+        console.error('[CLASSIFY] re-seal failed — aborting classification, no operational writes:', sealResClassify.error)
+        return { messageId, error: `re-seal failed: ${sealResClassify.error}` }
+      }
+
+      if (isUrgent) {
+        prepareSealedOperationalUpdate(
+          db,
+          `UPDATE inbox_messages SET archived = 0, pending_delete = 0, pending_delete_at = NULL, pending_review_at = NULL,
+           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
+        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
+      } else if (pendingReview) {
+        prepareSealedOperationalUpdate(
+          db,
+          `UPDATE inbox_messages SET archived = 0, pending_delete = 0, pending_delete_at = NULL,
+           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ?, pending_review_at = ? WHERE id = ?`,
+        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, nowIso, messageId)
+      } else if (validCategory === 'archive') {
+        prepareSealedOperationalUpdate(
+          db,
+          `UPDATE inbox_messages SET archived = 1, pending_delete = 0, pending_delete_at = NULL, pending_review_at = NULL,
+           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
+        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
+      } else if (pendingDelete) {
+        prepareSealedOperationalUpdate(
+          db,
+          `UPDATE inbox_messages SET archived = 0, pending_delete = 1, pending_delete_at = ?, pending_review_at = NULL,
+           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
+        ).run(nowIso, effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
+      } else {
+        /** Clear `pending_review_at` whenever we leave the review workflow — otherwise rows stay excluded from the main inbox tab (`filter=all`) while `sort_category` reads `normal`, which looks like “analyzed but not sorted.” */
+        prepareSealedOperationalUpdate(
+          db,
+          `UPDATE inbox_messages SET archived = 0, pending_delete = 0, pending_delete_at = NULL, pending_review_at = NULL,
+           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
+        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
+      }
 
       /** Single path: DB columns are source of truth; skips if `imap_remote_mailbox` already matches; supersedes stale queue rows. All classified categories (including urgent) enqueue remote lifecycle ops. */
       let remoteEnqueue: { enqueued: number; skipped: number; skipReasons: string[] } | undefined
@@ -5162,8 +5259,14 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      JSON.parse(analysisJson)
-      db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(analysisJson, messageId)
+      // Validate JSON and parse to object for re-seal.
+      const parsedAnalysis = JSON.parse(analysisJson) as Record<string, unknown>
+      // B-7: sealed re-seal replaces the raw UPDATE.
+      const sealRes = await resealWithAiAnalysis(db, messageId, parsedAnalysis)
+      if (!sealRes.ok) {
+        console.warn('[Inbox IPC] persistManualBulkAnalysis re-seal failed:', sealRes.error)
+        return { ok: false, error: `AI analysis could not be applied: ${sealRes.error}` }
+      }
       return { ok: true }
     } catch (e: any) {
       console.warn('[Inbox IPC] persistManualBulkAnalysis failed:', e?.message)
@@ -5308,7 +5411,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       if (!db) return { ok: false, error: 'Database unavailable' }
       const ids = messageIds ?? []
       const now = new Date().toISOString()
-      const stmt = db.prepare('UPDATE inbox_messages SET pending_delete = 1, pending_delete_at = ? WHERE id = ?')
+      const stmt = prepareSealedOperationalUpdate(db, 'UPDATE inbox_messages SET pending_delete = 1, pending_delete_at = ? WHERE id = ?')
       for (const id of ids) stmt.run(now, id)
       fireRemoteOrchestratorSync(db, ids, 'pending_delete')
       return { ok: true, data: { marked: ids.length } }
@@ -5325,8 +5428,9 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       if (idList.length === 0) return { ok: true }
       const now = new Date().toISOString()
       const placeholders = idList.map(() => '?').join(',')
-      db.prepare(
-        `UPDATE inbox_messages SET sort_category = 'pending_review', pending_review_at = ? WHERE id IN (${placeholders})`
+      prepareSealedOperationalUpdate(
+        db,
+        `UPDATE inbox_messages SET sort_category = 'pending_review', pending_review_at = ? WHERE id IN (${placeholders})`,
       ).run(now, ...idList)
       fireRemoteOrchestratorSync(db, idList, 'pending_review')
       return { ok: true }
@@ -5339,9 +5443,14 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      /* FIX-H3: Reset color coding — clear sort_category, sort_reason, ai_analysis_json so message looks unsorted */
-      db.prepare(
-        'UPDATE inbox_messages SET pending_delete = 0, pending_delete_at = NULL, sort_category = NULL, sort_reason = NULL, ai_analysis_json = NULL WHERE id = ?'
+      // B-7: content clear (ai_analysis_json) goes through the sealed gate.
+      const sealRes = await resealWithAiAnalysis(db, messageId, null)
+      if (!sealRes.ok) {
+        console.warn('[CANCEL-PENDING-DELETE] re-seal failed:', sealRes.error)
+      }
+      prepareSealedOperationalUpdate(
+        db,
+        'UPDATE inbox_messages SET pending_delete = 0, pending_delete_at = NULL, sort_category = NULL, sort_reason = NULL WHERE id = ?',
       ).run(messageId)
       return { ok: true, data: { cancelled: true } }
     } catch (err: any) {
@@ -5353,9 +5462,14 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      /* FIX-H3: Reset color coding — clear ai_analysis_json so message looks unsorted */
-      db.prepare(
-        'UPDATE inbox_messages SET sort_category = NULL, sort_reason = NULL, pending_review_at = NULL, ai_analysis_json = NULL WHERE id = ?'
+      // B-7: content clear (ai_analysis_json) goes through the sealed gate.
+      const sealRes = await resealWithAiAnalysis(db, messageId, null)
+      if (!sealRes.ok) {
+        console.warn('[CANCEL-PENDING-REVIEW] re-seal failed:', sealRes.error)
+      }
+      prepareSealedOperationalUpdate(
+        db,
+        'UPDATE inbox_messages SET sort_category = NULL, sort_reason = NULL, pending_review_at = NULL WHERE id = ?',
       ).run(messageId)
       return { ok: true, data: { cancelled: true } }
     } catch (err: any) {
@@ -5367,9 +5481,14 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      /* FIX-H3: Reset color coding — clear sort_category, sort_reason, ai_analysis_json so message looks unsorted */
-      db.prepare(
-        'UPDATE inbox_messages SET archived = 0, sort_category = NULL, sort_reason = NULL, ai_analysis_json = NULL WHERE id = ?'
+      // B-7: content clear (ai_analysis_json) goes through the sealed gate.
+      const sealRes = await resealWithAiAnalysis(db, messageId, null)
+      if (!sealRes.ok) {
+        console.warn('[UNARCHIVE] re-seal failed:', sealRes.error)
+      }
+      prepareSealedOperationalUpdate(
+        db,
+        'UPDATE inbox_messages SET archived = 0, sort_category = NULL, sort_reason = NULL WHERE id = ?',
       ).run(messageId)
       return { ok: true, data: { unarchived: true } }
     } catch (err: any) {

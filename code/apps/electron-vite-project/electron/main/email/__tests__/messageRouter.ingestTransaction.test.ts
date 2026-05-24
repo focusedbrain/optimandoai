@@ -1,6 +1,8 @@
 import { createRequire } from 'module'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { createHash, createHmac } from 'crypto'
 import { makeInboxAttachmentStorageId } from '../messageRouter'
+import { bindKeyProvider, unbindKeyProvider, clearTamperingEvents } from '../../sealed-storage'
 
 const require = createRequire(import.meta.url)
 
@@ -15,9 +17,18 @@ try {
   Database = null
 }
 
+const TEST_DEK = Buffer.from('00'.repeat(32), 'hex')
+
+function buildValidSealForRowId(canonicalJson: string, rowId: string): { seal: string; seal_input_json: string } {
+  const contentSha256 = createHash('sha256').update(canonicalJson, 'utf8').digest('hex')
+  const sealInputJson = JSON.stringify({ content_sha256: contentSha256, row_id: rowId })
+  const seal = createHmac('sha256', TEST_DEK).update(sealInputJson, 'utf8').digest('base64')
+  return { seal, seal_input_json: sealInputJson }
+}
+
 vi.mock('../handshake/db', () => ({
   insertPendingP2PBeap: vi.fn(),
-  insertPendingPlainEmail: vi.fn(),
+  // insertPendingPlainEmail removed — plain_email_inbox dropped in schema v65 (PR B-3.1).
 }))
 
 vi.mock('../gateway', () => ({
@@ -59,12 +70,19 @@ function createTestDb(): import('better-sqlite3').Database {
       body_text TEXT,
       body_html TEXT,
       beap_package_json TEXT,
+      depackaged_json TEXT,
+      depackaged_metadata TEXT,
       has_attachments INTEGER DEFAULT 0,
       attachment_count INTEGER DEFAULT 0,
       received_at TEXT NOT NULL,
       ingested_at TEXT NOT NULL,
       imap_remote_mailbox TEXT,
-      imap_rfc_message_id TEXT
+      imap_rfc_message_id TEXT,
+      validated_at TEXT,
+      validator_version TEXT,
+      validation_reason TEXT,
+      seal TEXT,
+      seal_input_json TEXT
     );
     CREATE TABLE inbox_attachments (
       id TEXT PRIMARY KEY,
@@ -104,9 +122,39 @@ describe('makeInboxAttachmentStorageId', () => {
 
 describe.skipIf(!Database)('detectAndRouteMessage transaction (requires native better-sqlite3)', () => {
   let db: import('better-sqlite3').Database
+  let validateMock: ReturnType<typeof vi.fn>
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = createTestDb()
+    bindKeyProvider(() => TEST_DEK)
+    clearTamperingEvents()
+
+    // Phase B: detectAndRouteMessage calls validatorOrchestrator.validate for all email types.
+    // Return a valid HMAC-sealed outcome so runSealedTransaction succeeds.
+    const orchMod = await import('../../validator-process/orchestrator')
+    validateMock = vi.spyOn(orchMod.validatorOrchestrator, 'validate').mockImplementation(async (args: any) => {
+      const rowId = String(args.target_row_id ?? 'row-unknown')
+      const canonicalJson = args.plaintext_or_encrypted?.content ?? '{}'
+      const { seal, seal_input_json } = buildValidSealForRowId(canonicalJson, rowId)
+      return {
+        outcome: {
+          ok: true,
+          sealed: {
+            seal,
+            seal_input_json,
+            canonical_json: canonicalJson,
+            validated_at: new Date().toISOString(),
+            validator_version: 'msg-router-test',
+          },
+        },
+      } as any
+    })
+  })
+
+  afterEach(() => {
+    unbindKeyProvider()
+    vi.restoreAllMocks()
+    db?.close()
   })
 
   it('rolls back inbox_messages when a later attachment insert fails', async () => {

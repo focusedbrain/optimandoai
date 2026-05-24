@@ -34,6 +34,13 @@ export interface BeapInboxClonePrepareOk {
   account_tag: string | null
   /** Present when the clone was triggered from the external-link warning (audit / provenance). */
   triggered_url?: string | null
+  /**
+   * PR 5.2 / Decision A: session import artefact from source row's canonical `depackaged_json`.
+   * Null when absent. Passed to `BeapPackageConfig.sessionImportArtefact` by the renderer.
+   */
+  session_import_artefact?: Record<string, unknown> | null
+  /** Sandbox provenance `original_inbox_source_type` (email_plain for depackaged-email clones). */
+  provenance_original_inbox_source_type?: string
 }
 
 /** Main-process prepare path (not including host envelope errors). */
@@ -45,6 +52,9 @@ export type BeapInboxClonePrepareErrorCode =
   | 'TARGET_HANDSHAKE_REQUIRED'
   | 'SANDBOX_TARGET_NOT_CONNECTED'
   | 'PREPARE_FAILED'
+  | 'outer_vault_or_key_provider_unavailable'
+  | 'outer_vault_unavailable'
+  | 'inner_vault_or_key_provider_unavailable'
 
 export type BeapInboxCloneNoSandboxDetails = {
   eligible_count: 0

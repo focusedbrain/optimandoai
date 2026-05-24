@@ -220,10 +220,36 @@ export interface OutboundRequestDebugSnapshot {
 /** Coordination `/beap/capsule` only: 200 = WebSocket push to recipient, 202 = stored for later. */
 export type CoordinationRelayDelivery = 'pushed_live' | 'queued_recipient_offline'
 
+/** Direct POST /beap/ingest success body (see p2pServer.ts). */
+export type DirectIngestHttpAck = {
+  persisted_inbox?: boolean
+  row_id?: string
+}
+
+export function parseDirectIngestHttpAck(responseText: string): DirectIngestHttpAck | null {
+  const t = responseText.trim()
+  if (!t) return null
+  try {
+    const o = JSON.parse(t) as Record<string, unknown>
+    return {
+      persisted_inbox: o.persisted_inbox === true,
+      row_id: typeof o.row_id === 'string' ? o.row_id : undefined,
+    }
+  } catch {
+    return null
+  }
+}
+
 export interface SendCapsuleResult {
   success: boolean
   error?: string
   statusCode?: number
+  /**
+   * Direct P2P ingest: recipient persisted the capsule (HTTP 200 + persisted_inbox).
+   * Enables sender confirmation without same-process inbox:beapDeliveryAck IPC.
+   */
+  recipientIngestConfirmed?: boolean
+  ingestRowId?: string
   /**
    * Coordination relay: set when HTTP 2xx — `pushed_live` (200) vs `queued_recipient_offline` (202).
    * 202 is still `success: true` for transport (capsule persisted at relay); not peer live delivery.
@@ -797,8 +823,21 @@ export async function sendCapsuleViaHttp(
     console.log('[HANDSHAKE-DEBUG] Sending to relay:', trimmed, 'status:', response.status)
 
     if (response.status === 200) {
-      console.log('[P2P] Context-sync delivered', { handshake_id: handshakeId, endpoint: trimmed })
-      return { success: true }
+      const ingestAck = parseDirectIngestHttpAck(responseText)
+      const recipientIngestConfirmed = ingestAck?.persisted_inbox === true
+      console.log('[P2P] Context-sync delivered', {
+        handshake_id: handshakeId,
+        endpoint: trimmed,
+        recipientIngestConfirmed,
+        ingestRowId: ingestAck?.row_id ?? null,
+      })
+      return {
+        success: true,
+        statusCode: 200,
+        ...(recipientIngestConfirmed
+          ? { recipientIngestConfirmed: true, ingestRowId: ingestAck?.row_id }
+          : {}),
+      }
     }
 
     const retryAfterSec = parseRetryAfterSeconds(response)

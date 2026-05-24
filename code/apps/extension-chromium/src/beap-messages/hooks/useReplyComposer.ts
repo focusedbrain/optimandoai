@@ -41,6 +41,9 @@ import type { ReceiverCapabilityPolicy, GateContext } from '../services/processi
 import type { DecryptedCapsulePayload } from '../services/beapDecrypt'
 import { buildPackage, executeEmailAction } from '../services'
 import type { BeapPackageConfig, DeliveryResult } from '../services'
+import { buildSessionImportArtefact, type BuildArtefactInput } from '../../beap-builder/buildSessionImportArtefact'
+import { getHandshake } from '../../handshake/handshakeRpc'
+import { hasHandshakeKeyMaterial, handshakeRecordToRecipient } from '../../handshake/rpcTypes'
 
 // =============================================================================
 // Constants
@@ -87,6 +90,12 @@ export interface ReplyAttachment {
   mimeType: string
 }
 
+/** A session option for the BEAP reply session selector. */
+export interface ReplySessionOption {
+  key: string
+  name: string
+}
+
 /** Current state of the reply composer for one message. */
 export interface ReplyComposerState {
   /** Protocol-determined mode — read-only. */
@@ -112,6 +121,16 @@ export interface ReplyComposerState {
 
   /** True when the composer has unsaved changes vs. the stored draft. */
   isDirty: boolean
+
+  /**
+   * Currently selected session ID for BEAP reply artefact attachment.
+   * Null means no session selected (artefact omitted from capsule).
+   * Cleared on success only (Decision D: retained on failure for retry).
+   */
+  selectedSessionId: string | null
+
+  /** Available sessions for the reply session selector. */
+  availableSessions: ReplySessionOption[]
 }
 
 /** Result of a successful send. */
@@ -176,6 +195,10 @@ export interface ReplyComposerActions {
   addAttachment: (file: File) => void
   removeAttachment: (id: string) => void
   clearAttachments: () => void
+  /** Set the selected session ID for artefact attachment. */
+  setSelectedSessionId: (id: string | null) => void
+  /** Reload the available sessions list from chrome.storage.local. */
+  reloadSessions: () => void
 
   /**
    * Send the current draft text.
@@ -263,8 +286,39 @@ export function useReplyComposer(
   const [sendResult, setSendResult]       = useState<SendResult | null>(null)
   const [error, setError]                 = useState<string | null>(null)
   const [storedDraftContent, setStoredDraftContent] = useState<string>('')
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  const [availableSessions, setAvailableSessions] = useState<ReplySessionOption[]>([])
 
   const prevMessageIdRef = useRef<string | null>(null)
+
+  // Load available sessions from the canonical orchestrator source (SQLite via background bridge).
+  const reloadSessions = useCallback(() => {
+    if (typeof chrome === 'undefined' || !chrome?.runtime?.sendMessage) return
+    chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS_FROM_SQLITE' }, (response) => {
+      if (chrome.runtime.lastError) {
+        setAvailableSessions([])
+        return
+      }
+      if (!response?.success || !response.sessions || typeof response.sessions !== 'object') {
+        setAvailableSessions([])
+        return
+      }
+      const entries = Object.entries(response.sessions as Record<string, unknown>)
+        .filter(([key]) => key.startsWith('session_'))
+        .map(([key, data]: [string, any]) => {
+          const name =
+            (typeof data?.name === 'string' && data.name) ||
+            (typeof data?.sessionName === 'string' && data.sessionName) ||
+            key
+          return { key, name: name as string }
+        })
+      setAvailableSessions(entries)
+    })
+  }, [])
+
+  useEffect(() => {
+    reloadSessions()
+  }, [reloadSessions])
 
   // Load stored draft when message changes
   useEffect(() => {
@@ -356,14 +410,57 @@ export function useReplyComposer(
         // Match reply encoding to original message: pBEAP → public, qBEAP → private.
         const beapRecipientMode =
           message.encoding === 'pBEAP' ? 'public' : 'private'
+
+        // Artefact construction — Decision E: bind at send time.
+        // Session data is read from the canonical orchestrator source (SQLite via background bridge).
+        let replySessionArtefact: BeapPackageConfig['sessionImportArtefact'] = undefined
+        if (selectedSessionId) {
+          const sessionData = await new Promise<Record<string, unknown> | null>((resolve) => {
+            if (typeof chrome === 'undefined' || !chrome?.runtime?.sendMessage) { resolve(null); return }
+            chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey: selectedSessionId! }, (response) => {
+              if (chrome.runtime.lastError || !response?.success || !response?.session) { resolve(null); return }
+              resolve(response.session as Record<string, unknown>)
+            })
+          })
+          if (!sessionData) {
+            // Host unreachable or locked: notify user and send without the artefact.
+            setError('Session unavailable — unlock the host application to attach a session.')
+            // replySessionArtefact remains undefined; send proceeds without it.
+          } else {
+            const artefactInput: BuildArtefactInput = {
+              sessionId: selectedSessionId,
+              sessionName: typeof sessionData.name === 'string' ? sessionData.name : selectedSessionId,
+              sessionBlob: sessionData as Record<string, unknown>,
+              capabilitiesRequired: Array.isArray(sessionData.capabilities_required) ? (sessionData.capabilities_required as any[]) : [],
+              handshakeBinding: message.handshakeId
+                ? { handshake_id: message.handshakeId, bound_at: new Date().toISOString() }
+                : null,
+            }
+            const built = buildSessionImportArtefact(artefactInput)
+            if (!built.ok) {
+              throw new Error(`Could not build session artefact: ${built.reason}`)
+            }
+            replySessionArtefact = built.artefact
+          }
+        }
+
+        // Thin-config reconciliation (PR 6 / Decision B): fetch the full handshake
+        // record to include peer crypto keys required for qBEAP key agreement.
+        // pBEAP (public) replies skip this — selectedRecipient stays null.
+        let fullRecipient = null
+        if (beapRecipientMode === 'private') {
+          const handshakeRecord = await getHandshake(message.handshakeId!)
+          if (!hasHandshakeKeyMaterial(handshakeRecord)) {
+            throw new Error(
+              'Handshake is missing X25519 / ML-KEM keys — re-establish the handshake for qBEAP.',
+            )
+          }
+          fullRecipient = handshakeRecordToRecipient(handshakeRecord)
+        }
+
         const packageConfig: BeapPackageConfig = {
           recipientMode: beapRecipientMode,
-          selectedRecipient: beapRecipientMode === 'private' ? {
-            handshake_id: message.handshakeId!,
-            counterparty_email: message.senderEmail,
-            counterparty_user_id: '',
-            sharing_mode: 'reciprocal',
-          } : null,
+          selectedRecipient: fullRecipient,
           deliveryMethod: 'email',
           emailTo: message.senderEmail,
           subject: deriveReplySubject(message),
@@ -373,6 +470,7 @@ export function useReplyComposer(
           attachments: [],
           senderFingerprint: config.senderFingerprint ?? '',
           senderFingerprintShort: config.senderFingerprintShort ?? '',
+          ...(replySessionArtefact ? { sessionImportArtefact: replySessionArtefact } : {}),
         }
 
         // buildPackage validates config internally
@@ -390,6 +488,7 @@ export function useReplyComposer(
         setDraftTextState('')
         setStoredDraftContent('')
         setAttachments([])
+        setSelectedSessionId(null)  // clear on success only (Decision D)
         config.onSendSuccess?.(result)
       } else {
         // ── Email reply path ─────────────────────────────────────
@@ -450,7 +549,7 @@ export function useReplyComposer(
     }
   }, [
     message, isSending, draftText, mode, attachments,
-    config, setDraftReply,
+    config, setDraftReply, selectedSessionId,
   ])
 
   // ── AI draft generation ───────────────────────────────────────────
@@ -552,6 +651,8 @@ export function useReplyComposer(
     sendResult,
     error,
     isDirty,
+    selectedSessionId,
+    availableSessions,
   }
 
   const actions: ReplyComposerActions = {
@@ -564,6 +665,8 @@ export function useReplyComposer(
     generateAiDraft,
     clearError,
     resetComposer,
+    setSelectedSessionId,
+    reloadSessions,
   }
 
   return [state, actions]

@@ -1226,6 +1226,14 @@ body {
   background: #6d28d9;
 }
 
+.beap-action-icon--runAutomation {
+  background: #059669;
+}
+
+.beap-action-icon--runAutomation:hover:not(:disabled) {
+  background: #047857;
+}
+
 /* Inbox list: same look, slightly smaller — still readable on dark strip */
 .beap-action-icon--row {
   width: 30px;

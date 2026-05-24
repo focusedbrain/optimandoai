@@ -276,6 +276,12 @@ function setPairingCodeLocal(code: string): void {
   setOrchestratorMode({ ...c, pairingCode: code })
 }
 
+// Tracks the last code that was successfully confirmed by the coordination
+// service ('inserted' or 'idempotent'). Prevents an HTTP POST on every
+// 10 s tryP2PStartup tick once the code is already registered.
+// Cleared back to null on collision so the new code is always registered.
+let lastRegisteredPairingCode: string | null = null
+
 /**
  * Ensure the currently-persisted pairing code is registered with the
  * coordination service. Safe to call repeatedly (idempotent on the server).
@@ -292,6 +298,9 @@ export async function ensurePairingCodeRegistered(): Promise<string> {
   let current = getPairingCode()
   if (!pairingCodeRegistrar) return current
 
+  // Skip the network call if this exact code was already confirmed registered.
+  if (current === lastRegisteredPairingCode) return current
+
   for (let attempt = 0; attempt < MAX_REGISTRATION_ATTEMPTS; attempt += 1) {
     let result: 'inserted' | 'idempotent' | 'collision' | 'unavailable'
     try {
@@ -301,13 +310,16 @@ export async function ensurePairingCodeRegistered(): Promise<string> {
       return current
     }
     if (result === 'inserted' || result === 'idempotent') {
+      lastRegisteredPairingCode = current  // remember success; skip on next tick
       return current
     }
     if (result === 'unavailable') {
       // Network / auth not ready yet — keep the local code, retry later.
       return current
     }
-    // collision — pick a new code and try again.
+    // collision — pick a new code and try again; reset cache so the new code
+    // is confirmed on the next attempt.
+    lastRegisteredPairingCode = null
     const next = generatePairingCode()
     setPairingCodeLocal(next)
     current = next

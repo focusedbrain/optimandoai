@@ -44,11 +44,9 @@ import {
   resolveBeapSessionImportPayload,
   beapSessionImportActionsEnabled,
 } from '../sessionImportPayloadResolver'
+import { getValidationState } from '../validationState'
 import { requestBeapSessionEditInActiveTab } from '../beapSessionEditBridge'
-import {
-  requestBeapRunAutomationInActiveTab,
-  readBeapRunFallbackLlmModel,
-} from '../beapSessionRunBridge'
+import { requestBeapInboxPresentGrid, readBeapRunFallbackLlmModel } from '../beapSessionRunBridge'
 import {
   beapIntegrationIdentityFromMessage,
   beapIntegrationStableKey,
@@ -103,6 +101,28 @@ export interface BeapMessageDetailPanelHandle {
   stopGenerating: () => void
   clearAi: () => void
   getSearchContextLabel: () => string
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+/** Maps raw bridge error codes to user-facing text with actionable hints. */
+function mapBeapRunError(raw: string): string {
+  if (raw === 'STORAGE_PERSIST_FAILED') {
+    return 'Could not save session to browser storage. Check available storage and retry.'
+  }
+  if (raw === 'EXTENSION_NOT_CONNECTED' || /extension.*not.*connect/i.test(raw)) {
+    return 'Extension is not connected to the orchestrator. Ensure the WR tab is open, then retry.'
+  }
+  if (raw === 'NO_SESSION_ARTEFACT' || /no session artefact/i.test(raw)) {
+    return 'No session payload found on this message — nothing to run.'
+  }
+  if (raw === 'BROADCAST_FAILED' || raw === 'SEND_FAILED') {
+    return 'Could not reach the orchestrator. Open the WR orchestrator tab and retry.'
+  }
+  // Pass through unrecognised strings verbatim.
+  return raw
 }
 
 // =============================================================================
@@ -267,6 +287,22 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
   const sessionImportResolution = useMemo(() => resolveBeapSessionImportPayload(message), [message])
   const canImportSessionForAutomation = beapSessionImportActionsEnabled(sessionImportResolution)
 
+  // Decision B — PR 5: validated-mark gate. Artefact UI is hidden for any
+  // row whose validation state is not 'validated'. See Canon I.3.4.
+  const validationState = useMemo(
+    () => getValidationState(message.validated_at, message.validation_reason),
+    [message.validated_at, message.validation_reason],
+  )
+
+  // Decision E — PR 5: requested_action controls Run Automation visibility.
+  // For canonical artefact: read from resolution. For legacy: show button.
+  const showRunAutomationButton = useMemo(() => {
+    if (validationState !== 'validated') return false
+    if (sessionImportResolution.status !== 'valid') return false
+    if (sessionImportResolution.requestedAction === 'import_only') return false
+    return true
+  }, [validationState, sessionImportResolution])
+
   const integrationIdentity = useMemo(() => beapIntegrationIdentityFromMessage(message), [message])
   const integrationIdentityOk = useMemo(
     () => validateBeapIntegrationIdentity(integrationIdentity).ok,
@@ -340,37 +376,50 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
     if (sessionImportResolution.status !== 'valid') return
     setRunAutomationBusy(true)
     setRunAutomationFeedback(null)
+
+    const sessionName =
+      sessionImportResolution.source.kind === 'canonical_artefact'
+        ? sessionImportResolution.source.sessionName
+        : (sessionImportResolution.rawPayload as Record<string, unknown>).name as string | undefined
+
+    console.log(
+      `[BEAP_RUN] start messageId=${message.messageId} sessionName=${sessionName ?? '(unnamed)'}`,
+    )
+
     try {
-      const res = await requestBeapRunAutomationInActiveTab(sessionImportResolution.rawPayload, {
+      // Use the full artefact when available so background can call
+      // unwrapSessionImportPayloadForTab on the wrapper — identical to the
+      // PRESENT_ORCHESTRATOR_DISPLAY_GRID path used by the dashboard.
+      // For legacy messages without a canonical artefact, rawPayload (sessions[0] shape)
+      // falls through to unwrapSessionImportPayloadForTab's isOrchestratorSessionContent branch.
+      const importArtefact =
+        message.session_import_artefact ?? sessionImportResolution.rawPayload
+      const res = await requestBeapInboxPresentGrid(importArtefact, {
         fallbackModel: readBeapRunFallbackLlmModel(),
       })
       if (res.success) {
-        const partial =
-          res.failures && res.failures.length > 0
-            ? ` Some runs failed: ${res.failures.map((f) => `${f.agentName} (${f.error || 'error'})`).join('; ')}.`
-            : ''
+        console.log(
+          `[BEAP_RUN] dispatched messageId=${message.messageId} sessionKey=${res.sessionKey}`,
+        )
+        const label = sessionName ? `\u201c${sessionName}\u201d` : `session ${res.sessionKey}`
         setRunAutomationFeedback({
           kind: 'success',
-          text: `Mode automation completed for: ${res.executed.join(', ')} (working session ${res.sessionKey}).${partial}`,
+          text: `Running automation ${label} \u2014 grid tab will appear shortly.`,
         })
       } else {
-        setRunAutomationFeedback({
-          kind: 'error',
-          text:
-            res.phase === 'mode_run' && res.sessionKey
-              ? `${res.error} (session ${res.sessionKey})`
-              : res.error,
-        })
+        console.warn(
+          `[BEAP_RUN] error messageId=${message.messageId} raw=${res.error}`,
+        )
+        setRunAutomationFeedback({ kind: 'error', text: mapBeapRunError(res.error) })
       }
     } catch (e) {
-      setRunAutomationFeedback({
-        kind: 'error',
-        text: e instanceof Error ? e.message : String(e),
-      })
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error(`[BEAP_RUN] unexpected error messageId=${message.messageId}`, e)
+      setRunAutomationFeedback({ kind: 'error', text: mapBeapRunError(msg) })
     } finally {
       setRunAutomationBusy(false)
     }
-  }, [sessionImportResolution])
+  }, [message, sessionImportResolution])
 
   const handleSaveIntegrationDefaultAutomation = useCallback(async () => {
     if (!integrationIdentityOk) {
@@ -605,7 +654,48 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
           </div>
         )}
 
-        {/* Session export resolver + Edit working copy (Run automation: later). */}
+        {/* Session automation payload — validation gate (Decision B — PR 5). */}
+        {/* Non-validated states: render a muted banner; no actionable affordance. */}
+        {validationState === 'rejected' && (
+          <div
+            style={{
+              marginBottom: '14px',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              fontSize: '12px',
+              lineHeight: 1.45,
+              border: `1px solid ${isProfessional ? 'rgba(239,68,68,0.3)' : 'rgba(239,68,68,0.4)'}`,
+              background: isProfessional ? 'rgba(239,68,68,0.06)' : 'rgba(239,68,68,0.12)',
+              color: isProfessional ? '#b91c1c' : '#fca5a5',
+            }}
+            role="alert"
+            aria-label="Validation rejected"
+          >
+            <span style={{ fontWeight: 600 }}>Validation rejected</span>
+            {' — '}
+            This message did not pass security validation and cannot be acted on.
+          </div>
+        )}
+        {validationState === 'pending' && (
+          <div
+            style={{
+              marginBottom: '14px',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              fontSize: '12px',
+              lineHeight: 1.45,
+              border: `1px solid ${borderColor}`,
+              background: isProfessional ? 'rgba(107,114,128,0.06)' : 'rgba(255,255,255,0.04)',
+              color: mutedColor,
+            }}
+            role="status"
+            aria-label="Validation status unknown"
+          >
+            Validation status unknown for this message.
+          </div>
+        )}
+        {/* Session payload section — only rendered when validated (Decision B). */}
+        {validationState === 'validated' && (
         <div
           style={{
             marginBottom: '14px',
@@ -650,8 +740,11 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
           <div>
             {sessionImportResolution.status === 'valid' && (
               <>
-                Ready — {sessionImportResolution.source.filename}{' '}
-                {sessionImportResolution.rawPayload.version === '1.0.0' ? '(v1.0.0 export)' : '(legacy)'}
+                {sessionImportResolution.source.kind === 'canonical_artefact'
+                  ? `Ready — ${sessionImportResolution.source.sessionName} (canonical artefact)`
+                  : `Ready — ${sessionImportResolution.source.filename} ${
+                      sessionImportResolution.rawPayload.version === '1.0.0' ? '(v1.0.0 export)' : '(legacy)'
+                    }`}
               </>
             )}
             {sessionImportResolution.status === 'invalid' && (
@@ -680,6 +773,8 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
                 >
                   {editSessionBusy ? 'Opening…' : 'Edit session (working copy)'}
                 </button>
+                {/* Decision E — PR 5: only show Run Automation for import_and_offer_run. */}
+                {showRunAutomationButton && (
                 <button
                   type="button"
                   disabled={runAutomationBusy || editSessionBusy}
@@ -699,6 +794,7 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
                 >
                   {runAutomationBusy ? 'Running…' : 'Run Automation'}
                 </button>
+                )}
               </div>
               <div style={{ fontSize: '10px', color: dimColor, marginTop: '6px' }}>
                 Edit: import + minimal activation, unlock, Agents manager (no run). Run Automation: new working session,
@@ -718,11 +814,37 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
                 fontSize: '11px',
                 fontWeight: 500,
                 color: runAutomationFeedback.kind === 'success' ? '#16a34a' : '#ef4444',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '6px',
+                flexWrap: 'wrap' as const,
               }}
               role="alert"
             >
-              {runAutomationFeedback.kind === 'success' ? '\u2713 ' : '\u2717 '}
-              {runAutomationFeedback.text}
+              <span>
+                {runAutomationFeedback.kind === 'success' ? '\u2713 ' : '\u2717 '}
+                {runAutomationFeedback.text}
+              </span>
+              {runAutomationFeedback.kind === 'error' && (
+                <button
+                  type="button"
+                  disabled={runAutomationBusy || editSessionBusy}
+                  onClick={() => void handleRunAutomation()}
+                  style={{
+                    padding: '1px 7px',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    borderRadius: '4px',
+                    border: '1px solid rgba(239,68,68,0.5)',
+                    background: 'rgba(239,68,68,0.08)',
+                    color: '#ef4444',
+                    cursor: runAutomationBusy || editSessionBusy ? 'wait' : 'pointer',
+                    flexShrink: 0,
+                  }}
+                >
+                  Retry
+                </button>
+              )}
             </div>
           )}
           {editSessionFeedback && (
@@ -885,6 +1007,7 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
             </div>
           )}
         </div>
+        )} {/* end validationState === 'validated' */}
 
         {/* Attachments */}
         {message.attachments.length > 0 && (
@@ -1581,7 +1704,11 @@ export const BeapMessageDetailPanel = React.forwardRef<
       onAttachmentSelect?.('', null)
       return
     }
-    markAsRead(selectedMessage.messageId)
+    // Phase B, PR B-8: markAsRead is now an async IPC wrapper.
+    // Fire-and-forget; UI reflects the optimistic local update immediately.
+    markAsRead(selectedMessage.messageId).catch((err) => {
+      console.warn('[BeapMessageDetailPanel] markAsRead failed:', err)
+    })
     onSetSearchContext?.(getSearchContextLabel(selectedMessage))
     // Reset attachment selection when message changes
     setSelectedAttachmentId(null)

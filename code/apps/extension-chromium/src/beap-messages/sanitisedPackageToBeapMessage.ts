@@ -18,6 +18,7 @@ import type {
   BeapEncoding,
 } from './beapInboxTypes'
 import type { ProcessingEventOffer } from './services/processingEvents'
+import type { SessionImportArtefact } from '../beap-builder/canonical-types'
 
 // =============================================================================
 // Default Processing Events (receiver-side for depackaged / pBEAP)
@@ -161,6 +162,13 @@ export function sanitisedPackageToBeapMessage(
       ? pkg.header.encoding
       : 'unknown'
 
+  // session_import_artefact is at top-level of the decrypted capsule JSON
+  // (PR 3 / BeapPackageBuilder). DecryptedCapsulePayload doesn't declare it
+  // in its TypeScript shape, but the field survives JSON.parse at runtime.
+  const sessionImportArtefact =
+    ((pkg.capsule as unknown as Record<string, unknown>).session_import_artefact as SessionImportArtefact | null | undefined) ??
+    null
+
   return {
     messageId: deriveMessageId(pkg),
     senderFingerprint: pkg.header.sender_fingerprint,
@@ -179,5 +187,11 @@ export function sanitisedPackageToBeapMessage(
     isRead: false,
     urgency: 'normal',
     archived: false,
+    // Validation mark: set when all pipeline gates passed (equivalent to the
+    // Electron DB's validated_at column). validation_reason remains null on success.
+    validated_at: pkg.allGatesPassed ? new Date().toISOString() : null,
+    validation_reason: null,
+    // Canonical artefact from capsule plaintext (Decision A — PR 5).
+    session_import_artefact: sessionImportArtefact,
   }
 }

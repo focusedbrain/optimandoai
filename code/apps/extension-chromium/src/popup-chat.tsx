@@ -34,6 +34,7 @@ import { SendHandshakeDelivery } from './handshake/components/SendHandshakeDeliv
 import { useHandshakes } from './handshake/useHandshakes'
 import { sendViaHandshakeRefresh } from './beap-builder/handshakeRefresh'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, initBeapPqAuth } from './beap-messages'
+import { buildSessionImportArtefact, type BuildArtefactInput } from './beap-builder/buildSessionImportArtefact'
 import { useBeapInboxStore } from './beap-messages/useBeapInboxStore'
 import type { RecipientMode, SelectedHandshakeRecipient, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
 import {
@@ -571,17 +572,22 @@ function PopupChatApp() {
     })
   }, [])
 
-  // Load available sessions for Draft Email session selector
-  // Sessions are stored in chrome.storage.local (same as Sessions History modal)
+  // Load available sessions for Draft Email session selector.
+  // Sessions are read from the canonical orchestrator source (SQLite via background bridge).
   const loadAvailableSessions = useCallback(() => {
-    chrome.storage.local.get(null, (allData) => {
+    chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS_FROM_SQLITE' }, (response) => {
       if (chrome.runtime.lastError) {
         console.warn('[BEAP Sessions] Error:', chrome.runtime.lastError.message)
         setAvailableSessions([])
         return
       }
+      if (!response?.success || !response.sessions || typeof response.sessions !== 'object') {
+        setAvailableSessions([])
+        return
+      }
 
-      const sessionEntries = Object.entries(allData).filter(([key]) => key.startsWith('session_'))
+      const sessionEntries = Object.entries(response.sessions as Record<string, unknown>)
+        .filter(([key]) => key.startsWith('session_'))
 
       if (sessionEntries.length === 0) {
         setAvailableSessions([])
@@ -861,6 +867,39 @@ function PopupChatApp() {
         mime: att.mime,
         base64: att.dataBase64
       }))
+      // Artefact construction — Decision E: bind at send time.
+      // Session data is read from the canonical orchestrator source (SQLite via background bridge).
+      let popupSessionArtefact: BeapPackageConfig['sessionImportArtefact'] = undefined
+      if (beapDraftSessionId) {
+        const sessionData = await new Promise<Record<string, unknown> | null>((resolve) => {
+          chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey: beapDraftSessionId }, (response) => {
+            if (chrome.runtime.lastError || !response?.success || !response?.session) { resolve(null); return }
+            resolve(response.session as Record<string, unknown>)
+          })
+        })
+        if (!sessionData) {
+          // Host unreachable or locked: notify user and send without the artefact.
+          setToastMessage({ message: 'Session unavailable — unlock the host application to attach a session.', type: 'error' })
+          setTimeout(() => setToastMessage(null), 8000)
+          // popupSessionArtefact remains undefined; send proceeds without it.
+        } else {
+          const input: BuildArtefactInput = {
+            sessionId: beapDraftSessionId,
+            sessionName: typeof sessionData.name === 'string' ? sessionData.name : beapDraftSessionId,
+            sessionBlob: sessionData as Record<string, unknown>,
+            capabilitiesRequired: Array.isArray(sessionData.capabilities_required) ? (sessionData.capabilities_required as any[]) : [],
+            handshakeBinding: null,
+          }
+          const built = buildSessionImportArtefact(input)
+          if (!built.ok) {
+            setToastMessage({ message: `Could not build session artefact: ${built.reason}`, type: 'error' })
+            setTimeout(() => setToastMessage(null), 5000)
+            return
+          }
+          popupSessionArtefact = built.artefact
+        }
+      }
+
       const config: BeapPackageConfig = {
         recipientMode: beapRecipientMode,
         deliveryMethod: beapDeliveryMethod as DeliveryMethod,
@@ -876,7 +915,8 @@ function PopupChatApp() {
         // Only pass encrypted message for qBEAP/private mode
         ...(beapRecipientMode === 'private' && {
           encryptedMessage: beapDraftEncryptedMessage.trim() || undefined
-        })
+        }),
+        ...(popupSessionArtefact ? { sessionImportArtefact: popupSessionArtefact } : {}),
       }
       
       // Log warning if qBEAP private build without encrypted message

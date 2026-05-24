@@ -127,6 +127,8 @@ describe('acceptX25519Binding — internal', () => {
 
     expect((result as { code?: string }).code).not.toBe('ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED')
     expect((result as { success?: boolean }).success).toBe(false)
-    expect(String((result as { error?: string }).error ?? '')).toContain('INTERNAL_ENDPOINT_ID_COLLISION')
+    // Phase B: pairing-code device-mismatch check fires before the endpoint-pair
+    // distinctness check when the record carries internal_peer_device_id.
+    expect(String((result as { error?: string }).error ?? '')).toContain('INTERNAL_PEER_DEVICE_MISMATCH')
   })
 })

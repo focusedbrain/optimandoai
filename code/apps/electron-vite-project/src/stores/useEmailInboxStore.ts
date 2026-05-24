@@ -90,6 +90,38 @@ export interface InboxMessage {
   remote_queue_status?: string | null
   remote_queue_last_error?: string | null
   remote_queue_operation?: string | null
+  /**
+   * ISO-8601 UTC timestamp set by the receive-side validation gate (PR 2 / 2.2).
+   * Null when validation was not performed or is pending.
+   * Present at runtime via `SELECT inbox_messages.*` even though older rows
+   * predate the column migration.
+   */
+          validated_at?: string | null
+          /**
+           * Validation rejection reason code (PR 2 / 2.2).
+           * Any non-null value means the capsule failed validation.
+           * Null when validation passed.
+           */
+          validation_reason?: string | null
+          /** Validator module version string recorded at validation time. */
+          validator_version?: string | null
+          /**
+           * PR 5.1 / Decision B: wrapper metadata JSON (format identifier, source tag,
+           * email_fallback_header, header_summary). Separated from the validated content
+           * in `depackaged_json`. Readers that need the format for routing should parse
+           * this column instead of `depackaged_json`.
+           */
+          depackaged_metadata?: string | null
+  /**
+   * W3-P8: non-null when capsule arrived but could not be processed (inner vault locked,
+   * validator unhealthy, key provider unbound, etc.).  Null for fully-processed rows.
+   * Value is a ReasonCode string (mirrors capabilityBroker.ReasonCode — no runtime import).
+   */
+  pending_reason_code?: string | null
+  /** W3-P8: ISO timestamp of first blocked arrival; stays across retries. */
+  pending_first_seen_at?: string | null
+  /** W3-P8: ISO timestamp of most recent retry attempt. */
+  pending_last_retry_at?: string | null
 }
 
 /** Payload fields returned by main `classifySingleMessage` on success (authoritative DB row). */

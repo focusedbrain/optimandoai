@@ -35,6 +35,9 @@ function validInitiate(): Record<string, unknown> {
     timestamp: new Date().toISOString(),
     wrdesk_policy_hash: 'b'.repeat(64),
     seq: 1,
+    // Phase B: initiate now requires sender_public_key (64-char hex) and sender_signature (128-char hex).
+    sender_public_key: 'c'.repeat(64),
+    sender_signature: 'd'.repeat(128),
   }
 }
 
@@ -43,6 +46,8 @@ function validAccept(): Record<string, unknown> {
     ...validInitiate(),
     capsule_type: 'accept',
     sharing_mode: 'receive-only',
+    // Phase B: accept also requires countersigned_hash (128-char hex).
+    countersigned_hash: 'e'.repeat(128),
   }
 }
 
@@ -62,6 +67,9 @@ function validRevoke(): Record<string, unknown> {
     sender_id: 'user-1',
     capsule_hash: 'a'.repeat(64),
     timestamp: new Date().toISOString(),
+    // Phase B: revoke also requires sender_public_key and sender_signature.
+    sender_public_key: 'c'.repeat(64),
+    sender_signature: 'd'.repeat(128),
   }
 }
 

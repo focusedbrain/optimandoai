@@ -12,6 +12,9 @@ function validBeapPayload(): Record<string, unknown> {
     timestamp: new Date().toISOString(),
     wrdesk_policy_hash: 'b'.repeat(64),
     seq: 1,
+    // Phase B: initiate now requires sender_public_key (64-char hex) and sender_signature (128-char hex).
+    sender_public_key: 'c'.repeat(64),
+    sender_signature: 'd'.repeat(128),
   }
 }
 
@@ -109,6 +112,8 @@ describe('Integration — Full Pipeline', () => {
       ...validBeapPayload(),
       capsule_type: 'accept',
       sharing_mode: 'receive-only',
+      // Phase B: accept also requires countersigned_hash (128-char hex).
+      countersigned_hash: 'e'.repeat(128),
     }
     const rawInput: RawInput = { body: JSON.stringify(payload) }
     const result = await processIncomingInput(rawInput, 'email', emptyTransport)

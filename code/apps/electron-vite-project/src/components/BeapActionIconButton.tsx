@@ -1,8 +1,9 @@
 import type { CSSProperties, MouseEventHandler } from 'react'
 import { BeapInboxRedirectIcon } from './BeapInboxRedirectIcon'
 import { BeapInboxSandboxCloneIcon } from './BeapInboxSandboxCloneIcon'
+import { BeapInboxRunAutomationIcon } from './BeapInboxRunAutomationIcon'
 
-export type BeapActionIconKind = 'redirect' | 'sandbox'
+export type BeapActionIconKind = 'redirect' | 'sandbox' | 'runAutomation'
 
 export type BeapActionIconButtonProps = {
   kind: BeapActionIconKind
@@ -43,7 +44,13 @@ export function BeapActionIconButton({
       disabled={disabled}
       style={style}
     >
-      {kind === 'redirect' ? <BeapInboxRedirectIcon /> : <BeapInboxSandboxCloneIcon />}
+      {kind === 'redirect' ? (
+        <BeapInboxRedirectIcon />
+      ) : kind === 'sandbox' ? (
+        <BeapInboxSandboxCloneIcon />
+      ) : (
+        <BeapInboxRunAutomationIcon />
+      )}
     </button>
   )
 }

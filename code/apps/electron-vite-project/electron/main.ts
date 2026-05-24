@@ -691,6 +691,58 @@ function validateLaunchSecret(incoming: string): boolean {
 
 /** Injected by Vite `define` when the main bundle is built â€” proves which compile is running. */
 declare const __ORCHESTRATOR_BUILD_STAMP__: string | undefined
+declare const __WR_RUNTIME_GIT_COMMIT__: string | undefined
+declare const __WR_RUNTIME_GIT_BRANCH__: string | undefined
+
+function runtimeIdentityCommit(): string {
+  return typeof __WR_RUNTIME_GIT_COMMIT__ !== 'undefined' && String(__WR_RUNTIME_GIT_COMMIT__).trim()
+    ? String(__WR_RUNTIME_GIT_COMMIT__).trim()
+    : 'dev'
+}
+
+function runtimeIdentityBranch(): string {
+  return typeof __WR_RUNTIME_GIT_BRANCH__ !== 'undefined' && String(__WR_RUNTIME_GIT_BRANCH__).trim()
+    ? String(__WR_RUNTIME_GIT_BRANCH__).trim()
+    : 'dev'
+}
+
+/** Single-line startup / reload marker; also written via main `console.*` file hook when enabled. */
+function logRuntimeIdentityLine(loadedRendererUrl: string): void {
+  const pid = process.pid
+  const branch = runtimeIdentityBranch()
+  const commit = runtimeIdentityCommit()
+  const stamp = orchestratorBuildMeta().orchestratorBuildStamp
+  let appPath = ''
+  let userDataPath = ''
+  try {
+    appPath = app.getAppPath()
+    userDataPath = app.getPath('userData')
+  } catch {
+    appPath = '(app-path-unavailable)'
+    userDataPath = '(user-data-unavailable)'
+  }
+  const electronAppPath = process.execPath
+  console.log(
+    `[pid=${pid}] [RUNTIME_IDENTITY] branch=${branch} commit=${commit} buildStamp=${stamp} appPath=${appPath} userDataPath=${userDataPath} processType=main electronAppPath=${electronAppPath} loadedRendererUrl=${loadedRendererUrl}`,
+  )
+}
+
+function logLogIdentityLine(): void {
+  const pid = process.pid
+  let appPath = ''
+  let userDataPath = ''
+  try {
+    appPath = app.getAppPath()
+    userDataPath = app.getPath('userData')
+  } catch {
+    appPath = '(app-path-unavailable)'
+    userDataPath = '(user-data-unavailable)'
+  }
+  const p = typeof logPath === 'string' ? logPath : ''
+  console.log(
+    `[pid=${pid}] [LOG_IDENTITY] path=${p || '(electron-console-not-initialized)'} pid=${pid} cwd=${process.cwd()} appPath=${appPath} userDataPath=${userDataPath}`,
+  )
+}
 
 function orchestratorBuildMeta(): { orchestratorBuildStamp: string; orchestratorAppPath: string } {
   const orchestratorBuildStamp =
@@ -905,7 +957,7 @@ import {
   buildLedgerSessionToken,
 } from './main/handshake/ledger'
 import { setEmailSendFn } from './main/handshake/emailTransport'
-import { processOutboundQueue, setOutboundQueueAuthRefresh } from './main/handshake/outboundQueue'
+import { processOutboundQueue, setOutboundQueueAuthRefresh, logProcessOutboundQueueFailure } from './main/handshake/outboundQueue'
 import { pullFromRelay } from './main/p2p/relayPull'
 import { createP2PServer, logP2pServerDisabledState } from './main/p2p/p2pServer'
 import { createCoordinationWsClient } from './main/p2p/coordinationWs'
@@ -914,10 +966,12 @@ import {
   disconnectCoordinationWsForAccountSwitch,
   getCoordinationWsClient,
 } from './main/p2p/coordinationWsHolder'
-import { setBeapRecipientPendingNotifier } from './main/p2p/beapRecipientNotify'
-import { processPendingP2PBeapEmails, retryPendingQbeapDecrypt } from './main/email/beapEmailIngestion'
+import { setBeapRecipientPendingNotifier, notifyBeapRecipientPending } from './main/p2p/beapRecipientNotify'
+import { processPendingP2PBeapEmails, retryPendingQbeapDecrypt, retryPendingInboxPlaceholders } from './main/email/beapEmailIngestion'
+import { drainExtensionMergeBuffer } from './main/email/mergeExtensionDepackaged'
 import { getAuditForMessage, getAutoresponderAuditLog } from './main/beap/autoresponderAudit'
 import { setBeapInboxDashboardNotifier, notifyBeapInboxDashboard } from './main/email/beapInboxDashboardNotify'
+import { setBeapDeliveryAckNotifier } from './main/p2p/beapDeliveryAck'
 import { getP2PConfig, upsertP2PConfig, computeLocalP2PEndpoint } from './main/p2p/p2pConfig'
 import { getP2PHealth, setP2PHealthQueueCounts, setP2PHealthSelfTest, setP2PHealthRelayMode } from './main/p2p/p2pHealth'
 import { getQueueStatus, getQueueEntries } from './main/handshake/outboundQueue'
@@ -1161,53 +1215,6 @@ process.on('SIGINT', () => {
 })
 
 // Handle uncaught exceptions to prevent crashes
-function serializeUnknownRejectionReason(reason: unknown): string {
-  if (reason == null) return String(reason)
-  if (reason instanceof Error) {
-    const any = reason as NodeJS.ErrnoException & { code?: string }
-    const payload: Record<string, unknown> = {
-      name: reason.name,
-      message: reason.message,
-      stack: reason.stack,
-    }
-    if (any.code != null) payload.code = any.code
-    if (any.errno != null) payload.errno = any.errno
-    if (reason.cause instanceof Error) {
-      const cCode = (reason.cause as NodeJS.ErrnoException).code
-      payload.cause = {
-        name: reason.cause.name,
-        message: reason.cause.message,
-        stack: reason.cause.stack,
-        ...(cCode != null ? { code: cCode } : {}),
-      }
-    } else if (reason.cause != null) {
-      payload.cause = reason.cause
-    }
-    try {
-      return JSON.stringify(payload)
-    } catch {
-      return `${reason.name}: ${reason.message}`
-    }
-  }
-  if (typeof reason === 'object') {
-    try {
-      const o = reason as Record<string, unknown>
-      const snapshot: Record<string, unknown> = { kind: 'object' }
-      for (const k of Object.getOwnPropertyNames(o)) {
-        try {
-          snapshot[k] = (o as Record<string, unknown> & { [key: string]: unknown })[k]
-        } catch {
-          snapshot[k] = '[unreadable]'
-        }
-      }
-      return JSON.stringify(snapshot)
-    } catch {
-      return String(reason)
-    }
-  }
-  return String(reason)
-}
-
 process.on('uncaughtException', (err: any) => {
   // Silently ignore EPIPE errors (broken stdout/stderr pipe from background terminal)
   if (err?.code === 'EPIPE') return
@@ -1219,12 +1226,8 @@ process.on('uncaughtException', (err: any) => {
 })
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error(
-    '[MAIN] Unhandled rejection:',
-    serializeUnknownRejectionReason(reason),
-    'promise:',
-    promise,
-  )
+  console.error('[MAIN] Unhandled rejection at:', promise, 'reason:', reason)
+  // Don't exit - try to keep running
 })
 
 
@@ -1337,6 +1340,12 @@ async function createWindow() {
 
   // Test active push message to Renderer-process.
   win.webContents.on('did-finish-load', () => {
+    try {
+      const url = win?.webContents.getURL() ?? '(no-url)'
+      logRuntimeIdentityLine(url)
+    } catch {
+      logRuntimeIdentityLine('(could-not-read-renderer-url)')
+    }
     win?.webContents.send('main-process-message', (new Date).toLocaleString())
   })
 
@@ -2555,6 +2564,20 @@ app.commandLine.appendSwitch('disable-gpu')
 app.commandLine.appendSwitch('disable-gpu-compositing')
 app.commandLine.appendSwitch('no-sandbox')
 
+// Add crash handlers
+process.on('uncaughtException', (error: any) => {
+  // Silently ignore EPIPE errors (broken stdout/stderr pipe from background terminal)
+  if (error?.code === 'EPIPE') return
+  const detail = error instanceof Error
+    ? `${error.message}\n${error.stack}`
+    : JSON.stringify(error, Object.getOwnPropertyNames(error || {}))
+  console.error('[MAIN] Uncaught exception:', detail)
+})
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[MAIN] Unhandled rejection:', reason)
+})
+
 // Prevent app from quitting when all windows are closed
 app.on('window-all-closed', () => {
   console.log('[MAIN] All windows closed, but keeping app running')
@@ -2754,6 +2777,16 @@ app.whenReady().then(async () => {
             w.webContents.send('inbox:beapInboxUpdated', { handshakeId })
           }
         })
+        setBeapDeliveryAckNotifier((payload) => {
+          console.log(
+            `[BEAP_DELIVERY] ack_broadcast handshake=${payload.handshakeId} rowId=${payload.rowId} status=${payload.status ?? 'ok'} reason=${payload.reasonCode ?? 'none'}`,
+          )
+          for (const w of BrowserWindow.getAllWindows()) {
+            if (!w.isDestroyed()) {
+              w.webContents.send('inbox:beapDeliveryAck', payload)
+            }
+          }
+        })
         console.log('[MAIN] Inbox IPC handlers registered (includes inbox:dashboardSnapshot)')
       } catch (inboxRegErr) {
         console.error('[MAIN] FATAL: registerInboxHandlers failed â€” Analysis dashboard will not load data:', inboxRegErr)
@@ -2790,6 +2823,9 @@ app.whenReady().then(async () => {
 
     // Setup console logging to file for debugging
     await setupFileLogging()
+
+    logRuntimeIdentityLine('(pending-dashboard-load)')
+    logLogIdentityLine()
 
     try {
       const { bootstrapOcrRouterFromOrchestratorKeys } = await import('./main/ocr/cloudConfigFromOptimandoKeys')
@@ -3130,7 +3166,7 @@ app.whenReady().then(async () => {
                   } catch {
                     return null
                   }
-                }).catch(() => {})
+                }).catch((err) => logProcessOutboundQueueFailure('dashboard:vault_unlock_followup', err))
               }
               try {
                 win?.webContents.send('handshake-list-refresh')
@@ -3262,7 +3298,14 @@ app.whenReady().then(async () => {
 
     ipcMain.handle(
       'handshake:sendBeapViaP2P',
-      async (_e, payload: { handshakeId: string; packageJson: string; sendSource?: string }) => {
+      async (_e, payload: { handshakeId: string; packageJson: string; sendSource?: string; _beapMsgId?: string }) => {
+      const ipcMsg =
+        typeof payload?._beapMsgId === 'string' && payload._beapMsgId.trim().length > 0
+          ? payload._beapMsgId.trim()
+          : 'none'
+      console.log(
+        `[pid=${process.pid}] [BEAP_MSG_MAIN] ipc_entry channel=handshake:sendBeapViaP2P messageId=${ipcMsg}`,
+      )
       try {
         const db = await getLedgerDbOrOpen()
         if (!db) return { success: false, error: 'Database unavailable' }
@@ -3369,6 +3412,7 @@ app.whenReady().then(async () => {
               handshakeId: p.handshakeId,
               packageJson: p.packageJson,
               sendSource: 'user_package_builder',
+              ...(typeof p._beapMsgId === 'string' && p._beapMsgId ? { _beapMsgId: p._beapMsgId } : {}),
             },
             db,
           )
@@ -3698,9 +3742,24 @@ app.whenReady().then(async () => {
         }
         const db = await getLedgerDbOrOpen()
         if (!db) return { success: false, error: 'Database unavailable. Please log in first.' }
-        const { insertPendingP2PBeap } = await import('./main/handshake/db')
-        insertPendingP2PBeap(db, '__file_import__', packageJson)
-        return { success: true }
+        const { processBeapPackageInline } = await import('./main/email/beapEmailIngestion')
+        const ssoSession = getCurrentSession()
+        const handshakeId = (() => {
+          try { return (JSON.parse(packageJson) as any)?.handshake_id?.trim() || '__file_import__' } catch { return '__file_import__' }
+        })()
+        const r = await processBeapPackageInline(db, packageJson, handshakeId, {
+          session: ssoSession ?? null,
+          sourceType: 'p2p',
+          receivedAt: new Date().toISOString(),
+          transportFolder: 'file_import',
+        })
+        if (r.outcome === 'inbox') {
+          // Notify the extension so it calls refreshFromMain and shows the new row.
+          notifyBeapRecipientPending(handshakeId)
+          return { success: true }
+        }
+        if (r.outcome === 'quarantine') return { success: true, quarantined: true }
+        return { success: false, error: r.error ?? 'Processing failed' }
       } catch (err: any) {
         console.error('[BEAP:IMPORT]', err?.message)
         return { success: false, error: err?.message ?? 'Import failed' }
@@ -3802,6 +3861,24 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('orchestrator:getSession', async (_e, id: unknown) => {
+      if (typeof id !== 'string' || !id.trim()) {
+        return { success: false, error: 'INVALID_SESSION_ID' }
+      }
+      try {
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const service = getOrchestratorService()
+        const session = await service.getSession(id.trim())
+        if (!session) {
+          return { success: false, error: 'SESSION_NOT_FOUND' }
+        }
+        return { success: true, data: { id: session.id, name: session.name, config: session.config } }
+      } catch (err: any) {
+        console.error('[MAIN] orchestrator:getSession', err?.message ?? err)
+        return { success: false, error: err?.message ?? 'GET_SESSION_FAILED' }
+      }
+    })
+
     ipcMain.handle('orchestrator:importSessionFromBeap', async (_e, payload: unknown) => {
       try {
         if (!payload || typeof payload !== 'object') {
@@ -3820,40 +3897,46 @@ app.whenReady().then(async () => {
         if (!sessionId || !sourceMessageId) {
           return { success: false, error: 'MISSING_FIELDS' }
         }
-        const config =
-          p.config && typeof p.config === 'object' && p.config !== null
-            ? (p.config as Record<string, unknown>)
-            : {}
+        const importArtefact = p.importArtefact
+        if (importArtefact == null || typeof importArtefact !== 'object' || Array.isArray(importArtefact)) {
+          return { success: false, error: 'MISSING_IMPORT_ARTEFACT' }
+        }
         const handshakeId =
           p.handshakeId === null || p.handshakeId === undefined
             ? null
-            : String(p.handshakeId)
+            : String(p.handshakeId).trim().slice(0, 500) || null
         const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const { importAndRunBeapSessionFromArtefact } = await import('./main/orchestrator-db/beapSessionImportRun')
         const orchestratorService = getOrchestratorService()
-        const now = Date.now()
-        const importedId = `beap-import-${sessionId}-${now}`
-        await orchestratorService.saveSession({
-          id: importedId,
-          name: sessionName,
-          config: {
-            ...config,
-            importedFrom: 'beap-message',
+        const result = await importAndRunBeapSessionFromArtefact(
+          {
+            sessionId,
+            sessionName,
+            importArtefact,
             sourceMessageId,
             handshakeId,
-            importedAt: now,
-            beapSourceSessionId: sessionId,
           },
-          created_at: now,
-          updated_at: now,
-          tags: ['beap-import'],
-        })
+          {
+            orchestrator: orchestratorService,
+            broadcastToExtensions,
+            extensionClientCount: () => wsClients.filter((s: { readyState: number }) => s.readyState === WebSocket.OPEN).length,
+          },
+        )
+        if (!result.success) {
+          return { success: false, error: result.error }
+        }
         beapSessionImportPolicyHook({
-          importedSessionId: importedId,
+          importedSessionId: sessionId,
           sourceSessionId: sessionId,
           sourceMessageId,
           handshakeId,
         })
-        return { success: true, sessionId: importedId }
+        return {
+          success: true,
+          dispatched: result.dispatched,
+          sessionKey: result.sessionKey,
+          executed: result.executed,
+        }
       } catch (err: any) {
         console.error('[MAIN] orchestrator:importSessionFromBeap', err?.message ?? err)
         return { success: false, error: err?.message ?? 'IMPORT_FAILED' }
@@ -4921,7 +5004,7 @@ app.whenReady().then(async () => {
         const db = getLedgerDb() ?? vaultService.getHsProfileDb?.() ?? null
         setupEmbeddingServiceRef(vaultService, db)
         completePendingContextSyncs(db, getCurrentSession())
-        if (db) setImmediate(() => processOutboundQueue(db, getOidcToken).catch(() => {}))
+        if (db) setImmediate(() => processOutboundQueue(db, getOidcToken).catch((err) => logProcessOutboundQueueFailure('ipc:vault_unlockForHandshake', err)))
         try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
         try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
         return { success: true }
@@ -4940,7 +5023,9 @@ app.whenReady().then(async () => {
         const db = getLedgerDb() ?? vaultService.getHsProfileDb?.() ?? null
         setupEmbeddingServiceRef(vaultService, db)
         completePendingContextSyncs(db, getCurrentSession())
-        if (db) setImmediate(() => processOutboundQueue(db, getOidcToken).catch(() => {}))
+        if (db) setImmediate(() => processOutboundQueue(db, getOidcToken).catch((err) => logProcessOutboundQueueFailure('ipc:vault_unlockWithPassword', err)))
+        // Retry any inbox placeholder rows that were blocked by vault lock (W3-P8).
+        if (db) setImmediate(() => retryPendingInboxPlaceholders(db).catch((err) => console.warn('[RETRY-PLACEHOLDER] post-unlock retry error:', (err as Error)?.message ?? err)))
         try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
         try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
         return { success: true }
@@ -5357,7 +5442,10 @@ app.whenReady().then(async () => {
     console.log('[ENTITLEMENT_REFRESH] startup refresh failed:', err?.message || err)
   })
   setInterval(() => {
-    refreshEntitlements(true, 'interval').catch(() => {})
+    // force=false: ensureSession returns the cached token when still valid (60s buffer),
+    // avoiding a Keycloak round-trip on every tick. Keycloak is still called when the
+    // token actually expires (ensureSession → refreshWithKeycloak in session.ts).
+    refreshEntitlements(false, 'interval').catch(() => {})
   }, ENTITLEMENT_REFRESH_INTERVAL_MS)
   console.log('[ENTITLEMENT_REFRESH] 60s interval started')
 
@@ -5849,7 +5937,7 @@ async function runDeviceKeyMigration(
                       const { vaultService: vs } = await import('./main/vault/rpc')
                       const db = getLedgerDb() ?? vs.getDb?.() ?? null
                       completePendingContextSyncs(db, getCurrentSession())
-                      if (db) processOutboundQueue(db, getOidcToken).catch(() => {})
+                      if (db) processOutboundQueue(db, getOidcToken).catch((err) => logProcessOutboundQueueFailure('ws:vault.unlock_or_create', err))
                       try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
                       try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
                     } catch (e) { /* non-fatal */ }
@@ -5958,6 +6046,30 @@ async function runDeviceKeyMigration(
               return
             }
             
+
+            // ===== BEAP Run Automation result (extension → main) =====
+            if (msg.type === 'BEAP_DESKTOP_RUN_AUTOMATION_RESULT') {
+              const reqId = typeof msg.requestId === 'string' ? msg.requestId : ''
+              if (reqId) {
+                const { completeBeapRunAutomationWaiter } = await import(
+                  './main/orchestrator-db/beapRunAutomationWaiter'
+                )
+                if (msg.success === true) {
+                  completeBeapRunAutomationWaiter(reqId, {
+                    ok: true,
+                    sessionKey: typeof msg.sessionKey === 'string' ? msg.sessionKey : undefined,
+                    executed: Array.isArray(msg.executed) ? (msg.executed as string[]) : undefined,
+                  })
+                } else {
+                  completeBeapRunAutomationWaiter(reqId, {
+                    ok: false,
+                    error: typeof msg.error === 'string' ? msg.error : 'RUN_AUTOMATION_FAILED',
+                    phase: typeof msg.phase === 'string' ? msg.phase : undefined,
+                  })
+                }
+              }
+              return
+            }
 
             // ===== BEAP EXPORT DEVICE KEY RESPONSE (migration, Electron-side callback) =====
             if (msg.type === 'BEAP_EXPORT_DEVICE_KEY_RESPONSE') {
@@ -6959,7 +7071,8 @@ async function runDeviceKeyMigration(
           res.status(503).json({ ok: false, error: 'Database unavailable' })
           return
         }
-        const result = mergeExtensionDepackaged(db, req.body)
+        const ssoSession = getCurrentSession()
+        const result = await mergeExtensionDepackaged(db, req.body, ssoSession ?? null)
         if (!result.ok) {
           res.status(400).json({ ok: false, error: result.error ?? 'merge failed' })
           return
@@ -7626,6 +7739,7 @@ async function runDeviceKeyMigration(
           if (handshakeDb) {
             processOutboundQueue(handshakeDb, getOidcToken).catch((err) => {
               console.warn('[P2P] Queue flush after login error:', err?.message)
+              logProcessOutboundQueueFailure('http:auth_login_outbound_flush', err)
             })
           }
           res.json({ ok: true, tier: result.tier })
@@ -8619,7 +8733,7 @@ async function runDeviceKeyMigration(
         res.json({ success: true, sessionToken: vaultService.getSessionToken() })
         setImmediate(() => {
           completePendingContextSyncs(db, getCurrentSession())
-          if (db) processOutboundQueue(db, getOidcToken).catch(() => {})
+          if (db) processOutboundQueue(db, getOidcToken).catch((err) => logProcessOutboundQueueFailure('http:vault_unlock', err))
           try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
         })
       } catch (error: any) {
@@ -9955,30 +10069,11 @@ async function runDeviceKeyMigration(
     httpApp.get('/api/email/credentials/gmail', async (_req, res) => {
       try {
         console.log('[HTTP-EMAIL] GET /api/email/credentials/gmail')
-        const { checkExistingCredentials, isVaultUnlocked } = await import('./main/email/credentials')
-        const result = await checkExistingCredentials('gmail')
-        const canConnect =
-          !!result.credentials || result.builtinOAuthAvailable === true
-        const {
-          isEmailDeveloperModeEnabled,
-          getStandardConnectBuiltinClientDiagnostics,
-        } = await import('./main/email/googleOAuthBuiltin')
-        const std = getStandardConnectBuiltinClientDiagnostics()
+        const { buildGmailCredentialsCheckPayload } = await import('./main/email/gmailCredentialsCheckPayload')
+        const data = await buildGmailCredentialsCheckPayload()
         res.json({
           ok: true,
-          data: {
-            configured: canConnect,
-            developerCredentialsStored: !!result.credentials,
-            builtinOAuthAvailable: result.builtinOAuthAvailable === true,
-            developerModeEnabled: isEmailDeveloperModeEnabled(),
-            clientId: result.clientId,
-            source: result.source,
-            credentials: result.credentials,
-            hasSecret: result.hasSecret,
-            vaultUnlocked: isVaultUnlocked(),
-            standardConnectBundledClientFingerprint: std.standardConnectBundledClientFingerprint,
-            standardConnectBuiltinSourceKind: std.standardConnectBuiltinSourceKind,
-          },
+          data,
         })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error checking Gmail credentials:', error)
@@ -10005,6 +10100,27 @@ async function runDeviceKeyMigration(
         res.json({ ok: result.ok, savedToVault: result.savedToVault, error: result.error })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error saving Gmail credentials:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    /** Persist bundled-desktop pairing secret locally (safeStorage userData); never in shipped bundle. */
+    httpApp.post('/api/email/credentials/gmail/builtin-supplement', async (req, res) => {
+      try {
+        const clientSecret = (req.body as { clientSecret?: string })?.clientSecret
+        const { resolveBuiltinGoogleOAuthClientWithMeta } = await import('./main/email/googleOAuthBuiltin')
+        const { saveBuiltinGoogleOAuthSupplementSecret } = await import('./main/email/builtinGoogleOAuthSupplement')
+        const meta = resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true })
+        if (!meta?.clientId?.trim()) {
+          res
+            .status(400)
+            .json({ ok: false, error: 'Email provider not configured (no bundled Google OAuth client id).' })
+          return
+        }
+        const r = saveBuiltinGoogleOAuthSupplementSecret(meta.clientId, String(clientSecret ?? ''))
+        res.json(r.ok ? { ok: true } : { ok: false, error: r.error })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] builtin-supplement:', error)
         res.status(500).json({ ok: false, error: error.message })
       }
     })
@@ -11235,17 +11351,31 @@ async function runDeviceKeyMigration(
       broadcastToExtensions({ type: 'P2P_BEAP_RECEIVED', handshakeId })
       const db = getHandshakeDb()
       if (!db) return
-      void processPendingP2PBeapEmails(db)
-        .then((n) => {
+      // Each operation is failure-isolated: a rejection in one must not prevent
+      // the others from running.
+      void (async () => {
+        try {
+          const n = await processPendingP2PBeapEmails(db)
           if (n > 0) notifyBeapInboxDashboard(handshakeId)
-          return retryPendingQbeapDecrypt(db)
-        })
-        .then((r) => {
+        } catch (e) {
+          console.warn('[P2P_BEAP_RECEIVED] processPendingP2PBeapEmails error:', (e as Error)?.message ?? e)
+        }
+
+        try {
+          const r = await retryPendingQbeapDecrypt(db)
           if (r > 0) notifyBeapInboxDashboard(handshakeId)
-        })
-        .catch((e) => {
-          console.error('[BEAP-INBOX] processPending/retry chain failed:', serializeUnknownRejectionReason(e))
-        })
+        } catch (e) {
+          console.warn('[P2P_BEAP_RECEIVED] retryPendingQbeapDecrypt error:', (e as Error)?.message ?? e)
+        }
+
+        // B-5.1: drain extension merge retry buffer on P2P BEAP arrival
+        // (implies a sandbox may now be connected).
+        try {
+          await drainExtensionMergeBuffer(db, getCurrentSession() ?? null)
+        } catch (e) {
+          console.warn('[P2P_BEAP_RECEIVED] drainExtensionMergeBuffer error:', (e as Error)?.message ?? e)
+        }
+      })()
     })
 
     async function getOidcToken(): Promise<string | null> {
@@ -11316,6 +11446,10 @@ async function runDeviceKeyMigration(
     setPairingCodeRegistrar(orchestratorPairingCodeRegistrar)
 
     let handshakeHealthStartupEmitted = false
+    // Single-flight guard: prevents overlapping async IIFEs if processPendingP2PBeapEmails,
+    // retryPendingQbeapDecrypt, or drainExtensionMergeBuffer take longer than 10 s.
+    // Without this guard N overlapping calls would each invoke the validator subprocess.
+    let p2pBeapDrainRunning = false
     function tryP2PStartup(): void {
       const handshakeDb = getHandshakeDb()
       if (!handshakeDb) {
@@ -11338,19 +11472,48 @@ async function runDeviceKeyMigration(
             console.warn('[HANDSHAKE_HEALTH] import_failed', (e as Error)?.message ?? e)
           })
       }
-      void processPendingP2PBeapEmails(handshakeDb)
-        .then((drained) => {
-          if (drained > 0) notifyBeapInboxDashboard(null)
-          return retryPendingQbeapDecrypt(handshakeDb)
-        })
-        .then((r) => {
-          if (r > 0) notifyBeapInboxDashboard(null)
-        })
-        .catch((e) => {
-          console.error('[BEAP-INBOX] processPending/retry chain failed:', serializeUnknownRejectionReason(e))
-        })
+      // Each operation is failure-isolated: a rejection in one must not prevent
+      // the others from running. Previously these were chained in .then() so a
+      // processPendingP2PBeapEmails rejection silently skipped the drain.
+      // p2pBeapDrainRunning prevents overlapping IIFEs when any step takes >10s.
+      if (!p2pBeapDrainRunning) {
+        p2pBeapDrainRunning = true
+        void (async () => {
+          try {
+            try {
+              const drained = await processPendingP2PBeapEmails(handshakeDb)
+              if (drained > 0) notifyBeapInboxDashboard(null)
+            } catch (e) {
+              console.warn('[tryP2PStartup] processPendingP2PBeapEmails error:', (e as Error)?.message ?? e)
+            }
+
+            try {
+              const r = await retryPendingQbeapDecrypt(handshakeDb)
+              if (r > 0) notifyBeapInboxDashboard(null)
+            } catch (e) {
+              console.warn('[tryP2PStartup] retryPendingQbeapDecrypt error:', (e as Error)?.message ?? e)
+            }
+
+            // B-5.1: drain extension merge retry buffer on health-check trigger.
+            // Canonical drain cadence: every 10s via tryP2PStartup.
+            // Do NOT add additional periodic drains elsewhere — multiple drain cadences
+            // produce redundant work and CPU overhead.
+            // Event-driven drain: P2P_BEAP_RECEIVED handler only.
+            // Vault unlock does NOT drain this buffer — it drains the outbound queue/context syncs.
+            // Periodic drains belong here only.
+            try {
+              await drainExtensionMergeBuffer(handshakeDb, getCurrentSession() ?? null)
+            } catch (e) {
+              console.warn('[tryP2PStartup] drainExtensionMergeBuffer error:', (e as Error)?.message ?? e)
+            }
+          } finally {
+            p2pBeapDrainRunning = false
+          }
+        })()
+      }
       processOutboundQueue(handshakeDb, getOidcToken).catch((err) => {
         console.warn('[P2P] processOutboundQueue error:', err?.message)
+        logProcessOutboundQueueFailure('tryP2PStartup_startup_drain', err)
       })
 
       void import('./main/handshake/p2pTokenBackfill')
@@ -11389,7 +11552,9 @@ async function runDeviceKeyMigration(
               lastSeqReceived: 0,
             })
             if (result.success) {
-              processOutboundQueue(handshakeDb, getOidcToken).catch(() => {})
+              processOutboundQueue(handshakeDb, getOidcToken).catch((err) =>
+                logProcessOutboundQueueFailure(`p2p:stuck_accepted_retrigger[${row.handshake_id}]`, err),
+              )
             }
           }
         } catch (err: any) {
@@ -11509,7 +11674,9 @@ async function runDeviceKeyMigration(
     tryP2PStartup()
     setInterval(tryP2PStartup, 10_000)
 
-    // Refresh P2P health queue counts every 60s
+    // Refresh P2P health queue counts every 60s.
+    // Buffer drain is NOT done here — the 10s tryP2PStartup tick is the canonical
+    // drain cadence (runs 6× per 60s window, making this call redundant).
     setInterval(() => {
       const db = getHandshakeDb()
       if (!db) return

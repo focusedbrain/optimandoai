@@ -1,0 +1,737 @@
+[
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/src/components/ThisDeviceCard.test.tsx",
+    "title": "ThisDeviceCard renders the 6-digit pairing code formatted as XXX-XXX with a Regenerate button",
+    "head": "AssertionError: expected '<div data-testid=\"this-device-card\" s…' to contain 'Read this code aloud or write it down…'\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\a"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/vault/hsContextOcrJob.test.ts",
+    "title": "validateExtractedText rejects HTML/markup-like extraction",
+    "head": "AssertionError: expected true to be false // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\vault\\hsContex"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/vault/hsContextOcrJob.test.ts",
+    "title": "validateExtractedText rejects content with tag-like markup",
+    "head": "AssertionError: expected true to be false // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\vault\\hsContex"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/vault/rpcAuth.test.ts",
+    "title": "RPC handler signature — tier is required handleVaultRPC accepts 3 arguments (method, params, tier)",
+    "head": "TypeError: Cannot read properties of undefined (reading 'getPath')\n    at getAccountsPath (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/src/lib/__tests__/beapInboxActionTooltips.test.ts",
+    "title": "beapInboxActionTooltips Sandbox: same hover regardless of tri-state (relay is not a visibility input)",
+    "head": "AssertionError: expected 'Clone the entire BEAP message to your…' to be 'Clone this BEAP message and send it t…' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/src/lib/__tests__/finalAcceptance.hostAiInvariants.test.ts",
+    "title": "FINAL ACCEPTANCE — Sandbox (ledger: local Sandbox, peer Host) Host AI row is considered present for selector when gav carries host_internal or merged rows (top + WR use same shape)",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\src\\lib\\__tests__\\finalAccep"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/src/lib/__tests__/finalAcceptance.hostAiInvariants.test.ts",
+    "title": "FINAL ACCEPTANCE — main + selector invariants (static) main: getAvailableModels path still merges local/cloud with internal Host rows",
+    "head": "AssertionError: expected '\\ufeffimport { app, BrowserWindow, gl…' to match /hostInferenceTargets|listSandboxHostI…/\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\app"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/src/lib/__tests__/inboxMessageSandboxClone.test.ts",
+    "title": "inboxMessageUsesNativeBeapPbeapQbeapSplit extractSandboxCloneUiMeta reads depackaged beap_sandbox_clone",
+    "head": "AssertionError: expected undefined to be 'Konge-AS1' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\src\\lib\\__tests__"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/beap-builder/__tests__/handshakeRefresh.test.ts",
+    "title": "buildContextBlocks T8: constructs correct block from user message",
+    "head": "AssertionError: expected undefined to be 'text' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\beap-builder\\__tests_"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/beap-builder/__tests__/handshakeRefresh.test.ts",
+    "title": "buildContextBlocks defaults block_type to text",
+    "head": "AssertionError: expected undefined to be 'text' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\beap-builder\\__tests_"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/beap-builder/__tests__/handshakeRefresh.test.ts",
+    "title": "buildContextBlocks preserves scope_id when provided",
+    "head": "AssertionError: expected undefined to be 'scope-1' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\beap-builder\\__tes"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/beap-builder/__tests__/handshakeRefresh.test.ts",
+    "title": "sendViaHandshakeRefresh sends context blocks via handshake.refresh RPC",
+    "head": "AssertionError: Target cannot be null or undefined.\n    at Proxy.<anonymous> (file:///C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitest/expect/dist/index.j"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/handshake/__tests__/migration.test.ts",
+    "title": "Migration — old store mutations removed from new code T11: new RecipientHandshakeSelect has no BEAP_SEND_EMAIL",
+    "head": "AssertionError: expected '/**\\n * RecipientHandshakeSelect Comp…' not to contain 'peerX25519PublicKey'\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-c"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/handshake/__tests__/migration.test.ts",
+    "title": "Migration — old store mutations removed from new code T12: new RecipientHandshakeSelect has no X25519/ML-KEM fields",
+    "head": "AssertionError: expected '/**\\n * RecipientHandshakeSelect Comp…' not to contain 'peerX25519PublicKey'\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-c"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/handshake/__tests__/migration.test.ts",
+    "title": "Migration — old store mutations removed from new code rpcTypes.ts defines HandshakeRecord without X25519",
+    "head": "AssertionError: expected '/**\\n * Handshake RPC Types (Extensio…' not to contain 'peerX25519PublicKey'\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-c"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/handshake/__tests__/migration.test.ts",
+    "title": "Cleanup — legacy code removed from production sources C4: no production file contains peerX25519PublicKey",
+    "head": "AssertionError: handshake/rpcTypes.ts should not contain peerX25519PublicKey: expected '/**\\n * Handshake RPC Types (Extensio…' not to contain 'peerX25519PublicKey'\n    at C:\\Users\\oscar\\OneDrive\\Desk"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/handshake/__tests__/migration.test.ts",
+    "title": "Cleanup — legacy code removed from production sources C10: useFullAutoStatus.ts does not depend on useHandshakeStore",
+    "head": "AssertionError: expected '' to contain 'useFullAutoStatus'\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\handshake\\__tests__\\migration.te"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "setValueSafely sets value via native setter and reports success",
+    "head": "Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a security violation in dev mode. All DOM writes must flow through commitInser"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "setValueSafely falls back to direct_assign when native setter is absent",
+    "head": "Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a security violation in dev mode. All DOM writes must flow through commitInser"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "setValueSafely rejects disabled input with READONLY_ELEMENT error",
+    "head": "Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a security violation in dev mode. All DOM writes must flow through commitInser"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "setValueSafely rejects readonly input with READONLY_ELEMENT error",
+    "head": "Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a security violation in dev mode. All DOM writes must flow through commitInser"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "setValueSafely sets value on textarea elements",
+    "head": "Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a security violation in dev mode. All DOM writes must flow through commitInser"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "setValueSafely dispatches input and change events, not keyboard events",
+    "head": "Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a security violation in dev mode. All DOM writes must flow through commitInser"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "setValueSafely dispatched events bubble up the DOM",
+    "head": "Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a security violation in dev mode. All DOM writes must flow through commitInser"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "setValueSafely sets empty string value (clearing a field)",
+    "head": "TypeError: Cannot set property value of [object HTMLInputElement] which has only a getter\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\v"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "setValueSafely handles special characters in value",
+    "head": "Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a security violation in dev mode. All DOM writes must flow through commitInser"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "setValueSafely handles Unicode characters",
+    "head": "Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a security violation in dev mode. All DOM writes must flow through commitInser"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "commitInsert commits value when all checks pass",
+    "head": "TypeError: Cannot read properties of undefined (reading 'valid')\n    at checkFingerprintValid (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vau"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "commitInsert commits multiple fields atomically",
+    "head": "TypeError: Cannot read properties of undefined (reading 'valid')\n    at checkFingerprintValid (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vau"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "commitInsert writes ZERO fields if any target fails safety checks",
+    "head": "TypeError: Cannot read properties of undefined (reading 'valid')\n    at checkFingerprintValid (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vau"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "commitInsert rejects commit when element is removed from DOM",
+    "head": "TypeError: Cannot read properties of undefined (reading 'valid')\n    at checkFingerprintValid (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vau"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "commitInsert rejects commit to hidden input type",
+    "head": "TypeError: Cannot read properties of undefined (reading 'valid')\n    at checkFingerprintValid (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vau"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "commitInsert fires telemetry hook on successful commit",
+    "head": "TypeError: Cannot read properties of undefined (reading 'valid')\n    at checkFingerprintValid (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vau"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "commitInsert swallows telemetry hook errors",
+    "head": "TypeError: Cannot read properties of undefined (reading 'valid')\n    at checkFingerprintValid (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vau"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "runSafetyChecks all checks pass for a normal visible input",
+    "head": "TypeError: Cannot read properties of undefined (reading 'valid')\n    at checkFingerprintValid (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vau"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "runSafetyChecks detects disabled element",
+    "head": "TypeError: Cannot read properties of undefined (reading 'valid')\n    at checkFingerprintValid (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vau"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "runSafetyChecks detects removed element",
+    "head": "TypeError: Cannot read properties of undefined (reading 'valid')\n    at checkFingerprintValid (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vau"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "runSafetyChecks detects expired session",
+    "head": "TypeError: Cannot read properties of undefined (reading 'valid')\n    at checkFingerprintValid (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vau"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "runSafetyChecks detects hidden input type",
+    "head": "TypeError: Cannot read properties of undefined (reading 'valid')\n    at checkFingerprintValid (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vau"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "runSafetyChecks detects blocked input types (checkbox, radio, file, etc.)",
+    "head": "TypeError: Cannot read properties of undefined (reading 'valid')\n    at checkFingerprintValid (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vau"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/committer.test.ts",
+    "title": "runSafetyChecks runs ALL checks even when first fails (no short circuit)",
+    "head": "TypeError: Cannot read properties of undefined (reading 'valid')\n    at checkFingerprintValid (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vau"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/fieldScanner.test.ts",
+    "title": "collectCandidates detects fields via label text",
+    "head": "TypeError: Cannot read properties of undefined (reading 'escape')\n    at resolveLabel (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autof"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/fieldScanner.test.ts",
+    "title": "collectCandidates detects fields via placeholder text",
+    "head": "AssertionError: expected 0 to be greater than or equal to 1\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autofill\\fieldScanner.tes"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/fieldScanner.test.ts",
+    "title": "collectCandidates applies anti-signals for search inputs",
+    "head": "TypeError: Cannot read properties of undefined (reading 'escape')\n    at resolveLabel (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autof"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/fieldScanner.test.ts",
+    "title": "collectCandidates returns timing metadata",
+    "head": "AssertionError: expected 'http://localhost:3000' to be 'localhost' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\va"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/fieldScanner.test.ts",
+    "title": "anti-signals search label suppresses matching",
+    "head": "TypeError: Cannot read properties of undefined (reading 'escape')\n    at resolveLabel (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autof"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/fieldScanner.test.ts",
+    "title": "edge cases German keyword matching works",
+    "head": "TypeError: Cannot read properties of undefined (reading 'escape')\n    at resolveLabel (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autof"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/fieldScanner.test.ts",
+    "title": "scoring determinism label keyword alone is below threshold",
+    "head": "TypeError: Cannot read properties of undefined (reading 'escape')\n    at resolveLabel (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autof"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b4P2PRelayMigration.test.ts",
+    "title": "B-4 §1 — processBeapPackageInline §1.1 valid pBEAP with known handshake → sealed inbox row (outcome: inbox)",
+    "head": "TypeError: Cannot read properties of undefined (reading 'getPath')\n    at getAccountsPath (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b4P2PRelayMigration.test.ts",
+    "title": "B-4 §1 — processBeapPackageInline §1.2 pBEAP with unknown/no handshake → sealed quarantine row (outcome: quarantine)",
+    "head": "TypeError: Cannot read properties of undefined (reading 'getPath')\n    at getAccountsPath (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b4P2PRelayMigration.test.ts",
+    "title": "B-4 §1 — processBeapPackageInline §1.3 corrupted / non-JSON bytes → quarantine with parse error, not thrown to caller",
+    "head": "TypeError: Cannot read properties of undefined (reading 'getPath')\n    at getAccountsPath (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b4P2PRelayMigration.test.ts",
+    "title": "B-4 §2 — processSandboxQuarantineReceive §2.1 decryption failure → sandbox-side quarantine row with blob_decrypt_failed",
+    "head": "TypeError: Cannot read properties of undefined (reading 'getPath')\n    at getAccountsPath (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b4P2PRelayMigration.test.ts",
+    "title": "B-4 §3 — Schema migration v66 §3.1 migrateHandshakeTables creates tables up to v66 and p2p_pending_beap is absent",
+    "head": "SqliteError: no such column: relationship_id\n    at Database.prepare (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\node_modules\\better-sqlite3\\lib\\methods\\wrappers.js:5:21"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b4P2PRelayMigration.test.ts",
+    "title": "B-4 §3 — Schema migration v66 §3.2 after v66, insertPendingP2PBeap is a no-op (does not throw or write)",
+    "head": "SqliteError: no such column: relationship_id\n    at Database.prepare (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\node_modules\\better-sqlite3\\lib\\methods\\wrappers.js:5:21"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b4P2PRelayMigration.test.ts",
+    "title": "B-4 §4 — Static audit: p2p_pending_beap INSERT callers §4.1 processPendingP2PBeapEmails is a no-op stub returning 0",
+    "head": "TypeError: Cannot read properties of undefined (reading 'getPath')\n    at getAccountsPath (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b4P2PRelayMigration.test.ts",
+    "title": "B-4 §4 — Static audit: p2p_pending_beap INSERT callers §4.2 processBeapPackageInline is exported and callable",
+    "head": "TypeError: Cannot read properties of undefined (reading 'getPath')\n    at getAccountsPath (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b4P2PRelayMigration.test.ts",
+    "title": "B-4 §4 — Static audit: p2p_pending_beap INSERT callers §4.3 processSandboxQuarantineReceive is exported and callable",
+    "head": "TypeError: Cannot read properties of undefined (reading 'getPath')\n    at getAccountsPath (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b4P2PRelayMigration.test.ts",
+    "title": "B-4 §4 — Static audit: p2p_pending_beap INSERT callers §4.4 retryPendingQbeapDecrypt is exported (sealed backfill path)",
+    "head": "TypeError: Cannot read properties of undefined (reading 'getPath')\n    at getAccountsPath (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b5ExtensionMerge.test.ts",
+    "title": "B-5 §E — validateDecryptedBeapContent: beap_message content type §E.6 beap_message with valid session_import_artefact + attachments_canonical → accepted",
+    "head": "AssertionError: expected 'ARTEFACT_PURPOSE_INVALID' to be null\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\email\\__tests__"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b5ExtensionMerge.test.ts",
+    "title": "B-5 §F — mergeExtensionDepackaged sealed gate §F.1 valid content → sealed inbox row; seal and seal_input_json populated",
+    "head": "SealVerificationError: [SEALED_GATE] UPDATE (\n  UPDATE inbox_messages SET\n    depackaged_json = ?,\n    de): row_id mismatch — seal binds \"row-698f3e9f-8867-4fd2-bb16-9f9e97080a8e\" but writing to \"msg-"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b5ExtensionMerge.test.ts",
+    "title": "B-5 §F — mergeExtensionDepackaged sealed gate §F.2 canonical content built with content_type:beap_message + attachments_canonical",
+    "head": "SealVerificationError: [SEALED_GATE] UPDATE (\n  UPDATE inbox_messages SET\n    depackaged_json = ?,\n    de): row_id mismatch — seal binds \"row-a4779ca1-d415-4a3d-9bd6-e24eea4f9e83\" but writing to \"msg-"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b5ExtensionMerge.test.ts",
+    "title": "B-5 §F — mergeExtensionDepackaged sealed gate §F.3 attachment with base64 bytes → content_sha256 populated in inbox_attachments",
+    "head": "SealVerificationError: [SEALED_GATE] UPDATE (\n  UPDATE inbox_messages SET\n    depackaged_json = ?,\n    de): row_id mismatch — seal binds \"row-a55c3791-8658-4dc9-9e0e-bff388401e0d\" but writing to \"msg-"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b5ExtensionMerge.test.ts",
+    "title": "B-5 §F — mergeExtensionDepackaged sealed gate §F.4 validator rejects → ok: false; shell row updated with rejection reason; seal absent",
+    "head": "AssertionError: expected null to be 'MISSING_REQUIRED_FIELD' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b5ExtensionMerge.test.ts",
+    "title": "B-5 §F — mergeExtensionDepackaged sealed gate §F.6 Att-2: seal covers attachment hashes (canonical_json includes attachments_canonical)",
+    "head": "SealVerificationError: [SEALED_GATE] UPDATE (\n  UPDATE inbox_messages SET\n    depackaged_json = ?,\n    de): row_id mismatch — seal binds \"row-1ab32166-62e9-431d-ae04-6c31016a1102\" but writing to \"msg-"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b5ExtensionMerge.test.ts",
+    "title": "B-5 §G — cloneToSandbox round-trip verification §G.2 prepareBeapInboxSandboxClone returns MESSAGE_NOT_FOUND for missing source row",
+    "head": "Error: Cannot find module '../beapInboxClonePrepare'\nRequire stack:\n- C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\email\\__tests__"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b72DecryptedContentReseal.test.ts",
+    "title": "B-7.2 §1 — resealWithDecryptedContent §1.1 pending row → validator called; row sealed; content written",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\email\\__tests_"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b72DecryptedContentReseal.test.ts",
+    "title": "B-7.2 §1 — resealWithDecryptedContent §1.6 childWrites executed atomically with parent UPDATE",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\email\\__tests_"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b72DecryptedContentReseal.test.ts",
+    "title": "B-7.2 §1 — resealWithDecryptedContent §1.9 attachmentCount > 0 → has_attachments=1 written correctly",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\email\\__tests_"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b72DecryptedContentReseal.test.ts",
+    "title": "B-7.2 §2 — retryPendingQbeapDecrypt migration invariant §2.1 retryPendingQbeapDecrypt calls resealWithDecryptedContent — no raw db.prepare UPDATE",
+    "head": "SqliteError: table inbox_messages has no column named beap_package_json\n    at Database.prepare (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\node_modules\\better-sqlite3\\l"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b7IpcContentUpdates.test.ts",
+    "title": "B-7 §2 — resealWithAiAnalysis §2.1 valid row + valid seal → new seal written; canonical includes ai_analysis_json",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\email\\__tests_"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b7IpcContentUpdates.test.ts",
+    "title": "B-7 §2 — resealWithAiAnalysis §2.6 aiAnalysisData = null → removes ai_analysis_json from canonical; re-seals",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\email\\__tests_"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b7IpcContentUpdates.test.ts",
+    "title": "B-7 §2 — resealWithAiAnalysis §2.7 pre-Phase-B row (no seal) → forward-migration: sealed write succeeds",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\email\\__tests_"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b7IpcContentUpdates.test.ts",
+    "title": "B-7 §3 — resealWithPdfExtraction §3.1 valid parent + attachment → re-seals parent + writes inbox_attachments",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\email\\__tests_"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/b7IpcContentUpdates.test.ts",
+    "title": "B-7 §3 — resealWithPdfExtraction §3.5 pre-Phase-B row (no seal) → forward-migration: sealed write succeeds",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\email\\__tests_"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/mergeExtensionDepackaged.validation.test.ts",
+    "title": "mergeExtensionDepackaged — content validation (PR B-5) TEST-INT-1. merge with no artefact → sealed row written, seal present",
+    "head": "SqliteError: no such table: inbox_attachments\n    at Database.prepare (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\node_modules\\better-sqlite3\\lib\\methods\\wrappers.js:5:2"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/mergeExtensionDepackaged.validation.test.ts",
+    "title": "mergeExtensionDepackaged — content validation (PR B-5) TEST-INT-2. merge with valid session_import_artefact → sealed row",
+    "head": "SqliteError: no such table: inbox_attachments\n    at Database.prepare (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\node_modules\\better-sqlite3\\lib\\methods\\wrappers.js:5:2"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/mergeExtensionDepackaged.validation.test.ts",
+    "title": "mergeExtensionDepackaged — content validation (PR B-5) TEST-INT-3. merge with malformed artefact → validator rejects → ok: false",
+    "head": "AssertionError: expected null to be 'ARTEFACT_UNKNOWN_KEY' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\ma"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/mergeExtensionDepackaged.validation.test.ts",
+    "title": "mergeExtensionDepackaged — content validation (PR B-5) TEST-INT-4. re-merge updates sealed row with new content",
+    "head": "SqliteError: no such table: inbox_attachments\n    at Database.prepare (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\node_modules\\better-sqlite3\\lib\\methods\\wrappers.js:5:2"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/email/__tests__/messageRouter.ingestTransaction.test.ts",
+    "title": "detectAndRouteMessage transaction (requires native better-sqlite3) ingests two attachments with the same provider id when they belong to different inbox rows",
+    "head": "Error: Validation service unavailable\n    at ValidatorOrchestrator.validate (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\validato"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/handshake/__tests__/outboundQueue.backoff.test.ts",
+    "title": "outboundQueue: backoff & transport QB_09_post_failure_autodrain_retries_without_second_user_call",
+    "head": "AssertionError: expected \"fetch\" to be called 2 times, but got 10 times\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\handsh"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/handshake/__tests__/revocation.test.ts",
+    "title": "Revocation revokeHandshake function is exported",
+    "head": "TypeError: Cannot read properties of undefined (reading 'getPath')\n    at getAccountsPath (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/ingestion/__tests__/hardening.test.ts",
+    "title": "Hardening — Runtime Non-Bypassability handshake IPC handler does not import processHandshakeCapsule",
+    "head": "TypeError: Cannot read properties of undefined (reading 'getPath')\n    at getAccountsPath (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/internalInference/__tests__/hostAiPeerEndpointAndAdvertisement.test.ts",
+    "title": "buildHostAiProviderAdvertisementPayload (gating) Test 2: effective sandbox (ledger) with configured host file must not publish Host AI",
+    "head": "TypeError: db.prepare is not a function\n    at Module.listHandshakeRecords (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\handshake"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/internalInference/__tests__/hostAiPeerEndpointAndAdvertisement.test.ts",
+    "title": "buildHostAiProviderAdvertisementPayload (gating) Test 1: ledger host + can_publish + policy → advertised_as_host_ai and owner = current device",
+    "head": "TypeError: db.prepare is not a function\n    at Module.listHandshakeRecords (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\handshake"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/internalInference/__tests__/hostAiPeerEndpointAndAdvertisement.test.ts",
+    "title": "buildHostAiProviderAdvertisementPayload (gating) ledger host with zero models must not advertise as Host AI provider",
+    "head": "TypeError: db.prepare is not a function\n    at Module.listHandshakeRecords (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\handshake"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/internalInference/__tests__/hostAiRoutingCorrectness.regression.test.ts",
+    "title": "Host AI routing regression (expected failures until resolver hardens) (2) direct_http_available must be false without any trust source (no BEAP attestation, no inference bearer trust)",
+    "head": "AssertionError: expected true to be false // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\internalInfere"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/internalInference/__tests__/hostAiRoutingCorrectness.regression.test.ts",
+    "title": "Host AI routing regression (expected failures until resolver hardens) (2b) transport decider must not select legacy_http without any trust source (no BEAP attestation, no inference bearer trust)",
+    "head": "AssertionError: expected 'legacy_http' not to be 'legacy_http' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electro"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/internalInference/__tests__/internalInference.directHost.regression.test.ts",
+    "title": "runSandboxHostInferenceChat (Sandbox entry) Host mode cannot use Sandbox host-chat entry point",
+    "head": "Error: [vitest] No \"BrowserWindow\" export is defined on the \"electron\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper ins"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/internalInference/__tests__/internalInferenceService.test.ts",
+    "title": "host dispatch with mocks disabled policy posts HOST_INFERENCE_DISABLED and does not call Ollama",
+    "head": "TypeError: db.prepare is not a function\n    at Module.listHandshakeRecords (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\handshake"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/internalInference/__tests__/listInferenceTargets.step8.test.ts",
+    "title": "STEP 8 — listInferenceTargets / target discovery Sandbox + ACTIVE internal Host handshake returns an available Host AI target when probe has model",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\internalInfere"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/internalInference/__tests__/listInferenceTargets.step8.test.ts",
+    "title": "STEP 8 — capabilities-driven availability Host with no default model returns model_unavailable + MODEL_UNAVAILABLE",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\internalInfere"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/internalInference/__tests__/listInferenceTargets.step8.test.ts",
+    "title": "STEP 8 — capabilities-driven availability Direct P2P unavailable from probe maps to direct_unreachable (HOST_DIRECT_P2P_UNAVAILABLE)",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\internalInfere"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/internalInference/__tests__/listInferenceTargets.step8.test.ts",
+    "title": "STEP 8 — capabilities-driven availability probe throws: returns disabled target with capabilities message (not empty)",
+    "head": "AssertionError: expected 'MVP_P2P_ENDPOINT_INVALID' to be 'CAPABILITY_PROBE_FAILED' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/internalInference/__tests__/listInferenceTargets.step8.test.ts",
+    "title": "STEP 9 — regression (listInferenceTargets) PROBE_NO_MODELS from probe is surfaced on the disabled row (legacy HOST_NO_ACTIVE normalized)",
+    "head": "AssertionError: expected 'MVP_P2P_ENDPOINT_INVALID' to be 'PROBE_NO_MODELS' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-pr"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/internalInference/__tests__/listInferenceTargets.step8.test.ts",
+    "title": "STEP 9 — regression (listInferenceTargets) active Host model name updates when probe returns a different defaultChatModel",
+    "head": "AssertionError: expected null to be 'm-a' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\internalInfere"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/internalInference/__tests__/listInferenceTargets.step8.test.ts",
+    "title": "STEP 10 — named regression (main: listSandboxHostInternalInferenceTargets) (1) configured Host + internal row proves Sandbox (this device): discovery runs, mode_mismatch logged, capabilities probed",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\internalInfere"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/electron-vite-project/electron/main/internalInference/__tests__/listInferenceTargets.step8.test.ts",
+    "title": "STEP 10 — named regression (main: listSandboxHostInternalInferenceTargets) (5) ACTIVE Sandbox→Host + direct P2P + active model: available target",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\electron-vite-project\\electron\\main\\internalInfere"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/beap-messages/services/__tests__/BeapPackageBuilder.test.ts",
+    "title": "Transport Leak Prevention should never include encrypted content in qBEAP package transport fields",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\beap-messages\\services\\__te"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/beap-messages/services/__tests__/BeapPackageBuilder.test.ts",
+    "title": "Transport Leak Prevention should succeed when public transport text matches encrypted message (independent fields)",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\beap-messages\\services\\__te"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/beap-messages/services/__tests__/BeapPackageBuilder.test.ts",
+    "title": "Policy Gating should pass qBEAP build when policy requires encrypted message and it is provided",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\beap-messages\\services\\__te"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/beap-messages/services/__tests__/BeapPackageBuilder.test.ts",
+    "title": "Policy Gating should pass qBEAP build when no policy restrictions",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\beap-messages\\services\\__te"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/beap-messages/services/__tests__/BeapPackageBuilder.test.ts",
+    "title": "Workspace Structure Guard should include automation metadata with receiver authority flag in qBEAP",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\beap-messages\\services\\__te"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/beap-messages/services/__tests__/BeapPackageBuilder.test.ts",
+    "title": "Result Type Consistency should always return consistent result shape for success",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\beap-messages\\services\\__te"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/beap-messages/services/__tests__/BeapPackageBuilder.test.ts",
+    "title": "BeapBuildResult Unified Type should return canonical BeapBuildResult shape on success",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\beap-messages\\services\\__te"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/beap-messages/services/__tests__/sessionImportArtefact.test.ts",
+    "title": "qBEAP serialization — session_import_artefact (PR 3/8) 6. config without sessionImportArtefact → build succeeds (no regression)",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\beap-messages\\services\\__te"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/beap-messages/services/__tests__/sessionImportArtefact.test.ts",
+    "title": "qBEAP serialization — session_import_artefact (PR 3/8) 7. config with valid sessionImportArtefact → build succeeds",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\beap-messages\\services\\__te"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/beap-messages/services/__tests__/sessionImportArtefact.test.ts",
+    "title": "qBEAP serialization — session_import_artefact (PR 3/8) 8. config with artefact containing agentBoxes → build succeeds (strip applied silently)",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\beap-messages\\services\\__te"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/beap-messages/services/__tests__/sessionImportArtefact.test.ts",
+    "title": "qBEAP serialization — session_import_artefact (PR 3/8) 9. config with artefact + subject + body + attachments → build succeeds (no field clobbering)",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\beap-messages\\services\\__te"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/beap-messages/services/__tests__/sessionImportArtefact.test.ts",
+    "title": "pBEAP round-trip — artefact structure after decode (PR 3/8) 14. build qBEAP without artefact continues to succeed (no regression)",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\beap-messages\\services\\__te"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/beap-messages/services/__tests__/sessionImportArtefact.test.ts",
+    "title": "hash binding — artefact is cryptographically bound (PR 3/8) 15. qBEAP builds with/without artefact produce different sha256Plain commitments",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\beap-messages\\services\\__te"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/policy/engine/__tests__/evaluator.test.ts",
+    "title": "computeEffectivePolicy should apply NBP restrictions when present",
+    "head": "TypeError: Cannot read properties of undefined (reading 'length')\n    at Module.intersectIngress (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/policy/engine/__tests__/evaluator.test.ts",
+    "title": "computeEffectivePolicy should apply HSP restrictions",
+    "head": "AssertionError: expected [ 'email', 'api', 'webhook' ] to deeply equal [ 'email' ]\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\policy\\e"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/policy/engine/__tests__/evaluator.test.ts",
+    "title": "computeEffectivePolicy should track denials from each layer",
+    "head": "TypeError: Cannot read properties of undefined (reading 'filter')\n    at intersectArrays (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\policy\\e"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/policy/engine/__tests__/evaluator.test.ts",
+    "title": "computeEffectivePolicy should calculate correct risk tier",
+    "head": "TypeError: Cannot read properties of undefined (reading 'filter')\n    at intersectArrays (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\policy\\e"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/policy/engine/__tests__/evaluator.test.ts",
+    "title": "computeEffectivePolicy should require consent when CAP exceeds HSP",
+    "head": "TypeError: Cannot read properties of undefined (reading 'length')\n    at Module.intersectIngress (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/policy/engine/__tests__/evaluator.test.ts",
+    "title": "computeEffectivePolicy should use minimum for numeric limits",
+    "head": "TypeError: Cannot read properties of undefined (reading 'filter')\n    at intersectArrays (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\policy\\e"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/policy/engine/__tests__/evaluator.test.ts",
+    "title": "verifyNoEscalation should detect escalation in boolean permissions",
+    "head": "TypeError: lowerLayer.ingress.allowedArtefactTypes is not iterable\n    at Module.verifyNoEscalation (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\s"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/policy/engine/__tests__/evaluator.test.ts",
+    "title": "verifyNoEscalation should detect escalation in numeric limits",
+    "head": "TypeError: lowerLayer.ingress.allowedArtefactTypes is not iterable\n    at Module.verifyNoEscalation (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\s"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/background-sender-gate.test.ts",
+    "title": "background.ts exports WebMCP constants defense layers are ordered: sender → circuit → schema → per-tab → global",
+    "head": "AssertionError: expected -1 to be greater than 4358\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autofill\\__tests__\\background-sen"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/background-sender-gate.test.ts",
+    "title": "EXPORT_AUDIT_LOG — source-level verification session storage restore checks TTL before restoring VSBT",
+    "head": "AssertionError: expected -1 to be greater than 0\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autofill\\__tests__\\background-sender"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/datavault-classifier.test.ts",
+    "title": "DataVault classifier — name/id patterns detects phone via id=\"phone\"",
+    "head": "TypeError: Cannot read properties of undefined (reading 'escape')\n    at resolveLabel (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autof"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/datavault-classifier.test.ts",
+    "title": "DataVault classifier — German keywords detects \"Hausnummer\" as street number via name",
+    "head": "AssertionError: expected null to be 'identity.street_number' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\au"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/datavault-classifier.test.ts",
+    "title": "DataVault fill engine — select elements fills a select by matching option value",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autofill\\__tests__\\da"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/datavault-classifier.test.ts",
+    "title": "DataVault fill engine — select elements fills a select by matching visible text",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autofill\\__tests__\\da"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/datavault-classifier.test.ts",
+    "title": "DataVault fill engine — select elements fills a select with partial text match",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autofill\\__tests__\\da"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/datavault-classifier.test.ts",
+    "title": "DataVault fill engine — select elements returns error when no option matches",
+    "head": "AssertionError: expected 'has_existing_value' to be 'no_matching_option' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/datavault-classifier.test.ts",
+    "title": "DataVault fill engine — address composition composes street + house_number when page has only one address field",
+    "head": "AssertionError: expected 'Hauptstraße' to be 'Hauptstraße 42' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\a"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/datavault-improvements.test.ts",
+    "title": "Site Learning — fingerprint building builds a fingerprint from an input element",
+    "head": "TypeError: Cannot read properties of undefined (reading 'escape')\n    at resolveRawLabel (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\au"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/datavault-improvements.test.ts",
+    "title": "Site Learning — fingerprint building produces a non-empty labelHash for elements with labels",
+    "head": "TypeError: Cannot read properties of undefined (reading 'escape')\n    at resolveRawLabel (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\au"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/datavault-improvements.test.ts",
+    "title": "Site Learning — fingerprint building does not contain PII values in the fingerprint",
+    "head": "TypeError: Cannot read properties of undefined (reading 'escape')\n    at resolveRawLabel (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\au"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/datavault-improvements.test.ts",
+    "title": "NLP Booster — text feature extraction extracts label text from label[for]",
+    "head": "TypeError: Cannot read properties of undefined (reading 'escape')\n    at resolveLabel (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autof"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/datavault-improvements.test.ts",
+    "title": "NLP Booster — text feature extraction extracts field name and id attributes",
+    "head": "TypeError: Cannot read properties of undefined (reading 'escape')\n    at resolveLabel (C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autof"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/hardening.test.ts",
+    "title": "guardElement returns ELEMENT_OFFSCREEN for element outside viewport",
+    "head": "AssertionError: expected 'ELEMENT_HIDDEN' to be 'ELEMENT_OFFSCREEN' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\v"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/hardening.test.ts",
+    "title": "guardElement returns ELEMENT_NOT_FOCUSABLE for element inside [inert]",
+    "head": "AssertionError: expected 'ELEMENT_HIDDEN' to be 'ELEMENT_NOT_FOCUSABLE' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\s"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/hardening.test.ts",
+    "title": "evaluateSafeMode allows auto-insert with single profile + high confidence + login context",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autofill\\__tests__\\ha"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/hardening.test.ts",
+    "title": "evaluateSafeMode blocks auto-insert with multi-account ambiguity",
+    "head": "AssertionError: expected [ 'ha_mode_active' ] to include 'multi_account_ambiguity'\n    at Proxy.<anonymous> (file:///C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modu"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/hardening.test.ts",
+    "title": "evaluateSafeMode blocks auto-insert with unknown form context",
+    "head": "AssertionError: expected [ 'ha_mode_active' ] to include 'unknown_form_context'\n    at Proxy.<anonymous> (file:///C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/hardening.test.ts",
+    "title": "evaluateSafeMode blocks auto-insert on public suffix domains",
+    "head": "AssertionError: expected [ 'ha_mode_active' ] to include 'public_suffix_domain'\n    at Proxy.<anonymous> (file:///C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/hardening.test.ts",
+    "title": "evaluateSafeMode blocks auto-insert with ambiguous mapping",
+    "head": "AssertionError: expected [ 'ha_mode_active' ] to include 'ambiguous_mapping'\n    at Proxy.<anonymous> (file:///C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@v"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/hardening.test.ts",
+    "title": "evaluateSafeMode returns show_trigger_icon with no mappings",
+    "head": "AssertionError: expected 'do_nothing' to be 'show_trigger_icon' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/hardening.test.ts",
+    "title": "domainRelated subdomain match",
+    "head": "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autofill\\__tests__\\ha"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/scan-dos-caps.test.ts",
+    "title": "TreeWalker-based scan (no querySelectorAll) does not call querySelectorAll on the scan root",
+    "head": "AssertionError: expected \"querySelectorAll\" to not be called at all, but actually been called 40 times\n\nReceived: \n\n  1st querySelectorAll call:\n\n    Array [\n      \"input, select, textarea\",\n    ]\n\n  "
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/scan-dos-caps.test.ts",
+    "title": "HA mode — stricter caps HA mode applies lower element cap",
+    "head": "AssertionError: expected 'time_budget' to be 'element_cap' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\auto"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/scan-dos-caps.test.ts",
+    "title": "HA mode — stricter caps non-HA mode allows more elements than HA mode",
+    "head": "AssertionError: expected true to be false // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autofill\\__tests__\\sc"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/scan-dos-caps.test.ts",
+    "title": "Fail-closed defaults for scanner caps HA mode still clamps AFTER fail-closed defaults are applied",
+    "head": "AssertionError: expected 'time_budget' to be 'element_cap' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\auto"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/security-regression.test.ts",
+    "title": "§6 Replay attack on encrypted records (AAD binding) AAD_SCHEMA_VERSION is a positive integer",
+    "head": "AssertionError: expected 'number' to be 'undefined' // Object.is equality\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\apps\\extension-chromium\\src\\vault\\autofill\\__"
+  },
+  {
+    "file": "C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/apps/extension-chromium/src/vault/autofill/__tests__/writes-kill-switch.test.ts",
+    "title": "writesKillSwitch module contract is initialized in autofillOrchestrator",
+    "head": "AssertionError: expected '// ==================================…' to contain 'import { initWritesKillSwitch } from …'\n    at C:\\Users\\oscar\\OneDrive\\Desktop\\Work\\dev\\optimandoai\\code_clean\\code\\code\\a"
+  }
+]

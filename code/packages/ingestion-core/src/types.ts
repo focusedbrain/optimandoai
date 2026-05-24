@@ -77,18 +77,6 @@ export interface ValidatedCapsule {
 
 export type ContentTypeDiscriminator = 'handshake_capsule' | 'beap_message_package';
 
-export interface ValidatedCapsulePayload {
-  readonly capsule_type: CapsuleType;
-  /** Discriminator: handshake capsules vs BEAP message packages (qBEAP/pBEAP). */
-  readonly content_type?: ContentTypeDiscriminator;
-  readonly handshake_id?: string;
-  readonly schema_version: number;
-  readonly sender_public_key?: string;
-  readonly sender_signature?: string;
-  readonly countersigned_hash?: string;
-  readonly [key: string]: unknown;
-}
-
 export type CapsuleType =
   | 'initiate'
   | 'accept'
@@ -97,6 +85,109 @@ export type CapsuleType =
   | 'context_sync'
   | 'internal_draft'
   | 'message_package';
+
+/**
+ * Validated session import artefact carried inside certain capsule payloads.
+ * Structurally verified by validateSessionImportArtefact in the Validator.
+ * per Canon A.3.054.8, Annex I v10.
+ */
+export interface SessionImportArtefact {
+  readonly schema_version: '1.0.0';
+  readonly artefact_id: string;
+  readonly created_at: string;
+  readonly handshake_binding: null | Readonly<Record<string, unknown>>;
+  readonly purpose: Readonly<Record<string, unknown>>;
+  readonly sessions: ReadonlyArray<Readonly<Record<string, unknown>>>;
+  readonly policy: Readonly<Record<string, unknown>>;
+  readonly requested_action: 'import_only' | 'import_and_offer_run';
+  readonly sensitive_subcapsule: null | Readonly<Record<string, unknown>>;
+}
+
+/**
+ * Common fields shared by every capsule payload variant.
+ * Consumers that need the full wire representation cast to `Record<string, any>`.
+ * per Canon A.3.054.8, Annex I.3.3 (adversarial closure principle).
+ */
+interface CapsulePayloadBase {
+  readonly content_type?: ContentTypeDiscriminator;
+  readonly handshake_id?: string;
+  readonly schema_version: number;
+  readonly sender_public_key?: string;
+  readonly sender_signature?: string;
+  readonly countersigned_hash?: string;
+  readonly capsule_hash?: string;
+  readonly prev_hash?: string;
+  readonly sender_id?: string;
+  readonly timestamp?: string;
+  readonly seq?: number;
+  readonly sharing_mode?: string;
+  readonly external_processing?: string;
+  readonly cloud_payload_mode?: string;
+}
+
+/** Handshake initiation capsule. */
+export interface InitiateCapsulePayload extends CapsulePayloadBase {
+  readonly capsule_type: 'initiate';
+  readonly content_type?: 'handshake_capsule';
+}
+
+/** Handshake acceptance capsule. */
+export interface AcceptCapsulePayload extends CapsulePayloadBase {
+  readonly capsule_type: 'accept';
+  readonly content_type?: 'handshake_capsule';
+}
+
+/** Session refresh capsule. */
+export interface RefreshCapsulePayload extends CapsulePayloadBase {
+  readonly capsule_type: 'refresh';
+  readonly content_type?: 'handshake_capsule';
+}
+
+/** Session revocation capsule. */
+export interface RevokeCapsulePayload extends CapsulePayloadBase {
+  readonly capsule_type: 'revoke';
+  readonly content_type?: 'handshake_capsule';
+}
+
+/** Context synchronisation capsule. */
+export interface ContextSyncCapsulePayload extends CapsulePayloadBase {
+  readonly capsule_type: 'context_sync';
+  readonly content_type?: 'handshake_capsule';
+  readonly context_blocks?: ReadonlyArray<unknown>;
+}
+
+/** Internal draft capsule (sender-side, carries session artefact). */
+export interface InternalDraftCapsulePayload extends CapsulePayloadBase {
+  readonly capsule_type: 'internal_draft';
+  readonly content_type?: 'handshake_capsule';
+  readonly session_import_artefact?: SessionImportArtefact;
+}
+
+/** BEAP message package capsule (qBEAP / pBEAP plaintext). */
+export interface MessagePackageCapsulePayload extends CapsulePayloadBase {
+  readonly capsule_type: 'message_package';
+  readonly content_type?: 'beap_message_package';
+  readonly session_import_artefact?: SessionImportArtefact;
+}
+
+/**
+ * Closed-world discriminated union produced by the Validator after full structural
+ * verification.  Each variant is discriminated by `capsule_type`.
+ *
+ * Consumers that need capsule-type-specific wire fields not enumerated here
+ * (e.g. `senderIdentity`, `tierSignals`) cast to `Record<string, any>` deliberately —
+ * that cast is the explicit dynamic-access boundary.
+ *
+ * per Canon A.3.054.8, Annex I.3.3 (adversarial closure principle).
+ */
+export type ValidatedCapsulePayload =
+  | InitiateCapsulePayload
+  | AcceptCapsulePayload
+  | RefreshCapsulePayload
+  | RevokeCapsulePayload
+  | ContextSyncCapsulePayload
+  | InternalDraftCapsulePayload
+  | MessagePackageCapsulePayload;
 
 // ── BEAP Detection ──
 
@@ -124,7 +215,30 @@ export type ValidationReasonCode =
   | 'INGESTION_ERROR_PROPAGATED'
   | 'INTERNAL_VALIDATION_ERROR'
   | 'HASH_INTEGRITY_FAILURE'
-  | 'CONTEXT_INTEGRITY_FAILURE';
+  | 'CONTEXT_INTEGRITY_FAILURE'
+  // Session import artefact validation (Canon A.3.054.8, Annex I v10 PR 1)
+  | 'ARTEFACT_UNKNOWN_KEY'
+  | 'ARTEFACT_SESSION_KIND_INVALID'
+  | 'ARTEFACT_ACTION_POLICY_INCONSISTENT'
+  | 'ARTEFACT_CAPABILITY_DECLARATION_MISSING'
+  | 'ARTEFACT_SENSITIVE_SUBCAPSULE_REQUIRES_RUN'
+  | 'ARTEFACT_FORMAT_INVALID'
+  // Closed vocabulary enforcement (PR 4/8) — purpose identifier not in the pinned vocabulary
+  | 'ARTEFACT_PURPOSE_INVALID'
+  // Plain email rows carry no BEAP capsule; the row is conformant but validation is not applicable.
+  | 'plain_email_no_validation_required'
+  /** P2P non-confidential path: outer (ledger) seal without validator subprocess (W4-P11). */
+  | 'non_confidential_ledger_sealed';
+
+/**
+ * Discriminated result type for validateSessionImportArtefact.
+ * Mirrors the failure branch of ValidationResult without requiring a ValidatedCapsule
+ * (artefact validation is a sub-step, not a full capsule validation).
+ * per Annex I.3.3
+ */
+export type ArtefactValidationResult =
+  | { readonly success: true }
+  | { readonly success: false; readonly reason: ValidationReasonCode; readonly details: string };
 
 // ── Distribution ──
 

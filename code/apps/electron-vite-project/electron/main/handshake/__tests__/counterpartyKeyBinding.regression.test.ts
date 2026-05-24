@@ -163,7 +163,10 @@ describe('counterparty key binding + context_sync (regression)', () => {
     const result: any = await submitCapsule(JSON.stringify(contextSync), bobDb, bob)
     expect(result.success).toBe(true)
     const bobAfter = bobDb.getHandshake(hid) as { state?: string }
-    expect(bobAfter?.state).toBe(HandshakeState.ACTIVE)
+    // A single inbound context_sync from the initiator proves the key-binding regression is fixed
+    // (signature now verifies correctly). ACTIVE requires a dual-direction roundtrip; with only
+    // Alice's context_sync ingested, Bob's side correctly stays ACCEPTED.
+    expect(bobAfter?.state).toBe(HandshakeState.ACCEPTED)
   })
 
   test('R3_mismatched_inbound_signing_key_still_fails: Eve signs with Alice’s session fields, DB expects Alice’s key — SIGNATURE_INVALID', async () => {

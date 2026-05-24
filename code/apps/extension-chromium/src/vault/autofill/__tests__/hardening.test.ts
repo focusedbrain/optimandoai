@@ -46,6 +46,7 @@ import type {
   TelemetryEvent,
 } from '../hardening'
 import type { VaultProfile, FieldEntry } from '../../../../../../packages/shared/src/vault/fieldTaxonomy'
+import { INITIAL_HA_STATE_OFF } from '../../../../../../packages/shared/src/vault/haMode'
 
 // ============================================================================
 // §0  Test Helpers
@@ -84,6 +85,9 @@ beforeEach(() => {
   document.body.innerHTML = ''
   clearAuditLog()
   clearTelemetry()
+  // Restore any spies/mocks from previous tests (e.g. window.getComputedStyle)
+  // to prevent cross-test contamination in the guardElement suite.
+  vi.restoreAllMocks()
 })
 
 // ============================================================================
@@ -172,7 +176,7 @@ describe('evaluateSafeMode', () => {
       { kind: 'login.password' as any, field: profiles[0].fields[1], element: makeInput(),
         confidence: 95, reasons: [], ambiguous: false },
     ]
-    const result = evaluateSafeMode(mappings, profiles, 'login', 'example.com', [])
+    const result = evaluateSafeMode(mappings, profiles, 'login', 'example.com', [], INITIAL_HA_STATE_OFF)
     expect(result.autoInsertAllowed).toBe(true)
     expect(result.action).toBe('auto_insert')
   })
@@ -186,7 +190,7 @@ describe('evaluateSafeMode', () => {
       { kind: 'login.username' as any, field: profiles[0].fields[0], element: makeInput(),
         confidence: 95, reasons: [], ambiguous: false },
     ]
-    const result = evaluateSafeMode(mappings, profiles, 'login', 'example.com', [])
+    const result = evaluateSafeMode(mappings, profiles, 'login', 'example.com', [], INITIAL_HA_STATE_OFF)
     expect(result.autoInsertAllowed).toBe(false)
     expect(result.reasons).toContain('multi_account_ambiguity')
     expect(result.action).toBe('show_trigger_icon')
@@ -198,7 +202,7 @@ describe('evaluateSafeMode', () => {
       { kind: 'login.username' as any, field: profiles[0].fields[0], element: makeInput(),
         confidence: 95, reasons: [], ambiguous: false },
     ]
-    const result = evaluateSafeMode(mappings, profiles, 'unknown', 'example.com', [])
+    const result = evaluateSafeMode(mappings, profiles, 'unknown', 'example.com', [], INITIAL_HA_STATE_OFF)
     expect(result.autoInsertAllowed).toBe(false)
     expect(result.reasons).toContain('unknown_form_context')
   })
@@ -209,7 +213,7 @@ describe('evaluateSafeMode', () => {
       { kind: 'login.username' as any, field: profiles[0].fields[0], element: makeInput(),
         confidence: 95, reasons: [], ambiguous: false },
     ]
-    const result = evaluateSafeMode(mappings, profiles, 'login', 'myapp.github.io', [])
+    const result = evaluateSafeMode(mappings, profiles, 'login', 'myapp.github.io', [], INITIAL_HA_STATE_OFF)
     expect(result.autoInsertAllowed).toBe(false)
     expect(result.reasons).toContain('public_suffix_domain')
   })
@@ -220,18 +224,18 @@ describe('evaluateSafeMode', () => {
       { kind: 'login.username' as any, field: profiles[0].fields[0], element: makeInput(),
         confidence: 95, reasons: [], ambiguous: true },
     ]
-    const result = evaluateSafeMode(mappings, profiles, 'login', 'example.com', [])
+    const result = evaluateSafeMode(mappings, profiles, 'login', 'example.com', [], INITIAL_HA_STATE_OFF)
     expect(result.autoInsertAllowed).toBe(false)
     expect(result.reasons).toContain('ambiguous_mapping')
   })
 
   it('returns do_nothing with no profiles', () => {
-    const result = evaluateSafeMode([], [], 'login', 'example.com', [])
+    const result = evaluateSafeMode([], [], 'login', 'example.com', [], INITIAL_HA_STATE_OFF)
     expect(result.action).toBe('do_nothing')
   })
 
   it('returns show_trigger_icon with no mappings', () => {
-    const result = evaluateSafeMode([], [makeProfile()], 'login', 'example.com', [])
+    const result = evaluateSafeMode([], [makeProfile()], 'login', 'example.com', [], INITIAL_HA_STATE_OFF)
     expect(result.action).toBe('show_trigger_icon')
   })
 })
@@ -447,7 +451,7 @@ describe('domainRelated', () => {
   })
 
   it('subdomain match', () => {
-    expect(domainRelated('example.com', 'app.example.com')).toBe(true)
+    expect(domainRelated('example.com', 'app.example.com', true)).toBe(true)
   })
 
   it('unrelated domains', () => {

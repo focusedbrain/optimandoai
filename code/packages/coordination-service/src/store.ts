@@ -127,6 +127,12 @@ export interface StoreAdapter {
     deviceId?: string | null,
   ): Array<{ id: string; capsule_json: string }>
   markPushed(id: string): void
+  getCapsuleRelayRoute(id: string): {
+    handshakeId: string
+    senderUserId: string
+    senderDeviceId: string | null
+    recipientUserId: string
+  } | null
   acknowledgeCapsules(ids: string[], userId: string, email?: string | null): number
   countPending(): number
   countPendingForRecipient(recipientUserId: string): number
@@ -276,6 +282,43 @@ export function createStore(config: CoordinationConfig): StoreAdapter {
       const d = ensureDb()
       const now = new Date().toISOString()
       d.prepare(`UPDATE coordination_capsules SET pushed_at = ? WHERE id = ?`).run(now, id)
+    },
+
+    getCapsuleRelayRoute(id: string): {
+      handshakeId: string
+      senderUserId: string
+      senderDeviceId: string | null
+      recipientUserId: string
+    } | null {
+      const d = ensureDb()
+      const row = d
+        .prepare(
+          `SELECT handshake_id, sender_user_id, recipient_user_id, capsule_json
+           FROM coordination_capsules WHERE id = ?`,
+        )
+        .get(id) as
+        | {
+            handshake_id: string
+            sender_user_id: string
+            recipient_user_id: string
+            capsule_json: string
+          }
+        | undefined
+      if (!row) return null
+      let senderDeviceId: string | null = null
+      try {
+        const cap = JSON.parse(row.capsule_json) as Record<string, unknown>
+        const sd = cap.sender_device_id
+        if (typeof sd === 'string' && sd.trim().length > 0) senderDeviceId = sd.trim()
+      } catch {
+        /* ignore */
+      }
+      return {
+        handshakeId: row.handshake_id,
+        senderUserId: row.sender_user_id,
+        senderDeviceId,
+        recipientUserId: row.recipient_user_id,
+      }
     },
 
     acknowledgeCapsules(ids: string[], userId: string, email?: string | null): number {

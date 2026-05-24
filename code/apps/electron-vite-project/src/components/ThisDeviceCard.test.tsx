@@ -30,7 +30,8 @@ describe('ThisDeviceCard', () => {
 
     // Updated label + helper copy.
     expect(html).toContain('Pairing code')
-    expect(html).toContain('Read this code aloud or write it down to pair your other device')
+    // Updated helper copy (Phase B)
+    expect(html).toContain('Enter this code on your other device when initiating an internal handshake.')
 
     // Device name / role still surfaced.
     expect(html).toContain('My Laptop')

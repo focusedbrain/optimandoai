@@ -1,0 +1,249 @@
+﻿\n=== apps/electron-vite-project/electron/main/email/__tests__/b4P2PRelayMigration.test.ts (10) ===
+- B-4 ┬º1 ÔÇö processBeapPackageInline ┬º1.1 valid pBEAP with known handshake ÔåÆ sealed inbox row (outcome: inbox) | TypeError: Cannot read properties of undefined (reading 'getPath')
+- B-4 ┬º1 ÔÇö processBeapPackageInline ┬º1.2 pBEAP with unknown/no handshake ÔåÆ sealed quarantine row (outcome: quarantine) | TypeError: Cannot read properties of undefined (reading 'getPath')
+- B-4 ┬º1 ÔÇö processBeapPackageInline ┬º1.3 corrupted / non-JSON bytes ÔåÆ quarantine with parse error, not thrown to caller | TypeError: Cannot read properties of undefined (reading 'getPath')
+- B-4 ┬º2 ÔÇö processSandboxQuarantineReceive ┬º2.1 decryption failure ÔåÆ sandbox-side quarantine row with blob_decrypt_failed | TypeError: Cannot read properties of undefined (reading 'getPath')
+- B-4 ┬º3 ÔÇö Schema migration v66 ┬º3.1 migrateHandshakeTables creates tables up to v66 and p2p_pending_beap is absent | SqliteError: no such column: relationship_id
+- B-4 ┬º3 ÔÇö Schema migration v66 ┬º3.2 after v66, insertPendingP2PBeap is a no-op (does not throw or write) | SqliteError: no such column: relationship_id
+- B-4 ┬º4 ÔÇö Static audit: p2p_pending_beap INSERT callers ┬º4.1 processPendingP2PBeapEmails is a no-op stub returning 0 | TypeError: Cannot read properties of undefined (reading 'getPath')
+- B-4 ┬º4 ÔÇö Static audit: p2p_pending_beap INSERT callers ┬º4.2 processBeapPackageInline is exported and callable | TypeError: Cannot read properties of undefined (reading 'getPath')
+- B-4 ┬º4 ÔÇö Static audit: p2p_pending_beap INSERT callers ┬º4.3 processSandboxQuarantineReceive is exported and callable | TypeError: Cannot read properties of undefined (reading 'getPath')
+- B-4 ┬º4 ÔÇö Static audit: p2p_pending_beap INSERT callers ┬º4.4 retryPendingQbeapDecrypt is exported (sealed backfill path) | TypeError: Cannot read properties of undefined (reading 'getPath')
+\n=== apps/electron-vite-project/electron/main/email/__tests__/b51ExtensionMergeBypass.test.ts (3) ===
+- B-5.1 ┬º2 ÔÇö No inbox writes on failure path (no sandbox) ┬º2.4 Validation fails, sandbox available ÔåÆ quarantine row written, no retry buffer entry | AssertionError: expected +0 to be 1 // Object.is equa
+- B-5.1 ┬º3 ÔÇö drainExtensionMergeBuffer ┬º3.2 Sandbox becomes available ÔåÆ quarantine row written, entry removed | AssertionError: expected +0 to be 1 // Object.is equality
+- B-5.1 ┬º3 ÔÇö drainExtensionMergeBuffer ┬º3.5 Buffer drains and UI cleared when all entries processed | AssertionError: expected 1 to be +0 // Object.is equality
+\n=== apps/electron-vite-project/electron/main/email/__tests__/b5ExtensionMerge.test.ts (7) ===
+- B-5 ┬ºE ÔÇö validateDecryptedBeapContent: beap_message content type ┬ºE.6 beap_message with valid session_import_artefact + attachments_canonical ÔåÆ accepted | AssertionError: expected 'ARTEFACT_PURPOSE_IN
+- B-5 ┬ºF ÔÇö mergeExtensionDepackaged sealed gate ┬ºF.1 valid content ÔåÆ sealed inbox row; seal and seal_input_json populated | SealVerificationError: [SEALED_GATE] UPDATE (
+- B-5 ┬ºF ÔÇö mergeExtensionDepackaged sealed gate ┬ºF.2 canonical content built with content_type:beap_message + attachments_canonical | SealVerificationError: [SEALED_GATE] UPDATE (
+- B-5 ┬ºF ÔÇö mergeExtensionDepackaged sealed gate ┬ºF.3 attachment with base64 bytes ÔåÆ content_sha256 populated in inbox_attachments | SealVerificationError: [SEALED_GATE] UPDATE (
+- B-5 ┬ºF ÔÇö mergeExtensionDepackaged sealed gate ┬ºF.4 validator rejects ÔåÆ ok: false; shell row updated with rejection reason; seal absent | AssertionError: expected null to be 'MISSING_REQUIRED_FIELD' //
+- B-5 ┬ºF ÔÇö mergeExtensionDepackaged sealed gate ┬ºF.6 Att-2: seal covers attachment hashes (canonical_json includes attachments_canonical) | SealVerificationError: [SEALED_GATE] UPDATE (
+- B-5 ┬ºG ÔÇö cloneToSandbox round-trip verification ┬ºG.2 prepareBeapInboxSandboxClone returns MESSAGE_NOT_FOUND for missing source row | Error: Cannot find module '../beapInboxClonePrepare'
+\n=== apps/electron-vite-project/electron/main/email/__tests__/b72DecryptedContentReseal.test.ts (4) ===
+- B-7.2 ┬º1 ÔÇö resealWithDecryptedContent ┬º1.1 pending row ÔåÆ validator called; row sealed; content written | AssertionError: expected false to be true // Object.is equality
+- B-7.2 ┬º1 ÔÇö resealWithDecryptedContent ┬º1.6 childWrites executed atomically with parent UPDATE | AssertionError: expected false to be true // Object.is equality
+- B-7.2 ┬º1 ÔÇö resealWithDecryptedContent ┬º1.9 attachmentCount > 0 ÔåÆ has_attachments=1 written correctly | AssertionError: expected false to be true // Object.is equality
+- B-7.2 ┬º2 ÔÇö retryPendingQbeapDecrypt migration invariant ┬º2.1 retryPendingQbeapDecrypt calls resealWithDecryptedContent ÔÇö no raw db.prepare UPDATE | SqliteError: table inbox_messages has no column name
+\n=== apps/electron-vite-project/electron/main/email/__tests__/b7IpcContentUpdates.test.ts (5) ===
+- B-7 ┬º2 ÔÇö resealWithAiAnalysis ┬º2.1 valid row + valid seal ÔåÆ new seal written; canonical includes ai_analysis_json | AssertionError: expected false to be true // Object.is equality
+- B-7 ┬º2 ÔÇö resealWithAiAnalysis ┬º2.6 aiAnalysisData = null ÔåÆ removes ai_analysis_json from canonical; re-seals | AssertionError: expected false to be true // Object.is equality
+- B-7 ┬º2 ÔÇö resealWithAiAnalysis ┬º2.7 pre-Phase-B row (no seal) ÔåÆ forward-migration: sealed write succeeds | AssertionError: expected false to be true // Object.is equality
+- B-7 ┬º3 ÔÇö resealWithPdfExtraction ┬º3.1 valid parent + attachment ÔåÆ re-seals parent + writes inbox_attachments | AssertionError: expected false to be true // Object.is equality
+- B-7 ┬º3 ÔÇö resealWithPdfExtraction ┬º3.5 pre-Phase-B row (no seal) ÔåÆ forward-migration: sealed write succeeds | AssertionError: expected false to be true // Object.is equality
+\n=== apps/electron-vite-project/electron/main/email/__tests__/mergeExtensionDepackaged.validation.test.ts (4) ===
+- mergeExtensionDepackaged ÔÇö content validation (PR B-5) TEST-INT-1. merge with no artefact ÔåÆ sealed row written, seal present | SqliteError: no such table: inbox_attachments
+- mergeExtensionDepackaged ÔÇö content validation (PR B-5) TEST-INT-2. merge with valid session_import_artefact ÔåÆ sealed row | SqliteError: no such table: inbox_attachments
+- mergeExtensionDepackaged ÔÇö content validation (PR B-5) TEST-INT-3. merge with malformed artefact ÔåÆ validator rejects ÔåÆ ok: false | AssertionError: expected null to be 'ARTEFACT_UNKNOWN_KEY' // Object.
+- mergeExtensionDepackaged ÔÇö content validation (PR B-5) TEST-INT-4. re-merge updates sealed row with new content | SqliteError: no such table: inbox_attachments
+\n=== apps/electron-vite-project/electron/main/email/__tests__/messageRouter.ingestTransaction.test.ts (1) ===
+- detectAndRouteMessage transaction (requires native better-sqlite3) ingests two attachments with the same provider id when they belong to different inbox rows | Error: Validation service unavailable
+\n=== apps/electron-vite-project/electron/main/email/__tests__/pbeapValidation.test.ts (4) ===
+- processPendingP2PBeapEmails ÔÇö pBEAP validation columns (PR 2.1/7) PBEAP-1. pBEAP package, no artefact ÔåÆ validated_at set, validation_reason null | AssertionError: expected null to be truthy
+- processPendingP2PBeapEmails ÔÇö pBEAP validation columns (PR 2.1/7) PBEAP-2. pBEAP with valid session_import_artefact ÔåÆ validated_at set, validation_reason null | AssertionError: expected null to be tru
+- processPendingP2PBeapEmails ÔÇö pBEAP validation columns (PR 2.1/7) PBEAP-3 (critical). pBEAP with malformed artefact ÔåÆ validation_reason = ARTEFACT_UNKNOWN_KEY | AssertionError: expected null to be tru
+- processPendingP2PBeapEmails ÔÇö pBEAP validation columns (PR 2.1/7) PBEAP-4. non-pBEAP package (qBEAP placeholder) ÔåÆ extractPBeapCapsule returns null, depackagedJson validated | AssertionError: expected
+\n=== apps/electron-vite-project/electron/main/email/__tests__/pr22SecurityDeferrals.test.ts (2) ===
+- OB: Outbound qBEAP echo ÔåÆ validated_at (PR 2.2, Items 1 & 2) OB-1. processPendingP2PBeapEmails: outbound echo row gets validated_at set and validation_reason null | AssertionError: expected null to be
+- OB: Outbound qBEAP echo ÔåÆ validated_at (PR 2.2, Items 1 & 2) OB-2. retryPendingQbeapDecrypt: outbound echo row gets validated_at set | AssertionError: expected null to be truthy
+\n=== apps/electron-vite-project/electron/main/handshake/__tests__/counterpartyKeyBinding.regression.test.ts (1) ===
+- counterparty key binding + context_sync (regression) R2_fixed_acceptor_counterparty_initiator_key: same inbound context_sync accepted; acceptor can reach ACTIVE | AssertionError: expected 'ACCEPTED' t
+\n=== apps/electron-vite-project/electron/main/handshake/__tests__/hardening-verification.test.ts (9) ===
+- Hardening Verification ÔÇö Fix 1: capsule_hash A4_valid_hash_refresh: Valid refresh capsule with correct hash ÔåÆ accepted | AssertionError: expected false to be true // Object.is equality
+- Hardening Verification ÔÇö Fix 3: Context-sync enforcement C2_normal_message_after_sync: After context-sync at seq 1, send refresh at seq 2 ÔåÆ accepted | AssertionError: expected false to be true // Obje
+- Hardening Verification ÔÇö Fix 3: Context-sync enforcement C4_context_sync_from_acceptor: Acceptor sends context-sync to initiator ÔåÆ accepted | AssertionError: expected false to be true // Object.is equ
+- Hardening Verification ÔÇö Fix 3: Context-sync enforcement C7_second_context_sync: Context-sync at seq 2 after successful seq 1 ÔåÆ INVALID_STATE_TRANSITION | AssertionError: expected true to be false // 
+- Hardening Verification ÔÇö Integration: Cross-cutting D1_full_happy_path: initiate ÔåÆ accept ÔåÆ context-sync (both) ÔåÆ refresh ÔåÆ all pass | AssertionError: expected false to be true // Object.is equality
+- Hardening Verification ÔÇö Integration: Cross-cutting D3_valid_hash_wrong_context: Capsule_hash correct but context_blocks dont match stored commitment ÔåÆ CONTEXT_COMMITMENT_MISMATCH | AssertionError: ex
+- Hardening Verification ÔÇö Group E: context_commitment DB verification E2_commitment_mismatch_initiator: Initiator sends context_blocks different from stored ÔåÆ CONTEXT_COMMITMENT_MISMATCH | AssertionErr
+- Hardening Verification ÔÇö Group E: context_commitment DB verification E4_db_null_capsule_has_blocks: Stored commitment is null, capsule carries context_blocks ÔåÆ rejected | AssertionError: expected true
+- Hardening Verification ÔÇö Group E: context_commitment DB verification E5_db_set_capsule_no_blocks: Stored commitment exists, capsule has empty context_blocks ÔåÆ rejected | AssertionError: expected true 
+\n=== apps/electron-vite-project/electron/main/handshake/__tests__/internalRelayOutboundGuards.test.ts (1) ===
+- internalRelayOutboundGuards isInternalRelayCapsuleEnvelope | AssertionError: expected true to be false // Object.is equality
+\n=== apps/electron-vite-project/electron/main/handshake/__tests__/ipc.internal.relayPush.test.ts (2) ===
+- handshake.initiate internal ÔÇö coordination relay push (Phase 3) pushes initiate capsule through coordination; returns relay_delivery=pushed_live | AssertionError: expected false to be true // Object.i
+- handshake.initiate internal ÔÇö coordination relay push (Phase 3) coordination failure surfaces relay_delivery=coordination_unavailable (fallback to download) | AssertionError: expected false to be true
+\n=== apps/electron-vite-project/electron/main/handshake/__tests__/outboundQueue.backoff.test.ts (5) ===
+- outboundQueue: backoff & transport QB_09_post_failure_autodrain_retries_without_second_user_call | AssertionError: expected "fetch" to be called 2 times, but got 10 times
+- outboundQueue: backoff & transport QB_16_http_400_terminal_request_invalid_no_autodrain | AssertionError: expected 'SCHEMA_PERMANENT' to be 'PAYLOAD_PERMANENT' // Object.is equality
+- outboundQueue: backoff & transport QB_17_coordination_http_400_terminal_single_fetch | AssertionError: expected 'SCHEMA_PERMANENT' to be 'PAYLOAD_PERMANENT' // Object.is equality
+- outboundQueue: backoff & transport QB_18_http_400_emits_request_diagnostics_logs | AssertionError: expected '{"event":"outbound_request_diagnosticÔÇª' to contain 'terminal_http_400'
+- outboundQueue: backoff & transport QB_22_coordination_403_stale_registry_reregister_then_success | AssertionError: expected "spy" to be called 1 times, but got 0 times
+\n=== apps/electron-vite-project/electron/main/handshake/__tests__/revocation.test.ts (1) ===
+- Revocation revokeHandshake function is exported | TypeError: Cannot read properties of undefined (reading 'getPath')
+\n=== apps/electron-vite-project/electron/main/ingestion/__tests__/adversarial.test.ts (10) ===
+- Adversarial Tests oversized payload (10MB+) ÔåÆ rejected | AssertionError: expected 'MISSING_REQUIRED_FIELD' to be 'PAYLOAD_SIZE_EXCEEDED' // Object.is equality
+- Adversarial Tests future-dated capsule passes Validator | AssertionError: expected false to be true // Object.is equality
+- Adversarial Tests invalid sharing_mode value ÔåÆ INVALID_ENUM_VALUE | AssertionError: expected 'MISSING_REQUIRED_FIELD' to be 'INVALID_ENUM_VALUE' // Object.is equality
+- Adversarial Tests revoked handshake + new capsule ÔÇö Validator passes structural check | AssertionError: expected false to be true // Object.is equality
+- Adversarial Tests forged __brand: ValidatedCapsule in raw_payload is ignored | AssertionError: expected false to be true // Object.is equality
+- Adversarial Tests null bytes in payload ÔåÆ no crash | AssertionError: expected false to be true // Object.is equality
+- Adversarial Tests negative seq ÔåÆ STRUCTURAL_INTEGRITY_FAILURE | AssertionError: expected 'MISSING_REQUIRED_FIELD' to be 'STRUCTURAL_INTEGRITY_FAILURE' // Object.is equality
+- Adversarial Tests non-integer seq ÔåÆ STRUCTURAL_INTEGRITY_FAILURE | AssertionError: expected 'MISSING_REQUIRED_FIELD' to be 'STRUCTURAL_INTEGRITY_FAILURE' // Object.is equality
+- Adversarial Tests empty handshake_id ÔåÆ STRUCTURAL_INTEGRITY_FAILURE | AssertionError: expected 'MISSING_REQUIRED_FIELD' to be 'STRUCTURAL_INTEGRITY_FAILURE' // Object.is equality
+- Adversarial Tests prev_hash with invalid hex ÔåÆ HASH_BINDING_MISMATCH | AssertionError: expected 'MISSING_REQUIRED_FIELD' to be 'HASH_BINDING_MISMATCH' // Object.is equality
+\n=== apps/electron-vite-project/electron/main/ingestion/__tests__/hardening.test.ts (2) ===
+- Hardening ÔÇö Runtime Non-Bypassability handshake IPC handler does not import processHandshakeCapsule | TypeError: Cannot read properties of undefined (reading 'getPath')
+- Hardening ÔÇö DoS / Parser Protections prototype key in nested object stripped from ValidatedCapsule | AssertionError: expected false to be true // Object.is equality
+\n=== apps/electron-vite-project/electron/main/ingestion/__tests__/integration.test.ts (3) ===
+- Integration ÔÇö Full Pipeline external valid BEAP ÔåÆ validated ÔåÆ handshake_pipeline target | AssertionError: expected false to be true // Object.is equality
+- Integration ÔÇö Full Pipeline valid capsule ÔåÆ audit record created | AssertionError: expected 'rejected' to be 'validated' // Object.is equality
+- Integration ÔÇö Full Pipeline accept capsule routes to handshake_pipeline | AssertionError: expected false to be true // Object.is equality
+\n=== apps/electron-vite-project/electron/main/ingestion/__tests__/validator.test.ts (9) ===
+- Validator schema_version = 2 ÔåÆ accepted | AssertionError: expected false to be true // Object.is equality
+- Validator malformed capsule_hash (not hex) ÔåÆ HASH_BINDING_MISMATCH | AssertionError: expected 'MISSING_REQUIRED_FIELD' to be 'HASH_BINDING_MISMATCH' // Object.is equality
+- Validator capsule_hash wrong length ÔåÆ HASH_BINDING_MISMATCH | AssertionError: expected 'MISSING_REQUIRED_FIELD' to be 'HASH_BINDING_MISMATCH' // Object.is equality
+- Validator payload exceeds size limit ÔåÆ PAYLOAD_SIZE_EXCEEDED | AssertionError: expected 'MISSING_REQUIRED_FIELD' to be 'PAYLOAD_SIZE_EXCEEDED' // Object.is equality
+- Validator valid initiate ÔåÆ returns ValidatedCapsule | AssertionError: expected false to be true // Object.is equality
+- Validator valid accept ÔåÆ returns ValidatedCapsule | AssertionError: expected false to be true // Object.is equality
+- Validator valid refresh ÔåÆ returns ValidatedCapsule | AssertionError: expected false to be true // Object.is equality
+- Validator valid revoke ÔåÆ returns ValidatedCapsule | AssertionError: expected false to be true // Object.is equality
+- Validator ValidatedCapsule has correct structure | AssertionError: expected false to be true // Object.is equality
+\n=== apps/electron-vite-project/electron/main/internalInference/__tests__/hostAiE2eSandboxToHostSuccess.integration.test.ts (1) ===
+- Host AI E2E ÔÇö sandbox Ôåö host (HTTP capabilities path) emits an available host_internal row when relay-authenticated peer BEAP + host owner distrust check passes and capabilities POST returns two Ollam
+\n=== apps/electron-vite-project/electron/main/internalInference/__tests__/hostAiPeerEndpointAndAdvertisement.test.ts (3) ===
+- buildHostAiProviderAdvertisementPayload (gating) Test 2: effective sandbox (ledger) with configured host file must not publish Host AI | TypeError: db.prepare is not a function
+- buildHostAiProviderAdvertisementPayload (gating) Test 1: ledger host + can_publish + policy ÔåÆ advertised_as_host_ai and owner = current device | TypeError: db.prepare is not a function
+- buildHostAiProviderAdvertisementPayload (gating) ledger host with zero models must not advertise as Host AI provider | TypeError: db.prepare is not a function
+\n=== apps/electron-vite-project/electron/main/internalInference/__tests__/hostAiRoutingCorrectness.regression.test.ts (3) ===
+- Host AI routing regression (expected failures until resolver hardens) (2) direct_http_available must be false without any trust source (no BEAP attestation, no inference bearer trust) | AssertionError
+- Host AI routing regression (expected failures until resolver hardens) (2b) transport decider must not select legacy_http without any trust source (no BEAP attestation, no inference bearer trust) | Ass
+- Host AI routing regression (expected failures until resolver hardens) (5) DC non-role failure + HTTP fallback must not POST ingest when only ledger direct exists (no peer advertisement) | AssertionErr
+\n=== apps/electron-vite-project/electron/main/internalInference/__tests__/internalInference.directHost.regression.test.ts (1) ===
+- runSandboxHostInferenceChat (Sandbox entry) Host mode cannot use Sandbox host-chat entry point | Error: [vitest] No "BrowserWindow" export is defined on the "electron" mock. Did you forget to return i
+\n=== apps/electron-vite-project/electron/main/internalInference/__tests__/internalInferenceService.test.ts (1) ===
+- host dispatch with mocks disabled policy posts HOST_INFERENCE_DISABLED and does not call Ollama | TypeError: db.prepare is not a function
+\n=== apps/electron-vite-project/electron/main/internalInference/__tests__/listHostCapabilities.hostAiRoute.test.ts (2) ===
+- listHostCapabilities ÔÇö Host AI route (WebRTC/relay before direct HTTP) (1) relay + full P2P + no direct peer BEAP ad: capabilities succeed via data-channel (not peer-ad missing) | AssertionError: expe
+- listHostCapabilities ÔÇö Host AI route (WebRTC/relay before direct HTTP) (3) P2P/WebRTC off + no peer-attested direct BEAP: HOST_AI_DIRECT_PEER_BEAP_MISSING (resolver, not raw ledger dial) | AssertionEr
+\n=== apps/electron-vite-project/electron/main/internalInference/__tests__/sandbox_lists_remote_ollama_models_even_when_beap_endpoint_missing.regression.test.ts (1) ===
+- sandbox_lists_remote_ollama_models_even_when_beap_endpoint_missing lists two remote ODL rows while BEAP is missing (trusted=false, HOST_AI_DIRECT_PEER_BEAP_MISSING) | AssertionError: expected 1 to be 
+\n=== apps/electron-vite-project/electron/main/vault/hsContextOcrJob.test.ts (2) ===
+- validateExtractedText rejects HTML/markup-like extraction | AssertionError: expected true to be false // Object.is equality
+- validateExtractedText rejects content with tag-like markup | AssertionError: expected true to be false // Object.is equality
+\n=== apps/electron-vite-project/electron/main/vault/rpcAuth.test.ts (1) ===
+- RPC handler signature ÔÇö tier is required handleVaultRPC accepts 3 arguments (method, params, tier) | TypeError: Cannot read properties of undefined (reading 'getPath')
+\n=== apps/electron-vite-project/src/components/ThisDeviceCard.test.tsx (1) ===
+- ThisDeviceCard renders the 6-digit pairing code formatted as XXX-XXX with a Regenerate button | AssertionError: expected '<div data-testid="this-device-card" sÔÇª' to contain 'Read this code aloud or wr
+\n=== apps/electron-vite-project/src/lib/__tests__/beapInboxActionTooltips.test.ts (1) ===
+- beapInboxActionTooltips Sandbox: same hover regardless of tri-state (relay is not a visibility input) | AssertionError: expected 'Clone the entire BEAP message to yourÔÇª' to be 'Clone this BEAP message
+\n=== apps/electron-vite-project/src/lib/__tests__/finalAcceptance.hostAiInvariants.test.ts (2) ===
+- FINAL ACCEPTANCE ÔÇö Sandbox (ledger: local Sandbox, peer Host) Host AI row is considered present for selector when gav carries host_internal or merged rows (top + WR use same shape) | AssertionError: e
+- FINAL ACCEPTANCE ÔÇö main + selector invariants (static) main: getAvailableModels path still merges local/cloud with internal Host rows | AssertionError: expected '\ufeffimport { app, BrowserWindow, glÔÇª
+\n=== apps/electron-vite-project/src/lib/__tests__/hostInferenceSelectorIntegration.test.ts (4) ===
+- selector integration ÔÇö persistence (structured + legacy) Host row in P2P connecting (ephemeral id) keeps persisted host-internal model id | AssertionError: expected 'host-internal:hs-connect:connectin
+- orchestrator selection restore (regression) (1) host_internal + handshake_id + ephemeral :connecting row keeps selection; no host_unavailable | AssertionError: expected 'host-internal:pair-hid-restore
+- orchestrator selection restore (regression) (5) empty local list / Ollama unavailable does not invalidate host_internal selection | AssertionError: expected 'host-internal:pair-hid-restore-001:coÔÇª' to
+- orchestrator selection restore (regression) (6) handshake match wins when list row uses :checking suffix (id mismatch vs stored :llama) | AssertionError: expected 'host-internal:pair-hid-restore-001:c
+\n=== apps/electron-vite-project/src/lib/__tests__/inboxMessageSandboxClone.test.ts (1) ===
+- inboxMessageUsesNativeBeapPbeapQbeapSplit extractSandboxCloneUiMeta reads depackaged beap_sandbox_clone | AssertionError: expected undefined to be 'Konge-AS1' // Object.is equality
+\n=== apps/extension-chromium/src/beap-builder/__tests__/handshakeRefresh.test.ts (4) ===
+- buildContextBlocks T8: constructs correct block from user message | AssertionError: expected undefined to be 'text' // Object.is equality
+- buildContextBlocks defaults block_type to text | AssertionError: expected undefined to be 'text' // Object.is equality
+- buildContextBlocks preserves scope_id when provided | AssertionError: expected undefined to be 'scope-1' // Object.is equality
+- sendViaHandshakeRefresh sends context blocks via handshake.refresh RPC | AssertionError: Target cannot be null or undefined.
+\n=== apps/extension-chromium/src/beap-messages/services/__tests__/BeapPackageBuilder.test.ts (7) ===
+- Transport Leak Prevention should never include encrypted content in qBEAP package transport fields | AssertionError: expected false to be true // Object.is equality
+- Transport Leak Prevention should succeed when public transport text matches encrypted message (independent fields) | AssertionError: expected false to be true // Object.is equality
+- Policy Gating should pass qBEAP build when policy requires encrypted message and it is provided | AssertionError: expected false to be true // Object.is equality
+- Policy Gating should pass qBEAP build when no policy restrictions | AssertionError: expected false to be true // Object.is equality
+- Workspace Structure Guard should include automation metadata with receiver authority flag in qBEAP | AssertionError: expected false to be true // Object.is equality
+- Result Type Consistency should always return consistent result shape for success | AssertionError: expected false to be true // Object.is equality
+- BeapBuildResult Unified Type should return canonical BeapBuildResult shape on success | AssertionError: expected false to be true // Object.is equality
+\n=== apps/extension-chromium/src/beap-messages/services/__tests__/sessionImportArtefact.test.ts (6) ===
+- qBEAP serialization ÔÇö session_import_artefact (PR 3/8) 6. config without sessionImportArtefact ÔåÆ build succeeds (no regression) | AssertionError: expected false to be true // Object.is equality
+- qBEAP serialization ÔÇö session_import_artefact (PR 3/8) 7. config with valid sessionImportArtefact ÔåÆ build succeeds | AssertionError: expected false to be true // Object.is equality
+- qBEAP serialization ÔÇö session_import_artefact (PR 3/8) 8. config with artefact containing agentBoxes ÔåÆ build succeeds (strip applied silently) | AssertionError: expected false to be true // Object.is 
+- qBEAP serialization ÔÇö session_import_artefact (PR 3/8) 9. config with artefact + subject + body + attachments ÔåÆ build succeeds (no field clobbering) | AssertionError: expected false to be true // Obje
+- pBEAP round-trip ÔÇö artefact structure after decode (PR 3/8) 14. build qBEAP without artefact continues to succeed (no regression) | AssertionError: expected false to be true // Object.is equality
+- hash binding ÔÇö artefact is cryptographically bound (PR 3/8) 15. qBEAP builds with/without artefact produce different sha256Plain commitments | AssertionError: expected false to be true // Object.is eq
+\n=== apps/extension-chromium/src/handshake/__tests__/migration.test.ts (5) ===
+- Migration ÔÇö old store mutations removed from new code T11: new RecipientHandshakeSelect has no BEAP_SEND_EMAIL | AssertionError: expected '/**\n * RecipientHandshakeSelect CompÔÇª' not to contain 'peerX
+- Migration ÔÇö old store mutations removed from new code T12: new RecipientHandshakeSelect has no X25519/ML-KEM fields | AssertionError: expected '/**\n * RecipientHandshakeSelect CompÔÇª' not to contain '
+- Migration ÔÇö old store mutations removed from new code rpcTypes.ts defines HandshakeRecord without X25519 | AssertionError: expected '/**\n * Handshake RPC Types (ExtensioÔÇª' not to contain 'peerX25519P
+- Cleanup ÔÇö legacy code removed from production sources C4: no production file contains peerX25519PublicKey | AssertionError: handshake/rpcTypes.ts should not contain peerX25519PublicKey: expected '/**\
+- Cleanup ÔÇö legacy code removed from production sources C10: useFullAutoStatus.ts does not depend on useHandshakeStore | AssertionError: expected '' to contain 'useFullAutoStatus'
+\n=== apps/extension-chromium/src/policy/engine/__tests__/evaluator.test.ts (8) ===
+- computeEffectivePolicy should apply NBP restrictions when present | TypeError: Cannot read properties of undefined (reading 'length')
+- computeEffectivePolicy should apply HSP restrictions | AssertionError: expected [ 'email', 'api', 'webhook' ] to deeply equal [ 'email' ]
+- computeEffectivePolicy should track denials from each layer | TypeError: Cannot read properties of undefined (reading 'filter')
+- computeEffectivePolicy should calculate correct risk tier | TypeError: Cannot read properties of undefined (reading 'filter')
+- computeEffectivePolicy should require consent when CAP exceeds HSP | TypeError: Cannot read properties of undefined (reading 'length')
+- computeEffectivePolicy should use minimum for numeric limits | TypeError: Cannot read properties of undefined (reading 'filter')
+- verifyNoEscalation should detect escalation in boolean permissions | TypeError: lowerLayer.ingress.allowedArtefactTypes is not iterable
+- verifyNoEscalation should detect escalation in numeric limits | TypeError: lowerLayer.ingress.allowedArtefactTypes is not iterable
+\n=== apps/extension-chromium/src/vault/autofill/__tests__/background-sender-gate.test.ts (2) ===
+- background.ts exports WebMCP constants defense layers are ordered: sender ÔåÆ circuit ÔåÆ schema ÔåÆ per-tab ÔåÆ global | AssertionError: expected -1 to be greater than 4358
+- EXPORT_AUDIT_LOG ÔÇö source-level verification session storage restore checks TTL before restoring VSBT | AssertionError: expected -1 to be greater than 0
+\n=== apps/extension-chromium/src/vault/autofill/__tests__/datavault-classifier.test.ts (7) ===
+- DataVault classifier ÔÇö name/id patterns detects phone via id="phone" | TypeError: Cannot read properties of undefined (reading 'escape')
+- DataVault classifier ÔÇö German keywords detects "Hausnummer" as street number via name | AssertionError: expected null to be 'identity.street_number' // Object.is equality
+- DataVault fill engine ÔÇö select elements fills a select by matching option value | AssertionError: expected false to be true // Object.is equality
+- DataVault fill engine ÔÇö select elements fills a select by matching visible text | AssertionError: expected false to be true // Object.is equality
+- DataVault fill engine ÔÇö select elements fills a select with partial text match | AssertionError: expected false to be true // Object.is equality
+- DataVault fill engine ÔÇö select elements returns error when no option matches | AssertionError: expected 'has_existing_value' to be 'no_matching_option' // Object.is equality
+- DataVault fill engine ÔÇö address composition composes street + house_number when page has only one address field | AssertionError: expected 'Hauptstra├ƒe' to be 'Hauptstra├ƒe 42' // Object.is equality
+\n=== apps/extension-chromium/src/vault/autofill/__tests__/datavault-improvements.test.ts (5) ===
+- Site Learning ÔÇö fingerprint building builds a fingerprint from an input element | TypeError: Cannot read properties of undefined (reading 'escape')
+- Site Learning ÔÇö fingerprint building produces a non-empty labelHash for elements with labels | TypeError: Cannot read properties of undefined (reading 'escape')
+- Site Learning ÔÇö fingerprint building does not contain PII values in the fingerprint | TypeError: Cannot read properties of undefined (reading 'escape')
+- NLP Booster ÔÇö text feature extraction extracts label text from label[for] | TypeError: Cannot read properties of undefined (reading 'escape')
+- NLP Booster ÔÇö text feature extraction extracts field name and id attributes | TypeError: Cannot read properties of undefined (reading 'escape')
+\n=== apps/extension-chromium/src/vault/autofill/__tests__/hardening.test.ts (9) ===
+- guardElement returns ELEMENT_OFFSCREEN for element outside viewport | AssertionError: expected 'ELEMENT_HIDDEN' to be 'ELEMENT_OFFSCREEN' // Object.is equality
+- guardElement returns ELEMENT_NOT_FOCUSABLE for element inside [inert] | AssertionError: expected 'ELEMENT_HIDDEN' to be 'ELEMENT_NOT_FOCUSABLE' // Object.is equality
+- evaluateSafeMode allows auto-insert with single profile + high confidence + login context | AssertionError: expected false to be true // Object.is equality
+- evaluateSafeMode blocks auto-insert with multi-account ambiguity | AssertionError: expected [ 'ha_mode_active' ] to include 'multi_account_ambiguity'
+- evaluateSafeMode blocks auto-insert with unknown form context | AssertionError: expected [ 'ha_mode_active' ] to include 'unknown_form_context'
+- evaluateSafeMode blocks auto-insert on public suffix domains | AssertionError: expected [ 'ha_mode_active' ] to include 'public_suffix_domain'
+- evaluateSafeMode blocks auto-insert with ambiguous mapping | AssertionError: expected [ 'ha_mode_active' ] to include 'ambiguous_mapping'
+- evaluateSafeMode returns show_trigger_icon with no mappings | AssertionError: expected 'do_nothing' to be 'show_trigger_icon' // Object.is equality
+- domainRelated subdomain match | AssertionError: expected false to be true // Object.is equality
+\n=== apps/extension-chromium/src/vault/autofill/__tests__/scan-dos-caps.test.ts (4) ===
+- TreeWalker-based scan (no querySelectorAll) does not call querySelectorAll on the scan root | AssertionError: expected "querySelectorAll" to not be called at all, but actually been called 40 times
+- HA mode ÔÇö stricter caps HA mode applies lower element cap | AssertionError: expected 'time_budget' to be 'element_cap' // Object.is equality
+- HA mode ÔÇö stricter caps non-HA mode allows more elements than HA mode | AssertionError: expected true to be false // Object.is equality
+- Fail-closed defaults for scanner caps HA mode still clamps AFTER fail-closed defaults are applied | AssertionError: expected 'time_budget' to be 'element_cap' // Object.is equality
+\n=== apps/extension-chromium/src/vault/autofill/__tests__/security-regression.test.ts (1) ===
+- ┬º6 Replay attack on encrypted records (AAD binding) AAD_SCHEMA_VERSION is a positive integer | AssertionError: expected 'number' to be 'undefined' // Object.is equality
+\n=== apps/extension-chromium/src/vault/autofill/__tests__/writes-kill-switch.test.ts (1) ===
+- writesKillSwitch module contract is initialized in autofillOrchestrator | AssertionError: expected '// ==================================ÔÇª' to contain 'import { initWritesKillSwitch } from ÔÇª'
+\n=== apps/extension-chromium/src/vault/autofill/committer.test.ts (24) ===
+- setValueSafely sets value via native setter and reports success | Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a security v
+- setValueSafely falls back to direct_assign when native setter is absent | Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a se
+- setValueSafely rejects disabled input with READONLY_ELEMENT error | Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a security
+- setValueSafely rejects readonly input with READONLY_ELEMENT error | Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a security
+- setValueSafely sets value on textarea elements | Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a security violation in dev m
+- setValueSafely dispatches input and change events, not keyboard events | Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a sec
+- setValueSafely dispatched events bubble up the DOM | Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a security violation in d
+- setValueSafely sets empty string value (clearing a field) | TypeError: Cannot set property value of [object HTMLInputElement] which has only a getter
+- setValueSafely handles special characters in value | Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a security violation in d
+- setValueSafely handles Unicode characters | Error: [WRVault Write Canary] setValueSafely() called outside of overlay consent, popover fill, or QSO fill path. This is a security violation in dev mode. 
+- commitInsert commits value when all checks pass | TypeError: Cannot read properties of undefined (reading 'valid')
+- commitInsert commits multiple fields atomically | TypeError: Cannot read properties of undefined (reading 'valid')
+- commitInsert writes ZERO fields if any target fails safety checks | TypeError: Cannot read properties of undefined (reading 'valid')
+- commitInsert rejects commit when element is removed from DOM | TypeError: Cannot read properties of undefined (reading 'valid')
+- commitInsert rejects commit to hidden input type | TypeError: Cannot read properties of undefined (reading 'valid')
+- commitInsert fires telemetry hook on successful commit | TypeError: Cannot read properties of undefined (reading 'valid')
+- commitInsert swallows telemetry hook errors | TypeError: Cannot read properties of undefined (reading 'valid')
+- runSafetyChecks all checks pass for a normal visible input | TypeError: Cannot read properties of undefined (reading 'valid')
+- runSafetyChecks detects disabled element | TypeError: Cannot read properties of undefined (reading 'valid')
+- runSafetyChecks detects removed element | TypeError: Cannot read properties of undefined (reading 'valid')
+- runSafetyChecks detects expired session | TypeError: Cannot read properties of undefined (reading 'valid')
+- runSafetyChecks detects hidden input type | TypeError: Cannot read properties of undefined (reading 'valid')
+- runSafetyChecks detects blocked input types (checkbox, radio, file, etc.) | TypeError: Cannot read properties of undefined (reading 'valid')
+- runSafetyChecks runs ALL checks even when first fails (no short circuit) | TypeError: Cannot read properties of undefined (reading 'valid')
+\n=== apps/extension-chromium/src/vault/autofill/fieldScanner.test.ts (7) ===
+- collectCandidates detects fields via label text | TypeError: Cannot read properties of undefined (reading 'escape')
+- collectCandidates detects fields via placeholder text | AssertionError: expected 0 to be greater than or equal to 1
+- collectCandidates applies anti-signals for search inputs | TypeError: Cannot read properties of undefined (reading 'escape')
+- collectCandidates returns timing metadata | AssertionError: expected 'http://localhost:3000' to be 'localhost' // Object.is equality
+- anti-signals search label suppresses matching | TypeError: Cannot read properties of undefined (reading 'escape')
+- edge cases German keyword matching works | TypeError: Cannot read properties of undefined (reading 'escape')
+- scoring determinism label keyword alone is below threshold | TypeError: Cannot read properties of undefined (reading 'escape')
+\n=== packages/relay-server/__tests__/relay-server.test.ts (4) ===
+- relay-server R1_store_and_pull: Store capsule via /ingest, pull via /pull ÔåÆ capsule returned | AssertionError: expected 422 to be 200 // Object.is equality
+- relay-server R2_ack_removes: Store, pull, ack ÔåÆ next pull returns empty | AssertionError: expected 0 to be greater than or equal to 1
+- relay-server R3_auth_ingest_valid: Correct Bearer token ÔåÆ 200 | AssertionError: expected 422 to be 200 // Object.is equality
+- relay-server R7_register_handshake: Register, then ingest with matching token ÔåÆ accepted | AssertionError: expected 422 to be 200 // Object.is equality
