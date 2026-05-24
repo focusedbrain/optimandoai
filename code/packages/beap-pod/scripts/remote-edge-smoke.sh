@@ -10,10 +10,11 @@
 #   3. Generates a stub SSO attestation JWT (smoke-only; not Keycloak).
 #   4. Installs the certifier seccomp profile.
 #   5. Starts the REMOTE_EDGE pod via `podman play kube`.
-#   6. Posts a synthetic pBEAP message to /ingest.
-#   7. Asserts the response includes { depackaged_payload, certificate } and
+#   6. Waits for mail-fetcher /health and /ready (loopback via pod exec).
+#   7. Posts a synthetic pBEAP message to /ingest.
+#   8. Asserts the response includes { depackaged_payload, certificate } and
 #      the Ed25519 signature verifies against the test public key.
-#   8. Tears down the pod.
+#   9. Tears down the pod.
 #
 # Requirements:
 #   podman ≥ 4.0, bash, curl, openssl, envsubst, node ≥ 18
@@ -134,6 +135,29 @@ for i in $(seq 1 45); do
     log "Container logs:"
     podman pod logs --names "$POD_NAME" 2>/dev/null | tail -60 || true
     fail "Ingestor not ready after 45 s (last HTTP code: $HTTP_CODE)"
+  fi
+  sleep 1
+done
+
+log "Waiting for mail-fetcher /health and /ready..."
+MF_CONTAINER=""
+for i in $(seq 1 45); do
+  MF_CONTAINER="$(podman ps --filter "pod=$POD_NAME" --format '{{.Names}}' 2>/dev/null | grep 'mail-fetcher' | head -1 || true)"
+  if [ -n "$MF_CONTAINER" ]; then
+    if podman exec "$MF_CONTAINER" node -e "
+      Promise.all([
+        fetch('http://127.0.0.1:18106/health'),
+        fetch('http://127.0.0.1:18106/ready'),
+      ]).then(([h, r]) => process.exit(h.ok && r.ok ? 0 : 1)).catch(() => process.exit(1));
+    " 2>/dev/null; then
+      pass "Mail-fetcher ready (attempt $i, container $MF_CONTAINER)"
+      break
+    fi
+  fi
+  if [ "$i" = "45" ]; then
+    log "Container logs:"
+    podman pod logs --names "$POD_NAME" 2>/dev/null | tail -80 || true
+    fail "Mail-fetcher not ready after 45 s (container=${MF_CONTAINER:-missing})"
   fi
   sleep 1
 done

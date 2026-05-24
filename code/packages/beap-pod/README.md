@@ -160,10 +160,15 @@ local LOCAL_VERIFY pod re-validates and seals after verifying the certificate.
        ▼
   ingestor :18100 ──► validator :18101 ──► depackager :18102 ──► certifier :18104
                                                                     (Ed25519 sign)
+
+  mail-fetcher :18106 ──► IMAP/OAuth (egress) ──► POST /ingest on :18100
+       ▲
+  tmpfs credentials at /var/lib/mail-fetcher (supervisor API; desktop P4.5.8+)
 ```
 
-Same container image as LOCAL_HOST; only the pod manifest and `BEAP_ROLE`
-assignments differ. Validator and depackager binaries are identical.
+Five containers share the pod network namespace. Only ingestor **18100** is published on
+the host. Mail-fetcher **18106** is loopback-only and is the only container that
+requires outbound network (IMAP `:993` and OAuth/Graph HTTPS — see manifest header).
 
 ### Prerequisites
 
@@ -186,7 +191,7 @@ the pod). UID **10103** remains reserved for the sealer in LOCAL_VERIFY.
 
 | Variable | Source | Description |
 |----------|--------|-------------|
-| `POD_AUTH_SECRET` | `openssl rand -hex 32` | Shared inter-container auth (all four containers) |
+| `POD_AUTH_SECRET` | `openssl rand -hex 32` | Shared inter-container auth (all five containers) |
 | `EDGE_PRIVATE_KEY_HEX` | Ed25519 secret key, 32 bytes hex | Certifier only; generated in Electron in production (§2.5) |
 | `EDGE_POD_ID` | UUID v4 | Identifies this edge pod instance |
 | `SSO_ATTESTATION_JWT` | Keycloak at deploy time | JWT binding `EDGE_POD_ID` to user `sub` |
@@ -229,8 +234,13 @@ Validate the manifest without starting:
 envsubst < packages/beap-pod/pod-remote-edge.yaml | podman play kube --dry-run -
 ```
 
-Only ingestor port **18100** is exposed on the host. Ports 18101–18102 and
-18104 are loopback-only inside the pod network namespace.
+Only ingestor port **18100** is exposed on the host. Ports 18101–18102, 18104, and
+18106 are loopback-only inside the pod network namespace.
+
+Mail-fetcher egress (VM firewall / CNI — see `pod-remote-edge.yaml` header):
+
+- TCP **993** — `imap.gmail.com`, `outlook.office365.com`
+- TCP **443** — `oauth2.googleapis.com`, `login.microsoftonline.com`, `graph.microsoft.com`
 
 ### 4. Verify and stop
 

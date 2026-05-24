@@ -35,7 +35,7 @@ Phase 4 ref: `docs/architecture/phase-4-tracker.md`
 - [x] **P4.5.3** — Reusable tier badge + refresh control (`TierBadgeWithRefresh`)
 - [x] **P4.5.4** — mail-fetcher role stub (`packages/beap-pod/src/roles/mail-fetcher.ts`)
 - [x] **P4.5.5** — mail-fetcher implementation (`packages/email-fetch`, supervisor API, fetch loop)
-- [ ] **P4.5.6** — REMOTE_EDGE mail-ingest role + pod manifest extension (strategy §11)
+- [x] **P4.5.6** — REMOTE_EDGE mail-fetcher container in pod manifest + smoke/README (strategy §11.7)
 - [ ] **P4.5.7** — Desktop OAuth mint + wrapped credential transfer to edge (strategy §11.5)
 - [ ] **P4.5.8** — Desktop inbox: disable IMAP for edge-migrated accounts (no desktop fallback)
 - [ ] **P4.5.9** — Wizard email migration finale step + account opt-in UI
@@ -53,7 +53,7 @@ Phase 4 ref: `docs/architecture/phase-4-tracker.md`
 | P4.5.3 | ✅ done | P4.5.3: TierBadgeWithRefresh reusable component |
 | P4.5.4 | ✅ done | P4.5.4: mail-fetcher role stub |
 | P4.5.5 | ✅ done | P4.5.5: mail-fetcher implementation with per-account fetch loop and supervisor API |
-| P4.5.6 | ⬜ pending | — |
+| P4.5.6 | ✅ done | P4.5.6: add mail-fetcher container to REMOTE_EDGE pod manifest |
 | P4.5.7 | ⬜ pending | — |
 | P4.5.8 | ⬜ pending | — |
 | P4.5.9 | ⬜ pending | — |

@@ -365,4 +365,14 @@ describe('mail-fetcher supervisor API', () => {
     const res = await request(server, 'GET', '/accounts/status', undefined, 'wrong-secret');
     expect(res.status).toBe(401);
   });
+
+  test('/health and /ready respond without X-Pod-Auth', async () => {
+    await setupServer();
+    const health = await request(server, 'GET', '/health', undefined, '');
+    expect(health.status).toBe(200);
+    expect(health.json.status).toBe('ok');
+    const ready = await request(server, 'GET', '/ready', undefined, '');
+    expect(ready.status).toBe(200);
+    expect(ready.json.status).toBe('ready');
+  });
 });

@@ -1,11 +1,20 @@
-# BEAP pod manifest — REMOTE_EDGE mode (Phase 3, P3.3)
+# BEAP pod manifest — REMOTE_EDGE mode (Phase 3, P3.3; mail-fetcher P4.5.6)
 #
-# Four containers share one pod network namespace; only the ingestor's port
+# Five containers share one pod network namespace; only the ingestor's port
 # (18100) is forwarded to the host.  All intra-pod calls go via loopback.
 #
 # REMOTE_EDGE does NOT seal.  The certifier (uid 10104, port 18104) replaces
-# the sealer from LOCAL_HOST.  The local LOCAL_VERIFY pod re-validates and
-# seals after verifying the edge certificate (P3.6+).
+# the sealer from LOCAL_HOST.  The mail-fetcher (uid 10106, port 18106) fetches
+# email on the edge for opted-in accounts (P4.5.5+).  The local LOCAL_VERIFY pod
+# re-validates and seals after verifying the edge certificate (P3.6+).
+#
+# Egress (mail-fetcher only — other roles retain no outbound network):
+#   TCP 993  → imap.gmail.com, outlook.office365.com (IMAP over TLS)
+#   TCP 443  → oauth2.googleapis.com (/token)
+#   TCP 443  → login.microsoftonline.com (/…/oauth2/v2.0/token)
+#   TCP 443  → graph.microsoft.com (future Graph delta; IMAP-first mode today)
+#   loopback → http://127.0.0.1:18100/ingest (ingestor; no TLS)
+# Enforce at VM/firewall or CNI policy when tightening beyond shared pod namespace.
 #
 # Secret injection (envsubst before `podman play kube`):
 #   POD_AUTH_SECRET       — shared inter-container HMAC secret (≥ 32 random bytes hex)
@@ -61,6 +70,10 @@ spec:
       emptyDir:
         medium: Memory
         sizeLimit: 8Mi
+    - name: tmp-mail-fetcher
+      emptyDir:
+        medium: Memory
+        sizeLimit: 64Mi
 
   containers:
 
@@ -305,6 +318,68 @@ spec:
         httpGet:
           path: /ready
           port: 18104
+        initialDelaySeconds: 3
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
+
+    # ── Mail-fetcher ────────────────────────────────────────────────────────────
+    # REMOTE_EDGE only.  Per-account IMAP fetch + supervisor API (P4.5.5).
+    # UID 10106; port 18106 (loopback only).  Outbound IMAP/OAuth egress required
+    # (see header comment).  Credential tmpfs at /var/lib/mail-fetcher (§11.5).
+    - name: mail-fetcher
+      image: beap-components:dev
+      securityContext:
+        runAsUser: 10106
+        runAsGroup: 10100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: BEAP_ROLE
+          value: "mail-fetcher"
+        - name: POD_MODE
+          value: "REMOTE_EDGE"
+        - name: PORT
+          value: "18106"
+        - name: MAIL_FETCHER_HOST
+          value: "127.0.0.1"
+        - name: MAIL_FETCHER_CREDENTIALS_DIR
+          value: "/var/lib/mail-fetcher"
+        - name: INGESTOR_BASE
+          value: "http://127.0.0.1:18100"
+        - name: POD_VERSION
+          value: "1.0.0"
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+      ports:
+        - containerPort: 18106
+          protocol: TCP
+      resources:
+        requests:
+          memory: "64Mi"
+          cpu: "50m"
+        limits:
+          memory: "256Mi"
+          cpu: "200m"
+      volumeMounts:
+        - name: tmp-mail-fetcher
+          mountPath: /var/lib/mail-fetcher
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 18106
+        initialDelaySeconds: 5
+        periodSeconds: 30
+        timeoutSeconds: 3
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 18106
         initialDelaySeconds: 3
         periodSeconds: 10
         timeoutSeconds: 3

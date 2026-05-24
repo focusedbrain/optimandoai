@@ -77,19 +77,27 @@ export function createMailFetcherServer(config: MailFetcherSupervisorConfig = {}
   void store.ensureRoot().then(() => registry.restoreFromTmpfs());
 
   const server = http.createServer((req, res) => {
+    const url = req.url?.split('?')[0] ?? '/';
+    const method = req.method ?? 'GET';
+
+    // Probe endpoints — no X-Pod-Auth (matches ingestor/validator pattern).
+    if (method === 'GET' && url === '/health') {
+      sendJson(res, 200, { status: 'ok', role: ROLE, version, egress: MAIL_FETCHER_EGRESS_NOTE });
+      return;
+    }
+    if (method === 'GET' && url === '/ready') {
+      sendJson(res, 200, { status: 'ready', role: ROLE });
+      return;
+    }
+
     auth(req, res, () => {
       void handleAuthed(req, res);
     });
   });
 
   async function handleAuthed(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    const url = req.url ?? '/';
+    const url = req.url?.split('?')[0] ?? '/';
     const method = req.method ?? 'GET';
-
-    if (method === 'GET' && url === '/health') {
-      sendJson(res, 200, { status: 'ok', role: ROLE, version, egress: MAIL_FETCHER_EGRESS_NOTE });
-      return;
-    }
 
     if (method === 'GET' && url === '/accounts/status') {
       sendJson(res, 200, { accounts: registry.getStatus() });
