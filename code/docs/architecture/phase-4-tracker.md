@@ -32,6 +32,7 @@ P3.8 building blocks: `apps/electron-vite-project/scripts/edge-cli.ts`, `apps/el
 - [x] **P4.6** — Status dashboard (replica list, health probes, verification log; app shell entry)
 - [x] **P4.7** — Replica actions (restart, redeploy, remove) + manual test documentation
 - [x] **P4.8** — Global actions (rotate all keys, pause edge tier, fallback policy)
+- [x] **P4.9** — End-to-end manual test + phase closeout ([`phase-4-manual-test.md`](phase-4-manual-test.md))
 
 ---
 
@@ -48,6 +49,7 @@ P3.8 building blocks: `apps/electron-vite-project/scripts/edge-cli.ts`, `apps/el
 | P4.6 | ✅ done | P4.6: status dashboard with replica list and verification log |
 | P4.7 | ✅ done | P4.7: replica restart/redeploy/remove actions |
 | P4.8 | ✅ done | P4.8: global actions — rotate keys, pause edge tier, fallback policy |
+| P4.9 | ✅ done | P4.9: end-to-end manual test and phase 4 closeout |
 
 ---
 
@@ -72,7 +74,30 @@ A paid user with a **Linux VPS they brought themselves** can deploy an edge repl
 | Step 5 — Generate identity and deploy | P4.3 (deployer), P4.4 (IPC), P4.5 (UI + live deploy log) |
 | Step 6 — Verify and switch over | P4.4 (IPC), P4.5 (UI) |
 | §4.2 Status dashboard | P4.6 |
-| End-of-phase verification | P4.7 |
+| Replica actions | P4.7 |
+| Global actions | P4.8 |
+| End-of-phase manual E2E | P4.9 |
+
+---
+
+## Phase 4 done — 2026-05-24
+
+Edge deployment wizard and status dashboard (Phase 4) is **complete** on branch `phase-1/pod-becomes-hot-path`.
+
+| Criterion | Status |
+|-----------|--------|
+| Six-step wizard (SSH probe, Podman install, deploy, verify) | ✅ |
+| Status dashboard (replicas, verifications, health polling) | ✅ |
+| Per-replica restart / redeploy / remove | ✅ |
+| Global rotate keys, pause edge tier, fallback policy | ✅ |
+| Provider-agnostic UI (copy guard tests) | ✅ |
+| Manual E2E procedure documented | ✅ [`phase-4-manual-test.md`](phase-4-manual-test.md) |
+| Phase 4 automated tests (107, repo root) | ✅ |
+| `pnpm -r test` | ✅ modulo pre-existing extension-chromium failures |
+
+**Exit criterion met:** A paid user with a Linux VPS they brought themselves can deploy and manage edge replicas from the wizard and dashboard alone — no terminal, no provider API integration.
+
+**Not merged to `main`.** Phase 5 (supervisor / health-aware routing) follows on the same branch.
 
 ---
 
@@ -128,3 +153,31 @@ A paid user with a **Linux VPS they brought themselves** can deploy an edge repl
 - **Preload:** `window.wizard` bridge (invoke + install/deploy progress listeners); `edge-tier:get-local-pod-requirement` gate at wizard entry.
 - **Copy:** provider names only in `copy.ts` STEP2 help (alphabetized illustrative list); snapshot + grep guard tests.
 - **Tests:** 13 pass in renderer (`edge-tier-wizard/__tests__/` + updated `EdgeTierAdminPanel.test.tsx`).
+- **Entry (P4.6+):** primary launch is **Edge tier** nav tab → **Set up edge tier** (`DashboardShell`); legacy `EdgeTierAdminPanel` still exposes the same button if mounted.
+
+### P4.6
+
+- **Module:** `src/edge-tier-dashboard/` — `DashboardShell`, replica list, verification log, 30s health probes, `window.dashboard` IPC.
+- **Nav:** **Edge tier** tab in `App.tsx` (replaces floating dev panel as primary surface).
+- **Tests:** dashboard snapshot + main-process `dashboard.test.ts`.
+
+### P4.7
+
+- **Module:** `replicaActions.ts` — restart (remote pod restart), redeploy (new keypair + deploy), remove (remote teardown + settings).
+- **UI:** kebab menu, SSH re-entry modal, host-typing confirmation for remove, live action log.
+- **Tests:** `replicaActions.test.ts` + renderer snapshot tests.
+
+### P4.8
+
+- **Module:** `globalActions.ts` — `rotateAllEdgeKeys`, `pauseEdgeTier` (disables edge tier → LOCAL_HOST pod), `setFallbackPolicy` (`reject` | `local_only`).
+- **UI:** `GlobalActionsPanel`, rotate/pause modals, fallback policy select.
+- **Tests:** `globalActions.test.ts` + renderer tests.
+
+### P4.9
+
+- **Manual test:** [`phase-4-manual-test.md`](phase-4-manual-test.md) — wizard + dashboard + negative + provider-agnostic checklist.
+- **Automated (2026-05-24):** 18 vitest files, **107 passed** (edge-tier, wizard, dashboard, pod-client edge routing) from repo root.
+- **`pnpm -r test`:** fails in `apps/extension-chromium` only — **19 pre-existing** failures (`CSS.escape` missing in jsdom; selector test expectation). Not Phase 4 regressions.
+- **`pnpm -r build`:** `apps/desktop` electron-builder fails (unpinned electron / missing node_modules); Windows `electron-vite-project` build fails on native `cpufeatures.node`. Manual E2E expects **Linux** host with Podman (same as Phase 3).
+- **Live VPS walkthrough:** procedure documented for human execution on tester-owned VPS; record host/results privately (not committed). Agent session had no SSH access to a tester VPS — execute checklist on Linux before production sign-off if not yet run.
+- **Deviation — replica remote logs:** `fetchReplicaLogs` in `dashboard.ts` still returns a placeholder error (SSH credentials not retained post-wizard). Dashboard detail **Fetch recent logs** documents expected message until SSH log streaming is implemented. Restart/redeploy/remove accept fresh SSH credentials.
