@@ -17,6 +17,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 - [x] **P1.6** — Sealer role container (HMAC-SHA256 seal, byte-identical to validator-process computeSeal)
 - [x] **P1.7** — Pod manifest (podman play kube): 4-container pod with hardening, seccomp, smoke test
 - [x] **P1.8** — Minimal local-pod runner in Electron (Linux only: startLocalPod / stopLocalPod)
+- [x] **P1.9** — pod-client package (@repo/pod-client): thin HTTP wrapper for ingestor
 - [ ] **P1.9** — Route depackaging through the pod (Linux only)
 - [ ] **P1.10** — Make validator subprocess seal come from the pod (remove encrypted-variant stubs)
 - [ ] **P1.11** — Add per-session auth on the pod channel
@@ -37,7 +38,7 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 | P1.6 | ✅ done | P1.6: sealer role container with HMAC seal |
 | P1.7 | ✅ done | P1.7: multi-container pod manifest with hardening |
 | P1.8 | ✅ done | P1.8: minimal local-pod runner in Electron (Linux only) |
-| P1.9 | ⬜ pending | — |
+| P1.9 | ✅ done | P1.9: pod-client package (@repo/pod-client) |
 | P1.10 | ⬜ pending | — |
 | P1.11 | ⬜ pending | — |
 | P1.12 | ⬜ pending | — |
@@ -47,6 +48,42 @@ Audit ref: `docs/architecture/beap-ingestor-audit-2026-05-24.md`
 ## Notes & deviations
 
 *(Record any decisions made differently from the strategy here, with rationale.)*
+
+### P1.9
+
+- **New package:** `packages/pod-client/` — `@repo/pod-client`; zero runtime dependencies on
+  ingestion-core or any other workspace package.
+- **`src/types.ts`:**
+  - Defines `SourceType`, `TransportMetadata`, `RawInput` as local mirrors of ingestion-core types
+    (structurally compatible; callers holding ingestion-core values can pass them directly).
+  - `RawInput.body` restricted to `string` (Buffer unsupported in HTTP transport; caller must
+    base64-encode if needed).
+  - `PodClientConfig { baseUrl: string; requestTimeoutMs: number }`.
+  - `PodClient` interface with `ingest(rawInput, sourceType, transportMeta?)`.
+  - `PodIngestResult { status: number; body: unknown }`.
+  - `PodIngestHttpError` — non-2xx response (includes status + body; not retried).
+  - `PodTimeoutError` — AbortController fired before response (not retried).
+  - `PodConnectionError` — network-level failure (retried once).
+- **`src/client.ts`:**
+  - `createPodClient(config)` returns a `PodClient` singleton.
+  - `ingestWithRetry` — wraps `ingestOnce` with retry logic:
+    - `PodIngestHttpError` (4xx/5xx): never retry.
+    - `PodTimeoutError`: never retry.
+    - `PodConnectionError`: retry once (`MAX_RETRIES = 1`).
+  - `ingestOnce` — builds the `IngestRequestBody` envelope (matches ingestor.ts wire format),
+    sets `Content-Type: application/json`, fires `fetch` with `AbortController` for timeout,
+    maps fetch rejection → `PodTimeoutError` or `PodConnectionError`, maps non-2xx → `PodIngestHttpError`.
+  - Undefined transport metadata fields are omitted from the JSON envelope (no null drift).
+  - No `X-Pod-Auth` header — ingestor's `POST /ingest` is the external boundary.
+- **`src/index.ts`:** re-exports all public types and `createPodClient`.
+- **Tests (15 tests, all pass):** mock HTTP server based; no fetch mock for real network tests.
+  - Happy path: 200 → `PodIngestResult`.
+  - Request envelope: Content-Type, body+source_type, transport metadata, optional RawInput fields,
+    undefined fields excluded.
+  - 4xx: `PodIngestHttpError`, status=400, body preserved, not retried (1 call).
+  - 5xx: `PodIngestHttpError`, status=502, not retried (1 call).
+  - Connection error: `PodConnectionError` after 2 attempts (1 retry).
+  - Timeout: `PodTimeoutError` with correct `timeoutMs`, not retried (1 call).
 
 ### P1.8
 
