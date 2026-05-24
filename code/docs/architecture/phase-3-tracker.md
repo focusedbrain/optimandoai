@@ -12,7 +12,7 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 ## Steps
 
 - [x] **P3.0** — Confirm branch and create Phase 3 tracker *(this file)*
-- [ ] **P3.1** — Certificate format types and canonical hashing (shared schema: `package_hash`, `capsule_canonical_hash`, `validation_result_digest`, acceptance rule helpers)
+- [x] **P3.1** — Certificate format library (`@repo/beap-cert`: types, canonical serialization, Ed25519 sign/verify, hash helpers)
 - [ ] **P3.2** — Certifier role container (`/certify` on REMOTE_EDGE; Ed25519 signing; holds private key in memory only)
 - [ ] **P3.3** — Keycloak attestation flow (`sso_attestation` JWT binding `edge_pod_id` to `sub`; resolve Decision 6)
 - [ ] **P3.4** — Verifier role container (`/verify-cert` on LOCAL_VERIFY; attested edge public keys; rejects on failure → quarantine)
@@ -30,7 +30,7 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 | Step | State | Commit |
 |------|-------|--------|
 | P3.0 | ✅ done | P3.0: phase 3 tracker |
-| P3.1 | ⬜ pending | — |
+| P3.1 | ✅ done | P3.1: beap-cert library for certificate format and signing |
 | P3.2 | ⬜ pending | — |
 | P3.3 | ⬜ pending | — |
 | P3.4 | ⬜ pending | — |
@@ -71,3 +71,13 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - Step titles P3.1–P3.10 are derived from strategy §7 (Phase 3 scope) and the Phase 3 prompt preamble. Titles may be refined when individual prompts are run; deviations will be noted here.
 - No wizard or automated deploy in Phase 3. Deployment is manual (`podman play kube` with hand-managed secrets). Wizard is Phase 4.
 - Phase 1.5 (extension pod-client migration) remains deferred; Phase 3 does not block on it.
+
+### P3.1
+
+- **New package:** `packages/beap-cert/` (`@repo/beap-cert`) — pure crypto + serialization; no HTTP, no key storage, no SSO attestation verification.
+- **Types:** `EdgeCertificate`, `UnsignedCertificate` match strategy §2.2 field-for-field.
+- **Canonical serialization:** `fast-json-stable-stringify` for deterministic key ordering; `canonicalizeForSigning()` returns UTF-8 bytes (no trailing newline).
+- **Signing / verification:** `@noble/curves/ed25519`; signature format `ed25519:<hex>` (64-byte sig → 128 hex chars).
+- **Hash helpers:** `sha256Hex`, `packageHash`, `capsuleCanonicalHash`, `validationResultDigest` — all return `sha256:<lowercase-hex>`.
+- **Tests:** 12 pass (round-trip sign/verify, wrong key, tamper, canonical stability, hash fixtures).
+- **Not imported by pod yet** — certifier (P3.2) and verifier (P3.4) will consume this package.
