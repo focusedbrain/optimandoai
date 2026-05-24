@@ -2973,6 +2973,14 @@ app.whenReady().then(async () => {
       })
       .catch((e) => console.error('[MAIN] Edge tier IPC registration failed:', e))
 
+    void import('./main/wizard/ipc.js')
+      .then(async (m) => {
+        const { vaultService } = await import('./main/vault/rpc.js')
+        m.initWizardIpc(vaultService)
+        m.registerWizardIpcHandlers()
+      })
+      .catch((e) => console.error('[MAIN] Wizard IPC registration failed:', e))
+
     void import('./main/letter/letterComposerIpc')
       .then((m) => {
         m.registerLetterComposerIpcHandlers()

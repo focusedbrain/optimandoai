@@ -1,0 +1,260 @@
+/**
+ * Wizard step handlers — Phase 4 (P4.4).
+ *
+ * Injectable deps for unit tests; production uses live edge-tier + SSH modules.
+ */
+
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { randomBytes } from 'node:crypto'
+
+import { ensureSession, getCachedUserInfo } from '../../../src/auth/session.js'
+import { resolveTier, TIER_LEVEL, type Tier } from '../../../src/auth/capabilities.js'
+import { generateEdgeKeypair } from '../edge-tier/keygen.js'
+import { requestSsoAttestation } from '../edge-tier/attestation.js'
+import { storeEncryptedEdgePrivateKey } from '../edge-tier/keyStorage.js'
+import { upsertEdgeReplica, type EdgeReplica } from '../edge-tier/settings.js'
+import type { EdgeTierPodVault } from '../edge-tier/podLifecycle.js'
+import { SshClient } from '../edge-tier/ssh/client.js'
+import { probeTarget } from '../edge-tier/ssh/probe.js'
+import { installPodman, type InstallEvent } from '../edge-tier/ssh/install-podman.js'
+import {
+  deployEdgePod,
+  buildTeardownCommand,
+  type DeployEvent,
+} from '../edge-tier/ssh/deploy.js'
+import type { TargetProbe } from '../edge-tier/ssh/types.js'
+
+import {
+  clearWizardVmCredentials,
+  getWizardVmCredentials,
+  storeWizardVmCredentials,
+} from './sshSession.js'
+import type {
+  WizardAuthenticateResponse,
+  WizardProbeInput,
+  WizardVmCredentialsPublic,
+} from './types.js'
+import { verifyEdgeRoundTripAndEnable, type VerifyEdgeRoundTripDeps } from './verify.js'
+
+const PAID_TIERS: ReadonlySet<Tier> = new Set([
+  'private',
+  'private_lifetime',
+  'pro',
+  'publisher',
+  'publisher_lifetime',
+  'enterprise',
+])
+
+export function isPaidTier(tier: Tier): boolean {
+  return PAID_TIERS.has(tier) || (TIER_LEVEL[tier] ?? 0) >= TIER_LEVEL.pro
+}
+
+export interface WizardHandlerDeps {
+  readonly vault: EdgeTierPodVault
+  readonly ensureSession?: typeof ensureSession
+  readonly getCachedUserInfo?: typeof getCachedUserInfo
+  readonly requestAttestation?: typeof requestSsoAttestation
+  readonly probeTarget?: typeof probeTarget
+  readonly readManifestYaml?: () => string
+  readonly verifyRoundTrip?: (
+    replicaIndex: number,
+    deps: VerifyEdgeRoundTripDeps,
+  ) => Promise<{ verified: boolean; reason?: string }>
+}
+
+export function createDefaultWizardHandlerDeps(vault: EdgeTierPodVault): WizardHandlerDeps {
+  return {
+    vault,
+    ensureSession,
+    getCachedUserInfo,
+    requestAttestation: requestSsoAttestation,
+    probeTarget,
+    readManifestYaml: readRemoteEdgeManifestTemplate,
+    verifyRoundTrip: verifyEdgeRoundTripAndEnable,
+  }
+}
+
+export function readRemoteEdgeManifestTemplate(): string {
+  const fromEnv = process.env['BEAP_REMOTE_EDGE_MANIFEST']
+  if (fromEnv) return readFileSync(fromEnv, 'utf8')
+  return readFileSync(
+    join(process.cwd(), 'packages', 'beap-pod', 'pod-remote-edge.yaml'),
+    'utf8',
+  )
+}
+
+export async function wizardAuthenticate(deps: WizardHandlerDeps): Promise<WizardAuthenticateResponse> {
+  const ensure = deps.ensureSession ?? ensureSession
+  const getInfo = deps.getCachedUserInfo ?? getCachedUserInfo
+
+  try {
+    await ensure(true)
+    const info = getInfo()
+    if (!info?.sub) {
+      return { ok: false, error: 'No active SSO session — sign in and try again.' }
+    }
+    const tier = info.canonical_tier ?? resolveTier(info.wrdesk_plan, info.roles ?? [], info.sso_tier)
+    if (!isPaidTier(tier)) {
+      return {
+        ok: false,
+        error: `Edge deployment requires a paid plan (current tier: ${tier}).`,
+      }
+    }
+    return {
+      ok: true,
+      plan: info.wrdesk_plan ?? tier,
+      sub: info.sub,
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+export function wizardStoreVmCredentials(input: WizardProbeInput): WizardVmCredentialsPublic {
+  return storeWizardVmCredentials({
+    host: input.host,
+    port: input.port,
+    user: input.user,
+    key: input.key,
+    passphrase: input.passphrase,
+  })
+}
+
+async function connectSshFromSession(): Promise<SshClient> {
+  const creds = getWizardVmCredentials()
+  if (!creds) {
+    throw new Error('SSH credentials not set — complete Step 2 first.')
+  }
+  const client = new SshClient()
+  await client.connect({
+    host: creds.host,
+    port: creds.port,
+    username: creds.username,
+    privateKey: creds.privateKey,
+    passphrase: creds.passphrase,
+  })
+  return client
+}
+
+export async function wizardProbe(deps: WizardHandlerDeps): Promise<TargetProbe> {
+  const probe = deps.probeTarget ?? probeTarget
+  const client = await connectSshFromSession()
+  try {
+    return await probe(client)
+  } finally {
+    await client.disconnect()
+  }
+}
+
+export async function* wizardInstallPodman(
+  probe: TargetProbe,
+  signal?: AbortSignal,
+): AsyncGenerator<InstallEvent> {
+  const client = await connectSshFromSession()
+  try {
+    for await (const event of installPodman(client, probe)) {
+      if (signal?.aborted) {
+        yield { kind: 'error', message: 'Podman install cancelled.', stage_name: 'install' }
+        return
+      }
+      yield event
+      if (event.kind === 'error' || event.kind === 'done') return
+    }
+  } finally {
+    await client.disconnect()
+  }
+}
+
+export async function* wizardGenerateAndDeploy(
+  deps: WizardHandlerDeps,
+  input: { readonly replicaIndex: number; readonly ingestPort?: number },
+  signal?: AbortSignal,
+): AsyncGenerator<DeployEvent> {
+  const creds = getWizardVmCredentials()
+  if (!creds) {
+    yield { kind: 'error', message: 'SSH credentials not set.', stage_name: 'upload_manifest' }
+    return
+  }
+
+  const client = await connectSshFromSession()
+  let deployStarted = false
+
+  try {
+    const keypair = generateEdgeKeypair()
+    const ensure = deps.ensureSession ?? ensureSession
+    const session = await ensure(false)
+    const attestation = deps.requestAttestation ?? requestSsoAttestation
+    const { jwt } = await attestation(keypair.publicKeyHex, keypair.podId, session.accessToken)
+
+    storeEncryptedEdgePrivateKey(keypair.podId, keypair.privateKeyHex, deps.vault)
+
+    const manifestYaml = (deps.readManifestYaml ?? readRemoteEdgeManifestTemplate)()
+    const podAuthSecret = randomBytes(32).toString('hex')
+    const ingestPort = input.ingestPort ?? 18100
+
+    deployStarted = true
+    for await (const event of deployEdgePod({
+      client,
+      host: creds.host,
+      podId: keypair.podId,
+      publicKey: keypair.publicKeyClaim,
+      privateKeyHex: keypair.privateKeyHex,
+      attestationJwt: jwt,
+      podAuthSecret,
+      manifestYaml,
+      certTtlSeconds: 86400,
+    })) {
+      if (signal?.aborted) {
+        await client.run(buildTeardownCommand())
+        yield { kind: 'error', message: 'Deploy cancelled.', stage_name: event.stage_name ?? 'start_pod' }
+        return
+      }
+      yield event
+      if (event.kind === 'done' && event.replica_state) {
+        const replica: EdgeReplica = {
+          host: creds.host,
+          port: ingestPort,
+          edge_pod_id: event.replica_state.podId,
+          edge_public_key: event.replica_state.publicKey,
+          sso_attestation_jwt: event.replica_state.attestationJwt,
+        }
+        upsertEdgeReplica(replica)
+      }
+      if (event.kind === 'error' || event.kind === 'done') return
+    }
+  } catch (err) {
+    if (deployStarted) {
+      await client.run(buildTeardownCommand()).catch(() => undefined)
+    }
+    yield {
+      kind: 'error',
+      message: err instanceof Error ? err.message : String(err),
+      stage_name: 'start_pod',
+    }
+  } finally {
+    await client.disconnect()
+    clearWizardVmCredentials()
+  }
+}
+
+export async function wizardVerifyAndSwitch(
+  deps: WizardHandlerDeps,
+  replicaIndex: number,
+): Promise<{ verified: boolean; reason?: string }> {
+  const verify = deps.verifyRoundTrip ?? verifyEdgeRoundTripAndEnable
+  return verify(replicaIndex, { vault: deps.vault })
+}
+
+export function assertNoSecretsInRendererPayload(payload: unknown): void {
+  const json = JSON.stringify(payload)
+  if (json.includes('BEGIN OPENSSH PRIVATE KEY')) {
+    throw new Error('SSH private key leaked to renderer payload')
+  }
+  if (json.includes('"privateKey"')) {
+    throw new Error('privateKey field leaked to renderer payload')
+  }
+}
