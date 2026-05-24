@@ -8,6 +8,7 @@ import {
   buildMessageUnderProcessing,
   filterEnvelopeFrom,
   filterEnvelopeSubject,
+  resolveDiagnosticReportSigner,
   signDiagnosticReport,
   verifyDiagnosticReport,
 } from '../diagnosticReport.js';
@@ -133,6 +134,17 @@ describe('diagnostic report schema and signing', () => {
     const parsed = JSON.parse(json) as typeof signed;
 
     expect(verifyDiagnosticReport(parsed, publicKey)).toEqual({ ok: true });
+  });
+
+  it('supervisor signer field is included in canonical payload', () => {
+    const privateKey = ed25519.utils.randomSecretKey();
+    const publicKey = ed25519.getPublicKey(privateKey);
+    const unsigned = sampleUnsigned({ signer: 'supervisor' });
+    const signed = signDiagnosticReport(unsigned, privateKey);
+
+    expect(resolveDiagnosticReportSigner(signed)).toBe('supervisor');
+    expect(verifyDiagnosticReport(signed, publicKey)).toEqual({ ok: true });
+    expect(resolveDiagnosticReportSigner(sampleUnsigned())).toBe('edge');
   });
 
   it('filters envelope_subject control characters', () => {

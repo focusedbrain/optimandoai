@@ -80,9 +80,14 @@ export interface DiagnosticReportMessageUnderProcessing {
   envelope_subject_filtered: string;
 }
 
-/** Fields signed by the edge certifier; `certificate` is appended after signing. */
+/** Who signed the report — edge container (default) or desktop supervisor (P5.9). */
+export type DiagnosticReportSigner = 'edge' | 'supervisor';
+
+/** Fields signed by the edge certifier or desktop supervisor; `certificate` is appended after signing. */
 export interface UnsignedDiagnosticReportV1 {
   report_v: 1;
+  /** Omitted on legacy edge reports; treated as `'edge'`. */
+  signer?: DiagnosticReportSigner;
   edge_pod_id: string;
   replica_id: string;
   timestamp_iso8601: string;
@@ -95,6 +100,13 @@ export interface UnsignedDiagnosticReportV1 {
 export interface DiagnosticReportV1 extends UnsignedDiagnosticReportV1 {
   /** Ed25519 signature over canonical unsigned fields: `ed25519:<hex>`. */
   certificate: string;
+}
+
+/** Resolve signer with backward compatibility for reports without `signer`. */
+export function resolveDiagnosticReportSigner(
+  report: Pick<UnsignedDiagnosticReportV1, 'signer'>,
+): DiagnosticReportSigner {
+  return report.signer ?? 'edge';
 }
 
 export interface VerifyDiagnosticReportResult {

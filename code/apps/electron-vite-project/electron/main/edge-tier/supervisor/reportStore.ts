@@ -10,7 +10,7 @@ import { join, dirname, basename } from 'node:path'
 import { homedir } from 'node:os'
 
 import type { DiagnosticReportV1 } from '@repo/beap-cert'
-import { verifyDiagnosticReport } from '@repo/beap-cert'
+import { resolveDiagnosticReportSigner, verifyDiagnosticReport } from '@repo/beap-cert'
 
 const REPORTS_DIRNAME = 'diagnostic-reports'
 
@@ -73,6 +73,7 @@ export function storeDiagnosticReport(
   edgePublicKeyClaim: string,
   rawJson: string,
   suggestedFilename?: string,
+  supervisorPublicKeyClaim?: string,
 ): StoreReportResult {
   let report: DiagnosticReportV1
   try {
@@ -82,9 +83,19 @@ export function storeDiagnosticReport(
     return { stored: false, reason: 'invalid_json' }
   }
 
-  const publicKey = parseEdgePublicKeyClaim(edgePublicKeyClaim)
+  const signer = resolveDiagnosticReportSigner(report)
+  const publicKeyClaim =
+    signer === 'supervisor' ? supervisorPublicKeyClaim : edgePublicKeyClaim
+  if (!publicKeyClaim) {
+    console.warn(
+      `[SUPERVISOR] diagnostic report pickup: missing ${signer} public key — rejected`,
+    )
+    return { stored: false, reason: 'invalid_signature' }
+  }
+
+  const publicKey = parseEdgePublicKeyClaim(publicKeyClaim)
   if (!publicKey) {
-    console.warn('[SUPERVISOR] diagnostic report pickup: invalid replica public key — rejected')
+    console.warn('[SUPERVISOR] diagnostic report pickup: invalid public key — rejected')
     return { stored: false, reason: 'invalid_signature' }
   }
 

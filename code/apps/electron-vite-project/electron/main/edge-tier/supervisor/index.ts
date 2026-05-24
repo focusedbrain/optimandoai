@@ -19,7 +19,18 @@ import { reportStorageFilename, getReport } from './reportStore.js'
 import { cleanupLocalQuarantine, getLocalQuarantineRetentionDays } from './quarantineStore.js'
 import { deliverQuarantineKeyToReplica } from '../quarantineDeliver.js'
 import { notifyDashboardUpdated } from '../dashboard.js'
-import { inspectContainerStatus, replaceContainer } from './replace.js'
+import { inspectContainerStatus, replaceContainer, buildContainerIdCommand } from './replace.js'
+import { buildKillContainerCommand } from '../ssh/deploy.js'
+import {
+  HEALTH_PROBE_INTERVAL_MS,
+  HEALTH_PROBE_TIMEOUT_MS,
+  probeContainerHealth,
+  recordHealthProbeOutcome,
+  resetHealthProbeState,
+  _resetStuckDetectionForTest,
+} from './supervisorPoll.js'
+import { getSupervisorSigningPublicKeyClaim } from './supervisorSigningKey.js'
+import { storeSupervisorStuckReport } from './supervisorStuckReport.js'
 import {
   checkReplacementAllowed,
   isReplacementExhausted,
@@ -39,8 +50,9 @@ import { notifyReplacementBudgetExhausted } from './replacementBudgetNotify.js'
 
 export { getReplacementBudgetNotifications, resumeAutomaticRecovery, clearReplacementBudgetOnNuclearReset, _resetReplacementBudgetForTest }
 export type { ReplacementBudgetNotification }
+export { HEALTH_PROBE_INTERVAL_MS, HEALTH_PROBE_TIMEOUT_MS, STUCK_THRESHOLD_CONSECUTIVE_FAILURES } from './supervisorPoll.js'
 
-export const SUPERVISOR_POLL_INTERVAL_MS = 10_000
+export const SUPERVISOR_POLL_INTERVAL_MS = HEALTH_PROBE_INTERVAL_MS
 
 export type ContainerHealthState =
   | 'running'
@@ -80,6 +92,7 @@ export interface SupervisorDeps {
   replaceContainer: typeof replaceContainer
   pickupReports: typeof pickupDiagnosticReports
   inspectStatus: typeof inspectContainerStatus
+  probeContainerHealth: typeof probeContainerHealth
   now: () => number
 }
 
@@ -96,6 +109,7 @@ const defaultDeps: SupervisorDeps = {
   replaceContainer,
   pickupReports: pickupDiagnosticReports,
   inspectStatus: inspectContainerStatus,
+  probeContainerHealth,
   now: () => Date.now(),
 }
 
@@ -128,6 +142,7 @@ export function _resetPodSupervisorForTest(): void {
   }
   _replacing.clear()
   _resetReplacementBudgetForTest()
+  _resetStuckDetectionForTest()
 }
 
 export class PodSupervisor {
@@ -238,10 +253,14 @@ async function pollReplica(
 
       if (isReplacementExhausted(replicaId, spec.role)) {
         state = 'replacement_exhausted'
+        resetHealthProbeState(replicaId, spec.role)
       } else if (state === 'running') {
         observeContainerRunning(replicaId, spec.role, nowMs)
       } else if (state === 'exited' || state === 'missing') {
         observeContainerNotRunning(replicaId, spec.role)
+        resetHealthProbeState(replicaId, spec.role)
+      } else {
+        resetHealthProbeState(replicaId, spec.role)
       }
 
       containers.push({
@@ -250,6 +269,23 @@ async function pollReplica(
         state,
         last_checked_at: checkedAt,
       })
+
+      if (state === 'running') {
+        const healthy = await _deps.probeContainerHealth(ssh, spec, HEALTH_PROBE_TIMEOUT_MS)
+        const probeOutcome = recordHealthProbeOutcome(replicaId, spec.role, healthy)
+        if (probeOutcome.isStuck) {
+          const lockKey = `${replicaId}:${spec.role}`
+          if (!_replacing.has(lockKey)) {
+            _replacing.add(lockKey)
+            try {
+              await handleStuckContainer(replica, spec.role, spec.containerName, ssh, vault, nowMs)
+            } finally {
+              _replacing.delete(lockKey)
+              resetHealthProbeState(replicaId, spec.role)
+            }
+          }
+        }
+      }
 
       if (state === 'replacement_exhausted') continue
       if (state !== 'exited') continue
@@ -313,6 +349,108 @@ async function pollReplica(
     return { ...base, reachable: false, unreachable_reason: reason }
   } finally {
     await ssh?.disconnect()
+  }
+}
+
+async function handleStuckContainer(
+  replica: EdgeReplica,
+  role: RemoteEdgeContainerRole,
+  containerName: string,
+  ssh: ReplicaActionSshRunner,
+  vault: EdgeTierPodVault,
+  nowMs: number,
+): Promise<void> {
+  const replicaId = replica.edge_pod_id
+
+  const allowance = checkReplacementAllowed(replicaId, role, nowMs)
+  if (!allowance.allowed) {
+    if (allowance.reason === 'budget_exhausted' && allowance.newly_exhausted) {
+      const notification = storeReplacementBudgetNotification(replicaId, role, nowMs)
+      appendSupervisorAudit({
+        event: 'replacement_budget_exhausted',
+        replica_id: replicaId,
+        container_role: role,
+        success: false,
+        reason: `max_${MAX_REPLACEMENTS}_in_${WINDOW_SECONDS}s`,
+      })
+      notifyReplacementBudgetExhausted(notification)
+      notifyDashboardUpdated()
+    }
+    return
+  }
+
+  const idResult = await ssh.run(buildContainerIdCommand(containerName))
+  const containerIdShort =
+    idResult.stdout.trim().replace(/^sha256:/, '').slice(0, 12) || 'unknown'
+
+  const supervisorPublicKeyClaim = getSupervisorSigningPublicKeyClaim(vault)
+  const storedReport = storeSupervisorStuckReport(
+    {
+      replica,
+      role,
+      containerIdShort,
+      previousUptimeSeconds: 0,
+      vault,
+      now: () => new Date(_deps.now()),
+    },
+    supervisorPublicKeyClaim,
+  )
+  const reportFilename = storedReport.stored && storedReport.filename
+    ? reportStorageFilename(replicaId, storedReport.filename)
+    : undefined
+
+  await ssh.run(buildKillContainerCommand(containerName))
+
+  const result = await _deps.replaceContainer(
+    {
+      replica,
+      containerRole: role,
+      ssh,
+      vault,
+      queuePosition: 0,
+    },
+    { healthTimeoutMs: 60_000, healthPollMs: 100 },
+  )
+
+  if (result.success) {
+    recordReplacementCompleted(replicaId, role, nowMs, true)
+    if (result.escalated_to_pod) {
+      appendSupervisorAudit({
+        event: 'pod_replaced',
+        replica_id: replicaId,
+        container_role: role,
+        report_filename: reportFilename,
+        duration_ms: result.replacement_duration_ms,
+        success: true,
+        reason: result.pod_escalation_reason ?? 'stuck_health_probe',
+      })
+    } else {
+      await deliverQuarantineKeyToReplica(ssh, replicaId, vault).catch((err) => {
+        console.warn(
+          `[SUPERVISOR] quarantine key re-delivery failed replica=${replicaId}:`,
+          err instanceof Error ? err.message : err,
+        )
+      })
+      appendSupervisorAudit({
+        event: 'container_replaced',
+        replica_id: replicaId,
+        container_role: role,
+        report_filename: reportFilename,
+        duration_ms: result.replacement_duration_ms,
+        success: true,
+        reason: 'stuck_health_probe',
+      })
+    }
+  } else {
+    recordReplacementCompleted(replicaId, role, nowMs, false)
+    appendSupervisorAudit({
+      event: result.escalated_to_pod ? 'pod_replaced_failed' : 'container_replaced_failed',
+      replica_id: replicaId,
+      container_role: role,
+      report_filename: reportFilename,
+      success: false,
+      reason: result.reason,
+    })
   }
 }
 

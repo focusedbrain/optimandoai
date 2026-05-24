@@ -120,6 +120,20 @@ export function buildContainerHealthCommand(container: string, port: number): st
   return `podman exec ${container} curl -sf http://127.0.0.1:${port}/health >/dev/null 2>&1`
 }
 
+/** Liveness probe with curl max-time (supervisor stuck detection — P5.9). */
+export function buildContainerHealthProbeCommand(
+  container: string,
+  port: number,
+  timeoutMs: number,
+): string {
+  const timeoutSec = Math.max(1, Math.ceil(timeoutMs / 1000))
+  return `podman exec ${container} curl -sf --max-time ${timeoutSec} http://127.0.0.1:${port}/health >/dev/null 2>&1`
+}
+
+export function buildKillContainerCommand(containerName: string): string {
+  return wrapHistorySafe(`podman kill --signal=SIGKILL ${containerName}`)
+}
+
 export function buildAllHealthCommand(): string {
   return CONTAINER_HEALTH_CHECKS.map(({ container, port }) =>
     buildContainerHealthCommand(container, port),

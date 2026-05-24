@@ -220,6 +220,7 @@ describe('supervisor module (P5.4)', () => {
       inspectStatus: vi.fn(async (_ssh, name) =>
         name === depackager ? 'exited' : 'running',
       ),
+      probeContainerHealth: vi.fn(async () => true),
       pickupReports,
       replaceContainer,
     })
@@ -319,6 +320,7 @@ describe('supervisor module (P5.4)', () => {
       replaceContainer: vi.fn(),
       pickupReports: vi.fn(),
       inspectStatus: vi.fn(),
+      probeContainerHealth: vi.fn(),
     })
 
     await runSupervisorPollCycle()
@@ -340,6 +342,7 @@ describe('supervisor module (P5.4)', () => {
         disconnect: vi.fn(),
       })),
       inspectStatus: vi.fn(async () => 'running'),
+      probeContainerHealth: vi.fn(async () => true),
       pickupReports: vi.fn(),
       replaceContainer: vi.fn(),
     })
