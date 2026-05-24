@@ -1652,6 +1652,16 @@ contextBridge.exposeInMainWorld('dashboard', {
       error?: string
       needs_ssh?: boolean
     }>,
+  getReplacementBudgetNotifications: () =>
+    ipcRenderer.invoke('dashboard:getReplacementBudgetNotifications') as Promise<
+      Array<Record<string, unknown>>
+    >,
+  resumeAutomaticRecovery: (input: { replicaId: string; containerRole: string }) =>
+    ipcRenderer.invoke('dashboard:resumeAutomaticRecovery', input) as Promise<{ ok: boolean }>,
+  listDiagnosticReportsForRole: (input: { replicaId: string; containerRole: string }) =>
+    ipcRenderer.invoke('dashboard:listDiagnosticReportsForRole', input) as Promise<
+      Array<{ filename: string; timestamp_iso8601: string; report_json: string }>
+    >,
 })
 
 contextBridge.exposeInMainWorld('wizard', {

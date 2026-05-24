@@ -18,6 +18,8 @@ import { assertNoSecretsInRendererPayload } from '../wizard/handlers.js'
 import { sshSecretBuffersFromStrings } from '../security/sshSecretBuffers.js'
 import { toHostKeyAwareFailure } from './ssh/hostKeyIpc.js'
 import { notifyDashboardUpdated, _clearReplicaHealthCacheEntry } from './dashboard.js'
+import { clearReplacementBudgetOnNuclearReset } from './supervisor/index.js'
+import { appendSupervisorAudit } from './supervisor/auditLog.js'
 
 let _actionDeps: ReplicaActionDeps | null = null
 
@@ -117,6 +119,16 @@ async function runReplicaActionStream(
           if (actionEvent.result.newReplica) {
             _clearReplicaHealthCacheEntry(actionEvent.result.newReplica.edge_pod_id)
           }
+        }
+        if (actionEvent.result?.action === 'redeploy') {
+          clearReplacementBudgetOnNuclearReset(input.replicaId)
+          appendSupervisorAudit({
+            event: 'replacement_budget_cleared',
+            replica_id: input.replicaId,
+            container_role: '*',
+            success: true,
+            reason: 'nuclear_redeploy',
+          })
         }
         notifyDashboardUpdated()
         return { ok: true, result: lastResult }

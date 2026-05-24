@@ -39,6 +39,20 @@ export interface ReplicaStatus {
   health_error?: string
   last_cert_timestamp: string | null
   certs_per_minute: number
+  degraded?: boolean
+  supervisor_containers?: Array<{
+    role: string
+    container_name: string
+    state: string
+  }>
+}
+
+export interface ReplacementBudgetNotification {
+  replica_id: string
+  container_role: string
+  container_name: string
+  message: string
+  created_at: string
 }
 
 export interface VerificationEvent {
@@ -55,4 +69,5 @@ export interface DashboardUpdatePayload {
   replicas: ReplicaStatus[]
   verifications: VerificationEvent[]
   quarantine_summary?: QuarantineDashboardSummary
+  replacement_budget_notifications?: ReplacementBudgetNotification[]
 }

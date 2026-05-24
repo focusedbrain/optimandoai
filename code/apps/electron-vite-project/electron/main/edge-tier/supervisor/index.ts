@@ -20,10 +20,35 @@ import { cleanupLocalQuarantine, getLocalQuarantineRetentionDays } from './quara
 import { deliverQuarantineKeyToReplica } from '../quarantineDeliver.js'
 import { notifyDashboardUpdated } from '../dashboard.js'
 import { inspectContainerStatus, replaceContainer } from './replace.js'
+import {
+  checkReplacementAllowed,
+  isReplacementExhausted,
+  recordReplacementCompleted,
+  observeContainerRunning,
+  observeContainerNotRunning,
+  storeReplacementBudgetNotification,
+  getReplacementBudgetNotifications,
+  resumeAutomaticRecovery,
+  clearReplacementBudgetOnNuclearReset,
+  _resetReplacementBudgetForTest,
+  MAX_REPLACEMENTS,
+  WINDOW_SECONDS,
+  type ReplacementBudgetNotification,
+} from './replacementBudget.js'
+import { notifyReplacementBudgetExhausted } from './replacementBudgetNotify.js'
+
+export { getReplacementBudgetNotifications, resumeAutomaticRecovery, clearReplacementBudgetOnNuclearReset, _resetReplacementBudgetForTest }
+export type { ReplacementBudgetNotification }
 
 export const SUPERVISOR_POLL_INTERVAL_MS = 10_000
 
-export type ContainerHealthState = 'running' | 'exited' | 'missing' | 'unknown' | 'unreachable'
+export type ContainerHealthState =
+  | 'running'
+  | 'exited'
+  | 'missing'
+  | 'unknown'
+  | 'unreachable'
+  | 'replacement_exhausted'
 
 export interface ContainerStatusEntry {
   role: RemoteEdgeContainerRole
@@ -102,6 +127,7 @@ export function _resetPodSupervisorForTest(): void {
     replicas: [],
   }
   _replacing.clear()
+  _resetReplacementBudgetForTest()
 }
 
 export class PodSupervisor {
@@ -163,6 +189,7 @@ export async function runSupervisorPollCycle(): Promise<void> {
     replicaStatuses.push(await pollReplica(replica, vault))
   }
   _status = { ..._status, replicas: replicaStatuses }
+  notifyDashboardUpdated()
 }
 
 async function pollReplica(
@@ -206,7 +233,17 @@ async function pollReplica(
     const containers: ContainerStatusEntry[] = []
 
     for (const spec of REMOTE_EDGE_SUPERVISOR_CONTAINERS) {
-      const state = await _deps.inspectStatus(ssh, spec.containerName)
+      const nowMs = _deps.now()
+      let state = await _deps.inspectStatus(ssh, spec.containerName)
+
+      if (isReplacementExhausted(replicaId, spec.role)) {
+        state = 'replacement_exhausted'
+      } else if (state === 'running') {
+        observeContainerRunning(replicaId, spec.role, nowMs)
+      } else if (state === 'exited' || state === 'missing') {
+        observeContainerNotRunning(replicaId, spec.role)
+      }
+
       containers.push({
         role: spec.role,
         container_name: spec.containerName,
@@ -214,14 +251,37 @@ async function pollReplica(
         last_checked_at: checkedAt,
       })
 
+      if (state === 'replacement_exhausted') continue
       if (state !== 'exited') continue
+
+      const allowance = checkReplacementAllowed(replicaId, spec.role, nowMs)
+      if (!allowance.allowed) {
+        if (allowance.reason === 'budget_exhausted' && allowance.newly_exhausted) {
+          const notification = storeReplacementBudgetNotification(replicaId, spec.role, nowMs)
+          appendSupervisorAudit({
+            event: 'replacement_budget_exhausted',
+            replica_id: replicaId,
+            container_role: spec.role,
+            success: false,
+            reason: `max_${MAX_REPLACEMENTS}_in_${WINDOW_SECONDS}s`,
+          })
+          notifyReplacementBudgetExhausted(notification)
+          notifyDashboardUpdated()
+        }
+        const exhaustedIndex = containers.length - 1
+        containers[exhaustedIndex] = {
+          ...containers[exhaustedIndex]!,
+          state: 'replacement_exhausted',
+        }
+        continue
+      }
 
       const lockKey = `${replicaId}:${spec.role}`
       if (_replacing.has(lockKey)) continue
       _replacing.add(lockKey)
 
       try {
-        await handleExitedContainer(replica, spec.role, spec.containerName, ssh, vault)
+        await handleExitedContainer(replica, spec.role, spec.containerName, ssh, vault, nowMs)
       } finally {
         _replacing.delete(lockKey)
       }
@@ -262,6 +322,7 @@ async function handleExitedContainer(
   containerName: string,
   ssh: ReplicaActionSshRunner,
   vault: EdgeTierPodVault,
+  nowMs: number,
 ): Promise<void> {
   const replicaId = replica.edge_pod_id
   const pickup = await _deps.pickupReports(ssh, replicaId, replica.edge_public_key, containerName)
@@ -308,6 +369,7 @@ async function handleExitedContainer(
   )
 
   if (result.success) {
+    recordReplacementCompleted(replicaId, role, nowMs, true)
     await deliverQuarantineKeyToReplica(ssh, replicaId, vault).catch((err) => {
       console.warn(
         `[SUPERVISOR] quarantine key re-delivery failed replica=${replicaId}:`,
@@ -323,6 +385,7 @@ async function handleExitedContainer(
       success: true,
     })
   } else {
+    recordReplacementCompleted(replicaId, role, nowMs, false)
     appendSupervisorAudit({
       event: 'container_replaced_failed',
       replica_id: replicaId,

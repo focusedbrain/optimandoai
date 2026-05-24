@@ -20,6 +20,7 @@ import {
   initQuarantineDashboardIpc,
   registerQuarantineDashboardIpcHandlers,
 } from './quarantineIpc.js'
+import { registerSupervisorDashboardIpcHandlers } from './supervisorIpc.js'
 import {
   listKnownHostFingerprints,
   removeFingerprint,
@@ -49,6 +50,7 @@ export function registerEdgeTierIpcHandlers(): void {
   registerReplicaActionIpcHandlers()
   registerGlobalActionIpcHandlers()
   registerQuarantineDashboardIpcHandlers()
+  registerSupervisorDashboardIpcHandlers()
 
   ipcMain.handle('edge-tier:get-status', async () => {
     return getEdgeTierStatusSnapshot()

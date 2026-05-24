@@ -270,6 +270,15 @@ interface DashboardBridge {
     error?: string
     needs_ssh?: boolean
   }>
+  getReplacementBudgetNotifications: () => Promise<Array<Record<string, unknown>>>
+  resumeAutomaticRecovery: (input: {
+    replicaId: string
+    containerRole: string
+  }) => Promise<{ ok: boolean }>
+  listDiagnosticReportsForRole: (input: {
+    replicaId: string
+    containerRole: string
+  }) => Promise<Array<{ filename: string; timestamp_iso8601: string; report_json: string }>>
 }
 
 interface WizardBridge {

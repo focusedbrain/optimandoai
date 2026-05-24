@@ -13,11 +13,13 @@ import { GlobalActionsPanel } from './GlobalActionsPanel.js'
 import { RotateKeysModal } from './RotateKeysModal.js'
 import { PauseEdgeTierModal } from './PauseEdgeTierModal.js'
 import { QuarantinePanel } from './QuarantinePanel.js'
+import { ReplacementExhaustedModal } from './ReplacementExhaustedModal.js'
 import type {
   DashboardUpdatePayload,
   ReplicaStatus,
   DashboardFallbackPolicy,
   QuarantineDashboardSummary,
+  ReplacementBudgetNotification,
 } from './types.js'
 import type { ReplicaActionKind } from './replicaActions.js'
 import {
@@ -60,6 +62,8 @@ export interface DashboardShellViewProps {
   quarantineSummary?: QuarantineDashboardSummary
   selectedQuarantineReplicaId?: string | null
   onSelectQuarantineReplica?: (replicaId: string | null) => void
+  replacementBudgetNotifications?: ReplacementBudgetNotification[]
+  onViewReplacementExhausted?: (replica: ReplicaStatus) => void
   loading?: boolean
   error?: string | null
   fetchLogs?: (edgePodId: string) => Promise<{ ok: boolean; lines?: string[]; error?: string }>
@@ -84,6 +88,8 @@ export function DashboardShellView({
   quarantineSummary = emptyQuarantineSummary,
   selectedQuarantineReplicaId = null,
   onSelectQuarantineReplica,
+  replacementBudgetNotifications = [],
+  onViewReplacementExhausted,
   loading,
   error,
   fetchLogs,
@@ -145,6 +151,27 @@ export function DashboardShellView({
           onFallbackPolicyChange={onFallbackPolicyChange}
           policySaving={policySaving}
         />
+      )}
+
+      {replacementBudgetNotifications.length > 0 && (
+        <div
+          data-testid="edge-dashboard-replacement-budget-alerts"
+          style={{
+            ...quarantineMonoStyle,
+            marginBottom: 16,
+            padding: '10px 12px',
+            background: '#fffbeb',
+            border: '1px solid #f59e0b',
+            borderRadius: 6,
+            color: '#92400e',
+          }}
+        >
+          {replacementBudgetNotifications.map((n) => (
+            <p key={`${n.replica_id}:${n.container_role}`} style={{ margin: '0 0 8px' }}>
+              {n.message}
+            </p>
+          ))}
+        </div>
       )}
 
       {quarantineSummary.total_count > 0 && (
@@ -240,6 +267,7 @@ export function DashboardShellView({
           replicas={replicas}
           onViewDetails={onViewDetails}
           onReplicaAction={onReplicaAction}
+          onViewReplacementExhausted={onViewReplacementExhausted}
         />
       ) : activeTab === 'verifications' ? (
         <VerificationsList verifications={verifications} />
@@ -295,6 +323,8 @@ export function DashboardShell() {
     null,
   )
   const [sandboxView, setSandboxView] = useState<SandboxViewContent | null>(null)
+  const [replacementExhaustedReplica, setReplacementExhaustedReplica] =
+    useState<ReplicaStatus | null>(null)
   const progressUnsubRef = useRef<(() => void) | null>(null)
   const globalProgressUnsubRef = useRef<(() => void) | null>(null)
 
@@ -594,6 +624,8 @@ export function DashboardShell() {
         quarantineSummary={payload?.quarantine_summary ?? emptyQuarantineSummary}
         selectedQuarantineReplicaId={selectedQuarantineReplicaId}
         onSelectQuarantineReplica={setSelectedQuarantineReplicaId}
+        replacementBudgetNotifications={payload?.replacement_budget_notifications ?? []}
+        onViewReplacementExhausted={setReplacementExhaustedReplica}
         loading={loading && !payload}
         error={error}
         fetchLogs={fetchLogs}
@@ -659,6 +691,31 @@ export function DashboardShell() {
         />
       )}
       <SandboxViewerModal view={sandboxView} onClose={() => setSandboxView(null)} />
+      {replacementExhaustedReplica && (
+        <ReplacementExhaustedModal
+          replica={replacementExhaustedReplica}
+          onClose={() => setReplacementExhaustedReplica(null)}
+          onResumeRecovery={async (containerRole) => {
+            const bridge = window.dashboard
+            if (!bridge?.resumeAutomaticRecovery) {
+              return { ok: false, error: 'Recovery resume unavailable' }
+            }
+            return bridge.resumeAutomaticRecovery({
+              replicaId: replacementExhaustedReplica.edge_pod_id,
+              containerRole,
+            })
+          }}
+          onNuclearReset={() => {
+            setReplacementExhaustedReplica(null)
+            setActionModal({
+              action: 'redeploy',
+              replica: replacementExhaustedReplica,
+            })
+            setActionLogs([])
+            setActionError(null)
+          }}
+        />
+      )}
     </>
   )
 }

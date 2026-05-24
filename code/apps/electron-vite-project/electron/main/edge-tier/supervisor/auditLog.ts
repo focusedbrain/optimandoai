@@ -12,6 +12,8 @@ export type SupervisorAuditEventKind =
   | 'container_unreachable'
   | 'message_quarantined'
   | 'message_discarded'
+  | 'replacement_budget_exhausted'
+  | 'replacement_budget_cleared'
 
 export interface SupervisorAuditEntry {
   timestamp: string

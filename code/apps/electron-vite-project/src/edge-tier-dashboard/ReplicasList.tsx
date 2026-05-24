@@ -7,9 +7,15 @@ export interface ReplicasListProps {
   replicas: ReplicaStatus[]
   onViewDetails: (replica: ReplicaStatus) => void
   onReplicaAction?: (action: ReplicaActionKind, replica: ReplicaStatus) => void
+  onViewReplacementExhausted?: (replica: ReplicaStatus) => void
 }
 
-export function ReplicasList({ replicas, onViewDetails, onReplicaAction }: ReplicasListProps) {
+export function ReplicasList({
+  replicas,
+  onViewDetails,
+  onReplicaAction,
+  onViewReplacementExhausted,
+}: ReplicasListProps) {
   if (replicas.length === 0) {
     return (
       <p data-testid="edge-dashboard-replicas-empty" style={{ color: 'var(--text-secondary)', margin: 0 }}>
@@ -26,6 +32,7 @@ export function ReplicasList({ replicas, onViewDetails, onReplicaAction }: Repli
           <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
             <th style={{ padding: '6px 8px' }}>Host</th>
             <th style={{ padding: '6px 8px' }}>Health</th>
+            <th style={{ padding: '6px 8px' }}>Recovery</th>
             <th style={{ padding: '6px 8px' }}>Last cert</th>
             <th style={{ padding: '6px 8px' }}>Certs/min</th>
             <th style={{ padding: '6px 8px' }} />
@@ -42,6 +49,29 @@ export function ReplicasList({ replicas, onViewDetails, onReplicaAction }: Repli
               </td>
               <td style={{ padding: '6px 8px', color: healthColor(replica.health), fontWeight: 600 }}>
                 {healthLabel(replica.health)}
+              </td>
+              <td style={{ padding: '6px 8px' }}>
+                {replica.degraded ? (
+                  <button
+                    type="button"
+                    data-testid={`replica-recovery-warning-${replica.edge_pod_id}`}
+                    onClick={() => onViewReplacementExhausted?.(replica)}
+                    style={{
+                      padding: '4px 8px',
+                      fontSize: 10,
+                      borderRadius: 6,
+                      border: '1px solid #f59e0b',
+                      background: '#fffbeb',
+                      color: '#92400e',
+                      cursor: 'pointer',
+                      fontFamily: 'ui-monospace, monospace',
+                    }}
+                  >
+                    Recovery paused
+                  </button>
+                ) : (
+                  <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>—</span>
+                )}
               </td>
               <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
                 {formatTimestamp(replica.last_cert_timestamp)}

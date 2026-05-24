@@ -15,6 +15,7 @@ import {
   MAX_EDGE_VERIFICATIONS,
 } from './verificationAudit.js'
 import { buildQuarantineDashboardSummary } from './quarantineDashboard.js'
+import { getPodSupervisorStatus, getReplacementBudgetNotifications } from './supervisor/index.js'
 
 export type ReplicaHealth = 'healthy' | 'unhealthy' | 'unknown'
 
@@ -29,6 +30,13 @@ export interface ReplicaStatus {
   last_cert_timestamp: string | null
   /** Verified certs per minute over the last 5 minutes. */
   certs_per_minute: number
+  /** True when any supervised container is in replacement_exhausted state. */
+  degraded?: boolean
+  supervisor_containers?: Array<{
+    role: string
+    container_name: string
+    state: string
+  }>
 }
 
 export type VerificationEvent = EdgeVerificationRecord
@@ -39,6 +47,7 @@ export interface DashboardUpdatePayload {
   replicas: ReplicaStatus[]
   verifications: VerificationEvent[]
   quarantine_summary: ReturnType<typeof buildQuarantineDashboardSummary>
+  replacement_budget_notifications: ReturnType<typeof getReplacementBudgetNotifications>
 }
 
 export const HEALTH_PROBE_INTERVAL_MS = 30_000
@@ -121,6 +130,15 @@ export function buildReplicaStatus(
   const key = replicaKey(replica)
   const cached = _healthCache.get(key)
   const stats = getReplicaVerificationStats()[key]
+  const supervisorReplica = getPodSupervisorStatus().replicas.find(
+    (r) => r.replica_id.toLowerCase() === replica.edge_pod_id.toLowerCase(),
+  )
+  const supervisorContainers =
+    supervisorReplica?.containers.map((c) => ({
+      role: c.role,
+      container_name: c.container_name,
+      state: c.state,
+    })) ?? []
 
   return {
     host: replica.host,
@@ -132,6 +150,8 @@ export function buildReplicaStatus(
     health_error: cached?.error,
     last_cert_timestamp: stats?.last_success_at ?? null,
     certs_per_minute: certsPerMinute(replica.edge_pod_id, nowMs),
+    degraded: supervisorContainers.some((c) => c.state === 'replacement_exhausted'),
+    supervisor_containers: supervisorContainers,
   }
 }
 
@@ -157,6 +177,7 @@ export function buildDashboardUpdatePayload(): DashboardUpdatePayload {
     replicas: getDashboardReplicas(),
     verifications: getDashboardVerifications(),
     quarantine_summary: buildQuarantineDashboardSummary(),
+    replacement_budget_notifications: getReplacementBudgetNotifications(),
   }
 }
 
