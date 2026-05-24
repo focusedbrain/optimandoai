@@ -31,6 +31,7 @@ P3.8 building blocks: `apps/electron-vite-project/scripts/edge-cli.ts`, `apps/el
 - [x] **P4.5** — Wizard UI (six-step flow, live log panels, provider-agnostic copy)
 - [x] **P4.6** — Status dashboard (replica list, health probes, verification log; app shell entry)
 - [x] **P4.7** — Replica actions (restart, redeploy, remove) + manual test documentation
+- [x] **P4.8** — Global actions (rotate all keys, pause edge tier, fallback policy)
 
 ---
 
@@ -46,6 +47,7 @@ P3.8 building blocks: `apps/electron-vite-project/scripts/edge-cli.ts`, `apps/el
 | P4.5 | ✅ done | P4.5: wizard UI for six-step flow |
 | P4.6 | ✅ done | P4.6: status dashboard with replica list and verification log |
 | P4.7 | ✅ done | P4.7: replica restart/redeploy/remove actions |
+| P4.8 | ✅ done | P4.8: global actions — rotate keys, pause edge tier, fallback policy |
 
 ---
 

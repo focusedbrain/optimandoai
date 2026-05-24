@@ -229,7 +229,22 @@ interface DashboardBridge {
   redeployReplica: (input: Record<string, unknown>) => Promise<{ ok: boolean; error?: string; result?: Record<string, unknown> }>
   removeReplica: (input: Record<string, unknown>) => Promise<{ ok: boolean; error?: string; result?: Record<string, unknown> }>
   disableEdgeTier: () => Promise<{ ok: boolean }>
+  pauseEdgeTier: () => Promise<{ ok: boolean }>
+  rotateAllEdgeKeys: (input: Record<string, unknown>) => Promise<{
+    ok: boolean
+    error?: string
+    partial_failure?: {
+      failed_index: number
+      failed_replica_id: string
+      completed_replica_ids: string[]
+      total_replicas: number
+    }
+  }>
+  setFallbackPolicy: (policy: string) => Promise<{ ok: boolean; policy: string }>
   onReplicaActionProgress: (
+    handler: (payload: { operationId: string; event: Record<string, unknown> }) => void,
+  ) => () => void
+  onGlobalActionProgress: (
     handler: (payload: { operationId: string; event: Record<string, unknown> }) => void,
   ) => () => void
 }

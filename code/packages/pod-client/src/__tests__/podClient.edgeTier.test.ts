@@ -195,6 +195,38 @@ describe('PodClient edge tier — edge unreachable', () => {
       await localSrv.stop()
     }
   })
+
+  test('local_only fallback ingests locally when edge is unreachable', async () => {
+    const unusedPort = await new Promise<number>((resolve, reject) => {
+      const probe = http.createServer()
+      probe.listen(0, '127.0.0.1', () => {
+        const { port } = probe.address() as { port: number }
+        probe.close(() => resolve(port))
+      })
+      probe.once('error', reject)
+    })
+
+    let localCalls = 0
+    const localSrv = await startServer(async (req, res) => {
+      localCalls++
+      await readBody(req)
+      sendJson(res, 200, { valid: true })
+    })
+
+    try {
+      const client = createPodClient({ baseUrl: localSrv.baseUrl, requestTimeoutMs: 500 })
+      client.configureEdgeTier(
+        [{ ...EDGE_REPLICA, port: unusedPort }],
+        'local_only',
+      )
+
+      const result = await client.ingest(RAW_INPUT, SOURCE_TYPE)
+      expect(localCalls).toBe(1)
+      expect(result.status).toBe(200)
+    } finally {
+      await localSrv.stop()
+    }
+  })
 })
 
 describe('PodClient edge tier — local cert rejection relayed', () => {

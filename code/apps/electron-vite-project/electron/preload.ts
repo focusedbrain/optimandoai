@@ -1576,6 +1576,23 @@ contextBridge.exposeInMainWorld('dashboard', {
   redeployReplica: (input: Record<string, unknown>) => ipcRenderer.invoke('replica:redeploy', input),
   removeReplica: (input: Record<string, unknown>) => ipcRenderer.invoke('replica:remove', input),
   disableEdgeTier: () => ipcRenderer.invoke('dashboard:disableEdgeTier') as Promise<{ ok: boolean }>,
+  pauseEdgeTier: () => ipcRenderer.invoke('global:pauseEdgeTier') as Promise<{ ok: boolean }>,
+  rotateAllEdgeKeys: (input: Record<string, unknown>) =>
+    ipcRenderer.invoke('global:rotateAllEdgeKeys', input) as Promise<{
+      ok: boolean
+      error?: string
+      partial_failure?: {
+        failed_index: number
+        failed_replica_id: string
+        completed_replica_ids: string[]
+        total_replicas: number
+      }
+    }>,
+  setFallbackPolicy: (policy: string) =>
+    ipcRenderer.invoke('global:setFallbackPolicy', { policy }) as Promise<{
+      ok: boolean
+      policy: string
+    }>,
   onReplicaActionProgress: (
     handler: (payload: { operationId: string; event: Record<string, unknown> }) => void,
   ) => {
@@ -1586,6 +1603,17 @@ contextBridge.exposeInMainWorld('dashboard', {
     }
     ipcRenderer.on('replica:action-progress', fn)
     return () => ipcRenderer.removeListener('replica:action-progress', fn)
+  },
+  onGlobalActionProgress: (
+    handler: (payload: { operationId: string; event: Record<string, unknown> }) => void,
+  ) => {
+    const fn = (_event: unknown, payload: unknown) => {
+      if (payload && typeof payload === 'object') {
+        handler(payload as { operationId: string; event: Record<string, unknown> })
+      }
+    }
+    ipcRenderer.on('global:action-progress', fn)
+    return () => ipcRenderer.removeListener('global:action-progress', fn)
   },
 })
 

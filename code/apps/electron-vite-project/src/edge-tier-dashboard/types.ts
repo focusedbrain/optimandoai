@@ -1,5 +1,7 @@
 export type ReplicaHealth = 'healthy' | 'unhealthy' | 'unknown'
 
+export type DashboardFallbackPolicy = 'reject' | 'downgrade_with_badge'
+
 export interface ReplicaStatus {
   host: string
   port: number
@@ -22,6 +24,7 @@ export interface VerificationEvent {
 
 export interface DashboardUpdatePayload {
   edge_tier_enabled: boolean
+  fallback_policy: DashboardFallbackPolicy
   replicas: ReplicaStatus[]
   verifications: VerificationEvent[]
 }

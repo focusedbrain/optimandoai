@@ -141,6 +141,13 @@ export function setEdgeTierEnabled(enabled: boolean): EdgeTierSettings {
   return next
 }
 
+export function setEdgeTierFallbackPolicy(fallback_policy: EdgeFallbackPolicy): EdgeTierSettings {
+  const current = loadEdgeTierSettings()
+  const next = { ...current, fallback_policy }
+  saveEdgeTierSettings(next)
+  return next
+}
+
 export function upsertEdgeReplica(replica: EdgeReplica): EdgeTierSettings {
   const current = loadEdgeTierSettings()
   const replicas = current.replicas.filter((r) => r.edge_pod_id !== replica.edge_pod_id)

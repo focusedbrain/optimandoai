@@ -4,8 +4,8 @@
 
 import { ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron'
 
-import type { EdgeTierPodVault } from './podLifecycle.js'
-import { setEdgeTierEnabled } from './settings.js'
+import { applyEdgeTierSettingsAndRestartPod, type EdgeTierPodVault } from './podLifecycle.js'
+import { pauseEdgeTier } from './globalActions.js'
 import {
   redeployReplica,
   removeReplica,
@@ -21,6 +21,10 @@ let _actionDeps: ReplicaActionDeps | null = null
 
 export function initReplicaActionIpc(vault: EdgeTierPodVault): void {
   _actionDeps = { vault }
+}
+
+export function getReplicaActionDeps(): ReplicaActionDeps {
+  return getActionDeps()
 }
 
 function getActionDeps(): ReplicaActionDeps {
@@ -123,7 +127,7 @@ export function registerReplicaActionIpcHandlers(): void {
   })
 
   ipcMain.handle('dashboard:disableEdgeTier', async () => {
-    setEdgeTierEnabled(false)
+    await pauseEdgeTier(getActionDeps().vault)
     notifyDashboardUpdated()
     return { ok: true }
   })

@@ -7,7 +7,10 @@ import { ReplicaDetail } from './ReplicaDetail.js'
 import { ReplicaActionModal } from './ReplicaActionModal.js'
 import { LastReplicaPrompt } from './LastReplicaPrompt.js'
 import type { SshKeyEntryFormValues } from './SshKeyEntryForm.js'
-import type { DashboardUpdatePayload, ReplicaStatus } from './types.js'
+import { GlobalActionsPanel } from './GlobalActionsPanel.js'
+import { RotateKeysModal } from './RotateKeysModal.js'
+import { PauseEdgeTierModal } from './PauseEdgeTierModal.js'
+import type { DashboardUpdatePayload, ReplicaStatus, DashboardFallbackPolicy } from './types.js'
 import type { ReplicaActionKind } from './replicaActions.js'
 
 export type DashboardTab = 'replicas' | 'verifications'
@@ -23,6 +26,11 @@ export interface DashboardShellViewProps {
   onCloseDetail: () => void
   onLaunchWizard: () => void
   onReplicaAction?: (action: ReplicaActionKind, replica: ReplicaStatus) => void
+  fallbackPolicy?: DashboardFallbackPolicy
+  onRotateKeys?: () => void
+  onPauseEdgeTier?: () => void
+  onFallbackPolicyChange?: (policy: DashboardFallbackPolicy) => void
+  policySaving?: boolean
   loading?: boolean
   error?: string | null
   fetchLogs?: (edgePodId: string) => Promise<{ ok: boolean; lines?: string[]; error?: string }>
@@ -39,6 +47,11 @@ export function DashboardShellView({
   onCloseDetail,
   onLaunchWizard,
   onReplicaAction,
+  fallbackPolicy = 'reject',
+  onRotateKeys,
+  onPauseEdgeTier,
+  onFallbackPolicyChange,
+  policySaving,
   loading,
   error,
   fetchLogs,
@@ -90,6 +103,17 @@ export function DashboardShellView({
 
       {loading && <p style={{ color: 'var(--text-secondary)' }}>Loading…</p>}
       {error && <p style={{ color: '#ef4444' }}>{error}</p>}
+
+      {onRotateKeys && onPauseEdgeTier && onFallbackPolicyChange && (
+        <GlobalActionsPanel
+          replicaCount={replicas.length}
+          fallbackPolicy={fallbackPolicy}
+          onRotateKeys={onRotateKeys}
+          onPauseEdgeTier={onPauseEdgeTier}
+          onFallbackPolicyChange={onFallbackPolicyChange}
+          policySaving={policySaving}
+        />
+      )}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         <button
@@ -156,7 +180,20 @@ export function DashboardShell() {
   const [actionLogs, setActionLogs] = useState<LogEvent[]>([])
   const [actionError, setActionError] = useState<string | null>(null)
   const [showLastReplicaPrompt, setShowLastReplicaPrompt] = useState(false)
+  const [rotateOpen, setRotateOpen] = useState(false)
+  const [pauseOpen, setPauseOpen] = useState(false)
+  const [rotateRunning, setRotateRunning] = useState(false)
+  const [pauseRunning, setPauseRunning] = useState(false)
+  const [rotateLogs, setRotateLogs] = useState<LogEvent[]>([])
+  const [rotateError, setRotateError] = useState<string | null>(null)
+  const [rotatePartialFailure, setRotatePartialFailure] = useState<{
+    failed_index: number
+    total_replicas: number
+    completed_replica_ids: string[]
+  } | null>(null)
+  const [policySaving, setPolicySaving] = useState(false)
   const progressUnsubRef = useRef<(() => void) | null>(null)
+  const globalProgressUnsubRef = useRef<(() => void) | null>(null)
 
   const closeActionModal = useCallback(() => {
     progressUnsubRef.current?.()
@@ -186,8 +223,9 @@ export function DashboardShell() {
           : false
       setPayload({
         edge_tier_enabled: enabled,
-        replicas,
-        verifications,
+        fallback_policy: 'reject',
+        replicas: replicas as ReplicaStatus[],
+        verifications: verifications as DashboardUpdatePayload['verifications'],
       })
       setError(null)
     } catch (err) {
@@ -207,7 +245,7 @@ export function DashboardShell() {
 
     void bridge.subscribeUpdates().then(() => undefined)
     const unsub = bridge.onUpdates((update) => {
-      setPayload(update)
+      setPayload(update as DashboardUpdatePayload)
       setLoading(false)
       setError(null)
     })
@@ -297,11 +335,94 @@ export function DashboardShell() {
 
   const handleDisableEdgeTier = useCallback(async () => {
     const bridge = window.dashboard
-    if (!bridge?.disableEdgeTier) return
-    await bridge.disableEdgeTier()
+    if (!bridge?.pauseEdgeTier) return
+    await bridge.pauseEdgeTier()
     setShowLastReplicaPrompt(false)
     void refresh()
   }, [refresh])
+
+  const handlePauseEdgeTier = useCallback(async () => {
+    const bridge = window.dashboard
+    if (!bridge?.pauseEdgeTier) return
+    setPauseRunning(true)
+    try {
+      await bridge.pauseEdgeTier()
+      setPauseOpen(false)
+      void refresh()
+    } finally {
+      setPauseRunning(false)
+    }
+  }, [refresh])
+
+  const handleFallbackPolicyChange = useCallback(async (policy: DashboardFallbackPolicy) => {
+    const bridge = window.dashboard
+    if (!bridge?.setFallbackPolicy) return
+    setPolicySaving(true)
+    try {
+      await bridge.setFallbackPolicy(policy)
+      setPayload((prev) => (prev ? { ...prev, fallback_policy: policy } : prev))
+    } finally {
+      setPolicySaving(false)
+    }
+  }, [])
+
+  const runRotateAllKeys = useCallback(
+    async (values: SshKeyEntryFormValues) => {
+      const bridge = window.dashboard
+      if (!bridge?.rotateAllEdgeKeys) {
+        setRotateError('Dashboard bridge unavailable')
+        return
+      }
+      const operationId = crypto.randomUUID()
+      setRotateRunning(true)
+      setRotateError(null)
+      setRotateLogs([])
+      setRotatePartialFailure(null)
+
+      globalProgressUnsubRef.current?.()
+      globalProgressUnsubRef.current = bridge.onGlobalActionProgress(({ operationId: id, event }) => {
+        if (id !== operationId) return
+        setRotateLogs((prev) => [
+          ...prev,
+          {
+            kind: event.kind as LogEvent['kind'],
+            message: String(event.message ?? ''),
+            stage_name: typeof event.stage_name === 'string' ? event.stage_name : undefined,
+          },
+        ])
+      })
+
+      try {
+        const result = await bridge.rotateAllEdgeKeys({
+          operationId,
+          sshUser: values.sshUser.trim(),
+          sshPort: Number(values.sshPort) || 22,
+          sshKey: values.sshKey,
+          passphrase: values.passphrase.trim() || undefined,
+        })
+        if (!result.ok) {
+          setRotateError(result.error ?? 'Rotation failed')
+          if (result.partial_failure) {
+            setRotatePartialFailure({
+              failed_index: result.partial_failure.failed_index,
+              total_replicas: result.partial_failure.total_replicas,
+              completed_replica_ids: result.partial_failure.completed_replica_ids,
+            })
+          }
+          return
+        }
+        setRotateOpen(false)
+        void refresh()
+      } catch (err) {
+        setRotateError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setRotateRunning(false)
+        globalProgressUnsubRef.current?.()
+        globalProgressUnsubRef.current = null
+      }
+    },
+    [refresh],
+  )
 
   return (
     <>
@@ -320,6 +441,16 @@ export function DashboardShell() {
           setActionLogs([])
           setActionError(null)
         }}
+        fallbackPolicy={payload?.fallback_policy ?? 'reject'}
+        onRotateKeys={() => {
+          setRotateOpen(true)
+          setRotateError(null)
+          setRotateLogs([])
+          setRotatePartialFailure(null)
+        }}
+        onPauseEdgeTier={() => setPauseOpen(true)}
+        onFallbackPolicyChange={(policy) => void handleFallbackPolicyChange(policy)}
+        policySaving={policySaving}
         loading={loading && !payload}
         error={error}
         fetchLogs={fetchLogs}
@@ -343,6 +474,28 @@ export function DashboardShell() {
           }}
           onDisableEdgeTier={() => void handleDisableEdgeTier()}
           onDismiss={() => setShowLastReplicaPrompt(false)}
+        />
+      )}
+      {rotateOpen && (
+        <RotateKeysModal
+          replicaCount={payload?.replicas.length ?? 0}
+          running={rotateRunning}
+          logEvents={rotateLogs}
+          error={rotateError}
+          partialFailure={rotatePartialFailure}
+          onClose={() => {
+            if (!rotateRunning) setRotateOpen(false)
+          }}
+          onSubmit={(values) => void runRotateAllKeys(values)}
+        />
+      )}
+      {pauseOpen && (
+        <PauseEdgeTierModal
+          running={pauseRunning}
+          onClose={() => {
+            if (!pauseRunning) setPauseOpen(false)
+          }}
+          onConfirm={() => void handlePauseEdgeTier()}
         />
       )}
       {wizardOpen && (

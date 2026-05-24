@@ -71,6 +71,10 @@ describe('DashboardShellView', () => {
         onCloseDetail={() => undefined}
         onLaunchWizard={() => undefined}
         onReplicaAction={() => undefined}
+        fallbackPolicy="reject"
+        onRotateKeys={() => undefined}
+        onPauseEdgeTier={() => undefined}
+        onFallbackPolicyChange={() => undefined}
       />,
     )
     expect(html).toMatchSnapshot()
