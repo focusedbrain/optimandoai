@@ -92,7 +92,7 @@ export default defineConfig({
               name: 'externalize-ws-and-native-optional',
               enforce: 'pre',
               resolveId(id) {
-                if (id === 'ws' || id === 'bufferutil' || id === 'utf-8-validate') {
+                if (id === 'ws' || id === 'bufferutil' || id === 'utf-8-validate' || id === 'ssh2' || id === 'cpu-features') {
                   return { id, external: true }
                 }
               },
@@ -125,6 +125,8 @@ export default defineConfig({
                 'whatwg-url',
                 'tr46',
                 'webidl-conversions',
+                'ssh2',
+                'cpu-features',
                 /** CJS packages that use __dirname — must not be bundled into ESM main (ReferenceError at runtime) */
                 'open',
                 // Must be required at runtime, not bundled. Bundling+minifying ws

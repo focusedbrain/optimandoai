@@ -1152,7 +1152,7 @@ async function processBeapPackageInlineInternal(
   const transportSender = options.transportSender ?? parties.counterpartyEmail
 
   // ── Preview extraction ────────────────────────────────────────────────────
-  const preview = extractP2PBeapInboxPreview(packageJson)
+  let preview = extractP2PBeapInboxPreview(packageJson)
 
   // ── Outbound echo check ────────────────────────────────────────────────────
   if (isOutboundQbeapEcho(packageJson, handshakeId, db)) {
@@ -1723,6 +1723,14 @@ export function extractPBeapCapsule(packageJson: string): unknown | null {
   } catch {
     return null
   }
+}
+
+/**
+ * Safe string for inbox DB errors in logs (no row bodies or secrets).
+ */
+export function formatBeapInboxDbError(err: unknown): string {
+  if (err instanceof Error) return err.message
+  return String(err)
 }
 
 /**
