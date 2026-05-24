@@ -25,6 +25,7 @@ import {
 } from '../edge-tier/ssh/deploy.js'
 import type { TargetProbe } from '../edge-tier/ssh/types.js'
 
+import { readAndValidateSshKeyFile } from './readSshKeyFile.js'
 import {
   clearWizardVmCredentials,
   getWizardVmCredentials,
@@ -127,11 +128,12 @@ export async function wizardAuthenticate(deps: WizardHandlerDeps): Promise<Wizar
 }
 
 export function wizardStoreVmCredentials(input: WizardProbeInput): WizardVmCredentialsPublic {
+  const keyPem = readAndValidateSshKeyFile(input.keyFilePath, input.passphrase)
   return storeWizardVmCredentials({
     host: input.host,
     port: input.port,
     user: input.user,
-    key: input.key,
+    key: keyPem,
     passphrase: input.passphrase,
   })
 }

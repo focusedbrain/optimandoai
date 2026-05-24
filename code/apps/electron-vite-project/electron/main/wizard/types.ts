@@ -43,7 +43,7 @@ export interface WizardProbeInput {
   readonly host: string
   readonly port?: number
   readonly user: string
-  readonly key: string
+  readonly keyFilePath: string
   readonly passphrase?: string
 }
 

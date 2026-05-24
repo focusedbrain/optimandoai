@@ -43,9 +43,10 @@ export interface WizardBridgeLike {
     host: string
     port?: number
     user: string
-    key: string
+    keyFilePath: string
     passphrase?: string
   }) => Promise<{ state: WizardPublicState }>
+  pickSshKeyFile: () => Promise<{ canceled: boolean; filePath?: string }>
   setReplicaCount: (count: number) => Promise<{ state: WizardPublicState }>
   probe: () => Promise<{ probe: Record<string, unknown>; state: WizardPublicState }>
   installPodman: (input: {
@@ -269,21 +270,22 @@ export function WizardShell({
 
   const handleVmSubmit = useCallback(
     async (values: StepProvideVmFormValues) => {
+      const w = ensureWizard()
+      setLoading(true)
+      setLocalError(null)
       try {
-        const w = ensureWizard()
-        setLoading(true)
-        setLocalError(null)
         const port = Number(values.port)
         const { state: next } = await w.setVmCredentials({
           host: values.host.trim(),
           port: Number.isFinite(port) ? port : 22,
           user: values.username.trim(),
-          key: values.key,
+          keyFilePath: values.keyFilePath,
           passphrase: values.passphrase || undefined,
         })
         syncState(next)
       } catch (err) {
         setLocalError(err instanceof Error ? err.message : String(err))
+        throw err
       } finally {
         setLoading(false)
       }
@@ -508,7 +510,8 @@ export function WizardShell({
                   port: String(state.vmCredentials.port),
                   username: state.vmCredentials.username,
                 } : undefined}
-                onSubmit={(v) => void handleVmSubmit(v)}
+                onPickKeyFile={() => ensureWizard().pickSshKeyFile()}
+                onSubmit={(v) => handleVmSubmit(v)}
                 onCancelWizard={() => void handleCancelOperation()}
               />
             )}

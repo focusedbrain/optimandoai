@@ -265,9 +265,10 @@ interface WizardBridge {
     host: string
     port?: number
     user: string
-    key: string
+    keyFilePath: string
     passphrase?: string
   }) => Promise<{ state: Record<string, unknown> }>
+  pickSshKeyFile: () => Promise<{ canceled: boolean; filePath?: string }>
   setReplicaCount: (count: number) => Promise<{ state: Record<string, unknown> }>
   probe: () => Promise<{ probe: Record<string, unknown>; state: Record<string, unknown> }>
   installPodman: (input: {

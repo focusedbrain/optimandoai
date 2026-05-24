@@ -1641,6 +1641,8 @@ contextBridge.exposeInMainWorld('wizard', {
   continueFromExplainer: () =>
     ipcRenderer.invoke('wizard:continueFromExplainer') as Promise<{ state: Record<string, unknown> }>,
   authenticate: () => ipcRenderer.invoke('wizard:authenticate'),
+  pickSshKeyFile: () =>
+    ipcRenderer.invoke('wizard:pickSshKeyFile') as Promise<{ canceled: boolean; filePath?: string }>,
   setVmCredentials: (input: Record<string, unknown>) =>
     ipcRenderer.invoke('wizard:setVmCredentials', input),
   setReplicaCount: (count: number) => ipcRenderer.invoke('wizard:setReplicaCount', count),

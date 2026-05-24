@@ -5,7 +5,7 @@
 
 /** Step 2 — illustrative provider list only; alphabetized, no preference order. */
 export const STEP2_VM_HELP =
-  'Provide any Linux VPS you have root SSH access to. We don\'t store provider credentials. We don\'t recommend a host. Common choices include cloud providers (AWS, Azure, DigitalOcean, GCP, Hetzner, Linode, OVH, Vultr) and self-hosted servers. Use whichever you trust.'
+  'Provide any Linux VPS you have root SSH access to.'
 
 /** Step 4 — from strategy §4.1 step 4. */
 export const STEP4_REPLICA_HELP =

@@ -6,6 +6,7 @@ import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 
 vi.mock('../../edge-tier/ssh/client.js', () => ({
   SshClient: class {
@@ -41,6 +42,9 @@ import {
   DEFAULT_EDGE_TIER_SETTINGS,
 } from '../../edge-tier/settings.js'
 
+const FIXTURE_KEY = join(
+  fileURLToPath(new URL('./fixtures/openssh-test-rsa-key', import.meta.url)),
+)
 const SSH_KEY = '-----BEGIN OPENSSH PRIVATE KEY-----\ntest-key\n-----END OPENSSH PRIVATE KEY-----'
 let settingsTempDir = ''
 
@@ -138,7 +142,7 @@ describe('wizardProbe', () => {
     wizardStoreVmCredentials({
       host: '203.0.113.1',
       user: 'root',
-      key: SSH_KEY,
+      keyFilePath: FIXTURE_KEY,
     })
 
     const probeTarget = vi.fn(async () => makeProbe())
@@ -152,7 +156,7 @@ describe('wizardProbe', () => {
 
 describe('wizardInstallPodman', () => {
   test('streams install events until done', async () => {
-    wizardStoreVmCredentials({ host: 'h', user: 'u', key: SSH_KEY })
+    wizardStoreVmCredentials({ host: 'h', user: 'u', keyFilePath: FIXTURE_KEY })
 
     const events: InstallEvent[] = []
     const probe = makeProbe()
@@ -173,7 +177,7 @@ describe('wizardInstallPodman', () => {
 
 describe('wizardGenerateAndDeploy', () => {
   test('delegates deploy and clears SSH key afterward', async () => {
-    wizardStoreVmCredentials({ host: '203.0.113.5', user: 'root', key: SSH_KEY })
+    wizardStoreVmCredentials({ host: '203.0.113.5', user: 'root', keyFilePath: FIXTURE_KEY })
 
     const deployEvents: DeployEvent[] = [
       { kind: 'stage', message: 'start', stage_name: 'start_pod' },
@@ -198,7 +202,7 @@ describe('wizardGenerateAndDeploy', () => {
       }),
     }))
 
-    expect(getWizardVmCredentials()?.privateKey).toBe(SSH_KEY)
+    expect(getWizardVmCredentials()?.privateKey).toContain('BEGIN OPENSSH PRIVATE KEY')
     clearWizardVmCredentials()
     expect(getWizardVmCredentials()).toBeNull()
     expect(deployEvents.at(-1)?.kind).toBe('done')
@@ -252,10 +256,10 @@ describe('wizardStoreVmCredentials', () => {
     const pub = wizardStoreVmCredentials({
       host: '10.0.0.1',
       user: 'deploy',
-      key: SSH_KEY,
+      keyFilePath: FIXTURE_KEY,
     })
     expect(pub).toEqual({ host: '10.0.0.1', port: 22, username: 'deploy' })
     expect(pub).not.toHaveProperty('key')
-    expect(getWizardVmCredentials()?.privateKey).toBe(SSH_KEY)
+    expect(getWizardVmCredentials()?.privateKey).toContain('BEGIN OPENSSH PRIVATE KEY')
   })
 })

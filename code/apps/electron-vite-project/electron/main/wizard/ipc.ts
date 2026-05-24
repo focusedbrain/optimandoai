@@ -2,7 +2,7 @@
  * Wizard IPC bridge — Phase 4 (P4.4).
  */
 
-import { ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { ipcMain, dialog, type IpcMainInvokeEvent, type WebContents } from 'electron'
 
 import type { TargetProbe } from '../edge-tier/ssh/types.js'
 import type { InstallEvent } from '../edge-tier/ssh/install-podman.js'
@@ -29,7 +29,7 @@ import type {
   WizardState,
   WizardVerifyInput,
 } from './types.js'
-import { _resetWizardSshSessionForTest } from './sshSession.js'
+import { _resetWizardSshSessionForTest, clearWizardVmCredentials } from './sshSession.js'
 
 let _wizardState: WizardState = { ...INITIAL_WIZARD_STATE }
 let _handlerDeps: WizardHandlerDeps | null = null
@@ -118,11 +118,13 @@ export function registerWizardIpcHandlers(): void {
 
   ipcMain.handle('wizard:reset', async () => {
     _wizardState = { ...INITIAL_WIZARD_STATE }
-    _resetWizardSshSessionForTest()
+    clearWizardVmCredentials()
     for (const controller of _activeOperations.values()) controller.abort()
     _activeOperations.clear()
     return getPublicState()
   })
+
+  ipcMain.handle('wizard:pickSshKeyFile', async () => pickSshKeyFileViaDialog())
 
   ipcMain.handle('wizard:authenticate', async () => {
     const result = await wizardAuthenticate(getDeps())
@@ -139,7 +141,7 @@ export function registerWizardIpcHandlers(): void {
   })
 
   ipcMain.handle('wizard:setVmCredentials', async (_event, input: unknown) => {
-    const parsed = parseProbeInput(input)
+    const parsed = parseVmCredentialsInput(input)
     const credentials = wizardStoreVmCredentials(parsed)
     assertNoSecretsInRendererPayload(credentials)
     return {
@@ -252,25 +254,61 @@ export function registerWizardIpcHandlers(): void {
   })
 
   console.log(
-    '[MAIN] IPC handlers registered: wizard:getState, wizard:refreshTier, wizard:continueFromExplainer, wizard:authenticate, wizard:probe, wizard:installPodman, wizard:generateAndDeploy, wizard:verifyAndSwitch, wizard:cancel',
+    '[MAIN] IPC handlers registered: wizard:getState, wizard:refreshTier, wizard:continueFromExplainer, wizard:authenticate, wizard:pickSshKeyFile, wizard:setVmCredentials, wizard:probe, wizard:installPodman, wizard:generateAndDeploy, wizard:verifyAndSwitch, wizard:cancel',
   )
 }
 
-function parseProbeInput(input: unknown): WizardProbeInput {
+export async function pickSshKeyFileViaDialog(
+  showOpenDialog: typeof dialog.showOpenDialog = dialog.showOpenDialog.bind(dialog),
+): Promise<{ canceled: true } | { canceled: false; filePath: string }> {
+  const result = await showOpenDialog({
+    properties: ['openFile'],
+    filters: [{ name: 'SSH private keys', extensions: ['*'] }],
+  })
+  if (result.canceled || result.filePaths.length === 0) {
+    return { canceled: true }
+  }
+  return { canceled: false, filePath: result.filePaths[0]! }
+}
+
+export function parseVmCredentialsInput(input: unknown): WizardProbeInput {
   if (typeof input !== 'object' || input === null) {
-    throw new Error('Invalid probe input')
+    throw new Error('Invalid VM credentials input')
   }
   const o = input as Record<string, unknown>
-  if (typeof o.host !== 'string' || typeof o.user !== 'string' || typeof o.key !== 'string') {
-    throw new Error('probe input requires host, user, and key')
+  if (
+    typeof o.host !== 'string' ||
+    typeof o.user !== 'string' ||
+    typeof o.keyFilePath !== 'string'
+  ) {
+    throw new Error('VM credentials input requires host, user, and keyFilePath')
   }
   return {
     host: o.host,
     user: o.user,
-    key: o.key,
+    keyFilePath: o.keyFilePath,
     port: typeof o.port === 'number' ? o.port : undefined,
     passphrase: typeof o.passphrase === 'string' ? o.passphrase : undefined,
   }
+}
+
+/** Tests — inject handler deps without vault. */
+export function _setWizardHandlerDepsForTest(deps: WizardHandlerDeps | null): void {
+  _handlerDeps = deps
+}
+
+export function _getWizardStateForTest(): WizardState {
+  return _wizardState
+}
+
+export function _setWizardStateForTest(state: WizardState): void {
+  _wizardState = state
+}
+
+export function _resetWizardIpcStateForTest(): void {
+  _wizardState = { ...INITIAL_WIZARD_STATE }
+  _resetWizardSshSessionForTest()
+  _activeOperations.clear()
 }
 
 function parseInstallInput(input: unknown): { operationId: string; probe: TargetProbe } {
@@ -308,17 +346,4 @@ function parseVerifyInput(input: unknown): WizardVerifyInput {
     replicaIndex: typeof o.replicaIndex === 'number' ? o.replicaIndex : 0,
     nativeBeapRouting,
   }
-}
-
-/** Tests — inject handler deps without vault. */
-export function _setWizardHandlerDepsForTest(deps: WizardHandlerDeps | null): void {
-  _handlerDeps = deps
-}
-
-export function _getWizardStateForTest(): WizardState {
-  return _wizardState
-}
-
-export function _setWizardStateForTest(state: WizardState): void {
-  _wizardState = state
 }

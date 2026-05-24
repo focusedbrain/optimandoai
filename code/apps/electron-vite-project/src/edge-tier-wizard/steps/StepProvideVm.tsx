@@ -1,5 +1,7 @@
 /**
  * Step 2 — Provide VM credentials (provider-agnostic).
+ *
+ * P4.5.11: the renderer holds only the key file path; PEM bytes are read in main.
  */
 
 import { useState } from 'react'
@@ -12,7 +14,7 @@ export interface StepProvideVmFormValues {
   host: string
   port: string
   username: string
-  key: string
+  keyFilePath: string
   passphrase: string
 }
 
@@ -22,7 +24,8 @@ export interface StepProvideVmProps {
   error: string | null
   loading: boolean
   initial?: Partial<StepProvideVmFormValues>
-  onSubmit: (values: StepProvideVmFormValues) => void
+  onPickKeyFile: () => Promise<{ canceled: boolean; filePath?: string }>
+  onSubmit: (values: StepProvideVmFormValues) => Promise<void>
   onCancelWizard: () => void
 }
 
@@ -32,20 +35,50 @@ export function StepProvideVm({
   error,
   loading,
   initial,
+  onPickKeyFile,
   onSubmit,
   onCancelWizard,
 }: StepProvideVmProps) {
   const [host, setHost] = useState(initial?.host ?? '')
   const [port, setPort] = useState(initial?.port ?? '22')
   const [username, setUsername] = useState(initial?.username ?? 'root')
-  const [key, setKey] = useState(initial?.key ?? '')
+  const [keyFilePath, setKeyFilePath] = useState(initial?.keyFilePath ?? '')
   const [passphrase, setPassphrase] = useState(initial?.passphrase ?? '')
+  const [pickingKey, setPickingKey] = useState(false)
 
-  const handleFile = async (file: File | null) => {
-    if (!file) return
-    const text = await file.text()
-    setKey(text)
+  const formValues = (): StepProvideVmFormValues => ({
+    host,
+    port,
+    username,
+    keyFilePath,
+    passphrase,
+  })
+
+  const handlePickKeyFile = async () => {
+    setPickingKey(true)
+    try {
+      const result = await onPickKeyFile()
+      if (!result.canceled && result.filePath) {
+        setKeyFilePath(result.filePath)
+      }
+    } finally {
+      setPickingKey(false)
+    }
   }
+
+  const handleContinue = async () => {
+    try {
+      await onSubmit(formValues())
+      // Residual exposure: passphrase transits renderer→main via IPC until cleared here.
+      setPassphrase('')
+    } catch {
+      // Parent surfaces error via `error` prop.
+    }
+  }
+
+  const keyLabel = keyFilePath
+    ? keyFilePath.replace(/^.*[/\\]/, '') || keyFilePath
+    : null
 
   return (
     <div data-testid="wizard-step-provide-vm">
@@ -63,7 +96,7 @@ export function StepProvideVm({
       </p>
       <StepErrorActions
         error={error}
-        onRetry={() => onSubmit({ host, port, username, key, passphrase })}
+        onRetry={() => void handleContinue()}
         onCancelWizard={onCancelWizard}
       />
       <label style={labelStyle}>
@@ -98,18 +131,18 @@ export function StepProvideVm({
           placeholder="root"
         />
       </label>
-      <label style={labelStyle}>
+      <div style={labelStyle}>
         SSH private key file
-        <input
-          data-testid="wizard-vm-key-file"
-          type="file"
-          accept=".pem,.key,text/plain"
-          onChange={(e) => void handleFile(e.target.files?.[0] ?? null)}
-        />
-      </label>
-      {key ? (
-        <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>Key file loaded</div>
-      ) : null}
+        <button
+          type="button"
+          style={{ ...inputStyle, cursor: 'pointer', textAlign: 'left' }}
+          data-testid="wizard-vm-key-pick"
+          disabled={loading || pickingKey}
+          onClick={() => void handlePickKeyFile()}
+        >
+          {pickingKey ? 'Opening file picker…' : keyLabel ? `Selected: ${keyLabel}` : 'Choose key file…'}
+        </button>
+      </div>
       <label style={labelStyle}>
         Key passphrase (optional)
         <input
@@ -124,9 +157,9 @@ export function StepProvideVm({
       <button
         type="button"
         style={btnPrimary}
-        disabled={loading || !host || !username || !key}
+        disabled={loading || !host || !username || !keyFilePath}
         data-testid="wizard-vm-continue"
-        onClick={() => onSubmit({ host, port, username, key, passphrase })}
+        onClick={() => void handleContinue()}
       >
         {loading ? 'Saving…' : 'Continue to probe'}
       </button>

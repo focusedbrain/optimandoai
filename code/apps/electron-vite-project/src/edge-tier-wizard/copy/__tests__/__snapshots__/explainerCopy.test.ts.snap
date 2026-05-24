@@ -10,7 +10,7 @@ exports[`explainer copy snapshots > EXPLAINER_OVERVIEW matches snapshot 1`] = `
 {
   "paragraphs": [
     "BEAP is designed to validate messages safely by default. In standard mode, depackaging and validation run on this computer inside an isolated local container with fail-closed behavior and strict validation controls.",
-    "This setup adds another layer for higher-risk environments: it deploys a small validation pod—built from the same code that runs on this computer—onto a Linux VPS you control. A small VPS with root access is enough.",
+    "This setup adds another layer for higher-risk environments: it deploys an isolated ingestor pod—built from the same code that runs on this computer—onto a Linux VPS you control. A small VPS with root access is enough.",
     "In high-assurance mode, email depackaging happens through the Edge Ingestor. The VPS receives the email content first, depackages it, validates it, and issues a cryptographic validation certificate. Only certified, validated content is then delivered to this computer.",
     "Native BEAP capsules can still be received directly, depending on your security settings. For routes configured to require Edge Ingestor, the local app accepts only capsules with a valid Edge certificate. For routes that allow direct native BEAP, local container validation still runs normally.",
     "High-assurance mode reduces endpoint exposure further. Malformed attachments, zip bombs, complex MIME structures, and high-volume invalid traffic are handled by the VPS before they reach this machine.",

@@ -28,22 +28,24 @@ describe('StepAuthenticate', () => {
 })
 
 describe('StepProvideVm', () => {
-  it('renders form fields and help text', () => {
+  it('renders form fields, file-picker button, and help text', () => {
     const html = renderToStaticMarkup(
       <StepProvideVm
         replicaIndex={0}
         totalReplicas={1}
         error={null}
         loading={false}
-        onSubmit={() => undefined}
+        onPickKeyFile={async () => ({ canceled: true })}
+        onSubmit={async () => undefined}
         onCancelWizard={() => undefined}
       />,
     )
     expect(html).toContain('wizard-step-provide-vm')
     expect(html).toContain('wizard-vm-host')
+    expect(html).toContain('wizard-vm-key-pick')
     expect(html).toContain('wizard-step2-help')
-    expect(html).toContain('We don')
-    expect(html).toContain('recommend a host')
+    expect(html).toContain(STEP2_VM_HELP)
+    expect(html).not.toContain('type="file"')
     expect(html).not.toContain('providers dropdown')
   })
 })
