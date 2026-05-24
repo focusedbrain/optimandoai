@@ -15,6 +15,7 @@ import {
   type ReplicaActionDeps,
 } from './replicaActions.js'
 import { assertNoSecretsInRendererPayload } from '../wizard/handlers.js'
+import { sshSecretBuffersFromStrings } from '../security/sshSecretBuffers.js'
 import { notifyDashboardUpdated, _clearReplicaHealthCacheEntry } from './dashboard.js'
 
 let _actionDeps: ReplicaActionDeps | null = null
@@ -64,9 +65,17 @@ function parseReplicaActionInput(raw: unknown): ReplicaActionInput & { operation
   if (sshPort != null && (!Number.isInteger(sshPort) || sshPort < 1 || sshPort > 65535)) {
     throw new Error('sshPort: expected integer 1–65535')
   }
-  const passphrase =
+  const passphraseString =
     typeof o.passphrase === 'string' && o.passphrase.length > 0 ? o.passphrase : undefined
-  return { replicaId, sshKey, sshUser, sshPort, passphrase, operationId }
+  const secrets = sshSecretBuffersFromStrings(sshKey, passphraseString)
+  return {
+    replicaId,
+    sshKey: secrets.sshKey,
+    sshUser,
+    sshPort,
+    passphrase: secrets.passphrase,
+    operationId,
+  }
 }
 
 function sendReplicaActionProgress(

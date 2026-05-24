@@ -45,7 +45,7 @@ Manual test: [`phase-4-5-manual-test.md`](phase-4-5-manual-test.md)
 ### Credential hardening (post-audit, re-opens phase)
 
 - [x] **P4.5.11** — Move SSH file reading from renderer to main process
-- [ ] **P4.5.12** — *(pending)*
+- [x] **P4.5.12** — Zero credentials on every exit path
 - [ ] **P4.5.13** — *(pending)*
 - [ ] **P4.5.14** — *(pending)*
 - [ ] **P4.5.15** — *(pending)*
@@ -68,6 +68,7 @@ Manual test: [`phase-4-5-manual-test.md`](phase-4-5-manual-test.md)
 | P4.5.9 | ✅ done | P4.5.9: wizard finale step with email-on-edge handoff |
 | P4.5.10 | ✅ done *(re-run after P4.5.15)* | P4.5.10: end-to-end manual test and phase 4.5 closeout |
 | P4.5.11 | ✅ done | P4.5.11: read SSH key files in main process; renderer never sees PEM bytes |
+| P4.5.12 | ✅ done | P4.5.12: zero credentials on every exit path; passphrase as Buffer not string |
 
 ---
 
@@ -149,6 +150,13 @@ Phase 4.5 steps P4.5.0–P4.5.10 shipped on branch `phase-1/pod-becomes-hot-path
 
 - Wizard finale is step 8 (“Email on edge”); state machine transitions last-replica verify success → `finale` (not `complete`).
 - “Open email accounts settings” dispatches `wrdesk:open-email-accounts-settings` → BEAP inbox view.
+
+### P4.5.12
+
+- **`security/zeroize.ts`:** `zeroizeBuffer`, `zeroizeString` (debug marker), `withCredential`, registered clearers + `zeroizeAllRegisteredCredentials`.
+- **Buffers from IPC:** passphrases and SSH keys converted to `Buffer` at IPC boundary; wizard `sshSession` stores `Buffer` key + passphrase.
+- **Exit paths:** `replicaActions` / `globalActions` / `supervisorPoll` zero in `finally`; `wizard:reset` uses `clearWizardVmCredentials()`; `app.before-quit` calls all registered clearers.
+- **Tests:** `zeroize.test.ts`, `sshSession.test.ts`, `supervisorPoll.test.ts`, replica/global zero tests, `credentialConsumers.snapshot.test.ts`.
 
 ### P4.5.11
 

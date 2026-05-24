@@ -9,6 +9,10 @@ import { tmpdir } from 'node:os'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
+  app: {
+    on: vi.fn(),
+    getPath: vi.fn(() => '/tmp/vitest-electron-mock'),
+  },
 }))
 
 const { redeployMock, restartPodMock } = vi.hoisted(() => ({
@@ -68,7 +72,10 @@ const replicaB: EdgeReplica = {
 const baseRotateInput: RotateAllEdgeKeysInput = {
   sshUser: 'root',
   sshPort: 22,
-  sshKey: '-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n',
+  sshKey: Buffer.from(
+    '-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n',
+    'utf8',
+  ),
 }
 
 const vault = { deriveApplicationKey: () => Buffer.alloc(32, 1) }
@@ -204,5 +211,21 @@ describe('rotateAllEdgeKeys', () => {
     expect(last?.partial_failure?.failed_index).toBe(1)
     expect(last?.partial_failure?.total_replicas).toBe(3)
     expect(last?.partial_failure?.completed_replica_ids.length).toBe(1)
+  })
+
+  test('zeroes rotation credentials after completion', async () => {
+    const sshKey = Buffer.from('rotate-secret-key')
+    saveEdgeTierSettings({
+      ...DEFAULT_EDGE_TIER_SETTINGS,
+      enabled: true,
+      replicas: [replicaA],
+    })
+    redeployMock.mockImplementation(successRedeploy)
+
+    await collectGlobalActionEvents(
+      rotateAllEdgeKeys({ ...baseRotateInput, sshKey }, { vault }),
+    )
+
+    expect(sshKey.every((b) => b === 0)).toBe(true)
   })
 })

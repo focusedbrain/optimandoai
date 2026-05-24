@@ -142,7 +142,18 @@ export function registerWizardIpcHandlers(): void {
 
   ipcMain.handle('wizard:setVmCredentials', async (_event, input: unknown) => {
     const parsed = parseVmCredentialsInput(input)
-    const credentials = wizardStoreVmCredentials(parsed)
+    // Residual: parsed.passphraseString is an immutable JS string until GC; converted to Buffer immediately.
+    const passphrase =
+      parsed.passphraseString !== undefined
+        ? Buffer.from(parsed.passphraseString, 'utf8')
+        : undefined
+    const credentials = wizardStoreVmCredentials({
+      host: parsed.host,
+      user: parsed.user,
+      keyFilePath: parsed.keyFilePath,
+      port: parsed.port,
+      passphrase,
+    })
     assertNoSecretsInRendererPayload(credentials)
     return {
       credentials,
@@ -271,7 +282,9 @@ export async function pickSshKeyFileViaDialog(
   return { canceled: false, filePath: result.filePaths[0]! }
 }
 
-export function parseVmCredentialsInput(input: unknown): WizardProbeInput {
+export function parseVmCredentialsInput(
+  input: unknown,
+): Omit<WizardProbeInput, 'passphrase'> & { passphraseString?: string } {
   if (typeof input !== 'object' || input === null) {
     throw new Error('Invalid VM credentials input')
   }
@@ -288,7 +301,8 @@ export function parseVmCredentialsInput(input: unknown): WizardProbeInput {
     user: o.user,
     keyFilePath: o.keyFilePath,
     port: typeof o.port === 'number' ? o.port : undefined,
-    passphrase: typeof o.passphrase === 'string' ? o.passphrase : undefined,
+    passphraseString:
+      typeof o.passphrase === 'string' && o.passphrase.length > 0 ? o.passphrase : undefined,
   }
 }
 

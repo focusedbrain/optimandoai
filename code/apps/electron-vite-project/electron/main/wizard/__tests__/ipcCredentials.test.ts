@@ -41,7 +41,7 @@ describe('wizard:setVmCredentials flow', () => {
     })
 
     expect(credentials).toEqual({ host: '10.0.0.1', port: 22, username: 'deploy' })
-    expect(getWizardVmCredentials()?.privateKey).toContain('BEGIN OPENSSH PRIVATE KEY')
+    expect(getWizardVmCredentials()?.privateKey.toString('utf8')).toContain('BEGIN OPENSSH PRIVATE KEY')
     expect(() => assertNoSecretsInRendererPayload(credentials)).not.toThrow()
     expect(() => assertNoSecretsInRendererPayload({ credentials, state: { step: 'provide_vm' } })).not.toThrow()
   })

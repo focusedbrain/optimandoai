@@ -25,6 +25,7 @@ import {
 } from '../edge-tier/ssh/deploy.js'
 import type { TargetProbe } from '../edge-tier/ssh/types.js'
 
+import { bufferToUtf8, bufferToUtf8Optional } from '../security/sshSecretBuffers.js'
 import { readAndValidateSshKeyFile } from './readSshKeyFile.js'
 import {
   clearWizardVmCredentials,
@@ -128,12 +129,16 @@ export async function wizardAuthenticate(deps: WizardHandlerDeps): Promise<Wizar
 }
 
 export function wizardStoreVmCredentials(input: WizardProbeInput): WizardVmCredentialsPublic {
-  const keyPem = readAndValidateSshKeyFile(input.keyFilePath, input.passphrase)
+  const keyPem = readAndValidateSshKeyFile(
+    input.keyFilePath,
+    bufferToUtf8Optional(input.passphrase),
+  )
+  const privateKey = Buffer.from(keyPem, 'utf8')
   return storeWizardVmCredentials({
     host: input.host,
     port: input.port,
     user: input.user,
-    key: keyPem,
+    privateKey,
     passphrase: input.passphrase,
   })
 }
@@ -148,8 +153,8 @@ async function connectSshFromSession(): Promise<SshClient> {
     host: creds.host,
     port: creds.port,
     username: creds.username,
-    privateKey: creds.privateKey,
-    passphrase: creds.passphrase,
+    privateKey: bufferToUtf8(creds.privateKey),
+    passphrase: bufferToUtf8Optional(creds.passphrase),
   })
   return client
 }

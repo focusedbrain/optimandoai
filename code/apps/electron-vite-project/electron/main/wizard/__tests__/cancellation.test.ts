@@ -69,7 +69,11 @@ function makeDeps(): WizardHandlerDeps {
 beforeEach(() => {
   _resetWizardSshSessionForTest()
   teardownRun.mockClear()
-  storeWizardVmCredentials({ host: 'h', user: 'u', key: SSH_KEY })
+  storeWizardVmCredentials({
+    host: 'h',
+    user: 'u',
+    privateKey: Buffer.from(SSH_KEY, 'utf8'),
+  })
 })
 
 describe('wizardGenerateAndDeploy cancellation', () => {

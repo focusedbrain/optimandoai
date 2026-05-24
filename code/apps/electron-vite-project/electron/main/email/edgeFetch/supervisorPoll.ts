@@ -8,6 +8,7 @@
 
 import { loadEdgeTierSettings } from '../../edge-tier/settings.js'
 import { connectReplicaActionSsh, findEdgeReplica } from '../../edge-tier/replicaActions.js'
+import { registerCredentialClearer, zeroizeBuffer } from '../../security/zeroize.js'
 import { emailGateway } from '../gateway.js'
 import { mailFetcherGetAccountStatus } from './mailFetcherRemote.js'
 import type { EdgeFetchMigrationInput, EdgeFetchSshCredentials, MailFetcherRemoteState } from './types.js'
@@ -16,81 +17,123 @@ import { notifyEdgeFetchStateChanged } from './events.js'
 const POLL_MS = 30_000
 const SSH_SESSION_TTL_MS = 10 * 60_000
 
-interface CachedSshSession extends EdgeFetchSshCredentials {
+interface CachedSshSession {
   readonly replicaId: string
+  readonly sshUser: string
+  readonly sshPort: number
+  readonly sshKey: Buffer
+  readonly passphrase?: Buffer
   readonly expiresAt: number
 }
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 const sshSessions = new Map<string, CachedSshSession>()
 
+registerCredentialClearer(() => clearSupervisorSshSessions())
+
+function zeroizeCachedSession(session: CachedSshSession): void {
+  zeroizeBuffer(session.sshKey)
+  zeroizeBuffer(session.passphrase)
+}
+
+function removeCachedSession(replicaId: string): void {
+  const key = replicaId.toLowerCase()
+  const hit = sshSessions.get(key)
+  if (hit) {
+    zeroizeCachedSession(hit)
+    sshSessions.delete(key)
+  }
+}
+
 export function rememberSupervisorSshSession(replicaId: string, creds: EdgeFetchSshCredentials): void {
+  removeCachedSession(replicaId)
   sshSessions.set(replicaId.toLowerCase(), {
     replicaId,
     sshUser: creds.sshUser,
     sshPort: creds.sshPort,
-    sshKey: creds.sshKey,
-    passphrase: creds.passphrase,
+    sshKey: Buffer.from(creds.sshKey, 'utf8'),
+    passphrase: creds.passphrase ? Buffer.from(creds.passphrase, 'utf8') : undefined,
     expiresAt: Date.now() + SSH_SESSION_TTL_MS,
   })
 }
 
 export function clearSupervisorSshSessions(): void {
+  for (const session of sshSessions.values()) {
+    zeroizeCachedSession(session)
+  }
   sshSessions.clear()
 }
 
 function getCachedSession(replicaId: string): CachedSshSession | null {
-  const hit = sshSessions.get(replicaId.toLowerCase())
+  const key = replicaId.toLowerCase()
+  const hit = sshSessions.get(key)
   if (!hit) return null
   if (Date.now() > hit.expiresAt) {
-    sshSessions.delete(replicaId.toLowerCase())
+    removeCachedSession(replicaId)
     return null
   }
   return hit
 }
 
+/** Tests only — inspect cached credential buffers. */
+export function _getSupervisorCachedSessionForTest(replicaId: string): CachedSshSession | null {
+  return sshSessions.get(replicaId.toLowerCase()) ?? null
+}
+
+/** Tests only — force cache eviction (zero-and-drop). */
+export function _expireSupervisorSessionForTest(replicaId: string): void {
+  removeCachedSession(replicaId)
+}
+
 export async function refreshEdgeFetchRemoteStatus(replicaId: string, creds: EdgeFetchSshCredentials): Promise<void> {
   const replica = findEdgeReplica(replicaId)
-  const ssh = await connectReplicaActionSsh(replica, {
-    replicaId,
-    sshUser: creds.sshUser,
-    sshPort: creds.sshPort,
-    sshKey: creds.sshKey,
-    passphrase: creds.passphrase,
-  })
+  const sshKey = Buffer.from(creds.sshKey, 'utf8')
+  const passphrase = creds.passphrase ? Buffer.from(creds.passphrase, 'utf8') : undefined
   try {
-    const remoteAccounts = await mailFetcherGetAccountStatus(ssh)
-    const byId = new Map(remoteAccounts.map((a) => [a.account_id, a]))
-    for (const row of emailGateway.listAccountsSync()) {
-      const meta = row.edgeFetch
-      if (!meta || meta.replicaId.toLowerCase() !== replicaId.toLowerCase()) continue
-      if (meta.state === 'migrating' || meta.state === 'migrating_back') continue
-      const remote = byId.get(row.id)
-      const cfg = emailGateway.getAccountConfig(row.id)
-      if (!cfg) continue
-      const remoteState = (remote?.state ?? 'stopped') as MailFetcherRemoteState
-      const nextLocal =
-        remoteState === 'active'
-          ? 'active'
-          : remoteState === 'degraded'
-            ? 'degraded'
-            : remoteState === 'awaiting_key'
-              ? 'awaiting_key'
-              : meta.state
-      await emailGateway.updateAccount(row.id, {
-        edgeFetch: {
-          ...meta,
-          state: nextLocal,
-          remoteState,
-          lastError: remote?.last_error ?? meta.lastError,
-          lastRemoteSyncAt: new Date().toISOString(),
-          updatedAt: Date.now(),
-        },
-      })
+    const ssh = await connectReplicaActionSsh(replica, {
+      replicaId,
+      sshUser: creds.sshUser,
+      sshPort: creds.sshPort,
+      sshKey,
+      passphrase,
+    })
+    try {
+      const remoteAccounts = await mailFetcherGetAccountStatus(ssh)
+      const byId = new Map(remoteAccounts.map((a) => [a.account_id, a]))
+      for (const row of emailGateway.listAccountsSync()) {
+        const meta = row.edgeFetch
+        if (!meta || meta.replicaId.toLowerCase() !== replicaId.toLowerCase()) continue
+        if (meta.state === 'migrating' || meta.state === 'migrating_back') continue
+        const remote = byId.get(row.id)
+        const cfg = emailGateway.getAccountConfig(row.id)
+        if (!cfg) continue
+        const remoteState = (remote?.state ?? 'stopped') as MailFetcherRemoteState
+        const nextLocal =
+          remoteState === 'active'
+            ? 'active'
+            : remoteState === 'degraded'
+              ? 'degraded'
+              : remoteState === 'awaiting_key'
+                ? 'awaiting_key'
+                : meta.state
+        await emailGateway.updateAccount(row.id, {
+          edgeFetch: {
+            ...meta,
+            state: nextLocal,
+            remoteState,
+            lastError: remote?.last_error ?? meta.lastError,
+            lastRemoteSyncAt: new Date().toISOString(),
+            updatedAt: Date.now(),
+          },
+        })
+      }
+      notifyEdgeFetchStateChanged()
+    } finally {
+      await ssh.disconnect()
     }
-    notifyEdgeFetchStateChanged()
   } finally {
-    await ssh.disconnect()
+    zeroizeBuffer(sshKey)
+    zeroizeBuffer(passphrase)
   }
 }
 
@@ -110,7 +153,12 @@ async function pollTick(): Promise<void> {
     const session = getCachedSession(replicaId)
     if (!session) continue
     try {
-      await refreshEdgeFetchRemoteStatus(replicaId, session)
+      await refreshEdgeFetchRemoteStatus(replicaId, {
+        sshUser: session.sshUser,
+        sshPort: session.sshPort,
+        sshKey: session.sshKey.toString('utf8'),
+        passphrase: session.passphrase?.toString('utf8'),
+      })
     } catch {
       /* best-effort background poll */
     }

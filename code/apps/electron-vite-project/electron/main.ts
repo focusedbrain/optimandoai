@@ -2985,6 +2985,10 @@ app.whenReady().then(async () => {
       })
       .catch((e) => console.error('[MAIN] Wizard IPC registration failed:', e))
 
+    void import('./main/security/registerCredentialShutdown.js')
+      .then((m) => m.registerCredentialShutdownHandlers())
+      .catch((e) => console.error('[MAIN] Credential shutdown registration failed:', e))
+
     void import('./main/letter/letterComposerIpc')
       .then((m) => {
         m.registerLetterComposerIpcHandlers()

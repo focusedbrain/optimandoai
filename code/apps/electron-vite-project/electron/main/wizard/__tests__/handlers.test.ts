@@ -202,7 +202,7 @@ describe('wizardGenerateAndDeploy', () => {
       }),
     }))
 
-    expect(getWizardVmCredentials()?.privateKey).toContain('BEGIN OPENSSH PRIVATE KEY')
+    expect(getWizardVmCredentials()?.privateKey.toString('utf8')).toContain('BEGIN OPENSSH PRIVATE KEY')
     clearWizardVmCredentials()
     expect(getWizardVmCredentials()).toBeNull()
     expect(deployEvents.at(-1)?.kind).toBe('done')
@@ -260,6 +260,6 @@ describe('wizardStoreVmCredentials', () => {
     })
     expect(pub).toEqual({ host: '10.0.0.1', port: 22, username: 'deploy' })
     expect(pub).not.toHaveProperty('key')
-    expect(getWizardVmCredentials()?.privateKey).toContain('BEGIN OPENSSH PRIVATE KEY')
+    expect(getWizardVmCredentials()?.privateKey.toString('utf8')).toContain('BEGIN OPENSSH PRIVATE KEY')
   })
 })

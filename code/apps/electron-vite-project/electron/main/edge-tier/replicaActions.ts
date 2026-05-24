@@ -9,6 +9,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { ensureSession } from '../../../src/auth/session.js'
+import { bufferToUtf8, bufferToUtf8Optional } from '../security/sshSecretBuffers.js'
+import { zeroizeBuffer } from '../security/zeroize.js'
 import { generateEdgeKeypair } from './keygen.js'
 import { requestSsoAttestation } from './attestation.js'
 import {
@@ -47,8 +49,13 @@ export interface ReplicaActionInput {
   readonly replicaId: string
   readonly sshUser: string
   readonly sshPort?: number
-  readonly sshKey: string
-  readonly passphrase?: string
+  readonly sshKey: Buffer
+  readonly passphrase?: Buffer
+}
+
+function zeroizeReplicaActionInput(input: ReplicaActionInput): void {
+  zeroizeBuffer(input.sshKey)
+  zeroizeBuffer(input.passphrase)
 }
 
 export interface ReplicaActionResult {
@@ -120,8 +127,8 @@ export async function connectReplicaActionSsh(
     host: replica.host,
     port: input.sshPort ?? 22,
     username: input.sshUser,
-    privateKey: input.sshKey,
-    passphrase: input.passphrase,
+    privateKey: bufferToUtf8(input.sshKey),
+    passphrase: bufferToUtf8Optional(input.passphrase),
   })
   return {
     run: (command) => client.run(command),
@@ -134,30 +141,34 @@ export async function* restartReplica(
   input: ReplicaActionInput,
   deps?: Pick<ReplicaActionDeps, 'createSshClient'>,
 ): AsyncGenerator<ReplicaActionEvent> {
-  const replica = findEdgeReplica(input.replicaId)
-  yield yieldStage('connect', `Connecting to ${replica.host}…`)
-
-  const client = await connectReplicaActionSsh(replica, input, deps?.createSshClient)
   try {
-    yield yieldStage('restart', `Restarting pod on ${replica.host}…`)
-    const result = await client.run(buildRestartCommand())
-    yield* emitRunOutput(result)
-    if (result.code !== 0) {
-      yield {
-        kind: 'error',
-        message: `Restart failed (exit ${result.code ?? 'unknown'}).`,
-        stage_name: 'restart',
+    const replica = findEdgeReplica(input.replicaId)
+    yield yieldStage('connect', `Connecting to ${replica.host}…`)
+
+    const client = await connectReplicaActionSsh(replica, input, deps?.createSshClient)
+    try {
+      yield yieldStage('restart', `Restarting pod on ${replica.host}…`)
+      const result = await client.run(buildRestartCommand())
+      yield* emitRunOutput(result)
+      if (result.code !== 0) {
+        yield {
+          kind: 'error',
+          message: `Restart failed (exit ${result.code ?? 'unknown'}).`,
+          stage_name: 'restart',
+        }
+        return
       }
-      return
-    }
-    yield {
-      kind: 'done',
-      message: `Replica on ${replica.host} restarted.`,
-      stage_name: 'restart',
-      result: { action: 'restart' },
+      yield {
+        kind: 'done',
+        message: `Replica on ${replica.host} restarted.`,
+        stage_name: 'restart',
+        result: { action: 'restart' },
+      }
+    } finally {
+      await client.disconnect()
     }
   } finally {
-    await client.disconnect()
+    zeroizeReplicaActionInput(input)
   }
 }
 
@@ -165,40 +176,44 @@ export async function* removeReplica(
   input: ReplicaActionInput,
   _deps?: ReplicaActionDeps,
 ): AsyncGenerator<ReplicaActionEvent> {
-  const replica = findEdgeReplica(input.replicaId)
-  yield yieldStage('connect', `Connecting to ${replica.host}…`)
-
-  const client = await connectReplicaActionSsh(replica, input, _deps?.createSshClient)
   try {
-    yield yieldStage('teardown', `Stopping and removing pod on ${replica.host}…`)
-    const result = await client.run(buildTeardownCommand())
-    yield* emitRunOutput(result)
-    if (result.code !== 0) {
-      yield {
-        kind: 'error',
-        message: `Remote teardown failed (exit ${result.code ?? 'unknown'}).`,
-        stage_name: 'teardown',
+    const replica = findEdgeReplica(input.replicaId)
+    yield yieldStage('connect', `Connecting to ${replica.host}…`)
+
+    const client = await connectReplicaActionSsh(replica, input, _deps?.createSshClient)
+    try {
+      yield yieldStage('teardown', `Stopping and removing pod on ${replica.host}…`)
+      const result = await client.run(buildTeardownCommand())
+      yield* emitRunOutput(result)
+      if (result.code !== 0) {
+        yield {
+          kind: 'error',
+          message: `Remote teardown failed (exit ${result.code ?? 'unknown'}).`,
+          stage_name: 'teardown',
+        }
+        return
       }
-      return
-    }
 
-    yield yieldStage('settings', 'Removing replica from edge tier settings…')
-    const { wasLast } = removeEdgeReplica(replica.edge_pod_id)
-    removeEncryptedEdgePrivateKey(replica.edge_pod_id)
+      yield yieldStage('settings', 'Removing replica from edge tier settings…')
+      const { wasLast } = removeEdgeReplica(replica.edge_pod_id)
+      removeEncryptedEdgePrivateKey(replica.edge_pod_id)
 
-    yield {
-      kind: 'done',
-      message: wasLast
-        ? 'Last replica removed. Add another replica or disable edge tier.'
-        : `Replica removed from ${replica.host}.`,
-      stage_name: 'settings',
-      result: {
-        action: 'remove',
-        wasLastReplica: wasLast,
-      },
+      yield {
+        kind: 'done',
+        message: wasLast
+          ? 'Last replica removed. Add another replica or disable edge tier.'
+          : `Replica removed from ${replica.host}.`,
+        stage_name: 'settings',
+        result: {
+          action: 'remove',
+          wasLastReplica: wasLast,
+        },
+      }
+    } finally {
+      await client.disconnect()
     }
   } finally {
-    await client.disconnect()
+    zeroizeReplicaActionInput(input)
   }
 }
 
@@ -206,96 +221,100 @@ export async function* redeployReplica(
   input: ReplicaActionInput,
   deps: ReplicaActionDeps,
 ): AsyncGenerator<ReplicaActionEvent> {
-  const replica = findEdgeReplica(input.replicaId)
-  const oldPodId = replica.edge_pod_id
-  yield yieldStage('connect', `Connecting to ${replica.host}…`)
-
-  const client = await connectReplicaActionSsh(replica, input, deps.createSshClient)
-  let deployStarted = false
-
   try {
-    yield yieldStage('teardown', `Stopping existing pod on ${replica.host}…`)
-    const teardown = await client.run(buildTeardownCommand())
-    yield* emitRunOutput(teardown)
-    if (teardown.code !== 0) {
-      yield {
-        kind: 'error',
-        message: `Teardown failed (exit ${teardown.code ?? 'unknown'}).`,
-        stage_name: 'teardown',
-      }
-      return
-    }
+    const replica = findEdgeReplica(input.replicaId)
+    const oldPodId = replica.edge_pod_id
+    yield yieldStage('connect', `Connecting to ${replica.host}…`)
 
-    const keypair = generateEdgeKeypair()
-    const ensure = deps.ensureSession ?? ensureSession
-    const session = await ensure(false)
-    const attestation = deps.requestAttestation ?? requestSsoAttestation
-    const { jwt } = await attestation(keypair.publicKeyHex, keypair.podId, session.accessToken)
+    const client = await connectReplicaActionSsh(replica, input, deps.createSshClient)
+    let deployStarted = false
 
-    storeEncryptedEdgePrivateKey(keypair.podId, keypair.privateKeyHex, deps.vault)
-
-    const manifestYaml = (deps.readManifestYaml ?? readRemoteEdgeManifestTemplate)()
-    const podAuthSecret = randomBytes(32).toString('hex')
-
-    deployStarted = true
-    for await (const event of deployEdgePod({
-      client,
-      host: replica.host,
-      podId: keypair.podId,
-      publicKey: keypair.publicKeyClaim,
-      privateKeyHex: keypair.privateKeyHex,
-      attestationJwt: jwt,
-      podAuthSecret,
-      manifestYaml,
-      certTtlSeconds: 86400,
-    })) {
-      if (event.kind === 'error') {
+    try {
+      yield yieldStage('teardown', `Stopping existing pod on ${replica.host}…`)
+      const teardown = await client.run(buildTeardownCommand())
+      yield* emitRunOutput(teardown)
+      if (teardown.code !== 0) {
         yield {
           kind: 'error',
+          message: `Teardown failed (exit ${teardown.code ?? 'unknown'}).`,
+          stage_name: 'teardown',
+        }
+        return
+      }
+
+      const keypair = generateEdgeKeypair()
+      const ensure = deps.ensureSession ?? ensureSession
+      const session = await ensure(false)
+      const attestation = deps.requestAttestation ?? requestSsoAttestation
+      const { jwt } = await attestation(keypair.publicKeyHex, keypair.podId, session.accessToken)
+
+      storeEncryptedEdgePrivateKey(keypair.podId, keypair.privateKeyHex, deps.vault)
+
+      const manifestYaml = (deps.readManifestYaml ?? readRemoteEdgeManifestTemplate)()
+      const podAuthSecret = randomBytes(32).toString('hex')
+
+      deployStarted = true
+      for await (const event of deployEdgePod({
+        client,
+        host: replica.host,
+        podId: keypair.podId,
+        publicKey: keypair.publicKeyClaim,
+        privateKeyHex: keypair.privateKeyHex,
+        attestationJwt: jwt,
+        podAuthSecret,
+        manifestYaml,
+        certTtlSeconds: 86400,
+      })) {
+        if (event.kind === 'error') {
+          yield {
+            kind: 'error',
+            message: event.message,
+            stage_name: event.stage_name,
+          }
+          removeEncryptedEdgePrivateKey(keypair.podId)
+          return
+        }
+        if (event.kind === 'done' && event.replica_state) {
+          const nextReplica: EdgeReplica = {
+            host: replica.host,
+            port: replica.port,
+            edge_pod_id: event.replica_state.podId,
+            edge_public_key: event.replica_state.publicKey,
+            sso_attestation_jwt: event.replica_state.attestationJwt,
+          }
+          replaceEdgeReplica(oldPodId, nextReplica)
+          removeEncryptedEdgePrivateKey(oldPodId)
+          yield {
+            kind: 'done',
+            message: `Replica redeployed on ${replica.host} with new edge pod ID.`,
+            stage_name: event.stage_name ?? 'cleanup',
+            result: {
+              action: 'redeploy',
+              newReplica: nextReplica,
+            },
+          }
+          return
+        }
+        yield {
+          kind: event.kind,
           message: event.message,
           stage_name: event.stage_name,
         }
-        removeEncryptedEdgePrivateKey(keypair.podId)
-        return
       }
-      if (event.kind === 'done' && event.replica_state) {
-        const nextReplica: EdgeReplica = {
-          host: replica.host,
-          port: replica.port,
-          edge_pod_id: event.replica_state.podId,
-          edge_public_key: event.replica_state.publicKey,
-          sso_attestation_jwt: event.replica_state.attestationJwt,
-        }
-        replaceEdgeReplica(oldPodId, nextReplica)
-        removeEncryptedEdgePrivateKey(oldPodId)
-        yield {
-          kind: 'done',
-          message: `Replica redeployed on ${replica.host} with new edge pod ID.`,
-          stage_name: event.stage_name ?? 'cleanup',
-          result: {
-            action: 'redeploy',
-            newReplica: nextReplica,
-          },
-        }
-        return
+    } catch (err) {
+      if (deployStarted) {
+        await client.run(buildTeardownCommand()).catch(() => undefined)
       }
       yield {
-        kind: event.kind,
-        message: event.message,
-        stage_name: event.stage_name,
+        kind: 'error',
+        message: err instanceof Error ? err.message : String(err),
+        stage_name: 'redeploy',
       }
-    }
-  } catch (err) {
-    if (deployStarted) {
-      await client.run(buildTeardownCommand()).catch(() => undefined)
-    }
-    yield {
-      kind: 'error',
-      message: err instanceof Error ? err.message : String(err),
-      stage_name: 'redeploy',
+    } finally {
+      await client.disconnect()
     }
   } finally {
-    await client.disconnect()
+    zeroizeReplicaActionInput(input)
   }
 }
 

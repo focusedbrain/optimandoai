@@ -44,7 +44,7 @@ export interface WizardProbeInput {
   readonly port?: number
   readonly user: string
   readonly keyFilePath: string
-  readonly passphrase?: string
+  readonly passphrase?: Buffer
 }
 
 export interface WizardGenerateDeployInput {
@@ -97,6 +97,6 @@ export type DeployProgressPayload = {
 
 /** Main-process only — never sent to renderer. */
 export interface WizardVmCredentialsSecret extends WizardVmCredentialsPublic {
-  readonly privateKey: string
-  readonly passphrase?: string
+  readonly privateKey: Buffer
+  readonly passphrase?: Buffer
 }

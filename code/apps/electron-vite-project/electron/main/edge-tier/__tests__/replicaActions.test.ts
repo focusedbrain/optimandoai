@@ -40,7 +40,10 @@ const baseInput: ReplicaActionInput = {
   replicaId: sampleReplica.edge_pod_id,
   sshUser: 'root',
   sshPort: 22,
-  sshKey: '-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n',
+  sshKey: Buffer.from(
+    '-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n',
+    'utf8',
+  ),
 }
 
 function makeMockSshClient(handler: (command: string) => { stdout: string; stderr: string; code: number | null }) {
@@ -93,6 +96,26 @@ describe('restartReplica', () => {
     expect(commands.some((c) => c.includes('podman pod restart'))).toBe(true)
     expect(events.at(-1)?.kind).toBe('done')
     expect(events.at(-1)?.result?.action).toBe('restart')
+  })
+
+  test('zeroes credential buffers after failed SSH connect', async () => {
+    const sshKey = Buffer.from('secret-ssh-key-material')
+    const input: ReplicaActionInput = { ...baseInput, sshKey }
+    const client = {
+      connect: vi.fn(async () => {
+        throw new Error('connect failed')
+      }),
+      run: vi.fn(),
+      uploadContent: vi.fn(),
+      disconnect: vi.fn(async () => undefined),
+    } as unknown as SshClient
+
+    const events = await collectReplicaActionEvents(
+      restartReplica(input, { createSshClient: () => client }),
+    ).catch(() => [] as Awaited<ReturnType<typeof collectReplicaActionEvents>>)
+
+    expect(events.length).toBe(0)
+    expect(sshKey.every((b) => b === 0)).toBe(true)
   })
 })
 

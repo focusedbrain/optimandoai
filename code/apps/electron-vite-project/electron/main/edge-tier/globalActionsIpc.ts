@@ -16,6 +16,7 @@ import {
 import type { EdgeTierPodVault } from './podLifecycle.js'
 import { getReplicaActionDeps } from './replicaActionsIpc.js'
 import { assertNoSecretsInRendererPayload } from '../wizard/handlers.js'
+import { sshSecretBuffersFromStrings } from '../security/sshSecretBuffers.js'
 import { notifyDashboardUpdated } from './dashboard.js'
 
 let _vault: EdgeTierPodVault | null = null
@@ -57,9 +58,16 @@ function parseRotateInput(raw: unknown): RotateAllEdgeKeysInput & { operationId:
   if (sshPort != null && (!Number.isInteger(sshPort) || sshPort < 1 || sshPort > 65535)) {
     throw new Error('sshPort: expected integer 1–65535')
   }
-  const passphrase =
+  const passphraseString =
     typeof o.passphrase === 'string' && o.passphrase.length > 0 ? o.passphrase : undefined
-  return { sshKey, sshUser, sshPort, passphrase, operationId }
+  const secrets = sshSecretBuffersFromStrings(sshKey, passphraseString)
+  return {
+    sshKey: secrets.sshKey,
+    sshUser,
+    sshPort,
+    passphrase: secrets.passphrase,
+    operationId,
+  }
 }
 
 function parseFallbackPolicy(raw: unknown): DashboardFallbackPolicy {
