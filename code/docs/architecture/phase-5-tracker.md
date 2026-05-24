@@ -69,7 +69,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 | P5.0 | ✅ done | `f9f6c287` |
 | P5.1 | ✅ done | `8b3864a6` |
 | P5.2 | ✅ done | `6cc47e12` |
-| P5.3 | ✅ done | *(this commit)* |
+| P5.3 | ✅ done | `3b7dcd97` |
 | P5.4 | ⬜ pending | — |
 | P5.5 | ⬜ pending | — |
 | P5.6 | ⬜ pending | — |
@@ -116,3 +116,12 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - Distinct from message certs: `report_v: 1` vs `v: 1`; signature field is `certificate` not `edge_signature`.
 - Tests: enum coverage, round-trip verify, filtering edge cases, canonical bytes snapshot.
 - Role-side report generation and transport deferred to P5.3/P5.4.
+
+### P5.3
+
+- `packages/beap-pod/src/shared/reportGenerator.ts`: `buildAndWriteReport`, exception classifier (class/kind only, no message strings), writes to `DIAGNOSTIC_REPORTS_DIR` (default `/tmp/diagnostic-reports/`).
+- `roleDiagnostic.ts`: HTTP wrapper fail-closed, message watchdog (`StuckHealthProbeError`), health `/health` stuck probe.
+- Per-role timeouts in `diagnosticConstants.ts` (depackager 30s, validator 10s, certifier 5s; global 60s ceiling).
+- All seven roles wired: ingestor, validator, depackager, sealer, certifier, verifier, mail-fetcher.
+- Signing: `DIAGNOSTIC_SIGNING_KEY_HEX` or `EDGE_PRIVATE_KEY_HEX`; certifier uses in-memory edge key.
+- Tests: `roleDiagnosticIntegration.test.ts` (all roles + stuck watchdog snapshot); verifier JWT exp fix for clock drift.

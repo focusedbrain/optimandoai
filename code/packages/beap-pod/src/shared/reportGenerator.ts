@@ -60,7 +60,7 @@ export interface ReportGeneratorDeps {
 
 let cachedSigningKey: Uint8Array | null | undefined;
 
-/** Classify an exception without reading `.message` or stringifying the error. */
+/** Classify an exception without reading error message strings or stringifying the error. */
 export function classifyException(exception: unknown): DiagnosticExceptionKind {
   if (exception instanceof RangeError) {
     return 'RangeError';
