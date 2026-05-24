@@ -39,6 +39,8 @@ All inter-container traffic stays on loopback; authenticated via the shared
 | validator | 18101 | 10101 | Structural + content validation; close MAX_STRING_LENGTH / ALLOWED_CONTENT_TYPES gaps |
 | depackager| 18102 | 10102 | qBEAP/pBEAP decrypt (X25519 + ML-KEM-768); 6-gate pipeline; HTML sanitization |
 | sealer    | 18103 | 10103 | HMAC-SHA256 seal over depackaged content; strictest seccomp profile |
+| certifier | 18104 | 10104 | REMOTE_EDGE only: Ed25519 edge certificate; strict seccomp; no seal |
+| verifier  | 18105 | 10105 | LOCAL_VERIFY only: `/verify-cert` (P3.6+) |
 
 ---
 
@@ -145,6 +147,110 @@ podman pod rm   beap-pod
 
 ---
 
+## Running a REMOTE_EDGE pod
+
+REMOTE_EDGE mode runs on a user-owned Linux VM (paid tier). The edge validates
+and depackages inbound BEAP traffic, then **certifies** the result with an
+Ed25519 edge certificate bound to SSO identity. It does **not** seal — the
+local LOCAL_VERIFY pod re-validates and seals after verifying the certificate.
+
+```
+  Inbound BEAP (host :18100)
+       ▼
+  ingestor :18100 ──► validator :18101 ──► depackager :18102 ──► certifier :18104
+                                                                    (Ed25519 sign)
+```
+
+Same container image as LOCAL_HOST; only the pod manifest and `BEAP_ROLE`
+assignments differ. Validator and depackager binaries are identical.
+
+### Prerequisites
+
+Same as [Running the local pod](#running-the-local-pod): podman ≥ 4.0,
+`envsubst`, `curl`, `openssl`, and a built `beap-components:dev` image.
+
+### 1. Install the certifier seccomp profile
+
+```bash
+mkdir -p ~/.local/share/containers/seccomp
+cp packages/beap-pod/seccomp/certifier.json \
+   ~/.local/share/containers/seccomp/beap-certifier.json
+```
+
+The certifier profile is derived from `sealer.json` with the same strict
+allowlist (Strategy §1.3). UID **10104**; port **18104** (loopback only inside
+the pod). UID **10103** remains reserved for the sealer in LOCAL_VERIFY.
+
+### 2. Generate secrets and edge identity (manual — Phase 4 wizard automates)
+
+| Variable | Source | Description |
+|----------|--------|-------------|
+| `POD_AUTH_SECRET` | `openssl rand -hex 32` | Shared inter-container auth (all four containers) |
+| `EDGE_PRIVATE_KEY_HEX` | Ed25519 secret key, 32 bytes hex | Certifier only; generated in Electron in production (§2.5) |
+| `EDGE_POD_ID` | UUID v4 | Identifies this edge pod instance |
+| `SSO_ATTESTATION_JWT` | Keycloak at deploy time | JWT binding `EDGE_POD_ID` to user `sub` |
+| `CERT_TTL_SECONDS` | Optional (default **86400**) | Certificate lifetime in seconds (24 h per Decision 4) |
+
+Example (smoke / dev only — **not** production Keycloak flow):
+
+```bash
+export POD_AUTH_SECRET="$(openssl rand -hex 32)"
+export CERT_TTL_SECONDS="${CERT_TTL_SECONDS:-86400}"
+
+# Generate test Ed25519 key + stub JWT (see scripts/remote-edge-smoke.sh for full example)
+eval "$(cd "$(git rev-parse --show-toplevel)" && node --input-type=module <<'NODE'
+import { ed25519 } from '@noble/curves/ed25519.js';
+import { randomUUID } from 'node:crypto';
+const hex = (u8) => [...u8].map((b) => b.toString(16).padStart(2, '0')).join('');
+const sk = ed25519.utils.randomSecretKey();
+const edgePodId = randomUUID();
+const h = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+const p = Buffer.from(JSON.stringify({ sub: 'dev-user', pod_id: edgePodId })).toString('base64url');
+console.log(`export EDGE_PRIVATE_KEY_HEX=${hex(sk)}`);
+console.log(`export EDGE_POD_ID=${edgePodId}`);
+console.log(`export SSO_ATTESTATION_JWT=${h}.${p}.dev-stub`);
+NODE
+)"
+```
+
+The certifier **must refuse to start** if `EDGE_PRIVATE_KEY_HEX`, `EDGE_POD_ID`,
+or `SSO_ATTESTATION_JWT` is missing or malformed (enforced in P3.4).
+
+### 3. Start the REMOTE_EDGE pod
+
+```bash
+envsubst < packages/beap-pod/pod-remote-edge.yaml | podman play kube -
+```
+
+Validate the manifest without starting:
+
+```bash
+envsubst < packages/beap-pod/pod-remote-edge.yaml | podman play kube --dry-run -
+```
+
+Only ingestor port **18100** is exposed on the host. Ports 18101–18102 and
+18104 are loopback-only inside the pod network namespace.
+
+### 4. Verify and stop
+
+```bash
+curl http://127.0.0.1:18100/health
+podman pod stop beap-pod-remote-edge
+podman pod rm   beap-pod-remote-edge
+```
+
+### REMOTE_EDGE smoke test
+
+```bash
+bash packages/beap-pod/scripts/remote-edge-smoke.sh
+bash packages/beap-pod/scripts/remote-edge-smoke.sh --skip-build
+```
+
+Until **P3.4** (certifier `/certify` HTTP server), the smoke script exits with
+an explicit `TODO P3.4` message after posting a test message — expected.
+
+---
+
 ## Smoke test
 
 An automated smoke script covers build → secrets → start → health checks →
@@ -170,6 +276,7 @@ The script exits 0 on success and tears down the pod regardless of outcome.
 | validator | `RuntimeDefault`  | OCI default |
 | depackager| `RuntimeDefault`  | OCI default (ML-KEM-768 + AES-GCM require V8 JIT syscalls) |
 | sealer    | `Localhost: beap-sealer.json` | Strict allowlist; no execve, no fork, no ptrace, no keyctl, no mount. See `seccomp/sealer.json` for the full removal list and rationale. |
+| certifier | `Localhost: beap-certifier.json` | Same strictness as sealer; derived from `sealer.json`. See `seccomp/certifier.json`. |
 
 Long-term goal (Phase 3+): compile the sealer to a standalone binary to reduce
 the syscall surface to the read/write/futex/exit class called out in Strategy §1.3.
@@ -204,7 +311,7 @@ authentication, not exposed to external callers).
 
 | Variable         | Required | Description                              |
 |-----------------|----------|------------------------------------------|
-| `BEAP_ROLE`      | Yes      | `ingestor` / `validator` / `depackager` / `sealer` |
+| `BEAP_ROLE`      | Yes      | `ingestor` / `validator` / `depackager` / `sealer` / `certifier` / `verifier` |
 | `PORT`           | No       | Listening port (default per role)        |
 | `POD_AUTH_SECRET`| Yes      | Shared inter-container HMAC secret       |
 | `POD_VERSION`    | No       | Version reported in /health (default `1.0.0`) |
@@ -237,6 +344,22 @@ authentication, not exposed to external callers).
 | `SEAL_KEY_HEX`| Yes      | HMAC-SHA256 key (hex, ≥ 32 bytes). Zeroed after startup. |
 | `SEALER_HOST` | No       | Bind address (default `127.0.0.1`)               |
 
+### Certifier only (REMOTE_EDGE)
+
+| Variable               | Required | Description |
+|------------------------|----------|-------------|
+| `EDGE_PRIVATE_KEY_HEX` | Yes      | Ed25519 private key (32 bytes hex). Zeroed after startup (P3.4). |
+| `EDGE_POD_ID`          | Yes      | UUID for this edge pod |
+| `SSO_ATTESTATION_JWT`  | Yes      | Keycloak JWT binding pod to user `sub` |
+| `CERT_TTL_SECONDS`     | No       | Default `86400` (24 h) |
+| `CERTIFIER_HOST`       | No       | Bind address (default `127.0.0.1`) |
+
+### Depackager (REMOTE_EDGE)
+
+| Variable         | Default                      | Description |
+|-----------------|------------------------------|-------------|
+| `CERTIFIER_BASE` | `http://127.0.0.1:18104`    | Certifier URL when `POD_MODE=REMOTE_EDGE` (wired in P3.4) |
+
 ---
 
 ## Development
@@ -256,11 +379,14 @@ podman build -t beap-components:dev -f packages/beap-pod/Containerfile .
 packages/beap-pod/
 ├── Containerfile               single image, all roles
 ├── entrypoint.sh               role dispatcher (BEAP_ROLE env)
-├── pod.yaml                    pod manifest (podman play kube)
+├── pod.yaml                    LOCAL_HOST manifest (podman play kube)
+├── pod-remote-edge.yaml        REMOTE_EDGE manifest (no sealer; certifier :18104)
 ├── seccomp/
-│   └── sealer.json             strict seccomp allowlist for sealer
+│   ├── sealer.json             strict seccomp allowlist for sealer
+│   └── certifier.json          strict seccomp for certifier (from sealer.json)
 ├── scripts/
-│   └── pod-smoke.sh            automated smoke test
+│   ├── pod-smoke.sh            LOCAL_HOST automated smoke test
+│   └── remote-edge-smoke.sh    REMOTE_EDGE smoke test (TODO P3.4 until certifier live)
 ├── src/
 │   ├── roles/
 │   │   ├── ingestor.ts         HTTP server, port 18100

@@ -14,14 +14,14 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - [x] **P3.0** — Confirm branch and create Phase 3 tracker *(this file)*
 - [x] **P3.1** — Certificate format library (`@repo/beap-cert`: types, canonical serialization, Ed25519 sign/verify, hash helpers)
 - [x] **P3.2** — Certifier and verifier role stubs + dispatcher routing (real `/certify` and `/verify-cert` in P3.4 and P3.6)
-- [ ] **P3.3** — Keycloak attestation flow (`sso_attestation` JWT binding `edge_pod_id` to `sub`; resolve Decision 6)
-- [ ] **P3.4** — Verifier role container (`/verify-cert` on LOCAL_VERIFY; attested edge public keys; rejects on failure → quarantine)
-- [ ] **P3.5** — REMOTE_EDGE pod manifest (ingestor → validator → depackager → certifier; no sealer)
-- [ ] **P3.6** — LOCAL_VERIFY pod manifest (ingestor → verifier → validator → depackager → sealer; no certifier)
-- [ ] **P3.7** — Edge key lifecycle in Electron (Ed25519 keypair generation, VMK encryption, one-shot deploy bundle for certifier)
-- [ ] **P3.8** — pod-client edge routing (paid tier: send raw bytes to edge replica; receive depackaged payload + edge certificate)
-- [ ] **P3.9** — LOCAL_VERIFY ingestion wiring (cert gate before full validator pipeline; **never** skip validation on cert pass)
-- [ ] **P3.10** — End-to-end manual round-trip verification and Phase 3 close (deploy edge + local pods by hand; synthetic message; document manual deploy recipe)
+- [x] **P3.3** — REMOTE_EDGE pod manifest (ingestor → validator → depackager → certifier; no sealer; uid 10104 certifier)
+- [ ] **P3.4** — Certifier role `/certify` HTTP server (Ed25519 signing; env validation; depackager → certifier routing)
+- [ ] **P3.5** — Keycloak attestation flow (`sso_attestation` JWT; resolve Decision 6)
+- [ ] **P3.6** — Verifier role container (`/verify-cert` on LOCAL_VERIFY)
+- [ ] **P3.7** — LOCAL_VERIFY pod manifest (ingestor → verifier → validator → depackager → sealer)
+- [ ] **P3.8** — Edge key lifecycle in Electron
+- [ ] **P3.9** — pod-client edge routing
+- [ ] **P3.10** — LOCAL_VERIFY ingestion wiring + E2E manual round-trip
 
 ---
 
@@ -32,7 +32,7 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 | P3.0 | ✅ done | P3.0: phase 3 tracker |
 | P3.1 | ✅ done | P3.1: beap-cert library for certificate format and signing |
 | P3.2 | ✅ done | P3.2: add certifier and verifier role stubs to dispatcher |
-| P3.3 | ⬜ pending | — |
+| P3.3 | ✅ done | P3.3: REMOTE_EDGE pod manifest (no sealer; certifier holds Ed25519 key) |
 | P3.4 | ⬜ pending | — |
 | P3.5 | ⬜ pending | — |
 | P3.6 | ⬜ pending | — |
@@ -89,3 +89,13 @@ Phase 2 ref: `docs/architecture/phase-2-tracker.md`
 - **Containerfile:** unchanged except comments — single image uid 10100 remains; per-role uids 10100..10105 are assigned in pod manifests (P3.3/P3.5), not in the image.
 - **tsconfig:** no change — `src/**/*.ts` already compiles new role files.
 - **Verification:** `pnpm --filter @repo/beap-pod build` passes; node dispatch of certifier/verifier stubs confirmed on Windows. `podman build/run` not available on this host — CI/Linux manual check pending.
+
+### P3.3
+
+- **New manifest:** `pod-remote-edge.yaml` — four containers (ingestor 10100, validator 10101, depackager 10102, certifier 10104). No sealer. Only :18100 exposed on host.
+- **Certifier env:** `EDGE_PRIVATE_KEY_HEX`, `EDGE_POD_ID`, `SSO_ATTESTATION_JWT`, `CERT_TTL_SECONDS` (default 86400 via envsubst export). Startup validation deferred to P3.4.
+- **Depackager:** `CERTIFIER_BASE=http://127.0.0.1:18104`, `POD_MODE=REMOTE_EDGE`; routing to certifier wired in P3.4 (same binary as LOCAL_HOST).
+- **Seccomp:** `seccomp/certifier.json` copied from sealer profile; install as `beap-certifier.json`. Same syscall allowlist; documented as independently versioned.
+- **Containerfile:** unchanged (single image uid 10100; per-role uids in manifest only).
+- **Smoke:** `scripts/remote-edge-smoke.sh` — dry-run, keygen, stub JWT, ingest POST, cert verify via `@repo/beap-cert`; exits with `TODO P3.4` until certifier HTTP lands.
+- **README:** new §"Running a REMOTE_EDGE pod" with manual secret generation and `podman play kube` command.

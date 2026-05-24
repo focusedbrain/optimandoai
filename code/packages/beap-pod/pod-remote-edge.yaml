@@ -1,0 +1,311 @@
+# BEAP pod manifest — REMOTE_EDGE mode (Phase 3, P3.3)
+#
+# Four containers share one pod network namespace; only the ingestor's port
+# (18100) is forwarded to the host.  All intra-pod calls go via loopback.
+#
+# REMOTE_EDGE does NOT seal.  The certifier (uid 10104, port 18104) replaces
+# the sealer from LOCAL_HOST.  The local LOCAL_VERIFY pod re-validates and
+# seals after verifying the edge certificate (P3.6+).
+#
+# Secret injection (envsubst before `podman play kube`):
+#   POD_AUTH_SECRET       — shared inter-container HMAC secret (≥ 32 random bytes hex)
+#   EDGE_PRIVATE_KEY_HEX  — Ed25519 private key (32 bytes hex) for certifier only
+#   EDGE_POD_ID           — UUID identifying this edge pod instance
+#   SSO_ATTESTATION_JWT   — Keycloak-issued JWT binding EDGE_POD_ID to user sub
+#   CERT_TTL_SECONDS      — optional; default 86400 (24 h) if unset in shell
+#
+# Seccomp:
+#   Ingestor, Validator, Depackager: RuntimeDefault
+#   Certifier:                       Localhost → seccomp/certifier.json
+#   Install before running:
+#     mkdir -p ~/.local/share/containers/seccomp
+#     cp packages/beap-pod/seccomp/certifier.json \
+#        ~/.local/share/containers/seccomp/beap-certifier.json
+#
+# Apply command:
+#   export CERT_TTL_SECONDS="${CERT_TTL_SECONDS:-86400}"
+#   envsubst < packages/beap-pod/pod-remote-edge.yaml | podman play kube -
+#
+# Teardown:
+#   podman pod stop beap-pod-remote-edge && podman pod rm beap-pod-remote-edge
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: beap-pod-remote-edge
+  labels:
+    app: beap-pod
+    phase: "3"
+    pod_mode: REMOTE_EDGE
+spec:
+  restartPolicy: OnFailure
+
+  volumes:
+    - name: tmp-ingestor
+      emptyDir:
+        medium: Memory
+        sizeLimit: 8Mi
+    - name: tmp-validator
+      emptyDir:
+        medium: Memory
+        sizeLimit: 8Mi
+    - name: tmp-depackager
+      emptyDir:
+        medium: Memory
+        sizeLimit: 8Mi
+    - name: tmp-depackage-scratch
+      emptyDir:
+        medium: Memory
+        sizeLimit: 64Mi
+    - name: tmp-certifier
+      emptyDir:
+        medium: Memory
+        sizeLimit: 8Mi
+
+  containers:
+
+    # ── Ingestor ──────────────────────────────────────────────────────────────
+    - name: ingestor
+      image: beap-components:dev
+      securityContext:
+        runAsUser: 10100
+        runAsGroup: 10100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: BEAP_ROLE
+          value: "ingestor"
+        - name: POD_MODE
+          value: "REMOTE_EDGE"
+        - name: PORT
+          value: "18100"
+        - name: VALIDATOR_BASE
+          value: "http://127.0.0.1:18101"
+        - name: POD_VERSION
+          value: "1.0.0"
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+      ports:
+        - containerPort: 18100
+          hostPort: 18100
+          protocol: TCP
+      resources:
+        requests:
+          memory: "64Mi"
+          cpu: "50m"
+        limits:
+          memory: "256Mi"
+          cpu: "250m"
+      volumeMounts:
+        - name: tmp-ingestor
+          mountPath: /tmp
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 18100
+        initialDelaySeconds: 5
+        periodSeconds: 30
+        timeoutSeconds: 3
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 18100
+        initialDelaySeconds: 3
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
+
+    # ── Validator ─────────────────────────────────────────────────────────────
+    # Identical binary and rules as LOCAL_HOST (strategy §1 — one source of truth).
+    - name: validator
+      image: beap-components:dev
+      securityContext:
+        runAsUser: 10101
+        runAsGroup: 10100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: BEAP_ROLE
+          value: "validator"
+        - name: POD_MODE
+          value: "REMOTE_EDGE"
+        - name: PORT
+          value: "18101"
+        - name: DEPACKAGER_BASE
+          value: "http://127.0.0.1:18102"
+        - name: POD_VERSION
+          value: "1.0.0"
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+      ports:
+        - containerPort: 18101
+          protocol: TCP
+      resources:
+        requests:
+          memory: "64Mi"
+          cpu: "50m"
+        limits:
+          memory: "256Mi"
+          cpu: "250m"
+      volumeMounts:
+        - name: tmp-validator
+          mountPath: /tmp
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 18101
+        initialDelaySeconds: 5
+        periodSeconds: 30
+        timeoutSeconds: 3
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 18101
+        initialDelaySeconds: 3
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
+
+    # ── Depackager ────────────────────────────────────────────────────────────
+    # Identical binary as LOCAL_HOST.  P3.4 will route message_package output to
+    # CERTIFIER_BASE instead of SEALER_BASE when POD_MODE=REMOTE_EDGE.
+    - name: depackager
+      image: beap-components:dev
+      securityContext:
+        runAsUser: 10102
+        runAsGroup: 10100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: BEAP_ROLE
+          value: "depackager"
+        - name: POD_MODE
+          value: "REMOTE_EDGE"
+        - name: PORT
+          value: "18102"
+        - name: CERTIFIER_BASE
+          value: "http://127.0.0.1:18104"
+        - name: POD_VERSION
+          value: "1.0.0"
+        - name: DEPACKAGER_TIMEOUT_MS
+          value: "5000"
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+      ports:
+        - containerPort: 18102
+          protocol: TCP
+      resources:
+        requests:
+          memory: "128Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+          cpu: "500m"
+      volumeMounts:
+        - name: tmp-depackager
+          mountPath: /tmp
+        - name: tmp-depackage-scratch
+          mountPath: /tmp/depackage
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 18102
+        initialDelaySeconds: 5
+        periodSeconds: 30
+        timeoutSeconds: 3
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 18102
+        initialDelaySeconds: 3
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
+
+    # ── Certifier ─────────────────────────────────────────────────────────────
+    # REMOTE_EDGE only.  Signs edge certificates with Ed25519; does NOT seal.
+    # UID 10104 (10103 reserved for sealer in LOCAL_VERIFY).
+    #
+    # Hardening (Strategy §1.3):
+    #   - EDGE_PRIVATE_KEY_HEX read once at startup, then zeroed from env
+    #   - readOnlyRootFilesystem: true
+    #   - cap-drop: ALL
+    #   - Localhost seccomp: certifier.json — same strictness as sealer
+    #   - NO outbound connections (enforced in certifier.ts, P3.4)
+    - name: certifier
+      image: beap-components:dev
+      securityContext:
+        runAsUser: 10104
+        runAsGroup: 10100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: Localhost
+          localhostProfile: beap-certifier.json
+      env:
+        - name: BEAP_ROLE
+          value: "certifier"
+        - name: POD_MODE
+          value: "REMOTE_EDGE"
+        - name: PORT
+          value: "18104"
+        - name: CERTIFIER_HOST
+          value: "127.0.0.1"
+        - name: POD_VERSION
+          value: "1.0.0"
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+        - name: EDGE_PRIVATE_KEY_HEX
+          value: "${EDGE_PRIVATE_KEY_HEX}"
+        - name: EDGE_POD_ID
+          value: "${EDGE_POD_ID}"
+        - name: SSO_ATTESTATION_JWT
+          value: "${SSO_ATTESTATION_JWT}"
+        - name: CERT_TTL_SECONDS
+          value: "${CERT_TTL_SECONDS}"
+      ports:
+        - containerPort: 18104
+          protocol: TCP
+      resources:
+        requests:
+          memory: "32Mi"
+          cpu: "25m"
+        limits:
+          memory: "128Mi"
+          cpu: "100m"
+      volumeMounts:
+        - name: tmp-certifier
+          mountPath: /tmp
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 18104
+        initialDelaySeconds: 5
+        periodSeconds: 30
+        timeoutSeconds: 3
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 18104
+        initialDelaySeconds: 3
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3

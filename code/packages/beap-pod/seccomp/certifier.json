@@ -1,0 +1,347 @@
+{
+  "_doc": {
+    "description": "Strict seccomp allowlist for the BEAP certifier container (P3.3). Derived from sealer.json (P1.7) with the same syscall surface.",
+    "design": "deny-by-default (SCMP_ACT_ERRNO); allowlist exactly the syscalls needed for a Node.js 20 HTTP server that performs Ed25519 signing over canonical certificate bytes. Target threat model: certifier never executes subprocesses, never writes to disk, never makes outbound network connections; holds EDGE_PRIVATE_KEY_HEX in memory only.",
+    "differences_from_sealer_json": "None in syscall allowlist — certifier and sealer share the same Node.js runtime requirements. The certifier profile is a separate file (beap-certifier.json) so pod manifests can reference it independently and tighten or diverge later without affecting LOCAL_HOST sealer deployments.",
+    "removed_from_oci_runtime_default": [
+      "execve / execveat      — sealer must never spawn subprocesses; this removes the most common code-execution escalation path",
+      "fork / vfork           — no subprocess spawning; Node.js uses clone(2) for threads, never fork",
+      "ptrace                 — no process introspection or debugging attach",
+      "process_vm_readv/writev — no cross-process memory access",
+      "keyctl / add_key / request_key — sealer manages its key in memory; no kernel keyring needed",
+      "bpf                    — no kernel eBPF programs",
+      "perf_event_open        — no performance counter attachment",
+      "personality            — no execution domain switching",
+      "modify_ldt / ioperm / iopl — no x86 hardware-level access",
+      "mount / umount / umount2 / pivot_root / chroot — no filesystem namespace ops",
+      "unshare / setns / clone with CLONE_NEW* flags — no new namespace creation",
+      "fanotify_init / inotify_init* — no filesystem event watchers",
+      "unlink / unlinkat / rmdir / rename / renameat* — no filesystem deletes (belt-and-suspenders: readOnlyRootFilesystem already blocks writes)",
+      "mkdir / mkdirat / mknod / mknodat — no directory/device creation",
+      "chmod / fchmod / fchmodat / chown / fchown / fchownat / lchown — no permission changes",
+      "truncate / ftruncate   — no file truncation",
+      "link / linkat / symlink / symlinkat — no hardlink/symlink creation",
+      "open (legacy)          — use openat instead (always relative-path-safe)",
+      "creat                  — no file creation",
+      "swapon / swapoff       — no swap management",
+      "syslog                 — no kernel log access",
+      "acct                   — no process accounting",
+      "quotactl               — no disk quota ops",
+      "setuid / setgid / setresuid / setresgid / setgroups — sealer runs at a fixed UID; no privilege changes",
+      "capset / capget        — capabilities already dropped; no further manipulation",
+      "nfsservctl             — NFS kernel server ops not needed",
+      "lookup_dcookie / uselib / pciconfig_* — legacy / hardware ops not needed"
+    ],
+    "p1_7_note": "The ultimate goal stated in Strategy §1.3 is 'read/write/futex/exit only'. Node.js 20 requires a broader set than those 4 syscalls to start its V8 runtime, libuv thread pool, and TLS stack. This profile represents the tightest practical allowlist for the role as implemented. Future work: compile sealer to a standalone binary (e.g. with Deno compile or Node SEA) to eliminate V8/libuv overhead and reduce the syscall surface further."
+  },
+
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "defaultErrnoRet": 1,
+
+  "archMap": [
+    {
+      "architecture": "SCMP_ARCH_X86_64",
+      "subArchitectures": ["SCMP_ARCH_X86", "SCMP_ARCH_X32"]
+    },
+    {
+      "architecture": "SCMP_ARCH_AARCH64",
+      "subArchitectures": ["SCMP_ARCH_ARM"]
+    }
+  ],
+
+  "syscalls": [
+
+    {
+      "comment": "Core I/O — reads and writes to already-open file descriptors (sockets, pipes, stdout). NO filesystem-creating or filesystem-modifying calls here.",
+      "names": [
+        "read",
+        "write",
+        "readv",
+        "writev",
+        "pread64",
+        "pwrite64",
+        "close"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "File descriptor duplication and seeking — needed by Node.js stdio and libuv.",
+      "names": [
+        "dup",
+        "dup2",
+        "dup3",
+        "lseek",
+        "_llseek"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "File metadata (stat family) — needed by Node.js module loader at startup to stat .js files. After startup these are rarely called.",
+      "names": [
+        "stat",
+        "stat64",
+        "fstat",
+        "fstat64",
+        "lstat",
+        "lstat64",
+        "fstatat64",
+        "newfstatat",
+        "statx",
+        "statfs",
+        "fstatfs"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "File open (read-only path) — openat is preferred over legacy open; sealer never creates files. Used by Node.js module loader at startup.",
+      "names": [
+        "openat",
+        "openat2"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "Directory iteration — needed by Node.js module resolution at startup.",
+      "names": [
+        "getdents",
+        "getdents64"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "Symbolic-link and path resolution — needed by Node.js module resolution.",
+      "names": [
+        "readlink",
+        "readlinkat",
+        "access",
+        "faccessat",
+        "faccessat2",
+        "getcwd",
+        "chdir",
+        "fchdir"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "Memory management — V8 JIT uses mmap/mprotect heavily; brk for heap; memfd_create for V8 shared memory. NO mlock (sealer doesn't need memory pinning).",
+      "names": [
+        "brk",
+        "mmap",
+        "mmap2",
+        "munmap",
+        "mprotect",
+        "mremap",
+        "madvise",
+        "mincore",
+        "memfd_create"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "Process identity — getpid/gettid used by Node.js logging and libuv; getuid/getgid used by Node.js permission checks. NO setuid/setgid/capset — UID is fixed.",
+      "names": [
+        "getpid",
+        "gettid",
+        "getppid",
+        "getuid",
+        "getuid32",
+        "getgid",
+        "getgid32",
+        "geteuid",
+        "geteuid32",
+        "getegid",
+        "getegid32",
+        "getresuid",
+        "getresuid32",
+        "getresgid",
+        "getresgid32",
+        "getgroups",
+        "getgroups32",
+        "arch_prctl",
+        "set_tid_address"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "prctl — needed by libuv for thread naming (PR_SET_NAME). Does NOT include PR_SET_SECCOMP (already applied by the container runtime).",
+      "names": [
+        "prctl"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "Process exit — only clean-exit calls allowed. NO fork/vfork/execve/execveat.",
+      "names": [
+        "exit",
+        "exit_group"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "Time and clock — needed by Node.js event loop timing, Date.now(), HMAC timestamp logging.",
+      "names": [
+        "clock_gettime",
+        "clock_gettime64",
+        "clock_getres",
+        "clock_getres_time64",
+        "clock_nanosleep",
+        "clock_nanosleep_time64",
+        "gettimeofday",
+        "time",
+        "nanosleep"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "Signals — needed by Node.js process signal handling (SIGTERM for graceful shutdown) and libuv signal pipe. NO kill of other processes (tgkill is own-thread only in practice).",
+      "names": [
+        "rt_sigaction",
+        "rt_sigprocmask",
+        "rt_sigreturn",
+        "rt_sigpending",
+        "rt_sigsuspend",
+        "sigaltstack",
+        "signalfd",
+        "signalfd4",
+        "kill",
+        "tgkill",
+        "tkill"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "Synchronization primitives — futex is the core of pthreads (libuv thread pool). set_robust_list registers list of futexes to release on abnormal exit.",
+      "names": [
+        "futex",
+        "futex_time64",
+        "futex_waitv",
+        "set_robust_list",
+        "get_robust_list"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "Thread creation — Node.js libuv uses pthreads (implemented via clone). NO clone with CLONE_NEWNS or other namespace flags (container runtime handles that).",
+      "names": [
+        "clone",
+        "clone3"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "Network I/O — certifier accepts inbound connections on loopback (127.0.0.1:18104) ONLY. NO outbound connect() calls are made by certifier.ts; egress deny is enforced by network policy and by role code (P3.4).",
+      "names": [
+        "socket",
+        "bind",
+        "listen",
+        "accept",
+        "accept4",
+        "connect",
+        "shutdown",
+        "sendto",
+        "recvfrom",
+        "sendmsg",
+        "recvmsg",
+        "sendmmsg",
+        "recvmmsg",
+        "setsockopt",
+        "getsockopt",
+        "getpeername",
+        "getsockname"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "Polling / event notification — needed by Node.js event loop (libuv uses epoll on Linux).",
+      "names": [
+        "epoll_create",
+        "epoll_create1",
+        "epoll_ctl",
+        "epoll_wait",
+        "epoll_pwait",
+        "epoll_pwait2",
+        "poll",
+        "ppoll",
+        "ppoll_time64",
+        "select",
+        "pselect6",
+        "pselect6_time64"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "IPC primitives — pipe2 for Node.js stdio pipes; eventfd2 and timerfd for libuv timers.",
+      "names": [
+        "pipe",
+        "pipe2",
+        "eventfd",
+        "eventfd2",
+        "timerfd_create",
+        "timerfd_gettime",
+        "timerfd_settime",
+        "timerfd_gettime64",
+        "timerfd_settime64"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "Randomness — getrandom is used by node:crypto and @noble/curves for Ed25519 signing. Security-critical for the certifier.",
+      "names": [
+        "getrandom"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "Miscellaneous kernel queries — uname and sysinfo used by Node.js at startup; fcntl for FD flags (O_NONBLOCK); ioctl for terminal probing.",
+      "names": [
+        "uname",
+        "sysinfo",
+        "fcntl",
+        "fcntl64",
+        "ioctl",
+        "sched_yield",
+        "sched_getaffinity",
+        "sched_setaffinity"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "Resource limits — getrlimit used by Node.js at startup to check file descriptor limits.",
+      "names": [
+        "getrlimit",
+        "ugetrlimit",
+        "prlimit64"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+
+    {
+      "comment": "wait/waitpid — needed if Node.js ever spawns a child (it shouldn't for sealer, but libuv registers the handler). The actual fork/exec is blocked, making this a no-op in practice.",
+      "names": [
+        "wait4",
+        "waitid"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    }
+
+  ]
+}
