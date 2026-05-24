@@ -28,6 +28,7 @@ export default defineConfig({
       { find: '@repo/ingestion-core', replacement: path.resolve(repoRoot, 'packages/ingestion-core/src/index.ts') },
       { find: '@repo/email-fetch', replacement: path.resolve(repoRoot, 'packages/email-fetch/src/index.ts') },
       { find: '@repo/pod-client', replacement: path.resolve(repoRoot, 'packages/pod-client/src/index.ts') },
+      { find: '@repo/beap-cert', replacement: path.resolve(repoRoot, 'packages/beap-cert/src/index.ts') },
       {
         find: '@ext/handshake/handshakeRpc',
         replacement: path.resolve(repoRoot, 'apps/electron-vite-project/src/shims/handshakeRpc.ts'),

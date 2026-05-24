@@ -14,6 +14,7 @@ import {
 import { initReplicaActionIpc, registerReplicaActionIpcHandlers } from './replicaActionsIpc.js'
 import { initGlobalActionIpc, registerGlobalActionIpcHandlers } from './globalActionsIpc.js'
 import { initRebootRecovery, startRebootRecoveryPolling } from './rebootRecovery.js'
+import { initPodSupervisor, startPodSupervisor } from './supervisor/index.js'
 import type { EdgeTierPodVault } from './podLifecycle.js'
 import {
   listKnownHostFingerprints,
@@ -24,7 +25,9 @@ export function initEdgeTierIpc(vault: EdgeTierPodVault): void {
   initReplicaActionIpc(vault)
   initGlobalActionIpc(vault)
   initRebootRecovery(vault)
+  initPodSupervisor(vault)
   startRebootRecoveryPolling()
+  startPodSupervisor()
 }
 
 let _dashboardHookInstalled = false

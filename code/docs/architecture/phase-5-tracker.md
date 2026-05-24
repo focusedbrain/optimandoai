@@ -51,7 +51,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - [x] **P5.1** — Pod manifests: `restartPolicy: Never` for trust-sensitive containers
 - [x] **P5.2** — Diagnostic report schema, allowlist filtering, signing
 - [x] **P5.3** — Role containers generate hardened diagnostic reports on failure
-- [ ] **P5.4** — Diagnostic report pickup, transport, and supervisor integration
+- [x] **P5.4** — Supervisor: container replacement, report pickup, queue handoff
 - [ ] **P5.5** — Crash-message quarantine store; fetch loop resume from next message
 - [ ] **P5.6** — Dashboard quarantine indicators (existence + timestamp inline)
 - [ ] **P5.7** — Replacement-budget circuit breaker
@@ -70,7 +70,7 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 | P5.1 | ✅ done | `8b3864a6` |
 | P5.2 | ✅ done | `6cc47e12` |
 | P5.3 | ✅ done | `3b7dcd97` |
-| P5.4 | ⬜ pending | — |
+| P5.4 | ✅ done | *(pending commit)* |
 | P5.5 | ⬜ pending | — |
 | P5.6 | ⬜ pending | — |
 | P5.7 | ⬜ pending | — |
@@ -125,3 +125,13 @@ This deviation is recorded here in P5.0 and reflected in the strategy doc itself
 - All seven roles wired: ingestor, validator, depackager, sealer, certifier, verifier, mail-fetcher.
 - Signing: `DIAGNOSTIC_SIGNING_KEY_HEX` or `EDGE_PRIVATE_KEY_HEX`; certifier uses in-memory edge key.
 - Tests: `roleDiagnosticIntegration.test.ts` (all roles + stuck watchdog snapshot); verifier JWT exp fix for clock drift.
+
+### P5.4
+
+- `apps/electron-vite-project/electron/main/edge-tier/supervisor/`: `PodSupervisor` polls REMOTE_EDGE replicas every 10s via SSH + `podman inspect`.
+- Exited container path: `podman cp` diagnostic reports → desktop `userData/diagnostic-reports/{replica_id}/` with Ed25519 signature verification (`@repo/beap-cert`).
+- Replace-not-restart: `podman rm -f` + `podman run --pod` (joins existing pod network); health poll 60s; POST `/restore` with `queue_position` via `podman exec` + in-container fetch.
+- Append-only audit log: `userData/edge-tier-audit.log` (`container_replaced`, `container_replaced_failed`, `container_unreachable`).
+- Wired into edge-tier IPC lifecycle alongside reboot recovery poll.
+- Tests: `supervisor/__tests__/supervisor.test.ts` (mock SSH/podman E2E, signature valid/invalid, audit log, restore call).
+- Follow-up: role-side `POST /restore` handlers in `@repo/beap-pod` (generic queue-position handoff per role) — supervisor client ready; endpoints land with queue semantics in a later step.
