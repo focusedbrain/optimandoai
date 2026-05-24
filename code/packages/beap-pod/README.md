@@ -246,8 +246,127 @@ bash packages/beap-pod/scripts/remote-edge-smoke.sh
 bash packages/beap-pod/scripts/remote-edge-smoke.sh --skip-build
 ```
 
-Until **P3.4** (certifier `/certify` HTTP server), the smoke script exits with
-an explicit `TODO P3.4` message after posting a test message — expected.
+```bash
+bash packages/beap-pod/scripts/remote-edge-smoke.sh
+bash packages/beap-pod/scripts/remote-edge-smoke.sh --skip-build
+```
+
+---
+
+## Running a LOCAL_VERIFY pod
+
+LOCAL_VERIFY mode runs on the user's desktop (Electron). It accepts inbound BEAP
+traffic that includes an **edge certificate** from a REMOTE_EDGE pod the user
+owns. The verifier checks the certificate and SSO attestation **before** the
+local validator runs; validate → depackage → seal is then identical to LOCAL_HOST.
+
+```
+  Inbound BEAP + edge_certificate (host :18100)
+       ▼
+  ingestor :18100 ──► verifier :18105 ──► validator :18101
+                           │                  │
+                           │                  ▼
+                           │           depackager :18102 ──► sealer :18103
+                           │                                    (HMAC seal)
+                           └── checks cert + SSO attestation (P3.6)
+```
+
+Same container image as LOCAL_HOST; five containers share one pod network
+namespace. Only ingestor port **18100** is exposed on the host.
+
+### Prerequisites
+
+Same as [Running the local pod](#running-the-local-pod): podman ≥ 4.0,
+`envsubst`, `curl`, `openssl`, node ≥ 18, and a built `beap-components:dev`
+image.
+
+### 1. Install the sealer seccomp profile
+
+Same as LOCAL_HOST — the sealer uses `beap-sealer.json`:
+
+```bash
+mkdir -p ~/.local/share/containers/seccomp
+cp packages/beap-pod/seccomp/sealer.json \
+   ~/.local/share/containers/seccomp/beap-sealer.json
+```
+
+The verifier uses `RuntimeDefault` seccomp (same as the validator) — CPU-bound
+crypto only; no outbound network in Phase 3.
+
+### 2. Generate secrets and verifier identity
+
+| Variable | Source | Description |
+|----------|--------|-------------|
+| `POD_AUTH_SECRET` | `openssl rand -hex 32` | Shared inter-container auth (all five containers) |
+| `SEAL_KEY_HEX` | `openssl rand -hex 32` | Sealer-only HMAC key (same as LOCAL_HOST) |
+| `LOCAL_SSO_SUB` | Keycloak `sub` at app start | User identity the verifier binds to |
+| `TRUSTED_EDGE_POD_IDS` | Comma-separated UUIDs | Edge pod IDs the user has deployed |
+| `KEYCLOAK_JWKS_JSON` | Preloaded JWKS (single-line JSON) | Keycloak public keys for attestation JWT verification |
+
+**JWKS egress trade-off (Phase 3 default: preloaded, no verifier egress):**
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| **Preloaded `KEYCLOAK_JWKS_JSON`** (default) | No outbound HTTPS from verifier; smallest attack surface | Stale if Keycloak rotates keys without refresh |
+| **On-demand `KEYCLOAK_JWKS_URL`** (Phase 4+) | Always fresh keys | Requires egress whitelist to Keycloak |
+
+Electron refreshes preloaded JWKS on app start and on attestation verification
+failure. The verifier **must refuse to start** if `LOCAL_SSO_SUB` or a JWKS
+source (`KEYCLOAK_JWKS_JSON` or `KEYCLOAK_JWKS_URL`) is missing (enforced in P3.6).
+
+Example (smoke / dev only):
+
+```bash
+export POD_AUTH_SECRET="$(openssl rand -hex 32)"
+export SEAL_KEY_HEX="$(openssl rand -hex 32)"
+export LOCAL_SSO_SUB="your-keycloak-sub-uuid"
+export TRUSTED_EDGE_POD_IDS="edge-pod-uuid-1,edge-pod-uuid-2"
+
+# Preloaded JWKS — replace with real Keycloak JWKS JSON (single line)
+export KEYCLOAK_JWKS_JSON='{"keys":[...]}'
+```
+
+The manifest uses a `__KEYCLOAK_JWKS_JSON__` placeholder; substitute it before
+apply (the smoke script patches via node — see `scripts/local-verify-smoke.sh`).
+
+### 3. Start the LOCAL_VERIFY pod
+
+```bash
+envsubst '${POD_AUTH_SECRET} ${SEAL_KEY_HEX} ${LOCAL_SSO_SUB} ${TRUSTED_EDGE_POD_IDS}' \
+  < packages/beap-pod/pod-local-verify.yaml \
+  | sed "s|__KEYCLOAK_JWKS_JSON__|${KEYCLOAK_JWKS_JSON//\"/\\\"}|" \
+  | podman play kube -
+```
+
+Validate the manifest without starting:
+
+```bash
+envsubst '${POD_AUTH_SECRET} ${SEAL_KEY_HEX} ${LOCAL_SSO_SUB} ${TRUSTED_EDGE_POD_IDS}' \
+  < packages/beap-pod/pod-local-verify.yaml \
+  | sed "s|__KEYCLOAK_JWKS_JSON__|${KEYCLOAK_JWKS_JSON//\"/\\\"}|" \
+  | podman play kube --dry-run -
+```
+
+Only ingestor port **18100** is exposed on the host. Ports 18101–18103 and
+18105 are loopback-only inside the pod network namespace.
+
+### 4. Verify and stop
+
+```bash
+curl http://127.0.0.1:18100/health
+podman pod stop beap-pod-local-verify
+podman pod rm   beap-pod-local-verify
+```
+
+### LOCAL_VERIFY smoke test
+
+```bash
+bash packages/beap-pod/scripts/local-verify-smoke.sh
+bash packages/beap-pod/scripts/local-verify-smoke.sh --skip-build
+```
+
+Until **P3.6** (verifier `/verify-cert` HTTP server), the smoke script exits
+with an explicit `TODO P3.6` message after posting a test message — expected.
 
 ---
 
@@ -273,6 +392,7 @@ The script exits 0 on success and tears down the pod regardless of outcome.
 | Container  | Profile           | Notes |
 |-----------|-------------------|-------|
 | ingestor  | `RuntimeDefault`  | OCI default |
+| verifier  | `RuntimeDefault`  | Same as validator; CPU-bound crypto, loopback only |
 | validator | `RuntimeDefault`  | OCI default |
 | depackager| `RuntimeDefault`  | OCI default (ML-KEM-768 + AES-GCM require V8 JIT syscalls) |
 | sealer    | `Localhost: beap-sealer.json` | Strict allowlist; no execve, no fork, no ptrace, no keyctl, no mount. See `seccomp/sealer.json` for the full removal list and rationale. |
@@ -302,6 +422,9 @@ authentication, not exposed to external callers).
 | sealer    | GET    | /health    | Role liveness (loopback only)                |
 | sealer    | GET    | /ready     | Ready once seal key loaded                   |
 | sealer    | POST   | /seal      | HMAC-SHA256 seal computation (X-Pod-Auth)    |
+| verifier  | GET    | /health    | Role liveness (loopback only; LOCAL_VERIFY)  |
+| verifier  | GET    | /ready     | Ready when JWKS + LOCAL_SSO_SUB loaded (P3.6) |
+| verifier  | POST   | /verify-cert | Edge cert + SSO attestation gate (X-Pod-Auth; P3.6) |
 
 ---
 
@@ -360,6 +483,19 @@ authentication, not exposed to external callers).
 |-----------------|------------------------------|-------------|
 | `CERTIFIER_BASE` | `http://127.0.0.1:18104`    | Certifier URL when `POD_MODE=REMOTE_EDGE` (wired in P3.4) |
 
+### Verifier only (LOCAL_VERIFY)
+
+| Variable               | Required | Description |
+|------------------------|----------|-------------|
+| `LOCAL_SSO_SUB`        | Yes      | User's Keycloak `sub` claim |
+| `TRUSTED_EDGE_POD_IDS` | Yes      | Comma-separated edge pod UUIDs |
+| `KEYCLOAK_JWKS_JSON`   | Yes*     | Preloaded JWKS (Phase 3 default; no egress) |
+| `KEYCLOAK_JWKS_URL`    | Yes*     | Alternative: fetch JWKS at runtime (requires egress) |
+| `VALIDATOR_BASE`       | No       | Default `http://127.0.0.1:18101` |
+| `VERIFIER_HOST`        | No       | Bind address (default `127.0.0.1`) |
+
+\* One of `KEYCLOAK_JWKS_JSON` or `KEYCLOAK_JWKS_URL` must be set.
+
 ---
 
 ## Development
@@ -381,12 +517,14 @@ packages/beap-pod/
 ├── entrypoint.sh               role dispatcher (BEAP_ROLE env)
 ├── pod.yaml                    LOCAL_HOST manifest (podman play kube)
 ├── pod-remote-edge.yaml        REMOTE_EDGE manifest (no sealer; certifier :18104)
+├── pod-local-verify.yaml       LOCAL_VERIFY manifest (verifier :18105 + sealer)
 ├── seccomp/
 │   ├── sealer.json             strict seccomp allowlist for sealer
 │   └── certifier.json          strict seccomp for certifier (from sealer.json)
 ├── scripts/
 │   ├── pod-smoke.sh            LOCAL_HOST automated smoke test
-│   └── remote-edge-smoke.sh    REMOTE_EDGE smoke test (TODO P3.4 until certifier live)
+│   ├── remote-edge-smoke.sh    REMOTE_EDGE smoke test
+│   └── local-verify-smoke.sh   LOCAL_VERIFY smoke test (TODO P3.6 until verifier live)
 ├── src/
 │   ├── roles/
 │   │   ├── ingestor.ts         HTTP server, port 18100

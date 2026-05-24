@@ -1,0 +1,373 @@
+# BEAP pod manifest — LOCAL_VERIFY mode (Phase 3, P3.5)
+#
+# Five containers share one pod network namespace; only the ingestor's port
+# (18100) is forwarded to the host.  All intra-pod calls go via loopback.
+#
+# Data flow:
+#   external → ingestor :18100 → verifier :18105 → validator :18101
+#            → depackager :18102 → sealer :18103 → response
+#
+# The verifier checks the edge certificate before the local validator runs.
+# After verification, validate → depackage → seal is identical to LOCAL_HOST.
+#
+# Secret injection (envsubst before `podman play kube`):
+#   POD_AUTH_SECRET        — shared inter-container HMAC secret (all five containers)
+#   SEAL_KEY_HEX           — sealer-only HMAC key (same as LOCAL_HOST)
+#   LOCAL_SSO_SUB          — user's Keycloak `sub` claim (verifier only)
+#   TRUSTED_EDGE_POD_IDS   — comma-separated edge pod UUIDs (verifier only)
+#   KEYCLOAK_JWKS_JSON     — preloaded Keycloak JWKS (single-line JSON; verifier only)
+#                            Replace __KEYCLOAK_JWKS_JSON__ placeholder if using the
+#                            smoke script's node-based YAML patch (see README).
+#
+# JWKS egress trade-off (Phase 3 default: preloaded, no verifier egress):
+#   Preloaded KEYCLOAK_JWKS_JSON — no outbound HTTPS; Electron refreshes on app start
+#   and on attestation verification failure. Stale if Keycloak rotates keys without refresh.
+#   Alternative KEYCLOAK_JWKS_URL — on-demand fetch; requires egress whitelist (Phase 4+).
+#
+# Seccomp:
+#   Ingestor, Verifier, Validator, Depackager: RuntimeDefault
+#   Sealer:                                     Localhost → beap-sealer.json
+#   Install sealer profile (same as LOCAL_HOST):
+#     cp packages/beap-pod/seccomp/sealer.json \
+#        ~/.local/share/containers/seccomp/beap-sealer.json
+#
+# Apply command:
+#   envsubst < packages/beap-pod/pod-local-verify.yaml | podman play kube -
+#
+# Teardown:
+#   podman pod stop beap-pod-local-verify && podman pod rm beap-pod-local-verify
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: beap-pod-local-verify
+  labels:
+    app: beap-pod
+    phase: "3"
+    pod_mode: LOCAL_VERIFY
+spec:
+  restartPolicy: OnFailure
+
+  volumes:
+    - name: tmp-ingestor
+      emptyDir:
+        medium: Memory
+        sizeLimit: 8Mi
+    - name: tmp-verifier
+      emptyDir:
+        medium: Memory
+        sizeLimit: 8Mi
+    - name: tmp-validator
+      emptyDir:
+        medium: Memory
+        sizeLimit: 8Mi
+    - name: tmp-depackager
+      emptyDir:
+        medium: Memory
+        sizeLimit: 8Mi
+    - name: tmp-depackage-scratch
+      emptyDir:
+        medium: Memory
+        sizeLimit: 64Mi
+    - name: tmp-sealer
+      emptyDir:
+        medium: Memory
+        sizeLimit: 8Mi
+
+  containers:
+
+    # ── Ingestor ──────────────────────────────────────────────────────────────
+    # P3.6 will route POST /ingest through VERIFIER_BASE before validation.
+    - name: ingestor
+      image: beap-components:dev
+      securityContext:
+        runAsUser: 10100
+        runAsGroup: 10100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: BEAP_ROLE
+          value: "ingestor"
+        - name: POD_MODE
+          value: "LOCAL_VERIFY"
+        - name: PORT
+          value: "18100"
+        - name: VERIFIER_BASE
+          value: "http://127.0.0.1:18105"
+        - name: POD_VERSION
+          value: "1.0.0"
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+      ports:
+        - containerPort: 18100
+          hostPort: 18100
+          protocol: TCP
+      resources:
+        requests:
+          memory: "64Mi"
+          cpu: "50m"
+        limits:
+          memory: "256Mi"
+          cpu: "250m"
+      volumeMounts:
+        - name: tmp-ingestor
+          mountPath: /tmp
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 18100
+        initialDelaySeconds: 5
+        periodSeconds: 30
+        timeoutSeconds: 3
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 18100
+        initialDelaySeconds: 3
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
+
+    # ── Verifier ──────────────────────────────────────────────────────────────
+    # LOCAL_VERIFY only. Checks edge certificate + SSO attestation before
+    # forwarding to validator. UID 10105; port 18105 (loopback only).
+    # P3.6 implements POST /verify-cert HTTP server.
+    - name: verifier
+      image: beap-components:dev
+      securityContext:
+        runAsUser: 10105
+        runAsGroup: 10100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: BEAP_ROLE
+          value: "verifier"
+        - name: POD_MODE
+          value: "LOCAL_VERIFY"
+        - name: PORT
+          value: "18105"
+        - name: VALIDATOR_BASE
+          value: "http://127.0.0.1:18101"
+        - name: VERIFIER_HOST
+          value: "127.0.0.1"
+        - name: POD_VERSION
+          value: "1.0.0"
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+        - name: LOCAL_SSO_SUB
+          value: "${LOCAL_SSO_SUB}"
+        - name: TRUSTED_EDGE_POD_IDS
+          value: "${TRUSTED_EDGE_POD_IDS}"
+        - name: KEYCLOAK_JWKS_JSON
+          value: "__KEYCLOAK_JWKS_JSON__"
+      ports:
+        - containerPort: 18105
+          protocol: TCP
+      resources:
+        requests:
+          memory: "64Mi"
+          cpu: "50m"
+        limits:
+          memory: "256Mi"
+          cpu: "250m"
+      volumeMounts:
+        - name: tmp-verifier
+          mountPath: /tmp
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 18105
+        initialDelaySeconds: 5
+        periodSeconds: 30
+        timeoutSeconds: 3
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 18105
+        initialDelaySeconds: 3
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
+
+    # ── Validator ─────────────────────────────────────────────────────────────
+    # Identical binary and rules as LOCAL_HOST (strategy §1 — one source of truth).
+    - name: validator
+      image: beap-components:dev
+      securityContext:
+        runAsUser: 10101
+        runAsGroup: 10100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: BEAP_ROLE
+          value: "validator"
+        - name: POD_MODE
+          value: "LOCAL_VERIFY"
+        - name: PORT
+          value: "18101"
+        - name: DEPACKAGER_BASE
+          value: "http://127.0.0.1:18102"
+        - name: POD_VERSION
+          value: "1.0.0"
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+      ports:
+        - containerPort: 18101
+          protocol: TCP
+      resources:
+        requests:
+          memory: "64Mi"
+          cpu: "50m"
+        limits:
+          memory: "256Mi"
+          cpu: "250m"
+      volumeMounts:
+        - name: tmp-validator
+          mountPath: /tmp
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 18101
+        initialDelaySeconds: 5
+        periodSeconds: 30
+        timeoutSeconds: 3
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 18101
+        initialDelaySeconds: 3
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
+
+    # ── Depackager ────────────────────────────────────────────────────────────
+    - name: depackager
+      image: beap-components:dev
+      securityContext:
+        runAsUser: 10102
+        runAsGroup: 10100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: BEAP_ROLE
+          value: "depackager"
+        - name: POD_MODE
+          value: "LOCAL_VERIFY"
+        - name: PORT
+          value: "18102"
+        - name: SEALER_BASE
+          value: "http://127.0.0.1:18103"
+        - name: POD_VERSION
+          value: "1.0.0"
+        - name: DEPACKAGER_TIMEOUT_MS
+          value: "5000"
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+      ports:
+        - containerPort: 18102
+          protocol: TCP
+      resources:
+        requests:
+          memory: "128Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+          cpu: "500m"
+      volumeMounts:
+        - name: tmp-depackager
+          mountPath: /tmp
+        - name: tmp-depackage-scratch
+          mountPath: /tmp/depackage
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 18102
+        initialDelaySeconds: 5
+        periodSeconds: 30
+        timeoutSeconds: 3
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 18102
+        initialDelaySeconds: 3
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
+
+    # ── Sealer ────────────────────────────────────────────────────────────────
+    - name: sealer
+      image: beap-components:dev
+      securityContext:
+        runAsUser: 10103
+        runAsGroup: 10100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: Localhost
+          localhostProfile: beap-sealer.json
+      env:
+        - name: BEAP_ROLE
+          value: "sealer"
+        - name: POD_MODE
+          value: "LOCAL_VERIFY"
+        - name: PORT
+          value: "18103"
+        - name: SEALER_HOST
+          value: "127.0.0.1"
+        - name: POD_VERSION
+          value: "1.0.0"
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+        - name: SEAL_KEY_HEX
+          value: "${SEAL_KEY_HEX}"
+      ports:
+        - containerPort: 18103
+          protocol: TCP
+      resources:
+        requests:
+          memory: "32Mi"
+          cpu: "25m"
+        limits:
+          memory: "128Mi"
+          cpu: "100m"
+      volumeMounts:
+        - name: tmp-sealer
+          mountPath: /tmp
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 18103
+        initialDelaySeconds: 5
+        periodSeconds: 30
+        timeoutSeconds: 3
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 18103
+        initialDelaySeconds: 3
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
