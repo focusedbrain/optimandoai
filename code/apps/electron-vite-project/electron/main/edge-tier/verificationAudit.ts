@@ -162,6 +162,24 @@ export function appendEdgeVerification(record: EdgeVerificationRecord): void {
   }
 }
 
+/** Mail-fetcher reboot recovery — shown in dashboard verifications tab (P4.5.8). */
+export function appendEdgeRecoveryAudit(params: {
+  edge_pod_id: string
+  account_id: string
+  result:
+    | 'key_redelivered_after_restart'
+    | 'vault_locked_waiting'
+    | 'unwrap_failed_degraded'
+}): void {
+  appendEdgeVerification({
+    timestamp: new Date().toISOString(),
+    edge_pod_id: params.edge_pod_id,
+    sub: params.account_id,
+    result: params.result,
+    phase: 'deep',
+  })
+}
+
 export function ingestVerifierLogLine(line: string): boolean {
   const record = parseVerifierAuditLine(line)
   if (!record) return false

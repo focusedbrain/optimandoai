@@ -201,6 +201,19 @@ export function _clearReplicaHealthCacheEntry(replicaId: string): void {
   _healthCache.delete(replicaId.toLowerCase())
 }
 
+/** Seed health cache in unit tests (P4.5.8 reboot recovery). */
+export function _setCachedReplicaHealthForTest(edgePodId: string, health: ReplicaHealth): void {
+  _healthCache.set(edgePodId.toLowerCase(), {
+    health,
+    checked_at: new Date().toISOString(),
+  })
+}
+
+/** Cached health from the last dashboard probe — used by reboot recovery (P4.5.8). */
+export function getCachedReplicaHealth(edgePodId: string): ReplicaHealth {
+  return _healthCache.get(edgePodId.toLowerCase())?.health ?? 'unknown'
+}
+
 export async function fetchReplicaLogs(
   edgePodId: string,
 ): Promise<{ ok: true; lines: string[] } | { ok: false; error: string }> {

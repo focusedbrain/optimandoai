@@ -2972,6 +2972,8 @@ app.whenReady().then(async () => {
         const { vaultService } = await import('./main/vault/rpc.js')
         m.initEdgeTierIpc(vaultService)
         m.registerEdgeTierIpcHandlers()
+        const edgeFetch = await import('./main/email/edgeFetch/ipc.js')
+        edgeFetch.initEdgeFetchIpc(vaultService)
       })
       .catch((e) => console.error('[MAIN] Edge tier IPC registration failed:', e))
 

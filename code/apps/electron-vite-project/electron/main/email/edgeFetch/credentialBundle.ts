@@ -68,7 +68,7 @@ export function assertAccountKeyHex(hex: string): void {
 }
 
 /**
- * Placeholder wrapped key file for tmpfs (full VMK wrap arrives in P4.5.8).
- * deliver_key still sends the account key in memory immediately after start.
+ * Placeholder wrapped key file for tmpfs (legacy tests only).
+ * Migration stores VMK-wrapped keys via accountKeyStorage (P4.5.8).
  */
 export const WRAPPED_ACCOUNT_KEY_PLACEHOLDER = 'opaque-pending-p4.5.8'

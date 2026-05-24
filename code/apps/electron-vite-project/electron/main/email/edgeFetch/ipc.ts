@@ -4,16 +4,22 @@
 
 import { ipcMain } from 'electron'
 import { assertNoSecretsInRendererPayload } from '../../wizard/handlers.js'
+import type { EdgeTierPodVault } from '../../edge-tier/podLifecycle.js'
 import {
   migrateAccountBackToDesktop,
   migrateAccountToEdge,
   reauthorizeEdgeAccount,
+  initEdgeFetchMigration,
 } from './migration.js'
 import { resolveEdgeFetchEligibility, edgeFetchEligibilityForAccount } from './eligibility.js'
 import { buildEdgeFetchSnapshots } from './snapshots.js'
-import { manualRefreshEdgeFetchStatus, startEdgeFetchSupervisorPoll } from './supervisorPoll.js'
+import { manualRefreshEdgeFetchStatus } from './supervisorPoll.js'
 import { emailGateway } from '../gateway.js'
 import type { EdgeFetchMigrationInput } from './types.js'
+
+export function initEdgeFetchIpc(vault: EdgeTierPodVault): void {
+  initEdgeFetchMigration(vault)
+}
 
 function parseSshPort(raw: unknown): number {
   if (typeof raw === 'number' && raw > 0 && raw <= 65535) return raw
@@ -45,8 +51,6 @@ function parseMigrationInput(raw: unknown): EdgeFetchMigrationInput {
 }
 
 export function registerEdgeFetchIpcHandlers(): void {
-  startEdgeFetchSupervisorPoll()
-
   ipcMain.handle('email:edgeFetch:getEligibility', async () => {
     try {
       const eligibility = await resolveEdgeFetchEligibility()

@@ -13,10 +13,14 @@ import {
 } from './dashboard.js'
 import { initReplicaActionIpc, registerReplicaActionIpcHandlers } from './replicaActionsIpc.js'
 import { initGlobalActionIpc, registerGlobalActionIpcHandlers } from './globalActionsIpc.js'
+import { initRebootRecovery, startRebootRecoveryPolling } from './rebootRecovery.js'
+import type { EdgeTierPodVault } from './podLifecycle.js'
 
-export function initEdgeTierIpc(vault: import('./podLifecycle.js').EdgeTierPodVault): void {
+export function initEdgeTierIpc(vault: EdgeTierPodVault): void {
   initReplicaActionIpc(vault)
   initGlobalActionIpc(vault)
+  initRebootRecovery(vault)
+  startRebootRecoveryPolling()
 }
 
 let _dashboardHookInstalled = false

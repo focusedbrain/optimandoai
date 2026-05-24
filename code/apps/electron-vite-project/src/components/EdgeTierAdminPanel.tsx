@@ -53,7 +53,8 @@ function formatTs(iso: string | undefined | null): string {
 }
 
 function resultColor(result: string): string {
-  if (result === 'verified') return '#22c55e'
+  if (result === 'verified' || result === 'key_redelivered_after_restart') return '#22c55e'
+  if (result === 'vault_locked_waiting') return '#f59e0b'
   return '#ef4444'
 }
 

@@ -9,15 +9,35 @@ import { emailGateway } from '../gateway.js'
 import type { EmailAccountConfig } from '../types.js'
 import { connectReplicaActionSsh, findEdgeReplica } from '../../edge-tier/replicaActions.js'
 import type { ReplicaActionSshRunner } from '../../edge-tier/replicaActions.js'
+import type { EdgeTierPodVault } from '../../edge-tier/podLifecycle.js'
+import {
+  storeWrappedAccountKey,
+  removeWrappedAccountKey,
+  VaultLockedError,
+} from '../../edge-tier/accountKeyStorage.js'
+import {
+  storeReplicaSshCredentials,
+  removeReplicaSshCredentials,
+} from '../../edge-tier/replicaSshStorage.js'
 import {
   encryptAccountCredentialBundle,
   mapProviderToEmailFetch,
-  WRAPPED_ACCOUNT_KEY_PLACEHOLDER,
 } from './credentialBundle.js'
 import { mailFetcherRemoteRequest } from './mailFetcherRemote.js'
 import type { EdgeFetchMigrationInput, EdgeFetchSshCredentials } from './types.js'
 import { notifyEdgeFetchStateChanged } from './events.js'
 import { rememberSupervisorSshSession } from './supervisorPoll.js'
+
+let _vault: EdgeTierPodVault | null = null
+
+export function initEdgeFetchMigration(vault: EdgeTierPodVault): void {
+  _vault = vault
+}
+
+function requireVault(): EdgeTierPodVault {
+  if (!_vault) throw new Error('Edge fetch vault is not initialized')
+  return _vault
+}
 
 async function withReplicaSsh<T>(
   replicaId: string,
@@ -106,16 +126,18 @@ async function setEdgeFetchMeta(
 async function transferToMailFetcher(
   ssh: ReplicaActionSshRunner,
   account: EmailAccountConfig,
+  vault: EdgeTierPodVault,
 ): Promise<void> {
   const fetchProvider = mapProviderToEmailFetch(account.provider)
   if (!fetchProvider) throw new Error('Unsupported provider for edge fetch')
 
   const { encryptedBundle, accountKeyHex } = encryptAccountCredentialBundle(account)
+  const wrappedAccountKey = storeWrappedAccountKey(account.id, accountKeyHex, vault)
   const start = await mailFetcherRemoteRequest(ssh, 'POST', '/accounts/start', {
     account_id: account.id,
     provider: fetchProvider,
     encrypted_bundle: encryptedBundle,
-    wrapped_account_key: WRAPPED_ACCOUNT_KEY_PLACEHOLDER,
+    wrapped_account_key: wrappedAccountKey,
   })
   if (start.status !== 200) {
     throw new Error(String(start.json.error ?? `start failed (${start.status})`))
@@ -148,9 +170,21 @@ export async function migrateAccountToEdge(input: EdgeFetchMigrationInput): Prom
   rememberSupervisorSshSession(input.replicaId, input)
 
   try {
+    const vault = requireVault()
+    storeReplicaSshCredentials(
+      input.replicaId,
+      {
+        sshUser: input.sshUser,
+        sshPort: input.sshPort,
+        sshKey: input.sshKey,
+        passphrase: input.passphrase,
+      },
+      vault,
+    )
+
     const refreshed = await refreshOAuthForAccount(accountId)
     await withReplicaSsh(input.replicaId, input, async (ssh) => {
-      await transferToMailFetcher(ssh, refreshed)
+      await transferToMailFetcher(ssh, refreshed, vault)
     })
 
     await emailGateway.setProcessingPaused(accountId, true)
@@ -168,6 +202,9 @@ export async function migrateAccountToEdge(input: EdgeFetchMigrationInput): Prom
       state: 'not_on_edge',
       lastError: message,
     })
+    if (!(err instanceof VaultLockedError)) {
+      removeWrappedAccountKey(accountId)
+    }
     throw err
   }
 }
@@ -202,6 +239,17 @@ export async function migrateAccountBackToDesktop(input: EdgeFetchMigrationInput
     })
 
     await setEdgeFetchMeta(accountId, { state: 'not_on_edge' })
+    removeWrappedAccountKey(accountId)
+
+    const othersOnReplica = emailGateway.listAccountsSync().filter(
+      (a) =>
+        a.id !== accountId &&
+        a.edgeFetch?.replicaId?.toLowerCase() === replicaId.toLowerCase() &&
+        a.edgeFetch?.state !== 'not_on_edge',
+    )
+    if (othersOnReplica.length === 0) {
+      removeReplicaSshCredentials(replicaId)
+    }
 
     const cfg = emailGateway.getAccountConfig(accountId)
     if (cfg) {
