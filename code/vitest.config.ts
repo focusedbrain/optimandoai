@@ -53,6 +53,8 @@ export default defineConfig({
       '**/dist/**',
       '**/.{idea,git,cache,output,temp}/**',
       'apps/extension-chromium/src/vault/autofill/__tests__/e2e-*.spec.ts',
+      /** Isolated mode-resolver suite — must not load test/setup.ts mock pod (see vitest.modeResolver.config.ts). */
+      'apps/electron-vite-project/electron/main/ingestion/__tests__/modeResolver/**',
     ],
     server: {
       deps: {

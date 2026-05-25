@@ -14,6 +14,10 @@ export default defineConfig({
       { find: 'electron', replacement: path.resolve(repoRoot, 'test/mocks/electron.ts') },
       { find: '@repo/ingestion-core', replacement: path.resolve(repoRoot, 'packages/ingestion-core/src/index.ts') },
       { find: '@repo/pod-client', replacement: path.resolve(repoRoot, 'packages/pod-client/src/index.ts') },
+      {
+        find: '@beap-pod/depackagePipeline',
+        replacement: path.resolve(repoRoot, 'packages/beap-pod/src/roles/depackagePipeline.ts'),
+      },
     ],
   },
   test: {

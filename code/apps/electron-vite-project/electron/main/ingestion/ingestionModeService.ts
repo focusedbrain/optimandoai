@@ -43,6 +43,11 @@ export function _setResolverInputsOverrideForTest(
   _cachedSnapshot = null
 }
 
+/** Isolated-suite canary: undefined when global test/setup.ts probe defaults are not applied. */
+export function getResolverProbeOverrides(): Partial<ResolverInputs> | undefined {
+  return _resolverInputsOverride ?? undefined
+}
+
 export function onIngestionModeChange(listener: (snap: IngestionModeSnapshot) => void): () => void {
   _emitter.on('change', listener)
   return () => _emitter.off('change', listener)

@@ -60,6 +60,15 @@ export type HoldQueueVault = {
 let _pathOverride: string | null = null
 let _vaultOverride: HoldQueueVault | null = null
 let _warnCallback: ((stats: { count: number; bytes: number; ratio: number }) => void) | null = null
+let _limitsOverride: { maxMessages: number; maxBytes: number } | null = null
+
+function maxMessagesLimit(): number {
+  return _limitsOverride?.maxMessages ?? HOLD_QUEUE_MAX_MESSAGES
+}
+
+function maxBytesLimit(): number {
+  return _limitsOverride?.maxBytes ?? HOLD_QUEUE_MAX_BYTES
+}
 
 export function _setHoldQueuePathForTest(path: string | null): void {
   _pathOverride = path
@@ -73,6 +82,20 @@ export function onHoldQueueCapacityWarning(
   cb: ((stats: { count: number; bytes: number; ratio: number }) => void) | null,
 ): void {
   _warnCallback = cb
+}
+
+/** Tests only — use smaller caps for deterministic eviction tests. */
+export function _setHoldQueueLimitsForTest(
+  limits: { maxMessages?: number; maxBytes?: number } | null,
+): void {
+  if (!limits) {
+    _limitsOverride = null
+    return
+  }
+  _limitsOverride = {
+    maxMessages: limits.maxMessages ?? HOLD_QUEUE_MAX_MESSAGES,
+    maxBytes: limits.maxBytes ?? HOLD_QUEUE_MAX_BYTES,
+  }
 }
 
 function getUserDataDir(): string {
@@ -161,8 +184,8 @@ function totalBytes(entries: StoredEntry[]): number {
 }
 
 function maybeWarnCapacity(count: number, bytes: number): void {
-  const countRatio = count / HOLD_QUEUE_MAX_MESSAGES
-  const byteRatio = bytes / HOLD_QUEUE_MAX_BYTES
+  const countRatio = count / maxMessagesLimit()
+  const byteRatio = bytes / maxBytesLimit()
   const ratio = Math.max(countRatio, byteRatio)
   if (ratio >= HOLD_QUEUE_WARN_RATIO) {
     _warnCallback?.({ count, bytes, ratio })
@@ -171,10 +194,10 @@ function maybeWarnCapacity(count: number, bytes: number): void {
 
 function evictToLimits(entries: StoredEntry[]): StoredEntry[] {
   let next = [...entries].sort((a, b) => a.receivedAt - b.receivedAt)
-  while (next.length > HOLD_QUEUE_MAX_MESSAGES) {
+  while (next.length > maxMessagesLimit()) {
     next = next.slice(1)
   }
-  while (totalBytes(next) > HOLD_QUEUE_MAX_BYTES && next.length > 0) {
+  while (totalBytes(next) > maxBytesLimit() && next.length > 0) {
     next = next.slice(1)
   }
   return next
@@ -199,7 +222,7 @@ export async function holdQueueEnqueue(msg: QueuedMessage): Promise<void> {
     byteLength: msg.opaqueBody.byteLength,
   })
 
-  if (file.entries.length > HOLD_QUEUE_MAX_MESSAGES || totalBytes(file.entries) > HOLD_QUEUE_MAX_BYTES) {
+  if (file.entries.length > maxMessagesLimit() || totalBytes(file.entries) > maxBytesLimit()) {
     file.entries = evictToLimits(file.entries)
   }
 
