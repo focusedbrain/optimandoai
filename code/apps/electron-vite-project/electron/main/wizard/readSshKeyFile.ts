@@ -6,7 +6,7 @@
 
 import { lstatSync, readFileSync } from 'node:fs'
 
-import { utils } from 'ssh2'
+import { ssh2Utils } from '../edge-tier/ssh/ssh2Module.js'
 
 export const MAX_SSH_KEY_FILE_BYTES = 4096
 
@@ -20,7 +20,7 @@ export function readAndValidateSshKeyFile(keyFilePath: string, passphrase?: stri
   }
 
   const pem = readFileSync(keyFilePath, 'utf8')
-  const parsed = utils.parseKey(pem, passphrase)
+  const parsed = ssh2Utils.parseKey(pem, passphrase)
   if (parsed instanceof Error) {
     throw new Error(`Invalid SSH private key: ${parsed.message}`)
   }

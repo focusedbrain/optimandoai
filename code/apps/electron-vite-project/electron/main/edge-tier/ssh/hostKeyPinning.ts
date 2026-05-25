@@ -8,7 +8,7 @@
 
 import { createHash } from 'node:crypto'
 
-import { utils } from 'ssh2'
+import { ssh2Utils } from './ssh2Module.js'
 
 import {
   getStoredFingerprint,
@@ -51,7 +51,7 @@ export function fingerprintSha256Hex(hostKey: Buffer): string {
 }
 
 export function hostKeyTypeFromBytes(hostKey: Buffer): string {
-  const parsed = utils.parseKey(hostKey)
+  const parsed = ssh2Utils.parseKey(hostKey)
   if (parsed instanceof Error || !parsed) {
     return 'unknown'
   }

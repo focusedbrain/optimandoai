@@ -7,9 +7,9 @@
  */
 
 import { EventEmitter } from 'node:events'
-import { Client, type ConnectConfig } from 'ssh2'
 
 import { assertHostKeyTrusted, HostKeyMismatchError } from './hostKeyPinning.js'
+import { Ssh2Client, type Client, type ConnectConfig, type SFTPWrapper } from './ssh2Module.js'
 import type {
   RunResult,
   SshCommandRunner,
@@ -38,7 +38,7 @@ export class SshClient extends EventEmitter implements SshCommandRunner {
 
   constructor(clientFactory?: () => Client) {
     super()
-    this.clientFactory = clientFactory ?? (() => new Client())
+    this.clientFactory = clientFactory ?? (() => new Ssh2Client())
   }
 
   get isConnected(): boolean {
@@ -221,7 +221,7 @@ export class SshClient extends EventEmitter implements SshCommandRunner {
   }
 
   private openSftp(client: Client) {
-    return new Promise<import('ssh2').SFTPWrapper>((resolve, reject) => {
+    return new Promise<SFTPWrapper>((resolve, reject) => {
       client.sftp((err, sftp) => {
         if (err) reject(err)
         else resolve(sftp)
