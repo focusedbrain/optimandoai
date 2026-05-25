@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import './App.css'
 import { IngestionModeStatusPill } from './components/IngestionModeStatusPill'
+import AnalysisCanvas from './components/AnalysisCanvas'
 import HandshakeView from './components/HandshakeView'
 import HybridSearch from './components/HybridSearch'
 import HandshakeInitiateModal from './components/HandshakeInitiateModal'
