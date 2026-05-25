@@ -500,6 +500,15 @@ interface EmailEdgeFetchBridge {
   onStateChanged: (callback: (snapshots: unknown) => void) => () => void
 }
 
+interface IngestionModeBridge {
+  get: () => Promise<unknown>
+  retryEdge: () => Promise<unknown>
+  authorizeHostFallback: () => Promise<unknown>
+  revokeHostFallback: () => Promise<unknown>
+  onUpdated: (handler: (payload: unknown) => void) => () => void
+  onOpenPanel: (handler: () => void) => () => void
+}
+
 interface Window {
   /**
    * Project WIKI AI insert bridge: assigned by `ProjectOptimizationPanel` when a field or
@@ -515,6 +524,7 @@ interface Window {
   appShell?: AppShellBridge
   integrity?: IntegrityBridge
   edgeTier?: EdgeTierBridge
+  ingestionMode?: IngestionModeBridge
   dashboard?: DashboardBridge
   wizard?: WizardBridge
   debugLogs?: DebugLogsBridge

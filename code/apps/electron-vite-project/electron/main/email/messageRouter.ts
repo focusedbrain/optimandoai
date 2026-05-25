@@ -36,8 +36,7 @@ import type { SanitizedMessageDetail } from './types'
 import { emailGateway } from './gateway'
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
-import { createPodClient } from '@repo/pod-client'
-import type { DepackageKeys } from '@repo/pod-client'
+import { dispatchDepackageQBeap } from '../ingestion/ingestionDispatcher.js'
 import { validatorOrchestrator } from '../validation/inProcessValidator'
 import { prepareSealedInsert, runSealedTransaction, computeSeal, type ChildAttachmentDescriptor } from '../sealed-storage/index'
 import {
@@ -511,17 +510,9 @@ export async function detectAndRouteMessage(
         if (!x25519PrivB64) {
           depackageError = 'qBEAP decrypt: missing handshake key'
         } else {
-          const depackageKeys: DepackageKeys = {
-            x25519_priv_b64: x25519PrivB64,
-            mlkem_secret_b64: hs?.local_mlkem768_secret_key_b64?.trim() || undefined,
-          }
-          const baseUrl = process.env['WR_POD_BASE_URL'] ?? 'http://127.0.0.1:18100'
-          const client = createPodClient({ baseUrl, requestTimeoutMs: 15_000 })
-          const podResult = await client.ingest({ body: beapPackageJson }, 'p2p', undefined, depackageKeys)
-          const podBody = podResult.body as Record<string, unknown>
-          const depackaged = podBody?.['depackaged'] as Record<string, unknown> | undefined
-          if (typeof depackaged?.['rawCapsuleJson'] === 'string') {
-            canonicalJson = depackaged['rawCapsuleJson'] as string
+          const dec = await dispatchDepackageQBeap(beapPackageJson, handshakeId ?? '', db)
+          if (dec?.rawCapsuleJson) {
+            canonicalJson = dec.rawCapsuleJson
           } else {
             depackageError = 'qBEAP decrypt returned null (missing handshake key or malformed package)'
           }

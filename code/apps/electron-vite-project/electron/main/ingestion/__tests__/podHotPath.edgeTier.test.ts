@@ -14,6 +14,10 @@ import type { CandidateCapsuleEnvelope } from '@repo/ingestion-core'
 import { processIncomingInput } from '../ingestionPipeline'
 import type { RawInput, TransportMetadata } from '../types'
 import { _setSettingsPathForTest } from '../../edge-tier/settings.js'
+import {
+  _setResolverInputsOverrideForTest,
+  _resetIngestionModeServiceForTest,
+} from '../ingestionModeService.js'
 
 interface MockServer {
   baseUrl: string
@@ -157,14 +161,23 @@ afterAll(async () => {
 })
 
 beforeEach(() => {
+  _resetIngestionModeServiceForTest()
   tempDir = mkdtempSync(join(tmpdir(), 'ingestion-edge-'))
   _setSettingsPathForTest(join(tempDir, 'edge-tier-settings.json'))
   process.env['WR_POD_BASE_URL'] = localSrv.baseUrl
   writeEdgeSettings(false)
+  _setResolverInputsOverrideForTest({
+    generalConnectivity: true,
+    hostPodReady: true,
+    podmanAvailable: true,
+    sessionHostFallbackAuthorized: false,
+    edgeReachable: false,
+  })
 })
 
 afterEach(() => {
   _setSettingsPathForTest(null)
+  _resetIngestionModeServiceForTest()
   delete process.env['WR_POD_BASE_URL']
   rmSync(tempDir, { recursive: true, force: true })
 })
@@ -182,6 +195,13 @@ describe('processIncomingInput — edge tier', () => {
 
   test('edge enabled → routes through edge then local LOCAL_VERIFY → success', async () => {
     writeEdgeSettings(true)
+    _setResolverInputsOverrideForTest({
+      generalConnectivity: true,
+      hostPodReady: true,
+      podmanAvailable: true,
+      sessionHostFallbackAuthorized: false,
+      edgeReachable: true,
+    })
     const rawInput: RawInput = { body: JSON.stringify(validInitiateCapsule()) }
     const result = await processIncomingInput(rawInput, 'email', emptyTransport)
     expect(result.success).toBe(true)
@@ -209,11 +229,17 @@ describe('processIncomingInput — edge tier', () => {
       }),
       { mode: 0o600 },
     )
+    _setResolverInputsOverrideForTest({
+      generalConnectivity: true,
+      hostPodReady: true,
+      podmanAvailable: true,
+      sessionHostFallbackAuthorized: false,
+      edgeReachable: false,
+    })
     const rawInput: RawInput = { body: JSON.stringify(validInitiateCapsule()) }
     const result = await processIncomingInput(rawInput, 'email', emptyTransport)
-    expect(result.success).toBe(false)
-    if (!result.success) {
-      expect(result.validation_reason_code).toBe('EDGE_UNREACHABLE')
-    }
+    expect(result.success).toBe(true)
+    expect('held' in result && result.held).toBe(true)
+    expect(result.audit.validation_reason_code).toBe('EDGE_UNREACHABLE')
   })
 })

@@ -11,6 +11,12 @@ import { homedir } from 'node:os'
 
 export type EdgeFallbackPolicy = 'reject' | 'local_only'
 
+/** Edge tier activation state. `'pending'` = wizard in progress; routes like disabled. */
+export type EdgeTierEnabledState = false | true | 'pending'
+
+/** Policy when edge is unreachable while enabled. Only `'hold'` is supported initially. */
+export type EdgeUnreachablePolicy = 'hold'
+
 /** Whether native P2P BEAP must route through the edge ingestor before local acceptance. */
 export type NativeBeapRouting = 'require_edge' | 'direct'
 
@@ -26,8 +32,10 @@ export interface EdgeReplica {
 }
 
 export interface EdgeTierSettings {
-  enabled: boolean
+  enabled: EdgeTierEnabledState
   replicas: EdgeReplica[]
+  /** When edge is unreachable while enabled. Reserved for future policies. */
+  on_edge_unreachable: EdgeUnreachablePolicy
   fallback_policy: EdgeFallbackPolicy
   /** P2P native BEAP routing when edge tier is enabled. Default: direct local path. */
   native_beap_routing: NativeBeapRouting
@@ -43,9 +51,23 @@ export const DEFAULT_QUARANTINE_RETENTION_DAYS = 30
 export const DEFAULT_EDGE_TIER_SETTINGS: EdgeTierSettings = {
   enabled: false,
   replicas: [],
+  on_edge_unreachable: 'hold',
   fallback_policy: 'reject',
   native_beap_routing: 'direct',
   quarantine_retention_days: DEFAULT_QUARANTINE_RETENTION_DAYS,
+}
+
+/** True only when edge tier is fully enabled (not pending, not disabled). */
+export function isEdgeTierActiveForRouting(settings: EdgeTierSettings): boolean {
+  return settings.enabled === true
+}
+
+export function isEdgeTierSetupPending(settings: EdgeTierSettings): boolean {
+  return settings.enabled === 'pending'
+}
+
+export function isEdgeTierDisabledForRouting(settings: EdgeTierSettings): boolean {
+  return settings.enabled === false || settings.enabled === 'pending'
 }
 
 const SETTINGS_FILENAME = 'edge-tier-settings.json'
@@ -118,9 +140,15 @@ export function normalizeEdgeTierSettings(raw: unknown): EdgeTierSettings {
     typeof quarantineRetentionRaw === 'number' && quarantineRetentionRaw > 0
       ? Math.floor(quarantineRetentionRaw)
       : DEFAULT_QUARANTINE_RETENTION_DAYS
+  let enabled: EdgeTierEnabledState = false
+  if (o.enabled === true) enabled = true
+  else if (o.enabled === 'pending') enabled = 'pending'
+  const on_edge_unreachable: EdgeUnreachablePolicy =
+    o.on_edge_unreachable === 'hold' ? 'hold' : 'hold'
   return {
-    enabled: o.enabled === true,
+    enabled,
     replicas,
+    on_edge_unreachable,
     fallback_policy: fallback,
     native_beap_routing: nativeBeapRouting,
     quarantine_retention_days,
@@ -151,12 +179,26 @@ export function saveEdgeTierSettings(settings: EdgeTierSettings): void {
 }
 
 export function getEdgeTierEnabled(): boolean {
-  return loadEdgeTierSettings().enabled
+  return loadEdgeTierSettings().enabled === true
 }
 
 export function setEdgeTierEnabled(enabled: boolean): EdgeTierSettings {
   const current = loadEdgeTierSettings()
-  const next = { ...current, enabled }
+  const next = { ...current, enabled: enabled ? true : false }
+  saveEdgeTierSettings(next)
+  return next
+}
+
+export function setEdgeTierPending(): EdgeTierSettings {
+  const current = loadEdgeTierSettings()
+  const next = { ...current, enabled: 'pending' as const }
+  saveEdgeTierSettings(next)
+  return next
+}
+
+export function setEdgeTierVerifiedEnabled(): EdgeTierSettings {
+  const current = loadEdgeTierSettings()
+  const next = { ...current, enabled: true }
   saveEdgeTierSettings(next)
   return next
 }
@@ -218,6 +260,7 @@ export function formatTrustedEdgePodIds(settings: EdgeTierSettings): string {
 
 export function edgeTierRequiresPodRestart(before: EdgeTierSettings, after: EdgeTierSettings): boolean {
   if (before.enabled !== after.enabled) return true
+  if (isEdgeTierActiveForRouting(before) !== isEdgeTierActiveForRouting(after)) return true
   if (formatTrustedEdgePodIds(before) !== formatTrustedEdgePodIds(after)) return true
   if (before.cached_jwks_json !== after.cached_jwks_json) return true
   if (before.native_beap_routing !== after.native_beap_routing) return true

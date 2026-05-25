@@ -13,7 +13,7 @@ import { resolveTier, TIER_LEVEL, type Tier } from '../../../src/auth/capabiliti
 import { generateEdgeKeypair } from '../edge-tier/keygen.js'
 import { requestSsoAttestation } from '../edge-tier/attestation.js'
 import { storeEncryptedEdgePrivateKey } from '../edge-tier/keyStorage.js'
-import { upsertEdgeReplica, setEdgeTierNativeBeapRouting, type EdgeReplica, type NativeBeapRouting } from '../edge-tier/settings.js'
+import { upsertEdgeReplica, setEdgeTierNativeBeapRouting, setEdgeTierPending, type EdgeReplica, type NativeBeapRouting } from '../edge-tier/settings.js'
 import type { EdgeTierPodVault } from '../edge-tier/podLifecycle.js'
 import { SshClient } from '../edge-tier/ssh/client.js'
 import { probeTarget } from '../edge-tier/ssh/probe.js'
@@ -217,6 +217,7 @@ export async function* wizardGenerateAndDeploy(
     const ingestPort = input.ingestPort ?? 18100
 
     deployStarted = true
+    setEdgeTierPending()
     for await (const event of deployEdgePod({
       client,
       host: creds.host,

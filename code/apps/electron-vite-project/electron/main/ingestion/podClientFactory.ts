@@ -6,6 +6,7 @@ import { createPodClient, type PodClient, type EdgeReplica } from '@repo/pod-cli
 
 import {
   loadEdgeTierSettings,
+  isEdgeTierActiveForRouting,
   type EdgeReplica as SettingsReplica,
 } from '../edge-tier/settings.js'
 import { INGESTION_CONSTANTS } from './types.js'
@@ -39,7 +40,7 @@ export function buildIngestPodClient(route: IngestPodClientRoute = 'default'): P
   })
 
   const settings = loadEdgeTierSettings()
-  if (!settings.enabled || settings.replicas.length === 0) {
+  if (!isEdgeTierActiveForRouting(settings) || settings.replicas.length === 0) {
     return client
   }
 

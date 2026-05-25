@@ -10,7 +10,7 @@ import { emailGateway } from '../email/gateway.js'
 import { connectReplicaActionSsh } from './replicaActions.js'
 import type { ReplicaActionSshRunner } from './replicaActions.js'
 import type { EdgeTierPodVault } from './podLifecycle.js'
-import { loadEdgeTierSettings, type EdgeReplica } from './settings.js'
+import { loadEdgeTierSettings, isEdgeTierActiveForRouting, type EdgeReplica } from './settings.js'
 import { getCachedReplicaHealth } from './dashboard.js'
 import {
   AccountKeyUnwrapError,
@@ -113,7 +113,7 @@ export async function runRebootRecoveryCycle(): Promise<void> {
   if (!vault) return
 
   const settings = loadEdgeTierSettings()
-  if (!settings.enabled || settings.replicas.length === 0) return
+  if (!isEdgeTierActiveForRouting(settings) || settings.replicas.length === 0) return
 
   const edgeAccounts = emailGateway.listAccountsSync().filter((a) => {
     const st = a.edgeFetch?.state

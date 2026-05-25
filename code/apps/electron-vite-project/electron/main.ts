@@ -1140,6 +1140,13 @@ app.on('before-quit', async () => {
   
   // P1.8: stop local pod on app quit (non-fatal).
   try {
+    const { stopIngestionModeLifecycle } = await import('./main/ingestion/ingestionModeIpc.js')
+    stopIngestionModeLifecycle()
+  } catch (err) {
+    console.error('[MAIN] Error stopping ingestion mode lifecycle:', (err as Error)?.message ?? err)
+  }
+
+  try {
     const { stopLocalPod: _stopPod } = await import('./main/local-pod/index.js')
     await _stopPod()
   } catch (err) {
@@ -2947,6 +2954,13 @@ app.whenReady().then(async () => {
         m.registerWizardIpcHandlers()
       })
       .catch((e) => console.error('[MAIN] Wizard IPC registration failed:', e))
+
+    void import('./main/ingestion/ingestionModeIpc.js')
+      .then((m) => {
+        m.registerIngestionModeIpc()
+        m.startIngestionModeLifecycle()
+      })
+      .catch((e) => console.error('[MAIN] Ingestion mode IPC registration failed:', e))
 
     void import('./main/security/registerCredentialShutdown.js')
       .then((m) => m.registerCredentialShutdownHandlers())

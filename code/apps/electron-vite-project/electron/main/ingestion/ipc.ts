@@ -12,7 +12,7 @@
  *   - Receive raw capsule data back
  */
 
-import type { RawInput, SourceType, TransportMetadata } from './types'
+import type { RawInput, SourceType, TransportMetadata, IngestionResult } from './types'
 import { processIncomingInput } from './ingestionPipeline'
 import { processHandshakeCapsule } from '../handshake/enforcement'
 import { maybeEnqueueInitialContextSyncAfterInboundAccept } from '../handshake/contextSyncEnqueue'
@@ -29,6 +29,12 @@ import {
 } from './persistenceDb'
 
 const migratedDbs = new WeakSet<object>()
+
+function isHeldIngestionResult(
+  result: IngestionResult,
+): result is Extract<IngestionResult, { held: true }> {
+  return result.success && 'held' in result && result.held === true
+}
 
 function ensureHandshakeMigration(db: any): void {
   if (!db || migratedDbs.has(db)) return
@@ -82,6 +88,16 @@ export async function handleIngestionRPC(
           reason: 'Capsule rejected',
           error: result.reason ?? 'Capsule rejected',
           validation_reason_code: result.validation_reason_code,
+        }
+      }
+
+      if (isHeldIngestionResult(result)) {
+        return {
+          type: 'ingestion-result',
+          success: true,
+          held: true,
+          heldMessageId: result.heldMessageId,
+          validation_reason_code: result.audit.validation_reason_code,
         }
       }
 
@@ -259,6 +275,15 @@ export function registerIngestionRoutes(app: any, getDb: () => any, getSsoSessio
         return res.json({
           success: false,
           reason: 'Capsule rejected',
+        })
+      }
+
+      if (isHeldIngestionResult(result)) {
+        return res.json({
+          success: true,
+          held: true,
+          heldMessageId: result.heldMessageId,
+          validation_reason_code: result.audit.validation_reason_code,
         })
       }
 

@@ -1554,6 +1554,23 @@ contextBridge.exposeInMainWorld('integrity', {
   getStatus: () => ipcRenderer.invoke('integrity:status'),
 })
 
+contextBridge.exposeInMainWorld('ingestionMode', {
+  get: () => ipcRenderer.invoke('ingestion-mode:get'),
+  retryEdge: () => ipcRenderer.invoke('ingestion-mode:retry-edge'),
+  authorizeHostFallback: () => ipcRenderer.invoke('ingestion-mode:authorize-host-fallback'),
+  revokeHostFallback: () => ipcRenderer.invoke('ingestion-mode:revoke-host-fallback'),
+  onUpdated: (handler: (payload: unknown) => void) => {
+    const fn = (_event: unknown, payload: unknown) => handler(payload)
+    ipcRenderer.on('ingestion-mode:updated', fn)
+    return () => ipcRenderer.removeListener('ingestion-mode:updated', fn)
+  },
+  onOpenPanel: (handler: () => void) => {
+    const fn = () => handler()
+    ipcRenderer.on('ingestion-mode:open-panel', fn)
+    return () => ipcRenderer.removeListener('ingestion-mode:open-panel', fn)
+  },
+})
+
 contextBridge.exposeInMainWorld('edgeTier', {
   getStatus: () => ipcRenderer.invoke('edge-tier:get-status'),
   getVerifications: (limit?: number) => ipcRenderer.invoke('edge-tier:get-verifications', limit),

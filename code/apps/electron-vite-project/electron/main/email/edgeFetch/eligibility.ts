@@ -5,7 +5,7 @@
 import { ensureSession, getCachedUserInfo } from '../../../../src/auth/session.js'
 import { resolveTier, type Tier } from '../../../../src/auth/capabilities.js'
 import { isPaidTier } from '../../wizard/handlers.js'
-import { loadEdgeTierSettings } from '../../edge-tier/settings.js'
+import { loadEdgeTierSettings, isEdgeTierActiveForRouting } from '../../edge-tier/settings.js'
 import type { EdgeFetchEligibility } from './types.js'
 import { accountSupportsEdgeFetch, edgeFetchEligibilityForAccount } from './edgeFetchRules.js'
 
@@ -29,7 +29,8 @@ export async function resolveEdgeFetchEligibility(): Promise<EdgeFetchEligibilit
   }
 
   const paid = isPaidTier(tier)
-  const edgeReady = paid && settings.enabled && replicas.length > 0
+  const edgeActive = isEdgeTierActiveForRouting(settings)
+  const edgeReady = paid && edgeActive && replicas.length > 0
 
   if (!paid) {
     return {
@@ -40,7 +41,7 @@ export async function resolveEdgeFetchEligibility(): Promise<EdgeFetchEligibilit
       reason: 'Edge email fetch requires a paid plan.',
     }
   }
-  if (!settings.enabled || replicas.length === 0) {
+  if (!edgeActive || replicas.length === 0) {
     return {
       canMigrate: false,
       edgeReady: false,

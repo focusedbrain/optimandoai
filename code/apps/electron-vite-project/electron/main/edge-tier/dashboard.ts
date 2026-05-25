@@ -5,7 +5,7 @@
  */
 
 import { ipcMain, type WebContents } from 'electron'
-import { loadEdgeTierSettings, type EdgeReplica } from './settings.js'
+import { loadEdgeTierSettings, isEdgeTierActiveForRouting, isEdgeTierSetupPending, type EdgeReplica } from './settings.js'
 import { toDashboardFallbackPolicy, type DashboardFallbackPolicy } from './globalActions.js'
 import {
   getRecentEdgeVerifications,
@@ -43,6 +43,7 @@ export type VerificationEvent = EdgeVerificationRecord
 
 export interface DashboardUpdatePayload {
   edge_tier_enabled: boolean
+  edge_setup_pending: boolean
   fallback_policy: DashboardFallbackPolicy
   replicas: ReplicaStatus[]
   verifications: VerificationEvent[]
@@ -172,7 +173,8 @@ export function onVerifierVerificationIngested(_record: VerificationEvent): void
 export function buildDashboardUpdatePayload(): DashboardUpdatePayload {
   const settings = loadEdgeTierSettings()
   return {
-    edge_tier_enabled: settings.enabled,
+    edge_tier_enabled: isEdgeTierActiveForRouting(settings),
+    edge_setup_pending: isEdgeTierSetupPending(settings),
     fallback_policy: toDashboardFallbackPolicy(settings.fallback_policy),
     replicas: getDashboardReplicas(),
     verifications: getDashboardVerifications(),

@@ -22,6 +22,7 @@ import {
 import {
   loadEdgeTierSettings,
   formatTrustedEdgePodIds,
+  isEdgeTierActiveForRouting,
   type EdgeTierSettings,
 } from '../edge-tier/settings.js'
 import { getCachedJwksJson } from '../edge-tier/jwks.js'
@@ -174,7 +175,7 @@ async function _doStart(
 
   const ctx = options?.startContext ?? buildLocalPodStartContext()
   const edgeTier = ctx.edgeTier ?? loadEdgeTierSettings()
-  const edgeEnabled = edgeTier.enabled === true
+  const edgeEnabled = isEdgeTierActiveForRouting(edgeTier)
 
   const runnerOpts: PodRunnerOptions = {
     manifestPath: options?.manifestPath,
@@ -221,6 +222,14 @@ async function _doStart(
     _activePod = await applyPodManifest(podAuthSecret, sealKeyHex, runnerOpts)
     _podSetupError = null
     console.log(`[LOCAL_POD] Pod started: ${_activePod.podName}`)
+    try {
+      const { invalidateHostPodReadyCache } = await import('../ingestion/edgeProbe.js')
+      const { refreshIngestionMode } = await import('../ingestion/ingestionModeService.js')
+      invalidateHostPodReadyCache()
+      void refreshIngestionMode(true)
+    } catch {
+      /* mode service optional during tests */
+    }
     if (edgeEnabled) {
       startVerifierLogTail(runnerOpts.podName ?? DEFAULT_LOCAL_VERIFY_POD_NAME)
     } else {

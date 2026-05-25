@@ -155,6 +155,7 @@ export interface DistributionDecision {
 
 export type IngestionResult =
   | { readonly success: true; readonly distribution: DistributionDecision; readonly audit: IngestionAuditRecord }
+  | { readonly success: true; readonly held: true; readonly heldMessageId: string; readonly audit: IngestionAuditRecord }
   | { readonly success: false; readonly reason: string; readonly validation_reason_code?: ValidationReasonCode; readonly audit: IngestionAuditRecord };
 
 // ── Audit ──

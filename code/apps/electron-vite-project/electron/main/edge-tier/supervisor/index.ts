@@ -5,7 +5,7 @@
 import { connectReplicaActionSsh } from '../replicaActions.js'
 import type { ReplicaActionSshRunner } from '../replicaActions.js'
 import type { EdgeTierPodVault } from '../podLifecycle.js'
-import { loadEdgeTierSettings, type EdgeReplica } from '../settings.js'
+import { loadEdgeTierSettings, isEdgeTierActiveForRouting, type EdgeReplica } from '../settings.js'
 import {
   hasReplicaSshCredentials,
   loadReplicaSshCredentials,
@@ -193,7 +193,7 @@ export async function runSupervisorPollCycle(): Promise<void> {
   if (!vault) return
 
   const settings = loadEdgeTierSettings()
-  if (!settings.enabled || settings.replicas.length === 0) {
+  if (!isEdgeTierActiveForRouting(settings) || settings.replicas.length === 0) {
     _status = { ..._status, replicas: [] }
     return
   }

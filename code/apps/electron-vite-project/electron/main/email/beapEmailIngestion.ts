@@ -27,8 +27,7 @@ import { createHash, randomUUID } from 'crypto'
 
 import { getHandshakeRecord } from '../handshake/db'
 import type { ProvenanceMetadata } from '@repo/ingestion-core'
-import type { DepackageKeys } from '@repo/pod-client'
-import { buildIngestPodClient } from '../ingestion/podClientFactory.js'
+import { dispatchDepackageQBeap, type DepackagedQBeapResult } from '../ingestion/ingestionDispatcher.js'
 import { evaluateAutoresponder } from '../beap/autoresponderEvaluator'
 import { logAutoresponderDecision } from '../beap/autoresponderAudit'
 import { makeInboxAttachmentStorageId, buildQuarantineCanonicalJson, findPairedSandboxHandshake } from './messageRouter'
@@ -82,87 +81,17 @@ const P2P_BEAP_ACCOUNT_ID = '__p2p_beap__'
 
 const OUTBOUND_QBEAP_BODY_PLACEHOLDER = '(Sent qBEAP message — see Sent tab for details)'
 
-// ── Pod-based qBEAP depackage (P1.12 — replaces in-process decryptQBeapPackage) ────
+// ── Mode-aware qBEAP depackage (LegacyInProcess | HostPodActive | EdgeActive) ────
 
-/**
- * Depackaged qBEAP content as returned by the pod's depackager.
- * Structurally compatible with the old DecryptedQBeapContent interface.
- * Attachments are not included (Phase 2 concern; pod doesn't return bytes).
- */
-interface DepackagedQBeapContent {
-  subject: string
-  body: string
-  transport_plaintext: string
-  rawCapsuleJson?: string
-  attachments: never[]
-  automation: undefined
-}
+type DepackagedQBeapContent = DepackagedQBeapResult
 
-/**
- * Decrypt a qBEAP package via the pod ingestor.
- *
- * Reads the handshake's X25519 private key from the DB, sends the raw
- * package to the pod with per-request key material, and returns a
- * DepackagedQBeapContent shaped like the old DecryptedQBeapContent.
- *
- * Returns null when:
- *   - Handshake record is missing or has no local key
- *   - Pod is unreachable or returns an error
- *   - Pod response is missing the depackaged content field
- */
 async function depackageQBeapViaPod(
   packageJson: string,
   handshakeId: string,
   db: unknown,
   opts?: { reportFailure?: (info: { reason: string; handshakeId: string }) => void },
 ): Promise<DepackagedQBeapContent | null> {
-  const hs = getHandshakeRecord(db as any, handshakeId.trim())
-  if (!hs) {
-    opts?.reportFailure?.({ reason: 'missing_handshake_record', handshakeId })
-    return null
-  }
-  const x25519PrivB64 = hs.local_x25519_private_key_b64?.trim()
-  if (!x25519PrivB64) {
-    opts?.reportFailure?.({ reason: 'missing_x25519_private_key', handshakeId })
-    return null
-  }
-  const depackageKeys: DepackageKeys = {
-    x25519_priv_b64: x25519PrivB64,
-    mlkem_secret_b64: hs.local_mlkem768_secret_key_b64?.trim() || undefined,
-  }
-
-  const client = buildIngestPodClient('native_beap')
-
-  let podBody: Record<string, unknown>
-  try {
-    const result = await client.ingest(
-      { body: packageJson },
-      'p2p',
-      undefined,
-      depackageKeys,
-    )
-    podBody = result.body as Record<string, unknown>
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    opts?.reportFailure?.({ reason: `pod_error: ${msg}`, handshakeId })
-    return null
-  }
-
-  const depackaged = podBody?.['depackaged'] as Record<string, unknown> | undefined
-  if (!depackaged || typeof depackaged['rawCapsuleJson'] !== 'string') {
-    opts?.reportFailure?.({ reason: 'pod_missing_depackaged_content', handshakeId })
-    return null
-  }
-
-  return {
-    subject: typeof depackaged['subject'] === 'string' ? depackaged['subject'] : '',
-    body: typeof depackaged['body'] === 'string' ? depackaged['body'] : '',
-    transport_plaintext: typeof depackaged['transport_plaintext'] === 'string'
-      ? depackaged['transport_plaintext'] : '',
-    rawCapsuleJson: depackaged['rawCapsuleJson'] as string,
-    attachments: [],
-    automation: undefined,
-  }
+  return dispatchDepackageQBeap(packageJson, handshakeId, db, opts)
 }
 
 /**

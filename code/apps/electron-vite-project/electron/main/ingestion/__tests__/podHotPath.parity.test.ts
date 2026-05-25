@@ -15,6 +15,11 @@ import { ingestInput, validateCapsule } from '@repo/ingestion-core'
 import type { CandidateCapsuleEnvelope } from '@repo/ingestion-core'
 import { processIncomingInput } from '../ingestionPipeline'
 import type { RawInput, TransportMetadata } from '../types'
+import {
+  _setResolverInputsOverrideForTest,
+  _resetIngestionModeServiceForTest,
+} from '../ingestionModeService.js'
+import { DEFAULT_EDGE_TIER_SETTINGS } from '../../edge-tier/settings.js'
 
 // ── Mock server ───────────────────────────────────────────────────────────────
 
@@ -149,12 +154,25 @@ beforeAll(async () => {
   mockServer = await startMockPodIngestor()
 })
 
+beforeEach(() => {
+  _resetIngestionModeServiceForTest()
+  _setResolverInputsOverrideForTest({
+    settings: DEFAULT_EDGE_TIER_SETTINGS,
+    edgeReachable: false,
+    generalConnectivity: true,
+    hostPodReady: true,
+    podmanAvailable: true,
+    sessionHostFallbackAuthorized: false,
+  })
+})
+
 afterAll(async () => {
   await mockServer.stop()
 })
 
 afterEach(() => {
   delete process.env['WR_POD_BASE_URL']
+  _resetIngestionModeServiceForTest()
 })
 
 function withMock<T>(fn: () => Promise<T>): Promise<T> {
@@ -169,6 +187,7 @@ describe('Pod path — valid initiate capsule → handshake_pipeline', () => {
     const rawInput: RawInput = { body: JSON.stringify(validInitiateCapsule()) }
     const result = await withMock(() => processIncomingInput(rawInput, 'email', emptyTransport))
     expect(result.success).toBe(true)
+    expect('held' in result && result.held).toBe(false)
   })
 
   test('distribution.target is handshake_pipeline', async () => {

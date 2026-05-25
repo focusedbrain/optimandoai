@@ -33,6 +33,10 @@ describe('native BEAP routing settings', () => {
     expect(normalizeEdgeTierSettings({ enabled: true, replicas: [] }).native_beap_routing).toBe(
       'direct',
     )
+    expect(normalizeEdgeTierSettings({ enabled: 'pending', replicas: [] }).enabled).toBe('pending')
+    expect(normalizeEdgeTierSettings({ enabled: 'pending', replicas: [] }).on_edge_unreachable).toBe(
+      'hold',
+    )
     expect(
       normalizeEdgeTierSettings({ enabled: true, replicas: [], native_beap_routing: 'require_edge' })
         .native_beap_routing,

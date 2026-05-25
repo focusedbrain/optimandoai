@@ -6,7 +6,7 @@
  * Full reboot recovery deliver_key flow is P4.5.8.
  */
 
-import { loadEdgeTierSettings } from '../../edge-tier/settings.js'
+import { loadEdgeTierSettings, isEdgeTierActiveForRouting } from '../../edge-tier/settings.js'
 import { connectReplicaActionSsh, findEdgeReplica } from '../../edge-tier/replicaActions.js'
 import { registerCredentialClearer, zeroizeBuffer } from '../../security/zeroize.js'
 import { emailGateway } from '../gateway.js'
@@ -139,7 +139,7 @@ export async function refreshEdgeFetchRemoteStatus(replicaId: string, creds: Edg
 
 async function pollTick(): Promise<void> {
   const settings = loadEdgeTierSettings()
-  if (!settings.enabled || settings.replicas.length === 0) return
+  if (!isEdgeTierActiveForRouting(settings) || settings.replicas.length === 0) return
 
   const accounts = emailGateway.listAccountsSync()
   const replicaIds = new Set(

@@ -101,7 +101,18 @@ if (process.env.WRDESK_ALLOW_CPU_INFERENCE == null || process.env.WRDESK_ALLOW_C
 // restores the shared mock URL before each test.
 // ─────────────────────────────────────────────────────────────────────────────
 import http from 'node:http'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
+import {
+  _setResolverInputsOverrideForTest,
+  _resetIngestionModeServiceForTest,
+} from '../apps/electron-vite-project/electron/main/ingestion/ingestionModeService.js'
+import {
+  _setHoldQueuePathForTest,
+  _setHoldQueueVaultForTest,
+} from '../apps/electron-vite-project/electron/main/ingestion/holdQueue.js'
 
 // Lazily imported so that tests not using ingestion-core don't pay the cost.
 async function handlePodIngestRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -205,4 +216,42 @@ afterEach(() => {
   if (_globalMockPodUrl && process.env['WR_POD_BASE_URL'] == null) {
     // Do not restore here — beforeEach of the next test will set it.
   }
+})
+
+// ── Ingestion mode resolver defaults (post P1.12 mode model) ───────────────
+// Legacy suites expect HostPodActive against the global mock pod. Override probe
+// inputs so tests do not hit Blocked / startup-hold unless they opt out.
+let _globalHoldQueueTempDir: string | null = null
+
+beforeAll(() => {
+  _globalHoldQueueTempDir = mkdtempSync(join(tmpdir(), 'vitest-hold-queue-'))
+  _setHoldQueuePathForTest(join(_globalHoldQueueTempDir, 'hold.json'))
+  _setHoldQueueVaultForTest({
+    deriveApplicationKey(): Buffer {
+      return Buffer.alloc(32, 9)
+    },
+  })
+})
+
+afterAll(() => {
+  _setHoldQueuePathForTest(null)
+  _setHoldQueueVaultForTest(null)
+  if (_globalHoldQueueTempDir) {
+    rmSync(_globalHoldQueueTempDir, { recursive: true, force: true })
+    _globalHoldQueueTempDir = null
+  }
+})
+
+beforeEach(() => {
+  _resetIngestionModeServiceForTest()
+  _setResolverInputsOverrideForTest({
+    generalConnectivity: true,
+    hostPodReady: true,
+    podmanAvailable: true,
+    sessionHostFallbackAuthorized: false,
+  })
+})
+
+afterEach(() => {
+  _resetIngestionModeServiceForTest()
 })

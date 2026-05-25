@@ -2,7 +2,7 @@
  * Edge tier status snapshot for dashboard (Phase 3, P3.10 — strategy §4.2 seed data).
  */
 
-import { loadEdgeTierSettings, type EdgeReplica } from './settings.js'
+import { loadEdgeTierSettings, isEdgeTierActiveForRouting, isEdgeTierSetupPending, type EdgeReplica } from './settings.js'
 import { getReplicaVerificationStats, type ReplicaVerificationStats } from './verificationAudit.js'
 
 export type LocalPodMode = 'LOCAL_HOST' | 'LOCAL_VERIFY'
@@ -20,6 +20,7 @@ export interface EdgeReplicaStatusView {
 export interface EdgeTierStatusSnapshot {
   mode: LocalPodMode
   edge_tier_enabled: boolean
+  edge_setup_pending: boolean
   fallback_policy: 'reject' | 'local_only'
   replicas: EdgeReplicaStatusView[]
   jwks_last_refreshed_at: string | null
@@ -44,10 +45,11 @@ function mergeReplicaStats(
 export function getEdgeTierStatusSnapshot(): EdgeTierStatusSnapshot {
   const settings = loadEdgeTierSettings()
   const stats = getReplicaVerificationStats()
-  const mode: LocalPodMode = settings.enabled ? 'LOCAL_VERIFY' : 'LOCAL_HOST'
+  const mode: LocalPodMode = isEdgeTierActiveForRouting(settings) ? 'LOCAL_VERIFY' : 'LOCAL_HOST'
   return {
     mode,
-    edge_tier_enabled: settings.enabled,
+    edge_tier_enabled: isEdgeTierActiveForRouting(settings),
+    edge_setup_pending: isEdgeTierSetupPending(settings),
     fallback_policy: settings.fallback_policy,
     replicas: settings.replicas.map((r) => mergeReplicaStats(r, stats)),
     jwks_last_refreshed_at: settings.cached_jwks_fetched_at ?? null,

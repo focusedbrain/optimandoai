@@ -5,6 +5,7 @@
 import { restartLocalPod, type LocalPodStartContext } from '../local-pod/index.js'
 import {
   edgeTierRequiresPodRestart,
+  isEdgeTierActiveForRouting,
   loadEdgeTierSettings,
   saveEdgeTierSettings,
   type EdgeTierSettings,
@@ -49,7 +50,7 @@ export async function onVerificationFailureRefreshJwks(vault: EdgeTierPodVault):
   const refreshed = await refreshJwksOnVerificationFailure()
   if (!refreshed) return
   const settings = loadEdgeTierSettings()
-  if (!settings.enabled) return
+  if (!isEdgeTierActiveForRouting(settings)) return
   console.log('[EDGE_TIER] JWKS refreshed — restarting LOCAL_VERIFY pod')
   await restartLocalPod(vault, buildStartContext(vault, settings))
 }
