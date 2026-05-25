@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import './App.css'
-import { IngestionModeStatusPill } from './components/IngestionModeStatusPill'
 import AnalysisCanvas from './components/AnalysisCanvas'
 import HandshakeView from './components/HandshakeView'
 import HybridSearch from './components/HybridSearch'
@@ -551,7 +550,6 @@ function App() {
             />
           </div>
         </nav>
-        <IngestionModeStatusPill />
         {/* HybridSearch stays in the header for every main view; inline composers render only inside AnalysisCanvas. */}
         <HybridSearch
           activeView={activeView}

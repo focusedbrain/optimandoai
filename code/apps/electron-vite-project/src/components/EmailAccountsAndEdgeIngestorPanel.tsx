@@ -10,6 +10,7 @@ import {
 import { WRDESK_EXPAND_EMAIL_ACCOUNTS_SECTION } from '../lib/wrdeskUiEvents.js'
 import { ACCOUNTS_AND_EDGE_COLLAPSIBLE_TITLE } from './edge-ingestor/edgeIngestorCopy.js'
 import { EdgeIngestorPanelContent } from './edge-ingestor/EdgeIngestorPanelContent.js'
+import { EdgeVerificationBlockedBanner } from './edge-ingestor/EdgeVerificationBlockedBanner.js'
 
 const MUTED = '#64748b'
 
@@ -77,6 +78,7 @@ export function EmailAccountsAndEdgeIngestorPanel({
       {expanded ? (
         <div className="bulk-view-provider-body inbox-provider-section" data-testid="email-accounts-settings-section">
           <div style={{ padding: '12px 16px 0' }}>
+            <EdgeVerificationBlockedBanner />
             <EdgeIngestorPanelContent onReplicaCountChange={setEdgeReplicaCount} />
           </div>
           <EmailProvidersSection {...emailProps} emailAccounts={emailAccounts} embedded />

@@ -1,5 +1,5 @@
 /**
- * Edge Ingestor list — rows styled like connected email accounts.
+ * Email verification panel — settings section above connected email accounts (Prompt C).
  */
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
@@ -12,31 +12,37 @@ import type { SshKeyEntryFormValues } from '../../edge-tier-dashboard/SshKeyEntr
 import type { LogEvent } from '../../edge-tier-wizard/types.js'
 import { HostKeyMismatchModal } from '../../edge-tier-dashboard/HostKeyMismatchModal.js'
 import { extractHostKeyMismatch, type HostKeyMismatchPayload } from '../../edge-tier-dashboard/hostKeyMismatchTypes.js'
+import { healthLabel } from '../../edge-tier-dashboard/format.js'
 import {
   configurationStateFromDashboardPayload,
-  configurationStatePrimaryAction,
   type EdgeConfigurationState,
 } from '../../edge-tier/configurationState.js'
+import { WIZARD_UPGRADE_URL } from '../../edge-tier-wizard/copy.js'
+import { openAppExternalUrl } from '../../lib/openAppExternalUrl.js'
+import { SwitchBackToLocalModal } from './SwitchBackToLocalModal.js'
 import {
-  EDGE_INGESTOR_ADD_BUTTON,
-  EDGE_INGESTOR_EMPTY_HINT,
-  EDGE_INGESTOR_EXPLAINER,
-  EDGE_INGESTOR_NOT_CONFIGURED_BODY,
-  EDGE_INGESTOR_NOT_CONFIGURED_TITLE,
-  EDGE_INGESTOR_SETUP_BUTTON,
-  EDGE_INGESTOR_SUBSECTION_TITLE,
-} from './edgeIngestorCopy.js'
+  ALLOW_TEMPORARY_LOCAL_BUTTON,
+  configuredActiveBody,
+  configuredUnreachableBody,
+  EMAIL_VERIFICATION_CURRENT_SETUP,
+  EMAIL_VERIFICATION_LEARN_MORE,
+  EMAIL_VERIFICATION_LEARN_MORE_PARAGRAPHS,
+  EMAIL_VERIFICATION_SUMMARY,
+  EMAIL_VERIFICATION_TITLE,
+  EMAIL_VERIFICATION_UPGRADE,
+  HOST_FALLBACK_CONFIRM_BODY,
+  MANAGE_REPLICAS_BUTTON,
+  PAID_TIER_BADGE,
+  REMOVE_REPLICA_BUTTON,
+  RESUME_SETUP_BUTTON,
+  RETRY_CONNECTION_BUTTON,
+  SETUP_SERVER_VERIFICATION_BUTTON,
+  setupInProgressBody,
+  SWITCH_BACK_TO_LOCAL_BUTTON,
+} from './emailVerificationCopy.js'
 
 const muted = '#64748b'
 const text = '#0f172a'
-
-const subsectionHeaderStyle: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  marginBottom: 10,
-  gap: 8,
-}
 
 const primaryBtnStyle: CSSProperties = {
   padding: '6px 12px',
@@ -47,36 +53,45 @@ const primaryBtnStyle: CSSProperties = {
   cursor: 'pointer',
   fontWeight: 600,
   fontSize: 11,
-  display: 'flex',
+  display: 'inline-flex',
   alignItems: 'center',
   gap: 4,
 }
 
-const overlayStyle: CSSProperties = {
-  position: 'fixed',
-  inset: 0,
-  zIndex: 12000,
-  background: 'rgba(15, 23, 42, 0.45)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: 24,
+const secondaryBtnStyle: CSSProperties = {
+  padding: '6px 12px',
+  borderRadius: 6,
+  border: '1px solid rgba(15,23,42,0.15)',
+  background: '#fff',
+  color: text,
+  cursor: 'pointer',
+  fontWeight: 600,
+  fontSize: 11,
 }
 
-const dialogCardStyle: CSSProperties = {
-  width: 'min(480px, 100%)',
-  padding: 24,
-  borderRadius: 12,
-  background: '#fff',
-  border: '1px solid #e2e8f0',
-  boxShadow: '0 16px 40px rgba(15, 23, 42, 0.18)',
-  textAlign: 'center',
+const dangerBtnStyle: CSSProperties = {
+  ...secondaryBtnStyle,
+  border: '1px solid rgba(220,38,38,0.35)',
+  color: '#b91c1c',
 }
 
 function replicaBorder(health: ReplicaStatus['health']): string {
   if (health === 'healthy') return '1px solid rgba(34,197,94,0.3)'
   if (health === 'unhealthy') return '1px solid rgba(239,68,68,0.35)'
   return '1px solid rgba(148,163,184,0.35)'
+}
+
+function formatRelativeTime(iso: string | null | undefined): string {
+  if (!iso) return 'never'
+  const ms = Date.now() - new Date(iso).getTime()
+  if (!Number.isFinite(ms) || ms < 0) return 'just now'
+  const minutes = Math.floor(ms / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 48) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
 }
 
 export interface EdgeIngestorPanelContentProps {
@@ -86,7 +101,8 @@ export interface EdgeIngestorPanelContentProps {
 export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorPanelContentProps) {
   const [replicas, setReplicas] = useState<ReplicaStatus[]>([])
   const [loading, setLoading] = useState(true)
-  const [setupDialogOpen, setSetupDialogOpen] = useState(false)
+  const [learnMoreOpen, setLearnMoreOpen] = useState(false)
+  const [replicasExpanded, setReplicasExpanded] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [detailReplica, setDetailReplica] = useState<ReplicaStatus | null>(null)
   const [actionModal, setActionModal] = useState<{ action: ReplicaActionKind; replica: ReplicaStatus } | null>(null)
@@ -100,7 +116,16 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
   const [hostKeyTrustBusy, setHostKeyTrustBusy] = useState(false)
   const [configurationState, setConfigurationState] =
     useState<EdgeConfigurationState>('not_configured')
+  const [holdQueueCount, setHoldQueueCount] = useState(0)
+  const [isPaidTier, setIsPaidTier] = useState<boolean | null>(null)
+  const [switchBackOpen, setSwitchBackOpen] = useState(false)
+  const [switchBackRunning, setSwitchBackRunning] = useState(false)
+  const [fallbackConfirmOpen, setFallbackConfirmOpen] = useState(false)
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false)
+  const [removeRunning, setRemoveRunning] = useState(false)
   const progressUnsubRef = useRef<(() => void) | null>(null)
+
+  const primaryHost = replicas[0]?.host ?? 'your server'
 
   const refreshReplicas = useCallback(async () => {
     const dashboardBridge = window.dashboard
@@ -133,6 +158,28 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
     })
     return unsub
   }, [refreshReplicas])
+
+  useEffect(() => {
+    const refreshMode = async () => {
+      const snap = await window.ingestionMode?.get?.()
+      if (!snap) return
+      const hold = (snap as { holdQueue?: { count?: number } }).holdQueue
+      setHoldQueueCount(hold?.count ?? 0)
+    }
+    void refreshMode()
+    const off = window.ingestionMode?.onUpdated?.((snap) => {
+      const hold = (snap as { holdQueue?: { count?: number } }).holdQueue
+      setHoldQueueCount(hold?.count ?? 0)
+    })
+    return () => off?.()
+  }, [])
+
+  useEffect(() => {
+    void (async () => {
+      const tier = await window.wizard?.refreshTier?.()
+      if (tier) setIsPaidTier(tier.isPaidTier)
+    })()
+  }, [])
 
   const closeActionModal = useCallback(() => {
     progressUnsubRef.current?.()
@@ -225,29 +272,40 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
     return bridge.fetchReplicaLogs(edgePodId)
   }, [])
 
-  const openSetupFlow = () => {
-    if (configurationState === 'not_configured') {
-      setSetupDialogOpen(true)
+  const openWizard = useCallback(async () => {
+    const tier = await window.wizard?.refreshTier?.()
+    const paid = tier?.isPaidTier ?? isPaidTier ?? false
+    if (!paid) {
+      await openAppExternalUrl(WIZARD_UPGRADE_URL)
       return
     }
     setWizardOpen(true)
+  }, [isPaidTier])
+
+  const handleSwitchBack = async () => {
+    setSwitchBackRunning(true)
+    try {
+      await window.wizard?.startOverLocally?.()
+      setSwitchBackOpen(false)
+      void refreshReplicas()
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSwitchBackRunning(false)
+    }
   }
 
-  const headerButtonLabel =
-    configurationState === 'not_configured'
-      ? EDGE_INGESTOR_SETUP_BUTTON
-      : configurationState === 'setup_in_progress'
-        ? 'Resume setup'
-        : EDGE_INGESTOR_ADD_BUTTON
-
-  const handleLaunchWizard = () => {
-    setSetupDialogOpen(false)
-    setWizardOpen(true)
-  }
-
-  const handleWizardClose = () => {
-    setWizardOpen(false)
-    void refreshReplicas()
+  const handleRemoveReplicaLocally = async () => {
+    setRemoveRunning(true)
+    try {
+      await window.wizard?.startOverLocally?.()
+      setRemoveConfirmOpen(false)
+      void refreshReplicas()
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRemoveRunning(false)
+    }
   }
 
   const handleTrustHostKey = useCallback(async () => {
@@ -268,6 +326,180 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
     }
   }, [hostKeyMismatch])
 
+  const lastContact = formatRelativeTime(
+    replicas[0]?.last_cert_timestamp ?? replicas[0]?.health_checked_at,
+  )
+
+  const showPaidBadge = isPaidTier === false
+
+  const renderCurrentSetup = () => {
+    if (loading) {
+      return (
+        <div style={{ padding: 8, fontSize: 12, color: muted }} data-testid="email-verification-loading">
+          Loading current setup…
+        </div>
+      )
+    }
+
+    switch (configurationState) {
+      case 'not_configured':
+        return (
+          <div data-testid="email-verification-not-configured">
+            <p style={{ margin: '0 0 12px', fontSize: 12, color: muted }}>
+              Verification is currently running on this computer.
+            </p>
+            <button
+              type="button"
+              data-testid="email-verification-setup-button"
+              style={{
+                ...primaryBtnStyle,
+                opacity: showPaidBadge ? 0.85 : 1,
+              }}
+              onClick={() => void openWizard()}
+            >
+              {SETUP_SERVER_VERIFICATION_BUTTON}
+              {showPaidBadge ? (
+                <span
+                  style={{
+                    marginLeft: 4,
+                    padding: '1px 5px',
+                    borderRadius: 4,
+                    background: 'rgba(255,255,255,0.2)',
+                    fontSize: 9,
+                  }}
+                >
+                  {PAID_TIER_BADGE}
+                </span>
+              ) : null}
+            </button>
+          </div>
+        )
+
+      case 'setup_in_progress':
+        return (
+          <div data-testid="email-verification-setup-in-progress">
+            <p style={{ margin: '0 0 12px', fontSize: 12, color: muted }}>
+              {setupInProgressBody(primaryHost)}
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              <button type="button" style={primaryBtnStyle} onClick={() => setWizardOpen(true)}>
+                {RESUME_SETUP_BUTTON}
+              </button>
+              <button
+                type="button"
+                data-testid="email-verification-remove-replica"
+                style={dangerBtnStyle}
+                onClick={() => setRemoveConfirmOpen(true)}
+              >
+                {REMOVE_REPLICA_BUTTON}
+              </button>
+            </div>
+          </div>
+        )
+
+      case 'configured_active':
+        return (
+          <div data-testid="email-verification-configured-active">
+            <p style={{ margin: '0 0 12px', fontSize: 12, color: '#166534' }}>
+              ✓ {configuredActiveBody(primaryHost, lastContact)}
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              <button
+                type="button"
+                data-testid="email-verification-manage-replicas"
+                style={secondaryBtnStyle}
+                onClick={() => setReplicasExpanded((v) => !v)}
+              >
+                {MANAGE_REPLICAS_BUTTON}
+              </button>
+              <button
+                type="button"
+                data-testid="email-verification-switch-back-local"
+                style={dangerBtnStyle}
+                onClick={() => setSwitchBackOpen(true)}
+              >
+                {SWITCH_BACK_TO_LOCAL_BUTTON}
+              </button>
+            </div>
+          </div>
+        )
+
+      case 'configured_unreachable':
+        return (
+          <div data-testid="email-verification-configured-unreachable">
+            <p style={{ margin: '0 0 12px', fontSize: 12, color: '#b45309' }}>
+              ⚠ {configuredUnreachableBody(holdQueueCount)}
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              <button
+                type="button"
+                data-testid="email-verification-retry-connection"
+                style={primaryBtnStyle}
+                onClick={() => void window.ingestionMode?.retryEdge?.()}
+              >
+                {RETRY_CONNECTION_BUTTON}
+              </button>
+              {!fallbackConfirmOpen ? (
+                <button
+                  type="button"
+                  data-testid="email-verification-allow-temporary-local"
+                  style={secondaryBtnStyle}
+                  onClick={() => setFallbackConfirmOpen(true)}
+                >
+                  {ALLOW_TEMPORARY_LOCAL_BUTTON}
+                </button>
+              ) : (
+                <div
+                  data-testid="email-verification-fallback-confirm"
+                  style={{
+                    flex: '1 1 100%',
+                    padding: 10,
+                    borderRadius: 8,
+                    border: '1px solid rgba(245,158,11,0.35)',
+                    background: '#fffbeb',
+                  }}
+                >
+                  <p style={{ margin: '0 0 10px', fontSize: 11, color: '#92400e' }}>
+                    {HOST_FALLBACK_CONFIRM_BODY}
+                  </p>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button type="button" style={secondaryBtnStyle} onClick={() => setFallbackConfirmOpen(false)}>
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      style={primaryBtnStyle}
+                      onClick={() => {
+                        void window.ingestionMode?.authorizeHostFallback?.()
+                        setFallbackConfirmOpen(false)
+                      }}
+                    >
+                      Allow for this session
+                    </button>
+                  </div>
+                </div>
+              )}
+              <button
+                type="button"
+                style={secondaryBtnStyle}
+                onClick={() => setReplicasExpanded((v) => !v)}
+              >
+                {MANAGE_REPLICAS_BUTTON}
+              </button>
+            </div>
+          </div>
+        )
+
+      default:
+        return null
+    }
+  }
+
+  const showReplicaList =
+    replicasExpanded &&
+    replicas.length > 0 &&
+    (configurationState === 'configured_active' || configurationState === 'configured_unreachable')
+
   return (
     <>
       <div
@@ -275,59 +507,80 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
         data-configuration-state={configurationState}
         style={{ marginBottom: 16 }}
       >
-        <div style={subsectionHeaderStyle}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: text }}>{EDGE_INGESTOR_SUBSECTION_TITLE}</span>
-          <button
-            type="button"
-            data-testid="edge-ingestor-add-button"
-            style={primaryBtnStyle}
-            onClick={openSetupFlow}
+        <h3 style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700, color: text }}>
+          {EMAIL_VERIFICATION_TITLE}
+        </h3>
+
+        <p style={{ margin: '0 0 8px', fontSize: 11, lineHeight: 1.5, color: muted }}>
+          {EMAIL_VERIFICATION_SUMMARY}
+        </p>
+        <p style={{ margin: '0 0 10px', fontSize: 11, lineHeight: 1.5, color: muted }}>
+          {EMAIL_VERIFICATION_UPGRADE}
+        </p>
+
+        <button
+          type="button"
+          data-testid="email-verification-learn-more-toggle"
+          onClick={() => setLearnMoreOpen((v) => !v)}
+          style={{
+            padding: 0,
+            border: 'none',
+            background: 'transparent',
+            color: '#4f46e5',
+            cursor: 'pointer',
+            fontSize: 11,
+            fontWeight: 600,
+            marginBottom: 14,
+          }}
+        >
+          {learnMoreOpen ? 'Hide details' : EMAIL_VERIFICATION_LEARN_MORE}
+        </button>
+
+        {learnMoreOpen ? (
+          <div
+            data-testid="email-verification-learn-more"
+            style={{
+              marginBottom: 14,
+              padding: 12,
+              borderRadius: 8,
+              border: '1px solid rgba(15,23,42,0.08)',
+              background: '#f8fafc',
+            }}
           >
-            <span>+</span> {headerButtonLabel}
-          </button>
+            {EMAIL_VERIFICATION_LEARN_MORE_PARAGRAPHS.map((paragraph) => (
+              <p key={paragraph.slice(0, 32)} style={{ margin: '0 0 10px', fontSize: 11, lineHeight: 1.55, color: muted }}>
+                {paragraph}
+              </p>
+            ))}
+          </div>
+        ) : null}
+
+        <div
+          style={{
+            borderTop: '1px solid rgba(15,23,42,0.08)',
+            paddingTop: 12,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              color: muted,
+              marginBottom: 10,
+            }}
+          >
+            {EMAIL_VERIFICATION_CURRENT_SETUP}
+          </div>
+          <div data-testid="email-verification-current-setup">{renderCurrentSetup()}</div>
         </div>
 
-        <p style={{ margin: '0 0 12px', fontSize: 11, lineHeight: 1.5, color: muted }}>{EDGE_INGESTOR_EXPLAINER}</p>
-
-        {loading ? (
-          <div style={{ padding: 12, textAlign: 'center', fontSize: 12, color: muted }}>Loading edge ingestors…</div>
-        ) : configurationState === 'not_configured' ? (
+        {showReplicaList ? (
           <div
-            data-testid="edge-ingestor-empty"
-            style={{
-              padding: 16,
-              background: '#fff',
-              borderRadius: 8,
-              border: '1px dashed rgba(15,23,42,0.2)',
-              textAlign: 'center',
-            }}
+            data-testid="email-verification-replica-list"
+            style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14 }}
           >
-            <div style={{ fontSize: 22, marginBottom: 6 }}>🛡️</div>
-            <div style={{ fontSize: 12, color: muted, marginBottom: 8 }}>{EDGE_INGESTOR_EMPTY_HINT}</div>
-            <button type="button" style={primaryBtnStyle} onClick={() => setSetupDialogOpen(true)}>
-              {EDGE_INGESTOR_SETUP_BUTTON}
-            </button>
-          </div>
-        ) : configurationState === 'setup_in_progress' ? (
-          <div
-            data-testid="edge-ingestor-setup-in-progress"
-            style={{
-              padding: 16,
-              background: '#fff',
-              borderRadius: 8,
-              border: '1px dashed rgba(245,158,11,0.45)',
-              textAlign: 'center',
-            }}
-          >
-            <div style={{ fontSize: 12, color: muted, marginBottom: 8 }}>
-              Setup in progress on {replicas[0]?.host ?? 'your server'}. Complete verification to finish.
-            </div>
-            <button type="button" style={primaryBtnStyle} onClick={() => setWizardOpen(true)}>
-              {configurationStatePrimaryAction(configurationState)}
-            </button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {replicas.map((replica) => (
               <div
                 key={replica.edge_pod_id}
@@ -344,140 +597,103 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
                 }}
               >
                 <div style={{ minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 500,
-                      color: text,
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      alignItems: 'center',
-                      gap: 6,
-                    }}
-                  >
-                    <span>🛡️</span>
-                    <span>
-                      {replica.host}:{replica.port}
-                    </span>
-                    <span style={{ color: muted }}>·</span>
-                    <span style={{ color: muted, fontWeight: 500 }}>Edge Ingestor</span>
-                    <span style={{ color: muted }}>·</span>
-                    <span style={{ color: healthColor(replica.health), fontWeight: 600, fontSize: 11 }}>
-                      {healthLabel(replica.health)}
+                  <div style={{ fontSize: 13, fontWeight: 500, color: text }}>
+                    {replica.host}:{replica.port}
+                    <span style={{ color: muted, marginLeft: 6, fontSize: 11 }}>
+                      · {healthLabel(replica.health)}
                     </span>
                   </div>
-                  <div style={{ fontSize: 10, display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                    <span
-                      style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: '50%',
-                        background: healthColor(replica.health),
-                      }}
-                    />
-                    <span style={{ color: muted }}>
-                      {replica.health_error?.trim() || 'Off-band validator and depackaging unit'}
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 9,
-                      color: '#94a3b8',
-                      marginTop: 4,
-                      fontFamily: 'ui-monospace, monospace',
-                      wordBreak: 'break-all',
-                    }}
-                  >
-                    id {replica.edge_pod_id}
+                  <div style={{ fontSize: 10, color: muted, marginTop: 2 }}>
+                    Last contact: {formatRelativeTime(replica.last_cert_timestamp ?? replica.health_checked_at)}
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                   <button
                     type="button"
-                    data-testid={`edge-ingestor-details-${replica.edge_pod_id}`}
                     onClick={() => setDetailReplica(replica)}
-                    style={{
-                      background: 'rgba(15,23,42,0.06)',
-                      border: '1px solid rgba(15,23,42,0.12)',
-                      color: text,
-                      cursor: 'pointer',
-                      padding: '6px 10px',
-                      fontSize: 11,
-                      fontWeight: 600,
-                      borderRadius: 6,
-                      whiteSpace: 'nowrap',
-                    }}
+                    style={secondaryBtnStyle}
                   >
                     Details
                   </button>
                   <button
                     type="button"
-                    data-testid={`edge-ingestor-redeploy-${replica.edge_pod_id}`}
-                    title="Redeploy — update the edge ingestor on this VPS"
-                    onClick={() => setActionModal({ action: 'redeploy', replica })}
-                    style={{
-                      background: 'rgba(15,23,42,0.06)',
-                      border: '1px solid rgba(15,23,42,0.12)',
-                      color: text,
-                      cursor: 'pointer',
-                      padding: '6px 10px',
-                      fontSize: 11,
-                      fontWeight: 600,
-                      borderRadius: 6,
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    Redeploy
-                  </button>
-                  <button
-                    type="button"
-                    data-testid={`edge-ingestor-remove-${replica.edge_pod_id}`}
-                    title="Remove — delete this edge ingestor from WR Desk"
                     onClick={() => setActionModal({ action: 'remove', replica })}
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      color: '#94a3b8',
-                      cursor: 'pointer',
-                      padding: 4,
-                      fontSize: 14,
-                    }}
+                    style={dangerBtnStyle}
                   >
-                    ✕
+                    Remove
                   </button>
                 </div>
               </div>
             ))}
           </div>
-        )}
+        ) : null}
+
+        {configurationState === 'configured_active' || configurationState === 'configured_unreachable' ? (
+          <button
+            type="button"
+            style={{ ...primaryBtnStyle, marginTop: 12 }}
+            onClick={() => void openWizard()}
+          >
+            + Add server
+          </button>
+        ) : null}
       </div>
 
-      {setupDialogOpen ? (
+      {removeConfirmOpen ? (
         <div
           role="dialog"
           aria-modal="true"
-          aria-labelledby="edge-ingestor-setup-title"
-          data-testid="edge-ingestor-setup-dialog"
-          style={overlayStyle}
-          onClick={() => setSetupDialogOpen(false)}
+          data-testid="email-verification-remove-modal"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 12000,
+            background: 'rgba(15, 23, 42, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+          onClick={removeRunning ? undefined : () => setRemoveConfirmOpen(false)}
         >
-          <div style={dialogCardStyle} onClick={(e) => e.stopPropagation()}>
-            <h2 id="edge-ingestor-setup-title" style={{ margin: '0 0 12px', fontSize: 18, color: text }}>
-              {EDGE_INGESTOR_NOT_CONFIGURED_TITLE}
-            </h2>
-            <p style={{ margin: '0 0 20px', color: muted, fontSize: 14, lineHeight: 1.5 }}>
-              {EDGE_INGESTOR_NOT_CONFIGURED_BODY}
+          <div
+            style={{
+              width: 'min(440px, 100%)',
+              padding: 24,
+              borderRadius: 12,
+              background: '#fff',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ margin: '0 0 12px', fontSize: 17 }}>Remove replica?</h2>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: muted, lineHeight: 1.5 }}>
+              This removes the verification server configuration from this app. The remote server may still be
+              running until you remove it manually.
             </p>
-            <button
-              type="button"
-              data-testid="edge-ingestor-setup-launch"
-              style={{ ...primaryBtnStyle, padding: '8px 16px', fontSize: 13 }}
-              onClick={handleLaunchWizard}
-            >
-              {EDGE_INGESTOR_SETUP_BUTTON}
-            </button>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" onClick={() => setRemoveConfirmOpen(false)} disabled={removeRunning}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={removeRunning}
+                onClick={() => void handleRemoveReplicaLocally()}
+                style={{ ...dangerBtnStyle, padding: '8px 14px' }}
+              >
+                {removeRunning ? 'Removing…' : REMOVE_REPLICA_BUTTON}
+              </button>
+            </div>
           </div>
         </div>
+      ) : null}
+
+      {switchBackOpen ? (
+        <SwitchBackToLocalModal
+          host={primaryHost}
+          running={switchBackRunning}
+          onClose={() => setSwitchBackOpen(false)}
+          onConfirm={() => void handleSwitchBack()}
+        />
       ) : null}
 
       {detailReplica ? (
@@ -496,7 +712,7 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
         />
       ) : null}
 
-      <EdgeTierWizardModal open={wizardOpen} onClose={handleWizardClose} />
+      <EdgeTierWizardModal open={wizardOpen} onClose={() => { setWizardOpen(false); void refreshReplicas() }} />
 
       {hostKeyMismatch ? (
         <HostKeyMismatchModal

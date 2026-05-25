@@ -28,8 +28,8 @@ describe('EmailAccountsAndEdgeIngestorPanel', () => {
 
   it('shows collapsed title only by default', () => {
     const html = renderToStaticMarkup(<EmailAccountsAndEdgeIngestorPanel {...baseProps} />)
-    expect(html).toContain('Email Accounts')
-    expect(html).toContain('Edge Ingestor')
+    expect(html).toContain('Email accounts')
+    expect(html).toContain('verification')
     expect(html).not.toContain('edge-ingestor-panel-content')
     expect(html).not.toContain('Connect Email')
   })
@@ -37,7 +37,7 @@ describe('EmailAccountsAndEdgeIngestorPanel', () => {
   it('shows edge ingestor and email sections when expanded', () => {
     const html = renderToStaticMarkup(<EmailAccountsAndEdgeIngestorPanel {...baseProps} expanded />)
     expect(html).toContain('edge-ingestor-panel-content')
-    expect(html).toContain('Email accounts')
+    expect(html).toContain('Email verification')
     expect(html).toContain('Connect Email')
   })
 })

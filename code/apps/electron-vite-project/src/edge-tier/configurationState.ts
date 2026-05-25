@@ -31,13 +31,13 @@ export function configurationStateFromDashboardPayload(payload: unknown): EdgeCo
 export function configurationStatePrimaryAction(state: EdgeConfigurationState): string {
   switch (state) {
     case 'not_configured':
-      return 'Set up edge ingestor'
+      return 'Set up server-side verification'
     case 'setup_in_progress':
       return 'Resume setup'
     case 'configured_active':
     case 'configured_unreachable':
       return 'Manage replicas'
     default:
-      return 'Set up edge ingestor'
+      return 'Set up server-side verification'
   }
 }

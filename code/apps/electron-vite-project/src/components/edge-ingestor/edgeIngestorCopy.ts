@@ -2,7 +2,7 @@
  * Edge Ingestor — inbox placement copy (high-assurance optional mode).
  */
 
-export const ACCOUNTS_AND_EDGE_COLLAPSIBLE_TITLE = 'Email Accounts & Edge Ingestor'
+export const ACCOUNTS_AND_EDGE_COLLAPSIBLE_TITLE = 'Email accounts & verification'
 
 export const EDGE_INGESTOR_SUBSECTION_TITLE = 'Edge Ingestor'
 
