@@ -69,6 +69,8 @@ function mapReplica(replica: SettingsReplica): EdgeReplica {
 
 export interface VerifyEdgeRoundTripDeps {
   readonly vault: EdgeTierPodVault
+  /** Target replica count from wizard step 4; edge enables only when all are verified. */
+  readonly totalReplicas?: number
   readonly localPodBaseUrl?: string
   readonly ingest?: (
     replica: EdgeReplica,
@@ -119,6 +121,10 @@ export async function verifyEdgeRoundTripAndEnable(
     return { verified: false, reason: `No deployed replica at index ${replicaIndex}` }
   }
 
+  const totalReplicas = deps.totalReplicas ?? 1
+  const verifiedReplicaCountAfterSuccess = replicaIndex + 1
+  const allReplicasVerified = verifiedReplicaCountAfterSuccess >= totalReplicas
+
   const previousActive = isEdgeTierActiveForRouting(settings)
   const localBaseUrl = deps.localPodBaseUrl ?? process.env['WR_POD_BASE_URL'] ?? 'http://127.0.0.1:18100'
 
@@ -134,7 +140,8 @@ export async function verifyEdgeRoundTripAndEnable(
     await applyEdgeTierSettingsAndRestartPod(vault, { ...current, enabled: enabled ? true : current.enabled })
   })
 
-  await restart(deps.vault, true)
+  // Keep enabled pending until every replica in the wizard batch is verified (multi-replica invariant).
+  await restart(deps.vault, previousActive)
 
   const ingest =
     deps.ingest ??
@@ -149,9 +156,15 @@ export async function verifyEdgeRoundTripAndEnable(
     return { verified: false, reason: ingestResult.reason ?? 'Synthetic verify failed' }
   }
 
-  setEdgeTierVerifiedEnabled()
-  const current = loadEdgeTierSettings()
-  await applyEdgeTierSettingsAndRestartPod(deps.vault, current)
+  if (allReplicasVerified) {
+    // Invariant: enabled:true only when every chosen replica has passed verify (never after partial multi-replica).
+    setEdgeTierVerifiedEnabled()
+    const current = loadEdgeTierSettings()
+    await applyEdgeTierSettingsAndRestartPod(deps.vault, current)
+  } else {
+    setEdgeTierPending()
+    await restart(deps.vault, false)
+  }
 
   return { verified: true }
 }

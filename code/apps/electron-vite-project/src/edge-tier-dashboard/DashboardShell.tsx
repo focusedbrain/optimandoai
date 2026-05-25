@@ -22,6 +22,7 @@ import type {
   QuarantineDashboardSummary,
   ReplacementBudgetNotification,
 } from './types.js'
+import type { EdgeConfigurationState } from '../edge-tier/configurationState.js'
 import type { ReplicaActionKind } from './replicaActions.js'
 import {
   SandboxViewerModal,
@@ -45,7 +46,7 @@ const emptyQuarantineSummary: QuarantineDashboardSummary = {
 }
 
 export interface DashboardShellViewProps {
-  edgeTierEnabled: boolean
+  configurationState: EdgeConfigurationState
   replicas: ReplicaStatus[]
   verifications: DashboardUpdatePayload['verifications']
   activeTab: DashboardTab
@@ -72,7 +73,7 @@ export interface DashboardShellViewProps {
 }
 
 export function DashboardShellView({
-  edgeTierEnabled,
+  configurationState,
   replicas,
   verifications,
   activeTab,
@@ -97,10 +98,11 @@ export function DashboardShellView({
   error,
   fetchLogs,
 }: DashboardShellViewProps) {
-  if (!edgeTierEnabled) {
+  if (configurationState === 'not_configured') {
     return (
       <div
         data-testid="edge-dashboard-empty"
+        data-configuration-state={configurationState}
         style={{
           maxWidth: 560,
           margin: '48px auto',
@@ -133,8 +135,50 @@ export function DashboardShellView({
     )
   }
 
+  if (configurationState === 'setup_in_progress') {
+    const host = replicas[0]?.host ?? 'your server'
+    return (
+      <div
+        data-testid="edge-dashboard-setup-in-progress"
+        data-configuration-state={configurationState}
+        style={{
+          maxWidth: 560,
+          margin: '48px auto',
+          padding: 24,
+          textAlign: 'center',
+          border: '1px dashed var(--border)',
+          borderRadius: 10,
+        }}
+      >
+        <h2 style={{ marginTop: 0, fontSize: 18 }}>Edge ingestor setup in progress</h2>
+        <p style={{ color: 'var(--text-secondary)', marginBottom: 20 }}>
+          Setup is in progress on {host}. Complete verification to enable server-side routing.
+        </p>
+        <button
+          type="button"
+          data-testid="edge-dashboard-resume-setup"
+          onClick={onLaunchWizard}
+          style={{
+            padding: '8px 16px',
+            borderRadius: 8,
+            border: '1px solid #6366f1',
+            background: '#eef2ff',
+            cursor: 'pointer',
+            fontWeight: 600,
+          }}
+        >
+          Resume setup
+        </button>
+      </div>
+    )
+  }
+
   return (
-    <div data-testid="edge-dashboard" style={{ padding: '24px 32px', maxWidth: 960, margin: '0 auto' }}>
+    <div
+      data-testid="edge-dashboard"
+      data-configuration-state={configurationState}
+      style={{ padding: '24px 32px', maxWidth: 960, margin: '0 auto' }}
+    >
       <header style={{ marginBottom: 20 }}>
         <h1 style={{ margin: '0 0 4px', fontSize: 20 }}>Edge Ingestor</h1>
         <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 13 }}>
@@ -685,7 +729,7 @@ export function DashboardShell() {
   return (
     <>
       <DashboardShellView
-        edgeTierEnabled={payload?.edge_tier_enabled ?? false}
+        configurationState={payload?.edge_configuration_state ?? 'not_configured'}
         replicas={payload?.replicas ?? []}
         verifications={payload?.verifications ?? []}
         activeTab={activeTab}

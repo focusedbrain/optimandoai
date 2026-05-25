@@ -31,6 +31,14 @@ import type {
 } from './types.js'
 import { _resetWizardSshSessionForTest, clearWizardVmCredentials } from './sshSession.js'
 import { toHostKeyAwareFailure } from '../edge-tier/ssh/hostKeyIpc.js'
+import {
+  buildWizardEntryContext,
+  resumeWizardAddReplica,
+  resumeWizardReconfigure,
+  resumeWizardSetup,
+  resetWizardState,
+  startOverEdgeSetupLocally,
+} from './entry.js'
 
 let _wizardState: WizardState = { ...INITIAL_WIZARD_STATE }
 let _handlerDeps: WizardHandlerDeps | null = null
@@ -94,11 +102,7 @@ function applyProbeResult(probe: TargetProbe): WizardPublicState {
       message: probe.verdict.message,
     })
   }
-  let state = dispatch({ type: 'PROBE_SUCCESS', probe })
-  if (probe.podman_installed) {
-    state = dispatch({ type: 'PODMAN_READY' })
-  }
-  return state
+  return dispatch({ type: 'PROBE_SUCCESS', probe })
 }
 
 export function initWizardIpc(vault: EdgeTierPodVault): void {
@@ -113,6 +117,36 @@ export function registerWizardIpcHandlers(): void {
 
   ipcMain.handle('wizard:continueFromExplainer', async () => {
     return { state: dispatch({ type: 'EXPLAINER_CONTINUE' }) }
+  })
+
+  ipcMain.handle('wizard:getEntryContext', async () => {
+    return buildWizardEntryContext(_wizardState)
+  })
+
+  ipcMain.handle('wizard:continueFromProbe', async () => {
+    return { state: dispatch({ type: 'PODMAN_READY' }) }
+  })
+
+  ipcMain.handle('wizard:resumeSetup', async () => {
+    _wizardState = resumeWizardSetup(_wizardState)
+    return { state: getPublicState() }
+  })
+
+  ipcMain.handle('wizard:addAnotherReplica', async () => {
+    _wizardState = resumeWizardAddReplica(_wizardState)
+    return { state: getPublicState() }
+  })
+
+  ipcMain.handle('wizard:reconfigure', async () => {
+    _wizardState = resumeWizardReconfigure(_wizardState)
+    return { state: getPublicState() }
+  })
+
+  ipcMain.handle('wizard:startOverLocally', async () => {
+    await startOverEdgeSetupLocally(getDeps().vault)
+    _wizardState = resetWizardState()
+    clearWizardVmCredentials()
+    return { state: getPublicState() }
   })
 
   ipcMain.handle('wizard:getState', async () => getPublicState())
@@ -199,7 +233,7 @@ export function registerWizardIpcHandlers(): void {
           sendProgress(event.sender, 'wizard:installPodman-progress', operationId, installEvent)
           if (controller.signal.aborted) break
           if (installEvent.kind === 'done') {
-            dispatch({ type: 'PODMAN_READY' })
+            dispatch({ type: 'PODMAN_INSTALL_SUCCEEDED' })
           }
           if (installEvent.kind === 'error') {
             dispatch({ type: 'PODMAN_INSTALL_FAILED', message: installEvent.message })
@@ -259,6 +293,7 @@ export function registerWizardIpcHandlers(): void {
       getDeps(),
       parsed.replicaIndex,
       parsed.nativeBeapRouting ?? 'direct',
+      parsed.totalReplicas,
     )
     const state = result.verified
       ? dispatch({ type: 'VERIFY_SUCCESS' })
@@ -364,13 +399,16 @@ function parseGenerateDeployInput(input: unknown): WizardGenerateDeployInput {
 
 function parseVerifyInput(input: unknown): WizardVerifyInput {
   if (typeof input !== 'object' || input === null) {
-    return { replicaIndex: 0, nativeBeapRouting: 'direct' }
+    return { replicaIndex: 0, nativeBeapRouting: 'direct', totalReplicas: 1 }
   }
   const o = input as Record<string, unknown>
   const nativeBeapRouting =
     o.nativeBeapRouting === 'require_edge' ? 'require_edge' : 'direct'
+  const totalReplicas =
+    typeof o.totalReplicas === 'number' && o.totalReplicas >= 1 ? o.totalReplicas : 1
   return {
     replicaIndex: typeof o.replicaIndex === 'number' ? o.replicaIndex : 0,
     nativeBeapRouting,
+    totalReplicas,
   }
 }

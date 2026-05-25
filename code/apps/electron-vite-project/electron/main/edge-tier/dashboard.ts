@@ -5,7 +5,7 @@
  */
 
 import { ipcMain, type WebContents } from 'electron'
-import { loadEdgeTierSettings, isEdgeTierActiveForRouting, isEdgeTierSetupPending, type EdgeReplica } from './settings.js'
+import { loadEdgeTierSettings, isEdgeTierActiveForRouting, isEdgeTierSetupPending, deriveEdgeConfigurationState, type EdgeConfigurationState, type EdgeReplica } from './settings.js'
 import { toDashboardFallbackPolicy, type DashboardFallbackPolicy } from './globalActions.js'
 import {
   getRecentEdgeVerifications,
@@ -44,6 +44,7 @@ export type VerificationEvent = EdgeVerificationRecord
 export interface DashboardUpdatePayload {
   edge_tier_enabled: boolean
   edge_setup_pending: boolean
+  edge_configuration_state: EdgeConfigurationState
   fallback_policy: DashboardFallbackPolicy
   replicas: ReplicaStatus[]
   verifications: VerificationEvent[]
@@ -172,15 +173,37 @@ export function onVerifierVerificationIngested(_record: VerificationEvent): void
 
 export function buildDashboardUpdatePayload(): DashboardUpdatePayload {
   const settings = loadEdgeTierSettings()
+  const edgeReachable = deriveEdgeReachableFromHealthCache(settings)
   return {
     edge_tier_enabled: isEdgeTierActiveForRouting(settings),
     edge_setup_pending: isEdgeTierSetupPending(settings),
+    edge_configuration_state: deriveEdgeConfigurationState(settings, edgeReachable),
     fallback_policy: toDashboardFallbackPolicy(settings.fallback_policy),
     replicas: getDashboardReplicas(),
     verifications: getDashboardVerifications(),
     quarantine_summary: buildQuarantineDashboardSummary(),
     replacement_budget_notifications: getReplacementBudgetNotifications(),
   }
+}
+
+function deriveEdgeReachableFromHealthCache(
+  settings: ReturnType<typeof loadEdgeTierSettings>,
+): boolean | 'unknown' {
+  if (!isEdgeTierActiveForRouting(settings) || settings.replicas.length === 0) {
+    return 'unknown'
+  }
+  let anyKnown = false
+  let anyHealthy = false
+  for (const replica of settings.replicas) {
+    const cached = _healthCache.get(replicaKey(replica))
+    if (!cached) continue
+    anyKnown = true
+    if (cached.health === 'healthy') {
+      anyHealthy = true
+    }
+  }
+  if (!anyKnown) return 'unknown'
+  return anyHealthy
 }
 
 export async function refreshReplicaHealthCache(): Promise<void> {

@@ -24,6 +24,8 @@ import { StepGenerateAndDeploy } from './steps/StepGenerateAndDeploy.js'
 import { StepVerifyAndSwitch } from './steps/StepVerifyAndSwitch.js'
 import type { NativeBeapRoutingOption } from './copy/nativeBeapRoutingCopy.js'
 import { StepFinale } from './steps/StepFinale.js'
+import { WizardEntryGate } from './WizardEntryGate.js'
+import type { EdgeConfigurationState } from '../edge-tier/configurationState.js'
 import { HostKeyMismatchModal } from '../edge-tier-dashboard/HostKeyMismatchModal.js'
 import { extractHostKeyMismatch, type HostKeyMismatchPayload } from '../edge-tier-dashboard/hostKeyMismatchTypes.js'
 
@@ -62,6 +64,7 @@ export interface WizardBridgeLike {
   }) => Promise<{ ok: boolean; state: WizardPublicState }>
   verifyAndSwitch: (input: {
     replicaIndex: number
+    totalReplicas: number
     nativeBeapRouting?: 'require_edge' | 'direct'
   }) => Promise<{
     verified: boolean
@@ -69,12 +72,23 @@ export interface WizardBridgeLike {
     state: WizardPublicState
   }>
   cancel: (operationId: string) => Promise<{ cancelled: boolean }>
+  getEntryContext?: () => Promise<{
+    configurationState: EdgeConfigurationState
+    primaryHost: string | null
+    replicaCount: number
+    wizardStep: WizardPublicState['step']
+  }>
+  continueFromProbe?: () => Promise<{ state: WizardPublicState }>
+  resumeSetup?: () => Promise<{ state: WizardPublicState }>
+  addAnotherReplica?: () => Promise<{ state: WizardPublicState }>
+  reconfigure?: () => Promise<{ state: WizardPublicState }>
+  startOverLocally?: () => Promise<{ state: WizardPublicState }>
   getLocalPodRequirement?: () => Promise<{ ok: boolean; message: string | null }>
   onInstallPodmanProgress?: (handler: (payload: { operationId: string; event: LogEvent }) => void) => () => void
   onGenerateAndDeployProgress?: (handler: (payload: { operationId: string; event: LogEvent }) => void) => () => void
 }
 
-type ShellMode = 'running' | 'cancelled' | 'blocked'
+type ShellMode = 'running' | 'cancelled' | 'blocked' | 'close_confirm'
 
 function stepIndex(step: WizardPublicState['step']): number {
   const order: WizardPublicState['step'][] = [
@@ -127,6 +141,13 @@ export function WizardShell({
   } | null>(null)
   const [hostKeyTrustBusy, setHostKeyTrustBusy] = useState(false)
   const [waitingForUpgrade, setWaitingForUpgrade] = useState(false)
+  const [entryGateActive, setEntryGateActive] = useState(false)
+  const [entryConfigurationState, setEntryConfigurationState] =
+    useState<EdgeConfigurationState>('not_configured')
+  const [entryPrimaryHost, setEntryPrimaryHost] = useState<string | null>(null)
+  const [entryBusy, setEntryBusy] = useState(false)
+  const [confirmStartOver, setConfirmStartOver] = useState(false)
+  const [confirmReconfigure, setConfirmReconfigure] = useState(false)
 
   const operationIdRef = useRef<string | null>(null)
   const deployAttemptedRef = useRef(false)
@@ -176,6 +197,12 @@ export function WizardShell({
       }
       const s = await wizard.getState()
       syncState(s)
+      if (wizard.getEntryContext) {
+        const entry = await wizard.getEntryContext()
+        setEntryConfigurationState(entry.configurationState)
+        setEntryPrimaryHost(entry.primaryHost)
+        setEntryGateActive(entry.configurationState !== 'not_configured')
+      }
     })().catch((err) => {
       setLocalError(err instanceof Error ? err.message : String(err))
       setMode('blocked')
@@ -203,8 +230,24 @@ export function WizardShell({
     operationIdRef.current = null
     setInstalling(false)
     setDeploying(false)
+    setProbing(false)
     setMode('cancelled')
   }, [wizard])
+
+  const handleRequestClose = useCallback(() => {
+    const active =
+      installing || deploying || probing || Boolean(operationIdRef.current)
+    if (active) {
+      setMode('close_confirm')
+      return
+    }
+    onClose()
+  }, [installing, deploying, probing, onClose])
+
+  const handleConfirmCloseAbort = useCallback(async () => {
+    await handleCancelOperation()
+    onClose()
+  }, [handleCancelOperation, onClose])
 
   const handleStartOver = useCallback(async () => {
     if (!wizard) return
@@ -329,6 +372,95 @@ export function WizardShell({
     }
   }, [state?.step, state?.probe, probing, handleProbe])
 
+  const handleContinueFromProbe = useCallback(async () => {
+    try {
+      const w = ensureWizard()
+      if (!w.continueFromProbe) {
+        throw new Error('continueFromProbe unavailable')
+      }
+      setLocalError(null)
+      const { state: next } = await w.continueFromProbe()
+      syncState(next)
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : String(err))
+    }
+  }, [ensureWizard, syncState])
+
+  const handleEntryResumeSetup = useCallback(async () => {
+    try {
+      const w = ensureWizard()
+      setEntryBusy(true)
+      setLocalError(null)
+      const resume = w.resumeSetup ?? (async () => ({ state: await w.getState() as WizardPublicState }))
+      const { state: next } = await resume()
+      syncState(next)
+      setEntryGateActive(false)
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setEntryBusy(false)
+    }
+  }, [ensureWizard, syncState])
+
+  const handleEntryStartOverConfirm = useCallback(async () => {
+    try {
+      const w = ensureWizard()
+      setEntryBusy(true)
+      setLocalError(null)
+      if (!w.startOverLocally) {
+        throw new Error('startOverLocally unavailable')
+      }
+      const { state: next } = await w.startOverLocally()
+      syncState(next)
+      setEntryConfigurationState('not_configured')
+      setEntryPrimaryHost(null)
+      setConfirmStartOver(false)
+      setEntryGateActive(false)
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setEntryBusy(false)
+    }
+  }, [ensureWizard, syncState])
+
+  const handleEntryAddReplica = useCallback(async () => {
+    try {
+      const w = ensureWizard()
+      setEntryBusy(true)
+      if (!w.addAnotherReplica) {
+        throw new Error('addAnotherReplica unavailable')
+      }
+      const { state: next } = await w.addAnotherReplica()
+      syncState(next)
+      setEntryGateActive(false)
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setEntryBusy(false)
+    }
+  }, [ensureWizard, syncState])
+
+  const handleEntryReconfigureConfirm = useCallback(async () => {
+    try {
+      const w = ensureWizard()
+      setEntryBusy(true)
+      if (w.startOverLocally) {
+        await w.startOverLocally()
+      }
+      if (!w.reconfigure) {
+        throw new Error('reconfigure unavailable')
+      }
+      const { state: next } = await w.reconfigure()
+      syncState(next)
+      setConfirmReconfigure(false)
+      setEntryGateActive(false)
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setEntryBusy(false)
+    }
+  }, [ensureWizard, syncState])
+
   const handleInstallPodman = useCallback(async () => {
     if (!state?.probe) return
     try {
@@ -412,6 +544,7 @@ export function WizardShell({
       setLocalError(null)
       const result = await w.verifyAndSwitch({
         replicaIndex: state.replicaIndex,
+        totalReplicas: state.totalReplicas,
         nativeBeapRouting,
       })
       setVerifyResult(result.verified)
@@ -465,7 +598,7 @@ export function WizardShell({
       <div style={{ ...wizardCardStyle, ...wizardPanelStyle }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
           <h1 style={{ margin: 0, fontSize: 18 }}>{WIZARD_TITLE}</h1>
-          <button type="button" style={btnSecondary} onClick={onClose}>
+          <button type="button" style={btnSecondary} onClick={() => void handleRequestClose()}>
             Close
           </button>
         </div>
@@ -479,6 +612,33 @@ export function WizardShell({
           </div>
         )}
 
+        {mode === 'close_confirm' && (
+          <div data-testid="wizard-close-confirm">
+            <h2 style={{ fontSize: 16 }}>Cancel deployment and close?</h2>
+            <p style={{ color: '#94a3b8' }}>
+              A deployment is in progress. Cancel deployment and close?
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                style={btnDanger}
+                data-testid="wizard-close-confirm-abort"
+                onClick={() => void handleConfirmCloseAbort()}
+              >
+                Cancel deployment &amp; close
+              </button>
+              <button
+                type="button"
+                style={btnSecondary}
+                data-testid="wizard-close-confirm-keep-open"
+                onClick={() => setMode('running')}
+              >
+                Keep wizard open
+              </button>
+            </div>
+          </div>
+        )}
+
         {mode === 'cancelled' && (
           <div data-testid="wizard-cancelled">
             <h2 style={{ fontSize: 16 }}>Wizard cancelled</h2>
@@ -489,7 +649,26 @@ export function WizardShell({
           </div>
         )}
 
-        {mode === 'running' && state && (
+        {mode === 'running' && entryGateActive && (
+          <WizardEntryGate
+            configurationState={entryConfigurationState}
+            primaryHost={entryPrimaryHost}
+            confirmStartOver={confirmStartOver}
+            confirmReconfigure={confirmReconfigure}
+            busy={entryBusy}
+            onResumeSetup={() => void handleEntryResumeSetup()}
+            onStartOverRequest={() => setConfirmStartOver(true)}
+            onStartOverConfirm={() => void handleEntryStartOverConfirm()}
+            onStartOverCancel={() => setConfirmStartOver(false)}
+            onAddReplica={() => void handleEntryAddReplica()}
+            onReconfigureRequest={() => setConfirmReconfigure(true)}
+            onReconfigureConfirm={() => void handleEntryReconfigureConfirm()}
+            onReconfigureCancel={() => setConfirmReconfigure(false)}
+            onCancel={onClose}
+          />
+        )}
+
+        {mode === 'running' && state && !entryGateActive && (
           <>
             <div
               data-testid="wizard-progress"
@@ -561,9 +740,7 @@ export function WizardShell({
                 installLogs={installLogs}
                 onRunProbe={() => void handleProbe()}
                 onInstallPodman={() => void handleInstallPodman()}
-                onContinue={() => {
-                  /* state machine advances via IPC after podman ready */
-                }}
+                onContinue={() => void handleContinueFromProbe()}
                 onCancelWizard={() => void handleCancelOperation()}
               />
             )}

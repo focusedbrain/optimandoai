@@ -87,15 +87,20 @@ export function StepProbeAndPrepare({
         </>
       )}
       {(podmanReady || (probe?.podman_installed && verdict?.ok)) && !installing && (
-        <button
-          type="button"
-          style={btnPrimary}
-          disabled={loading}
-          data-testid="wizard-probe-continue"
-          onClick={onContinue}
-        >
-          Continue
-        </button>
+        <>
+          <p style={{ color: '#86efac', marginBottom: 12, fontSize: 13 }} data-testid="wizard-probe-ready">
+            Podman is installed and ready on this VM.
+          </p>
+          <button
+            type="button"
+            style={btnPrimary}
+            disabled={loading}
+            data-testid="wizard-probe-continue"
+            onClick={onContinue}
+          >
+            Continue
+          </button>
+        </>
       )}
       {!probe && !probing && (
         <button type="button" style={btnSecondary} onClick={onRunProbe}>

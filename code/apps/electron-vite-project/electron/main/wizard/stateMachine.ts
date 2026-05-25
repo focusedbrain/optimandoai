@@ -20,18 +20,23 @@ export const INITIAL_WIZARD_STATE: WizardState = {
 
 export type WizardEvent =
   | { readonly type: 'RESET' }
+  | { readonly type: 'EXPLAINER_CONTINUE' }
   | { readonly type: 'AUTH_SUCCESS'; readonly plan: string; readonly sub: string }
   | { readonly type: 'AUTH_FAILED'; readonly message: string }
   | { readonly type: 'VM_CREDENTIALS_SET'; readonly credentials: WizardVmCredentialsPublic }
   | { readonly type: 'PROBE_SUCCESS'; readonly probe: TargetProbe }
   | { readonly type: 'PROBE_FAILED'; readonly message: string }
   | { readonly type: 'PODMAN_READY' }
+  | { readonly type: 'PODMAN_INSTALL_SUCCEEDED' }
   | { readonly type: 'PODMAN_INSTALL_FAILED'; readonly message: string }
   | { readonly type: 'REPLICA_COUNT_SET'; readonly count: number }
   | { readonly type: 'DEPLOY_SUCCESS'; readonly replica: WizardDeployedReplicaPublic }
   | { readonly type: 'DEPLOY_FAILED'; readonly message: string }
   | { readonly type: 'VERIFY_SUCCESS' }
   | { readonly type: 'VERIFY_FAILED'; readonly message: string }
+  | { readonly type: 'RESUME_AT_VERIFY'; readonly replicaIndex: number }
+  | { readonly type: 'RESUME_ADD_REPLICA'; readonly replicaIndex: number; readonly totalReplicas: number }
+  | { readonly type: 'RESUME_RECONFIGURE' }
 
 function withError(state: WizardState, step: WizardStep, message: string): WizardState {
   return { ...state, error: { step, message } }
@@ -96,6 +101,9 @@ export function wizardReducer(state: WizardState, event: WizardEvent): WizardSta
     case 'PODMAN_INSTALL_FAILED':
       return withError(state, 'probe_and_prepare', event.message)
 
+    case 'PODMAN_INSTALL_SUCCEEDED':
+      return clearError({ ...state, podmanReady: true })
+
     case 'REPLICA_COUNT_SET':
       return clearError({
         ...state,
@@ -139,6 +147,31 @@ export function wizardReducer(state: WizardState, event: WizardEvent): WizardSta
         ...withError(state, 'verify_and_switch', event.message),
         lastVerify: { verified: false, reason: event.message },
       }
+
+    case 'RESUME_AT_VERIFY':
+      return clearError({
+        ...state,
+        step: 'verify_and_switch',
+        replicaIndex: event.replicaIndex,
+      })
+
+    case 'RESUME_ADD_REPLICA':
+      return clearError({
+        ...INITIAL_WIZARD_STATE,
+        step: 'provide_vm',
+        replicaIndex: event.replicaIndex,
+        totalReplicas: event.totalReplicas,
+        authenticate: state.authenticate,
+      })
+
+    case 'RESUME_RECONFIGURE':
+      return clearError({
+        ...INITIAL_WIZARD_STATE,
+        step: 'provide_vm',
+        replicaIndex: 0,
+        totalReplicas: 1,
+        authenticate: state.authenticate,
+      })
 
     default:
       return state

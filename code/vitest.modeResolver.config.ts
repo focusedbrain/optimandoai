@@ -24,6 +24,8 @@ export default defineConfig({
     name: 'modeResolver',
     include: [
       'apps/electron-vite-project/electron/main/ingestion/__tests__/modeResolver/**/*.test.ts',
+      'apps/electron-vite-project/electron/main/edge-tier/__tests__/edgeConfigurationState.test.ts',
+      'apps/electron-vite-project/electron/main/wizard/__tests__/**/*.test.ts',
     ],
     setupFiles: [],
     globals: true,

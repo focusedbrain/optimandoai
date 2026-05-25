@@ -9,6 +9,8 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { homedir } from 'node:os'
 
+import { removeEncryptedEdgePrivateKey } from './keyStorage.js'
+
 export type EdgeFallbackPolicy = 'reject' | 'local_only'
 
 /** Edge tier activation state. `'pending'` = wizard in progress; routes like disabled. */
@@ -68,6 +70,58 @@ export function isEdgeTierSetupPending(settings: EdgeTierSettings): boolean {
 
 export function isEdgeTierDisabledForRouting(settings: EdgeTierSettings): boolean {
   return settings.enabled === false || settings.enabled === 'pending'
+}
+
+/** High-level edge setup state shared by dashboard, email panel, and wizard entry. */
+export type EdgeConfigurationState =
+  | 'not_configured'
+  | 'setup_in_progress'
+  | 'configured_active'
+  | 'configured_unreachable'
+
+/** Edge reachability input for {@link deriveEdgeConfigurationState}. */
+export type EdgeConfigurationReachable = boolean | 'unknown'
+
+/**
+ * Single source of truth for whether edge is configured and how it is operating.
+ * `edgeReachable`: from health probe; `'unknown'` treats enabled replicas as active.
+ */
+export function deriveEdgeConfigurationState(
+  settings: EdgeTierSettings,
+  edgeReachable: EdgeConfigurationReachable = 'unknown',
+): EdgeConfigurationState {
+  if (isEdgeTierSetupPending(settings)) {
+    return 'setup_in_progress'
+  }
+
+  if (settings.enabled === true && settings.replicas.length > 0) {
+    if (edgeReachable === false) {
+      return 'configured_unreachable'
+    }
+    return 'configured_active'
+  }
+
+  if (settings.replicas.length > 0 && settings.enabled !== true) {
+    return 'setup_in_progress'
+  }
+
+  return 'not_configured'
+}
+
+/** Remove all replicas and disable edge tier locally (no remote SSH teardown). */
+export function clearEdgeTierConfigurationLocally(): EdgeTierSettings {
+  const current = loadEdgeTierSettings()
+  for (const replica of current.replicas) {
+    removeEncryptedEdgePrivateKey(replica.edge_pod_id)
+  }
+  const next: EdgeTierSettings = {
+    ...DEFAULT_EDGE_TIER_SETTINGS,
+    fallback_policy: current.fallback_policy,
+    native_beap_routing: current.native_beap_routing,
+    quarantine_retention_days: current.quarantine_retention_days,
+  }
+  saveEdgeTierSettings(next)
+  return next
 }
 
 const SETTINGS_FILENAME = 'edge-tier-settings.json'

@@ -42,7 +42,7 @@ describe('DashboardShellView', () => {
   it('matches snapshot for empty state when edge tier disabled', () => {
     const html = renderToStaticMarkup(
       <DashboardShellView
-        edgeTierEnabled={false}
+        configurationState="not_configured"
         replicas={[]}
         verifications={[]}
         activeTab="replicas"
@@ -55,14 +55,33 @@ describe('DashboardShellView', () => {
     )
     expect(html).toMatchSnapshot()
     expect(html).toContain('edge-dashboard-empty')
+    expect(html).toContain('data-configuration-state="not_configured"')
     expect(html).toContain('Edge Ingestor is not configured')
     expect(html).toContain('depackaging unit and validator off band')
+  })
+
+  it('shows setup in progress state with resume action', () => {
+    const html = renderToStaticMarkup(
+      <DashboardShellView
+        configurationState="setup_in_progress"
+        replicas={[sampleReplica]}
+        verifications={[]}
+        activeTab="replicas"
+        onTabChange={() => undefined}
+        selectedReplica={null}
+        onViewDetails={() => undefined}
+        onCloseDetail={() => undefined}
+        onLaunchWizard={() => undefined}
+      />,
+    )
+    expect(html).toContain('edge-dashboard-setup-in-progress')
+    expect(html).toContain('Resume setup')
   })
 
   it('matches snapshot for list state with replicas and verifications tab', () => {
     const html = renderToStaticMarkup(
       <DashboardShellView
-        edgeTierEnabled={true}
+        configurationState="configured_active"
         replicas={[sampleReplica]}
         verifications={sampleVerifications}
         activeTab="replicas"

@@ -29,6 +29,7 @@ vi.mock('../../edge-tier/keyStorage.js', () => ({
 
 vi.mock('../../edge-tier/settings.js', () => ({
   upsertEdgeReplica: vi.fn(),
+  setEdgeTierPending: vi.fn(),
 }))
 
 const teardownRun = vi.fn(async () => ({ stdout: '', stderr: '', code: 0 }))
@@ -88,6 +89,7 @@ describe('wizardGenerateAndDeploy cancellation', () => {
     })()
 
     controller.abort()
+    await new Promise((r) => setTimeout(r, 60))
 
     await task
 

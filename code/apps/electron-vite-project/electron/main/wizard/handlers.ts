@@ -266,10 +266,11 @@ export async function wizardVerifyAndSwitch(
   deps: WizardHandlerDeps,
   replicaIndex: number,
   nativeBeapRouting: NativeBeapRouting = 'direct',
+  totalReplicas = 1,
 ): Promise<{ verified: boolean; reason?: string }> {
   setEdgeTierNativeBeapRouting(nativeBeapRouting)
   const verify = deps.verifyRoundTrip ?? verifyEdgeRoundTripAndEnable
-  return verify(replicaIndex, { vault: deps.vault })
+  return verify(replicaIndex, { vault: deps.vault, totalReplicas })
 }
 
 /** @deprecated Use assertNoSecretsInValue — kept for existing IPC call sites (P4.5.14). */

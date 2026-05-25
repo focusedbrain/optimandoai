@@ -63,8 +63,11 @@ export interface VerificationEvent {
   phase: 'shallow' | 'deep'
 }
 
+import type { EdgeConfigurationState } from '../edge-tier/configurationState.js'
+
 export interface DashboardUpdatePayload {
   edge_tier_enabled: boolean
+  edge_configuration_state: EdgeConfigurationState
   fallback_policy: DashboardFallbackPolicy
   replicas: ReplicaStatus[]
   verifications: VerificationEvent[]

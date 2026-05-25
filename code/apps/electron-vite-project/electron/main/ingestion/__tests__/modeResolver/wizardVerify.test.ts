@@ -98,12 +98,52 @@ describe('wizard does not persist enabled: true without verification', () => {
   test('wizard with full success persists enabled: true', async () => {
     const result = await verifyEdgeRoundTripAndEnable(0, {
       vault: mockVault,
+      totalReplicas: 1,
       probeEdge: async () => true,
       restartPod: async () => {},
       ingest: async () => ({ ok: true }),
     })
 
     expect(result.verified).toBe(true)
+    expect(loadEdgeTierSettings().enabled).toBe(true)
+  })
+
+  test('multi-replica: first verify stays pending, second verify enables', async () => {
+    const replica2: EdgeReplica = {
+      ...REPLICA,
+      edge_pod_id: '22222222-2222-4222-8222-222222222222',
+      host: '127.0.0.2',
+    }
+    writeFileSync(
+      join(tempDir, 'edge-tier-settings.json'),
+      JSON.stringify({
+        enabled: 'pending',
+        replicas: [REPLICA, replica2],
+        on_edge_unreachable: 'hold',
+        fallback_policy: 'reject',
+        native_beap_routing: 'direct',
+      }),
+      { mode: 0o600 },
+    )
+
+    const first = await verifyEdgeRoundTripAndEnable(0, {
+      vault: mockVault,
+      totalReplicas: 2,
+      probeEdge: async () => true,
+      restartPod: async () => {},
+      ingest: async () => ({ ok: true }),
+    })
+    expect(first.verified).toBe(true)
+    expect(loadEdgeTierSettings().enabled).toBe('pending')
+
+    const second = await verifyEdgeRoundTripAndEnable(1, {
+      vault: mockVault,
+      totalReplicas: 2,
+      probeEdge: async () => true,
+      restartPod: async () => {},
+      ingest: async () => ({ ok: true }),
+    })
+    expect(second.verified).toBe(true)
     expect(loadEdgeTierSettings().enabled).toBe(true)
   })
 })

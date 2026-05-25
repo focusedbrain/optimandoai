@@ -13,6 +13,11 @@ import type { LogEvent } from '../../edge-tier-wizard/types.js'
 import { HostKeyMismatchModal } from '../../edge-tier-dashboard/HostKeyMismatchModal.js'
 import { extractHostKeyMismatch, type HostKeyMismatchPayload } from '../../edge-tier-dashboard/hostKeyMismatchTypes.js'
 import {
+  configurationStateFromDashboardPayload,
+  configurationStatePrimaryAction,
+  type EdgeConfigurationState,
+} from '../../edge-tier/configurationState.js'
+import {
   EDGE_INGESTOR_ADD_BUTTON,
   EDGE_INGESTOR_EMPTY_HINT,
   EDGE_INGESTOR_EXPLAINER,
@@ -93,6 +98,8 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
     retry: () => Promise<void>
   } | null>(null)
   const [hostKeyTrustBusy, setHostKeyTrustBusy] = useState(false)
+  const [configurationState, setConfigurationState] =
+    useState<EdgeConfigurationState>('not_configured')
   const progressUnsubRef = useRef<(() => void) | null>(null)
 
   const refreshReplicas = useCallback(async () => {
@@ -120,7 +127,8 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
     void refreshReplicas()
     const dashboardBridge = window.dashboard
     if (!dashboardBridge?.onUpdates) return
-    const unsub = dashboardBridge.onUpdates(() => {
+    const unsub = dashboardBridge.onUpdates((payload) => {
+      setConfigurationState(configurationStateFromDashboardPayload(payload))
       void refreshReplicas()
     })
     return unsub
@@ -218,12 +226,19 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
   }, [])
 
   const openSetupFlow = () => {
-    if (replicas.length === 0) {
+    if (configurationState === 'not_configured') {
       setSetupDialogOpen(true)
       return
     }
     setWizardOpen(true)
   }
+
+  const headerButtonLabel =
+    configurationState === 'not_configured'
+      ? EDGE_INGESTOR_SETUP_BUTTON
+      : configurationState === 'setup_in_progress'
+        ? 'Resume setup'
+        : EDGE_INGESTOR_ADD_BUTTON
 
   const handleLaunchWizard = () => {
     setSetupDialogOpen(false)
@@ -255,7 +270,11 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
 
   return (
     <>
-      <div data-testid="edge-ingestor-panel-content" style={{ marginBottom: 16 }}>
+      <div
+        data-testid="edge-ingestor-panel-content"
+        data-configuration-state={configurationState}
+        style={{ marginBottom: 16 }}
+      >
         <div style={subsectionHeaderStyle}>
           <span style={{ fontSize: 12, fontWeight: 700, color: text }}>{EDGE_INGESTOR_SUBSECTION_TITLE}</span>
           <button
@@ -264,7 +283,7 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
             style={primaryBtnStyle}
             onClick={openSetupFlow}
           >
-            <span>+</span> {replicas.length === 0 ? EDGE_INGESTOR_SETUP_BUTTON : EDGE_INGESTOR_ADD_BUTTON}
+            <span>+</span> {headerButtonLabel}
           </button>
         </div>
 
@@ -272,7 +291,7 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
 
         {loading ? (
           <div style={{ padding: 12, textAlign: 'center', fontSize: 12, color: muted }}>Loading edge ingestors…</div>
-        ) : replicas.length === 0 ? (
+        ) : configurationState === 'not_configured' ? (
           <div
             data-testid="edge-ingestor-empty"
             style={{
@@ -287,6 +306,24 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
             <div style={{ fontSize: 12, color: muted, marginBottom: 8 }}>{EDGE_INGESTOR_EMPTY_HINT}</div>
             <button type="button" style={primaryBtnStyle} onClick={() => setSetupDialogOpen(true)}>
               {EDGE_INGESTOR_SETUP_BUTTON}
+            </button>
+          </div>
+        ) : configurationState === 'setup_in_progress' ? (
+          <div
+            data-testid="edge-ingestor-setup-in-progress"
+            style={{
+              padding: 16,
+              background: '#fff',
+              borderRadius: 8,
+              border: '1px dashed rgba(245,158,11,0.45)',
+              textAlign: 'center',
+            }}
+          >
+            <div style={{ fontSize: 12, color: muted, marginBottom: 8 }}>
+              Setup in progress on {replicas[0]?.host ?? 'your server'}. Complete verification to finish.
+            </div>
+            <button type="button" style={primaryBtnStyle} onClick={() => setWizardOpen(true)}>
+              {configurationStatePrimaryAction(configurationState)}
             </button>
           </div>
         ) : (

@@ -313,12 +313,27 @@ interface WizardBridge {
     replicaIndex: number
     totalReplicas: number
   }) => Promise<{ ok: boolean; state: Record<string, unknown> }>
-  verifyAndSwitch: (input: { replicaIndex: number }) => Promise<{
+  verifyAndSwitch: (input: {
+    replicaIndex: number
+    totalReplicas?: number
+    nativeBeapRouting?: 'require_edge' | 'direct'
+  }) => Promise<{
     verified: boolean
     reason?: string
     state: Record<string, unknown>
   }>
   cancel: (operationId: string) => Promise<{ cancelled: boolean }>
+  getEntryContext?: () => Promise<{
+    configurationState: import('./edge-tier/configurationState.js').EdgeConfigurationState
+    primaryHost: string | null
+    replicaCount: number
+    wizardStep: string
+  }>
+  continueFromProbe?: () => Promise<{ state: Record<string, unknown> }>
+  resumeSetup?: () => Promise<{ state: Record<string, unknown> }>
+  addAnotherReplica?: () => Promise<{ state: Record<string, unknown> }>
+  reconfigure?: () => Promise<{ state: Record<string, unknown> }>
+  startOverLocally?: () => Promise<{ state: Record<string, unknown> }>
   getLocalPodRequirement?: () => Promise<{ ok: boolean; message: string | null }>
   onInstallPodmanProgress?: (
     handler: (payload: { operationId: string; event: Record<string, unknown> }) => void,

@@ -1704,9 +1704,18 @@ contextBridge.exposeInMainWorld('wizard', {
     replicaIndex: number
     totalReplicas: number
   }) => ipcRenderer.invoke('wizard:generateAndDeploy', input),
-  verifyAndSwitch: (input: { replicaIndex: number; nativeBeapRouting?: 'require_edge' | 'direct' }) =>
-    ipcRenderer.invoke('wizard:verifyAndSwitch', input),
+  verifyAndSwitch: (input: {
+    replicaIndex: number
+    totalReplicas?: number
+    nativeBeapRouting?: 'require_edge' | 'direct'
+  }) => ipcRenderer.invoke('wizard:verifyAndSwitch', input),
   cancel: (operationId: string) => ipcRenderer.invoke('wizard:cancel', operationId),
+  getEntryContext: () => ipcRenderer.invoke('wizard:getEntryContext'),
+  continueFromProbe: () => ipcRenderer.invoke('wizard:continueFromProbe'),
+  resumeSetup: () => ipcRenderer.invoke('wizard:resumeSetup'),
+  addAnotherReplica: () => ipcRenderer.invoke('wizard:addAnotherReplica'),
+  reconfigure: () => ipcRenderer.invoke('wizard:reconfigure'),
+  startOverLocally: () => ipcRenderer.invoke('wizard:startOverLocally'),
   getLocalPodRequirement: () =>
     ipcRenderer.invoke('edge-tier:get-local-pod-requirement') as Promise<{
       ok: boolean
