@@ -1047,7 +1047,11 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ...(Array.isArray(opts.profile_ids) ? { profile_ids: opts.profile_ids } : {}),
       ...(Array.isArray(opts.profile_items) ? { profile_items: opts.profile_items } : {}),
       ...(opts.policy_selections && typeof opts.policy_selections === 'object' ? { policy_selections: opts.policy_selections } : {}),
-      ...(opts.handshake_type === 'internal' || opts.handshake_type === 'standard' ? { handshake_type: opts.handshake_type } : {}),
+      ...(opts.handshake_type === 'internal' ||
+      opts.handshake_type === 'standard' ||
+      opts.handshake_type === 'edge_ingestor'
+        ? { handshake_type: opts.handshake_type }
+        : {}),
       ...(typeof opts.device_name === 'string' && opts.device_name.trim() ? { device_name: opts.device_name.trim() } : {}),
       ...(opts.device_role === 'host' || opts.device_role === 'sandbox' ? { device_role: opts.device_role } : {}),
       ...(typeof opts.counterparty_device_id === 'string' && opts.counterparty_device_id.trim()
@@ -1079,7 +1083,11 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ...(Array.isArray(opts.profile_ids) ? { profile_ids: opts.profile_ids } : {}),
       ...(Array.isArray(opts.profile_items) ? { profile_items: opts.profile_items } : {}),
       ...(opts.policy_selections && typeof opts.policy_selections === 'object' ? { policy_selections: opts.policy_selections } : {}),
-      ...(opts.handshake_type === 'internal' || opts.handshake_type === 'standard' ? { handshake_type: opts.handshake_type } : {}),
+      ...(opts.handshake_type === 'internal' ||
+      opts.handshake_type === 'standard' ||
+      opts.handshake_type === 'edge_ingestor'
+        ? { handshake_type: opts.handshake_type }
+        : {}),
       ...(typeof opts.device_name === 'string' && opts.device_name.trim() ? { device_name: opts.device_name.trim() } : {}),
       ...(opts.device_role === 'host' || opts.device_role === 'sandbox' ? { device_role: opts.device_role } : {}),
       ...(typeof opts.counterparty_device_id === 'string' && opts.counterparty_device_id.trim()
@@ -1410,6 +1418,13 @@ contextBridge.exposeInMainWorld('emailInbox', {
   getDeletedMessages: () => ipcRenderer.invoke('inbox:getDeletedMessages'),
   getAttachment: (id: string) => ipcRenderer.invoke('inbox:getAttachment', id),
   getAttachmentText: (id: string) => ipcRenderer.invoke('inbox:getAttachmentText', id),
+  issuePdfExtractionConsent: (messageId: string, attachmentId: string) =>
+    ipcRenderer.invoke('inbox:issuePdfExtractionConsent', { messageId, attachmentId }),
+  requestPdfExtraction: (opts: {
+    messageId: string
+    attachmentId: string
+    consentSignature: string
+  }) => ipcRenderer.invoke('inbox:requestPdfExtraction', opts),
   openAttachmentOriginal: (id: string) => ipcRenderer.invoke('inbox:openAttachmentOriginal', id),
   aiSummarize: (id: string) => ipcRenderer.invoke('inbox:aiSummarize', id),
   aiDraftReply: (id: string, opts?: { supersede?: boolean }) =>
@@ -1557,6 +1572,7 @@ contextBridge.exposeInMainWorld('integrity', {
 contextBridge.exposeInMainWorld('ingestionMode', {
   get: () => ipcRenderer.invoke('ingestion-mode:get'),
   retryEdge: () => ipcRenderer.invoke('ingestion-mode:retry-edge'),
+  retryHostPod: () => ipcRenderer.invoke('ingestion-mode:retry-host-pod'),
   authorizeHostFallback: () => ipcRenderer.invoke('ingestion-mode:authorize-host-fallback'),
   revokeHostFallback: () => ipcRenderer.invoke('ingestion-mode:revoke-host-fallback'),
   onUpdated: (handler: (payload: unknown) => void) => {
@@ -1568,6 +1584,54 @@ contextBridge.exposeInMainWorld('ingestionMode', {
     const fn = () => handler()
     ipcRenderer.on('ingestion-mode:open-panel', fn)
     return () => ipcRenderer.removeListener('ingestion-mode:open-panel', fn)
+  },
+})
+
+function edgeConfigurationFromIngestionSnapshot(snap: Record<string, unknown>): string {
+  const settings = snap.settings as Record<string, unknown> | undefined
+  if (settings?.enabled === 'pending') return 'setup_in_progress'
+  if (settings?.enabled === true) {
+    return snap.mode === 'Blocked' ? 'configured_unreachable' : 'configured_active'
+  }
+  return 'not_configured'
+}
+
+contextBridge.exposeInMainWorld('verificationContext', {
+  getSnapshot: async () => {
+    const [tierRes, modeSnap, dashReplicas] = await Promise.all([
+      ipcRenderer.invoke('wizard:refreshTier') as Promise<{ tier: string; isPaidTier: boolean }>,
+      ipcRenderer.invoke('ingestion-mode:get') as Promise<Record<string, unknown>>,
+      ipcRenderer.invoke('dashboard:getReplicas') as Promise<Record<string, unknown>>,
+    ])
+    const edgeFromDash =
+      typeof dashReplicas?.edge_configuration_state === 'string'
+        ? dashReplicas.edge_configuration_state
+        : edgeConfigurationFromIngestionSnapshot(modeSnap ?? {})
+    return {
+      tier: tierRes?.isPaidTier ? 'paid' : 'free',
+      modeResolverState: typeof modeSnap?.mode === 'string' ? modeSnap.mode : 'HostPodActive',
+      edgeConfigurationState: edgeFromDash,
+    }
+  },
+  onUpdated: (handler: (payload: unknown) => void) => {
+    const fn = (_event: unknown, payload: unknown) => handler(payload)
+    ipcRenderer.on('ingestion-mode:updated', fn)
+    ipcRenderer.on('dashboard:updates', fn)
+    return () => {
+      ipcRenderer.removeListener('ingestion-mode:updated', fn)
+      ipcRenderer.removeListener('dashboard:updates', fn)
+    }
+  },
+})
+
+contextBridge.exposeInMainWorld('edgeAgent', {
+  getActivity: (query: unknown) => ipcRenderer.invoke('edge-agent:get-activity', query),
+  recover: (payload: unknown) => ipcRenderer.invoke('edge-agent:recover', payload),
+  exportActivity: (query: unknown) => ipcRenderer.invoke('edge-agent:export-activity', query),
+  onActivityUpdated: (handler: () => void) => {
+    const fn = () => handler()
+    ipcRenderer.on('edge-agent:activity-updated', fn)
+    return () => ipcRenderer.removeListener('edge-agent:activity-updated', fn)
   },
 })
 
@@ -1691,6 +1755,23 @@ contextBridge.exposeInMainWorld('wizard', {
   continueFromExplainer: () =>
     ipcRenderer.invoke('wizard:continueFromExplainer') as Promise<{ state: Record<string, unknown> }>,
   authenticate: () => ipcRenderer.invoke('wizard:authenticate'),
+  parsePairingLink: (raw: string) =>
+    ipcRenderer.invoke('wizard:parsePairingLink', raw) as Promise<{ address: string; code: string } | null>,
+  pairInitiate: (input: { address: string; pairingCode: string }) =>
+    ipcRenderer.invoke('wizard:pairInitiate', input) as Promise<{
+      ok: boolean
+      fingerprint?: string
+      error?: string
+      state: Record<string, unknown>
+    }>,
+  pairConfirm: () =>
+    ipcRenderer.invoke('wizard:pairConfirm') as Promise<{
+      ok: boolean
+      error?: string
+      state: Record<string, unknown>
+    }>,
+  pairCancelFingerprint: () =>
+    ipcRenderer.invoke('wizard:pairCancelFingerprint') as Promise<{ state: Record<string, unknown> }>,
   pickSshKeyFile: () =>
     ipcRenderer.invoke('wizard:pickSshKeyFile') as Promise<{ canceled: boolean; filePath?: string }>,
   setVmCredentials: (input: Record<string, unknown>) =>

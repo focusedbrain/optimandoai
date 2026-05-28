@@ -515,9 +515,21 @@ interface EmailEdgeFetchBridge {
   onStateChanged: (callback: (snapshots: unknown) => void) => () => void
 }
 
+interface VerificationContextSnapshot {
+  tier: 'free' | 'paid'
+  modeResolverState: string
+  edgeConfigurationState: import('./edge-tier/configurationState.js').EdgeConfigurationState
+}
+
+interface VerificationContextBridge {
+  getSnapshot: () => Promise<VerificationContextSnapshot>
+  onUpdated: (handler: (payload: unknown) => void) => () => void
+}
+
 interface IngestionModeBridge {
   get: () => Promise<unknown>
   retryEdge: () => Promise<unknown>
+  retryHostPod: () => Promise<unknown>
   authorizeHostFallback: () => Promise<unknown>
   revokeHostFallback: () => Promise<unknown>
   onUpdated: (handler: (payload: unknown) => void) => () => void
@@ -540,6 +552,7 @@ interface Window {
   integrity?: IntegrityBridge
   edgeTier?: EdgeTierBridge
   ingestionMode?: IngestionModeBridge
+  verificationContext?: VerificationContextBridge
   dashboard?: DashboardBridge
   wizard?: WizardBridge
   debugLogs?: DebugLogsBridge

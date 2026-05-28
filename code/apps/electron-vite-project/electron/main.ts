@@ -10736,7 +10736,10 @@ async function runDeviceKeyMigration(
 
     /**
      * Shared PDF text extraction for HTTP (extension + X-Launch-Secret) and IPC (trusted Electron renderer).
-     * Renderer must NOT call HTTP without the secret â€” use ipcMain.invoke('parser:extractPdfText') instead.
+     * Renderer must NOT call HTTP without the secret — use ipcMain.invoke('parser:extractPdfText') instead.
+     *
+     * Consent not required for user-supplied bytes (composer/chat file picker, Case A).
+     * Received inbox PDFs use inbox:requestPdfExtraction (Case B). See docs/pdf-consent-rationale.md.
      */
     async function extractPdfTextForIpc(
       attachmentId: unknown,
@@ -10763,67 +10766,37 @@ async function runDeviceKeyMigration(
         }
       }
       try {
-        const binaryString = Buffer.from(base64, 'base64')
-        const pdfData = new Uint8Array(binaryString)
-        const pdfjsLib = await import('pdfjs-dist')
-        pdfjsLib.GlobalWorkerOptions.workerSrc = resolvePdfjsDistWorkerFileUrl()
-        const loadingTask = pdfjsLib.getDocument({ data: pdfData })
-        const pdfDoc = await loadingTask.promise
-        const pageCount = pdfDoc.numPages
-        const pagesToProcess = Math.min(pageCount, PDF_PARSER_LIMITS.MAX_PAGES)
-        let truncatedPages = false
-        if (pageCount > PDF_PARSER_LIMITS.MAX_PAGES) {
-          truncatedPages = true
-        }
-        const textParts: string[] = []
-        let totalChars = 0
-        let truncatedChars = false
-        for (let pageNum = 1; pageNum <= pagesToProcess; pageNum++) {
-          const page = await pdfDoc.getPage(pageNum)
-          const textContent = await page.getTextContent()
-          let pageText = ''
-          for (const item of textContent.items) {
-            if ('str' in item && typeof item.str === 'string') {
-              pageText += item.str
-              if ('hasEOL' in item && item.hasEOL) {
-                pageText += '\n'
-              }
-            }
+        const { extractPdfViaDepackager } = await import('./main/email/pdfPodClient.js')
+        const pdfBuffer = Buffer.from(base64, 'base64')
+        const pod = await extractPdfViaDepackager(pdfBuffer, {
+          messageId: 'composer',
+          attachmentId: attachmentId as string,
+        })
+        if (!pod.ok) {
+          return {
+            ok: false,
+            status: pod.status === 503 ? 503 : 422,
+            json: { success: false, error: pod.reason },
           }
-          pageText = pageText.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-          if (totalChars + pageText.length > PDF_PARSER_LIMITS.MAX_EXTRACTED_CHARS) {
-            const remaining = PDF_PARSER_LIMITS.MAX_EXTRACTED_CHARS - totalChars
-            if (remaining > 0) {
-              textParts.push(pageText.substring(0, remaining))
-            }
-            truncatedChars = true
-            break
-          }
-          textParts.push(pageText)
-          totalChars += pageText.length
         }
-        let extractedText = textParts.join('\n\n')
-        const warnings: string[] = []
-        if (truncatedPages) {
-          warnings.push(`[TRUNCATED: Only first ${PDF_PARSER_LIMITS.MAX_PAGES} of ${pageCount} pages processed]`)
-        }
-        if (truncatedChars) {
-          warnings.push(`[TRUNCATED: Text exceeded ${PDF_PARSER_LIMITS.MAX_EXTRACTED_CHARS} character limit]`)
-        }
-        if (warnings.length > 0) {
-          extractedText = warnings.join('\n') + '\n\n' + extractedText
-        }
-        const pdfjsVersion = pdfjsLib.version || 'unknown'
-        console.log(`[PDF-PARSER] Extracted ${totalChars} chars from ${pagesToProcess} pages (attachmentId: ${attachmentId})`)
+        const extractedText = pod.extracted_text_v1.text
+        const pageCount = extractedText.split('\n\n').length
+        console.log(
+          `[PDF-PARSER] Pod extracted ${extractedText.length} chars (attachmentId: ${attachmentId})`,
+        )
         return {
           ok: true,
           json: {
             success: true,
             pageCount,
-            pagesProcessed: pagesToProcess,
+            pagesProcessed: pageCount,
             extractedText,
-            truncated: truncatedPages || truncatedChars,
-            parser: { engine: 'pdfjs', version: pdfjsVersion },
+            truncated: false,
+            parser: {
+              engine: 'beap-pod-depackager',
+              version: pod.extracted_text_v1.extractor_version,
+            },
+            structural_hash: pod.extracted_text_v1.structural_hash,
           },
         }
       } catch (error: any) {

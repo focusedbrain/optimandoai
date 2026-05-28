@@ -20,6 +20,8 @@ import {
 import { WIZARD_UPGRADE_URL } from '../../edge-tier-wizard/copy.js'
 import { openAppExternalUrl } from '../../lib/openAppExternalUrl.js'
 import { SwitchBackToLocalModal } from './SwitchBackToLocalModal.js'
+import { AgentActivityPanel } from './AgentActivityPanel.js'
+import { AgentHaltedBanner } from './AgentHaltedBanner.js'
 import {
   ALLOW_TEMPORARY_LOCAL_BUTTON,
   configuredActiveBody,
@@ -126,6 +128,9 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
   const progressUnsubRef = useRef<(() => void) | null>(null)
 
   const primaryHost = replicas[0]?.host ?? 'your server'
+  const agentReplica = replicas.find((r) => r.deployment_type === 'agent')
+  const agentHandshakeId = agentReplica?.handshake_id ?? agentReplica?.edge_pod_id ?? null
+  const [activityExpanded, setActivityExpanded] = useState(false)
 
   const refreshReplicas = useCallback(async () => {
     const dashboardBridge = window.dashboard
@@ -575,6 +580,26 @@ export function EdgeIngestorPanelContent({ onReplicaCountChange }: EdgeIngestorP
           </div>
           <div data-testid="email-verification-current-setup">{renderCurrentSetup()}</div>
         </div>
+
+        {agentReplica ? (
+          <>
+            <AgentHaltedBanner
+              handshakeId={agentHandshakeId}
+              onViewActivity={() => setActivityExpanded(true)}
+            />
+            <div style={{ marginTop: 10 }}>
+              <button
+                type="button"
+                style={secondaryBtnStyle}
+                onClick={() => setActivityExpanded((v) => !v)}
+                data-testid="email-verification-activity-toggle"
+              >
+                {activityExpanded ? 'Hide verification server activity' : 'Verification server activity'}
+              </button>
+              {activityExpanded ? <AgentActivityPanel handshakeId={agentHandshakeId} /> : null}
+            </div>
+          </>
+        ) : null}
 
         {showReplicaList ? (
           <div
