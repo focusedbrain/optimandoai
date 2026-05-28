@@ -10,6 +10,9 @@ import {
 } from '../stores/useEmailInboxStore'
 import ProtectedAccessWarningDialog from './ProtectedAccessWarningDialog'
 import { InboxDocumentReaderModal } from './InboxDocumentReaderModal'
+import type { InboxDocumentReaderModalAttachment } from './InboxDocumentReaderModal'
+import { usePdfParsingConsent } from '../contexts/PdfParsingConsentContext'
+import { WRDESK_FOCUS_AI_CHAT_EVENT } from '../lib/wrdeskUiEvents'
 import '../components/handshakeViewTypes'
 import {
   hydrationAfterGetMessageIpcError,
@@ -62,6 +65,8 @@ export function BulkInboxAttachmentsStrip({
   const fetchSettledForIdRef = useRef<string | null>(null)
   const [readerAtt, setReaderAtt] = useState<InboxAttachment | null>(null)
   const [originalAtt, setOriginalAtt] = useState<InboxAttachment | null>(null)
+  const [queryAiAttId, setQueryAiAttId] = useState<string | null>(null)
+  const { ensureInboxPdfReady } = usePdfParsingConsent()
 
   /** When the server/list already includes attachment rows, prefer them and clear fetch guard. */
   useEffect(() => {
@@ -143,6 +148,53 @@ export function BulkInboxAttachmentsStrip({
     setOriginalAtt(null)
   }, [originalAtt])
 
+  const patchAttachmentInList = useCallback(
+    (attId: string, patch: Partial<InboxAttachment>) => {
+      setLocalAttachments((prev) => {
+        if (!prev) return prev
+        const next = prev.map((a) => (a.id === attId ? { ...a, ...patch } : a))
+        mergeMessageAttachments(msg.id, next)
+        return next
+      })
+      setReaderAtt((prev) => (prev?.id === attId ? { ...prev, ...patch } : prev))
+    },
+    [mergeMessageAttachments, msg.id],
+  )
+
+  const handleRequestConsent = useCallback(
+    async (att: InboxDocumentReaderModalAttachment) => {
+      const full = attachments.find((a) => a.id === att.id)
+      if (!full) return
+      const result = await ensureInboxPdfReady(full)
+      if (result.ok) {
+        const refreshed = await window.emailInbox?.getAttachment?.(full.id)
+        if (refreshed?.ok && refreshed.data && typeof refreshed.data === 'object') {
+          patchAttachmentInList(full.id, refreshed.data as InboxAttachment)
+        }
+      }
+    },
+    [attachments, ensureInboxPdfReady, patchAttachmentInList],
+  )
+
+  const handleQueryWithAi = useCallback(
+    async (att: InboxAttachment) => {
+      setQueryAiAttId(att.id)
+      handleSelectChat(att)
+      try {
+        const result = await ensureInboxPdfReady(att)
+        if (!result.ok) return
+        const refreshed = await window.emailInbox?.getAttachment?.(att.id)
+        if (refreshed?.ok && refreshed.data && typeof refreshed.data === 'object') {
+          patchAttachmentInList(att.id, refreshed.data as InboxAttachment)
+        }
+        window.dispatchEvent(new CustomEvent(WRDESK_FOCUS_AI_CHAT_EVENT, { bubbles: true }))
+      } finally {
+        setQueryAiAttId(null)
+      }
+    },
+    [ensureInboxPdfReady, handleSelectChat, patchAttachmentInList],
+  )
+
   if (msg.has_attachments !== 1) return null
 
   if (!attachments.length) {
@@ -204,6 +256,7 @@ export function BulkInboxAttachmentsStrip({
           readerAtt
             ? {
                 id: readerAtt.id,
+                message_id: readerAtt.message_id,
                 filename: readerAtt.filename || 'document.pdf',
                 content_type: readerAtt.content_type,
                 text_extraction_status: readerAtt.text_extraction_status,
@@ -212,6 +265,7 @@ export function BulkInboxAttachmentsStrip({
             : null
         }
         onOpenOriginalWarning={() => readerAtt && setOriginalAtt(readerAtt)}
+        onRequestConsent={handleRequestConsent}
       />
       <div
         className="bulk-message-attachments-strip bulk-message-footer-inner bulk-view-attachments-strip bulk-view-attachments-actions"
@@ -249,16 +303,29 @@ export function BulkInboxAttachmentsStrip({
                   Chat
                 </button>
                 {isPdf && !failed ? (
-                  <button
-                    type="button"
-                    className="bulk-attachment-btn"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setReaderAtt(att)
-                    }}
-                  >
-                    Read
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="bulk-attachment-btn"
+                      disabled={queryAiAttId === att.id}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void handleQueryWithAi(att)
+                      }}
+                    >
+                      {queryAiAttId === att.id ? '…' : 'Query with AI'}
+                    </button>
+                    <button
+                      type="button"
+                      className="bulk-attachment-btn"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setReaderAtt(att)
+                      }}
+                    >
+                      Read
+                    </button>
+                  </>
                 ) : null}
                 <button
                   type="button"

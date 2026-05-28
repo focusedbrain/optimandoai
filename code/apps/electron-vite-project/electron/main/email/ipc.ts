@@ -263,11 +263,17 @@ import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../s
 import { streamInboxOllamaAnalyzeWithSandboxRouting } from './inboxOllamaChatStreamSandbox'
 import { buildInboxAiAnalyzeErrorPayload, buildInboxAiDraftIpcFailure } from './inboxAiErrorMapping'
 import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } from '../../../src/lib/inboxSortSourceWeighting'
-import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
+import { extractPdfTextViaPod, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { resealWithAiAnalysis, resealWithPdfExtraction } from './sealedContentUpdate'
+import {
+  executeInboxRequestPdfExtraction,
+  issueInboxPdfExtractionConsent,
+} from './inboxPdfExtractionRequest.js'
+import { isPdfConsentRequiredError } from './pdfConsentRequired.js'
 import { runSubAnalyses, applySubAnalysesToRow } from './ai/subAnalysisOrchestrator'
 import { normalizeAiProviderSetting, resolveSecurityAiProvider } from './ai/inboxAiProviderSetting'
 import { ensureValidatorAndSealedStorageReady } from '../validatorReadiness'
+import { isInnerVaultUnlocked } from '../vault/vaultCanon'
 import { prepareSealedOperationalUpdate, sealedQuery } from '../sealed-storage'
 import {
   filterInboxRowsWithVerifiedSeals,
@@ -1349,6 +1355,9 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
       const result = await emailGateway.extractAttachmentText(accountId, messageId, attachmentId)
       return { ok: true, data: result }
     } catch (error: any) {
+      if (isPdfConsentRequiredError(error)) {
+        return { ok: false, error: error.message, code: error.code }
+      }
       console.error('[Email IPC] extractAttachmentText error:', error)
       return { ok: false, error: error.message }
     }
@@ -1368,11 +1377,15 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     payload: Omit<SendEmailPayload, 'inReplyTo' | 'references'>
   ) => {
     try {
+      const { formatEmailSendIpcResult, emailSendIpcFromError } = await import('./rolePolicyIpc.js')
       const result = await emailGateway.sendReply(accountId, messageId, payload)
-      return { ok: true, data: result }
-    } catch (error: any) {
+      const formatted = formatEmailSendIpcResult(result)
+      if (!formatted.ok) return formatted
+      return formatted
+    } catch (error: unknown) {
       console.error('[Email IPC] sendReply error:', error)
-      return { ok: false, error: error.message }
+      const { emailSendIpcFromError } = await import('./rolePolicyIpc.js')
+      return emailSendIpcFromError(error)
     }
   })
   
@@ -1385,11 +1398,15 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     payload: SendEmailPayload
   ) => {
     try {
+      const { formatEmailSendIpcResult, emailSendIpcFromError } = await import('./rolePolicyIpc.js')
       const result = await emailGateway.sendEmail(accountId, payload)
-      return { ok: true, data: result }
-    } catch (error: any) {
+      const formatted = formatEmailSendIpcResult(result)
+      if (!formatted.ok) return formatted
+      return formatted
+    } catch (error: unknown) {
       console.error('[Email IPC] sendEmail error:', error)
-      return { ok: false, error: error.message }
+      const { emailSendIpcFromError } = await import('./rolePolicyIpc.js')
+      return emailSendIpcFromError(error)
     }
   })
 
@@ -1417,11 +1434,15 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
           contentBase64: Buffer.from(a.data, 'utf-8').toString('base64')
         }))
       }
+      const { formatEmailSendIpcResult, emailSendIpcFromError } = await import('./rolePolicyIpc.js')
       const result = await emailGateway.sendEmail(accountId, payload)
-      return { ok: true, data: result }
-    } catch (error: any) {
+      const formatted = formatEmailSendIpcResult(result)
+      if (!formatted.ok) return formatted
+      return formatted
+    } catch (error: unknown) {
       console.error('[Email IPC] sendBeapEmail error:', error)
-      return { ok: false, error: error.message }
+      const { emailSendIpcFromError } = await import('./rolePolicyIpc.js')
+      return emailSendIpcFromError(error)
     }
   })
 
@@ -1572,7 +1593,7 @@ export function registerInboxHandlers(
     'inbox:cloneBeapToSandbox',
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
     'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages', 'inbox:deleteAllDirectBeap',
-    'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
+    'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:issuePdfExtractionConsent', 'inbox:requestPdfExtraction', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
     'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:aiClassifyBatch', 'inbox:persistManualBulkAnalysis', 'inbox:aiCategorize', 'inbox:enqueueRemoteLifecycleMirror', 'inbox:enqueueRemoteSync', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete', 'inbox:cancelPendingReview', 'inbox:unarchive', 'inbox:autosortDiagSync',
     'inbox:getInboxSettings', 'inbox:setInboxSettings', 'inbox:selectAndUploadContextDoc', 'inbox:deleteContextDoc', 'inbox:listContextDocs',
     'inbox:getAiRules', 'inbox:saveAiRules', 'inbox:getAiRulesDefault',
@@ -3114,6 +3135,21 @@ Rules:
          FROM inbox_messages ${where} ORDER BY received_at DESC LIMIT ? OFFSET ?`
       ).all(...qParams) as any[]
 
+      if (isInnerVaultUnlocked()) {
+        const sealedReadReady = await ensureValidatorAndSealedStorageReady(
+          'inbox_list_sealed_read',
+          undefined,
+          { requireInner: true },
+        )
+        if (!sealedReadReady.ok) {
+          console.warn(
+            '[BEAP-INBOX][DB] sealed_read_preflight_failed',
+            sealedReadReady.code,
+            sealedReadReady.error,
+          )
+        }
+      }
+
       const verifiedRows = filterInboxRowsWithVerifiedSeals(db, rows)
 
       const attStmt = db.prepare('SELECT * FROM inbox_attachments WHERE message_id = ?')
@@ -3521,113 +3557,94 @@ Rules:
       if (!db) return { ok: false, error: 'Database unavailable' }
       const row = db.prepare('SELECT * FROM inbox_attachments WHERE id = ?').get(attachmentId) as any
       if (!row) return { ok: false, error: 'Attachment not found' }
-      if (
-        (row.text_extraction_status === 'done' || row.text_extraction_status === 'partial') &&
-        row.extracted_text
-      ) {
+
+      const status = row.text_extraction_status as string | null
+      const storedStatusesWithText = new Set([
+        'done',
+        'partial',
+        'edge_extracted',
+        'host_extracted_with_consent',
+      ])
+
+      if (storedStatusesWithText.has(status ?? '') && row.extracted_text) {
         return {
           ok: true,
           data: {
             text: row.extracted_text,
             pages: inboxPagesFromStoredExtractedText(row.extracted_text),
-            status: row.text_extraction_status,
+            status,
             error: row.text_extraction_error ?? null,
             content_sha256: row.content_sha256 ?? null,
             extracted_text_sha256: row.extracted_text_sha256 ?? null,
           },
         }
       }
-      if (row.text_extraction_status === 'done' && !row.extracted_text) {
+
+      if (status === 'consent_required') {
         return {
           ok: true,
           data: {
             text: '',
             pages: [],
-            status: 'done',
+            status: 'consent_required',
             error: null,
             content_sha256: row.content_sha256 ?? null,
             extracted_text_sha256: row.extracted_text_sha256 ?? null,
           },
         }
       }
-      if (row.text_extraction_status === 'skipped' || row.text_extraction_status === 'failed') {
+
+      if (status === 'skipped' || status === 'failed') {
         return {
           ok: true,
           data: {
             text: '',
             pages: [],
-            status: row.text_extraction_status,
+            status,
             error: row.text_extraction_error ?? null,
             content_sha256: row.content_sha256 ?? null,
             extracted_text_sha256: row.extracted_text_sha256 ?? null,
           },
         }
       }
-      if (row.storage_path && fs.existsSync(row.storage_path) && isPdfFile(row.content_type || '', row.filename)) {
-        let buf: Buffer
-        try {
-          buf = readDecryptedAttachmentBuffer(row)
-        } catch (decErr: any) {
-          return { ok: false, error: decErr?.message ?? 'Could not read attachment' }
-        }
-        const result = await extractPdfText(buf)
-        const text = result.text ?? ''
-        const { status, error: errMsg } = resolveInboxPdfExtractionStatus(result)
 
-        const contentSha256 = createHash('sha256').update(buf).digest('hex')
-        const extractedTextSha256 = createHash('sha256').update(text, 'utf8').digest('hex')
-
-        const pageCount =
-          typeof result.pageCount === 'number' && result.pageCount > 0 ? result.pageCount : null
-        // B-7: re-seal parent message + child attachment write through the sealed gate.
-        const sealResult = await resealWithPdfExtraction(db, attachmentId, {
-          text,
-          status,
-          error: errMsg,
-          contentSha256,
-          extractedTextSha256,
-          pageCount,
-        })
-        if (!sealResult.ok) {
-          console.warn('[Inbox IPC] PDF extraction re-seal failed:', sealResult.error)
-          return {
-            ok: false,
-            error: `PDF text extraction could not be persisted: ${sealResult.error}. The original attachment is preserved unchanged.`,
-          }
-        }
-
-        const pagesOut =
-          Array.isArray(result?.pages) && result.pages.length > 0
-            ? result.pages
-            : inboxPagesFromStoredExtractedText(text)
-        return {
-          ok: true,
-          data: {
-            text,
-            pages: pagesOut,
-            status,
-            error: errMsg,
-            content_sha256: contentSha256,
-            extracted_text_sha256: extractedTextSha256,
-          },
-        }
-      }
-      prepareSealedOperationalUpdate(db, 'UPDATE inbox_attachments SET text_extraction_status = ? WHERE id = ?').run('skipped', attachmentId)
       return {
         ok: true,
         data: {
-          text: '',
-          pages: [],
-          status: 'skipped',
-          error: null,
+          text: row.extracted_text ?? '',
+          pages: row.extracted_text ? inboxPagesFromStoredExtractedText(row.extracted_text) : [],
+          status: status ?? 'pending',
+          error: row.text_extraction_error ?? null,
           content_sha256: row.content_sha256 ?? null,
           extracted_text_sha256: row.extracted_text_sha256 ?? null,
         },
       }
     } catch (err: any) {
-      return { ok: false, error: err?.message ?? 'Extract failed' }
+      return { ok: false, error: err?.message ?? 'Read failed' }
     }
   })
+
+  ipcMain.handle(
+    'inbox:issuePdfExtractionConsent',
+    async (_e, payload: { messageId?: string; attachmentId?: string }) => {
+      const messageId = typeof payload?.messageId === 'string' ? payload.messageId.trim() : ''
+      const attachmentId =
+        typeof payload?.attachmentId === 'string' ? payload.attachmentId.trim() : ''
+      return issueInboxPdfExtractionConsent(messageId, attachmentId)
+    },
+  )
+
+  ipcMain.handle(
+    'inbox:requestPdfExtraction',
+    async (
+      _e,
+      payload: { messageId?: string; attachmentId?: string; consentSignature?: string },
+    ) => {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      return executeInboxRequestPdfExtraction(db, payload)
+    },
+  )
 
   ipcMain.handle('inbox:openAttachmentOriginal', async (_e, attachmentId: string) => {
     try {
@@ -3969,7 +3986,11 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
         // Ensure the validator subprocess is running before attempting re-seal — the
         // subprocess is started non-awaited by vault.unlock, so it may still be
         // initialising when the AI draft completes.  This wait is bounded to 15 s.
-        const validatorReadyNative = await ensureValidatorAndSealedStorageReady('ai_draft_reseal_beap')
+        const validatorReadyNative = await ensureValidatorAndSealedStorageReady(
+          'ai_draft_reseal_beap',
+          String(row.handshake_id ?? '').trim() || undefined,
+          { requireInner: true },
+        )
         if (!validatorReadyNative.ok) {
           console.warn('[AI-DRAFT:native-beap] validator not ready for re-seal, returning draft without persisting:', validatorReadyNative.error)
           // Return the successfully generated draft even though we cannot re-seal it.
@@ -4068,7 +4089,11 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
       }
       // B-7: sealed re-seal replaces the raw UPDATE.
       // Guard: ensure the validator subprocess is running before re-seal.
-      const validatorReadyDraft = await ensureValidatorAndSealedStorageReady('ai_draft_reseal_email')
+      const validatorReadyDraft = await ensureValidatorAndSealedStorageReady(
+        'ai_draft_reseal_email',
+        String(row.handshake_id ?? '').trim() || undefined,
+        { requireInner: true },
+      )
       if (!validatorReadyDraft.ok) {
         console.warn('[AI-DRAFT] validator not ready for re-seal, returning draft without persisting:', validatorReadyDraft.error)
         // Still return the generated draft — seal will catch up on the next write.
@@ -5899,11 +5924,12 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       if (!isPdfFile('application/pdf', filePath)) return { ok: false, error: 'File is not a valid PDF' }
       if (totalBytes + buffer.length > CONTEXT_MAX_TOTAL_BYTES) return { ok: false, error: 'Adding this file would exceed 10MB total. Remove some documents first.' }
 
-      const extracted = await extractPdfText(buffer)
+      const id = `ctx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      // Case A — user-selected PDF via open dialog; see docs/pdf-consent-rationale.md.
+      const extracted = await extractPdfTextViaPod(buffer, 'ai-context', id)
       const text = extracted.success ? (extracted.text || '').trim() : ''
       const name = path.basename(filePath)
       const size = buffer.length
-      const id = `ctx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
       const dir = getInboxAiContextDir()
       fs.mkdirSync(dir, { recursive: true })

@@ -474,6 +474,12 @@ export interface ChildAttachmentDescriptor {
   readonly content_sha256: string | null
   /** SHA-256 hex digest of the extracted text. Null if not extracted. */
   readonly extracted_text_sha256?: string | null
+  /** Inbox extraction lifecycle (consent_required, edge_extracted, host_extracted_with_consent, etc.). */
+  readonly text_extraction_status?: string | null
+  /** SHA-256 of consent token when host extracted with user consent. */
+  readonly pdf_extraction_consent_token_hash?: string | null
+  /** ISO timestamp when consent-based extraction completed. */
+  readonly pdf_extracted_at?: string | null
 }
 
 /**

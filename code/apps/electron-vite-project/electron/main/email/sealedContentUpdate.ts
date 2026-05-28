@@ -29,6 +29,7 @@
 import { createHash } from 'crypto'
 import { prepareSealedUpdate, runSealedTransaction, sealedQuery, type SealedRow } from '../sealed-storage/index'
 import { validatorOrchestrator } from '../validation/inProcessValidator'
+import { ensureValidatorAndSealedStorageReady } from '../validatorReadiness.js'
 import type { ProvenanceMetadata } from '@repo/ingestion-core'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -53,6 +54,10 @@ export interface PdfExtractionData {
   contentSha256: string
   extractedTextSha256: string
   pageCount: number | null
+  consentTokenHash?: string | null
+  consentedAt?: string | null
+  extractorVersion?: string | null
+  structuralHash?: string | null
 }
 
 /**
@@ -247,6 +252,17 @@ export async function resealWithAiAnalysis(
   aiAnalysisData: Record<string, unknown> | null,
 ): Promise<ResealResult> {
   try {
+    const meta = db
+      .prepare('SELECT handshake_id FROM inbox_messages WHERE id = ?')
+      .get(messageId) as { handshake_id?: string | null } | undefined
+    const handshakeId = String(meta?.handshake_id ?? '').trim() || undefined
+    const ready = await ensureValidatorAndSealedStorageReady('reseal_ai_analysis', handshakeId, {
+      requireInner: true,
+    })
+    if (!ready.ok) {
+      return { ok: false, error: ready.error }
+    }
+
     const readResult = readCanonicalForReseal(db, messageId)
     if ('error' in readResult) {
       return { ok: false, error: readResult.error }
@@ -338,6 +354,20 @@ export async function resealWithPdfExtraction(
   extraction: PdfExtractionData,
 ): Promise<ResealResult> {
   try {
+    const attRowHandshake = db
+      .prepare(
+        `SELECT a.message_id, m.handshake_id FROM inbox_attachments a
+         JOIN inbox_messages m ON m.id = a.message_id WHERE a.id = ?`,
+      )
+      .get(attachmentId) as { message_id: string; handshake_id?: string | null } | undefined
+    const handshakeId = String(attRowHandshake?.handshake_id ?? '').trim() || undefined
+    const ready = await ensureValidatorAndSealedStorageReady('reseal_pdf_extraction', handshakeId, {
+      requireInner: true,
+    })
+    if (!ready.ok) {
+      return { ok: false, error: ready.error }
+    }
+
     // Look up the parent message.
     const attRow = db
       .prepare('SELECT message_id FROM inbox_attachments WHERE id = ?')
@@ -365,6 +395,18 @@ export async function resealWithPdfExtraction(
     updatedEntry['content_sha256'] = extraction.contentSha256
     updatedEntry['extracted_text_sha256'] = extraction.extractedTextSha256
     updatedEntry['text_extraction_status'] = extraction.status
+    if (extraction.consentTokenHash) {
+      updatedEntry['pdf_extraction_consent_token_hash'] = extraction.consentTokenHash
+    }
+    if (extraction.consentedAt) {
+      updatedEntry['pdf_extracted_at'] = extraction.consentedAt
+    }
+    if (extraction.structuralHash) {
+      updatedEntry['pdf_structural_hash'] = extraction.structuralHash
+    }
+    if (extraction.extractorVersion) {
+      updatedEntry['pdf_extractor_version'] = extraction.extractorVersion
+    }
     if (idx >= 0) {
       canonical[idx] = updatedEntry
     } else {

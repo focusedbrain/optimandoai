@@ -15,7 +15,8 @@ import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 import { useAiDraftContextStore } from '../stores/useAiDraftContextStore'
 import { ingestAiContextFiles } from '../lib/ingestAiContextFiles'
-import { extractTextForPackagePreview } from '../lib/beapPackageAttachmentPreview'
+import { usePdfParsingConsent } from '../contexts/PdfParsingConsentContext'
+import { isPdfAttachment } from './InboxAttachmentRow'
 import { buildProjectSetupChatPrefix } from '../lib/buildProjectSetupChatPrefix'
 import { WRDESK_FOCUS_AI_CHAT_EVENT } from '../lib/wrdeskUiEvents'
 import { projectSetupChatHasBridgeableContent, useProjectSetupChatContextStore } from '../stores/useProjectSetupChatContextStore'
@@ -661,6 +662,7 @@ export default function HybridSearch({
   selectedAttachmentId = null,
   onClearMessageSelection,
 }: HybridSearchProps) {
+  const { ensureInboxPdfReady, ensureChatPdfExtracted } = usePdfParsingConsent()
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<SearchMode>('chat')
   const [scope, setScope] = useState<SearchScope>(() => defaultScope(activeView))
@@ -1614,6 +1616,36 @@ export default function HybridSearch({
     const trimmed = query.trim()
     if (!trimmed || isLoading) return
 
+    if (mode === 'chat' && selectedAttachmentId && selectedMessageId && window.emailInbox?.getAttachment) {
+      try {
+        const attRes = await window.emailInbox.getAttachment(selectedAttachmentId)
+        if (attRes.ok && attRes.data && typeof attRes.data === 'object') {
+          const att = attRes.data as {
+            id: string
+            message_id: string
+            filename?: string
+            content_type?: string | null
+            text_extraction_status?: string | null
+          }
+          if (
+            isPdfAttachment(att.content_type ?? null, att.filename ?? '') &&
+            att.text_extraction_status === 'consent_required'
+          ) {
+            const ready = await ensureInboxPdfReady({
+              id: att.id,
+              message_id: att.message_id ?? selectedMessageId,
+              filename: att.filename,
+              content_type: att.content_type,
+              text_extraction_status: att.text_extraction_status,
+            })
+            if (!ready.ok) return
+          }
+        }
+      } catch {
+        /* proceed without attachment gate */
+      }
+    }
+
     if (mode === 'chat' && !isDraftRefineSession && hostAiSelectionInvalid) {
       setResponse(
         'Host AI is not ready for this run. Open the model menu, wait for a ready state, or pick a local or cloud model.',
@@ -2343,7 +2375,7 @@ export default function HybridSearch({
       setIsLoading(false)
       setChatAttachments([])
     }
-  }, [query, mode, scope, activeView, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, isDraftRefineSession, draftRefineDraftText, draftRefineTarget, draftRefineDeliverResponse, draftRefineAcceptRefinement, chatAttachments, chatMessages, hostInf.inferenceTargets, gavHostTargets, hostInf.policy, hostAiSelectionInvalid])
+  }, [query, mode, scope, activeView, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, isDraftRefineSession, draftRefineDraftText, draftRefineTarget, draftRefineDeliverResponse, draftRefineAcceptRefinement, chatAttachments, chatMessages, hostInf.inferenceTargets, gavHostTargets, hostInf.policy, hostAiSelectionInvalid, ensureInboxPdfReady])
 
   const handleContextUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
@@ -2385,11 +2417,17 @@ export default function HybridSearch({
       for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
       const b64 = btoa(binary)
 
-      const extracted = await extractTextForPackagePreview({
-        name: file.name,
-        mimeType: file.type || 'application/pdf',
+      const extracted = await ensureChatPdfExtracted({
+        filename: file.name,
         base64: b64,
       })
+
+      if (!extracted.ok) {
+        if (!extracted.cancelled) {
+          console.warn(`[Chat] PDF consent/extract failed: ${extracted.error ?? 'unknown'}`)
+        }
+        return
+      }
 
       setChatAttachments((prev) =>
         prev.length >= MAX_CHAT_ATTACHMENTS
@@ -2402,7 +2440,7 @@ export default function HybridSearch({
             }],
       )
     }
-  }, [])
+  }, [ensureChatPdfExtracted])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()

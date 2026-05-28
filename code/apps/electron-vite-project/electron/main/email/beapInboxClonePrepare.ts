@@ -13,6 +13,7 @@ import {
 } from '../../../src/lib/inboxAiCloneClassification'
 import { isKeyProviderUsable, sealedQuery, SealVerificationError } from '../sealed-storage'
 import { canPerform } from '../vault/capabilityBroker'
+import { ensureValidatorAndSealedStorageReady } from '../validatorReadiness.js'
 import {
   isEligibleActiveInternalHostSandboxRecord,
   listAvailableInternalSandboxes,
@@ -329,17 +330,30 @@ export async function ensureSealedStorageReadyForSandboxClone(
   }
 
   if (sourceNeedsInner && !isKeyProviderUsable('inner')) {
-    return {
-      ok: false,
-      code: 'inner_vault_or_key_provider_unavailable',
-      error: CLONE_PREPARE_INNER_VAULT_USER_MESSAGE,
+    const innerReady = await ensureValidatorAndSealedStorageReady(
+      `clone_prepare:${cloneId}`,
+      handshakeId,
+      { requireInner: true },
+    )
+    if (!innerReady.ok) {
+      return {
+        ok: false,
+        code: 'inner_vault_or_key_provider_unavailable',
+        error: innerReady.error || CLONE_PREPARE_INNER_VAULT_USER_MESSAGE,
+      }
     }
-  }
-  if (!sourceNeedsInner && !isKeyProviderUsable('outer') && !isKeyProviderUsable('inner')) {
-    return {
-      ok: false,
-      code: 'outer_vault_or_key_provider_unavailable',
-      error: CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
+  } else if (!sourceNeedsInner) {
+    const outerReady = await ensureValidatorAndSealedStorageReady(
+      `clone_prepare:${cloneId}`,
+      handshakeId,
+      { requireInner: false },
+    )
+    if (!outerReady.ok && !isKeyProviderUsable('outer') && !isKeyProviderUsable('inner')) {
+      return {
+        ok: false,
+        code: 'outer_vault_or_key_provider_unavailable',
+        error: outerReady.error || CLONE_PREPARE_SEAL_GATE_USER_MESSAGE,
+      }
     }
   }
 

@@ -1,3 +1,8 @@
+/**
+ * Outbound package attachment preview (user file picker). Case A — no inbox consent dialog.
+ * See docs/pdf-consent-rationale.md.
+ */
+
 /** Distinct from AI context uploads; parser only needs a stable id. */
 const PACKAGE_PREVIEW_ATTACHMENT_ID = 'beap-inline-package-preview'
 

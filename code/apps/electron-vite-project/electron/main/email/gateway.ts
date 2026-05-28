@@ -33,6 +33,10 @@ import {
   type ImapLifecycleValidationResult,
   type ImapReconnectHints,
 } from './types'
+import {
+  enforceFetchPolicyForAccount,
+  enforceSendPolicyForAccount,
+} from './rolePolicyEnforce.js'
 import { isLikelyEmailAuthError } from './emailAuthErrors'
 import { IEmailProvider, RawEmailMessage } from './providers/base'
 import { GmailProvider, gmailProvider, saveOAuthConfig } from './providers/gmail'
@@ -53,7 +57,8 @@ import {
   sanitizeDisplayName,
   generateSnippet
 } from './sanitizer'
-import { extractPdfText, isPdfFile, supportsTextExtraction } from './pdf-extractor'
+import { isPdfFile, supportsTextExtraction } from './pdf-extractor'
+import { PdfConsentRequiredError } from './pdfConsentRequired.js'
 import {
   encryptOAuthTokens,
   decryptOAuthTokens,
@@ -1157,6 +1162,10 @@ class EmailGateway implements IEmailGateway {
   
   async listMessages(accountId: string, options?: MessageSearchOptions): Promise<SanitizedMessage[]> {
     const account = this.findAccount(accountId)
+    const fetchBlock = enforceFetchPolicyForAccount(account)
+    if (fetchBlock) {
+      return []
+    }
     const effectiveFolders = getFoldersForAccountOperation(account, options?.mailboxId)
     const folder = options?.folder ?? effectiveFolders.inbox
 
@@ -1229,6 +1238,10 @@ class EmailGateway implements IEmailGateway {
 
   async getMessage(accountId: string, messageId: string): Promise<SanitizedMessageDetail | null> {
     const account = this.findAccount(accountId)
+    const fetchBlock = enforceFetchPolicyForAccount(account)
+    if (fetchBlock) {
+      return null
+    }
 
     if (account.provider === 'imap') {
       assertImapCredentialsUsableForConnect(account)
@@ -1550,13 +1563,8 @@ class EmailGateway implements IEmailGateway {
         }
 
         if (isPdfFile(attachment.mimeType, attachment.filename)) {
-          const result = await extractPdfText(buffer)
-          return {
-            attachmentId,
-            text: result.text,
-            pageCount: result.pageCount,
-            warnings: result.warnings,
-          }
+          // Received provider PDF — Case B: no host parse without inbox consent (docs/pdf-consent-rationale.md).
+          throw new PdfConsentRequiredError()
         }
 
         if (
@@ -1599,13 +1607,8 @@ class EmailGateway implements IEmailGateway {
     }
 
     if (isPdfFile(attachment.mimeType, attachment.filename)) {
-      const result = await extractPdfText(buffer)
-      return {
-        attachmentId,
-        text: result.text,
-        pageCount: result.pageCount,
-        warnings: result.warnings,
-      }
+      // Received provider PDF — Case B: no host parse without inbox consent (docs/pdf-consent-rationale.md).
+      throw new PdfConsentRequiredError()
     }
 
     if (
@@ -1632,8 +1635,19 @@ class EmailGateway implements IEmailGateway {
     payload: Omit<SendEmailPayload, 'inReplyTo' | 'references'>
   ): Promise<SendResult> {
     const account = this.findAccount(accountId)
+    enforceSendPolicyForAccount(account)
+    const fetchBlock = enforceFetchPolicyForAccount(account)
+    if (fetchBlock) {
+      return {
+        success: false,
+        error:
+          'Reply requires the original message from the provider, which is disabled while this account uses edge verification.',
+        policyBlocked: true,
+        policyReason: fetchBlock.reason,
+      }
+    }
     const provider = await this.getConnectedProvider(account)
-    
+
     // Get original message for threading
     const original = await provider.fetchMessage(messageId)
     if (!original) {
@@ -1654,6 +1668,7 @@ class EmailGateway implements IEmailGateway {
   
   async sendEmail(accountId: string, payload: SendEmailPayload): Promise<SendResult> {
     const account = this.findAccount(accountId)
+    enforceSendPolicyForAccount(account)
     const provider = await this.getConnectedProvider(account)
     return provider.sendEmail(payload)
   }

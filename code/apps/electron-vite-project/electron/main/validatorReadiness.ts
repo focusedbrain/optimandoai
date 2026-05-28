@@ -77,6 +77,31 @@ export type ValidatorReadyResult =
   | { ok: true }
   | { ok: false; code: ValidatorReadyCode; error: string }
 
+export interface EnsureValidatorOptions {
+  /**
+   * Require the inner (VMK) key provider and in-process validator running.
+   * Skips the non-confidential outer-only fast path. Use for re-seal, sealed
+   * reads of inner-sealed rows, and any call to validatorOrchestrator.validate().
+   */
+  requireInner?: boolean
+}
+
+function logReadyCheck(
+  reason: string,
+  classification: string,
+  extra: Record<string, unknown>,
+): void {
+  console.log(
+    `[VALIDATOR_READY_CHECK] ready reason=${reason} classification=${classification} ${Object.entries(extra)
+      .map(([k, v]) => `${k}=${String(v)}`)
+      .join(' ')}`,
+  )
+}
+
+function logFailedCheck(reason: string, code: ValidatorReadyCode, detail: string): void {
+  console.log(`[VALIDATOR_READY_CHECK] failed reason=${reason} code=${code} ${detail}`)
+}
+
 interface InnerVaultProbe {
   innerVaultFound: boolean
   innerVaultReady: boolean
@@ -174,40 +199,56 @@ function probeInnerVaultState(reason: string): InnerVaultProbe {
 export async function ensureValidatorAndSealedStorageReady(
   reason: string,
   handshakeId?: string,
+  options?: EnsureValidatorOptions,
 ): Promise<ValidatorReadyResult> {
+  const requireInner = options?.requireInner === true
   // ── Non-confidential fast path (outer key) ────────────────────────────────
   // For non-confidential BEAP: the outer (ledger-derived) key is sufficient.
   // No inner vault, no validator subprocess required.
   // This enables SSO-only users to send/receive/clone non-confidential BEAP.
+  // Skipped when the caller requires inner (re-seal, inner-sealed reads, validate()).
   const classification = handshakeId
     ? getHandshakeClassification(handshakeId)
     : 'non_confidential'
 
-  if (classification === 'non_confidential' && isKeyProviderUsable('outer')) {
-    console.log(
-      `[VALIDATOR_READY_CHECK] ready reason=${reason} classification=non_confidential outerActive=true keyProviderBound(outer)=true`,
-    )
+  if (
+    !requireInner &&
+    classification === 'non_confidential' &&
+    isKeyProviderUsable('outer')
+  ) {
+    logReadyCheck(reason, classification, {
+      outerActive: true,
+      keyProviderBound: true,
+      keyProviderSlot: 'outer',
+      validatorRunning: validatorOrchestrator.getLiveness() === 'running',
+      innerProviderBound: isKeyProviderBound('inner'),
+    })
     return { ok: true }
   }
 
-  // ── Confidential fast path (inner key) ────────────────────────────────────
-  // Verify BOTH: key provider bound AND inner vault still unlocked.
-  // The auto-lock timer (VaultService) can clear `session` without stopping
-  // the validator, leaving a stale binding whose closure returns null.
-  if (isKeyProviderUsable('inner') && isInnerVaultUnlocked()) {
-    console.log(
-      `[VALIDATOR_READY_CHECK] ready reason=${reason} classification=${classification} outerVaultReady=true validatorRunning=${validatorOrchestrator.getLiveness() === 'running'} keyProviderBound=true`,
-    )
+  // ── Confidential / inner-required fast path ───────────────────────────────
+  // Verify BOTH: key provider bound AND inner vault still unlocked AND validator running.
+  const validatorRunning = validatorOrchestrator.getLiveness() === 'running'
+  const innerKeyBound = isKeyProviderBound('inner')
+  const innerKeyUsable = isKeyProviderUsable('inner')
+  if (innerKeyUsable && isInnerVaultUnlocked() && (!requireInner || validatorRunning)) {
+    logReadyCheck(reason, classification, {
+      outerVaultReady: true,
+      validatorRunning,
+      keyProviderBound: innerKeyBound,
+      keyProviderSlot: 'inner',
+      innerProviderBound: innerKeyBound,
+    })
     return { ok: true }
   }
 
   // ── Probe inner vault (vaultService) state ────────────────────────────────
   const probe = probeInnerVaultState(reason)
-  const validatorRunning = validatorOrchestrator.getLiveness() === 'running'
+  const validatorRunningAfterProbe = validatorOrchestrator.getLiveness() === 'running'
   const keyProviderBound = isKeyProviderBound('inner')
 
   console.log(
-    `[VALIDATOR_READY_CHECK] reason=${reason} classification=${classification} outerVaultReady=${probe.innerVaultReady} validatorRunning=${validatorRunning} keyProviderBound=${keyProviderBound}`,
+    `[VALIDATOR_READY_CHECK] reason=${reason} classification=${classification} requireInner=${requireInner} outerVaultReady=${probe.innerVaultReady} validatorRunning=${validatorRunningAfterProbe} keyProviderBound(inner)=${keyProviderBound} innerProviderUsable=${isKeyProviderUsable('inner')}`,
   )
 
   if (!probe.innerVaultFound) {
@@ -273,9 +314,7 @@ export async function ensureValidatorAndSealedStorageReady(
 
   // ── Final readiness check ─────────────────────────────────────────────────
   if (!isKeyProviderBound('inner')) {
-    console.log(
-      `[VALIDATOR_READY_CHECK] failed reason=${reason} code=not_ready_after_start`,
-    )
+    logFailedCheck(reason, 'not_ready_after_start', 'inner key provider not bound after start')
     return {
       ok: false,
       code: 'not_ready_after_start',
@@ -283,6 +322,20 @@ export async function ensureValidatorAndSealedStorageReady(
     }
   }
 
-  console.log(`[VALIDATOR_READY_CHECK] ready reason=${reason}`)
+  if (requireInner && validatorOrchestrator.getLiveness() !== 'running') {
+    logFailedCheck(reason, 'not_ready_after_start', 'validator not running after start')
+    return {
+      ok: false,
+      code: 'not_ready_after_start',
+      error: 'In-process validator is not running after startup.',
+    }
+  }
+
+  logReadyCheck(reason, classification, {
+    validatorRunning: validatorOrchestrator.getLiveness() === 'running',
+    keyProviderBound: true,
+    keyProviderSlot: 'inner',
+    innerProviderBound: true,
+  })
   return { ok: true }
 }

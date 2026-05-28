@@ -4036,6 +4036,16 @@ export default function EmailInboxView({
           fetchMessages()
           return true
         }
+        const { isRolePolicySendBlockedResponse, rolePolicySendBlockedMessage } = await import(
+          '../utils/rolePolicySendUi.js'
+        )
+        if (isRolePolicySendBlockedResponse(res)) {
+          setSendEmailToast({
+            type: 'error',
+            message: rolePolicySendBlockedMessage(res.policyReason),
+          })
+          return false
+        }
         setSendEmailToast({ type: 'error', message: res.error || 'Failed to send' })
         return false
       } catch (err) {

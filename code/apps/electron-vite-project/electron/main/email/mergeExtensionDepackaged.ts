@@ -44,6 +44,12 @@ import {
   MAX_EXTENSION_MERGE_RETRY,
   type PendingExtensionMerge,
 } from './extensionMergeRetryBuffer'
+import {
+  edgeExtractedTextSha256,
+  parsePodDepackagedAttachments,
+  verifyEdgeExtractedTextV1,
+} from './capsuleExtractedText.js'
+import { isPdfFile } from './pdf-extractor.js'
 
 /** Only BeapPackageBuilder user send paths set this (Electron renderer + extension). */
 export const USER_PACKAGE_BUILDER_SEND_SOURCE = 'user_package_builder'
@@ -301,6 +307,16 @@ export async function mergeExtensionDepackaged(
       ? String(input.body_text).slice(0, 120_000)
       : null
 
+  let parsedDepackagedEarly: Record<string, unknown> = {}
+  try {
+    const p = JSON.parse(depackaged)
+    if (p && typeof p === 'object' && !Array.isArray(p)) {
+      parsedDepackagedEarly = p as Record<string, unknown>
+    }
+  } catch {
+    /* non-JSON depackaged */
+  }
+
   // ── Build attachments_canonical (Att-2 — Phase B PR B-5) ──────────────────
   const atts = Array.isArray(input.attachments) ? input.attachments : []
   const attachmentsCanonical: Array<{
@@ -309,6 +325,8 @@ export async function mergeExtensionDepackaged(
     content_type: string
     size_bytes: number
     content_sha256: string | null
+    extracted_text_sha256?: string | null
+    text_extraction_status?: string | null
   }> = []
 
   interface ProcessedAttachment {
@@ -319,6 +337,10 @@ export async function mergeExtensionDepackaged(
     sizeBytes: number
     buf: Buffer | null
     sha256: string | null
+    extractedText: string | null
+    extractionStatus: string | null
+    extractionError: string | null
+    extractedTextSha256: string | null
   }
   const processedAtts: ProcessedAttachment[] = []
 
@@ -343,29 +365,64 @@ export async function mergeExtensionDepackaged(
       }
     }
 
-    processedAtts.push({ cid, attId, fname, ctype, sizeBytes: buf ? buf.length : sizeBytes, buf, sha256 })
+    let extractedText: string | null = null
+    let extractionStatus: string | null = null
+    let extractionError: string | null = null
+    let extractedTextSha256: string | null = null
+    if (isPdfFile(ctype, fname) && buf && buf.length > 0) {
+      extractionStatus = 'consent_required'
+    }
+
+    processedAtts.push({
+      cid,
+      attId,
+      fname,
+      ctype,
+      sizeBytes: buf ? buf.length : sizeBytes,
+      buf,
+      sha256,
+      extractedText,
+      extractionStatus,
+      extractionError,
+      extractedTextSha256,
+    })
     attachmentsCanonical.push({
       attachment_id: attId,
       filename: fname,
       content_type: ctype,
       size_bytes: buf ? buf.length : sizeBytes,
       content_sha256: sha256,
+      extracted_text_sha256: extractedTextSha256,
+      ...(extractionStatus ? { text_extraction_status: extractionStatus } : {}),
     })
   }
 
-  // ── Build canonical content (content_type: 'beap_message') ───────────────
-  let parsedDepackaged: Record<string, unknown> = {}
-  try {
-    const p = JSON.parse(depackaged)
-    if (p && typeof p === 'object' && !Array.isArray(p)) {
-      parsedDepackaged = p as Record<string, unknown>
+  const podAttachments = parsePodDepackagedAttachments(parsedDepackagedEarly)
+  for (const pa of processedAtts) {
+    const podAtt = podAttachments.find(
+      (p) => p.id === pa.cid || p.id === pa.attId || makeInboxAttachmentStorageId(row.id, p.id) === pa.attId,
+    )
+    if (!podAtt?.extracted_text_v1) continue
+    const v1 = podAtt.extracted_text_v1
+    if (!verifyEdgeExtractedTextV1(v1)) {
+      pa.extractionStatus = 'failed'
+      pa.extractionError = 'edge_extracted_text_hash_mismatch'
+      continue
     }
-  } catch {
-    /* non-JSON depackaged — use empty object as base */
+    pa.extractedText = v1.text
+    pa.extractedTextSha256 = edgeExtractedTextSha256(v1.text)
+    pa.extractionStatus = 'edge_extracted'
+    pa.extractionError = null
+    const canon = attachmentsCanonical.find((c) => c.attachment_id === pa.attId)
+    if (canon) {
+      canon.extracted_text_sha256 = pa.extractedTextSha256
+      canon.text_extraction_status = 'edge_extracted'
+    }
   }
 
+  // ── Build canonical content (content_type: 'beap_message') ───────────────
   const canonicalContent: Record<string, unknown> = {
-    ...parsedDepackaged,
+    ...parsedDepackagedEarly,
     content_type: 'beap_message',
     attachments_canonical: attachmentsCanonical,
   }
@@ -423,6 +480,12 @@ export async function mergeExtensionDepackaged(
       UPDATE inbox_attachments SET encryption_key = ?, encryption_iv = ?, encryption_tag = ?, storage_encrypted = ? WHERE id = ?
     `)
     const updateSha = db.prepare(`UPDATE inbox_attachments SET content_sha256 = ? WHERE id = ?`)
+    const updatePdf = db.prepare(`
+      UPDATE inbox_attachments
+      SET extracted_text = ?, text_extraction_status = ?, text_extraction_error = ?,
+          extracted_text_sha256 = ?
+      WHERE id = ?
+    `)
 
     // Write encrypted attachment files before the transaction (disk I/O outside SQLite txn).
     const attStorageResults: Array<{
@@ -436,6 +499,10 @@ export async function mergeExtensionDepackaged(
       ctype: string
       sizeBytes: number
       cid: string
+      extractedText: string | null
+      extractionStatus: string | null
+      extractionError: string | null
+      extractedTextSha256: string | null
     }> = []
 
     for (const pa of processedAtts) {
@@ -455,8 +522,20 @@ export async function mergeExtensionDepackaged(
         }
       }
       attStorageResults.push({
-        attId: pa.attId, storagePath, encKey, ivB64, tagB64,
-        sha256: pa.sha256, fname: pa.fname, ctype: pa.ctype, sizeBytes: pa.sizeBytes, cid: pa.cid,
+        attId: pa.attId,
+        storagePath,
+        encKey,
+        ivB64,
+        tagB64,
+        sha256: pa.sha256,
+        fname: pa.fname,
+        ctype: pa.ctype,
+        sizeBytes: pa.sizeBytes,
+        cid: pa.cid,
+        extractedText: pa.extractedText,
+        extractionStatus: pa.extractionStatus,
+        extractionError: pa.extractionError,
+        extractedTextSha256: pa.extractedTextSha256,
       })
     }
 
@@ -475,6 +554,15 @@ export async function mergeExtensionDepackaged(
         insertAtt.run(r.attId, row!.id, r.fname, r.ctype, r.sizeBytes, r.cid, null, now)
       }
       if (r.sha256) updateSha.run(r.sha256, r.attId)
+      if (r.extractionStatus) {
+        updatePdf.run(
+          r.extractedText,
+          r.extractionStatus,
+          r.extractionError,
+          r.extractedTextSha256,
+          r.attId,
+        )
+      }
     })
 
     if (hasAtts) {

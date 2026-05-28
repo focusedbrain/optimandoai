@@ -1,75 +1,23 @@
 /**
- * PDF Text Extractor (Electron main)
- *
- * Uses pdfjs-dist + getTextContent(), same strategy as vault/hsContextOcrJob.ts
- * (reconstructPageText for positioned items — avoids CMap/stream garbage from raw parsing).
+ * Inbox PDF extraction — routes through local depackager (on_demand); no pdfjs in main.
  */
 
-import { ExtractedAttachmentText } from './types'
-import { resolvePdfjsDistWorkerFileUrl } from '../pdfjsWorkerSrc'
-
-async function loadPdfjs(): Promise<any> {
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs' as any).catch(() => import('pdfjs-dist' as any))
-  if (pdfjs.GlobalWorkerOptions) {
-    pdfjs.GlobalWorkerOptions.workerSrc = resolvePdfjsDistWorkerFileUrl()
-  }
-  return pdfjs
-}
-
-/**
- * Reconstruct readable text from a single PDF page's text items (aligned with hsContextOcrJob).
- */
-function reconstructPageText(items: any[]): string {
-  if (items.length === 0) return ''
-
-  let result = ''
-  let prevEndX = 0
-  let prevY: number | null = null
-
-  for (const item of items) {
-    const str: string = item.str ?? ''
-    const transform: number[] = item.transform ?? [10, 0, 0, 10, 0, 0]
-    const x: number = transform[4]
-    const y: number = transform[5]
-    const fontSize: number = Math.abs(transform[3]) || Math.abs(transform[0]) || 10
-    const itemWidth: number = item.width ?? 0
-
-    if (prevY !== null) {
-      const dy = Math.abs(y - prevY)
-      const gap = x - prevEndX
-
-      if (item.hasEOL || dy > fontSize * 0.5) {
-        result += '\n'
-      } else if (gap > fontSize * 0.25) {
-        result += ' '
-      }
-    }
-
-    result += str
-    prevEndX = x + itemWidth
-    prevY = y
-  }
-
-  return result
-    .replace(/\r\n?/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/ {2,}/g, ' ')
-    .trim()
-}
+import type { ExtractedAttachmentText } from './types'
+import { extractPdfViaDepackager } from './pdfPodClient.js'
 
 export type ExtractPdfTextResult = ExtractedAttachmentText & {
   success: boolean
   error?: string
-  /** Per-page text (1-indexed order in array) */
   pages: string[]
+  structural_hash?: string
+  extractor_version?: string
 }
 
 /**
- * Map raw pdfjs output to inbox attachment status (done / partial / failed).
- * Partial: text exists but is sparse vs page count (likely missing text on many pages).
+ * Map depackager / pod extraction output to inbox attachment status.
  */
 export function resolveInboxPdfExtractionStatus(result: ExtractPdfTextResult): {
-  status: 'done' | 'partial' | 'failed'
+  status: 'done' | 'partial' | 'failed' | 'host_extracted_with_consent' | 'edge_extracted'
   error: string | null
 } {
   const text = (result.text ?? '').trim()
@@ -93,15 +41,22 @@ export function resolveInboxPdfExtractionStatus(result: ExtractPdfTextResult): {
   return { status: 'done', error: null }
 }
 
-/**
- * Extract text from a PDF buffer using pdfjs-dist (main entry for inbox / gateway).
- */
-export async function extractPdfText(buffer: Buffer): Promise<ExtractPdfTextResult> {
-  const warnings: string[] = []
+function pagesFromText(text: string): string[] {
+  const parts = text.split('\n\n')
+  return parts.length > 0 ? parts : ['']
+}
 
+/**
+ * Extract PDF text via local depackager (requires pod + attachment/message ids).
+ */
+export async function extractPdfTextViaPod(
+  buffer: Buffer,
+  messageId: string,
+  attachmentId: string,
+): Promise<ExtractPdfTextResult> {
   if (buffer.length < 5 || buffer[0] !== 0x25 || buffer[1] !== 0x50 || buffer[2] !== 0x44 || buffer[3] !== 0x46) {
     return {
-      attachmentId: '',
+      attachmentId,
       text: '',
       pages: [],
       pageCount: 0,
@@ -111,97 +66,50 @@ export async function extractPdfText(buffer: Buffer): Promise<ExtractPdfTextResu
     }
   }
 
-  try {
-    const pdfjs = await loadPdfjs()
-    let pdf: any
-    try {
-      const loadingTask = pdfjs.getDocument({ data: new Uint8Array(buffer) })
-      pdf = await loadingTask.promise
-    } catch (err: any) {
-      if (err?.name === 'PasswordException' || err?.message?.toLowerCase?.().includes('password')) {
-        return {
-          attachmentId: '',
-          text: '',
-          pages: [],
-          pageCount: 0,
-          warnings: [],
-          success: false,
-          error:
-            'This PDF is password-protected. Remove the password and re-upload, or open the original file.',
-        }
-      }
-      throw err
-    }
-
-    const pageCount: number = pdf.numPages
-    const pages: string[] = []
-
-    for (let i = 1; i <= pageCount; i++) {
-      try {
-        const page = await pdf.getPage(i)
-        const content = await page.getTextContent()
-        const pageText = reconstructPageText(content.items)
-        console.log(`[pdf-extractor] Page ${i}/${pageCount}: ${pageText.length} chars`)
-        pages.push(pageText)
-      } catch (pageErr: any) {
-        console.error(`[pdf-extractor] Page ${i}/${pageCount} failed:`, pageErr)
-        pages.push('')
-      }
-    }
-
-    const text = pages.join('\n\n')
-    if (!text.trim()) {
-      warnings.push('No text extracted from PDF text layer. The document may be scanned or image-only.')
-    }
-
+  const pod = await extractPdfViaDepackager(buffer, { messageId, attachmentId })
+  if (!pod.ok) {
     return {
-      attachmentId: '',
-      text,
-      pages,
-      pageCount,
-      warnings,
-      success: text.trim().length > 0,
-      error: text.trim().length > 0 ? undefined : warnings[0] ?? 'No text extracted',
-    }
-  } catch (err: any) {
-    console.error('[pdf-extractor] Extraction failed:', err)
-    return {
-      attachmentId: '',
+      attachmentId,
       text: '',
       pages: [],
       pageCount: 0,
       warnings: [],
       success: false,
-      error: err?.message ? String(err.message) : 'PDF extraction failed',
+      error: pod.reason,
     }
+  }
+
+  const text = pod.extracted_text_v1.text
+  const pages = pagesFromText(text)
+  return {
+    attachmentId,
+    text,
+    pages,
+    pageCount: pages.length,
+    warnings: [],
+    success: text.trim().length > 0,
+    structural_hash: pod.extracted_text_v1.structural_hash,
+    extractor_version: pod.extracted_text_v1.extractor_version,
   }
 }
 
 /**
- * Check if a file is a PDF based on MIME type or extension
+ * @deprecated Use extractPdfTextViaPod with message/attachment ids. Kept for callers that lack ids.
  */
+export async function extractPdfText(buffer: Buffer): Promise<ExtractPdfTextResult> {
+  return extractPdfTextViaPod(buffer, 'legacy', 'legacy')
+}
+
 export function isPdfFile(mimeType: string, filename?: string): boolean {
-  if (mimeType === 'application/pdf') {
-    return true
-  }
-
-  if (filename && filename.toLowerCase().endsWith('.pdf')) {
-    return true
-  }
-
+  if (mimeType === 'application/pdf') return true
+  if (filename && filename.toLowerCase().endsWith('.pdf')) return true
   return false
 }
 
-/**
- * Get supported document types for text extraction
- */
 export function getSupportedExtractionTypes(): string[] {
   return ['application/pdf', 'application/vnd.beap+json', 'application/json', 'text/plain']
 }
 
-/**
- * Check if a MIME type supports text extraction
- */
 export function supportsTextExtraction(mimeType: string): boolean {
   return getSupportedExtractionTypes().includes(mimeType)
 }

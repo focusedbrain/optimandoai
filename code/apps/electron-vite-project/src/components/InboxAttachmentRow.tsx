@@ -4,10 +4,13 @@
  * Non-PDF: metadata + Open original only (no text reader).
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import type { InboxAttachment } from '../stores/useEmailInboxStore'
 import ProtectedAccessWarningDialog from './ProtectedAccessWarningDialog'
 import { InboxDocumentReaderModal } from './InboxDocumentReaderModal'
+import type { InboxDocumentReaderModalAttachment } from './InboxDocumentReaderModal'
+import { usePdfParsingConsent } from '../contexts/PdfParsingConsentContext'
+import { WRDESK_FOCUS_AI_CHAT_EVENT } from '../lib/wrdeskUiEvents'
 import '../components/handshakeViewTypes'
 
 const MUTED = 'var(--color-text-muted, #94a3b8)'
@@ -54,15 +57,22 @@ export default function InboxAttachmentRow({
 }: InboxAttachmentRowProps) {
   const [readerOpen, setReaderOpen] = useState(false)
   const [showOriginalWarning, setShowOriginalWarning] = useState(false)
+  const [queryAiBusy, setQueryAiBusy] = useState(false)
+  const [localAttachment, setLocalAttachment] = useState(attachment)
+  const { ensureInboxPdfReady } = usePdfParsingConsent()
+
+  useEffect(() => {
+    setLocalAttachment(attachment)
+  }, [attachment])
 
   const isSelected = selectedAttachmentId === attachment.id
   const icon = getFileIcon(attachment.content_type, attachment.filename)
   const typeLabel = getTypeLabel(attachment.content_type, attachment.filename)
   const isPdf = isPdfAttachment(attachment.content_type, attachment.filename)
 
-  const extractionFailed = attachment.text_extraction_status === 'failed'
-  const extractionPartial = attachment.text_extraction_status === 'partial'
-  const extractionError = attachment.text_extraction_error?.trim() || null
+  const extractionFailed = localAttachment.text_extraction_status === 'failed'
+  const extractionPartial = localAttachment.text_extraction_status === 'partial'
+  const extractionError = localAttachment.text_extraction_error?.trim() || null
 
   const handleOpenOriginalClick = useCallback(() => {
     setShowOriginalWarning(true)
@@ -82,6 +92,46 @@ export default function InboxAttachmentRow({
   }, [])
 
   const closeReader = useCallback(() => setReaderOpen(false), [])
+
+  const readerAttachment: InboxDocumentReaderModalAttachment | null =
+    readerOpen && !extractionFailed
+      ? {
+          id: localAttachment.id,
+          message_id: localAttachment.message_id,
+          filename: localAttachment.filename || 'document.pdf',
+          content_type: localAttachment.content_type,
+          text_extraction_status: localAttachment.text_extraction_status,
+          text_extraction_error: localAttachment.text_extraction_error,
+        }
+      : null
+
+  const refreshLocalAttachment = useCallback(async () => {
+    const refreshed = await window.emailInbox?.getAttachment?.(localAttachment.id)
+    if (refreshed?.ok && refreshed.data && typeof refreshed.data === 'object') {
+      setLocalAttachment({ ...localAttachment, ...(refreshed.data as InboxAttachment) })
+    }
+  }, [localAttachment])
+
+  const handleRequestConsent = useCallback(
+    async (_att: InboxDocumentReaderModalAttachment) => {
+      const result = await ensureInboxPdfReady(localAttachment)
+      if (result.ok) await refreshLocalAttachment()
+    },
+    [ensureInboxPdfReady, localAttachment, refreshLocalAttachment],
+  )
+
+  const handleQueryWithAi = useCallback(async () => {
+    onSelectAttachment(localAttachment.id)
+    setQueryAiBusy(true)
+    try {
+      const result = await ensureInboxPdfReady(localAttachment)
+      if (!result.ok) return
+      await refreshLocalAttachment()
+      window.dispatchEvent(new CustomEvent(WRDESK_FOCUS_AI_CHAT_EVENT, { bubbles: true }))
+    } finally {
+      setQueryAiBusy(false)
+    }
+  }, [ensureInboxPdfReady, localAttachment, onSelectAttachment, refreshLocalAttachment])
 
   // ── Non-PDF: metadata + select + open original only ──
   if (!isPdf) {
@@ -165,18 +215,9 @@ export default function InboxAttachmentRow({
       <InboxDocumentReaderModal
         open={readerOpen && !extractionFailed}
         onClose={closeReader}
-        attachment={
-          readerOpen && !extractionFailed
-            ? {
-                id: attachment.id,
-                filename: attachment.filename || 'document.pdf',
-                content_type: attachment.content_type,
-                text_extraction_status: attachment.text_extraction_status,
-                text_extraction_error: attachment.text_extraction_error,
-              }
-            : null
-        }
+        attachment={readerAttachment}
         onOpenOriginalWarning={handleViewOriginalFromReader}
+        onRequestConsent={handleRequestConsent}
       />
       <div
         style={{
@@ -194,6 +235,24 @@ export default function InboxAttachmentRow({
             <span style={{ fontSize: '11px', color: MUTED, marginLeft: '6px' }}>({typeLabel})</span>
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              onClick={() => void handleQueryWithAi()}
+              disabled={queryAiBusy || extractionFailed}
+              title="Ask AI about this PDF (consent required before parsing)"
+              style={{
+                fontSize: '10px',
+                padding: '4px 8px',
+                background: 'rgba(99,102,241,0.25)',
+                border: '1px solid rgba(99,102,241,0.45)',
+                borderRadius: '4px',
+                color: '#c4b5fd',
+                cursor: queryAiBusy ? 'wait' : 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              {queryAiBusy ? 'Preparing…' : 'Query with AI'}
+            </button>
             <button
               type="button"
               onClick={() => onSelectAttachment(isSelected ? null : attachment.id)}

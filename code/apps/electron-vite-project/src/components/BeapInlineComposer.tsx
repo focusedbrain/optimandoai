@@ -520,6 +520,8 @@ export function BeapInlineComposer({
         let parseStatus: AttachmentParseStatus = 'failed';
 
         if (b64) {
+          // Consent not required: PDF chosen via showOpenDialogForAttachments (user's own file, outbound).
+          // See docs/pdf-consent-rationale.md — Case A.
           const extracted = await extractTextForPackagePreview({
             name: f.name,
             mimeType: mime,
@@ -553,6 +555,8 @@ export function BeapInlineComposer({
       let previewError: string | null = null;
 
       if (b64) {
+        // Consent not required: PDF chosen via showOpenDialogForAttachments (user's own file, outbound).
+        // See docs/pdf-consent-rationale.md — Case A.
         const extracted = await extractTextForPackagePreview({
           name: f.name,
           mimeType: mime,

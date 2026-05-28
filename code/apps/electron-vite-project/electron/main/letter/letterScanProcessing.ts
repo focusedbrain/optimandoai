@@ -1,6 +1,10 @@
 /**
  * Letter Composer — scanned PDF / images: preview PNGs + text (pdfjs text in main + browser raster + optional Tesseract).
  * PDF page images use the same hidden BrowserWindow path as template preview (node-canvas + pdfjs render breaks in main).
+ *
+ * Consent not required: letter scanning is a user-initiated action against the user's own scanned
+ * document. The "untrusted bytes on host" risk class applies to received attachments, not
+ * user-initiated document processing. See docs/pdf-consent-rationale.md.
  */
 
 import fs from 'fs'
@@ -60,6 +64,7 @@ export async function processPdfForLetterViewer(absPath: string): Promise<{
     throw new Error('Invalid PDF file')
   }
 
+  // User's own scan — Case A (docs/pdf-consent-rationale.md).
   const extracted = await extractPdfText(buffer)
   if (!extracted.pageCount) {
     throw new Error(extracted.error || 'Could not read PDF')

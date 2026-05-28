@@ -4480,7 +4480,17 @@ export default function EmailInboxBulkView({
           refreshMessages()
           setTimeout(() => setSendEmailToast(null), 3000)
         } else {
-          setSendEmailToast({ type: 'error', message: res.error || 'Failed to send' })
+          const { isRolePolicySendBlockedResponse, rolePolicySendBlockedMessage } = await import(
+            '../utils/rolePolicySendUi.js'
+          )
+          if (isRolePolicySendBlockedResponse(res)) {
+            setSendEmailToast({
+              type: 'error',
+              message: rolePolicySendBlockedMessage(res.policyReason),
+            })
+          } else {
+            setSendEmailToast({ type: 'error', message: res.error || 'Failed to send' })
+          }
         }
       } catch (err) {
         setSendEmailToast({ type: 'error', message: err instanceof Error ? err.message : 'Failed to send' })

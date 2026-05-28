@@ -28,6 +28,7 @@ export async function ingestAiContextFiles(files: File[]): Promise<void> {
       const buf = await file.arrayBuffer()
       const b64 = arrayBufferToBase64(buf)
       try {
+        // Case A — user file picker; see docs/pdf-consent-rationale.md.
         const beap = typeof window !== 'undefined' ? window.beap : undefined
         if (beap && typeof beap.extractPdfText === 'function') {
           const data = (await beap.extractPdfText({
