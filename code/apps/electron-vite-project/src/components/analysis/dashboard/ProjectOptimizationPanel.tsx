@@ -948,6 +948,7 @@ export const ProjectOptimizationPanel = forwardRef<ProjectOptimizationPanelHandl
       for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
       const b64 = btoa(binary)
 
+      // Case A — user file picker; see docs/pdf-consent-rationale.md.
       const extracted = await extractTextForPackagePreview({ name: file.name, mimeType, base64: b64 })
 
       setFormAttachments((prev) =>
