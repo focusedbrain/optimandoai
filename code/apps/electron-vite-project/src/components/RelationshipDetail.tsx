@@ -39,7 +39,7 @@ interface HandshakeRecord {
   p2p_endpoint?: string | null
   context_sync_pending?: boolean
   policy_selections?: PolicySelection | { cloud_ai?: boolean; internal_ai?: boolean }
-  handshake_type?: 'internal' | 'standard' | null
+  handshake_type?: 'internal' | 'standard' | 'edge_ingestor' | null
   initiator_device_name?: string | null
   acceptor_device_name?: string | null
   initiator_device_role?: 'host' | 'sandbox' | null

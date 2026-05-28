@@ -34,9 +34,18 @@ import {
 import { messageContextFromEnvelope } from '../shared/reportGenerator.js';
 import {
   runDepackagePipeline,
+  decryptPackageArtefacts,
   type LocalBeapPackage,
 } from './depackagePipeline.js';
 import { validateBeapStructure } from '../beapStructuralValidator.js';
+import {
+  parsePdfParserMode,
+  validationResultBytesForCertify,
+  type DepackagedAttachment,
+  type PdfParserMode,
+} from '../shared/capsuleAttachments.js';
+import { buildDepackagedAttachments, extractPdfOnDemand } from '../shared/attachmentPdfProcessing.js';
+import type { QuarantineStore } from '../shared/quarantine/index.js';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -96,6 +105,9 @@ export interface DepackagerConfig {
   certifierBase?: string;
   /** LOCAL_VERIFY: return verify_metadata + depackaged_for_seal; ingestor seals after deep cert check. */
   deferSeal?: boolean;
+  pdfParserMode?: PdfParserMode;
+  pdfParserBase?: string;
+  quarantineStore?: QuarantineStore;
   version?: string;
   maxBodyBytes?: number;
   timeoutMs?: number;
@@ -141,8 +153,24 @@ async function readBody(
 
 function makeHandler(
   secret: string,
-  cfg: Required<Omit<DepackagerConfig, 'localMlkemSecretB64' | 'certifierBase' | 'sealerBase' | 'diagnostics'>> &
-    Pick<DepackagerConfig, 'localMlkemSecretB64' | 'certifierBase' | 'sealerBase'> & {
+  cfg: Required<
+    Omit<
+      DepackagerConfig,
+      | 'localMlkemSecretB64'
+      | 'certifierBase'
+      | 'sealerBase'
+      | 'diagnostics'
+      | 'quarantineStore'
+      | 'pdfParserMode'
+      | 'pdfParserBase'
+    >
+  > &
+    Pick<
+      DepackagerConfig,
+      'localMlkemSecretB64' | 'certifierBase' | 'sealerBase' | 'quarantineStore'
+    > & {
+      pdfParserMode: PdfParserMode;
+      pdfParserBase: string;
       diagnostics: RoleDiagnosticRuntime;
     },
 ): http.RequestListener {
@@ -162,6 +190,80 @@ function makeHandler(
     if (req.method === 'GET' && path === '/ready') {
       const hasKey = Boolean(cfg.localX25519PrivB64);
       sendJson(res, hasKey ? 200 : 503, { status: hasKey ? 'ready' : 'not-ready', role: ROLE, reason: hasKey ? undefined : 'no-key-material' });
+      return;
+    }
+
+    // ── POST /extract-pdf (on_demand — host orchestrator only) ─────────────────
+    if (req.method === 'POST' && path === '/extract-pdf') {
+      const authPassed = await new Promise<boolean>((resolve) => {
+        const onFinish = () => resolve(false);
+        res.once('finish', onFinish);
+        authMiddleware(req, res, () => {
+          res.removeListener('finish', onFinish);
+          resolve(true);
+        });
+      });
+      if (!authPassed) return;
+
+      const { data, tooLarge } = await readBody(req, cfg.maxBodyBytes);
+      if (tooLarge) {
+        res.writeHead(413, { 'Content-Type': 'application/json', 'Connection': 'close' });
+        res.end(JSON.stringify({ error: 'Payload too large', limit_bytes: cfg.maxBodyBytes }));
+        return;
+      }
+
+      let extractBody: {
+        attachment_id?: string;
+        message_id?: string;
+        pdf_bytes_b64?: string;
+      };
+      try {
+        extractBody = JSON.parse(data.toString('utf8')) as typeof extractBody;
+      } catch {
+        sendJson(res, 400, { error: 'Invalid JSON body' });
+        return;
+      }
+
+      if (cfg.pdfParserMode !== 'on_demand') {
+        sendJson(res, 403, { error: 'extract-pdf only available in on_demand mode' });
+        return;
+      }
+
+      const b64 = typeof extractBody.pdf_bytes_b64 === 'string' ? extractBody.pdf_bytes_b64.trim() : '';
+      if (!b64) {
+        sendJson(res, 400, { error: 'Missing pdf_bytes_b64' });
+        return;
+      }
+
+      let pdfBytes: Buffer;
+      try {
+        pdfBytes = Buffer.from(b64, 'base64');
+      } catch {
+        sendJson(res, 400, { error: 'Invalid pdf_bytes_b64' });
+        return;
+      }
+
+      const result = await extractPdfOnDemand(pdfBytes, {
+        baseUrl: cfg.pdfParserBase,
+        fetchImpl: cfg.authedFetch,
+        podAuthSecret: secret,
+      });
+
+      if (!result.ok) {
+        const status = result.reason === 'extractor_unavailable' ? 503 : 422;
+        sendJson(res, status, {
+          error: result.reason,
+          attachment_id: extractBody.attachment_id ?? null,
+          message_id: extractBody.message_id ?? null,
+        });
+        return;
+      }
+
+      sendJson(res, 200, {
+        attachment_id: extractBody.attachment_id ?? null,
+        message_id: extractBody.message_id ?? null,
+        extracted_text_v1: result.extracted_text_v1,
+      });
       return;
     }
 
@@ -285,17 +387,48 @@ function makeHandler(
                 : '';
           const sanitizedBody = sanitizeBeapBody(rawBody);
 
-          const depackaged = {
-            subject: typeof parsedCapsule['subject'] === 'string' ? parsedCapsule['subject']
-              : typeof parsedCapsule['title'] === 'string' ? parsedCapsule['title'] : '',
+          const subject =
+            typeof parsedCapsule['subject'] === 'string'
+              ? parsedCapsule['subject']
+              : typeof parsedCapsule['title'] === 'string'
+                ? parsedCapsule['title']
+                : '';
+
+          const decryptedArtefacts = await decryptPackageArtefacts(capsule, pipelineResult);
+          let attachments: DepackagedAttachment[] = [];
+          if (decryptedArtefacts.length > 0) {
+            const messageId =
+              typeof validated['message_id'] === 'string'
+                ? validated['message_id']
+                : pipelineResult.handshakeId ?? 'unknown';
+            attachments = await buildDepackagedAttachments(decryptedArtefacts, {
+              mode: cfg.pdfParserMode,
+              pdfParser: {
+                baseUrl: cfg.pdfParserBase,
+                fetchImpl: cfg.authedFetch,
+                podAuthSecret: secret,
+              },
+              messageId,
+              envelopeSubject: subject,
+              quarantineStore: cfg.quarantineStore,
+            });
+          }
+
+          const depackaged: Record<string, unknown> = {
+            subject,
             body: sanitizedBody,
-            transport_plaintext: typeof parsedCapsule['transport_plaintext'] === 'string'
-              ? parsedCapsule['transport_plaintext'] : '',
+            transport_plaintext:
+              typeof parsedCapsule['transport_plaintext'] === 'string'
+                ? parsedCapsule['transport_plaintext']
+                : '',
             encoding: pipelineResult.encoding,
             handshakeId: pipelineResult.handshakeId,
             artefactCount: pipelineResult.artefactCount,
             rawCapsuleJson: pipelineResult.capsulePlaintext,
           };
+          if (attachments.length > 0) {
+            depackaged['attachments'] = attachments;
+          }
 
           // ⑩ Forward to sealer (LOCAL_HOST) or certifier (REMOTE_EDGE)
           const certifierBase = cfg.certifierBase?.trim();
@@ -303,6 +436,10 @@ function makeHandler(
 
           const canonicalCapsuleBytes = Buffer.from(JSON.stringify(validated['capsule']), 'utf8');
           const canonicalValidationResultBytes = Buffer.from(JSON.stringify(validated), 'utf8');
+          const validationBytesForCertify = validationResultBytesForCertify(
+            canonicalValidationResultBytes,
+            attachments.length > 0 ? attachments : undefined,
+          );
           const rawPackageBytesB64 =
             typeof body.raw_package_bytes_b64 === 'string' && body.raw_package_bytes_b64.length > 0
               ? body.raw_package_bytes_b64
@@ -318,7 +455,8 @@ function makeHandler(
                   depackaged,
                   raw_package_bytes_b64: rawPackageBytesB64,
                   canonical_capsule_bytes_b64: canonicalCapsuleBytes.toString('base64'),
-                  canonical_validation_result_bytes_b64: canonicalValidationResultBytes.toString('base64'),
+                  canonical_validation_result_bytes_b64:
+                    Buffer.from(validationBytesForCertify).toString('base64'),
                 }),
                 signal: controller.signal,
               });
@@ -328,7 +466,8 @@ function makeHandler(
                 pending_seal: true,
                 verify_metadata: {
                   canonical_capsule_bytes_b64: canonicalCapsuleBytes.toString('base64'),
-                  canonical_validation_result_bytes_b64: canonicalValidationResultBytes.toString('base64'),
+                  canonical_validation_result_bytes_b64:
+                    Buffer.from(validationBytesForCertify).toString('base64'),
                 },
                 depackaged_for_seal: depackaged,
               });
@@ -404,6 +543,11 @@ export function createDepackagerServer(secret: string, config?: DepackagerConfig
   const localMlkemSecretB64 = config?.localMlkemSecretB64 ?? process.env['BEAP_LOCAL_MLKEM_SECRET_B64'];
   const skipSignatureVerification = config?.skipSignatureVerification ?? true;
   const diagnostics = config?.diagnostics ?? createRoleDiagnosticRuntime(ROLE);
+  const pdfParserMode =
+    config?.pdfParserMode ??
+    parsePdfParserMode(process.env['PDF_PARSER_MODE'], process.env['POD_MODE']);
+  const pdfParserBase =
+    config?.pdfParserBase ?? process.env['PDF_PARSER_BASE'] ?? 'http://127.0.0.1:18107';
 
   return http.createServer(
     wrapRoleRequestListener(
@@ -412,6 +556,9 @@ export function createDepackagerServer(secret: string, config?: DepackagerConfig
         sealerBase,
         certifierBase: certifierBase || undefined,
         deferSeal,
+        pdfParserMode,
+        pdfParserBase,
+        quarantineStore: config?.quarantineStore,
         version,
         maxBodyBytes,
         timeoutMs,

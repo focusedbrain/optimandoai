@@ -52,6 +52,7 @@ const ALL_ROLES: DiagnosticContainerRole[] = [
   'certifier',
   'verifier',
   'mail-fetcher',
+  'pdf-parser',
 ];
 
 function sampleUnsigned(

@@ -53,6 +53,8 @@ export interface PodRunnerOptions {
   executor?: PodmanExecutor
   /** When set, substitute LOCAL_VERIFY verifier env placeholders. */
   localVerify?: LocalVerifyEnv
+  /** Test seam — skip digest verify and seccomp install. */
+  skipImageDigestVerify?: boolean
 }
 
 export interface ActivePod {
@@ -108,6 +110,13 @@ export async function applyPodManifest(
   const manifestPath = options?.manifestPath ?? resolveManifestPath()
   const executor = options?.executor ?? defaultExecutor
   const localVerify = options?.localVerify
+
+  if (!options?.skipImageDigestVerify) {
+    const { verifyBeapImageDigest } = await import('./imageDigestVerify.js')
+    const { installLocalPodSeccompProfiles } = await import('./installSeccompProfiles.js')
+    installLocalPodSeccompProfiles()
+    await verifyBeapImageDigest()
+  }
 
   let template: string
   try {

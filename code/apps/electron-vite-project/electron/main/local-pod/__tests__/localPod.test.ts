@@ -16,6 +16,11 @@ vi.mock('electron', () => ({
   ),
 }))
 
+vi.mock('../supervisor/index.js', () => ({
+  startLocalPodSupervisor: vi.fn(),
+  stopLocalPodSupervisor: vi.fn(),
+}))
+
 import {
   startLocalPod,
   stopLocalPod,
@@ -52,6 +57,7 @@ function startOpts(executor: PodmanExecutor, extra?: Record<string, unknown>) {
     manifestPath: FIXTURE_MANIFEST,
     executor,
     podmanCheck: passPodmanCheck,
+    skipImageDigestVerify: true,
     ...extra,
   }
 }

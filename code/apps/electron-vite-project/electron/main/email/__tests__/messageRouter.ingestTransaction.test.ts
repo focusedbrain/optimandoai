@@ -46,7 +46,9 @@ vi.mock('../attachmentBlobCrypto', () => ({
 
 vi.mock('../pdf-extractor', () => ({
   extractPdfText: vi.fn(async () => ({ text: '', status: 'skipped' })),
-  isPdfFile: () => false,
+  extractPdfTextViaPod: vi.fn(),
+  isPdfFile: (mime: string, name?: string) =>
+    mime === 'application/pdf' || (name ?? '').toLowerCase().endsWith('.pdf'),
   resolveInboxPdfExtractionStatus: () => ({ status: 'skipped', error: null }),
 }))
 
@@ -82,7 +84,8 @@ function createTestDb(): import('better-sqlite3').Database {
       validator_version TEXT,
       validation_reason TEXT,
       seal TEXT,
-      seal_input_json TEXT
+      seal_input_json TEXT,
+      seal_key_source TEXT
     );
     CREATE TABLE inbox_attachments (
       id TEXT PRIMARY KEY,
@@ -126,7 +129,7 @@ describe.skipIf(!Database)('detectAndRouteMessage transaction (requires native b
 
   beforeEach(async () => {
     db = createTestDb()
-    bindKeyProvider(() => TEST_DEK)
+    bindKeyProvider(() => TEST_DEK, 'outer')
     clearTamperingEvents()
 
     // Phase B: detectAndRouteMessage calls validatorOrchestrator.validate for all email types.
@@ -250,5 +253,43 @@ describe.skipIf(!Database)('detectAndRouteMessage transaction (requires native b
 
     const n = (db1.prepare('SELECT COUNT(*) AS c FROM inbox_attachments').get() as { c: number }).c
     expect(n).toBe(2)
+  })
+
+  it('plain email PDF attachment is stored with consent_required (no eager extract)', async () => {
+    const pdfBytes = Buffer.from('%PDF-1.4')
+    const raw = {
+      messageId: 'ext-pdf',
+      from: { address: 'a@b.com' },
+      to: [],
+      subject: 'PDF',
+      text: 'body',
+      date: new Date().toISOString(),
+      attachments: [
+        {
+          id: 'pdf-att',
+          filename: 'doc.pdf',
+          contentType: 'application/pdf',
+          size: pdfBytes.length,
+          content: pdfBytes,
+        },
+      ],
+    }
+    await detectAndRouteMessage(db, 'acc', raw as never)
+    const attId = makeInboxAttachmentStorageId(
+      (db.prepare('SELECT id FROM inbox_messages LIMIT 1').get() as { id: string }).id,
+      'pdf-att',
+    )
+    const row = db
+      .prepare(
+        'SELECT extracted_text, text_extraction_status, content_sha256 FROM inbox_attachments WHERE id = ?',
+      )
+      .get(attId) as {
+      extracted_text: string | null
+      text_extraction_status: string
+      content_sha256: string
+    }
+    expect(row.text_extraction_status).toBe('consent_required')
+    expect(row.extracted_text).toBeNull()
+    expect(row.content_sha256).toBe(createHash('sha256').update(pdfBytes).digest('hex'))
   })
 })

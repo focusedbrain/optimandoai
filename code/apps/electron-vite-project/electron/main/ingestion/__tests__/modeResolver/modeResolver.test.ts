@@ -193,6 +193,12 @@ describe('resolveHostPodVariant', () => {
     const mode = resolveIngestionMode(inp)
     expect(resolveHostPodVariant(inp, mode)).toBe('user_chosen')
   })
+
+  test('halted_by_anomaly when supervisor halted (takes precedence over starting)', () => {
+    const inp = inputs({ podmanAvailable: true, hostPodReady: false })
+    const mode = resolveIngestionMode(inp)
+    expect(resolveHostPodVariant(inp, mode, true)).toBe('halted_by_anomaly')
+  })
 })
 
 describe('shouldWaitForHostPod', () => {

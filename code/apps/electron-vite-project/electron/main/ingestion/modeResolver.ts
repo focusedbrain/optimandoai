@@ -27,7 +27,11 @@ export interface ResolverInputs {
 }
 
 /** HostPodActive sub-variant for status surface copy. */
-export type HostPodModeVariant = 'user_chosen' | 'session_fallback' | 'starting'
+export type HostPodModeVariant =
+  | 'user_chosen'
+  | 'session_fallback'
+  | 'starting'
+  | 'halted_by_anomaly'
 
 /**
  * Resolve the current ingestion mode from settings + runtime inputs.
@@ -69,8 +73,12 @@ export function resolveIngestionMode(inputs: ResolverInputs): IngestionMode {
 export function resolveHostPodVariant(
   inputs: ResolverInputs,
   mode: IngestionMode,
+  hostPodHaltedByAnomaly = false,
 ): HostPodModeVariant | null {
   if (mode !== 'HostPodActive') return null
+  if (hostPodHaltedByAnomaly) {
+    return 'halted_by_anomaly'
+  }
   if (isEdgeTierActiveForRouting(inputs.settings) && inputs.sessionHostFallbackAuthorized) {
     return 'session_fallback'
   }

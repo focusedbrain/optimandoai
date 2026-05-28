@@ -39,6 +39,15 @@ import {
   type RoleDiagnosticRuntime,
 } from '../shared/roleDiagnostic.js';
 import { messageContextFromEnvelope } from '../shared/reportGenerator.js';
+import {
+  peerIdFromTransport,
+  recordPeerValidationFailure,
+} from '../shared/peerValidationFlood.js';
+import { failRoleClosed } from '../shared/roleDiagnostic.js';
+import {
+  escalationReportFilename,
+  type FailureCode,
+} from '../shared/failurePolicy.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -101,12 +110,47 @@ async function readBody(
 
 // ── Rejection helpers ─────────────────────────────────────────────────────────
 
+async function handleValidationRejection(
+  res: http.ServerResponse,
+  reason: ValidationReasonCode,
+  details: string,
+  peerId: string,
+  diagnostics: RoleDiagnosticRuntime,
+): Promise<void> {
+  const flood = recordPeerValidationFailure(peerId);
+  if (flood === 'peer_validation_flood') {
+    await escalateValidatorFailure(diagnostics, flood, peerId, details);
+    return;
+  }
+  sendJson(res, 422, { valid: false, reason, details });
+}
+
 function rejectValidation(
   res: http.ServerResponse,
   reason: ValidationReasonCode,
   details: string,
 ): void {
   sendJson(res, 422, { valid: false, reason, details });
+}
+
+async function escalateValidatorFailure(
+  diagnostics: RoleDiagnosticRuntime,
+  code: FailureCode,
+  peerId: string,
+  detail: string,
+): Promise<never> {
+  const now = new Date().toISOString();
+  const filename = escalationReportFilename(code, now);
+  process.env['DIAGNOSTIC_ESCALATION_FILENAME'] = filename;
+  await failRoleClosed({
+    runtime: diagnostics,
+    exception: new Error(`${code}: peer=${peerId} ${detail}`),
+    stage: 'pod_internal',
+    sourceFile: 'validator.ts',
+    sourceLine: 0,
+    messageContext: null,
+  });
+  throw new Error(`${code}: unreachable`);
 }
 
 // ── Request handler ───────────────────────────────────────────────────────────
@@ -233,7 +277,11 @@ function makeHandler(
       }
 
       if (!result.success) {
-        rejectValidation(res, result.reason, result.details);
+        const peerId = peerIdFromTransport(
+          candidate.provenance.transport_metadata.sender_address ?? '',
+          candidate.provenance.transport_metadata.message_id ?? '',
+        );
+        await handleValidationRejection(res, result.reason, result.details, peerId, diagnostics);
         return;
       }
 

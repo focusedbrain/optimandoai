@@ -34,6 +34,8 @@ export interface ReplicaStatus {
   port: number
   edge_pod_id: string
   edge_public_key: string
+  deployment_type?: 'ssh' | 'agent'
+  handshake_id?: string
   health: ReplicaHealth
   health_checked_at: string | null
   health_error?: string

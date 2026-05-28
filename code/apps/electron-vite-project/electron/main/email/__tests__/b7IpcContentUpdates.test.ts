@@ -49,6 +49,10 @@ vi.mock('electron', () => ({
   app: { getPath: () => '/tmp' },
 }))
 
+vi.mock('../../validatorReadiness', () => ({
+  ensureValidatorAndSealedStorageReady: vi.fn(async () => ({ ok: true })),
+}))
+
 // ─────────────────────────────────────────────────────────────────────────────
 // DB setup
 // ─────────────────────────────────────────────────────────────────────────────
@@ -82,6 +86,7 @@ function makeDb() {
   db.exec(`
     CREATE TABLE inbox_messages (
       id TEXT PRIMARY KEY,
+      handshake_id TEXT,
       source_type TEXT DEFAULT 'direct_beap',
       depackaged_json TEXT,
       ai_analysis_json TEXT,
@@ -90,7 +95,8 @@ function makeDb() {
       validator_version TEXT,
       validation_reason TEXT,
       seal TEXT,
-      seal_input_json TEXT
+      seal_input_json TEXT,
+      seal_key_source TEXT
     );
     CREATE TABLE inbox_attachments (
       id TEXT PRIMARY KEY,
@@ -478,6 +484,33 @@ describe.skipIf(!Database)('B-7 §3 — resealWithPdfExtraction', () => {
     expect(after.seal).toBe(before.seal)
     const att = getAtt(db, attId)
     expect(att.extracted_text).toBeNull()
+  })
+
+  it('§3.4b consent-based extraction binds audit fields in attachments_canonical', async () => {
+    const msgId = 'msg-pdf-consent'
+    const attId = 'att-1'
+    seedParentAndAttachment(msgId, attId)
+
+    let capturedCanonical = ''
+    validateMock.mockImplementation(async (req: { plaintext_or_encrypted: { content: string } }) => {
+      capturedCanonical = req.plaintext_or_encrypted.content
+      return makeSuccessOutcome(msgId, capturedCanonical)
+    })
+
+    await resealWithPdfExtraction(db, attId, {
+      ...sampleExtraction,
+      status: 'host_extracted_with_consent',
+      consentTokenHash: 'c'.repeat(64),
+      consentedAt: '2026-05-25T12:00:00.000Z',
+      structuralHash: 'd'.repeat(64),
+      extractorVersion: 'beap-pdf-extract-v1',
+    })
+
+    const parsed = JSON.parse(capturedCanonical)
+    const attEntry = parsed.attachments_canonical.find((a: { attachment_id: string }) => a.attachment_id === attId)
+    expect(attEntry.pdf_extraction_consent_token_hash).toBe('c'.repeat(64))
+    expect(attEntry.pdf_extracted_at).toBe('2026-05-25T12:00:00.000Z')
+    expect(attEntry.text_extraction_status).toBe('host_extracted_with_consent')
   })
 
   it('§3.4 attachments_canonical updated with correct sha256 binding', async () => {

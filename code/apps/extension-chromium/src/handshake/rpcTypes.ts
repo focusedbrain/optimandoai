@@ -56,7 +56,7 @@ export interface HandshakeRecord {
   readonly localX25519PublicKey?: string
   /** Intended recipient email from the initiate capsule (acceptor-side); same as initiator email for internal handshakes. */
   readonly receiver_email?: string | null
-  readonly handshake_type?: 'internal' | 'standard' | null
+  readonly handshake_type?: 'internal' | 'standard' | 'edge_ingestor' | null
   readonly initiator_device_name?: string | null
   readonly acceptor_device_name?: string | null
   readonly initiator_device_role?: 'host' | 'sandbox' | null

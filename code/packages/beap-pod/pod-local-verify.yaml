@@ -79,6 +79,14 @@ spec:
       emptyDir:
         medium: Memory
         sizeLimit: 8Mi
+    - name: tmp-pdf-parser
+      emptyDir:
+        medium: Memory
+        sizeLimit: 8Mi
+    - name: tmp-quarantine
+      emptyDir:
+        medium: Memory
+        sizeLimit: 64Mi
 
   containers:
 
@@ -121,6 +129,7 @@ spec:
         limits:
           memory: "256Mi"
           cpu: "250m"
+          pids: "64"
       volumeMounts:
         - name: tmp-ingestor
           mountPath: /tmp
@@ -187,6 +196,7 @@ spec:
         limits:
           memory: "256Mi"
           cpu: "250m"
+          pids: "64"
       volumeMounts:
         - name: tmp-verifier
           mountPath: /tmp
@@ -243,6 +253,7 @@ spec:
         limits:
           memory: "256Mi"
           cpu: "250m"
+          pids: "64"
       volumeMounts:
         - name: tmp-validator
           mountPath: /tmp
@@ -274,7 +285,8 @@ spec:
         capabilities:
           drop: ["ALL"]
         seccompProfile:
-          type: RuntimeDefault
+          type: Localhost
+          localhostProfile: beap-depackager.json
       env:
         - name: BEAP_ROLE
           value: "depackager"
@@ -284,6 +296,10 @@ spec:
           value: "18102"
         - name: SEALER_BASE
           value: "http://127.0.0.1:18103"
+        - name: PDF_PARSER_BASE
+          value: "http://127.0.0.1:18107"
+        - name: PDF_PARSER_MODE
+          value: "on_demand"
         - name: POD_VERSION
           value: "1.0.0"
         - name: DEPACKAGER_TIMEOUT_MS
@@ -300,11 +316,14 @@ spec:
         limits:
           memory: "512Mi"
           cpu: "500m"
+          pids: "128"
       volumeMounts:
         - name: tmp-depackager
           mountPath: /tmp
         - name: tmp-depackage-scratch
           mountPath: /tmp/depackage
+        - name: tmp-quarantine
+          mountPath: /var/lib/quarantine
       livenessProbe:
         httpGet:
           path: /health
@@ -317,6 +336,63 @@ spec:
         httpGet:
           path: /ready
           port: 18102
+        initialDelaySeconds: 3
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
+
+    # ── PDF parser ────────────────────────────────────────────────────────────
+    # On-demand extraction for host depackager; verified edge text arrives in capsules.
+    # UID 10108
+    - name: pdf-parser
+      image: beap-components:dev
+      securityContext:
+        runAsUser: 10108
+        runAsGroup: 10100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: Localhost
+          localhostProfile: beap-pdf-parser.json
+      env:
+        - name: BEAP_ROLE
+          value: "pdf-parser"
+        - name: PORT
+          value: "18107"
+        - name: PDF_PARSER_HOST
+          value: "127.0.0.1"
+        - name: POD_VERSION
+          value: "1.0.0"
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+      ports:
+        - containerPort: 18107
+          protocol: TCP
+      resources:
+        requests:
+          memory: "128Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+          cpu: "500m"
+          pids: "64"
+      volumeMounts:
+        - name: tmp-pdf-parser
+          mountPath: /tmp
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 18107
+        initialDelaySeconds: 5
+        periodSeconds: 30
+        timeoutSeconds: 3
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 18107
         initialDelaySeconds: 3
         periodSeconds: 10
         timeoutSeconds: 3
@@ -360,6 +436,7 @@ spec:
         limits:
           memory: "128Mi"
           cpu: "100m"
+          pids: "64"
       volumeMounts:
         - name: tmp-sealer
           mountPath: /tmp

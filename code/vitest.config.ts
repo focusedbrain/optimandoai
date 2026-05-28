@@ -25,6 +25,7 @@ export default defineConfig({
       { find: 'electron', replacement: path.resolve(repoRoot, 'test/mocks/electron.ts') },
       // Jest → Vitest shim for the 2 llm tests still importing @jest/globals.
       { find: '@jest/globals', replacement: path.resolve(repoRoot, 'node_modules/vitest/dist/index.js') },
+      { find: '@repo/agent-log-events', replacement: path.resolve(repoRoot, 'packages/agent-log-events/src/index.ts') },
       { find: '@repo/ingestion-core', replacement: path.resolve(repoRoot, 'packages/ingestion-core/src/index.ts') },
       { find: '@repo/email-fetch', replacement: path.resolve(repoRoot, 'packages/email-fetch/src/index.ts') },
       { find: '@repo/pod-client', replacement: path.resolve(repoRoot, 'packages/pod-client/src/index.ts') },

@@ -12,7 +12,8 @@ export type IngestionModePublic =
 
 export interface IngestionModeUiState {
   mode: IngestionModePublic
-  hostPodVariant: 'user_chosen' | 'session_fallback' | 'starting' | null
+  hostPodVariant: 'user_chosen' | 'session_fallback' | 'starting' | 'halted_by_anomaly' | null
+  hostPodHaltReason: string | null
   blockedWithoutConnectivity: boolean
   holdQueueCount: number
   edgeSetupPending: boolean
@@ -23,6 +24,7 @@ export interface IngestionModeUiState {
 const DEFAULT_STATE: IngestionModeUiState = {
   mode: 'HostPodActive',
   hostPodVariant: 'user_chosen',
+  hostPodHaltReason: null,
   blockedWithoutConnectivity: false,
   holdQueueCount: 0,
   edgeSetupPending: false,
@@ -38,6 +40,8 @@ function mapSnapshot(raw: unknown): IngestionModeUiState {
   return {
     mode: (s.mode as IngestionModePublic) ?? 'HostPodActive',
     hostPodVariant: (s.hostPodVariant as IngestionModeUiState['hostPodVariant']) ?? null,
+    hostPodHaltReason:
+      typeof s.hostPodHaltReason === 'string' ? s.hostPodHaltReason : null,
     blockedWithoutConnectivity: s.blockedWithoutConnectivity === true,
     holdQueueCount: hold?.count ?? 0,
     edgeSetupPending: settings?.enabled === 'pending',
@@ -52,6 +56,9 @@ function pillLabel(state: IngestionModeUiState): string {
     case 'EdgeActive':
       return 'Secure mode'
     case 'HostPodActive':
+      if (state.hostPodVariant === 'halted_by_anomaly') {
+        return `Verification halted · ${state.holdQueueCount} held`
+      }
       if (state.hostPodVariant === 'session_fallback') return 'Host fallback (session)'
       if (state.hostPodVariant === 'starting') return 'Starting local pod…'
       return 'Host mode'
@@ -89,9 +96,15 @@ export function IngestionModeStatusPill(): JSX.Element | null {
     }
   }, [refresh])
 
-  const onRetry = async () => {
+  const onRetryEdge = async () => {
     await window.ingestionMode?.retryEdge?.()
     setPanelOpen(false)
+  }
+
+  const onRetryHostPod = async () => {
+    await window.ingestionMode?.retryHostPod?.()
+    setPanelOpen(false)
+    void refresh()
   }
 
   const onAuthorize = async () => {
@@ -132,7 +145,29 @@ export function IngestionModeStatusPill(): JSX.Element | null {
           {state.mode === 'EdgeActive' ? (
             <p>Secure mode active. Remote VPS verifying your messages.</p>
           ) : null}
-          {state.mode === 'HostPodActive' && state.hostPodVariant !== 'session_fallback' ? (
+          {state.mode === 'HostPodActive' &&
+          state.hostPodVariant === 'halted_by_anomaly' ? (
+            <>
+              <p>
+                Message verification has stopped because something unexpected happened. Your
+                messages are held safely ({state.holdQueueCount} in queue).
+              </p>
+              {state.hostPodHaltReason ? (
+                <p style={{ fontSize: 13, opacity: 0.85 }}>{state.hostPodHaltReason}</p>
+              ) : null}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+                <button type="button" onClick={onRetryHostPod}>
+                  Try to recover
+                </button>
+                <button type="button" onClick={() => setPanelOpen(false)}>
+                  Close
+                </button>
+              </div>
+            </>
+          ) : null}
+          {state.mode === 'HostPodActive' &&
+          state.hostPodVariant !== 'session_fallback' &&
+          state.hostPodVariant !== 'halted_by_anomaly' ? (
             <p>Host mode active. Local pod verifying.</p>
           ) : null}
           {state.mode === 'HostPodActive' && state.hostPodVariant === 'session_fallback' ? (
@@ -159,7 +194,7 @@ export function IngestionModeStatusPill(): JSX.Element | null {
                   <button type="button" onClick={() => setPanelOpen(false)}>
                     Keep waiting
                   </button>
-                  <button type="button" onClick={onRetry}>
+                  <button type="button" onClick={onRetryEdge}>
                     Retry now
                   </button>
                   <button type="button" onClick={() => setShowFallbackConfirm(true)}>
@@ -185,11 +220,11 @@ export function IngestionModeStatusPill(): JSX.Element | null {
                 </div>
               )}
             </>
-          ) : (
+          ) : state.hostPodVariant !== 'halted_by_anomaly' ? (
             <button type="button" style={{ marginTop: 12 }} onClick={() => setPanelOpen(false)}>
               Close
             </button>
-          )}
+          ) : null}
         </div>
       ) : null}
     </div>

@@ -36,6 +36,10 @@ import {
   type RoleDiagnosticRuntime,
 } from '../shared/roleDiagnostic.js';
 import { messageContextFromEnvelope } from '../shared/reportGenerator.js';
+import {
+  buildSealCanonicalJson,
+  type DepackagedAttachment,
+} from '../shared/capsuleAttachments.js';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -235,12 +239,17 @@ function makeHandler(
       const depackaged = body['depackaged'] as Record<string, unknown> | undefined;
 
       // ④ Extract canonicalJson
-      // Prefer explicit canonicalJson field; fall back to depackaged.rawCapsuleJson.
+      // Prefer explicit canonicalJson; else build seal input with attachment extraction bindings.
       let canonicalJson: string | undefined;
       if (typeof body['canonicalJson'] === 'string') {
         canonicalJson = body['canonicalJson'];
       } else if (depackaged && typeof depackaged['rawCapsuleJson'] === 'string') {
-        canonicalJson = depackaged['rawCapsuleJson'];
+        const rawCapsuleJson = depackaged['rawCapsuleJson'] as string;
+        const attField = depackaged['attachments'];
+        const attachments = Array.isArray(attField)
+          ? (attField as DepackagedAttachment[])
+          : undefined;
+        canonicalJson = buildSealCanonicalJson({ rawCapsuleJson, attachments });
       }
       if (canonicalJson === undefined) {
         sendJson(res, 400, {

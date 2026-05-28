@@ -22,6 +22,8 @@ import { holdQueueSize } from './holdQueue.js'
 export interface IngestionModeSnapshot {
   mode: IngestionMode
   hostPodVariant: HostPodModeVariant | null
+  hostPodSupervisorState: 'healthy' | 'replacement_exhausted' | 'halted_by_anomaly'
+  hostPodHaltReason: string | null
   waitForHostPod: boolean
   blockedWithoutConnectivity: boolean
   settings: EdgeTierSettings
@@ -71,10 +73,22 @@ export async function refreshIngestionMode(forceProbe = false): Promise<Ingestio
     ...(_resolverInputsOverride ?? {}),
   }
   const mode = resolveIngestionMode(inputs)
+  let hostPodSupervisorState: IngestionModeSnapshot['hostPodSupervisorState'] = 'healthy'
+  let hostPodHaltReason: string | null = null
+  try {
+    const stateMod = await import('../local-pod/supervisor/hostPodState.js')
+    hostPodSupervisorState = stateMod.getHostPodSupervisorState()
+    hostPodHaltReason = stateMod.getHostPodHaltReason()
+  } catch {
+    /* optional */
+  }
+  const hostPodHalted = hostPodSupervisorState !== 'healthy'
   const holdQueue = await holdQueueSize()
   const snap: IngestionModeSnapshot = {
     mode,
-    hostPodVariant: resolveHostPodVariant(inputs, mode),
+    hostPodVariant: resolveHostPodVariant(inputs, mode, hostPodHalted),
+    hostPodSupervisorState,
+    hostPodHaltReason,
     waitForHostPod: shouldWaitForHostPod(inputs, mode),
     blockedWithoutConnectivity: isBlockedWithoutGeneralConnectivity(inputs, mode),
     settings: inputs.settings,
@@ -82,9 +96,14 @@ export async function refreshIngestionMode(forceProbe = false): Promise<Ingestio
     holdQueue,
     sessionHostFallbackAuthorized: inputs.sessionHostFallbackAuthorized,
   }
-  const prevMode = _cachedSnapshot?.mode
+  const prev = _cachedSnapshot
   _cachedSnapshot = snap
-  if (prevMode !== mode) {
+  const changed =
+    !prev ||
+    prev.mode !== snap.mode ||
+    prev.hostPodVariant !== snap.hostPodVariant ||
+    prev.hostPodSupervisorState !== snap.hostPodSupervisorState
+  if (changed) {
     _emitter.emit('change', snap)
   }
   return snap

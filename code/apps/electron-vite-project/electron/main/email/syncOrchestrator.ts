@@ -23,6 +23,7 @@ import {
   scheduleOrchestratorRemoteDrain,
 } from './inboxOrchestratorRemoteQueue'
 import { emailGateway } from './gateway'
+import { enforceFetchPolicyForAccountId } from './rolePolicyEnforce.js'
 import { detectAndRouteMessage, type RawEmailMessage } from './messageRouter'
 import { emailDebugLog, emailDebugWarn } from './emailDebug'
 import {
@@ -416,6 +417,20 @@ async function syncAccountEmailsImpl(
   }
 
   const pausedCfg = emailGateway.getAccountConfig(accountId)
+  const fetchPolicy = enforceFetchPolicyForAccountId(accountId, pausedCfg)
+  if (fetchPolicy) {
+    emailDebugLog('[SYNC-DEBUG] syncAccountEmailsImpl skipped — role policy', {
+      accountId,
+      reason: fetchPolicy.reason,
+    })
+    return {
+      ...result,
+      listedFromProvider: 0,
+      skippedDuplicate: 0,
+      skipReason: fetchPolicy.reason === 'edge_blocked_holding' ? 'edge_fetch_blocked' : 'edge_fetch',
+    }
+  }
+
   if (pausedCfg?.processingPaused === true) {
     emailDebugLog('[SYNC-DEBUG] syncAccountEmailsImpl skipped — processingPaused', { accountId })
     return {
@@ -423,22 +438,6 @@ async function syncAccountEmailsImpl(
       listedFromProvider: 0,
       skippedDuplicate: 0,
       skipReason: 'processing_paused',
-    }
-  }
-
-  const edgeState = pausedCfg?.edgeFetch?.state
-  if (
-    edgeState === 'active' ||
-    edgeState === 'awaiting_key' ||
-    edgeState === 'migrating' ||
-    edgeState === 'migrating_back'
-  ) {
-    emailDebugLog('[SYNC-DEBUG] syncAccountEmailsImpl skipped — edge fetch', { accountId, edgeState })
-    return {
-      ...result,
-      listedFromProvider: 0,
-      skippedDuplicate: 0,
-      skipReason: 'edge_fetch',
     }
   }
 

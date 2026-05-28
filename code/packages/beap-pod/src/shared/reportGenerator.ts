@@ -15,6 +15,7 @@ import {
 } from '@repo/beap-cert';
 
 import { DEFAULT_DIAGNOSTIC_REPORTS_DIR } from './diagnosticConstants.js';
+import { isEscalationReportFilename } from './failurePolicy.js';
 import { getMessageProcessingContext } from './messageWatchdog.js';
 import { QuarantineStore, hasQuarantineKey } from './quarantine/index.js';
 
@@ -224,6 +225,10 @@ export class BeapPodReportError extends Error {
 }
 
 function reportFilename(timestampIso: string, containerIdShort: string): string {
+  const override = process.env['DIAGNOSTIC_ESCALATION_FILENAME'];
+  if (override && isEscalationReportFilename(override)) {
+    return override;
+  }
   const safeTs = timestampIso.replace(/[:.]/g, '-');
   return `${safeTs}-${containerIdShort}.json`;
 }

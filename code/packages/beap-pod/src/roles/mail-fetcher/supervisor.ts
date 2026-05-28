@@ -19,6 +19,11 @@ import { QuarantineStore } from '../../shared/quarantine/index.js';
 import { setQuarantineKeyFromHex } from '../../shared/quarantine/keyStore.js';
 import { QuarantineSkipStore } from './quarantineSkipStore.js';
 import { startQuarantineCleanupTask } from './quarantineCleanup.js';
+import {
+  rolePolicy,
+  EDGE_ROLE_POLICY_ACCOUNT,
+  isMailFetcherSendShapedRequest,
+} from '@repo/role-policy';
 
 export const ROLE = 'mail-fetcher';
 export const DEFAULT_PORT = 18106;
@@ -95,10 +100,28 @@ export function createMailFetcherServer(config: MailFetcherSupervisorConfig = {}
 
   const diagnostics = config.diagnostics ?? createRoleDiagnosticRuntime(ROLE);
 
+  const sendPolicyBoot = rolePolicy.canSend(EDGE_ROLE_POLICY_ACCOUNT, {
+    mode: 'EdgeActive',
+    context: 'edge_mail_fetcher',
+  });
+  if (sendPolicyBoot.allowed) {
+    console.error(
+      `[${ROLE}] FATAL: role policy allows send on edge mail-fetcher — refusing to start`,
+    );
+    process.exit(1);
+  }
+  console.log(`[${ROLE}] role policy: send permanently forbidden (${sendPolicyBoot.reason})`);
+
   const server = http.createServer(
     wrapRoleRequestListener(diagnostics, (req, res) => {
     const url = req.url?.split('?')[0] ?? '/';
     const method = req.method ?? 'GET';
+
+    if (isMailFetcherSendShapedRequest(method, url)) {
+      console.warn(`[${ROLE}] rejected send-shaped request`, { method, url });
+      sendJson(res, 403, { error: 'forbidden_role', reason: 'edge_role_send_forbidden' });
+      return;
+    }
 
     // Probe endpoints — no X-Pod-Auth (matches ingestor/validator pattern).
     if (method === 'GET' && url === '/health') {

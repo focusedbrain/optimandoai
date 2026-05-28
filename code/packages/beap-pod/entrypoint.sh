@@ -2,7 +2,7 @@
 # BEAP pod role dispatcher
 # Selects the role binary based on the BEAP_ROLE environment variable.
 # Every container in the pod shares this image; the pod manifest sets BEAP_ROLE
-# per container to ingestor | validator | depackager | sealer | certifier | verifier | mail-fetcher.
+# per container to ingestor | validator | depackager | sealer | certifier | verifier | mail-fetcher | pdf-parser.
 #
 # Usage: docker/podman run --rm -e BEAP_ROLE=ingestor beap-components:dev
 set -e
@@ -30,6 +30,9 @@ case "$ROLE" in
     ;;
   mail-fetcher)
     exec node /app/packages/beap-pod/dist/roles/mail-fetcher.js
+    ;;
+  pdf-parser)
+    exec node /app/packages/beap-pod/dist/roles/pdf-parser.js
     ;;
   "")
     echo "BEAP_ROLE is not set" >&2

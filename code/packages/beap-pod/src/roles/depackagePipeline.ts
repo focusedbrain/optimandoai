@@ -481,3 +481,97 @@ export async function runDepackagePipeline(
     artefactCount: pkg.artefactsEnc?.length ?? pkg.artefacts?.length ?? 0,
   };
 }
+
+// ── Artefact decryption (post Gate 4) ─────────────────────────────────────────
+
+export interface DecryptedArtefact {
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  bytes: Buffer;
+}
+
+/** Decrypt qBEAP artefactsEnc entries; pBEAP returns an empty list. */
+export async function decryptPackageArtefacts(
+  pkg: LocalBeapPackage,
+  pipeline: DepackageSuccess,
+): Promise<DecryptedArtefact[]> {
+  if (pipeline.encoding !== 'qBEAP') return [];
+
+  const artefactsEnc = pkg.artefactsEnc;
+  if (!Array.isArray(artefactsEnc) || artefactsEnc.length === 0) return [];
+
+  let capsule: Record<string, unknown> = {};
+  try {
+    capsule = JSON.parse(pipeline.capsulePlaintext) as Record<string, unknown>;
+  } catch {
+    return [];
+  }
+
+  const aadBytes = computeEnvelopeAadBytes(pkg.header);
+  const envelopeAadBytes = aadBytes.length > 0 ? aadBytes : undefined;
+  const decrypted: DecryptedArtefact[] = [];
+
+  for (const raw of artefactsEnc) {
+    const enc = raw as ArtefactEnc;
+    try {
+      let decBytes: Uint8Array;
+      const chunkRecord = enc as unknown as Record<string, unknown>;
+      const chunks = resolveChunks(chunkRecord);
+      if (chunks && chunks.length > 0) {
+        decBytes = await decryptChunkSequence(pipeline.artefactKey, chunks, envelopeAadBytes);
+      } else if (typeof enc.nonce === 'string' && typeof enc.ciphertext === 'string') {
+        const tag = enc.tag ?? enc.authTag ?? enc.gcmTag;
+        decBytes = await aesGcmDecrypt(
+          pipeline.artefactKey,
+          enc.nonce,
+          enc.ciphertext,
+          envelopeAadBytes,
+          tag,
+        );
+      } else {
+        continue;
+      }
+
+      const attachmentId =
+        typeof enc.attachmentId === 'string'
+          ? enc.attachmentId
+          : typeof enc.id === 'string'
+            ? enc.id
+            : `att-${decrypted.length}`;
+
+      const metaList = Array.isArray(capsule.attachments) ? capsule.attachments : [];
+      const meta = metaList.find((a: unknown) => {
+        if (!a || typeof a !== 'object') return false;
+        const o = a as Record<string, unknown>;
+        return o.id === attachmentId || o.encryptedRef === attachmentId;
+      }) as Record<string, unknown> | undefined;
+
+      const filename = String(
+        meta?.originalName ?? meta?.filename ?? meta?.name ?? enc.filename ?? 'attachment',
+      ).slice(0, 500);
+      const contentType = String(
+        meta?.originalType ?? meta?.mimeType ?? enc.mime ?? 'application/octet-stream',
+      ).slice(0, 200);
+      const size =
+        typeof meta?.originalSize === 'number'
+          ? meta.originalSize
+          : typeof enc.bytesPlain === 'number'
+            ? enc.bytesPlain
+            : decBytes.length;
+
+      decrypted.push({
+        id: attachmentId,
+        filename,
+        contentType,
+        size,
+        bytes: Buffer.from(decBytes),
+      });
+    } catch {
+      // One failed artefact does not abort the rest.
+    }
+  }
+
+  return decrypted;
+}

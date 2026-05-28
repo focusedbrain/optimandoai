@@ -33,6 +33,12 @@ import {
 } from '../edge-tier/verifierLogTailer.js'
 import { assertPodmanReady, PodmanSetupError } from './podmanDetect.js'
 import { notifyLocalPodSetupIssue } from './notify.js'
+import { ImageDigestMismatchError } from './imageDigestVerify.js'
+import {
+  startLocalPodSupervisor,
+  stopLocalPodSupervisor,
+} from './supervisor/index.js'
+import { setPodSessionAuthSecret, clearPodSessionAuthSecret } from './podSessionAuth.js'
 
 // ── Module-level state ─────────────────────────────────────────────────────────
 
@@ -118,11 +124,13 @@ export async function restartLocalPod(
 }
 
 export async function stopLocalPod(): Promise<void> {
+  stopLocalPodSupervisor()
   stopVerifierLogTail()
   if (!_activePod) return
 
   const pod = _activePod
   _activePod = null
+  clearPodSessionAuthSecret()
 
   console.log(`[LOCAL_POD] Stopping pod: ${pod.podName}`)
   try {
@@ -220,8 +228,10 @@ async function _doStart(
 
   try {
     _activePod = await applyPodManifest(podAuthSecret, sealKeyHex, runnerOpts)
+    setPodSessionAuthSecret(podAuthSecret)
     _podSetupError = null
     console.log(`[LOCAL_POD] Pod started: ${_activePod.podName}`)
+    startLocalPodSupervisor(_activePod.podName, () => stopLocalPod())
     try {
       const { invalidateHostPodReadyCache } = await import('../ingestion/edgeProbe.js')
       const { refreshIngestionMode } = await import('../ingestion/ingestionModeService.js')
@@ -236,7 +246,12 @@ async function _doStart(
       stopVerifierLogTail()
     }
   } catch (err) {
-    console.error('[LOCAL_POD] Failed to start pod:', (err as Error).message ?? err)
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[LOCAL_POD] Failed to start pod:', msg)
     _activePod = null
+    if (err instanceof ImageDigestMismatchError) {
+      _podSetupError = new PodmanSetupError('not_installed', err.message)
+      notifyLocalPodSetupIssue(err.message)
+    }
   }
 }

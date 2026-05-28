@@ -32,6 +32,7 @@ import { evaluateAutoresponder } from '../beap/autoresponderEvaluator'
 import { logAutoresponderDecision } from '../beap/autoresponderAudit'
 import { makeInboxAttachmentStorageId, buildQuarantineCanonicalJson, findPairedSandboxHandshake } from './messageRouter'
 import { validatorOrchestrator } from '../validation/inProcessValidator'
+import { ensureValidatorAndSealedStorageReady } from '../validatorReadiness.js'
 import type { ReasonCode } from '../vault/capabilityBroker'
 import { prepareSealedInsert, prepareSealedOperationalUpdate, computeSeal } from '../sealed-storage/index'
 import type { KeySource } from '../sealed-storage/index'
@@ -1248,6 +1249,14 @@ async function processBeapPackageInlineInternal(
       }
     } else {
       // ── Confidential path: inner vault + validator subprocess ─────────────
+      const validatorReady = await ensureValidatorAndSealedStorageReady(
+        'beap_p2p_inline_confidential',
+        handshakeId,
+        { requireInner: true },
+      )
+      if (!validatorReady.ok) {
+        depackageError = `validator not ready: ${validatorReady.error}`
+      } else {
       const provenance = buildP2PProvenance(handshakeId, transportSender, sourceType, packageJson)
       const resp = await validatorOrchestrator.validate({
         envelope: pkg,
@@ -1292,6 +1301,7 @@ async function processBeapPackageInlineInternal(
         return inlineResult
       }
       depackageError = `validator rejected: ${resp.outcome.sealed_quarantine.rejection_reason}`
+      }
     }
   }
 

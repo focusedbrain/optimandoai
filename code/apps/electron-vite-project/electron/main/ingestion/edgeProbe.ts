@@ -85,6 +85,15 @@ export async function probeGeneralConnectivity(force = false): Promise<boolean> 
 }
 
 export async function probeHostPodReady(force = false): Promise<boolean> {
+  try {
+    const { getHostPodSupervisorState } = await import('../local-pod/supervisor/hostPodState.js')
+    if (getHostPodSupervisorState() !== 'healthy') {
+      _hostPodReady = false
+      return false
+    }
+  } catch {
+    /* supervisor optional in tests */
+  }
   if (!force && _hostPodReady) return true
   const ok = await probeUrl(`${getHostPodBaseUrl()}/health`, HOST_POD_PROBE_TIMEOUT_MS)
   _hostPodReady = ok

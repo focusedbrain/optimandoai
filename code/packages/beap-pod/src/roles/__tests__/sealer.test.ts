@@ -286,7 +286,7 @@ describe('sealer HTTP server', () => {
     expect(verifySealPod(json['sealInputJson'] as string, json['seal'] as string, FIXTURE_KEY)).toBe(true);
   });
 
-  test('POST /seal with depackaged.rawCapsuleJson uses it as canonicalJson', async () => {
+  test('POST /seal with depackaged.rawCapsuleJson uses seal canonical form', async () => {
     server = createSealerServer(TEST_SECRET, FIXTURE_KEY);
     await startServer(server);
 
@@ -299,10 +299,63 @@ describe('sealer HTTP server', () => {
     expect(status).toBe(200);
     expect(verifySealPod(json['sealInputJson'] as string, json['seal'] as string, FIXTURE_KEY)).toBe(true);
 
-    // content_sha256 must match SHA-256 of rawCapsuleJson, not the full depackaged object.
+    const { buildSealCanonicalJson } = await import('../../shared/capsuleAttachments.js');
+    const sealCanonical = buildSealCanonicalJson({ rawCapsuleJson });
     const parsed = JSON.parse(json['sealInputJson'] as string) as Record<string, unknown>;
-    const expectedHash = createHash('sha256').update(rawCapsuleJson, 'utf8').digest('hex');
+    const expectedHash = createHash('sha256').update(sealCanonical, 'utf8').digest('hex');
     expect(parsed['content_sha256']).toBe(expectedHash);
+  });
+
+  test('POST /seal binds attachment structural_hash in canonical content', async () => {
+    server = createSealerServer(TEST_SECRET, FIXTURE_KEY);
+    await startServer(server);
+
+    const rawCapsuleJson = '{"subject":"PDF"}';
+    const attachments = [
+      {
+        id: 'att-1',
+        filename: 'a.pdf',
+        content_type: 'application/pdf',
+        size: 10,
+        extracted_text_v1: {
+          text: 't',
+          structural_hash: 'bind-hash-1',
+          extractor_version: 'beap-pdf-extract-v1',
+        },
+      },
+    ];
+    const { buildSealCanonicalJson } = await import('../../shared/capsuleAttachments.js');
+    const sealCanonical = buildSealCanonicalJson({ rawCapsuleJson, attachments });
+
+    const plain = await postSeal(
+      server,
+      { depackaged: { rawCapsuleJson, attachments } },
+      TEST_SECRET,
+    );
+    const withBinding = await postSeal(
+      server,
+      {
+        depackaged: {
+          rawCapsuleJson,
+          attachments: [
+            {
+              ...attachments[0]!,
+              extracted_text_v1: { ...attachments[0]!.extracted_text_v1!, structural_hash: 'other-hash' },
+            },
+          ],
+        },
+      },
+      TEST_SECRET,
+    );
+
+    expect(plain.status).toBe(200);
+    expect(withBinding.status).toBe(200);
+    const plainParsed = JSON.parse(plain.json['sealInputJson'] as string) as Record<string, unknown>;
+    const boundParsed = JSON.parse(withBinding.json['sealInputJson'] as string) as Record<string, unknown>;
+    expect(plainParsed['content_sha256']).toBe(
+      createHash('sha256').update(sealCanonical, 'utf8').digest('hex'),
+    );
+    expect(plainParsed['content_sha256']).not.toBe(boundParsed['content_sha256']);
   });
 
   test('POST /seal generates a rowId when not provided', async () => {

@@ -34,7 +34,11 @@ import { createHash, randomUUID } from 'crypto'
 import { plainEmailToBeapMessage, enrichWithAttachments } from './plainEmailConverter'
 import type { SanitizedMessageDetail } from './types'
 import { emailGateway } from './gateway'
-import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
+import { isPdfFile } from './pdf-extractor'
+import {
+  applyEdgePodAttachmentsToAttMetas,
+  type PodDepackagedAttachmentWire,
+} from './capsuleExtractedText.js'
 import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
 import { dispatchDepackageQBeap } from '../ingestion/ingestionDispatcher.js'
 import { validatorOrchestrator } from '../validation/inProcessValidator'
@@ -433,15 +437,10 @@ export async function detectAndRouteMessage(
     }
 
     if (isPdfFile(att.contentType || '', att.filename) && att.content && att.content.length > 0) {
-      try {
-        const result = await extractPdfText(att.content)
-        extractedText = result.text ?? ''
-        extractedTextSha256 = createHash('sha256').update(extractedText, 'utf8').digest('hex')
-        const { status, error: errMsg } = resolveInboxPdfExtractionStatus(result)
-        extractionStatus = status; extractionError = errMsg
-      } catch (e: any) {
-        extractionStatus = 'failed'; extractionError = e?.message ?? String(e) ?? 'Extraction crashed'
-      }
+      extractedText = null
+      extractedTextSha256 = null
+      extractionStatus = 'consent_required'
+      extractionError = null
     }
 
     attMetas.push({
@@ -450,15 +449,18 @@ export async function detectAndRouteMessage(
     })
   }
 
-  // Build the Att-2 attachment canonical array (used for plain_email sealing).
-  const attachmentsCanonical: ChildAttachmentDescriptor[] = attMetas.map((m) => ({
-    attachment_id: m.attId,
-    filename: m.att.filename || 'attachment',
-    content_type: m.att.contentType || 'application/octet-stream',
-    size_bytes: m.att.size ?? 0,
-    content_sha256: m.contentSha256,
-    extracted_text_sha256: m.extractedTextSha256 ?? null,
-  }))
+  const buildAttachmentsCanonical = (): ChildAttachmentDescriptor[] =>
+    attMetas.map((m) => ({
+      attachment_id: m.attId,
+      filename: m.att.filename || 'attachment',
+      content_type: m.att.contentType || 'application/octet-stream',
+      size_bytes: m.att.size ?? 0,
+      content_sha256: m.contentSha256,
+      extracted_text_sha256: m.extractedTextSha256 ?? null,
+      ...(m.extractionStatus ? { text_extraction_status: m.extractionStatus } : {}),
+    }))
+
+  let qbeapPodAttachments: PodDepackagedAttachmentWire[] = []
 
   // ── Step 2b: Async pre-work — depackage + validate (no DB writes yet) ──────
 
@@ -513,6 +515,7 @@ export async function detectAndRouteMessage(
           const dec = await dispatchDepackageQBeap(beapPackageJson, handshakeId ?? '', db)
           if (dec?.rawCapsuleJson) {
             canonicalJson = dec.rawCapsuleJson
+            qbeapPodAttachments = dec.podAttachments ?? []
           } else {
             depackageError = 'qBEAP decrypt returned null (missing handshake key or malformed package)'
           }
@@ -576,7 +579,7 @@ export async function detectAndRouteMessage(
         writePayload = await buildPlainEmailInboxPayload(
           inboxMessageId, messageId, accountId, rawMsg, fromAddr,
           fromName, subject, bodyText, bodyHtml, toList, ccList,
-          receivedAt, attachmentsCanonical,
+          receivedAt, buildAttachmentsCanonical(),
         )
       } else {
         const emailBytes = Buffer.from(beapPackageJson, 'utf-8')
@@ -587,7 +590,7 @@ export async function detectAndRouteMessage(
           writePayload = await buildPlainEmailInboxPayload(
             inboxMessageId, messageId, accountId, rawMsg, fromAddr,
             fromName, subject, bodyText, bodyHtml, toList, ccList,
-            receivedAt, attachmentsCanonical,
+            receivedAt, buildAttachmentsCanonical(),
           )
         } else {
           const blobResult = writeQuarantineBlob(encResult.blob)
@@ -614,7 +617,7 @@ export async function detectAndRouteMessage(
             writePayload = await buildPlainEmailInboxPayload(
               inboxMessageId, messageId, accountId, rawMsg, fromAddr,
               fromName, subject, bodyText, bodyHtml, toList, ccList,
-              receivedAt, attachmentsCanonical,
+              receivedAt, buildAttachmentsCanonical(),
             )
           } else {
             const qSealed = qResp.outcome.sealed
@@ -638,7 +641,16 @@ export async function detectAndRouteMessage(
     writePayload = await buildPlainEmailInboxPayload(
       inboxMessageId, messageId, accountId, rawMsg, fromAddr,
       fromName, subject, bodyText, bodyHtml, toList, ccList,
-      receivedAt, attachmentsCanonical,
+      receivedAt, buildAttachmentsCanonical(),
+    )
+  }
+
+  if (qbeapPodAttachments.length > 0) {
+    applyEdgePodAttachmentsToAttMetas(
+      attMetas,
+      qbeapPodAttachments,
+      inboxMessageId,
+      makeInboxAttachmentStorageId,
     )
   }
 

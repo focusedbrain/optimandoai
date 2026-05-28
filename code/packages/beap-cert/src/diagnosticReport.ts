@@ -47,7 +47,8 @@ export type DiagnosticContainerRole =
   | 'sealer'
   | 'certifier'
   | 'verifier'
-  | 'mail-fetcher';
+  | 'mail-fetcher'
+  | 'pdf-parser';
 
 export interface DiagnosticReportFailedContainer {
   role: DiagnosticContainerRole;

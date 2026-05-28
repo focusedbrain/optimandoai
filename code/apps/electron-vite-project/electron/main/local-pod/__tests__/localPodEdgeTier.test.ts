@@ -15,6 +15,11 @@ vi.mock('electron', () => ({
   ),
 }))
 
+vi.mock('../supervisor/index.js', () => ({
+  startLocalPodSupervisor: vi.fn(),
+  stopLocalPodSupervisor: vi.fn(),
+}))
+
 import {
   startLocalPod,
   restartLocalPod,
@@ -59,6 +64,7 @@ function localPodStartOpts(executor: PodmanExecutor, extra?: Record<string, unkn
   return {
     executor,
     podmanCheck: passPodmanCheck,
+    skipImageDigestVerify: true,
     ...extra,
   }
 }

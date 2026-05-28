@@ -4,6 +4,10 @@
 
 import { Notification } from 'electron'
 
+export function notifyLocalPodSupervisorIssue(message: string): void {
+  notifyLocalPodSetupIssue(message)
+}
+
 export function notifyLocalPodSetupIssue(message: string): void {
   console.error(`[LOCAL_POD] ${message}`)
   try {

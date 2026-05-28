@@ -729,6 +729,9 @@ export interface SendResult {
   success: boolean
   messageId?: string
   error?: string
+  /** Set when role policy blocked send — draft must be retained client-side. */
+  policyBlocked?: boolean
+  policyReason?: string
 }
 
 // =============================================================================

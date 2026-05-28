@@ -32,6 +32,10 @@ import {
 } from './startupHoldBuffer.js'
 import { buildIngestPodClient, type IngestPodClientRoute } from './podClientFactory.js'
 import { decryptQBeapPackage, type DecryptedQBeapContent } from '../beap/decryptQBeapPackage.js'
+import {
+  parsePodDepackagedAttachments,
+  type PodDepackagedAttachmentWire,
+} from '../email/capsuleExtractedText.js'
 import { getHandshakeRecord } from '../handshake/db.js'
 import { refreshIngestionMode } from './ingestionModeService.js'
 import { isSessionHostFallbackAuthorized } from './sessionHostFallback.js'
@@ -62,6 +66,25 @@ export async function dispatchProcessIncomingInput(
 ): Promise<IngestionResult> {
   const start = performance.now()
   const snap = await getCurrentIngestionMode()
+
+  if (snap.hostPodVariant === 'halted_by_anomaly') {
+    const id = generateHoldMessageId()
+    const body = Buffer.isBuffer(rawInput.body) ? rawInput.body : Buffer.from(rawInput.body, 'utf8')
+    await holdQueueEnqueue({
+      id,
+      receivedAt: Date.now(),
+      sourceType,
+      transportMeta,
+      opaqueBody: serializeOpaqueHoldPayload(body, sourceType, transportMeta),
+    })
+    await refreshIngestionMode()
+    return {
+      success: true,
+      held: true,
+      heldMessageId: id,
+      audit: heldAudit(sourceType, id, Math.round(performance.now() - start)),
+    }
+  }
 
   if (snap.mode === 'Blocked') {
     const id = generateHoldMessageId()
@@ -122,6 +145,8 @@ export interface DepackagedQBeapResult {
   rawCapsuleJson?: string
   attachments: never[]
   automation: undefined
+  /** Pod depackager attachment rows (edge extracted_text_v1 when present). */
+  podAttachments?: PodDepackagedAttachmentWire[]
 }
 
 function mapDecryptResult(d: DecryptedQBeapContent): DepackagedQBeapResult {
@@ -153,6 +178,7 @@ async function depackageViaPodHttp(
     rawCapsuleJson: depackaged['rawCapsuleJson'] as string,
     attachments: [],
     automation: undefined,
+    podAttachments: parsePodDepackagedAttachments(depackaged),
   }
 }
 

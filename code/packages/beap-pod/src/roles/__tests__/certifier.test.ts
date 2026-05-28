@@ -203,6 +203,44 @@ describe('certifier HTTP server', () => {
     expect(verified.ok).toBe(true);
   });
 
+  test('POST /certify binds extracted_text_v1 into validation_result_digest', async () => {
+    server = createCertifierServer(TEST_SECRET, fixtureState());
+    await startServer(server);
+
+    const plain = await postCertify(server, sampleCertifyBody(), TEST_SECRET);
+    const withExtract = await postCertify(
+      server,
+      sampleCertifyBody({
+        depackaged: {
+          subject: 'test',
+          body: '<p>hi</p>',
+          attachments: [
+            {
+              id: 'att-1',
+              filename: 'f.pdf',
+              content_type: 'application/pdf',
+              size: 1,
+              extracted_text_v1: {
+                text: 'edge text',
+                structural_hash: 'edge-hash',
+                extractor_version: 'beap-pdf-extract-v1',
+              },
+            },
+          ],
+        },
+      }),
+      TEST_SECRET,
+    );
+
+    const plainDigest = (plain.json['edge_certificate'] as Record<string, unknown>)[
+      'validation_result_digest'
+    ];
+    const extractDigest = (withExtract.json['edge_certificate'] as Record<string, unknown>)[
+      'validation_result_digest'
+    ];
+    expect(plainDigest).not.toBe(extractDigest);
+  });
+
   test('missing X-Pod-Auth → 401', async () => {
     server = createCertifierServer(TEST_SECRET, fixtureState());
     await startServer(server);

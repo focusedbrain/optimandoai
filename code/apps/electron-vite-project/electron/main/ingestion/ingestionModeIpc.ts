@@ -15,8 +15,9 @@ import {
   revokeSessionHostFallback,
 } from './sessionHostFallback.js'
 import { drainHoldQueueIfReady } from './ingestionDispatcher.js'
-import { invalidateEdgeProbeCache } from './edgeProbe.js'
+import { invalidateEdgeProbeCache, invalidateHostPodReadyCache } from './edgeProbe.js'
 import type { IngestionModeSnapshot } from './ingestionModeService.js'
+import { buildLocalPodStartContext } from '../local-pod/index.js'
 
 let _tray: Tray | null = null
 
@@ -34,6 +35,10 @@ function modeTooltip(snap: IngestionModeSnapshot): string {
     case 'EdgeActive':
       return 'Secure mode: remote VPS verifying.'
     case 'HostPodActive':
+      if (snap.hostPodVariant === 'halted_by_anomaly') {
+        const n = snap.holdQueue.count
+        return `Verification halted. ${n} message${n === 1 ? '' : 's'} held safely.`
+      }
       if (snap.hostPodVariant === 'session_fallback') {
         return 'Host fallback active (session). Edge unreachable.'
       }
@@ -104,6 +109,25 @@ export function registerIngestionModeIpc(): void {
     broadcastMode(snap)
     return snap
   })
+
+  ipcMain.handle('ingestion-mode:retry-host-pod', async () => {
+    const { userRetryLocalPodSupervisor } = await import(
+      '../local-pod/supervisor/index.js'
+    )
+    const { restartLocalPod } = await import('../local-pod/index.js')
+    const { vaultService } = await import('../vault/rpc.js')
+    userRetryLocalPodSupervisor()
+    invalidateHostPodReadyCache()
+    if (vaultService) {
+      await restartLocalPod(vaultService, buildLocalPodStartContext())
+    }
+    const snap = await refreshIngestionMode(true)
+    if (snap.hostPodVariant !== 'halted_by_anomaly') {
+      await drainHoldQueueIfReady()
+    }
+    broadcastMode(snap)
+    return snap
+  })
 }
 
 export function startIngestionModeLifecycle(): void {
@@ -111,7 +135,7 @@ export function startIngestionModeLifecycle(): void {
   startIngestionModePolling(15_000)
   onIngestionModeChange((snap) => {
     broadcastMode(snap)
-    if (snap.mode !== 'Blocked') {
+    if (snap.mode !== 'Blocked' && snap.hostPodVariant !== 'halted_by_anomaly') {
       void drainHoldQueueIfReady()
     }
   })

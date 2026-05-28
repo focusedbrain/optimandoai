@@ -749,12 +749,12 @@ function createRequestHandler(
           if (capsuleType === 'initiate') {
             const handshakeType =
               typeof parsed?.handshake_type === 'string' ? parsed.handshake_type.trim() : ''
-            if (handshakeType !== 'internal') {
+            if (handshakeType !== 'internal' && handshakeType !== 'edge_ingestor') {
               sendError(res, 400, {
                 error: 'initiate_external_not_allowed',
                 code: 'initiate_external_not_allowed',
                 detail:
-                  'External initiates must be delivered out-of-band (file, email, USB). Only internal handshakes may traverse the relay.',
+                  'External initiates must be delivered out-of-band (file, email, USB). Only same-user handshakes (internal or edge_ingestor) may traverse the relay.',
               })
               return
             }

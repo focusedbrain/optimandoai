@@ -37,6 +37,10 @@ import {
   type RoleDiagnosticRuntime,
 } from '../shared/roleDiagnostic.js';
 import { messageContextFromEnvelope } from '../shared/reportGenerator.js';
+import {
+  validationResultBytesForCertify,
+  type DepackagedAttachment,
+} from '../shared/capsuleAttachments.js';
 
 const ROLE = 'certifier';
 const DEFAULT_PORT = 18104;
@@ -314,6 +318,15 @@ function makeHandler(
         return;
       }
 
+      const depackagedAttachments = (depackaged as Record<string, unknown>)['attachments'];
+      const attachmentsForCertify = Array.isArray(depackagedAttachments)
+        ? (depackagedAttachments as DepackagedAttachment[])
+        : undefined;
+      const validationBytesForCertify = validationResultBytesForCertify(
+        canonicalValidationResultBytes,
+        attachmentsForCertify,
+      );
+
       trackMessageProcessing(
         messageContextFromEnvelope({
           rawBytes: rawPackageBytes,
@@ -328,7 +341,7 @@ function makeHandler(
         certificate = buildEdgeCertificate(state, {
           rawPackageBytes,
           canonicalCapsuleBytes,
-          canonicalValidationResultBytes,
+          canonicalValidationResultBytes: validationBytesForCertify,
         });
       } finally {
         untrackMessageProcessing();

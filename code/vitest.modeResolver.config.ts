@@ -13,6 +13,7 @@ export default defineConfig({
     alias: [
       { find: 'electron', replacement: path.resolve(repoRoot, 'test/mocks/electron.ts') },
       { find: '@repo/ingestion-core', replacement: path.resolve(repoRoot, 'packages/ingestion-core/src/index.ts') },
+      { find: '@repo/role-policy', replacement: path.resolve(repoRoot, 'packages/role-policy/src/index.ts') },
       { find: '@repo/pod-client', replacement: path.resolve(repoRoot, 'packages/pod-client/src/index.ts') },
       {
         find: '@beap-pod/depackagePipeline',
@@ -26,6 +27,9 @@ export default defineConfig({
       'apps/electron-vite-project/electron/main/ingestion/__tests__/modeResolver/**/*.test.ts',
       'apps/electron-vite-project/electron/main/edge-tier/__tests__/edgeConfigurationState.test.ts',
       'apps/electron-vite-project/electron/main/wizard/__tests__/**/*.test.ts',
+      'apps/electron-vite-project/electron/main/__tests__/validatorReadinessSealedRead.test.ts',
+      'apps/electron-vite-project/electron/main/email/__tests__/rolePolicy.gateway.test.ts',
+      'apps/electron-vite-project/electron/main/email/__tests__/rolePolicy.transitions.test.ts',
     ],
     setupFiles: [],
     globals: true,

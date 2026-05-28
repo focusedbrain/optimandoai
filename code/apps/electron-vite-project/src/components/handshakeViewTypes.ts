@@ -700,6 +700,25 @@ export interface EmailInboxBridge {
     }
     error?: string
   }>
+  issuePdfExtractionConsent: (
+    messageId: string,
+    attachmentId: string,
+  ) => Promise<{ ok: boolean; data?: { token: string; expiresAt: string }; error?: string }>
+  requestPdfExtraction: (opts: {
+    messageId: string
+    attachmentId: string
+    consentSignature: string
+  }) => Promise<{
+    ok: boolean
+    data?: {
+      text: string
+      status: string
+      error?: string | null
+      page_count?: number | null
+    }
+    error?: string
+    code?: string
+  }>
   openAttachmentOriginal: (id: string) => Promise<{ ok: boolean; data?: { opened: boolean }; error?: string }>
   aiSummarize: (id: string) => Promise<{ ok: boolean; data?: { summary: string }; error?: string }>
   aiDraftReply: (
