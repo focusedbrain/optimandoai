@@ -25,10 +25,7 @@ export const WIZARD_UPGRADE_URL = 'https://wrdesk.com/?page_id=1080&v=5f02f08893
 export const STEP_LABELS = [
   'Overview',
   'Sign in',
-  'Provide VM',
-  'Probe & prepare',
-  'Replica count',
-  'Deploy',
+  'Pair verification server',
   'Verify & enable',
   'Email on edge',
 ] as const

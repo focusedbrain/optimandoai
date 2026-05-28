@@ -11,6 +11,7 @@ import type { DeployEvent } from '../edge-tier/ssh/deploy.js'
 export type WizardStep =
   | 'explainer'
   | 'authenticate'
+  | 'pair_verification_server'
   | 'provide_vm'
   | 'probe_and_prepare'
   | 'replica_count'
@@ -18,6 +19,14 @@ export type WizardStep =
   | 'verify_and_switch'
   | 'finale'
   | 'complete'
+
+export type WizardPairingPhase = 'enter' | 'confirm_fingerprint'
+
+export interface WizardPairingPublic {
+  readonly phase: WizardPairingPhase
+  readonly address?: string
+  readonly fingerprint?: string
+}
 
 /** VM connection info safe to expose to the renderer. */
 export interface WizardVmCredentialsPublic {
@@ -76,6 +85,7 @@ export interface WizardState {
   readonly replicaIndex: number
   readonly totalReplicas: number
   readonly authenticate?: { readonly plan: string; readonly sub: string }
+  readonly pairing?: WizardPairingPublic
   readonly vmCredentials?: WizardVmCredentialsPublic
   readonly probe?: TargetProbe
   readonly podmanReady?: boolean

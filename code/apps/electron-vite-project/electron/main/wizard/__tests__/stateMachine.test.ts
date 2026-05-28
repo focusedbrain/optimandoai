@@ -28,15 +28,33 @@ describe('wizardReducer', () => {
     expect(next.step).toBe('authenticate')
   })
 
-  test('authenticate success moves to provide_vm', () => {
+  test('authenticate success moves to pair_verification_server', () => {
     const onAuth = wizardReducer(INITIAL_WIZARD_STATE, { type: 'EXPLAINER_CONTINUE' })
     const next = wizardReducer(onAuth, {
       type: 'AUTH_SUCCESS',
       plan: 'pro',
       sub: 'user-123',
     })
-    expect(next.step).toBe('provide_vm')
+    expect(next.step).toBe('pair_verification_server')
     expect(next.authenticate?.sub).toBe('user-123')
+    expect(next.pairing?.phase).toBe('enter')
+  })
+
+  test('pair success advances to verify_and_switch', () => {
+    let state = wizardReducer(INITIAL_WIZARD_STATE, { type: 'EXPLAINER_CONTINUE' })
+    state = wizardReducer(state, { type: 'AUTH_SUCCESS', plan: 'pro', sub: 'u' })
+    state = wizardReducer(state, {
+      type: 'PAIR_FINGERPRINT_READY',
+      address: 'https://vps.test:8443',
+      fingerprint: 'aaaa-bbbb-cccc-dddd',
+    })
+    expect(state.pairing?.phase).toBe('confirm_fingerprint')
+    const done = wizardReducer(state, {
+      type: 'PAIR_SUCCESS',
+      replica: { host: 'vps.test', port: 18100, podId: 'pod-1', publicKey: 'ed25519:' + 'a'.repeat(64) },
+    })
+    expect(done.step).toBe('verify_and_switch')
+    expect(done.deployedReplicas).toHaveLength(1)
   })
 
   test('authenticate failure records error', () => {
@@ -95,7 +113,7 @@ describe('wizardReducer', () => {
     expect(next.deployedReplicas).toHaveLength(1)
   })
 
-  test('verify success with more replicas returns to provide_vm', () => {
+  test('verify success with more replicas returns to pair_verification_server', () => {
     let state = {
       ...INITIAL_WIZARD_STATE,
       replicaIndex: 0,
@@ -103,7 +121,7 @@ describe('wizardReducer', () => {
       step: 'verify_and_switch' as const,
     }
     state = wizardReducer(state, { type: 'VERIFY_SUCCESS' })
-    expect(state.step).toBe('provide_vm')
+    expect(state.step).toBe('pair_verification_server')
     expect(state.replicaIndex).toBe(1)
     expect(state.vmCredentials).toBeUndefined()
   })

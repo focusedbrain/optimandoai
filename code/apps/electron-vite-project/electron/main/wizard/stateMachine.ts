@@ -37,6 +37,10 @@ export type WizardEvent =
   | { readonly type: 'RESUME_AT_VERIFY'; readonly replicaIndex: number }
   | { readonly type: 'RESUME_ADD_REPLICA'; readonly replicaIndex: number; readonly totalReplicas: number }
   | { readonly type: 'RESUME_RECONFIGURE' }
+  | { readonly type: 'PAIR_FINGERPRINT_READY'; readonly address: string; readonly fingerprint: string }
+  | { readonly type: 'PAIR_SUCCESS'; readonly replica?: WizardDeployedReplicaPublic }
+  | { readonly type: 'PAIR_FAILED'; readonly message: string }
+  | { readonly type: 'PAIR_CANCEL_FINGERPRINT' }
 
 function withError(state: WizardState, step: WizardStep, message: string): WizardState {
   return { ...state, error: { step, message } }
@@ -58,8 +62,9 @@ export function wizardReducer(state: WizardState, event: WizardEvent): WizardSta
     case 'AUTH_SUCCESS':
       return clearError({
         ...state,
-        step: 'provide_vm',
+        step: 'pair_verification_server',
         authenticate: { plan: event.plan, sub: event.sub },
+        pairing: { phase: 'enter' },
       })
 
     case 'AUTH_FAILED':
@@ -121,6 +126,39 @@ export function wizardReducer(state: WizardState, event: WizardEvent): WizardSta
     case 'DEPLOY_FAILED':
       return withError(state, 'generate_and_deploy', event.message)
 
+    case 'PAIR_FINGERPRINT_READY':
+      return clearError({
+        ...state,
+        step: 'pair_verification_server',
+        pairing: {
+          phase: 'confirm_fingerprint',
+          address: event.address,
+          fingerprint: event.fingerprint,
+        },
+      })
+
+    case 'PAIR_SUCCESS':
+      return clearError({
+        ...state,
+        step: 'verify_and_switch',
+        pairing: undefined,
+        deployedReplicas: event.replica
+          ? [...state.deployedReplicas, event.replica]
+          : state.deployedReplicas,
+      })
+
+    case 'PAIR_FAILED':
+      return {
+        ...withError(state, 'pair_verification_server', event.message),
+        pairing: { phase: 'enter' },
+      }
+
+    case 'PAIR_CANCEL_FINGERPRINT':
+      return clearError({
+        ...state,
+        pairing: { phase: 'enter' },
+      })
+
     case 'VERIFY_SUCCESS': {
       const verified: WizardVerifyResult = { verified: true }
       const nextIndex = state.replicaIndex + 1
@@ -128,7 +166,8 @@ export function wizardReducer(state: WizardState, event: WizardEvent): WizardSta
         return clearError({
           ...state,
           replicaIndex: nextIndex,
-          step: 'provide_vm',
+          step: 'pair_verification_server',
+          pairing: { phase: 'enter' },
           vmCredentials: undefined,
           probe: undefined,
           podmanReady: undefined,
@@ -158,7 +197,8 @@ export function wizardReducer(state: WizardState, event: WizardEvent): WizardSta
     case 'RESUME_ADD_REPLICA':
       return clearError({
         ...INITIAL_WIZARD_STATE,
-        step: 'provide_vm',
+        step: 'pair_verification_server',
+        pairing: { phase: 'enter' },
         replicaIndex: event.replicaIndex,
         totalReplicas: event.totalReplicas,
         authenticate: state.authenticate,
@@ -167,7 +207,8 @@ export function wizardReducer(state: WizardState, event: WizardEvent): WizardSta
     case 'RESUME_RECONFIGURE':
       return clearError({
         ...INITIAL_WIZARD_STATE,
-        step: 'provide_vm',
+        step: 'pair_verification_server',
+        pairing: { phase: 'enter' },
         replicaIndex: 0,
         totalReplicas: 1,
         authenticate: state.authenticate,

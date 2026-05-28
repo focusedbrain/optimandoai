@@ -39,6 +39,19 @@ import type {
   WizardVmCredentialsPublic,
 } from './types.js'
 import { verifyEdgeRoundTripAndEnable, type VerifyEdgeRoundTripDeps } from './verify.js'
+import { parsePairingLink } from '../edge-agent/parsePairingLink.js'
+import {
+  OrchestratorPairingError,
+  pairConfirm,
+  pairInitiate,
+  pollPairingUntilPaired,
+} from '../edge-agent/orchestratorPairing.js'
+import { completeAgentPairing } from '../edge-agent/completeAgentPairing.js'
+import {
+  clearPendingWizardPairing,
+  getPendingWizardPairing,
+  setPendingWizardPairing,
+} from './pairingSession.js'
 
 const PAID_TIERS: ReadonlySet<Tier> = new Set([
   'private',
@@ -260,6 +273,56 @@ export async function* wizardGenerateAndDeploy(
     await client.disconnect()
     clearWizardVmCredentials()
   }
+}
+
+export function wizardParsePairingLink(raw: string): { address: string; code: string } | null {
+  return parsePairingLink(raw)
+}
+
+export async function wizardPairInitiate(input: {
+  address: string
+  pairingCode: string
+  orchestratorSub: string
+}): Promise<{ fingerprint: string; address: string }> {
+  try {
+    const initiated = await pairInitiate(input)
+    setPendingWizardPairing({
+      ...initiated,
+      pairingAddress: input.address,
+      orchestratorSub: input.orchestratorSub,
+    })
+    return { fingerprint: initiated.fingerprint, address: input.address }
+  } catch (err) {
+    if (err instanceof OrchestratorPairingError) throw err
+    throw new OrchestratorPairingError('pairing_failed', err instanceof Error ? err.message : String(err))
+  }
+}
+
+export async function wizardPairConfirm(deps: WizardHandlerDeps): Promise<void> {
+  const pending = getPendingWizardPairing()
+  if (!pending) {
+    throw new OrchestratorPairingError('session_not_found', 'No pairing session — start pairing again.')
+  }
+
+  const confirm = await pairConfirm({
+    address: pending.pairingAddress,
+    sessionId: pending.sessionId,
+    orchestratorP2pAuthToken: pending.orchestratorP2pAuthToken,
+  })
+
+  if (confirm.status !== 'paired') {
+    await pollPairingUntilPaired({
+      address: pending.pairingAddress,
+      sessionId: pending.sessionId,
+    })
+  }
+
+  await completeAgentPairing(deps.vault, {
+    ...pending,
+    pairingAddress: pending.pairingAddress,
+    orchestratorSub: pending.orchestratorSub,
+  })
+  clearPendingWizardPairing()
 }
 
 export async function wizardVerifyAndSwitch(

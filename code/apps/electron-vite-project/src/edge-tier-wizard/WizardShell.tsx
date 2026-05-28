@@ -17,6 +17,7 @@ import {
 } from './styles.js'
 import { StepExplainer } from './steps/StepExplainer.js'
 import { StepAuthenticate } from './steps/StepAuthenticate.js'
+import { StepPairVerificationServer } from './steps/StepPairVerificationServer.js'
 import { StepProvideVm, type StepProvideVmFormValues } from './steps/StepProvideVm.js'
 import { StepProbeAndPrepare } from './steps/StepProbeAndPrepare.js'
 import { StepReplicaCount } from './steps/StepReplicaCount.js'
@@ -86,6 +87,13 @@ export interface WizardBridgeLike {
   getLocalPodRequirement?: () => Promise<{ ok: boolean; message: string | null }>
   onInstallPodmanProgress?: (handler: (payload: { operationId: string; event: LogEvent }) => void) => () => void
   onGenerateAndDeployProgress?: (handler: (payload: { operationId: string; event: LogEvent }) => void) => () => void
+  parsePairingLink?: (raw: string) => Promise<{ address: string; code: string } | null>
+  pairInitiate?: (input: {
+    address: string
+    pairingCode: string
+  }) => Promise<{ ok: boolean; fingerprint?: string; error?: string; state: WizardPublicState }>
+  pairConfirm?: () => Promise<{ ok: boolean; error?: string; state: WizardPublicState }>
+  pairCancelFingerprint?: () => Promise<{ state: WizardPublicState }>
 }
 
 type ShellMode = 'running' | 'cancelled' | 'blocked' | 'close_confirm'
@@ -94,15 +102,21 @@ function stepIndex(step: WizardPublicState['step']): number {
   const order: WizardPublicState['step'][] = [
     'explainer',
     'authenticate',
-    'provide_vm',
-    'probe_and_prepare',
-    'replica_count',
-    'generate_and_deploy',
+    'pair_verification_server',
     'verify_and_switch',
     'finale',
     'complete',
   ]
   if (step === 'complete') return order.indexOf('finale')
+  const legacySshSteps: WizardPublicState['step'][] = [
+    'provide_vm',
+    'probe_and_prepare',
+    'replica_count',
+    'generate_and_deploy',
+  ]
+  if (legacySshSteps.includes(step)) {
+    return order.indexOf('pair_verification_server')
+  }
   const idx = order.indexOf(step)
   return idx >= 0 ? idx : 0
 }
@@ -709,6 +723,14 @@ export function WizardShell({
                 sub={state.authenticate?.sub}
                 onAuthenticate={() => void handleAuthenticate()}
                 onCancelWizard={() => void handleCancelOperation()}
+              />
+            )}
+
+            {state.step === 'pair_verification_server' && wizard && (
+              <StepPairVerificationServer
+                state={state}
+                wizard={wizard}
+                onState={syncState}
               />
             )}
 

@@ -17,10 +17,15 @@ import {
   wizardRefreshTier,
   wizardStoreVmCredentials,
   wizardVerifyAndSwitch,
+  wizardPairInitiate,
+  wizardPairConfirm,
+  wizardParsePairingLink,
   assertNoSecretsInRendererPayload,
   createDefaultWizardHandlerDeps,
   type WizardHandlerDeps,
 } from './handlers.js'
+import { OrchestratorPairingError } from '../edge-agent/orchestratorPairing.js'
+import { clearPendingWizardPairing } from './pairingSession.js'
 import { INITIAL_WIZARD_STATE, wizardReducer, type WizardEvent } from './stateMachine.js'
 import type {
   WizardGenerateDeployInput,
@@ -173,6 +178,85 @@ export function registerWizardIpcHandlers(): void {
       ...result,
       state: dispatch({ type: 'AUTH_FAILED', message: result.error }),
     }
+  })
+
+  ipcMain.handle('wizard:parsePairingLink', async (_event, raw: unknown) => {
+    const text = typeof raw === 'string' ? raw : ''
+    return wizardParsePairingLink(text)
+  })
+
+  ipcMain.handle('wizard:pairInitiate', async (_event, input: unknown) => {
+    const parsed = parsePairInitiateInput(input)
+    const sub = _wizardState.authenticate?.sub
+    if (!sub) {
+      throw new Error('Sign in before pairing')
+    }
+    try {
+      const result = await wizardPairInitiate({
+        address: parsed.address,
+        pairingCode: parsed.pairingCode,
+        orchestratorSub: sub,
+      })
+      return {
+        ok: true,
+        fingerprint: result.fingerprint,
+        state: dispatch({
+          type: 'PAIR_FINGERPRINT_READY',
+          address: parsed.address,
+          fingerprint: result.fingerprint,
+        }),
+      }
+    } catch (err) {
+      const message =
+        err instanceof OrchestratorPairingError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err)
+      return {
+        ok: false,
+        error: message,
+        state: dispatch({ type: 'PAIR_FAILED', message }),
+      }
+    }
+  })
+
+  ipcMain.handle('wizard:pairConfirm', async () => {
+    try {
+      await wizardPairConfirm(getDeps())
+      const settings = (await import('../edge-tier/settings.js')).loadEdgeTierSettings()
+      const replica = settings.replicas.find((r) => r.deployment_type === 'agent')
+      const deployed = replica
+        ? {
+            host: replica.host,
+            port: replica.port,
+            podId: replica.edge_pod_id,
+            publicKey: replica.edge_public_key,
+          }
+        : undefined
+      return {
+        ok: true,
+        state: dispatch({ type: 'PAIR_SUCCESS', replica: deployed }),
+      }
+    } catch (err) {
+      clearPendingWizardPairing()
+      const message =
+        err instanceof OrchestratorPairingError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err)
+      return {
+        ok: false,
+        error: message,
+        state: dispatch({ type: 'PAIR_FAILED', message }),
+      }
+    }
+  })
+
+  ipcMain.handle('wizard:pairCancelFingerprint', async () => {
+    clearPendingWizardPairing()
+    return { state: dispatch({ type: 'PAIR_CANCEL_FINGERPRINT' }) }
   })
 
   ipcMain.handle('wizard:setVmCredentials', async (_event, input: unknown) => {
@@ -395,6 +479,17 @@ function parseGenerateDeployInput(input: unknown): WizardGenerateDeployInput {
   const replicaIndex = typeof o.replicaIndex === 'number' ? o.replicaIndex : 0
   const totalReplicas = typeof o.totalReplicas === 'number' ? o.totalReplicas : 1
   return { operationId: o.operationId, replicaIndex, totalReplicas }
+}
+
+function parsePairInitiateInput(input: unknown): { address: string; pairingCode: string } {
+  if (typeof input !== 'object' || input === null) {
+    throw new Error('Invalid pair initiate input')
+  }
+  const o = input as Record<string, unknown>
+  if (typeof o.address !== 'string' || typeof o.pairingCode !== 'string') {
+    throw new Error('Pair initiate requires address and pairingCode')
+  }
+  return { address: o.address.trim(), pairingCode: o.pairingCode.trim() }
 }
 
 function parseVerifyInput(input: unknown): WizardVerifyInput {

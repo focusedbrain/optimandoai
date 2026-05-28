@@ -5,6 +5,7 @@
 export type WizardStep =
   | 'explainer'
   | 'authenticate'
+  | 'pair_verification_server'
   | 'provide_vm'
   | 'probe_and_prepare'
   | 'replica_count'
@@ -12,6 +13,14 @@ export type WizardStep =
   | 'verify_and_switch'
   | 'finale'
   | 'complete'
+
+export type WizardPairingPhase = 'enter' | 'confirm_fingerprint'
+
+export interface WizardPairingPublic {
+  phase: WizardPairingPhase
+  address?: string
+  fingerprint?: string
+}
 
 export interface WizardVmCredentialsPublic {
   host: string
@@ -31,6 +40,7 @@ export interface WizardPublicState {
   replicaIndex: number
   totalReplicas: number
   authenticate?: { plan: string; sub: string }
+  pairing?: WizardPairingPublic
   vmCredentials?: WizardVmCredentialsPublic
   probe?: Record<string, unknown>
   podmanReady?: boolean
