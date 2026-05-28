@@ -1,0 +1,15 @@
+[Unit]
+Description=WR Desk Edge Agent (verification server)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/wrdesk-edge-agent
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

@@ -138,8 +138,15 @@ const ROLE_ENV_OVERRIDES: Record<
     POD_MODE: 'REMOTE_EDGE',
     PORT: '18102',
     CERTIFIER_BASE: 'http://127.0.0.1:18104',
+    PDF_PARSER_BASE: 'http://127.0.0.1:18107',
     POD_VERSION: '1.0.0',
     DEPACKAGER_TIMEOUT_MS: '5000',
+  },
+  'pdf-parser': {
+    BEAP_ROLE: 'pdf-parser',
+    PORT: '18107',
+    PDF_PARSER_HOST: '127.0.0.1',
+    POD_VERSION: '1.0.0',
   },
   certifier: {
     BEAP_ROLE: 'certifier',
@@ -163,6 +170,7 @@ const ROLE_RUN_USER: Record<RemoteEdgeContainerRole, string> = {
   ingestor: '10100:10100',
   validator: '10101:10100',
   depackager: '10102:10100',
+  'pdf-parser': '10108:10100',
   certifier: '10104:10100',
   'mail-fetcher': '10106:10100',
 }

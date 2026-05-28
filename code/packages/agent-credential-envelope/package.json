@@ -1,0 +1,23 @@
+{
+  "name": "@repo/agent-credential-envelope",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "X25519 credential relay envelope for edge Agent (PR6)",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "pnpm build && vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

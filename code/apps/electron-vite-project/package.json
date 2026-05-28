@@ -32,9 +32,13 @@
   "dependencies": {
     "@noble/curves": "^1.9.7",
     "@noble/post-quantum": "^0.2.1",
+    "@repo/agent-credential-envelope": "workspace:*",
+    "@repo/agent-log-events": "workspace:*",
     "@repo/beap-cert": "workspace:*",
     "@repo/email-fetch": "workspace:*",
     "@repo/ingestion-core": "workspace:*",
+    "@repo/role-policy": "workspace:*",
+    "@repo/sso": "workspace:*",
     "@repo/pod-client": "workspace:*",
     "@repo/shared-beap-ui": "workspace:*",
     "@types/express": "^5.0.5",

@@ -7,6 +7,11 @@ import { isCoordinationRelayNativeBeap } from '../../../../../packages/ingestion
 import {
   INTERNAL_ENDPOINT_ERROR_CODES,
 } from '../../../../../packages/shared/src/handshake/internalEndpointValidation'
+import {
+  isEdgeIngestorHandshake,
+  isSandboxInternalHandshake,
+  type HandshakeType,
+} from '../../../../../packages/shared/src/handshake/handshakeType'
 import { getHandshakeRecord } from './db'
 import { internalRelayCapsuleWireOptsFromRecord } from './internalCoordinationWire'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
@@ -46,12 +51,15 @@ export function isInternalRelayCapsuleEnvelope(o: Record<string, unknown>): bool
  * relay routes by sender + receiver device ids for those capsule types — by then both
  * peer ids are persisted on the handshake record.
  */
-export function collectInternalRelayWireGaps(o: Record<string, unknown>): string[] {
+function collectSamePrincipalRelayWireGaps(
+  expectedType: Extract<HandshakeType, 'internal' | 'edge_ingestor'>,
+  o: Record<string, unknown>,
+): string[] {
   const missing: string[] = []
-  if (o.handshake_type !== 'internal') missing.push('handshake_type')
+  if (o.handshake_type !== expectedType) missing.push('handshake_type')
   if (!nz(o.sender_device_id)) missing.push('sender_device_id')
   const sr = o.sender_device_role
-  if (sr !== 'host' && sr !== 'sandbox') missing.push('sender_device_role')
+  if (sr !== 'host' && sr !== 'sandbox' && sr !== 'edge_agent') missing.push('sender_device_role')
   if (!nz(o.sender_computer_name)) missing.push('sender_computer_name')
 
   const ct = typeof o.capsule_type === 'string' ? o.capsule_type.trim() : ''
@@ -63,16 +71,41 @@ export function collectInternalRelayWireGaps(o: Record<string, unknown>): string
 
   if (!nz(o.receiver_device_id)) missing.push('receiver_device_id')
   const rr = o.receiver_device_role
-  if (rr !== 'host' && rr !== 'sandbox') missing.push('receiver_device_role')
+  if (rr !== 'host' && rr !== 'sandbox' && rr !== 'edge_agent') missing.push('receiver_device_role')
   if (!nz(o.receiver_computer_name)) missing.push('receiver_computer_name')
   return missing
+}
+
+/** Sandbox-internal relay wire (edge-ingestor-audit: sandbox-only). */
+export function collectInternalRelayWireGaps(o: Record<string, unknown>): string[] {
+  return collectSamePrincipalRelayWireGaps('internal', o)
+}
+
+/** Edge ingestor relay wire — same shape as internal; distinct handshake_type (PR4.5). */
+export function collectEdgeIngestorRelayWireGaps(o: Record<string, unknown>): string[] {
+  return collectSamePrincipalRelayWireGaps('edge_ingestor', o)
+}
+
+function relayWireGapsForRecord(
+  record: { handshake_type?: string | null },
+  o: Record<string, unknown>,
+): string[] {
+  if (isEdgeIngestorHandshake(record.handshake_type as HandshakeType)) {
+    return collectEdgeIngestorRelayWireGaps(o)
+  }
+  return collectInternalRelayWireGaps(o)
 }
 
 export function shouldValidateInternalRelayWire(
   record: { handshake_type?: string | null } | null | undefined,
   o: Record<string, unknown>,
 ): boolean {
-  if (!record || record.handshake_type !== 'internal') return false
+  if (!record) return false
+  const ht = record.handshake_type
+  // edge-ingestor-audit: same-user relay validation applies to internal + edge_ingestor
+  if (!isSandboxInternalHandshake(ht as HandshakeType) && !isEdgeIngestorHandshake(ht as HandshakeType)) {
+    return false
+  }
   if (isCoordinationRelayNativeBeap(o)) return false
   return isInternalRelayCapsuleEnvelope(o)
 }
@@ -143,7 +176,7 @@ export function validateInternalCapsuleBeforeEnqueue(
     }
   }
 
-  const missing = collectInternalRelayWireGaps(o)
+  const missing = relayWireGapsForRecord(record!, o)
   const sid = nz(o.sender_device_id)
   const rid = nz(o.receiver_device_id)
   if (sid && rid && sid === rid) {
@@ -151,7 +184,7 @@ export function validateInternalCapsuleBeforeEnqueue(
       enqueued: false,
       phase: 'enqueue_guard',
       invariant: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_CAPSULE_MISSING_DEVICE_ID,
-      message: 'sender_device_id and receiver_device_id must differ for internal relay',
+      message: 'sender_device_id and receiver_device_id must differ for same-principal relay',
       missing_fields: ['sender_device_id', 'receiver_device_id'],
     }
   }
@@ -160,7 +193,7 @@ export function validateInternalCapsuleBeforeEnqueue(
       enqueued: false,
       phase: 'enqueue_guard',
       invariant: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_RELAY_WIRE_INCOMPLETE,
-      message: `Internal relay capsule (${String(o.capsule_type)}) missing required routing fields`,
+      message: `Same-principal relay capsule (${String(o.capsule_type)}) missing required routing fields`,
       missing_fields: missing,
     }
   }
@@ -189,7 +222,8 @@ export function applyContextSyncInternalRoutingFromRecord(
   const ct = typeof payload.capsule_type === 'string' ? payload.capsule_type.trim() : ''
   if (ct !== 'context_sync') return
   const record = getHandshakeRecord(db, handshakeId.trim())
-  if (!record || record.handshake_type !== 'internal') return
+  // edge-ingestor-audit: sandbox-only — context_sync routing from record is internal handshake UX
+  if (!record || !isSandboxInternalHandshake(record.handshake_type as HandshakeType)) return
 
   let localId = ''
   try {
@@ -261,7 +295,7 @@ export function validateCoordinationInternalPayloadBeforePost(
     }
   }
 
-  const missing = collectInternalRelayWireGaps(payload)
+  const missing = relayWireGapsForRecord(record!, payload)
   const sid = nz(payload.sender_device_id)
   const rid = nz(payload.receiver_device_id)
   if (sid && rid && sid === rid) {

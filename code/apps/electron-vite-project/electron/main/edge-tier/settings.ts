@@ -22,6 +22,9 @@ export type EdgeUnreachablePolicy = 'hold'
 /** Whether native P2P BEAP must route through the edge ingestor before local acceptance. */
 export type NativeBeapRouting = 'require_edge' | 'direct'
 
+/** How this edge endpoint was provisioned (PR6 / PR9). */
+export type EdgeDeploymentType = 'ssh' | 'agent'
+
 /** One REMOTE_EDGE replica the user trusts for LOCAL_VERIFY. */
 export interface EdgeReplica {
   host: string
@@ -31,6 +34,10 @@ export interface EdgeReplica {
   edge_public_key: string
   /** Keycloak attestation JWT binding edge_pod_id + edge_public_key to user sub. */
   sso_attestation_jwt: string
+  /** Defaults to `ssh` when omitted (legacy wizard replicas). */
+  deployment_type?: EdgeDeploymentType
+  /** PR8 — authoritative edge_ingestor handshake row (when deployment_type is `agent`). */
+  handshake_id?: string
 }
 
 export interface EdgeTierSettings {
@@ -138,6 +145,10 @@ export function _setUserDataDirForTest(path: string | null): void {
   _userDataDirOverride = path
 }
 
+export function getEdgeTierUserDataDir(): string {
+  return getUserDataDir()
+}
+
 function getUserDataDir(): string {
   if (_userDataDirOverride) return _userDataDirOverride
   if (process.env['WR_DESK_USER_DATA']) return process.env['WR_DESK_USER_DATA']
@@ -168,13 +179,21 @@ function normalizeReplica(raw: unknown): EdgeReplica | null {
   ) {
     return null
   }
+  const deployment_type: EdgeDeploymentType | undefined =
+    r.deployment_type === 'agent' ? 'agent' : r.deployment_type === 'ssh' ? 'ssh' : undefined
   return {
     host: r.host,
     port: r.port,
     edge_pod_id: r.edge_pod_id,
     edge_public_key: r.edge_public_key,
     sso_attestation_jwt: r.sso_attestation_jwt,
+    deployment_type,
+    handshake_id: typeof r.handshake_id === 'string' ? r.handshake_id : undefined,
   }
+}
+
+export function isAgentEdgeReplica(replica: EdgeReplica): boolean {
+  return replica.deployment_type === 'agent'
 }
 
 export function normalizeEdgeTierSettings(raw: unknown): EdgeTierSettings {

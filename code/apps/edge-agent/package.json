@@ -1,0 +1,30 @@
+{
+  "name": "@app/edge-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "WR Desk Edge Agent — verification server on user VPS (Stream C)",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc && node scripts/copy-assets.mjs",
+    "update-image-digest": "node scripts/update-image-digest.mjs",
+    "start": "node dist/main.js",
+    "dev": "node --watch dist/main.js",
+    "test": "pnpm build && vitest run"
+  },
+  "dependencies": {
+    "@repo/agent-credential-envelope": "workspace:*",
+    "@repo/agent-log-events": "workspace:*",
+    "@repo/email-fetch": "workspace:*",
+    "@repo/role-policy": "workspace:*",
+    "@repo/sso": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

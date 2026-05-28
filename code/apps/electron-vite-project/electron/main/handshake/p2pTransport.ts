@@ -73,7 +73,7 @@ export function coordinationRelayContractSatisfied(parsed: unknown): boolean {
  */
 export type OutboundInternalWireLogSummary = {
   /** Declared handshake_type when valid; otherwise null even if routing fields exist */
-  handshake_type: 'internal' | 'standard' | null
+  handshake_type: 'internal' | 'standard' | 'edge_ingestor' | null
   has_sender_device_id: boolean
   has_receiver_device_id: boolean
   has_sender_device_role: boolean
@@ -95,8 +95,8 @@ function summarizeInternalWireForLogs(o: Record<string, unknown>): OutboundInter
   if (!routingKeys.some((k) => k in o)) return undefined
 
   const ht = o.handshake_type
-  const handshake_type: 'internal' | 'standard' | null =
-    ht === 'internal' || ht === 'standard' ? ht : null
+  const handshake_type: 'internal' | 'standard' | 'edge_ingestor' | null =
+    ht === 'internal' || ht === 'standard' || ht === 'edge_ingestor' ? ht : null
 
   const nz = (v: unknown): boolean => typeof v === 'string' && v.trim().length > 0
 
@@ -104,8 +104,14 @@ function summarizeInternalWireForLogs(o: Record<string, unknown>): OutboundInter
     handshake_type,
     has_sender_device_id: nz(o.sender_device_id),
     has_receiver_device_id: nz(o.receiver_device_id),
-    has_sender_device_role: o.sender_device_role === 'host' || o.sender_device_role === 'sandbox',
-    has_receiver_device_role: o.receiver_device_role === 'host' || o.receiver_device_role === 'sandbox',
+    has_sender_device_role:
+      o.sender_device_role === 'host' ||
+      o.sender_device_role === 'sandbox' ||
+      o.sender_device_role === 'edge_agent',
+    has_receiver_device_role:
+      o.receiver_device_role === 'host' ||
+      o.receiver_device_role === 'sandbox' ||
+      o.receiver_device_role === 'edge_agent',
     has_sender_computer_name: nz(o.sender_computer_name),
     has_receiver_computer_name: nz(o.receiver_computer_name),
   }

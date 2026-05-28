@@ -3,6 +3,7 @@
  * belong to the current SSO session, without mutating the DB.
  */
 import { isSameAccountHandshakeEmails, validateReceiverEmail } from '../../../../../packages/shared/src/handshake/receiverEmailValidation'
+import { isSameUserHandshake } from '../../../../../packages/shared/src/handshake/handshakeType'
 import type { HandshakeRecord, PartyIdentity, SSOSession } from './types'
 import { HandshakeState } from './types'
 
@@ -61,7 +62,7 @@ export function handshakeRowVisibilityForSession(
   r: HandshakeRecord,
   session: SSOSession,
 ): HandshakeRowVisibility {
-  if (r.handshake_type === 'internal') {
+  if (isSameUserHandshake(r.handshake_type ?? undefined)) {
     if (r.acceptor) {
       if (!samePrincipalForInternal(r.initiator, r.acceptor)) {
         return { ok: false, reason: 'internal_mismatched_principals' }

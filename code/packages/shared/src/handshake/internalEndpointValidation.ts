@@ -5,8 +5,11 @@
  * Legacy camelCase {@link InternalHandshakeEndpoint} remains for gradual migration.
  */
 
-/** Role constraint for internal handshakes (host ↔ sandbox). */
-export type InternalDeviceRole = 'host' | 'sandbox'
+import type { HandshakeType } from './handshakeType.js'
+import { isEdgeIngestorHandshake, isSandboxInternalHandshake } from './handshakeType.js'
+
+/** Role constraint for same-user handshakes (host ↔ sandbox or host ↔ edge_agent). */
+export type InternalDeviceRole = 'host' | 'sandbox' | 'edge_agent'
 
 /**
  * Canonical internal endpoint record (snake_case — align with wire / DB column naming).
@@ -128,7 +131,42 @@ function isNonEmpty(s: string | null | undefined): boolean {
 }
 
 function validRole(r: unknown): r is InternalDeviceRole {
-  return r === 'host' || r === 'sandbox'
+  return r === 'host' || r === 'sandbox' || r === 'edge_agent'
+}
+
+/** Sandbox-internal only: host ↔ sandbox (not edge Agent). */
+export function isAllowedSandboxInternalRolePair(a: InternalDeviceRole, b: InternalDeviceRole): boolean {
+  const roles = new Set([a, b])
+  return roles.has('host') && roles.has('sandbox')
+}
+
+/** Edge ingestor handshake only: host ↔ edge_agent. */
+export function isAllowedEdgeIngestorRolePair(a: InternalDeviceRole, b: InternalDeviceRole): boolean {
+  const roles = new Set([a, b])
+  return roles.has('host') && roles.has('edge_agent')
+}
+
+/**
+ * @deprecated Use {@link isAllowedRolePairForHandshakeType} with an explicit type.
+ * Kept for call sites that mean sandbox-internal only.
+ */
+export function isAllowedInternalRolePair(a: InternalDeviceRole, b: InternalDeviceRole): boolean {
+  return isAllowedSandboxInternalRolePair(a, b)
+}
+
+/** Role pair must match handshake type (two-way binding). */
+export function isAllowedRolePairForHandshakeType(
+  handshakeType: HandshakeType,
+  a: InternalDeviceRole,
+  b: InternalDeviceRole,
+): boolean {
+  if (isEdgeIngestorHandshake(handshakeType)) {
+    return isAllowedEdgeIngestorRolePair(a, b)
+  }
+  if (isSandboxInternalHandshake(handshakeType)) {
+    return isAllowedSandboxInternalRolePair(a, b)
+  }
+  return true
 }
 
 /**
@@ -228,7 +266,7 @@ export function validateInternalEndpointIdentity(
 export function validateInternalEndpointPair(
   a: InternalEndpointIdentity,
   b: InternalEndpointIdentity,
-  options?: { labelA?: string; labelB?: string },
+  options?: { labelA?: string; labelB?: string; handshakeType?: HandshakeType },
 ): InternalEndpointPairValidationResult {
   const labelA = options?.labelA ?? 'endpoint_a'
   const labelB = options?.labelB ?? 'endpoint_b'
@@ -257,12 +295,20 @@ export function validateInternalEndpointPair(
         'The pairing code resolved to this same device. Read the code from your other device.',
     }
   }
-  if (a.device_role === b.device_role) {
+  const handshakeType = options?.handshakeType ?? 'internal'
+  if (!isAllowedRolePairForHandshakeType(handshakeType, a.device_role, b.device_role)) {
+    const sameRole = a.device_role === b.device_role
+    const edgePair = isEdgeIngestorHandshake(handshakeType)
     return {
       ok: false,
       code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_ROLE_COLLISION,
-      message:
-        "Both devices have the same role. One must be 'host' and the other 'sandbox' — change the role in Settings → Orchestrator mode on one device, then try again.",
+      message: sameRole
+        ? edgePair
+          ? 'Both devices have the same role. Pair a host orchestrator with a verification server (edge agent).'
+          : 'Both devices have the same role. Pair a host with a sandbox.'
+        : edgePair
+          ? 'This role combination is not allowed for a verification server handshake. Only host ↔ edge agent is permitted.'
+          : 'This role combination is not allowed for a sandbox-internal handshake. Only host ↔ sandbox is permitted.',
     }
   }
 

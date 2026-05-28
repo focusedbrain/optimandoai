@@ -6,10 +6,12 @@
  * 6-digit pairing id. Coordination UUIDs are for debug/advanced only.
  */
 
-export type OrchestratorKind = 'host' | 'sandbox'
+import { isEdgeIngestorHandshake, isSandboxInternalHandshake } from './handshakeType.js'
 
-function normalizeDeviceRole(v: unknown): 'host' | 'sandbox' | null {
-  if (v === 'host' || v === 'sandbox') return v
+export type OrchestratorKind = 'host' | 'sandbox' | 'edge_agent'
+
+function normalizeDeviceRole(v: unknown): OrchestratorKind | null {
+  if (v === 'host' || v === 'sandbox' || v === 'edge_agent') return v
   return null
 }
 
@@ -26,7 +28,7 @@ function sixDigitPairingCodeForUi(raw: string | null | undefined): string | null
 
 /** Minimal shape for deriving peer/local orchestrator display (matches ledger + rpcTypes). */
 export interface InternalIdentitySource {
-  handshake_type?: 'internal' | 'standard' | null
+  handshake_type?: 'internal' | 'standard' | 'edge_ingestor' | null
   local_role: 'initiator' | 'acceptor'
   initiator_device_role?: OrchestratorKind | null
   acceptor_device_role?: OrchestratorKind | null
@@ -109,7 +111,13 @@ export function deriveInternalHandshakeRoles(record: InternalHandshakeRoleSource
 }
 
 export function isInternalHandshake(r: Pick<InternalIdentitySource, 'handshake_type'>): boolean {
-  return r.handshake_type === 'internal'
+  return isSandboxInternalHandshake(r.handshake_type ?? undefined)
+}
+
+export function isEdgeIngestorHandshakeRecord(
+  r: Pick<InternalIdentitySource, 'handshake_type'>,
+): boolean {
+  return isEdgeIngestorHandshake(r.handshake_type ?? undefined)
 }
 
 export function localOrchestratorKind(r: InternalIdentitySource): OrchestratorKind | null {
@@ -124,6 +132,7 @@ export function peerOrchestratorKind(r: InternalIdentitySource): OrchestratorKin
 export function orchestratorUserLabel(kind: OrchestratorKind | null | undefined): string {
   if (kind === 'host') return 'Host orchestrator'
   if (kind === 'sandbox') return 'Sandbox orchestrator'
+  if (kind === 'edge_agent') return 'Verification server'
   return 'Role not set'
 }
 
@@ -185,6 +194,12 @@ export function formatPairingCodeForDisplay(code: string | null | undefined): st
  * Primary user-facing line (peer perspective):
  * "<computer/device name> — <Host orchestrator|Sandbox orchestrator>"
  */
+export function formatEdgeIngestorPrimaryLine(r: InternalIdentitySource): string | null {
+  if (!isEdgeIngestorHandshakeRecord(r)) return null
+  const name = peerDisplayComputerName(r)
+  return `${name} — Verification server`
+}
+
 export function formatInternalPrimaryLine(r: InternalIdentitySource): string | null {
   if (!isInternalHandshake(r)) return null
   const name = peerDisplayComputerName(r)

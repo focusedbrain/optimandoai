@@ -60,6 +60,7 @@ export const CONTAINER_HEALTH_CHECKS = [
   { container: 'beap-pod-remote-edge-ingestor', port: 18100 },
   { container: 'beap-pod-remote-edge-validator', port: 18101 },
   { container: 'beap-pod-remote-edge-depackager', port: 18102 },
+  { container: 'beap-pod-remote-edge-pdf-parser', port: 18107 },
   { container: 'beap-pod-remote-edge-certifier', port: 18104 },
 ] as const
 

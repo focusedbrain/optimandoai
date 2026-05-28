@@ -29,8 +29,10 @@ import {
   listKnownHostFingerprints,
   removeFingerprint,
 } from './ssh/hostKeyStore.js'
+import { initAgentLogIpc, registerAgentLogIpcHandlers } from '../edge-agent/agentLogIpc.js'
 
 export function initEdgeTierIpc(vault: EdgeTierPodVault): void {
+  initAgentLogIpc()
   initReplicaActionIpc(vault)
   initGlobalActionIpc(vault)
   initRebootRecovery(vault)
@@ -50,6 +52,7 @@ function ensureDashboardVerificationHook(): void {
 }
 
 export function registerEdgeTierIpcHandlers(): void {
+  registerAgentLogIpcHandlers()
   ensureDashboardVerificationHook()
   registerDashboardIpcHandlers()
   registerReplicaActionIpcHandlers()

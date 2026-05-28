@@ -8,6 +8,12 @@ import { resolveGmailOAuthForConnect, defaultGmailOAuthCredentialSource } from '
 import { emailGateway } from '../gateway.js'
 import type { EmailAccountConfig } from '../types.js'
 import { connectReplicaActionSsh, findEdgeReplica } from '../../edge-tier/replicaActions.js'
+import { isAgentEdgeReplica } from '../../edge-tier/settings.js'
+import { transferAccountCredentialsToAgent } from '../../edge-agent/agentCredentialRelay.js'
+import {
+  fetchAgentAccountsStatus,
+  revokeAgentCredentials,
+} from '../../edge-agent/agentApiClient.js'
 import type { ReplicaActionSshRunner } from '../../edge-tier/replicaActions.js'
 import type { EdgeTierPodVault } from '../../edge-tier/podLifecycle.js'
 import {
@@ -190,9 +196,21 @@ export async function migrateAccountToEdge(input: EdgeFetchMigrationInput): Prom
     )
 
     const refreshed = await refreshOAuthForAccount(accountId)
-    await withReplicaSsh(input.replicaId, input, async (ssh) => {
-      await transferToMailFetcher(ssh, refreshed, input.replicaId, vault)
-    })
+    const replica = findEdgeReplica(input.replicaId)
+
+    if (isAgentEdgeReplica(replica)) {
+      await setEdgeFetchMeta(accountId, {
+        replicaId: input.replicaId,
+        state: 'awaiting_key',
+        remoteState: 'awaiting_key',
+      })
+      await transferAccountCredentialsToAgent(replica, refreshed, vault)
+      await waitForAgentAccountActive(replica, accountId)
+    } else {
+      await withReplicaSsh(input.replicaId, input, async (ssh) => {
+        await transferToMailFetcher(ssh, refreshed, input.replicaId, vault)
+      })
+    }
 
     await emailGateway.setProcessingPaused(accountId, true)
     await setEdgeFetchMeta(accountId, {
@@ -216,6 +234,27 @@ export async function migrateAccountToEdge(input: EdgeFetchMigrationInput): Prom
   }
 }
 
+async function waitForAgentAccountActive(
+  replica: ReturnType<typeof findEdgeReplica>,
+  accountId: string,
+  timeoutMs = 120_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const status = await fetchAgentAccountsStatus(replica)
+    const accounts = status.accounts
+    if (Array.isArray(accounts)) {
+      const row = accounts.find(
+        (a) => typeof a === 'object' && a && (a as { account_id?: string }).account_id === accountId,
+      ) as { remote_state?: string; state?: string } | undefined
+      const remote = row?.remote_state ?? row?.state
+      if (remote === 'active') return
+    }
+    await new Promise((r) => setTimeout(r, 3000))
+  }
+  throw new Error('Timed out waiting for Agent mail-fetcher to become active')
+}
+
 export async function reauthorizeEdgeAccount(input: EdgeFetchMigrationInput): Promise<void> {
   await migrateAccountToEdge(input)
   await setEdgeFetchMeta(input.accountId, {
@@ -236,14 +275,19 @@ export async function migrateAccountBackToDesktop(input: EdgeFetchMigrationInput
   rememberSupervisorSshSession(replicaId, input)
 
   try {
-    await withReplicaSsh(replicaId, input, async (ssh) => {
-      const stop = await mailFetcherRemoteRequest(ssh, 'POST', '/accounts/stop', {
-        account_id: accountId,
+    const replica = findEdgeReplica(replicaId)
+    if (isAgentEdgeReplica(replica)) {
+      await revokeAgentCredentials(replica, accountId)
+    } else {
+      await withReplicaSsh(replicaId, input, async (ssh) => {
+        const stop = await mailFetcherRemoteRequest(ssh, 'POST', '/accounts/stop', {
+          account_id: accountId,
+        })
+        if (stop.status !== 200) {
+          throw new Error(String(stop.json.error ?? `stop failed (${stop.status})`))
+        }
       })
-      if (stop.status !== 200) {
-        throw new Error(String(stop.json.error ?? `stop failed (${stop.status})`))
-      }
-    })
+    }
 
     await setEdgeFetchMeta(accountId, { state: 'not_on_edge' })
     removeWrappedAccountKey(accountId)

@@ -8,6 +8,7 @@ export type RemoteEdgeContainerRole =
   | 'ingestor'
   | 'validator'
   | 'depackager'
+  | 'pdf-parser'
   | 'certifier'
   | 'mail-fetcher'
 
@@ -36,6 +37,12 @@ export const REMOTE_EDGE_SUPERVISOR_CONTAINERS: readonly RemoteEdgeContainerSpec
     role: 'depackager',
     containerName: `${REMOTE_POD_NAME}-depackager`,
     port: 18102,
+    authReferenceContainer: `${REMOTE_POD_NAME}-ingestor`,
+  },
+  {
+    role: 'pdf-parser',
+    containerName: `${REMOTE_POD_NAME}-pdf-parser`,
+    port: 18107,
     authReferenceContainer: `${REMOTE_POD_NAME}-ingestor`,
   },
   {

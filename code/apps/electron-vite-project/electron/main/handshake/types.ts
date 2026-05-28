@@ -309,11 +309,11 @@ export interface VerifiedCapsuleInput {
   wrdesk_policy_hash: string;
   wrdesk_policy_version: string;
   /** Internal initiate / accept capsule wire (optional). */
-  handshake_type?: 'internal' | 'standard' | null;
+  handshake_type?: 'internal' | 'standard' | 'edge_ingestor' | null;
   sender_device_id?: string | null;
   receiver_device_id?: string | null;
-  sender_device_role?: 'host' | 'sandbox' | null;
-  receiver_device_role?: 'host' | 'sandbox' | null;
+  sender_device_role?: 'host' | 'sandbox' | 'edge_agent' | null;
+  receiver_device_role?: 'host' | 'sandbox' | 'edge_agent' | null;
   sender_computer_name?: string | null;
   receiver_computer_name?: string | null;
   /**
@@ -401,11 +401,11 @@ export interface HandshakeRecord {
   /** AI policy: ai_processing_mode (new) or legacy cloud_ai/internal_ai. Parsed from JSON. */
   policy_selections?: { ai_processing_mode?: string } | { cloud_ai?: boolean; internal_ai?: boolean };
   /** Ledger-only: internal (same-account orchestrator) vs standard cross-party handshake */
-  handshake_type?: 'internal' | 'standard' | null;
+  handshake_type?: 'internal' | 'standard' | 'edge_ingestor' | null;
   initiator_device_name?: string | null;
   acceptor_device_name?: string | null;
-  initiator_device_role?: 'host' | 'sandbox' | null;
-  acceptor_device_role?: 'host' | 'sandbox' | null;
+  initiator_device_role?: 'host' | 'sandbox' | 'edge_agent' | null;
+  acceptor_device_role?: 'host' | 'sandbox' | 'edge_agent' | null;
   /**
    * Initiator orchestrator device id (from initiate capsule sender_device_id). Acceptor-side only;
    * used with relay register-handshake so same-user routing has both WS device ids.
@@ -418,7 +418,7 @@ export interface HandshakeRecord {
    * Validated against local identity on accept.
    */
   internal_peer_device_id?: string | null;
-  internal_peer_device_role?: 'host' | 'sandbox' | null;
+  internal_peer_device_role?: 'host' | 'sandbox' | 'edge_agent' | null;
   internal_peer_computer_name?: string | null;
   /**
    * 6-digit pairing code carried in the internal initiate capsule (`receiver_pairing_code`)

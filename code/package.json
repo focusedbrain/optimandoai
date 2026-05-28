@@ -27,6 +27,7 @@
     "check:write-boundary": "bash scripts/check-write-boundary.sh",
     "check:write-boundary:win": "powershell -ExecutionPolicy Bypass -File scripts/check-write-boundary.ps1",
     "check:inbox-validator-gate": "bash scripts/check-inbox-validator-gate.sh",
+    "check:role-policy-gates": "node scripts/check-role-policy-gates.mjs",
     "release:manifest": "node scripts/release/generate-manifest.mjs",
     "release:sign": "node scripts/release/sign-manifest.mjs",
     "release:verify": "node scripts/release/verify-manifest.mjs",

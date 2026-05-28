@@ -1,0 +1,6 @@
+{
+  "_doc": "Expected OCI digest for beap-components images on the Edge Agent. Update via: pnpm --filter @app/edge-agent run update-image-digest (after podman build). Must match install.sh pull reference.",
+  "beap-components": {
+    "dev": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

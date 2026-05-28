@@ -1203,6 +1203,53 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `CREATE INDEX IF NOT EXISTS idx_hsp_profile ON handshake_hs_profiles(profile_id)`,
     ],
   },
+  {
+    version: 70,
+    description:
+      'Schema v70 (Stream C PR4.5): retype mistaken internal rows with edge_agent role to edge_ingestor handshake_type.',
+    sql: [
+      `UPDATE handshakes SET handshake_type = 'edge_ingestor'
+       WHERE handshake_type = 'internal'
+         AND (
+           initiator_device_role = 'edge_agent'
+           OR acceptor_device_role = 'edge_agent'
+           OR internal_peer_device_role = 'edge_agent'
+         )`,
+    ],
+  },
+  {
+    version: 71,
+    description:
+      "Schema v71: inbox_attachments.text_extraction_status adds consent_required, edge_extracted, host_extracted_with_consent",
+    sql: [
+      `CREATE TABLE IF NOT EXISTS inbox_attachments_v71 (
+        id TEXT PRIMARY KEY,
+        message_id TEXT NOT NULL REFERENCES inbox_messages(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        content_type TEXT,
+        size_bytes INTEGER,
+        content_id TEXT,
+        storage_path TEXT,
+        extracted_text TEXT,
+        text_extraction_status TEXT DEFAULT 'pending' CHECK(text_extraction_status IN ('pending','done','failed','skipped','partial','consent_required','edge_extracted','host_extracted_with_consent')),
+        raster_path TEXT,
+        embedding_status TEXT DEFAULT 'pending' CHECK(embedding_status IN ('pending','done','failed')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        text_extraction_error TEXT DEFAULT NULL,
+        content_sha256 TEXT DEFAULT NULL,
+        extracted_text_sha256 TEXT DEFAULT NULL,
+        encryption_key TEXT DEFAULT NULL,
+        encryption_iv TEXT DEFAULT NULL,
+        encryption_tag TEXT DEFAULT NULL,
+        storage_encrypted INTEGER NOT NULL DEFAULT 0,
+        page_count INTEGER DEFAULT NULL
+      )`,
+      `INSERT INTO inbox_attachments_v71 SELECT * FROM inbox_attachments`,
+      `DROP TABLE inbox_attachments`,
+      `ALTER TABLE inbox_attachments_v71 RENAME TO inbox_attachments`,
+      `CREATE INDEX IF NOT EXISTS idx_inbox_attachments_message_id ON inbox_attachments(message_id)`,
+    ],
+  },
 ]
 
 /**

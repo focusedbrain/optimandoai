@@ -24,6 +24,8 @@ export interface ReplicaStatus {
   port: number
   edge_pod_id: string
   edge_public_key: string
+  deployment_type?: 'ssh' | 'agent'
+  handshake_id?: string
   health: ReplicaHealth
   health_checked_at: string | null
   health_error?: string
@@ -147,6 +149,8 @@ export function buildReplicaStatus(
     port: replica.port,
     edge_pod_id: replica.edge_pod_id,
     edge_public_key: replica.edge_public_key,
+    deployment_type: replica.deployment_type,
+    handshake_id: replica.handshake_id,
     health: cached?.health ?? 'unknown',
     health_checked_at: cached?.checked_at ?? null,
     health_error: cached?.error,
