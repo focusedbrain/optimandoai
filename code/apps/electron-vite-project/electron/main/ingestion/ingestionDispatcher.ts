@@ -40,6 +40,36 @@ import { getHandshakeRecord } from '../handshake/db.js'
 import { refreshIngestionMode } from './ingestionModeService.js'
 import { isSessionHostFallbackAuthorized } from './sessionHostFallback.js'
 import { isEdgeTierActiveForRouting } from '../edge-tier/settings.js'
+import {
+  DeviceKeyNotFoundError,
+  getDeviceX25519KeyPair,
+} from '../device-keys/deviceKeyStore.js'
+
+/** Structured qBEAP depackage failure — shared with decrypt + P2P inline ingest reporters. */
+export type QbeapDepackageFailureReport = {
+  code: string
+  handshakeId: string
+  retryable?: boolean
+}
+
+/**
+ * Resolve receiver X25519 private key: handshake row first, then orchestrator device_keys
+ * (new-flow accept stores NULL in local_x25519_private_key_b64 by design).
+ */
+export async function resolveInboundX25519PrivateKeyB64(hs: {
+  local_x25519_private_key_b64?: string | null
+}): Promise<string | null> {
+  const fromRow = hs.local_x25519_private_key_b64?.trim()
+  if (fromRow) return fromRow
+  try {
+    const deviceKp = await getDeviceX25519KeyPair()
+    const fromDevice = deviceKp.privateKey?.trim()
+    return fromDevice || null
+  } catch (e) {
+    if (e instanceof DeviceKeyNotFoundError) return null
+    throw e
+  }
+}
 
 function heldAudit(
   sourceType: SourceType,
@@ -186,23 +216,23 @@ export async function dispatchDepackageQBeap(
   packageJson: string,
   handshakeId: string,
   db: unknown,
-  opts?: { reportFailure?: (info: { reason: string; handshakeId: string }) => void },
+  opts?: { reportFailure?: (info: QbeapDepackageFailureReport) => void },
 ): Promise<DepackagedQBeapResult | null> {
   const snap = await getCurrentIngestionMode()
 
   if (snap.mode === 'Blocked') {
-    opts?.reportFailure?.({ reason: 'held_blocked_edge_unreachable', handshakeId })
+    opts?.reportFailure?.({ code: 'held_blocked_edge_unreachable', handshakeId, retryable: true })
     return null
   }
 
   const hs = getHandshakeRecord(db as any, handshakeId.trim())
   if (!hs) {
-    opts?.reportFailure?.({ reason: 'missing_handshake_record', handshakeId })
+    opts?.reportFailure?.({ code: 'missing_handshake_record', handshakeId, retryable: false })
     return null
   }
-  const x25519PrivB64 = hs.local_x25519_private_key_b64?.trim()
+  const x25519PrivB64 = await resolveInboundX25519PrivateKeyB64(hs)
   if (!x25519PrivB64) {
-    opts?.reportFailure?.({ reason: 'missing_x25519_private_key', handshakeId })
+    opts?.reportFailure?.({ code: 'missing_x25519_private_key', handshakeId, retryable: false })
     return null
   }
   const depackageKeys: DepackageKeys = {
@@ -214,19 +244,23 @@ export async function dispatchDepackageQBeap(
     try {
       const dec = await decryptQBeapPackage(packageJson, handshakeId, db, {
         reportFailure: (info) =>
-          opts?.reportFailure?.({ reason: info.code, handshakeId: info.handshakeId }),
+          opts?.reportFailure?.({
+            code: info.code,
+            handshakeId: info.handshakeId,
+            retryable: info.retryable,
+          }),
       })
       if (!dec?.rawCapsuleJson) return null
       return mapDecryptResult(dec)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      opts?.reportFailure?.({ reason: msg, handshakeId })
+      opts?.reportFailure?.({ code: msg, handshakeId, retryable: false })
       return null
     }
   }
 
   if (snap.waitForHostPod) {
-    opts?.reportFailure?.({ reason: 'host_pod_starting', handshakeId })
+    opts?.reportFailure?.({ code: 'host_pod_starting', handshakeId, retryable: true })
     return null
   }
 
@@ -235,7 +269,7 @@ export async function dispatchDepackageQBeap(
     return await depackageViaPodHttp(packageJson, depackageKeys, route)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    opts?.reportFailure?.({ reason: `pod_error: ${msg}`, handshakeId })
+    opts?.reportFailure?.({ code: `pod_error: ${msg}`, handshakeId, retryable: false })
     return null
   }
 }

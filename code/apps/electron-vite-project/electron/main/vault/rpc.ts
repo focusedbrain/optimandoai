@@ -17,6 +17,7 @@ import {
   validatorOrchestrator,
   onValidationServiceUnavailable,
 } from '../validation/inProcessValidator'
+import { startValidatorAfterVaultSession } from './vaultValidatorStartup'
 // Export vaultService for HTTP API handlers
 export { vaultService }
 
@@ -28,6 +29,7 @@ onValidationServiceUnavailable((reason) => {
 import {
   CreateVaultRequestSchema,
   UnlockVaultRequestSchema,
+  ClaimLegacyVaultRequestSchema,
   CreateContainerSchema,
   UpdateContainerSchema,
   DeleteContainerRequestSchema,
@@ -169,10 +171,8 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
       case 'vault.create': {
         const parsed = CreateVaultRequestSchema.parse(params)
         const vaultId = await vaultService.createVault(parsed.masterPassword, parsed.vaultName || 'My Vault', parsed.vaultId)
-        // P1.12: start in-process validator (binds sealed-storage key provider) after vault creation.
-        validatorOrchestrator.start(vaultService).catch((err) => {
-          console.error('[VAULT_RPC] Failed to start validator after create:', err?.message ?? err)
-        })
+        setupEmbeddingServiceRef(vaultService)
+        await startValidatorAfterVaultSession(vaultService)
         return { success: true, message: 'Vault created successfully', vaultId, sessionToken: vaultService.getSessionToken() }
       }
 
@@ -180,11 +180,14 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
         const parsed = UnlockVaultRequestSchema.parse(params)
         const token = await vaultService.unlock(parsed.masterPassword, parsed.vaultId || 'default')
         setupEmbeddingServiceRef(vaultService)
-        // P1.12: start in-process validator (binds sealed-storage key provider) after vault unlock.
-        validatorOrchestrator.start(vaultService).catch((err) => {
-          console.error('[VAULT_RPC] Failed to start validator:', err?.message ?? err)
-        })
+        await startValidatorAfterVaultSession(vaultService)
         return { success: true, token, sessionToken: vaultService.getSessionToken() }
+      }
+
+      case 'vault.claimLegacy': {
+        const parsed = ClaimLegacyVaultRequestSchema.parse(params)
+        const result = await vaultService.claimLegacyVault(parsed.masterPassword, parsed.vaultId)
+        return { success: true, vaultId: result.vaultId, message: `Vault ${result.vaultId} claimed for this account` }
       }
 
       case 'vault.lock': {
@@ -556,6 +559,7 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
     return {
       success: false,
       error: error?.message || error?.toString() || 'Unknown error occurred',
+      code: error?.code,
     }
   }
 }

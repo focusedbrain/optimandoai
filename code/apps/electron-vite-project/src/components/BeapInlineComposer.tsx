@@ -62,13 +62,43 @@ import { ComposerAttachmentButton } from './ComposerAttachmentButton';
 
 import { DraftRefineLabel } from './DraftRefineLabel';
 
+/** User-facing copy for receiver-reported ingest errors (not transport timeout). */
+function beapAckErrorMessage(ack: BeapDeliveryAckData): string {
+  switch (ack.reasonCode) {
+    case 'validator_unhealthy':
+      return 'Receiver error: validator not running on the recipient device. Ask them to unlock their vault or restart the app.'
+    case 'inner_vault_locked':
+      return 'Receiver error: vault locked — they must unlock before this message can be processed.'
+    case 'key_provider_unbound':
+      return 'Receiver error: missing decryption keys on the recipient device.'
+    case 'decrypt_failed':
+      return 'Receiver error: could not decrypt this message.'
+    case 'quarantined':
+      return 'Receiver error: message quarantined (validation or decrypt failure).'
+    case 'processing_failed':
+      return 'Receiver error: could not process this message.'
+    case 'ledger_db_unavailable':
+      return 'Receiver error: recipient database unavailable.'
+    case 'outer_vault_inactive':
+      return 'Receiver error: recipient session ended.'
+    default:
+      return `Receiver reported an error${ack.reasonCode ? `: ${ack.reasonCode}` : ''}.`
+  }
+}
+
 /**
  * Maps an incoming delivery ack to a SendSuccessMode terminal state.
  * Falls back to 'live' for older receivers that don't emit `status`/`reasonCode`.
  */
 function ackToState(
   ack: BeapDeliveryAckData,
-): 'live' | 'delivered_deferred_inner_vault' | 'delivered_failed_keys' | 'failed_receiver_validator' | 'delivered_failed_unknown' {
+):
+  | 'live'
+  | 'delivered_deferred_inner_vault'
+  | 'delivered_failed_keys'
+  | 'failed_receiver_validator'
+  | 'receiver_ack_error'
+  | 'delivered_failed_unknown' {
   if (ack.status == null) {
     // Old receiver build — no structured ack fields; preserve existing 'live' behaviour.
     return 'live'
@@ -88,15 +118,16 @@ function ackToState(
     case 'validator_unhealthy':
       return 'failed_receiver_validator'
     case 'ledger_db_unavailable':
-      // Closest semantic match: receiver infra unavailable.
       return 'failed_receiver_validator'
+    case 'decrypt_failed':
+    case 'quarantined':
+    case 'processing_failed':
+      return 'receiver_ack_error'
     case 'outer_vault_inactive':
-      // Receiver SSO session ended — transport-level failure.
       return 'delivered_failed_unknown'
     case 'ok':
     case undefined:
     default:
-      // Relay stripped fields or unrecognised code — graceful fallback.
       return 'delivered_failed_unknown'
   }
 }
@@ -227,9 +258,13 @@ export function BeapInlineComposer({
     | 'delivered_deferred_inner_vault'
     | 'delivered_failed_keys'
     | 'failed_receiver_validator'
+    | 'receiver_ack_error'
     | 'delivered_failed_unknown'
     | null
   >(null);
+
+  /** Detail line when receiver sent status=error (distinct from delivery_unconfirmed timeout). */
+  const [receiverAckDetail, setReceiverAckDetail] = useState<string | null>(null);
 
   const sendSuccessCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -276,6 +311,7 @@ export function BeapInlineComposer({
         ackTimeoutRef.current = null
       }
       const newMode = ackToState(data)
+      setReceiverAckDetail(data.status === 'error' ? beapAckErrorMessage(data) : null)
       setSendSuccess(true)
       setSendSuccessMode(newMode)
       if (newMode === 'live') {
@@ -907,9 +943,10 @@ export function BeapInlineComposer({
           ackTimeoutRef.current = setTimeout(() => {
             ackTimeoutRef.current = null;
             if (pendingAckMessageIdRef.current !== messageId) return;
-            console.log(`[BEAP_MSG_SEND] delivery_unconfirmed messageId=${messageId} reason=timeout`);
+            console.log(`[BEAP_MSG_SEND] delivery_unconfirmed messageId=${messageId} reason=timeout_no_receiver_ack`);
             pendingAckHandshakeRef.current = null;
             pendingAckMessageIdRef.current = null;
+            setReceiverAckDetail(null);
             setSendSuccessMode('delivery_unconfirmed');
           }, 30_000);
         }
@@ -1685,6 +1722,7 @@ export function BeapInlineComposer({
               {sendSuccessMode === 'queued_relay'                  ? '⏳'
                 : sendSuccessMode === 'relay_pending'             ? '📡'
                 : sendSuccessMode === 'delivery_unconfirmed'      ? '⚠️'
+                : sendSuccessMode === 'receiver_ack_error'      ? '❌'
                 : sendSuccessMode === 'delivered_processing'      ? '⏳'
                 : sendSuccessMode === 'delivered_deferred_inner_vault' ? '🔒'
                 : sendSuccessMode === 'delivered_failed_keys'     ? '🔑'
@@ -1696,7 +1734,9 @@ export function BeapInlineComposer({
                 : sendSuccessMode === 'relay_pending'
                 ? 'Transport accepted — awaiting delivery confirmation…'
                 : sendSuccessMode === 'delivery_unconfirmed'
-                ? 'Delivery unconfirmed — transport succeeded but no receiver acknowledgement (typical cross-device). Check the recipient inbox.'
+                ? 'No response from receiver (timeout) — transport may have succeeded but no ingest acknowledgement arrived within 30s. Check the recipient inbox or ask them to unlock their vault.'
+                : sendSuccessMode === 'receiver_ack_error'
+                ? (receiverAckDetail ?? 'Receiver reported an error processing this message.')
                 : sendSuccessMode === 'delivered_processing'
                 ? 'Delivered — recipient is processing your message…'
                 : sendSuccessMode === 'delivered_deferred_inner_vault'
@@ -1704,9 +1744,9 @@ export function BeapInlineComposer({
                 : sendSuccessMode === 'delivered_failed_keys'
                 ? 'Delivered — recipient cannot decrypt (missing keys). Please re-establish the handshake.'
                 : sendSuccessMode === 'failed_receiver_validator'
-                ? "Delivery problem — recipient's app encountered an internal error. They may need to restart."
+                ? 'Receiver error: validator not running on the recipient device. Ask them to unlock their vault or restart the app.'
                 : sendSuccessMode === 'delivered_failed_unknown'
-                ? 'Delivery problem — recipient could not process this message.'
+                ? (receiverAckDetail ?? 'Delivery problem — recipient could not process this message.')
                 : 'BEAP™ message delivered (receiver confirmed)'}
             </div>
           )}

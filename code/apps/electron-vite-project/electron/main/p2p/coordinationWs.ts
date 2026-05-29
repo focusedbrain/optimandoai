@@ -38,65 +38,13 @@ import type { ReasonCode } from '../vault/capabilityBroker'
 import { notifyBeapDeliveryAck } from './beapDeliveryAck'
 import { postPeerDeliveryAckToSender } from './peerDeliveryAck'
 
-/** Send JSON on the open coordination WS (recipient → relay → sender ingest ack). */
-let _coordinationWsJsonSender: ((payload: Record<string, unknown>) => boolean) | null = null
+import {
+  publishBeapIngestAckOverCoordinationRelay,
+  setCoordinationBeapIngestAckSender,
+} from './beapIngestAckPublish'
+import { finalizeRelayBeapIngest } from './beapIngestRelayAck'
 
-export function publishBeapIngestAckOverCoordinationRelay(opts: {
-  relayId: string
-  handshakeId: string
-  rowId: string
-  status?: 'ok' | 'error'
-  reasonCode?: ReasonCode
-  retryable?: boolean
-}): void {
-  if (!_coordinationWsJsonSender) return
-  const ok = _coordinationWsJsonSender({
-    type: 'beap_ingest_ack',
-    relay_id: opts.relayId,
-    handshake_id: opts.handshakeId,
-    row_id: opts.rowId,
-    status: opts.status ?? 'ok',
-    ...(opts.reasonCode ? { reason_code: opts.reasonCode } : {}),
-    ...(opts.retryable === true ? { retryable: true } : {}),
-  })
-  if (ok) {
-    console.log(
-      `[BEAP_DELIVERY] coordination_ingest_ack_published relayId=${opts.relayId} handshake=${opts.handshakeId} rowId=${opts.rowId}`,
-    )
-  }
-}
-
-/**
- * Map a legacy error string returned by processBeapPackageInline (or thrown
- * by it) to a canonical ReasonCode from the capability broker.
- *
- * The legacy strings use the inverted outer/inner naming from before W2-P4.
- * "outer_vault_not_ready" / "outer_vault_unavailable" both mean the inner
- * vault (vaultService master-password session) is not unlocked, per W2-P4
- * canon.  Do not change the legacy strings — they are external and consumed
- * by UI / callers.  Only the mapping here uses the canonical names.
- */
-function mapErrorToReasonCode(error: string): { reasonCode: ReasonCode; retryable: boolean } {
-  if (
-    error.includes('outer_vault_not_ready') ||
-    error.includes('outer_vault_unavailable') ||
-    error.includes('vault_not_ready') ||
-    error.includes('vault_unavailable')
-  ) {
-    return { reasonCode: 'inner_vault_locked', retryable: true }
-  }
-  if (error.includes('start_failed') || error.includes('not_ready_after_start')) {
-    return { reasonCode: 'validator_unhealthy', retryable: true }
-  }
-  if (error.includes('key_provider') || error.includes('key provider')) {
-    return { reasonCode: 'key_provider_unbound', retryable: true }
-  }
-  if (error.includes('validator') || error.includes('Validation service')) {
-    return { reasonCode: 'validator_unhealthy', retryable: true }
-  }
-  // Generic fallback — maps to the closest existing code.
-  return { reasonCode: 'validator_unhealthy', retryable: true }
-}
+export { publishBeapIngestAckOverCoordinationRelay } from './beapIngestAckPublish'
 
 /**
  * Returns true when a better-sqlite3 error is a primary-key constraint
@@ -388,12 +336,25 @@ async function processCapsuleInternal(
         `[BEAP_MSG_RECEIVE] ingest_received messageId=${ingestMsgId} relayId=${id} handshake=${handshakeId} transport=coordination_ws`,
       )
       if (!db) {
-        console.log(`[COORDINATION_WS] relay_ack_sent relayId=${id} reason=ledger_db_unavailable retryable=true`)
-        sendAckFn([id])
+        finalizeRelayBeapIngest({
+          logTag: 'COORDINATION_WS',
+          relayId: id,
+          handshakeId,
+          db,
+          result: {
+            outcome: 'error',
+            rowId: ingestMsgId,
+            error: 'ledger_db_unavailable',
+            reasonCode: 'ledger_db_unavailable',
+            retryable: true,
+          },
+          sendAckFn,
+        })
         return
       }
       console.log(`[BEAP_MSG_RECEIVE] validation_started messageId=${ingestMsgId}`)
-      let r: Awaited<ReturnType<typeof processBeapPackageInline>>
+      let r: Awaited<ReturnType<typeof processBeapPackageInline>> | null = null
+      let thrownMessage: string | undefined
       try {
         r = await processBeapPackageInline(db, capsuleJson, handshakeId, {
           session: ssoSession,
@@ -401,54 +362,20 @@ async function processCapsuleInternal(
           receivedAt: new Date().toISOString(),
         })
       } catch (err: unknown) {
-        const reason = err instanceof Error ? err.message : String(err)
-        console.error('[Coordination] processBeapPackageInline failed:', reason)
-        const { reasonCode, retryable } = mapErrorToReasonCode(reason)
-        console.log(`[COORDINATION_WS] relay_ack_sent relayId=${id} reason=${reasonCode} retryable=${retryable}`)
-        sendAckFn([id])
-        return
+        thrownMessage = err instanceof Error ? err.message : String(err)
       }
-
-      if (r.outcome === 'inbox') {
-        console.log('[Coordination] BEAP message sealed into inbox, handshake=', handshakeId)
+      if (r?.outcome === 'inbox') {
         setP2PHealthCoordinationLastPush()
-        if (r.rowId) {
-          publishBeapIngestAckOverCoordinationRelay({
-            relayId: id,
-            handshakeId,
-            rowId: r.rowId,
-            status: 'ok',
-          })
-          postPeerDeliveryAckToSender(db, handshakeId, r.rowId)
-        }
-        console.log(`[COORDINATION_WS] relay_ack_sent relayId=${id} reason=ok retryable=false outcome=inbox`)
-        sendAckFn([id])
-        return
       }
-      if (r.outcome === 'quarantine') {
-        console.log('[Coordination] BEAP message quarantined, handshake=', handshakeId)
-        setP2PHealthCoordinationLastPush()
-        console.log(`[COORDINATION_WS] relay_ack_sent relayId=${id} reason=ok retryable=false outcome=quarantine`)
-        sendAckFn([id])
-        return
-      }
-
-      const failReason = r.error ?? 'processing_failed'
-      console.warn('[Coordination] BEAP inline processing failed, handshake=', handshakeId, failReason)
-      const failCode = r.reasonCode ?? mapErrorToReasonCode(failReason).reasonCode
-      const failRetryable = r.retryable ?? mapErrorToReasonCode(failReason).retryable
-      if (r.rowId) {
-        publishBeapIngestAckOverCoordinationRelay({
-          relayId: id,
-          handshakeId,
-          rowId: r.rowId,
-          status: 'error',
-          reasonCode: failCode,
-          retryable: failRetryable,
-        })
-      }
-      console.log(`[COORDINATION_WS] relay_ack_sent relayId=${id} reason=${failCode} retryable=${failRetryable}`)
-      sendAckFn([id])
+      finalizeRelayBeapIngest({
+        logTag: 'COORDINATION_WS',
+        relayId: id,
+        handshakeId,
+        db,
+        result: r,
+        thrownMessage,
+        sendAckFn,
+      })
       return
     }
     if (distribution.target !== 'handshake_pipeline') {
@@ -831,7 +758,7 @@ export function createCoordinationWsClient(
         setP2PHealthCoordinationReconnectAttempts(0)
         flushAcks()
         startHeartbeat()
-        _coordinationWsJsonSender = (payload) => {
+        setCoordinationBeapIngestAckSender((payload) => {
           if (!ws || ws.readyState !== WebSocket.OPEN) return false
           try {
             ws.send(JSON.stringify(payload))
@@ -839,7 +766,7 @@ export function createCoordinationWsClient(
           } catch {
             return false
           }
-        }
+        })
         console.log('[Coordination] Connected to relay WebSocket — ready to receive capsules')
         console.log('[WS-DEBUG] WebSocket state:', ws?.readyState, 'connected to:', wsUrl)
         console.log('[RELAY-WS] Connected to:', wsUrl)
@@ -904,6 +831,9 @@ export function createCoordinationWsClient(
                   'key_provider_unbound',
                   'validator_unhealthy',
                   'ledger_db_unavailable',
+                  'decrypt_failed',
+                  'quarantined',
+                  'processing_failed',
                 ].includes(ackMsg.reason_code)
                   ? (ackMsg.reason_code as ReasonCode)
                   : undefined
@@ -1031,7 +961,7 @@ export function createCoordinationWsClient(
 
       ws.on('close', () => {
         ws = null
-        _coordinationWsJsonSender = null
+        setCoordinationBeapIngestAckSender(null)
         stopHeartbeat()
         setP2PHealthCoordinationDisconnected()
         if (intentionalShutdown) {

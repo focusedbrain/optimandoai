@@ -91,6 +91,11 @@ export const UnlockVaultRequestSchema = z.object({
   vaultId: z.string().optional(),
 })
 
+export const ClaimLegacyVaultRequestSchema = z.object({
+  masterPassword: z.string().min(1).max(128),
+  vaultId: z.string().min(1).max(200),
+})
+
 export const GetItemRequestSchema = z.object({
   id: z.string(),
 })

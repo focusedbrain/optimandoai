@@ -1242,9 +1242,23 @@ const HANDSHAKE_MIGRATIONS: Array<{
         encryption_iv TEXT DEFAULT NULL,
         encryption_tag TEXT DEFAULT NULL,
         storage_encrypted INTEGER NOT NULL DEFAULT 0,
-        page_count INTEGER DEFAULT NULL
+        page_count INTEGER DEFAULT NULL,
+        seal TEXT,
+        seal_input_json TEXT
       )`,
-      `INSERT INTO inbox_attachments_v71 SELECT * FROM inbox_attachments`,
+      `INSERT INTO inbox_attachments_v71 (
+        id, message_id, filename, content_type, size_bytes, content_id, storage_path,
+        extracted_text, text_extraction_status, raster_path, embedding_status, created_at,
+        text_extraction_error, content_sha256, extracted_text_sha256,
+        encryption_key, encryption_iv, encryption_tag, storage_encrypted, page_count,
+        seal, seal_input_json
+      ) SELECT
+        id, message_id, filename, content_type, size_bytes, content_id, storage_path,
+        extracted_text, text_extraction_status, raster_path, embedding_status, created_at,
+        text_extraction_error, content_sha256, extracted_text_sha256,
+        encryption_key, encryption_iv, encryption_tag, storage_encrypted, page_count,
+        seal, seal_input_json
+      FROM inbox_attachments`,
       `DROP TABLE inbox_attachments`,
       `ALTER TABLE inbox_attachments_v71 RENAME TO inbox_attachments`,
       `CREATE INDEX IF NOT EXISTS idx_inbox_attachments_message_id ON inbox_attachments(message_id)`,
@@ -1476,7 +1490,12 @@ export function ensureEmailPipelineSchemaRepairs(db: any): void {
   }
 }
 
-export function migrateHandshakeTables(db: any): void {
+/** @internal Exported for migration regression tests. */
+export function getHandshakeMigration(version: number) {
+  return HANDSHAKE_MIGRATIONS.find((m) => m.version === version)
+}
+
+export function migrateHandshakeTablesUpTo(db: any, maxVersionInclusive: number): void {
   // Ensure migrations table exists first
   try {
     db.prepare(`CREATE TABLE IF NOT EXISTS handshake_schema_migrations (
@@ -1489,6 +1508,8 @@ export function migrateHandshakeTables(db: any): void {
   }
 
   for (const migration of HANDSHAKE_MIGRATIONS) {
+    if (migration.version > maxVersionInclusive) break
+
     // Check if already applied
     try {
       const row = db.prepare(
@@ -1520,7 +1541,15 @@ export function migrateHandshakeTables(db: any): void {
     console.log(`[HANDSHAKE DB] Applied migration ${migration.version}: ${migration.description}`)
   }
 
-  ensureEmailPipelineSchemaRepairs(db)
+  const latest = HANDSHAKE_MIGRATIONS[HANDSHAKE_MIGRATIONS.length - 1]?.version ?? 0
+  if (maxVersionInclusive >= latest) {
+    ensureEmailPipelineSchemaRepairs(db)
+  }
+}
+
+export function migrateHandshakeTables(db: any): void {
+  const latest = HANDSHAKE_MIGRATIONS[HANDSHAKE_MIGRATIONS.length - 1]?.version ?? 0
+  migrateHandshakeTablesUpTo(db, latest)
 }
 
 // ── Post-migration backfill: local_x25519_public_key_b64 ──────────────────────────────────────

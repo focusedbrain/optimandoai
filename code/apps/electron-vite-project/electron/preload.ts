@@ -887,6 +887,11 @@ contextBridge.exposeInMainWorld('handshakeView', {
   getVaultStatus: () => {
     return ipcRenderer.invoke('vault:getStatus')
   },
+  claimLegacyVault: (vaultId: unknown, masterPassword: unknown) => {
+    const id = typeof vaultId === 'string' ? vaultId.trim() : ''
+    const pwd = typeof masterPassword === 'string' ? masterPassword : ''
+    return ipcRenderer.invoke('vault:claimLegacy', id, pwd)
+  },
   listHsContextProfiles: (includeArchived?: boolean) => {
     return ipcRenderer.invoke('vault:listHsContextProfiles', includeArchived === true)
   },
@@ -1363,6 +1368,14 @@ contextBridge.exposeInMainWorld('emailInbox', {
     ipcRenderer.on('inbox:beapDeliveryAck', fn)
     return () => {
       ipcRenderer.removeListener('inbox:beapDeliveryAck', fn)
+    }
+  },
+  /** Host received a BEAP package that was stored in quarantine (decrypt/validation failure). */
+  onBeapQuarantine: (handler: (data: { handshakeId: string; quarantineId: string; reasonCode: string; rejectionReason: string }) => void) => {
+    const fn = (_e: Electron.IpcRendererEvent, data: { handshakeId: string; quarantineId: string; reasonCode: string; rejectionReason: string }) => handler(data)
+    ipcRenderer.on('inbox:beapQuarantine', fn)
+    return () => {
+      ipcRenderer.removeListener('inbox:beapQuarantine', fn)
     }
   },
   /** Remote orchestrator drain batch progress (main → renderer debug activity log). */

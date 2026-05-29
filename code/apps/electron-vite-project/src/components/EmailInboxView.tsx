@@ -17,6 +17,8 @@ import { EmailEdgeFetchControls } from './email-edge-fetch'
 import { EmailAccountsAndEdgeIngestorPanel } from './EmailAccountsAndEdgeIngestorPanel'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { SyncFailureBanner } from './SyncFailureBanner'
+import LegacyVaultClaimBanner from './LegacyVaultClaimBanner'
+import BeapQuarantineBanner from './BeapQuarantineBanner'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import { useEmailInboxStore, activeEmailAccountIdsForSync, type InboxMessage } from '../stores/useEmailInboxStore'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
@@ -2590,6 +2592,9 @@ function PendingInboxRow({
         setUnlockState('idle')
       } else {
         setUnlockState('error')
+        if (result?.error) {
+          console.error('[INBOX] vault unlock failed:', result.error, result.code ?? '')
+        }
       }
     } catch {
       setUnlockState('error')
@@ -4224,6 +4229,9 @@ export default function EmailInboxView({
             Sent
           </button>
         </div>
+
+        <LegacyVaultClaimBanner />
+        <BeapQuarantineBanner />
 
         {lastSyncWarnings && lastSyncWarnings.length > 0 ? (
           <SyncFailureBanner

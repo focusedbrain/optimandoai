@@ -56,6 +56,7 @@ import {
   readVaultOwnerFromMetaFile,
   registerVault,
   unregisterVault,
+  writeVaultOwnerClaim,
 } from './db'
 import { getCachedUserInfo } from '../../../src/auth/session'
 import {
@@ -342,6 +343,97 @@ export class VaultService {
     console.log('[VAULT] ✅ Vault unlocked successfully via', effectiveProviderType)
     // Convert token to hex only at the transport boundary
     return this.session.extensionToken.toString('hex')
+  }
+
+  /**
+   * Verify a passphrase unwraps the vault DEK and opens SQLCipher (no session kept).
+   */
+  async verifyVaultPassphrase(
+    masterPassword: string,
+    vaultId: string,
+    providerType?: UnlockProviderType,
+  ): Promise<void> {
+    if (!vaultExists(vaultId)) {
+      throw new Error(`Vault does not exist: ${vaultId}`)
+    }
+    const rawMeta = this.loadVaultMetaRaw(vaultId)
+    const effectiveProviderType = providerType || rawMeta.activeProviderType || 'passphrase'
+    const provider = resolveProvider(effectiveProviderType)
+    const providerState = rawMeta.providerStates?.find((ps) => ps.type === effectiveProviderType)
+    let dek: Buffer | null = null
+    let kek: Buffer | null = null
+    let db: Awaited<ReturnType<typeof openVaultDB>> | null = null
+    try {
+      const unlocked = await provider.unlock(masterPassword, {
+        salt: rawMeta.salt,
+        wrappedDEK: rawMeta.wrappedDEK,
+        kdfParams: rawMeta.kdfParams,
+        providerState,
+      })
+      kek = unlocked.kek
+      dek = unlocked.dek
+      db = await openVaultDB(dek, vaultId)
+    } finally {
+      if (db) closeVaultDB(db)
+      if (dek) zeroize(dek)
+      if (kek) zeroize(kek)
+      provider.lock()
+    }
+  }
+
+  /**
+   * Claim a legacy (unowned) vault for the current SSO account after passphrase verification.
+   */
+  async claimLegacyVault(
+    masterPassword: string,
+    vaultId: string,
+  ): Promise<{ vaultId: string }> {
+    const session = getCachedUserInfo()
+    const owner = getCurrentAccountIdentity(session)
+    if (!owner) {
+      const e = new Error('Sign in required to claim a vault for this account')
+      ;(e as { code?: string }).code = VAULT_ACCOUNT_ERROR.CLAIM_NO_SESSION
+      throw e
+    }
+
+    if (!vaultExists(vaultId)) {
+      const e = new Error(`Vault does not exist: ${vaultId}`)
+      ;(e as { code?: string }).code = VAULT_ACCOUNT_ERROR.CLAIM_WRITE_FAILED
+      throw e
+    }
+
+    const fromFile = readVaultOwnerFromMetaFile(vaultId)
+    if (hasVaultOwnerMetadata(fromFile)) {
+      if (vaultOwnerMatchesSession(fromFile, session)) {
+        console.log('[VAULT_CLAIM] Vault already claimed by current account:', vaultId)
+        return { vaultId }
+      }
+      const e = new Error(`Vault "${vaultId}" is already owned by another account`)
+      ;(e as { code?: string }).code = VAULT_ACCOUNT_ERROR.CLAIM_ALREADY_OWNED
+      throw e
+    }
+
+    const listDetail = listVaultsForAccount(session)
+    if (!listDetail.legacyUnclaimed.some((v) => v.id === vaultId)) {
+      const e = new Error(
+        `Vault "${vaultId}" is not listed as an unclaimed legacy vault for this account (claim it explicitly or check vault id)`,
+      )
+      ;(e as { code?: string }).code = VAULT_ACCOUNT_ERROR.CLAIM_NOT_LEGACY
+      throw e
+    }
+
+    try {
+      await this.verifyVaultPassphrase(masterPassword, vaultId)
+    } catch (err: unknown) {
+      const detail = err instanceof Error ? err.message : String(err)
+      console.error('[VAULT_CLAIM] Passphrase verification failed:', vaultId, detail)
+      const e = new Error(`Wrong passphrase for vault "${vaultId}" — ownership was not changed`)
+      ;(e as { code?: string }).code = VAULT_ACCOUNT_ERROR.CLAIM_WRONG_PASSPHRASE
+      throw e
+    }
+
+    writeVaultOwnerClaim(vaultId, owner)
+    return { vaultId }
   }
 
   /**

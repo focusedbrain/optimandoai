@@ -34,6 +34,9 @@ export type ReasonCode =
   | 'key_provider_unbound'
   | 'validator_unhealthy'
   | 'ledger_db_unavailable'
+  | 'decrypt_failed'
+  | 'quarantined'
+  | 'processing_failed'
 
 export type RetryStrategy =
   | 'auto_on_unlock'

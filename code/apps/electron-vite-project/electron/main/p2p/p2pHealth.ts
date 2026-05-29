@@ -29,6 +29,9 @@ export interface P2PHealthStatus {
   coordination_last_push: string | null
   coordination_last_error: string | null
   coordination_reconnect_attempts: number
+  /** False when HTTP /beap/ingest is not listening (migration failure, bind error, disabled). */
+  http_ingest_available: boolean
+  http_ingest_error: string | null
 }
 
 let health: P2PHealthStatus = {
@@ -53,6 +56,8 @@ let health: P2PHealthStatus = {
   coordination_last_push: null,
   coordination_last_error: null,
   coordination_reconnect_attempts: 0,
+  http_ingest_available: false,
+  http_ingest_error: null,
 }
 
 const listeners = new Set<(status: P2PHealthStatus) => void>()
@@ -84,6 +89,8 @@ export function setP2PHealthServerStarted(port: number, localEndpoint: string, t
   health.local_endpoint = localEndpoint
   health.port = port
   health.tls_enabled = tlsEnabled
+  health.http_ingest_available = true
+  health.http_ingest_error = null
   notifyListeners()
 }
 
@@ -91,6 +98,18 @@ export function setP2PHealthServerFailed(error: string): void {
   health.server_running = false
   health.server_error = error
   health.local_endpoint = null
+  health.http_ingest_available = false
+  health.http_ingest_error = error
+  notifyListeners()
+}
+
+/** P2P HTTP ingest unavailable (migration failed, ledger not ready, etc.) — do not advertise endpoint. */
+export function setP2PHealthHttpIngestDegraded(error: string): void {
+  health.server_running = false
+  health.server_error = error
+  health.local_endpoint = null
+  health.http_ingest_available = false
+  health.http_ingest_error = error
   notifyListeners()
 }
 

@@ -27,12 +27,15 @@ import { createHash, randomUUID } from 'crypto'
 
 import { getHandshakeRecord } from '../handshake/db'
 import type { ProvenanceMetadata } from '@repo/ingestion-core'
-import { dispatchDepackageQBeap, type DepackagedQBeapResult } from '../ingestion/ingestionDispatcher.js'
+import {
+  dispatchDepackageQBeap,
+  type DepackagedQBeapResult,
+  type QbeapDepackageFailureReport,
+} from '../ingestion/ingestionDispatcher.js'
 import { evaluateAutoresponder } from '../beap/autoresponderEvaluator'
 import { logAutoresponderDecision } from '../beap/autoresponderAudit'
 import { makeInboxAttachmentStorageId, buildQuarantineCanonicalJson, findPairedSandboxHandshake } from './messageRouter'
 import { validatorOrchestrator } from '../validation/inProcessValidator'
-import { ensureValidatorAndSealedStorageReady } from '../validatorReadiness.js'
 import type { ReasonCode } from '../vault/capabilityBroker'
 import { prepareSealedInsert, prepareSealedOperationalUpdate, computeSeal } from '../sealed-storage/index'
 import type { KeySource } from '../sealed-storage/index'
@@ -41,7 +44,9 @@ import { resealWithDecryptedContent } from './sealedContentUpdate'
 import { decryptQuarantineBlob, encryptForQuarantine } from '../quarantine-encrypt/index'
 import { writeQuarantineBlob, type QuarantineBlobFile } from '../quarantine-blob-storage/index'
 import type { SSOSession } from '../handshake/types'
-import { notifyBeapInboxDashboard } from './beapInboxDashboardNotify'
+import { notifyBeapInboxDashboard, notifyBeapQuarantineReceived } from './beapInboxDashboardNotify'
+import { ensureValidatorAndSealedStorageReady } from '../validatorReadiness'
+import { mapBeapIngestFailureToReasonCode, rejectionReasonToReasonCode } from '../p2p/beapIngestRelayAck'
 import { notifyBeapDeliveryAck } from '../p2p/beapDeliveryAck'
 import { postPeerDeliveryAckToSender } from '../p2p/peerDeliveryAck'
 import { notifyBeapRecipientPending } from '../p2p/beapRecipientNotify'
@@ -50,8 +55,12 @@ const BATCH_SIZE = 100
 
 /** Structured visibility for qBEAP decrypt null returns (main-process logs only). */
 function reportQbeapDecryptFailure(ctx: string) {
-  return (info: { code: string; handshakeId: string; retryable: boolean }): void => {
-    console.warn(`[${ctx}] qBEAP decrypt failure`, info)
+  return (info: QbeapDepackageFailureReport): void => {
+    console.warn(`[${ctx}] qBEAP decrypt failure`, {
+      code: info.code,
+      handshakeId: info.handshakeId,
+      retryable: info.retryable ?? false,
+    })
   }
 }
 
@@ -90,7 +99,7 @@ async function depackageQBeapViaPod(
   packageJson: string,
   handshakeId: string,
   db: unknown,
-  opts?: { reportFailure?: (info: { reason: string; handshakeId: string }) => void },
+  opts?: { reportFailure?: (info: QbeapDepackageFailureReport) => void },
 ): Promise<DepackagedQBeapContent | null> {
   return dispatchDepackageQBeap(packageJson, handshakeId, db, opts)
 }
@@ -846,6 +855,15 @@ async function writeP2PQuarantineRow(
     paired_sandbox_handshake_id: pairedSandboxHandshakeId,
   })
 
+  const validatorReady = await ensureValidatorAndSealedStorageReady('beap_p2p_quarantine', handshakeId, {
+    requireInner: true,
+  })
+  if (!validatorReady.ok) {
+    const msg = `validator not ready for quarantine write: ${validatorReady.error}`
+    console.error('[P2P-INLINE] Quarantine blocked:', msg, 'handshake:', handshakeId)
+    throw new Error(msg)
+  }
+
   const qProvenance = buildP2PProvenance(handshakeId, p.transportSender, 'p2p', packageJson)
   const qResp = await validatorOrchestrator.validate({
     envelope: {},
@@ -881,7 +899,15 @@ async function writeP2PQuarantineRow(
       row_id: quarantineId,
     },
   )
-  return { outcome: 'quarantine', rowId: quarantineId }
+  const reasonCode = rejectionReasonToReasonCode(p.rejectionReason)
+  notifyBeapQuarantineReceived({
+    handshakeId,
+    quarantineId,
+    reasonCode,
+    rejectionReason: p.rejectionReason,
+  })
+  notifyBeapInboxDashboard(handshakeId)
+  return { outcome: 'quarantine', rowId: quarantineId, reasonCode, retryable: false, error: p.rejectionReason }
 }
 
 /**
@@ -1307,7 +1333,15 @@ async function processBeapPackageInlineInternal(
 
   // ── Quarantine path ────────────────────────────────────────────────────────
   const rejectionReason = depackageError ?? 'depackage_failed'
-  console.warn('[P2P-INLINE] Routing to quarantine, reason:', rejectionReason, 'handshake:', handshakeId)
+  const quarantineReasonCode = rejectionReasonToReasonCode(rejectionReason)
+  console.warn(
+    '[P2P-INLINE] Routing to quarantine, reason:',
+    rejectionReason,
+    'reasonCode:',
+    quarantineReasonCode,
+    'handshake:',
+    handshakeId,
+  )
   return writeP2PQuarantineRow(db, packageJson, handshakeId, {
     rejectionReason,
     transportSender,
@@ -1356,8 +1390,20 @@ export async function processBeapPackageInline(
     return await processBeapPackageInlineInternal(db, packageJson, handshakeId, options)
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
-    console.error('[P2P-INLINE] Unhandled error in processBeapPackageInline:', msg)
-    return { outcome: 'error', error: msg }
+    const mapped = mapBeapIngestFailureToReasonCode(msg)
+    console.error(
+      '[P2P-INLINE] Unhandled error in processBeapPackageInline:',
+      msg,
+      'reasonCode:',
+      mapped.reasonCode,
+    )
+    return {
+      outcome: 'error',
+      error: msg,
+      reasonCode: mapped.reasonCode,
+      retryable: mapped.retryable,
+      rowId: randomUUID(),
+    }
   }
 }
 

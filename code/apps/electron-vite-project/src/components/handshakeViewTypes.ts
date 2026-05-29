@@ -17,6 +17,9 @@ export type BeapAckReasonCode =
   | 'key_provider_unbound'
   | 'validator_unhealthy'
   | 'ledger_db_unavailable'
+  | 'decrypt_failed'
+  | 'quarantined'
+  | 'processing_failed'
 
 /** Payload delivered by the `inbox:beapDeliveryAck` IPC event (W3-P6+). */
 export interface BeapDeliveryAckData {
@@ -57,8 +60,25 @@ declare global {
       declineHandshake: (id: string) => Promise<any>
       deleteHandshake: (id: string) => Promise<{ success?: boolean; error?: string }>
       requestUnlockVault: () => Promise<{ success?: boolean; reason?: string; needsUnlock?: boolean }>
-      unlockVaultWithPassword: (password: string, vaultId?: string) => Promise<{ success?: boolean; error?: string }>
-      getVaultStatus?: () => Promise<{ isUnlocked?: boolean; name?: string | null; tier?: string; canUseHsContextProfiles?: boolean; email?: string | null }>
+      unlockVaultWithPassword: (
+        password: string,
+        vaultId?: string,
+      ) => Promise<{ success?: boolean; error?: string; code?: string; vaultId?: string }>
+      getVaultStatus?: () => Promise<{
+        isUnlocked?: boolean
+        name?: string | null
+        tier?: string
+        canUseHsContextProfiles?: boolean
+        email?: string | null
+        availableVaults?: Array<{ id: string; name: string; created?: number }>
+        legacyUnclaimedVaults?: Array<{ id: string; name: string; created?: number; legacy_unclaimed?: boolean }>
+        hiddenForeignVaultCount?: number
+        error?: string
+      }>
+      claimLegacyVault?: (
+        vaultId: string,
+        masterPassword: string,
+      ) => Promise<{ success?: boolean; error?: string; code?: string; vaultId?: string }>
       listHsContextProfiles?: (includeArchived?: boolean) => Promise<{ profiles: Array<{ id: string; name: string; description?: string; scope: 'non_confidential' | 'confidential'; tags: string[]; updated_at: number; created_at: number; document_count: number; documents_ready: number; documents_pending: number; documents_failed: number; documents_failed_names: string[] }> }>
       getDocumentPageCount?: (documentId: string) => Promise<{ count: number }>
       getDocumentPage?: (documentId: string, pageNumber: number) => Promise<{ text: string | null }>
@@ -640,6 +660,8 @@ export interface EmailInboxBridge {
   onBeapInboxUpdated?: (handler: (data: { handshakeId: string | null }) => void) => () => void
   /** Receiver persisted a direct_beap row — ACK for sender delivery confirmation (W3-P6+). */
   onBeapDeliveryAck?: (handler: (data: BeapDeliveryAckData) => void) => () => void
+  /** Host quarantined an inbound BEAP package (decrypt/validation failure). */
+  onBeapQuarantine?: (handler: (data: { handshakeId: string; quarantineId: string; reasonCode: string; rejectionReason: string }) => void) => () => void
   /** Each background drain batch: `{ processed, pending, failed, deferred }` (deferred = pull-lock). */
   onDrainProgress?: (handler: (data: unknown) => void) => () => void
   /** Simple drain: `{ status: 'moved'|'skipped', op, msgId }` per completed row. */

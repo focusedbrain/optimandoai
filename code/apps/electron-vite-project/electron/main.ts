@@ -933,10 +933,20 @@ import { setBeapRecipientPendingNotifier, notifyBeapRecipientPending } from './m
 import { processPendingP2PBeapEmails, retryPendingQbeapDecrypt, retryPendingInboxPlaceholders } from './main/email/beapEmailIngestion'
 import { drainExtensionMergeBuffer } from './main/email/mergeExtensionDepackaged'
 import { getAuditForMessage, getAutoresponderAuditLog } from './main/beap/autoresponderAudit'
-import { setBeapInboxDashboardNotifier, notifyBeapInboxDashboard } from './main/email/beapInboxDashboardNotify'
+import {
+  setBeapInboxDashboardNotifier,
+  setBeapQuarantineNotifier,
+  notifyBeapInboxDashboard,
+} from './main/email/beapInboxDashboardNotify'
 import { setBeapDeliveryAckNotifier } from './main/p2p/beapDeliveryAck'
 import { getP2PConfig, upsertP2PConfig, computeLocalP2PEndpoint } from './main/p2p/p2pConfig'
-import { getP2PHealth, setP2PHealthQueueCounts, setP2PHealthSelfTest, setP2PHealthRelayMode } from './main/p2p/p2pHealth'
+import {
+  getP2PHealth,
+  setP2PHealthQueueCounts,
+  setP2PHealthSelfTest,
+  setP2PHealthRelayMode,
+  setP2PHealthHttpIngestDegraded,
+} from './main/p2p/p2pHealth'
 import { getQueueStatus, getQueueEntries } from './main/handshake/outboundQueue'
 import { migrateHandshakeTables } from './main/handshake/db'
 import { completePendingContextSyncs, tryEnqueueContextSync } from './main/handshake/contextSyncEnqueue'
@@ -2755,6 +2765,13 @@ app.whenReady().then(async () => {
             w.webContents.send('inbox:beapInboxUpdated', { handshakeId })
           }
         })
+        setBeapQuarantineNotifier((notice) => {
+          for (const w of BrowserWindow.getAllWindows()) {
+            if (!w.isDestroyed()) {
+              w.webContents.send('inbox:beapQuarantine', notice)
+            }
+          }
+        })
         setBeapDeliveryAckNotifier((payload) => {
           console.log(
             `[BEAP_DELIVERY] ack_broadcast handshake=${payload.handshakeId} rowId=${payload.rowId} status=${payload.status ?? 'ok'} reason=${payload.reasonCode ?? 'none'}`,
@@ -4104,9 +4121,47 @@ app.whenReady().then(async () => {
           tier: String(tier),
           canUseHsContextProfiles,
           email,
+          availableVaults: vaults,
+          legacyUnclaimedVaults: status.legacyUnclaimedVaults ?? [],
+          hiddenForeignVaultCount: status.hiddenForeignVaultCount ?? 0,
         }
-      } catch {
-        return { isUnlocked: false, name: null, tier: 'unknown', canUseHsContextProfiles: false, email: null }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[vault:getStatus] failed:', msg)
+        return {
+          isUnlocked: false,
+          name: null,
+          tier: 'unknown',
+          canUseHsContextProfiles: false,
+          email: null,
+          availableVaults: [],
+          legacyUnclaimedVaults: [],
+          hiddenForeignVaultCount: 0,
+          error: msg,
+        }
+      }
+    })
+
+    ipcMain.handle('vault:claimLegacy', async (_e, vaultId: string, masterPassword: string) => {
+      try {
+        if (typeof vaultId !== 'string' || !vaultId.trim()) {
+          return { success: false, error: 'vaultId is required', code: 'ERR_VAULT_CLAIM_WRITE_FAILED' }
+        }
+        if (typeof masterPassword !== 'string' || masterPassword.length === 0) {
+          return { success: false, error: 'Passphrase is required', code: 'ERR_VAULT_CLAIM_WRONG_PASSPHRASE' }
+        }
+        const { vaultService } = await import('./main/vault/rpc')
+        const result = await vaultService.claimLegacyVault(masterPassword, vaultId.trim())
+        try {
+          win?.webContents.send('vault-status-changed')
+        } catch {
+          /* no window */
+        }
+        return { success: true, vaultId: result.vaultId }
+      } catch (err: any) {
+        const msg = err?.message ?? 'Claim failed'
+        console.error('[vault:claimLegacy] failed:', vaultId, msg)
+        return { success: false, error: msg, code: err?.code }
       }
     })
 
@@ -5022,12 +5077,15 @@ app.whenReady().then(async () => {
     })
 
     ipcMain.handle('vault:unlockWithPassword', async (_e, password: string, vaultId?: string) => {
+      const targetVaultId = typeof vaultId === 'string' && vaultId.trim() ? vaultId.trim() : 'default'
       try {
         if (typeof password !== 'string' || password.length === 0) {
           return { success: false, error: 'Password is required' }
         }
         const { vaultService, setupEmbeddingServiceRef } = await import('./main/vault/rpc')
-        await vaultService.unlock(password, vaultId || 'default')
+        const { startValidatorAfterVaultSession } = await import('./main/vault/vaultValidatorStartup')
+        await vaultService.unlock(password, targetVaultId)
+        await startValidatorAfterVaultSession(vaultService)
         const db = getLedgerDb() ?? vaultService.getHsProfileDb?.() ?? null
         setupEmbeddingServiceRef(vaultService, db)
         completePendingContextSyncs(db, getCurrentSession())
@@ -5036,9 +5094,11 @@ app.whenReady().then(async () => {
         if (db) setImmediate(() => retryPendingInboxPlaceholders(db).catch((err) => console.warn('[RETRY-PLACEHOLDER] post-unlock retry error:', (err as Error)?.message ?? err)))
         try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
         try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
-        return { success: true }
+        return { success: true, vaultId: targetVaultId }
       } catch (err: any) {
-        return { success: false, error: err?.message ?? 'Unlock failed' }
+        const msg = err?.message ?? 'Unlock failed'
+        console.error('[vault:unlockWithPassword] failed:', vaultId ?? 'default', msg, err?.code ?? '')
+        return { success: false, error: msg, code: err?.code }
       }
     })
 
@@ -11473,7 +11533,16 @@ async function runDeviceKeyMigration(
     function tryP2PStartup(): void {
       const handshakeDb = getHandshakeDb()
       if (!handshakeDb) {
-        return // Ledger not ready yet â€” will retry in 10s
+        const ledgerReady = !!getLedgerDb()
+        const vaultMisaligned =
+          !ledgerReady &&
+          !!((globalThis as any).__og_vault_service_ref?.getDb?.() ?? (globalThis as any).__og_vault_service_ref?.db) &&
+          !vaultService.isActiveVaultAccountAlignedWithSession()
+        console.warn(
+          '[P2P] Handshake DB unavailable — HTTP BEAP ingest deferred (will retry)',
+          { ledgerReady, vaultAccountMisaligned: vaultMisaligned },
+        )
+        return
       }
       // Part A: one line per ACTIVE handshake as soon as DB exists (before P2P server / relay WS).
       if (!handshakeHealthStartupEmitted) {
@@ -11641,7 +11710,16 @@ async function runDeviceKeyMigration(
             logP2pServerDisabledState(config)
           }
         } catch (err: any) {
-          console.warn('[P2P] Server startup skipped:', err?.message)
+          const msg = err?.message ?? String(err)
+          console.error('[P2P] RECEIVE startup failed — HTTP ingest unavailable:', msg)
+          setP2PHealthHttpIngestDegraded(msg)
+          try {
+            upsertP2PConfig(handshakeDb, { local_p2p_endpoint: null })
+            console.warn('[P2P] Cleared local_p2p_endpoint — not advertising ingest while receive is degraded')
+          } catch (clearErr: unknown) {
+            console.warn('[P2P] Failed to clear local_p2p_endpoint:', (clearErr as Error)?.message ?? clearErr)
+          }
+          p2pServerStarted = false
         }
       }
       // Coordination WebSocket: single ref in coordinationWsHolder (no parallel closure variable)
