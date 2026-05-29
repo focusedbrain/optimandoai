@@ -3,6 +3,7 @@
  */
 
 import { getPodSessionAuthSecret } from '../local-pod/podSessionAuth.js'
+import { getLocalPodUnavailableMessage } from '../local-pod/podStatus.js'
 
 export const DEFAULT_DEPACKAGER_BASE = 'http://127.0.0.1:18102'
 
@@ -26,7 +27,7 @@ export async function extractPdfViaDepackager(
 ): Promise<DepackagerExtractResult> {
   const secret = getPodSessionAuthSecret()
   if (!secret) {
-    return { ok: false, reason: 'local_pod_not_running', status: 503 }
+    return { ok: false, reason: getLocalPodUnavailableMessage(), status: 503 }
   }
 
   const fetchFn = opts.fetchImpl ?? fetch

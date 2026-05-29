@@ -17,19 +17,6 @@ import {
   validatorOrchestrator,
   onValidationServiceUnavailable,
 } from '../validation/inProcessValidator'
-import { startLocalPod, stopLocalPod, buildLocalPodStartContext } from '../local-pod/index.js'
-import { refreshJwksOnStartup } from '../edge-tier/jwks.js'
-
-async function startLocalPodAfterVaultUnlock(): Promise<void> {
-  await refreshJwksOnStartup().catch((err) => {
-    console.warn('[VAULT_RPC] JWKS refresh failed:', (err as Error).message ?? err)
-  })
-  const startContext = buildLocalPodStartContext()
-  startLocalPod(vaultService, { startContext }).catch((err) => {
-    console.error('[VAULT_RPC] Failed to start local pod:', err?.message ?? err)
-  })
-}
-
 // Export vaultService for HTTP API handlers
 export { vaultService }
 
@@ -186,8 +173,6 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
         validatorOrchestrator.start(vaultService).catch((err) => {
           console.error('[VAULT_RPC] Failed to start validator after create:', err?.message ?? err)
         })
-        // P1.8 + P3.8: start local pod in parallel (non-fatal).
-        startLocalPodAfterVaultUnlock()
         return { success: true, message: 'Vault created successfully', vaultId, sessionToken: vaultService.getSessionToken() }
       }
 
@@ -199,8 +184,6 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
         validatorOrchestrator.start(vaultService).catch((err) => {
           console.error('[VAULT_RPC] Failed to start validator:', err?.message ?? err)
         })
-        // P1.8 + P3.8: start local pod in parallel (non-fatal).
-        startLocalPodAfterVaultUnlock()
         return { success: true, token, sessionToken: vaultService.getSessionToken() }
       }
 
@@ -209,10 +192,6 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
         // P1.12: stop in-process validator (unbinds key provider) before vault lock.
         validatorOrchestrator.stop().catch((err) => {
           console.error('[VAULT_RPC] Error stopping validator:', err?.message ?? err)
-        })
-        // P1.8: stop local pod on vault lock (non-fatal).
-        stopLocalPod().catch((err) => {
-          console.error('[VAULT_RPC] Error stopping local pod:', err?.message ?? err)
         })
         vaultService.lock()
         return { success: true, message: 'Vault locked' }

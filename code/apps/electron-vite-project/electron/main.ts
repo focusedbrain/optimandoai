@@ -10766,38 +10766,72 @@ async function runDeviceKeyMigration(
         }
       }
       try {
-        const { extractPdfViaDepackager } = await import('./main/email/pdfPodClient.js')
         const pdfBuffer = Buffer.from(base64, 'base64')
+        const { extractPdfViaDepackager } = await import('./main/email/pdfPodClient.js')
         const pod = await extractPdfViaDepackager(pdfBuffer, {
           messageId: 'composer',
           attachmentId: attachmentId as string,
         })
-        if (!pod.ok) {
+
+        if (pod.ok) {
+          const extractedText = pod.extracted_text_v1.text
+          const pageCount = extractedText.split('\n\n').length
+          console.log(
+            `[PDF-PARSER] Pod extracted ${extractedText.length} chars (attachmentId: ${attachmentId})`,
+          )
           return {
-            ok: false,
-            status: pod.status === 503 ? 503 : 422,
-            json: { success: false, error: pod.reason },
+            ok: true,
+            json: {
+              success: true,
+              pageCount,
+              pagesProcessed: pageCount,
+              extractedText,
+              truncated: false,
+              parser: {
+                engine: 'beap-pod-depackager',
+                version: pod.extracted_text_v1.extractor_version,
+              },
+              structural_hash: pod.extracted_text_v1.structural_hash,
+            },
           }
         }
-        const extractedText = pod.extracted_text_v1.text
-        const pageCount = extractedText.split('\n\n').length
-        console.log(
-          `[PDF-PARSER] Pod extracted ${extractedText.length} chars (attachmentId: ${attachmentId})`,
-        )
+
+        // Case A floor: in-process pdfjs when pod is down or not ready (not for semantic depackager errors).
+        const useInProcessFallback = pod.status === 503 || pod.status === undefined
+        if (useInProcessFallback) {
+          try {
+            const { extractPdfTextInProcess } = await import('./main/email/pdfExtractInProcess.js')
+            const inProc = await extractPdfTextInProcess(pdfBuffer)
+            const pageCount = inProc.pageCount
+            console.log(
+              `[PDF-PARSER] In-process fallback extracted ${inProc.text.length} chars (attachmentId: ${attachmentId})`,
+            )
+            return {
+              ok: true,
+              json: {
+                success: true,
+                pageCount,
+                pagesProcessed: pageCount,
+                extractedText: inProc.text,
+                truncated: false,
+                parser: {
+                  engine: 'pdfjs',
+                  version: inProc.extractor_version,
+                },
+                structural_hash: inProc.structural_hash,
+              },
+            }
+          } catch (fallbackErr: any) {
+            console.warn(
+              `[PDF-PARSER] In-process fallback failed (${(fallbackErr as Error).message}); surfacing pod error`,
+            )
+          }
+        }
+
         return {
-          ok: true,
-          json: {
-            success: true,
-            pageCount,
-            pagesProcessed: pageCount,
-            extractedText,
-            truncated: false,
-            parser: {
-              engine: 'beap-pod-depackager',
-              version: pod.extracted_text_v1.extractor_version,
-            },
-            structural_hash: pod.extracted_text_v1.structural_hash,
-          },
+          ok: false,
+          status: pod.status === 503 ? 503 : 422,
+          json: { success: false, error: pod.reason },
         }
       } catch (error: any) {
         console.error('[PDF-PARSER] Error extracting PDF text:', error.message)

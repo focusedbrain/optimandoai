@@ -17,10 +17,7 @@ export interface EdgeTierPodVault {
   deriveApplicationKey(info: string): Buffer | null
 }
 
-function buildStartContext(
-  vault: EdgeTierPodVault,
-  settings?: EdgeTierSettings,
-): LocalPodStartContext {
+function buildStartContext(settings?: EdgeTierSettings): LocalPodStartContext {
   const edgeTier = settings ?? loadEdgeTierSettings()
   return {
     edgeTier,
@@ -42,7 +39,7 @@ export async function applyEdgeTierSettingsAndRestartPod(
     return
   }
   console.log('[EDGE_TIER] Settings changed — restarting local pod')
-  await restartLocalPod(vault, buildStartContext(vault, next))
+  await restartLocalPod(buildStartContext(next))
 }
 
 /** JWKS stale path: refresh cache and restart LOCAL_VERIFY pod. */
@@ -52,5 +49,5 @@ export async function onVerificationFailureRefreshJwks(vault: EdgeTierPodVault):
   const settings = loadEdgeTierSettings()
   if (!isEdgeTierActiveForRouting(settings)) return
   console.log('[EDGE_TIER] JWKS refreshed — restarting LOCAL_VERIFY pod')
-  await restartLocalPod(vault, buildStartContext(vault, settings))
+  await restartLocalPod(buildStartContext(settings))
 }

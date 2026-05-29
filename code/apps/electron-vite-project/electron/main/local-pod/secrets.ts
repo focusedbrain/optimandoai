@@ -1,10 +1,11 @@
 /**
  * Pod secrets helpers — Phase 1, P1.8.
  *
- * generatePodAuthSecret  — fresh 32-byte random hex per pod session.
- * deriveSealKeyHex       — HMAC seal key derived from the vault VMK.
+ * generatePodAuthSecret       — fresh 32-byte random hex per pod session.
+ * generateEphemeralSealKeyHex — fresh 32-byte random hex per pod start (pod-internal seal).
+ * deriveSealKeyHex            — HMAC seal key derived from the inner vault VMK (optional upgrade path).
  *
- * Both values are ephemeral: generated at pod start and never stored.
+ * Ephemeral values are never stored.
  */
 
 import { randomBytes } from 'node:crypto'
@@ -31,14 +32,21 @@ export function generatePodAuthSecret(): string {
 }
 
 /**
- * Derive SEAL_KEY_HEX from the vault VMK using HKDF.
+ * Ephemeral SEAL_KEY_HEX for the sealer container at pod start.
  *
- * Returns the hex-encoded key, or null if the vault is locked (VMK not in
- * memory).  The returned Buffer from deriveApplicationKey is zeroized after
- * hex encoding so key material does not linger in the V8 heap.
+ * Pod seals are pod-internal integrity only; the host re-seals inbox content
+ * with ledger/validator keys.  A new key is generated every start.
+ */
+export function generateEphemeralSealKeyHex(): string {
+  return randomBytes(32).toString('hex')
+}
+
+/**
+ * Derive SEAL_KEY_HEX from the inner vault VMK using HKDF.
  *
- * The derived key is byte-identical to what the sealer container expects
- * (standard HMAC-SHA256; no domain separation beyond the HKDF info label).
+ * Returns the hex-encoded key, or null if the inner vault is locked (VMK not in
+ * memory).  Reserved for a future lazy-sealer upgrade path — default pod startup
+ * uses {@link generateEphemeralSealKeyHex} instead.
  */
 export function deriveSealKeyHex(
   vault: { deriveApplicationKey(info: string): Buffer | null },

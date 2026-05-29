@@ -5,7 +5,11 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { getEdgeTierStatusSnapshot } from './status.js'
 import { getRecentEdgeVerifications, onEdgeVerificationAppended } from './verificationAudit.js'
-import { getLocalPodSetupError } from '../local-pod/index.js'
+import {
+  getLocalPodSetupError,
+  getLocalPodStatus,
+  getLocalPodUnavailableMessage,
+} from '../local-pod/index.js'
 import {
   onVerifierVerificationIngested,
   registerDashboardIpcHandlers,
@@ -72,7 +76,17 @@ export function registerEdgeTierIpcHandlers(): void {
 
   ipcMain.handle('edge-tier:get-local-pod-requirement', async () => {
     const err = getLocalPodSetupError()
-    return { ok: !err, message: err?.userMessage ?? null }
+    const status = getLocalPodStatus()
+    const ready = status.status === 'ready' && status.hasSessionSecret
+    if (ready) {
+      return { ok: true, message: null, podStatus: status.status, podReason: null }
+    }
+    const message = err?.userMessage ?? getLocalPodUnavailableMessage()
+    return { ok: false, message, podStatus: status.status, podReason: status.reason }
+  })
+
+  ipcMain.handle('local-pod:get-status', async () => {
+    return getLocalPodStatus()
   })
 
   ipcMain.handle('edge-tier:list-known-hosts', async () => {

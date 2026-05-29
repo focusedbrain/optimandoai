@@ -117,12 +117,9 @@ function delay(ms: number): Promise<void> {
 
 /**
  * Probe inner vault (vaultService / master-password VMK session) state and
- * emit [OUTER_VAULT_CHECK] diagnostics.
+ * emit [INNER_VAULT_CHECK] diagnostics.
  *
- * Named with the [OUTER_VAULT_CHECK] log prefix for log-grep compatibility;
- * the prefix is an external string and must not change (see vaultCanon.ts for
- * the naming rationale).  HA Mode is NOT checked — BEAP operations must never
- * require it.
+ * HA Mode is NOT checked — BEAP operations must never require it.
  */
 function probeInnerVaultState(reason: string): InnerVaultProbe {
   const status = vaultService.getStatus()
@@ -139,17 +136,17 @@ function probeInnerVaultState(reason: string): InnerVaultProbe {
   const foreignVaultCount = status?.hiddenForeignVaultCount ?? 0
 
   console.log(
-    `[OUTER_VAULT_CHECK] reason=${reason} account=${accountId} sessionUnlocked=${innerVaultReady} outerVaultFound=${innerVaultFound} outerVaultReady=${innerVaultReady} innerVaultRequired=false`,
+    `[INNER_VAULT_CHECK] reason=${reason} account=${accountId} innerVaultFound=${innerVaultFound} innerVaultReady=${innerVaultReady} innerVaultRequired=false`,
   )
 
   if (innerVaultFound) {
     const selectedVaultId = status?.availableVaults?.[0]?.id ?? currentVaultId
     console.log(
-      `[OUTER_VAULT_CHECK] selected_vault id=${selectedVaultId} account=${accountId} legacy=false legacyVaults=${legacyVaultCount} foreignVaults=${foreignVaultCount}`,
+      `[INNER_VAULT_CHECK] selected_inner_vault id=${selectedVaultId} account=${accountId} legacy=false legacyVaults=${legacyVaultCount} foreignVaults=${foreignVaultCount}`,
     )
   } else {
     console.log(
-      `[OUTER_VAULT_CHECK] no_account_vault reason=${reason} account=${accountId} legacyVaults=${legacyVaultCount} foreignVaults=${foreignVaultCount} — outer vault unavailable`,
+      `[INNER_VAULT_CHECK] no_inner_vault reason=${reason} account=${accountId} legacyVaults=${legacyVaultCount} foreignVaults=${foreignVaultCount}`,
     )
   }
 

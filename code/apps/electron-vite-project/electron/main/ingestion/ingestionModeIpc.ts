@@ -115,12 +115,9 @@ export function registerIngestionModeIpc(): void {
       '../local-pod/supervisor/index.js'
     )
     const { restartLocalPod } = await import('../local-pod/index.js')
-    const { vaultService } = await import('../vault/rpc.js')
     userRetryLocalPodSupervisor()
     invalidateHostPodReadyCache()
-    if (vaultService) {
-      await restartLocalPod(vaultService, buildLocalPodStartContext())
-    }
+    await restartLocalPod(buildLocalPodStartContext())
     const snap = await refreshIngestionMode(true)
     if (snap.hostPodVariant !== 'halted_by_anomaly') {
       await drainHoldQueueIfReady()

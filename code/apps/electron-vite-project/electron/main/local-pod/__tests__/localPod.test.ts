@@ -25,9 +25,11 @@ import {
   startLocalPod,
   stopLocalPod,
   getLocalPodSetupError,
+  getLocalPodStatus,
   PodmanSetupError,
   _resetStateForTest,
 } from '../index.js'
+import { getPodSessionAuthSecret } from '../podSessionAuth.js'
 import {
   applyPodManifest,
   resolveManifestPath,
@@ -35,6 +37,7 @@ import {
 } from '../podRunner.js'
 import {
   generatePodAuthSecret,
+  generateEphemeralSealKeyHex,
   deriveSealKeyHex,
   POD_SEAL_KEY_INFO,
 } from '../secrets.js'
@@ -58,6 +61,7 @@ function startOpts(executor: PodmanExecutor, extra?: Record<string, unknown>) {
     executor,
     podmanCheck: passPodmanCheck,
     skipImageDigestVerify: true,
+    skipPodHealthWait: true,
     ...extra,
   }
 }
@@ -109,6 +113,18 @@ afterEach(() => {
 
 // ── Suite 1: secrets ───────────────────────────────────────────────────────────
 
+describe('generateEphemeralSealKeyHex', () => {
+  test('returns a 64-char hex string (32 bytes)', () => {
+    const hex = generateEphemeralSealKeyHex()
+    expect(hex.length).toBe(64)
+    expect(/^[0-9a-f]+$/.test(hex)).toBe(true)
+  })
+
+  test('returns a fresh value on each call', () => {
+    expect(generateEphemeralSealKeyHex()).not.toBe(generateEphemeralSealKeyHex())
+  })
+})
+
 describe('generatePodAuthSecret', () => {
   test('returns a 64-char hex string (32 bytes)', () => {
     const secret = generatePodAuthSecret()
@@ -153,9 +169,7 @@ describe('deriveSealKeyHex', () => {
 describe('startLocalPod — Podman feature-detect', () => {
   test('podman not on PATH → setup error recorded, executor not invoked, notification shown', async () => {
     const executor = makeNoopExecutor()
-    const vault = makeMockVault()
-
-    await startLocalPod(vault, {
+    await startLocalPod({
       manifestPath: FIXTURE_MANIFEST,
       executor,
       podmanCheck: failPodmanCheck('not_installed'),
@@ -169,9 +183,7 @@ describe('startLocalPod — Podman feature-detect', () => {
 
   test('win32/darwin with no running machine → machine_not_running error', async () => {
     const executor = makeNoopExecutor()
-    const vault = makeMockVault()
-
-    await startLocalPod(vault, {
+    await startLocalPod({
       manifestPath: FIXTURE_MANIFEST,
       executor,
       podmanCheck: failPodmanCheck('machine_not_running'),
@@ -192,9 +204,7 @@ describe.each(['linux', 'win32', 'darwin'] as const)(
   (platform) => {
     test('calls executor with podman play kube + manifest path', async () => {
       const { executor, calls } = makeCapturingExecutor()
-      const vault = makeMockVault()
-
-      await startLocalPod(vault, startOpts(executor))
+      await startLocalPod(startOpts(executor))
 
       expect(calls.length).toBe(1)
       const [args] = calls.map((c) => c.args)
@@ -225,7 +235,7 @@ describe('startLocalPod — lifecycle', () => {
       deriveApplicationKey: vi.fn(() => Buffer.from(knownKeyHex, 'hex')),
     }
 
-    await startLocalPod(vault, startOpts(executor))
+    await startLocalPod(startOpts(executor))
 
     // Secret strings must not appear in argv
     const argvStr = capturedArgs.join(' ')
@@ -236,32 +246,26 @@ describe('startLocalPod — lifecycle', () => {
     expect(capturedArgs[1]).toBe('kube')
   })
 
-  test('vault locked → pod not started, startLocalPod resolves without throwing', async () => {
+  test('inner vault locked → pod still starts with ephemeral seal key', async () => {
     const executor = makeNoopExecutor()
-    const vault = makeLockedVault()
 
-    await expect(
-      startLocalPod(vault, {
-        manifestPath: FIXTURE_MANIFEST,
-        executor,
-        podmanCheck: passPodmanCheck,
-      }),
-    ).resolves.toBeUndefined()
+    await expect(startLocalPod(startOpts(executor))).resolves.toBeUndefined()
 
-    expect(executor).not.toHaveBeenCalled()
+    expect(executor).toHaveBeenCalled()
+    expect(getPodSessionAuthSecret()).not.toBeNull()
+    expect(getLocalPodStatus().status).toBe('ready')
   })
 
   test('executor error → non-fatal; startLocalPod resolves without throwing', async () => {
     const executor: PodmanExecutor = vi.fn().mockRejectedValue(
       new Error('podman: command not found'),
     )
-    const vault = makeMockVault()
-
     await expect(
-      startLocalPod(vault, {
+      startLocalPod({
         manifestPath: FIXTURE_MANIFEST,
         executor,
         podmanCheck: passPodmanCheck,
+        skipPodHealthWait: true,
       }),
     ).resolves.toBeUndefined()
   })
@@ -274,11 +278,9 @@ describe('startLocalPod — lifecycle', () => {
       callCount++
       await executorLatch
     })
-    const vault = makeMockVault()
-
     // Start two concurrent calls
-    const p1 = startLocalPod(vault, startOpts(executor))
-    const p2 = startLocalPod(vault, startOpts(executor))
+    const p1 = startLocalPod(startOpts(executor))
+    const p2 = startLocalPod(startOpts(executor))
 
     // Release the executor latch
     resolveExecutor()
@@ -290,10 +292,9 @@ describe('startLocalPod — lifecycle', () => {
 
   test('second startLocalPod call after first completes is a no-op', async () => {
     const { executor, calls } = makeCapturingExecutor()
-    const vault = makeMockVault()
 
-    await startLocalPod(vault, startOpts(executor))
-    await startLocalPod(vault, startOpts(executor))
+    await startLocalPod(startOpts(executor))
+    await startLocalPod(startOpts(executor))
 
     // Only one `play kube` call
     const playKubeCalls = calls.filter(c => c.args[0] === 'play')
@@ -306,9 +307,8 @@ describe('startLocalPod — lifecycle', () => {
 describe('stopLocalPod', () => {
   test('calls pod stop then pod rm after a successful start', async () => {
     const { executor, calls } = makeCapturingExecutor()
-    const vault = makeMockVault()
 
-    await startLocalPod(vault, {
+    await startLocalPod({
       ...startOpts(executor),
       podName: 'beap-pod',
     })

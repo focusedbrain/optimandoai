@@ -65,6 +65,7 @@ function localPodStartOpts(executor: PodmanExecutor, extra?: Record<string, unkn
     executor,
     podmanCheck: passPodmanCheck,
     skipImageDigestVerify: true,
+    skipPodHealthWait: true,
     ...extra,
   }
 }
@@ -84,10 +85,9 @@ describe('edge_tier.enabled mode switching', () => {
   })
 
   test('enabled=false starts LOCAL_HOST manifest', async () => {
-    const vault = makeMockVault()
     const { executor, calls, getContent } = makeCapturingExecutor()
 
-    await startLocalPod(vault, localPodStartOpts(executor, {
+    await startLocalPod(localPodStartOpts(executor, {
       manifestPath: FIXTURE_LOCAL_HOST,
     }))
 
@@ -98,7 +98,6 @@ describe('edge_tier.enabled mode switching', () => {
   })
 
   test('enabled=true starts LOCAL_VERIFY manifest with injected env', async () => {
-    const vault = makeMockVault()
     const { executor, getContent } = makeCapturingExecutor()
     const jwks = JSON.stringify({ keys: [{ kty: 'OKP', kid: 't' }] })
 
@@ -118,7 +117,7 @@ describe('edge_tier.enabled mode switching', () => {
       cached_jwks_json: jwks,
     })
 
-    await startLocalPod(vault, localPodStartOpts(executor, {
+    await startLocalPod(localPodStartOpts(executor, {
       manifestPath: FIXTURE_LOCAL_VERIFY,
       podName: 'beap-pod-local-verify-test',
       startContext: {
@@ -137,11 +136,10 @@ describe('edge_tier.enabled mode switching', () => {
   })
 
   test('toggling edge_tier.enabled triggers pod restart in correct mode', async () => {
-    const vault = makeMockVault()
     const { executor, calls, getContent } = makeCapturingExecutor()
     const jwks = JSON.stringify({ keys: [] })
 
-    await startLocalPod(vault, localPodStartOpts(executor, {
+    await startLocalPod(localPodStartOpts(executor, {
       manifestPath: FIXTURE_LOCAL_HOST,
       podName: 'beap-pod-test',
     }))
@@ -164,7 +162,7 @@ describe('edge_tier.enabled mode switching', () => {
       cached_jwks_json: jwks,
     })
 
-    await restartLocalPod(vault, {
+    await restartLocalPod({
       edgeTier: loadEdgeTierSettings(),
       localSsoSub: 'user-sub-restart',
       jwksJson: jwks,
