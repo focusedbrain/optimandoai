@@ -13,7 +13,9 @@ import { readFileSync } from 'fs'
 import { getHandshakeRecord, getHandshakeIdByCounterpartyP2PToken } from '../handshake/db'
 import { processBeapPackageInline } from '../email/beapEmailIngestion'
 import { handleIngestionRPC } from '../ingestion/ipc'
+import { assertBeapPodIsolationPreflight } from '../security/beapPreflightGate.js'
 import { processIncomingInput } from '../ingestion/ingestionPipeline'
+import { isHeldIngestionResult } from '../ingestion/heldResult.js'
 import { insertIngestionAuditRecord, insertQuarantineRecord } from '../ingestion/persistenceDb'
 import { migrateHandshakeTables } from '../handshake/db'
 import { canonicalRebuild } from '../handshake/canonicalRebuild'
@@ -460,6 +462,25 @@ function createP2PRequestHandler(
         return
       }
 
+      if (isHeldIngestionResult(result)) {
+        console.warn(
+          '[P2P] Capsule held — pod required or edge unreachable:',
+          result.audit.validation_reason_code,
+          result.heldMessageId,
+        )
+        res.writeHead(503, { 'Content-Type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            error: 'BEAP validation pod unavailable',
+            held: true,
+            held_message_id: result.heldMessageId,
+            validation_reason_code: result.audit.validation_reason_code,
+            retryable: true,
+          }),
+        )
+        return
+      }
+
       const { distribution } = result
 
       if (distribution.target === 'handshake_pipeline') {
@@ -598,6 +619,11 @@ export function createP2PServer(
   onListenError?: () => void,
 ): http.Server | https.Server | null {
   if (!config.enabled) {
+    return null
+  }
+
+  if (!assertBeapPodIsolationPreflight('createP2PServer')) {
+    console.warn('[P2P] BEAP HTTP ingest not started — Podman preflight failed')
     return null
   }
 

@@ -1,0 +1,167 @@
+# BEAP Edge — Third-Party Notices
+
+**Distributable:** `beap-components` container image built from `packages/beap-pod/Containerfile`  
+**Deployment:** Edge ingestor replica (REMOTE_EDGE pod via `podman play kube` on operator VM)  
+**Scope:** This file applies **only** to the edge BEAP components image. It does **not** cover the WR Desk desktop orchestrator, Electron runtime, Chromium extension, relay `beap-coordination` image, or Ollama. Podman on the edge VM is **external** (see § External runtime).
+
+**Last updated:** 2026-05-29  
+**Regenerate npm table:** `node packages/beap-pod/scripts/generate-third-party-notices.mjs` (from repo root)
+
+---
+
+## Legal review flags (manual + automated)
+
+Review with counsel before production redistribution:
+
+| Item | Risk | Notes |
+|------|------|-------|
+| **Alpine Linux (`node:20-alpine` base)** | **Review** | Base includes GPL-2.0 userland (e.g. BusyBox) and mixed Alpine packages. See `licenses/alpine-linux-notice.txt`, `licenses/busybox-GPL-2.0-notice.txt`, `licenses/musl-MIT-notice.txt`. |
+| **musl libc** | Low | MIT — see `licenses/musl-MIT-notice.txt`. |
+| **BusyBox (Alpine base)** | **Review** | GPL-2.0-only — see `licenses/busybox-GPL-2.0-notice.txt`. |
+| **Node.js 20 (MIT)** | Low | Bundled Node binary from official `node:20-alpine`. See `licenses/node-runtime-MIT.txt`. |
+| **`pdfjs-dist` (Apache-2.0)** | Low–medium | Mozilla PDF.js — may include NOTICE file requirements in bundled artifacts. Repo reference: `THIRD_PARTY_LICENSES/pdfjs-Apache-2.0.txt`. |
+| **`@napi-rs/canvas` (MIT)** | Low | Native Skia backend; platform-specific optional binary per target OS/arch in image. |
+| **Copyleft (GPL/AGPL/LGPL) in npm tree** | None flagged at generation | Re-run scanner after dependency changes. |
+| **`expand-template` / `better-sqlite3`** | N/A for edge | Not in `@repo/beap-pod` production tree (relay-only transitives). |
+| **Podman (edge VM host)** | N/A — not redistributed | Apache-2.0; installed separately on edge replica. **Not redistributed** in `beap-components` image. |
+
+---
+
+## 1. Container base image (runtime stage)
+
+| Property | Value |
+|----------|--------|
+| **Containerfile `FROM` (runtime)** | `node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293` |
+| **Upstream base** | Alpine Linux 3.x + official Node.js 20 binary (Docker Official Image) |
+| **Node.js license** | MIT — https://github.com/nodejs/node/blob/main/LICENSE |
+| **Alpine OS userland** | Mixed (Alpine License Policy). Summary: https://wiki.alpinelinux.org/wiki/Alpine_License_Policy |
+| **In-repo notice files** | `licenses/alpine-linux-notice.txt`, `licenses/musl-MIT-notice.txt`, `licenses/busybox-GPL-2.0-notice.txt`, `licenses/node-runtime-MIT.txt` |
+
+**Builder stage** (discarded except copied artifacts): same `node:20-alpine` digest with `pnpm install` and TypeScript builds — not shipped except as compiled JS in runtime `node_modules` and `packages/*/dist`.
+
+---
+
+## 2. OS packages added at image build (runtime stage)
+
+No additional `apk` packages are installed in the runtime stage. Application files and notice documents are copied from the repository build context only.
+
+---
+
+## 3. External runtime (edge VM — not in container image)
+
+| Component | Relationship | License | Attribution |
+|-----------|--------------|---------|-------------|
+| **Podman** | Required on edge replica for `podman play kube`; **not** bundled in `beap-components` image | Apache-2.0 | https://podman.io — installed from upstream distribution (distro packages / Podman Desktop). **Not redistributed** by WR Desk; operator installs and maintains separately. |
+
+---
+
+## 4. First-party workspace (not third-party OSS)
+
+| Package | Role |
+|---------|------|
+| `@repo/beap-pod` | Role dispatcher and BEAP pod services. |
+| `@repo/beap-cert` | Certificate / attestation helpers. |
+| `@repo/ingestion-core` | Shared ingestion types and logic. |
+| `@repo/email-fetch` | IMAP fetch for mail-fetcher role. |
+| `@repo/role-policy` | Role policy (compiled in; no npm runtime deps). |
+
+Licensed under project `LICENSE`, not separate npm OSS components.
+
+---
+
+## 5. npm production dependencies
+
+Direct dependencies in `packages/beap-pod/package.json`:
+
+| Package | Manifest range | Role |
+|---------|----------------|------|
+| `@noble/curves` | `^2.2.0` | Cryptography |
+| `@noble/post-quantum` | `^0.2.1` | Post-quantum crypto |
+| `@repo/beap-cert` | `workspace:*` | First-party |
+| `@repo/role-policy` | `workspace:*` | First-party |
+| `@repo/email-fetch` | `workspace:*` | First-party |
+| `@repo/ingestion-core` | `workspace:*` | First-party |
+| `jose` | `5.10.0` | JWT/JWS |
+| `pdfjs-dist` | `4.10.38` | PDF parsing (depackager / pdf-parser roles) |
+| `sanitize-html` | `^2.17.4` | HTML sanitization |
+
+Resolved production tree (including workspace transitives) — scanner: `@repo/beap-pod...`:
+
+<!-- AUTO:PNPM_PROD_DEPS_BEGIN -->
+
+_Generated 2026-05-29 via `pnpm licenses list --filter @repo/beap-pod... --prod`. Do not edit by hand._
+
+_Platform-specific `@napi-rs/canvas-*` native binaries for non-Linux targets are omitted; the edge image is built from `node:20-alpine` (Linux/musl)._
+
+| Package | Resolved version | SPDX / npm license |
+|---------|------------------|-------------------|
+| `@napi-rs/canvas` | 0.1.88 | MIT |
+| `@noble/curves` | 2.2.0 | MIT |
+| `@noble/hashes` | 1.6.0 | MIT |
+| `@noble/post-quantum` | 0.2.1 | MIT |
+| `core-util-is` | 1.0.3 | MIT |
+| `dayjs` | 1.11.20 | MIT |
+| `deepmerge` | 4.3.1 | MIT |
+| `dom-serializer` | 2.0.0 | MIT |
+| `domelementtype` | 2.3.0 | BSD-2-Clause |
+| `domhandler` | 5.0.3 | BSD-2-Clause |
+| `domutils` | 3.2.2 | BSD-2-Clause |
+| `entities` | 4.5.0 | BSD-2-Clause |
+| `escape-string-regexp` | 4.0.0 | MIT |
+| `fast-json-stable-stringify` | 2.1.0 | MIT |
+| `htmlparser2` | 10.1.0 | MIT |
+| `imap` | 0.8.19 | MIT |
+| `inherits` | 2.0.4 | ISC |
+| `is-plain-object` | 5.0.0 | MIT |
+| `isarray` | 0.0.1 | MIT |
+| `jose` | 5.10.0 | MIT |
+| `launder` | 1.7.1 | MIT |
+| `nanoid` | 3.3.11 | MIT |
+| `parse-srcset` | 1.0.2 | MIT |
+| `pdfjs-dist` | 4.10.38 | Apache-2.0 |
+| `picocolors` | 1.1.1 | ISC |
+| `postcss` | 8.5.6 | MIT |
+| `readable-stream` | 1.1.14 | MIT |
+| `sanitize-html` | 2.17.4 | MIT |
+| `semver` | 5.3.0 | ISC |
+| `source-map-js` | 1.2.1 | BSD-3-Clause |
+| `string_decoder` | 0.10.31 | MIT |
+| `utf7` | 1.0.2 | BSD |
+
+_Automated scanner: no GPL/AGPL/LGPL identifiers in npm license fields for this tree._
+
+<!-- AUTO:PNPM_PROD_DEPS_END -->
+
+---
+
+## 6. Where notices are published
+
+| Location | Path |
+|----------|------|
+| **Inside container image** | `/app/THIRD-PARTY-NOTICES`, `/app/licenses/*` |
+| **Discoverable symlink target** | `/usr/share/licenses/beap-components/THIRD-PARTY-NOTICES` |
+
+**Auditor command (running container):**
+
+```bash
+podman exec <beap-container> sh -c 'ls -la /app/THIRD-PARTY-NOTICES /app/licenses/ /usr/share/licenses/beap-components/ 2>/dev/null; head -30 /app/THIRD-PARTY-NOTICES'
+```
+
+**Build-time verification (CI / release):**
+
+```bash
+node packages/beap-pod/scripts/generate-third-party-notices.mjs
+node scripts/check-distributable-notices.mjs
+# Optional: after image build —
+# podman run --rm --entrypoint cat <image> /app/THIRD-PARTY-NOTICES | head
+```
+
+---
+
+## 7. Related documents
+
+| Document | Scope |
+|----------|--------|
+| Repo-root `THIRD_PARTY_LICENSES.md` | WR Desk desktop orchestrator + extension |
+| `packages/coordination-service/THIRD-PARTY-NOTICES` | Relay `beap-coordination` image |
+| `docs/LEGAL-REVIEW-FLAGS.md` | Consolidated cross-surface legal review list |

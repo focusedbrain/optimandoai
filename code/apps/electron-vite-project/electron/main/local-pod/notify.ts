@@ -1,26 +1,18 @@
 /**
- * User-visible notification when the local BEAP pod cannot start.
+ * Podman setup visibility — blocking in-app modal (not a dismissible OS toast).
+ *
+ * BEAP receive stays hard-blocked until {@link getLocalPodSetupError} is cleared.
  */
 
-import { Notification } from 'electron'
+import { broadcastPodmanSetupState } from './podmanSetupBroadcast.js'
+import { getPodSetupErrorRef } from './podStatus.js'
 
+/** Runtime pod faults after Podman is present — not the install gate modal. */
 export function notifyLocalPodSupervisorIssue(message: string): void {
-  notifyLocalPodSetupIssue(message)
+  console.error(`[LOCAL_POD] ${message}`)
 }
 
 export function notifyLocalPodSetupIssue(message: string): void {
   console.error(`[LOCAL_POD] ${message}`)
-  try {
-    if (Notification.isSupported()) {
-      new Notification({
-        title: 'BEAP validation pod unavailable',
-        body: message,
-      }).show()
-    }
-  } catch (err) {
-    console.warn(
-      '[LOCAL_POD] Could not show setup notification:',
-      (err as Error).message ?? err,
-    )
-  }
+  broadcastPodmanSetupState(getPodSetupErrorRef())
 }

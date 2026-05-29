@@ -35,7 +35,7 @@ export function accountSummaryFromConfig(
 export function currentRolePolicyModeSnapshot(): RolePolicyModeSnapshot {
   const snap = getIngestionModeSnapshot()
   if (!snap) {
-    return { mode: 'LegacyInProcess', hostPodVariant: null, context: 'host_orchestrator' }
+    return { mode: 'Blocked', hostPodVariant: null, context: 'host_orchestrator' }
   }
   return {
     mode: snap.mode,

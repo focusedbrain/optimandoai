@@ -1,5 +1,6 @@
 /**
- * In-process ingestion path (LegacyInProcess mode) — restored from main pre-P1.12.
+ * In-process ingestion for trusted internal-origin input only (sourceType === 'internal').
+ * External/untrusted capsules must use the pod via dispatchProcessIncomingInput.
  */
 
 import type {
@@ -17,8 +18,8 @@ import {
   ingestInput,
   validateCapsule,
   routeValidatedCapsule,
-  prepareCoordinationRelayNativeBeapRawInput,
 } from '@repo/ingestion-core'
+import { assertTrustedInternalSourceOnly } from '../security/securityInvariant.js'
 
 function buildAuditRecord(
   rawInputHash: string,
@@ -49,16 +50,13 @@ export async function processIncomingInputInProcess(
   sourceType: SourceType,
   transportMeta: TransportMetadata,
 ): Promise<IngestionResult> {
+  assertTrustedInternalSourceOnly(sourceType)
+
   const startTime = performance.now()
-  const originClassification: OriginClassification =
-    sourceType === 'internal' ? 'internal' : 'external'
+  const originClassification: OriginClassification = 'internal'
 
   try {
-    const inputForIngest =
-      sourceType === 'coordination_ws'
-        ? prepareCoordinationRelayNativeBeapRawInput(rawInput)
-        : rawInput
-    const candidate = ingestInput(inputForIngest, sourceType, transportMeta)
+    const candidate = ingestInput(rawInput, sourceType, transportMeta)
 
     const postIngestMs = performance.now() - startTime
     if (postIngestMs > INGESTION_CONSTANTS.PIPELINE_TIMEOUT_MS) {

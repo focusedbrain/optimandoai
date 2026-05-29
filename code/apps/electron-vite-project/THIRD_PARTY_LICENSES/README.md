@@ -6,5 +6,5 @@ see the monorepo root document:
 **[../../../THIRD_PARTY_LICENSES.md](../../../THIRD_PARTY_LICENSES.md)**
 
 The `.txt` files in this directory contain full license texts for
-specific bundled components (Electron, Tesseract OCR engine, Ollama,
+specific bundled components (Electron, Tesseract OCR engine, Ollama, Podman,
 Recharts, etc.) that are shipped with or used by the desktop application.

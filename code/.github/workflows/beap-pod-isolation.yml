@@ -1,0 +1,33 @@
+name: BEAP pod isolation gate
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  beap-pod-isolation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: BEAP pod isolation (mandatory static gate)
+        run: pnpm run check:beap-pod-isolation
+
+      - name: Podman probe contract (cross-surface alignment)
+        run: pnpm run check:podman-probe-contract
+
+      - name: Distributable third-party notices (edge, relay, desktop wiring)
+        run: pnpm run check:distributable-notices

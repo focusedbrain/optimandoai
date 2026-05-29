@@ -28,7 +28,7 @@
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
-import { ingestInput, INGESTION_CONSTANTS } from '@repo/ingestion-core';
+import { ingestInput, validateInput, INGESTION_CONSTANTS } from '@repo/ingestion-core';
 import type { RawInput, SourceType, TransportMetadata } from '@repo/ingestion-core';
 import { requirePodAuthSecret, podAuthFetch } from '../shared/podAuth.js';
 import {
@@ -425,6 +425,61 @@ function makeHandler(
         }
       } catch {
         sendJson(res, 503, { status: 'not_ready', role: ROLE, reason: 'validator_unreachable' });
+      }
+      return;
+    }
+
+    /** Relay coordination boundary — structural validation only inside ingestor container. */
+    if (req.method === 'POST' && path === '/relay-validate') {
+      const { data, tooLarge } = await readBody(req, maxBodyBytes);
+      if (tooLarge) {
+        res.writeHead(413, {
+          'Content-Type': 'application/json',
+          'Connection': 'close',
+        });
+        res.end(JSON.stringify({ error: 'Payload too large', limit_bytes: maxBodyBytes }));
+        return;
+      }
+
+      let parsed: IngestRequestBody & { transport_meta?: Partial<TransportMetadata> };
+      try {
+        parsed = JSON.parse(data.toString('utf8')) as IngestRequestBody & {
+          transport_meta?: Partial<TransportMetadata>;
+        };
+      } catch {
+        sendJson(res, 400, { error: 'Invalid JSON body' });
+        return;
+      }
+
+      if (typeof parsed.body !== 'string') {
+        sendJson(res, 400, { error: 'Missing or invalid "body" field in request' });
+        return;
+      }
+
+      const rawInput: RawInput = {
+        body: parsed.body,
+        headers: parsed.headers,
+        mime_type: parsed.mime_type,
+        filename: parsed.filename,
+      };
+      const sourceType: SourceType = parsed.source_type ?? 'coordination_service';
+      const transportMeta: Partial<TransportMetadata> = {
+        ...(parsed.transport_meta ?? {}),
+        channel_id: parsed.channel_id,
+        message_id: parsed.message_id,
+        sender_address: parsed.sender_address,
+        recipient_address: parsed.recipient_address,
+      };
+
+      const pipeline = validateInput(rawInput, sourceType, transportMeta);
+      if (pipeline.success) {
+        sendJson(res, 200, { success: true });
+      } else {
+        sendJson(res, 422, {
+          success: false,
+          reason: pipeline.reason,
+          validation_reason_code: pipeline.validation_reason_code,
+        });
       }
       return;
     }

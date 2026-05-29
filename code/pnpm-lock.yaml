@@ -110,6 +110,9 @@ importers:
       '@repo/pod-client':
         specifier: workspace:*
         version: link:../../packages/pod-client
+      '@repo/podman-probe':
+        specifier: workspace:*
+        version: link:../../packages/podman-probe
       '@repo/role-policy':
         specifier: workspace:*
         version: link:../../packages/role-policy
@@ -520,6 +523,15 @@ importers:
       vitest:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@20.19.11)(happy-dom@20.8.7(bufferutil@4.1.0)(utf-8-validate@6.0.6))(jsdom@26.1.0(bufferutil@4.1.0)(canvas@3.2.0)(utf-8-validate@6.0.6))
+
+  packages/podman-probe:
+    devDependencies:
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.2
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@25.6.0)(happy-dom@20.8.7(bufferutil@4.1.0)(utf-8-validate@6.0.6))(jsdom@26.1.0(bufferutil@4.1.0)(canvas@3.2.0)(utf-8-validate@6.0.6))
 
   packages/relay-server:
     dependencies:

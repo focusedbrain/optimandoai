@@ -7,6 +7,7 @@
 
 import { getP2PConfig } from './p2pConfig'
 import { processIncomingInput } from '../ingestion/ingestionPipeline'
+import { isHeldIngestionResult } from '../ingestion/heldResult.js'
 import { processHandshakeCapsule } from '../handshake/enforcement'
 import { maybeEnqueueInitialContextSyncAfterInboundAccept } from '../handshake/contextSyncEnqueue'
 import { canonicalRebuild } from '../handshake/canonicalRebuild'
@@ -62,6 +63,11 @@ export async function pullFromRelay(
   getSsoSession: () => SSOSession | undefined,
 ): Promise<void> {
   if (!db) return
+
+  const { assertBeapPodIsolationPreflight } = await import('../security/beapPreflightGate.js')
+  if (!assertBeapPodIsolationPreflight('pullFromRelay')) {
+    return
+  }
 
   const config = getP2PConfig(db)
   if (config.relay_mode === 'disabled' || config.relay_mode === 'local') {
@@ -172,6 +178,20 @@ export async function pullFromRelay(
         console.log(`[RELAY_PULL] relay_ack_sent relayId=${cap.id} reason=ok retryable=false outcome=quarantine_ingestion_rejected`)
         rejected++
         idsToAck.push(cap.id)
+        continue
+      }
+
+      if (isHeldIngestionResult(result)) {
+        console.warn(
+          '[Relay] Capsule held — pod required or edge unreachable:',
+          result.audit.validation_reason_code,
+          'heldMessageId=',
+          result.heldMessageId,
+        )
+        console.log(
+          `[RELAY_PULL] relay_ack_withheld relayId=${cap.id} reason=${result.audit.validation_reason_code ?? 'held'} retryable=true`,
+        )
+        rejected++
         continue
       }
 

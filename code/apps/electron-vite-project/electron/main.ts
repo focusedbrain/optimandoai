@@ -921,6 +921,7 @@ import {
 } from './main/handshake/ledger'
 import { setEmailSendFn } from './main/handshake/emailTransport'
 import { processOutboundQueue, setOutboundQueueAuthRefresh, logProcessOutboundQueueFailure } from './main/handshake/outboundQueue'
+import { assertBeapPodIsolationPreflight } from './main/security/beapPreflightGate'
 import { pullFromRelay } from './main/p2p/relayPull'
 import { createP2PServer, logP2pServerDisabledState } from './main/p2p/p2pServer'
 import { createCoordinationWsClient } from './main/p2p/coordinationWs'
@@ -2972,12 +2973,21 @@ app.whenReady().then(async () => {
       })
       .catch((e) => console.error('[MAIN] Wizard IPC registration failed:', e))
 
-    void import('./main/ingestion/ingestionModeIpc.js')
-      .then((m) => {
-        m.registerIngestionModeIpc()
-        m.startIngestionModeLifecycle()
-      })
-      .catch((e) => console.error('[MAIN] Ingestion mode IPC registration failed:', e))
+    void (async () => {
+      try {
+        const podSetup = await import('./main/local-pod/podmanSetupIpc.js')
+        const podProbe = await import('./main/local-pod/podmanSetupProbe.js')
+        const podBroadcast = await import('./main/local-pod/podmanSetupBroadcast.js')
+        podSetup.registerPodmanSetupIpc()
+        podBroadcast.registerPodmanSetupFocusReprobe(() => podProbe.refreshPodmanSetupProbe())
+        await podSetup.runStartupPodmanProbe()
+        const ingestionMode = await import('./main/ingestion/ingestionModeIpc.js')
+        ingestionMode.registerIngestionModeIpc()
+        ingestionMode.startIngestionModeLifecycle()
+      } catch (e) {
+        console.error('[MAIN] Podman setup / ingestion mode registration failed:', e)
+      }
+    })()
 
     void import('./main/security/registerCredentialShutdown.js')
       .then((m) => m.registerCredentialShutdownHandlers())
@@ -10777,6 +10787,7 @@ async function runDeviceKeyMigration(
      *
      * Consent not required for user-supplied bytes (composer/chat file picker, Case A).
      * Received inbox PDFs use inbox:requestPdfExtraction (Case B). See docs/pdf-consent-rationale.md.
+     * Untrusted PDF parsing is pod-only; returns 503 when the BEAP pod is unavailable (no main fallback).
      */
     async function extractPdfTextForIpc(
       attachmentId: unknown,
@@ -10790,6 +10801,19 @@ async function runDeviceKeyMigration(
       }
       if (!base64 || typeof base64 !== 'string') {
         return { ok: false, status: 400, json: { success: false, error: 'Missing or invalid base64 PDF data' } }
+      }
+      const { assertBeapPodIsolationPreflight, beapPreflightBlockedReason } = await import(
+        './main/security/beapPreflightGate.js'
+      )
+      if (!assertBeapPodIsolationPreflight('extractPdfTextForIpc')) {
+        return {
+          ok: false,
+          status: 503,
+          json: {
+            success: false,
+            error: beapPreflightBlockedReason() ?? 'Podman required for BEAP PDF isolation',
+          },
+        }
       }
       const inputSizeMB = (base64.length * 0.75) / (1024 * 1024)
       if (inputSizeMB > PDF_PARSER_LIMITS.MAX_INPUT_SIZE_MB) {
@@ -10833,42 +10857,20 @@ async function runDeviceKeyMigration(
           }
         }
 
-        // Case A floor: in-process pdfjs when pod is down or not ready (not for semantic depackager errors).
-        const useInProcessFallback = pod.status === 503 || pod.status === undefined
-        if (useInProcessFallback) {
-          try {
-            const { extractPdfTextInProcess } = await import('./main/email/pdfExtractInProcess.js')
-            const inProc = await extractPdfTextInProcess(pdfBuffer)
-            const pageCount = inProc.pageCount
-            console.log(
-              `[PDF-PARSER] In-process fallback extracted ${inProc.text.length} chars (attachmentId: ${attachmentId})`,
-            )
-            return {
-              ok: true,
-              json: {
-                success: true,
-                pageCount,
-                pagesProcessed: pageCount,
-                extractedText: inProc.text,
-                truncated: false,
-                parser: {
-                  engine: 'pdfjs',
-                  version: inProc.extractor_version,
-                },
-                structural_hash: inProc.structural_hash,
-              },
-            }
-          } catch (fallbackErr: any) {
-            console.warn(
-              `[PDF-PARSER] In-process fallback failed (${(fallbackErr as Error).message}); surfacing pod error`,
-            )
-          }
-        }
-
+        // Fail closed: untrusted PDF bytes must not be parsed in main when the pod is unavailable.
+        const podUnavailable = pod.status === 503 || pod.status === undefined
+        console.warn(
+          `[PDF-PARSER] Pod isolation unavailable (status=${String(pod.status)}); rejecting PDF extract (attachmentId: ${attachmentId})`,
+        )
         return {
           ok: false,
-          status: pod.status === 503 ? 503 : 422,
-          json: { success: false, error: pod.reason },
+          status: podUnavailable ? 503 : 422,
+          json: {
+            success: false,
+            error: podUnavailable
+              ? 'BEAP PDF parser pod unavailable — install/start Podman and the local BEAP pod'
+              : pod.reason,
+          },
         }
       } catch (error: any) {
         console.error('[PDF-PARSER] Error extracting PDF text:', error.message)
@@ -11508,6 +11510,9 @@ async function runDeviceKeyMigration(
     // Without this guard N overlapping calls would each invoke the validator subprocess.
     let p2pBeapDrainRunning = false
     function tryP2PStartup(): void {
+      if (!assertBeapPodIsolationPreflight('tryP2PStartup')) {
+        return
+      }
       const handshakeDb = getHandshakeDb()
       if (!handshakeDb) {
         const ledgerReady = !!getLedgerDb()

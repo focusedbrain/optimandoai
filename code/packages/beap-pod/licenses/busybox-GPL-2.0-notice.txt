@@ -1,0 +1,20 @@
+BusyBox — typically present in Alpine base images
+===================================================
+
+BusyBox combines many common UNIX utilities into a single executable and is
+commonly included in minimal Alpine-based container images.
+
+Upstream license: GNU General Public License version 2 (GPL-2.0-only)
+Upstream: https://busybox.net/
+License text: https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+
+**Legal review flag:** GPL-2.0 userland in the container base may impose
+distribution obligations depending on how the image is modified and
+redistributed. WR Desk does not ship modified BusyBox sources in this
+repository; the component is inherited from the upstream `node:20-alpine`
+base. Counsel should confirm notice and source-offer practice for your
+redistribution model.
+
+Auditors may confirm presence and version inside a running container:
+
+  podman exec <container> sh -c 'busybox 2>/dev/null || true; ls -l /bin/busybox 2>/dev/null'

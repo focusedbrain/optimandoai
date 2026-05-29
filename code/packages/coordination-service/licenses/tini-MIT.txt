@@ -1,0 +1,10 @@
+tini (installed in beap-coordination runtime image via apt)
+=========================================================
+
+The coordination-service Dockerfile installs `tini` as PID 1 wrapper.
+
+Upstream: https://github.com/krallin/tini
+License: MIT (see repository LICENSE file)
+
+Full license text:
+  https://github.com/krallin/tini/blob/master/LICENSE

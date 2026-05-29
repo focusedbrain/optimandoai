@@ -14,6 +14,8 @@ vi.mock('electron', () => ({
     vi.fn().mockImplementation(() => ({ show: vi.fn() })),
     { isSupported: vi.fn(() => true) },
   ),
+  BrowserWindow: { getAllWindows: vi.fn(() => []) },
+  app: { on: vi.fn() },
 }))
 
 vi.mock('../supervisor/index.js', () => ({
@@ -167,7 +169,7 @@ describe('deriveSealKeyHex', () => {
 // ── Suite 2: Podman feature-detect ─────────────────────────────────────────────
 
 describe('startLocalPod — Podman feature-detect', () => {
-  test('podman not on PATH → setup error recorded, executor not invoked, notification shown', async () => {
+  test('podman not on PATH → setup error recorded, executor not invoked', async () => {
     const executor = makeNoopExecutor()
     await startLocalPod({
       manifestPath: FIXTURE_MANIFEST,
@@ -178,7 +180,6 @@ describe('startLocalPod — Podman feature-detect', () => {
     expect(executor).not.toHaveBeenCalled()
     expect(getLocalPodSetupError()?.code).toBe('not_installed')
     expect(getLocalPodSetupError()?.userMessage).toBe(PODMAN_SETUP_MESSAGES.not_installed)
-    expect(Notification).toHaveBeenCalled()
   })
 
   test('win32/darwin with no running machine → machine_not_running error', async () => {

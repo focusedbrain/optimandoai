@@ -14,7 +14,6 @@ export type EdgeFetchState =
 export type IngestionModeForPolicy =
   | 'EdgeActive'
   | 'HostPodActive'
-  | 'LegacyInProcess'
   | 'Blocked'
 
 export type RolePolicyContext = 'host_orchestrator' | 'edge_mail_fetcher'
@@ -79,7 +78,7 @@ function canFetchHostOrchestrator(
 
   const state = edgeState(account)
 
-  if (mode.mode === 'HostPodActive' || mode.mode === 'LegacyInProcess') {
+  if (mode.mode === 'HostPodActive') {
     if (hostFetchDisabledByAccount(state)) {
       return { allowed: false, reason: 'edge_active_for_account' }
     }

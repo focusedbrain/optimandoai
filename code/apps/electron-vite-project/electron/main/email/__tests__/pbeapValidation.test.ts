@@ -22,7 +22,7 @@
 
 import { createRequire } from 'module'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { extractPBeapCapsule } from '../beapEmailIngestion'
+import { extractPBeapCapsule } from './helpers/pbeapMainProcessDepackage.testHelpers.js'
 
 // ---------------------------------------------------------------------------
 // Mocks required because mergeExtensionDepackaged.ts and gateway.ts try to

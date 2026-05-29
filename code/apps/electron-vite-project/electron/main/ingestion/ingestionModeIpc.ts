@@ -43,9 +43,10 @@ function modeTooltip(snap: IngestionModeSnapshot): string {
         return 'Host fallback active (session). Edge unreachable.'
       }
       return 'Host mode: local pod verifying.'
-    case 'LegacyInProcess':
-      return 'Legacy mode: in-process verification.'
     case 'Blocked':
+      if (snap.blockedReason === 'pod_required') {
+        return `BEAP validation pod required. ${n} message${n === 1 ? '' : 's'} held safely. Install Podman Desktop.`
+      }
       if (snap.blockedWithoutConnectivity) {
         return `No network. ${n} message${n === 1 ? '' : 's'} held safely.`
       }

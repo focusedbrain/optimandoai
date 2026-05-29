@@ -10,7 +10,8 @@
     "test": "pnpm --filter @repo/beap-cert build && pnpm --filter @repo/role-policy build && pnpm build && vitest run",
     "test:ci": "vitest run --reporter=verbose",
     "docker:build": "cd ../.. && podman build -t beap-components:dev -f packages/beap-pod/Containerfile .",
-    "record-image-digest": "node scripts/record-image-digest.mjs"
+    "record-image-digest": "node scripts/record-image-digest.mjs",
+    "generate-third-party-notices": "node scripts/generate-third-party-notices.mjs"
   },
   "dependencies": {
     "@noble/curves": "^2.2.0",

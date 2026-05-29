@@ -536,6 +536,42 @@ interface IngestionModeBridge {
   onOpenPanel: (handler: () => void) => () => void
 }
 
+interface PodmanSetupBridge {
+  getStatus: () => Promise<{
+    required: boolean
+    probePending: boolean
+    code: string | null
+    userMessage: string | null
+    platform: string
+    install: Record<string, unknown>
+    showMachineSteps: boolean
+    machineInitCommand: string
+    machineStartCommand: string
+  }>
+  probe: () => Promise<{
+    required: boolean
+    probePending: boolean
+    code: string | null
+    userMessage: string | null
+    platform: string
+    install: Record<string, unknown>
+    showMachineSteps: boolean
+    machineInitCommand: string
+    machineStartCommand: string
+  }>
+  openManualInstall: () => Promise<{ ok: boolean }>
+  runAction: (action: string) => Promise<{
+    result: { ok: boolean; command: string; stdout: string; stderr: string; exitCode: number | null }
+    status: Record<string, unknown>
+  }>
+  onState: (handler: (payload: {
+    required: boolean
+    code: string | null
+    userMessage: string | null
+    platform: string
+  }) => void) => () => void
+}
+
 interface Window {
   /**
    * Project WIKI AI insert bridge: assigned by `ProjectOptimizationPanel` when a field or
@@ -552,6 +588,7 @@ interface Window {
   integrity?: IntegrityBridge
   edgeTier?: EdgeTierBridge
   ingestionMode?: IngestionModeBridge
+  podmanSetup?: PodmanSetupBridge
   verificationContext?: VerificationContextBridge
   dashboard?: DashboardBridge
   wizard?: WizardBridge

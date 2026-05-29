@@ -27,11 +27,24 @@ describe('assertPodmanReady', () => {
   test('linux: podman on PATH passes without machine check', async () => {
     const execFile = makeExecFile({
       'which podman': '/usr/bin/podman',
+      'podman info': '{"host":{}}',
     })
 
     await expect(
       assertPodmanReady({ platform: 'linux', execFile }),
     ).resolves.toBeUndefined()
+  })
+
+  test('linux: podman info failure throws not_installed', async () => {
+    const execFile: ExecFileFn = async (file, args) => {
+      if (file === 'which') return { stdout: '/usr/bin/podman', stderr: '' }
+      if (file === 'podman' && args[0] === 'info') throw new Error('engine down')
+      throw new Error(`unexpected: ${file} ${args.join(' ')}`)
+    }
+
+    await expect(assertPodmanReady({ platform: 'linux', execFile })).rejects.toMatchObject({
+      code: 'not_installed',
+    })
   })
 
   test('linux: podman missing throws not_installed', async () => {
@@ -48,6 +61,7 @@ describe('assertPodmanReady', () => {
   test('win32: podman on PATH and running machine passes', async () => {
     const execFile = makeExecFile({
       'where podman': 'C:\\Program Files\\RedHat\\Podman\\podman.exe',
+      'podman info': '{"host":{}}',
       'podman machine': '[{"Name":"podman-machine-default","Running":true}]',
     })
 
@@ -67,9 +81,23 @@ describe('assertPodmanReady', () => {
     })
   })
 
+  test('win32: no machine throws machine_not_initialized', async () => {
+    const execFile = makeExecFile({
+      'where podman': 'C:\\Program Files\\RedHat\\Podman\\podman.exe',
+      'podman info': '{"host":{}}',
+      'podman machine': '[]',
+    })
+
+    await expect(assertPodmanReady({ platform: 'win32', execFile })).rejects.toMatchObject({
+      code: 'machine_not_initialized',
+      userMessage: PODMAN_SETUP_MESSAGES.machine_not_initialized,
+    })
+  })
+
   test('win32: no running machine throws machine_not_running', async () => {
     const execFile = makeExecFile({
       'where podman': 'C:\\Program Files\\RedHat\\Podman\\podman.exe',
+      'podman info': '{"host":{}}',
       'podman machine': '[{"Name":"podman-machine-default","Running":false}]',
     })
 
@@ -82,6 +110,7 @@ describe('assertPodmanReady', () => {
   test('darwin: requires running machine like win32', async () => {
     const execFile = makeExecFile({
       'which podman': '/opt/homebrew/bin/podman',
+      'podman info': '{"host":{}}',
       'podman machine': '[{"Name":"podman-machine-default","Running":true}]',
     })
 

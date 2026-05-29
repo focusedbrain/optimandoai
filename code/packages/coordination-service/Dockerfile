@@ -33,13 +33,21 @@ WORKDIR /app
 COPY --from=builder /build/package.json /build/pnpm-lock.yaml /build/pnpm-workspace.yaml ./
 COPY --from=builder /build/packages/ packages/
 COPY --from=builder /build/node_modules/ node_modules/
+COPY packages/coordination-service/docker-entrypoint.sh /app/docker-entrypoint.sh
+COPY packages/coordination-service/THIRD-PARTY-NOTICES /app/THIRD-PARTY-NOTICES
+COPY packages/coordination-service/licenses/ /app/licenses/
+RUN chmod +x /app/docker-entrypoint.sh
 
-RUN mkdir -p /data && chown -R beap:beap /data
+RUN mkdir -p /data /usr/share/licenses/beap-coordination \
+  && ln -sf /app/THIRD-PARTY-NOTICES /usr/share/licenses/beap-coordination/THIRD-PARTY-NOTICES \
+  && ln -sf /app/licenses /usr/share/licenses/beap-coordination/supplemental \
+  && chown -R beap:beap /data /app/THIRD-PARTY-NOTICES /app/licenses
 VOLUME ["/data"]
 
 ENV COORD_PORT=51249
 ENV COORD_HOST=0.0.0.0
 ENV COORD_DB_PATH=/data/coordination.db
+ENV COORD_BEAP_INGESTOR_URL=http://127.0.0.1:18100
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD node -e "const p=process.env.COORD_PORT||51249;fetch('http://127.0.0.1:'+p+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
@@ -48,5 +56,4 @@ EXPOSE 51249
 
 USER beap
 
-ENTRYPOINT ["tini", "--"]
-CMD ["node", "packages/coordination-service/dist/index.js"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

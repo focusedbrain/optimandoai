@@ -184,6 +184,12 @@ Diese Komponenten sind **keine** npm-Runtime-Dependencies des Monorepos, können
 - **Genutzt für:** Lokaler LLM-/Inferenz-Dienst per **HTTP/API** (Electron-Hauptprozess und UI integrieren **Ollama** als extern laufenden Dienst; **nicht** als npm-Paket gebündelt)
 - **Hinweis:** Kein `ollama`-npm-Paket in den genannten `package.json`-Manifesten.
 
+### Podman
+
+- **Lizenz:** Apache License 2.0 (Referenzdatei: `apps/electron-vite-project/THIRD_PARTY_LICENSES/podman-Apache-2.0.txt`)
+- **Genutzt für:** **Pflicht-Container-Runtime** für BEAP-Isolation (lokaler Orchestrator-Pod, Edge-Replica-Deploy, Relay-Ingestor auf Servern). Podman wird **vom Betreiber/Endnutzer separat installiert** — **nicht** in die Electron-App, `beap-components`- oder `beap-coordination`-Images gebündelt.
+- **Hinweis:** Kein `podman`-npm-Paket in den genannten `package.json`-Manifesten. Siehe auch `packages/beap-pod/THIRD-PARTY-NOTICES` (§ External runtime) und `packages/coordination-service/THIRD-PARTY-NOTICES` (§ External runtime).
+
 ---
 
 ## Vollständige Lizenztexte (Referenz)

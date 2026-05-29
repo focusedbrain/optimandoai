@@ -6,6 +6,7 @@
  */
 
 import type { SshCommandRunner } from './types.js'
+import { buildRemoteLinuxPodmanPreflightShell } from '@repo/podman-probe'
 
 export const REMOTE_MANIFEST_PATH = '/tmp/beap-pod-remote-edge.yaml'
 export const REMOTE_POD_NAME = 'beap-pod-remote-edge'
@@ -77,6 +78,10 @@ export function wrapHistorySafe(command: string): string {
  * Build the podman play command: env-scoped secrets → envsubst (stdin) → play kube.
  * Secrets stay on one command line; never written to the manifest file.
  */
+export function buildRemotePodmanPreflightCommand(podmanBin = 'podman'): string {
+  return buildRemoteLinuxPodmanPreflightShell(podmanBin)
+}
+
 export function buildPodmanPlayCommand(params: DeployPodmanPlayParams): string {
   const manifestPath = params.manifestPath ?? REMOTE_MANIFEST_PATH
   const envPairs = [
@@ -219,6 +224,21 @@ export async function* deployEdgePodWithDeps(
   let failedStage: string | undefined
 
   try {
+    yield yieldStage('verify_podman', 'Verifying Podman on edge replica…')
+    const preflightCmd = buildRemotePodmanPreflightCommand()
+    const preflightResult = await runLogged(deps, preflightCmd)
+    yield* emitRunOutput(preflightResult)
+    if (preflightResult.code !== 0) {
+      failedStage = 'verify_podman'
+      yield {
+        kind: 'error',
+        message:
+          'Edge replica does not have a healthy Podman engine. Install Podman on the VM (see podman.io/docs/installation), then retry deploy.',
+        stage_name: failedStage,
+      }
+      return
+    }
+
     yield yieldStage('upload_manifest', `Uploading manifest to ${REMOTE_MANIFEST_PATH}…`)
     await deps.uploadContent(args.manifestYaml, REMOTE_MANIFEST_PATH)
     const chmodResult = await runLogged(deps, `chmod 600 ${REMOTE_MANIFEST_PATH}`)

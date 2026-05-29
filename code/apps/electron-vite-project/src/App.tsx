@@ -38,6 +38,7 @@ import { useActiveHandshakeHealthBanner } from './hooks/useActiveHandshakeHealth
 // === TEMPORARY DEBUG LOG VIEWER (remove before production) ===
 import { DebugLogViewer } from './components/DebugLogViewer'
 // === END TEMPORARY DEBUG LOG VIEWER ===
+import { PodmanRequiredModal } from './components/PodmanRequiredModal'
 
 type DashboardView = 'analysis' | 'wr-chat' | 'handshakes' | 'beap-inbox'
 type ExtensionTheme = 'pro' | 'dark' | 'standard'
@@ -662,6 +663,7 @@ function App() {
         {/* === TEMPORARY DEBUG LOG VIEWER (remove before production) === */}
         <DebugLogViewer />
         {/* === END TEMPORARY DEBUG LOG VIEWER === */}
+        <PodmanRequiredModal />
       </main>
       <AddModeWizardHost theme={extensionTheme} />
     </div>

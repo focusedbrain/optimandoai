@@ -28,13 +28,9 @@ import {
   insertIngestionAuditRecord,
 } from './persistenceDb'
 
-const migratedDbs = new WeakSet<object>()
+import { isHeldIngestionResult } from './heldResult.js'
 
-function isHeldIngestionResult(
-  result: IngestionResult,
-): result is Extract<IngestionResult, { held: true }> {
-  return result.success && 'held' in result && result.held === true
-}
+const migratedDbs = new WeakSet<object>()
 
 function ensureHandshakeMigration(db: any): void {
   if (!db || migratedDbs.has(db)) return

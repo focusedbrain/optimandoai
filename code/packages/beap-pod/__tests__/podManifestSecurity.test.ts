@@ -86,6 +86,22 @@ describe.each(MANIFESTS)('pod manifest security — %s', (manifest) => {
   })
 })
 
+describe('Containerfile distributable notices', () => {
+  test('copies THIRD-PARTY-NOTICES and licenses into image', () => {
+    const dockerfile = readFileSync(join(ROOT, 'Containerfile'), 'utf8')
+    expect(dockerfile).toMatch(/COPY packages\/beap-pod\/THIRD-PARTY-NOTICES/)
+    expect(dockerfile).toMatch(/COPY packages\/beap-pod\/licenses\//)
+    expect(dockerfile).toMatch(/\/usr\/share\/licenses\/beap-components/)
+  })
+
+  test('THIRD-PARTY-NOTICES exists and references Podman external runtime', () => {
+    const notices = readFileSync(join(ROOT, 'THIRD-PARTY-NOTICES'), 'utf8')
+    expect(notices).toContain('beap-components')
+    expect(notices).toContain('Podman')
+    expect(notices).toContain('AUTO:PNPM_PROD_DEPS_BEGIN')
+  })
+})
+
 describe('pod.yaml LOCAL_HOST quarantine', () => {
   test('depackager mounts tmp-quarantine at /var/lib/quarantine', () => {
     const yaml = readFileSync(join(ROOT, 'pod.yaml'), 'utf8')

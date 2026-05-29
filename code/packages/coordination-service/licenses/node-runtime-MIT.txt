@@ -1,0 +1,13 @@
+Node.js runtime (included in node:22-bookworm-slim)
+===================================================
+
+Node.js is distributed under the MIT License.
+
+Full license text:
+  https://github.com/nodejs/node/blob/main/LICENSE
+
+Docker Official Image documentation and image-layer license notes:
+  https://github.com/docker-library/docs/blob/master/node/README.md
+
+The Node.js Docker project (Dockerfile sources) is also MIT-licensed:
+  https://github.com/nodejs/docker-node/blob/main/LICENSE

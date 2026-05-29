@@ -1,0 +1,28 @@
+Podman — container engine (external / user-installed)
+=====================================================
+
+Component: Podman (Containers, Inc. / Red Hat ecosystem)
+Purpose: OCI container runtime required for BEAP security isolation — local
+         orchestrator pod, edge replica deploy (`podman play kube`), relay
+         ingestor pod on server hosts.
+License: Apache License 2.0
+Copyright: The Podman Authors (see upstream NOTICE)
+Upstream: https://podman.io/
+License text: https://github.com/containers/podman/blob/main/LICENSE
+
+------------------------------------------------------------------------------
+
+WR Desk does **not** redistribute Podman inside shipped desktop installers or
+BEAP container images. End users and operators install Podman separately from
+upstream distribution channels (Podman Desktop, winget, Homebrew, distro packages).
+
+For the full Apache License 2.0 text, see repo-root `THIRD_PARTY_LICENSES.md`
+(§ Apache License 2.0 Referenz) or the upstream LICENSE file linked above.
+
+Related notices by surface:
+
+- Desktop orchestrator: repo-root `THIRD_PARTY_LICENSES.md` (§ Externe Tools — Podman)
+- Edge `beap-components` image: `packages/beap-pod/THIRD-PARTY-NOTICES` § External runtime
+- Relay `beap-coordination` image: `packages/coordination-service/THIRD-PARTY-NOTICES` § External runtime
+
+Consolidated legal review flags: `docs/LEGAL-REVIEW-FLAGS.md`

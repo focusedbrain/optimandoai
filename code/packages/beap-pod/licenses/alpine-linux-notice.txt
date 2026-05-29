@@ -1,0 +1,23 @@
+Alpine Linux — base OS in node:20-alpine
+================================================
+
+The beap-components container runtime image is derived from the official
+Docker image `node:20-alpine`, which is based on Alpine Linux 3.x.
+
+Alpine distributes packages under many licenses (MIT, BSD, Apache-2.0,
+GPL-2.0-only, LGPL, and others). Per-package copyright and license
+information is recorded in `/usr/share/licenses/` and package metadata
+inside a full Alpine system.
+
+Operators and auditors may inspect the running image, for example:
+
+  podman exec <container> sh -c 'cat /etc/os-release; apk info -vv 2>/dev/null | head -40'
+
+Project summary (not a substitute for Alpine's own attribution):
+
+  https://wiki.alpinelinux.org/wiki/Alpine_License_Policy
+  https://alpinelinux.org/
+
+WR Desk does not modify the Alpine base beyond copying application artifacts
+and notice files documented in THIRD-PARTY-NOTICES. No additional `apk`
+packages are installed in the runtime stage of `packages/beap-pod/Containerfile`.

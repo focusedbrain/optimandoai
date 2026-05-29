@@ -1,0 +1,10 @@
+musl libc — included in Alpine Linux / node:20-alpine
+=====================================================
+
+musl is distributed under the MIT License.
+
+Upstream: https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+Project: https://musl.libc.org/
+
+The official Node.js Alpine images link against musl. See also
+`licenses/alpine-linux-notice.txt` for the broader Alpine userland.

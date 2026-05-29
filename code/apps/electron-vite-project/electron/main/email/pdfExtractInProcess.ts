@@ -1,6 +1,7 @@
 /**
- * In-process PDF text extraction (Case A — user-supplied composer files).
- * Used when the local depackager pod is not ready; does not require vault material.
+ * In-process PDF text extraction — test/reference only.
+ * Production untrusted PDF bytes must use pdfPodClient → BEAP pod; CI gate forbids
+ * extractPdfTextInProcess() outside this module.
  */
 
 import { resolvePdfjsDistWorkerFileUrl } from '../pdfjsWorkerSrc.js'

@@ -8,6 +8,7 @@ import { describe, test, expect } from 'vitest'
 
 import {
   resolveIngestionMode,
+  resolveIngestionBlockedReason,
   resolveHostPodVariant,
   shouldWaitForHostPod,
   isBlockedWithoutGeneralConnectivity,
@@ -101,7 +102,7 @@ describe('resolveIngestionMode', () => {
     ).toBe('HostPodActive')
   })
 
-  test('edge disabled + pod not ready + podman missing → LegacyInProcess', () => {
+  test('edge disabled + pod not ready + podman missing → Blocked (pod mandatory)', () => {
     expect(
       resolveIngestionMode(
         inputs({
@@ -109,7 +110,7 @@ describe('resolveIngestionMode', () => {
           hostPodReady: false,
         }),
       ),
-    ).toBe('LegacyInProcess')
+    ).toBe('Blocked')
   })
 
   test('edge disabled + podman available + pod not ready → HostPodActive (transient starting)', () => {
@@ -123,7 +124,7 @@ describe('resolveIngestionMode', () => {
     ).toBe('HostPodActive')
   })
 
-  test("edge pending treated like disabled → LegacyInProcess when podman missing", () => {
+  test('edge pending treated like disabled → Blocked when podman missing', () => {
     expect(
       resolveIngestionMode(
         inputs({
@@ -131,7 +132,7 @@ describe('resolveIngestionMode', () => {
           podmanAvailable: false,
         }),
       ),
-    ).toBe('LegacyInProcess')
+    ).toBe('Blocked')
   })
 
   test('edge pending + host pod ready → HostPodActive', () => {
@@ -208,10 +209,29 @@ describe('shouldWaitForHostPod', () => {
     expect(shouldWaitForHostPod(inp, mode)).toBe(true)
   })
 
-  test('false when LegacyInProcess', () => {
+  test('false when Blocked (podman missing)', () => {
     const inp = inputs({ podmanAvailable: false })
     const mode = resolveIngestionMode(inp)
     expect(shouldWaitForHostPod(inp, mode)).toBe(false)
+  })
+})
+
+describe('resolveIngestionBlockedReason', () => {
+  test('pod_required when edge off and podman missing', () => {
+    const inp = inputs({ podmanAvailable: false })
+    const mode = resolveIngestionMode(inp)
+    expect(mode).toBe('Blocked')
+    expect(resolveIngestionBlockedReason(inp, mode)).toBe('pod_required')
+  })
+
+  test('edge_unreachable when edge on and unreachable', () => {
+    const inp = inputs({
+      settings: baseSettings({ enabled: true }),
+      edgeReachable: false,
+    })
+    const mode = resolveIngestionMode(inp)
+    expect(mode).toBe('Blocked')
+    expect(resolveIngestionBlockedReason(inp, mode)).toBe('edge_unreachable')
   })
 })
 

@@ -7,9 +7,12 @@ import { loadConfig } from './config.js'
 import { createServer } from './server.js'
 import { createCleanup } from './cleanup.js'
 import { P2P_SIGNAL_SCHEMA_VERSION } from './p2pSignal.js'
+import { runRelayPodIsolationPreflight } from './relayPodIsolationPreflight.js'
 
 export async function main(): Promise<void> {
   const config = loadConfig()
+
+  await runRelayPodIsolationPreflight(config)
   if (!config.oidc_audience?.trim()) {
     if (process.env.NODE_ENV === 'production') {
       console.error('[Coordination] FATAL: COORD_OIDC_AUDIENCE is not set. Refusing to start.')

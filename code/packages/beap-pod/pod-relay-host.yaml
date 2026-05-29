@@ -1,0 +1,130 @@
+# BEAP relay host pod — wrdesk.com coordination boundary (ingestor + validator only).
+#
+# Structural validation for relay POST /beap/capsule runs in the ingestor container
+# via POST /relay-validate (ingestion-core validateInput). Coordination-service on the
+# host must not parse untrusted capsule bytes in-process in production.
+#
+# Apply on the relay VM (Podman on Linux — not bundled in coordination Docker image):
+#   export POD_AUTH_SECRET="$(openssl rand -hex 32)"
+#   envsubst < packages/beap-pod/pod-relay-host.yaml | podman play kube -
+#
+# Preflight (also run by coordination-service boot):
+#   packages/coordination-service/scripts/beap-isolation-preflight.sh
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: beap-relay-pod
+  labels:
+    app: beap-relay-pod
+    surface: relay
+spec:
+  restartPolicy: Never
+
+  volumes:
+    - name: tmp-ingestor
+      emptyDir:
+        medium: Memory
+        sizeLimit: 8Mi
+    - name: tmp-validator
+      emptyDir:
+        medium: Memory
+        sizeLimit: 8Mi
+
+  containers:
+    - name: ingestor
+      image: beap-components:dev
+      securityContext:
+        runAsUser: 10100
+        runAsGroup: 10100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: BEAP_ROLE
+          value: "ingestor"
+        - name: PORT
+          value: "18100"
+        - name: VALIDATOR_BASE
+          value: "http://127.0.0.1:18101"
+        - name: POD_VERSION
+          value: "1.0.0"
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+      ports:
+        - containerPort: 18100
+          hostPort: 18100
+          protocol: TCP
+      resources:
+        requests:
+          memory: "64Mi"
+          cpu: "50m"
+        limits:
+          memory: "256Mi"
+          cpu: "250m"
+          pids: "64"
+      volumeMounts:
+        - name: tmp-ingestor
+          mountPath: /tmp
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 18100
+        initialDelaySeconds: 5
+        periodSeconds: 30
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 18100
+        initialDelaySeconds: 3
+        periodSeconds: 10
+
+    - name: validator
+      image: beap-components:dev
+      securityContext:
+        runAsUser: 10101
+        runAsGroup: 10100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: BEAP_ROLE
+          value: "validator"
+        - name: PORT
+          value: "18101"
+        - name: POD_VERSION
+          value: "1.0.0"
+        - name: POD_AUTH_SECRET
+          value: "${POD_AUTH_SECRET}"
+      ports:
+        - containerPort: 18101
+          protocol: TCP
+      resources:
+        requests:
+          memory: "64Mi"
+          cpu: "50m"
+        limits:
+          memory: "256Mi"
+          cpu: "250m"
+          pids: "64"
+      volumeMounts:
+        - name: tmp-validator
+          mountPath: /tmp
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 18101
+        initialDelaySeconds: 5
+        periodSeconds: 30
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 18101
+        initialDelaySeconds: 3
+        periodSeconds: 10

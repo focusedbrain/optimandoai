@@ -45,9 +45,9 @@ vi.mock('../../../beap/autoresponderAudit', () => ({
 // Tests 1–7 (migration tests) removed accordingly.
 
 import {
-  buildOutboundQbeapDepackagedJson,
   beapPackageToMainProcessDepackaged,
-} from '../beapEmailIngestion'
+} from './helpers/pbeapMainProcessDepackage.testHelpers.js'
+import { buildOutboundQbeapDepackagedJson } from '../beapEmailIngestion'
 import { depackagedFormatFromJson } from '../../../../src/lib/inboxBeapRowEligibility'
 
 // makeDb helper and migrateDepackagedJsonToCanonical describe block (tests 1–7) removed in PR 5.3.

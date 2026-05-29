@@ -7,10 +7,10 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\build063'
+ *   return 'C:\\build-output\\build064'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build063'
+  return 'C:\\build-output\\build064'
 }
 
 const workspaceRoot = path.resolve(appDir, '../..')
@@ -38,6 +38,40 @@ function tesseractCoreWasmPath() {
 const extraResources = [
   { from: 'resources', to: '.', filter: ['**/*'] },
 ]
+
+const repoThirdPartyDir = path.join(workspaceRoot, 'THIRD_PARTY_LICENSES')
+if (fs.existsSync(repoThirdPartyDir)) {
+  extraResources.push({
+    from: path.relative(appDir, repoThirdPartyDir).replace(/\\/g, '/'),
+    to: 'licenses',
+    filter: ['**/*'],
+  })
+}
+
+const appThirdPartyDir = path.join(appDir, 'THIRD_PARTY_LICENSES')
+if (fs.existsSync(appThirdPartyDir)) {
+  extraResources.push({
+    from: 'THIRD_PARTY_LICENSES',
+    to: 'licenses/electron-app',
+    filter: ['**/*'],
+  })
+}
+
+const rootThirdPartyMd = path.join(workspaceRoot, 'THIRD_PARTY_LICENSES.md')
+if (fs.existsSync(rootThirdPartyMd)) {
+  extraResources.push({
+    from: path.relative(appDir, rootThirdPartyMd).replace(/\\/g, '/'),
+    to: 'licenses/THIRD_PARTY_LICENSES.md',
+  })
+}
+
+const releaseManifest = path.join(workspaceRoot, 'release-manifest.json')
+if (fs.existsSync(releaseManifest)) {
+  extraResources.push({
+    from: path.relative(appDir, releaseManifest).replace(/\\/g, '/'),
+    to: 'release-manifest.json',
+  })
+}
 
 const wasm = tesseractCoreWasmPath()
 if (wasm) {

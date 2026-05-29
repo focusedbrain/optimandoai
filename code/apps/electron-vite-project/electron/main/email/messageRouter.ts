@@ -525,18 +525,25 @@ export async function detectAndRouteMessage(
       }
     } else if (encoding === 'pBEAP') {
       try {
-        const payloadB64 = (packageObj?.payload as string | undefined) ?? ''
-        if (!payloadB64.trim()) {
-          depackageError = 'pBEAP package has no payload field'
+        const dec = await dispatchDepackageQBeap(beapPackageJson, handshakeId ?? '', db)
+        if (dec?.rawCapsuleJson) {
+          canonicalJson = dec.rawCapsuleJson
+          qbeapPodAttachments = dec.podAttachments ?? []
         } else {
-          canonicalJson = Buffer.from(payloadB64, 'base64').toString('utf-8')
+          depackageError = 'pBEAP pod depackage returned null (pod unavailable or malformed package)'
         }
       } catch (err: unknown) {
         depackageError = err instanceof Error ? err.message : String(err)
       }
+    } else if (
+      packageObj &&
+      typeof packageObj.schema_version === 'number' &&
+      typeof packageObj.capsule_type === 'string'
+    ) {
+      depackageError =
+        'HANDSHAKE_CAPSULE_INLINE_FORBIDDEN: use ingestion pipeline with pod verification'
     } else {
-      // Handshake capsule or other known BEAP structure — JSON itself is canonical.
-      canonicalJson = beapPackageJson
+      depackageError = `Inline depackage forbidden for untrusted package (encoding=${encoding ?? 'missing'})`
     }
 
     if (canonicalJson !== null) {

@@ -53,6 +53,13 @@ COPY --from=builder /build/node_modules/ node_modules/
 # Copy the role dispatcher — must be executable
 COPY --chmod=0755 packages/beap-pod/entrypoint.sh /app/entrypoint.sh
 
+COPY packages/beap-pod/THIRD-PARTY-NOTICES /app/THIRD-PARTY-NOTICES
+COPY packages/beap-pod/licenses/ /app/licenses/
+
+RUN mkdir -p /usr/share/licenses/beap-components \
+  && ln -sf /app/THIRD-PARTY-NOTICES /usr/share/licenses/beap-components/THIRD-PARTY-NOTICES \
+  && ln -sf /app/licenses /usr/share/licenses/beap-components/supplemental
+
 ENV POD_PORT=17180
 ENV POD_VERSION=1.0.0
 # BEAP_ROLE must be set by the pod manifest per container

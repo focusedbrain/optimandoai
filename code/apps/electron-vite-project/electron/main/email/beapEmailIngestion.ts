@@ -41,7 +41,7 @@ import { prepareSealedInsert, prepareSealedOperationalUpdate, computeSeal } from
 import type { KeySource } from '../sealed-storage/index'
 import { getHandshakeClassification } from '../vault/vaultCanon'
 import { resealWithDecryptedContent } from './sealedContentUpdate'
-import { decryptQuarantineBlob, encryptForQuarantine } from '../quarantine-encrypt/index'
+import { encryptForQuarantine } from '../quarantine-encrypt/index'
 import { writeQuarantineBlob, type QuarantineBlobFile } from '../quarantine-blob-storage/index'
 import type { SSOSession } from '../handshake/types'
 import { notifyBeapInboxDashboard, notifyBeapQuarantineReceived } from './beapInboxDashboardNotify'
@@ -91,7 +91,7 @@ const P2P_BEAP_ACCOUNT_ID = '__p2p_beap__'
 
 const OUTBOUND_QBEAP_BODY_PLACEHOLDER = '(Sent qBEAP message — see Sent tab for details)'
 
-// ── Mode-aware qBEAP depackage (LegacyInProcess | HostPodActive | EdgeActive) ────
+// ── Mode-aware inbound depackage (pod only — qBEAP / pBEAP) ────
 
 type DepackagedQBeapContent = DepackagedQBeapResult
 
@@ -263,19 +263,6 @@ export function extractAttachmentsFromBeapPackageJson(packageJson: string): Arra
       pushFromCapsule(topCapsule as Record<string, unknown>)
     }
 
-    const header = parsed.header as Record<string, unknown> | undefined
-    const encodingRaw = header?.encoding
-    const encNorm = typeof encodingRaw === 'string' ? encodingRaw.toUpperCase() : ''
-    if (encNorm === 'PBEAP' && typeof parsed.payload === 'string') {
-      try {
-        const capsuleJson = Buffer.from(parsed.payload, 'base64').toString('utf8')
-        const capsule = JSON.parse(capsuleJson) as Record<string, unknown>
-        pushFromCapsule(capsule)
-      } catch {
-        /* ignore */
-      }
-    }
-
     if (Array.isArray(parsed.attachments)) {
       for (const a of parsed.attachments) {
         if (a && typeof a === 'object') pushOne(a as Record<string, unknown>)
@@ -366,20 +353,11 @@ export function extractP2PBeapInboxPreview(packageJson: string): {
     if (!header || typeof header !== 'object') return fallback
 
     const encoding = header.encoding
-    if (encoding === 'pBEAP' && typeof parsed.payload === 'string') {
-      try {
-        const capsuleJson = Buffer.from(parsed.payload, 'base64').toString('utf8')
-        const capsule = JSON.parse(capsuleJson) as Record<string, unknown>
-        const bodyText = String(capsule.body ?? capsule.transport_plaintext ?? '')
-        const title =
-          typeof capsule.subject === 'string' && capsule.subject.trim()
-            ? capsule.subject
-            : typeof capsule.title === 'string' && capsule.title.trim()
-              ? capsule.title
-              : fallback.subject
-        return { subject: title, body_text: bodyText.slice(0, 50_000), from_address: null }
-      } catch {
-        /* fall through */
+    if (encoding === 'pBEAP') {
+      return {
+        subject: 'BEAP message (public)',
+        body_text: '(pBEAP — depackaged preview available after pod validation)',
+        from_address: null,
       }
     }
 
@@ -460,141 +438,6 @@ export interface InboxRowFallback {
   subject: string | null
   from_address: string | null
   body_text: string | null
-}
-
-/**
- * Build depackaged_json for orchestrator inbox UI + downstream embedding queue.
- * Best-effort only; never throws.
- */
-/**
- * PR 5.1 / Decision A+B: depackaged content pair for inbox_messages row.
- *
- * - `depackaged_json`: canonical capsule plaintext (bytes the Validator approved), or
- *   `null` when no canonical plaintext is available yet (qBEAP pending, errors, handshake).
- * - `depackaged_metadata`: wrapper metadata (format identifier, source tag, header summaries)
- *   that does NOT form part of the validated content but is kept for ops / routing.
- */
-export interface BeapDepackagedPair {
-  depackaged_json: string | null
-  depackaged_metadata: string
-}
-
-export function beapPackageToMainProcessDepackaged(
-  packageJson: string,
-  fallback: InboxRowFallback,
-): BeapDepackagedPair {
-  const emailSubject = fallback.subject ?? ''
-  const from = fallback.from_address ?? ''
-  const bodyExcerpt = (fallback.body_text ?? '').slice(0, 12_000)
-
-  const baseError = (reason: string): BeapDepackagedPair => ({
-    depackaged_json: null,
-    depackaged_metadata: JSON.stringify({
-      format: 'beap_main_process_error',
-      error_reason: reason,
-      header: { subject: emailSubject, from },
-      body_excerpt: bodyExcerpt,
-      source: 'main_process_pending_beap',
-      note: 'Could not extract BEAP structure; email fields retained for context.',
-    }),
-  })
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(packageJson.trim())
-  } catch {
-    return baseError('invalid_json')
-  }
-
-  if (!parsed || typeof parsed !== 'object') {
-    return baseError('not_object')
-  }
-
-  const p = parsed as Record<string, unknown>
-
-  // ── Handshake capsule (attachment/body) — not a qBEAP/pBEAP message package
-  if (typeof p.schema_version === 'number' && typeof p.capsule_type === 'string') {
-    return {
-      depackaged_json: null,
-      depackaged_metadata: JSON.stringify({
-        format: 'beap_handshake_capsule_email',
-        capsule_type: p.capsule_type,
-        capsule_schema_version: p.schema_version,
-        header: { subject: emailSubject, from },
-        body_excerpt: bodyExcerpt,
-        capsule_keys: Object.keys(p).slice(0, 40),
-        source: 'main_process_pending_beap',
-        note: 'Handshake capsule from email; cryptographic processing may still run in extension. Structural preview for inbox.',
-      }),
-    }
-  }
-
-  const header = p.header as Record<string, unknown> | undefined
-  if (!header || typeof header !== 'object') {
-    return baseError('missing_header')
-  }
-
-  const encoding = header.encoding
-  const senderFingerprint =
-    typeof header.sender_fingerprint === 'string' ? header.sender_fingerprint : undefined
-  const contentHash = typeof header.content_hash === 'string' ? header.content_hash : undefined
-  const version = header.version
-
-  // ── pBEAP: plaintext base64 payload → capsule JSON is the canonical plaintext
-  // (PR 5.1 / Decision A). `depackaged_json` becomes the raw capsule JSON so the
-  // Validator's approval applies to exactly the bytes the UI reads.
-  if (encoding === 'pBEAP' && typeof p.payload === 'string') {
-    try {
-      const capsuleJson = Buffer.from(p.payload, 'base64').toString('utf8')
-      return {
-        depackaged_json: capsuleJson,
-        depackaged_metadata: JSON.stringify({
-          format: 'beap_message_main_process',
-          encoding: 'pBEAP',
-          trust_note:
-            'Public pBEAP payload decoded in main process without Stage-5 sandbox signature / gate verification.',
-          header_from: from,
-          sender_fingerprint: senderFingerprint,
-          source: 'main_process_pending_beap',
-          decoded_at: new Date().toISOString(),
-        }),
-      }
-    } catch (e) {
-      console.warn(
-        '[BeapEmailIngestion] pBEAP payload decode failed, falling back to metadata:',
-        (e as Error)?.message,
-      )
-    }
-  }
-
-  // ── qBEAP: cannot decrypt in main. No canonical plaintext yet — stored as null.
-  // `depackaged_metadata` holds the format identifier so routing/retry queries work.
-  if (encoding === 'qBEAP') {
-    return {
-      depackaged_json: null,
-      depackaged_metadata: JSON.stringify({
-        format: 'beap_qbeap_pending_main',
-        encoding: 'qBEAP',
-        header_summary: { sender_fingerprint: senderFingerprint, content_hash: contentHash, version },
-        email_fallback_header: { subject: emailSubject, from },
-        source: 'main_process_pending_beap',
-        note: 'qBEAP requires extension sandbox and keys; email excerpt retained for search/context.',
-      }),
-    }
-  }
-
-  // Unknown encoding but has header
-  return {
-    depackaged_json: null,
-    depackaged_metadata: JSON.stringify({
-      format: 'beap_message_main_process_partial',
-      encoding: typeof encoding === 'string' ? encoding : 'unknown',
-      header_summary: { sender_fingerprint: senderFingerprint, content_hash: contentHash, version },
-      body_excerpt: bodyExcerpt,
-      source: 'main_process_pending_beap',
-      note: 'Unrecognised BEAP message shape for main-process decode; email fields retained.',
-    }),
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -952,55 +795,14 @@ async function processSandboxQuarantineReceiveInternal(
       sandboxFinalStateHandshakeId: handshakeId,
     })
 
-  // Step 1: qBEAP-decrypt the outer clone package.
-  let decrypted: DepackagedQBeapContent | null = null
-  try {
-    decrypted = await depackageQBeapViaPod(packageJson, handshakeId, db, {
-      reportFailure: reportQbeapDecryptFailure('P2P-INLINE-SANDBOX'),
-    })
-  } catch {
-    /* fall through */
-  }
-  if (!decrypted?.body) {
-    console.warn('[P2P-INLINE] Sandbox quarantine receive: outer qBEAP decrypt failed for handshake', handshakeId)
-    return writeFinaState('blob_decrypt_failed')
-  }
-
-  // Step 2: Parse body as QuarantineBlobFile.
-  let blobFile: QuarantineBlobFile | null = null
-  try {
-    blobFile = JSON.parse(decrypted.body) as QuarantineBlobFile
-    if (blobFile.version !== 'quarantine-v1') throw new Error(`Unsupported blob version: ${blobFile.version}`)
-  } catch (e: unknown) {
-    console.warn('[P2P-INLINE] Sandbox quarantine receive: blob parse failed:', (e as Error)?.message ?? e)
-    return writeFinaState('blob_parse_failed')
-  }
-
-  // Step 3: Decrypt quarantine blob using local X25519 private key.
-  const hsRecord = getHandshakeRecord(db, handshakeId)
-  const localPrivKey = hsRecord?.local_x25519_private_key_b64?.trim()
-  if (!localPrivKey) {
-    console.warn('[P2P-INLINE] Sandbox quarantine receive: local_x25519_private_key_b64 missing for handshake', handshakeId)
-    return writeFinaState('blob_decrypt_failed_no_local_key')
-  }
-
-  const decryptResult = decryptQuarantineBlob(blobFile, localPrivKey)
-  if (!decryptResult.ok) {
-    console.warn('[P2P-INLINE] Sandbox quarantine receive: decryptQuarantineBlob failed:', decryptResult.error)
-    return writeFinaState('blob_decrypt_failed')
-  }
-
-  // Step 4: Process decrypted original BEAP bytes as a regular P2P message.
-  // The isSandboxDecryptedBlob flag causes depackage failure to write
-  // a sandbox-final-state quarantine row instead of another blob-encrypted row.
-  const originalPackageJson = decryptResult.plaintext.toString('utf-8')
-  console.log('[P2P-INLINE] Sandbox quarantine receive: blob decrypted, processing original BEAP bytes for handshake', handshakeId)
-  return processBeapPackageInlineInternal(db, originalPackageJson, handshakeId, {
-    receivedAt: opts.receivedAt,
-    transportFolder: opts.transportFolder,
-    session: opts.session,
-    isSandboxDecryptedBlob: true,
-  })
+  // POD_ROUTING_GAP: quarantine-blob-v1 inner decrypt and QuarantineBlobFile parse are not
+  // exposed on the local depackager yet. Do not decrypt or JSON-parse untrusted bytes in main.
+  console.error(
+    '[P2P-INLINE] Sandbox quarantine receive blocked: pod inner quarantine-blob depackage not implemented (handshake',
+    handshakeId,
+    ')',
+  )
+  return writeFinaState('quarantine_inner_decrypt_requires_pod')
 }
 
 /**
@@ -1186,29 +988,26 @@ async function processBeapPackageInlineInternal(
     }
   } else if (pkgEncoding === 'pBEAP') {
     try {
-      const payloadB64 = (pkg.payload as string | undefined) ?? ''
-      if (!payloadB64.trim()) {
-        depackageError = 'pBEAP package has no payload field'
-      } else {
-        canonicalJson = Buffer.from(payloadB64, 'base64').toString('utf-8')
+      const decr = await depackageQBeapViaPod(packageJson, handshakeId, db, {
+        reportFailure: reportQbeapDecryptFailure('P2P-INLINE'),
+      })
+      if (decr?.rawCapsuleJson) {
+        canonicalJson = decr.rawCapsuleJson
         depackagedMetadata = JSON.stringify({
-          format: 'beap_message_main_process',
+          format: 'beap_pbeap_pod_depackaged',
           encoding: 'pBEAP',
-          source: 'main_process_p2p_inline',
-          trust_note: 'Public pBEAP payload decoded in main process without Stage-5 sandbox signature / gate verification.',
+          source: 'pod_depackager',
+          decrypted_at: now,
         })
+      } else {
+        depackageError = 'pBEAP pod depackage returned null (pod unavailable or malformed package)'
       }
     } catch (err: unknown) {
-      depackageError = `pBEAP decode error: ${err instanceof Error ? err.message : String(err)}`
+      depackageError = `pBEAP pod depackage error: ${err instanceof Error ? err.message : String(err)}`
     }
   } else if (typeof pkg.schema_version === 'number' && typeof pkg.capsule_type === 'string') {
-    // Handshake capsule — the outer JSON is canonical.
-    canonicalJson = packageJson
-    depackagedMetadata = JSON.stringify({
-      format: 'beap_handshake_capsule_p2p',
-      capsule_type: pkg.capsule_type,
-      source: 'main_process_p2p_inline',
-    })
+    depackageError =
+      'HANDSHAKE_CAPSULE_INLINE_FORBIDDEN: untrusted handshake capsules must use processIncomingInput (pod verification), not inline host depackage'
   } else {
     depackageError = `Unrecognised BEAP package shape; encoding=${pkgEncoding ?? 'missing'}`
   }
@@ -1681,32 +1480,6 @@ export async function retryPendingInboxPlaceholders(db: any): Promise<number> {
   }
 
   return fixed
-}
-
-/**
- * Decode the pBEAP payload from a BEAP package JSON and return the raw
- * capsule object for content validation (PR 2.1/7).
- *
- * The `session_import_artefact` field lives inside the capsule, not in the
- * outer `depackaged_json` wrapper produced by `beapPackageToMainProcessDepackaged`.
- * Validators must receive the raw capsule to detect artefact presence.
- *
- * Returns `null` for non-pBEAP packages (qBEAP, handshake, malformed).
- * Never throws.
- *
- * per Canon A.3.054.8, Annex I.3.3
- */
-export function extractPBeapCapsule(packageJson: string): unknown | null {
-  try {
-    const pkg = JSON.parse(packageJson.trim()) as Record<string, unknown>
-    const header = pkg.header as Record<string, unknown> | undefined
-    if (header?.encoding !== 'pBEAP') return null
-    if (typeof pkg.payload !== 'string') return null
-    const capsuleJson = Buffer.from(pkg.payload, 'base64').toString('utf8')
-    return JSON.parse(capsuleJson)
-  } catch {
-    return null
-  }
 }
 
 /**

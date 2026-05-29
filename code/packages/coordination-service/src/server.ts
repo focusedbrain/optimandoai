@@ -8,8 +8,9 @@ import https from 'https'
 import { readFile } from 'fs/promises'
 import { WebSocketServer } from 'ws'
 import { randomUUID } from 'crypto'
-import { validateInput, isCoordinationRelayNativeBeap } from '@repo/ingestion-core'
+import { isCoordinationRelayNativeBeap } from '@repo/ingestion-core'
 import type { CoordinationConfig } from './config.js'
+import { validateRelayCapsuleViaIngestor } from './relayPodValidate.js'
 import { createStore } from './store.js'
 import { createAuth } from './auth.js'
 import { createRateLimiter } from './rateLimiter.js'
@@ -966,9 +967,25 @@ function createRequestHandler(
           headers: { 'content-type': req.headers['content-type'] ?? 'application/json' },
         }
         const transportMeta = { source_ip: getClientIp(req) }
-        const result = validateInput(rawInput, 'coordination_service', transportMeta)
+        const result = await validateRelayCapsuleViaIngestor(
+          config.beap_ingestor_url,
+          rawInput,
+          transportMeta,
+          config.beap_ingestor_validate_timeout_ms,
+        )
 
         if (!result.success) {
+          if (result.validation_reason_code === 'POD_REQUIRED') {
+            log.info('beap_isolation_unavailable — rejecting relay capsule', {
+              detail: result.reason,
+            })
+            sendError(res, 503, {
+              error: 'beap_isolation_unavailable',
+              code: 'POD_ISOLATION_UNAVAILABLE',
+              detail: result.reason ?? 'BEAP ingestor pod unavailable',
+            })
+            return
+          }
           sendError(res, 422)
           return
         }

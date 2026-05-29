@@ -1,12 +1,9 @@
 # Entry Point Audit — BEAP Ingestion Layer
 
-> **Updated: P1.12 (2026-05-24)** — The pod is now the exclusive ingestion path.
-> `processIncomingInput()` always calls `processIncomingInputViaPod()` which POSTs
-> to the local BEAP pod at `http://127.0.0.1:18100` (or `WR_POD_BASE_URL` in tests).
-> The in-process validation path (`validator-process/` subprocess) and
-> `decryptQBeapPackage.ts` have been removed.
+> **Canonical security property:** [SECURITY/ISOLATION.md](../../../../SECURITY/ISOLATION.md)  
+> Untrusted capsule bytes are **pod-only**. CI enforces via `scripts/check-beap-pod-isolation-gate.mjs`.
 
-## Flow (P1.12 onwards)
+## Flow (external input)
 
 ```
 External input
@@ -15,83 +12,46 @@ External input
 processIncomingInput()   [ingestion/ingestionPipeline.ts]
     │
     ▼
-HTTP POST /ingest        [pod ingestor role @ 127.0.0.1:18100]
-    │
-    ▼  (pod-internal)
-validator role → depackager role → sealer role
-    │
-    ▼
-PodIngestResult → distribution gate → handshake_pipeline / sandbox / quarantine
+dispatchProcessIncomingInput()   [ingestion/ingestionDispatcher.ts]
+    │  assertExternalUntrustedViaPodOnly(mode)
+    ├─ Blocked / waitForHostPod / halted → held queue (POD_REQUIRED / EDGE_UNREACHABLE)
+    ├─ sourceType === 'internal' → processIncomingInputInProcess (trusted only; runtime assert)
+    └─ else → HTTP POST /ingest   [pod ingestor @ 127.0.0.1:18100 or WR_POD_BASE_URL]
+              │
+              ▼ (pod-internal)
+         validator → depackager → sealer
+              │
+              ▼
+         PodIngestResult → distribution gate → handshake_pipeline / sandbox / quarantine
 ```
 
-## Purpose
+## Host preflight
 
-This document inventories all external input entry points into the Electron main process and confirms that every path routes through `processIncomingInput()` before reaching the handshake layer.
+- `runStartupPodmanProbe()` before `startIngestionModeLifecycle()` (`electron/main.ts`)
+- `beapPreflightGate.ts` blocks P2P server, coordination WS, relay pull until Podman ready
+- `PodmanRequiredModal` — no dismiss-and-continue
 
-## External Input Entry Points
+## qBEAP / pBEAP depackage (inline P2P / email)
 
-### 1. WebSocket RPC — `ingestion.ingest`
+`dispatchDepackageQBeap` → pod HTTP only (`ingestionDispatcher.ts`). No `decryptQBeapPackage()` in production `electron/main`.
 
-- **Location**: `electron/main.ts` → `handleIngestionRPC()` → `processIncomingInput()`
-- **Routes through ingestion**: YES
-- **Can bypass to handshake**: NO — `handleIngestionRPC` calls `processIncomingInput()` first, then only forwards `ValidatedCapsule` to `processHandshakeCapsule()`
+## Known pod routing gaps (explicit reject in main)
 
-### 2. HTTP POST — `/api/ingestion/ingest`
+| Path | Status |
+|------|--------|
+| Handshake-shaped inline JSON | Hard reject |
+| Sandbox quarantine inner `quarantine-blob-v1` decrypt | **GAP** — `quarantine_inner_decrypt_requires_pod`; no depackager endpoint yet |
 
-- **Location**: `registerIngestionRoutes()` in `electron/main/ingestion/ipc.ts`
-- **Routes through ingestion**: YES — calls `processIncomingInput()`
-- **Can bypass to handshake**: NO
+## Trusted in-process (exempt from pod gate)
 
-### 3. WebSocket RPC — `handshake.*` methods
+- `validatorOrchestrator` / inner seal on canonical JSON
+- `computeSeal(..., 'outer')` on ledger session material
+- Composer PDF via LibreOffice (`main.ts`)
 
-- **Location**: `electron/main.ts` → `handleHandshakeRPC()`
-- **Routes through ingestion**: N/A — these are read-only query + revocation handlers
-- **Can bypass to handshake processing**: NO — `handleHandshakeRPC` does NOT call `processHandshakeCapsule()`. It only calls:
-  - `getHandshakeRecord()` (read)
-  - `listHandshakeRecords()` (read)
-  - `queryContextBlocks()` (read)
-  - `authorizeAction()` (read)
-  - `isHandshakeActive()` (read)
-  - `revokeHandshake()` (state mutation, but revocation only — no capsule processing)
+## Enforcement
 
-### 4. HTTP GET/POST — `/api/handshake/*` routes
-
-- **Location**: `registerHandshakeRoutes()` in `electron/main/handshake/ipc.ts`
-- **Routes through ingestion**: N/A — read-only queries + revocation
-- **Can bypass to handshake processing**: NO — same as above, no call to `processHandshakeCapsule()`
-
-### 5. HTTP GET — `/api/ingestion/quarantine`, `/api/ingestion/sandbox-queue`
-
-- **Location**: `registerIngestionRoutes()` in `electron/main/ingestion/ipc.ts`
-- **Routes through ingestion**: N/A — read-only endpoints
-- **Can bypass**: NO — no write path
-
-## Direct Call Analysis
-
-### `processHandshakeCapsule()` Callers
-
-The function `processHandshakeCapsule` in `electron/main/handshake/enforcement.ts` is called from exactly one location in production code:
-
-1. `electron/main/ingestion/ipc.ts` → `handleIngestionRPC()` → after successful `processIncomingInput()` → `processHandshakeCapsule(distribution.validated_capsule, ...)`
-
-No other file in the codebase calls `processHandshakeCapsule()` in production code. Test files may call it with mock `ValidatedCapsule` objects.
-
-### Runtime Guard
-
-Even if a caller managed to reach `processHandshakeCapsule()` with a fabricated input, the runtime brand guard rejects any input where:
-- `__brand !== 'ValidatedCapsule'`
-- `validated_at` is missing or not a string
-- `validator_version` is missing or not a string
-- `provenance` or `capsule` objects are missing
-
-### Forbidden Cast Policy
-
-Production code SHALL NOT contain `as ValidatedCapsule` outside `validator.ts`. A CI test (`forbiddenCasts.test.ts` or equivalent) verifies this by scanning source files.
-
-## Legacy Handlers
-
-No legacy handlers exist that can call `processHandshakeCapsule()` directly. The handshake IPC handler (`handleHandshakeRPC`) was designed from the start as a read-only + revocation interface.
-
-## Conclusion
-
-All external input paths route through `processIncomingInput()`. The handshake layer is unreachable without a `ValidatedCapsule`. Runtime guards provide defense-in-depth beyond compile-time type safety.
+| Layer | File |
+|-------|------|
+| CI static | `scripts/check-beap-pod-isolation-gate.mjs` |
+| Vitest | `ingestion/__tests__/podIsolation.invariant.test.ts` |
+| Runtime | `security/securityInvariant.ts` + `ingestionDispatcher.ts` |

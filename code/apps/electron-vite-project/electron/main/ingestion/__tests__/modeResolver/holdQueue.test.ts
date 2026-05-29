@@ -96,6 +96,6 @@ describe('edge_pending_treated_as_disabled', () => {
       podmanAvailable: false,
       sessionHostFallbackAuthorized: false,
     } satisfies ResolverInputs)
-    expect(mode).toBe('LegacyInProcess')
+    expect(mode).toBe('Blocked')
   })
 })

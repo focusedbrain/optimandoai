@@ -19,6 +19,10 @@ export interface CoordinationConfig {
   session_ttl_seconds: number
   /** Handshake registry TTL in seconds — stale handshake entries cleaned after this. */
   handshake_ttl_seconds: number
+  /** BEAP ingestor base URL (host Podman pod) — relay validates capsules here, not in-process. */
+  beap_ingestor_url: string
+  beap_ingestor_preflight_timeout_ms: number
+  beap_ingestor_validate_timeout_ms: number
 }
 
 export function loadConfig(): CoordinationConfig {
@@ -33,6 +37,9 @@ export function loadConfig(): CoordinationConfig {
   const maxConn = parseInt(process.env.COORD_MAX_CONNECTIONS ?? '10000', 10)
   const sessionTtl = parseInt(process.env.COORD_SESSION_TTL_SECONDS ?? '86400', 10) // 24h default
   const handshakeTtl = parseInt(process.env.COORD_HANDSHAKE_TTL_SECONDS ?? '604800', 10) // 7d default
+  const beapIngestorUrl = (process.env.COORD_BEAP_INGESTOR_URL ?? 'http://127.0.0.1:18100').trim()
+  const beapPreflightTimeout = parseInt(process.env.COORD_BEAP_PREFLIGHT_TIMEOUT_MS ?? '10000', 10)
+  const beapValidateTimeout = parseInt(process.env.COORD_BEAP_VALIDATE_TIMEOUT_MS ?? '15000', 10)
 
   return {
     port,
@@ -48,5 +55,8 @@ export function loadConfig(): CoordinationConfig {
     max_connections: maxConn,
     session_ttl_seconds: sessionTtl,
     handshake_ttl_seconds: handshakeTtl,
+    beap_ingestor_url: beapIngestorUrl,
+    beap_ingestor_preflight_timeout_ms: beapPreflightTimeout,
+    beap_ingestor_validate_timeout_ms: beapValidateTimeout,
   }
 }

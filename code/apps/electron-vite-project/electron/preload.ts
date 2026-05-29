@@ -1577,6 +1577,23 @@ contextBridge.exposeInMainWorld('integrity', {
   getStatus: () => ipcRenderer.invoke('integrity:status'),
 })
 
+contextBridge.exposeInMainWorld('podmanSetup', {
+  getStatus: () => ipcRenderer.invoke('podman-setup:get-status'),
+  probe: () => ipcRenderer.invoke('podman-setup:probe'),
+  openManualInstall: () => ipcRenderer.invoke('podman-setup:open-manual-install'),
+  runAction: (action: string) => ipcRenderer.invoke('podman-setup:run-action', { action }),
+  onState: (handler: (payload: {
+    required: boolean
+    code: string | null
+    userMessage: string | null
+    platform: string
+  }) => void) => {
+    const fn = (_event: unknown, payload: unknown) => handler(payload as never)
+    ipcRenderer.on('podman-setup:state', fn)
+    return () => ipcRenderer.removeListener('podman-setup:state', fn)
+  },
+})
+
 contextBridge.exposeInMainWorld('ingestionMode', {
   get: () => ipcRenderer.invoke('ingestion-mode:get'),
   retryEdge: () => ipcRenderer.invoke('ingestion-mode:retry-edge'),

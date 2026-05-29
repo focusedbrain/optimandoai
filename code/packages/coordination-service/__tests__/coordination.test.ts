@@ -9,6 +9,18 @@ import { createServer } from '../src/server.js'
 
 process.env.COORD_TEST_MODE = '1'
 
+/** Vitest: structural validation without a live ingestor pod (production always uses ingestor HTTP). */
+vi.mock('../src/relayPodValidate.js', async () => {
+  const { validateInput } = await import('@repo/ingestion-core')
+  return {
+    validateRelayCapsuleViaIngestor: async (
+      _ingestorBaseUrl: string,
+      rawInput: Parameters<typeof validateInput>[0],
+      transportMeta?: Parameters<typeof validateInput>[2],
+    ) => validateInput(rawInput, 'coordination_service', transportMeta ?? {}),
+  }
+})
+
 /** Relay-acceptable capsule (accept type). Initiate must be delivered out-of-band. */
 function validBeapCapsule(handshakeId: string, senderId = 'user-1'): string {
   return JSON.stringify({
@@ -55,6 +67,9 @@ function makeConfig(overrides: Partial<CoordinationConfig>): CoordinationConfig 
     max_connections: 10000,
     session_ttl_seconds: 86400,
     handshake_ttl_seconds: 604800,
+    beap_ingestor_url: 'http://127.0.0.1:18100',
+    beap_ingestor_preflight_timeout_ms: 5000,
+    beap_ingestor_validate_timeout_ms: 5000,
   }
   return { ...base, ...overrides }
 }

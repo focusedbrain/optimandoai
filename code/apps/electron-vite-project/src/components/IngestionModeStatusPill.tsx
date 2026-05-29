@@ -7,11 +7,11 @@ import { useCallback, useEffect, useState } from 'react'
 export type IngestionModePublic =
   | 'EdgeActive'
   | 'HostPodActive'
-  | 'LegacyInProcess'
   | 'Blocked'
 
 export interface IngestionModeUiState {
   mode: IngestionModePublic
+  blockedReason: 'pod_required' | 'edge_unreachable' | null
   hostPodVariant: 'user_chosen' | 'session_fallback' | 'starting' | 'halted_by_anomaly' | null
   hostPodHaltReason: string | null
   blockedWithoutConnectivity: boolean
@@ -23,6 +23,7 @@ export interface IngestionModeUiState {
 
 const DEFAULT_STATE: IngestionModeUiState = {
   mode: 'HostPodActive',
+  blockedReason: null,
   hostPodVariant: 'user_chosen',
   hostPodHaltReason: null,
   blockedWithoutConnectivity: false,
@@ -39,6 +40,10 @@ function mapSnapshot(raw: unknown): IngestionModeUiState {
   const probes = s.probes as { lastEdgeSuccessAt?: number | null } | undefined
   return {
     mode: (s.mode as IngestionModePublic) ?? 'HostPodActive',
+    blockedReason:
+      s.blockedReason === 'pod_required' || s.blockedReason === 'edge_unreachable'
+        ? s.blockedReason
+        : null,
     hostPodVariant: (s.hostPodVariant as IngestionModeUiState['hostPodVariant']) ?? null,
     hostPodHaltReason:
       typeof s.hostPodHaltReason === 'string' ? s.hostPodHaltReason : null,
@@ -62,9 +67,10 @@ function pillLabel(state: IngestionModeUiState): string {
       if (state.hostPodVariant === 'session_fallback') return 'Host fallback (session)'
       if (state.hostPodVariant === 'starting') return 'Starting local pod…'
       return 'Host mode'
-    case 'LegacyInProcess':
-      return 'Legacy mode'
     case 'Blocked':
+      if (state.blockedReason === 'pod_required') {
+        return `Pod required · ${state.holdQueueCount} held`
+      }
       return state.blockedWithoutConnectivity
         ? `No network · ${state.holdQueueCount} held`
         : `Edge unreachable · ${state.holdQueueCount} held`
@@ -173,10 +179,10 @@ export function IngestionModeStatusPill(): JSX.Element | null {
           {state.mode === 'HostPodActive' && state.hostPodVariant === 'session_fallback' ? (
             <p>Host fallback active for this session only. Edge tier is still enabled.</p>
           ) : null}
-          {state.mode === 'LegacyInProcess' ? (
+          {state.mode === 'Blocked' && state.blockedReason === 'pod_required' ? (
             <p>
-              Legacy mode: in-process verification. For isolated verification, install Podman
-              Desktop.
+              BEAP validation pod required. Incoming messages are held safely until Podman Desktop
+              is installed and the local pod is running.
             </p>
           ) : null}
           {state.edgeSetupPending ? (

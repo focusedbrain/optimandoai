@@ -1,0 +1,166 @@
+# BEAP Relay — Third-Party Notices
+
+**Distributable:** `beap-coordination` container image built from `packages/coordination-service/Dockerfile`  
+**Deployment:** wrdesk.com relay (BEAP coordination service)  
+**Scope:** This file applies **only** to the relay server image and its host-side provisioning bundle. It does **not** cover the WR Desk desktop orchestrator, Electron runtime, Chromium extension, Ollama, or Podman-as-installed-on-user-desktops (see repo-root `THIRD_PARTY_LICENSES.md` and `apps/electron-vite-project/THIRD_PARTY_LICENSES/`).
+
+**Last updated:** 2026-05-29  
+**Regenerate npm table:** `node packages/coordination-service/scripts/generate-third-party-notices.mjs` (from repo root)
+
+---
+
+## Legal review flags (manual + automated)
+
+Review with counsel before production redistribution:
+
+| Item | Risk | Notes |
+|------|------|-------|
+| **Debian bookworm-slim base** | Standard container review | Base image may include GPL/LGPL userland packages (e.g. coreutils, bash). See `licenses/debian-bookworm-notice.txt` and in-image `/usr/share/doc/*/copyright` where present. |
+| **Node.js 22 (MIT)** | Low | Bundled Node binary from official `node:22-bookworm-slim`. See `licenses/node-runtime-MIT.txt`. |
+| **`expand-template`** (transitive) | **Review** | npm license field: `(MIT OR WTFPL)`. WTFPL is non-standard; confirm acceptable or replace dependency path. |
+| **`rc`** (transitive) | **Review** | npm license field: `(BSD-2-Clause OR MIT OR Apache-2.0)` — dual-licensed; confirm notice practice. |
+| **`better-sqlite3` / SQLite** | **Review** | npm package is MIT; embedded SQLite library uses [SQLite blessing](https://www.sqlite.org/copyright.html) (public-domain dedication). Confirm notice sufficient for your jurisdiction. |
+| **Copyleft (GPL/AGPL/LGPL) in npm tree** | None flagged | Automated scan of npm `license` fields for this filter found **no** GPL/AGPL/LGPL identifiers at generation time. Re-run after dependency changes. |
+| **Podman (host)** | N/A — not redistributed | Apache-2.0; installed separately on server (see § External runtime). |
+
+---
+
+## 1. Container base image (runtime stage)
+
+| Property | Value |
+|----------|--------|
+| **Dockerfile `FROM` (runtime)** | `node:22-bookworm-slim` |
+| **Upstream base** | `debian:bookworm-slim` + official Node.js 22 binary (Docker Official Image) |
+| **Node.js license** | MIT — https://github.com/nodejs/node/blob/main/LICENSE |
+| **Node Docker project** | MIT — https://github.com/nodejs/docker-node/blob/main/LICENSE |
+| **Debian OS userland** | Mixed (Debian Free Software Guidelines). Summary: https://www.debian.org/legal/licenses/ |
+| **In-repo notice file** | `licenses/debian-bookworm-notice.txt`, `licenses/node-runtime-MIT.txt` |
+
+**Builder stage** (discarded except copied artifacts): `FROM node:22-bookworm-slim` with transient `apt` packages `python3`, `make`, `g++` for native module compile — not shipped in final runtime layer except as reflected in compiled `better-sqlite3` binary.
+
+---
+
+## 2. OS packages added at image build (runtime stage)
+
+| Package | Source | License | Notice file |
+|---------|--------|---------|-------------|
+| `tini` | `apt-get install` in Dockerfile | MIT | `licenses/tini-MIT.txt` |
+
+---
+
+## 3. External runtime (host — not in container image)
+
+| Component | Relationship | License | Attribution |
+|-----------|--------------|---------|-------------|
+| **Podman** | Required on relay VM for BEAP ingestor pod; **not** bundled in `beap-coordination` image | Apache-2.0 | https://podman.io — installed from upstream distribution (Red Hat / distro packages). **Not redistributed** by WR Desk; operator installs and maintains separately. |
+
+---
+
+## 4. First-party workspace (not third-party OSS)
+
+| Package | Role |
+|---------|------|
+| `@repo/ingestion-core` | Private workspace library; compiled into image. Licensed under project `LICENSE`, not a separate npm OSS component. |
+| `@repo/coordination-service` | This service. |
+
+---
+
+## 5. npm production dependencies
+
+Direct dependencies in `packages/coordination-service/package.json`:
+
+| Package | Manifest range | Role |
+|---------|----------------|------|
+| `better-sqlite3` | `^11.0.0` | SQLite persistence |
+| `jose` | `^5.2.0` | OIDC/JWT |
+| `ws` | `^8.18.0` | WebSocket |
+
+Resolved production tree (including transitives) — scanner: `@repo/coordination-service` only:
+
+<!-- AUTO:PNPM_PROD_DEPS_BEGIN -->
+
+_Generated 2026-05-29 via `pnpm licenses list --filter @repo/coordination-service --prod`. Do not edit by hand._
+
+### Production npm dependencies (bundled in `beap-coordination` image `node_modules`)
+
+| Package | Resolved version | SPDX / npm license |
+|---------|------------------|-------------------|
+| `base64-js` | 1.5.1 | MIT |
+| `better-sqlite3` | 11.10.0 | MIT |
+| `bindings` | 1.5.0 | MIT |
+| `bl` | 4.1.0 | MIT |
+| `buffer` | 5.7.1 | MIT |
+| `bufferutil` | 4.1.0 | MIT |
+| `chownr` | 1.1.4 | ISC |
+| `decompress-response` | 6.0.0 | MIT |
+| `deep-extend` | 0.6.0 | MIT |
+| `detect-libc` | 2.1.2 | Apache-2.0 |
+| `end-of-stream` | 1.4.5 | MIT |
+| `expand-template` | 2.0.3 | (MIT OR WTFPL) |
+| `file-uri-to-path` | 1.0.0 | MIT |
+| `fs-constants` | 1.0.0 | MIT |
+| `github-from-package` | 0.0.0 | MIT |
+| `ieee754` | 1.2.1 | BSD-3-Clause |
+| `inherits` | 2.0.4 | ISC |
+| `ini` | 1.3.8 | ISC |
+| `jose` | 5.10.0 | MIT |
+| `mimic-response` | 3.1.0 | MIT |
+| `minimist` | 1.2.8 | MIT |
+| `mkdirp-classic` | 0.5.3 | MIT |
+| `napi-build-utils` | 2.0.0 | MIT |
+| `node-abi` | 3.85.0 | MIT |
+| `node-gyp-build` | 4.8.4 | MIT |
+| `once` | 1.4.0 | ISC |
+| `prebuild-install` | 7.1.3 | MIT |
+| `pump` | 3.0.3 | MIT |
+| `rc` | 1.2.8 | (BSD-2-Clause OR MIT OR Apache-2.0) |
+| `readable-stream` | 3.6.2 | MIT |
+| `safe-buffer` | 5.2.1 | MIT |
+| `semver` | 7.7.2 | ISC |
+| `simple-concat` | 1.0.1 | MIT |
+| `simple-get` | 4.0.1 | MIT |
+| `string_decoder` | 1.3.0 | MIT |
+| `strip-json-comments` | 2.0.1 | MIT |
+| `tar-fs` | 2.1.4 | MIT |
+| `tar-stream` | 2.2.0 | MIT |
+| `tunnel-agent` | 0.6.0 | Apache-2.0 |
+| `utf-8-validate` | 6.0.6 | MIT |
+| `util-deprecate` | 1.0.2 | MIT |
+| `wrappy` | 1.0.2 | ISC |
+| `ws` | 8.18.3 | MIT |
+
+**Automated scanner — legal review flags (npm tree):**
+
+- expand-template@2.0.3: (MIT OR WTFPL) (unusual — legal review)
+- rc@1.2.8: (BSD-2-Clause OR MIT OR Apache-2.0) (unusual — legal review)
+
+<!-- AUTO:PNPM_PROD_DEPS_END -->
+
+**Optional peer dependencies of `ws`:** `bufferutil`, `utf-8-validate` may appear in `node_modules` if installed; both are MIT. They are optional performance helpers and may be absent in minimal installs.
+
+---
+
+## 6. Where notices are published
+
+| Location | Path |
+|----------|------|
+| **Inside container image** | `/app/THIRD-PARTY-NOTICES`, `/app/licenses/*` |
+| **Relay host (provisioning)** | `/opt/beap/licenses/` via `deploy-bundle/install-relay-licenses.sh` (separate step from main deploy script) |
+
+**Auditor command (running container):**
+
+```bash
+podman exec <beap-coordination-container> cat /app/THIRD-PARTY-NOTICES
+podman exec <beap-coordination-container> ls -la /app/licenses/
+```
+
+---
+
+## 7. Separation from desktop / orchestrator notices
+
+| Artifact | Notices file |
+|----------|----------------|
+| Relay (`beap-coordination`) | **This file** — `packages/coordination-service/THIRD-PARTY-NOTICES` |
+| Desktop app + extension | `THIRD_PARTY_LICENSES.md`, `THIRD_PARTY_LICENSES/`, `apps/electron-vite-project/THIRD_PARTY_LICENSES/` |
+
+No Electron, Ollama, TensorFlow.js, PDF.js, or desktop Podman entries belong in this relay notices file.

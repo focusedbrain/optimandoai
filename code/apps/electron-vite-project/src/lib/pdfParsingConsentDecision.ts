@@ -113,7 +113,6 @@ export function modeFromIngestionSnapshot(raw: unknown): IngestionModePublic {
   if (
     mode === 'EdgeActive' ||
     mode === 'HostPodActive' ||
-    mode === 'LegacyInProcess' ||
     mode === 'Blocked'
   ) {
     return mode

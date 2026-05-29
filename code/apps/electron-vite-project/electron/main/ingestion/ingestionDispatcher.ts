@@ -3,7 +3,6 @@
  */
 
 import type { DepackageKeys } from '@repo/pod-client'
-import { createPodClient } from '@repo/pod-client'
 
 import type {
   RawInput,
@@ -11,7 +10,7 @@ import type {
   TransportMetadata,
   IngestionResult,
   IngestionAuditRecord,
-  OriginClassification,
+  ValidationReasonCode,
 } from './types'
 import { INGESTION_CONSTANTS } from './types'
 import { getCurrentIngestionMode } from './ingestionModeService.js'
@@ -31,7 +30,6 @@ import {
   flushExpiredStartupHold,
 } from './startupHoldBuffer.js'
 import { buildIngestPodClient, type IngestPodClientRoute } from './podClientFactory.js'
-import { decryptQBeapPackage, type DecryptedQBeapContent } from '../beap/decryptQBeapPackage.js'
 import {
   parsePodDepackagedAttachments,
   type PodDepackagedAttachmentWire,
@@ -44,8 +42,12 @@ import {
   DeviceKeyNotFoundError,
   getDeviceX25519KeyPair,
 } from '../device-keys/deviceKeyStore.js'
+import {
+  assertExternalUntrustedViaPodOnly,
+  SecurityInvariantError,
+} from '../security/securityInvariant.js'
 
-/** Structured qBEAP depackage failure — shared with decrypt + P2P inline ingest reporters. */
+/** Structured depackage failure — shared with P2P inline ingest reporters. */
 export type QbeapDepackageFailureReport = {
   code: string
   handshakeId: string
@@ -71,10 +73,19 @@ export async function resolveInboundX25519PrivateKeyB64(hs: {
   }
 }
 
+function heldReasonCode(snap: {
+  mode: string
+  blockedReason: string | null
+}): ValidationReasonCode {
+  if (snap.blockedReason === 'pod_required') return 'POD_REQUIRED'
+  return 'EDGE_UNREACHABLE'
+}
+
 function heldAudit(
   sourceType: SourceType,
   heldId: string,
   durationMs: number,
+  reasonCode: ValidationReasonCode,
 ): IngestionAuditRecord {
   return {
     timestamp: new Date().toISOString(),
@@ -83,9 +94,40 @@ function heldAudit(
     origin_classification: sourceType === 'internal' ? 'internal' : 'external',
     input_classification: 'plain_external_content',
     validation_result: 'error',
-    validation_reason_code: 'EDGE_UNREACHABLE',
+    validation_reason_code: reasonCode,
     processing_duration_ms: durationMs,
     pipeline_version: INGESTION_CONSTANTS.PIPELINE_VERSION,
+  }
+}
+
+async function enqueueHeld(
+  rawInput: RawInput,
+  sourceType: SourceType,
+  transportMeta: TransportMetadata,
+  reasonCode: ValidationReasonCode,
+  start: number,
+  useStartupHold: boolean,
+): Promise<IngestionResult> {
+  const id = generateHoldMessageId()
+  const body = Buffer.isBuffer(rawInput.body) ? rawInput.body : Buffer.from(rawInput.body, 'utf8')
+  const entry = {
+    id,
+    receivedAt: Date.now(),
+    sourceType,
+    transportMeta,
+    opaqueBody: serializeOpaqueHoldPayload(body, sourceType, transportMeta),
+  }
+  if (useStartupHold) {
+    enqueueStartupHold(entry)
+  } else {
+    await holdQueueEnqueue(entry)
+    await refreshIngestionMode()
+  }
+  return {
+    success: true,
+    held: true,
+    heldMessageId: id,
+    audit: heldAudit(sourceType, id, Math.round(performance.now() - start), reasonCode),
   }
 }
 
@@ -95,76 +137,40 @@ export async function dispatchProcessIncomingInput(
   transportMeta: TransportMetadata,
 ): Promise<IngestionResult> {
   const start = performance.now()
+
+  if (sourceType === 'internal') {
+    return processIncomingInputInProcess(rawInput, sourceType, transportMeta)
+  }
+
   const snap = await getCurrentIngestionMode()
+  assertExternalUntrustedViaPodOnly(snap.mode)
+  const holdCode = heldReasonCode(snap)
 
   if (snap.hostPodVariant === 'halted_by_anomaly') {
-    const id = generateHoldMessageId()
-    const body = Buffer.isBuffer(rawInput.body) ? rawInput.body : Buffer.from(rawInput.body, 'utf8')
-    await holdQueueEnqueue({
-      id,
-      receivedAt: Date.now(),
-      sourceType,
-      transportMeta,
-      opaqueBody: serializeOpaqueHoldPayload(body, sourceType, transportMeta),
-    })
-    await refreshIngestionMode()
-    return {
-      success: true,
-      held: true,
-      heldMessageId: id,
-      audit: heldAudit(sourceType, id, Math.round(performance.now() - start)),
-    }
+    return enqueueHeld(rawInput, sourceType, transportMeta, holdCode, start, false)
   }
 
   if (snap.mode === 'Blocked') {
-    const id = generateHoldMessageId()
-    const body = Buffer.isBuffer(rawInput.body) ? rawInput.body : Buffer.from(rawInput.body, 'utf8')
-    await holdQueueEnqueue({
-      id,
-      receivedAt: Date.now(),
-      sourceType,
-      transportMeta,
-      opaqueBody: serializeOpaqueHoldPayload(body, sourceType, transportMeta),
-    })
-    await refreshIngestionMode()
-    return {
-      success: true,
-      held: true,
-      heldMessageId: id,
-      audit: heldAudit(sourceType, id, Math.round(performance.now() - start)),
-    }
+    return enqueueHeld(rawInput, sourceType, transportMeta, holdCode, start, false)
   }
 
   if (snap.waitForHostPod) {
-    const id = generateHoldMessageId()
-    const body = Buffer.isBuffer(rawInput.body) ? rawInput.body : Buffer.from(rawInput.body, 'utf8')
-    enqueueStartupHold({
-      id,
-      receivedAt: Date.now(),
-      sourceType,
-      transportMeta,
-      opaqueBody: serializeOpaqueHoldPayload(body, sourceType, transportMeta),
-    })
-    return {
-      success: true,
-      held: true,
-      heldMessageId: id,
-      audit: heldAudit(sourceType, id, Math.round(performance.now() - start)),
-    }
+    return enqueueHeld(rawInput, sourceType, transportMeta, 'POD_REQUIRED', start, true)
   }
 
   switch (snap.mode) {
-    case 'LegacyInProcess':
-      console.log('[ingestion-dispatch] LegacyInProcess path')
-      return processIncomingInputInProcess(rawInput, sourceType, transportMeta)
     case 'EdgeActive':
       console.log('[ingestion-dispatch] EdgeActive path')
       return processIncomingInputViaPod(rawInput, sourceType, transportMeta, 'default')
     case 'HostPodActive':
       console.log('[ingestion-dispatch] HostPodActive path')
       return processIncomingInputViaPod(rawInput, sourceType, transportMeta, 'native_beap')
-    default:
-      return processIncomingInputViaPod(rawInput, sourceType, transportMeta, 'default')
+    default: {
+      const _exhaustive: never = snap.mode
+      throw new SecurityInvariantError(
+        `dispatchProcessIncomingInput unreachable mode: ${String(_exhaustive)}`,
+      )
+    }
   }
 }
 
@@ -177,17 +183,6 @@ export interface DepackagedQBeapResult {
   automation: undefined
   /** Pod depackager attachment rows (edge extracted_text_v1 when present). */
   podAttachments?: PodDepackagedAttachmentWire[]
-}
-
-function mapDecryptResult(d: DecryptedQBeapContent): DepackagedQBeapResult {
-  return {
-    subject: d.subject,
-    body: d.body,
-    transport_plaintext: d.transport_plaintext,
-    rawCapsuleJson: d.rawCapsuleJson,
-    attachments: [],
-    automation: undefined,
-  }
 }
 
 async function depackageViaPodHttp(
@@ -212,6 +207,9 @@ async function depackageViaPodHttp(
   }
 }
 
+/**
+ * Depackage inbound qBEAP/pBEAP wire packages — pod only; no main-process decrypt.
+ */
 export async function dispatchDepackageQBeap(
   packageJson: string,
   handshakeId: string,
@@ -219,9 +217,17 @@ export async function dispatchDepackageQBeap(
   opts?: { reportFailure?: (info: QbeapDepackageFailureReport) => void },
 ): Promise<DepackagedQBeapResult | null> {
   const snap = await getCurrentIngestionMode()
+  assertExternalUntrustedViaPodOnly(snap.mode)
 
   if (snap.mode === 'Blocked') {
-    opts?.reportFailure?.({ code: 'held_blocked_edge_unreachable', handshakeId, retryable: true })
+    const code =
+      snap.blockedReason === 'pod_required' ? 'pod_required' : 'held_blocked_edge_unreachable'
+    opts?.reportFailure?.({ code, handshakeId, retryable: true })
+    return null
+  }
+
+  if (snap.waitForHostPod) {
+    opts?.reportFailure?.({ code: 'host_pod_starting', handshakeId, retryable: true })
     return null
   }
 
@@ -238,30 +244,6 @@ export async function dispatchDepackageQBeap(
   const depackageKeys: DepackageKeys = {
     x25519_priv_b64: x25519PrivB64,
     mlkem_secret_b64: hs.local_mlkem768_secret_key_b64?.trim() || undefined,
-  }
-
-  if (snap.mode === 'LegacyInProcess') {
-    try {
-      const dec = await decryptQBeapPackage(packageJson, handshakeId, db, {
-        reportFailure: (info) =>
-          opts?.reportFailure?.({
-            code: info.code,
-            handshakeId: info.handshakeId,
-            retryable: info.retryable,
-          }),
-      })
-      if (!dec?.rawCapsuleJson) return null
-      return mapDecryptResult(dec)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      opts?.reportFailure?.({ code: msg, handshakeId, retryable: false })
-      return null
-    }
-  }
-
-  if (snap.waitForHostPod) {
-    opts?.reportFailure?.({ code: 'host_pod_starting', handshakeId, retryable: true })
-    return null
   }
 
   const route: IngestPodClientRoute = snap.mode === 'EdgeActive' ? 'default' : 'native_beap'

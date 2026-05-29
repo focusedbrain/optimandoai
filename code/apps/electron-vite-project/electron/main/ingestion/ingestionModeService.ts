@@ -5,13 +5,15 @@
 import { EventEmitter } from 'node:events'
 
 import { loadEdgeTierSettings, type EdgeTierSettings } from '../edge-tier/settings.js'
-import { getLocalPodSetupError } from '../local-pod/index.js'
+import { isPodmanVerifiedReady } from '../local-pod/podStatus.js'
 import {
   resolveIngestionMode,
   resolveHostPodVariant,
+  resolveIngestionBlockedReason,
   shouldWaitForHostPod,
   isBlockedWithoutGeneralConnectivity,
   type IngestionMode,
+  type IngestionBlockedReason,
   type HostPodModeVariant,
   type ResolverInputs,
 } from './modeResolver.js'
@@ -21,6 +23,7 @@ import { holdQueueSize } from './holdQueue.js'
 
 export interface IngestionModeSnapshot {
   mode: IngestionMode
+  blockedReason: IngestionBlockedReason
   hostPodVariant: HostPodModeVariant | null
   hostPodSupervisorState: 'healthy' | 'replacement_exhausted' | 'halted_by_anomaly'
   hostPodHaltReason: string | null
@@ -61,7 +64,7 @@ function buildResolverInputs(probes: ProbeSnapshot): ResolverInputs {
     edgeReachable: probes.edgeReachable,
     generalConnectivity: probes.generalConnectivity,
     hostPodReady: probes.hostPodReady,
-    podmanAvailable: getLocalPodSetupError() == null,
+    podmanAvailable: isPodmanVerifiedReady(),
     sessionHostFallbackAuthorized: isSessionHostFallbackAuthorized(),
   }
 }
@@ -86,6 +89,7 @@ export async function refreshIngestionMode(forceProbe = false): Promise<Ingestio
   const holdQueue = await holdQueueSize()
   const snap: IngestionModeSnapshot = {
     mode,
+    blockedReason: resolveIngestionBlockedReason(inputs, mode),
     hostPodVariant: resolveHostPodVariant(inputs, mode, hostPodHalted),
     hostPodSupervisorState,
     hostPodHaltReason,

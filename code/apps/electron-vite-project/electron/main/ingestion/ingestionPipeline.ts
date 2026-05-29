@@ -1,5 +1,5 @@
 /**
- * Pipeline Orchestrator — mode-aware dispatch (EdgeActive / HostPodActive / LegacyInProcess / Blocked).
+ * Pipeline Orchestrator — mode-aware dispatch (EdgeActive / HostPodActive / Blocked).
  *
  * All entry points call processIncomingInput(), which consults the mode resolver
  * via ingestionDispatcher. No silent fallback when edge tier is enabled.

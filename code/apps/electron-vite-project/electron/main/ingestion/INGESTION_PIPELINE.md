@@ -57,16 +57,15 @@ HTTP POST http://127.0.0.1:18100/ingest      ← WR_POD_BASE_URL overrides in te
 |----------|---------|---------|
 | `WR_POD_BASE_URL` | `http://127.0.0.1:18100` | Override pod URL (tests) |
 
-## Removed in P1.12
+## Removed in P1.12 / pod-mandatory security
 
 - `validator-process/` subprocess and IPC wiring
-- `beap/decryptQBeapPackage.ts` in-process qBEAP decryption
-- `WR_POD_HOT_PATH` feature flag (pod is now always on)
-- `processIncomingInputInProcess()` fallback function
+- In-process qBEAP decrypt on the external hot path (`decryptQBeapPackage` not called from production entry points)
+- `WR_POD_HOT_PATH` feature flag (pod is mandatory)
+- `LegacyInProcess` ingestion mode
+
+`processIncomingInputInProcess()` remains for **`sourceType === 'internal'` only** (trusted). CI: `pnpm run check:beap-pod-isolation` — see [SECURITY/ISOLATION.md](../../../../SECURITY/ISOLATION.md).
 
 ## Fail-closed behaviour
 
-If the pod is unreachable or returns an error, `processIncomingInput()` returns
-an `IngestionResult` with `ok: false`. No in-process fallback exists. This is
-intentional: the pod provides the security guarantees; bypassing it would
-undermine them.
+External input: held or pod HTTP — never in-process validate/decrypt. If the pod is unreachable, capsules are held or rejected. Runtime `SecurityInvariantError` if mode or sourceType violates the boundary.

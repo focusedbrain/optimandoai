@@ -1,0 +1,22 @@
+Debian GNU/Linux (bookworm) — base OS userland in node:22-bookworm-slim
+================================================================================
+
+The beap-coordination container runtime image is derived from the official
+Docker image `node:22-bookworm-slim`, which is based on `debian:bookworm-slim`.
+
+Debian distributes thousands of packages under many licenses (including MIT,
+BSD, Apache-2.0, GPL, LGPL, and others). Per-package copyright and license
+information is normally recorded in `/usr/share/doc/<package>/copyright` inside
+a full Debian system.
+
+Operators and auditors may inspect the running image, for example:
+
+  podman exec <container> sh -c 'dpkg -l; ls /usr/share/doc 2>/dev/null | head'
+
+Project summary (not a substitute for Debian's own attribution):
+
+  https://www.debian.org/legal/licenses/
+  https://www.debian.org/social_contract#guidelines
+
+WR Desk does not modify the Debian base beyond installing the `tini` package
+in the runtime stage (see THIRD-PARTY-NOTICES § OS packages added at image build).

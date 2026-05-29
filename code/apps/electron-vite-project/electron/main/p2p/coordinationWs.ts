@@ -10,6 +10,7 @@ import WebSocket from 'ws'
 import type { P2PConfig } from './p2pConfig'
 import type { SSOSession } from '../handshake/types'
 import { processIncomingInput } from '../ingestion/ingestionPipeline'
+import { isHeldIngestionResult } from '../ingestion/heldResult.js'
 import { processHandshakeCapsule } from '../handshake/enforcement'
 import { canonicalRebuild } from '../handshake/canonicalRebuild'
 import { buildDefaultReceiverPolicy } from '../handshake/types'
@@ -311,6 +312,19 @@ async function processCapsuleInternal(
       }
       console.log(`[COORDINATION_WS] relay_ack_sent relayId=${id} reason=ok retryable=false outcome=quarantine_ingestion_rejected`)
       sendAckFn([id])
+      return
+    }
+
+    if (isHeldIngestionResult(result)) {
+      console.warn(
+        '[Coordination] Capsule held — pod required or edge unreachable:',
+        result.audit.validation_reason_code,
+        'heldMessageId=',
+        result.heldMessageId,
+      )
+      console.log(
+        `[COORDINATION_WS] relay_ack_withheld relayId=${id} reason=${result.audit.validation_reason_code ?? 'held'} retryable=true`,
+      )
       return
     }
 
@@ -626,6 +640,11 @@ export function createCoordinationWsClient(
 
   const connect = async (): Promise<void> => {
     intentionalShutdown = false
+    const { assertBeapPodIsolationPreflight } = await import('../security/beapPreflightGate.js')
+    if (!assertBeapPodIsolationPreflight('coordinationWs.connect')) {
+      setP2PHealthCoordinationError('BEAP security isolation required — install and start Podman')
+      return
+    }
     if (!config.use_coordination || !config.coordination_enabled) {
       console.log('[Coordination] Skipping connect: use_coordination=', config.use_coordination, 'coordination_enabled=', config.coordination_enabled)
       return

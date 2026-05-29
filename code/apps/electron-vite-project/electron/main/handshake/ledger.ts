@@ -245,8 +245,15 @@ export async function openLedger(sessionToken: string): Promise<any> {
   bindKeyProvider(() => deriveLedgerSealKey(sessionToken), 'outer')
   console.log('[SEAL] ledger seal key bound')
 
-  void import('../local-pod/index.js')
-    .then(({ startLocalPodWhenSsoReady }) => startLocalPodWhenSsoReady())
+  void import('../security/beapPreflightGate.js')
+    .then(({ assertBeapPodIsolationPreflight }) => {
+      if (!assertBeapPodIsolationPreflight('openLedger.startLocalPod')) {
+        return
+      }
+      return import('../local-pod/index.js').then(({ startLocalPodWhenSsoReady }) =>
+        startLocalPodWhenSsoReady(),
+      )
+    })
     .catch((err) => {
       console.error('[LOCAL_POD] Failed to start after SSO ledger open:', (err as Error).message ?? err)
     })

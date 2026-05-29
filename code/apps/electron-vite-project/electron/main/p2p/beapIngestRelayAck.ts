@@ -53,6 +53,14 @@ export function mapBeapIngestFailureToReasonCode(
   if (e.includes('ledger_db')) {
     return { reasonCode: 'ledger_db_unavailable', retryable: true }
   }
+  if (
+    e.includes('pod_required') ||
+    e.includes('host_pod_starting') ||
+    e.includes('held_blocked') ||
+    e.includes('validation pod unavailable')
+  ) {
+    return { reasonCode: 'validator_unhealthy', retryable: true }
+  }
   return { reasonCode: 'processing_failed', retryable: false }
 }
 

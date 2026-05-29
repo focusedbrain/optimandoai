@@ -9,12 +9,7 @@ import {
   type RolePolicyModeSnapshot,
 } from '../src/index.js'
 
-const MODES: IngestionModeForPolicy[] = [
-  'EdgeActive',
-  'HostPodActive',
-  'LegacyInProcess',
-  'Blocked',
-]
+const MODES: IngestionModeForPolicy[] = ['EdgeActive', 'HostPodActive', 'Blocked']
 
 const EDGE_STATES: EdgeFetchState[] = [
   'not_on_edge',
@@ -65,14 +60,6 @@ const EXPECTED_FETCH: Record<
     migrating_back: false,
     degraded: false,
   },
-  LegacyInProcess: {
-    not_on_edge: true,
-    active: false,
-    awaiting_key: false,
-    migrating: false,
-    migrating_back: false,
-    degraded: false,
-  },
 }
 
 const EXPECTED_SEND: Record<
@@ -96,14 +83,6 @@ const EXPECTED_SEND: Record<
     degraded: false,
   },
   HostPodActive: {
-    not_on_edge: true,
-    active: true,
-    awaiting_key: true,
-    migrating: true,
-    migrating_back: true,
-    degraded: true,
-  },
-  LegacyInProcess: {
     not_on_edge: true,
     active: true,
     awaiting_key: true,

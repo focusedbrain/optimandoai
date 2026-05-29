@@ -3,9 +3,11 @@
  */
 
 import { getPodSessionAuthSecret } from './podSessionAuth.js'
-import type { PodmanSetupError } from './podmanDetect.js'
+import { PodmanSetupError, type PodmanSetupErrorCode } from './podmanDetect.js'
 
 export type LocalPodLifecycleStatus = 'idle' | 'starting' | 'ready' | 'failed'
+
+export type PodmanProbeCompletion = 'pending' | 'complete'
 
 export interface LocalPodStatusSnapshot {
   status: LocalPodLifecycleStatus
@@ -13,9 +15,12 @@ export interface LocalPodStatusSnapshot {
   hasSessionSecret: boolean
 }
 
+const PROBE_PENDING_MESSAGE = 'Checking Podman installation…'
+
 let _lifecycleStatus: LocalPodLifecycleStatus = 'idle'
 let _lastStartFailure: string | null = null
 let _podSetupError: PodmanSetupError | null = null
+let _probeCompletion: PodmanProbeCompletion = 'pending'
 
 export function getPodLifecycleStatus(): LocalPodLifecycleStatus {
   return _lifecycleStatus
@@ -33,7 +38,23 @@ export function setPodLastStartFailure(reason: string | null): void {
   _lastStartFailure = reason
 }
 
+export function isPodmanProbeComplete(): boolean {
+  return _probeCompletion === 'complete'
+}
+
+/** Probe finished and Podman engine (+ machine when required) verified ready. */
+export function isPodmanVerifiedReady(): boolean {
+  return _probeCompletion === 'complete' && _podSetupError === null
+}
+
+export function markPodmanProbeComplete(): void {
+  _probeCompletion = 'complete'
+}
+
 export function getPodSetupErrorRef(): PodmanSetupError | null {
+  if (_probeCompletion === 'pending') {
+    return new PodmanSetupError('probe_pending', PROBE_PENDING_MESSAGE)
+  }
   return _podSetupError
 }
 
@@ -50,7 +71,7 @@ export function getLocalPodStatus(): LocalPodStatusSnapshot {
 }
 
 export function getLocalPodUnavailableMessage(): string {
-  const setup = _podSetupError
+  const setup = getPodSetupErrorRef()
   if (setup) {
     return `Verification environment unavailable: ${setup.userMessage}`
   }
@@ -74,4 +95,5 @@ export function _resetPodStatusForTest(): void {
   _lifecycleStatus = 'idle'
   _lastStartFailure = null
   _podSetupError = null
+  _probeCompletion = 'pending'
 }

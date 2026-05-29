@@ -8,7 +8,10 @@
 import type { EdgeTierSettings } from '../edge-tier/settings.js'
 import { isEdgeTierActiveForRouting } from '../edge-tier/settings.js'
 
-export type IngestionMode = 'EdgeActive' | 'HostPodActive' | 'LegacyInProcess' | 'Blocked'
+export type IngestionMode = 'EdgeActive' | 'HostPodActive' | 'Blocked'
+
+/** Why ingestion is Blocked (for status copy and held audit). */
+export type IngestionBlockedReason = 'pod_required' | 'edge_unreachable' | null
 
 /** Edge replica reachability from probe; `unknown` before first probe completes. */
 export type EdgeReachableState = boolean | 'unknown'
@@ -41,7 +44,7 @@ export type HostPodModeVariant =
  * 2. Edge enabled + session fallback authorized + host pod ready → HostPodActive
  * 3. Edge enabled (else) → Blocked
  * 4. Edge disabled/pending + host pod ready → HostPodActive
- * 5. Edge disabled/pending + !podmanAvailable → LegacyInProcess
+ * 5. Edge disabled/pending + !podmanAvailable → Blocked (pod mandatory; no in-process ingest)
  * 6. Edge disabled/pending + podman available + pod not ready → HostPodActive (caller must hold until ready)
  */
 export function resolveIngestionMode(inputs: ResolverInputs): IngestionMode {
@@ -64,10 +67,24 @@ export function resolveIngestionMode(inputs: ResolverInputs): IngestionMode {
   }
 
   if (!inputs.podmanAvailable) {
-    return 'LegacyInProcess'
+    return 'Blocked'
   }
 
   return 'HostPodActive'
+}
+
+export function resolveIngestionBlockedReason(
+  inputs: ResolverInputs,
+  mode: IngestionMode,
+): IngestionBlockedReason {
+  if (mode !== 'Blocked') return null
+  if (isEdgeTierActiveForRouting(inputs.settings)) {
+    return 'edge_unreachable'
+  }
+  if (!inputs.podmanAvailable) {
+    return 'pod_required'
+  }
+  return 'edge_unreachable'
 }
 
 export function resolveHostPodVariant(

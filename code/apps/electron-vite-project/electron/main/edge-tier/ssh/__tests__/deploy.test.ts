@@ -7,6 +7,7 @@ import { describe, test, expect, vi } from 'vitest'
 import {
   buildAllHealthCommand,
   buildPodmanPlayCommand,
+  buildRemotePodmanPreflightCommand,
   buildTeardownCommand,
   collectDeployEvents,
   deployEdgePod,
@@ -121,6 +122,14 @@ describe('buildAllHealthCommand', () => {
   })
 })
 
+describe('buildRemotePodmanPreflightCommand', () => {
+  test('matches @repo/podman-probe remote Linux contract', () => {
+    expect(buildRemotePodmanPreflightCommand()).toBe(
+      'command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1',
+    )
+  })
+})
+
 describe('deployEdgePod — happy path', () => {
   test('emits stages, done event, and replica metadata', async () => {
     const commands: string[] = []
@@ -135,6 +144,7 @@ describe('deployEdgePod — happy path', () => {
 
     const events = await collectDeployEvents(makeDeployArgs({ client }))
 
+    expect(events.some((e) => e.kind === 'stage' && e.stage_name === 'verify_podman')).toBe(true)
     expect(events.some((e) => e.kind === 'stage' && e.stage_name === 'upload_manifest')).toBe(true)
     expect(events.some((e) => e.kind === 'stage' && e.stage_name === 'start_pod')).toBe(true)
     expect(events.some((e) => e.kind === 'stage' && e.stage_name === 'health_check')).toBe(true)
@@ -153,10 +163,34 @@ describe('deployEdgePod — happy path', () => {
     expect(uploads[0]?.content).toContain('${EDGE_PRIVATE_KEY_HEX}')
     expect(uploads[0]?.content).not.toContain(TEST_PRIVATE_KEY_HEX)
 
+    expect(commands.some((c) => c.includes(buildRemotePodmanPreflightCommand()))).toBe(true)
     expect(commands.some((c) => c.includes('env ') && c.includes('podman play kube'))).toBe(true)
     expect(commands.some((c) => c.includes('podman exec') && c.includes('/health'))).toBe(true)
     expect(commands.some((c) => c.includes(`rm -f ${REMOTE_MANIFEST_PATH}`))).toBe(true)
     expect(commands.some((c) => c.includes('podman pod stop'))).toBe(false)
+  })
+})
+
+describe('deployEdgePod — failure at verify_podman', () => {
+  test('does not upload manifest when remote Podman is missing', async () => {
+    const uploads: string[] = []
+    const client = makeMockClient((command) => {
+      if (command.includes('command -v podman')) {
+        return { stdout: '', stderr: 'podman missing', code: 1 }
+      }
+      return { stdout: '', stderr: '', code: 0 }
+    })
+    client.uploadContent = vi.fn(async (_content, path) => {
+      uploads.push(path)
+    })
+
+    const events = await collectDeployEvents(makeDeployArgs({ client }))
+
+    const error = events.find((e) => e.kind === 'error')
+    expect(error).toBeDefined()
+    expect(error!.stage_name).toBe('verify_podman')
+    expect(error!.message).toMatch(/healthy Podman engine/)
+    expect(uploads).toHaveLength(0)
   })
 })
 

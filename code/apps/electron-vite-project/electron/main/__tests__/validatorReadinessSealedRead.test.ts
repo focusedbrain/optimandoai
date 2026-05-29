@@ -149,7 +149,7 @@ describe('HostPodActive sealed inbox read (outer bound, inner via validator star
   })
 })
 
-describe('LegacyInProcess sealed read without Podman (inner validator only)', () => {
+describe('Inner validator sealed read without Podman (post-decrypt sealing only)', () => {
   let db: HarnessDatabase
 
   beforeEach(async () => {

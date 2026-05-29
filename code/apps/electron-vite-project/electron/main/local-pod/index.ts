@@ -48,6 +48,8 @@ import {
   getLocalPodUnavailableMessage,
   getPodSetupErrorRef,
   setPodSetupErrorRef,
+  isPodmanVerifiedReady,
+  isPodmanProbeComplete,
   getPodLastStartFailure,
   setPodLastStartFailure,
   getPodLifecycleStatus,
@@ -89,6 +91,7 @@ export interface LocalPodOptions extends PodRunnerOptions {
 }
 
 export { PodmanSetupError } from './podmanDetect.js'
+export { refreshPodmanSetupProbe } from './podmanSetupProbe.js'
 
 /** Last Podman setup failure, if the local pod could not start. */
 export function getLocalPodSetupError(): PodmanSetupError | null {
@@ -108,6 +111,10 @@ export function buildLocalPodStartContext(
 
 /** Start the pod after SSO ledger open (outer vault); does not require inner vault unlock. */
 export async function startLocalPodWhenSsoReady(): Promise<void> {
+  const { assertBeapPodIsolationPreflight } = await import('../security/beapPreflightGate.js')
+  if (!assertBeapPodIsolationPreflight('startLocalPodWhenSsoReady')) {
+    return
+  }
   await refreshJwksOnStartup().catch((err) => {
     console.warn('[LOCAL_POD] JWKS refresh failed:', (err as Error).message ?? err)
   })
