@@ -23,6 +23,14 @@ function render(data) {
     s.hidden = s.getAttribute('data-screen') !== data.setupPhase
   })
 
+  if (data.setupPhase === 'registry_ready') {
+    if (data.registryPairingCodeDisplay) {
+      el('registry-pairing-code').textContent = data.registryPairingCodeDisplay
+    }
+    if (data.ssoEmail) el('registry-signed-in-as').textContent = data.ssoEmail
+    if (data.deviceName) el('registry-device-name').textContent = data.deviceName
+  }
+
   if (data.setupPhase === 'code_displayed' || data.setupPhase === 'pairing_in_progress') {
     if (data.pairingCodeDisplay) el('pairing-code').textContent = data.pairingCodeDisplay
     if (data.ssoEmail) el('signed-in-as').textContent = data.ssoEmail
@@ -44,7 +52,7 @@ function render(data) {
 document.addEventListener('click', async (ev) => {
   const target = ev.target
   if (!(target instanceof HTMLElement)) return
-  if (target.id === 'regenerate-code') {
+  if (target.id === 'regenerate-code' || target.id === 'regenerate-registry-code') {
     ev.preventDefault()
     await fetch('/setup/regenerate-code', { method: 'POST' })
     await refresh()

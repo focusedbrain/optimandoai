@@ -10,6 +10,7 @@ export type SetupUiPhase =
   | 'welcome'
   | 'signing_in'
   | 'code_displayed'
+  | 'registry_ready'
   | 'pairing_in_progress'
   | 'pairing_complete'
 
@@ -67,6 +68,13 @@ export class SetupStateMachine {
   onSignedIn(): void {
     this.uiPhase = 'code_displayed'
     this.ensurePairingCode()
+  }
+
+  /** Registry bootstrap path (WS1) — no legacy RAM pairing code or fingerprint UI. */
+  onSignedInRegistryReady(): void {
+    this.uiPhase = 'registry_ready'
+    this.pairingCode = null
+    this.session = null
   }
 
   ensurePairingCode(): PairingCodeState {

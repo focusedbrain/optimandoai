@@ -57,6 +57,21 @@ describe('SetupStateMachine', () => {
     if (!result.ok) expect(result.error).toBe('code_expired')
   })
 
+  test('registry ready clears legacy pairing session state', () => {
+    const sm = new SetupStateMachine()
+    sm.onSignedIn()
+    sm.initiatePairing({
+      pairingCode: sm.ensurePairingCode().code,
+      orchestratorSub: 'u',
+      orchestratorPublicKey: 'a'.repeat(64),
+      orchestratorNonce: 'n',
+      agentSignedInSub: 'u',
+    })
+    sm.onSignedInRegistryReady()
+    expect(sm.getUiPhase()).toBe('registry_ready')
+    expect(sm.getSession()).toBeNull()
+  })
+
   test('requires both confirmations before persist ready', () => {
     const sm = new SetupStateMachine()
     sm.onSignedIn()

@@ -8,6 +8,7 @@ import { PodManager } from './pod-manager.js'
 import { ensureAgentCrypto, migratePairRecordCrypto } from './agentCrypto.js'
 import { startAgentApiServer } from './agentApiServer.js'
 import { initAgentLogStream } from './log-stream/init.js'
+import { ensureAgentRegistryAfterSso } from './registryBootstrap.js'
 
 export interface AgentRuntime {
   phase: AgentPhase
@@ -27,7 +28,21 @@ export async function startAgentRuntime(config: AgentConfig): Promise<AgentRunti
   if (phase === 'paired') {
     setup.markPairedIdle()
   } else if (await isSignedIn(storage)) {
-    setup.onSignedIn()
+    if (config.registryBootstrapEnabled) {
+      setup.onSignedInRegistryReady()
+      void ensureAgentRegistryAfterSso(storage, config).catch((err) => {
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            source: 'coordination',
+            event: 'registry_bootstrap_startup_failed',
+            message: String(err),
+          }),
+        )
+      })
+    } else {
+      setup.onSignedIn()
+    }
   }
 
   const podManager = new PodManager(config, storage)
@@ -75,8 +90,13 @@ export async function startAgentRuntime(config: AgentConfig): Promise<AgentRunti
       phase = next
     },
     onSignedIn: () => {
-      setup.onSignedIn()
-      void ensureAgentCrypto(storage, config)
+      if (config.registryBootstrapEnabled) {
+        setup.onSignedInRegistryReady()
+        void ensureAgentRegistryAfterSso(storage, config).then(() => ensureAgentCrypto(storage, config))
+      } else {
+        setup.onSignedIn()
+        void ensureAgentCrypto(storage, config)
+      }
     },
   })
 

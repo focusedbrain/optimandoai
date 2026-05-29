@@ -15,6 +15,13 @@ export interface AgentConfig {
   /** Hostname/IP orchestrator uses in p2p_endpoint (not 0.0.0.0). */
   readonly publicHost: string
   readonly podName: string
+  /** Coordination service base URL (registry + future relay WS). */
+  readonly coordinationUrl: string
+  /**
+   * When true, setup uses registry bootstrap (WS1) instead of legacy :8443 pairing UI.
+   * Default false until epic gates and E2E on replacement path are met.
+   */
+  readonly registryBootstrapEnabled: boolean
 }
 
 export function loadConfig(): AgentConfig {
@@ -32,6 +39,9 @@ export function loadConfig(): AgentConfig {
     p2pPort: Number(process.env['WRDESK_AGENT_P2P_PORT'] ?? 51_249),
     publicHost: process.env['WRDESK_AGENT_PUBLIC_HOST'] ?? '127.0.0.1',
     podName: process.env['WRDESK_AGENT_POD_NAME'] ?? 'beap-remote-edge',
+    coordinationUrl:
+      process.env['WRDESK_AGENT_COORDINATION_URL']?.trim() || 'https://relay.wrdesk.com',
+    registryBootstrapEnabled: process.env['WRDESK_AGENT_REGISTRY_BOOTSTRAP'] === '1',
   }
 }
 

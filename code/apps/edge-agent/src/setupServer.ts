@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url'
 import type { AgentConfig, AgentPhase } from './config.js'
 import type { AgentStorage } from './storage.js'
 import { formatPairingCodeDisplay } from './pairingCode.js'
+import { getOrCreateDeviceIdentity, rotateRegistryPairingCode } from './deviceIdentity.js'
+import { ensureAgentRegistryAfterSso } from './registryBootstrap.js'
 import { applyPairingConfirmation } from './pairingConfirm.js'
 import { completeLogin, isSignedIn, startLogin } from './sso/session.js'
 import type { SetupStateMachine } from './setupState.js'
@@ -49,22 +51,33 @@ export function startSetupServer(deps: SetupServerDeps): SetupServerHandle {
     if (getPhase() === 'paired') {
       setupPhase = 'pairing_complete'
     } else if (signedIn && setupPhase === 'welcome') {
-      setup.onSignedIn()
+      onSignedIn()
       setupPhase = setup.getUiPhase()
     }
 
-    const codeState = signedIn ? setup.ensurePairingCode() : null
+    const registryBootstrap = config.registryBootstrapEnabled
+    const codeState =
+      signedIn && !registryBootstrap && setupPhase !== 'registry_ready'
+        ? setup.ensurePairingCode()
+        : null
     const session = setup.getSession()
+    const deviceIdentity = signedIn && registryBootstrap ? await getOrCreateDeviceIdentity(config.stateDir) : null
 
     const pod = podManager.getStatus()
     return {
       phase: getPhase(),
       setupPhase,
       signedIn,
+      registryBootstrapEnabled: registryBootstrap,
       ssoEmail: state.ssoEmail ?? state.ssoSub,
       ssoError: setup.getSsoError(),
       pairingCodeDisplay: codeState ? formatPairingCodeDisplay(codeState.code) : null,
       pairingCodeExpiresAt: codeState?.expiresAt ?? null,
+      registryPairingCodeDisplay: deviceIdentity
+        ? formatPairingCodeDisplay(deviceIdentity.registryPairingCode)
+        : null,
+      deviceInstanceId: deviceIdentity?.instanceId ?? null,
+      deviceName: deviceIdentity?.deviceName ?? null,
       sessionId: session?.sessionId ?? null,
       fingerprint: session?.fingerprint ?? null,
       podName: config.podName,
@@ -155,7 +168,6 @@ export function startSetupServer(deps: SetupServerDeps): SetupServerHandle {
       try {
         await completeLogin(storage, { code, state })
         onSignedIn()
-        setup.onSignedIn()
         res.writeHead(302, { Location: '/' })
         res.end()
       } catch (err) {
@@ -167,7 +179,12 @@ export function startSetupServer(deps: SetupServerDeps): SetupServerHandle {
     }
 
     if (url === '/setup/regenerate-code' && req.method === 'POST') {
-      setup.regeneratePairingCode()
+      if (config.registryBootstrapEnabled) {
+        await rotateRegistryPairingCode(config.stateDir)
+        await ensureAgentRegistryAfterSso(storage, config)
+      } else {
+        setup.regeneratePairingCode()
+      }
       res.writeHead(204)
       res.end()
       return

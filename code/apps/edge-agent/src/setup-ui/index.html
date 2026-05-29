@@ -31,6 +31,17 @@
     <p class="muted">Complete sign-in in your browser. You will return here automatically.</p>
   </section>
 
+  <section data-screen="registry_ready" hidden>
+    <h1>Verification server ready</h1>
+    <p class="muted">Signed in as <strong id="registry-signed-in-as">—</strong></p>
+    <p>This server is registered. Complete setup in <strong>WR Desk</strong> on your computer:</p>
+    <p class="muted">Settings → Email verification → Add verification server</p>
+    <p>If you have more than one server, use this disambiguation code when prompted:</p>
+    <p class="code" id="registry-pairing-code">000-000</p>
+    <p class="muted">Device: <span id="registry-device-name">—</span></p>
+    <p><a href="#" id="regenerate-registry-code">Generate new code</a></p>
+  </section>
+
   <section data-screen="code_displayed" hidden>
     <h1>Pair with WR Desk</h1>
     <p class="muted">Signed in as <strong id="signed-in-as">—</strong></p>
