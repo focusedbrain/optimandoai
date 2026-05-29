@@ -3,11 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
-import {
-  verifyBeapImageDigest,
-  ImageDigestMismatchError,
-  loadExpectedDigest,
-} from '../imageDigestVerify.js'
+import * as imageDigest from '../imageDigestVerify.js'
 
 describe('verifyBeapImageDigest', () => {
   test('passes when inspect digest matches expected file', async () => {
@@ -18,7 +14,7 @@ describe('verifyBeapImageDigest', () => {
       JSON.stringify({ 'beap-components': { dev: 'sha256:abc' } }),
     )
     await expect(
-      verifyBeapImageDigest('beap-components:dev', {
+      imageDigest.verifyBeapImageDigest('beap-components:dev', {
         digestPath,
         inspect: async () => 'sha256:abc',
       }),
@@ -34,15 +30,23 @@ describe('verifyBeapImageDigest', () => {
       JSON.stringify({ 'beap-components': { dev: 'sha256:expected' } }),
     )
     await expect(
-      verifyBeapImageDigest('beap-components:dev', {
+      imageDigest.verifyBeapImageDigest('beap-components:dev', {
         digestPath,
         inspect: async () => 'sha256:actual',
       }),
-    ).rejects.toBeInstanceOf(ImageDigestMismatchError)
+    ).rejects.toBeInstanceOf(imageDigest.ImageDigestMismatchError)
     rmSync(dir, { recursive: true, force: true })
   })
 
   test('skips verify when expected digest is placeholder', () => {
-    expect(loadExpectedDigest('beap-components:dev')).toBeNull()
+    expect(imageDigest.loadExpectedDigest('beap-components:dev')).toBeNull()
+  })
+})
+
+describe('ensureBeapPodImagePresent', () => {
+  test('throws fail-closed when image is not in Podman', async () => {
+    await expect(
+      imageDigest.ensureBeapPodImagePresent('beap-components:dev', { tryAutoBuild: false }),
+    ).rejects.toThrow(/not available in Podman/)
   })
 })

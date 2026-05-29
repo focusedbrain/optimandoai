@@ -110,3 +110,39 @@ describe('pod.yaml LOCAL_HOST quarantine', () => {
     expect(dep?.body).toMatch(/mountPath:\s*\/var\/lib\/quarantine/)
   })
 })
+
+describe('pod manifest container rosters (authoritative for completeness gate)', () => {
+  test('pod.yaml LOCAL_HOST defines five containers — no certifier', () => {
+    const containers = splitContainers(readFileSync(join(ROOT, 'pod.yaml'), 'utf8'))
+    expect(containers.map((c) => c.name)).toEqual([
+      'ingestor',
+      'validator',
+      'depackager',
+      'pdf-parser',
+      'sealer',
+    ])
+  })
+
+  test('pod-local-verify.yaml defines six containers including verifier — no certifier', () => {
+    const containers = splitContainers(
+      readFileSync(join(ROOT, 'pod-local-verify.yaml'), 'utf8'),
+    )
+    expect(containers.map((c) => c.name)).toEqual([
+      'ingestor',
+      'verifier',
+      'validator',
+      'depackager',
+      'pdf-parser',
+      'sealer',
+    ])
+  })
+
+  test('pod-remote-edge.yaml includes certifier (REMOTE_EDGE only)', () => {
+    const names = splitContainers(
+      readFileSync(join(ROOT, 'pod-remote-edge.yaml'), 'utf8'),
+    ).map((c) => c.name)
+    expect(names).toContain('certifier')
+    expect(names).toContain('validator')
+    expect(names).not.toContain('sealer')
+  })
+})

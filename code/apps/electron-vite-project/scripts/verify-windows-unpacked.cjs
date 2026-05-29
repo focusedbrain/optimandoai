@@ -48,6 +48,18 @@ const exePath = resolvePackagedExePath()
 /** Electron always ships these next to the EXE; missing => incomplete tree (AV, or portable-only build). */
 const REQUIRED_PEER_FILES = [{ name: 'ffmpeg.dll', minBytes: 64 * 1024 }]
 
+/** LOCAL_POD reads these from process.resourcesPath/packages/beap-pod in packaged builds. */
+const REQUIRED_BEAP_POD_RESOURCES = [
+  'packages/beap-pod/pod.yaml',
+  'packages/beap-pod/pod-local-verify.yaml',
+  'packages/beap-pod/pod-remote-edge.yaml',
+  'packages/beap-pod/expected-image-digest.json',
+  'packages/beap-pod/seccomp/sealer.json',
+  'packages/beap-pod/seccomp/depackager.json',
+  'packages/beap-pod/seccomp/pdf-parser.json',
+  'packages/beap-pod/seccomp/certifier.json',
+]
+
 function verifyRequiredPeers() {
   for (const { name, minBytes } of REQUIRED_PEER_FILES) {
     const p = path.join(winUnpackedDir, name)
@@ -166,6 +178,20 @@ if (mz[0] !== 0x4d || mz[1] !== 0x5a) {
   )
   process.exit(1)
 }
+
+const resourcesDir = path.join(winUnpackedDir, 'resources')
+const missingBeapPod = REQUIRED_BEAP_POD_RESOURCES.filter(
+  (rel) => !fs.existsSync(path.join(resourcesDir, ...rel.split('/'))),
+)
+if (missingBeapPod.length > 0) {
+  console.error(
+    '[verify-win-unpacked] MISSING BEAP pod resources (LOCAL_HOST isolation will fail at runtime):\n' +
+      missingBeapPod.map((p) => `  resources/${p}`).join('\n') +
+      '\n  Fix: ensure electron-builder.config.cjs extraResources bundles packages/beap-pod, then rebuild.',
+  )
+  process.exit(1)
+}
+console.log('[verify-win-unpacked] BEAP pod resources OK:', REQUIRED_BEAP_POD_RESOURCES.length, 'files')
 
 console.log('[verify-win-unpacked] OK:', exePath, `size=${st.size}`)
 console.log(

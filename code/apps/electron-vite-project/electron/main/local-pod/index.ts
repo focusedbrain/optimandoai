@@ -38,6 +38,7 @@ import {
   startLocalPodSupervisor,
   stopLocalPodSupervisor,
 } from './supervisor/index.js'
+import { checkRequiredPodContainersReady } from './podContainerCompleteness.js'
 import { setPodSessionAuthSecret, clearPodSessionAuthSecret } from './podSessionAuth.js'
 import { getHostPodBaseUrl } from '../ingestion/edgeProbe.js'
 import { refreshJwksOnStartup } from '../edge-tier/jwks.js'
@@ -63,6 +64,11 @@ export { getLocalPodStatus, getLocalPodUnavailableMessage }
 // ── Module-level state ─────────────────────────────────────────────────────────
 
 let _activePod: ActivePod | null = null
+
+/** Active pod name when lifecycle is ready; null when stopped or not started. */
+export function getActiveLocalPodName(): string | null {
+  return _activePod?.podName ?? null
+}
 let _startPromise: Promise<void> | null = null
 let _restartPromise: Promise<void> | null = null
 
@@ -312,7 +318,8 @@ async function _doStartOnce(options?: LocalPodOptions): Promise<string | null> {
             /* ignore teardown errors */
           }
         }
-        const failMsg = 'Pod started but ingestor /health did not become ready in time'
+        const failMsg =
+          'Pod started but required containers did not all become running and healthy in time'
         console.error(`[LOCAL_POD] ${failMsg}`)
         return failMsg
       }
@@ -372,7 +379,10 @@ async function waitForPodHealth(
   const url = `${getHostPodBaseUrl().replace(/\/+$/, '')}/health`
   for (let i = 0; i < POD_HEALTH_MAX_ATTEMPTS; i++) {
     if (await probe(url)) {
-      return true
+      const podName = _activePod?.podName
+      if (!podName) return false
+      const complete = await checkRequiredPodContainersReady(podName)
+      if (complete.ok) return true
     }
     await sleep(POD_HEALTH_INTERVAL_MS)
   }

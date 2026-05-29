@@ -52,3 +52,29 @@ export function resolveBeapPodExpectedDigestPath(): string {
   }
   return join(resolveBeapPodPackageDir(), 'expected-image-digest.json')
 }
+
+export function resolveBeapPodRemoteEdgeManifestPath(): string {
+  if (process.env['BEAP_REMOTE_EDGE_MANIFEST']?.trim()) {
+    return process.env['BEAP_REMOTE_EDGE_MANIFEST'].trim()
+  }
+  return join(resolveBeapPodPackageDir(), 'pod-remote-edge.yaml')
+}
+
+/**
+ * Fail closed when pod.yaml (and packaged resource tree) is missing.
+ * @throws when manifest assets are not on disk
+ */
+export function assertBeapPodPackageDirReady(): string {
+  const dir = resolveBeapPodPackageDir()
+  const manifestPath = join(dir, 'pod.yaml')
+  if (!existsSync(manifestPath)) {
+    if (app.isPackaged) {
+      throw new Error(
+        `[LOCAL_POD] Packaged BEAP pod assets missing at ${dir} (pod.yaml ENOENT). ` +
+          'Rebuild the desktop installer — resources/packages/beap-pod must ship with the app.',
+      )
+    }
+    throw new Error(`[LOCAL_POD] Cannot find pod.yaml at ${manifestPath}`)
+  }
+  return dir
+}

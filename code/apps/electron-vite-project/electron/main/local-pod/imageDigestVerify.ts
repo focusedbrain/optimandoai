@@ -2,11 +2,14 @@
  * Runtime digest verification for beap-components images (Stream A — A3).
  */
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import { resolveBeapPodExpectedDigestPath } from './beapPodPaths.js'
+import { app } from 'electron'
+
+import { resolveBeapPodExpectedDigestPath, resolveBeapPodPackageDir } from './beapPodPaths.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -63,6 +66,78 @@ export function loadExpectedDigest(
 }
 
 export type PodmanInspectFn = (imageRef: string) => Promise<string | null>
+
+export async function isBeapImagePresent(imageRef = DEFAULT_BEAP_IMAGE): Promise<boolean> {
+  if (process.env['BEAP_SKIP_IMAGE_DIGEST_VERIFY'] === '1') {
+    try {
+      await execFileAsync(
+        'podman',
+        ['image', 'inspect', imageRef, '--format', '{{.Id}}'],
+        { timeout: 15_000, windowsHide: true },
+      )
+      return true
+    } catch {
+      return false
+    }
+  }
+  try {
+    const { stdout } = await execFileAsync(
+      'podman',
+      ['image', 'inspect', imageRef, '--format', '{{.Id}}'],
+      { timeout: 15_000, windowsHide: true },
+    )
+    return stdout.trim().length > 0
+  } catch {
+    return false
+  }
+}
+
+async function tryBuildBeapImageIfDev(imageRef: string): Promise<boolean> {
+  if (app.isPackaged || process.env['BEAP_AUTO_BUILD_IMAGE'] !== '1') {
+    return false
+  }
+  const containerfile = join(resolveBeapPodPackageDir(), 'Containerfile')
+  if (!existsSync(containerfile)) {
+    return false
+  }
+  const workspaceRoot = resolve(resolveBeapPodPackageDir(), '..', '..')
+  console.log(
+    `[LOCAL_POD] ${imageRef} missing — BEAP_AUTO_BUILD_IMAGE=1, building from ${containerfile}`,
+  )
+  try {
+    await execFileAsync(
+      'podman',
+      ['build', '-t', imageRef, '-f', containerfile, workspaceRoot],
+      { timeout: 20 * 60_000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
+    )
+    return await isBeapImagePresent(imageRef)
+  } catch (err) {
+    console.warn('[LOCAL_POD] Auto-build failed:', (err as Error).message ?? err)
+    return false
+  }
+}
+
+/**
+ * Require beap-components:dev (or override) in local Podman before play kube.
+ * Digest verification is separate; this always runs unless skipImageDigestVerify on pod start.
+ */
+export async function ensureBeapPodImagePresent(
+  imageRef = DEFAULT_BEAP_IMAGE,
+  options?: { tryAutoBuild?: boolean },
+): Promise<void> {
+  if (await isBeapImagePresent(imageRef)) {
+    return
+  }
+  if (options?.tryAutoBuild !== false && (await tryBuildBeapImageIfDev(imageRef))) {
+    return
+  }
+  throw new Error(
+    `BEAP pod image ${imageRef} is not available in Podman. Build and load it once per machine:\n` +
+      '  From monorepo root: pnpm --filter @repo/beap-pod run docker:build\n' +
+      '  Or: podman build -t beap-components:dev -f packages/beap-pod/Containerfile .\n' +
+      'Dev auto-build: set BEAP_AUTO_BUILD_IMAGE=1 when Containerfile is present.',
+  )
+}
 
 export async function defaultPodmanInspectDigest(imageRef: string): Promise<string | null> {
   if (process.env['BEAP_SKIP_IMAGE_DIGEST_VERIFY'] === '1') {

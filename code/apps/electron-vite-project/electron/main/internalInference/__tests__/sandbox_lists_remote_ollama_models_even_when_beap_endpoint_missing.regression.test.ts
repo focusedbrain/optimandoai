@@ -16,6 +16,7 @@ vi.mock('electron', () => ({
 
 import type { SandboxOllamaDirectTagsFetchResult } from '../sandboxHostAiOllamaDirectTags'
 import type { HandshakeRecord } from '../../handshake/types'
+import { buildTestSession } from '../../handshake/sessionFactory'
 import type { HostAiTransportDeciderResult } from '../transport/decideInternalInferenceTransport'
 import * as decideInternalInferenceTransportModule from '../transport/decideInternalInferenceTransport'
 import { InternalInferenceErrorCode } from '../errors'
@@ -77,6 +78,12 @@ vi.mock('../../orchestrator/orchestratorModeStore', () => ({
   isSandboxMode: () => isSandboxModeMock(),
   getOrchestratorMode: () => getOrchestratorModeMock(),
   getInstanceId: () => getInstanceIdMock(),
+}))
+
+const getCurrentSessionMock = vi.hoisted(() => vi.fn())
+
+vi.mock('../../handshake/ipc', () => ({
+  getCurrentSession: () => getCurrentSessionMock(),
 }))
 
 const listHandshakeRecordsMock = vi.fn<
@@ -283,6 +290,14 @@ describe('sandbox_lists_remote_ollama_models_even_when_beap_endpoint_missing', (
     isSandboxModeMock.mockReturnValue(true)
     getHandshakeDbMock.mockResolvedValue({})
     getInstanceIdMock.mockReturnValue('dev-sand-coord-1')
+    getCurrentSessionMock.mockReturnValue(
+      buildTestSession({
+        wrdesk_user_id: 'same',
+        email: 'same@test.dev',
+        iss: 'https://idp',
+        sub: 'sub-same',
+      }),
+    )
     fetchOdTagsMock.mockImplementation(async () => odTagsResult())
     decideSpy = vi
       .spyOn(decideInternalInferenceTransportModule, 'decideInternalInferenceTransport')

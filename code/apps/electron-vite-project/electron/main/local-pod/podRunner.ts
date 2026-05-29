@@ -110,9 +110,12 @@ export async function applyPodManifest(
   const localVerify = options?.localVerify
 
   if (!options?.skipImageDigestVerify) {
-    const { verifyBeapImageDigest } = await import('./imageDigestVerify.js')
+    const { assertBeapPodPackageDirReady } = await import('./beapPodPaths.js')
+    const { ensureBeapPodImagePresent, verifyBeapImageDigest } = await import('./imageDigestVerify.js')
     const { installLocalPodSeccompProfiles } = await import('./installSeccompProfiles.js')
+    assertBeapPodPackageDirReady()
     installLocalPodSeccompProfiles()
+    await ensureBeapPodImagePresent()
     await verifyBeapImageDigest()
   }
 

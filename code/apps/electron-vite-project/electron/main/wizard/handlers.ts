@@ -5,8 +5,9 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
+
+import { resolveBeapPodRemoteEdgeManifestPath } from '../local-pod/beapPodPaths.js'
 
 import { ensureSession, getCachedUserInfo } from '../../../src/auth/session.js'
 import { resolveTier, TIER_LEVEL, type Tier } from '../../../src/auth/capabilities.js'
@@ -92,12 +93,7 @@ export function createDefaultWizardHandlerDeps(vault: EdgeTierPodVault): WizardH
 }
 
 export function readRemoteEdgeManifestTemplate(): string {
-  const fromEnv = process.env['BEAP_REMOTE_EDGE_MANIFEST']
-  if (fromEnv) return readFileSync(fromEnv, 'utf8')
-  return readFileSync(
-    join(process.cwd(), 'packages', 'beap-pod', 'pod-remote-edge.yaml'),
-    'utf8',
-  )
+  return readFileSync(resolveBeapPodRemoteEdgeManifestPath(), 'utf8')
 }
 
 export async function wizardRefreshTier(

@@ -95,9 +95,28 @@ export async function probeHostPodReady(force = false): Promise<boolean> {
     /* supervisor optional in tests */
   }
   if (!force && _hostPodReady) return true
-  const ok = await probeUrl(`${getHostPodBaseUrl()}/health`, HOST_POD_PROBE_TIMEOUT_MS)
-  _hostPodReady = ok
-  return ok
+  const ingestorOk = await probeUrl(`${getHostPodBaseUrl()}/health`, HOST_POD_PROBE_TIMEOUT_MS)
+  if (!ingestorOk) {
+    _hostPodReady = false
+    return false
+  }
+  try {
+    const { getActiveLocalPodName } = await import('../local-pod/index.js')
+    const { checkRequiredPodContainersReady } = await import(
+      '../local-pod/podContainerCompleteness.js'
+    )
+    const podName = getActiveLocalPodName()
+    if (!podName) {
+      _hostPodReady = false
+      return false
+    }
+    const complete = await checkRequiredPodContainersReady(podName)
+    _hostPodReady = complete.ok
+    return complete.ok
+  } catch {
+    _hostPodReady = false
+    return false
+  }
 }
 
 export function invalidateHostPodReadyCache(): void {

@@ -1,6 +1,6 @@
 # BEAP pod manifest — LOCAL_HOST mode (Phase 1)
 #
-# Four containers share one pod network namespace; only the ingestor's port
+# Five containers share one pod network namespace; only the ingestor's port
 # (18100) is forwarded to the host.  All intra-pod calls go via loopback.
 #
 # Secret injection:

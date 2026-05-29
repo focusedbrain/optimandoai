@@ -9,6 +9,8 @@ import {
   type InternalHandshakeRoleSource,
 } from '../../../../../packages/shared/src/handshake/internalIdentityUi'
 import { listHandshakeRecords } from '../handshake/db'
+import { filterHandshakeRecordsForCurrentSession } from '../handshake/handshakeAccountIsolation'
+import { getCurrentSession } from '../handshake/ipc'
 import { HandshakeState, type HandshakeRecord } from '../handshake/types'
 import { getInstanceId, getOrchestratorMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { getHostAiLedgerRoleSummaryFromDb } from './hostAiEffectiveRole'
@@ -1380,10 +1382,21 @@ function finalizeItem(t: HostTargetDraft): HostInternalInferenceListItem {
 }
 
 /**
+ * ACTIVE ledger rows visible to the current SSO session — same filter as handshake list UI
+ * (`filterHandshakeRecordsForCurrentSession`). Fail-closed when session is missing.
+ */
+function listActiveHandshakeRecordsForCurrentSession(db: unknown): HandshakeRecord[] {
+  const raw = listHandshakeRecords(db as Parameters<typeof listHandshakeRecords>[0], {
+    state: HandshakeState.ACTIVE,
+  })
+  return filterHandshakeRecordsForCurrentSession(raw, getCurrentSession())
+}
+
+/**
  * At least one ACTIVE internal row: same account + handshake-derived Sandbox→Host.
  */
 function anyActiveRowProvesLocalSandboxToHostFromDb(db: unknown): boolean {
-  const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE })
+  const rows = listActiveHandshakeRecordsForCurrentSession(db)
   for (const r0 of rows) {
     if (r0.handshake_type !== 'internal' || r0.state !== HandshakeState.ACTIVE) continue
     if (rowProvesLocalSandboxToHostForHostAi(r0)) return true
@@ -1643,10 +1656,21 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     return { ok: true, targets: [], refreshMeta: { hadCapabilitiesProbed: false } }
   }
 
+  const currentSession = getCurrentSession()
+  if (!currentSession) {
+    console.log(`${L} list_empty reason=no_sso_session_fail_closed`)
+    console.log(`${L} list_done count=0`)
+    return { ok: true, targets: [], refreshMeta: { hadCapabilitiesProbed: false } }
+  }
+
   if (!hostAiPeerAdvertisedMapHydrated) {
     await hydrateHostAdvertisedMapFromLedger(
       db,
-      async () => listHandshakeRecords(db, { state: HandshakeState.ACTIVE, handshake_type: 'internal' }),
+      async () =>
+        filterHandshakeRecordsForCurrentSession(
+          listHandshakeRecords(db, { state: HandshakeState.ACTIVE, handshake_type: 'internal' }),
+          currentSession,
+        ),
       'list_targets_init',
     )
     hostAiPeerAdvertisedMapHydrated = true
@@ -1664,8 +1688,8 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     }
   }
 
-  /** 1) ACTIVE rows first, then 2) derive roles, 3) count handshake Sandbox→Host. */
-  const ledgerActive = listHandshakeRecords(db, { state: HandshakeState.ACTIVE })
+  /** 1) ACTIVE rows for current SSO session, then 2) derive roles, 3) count handshake Sandbox→Host. */
+  const ledgerActive = listActiveHandshakeRecordsForCurrentSession(db)
   const activeInternalCount = ledgerActive.filter((r) => r.handshake_type === 'internal').length
   let activeInternalSandboxToHostCount = 0
   let handshakeProvesSandboxToHost = false

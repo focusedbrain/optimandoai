@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/wrdesk-list-inference-step8-test' } }))
 import type { HandshakeRecord, PartyIdentity } from '../../handshake/types'
+import { buildTestSession } from '../../handshake/sessionFactory'
 import { InternalInferenceErrorCode } from '../errors'
 import { assertP2pEndpointDirect, p2pEndpointKind } from '../policy'
 import {
@@ -57,6 +58,12 @@ vi.mock('../../orchestrator/orchestratorModeStore', () => ({
   isSandboxMode: () => isSandboxModeMock(),
   getOrchestratorMode: () => getOrchestratorModeMock(),
   getInstanceId: () => getInstanceIdMock(),
+}))
+
+const getCurrentSessionMock = vi.hoisted(() => vi.fn())
+
+vi.mock('../../handshake/ipc', () => ({
+  getCurrentSession: () => getCurrentSessionMock(),
 }))
 
 const listHandshakeRecordsMock = vi.fn<
@@ -216,6 +223,15 @@ function readyDcSessionMock(over: Partial<{ sessionId: string }> = {}) {
   }
 }
 
+function sessionForParty(uid: string) {
+  return buildTestSession({
+    wrdesk_user_id: uid,
+    email: `${uid}@test.dev`,
+    iss: 'https://idp',
+    sub: `sub-${uid}`,
+  })
+}
+
 /** Sandbox (initiator) ↔ Host (acceptor), same principal — matches assertSandboxRequestToHost. */
 function activeInternalSandboxToHost(over: Partial<HandshakeRecord> = {}): HandshakeRecord {
   return {
@@ -302,6 +318,7 @@ beforeEach(() => {
     return minimalOrch('host')
   })
   getHandshakeDbMock.mockResolvedValue({})
+  getCurrentSessionMock.mockReturnValue(sessionForParty('same-user'))
   listHandshakeRecordsMock.mockReturnValue([])
   probeHostInferencePolicyFromSandboxMock.mockReset()
   listHostCapabilitiesListMock.mockReset()
@@ -1325,5 +1342,53 @@ describe('FINAL ACCEPTANCE — main: P2P down, selector not silently empty', () 
     expect(r.targets).toHaveLength(1)
     expect(r.targets[0]?.available).toBe(false)
     expect(r.targets[0]?.unavailable_reason).toBe('MISSING_P2P_ENDPOINT')
+  })
+})
+
+describe('session identity isolation — Host AI list', () => {
+  it('returns no targets when current SSO session does not match handshake party', async () => {
+    isSandboxModeMock.mockReturnValue(true)
+    getCurrentSessionMock.mockReturnValue(sessionForParty('user-b'))
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
+    seedVerifiedPeerDirectBeapForInternalRow()
+    probeHostInferencePolicyFromSandboxMock.mockResolvedValue({
+      ok: true,
+      allowSandboxInference: true,
+      defaultChatModel: 'gemma3:12b',
+      hostComputerNameFromHost: 'Konge-AS1',
+    })
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toEqual([])
+  })
+
+  it('returns no targets when SSO session is missing (fail-closed)', async () => {
+    isSandboxModeMock.mockReturnValue(true)
+    getCurrentSessionMock.mockReturnValue(null)
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toEqual([])
+  })
+
+  it('lists targets when session matches handshake party', async () => {
+    isSandboxModeMock.mockReturnValue(true)
+    getCurrentSessionMock.mockReturnValue(sessionForParty('same-user'))
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
+    seedVerifiedPeerDirectBeapForInternalRow()
+    isDcUpListMock.mockReturnValue(false)
+    probeHostInferencePolicyFromSandboxMock.mockResolvedValue({
+      ok: true as const,
+      allowSandboxInference: true,
+      defaultChatModel: 'gemma3:12b',
+      modelId: 'gemma3:12b',
+      displayLabelFromHost: 'Host AI · gemma3:12b',
+      hostComputerNameFromHost: 'Konge-AS1',
+      hostOrchestratorRoleLabelFromHost: 'Host orchestrator',
+      internalIdentifierDisplayFromHost: '123-456',
+      internalIdentifier6FromHost: '123456',
+      directP2pAvailable: true,
+    })
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toHaveLength(1)
+    expect(r.targets[0]?.available).toBe(true)
   })
 })

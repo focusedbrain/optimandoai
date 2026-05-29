@@ -7,10 +7,10 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\build200'
+ *   return 'C:\\build-output\\build300'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build200'
+  return 'C:\\build-output\\build300'
 }
 
 const workspaceRoot = path.resolve(appDir, '../..')
@@ -87,18 +87,37 @@ if (fs.existsSync(tesseractLang)) {
 }
 
 const beapPodDir = path.join(workspaceRoot, 'packages', 'beap-pod')
-if (fs.existsSync(beapPodDir)) {
-  extraResources.push({
-    from: path.relative(appDir, beapPodDir).replace(/\\/g, '/'),
-    to: 'packages/beap-pod',
-    filter: [
-      'pod.yaml',
-      'pod-local-verify.yaml',
-      'expected-image-digest.json',
-      'seccomp/**',
-    ],
-  })
+const BEAP_POD_PACKAGING_FILES = [
+  'pod.yaml',
+  'pod-local-verify.yaml',
+  'pod-remote-edge.yaml',
+  'expected-image-digest.json',
+  'seccomp/sealer.json',
+  'seccomp/depackager.json',
+  'seccomp/pdf-parser.json',
+  'seccomp/certifier.json',
+]
+if (!fs.existsSync(beapPodDir)) {
+  throw new Error(
+    `[electron-builder] packages/beap-pod missing at ${beapPodDir} — run from monorepo with BEAP pod package present`,
+  )
 }
+for (const rel of BEAP_POD_PACKAGING_FILES) {
+  if (!fs.existsSync(path.join(beapPodDir, rel))) {
+    throw new Error(`[electron-builder] BEAP pod packaging asset missing: ${rel}`)
+  }
+}
+extraResources.push({
+  from: beapPodDir,
+  to: 'packages/beap-pod',
+  filter: [
+    'pod.yaml',
+    'pod-local-verify.yaml',
+    'pod-remote-edge.yaml',
+    'expected-image-digest.json',
+    'seccomp/**',
+  ],
+})
 
 module.exports = {
   /** pnpm hoists `electron` to the workspace root; electron-builder looks in app/node_modules first. */

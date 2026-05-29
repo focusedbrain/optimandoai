@@ -117,6 +117,8 @@ async function pollOnce(): Promise<void> {
     await pollContainer(podName, spec, nowMs)
   }
 
+  await syncHostPodReadyAfterPoll(podName)
+
   if (specs.some((s) => s.role === 'depackager')) {
     const dep = specs.find((s) => s.role === 'depackager')
     if (dep) {
@@ -129,6 +131,31 @@ async function pollOnce(): Promise<void> {
         /* non-fatal */
       }
     }
+  }
+}
+
+async function syncHostPodReadyAfterPoll(podName: string): Promise<void> {
+  if (getHostPodSupervisorState() !== 'healthy') return
+
+  try {
+    const { checkRequiredPodContainersReady } = await import('../podContainerCompleteness.js')
+    const { invalidateHostPodReadyCache, probeHostPodReady } = await import(
+      '../../ingestion/edgeProbe.js'
+    )
+    const complete = await checkRequiredPodContainersReady(podName)
+    if (!complete.ok) {
+      invalidateHostPodReadyCache()
+      try {
+        const { refreshIngestionMode } = await import('../../ingestion/ingestionModeService.js')
+        void refreshIngestionMode(true)
+      } catch {
+        /* optional */
+      }
+      return
+    }
+    await probeHostPodReady(true)
+  } catch {
+    /* tests / optional ingestion */
   }
 }
 
