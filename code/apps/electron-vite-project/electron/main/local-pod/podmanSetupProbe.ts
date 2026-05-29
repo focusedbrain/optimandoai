@@ -12,7 +12,7 @@ export async function refreshPodmanSetupProbe(
   const err = await probePodmanSetup(options)
   setPodSetupErrorRef(err)
   markPodmanProbeComplete()
-  broadcastPodmanSetupState(err)
+  broadcastPodmanSetupState()
   if (err) {
     console.warn(
       '[BEAP_PREFLIGHT] Podman isolation NOT ready:',

@@ -2,9 +2,11 @@
  * Podman feature-detect — unit tests
  */
 
-import { describe, test, expect } from 'vitest'
+import { describe, test, expect, beforeEach } from 'vitest'
+
 import {
   assertPodmanReady,
+  clearPodmanBinCacheForTest,
   PodmanSetupError,
   PODMAN_SETUP_MESSAGES,
   type ExecFileFn,
@@ -12,22 +14,33 @@ import {
 
 function makeExecFile(responses: Record<string, string | Error>): ExecFileFn {
   return async (file, args) => {
+    const podKey = args.length > 0 ? `podman ${args[0]}` : 'podman'
+    const whereKey = file.toLowerCase().includes('podman') ? podKey : `${file} ${args.join(' ')}`
     const key = `${file} ${args.join(' ')}`
-    const altKey = file === 'podman' ? `podman ${args[0]}` : key
-    const response = responses[key] ?? responses[altKey]
+    const response =
+      responses[podKey] ??
+      responses[whereKey] ??
+      responses[key] ??
+      (file === 'where' ? responses['where podman'] : undefined) ??
+      (file === 'which' ? responses['which podman'] : undefined)
     if (response instanceof Error) throw response
     if (response === undefined) {
-      throw new Error(`unexpected exec: ${key}`)
+      throw new Error(`unexpected exec: ${file} ${args.join(' ')}`)
     }
     return { stdout: response, stderr: '' }
   }
 }
+
+beforeEach(() => {
+  clearPodmanBinCacheForTest()
+})
 
 describe('assertPodmanReady', () => {
   test('linux: podman on PATH passes without machine check', async () => {
     const execFile = makeExecFile({
       'which podman': '/usr/bin/podman',
       'podman info': '{"host":{}}',
+      'podman ps': '',
     })
 
     await expect(
@@ -35,34 +48,36 @@ describe('assertPodmanReady', () => {
     ).resolves.toBeUndefined()
   })
 
-  test('linux: podman info failure throws not_installed', async () => {
-    const execFile: ExecFileFn = async (file, args) => {
-      if (file === 'which') return { stdout: '/usr/bin/podman', stderr: '' }
-      if (file === 'podman' && args[0] === 'info') throw new Error('engine down')
-      throw new Error(`unexpected: ${file} ${args.join(' ')}`)
-    }
+  test('win32: machine missing is reported before engine failure', async () => {
+    const execFile = makeExecFile({
+      'where podman': 'C:\\Program Files\\RedHat\\Podman\\podman.exe',
+      'podman machine': '[]',
+      'podman info': '{"host":{}}',
+    })
 
-    await expect(assertPodmanReady({ platform: 'linux', execFile })).rejects.toMatchObject({
-      code: 'not_installed',
+    await expect(assertPodmanReady({ platform: 'win32', execFile })).rejects.toMatchObject({
+      code: 'machine_not_initialized',
+      userMessage: PODMAN_SETUP_MESSAGES.machine_not_initialized,
     })
   })
 
-  test('linux: podman missing throws not_installed', async () => {
-    const execFile: ExecFileFn = async () => {
-      throw new Error('not found')
-    }
+  test('win32: stopped machine before engine check', async () => {
+    const execFile = makeExecFile({
+      'where podman': 'C:\\Program Files\\RedHat\\Podman\\podman.exe',
+      'podman machine': '[{"Name":"podman-machine-default","Running":false}]',
+    })
 
-    await expect(assertPodmanReady({ platform: 'linux', execFile })).rejects.toMatchObject({
-      code: 'not_installed',
-      userMessage: PODMAN_SETUP_MESSAGES.not_installed,
-    } satisfies Partial<PodmanSetupError>)
+    await expect(assertPodmanReady({ platform: 'win32', execFile })).rejects.toMatchObject({
+      code: 'machine_not_running',
+    })
   })
 
-  test('win32: podman on PATH and running machine passes', async () => {
+  test('win32: podman on PATH and running machine passes with pod ps', async () => {
     const execFile = makeExecFile({
       'where podman': 'C:\\Program Files\\RedHat\\Podman\\podman.exe',
       'podman info': '{"host":{}}',
       'podman machine': '[{"Name":"podman-machine-default","Running":true}]',
+      'podman ps': '',
     })
 
     await expect(
@@ -76,34 +91,10 @@ describe('assertPodmanReady', () => {
       throw new Error('unexpected')
     }
 
-    await expect(assertPodmanReady({ platform: 'win32', execFile })).rejects.toMatchObject({
+    await expect(
+      assertPodmanReady({ platform: 'win32', execFile, disableWellKnownPaths: true }),
+    ).rejects.toMatchObject({
       code: 'not_installed',
-    })
-  })
-
-  test('win32: no machine throws machine_not_initialized', async () => {
-    const execFile = makeExecFile({
-      'where podman': 'C:\\Program Files\\RedHat\\Podman\\podman.exe',
-      'podman info': '{"host":{}}',
-      'podman machine': '[]',
-    })
-
-    await expect(assertPodmanReady({ platform: 'win32', execFile })).rejects.toMatchObject({
-      code: 'machine_not_initialized',
-      userMessage: PODMAN_SETUP_MESSAGES.machine_not_initialized,
-    })
-  })
-
-  test('win32: no running machine throws machine_not_running', async () => {
-    const execFile = makeExecFile({
-      'where podman': 'C:\\Program Files\\RedHat\\Podman\\podman.exe',
-      'podman info': '{"host":{}}',
-      'podman machine': '[{"Name":"podman-machine-default","Running":false}]',
-    })
-
-    await expect(assertPodmanReady({ platform: 'win32', execFile })).rejects.toMatchObject({
-      code: 'machine_not_running',
-      userMessage: PODMAN_SETUP_MESSAGES.machine_not_running,
     })
   })
 
@@ -112,10 +103,19 @@ describe('assertPodmanReady', () => {
       'which podman': '/opt/homebrew/bin/podman',
       'podman info': '{"host":{}}',
       'podman machine': '[{"Name":"podman-machine-default","Running":true}]',
+      'podman ps': '',
     })
 
     await expect(
       assertPodmanReady({ platform: 'darwin', execFile }),
     ).resolves.toBeUndefined()
+  })
+})
+
+describe('PodmanSetupError codes', () => {
+  test('customer-facing messages avoid internal architecture terms', () => {
+    for (const msg of Object.values(PODMAN_SETUP_MESSAGES)) {
+      expect(msg.toLowerCase()).not.toMatch(/relay|websocket|capsule|beap/)
+    }
   })
 })

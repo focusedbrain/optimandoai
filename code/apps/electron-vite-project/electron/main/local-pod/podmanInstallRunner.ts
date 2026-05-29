@@ -165,5 +165,38 @@ export async function runPodmanInstallAction(
   if (!command) {
     return { ok: false, command: '', stdout: '', stderr: 'Unknown action', exitCode: null }
   }
-  return spawnLogged(command, true)
+  const result = await spawnLogged(command, true)
+  return normalizeInstallCommandResult(action, result)
+}
+
+/** Winget exits non-zero when the package is already installed — treat as progress. */
+export function isWingetAlreadyInstalledOutput(text: string): boolean {
+  const lower = text.toLowerCase()
+  return (
+    lower.includes('already installed') ||
+    lower.includes('no available upgrade') ||
+    lower.includes('existing package') ||
+    lower.includes('no newer package versions')
+  )
+}
+
+export function normalizeInstallCommandResult(
+  action: PodmanInstallAction,
+  result: PodmanCommandResult,
+): PodmanCommandResult {
+  if (result.ok) return result
+  const combined = `${result.stdout}\n${result.stderr}`
+  if (action === 'winget_install' && isWingetAlreadyInstalledOutput(combined)) {
+    return {
+      ...result,
+      ok: true,
+      stderr: result.stderr
+        ? `${result.stderr}\n[interpreted: Podman package already installed — continuing setup]`
+        : '[interpreted: Podman package already installed — continuing setup]',
+    }
+  }
+  if (action === 'brew_install' && combined.toLowerCase().includes('already installed')) {
+    return { ...result, ok: true }
+  }
+  return result
 }

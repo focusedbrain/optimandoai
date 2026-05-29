@@ -4,68 +4,61 @@
 
 import { ipcMain, shell } from 'electron'
 
-import {
-  PODMAN_MANUAL_INSTALL_URL,
-  type PodmanSetupErrorCode,
-} from './podmanDetect.js'
-import { getPodSetupErrorRef, isPodmanProbeComplete } from './podStatus.js'
+import { PODMAN_MANUAL_INSTALL_URL } from './podmanDetect.js'
 import { refreshPodmanSetupProbe } from './podmanSetupProbe.js'
 import { broadcastPodmanSetupState } from './podmanSetupBroadcast.js'
 import {
-  getInstallActionsForPlatform,
+  buildPodmanSetupStatusSnapshot,
+  type PodmanSetupStatusSnapshot,
+} from './podmanSetupStatus.js'
+import {
   runPodmanInstallAction,
   type PodmanInstallAction,
 } from './podmanInstallRunner.js'
+import { getPodSetupErrorRef } from './podStatus.js'
 
-export interface PodmanSetupStatusResponse {
-  required: boolean
-  probePending: boolean
-  code: PodmanSetupErrorCode | null
-  userMessage: string | null
-  platform: NodeJS.Platform
-  install: ReturnType<typeof getInstallActionsForPlatform>
-  showMachineSteps: boolean
-  machineInitCommand: string
-  machineStartCommand: string
-}
+export type PodmanSetupStatusResponse = PodmanSetupStatusSnapshot
 
-function buildStatusResponse(): PodmanSetupStatusResponse {
+async function refreshIngestionAfterProbeReady(): Promise<void> {
   const err = getPodSetupErrorRef()
-  const probePending = !isPodmanProbeComplete()
-  const plat = process.platform
-  const install = getInstallActionsForPlatform(plat)
-  const showMachineSteps =
-    !probePending &&
-    (plat === 'win32' || plat === 'darwin') &&
-    (err?.code === 'machine_not_initialized' || err?.code === 'machine_not_running')
-
-  return {
-    required: err != null,
-    probePending,
-    code: err?.code ?? null,
-    userMessage: err?.userMessage ?? null,
-    platform: plat,
-    install,
-    showMachineSteps,
-    machineInitCommand: 'podman machine init',
-    machineStartCommand: 'podman machine start',
+  if (err) return
+  const { refreshIngestionMode } = await import('../ingestion/ingestionModeService.js')
+  const snap = await refreshIngestionMode(true)
+  if (snap.mode !== 'Blocked') {
+    const { drainHoldQueueIfReady } = await import('../ingestion/ingestionDispatcher.js')
+    const { startLocalPodWhenSsoReady } = await import('./index.js')
+    void startLocalPodWhenSsoReady()
+    void drainHoldQueueIfReady()
   }
 }
 
+/** After package install (or already-installed), advance machine init/start when needed. */
+async function runMachineSetupFollowUp(): Promise<PodmanInstallAction[]> {
+  const ran: PodmanInstallAction[] = []
+  let err = await refreshPodmanSetupProbe()
+
+  if (err?.code === 'machine_not_initialized') {
+    const init = await runPodmanInstallAction('machine_init')
+    if (init.ok) ran.push('machine_init')
+    err = await refreshPodmanSetupProbe()
+  }
+
+  if (err?.code === 'machine_not_running') {
+    const start = await runPodmanInstallAction('machine_start')
+    if (start.ok) ran.push('machine_start')
+    await refreshPodmanSetupProbe()
+  }
+
+  return ran
+}
+
 export function registerPodmanSetupIpc(): void {
-  ipcMain.handle('podman-setup:get-status', async () => buildStatusResponse())
+  ipcMain.handle('podman-setup:get-status', async () => buildPodmanSetupStatusSnapshot())
 
   ipcMain.handle('podman-setup:probe', async () => {
-    const err = await refreshPodmanSetupProbe()
-    const { refreshIngestionMode } = await import('../ingestion/ingestionModeService.js')
-    const snap = await refreshIngestionMode(true)
-    if (!err && snap.mode !== 'Blocked') {
-      const { drainHoldQueueIfReady } = await import('../ingestion/ingestionDispatcher.js')
-      const { startLocalPodWhenSsoReady } = await import('./index.js')
-      void startLocalPodWhenSsoReady()
-      void drainHoldQueueIfReady()
-    }
-    return { ...buildStatusResponse(), ingestionMode: snap.mode, blockedReason: snap.blockedReason }
+    await refreshPodmanSetupProbe()
+    await refreshIngestionAfterProbeReady()
+    return buildPodmanSetupStatusSnapshot()
   })
 
   ipcMain.handle('podman-setup:open-manual-install', async () => {
@@ -86,13 +79,25 @@ export function registerPodmanSetupIpc(): void {
     if (!allowed.includes(action)) {
       throw new Error(`Invalid podman setup action: ${String(action)}`)
     }
+
     const result = await runPodmanInstallAction(action)
-    const err = await refreshPodmanSetupProbe()
-    if (!err) {
-      const { refreshIngestionMode } = await import('../ingestion/ingestionModeService.js')
-      await refreshIngestionMode(true)
+    await refreshPodmanSetupProbe()
+
+    if (
+      result.ok &&
+      (action === 'winget_install' || action === 'brew_install')
+    ) {
+      await runMachineSetupFollowUp()
+    } else if (result.ok && action === 'machine_init') {
+      const err = getPodSetupErrorRef()
+      if (err?.code === 'machine_not_running') {
+        await runPodmanInstallAction('machine_start')
+        await refreshPodmanSetupProbe()
+      }
     }
-    return { result, status: buildStatusResponse() }
+
+    await refreshIngestionAfterProbeReady()
+    return { result, status: buildPodmanSetupStatusSnapshot() }
   })
 }
 

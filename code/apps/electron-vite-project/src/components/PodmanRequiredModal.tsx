@@ -1,10 +1,8 @@
 /**
- * Blocking gate — BEAP receive requires Podman (no dismiss-and-continue).
+ * Blocking gate — secure isolation requires Podman (runtime recovery path).
  */
 
-import { useCallback, useEffect, useState } from 'react'
-
-import { wizardOverlayStyle, wizardCardStyle, btnPrimary, btnSecondary } from '../edge-tier-wizard/styles.js'
+import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 
 export interface PodmanSetupStatus {
   required: boolean
@@ -12,6 +10,11 @@ export interface PodmanSetupStatus {
   code: string | null
   userMessage: string | null
   platform: string
+  setupPhase: string
+  headline: string
+  summary: string
+  showPackageInstall: boolean
+  showMachineSteps: boolean
   install: {
     canAutoInstall: boolean
     installAction: string | null
@@ -20,7 +23,6 @@ export interface PodmanSetupStatus {
     manualHint: string
     linuxDistroHints?: Array<{ id: string; label: string; commands: readonly string[] }>
   }
-  showMachineSteps: boolean
   machineInitCommand: string
   machineStartCommand: string
 }
@@ -38,6 +40,11 @@ const DEFAULT_STATUS: PodmanSetupStatus = {
   code: null,
   userMessage: null,
   platform: 'win32',
+  setupPhase: 'checking',
+  headline: 'Checking secure container setup…',
+  summary: '',
+  showPackageInstall: false,
+  showMachineSteps: false,
   install: {
     canAutoInstall: false,
     installAction: null,
@@ -46,9 +53,90 @@ const DEFAULT_STATUS: PodmanSetupStatus = {
     manualHint: '',
     linuxDistroHints: [],
   },
-  showMachineSteps: false,
   machineInitCommand: 'podman machine init',
   machineStartCommand: 'podman machine start',
+}
+
+const overlayStyle: CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  zIndex: 10000,
+  background: 'color-mix(in srgb, var(--text-primary, #0f1419) 45%, transparent)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 16,
+}
+
+const cardStyle: CSSProperties = {
+  width: '100%',
+  maxWidth: 520,
+  maxHeight: '90vh',
+  overflow: 'auto',
+  background: 'var(--bg-surface, var(--bg-surface-prof, #ffffff))',
+  color: 'var(--text-primary, var(--text-primary-prof, #0f1419))',
+  border: '1px solid var(--border, var(--border-prof, #e1e8ed))',
+  borderRadius: 12,
+  boxShadow: '0 16px 48px color-mix(in srgb, var(--text-primary, #0f1419) 25%, transparent)',
+  padding: 24,
+}
+
+const statusBoxStyle: CSSProperties = {
+  margin: '0 0 16px',
+  padding: 12,
+  background: 'var(--bg-elevated, var(--bg-elevated-prof, #ffffff))',
+  color: 'var(--text-primary, var(--text-primary-prof, #0f1419))',
+  border: '1px solid var(--border-subtle, var(--border-subtle-prof, #eef3f6))',
+  borderRadius: 8,
+  fontSize: 13,
+  lineHeight: 1.5,
+}
+
+const btnPrimary: CSSProperties = {
+  padding: '10px 16px',
+  borderRadius: 8,
+  border: '1px solid var(--accent, var(--accent-prof, #1d9bf0))',
+  background: 'var(--accent, var(--accent-prof, #1d9bf0))',
+  color: '#ffffff',
+  cursor: 'pointer',
+  fontSize: 14,
+  fontWeight: 600,
+}
+
+const btnSecondary: CSSProperties = {
+  padding: '10px 16px',
+  borderRadius: 8,
+  border: '1px solid var(--border, var(--border-prof, #e1e8ed))',
+  background: 'var(--bg-elevated, var(--bg-elevated-prof, #ffffff))',
+  color: 'var(--text-primary, var(--text-primary-prof, #0f1419))',
+  cursor: 'pointer',
+  fontSize: 14,
+}
+
+const mutedStyle: CSSProperties = {
+  color: 'var(--text-secondary, var(--text-secondary-prof, #536471))',
+  fontSize: 13,
+  lineHeight: 1.5,
+}
+
+function applyStatusFromPayload(res: Record<string, unknown>): PodmanSetupStatus {
+  return {
+    required: Boolean(res.required),
+    probePending: Boolean(res.probePending),
+    code: typeof res.code === 'string' ? res.code : null,
+    userMessage: typeof res.userMessage === 'string' ? res.userMessage : null,
+    platform: typeof res.platform === 'string' ? res.platform : 'win32',
+    setupPhase: typeof res.setupPhase === 'string' ? res.setupPhase : 'checking',
+    headline: typeof res.headline === 'string' ? res.headline : DEFAULT_STATUS.headline,
+    summary: typeof res.summary === 'string' ? res.summary : '',
+    showPackageInstall: Boolean(res.showPackageInstall),
+    showMachineSteps: Boolean(res.showMachineSteps),
+    install: (res.install as PodmanSetupStatus['install']) ?? DEFAULT_STATUS.install,
+    machineInitCommand:
+      typeof res.machineInitCommand === 'string' ? res.machineInitCommand : 'podman machine init',
+    machineStartCommand:
+      typeof res.machineStartCommand === 'string' ? res.machineStartCommand : 'podman machine start',
+  }
 }
 
 export function PodmanRequiredModal(): JSX.Element | null {
@@ -59,19 +147,7 @@ export function PodmanRequiredModal(): JSX.Element | null {
   const [error, setError] = useState<string | null>(null)
 
   const applyStatus = useCallback((res: Record<string, unknown>) => {
-    setStatus({
-      required: Boolean(res.required),
-      probePending: Boolean(res.probePending),
-      code: typeof res.code === 'string' ? res.code : null,
-      userMessage: typeof res.userMessage === 'string' ? res.userMessage : null,
-      platform: typeof res.platform === 'string' ? res.platform : 'win32',
-      install: (res.install as PodmanSetupStatus['install']) ?? DEFAULT_STATUS.install,
-      showMachineSteps: Boolean(res.showMachineSteps),
-      machineInitCommand:
-        typeof res.machineInitCommand === 'string' ? res.machineInitCommand : 'podman machine init',
-      machineStartCommand:
-        typeof res.machineStartCommand === 'string' ? res.machineStartCommand : 'podman machine start',
-    })
+    setStatus(applyStatusFromPayload(res))
   }, [])
 
   const refresh = useCallback(async () => {
@@ -92,13 +168,7 @@ export function PodmanRequiredModal(): JSX.Element | null {
     if (!api?.getStatus) return
     void api.getStatus().then((s) => applyStatus(s as Record<string, unknown>))
     const off = api.onState?.((payload) => {
-      setStatus((prev) => ({
-        ...prev,
-        required: payload.required,
-        code: payload.code,
-        userMessage: payload.userMessage,
-        platform: payload.platform,
-      }))
+      applyStatus(payload as Record<string, unknown>)
     })
     return () => off?.()
   }, [api, applyStatus])
@@ -127,65 +197,47 @@ export function PodmanRequiredModal(): JSX.Element | null {
 
   if (!status.required) return null
 
-  const title = status.probePending
-    ? 'Checking Podman — BEAP is blocked until verified'
-    : 'Podman required — BEAP cannot run without isolation'
-  const code = status.code
   const linuxHints = status.install.linuxDistroHints ?? []
+  const showContinueSetup =
+    !status.probePending &&
+    status.showMachineSteps &&
+    status.setupPhase === 'need_machine_init'
 
   return (
     <div
-      style={wizardOverlayStyle}
+      style={overlayStyle}
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="podman-required-title"
       data-testid="podman-required-modal"
     >
-      <div style={{ ...wizardCardStyle, maxWidth: 560 }}>
+      <div style={cardStyle}>
         <h2
           id="podman-required-title"
-          style={{ margin: '0 0 12px', fontSize: 18, color: 'var(--text-primary, #f8fafc)' }}
+          style={{
+            margin: '0 0 12px',
+            fontSize: 20,
+            fontWeight: 600,
+            color: 'var(--text-primary, var(--text-primary-prof, #0f1419))',
+          }}
         >
-          {title}
+          {status.headline}
         </h2>
-        <p style={{ margin: '0 0 12px', color: 'var(--text-secondary, #cbd5e1)' }}>
-          BEAP security isolation depends on <strong>Podman</strong>. The orchestrator cannot start relay
-          receive, coordination WebSocket, or local capsule handling until Podman is installed and its virtual
-          machine is running (Windows/macOS). Untrusted capsules are never processed in the main app process.
+        <p style={{ ...mutedStyle, margin: '0 0 12px' }}>{status.summary}</p>
+        <p style={{ ...mutedStyle, margin: '0 0 16px', fontSize: 12 }}>
+          Podman is not included with WR Desk. Install it once on this computer. This screen appears
+          if Podman is missing or stopped later — the installer should set it up before your first
+          session when possible.
         </p>
-        <p style={{ margin: '0 0 16px', color: 'var(--text-secondary, #94a3b8)', fontSize: 12 }}>
-          There is no continue-without-Podman mode. Podman is not bundled (license). Install once, then use
-          Check again after setup.
-        </p>
-        {status.probePending ? (
-          <p
-            style={{
-              margin: '0 0 16px',
-              padding: 10,
-              background: 'var(--bg-elevated, #1e293b)',
-              borderRadius: 6,
-              color: 'var(--text-primary, #e2e8f0)',
-              fontSize: 12,
-            }}
-          >
-            {status.userMessage ?? 'Checking Podman installation…'}
-          </p>
-        ) : status.userMessage ? (
-          <p
-            style={{
-              margin: '0 0 16px',
-              padding: 10,
-              background: 'var(--bg-elevated, #1e293b)',
-              borderRadius: 6,
-              color: 'var(--text-primary, #e2e8f0)',
-              fontSize: 12,
-            }}
-          >
+
+        {status.userMessage ? (
+          <div style={statusBoxStyle} data-testid="podman-status-message">
+            {status.probePending ? 'Checking… ' : null}
             {status.userMessage}
-          </p>
+          </div>
         ) : null}
 
-        {!status.probePending && status.install.canAutoInstall && status.install.installAction ? (
+        {!status.probePending && status.showPackageInstall && status.install.canAutoInstall && status.install.installAction ? (
           <div style={{ marginBottom: 16 }}>
             <button
               type="button"
@@ -198,9 +250,9 @@ export function PodmanRequiredModal(): JSX.Element | null {
             {status.install.installCommand ? (
               <pre
                 style={{
+                  ...mutedStyle,
                   marginTop: 8,
                   fontSize: 11,
-                  color: 'var(--text-secondary, #94a3b8)',
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-all',
                 }}
@@ -208,22 +260,20 @@ export function PodmanRequiredModal(): JSX.Element | null {
                 {status.install.installCommand}
               </pre>
             ) : null}
-            <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--text-secondary, #64748b)' }}>
-              {status.install.manualHint}
-            </p>
+            <p style={{ ...mutedStyle, margin: '8px 0 0', fontSize: 12 }}>{status.install.manualHint}</p>
           </div>
-        ) : !status.probePending ? (
+        ) : null}
+
+        {!status.probePending && !status.showPackageInstall && status.platform === 'linux' ? (
           <div style={{ marginBottom: 16 }}>
-            <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--text-secondary, #94a3b8)' }}>
-              {status.install.manualHint}
-            </p>
+            <p style={{ ...mutedStyle, margin: '0 0 8px', fontSize: 12 }}>{status.install.manualHint}</p>
             {linuxHints.length > 0 ? (
               <ul
                 style={{
                   margin: 0,
                   paddingLeft: 18,
                   fontSize: 12,
-                  color: 'var(--text-primary, #e2e8f0)',
+                  color: 'var(--text-primary, var(--text-primary-prof, #0f1419))',
                 }}
               >
                 {linuxHints.map((hint) => (
@@ -231,9 +281,9 @@ export function PodmanRequiredModal(): JSX.Element | null {
                     <strong>{hint.label}</strong>
                     <pre
                       style={{
+                        ...mutedStyle,
                         margin: '4px 0 0',
                         fontSize: 11,
-                        color: 'var(--text-secondary, #94a3b8)',
                         whiteSpace: 'pre-wrap',
                       }}
                     >
@@ -248,12 +298,22 @@ export function PodmanRequiredModal(): JSX.Element | null {
 
         {!status.probePending && status.showMachineSteps ? (
           <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary, #cbd5e1)' }}>
-              {code === 'machine_not_initialized'
-                ? 'After Podman is installed, create and start the virtual machine:'
-                : 'Start the Podman virtual machine:'}
+            <p style={{ ...mutedStyle, margin: 0 }}>
+              {status.setupPhase === 'need_machine_init'
+                ? 'Next: create and start Podman’s background environment (one-time on Windows/Mac).'
+                : 'Next: start Podman’s background environment.'}
             </p>
-            {code === 'machine_not_initialized' ? (
+            {showContinueSetup ? (
+              <button
+                type="button"
+                style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}
+                disabled={busy}
+                onClick={() => void runAction('machine_init')}
+              >
+                Continue setup (create environment)
+              </button>
+            ) : null}
+            {status.setupPhase === 'need_machine_init' ? (
               <button
                 type="button"
                 style={{ ...btnSecondary, opacity: busy ? 0.6 : 1 }}
@@ -263,14 +323,16 @@ export function PodmanRequiredModal(): JSX.Element | null {
                 Run: {status.machineInitCommand}
               </button>
             ) : null}
-            <button
-              type="button"
-              style={{ ...btnSecondary, opacity: busy ? 0.6 : 1 }}
-              disabled={busy}
-              onClick={() => void runAction('machine_start')}
-            >
-              Run: {status.machineStartCommand}
-            </button>
+            {(status.setupPhase === 'need_machine_init' || status.setupPhase === 'need_machine_start') && (
+              <button
+                type="button"
+                style={{ ...btnSecondary, opacity: busy ? 0.6 : 1 }}
+                disabled={busy}
+                onClick={() => void runAction('machine_start')}
+              >
+                Run: {status.machineStartCommand}
+              </button>
+            )}
           </div>
         ) : null}
 
@@ -278,13 +340,13 @@ export function PodmanRequiredModal(): JSX.Element | null {
           <button
             type="button"
             style={btnSecondary}
-            disabled={busy || status.probePending}
+            disabled={busy}
             onClick={() => void api?.openManualInstall?.()}
           >
-            Open podman.io install guide
+            Open install guide
           </button>
           <button type="button" style={btnPrimary} disabled={busy} onClick={() => void refresh()}>
-            {status.probePending ? 'Checking…' : 'Check again'}
+            {status.probePending || busy ? 'Checking…' : 'Check again'}
           </button>
         </div>
 
@@ -294,18 +356,27 @@ export function PodmanRequiredModal(): JSX.Element | null {
               margin: 0,
               maxHeight: 120,
               overflow: 'auto',
-              fontSize: 10,
-              padding: 8,
-              background: 'var(--bg-surface, #020617)',
-              borderRadius: 4,
-              color: lastLog.ok ? '#86efac' : '#fca5a5',
+              fontSize: 11,
+              padding: 10,
+              background: 'var(--bg-elevated, var(--bg-elevated-prof, #ffffff))',
+              color: 'var(--text-primary, var(--text-primary-prof, #0f1419))',
+              border: `1px solid ${lastLog.ok ? 'var(--success, var(--success-prof, #00ba7c))' : 'var(--danger, var(--danger-prof, #f4212e))'}`,
+              borderRadius: 6,
             }}
           >
-            {`$ ${lastLog.command}\n${lastLog.ok ? lastLog.stdout : lastLog.stderr || lastLog.stdout}`}
+            {`$ ${lastLog.command}\n${lastLog.ok ? lastLog.stdout || '(completed)' : lastLog.stderr || lastLog.stdout}`}
           </pre>
         ) : null}
         {error ? (
-          <p style={{ margin: '8px 0 0', color: '#f87171', fontSize: 12 }}>{error}</p>
+          <p
+            style={{
+              margin: '8px 0 0',
+              color: 'var(--danger, var(--danger-prof, #f4212e))',
+              fontSize: 13,
+            }}
+          >
+            {error}
+          </p>
         ) : null}
       </div>
     </div>
