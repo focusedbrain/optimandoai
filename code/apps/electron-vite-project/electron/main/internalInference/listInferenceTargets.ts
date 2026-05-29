@@ -91,6 +91,10 @@ import {
   buildSyntheticOkProbeFromOllamaDirectTags,
   hostComputerNameFromHandshakeRecord,
 } from './sandboxHostAiOllamaDirectSyntheticProbe'
+import {
+  hasHostPeerIdentityBoundLivePresence,
+  tryRecordHostPeerLivePresenceFromCapabilitiesWire,
+} from './hostAiPeerLivePresence'
 import type { HostAiEndpointDiagnostics } from '../../../src/lib/hostAiUiDiagnostics'
 import { hostAiUserFacingMessageFromTarget } from '../../../src/lib/hostAiUiDiagnostics'
 import type { HostAiTargetStatus } from './hostAiTargetStatus'
@@ -127,7 +131,6 @@ function hostOllamaDirectSyntheticProbeMeta(
  */
 function sandboxOllamaDirectTagsAllowListTransportBypass(tags: SandboxOllamaDirectTagsFetchResult): boolean {
   return (
-    tags.cache_hit === true ||
     tags.classification === 'available' ||
     tags.classification === 'no_models' ||
     tags.classification === 'transport_unavailable' ||
@@ -973,6 +976,8 @@ export type HostAiStructuredUnavailableReason =
   | 'ollama_direct_invalid_advertisement'
   /** LAN `ollama_direct`: reachable via `/api/tags` but zero models. */
   | 'ollama_direct_no_models_installed'
+  /** Host peer reachable but SSO identity offline or mismatched vs handshake host party. */
+  | 'host_peer_identity_offline'
 
 export interface HostInternalInferenceListItem {
   /** Same as `kind`; preferred for new IPC/selector consumers. */
@@ -1518,9 +1523,11 @@ async function tryEmitOllamaDirectOnlyRowsAfterBeapProbeFailure(p: {
   leK: HostListLegacyEndpointKind
   odTagsPrefetch: SandboxOllamaDirectTagsFetchResult | null
   beapFailureCode: string
+  record: HandshakeRecord
 }): Promise<boolean> {
-  const { targets, hid, hostDevice, ml0, listDec, leK, odTagsPrefetch, beapFailureCode } = p
+  const { targets, hid, hostDevice, ml0, listDec, leK, odTagsPrefetch, beapFailureCode, record } = p
   if (!hostDevice.trim()) return false
+  if (!hasHostPeerIdentityBoundLivePresence(hid, record)) return false
   const odRescue = getSandboxOllamaDirectRouteCandidate(hid)
   const baseUrlStr = typeof odRescue?.base_url === 'string' ? odRescue.base_url.trim() : ''
   if (!odRescue || !baseUrlStr) return false
@@ -1610,6 +1617,52 @@ async function tryEmitOllamaDirectOnlyRowsAfterBeapProbeFailure(p: {
     `${L} beap_target_available=false ollama_direct_available=true transport=${transportProbeLabel} handshake=${hid} ollama_direct_models=${pushed} reason=beap_probe_failed_od_rescue`,
   )
   return pushed > 0
+}
+
+function draftHostPeerIdentityOfflineDisabledRow(
+  r0: HandshakeRecord,
+  hid: string,
+  hostDevice: string,
+  ml0: ReturnType<typeof metaLocal>,
+  listDec: HostAiTransportDeciderResult,
+  leK: HostListLegacyEndpointKind,
+): HostTargetDraft {
+  const sub = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
+  const lab = 'Host AI unavailable — Host identity offline'
+  return {
+    kind: 'host_internal',
+    id: buildHostTargetId(hid, 'unavailable'),
+    label: lab,
+    display_label: lab,
+    displayTitle: lab,
+    displaySubtitle: sub,
+    model: null,
+    model_id: null,
+    provider: 'host_internal',
+    handshake_id: hid,
+    host_device_id: hostDevice,
+    host_computer_name: ml0.hostName,
+    host_pairing_code: ml0.digits6,
+    host_orchestrator_role: 'host',
+    host_orchestrator_role_label: ml0.roleLabel,
+    internal_identifier_6: ml0.digits6,
+    secondary_label: sub,
+    direct_reachable: false,
+    policy_enabled: false,
+    available: false,
+    hostTargetAvailable: false,
+    availability: 'host_offline',
+    unavailable_reason: InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE,
+    hostAiStructuredUnavailableReason: 'host_peer_identity_offline',
+    host_role: 'Host',
+    inference_error_code: InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE,
+    ...baseMetaFromDec(listDec, leK),
+    p2pUiPhase: 'p2p_unavailable',
+    failureCode: InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE,
+    host_ai_target_status: 'offline',
+    host_selector_state: 'unavailable',
+    hostSelectorState: 'unavailable',
+  }
 }
 
 /**
@@ -1918,7 +1971,8 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       hostDevice.trim() !== '' &&
       odTagsPrefetch != null &&
       Date.now() >= until429 &&
-      sandboxOllamaDirectTagsAllowListTransportBypass(odTagsPrefetch)
+      sandboxOllamaDirectTagsAllowListTransportBypass(odTagsPrefetch) &&
+      hasHostPeerIdentityBoundLivePresence(hid, r0)
     const inferenceTrusted = listDec.inferenceHandshakeTrusted === true
     const handshakeTrustReason = listDec.inferenceHandshakeTrustReason ?? null
     const transportDecideLogReason: string = (() => {
@@ -2440,7 +2494,8 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         odCandPrefetch &&
         odTagsPrefetch &&
         hostDevice.trim() !== '' &&
-        sandboxOllamaDirectTagsAllowListTransportBypass(odTagsPrefetch)
+        sandboxOllamaDirectTagsAllowListTransportBypass(odTagsPrefetch) &&
+        hasHostPeerIdentityBoundLivePresence(hid, r0)
       ) {
         /** BEAP/policy HTTP on cooldown — Ollama LAN tags already enumerated ⇒ list via `ollama_direct` only. */
         probe = buildSyntheticOkProbeFromOllamaDirectTags(
@@ -2458,7 +2513,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         }
         hadCapabilitiesProbed = true
       }
-    } else if (bypassOllamaDirectLan && odTagsPrefetch) {
+    } else if (bypassOllamaDirectLan && odTagsPrefetch && hasHostPeerIdentityBoundLivePresence(hid, r0)) {
       probe = buildSyntheticOkProbeFromOllamaDirectTags(
         odTagsPrefetch,
         hostOllamaDirectSyntheticProbeMeta(hid, { hostName: ml0.hostName, digits6: ml0.digits6 }),
@@ -2499,6 +2554,12 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
             if (hostDevice) {
               recordHostAiReciprocalCapabilitiesSuccess(hid, hostDevice)
             }
+            tryRecordHostPeerLivePresenceFromCapabilitiesWire(
+              hid,
+              r0,
+              capP2p.wire as Record<string, unknown>,
+              capP2p.wire.policy_enabled === true,
+            )
             probe = mapCapabilitiesWireToProbe(capP2p.wire)
           } else {
             const rsn = String('reason' in capP2p ? capP2p.reason : 'unknown')
@@ -2593,6 +2654,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           leK,
           odTagsPrefetch,
           beapFailureCode: InternalInferenceErrorCode.PROBE_HOST_ERROR,
+          record: r0,
         })
         if (rescuedWebrtcThrow) {
           continue
@@ -2648,6 +2710,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           leK,
           odTagsPrefetch,
           beapFailureCode: InternalInferenceErrorCode.PROBE_HOST_ERROR,
+          record: r0,
         })
         if (rescuedPolicyThrow) {
           continue
@@ -2916,6 +2979,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           leK,
           odTagsPrefetch,
           beapFailureCode: String(code),
+          record: r0,
         })
         if (rescuedProbeFail) {
           continue
@@ -2928,6 +2992,14 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
 
     hostAiDirectProbe429CooldownUntil.delete(hid)
     const hm = metaFromOkProbe(probe, displayName, pcc)
+
+    if (!hasHostPeerIdentityBoundLivePresence(hid, r0)) {
+      console.log(
+        `${L} target_disabled handshake=${hid} reason=HOST_PEER_IDENTITY_NOT_LIVE detail=${InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE}`,
+      )
+      targets.push(finalizeItem(draftHostPeerIdentityOfflineDisabledRow(r0, hid, hostDevice, ml0, listDec, leK)))
+      continue
+    }
 
     const odCand = odCandPrefetch ?? getSandboxOllamaDirectRouteCandidate(hid)
     let odTags: SandboxOllamaDirectTagsFetchResult | null = odTagsPrefetch

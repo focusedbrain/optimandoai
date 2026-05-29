@@ -21,13 +21,11 @@
 
 import { readFileSync, writeFileSync, unlinkSync, mkdtempSync, rmdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { execFile } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { promisify } from 'node:util'
 
 import { resolveBeapPodManifestPath } from './beapPodPaths.js'
-
-const execFileAsync = promisify(execFile)
+import { createPodmanExecutor } from './podExec.js'
+import { reconcilePodBeforeStart } from './podReconcile.js'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -72,15 +70,7 @@ const PODMAN_TIMEOUT_MS = 60_000
 
 // ── Default executor ───────────────────────────────────────────────────────────
 
-const defaultExecutor: PodmanExecutor = async (args, env) => {
-  const result = await execFileAsync('podman', args, {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env,
-    timeout: PODMAN_TIMEOUT_MS,
-  })
-  if (result.stdout) console.log(`[LOCAL_POD] podman ${args[0]}: ${result.stdout.trim()}`)
-  if (result.stderr) console.warn(`[LOCAL_POD] podman ${args[0]} stderr: ${result.stderr.trim()}`)
-}
+const defaultExecutor: PodmanExecutor = createPodmanExecutor(PODMAN_TIMEOUT_MS)
 
 // ── Manifest path resolution ───────────────────────────────────────────────────
 
@@ -140,6 +130,8 @@ export async function applyPodManifest(
       .replace(/\$\{LOCAL_VERIFY_ALLOW_DIRECT_P2P\}/g, localVerify.allowDirectP2p ? '1' : '0')
   }
 
+  await reconcilePodBeforeStart(podName, executor)
+
   const tmpDir = mkdtempSync(join(tmpdir(), 'beap-pod-'))
   const tmpManifest = join(tmpDir, 'pod-applied.yaml')
 
@@ -164,17 +156,10 @@ export async function applyPodManifest(
 
 async function teardownPod(podName: string, executor: PodmanExecutor): Promise<void> {
   try {
-    await executor(['pod', 'stop', '--time', '10', podName], { ...process.env })
-    console.log(`[LOCAL_POD] pod stop ${podName}: ok`)
+    await executor(['pod', 'rm', '-f', podName], { ...process.env })
+    console.log(`[LOCAL_POD] pod rm -f ${podName}: ok`)
   } catch (err) {
-    console.warn(`[LOCAL_POD] pod stop ${podName}: ${(err as Error).message}`)
-  }
-
-  try {
-    await executor(['pod', 'rm', podName], { ...process.env })
-    console.log(`[LOCAL_POD] pod rm ${podName}: ok`)
-  } catch (err) {
-    console.warn(`[LOCAL_POD] pod rm ${podName}: ${(err as Error).message}`)
+    console.warn(`[LOCAL_POD] pod rm -f ${podName}: ${(err as Error).message}`)
   }
 }
 

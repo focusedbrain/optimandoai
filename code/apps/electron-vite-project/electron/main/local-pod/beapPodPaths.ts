@@ -53,6 +53,14 @@ export function resolveBeapPodExpectedDigestPath(): string {
   return join(resolveBeapPodPackageDir(), 'expected-image-digest.json')
 }
 
+/** Pre-built OCI tarball shipped with packaged apps for silent image restore. */
+export function resolveBeapImageArtifactPath(): string {
+  if (process.env['BEAP_IMAGE_ARTIFACT']?.trim()) {
+    return process.env['BEAP_IMAGE_ARTIFACT'].trim()
+  }
+  return join(resolveBeapPodPackageDir(), 'beap-components-dev.tar')
+}
+
 export function resolveBeapPodRemoteEdgeManifestPath(): string {
   if (process.env['BEAP_REMOTE_EDGE_MANIFEST']?.trim()) {
     return process.env['BEAP_REMOTE_EDGE_MANIFEST'].trim()

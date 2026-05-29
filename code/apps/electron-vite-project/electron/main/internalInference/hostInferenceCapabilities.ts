@@ -30,6 +30,11 @@ import {
   type HostOllamaDirectAdvertisement,
 } from './hostAiOllamaDirectAdvertisement'
 import { extractPeerLanIpv4HintFromHttpUrl, recordHostAiOllamaDirectLanProbeLine } from './hostAiOllamaDirectLanIp'
+import {
+  assertHostMachineSessionMatchesHandshakeHostParty,
+  hostPublisherIdentityWireFields,
+} from './hostAiPeerLivePresence'
+import { getCurrentSession } from '../handshake/ipc'
 
 function digits6FromPairing(raw: string | null | undefined): string {
   const s = (raw ?? '').replace(/\D/g, '')
@@ -112,7 +117,9 @@ export async function buildInternalInferenceCapabilitiesResult(
   const hostPolicy = getHostInternalInferencePolicy()
   const dbCaps = await getHandshakeDbForInternalInference()
   const policyRes = resolveHostAiRemoteInferencePolicyBestEffort(dbCaps)
-  const allowSandboxInference = policyRes.allowRemoteInference
+  const hostSessionGate = assertHostMachineSessionMatchesHandshakeHostParty(record)
+  const allowSandboxInference =
+    policyRes.allowRemoteInference && hostSessionGate.ok
   const { modelAllowlist } = hostPolicy
   const { deviceName: orchName } = getOrchestratorMode()
   const hostComputerName = (orchName || '').trim() || 'This computer (Host)'
@@ -160,6 +167,7 @@ export async function buildInternalInferenceCapabilitiesResult(
     host_pairing_code: hostPairingCode,
     models: [],
     policy_enabled: allowSandboxInference,
+    ...hostPublisherIdentityWireFields(getCurrentSession()),
   }
 
   const localDerivedRole =
@@ -181,6 +189,9 @@ export async function buildInternalInferenceCapabilitiesResult(
   applyHostOllamaDirectWireFields(base, ollamaDirectAdv, localHostId)
 
   if (!allowSandboxInference) {
+    if (!hostSessionGate.ok) {
+      base.inference_error_code = hostSessionGate.code
+    }
     return { wire: base, meta }
   }
 

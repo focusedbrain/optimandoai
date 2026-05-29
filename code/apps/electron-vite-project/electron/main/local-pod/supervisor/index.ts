@@ -29,16 +29,23 @@ import {
 import { pickupLocalDiagnosticReports } from './reportPickupLocal.js'
 import { pickupLocalQuarantineEntries } from './quarantinePickupLocal.js'
 import { notifyLocalPodSupervisorIssue } from '../notify.js'
+import { podExistsLocally } from '../podReconcile.js'
+import { isBeapImagePresent, restoreBeapPodImage } from '../imageDigestVerify.js'
 
 export const LOCAL_POD_HEALTH_PROBE_INTERVAL_MS = 5_000
 export const LOCAL_POD_HEALTH_PROBE_TIMEOUT_MS = 3_000
 export const LOCAL_POD_STUCK_HEALTH_THRESHOLD = 3
+
+/** When this many required containers are missing, individual replace cannot recover. */
+const FULL_RESTART_MISSING_THRESHOLD = 2
 
 const consecutiveFailures = new Map<string, number>()
 
 let _pollTimer: ReturnType<typeof setInterval> | null = null
 let _activePodName: string | null = null
 let _stopPodFn: (() => Promise<void>) | null = null
+let _restartPodFn: (() => Promise<void>) | null = null
+let _fullRestartInFlight = false
 const _replacing = new Set<string>()
 
 function probeKey(podName: string, role: string): string {
@@ -80,10 +87,12 @@ export {
 export function startLocalPodSupervisor(
   podName: string,
   stopPod: () => Promise<void>,
+  restartPod: () => Promise<void>,
 ): void {
   stopLocalPodSupervisor()
   _activePodName = podName
   _stopPodFn = stopPod
+  _restartPodFn = restartPod
   setHostPodSupervisorHealthy()
   clearReplacementBudgetForPod(podName)
   console.log(`[LOCAL_POD_SUPERVISOR] Started for pod ${podName}`)
@@ -102,19 +111,60 @@ export function stopLocalPodSupervisor(): void {
   }
   _activePodName = null
   _stopPodFn = null
+  _restartPodFn = null
+  _fullRestartInFlight = false
   _replacing.clear()
   consecutiveFailures.clear()
+}
+
+async function scheduleFullPodRestart(reason: string): Promise<void> {
+  const podName = _activePodName
+  if (!podName || _fullRestartInFlight || !_restartPodFn) return
+
+  _fullRestartInFlight = true
+  stopLocalPodSupervisor()
+  console.log(`[LOCAL_POD_SUPERVISOR] Full pod restart: ${reason}`)
+
+  try {
+    if (!(await isBeapImagePresent())) {
+      await restoreBeapPodImage()
+    }
+    clearReplacementBudgetForPod(podName)
+    clearHostPodSupervisorHaltForRetry()
+    await _restartPodFn()
+  } catch (err) {
+    console.warn(
+      `[LOCAL_POD_SUPERVISOR] Full restart failed: ${(err as Error).message ?? err}`,
+    )
+  } finally {
+    _fullRestartInFlight = false
+  }
 }
 
 async function pollOnce(): Promise<void> {
   const podName = _activePodName
   if (!podName || getHostPodSupervisorState() !== 'healthy') return
 
+  if (!(await podExistsLocally(podName))) {
+    await scheduleFullPodRestart('pod_missing')
+    return
+  }
+
   const specs = containersForPodName(podName)
   const nowMs = Date.now()
+  let missingCount = 0
 
   for (const spec of specs) {
+    const state = await inspectContainerState(spec.containerName)
+    if (state === 'missing') {
+      missingCount++
+    }
     await pollContainer(podName, spec, nowMs)
+  }
+
+  if (missingCount >= FULL_RESTART_MISSING_THRESHOLD) {
+    await scheduleFullPodRestart(`containers_missing count=${missingCount}`)
+    return
   }
 
   await syncHostPodReadyAfterPoll(podName)
@@ -190,7 +240,7 @@ async function pollContainer(
     return
   }
 
-  if (state === 'exited' || state === 'missing') {
+  if (state === 'exited' || state === 'missing' || state === 'unknown') {
     console.log(
       `[LOCAL_POD_SUPERVISOR] Container ${spec.role} state=${state} — replacing`,
     )
@@ -210,9 +260,8 @@ async function replaceContainer(
   const allowance = checkReplacementAllowed(podName, spec.role, nowMs)
   if (!allowance.allowed) {
     if (allowance.newlyExhausted) {
-      await teardownPod(
-        `Automatic recovery paused after ${LOCAL_POD_MAX_REPLACEMENTS} replacements for ${spec.role}.`,
-        'replacement_exhausted',
+      await scheduleFullPodRestart(
+        `replacement budget exhausted for ${spec.role}`,
       )
     }
     return
@@ -240,6 +289,7 @@ async function replaceContainer(
       )
     } else {
       console.warn(`[LOCAL_POD_SUPERVISOR] Replace failed for ${spec.role}`)
+      await scheduleFullPodRestart(`replace_failed role=${spec.role}`)
     }
   } finally {
     _replacing.delete(lockKey)

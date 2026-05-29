@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path'
 vi.mock('../supervisor/index.js', () => ({
   startLocalPodSupervisor: vi.fn(),
   stopLocalPodSupervisor: vi.fn(),
+  LOCAL_POD_HEALTH_PROBE_TIMEOUT_MS: 3_000,
 }))
 
 vi.mock('../../edge-tier/jwks.js', () => ({

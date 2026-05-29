@@ -33,7 +33,7 @@ import {
 } from '../edge-tier/verifierLogTailer.js'
 import { assertPodmanReady, PodmanSetupError } from './podmanDetect.js'
 import { notifyLocalPodSetupIssue } from './notify.js'
-import { ImageDigestMismatchError } from './imageDigestVerify.js'
+import { ImageDigestMismatchError, BEAP_IMAGE_RESTORE_USER_MESSAGE } from './imageDigestVerify.js'
 import {
   startLocalPodSupervisor,
   stopLocalPodSupervisor,
@@ -129,8 +129,14 @@ export async function startLocalPodWhenSsoReady(): Promise<void> {
 
 export async function startLocalPod(options?: LocalPodOptions): Promise<void> {
   if (_activePod && getPodLifecycleStatus() === 'ready') {
-    console.log('[LOCAL_POD] pod already running — skipping start')
-    return
+    const podName = _activePod.podName
+    const complete = await checkRequiredPodContainersReady(podName)
+    if (complete.ok) {
+      console.log('[LOCAL_POD] pod already running — skipping start')
+      return
+    }
+    console.log(`[LOCAL_POD] Pod marked ready but incomplete — restarting (${complete.reason})`)
+    await stopLocalPod()
   }
 
   if (_startPromise) {
@@ -330,7 +336,9 @@ async function _doStartOnce(options?: LocalPodOptions): Promise<string | null> {
     setPodLastStartFailure(null)
     setPodLifecycleStatus('ready')
     console.log(`[LOCAL_POD] Pod started: ${_activePod.podName}`)
-    startLocalPodSupervisor(_activePod.podName, () => stopLocalPod())
+    startLocalPodSupervisor(_activePod.podName, () => stopLocalPod(), () =>
+      restartLocalPod(buildLocalPodStartContext(), options),
+    )
     try {
       const { invalidateHostPodReadyCache } = await import('../ingestion/edgeProbe.js')
       const { refreshIngestionMode } = await import('../ingestion/ingestionModeService.js')
@@ -346,16 +354,39 @@ async function _doStartOnce(options?: LocalPodOptions): Promise<string | null> {
     }
     return null
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    console.error('[LOCAL_POD] Failed to start pod:', msg)
+    const msg = toUserFacingPodStartError(err)
+    console.error('[LOCAL_POD] Failed to start pod:', err instanceof Error ? err.message : err)
     _activePod = null
     clearPodSessionAuthSecret()
     if (err instanceof ImageDigestMismatchError) {
-      setPodSetupErrorRef(new PodmanSetupError('not_installed', err.message))
-      notifyLocalPodSetupIssue(err.message)
+      setPodSetupErrorRef(new PodmanSetupError('not_installed', BEAP_IMAGE_RESTORE_USER_MESSAGE))
+      notifyLocalPodSetupIssue(BEAP_IMAGE_RESTORE_USER_MESSAGE)
     }
     return msg
   }
+}
+
+function toUserFacingPodStartError(err: unknown): string {
+  if (err instanceof ImageDigestMismatchError) {
+    return BEAP_IMAGE_RESTORE_USER_MESSAGE
+  }
+  const raw = err instanceof Error ? err.message : String(err)
+  if (raw === BEAP_IMAGE_RESTORE_USER_MESSAGE) {
+    return raw
+  }
+  if (raw.includes('Podman') || raw.includes('podman')) {
+    return 'Secure isolation environment is not ready.'
+  }
+  if (raw.includes('LOCAL_VERIFY requires')) {
+    return raw
+  }
+  if (raw.includes('Packaged BEAP pod assets missing') || raw.includes('Cannot find pod.yaml')) {
+    return 'Secure isolation components are missing from this installation. Reinstall the application.'
+  }
+  if (raw.includes('required containers did not all become running')) {
+    return 'Secure isolation is starting; try again shortly.'
+  }
+  return 'Secure isolation could not be initialized.'
 }
 
 async function waitForPodHealth(

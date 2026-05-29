@@ -10,6 +10,8 @@
     "test": "pnpm --filter @repo/beap-cert build && pnpm --filter @repo/role-policy build && pnpm build && vitest run",
     "test:ci": "vitest run --reporter=verbose",
     "docker:build": "cd ../.. && podman build -t beap-components:dev -f packages/beap-pod/Containerfile .",
+    "docker:export-artifact": "node scripts/export-image-artifact.mjs",
+    "docker:prepare-packaging": "pnpm docker:build && pnpm docker:export-artifact && pnpm record-image-digest",
     "record-image-digest": "node scripts/record-image-digest.mjs",
     "generate-third-party-notices": "node scripts/generate-third-party-notices.mjs"
   },

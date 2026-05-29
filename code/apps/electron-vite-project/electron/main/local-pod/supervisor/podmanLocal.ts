@@ -2,10 +2,7 @@
  * Local Podman exec helpers for host pod supervisor (no SSH).
  */
 
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-
-const execFileAsync = promisify(execFile)
+import { runPodmanCli } from '../podExec.js'
 
 export interface PodmanRunResult {
   code: number
@@ -14,24 +11,7 @@ export interface PodmanRunResult {
 }
 
 export async function runPodman(args: string[], timeoutMs = 30_000): Promise<PodmanRunResult> {
-  try {
-    const result = await execFileAsync('podman', args, {
-      timeout: timeoutMs,
-      windowsHide: true,
-    })
-    return {
-      code: 0,
-      stdout: String(result.stdout ?? ''),
-      stderr: String(result.stderr ?? ''),
-    }
-  } catch (err: unknown) {
-    const e = err as { code?: number; stdout?: string; stderr?: string }
-    return {
-      code: typeof e.code === 'number' ? e.code : 1,
-      stdout: String(e.stdout ?? ''),
-      stderr: String(e.stderr ?? ''),
-    }
-  }
+  return runPodmanCli(args, { timeoutMs })
 }
 
 export async function inspectContainerState(containerName: string): Promise<
@@ -86,6 +66,5 @@ export async function restartContainerLocal(containerName: string): Promise<bool
 }
 
 export async function stopPodLocal(podName: string): Promise<void> {
-  await runPodman(['pod', 'stop', '--time', '10', podName])
-  await runPodman(['pod', 'rm', podName])
+  await runPodman(['pod', 'rm', '-f', podName])
 }

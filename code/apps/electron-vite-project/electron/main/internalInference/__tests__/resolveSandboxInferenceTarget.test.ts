@@ -12,6 +12,14 @@ vi.mock('../sandboxHostAiOllamaDirectCandidate', () => ({
   getSandboxOllamaDirectRouteCandidate: (id: string) => getCandidateMock(id),
 }))
 
+const assertLivePresenceMock = vi.hoisted(() =>
+  vi.fn(async () => ({ ok: true as const, record: { handshake_id: 'hs-a' } })),
+)
+
+vi.mock('../hostAiPeerLivePresence', () => ({
+  assertSandboxHostPeerLivePresenceForHandshake: (...a: unknown[]) => assertLivePresenceMock(...a),
+}))
+
 vi.mock('../dbAccess', () => ({
   getHandshakeDbForInternalInference: vi.fn(async () => null),
 }))

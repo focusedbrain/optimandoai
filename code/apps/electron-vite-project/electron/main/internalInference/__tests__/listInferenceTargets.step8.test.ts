@@ -19,6 +19,10 @@ import {
 } from '../hostAiRelayCapability'
 import { resetP2pInferenceFlagsForTests } from '../p2pInferenceFlags'
 import { resetHostAdvertisedMvpDirectForTests, setHostAdvertisedMvpDirectForTests } from '../p2pEndpointRepair'
+import {
+  resetHostPeerLivePresenceForTests,
+  tryRecordHostPeerLivePresenceFromRelayAd,
+} from '../hostAiPeerLivePresence'
 
 const { isHostModeMock, isSandboxModeMock, getOrchestratorModeMock, getInstanceIdMock } = vi.hoisted(() => {
   const isHost = vi.fn(() => false)
@@ -201,10 +205,22 @@ function party(uid: string): PartyIdentity {
 
 /** Relay-attested peer-Host direct BEAP — required for HTTP probe when ledger URL alone is not verified. */
 const DEFAULT_DIRECT_INGEST = 'http://192.168.1.10:51249/beap/ingest'
-function seedVerifiedPeerDirectBeapForInternalRow(ingestUrl: string = DEFAULT_DIRECT_INGEST) {
-  setHostAdvertisedMvpDirectForTests('hs-internal-1', ingestUrl, {
+function seedVerifiedPeerDirectBeapForInternalRow(
+  ingestUrl: string = DEFAULT_DIRECT_INGEST,
+  record: HandshakeRecord = activeInternalSandboxToHost(),
+) {
+  setHostAdvertisedMvpDirectForTests(record.handshake_id, ingestUrl, {
     ownerDeviceId: 'dev-host-1',
     adSource: 'relay',
+  })
+  const hostParty = record.acceptor_device_role === 'host' ? record.acceptor : record.initiator
+  tryRecordHostPeerLivePresenceFromRelayAd(record.handshake_id, record, {
+    expires_at: new Date(Date.now() + 300_000).toISOString(),
+    host_ai_route: {
+      publisher_wrdesk_user_id: hostParty?.wrdesk_user_id,
+      publisher_iss: hostParty?.iss,
+      publisher_sub: hostParty?.sub,
+    },
   })
 }
 
@@ -310,6 +326,7 @@ beforeEach(() => {
   vi.stubEnv('WRDESK_P2P_INFERENCE_HTTP_FALLBACK', '0')
   resetP2pInferenceFlagsForTests()
   resetHostAdvertisedMvpDirectForTests()
+  resetHostPeerLivePresenceForTests()
   isHostModeMock.mockReturnValue(false)
   isSandboxModeMock.mockReturnValue(false)
   getOrchestratorModeMock.mockImplementation(() => {
@@ -338,6 +355,9 @@ beforeEach(() => {
       policy_enabled: true,
       active_local_llm: { provider: 'ollama' as const, model: 'gemma3:12b', label: 'g', enabled: true },
       active_chat_model: 'gemma3:12b',
+      hostPublisherWrdeskUserId: 'same-user',
+      hostPublisherIss: 'https://idp',
+      hostPublisherSub: 'sub-same-user',
     },
   })
   isDcUpListMock.mockReturnValue(true)
@@ -598,6 +618,9 @@ describe('STEP 9 — regression (listInferenceTargets)', () => {
         policy_enabled: true,
         active_local_llm: { provider: 'ollama' as const, model: 'm1', label: 'm', enabled: true },
         active_chat_model: 'm1',
+        hostPublisherWrdeskUserId: 'same-user',
+        hostPublisherIss: 'https://idp',
+        hostPublisherSub: 'sub-same-user',
       },
     })
     const r = await listSandboxHostInternalInferenceTargets()
@@ -1069,6 +1092,9 @@ describe('STEP 8 — Production safety (unit contracts)', () => {
         policy_enabled: true,
         active_local_llm: { provider: 'ollama' as const, model: 'gem', label: 'g', enabled: true },
         active_chat_model: 'gem',
+        hostPublisherWrdeskUserId: 'same-user',
+        hostPublisherIss: 'https://idp',
+        hostPublisherSub: 'sub-same-user',
       },
     })
     const r = await listSandboxHostInternalInferenceTargets()
@@ -1390,5 +1416,32 @@ describe('session identity isolation — Host AI list', () => {
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.targets).toHaveLength(1)
     expect(r.targets[0]?.available).toBe(true)
+  })
+
+  it('disabled target when host peer has no live identity-bound presence', async () => {
+    isSandboxModeMock.mockReturnValue(true)
+    getCurrentSessionMock.mockReturnValue(sessionForParty('same-user'))
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
+    setHostAdvertisedMvpDirectForTests('hs-internal-1', DEFAULT_DIRECT_INGEST, {
+      ownerDeviceId: 'dev-host-1',
+      adSource: 'relay',
+    })
+    isDcUpListMock.mockReturnValue(false)
+    probeHostInferencePolicyFromSandboxMock.mockResolvedValue({
+      ok: true as const,
+      allowSandboxInference: true,
+      defaultChatModel: 'gemma3:12b',
+      modelId: 'gemma3:12b',
+      displayLabelFromHost: 'Host AI · gemma3:12b',
+      hostComputerNameFromHost: 'Konge-AS1',
+      hostOrchestratorRoleLabelFromHost: 'Host orchestrator',
+      internalIdentifierDisplayFromHost: '123-456',
+      internalIdentifier6FromHost: '123456',
+      directP2pAvailable: true,
+    })
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toHaveLength(1)
+    expect(r.targets[0]?.available).toBe(false)
+    expect(r.targets[0]?.inference_error_code).toBe(InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE)
   })
 })

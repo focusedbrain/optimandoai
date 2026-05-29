@@ -44,9 +44,9 @@ describe('verifyBeapImageDigest', () => {
 })
 
 describe('ensureBeapPodImagePresent', () => {
-  test('throws fail-closed when image is not in Podman', async () => {
+  test('throws user-facing message when image cannot be restored', async () => {
     await expect(
-      imageDigest.ensureBeapPodImagePresent('beap-components:dev', { tryAutoBuild: false }),
-    ).rejects.toThrow(/not available in Podman/)
+      imageDigest.ensureBeapPodImagePresent('beap-components:dev', { tryAutoRestore: false }),
+    ).rejects.toThrow(imageDigest.BEAP_IMAGE_RESTORE_USER_MESSAGE)
   })
 })

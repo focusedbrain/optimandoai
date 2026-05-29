@@ -30,6 +30,11 @@ import { InternalInferenceErrorCode } from './errors'
 import { ollamaManager } from '../llm/ollama-manager'
 import { hostDirectP2pAdvertisementHeaders } from './p2pEndpointRepair'
 import {
+  assertHostMachineSessionMatchesHandshakeHostParty,
+  hostPublisherIdentityWireFields,
+} from './hostAiPeerLivePresence'
+import { getCurrentSession } from '../handshake/ipc'
+import {
   logBeapIngressReceived,
   logP2pBeapRejection,
   readBeapCorrelationIdFromIncoming,
@@ -140,6 +145,20 @@ export async function handleGetInternalInferencePolicy(
     return
   }
 
+  const hostSessionGate = assertHostMachineSessionMatchesHandshakeHostParty(ar.record)
+  if (!hostSessionGate.ok) {
+    logP2pBeapRejection({
+      ip,
+      status: 403,
+      reason: 'host_session_not_handshake_party',
+      handshakeId,
+      correlationId: beapCorr,
+    })
+    res.writeHead(403, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Forbidden', code: hostSessionGate.code }))
+    return
+  }
+
   const hostPolicy = getHostInternalInferencePolicy()
   const policyDb = (await getCanonHandshakeDbForHostAiPolicy(db)) as typeof db
   const policyRes = resolveHostAiRemoteInferencePolicy(policyDb)
@@ -230,6 +249,7 @@ export async function handleGetInternalInferencePolicy(
       ollamaDirectBaseUrl,
       ollamaDirectAvailable,
       endpointOwnerDeviceId: hostDev,
+      ...hostPublisherIdentityWireFields(getCurrentSession()),
     }),
   )
 }

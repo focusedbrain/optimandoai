@@ -164,6 +164,11 @@ export const InternalInferenceErrorCode = {
   HOST_AI_LEDGER_ASYMMETRIC: 'HOST_AI_LEDGER_ASYMMETRIC',
   /** Reciprocity proof expired; user must re-link the Host. */
   HOST_AI_PAIRING_STALE: 'HOST_AI_PAIRING_STALE',
+  /**
+   * Host peer device may be reachable but the Host WR Desk session is offline or a different SSO identity
+   * than the handshake's host party — Host AI must not list or route.
+   */
+  HOST_AI_PEER_IDENTITY_OFFLINE: 'HOST_AI_PEER_IDENTITY_OFFLINE',
 } as const
 
 export type InternalInferenceErrorCodeType =

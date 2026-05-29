@@ -193,6 +193,29 @@ if (missingBeapPod.length > 0) {
 }
 console.log('[verify-win-unpacked] BEAP pod resources OK:', REQUIRED_BEAP_POD_RESOURCES.length, 'files')
 
+const imageArtifactRel = 'packages/beap-pod/beap-components-dev.tar'
+const imageArtifactPath = path.join(resourcesDir, ...imageArtifactRel.split('/'))
+if (process.env.WRDESK_REQUIRE_BEAP_IMAGE_ARTIFACT === '1') {
+  if (!fs.existsSync(imageArtifactPath)) {
+    console.error(
+      '[verify-win-unpacked] MISSING BEAP image artifact (required for packaged self-heal):\n' +
+        `  resources/${imageArtifactRel}\n` +
+        '  Fix: pnpm --filter @repo/beap-pod docker:prepare-packaging, then rebuild.',
+    )
+    process.exit(1)
+  }
+  const artifactStat = fs.statSync(imageArtifactPath)
+  if (artifactStat.size < 1024 * 1024) {
+    console.error(
+      `[verify-win-unpacked] BEAP image artifact too small (${artifactStat.size}B): ${imageArtifactPath}`,
+    )
+    process.exit(1)
+  }
+  console.log('[verify-win-unpacked] BEAP image artifact OK:', imageArtifactPath)
+} else if (fs.existsSync(imageArtifactPath)) {
+  console.log('[verify-win-unpacked] BEAP image artifact present (optional):', imageArtifactPath)
+}
+
 console.log('[verify-win-unpacked] OK:', exePath, `size=${st.size}`)
 console.log(
   '[verify-win-unpacked] The desktop EXE is inside win-unpacked (not the git repo root). ' +

@@ -7,10 +7,10 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\build300'
+ *   return 'C:\\build-output\\build400'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build300'
+  return 'C:\\build-output\\build400'
 }
 
 const workspaceRoot = path.resolve(appDir, '../..')
@@ -116,8 +116,24 @@ extraResources.push({
     'pod-remote-edge.yaml',
     'expected-image-digest.json',
     'seccomp/**',
+    'beap-components-dev.tar',
   ],
 })
+
+const imageArtifact = path.join(beapPodDir, 'beap-components-dev.tar')
+if (process.env.WRDESK_REQUIRE_BEAP_IMAGE_ARTIFACT === '1' && !fs.existsSync(imageArtifact)) {
+  throw new Error(
+    `[electron-builder] beap-components-dev.tar missing at ${imageArtifact}. ` +
+      'Run: pnpm --filter @repo/beap-pod docker:prepare-packaging',
+  )
+}
+if (fs.existsSync(imageArtifact)) {
+  console.log('[electron-builder] BEAP image artifact will ship:', imageArtifact)
+} else {
+  console.warn(
+    '[electron-builder] beap-components-dev.tar not found — packaged app will rely on dev workspace build or manual load',
+  )
+}
 
 module.exports = {
   /** pnpm hoists `electron` to the workspace root; electron-builder looks in app/node_modules first. */

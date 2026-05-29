@@ -4,9 +4,18 @@
  */
 
 import { getLedgerDb } from '../handshake/ledger'
+import { listHandshakeRecords } from '../handshake/db'
+import { HandshakeState } from '../handshake/types'
 import { getInstanceId, getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { getHostAiLedgerRoleSummaryFromDb } from './hostAiEffectiveRole'
 import { hostHasActiveInternalLedgerHostPeerSandboxFromDb } from './hostAiInternalPairingLedger'
+import {
+  assertHostMachineSessionMatchesHandshakeHostParty,
+} from './hostAiPeerLivePresence'
+import {
+  assertRecordForServiceRpc,
+  deriveInternalHostAiPeerRoles,
+} from './policy'
 import {
   getHostInternalInferencePolicy,
   type RemoteHostInferenceUserChoice,
@@ -23,7 +32,25 @@ export type HostAiRemotePolicyResolution = {
     | 'default_deny_no_ledger_host'
     | 'default_deny_no_pairing'
     | 'default_deny_ledger_unavailable'
+    | 'default_deny_host_session_mismatch'
   remoteChoice: RemoteHostInferenceUserChoice
+}
+
+function hostMachineSessionMatchesAnyActiveHostHandshake(db: unknown): boolean {
+  if (!db) return false
+  const localId = getInstanceId().trim()
+  const rows = listHandshakeRecords(db as Parameters<typeof listHandshakeRecords>[0], {
+    state: HandshakeState.ACTIVE,
+    handshake_type: 'internal',
+  })
+  for (const r of rows) {
+    const ar = assertRecordForServiceRpc(r)
+    if (!ar.ok) continue
+    const dr = deriveInternalHostAiPeerRoles(ar.record, localId)
+    if (!dr.ok || dr.localRole !== 'host') continue
+    if (assertHostMachineSessionMatchesHandshakeHostParty(ar.record).ok) return true
+  }
+  return false
 }
 
 export function resolveHostAiRemoteInferencePolicy(db: unknown): HostAiRemotePolicyResolution {
@@ -76,6 +103,15 @@ export function resolveHostAiRemoteInferencePolicy(db: unknown): HostAiRemotePol
       explicitUserDisabled: false,
       denialReason: 'no_active_internal_sandbox_peer',
       policySource: 'default_deny_no_pairing',
+      remoteChoice: 'unset',
+    }
+  }
+  if (!hostMachineSessionMatchesAnyActiveHostHandshake(db)) {
+    return {
+      allowRemoteInference: false,
+      explicitUserDisabled: false,
+      denialReason: 'host_session_not_handshake_party',
+      policySource: 'default_deny_host_session_mismatch',
       remoteChoice: 'unset',
     }
   }
