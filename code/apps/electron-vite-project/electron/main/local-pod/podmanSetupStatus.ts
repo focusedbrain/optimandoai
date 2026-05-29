@@ -5,6 +5,7 @@
 import type { PodmanSetupErrorCode } from './podmanDetect.js'
 import { getPodSetupErrorRef, isPodmanProbeComplete } from './podStatus.js'
 import { getInstallActionsForPlatform } from './podmanInstallRunner.js'
+import { getPodmanSetupRunSnapshot } from './podmanSetupRunState.js'
 
 export type PodmanSetupPhase =
   | 'checking'
@@ -43,9 +44,8 @@ export function setupPhaseHeadline(phase: PodmanSetupPhase): string {
     case 'need_package':
       return 'Install Podman to continue'
     case 'need_machine_init':
-      return 'Finish Podman setup (one-time)'
     case 'need_machine_start':
-      return 'Start Podman to continue'
+      return 'Finish Podman setup'
     case 'need_engine':
       return 'Podman needs attention'
     case 'ready':
@@ -58,13 +58,12 @@ export function setupPhaseSummary(phase: PodmanSetupPhase): string {
     case 'checking':
       return 'WR Desk uses container isolation as a core security measure. Verifying Podman on this computer…'
     case 'need_package':
-      return 'WR Desk uses container isolation as a core security measure. That requires Podman — install it once on this computer, then continue setup here.'
+      return 'WR Desk uses container isolation as a core security measure. That requires Podman — install it once on this computer.'
     case 'need_machine_init':
-      return 'Podman is installed. On Windows and Mac, create its background environment once, then start it whenever you use WR Desk.'
     case 'need_machine_start':
-      return 'Podman is installed but its background environment is stopped. Start it to restore secure isolation.'
+      return 'Podman is installed. One click will finish setup and start secure isolation — no extra steps.'
     case 'need_engine':
-      return 'Podman is present but not responding. Try restarting Podman Desktop (or the Podman service), then check again.'
+      return 'Podman is present but not responding. Restart Podman Desktop (or your computer), then try setup again.'
     case 'ready':
       return ''
   }
@@ -79,7 +78,15 @@ export interface PodmanSetupStatusSnapshot {
   setupPhase: PodmanSetupPhase
   headline: string
   summary: string
+  canOneClickSetup: boolean
+  oneClickLabel: string
+  setupRunning: boolean
+  setupStep: string
+  setupStepLabel: string
+  setupFailure: { message: string; detail?: string } | null
+  /** @deprecated use canOneClickSetup — kept for IPC compatibility */
   showPackageInstall: boolean
+  /** @deprecated one-click flow — kept for IPC compatibility */
   showMachineSteps: boolean
   install: ReturnType<typeof getInstallActionsForPlatform>
   machineInitCommand: string
@@ -93,8 +100,10 @@ export function buildPodmanSetupStatusSnapshot(): PodmanSetupStatusSnapshot {
   const install = getInstallActionsForPlatform(plat)
   const code = err?.code ?? null
   const setupPhase = derivePodmanSetupPhase(probePending, code)
-  const showMachineSteps =
-    setupPhase === 'need_machine_init' || setupPhase === 'need_machine_start'
+  const run = getPodmanSetupRunSnapshot()
+  const needsSetup = setupPhase !== 'checking' && setupPhase !== 'ready'
+  const canOneClickSetup =
+    needsSetup && (install.canAutoInstall || setupPhase === 'need_engine' || plat === 'linux')
 
   return {
     required: err != null,
@@ -105,10 +114,17 @@ export function buildPodmanSetupStatusSnapshot(): PodmanSetupStatusSnapshot {
     setupPhase,
     headline: setupPhaseHeadline(setupPhase),
     summary: setupPhaseSummary(setupPhase),
+    canOneClickSetup,
+    oneClickLabel: install.installLabel,
+    setupRunning: run.setupRunning,
+    setupStep: run.setupStep,
+    setupStepLabel: run.setupStepLabel,
+    setupFailure: run.setupFailure,
     showPackageInstall: setupPhase === 'need_package',
-    showMachineSteps,
+    showMachineSteps:
+      setupPhase === 'need_machine_init' || setupPhase === 'need_machine_start',
     install,
-    machineInitCommand: 'podman machine init',
+    machineInitCommand: 'podman machine init --cpus 2 --memory 4096 --disk-size 100',
     machineStartCommand: 'podman machine start',
   }
 }

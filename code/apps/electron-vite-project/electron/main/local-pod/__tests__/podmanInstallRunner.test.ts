@@ -5,6 +5,8 @@
 import { describe, expect, test } from 'vitest'
 
 import {
+  isMachineAlreadyExistsOutput,
+  isMachineAlreadyRunningOutput,
   isWingetAlreadyInstalledOutput,
   normalizeInstallCommandResult,
 } from '../podmanInstallRunner.js'
@@ -33,5 +35,29 @@ describe('normalizeInstallCommandResult', () => {
       exitCode: 1,
     }
     expect(normalizeInstallCommandResult('winget_install', raw).ok).toBe(false)
+  })
+
+  test('machine init already exists is treated as success', () => {
+    const raw = {
+      ok: false,
+      command: 'podman machine init',
+      stdout: '',
+      stderr: 'VM already exists',
+      exitCode: 1,
+    }
+    expect(isMachineAlreadyExistsOutput(raw.stderr)).toBe(true)
+    expect(normalizeInstallCommandResult('machine_init', raw).ok).toBe(true)
+  })
+
+  test('machine start already running is treated as success', () => {
+    const raw = {
+      ok: false,
+      command: 'podman machine start',
+      stdout: '',
+      stderr: 'Machine already running',
+      exitCode: 1,
+    }
+    expect(isMachineAlreadyRunningOutput(raw.stderr)).toBe(true)
+    expect(normalizeInstallCommandResult('machine_start', raw).ok).toBe(true)
   })
 })

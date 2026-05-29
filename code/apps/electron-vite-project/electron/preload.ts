@@ -1581,14 +1581,10 @@ contextBridge.exposeInMainWorld('podmanSetup', {
   getStatus: () => ipcRenderer.invoke('podman-setup:get-status'),
   probe: () => ipcRenderer.invoke('podman-setup:probe'),
   openManualInstall: () => ipcRenderer.invoke('podman-setup:open-manual-install'),
+  runFullSetup: () => ipcRenderer.invoke('podman-setup:run-full-setup'),
   runAction: (action: string) => ipcRenderer.invoke('podman-setup:run-action', { action }),
-  onState: (handler: (payload: {
-    required: boolean
-    code: string | null
-    userMessage: string | null
-    platform: string
-  }) => void) => {
-    const fn = (_event: unknown, payload: unknown) => handler(payload as never)
+  onState: (handler: (payload: Record<string, unknown>) => void) => {
+    const fn = (_event: unknown, payload: unknown) => handler(payload as Record<string, unknown>)
     ipcRenderer.on('podman-setup:state', fn)
     return () => ipcRenderer.removeListener('podman-setup:state', fn)
   },

@@ -537,39 +537,19 @@ interface IngestionModeBridge {
 }
 
 interface PodmanSetupBridge {
-  getStatus: () => Promise<{
-    required: boolean
-    probePending: boolean
-    code: string | null
-    userMessage: string | null
-    platform: string
-    install: Record<string, unknown>
-    showMachineSteps: boolean
-    machineInitCommand: string
-    machineStartCommand: string
-  }>
-  probe: () => Promise<{
-    required: boolean
-    probePending: boolean
-    code: string | null
-    userMessage: string | null
-    platform: string
-    install: Record<string, unknown>
-    showMachineSteps: boolean
-    machineInitCommand: string
-    machineStartCommand: string
-  }>
+  getStatus: () => Promise<Record<string, unknown>>
+  probe: () => Promise<Record<string, unknown>>
   openManualInstall: () => Promise<{ ok: boolean }>
+  runFullSetup: () => Promise<{
+    ok: boolean
+    failure?: { message: string; detail?: string }
+    status: Record<string, unknown>
+  }>
   runAction: (action: string) => Promise<{
     result: { ok: boolean; command: string; stdout: string; stderr: string; exitCode: number | null }
     status: Record<string, unknown>
   }>
-  onState: (handler: (payload: {
-    required: boolean
-    code: string | null
-    userMessage: string | null
-    platform: string
-  }) => void) => () => void
+  onState: (handler: (payload: Record<string, unknown>) => void) => () => void
 }
 
 interface Window {

@@ -51,16 +51,16 @@ export interface PodmanDetectOptions {
 }
 
 const NOT_INSTALLED_MESSAGE =
-  'Podman is not installed on this computer. Install it once to enable secure container isolation, then click Check again.'
+  'Podman is not installed on this computer. Install it once to enable secure container isolation.'
 
 const ENGINE_UNHEALTHY_MESSAGE =
-  'Podman is installed but not responding. Open Podman Desktop (or restart the Podman service), then click Check again.'
+  'Podman is installed but not responding. Open Podman Desktop (or restart the Podman service).'
 
 const MACHINE_NOT_INITIALIZED_MESSAGE =
-  'Podman is installed. Create its background environment (one-time): run "podman machine init", then "podman machine start".'
+  'Podman is installed but its background environment has not been created yet.'
 
 const MACHINE_NOT_RUNNING_MESSAGE =
-  'Podman is installed but its background environment is stopped. Run "podman machine start" (or start it from Podman Desktop).'
+  'Podman is installed but its background environment is stopped.'
 
 let _cachedPodmanBin: string | null = null
 

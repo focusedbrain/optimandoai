@@ -1,5 +1,5 @@
 /**
- * IPC — blocking Podman setup gate (probe, guided install, machine init/start).
+ * IPC — blocking Podman setup gate (one-click install + machine setup).
  */
 
 import { ipcMain, shell } from 'electron'
@@ -15,6 +15,7 @@ import {
   runPodmanInstallAction,
   type PodmanInstallAction,
 } from './podmanInstallRunner.js'
+import { runFullPodmanSetup } from './podmanSetupOrchestrator.js'
 import { getPodSetupErrorRef } from './podStatus.js'
 
 export type PodmanSetupStatusResponse = PodmanSetupStatusSnapshot
@@ -64,6 +65,12 @@ export function registerPodmanSetupIpc(): void {
   ipcMain.handle('podman-setup:open-manual-install', async () => {
     await shell.openExternal(PODMAN_MANUAL_INSTALL_URL)
     return { ok: true }
+  })
+
+  ipcMain.handle('podman-setup:run-full-setup', async () => {
+    const result = await runFullPodmanSetup()
+    await refreshIngestionAfterProbeReady()
+    return { ...result, status: buildPodmanSetupStatusSnapshot() }
   })
 
   ipcMain.handle('podman-setup:run-action', async (_e, raw: unknown) => {

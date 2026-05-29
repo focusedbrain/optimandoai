@@ -5,6 +5,8 @@
 import { spawn } from 'node:child_process'
 import { platform } from 'node:os'
 
+import { resolvePodmanBin } from './podmanDetect.js'
+
 export type PodmanInstallAction =
   | 'winget_install'
   | 'brew_install'
@@ -21,20 +23,86 @@ export interface PodmanCommandResult {
 
 const COMMAND_TIMEOUT_MS = 600_000
 
+/** Sensible defaults — no user prompts during one-click setup. */
+const MACHINE_INIT_ARGS = [
+  'machine',
+  'init',
+  '--cpus',
+  '2',
+  '--memory',
+  '4096',
+  '--disk-size',
+  '100',
+] as const
+
 function shellCommand(action: PodmanInstallAction): string {
-  const plat = platform()
   switch (action) {
     case 'winget_install':
       return 'winget install -e --id RedHat.Podman --accept-package-agreements --accept-source-agreements'
     case 'brew_install':
       return 'brew install podman'
     case 'machine_init':
-      return 'podman machine init'
+      return `podman ${MACHINE_INIT_ARGS.join(' ')}`
     case 'machine_start':
       return 'podman machine start'
     default:
       return ''
   }
+}
+
+function spawnLoggedBin(
+  bin: string,
+  args: readonly string[],
+  commandLabel: string,
+): Promise<PodmanCommandResult> {
+  return new Promise((resolve) => {
+    const child = spawn(bin, [...args], {
+      windowsHide: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.on('data', (chunk) => {
+      stdout += String(chunk)
+    })
+    child.stderr?.on('data', (chunk) => {
+      stderr += String(chunk)
+    })
+
+    const timer = setTimeout(() => {
+      child.kill()
+      resolve({
+        ok: false,
+        command: commandLabel,
+        stdout,
+        stderr: `${stderr}\n[timeout after ${COMMAND_TIMEOUT_MS}ms]`,
+        exitCode: null,
+      })
+    }, COMMAND_TIMEOUT_MS)
+
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      resolve({
+        ok: code === 0,
+        command: commandLabel,
+        stdout: stdout.trim(),
+        stderr: stderr.trim(),
+        exitCode: code,
+      })
+    })
+
+    child.on('error', (err) => {
+      clearTimeout(timer)
+      resolve({
+        ok: false,
+        command: commandLabel,
+        stdout,
+        stderr: err.message,
+        exitCode: null,
+      })
+    })
+  })
 }
 
 function spawnLogged(command: string, shell: boolean): Promise<PodmanCommandResult> {
@@ -131,9 +199,9 @@ export function getInstallActionsForPlatform(plat: NodeJS.Platform = platform())
     return {
       canAutoInstall: true,
       installAction: 'winget_install',
-      installLabel: 'Install Podman with winget',
+      installLabel: 'Install & set up Podman',
       installCommand: shellCommand('winget_install'),
-      manualHint: 'Or download Podman Desktop from podman.io',
+      manualHint: 'Or download Podman from podman.io',
       linuxDistroHints: [],
     }
   }
@@ -141,7 +209,7 @@ export function getInstallActionsForPlatform(plat: NodeJS.Platform = platform())
     return {
       canAutoInstall: true,
       installAction: 'brew_install',
-      installLabel: 'Install Podman with Homebrew',
+      installLabel: 'Install & set up Podman',
       installCommand: shellCommand('brew_install'),
       manualHint: 'Requires Homebrew (brew.sh). Or install from podman.io.',
       linuxDistroHints: [],
@@ -150,10 +218,10 @@ export function getInstallActionsForPlatform(plat: NodeJS.Platform = platform())
   return {
     canAutoInstall: false,
     installAction: null,
-    installLabel: 'Install via your package manager',
+    installLabel: 'Set up Podman',
     installCommand: null,
     manualHint:
-      'Linux orchestrator hosts use distro packages — pick your distribution below, install Podman, then use Check again. Auto-install is not offered (operator policy).',
+      'Install Podman using your distribution package manager (see podman.io), then use the button here to verify.',
     linuxDistroHints: LINUX_DISTRO_INSTALL_HINTS,
   }
 }
@@ -165,6 +233,25 @@ export async function runPodmanInstallAction(
   if (!command) {
     return { ok: false, command: '', stdout: '', stderr: 'Unknown action', exitCode: null }
   }
+
+  if (action === 'machine_init' || action === 'machine_start') {
+    const plat = platform()
+    const bin = await resolvePodmanBin(plat)
+    if (!bin) {
+      return {
+        ok: false,
+        command,
+        stdout: '',
+        stderr: 'podman binary not found',
+        exitCode: null,
+      }
+    }
+    const args =
+      action === 'machine_init' ? [...MACHINE_INIT_ARGS] : (['machine', 'start'] as const)
+    const result = await spawnLoggedBin(bin, args, command)
+    return normalizeInstallCommandResult(action, result)
+  }
+
   const result = await spawnLogged(command, true)
   return normalizeInstallCommandResult(action, result)
 }
@@ -177,6 +264,25 @@ export function isWingetAlreadyInstalledOutput(text: string): boolean {
     lower.includes('no available upgrade') ||
     lower.includes('existing package') ||
     lower.includes('no newer package versions')
+  )
+}
+
+export function isMachineAlreadyExistsOutput(text: string): boolean {
+  const lower = text.toLowerCase()
+  return (
+    lower.includes('already exists') ||
+    lower.includes('vm already exists') ||
+    lower.includes('default machine already exists') ||
+    lower.includes('machine already exists')
+  )
+}
+
+export function isMachineAlreadyRunningOutput(text: string): boolean {
+  const lower = text.toLowerCase()
+  return (
+    lower.includes('already running') ||
+    lower.includes('already started') ||
+    lower.includes('is already running')
   )
 }
 
@@ -197,6 +303,24 @@ export function normalizeInstallCommandResult(
   }
   if (action === 'brew_install' && combined.toLowerCase().includes('already installed')) {
     return { ...result, ok: true }
+  }
+  if (action === 'machine_init' && isMachineAlreadyExistsOutput(combined)) {
+    return {
+      ...result,
+      ok: true,
+      stderr: result.stderr
+        ? `${result.stderr}\n[interpreted: Podman machine already exists — continuing setup]`
+        : '[interpreted: Podman machine already exists — continuing setup]',
+    }
+  }
+  if (action === 'machine_start' && isMachineAlreadyRunningOutput(combined)) {
+    return {
+      ...result,
+      ok: true,
+      stderr: result.stderr
+        ? `${result.stderr}\n[interpreted: Podman machine already running — continuing setup]`
+        : '[interpreted: Podman machine already running — continuing setup]',
+    }
   }
   return result
 }
