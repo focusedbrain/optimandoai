@@ -3,23 +3,58 @@
  */
 
 import type { PodmanSetupErrorCode } from './podmanDetect.js'
-import type { PodmanCommandResult } from './podmanInstallRunner.js'
 import type { WslIssue } from './wslProbe.js'
-import { uacWasCancelled } from './wslProbe.js'
 
 export type PodmanSetupCopyPhase =
   | 'need_package'
   | 'need_virtualization'
   | 'need_restart'
 
+/** WSL install/update cannot run reliably from the running app — manual or NSIS installer only. */
+export function wslIssueRequiresManualInstall(issue: WslIssue): boolean {
+  return (
+    issue === 'not_installed' ||
+    issue === 'no_distro' ||
+    issue === 'needs_update' ||
+    issue === 'unknown'
+  )
+}
+
+export function wslManualInstallCommand(issue: WslIssue): string {
+  if (issue === 'needs_update') return 'wsl --update'
+  return 'wsl --install'
+}
+
+export interface WindowsWslManualInstruction {
+  headline: string
+  summary: string
+  instruction: string
+  copyCommand: string
+}
+
+export function buildWindowsWslManualInstruction(issue: WslIssue): WindowsWslManualInstruction {
+  const copyCommand = wslManualInstallCommand(issue)
+  return {
+    headline: 'Windows container feature required',
+    summary:
+      'WR Desk needs the Windows Subsystem for Linux (WSL2) before Podman can run. Install it once from an administrator terminal, then restart your computer.',
+    instruction: [
+      'WR Desk needs the Windows container feature (WSL2).',
+      '',
+      '1. Right-click Start → Terminal (Admin) or Windows PowerShell (Admin).',
+      `2. Run: ${copyCommand}`,
+      '3. Restart your computer when Windows asks (required).',
+      '4. Open WR Desk again — setup will continue automatically.',
+    ].join('\n'),
+    copyCommand,
+  }
+}
+
 export function wslIssueHeadline(issue: WslIssue): string {
+  if (wslIssueRequiresManualInstall(issue)) {
+    return buildWindowsWslManualInstruction(issue).headline
+  }
   switch (issue) {
-    case 'not_installed':
-      return 'Windows Subsystem for Linux is required'
-    case 'no_distro':
-      return 'Linux environment needed for Podman'
-    case 'needs_update':
-      return 'WSL update required'
     case 'virtualization_disabled':
       return 'Enable virtualization to continue'
     case 'ready':
@@ -30,34 +65,16 @@ export function wslIssueHeadline(issue: WslIssue): string {
 }
 
 export function wslIssueSummary(issue: WslIssue): string {
+  if (wslIssueRequiresManualInstall(issue)) {
+    return buildWindowsWslManualInstruction(issue).summary
+  }
   switch (issue) {
-    case 'not_installed':
-      return 'Podman on Windows uses WSL2. Click Install & set up Podman to install WSL (Windows may ask once for permission), then Podman, automatically.'
-    case 'no_distro':
-      return 'WSL is installed but no Linux environment is set up yet. Click Install & set up Podman — Windows may ask once for permission (UAC), then setup continues automatically.'
-    case 'needs_update':
-      return 'WSL needs an update before Podman can run. Click Install & set up Podman to update WSL automatically.'
     case 'virtualization_disabled':
       return 'Podman on Windows requires WSL2, which needs hardware virtualization (Intel VT-x / AMD-V) enabled in BIOS or UEFI.'
     case 'ready':
       return ''
     default:
-      return 'WSL must be configured before Podman can run on Windows. Click Install & set up Podman to continue.'
-  }
-}
-
-export function wslIssueFailureDetail(issue: WslIssue): string {
-  switch (issue) {
-    case 'not_installed':
-      return 'Automatic setup will install WSL2. If Windows asks for administrator permission, choose Yes.'
-    case 'no_distro':
-      return 'Automatic setup will run wsl --install to create the Linux environment Podman needs.'
-    case 'needs_update':
-      return 'Automatic setup will run wsl --update.'
-    case 'virtualization_disabled':
-      return 'Enable virtualization in your PC firmware, then open WR Desk and run setup again.'
-    default:
-      return 'Try setup again. If Windows prompts for permission, choose Yes.'
+      return 'WSL must be configured before Podman can run on Windows.'
   }
 }
 
@@ -81,7 +98,7 @@ export function podmanCodeSummary(code: PodmanSetupErrorCode, plat: NodeJS.Platf
   switch (code) {
     case 'not_installed':
       return plat === 'win32'
-        ? 'Podman on Windows uses WSL2. One click installs WSL (if needed), Podman, and starts secure isolation.'
+        ? 'When WSL2 is ready, one click installs Podman and starts secure isolation.'
         : plat === 'darwin'
           ? 'One click installs Podman on this Mac and starts secure isolation.'
           : 'WR Desk requires Podman for security isolation on this server.'
@@ -91,102 +108,11 @@ export function podmanCodeSummary(code: PodmanSetupErrorCode, plat: NodeJS.Platf
     case 'engine_unhealthy':
       return plat === 'linux'
         ? 'Podman is present but the engine is not responding on this server.'
-        : 'Podman is present but not responding. Click Install & set up Podman to retry, or restart Podman Desktop.'
+        : 'Podman is present but not responding. Try setup again or restart Podman Desktop.'
     case 'probe_pending':
       return 'WR Desk uses container isolation as a core security measure. Verifying Podman on this computer…'
     default:
       return 'Secure container isolation requires Podman on this computer.'
-  }
-}
-
-export function wslManualInstallSteps(issue: WslIssue): string {
-  const cmd =
-    issue === 'needs_update'
-      ? 'wsl --update'
-      : issue === 'no_distro'
-        ? 'wsl --install'
-        : 'wsl --install'
-  return [
-    '1. Right-click the Start button → Terminal (Admin) or Windows PowerShell (Admin).',
-    `2. Run: ${cmd}`,
-    '3. Restart your computer when Windows asks (required for WSL).',
-    '4. Open WR Desk again — setup continues automatically.',
-  ].join('\n')
-}
-
-export function setupFailureDetailForWslInstall(issue: WslIssue): string {
-  return wslIssueFailureDetail(issue)
-}
-
-export function wslInstallFailedMessage(issue: WslIssue): string {
-  switch (issue) {
-    case 'not_installed':
-      return 'WSL is not installed yet'
-    case 'no_distro':
-      return 'Linux environment for WSL is not set up yet'
-    case 'needs_update':
-      return 'WSL could not be updated automatically'
-    default:
-      return 'WSL setup did not complete'
-  }
-}
-
-/** Actionable English failure — headline (short) + detail (next steps). Never raw OS output. */
-export function resolveWslInstallFailureCopy(
-  issue: WslIssue,
-  result: PodmanCommandResult,
-): { message: string; detail: string } {
-  if (uacWasCancelled(result)) {
-    return {
-      message: 'Administrator permission is required',
-      detail: [
-        'Windows did not receive permission to install WSL.',
-        '',
-        'Click Install & set up Podman again and choose Yes when the UAC prompt appears.',
-        '',
-        'If no prompt appears, use an admin terminal instead:',
-        wslManualInstallSteps(issue),
-      ].join('\n'),
-    }
-  }
-
-  if (issue === 'not_installed' || issue === 'unknown') {
-    return {
-      message: 'Install WSL in an administrator terminal',
-      detail: [
-        `Automatic install did not finish (exit code ${result.exitCode ?? 'unknown'}).`,
-        '',
-        'Install WSL manually, then restart:',
-        wslManualInstallSteps('not_installed'),
-      ].join('\n'),
-    }
-  }
-
-  if (issue === 'no_distro') {
-    return {
-      message: 'Create the WSL Linux environment manually',
-      detail: [
-        `Automatic install did not finish (exit code ${result.exitCode ?? 'unknown'}).`,
-        '',
-        wslManualInstallSteps('no_distro'),
-      ].join('\n'),
-    }
-  }
-
-  if (issue === 'needs_update') {
-    return {
-      message: 'Update WSL in an administrator terminal',
-      detail: [
-        `Automatic update did not finish (exit code ${result.exitCode ?? 'unknown'}).`,
-        '',
-        wslManualInstallSteps('needs_update'),
-      ].join('\n'),
-    }
-  }
-
-  return {
-    message: wslInstallFailedMessage(issue),
-    detail: wslManualInstallSteps(issue),
   }
 }
 

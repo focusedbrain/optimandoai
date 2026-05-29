@@ -7,10 +7,10 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\build100'
+ *   return 'C:\\build-output\\build110'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build100'
+  return 'C:\\build-output\\build110'
 }
 
 const workspaceRoot = path.resolve(appDir, '../..')
@@ -140,6 +140,8 @@ module.exports = {
   nsis: {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
+    /** Stub for WSL/Podman install hooks — see build/installer/wsl-podman-prereq.nsh */
+    include: 'build/installer/wsl-podman-prereq.nsh',
   },
   /**
    * Host AI HTTP safety net: `p2pInferenceFlags.ts` defaults `WRDESK_P2P_INFERENCE_HTTP_FALLBACK`

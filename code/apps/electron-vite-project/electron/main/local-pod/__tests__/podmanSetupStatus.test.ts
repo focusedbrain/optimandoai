@@ -2,7 +2,37 @@
  * Podman setup status phases
  */
 
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
+
+vi.mock('../podmanInstallRunner.js', () => ({
+  getInstallActionsForPlatform: () => ({
+    canAutoInstall: true,
+    installAction: 'winget_install',
+    installLabel: 'Install & set up Podman',
+    installCommand: 'winget install RedHat.Podman',
+    manualHint: 'podman.io',
+    linuxDistroHints: [],
+  }),
+}))
+
+vi.mock('../podStatus.js', () => ({
+  getPodSetupErrorRef: () => null,
+  isPodmanProbeComplete: () => true,
+}))
+
+vi.mock('../podmanWslStatusCache.js', () => ({
+  getWslStatusCache: () => null,
+}))
+
+vi.mock('../linuxDistroDetect.js', () => ({
+  buildLinuxEngineOperatorInstruction: () => 'engine instruction',
+  buildLinuxOperatorInstruction: () => 'operator instruction',
+  detectLinuxDistroHint: () => ({
+    id: 'debian',
+    label: 'Debian',
+    installCommand: 'apt install podman',
+  }),
+}))
 
 import {
   derivePodmanSetupPhase,

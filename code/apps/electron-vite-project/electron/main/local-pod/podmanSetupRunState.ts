@@ -4,9 +4,6 @@
 
 export type PodmanSetupRunStep =
   | 'idle'
-  | 'preparing_wsl'
-  | 'installing_wsl'
-  | 'updating_wsl'
   | 'installing'
   | 'creating_environment'
   | 'starting'
@@ -34,9 +31,6 @@ export interface PodmanSetupRunSnapshot {
 }
 
 const STEP_LABELS: Record<Exclude<PodmanSetupRunStep, 'idle' | 'failed' | 'complete'>, string> = {
-  preparing_wsl: 'Checking Windows Subsystem for Linux…',
-  installing_wsl: 'Installing WSL2…',
-  updating_wsl: 'Updating WSL…',
   installing: 'Installing Podman…',
   creating_environment: 'Setting up container environment…',
   starting: 'Starting Podman…',

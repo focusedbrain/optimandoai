@@ -10,10 +10,21 @@ const runPodmanInstallAction = vi.hoisted(() => vi.fn())
 const broadcastPodmanSetupState = vi.hoisted(() => vi.fn())
 const getInstallActionsForPlatform = vi.hoisted(() => vi.fn())
 const refreshWslStatusCache = vi.hoisted(() => vi.fn())
+const getWslStatusCache = vi.hoisted(() => vi.fn())
 const platformMock = vi.hoisted(() => vi.fn(() => 'darwin' as NodeJS.Platform))
 
-vi.mock('node:os', () => ({
-  platform: platformMock,
+vi.mock('../podmanDetect.js', () => ({
+  clearPodmanBinCacheForTest: vi.fn(),
+}))
+
+vi.mock('../linuxDistroDetect.js', () => ({
+  buildLinuxEngineOperatorInstruction: () => 'engine instruction',
+  buildLinuxOperatorInstruction: () => 'operator instruction',
+  detectLinuxDistroHint: () => ({
+    id: 'debian',
+    label: 'Debian',
+    installCommand: 'apt install podman',
+  }),
 }))
 
 vi.mock('../podmanSetupProbe.js', () => ({
@@ -21,42 +32,29 @@ vi.mock('../podmanSetupProbe.js', () => ({
   invalidatePodmanSetupProbeCache,
 }))
 
-vi.mock('../podmanInstallRunner.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../podmanInstallRunner.js')>()
-  return {
-    ...actual,
-    runPodmanInstallAction,
-    getInstallActionsForPlatform,
-  }
-})
+vi.mock('../podmanInstallRunner.js', () => ({
+  runPodmanInstallAction,
+  getInstallActionsForPlatform,
+}))
 
 vi.mock('../podmanSetupBroadcast.js', () => ({
   broadcastPodmanSetupState,
 }))
 
 vi.mock('../wslProbe.js', () => ({
-  outputImpliesReboot: (text: string) => text.toLowerCase().includes('restart'),
-  rebootRequiredMessage: (context?: string) =>
-    context === 'wsl_fresh_install'
-      ? {
-          message: 'Restart your computer to finish installing WSL',
-          detail: 'After restarting, open WR Desk again.',
-        }
-      : {
-          message: 'Restart your computer to finish Windows setup',
-          detail: 'After restarting, open WR Desk again.',
-        },
+  rebootRequiredMessage: () => ({
+    message: 'Restart your computer to finish Windows setup',
+    detail: 'After restarting, open WR Desk again.',
+  }),
   virtualizationRequiredMessage: () => ({
     message: 'Enable virtualization',
     detail: 'Enable VT-x/AMD-V in firmware.',
   }),
-  runWslInstall: vi.fn(),
-  runWslInstallWithDistro: vi.fn(),
-  runWslUpdate: vi.fn(),
 }))
 
 vi.mock('../podmanWslStatusCache.js', () => ({
   refreshWslStatusCache,
+  getWslStatusCache,
 }))
 
 vi.mock('../podStatus.js', () => ({
@@ -75,6 +73,7 @@ function okResult(command: string) {
 describe('runFullPodmanSetup', () => {
   beforeEach(() => {
     resetPodmanSetupRunStateForTest()
+    vi.spyOn(process, 'platform', 'get').mockImplementation(() => platformMock())
     platformMock.mockReturnValue('darwin')
     refreshPodmanSetupProbe.mockReset()
     invalidatePodmanSetupProbeCache.mockReset()
@@ -86,6 +85,7 @@ describe('runFullPodmanSetup', () => {
       userMessage: 'ready',
       logSummary: [],
     })
+    getWslStatusCache.mockReturnValue(null)
     getInstallActionsForPlatform.mockReturnValue({
       canAutoInstall: true,
       installAction: 'brew_install',
@@ -120,38 +120,21 @@ describe('runFullPodmanSetup', () => {
     expect(runPodmanInstallAction).toHaveBeenCalledTimes(3)
   })
 
-  test('Windows checks WSL before Podman', async () => {
+  test('Windows with WSL not installed — manual instruction, no elevated spawn', async () => {
     platformMock.mockReturnValue('win32')
-    getInstallActionsForPlatform.mockReturnValue({
-      canAutoInstall: true,
-      installAction: 'winget_install',
-      installLabel: 'Install & set up Podman',
-      installCommand: 'winget install',
-      manualHint: 'podman.io',
-      linuxDistroHints: [],
-    })
     refreshWslStatusCache.mockResolvedValue({
       issue: 'not_installed',
-      rebootRequired: true,
+      rebootRequired: false,
       userMessage: 'WSL required',
-      logSummary: ['status: empty'],
+      logSummary: [],
     })
-
-    const { runWslInstall } = await import('../wslProbe.js')
-    vi.mocked(runWslInstall).mockResolvedValue({
-      ok: true,
-      command: 'wsl --install',
-      stdout: 'Changes will not be effective until the system is rebooted',
-      stderr: '',
-      exitCode: 0,
-    })
-
-    refreshPodmanSetupProbe.mockResolvedValue({ code: 'not_installed' })
 
     const result = await runFullPodmanSetup()
     expect(result.ok).toBe(false)
-    expect(result.failure?.kind).toBe('restart_required')
-    expect(result.failure?.message).toMatch(/restart/i)
+    expect(result.failure?.kind).toBe('operator_instruction')
+    expect(result.failure?.detail).toMatch(/wsl --install/)
+    expect(runPodmanInstallAction).not.toHaveBeenCalled()
+    expect(refreshPodmanSetupProbe).not.toHaveBeenCalled()
   })
 
   test('Linux returns operator instruction — no install action', async () => {
@@ -161,7 +144,7 @@ describe('runFullPodmanSetup', () => {
     const result = await runFullPodmanSetup()
     expect(result.ok).toBe(false)
     expect(result.failure?.kind).toBe('operator_instruction')
-    expect(result.failure?.detail).toMatch(/operator must run/i)
+    expect(result.failure?.detail).toMatch(/operator instruction/i)
     expect(runPodmanInstallAction).not.toHaveBeenCalled()
   })
 

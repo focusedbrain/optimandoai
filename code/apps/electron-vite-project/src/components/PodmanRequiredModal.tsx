@@ -16,6 +16,7 @@ export interface PodmanSetupStatus {
   statusMessage: string | null
   terminalAction: string
   operatorInstruction: string | null
+  wslManualCommand: string | null
   canOneClickSetup: boolean
   oneClickLabel: string
   setupRunning: boolean
@@ -40,6 +41,7 @@ const DEFAULT_STATUS: PodmanSetupStatus = {
   statusMessage: null,
   terminalAction: 'none',
   operatorInstruction: null,
+  wslManualCommand: null,
   canOneClickSetup: false,
   oneClickLabel: 'Install & set up Podman',
   setupRunning: false,
@@ -150,6 +152,7 @@ function applyStatusFromPayload(res: Record<string, unknown>): PodmanSetupStatus
     terminalAction: typeof res.terminalAction === 'string' ? res.terminalAction : 'none',
     operatorInstruction:
       typeof res.operatorInstruction === 'string' ? res.operatorInstruction : null,
+    wslManualCommand: typeof res.wslManualCommand === 'string' ? res.wslManualCommand : null,
     canOneClickSetup: Boolean(res.canOneClickSetup),
     oneClickLabel:
       typeof res.oneClickLabel === 'string' ? res.oneClickLabel : DEFAULT_STATUS.oneClickLabel,
@@ -166,11 +169,6 @@ function applyStatusFromPayload(res: Record<string, unknown>): PodmanSetupStatus
 
 function progressPercent(step: string): number {
   switch (step) {
-    case 'preparing_wsl':
-      return 10
-    case 'installing_wsl':
-    case 'updating_wsl':
-      return 20
     case 'installing':
       return 35
     case 'creating_environment':
@@ -219,6 +217,7 @@ export function PodmanRequiredModal(): JSX.Element | null {
   const [status, setStatus] = useState<PodmanSetupStatus>(DEFAULT_STATUS)
   const [localBusy, setLocalBusy] = useState(false)
   const [clickError, setClickError] = useState<string | null>(null)
+  const [copyOk, setCopyOk] = useState(false)
   const lastPayloadKeyRef = useRef<string>('')
 
   const applyStatus = useCallback((res: Record<string, unknown>) => {
@@ -267,20 +266,54 @@ export function PodmanRequiredModal(): JSX.Element | null {
   if (!status.required) return null
 
   const setupActive = status.setupRunning || localBusy
+  const monitoredProgressSteps = new Set(['installing', 'creating_environment', 'starting', 'verifying', 'complete'])
   const showProgress =
-    setupActive && status.setupStep !== 'idle' && status.setupStep !== 'failed'
+    setupActive &&
+    monitoredProgressSteps.has(status.setupStep)
   const failure = status.setupFailure
   const isRestart =
     status.terminalAction === 'restart' || status.setupPhase === 'need_restart'
   const isVirtualization = status.terminalAction === 'enable_virtualization'
+  const isWslManual =
+    status.platform === 'win32' &&
+    (status.terminalAction === 'wsl_manual' || status.setupPhase === 'need_wsl_manual')
+  const wslManualText = isWslManual ? status.operatorInstruction : null
   const isOperatorLinux =
     status.platform === 'linux' &&
     (status.terminalAction === 'operator_install' || status.setupPhase === 'need_operator_install')
   const operatorText = isOperatorLinux ? status.operatorInstruction ?? failure?.detail : null
-  const showOneClick =
-    status.canOneClickSetup || (status.platform === 'win32' && status.required && !isRestart && !isVirtualization)
+  const showOneClick = status.canOneClickSetup && !isWslManual
   const summaryIsPrimaryInstruction =
-    Boolean(failure && !setupActive && failure.detail && status.summary === failure.detail)
+    Boolean(
+      (failure && !setupActive && failure.detail && status.summary === failure.detail) ||
+        (isWslManual && wslManualText),
+    )
+
+  const copyWslCommand = async () => {
+    const cmd = status.wslManualCommand ?? 'wsl --install'
+    try {
+      await navigator.clipboard.writeText(cmd)
+      setCopyOk(true)
+      window.setTimeout(() => setCopyOk(false), 2000)
+    } catch {
+      setClickError(`Could not copy. Type manually: ${cmd}`)
+    }
+  }
+
+  const recheckSetup = async () => {
+    setClickError(null)
+    const api = apiRef.current
+    if (!api?.probe) return
+    setLocalBusy(true)
+    try {
+      const snap = await api.probe()
+      applyStatus(snap as Record<string, unknown>)
+    } catch (err: unknown) {
+      setClickError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLocalBusy(false)
+    }
+  }
 
   return (
     <div
@@ -351,6 +384,53 @@ export function PodmanRequiredModal(): JSX.Element | null {
           </div>
         ) : null}
 
+        {isWslManual && wslManualText && !setupActive ? (
+          <div style={prominentBoxStyle} data-testid="podman-wsl-manual-instruction">
+            <pre
+              style={{
+                margin: '0 0 12px',
+                whiteSpace: 'pre-wrap',
+                fontFamily: 'inherit',
+                fontSize: 13,
+                color: 'var(--text-primary, var(--text-primary-prof, #0f1419))',
+              }}
+            >
+              {wslManualText}
+            </pre>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                style={{
+                  ...btnPrimary,
+                  width: 'auto',
+                  flex: '1 1 auto',
+                  minWidth: 140,
+                }}
+                data-testid="podman-wsl-copy-command"
+                onClick={() => void copyWslCommand()}
+              >
+                {copyOk ? 'Copied' : `Copy: ${status.wslManualCommand ?? 'wsl --install'}`}
+              </button>
+              <button
+                type="button"
+                style={{
+                  ...btnPrimary,
+                  width: 'auto',
+                  flex: '1 1 auto',
+                  minWidth: 140,
+                  background: 'var(--bg-elevated, var(--bg-elevated-prof, #ffffff))',
+                  color: 'var(--text-primary, var(--text-primary-prof, #0f1419))',
+                  border: '1px solid var(--border, var(--border-prof, #e1e8ed))',
+                }}
+                data-testid="podman-wsl-recheck"
+                onClick={() => void recheckSetup()}
+              >
+                After restart — check again
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         {isOperatorLinux && operatorText && !setupActive ? (
           <div style={prominentBoxStyle} data-testid="podman-operator-instruction">
             <pre
@@ -399,6 +479,7 @@ export function PodmanRequiredModal(): JSX.Element | null {
         !isRestart &&
         !isVirtualization &&
         !isOperatorLinux &&
+        !isWslManual &&
         (failure.detail !== status.summary || failure.message !== status.headline) ? (
           <div style={errorBoxStyle} data-testid="podman-setup-failure">
             <strong style={{ display: 'block', marginBottom: 6 }}>{failure.message}</strong>

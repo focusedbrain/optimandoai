@@ -11,10 +11,12 @@ import {
   detectLinuxDistroHint,
 } from './linuxDistroDetect.js'
 import {
+  buildWindowsWslManualInstruction,
   mapWslIssueToPhase,
   podmanCodeHeadline,
   podmanCodeSummary,
   wslIssueHeadline,
+  wslIssueRequiresManualInstall,
   wslIssueSummary,
 } from './podmanSetupCopy.js'
 import { getPodmanSetupRunSnapshot } from './podmanSetupRunState.js'
@@ -29,6 +31,7 @@ export type PodmanSetupPhase =
   | 'need_operator_install'
   | 'need_restart'
   | 'need_virtualization'
+  | 'need_wsl_manual'
   | 'ready'
 
 export type PodmanTerminalAction =
@@ -36,6 +39,7 @@ export type PodmanTerminalAction =
   | 'one_click'
   | 'restart'
   | 'operator_install'
+  | 'wsl_manual'
   | 'enable_virtualization'
   | 'manual'
 
@@ -80,6 +84,8 @@ export function setupPhaseHeadline(phase: PodmanSetupPhase): string {
       return 'Restart required to continue'
     case 'need_virtualization':
       return 'Enable virtualization to continue'
+    case 'need_wsl_manual':
+      return 'Windows container feature required'
     case 'ready':
       return 'Podman is ready'
   }
@@ -106,6 +112,8 @@ export function setupPhaseSummary(phase: PodmanSetupPhase, plat: NodeJS.Platform
       return 'Windows needs a restart before Podman setup can finish.'
     case 'need_virtualization':
       return 'Podman on Windows requires WSL2, which needs hardware virtualization enabled.'
+    case 'need_wsl_manual':
+      return 'Install WSL2 from an administrator terminal, restart your computer, then reopen WR Desk.'
     case 'ready':
       return ''
   }
@@ -118,6 +126,8 @@ export function resolveTerminalAction(
   switch (phase) {
     case 'need_restart':
       return 'restart'
+    case 'need_wsl_manual':
+      return 'wsl_manual'
     case 'need_virtualization':
       return 'enable_virtualization'
     case 'need_operator_install':
@@ -144,6 +154,7 @@ export interface PodmanSetupStatusSnapshot {
   summary: string
   terminalAction: PodmanTerminalAction
   operatorInstruction: string | null
+  wslManualCommand: string | null
   canOneClickSetup: boolean
   oneClickLabel: string
   setupRunning: boolean
@@ -161,7 +172,14 @@ function resolveOperatorInstruction(
   plat: NodeJS.Platform,
   code: PodmanSetupErrorCode | null,
   runDetail: string | undefined,
+  setupPhase: PodmanSetupPhase,
 ): string | null {
+  if (plat === 'win32' && setupPhase === 'need_wsl_manual') {
+    const wsl = getWslStatusCache()
+    if (wsl && wslIssueRequiresManualInstall(wsl.issue)) {
+      return buildWindowsWslManualInstruction(wsl.issue).instruction
+    }
+  }
   if (plat !== 'linux' || !code) return null
   if (runDetail?.includes('operator must run')) return runDetail
   if (code === 'not_installed') return buildLinuxOperatorInstruction(detectLinuxDistroHint())
@@ -174,13 +192,13 @@ function applyWindowsWslDisplay(
   setupPhase: PodmanSetupPhase,
   headline: string,
   summary: string,
-): { setupPhase: PodmanSetupPhase; headline: string; summary: string; statusMessage: string | null } {
+): { setupPhase: PodmanSetupPhase; headline: string; summary: string; statusMessage: string | null; wslManualCommand: string | null } {
   if (plat !== 'win32') {
-    return { setupPhase, headline, summary, statusMessage: null }
+    return { setupPhase, headline, summary, statusMessage: null, wslManualCommand: null }
   }
   const wsl = getWslStatusCache()
   if (!wsl || wsl.issue === 'ready') {
-    return { setupPhase, headline, summary, statusMessage: null }
+    return { setupPhase, headline, summary, statusMessage: null, wslManualCommand: null }
   }
   if (wsl.rebootRequired && setupPhase !== 'need_restart') {
     return {
@@ -189,6 +207,17 @@ function applyWindowsWslDisplay(
       summary:
         'Windows needs a restart before Podman setup can finish. After restarting, open WR Desk again — setup will continue automatically.',
       statusMessage: null,
+      wslManualCommand: null,
+    }
+  }
+  if (wslIssueRequiresManualInstall(wsl.issue)) {
+    const manual = buildWindowsWslManualInstruction(wsl.issue)
+    return {
+      setupPhase: 'need_wsl_manual',
+      headline: manual.headline,
+      summary: manual.summary,
+      statusMessage: null,
+      wslManualCommand: manual.copyCommand,
     }
   }
   const wslPhase = mapWslIssueToPhase(wsl.issue)
@@ -211,6 +240,7 @@ function applyWindowsWslDisplay(
       headline: wslIssueHeadline(wsl.issue),
       summary: wslIssueSummary(wsl.issue),
       statusMessage: null,
+      wslManualCommand: null,
     }
   }
   if (wsl.issue === 'virtualization_disabled') {
@@ -219,9 +249,10 @@ function applyWindowsWslDisplay(
       headline: wslIssueHeadline(wsl.issue),
       summary: wslIssueSummary(wsl.issue),
       statusMessage: null,
+      wslManualCommand: null,
     }
   }
-  return { setupPhase, headline, summary, statusMessage: null }
+  return { setupPhase, headline, summary, statusMessage: null, wslManualCommand: null }
 }
 
 export function buildPodmanSetupStatusSnapshot(): PodmanSetupStatusSnapshot {
@@ -235,8 +266,9 @@ export function buildPodmanSetupStatusSnapshot(): PodmanSetupStatusSnapshot {
   let setupPhase = derivePodmanSetupPhase(probePending, code, plat)
   if (run.setupFailure?.kind === 'restart_required') setupPhase = 'need_restart'
   else if (run.setupFailure?.kind === 'virtualization') setupPhase = 'need_virtualization'
-  else if (run.setupFailure?.kind === 'operator_instruction' && plat === 'linux') {
-    setupPhase = 'need_operator_install'
+  else if (run.setupFailure?.kind === 'operator_instruction') {
+    if (plat === 'linux') setupPhase = 'need_operator_install'
+    else if (plat === 'win32') setupPhase = 'need_wsl_manual'
   }
 
   const failureActive = run.setupFailure && !run.setupRunning
@@ -259,19 +291,20 @@ export function buildPodmanSetupStatusSnapshot(): PodmanSetupStatusSnapshot {
           : setupPhaseSummary(setupPhase, plat)
 
   const wslDisplay = failureActive
-    ? { setupPhase, headline, summary, statusMessage: null as string | null }
+    ? { setupPhase, headline, summary, statusMessage: null as string | null, wslManualCommand: null as string | null }
     : applyWindowsWslDisplay(plat, setupPhase, headline, summary)
   setupPhase = wslDisplay.setupPhase
   headline = wslDisplay.headline
   summary = wslDisplay.summary
 
-  const operatorInstruction = resolveOperatorInstruction(plat, code, run.setupFailure?.detail)
+  const operatorInstruction = resolveOperatorInstruction(plat, code, run.setupFailure?.detail, setupPhase)
   const terminalAction = resolveTerminalAction(setupPhase, plat)
   const needsSetup = setupPhase !== 'checking' && setupPhase !== 'ready'
 
   const blockedOneClick =
     setupPhase === 'need_restart' ||
     setupPhase === 'need_virtualization' ||
+    setupPhase === 'need_wsl_manual' ||
     (setupPhase === 'need_operator_install' && plat === 'linux')
 
   const canOneClickSetup =
@@ -294,6 +327,7 @@ export function buildPodmanSetupStatusSnapshot(): PodmanSetupStatusSnapshot {
     summary,
     terminalAction,
     operatorInstruction,
+    wslManualCommand: wslDisplay.wslManualCommand,
     canOneClickSetup,
     oneClickLabel: install.installLabel,
     setupRunning: run.setupRunning,
