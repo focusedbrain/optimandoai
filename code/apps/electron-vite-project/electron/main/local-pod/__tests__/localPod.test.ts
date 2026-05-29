@@ -15,7 +15,7 @@ vi.mock('electron', () => ({
     { isSupported: vi.fn(() => true) },
   ),
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
-  app: { on: vi.fn() },
+  app: { on: vi.fn(), isPackaged: false, getAppPath: () => '/tmp/local-pod-test' },
 }))
 
 vi.mock('../supervisor/index.js', () => ({

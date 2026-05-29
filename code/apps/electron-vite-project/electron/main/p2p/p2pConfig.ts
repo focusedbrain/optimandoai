@@ -192,6 +192,13 @@ export function computeLocalP2PEndpoint(config: P2PConfig): string {
 
 export function upsertP2PConfig(db: any, config: Partial<P2PConfig>): void {
   if (!db) return
+  try {
+    db.prepare(
+      `INSERT OR IGNORE INTO p2p_config (id, enabled, port, bind_address, tls_enabled) VALUES (1, 1, 51249, '0.0.0.0', 0)`,
+    ).run()
+  } catch {
+    /* table may not exist until handshake migration v7 */
+  }
   const existing = getP2PConfig(db)
   const merged = { ...DEFAULT_P2P_CONFIG, ...existing, ...config }
   db.prepare(

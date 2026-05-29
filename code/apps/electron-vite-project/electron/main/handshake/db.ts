@@ -873,6 +873,7 @@ const HANDSHAKE_MIGRATIONS: Array<{
         storage_encrypted INTEGER NOT NULL DEFAULT 0,
         page_count INTEGER DEFAULT NULL
       )`,
+      `DELETE FROM inbox_attachments WHERE message_id NOT IN (SELECT id FROM inbox_messages)`,
       `INSERT INTO inbox_attachments_v47 (
         id, message_id, filename, content_type, size_bytes, content_id, storage_path,
         extracted_text, text_extraction_status, raster_path, embedding_status, created_at,
@@ -1246,6 +1247,7 @@ const HANDSHAKE_MIGRATIONS: Array<{
         seal TEXT,
         seal_input_json TEXT
       )`,
+      `DELETE FROM inbox_attachments WHERE message_id NOT IN (SELECT id FROM inbox_messages)`,
       `INSERT INTO inbox_attachments_v71 (
         id, message_id, filename, content_type, size_bytes, content_id, storage_path,
         extracted_text, text_extraction_status, raster_path, embedding_status, created_at,

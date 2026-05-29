@@ -7,10 +7,10 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\build110'
+ *   return 'C:\\build-output\\build200'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build110'
+  return 'C:\\build-output\\build200'
 }
 
 const workspaceRoot = path.resolve(appDir, '../..')
@@ -84,6 +84,20 @@ if (wasm) {
 const tesseractLang = path.join(appDir, 'tesseract-lang')
 if (fs.existsSync(tesseractLang)) {
   extraResources.push({ from: 'tesseract-lang', to: 'tesseract-lang', filter: ['**/*'] })
+}
+
+const beapPodDir = path.join(workspaceRoot, 'packages', 'beap-pod')
+if (fs.existsSync(beapPodDir)) {
+  extraResources.push({
+    from: path.relative(appDir, beapPodDir).replace(/\\/g, '/'),
+    to: 'packages/beap-pod',
+    filter: [
+      'pod.yaml',
+      'pod-local-verify.yaml',
+      'expected-image-digest.json',
+      'seccomp/**',
+    ],
+  })
 }
 
 module.exports = {

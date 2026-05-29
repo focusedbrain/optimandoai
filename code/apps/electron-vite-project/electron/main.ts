@@ -910,6 +910,9 @@ import {
 } from './main/projects/optimizerHttpInvoke'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
 import { handleVaultRPC, vaultService } from './main/vault/rpc'
+import { setHoldQueueVaultBridge } from './main/ingestion/holdQueueVaultBridge.js'
+
+setHoldQueueVaultBridge(vaultService)
 import { handleHandshakeRPC, registerHandshakeRoutes, setSSOSessionProvider, setOidcTokenProvider, getCurrentSession } from './main/handshake/ipc'
 import { sessionFromClaims } from './main/handshake/sessionFactory'
 import { handleIngestionRPC, registerIngestionRoutes } from './main/ingestion/ipc'

@@ -83,7 +83,7 @@ describe.skipIf(!sqliteAvailable)('handshake migration v71 — inbox_attachments
   test('INSERT/SELECT explicit columns match CREATE target count (22)', () => {
     const migration = getHandshakeMigration(71)
     expect(migration).toBeDefined()
-    const insertSql = migration!.sql[1]
+    const insertSql = migration!.sql.find((s) => s.includes('INSERT INTO inbox_attachments_v71'))!
     const createSql = migration!.sql[0]
 
     const insertCols = parseInsertColumns(insertSql)
@@ -156,6 +156,30 @@ describe.skipIf(!sqliteAvailable)('handshake migration v71 — inbox_attachments
       .get(messageId) as { seal: string; seal_input_json: string }
     expect(row.seal).toBe('seal-val')
     expect(row.seal_input_json).toBe('{"row":"x"}')
+
+    db.close()
+  })
+
+  test('v71 drops orphan attachments before FK-checked copy', () => {
+    const db = new Database(':memory:')
+    db.pragma('foreign_keys = ON')
+    migrateHandshakeTablesUpTo(db, 70)
+
+    db.prepare(
+      `INSERT INTO inbox_attachments (
+        id, message_id, filename, text_extraction_status
+      ) VALUES ('orphan-att', 'missing-message-id', 'orphan.pdf', 'pending')`,
+    ).run()
+
+    migrateHandshakeTables(db)
+
+    const applied71 = db
+      .prepare(`SELECT version FROM handshake_schema_migrations WHERE version = 71`)
+      .get() as { version: number }
+    expect(applied71?.version).toBe(71)
+
+    const orphans = db.prepare(`SELECT COUNT(*) AS n FROM inbox_attachments`).get() as { n: number }
+    expect(orphans.n).toBe(0)
 
     db.close()
   })

@@ -25,6 +25,8 @@ import { execFile } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { promisify } from 'node:util'
 
+import { resolveBeapPodManifestPath } from './beapPodPaths.js'
+
 const execFileAsync = promisify(execFile)
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -84,16 +86,12 @@ const defaultExecutor: PodmanExecutor = async (args, env) => {
 
 export function resolveManifestPath(override?: string): string {
   if (override) return override
-  if (process.env['BEAP_POD_MANIFEST']) return process.env['BEAP_POD_MANIFEST']
-  return join(process.cwd(), 'packages', 'beap-pod', 'pod.yaml')
+  return resolveBeapPodManifestPath('pod.yaml')
 }
 
 export function resolveLocalVerifyManifestPath(override?: string): string {
   if (override) return override
-  if (process.env['BEAP_POD_LOCAL_VERIFY_MANIFEST']) {
-    return process.env['BEAP_POD_LOCAL_VERIFY_MANIFEST']
-  }
-  return join(process.cwd(), 'packages', 'beap-pod', 'pod-local-verify.yaml')
+  return resolveBeapPodManifestPath('pod-local-verify.yaml')
 }
 
 // ── Core API ───────────────────────────────────────────────────────────────────

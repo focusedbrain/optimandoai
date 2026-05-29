@@ -4,10 +4,14 @@
  * Run via vitest.modeResolver.config.ts project or direct path include.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from 'vitest'
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+
+vi.mock('electron', () => ({
+  app: { getPath: () => join(tmpdir(), 'hold-queue-test-userdata') },
+}))
 
 import {
   _setHoldQueuePathForTest,

@@ -8,8 +8,13 @@ import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'node:
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { homedir } from 'node:os'
+import { app } from 'electron'
 
+import { getHoldQueueVaultBridge } from './holdQueueVaultBridge.js'
+import type { HoldQueueVault } from './holdQueueVaultBridge.js'
 import type { SourceType, TransportMetadata } from './types.js'
+
+export type { HoldQueueVault } from './holdQueueVaultBridge.js'
 
 export const HOLD_QUEUE_MAX_MESSAGES = 1000
 export const HOLD_QUEUE_MAX_BYTES = 500 * 1024 * 1024
@@ -51,10 +56,6 @@ interface StoredEntry {
 interface HoldQueueFile {
   version: 1
   entries: StoredEntry[]
-}
-
-export type HoldQueueVault = {
-  deriveApplicationKey(info: string): Buffer | null
 }
 
 let _pathOverride: string | null = null
@@ -101,8 +102,6 @@ export function _setHoldQueueLimitsForTest(
 function getUserDataDir(): string {
   if (process.env['WR_DESK_USER_DATA']) return process.env['WR_DESK_USER_DATA']
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { app } = require('electron') as typeof import('electron')
     return app.getPath('userData')
   } catch {
     return join(homedir(), '.config', 'wr-desk')
@@ -116,9 +115,7 @@ function getQueuePath(): string {
 
 function getVault(): HoldQueueVault {
   if (_vaultOverride) return _vaultOverride
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { vaultService } = require('../vault/service.js') as typeof import('../vault/service.js')
-  return vaultService
+  return getHoldQueueVaultBridge()
 }
 
 function deriveQueueKey(vault: HoldQueueVault): Buffer {

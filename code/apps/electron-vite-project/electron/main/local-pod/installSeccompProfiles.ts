@@ -6,6 +6,8 @@ import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 
+import { resolveBeapPodPackageDir } from './beapPodPaths.js'
+
 const PROFILE_SOURCES: Record<string, string> = {
   'beap-sealer.json': 'sealer.json',
   'beap-depackager.json': 'depackager.json',
@@ -24,8 +26,10 @@ export function resolveSeccompInstallDir(): string {
 }
 
 export function resolveBeapPodSeccompSourceDir(repoRoot?: string): string {
-  const root = repoRoot ?? process.cwd()
-  return join(root, 'packages', 'beap-pod', 'seccomp')
+  if (repoRoot) {
+    return join(repoRoot, 'packages', 'beap-pod', 'seccomp')
+  }
+  return join(resolveBeapPodPackageDir(), 'seccomp')
 }
 
 /** Copy sealer + depackager (+ certifier) profiles into Podman seccomp directory. */

@@ -1,0 +1,54 @@
+/**
+ * Resolve packages/beap-pod paths in dev and packaged Electron builds.
+ */
+
+import { existsSync } from 'node:fs'
+import { join, resolve, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { app } from 'electron'
+
+const mainBundleDir = dirname(fileURLToPath(import.meta.url))
+
+/** Directory containing pod.yaml, seccomp/, expected-image-digest.json. */
+export function resolveBeapPodPackageDir(): string {
+  if (process.env['BEAP_POD_PACKAGE_DIR']?.trim()) {
+    return process.env['BEAP_POD_PACKAGE_DIR'].trim()
+  }
+
+  const candidates: string[] = []
+
+  if (app.isPackaged && process.resourcesPath) {
+    candidates.push(join(process.resourcesPath, 'packages', 'beap-pod'))
+  }
+
+  candidates.push(join(process.cwd(), 'packages', 'beap-pod'))
+
+  // Dev: electron-vite-project cwd or workspace root from bundle location.
+  candidates.push(resolve(mainBundleDir, '..', '..', '..', '..', 'packages', 'beap-pod'))
+  candidates.push(resolve(mainBundleDir, '..', '..', '..', 'packages', 'beap-pod'))
+
+  for (const dir of candidates) {
+    if (existsSync(join(dir, 'pod.yaml'))) {
+      return dir
+    }
+  }
+
+  return candidates[0] ?? join(process.cwd(), 'packages', 'beap-pod')
+}
+
+export function resolveBeapPodManifestPath(filename = 'pod.yaml'): string {
+  if (filename === 'pod.yaml' && process.env['BEAP_POD_MANIFEST']?.trim()) {
+    return process.env['BEAP_POD_MANIFEST'].trim()
+  }
+  if (filename === 'pod-local-verify.yaml' && process.env['BEAP_POD_LOCAL_VERIFY_MANIFEST']?.trim()) {
+    return process.env['BEAP_POD_LOCAL_VERIFY_MANIFEST'].trim()
+  }
+  return join(resolveBeapPodPackageDir(), filename)
+}
+
+export function resolveBeapPodExpectedDigestPath(): string {
+  if (process.env['BEAP_EXPECTED_DIGEST_JSON']?.trim()) {
+    return process.env['BEAP_EXPECTED_DIGEST_JSON'].trim()
+  }
+  return join(resolveBeapPodPackageDir(), 'expected-image-digest.json')
+}

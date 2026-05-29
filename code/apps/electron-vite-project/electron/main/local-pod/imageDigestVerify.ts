@@ -3,9 +3,10 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+
+import { resolveBeapPodExpectedDigestPath } from './beapPodPaths.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -35,10 +36,7 @@ export interface ExpectedDigestFile {
 
 export function resolveExpectedDigestPath(override?: string): string {
   if (override) return override
-  if (process.env['BEAP_EXPECTED_DIGEST_JSON']) {
-    return process.env['BEAP_EXPECTED_DIGEST_JSON']
-  }
-  return join(process.cwd(), 'packages', 'beap-pod', 'expected-image-digest.json')
+  return resolveBeapPodExpectedDigestPath()
 }
 
 export function loadExpectedDigest(
