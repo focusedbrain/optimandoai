@@ -3,7 +3,9 @@
  */
 
 import type { PodmanSetupErrorCode } from './podmanDetect.js'
+import type { PodmanCommandResult } from './podmanInstallRunner.js'
 import type { WslIssue } from './wslProbe.js'
+import { uacWasCancelled } from './wslProbe.js'
 
 export type PodmanSetupCopyPhase =
   | 'need_package'
@@ -97,6 +99,21 @@ export function podmanCodeSummary(code: PodmanSetupErrorCode, plat: NodeJS.Platf
   }
 }
 
+export function wslManualInstallSteps(issue: WslIssue): string {
+  const cmd =
+    issue === 'needs_update'
+      ? 'wsl --update'
+      : issue === 'no_distro'
+        ? 'wsl --install'
+        : 'wsl --install'
+  return [
+    '1. Right-click the Start button → Terminal (Admin) or Windows PowerShell (Admin).',
+    `2. Run: ${cmd}`,
+    '3. Restart your computer when Windows asks (required for WSL).',
+    '4. Open WR Desk again — setup continues automatically.',
+  ].join('\n')
+}
+
 export function setupFailureDetailForWslInstall(issue: WslIssue): string {
   return wslIssueFailureDetail(issue)
 }
@@ -104,13 +121,72 @@ export function setupFailureDetailForWslInstall(issue: WslIssue): string {
 export function wslInstallFailedMessage(issue: WslIssue): string {
   switch (issue) {
     case 'not_installed':
-      return 'WSL could not be installed automatically.'
+      return 'WSL is not installed yet'
     case 'no_distro':
-      return 'The Linux environment for WSL could not be created automatically.'
+      return 'Linux environment for WSL is not set up yet'
     case 'needs_update':
-      return 'WSL could not be updated automatically.'
+      return 'WSL could not be updated automatically'
     default:
-      return 'WSL setup did not complete.'
+      return 'WSL setup did not complete'
+  }
+}
+
+/** Actionable English failure — headline (short) + detail (next steps). Never raw OS output. */
+export function resolveWslInstallFailureCopy(
+  issue: WslIssue,
+  result: PodmanCommandResult,
+): { message: string; detail: string } {
+  if (uacWasCancelled(result)) {
+    return {
+      message: 'Administrator permission is required',
+      detail: [
+        'Windows did not receive permission to install WSL.',
+        '',
+        'Click Install & set up Podman again and choose Yes when the UAC prompt appears.',
+        '',
+        'If no prompt appears, use an admin terminal instead:',
+        wslManualInstallSteps(issue),
+      ].join('\n'),
+    }
+  }
+
+  if (issue === 'not_installed' || issue === 'unknown') {
+    return {
+      message: 'Install WSL in an administrator terminal',
+      detail: [
+        `Automatic install did not finish (exit code ${result.exitCode ?? 'unknown'}).`,
+        '',
+        'Install WSL manually, then restart:',
+        wslManualInstallSteps('not_installed'),
+      ].join('\n'),
+    }
+  }
+
+  if (issue === 'no_distro') {
+    return {
+      message: 'Create the WSL Linux environment manually',
+      detail: [
+        `Automatic install did not finish (exit code ${result.exitCode ?? 'unknown'}).`,
+        '',
+        wslManualInstallSteps('no_distro'),
+      ].join('\n'),
+    }
+  }
+
+  if (issue === 'needs_update') {
+    return {
+      message: 'Update WSL in an administrator terminal',
+      detail: [
+        `Automatic update did not finish (exit code ${result.exitCode ?? 'unknown'}).`,
+        '',
+        wslManualInstallSteps('needs_update'),
+      ].join('\n'),
+    }
+  }
+
+  return {
+    message: wslInstallFailedMessage(issue),
+    detail: wslManualInstallSteps(issue),
   }
 }
 

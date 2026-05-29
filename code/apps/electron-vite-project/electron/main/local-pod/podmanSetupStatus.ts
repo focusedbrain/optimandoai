@@ -210,7 +210,7 @@ function applyWindowsWslDisplay(
       setupPhase: mergedPhase,
       headline: wslIssueHeadline(wsl.issue),
       summary: wslIssueSummary(wsl.issue),
-      statusMessage: wslIssueSummary(wsl.issue),
+      statusMessage: null,
     }
   }
   if (wsl.issue === 'virtualization_disabled') {
@@ -218,7 +218,7 @@ function applyWindowsWslDisplay(
       setupPhase: 'need_virtualization',
       headline: wslIssueHeadline(wsl.issue),
       summary: wslIssueSummary(wsl.issue),
-      statusMessage: wslIssueSummary(wsl.issue),
+      statusMessage: null,
     }
   }
   return { setupPhase, headline, summary, statusMessage: null }
@@ -239,20 +239,28 @@ export function buildPodmanSetupStatusSnapshot(): PodmanSetupStatusSnapshot {
     setupPhase = 'need_operator_install'
   }
 
-  let headline =
-    run.setupFailure?.kind === 'restart_required'
-      ? run.setupFailure.message
-      : code
-        ? podmanCodeHeadline(code, plat)
-        : setupPhaseHeadline(setupPhase)
-  let summary =
-    run.setupFailure?.kind === 'restart_required' && run.setupFailure.detail
-      ? run.setupFailure.detail
-      : code
-        ? podmanCodeSummary(code, plat)
-        : setupPhaseSummary(setupPhase, plat)
+  const failureActive = run.setupFailure && !run.setupRunning
 
-  const wslDisplay = applyWindowsWslDisplay(plat, setupPhase, headline, summary)
+  let headline =
+    failureActive && run.setupFailure
+      ? run.setupFailure.message
+      : run.setupFailure?.kind === 'restart_required'
+        ? run.setupFailure.message
+        : code
+          ? podmanCodeHeadline(code, plat)
+          : setupPhaseHeadline(setupPhase)
+  let summary =
+    failureActive && run.setupFailure?.detail
+      ? run.setupFailure.detail
+      : run.setupFailure?.kind === 'restart_required' && run.setupFailure.detail
+        ? run.setupFailure.detail
+        : code
+          ? podmanCodeSummary(code, plat)
+          : setupPhaseSummary(setupPhase, plat)
+
+  const wslDisplay = failureActive
+    ? { setupPhase, headline, summary, statusMessage: null as string | null }
+    : applyWindowsWslDisplay(plat, setupPhase, headline, summary)
   setupPhase = wslDisplay.setupPhase
   headline = wslDisplay.headline
   summary = wslDisplay.summary
@@ -273,9 +281,7 @@ export function buildPodmanSetupStatusSnapshot(): PodmanSetupStatusSnapshot {
     (plat === 'win32' || plat === 'darwin') &&
     install.canAutoInstall
 
-  const englishStatus =
-    wslDisplay.statusMessage ??
-    (code && !probePending ? podmanCodeSummary(code, plat) : null)
+  const englishStatus = wslDisplay.statusMessage
 
   return {
     required: err != null,

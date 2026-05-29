@@ -2,9 +2,13 @@
  * WSL2 diagnosis and remediation for Windows Podman (WSL2 backend).
  */
 
+import { randomBytes } from 'node:crypto'
 import { spawn } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
-import { decodeProcessOutput } from './processOutputDecode.js'
+import { decodeProcessBuffer, decodeProcessOutput } from './processOutputDecode.js'
 import type { PodmanCommandResult } from './podmanInstallRunner.js'
 
 export type WslIssue =
@@ -24,6 +28,53 @@ export interface WslDiagnosis {
 }
 
 const WSL_TIMEOUT_MS = 120_000
+/** Windows ERROR_CANCELLED — user declined UAC elevation. */
+export const WSL_UAC_CANCELLED_EXIT = 1223
+
+export function uacWasCancelled(result: PodmanCommandResult): boolean {
+  return result.exitCode === WSL_UAC_CANCELLED_EXIT || result.stderr.includes('UAC_CANCELLED')
+}
+
+/** Metadata-only log — decoded output for diagnosis, never shown raw in UI. */
+export function logWslCommandResult(label: string, result: PodmanCommandResult): void {
+  console.log(
+    `[PODMAN_SETUP] ${label} exit=${result.exitCode ?? 'null'} ok=${result.ok} command=${result.command}`,
+  )
+  const out = result.stdout.trim()
+  const err = result.stderr.trim()
+  if (out) {
+    for (const line of out.split('\n')) {
+      console.log(`[PODMAN_SETUP]   stdout: ${line}`)
+    }
+  }
+  if (err) {
+    for (const line of err.split('\n')) {
+      console.log(`[PODMAN_SETUP]   stderr: ${line}`)
+    }
+  }
+  if (!out && !err) {
+    console.log('[PODMAN_SETUP]   (no captured output)')
+  }
+}
+
+function readCapturedLogFile(filePath: string): string {
+  try {
+    if (!fs.existsSync(filePath)) return ''
+    return decodeProcessBuffer(fs.readFileSync(filePath), true).trim()
+  } catch {
+    return ''
+  }
+}
+
+function cleanupTempFiles(...paths: string[]): void {
+  for (const p of paths) {
+    try {
+      if (fs.existsSync(p)) fs.unlinkSync(p)
+    } catch {
+      /* ignore */
+    }
+  }
+}
 
 function spawnWsl(args: readonly string[], commandLabel: string, elevated = false): Promise<PodmanCommandResult> {
   if (elevated) {
@@ -80,66 +131,115 @@ function spawnWslDirect(args: readonly string[], commandLabel: string): Promise<
   })
 }
 
-/** UAC elevation for wsl --install / --update (must not use windowsHide). */
+/** UAC elevation — inner script runs elevated; output captured to temp files for logging. */
 function spawnWslElevated(args: readonly string[], commandLabel: string): Promise<PodmanCommandResult> {
   const systemRoot = process.env.SystemRoot ?? 'C:\\Windows'
   const wslPath = `${systemRoot}\\System32\\wsl.exe`
-  const argList = args.map((a) => `'${a.replace(/'/g, "''")}'`).join(',')
-  const psCommand = [
-    `$p = Start-Process -FilePath '${wslPath.replace(/'/g, "''")}'`,
-    `-ArgumentList @(${argList}) -Verb RunAs -PassThru -Wait`,
-    'if ($null -eq $p) { exit 1 }',
+  const id = randomBytes(8).toString('hex')
+  const tmpDir = os.tmpdir()
+  const innerScript = path.join(tmpDir, `wrdesk-wsl-inner-${id}.ps1`)
+  const launcherScript = path.join(tmpDir, `wrdesk-wsl-launch-${id}.ps1`)
+  const outLog = path.join(tmpDir, `wrdesk-wsl-out-${id}.txt`)
+  const exitLog = path.join(tmpDir, `wrdesk-wsl-exit-${id}.txt`)
+
+  const wslArgString = args.map((a) => `'${a.replace(/'/g, "''")}'`).join(' ')
+  const innerContent = [
+    '$ErrorActionPreference = "Continue"',
+    `$outFile = '${outLog.replace(/'/g, "''")}'`,
+    `$exitFile = '${exitLog.replace(/'/g, "''")}'`,
+    `$output = & '${wslPath.replace(/'/g, "''")}' ${wslArgString} *>&1 | Out-String`,
+    '[System.IO.File]::WriteAllText($outFile, $output, [System.Text.Encoding]::Unicode)',
+    '$code = $LASTEXITCODE',
+    'if ($null -eq $code) { $code = 1 }',
+    '[System.IO.File]::WriteAllText($exitFile, $code.ToString())',
+    'exit $code',
+  ].join('\n')
+
+  const launcherContent = [
+    `$inner = '${innerScript.replace(/'/g, "''")}'`,
+    "$p = Start-Process -FilePath 'powershell.exe' -Verb RunAs -PassThru -Wait -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Normal','-File',$inner)",
+    'if ($null -eq $p) { Write-Error UAC_CANCELLED; exit 1223 }',
     'exit $p.ExitCode',
-  ].join(' ')
+  ].join('\n')
+
+  try {
+    fs.writeFileSync(innerScript, innerContent, 'utf8')
+    fs.writeFileSync(launcherScript, launcherContent, 'utf8')
+  } catch (err) {
+    return Promise.resolve({
+      ok: false,
+      command: commandLabel,
+      stdout: '',
+      stderr: err instanceof Error ? err.message : String(err),
+      exitCode: null,
+    })
+  }
 
   return new Promise((resolve) => {
     const child = spawn(
       'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psCommand],
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', launcherScript],
       {
         windowsHide: false,
         stdio: ['ignore', 'pipe', 'pipe'],
       },
     )
 
-    let stdout = ''
-    let stderr = ''
+    let psStdout = ''
+    let psStderr = ''
     child.stdout?.on('data', (chunk) => {
-      stdout += String(chunk)
+      psStdout += String(chunk)
     })
     child.stderr?.on('data', (chunk) => {
-      stderr += String(chunk)
+      psStderr += String(chunk)
     })
+
+    const finish = (exitCode: number | null) => {
+      const captured = readCapturedLogFile(outLog)
+      let wslExit: number | null = null
+      try {
+        if (fs.existsSync(exitLog)) {
+          wslExit = parseInt(fs.readFileSync(exitLog, 'utf8').trim(), 10)
+          if (Number.isNaN(wslExit)) wslExit = null
+        }
+      } catch {
+        wslExit = null
+      }
+
+      cleanupTempFiles(innerScript, launcherScript, outLog, exitLog)
+
+      const launcherFailed = exitCode === WSL_UAC_CANCELLED_EXIT || psStderr.includes('UAC_CANCELLED')
+      const effectiveExit = launcherFailed ? WSL_UAC_CANCELLED_EXIT : (wslExit ?? exitCode)
+      const ok = effectiveExit === 0
+
+      const result: PodmanCommandResult = {
+        ok,
+        command: commandLabel,
+        stdout: captured || psStdout.trim(),
+        stderr: launcherFailed ? 'UAC_CANCELLED' : psStderr.trim(),
+        exitCode: effectiveExit,
+      }
+      logWslCommandResult(`${commandLabel} (elevated)`, result)
+      resolve(result)
+    }
 
     const timer = setTimeout(() => {
       child.kill()
-      resolve({
-        ok: false,
-        command: commandLabel,
-        stdout: stdout.trim(),
-        stderr: `${stderr.trim()}\n[timeout after ${WSL_TIMEOUT_MS}ms]`,
-        exitCode: null,
-      })
+      finish(null)
     }, WSL_TIMEOUT_MS)
 
     child.on('close', (code) => {
       clearTimeout(timer)
-      const exitCode = code ?? 1
-      resolve({
-        ok: exitCode === 0,
-        command: commandLabel,
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-        exitCode,
-      })
+      finish(code)
     })
 
     child.on('error', (err) => {
       clearTimeout(timer)
+      cleanupTempFiles(innerScript, launcherScript, outLog, exitLog)
       resolve({
         ok: false,
         command: commandLabel,
-        stdout,
+        stdout: '',
         stderr: err.message,
         exitCode: null,
       })
@@ -301,6 +401,10 @@ export async function diagnoseWslState(reason = 'manual'): Promise<WslDiagnosis>
 }
 
 export async function runWslInstall(): Promise<PodmanCommandResult> {
+  return spawnWsl(['--install'], 'wsl.exe --install', true)
+}
+
+export async function runWslInstallNoDistro(): Promise<PodmanCommandResult> {
   return spawnWsl(['--install', '--no-distribution'], 'wsl.exe --install --no-distribution', true)
 }
 
@@ -312,7 +416,14 @@ export async function runWslInstallWithDistro(): Promise<PodmanCommandResult> {
   return spawnWsl(['--install'], 'wsl.exe --install', true)
 }
 
-export function rebootRequiredMessage(): { message: string; detail: string } {
+export function rebootRequiredMessage(context?: 'wsl_fresh_install'): { message: string; detail: string } {
+  if (context === 'wsl_fresh_install') {
+    return {
+      message: 'Restart your computer to finish installing WSL',
+      detail:
+        'WSL was installed but Windows requires a restart before it can run. Restart your computer, then open WR Desk again — Podman setup will continue automatically.',
+    }
+  }
   return {
     message: 'Restart your computer to finish Windows setup',
     detail:

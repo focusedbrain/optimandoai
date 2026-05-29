@@ -36,10 +36,16 @@ vi.mock('../podmanSetupBroadcast.js', () => ({
 
 vi.mock('../wslProbe.js', () => ({
   outputImpliesReboot: (text: string) => text.toLowerCase().includes('restart'),
-  rebootRequiredMessage: () => ({
-    message: 'Restart your computer to finish Windows setup',
-    detail: 'After restarting, open WR Desk again.',
-  }),
+  rebootRequiredMessage: (context?: string) =>
+    context === 'wsl_fresh_install'
+      ? {
+          message: 'Restart your computer to finish installing WSL',
+          detail: 'After restarting, open WR Desk again.',
+        }
+      : {
+          message: 'Restart your computer to finish Windows setup',
+          detail: 'After restarting, open WR Desk again.',
+        },
   virtualizationRequiredMessage: () => ({
     message: 'Enable virtualization',
     detail: 'Enable VT-x/AMD-V in firmware.',

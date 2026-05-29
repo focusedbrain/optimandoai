@@ -249,7 +249,7 @@ export function PodmanRequiredModal(): JSX.Element | null {
     try {
       const out = await api.runFullSetup()
       applyStatus(out.status as Record<string, unknown>)
-      if (!out.ok && out.failure?.message) {
+      if (!out.ok && out.failure?.message && !(out.status as PodmanSetupStatus)?.setupFailure) {
         setClickError(out.failure.detail ? `${out.failure.message} ${out.failure.detail}` : out.failure.message)
       }
     } catch (err: unknown) {
@@ -279,6 +279,8 @@ export function PodmanRequiredModal(): JSX.Element | null {
   const operatorText = isOperatorLinux ? status.operatorInstruction ?? failure?.detail : null
   const showOneClick =
     status.canOneClickSetup || (status.platform === 'win32' && status.required && !isRestart && !isVirtualization)
+  const summaryIsPrimaryInstruction =
+    Boolean(failure && !setupActive && failure.detail && status.summary === failure.detail)
 
   return (
     <div
@@ -300,15 +302,32 @@ export function PodmanRequiredModal(): JSX.Element | null {
         >
           {status.headline}
         </h2>
-        <p style={{ ...mutedStyle, margin: '0 0 16px' }}>{status.summary}</p>
+        <p
+          style={{
+            ...(summaryIsPrimaryInstruction
+              ? {
+                  color: 'var(--text-primary, var(--text-primary-prof, #0f1419))',
+                  fontSize: 14,
+                  lineHeight: 1.55,
+                  whiteSpace: 'pre-wrap',
+                }
+              : { ...mutedStyle }),
+            margin: '0 0 16px',
+          }}
+        >
+          {status.summary}
+        </p>
 
-        {status.statusMessage && !setupActive && !isOperatorLinux ? (
+        {status.statusMessage &&
+        !setupActive &&
+        !isOperatorLinux &&
+        status.statusMessage !== status.summary ? (
           <div style={prominentBoxStyle} data-testid="podman-status-message">
             {status.statusMessage}
           </div>
         ) : null}
 
-        {isRestart && !setupActive ? (
+        {isRestart && !setupActive && failure?.message !== status.headline ? (
           <div style={restartBoxStyle} data-testid="podman-restart-required">
             <strong style={{ display: 'block', marginBottom: 8 }}>
               {failure?.message ?? 'Restart your computer to finish Windows setup'}
@@ -379,11 +398,17 @@ export function PodmanRequiredModal(): JSX.Element | null {
         !setupActive &&
         !isRestart &&
         !isVirtualization &&
-        !isOperatorLinux ? (
+        !isOperatorLinux &&
+        (failure.detail !== status.summary || failure.message !== status.headline) ? (
           <div style={errorBoxStyle} data-testid="podman-setup-failure">
             <strong style={{ display: 'block', marginBottom: 6 }}>{failure.message}</strong>
-            {failure.detail ? (
-              <span style={{ color: 'var(--text-primary, var(--text-primary-prof, #0f1419))' }}>
+            {failure.detail && failure.detail !== status.summary ? (
+              <span
+                style={{
+                  color: 'var(--text-primary, var(--text-primary-prof, #0f1419))',
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
                 {failure.detail}
               </span>
             ) : null}

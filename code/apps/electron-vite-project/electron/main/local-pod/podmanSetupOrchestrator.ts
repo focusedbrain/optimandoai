@@ -18,9 +18,8 @@ import {
 import { refreshPodmanSetupProbe, invalidatePodmanSetupProbeCache } from './podmanSetupProbe.js'
 import { broadcastPodmanSetupState } from './podmanSetupBroadcast.js'
 import {
-  setupFailureDetailForWslInstall,
+  resolveWslInstallFailureCopy,
   unexpectedSetupErrorMessage,
-  wslInstallFailedMessage,
 } from './podmanSetupCopy.js'
 import {
   beginPodmanSetupRun,
@@ -153,6 +152,14 @@ async function ensureWslReady(): Promise<PodmanFullSetupResult | null> {
     }
 
     const combined = `${wslResult.stdout}\n${wslResult.stderr}`
+
+    if (wslResult.ok && (issue === 'not_installed' || outputImpliesReboot(combined))) {
+      const msg = rebootRequiredMessage(issue === 'not_installed' ? 'wsl_fresh_install' : undefined)
+      failPodmanSetupRun({ kind: 'restart_required', message: msg.message, detail: msg.detail })
+      broadcastProgress()
+      return plainFailure(msg.message, msg.detail, 'restart_required')
+    }
+
     if (outputImpliesReboot(combined) || diagnosis.rebootRequired) {
       const msg = rebootRequiredMessage()
       failPodmanSetupRun({ kind: 'restart_required', message: msg.message, detail: msg.detail })
@@ -161,14 +168,14 @@ async function ensureWslReady(): Promise<PodmanFullSetupResult | null> {
     }
 
     if (!wslResult.ok) {
-      const detail = setupFailureDetailForWslInstall(issue)
+      const copy = resolveWslInstallFailureCopy(issue, wslResult)
       failPodmanSetupRun({
-        kind: outputImpliesReboot(combined) ? 'restart_required' : 'error',
-        message: wslInstallFailedMessage(issue),
-        detail,
+        kind: 'error',
+        message: copy.message,
+        detail: copy.detail,
       })
       broadcastProgress()
-      return plainFailure(wslInstallFailedMessage(issue), detail, 'error')
+      return plainFailure(copy.message, copy.detail, 'error')
     }
 
     const after =
@@ -186,17 +193,20 @@ async function ensureWslReady(): Promise<PodmanFullSetupResult | null> {
       return plainFailure(msg.message, msg.detail, 'restart_required')
     }
     if (after.issue !== 'ready' && after.issue !== 'no_distro') {
+      const copy = resolveWslInstallFailureCopy(after.issue, wslResult ?? {
+        ok: false,
+        command: 'wsl post-check',
+        stdout: '',
+        stderr: '',
+        exitCode: null,
+      })
       failPodmanSetupRun({
         kind: 'error',
-        message: wslInstallFailedMessage(after.issue),
-        detail: setupFailureDetailForWslInstall(after.issue),
+        message: copy.message,
+        detail: copy.detail,
       })
       broadcastProgress()
-      return plainFailure(
-        wslInstallFailedMessage(after.issue),
-        setupFailureDetailForWslInstall(after.issue),
-        'error',
-      )
+      return plainFailure(copy.message, copy.detail, 'error')
     }
 
     await refreshWslStatusCache({ force: true, reason: 'post_remediation' })
