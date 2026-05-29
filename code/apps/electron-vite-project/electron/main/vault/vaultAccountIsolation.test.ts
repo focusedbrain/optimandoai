@@ -23,7 +23,7 @@ vi.mock('os', async (importOriginal) => {
   return { ...mod, homedir: () => paths.home }
 })
 
-import { listVaultsForAccount, readVaultOwnerFromMetaFile, writeVaultOwnerClaim } from './db'
+import { listVaultsForAccount, readVaultOwnerFromMetaFile } from './db'
 
 function makeOwner(prefix: string) {
   return {
@@ -140,16 +140,6 @@ describe('listVaultsForAccount (isolated home)', () => {
     const r = listVaultsForAccount(sessionB)
     expect(r.vaults.map((v) => v.id)).toEqual([vaultB])
     expect(r.hiddenForeignCount).toBe(1)
-  })
-
-  it('writeVaultOwnerClaim moves legacy vault into visible list for matching session', () => {
-    writeVaultOwnerClaim(legacy, makeOwner('a'))
-    const r = listVaultsForAccount(sessionA)
-    expect(r.vaults.map((v) => v.id).sort()).toEqual([vaultA, legacy].sort())
-    expect(r.legacyUnclaimed.length).toBe(0)
-    const owner = readVaultOwnerFromMetaFile(legacy)
-    expect(owner?.owner_sub).toBe('a-sub')
-    expect(owner?.owner_claimed_at).toBeTruthy()
   })
 
   it('readVaultOwnerFromMetaFile returns owner for migration checks', () => {

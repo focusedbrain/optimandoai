@@ -17,7 +17,6 @@ import { EmailEdgeFetchControls } from './email-edge-fetch'
 import { EmailAccountsAndEdgeIngestorPanel } from './EmailAccountsAndEdgeIngestorPanel'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { SyncFailureBanner } from './SyncFailureBanner'
-import LegacyVaultClaimBanner from './LegacyVaultClaimBanner'
 import BeapQuarantineBanner from './BeapQuarantineBanner'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import { useEmailInboxStore, activeEmailAccountIdsForSync, type InboxMessage } from '../stores/useEmailInboxStore'
@@ -4230,7 +4229,6 @@ export default function EmailInboxView({
           </button>
         </div>
 
-        <LegacyVaultClaimBanner />
         <BeapQuarantineBanner />
 
         {lastSyncWarnings && lastSyncWarnings.length > 0 ? (

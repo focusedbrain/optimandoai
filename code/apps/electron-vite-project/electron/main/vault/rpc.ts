@@ -29,7 +29,6 @@ onValidationServiceUnavailable((reason) => {
 import {
   CreateVaultRequestSchema,
   UnlockVaultRequestSchema,
-  ClaimLegacyVaultRequestSchema,
   CreateContainerSchema,
   UpdateContainerSchema,
   DeleteContainerRequestSchema,
@@ -182,12 +181,6 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
         setupEmbeddingServiceRef(vaultService)
         await startValidatorAfterVaultSession(vaultService)
         return { success: true, token, sessionToken: vaultService.getSessionToken() }
-      }
-
-      case 'vault.claimLegacy': {
-        const parsed = ClaimLegacyVaultRequestSchema.parse(params)
-        const result = await vaultService.claimLegacyVault(parsed.masterPassword, parsed.vaultId)
-        return { success: true, vaultId: result.vaultId, message: `Vault ${result.vaultId} claimed for this account` }
       }
 
       case 'vault.lock': {

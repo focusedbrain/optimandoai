@@ -887,11 +887,6 @@ contextBridge.exposeInMainWorld('handshakeView', {
   getVaultStatus: () => {
     return ipcRenderer.invoke('vault:getStatus')
   },
-  claimLegacyVault: (vaultId: unknown, masterPassword: unknown) => {
-    const id = typeof vaultId === 'string' ? vaultId.trim() : ''
-    const pwd = typeof masterPassword === 'string' ? masterPassword : ''
-    return ipcRenderer.invoke('vault:claimLegacy', id, pwd)
-  },
   listHsContextProfiles: (includeArchived?: boolean) => {
     return ipcRenderer.invoke('vault:listHsContextProfiles', includeArchived === true)
   },

@@ -4142,29 +4142,6 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('vault:claimLegacy', async (_e, vaultId: string, masterPassword: string) => {
-      try {
-        if (typeof vaultId !== 'string' || !vaultId.trim()) {
-          return { success: false, error: 'vaultId is required', code: 'ERR_VAULT_CLAIM_WRITE_FAILED' }
-        }
-        if (typeof masterPassword !== 'string' || masterPassword.length === 0) {
-          return { success: false, error: 'Passphrase is required', code: 'ERR_VAULT_CLAIM_WRONG_PASSPHRASE' }
-        }
-        const { vaultService } = await import('./main/vault/rpc')
-        const result = await vaultService.claimLegacyVault(masterPassword, vaultId.trim())
-        try {
-          win?.webContents.send('vault-status-changed')
-        } catch {
-          /* no window */
-        }
-        return { success: true, vaultId: result.vaultId }
-      } catch (err: any) {
-        const msg = err?.message ?? 'Claim failed'
-        console.error('[vault:claimLegacy] failed:', vaultId, msg)
-        return { success: false, error: msg, code: err?.code }
-      }
-    })
-
     ipcMain.handle('vault:listHsContextProfiles', async (_e, includeArchived?: boolean) => {
       try {
         const { vaultService } = await import('./main/vault/rpc')

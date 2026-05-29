@@ -75,10 +75,6 @@ declare global {
         hiddenForeignVaultCount?: number
         error?: string
       }>
-      claimLegacyVault?: (
-        vaultId: string,
-        masterPassword: string,
-      ) => Promise<{ success?: boolean; error?: string; code?: string; vaultId?: string }>
       listHsContextProfiles?: (includeArchived?: boolean) => Promise<{ profiles: Array<{ id: string; name: string; description?: string; scope: 'non_confidential' | 'confidential'; tags: string[]; updated_at: number; created_at: number; document_count: number; documents_ready: number; documents_pending: number; documents_failed: number; documents_failed_names: string[] }> }>
       getDocumentPageCount?: (documentId: string) => Promise<{ count: number }>
       getDocumentPage?: (documentId: string, pageNumber: number) => Promise<{ text: string | null }>
