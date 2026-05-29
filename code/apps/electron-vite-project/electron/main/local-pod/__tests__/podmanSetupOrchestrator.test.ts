@@ -5,10 +5,11 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 const refreshPodmanSetupProbe = vi.hoisted(() => vi.fn())
+const invalidatePodmanSetupProbeCache = vi.hoisted(() => vi.fn())
 const runPodmanInstallAction = vi.hoisted(() => vi.fn())
 const broadcastPodmanSetupState = vi.hoisted(() => vi.fn())
 const getInstallActionsForPlatform = vi.hoisted(() => vi.fn())
-const diagnoseWslState = vi.hoisted(() => vi.fn())
+const refreshWslStatusCache = vi.hoisted(() => vi.fn())
 const platformMock = vi.hoisted(() => vi.fn(() => 'darwin' as NodeJS.Platform))
 
 vi.mock('node:os', () => ({
@@ -17,6 +18,7 @@ vi.mock('node:os', () => ({
 
 vi.mock('../podmanSetupProbe.js', () => ({
   refreshPodmanSetupProbe,
+  invalidatePodmanSetupProbeCache,
 }))
 
 vi.mock('../podmanInstallRunner.js', async (importOriginal) => {
@@ -33,7 +35,6 @@ vi.mock('../podmanSetupBroadcast.js', () => ({
 }))
 
 vi.mock('../wslProbe.js', () => ({
-  diagnoseWslState,
   outputImpliesReboot: (text: string) => text.toLowerCase().includes('restart'),
   rebootRequiredMessage: () => ({
     message: 'Restart your computer to finish Windows setup',
@@ -46,6 +47,10 @@ vi.mock('../wslProbe.js', () => ({
   runWslInstall: vi.fn(),
   runWslInstallWithDistro: vi.fn(),
   runWslUpdate: vi.fn(),
+}))
+
+vi.mock('../podmanWslStatusCache.js', () => ({
+  refreshWslStatusCache,
 }))
 
 vi.mock('../podStatus.js', () => ({
@@ -66,9 +71,10 @@ describe('runFullPodmanSetup', () => {
     resetPodmanSetupRunStateForTest()
     platformMock.mockReturnValue('darwin')
     refreshPodmanSetupProbe.mockReset()
+    invalidatePodmanSetupProbeCache.mockReset()
     runPodmanInstallAction.mockReset()
     broadcastPodmanSetupState.mockReset()
-    diagnoseWslState.mockResolvedValue({
+    refreshWslStatusCache.mockResolvedValue({
       issue: 'ready',
       rebootRequired: false,
       userMessage: 'ready',
@@ -118,7 +124,7 @@ describe('runFullPodmanSetup', () => {
       manualHint: 'podman.io',
       linuxDistroHints: [],
     })
-    diagnoseWslState.mockResolvedValue({
+    refreshWslStatusCache.mockResolvedValue({
       issue: 'not_installed',
       rebootRequired: true,
       userMessage: 'WSL required',

@@ -9,8 +9,18 @@ import { refreshPodmanSetupProbe } from './podmanSetupProbe.js'
 
 export type PodmanSetupBroadcastPayload = ReturnType<typeof buildPodmanSetupStatusSnapshot>
 
+let _lastBroadcastJson: string | null = null
+
+export function resetPodmanSetupBroadcastDedupForTest(): void {
+  _lastBroadcastJson = null
+}
+
 export function broadcastPodmanSetupState(): void {
   const payload = buildPodmanSetupStatusSnapshot()
+  const json = JSON.stringify(payload)
+  if (json === _lastBroadcastJson) return
+  _lastBroadcastJson = json
+
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.isDestroyed()) continue
     win.webContents.send('podman-setup:state', payload)
@@ -19,7 +29,7 @@ export function broadcastPodmanSetupState(): void {
 
 let _focusHookInstalled = false
 
-/** Re-probe Podman when the app regains focus (no restart required). */
+/** Re-probe Podman when the app regains focus (cheap probe only — no WSL shell-out). */
 export function registerPodmanSetupFocusReprobe(
   reprobe: () => Promise<unknown>,
 ): void {
@@ -45,6 +55,6 @@ export function registerPodmanSetupFocusReprobe(
 }
 
 export async function reprobeAndBroadcastPodmanSetup(): Promise<void> {
-  await refreshPodmanSetupProbe()
+  await refreshPodmanSetupProbe({ force: true })
   broadcastPodmanSetupState()
 }

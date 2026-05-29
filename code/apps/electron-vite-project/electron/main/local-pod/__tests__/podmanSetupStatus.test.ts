@@ -23,11 +23,16 @@ describe('derivePodmanSetupPhase', () => {
 
 describe('resolveTerminalAction', () => {
   test('linux operator install — no one click', () => {
-    expect(resolveTerminalAction('need_operator_install', 'linux', false)).toBe('operator_install')
+    expect(resolveTerminalAction('need_operator_install', 'linux')).toBe('operator_install')
   })
 
-  test('windows package — one click when auto install available', () => {
-    expect(resolveTerminalAction('need_package', 'win32', true)).toBe('one_click')
+  test('windows package — one click', () => {
+    expect(resolveTerminalAction('need_package', 'win32')).toBe('one_click')
+  })
+
+  test('linux engine — operator not one click on win32', () => {
+    expect(resolveTerminalAction('need_engine', 'win32')).toBe('one_click')
+    expect(resolveTerminalAction('need_engine', 'linux')).toBe('operator_install')
   })
 })
 

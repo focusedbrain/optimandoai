@@ -17,6 +17,9 @@ import {
 } from './podmanInstallRunner.js'
 import { runFullPodmanSetup } from './podmanSetupOrchestrator.js'
 import { getPodSetupErrorRef } from './podStatus.js'
+import { failPodmanSetupRun } from './podmanSetupRunState.js'
+import { unexpectedSetupErrorMessage } from './podmanSetupCopy.js'
+import { ensureWslStatusCachedOnce } from './podmanWslStatusCache.js'
 
 export type PodmanSetupStatusResponse = PodmanSetupStatusSnapshot
 
@@ -36,28 +39,30 @@ async function refreshIngestionAfterProbeReady(): Promise<void> {
 /** After package install (or already-installed), advance machine init/start when needed. */
 async function runMachineSetupFollowUp(): Promise<PodmanInstallAction[]> {
   const ran: PodmanInstallAction[] = []
-  let err = await refreshPodmanSetupProbe()
+  let err = await refreshPodmanSetupProbe({ force: true })
 
   if (err?.code === 'machine_not_initialized') {
     const init = await runPodmanInstallAction('machine_init')
     if (init.ok) ran.push('machine_init')
-    err = await refreshPodmanSetupProbe()
+    err = await refreshPodmanSetupProbe({ force: true })
   }
 
   if (err?.code === 'machine_not_running') {
     const start = await runPodmanInstallAction('machine_start')
     if (start.ok) ran.push('machine_start')
-    await refreshPodmanSetupProbe()
+    await refreshPodmanSetupProbe({ force: true })
   }
 
   return ran
 }
 
 export function registerPodmanSetupIpc(): void {
-  ipcMain.handle('podman-setup:get-status', async () => buildPodmanSetupStatusSnapshot())
+  ipcMain.handle('podman-setup:get-status', async () => {
+    return buildPodmanSetupStatusSnapshot()
+  })
 
   ipcMain.handle('podman-setup:probe', async () => {
-    await refreshPodmanSetupProbe()
+    await refreshPodmanSetupProbe({ force: true })
     await refreshIngestionAfterProbeReady()
     return buildPodmanSetupStatusSnapshot()
   })
@@ -68,9 +73,28 @@ export function registerPodmanSetupIpc(): void {
   })
 
   ipcMain.handle('podman-setup:run-full-setup', async () => {
-    const result = await runFullPodmanSetup()
-    await refreshIngestionAfterProbeReady()
-    return { ...result, status: buildPodmanSetupStatusSnapshot() }
+    try {
+      const result = await runFullPodmanSetup()
+      await refreshIngestionAfterProbeReady()
+      return { ...result, status: buildPodmanSetupStatusSnapshot() }
+    } catch (err) {
+      console.error('[PODMAN_SETUP] IPC run-full-setup error:', err instanceof Error ? err.message : err)
+      failPodmanSetupRun({
+        kind: 'error',
+        message: unexpectedSetupErrorMessage(),
+        detail: 'Try again. If Windows asks for permission, choose Yes.',
+      })
+      broadcastPodmanSetupState()
+      return {
+        ok: false,
+        failure: {
+          kind: 'error',
+          message: unexpectedSetupErrorMessage(),
+          detail: 'Try again. If Windows asks for permission, choose Yes.',
+        },
+        status: buildPodmanSetupStatusSnapshot(),
+      }
+    }
   })
 
   ipcMain.handle('podman-setup:run-action', async (_e, raw: unknown) => {
@@ -88,7 +112,7 @@ export function registerPodmanSetupIpc(): void {
     }
 
     const result = await runPodmanInstallAction(action)
-    await refreshPodmanSetupProbe()
+    await refreshPodmanSetupProbe({ force: true })
 
     if (
       result.ok &&
@@ -99,7 +123,7 @@ export function registerPodmanSetupIpc(): void {
       const err = getPodSetupErrorRef()
       if (err?.code === 'machine_not_running') {
         await runPodmanInstallAction('machine_start')
-        await refreshPodmanSetupProbe()
+        await refreshPodmanSetupProbe({ force: true })
       }
     }
 
@@ -109,6 +133,9 @@ export function registerPodmanSetupIpc(): void {
 }
 
 export async function runStartupPodmanProbe(): Promise<void> {
-  await refreshPodmanSetupProbe()
+  await refreshPodmanSetupProbe({ force: true, skipBroadcast: true })
+  if (process.platform === 'win32' && getPodSetupErrorRef()) {
+    await ensureWslStatusCachedOnce()
+  }
   broadcastPodmanSetupState()
 }

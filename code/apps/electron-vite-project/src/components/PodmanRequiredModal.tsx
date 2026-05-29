@@ -3,7 +3,7 @@
  * Platform-aware: Windows WSL2 + one-click, macOS one-click, Linux operator instructions.
  */
 
-import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 
 export interface PodmanSetupStatus {
   required: boolean
@@ -13,6 +13,7 @@ export interface PodmanSetupStatus {
   setupPhase: string
   headline: string
   summary: string
+  statusMessage: string | null
   terminalAction: string
   operatorInstruction: string | null
   canOneClickSetup: boolean
@@ -36,6 +37,7 @@ const DEFAULT_STATUS: PodmanSetupStatus = {
   setupPhase: 'checking',
   headline: 'Checking secure container setup…',
   summary: '',
+  statusMessage: null,
   terminalAction: 'none',
   operatorInstruction: null,
   canOneClickSetup: false,
@@ -144,6 +146,7 @@ function applyStatusFromPayload(res: Record<string, unknown>): PodmanSetupStatus
     setupPhase: typeof res.setupPhase === 'string' ? res.setupPhase : 'checking',
     headline: typeof res.headline === 'string' ? res.headline : DEFAULT_STATUS.headline,
     summary: typeof res.summary === 'string' ? res.summary : '',
+    statusMessage: typeof res.statusMessage === 'string' ? res.statusMessage : null,
     terminalAction: typeof res.terminalAction === 'string' ? res.terminalAction : 'none',
     operatorInstruction:
       typeof res.operatorInstruction === 'string' ? res.operatorInstruction : null,
@@ -193,30 +196,69 @@ function progressHint(platform: string): string {
   return 'Please wait while setup completes.'
 }
 
+function statusPayloadKey(res: Record<string, unknown>): string {
+  return [
+    res.required,
+    res.probePending,
+    res.setupPhase,
+    res.headline,
+    res.summary,
+    res.statusMessage,
+    res.terminalAction,
+    res.canOneClickSetup,
+    res.setupRunning,
+    res.setupStep,
+    res.setupStepLabel,
+    JSON.stringify(res.setupFailure ?? null),
+    res.platform,
+  ].join('|')
+}
+
 export function PodmanRequiredModal(): JSX.Element | null {
-  const api = typeof window !== 'undefined' ? window.podmanSetup : undefined
+  const apiRef = useRef(typeof window !== 'undefined' ? window.podmanSetup : undefined)
   const [status, setStatus] = useState<PodmanSetupStatus>(DEFAULT_STATUS)
   const [localBusy, setLocalBusy] = useState(false)
+  const [clickError, setClickError] = useState<string | null>(null)
+  const lastPayloadKeyRef = useRef<string>('')
 
   const applyStatus = useCallback((res: Record<string, unknown>) => {
+    const key = statusPayloadKey(res)
+    if (key === lastPayloadKeyRef.current) return
+    lastPayloadKeyRef.current = key
     setStatus(applyStatusFromPayload(res))
   }, [])
 
   useEffect(() => {
+    const api = apiRef.current
     if (!api?.getStatus) return
     void api.getStatus().then((s) => applyStatus(s as Record<string, unknown>))
     const off = api.onState?.((payload) => {
       applyStatus(payload as Record<string, unknown>)
     })
     return () => off?.()
-  }, [api, applyStatus])
+  }, [applyStatus])
 
   const runFullSetup = async () => {
-    if (!api?.runFullSetup) return
+    setClickError(null)
+    const api = apiRef.current
+    if (!api?.runFullSetup) {
+      setClickError('Setup could not start (app bridge unavailable). Restart WR Desk and try again.')
+      return
+    }
     setLocalBusy(true)
     try {
       const out = await api.runFullSetup()
       applyStatus(out.status as Record<string, unknown>)
+      if (!out.ok && out.failure?.message) {
+        setClickError(out.failure.detail ? `${out.failure.message} ${out.failure.detail}` : out.failure.message)
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setClickError(
+        msg.includes('No handler registered')
+          ? 'Setup could not start. Restart WR Desk and try again.'
+          : `Setup failed: ${msg}`,
+      )
     } finally {
       setLocalBusy(false)
     }
@@ -224,16 +266,19 @@ export function PodmanRequiredModal(): JSX.Element | null {
 
   if (!status.required) return null
 
-  const busy = status.setupRunning || localBusy || status.probePending
+  const setupActive = status.setupRunning || localBusy
   const showProgress =
-    status.setupRunning && status.setupStep !== 'idle' && status.setupStep !== 'failed'
+    setupActive && status.setupStep !== 'idle' && status.setupStep !== 'failed'
   const failure = status.setupFailure
   const isRestart =
     status.terminalAction === 'restart' || status.setupPhase === 'need_restart'
   const isVirtualization = status.terminalAction === 'enable_virtualization'
-  const isOperator =
-    status.terminalAction === 'operator_install' || status.setupPhase === 'need_operator_install'
-  const operatorText = status.operatorInstruction ?? failure?.detail
+  const isOperatorLinux =
+    status.platform === 'linux' &&
+    (status.terminalAction === 'operator_install' || status.setupPhase === 'need_operator_install')
+  const operatorText = isOperatorLinux ? status.operatorInstruction ?? failure?.detail : null
+  const showOneClick =
+    status.canOneClickSetup || (status.platform === 'win32' && status.required && !isRestart && !isVirtualization)
 
   return (
     <div
@@ -257,7 +302,13 @@ export function PodmanRequiredModal(): JSX.Element | null {
         </h2>
         <p style={{ ...mutedStyle, margin: '0 0 16px' }}>{status.summary}</p>
 
-        {isRestart && !status.setupRunning ? (
+        {status.statusMessage && !setupActive && !isOperatorLinux ? (
+          <div style={prominentBoxStyle} data-testid="podman-status-message">
+            {status.statusMessage}
+          </div>
+        ) : null}
+
+        {isRestart && !setupActive ? (
           <div style={restartBoxStyle} data-testid="podman-restart-required">
             <strong style={{ display: 'block', marginBottom: 8 }}>
               {failure?.message ?? 'Restart your computer to finish Windows setup'}
@@ -269,7 +320,7 @@ export function PodmanRequiredModal(): JSX.Element | null {
           </div>
         ) : null}
 
-        {isVirtualization && !status.setupRunning ? (
+        {isVirtualization && !setupActive ? (
           <div style={errorBoxStyle} data-testid="podman-virtualization-required">
             <strong style={{ display: 'block', marginBottom: 8 }}>
               {failure?.message ?? 'Enable virtualization in your computer firmware'}
@@ -281,7 +332,7 @@ export function PodmanRequiredModal(): JSX.Element | null {
           </div>
         ) : null}
 
-        {isOperator && operatorText && !status.setupRunning ? (
+        {isOperatorLinux && operatorText && !setupActive ? (
           <div style={prominentBoxStyle} data-testid="podman-operator-instruction">
             <pre
               style={{
@@ -325,10 +376,10 @@ export function PodmanRequiredModal(): JSX.Element | null {
         ) : null}
 
         {failure &&
-        !status.setupRunning &&
+        !setupActive &&
         !isRestart &&
         !isVirtualization &&
-        !isOperator ? (
+        !isOperatorLinux ? (
           <div style={errorBoxStyle} data-testid="podman-setup-failure">
             <strong style={{ display: 'block', marginBottom: 6 }}>{failure.message}</strong>
             {failure.detail ? (
@@ -339,25 +390,31 @@ export function PodmanRequiredModal(): JSX.Element | null {
           </div>
         ) : null}
 
-        {!status.probePending && status.canOneClickSetup ? (
+        {clickError && !setupActive ? (
+          <div style={errorBoxStyle} data-testid="podman-click-error">
+            {clickError}
+          </div>
+        ) : null}
+
+        {!status.probePending && showOneClick ? (
           <div style={{ marginBottom: 12 }}>
             <button
               type="button"
-              style={{ ...btnPrimary, opacity: busy ? 0.65 : 1 }}
-              disabled={busy}
+              style={{ ...btnPrimary, opacity: setupActive ? 0.65 : 1 }}
+              disabled={setupActive}
               data-testid="podman-one-click-setup"
               onClick={() => void runFullSetup()}
             >
-              {busy ? status.setupStepLabel || 'Setting up…' : status.oneClickLabel}
+              {setupActive ? status.setupStepLabel || 'Setting up…' : status.oneClickLabel}
             </button>
           </div>
         ) : null}
 
-        {!busy && status.platform !== 'linux' ? (
+        {!setupActive && status.platform !== 'linux' ? (
           <button
             type="button"
             style={btnLink}
-            onClick={() => void api?.openManualInstall?.()}
+            onClick={() => void apiRef.current?.openManualInstall?.()}
           >
             Manual install guide (podman.io)
           </button>

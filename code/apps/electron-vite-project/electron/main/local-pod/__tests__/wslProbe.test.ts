@@ -8,6 +8,7 @@ import {
   classifyWslOutput,
   issueUserMessage,
   outputImpliesReboot,
+  wslSubsystemNotInstalled,
 } from '../wslProbe.js'
 
 describe('classifyWslOutput', () => {
@@ -21,10 +22,17 @@ describe('classifyWslOutput', () => {
     expect(classifyWslOutput('WSL is not installed')).toBe('not_installed')
   })
 
-  test('detects no distro', () => {
-    expect(classifyWslOutput('Windows Subsystem for Linux has no installed distributions.')).toBe(
-      'no_distro',
-    )
+  test('detects not installed (German OS text without literal wsl token)', () => {
+    const german =
+      'Der Windows-Subsystem für Linux ist nicht installiert. Führen Sie "wsl.exe --install" aus, um es zu installieren.'
+    expect(wslSubsystemNotInstalled(german)).toBe(true)
+    expect(classifyWslOutput(german)).toBe('not_installed')
+  })
+
+  test('detects no distro (German OS text)', () => {
+    expect(
+      classifyWslOutput('Windows-Subsystem für Linux hat keine installierten Distributionen.'),
+    ).toBe('no_distro')
   })
 })
 

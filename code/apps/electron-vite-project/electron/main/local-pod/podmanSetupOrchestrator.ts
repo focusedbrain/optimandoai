@@ -15,9 +15,13 @@ import {
   runPodmanInstallAction,
   type PodmanCommandResult,
 } from './podmanInstallRunner.js'
-import { refreshPodmanSetupProbe } from './podmanSetupProbe.js'
+import { refreshPodmanSetupProbe, invalidatePodmanSetupProbeCache } from './podmanSetupProbe.js'
 import { broadcastPodmanSetupState } from './podmanSetupBroadcast.js'
-import { sanitizeForUserDisplay } from './processOutputDecode.js'
+import {
+  setupFailureDetailForWslInstall,
+  unexpectedSetupErrorMessage,
+  wslInstallFailedMessage,
+} from './podmanSetupCopy.js'
 import {
   beginPodmanSetupRun,
   completePodmanSetupRun,
@@ -28,7 +32,6 @@ import {
   type PodmanSetupRunStep,
 } from './podmanSetupRunState.js'
 import {
-  diagnoseWslState,
   outputImpliesReboot,
   rebootRequiredMessage,
   runWslInstall,
@@ -37,6 +40,7 @@ import {
   virtualizationRequiredMessage,
   type WslIssue,
 } from './wslProbe.js'
+import { refreshWslStatusCache } from './podmanWslStatusCache.js'
 
 export interface PodmanFullSetupResult {
   ok: boolean
@@ -90,7 +94,8 @@ function hardFailureDetail(code: PodmanSetupErrorCode | null): string {
 
 async function reprobe(): Promise<PodmanSetupErrorCode | null> {
   clearPodmanBinCache()
-  const err = await refreshPodmanSetupProbe()
+  const err = await refreshPodmanSetupProbe({ force: true, skipBroadcast: true })
+  broadcastProgress()
   return err?.code ?? null
 }
 
@@ -109,7 +114,13 @@ async function ensureWslReady(): Promise<PodmanFullSetupResult | null> {
   setPodmanSetupRunStep('preparing_wsl')
   broadcastProgress()
 
-  const diagnosis = await diagnoseWslState()
+  const diagnosis =
+    (await refreshWslStatusCache({ force: true, reason: 'user_setup' })) ?? {
+      issue: 'unknown' as WslIssue,
+      rebootRequired: false,
+      userMessage: '',
+      logSummary: [],
+    }
   if (diagnosis.issue === 'ready') {
     return null
   }
@@ -150,20 +161,18 @@ async function ensureWslReady(): Promise<PodmanFullSetupResult | null> {
     }
 
     if (!wslResult.ok) {
-      const detail =
-        sanitizeForUserDisplay(wslResult.stderr) ??
-        sanitizeForUserDisplay(wslResult.stdout) ??
-        'WSL setup did not complete. A restart may be required.'
+      const detail = setupFailureDetailForWslInstall(issue)
       failPodmanSetupRun({
         kind: outputImpliesReboot(combined) ? 'restart_required' : 'error',
-        message: diagnosis.userMessage,
+        message: wslInstallFailedMessage(issue),
         detail,
       })
       broadcastProgress()
-      return plainFailure(diagnosis.userMessage, detail, 'error')
+      return plainFailure(wslInstallFailedMessage(issue), detail, 'error')
     }
 
-    const after = await diagnoseWslState()
+    const after =
+      (await refreshWslStatusCache({ force: true, reason: 'post_remediation' })) ?? diagnosis
     if (after.issue === 'virtualization_disabled') {
       const msg = virtualizationRequiredMessage()
       failPodmanSetupRun({ kind: 'virtualization', message: msg.message, detail: msg.detail })
@@ -179,13 +188,18 @@ async function ensureWslReady(): Promise<PodmanFullSetupResult | null> {
     if (after.issue !== 'ready' && after.issue !== 'no_distro') {
       failPodmanSetupRun({
         kind: 'error',
-        message: after.userMessage,
-        detail: 'Try again after WSL finishes installing, or restart if prompted.',
+        message: wslInstallFailedMessage(after.issue),
+        detail: setupFailureDetailForWslInstall(after.issue),
       })
       broadcastProgress()
-      return plainFailure(after.userMessage, 'Try again after WSL finishes installing.', 'error')
+      return plainFailure(
+        wslInstallFailedMessage(after.issue),
+        setupFailureDetailForWslInstall(after.issue),
+        'error',
+      )
     }
 
+    await refreshWslStatusCache({ force: true, reason: 'post_remediation' })
     return null
   }
 
@@ -335,15 +349,24 @@ async function runLinuxPodmanSetup(): Promise<PodmanFullSetupResult> {
  */
 export async function runFullPodmanSetup(): Promise<PodmanFullSetupResult> {
   if (isPodmanSetupRunActive()) {
-    return plainFailure('Setup is already running.')
+    const message = 'Setup is already running.'
+    const detail = 'Wait for the current step to finish. If nothing is happening, restart WR Desk and try again.'
+    failPodmanSetupRun({ kind: 'error', message, detail })
+    broadcastProgress()
+    return plainFailure(message, detail)
   }
 
   const plat = platform()
   const initialStep: PodmanSetupRunStep = plat === 'win32' ? 'preparing_wsl' : 'installing'
   if (!beginPodmanSetupRun(initialStep)) {
-    return plainFailure('Setup is already running.')
+    const message = 'Setup could not start.'
+    const detail = 'Restart WR Desk and try again.'
+    failPodmanSetupRun({ kind: 'error', message, detail })
+    broadcastProgress()
+    return plainFailure(message, detail)
   }
 
+  invalidatePodmanSetupProbeCache()
   broadcastProgress()
 
   try {
@@ -365,15 +388,16 @@ export async function runFullPodmanSetup(): Promise<PodmanFullSetupResult> {
     broadcastProgress()
     return plainFailure('Unsupported platform for automatic Podman setup.', 'Install Podman from podman.io.')
   } catch (err) {
+    console.error('[PODMAN_SETUP] runFullPodmanSetup failed:', err instanceof Error ? err.message : err)
     failPodmanSetupRun({
       kind: 'error',
-      message: 'Podman setup stopped unexpectedly.',
-      detail: 'Install Podman manually from podman.io, then open WR Desk again.',
+      message: unexpectedSetupErrorMessage(),
+      detail: 'Try again. If Windows asks for permission, choose Yes.',
     })
     broadcastProgress()
     return plainFailure(
-      'Podman setup stopped unexpectedly.',
-      'Install Podman manually from podman.io, then open WR Desk again.',
+      unexpectedSetupErrorMessage(),
+      'Try again. If Windows asks for permission, choose Yes.',
     )
   }
 }

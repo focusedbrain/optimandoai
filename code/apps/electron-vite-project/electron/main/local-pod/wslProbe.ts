@@ -25,7 +25,14 @@ export interface WslDiagnosis {
 
 const WSL_TIMEOUT_MS = 120_000
 
-function spawnWsl(args: readonly string[], commandLabel: string): Promise<PodmanCommandResult> {
+function spawnWsl(args: readonly string[], commandLabel: string, elevated = false): Promise<PodmanCommandResult> {
+  if (elevated) {
+    return spawnWslElevated(args, commandLabel)
+  }
+  return spawnWslDirect(args, commandLabel)
+}
+
+function spawnWslDirect(args: readonly string[], commandLabel: string): Promise<PodmanCommandResult> {
   return new Promise((resolve) => {
     const child = spawn('wsl.exe', [...args], {
       windowsHide: true,
@@ -73,44 +80,137 @@ function spawnWsl(args: readonly string[], commandLabel: string): Promise<Podman
   })
 }
 
+/** UAC elevation for wsl --install / --update (must not use windowsHide). */
+function spawnWslElevated(args: readonly string[], commandLabel: string): Promise<PodmanCommandResult> {
+  const systemRoot = process.env.SystemRoot ?? 'C:\\Windows'
+  const wslPath = `${systemRoot}\\System32\\wsl.exe`
+  const argList = args.map((a) => `'${a.replace(/'/g, "''")}'`).join(',')
+  const psCommand = [
+    `$p = Start-Process -FilePath '${wslPath.replace(/'/g, "''")}'`,
+    `-ArgumentList @(${argList}) -Verb RunAs -PassThru -Wait`,
+    'if ($null -eq $p) { exit 1 }',
+    'exit $p.ExitCode',
+  ].join(' ')
+
+  return new Promise((resolve) => {
+    const child = spawn(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psCommand],
+      {
+        windowsHide: false,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
+
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.on('data', (chunk) => {
+      stdout += String(chunk)
+    })
+    child.stderr?.on('data', (chunk) => {
+      stderr += String(chunk)
+    })
+
+    const timer = setTimeout(() => {
+      child.kill()
+      resolve({
+        ok: false,
+        command: commandLabel,
+        stdout: stdout.trim(),
+        stderr: `${stderr.trim()}\n[timeout after ${WSL_TIMEOUT_MS}ms]`,
+        exitCode: null,
+      })
+    }, WSL_TIMEOUT_MS)
+
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      const exitCode = code ?? 1
+      resolve({
+        ok: exitCode === 0,
+        command: commandLabel,
+        stdout: stdout.trim(),
+        stderr: stderr.trim(),
+        exitCode,
+      })
+    })
+
+    child.on('error', (err) => {
+      clearTimeout(timer)
+      resolve({
+        ok: false,
+        command: commandLabel,
+        stdout,
+        stderr: err.message,
+        exitCode: null,
+      })
+    })
+  })
+}
+
 function combinedText(...parts: string[]): string {
   return parts.join('\n').toLowerCase()
+}
+
+/** WSL optional component / CLI missing — OS text may omit the literal "wsl" token (e.g. German). */
+export function wslSubsystemNotInstalled(text: string): boolean {
+  const lower = text.toLowerCase()
+  if (lower.includes('wsl is not installed')) return true
+  if (lower.includes('nicht installiert')) return true
+  if (lower.includes('not installed') && (lower.includes('wsl') || lower.includes('subsystem'))) {
+    return true
+  }
+  if (lower.includes('windows-subsystem') && lower.includes('linux')) {
+    if (lower.includes('nicht installiert') || lower.includes('not installed')) return true
+  }
+  if (lower.includes('windows subsystem') && lower.includes('linux')) {
+    if (lower.includes('not installed')) return true
+  }
+  if (lower.includes('not recognized') && lower.includes('wsl')) return true
+  if (lower.includes('nicht erkannt') && lower.includes('wsl')) return true
+  if (lower.includes('requires the microsoft store')) return true
+  if (lower.includes('please enable the optional component')) return true
+  return false
 }
 
 export function classifyWslOutput(text: string): WslIssue {
   const lower = text.toLowerCase()
   if (
-    lower.includes('virtualization') &&
-    (lower.includes('disabled') ||
+    lower.includes('virtualization') ||
+    lower.includes('virtualisierung') ||
+    (lower.includes('hyper-v') && (lower.includes('disabled') || lower.includes('deaktiviert')))
+  ) {
+    if (
+      lower.includes('disabled') ||
       lower.includes('not enabled') ||
       lower.includes('enable') ||
+      lower.includes('deaktiviert') ||
       lower.includes('hyper-v') ||
-      lower.includes('hypervisor'))
-  ) {
-    return 'virtualization_disabled'
+      lower.includes('hypervisor')
+    ) {
+      return 'virtualization_disabled'
+    }
   }
-  if (
-    lower.includes('wsl') &&
-    (lower.includes('not installed') ||
-      lower.includes('not recognized') ||
-      lower.includes('requires the microsoft store') ||
-      lower.includes('please enable the optional component'))
-  ) {
+  if (wslSubsystemNotInstalled(lower)) {
     return 'not_installed'
   }
   if (
-    lower.includes('update') &&
+    (lower.includes('update') || lower.includes('aktualisierung')) &&
     (lower.includes('required') ||
       lower.includes('needs') ||
       lower.includes('older') ||
-      lower.includes('kernel'))
+      lower.includes('kernel') ||
+      lower.includes('erforderlich'))
   ) {
     return 'needs_update'
   }
   if (
     lower.includes('no distributions') ||
     lower.includes('no installed distributions') ||
-    lower.includes('has no installed distributions')
+    lower.includes('has no installed distributions') ||
+    lower.includes('keine distributionen') ||
+    lower.includes('keine distribution') ||
+    lower.includes('installierten distributionen') ||
+    lower.includes('noch keine distribution')
   ) {
     return 'no_distro'
   }
@@ -123,7 +223,11 @@ export function outputImpliesReboot(text: string): boolean {
     lower.includes('restart') ||
     lower.includes('reboot') ||
     lower.includes('re-start') ||
-    lower.includes('changes will not be effective until')
+    lower.includes('neustart') ||
+    lower.includes('neu starten') ||
+    lower.includes('changes will not be effective until') ||
+    lower.includes('änderungen werden erst nach') ||
+    lower.includes('nach dem neustart')
   )
 }
 
@@ -144,7 +248,7 @@ export function issueUserMessage(issue: WslIssue): string {
   }
 }
 
-export async function diagnoseWslState(): Promise<WslDiagnosis> {
+export async function diagnoseWslState(reason = 'manual'): Promise<WslDiagnosis> {
   const status = await spawnWsl(['--status'], 'wsl.exe --status')
   const list = await spawnWsl(['-l', '--quiet'], 'wsl.exe -l --quiet')
   const version = await spawnWsl(['--version'], 'wsl.exe --version')
@@ -155,7 +259,7 @@ export async function diagnoseWslState(): Promise<WslDiagnosis> {
     `version: ${version.stdout || version.stderr || '(empty)'}`,
   ]
 
-  console.log('[PODMAN_SETUP] WSL diagnosis (decoded):')
+  console.log(`[PODMAN_SETUP] WSL diagnosis (decoded, reason=${reason}):`)
   for (const line of logSummary) {
     console.log(`[PODMAN_SETUP]   ${line}`)
   }
@@ -163,11 +267,7 @@ export async function diagnoseWslState(): Promise<WslDiagnosis> {
   const blob = combinedText(status.stdout, status.stderr, list.stdout, list.stderr, version.stdout, version.stderr)
   const rebootRequired = outputImpliesReboot(blob)
 
-  if (
-    status.stderr.toLowerCase().includes('not recognized') ||
-    version.stderr.toLowerCase().includes('not recognized') ||
-    blob.includes('wsl is not installed')
-  ) {
+  if (wslSubsystemNotInstalled(blob)) {
     return {
       issue: 'not_installed',
       rebootRequired,
@@ -182,10 +282,12 @@ export async function diagnoseWslState(): Promise<WslDiagnosis> {
     .map((line) => line.trim())
     .filter(Boolean)
 
-  if (issue === 'unknown' && distros.length === 0 && !list.ok) {
+  const wslCliPresent = status.ok || version.ok || list.ok
+
+  if (issue === 'unknown' && distros.length === 0 && wslCliPresent) {
     issue = 'no_distro'
-  } else if (issue === 'unknown' && distros.length === 0) {
-    issue = 'no_distro'
+  } else if (issue === 'unknown' && distros.length === 0 && !wslCliPresent) {
+    issue = 'not_installed'
   } else if (issue === 'unknown' && (status.ok || version.ok)) {
     issue = 'ready'
   }
@@ -199,15 +301,15 @@ export async function diagnoseWslState(): Promise<WslDiagnosis> {
 }
 
 export async function runWslInstall(): Promise<PodmanCommandResult> {
-  return spawnWsl(['--install', '--no-distribution'], 'wsl.exe --install --no-distribution')
+  return spawnWsl(['--install', '--no-distribution'], 'wsl.exe --install --no-distribution', true)
 }
 
 export async function runWslUpdate(): Promise<PodmanCommandResult> {
-  return spawnWsl(['--update'], 'wsl.exe --update')
+  return spawnWsl(['--update'], 'wsl.exe --update', true)
 }
 
 export async function runWslInstallWithDistro(): Promise<PodmanCommandResult> {
-  return spawnWsl(['--install'], 'wsl.exe --install')
+  return spawnWsl(['--install'], 'wsl.exe --install', true)
 }
 
 export function rebootRequiredMessage(): { message: string; detail: string } {
