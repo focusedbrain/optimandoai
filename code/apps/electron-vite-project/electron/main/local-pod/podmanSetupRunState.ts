@@ -4,6 +4,9 @@
 
 export type PodmanSetupRunStep =
   | 'idle'
+  | 'preparing_wsl'
+  | 'installing_wsl'
+  | 'updating_wsl'
   | 'installing'
   | 'creating_environment'
   | 'starting'
@@ -11,7 +14,14 @@ export type PodmanSetupRunStep =
   | 'failed'
   | 'complete'
 
+export type PodmanSetupFailureKind =
+  | 'error'
+  | 'restart_required'
+  | 'operator_instruction'
+  | 'virtualization'
+
 export interface PodmanSetupFailure {
+  kind: PodmanSetupFailureKind
   message: string
   detail?: string
 }
@@ -24,6 +34,9 @@ export interface PodmanSetupRunSnapshot {
 }
 
 const STEP_LABELS: Record<Exclude<PodmanSetupRunStep, 'idle' | 'failed' | 'complete'>, string> = {
+  preparing_wsl: 'Checking Windows Subsystem for Linux…',
+  installing_wsl: 'Installing WSL2…',
+  updating_wsl: 'Updating WSL…',
   installing: 'Installing Podman…',
   creating_environment: 'Setting up container environment…',
   starting: 'Starting Podman…',
@@ -38,11 +51,11 @@ export function isPodmanSetupRunActive(): boolean {
   return _running
 }
 
-export function beginPodmanSetupRun(): boolean {
+export function beginPodmanSetupRun(initialStep: PodmanSetupRunStep = 'installing'): boolean {
   if (_running) return false
   _running = true
   _failure = null
-  _step = 'installing'
+  _step = initialStep
   return true
 }
 
@@ -74,12 +87,13 @@ export function resetPodmanSetupRunIdle(): void {
 export function getPodmanSetupRunSnapshot(): PodmanSetupRunSnapshot {
   const setupStep = _step
   let setupStepLabel = ''
-  if (setupStep === 'installing') setupStepLabel = STEP_LABELS.installing
-  else if (setupStep === 'creating_environment') setupStepLabel = STEP_LABELS.creating_environment
-  else if (setupStep === 'starting') setupStepLabel = STEP_LABELS.starting
-  else if (setupStep === 'verifying') setupStepLabel = STEP_LABELS.verifying
-  else if (setupStep === 'failed' && _failure) setupStepLabel = _failure.message
-  else if (setupStep === 'complete') setupStepLabel = 'Podman is ready'
+  if (setupStep in STEP_LABELS) {
+    setupStepLabel = STEP_LABELS[setupStep as keyof typeof STEP_LABELS]
+  } else if (setupStep === 'failed' && _failure) {
+    setupStepLabel = _failure.message
+  } else if (setupStep === 'complete') {
+    setupStepLabel = 'Podman is ready'
+  }
 
   return {
     setupRunning: _running,
@@ -89,6 +103,8 @@ export function getPodmanSetupRunSnapshot(): PodmanSetupRunSnapshot {
   }
 }
 
-export function setupStepLabelFor(step: Exclude<PodmanSetupRunStep, 'idle' | 'failed' | 'complete'>): string {
+export function setupStepLabelFor(
+  step: Exclude<PodmanSetupRunStep, 'idle' | 'failed' | 'complete'>,
+): string {
   return STEP_LABELS[step]
 }

@@ -1,11 +1,15 @@
 /**
- * One-click Podman setup — install package, init machine, start, verify (idempotent).
+ * One-click Podman setup — platform-aware: Windows (WSL2 + machine), macOS, Linux (operator).
  */
 
 import { platform } from 'node:os'
 
 import { clearPodmanBinCacheForTest, type PodmanSetupErrorCode } from './podmanDetect.js'
-import { getPodSetupErrorRef } from './podStatus.js'
+import {
+  buildLinuxEngineOperatorInstruction,
+  buildLinuxOperatorInstruction,
+  detectLinuxDistroHint,
+} from './linuxDistroDetect.js'
 import {
   getInstallActionsForPlatform,
   runPodmanInstallAction,
@@ -13,6 +17,7 @@ import {
 } from './podmanInstallRunner.js'
 import { refreshPodmanSetupProbe } from './podmanSetupProbe.js'
 import { broadcastPodmanSetupState } from './podmanSetupBroadcast.js'
+import { sanitizeForUserDisplay } from './processOutputDecode.js'
 import {
   beginPodmanSetupRun,
   completePodmanSetupRun,
@@ -20,12 +25,22 @@ import {
   isPodmanSetupRunActive,
   resetPodmanSetupRunIdle,
   setPodmanSetupRunStep,
-  setupStepLabelFor,
+  type PodmanSetupRunStep,
 } from './podmanSetupRunState.js'
+import {
+  diagnoseWslState,
+  outputImpliesReboot,
+  rebootRequiredMessage,
+  runWslInstall,
+  runWslInstallWithDistro,
+  runWslUpdate,
+  virtualizationRequiredMessage,
+  type WslIssue,
+} from './wslProbe.js'
 
 export interface PodmanFullSetupResult {
   ok: boolean
-  failure?: { message: string; detail?: string }
+  failure?: { kind?: string; message: string; detail?: string }
   lastCommand?: PodmanCommandResult
 }
 
@@ -37,19 +52,39 @@ function broadcastProgress(): void {
   broadcastPodmanSetupState()
 }
 
-function hardFailureMessage(code: PodmanSetupErrorCode | null, detail?: string): string {
+function plainFailure(
+  message: string,
+  detail?: string,
+  kind: 'error' | 'restart_required' | 'operator_instruction' | 'virtualization' = 'error',
+): PodmanFullSetupResult {
+  return { ok: false, failure: { kind, message, detail } }
+}
+
+function hardFailureMessage(code: PodmanSetupErrorCode | null): string {
   switch (code) {
     case 'not_installed':
-      return 'Podman could not be installed automatically. Install it manually from podman.io, then try again.'
+      return 'Podman could not be installed automatically. See podman.io or try again after fixing prerequisites.'
     case 'machine_not_initialized':
     case 'machine_not_running':
-      return 'Podman is installed but its background environment could not be started. See podman.io for help, or try again.'
+      return 'Podman is installed but its container environment could not be started.'
     case 'engine_unhealthy':
-      return 'Podman is installed but not responding. Restart Podman Desktop (or your computer), then try again.'
+      return 'Podman is installed but not responding.'
     default:
-      return detail?.trim()
-        ? `Podman setup did not finish. ${detail.trim()}`
-        : 'Podman setup did not finish. Install manually from podman.io, then try again.'
+      return 'Podman setup did not finish.'
+  }
+}
+
+function hardFailureDetail(code: PodmanSetupErrorCode | null): string {
+  switch (code) {
+    case 'not_installed':
+      return 'Install Podman from podman.io if automatic setup cannot continue.'
+    case 'machine_not_initialized':
+    case 'machine_not_running':
+      return 'Try setup again after WSL and Podman Desktop prerequisites are met.'
+    case 'engine_unhealthy':
+      return 'Restart Podman Desktop or your computer, then open WR Desk again.'
+    default:
+      return 'Open the install guide at podman.io if the problem persists.'
   }
 }
 
@@ -60,7 +95,7 @@ async function reprobe(): Promise<PodmanSetupErrorCode | null> {
 }
 
 async function runStep(
-  step: 'installing' | 'creating_environment' | 'starting',
+  step: Exclude<PodmanSetupRunStep, 'idle' | 'failed' | 'complete'>,
   action: Parameters<typeof runPodmanInstallAction>[0],
 ): Promise<PodmanCommandResult> {
   setPodmanSetupRunStep(step)
@@ -70,133 +105,276 @@ async function runStep(
   return result
 }
 
+async function ensureWslReady(): Promise<PodmanFullSetupResult | null> {
+  setPodmanSetupRunStep('preparing_wsl')
+  broadcastProgress()
+
+  const diagnosis = await diagnoseWslState()
+  if (diagnosis.issue === 'ready') {
+    return null
+  }
+
+  if (diagnosis.issue === 'virtualization_disabled') {
+    const msg = virtualizationRequiredMessage()
+    failPodmanSetupRun({ kind: 'virtualization', message: msg.message, detail: msg.detail })
+    broadcastProgress()
+    return plainFailure(msg.message, msg.detail, 'virtualization')
+  }
+
+  let wslResult: PodmanCommandResult | undefined
+
+  const remediate = async (issue: WslIssue): Promise<PodmanFullSetupResult | null> => {
+    if (issue === 'not_installed' || issue === 'no_distro') {
+      setPodmanSetupRunStep('installing_wsl')
+      broadcastProgress()
+      wslResult =
+        issue === 'no_distro' ? await runWslInstallWithDistro() : await runWslInstall()
+    } else if (issue === 'needs_update') {
+      setPodmanSetupRunStep('updating_wsl')
+      broadcastProgress()
+      wslResult = await runWslUpdate()
+    } else if (issue === 'unknown') {
+      setPodmanSetupRunStep('installing_wsl')
+      broadcastProgress()
+      wslResult = await runWslInstall()
+    } else {
+      return null
+    }
+
+    const combined = `${wslResult.stdout}\n${wslResult.stderr}`
+    if (outputImpliesReboot(combined) || diagnosis.rebootRequired) {
+      const msg = rebootRequiredMessage()
+      failPodmanSetupRun({ kind: 'restart_required', message: msg.message, detail: msg.detail })
+      broadcastProgress()
+      return plainFailure(msg.message, msg.detail, 'restart_required')
+    }
+
+    if (!wslResult.ok) {
+      const detail =
+        sanitizeForUserDisplay(wslResult.stderr) ??
+        sanitizeForUserDisplay(wslResult.stdout) ??
+        'WSL setup did not complete. A restart may be required.'
+      failPodmanSetupRun({
+        kind: outputImpliesReboot(combined) ? 'restart_required' : 'error',
+        message: diagnosis.userMessage,
+        detail,
+      })
+      broadcastProgress()
+      return plainFailure(diagnosis.userMessage, detail, 'error')
+    }
+
+    const after = await diagnoseWslState()
+    if (after.issue === 'virtualization_disabled') {
+      const msg = virtualizationRequiredMessage()
+      failPodmanSetupRun({ kind: 'virtualization', message: msg.message, detail: msg.detail })
+      broadcastProgress()
+      return plainFailure(msg.message, msg.detail, 'virtualization')
+    }
+    if (after.rebootRequired || outputImpliesReboot(combined)) {
+      const msg = rebootRequiredMessage()
+      failPodmanSetupRun({ kind: 'restart_required', message: msg.message, detail: msg.detail })
+      broadcastProgress()
+      return plainFailure(msg.message, msg.detail, 'restart_required')
+    }
+    if (after.issue !== 'ready' && after.issue !== 'no_distro') {
+      failPodmanSetupRun({
+        kind: 'error',
+        message: after.userMessage,
+        detail: 'Try again after WSL finishes installing, or restart if prompted.',
+      })
+      broadcastProgress()
+      return plainFailure(after.userMessage, 'Try again after WSL finishes installing.', 'error')
+    }
+
+    return null
+  }
+
+  return remediate(diagnosis.issue)
+}
+
+async function runMachinePlatformSetup(
+  lastCommandRef: { current?: PodmanCommandResult },
+): Promise<PodmanFullSetupResult | null> {
+  let code = await reprobe()
+  if (!code) return null
+
+  if (code === 'not_installed') {
+    const installActions = getInstallActionsForPlatform(platform())
+    if (!installActions.canAutoInstall || !installActions.installAction) {
+      const msg = hardFailureMessage('not_installed')
+      failPodmanSetupRun({ kind: 'error', message: msg, detail: installActions.manualHint })
+      broadcastProgress()
+      return plainFailure(msg, installActions.manualHint)
+    }
+
+    lastCommandRef.current = await runStep('installing', installActions.installAction)
+    if (!lastCommandRef.current.ok) {
+      failPodmanSetupRun({
+        kind: 'error',
+        message: hardFailureMessage('not_installed'),
+        detail: hardFailureDetail('not_installed'),
+      })
+      broadcastProgress()
+      return plainFailure(hardFailureMessage('not_installed'), hardFailureDetail('not_installed'))
+    }
+
+    code = await reprobe()
+    if (code === 'not_installed') {
+      const msg = rebootRequiredMessage()
+      failPodmanSetupRun({ kind: 'restart_required', message: msg.message, detail: msg.detail })
+      broadcastProgress()
+      return plainFailure(msg.message, msg.detail, 'restart_required')
+    }
+  }
+
+  if (code === 'machine_not_initialized') {
+    lastCommandRef.current = await runStep('creating_environment', 'machine_init')
+    if (!lastCommandRef.current.ok) {
+      failPodmanSetupRun({
+        kind: 'error',
+        message: hardFailureMessage('machine_not_initialized'),
+        detail: hardFailureDetail('machine_not_initialized'),
+      })
+      broadcastProgress()
+      return plainFailure(
+        hardFailureMessage('machine_not_initialized'),
+        hardFailureDetail('machine_not_initialized'),
+      )
+    }
+    code = await reprobe()
+  }
+
+  if (code === 'machine_not_running') {
+    lastCommandRef.current = await runStep('starting', 'machine_start')
+    if (!lastCommandRef.current.ok) {
+      failPodmanSetupRun({
+        kind: 'error',
+        message: hardFailureMessage('machine_not_running'),
+        detail: hardFailureDetail('machine_not_running'),
+      })
+      broadcastProgress()
+      return plainFailure(
+        hardFailureMessage('machine_not_running'),
+        hardFailureDetail('machine_not_running'),
+      )
+    }
+    code = await reprobe()
+  }
+
+  setPodmanSetupRunStep('verifying')
+  broadcastProgress()
+  code = await reprobe()
+
+  if (code) {
+    failPodmanSetupRun({
+      kind: 'error',
+      message: hardFailureMessage(code),
+      detail: hardFailureDetail(code),
+    })
+    broadcastProgress()
+    return plainFailure(hardFailureMessage(code), hardFailureDetail(code))
+  }
+
+  return null
+}
+
+async function runWindowsPodmanSetup(): Promise<PodmanFullSetupResult> {
+  const lastCommandRef: { current?: PodmanCommandResult } = {}
+
+  const wslBlock = await ensureWslReady()
+  if (wslBlock) return { ...wslBlock, lastCommand: lastCommandRef.current }
+
+  const machineBlock = await runMachinePlatformSetup(lastCommandRef)
+  if (machineBlock) return { ...machineBlock, lastCommand: lastCommandRef.current }
+
+  completePodmanSetupRun()
+  broadcastProgress()
+  return { ok: true, lastCommand: lastCommandRef.current }
+}
+
+async function runMacPodmanSetup(): Promise<PodmanFullSetupResult> {
+  const lastCommandRef: { current?: PodmanCommandResult } = {}
+  const block = await runMachinePlatformSetup(lastCommandRef)
+  if (block) return { ...block, lastCommand: lastCommandRef.current }
+
+  completePodmanSetupRun()
+  broadcastProgress()
+  return { ok: true, lastCommand: lastCommandRef.current }
+}
+
+/** Linux: verify only — operator must install Podman with root. */
+async function runLinuxPodmanSetup(): Promise<PodmanFullSetupResult> {
+  setPodmanSetupRunStep('verifying')
+  broadcastProgress()
+
+  const code = await reprobe()
+  if (!code) {
+    completePodmanSetupRun()
+    broadcastProgress()
+    return { ok: true }
+  }
+
+  const hint = detectLinuxDistroHint()
+  const instruction =
+    code === 'engine_unhealthy'
+      ? buildLinuxEngineOperatorInstruction()
+      : buildLinuxOperatorInstruction(hint)
+
+  failPodmanSetupRun({
+    kind: 'operator_instruction',
+    message: 'Operator action required on this server',
+    detail: instruction,
+  })
+  broadcastProgress()
+  return plainFailure('Operator action required on this server', instruction, 'operator_instruction')
+}
+
 /**
  * Runs the full unattended setup flow. Resumes from current probe state.
  * Only one run at a time.
  */
 export async function runFullPodmanSetup(): Promise<PodmanFullSetupResult> {
   if (isPodmanSetupRunActive()) {
-    return { ok: false, failure: { message: 'Setup is already running.' } }
+    return plainFailure('Setup is already running.')
   }
 
-  if (!beginPodmanSetupRun()) {
-    return { ok: false, failure: { message: 'Setup is already running.' } }
+  const plat = platform()
+  const initialStep: PodmanSetupRunStep = plat === 'win32' ? 'preparing_wsl' : 'installing'
+  if (!beginPodmanSetupRun(initialStep)) {
+    return plainFailure('Setup is already running.')
   }
 
   broadcastProgress()
-  let lastCommand: PodmanCommandResult | undefined
 
   try {
-    const plat = platform()
-    const installActions = getInstallActionsForPlatform(plat)
-    let code = await reprobe()
-
-    if (!code) {
-      completePodmanSetupRun()
-      broadcastProgress()
-      return { ok: true }
+    if (plat === 'linux') {
+      return runLinuxPodmanSetup()
+    }
+    if (plat === 'win32') {
+      return runWindowsPodmanSetup()
+    }
+    if (plat === 'darwin') {
+      return runMacPodmanSetup()
     }
 
-    if (code === 'not_installed') {
-      if (!installActions.canAutoInstall || !installActions.installAction) {
-        failPodmanSetupRun({
-          message: hardFailureMessage('not_installed'),
-          detail: installActions.manualHint,
-        })
-        broadcastProgress()
-        return {
-          ok: false,
-          failure: { message: hardFailureMessage('not_installed'), detail: installActions.manualHint },
-        }
-      }
-
-      lastCommand = await runStep('installing', installActions.installAction)
-      if (!lastCommand.ok) {
-        const detail = lastCommand.stderr || lastCommand.stdout || 'Install command failed'
-        failPodmanSetupRun({ message: hardFailureMessage('not_installed'), detail })
-        broadcastProgress()
-        return {
-          ok: false,
-          failure: { message: hardFailureMessage('not_installed'), detail },
-          lastCommand,
-        }
-      }
-
-      code = await reprobe()
-      if (code === 'not_installed') {
-        const detail = 'Podman was not found after install. You may need to restart WR Desk once.'
-        failPodmanSetupRun({ message: hardFailureMessage('not_installed'), detail })
-        broadcastProgress()
-        return { ok: false, failure: { message: hardFailureMessage('not_installed'), detail }, lastCommand }
-      }
-    }
-
-    if (code === 'machine_not_initialized') {
-      lastCommand = await runStep('creating_environment', 'machine_init')
-      if (!lastCommand.ok) {
-        const detail = lastCommand.stderr || lastCommand.stdout || 'Could not create Podman environment'
-        failPodmanSetupRun({ message: hardFailureMessage('machine_not_initialized'), detail })
-        broadcastProgress()
-        return {
-          ok: false,
-          failure: { message: hardFailureMessage('machine_not_initialized'), detail },
-          lastCommand,
-        }
-      }
-
-      code = await reprobe()
-    }
-
-    if (code === 'machine_not_running') {
-      lastCommand = await runStep('starting', 'machine_start')
-      if (!lastCommand.ok) {
-        const detail = lastCommand.stderr || lastCommand.stdout || 'Could not start Podman'
-        failPodmanSetupRun({ message: hardFailureMessage('machine_not_running'), detail })
-        broadcastProgress()
-        return {
-          ok: false,
-          failure: { message: hardFailureMessage('machine_not_running'), detail },
-          lastCommand,
-        }
-      }
-
-      code = await reprobe()
-    }
-
-    setPodmanSetupRunStep('verifying')
-    broadcastProgress()
-    code = await reprobe()
-
-    if (code) {
-      const err = getPodSetupErrorRef()
-      const detail = err?.userMessage ?? setupStepLabelFor('verifying')
-      failPodmanSetupRun({ message: hardFailureMessage(code, detail), detail })
-      broadcastProgress()
-      return {
-        ok: false,
-        failure: { message: hardFailureMessage(code, detail), detail },
-        lastCommand,
-      }
-    }
-
-    completePodmanSetupRun()
-    broadcastProgress()
-    return { ok: true, lastCommand }
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err)
     failPodmanSetupRun({
-      message: 'Podman setup stopped unexpectedly. Install manually from podman.io, then try again.',
-      detail,
+      kind: 'error',
+      message: 'Unsupported platform for automatic Podman setup.',
+      detail: 'Install Podman manually from podman.io.',
     })
     broadcastProgress()
-    return {
-      ok: false,
-      failure: {
-        message: 'Podman setup stopped unexpectedly. Install manually from podman.io, then try again.',
-        detail,
-      },
-      lastCommand,
-    }
+    return plainFailure('Unsupported platform for automatic Podman setup.', 'Install Podman from podman.io.')
+  } catch (err) {
+    failPodmanSetupRun({
+      kind: 'error',
+      message: 'Podman setup stopped unexpectedly.',
+      detail: 'Install Podman manually from podman.io, then open WR Desk again.',
+    })
+    broadcastProgress()
+    return plainFailure(
+      'Podman setup stopped unexpectedly.',
+      'Install Podman manually from podman.io, then open WR Desk again.',
+    )
   }
 }
 

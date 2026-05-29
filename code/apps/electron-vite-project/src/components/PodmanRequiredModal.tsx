@@ -1,6 +1,6 @@
 /**
  * Blocking gate — secure isolation requires Podman (runtime recovery path).
- * One-click setup: install → machine init → start → verify.
+ * Platform-aware: Windows WSL2 + one-click, macOS one-click, Linux operator instructions.
  */
 
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
@@ -9,22 +9,22 @@ export interface PodmanSetupStatus {
   required: boolean
   probePending: boolean
   code: string | null
-  userMessage: string | null
   platform: string
   setupPhase: string
   headline: string
   summary: string
+  terminalAction: string
+  operatorInstruction: string | null
   canOneClickSetup: boolean
   oneClickLabel: string
   setupRunning: boolean
   setupStep: string
   setupStepLabel: string
-  setupFailure: { message: string; detail?: string } | null
+  setupFailure: { kind?: string; message: string; detail?: string } | null
   install: {
     canAutoInstall: boolean
     installLabel: string
     manualHint: string
-    linuxDistroHints?: Array<{ id: string; label: string; commands: readonly string[] }>
   }
 }
 
@@ -32,11 +32,12 @@ const DEFAULT_STATUS: PodmanSetupStatus = {
   required: false,
   probePending: true,
   code: null,
-  userMessage: null,
   platform: 'win32',
   setupPhase: 'checking',
   headline: 'Checking secure container setup…',
   summary: '',
+  terminalAction: 'none',
+  operatorInstruction: null,
   canOneClickSetup: false,
   oneClickLabel: 'Install & set up Podman',
   setupRunning: false,
@@ -47,7 +48,6 @@ const DEFAULT_STATUS: PodmanSetupStatus = {
     canAutoInstall: false,
     installLabel: 'Install & set up Podman',
     manualHint: '',
-    linuxDistroHints: [],
   },
 }
 
@@ -111,15 +111,27 @@ const mutedStyle: CSSProperties = {
   lineHeight: 1.5,
 }
 
-const errorBoxStyle: CSSProperties = {
+const prominentBoxStyle: CSSProperties = {
   margin: '0 0 16px',
-  padding: 12,
+  padding: 14,
   background: 'var(--bg-elevated, var(--bg-elevated-prof, #ffffff))',
   color: 'var(--text-primary, var(--text-primary-prof, #0f1419))',
-  border: '1px solid var(--danger, var(--danger-prof, #f4212e))',
+  border: '1px solid var(--border, var(--border-prof, #e1e8ed))',
   borderRadius: 8,
+  fontSize: 14,
+  lineHeight: 1.55,
+}
+
+const errorBoxStyle: CSSProperties = {
+  ...prominentBoxStyle,
+  border: '1px solid var(--danger, var(--danger-prof, #f4212e))',
   fontSize: 13,
-  lineHeight: 1.5,
+}
+
+const restartBoxStyle: CSSProperties = {
+  ...prominentBoxStyle,
+  border: '2px solid var(--accent, var(--accent-prof, #1d9bf0))',
+  background: 'color-mix(in srgb, var(--accent, #1d9bf0) 8%, var(--bg-elevated, #ffffff))',
 }
 
 function applyStatusFromPayload(res: Record<string, unknown>): PodmanSetupStatus {
@@ -128,11 +140,13 @@ function applyStatusFromPayload(res: Record<string, unknown>): PodmanSetupStatus
     required: Boolean(res.required),
     probePending: Boolean(res.probePending),
     code: typeof res.code === 'string' ? res.code : null,
-    userMessage: typeof res.userMessage === 'string' ? res.userMessage : null,
     platform: typeof res.platform === 'string' ? res.platform : 'win32',
     setupPhase: typeof res.setupPhase === 'string' ? res.setupPhase : 'checking',
     headline: typeof res.headline === 'string' ? res.headline : DEFAULT_STATUS.headline,
     summary: typeof res.summary === 'string' ? res.summary : '',
+    terminalAction: typeof res.terminalAction === 'string' ? res.terminalAction : 'none',
+    operatorInstruction:
+      typeof res.operatorInstruction === 'string' ? res.operatorInstruction : null,
     canOneClickSetup: Boolean(res.canOneClickSetup),
     oneClickLabel:
       typeof res.oneClickLabel === 'string' ? res.oneClickLabel : DEFAULT_STATUS.oneClickLabel,
@@ -149,19 +163,34 @@ function applyStatusFromPayload(res: Record<string, unknown>): PodmanSetupStatus
 
 function progressPercent(step: string): number {
   switch (step) {
+    case 'preparing_wsl':
+      return 10
+    case 'installing_wsl':
+    case 'updating_wsl':
+      return 20
     case 'installing':
-      return 25
+      return 35
     case 'creating_environment':
       return 55
     case 'starting':
-      return 80
+      return 75
     case 'verifying':
-      return 95
+      return 92
     case 'complete':
       return 100
     default:
       return 0
   }
+}
+
+function progressHint(platform: string): string {
+  if (platform === 'win32') {
+    return 'Windows may ask once to approve WSL or Podman install. Everything else runs automatically.'
+  }
+  if (platform === 'darwin') {
+    return 'macOS may ask once to approve Homebrew or Podman. Everything else runs automatically.'
+  }
+  return 'Please wait while setup completes.'
 }
 
 export function PodmanRequiredModal(): JSX.Element | null {
@@ -196,10 +225,15 @@ export function PodmanRequiredModal(): JSX.Element | null {
   if (!status.required) return null
 
   const busy = status.setupRunning || localBusy || status.probePending
-  const showProgress = status.setupRunning && status.setupStep !== 'idle' && status.setupStep !== 'failed'
+  const showProgress =
+    status.setupRunning && status.setupStep !== 'idle' && status.setupStep !== 'failed'
   const failure = status.setupFailure
-  const linuxHints = status.install.linuxDistroHints ?? []
-  const buttonLabel = failure ? status.oneClickLabel : status.oneClickLabel
+  const isRestart =
+    status.terminalAction === 'restart' || status.setupPhase === 'need_restart'
+  const isVirtualization = status.terminalAction === 'enable_virtualization'
+  const isOperator =
+    status.terminalAction === 'operator_install' || status.setupPhase === 'need_operator_install'
+  const operatorText = status.operatorInstruction ?? failure?.detail
 
   return (
     <div
@@ -221,11 +255,47 @@ export function PodmanRequiredModal(): JSX.Element | null {
         >
           {status.headline}
         </h2>
-        <p style={{ ...mutedStyle, margin: '0 0 12px' }}>{status.summary}</p>
-        <p style={{ ...mutedStyle, margin: '0 0 16px', fontSize: 12 }}>
-          WR Desk uses container isolation as a core security measure. Podman is installed separately
-          on your computer — this screen appears if it is missing or stopped later.
-        </p>
+        <p style={{ ...mutedStyle, margin: '0 0 16px' }}>{status.summary}</p>
+
+        {isRestart && !status.setupRunning ? (
+          <div style={restartBoxStyle} data-testid="podman-restart-required">
+            <strong style={{ display: 'block', marginBottom: 8 }}>
+              {failure?.message ?? 'Restart your computer to finish Windows setup'}
+            </strong>
+            <span style={{ color: 'var(--text-primary, var(--text-primary-prof, #0f1419))' }}>
+              {failure?.detail ??
+                'After restarting, open WR Desk again. Setup will continue automatically.'}
+            </span>
+          </div>
+        ) : null}
+
+        {isVirtualization && !status.setupRunning ? (
+          <div style={errorBoxStyle} data-testid="podman-virtualization-required">
+            <strong style={{ display: 'block', marginBottom: 8 }}>
+              {failure?.message ?? 'Enable virtualization in your computer firmware'}
+            </strong>
+            <span style={{ color: 'var(--text-primary, var(--text-primary-prof, #0f1419))' }}>
+              {failure?.detail ??
+                'Podman on Windows requires WSL2, which needs Intel VT-x / AMD-V enabled in BIOS or UEFI.'}
+            </span>
+          </div>
+        ) : null}
+
+        {isOperator && operatorText && !status.setupRunning ? (
+          <div style={prominentBoxStyle} data-testid="podman-operator-instruction">
+            <pre
+              style={{
+                margin: 0,
+                whiteSpace: 'pre-wrap',
+                fontFamily: 'inherit',
+                fontSize: 13,
+                color: 'var(--text-primary, var(--text-primary-prof, #0f1419))',
+              }}
+            >
+              {operatorText}
+            </pre>
+          </div>
+        ) : null}
 
         {showProgress ? (
           <div style={{ marginBottom: 16 }} data-testid="podman-setup-progress">
@@ -249,16 +319,20 @@ export function PodmanRequiredModal(): JSX.Element | null {
               {status.setupStepLabel || 'Working…'}
             </p>
             <p style={{ ...mutedStyle, margin: '6px 0 0', fontSize: 12 }}>
-              Windows may ask once to approve the install. Everything else runs automatically.
+              {progressHint(status.platform)}
             </p>
           </div>
         ) : null}
 
-        {failure && !status.setupRunning ? (
+        {failure &&
+        !status.setupRunning &&
+        !isRestart &&
+        !isVirtualization &&
+        !isOperator ? (
           <div style={errorBoxStyle} data-testid="podman-setup-failure">
             <strong style={{ display: 'block', marginBottom: 6 }}>{failure.message}</strong>
             {failure.detail ? (
-              <span style={{ color: 'var(--text-secondary, var(--text-secondary-prof, #536471))' }}>
+              <span style={{ color: 'var(--text-primary, var(--text-primary-prof, #0f1419))' }}>
                 {failure.detail}
               </span>
             ) : null}
@@ -274,44 +348,12 @@ export function PodmanRequiredModal(): JSX.Element | null {
               data-testid="podman-one-click-setup"
               onClick={() => void runFullSetup()}
             >
-              {busy ? status.setupStepLabel || 'Setting up…' : buttonLabel}
+              {busy ? status.setupStepLabel || 'Setting up…' : status.oneClickLabel}
             </button>
           </div>
         ) : null}
 
-        {!status.probePending && !status.install.canAutoInstall && status.platform === 'linux' && linuxHints.length > 0 ? (
-          <div style={{ marginBottom: 16 }}>
-            <p style={{ ...mutedStyle, margin: '0 0 8px', fontSize: 12 }}>
-              Install Podman with your package manager, then use the button above:
-            </p>
-            <ul
-              style={{
-                margin: 0,
-                paddingLeft: 18,
-                fontSize: 12,
-                color: 'var(--text-primary, var(--text-primary-prof, #0f1419))',
-              }}
-            >
-              {linuxHints.map((hint) => (
-                <li key={hint.id} style={{ marginBottom: 8 }}>
-                  <strong>{hint.label}</strong>
-                  <pre
-                    style={{
-                      ...mutedStyle,
-                      margin: '4px 0 0',
-                      fontSize: 11,
-                      whiteSpace: 'pre-wrap',
-                    }}
-                  >
-                    {hint.commands.join('\n')}
-                  </pre>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
-        {!busy ? (
+        {!busy && status.platform !== 'linux' ? (
           <button
             type="button"
             style={btnLink}
