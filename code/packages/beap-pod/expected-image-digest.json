@@ -1,6 +1,6 @@
 {
   "_doc": "Expected OCI digest for beap-components images. Update via record-image-digest after podman build.",
   "beap-components": {
-    "dev": "sha256:05f14926cdb563def1c3c6931ed7d2a2d146d9743967a7064be155d5ff689260"
+    "dev": "sha256:dbcb4a9b905e1d2922008cc7b0a464aa657fafb5e6ccdc13f7e95434b50439d3"
   }
 }

@@ -102,8 +102,10 @@ spec:
           value: "${POD_AUTH_SECRET}"
       ports:
         # Only the ingestor port is forwarded to the host.
+        # hostIP 127.0.0.1 — explicit IPv4 bind for rootless Podman on WSL2 (podman #17972).
         - containerPort: 18100
           hostPort: 18100
+          hostIP: 127.0.0.1
           protocol: TCP
       resources:
         requests:

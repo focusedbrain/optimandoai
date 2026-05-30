@@ -121,6 +121,8 @@ spec:
       ports:
         - containerPort: 18100
           hostPort: 18100
+          hostIP: 127.0.0.1
+          protocol: TCP
           protocol: TCP
       resources:
         requests:

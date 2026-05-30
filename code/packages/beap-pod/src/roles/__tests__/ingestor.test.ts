@@ -248,3 +248,55 @@ describe('GET /health', () => {
     expect(json.role).toBe('ingestor');
   });
 });
+
+describe('POST /extract-pdf — depackager proxy', () => {
+  let server: http.Server;
+  let baseUrl: string;
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    mockFetch = vi.fn();
+    server = createIngestorServer(TEST_SECRET, {
+      authedFetch: mockFetch,
+      depackagerBase: 'http://mock-depackager',
+    });
+    baseUrl = await startServer(server);
+  });
+
+  afterEach(() => stopServer(server));
+
+  test('forwards body to depackager /extract-pdf and relays response', async () => {
+    mockFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          extracted_text_v1: {
+            text: 'hello pdf',
+            structural_hash: 'abc',
+            extractor_version: 'beap-pdf-extract-v1',
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const payload = {
+      message_id: 'm1',
+      attachment_id: 'a1',
+      pdf_bytes_b64: Buffer.from('%PDF').toString('base64'),
+    };
+    const res = await fetch(`${baseUrl}/extract-pdf`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { extracted_text_v1?: { text?: string } };
+    expect(json.extracted_text_v1?.text).toBe('hello pdf');
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('http://mock-depackager/extract-pdf');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual(payload);
+  });
+});

@@ -1,10 +1,13 @@
 /**
- * On-demand PDF extraction via local depackager POST /extract-pdf.
+ * On-demand PDF extraction via published ingestor POST /extract-pdf (proxies to depackager).
  */
 
 import { getPodSessionAuthSecret } from '../local-pod/podSessionAuth.js'
 import { getLocalPodUnavailableMessage } from '../local-pod/podStatus.js'
 
+export const DEFAULT_POD_BASE = 'http://127.0.0.1:18100'
+
+/** @deprecated Host must use published ingestor entry; kept for test overrides only. */
 export const DEFAULT_DEPACKAGER_BASE = 'http://127.0.0.1:18102'
 
 export interface ExtractedTextV1 {
@@ -17,8 +20,12 @@ export type DepackagerExtractResult =
   | { ok: true; extracted_text_v1: ExtractedTextV1; page_count?: number }
   | { ok: false; reason: string; status?: number }
 
-function depackagerBaseUrl(): string {
-  return process.env['WR_DEPACKAGER_BASE']?.trim() || DEFAULT_DEPACKAGER_BASE
+function hostPodBaseUrl(): string {
+  return (
+    process.env['WR_POD_BASE_URL']?.trim() ||
+    process.env['WR_DEPACKAGER_BASE']?.trim() ||
+    DEFAULT_POD_BASE
+  )
 }
 
 export async function extractPdfViaDepackager(
@@ -31,7 +38,7 @@ export async function extractPdfViaDepackager(
   }
 
   const fetchFn = opts.fetchImpl ?? fetch
-  const url = `${depackagerBaseUrl().replace(/\/+$/, '')}/extract-pdf`
+  const url = `${hostPodBaseUrl().replace(/\/+$/, '')}/extract-pdf`
 
   let res: Response
   try {

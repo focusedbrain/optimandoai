@@ -11,9 +11,10 @@
  *   REMOTE_EDGE   — ingest → validator → depackager → certifier; return certificate
  *
  * Endpoints:
- *   POST /ingest  — external (no pod-auth; this is the pod's external boundary)
- *   GET  /health  — always 200 { status:'ok', role:'ingestor', version }
- *   GET  /ready   — 200 when upstream role(s) for this mode are ready
+ *   POST /ingest       — external (no pod-auth; this is the pod's external boundary)
+ *   POST /extract-pdf  — external proxy to depackager (on-demand PDF; host orchestrator)
+ *   GET  /health       — always 200 { status:'ok', role:'ingestor', version }
+ *   GET  /ready        — 200 when upstream role(s) for this mode are ready
  *
  * The ingestor is the wall-clock owner for the whole pipeline.
  * It applies both the body-size gate and the pipeline timeout before a single
@@ -46,6 +47,7 @@ import { messageContextFromEnvelope } from '../shared/reportGenerator.js';
 const ROLE = 'ingestor';
 const DEFAULT_PORT = 18100;
 const DEFAULT_VALIDATOR_BASE = 'http://127.0.0.1:18101';
+const DEFAULT_DEPACKAGER_BASE = 'http://127.0.0.1:18102';
 const DEFAULT_SEALER_BASE = 'http://127.0.0.1:18103';
 const VERSION = process.env['POD_VERSION'] ?? '1.0.0';
 
@@ -101,6 +103,7 @@ export interface IngestorConfig {
   podMode?: PodMode;
   validatorBase?: string;
   verifierBase?: string;
+  depackagerBase?: string;
   sealerBase?: string;
   version?: string;
   maxBodyBytes?: number;
@@ -393,6 +396,7 @@ function makeHandler(
   podMode: PodMode,
   validatorBase: string,
   verifierBase: string | undefined,
+  depackagerBase: string,
   sealerBase: string,
   version: string,
   maxBodyBytes: number,
@@ -480,6 +484,42 @@ function makeHandler(
           reason: pipeline.reason,
           validation_reason_code: pipeline.validation_reason_code,
         });
+      }
+      return;
+    }
+
+    /** On-demand PDF — host orchestrator entry; depackager/pdf-parser stay pod-internal. */
+    if (req.method === 'POST' && path === '/extract-pdf') {
+      const { data, tooLarge } = await readBody(req, maxBodyBytes);
+      if (tooLarge) {
+        res.writeHead(413, {
+          'Content-Type': 'application/json',
+          'Connection': 'close',
+        });
+        res.end(JSON.stringify({ error: 'Payload too large', limit_bytes: maxBodyBytes }));
+        return;
+      }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const depackagerRes = await authedFetch(`${depackagerBase}/extract-pdf`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: data.toString('utf8'),
+          signal: controller.signal,
+        });
+        const responseText = await depackagerRes.text();
+        res.writeHead(depackagerRes.status, { 'Content-Type': 'application/json' });
+        res.end(responseText);
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          sendJson(res, 504, { error: 'Pipeline timeout', timeout_ms: timeoutMs });
+        } else {
+          sendJson(res, 503, { error: 'depackager_unreachable' });
+        }
+      } finally {
+        clearTimeout(timer);
       }
       return;
     }
@@ -606,6 +646,8 @@ export function createIngestorServer(secret: string, config?: IngestorConfig): h
   const verifierBase =
     config?.verifierBase ??
     (podMode === 'LOCAL_VERIFY' ? process.env['VERIFIER_BASE'] : undefined);
+  const depackagerBase =
+    config?.depackagerBase ?? process.env['DEPACKAGER_BASE'] ?? DEFAULT_DEPACKAGER_BASE;
   const sealerBase = config?.sealerBase ?? process.env['SEALER_BASE'] ?? DEFAULT_SEALER_BASE;
   const version = config?.version ?? VERSION;
   const maxBodyBytes = config?.maxBodyBytes ?? INGESTION_CONSTANTS.MAX_RAW_INPUT_BYTES;
@@ -621,6 +663,7 @@ export function createIngestorServer(secret: string, config?: IngestorConfig): h
         podMode,
         validatorBase,
         verifierBase,
+        depackagerBase,
         sealerBase,
         version,
         maxBodyBytes,

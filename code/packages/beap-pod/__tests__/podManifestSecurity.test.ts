@@ -84,6 +84,13 @@ describe.each(MANIFESTS)('pod manifest security — %s', (manifest) => {
     const yaml = readFileSync(join(ROOT, manifest), 'utf8')
     expect(yaml).toMatch(/restartPolicy:\s*Never/)
   })
+
+  test('ingestor hostPort binds IPv4 loopback (WSL2 rootless Podman)', () => {
+    const yaml = readFileSync(join(ROOT, manifest), 'utf8')
+    const ingestor = splitContainers(yaml).find((c) => c.name === 'ingestor')
+    expect(ingestor?.body, manifest).toMatch(/hostPort:\s*18100/)
+    expect(ingestor?.body, manifest).toMatch(/hostIP:\s*127\.0\.0\.1/)
+  })
 })
 
 describe('Containerfile distributable notices', () => {
