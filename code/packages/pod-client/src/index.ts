@@ -9,7 +9,7 @@
  *   const result = await client.ingest(rawInput, 'email', { message_id: '...' })
  */
 
-export { createPodClient } from './client.js'
+export { createPodClient, buildIngestEnvelope, fetchEdgeIngestCertificate } from './client.js'
 
 export type {
   PodClientConfig,

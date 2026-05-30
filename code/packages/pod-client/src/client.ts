@@ -148,6 +148,54 @@ async function ingestViaEdge(
   )
 }
 
+/**
+ * Edge-tier remote leg only — POST to REMOTE_EDGE ingestor and return the certificate
+ * for local exec verify. Host TCP to local :18100 is not used here.
+ */
+export async function fetchEdgeIngestCertificate(
+  replica: EdgeReplica,
+  timeoutMs: number,
+  rawInput: RawInput,
+  sourceType: SourceType,
+  transportMeta: Partial<TransportMetadata> | undefined,
+  depackageKeys?: DepackageKeys,
+): Promise<unknown> {
+  let edgeResult: PodIngestResult
+  try {
+    edgeResult = await postIngestOnce(
+      edgeBaseUrl(replica),
+      timeoutMs,
+      rawInput,
+      sourceType,
+      transportMeta,
+      depackageKeys,
+    )
+  } catch (err) {
+    const cause = err instanceof Error ? err : new Error(String(err))
+    if (
+      err instanceof PodConnectionError ||
+      err instanceof PodTimeoutError ||
+      (err instanceof Error && err.name === 'AbortError')
+    ) {
+      throw new PodEdgeUnreachableError(
+        { host: replica.host, port: replica.port, edge_pod_id: replica.edge_pod_id },
+        cause,
+      )
+    }
+    throw err
+  }
+
+  const edgeBody = (edgeResult.body ?? {}) as Record<string, unknown>
+  const certificate = edgeBody['certificate'] ?? edgeBody['edge_certificate']
+  if (certificate == null) {
+    throw new PodIngestHttpError(502, {
+      error: 'Edge ingest did not return certificate',
+      edge_body: edgeResult.body,
+    })
+  }
+  return certificate
+}
+
 async function ingestWithRetry(
   baseUrl: string,
   timeoutMs: number,
@@ -188,7 +236,7 @@ async function ingestWithRetry(
   }
 }
 
-function buildIngestEnvelope(
+export function buildIngestEnvelope(
   rawInput: RawInput,
   sourceType: SourceType,
   transportMeta: Partial<TransportMetadata> | undefined,

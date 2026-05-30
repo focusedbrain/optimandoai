@@ -59,8 +59,9 @@ export type QbeapIngestExecEnvelope = {
   }
 }
 
-export async function runQbeapIngestViaPodmanExec(
-  envelope: QbeapIngestExecEnvelope,
+/** Generic /ingest envelope POST via podman exec (qBEAP depackage + capsule ingest). */
+export async function runIngestViaPodmanExec(
+  envelope: Record<string, unknown>,
   deps?: QbeapPodExecDeps,
 ): Promise<QbeapPodExecOutcome> {
   const spawnFn = deps?.spawnImpl ?? spawn
@@ -157,4 +158,11 @@ export async function runQbeapIngestViaPodmanExec(
       })
     }
   })
+}
+
+export async function runQbeapIngestViaPodmanExec(
+  envelope: QbeapIngestExecEnvelope,
+  deps?: QbeapPodExecDeps,
+): Promise<QbeapPodExecOutcome> {
+  return runIngestViaPodmanExec(envelope, deps)
 }

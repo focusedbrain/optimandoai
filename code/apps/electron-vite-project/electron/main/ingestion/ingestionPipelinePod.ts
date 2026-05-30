@@ -1,5 +1,8 @@
 /**
- * Pod HTTP ingestion path — used by EdgeActive and HostPodActive modes only.
+ * Pod ingestion path — used by EdgeActive and HostPodActive modes only.
+ *
+ * Host→pod uses IsolationProvider exec (podman exec → in-pod POST /ingest),
+ * NOT host TCP to 127.0.0.1:18100 (dead on Windows wslrelay/pasta).
  */
 
 import type {
@@ -15,8 +18,116 @@ import type {
 } from './types'
 import { INGESTION_CONSTANTS } from './types'
 import { routeValidatedCapsule } from '@repo/ingestion-core'
-import { PodIngestHttpError, PodEdgeUnreachableError } from '@repo/pod-client'
-import { buildIngestPodClient, type IngestPodClientRoute } from './podClientFactory.js'
+import {
+  buildIngestEnvelope,
+  fetchEdgeIngestCertificate,
+  PodIngestHttpError,
+  PodEdgeUnreachableError,
+  type EdgeReplica,
+} from '@repo/pod-client'
+import type { IngestPodClientRoute } from './podClientFactory.js'
+import {
+  loadEdgeTierSettings,
+  isEdgeTierActiveForRouting,
+  type EdgeReplica as SettingsReplica,
+} from '../edge-tier/settings.js'
+import { getIsolationProviderSync } from '../isolation/index.js'
+import { IsolationChannelError } from '../isolation/IsolationProvider.js'
+
+function mapEdgeReplica(replica: SettingsReplica): EdgeReplica {
+  return {
+    host: replica.host,
+    port: replica.port,
+    edge_pod_id: replica.edge_pod_id,
+    public_key: replica.edge_public_key,
+    attestation_jwt: replica.sso_attestation_jwt,
+  }
+}
+
+function shouldRouteViaEdgeTier(route: IngestPodClientRoute): boolean {
+  const settings = loadEdgeTierSettings()
+  if (!isEdgeTierActiveForRouting(settings) || settings.replicas.length === 0) {
+    return false
+  }
+  if (route === 'native_beap' && settings.native_beap_routing === 'direct') {
+    return false
+  }
+  return true
+}
+
+function inferPodHttpStatus(body: Record<string, unknown>): number {
+  if (body['valid'] === true) return 200
+  if (body['valid'] === false || body['verification_failed'] === true) return 422
+  if (typeof body['error'] === 'string') return 503
+  return 200
+}
+
+async function ingestCapsuleViaPodExec(
+  rawInput: RawInput,
+  bodyStr: string,
+  sourceType: SourceType,
+  transportMeta: TransportMetadata,
+  route: IngestPodClientRoute,
+): Promise<{ body: unknown; status: number }> {
+  const requestTimeoutMs = INGESTION_CONSTANTS.PIPELINE_TIMEOUT_MS + 2_000
+  let extraFields: Record<string, unknown> | undefined
+
+  if (shouldRouteViaEdgeTier(route)) {
+    const settings = loadEdgeTierSettings()
+    const certificate = await fetchEdgeIngestCertificate(
+      mapEdgeReplica(settings.replicas[0]!),
+      requestTimeoutMs,
+      {
+        body: bodyStr,
+        headers: rawInput.headers,
+        mime_type: rawInput.mime_type,
+        filename: rawInput.filename,
+      },
+      sourceType,
+      {
+        channel_id: transportMeta.channel_id,
+        message_id: transportMeta.message_id,
+        sender_address: transportMeta.sender_address,
+        recipient_address: transportMeta.recipient_address,
+      },
+    )
+    extraFields = { edge_certificate: certificate }
+  }
+
+  const envelope = buildIngestEnvelope(
+    {
+      body: bodyStr,
+      headers: rawInput.headers,
+      mime_type: rawInput.mime_type,
+      filename: rawInput.filename,
+    },
+    sourceType,
+    {
+      channel_id: transportMeta.channel_id,
+      message_id: transportMeta.message_id,
+      sender_address: transportMeta.sender_address,
+      recipient_address: transportMeta.recipient_address,
+    },
+    undefined,
+    extraFields,
+  )
+
+  const provider = getIsolationProviderSync()
+  const responseBytes = await provider.callPipeline(
+    'ingestor',
+    'capsule-ingest',
+    Buffer.from(JSON.stringify(envelope), 'utf8'),
+  )
+
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(responseBytes.toString('utf8')) as Record<string, unknown>
+  } catch {
+    throw new IsolationChannelError('capsule_ingest_bad_response', 'invalid JSON from pod ingest exec')
+  }
+
+  return { body: parsed, status: inferPodHttpStatus(parsed) }
+}
 
 export async function processIncomingInputViaPod(
   rawInput: RawInput,
@@ -70,25 +181,16 @@ export async function processIncomingInputViaPod(
   let podStatus: number
 
   try {
-    const client = buildIngestPodClient(route)
-    const podResult = await client.ingest(
-      {
-        body: bodyStr,
-        headers: rawInput.headers,
-        mime_type: rawInput.mime_type,
-        filename: rawInput.filename,
-      },
+    const podResult = await ingestCapsuleViaPodExec(
+      rawInput,
+      bodyStr,
       sourceType,
-      {
-        channel_id: transportMeta.channel_id,
-        message_id: transportMeta.message_id,
-        sender_address: transportMeta.sender_address,
-        recipient_address: transportMeta.recipient_address,
-      },
+      transportMeta,
+      route,
     )
     podBody = podResult.body
     podStatus = podResult.status
-    console.log(`[pod-hot-path] pod responded with status ${podStatus}`)
+    console.log(`[pod-hot-path] pod responded with status ${podStatus} (exec channel)`)
   } catch (err) {
     const durationMs = Math.round(performance.now() - startTime)
     if (err instanceof PodEdgeUnreachableError) {
@@ -111,6 +213,21 @@ export async function processIncomingInputViaPod(
     if (err instanceof PodIngestHttpError) {
       podBody = err.body
       podStatus = err.status
+    } else if (err instanceof IsolationChannelError) {
+      const msg = err.message
+      console.error(`[pod-hot-path] pod exec channel error: ${msg}`)
+      return {
+        success: false,
+        reason: `Pod unavailable: ${msg}`,
+        audit: buildAuditRecord(
+          'pod_error',
+          sourceType,
+          originClassification,
+          'plain_external_content',
+          'error',
+          durationMs,
+        ),
+      }
     } else {
       const msg = err instanceof Error ? err.message : String(err)
       console.error(`[pod-hot-path] pod connection/timeout error: ${msg}`)

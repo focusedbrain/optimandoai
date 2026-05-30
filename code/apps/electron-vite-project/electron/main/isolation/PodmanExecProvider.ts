@@ -19,6 +19,9 @@
  *     ↳ ingestor → validator → depackager → sealer (pod-internal)
  *     returns: JSON ingest response (depackaged field on qBEAP success)
  *
+ *   ('ingestor', 'capsule-ingest', jsonBuffer) →
+ *     same exec transport as p2p-ingest; full buildIngestEnvelope for handshake/API ingest
+ *
  * Future ops extend the route table without touching the interface.
  */
 
@@ -32,6 +35,7 @@ import {
   type PdfPodExecDeps,
 } from '../email/pdfPodExecTransport.js'
 import {
+  runIngestViaPodmanExec,
   runQbeapIngestViaPodmanExec,
   type QbeapIngestExecEnvelope,
   type QbeapPodExecDeps,
@@ -106,6 +110,10 @@ export class PodmanExecProvider implements IsolationProvider {
       return this._execP2pIngest(payloadBytes)
     }
 
+    if (role === 'ingestor' && op === 'capsule-ingest') {
+      return this._execCapsuleIngest(payloadBytes)
+    }
+
     // Outbound roles are not yet wired into this provider.
     // See docs/outbound-pipeline-gap.md for the tracked gap.
     throw new IsolationNotImplementedError('podman', `role=${role} op=${op}`)
@@ -161,6 +169,35 @@ export class PodmanExecProvider implements IsolationProvider {
         outcome.reason === 'podman_cli_unavailable' ? 'podman_unavailable'
         : outcome.reason === 'podman_exec_failed' ? 'exec_failed'
         : 'p2p_ingest_failed'
+      throw new IsolationChannelError(
+        code,
+        outcome.stderr.trim() || outcome.reason,
+      )
+    }
+
+    return Buffer.from(outcome.stdout, 'utf8')
+  }
+
+  private async _execCapsuleIngest(payloadBytes: Buffer): Promise<Buffer> {
+    let envelope: Record<string, unknown>
+    try {
+      envelope = JSON.parse(payloadBytes.toString('utf8')) as Record<string, unknown>
+    } catch {
+      throw new IsolationChannelError('capsule_ingest_bad_payload', 'invalid JSON payload for capsule-ingest')
+    }
+    if (typeof envelope['body'] !== 'string' || typeof envelope['source_type'] !== 'string') {
+      throw new IsolationChannelError(
+        'capsule_ingest_bad_payload',
+        'missing required fields in capsule-ingest payload',
+      )
+    }
+
+    const outcome = await runIngestViaPodmanExec(envelope, this._deps.qbeapExecDeps)
+    if (!outcome.ok) {
+      const code =
+        outcome.reason === 'podman_cli_unavailable' ? 'podman_unavailable'
+        : outcome.reason === 'podman_exec_failed' ? 'exec_failed'
+        : 'capsule_ingest_failed'
       throw new IsolationChannelError(
         code,
         outcome.stderr.trim() || outcome.reason,
