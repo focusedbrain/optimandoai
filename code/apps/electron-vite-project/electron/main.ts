@@ -10871,7 +10871,9 @@ async function runDeviceKeyMigration(
           json: {
             success: false,
             error: podUnavailable
-              ? 'BEAP PDF parser pod unavailable — install/start Podman and the local BEAP pod'
+              ? pod.reason === 'pdf_parse_unavailable'
+                ? 'PDF parse unavailable'
+                : 'BEAP PDF parser pod unavailable — install/start Podman and the local BEAP pod'
               : pod.reason,
           },
         }
