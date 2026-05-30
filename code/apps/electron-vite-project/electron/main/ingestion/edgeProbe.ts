@@ -95,11 +95,6 @@ export async function probeHostPodReady(force = false): Promise<boolean> {
     /* supervisor optional in tests */
   }
   if (!force && _hostPodReady) return true
-  const ingestorOk = await probeUrl(`${getHostPodBaseUrl()}/health`, HOST_POD_PROBE_TIMEOUT_MS)
-  if (!ingestorOk) {
-    _hostPodReady = false
-    return false
-  }
   try {
     const { getActiveLocalPodName } = await import('../local-pod/index.js')
     const { checkRequiredPodContainersReady } = await import(
@@ -112,6 +107,14 @@ export async function probeHostPodReady(force = false): Promise<boolean> {
     }
     const complete = await checkRequiredPodContainersReady(podName)
     _hostPodReady = complete.ok
+    if (complete.ok) {
+      const ingestorOk = await probeUrl(`${getHostPodBaseUrl()}/health`, HOST_POD_PROBE_TIMEOUT_MS)
+      if (!ingestorOk) {
+        console.warn(
+          '[EDGE_PROBE] Host pod containers ready; ingestor host /health unreachable (optional)',
+        )
+      }
+    }
     return complete.ok
   } catch {
     _hostPodReady = false

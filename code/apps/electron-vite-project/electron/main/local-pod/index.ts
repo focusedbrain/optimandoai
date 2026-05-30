@@ -392,7 +392,7 @@ function toUserFacingPodStartError(err: unknown): string {
 async function waitForPodHealth(
   healthProbe?: (url: string) => Promise<boolean>,
 ): Promise<boolean> {
-  const probe =
+  const hostProbe =
     healthProbe ??
     (async (url: string) => {
       const controller = new AbortController()
@@ -407,13 +407,23 @@ async function waitForPodHealth(
       }
     })
 
-  const url = `${getHostPodBaseUrl().replace(/\/+$/, '')}/health`
+  const hostIngestorHealthUrl = `${getHostPodBaseUrl().replace(/\/+$/, '')}/health`
+  let loggedHostIngestorUnreachable = false
+
   for (let i = 0; i < POD_HEALTH_MAX_ATTEMPTS; i++) {
-    if (await probe(url)) {
-      const podName = _activePod?.podName
-      if (!podName) return false
-      const complete = await checkRequiredPodContainersReady(podName)
-      if (complete.ok) return true
+    const podName = _activePod?.podName
+    if (!podName) return false
+
+    const complete = await checkRequiredPodContainersReady(podName)
+    if (complete.ok) {
+      const hostOk = await hostProbe(hostIngestorHealthUrl)
+      if (!hostOk && !loggedHostIngestorUnreachable) {
+        loggedHostIngestorUnreachable = true
+        console.warn(
+          '[LOCAL_POD] All required containers ready; host ingestor /health unreachable (optional — Windows hostPort publish may fail while pod is healthy)',
+        )
+      }
+      return true
     }
     await sleep(POD_HEALTH_INTERVAL_MS)
   }

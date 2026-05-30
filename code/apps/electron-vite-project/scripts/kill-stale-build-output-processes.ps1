@@ -15,6 +15,33 @@ if ($staleDirs.Count -eq 0) { exit 0 }
 foreach ($dir in $staleDirs) {
   $needle = $dir.FullName
   $needleLower = $needle.ToLowerInvariant()
+
+  # LibreOffice --version probes set OOO_CWD to win-unpacked and keep the folder locked (empty tree).
+  $staleBase = $dir.Name.ToLowerInvariant()
+  Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | ForEach-Object {
+    $cmd = $_.CommandLine
+    if (-not $cmd) { return }
+    $cmdLower = $cmd.ToLowerInvariant()
+    if ($cmdLower.Contains($needleLower) -or ($cmdLower.Contains('ooo_cwd=') -and $cmdLower.Contains("build-output") -and $cmdLower.Contains($staleBase))) {
+      Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+      Write-Host "[kill-stale-build] Stopped PID $($_.ProcessId) $($_.Name) (cmdline cwd under stale output)"
+    }
+  }
+
+  # Podman Desktop / WSL: wslhost.exe and win-sshproxy.exe often hold File handles on old win-unpacked.
+  $handleExe = Join-Path $env:TEMP 'handle64.exe'
+  if (-not (Test-Path -LiteralPath $handleExe)) {
+    $handleExe = Join-Path $env:TEMP 'handle.exe'
+  }
+  if (Test-Path -LiteralPath $handleExe) {
+    $handleOut = & $handleExe -accepteula $needle 2>&1 | Out-String
+    foreach ($m in [regex]::Matches($handleOut, 'pid:\s*(\d+)')) {
+      $hid = [int]$m.Groups[1].Value
+      Stop-Process -Id $hid -Force -ErrorAction SilentlyContinue
+      Write-Host "[kill-stale-build] Stopped PID $hid (handle on $needle)"
+    }
+  }
+
   Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | ForEach-Object {
     $exe = $_.ExecutablePath
     $cmd = $_.CommandLine
