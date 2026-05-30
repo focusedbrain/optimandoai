@@ -15,11 +15,32 @@ export function rowProvesLocalHostPeerSandboxForHostAi(r: HandshakeRecord): bool
   return dr.ok && dr.localRole === 'host' && dr.peerRole === 'sandbox'
 }
 
+/**
+ * ACTIVE `internal` handshakes for Host-AI ledger derivation. The host-side scan
+ * ({@link hostHasActiveInternalLedgerHostPeerSandboxFromDb}) and the sandbox-side scans
+ * (`anyActiveRowProvesLocalSandboxToHostFromDb`, `resolveActiveSandboxToHostHandshakeId`, the
+ * list-targets pass) MUST share this helper so the directional pair `host_peer_sandbox` /
+ * `sandbox_to_host` derives **symmetrically** across the post-split host & sandbox processes.
+ *
+ * It deliberately does NOT apply `filterHandshakeRecordsForCurrentSession`: the ledger DB is already
+ * SSO-key encrypted, so only the current identity's rows are present — the extra session filter was
+ * redundant for Concern B and was the sole cause of the host(unfiltered)/sandbox(filtered) asymmetry.
+ * The §2 boundary is per-row eligibility (`handshakeSamePrincipal` + role derivation) plus the
+ * per-handshake publisher assert and credential possession on the serve/consume paths — never this
+ * enumeration. UI / routing visibility keeps `filterHandshakeRecordsForCurrentSession` (Concern A).
+ */
+export function listActiveInternalHandshakesForHostAi(db: unknown): HandshakeRecord[] {
+  if (!db) return []
+  const rows = listHandshakeRecords(db as Parameters<typeof listHandshakeRecords>[0], {
+    state: HandshakeState.ACTIVE,
+    handshake_type: 'internal',
+  })
+  return rows.filter((r) => r.handshake_type === 'internal' && r.state === HandshakeState.ACTIVE)
+}
+
 /** Any ACTIVE internal row proves local Host with peer Sandbox. */
 export function hostHasActiveInternalLedgerHostPeerSandboxFromDb(db: unknown): boolean {
-  const rows = listHandshakeRecords(db as any, { state: HandshakeState.ACTIVE })
-  for (const r0 of rows) {
-    if (r0.handshake_type !== 'internal' || r0.state !== HandshakeState.ACTIVE) continue
+  for (const r0 of listActiveInternalHandshakesForHostAi(db)) {
     if (rowProvesLocalHostPeerSandboxForHostAi(r0)) {
       return true
     }

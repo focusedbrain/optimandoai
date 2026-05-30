@@ -9,7 +9,7 @@ import { getCurrentSession } from '../handshake/ipc'
 import type { HandshakeRecord, PartyIdentity, SSOSession } from '../handshake/types'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { InternalInferenceErrorCode } from './errors'
-import { assertRecordForServiceRpc } from './policy'
+import { assertRecordForServiceRpc, handshakeSamePrincipal } from './policy'
 
 /** Match relay BEAP ad TTL — attestation expires when live proof is no longer fresh. */
 export const HOST_PEER_LIVE_PRESENCE_TTL_MS = 300_000
@@ -189,11 +189,18 @@ export function assertHostMachineSessionMatchesHandshakeHostParty(
   if (!session) {
     return { ok: false, code: InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE }
   }
-  const hostParty = hostPartyIdentityFromRecord(record)
-  if (!hostParty) {
+  // §2 anchor: Host AI is only ever served on an ACTIVE internal, same-principal handshake.
+  // `handshakeSamePrincipal` means BOTH ends resolve to the same SSO account, so it is sufficient —
+  // and more robust after the host/sandbox process-split — to match the session against EITHER party
+  // rather than only the host-role party (whose identity JSON can be incomplete on one ledger copy
+  // post-split, which previously produced spurious HOST_AI_IDENTITY_INCOMPLETE / *_OFFLINE denials).
+  if (record.handshake_type !== 'internal' || !handshakeSamePrincipal(record)) {
     return { ok: false, code: InternalInferenceErrorCode.HOST_AI_IDENTITY_INCOMPLETE }
   }
-  if (!sessionMatchesParty(session, hostParty)) {
+  const matchesEitherParty =
+    sessionMatchesParty(session, record.initiator) ||
+    (record.acceptor != null && sessionMatchesParty(session, record.acceptor))
+  if (!matchesEitherParty) {
     return { ok: false, code: InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE }
   }
   return { ok: true }

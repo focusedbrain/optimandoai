@@ -60,7 +60,10 @@ import {
 } from './sandboxHostUi'
 import { InternalInferenceErrorCode } from './errors'
 import { clearHostAiTransportDecideDedupeCache, logHostAiTransportDecideListLine } from './hostAiTransportDecideLog'
-import { hostHasActiveInternalLedgerHostPeerSandboxFromDb } from './hostAiInternalPairingLedger'
+import {
+  hostHasActiveInternalLedgerHostPeerSandboxFromDb,
+  listActiveInternalHandshakesForHostAi,
+} from './hostAiInternalPairingLedger'
 import {
   hydrateHostAdvertisedMapFromLedger,
   peekHostAdvertisedMvpDirectEntry,
@@ -1387,23 +1390,28 @@ function finalizeItem(t: HostTargetDraft): HostInternalInferenceListItem {
 }
 
 /**
- * ACTIVE ledger rows visible to the current SSO session — same filter as handshake list UI
- * (`filterHandshakeRecordsForCurrentSession`). Fail-closed when session is missing.
+ * ACTIVE internal rows scoped to the current SSO session — for **emitting / routing** selectable
+ * Host-AI targets. This keeps Concern-A defense-in-depth: even if a foreign-account row were present
+ * (it should not be, given the SSO-encrypted ledger DB), it is never surfaced as a usable target.
+ * The directional ledger *booleans* deliberately use the filter-free
+ * {@link listActiveInternalHandshakesForHostAi} instead, to stay symmetric across the host/sandbox split.
  */
-function listActiveHandshakeRecordsForCurrentSession(db: unknown): HandshakeRecord[] {
-  const raw = listHandshakeRecords(db as Parameters<typeof listHandshakeRecords>[0], {
-    state: HandshakeState.ACTIVE,
-  })
-  return filterHandshakeRecordsForCurrentSession(raw, getCurrentSession())
+function listActiveInternalHandshakesForCurrentSession(db: unknown): HandshakeRecord[] {
+  return filterHandshakeRecordsForCurrentSession(
+    listActiveInternalHandshakesForHostAi(db),
+    getCurrentSession(),
+  )
 }
 
 /**
  * At least one ACTIVE internal row: same account + handshake-derived Sandbox→Host.
+ * Uses the shared filter-free Host-AI enumeration so this sandbox-side *boolean* stays symmetric with
+ * the host-side `host_peer_sandbox` derivation (see {@link listActiveInternalHandshakesForHostAi}).
+ * Safe: a `true` here only gates whether to *attempt* host-internal rows; the actual selectable
+ * targets are emitted via the session-scoped {@link listActiveInternalHandshakesForCurrentSession}.
  */
 function anyActiveRowProvesLocalSandboxToHostFromDb(db: unknown): boolean {
-  const rows = listActiveHandshakeRecordsForCurrentSession(db)
-  for (const r0 of rows) {
-    if (r0.handshake_type !== 'internal' || r0.state !== HandshakeState.ACTIVE) continue
+  for (const r0 of listActiveInternalHandshakesForHostAi(db)) {
     if (rowProvesLocalSandboxToHostForHostAi(r0)) return true
   }
   return false
@@ -1741,8 +1749,8 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     }
   }
 
-  /** 1) ACTIVE rows for current SSO session, then 2) derive roles, 3) count handshake Sandbox→Host. */
-  const ledgerActive = listActiveHandshakeRecordsForCurrentSession(db)
+  /** 1) ACTIVE internal rows for current SSO session (target emission stays session-scoped — §2 defense-in-depth), 2) derive roles, 3) count Sandbox→Host. */
+  const ledgerActive = listActiveInternalHandshakesForCurrentSession(db)
   const activeInternalCount = ledgerActive.filter((r) => r.handshake_type === 'internal').length
   let activeInternalSandboxToHostCount = 0
   let handshakeProvesSandboxToHost = false

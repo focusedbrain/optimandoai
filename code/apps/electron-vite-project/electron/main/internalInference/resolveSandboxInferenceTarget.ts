@@ -16,12 +16,12 @@
  * resolver entirely via execution_transport: 'ollama_direct'.
  */
 
-import { listHandshakeRecords } from '../handshake/db'
 import { filterHandshakeRecordsForCurrentSession } from '../handshake/handshakeAccountIsolation'
 import { getCurrentSession } from '../handshake/ipc'
-import { HandshakeState, type HandshakeRecord } from '../handshake/types'
+import { type HandshakeRecord } from '../handshake/types'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
+import { listActiveInternalHandshakesForHostAi } from './hostAiInternalPairingLedger'
 import { handshakeSamePrincipal, deriveInternalHostAiPeerRoles } from './policy'
 import { getSandboxOllamaDirectRouteCandidate } from './sandboxHostAiOllamaDirectCandidate'
 import { assertSandboxHostPeerLivePresenceForHandshake } from './hostAiPeerLivePresence'
@@ -108,12 +108,14 @@ function rowProvesLocalSandboxToHostForHostAi(r: HandshakeRecord): boolean {
 export async function resolveActiveSandboxToHostHandshakeId(): Promise<string | undefined> {
   const db = await getHandshakeDbForInternalInference()
   if (!db) return undefined
+  // Routing a request to a host is a Host-AI *consumption* path → stays session-scoped (§2
+  // defense-in-depth). Uses the shared internal-handshake helper, then the same SSO-session filter as
+  // the handshake list. Per-row `rowProvesLocalSandboxToHostForHostAi` enforces same-principal + role.
   const ledgerActive = filterHandshakeRecordsForCurrentSession(
-    listHandshakeRecords(db, { state: HandshakeState.ACTIVE }),
+    listActiveInternalHandshakesForHostAi(db),
     getCurrentSession(),
   )
   for (const r of ledgerActive) {
-    if (r.handshake_type !== 'internal' || r.state !== HandshakeState.ACTIVE) continue
     if (!rowProvesLocalSandboxToHostForHostAi(r)) continue
     const hid = String(r.handshake_id ?? '').trim()
     if (hid) return hid

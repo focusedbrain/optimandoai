@@ -10,11 +10,8 @@ import { getInstanceId, getOrchestratorMode } from '../orchestrator/orchestrator
 import { getHostAiLedgerRoleSummaryFromDb } from './hostAiEffectiveRole'
 import { hostHasActiveInternalLedgerHostPeerSandboxFromDb } from './hostAiInternalPairingLedger'
 import {
-  assertHostMachineSessionMatchesHandshakeHostParty,
-} from './hostAiPeerLivePresence'
-import {
-  assertRecordForServiceRpc,
   deriveInternalHostAiPeerRoles,
+  handshakeSamePrincipal,
 } from './policy'
 import {
   getHostInternalInferencePolicy,
@@ -32,25 +29,45 @@ export type HostAiRemotePolicyResolution = {
     | 'default_deny_no_ledger_host'
     | 'default_deny_no_pairing'
     | 'default_deny_ledger_unavailable'
-    | 'default_deny_host_session_mismatch'
   remoteChoice: RemoteHostInferenceUserChoice
 }
 
-function hostMachineSessionMatchesAnyActiveHostHandshake(db: unknown): boolean {
-  if (!db) return false
+/**
+ * Real, independent diagnostic flags for the policy log (NOT a gate).
+ * - `samePrincipalHostPairing`: an ACTIVE internal row where this device is host, peer is sandbox,
+ *   and both ends resolve to the same principal (`handshakeSamePrincipal`).
+ * - `internalIdentityComplete`: that row also has `internal_coordination_identity_complete === true`.
+ *
+ * These were previously both aliased to the single `pairing` boolean, which made the logs lie.
+ * §2 (cross-identity Host AI) is enforced per-handshake at the serving endpoints
+ * (`p2pHostPolicyGet`, `hostInferenceCapabilities`, `hostAiDirectBeapAdPublish`) via
+ * `assertHostMachineSessionMatchesHandshakeHostParty`, never by this session-wide resolver.
+ */
+function internalHostPairingDiagnosticFlags(db: unknown): {
+  samePrincipalHostPairing: boolean
+  internalIdentityComplete: boolean
+} {
+  if (!db) return { samePrincipalHostPairing: false, internalIdentityComplete: false }
   const localId = getInstanceId().trim()
-  const rows = listHandshakeRecords(db as Parameters<typeof listHandshakeRecords>[0], {
-    state: HandshakeState.ACTIVE,
-    handshake_type: 'internal',
-  })
-  for (const r of rows) {
-    const ar = assertRecordForServiceRpc(r)
-    if (!ar.ok) continue
-    const dr = deriveInternalHostAiPeerRoles(ar.record, localId)
-    if (!dr.ok || dr.localRole !== 'host') continue
-    if (assertHostMachineSessionMatchesHandshakeHostParty(ar.record).ok) return true
+  let samePrincipalHostPairing = false
+  let internalIdentityComplete = false
+  let rows: ReturnType<typeof listHandshakeRecords>
+  try {
+    rows = listHandshakeRecords(db as Parameters<typeof listHandshakeRecords>[0], {
+      state: HandshakeState.ACTIVE,
+      handshake_type: 'internal',
+    })
+  } catch {
+    return { samePrincipalHostPairing: false, internalIdentityComplete: false }
   }
-  return false
+  for (const r of rows) {
+    if (!handshakeSamePrincipal(r)) continue
+    const dr = deriveInternalHostAiPeerRoles(r, localId)
+    if (!dr.ok || dr.localRole !== 'host' || dr.peerRole !== 'sandbox') continue
+    samePrincipalHostPairing = true
+    if (r.internal_coordination_identity_complete === true) internalIdentityComplete = true
+  }
+  return { samePrincipalHostPairing, internalIdentityComplete }
 }
 
 export function resolveHostAiRemoteInferencePolicy(db: unknown): HostAiRemotePolicyResolution {
@@ -106,15 +123,14 @@ export function resolveHostAiRemoteInferencePolicy(db: unknown): HostAiRemotePol
       remoteChoice: 'unset',
     }
   }
-  if (!hostMachineSessionMatchesAnyActiveHostHandshake(db)) {
-    return {
-      allowRemoteInference: false,
-      explicitUserDisabled: false,
-      denialReason: 'host_session_not_handshake_party',
-      policySource: 'default_deny_host_session_mismatch',
-      remoteChoice: 'unset',
-    }
-  }
+  // NOTE: §2 (no cross-identity Host AI) is NOT enforced here. This resolver is session-wide and has
+  // no specific requesting handshake to check identity against. The previous global
+  // `hostMachineSessionMatchesAnyActiveHostHandshake` OR-gate was both over-broad (one bad/incomplete
+  // row tainted the legitimate same-identity sandbox) and a contract violation (forced a full DB scan
+  // in a pure-policy resolver). The boundary is the per-handshake
+  // `assertHostMachineSessionMatchesHandshakeHostParty` applied on the actual requested/advertised
+  // handshake at every serving endpoint (`p2pHostPolicyGet`, `hostInferenceCapabilities`,
+  // `hostAiDirectBeapAdPublish`).
   return {
     allowRemoteInference: true,
     explicitUserDisabled: false,
@@ -207,13 +223,14 @@ export function logHostAiRemotePolicyDecision(
   }
   const ledger = getHostAiLedgerRoleSummaryFromDb(db as any, localId, modeHint)
   const pairing = hostHasActiveInternalLedgerHostPeerSandboxFromDb(db)
+  const { samePrincipalHostPairing, internalIdentityComplete } = internalHostPairingDiagnosticFlags(db)
   console.log(
     `[HOST_AI_REMOTE_POLICY_DECISION] ${JSON.stringify({
       effectiveHostAiRole: ledger.effective_host_ai_role,
       can_publish_host_endpoint: ledger.can_publish_host_endpoint,
       active_internal_ledger_host_peer_sandbox: pairing,
-      samePrincipalPairing: pairing,
-      internalIdentityComplete: pairing,
+      samePrincipalPairing: samePrincipalHostPairing,
+      internalIdentityComplete,
       endpointPresent: extra?.endpointPresent ?? null,
       modelsCount: extra?.modelsCount ?? null,
       explicitUserDisabled: resolution.explicitUserDisabled,
