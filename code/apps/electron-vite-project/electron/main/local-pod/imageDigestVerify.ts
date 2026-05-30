@@ -15,10 +15,16 @@ import {
   resolveBeapImageArtifactPath,
 } from './beapPodPaths.js'
 import { resolvePodmanCli, runPodmanCli } from './podExec.js'
+import {
+  DEFAULT_BEAP_IMAGE,
+  beapImageBuildTags,
+  beapImageRefCandidates,
+  canonicalBeapImageRef,
+} from './beapImageRef.js'
+
+export { DEFAULT_BEAP_IMAGE } from './beapImageRef.js'
 
 const execFileAsync = promisify(execFile)
-
-export const DEFAULT_BEAP_IMAGE = 'beap-components:dev'
 
 /** User-visible when image restore fails (no podman commands). */
 export const BEAP_IMAGE_RESTORE_USER_MESSAGE =
@@ -54,9 +60,10 @@ export function loadExpectedDigest(
   imageRef = DEFAULT_BEAP_IMAGE,
   digestPath?: string,
 ): string | null {
-  const [name, tag = 'latest'] = imageRef.includes(':')
-    ? imageRef.split(':', 2)
-    : [imageRef, 'latest']
+  const canonical = canonicalBeapImageRef(imageRef)
+  const [name, tag = 'latest'] = canonical.includes(':')
+    ? canonical.split(':', 2)
+    : [canonical, 'latest']
   const path = resolveExpectedDigestPath(digestPath)
   let raw: string
   try {
@@ -75,15 +82,48 @@ export function loadExpectedDigest(
 
 export type PodmanInspectFn = (imageRef: string) => Promise<string | null>
 
-export async function isBeapImagePresent(imageRef = DEFAULT_BEAP_IMAGE): Promise<boolean> {
-  if (process.env['BEAP_SKIP_IMAGE_DIGEST_VERIFY'] === '1') {
-    return true
-  }
+async function inspectImageRefExact(imageRef: string): Promise<boolean> {
   const result = await runPodmanCli(
     ['image', 'inspect', imageRef, '--format', '{{.Id}}'],
     { timeoutMs: 15_000 },
   )
   return result.code === 0 && result.stdout.trim().length > 0
+}
+
+/** First candidate ref that exists locally (bare or localhost/ alias). */
+export async function resolvePresentBeapImageRef(
+  imageRef = DEFAULT_BEAP_IMAGE,
+): Promise<string | null> {
+  for (const candidate of beapImageRefCandidates(imageRef)) {
+    if (await inspectImageRefExact(candidate)) {
+      return candidate
+    }
+  }
+  return null
+}
+
+/** Tag all canonical aliases so play kube and inspect agree on the image name. */
+export async function ensureBeapImageAliases(imageRef = DEFAULT_BEAP_IMAGE): Promise<void> {
+  const present = await resolvePresentBeapImageRef(imageRef)
+  if (!present) return
+
+  for (const alias of beapImageRefCandidates(imageRef)) {
+    if (alias === present) continue
+    if (await inspectImageRefExact(alias)) continue
+    const result = await runPodmanCli(['tag', present, alias], { timeoutMs: 15_000 })
+    if (result.code !== 0) {
+      console.warn(
+        `[LOCAL_POD] Could not alias ${present} → ${alias}: ${result.stderr.trim() || result.stdout.trim()}`,
+      )
+    }
+  }
+}
+
+export async function isBeapImagePresent(imageRef = DEFAULT_BEAP_IMAGE): Promise<boolean> {
+  if (process.env['BEAP_SKIP_IMAGE_DIGEST_VERIFY'] === '1') {
+    return true
+  }
+  return (await resolvePresentBeapImageRef(imageRef)) != null
 }
 
 function resolveMonorepoRootForBuild(): string | null {
@@ -117,6 +157,7 @@ async function tryLoadBeapImageFromArtifact(imageRef: string): Promise<boolean> 
     )
     return false
   }
+  await ensureBeapImageAliases(imageRef)
   return isBeapImagePresent(imageRef)
 }
 
@@ -142,11 +183,13 @@ async function tryBuildBeapImageFromWorkspace(imageRef: string): Promise<boolean
   console.log(`[LOCAL_POD] Restoring ${imageRef} by building from workspace`)
   try {
     const bin = await resolvePodmanCli()
+    const tagArgs = beapImageBuildTags(imageRef).flatMap((tag) => ['-t', tag])
     await execFileAsync(
       bin,
-      ['build', '-t', imageRef, '-f', containerfile, workspaceRoot],
+      ['build', ...tagArgs, '-f', containerfile, workspaceRoot],
       { timeout: 20 * 60_000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
     )
+    await ensureBeapImageAliases(imageRef)
     return isBeapImagePresent(imageRef)
   } catch (err) {
     console.warn('[LOCAL_POD] Workspace image build failed:', (err as Error).message ?? err)
@@ -181,7 +224,9 @@ export async function ensureBeapPodImagePresent(
   imageRef = DEFAULT_BEAP_IMAGE,
   options?: { tryAutoRestore?: boolean },
 ): Promise<void> {
-  if (await isBeapImagePresent(imageRef)) {
+  const present = await resolvePresentBeapImageRef(imageRef)
+  if (present) {
+    await ensureBeapImageAliases(imageRef)
     return
   }
 
@@ -196,8 +241,10 @@ export async function defaultPodmanInspectDigest(imageRef: string): Promise<stri
   if (process.env['BEAP_SKIP_IMAGE_DIGEST_VERIFY'] === '1') {
     return loadExpectedDigest(imageRef) ?? 'sha256:skipped'
   }
+  const resolved = await resolvePresentBeapImageRef(imageRef)
+  if (!resolved) return null
   const result = await runPodmanCli(
-    ['image', 'inspect', imageRef, '--format', '{{.Digest}}'],
+    ['image', 'inspect', resolved, '--format', '{{.Digest}}'],
     { timeoutMs: 15_000 },
   )
   if (result.code !== 0) return null

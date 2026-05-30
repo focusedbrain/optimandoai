@@ -1,6 +1,6 @@
 {
-  "_doc": "Expected OCI digest for beap-components images. Update via: npm run beap-pod:record-image-digest (after podman build). CI verifies build output matches this file.",
+  "_doc": "Expected OCI digest for beap-components images. Update via record-image-digest after podman build.",
   "beap-components": {
-    "dev": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    "dev": "sha256:05f14926cdb563def1c3c6931ed7d2a2d146d9743967a7064be155d5ff689260"
   }
 }

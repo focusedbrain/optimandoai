@@ -1,0 +1,2 @@
+# BEAP pod shell scripts must use LF so Alpine shebangs work when built on Windows.
+packages/beap-pod/**/*.sh text eol=lf

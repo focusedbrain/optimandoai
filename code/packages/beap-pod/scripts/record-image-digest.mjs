@@ -12,18 +12,25 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { DEFAULT_BEAP_IMAGE, beapImageRefCandidates, resolvePodmanImageRef } from './beap-image-ref.mjs'
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const digestPath = join(__dirname, '..', 'expected-image-digest.json')
-const imageRef = process.env.BEAP_IMAGE_REF ?? 'beap-components:dev'
-const [name, tag = 'dev'] = imageRef.split(':', 2)
+const imageRef = process.env.BEAP_IMAGE_REF ?? DEFAULT_BEAP_IMAGE
+const canonical = beapImageRefCandidates(imageRef).find((c) => !c.startsWith('localhost/')) ?? imageRef
+const [name, tag = 'dev'] = canonical.split(':', 2)
 
 let digest
-try {
-  digest = execFileSync('podman', ['image', 'inspect', imageRef, '--format', '{{.Digest}}'], {
-    encoding: 'utf8',
-  }).trim()
-} catch (err) {
-  console.error(`Failed to inspect ${imageRef}. Build the image first.`, err.message ?? err)
+const inspectRef =
+  resolvePodmanImageRef(beapImageRefCandidates(imageRef), (ref) => {
+    digest = execFileSync('podman', ['image', 'inspect', ref, '--format', '{{.Digest}}'], {
+      encoding: 'utf8',
+    }).trim()
+    return ref
+  }) ?? null
+
+if (!inspectRef) {
+  console.error(`Failed to inspect ${imageRef} (or localhost/ alias). Build the image first.`)
   process.exit(1)
 }
 
@@ -32,7 +39,7 @@ if (!digest.startsWith('sha256:')) {
   process.exit(1)
 }
 
-let doc = { beap-components: {} }
+let doc = { 'beap-components': {} }
 try {
   doc = JSON.parse(readFileSync(digestPath, 'utf8'))
 } catch {

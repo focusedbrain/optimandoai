@@ -26,12 +26,15 @@ COPY packages/beap-pod/ packages/beap-pod/
 COPY packages/beap-cert/ packages/beap-cert/
 COPY packages/ingestion-core/ packages/ingestion-core/
 COPY packages/email-fetch/ packages/email-fetch/
+COPY packages/role-policy/ packages/role-policy/
 
-RUN corepack enable pnpm \
-  && pnpm install --frozen-lockfile \
+RUN corepack enable \
+  && corepack prepare pnpm@10.28.2 --activate \
+  && pnpm install --frozen-lockfile --ignore-scripts \
   && pnpm --filter @repo/ingestion-core build \
   && pnpm --filter @repo/beap-cert build \
   && pnpm --filter @repo/email-fetch build \
+  && pnpm --filter @repo/role-policy build \
   && pnpm --filter @repo/beap-pod build
 
 # ── stage 2: runtime ─────────────────────────────────────────────────────────
@@ -48,6 +51,7 @@ COPY --from=builder /build/packages/beap-pod/ packages/beap-pod/
 COPY --from=builder /build/packages/beap-cert/ packages/beap-cert/
 COPY --from=builder /build/packages/ingestion-core/ packages/ingestion-core/
 COPY --from=builder /build/packages/email-fetch/ packages/email-fetch/
+COPY --from=builder /build/packages/role-policy/ packages/role-policy/
 COPY --from=builder /build/node_modules/ node_modules/
 
 # Copy the role dispatcher — must be executable
@@ -56,9 +60,13 @@ COPY --chmod=0755 packages/beap-pod/entrypoint.sh /app/entrypoint.sh
 COPY packages/beap-pod/THIRD-PARTY-NOTICES /app/THIRD-PARTY-NOTICES
 COPY packages/beap-pod/licenses/ /app/licenses/
 
+# Belt-and-suspenders: strip CRLF from shell scripts (Windows checkouts) and ensure +x.
 RUN mkdir -p /usr/share/licenses/beap-components \
   && ln -sf /app/THIRD-PARTY-NOTICES /usr/share/licenses/beap-components/THIRD-PARTY-NOTICES \
-  && ln -sf /app/licenses /usr/share/licenses/beap-components/supplemental
+  && ln -sf /app/licenses /usr/share/licenses/beap-components/supplemental \
+  && find /app -type f -name '*.sh' -exec sed -i 's/\r$//' {} + \
+  && find /app -type f -name '*.sh' -exec chmod +x {} + \
+  && chmod +x /app/entrypoint.sh
 
 ENV POD_PORT=17180
 ENV POD_VERSION=1.0.0
