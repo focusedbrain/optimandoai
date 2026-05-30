@@ -120,7 +120,8 @@ export function stopLocalPodSupervisor(): void {
 
 async function scheduleFullPodRestart(reason: string): Promise<void> {
   const podName = _activePodName
-  if (!podName || _fullRestartInFlight || !_restartPodFn) return
+  const restartFn = _restartPodFn
+  if (!podName || _fullRestartInFlight || !restartFn) return
 
   _fullRestartInFlight = true
   stopLocalPodSupervisor()
@@ -132,7 +133,7 @@ async function scheduleFullPodRestart(reason: string): Promise<void> {
     }
     clearReplacementBudgetForPod(podName)
     clearHostPodSupervisorHaltForRetry()
-    await _restartPodFn()
+    await restartFn()
   } catch (err) {
     console.warn(
       `[LOCAL_POD_SUPERVISOR] Full restart failed: ${(err as Error).message ?? err}`,

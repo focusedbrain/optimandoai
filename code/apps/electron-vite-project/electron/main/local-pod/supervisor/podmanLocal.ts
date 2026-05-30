@@ -96,11 +96,29 @@ export async function probeContainerHealthExec(
   return { kind: 'fetch_error', exitCode: code }
 }
 
+/** Kill failed because the container is already stopped — safe to proceed to start. */
+function killFailureAllowsProceed(stderr: string): boolean {
+  const s = stderr.toLowerCase()
+  if (s.includes('no such container')) return true
+  if (s.includes('can only kill running containers')) return true
+  if (s.includes('container state improper')) return true
+  if (s.includes('not running')) return true
+  return false
+}
+
 export async function restartContainerLocal(containerName: string): Promise<boolean> {
-  const kill = await runPodman(['kill', '--signal', 'SIGKILL', containerName])
-  if (kill.code !== 0 && !kill.stderr.includes('no such container')) {
+  const state = await inspectContainerState(containerName)
+  if (state === 'missing') {
     return false
   }
+
+  if (state === 'running') {
+    const kill = await runPodman(['kill', '--signal', 'SIGKILL', containerName])
+    if (kill.code !== 0 && !killFailureAllowsProceed(kill.stderr)) {
+      return false
+    }
+  }
+
   const start = await runPodman(['start', containerName])
   return start.code === 0
 }
