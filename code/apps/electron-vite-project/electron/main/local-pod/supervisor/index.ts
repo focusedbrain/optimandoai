@@ -13,9 +13,9 @@ import {
   setHostPodHaltedByAnomaly,
   clearHostPodSupervisorHaltForRetry,
 } from './hostPodState.js'
+import { pollContainerHealthOutcome } from '../containerHealth.js'
 import {
   inspectContainerState,
-  probeContainerHealthLocal,
   restartContainerLocal,
   stopPodLocal,
 } from './podmanLocal.js'
@@ -233,12 +233,19 @@ async function pollContainer(
 
   const state = await inspectContainerState(spec.containerName)
   if (state === 'running') {
-    const healthy = await probeContainerHealthLocal(
+    const outcome = await pollContainerHealthOutcome(
       spec.containerName,
       spec.port,
       LOCAL_POD_HEALTH_PROBE_TIMEOUT_MS,
     )
-    const stuck = recordProbeOutcome(podName, spec.role, healthy)
+    if (outcome === 'ok') {
+      recordProbeOutcome(podName, spec.role, true)
+      return
+    }
+    if (outcome === 'inconclusive') {
+      return
+    }
+    const stuck = recordProbeOutcome(podName, spec.role, false)
     if (stuck) {
       console.log(
         `[LOCAL_POD_SUPERVISOR] Stuck health on ${spec.role} — replacing container`,
@@ -292,6 +299,8 @@ async function replaceContainer(
     if (ok) {
       recordReplacement(podName, spec.role, nowMs)
       resetLocalSupervisorProbeState(podName, spec.role)
+      const { resetContainerHealthStreak } = await import('../containerHealth.js')
+      resetContainerHealthStreak(spec.containerName)
       console.log(
         `[LOCAL_POD_SUPERVISOR] Replaced ${spec.role} (${reason})`,
       )

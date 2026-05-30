@@ -130,12 +130,13 @@ export async function startLocalPodWhenSsoReady(): Promise<void> {
 export async function startLocalPod(options?: LocalPodOptions): Promise<void> {
   if (_activePod && getPodLifecycleStatus() === 'ready') {
     const podName = _activePod.podName
-    const complete = await checkRequiredPodContainersReady(podName)
+    // Structural only while ready — sustained health is supervisor-owned (avoids pod rm -f on exec flake).
+    const complete = await checkRequiredPodContainersReady(podName, { probeHealth: false })
     if (complete.ok) {
       console.log('[LOCAL_POD] pod already running — skipping start')
       return
     }
-    console.log(`[LOCAL_POD] Pod marked ready but incomplete — restarting (${complete.reason})`)
+    console.log(`[LOCAL_POD] Pod marked ready but structurally incomplete — restarting (${complete.reason})`)
     await stopLocalPod()
   }
 
@@ -174,6 +175,8 @@ export async function restartLocalPod(
 
 export async function stopLocalPod(): Promise<void> {
   stopLocalPodSupervisor()
+  const { resetPodContainerHealthProbeState } = await import('./podContainerCompleteness.js')
+  resetPodContainerHealthProbeState()
   stopVerifierLogTail()
   if (!_activePod) {
     clearPodSessionAuthSecret()
@@ -414,7 +417,9 @@ async function waitForPodHealth(
     const podName = _activePod?.podName
     if (!podName) return false
 
-    const complete = await checkRequiredPodContainersReady(podName)
+    const complete = await checkRequiredPodContainersReady(podName, {
+      healthGateMode: 'startup',
+    })
     if (complete.ok) {
       const hostOk = await hostProbe(hostIngestorHealthUrl)
       if (!hostOk && !loggedHostIngestorUnreachable) {

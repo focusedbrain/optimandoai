@@ -6,24 +6,33 @@ import { describe, test, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../supervisor/podmanLocal.js', () => ({
   inspectContainerState: vi.fn(),
-  probeContainerHealthLocal: vi.fn(),
+}))
+
+vi.mock('../containerHealth.js', () => ({
+  pollContainerHealthOutcome: vi.fn(),
+  recordHealthyContainer: vi.fn(),
+  recordGenuineHealthFailure: vi.fn(),
+  resetContainerHealthStreak: vi.fn(),
 }))
 
 import { checkRequiredPodContainersReady } from '../podContainerCompleteness.js'
+import { inspectContainerState } from '../supervisor/podmanLocal.js'
 import {
-  inspectContainerState,
-  probeContainerHealthLocal,
-} from '../supervisor/podmanLocal.js'
-import { DEFAULT_POD_NAME } from '../podRunner.js'
+  pollContainerHealthOutcome,
+  recordGenuineHealthFailure,
+} from '../containerHealth.js'
+import { DEFAULT_POD_NAME } from '../podConstants.js'
 
 const inspectMock = vi.mocked(inspectContainerState)
-const probeMock = vi.mocked(probeContainerHealthLocal)
+const pollMock = vi.mocked(pollContainerHealthOutcome)
+const streakMock = vi.mocked(recordGenuineHealthFailure)
 
 describe('checkRequiredPodContainersReady', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     inspectMock.mockResolvedValue('running')
-    probeMock.mockResolvedValue(true)
+    pollMock.mockResolvedValue('ok')
+    streakMock.mockReturnValue(3)
   })
 
   test('LOCAL_HOST — passes when all five manifest containers are running and healthy', async () => {
@@ -39,7 +48,7 @@ describe('checkRequiredPodContainersReady', () => {
       ])
     }
     expect(inspectMock).toHaveBeenCalledTimes(5)
-    expect(probeMock).toHaveBeenCalledTimes(5)
+    expect(pollMock).toHaveBeenCalledTimes(5)
   })
 
   test('fail closed when any required container is missing', async () => {
@@ -57,8 +66,20 @@ describe('checkRequiredPodContainersReady', () => {
     }
   })
 
-  test('fail closed when running container fails /health', async () => {
-    probeMock.mockImplementation(async (name) => !String(name).includes('depackager'))
+  test('steady — exec-layer inconclusive does not mark unhealthy', async () => {
+    pollMock.mockImplementation(async (name) =>
+      String(name).includes('sealer') ? 'inconclusive' : 'ok',
+    )
+
+    const result = await checkRequiredPodContainersReady(DEFAULT_POD_NAME)
+    expect(result.ok).toBe(true)
+  })
+
+  test('steady — sustained genuine failures mark unhealthy', async () => {
+    pollMock.mockImplementation(async (name) =>
+      String(name).includes('depackager') ? 'genuine_fail' : 'ok',
+    )
+    streakMock.mockReturnValue(3)
 
     const result = await checkRequiredPodContainersReady(DEFAULT_POD_NAME)
     expect(result.ok).toBe(false)
@@ -67,5 +88,39 @@ describe('checkRequiredPodContainersReady', () => {
         expect.objectContaining({ role: 'depackager', detail: 'unhealthy' }),
       ])
     }
+  })
+
+  test('steady — single genuine failure does not mark unhealthy', async () => {
+    pollMock.mockImplementation(async (name) =>
+      String(name).includes('sealer') ? 'genuine_fail' : 'ok',
+    )
+    streakMock.mockReturnValue(1)
+
+    const result = await checkRequiredPodContainersReady(DEFAULT_POD_NAME)
+    expect(result.ok).toBe(true)
+  })
+
+  test('startup — inconclusive blocks without unhealthy issue', async () => {
+    pollMock.mockImplementation(async (name) =>
+      String(name).includes('sealer') ? 'inconclusive' : 'ok',
+    )
+
+    const result = await checkRequiredPodContainersReady(DEFAULT_POD_NAME, {
+      healthGateMode: 'startup',
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.issues).toHaveLength(0)
+      expect(result.reason).toContain('health_pending')
+    }
+  })
+
+  test('while-ready re-check can skip health probes', async () => {
+    pollMock.mockClear()
+    const result = await checkRequiredPodContainersReady(DEFAULT_POD_NAME, {
+      probeHealth: false,
+    })
+    expect(result.ok).toBe(true)
+    expect(pollMock).not.toHaveBeenCalled()
   })
 })

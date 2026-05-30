@@ -10,11 +10,18 @@ import {
   containersForPodName,
   type LocalPodContainerSpec,
 } from './supervisor/containers.js'
+import { inspectContainerState } from './supervisor/podmanLocal.js'
 import {
-  inspectContainerState,
-  probeContainerHealthLocal,
-} from './supervisor/podmanLocal.js'
-import { LOCAL_POD_HEALTH_PROBE_TIMEOUT_MS } from './podConstants.js'
+  pollContainerHealthOutcome,
+  recordHealthyContainer,
+  recordGenuineHealthFailure,
+  resetContainerHealthStreak,
+  type ContainerHealthGateMode,
+} from './containerHealth.js'
+import {
+  LOCAL_POD_GENUINE_HEALTH_FAILURE_THRESHOLD,
+  LOCAL_POD_HEALTH_PROBE_TIMEOUT_MS,
+} from './podConstants.js'
 
 export type PodContainerCompletenessIssue = {
   role: LocalPodContainerSpec['role']
@@ -32,14 +39,23 @@ export type PodContainerCompletenessResult =
       reason: string
     }
 
+export type CheckRequiredPodContainersOptions = {
+  probeHealth?: boolean
+  timeoutMs?: number
+  /** Startup wait: inconclusive exec flakes block readiness without marking unhealthy. */
+  healthGateMode?: ContainerHealthGateMode
+}
+
 export async function checkRequiredPodContainersReady(
   podName: string,
-  options?: { probeHealth?: boolean; timeoutMs?: number },
+  options?: CheckRequiredPodContainersOptions,
 ): Promise<PodContainerCompletenessResult> {
   const checked = containersForPodName(podName)
   const probeHealth = options?.probeHealth ?? true
   const timeoutMs = options?.timeoutMs ?? LOCAL_POD_HEALTH_PROBE_TIMEOUT_MS
+  const healthGateMode = options?.healthGateMode ?? 'steady'
   const issues: PodContainerCompletenessIssue[] = []
+  let healthPending = false
 
   for (const spec of checked) {
     const state = await inspectContainerState(spec.containerName)
@@ -55,11 +71,37 @@ export async function checkRequiredPodContainersReady(
       issues.push({ role: spec.role, containerName: spec.containerName, detail: 'unknown' })
       continue
     }
-    if (probeHealth) {
-      const healthy = await probeContainerHealthLocal(spec.containerName, spec.port, timeoutMs)
-      if (!healthy) {
-        issues.push({ role: spec.role, containerName: spec.containerName, detail: 'unhealthy' })
+    if (!probeHealth) {
+      continue
+    }
+
+    const outcome = await pollContainerHealthOutcome(
+      spec.containerName,
+      spec.port,
+      timeoutMs,
+    )
+
+    if (outcome === 'ok') {
+      recordHealthyContainer(spec.containerName)
+      continue
+    }
+
+    if (outcome === 'inconclusive') {
+      if (healthGateMode === 'startup') {
+        healthPending = true
       }
+      continue
+    }
+
+    // genuine_fail
+    if (healthGateMode === 'startup') {
+      issues.push({ role: spec.role, containerName: spec.containerName, detail: 'unhealthy' })
+      continue
+    }
+
+    const streak = recordGenuineHealthFailure(spec.containerName)
+    if (streak >= LOCAL_POD_GENUINE_HEALTH_FAILURE_THRESHOLD) {
+      issues.push({ role: spec.role, containerName: spec.containerName, detail: 'unhealthy' })
     }
   }
 
@@ -74,5 +116,20 @@ export async function checkRequiredPodContainersReady(
     }
   }
 
+  if (healthPending) {
+    return {
+      ok: false,
+      podName,
+      checked,
+      issues: [],
+      reason: `required_pod_containers_incomplete pod=${podName} issues=health_pending`,
+    }
+  }
+
   return { ok: true, podName, checked }
+}
+
+/** Clear health streak state when a pod is torn down or replaced. */
+export function resetPodContainerHealthProbeState(): void {
+  resetContainerHealthStreak()
 }
