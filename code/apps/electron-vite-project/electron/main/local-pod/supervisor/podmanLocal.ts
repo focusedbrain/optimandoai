@@ -30,20 +30,21 @@ export async function inspectContainerState(containerName: string): Promise<
   return 'unknown'
 }
 
+/** Inline Node probe — node:20-alpine has no curl; Podman httpGet probes also shell out to curl. */
+export function buildNodeHealthProbeScript(port: number, timeoutMs: number): string {
+  const ms = Math.max(1000, timeoutMs)
+  return (
+    `fetch('http://127.0.0.1:${port}/health',{signal:AbortSignal.timeout(${ms})})` +
+    `.then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))`
+  )
+}
+
 export function buildLocalHealthProbeCommand(
   containerName: string,
   port: number,
-  timeoutSec: number,
+  timeoutMs: number,
 ): string[] {
-  return [
-    'exec',
-    containerName,
-    'curl',
-    '-sf',
-    '--max-time',
-    String(Math.max(1, timeoutSec)),
-    `http://127.0.0.1:${port}/health`,
-  ]
+  return ['exec', containerName, 'node', '-e', buildNodeHealthProbeScript(port, timeoutMs)]
 }
 
 export async function probeContainerHealthLocal(
@@ -51,8 +52,10 @@ export async function probeContainerHealthLocal(
   port: number,
   timeoutMs: number,
 ): Promise<boolean> {
-  const timeoutSec = Math.ceil(timeoutMs / 1000)
-  const result = await runPodman(buildLocalHealthProbeCommand(containerName, port, timeoutSec))
+  const result = await runPodman(
+    buildLocalHealthProbeCommand(containerName, port, timeoutMs),
+    timeoutMs + 5_000,
+  )
   return result.code === 0
 }
 

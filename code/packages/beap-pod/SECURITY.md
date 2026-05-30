@@ -55,7 +55,7 @@ The Electron host supervisor is the **only** authority for container replacement
 
 | Event | Action |
 |-------|--------|
-| Health probe fails 3× consecutively (`podman exec` curl) | Replace container (`podman kill` + `start`) |
+| Health probe fails 3× consecutively (`podman exec` Node loopback `/health`) | Replace container (`podman kill` + `start`) |
 | Container exited / missing | Replace container |
 | Replacement budget exceeded (5 per role / 10 min) | Stop pod, `replacement_exhausted`, notify user |
 | Diagnostic file `escalation-*.json` | Stop pod immediately, `halted_by_anomaly`, no replacement |

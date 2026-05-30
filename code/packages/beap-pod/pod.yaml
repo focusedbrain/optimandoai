@@ -117,9 +117,11 @@ spec:
         - name: tmp-ingestor
           mountPath: /tmp
       livenessProbe:
-        httpGet:
-          path: /health
-          port: 18100
+        exec:
+          command:
+            - node
+            - -e
+            - "fetch('http://127.0.0.1:18100/health',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
         initialDelaySeconds: 5
         periodSeconds: 30
         timeoutSeconds: 3
@@ -176,9 +178,11 @@ spec:
         - name: tmp-validator
           mountPath: /tmp
       livenessProbe:
-        httpGet:
-          path: /health
-          port: 18101
+        exec:
+          command:
+            - node
+            - -e
+            - "fetch('http://127.0.0.1:18101/health',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
         initialDelaySeconds: 5
         periodSeconds: 30
         timeoutSeconds: 3
@@ -262,9 +266,11 @@ spec:
         - name: tmp-quarantine
           mountPath: /var/lib/quarantine
       livenessProbe:
-        httpGet:
-          path: /health
-          port: 18102
+        exec:
+          command:
+            - node
+            - -e
+            - "fetch('http://127.0.0.1:18102/health',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
         initialDelaySeconds: 5
         periodSeconds: 30
         timeoutSeconds: 3
@@ -320,9 +326,11 @@ spec:
         - name: tmp-pdf-parser
           mountPath: /tmp
       livenessProbe:
-        httpGet:
-          path: /health
-          port: 18107
+        exec:
+          command:
+            - node
+            - -e
+            - "fetch('http://127.0.0.1:18107/health',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
         initialDelaySeconds: 5
         periodSeconds: 30
         timeoutSeconds: 3
@@ -398,9 +406,11 @@ spec:
         - name: tmp-sealer
           mountPath: /tmp
       livenessProbe:
-        httpGet:
-          path: /health
-          port: 18103
+        exec:
+          command:
+            - node
+            - -e
+            - "fetch('http://127.0.0.1:18103/health',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
         initialDelaySeconds: 5
         periodSeconds: 30
         timeoutSeconds: 3
