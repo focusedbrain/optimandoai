@@ -29,11 +29,12 @@ import {
   drainStartupHoldIfReady,
   flushExpiredStartupHold,
 } from './startupHoldBuffer.js'
-import { buildIngestPodClient, type IngestPodClientRoute } from './podClientFactory.js'
 import {
   parsePodDepackagedAttachments,
   type PodDepackagedAttachmentWire,
 } from '../email/capsuleExtractedText.js'
+import { getIsolationProviderSync } from '../isolation/index.js'
+import { IsolationChannelError } from '../isolation/IsolationProvider.js'
 import { getHandshakeRecord } from '../handshake/db.js'
 import { refreshIngestionMode } from './ingestionModeService.js'
 import { isSessionHostFallbackAuthorized } from './sessionHostFallback.js'
@@ -185,14 +186,9 @@ export interface DepackagedQBeapResult {
   podAttachments?: PodDepackagedAttachmentWire[]
 }
 
-async function depackageViaPodHttp(
-  packageJson: string,
-  depackageKeys: DepackageKeys,
-  route: IngestPodClientRoute,
-): Promise<DepackagedQBeapResult | null> {
-  const client = buildIngestPodClient(route)
-  const result = await client.ingest({ body: packageJson }, 'p2p', undefined, depackageKeys)
-  const podBody = result.body as Record<string, unknown>
+function parseDepackagedFromPodIngestBody(
+  podBody: Record<string, unknown>,
+): DepackagedQBeapResult | null {
   const depackaged = podBody?.['depackaged'] as Record<string, unknown> | undefined
   if (!depackaged || typeof depackaged['rawCapsuleJson'] !== 'string') return null
   return {
@@ -205,6 +201,34 @@ async function depackageViaPodHttp(
     automation: undefined,
     podAttachments: parsePodDepackagedAttachments(depackaged),
   }
+}
+
+/**
+ * Depackage qBEAP/pBEAP via pod ingestor — host→pod over IsolationProvider exec channel
+ * (NOT host TCP to 127.0.0.1:18100; same fix pattern as PDF extract-pdf).
+ */
+async function depackageViaPodExec(
+  packageJson: string,
+  depackageKeys: DepackageKeys,
+): Promise<DepackagedQBeapResult | null> {
+  const provider = getIsolationProviderSync()
+  const envelope = {
+    body: packageJson,
+    source_type: 'p2p' as const,
+    depackage_keys: depackageKeys,
+  }
+  const responseBytes = await provider.callPipeline(
+    'ingestor',
+    'p2p-ingest',
+    Buffer.from(JSON.stringify(envelope), 'utf8'),
+  )
+  let podBody: Record<string, unknown>
+  try {
+    podBody = JSON.parse(responseBytes.toString('utf8')) as Record<string, unknown>
+  } catch {
+    return null
+  }
+  return parseDepackagedFromPodIngestBody(podBody)
 }
 
 /**
@@ -246,11 +270,15 @@ export async function dispatchDepackageQBeap(
     mlkem_secret_b64: hs.local_mlkem768_secret_key_b64?.trim() || undefined,
   }
 
-  const route: IngestPodClientRoute = snap.mode === 'EdgeActive' ? 'default' : 'native_beap'
   try {
-    return await depackageViaPodHttp(packageJson, depackageKeys, route)
+    return await depackageViaPodExec(packageJson, depackageKeys)
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg =
+      err instanceof IsolationChannelError
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : String(err)
     opts?.reportFailure?.({ code: `pod_error: ${msg}`, handshakeId, retryable: false })
     return null
   }

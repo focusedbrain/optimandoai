@@ -13,6 +13,12 @@
  *     ↳ ingestor → depackager → pdf-parser
  *     returns: JSON { extracted_text_v1: { text, structural_hash, extractor_version } }
  *
+ *   ('ingestor', 'p2p-ingest', jsonBuffer) →
+ *     podman exec -i beap-pod-ingestor node -e <in-pod-script>
+ *     in-pod script: POST stdin envelope to http://127.0.0.1:18100/ingest
+ *     ↳ ingestor → validator → depackager → sealer (pod-internal)
+ *     returns: JSON ingest response (depackaged field on qBEAP success)
+ *
  * Future ops extend the route table without touching the interface.
  */
 
@@ -25,10 +31,16 @@ import {
   runPdfExtractViaPodmanExec,
   type PdfPodExecDeps,
 } from '../email/pdfPodExecTransport.js'
+import {
+  runQbeapIngestViaPodmanExec,
+  type QbeapIngestExecEnvelope,
+  type QbeapPodExecDeps,
+} from '../email/qbeapPodExecTransport.js'
 
 /** Dependency injection surface for unit tests (mirrors pdfPodExecDeps). */
 export type PodmanExecProviderDeps = {
   execDeps?: PdfPodExecDeps
+  qbeapExecDeps?: QbeapPodExecDeps
 }
 
 export class PodmanExecProvider implements IsolationProvider {
@@ -90,6 +102,10 @@ export class PodmanExecProvider implements IsolationProvider {
       return this._execExtractPdf(payloadBytes)
     }
 
+    if (role === 'ingestor' && op === 'p2p-ingest') {
+      return this._execP2pIngest(payloadBytes)
+    }
+
     // Outbound roles are not yet wired into this provider.
     // See docs/outbound-pipeline-gap.md for the tracked gap.
     throw new IsolationNotImplementedError('podman', `role=${role} op=${op}`)
@@ -112,6 +128,39 @@ export class PodmanExecProvider implements IsolationProvider {
         outcome.reason === 'podman_cli_unavailable' ? 'podman_unavailable'
         : outcome.reason === 'podman_exec_failed'  ? 'exec_failed'
         : 'extract_pdf_failed'
+      throw new IsolationChannelError(
+        code,
+        outcome.stderr.trim() || outcome.reason,
+      )
+    }
+
+    return Buffer.from(outcome.stdout, 'utf8')
+  }
+
+  private async _execP2pIngest(payloadBytes: Buffer): Promise<Buffer> {
+    let envelope: QbeapIngestExecEnvelope
+    try {
+      envelope = JSON.parse(payloadBytes.toString('utf8')) as QbeapIngestExecEnvelope
+    } catch {
+      throw new IsolationChannelError('p2p_ingest_bad_payload', 'invalid JSON payload for p2p-ingest')
+    }
+    if (
+      typeof envelope.body !== 'string' ||
+      envelope.source_type !== 'p2p' ||
+      !envelope.depackage_keys?.x25519_priv_b64?.trim()
+    ) {
+      throw new IsolationChannelError(
+        'p2p_ingest_bad_payload',
+        'missing required fields in p2p-ingest payload',
+      )
+    }
+
+    const outcome = await runQbeapIngestViaPodmanExec(envelope, this._deps.qbeapExecDeps)
+    if (!outcome.ok) {
+      const code =
+        outcome.reason === 'podman_cli_unavailable' ? 'podman_unavailable'
+        : outcome.reason === 'podman_exec_failed' ? 'exec_failed'
+        : 'p2p_ingest_failed'
       throw new IsolationChannelError(
         code,
         outcome.stderr.trim() || outcome.reason,
