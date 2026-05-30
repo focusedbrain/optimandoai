@@ -2,7 +2,13 @@
  * Podman feature-detect — unit tests
  */
 
-import { describe, test, expect, beforeEach } from 'vitest'
+import { describe, test, expect, beforeEach, vi } from 'vitest'
+
+const runPodmanMachineAutoRecoveryIfNeeded = vi.hoisted(() => vi.fn())
+
+vi.mock('../podmanMachineRecovery.js', () => ({
+  runPodmanMachineAutoRecoveryIfNeeded,
+}))
 
 import {
   assertPodmanReady,
@@ -33,6 +39,8 @@ function makeExecFile(responses: Record<string, string | Error>): ExecFileFn {
 
 beforeEach(() => {
   clearPodmanBinCacheForTest()
+  runPodmanMachineAutoRecoveryIfNeeded.mockReset()
+  runPodmanMachineAutoRecoveryIfNeeded.mockResolvedValue(false)
 })
 
 describe('assertPodmanReady', () => {
@@ -61,15 +69,45 @@ describe('assertPodmanReady', () => {
     })
   })
 
-  test('win32: stopped machine before engine check', async () => {
+  test('win32: stopped machine attempts auto-start before failing', async () => {
     const execFile = makeExecFile({
       'where podman': 'C:\\Program Files\\RedHat\\Podman\\podman.exe',
       'podman machine': '[{"Name":"podman-machine-default","Running":false}]',
     })
+    runPodmanMachineAutoRecoveryIfNeeded.mockResolvedValue(false)
 
     await expect(assertPodmanReady({ platform: 'win32', execFile })).rejects.toMatchObject({
       code: 'machine_not_running',
     })
+    expect(runPodmanMachineAutoRecoveryIfNeeded).toHaveBeenCalled()
+  })
+
+  test('win32: auto-start success allows readiness check to continue', async () => {
+    let machineProbeCount = 0
+    const execFile: ExecFileFn = async (file, args) => {
+      if (file.toLowerCase().includes('podman') && args[0] === 'machine') {
+        machineProbeCount++
+        return {
+          stdout:
+            machineProbeCount >= 2
+              ? '[{"Name":"podman-machine-default","Running":true}]'
+              : '[{"Name":"podman-machine-default","Running":false}]',
+          stderr: '',
+        }
+      }
+      if (file === 'where') {
+        return { stdout: 'C:\\Program Files\\RedHat\\Podman\\podman.exe', stderr: '' }
+      }
+      if (args[0] === 'info') return { stdout: '{"host":{}}', stderr: '' }
+      if (args[0] === 'ps') return { stdout: '', stderr: '' }
+      throw new Error(`unexpected exec: ${file} ${args.join(' ')}`)
+    }
+
+    runPodmanMachineAutoRecoveryIfNeeded.mockResolvedValue(true)
+
+    await expect(
+      assertPodmanReady({ platform: 'win32', execFile }),
+    ).resolves.toBeUndefined()
   })
 
   test('win32: podman on PATH and running machine passes with pod ps', async () => {

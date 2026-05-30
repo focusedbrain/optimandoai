@@ -15,6 +15,12 @@ import {
   type PodmanProbeFailureCode,
 } from '@repo/podman-probe'
 
+import { runPodmanMachineAutoRecoveryIfNeeded } from './podmanMachineRecovery.js'
+import {
+  probePodmanMachineStateWithBin,
+  type PodmanMachineProbeState,
+} from './podmanMachineState.js'
+
 const execFileAsync = promisify(execFile)
 
 const DETECT_TIMEOUT_MS = 15_000
@@ -187,35 +193,14 @@ async function isPodmanPodCapable(
   }
 }
 
-interface PodmanMachineRow {
-  Running?: boolean
-  running?: boolean
-}
-
-export type PodmanMachineProbeState = 'not_applicable' | 'none' | 'stopped' | 'running'
+export type { PodmanMachineProbeState } from './podmanMachineState.js'
 
 export async function probePodmanMachineState(
   execFile: ExecFileFn = defaultExecFile,
   platform: NodeJS.Platform = process.platform,
 ): Promise<PodmanMachineProbeState> {
-  try {
-    const { stdout } = await podmanExec(execFile, platform, [
-      'machine',
-      'list',
-      '--format',
-      'json',
-    ])
-    const trimmed = stdout.trim()
-    if (!trimmed || trimmed === '[]') return 'none'
-
-    const parsed = JSON.parse(trimmed) as PodmanMachineRow[] | PodmanMachineRow
-    const rows = Array.isArray(parsed) ? parsed : [parsed]
-    if (rows.length === 0) return 'none'
-    if (rows.some((row) => row.Running === true || row.running === true)) return 'running'
-    return 'stopped'
-  } catch {
-    return 'none'
-  }
+  const bin = await resolvePodmanBin(platform, execFile)
+  return probePodmanMachineStateWithBin(execFile, bin)
 }
 
 function mapProbeFailureToSetupError(
@@ -269,10 +254,14 @@ export async function assertPodmanReady(options?: PodmanDetectOptions): Promise<
       )
     }
     if (machineState === 'stopped') {
-      throw new PodmanSetupError(
-        'machine_not_running',
-        PODMAN_SETUP_MESSAGES.machine_not_running,
-      )
+      const recovered = await runPodmanMachineAutoRecoveryIfNeeded(options)
+      machineState = await probePodmanMachineState(execFile, platform)
+      if (!recovered || machineState !== 'running') {
+        throw new PodmanSetupError(
+          'machine_not_running',
+          PODMAN_SETUP_MESSAGES.machine_not_running,
+        )
+      }
     }
   }
 

@@ -5,7 +5,8 @@
 import { EventEmitter } from 'node:events'
 
 import { loadEdgeTierSettings, type EdgeTierSettings } from '../edge-tier/settings.js'
-import { isPodmanVerifiedReady } from '../local-pod/podStatus.js'
+import { isPodmanVerifiedReady, isPodmanProbeComplete } from '../local-pod/podStatus.js'
+import { refreshPodmanSetupProbe } from '../local-pod/podmanSetupProbe.js'
 import {
   resolveIngestionMode,
   resolveHostPodVariant,
@@ -70,6 +71,10 @@ function buildResolverInputs(probes: ProbeSnapshot): ResolverInputs {
 }
 
 export async function refreshIngestionMode(forceProbe = false): Promise<IngestionModeSnapshot> {
+  if (!isPodmanVerifiedReady() && isPodmanProbeComplete()) {
+    await refreshPodmanSetupProbe({ force: forceProbe })
+  }
+
   const probes = await runAllProbes(forceProbe)
   const inputs: ResolverInputs = {
     ...buildResolverInputs(probes),

@@ -55,7 +55,8 @@ function mapSnapshot(raw: unknown): IngestionModeUiState {
   }
 }
 
-function pillLabel(state: IngestionModeUiState): string {
+function pillLabel(state: IngestionModeUiState, podmanRecovering: boolean): string {
+  if (podmanRecovering) return 'Starting secure isolation…'
   if (state.edgeSetupPending) return 'Edge setup incomplete'
   switch (state.mode) {
     case 'EdgeActive':
@@ -81,6 +82,7 @@ function pillLabel(state: IngestionModeUiState): string {
 
 export function IngestionModeStatusPill(): JSX.Element | null {
   const [state, setState] = useState<IngestionModeUiState>(DEFAULT_STATE)
+  const [podmanRecovering, setPodmanRecovering] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
   const [showFallbackConfirm, setShowFallbackConfirm] = useState(false)
 
@@ -96,9 +98,18 @@ export function IngestionModeStatusPill(): JSX.Element | null {
     const api = window.ingestionMode
     const off = api?.onUpdated?.((snap) => setState(mapSnapshot(snap)))
     const offPanel = api?.onOpenPanel?.(() => setPanelOpen(true))
+    const podmanApi = window.podmanSetup
+    const offPodman = podmanApi?.onState?.((payload) => {
+      const phase = (payload as { setupPhase?: string }).setupPhase
+      setPodmanRecovering(phase === 'recovering')
+    })
+    void podmanApi?.getStatus?.().then((snap) => {
+      setPodmanRecovering((snap as { setupPhase?: string }).setupPhase === 'recovering')
+    })
     return () => {
       off?.()
       offPanel?.()
+      offPodman?.()
     }
   }, [refresh])
 
@@ -127,7 +138,7 @@ export function IngestionModeStatusPill(): JSX.Element | null {
         onClick={() => setPanelOpen((v) => !v)}
         aria-expanded={panelOpen}
       >
-        {pillLabel(state)}
+        {pillLabel(state, podmanRecovering)}
       </button>
 
       {panelOpen ? (

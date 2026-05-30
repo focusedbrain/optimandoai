@@ -14,7 +14,7 @@ import {
   inspectContainerState,
   probeContainerHealthLocal,
 } from './supervisor/podmanLocal.js'
-import { LOCAL_POD_HEALTH_PROBE_TIMEOUT_MS } from './supervisor/index.js'
+import { LOCAL_POD_HEALTH_PROBE_TIMEOUT_MS } from './podConstants.js'
 
 export type PodContainerCompletenessIssue = {
   role: LocalPodContainerSpec['role']

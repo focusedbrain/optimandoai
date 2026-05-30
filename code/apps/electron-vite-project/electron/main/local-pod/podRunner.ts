@@ -25,7 +25,10 @@ import { tmpdir } from 'node:os'
 
 import { resolveBeapPodManifestPath } from './beapPodPaths.js'
 import { createPodmanExecutor } from './podExec.js'
-import { reconcilePodBeforeStart } from './podReconcile.js'
+import {
+  DEFAULT_POD_NAME,
+  DEFAULT_LOCAL_VERIFY_POD_NAME,
+} from './podConstants.js'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -62,8 +65,7 @@ export interface ActivePod {
   stop(): Promise<void>
 }
 
-export const DEFAULT_POD_NAME = 'beap-pod'
-export const DEFAULT_LOCAL_VERIFY_POD_NAME = 'beap-pod-local-verify'
+export { DEFAULT_POD_NAME, DEFAULT_LOCAL_VERIFY_POD_NAME } from './podConstants.js'
 
 // 60 s: generous for image pull on first run; subsequent starts are faster.
 const PODMAN_TIMEOUT_MS = 60_000
@@ -130,6 +132,7 @@ export async function applyPodManifest(
       .replace(/\$\{LOCAL_VERIFY_ALLOW_DIRECT_P2P\}/g, localVerify.allowDirectP2p ? '1' : '0')
   }
 
+  const { reconcilePodBeforeStart } = await import('./podReconcile.js')
   await reconcilePodBeforeStart(podName, executor)
 
   const tmpDir = mkdtempSync(join(tmpdir(), 'beap-pod-'))

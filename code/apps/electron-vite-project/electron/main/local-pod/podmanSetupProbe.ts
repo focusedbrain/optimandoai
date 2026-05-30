@@ -6,6 +6,7 @@
 import { probePodmanSetup, type PodmanDetectOptions, type PodmanSetupError } from './podmanDetect.js'
 import { markPodmanProbeComplete, setPodSetupErrorRef } from './podStatus.js'
 import { broadcastPodmanSetupState } from './podmanSetupBroadcast.js'
+import { runPodmanMachineAutoRecoveryIfNeeded } from './podmanMachineRecovery.js'
 
 export interface RefreshPodmanSetupProbeOptions extends PodmanDetectOptions {
   /** Bypass cached not-ready probe (user setup, startup, explicit reprobe). */
@@ -38,6 +39,11 @@ export async function refreshPodmanSetupProbe(
       broadcastPodmanSetupState()
     }
     return _cachedProbe.err
+  }
+
+  const platform = options?.platform ?? process.platform
+  if (platform === 'win32' || platform === 'darwin') {
+    await runPodmanMachineAutoRecoveryIfNeeded(options)
   }
 
   const err = await probePodmanSetup(options)

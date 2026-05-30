@@ -2,7 +2,7 @@
  * LOCAL_HOST / LOCAL_VERIFY container metadata for host pod supervisor (Stream A — A5).
  */
 
-import { DEFAULT_POD_NAME, DEFAULT_LOCAL_VERIFY_POD_NAME } from '../podRunner.js'
+import { DEFAULT_POD_NAME, DEFAULT_LOCAL_VERIFY_POD_NAME } from '../podConstants.js'
 
 export type LocalPodContainerRole =
   | 'ingestor'

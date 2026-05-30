@@ -83,8 +83,9 @@ export function podmanCodeHeadline(code: PodmanSetupErrorCode, plat: NodeJS.Plat
     case 'not_installed':
       return plat === 'win32' ? 'Install Podman to continue' : 'Install Podman to continue'
     case 'machine_not_initialized':
-    case 'machine_not_running':
       return 'Finish Podman setup'
+    case 'machine_not_running':
+      return 'Podman needs attention'
     case 'engine_unhealthy':
       return 'Podman needs attention'
     case 'probe_pending':
@@ -103,8 +104,9 @@ export function podmanCodeSummary(code: PodmanSetupErrorCode, plat: NodeJS.Platf
           ? 'One click installs Podman on this Mac and starts secure isolation.'
           : 'WR Desk requires Podman for security isolation on this server.'
     case 'machine_not_initialized':
-    case 'machine_not_running':
       return 'Podman is installed. One click will finish setup and start secure isolation.'
+    case 'machine_not_running':
+      return 'The container environment stopped and could not be restarted automatically. Try setup again or open Podman Desktop.'
     case 'engine_unhealthy':
       return plat === 'linux'
         ? 'Podman is present but the engine is not responding on this server.'

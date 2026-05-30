@@ -20,6 +20,7 @@ import { getPodSetupErrorRef } from './podStatus.js'
 import { failPodmanSetupRun } from './podmanSetupRunState.js'
 import { unexpectedSetupErrorMessage } from './podmanSetupCopy.js'
 import { ensureWslStatusCachedOnce } from './podmanWslStatusCache.js'
+import { startPodmanMachineWatchdog } from './podmanMachineRecovery.js'
 
 export type PodmanSetupStatusResponse = PodmanSetupStatusSnapshot
 
@@ -137,5 +138,6 @@ export async function runStartupPodmanProbe(): Promise<void> {
   if (process.platform === 'win32' && getPodSetupErrorRef()) {
     await ensureWslStatusCachedOnce()
   }
+  startPodmanMachineWatchdog()
   broadcastPodmanSetupState()
 }

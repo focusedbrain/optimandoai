@@ -29,11 +29,12 @@ import {
 import { pickupLocalDiagnosticReports } from './reportPickupLocal.js'
 import { pickupLocalQuarantineEntries } from './quarantinePickupLocal.js'
 import { notifyLocalPodSupervisorIssue } from '../notify.js'
-import { podExistsLocally } from '../podReconcile.js'
 import { isBeapImagePresent, restoreBeapPodImage } from '../imageDigestVerify.js'
+import { LOCAL_POD_HEALTH_PROBE_TIMEOUT_MS } from '../podConstants.js'
+
+export { LOCAL_POD_HEALTH_PROBE_TIMEOUT_MS } from '../podConstants.js'
 
 export const LOCAL_POD_HEALTH_PROBE_INTERVAL_MS = 5_000
-export const LOCAL_POD_HEALTH_PROBE_TIMEOUT_MS = 3_000
 export const LOCAL_POD_STUCK_HEALTH_THRESHOLD = 3
 
 /** When this many required containers are missing, individual replace cannot recover. */
@@ -145,6 +146,13 @@ async function pollOnce(): Promise<void> {
   const podName = _activePodName
   if (!podName || getHostPodSupervisorState() !== 'healthy') return
 
+  const { ensurePodmanMachineRunningForPodOps } = await import('../podmanMachineRecovery.js')
+  if (!(await ensurePodmanMachineRunningForPodOps())) {
+    console.warn('[LOCAL_POD_SUPERVISOR] Podman machine unavailable — waiting for auto-recovery')
+    return
+  }
+
+  const { podExistsLocally } = await import('../podReconcile.js')
   if (!(await podExistsLocally(podName))) {
     await scheduleFullPodRestart('pod_missing')
     return
@@ -327,6 +335,11 @@ async function teardownPod(message: string, kind: 'replacement_exhausted' | 'hal
   } catch {
     /* optional */
   }
+}
+
+/** Machine watchdog — machine recovered after WSL idle stop; pods must be reconciled. */
+export async function scheduleFullPodRestartFromWatchdog(reason: string): Promise<void> {
+  await scheduleFullPodRestart(reason)
 }
 
 /** User retry from UI — clears halt and budget; caller must restart pod. */

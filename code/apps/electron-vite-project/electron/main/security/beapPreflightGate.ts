@@ -4,6 +4,7 @@
  */
 
 import { getPodSetupErrorRef, isPodmanVerifiedReady } from '../local-pod/podStatus.js'
+import { refreshPodmanSetupProbe } from '../local-pod/podmanSetupProbe.js'
 
 export const BEAP_PREFLIGHT_LOG_TAG = '[BEAP_PREFLIGHT]'
 
@@ -17,6 +18,20 @@ export function beapPreflightBlockedReason(): string | null {
   const err = getPodSetupErrorRef()
   if (!err) return null
   return err.userMessage
+}
+
+/**
+ * On-demand recovery before a BEAP action (compose, send, etc.).
+ * Auto-starts a provisioned-but-stopped machine; does not show setup UI.
+ */
+export async function ensureBeapPodIsolationReady(context: string): Promise<boolean> {
+  await refreshPodmanSetupProbe({ force: true })
+  if (isBeapPodIsolationPreflightPassed()) {
+    return true
+  }
+  const reason = beapPreflightBlockedReason() ?? 'Podman isolation not ready'
+  console.warn(`${BEAP_PREFLIGHT_LOG_TAG} BLOCKED ${context}: ${reason}`)
+  return false
 }
 
 /**

@@ -5,6 +5,7 @@
 import type { PodmanSetupErrorCode } from './podmanDetect.js'
 import { getPodSetupErrorRef, isPodmanProbeComplete } from './podStatus.js'
 import { getInstallActionsForPlatform } from './podmanInstallRunner.js'
+import { isPodmanMachineRecoveryActive } from './podmanMachineRecovery.js'
 import {
   buildLinuxEngineOperatorInstruction,
   buildLinuxOperatorInstruction,
@@ -24,6 +25,7 @@ import { getWslStatusCache } from './podmanWslStatusCache.js'
 
 export type PodmanSetupPhase =
   | 'checking'
+  | 'recovering'
   | 'need_package'
   | 'need_machine_init'
   | 'need_machine_start'
@@ -57,7 +59,7 @@ export function derivePodmanSetupPhase(
     case 'machine_not_initialized':
       return 'need_machine_init'
     case 'machine_not_running':
-      return 'need_machine_start'
+      return 'need_engine'
     case 'engine_unhealthy':
       return 'need_engine'
     case 'probe_pending':
@@ -71,6 +73,8 @@ export function setupPhaseHeadline(phase: PodmanSetupPhase): string {
   switch (phase) {
     case 'checking':
       return 'Checking secure container setup…'
+    case 'recovering':
+      return 'Starting secure isolation…'
     case 'need_package':
       return 'Install Podman to continue'
     case 'need_machine_init':
@@ -95,6 +99,8 @@ export function setupPhaseSummary(phase: PodmanSetupPhase, plat: NodeJS.Platform
   switch (phase) {
     case 'checking':
       return 'WR Desk uses container isolation as a core security measure. Verifying Podman on this computer…'
+    case 'recovering':
+      return 'The container environment is waking up. This usually takes a few moments.'
     case 'need_package':
       return plat === 'win32'
         ? 'Podman on Windows uses WSL2. One click installs WSL (if needed), Podman, and starts secure isolation.'
@@ -134,7 +140,6 @@ export function resolveTerminalAction(
       return plat === 'linux' ? 'operator_install' : 'manual'
     case 'need_package':
     case 'need_machine_init':
-    case 'need_machine_start':
     case 'need_engine':
       return plat === 'win32' || plat === 'darwin' ? 'one_click' : 'operator_install'
     default:
@@ -260,6 +265,34 @@ export function buildPodmanSetupStatusSnapshot(): PodmanSetupStatusSnapshot {
   const probePending = !isPodmanProbeComplete()
   const plat = process.platform
   const install = getInstallActionsForPlatform(plat)
+
+  if (isPodmanMachineRecoveryActive()) {
+    return {
+      required: false,
+      probePending: false,
+      code: null,
+      statusMessage: null,
+      platform: plat,
+      setupPhase: 'recovering',
+      headline: setupPhaseHeadline('recovering'),
+      summary: setupPhaseSummary('recovering', plat),
+      terminalAction: 'none',
+      operatorInstruction: null,
+      wslManualCommand: null,
+      canOneClickSetup: false,
+      oneClickLabel: install.installLabel,
+      setupRunning: true,
+      setupStep: 'starting',
+      setupStepLabel: 'Starting secure isolation…',
+      setupFailure: null,
+      showPackageInstall: false,
+      showMachineSteps: false,
+      install,
+      machineInitCommand: 'podman machine init --cpus 2 --memory 4096 --disk-size 100',
+      machineStartCommand: 'podman machine start',
+    }
+  }
+
   const code = err?.code ?? null
   const run = getPodmanSetupRunSnapshot()
 
@@ -335,8 +368,7 @@ export function buildPodmanSetupStatusSnapshot(): PodmanSetupStatusSnapshot {
     setupStepLabel: run.setupStepLabel,
     setupFailure: run.setupFailure,
     showPackageInstall: setupPhase === 'need_package',
-    showMachineSteps:
-      setupPhase === 'need_machine_init' || setupPhase === 'need_machine_start',
+    showMachineSteps: setupPhase === 'need_machine_init',
     install,
     machineInitCommand: 'podman machine init --cpus 2 --memory 4096 --disk-size 100',
     machineStartCommand: 'podman machine start',

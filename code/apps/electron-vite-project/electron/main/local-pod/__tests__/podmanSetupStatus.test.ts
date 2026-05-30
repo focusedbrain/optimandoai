@@ -24,6 +24,10 @@ vi.mock('../podmanWslStatusCache.js', () => ({
   getWslStatusCache: () => null,
 }))
 
+vi.mock('../podmanMachineRecovery.js', () => ({
+  isPodmanMachineRecoveryActive: () => false,
+}))
+
 vi.mock('../linuxDistroDetect.js', () => ({
   buildLinuxEngineOperatorInstruction: () => 'engine instruction',
   buildLinuxOperatorInstruction: () => 'operator instruction',
@@ -56,8 +60,9 @@ describe('resolveTerminalAction', () => {
     expect(resolveTerminalAction('need_operator_install', 'linux')).toBe('operator_install')
   })
 
-  test('windows package — one click', () => {
-    expect(resolveTerminalAction('need_package', 'win32')).toBe('one_click')
+  test('stopped machine maps to engine attention, not setup modal phase', () => {
+    expect(derivePodmanSetupPhase(false, 'machine_not_running', 'win32')).toBe('need_engine')
+    expect(resolveTerminalAction('need_engine', 'win32')).toBe('one_click')
   })
 
   test('linux engine — operator not one click on win32', () => {
