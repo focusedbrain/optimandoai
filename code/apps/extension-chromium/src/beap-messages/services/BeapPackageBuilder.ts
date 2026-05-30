@@ -1122,6 +1122,18 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   // Build automation metadata (capsule-bound)
   const automationMeta = buildAutomationMetadata(config.encryptedMessage, config.messageBody)
   
+  // ==========================================================================
+  // ISOLATION GAP — OUTBOUND VALIDATOR (not yet built)
+  // ==========================================================================
+  // TODO(outbound-pipeline): Before encryption, the plaintext message body +
+  // attachments SHOULD pass through an isolated outbound-validator pod via:
+  //   provider.callPipeline('outbound-validator', 'validate-plaintext', payload)
+  // This would enforce structure/content policy in isolation before the plaintext
+  // is handed to the encryption step, mirroring the inbound pod validator.
+  // The IsolationProvider API is ready; the outbound-validator pod role does not
+  // yet exist. See docs/outbound-pipeline-gap.md for the full gap description.
+  // ==========================================================================
+
   // Validate against policy
   const policyError = validateQBeapPolicy(config, automationMeta)
   if (policyError) {
@@ -1807,6 +1819,19 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
       }
     }
   }
+
+  // ==========================================================================
+  // ISOLATION GAP — OUTBOUND SEALER (not yet built)
+  // ==========================================================================
+  // TODO(outbound-pipeline): After assembly, the completed outbound capsule
+  // SHOULD be passed to an isolated outbound-sealer pod for an HMAC seal over
+  // the sender's outbound record (mirrors the inbound pod sealer) via:
+  //   provider.callPipeline('outbound-sealer', 'seal-outbound', capsuleBytes)
+  // This would give the sender a tamper-evident record of what was sent,
+  // sealed in isolation with a key that never leaves the sealer container.
+  // The IsolationProvider API is ready; the outbound-sealer pod role does not
+  // yet exist. See docs/outbound-pipeline-gap.md for the full gap description.
+  // ==========================================================================
 
   return {
     success: true,

@@ -1,21 +1,15 @@
 /**
- * On-demand PDF extraction via ingestor POST /extract-pdf.
- * Windows: podman exec into ingestor netns (wslrelay published-port transport is broken).
- * In-pod: loopback http://127.0.0.1:18100/extract-pdf → depackager → pdf-parser.
+ * On-demand PDF extraction — host→pipeline via IsolationProvider.
+ *
+ * All host→pipeline I/O goes through the provider returned by
+ * getIsolationProviderSync() / resolveIsolationProvider(), which selects the
+ * correct backend (podman-exec on build001) at capability-detection time.
+ * There is NO direct TCP path to any pod port in this module.
  */
 
-import { getPodSessionAuthSecret } from '../local-pod/podSessionAuth.js'
 import { getLocalPodUnavailableMessage } from '../local-pod/podStatus.js'
-import {
-  runPdfExtractViaPodmanExec,
-  type PdfPodExecDeps,
-  type PdfPodExecOutcome,
-} from './pdfPodExecTransport.js'
-
-export const DEFAULT_POD_BASE = 'http://127.0.0.1:18100'
-
-/** @deprecated Host must use ingestor entry; kept for test overrides only. */
-export const DEFAULT_DEPACKAGER_BASE = 'http://127.0.0.1:18102'
+import { getIsolationProviderSync } from '../isolation/index.js'
+import { IsolationChannelError } from '../isolation/IsolationProvider.js'
 
 export interface ExtractedTextV1 {
   text: string
@@ -70,42 +64,55 @@ function parseExtractPdfJsonBody(
   }
 }
 
-function mapExecFailure(outcome: Extract<PdfPodExecOutcome, { ok: false }>): DepackagerExtractResult {
-  if (outcome.reason === 'podman_exec_failed' || outcome.reason === 'podman_cli_unavailable') {
-    return { ok: false, reason: getLocalPodUnavailableMessage(), status: 503 }
-  }
-  return { ok: false, reason: 'pdf_parse_unavailable', status: 503 }
-}
-
+/**
+ * Extract PDF text via the active isolation provider.
+ *
+ * Payload encoding: { message_id, attachment_id, pdf_bytes_b64 } — JSON Buffer.
+ * Response:         { extracted_text_v1: { text, structural_hash, extractor_version } }
+ *
+ * The provider handles backend selection (podman-exec → hyperv → firecracker
+ * as higher tiers are implemented). Callers see only this function.
+ */
 export async function extractPdfViaDepackager(
   pdfBytes: Buffer,
   opts: {
     messageId: string
     attachmentId: string
-    execDeps?: PdfPodExecDeps
   },
 ): Promise<DepackagerExtractResult> {
-  const secret = getPodSessionAuthSecret()
-  if (!secret) {
-    return { ok: false, reason: getLocalPodUnavailableMessage(), status: 503 }
-  }
+  const provider = getIsolationProviderSync()
 
-  const execOutcome = await runPdfExtractViaPodmanExec(
-    {
+  // Build the payload buffer for ('ingestor', 'extract-pdf').
+  const requestPayload = Buffer.from(
+    JSON.stringify({
       message_id: opts.messageId,
       attachment_id: opts.attachmentId,
       pdf_bytes_b64: pdfBytes.toString('base64'),
-    },
-    opts.execDeps,
+    }),
+    'utf8',
   )
 
-  if (!execOutcome.ok) {
-    const body = (execOutcome.stdout || execOutcome.stderr).trim()
-    if (body.startsWith('{')) {
-      return parseExtractPdfJsonBody(body, false)
+  let responseBytes: Buffer
+  try {
+    responseBytes = await provider.callPipeline('ingestor', 'extract-pdf', requestPayload)
+  } catch (e) {
+    if (e instanceof IsolationChannelError) {
+      const isPodUnavailable =
+        e.code === 'podman_session_missing' ||
+        e.code === 'podman_unavailable' ||
+        e.code === 'exec_failed'
+      return {
+        ok: false,
+        reason: isPodUnavailable ? getLocalPodUnavailableMessage() : e.message,
+        status: 503,
+      }
     }
-    return mapExecFailure(execOutcome)
+    return {
+      ok: false,
+      reason: e instanceof Error ? e.message : 'pdf_parse_unavailable',
+      status: 503,
+    }
   }
 
-  return parseExtractPdfJsonBody(execOutcome.stdout.trim(), true)
+  return parseExtractPdfJsonBody(responseBytes.toString('utf8'), true)
 }

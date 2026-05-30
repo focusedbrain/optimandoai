@@ -2987,6 +2987,12 @@ app.whenReady().then(async () => {
         const ingestionMode = await import('./main/ingestion/ingestionModeIpc.js')
         ingestionMode.registerIngestionModeIpc()
         ingestionMode.startIngestionModeLifecycle()
+        // Warm the isolation-provider capability ladder so the [ISOLATION] disclosure
+        // log fires at startup. The result is cached; all subsequent callPipeline calls
+        // (PDF extraction, future outbound roles) use the cached provider.
+        import('./main/isolation/index.js')
+          .then((m) => m.resolveIsolationProvider())
+          .catch((e) => console.warn('[ISOLATION] capability ladder error at startup:', e))
       } catch (e) {
         console.error('[MAIN] Podman setup / ingestion mode registration failed:', e)
       }
