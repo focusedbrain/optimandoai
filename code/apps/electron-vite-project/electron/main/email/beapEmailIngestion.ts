@@ -1640,6 +1640,12 @@ export function extractPBeapCapsule(packageJson: string): unknown | null {
   }
 }
 
+/** Format a DB error for BEAP inbox log lines (non-disclosing: message/string only). */
+export function formatBeapInboxDbError(err: unknown): string {
+  if (err instanceof Error) return err.message
+  return String(err)
+}
+
 /**
  * @deprecated Phase B, PR B-4 — P2P entry points now call `processBeapPackageInline`
  * directly (validate-before-write). The `p2p_pending_beap` staging table has been
