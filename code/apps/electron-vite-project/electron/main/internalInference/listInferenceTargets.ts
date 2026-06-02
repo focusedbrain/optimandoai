@@ -9,6 +9,8 @@ import {
   type InternalHandshakeRoleSource,
 } from '../../../../../packages/shared/src/handshake/internalIdentityUi'
 import { listHandshakeRecords } from '../handshake/db'
+import { filterHandshakeRecordsForCurrentSession } from '../handshake/handshakeAccountIsolation'
+import { getCurrentSession } from '../handshake/ipc'
 import { HandshakeState, type HandshakeRecord } from '../handshake/types'
 import { getInstanceId, getOrchestratorMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { getHostAiLedgerRoleSummaryFromDb } from './hostAiEffectiveRole'
@@ -58,7 +60,10 @@ import {
 } from './sandboxHostUi'
 import { InternalInferenceErrorCode } from './errors'
 import { clearHostAiTransportDecideDedupeCache, logHostAiTransportDecideListLine } from './hostAiTransportDecideLog'
-import { hostHasActiveInternalLedgerHostPeerSandboxFromDb } from './hostAiInternalPairingLedger'
+import {
+  hostHasActiveInternalLedgerHostPeerSandboxFromDb,
+  listActiveInternalHandshakesForHostAi,
+} from './hostAiInternalPairingLedger'
 import {
   hydrateHostAdvertisedMapFromLedger,
   peekHostAdvertisedMvpDirectEntry,
@@ -89,6 +94,10 @@ import {
   buildSyntheticOkProbeFromOllamaDirectTags,
   hostComputerNameFromHandshakeRecord,
 } from './sandboxHostAiOllamaDirectSyntheticProbe'
+import {
+  hasHostPeerIdentityBoundLivePresence,
+  tryRecordHostPeerLivePresenceFromCapabilitiesWire,
+} from './hostAiPeerLivePresence'
 import type { HostAiEndpointDiagnostics } from '../../../src/lib/hostAiUiDiagnostics'
 import { hostAiUserFacingMessageFromTarget } from '../../../src/lib/hostAiUiDiagnostics'
 import type { HostAiTargetStatus } from './hostAiTargetStatus'
@@ -125,7 +134,6 @@ function hostOllamaDirectSyntheticProbeMeta(
  */
 function sandboxOllamaDirectTagsAllowListTransportBypass(tags: SandboxOllamaDirectTagsFetchResult): boolean {
   return (
-    tags.cache_hit === true ||
     tags.classification === 'available' ||
     tags.classification === 'no_models' ||
     tags.classification === 'transport_unavailable' ||
@@ -971,6 +979,8 @@ export type HostAiStructuredUnavailableReason =
   | 'ollama_direct_invalid_advertisement'
   /** LAN `ollama_direct`: reachable via `/api/tags` but zero models. */
   | 'ollama_direct_no_models_installed'
+  /** Host peer reachable but SSO identity offline or mismatched vs handshake host party. */
+  | 'host_peer_identity_offline'
 
 export interface HostInternalInferenceListItem {
   /** Same as `kind`; preferred for new IPC/selector consumers. */
@@ -1380,12 +1390,28 @@ function finalizeItem(t: HostTargetDraft): HostInternalInferenceListItem {
 }
 
 /**
+ * ACTIVE internal rows scoped to the current SSO session — for **emitting / routing** selectable
+ * Host-AI targets. This keeps Concern-A defense-in-depth: even if a foreign-account row were present
+ * (it should not be, given the SSO-encrypted ledger DB), it is never surfaced as a usable target.
+ * The directional ledger *booleans* deliberately use the filter-free
+ * {@link listActiveInternalHandshakesForHostAi} instead, to stay symmetric across the host/sandbox split.
+ */
+function listActiveInternalHandshakesForCurrentSession(db: unknown): HandshakeRecord[] {
+  return filterHandshakeRecordsForCurrentSession(
+    listActiveInternalHandshakesForHostAi(db),
+    getCurrentSession(),
+  )
+}
+
+/**
  * At least one ACTIVE internal row: same account + handshake-derived Sandbox→Host.
+ * Uses the shared filter-free Host-AI enumeration so this sandbox-side *boolean* stays symmetric with
+ * the host-side `host_peer_sandbox` derivation (see {@link listActiveInternalHandshakesForHostAi}).
+ * Safe: a `true` here only gates whether to *attempt* host-internal rows; the actual selectable
+ * targets are emitted via the session-scoped {@link listActiveInternalHandshakesForCurrentSession}.
  */
 function anyActiveRowProvesLocalSandboxToHostFromDb(db: unknown): boolean {
-  const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE })
-  for (const r0 of rows) {
-    if (r0.handshake_type !== 'internal' || r0.state !== HandshakeState.ACTIVE) continue
+  for (const r0 of listActiveInternalHandshakesForHostAi(db)) {
     if (rowProvesLocalSandboxToHostForHostAi(r0)) return true
   }
   return false
@@ -1505,9 +1531,11 @@ async function tryEmitOllamaDirectOnlyRowsAfterBeapProbeFailure(p: {
   leK: HostListLegacyEndpointKind
   odTagsPrefetch: SandboxOllamaDirectTagsFetchResult | null
   beapFailureCode: string
+  record: HandshakeRecord
 }): Promise<boolean> {
-  const { targets, hid, hostDevice, ml0, listDec, leK, odTagsPrefetch, beapFailureCode } = p
+  const { targets, hid, hostDevice, ml0, listDec, leK, odTagsPrefetch, beapFailureCode, record } = p
   if (!hostDevice.trim()) return false
+  if (!hasHostPeerIdentityBoundLivePresence(hid, record)) return false
   const odRescue = getSandboxOllamaDirectRouteCandidate(hid)
   const baseUrlStr = typeof odRescue?.base_url === 'string' ? odRescue.base_url.trim() : ''
   if (!odRescue || !baseUrlStr) return false
@@ -1599,6 +1627,52 @@ async function tryEmitOllamaDirectOnlyRowsAfterBeapProbeFailure(p: {
   return pushed > 0
 }
 
+function draftHostPeerIdentityOfflineDisabledRow(
+  r0: HandshakeRecord,
+  hid: string,
+  hostDevice: string,
+  ml0: ReturnType<typeof metaLocal>,
+  listDec: HostAiTransportDeciderResult,
+  leK: HostListLegacyEndpointKind,
+): HostTargetDraft {
+  const sub = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
+  const lab = 'Host AI unavailable — Host identity offline'
+  return {
+    kind: 'host_internal',
+    id: buildHostTargetId(hid, 'unavailable'),
+    label: lab,
+    display_label: lab,
+    displayTitle: lab,
+    displaySubtitle: sub,
+    model: null,
+    model_id: null,
+    provider: 'host_internal',
+    handshake_id: hid,
+    host_device_id: hostDevice,
+    host_computer_name: ml0.hostName,
+    host_pairing_code: ml0.digits6,
+    host_orchestrator_role: 'host',
+    host_orchestrator_role_label: ml0.roleLabel,
+    internal_identifier_6: ml0.digits6,
+    secondary_label: sub,
+    direct_reachable: false,
+    policy_enabled: false,
+    available: false,
+    hostTargetAvailable: false,
+    availability: 'host_offline',
+    unavailable_reason: InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE,
+    hostAiStructuredUnavailableReason: 'host_peer_identity_offline',
+    host_role: 'Host',
+    inference_error_code: InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE,
+    ...baseMetaFromDec(listDec, leK),
+    p2pUiPhase: 'p2p_unavailable',
+    failureCode: InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE,
+    host_ai_target_status: 'offline',
+    host_selector_state: 'unavailable',
+    hostSelectorState: 'unavailable',
+  }
+}
+
 /**
  * Returns Host AI targets for Sandbox: ACTIVE internal, same principal, this device Sandbox ↔ peer Host.
  * When persisted mode is "host" but the ledger still shows an ACTIVE internal Sandbox↔Host row (mis-set file), lists anyway.
@@ -1643,10 +1717,21 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     return { ok: true, targets: [], refreshMeta: { hadCapabilitiesProbed: false } }
   }
 
+  const currentSession = getCurrentSession()
+  if (!currentSession) {
+    console.log(`${L} list_empty reason=no_sso_session_fail_closed`)
+    console.log(`${L} list_done count=0`)
+    return { ok: true, targets: [], refreshMeta: { hadCapabilitiesProbed: false } }
+  }
+
   if (!hostAiPeerAdvertisedMapHydrated) {
     await hydrateHostAdvertisedMapFromLedger(
       db,
-      async () => listHandshakeRecords(db, { state: HandshakeState.ACTIVE, handshake_type: 'internal' }),
+      async () =>
+        filterHandshakeRecordsForCurrentSession(
+          listHandshakeRecords(db, { state: HandshakeState.ACTIVE, handshake_type: 'internal' }),
+          currentSession,
+        ),
       'list_targets_init',
     )
     hostAiPeerAdvertisedMapHydrated = true
@@ -1664,8 +1749,8 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     }
   }
 
-  /** 1) ACTIVE rows first, then 2) derive roles, 3) count handshake Sandbox→Host. */
-  const ledgerActive = listHandshakeRecords(db, { state: HandshakeState.ACTIVE })
+  /** 1) ACTIVE internal rows for current SSO session (target emission stays session-scoped — §2 defense-in-depth), 2) derive roles, 3) count Sandbox→Host. */
+  const ledgerActive = listActiveInternalHandshakesForCurrentSession(db)
   const activeInternalCount = ledgerActive.filter((r) => r.handshake_type === 'internal').length
   let activeInternalSandboxToHostCount = 0
   let handshakeProvesSandboxToHost = false
@@ -1894,7 +1979,8 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       hostDevice.trim() !== '' &&
       odTagsPrefetch != null &&
       Date.now() >= until429 &&
-      sandboxOllamaDirectTagsAllowListTransportBypass(odTagsPrefetch)
+      sandboxOllamaDirectTagsAllowListTransportBypass(odTagsPrefetch) &&
+      hasHostPeerIdentityBoundLivePresence(hid, r0)
     const inferenceTrusted = listDec.inferenceHandshakeTrusted === true
     const handshakeTrustReason = listDec.inferenceHandshakeTrustReason ?? null
     const transportDecideLogReason: string = (() => {
@@ -2416,7 +2502,8 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         odCandPrefetch &&
         odTagsPrefetch &&
         hostDevice.trim() !== '' &&
-        sandboxOllamaDirectTagsAllowListTransportBypass(odTagsPrefetch)
+        sandboxOllamaDirectTagsAllowListTransportBypass(odTagsPrefetch) &&
+        hasHostPeerIdentityBoundLivePresence(hid, r0)
       ) {
         /** BEAP/policy HTTP on cooldown — Ollama LAN tags already enumerated ⇒ list via `ollama_direct` only. */
         probe = buildSyntheticOkProbeFromOllamaDirectTags(
@@ -2434,7 +2521,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         }
         hadCapabilitiesProbed = true
       }
-    } else if (bypassOllamaDirectLan && odTagsPrefetch) {
+    } else if (bypassOllamaDirectLan && odTagsPrefetch && hasHostPeerIdentityBoundLivePresence(hid, r0)) {
       probe = buildSyntheticOkProbeFromOllamaDirectTags(
         odTagsPrefetch,
         hostOllamaDirectSyntheticProbeMeta(hid, { hostName: ml0.hostName, digits6: ml0.digits6 }),
@@ -2475,6 +2562,12 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
             if (hostDevice) {
               recordHostAiReciprocalCapabilitiesSuccess(hid, hostDevice)
             }
+            tryRecordHostPeerLivePresenceFromCapabilitiesWire(
+              hid,
+              r0,
+              capP2p.wire as Record<string, unknown>,
+              capP2p.wire.policy_enabled === true,
+            )
             probe = mapCapabilitiesWireToProbe(capP2p.wire)
           } else {
             const rsn = String('reason' in capP2p ? capP2p.reason : 'unknown')
@@ -2569,6 +2662,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           leK,
           odTagsPrefetch,
           beapFailureCode: InternalInferenceErrorCode.PROBE_HOST_ERROR,
+          record: r0,
         })
         if (rescuedWebrtcThrow) {
           continue
@@ -2624,6 +2718,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           leK,
           odTagsPrefetch,
           beapFailureCode: InternalInferenceErrorCode.PROBE_HOST_ERROR,
+          record: r0,
         })
         if (rescuedPolicyThrow) {
           continue
@@ -2892,6 +2987,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           leK,
           odTagsPrefetch,
           beapFailureCode: String(code),
+          record: r0,
         })
         if (rescuedProbeFail) {
           continue
@@ -2904,6 +3000,14 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
 
     hostAiDirectProbe429CooldownUntil.delete(hid)
     const hm = metaFromOkProbe(probe, displayName, pcc)
+
+    if (!hasHostPeerIdentityBoundLivePresence(hid, r0)) {
+      console.log(
+        `${L} target_disabled handshake=${hid} reason=HOST_PEER_IDENTITY_NOT_LIVE detail=${InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE}`,
+      )
+      targets.push(finalizeItem(draftHostPeerIdentityOfflineDisabledRow(r0, hid, hostDevice, ml0, listDec, leK)))
+      continue
+    }
 
     const odCand = odCandPrefetch ?? getSandboxOllamaDirectRouteCandidate(hid)
     let odTags: SandboxOllamaDirectTagsFetchResult | null = odTagsPrefetch

@@ -6,6 +6,7 @@
 import { bareOllamaModelNameForApi } from '../../../src/lib/hostInferenceModelIds'
 import { InternalInferenceErrorCode } from './errors'
 import { getSandboxOllamaDirectRouteCandidate } from './sandboxHostAiOllamaDirectCandidate'
+import { assertSandboxHostPeerLivePresenceForHandshake } from './hostAiPeerLivePresence'
 import { classifyOllamaDirectFetchTransportFailure } from './sandboxOllamaDirectTransport'
 import { refreshSandboxOllamaDirectFromHostCapabilities } from './sandboxOllamaDirectCapsRefresh'
 import { InferenceUnavailableError, assertGpuInferenceAvailableForRemoteOllama } from '../inference/inferenceGate'
@@ -65,6 +66,10 @@ export async function executeSandboxHostAiOllamaDirectChat(
   const hid = String(p.handshakeId ?? '').trim()
   const peer = String(p.peerHostDeviceId ?? '').trim()
   const cur = String(p.currentDeviceId ?? '').trim()
+  const liveGate = await assertSandboxHostPeerLivePresenceForHandshake(hid)
+  if (!liveGate.ok) {
+    return { ok: false, code: liveGate.code, message: 'host_peer_identity_offline' }
+  }
   const originalModelId = typeof p.model === 'string' ? p.model.trim() : ''
   const modelReq = bareOllamaModelNameForApi(p.model)
   const t0 = Date.now()

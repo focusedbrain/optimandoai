@@ -16,12 +16,15 @@
  * resolver entirely via execution_transport: 'ollama_direct'.
  */
 
-import { listHandshakeRecords } from '../handshake/db'
-import { HandshakeState, type HandshakeRecord } from '../handshake/types'
+import { filterHandshakeRecordsForCurrentSession } from '../handshake/handshakeAccountIsolation'
+import { getCurrentSession } from '../handshake/ipc'
+import { type HandshakeRecord } from '../handshake/types'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
+import { listActiveInternalHandshakesForHostAi } from './hostAiInternalPairingLedger'
 import { handshakeSamePrincipal, deriveInternalHostAiPeerRoles } from './policy'
 import { getSandboxOllamaDirectRouteCandidate } from './sandboxHostAiOllamaDirectCandidate'
+import { assertSandboxHostPeerLivePresenceForHandshake } from './hostAiPeerLivePresence'
 
 const LOCAL_TAGS_URL = 'http://127.0.0.1:11434/api/tags'
 /** Literal base for local sandbox Ollama (tags + chat callers use sibling paths). */
@@ -61,6 +64,7 @@ export type SandboxInferenceTarget =
         | 'no_local_ollama_no_cross_device_host'
         | 'cross_device_caps_not_accepted'
         | 'local_probe_error'
+        | 'host_peer_identity_offline'
       detail?: string
     }
 
@@ -104,9 +108,14 @@ function rowProvesLocalSandboxToHostForHostAi(r: HandshakeRecord): boolean {
 export async function resolveActiveSandboxToHostHandshakeId(): Promise<string | undefined> {
   const db = await getHandshakeDbForInternalInference()
   if (!db) return undefined
-  const ledgerActive = listHandshakeRecords(db, { state: HandshakeState.ACTIVE })
+  // Routing a request to a host is a Host-AI *consumption* path → stays session-scoped (§2
+  // defense-in-depth). Uses the shared internal-handshake helper, then the same SSO-session filter as
+  // the handshake list. Per-row `rowProvesLocalSandboxToHostForHostAi` enforces same-principal + role.
+  const ledgerActive = filterHandshakeRecordsForCurrentSession(
+    listActiveInternalHandshakesForHostAi(db),
+    getCurrentSession(),
+  )
   for (const r of ledgerActive) {
-    if (r.handshake_type !== 'internal' || r.state !== HandshakeState.ACTIVE) continue
     if (!rowProvesLocalSandboxToHostForHostAi(r)) continue
     const hid = String(r.handshake_id ?? '').trim()
     if (hid) return hid
@@ -194,6 +203,19 @@ export async function resolveSandboxInferenceTarget(
     }
 
     if (earlyCand && baseEarly && ownerEarly) {
+      const live = await assertSandboxHostPeerLivePresenceForHandshake(callerHandshakeId)
+      if (!live.ok) {
+        logResolveDecision({
+          kind: 'unavailable',
+          reason: 'host_peer_identity_offline',
+          handshakeId: callerHandshakeId,
+        })
+        return {
+          kind: 'unavailable',
+          reason: 'host_peer_identity_offline',
+          detail: live.code,
+        }
+      }
       logResolveDecision({
         kind: 'cross_device',
         reason: 'caller_handshake_with_valid_candidate',
@@ -252,6 +274,20 @@ export async function resolveSandboxInferenceTarget(
       kind: 'unavailable',
       reason: 'cross_device_caps_not_accepted',
       detail: `handshake=${resolvedHandshake}`,
+    }
+  }
+
+  const live = await assertSandboxHostPeerLivePresenceForHandshake(resolvedHandshake)
+  if (!live.ok) {
+    logResolveDecision({
+      kind: 'unavailable',
+      reason: 'host_peer_identity_offline',
+      handshakeId: resolvedHandshake,
+    })
+    return {
+      kind: 'unavailable',
+      reason: 'host_peer_identity_offline',
+      detail: live.code,
     }
   }
 

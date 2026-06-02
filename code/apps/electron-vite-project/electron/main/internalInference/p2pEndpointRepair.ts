@@ -16,6 +16,7 @@ import {
   type HostAiSelectedEndpointProvenance,
 } from './hostAiEndpointCandidate'
 import { isHostAiLedgerAsymmetricTerminal } from './hostAiPairingStateStore'
+import { tryRecordHostPeerLivePresenceFromRelayAd } from './hostAiPeerLivePresence'
 import {
   assertLedgerRolesSandboxToHost,
   assertRecordForServiceRpc,
@@ -920,6 +921,7 @@ export function applyHostAiDirectBeapAdFromRelayPayload(
     adSource: 'relay',
     ollamaRoster: ollamaRoster ?? null,
   })
+  tryRecordHostPeerLivePresenceFromRelayAd(hid, ar.record, raw)
   const r = ar.record
   const current = (r.p2p_endpoint ?? '').trim()
   const newNorm = normalizeP2pIngestUrl(advRaw)

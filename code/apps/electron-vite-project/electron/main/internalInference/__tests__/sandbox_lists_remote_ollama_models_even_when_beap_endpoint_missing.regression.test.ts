@@ -16,6 +16,7 @@ vi.mock('electron', () => ({
 
 import type { SandboxOllamaDirectTagsFetchResult } from '../sandboxHostAiOllamaDirectTags'
 import type { HandshakeRecord } from '../../handshake/types'
+import { buildTestSession } from '../../handshake/sessionFactory'
 import type { HostAiTransportDeciderResult } from '../transport/decideInternalInferenceTransport'
 import * as decideInternalInferenceTransportModule from '../transport/decideInternalInferenceTransport'
 import { InternalInferenceErrorCode } from '../errors'
@@ -25,6 +26,10 @@ import {
   listSandboxHostInternalInferenceTargets,
 } from '../listInferenceTargets'
 import { resetHostAdvertisedMvpDirectForTests } from '../p2pEndpointRepair'
+import {
+  resetHostPeerLivePresenceForTests,
+  tryRecordHostPeerLivePresenceFromRelayAd,
+} from '../hostAiPeerLivePresence'
 import { resetP2pInferenceFlagsForTests } from '../p2pInferenceFlags'
 import {
   resetHostAiRelayCapabilityCacheForTests,
@@ -77,6 +82,12 @@ vi.mock('../../orchestrator/orchestratorModeStore', () => ({
   isSandboxMode: () => isSandboxModeMock(),
   getOrchestratorMode: () => getOrchestratorModeMock(),
   getInstanceId: () => getInstanceIdMock(),
+}))
+
+const getCurrentSessionMock = vi.hoisted(() => vi.fn())
+
+vi.mock('../../handshake/ipc', () => ({
+  getCurrentSession: () => getCurrentSessionMock(),
 }))
 
 const listHandshakeRecordsMock = vi.fn<
@@ -279,15 +290,33 @@ describe('sandbox_lists_remote_ollama_models_even_when_beap_endpoint_missing', (
     vi.stubEnv('WRDESK_P2P_INFERENCE_HTTP_FALLBACK', '1')
     resetP2pInferenceFlagsForTests()
     resetHostAdvertisedMvpDirectForTests()
+    resetHostPeerLivePresenceForTests()
     isHostModeMock.mockReturnValue(false)
     isSandboxModeMock.mockReturnValue(true)
     getHandshakeDbMock.mockResolvedValue({})
     getInstanceIdMock.mockReturnValue('dev-sand-coord-1')
+    getCurrentSessionMock.mockReturnValue(
+      buildTestSession({
+        wrdesk_user_id: 'same',
+        email: 'same@test.dev',
+        iss: 'https://idp',
+        sub: 'sub-same',
+      }),
+    )
     fetchOdTagsMock.mockImplementation(async () => odTagsResult())
     decideSpy = vi
       .spyOn(decideInternalInferenceTransportModule, 'decideInternalInferenceTransport')
       .mockReturnValue(peerMissingBeapDeciderStub)
     listHandshakeRecordsMock.mockReturnValue([handshakeBeapPoisonedSandboxLedgerNoPeerAd()])
+    const hs = handshakeBeapPoisonedSandboxLedgerNoPeerAd()
+    tryRecordHostPeerLivePresenceFromRelayAd(hs.handshake_id, hs, {
+      expires_at: new Date(Date.now() + 300_000).toISOString(),
+      host_ai_route: {
+        publisher_wrdesk_user_id: 'same',
+        publisher_iss: 'https://idp',
+        publisher_sub: 'sub-same',
+      },
+    })
     /** Synthetic probe fallback should not shadow ODL enumeration when prefetch succeeded */
     probeHostInferencePolicyFromSandboxMock.mockResolvedValue({
       ok: false,

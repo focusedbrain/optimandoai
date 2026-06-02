@@ -25,6 +25,11 @@ import {
   coordinationDeviceIdForHandshakeDeviceRole,
   deriveInternalHostAiPeerRoles,
 } from './policy'
+import {
+  assertHostMachineSessionMatchesHandshakeHostParty,
+  partyIdentityFromSession,
+} from './hostAiPeerLivePresence'
+import { getCurrentSession } from '../handshake/ipc'
 
 let lastHostBeapAdPublishAllAt = 0
 const publishCooldownMs = 2_000
@@ -321,6 +326,20 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
     if (hostCoord && isHostAiLedgerAsymmetricTerminal(hid, hostCoord)) {
       continue
     }
+    const hostSessionGate = assertHostMachineSessionMatchesHandshakeHostParty(ar.record)
+    if (!hostSessionGate.ok) {
+      console.log(
+        `[HOST_AI_HOST_BEAP_AD_PUBLISH] ${JSON.stringify({
+          handshakeId: hid,
+          localDeviceId: localId,
+          peerDeviceId: peerCoord || null,
+          skipReason: 'host_session_not_handshake_party',
+          published: false,
+          context: input.context,
+        })}`,
+      )
+      continue
+    }
     const seq = nextAdSeq(hid)
     console.log(
       `[HOST_AI_MODEL_ROSTER_PUBLISH] ${JSON.stringify({
@@ -359,6 +378,15 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
       receiverDeviceId: dr.peerCoordinationDeviceId,
       adSeq: seq,
       ollamaCapabilities: ollamaCaps,
+      publisherIdentity: (() => {
+        const p = partyIdentityFromSession(getCurrentSession())
+        if (!p) return undefined
+        return {
+          wrdesk_user_id: p.wrdesk_user_id,
+          iss: p.iss,
+          sub: p.sub,
+        }
+      })(),
     })
     attemptedPost += 1
     const relayOk = res.ok

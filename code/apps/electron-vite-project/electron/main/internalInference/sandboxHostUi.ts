@@ -28,6 +28,10 @@ import {
   recordHostAiReciprocalCapabilitiesSuccess,
 } from './hostAiPairingStateStore'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
+import {
+  tryRecordHostPeerLivePresenceFromCapabilitiesWire,
+  tryRecordHostPeerLivePresenceFromPolicyResponse,
+} from './hostAiPeerLivePresence'
 import { ingestUrlMatchesThisDevicesMvpDirectBeap, peekHostAdvertisedMvpDirectEntry } from './p2pEndpointRepair'
 import { getP2pInferenceFlags } from './p2pInferenceFlags'
 import { P2pSessionPhase, getSessionState } from './p2pSession/p2pInferenceSessionManager'
@@ -438,6 +442,9 @@ export type HostInternalInferencePolicyPayload = {
   ollamaDirectAvailable?: boolean
   /** Coordination device ID of the Host that owns the Ollama endpoint. */
   endpointOwnerDeviceId?: string
+  hostPublisherWrdeskUserId?: string
+  hostPublisherIss?: string
+  hostPublisherSub?: string
 }
 
 export type ProbeHostPolicyResult =
@@ -1086,6 +1093,7 @@ async function probeHostInferencePolicyFromSandboxImpl(
       beapCorrelationId: beapCorr,
     })
     if (capP2p.ok) {
+      tryRecordHostPeerLivePresenceFromCapabilitiesWire(hid, ar.record, capP2p.wire as Record<string, unknown>, capP2p.wire.policy_enabled === true)
       const out = mapCapabilitiesWireToProbe(capP2p.wire)
       const letterOk = p2pProbeLetterForOkInferenceCode(out.inferenceErrorCode)
       probeDone(true)
@@ -1345,6 +1353,7 @@ async function probeHostInferencePolicyFromSandboxImpl(
     }
     const j = (await res.json()) as HostInternalInferencePolicyPayload
     const allow = j.allowSandboxInference === true
+    tryRecordHostPeerLivePresenceFromPolicyResponse(hid, ar.record, j as Record<string, unknown>, allow)
     const dcmFromLegacy = typeof j.defaultChatModel === 'string' && j.defaultChatModel.trim() ? j.defaultChatModel.trim() : undefined
     const dcmFromId = typeof j.modelId === 'string' && j.modelId.trim() ? j.modelId.trim() : undefined
     const dcm = dcmFromId ?? dcmFromLegacy

@@ -665,12 +665,21 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
   endpointUrl: string
   adSeq: number
   ollamaCapabilities: HostAiBeapAdSignalOllamaCapabilities
+  publisherIdentity?: {
+    wrdesk_user_id?: string
+    iss?: string
+    sub?: string
+  }
 }): string {
   const correlationId = randomUUID()
   const t0 = Date.now()
   const createdAt = new Date(t0).toISOString()
   const expiresAt = new Date(t0 + HOST_AI_BEAP_AD_TTL_MS).toISOString()
   const caps = params.ollamaCapabilities
+  const pub = params.publisherIdentity ?? {}
+  const pubW = (pub.wrdesk_user_id ?? '').trim()
+  const pubIss = (pub.iss ?? '').trim()
+  const pubSub = (pub.sub ?? '').trim()
   return JSON.stringify({
     schema_version: P2P_SIGNAL_WIRE_SCHEMA_VERSION,
     signal_type: 'p2p_host_ai_direct_beap_ad',
@@ -698,6 +707,9 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
         { kind: 'webrtc' as const, available: true },
       ],
       capabilities: caps,
+      ...(pubW ? { publisher_wrdesk_user_id: pubW } : {}),
+      ...(pubIss ? { publisher_iss: pubIss } : {}),
+      ...(pubSub ? { publisher_sub: pubSub } : {}),
     },
   })
 }
@@ -710,6 +722,11 @@ export async function postHostAiDirectBeapAdToCoordination(params: {
   receiverDeviceId: string
   adSeq: number
   ollamaCapabilities: HostAiBeapAdSignalOllamaCapabilities
+  publisherIdentity?: {
+    wrdesk_user_id?: string
+    iss?: string
+    sub?: string
+  }
 }): Promise<{ ok: boolean; status: number; bodyText?: string }> {
   const base = coordinationBaseUrl(params.db)
   if (!base) {
@@ -729,6 +746,7 @@ export async function postHostAiDirectBeapAdToCoordination(params: {
     endpointUrl: params.endpointUrl.trim(),
     adSeq: params.adSeq,
     ollamaCapabilities: params.ollamaCapabilities,
+    publisherIdentity: params.publisherIdentity,
   })
   const postFn = p2pSignalRelayPostTestHooks.post ?? postP2pSignalToCoordinationWithOptionalAuthRetry
   const endpoint = `${base.replace(/\/$/, '')}/beap/p2p-signal`

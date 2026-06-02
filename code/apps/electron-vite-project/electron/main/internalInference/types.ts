@@ -122,6 +122,10 @@ export interface InternalInferenceCapabilitiesResultWire {
   ollama_direct_source?: string
   /** Coordination id of the device that owns the advertised Ollama endpoint (typically paired Host). */
   endpoint_owner_device_id?: string
+  /** Live Host SSO identity attestation — Sandbox gates list/routing on this matching the handshake host party. */
+  hostPublisherWrdeskUserId?: string
+  hostPublisherIss?: string
+  hostPublisherSub?: string
 }
 
 export type ServiceEnvelope =

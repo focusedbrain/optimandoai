@@ -55,6 +55,7 @@ const HS_ID = 'hs-e2e-sandbox-to-host-1'
 
 import type { HandshakeRecord, PartyIdentity } from '../../handshake/types'
 import { HandshakeState } from '../../handshake/types'
+import { buildTestSession } from '../../handshake/sessionFactory'
 import { InternalInferenceErrorCode } from '../errors'
 import {
   clearHostAiListTransientStateForOrchestratorBuildChange,
@@ -118,6 +119,12 @@ function makeHandshake(over: Partial<HandshakeRecord> = {}): HandshakeRecord {
     ...over,
   } as HandshakeRecord
 }
+
+const getCurrentSessionMock = vi.hoisted(() => vi.fn())
+
+vi.mock('../../handshake/ipc', () => ({
+  getCurrentSession: () => getCurrentSessionMock(),
+}))
 
 vi.mock('../../p2p/p2pConfig', () => ({
   getP2PConfig: () => ({
@@ -232,6 +239,14 @@ describe('Host AI E2E — sandbox ↔ host (HTTP capabilities path)', () => {
     isSandboxModeMock.mockReturnValue(false)
     getInstanceIdMock.mockReturnValue(SANDBOX_DEVICE_ID)
     getHandshakeDbMock.mockResolvedValue({})
+    getCurrentSessionMock.mockReturnValue(
+      buildTestSession({
+        wrdesk_user_id: 'user-one',
+        email: 'user-one@test.dev',
+        iss: 'https://idp',
+        sub: 'sub-user-one',
+      }),
+    )
     resetHostAdvertisedMvpDirectForTests()
     resetP2pInferenceFlagsForTests()
     resetWebrtcListHostCapsCacheForTests()
