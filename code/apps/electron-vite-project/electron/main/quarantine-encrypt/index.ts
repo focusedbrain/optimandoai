@@ -87,13 +87,11 @@ export function encryptForQuarantine(
     const sharedSecret = x25519.getSharedSecret(ephemeralPriv, new Uint8Array(recipientPubBytes))
 
     // 3. HKDF-SHA256 key derivation.
+    // `hkdfSync` returns an ArrayBuffer; wrap in Buffer so the key is a typed
+    // array usable by `createCipheriv` AND zeroizable via `.fill(0)` below.
     const salt = randomBytes(SALT_BYTES)
-    const derivedKey = hkdfSync(
-      'sha256',
-      Buffer.from(sharedSecret),
-      salt,
-      Buffer.from(HKDF_INFO, 'utf-8'),
-      KEY_BYTES,
+    const derivedKey = Buffer.from(
+      hkdfSync('sha256', Buffer.from(sharedSecret), salt, Buffer.from(HKDF_INFO, 'utf-8'), KEY_BYTES),
     )
 
     // 4. AES-256-GCM encrypt.
@@ -153,14 +151,10 @@ export function decryptQuarantineBlob(
       new Uint8Array(senderPubBytes),
     )
 
-    // 2. HKDF-SHA256.
+    // 2. HKDF-SHA256. Wrap the ArrayBuffer output in Buffer (see encrypt note).
     const salt = Buffer.from(blob.salt_b64, 'base64')
-    const derivedKey = hkdfSync(
-      'sha256',
-      Buffer.from(sharedSecret),
-      salt,
-      Buffer.from(HKDF_INFO, 'utf-8'),
-      KEY_BYTES,
+    const derivedKey = Buffer.from(
+      hkdfSync('sha256', Buffer.from(sharedSecret), salt, Buffer.from(HKDF_INFO, 'utf-8'), KEY_BYTES),
     )
 
     // 3. AES-256-GCM decrypt (tag is last 16 bytes of ciphertext_b64).
