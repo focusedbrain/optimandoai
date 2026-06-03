@@ -1,65 +1,58 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Build 2a — crosvm launch wrapper (boot proof + worker image).
+# Build 2a — crosvm launch wrapper. VERIFIED on the mini-PC (Ubuntu 24.04.4,
+# kernel 6.17.0-29-generic, crosvm source HEAD 938fc36). Replaces the earlier
+# Windows-authored draft (old --root/--rwdisk/--cid flags are DEPRECATED on this
+# crosvm; this uses the modern --block / --vsock).
 #
-# STATUS: UNVERIFIED DRAFT (authored on Windows; never run on the mini-PC).
-# crosvm's CLI changes across versions — the flags below are the SHAPE, not
-# confirmed syntax. Run `crosvm run --help` on the rig and correct these.
-# This is the spike's manual boot wrapper, NOT CrosvmProvider lifecycle logic
-# (that's Build 2b).
+# This is the spike's manual boot wrapper, NOT CrosvmProvider lifecycle (2b).
 #
-# HARD CONSTRAINTS this wrapper must keep:
-#   - NO network device  => default-deny egress on the depackaging VM.
-#   - read-only base      => --root passed read-only.
-#   - ephemeral overlay   => a fresh writable scratch disk per boot, discarded after.
-#   - NO virtio-fs / shared folder for untrusted content (WSL2-style coupling is
-#     rejected). Host<->guest bytes go over vsock (Build 2b) — see README §4.
+# HARD CONSTRAINTS kept:
+#   - NO network device (no --net)        => default-deny egress.
+#   - read-only base (--block ro=true)    => base never mutates.
+#   - ephemeral overlay (mktemp + trap rm)=> writable scratch discarded on exit.
+#   - NO virtio-fs / shared folder for untrusted content (WSL2 coupling rejected).
+#     Host<->guest bytes go over vsock (proven by vsock-echo.sh).
 # =============================================================================
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CROSVM="${CROSVM:-crosvm}"
-KERNEL="${KERNEL:-${HERE}/vmlinux}"           # kernel with virtio-blk + vsock (CONFIG_VHOST_VSOCK)
-MODE="${1:-hello}"                            # hello | worker
+OUT="${OUT:-$HOME/build/rig}"
+CROSVM="${CROSVM:-$HOME/build/crosvm/target/release/crosvm}"
+KERNEL="${KERNEL:-${OUT}/vmlinuz}"
+MODE="${1:-worker}"
+CID="${CID:-3}"               # guest vsock context id
+SERIAL="type=stdout,hardware=serial,num=1,console=true,stdin=true"
 
 case "${MODE}" in
   hello)
-    # §2.2 — prove crosvm boots ANYTHING before involving the worker image.
-    # Minimal kernel + initramfs to a shell / known init. Time the boot.
-    echo "[hello] booting trivial guest (no net). Expect a shell or init banner."
-    # shellcheck disable=SC2086
-    time "${CROSVM}" run \
-      --disable-sandbox \
-      --mem 512 \
-      --cpus 1 \
-      --initrd "${HERE}/hello-initramfs.cpio.gz" \
-      -p "init=/init console=ttyS0" \
+    timeout 30 "${CROSVM}" run \
+      --disable-sandbox -m 512 -c 1 \
+      --initrd "${OUT}/hello-initramfs.cpio.gz" \
+      -p "rdinit=/init console=ttyS0" \
+      --serial "${SERIAL}" \
       "${KERNEL}"
     ;;
 
   worker)
-    # §3.3 — boot the golden image; confirm node + worker-bundle present & runnable.
-    # RO base + ephemeral overlay scratch disk (discarded on exit).
-    OVERLAY="$(mktemp -u "${TMPDIR:-/tmp}/wrdesk-overlay-XXXXXX.img")"
-    # Create a small empty writable scratch disk for the overlay (size on rig).
+    BASE="${OUT}/golden-base.ext4"
+    # Ephemeral writable overlay: fresh, formatted, discarded on exit.
+    OVERLAY="$(mktemp "${TMPDIR:-/tmp}/wrdesk-overlay-XXXXXX.img")"
     truncate -s 256M "${OVERLAY}"
-    cleanup() { rm -f "${OVERLAY}"; echo "[worker] overlay nuked: ${OVERLAY}"; }
+    mkfs.ext4 -q -F "${OVERLAY}"
+    cleanup() { rm -f "${OVERLAY}"; echo "[launch] overlay discarded: ${OVERLAY}"; }
     trap cleanup EXIT
-
-    echo "[worker] booting golden image (no net, RO base, ephemeral overlay)."
-    # shellcheck disable=SC2086
-    time "${CROSVM}" run \
-      --disable-sandbox \
-      --mem 1024 \
-      --cpus 2 \
-      --root "${HERE}/golden-base.ext4" \
-      --rwdisk "${OVERLAY}" \
-      --vsock 3 \
-      -p "init=/init console=ttyS0 root=/dev/vda ro overlay=/dev/vdb" \
+    echo "[launch] booting golden worker image (RO base + ephemeral overlay, vsock CID=${CID}, NO net)"
+    time timeout 60 "${CROSVM}" run \
+      --disable-sandbox -m 1024 -c 2 \
+      --block "path=${BASE},ro=true,root=true" \
+      --block "path=${OVERLAY}" \
+      --vsock "${CID}" \
+      -p "root=/dev/vda ro console=ttyS0 init=/init" \
+      --serial "${SERIAL}" \
       "${KERNEL}"
-    # NOTE: NO --net / --tap-* flag anywhere => zero egress.
-    # NOTE: --vsock CID=3 reserves the host<->guest socket channel for Build 2b's
-    #       job I/O. Confirm `--vsock` is accepted by this crosvm build (§4).
+    # NOTE: no --net anywhere => zero egress. --vsock reserves the host<->guest
+    # socket channel (see vsock-echo.sh for the proven round-trip).
     ;;
 
   *)

@@ -7,10 +7,32 @@ Build 2b (`CrosvmProvider` + invariant proofs + orchestrator cutover) is written
 against discovered facts, not guesses.
 
 > **Provenance:** this directory was authored on the **Windows dev box**, which
-> cannot run crosvm/KVM. So §1–§4 below are **not yet executed on the rig** —
-> they are the turnkey procedure to run there. The one platform-agnostic piece
-> (the worker bundle + bare-Node smoke) **is** verified off-rig; see "Verified
-> here" below. Trust the machine over this doc; correct it with real results.
+> cannot run crosvm/KVM. As of Build 2a it has now been **executed end-to-end on
+> the mini-PC** (bare-metal AMD Ryzen 5 3550H, Ubuntu 24.04.4, kernel
+> 6.17.0-29-generic). The verified results are recorded under **"RIG RESULTS
+> (Build 2a — VERIFIED)"** immediately below; the build scripts
+> (`build-golden-image.sh`, `crosvm-launch.sh`, `vsock-echo.{c,sh}`) reflect the
+> real crosvm CLI discovered here, not the original guesses.
+
+---
+
+## RIG RESULTS (Build 2a — VERIFIED on the mini-PC, 2026-06-03)
+
+**Host:** AMD Ryzen 5 3550H · Ubuntu 24.04.4 LTS · kernel `6.17.0-29-generic` · 12 GiB RAM.
+
+| Gate | Result |
+|---|---|
+| **§1 SVM / KVM** | `svm` on all 8 threads; `/dev/kvm` accessible via per-user ACL (`user:konge:rw-`). |
+| **§2 crosvm built + trivial boot** | Built from source (HEAD `938fc36`, Rust 1.96.0) in **2m23s**, `--no-default-features --features qcow` (avoids gpu/slirp/audio libs). Hello-world initramfs boot→run→shutdown in **~1.5s** wall-clock. |
+| **§3 golden worker image** | Reuses the **host kernel** (`VIRTIO_BLK`/`VIRTIO_CONSOLE`/`EXT4_FS`/`SERIAL_8250` are `=y`). 400 MB ext4 base = Node v22.22.0 + 77 KB `worker-bundle.cjs` + busybox + glibc + vsock/overlay `.ko`. **Worker executes in-guest** (emits a valid signed `JobResult`). Root mounts `ro`; ephemeral overlay (`/dev/vdb`) mounts rw, is **pristine on every boot** (canary proof across two boots), discarded on exit. Boot ~2.3s. |
+| **§4 ★ host↔guest I/O** | **virtio-vsock works.** Host `AF_VSOCK` client ↔ guest (CID 3, port 1234) JSON echo round-trip **PASS**. **No shared filesystem** (pure socket). **Zero egress** confirmed — guest has only `lo` (no `--net` passed). |
+
+### Key facts that change Build 2b's design
+
+- **crosvm CLI (this build, HEAD 938fc36):** `--root` / `--rwroot` / `--rwdisk` / `--disk` / `-d` are **DEPRECATED → use `--block path=…,ro=BOOL,root=BOOL`**. `--cid` → **`--vsock <CID>`**. `--tap-*` / `--vhost-net` → `--net` (omit entirely for zero egress). There is no `--version` subarg; use the device subcommands via `crosvm --help`.
+- **Guest-side vsock + overlayfs are kernel MODULES** (`=m`) in the host kernel, so the rootfs stages `vsock.ko`, `vmw_vsock_virtio_transport_common.ko`, `vmw_vsock_virtio_transport.ko` (and `overlay.ko`) and `insmod`s them in this load order. Build 2b either keeps doing this or builds a tailored guest kernel with them `=y`.
+- **Recommended I/O channel for 2b: virtio-vsock**, framing the `guestEntry.ts` IN/OUT JSON one object per connection. No virtio-fs / shared folder anywhere (WSL2 coupling stays rejected).
+- **Host prerequisite for vsock:** `/dev/vhost-vsock` access. On this box granted via ACL (`setfacl -m u:$USER:rw /dev/vhost-vsock`, persisted by a udev rule) — see `host-setup-root.sh`.
 
 ---
 
@@ -147,14 +169,33 @@ no-shared-FS confirmation, and zero-egress confirmation.
 
 ---
 
-## §5 — Deliverables checklist (fill in on the rig)
+## §5 — Deliverables checklist (filled in on the rig, 2026-06-03)
 
-1. Prereqs: SVM ☐, `/dev/kvm` ☐, kernel/distro ☐ (or the exact fix).
-2. crosvm installed + trivial guest boots ☐ — method, version, boot time, args.
-3. Golden image boots worker; RO-base + ephemeral-overlay proven ☐ — steps recorded here.
-4. ★ Host↔guest I/O channel chosen + round-trip proven + no-shared-FS + zero-egress ☐.
-5. **Build 2b readiness paragraph** ☐ (below).
-6. Commit results/edits on `feature/layered-sandbox`.
+1. Prereqs: SVM ☑, `/dev/kvm` ☑ (ACL), kernel `6.17.0-29-generic` / Ubuntu 24.04.4 ☑.
+2. crosvm installed + trivial guest boots ☑ — source build HEAD `938fc36`, Rust 1.96.0, `--no-default-features --features qcow`, hello boot ~1.5s.
+3. Golden image boots worker; RO-base + ephemeral-overlay proven ☑ — `build-golden-image.sh` + `crosvm-launch.sh worker`; canary proof across two boots.
+4. ★ Host↔guest I/O channel chosen + round-trip proven + no-shared-FS + zero-egress ☑ — **virtio-vsock**, `vsock-echo.sh` PASS, guest has only `lo`.
+5. **Build 2b readiness paragraph** ☑ (below).
+6. Commit results/edits on `feature/layered-sandbox` ☑.
+
+### Build 2b readiness
+
+**Yes — the real `CrosvmProvider` can be written against the channel found here.**
+All three pillars 2b needs are proven on this box: (a) **create→run→nuke** maps to
+the verified RO-base ext4 + per-boot ephemeral overlay (`mktemp` + `mkfs` +
+`trap rm`); the overlay is genuinely discarded (canary pristine across boots).
+(b) **pass-bytes-in / get-result-out** maps to **virtio-vsock**: the round-trip is
+proven, and `guestEntry.ts` already speaks the one-JSON-object-each-way contract —
+2b swaps its stdin/stdout shim for a vsock listener (guest) + `AF_VSOCK` client
+(host) framing the same JSON. (c) **zero egress** is the default (no `--net`;
+guest shows only `lo`). **No blockers.** Carry-overs for 2b: (i) stage the
+guest vsock modules (or build a kernel with them `=y`); (ii) replace the
+deprecated disk/cid flags with `--block`/`--vsock` (scripts already do);
+(iii) the guest's per-job Ed25519 result signing key is still unattested — VM
+identity attestation remains a later build, and the orchestrator must keep
+re-validating `safeText` via `validateSafeText` regardless. Note also: this spike
+**reuses the host kernel** for speed; 2b may want a pinned, minimal guest kernel
+for reproducibility, but it is not required for correctness.
 
 ---
 
