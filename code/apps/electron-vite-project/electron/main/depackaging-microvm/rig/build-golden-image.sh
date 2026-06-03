@@ -63,6 +63,12 @@ for applet in sh mount umount echo cat ls insmod poweroff sleep mkdir; do
 done
 # The worker payload.
 cp "${HERE}/dist/worker-bundle.cjs" "${ROOTFS}/opt/worker/worker-bundle.cjs"
+# Build 2b: the static guest-side vsock job server (wires the vsock connection
+# onto node's stdin/stdout — same JSON contract, transport = socket).
+gcc -static -O2 -o "${ROOTFS}/bin/vsock-job-server" "${HERE}/vsock-job-server.c"
+# Build 2b: the static host-side vsock client CrosvmProvider spawns (Node has no
+# native AF_VSOCK). Lives in $OUT (overridable via CrosvmProviderConfig).
+gcc -static -O2 -o "${OUT}/vsock-host-client" "${HERE}/vsock-host-client.c"
 
 echo "[4/6] Stage vsock + overlay kernel modules (decompressed for busybox insmod)"
 MODOUT="${ROOTFS}/lib/modules"
@@ -76,35 +82,23 @@ stage_mod "${MODDIR}/kernel/net/vmw_vsock/vmw_vsock_virtio_transport.ko.zst"
 stage_mod "${MODDIR}/kernel/fs/overlayfs/overlay.ko.zst"
 ls -l "${MODOUT}"
 
-echo "[5/6] Install the guest init (Build 2a smoke; NO lifecycle/job-loop — that is 2b)"
+echo "[5/6] Install the guest init (Build 2b: vsock job server -> worker; fire-and-forget)"
+# JOB_PORT must match CrosvmProvider's vsockPort (default 5252).
 cat > "${ROOTFS}/init" <<'INIT'
 #!/bin/sh
 /bin/busybox mount -t proc proc /proc 2>/dev/null
 /bin/busybox mount -t sysfs sys /sys 2>/dev/null
 /bin/busybox mount -t devtmpfs dev /dev 2>/dev/null
-echo "================ GOLDEN-WORKER GUEST ================"
-echo "node: $(/bin/node --version 2>&1)"
-echo "worker-bundle present: $([ -f /opt/worker/worker-bundle.cjs ] && echo yes || echo NO)"
-# Trivial worker invocation: prove it starts, reads the IN shape, emits JSON.
-echo "--- worker trivial invocation (empty key -> structured error JSON expected) ---"
-echo '{"jobId":"guest-boot","inputBytes_b64":"","sandboxPeerX25519PubB64":""}' \
-  | /bin/node /opt/worker/worker-bundle.cjs ; echo
-# RO-base + ephemeral-overlay proof: /dev/vdb is the writable overlay disk,
-# created fresh + formatted by crosvm-launch.sh and discarded on VM exit.
-echo "--- overlay (ephemeral writable scratch) proof ---"
-echo "root mount flags: $(/bin/busybox cat /proc/mounts | /bin/busybox grep ' / ')"
-if [ -b /dev/vdb ]; then
-  /bin/busybox mount /dev/vdb /work 2>/dev/null && echo "overlay mounted rw at /work"
-  if [ -f /work/canary ]; then
-    echo "OVERLAY-NOT-PRISTINE: stale canary found -> $(/bin/busybox cat /work/canary)"
-  else
-    echo "overlay PRISTINE (no stale canary)"
-    echo "boot-$(/bin/busybox date +%s 2>/dev/null || echo X) canary" > /work/canary \
-      && echo "wrote canary -> $(/bin/busybox cat /work/canary)" \
-      && echo "overlay is WRITABLE; this write is discarded when the VM exits"
-  fi
-fi
-echo "===================================================="
+/bin/busybox mount -t tmpfs tmpfs /tmp 2>/dev/null
+# vsock guest driver is a module (=m) in the reused host kernel — load in order.
+/bin/busybox insmod /lib/modules/vsock.ko 2>/dev/null
+/bin/busybox insmod /lib/modules/vmw_vsock_virtio_transport_common.ko 2>/dev/null
+/bin/busybox insmod /lib/modules/vmw_vsock_virtio_transport.ko 2>/dev/null
+# Ephemeral writable overlay disk (vdb), mounted for the worker's scratch; the
+# whole disk is discarded by CrosvmProvider on nuke (RO base never mutates).
+[ -b /dev/vdb ] && /bin/busybox mount /dev/vdb /work 2>/dev/null
+# Serve exactly one job over vsock, then power off (create->run->nuke).
+/bin/vsock-job-server 5252 /bin/node /opt/worker/worker-bundle.cjs
 /bin/busybox poweroff -f
 INIT
 chmod +x "${ROOTFS}/init"
