@@ -97,7 +97,7 @@ describe('Invariant 2 — blind courier', () => {
     const { verifyJobResultSignature } = await import('../hypervisorProvider')
     const job = runDepackagingJob({
       jobId: 'j2',
-      kind: 'depackaging',
+      kind: 'depackage',
       inputBytes: craftEmailWithSecretAttachment(),
       sandboxPeerX25519PubB64: sandbox.pubB64,
     })

@@ -60,7 +60,7 @@ async function main(): Promise<void> {
 
   const spec: JobSpec = {
     jobId: parsed.jobId,
-    kind: 'depackaging',
+    kind: 'depackage',
     inputBytes: Buffer.from(parsed.inputBytes_b64 ?? '', 'base64'),
     sandboxPeerX25519PubB64: parsed.sandboxPeerX25519PubB64,
   }

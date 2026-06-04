@@ -66,7 +66,7 @@ function eml(parts: string[]): Buffer {
 }
 
 async function runOne(provider: CrosvmProvider, inputBytes: Buffer, pubB64: string, jobId: string): Promise<JobResult> {
-  const spec: JobSpec = { jobId, kind: 'depackaging', inputBytes, sandboxPeerX25519PubB64: pubB64 }
+  const spec: JobSpec = { jobId, kind: 'depackage', inputBytes, sandboxPeerX25519PubB64: pubB64 }
   return provider.runJob(spec)
 }
 

@@ -23,8 +23,20 @@ import { createHash } from 'crypto'
 import type { SafeTextV1 } from './safeText'
 import type { BlobArtifact } from './depackagingWorker'
 
-/** What kind of isolated job to run. Build 1 implements only `depackaging`. */
-export type JobKind = 'depackaging'
+/**
+ * What kind of isolated critical job to run. This is the shared critical-job
+ * vocabulary (see `electron/main/critical-jobs/types.ts`, where it is re-exported
+ * as `CriticalJobKind`). The crosvm microVM backend currently *executes* only
+ * `'depackage'`; the other kinds exist so the routing seam can type-resolve them
+ * to other executors. Generalized from the original single literal `'depackaging'`
+ * (Build A, JobKind migration).
+ */
+export type JobKind =
+  | 'depackage'
+  | 'validate-depackaged'
+  | 'validate-native-beap'
+  | 'open-link'
+  | 'view-attachment'
 
 /**
  * Immutable description of one isolated job. The `inputBytes` are the untrusted
