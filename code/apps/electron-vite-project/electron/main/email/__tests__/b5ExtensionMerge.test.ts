@@ -33,6 +33,11 @@ import { createRequire } from 'module'
 import { randomUUID, createHash, createHmac } from 'crypto'
 import { validateDecryptedBeapContent } from '@repo/ingestion-core'
 
+// Unrelated to B2.2: §G.1 dynamically imports the email/IPC module graph and
+// flirts with the 5s default timeout under heavy parallel load (pre-existing
+// flake; assertions always pass). Bump it — same treatment as hardening.test.ts.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 })
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Mocks (module-level hoisting)
 // ─────────────────────────────────────────────────────────────────────────────
