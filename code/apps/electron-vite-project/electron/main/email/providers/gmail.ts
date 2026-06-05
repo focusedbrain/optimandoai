@@ -430,6 +430,11 @@ export class GmailProvider extends BaseEmailProvider {
       // above still supplies envelope metadata; this is additive (extra fetch),
       // and the flag-off path is untouched.
       if (msg && isSeamDepackageCutoverEnabled()) {
+        // D5.1 byte-courier: flag-ON the orchestrator holds NO untrusted body —
+        // the guest derives body from `rawRfc822`. The `format=full` parse above
+        // is retained ONLY for envelope metadata; its body output is dropped.
+        msg.bodyText = undefined
+        msg.bodyHtml = undefined
         try {
           const rawResp = await this.apiRequest('GET', `/users/me/messages/${messageId}?format=raw`)
           const rawB64Url = (rawResp as { raw?: string })?.raw

@@ -54,6 +54,7 @@ import {
   generateSnippet
 } from './sanitizer'
 import { extractPdfText, isPdfFile, supportsTextExtraction } from './pdf-extractor'
+import { assertNoInlineParse } from './inlineParseGuard'
 import {
   encryptOAuthTokens,
   decryptOAuthTokens,
@@ -2438,6 +2439,9 @@ class EmailGateway implements IEmailGateway {
   }
   
   private sanitizeMessage(raw: RawEmailMessage, accountId: string): SanitizedMessage {
+    // D5.2 invariant-0 guard: only derive snippet text from untrusted HTML when
+    // the cutover is OFF; flag-on the guest owns body derivation (fail closed).
+    if (!raw.bodyText && raw.bodyHtml) assertNoInlineParse('gateway.sanitizeMessage.htmlToText')
     const bodyText = raw.bodyText || sanitizeHtmlToText(raw.bodyHtml || '')
     
     return {
@@ -2484,6 +2488,10 @@ class EmailGateway implements IEmailGateway {
     if (raw.bodyText) {
       bodyText = raw.bodyText
     } else if (raw.bodyHtml) {
+      // D5.2 invariant-0 guard: deriving display text from untrusted HTML in the
+      // orchestrator is forbidden while the cutover is ON (the guest derives it).
+      // Reaching here flag-on is a missed-cutover regression → fail closed.
+      assertNoInlineParse('gateway.sanitizeMessageDetail.htmlToText')
       bodyText = sanitizeHtmlToText(raw.bodyHtml)
     } else {
       bodyText = ''

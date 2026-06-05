@@ -1008,8 +1008,12 @@ export class ImapProvider extends BaseEmailProvider {
                     cc: ccAddresses,
                     replyTo: replyToAddresses[0],
                     date: parsed.date || new Date(),
-                    bodyHtml: parsed.html || undefined,
-                    bodyText: parsed.text || undefined,
+                    // D5.1 byte-courier: flag-ON the orchestrator holds NO untrusted
+                    // body content — the guest derives body from `rawRfc822`. The
+                    // parse above is retained ONLY for envelope metadata (from/to/
+                    // subject/date); its body output is dropped. flag-OFF unchanged.
+                    bodyHtml: isSeamDepackageCutoverEnabled() ? undefined : (parsed.html || undefined),
+                    bodyText: isSeamDepackageCutoverEnabled() ? undefined : (parsed.text || undefined),
                     flags: {
                       seen: false,
                       flagged: false,

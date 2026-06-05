@@ -39,6 +39,7 @@ import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
 import { decryptQBeapPackage } from '../beap/decryptQBeapPackage'
 import { validatorOrchestrator } from '../validator-process/orchestrator'
 import { isSeamValidationCutoverEnabled, isSeamDepackageCutoverEnabled } from '../critical-jobs/featureFlags'
+import { assertNoInlineParse } from './inlineParseGuard'
 import { prepareSealedInsert, runSealedTransaction, computeSeal, type ChildAttachmentDescriptor } from '../sealed-storage/index'
 import {
   listAvailableInternalSandboxes,
@@ -332,12 +333,20 @@ export async function detectAndRouteMessage(
  * flag-off path AND the proven pipeline-2 path that the B2 seam consumer re-enters
  * for an extracted carrier package (passing the package JSON as `text`).
  */
-async function detectAndRouteMessageInline(
+export async function detectAndRouteMessageInline(
   db: any,
   accountId: string,
   rawMsg: RawEmailMessage,
   session?: SSOSession | null,
+  viaSeam = false,
 ): Promise<DetectAndRouteResult> {
+  // D5.2 invariant-0 guard: inline raw-byte carrier detection here is forbidden
+  // while the cutover is ON — the guest does the parsing. The ONLY legitimate
+  // flag-on entry is the seam re-entering with a guest-EXTRACTED package (already
+  // vetted, not raw untrusted bytes), signalled by `viaSeam`. Any other flag-on
+  // entry is a missed-cutover regression → fail closed (E_INLINE_PARSE_FORBIDDEN).
+  if (!viaSeam) assertNoInlineParse('messageRouter.detectAndRouteMessageInline')
+
   const messageId = resolveStorageEmailMessageId(accountId, rawMsg)
   const inboxMessageId = randomUUID()
   const now = new Date().toISOString()
@@ -952,7 +961,7 @@ async function routeViaDepackageSeam(
       attachments: [],
       rawRfc822: undefined,
     }
-    return detectAndRouteMessageInline(db, accountId, beapRawMsg, session)
+    return detectAndRouteMessageInline(db, accountId, beapRawMsg, session, true)
   }
 
   // Plain mail: consumer-wrap the guest SafeText, preserve sealed originals.
