@@ -25,6 +25,7 @@ import {
   routeValidatedCapsule,
   prepareCoordinationRelayNativeBeapRawInput,
 } from '@repo/ingestion-core'
+import { isSeamValidationCutoverEnabled } from '../critical-jobs/featureFlags'
 
 export async function processIncomingInput(
   rawInput: RawInput,
@@ -59,8 +60,35 @@ export async function processIncomingInput(
       }
     }
 
-    // Stage 2: Validate
-    const validationResult = validateCapsule(candidate)
+    // Stage 2: Validate (native BEAP pipeline — structural).
+    // B1 cutover: behind WRDESK_SEAM_VALIDATION_CUTOVER this routes through the
+    // critical-job dispatcher (in-process → the same pure `validateCapsule`, so
+    // parity is byte-identical). Flag OFF runs the original inline call. A seam
+    // dispatch failure fails closed to the existing 'error' return (no insert).
+    let validationResult: ReturnType<typeof validateCapsule>
+    if (isSeamValidationCutoverEnabled()) {
+      // Lazy import so flag-off never pulls the seam graph at module load.
+      const { dispatchValidateNativeBeap } = await import('../critical-jobs/liveValidationCutover')
+      const out = await dispatchValidateNativeBeap(candidate)
+      if (!out.ok) {
+        const audit = buildAuditRecord(
+          candidate.provenance.raw_input_hash,
+          candidate.provenance.source_type,
+          candidate.provenance.origin_classification,
+          candidate.provenance.input_classification,
+          'error',
+          Math.round(performance.now() - startTime),
+        )
+        return {
+          success: false,
+          reason: `Seam validation dispatch failed (${out.code})`,
+          audit,
+        }
+      }
+      validationResult = out.value
+    } else {
+      validationResult = validateCapsule(candidate)
+    }
     const durationMs = Math.round(performance.now() - startTime)
 
     // Wall-clock budget check after validation
