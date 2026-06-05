@@ -16,11 +16,17 @@ Execute the runbook later (mini-PC session + provider-account session); check of
 
 `git pull` on the rig; branch + HEAD sanity; confirm both flags' states (B1 cutover
 ON for soak is fine; B2 depackage flag OFF). Confirm `worker-bundle.cjs` on disk
-matches the bundle built from this branch (B2.1/D6 uplift = Phase 1 + D4):
+matches the bundle built from this branch (B2.2 uplift = Phase 1 + D4 + in-guest
+display envelope + threading hints):
 
 ```
-sha256(rig/dist/worker-bundle.cjs) = cb04ae5150daee06fb8d27d776492421445fb444354c14ac85fed37b0155eead
+sha256(rig/dist/worker-bundle.cjs) = f7310ffdb081275921de5c692923ea94fb880d5da21d4def47264d13bc22b6d7
 ```
+
+> **Superseded:** the B2.1/D6 hash was
+> `cb04ae5150daee06fb8d27d776492421445fb444354c14ac85fed37b0155eead`; B2.2 adds the
+> in-guest envelope/threading derivation, so the bundle hash changes. Use the B2.2
+> hash above.
 
 Regenerate + verify with:
 
@@ -32,11 +38,12 @@ sha256sum apps/electron-vite-project/electron/main/depackaging-microvm/rig/dist/
 The bundle is a reproducible build artifact (git-ignored); the hash above is the
 authoritative reference for V0. If it differs, rebuild before proceeding.
 
-> **Golden-image refresh (B2.1/D6):** the rig golden image embeds the worker
-> bundle. Before V1/V2/V3 runs, refresh it with the B2.1 bundle (hash above):
-> rebuild via `buildWorkerBundle.mjs`, copy `rig/dist/worker-bundle.cjs` into the
-> rootfs alongside the node binary, and re-verify the in-image hash matches. The
-> pre-B2.1 image only contains the B1 worker and will NOT exercise the email path.
+> **Golden-image refresh (B2.2):** the rig golden image embeds the worker bundle.
+> Before V1/V2/V3 runs, refresh it with the B2.2 bundle (hash above): rebuild via
+> `buildWorkerBundle.mjs`, copy `rig/dist/worker-bundle.cjs` into the rootfs
+> alongside the node binary, and re-verify the in-image hash matches. An image
+> built on the B2.1/D6 bundle (`cb04ae51…`) lacks the in-guest envelope/threading
+> derivation and will fail V3/V4's envelope-parity legs — rebuild before running.
 
 ## V1 — Rig Phase 0 (carried-forward prerequisite)
 
@@ -59,11 +66,16 @@ With a live IMAP test account configured on the rig orchestrator, flag ON,
 role=sandbox, exec=microvm: a real fetched email is depackaged in a per-action
 crosvm microVM via `dispatch()`; the guard instrumentation proves the orchestrator
 never parsed the raw bytes; overlay nuked; sealed insert + UI notification normal.
-Dated `rig/README.md` append: **invariant-0 closed for the sandbox+microvm
-configuration on the email path** — the first machine-verified instance of the
-product's core security claim. Run at least: one plain-text mail, one HTML-only
-mail (R1 path), one carrier mail (extracted package handed to the B1-routed
-pipeline-2 path), one malformed/limit-breaching mail (→ quarantine, INV-7).
+Dated `rig/README.md` append: **invariant-0 closed (UNQUALIFIED) for the
+sandbox+microvm configuration on the email path** — body, classification, AND
+headers are parsed only in-guest; the orchestrator retains no header parse flag-on
+(B2.2 removed the last one). This is the first machine-verified instance of the
+product's core security claim with no exceptions. Run at least: one plain-text
+mail, one HTML-only mail (R1 path), one carrier mail (extracted package handed to
+the B1-routed pipeline-2 path), one malformed/limit-breaching mail (→ quarantine,
+INV-7), and one encoded-word-subject + degraded-header mail (→ guest-decoded
+envelope, degraded field marked, message still processed — display degradation,
+not risk routing, per spec 0013 §1.2).
 
 ## V4 — Real-mail parity suites (exit criterion 2; provider accounts)
 
@@ -72,6 +84,18 @@ from spec 0007 §5.4 — carrier mail: extracted packages byte-identical to toda
 extraction; plain mail: derived text equal per the R1 corpus, sealed originals
 added, renderer output unchanged; failures: quarantine outcomes per mapping table.
 Flag-on vs flag-off on the same fixture set.
+
+> **Envelope-parity legs (B2.2, per provider):** on the well-formed corpus the
+> flag-on inbox envelope (subject/from/to/cc/date) — now derived in-guest — must
+> equal today's flag-off parsed envelope. Corpus must include: encoded-word
+> subjects (B64 + QP, multiple charsets), address lists with quoted-comma display
+> names, and malformed/oversized headers (→ degraded placeholder + `degradedFields`
+> marker, message still processed). Threading legs: IMAP `imap_rfc_message_id`
+> equals the guest-derived `threadingHints.messageId` (no orchestrator parse);
+> Gmail keys on `threadId`, Outlook on `conversationId` (provider-native). The
+> off-rig dual-form equivalence corpus
+> (`providerStructuredWalker.equivalence.test.ts`) already asserts RFC822==Graph
+> for envelope + threading on synthetic pairs; V4 confirms on real mail.
 
 > Prerequisite (0008 D4): the `provider-structured-json` guest walker **is now
 > built** (B2.1, report `0012`): Outlook no longer HELDs by design — flag-on it
