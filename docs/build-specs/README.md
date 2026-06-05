@@ -14,9 +14,8 @@ they conflict.
 | 0002 | [Amendment 1](./0002-b1-amendment-1.md) | Pipeline separation, INV-6 correction, kind rename (`validate-depackaged` → `validate-decrypted-beap`), `decrypt-qbeap` reserved |
 | 0003 | [Consolidated B1 spec](./0003-b1-consolidated-spec.md) | Authoritative B1 scope + answers Q1–Q5 (validation-leg cutover only; MIME-depackage deferred to B2) |
 | 0004 | [B1 closeout](./0004-b1-closeout.md) | Acceptance + three closeout tasks; soak/carry-forward notes |
-
-B2 (email depackaging pipeline: raw mail → depackage → BEAP capsule) will begin
-with an analysis spec that arrives here as the next numbered file.
+| 0005 | [B2 analysis spec](./0005-b2-analysis-spec.md) | Email depackaging pipeline analysis brief (raw mail → `depackage` → BEAP capsule) — analysis only |
+| 0006 | [B2 analysis report](./0006-b2-analysis-report.md) | Findings A–H, result/capsule contracts, build plan sketch, rig exit criteria, contradictions, ranked open questions |
 
 ## Where B1 landed in code
 
