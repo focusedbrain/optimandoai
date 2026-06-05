@@ -1,6 +1,10 @@
 import { describe, test, expect, vi } from 'vitest'
 import { validateCapsule, ingestInput } from '@repo/ingestion-core'
 import { processIncomingInput } from '../ingestionPipeline'
+
+// Unrelated to B1: this suite loads the email/IPC graph at import (~4.9s) and
+// flirts with the 5s default timeout under heavy parallel load. Bump it.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 })
 import type {
   CandidateCapsuleEnvelope,
   ProvenanceMetadata,
