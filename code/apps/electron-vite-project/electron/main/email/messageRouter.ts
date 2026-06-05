@@ -38,6 +38,7 @@ import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pd
 import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
 import { decryptQBeapPackage } from '../beap/decryptQBeapPackage'
 import { validatorOrchestrator } from '../validator-process/orchestrator'
+import { isSeamValidationCutoverEnabled } from '../critical-jobs/featureFlags'
 import { prepareSealedInsert, runSealedTransaction, computeSeal, type ChildAttachmentDescriptor } from '../sealed-storage/index'
 import {
   listAvailableInternalSandboxes,
@@ -533,16 +534,36 @@ export async function detectAndRouteMessage(
     }
 
     if (canonicalJson !== null) {
-      // ── Validate depackaged content ──
+      // ── Validate decrypted BEAP content (native BEAP pipeline) ──
+      // B1 cutover: behind WRDESK_SEAM_VALIDATION_CUTOVER this validation leg
+      // routes through the critical-job dispatcher (in-process → same forked
+      // validator subprocess, so parity is byte-identical). Flag OFF keeps the
+      // original inline call verbatim. The qBEAP/pBEAP decrypt above is untouched.
       const provenance = buildProvenance(fromAddr, messageId, bodyText, 'beap_capsule_present')
-      const resp = await validatorOrchestrator.validate({
+      const validationInput = {
         envelope: packageObj ?? {},
-        plaintext_or_encrypted: { kind: 'plaintext', content: canonicalJson },
+        plaintext_or_encrypted: { kind: 'plaintext' as const, content: canonicalJson },
         provenance,
         target_row_id: inboxMessageId,
-      })
+      }
+      let resp: Awaited<ReturnType<typeof validatorOrchestrator.validate>> | null = null
+      if (isSeamValidationCutoverEnabled()) {
+        // Lazy import so flag-off never pulls the seam graph at module load.
+        const { dispatchValidateDecryptedBeap } = await import('../critical-jobs/liveValidationCutover')
+        const out = await dispatchValidateDecryptedBeap(validationInput)
+        if (out.ok) {
+          resp = out.value
+        } else {
+          // Dispatcher/executor failure → fail closed to the quarantine path
+          // (never an unvalidated insert, never a silent drop).
+          depackageError = `seam_validation_dispatch_failed:${out.code}`
+          canonicalJson = null
+        }
+      } else {
+        resp = await validatorOrchestrator.validate(validationInput)
+      }
 
-      if (resp.outcome.ok) {
+      if (resp && resp.outcome.ok) {
         const sealed = resp.outcome.sealed
         const { seal, seal_input_json } = computeSeal(sealed.canonical_json, inboxMessageId, 'outer')
         writePayload = {
@@ -556,10 +577,12 @@ export async function detectAndRouteMessage(
           validatorVersion: sealed.validator_version,
           validationReason: null,
         }
-      } else {
+      } else if (resp) {
         depackageError = `validator rejected: ${resp.outcome.sealed_quarantine.rejection_reason}`
         canonicalJson = null
       }
+      // resp === null means a seam dispatch failure already set depackageError +
+      // canonicalJson = null above; fall through to the quarantine path.
     }
 
     if (canonicalJson === null) {

@@ -32,6 +32,7 @@ import { evaluateAutoresponder } from '../beap/autoresponderEvaluator'
 import { logAutoresponderDecision } from '../beap/autoresponderAudit'
 import { makeInboxAttachmentStorageId, buildQuarantineCanonicalJson, findPairedSandboxHandshake } from './messageRouter'
 import { validatorOrchestrator } from '../validator-process/orchestrator'
+import { isSeamValidationCutoverEnabled } from '../critical-jobs/featureFlags'
 import type { ReasonCode } from '../vault/capabilityBroker'
 import { prepareSealedInsert, prepareSealedOperationalUpdate, computeSeal } from '../sealed-storage/index'
 import type { KeySource } from '../sealed-storage/index'
@@ -1235,14 +1236,32 @@ async function processBeapPackageInlineInternal(
       }
     } else {
       // ── Confidential path: inner vault + validator subprocess ─────────────
+      // B1 cutover: behind WRDESK_SEAM_VALIDATION_CUTOVER this post-decrypt
+      // validation routes through the critical-job dispatcher (in-process → same
+      // forked validator subprocess; byte-identical parity). Flag OFF runs the
+      // original inline call. The qBEAP/pBEAP decrypt above stays untouched.
       const provenance = buildP2PProvenance(handshakeId, transportSender, sourceType, packageJson)
-      const resp = await validatorOrchestrator.validate({
+      const validationInput = {
         envelope: pkg,
-        plaintext_or_encrypted: { kind: 'plaintext', content: depackagedJsonForRow },
+        plaintext_or_encrypted: { kind: 'plaintext' as const, content: depackagedJsonForRow },
         provenance,
         target_row_id: rowId,
-      })
-      if (resp.outcome.ok) {
+      }
+      let resp: Awaited<ReturnType<typeof validatorOrchestrator.validate>> | null = null
+      if (isSeamValidationCutoverEnabled()) {
+        // Lazy import so flag-off never pulls the seam graph at module load.
+        const { dispatchValidateDecryptedBeap } = await import('../critical-jobs/liveValidationCutover')
+        const out = await dispatchValidateDecryptedBeap(validationInput)
+        if (out.ok) {
+          resp = out.value
+        } else {
+          // Dispatcher/executor failure → fail closed to the quarantine path.
+          depackageError = `seam_validation_dispatch_failed:${out.code}`
+        }
+      } else {
+        resp = await validatorOrchestrator.validate(validationInput)
+      }
+      if (resp && resp.outcome.ok) {
         const sealed = resp.outcome.sealed
         if (isSandboxClone) {
           console.log(`[CLONE_RECEIVE] classified_as_clone cloneId=clone-${rowId.slice(0, 8)} messageId=${rowId} encoding=${pkgEncoding ?? 'qBEAP'} handshake=${handshakeId}`)
@@ -1278,7 +1297,11 @@ async function processBeapPackageInlineInternal(
         }
         return inlineResult
       }
-      depackageError = `validator rejected: ${resp.outcome.sealed_quarantine.rejection_reason}`
+      if (resp) {
+        depackageError = `validator rejected: ${resp.outcome.sealed_quarantine.rejection_reason}`
+      }
+      // resp === null means a seam dispatch failure already set depackageError;
+      // fall through to the quarantine path below.
     }
   }
 
