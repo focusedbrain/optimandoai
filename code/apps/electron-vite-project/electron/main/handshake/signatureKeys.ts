@@ -11,6 +11,7 @@
  */
 
 import { createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto'
+import { isWeakEd25519PublicKey } from '../security/ed25519WeakKey'
 
 export interface SigningKeypair {
   /** Hex-encoded raw 32-byte Ed25519 public key (64 chars) */
@@ -82,6 +83,10 @@ export function verifyCapsuleSignature(
   if (!/^[a-f0-9]{64}$/i.test(capsuleHash)) return false
   if (!/^[a-f0-9]{128}$/i.test(signatureHex)) return false
   if (!/^[a-f0-9]{64}$/i.test(publicKeyHex)) return false
+  // Reject small-order / identity / non-canonical public keys before verify:
+  // the all-zero key is a small-order point that native verify accepts with an
+  // all-zero signature (forgery vector at TOFU capsule ingest). INV-7.
+  if (isWeakEd25519PublicKey(new Uint8Array(Buffer.from(publicKeyHex, 'hex')))) return false
   try {
     const data = Buffer.from(capsuleHash, 'hex')
     const sig = Buffer.from(signatureHex, 'hex')
