@@ -38,7 +38,7 @@ import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pd
 import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
 import { decryptQBeapPackage } from '../beap/decryptQBeapPackage'
 import { validatorOrchestrator } from '../validator-process/orchestrator'
-import { isSeamValidationCutoverEnabled } from '../critical-jobs/featureFlags'
+import { isSeamValidationCutoverEnabled, isSeamDepackageCutoverEnabled } from '../critical-jobs/featureFlags'
 import { prepareSealedInsert, runSealedTransaction, computeSeal, type ChildAttachmentDescriptor } from '../sealed-storage/index'
 import {
   listAvailableInternalSandboxes,
@@ -74,6 +74,15 @@ export interface RawEmailMessage {
     contentId?: string
     content?: Buffer
   }>
+  /**
+   * B2 byte-courier (R2): the OPAQUE provider payload for the email-depackage
+   * cutover — raw RFC822 (IMAP/Gmail `format=raw`) or provider-structured-json
+   * (Outlook) shipped UNPARSED. Populated by the provider/sync layer ONLY when
+   * `WRDESK_SEAM_DEPACKAGE_CUTOVER` is on; the orchestrator never inspects it.
+   * When the flag is on and this is absent, ingestion fails closed (INV-7) — it
+   * is never inline-parsed from `text`/`html`.
+   */
+  rawRfc822?: Buffer | string
 }
 
 export interface DetectAndRouteResult {
@@ -289,7 +298,33 @@ const QUARANTINE_INSERT_SQL = `
  * @param session  Current SSO session used for sandbox lookup in quarantine path.
  *                 Pass null when session is unavailable.
  */
+/**
+ * Public entry. B2 flag (`WRDESK_SEAM_DEPACKAGE_CUTOVER`, default OFF):
+ *   - OFF → the original inline path runs unchanged (byte-identical behavior).
+ *   - ON  → the opaque payload is depackaged inside the isolated guest via
+ *           `dispatch({kind:'depackage-email'})` and this becomes a consumer of
+ *           the typed result; the orchestrator never parses the raw bytes. Any
+ *           failure to establish the safety contract fails closed / quarantines
+ *           (INV-7) — there is no inline fallback while the flag is on.
+ */
 export async function detectAndRouteMessage(
+  db: any,
+  accountId: string,
+  rawMsg: RawEmailMessage,
+  session?: SSOSession | null,
+): Promise<DetectAndRouteResult> {
+  if (isSeamDepackageCutoverEnabled()) {
+    return routeViaDepackageSeam(db, accountId, rawMsg, session ?? null)
+  }
+  return detectAndRouteMessageInline(db, accountId, rawMsg, session)
+}
+
+/**
+ * The original (pre-B2) inline router. UNCHANGED — it remains the verbatim
+ * flag-off path AND the proven pipeline-2 path that the B2 seam consumer re-enters
+ * for an extracted carrier package (passing the package JSON as `text`).
+ */
+async function detectAndRouteMessageInline(
   db: any,
   accountId: string,
   rawMsg: RawEmailMessage,
@@ -802,6 +837,231 @@ export async function detectAndRouteMessage(
     messageId,
     inboxMessageId,
   }
+}
+
+// ── B2 email-depackage cutover consumer (flag-gated) ─────────────────────────
+
+/**
+ * Raised when the safety contract cannot be established and the message must be
+ * HELD (not inserted, not inline-parsed) for a later retry — INV-7. The sync
+ * caller treats this as "skip this message this round", never as a downgrade.
+ */
+export class DepackageCutoverHeldError extends Error {
+  constructor(public readonly reason: string) {
+    super(`depackage cutover held: ${reason}`)
+    this.name = 'DepackageCutoverHeldError'
+  }
+}
+
+/** Quarantine mapping table (0007 §5.3 / 0008 §4): code → typed reason string. */
+function mapDepackageCodeToReason(code: string): string {
+  switch (code) {
+    case 'E_MALFORMED_MIME': return 'email_depackage_malformed'
+    case 'E_LIMITS_EXCEEDED': return 'email_depackage_limits'
+    case 'E_DECOMPRESSION_BOMB': return 'email_depackage_bomb'
+    case 'E_AMBIGUOUS_CLASSIFICATION': return 'email_depackage_ambiguous'
+    case 'E_ARTIFACT_CUSTODY_FAILED': return 'email_depackage_custody'
+    case 'E_SIGNATURE_INVALID': return 'email_depackage_sig'
+    case 'E_NO_EXECUTOR':
+    case 'E_EXECUTOR_UNAVAILABLE': return 'email_depackage_no_executor'
+    case 'E_ROLE_FORBIDDEN': return 'email_depackage_role_forbidden'
+    case 'E_TIMEOUT': return 'email_depackage_timeout'
+    case 'E_UNSUPPORTED_KIND': return 'email_depackage_unsupported'
+    default: return `email_depackage_other:${code}`
+  }
+}
+
+function toOpaqueBuffer(v: Buffer | string | undefined): Buffer | null {
+  if (v == null) return null
+  if (Buffer.isBuffer(v)) return v.length > 0 ? v : null
+  if (typeof v === 'string' && v.length > 0) return Buffer.from(v, 'utf-8')
+  return null
+}
+
+/**
+ * Flag-ON entry. INV-7 throughout: the orchestrator hands ONLY opaque bytes to
+ * the isolated guest and consumes the typed union; any safety-contract failure
+ * quarantines (raw bytes custody-sealed, typed reason) or fails closed (held).
+ * There is no inline parse, no partial-trust display, no silent downgrade.
+ */
+async function routeViaDepackageSeam(
+  db: any,
+  accountId: string,
+  rawMsg: RawEmailMessage,
+  session: SSOSession | null,
+): Promise<DetectAndRouteResult> {
+  const messageId = resolveStorageEmailMessageId(accountId, rawMsg)
+
+  // INV-7: no opaque payload obtainable ⇒ HELD (never parse text/html inline).
+  const opaque = toOpaqueBuffer(rawMsg.rawRfc822)
+  if (!opaque) {
+    throw new DepackageCutoverHeldError('opaque_payload_unobtainable')
+  }
+  // Custody key required both to depackage (seal artifacts) AND to quarantine.
+  // Without it we cannot fail closed safely ⇒ HELD for retry (never downgrade).
+  const sandbox = findPairedSandboxHandshake(db, session)
+  if (!sandbox) {
+    throw new DepackageCutoverHeldError('no_paired_sandbox')
+  }
+
+  const { dispatchDepackageEmail } = await import('../critical-jobs/liveDepackageCutover')
+  const out = await dispatchDepackageEmail(opaque, sandbox.peer_x25519_public_key_b64)
+
+  // INV-5 logging: identifiers/codes only, never plaintext/bytes.
+  if (!out.ok) {
+    console.warn('[messageRouter] depackage-email dispatch failed', { messageId, code: out.code })
+    return quarantineRawBytes(db, opaque, sandbox, messageId, rawMsg, mapDepackageCodeToReason(out.code))
+  }
+  const result = out.result
+  if (!result.ok) {
+    console.warn('[messageRouter] depackage-email worker failure', { messageId, code: result.code })
+    return quarantineRawBytes(db, opaque, sandbox, messageId, rawMsg, mapDepackageCodeToReason(result.code))
+  }
+
+  if (result.type === 'beap-carrier' || result.type === 'mixed') {
+    // Carrier: hand the FIRST extracted package (parity — the inline classifier
+    // also stops at the first) to the proven pipeline-2 path by re-entering the
+    // inline router with the package JSON as the body. The orchestrator does not
+    // parse it as MIME; it is the guest-extracted opaque package.
+    const pkg = result.packages[0]
+    const pkgJson = Buffer.from(pkg.bytesB64, 'base64').toString('utf-8')
+    console.warn('[messageRouter] depackage-email carrier', { messageId, type: result.type, packages: result.packages.length })
+    const beapRawMsg: RawEmailMessage = {
+      ...rawMsg,
+      text: pkgJson,
+      html: undefined,
+      attachments: [],
+      rawRfc822: undefined,
+    }
+    return detectAndRouteMessageInline(db, accountId, beapRawMsg, session)
+  }
+
+  // Plain mail: consumer-wrap the guest SafeText, preserve sealed originals.
+  console.warn('[messageRouter] depackage-email plain', { messageId, artifacts: result.artifacts.length })
+  return writePlainSeamInbox(db, accountId, rawMsg, messageId, result.safeText, result.artifacts)
+}
+
+/**
+ * Custody-seal the RAW opaque bytes and write a quarantine_messages row. Reuses
+ * the exact B1 quarantine discipline (encryptForQuarantine → blob → canonical →
+ * validator seal → sealed insert). The sandbox key is the caller-resolved pair.
+ */
+async function quarantineRawBytes(
+  db: any,
+  opaque: Buffer,
+  sandbox: { handshake_id: string; peer_x25519_public_key_b64: string },
+  messageId: string,
+  rawMsg: RawEmailMessage,
+  rejectionReason: string,
+): Promise<DetectAndRouteResult> {
+  const fromAddr = rawMsg.from?.address ?? (rawMsg.from as any)?.email ?? ''
+  const receivedAt = rawMsg.date || new Date().toISOString()
+  const folder = rawMsg.folder != null && String(rawMsg.folder).trim() !== '' ? String(rawMsg.folder).trim() : 'INBOX'
+
+  const encResult = encryptForQuarantine(opaque, sandbox.peer_x25519_public_key_b64)
+  if (!encResult.ok) {
+    // Cannot seal ⇒ cannot insert anything safely ⇒ HELD (INV-7; never inline).
+    throw new DepackageCutoverHeldError(`quarantine_seal_failed:${encResult.error}`)
+  }
+  const blobResult = writeQuarantineBlob(encResult.blob)
+  const quarantineId = randomUUID()
+  const qCanonicalJson = buildQuarantineCanonicalJson({
+    id: quarantineId,
+    blob_storage_id: blobResult.storage_id,
+    blob_sha256: blobResult.blob_sha256,
+    rejection_reason: rejectionReason,
+    paired_sandbox_handshake_id: sandbox.handshake_id,
+  })
+  const qProvenance = buildProvenance(fromAddr, messageId, '', 'beap_capsule_present')
+  const qResp = await validatorOrchestrator.validate({
+    envelope: {},
+    plaintext_or_encrypted: { kind: 'plaintext', content: qCanonicalJson },
+    provenance: qProvenance,
+    target_row_id: quarantineId,
+  })
+  if (!qResp.outcome.ok) {
+    // host_quarantine content should always pass; a reject is a structural bug.
+    throw new DepackageCutoverHeldError(`quarantine_validator_rejected:${qResp.outcome.sealed_quarantine.rejection_reason}`)
+  }
+  const qSealed = qResp.outcome.sealed
+  const sealedQ = prepareSealedInsert(db, QUARANTINE_INSERT_SQL)
+  sealedQ.run(
+    [
+      quarantineId, fromAddr, receivedAt, folder,
+      blobResult.blob_size_bytes, blobResult.storage_id, blobResult.blob_sha256,
+      rejectionReason, sandbox.handshake_id, qSealed.seal, qSealed.seal_input_json,
+    ],
+    { seal: qSealed.seal, seal_input_json: qSealed.seal_input_json, canonical_json: qCanonicalJson, row_id: quarantineId },
+  )
+  return { type: 'quarantine', messageId, inboxMessageId: quarantineId }
+}
+
+/**
+ * Write a plain inbox row from the guest SafeText (R1 consumer-wrap). Original
+ * artifacts (HTML, attachments) arrive already custody-sealed from the guest;
+ * they are PRESERVED as blobs and referenced in the consumer-wrapped
+ * depackaged_json (input to the future `view-attachment` job — out of scope to
+ * render here). No plaintext attachment rows are written: under the cutover the
+ * orchestrator never holds attachment plaintext.
+ */
+async function writePlainSeamInbox(
+  db: any,
+  accountId: string,
+  rawMsg: RawEmailMessage,
+  messageId: string,
+  safeText: { subject: string; body_text: string; attachment_refs: readonly string[] },
+  artifacts: ReadonlyArray<{ blob_id: string; content_type: string; filename?: string; blob: import('../quarantine-blob-storage/index').QuarantineBlobFile }>,
+): Promise<DetectAndRouteResult> {
+  const inboxMessageId = randomUUID()
+  const now = new Date().toISOString()
+  const receivedAt = rawMsg.date || now
+  const fromAddr = rawMsg.from?.address ?? (rawMsg.from as any)?.email ?? ''
+  const fromName = rawMsg.from?.name ?? null
+  const toList = rawMsg.to ?? []
+  const ccList = rawMsg.cc ?? []
+  const toAddrs = toList.map((r) => r.address ?? (r as any).email ?? '')
+  const ccAddrs = ccList.map((r) => r.address ?? (r as any).email ?? '')
+  const folder = rawMsg.folder != null && String(rawMsg.folder).trim() !== '' ? String(rawMsg.folder).trim() : 'INBOX'
+  const imapRfcMessageId = rawMsg.headers?.messageId?.trim() || null
+
+  // Preserve sealed originals; build the canonical attachment refs (no plaintext
+  // child rows — these blobs are sealed to the sandbox, openable only via the
+  // future view-attachment job).
+  const attachmentsCanonical: ChildAttachmentDescriptor[] = artifacts.map((a) => {
+    const w = writeQuarantineBlob(a.blob)
+    return {
+      attachment_id: w.storage_id,
+      filename: a.filename || 'sealed-artifact',
+      content_type: a.content_type || 'application/octet-stream',
+      size_bytes: w.blob_size_bytes,
+      content_sha256: w.blob_sha256,
+      extracted_text_sha256: null,
+    }
+  })
+
+  const payload = await buildPlainEmailInboxPayload(
+    inboxMessageId, messageId, accountId, rawMsg, fromAddr, fromName,
+    safeText.subject, safeText.body_text, null, toList, ccList, receivedAt,
+    attachmentsCanonical,
+  )
+
+  const sealedInbox = prepareSealedInsert(db, INBOX_INSERT_SQL)
+  const parentBindArgs = [
+    inboxMessageId, payload.sourceType, null, accountId, messageId,
+    fromAddr, fromName, JSON.stringify(toAddrs), JSON.stringify(ccAddrs),
+    safeText.subject, safeText.body_text, null, null,
+    payload.depackagedJson, attachmentsCanonical.length > 0 ? 1 : 0, attachmentsCanonical.length,
+    receivedAt, now, folder, imapRfcMessageId,
+    payload.validatedAt, payload.validatorVersion, payload.validationReason,
+    payload.seal, payload.sealInputJson, 'ledger',
+  ]
+  runSealedTransaction(
+    db, sealedInbox, parentBindArgs,
+    { seal: payload.seal, seal_input_json: payload.sealInputJson, canonical_json: payload.depackagedJson, row_id: inboxMessageId },
+    [],
+    'outer',
+  )
+  return { type: 'plain', messageId, inboxMessageId }
 }
 
 // ── Plain email inbox payload builder ────────────────────────────────────────
