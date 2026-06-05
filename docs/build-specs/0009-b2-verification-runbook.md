@@ -15,35 +15,53 @@ Execute the runbook later (mini-PC session + provider-account session); check of
 ## V0 — Preconditions
 
 `git pull` on the rig; branch + HEAD sanity; confirm both flags' states (B1 cutover
-ON for soak is fine; B2 depackage flag OFF). Confirm `worker-bundle.cjs` on disk
-matches the bundle built from this branch (B2.2 uplift = Phase 1 + D4 + in-guest
-display envelope + threading hints):
+ON for soak is fine; B2 depackage flag OFF).
+
+> **V0 upgraded to REPRODUCIBLE-BUILD VERIFICATION (FIX-SPEC A, spec `0021`).**
+> Re-blessing a hash on hardware was rejected as risk routing. The
+> `worker-bundle.cjs` is now a **committed reproducible reference artifact**; the
+> check is **rebuild-and-diff**, not a typed-in hash. The committed bundle is the
+> reference, and `buildWorkerBundle.mjs` is hermetic (esbuild version pinned +
+> asserted, module-path banners stripped, no sourcemap, fixed target/charset, LF).
+
+**Canonical V0 procedure (on the verification machine):**
 
 ```
-sha256(rig/dist/worker-bundle.cjs) = f7310ffdb081275921de5c692923ea94fb880d5da21d4def47264d13bc22b6d7
-```
-
-> **Superseded:** the B2.1/D6 hash was
-> `cb04ae5150daee06fb8d27d776492421445fb444354c14ac85fed37b0155eead`; B2.2 adds the
-> in-guest envelope/threading derivation, so the bundle hash changes. Use the B2.2
-> hash above.
-
-Regenerate + verify with:
-
-```
+# 1. Clean checkout for the guest sources:
+git status --porcelain -- apps/electron-vite-project/electron/main/depackaging-microvm   # must be empty
+# 2. Pinned toolchain from the lockfile (repo is pnpm; this is the `npm ci` equivalent):
+pnpm install --frozen-lockfile
+# 3. Rebuild (run from the code/ directory so input paths are stable):
 node apps/electron-vite-project/electron/main/depackaging-microvm/rig/buildWorkerBundle.mjs
-sha256sum apps/electron-vite-project/electron/main/depackaging-microvm/rig/dist/worker-bundle.cjs
+# 4. Byte-for-byte diff against the committed reference:
+git diff --exit-code -- apps/electron-vite-project/electron/main/depackaging-microvm/rig/dist/
 ```
 
-The bundle is a reproducible build artifact (git-ignored); the hash above is the
-authoritative reference for V0. If it differs, rebuild before proceeding.
+Step 4 must show **no diff** (exit 0). Any diff → **STOP and report; never
+re-bless.** Use `dist/worker-bundle.provenance.json` (sha256 of every bundled
+input, lockfile hash, esbuild version, script hash) to localize the cause.
 
-> **Golden-image refresh (B2.2):** the rig golden image embeds the worker bundle.
-> Before V1/V2/V3 runs, refresh it with the B2.2 bundle (hash above): rebuild via
-> `buildWorkerBundle.mjs`, copy `rig/dist/worker-bundle.cjs` into the rootfs
-> alongside the node binary, and re-verify the in-image hash matches. An image
-> built on the B2.1/D6 bundle (`cb04ae51…`) lacks the in-guest envelope/threading
-> derivation and will fail V3/V4's envelope-parity legs — rebuild before running.
+```
+sha256(rig/dist/worker-bundle.cjs) = 68374091f7bf5683d33dc7a41e64a027b1ddb39bba3d60b0877f4899b07cc177
+```
+
+> This hash is informational provenance for the committed artifact (set by
+> spec `0021`). The authoritative V0 gate is the rebuild-and-diff above — the
+> committed bytes are the reference, not the hash string.
+>
+> **Superseded references (do not use):** the pre-hermetic B2.2 hash
+> `f7310ffd…` and the B2.1/D6 hash `cb04ae51…` were environment-dependent (esbuild
+> module-path banners + un-pinned deps) and are not reproducible across machines;
+> `0021` replaced the bless-a-hash model with this rebuild-and-diff.
+
+> **Golden-image refresh:** the rig golden image embeds the worker bundle. Before
+> V1/V2/V3 runs, refresh it with the **committed reference bundle**: run the
+> canonical V0 procedure above (rebuild-and-diff must be clean), copy
+> `rig/dist/worker-bundle.cjs` into the rootfs alongside the node binary, and
+> re-verify the in-image bytes match the committed `rig/dist/worker-bundle.cjs`
+> (`cmp`). An image built on an older bundle (pre-B2.2 `cb04ae51…` lacks the
+> in-guest envelope/threading derivation; pre-hermetic `f7310ffd…`) will fail
+> V3/V4's envelope-parity legs — refresh before running.
 
 ## V1 — Rig Phase 0 (carried-forward prerequisite)
 

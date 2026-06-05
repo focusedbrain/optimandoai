@@ -1,0 +1,42 @@
+{
+  "artifact": "worker-bundle.cjs",
+  "artifact_sha256": "68374091f7bf5683d33dc7a41e64a027b1ddb39bba3d60b0877f4899b07cc177",
+  "esbuild_version": "0.21.5",
+  "build_script_sha256": "b90671c91a4fbc1cd9e4fa17ec9347362433cc0f1a9e2a5be70eabd7372a9364",
+  "lockfile": "pnpm-lock.yaml",
+  "lockfile_sha256": "00121cf7100f69602e8d52462f3608b84e0ff74ae981d32b5bf32eff54906bff",
+  "determinism": {
+    "module_banners_stripped": true,
+    "sourcemap": false,
+    "minify": false,
+    "target": "node18",
+    "charset": "utf8",
+    "line_endings": "lf"
+  },
+  "inputs": {
+    "apps/electron-vite-project/electron/main/depackaging-microvm/depackageModel.ts": "452ded41b383b273b326a155fd92fafe560bb0f5b6f3c6d5d67edc7b5689fa8a",
+    "apps/electron-vite-project/electron/main/depackaging-microvm/depackagingWorker.ts": "435dde7a3195137acf103195dfc70b57fcee88a9ee6d52f95ee534867c0ff878",
+    "apps/electron-vite-project/electron/main/depackaging-microvm/displayEnvelope.ts": "30d16192b40b22623aba4e51548f78e31b8953bcb9039419eda0fb1c73792754",
+    "apps/electron-vite-project/electron/main/depackaging-microvm/emailDepackage.ts": "2eda23279b655a3276a4c62d8ddf71e37a44e46c4756b0d90920fa4fd625ae14",
+    "apps/electron-vite-project/electron/main/depackaging-microvm/htmlToText.ts": "2b9390c13a17ccc4db52757b4ec0aa237f7b5c7adb2b097b33029e1289696882",
+    "apps/electron-vite-project/electron/main/depackaging-microvm/hypervisorProvider.ts": "ab7b69c30b2e69c09af9b668a78d30da11706d92e94ea3d6d53c067341183d62",
+    "apps/electron-vite-project/electron/main/depackaging-microvm/mimeExtract.ts": "68ef85820e9023470814a3eae406ed28cc0dbb6473dac50314ddccd16ec5f4db",
+    "apps/electron-vite-project/electron/main/depackaging-microvm/providerStructuredWalker.ts": "5e62ad2e3e9d1d3f1de1320391d4651e702eec6c4ddf127340aff7a0d09f962d",
+    "apps/electron-vite-project/electron/main/depackaging-microvm/rig/guestEntry.ts": "807ae90d25b904a27a961334d556beca01fa7a35b09f3fb672f877e81f234736",
+    "apps/electron-vite-project/electron/main/depackaging-microvm/safeText.ts": "c9729cd997139843f00412c8cdcdd4079b08f4ef0fe1d507bdfd445ac1f1dbf6",
+    "apps/electron-vite-project/electron/main/quarantine-encrypt/index.ts": "9a1d31fac83e3ea6d82a617e8b55e70dd34bf14abd59cfd4b41558b5c0535fbf",
+    "apps/electron-vite-project/electron/main/security/ed25519WeakKey.ts": "865ee6dc1634f0e84419f5ccddcffd462e0d49b54d1f516035bc95e1b84b56d2",
+    "node_modules/@noble/curves/esm/abstract/curve.js": "3aa6e31b64ee99cfeaa4e64764e0d262d8736128ebd001a9e680bc9dcf66f01d",
+    "node_modules/@noble/curves/esm/abstract/edwards.js": "94004e8dc1a805c1d27f0d14af4c9655cdfd43cb9732b6404ba0211fa731c046",
+    "node_modules/@noble/curves/esm/abstract/hash-to-curve.js": "52d3315f4e9bf3ad9c901deaeb2fe861c6ea2f92ff8c9f792653b7751117413f",
+    "node_modules/@noble/curves/esm/abstract/modular.js": "5b42d5ff746ac099400e96c036572548d71822bc0826de506922d66202e7ce4c",
+    "node_modules/@noble/curves/esm/abstract/montgomery.js": "5ed0fbfba5a66691a187be5da5cd86177ec87352860cc28530742794a94d8bbf",
+    "node_modules/@noble/curves/esm/ed25519.js": "9d1ec0fa0ad8e6e8d097e4231dcd4e874975edf4410cfe6b4340dde371852b84",
+    "node_modules/@noble/curves/esm/utils.js": "f293043fc8020d5a928b4fd0c2b29b0d4aa23eca7b17f6b449484ba5e74ccdf3",
+    "node_modules/@noble/hashes/esm/_md.js": "cefb1557e7715cb2117c83f82ef3e3175c7e0391c80bd5795b2d4effc45fc582",
+    "node_modules/@noble/hashes/esm/_u64.js": "e48c0cfc10810439a4807b46db136ce603a3fa09b62584f513ef2f3ca496af54",
+    "node_modules/@noble/hashes/esm/cryptoNode.js": "26f80c6a85b6ef7bfd83b99d95b2b5ba8764397b9465feff32e81ba4e6416619",
+    "node_modules/@noble/hashes/esm/sha2.js": "e729088b82e5450bff54c3a0013582aa42e1fe8f58dd31f5967f6ebe34c52299",
+    "node_modules/@noble/hashes/esm/utils.js": "4cf4c1e05affedcb4fd584a43d76ae1a3711e34a36e2251b90c27e33ecc74fad"
+  }
+}
