@@ -17,8 +17,9 @@ they conflict.
 | 0005 | [B2 analysis spec](./0005-b2-analysis-spec.md) | Email depackaging pipeline analysis brief (raw mail → `depackage` → BEAP capsule) — analysis only |
 | 0006 | [B2 analysis report](./0006-b2-analysis-report.md) | Findings A–H, result/capsule contracts, build plan sketch, rig exit criteria, contradictions, ranked open questions |
 | 0007 | [B2 build spec](./0007-b2-build-spec.md) | Binding rulings R1–R3 + INV-7; phased flag-gated cutover (`WRDESK_SEAM_DEPACKAGE_CUTOVER`, default OFF) |
-| 0008 | [B2 code-complete report](./0008-b2-code-complete-report.md) | **Code-complete, NOT accepted.** Commit map, flag-off evidence (exit crit. 1), verbatim rule list, typed union + taxonomy, mapping table, per-provider wiring, C4 summary, deviations (incl. structured-json walker gap), PENDING VERIFICATION (exit crit. 2–4) |
-| 0009 | [B2 verification runbook](./0009-b2-verification-runbook.md) | V0–V7: rig Phase 0, guest re-verify, rig e2e (invariant-0 close), real-mail parity, Outlook `/$value` spike, no-KVM fail-closed, acceptance. Flag stays OFF until V7 |
+| 0008 | [B2 code-complete report](./0008-b2-code-complete-report.md) | B2 status: **code-complete except D4–D6** (reclassified by 0010). Commit map, flag-off evidence (exit crit. 1), verbatim rule list, typed union + taxonomy, mapping table, per-provider wiring, C4 summary, deviations (incl. structured-json walker gap), PENDING VERIFICATION (exit crit. 2–4) |
+| 0009 | [B2 verification runbook](./0009-b2-verification-runbook.md) | V0–V7: rig Phase 0, guest re-verify, rig e2e (invariant-0 close), real-mail parity, Outlook `/$value` spike, no-KVM fail-closed, acceptance. Evidence → `0011`. Flag stays OFF until V7 |
+| 0010 | [B2.1 remainder spec](./0010-b2.1-remainder-spec.md) | Build closing deviations D4 (provider-structured-json guest walker), D5 (residual orchestrator parse removal + `E_INLINE_PARSE_FORBIDDEN` guard), D6 (bundle uplift). Off-rig; flag stays OFF. Report → `0012` |
 
 ## Where B1 landed in code
 

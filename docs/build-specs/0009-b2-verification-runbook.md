@@ -8,7 +8,7 @@ the V-series below passes. B1's validation-cutover soak is unaffected and
 continues.
 
 Execute the runbook later (mini-PC session + provider-account session); check off
-**in order**; record evidence per step in `0010-b2-verification-report.md`.
+**in order**; record evidence per step in `0011-b2-verification-report.md`.
 
 ---
 
@@ -61,7 +61,7 @@ Flag-on vs flag-off on the same fixture set.
 Fidelity corpus vs structured payload on a real account: attachments (binary,
 large), encodings (8-bit, quoted-printable, base64, non-UTF-8 charsets), large
 messages, throttling behavior. PASS → flip Outlook preference to `/$value` in a
-small commit recorded in 0010. FAIL or AMBIGUOUS → preference stays structured-json
+small commit recorded in 0011. FAIL or AMBIGUOUS → preference stays structured-json
 permanently-until-revisited; record findings. Either way the invariant holds; this
 step never reopens inline parsing.
 
@@ -77,7 +77,7 @@ the inline path is provably never entered; nothing inserts unvalidated.
 
 ## V7 — Acceptance
 
-All of V1–V6 green → B2 is ACCEPTED: write `0010` with evidence per step, update
+All of V1–V6 green → B2 is ACCEPTED: write `0011` with evidence per step, update
 the README index, and only then decide per-provider flag enablement and soak. Until
 V7, B2 remains code-complete/unaccepted and the flag remains OFF.
 
