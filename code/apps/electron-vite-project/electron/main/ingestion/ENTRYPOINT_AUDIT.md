@@ -42,6 +42,37 @@ This document inventories all external input entry points into the Electron main
 - **Routes through ingestion**: N/A — read-only endpoints
 - **Can bypass**: NO — no write path
 
+### 6. Provider email sync — raw RFC822 / provider-structured payloads
+
+- **Location**: `electron/main/email/syncOrchestrator.ts` → `emailGateway` provider
+  fetch (`providers/imap.ts`, `providers/gmail.ts`, `providers/outlook.ts`) →
+  `messageRouter.ts:detectAndRouteMessage()`.
+- **Why this section exists**: the original audit (entries 1–5) covered only the
+  WS/HTTP BEAP ingestion RPC surface. The B2 analysis (`docs/build-specs/0006`)
+  showed provider email sync is the **only raw-MIME ingress** and that it was NOT
+  documented here — the documented invariant did not match the trace. This entry
+  closes that gap (B2 build spec 0007, Phase 3.5).
+- **Untrusted content**: YES — raw RFC822 (IMAP), `format=raw`/`full` (Gmail), or
+  Graph payloads (Outlook). This is attacker-influenced MIME, the highest-risk
+  input class.
+- **Routing**:
+  - **Flag OFF (`WRDESK_SEAM_DEPACKAGE_CUTOVER` unset, default)**: the legacy
+    inline path runs unchanged — the provider/gateway parses MIME and
+    `detectAndRouteMessage` classifies plain vs BEAP carrier. (Verbatim behavior;
+    no seam involvement.)
+  - **Flag ON**: the opaque payload is handed to
+    `dispatch({ kind: 'depackage-email' })` via `liveDepackageCutover.ts`. The
+    orchestrator inspects **neither** the raw bytes nor any post-parse structure
+    (R2). `detectAndRouteMessage` becomes a **consumer of the typed result union**
+    (`plain | beap-carrier | mixed`) or a typed worker failure.
+- **INV-7 (no risk routing)**: any failure to establish the safety contract —
+  opaque payload unobtainable, guest failure, limits exceeded, safe-text
+  rejection, ambiguous/partially-matching carrier classification — **quarantines**
+  (raw/opaque bytes custody-sealed, typed reason code) or fails closed. There is
+  never a best-effort inline parse, partial-trust display, or silent isolation
+  downgrade while the flag is on. Extracted BEAP packages are forwarded to the
+  B1-routed pipeline-2 path; plain mail is consumer-wrapped, sealed, and stored.
+
 ## Direct Call Analysis
 
 ### `processHandshakeCapsule()` Callers
