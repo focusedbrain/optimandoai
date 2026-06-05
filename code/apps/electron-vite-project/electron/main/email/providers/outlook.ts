@@ -420,12 +420,17 @@ export class OutlookProvider extends BaseEmailProvider {
 
       const msg = this.parseOutlookMessage(response, folderHint || 'inbox')
 
-      // B2 byte-courier (R2): when the cutover flag is on, ALSO retrieve the
-      // opaque raw MIME via Graph `/$value` so the depackage seam can re-derive
-      // body/classification inside the isolated guest. The `$select` parse above
-      // still supplies envelope metadata; this is additive, and the flag-off path
-      // is untouched. Any failure leaves `rawRfc822` unset ⇒ seam holds (INV-7).
-      if (msg && isSeamDepackageCutoverEnabled()) {
+      // B2 byte-courier (R2 / INV-7): the opaque raw MIME via Graph `/$value` is
+      // implemented (binary-safe) but is NOT the default. Until the `/$value`
+      // fidelity spike PASSES on a real account (verification runbook 0009 V5),
+      // unproven fidelity is "fidelity doubt" and INV-7 forbids defaulting onto it.
+      // Default Outlook preference is `provider-structured-json` (guest-side
+      // walker — a PENDING build item, see 0008 deviations); opt into the raw path
+      // only for the spike via `WRDESK_OUTLOOK_OPAQUE_INPUT=value`. With the
+      // default, no opaque payload is set here ⇒ the seam fails closed (HELD) for
+      // Outlook, never inline-parses. The `$select` parse above is unchanged and
+      // the flag-off path is untouched.
+      if (msg && isSeamDepackageCutoverEnabled() && this.outlookPrefersRawValue()) {
         try {
           const raw = await this.graphApiRequestRaw(`/me/messages/${messageId}/$value`)
           if (raw && raw.length > 0) {
@@ -1107,6 +1112,16 @@ export class OutlookProvider extends BaseEmailProvider {
    * losslessly). On any non-2xx the caller leaves `rawRfc822` unset and the
    * depackage seam fails closed (INV-7), never inline-parsing.
    */
+  /**
+   * B2 / INV-7: is the (non-default) Graph `/$value` raw path opted in? Default is
+   * `provider-structured-json`; `/$value` is enabled only by
+   * `WRDESK_OUTLOOK_OPAQUE_INPUT=value` for the 0009 V5 fidelity spike. Flipped to
+   * default only if/when that spike passes (recorded in 0010).
+   */
+  private outlookPrefersRawValue(): boolean {
+    return (process.env.WRDESK_OUTLOOK_OPAQUE_INPUT ?? 'structured-json').toLowerCase() === 'value'
+  }
+
   private async graphApiRequestRaw(endpoint: string): Promise<Buffer | null> {
     const path = `/v1.0${endpoint}`
     const maxAttempts = 6
