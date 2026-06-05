@@ -50,13 +50,20 @@
  *     still carries no key field — keys arrive via the job channel, memory-only).
  *   INV-5 (no plaintext in logs): error `code`s are stable identifiers and never
  *     embed job input bytes, decrypted JSON, safe-text, or artifacts.
- *   INV-6 (key-locality): key-requiring jobs are local-only. They execute at the
- *     key holder, never route to any node that lacks the keys, and never execute
- *     on the appliance (content-key-less by design). The key holder's most-
- *     isolated venue is a local, zero-egress, per-action microVM; in-process
- *     inside the sandbox VM is the free-tier floor. `decrypt-qbeap` is governed
- *     by INV-6 (planned). `view-attachment` is also key-requiring (artifact
- *     custody key) and is therefore INV-6-local to the custody holder.
+ *   INV-6 (key-locality): key-requiring jobs execute at the KEY HOLDER. Remote
+ *     routing is permitted PRECISELY when it delivers the job TO the key holder;
+ *     what is forbidden is any rule that would require key MATERIAL to move. A
+ *     key-requiring job never runs on the appliance (content-key-less by design).
+ *     The key holder's most-isolated venue is a local, zero-egress, per-action
+ *     microVM; in-process inside the sandbox VM is the free-tier floor. Per-kind:
+ *       - `decrypt-qbeap` → consumer-local: the handshake private keys are by
+ *         definition local to the consuming orchestrator, so ANY remote/appliance
+ *         rule would mean shipping keys — forbidden everywhere (planned kind).
+ *       - `view-attachment` → custody-holder-local: the artifact custody private
+ *         key lives at the sandbox (the depackage-time custody target). A
+ *         workstation rule routing it remote-to-sandbox delivers the job TO the
+ *         key holder — legal (placement topology (c)); appliance rules are illegal.
+ *     The resolution-table validator (`validateResolutionTable`) encodes these.
  *
  * This build is entirely flag-gated and is NOT called from the live email path.
  */
@@ -92,6 +99,57 @@ import type {
  *                                    content (wraps `validateDecryptedBeapContent`).
  */
 export type CriticalJobKind = JobKind
+
+/** Which of the two governing pipelines a kind belongs to (Amendment 1). */
+export type Pipeline = 'email' | 'native-beap'
+
+/**
+ * Key-locality class (INV-6):
+ *   - `none`                 → key-less (no decryption/custody key required).
+ *   - `consumer-local`       → requires the consuming orchestrator's handshake
+ *                              private keys; any remote/appliance rule = shipping
+ *                              keys, forbidden everywhere.
+ *   - `custody-holder-local` → requires the artifact custody private key (held at
+ *                              the sandbox); a rule that delivers the job TO that
+ *                              holder is legal, an appliance rule is illegal.
+ */
+export type KeyLocality = 'none' | 'consumer-local' | 'custody-holder-local'
+
+export interface KindMetadata {
+  readonly pipeline: Pipeline
+  readonly keyLocality: KeyLocality
+}
+
+/** Per-kind pipeline + key-locality, the single source the table validator reads. */
+export const KIND_METADATA: Readonly<Record<CriticalJobKind, KindMetadata>> = {
+  // Email / untrusted-content pipeline (key-less for content)
+  'depackage': { pipeline: 'email', keyLocality: 'none' },
+  'open-link': { pipeline: 'email', keyLocality: 'none' },
+  'view-attachment': { pipeline: 'email', keyLocality: 'custody-holder-local' },
+  // Native BEAP pipeline
+  'validate-native-beap': { pipeline: 'native-beap', keyLocality: 'none' },
+  'decrypt-qbeap': { pipeline: 'native-beap', keyLocality: 'consumer-local' },
+  'validate-decrypted-beap': { pipeline: 'native-beap', keyLocality: 'none' },
+}
+
+/**
+ * Untrusted-content kinds (email pipeline). `workstation → in-process` is
+ * ABSOLUTELY banned for these (INV-1); no rule marker can legalize it.
+ */
+export const UNTRUSTED_CONTENT_KINDS: ReadonlySet<CriticalJobKind> = new Set<CriticalJobKind>(
+  (Object.keys(KIND_METADATA) as CriticalJobKind[]).filter(
+    (k) => KIND_METADATA[k].pipeline === 'email',
+  ),
+)
+
+/**
+ * The two implemented validate kinds. `workstation → in-process` is permitted for
+ * THESE ONLY, and only via a `transitional: true` rule (INV-1 refinement). This is
+ * a deliberate narrow allowlist — it is NOT auto-derived, so a future key-less
+ * native-BEAP kind does not silently inherit the workstation in-process exception.
+ */
+export const TRANSITIONAL_INPROCESS_KINDS: ReadonlySet<CriticalJobKind> =
+  new Set<CriticalJobKind>(['validate-decrypted-beap', 'validate-native-beap'])
 
 /** Product role. Drives the in-process rule (INV-1) via the resolution table. */
 export type Role = 'workstation' | 'sandbox' | 'appliance'

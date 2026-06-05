@@ -49,6 +49,79 @@ describe('validateResolutionTable (INV-1)', () => {
   })
 })
 
+describe('validateResolutionTable — INV-1 refinement (Q5.1 / Q5.2)', () => {
+  test('absolute: workstation untrusted-content → in-process rejected even WITH transitional marker', () => {
+    const bad: ResolutionTable = [
+      {
+        role: 'workstation',
+        // transitional is meaningless for untrusted-content; reject regardless.
+        perKind: { depackage: { executorId: 'in-process', transitional: true } },
+      },
+    ]
+    expect(() => validateResolutionTable(bad)).toThrowError(/INV-1 violation \(absolute\)/)
+  })
+
+  test('transitional: workstation validate kind → in-process WITHOUT marker rejected', () => {
+    const bad: ResolutionTable = [
+      { role: 'workstation', perKind: { 'validate-native-beap': { executorId: 'in-process' } } },
+    ]
+    expect(() => validateResolutionTable(bad)).toThrowError(/without a permitted transitional/)
+  })
+
+  test('permitted: workstation validate kind → in-process WITH transitional marker accepted', () => {
+    const ok: ResolutionTable = [
+      {
+        role: 'workstation',
+        perKind: {
+          'validate-decrypted-beap': { executorId: 'in-process', transitional: true },
+          'validate-native-beap': { executorId: 'in-process', transitional: true },
+        },
+      },
+    ]
+    expect(() => validateResolutionTable(ok)).not.toThrow()
+  })
+})
+
+describe('validateResolutionTable — INV-6 key-locality (Q5.3)', () => {
+  test('rejects decrypt-qbeap → remote-handshake (consumer-local; would ship keys)', () => {
+    const bad: ResolutionTable = [
+      { role: 'sandbox', perKind: { 'decrypt-qbeap': { executorId: 'remote-handshake' } } },
+    ]
+    expect(() => validateResolutionTable(bad)).toThrowError(/INV-6 violation: kind="decrypt-qbeap"/)
+  })
+
+  test('rejects decrypt-qbeap → remote-handshake as a fallback too', () => {
+    const bad: ResolutionTable = [
+      {
+        role: 'sandbox',
+        perKind: { 'decrypt-qbeap': { executorId: 'microvm', fallbackExecutorId: 'remote-handshake' } },
+      },
+    ]
+    expect(() => validateResolutionTable(bad)).toThrowError(/INV-6 violation: kind="decrypt-qbeap"/)
+  })
+
+  test('rejects decrypt-qbeap on an appliance rule (content-key-less)', () => {
+    const bad: ResolutionTable = [
+      { role: 'appliance', perKind: { 'decrypt-qbeap': { executorId: 'in-process' } } },
+    ]
+    expect(() => validateResolutionTable(bad)).toThrowError(/role=appliance kind="decrypt-qbeap"/)
+  })
+
+  test('rejects view-attachment on an appliance rule (content-key-less)', () => {
+    const bad: ResolutionTable = [
+      { role: 'appliance', perKind: { 'view-attachment': { executorId: 'in-process' } } },
+    ]
+    expect(() => validateResolutionTable(bad)).toThrowError(/role=appliance kind="view-attachment"/)
+  })
+
+  test('permits view-attachment → remote-handshake from workstation (delivers to custody holder)', () => {
+    const ok: ResolutionTable = [
+      { role: 'workstation', perKind: { 'view-attachment': { executorId: 'remote-handshake' } } },
+    ]
+    expect(() => validateResolutionTable(ok)).not.toThrow()
+  })
+})
+
 describe('resolve (pure)', () => {
   test('sandbox/free routes depackage + validators to in-process; link unsupported', () => {
     const c = ctx({ role: 'sandbox', tier: 'free' })
@@ -83,19 +156,19 @@ describe('resolve (pure)', () => {
     expect(resolve(DEFAULT_RESOLUTION_TABLE, 'validate-native-beap', c)).toBeNull()
   })
 
-  test('workstation routes every ROUTABLE kind to remote-handshake (never in-process)', () => {
+  test('workstation routes untrusted-content remote, validate kinds in-process (transitional)', () => {
     const c = ctx({ role: 'workstation', tier: 'paid' })
-    for (const kind of [
-      'depackage',
-      'validate-decrypted-beap',
-      'validate-native-beap',
-      'open-link',
-      'view-attachment',
-    ] as const) {
+    // Untrusted-content kinds → remote stub (dead until Build C), never in-process.
+    for (const kind of ['depackage', 'open-link', 'view-attachment'] as const) {
       const r = resolve(DEFAULT_RESOLUTION_TABLE, kind, c)
       expect(r).not.toBeNull()
       expect(r!.executorId).toBe('remote-handshake')
       expect(r!.fallbackExecutorId).toBeUndefined()
+    }
+    // The two validate kinds → in-process via the transitional rule (B.1).
+    for (const kind of ['validate-decrypted-beap', 'validate-native-beap'] as const) {
+      const r = resolve(DEFAULT_RESOLUTION_TABLE, kind, c)
+      expect(r).toEqual({ executorId: 'in-process', transitional: true })
     }
     // INV-6: the key-requiring decrypt-qbeap is never routed off-node, so the
     // workstation row has no rule for it (resolves to null, not remote).
