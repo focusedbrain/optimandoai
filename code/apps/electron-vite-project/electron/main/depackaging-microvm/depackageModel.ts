@@ -12,7 +12,7 @@
  * runtime dependency on `emailDepackage`, so there is no import cycle.
  */
 
-import type { DisplayEnvelope } from './displayEnvelope'
+import type { DisplayEnvelope, ThreadingHints } from './displayEnvelope'
 
 // ── Typed failure taxonomy (INV-7) ──────────────────────────────────────────
 
@@ -84,4 +84,9 @@ export interface ParseOut {
    * date), derived in-guest. Both producers populate it (RFC822 + structured-json).
    */
   displayEnvelope: DisplayEnvelope
+  /**
+   * B2.2: threading keys (Message-ID/In-Reply-To/References), derived in-guest so
+   * IMAP threading + MOVE relocation never depend on an orchestrator header parse.
+   */
+  threadingHints: ThreadingHints
 }

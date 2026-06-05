@@ -415,7 +415,7 @@ export class OutlookProvider extends BaseEmailProvider {
     try {
       const response = await this.graphApiRequest(
         'GET',
-        `/me/messages/${messageId}?$select=id,conversationId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,body,isRead,flag,isDraft,hasAttachments,internetMessageHeaders`
+        `/me/messages/${messageId}?$select=id,conversationId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,body,isRead,flag,isDraft,hasAttachments,internetMessageHeaders,internetMessageId`
       )
 
       const msg = this.parseOutlookMessage(response, folderHint || 'inbox')
@@ -455,6 +455,8 @@ export class OutlookProvider extends BaseEmailProvider {
             ccRecipients: response.ccRecipients,
             replyTo: response.replyTo,
             receivedDateTime: response.receivedDateTime,
+            // RFC Message-ID for in-guest threading hints (provider-native field).
+            internetMessageId: response.internetMessageId,
           }
           if (response.hasAttachments) {
             const attResp = await this.graphApiRequest('GET', `/me/messages/${messageId}/attachments`)

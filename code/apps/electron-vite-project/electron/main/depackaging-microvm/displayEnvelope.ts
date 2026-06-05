@@ -41,7 +41,53 @@ export const ENVELOPE_CAPS = {
   MAX_EMAIL_LEN: 320,
   MAX_DATE_LEN: 128,
   MAX_RECIPIENTS: 256,
+  MAX_MSGID_LEN: 998,
+  MAX_REFERENCES: 64,
 } as const
+
+/**
+ * B2.2 threading keys, derived IN-GUEST (header handling never in the orchestrator
+ * flag-on). IMAP has no native thread id, so flag-on it threads / relocates (MOVE)
+ * on the guest-derived `messageId` rather than a locally-parsed header. These are
+ * opaque ASCII msg-id tokens — trimmed + capped, never RFC 2047 decoded.
+ */
+export interface ThreadingHints {
+  readonly messageId?: string
+  readonly inReplyTo?: string
+  readonly references?: readonly string[]
+}
+
+function capMsgId(v: string | undefined): string | undefined {
+  if (!v) return undefined
+  const t = v.trim()
+  if (!t) return undefined
+  return t.length > ENVELOPE_CAPS.MAX_MSGID_LEN ? t.slice(0, ENVELOPE_CAPS.MAX_MSGID_LEN) : t
+}
+
+/** Threading hints from raw RFC822 headers (RFC822 path). */
+export function threadingFromHeaders(headers: Map<string, string>): ThreadingHints {
+  const refsRaw = headers.get('references')
+  const references = refsRaw
+    ? refsRaw.split(/\s+/).map((s) => s.trim()).filter(Boolean).slice(0, ENVELOPE_CAPS.MAX_REFERENCES)
+    : undefined
+  return {
+    messageId: capMsgId(headers.get('message-id')),
+    inReplyTo: capMsgId(headers.get('in-reply-to')),
+    references: references && references.length ? references : undefined,
+  }
+}
+
+/** Threading hints from provider-native fields (Graph `internetMessageId`). */
+export function threadingFromProvider(fields: { messageId?: string; inReplyTo?: string; references?: readonly string[] }): ThreadingHints {
+  const references = fields.references
+    ? fields.references.map((s) => s.trim()).filter(Boolean).slice(0, ENVELOPE_CAPS.MAX_REFERENCES)
+    : undefined
+  return {
+    messageId: capMsgId(fields.messageId),
+    inReplyTo: capMsgId(fields.inReplyTo),
+    references: references && references.length ? references : undefined,
+  }
+}
 
 // ── RFC 2047 encoded-word decode ─────────────────────────────────────────────
 

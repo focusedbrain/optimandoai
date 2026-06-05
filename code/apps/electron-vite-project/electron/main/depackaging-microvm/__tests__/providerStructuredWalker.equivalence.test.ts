@@ -46,7 +46,7 @@ const PBEAP_PKG = JSON.stringify({
 function project(r: DepackageEmailResult) {
   if (!r.ok) return { ok: false as const, code: r.code }
   // B2.2: the decoded display envelope must be equal across input forms too.
-  const base = { ok: true as const, type: r.type, artifactCount: r.artifacts.length, artifactTypes: r.artifacts.map((a) => a.content_type), env: r.displayEnvelope }
+  const base = { ok: true as const, type: r.type, artifactCount: r.artifacts.length, artifactTypes: r.artifacts.map((a) => a.content_type), env: r.displayEnvelope, threading: r.threadingHints }
   const norm = (s: string) => s.replace(/\s+$/, '')
   if (r.type === 'plain') return { ...base, subject: r.safeText.subject, body: norm(r.safeText.body_text), packages: [] as string[] }
   if (r.type === 'mixed') return { ...base, subject: r.safeText.subject, body: norm(r.safeText.body_text), packages: r.packages.map((p) => p.bytesB64) }
@@ -80,6 +80,7 @@ const CORPUS: ReadonlyArray<Pair> = [
         'To: a@x.com, "Last, First" <lf@y.com>',
         'Cc: c@z.com',
         'Date: Wed, 03 Jun 2026 10:00:00 +0000',
+        'Message-ID: <abc123@example.com>',
         'Content-Type: text/plain; charset=utf-8',
       ],
       'body',
@@ -93,6 +94,7 @@ const CORPUS: ReadonlyArray<Pair> = [
       ],
       ccRecipients: [{ emailAddress: { address: 'c@z.com' } }],
       receivedDateTime: '2026-06-03T10:00:00Z',
+      internetMessageId: '<abc123@example.com>',
       body: { contentType: 'text', content: 'body' },
     }),
   },

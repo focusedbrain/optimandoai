@@ -27,7 +27,7 @@ import {
   type Leaf,
   type ParseOut,
 } from './depackageModel'
-import { buildEnvelopeFromFields, type RawProviderAddress, type RawProviderEnvelopeFields } from './displayEnvelope'
+import { buildEnvelopeFromFields, threadingFromProvider, type RawProviderAddress, type RawProviderEnvelopeFields } from './displayEnvelope'
 
 // ── C4 structural guards over untrusted JSON ─────────────────────────────────
 
@@ -142,6 +142,11 @@ const outlookAdapter: ProviderStructuredAdapter = {
       htmlParts: [],
       leaves: [],
       displayEnvelope,
+      // Graph carries the RFC Message-ID as `internetMessageId`; conversationId is
+      // the provider-native thread id used directly by the orchestrator.
+      threadingHints: threadingFromProvider({
+        messageId: typeof obj.internetMessageId === 'string' ? obj.internetMessageId : undefined,
+      }),
     }
 
     const body = obj.body

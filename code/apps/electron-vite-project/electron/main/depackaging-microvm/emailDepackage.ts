@@ -39,12 +39,12 @@ import {
   type ParseOut,
 } from './depackageModel'
 import { walkProviderStructured } from './providerStructuredWalker'
-import { buildEnvelopeFromHeaders, type DisplayEnvelope } from './displayEnvelope'
+import { buildEnvelopeFromHeaders, threadingFromHeaders, type DisplayEnvelope, type ThreadingHints } from './displayEnvelope'
 
 // Re-exported for back-compat with existing importers.
 export { DepackageFailure } from './depackageModel'
 export type { DepackageFailureCode, DepackageLimits, Leaf, ParseOut } from './depackageModel'
-export type { DisplayEnvelope, EnvelopeAddress } from './displayEnvelope'
+export type { DisplayEnvelope, EnvelopeAddress, ThreadingHints } from './displayEnvelope'
 
 // ── Custody + opaque channels ────────────────────────────────────────────────
 
@@ -74,9 +74,9 @@ export interface OpaquePackage {
 // ── Typed result union ───────────────────────────────────────────────────────
 
 export type DepackageEmailResult =
-  | { readonly ok: true; readonly type: 'plain'; readonly safeText: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope }
-  | { readonly ok: true; readonly type: 'beap-carrier'; readonly packages: readonly OpaquePackage[]; readonly carrierSafeText?: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope }
-  | { readonly ok: true; readonly type: 'mixed'; readonly packages: readonly OpaquePackage[]; readonly safeText: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope }
+  | { readonly ok: true; readonly type: 'plain'; readonly safeText: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope; readonly threadingHints: ThreadingHints }
+  | { readonly ok: true; readonly type: 'beap-carrier'; readonly packages: readonly OpaquePackage[]; readonly carrierSafeText?: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope; readonly threadingHints: ThreadingHints }
+  | { readonly ok: true; readonly type: 'mixed'; readonly packages: readonly OpaquePackage[]; readonly safeText: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope; readonly threadingHints: ThreadingHints }
   | { readonly ok: false; readonly code: DepackageFailureCode; readonly message: string }
 
 // ── Bounded MIME parse (recursive, fail-closed) ──────────────────────────────
@@ -203,6 +203,7 @@ function hardenedParse(input: Buffer, limits?: DepackageLimits): ParseOut {
     htmlParts: [],
     leaves: [],
     displayEnvelope,
+    threadingHints: threadingFromHeaders(headers),
   }
   parseEntity(body, headers, out, 0, maxInput)
   return out
@@ -400,6 +401,7 @@ function buildResultFromParse(parsed: ParseOut, sandboxPubB64: string): Depackag
   }
 
   const displayEnvelope = parsed.displayEnvelope
+  const threadingHints = parsed.threadingHints
 
   // Carrier packages travel in the opaque channel and must NOT be sealed;
   // everything else (HTML, attachments) is custody-sealed. Leaves consumed as
@@ -416,7 +418,7 @@ function buildResultFromParse(parsed: ParseOut, sandboxPubB64: string): Depackag
       plainTextBodyRaw: bodyText,
       attachmentBlobIds: artifacts.map((a) => a.blob_id),
     })
-    return { ok: true, type: 'plain', safeText, artifacts, displayEnvelope }
+    return { ok: true, type: 'plain', safeText, artifacts, displayEnvelope, threadingHints }
   }
 
   const artifacts = sealArtifacts(sealLeaves, sandboxPubB64)
@@ -426,14 +428,14 @@ function buildResultFromParse(parsed: ParseOut, sandboxPubB64: string): Depackag
       plainTextBodyRaw: bodyText,
       attachmentBlobIds: artifacts.map((a) => a.blob_id),
     })
-    return { ok: true, type: 'mixed', packages, safeText, artifacts, displayEnvelope }
+    return { ok: true, type: 'mixed', packages, safeText, artifacts, displayEnvelope, threadingHints }
   }
   const carrierSafeText = constructSafeText({
     subjectRaw: parsed.subject,
     plainTextBodyRaw: '',
     attachmentBlobIds: artifacts.map((a) => a.blob_id),
   })
-  return { ok: true, type: 'beap-carrier', packages, carrierSafeText, artifacts, displayEnvelope }
+  return { ok: true, type: 'beap-carrier', packages, carrierSafeText, artifacts, displayEnvelope, threadingHints }
 }
 
 function toFailureResult(err: unknown): DepackageEmailResult {

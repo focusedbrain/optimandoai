@@ -957,6 +957,7 @@ async function routeViaDepackageSeam(
     // B2.2: inject the guest-derived display envelope so the re-entered pipeline-2
     // path has from/to/subject/date WITHOUT the orchestrator parsing headers.
     const env = result.displayEnvelope
+    const th = result.threadingHints
     const beapRawMsg: RawEmailMessage = {
       ...rawMsg,
       subject: env.subject,
@@ -964,6 +965,8 @@ async function routeViaDepackageSeam(
       to: env.to.map((a) => ({ address: a.email, name: a.name })),
       cc: env.cc.map((a) => ({ address: a.email, name: a.name })),
       date: rawMsg.date || env.date,
+      // Guest-derived threading key (no orchestrator header parse).
+      headers: th?.messageId ? { ...rawMsg.headers, messageId: th.messageId } : rawMsg.headers,
       text: pkgJson,
       html: undefined,
       attachments: [],
@@ -974,7 +977,7 @@ async function routeViaDepackageSeam(
 
   // Plain mail: consumer-wrap the guest SafeText, preserve sealed originals.
   console.warn('[messageRouter] depackage-email plain', { messageId, artifacts: result.artifacts.length })
-  return writePlainSeamInbox(db, accountId, rawMsg, messageId, result.safeText, result.artifacts, result.displayEnvelope)
+  return writePlainSeamInbox(db, accountId, rawMsg, messageId, result.safeText, result.artifacts, result.displayEnvelope, result.threadingHints)
 }
 
 /**
@@ -1048,6 +1051,7 @@ async function writePlainSeamInbox(
   safeText: { subject: string; body_text: string; attachment_refs: readonly string[] },
   artifacts: ReadonlyArray<{ blob_id: string; content_type: string; filename?: string; blob: import('../quarantine-blob-storage/index').QuarantineBlobFile }>,
   envelope: import('../depackaging-microvm/emailDepackage').DisplayEnvelope,
+  threadingHints?: import('../depackaging-microvm/emailDepackage').ThreadingHints,
 ): Promise<DetectAndRouteResult> {
   const inboxMessageId = randomUUID()
   const now = new Date().toISOString()
@@ -1064,9 +1068,9 @@ async function writePlainSeamInbox(
   const ccAddrs = ccList.map((r) => r.address)
   const folder = rawMsg.folder != null && String(rawMsg.folder).trim() !== '' ? String(rawMsg.folder).trim() : 'INBOX'
   // Thread/dedupe key: IMAP has no provider-native thread id, so flag-on it keys
-  // on the guest result (no locally-parsed Message-ID header). rawMsg.headers is
-  // empty flag-on; this falls back to the storage message id.
-  const imapRfcMessageId = rawMsg.headers?.messageId?.trim() || null
+  // on the GUEST-derived Message-ID (no orchestrator header parse). `rawMsg.headers`
+  // is empty flag-on; the guest result supplies `threadingHints.messageId`.
+  const imapRfcMessageId = threadingHints?.messageId?.trim() || rawMsg.headers?.messageId?.trim() || null
 
   // Preserve sealed originals; build the canonical attachment refs (no plaintext
   // child rows — these blobs are sealed to the sandbox, openable only via the

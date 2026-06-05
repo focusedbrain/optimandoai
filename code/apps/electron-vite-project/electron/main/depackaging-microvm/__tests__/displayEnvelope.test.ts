@@ -9,6 +9,8 @@ import {
   decodeHeaderText,
   buildEnvelopeFromHeaders,
   buildEnvelopeFromFields,
+  threadingFromHeaders,
+  threadingFromProvider,
   ENVELOPE_CAPS,
 } from '../displayEnvelope'
 
@@ -97,6 +99,29 @@ describe('buildEnvelopeFromHeaders', () => {
     const env = buildEnvelopeFromHeaders(headers({ Subject: raw }))
     expect(env.subject).toBe(raw)
     expect(env.degradedFields).toContain('subject')
+  })
+})
+
+describe('threading hints (in-guest, never RFC 2047 decoded)', () => {
+  test('headers: message-id + in-reply-to capped, references split + capped', () => {
+    const refs = Array.from({ length: ENVELOPE_CAPS.MAX_REFERENCES + 10 }, (_, i) => `<r${i}@x>`).join(' ')
+    const th = threadingFromHeaders(headers({
+      'Message-ID': '  <abc@x.com> ',
+      'In-Reply-To': '<parent@x.com>',
+      References: refs,
+    }))
+    expect(th.messageId).toBe('<abc@x.com>')
+    expect(th.inReplyTo).toBe('<parent@x.com>')
+    expect(th.references?.length).toBe(ENVELOPE_CAPS.MAX_REFERENCES)
+  })
+
+  test('provider: equals header form for the same Message-ID', () => {
+    expect(threadingFromProvider({ messageId: '<abc@x.com>' }).messageId)
+      .toBe(threadingFromHeaders(headers({ 'Message-ID': '<abc@x.com>' })).messageId)
+  })
+
+  test('absent headers → empty hints (IMAP threads post-depackage on result)', () => {
+    expect(threadingFromHeaders(headers({ Subject: 'x' }))).toEqual({ messageId: undefined, inReplyTo: undefined, references: undefined })
   })
 })
 
