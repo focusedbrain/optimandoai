@@ -64,13 +64,27 @@
  *         workstation rule routing it remote-to-sandbox delivers the job TO the
  *         key holder — legal (placement topology (c)); appliance rules are illegal.
  *     The resolution-table validator (`validateResolutionTable`) encodes these.
+ *   INV-7 (no risk routing — B2): whenever a step cannot establish its safety
+ *     contract (opaque payload unobtainable, guest failure, limits exceeded,
+ *     safe-text rejection, ambiguous/partially-matching carrier classification,
+ *     fidelity doubt), the message is quarantined (raw/opaque bytes custody-
+ *     sealed, typed reason code) or the operation fails closed. There is NEVER a
+ *     best-effort inline parse, partial-trust display, or silent downgrade of the
+ *     isolation level. Tier/topology change WHERE the boundary sits (in-process-
+ *     inside-the-VM vs microVM); they never change WHETHER untrusted structure
+ *     crosses into the orchestrator unparsed. The `depackage-email` worker
+ *     (`emailDepackage.ts`) emits a typed failure for every such case; the live
+ *     adapter (`liveDepackageCutover.ts`) maps each to a quarantine reason.
  *
- * This build is entirely flag-gated and is NOT called from the live email path.
+ * The validation cutover (B1) is flag-gated by WRDESK_SEAM_VALIDATION_CUTOVER;
+ * the depackage-email cutover (B2) by WRDESK_SEAM_DEPACKAGE_CUTOVER. Both default
+ * OFF — with the flags off, NONE of this is on the live email path.
  */
 
 import type { JobKind } from '../depackaging-microvm/hypervisorProvider'
 import type { SafeTextV1 } from '../depackaging-microvm/safeText'
 import type { CourierArtifactRecord } from '../depackaging-microvm/blindCourier'
+import type { DepackageEmailResult } from '../depackaging-microvm/emailDepackage'
 import type {
   ValidateRequest,
   ValidateResponse,
@@ -124,6 +138,7 @@ export interface KindMetadata {
 export const KIND_METADATA: Readonly<Record<CriticalJobKind, KindMetadata>> = {
   // Email / untrusted-content pipeline (key-less for content)
   'depackage': { pipeline: 'email', keyLocality: 'none' },
+  'depackage-email': { pipeline: 'email', keyLocality: 'none' },
   'open-link': { pipeline: 'email', keyLocality: 'none' },
   'view-attachment': { pipeline: 'email', keyLocality: 'custody-holder-local' },
   // Native BEAP pipeline
@@ -185,6 +200,12 @@ export interface JobInputMap {
   // ── Email / untrusted-content pipeline ──
   /** Raw untrusted bytes (email MIME / attachment). Opaque to the orchestrator. */
   'depackage': { readonly inputBytes: Buffer }
+  /**
+   * B2 email cutover: the opaque provider payload (raw RFC822 or, where raw is
+   * not faithfully obtainable, the provider-structured-json shipped unparsed).
+   * The orchestrator inspects neither (R2). `maxInputBytes` is honored in-guest.
+   */
+  'depackage-email': { readonly inputBytes: Buffer; readonly maxInputBytes?: number }
   /** A URL to evaluate/open in isolation (unsupported in B1). */
   'open-link': { readonly url: string }
   /** An opaque sealed-artifact handle to render in isolation (unsupported in B1). */
@@ -211,6 +232,13 @@ export interface JobInputMap {
 export interface JobOutputMap {
   // Email / untrusted-content pipeline
   'depackage': DepackageOutput
+  /**
+   * B2: the typed result union the guest emits (plain | beap-carrier | mixed) OR
+   * a typed worker failure (`ok:false` with a `DepackageFailureCode`). A worker
+   * failure is a VALID output (the job ran and produced a verdict); the consumer
+   * quarantines it. Dispatch-level problems are surfaced via `error` as usual.
+   */
+  'depackage-email': DepackageEmailResult
   'open-link': RenderVerdict
   'view-attachment': RenderVerdict
   // Native BEAP pipeline

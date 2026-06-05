@@ -22,7 +22,7 @@ function eml(headers: string[], parts: string): Buffer {
 const QBEAP_PKG = JSON.stringify({
   header: { encoding: 'qBEAP', handshake_id: 'hs-1' },
   metadata: { created_at: '2026-01-01T00:00:00Z' },
-  payloadEnc: { chunks: [] },
+  envelope: { kem_ct: 'AAAA' },
 })
 const PBEAP_PKG = JSON.stringify({
   header: { encoding: 'pBEAP' },

@@ -323,10 +323,11 @@ function encodingHintOf(packageJson: string): OpaquePackage['encodingHint'] {
 
 const MAX_DETECT_CHARS = 65536 // matches messageRouter's per-candidate cap
 
-function detectCarrierPackages(parsed: ParseOut): { packages: OpaquePackage[]; ambiguous: boolean; consumedLeaves: Set<Leaf> } {
+function detectCarrierPackages(parsed: ParseOut): { packages: OpaquePackage[]; ambiguous: boolean; consumedLeaves: Set<Leaf>; bodyConsumed: boolean } {
   const packages: OpaquePackage[] = []
   const consumedLeaves = new Set<Leaf>()
   let ambiguous = false
+  let bodyConsumed = false
 
   // (1) BEAP-named / BEAP-MIME attachments.
   for (const leaf of parsed.leaves) {
@@ -357,10 +358,12 @@ function detectCarrierPackages(parsed: ParseOut): { packages: OpaquePackage[]; a
     const cap = detectBeapCapsule(bodyText)
     if (cap.detected && cap.capsuleJson) {
       packages.push({ encodingHint: encodingHintOf(cap.capsuleJson), bytesB64: Buffer.from(cap.capsuleJson, 'utf8').toString('base64'), source: 'body' })
+      bodyConsumed = true
     } else {
       const pkg = detectBeapMessagePackage(bodyText)
       if (pkg.detected && pkg.packageJson) {
         packages.push({ encodingHint: (pkg.encoding === 'qBEAP' || pkg.encoding === 'pBEAP') ? pkg.encoding : 'unknown', bytesB64: Buffer.from(pkg.packageJson, 'utf8').toString('base64'), source: 'body' })
+        bodyConsumed = true
       } else if (pkg.ambiguous) {
         ambiguous = true
       }
@@ -382,7 +385,7 @@ function detectCarrierPackages(parsed: ParseOut): { packages: OpaquePackage[]; a
     } catch { /* not valid JSON → not a package */ }
   }
 
-  return { packages, ambiguous, consumedLeaves }
+  return { packages, ambiguous, consumedLeaves, bodyConsumed }
 }
 
 // ── Sealing + safe-text construction ─────────────────────────────────────────
@@ -400,9 +403,12 @@ function sealArtifacts(leaves: Leaf[], sandboxPubB64: string): SealedArtifact[] 
   return artifacts
 }
 
-function deriveBodyText(parsed: ParseOut): string {
+function deriveBodyText(parsed: ParseOut, bodyConsumed: boolean): string {
   // Parity with gateway.ts:2485 — prefer text/plain; else derive from HTML.
-  if (parsed.plainTextParts.length > 0) return parsed.plainTextParts.join('\n\n')
+  // When the plain body WAS the carrier package (bodyConsumed), it is not human
+  // text: skip it (parity with messageRouter classifying a body-package as a pure
+  // carrier, not plain). HTML, if any, may still derive a body.
+  if (!bodyConsumed && parsed.plainTextParts.length > 0) return parsed.plainTextParts.join('\n\n')
   if (parsed.htmlParts.length > 0) return htmlToSafeText(parsed.htmlParts.join('\n\n'))
   return ''
 }
@@ -418,7 +424,7 @@ export function depackageEmail(
 ): DepackageEmailResult {
   try {
     const parsed = hardenedParse(inputBytes, limits)
-    const { packages, ambiguous, consumedLeaves } = detectCarrierPackages(parsed)
+    const { packages, ambiguous, consumedLeaves, bodyConsumed } = detectCarrierPackages(parsed)
 
     if (ambiguous) {
       // INV-7: ambiguous/partial carrier match → fail closed (quarantine).
@@ -430,7 +436,7 @@ export function depackageEmail(
     // packages are excluded from sealing to avoid double custody.
     const sealLeaves = parsed.leaves.filter((leaf) => !consumedLeaves.has(leaf))
 
-    const bodyText = deriveBodyText(parsed)
+    const bodyText = deriveBodyText(parsed, bodyConsumed)
     const hasText = bodyText.trim().length > 0
 
     if (packages.length === 0) {

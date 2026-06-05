@@ -8,10 +8,13 @@
  * paths run unchanged (byte-identical behavior).
  *
  * Resolution precedence: a non-empty env var wins (per-machine ops switch);
- * otherwise the persisted config key `seamValidationCutover` in
- * `seam-flags.json` under Electron userData; otherwise OFF.
+ * otherwise the persisted config key in `seam-flags.json` under Electron
+ * userData; otherwise OFF.
  *
- * The depackage/MIME cutover is a separate later build (B2) — NOT gated here.
+ * `WRDESK_SEAM_DEPACKAGE_CUTOVER` (B2) routes live email depackaging (MIME parse,
+ * HTML→SafeText, carrier-BEAP extraction) through `dispatch({kind:'depackage-
+ * email'})` instead of the inline gateway/messageRouter parse. Default OFF: when
+ * unset the original inline path runs unchanged (byte-identical behavior).
  */
 
 import fs from 'fs'
@@ -20,6 +23,8 @@ import { app } from 'electron'
 
 const ENV_KEY = 'WRDESK_SEAM_VALIDATION_CUTOVER'
 const CONFIG_KEY = 'seamValidationCutover'
+const DEPACKAGE_ENV_KEY = 'WRDESK_SEAM_DEPACKAGE_CUTOVER'
+const DEPACKAGE_CONFIG_KEY = 'seamDepackageCutover'
 const FILE_NAME = 'seam-flags.json'
 
 function truthy(v: unknown): boolean {
@@ -51,4 +56,15 @@ export function isSeamValidationCutoverEnabled(env: NodeJS.ProcessEnv = process.
   const raw = env[ENV_KEY]
   if (typeof raw === 'string' && raw.trim() !== '') return truthy(raw)
   return readPersistedFlag(CONFIG_KEY)
+}
+
+/**
+ * Is the B2 email-depackage cutover enabled? Same precedence as the validation
+ * cutover (env wins, then persisted config, else OFF). Default OFF means the
+ * inline gateway/messageRouter parse runs unchanged.
+ */
+export function isSeamDepackageCutoverEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env[DEPACKAGE_ENV_KEY]
+  if (typeof raw === 'string' && raw.trim() !== '') return truthy(raw)
+  return readPersistedFlag(DEPACKAGE_CONFIG_KEY)
 }

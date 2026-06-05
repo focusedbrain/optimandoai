@@ -26,6 +26,7 @@
  */
 
 import { runDepackagingJob } from '../../depackaging-microvm/depackagingWorker'
+import { depackageEmail } from '../../depackaging-microvm/emailDepackage'
 import { validateCapsule } from '@repo/ingestion-core'
 import { depackageJobResultToCriticalResult } from '../verify'
 import type { CriticalJobExecutor } from '../executor'
@@ -40,6 +41,7 @@ import {
 
 const SUPPORTED: ReadonlySet<CriticalJobKind> = new Set<CriticalJobKind>([
   'depackage',
+  'depackage-email',
   'validate-decrypted-beap',
   'validate-native-beap',
   // 'decrypt-qbeap' is intentionally absent — RESERVED/unimplemented (Amendment 1).
@@ -79,6 +81,10 @@ export class InProcessExecutor implements CriticalJobExecutor {
         return this.runDepackage(spec as CriticalJobSpec<'depackage'>) as Promise<
           CriticalJobResult<K>
         >
+      case 'depackage-email':
+        return this.runDepackageEmail(spec as CriticalJobSpec<'depackage-email'>) as Promise<
+          CriticalJobResult<K>
+        >
       case 'validate-decrypted-beap':
         return this.runValidateDecryptedBeap(
           spec as CriticalJobSpec<'validate-decrypted-beap'>,
@@ -115,6 +121,29 @@ export class InProcessExecutor implements CriticalJobExecutor {
     // Flush story: an in-process job shares the (resettable) VM/hardware boundary
     // it runs inside; it is not independently per-action flushable.
     return { ...result, meta: { executorId: this.id, flushed: 'none', durationMs: 0 } }
+  }
+
+  private async runDepackageEmail(
+    spec: CriticalJobSpec<'depackage-email'>,
+  ): Promise<CriticalJobResult<'depackage-email'>> {
+    if (!spec.custodyPubKeyB64) {
+      throw new CriticalJobError(
+        'E_EXECUTION_ERROR',
+        'depackage-email requires custodyPubKeyB64 (sandbox X25519 public key)',
+      )
+    }
+    // The worker emits a typed result union OR a typed failure. Both are valid
+    // OUTPUTS (the job ran). INV-7: the consumer maps a worker failure to a
+    // quarantine reason; this executor does not inline-parse or downgrade.
+    const out = depackageEmail(spec.input.inputBytes, spec.custodyPubKeyB64, {
+      maxInputBytes: spec.input.maxInputBytes ?? spec.limits.maxInputBytes,
+    })
+    return {
+      jobId: spec.jobId,
+      ok: true,
+      output: out,
+      meta: { executorId: this.id, flushed: 'none', durationMs: 0 },
+    }
   }
 
   private async runValidateDecryptedBeap(

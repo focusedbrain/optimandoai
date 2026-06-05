@@ -73,6 +73,7 @@ export const DEFAULT_RESOLUTION_TABLE: ResolutionTable = [
     tier: 'free',
     perKind: {
       depackage: { executorId: 'in-process' },
+      'depackage-email': { executorId: 'in-process' },
       'validate-decrypted-beap': { executorId: 'in-process' },
       'validate-native-beap': { executorId: 'in-process' },
       // open-link / view-attachment: unsupported (no in-process implementation).
@@ -84,6 +85,7 @@ export const DEFAULT_RESOLUTION_TABLE: ResolutionTable = [
     tier: 'paid',
     perKind: {
       depackage: { executorId: 'microvm' }, // no fallback — fail closed if unavailable
+      'depackage-email': { executorId: 'microvm' }, // no fallback — fail closed if unavailable
       'validate-decrypted-beap': { executorId: 'in-process' }, // microvm later
       'validate-native-beap': { executorId: 'in-process' }, // microvm later
     },
@@ -93,6 +95,7 @@ export const DEFAULT_RESOLUTION_TABLE: ResolutionTable = [
     role: 'appliance',
     perKind: {
       depackage: { executorId: 'microvm', fallbackExecutorId: 'in-process' },
+      'depackage-email': { executorId: 'microvm', fallbackExecutorId: 'in-process' },
       'validate-decrypted-beap': { executorId: 'in-process' },
       // validate-native-beap routes to the consuming orchestrator; the remote
       // row activates in Build C, so it is unsupported here (fails closed).
@@ -108,6 +111,10 @@ export const DEFAULT_RESOLUTION_TABLE: ResolutionTable = [
     role: 'workstation',
     perKind: {
       depackage: { executorId: 'remote-handshake' },
+      // INV-1: untrusted-content kind ⇒ NEVER in-process on workstation. Routes
+      // remote (delivers the job to a sandbox); the remote stub is dead until
+      // Build C, so workstation depackage-email fails closed until then.
+      'depackage-email': { executorId: 'remote-handshake' },
       'validate-decrypted-beap': { executorId: 'in-process', transitional: true },
       'validate-native-beap': { executorId: 'in-process', transitional: true },
       'open-link': { executorId: 'remote-handshake' },

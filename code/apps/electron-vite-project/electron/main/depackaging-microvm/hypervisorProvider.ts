@@ -36,6 +36,7 @@ import type { BlobArtifact } from './depackagingWorker'
  */
 export type JobKind =
   | 'depackage'
+  | 'depackage-email'
   | 'validate-decrypted-beap'
   | 'validate-native-beap'
   | 'decrypt-qbeap'
