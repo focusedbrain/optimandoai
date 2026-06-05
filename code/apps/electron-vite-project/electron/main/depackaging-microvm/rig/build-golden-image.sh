@@ -23,7 +23,11 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="${OUT:-$HOME/build/rig}"
 NODE_VER="${NODE_VERSION:-22.22.0}"
-KREL="$(uname -r)"
+# KREL = the kernel whose image + modules the guest uses. Defaults to the running
+# host kernel; override (e.g. KREL=6.17.0-29-generic) to pin the guest to a
+# specific, readable kernel after a host kernel point-upgrade (see rig/PROVISIONING.md).
+# The guest kernel image AND the staged .ko modules must come from the SAME KREL.
+KREL="${KREL:-$(uname -r)}"
 MODDIR="/lib/modules/${KREL}"
 ROOTFS="${OUT}/rootfs"
 IMG="${OUT}/golden-base.ext4"

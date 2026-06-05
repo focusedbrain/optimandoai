@@ -1,5 +1,17 @@
 # Build 2a — crosvm bring-up (rig runbook)
 
+> **2026-06-05 — re-provisioned (FIX-SPEC B, `docs/build-specs/0021`/`0022`).** Same
+> mini-PC as the 2a entries below. Host kernel point-upgraded `6.17.0-29-generic`
+> → `6.17.0-35-generic`. crosvm source survived at `~/build/crosvm` (HEAD
+> **`938fc36e34c0122db028f4b9cd2a3477fff604f7`**, Rust 1.96.0); the binary was
+> reinstalled onto PATH (`~/.local/bin/crosvm`) and boots a guest (`crosvm-launch.sh
+> hello`, exit 0). Golden image refreshed (`KREL=6.17.0-29-generic`) embedding the
+> new **hermetic** worker bundle (`sha256 68374091…`; verified byte-identical
+> in-image). Deterministic bring-up is now documented in **`rig/PROVISIONING.md`**.
+> **OPEN (operator):** `sudo usermod -aG kvm konge` + persistent `/dev/vhost-vsock`
+> access + a post-reboot unprivileged vsock smoke — until then the full `worker`
+> boot fails closed on `/dev/vhost-vsock: Permission denied`.
+
 **Gating spike. Run on the mini-PC (bare-metal AMD Ryzen Linux).** Its only job:
 get crosvm booting a minimal guest, assemble a golden image that carries the
 Build-1 depackaging worker, and **report the host↔guest I/O mechanism** so
