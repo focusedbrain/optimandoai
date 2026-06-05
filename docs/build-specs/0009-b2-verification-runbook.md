@@ -16,7 +16,27 @@ Execute the runbook later (mini-PC session + provider-account session); check of
 
 `git pull` on the rig; branch + HEAD sanity; confirm both flags' states (B1 cutover
 ON for soak is fine; B2 depackage flag OFF). Confirm `worker-bundle.cjs` on disk
-matches the committed Phase 1 bundle (hash).
+matches the bundle built from this branch (B2.1/D6 uplift = Phase 1 + D4):
+
+```
+sha256(rig/dist/worker-bundle.cjs) = cb04ae5150daee06fb8d27d776492421445fb444354c14ac85fed37b0155eead
+```
+
+Regenerate + verify with:
+
+```
+node apps/electron-vite-project/electron/main/depackaging-microvm/rig/buildWorkerBundle.mjs
+sha256sum apps/electron-vite-project/electron/main/depackaging-microvm/rig/dist/worker-bundle.cjs
+```
+
+The bundle is a reproducible build artifact (git-ignored); the hash above is the
+authoritative reference for V0. If it differs, rebuild before proceeding.
+
+> **Golden-image refresh (B2.1/D6):** the rig golden image embeds the worker
+> bundle. Before V1/V2/V3 runs, refresh it with the B2.1 bundle (hash above):
+> rebuild via `buildWorkerBundle.mjs`, copy `rig/dist/worker-bundle.cjs` into the
+> rootfs alongside the node binary, and re-verify the in-image hash matches. The
+> pre-B2.1 image only contains the B1 worker and will NOT exercise the email path.
 
 ## V1 — Rig Phase 0 (carried-forward prerequisite)
 
@@ -53,8 +73,10 @@ extraction; plain mail: derived text equal per the R1 corpus, sealed originals
 added, renderer output unchanged; failures: quarantine outcomes per mapping table.
 Flag-on vs flag-off on the same fixture set.
 
-> Prerequisite (0008 D4): the `provider-structured-json` guest walker must be built
-> before the Outlook leg of V4 can run; until then Outlook HELDs by design.
+> Prerequisite (0008 D4): the `provider-structured-json` guest walker **is now
+> built** (B2.1, report `0012`): Outlook no longer HELDs by design — flag-on it
+> ships the Graph message resource opaque and the guest walker depackages it. The
+> Outlook leg of V4 can run against the structured-json path.
 
 ## V5 — Outlook `/$value` spike (timeboxed)
 
@@ -68,6 +90,16 @@ step never reopens inline parsing.
 > The raw path is already implemented and binary-safe (`5c463ae`) and gated behind
 > `WRDESK_OUTLOOK_OPAQUE_INPUT=value` (`7fdf34a`); the spike toggles it on for
 > measurement only.
+>
+> **Dual-fetch instrument (B2.1/D4.4):** the strongest Outlook fidelity check is
+> not `/$value` vs the provider parse, but the **dual-fetch equivalence**: fetch
+> the same live message BOTH ways (`/$value` → rfc822 worker; Graph JSON →
+> structured-json walker) and require the depackage results to match — same
+> derived text, byte-identical extracted packages, same artifacts, same failure
+> outcomes — exactly as the off-rig equivalence corpus
+> (`providerStructuredWalker.equivalence.test.ts`) asserts on synthetic pairs.
+> Agreement on real messages is the spike's PASS signal for either path; a
+> disagreement localizes the fidelity gap to one form before any preference flip.
 
 ## V6 — Fail-closed proof (exit criterion 4)
 

@@ -1,8 +1,9 @@
 # wrdesk — B2 Code-Complete Report: Email Depackaging Cutover (docs/build-specs/0008)
 
-**Status: CODE-COMPLETE EXCEPT D4–D6, NOT ACCEPTED.** (Reclassified by spec `0010`:
-the deviations below — D4 structured-json guest walker, D5 residual parse removal +
-guard, D6 bundle uplift — are closed by the B2.1 remainder build, report `0012`.)
+**Status: CODE-COMPLETE, NOT ACCEPTED.** (Briefly reclassified to "code-complete
+except D4–D6" by spec `0010`; those deviations — D4 structured-json guest walker,
+D5 residual parse removal + guard, D6 bundle uplift — are now **closed** by the
+B2.1 remainder build, report `0012`, restoring the code-complete claim honestly.)
 All B2 code (Phases 1–3 + provider byte-courier) is landed on
 `feature/layered-sandbox` and the flag-off suite is green (exit criterion 1). Exit criteria **2–4 are UNMET** (rig e2e, real-mail
 parity, Outlook `/$value` spike, no-KVM fail-closed) — see §8. **No invariant-0
