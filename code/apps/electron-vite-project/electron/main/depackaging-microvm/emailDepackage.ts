@@ -29,23 +29,20 @@ import { encryptForQuarantine } from '../quarantine-encrypt/index'
 import type { QuarantineBlobFile } from '../quarantine-blob-storage/index'
 import { constructSafeText, type SafeTextV1 } from './safeText'
 import { htmlToSafeText } from './htmlToText'
+import {
+  DepackageFailure,
+  DEPACKAGE_DEFAULTS as DEFAULTS,
+  resolveMaxInputBytes,
+  type DepackageFailureCode,
+  type DepackageLimits,
+  type Leaf,
+  type ParseOut,
+} from './depackageModel'
+import { walkProviderStructured } from './providerStructuredWalker'
 
-// ── Typed failure taxonomy (INV-7) ──────────────────────────────────────────
-
-export type DepackageFailureCode =
-  | 'E_MALFORMED_MIME'
-  | 'E_LIMITS_EXCEEDED'
-  | 'E_DECOMPRESSION_BOMB'
-  | 'E_AMBIGUOUS_CLASSIFICATION'
-  | 'E_ARTIFACT_CUSTODY_FAILED'
-
-/** Thrown inside the guest; mapped to a typed failure result at the entry. */
-export class DepackageFailure extends Error {
-  constructor(public readonly code: DepackageFailureCode, message?: string) {
-    super(message ?? code)
-    this.name = 'DepackageFailure'
-  }
-}
+// Re-exported for back-compat with existing importers.
+export { DepackageFailure } from './depackageModel'
+export type { DepackageFailureCode, DepackageLimits, Leaf, ParseOut } from './depackageModel'
 
 // ── Custody + opaque channels ────────────────────────────────────────────────
 
@@ -80,39 +77,9 @@ export type DepackageEmailResult =
   | { readonly ok: true; readonly type: 'mixed'; readonly packages: readonly OpaquePackage[]; readonly safeText: SafeTextV1; readonly artifacts: readonly SealedArtifact[] }
   | { readonly ok: false; readonly code: DepackageFailureCode; readonly message: string }
 
-// ── Hardened limits (C4) ─────────────────────────────────────────────────────
-
-export interface DepackageLimits {
-  /** Spec value wins over the hardcoded default (C4). */
-  readonly maxInputBytes?: number
-}
-
-const DEFAULTS = {
-  MAX_INPUT_BYTES: 8 * 1024 * 1024,
-  MAX_PARTS: 256,
-  MAX_DEPTH: 8,
-  MAX_HEADERS_BYTES: 64 * 1024,
-  /** decoded/raw ratio ceiling — base64 shrinks, QP ~1x; >this ⇒ bomb. */
-  MAX_DECODE_RATIO: 8,
-} as const
-
 // ── Bounded MIME parse (recursive, fail-closed) ──────────────────────────────
-
-interface Leaf {
-  contentType: string
-  filename?: string
-  isAttachment: boolean
-  /** decoded bytes of the leaf */
-  bytes: Buffer
-}
-
-interface ParseOut {
-  subject: string
-  plainTextParts: string[]
-  htmlParts: string[]
-  /** every leaf (for carrier detection + sealing) */
-  leaves: Leaf[]
-}
+// `Leaf`, `ParseOut`, `DEFAULTS`, `DepackageLimits` now live in `depackageModel`
+// (the convergence point shared with the provider-structured-json walker).
 
 function parseHeaders(block: string): Map<string, string> {
   const headers = new Map<string, string>()
@@ -216,9 +183,7 @@ function parseEntity(
 }
 
 function hardenedParse(input: Buffer, limits?: DepackageLimits): ParseOut {
-  const maxInput = limits?.maxInputBytes != null && limits.maxInputBytes > 0
-    ? Math.min(limits.maxInputBytes, DEFAULTS.MAX_INPUT_BYTES)
-    : DEFAULTS.MAX_INPUT_BYTES
+  const maxInput = resolveMaxInputBytes(limits)
   // INV-7 / C4: oversized input FAILS CLOSED — never silently truncated.
   if (input.length > maxInput) {
     throw new DepackageFailure('E_LIMITS_EXCEEDED', `input exceeds maxInputBytes (${input.length} > ${maxInput})`)
@@ -414,8 +379,66 @@ function deriveBodyText(parsed: ParseOut, bodyConsumed: boolean): string {
 }
 
 /**
- * B2 email depackage entry. Pure; returns the typed union or a typed failure.
- * `sandboxPubB64` is the PUBLIC X25519 key artifacts are sealed to (INV-2).
+ * Shared post-parse pipeline (D4.3 convergence point): carrier detection (R3),
+ * INV-7 ambiguity check, sealing, HTML→SafeText (R1), and the typed result
+ * union. BOTH the RFC822 parse and the provider-structured-json walk feed this —
+ * it is never duplicated per input form.
+ */
+function buildResultFromParse(parsed: ParseOut, sandboxPubB64: string): DepackageEmailResult {
+  const { packages, ambiguous, consumedLeaves, bodyConsumed } = detectCarrierPackages(parsed)
+
+  if (ambiguous) {
+    // INV-7: ambiguous/partial carrier match → fail closed (quarantine).
+    throw new DepackageFailure('E_AMBIGUOUS_CLASSIFICATION', 'ambiguous or partially-matching carrier classification')
+  }
+
+  // Carrier packages travel in the opaque channel and must NOT be sealed;
+  // everything else (HTML, attachments) is custody-sealed. Leaves consumed as
+  // packages are excluded from sealing to avoid double custody.
+  const sealLeaves = parsed.leaves.filter((leaf) => !consumedLeaves.has(leaf))
+
+  const bodyText = deriveBodyText(parsed, bodyConsumed)
+  const hasText = bodyText.trim().length > 0
+
+  if (packages.length === 0) {
+    const artifacts = sealArtifacts(sealLeaves, sandboxPubB64)
+    const safeText = constructSafeText({
+      subjectRaw: parsed.subject,
+      plainTextBodyRaw: bodyText,
+      attachmentBlobIds: artifacts.map((a) => a.blob_id),
+    })
+    return { ok: true, type: 'plain', safeText, artifacts }
+  }
+
+  const artifacts = sealArtifacts(sealLeaves, sandboxPubB64)
+  if (hasText) {
+    const safeText = constructSafeText({
+      subjectRaw: parsed.subject,
+      plainTextBodyRaw: bodyText,
+      attachmentBlobIds: artifacts.map((a) => a.blob_id),
+    })
+    return { ok: true, type: 'mixed', packages, safeText, artifacts }
+  }
+  const carrierSafeText = constructSafeText({
+    subjectRaw: parsed.subject,
+    plainTextBodyRaw: '',
+    attachmentBlobIds: artifacts.map((a) => a.blob_id),
+  })
+  return { ok: true, type: 'beap-carrier', packages, carrierSafeText, artifacts }
+}
+
+function toFailureResult(err: unknown): DepackageEmailResult {
+  if (err instanceof DepackageFailure) {
+    return { ok: false, code: err.code, message: err.message }
+  }
+  // Any other parse error is malformed input → fail closed (INV-7).
+  return { ok: false, code: 'E_MALFORMED_MIME', message: err instanceof Error ? err.message : String(err) }
+}
+
+/**
+ * B2 email depackage entry — **RFC822 input form**. Pure; returns the typed
+ * union or a typed failure. `sandboxPubB64` is the PUBLIC X25519 key artifacts
+ * are sealed to (INV-2).
  */
 export function depackageEmail(
   inputBytes: Buffer,
@@ -423,52 +446,30 @@ export function depackageEmail(
   limits?: DepackageLimits,
 ): DepackageEmailResult {
   try {
-    const parsed = hardenedParse(inputBytes, limits)
-    const { packages, ambiguous, consumedLeaves, bodyConsumed } = detectCarrierPackages(parsed)
-
-    if (ambiguous) {
-      // INV-7: ambiguous/partial carrier match → fail closed (quarantine).
-      throw new DepackageFailure('E_AMBIGUOUS_CLASSIFICATION', 'ambiguous or partially-matching carrier classification')
-    }
-
-    // Carrier packages travel in the opaque channel and must NOT be sealed;
-    // everything else (HTML, attachments) is custody-sealed. Leaves consumed as
-    // packages are excluded from sealing to avoid double custody.
-    const sealLeaves = parsed.leaves.filter((leaf) => !consumedLeaves.has(leaf))
-
-    const bodyText = deriveBodyText(parsed, bodyConsumed)
-    const hasText = bodyText.trim().length > 0
-
-    if (packages.length === 0) {
-      const artifacts = sealArtifacts(sealLeaves, sandboxPubB64)
-      const safeText = constructSafeText({
-        subjectRaw: parsed.subject,
-        plainTextBodyRaw: bodyText,
-        attachmentBlobIds: artifacts.map((a) => a.blob_id),
-      })
-      return { ok: true, type: 'plain', safeText, artifacts }
-    }
-
-    const artifacts = sealArtifacts(sealLeaves, sandboxPubB64)
-    if (hasText) {
-      const safeText = constructSafeText({
-        subjectRaw: parsed.subject,
-        plainTextBodyRaw: bodyText,
-        attachmentBlobIds: artifacts.map((a) => a.blob_id),
-      })
-      return { ok: true, type: 'mixed', packages, safeText, artifacts }
-    }
-    const carrierSafeText = constructSafeText({
-      subjectRaw: parsed.subject,
-      plainTextBodyRaw: '',
-      attachmentBlobIds: artifacts.map((a) => a.blob_id),
-    })
-    return { ok: true, type: 'beap-carrier', packages, carrierSafeText, artifacts }
+    return buildResultFromParse(hardenedParse(inputBytes, limits), sandboxPubB64)
   } catch (err: unknown) {
-    if (err instanceof DepackageFailure) {
-      return { ok: false, code: err.code, message: err.message }
-    }
-    // Any other parse error is malformed MIME → fail closed (INV-7).
-    return { ok: false, code: 'E_MALFORMED_MIME', message: err instanceof Error ? err.message : String(err) }
+    return toFailureResult(err)
+  }
+}
+
+/**
+ * B2.1 (D4) email depackage entry — **provider-structured-json input form** (the
+ * R2 universal fallback). The orchestrator ships the provider's JSON opaque; the
+ * key-less guest walks it (untrusted structure, all C4 guards) into the SAME
+ * `ParseOut`, then runs the identical shared pipeline as the RFC822 path — so
+ * derived text (R1), extracted packages (R3), artifacts, and failure outcomes
+ * are equivalent across input forms (proved by the equivalence corpus).
+ */
+export function depackageEmailStructured(
+  providerJson: Buffer | string,
+  sandboxPubB64: string,
+  opts: { provider?: string },
+  limits?: DepackageLimits,
+): DepackageEmailResult {
+  try {
+    const parsed = walkProviderStructured(providerJson, opts, limits)
+    return buildResultFromParse(parsed, sandboxPubB64)
+  } catch (err: unknown) {
+    return toFailureResult(err)
   }
 }
