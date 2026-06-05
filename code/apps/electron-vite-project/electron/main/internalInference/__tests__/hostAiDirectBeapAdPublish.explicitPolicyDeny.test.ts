@@ -29,6 +29,8 @@ vi.mock('../p2pEndpointRepair', () => ({
   hostDirectP2pAdvertisementHeaders: () => ({
     'X-BEAP-Direct-P2P-Endpoint': 'http://192.168.1.2:51249/beap/ingest',
   }),
+  // Triage 0015/0016: module gained this export; partial mock must include it.
+  registerP2pEnsureCacheInvalidator: vi.fn(),
 }))
 
 vi.mock('../p2pSignalRelayPost', () => ({
