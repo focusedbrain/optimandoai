@@ -565,6 +565,11 @@ export interface SanitizedMessageDetail extends SanitizedMessage {
    * to the depackage seam. Set only when WRDESK_SEAM_DEPACKAGE_CUTOVER is on.
    */
   rawRfc822?: Buffer
+  /**
+   * B2.1 (D4): opaque provider-structured-json carried unparsed (Outlook default).
+   * Same flag gate as `rawRfc822`.
+   */
+  providerStructuredJson?: { readonly provider: string; readonly json: Buffer }
 }
 
 // =============================================================================

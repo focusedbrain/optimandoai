@@ -2503,6 +2503,8 @@ class EmailGateway implements IEmailGateway {
       },
       // B2 byte-courier: pass opaque raw bytes through untouched (flag-gated upstream).
       rawRfc822: raw.rawRfc822,
+      // B2.1 (D4): pass opaque provider-structured-json through untouched.
+      providerStructuredJson: raw.providerStructuredJson,
     }
   }
   

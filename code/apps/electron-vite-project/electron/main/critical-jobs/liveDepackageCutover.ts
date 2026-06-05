@@ -53,22 +53,32 @@ function buildDispatcher(): CriticalJobDispatcher {
   )
 }
 
+/** Which guest parser runs on the opaque bytes (routing, not a content parse). */
+export interface DepackageInputForm {
+  /** `'rfc822'` (default) → bounded MIME parser; else the D4 structured walker. */
+  readonly inputForm?: 'rfc822' | 'provider-structured-json'
+  /** schema adapter for the structured-json walker (default `'outlook'`). */
+  readonly provider?: string
+}
+
 /**
  * Route a single email payload through `dispatch({kind:'depackage-email'})`.
  *
  * @param inputBytes   the opaque provider payload (orchestrator never parses it)
  * @param custodyPubKeyB64 the paired sandbox PUBLIC X25519 key (sealing target)
  * @param maxInputBytes optional spec ceiling (wins over the guest default, C4)
+ * @param form         input-form discriminator (default: rfc822)
  */
 export async function dispatchDepackageEmail(
   inputBytes: Buffer,
   custodyPubKeyB64: string,
   maxInputBytes: number = DEPACKAGE_MAX_INPUT_BYTES,
+  form: DepackageInputForm = {},
 ): Promise<DepackageDispatchOutcome> {
   const result = await buildDispatcher().dispatch({
     jobId: randomUUID(),
     kind: 'depackage-email',
-    input: { inputBytes, maxInputBytes },
+    input: { inputBytes, maxInputBytes, inputForm: form.inputForm, provider: form.provider },
     custodyPubKeyB64,
     limits: { maxWallClockMs: DEPACKAGE_WALL_CLOCK_MS, maxInputBytes },
     flush: 'per-action',

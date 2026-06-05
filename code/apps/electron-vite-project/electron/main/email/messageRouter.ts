@@ -83,6 +83,14 @@ export interface RawEmailMessage {
    * is never inline-parsed from `text`/`html`.
    */
   rawRfc822?: Buffer | string
+  /**
+   * B2.1 (D4) alternative opaque form: the provider's structured JSON shipped
+   * UNPARSED, walked by the guest's provider-structured-json walker. Used where
+   * faithful raw RFC822 is not obtainable (e.g. Outlook default). When present
+   * AND the flag is on, the seam prefers this over `rawRfc822`. The orchestrator
+   * never inspects it.
+   */
+  providerStructuredJson?: { readonly provider: string; readonly json: Buffer | string }
 }
 
 export interface DetectAndRouteResult {
@@ -860,7 +868,9 @@ function mapDepackageCodeToReason(code: string): string {
     case 'E_LIMITS_EXCEEDED': return 'email_depackage_limits'
     case 'E_DECOMPRESSION_BOMB': return 'email_depackage_bomb'
     case 'E_AMBIGUOUS_CLASSIFICATION': return 'email_depackage_ambiguous'
+    case 'E_AMBIGUOUS_STRUCTURE': return 'email_depackage_ambiguous_structure'
     case 'E_ARTIFACT_CUSTODY_FAILED': return 'email_depackage_custody'
+    case 'E_INLINE_PARSE_FORBIDDEN': return 'email_depackage_inline_parse_forbidden'
     case 'E_SIGNATURE_INVALID': return 'email_depackage_sig'
     case 'E_NO_EXECUTOR':
     case 'E_EXECUTOR_UNAVAILABLE': return 'email_depackage_no_executor'
@@ -893,7 +903,16 @@ async function routeViaDepackageSeam(
   const messageId = resolveStorageEmailMessageId(accountId, rawMsg)
 
   // INV-7: no opaque payload obtainable ⇒ HELD (never parse text/html inline).
-  const opaque = toOpaqueBuffer(rawMsg.rawRfc822)
+  // Prefer the provider-structured-json form when present (D4), else raw RFC822.
+  let opaque: Buffer | null = null
+  let form: { inputForm?: 'rfc822' | 'provider-structured-json'; provider?: string } = {}
+  if (rawMsg.providerStructuredJson) {
+    opaque = toOpaqueBuffer(rawMsg.providerStructuredJson.json)
+    form = { inputForm: 'provider-structured-json', provider: rawMsg.providerStructuredJson.provider }
+  } else {
+    opaque = toOpaqueBuffer(rawMsg.rawRfc822)
+    form = { inputForm: 'rfc822' }
+  }
   if (!opaque) {
     throw new DepackageCutoverHeldError('opaque_payload_unobtainable')
   }
@@ -905,7 +924,7 @@ async function routeViaDepackageSeam(
   }
 
   const { dispatchDepackageEmail } = await import('../critical-jobs/liveDepackageCutover')
-  const out = await dispatchDepackageEmail(opaque, sandbox.peer_x25519_public_key_b64)
+  const out = await dispatchDepackageEmail(opaque, sandbox.peer_x25519_public_key_b64, undefined, form)
 
   // INV-5 logging: identifiers/codes only, never plaintext/bytes.
   if (!out.ok) {

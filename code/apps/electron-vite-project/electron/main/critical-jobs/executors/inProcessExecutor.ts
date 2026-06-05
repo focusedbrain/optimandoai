@@ -26,7 +26,7 @@
  */
 
 import { runDepackagingJob } from '../../depackaging-microvm/depackagingWorker'
-import { depackageEmail } from '../../depackaging-microvm/emailDepackage'
+import { depackageEmail, depackageEmailStructured } from '../../depackaging-microvm/emailDepackage'
 import { validateCapsule } from '@repo/ingestion-core'
 import { depackageJobResultToCriticalResult } from '../verify'
 import type { CriticalJobExecutor } from '../executor'
@@ -135,9 +135,18 @@ export class InProcessExecutor implements CriticalJobExecutor {
     // The worker emits a typed result union OR a typed failure. Both are valid
     // OUTPUTS (the job ran). INV-7: the consumer maps a worker failure to a
     // quarantine reason; this executor does not inline-parse or downgrade.
-    const out = depackageEmail(spec.input.inputBytes, spec.custodyPubKeyB64, {
-      maxInputBytes: spec.input.maxInputBytes ?? spec.limits.maxInputBytes,
-    })
+    // `inputForm` selects which guest parser runs on the opaque bytes; both
+    // converge on the same internal representation (D4).
+    const limits = { maxInputBytes: spec.input.maxInputBytes ?? spec.limits.maxInputBytes }
+    const out =
+      spec.input.inputForm === 'provider-structured-json'
+        ? depackageEmailStructured(
+            spec.input.inputBytes,
+            spec.custodyPubKeyB64,
+            { provider: spec.input.provider },
+            limits,
+          )
+        : depackageEmail(spec.input.inputBytes, spec.custodyPubKeyB64, limits)
     return {
       jobId: spec.jobId,
       ok: true,

@@ -59,6 +59,12 @@ export interface RawEmailMessage {
    * gateway/sync layers to the depackage seam. The orchestrator never inspects it.
    */
   rawRfc822?: Buffer
+  /**
+   * B2.1 (D4): alternative OPAQUE form — the provider's structured JSON shipped
+   * UNPARSED (Outlook default). Same flag gate + same never-inspected discipline;
+   * the guest's provider-structured-json walker consumes it.
+   */
+  providerStructuredJson?: { readonly provider: string; readonly json: Buffer }
 }
 
 /**

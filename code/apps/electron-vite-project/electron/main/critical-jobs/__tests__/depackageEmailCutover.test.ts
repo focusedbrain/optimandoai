@@ -77,6 +77,37 @@ describe('B2 dev-box cutover — sandbox role (in-process)', () => {
     if (!out.ok || out.result.ok) return
     expect(out.result.code).toBe('E_AMBIGUOUS_CLASSIFICATION')
   })
+
+  // D4 / proof obligation 3: an Outlook structured-json payload now completes
+  // end-to-end through the seam (no longer HELD) — the walker runs in-guest.
+  test('provider-structured-json (Outlook) → dispatch ok, typed union plain', async () => {
+    const graph = Buffer.from(
+      JSON.stringify({ subject: 'Hi', body: { contentType: 'text', content: 'hello structured' } }),
+      'utf8',
+    )
+    const out = await dispatchDepackageEmail(graph, PUB, undefined, {
+      inputForm: 'provider-structured-json',
+      provider: 'outlook',
+    })
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.result.ok).toBe(true)
+    if (!out.result.ok) return
+    expect(out.result.type).toBe('plain')
+    if (out.result.type !== 'plain') return
+    expect(out.result.safeText.body_text).toContain('hello structured')
+  })
+
+  test('INV-7: structured-json with contradictory structure fails closed', async () => {
+    const bad = Buffer.from(JSON.stringify({ body: { contentType: 'rtf', content: 'x' } }), 'utf8')
+    const out = await dispatchDepackageEmail(bad, PUB, undefined, {
+      inputForm: 'provider-structured-json',
+      provider: 'outlook',
+    })
+    expect(out.ok).toBe(true)
+    if (!out.ok || out.result.ok) return
+    expect(out.result.code).toBe('E_AMBIGUOUS_STRUCTURE')
+  })
 })
 
 describe('B2 cutover — INV-1 workstation ban', () => {

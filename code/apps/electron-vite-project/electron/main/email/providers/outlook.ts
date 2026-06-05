@@ -439,6 +439,36 @@ export class OutlookProvider extends BaseEmailProvider {
         } catch (e) {
           console.warn('[Outlook] $value fetch failed (seam will hold):', messageId, e)
         }
+      } else if (msg && isSeamDepackageCutoverEnabled()) {
+        // B2.1 (D4): the DEFAULT Outlook opaque form is provider-structured-json.
+        // Ship the Graph message resource UNPARSED (the orchestrator only collects
+        // + serializes opaque fields; it never interprets the body/attachments).
+        // The guest's structured-json walker treats it as untrusted structure.
+        try {
+          const structured: Record<string, unknown> = {
+            subject: response.subject,
+            body: response.body,
+          }
+          if (response.hasAttachments) {
+            const attResp = await this.graphApiRequest('GET', `/me/messages/${messageId}/attachments`)
+            const all: any[] = attResp?.value ?? []
+            // Only file attachments carry `contentBytes` (item/reference carry none).
+            structured.attachments = all
+              .filter((a) => typeof a?.contentBytes === 'string')
+              .map((a) => ({
+                '@odata.type': a['@odata.type'],
+                name: a.name,
+                contentType: a.contentType,
+                contentBytes: a.contentBytes,
+              }))
+          }
+          msg.providerStructuredJson = {
+            provider: 'outlook',
+            json: Buffer.from(JSON.stringify(structured), 'utf-8'),
+          }
+        } catch (e) {
+          console.warn('[Outlook] structured-json assembly failed (seam will hold):', messageId, e)
+        }
       }
 
       return msg

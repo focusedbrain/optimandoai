@@ -260,6 +260,8 @@ function mapToRawEmailMessage(
     // B2 byte-courier (R2): opaque raw payload for the depackage seam (flag-gated
     // at the provider; absent when the flag is off). The orchestrator never parses it.
     rawRfc822: detail.rawRfc822,
+    // B2.1 (D4): opaque provider-structured-json form (Outlook default).
+    providerStructuredJson: detail.providerStructuredJson,
     attachments: attachments.map((a) => ({
       id: a.id,
       filename: a.filename,

@@ -204,8 +204,19 @@ export interface JobInputMap {
    * B2 email cutover: the opaque provider payload (raw RFC822 or, where raw is
    * not faithfully obtainable, the provider-structured-json shipped unparsed).
    * The orchestrator inspects neither (R2). `maxInputBytes` is honored in-guest.
+   *
+   * `inputForm` tells the guest WHICH parser to run on the opaque bytes — it is a
+   * routing discriminator, not a parse of the content. `'rfc822'` (default) runs
+   * the bounded MIME parser; `'provider-structured-json'` runs the D4 walker, for
+   * which `provider` selects the schema adapter (default `'outlook'`). Both forms
+   * converge on the same internal representation inside the guest.
    */
-  'depackage-email': { readonly inputBytes: Buffer; readonly maxInputBytes?: number }
+  'depackage-email': {
+    readonly inputBytes: Buffer
+    readonly maxInputBytes?: number
+    readonly inputForm?: 'rfc822' | 'provider-structured-json'
+    readonly provider?: string
+  }
   /** A URL to evaluate/open in isolation (unsupported in B1). */
   'open-link': { readonly url: string }
   /** An opaque sealed-artifact handle to render in isolation (unsupported in B1). */
