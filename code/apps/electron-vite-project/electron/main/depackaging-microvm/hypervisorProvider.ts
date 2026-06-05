@@ -20,6 +20,7 @@
 
 import { ed25519 } from '@noble/curves/ed25519'
 import { createHash } from 'crypto'
+import { isWeakEd25519PublicKey } from '../security/ed25519WeakKey'
 import type { SafeTextV1 } from './safeText'
 import type { BlobArtifact } from './depackagingWorker'
 
@@ -155,8 +156,11 @@ export function verifyJobResultSignature(r: JobResult): boolean {
   try {
     const msg = canonicalJobResultBytes(r)
     const sig = Buffer.from(r.result_signature_b64, 'base64')
-    const pub = Buffer.from(r.result_signing_pub_b64, 'base64')
-    return ed25519.verify(new Uint8Array(sig), new Uint8Array(msg), new Uint8Array(pub))
+    const pub = new Uint8Array(Buffer.from(r.result_signing_pub_b64, 'base64'))
+    // Reject small-order / identity / non-canonical signing keys before verify:
+    // the library accepts them with an all-zero signature (forgery vector). INV-7.
+    if (isWeakEd25519PublicKey(pub)) return false
+    return ed25519.verify(new Uint8Array(sig), new Uint8Array(msg), pub)
   } catch {
     return false
   }

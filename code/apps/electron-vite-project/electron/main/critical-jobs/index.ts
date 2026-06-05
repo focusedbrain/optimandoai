@@ -19,4 +19,14 @@ export {
 } from './context'
 export { InProcessExecutor } from './executors/inProcessExecutor'
 export { MicroVMExecutor, createCrosvmMicroVmExecutor } from './executors/microVmExecutor'
-export { RemoteHandshakeExecutor } from './executors/remoteHandshakeExecutor'
+export {
+  RemoteHandshakeExecutor,
+  type RemoteHandshakeExecutorDeps,
+} from './executors/remoteHandshakeExecutor'
+export {
+  validateLinkedEntry,
+  validateLinkedTopology,
+  loadLinkedTopology,
+  type LinkedTopologyEntry,
+  type LinkedRole,
+} from './topology'

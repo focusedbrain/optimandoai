@@ -40,13 +40,15 @@ export type DepackageDispatchOutcome =
 
 function buildDispatcher(): CriticalJobDispatcher {
   const ctx = buildResolutionContext()
-  // in-process (sandbox/appliance) + the remote stub. The microVM executor for
-  // depackage-email is wired at the rig-gated cutover site with real provider
-  // config; absent here, paid/appliance microVM routing fails closed (INV-7).
+  // in-process (sandbox/appliance) + the Build C topology-aware remote executor.
+  // The microVM executor for depackage-email is wired at the rig-gated cutover
+  // site with real provider config; absent here, paid/appliance microVM routing
+  // fails closed (INV-7). Absent linked topology, the workstation remote rows are
+  // unavailable → E_NO_EXECUTOR (exactly Build A behavior).
   return new CriticalJobDispatcher(
     {
       'in-process': new InProcessExecutor(ctx.role),
-      'remote-handshake': new RemoteHandshakeExecutor(),
+      'remote-handshake': new RemoteHandshakeExecutor({ topology: ctx.topology.linked }),
     },
     DEFAULT_RESOLUTION_TABLE,
     ctx,
