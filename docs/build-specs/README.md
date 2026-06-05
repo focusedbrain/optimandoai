@@ -16,6 +16,7 @@ they conflict.
 | 0004 | [B1 closeout](./0004-b1-closeout.md) | Acceptance + three closeout tasks; soak/carry-forward notes |
 | 0005 | [B2 analysis spec](./0005-b2-analysis-spec.md) | Email depackaging pipeline analysis brief (raw mail → `depackage` → BEAP capsule) — analysis only |
 | 0006 | [B2 analysis report](./0006-b2-analysis-report.md) | Findings A–H, result/capsule contracts, build plan sketch, rig exit criteria, contradictions, ranked open questions |
+| 0007 | [B2 build spec](./0007-b2-build-spec.md) | Binding rulings R1–R3 + INV-7; phased flag-gated cutover (`WRDESK_SEAM_DEPACKAGE_CUTOVER`, default OFF) |
 
 ## Where B1 landed in code
 
