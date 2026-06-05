@@ -946,7 +946,7 @@ export class OutlookProvider extends BaseEmailProvider {
     path: string
     method: string
     body?: any
-  }): Promise<{ statusCode: number; headers: IncomingHttpHeaders; json: any; rawBody: string }> {
+  }): Promise<{ statusCode: number; headers: IncomingHttpHeaders; json: any; rawBody: string; rawBuffer: Buffer }> {
     return new Promise((resolve, reject) => {
       const req = https.request(
         {
@@ -959,11 +959,16 @@ export class OutlookProvider extends BaseEmailProvider {
           },
         },
         (res) => {
-          let data = ''
+          // Accumulate as bytes so binary/8-bit bodies (e.g. raw MIME from
+          // `/$value`) round-trip losslessly; JSON parsing decodes UTF-8 from the
+          // same buffer (the prior `data += chunk` path coerced 8-bit bytes).
+          const chunks: Buffer[] = []
           res.on('data', (chunk) => {
-            data += chunk
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
           })
           res.on('end', () => {
+            const rawBuffer = Buffer.concat(chunks)
+            const data = rawBuffer.toString('utf8')
             let json: any = {}
             try {
               json = data ? JSON.parse(data) : {}
@@ -975,6 +980,7 @@ export class OutlookProvider extends BaseEmailProvider {
               headers: res.headers,
               json,
               rawBody: data,
+              rawBuffer,
             })
           })
         },
@@ -1097,10 +1103,9 @@ export class OutlookProvider extends BaseEmailProvider {
    * B2 byte-courier (R2): fetch the OPAQUE raw response body (unparsed) — used for
    * Graph `/me/messages/{id}/$value` which returns raw RFC822 (MIME), not JSON.
    * Reuses the same 401-refresh / 429 / 5xx handling as {@link graphApiRequest}
-   * but returns the body as bytes. Standard Graph MIME is 7-bit/base64-encoded
-   * transport, so the string body round-trips losslessly to UTF-8 bytes; on any
-   * non-2xx the caller leaves `rawRfc822` unset and the depackage seam fails
-   * closed (INV-7), never inline-parsing.
+   * but returns the body as raw bytes (binary-safe, so 8-bit MIME round-trips
+   * losslessly). On any non-2xx the caller leaves `rawRfc822` unset and the
+   * depackage seam fails closed (INV-7), never inline-parsing.
    */
   private async graphApiRequestRaw(endpoint: string): Promise<Buffer | null> {
     const path = `/v1.0${endpoint}`
@@ -1109,7 +1114,7 @@ export class OutlookProvider extends BaseEmailProvider {
       if (this.isTokenExpired() && this.refreshToken) {
         try { await this.refreshAccessToken() } catch (e: any) { console.warn('[Outlook] $value pre-request token refresh failed:', e?.message) }
       }
-      const { statusCode, headers, rawBody } = await this.graphSingleRequest({
+      const { statusCode, headers, rawBuffer } = await this.graphSingleRequest({
         hostname: 'graph.microsoft.com',
         path,
         method: 'GET',
@@ -1129,7 +1134,7 @@ export class OutlookProvider extends BaseEmailProvider {
       if (statusCode >= 400) {
         throw new Error(`Graph $value HTTP ${statusCode} (${endpoint.slice(0, 80)})`)
       }
-      return rawBody ? Buffer.from(rawBody, 'utf-8') : null
+      return rawBuffer.length > 0 ? rawBuffer : null
     }
     throw new Error(`[Outlook] Graph $value max retries exceeded (${endpoint.slice(0, 80)})`)
   }

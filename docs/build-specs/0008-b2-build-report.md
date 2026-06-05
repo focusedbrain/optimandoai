@@ -246,13 +246,10 @@ than absorbed.
 ### 7b. Still blocked / deferred
 
 - **Phase 2 — Outlook `/$value` real-account validation (R2 spike).** The code is
-  now landed (`graphApiRequestRaw` + flag-gated `/$value` fetch in `fetchMessage`),
-  but two things still need a real Outlook/Graph account to confirm: (1) `/$value`
-  availability/preference (the spike itself); (2) the **8-bit MIME caveat** —
-  `graphSingleRequest` accumulates the body as a UTF-8 string, which round-trips
-  losslessly for 7-bit/base64 transport (the overwhelming majority) but could be
-  lossy for rare 8-bit-content-transfer-encoding messages; if the spike surfaces
-  this, switch `/$value` to a binary-safe accumulation path. Until validated, the
+  now landed and binary-safe (`graphApiRequestRaw` + flag-gated `/$value` fetch in
+  `fetchMessage`; `graphSingleRequest` now accumulates bytes, so 8-bit MIME
+  round-trips losslessly). What still needs a real Outlook/Graph account is the
+  spike itself: confirming `/$value` availability/preference. Until validated, the
   Outlook flag should stay off; if `/$value` errors at runtime the seam HELDs
   (INV-7), never inline-parses.
 - **Phase 3.4 — full e2e per-kind parity suites on real fetched mail** + the rig
@@ -339,9 +336,10 @@ and flag-off is byte-identical (field unset/unused).
 - **Outlook:** wired via Graph `/me/messages/{id}/$value` (raw MIME) behind a new
   `graphApiRequestRaw` that reuses the same 401/429/5xx handling and returns bytes
   (the `$select` parse still supplies envelope metadata). Additive + flag-gated;
-  any non-2xx leaves `rawRfc822` unset ⇒ seam HELDs (INV-7). **Pending real-account
-  validation** of the R2 spike (`/$value` availability/preference) and the 8-bit
-  MIME caveat below before the flag is flipped on for Outlook.
+  any non-2xx leaves `rawRfc822` unset ⇒ seam HELDs (INV-7). Binary-safe
+  (`graphSingleRequest` accumulates bytes, so 8-bit MIME round-trips losslessly).
+  **Pending real-account validation** of the R2 spike (`/$value`
+  availability/preference) before the flag is flipped on for Outlook.
 
 Envelope metadata (from/to/date/folder/ids) continues to come from
 provider-structured fields (IMAP ENVELOPE, Gmail/Graph fields), never from
