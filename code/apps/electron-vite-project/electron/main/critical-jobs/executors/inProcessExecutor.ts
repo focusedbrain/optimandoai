@@ -31,6 +31,7 @@ import { depackageJobResultToCriticalResult } from '../verify'
 import type { CriticalJobExecutor } from '../executor'
 import {
   CriticalJobError,
+  TRANSITIONAL_INPROCESS_KINDS,
   type CriticalJobKind,
   type CriticalJobResult,
   type CriticalJobSpec,
@@ -60,11 +61,16 @@ export class InProcessExecutor implements CriticalJobExecutor {
   }
 
   async run<K extends CriticalJobKind>(spec: CriticalJobSpec<K>): Promise<CriticalJobResult<K>> {
-    // INV-1: refuse in-process execution on the workstation, always.
-    if (this.role === 'workstation') {
+    // INV-1 (refined, Q5): in-process on the workstation is ABSOLUTELY forbidden
+    // for untrusted-content kinds, and permitted ONLY for the transitional
+    // validate kinds — the host-side validators (forked subprocess / pure
+    // validateCapsule) that already run on the workstation today. This mirrors
+    // the transitional rule the table validator enforces, so a workstation
+    // single-box can run the B1 validation cutover without overstating isolation.
+    if (this.role === 'workstation' && !TRANSITIONAL_INPROCESS_KINDS.has(spec.kind)) {
       throw new CriticalJobError(
         'E_ROLE_FORBIDDEN',
-        'in-process critical-job execution is forbidden on role=workstation (INV-1)',
+        `in-process execution of kind "${spec.kind}" is forbidden on role=workstation (INV-1)`,
       )
     }
 

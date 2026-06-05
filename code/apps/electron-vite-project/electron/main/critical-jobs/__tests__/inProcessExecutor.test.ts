@@ -21,12 +21,27 @@ const depackageSpec: CriticalJobSpec<'depackage'> = {
 }
 
 describe('InProcessExecutor INV-1 role gate', () => {
-  test('throws E_ROLE_FORBIDDEN on role=workstation', async () => {
+  test('throws E_ROLE_FORBIDDEN on role=workstation for untrusted-content (depackage)', async () => {
     const exec = new InProcessExecutor('workstation')
     await expect(exec.run(depackageSpec)).rejects.toMatchObject({
       code: 'E_ROLE_FORBIDDEN',
     })
     await expect(exec.run(depackageSpec)).rejects.toBeInstanceOf(CriticalJobError)
+  })
+
+  test('permits a transitional validate kind on role=workstation (INV-1 refinement, Q5)', async () => {
+    const exec = new InProcessExecutor('workstation')
+    const spec: CriticalJobSpec<'validate-native-beap'> = {
+      jobId: 'vnb-ws',
+      kind: 'validate-native-beap',
+      input: { candidate: { kind: 'qbeap' } as never },
+      limits: { maxWallClockMs: 5000 },
+      flush: 'session',
+    }
+    // Must NOT throw E_ROLE_FORBIDDEN; validateCapsule is a pure host call.
+    const res = await exec.run(spec)
+    expect(res.ok).toBe(true)
+    expect(res.meta?.executorId).toBe('in-process')
   })
 
   test('runs depackage on role=sandbox', async () => {
