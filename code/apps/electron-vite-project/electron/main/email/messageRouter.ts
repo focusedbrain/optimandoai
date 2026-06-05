@@ -954,8 +954,16 @@ async function routeViaDepackageSeam(
     const pkg = result.packages[0]
     const pkgJson = Buffer.from(pkg.bytesB64, 'base64').toString('utf-8')
     console.warn('[messageRouter] depackage-email carrier', { messageId, type: result.type, packages: result.packages.length })
+    // B2.2: inject the guest-derived display envelope so the re-entered pipeline-2
+    // path has from/to/subject/date WITHOUT the orchestrator parsing headers.
+    const env = result.displayEnvelope
     const beapRawMsg: RawEmailMessage = {
       ...rawMsg,
+      subject: env.subject,
+      from: env.from ? { address: env.from.email, name: env.from.name } : rawMsg.from,
+      to: env.to.map((a) => ({ address: a.email, name: a.name })),
+      cc: env.cc.map((a) => ({ address: a.email, name: a.name })),
+      date: rawMsg.date || env.date,
       text: pkgJson,
       html: undefined,
       attachments: [],
@@ -966,7 +974,7 @@ async function routeViaDepackageSeam(
 
   // Plain mail: consumer-wrap the guest SafeText, preserve sealed originals.
   console.warn('[messageRouter] depackage-email plain', { messageId, artifacts: result.artifacts.length })
-  return writePlainSeamInbox(db, accountId, rawMsg, messageId, result.safeText, result.artifacts)
+  return writePlainSeamInbox(db, accountId, rawMsg, messageId, result.safeText, result.artifacts, result.displayEnvelope)
 }
 
 /**
@@ -1039,17 +1047,25 @@ async function writePlainSeamInbox(
   messageId: string,
   safeText: { subject: string; body_text: string; attachment_refs: readonly string[] },
   artifacts: ReadonlyArray<{ blob_id: string; content_type: string; filename?: string; blob: import('../quarantine-blob-storage/index').QuarantineBlobFile }>,
+  envelope: import('../depackaging-microvm/emailDepackage').DisplayEnvelope,
 ): Promise<DetectAndRouteResult> {
   const inboxMessageId = randomUUID()
   const now = new Date().toISOString()
-  const receivedAt = rawMsg.date || now
-  const fromAddr = rawMsg.from?.address ?? (rawMsg.from as any)?.email ?? ''
-  const fromName = rawMsg.from?.name ?? null
-  const toList = rawMsg.to ?? []
-  const ccList = rawMsg.cc ?? []
-  const toAddrs = toList.map((r) => r.address ?? (r as any).email ?? '')
-  const ccAddrs = ccList.map((r) => r.address ?? (r as any).email ?? '')
+  // Bookkeeping date is provider-native (IMAP INTERNALDATE / Gmail internalDate /
+  // Graph receivedDateTime); fall back to the guest-decoded Date header.
+  const receivedAt = rawMsg.date || envelope.date || now
+  // B2.2: from/to/cc/subject come from the GUEST-derived display envelope — the
+  // orchestrator parsed no headers. (subject == safeText.subject == envelope.subject.)
+  const fromAddr = envelope.from?.email ?? ''
+  const fromName = envelope.from?.name ?? null
+  const toList = envelope.to.map((a) => ({ address: a.email, name: a.name }))
+  const ccList = envelope.cc.map((a) => ({ address: a.email, name: a.name }))
+  const toAddrs = toList.map((r) => r.address)
+  const ccAddrs = ccList.map((r) => r.address)
   const folder = rawMsg.folder != null && String(rawMsg.folder).trim() !== '' ? String(rawMsg.folder).trim() : 'INBOX'
+  // Thread/dedupe key: IMAP has no provider-native thread id, so flag-on it keys
+  // on the guest result (no locally-parsed Message-ID header). rawMsg.headers is
+  // empty flag-on; this falls back to the storage message id.
   const imapRfcMessageId = rawMsg.headers?.messageId?.trim() || null
 
   // Preserve sealed originals; build the canonical attachment refs (no plaintext

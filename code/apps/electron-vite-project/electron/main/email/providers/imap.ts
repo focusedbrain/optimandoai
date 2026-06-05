@@ -10,6 +10,7 @@ import * as nodemailer from 'nodemailer'
 import type ImapApi from 'imap'
 import { simpleParser, ParsedMail } from 'mailparser'
 import { isSeamDepackageCutoverEnabled } from '../../critical-jobs/featureFlags'
+import { assertNoInlineParse } from '../inlineParseGuard'
 import { 
   BaseEmailProvider, 
   RawEmailMessage, 
@@ -977,6 +978,10 @@ export class ImapProvider extends BaseEmailProvider {
         })
 
         let message: RawEmailMessage | null = null
+        // B2.2: provider-native attributes (UID/INTERNALDATE/RFC822.SIZE/flags)
+        // captured for the flag-on header-free path. openBox(...,true) is READ-ONLY
+        // so the full-body fetch never sets \Seen (BODY.PEEK[] semantics).
+        let pendingAttrs: any = null
 
         fetch.on('message', (msg) => {
           msg.on('body', (stream) => {
@@ -984,6 +989,39 @@ export class ImapProvider extends BaseEmailProvider {
             stream.on('data', (chunk: Buffer) => chunks.push(chunk))
             stream.once('end', () => {
               const buffer = Buffer.concat(chunks)
+              // ── B2.2 flag-ON: provider-native bookkeeping ONLY. No ENVELOPE /
+              // header FETCH parse, no local header decoding. The key-less guest
+              // derives the display envelope from `rawRfc822` post-depackage.
+              if (isSeamDepackageCutoverEnabled()) {
+                message = {
+                  id: messageId,
+                  uid: messageId,
+                  threadId: undefined,
+                  subject: '',
+                  from: { email: '' },
+                  to: [],
+                  cc: [],
+                  date: pendingAttrs?.date ? new Date(pendingAttrs.date) : new Date(),
+                  bodyHtml: undefined,
+                  bodyText: undefined,
+                  flags: {
+                    seen: !!pendingAttrs?.flags?.includes?.('\\Seen'),
+                    flagged: !!pendingAttrs?.flags?.includes?.('\\Flagged'),
+                    answered: !!pendingAttrs?.flags?.includes?.('\\Answered'),
+                    draft: !!pendingAttrs?.flags?.includes?.('\\Draft'),
+                    deleted: !!pendingAttrs?.flags?.includes?.('\\Deleted'),
+                  },
+                  labels: [],
+                  folder,
+                  headers: {},
+                  rawRfc822: buffer,
+                }
+                this.messageCache.set(messageId, message)
+                return
+              }
+              // ── flag-OFF: the original parse path, UNCHANGED + byte-identical.
+              // Tripwire (inert flag-off): proves header parsing never runs flag-on.
+              assertNoInlineParse('imap.fetchMessageFromFolder.simpleParser')
               simpleParser(buffer)
                 .then((parsed: ParsedMail) => {
                   const getAddresses = (addr: any): Array<{ email: string; name?: string }> => {
@@ -1008,12 +1046,8 @@ export class ImapProvider extends BaseEmailProvider {
                     cc: ccAddresses,
                     replyTo: replyToAddresses[0],
                     date: parsed.date || new Date(),
-                    // D5.1 byte-courier: flag-ON the orchestrator holds NO untrusted
-                    // body content — the guest derives body from `rawRfc822`. The
-                    // parse above is retained ONLY for envelope metadata (from/to/
-                    // subject/date); its body output is dropped. flag-OFF unchanged.
-                    bodyHtml: isSeamDepackageCutoverEnabled() ? undefined : (parsed.html || undefined),
-                    bodyText: isSeamDepackageCutoverEnabled() ? undefined : (parsed.text || undefined),
+                    bodyHtml: parsed.html || undefined,
+                    bodyText: parsed.text || undefined,
                     flags: {
                       seen: false,
                       flagged: false,
@@ -1032,12 +1066,9 @@ export class ImapProvider extends BaseEmailProvider {
                           ? [parsed.references]
                           : undefined,
                     },
-                    // B2 byte-courier (R2): retain the full RFC822 we already
-                    // fetched (`bodies: ''`) so the depackage seam can re-derive
-                    // body/classification inside the isolated guest. Captured only
-                    // when the cutover flag is on; the parsed fields above remain
-                    // the source for envelope metadata and the flag-off path.
-                    rawRfc822: isSeamDepackageCutoverEnabled() ? buffer : undefined,
+                    // flag-OFF path: no opaque payload needed (the inline router
+                    // parses). The flag-ON path above carries `rawRfc822` instead.
+                    rawRfc822: undefined,
                   }
 
                   if (message) {
@@ -1052,6 +1083,7 @@ export class ImapProvider extends BaseEmailProvider {
           })
 
           msg.once('attributes', (attrs) => {
+            pendingAttrs = attrs
             if (message && attrs.flags) {
               message.flags = {
                 seen: attrs.flags.includes('\\Seen'),

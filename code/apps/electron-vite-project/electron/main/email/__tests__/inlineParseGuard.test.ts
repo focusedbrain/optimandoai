@@ -51,6 +51,36 @@ describe('D5.2 — assertNoInlineParse (pure)', () => {
   })
 })
 
+describe('B2.2 — header-parse surface (completes invariant-0)', () => {
+  // The guard now covers body, classification, AND headers. These are the
+  // header-parse entry points wired in B2.2 (imap simpleParser, gmail header
+  // walk); flag-on, reaching any of them fails closed.
+  const HEADER_ENTRY_POINTS = [
+    'imap.fetchMessageFromFolder.simpleParser',
+    'gmail.parseGmailMessage.headers',
+  ]
+
+  test('flag OFF → header entry points are inert', () => {
+    setFlag(false)
+    for (const ep of HEADER_ENTRY_POINTS) {
+      expect(() => assertNoInlineParse(ep)).not.toThrow()
+    }
+  })
+
+  test('flag ON → each header entry point fails closed with its name', () => {
+    setFlag(true)
+    for (const ep of HEADER_ENTRY_POINTS) {
+      try {
+        assertNoInlineParse(ep)
+        throw new Error(`expected guard to fire for ${ep}`)
+      } catch (err) {
+        expect(err).toBeInstanceOf(InlineParseForbiddenError)
+        expect((err as InlineParseForbiddenError).entryPoint).toBe(ep)
+      }
+    }
+  })
+})
+
 describe('D5.2 — messageRouter inline entry guard', () => {
   test('flag ON + forced inline (viaSeam=false) → fails closed via guard', async () => {
     setFlag(true)

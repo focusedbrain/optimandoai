@@ -13,6 +13,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { randomBytes, createHash } from 'node:crypto'
 import { isSeamDepackageCutoverEnabled } from '../../critical-jobs/featureFlags'
+import { assertNoInlineParse } from '../inlineParseGuard'
 import { 
   BaseEmailProvider, 
   RawEmailMessage, 
@@ -417,37 +418,21 @@ export class GmailProvider extends BaseEmailProvider {
   
   async fetchMessage(messageId: string): Promise<RawEmailMessage | null> {
     try {
+      // ── B2.2 flag-ON: provider-native bookkeeping ONLY. `format=raw` gives the
+      // opaque payload + id/threadId/labelIds/internalDate; NO header/body parse
+      // happens in the orchestrator. The key-less guest derives the display
+      // envelope from `rawRfc822` post-depackage.
+      if (isSeamDepackageCutoverEnabled()) {
+        const rawResp = await this.apiRequest('GET', `/users/me/messages/${messageId}?format=raw`)
+        return this.buildRawGmailMessage(rawResp)
+      }
+
+      // ── flag-OFF: the original parse path, UNCHANGED + byte-identical.
       const response = await this.apiRequest(
         'GET',
         `/users/me/messages/${messageId}?format=full`
       )
-
-      const msg = this.parseGmailMessage(response)
-
-      // B2 byte-courier (R2): when the cutover flag is on, ALSO retrieve the
-      // opaque RFC822 (`format=raw`) so the depackage seam can re-derive
-      // body/classification inside the isolated guest. The `format=full` parse
-      // above still supplies envelope metadata; this is additive (extra fetch),
-      // and the flag-off path is untouched.
-      if (msg && isSeamDepackageCutoverEnabled()) {
-        // D5.1 byte-courier: flag-ON the orchestrator holds NO untrusted body —
-        // the guest derives body from `rawRfc822`. The `format=full` parse above
-        // is retained ONLY for envelope metadata; its body output is dropped.
-        msg.bodyText = undefined
-        msg.bodyHtml = undefined
-        try {
-          const rawResp = await this.apiRequest('GET', `/users/me/messages/${messageId}?format=raw`)
-          const rawB64Url = (rawResp as { raw?: string })?.raw
-          if (rawB64Url) {
-            msg.rawRfc822 = Buffer.from(rawB64Url, 'base64url')
-          }
-          // No `raw` field ⇒ leave unset ⇒ seam fails closed (INV-7), never inline.
-        } catch (e) {
-          console.warn('[Gmail] format=raw fetch failed (seam will hold):', messageId, e)
-        }
-      }
-
-      return msg
+      return this.parseGmailMessage(response)
     } catch (err) {
       console.error('[Gmail] Error fetching message:', messageId, err)
       return null
@@ -1383,7 +1368,44 @@ export class GmailProvider extends BaseEmailProvider {
     })
   }
   
+  /**
+   * B2.2 flag-ON: build a RawEmailMessage from a `format=raw` response using ONLY
+   * provider-native fields (id, threadId, labelIds, internalDate) + the opaque
+   * RFC822. No header parse, no body parse — the guest derives the display
+   * envelope. Threading keys on the provider-native `threadId`.
+   */
+  private buildRawGmailMessage(raw: any): RawEmailMessage | null {
+    if (!raw?.id) return null
+    const labelIds = raw.labelIds || []
+    const rawB64Url = (raw as { raw?: string })?.raw
+    return {
+      id: raw.id,
+      threadId: raw.threadId,
+      subject: '',
+      from: { email: '' },
+      to: [],
+      cc: [],
+      date: raw.internalDate ? new Date(Number(raw.internalDate)) : new Date(),
+      bodyHtml: undefined,
+      bodyText: undefined,
+      flags: {
+        seen: !labelIds.includes('UNREAD'),
+        flagged: labelIds.includes('STARRED'),
+        answered: false,
+        draft: labelIds.includes('DRAFT'),
+        deleted: labelIds.includes('TRASH'),
+      },
+      labels: labelIds,
+      folder: labelIds.includes('INBOX') ? 'INBOX' : labelIds[0] || 'INBOX',
+      headers: {},
+      // No `raw` field ⇒ leave unset ⇒ seam fails closed (INV-7), never inline.
+      rawRfc822: rawB64Url ? Buffer.from(rawB64Url, 'base64url') : undefined,
+    }
+  }
+
   private parseGmailMessage(raw: any): RawEmailMessage {
+    // Tripwire (inert flag-off): header parsing must never run flag-on.
+    assertNoInlineParse('gmail.parseGmailMessage.headers')
     const headers = raw.payload?.headers || []
     const getHeader = (name: string): string => {
       const h = headers.find((h: any) => h.name.toLowerCase() === name.toLowerCase())
