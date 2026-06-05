@@ -2500,7 +2500,9 @@ class EmailGateway implements IEmailGateway {
         messageId: raw.headers?.messageId,
         inReplyTo: raw.headers?.inReplyTo,
         references: raw.headers?.references
-      }
+      },
+      // B2 byte-courier: pass opaque raw bytes through untouched (flag-gated upstream).
+      rawRfc822: raw.rawRfc822,
     }
   }
   

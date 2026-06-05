@@ -559,6 +559,12 @@ export interface SanitizedMessageDetail extends SanitizedMessage {
     inReplyTo?: string
     references?: string[]
   }
+
+  /**
+   * B2 byte-courier (R2): opaque raw RFC822 carried unparsed from the provider
+   * to the depackage seam. Set only when WRDESK_SEAM_DEPACKAGE_CUTOVER is on.
+   */
+  rawRfc822?: Buffer
 }
 
 // =============================================================================

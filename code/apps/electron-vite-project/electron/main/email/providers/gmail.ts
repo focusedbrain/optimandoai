@@ -12,6 +12,7 @@ import * as https from 'https'
 import * as fs from 'fs'
 import * as path from 'path'
 import { randomBytes, createHash } from 'node:crypto'
+import { isSeamDepackageCutoverEnabled } from '../../critical-jobs/featureFlags'
 import { 
   BaseEmailProvider, 
   RawEmailMessage, 
@@ -420,8 +421,28 @@ export class GmailProvider extends BaseEmailProvider {
         'GET',
         `/users/me/messages/${messageId}?format=full`
       )
-      
-      return this.parseGmailMessage(response)
+
+      const msg = this.parseGmailMessage(response)
+
+      // B2 byte-courier (R2): when the cutover flag is on, ALSO retrieve the
+      // opaque RFC822 (`format=raw`) so the depackage seam can re-derive
+      // body/classification inside the isolated guest. The `format=full` parse
+      // above still supplies envelope metadata; this is additive (extra fetch),
+      // and the flag-off path is untouched.
+      if (msg && isSeamDepackageCutoverEnabled()) {
+        try {
+          const rawResp = await this.apiRequest('GET', `/users/me/messages/${messageId}?format=raw`)
+          const rawB64Url = (rawResp as { raw?: string })?.raw
+          if (rawB64Url) {
+            msg.rawRfc822 = Buffer.from(rawB64Url, 'base64url')
+          }
+          // No `raw` field ⇒ leave unset ⇒ seam fails closed (INV-7), never inline.
+        } catch (e) {
+          console.warn('[Gmail] format=raw fetch failed (seam will hold):', messageId, e)
+        }
+      }
+
+      return msg
     } catch (err) {
       console.error('[Gmail] Error fetching message:', messageId, err)
       return null

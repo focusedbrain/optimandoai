@@ -9,6 +9,7 @@ import * as ImapMod from 'imap'
 import * as nodemailer from 'nodemailer'
 import type ImapApi from 'imap'
 import { simpleParser, ParsedMail } from 'mailparser'
+import { isSeamDepackageCutoverEnabled } from '../../critical-jobs/featureFlags'
 import { 
   BaseEmailProvider, 
   RawEmailMessage, 
@@ -1027,6 +1028,12 @@ export class ImapProvider extends BaseEmailProvider {
                           ? [parsed.references]
                           : undefined,
                     },
+                    // B2 byte-courier (R2): retain the full RFC822 we already
+                    // fetched (`bodies: ''`) so the depackage seam can re-derive
+                    // body/classification inside the isolated guest. Captured only
+                    // when the cutover flag is on; the parsed fields above remain
+                    // the source for envelope metadata and the flag-off path.
+                    rawRfc822: isSeamDepackageCutoverEnabled() ? buffer : undefined,
                   }
 
                   if (message) {

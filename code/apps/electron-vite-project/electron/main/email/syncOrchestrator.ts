@@ -257,6 +257,9 @@ function mapToRawEmailMessage(
     date: detail.date ?? new Date(detail.timestamp).toISOString(),
     folder: detail.folder || 'INBOX',
     headers: headerBlock,
+    // B2 byte-courier (R2): opaque raw payload for the depackage seam (flag-gated
+    // at the provider; absent when the flag is off). The orchestrator never parses it.
+    rawRfc822: detail.rawRfc822,
     attachments: attachments.map((a) => ({
       id: a.id,
       filename: a.filename,

@@ -52,6 +52,13 @@ export interface RawEmailMessage {
   /** When set by the provider, used by gateway sanitization + sync attachment gate. */
   hasAttachments?: boolean
   attachmentCount?: number
+  /**
+   * B2 byte-courier (R2): the OPAQUE provider payload (raw RFC822 from
+   * IMAP/Gmail `format=raw`). Populated by the provider ONLY when
+   * `WRDESK_SEAM_DEPACKAGE_CUTOVER` is on, and carried UNPARSED through the
+   * gateway/sync layers to the depackage seam. The orchestrator never inspects it.
+   */
+  rawRfc822?: Buffer
 }
 
 /**
