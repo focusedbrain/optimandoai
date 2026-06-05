@@ -147,7 +147,15 @@ relay-mediated pairing.
 
 ## 5. Deviations / contradictions (reported before absorbed, spec §8)
 
-1. **Synchronous response-body delivery vs. the inference reverse-POST.** The
+> **Ruling (`0020` §1):** Deviations 1–5 are **APPROVED**. Per-entry rationales
+> are recorded inline below.
+
+1. **[APPROVED — `0020` §1]** Synchronous response delivery is the **v1 contract**
+   (bounded by the dispatcher timeout); async/reverse-POST delivery is a
+   pluggable-transport follow-up to be revisited when the W-series exercises real
+   cross-device links.
+
+   **Synchronous response-body delivery vs. the inference reverse-POST.** The
    `internal_inference_*` template delivers the result via a **reverse POST** to
    the requester's ingest (async, correlated by `request_id` through a pending
    map). Build C delivers the `critical_job_result`/`_error` as the **HTTP 200
@@ -160,7 +168,9 @@ relay-mediated pairing.
    independent). Inbound `critical_job_result`/`_error` ingest POSTs are explicitly
    rejected (400) in this model.
 
-2. **WebRTC data-channel carriage deferred.** Spec §3.2 mentions "direct HTTP /
+2. **[APPROVED — `0020` §1]** WebRTC-DC carriage deferred per spec.
+
+   **WebRTC data-channel carriage deferred.** Spec §3.2 mentions "direct HTTP /
    WebRTC DC as `internal_inference` does." Build C implements the **direct-HTTP**
    carriage only; the transport is a pluggable interface (`CriticalJobTransport`)
    so a DC carriage can be added later. Rationale: the DC path for a new family
@@ -169,35 +179,37 @@ relay-mediated pairing.
    §5.2 warns against. The security gate/sovereignty/signature properties are
    transport-independent, so this is an optimization, not a correctness gap.
 
-3. **`cancel` deferred.** Spec §2.1 allows `cancel` "only if it falls out of the
+3. **[APPROVED — `0020` §1]** `cancel` deferred per spec.
+
+   **`cancel` deferred.** Spec §2.1 allows `cancel` "only if it falls out of the
    template trivially." With synchronous response-body delivery there is no pending
    request to cancel out-of-band, so `critical_job_cancel` does not fall out
    trivially and is **deferred** (would re-enter scope alongside async/DC delivery).
 
-4. **Receiver dispatcher omits `remote-handshake` (anti-loop hardening, not in the
+4. **[APPROVED — `0020` §1]** Receiver anti-loop omission is **correct by
+   architecture** — no legitimate two-hop remote exists; consumers dispatch
+   follow-up jobs themselves.
+
+   **Receiver dispatcher omits `remote-handshake` (anti-loop hardening, not in the
    spec letter).** `buildReceiverDispatcher` registers only local executors (no
    `remote-handshake`), so a node whose table would route a kind onward (e.g. a
    mis-linked workstation receiving a request) fails closed with `E_NO_EXECUTOR`
    rather than re-delegating in a loop. This strengthens "full local sovereignty"
    (§2.4) and changes no declared table semantics.
 
-5. **`view-attachment` custody capability defaults to `false`.** Build C ships no
+5. **[APPROVED — `0020` §1]** `view-attachment` custody default-`false` is the
+   intended **fail-closed** posture.
+
+   **`view-attachment` custody capability defaults to `false`.** Build C ships no
    custody-key plumbing (out of scope, §6), so `custodyHeld` defaults to `false` →
    `view-attachment` is refused with `E_KEY_LOCALITY` on any node until that build
    lands. This is the safe default (fail closed) and matches the spec's example
    ("view-attachment on a node without the custody key → `E_KEY_LOCALITY`").
 
-6. **Observation (pre-existing, not introduced by Build C):**
-   `verifyJobResultSignature` (`depackaging-microvm/hypervisorProvider.ts:153`)
-   returns `true` for an
-   all-zero Ed25519 key+signature (the identity-point weak-key edge case). This is
-   within the module's documented threat model — it proves *transport integrity*,
-   not *identity*; the signer key is "untrusted-by-default" pending the attestation
-   build, and `validateSafeText` (closed-schema re-validation) is the authoritative
-   content gate. Build C's sender signature pre-check inherits this property. **Not
-   fixed** (out of scope; attestation build), recorded here because it surfaced
-   while writing the bad-signature test (which was rewritten to use a
-   genuine-then-tampered result so it exercises a real signature mismatch).
+6. **[SECURITY FINDING — RESOLVED, `0020` §2]** Weak-key (all-zero / small-order
+   Ed25519) acceptance. **Reclassified** from "observation" to security finding and
+   hardened. Full classification, verified library behavior, and the fix are in the
+   **Addendum (`0020` §2)** below.
 
 ---
 
@@ -215,3 +227,58 @@ workstation + mini-PC sandbox over the real cross-device handshake: W1 pairing +
 topology, W2 remote `depackage` of a real fetched email, W3 link-down fail-closed,
 W4 oversize/replay refusals). It joins the V-series (`0009`) as B-track acceptance
 evidence; neither blocks Build C's code landing.
+
+---
+
+## Addendum — Weak-key security finding (`0020` §2): classification + resolution
+
+**Classification: PRODUCTION-REACHABLE at two verification boundaries. Hardened in
+this build (blocks-merge item resolved).**
+
+**Where the weak key appears.** No production code constructs an all-zero key; the
+all-zero/small-order key is *attacker-suppliable* over the wire. Both boundaries
+parse a counterparty-controlled public key and verify a counterparty-controlled
+signature against it:
+
+- **`verifyJobResultSignature`** (`depackaging-microvm/hypervisorProvider.ts:153`)
+  — `result_signing_pub_b64` arrives inside a `JobResult`. In Build C's remote path
+  that `JobResult` is delivered over the `critical_job_*` wire by the remote peer
+  (sender pre-check `depackageResultSignatureValid`, and the dispatcher `verify.ts`
+  post-path). **Attacker-controlled key → reachable.**
+- **`verifyCapsuleSignature`** (`handshake/signatureKeys.ts:77`, called from
+  `handshake/enforcement.ts:233`) — `senderPublicKey` is parsed from the incoming
+  capsule. For an established handshake the refresh/revoke/context-sync path
+  re-checks `senderPublicKey === counterparty_public_key` (`enforcement.ts:274`),
+  but the **initial (TOFU) capsule** has no prior key to match, so a weak key is
+  presentable. **Reachable.**
+- **The `critical_job_*` gate** itself does no arbitrary-key signature verification
+  (it gates on the handshake *record*: same-principal / ACTIVE / size / replay /
+  per-kind admission). Its only signature check is `verifyJobResultSignature`
+  (above), so it inherits that boundary's fix; no separate primitive exists.
+
+**Verified library behavior (tested, not assumed — INV-7).** Pinned by
+`security/__tests__/ed25519WeakKey.test.ts` and a throwaway probe:
+
+| Stack | all-zero key + zero sig | neutral (y=1) | small-order point |
+|-------|:--:|:--:|:--:|
+| `@noble/curves` `ed25519.verify` (job-result) | **accept** | accept | accept |
+| Node native `crypto.verify` (capsule) | **accept** | reject | reject |
+
+Both stacks accept the **all-zero key with an all-zero signature**; `@noble`
+(cofactored / ZIP215 verification) additionally accepts the neutral element and all
+small-order torsion points. A small-order public key has a trivially-known discrete
+log, so any party can forge a satisfying signature — a real forgery vector at a
+boundary that ingests a counterparty key.
+
+**What was added (minimal, boundary-local; no key-plumbing refactor).**
+`security/ed25519WeakKey.ts` exports `isWeakEd25519PublicKey(pub)`, which decodes
+the point with `@noble`'s `Point.fromHex` (rejecting non-canonical encodings) and
+returns `true` for any torsion / small-order / identity / wrong-length key (fail
+closed). It is called **before** `verify()` at both boundaries:
+`verifyJobResultSignature` and `verifyCapsuleSignature`. Unit tests at each boundary
+cover **{zero key, small-order key, valid key}** plus the guard's own cases and a
+baseline test documenting the pre-fix library acceptance. Full suite green (764
+passed, no regressions). The pre-existing *identity-vs-integrity* caveat is
+unchanged — the signer key is still untrusted-by-default pending the attestation
+build, and `validateSafeText` remains the authoritative content gate; this fix
+removes the weak-key forgery vector that sat *underneath* that caveat.
