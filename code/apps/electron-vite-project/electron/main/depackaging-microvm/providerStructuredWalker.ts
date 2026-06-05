@@ -27,6 +27,7 @@ import {
   type Leaf,
   type ParseOut,
 } from './depackageModel'
+import { buildEnvelopeFromFields, type RawProviderAddress, type RawProviderEnvelopeFields } from './displayEnvelope'
 
 // ── C4 structural guards over untrusted JSON ─────────────────────────────────
 
@@ -99,12 +100,49 @@ function pushLeaf(out: ParseOut, budget: WalkBudget, leaf: Leaf): void {
 //         contentBytes /* base64 */ } ] }
 // Non-file attachments (item/reference) carry no bytes → not part data → skipped.
 
+/** Graph `{ emailAddress: { name, address } }` → untrusted RawProviderAddress. */
+function graphAddr(v: unknown): RawProviderAddress | undefined {
+  if (v === null || typeof v !== 'object') return undefined
+  const ea = (v as Record<string, unknown>).emailAddress
+  if (ea === null || typeof ea !== 'object') return undefined
+  const e = ea as Record<string, unknown>
+  return {
+    email: typeof e.address === 'string' ? e.address : undefined,
+    name: typeof e.name === 'string' ? e.name : undefined,
+  }
+}
+function graphList(v: unknown): RawProviderAddress[] {
+  if (!Array.isArray(v)) return []
+  const out: RawProviderAddress[] = []
+  for (const item of v) {
+    const a = graphAddr(item)
+    if (a) out.push(a)
+  }
+  return out
+}
+
 const outlookAdapter: ProviderStructuredAdapter = {
   provider: 'outlook',
   walk(obj, budget) {
-    const out: ParseOut = { subject: '', plainTextParts: [], htmlParts: [], leaves: [] }
-
-    out.subject = typeof obj.subject === 'string' ? obj.subject : ''
+    // B2.2: decode + normalize the display envelope from Graph fields, treated as
+    // untrusted strings — capped + normalized identically to the RFC822 path.
+    const envelopeFields: RawProviderEnvelopeFields = {
+      subject: typeof obj.subject === 'string' ? obj.subject : undefined,
+      from: graphAddr(obj.from),
+      to: graphList(obj.toRecipients),
+      cc: graphList(obj.ccRecipients),
+      replyTo: graphList(obj.replyTo)[0],
+      date: typeof obj.receivedDateTime === 'string' ? obj.receivedDateTime : undefined,
+    }
+    const displayEnvelope = buildEnvelopeFromFields(envelopeFields)
+    const out: ParseOut = {
+      // SafeText subject uses the normalized envelope subject (parity with RFC822).
+      subject: displayEnvelope.subject,
+      plainTextParts: [],
+      htmlParts: [],
+      leaves: [],
+      displayEnvelope,
+    }
 
     const body = obj.body
     if (body !== undefined && body !== null) {

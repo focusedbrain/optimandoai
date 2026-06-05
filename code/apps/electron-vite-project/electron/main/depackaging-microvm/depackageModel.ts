@@ -12,6 +12,8 @@
  * runtime dependency on `emailDepackage`, so there is no import cycle.
  */
 
+import type { DisplayEnvelope } from './displayEnvelope'
+
 // ── Typed failure taxonomy (INV-7) ──────────────────────────────────────────
 
 export type DepackageFailureCode =
@@ -77,4 +79,9 @@ export interface ParseOut {
   htmlParts: string[]
   /** every leaf (for carrier detection + sealing) */
   leaves: Leaf[]
+  /**
+   * B2.2: the decoded + normalized display envelope (subject/from/to/cc/reply-to/
+   * date), derived in-guest. Both producers populate it (RFC822 + structured-json).
+   */
+  displayEnvelope: DisplayEnvelope
 }

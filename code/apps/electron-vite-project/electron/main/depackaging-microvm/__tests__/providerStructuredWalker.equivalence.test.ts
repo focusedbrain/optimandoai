@@ -45,7 +45,8 @@ const PBEAP_PKG = JSON.stringify({
  */
 function project(r: DepackageEmailResult) {
   if (!r.ok) return { ok: false as const, code: r.code }
-  const base = { ok: true as const, type: r.type, artifactCount: r.artifacts.length, artifactTypes: r.artifacts.map((a) => a.content_type) }
+  // B2.2: the decoded display envelope must be equal across input forms too.
+  const base = { ok: true as const, type: r.type, artifactCount: r.artifacts.length, artifactTypes: r.artifacts.map((a) => a.content_type), env: r.displayEnvelope }
   const norm = (s: string) => s.replace(/\s+$/, '')
   if (r.type === 'plain') return { ...base, subject: r.safeText.subject, body: norm(r.safeText.body_text), packages: [] as string[] }
   if (r.type === 'mixed') return { ...base, subject: r.safeText.subject, body: norm(r.safeText.body_text), packages: r.packages.map((p) => p.bytesB64) }
@@ -62,11 +63,38 @@ interface Pair {
   graph: Buffer
 }
 
+const ewB = (s: string) => `=?utf-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`
+
 const CORPUS: ReadonlyArray<Pair> = [
   {
     name: 'plain text/plain',
     rfc822: eml(['Subject: Hi', 'Content-Type: text/plain; charset=utf-8'], 'Hello plain world'),
     graph: graphJson({ subject: 'Hi', body: { contentType: 'text', content: 'Hello plain world' } }),
+  },
+  {
+    name: 'rich envelope: encoded-word subject + addresses + date (RFC822) vs decoded Graph fields',
+    rfc822: eml(
+      [
+        `Subject: ${ewB('Tschüss café')}`,
+        `From: ${ewB('Renée')} <renee@example.com>`,
+        'To: a@x.com, "Last, First" <lf@y.com>',
+        'Cc: c@z.com',
+        'Date: Wed, 03 Jun 2026 10:00:00 +0000',
+        'Content-Type: text/plain; charset=utf-8',
+      ],
+      'body',
+    ),
+    graph: graphJson({
+      subject: 'Tschüss café',
+      from: { emailAddress: { name: 'Renée', address: 'renee@example.com' } },
+      toRecipients: [
+        { emailAddress: { address: 'a@x.com' } },
+        { emailAddress: { name: 'Last, First', address: 'lf@y.com' } },
+      ],
+      ccRecipients: [{ emailAddress: { address: 'c@z.com' } }],
+      receivedDateTime: '2026-06-03T10:00:00Z',
+      body: { contentType: 'text', content: 'body' },
+    }),
   },
   {
     name: 'HTML-only (R1 derivation + sealed HTML artifact)',

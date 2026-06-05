@@ -448,6 +448,13 @@ export class OutlookProvider extends BaseEmailProvider {
           const structured: Record<string, unknown> = {
             subject: response.subject,
             body: response.body,
+            // B2.2: ship the Graph envelope fields OPAQUE; the guest decodes +
+            // normalizes them (the orchestrator does not parse headers flag-on).
+            from: response.from,
+            toRecipients: response.toRecipients,
+            ccRecipients: response.ccRecipients,
+            replyTo: response.replyTo,
+            receivedDateTime: response.receivedDateTime,
           }
           if (response.hasAttachments) {
             const attResp = await this.graphApiRequest('GET', `/me/messages/${messageId}/attachments`)
