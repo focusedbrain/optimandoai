@@ -237,36 +237,124 @@ than absorbed.
   guard instrumentation proving the orchestrator never parsed raw bytes), then a
   dated `rig/README.md` append. **This dev box has no access to the mini-PC.**
 - **Phase 2 — Outlook `/$value` spike (R2).** Requires a real Outlook/Graph test
-  account + network. Per R2 a negative/unavailable spike result routes Outlook to
-  the **`provider-structured-json`** input (the safety net), never to inline
-  parsing. **No test account is available here**, so the recommended default is to
-  ship Outlook on `provider-structured-json` and run the spike when an account is
-  provisioned; this changes preference order only, not feasibility.
+  account + network. **Decision update:** the guest parses RFC822 only, so the
+  cleanest path is Graph `/me/messages/{id}/$value` (raw MIME), not
+  `provider-structured-json` (which would need a guest-side Graph-JSON walker that
+  Phase 1 did not build). `/$value` also needs a raw-bytes HTTP path
+  (`graphApiRequest` returns parsed JSON today). Until both land, flag-on Outlook
+  obtains no opaque payload and **fails closed (HELD)** — never inline-parsed.
+  See §7b/§8b.
 
-### 7b. Staged (code designed; deferred because it needs real provider e2e to be
-landed safely without risking the live email path)
+### 7b. Still blocked / deferred
 
-- **Phase 2 — provider opaque-input + byte-courier delta.** Gmail `format=raw`
-  retrieval; IMAP full-RFC822 confirm + strip fetch-layer structure walking;
-  Outlook structured-json input; flag-gate every orchestrator-side parse location
-  from finding A so flag-on fetch yields only an opaque payload + minimal
-  out-of-MIME envelope metadata. INV-7: no obtainable opaque form ⇒ quarantine.
-- **Phase 3.2 — `detectAndRouteMessage` consumer cutover.** Behind the flag,
-  consume the typed union (extracted packages → B1-routed pipeline-2; plain →
-  consumer-wrap/seal/store reusing `depackaged_json`), with the §4 mapping table
-  and INV-5 logging. The inline path is retained verbatim flag-off.
-- **Phase 3.4 — full e2e per-kind parity suites** on real fetched mail (depends on
-  Phase 2).
+- **Phase 2 — Outlook `/$value` raw + R2 spike.** Two obstacles: (1) the existing
+  `graphApiRequest` only returns parsed JSON, so a raw-bytes HTTP path is needed to
+  fetch `/me/messages/{id}/$value` (RFC822); (2) the R2 spike requires a real
+  Outlook/Graph test account. Until both land, flag-on Outlook obtains no opaque
+  payload and **fails closed (HELD)** — never inline-parsed (INV-7). Documented as
+  the next provider unit.
+- **Phase 3.4 — full e2e per-kind parity suites on real fetched mail** + the rig
+  e2e (Phase 0). The consumer unit suite is landed but native-`better-sqlite3`
+  gated (skips wherever the Electron-built module won't load under plain Node, same
+  as the existing router suite); it runs in CI/Electron.
 
-### 7c. Open questions to resolve before the staged phases (from 0006, the six
-not closed by R1–R3)
+### 7c. Open questions — RESOLVED (operator: "usability and security have maximum priority")
 
-- **OQ (storage):** does reusing `depackaged_json` for the consumer-wrapped
-  SafeText require a migration, or is the existing column sufficient? (0007 §5.2
-  says "migration only if the report's storage findings require it" — needs a
-  decision before Phase 3.2 insert wiring.)
-- **OQ (cost/limits):** Gmail `format=raw` doubles fetch bandwidth vs `full`;
-  confirm acceptable before flipping the Gmail retrieval path.
+- **OQ (storage):** **Reuse `depackaged_json` / `body_text`, no migration.** The
+  plain consumer-wrap stores the guest SafeText in `depackaged_json` and
+  `body_text` exactly as the inline plain path does; the SafeText shape is
+  unchanged, so a migration would add risk without benefit.
+- **OQ (cost/limits):** **Gmail `format=raw` accepted.** True opaque RFC822 gives
+  the strongest isolation (orchestrator never parses structure); the doubled fetch
+  bandwidth is accepted because security outranks cost. Fetch is additive (the
+  `format=full` envelope parse is retained), so flag-off is unchanged.
 
-These do not block Phase 1 or the seam bridge (both landed). They are listed here
-so the staged phases start from an explicit, unabsorbed baseline.
+---
+
+## 8. Phase 2 + Phase 3 build (this session)
+
+### 8a. Phase 3.2 / 3.3 — `detectAndRouteMessage` is now a flag-gated consumer
+
+`messageRouter.ts`: `detectAndRouteMessage` is a thin wrapper —
+
+- **flag OFF (default):** delegates to `detectAndRouteMessageInline` (the original
+  body, renamed and left **verbatim**). Byte-identical, zero behavior change. This
+  is also the proven pipeline-2 path the seam re-enters for carriers.
+- **flag ON:** `routeViaDepackageSeam` hands the **opaque** `rawMsg.rawRfc822` to
+  the isolated guest via `dispatchDepackageEmail` and consumes the typed union:
+  - `plain` → `writePlainSeamInbox`: sealed `email_plain` inbox row whose `subject`
+    + `body_text` come from the **guest** SafeText; original HTML/attachments are
+    preserved as **sandbox-sealed blobs** referenced in `depackaged_json` (input to
+    the future `view-attachment` job). No plaintext attachment rows, no
+    orchestrator-side PDF extraction — the orchestrator holds no attachment
+    plaintext under the cutover.
+  - `beap-carrier` / `mixed` → the first extracted package re-enters
+    `detectAndRouteMessageInline` (parity: the inline classifier also stops at the
+    first), reusing the proven qBEAP/pBEAP decrypt → B1-validation → sealed
+    `email_beap` write.
+  - dispatch failure / worker `ok:false` → `quarantineRawBytes`: the **raw opaque
+    bytes** are custody-sealed and written to `quarantine_messages` with a mapped
+    reason (table below), reusing the exact B1 quarantine discipline.
+  - **no opaque payload** or **no paired sandbox** → `DepackageCutoverHeldError`
+    (HELD: nothing inserted, retried next sync; never inline-parsed, never
+    downgraded — INV-7).
+
+INV-5 logging (identifiers/codes only) at every new site.
+
+#### Updated quarantine mapping table (code → `rejection_reason`)
+
+| Worker / dispatch code | `rejection_reason` |
+|---|---|
+| `E_MALFORMED_MIME` | `email_depackage_malformed` |
+| `E_LIMITS_EXCEEDED` | `email_depackage_limits` |
+| `E_DECOMPRESSION_BOMB` | `email_depackage_bomb` |
+| `E_AMBIGUOUS_CLASSIFICATION` | `email_depackage_ambiguous` |
+| `E_ARTIFACT_CUSTODY_FAILED` | `email_depackage_custody` |
+| `E_SIGNATURE_INVALID` | `email_depackage_sig` |
+| `E_NO_EXECUTOR` / `E_EXECUTOR_UNAVAILABLE` | `email_depackage_no_executor` |
+| `E_ROLE_FORBIDDEN` | `email_depackage_role_forbidden` |
+| `E_TIMEOUT` | `email_depackage_timeout` |
+| `E_UNSUPPORTED_KIND` | `email_depackage_unsupported` |
+| (other) | `email_depackage_other:<code>` |
+
+Tests: `messageRouter.depackageSeam.test.ts` — flag-off parity, plain (guest
+subject/body), HTML-only (sealed-artifact ref counted), carrier → `email_beap`,
+ambiguous → quarantine with mapped reason, and two HELD cases (no opaque payload;
+no sandbox). Native-sqlite gated like the existing router suite.
+
+### 8b. Phase 2 — provider byte-courier (opaque RFC822)
+
+New opaque `rawRfc822?: Buffer` field threaded **provider → gateway
+(`sanitizeMessageDetail`) → `SanitizedMessageDetail` → `mapToRawEmailMessage` →
+router**, populated only when the flag is on; the orchestrator never inspects it,
+and flag-off is byte-identical (field unset/unused).
+
+- **IMAP:** retains the full RFC822 buffer it already fetches (`bodies: ''`) — no
+  extra I/O, purely additive.
+- **Gmail:** when flag-on, an additional `messages.get?format=raw` is decoded
+  (base64url) into `rawRfc822`; the `format=full` parse still supplies envelope
+  metadata. Missing `raw` / fetch error ⇒ seam HELDs (INV-7).
+- **Outlook:** deferred (see §7b) — flag-on Outlook HELDs until `/$value` + the R2
+  spike land.
+
+Envelope metadata (from/to/date/folder/ids) continues to come from
+provider-structured fields (IMAP ENVELOPE, Gmail/Graph fields), never from
+orchestrator MIME-body parsing; the body + carrier classification move entirely
+into the guest under the flag.
+
+### 8c. Net security posture (why this is worth landing)
+
+With the flag on, untrusted MIME parsing — the single largest untrusted-input
+surface in the email path — no longer runs in the orchestrator; it runs in the
+key-less, network-less, per-action microVM guest, and every failure to establish
+the safety contract fails closed or quarantines. Flag off, nothing changes. Roll
+out per provider: IMAP and Gmail are wired end-to-end; Outlook holds safe until its
+raw path lands.
+
+### 8d. Trade-off accepted under the cutover (operator-visible)
+
+Flag-on attachments are sealed to the sandbox (not app-decryptable) and PDF text
+extraction does not run in the orchestrator — both are intentional (no untrusted
+content is parsed/decrypted in the orchestrator) and are surfaced to the user via
+the future `view-attachment` critical job. This is a deliberate
+security-over-convenience choice consistent with the operator directive.
