@@ -50,6 +50,8 @@ import {
 import { handleGetInternalInferencePolicy } from '../internalInference/p2pHostPolicyGet'
 import { handleGetP2PReachability } from '../internalInference/p2pReachabilityGet'
 import { isInternalServiceRpcShape, tryHandleInternalServiceP2P } from '../internalInference/p2pServiceDispatch'
+import { isCriticalJobServiceRpcShape } from '../critical-jobs/remote/wire'
+import { tryHandleCriticalJobServiceP2P } from '../critical-jobs/remote/criticalJobServiceDispatch'
 import {
   logBeapIngressReceived,
   logP2pBeapRejection,
@@ -347,6 +349,15 @@ function createP2PRequestHandler(
       const handled = await tryHandleInternalServiceP2P(db, parsed, res, {
         hostAiChain: hostAiChain || null,
       })
+      if (handled) {
+        return
+      }
+    }
+
+    // Direct P2P critical-job service RPC (Build C: remote-handshake routing).
+    // Same auth + direct-ingest channel as internal inference; never relay.
+    if (isCriticalJobServiceRpcShape(parsed)) {
+      const handled = await tryHandleCriticalJobServiceP2P(db, parsed, res)
       if (handled) {
         return
       }

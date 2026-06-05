@@ -317,6 +317,14 @@ export type CriticalJobErrorCode =
   | 'E_SAFETEXT_REJECTED' // safe-text failed closed-schema re-validation
   | 'E_EXECUTION_ERROR' // executor threw / job failed internally
   | 'E_INVALID_TABLE' // resolution table violates INV-1/INV-3
+  // ── Build C: remote-handshake routing (critical_job_* family) ──────────────
+  | 'E_REMOTE_KIND_REFUSED' // receiver's OWN resolution table does not permit the kind
+  | 'E_KEY_LOCALITY' // INV-6: key-requiring kind cannot run at this node (consumer-local, or no custody key)
+  | 'E_REMOTE_HANDSHAKE_INACTIVE' // no ACTIVE internal handshake / policy gate failed at receiver or sender
+  | 'E_REMOTE_LINK_DOWN' // transport unreachable / timed out mid-job
+  | 'E_REMOTE_PROTOCOL' // malformed/unparseable wire message (request or response)
+  | 'E_REMOTE_PAYLOAD_TOO_LARGE' // request exceeded the receiving-side size cap (rejected at the gate)
+  | 'E_REMOTE_REPLAY' // jobId already seen (replay dedupe at the receiving-side gate)
 
 /** Typed error so callers can branch on `code` without string matching. */
 export class CriticalJobError extends Error {
