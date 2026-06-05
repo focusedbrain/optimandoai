@@ -28,12 +28,21 @@
  */
 
 import { runDepackagingJob } from '../depackagingWorker'
+import { depackageEmail, depackageEmailStructured } from '../emailDepackage'
 import type { JobSpec } from '../hypervisorProvider'
 
 interface GuestJobInput {
   jobId: string
+  /** Defaults to B1 `'depackage'`. `'depackage-email'` runs the B2 worker. */
+  kind?: 'depackage' | 'depackage-email'
   inputBytes_b64: string
   sandboxPeerX25519PubB64: string
+  /** B2 email cutover: which guest parser to run (default rfc822). */
+  inputForm?: 'rfc822' | 'provider-structured-json'
+  /** schema adapter for the structured-json walker (default outlook). */
+  provider?: string
+  /** C4 spec ceiling honored in-guest. */
+  maxInputBytes?: number
 }
 
 function readStdin(): Promise<string> {
@@ -58,10 +67,23 @@ async function main(): Promise<void> {
     return
   }
 
+  const inputBytes = Buffer.from(parsed.inputBytes_b64 ?? '', 'base64')
+
+  // B2 (Phase 1 uplift + D4): the email worker runs INSIDE this same bundle.
+  if (parsed.kind === 'depackage-email') {
+    const limits = parsed.maxInputBytes != null ? { maxInputBytes: parsed.maxInputBytes } : undefined
+    const out =
+      parsed.inputForm === 'provider-structured-json'
+        ? depackageEmailStructured(inputBytes, parsed.sandboxPeerX25519PubB64, { provider: parsed.provider }, limits)
+        : depackageEmail(inputBytes, parsed.sandboxPeerX25519PubB64, limits)
+    process.stdout.write(JSON.stringify({ jobId: parsed.jobId, kind: 'depackage-email', result: out }))
+    return
+  }
+
   const spec: JobSpec = {
     jobId: parsed.jobId,
     kind: 'depackage',
-    inputBytes: Buffer.from(parsed.inputBytes_b64 ?? '', 'base64'),
+    inputBytes,
     sandboxPeerX25519PubB64: parsed.sandboxPeerX25519PubB64,
   }
 
