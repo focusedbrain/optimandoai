@@ -25,8 +25,8 @@ function specsOfEveryKind(): CriticalJobSpec[] {
       flush: 'per-action',
     },
     {
-      jobId: 'j-valdep',
-      kind: 'validate-depackaged',
+      jobId: 'j-valdec',
+      kind: 'validate-decrypted-beap',
       input: {
         envelope: { kind: 'qbeap' },
         plaintext_or_encrypted: {
@@ -46,6 +46,15 @@ function specsOfEveryKind(): CriticalJobSpec[] {
       input: { candidate: { kind: 'qbeap' } as never },
       limits,
       flush: 'session',
+    },
+    {
+      // RESERVED kind: carries the package + a handshake *identifier* only
+      // (INV-2 — no key field; INV-6 keys arrive out-of-band in a future build).
+      jobId: 'j-decrypt',
+      kind: 'decrypt-qbeap',
+      input: { packageJson: '{"kind":"qbeap"}', handshakeId: 'hs-123' },
+      limits,
+      flush: 'per-action',
     },
     {
       jobId: 'j-link',

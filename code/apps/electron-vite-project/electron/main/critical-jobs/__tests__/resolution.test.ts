@@ -53,7 +53,7 @@ describe('resolve (pure)', () => {
   test('sandbox/free routes depackage + validators to in-process; link unsupported', () => {
     const c = ctx({ role: 'sandbox', tier: 'free' })
     expect(resolve(DEFAULT_RESOLUTION_TABLE, 'depackage', c)).toEqual({ executorId: 'in-process' })
-    expect(resolve(DEFAULT_RESOLUTION_TABLE, 'validate-depackaged', c)).toEqual({
+    expect(resolve(DEFAULT_RESOLUTION_TABLE, 'validate-decrypted-beap', c)).toEqual({
       executorId: 'in-process',
     })
     expect(resolve(DEFAULT_RESOLUTION_TABLE, 'validate-native-beap', c)).toEqual({
@@ -61,12 +61,14 @@ describe('resolve (pure)', () => {
     })
     expect(resolve(DEFAULT_RESOLUTION_TABLE, 'open-link', c)).toBeNull()
     expect(resolve(DEFAULT_RESOLUTION_TABLE, 'view-attachment', c)).toBeNull()
+    // RESERVED/unimplemented (Amendment 1): no rule anywhere.
+    expect(resolve(DEFAULT_RESOLUTION_TABLE, 'decrypt-qbeap', c)).toBeNull()
   })
 
   test('sandbox/paid routes depackage to microvm with NO fallback', () => {
     const c = ctx({ role: 'sandbox', tier: 'paid' })
     expect(resolve(DEFAULT_RESOLUTION_TABLE, 'depackage', c)).toEqual({ executorId: 'microvm' })
-    expect(resolve(DEFAULT_RESOLUTION_TABLE, 'validate-depackaged', c)).toEqual({
+    expect(resolve(DEFAULT_RESOLUTION_TABLE, 'validate-decrypted-beap', c)).toEqual({
       executorId: 'in-process',
     })
   })
@@ -81,11 +83,11 @@ describe('resolve (pure)', () => {
     expect(resolve(DEFAULT_RESOLUTION_TABLE, 'validate-native-beap', c)).toBeNull()
   })
 
-  test('workstation routes EVERY kind to remote-handshake (never in-process)', () => {
+  test('workstation routes every ROUTABLE kind to remote-handshake (never in-process)', () => {
     const c = ctx({ role: 'workstation', tier: 'paid' })
     for (const kind of [
       'depackage',
-      'validate-depackaged',
+      'validate-decrypted-beap',
       'validate-native-beap',
       'open-link',
       'view-attachment',
@@ -95,6 +97,9 @@ describe('resolve (pure)', () => {
       expect(r!.executorId).toBe('remote-handshake')
       expect(r!.fallbackExecutorId).toBeUndefined()
     }
+    // INV-6: the key-requiring decrypt-qbeap is never routed off-node, so the
+    // workstation row has no rule for it (resolves to null, not remote).
+    expect(resolve(DEFAULT_RESOLUTION_TABLE, 'decrypt-qbeap', c)).toBeNull()
   })
 
   test('execOverride replaces supported kinds only; unsupported stay unsupported', () => {

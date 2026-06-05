@@ -49,11 +49,14 @@ describe('InProcessExecutor supports()', () => {
   const exec = new InProcessExecutor('sandbox')
   test('supports depackage + both validators', () => {
     expect(exec.supports('depackage')).toBe(true)
-    expect(exec.supports('validate-depackaged')).toBe(true)
+    expect(exec.supports('validate-decrypted-beap')).toBe(true)
     expect(exec.supports('validate-native-beap')).toBe(true)
   })
   test('does NOT support link/attachment in this build', () => {
     expect(exec.supports('open-link')).toBe(false)
     expect(exec.supports('view-attachment')).toBe(false)
+  })
+  test('does NOT support the RESERVED decrypt-qbeap kind (INV-6, unimplemented)', () => {
+    expect(exec.supports('decrypt-qbeap')).toBe(false)
   })
 })

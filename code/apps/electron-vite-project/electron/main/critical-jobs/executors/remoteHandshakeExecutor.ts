@@ -23,9 +23,14 @@ import {
 export class RemoteHandshakeExecutor implements CriticalJobExecutor {
   readonly id = 'remote-handshake' as const
 
-  /** Declares intent to carry every kind; actual routing is Build C. */
-  supports(_kind: CriticalJobKind): boolean {
-    return true
+  /**
+   * Declares intent to carry every kind EXCEPT the key-requiring `decrypt-qbeap`:
+   * INV-6 (key-locality) forbids routing a key-requiring job to any node, so the
+   * remote executor must never advertise support for it. Actual routing of the
+   * other kinds is Build C.
+   */
+  supports(kind: CriticalJobKind): boolean {
+    return kind !== 'decrypt-qbeap'
   }
 
   /** Not implemented in this build — always unavailable. */

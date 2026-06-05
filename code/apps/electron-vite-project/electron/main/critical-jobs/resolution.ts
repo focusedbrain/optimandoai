@@ -59,9 +59,10 @@ export const DEFAULT_RESOLUTION_TABLE: ResolutionTable = [
     tier: 'free',
     perKind: {
       depackage: { executorId: 'in-process' },
-      'validate-depackaged': { executorId: 'in-process' },
+      'validate-decrypted-beap': { executorId: 'in-process' },
       'validate-native-beap': { executorId: 'in-process' },
       // open-link / view-attachment: unsupported (no in-process implementation).
+      // decrypt-qbeap: RESERVED/unimplemented (Amendment 1) — no rule.
     },
   },
   {
@@ -69,7 +70,7 @@ export const DEFAULT_RESOLUTION_TABLE: ResolutionTable = [
     tier: 'paid',
     perKind: {
       depackage: { executorId: 'microvm' }, // no fallback — fail closed if unavailable
-      'validate-depackaged': { executorId: 'in-process' }, // microvm later
+      'validate-decrypted-beap': { executorId: 'in-process' }, // microvm later
       'validate-native-beap': { executorId: 'in-process' }, // microvm later
     },
   },
@@ -78,7 +79,7 @@ export const DEFAULT_RESOLUTION_TABLE: ResolutionTable = [
     role: 'appliance',
     perKind: {
       depackage: { executorId: 'microvm', fallbackExecutorId: 'in-process' },
-      'validate-depackaged': { executorId: 'in-process' },
+      'validate-decrypted-beap': { executorId: 'in-process' },
       // validate-native-beap routes to the consuming orchestrator; the remote
       // row activates in Build C, so it is unsupported here (fails closed).
     },
@@ -88,10 +89,12 @@ export const DEFAULT_RESOLUTION_TABLE: ResolutionTable = [
     role: 'workstation',
     perKind: {
       depackage: { executorId: 'remote-handshake' },
-      'validate-depackaged': { executorId: 'remote-handshake' },
+      'validate-decrypted-beap': { executorId: 'remote-handshake' },
       'validate-native-beap': { executorId: 'remote-handshake' },
       'open-link': { executorId: 'remote-handshake' },
       'view-attachment': { executorId: 'remote-handshake' },
+      // decrypt-qbeap: RESERVED + INV-6 forbids routing a key-requiring job
+      // remote, so it is deliberately absent from every row.
     },
   },
 ]

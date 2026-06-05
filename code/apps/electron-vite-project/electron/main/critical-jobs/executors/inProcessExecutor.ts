@@ -15,11 +15,14 @@
  * by configuration — not a fallback hidden inside the provider.
  *
  * Wrapped logic (existing, unchanged functions):
- *   - depackage            → the pure `runDepackagingJob` worker (signs result).
- *   - validate-depackaged  → the existing `validatorOrchestrator` subprocess
- *                            (host-side fork; today's proven path — not inlined).
- *   - validate-native-beap → the pure `validateCapsule`.
+ *   - depackage               → the pure `runDepackagingJob` worker (signs result).
+ *   - validate-decrypted-beap → the existing `validatorOrchestrator` subprocess
+ *                               (host-side fork; today's proven path — not inlined).
+ *   - validate-native-beap    → the pure `validateCapsule`.
  *   - open-link / view-attachment → unsupported in this build.
+ *   - decrypt-qbeap           → RESERVED, unimplemented (Amendment 1): a
+ *                               key-requiring native-BEAP-pipeline job; supports()
+ *                               is false until the INV-6 local-microVM build.
  */
 
 import { runDepackagingJob } from '../../depackaging-microvm/depackagingWorker'
@@ -36,8 +39,9 @@ import {
 
 const SUPPORTED: ReadonlySet<CriticalJobKind> = new Set<CriticalJobKind>([
   'depackage',
-  'validate-depackaged',
+  'validate-decrypted-beap',
   'validate-native-beap',
+  // 'decrypt-qbeap' is intentionally absent — RESERVED/unimplemented (Amendment 1).
 ])
 
 export class InProcessExecutor implements CriticalJobExecutor {
@@ -69,9 +73,9 @@ export class InProcessExecutor implements CriticalJobExecutor {
         return this.runDepackage(spec as CriticalJobSpec<'depackage'>) as Promise<
           CriticalJobResult<K>
         >
-      case 'validate-depackaged':
-        return this.runValidateDepackaged(
-          spec as CriticalJobSpec<'validate-depackaged'>,
+      case 'validate-decrypted-beap':
+        return this.runValidateDecryptedBeap(
+          spec as CriticalJobSpec<'validate-decrypted-beap'>,
         ) as Promise<CriticalJobResult<K>>
       case 'validate-native-beap':
         return this.runValidateNativeBeap(
@@ -107,9 +111,9 @@ export class InProcessExecutor implements CriticalJobExecutor {
     return { ...result, meta: { executorId: this.id, flushed: 'none', durationMs: 0 } }
   }
 
-  private async runValidateDepackaged(
-    spec: CriticalJobSpec<'validate-depackaged'>,
-  ): Promise<CriticalJobResult<'validate-depackaged'>> {
+  private async runValidateDecryptedBeap(
+    spec: CriticalJobSpec<'validate-decrypted-beap'>,
+  ): Promise<CriticalJobResult<'validate-decrypted-beap'>> {
     // Dynamic import so the depackage path does not pull the vault/validator
     // dependency graph at module load. This wraps the existing host-side
     // subprocess fork (INV-2: the seal key stays in that local subprocess).

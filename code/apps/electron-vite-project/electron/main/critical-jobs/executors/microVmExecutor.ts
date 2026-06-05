@@ -35,6 +35,10 @@ export class MicroVMExecutor implements CriticalJobExecutor {
   constructor(private readonly provider: SandboxHypervisorProvider) {}
 
   supports(kind: CriticalJobKind): boolean {
+    // Only the email-pipeline depackage worker exists today. `decrypt-qbeap` is
+    // the other genuinely microVM-capable kind (its INV-6 venue is a LOCAL
+    // per-action microVM with per-job key provisioning) but is RESERVED and
+    // unimplemented in B1, so it is not advertised here (Amendment 1).
     return kind === 'depackage'
   }
 

@@ -26,15 +26,19 @@ import type { BlobArtifact } from './depackagingWorker'
 /**
  * What kind of isolated critical job to run. This is the shared critical-job
  * vocabulary (see `electron/main/critical-jobs/types.ts`, where it is re-exported
- * as `CriticalJobKind`). The crosvm microVM backend currently *executes* only
- * `'depackage'`; the other kinds exist so the routing seam can type-resolve them
- * to other executors. Generalized from the original single literal `'depackaging'`
- * (Build A, JobKind migration).
+ * as `CriticalJobKind` with per-pipeline annotations). Generalized from the
+ * original single literal `'depackaging'` (Build A) and refined by Amendment 1.
+ *
+ * The crosvm microVM backend currently *executes* only `'depackage'`.
+ * `'decrypt-qbeap'` is RESERVED and unimplemented in B1: it is a key-requiring
+ * native-BEAP-pipeline job whose most-isolated venue is a *local* zero-egress
+ * per-action microVM (INV-6 key-locality); it never routes to a key-less node.
  */
 export type JobKind =
   | 'depackage'
-  | 'validate-depackaged'
+  | 'validate-decrypted-beap'
   | 'validate-native-beap'
+  | 'decrypt-qbeap'
   | 'open-link'
   | 'view-attachment'
 

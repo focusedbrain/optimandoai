@@ -1,12 +1,30 @@
 /**
- * Critical-Job Routing Seam — shared types (Build A, Deliverable 1).
+ * Critical-Job Routing Seam — shared types (Build A, Deliverable 1;
+ * Amendment 1: two-pipeline structure, INV-6, kind rename).
  *
- * The seam is the abstraction by which a *critical job* ("depackage this",
- * "validate this depackaged email", "validate this native BEAP", "open this
- * link", "view this attachment") resolves — by pure configuration — to one of
- * three executors: in-process, isolation microVM, or (later) remote-over-
- * handshake. This module owns the envelope (spec + result), the kind vocabulary,
- * the error codes, and the role/executor identifiers.
+ * The seam is the abstraction by which a *critical job* resolves — by pure
+ * configuration — to one of three executors: in-process, isolation microVM, or
+ * (later) remote-over-handshake. This module owns the envelope (spec + result),
+ * the kind vocabulary, the error codes, and the role/executor identifiers.
+ *
+ * ── TWO PIPELINES (the governing structure) ────────────────────────────────
+ * The seam serves two fully separate pipelines. `detectAndRouteMessage` is the
+ * fork point: a provider email is either plain mail (pipeline 1) or a BEAP
+ * carrier (pipeline 2). Email is *also* a BEAP transport, which is why one
+ * function historically inlined both — but they are distinct:
+ *
+ *   1. EMAIL / UNTRUSTED-CONTENT pipeline — provider API pulls raw mail →
+ *      `depackage` (MIME parse inside the isolation boundary; SafeTextV1 +
+ *      sealed original artifacts) → a BEAP capsule is created from the result.
+ *      Key-less for content; this is the depackaging unit's / appliance's job.
+ *      Kinds: `depackage`, `open-link`, `view-attachment`.
+ *
+ *   2. NATIVE BEAP pipeline — wire qBEAP/pBEAP packages from counterparties
+ *      (over P2P, relay, coordination WS, OR carried inside an email) →
+ *      `validate-native-beap` (structural) → qBEAP post-quantum decryption →
+ *      decrypted-content validation → seal → insert.
+ *      Kinds: `validate-native-beap`, `decrypt-qbeap` (RESERVED, unimplemented),
+ *      `validate-decrypted-beap`.
  *
  * ── NAMING (decided; do not conflate) ──────────────────────────────────────
  *   - The crosvm per-action VM subsystem (`electron/main/depackaging-microvm/`)
@@ -21,13 +39,24 @@
  *     appliance).
  *
  * ── INVARIANTS encoded here ────────────────────────────────────────────────
- *   INV-2 (seal-key custody): `CriticalJobSpec` has NO field able to carry
- *     vault-derived key material (validator seal key, application keys). Outputs
- *     carry validated content + the existing result signature only; HMAC sealing
- *     stays host-side on the consuming orchestrator (`validatorOrchestrator`),
- *     never inside a microVM guest or on a remote node.
+ *   INV-2 (key custody, refined): vault-derived *seal* keys never leave the host
+ *     process. No key material ever crosses to a *remote* node or the appliance.
+ *     `CriticalJobSpec` has NO field able to carry seal/application/vault keys;
+ *     outputs carry validated content + the existing result signature only, and
+ *     HMAC sealing stays host-side on the consuming orchestrator
+ *     (`validatorOrchestrator`). Exception scoped by INV-6: handshake *decryption*
+ *     keys MAY be provisioned into a LOCAL zero-egress per-action microVM for
+ *     `decrypt-qbeap` (mechanics are a future build — out of B1 scope; the spec
+ *     still carries no key field — keys arrive via the job channel, memory-only).
  *   INV-5 (no plaintext in logs): error `code`s are stable identifiers and never
  *     embed job input bytes, decrypted JSON, safe-text, or artifacts.
+ *   INV-6 (key-locality): key-requiring jobs are local-only. They execute at the
+ *     key holder, never route to any node that lacks the keys, and never execute
+ *     on the appliance (content-key-less by design). The key holder's most-
+ *     isolated venue is a local, zero-egress, per-action microVM; in-process
+ *     inside the sandbox VM is the free-tier floor. `decrypt-qbeap` is governed
+ *     by INV-6 (planned). `view-attachment` is also key-requiring (artifact
+ *     custody key) and is therefore INV-6-local to the custody holder.
  *
  * This build is entirely flag-gated and is NOT called from the live email path.
  */
@@ -43,10 +72,24 @@ import type {
 } from '@repo/ingestion-core'
 
 /**
- * The critical-job vocabulary. This is the SAME literal union as the microVM
- * `JobKind` (generalized from the original single literal `'depackaging'` in
- * Build A); re-aliased here as the seam's public name. Keeping it a single
- * source prevents the two from drifting.
+ * The critical-job vocabulary, annotated by pipeline. This is the SAME literal
+ * union as the microVM `JobKind` (single source — keeps the two from drifting):
+ *
+ *   Email / untrusted-content pipeline (key-less for content):
+ *     - `depackage`         — MIME parse → SafeTextV1 + sealed artifacts.
+ *     - `open-link`         — open/evaluate a URL in isolation (unimplemented).
+ *     - `view-attachment`   — render a sealed artifact in isolation
+ *                             (unimplemented; key-requiring → INV-6-local).
+ *
+ *   Native BEAP pipeline:
+ *     - `validate-native-beap`     — structural validation of a wire candidate.
+ *     - `decrypt-qbeap`            — RESERVED, UNIMPLEMENTED in B1. qBEAP
+ *                                    post-quantum decryption; key-requiring →
+ *                                    INV-6 local-only (local per-action microVM
+ *                                    on paid/Linux; in-process sandbox-VM floor
+ *                                    on free). `supports()` is false everywhere.
+ *     - `validate-decrypted-beap`  — validation of already-decrypted BEAP
+ *                                    content (wraps `validateDecryptedBeapContent`).
  */
 export type CriticalJobKind = JobKind
 
@@ -81,28 +124,42 @@ export interface RenderVerdict {
 }
 
 export interface JobInputMap {
+  // ── Email / untrusted-content pipeline ──
   /** Raw untrusted bytes (email MIME / attachment). Opaque to the orchestrator. */
   'depackage': { readonly inputBytes: Buffer }
+  /** A URL to evaluate/open in isolation (unsupported in B1). */
+  'open-link': { readonly url: string }
+  /** An opaque sealed-artifact handle to render in isolation (unsupported in B1). */
+  'view-attachment': { readonly artifactRef: string }
+
+  // ── Native BEAP pipeline ──
+  /** A native wire BEAP candidate envelope for structural validation. */
+  'validate-native-beap': { readonly candidate: CandidateCapsuleEnvelope }
+  /**
+   * RESERVED, UNIMPLEMENTED (B1). qBEAP package + the handshake *identifier*
+   * (not the key). Per INV-6, the actual decryption keys are provisioned to a
+   * LOCAL per-action microVM via the job channel (memory-only) in a future
+   * build — never carried in this spec (INV-2).
+   */
+  'decrypt-qbeap': { readonly packageJson: string; readonly handshakeId: string }
   /**
    * Exactly what the existing validator subprocess accepts. Carries no seal key
    * (INV-2): `plaintext_or_encrypted` holds either already-decrypted content or
    * opaque ciphertext + a handshake *identifier* — never vault key material.
    */
-  'validate-depackaged': Omit<ValidateRequest, 'request_id'>
-  /** A native wire BEAP candidate envelope for structural validation. */
-  'validate-native-beap': { readonly candidate: CandidateCapsuleEnvelope }
-  /** A URL to evaluate/open in isolation (unsupported in Build A). */
-  'open-link': { readonly url: string }
-  /** An opaque sealed-artifact handle to render in isolation (unsupported in Build A). */
-  'view-attachment': { readonly artifactRef: string }
+  'validate-decrypted-beap': Omit<ValidateRequest, 'request_id'>
 }
 
 export interface JobOutputMap {
+  // Email / untrusted-content pipeline
   'depackage': DepackageOutput
-  'validate-depackaged': ValidateResponse
-  'validate-native-beap': ValidationResult
   'open-link': RenderVerdict
   'view-attachment': RenderVerdict
+  // Native BEAP pipeline
+  'validate-native-beap': ValidationResult
+  /** RESERVED, UNIMPLEMENTED (B1): the decrypted canonical capsule JSON. */
+  'decrypt-qbeap': { readonly canonicalJson: string }
+  'validate-decrypted-beap': ValidateResponse
 }
 
 // ── Envelope ───────────────────────────────────────────────────────────────
