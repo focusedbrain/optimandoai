@@ -236,23 +236,25 @@ than absorbed.
   crosvm microVM via `dispatch()` (signature + safe-text verify, overlay nuked,
   guard instrumentation proving the orchestrator never parsed raw bytes), then a
   dated `rig/README.md` append. **This dev box has no access to the mini-PC.**
-- **Phase 2 — Outlook `/$value` spike (R2).** Requires a real Outlook/Graph test
-  account + network. **Decision update:** the guest parses RFC822 only, so the
-  cleanest path is Graph `/me/messages/{id}/$value` (raw MIME), not
-  `provider-structured-json` (which would need a guest-side Graph-JSON walker that
-  Phase 1 did not build). `/$value` also needs a raw-bytes HTTP path
-  (`graphApiRequest` returns parsed JSON today). Until both land, flag-on Outlook
-  obtains no opaque payload and **fails closed (HELD)** — never inline-parsed.
-  See §7b/§8b.
+- **Phase 2 — Outlook `/$value` spike (R2).** **Code landed** (see §8b): the guest
+  parses RFC822 only, so Graph `/me/messages/{id}/$value` (raw MIME) is the chosen
+  path over `provider-structured-json` (which would need a guest-side Graph-JSON
+  walker Phase 1 did not build). The raw-bytes HTTP path now exists
+  (`graphApiRequestRaw`). What still requires a real account is **validation** of
+  `/$value` and the 8-bit MIME caveat — see §7b.
 
 ### 7b. Still blocked / deferred
 
-- **Phase 2 — Outlook `/$value` raw + R2 spike.** Two obstacles: (1) the existing
-  `graphApiRequest` only returns parsed JSON, so a raw-bytes HTTP path is needed to
-  fetch `/me/messages/{id}/$value` (RFC822); (2) the R2 spike requires a real
-  Outlook/Graph test account. Until both land, flag-on Outlook obtains no opaque
-  payload and **fails closed (HELD)** — never inline-parsed (INV-7). Documented as
-  the next provider unit.
+- **Phase 2 — Outlook `/$value` real-account validation (R2 spike).** The code is
+  now landed (`graphApiRequestRaw` + flag-gated `/$value` fetch in `fetchMessage`),
+  but two things still need a real Outlook/Graph account to confirm: (1) `/$value`
+  availability/preference (the spike itself); (2) the **8-bit MIME caveat** —
+  `graphSingleRequest` accumulates the body as a UTF-8 string, which round-trips
+  losslessly for 7-bit/base64 transport (the overwhelming majority) but could be
+  lossy for rare 8-bit-content-transfer-encoding messages; if the spike surfaces
+  this, switch `/$value` to a binary-safe accumulation path. Until validated, the
+  Outlook flag should stay off; if `/$value` errors at runtime the seam HELDs
+  (INV-7), never inline-parses.
 - **Phase 3.4 — full e2e per-kind parity suites on real fetched mail** + the rig
   e2e (Phase 0). The consumer unit suite is landed but native-`better-sqlite3`
   gated (skips wherever the Electron-built module won't load under plain Node, same
@@ -334,8 +336,12 @@ and flag-off is byte-identical (field unset/unused).
 - **Gmail:** when flag-on, an additional `messages.get?format=raw` is decoded
   (base64url) into `rawRfc822`; the `format=full` parse still supplies envelope
   metadata. Missing `raw` / fetch error ⇒ seam HELDs (INV-7).
-- **Outlook:** deferred (see §7b) — flag-on Outlook HELDs until `/$value` + the R2
-  spike land.
+- **Outlook:** wired via Graph `/me/messages/{id}/$value` (raw MIME) behind a new
+  `graphApiRequestRaw` that reuses the same 401/429/5xx handling and returns bytes
+  (the `$select` parse still supplies envelope metadata). Additive + flag-gated;
+  any non-2xx leaves `rawRfc822` unset ⇒ seam HELDs (INV-7). **Pending real-account
+  validation** of the R2 spike (`/$value` availability/preference) and the 8-bit
+  MIME caveat below before the flag is flipped on for Outlook.
 
 Envelope metadata (from/to/date/folder/ids) continues to come from
 provider-structured fields (IMAP ENVELOPE, Gmail/Graph fields), never from

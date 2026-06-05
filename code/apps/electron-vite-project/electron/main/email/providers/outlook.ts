@@ -12,6 +12,7 @@ import type { IncomingHttpHeaders } from 'http'
 import * as https from 'https'
 import * as fs from 'fs'
 import * as path from 'path'
+import { isSeamDepackageCutoverEnabled } from '../../critical-jobs/featureFlags'
 import { 
   BaseEmailProvider, 
   RawEmailMessage, 
@@ -416,8 +417,26 @@ export class OutlookProvider extends BaseEmailProvider {
         'GET',
         `/me/messages/${messageId}?$select=id,conversationId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,body,isRead,flag,isDraft,hasAttachments,internetMessageHeaders`
       )
-      
-      return this.parseOutlookMessage(response, folderHint || 'inbox')
+
+      const msg = this.parseOutlookMessage(response, folderHint || 'inbox')
+
+      // B2 byte-courier (R2): when the cutover flag is on, ALSO retrieve the
+      // opaque raw MIME via Graph `/$value` so the depackage seam can re-derive
+      // body/classification inside the isolated guest. The `$select` parse above
+      // still supplies envelope metadata; this is additive, and the flag-off path
+      // is untouched. Any failure leaves `rawRfc822` unset ⇒ seam holds (INV-7).
+      if (msg && isSeamDepackageCutoverEnabled()) {
+        try {
+          const raw = await this.graphApiRequestRaw(`/me/messages/${messageId}/$value`)
+          if (raw && raw.length > 0) {
+            msg.rawRfc822 = raw
+          }
+        } catch (e) {
+          console.warn('[Outlook] $value fetch failed (seam will hold):', messageId, e)
+        }
+      }
+
+      return msg
     } catch (err) {
       console.error('[Outlook] Error fetching message:', messageId, err)
       return null
@@ -1072,6 +1091,47 @@ export class OutlookProvider extends BaseEmailProvider {
         }),
       `${method} ${endpoint.slice(0, 80)}`,
     )
+  }
+
+  /**
+   * B2 byte-courier (R2): fetch the OPAQUE raw response body (unparsed) — used for
+   * Graph `/me/messages/{id}/$value` which returns raw RFC822 (MIME), not JSON.
+   * Reuses the same 401-refresh / 429 / 5xx handling as {@link graphApiRequest}
+   * but returns the body as bytes. Standard Graph MIME is 7-bit/base64-encoded
+   * transport, so the string body round-trips losslessly to UTF-8 bytes; on any
+   * non-2xx the caller leaves `rawRfc822` unset and the depackage seam fails
+   * closed (INV-7), never inline-parsing.
+   */
+  private async graphApiRequestRaw(endpoint: string): Promise<Buffer | null> {
+    const path = `/v1.0${endpoint}`
+    const maxAttempts = 6
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (this.isTokenExpired() && this.refreshToken) {
+        try { await this.refreshAccessToken() } catch (e: any) { console.warn('[Outlook] $value pre-request token refresh failed:', e?.message) }
+      }
+      const { statusCode, headers, rawBody } = await this.graphSingleRequest({
+        hostname: 'graph.microsoft.com',
+        path,
+        method: 'GET',
+      })
+      if (statusCode === 429) {
+        await new Promise((r) => setTimeout(r, this.getRetryAfterSeconds(headers) * 1000))
+        continue
+      }
+      if (statusCode === 401 && this.refreshToken) {
+        await this.refreshAccessToken()
+        continue
+      }
+      if (statusCode >= 500 && statusCode < 600 && attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, Math.min(30_000, 1000 * Math.pow(2, attempt))))
+        continue
+      }
+      if (statusCode >= 400) {
+        throw new Error(`Graph $value HTTP ${statusCode} (${endpoint.slice(0, 80)})`)
+      }
+      return rawBody ? Buffer.from(rawBody, 'utf-8') : null
+    }
+    throw new Error(`[Outlook] Graph $value max retries exceeded (${endpoint.slice(0, 80)})`)
   }
   
   private parseOutlookMessage(raw: any, folder: string): RawEmailMessage {
