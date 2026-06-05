@@ -44,12 +44,12 @@ export type ValidationDispatchOutcome<T> =
 
 function buildDispatcher(): CriticalJobDispatcher {
   const ctx = buildResolutionContext()
-  // Only in-process + the remote stub are relevant to the validate kinds; the
-  // microVM executor is never resolved for them in B1.
+  // Build C: the remote executor is topology-aware. Absent linked topology it is
+  // unavailable (workstation rows fail closed → E_NO_EXECUTOR, exactly Build A).
   return new CriticalJobDispatcher(
     {
       'in-process': new InProcessExecutor(ctx.role),
-      'remote-handshake': new RemoteHandshakeExecutor(),
+      'remote-handshake': new RemoteHandshakeExecutor({ topology: ctx.topology.linked }),
     },
     DEFAULT_RESOLUTION_TABLE,
     ctx,

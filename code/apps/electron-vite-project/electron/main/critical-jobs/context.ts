@@ -11,8 +11,10 @@
  *     to 'free' when not supplied.
  *   - execOverride: `WRDESK_CRITICAL_EXEC=in-process|microvm` per-machine
  *     override of the table's chosen executor.
- *   - topology: `{ linked: [] }`. Persistence of linked topology ships with the
- *     RemoteHandshakeExecutor build (Build C), not now.
+ *   - topology: sourced (Build C) from `orchestrator-mode.json` `linked` with
+ *     `WRDESK_TOPOLOGY_LINKED` env / `--topology-linked=` argv override, validated
+ *     for key-locality (INV-6) by `critical-jobs/topology.ts`. Absent config →
+ *     `{ linked: [] }` (exactly the Build A behavior — no remote routing).
  *
  * This is the ONLY seam module that reads env/argv/persisted mode; the dispatcher
  * itself takes a ResolutionContext explicitly and stays pure-testable.
@@ -21,6 +23,7 @@
 import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import type { Role, Tier } from './types'
 import type { ResolutionContext } from './resolution'
+import { loadLinkedTopology } from './topology'
 
 const VALID_ROLES: ReadonlySet<string> = new Set(['workstation', 'sandbox', 'appliance'])
 
@@ -71,10 +74,16 @@ export interface BuildContextOptions {
 export function buildResolutionContext(opts: BuildContextOptions = {}): ResolutionContext {
   const env = opts.env ?? process.env
   const argv = opts.argv ?? process.argv
+  let persistedLinked: unknown = []
+  try {
+    persistedLinked = getOrchestratorMode().linked ?? []
+  } catch {
+    persistedLinked = []
+  }
   return {
     role: resolveRole(env, argv),
     tier: opts.tier ?? 'free',
-    topology: { linked: [] },
+    topology: { linked: loadLinkedTopology(persistedLinked, env, argv) },
     execOverride: resolveExecOverride(env),
   }
 }

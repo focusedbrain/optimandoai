@@ -76,6 +76,18 @@ function reconstructJobResult(r: CriticalJobResult<'depackage'>): JobResult {
   }
 }
 
+/**
+ * Signature-only check (Build C, spec 0017 §3.2): the RemoteHandshakeExecutor
+ * verifies a remote depackage result's job-result signature locally before
+ * returning it, so a tampered result is rejected by the SENDER (§4) without
+ * waiting for the dispatcher post-path. This intentionally does NOT re-validate
+ * or re-project safe-text (that is the dispatcher's single authoritative pass via
+ * `verifyDepackageResult`) — it only proves transport integrity.
+ */
+export function depackageResultSignatureValid(r: CriticalJobResult<'depackage'>): boolean {
+  return verifyJobResultSignature(reconstructJobResult(r))
+}
+
 export type DepackageVerification =
   | { readonly ok: true; readonly output: DepackageOutput }
   | {

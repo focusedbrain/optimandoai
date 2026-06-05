@@ -25,6 +25,17 @@ export interface ConnectedPeer {
   status: 'connected' | 'disconnected'
 }
 
+/**
+ * One linked-topology entry (Build C, spec 0017 §3.1): "kinds K route over the
+ * internal handshake H to a node playing role R". Stored raw here; key-locality
+ * (INV-6) validation lives in `critical-jobs/topology.ts` (the seam owns it).
+ */
+export interface LinkedTopologyConfigEntry {
+  role: 'sandbox' | 'appliance'
+  handshakeId: string
+  jobKinds: string[]
+}
+
 export interface OrchestratorModeConfig {
   mode: 'host' | 'sandbox'
   deviceName: string
@@ -36,6 +47,12 @@ export interface OrchestratorModeConfig {
    */
   pairingCode: string
   connectedPeers: ConnectedPeer[]
+  /**
+   * Linked-topology for remote-handshake critical-job routing (Build C). Absent
+   * on legacy configs (→ `[]`, exactly today's behavior). Validated for
+   * key-locality by the seam before it ever becomes a route.
+   */
+  linked?: LinkedTopologyConfigEntry[]
 }
 
 /**
@@ -129,11 +146,28 @@ function buildConfigFromRaw(raw: unknown): {
     connectedPeers = o.connectedPeers.filter(isConnectedPeer)
   }
 
+  // Linked topology (Build C). Loose structural parse only — the seam validates
+  // key-locality (INV-6) before any entry becomes a route. Absent → undefined
+  // (legacy configs are untouched; the seam treats it as `[]`).
+  const linked = Array.isArray(o.linked) ? (o.linked.filter(isLinkedConfigEntry) as LinkedTopologyConfigEntry[]) : undefined
+
   return {
-    config: { mode, deviceName, instanceId, pairingCode, connectedPeers },
+    config: { mode, deviceName, instanceId, pairingCode, connectedPeers, ...(linked ? { linked } : {}) },
     missingInstanceId,
     missingPairingCode,
   }
+}
+
+function isLinkedConfigEntry(x: unknown): x is LinkedTopologyConfigEntry {
+  if (x == null || typeof x !== 'object') return false
+  const o = x as Record<string, unknown>
+  return (
+    (o.role === 'sandbox' || o.role === 'appliance') &&
+    typeof o.handshakeId === 'string' &&
+    o.handshakeId.trim().length > 0 &&
+    Array.isArray(o.jobKinds) &&
+    o.jobKinds.every((k) => typeof k === 'string')
+  )
 }
 
 function persistConfig(config: OrchestratorModeConfig): void {
