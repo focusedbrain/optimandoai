@@ -67,7 +67,8 @@ function eml(parts: string[]): Buffer {
 
 async function runOne(provider: CrosvmProvider, inputBytes: Buffer, pubB64: string, jobId: string): Promise<JobResult> {
   const spec: JobSpec = { jobId, kind: 'depackage', inputBytes, sandboxPeerX25519PubB64: pubB64 }
-  return provider.runJob(spec)
+  // depackage kind always yields a JobResult (never the depackage-email union).
+  return (await provider.runJob(spec)) as JobResult
 }
 
 /* ─────────────────────── Pure invariants (always run) ─────────────────────── */

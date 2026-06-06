@@ -60,10 +60,15 @@ const graphJson = JSON.stringify({
   ],
 })
 
-/** A `JobResult` for path 1, or `{result: DepackageEmailResult}` for paths 2/3. */
+/**
+ * Returns `{ outer, inner }`. For the B1 `depackage` path the wire IS the signed
+ * `JobResult` (outer === inner). For `depackage-email` the wire is the signed
+ * envelope `{jobId, kind, result, result_signing_pub_b64, result_signature_b64}`
+ * whose `result` is the typed `DepackageEmailResult` verdict.
+ */
 function unwrap(out) {
   const o = JSON.parse(out)
-  return o.result ?? o
+  return { outer: o, inner: o.result ?? o }
 }
 
 function runJob(job) {
@@ -78,10 +83,10 @@ function runJob(job) {
   })
 }
 
-function checkResult(label, code, out, expectSignature) {
-  let r
+function checkResult(label, code, out) {
+  let outer, r
   try {
-    r = unwrap(out)
+    ;({ outer, inner: r } = unwrap(out))
   } catch (err) {
     console.log(`FAIL  [${label}] could not parse worker output: ${err}\n      raw: ${out.slice(0, 300)}`)
     return false
@@ -94,12 +99,10 @@ function checkResult(label, code, out, expectSignature) {
     ['body_text present', String(r.safeText?.body_text || '').includes('hello from bare node')],
     ['no plaintext leak in safeText', !safeTextStr.includes(SECRET)],
     ['one encrypted artifact', (r.artifacts || []).length === 1],
+    // BOTH worker paths now sign their result in-guest (transport integrity); the
+    // signature sits on the wire envelope (outer === inner for the B1 path).
+    ['result signed', typeof outer.result_signing_pub_b64 === 'string' && typeof outer.result_signature_b64 === 'string'],
   ]
-  // Only the B1 `depackage` path produces the in-guest signed JobResult; the
-  // email worker returns a DepackageEmailResult that is signed downstream.
-  if (expectSignature) {
-    checks.push(['result signed', typeof r.result_signing_pub_b64 === 'string' && typeof r.result_signature_b64 === 'string'])
-  }
   let pass = true
   for (const [name, ok] of checks) {
     console.log(`  ${ok ? 'PASS' : 'FAIL'}  [${label}] ${name}`)
@@ -109,15 +112,13 @@ function checkResult(label, code, out, expectSignature) {
 }
 
 const paths = [
-  { label: 'depackage', expectSignature: true, job: { jobId: 'smoke-1', inputBytes_b64: emlB64, sandboxPeerX25519PubB64: sandboxPubB64 } },
+  { label: 'depackage', job: { jobId: 'smoke-1', inputBytes_b64: emlB64, sandboxPeerX25519PubB64: sandboxPubB64 } },
   {
     label: 'depackage-email/rfc822',
-    expectSignature: false,
     job: { jobId: 'smoke-2', kind: 'depackage-email', inputForm: 'rfc822', inputBytes_b64: emlB64, sandboxPeerX25519PubB64: sandboxPubB64 },
   },
   {
     label: 'depackage-email/structured-json',
-    expectSignature: false,
     job: {
       jobId: 'smoke-3',
       kind: 'depackage-email',
@@ -130,9 +131,9 @@ const paths = [
 ]
 
 let allPass = true
-for (const { label, job, expectSignature } of paths) {
+for (const { label, job } of paths) {
   const { code, out } = await runJob(job)
-  if (!checkResult(label, code, out, expectSignature)) allPass = false
+  if (!checkResult(label, code, out)) allPass = false
 }
 console.log(
   allPass

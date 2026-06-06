@@ -28,7 +28,10 @@ const cfg: CrosvmProviderConfig = {
   crosvmBin: process.env.CROSVM_BIN ?? path.join(home, 'build', 'crosvm', 'target', 'release', 'crosvm'),
   goldenRootfsPath: process.env.CROSVM_GOLDEN ?? path.join(rig, 'golden-base.ext4'),
   kernelPath: process.env.CROSVM_KERNEL ?? path.join(rig, 'vmlinuz'),
-  overlayDir: process.env.CROSVM_OVERLAY_DIR ?? path.join(rig, 'overlays'),
+  // DEDICATED overlay dir: vitest runs test files in parallel and the overlay-
+  // nuke assertion reads the whole dir; a shared dir would race the other rig
+  // suites (crosvmProvider / depackagingService). The provider mkdir's it.
+  overlayDir: process.env.CROSVM_OVERLAY_DIR_DISPATCHER ?? path.join(rig, 'overlays-dispatcher'),
   vsockHostClientPath: process.env.CROSVM_VSOCK_CLIENT ?? path.join(rig, 'vsock-host-client'),
 }
 
