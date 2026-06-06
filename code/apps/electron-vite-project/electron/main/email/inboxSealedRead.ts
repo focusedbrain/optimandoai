@@ -78,10 +78,17 @@ function tryVerifyWithKeySource<T extends SealedRow>(
   return verified[0] ?? null
 }
 
-function resealInboxRowToLedger(db: any, rowId: string, canonicalJson: string): boolean {
+function resealInboxRowToLedger(
+  db: any,
+  rowId: string,
+  canonicalJson: string,
+  boundMetadataJson?: string | null,
+): boolean {
   if (!isKeyProviderUsable('outer')) return false
   try {
-    const { seal, seal_input_json } = computeSeal(canonicalJson, rowId, 'outer')
+    // Preserve any tamper-evident metadata binding (e.g. pBEAP trust verdict)
+    // across the inner→outer migration; dropping it would silently weaken the row.
+    const { seal, seal_input_json } = computeSeal(canonicalJson, rowId, 'outer', boundMetadataJson)
     db.prepare(
       `UPDATE inbox_messages SET seal = ?, seal_input_json = ?, seal_key_source = 'ledger' WHERE id = ?`,
     ).run(seal, seal_input_json, rowId)
@@ -105,7 +112,10 @@ function tryLegacyOuterReseal<T extends SealedRow & InboxPlaceholderRow>(
   const canonical = row.depackaged_json
   if (typeof canonical !== 'string' || !canonical.trim()) return null
   const id = String(row.id)
-  if (!resealInboxRowToLedger(db, id, canonical)) return null
+  const meta = typeof (row as { depackaged_metadata?: unknown }).depackaged_metadata === 'string'
+    ? ((row as { depackaged_metadata?: string }).depackaged_metadata as string)
+    : null
+  if (!resealInboxRowToLedger(db, id, canonical, meta)) return null
   return tryVerifyWithKeySource<T>(db, id, 'outer')
 }
 
@@ -131,7 +141,10 @@ export function verifyInboxMessageRowOrNull<T extends SealedRow & InboxPlacehold
       if (source === 'inner' && !inboxRowRequiresInnerVault(row) && isKeyProviderUsable('outer')) {
         const canonical = verified.depackaged_json
         if (typeof canonical === 'string' && canonical.trim()) {
-          resealInboxRowToLedger(db, rowId, canonical)
+          const meta = typeof (verified as { depackaged_metadata?: unknown }).depackaged_metadata === 'string'
+            ? ((verified as { depackaged_metadata?: string }).depackaged_metadata as string)
+            : null
+          resealInboxRowToLedger(db, rowId, canonical, meta)
           const outerVerified = tryVerifyWithKeySource<T>(db, rowId, 'outer')
           if (outerVerified) return outerVerified
         }

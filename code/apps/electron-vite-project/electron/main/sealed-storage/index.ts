@@ -151,6 +151,7 @@ export type TamperReason =
   | 'row_id_mismatch'
   | 'no_canonical_column'
   | 'attachment_hash_mismatch'
+  | 'metadata_hash_mismatch'
 
 export interface TamperingEvent {
   readonly timestamp: string
@@ -400,17 +401,31 @@ export function computeSeal(
   canonicalJson: string,
   rowId: string,
   source: KeySource = 'inner',
+  /**
+   * Optional out-of-canonical metadata to bind tamper-evidently into the seal
+   * (e.g. the explicit pBEAP trust verdict stored in `depackaged_metadata`).
+   * When a non-empty string is supplied, its SHA-256 is folded into the HMAC'd
+   * `seal_input_json` as `meta_sha256`; the read path (`sealedQuery`) then
+   * rejects any row whose stored metadata no longer hashes to that value.
+   * Omitted / null / empty → no `meta_sha256` field (legacy behaviour, and the
+   * read-side check is skipped for such rows — fully backward compatible).
+   */
+  boundMetadataJson?: string | null,
 ): { seal: string; seal_input_json: string } {
   const key = sealKeyCopy(source)
   if (key == null) throw new SealKeyNotBoundError(source)
 
   const content_sha256 = createHash('sha256').update(canonicalJson, 'utf8').digest('hex')
-  const seal_input_json = JSON.stringify({
+  const sealInput: Record<string, unknown> = {
     row_id: rowId,
     content_sha256,
     seal_source: source,
     sealed_at: new Date().toISOString(),
-  })
+  }
+  if (typeof boundMetadataJson === 'string' && boundMetadataJson.length > 0) {
+    sealInput.meta_sha256 = createHash('sha256').update(boundMetadataJson, 'utf8').digest('hex')
+  }
+  const seal_input_json = JSON.stringify(sealInput)
 
   let seal: string
   try {
@@ -677,6 +692,22 @@ export function sealedQuery<T extends SealedRow>(
     if (!hmacValid) {
       recordTamper('hmac_mismatch', ctx)
       if (SEALED_STORAGE_MODE === 'reject') continue
+    }
+
+    // ── Bound out-of-canonical metadata verification ──────────────────────────
+    // When a row's seal binds `meta_sha256` (e.g. the pBEAP trust verdict stored
+    // in `depackaged_metadata`, written via computeSeal's boundMetadataJson), the
+    // HMAC above already authenticated that hash. Now confirm the stored metadata
+    // still hashes to it — any post-write edit to depackaged_metadata (e.g. an
+    // attacker upgrading unverified_public → verified_bound) is detected here.
+    // Rows without `meta_sha256` (legacy / non-bound) skip this check.
+    if (typeof parsed.meta_sha256 === 'string') {
+      const storedMeta = typeof row['depackaged_metadata'] === 'string' ? (row['depackaged_metadata'] as string) : ''
+      const actualMetaHash = createHash('sha256').update(storedMeta, 'utf8').digest('hex')
+      if (actualMetaHash !== parsed.meta_sha256) {
+        recordTamper('metadata_hash_mismatch', ctx, `row_id=${String(row['id'])} stored="${String(parsed.meta_sha256).slice(0, 16)}…"`)
+        if (SEALED_STORAGE_MODE === 'reject') continue
+      }
     }
 
     // ── Attachment hash verification (PR B-7.3) ───────────────────────────────

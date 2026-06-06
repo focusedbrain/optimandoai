@@ -1204,7 +1204,9 @@ async function processBeapPackageInlineInternal(
       // ── Non-confidential path: outer key, no validator subprocess ─────────
       let sealResult: { seal: string; seal_input_json: string } | null = null
       try {
-        sealResult = computeSeal(depackagedJsonForRow, rowId, 'outer')
+        // Bind the wrapper metadata (incl. the pBEAP trust verdict) tamper-evidently
+        // into the seal so depackaged_metadata cannot be altered post-write undetected.
+        sealResult = computeSeal(depackagedJsonForRow, rowId, 'outer', depackagedMetadata)
       } catch (err: unknown) {
         depackageError = `outer seal computation failed: ${err instanceof Error ? err.message : String(err)}`
         // sealResult stays null — fall through to quarantine path below.

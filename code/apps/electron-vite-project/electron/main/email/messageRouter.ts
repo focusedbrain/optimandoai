@@ -635,7 +635,9 @@ export async function detectAndRouteMessageInline(
 
       if (resp && resp.outcome.ok) {
         const sealed = resp.outcome.sealed
-        const { seal, seal_input_json } = computeSeal(sealed.canonical_json, inboxMessageId, 'outer')
+        // Bind the pBEAP trust verdict tamper-evidently into the seal (when present),
+        // so the persisted depackaged_metadata cannot be altered post-write undetected.
+        const { seal, seal_input_json } = computeSeal(sealed.canonical_json, inboxMessageId, 'outer', pbeapTrustMetaJson)
         writePayload = {
           kind: 'inbox',
           sourceType: 'email_beap',
