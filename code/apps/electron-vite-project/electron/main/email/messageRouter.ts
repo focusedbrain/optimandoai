@@ -280,12 +280,12 @@ const INBOX_INSERT_SQL = `
     id, source_type, handshake_id, account_id, email_message_id,
     from_address, from_name, to_addresses, cc_addresses,
     subject, body_text, body_html, beap_package_json,
-    depackaged_json, has_attachments, attachment_count, received_at, ingested_at,
+    depackaged_json, depackaged_metadata, has_attachments, attachment_count, received_at, ingested_at,
     imap_remote_mailbox, imap_rfc_message_id,
     validated_at, validator_version, validation_reason,
     seal, seal_input_json,
     seal_key_source
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 const QUARANTINE_INSERT_SQL = `
@@ -521,6 +521,8 @@ export async function detectAndRouteMessageInline(
     kind: 'inbox'
     sourceType: 'email_beap' | 'email_plain'
     depackagedJson: string
+    /** Wrapper metadata (e.g. the explicit pBEAP trust verdict). Outside the seal. */
+    depackagedMetadata?: string | null
     seal: string
     sealInputJson: string
     sealKeySource: 'ledger'
@@ -555,6 +557,11 @@ export async function detectAndRouteMessageInline(
 
     let canonicalJson: string | null = null
     let depackageError: string | null = null
+    // pBEAP explicit trust verdict, persisted to depackaged_metadata on the inbox row.
+    // Verdict-only payload (no `format` key) so format-based routing/eligibility readers
+    // (depackagedFormatFromJson / depackagedFormatFromMessage) fall through to
+    // depackaged_json exactly as before — persistence is additive, not a routing change.
+    let pbeapTrustMetaJson: string | null = null
 
     // ── Inline depackage ──
     if (encoding === 'qBEAP') {
@@ -583,6 +590,7 @@ export async function detectAndRouteMessageInline(
           // metadata/seal-structure change (deferred); we record it explicitly
           // here so it is no longer a silent trust.
           const pbeapTrust = classifyLivePbeapTrust({ header: packageObj?.header })
+          pbeapTrustMetaJson = JSON.stringify(pbeapTrustMetadata(pbeapTrust))
           if (pbeapTrust.level !== 'verified_bound') {
             console.warn('[messageRouter] pBEAP not authenticated', pbeapTrustMetadata(pbeapTrust).pbeap_trust)
           }
@@ -632,6 +640,7 @@ export async function detectAndRouteMessageInline(
           kind: 'inbox',
           sourceType: 'email_beap',
           depackagedJson: sealed.canonical_json,
+          depackagedMetadata: pbeapTrustMetaJson,
           seal,
           sealInputJson: seal_input_json,
           sealKeySource: 'ledger',
@@ -814,6 +823,7 @@ export async function detectAndRouteMessageInline(
     bodyHtml,
     beapPackageJson,
     writePayload.depackagedJson,
+    writePayload.kind === 'inbox' ? (writePayload.depackagedMetadata ?? null) : null,
     hasAttachments ? 1 : 0,
     attachments.length,
     receivedAt,
@@ -1108,7 +1118,7 @@ async function writePlainSeamInbox(
     inboxMessageId, payload.sourceType, null, accountId, messageId,
     fromAddr, fromName, JSON.stringify(toAddrs), JSON.stringify(ccAddrs),
     safeText.subject, safeText.body_text, null, null,
-    payload.depackagedJson, attachmentsCanonical.length > 0 ? 1 : 0, attachmentsCanonical.length,
+    payload.depackagedJson, null, attachmentsCanonical.length > 0 ? 1 : 0, attachmentsCanonical.length,
     receivedAt, now, folder, imapRfcMessageId,
     payload.validatedAt, payload.validatorVersion, payload.validationReason,
     payload.seal, payload.sealInputJson, 'ledger',

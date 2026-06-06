@@ -606,12 +606,12 @@ const P2P_INBOX_INSERT_SQL = `
     id, source_type, handshake_id, account_id, email_message_id,
     from_address, from_name, to_addresses, cc_addresses,
     subject, body_text, body_html, beap_package_json,
-    depackaged_json, has_attachments, attachment_count, received_at, ingested_at,
+    depackaged_json, depackaged_metadata, has_attachments, attachment_count, received_at, ingested_at,
     imap_remote_mailbox, imap_rfc_message_id,
     validated_at, validator_version, validation_reason,
     seal, seal_input_json,
     seal_key_source
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 /**
@@ -742,6 +742,7 @@ function writeP2PInboxRow(db: any, p: P2PInboxWriteParams): P2PInlineResult {
       null,
       p.packageJson,
       p.depackagedJson,
+      p.depackagedMetadata || null,
       0,
       0,
       p.receivedAt,
