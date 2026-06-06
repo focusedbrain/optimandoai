@@ -10,6 +10,26 @@ Execute top to bottom. Short imperative steps. Do not skip Step 0.
 
 ---
 
+## Already machine-proven (don't re-debug here — this session adds the hardware-only dimension)
+
+The single-box rig (`pnpm test:native-db`, real local relay) already proves, green:
+pairing→ACTIVE + ledger state, accept/context_sync transport byte-identity, the
+pairing-code→relay-device-id gap fix, relay kill/restart + outbound-queue hold/drain
+(exactly once), **revoke→send-refused→re-pair→restored**, **qBEAP `message_package`
+byte-identity over WS-push (200) and store-pull (202) + direct-P2P-HTTP routing with
+the counterparty-token auth gate**, and the **`assertRecordForServiceRpc` gates**
+(non-ACTIVE + different-principal) plus the inference request/result/error/cancel
+state machine. pBEAP trust verdicts are unit-proven (relay-independent).
+
+So if a step below fails on **logic** (a verdict, a gate, a state transition), suspect
+the environment first. This session exists to prove the things one box CANNOT: two
+real OS processes with distinct instance ids, real WebRTC/live-both-online delivery,
+the renderer ACK path (`live` vs `relay_pending`), a real second machine going
+offline→online for exactly-once clone, and quarantine custody to the paired sandbox
+machine end-to-end.
+
+---
+
 ## Roles & machines
 
 | Machine | Role | UI | Notes |

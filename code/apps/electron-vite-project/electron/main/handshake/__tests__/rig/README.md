@@ -12,11 +12,16 @@ cd code
 pnpm test:native-db apps/electron-vite-project/electron/main/handshake/__tests__/pairingCodeRelayGap.rig.test.ts
 pnpm test:native-db apps/electron-vite-project/electron/main/handshake/__tests__/pairingActivation.rig.test.ts
 pnpm test:native-db apps/electron-vite-project/electron/main/handshake/__tests__/relayFailureMode.rig.test.ts
+pnpm test:native-db apps/electron-vite-project/electron/main/handshake/__tests__/revokeRepair.rig.test.ts
+pnpm test:native-db apps/electron-vite-project/electron/main/handshake/__tests__/qbeapTransports.rig.test.ts
+pnpm test:native-db apps/electron-vite-project/electron/main/internalInference/__tests__/serviceRpcGatesAndLifecycle.rig.test.ts
 ```
 
 Contents:
 - `coordinationRelayHarness.ts` — boots the real `packages/coordination-service`
   in-process; owns start / stop (relay-down) / restart (same port + same sqlite).
+- `pairingFlow.ts` — shared helper driving a cross-principal handshake to ACTIVE on
+  two DBs over the real relay (reused by the revoke/transport suites).
 - `CROSS_MACHINE_RUNBOOK.md` — human-operated two-box session (Phase 2).
 
 ---
@@ -71,6 +76,43 @@ real network — see `CROSS_MACHINE_RUNBOOK.md`:
 - Revoke from the UI → delivery refused → re-pair restores.
 - Relay-down/recovery with the human stopping/restarting the LAN relay; deployed-relay
   (`relay.wrdesk.com`) smoke (1 pairing / 1 message / 1 clone) with a version-skew note.
+
+---
+
+## 2026-06-06 (later) — Single-box matrix extension (items 3, 7, 8) + verdicts on 4/5/6
+
+Three more suites convert matrix items into green single-box proofs against the
+real local relay and a real in-process `createP2PServer` (no `relay.wrdesk.com`):
+
+| Proof | File | Result |
+|---|---|---|
+| Item 8 — ACTIVE→send allowed; revoke (real `revokeHandshake` + relay-carried revoke capsule)→both DBs REVOKED→send gate (`diagnoseHandshakeInactive`) refuses; delete + re-pair→new handshake ACTIVE→allowed again | `revokeRepair.rig.test.ts` | green |
+| Item 3 — qBEAP `message_package` byte-identical over coordination **WS push (200)** and **relay store-pull (202)** | `qbeapTransports.rig.test.ts` | green |
+| Item 3 — **direct P2P HTTP**: same qBEAP bytes POSTed to a real peer `createP2PServer` are routed into the native-BEAP ingest pipeline; counterparty-token auth gate enforced (401 on wrong token) | `qbeapTransports.rig.test.ts` | green |
+| Item 7 — `assertRecordForServiceRpc` (RemoteHandshakeExecutor gate) rejects **non-ACTIVE** and **different-principal**; non-internal / missing / repair-needed also rejected | `serviceRpcGatesAndLifecycle.rig.test.ts` | green |
+| Item 7 — inference **request/result/error/cancel** pending-map state machine settles exactly once (idempotent) | `serviceRpcGatesAndLifecycle.rig.test.ts` | green |
+
+**Verdicts on the remaining items (reported, not faked):**
+
+- **Item 4 — pBEAP trust:** the trust decision (`classifyLivePbeapTrust` / `classifyPbeapTrust`)
+  is **100% local, relay-independent**, and already unit-covered with real Ed25519 in
+  `depackaging-microvm/__tests__/livePbeapTrust.test.ts` (6/6: `verified_bound` on a bound
+  counterparty + valid signature; each lesser verdict — `no_sender_fingerprint`,
+  `no_signature`, `signing_bytes_unavailable`, `no_handshake_for_fingerprint`,
+  `signature_did_not_verify_under_counterparty_key` — plus the `pbeap_trust` metadata shape).
+  A relay rig would add **no** trust semantics. **Open gap (Build C, not test infra):** the
+  live ingest call sites pass header-only (no counterparties / signing bytes) and
+  `writeP2PInboxRow` does not persist `pbeap_trust` into `inbox_messages.depackaged_metadata`
+  (the email path only logs it). The verdict is computed but not stored end-to-end yet.
+- **Item 5 — clone outcomes:** the relay-transport halves (`live`=WS push 200,
+  `queued`=store-pull 202) are now machine-proven for the message_package wire (item 3 above),
+  and the pure relay→matrix mapper is unit-covered (`beapSandboxCloneDeliverySemantics.test.ts`).
+  `relay_pending` and ACK-driven `live` are **renderer-only** (15 s `onBeapDeliveryAck` timeout)
+  and exactly-once clone needs a second machine toggling offline/online → **two-box runbook**.
+- **Item 6 — quarantine custody:** the encrypt→decrypt blob round-trip and "orchestrator
+  cannot read plaintext" are unit-covered (`blindCourier.invariant.test.ts`). Full host
+  encrypt → qBEAP clone-quarantine send → paired-sandbox decrypt across two live instances
+  needs the second machine → **two-box runbook**.
 
 ### Boundary note
 The single-box harness simulates "two instances" by two sqlite DBs + identity per
