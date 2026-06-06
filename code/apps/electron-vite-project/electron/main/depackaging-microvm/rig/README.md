@@ -217,3 +217,45 @@ for reproducibility, but it is not required for correctness.
 side, the §6 invariant proofs (text-purity / blind-courier on the rig), and the
 orchestrator/live-path cutover. **invariant-0 (orchestrator still parses
 untrusted bytes) stays true until 2b's cutover.** Don't touch the live path here.
+
+---
+
+## Build 2b — DONE (provider + proofs + safe cutover slice)
+
+Implemented + proven on this box (2026-06-06):
+
+- **vsock transport** — `vsock-job-server.c` (guest: accepts one AF_VSOCK conn,
+  PROXIES it to `node worker-bundle.cjs` over ordinary pipes, since Node/libuv
+  can't use a vsock fd as stdio) + `vsock-host-client.c` (host: the orchestrator
+  is Node with no native AF_VSOCK, so `CrosvmProvider` spawns this static helper).
+  The one-JSON-each-way contract is byte-identical to 2a; `guestEntry.ts` is
+  unchanged. Built static by `build-golden-image.sh` into the rootfs / `~/build`.
+- **Real `CrosvmProvider`** (`../crosvmProvider.ts`) — create (RO golden +
+  ephemeral overlay + `--vsock`, no `--net`) → run-over-vsock → verify signature
+  → nuke. Fail-loud, no in-process fallback. Paths env-overridable.
+- **On-rig proofs through the real provider** (`__tests__/crosvmProvider.rig.test.ts`):
+  text-purity, blind-courier, ephemerality, zero-egress (argv), legacy re-pair.
+  **Perf: ~3.2s create→run→nuke.** Tests auto-skip off-rig.
+- **Safe cutover slice** — `livePbeapTrust.ts` ends silent pBEAP trust on the live
+  receive path (explicit recorded decision; `verified_bound` only when bound +
+  verified). `depackagingService.ts` is the gated provider seam that re-validates
+  `safeText` before the blind-courier record.
+
+### What's next (deferred)
+
+- **Full live-path cutover of qBEAP** — NOT done by design. qBEAP hybrid decrypt
+  needs handshake PRIVATE keys; the decided trust model keeps keys in the
+  orchestrator (inner VM holds none). The Build-1 worker is an email-MIME
+  depackager, not a BEAP decryptor. Splicing the live path also needs the
+  cross-machine §4 regression (mini-PC + Win Pro + relay), impossible on one box.
+- **VM-identity attestation** of the guest result-signing key (until then,
+  `validateSafeText` re-validation stays authoritative — already wired in the seam).
+- **pBEAP Gate-5 signing-bytes canonicalization** in main → unlocks `verified_bound`.
+- Interactive (inner-orchestrator) microVM + role flag; Windows hypervisor
+  backends (Hyper-V / VirtualBox flush); pinned reproducible guest kernel/image.
+
+### Re-running the VM proofs after a reboot
+
+`/dev/vhost-vsock` loses its ACL on reboot (udev rule didn't reapply). Restore with:
+`sudo setfacl -m u:$USER:rw /dev/vhost-vsock` (or re-run `host-setup-root.sh`).
+`/dev/kvm` persists via its ACL. Then: `pnpm vitest run .../crosvmProvider.rig.test.ts`.
