@@ -51,6 +51,12 @@ import path from 'node:path'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const outfile = path.join(here, 'dist', 'worker-bundle.cjs')
 const provenanceFile = path.join(here, 'dist', 'worker-bundle.provenance.json')
+// Sidecar build marker: the bundle's content sha256 on its own line. This is the
+// SHARED marker the golden image is stamped with (build-golden-image.sh copies the
+// same value beside the image) so CrosvmProvider can detect a stale image cheaply.
+// It is a SIDECAR (never inlined into worker-bundle.cjs) so the bundle stays
+// byte-for-byte reproducible (FIX-SPEC A).
+const markerFile = path.join(here, 'dist', 'worker-bundle.marker')
 
 // ── Toolchain pin (INV-7: assert, never silently drift) ────────────────────────
 const EXPECTED_ESBUILD = '0.21.5'
@@ -156,7 +162,11 @@ const provenance = {
 // reproducible.
 fs.writeFileSync(provenanceFile, JSON.stringify(provenance, null, 2) + '\n', 'utf8')
 
+// Shared image/bundle marker — same value the golden image is stamped with.
+fs.writeFileSync(markerFile, provenance.artifact_sha256 + '\n', 'utf8')
+
 console.log(`[buildWorkerBundle] wrote ${path.relative(codeRoot, outfile)}`)
 console.log(`[buildWorkerBundle]   sha256 = ${provenance.artifact_sha256}`)
 console.log(`[buildWorkerBundle]   esbuild = ${esbuildVersion}, inputs = ${Object.keys(inputs).length}`)
 console.log(`[buildWorkerBundle] wrote ${path.relative(codeRoot, provenanceFile)}`)
+console.log(`[buildWorkerBundle] wrote ${path.relative(codeRoot, markerFile)}`)

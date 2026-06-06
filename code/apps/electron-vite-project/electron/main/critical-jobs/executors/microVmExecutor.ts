@@ -15,9 +15,14 @@
  * validators / link / attachment kinds do not exist yet and are NOT stubbed.
  */
 
-import { CrosvmProvider, type CrosvmProviderConfig } from '../../depackaging-microvm/crosvmProvider'
+import {
+  CrosvmProvider,
+  ImageBundleMismatchError,
+  type CrosvmProviderConfig,
+} from '../../depackaging-microvm/crosvmProvider'
 import type {
   DepackageEmailJobResult,
+  JobResult,
   JobSpec,
   SandboxHypervisorProvider,
 } from '../../depackaging-microvm/hypervisorProvider'
@@ -85,7 +90,7 @@ export class MicroVMExecutor implements CriticalJobExecutor {
       },
     }
 
-    const job = (await this.provider.runJob(jobSpec)) as JobResult
+    const job = (await this.runProviderJob(jobSpec)) as JobResult
     const result = depackageJobResultToCriticalResult(job)
     // The provider nukes the ephemeral overlay after every job — truthfully
     // per-action flushable.
@@ -93,6 +98,24 @@ export class MicroVMExecutor implements CriticalJobExecutor {
       ...result,
       meta: { executorId: this.id, flushed: 'per-action', durationMs: 0 },
     } as CriticalJobResult<K>
+  }
+
+  /**
+   * Single provider entrypoint. Translates the provider's typed image/bundle
+   * preflight failure into a `CriticalJobError('E_IMAGE_BUNDLE_MISMATCH')` so the
+   * dispatcher surfaces the precise code (the dispatcher only maps CriticalJobErrors
+   * by code; an unwrapped throw would degrade to a generic E_EXECUTION_ERROR).
+   * The fail is immediate — never the 90s vsock wall-clock of a stale image.
+   */
+  private async runProviderJob(jobSpec: JobSpec): Promise<JobResult | DepackageEmailJobResult> {
+    try {
+      return await this.provider.runJob(jobSpec)
+    } catch (err) {
+      if (err instanceof ImageBundleMismatchError) {
+        throw new CriticalJobError('E_IMAGE_BUNDLE_MISMATCH', err.message)
+      }
+      throw err
+    }
   }
 
   private async runDepackageEmail(
@@ -117,7 +140,7 @@ export class MicroVMExecutor implements CriticalJobExecutor {
       },
     }
 
-    const job = (await this.provider.runJob(jobSpec)) as DepackageEmailJobResult
+    const job = (await this.runProviderJob(jobSpec)) as DepackageEmailJobResult
     const meta = { executorId: this.id, flushed: 'per-action' as const, durationMs: 0 }
     // A transport-level failure (non-JSON / bad signature / provider throw) is a
     // dispatch error → fail closed. A worker VERDICT failure (`result.ok===false`,

@@ -2,7 +2,7 @@
   "artifact": "worker-bundle.cjs",
   "artifact_sha256": "bf7eb8441ed5220fb738b8457501205d4825260d708f9b32962e3d2e30bfe09a",
   "esbuild_version": "0.21.5",
-  "build_script_sha256": "b90671c91a4fbc1cd9e4fa17ec9347362433cc0f1a9e2a5be70eabd7372a9364",
+  "build_script_sha256": "b37648e1322d9b8fd4dadc66bfe03e0e7b68e905400e3f09cc0e5dbafe0f9939",
   "lockfile": "pnpm-lock.yaml",
   "lockfile_sha256": "00121cf7100f69602e8d52462f3608b84e0ff74ae981d32b5bf32eff54906bff",
   "determinism": {

@@ -17,6 +17,8 @@
  */
 
 import { randomUUID } from 'crypto'
+import { readFileSync } from 'fs'
+import { fileURLToPath } from 'url'
 import * as os from 'os'
 import * as path from 'path'
 import { CriticalJobDispatcher } from './dispatcher'
@@ -49,15 +51,48 @@ export type DepackageDispatchOutcome =
  * a host without crosvm/kvm/vhost-vsock or the golden image, `exec=microvm`
  * routing fails closed (E_NO_EXECUTOR) rather than ever parsing in-process.
  */
+/**
+ * The sha256 of the worker bundle this orchestrator was BUILT with — the value
+ * the golden image's baked bundle must match. Env override wins (deployments
+ * set it explicitly); otherwise we read the committed bundle provenance next to
+ * the source. Best-effort: if it can't be resolved the guard simply stays off
+ * (a stale image then still fails, just by the slower vsock timeout) — we never
+ * crash the live path over a missing marker.
+ */
+function resolveExpectedBundleSha256(): string | undefined {
+  const env = process.env.CROSVM_EXPECTED_BUNDLE_SHA256?.trim()
+  if (env) return env
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url))
+    const provenancePath = path.join(
+      here,
+      '..',
+      'depackaging-microvm',
+      'rig',
+      'dist',
+      'worker-bundle.provenance.json',
+    )
+    const sha = JSON.parse(readFileSync(provenancePath, 'utf8'))?.artifact_sha256
+    return typeof sha === 'string' && sha.length > 0 ? sha : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function resolveCrosvmConfig(): CrosvmProviderConfig {
   const home = os.homedir()
   const rig = path.join(home, 'build', 'rig')
+  const goldenRootfsPath = process.env.CROSVM_GOLDEN ?? path.join(rig, 'golden-base.ext4')
   return {
     crosvmBin: process.env.CROSVM_BIN ?? path.join(home, 'build', 'crosvm', 'target', 'release', 'crosvm'),
-    goldenRootfsPath: process.env.CROSVM_GOLDEN ?? path.join(rig, 'golden-base.ext4'),
+    goldenRootfsPath,
     kernelPath: process.env.CROSVM_KERNEL ?? path.join(rig, 'vmlinuz'),
     overlayDir: process.env.CROSVM_OVERLAY_DIR ?? path.join(rig, 'overlays'),
     vsockHostClientPath: process.env.CROSVM_VSOCK_CLIENT ?? path.join(rig, 'vsock-host-client'),
+    // Image/bundle consistency guard (fail fast on a stale image, never a 90s
+    // boot-then-timeout). Marker sidecar defaults to `${goldenRootfsPath}.marker`.
+    expectedBundleSha256: resolveExpectedBundleSha256(),
+    goldenImageMarkerPath: process.env.CROSVM_GOLDEN_MARKER ?? `${goldenRootfsPath}.marker`,
   }
 }
 

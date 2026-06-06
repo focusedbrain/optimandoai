@@ -66,11 +66,44 @@ export interface CrosvmProviderConfig {
   /** Guest memory (MiB) / vcpus. */
   memMib?: number
   cpus?: number
+  /**
+   * Image/bundle consistency guard. The sha256 of the worker bundle the
+   * orchestrator EXPECTS to be running (i.e. the `artifact_sha256` of the
+   * committed/shipped `worker-bundle.cjs`). When set, the provider compares it at
+   * job-create time against the marker baked beside the golden image and fails
+   * fast (E_IMAGE_BUNDLE_MISMATCH) instead of booting a stale image into a 90s
+   * vsock timeout. Unset ⇒ guard disabled (back-compat).
+   */
+  expectedBundleSha256?: string
+  /**
+   * Host-readable sidecar carrying the sha256 of the bundle ACTUALLY baked into
+   * the golden image (written by build-golden-image.sh). Defaults to
+   * `${goldenRootfsPath}.marker`. Read cheaply — no mount, no boot.
+   */
+  goldenImageMarkerPath?: string
 }
 
 const DEFAULT_PORT = 5252
 const DEFAULT_WALLCLOCK_MS = 60_000
 const RESERVED_MAX_CID = 2 // 0,1,2 are reserved (HYPERVISOR/LOCAL/HOST)
+
+/** Stable code for the image/bundle consistency failure (see CrosvmProviderConfig). */
+export const IMAGE_BUNDLE_MISMATCH_CODE = 'E_IMAGE_BUNDLE_MISMATCH' as const
+
+/**
+ * Thrown by the provider's job-create preflight when the golden image's baked
+ * worker bundle does not match the bundle the orchestrator expects (a stale
+ * image), or the image marker is missing/unreadable. Carries `.code` so the seam
+ * executor can surface it as a typed `CriticalJobError` WITHOUT importing the
+ * critical-jobs types into this provider. Fails in milliseconds — never a boot.
+ */
+export class ImageBundleMismatchError extends Error {
+  readonly code = IMAGE_BUNDLE_MISMATCH_CODE
+  constructor(message = 'stale golden image — rebuild required') {
+    super(message)
+    this.name = 'ImageBundleMismatchError'
+  }
+}
 
 /**
  * Build the exact crosvm argv for a depackaging job. Extracted + exported so the
@@ -120,6 +153,41 @@ export class CrosvmProvider implements SandboxHypervisorProvider {
     }
   }
 
+  /**
+   * Job-create preflight (cheap, no boot): verify the worker bundle baked into
+   * the golden image matches the bundle the orchestrator expects. A stale image
+   * otherwise boots and hangs until the vsock wall-clock — a 90s timeout with a
+   * useless generic error. Here we read a tiny sidecar and fail in milliseconds
+   * with a precise, typed, actionable error.
+   *
+   * No-op when `expectedBundleSha256` is unset (back-compat). Exported behavior
+   * is exercised both by the rig dispatcher proofs (production wiring) and a
+   * fast off-rig unit test.
+   *
+   * TODO(attestation): the sidecar marker is a build-time content hash, not a
+   * runtime measurement of the actually-booted image. Replace with an attested
+   * image measurement once guest attestation lands.
+   */
+  async preflightImageBundle(): Promise<void> {
+    const expected = this.cfg.expectedBundleSha256?.trim()
+    if (!expected) return // guard disabled
+    const markerPath = this.cfg.goldenImageMarkerPath ?? `${this.cfg.goldenRootfsPath}.marker`
+    let actual: string
+    try {
+      actual = (await fs.readFile(markerPath, 'utf8')).trim()
+    } catch {
+      throw new ImageBundleMismatchError(
+        'stale golden image — rebuild required (image bundle marker missing; ' +
+          `expected ${markerPath} containing sha256 ${expected})`,
+      )
+    }
+    if (actual !== expected) {
+      throw new ImageBundleMismatchError(
+        `stale golden image — rebuild required (baked bundle ${actual || '<empty>'} != expected ${expected})`,
+      )
+    }
+  }
+
   async runJob(spec: JobSpec): Promise<JobResult | DepackageEmailJobResult> {
     if (!(await this.isAvailable())) {
       // Fail loud — NEVER fall back to in-process parsing of untrusted bytes.
@@ -128,6 +196,11 @@ export class CrosvmProvider implements SandboxHypervisorProvider {
           'Refusing to depackage untrusted bytes in the orchestrator process.',
       )
     }
+
+    // Fail fast on a stale image BEFORE allocating an overlay / booting. Throwing
+    // here (outside the try below) propagates the typed error to the executor;
+    // it must NOT be swallowed into a generic ok:false result.
+    await this.preflightImageBundle()
 
     const port = this.cfg.vsockPort ?? DEFAULT_PORT
     const wallClockMs = spec.limits?.maxWallClockMs ?? this.cfg.defaultMaxWallClockMs ?? DEFAULT_WALLCLOCK_MS

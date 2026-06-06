@@ -317,6 +317,7 @@ export type CriticalJobErrorCode =
   | 'E_SAFETEXT_REJECTED' // safe-text failed closed-schema re-validation
   | 'E_EXECUTION_ERROR' // executor threw / job failed internally
   | 'E_INVALID_TABLE' // resolution table violates INV-1/INV-3
+  | 'E_IMAGE_BUNDLE_MISMATCH' // golden image's baked worker bundle != expected (stale image) — fail fast, never boot
   // ── Build C: remote-handshake routing (critical_job_* family) ──────────────
   | 'E_REMOTE_KIND_REFUSED' // receiver's OWN resolution table does not permit the kind
   | 'E_KEY_LOCALITY' // INV-6: key-requiring kind cannot run at this node (consumer-local, or no custody key)

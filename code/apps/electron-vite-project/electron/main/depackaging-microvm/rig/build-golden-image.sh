@@ -67,6 +67,13 @@ for applet in sh mount umount echo cat ls insmod poweroff sleep mkdir; do
 done
 # The worker payload.
 cp "${HERE}/dist/worker-bundle.cjs" "${ROOTFS}/opt/worker/worker-bundle.cjs"
+# Shared image/bundle marker = sha256 of the staged worker bundle. Stamp it INTO
+# the image (/opt/worker/BUILD_MARKER) AND emit a host-readable sidecar beside the
+# packed image (see step [6/6]). CrosvmProvider compares the sidecar against the
+# bundle the orchestrator expects and fails fast (E_IMAGE_BUNDLE_MISMATCH) on a
+# stale image instead of booting it into a vsock timeout.
+BUNDLE_SHA256="$(sha256sum "${ROOTFS}/opt/worker/worker-bundle.cjs" | awk '{print $1}')"
+printf '%s\n' "${BUNDLE_SHA256}" > "${ROOTFS}/opt/worker/BUILD_MARKER"
 # Build 2b: the static guest-side vsock job server (wires the vsock connection
 # onto node's stdin/stdout — same JSON contract, transport = socket).
 gcc -static -O2 -o "${ROOTFS}/bin/vsock-job-server" "${HERE}/vsock-job-server.c"
@@ -111,6 +118,9 @@ echo "[6/6] Pack the read-only base ext4 (mke2fs -d, no loop-mount / no root)"
 rm -f "${IMG}"
 mkfs.ext4 -q -L golden-base -d "${ROOTFS}" "${IMG}" "${IMG_SIZE}"
 cp -f "/boot/vmlinuz-${KREL}" "${OUT}/vmlinuz"
+# Host-readable consistency marker beside the image (cheap preflight; no mount).
+printf '%s\n' "${BUNDLE_SHA256}" > "${IMG}.marker"
 echo "DONE:"
-ls -lh "${IMG}" "${OUT}/vmlinuz"
+ls -lh "${IMG}" "${OUT}/vmlinuz" "${IMG}.marker"
+echo "  bundle marker = ${BUNDLE_SHA256}"
 echo "Boot it with: ${HERE}/crosvm-launch.sh worker"
