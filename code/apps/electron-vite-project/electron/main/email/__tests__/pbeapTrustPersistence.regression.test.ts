@@ -27,7 +27,13 @@ import { createRequire } from 'module'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHash, createHmac, randomUUID } from 'crypto'
 
-import { bindKeyProvider, unbindKeyProvider, clearTamperingEvents } from '../../sealed-storage'
+import {
+  bindKeyProvider,
+  unbindKeyProvider,
+  clearTamperingEvents,
+  getTamperingEvents,
+  sealedQuery,
+} from '../../sealed-storage'
 import type { PbeapTrustResult } from '../../depackaging-microvm/pbeapTrust'
 
 const require = createRequire(import.meta.url)
@@ -212,6 +218,58 @@ describe.skipIf(!Database)('pBEAP trust verdict persists to inbox_messages.depac
       const { trust } = readMeta(res.inboxMessageId)
       expect(trust.level).toBe('unverified_public')
       expect(trust.bound_handshake_id).toBeNull()
+    })
+  })
+
+  // ── Tamper-evidence: the verdict is BOUND into the seal, not just stored ─────
+  // An attacker with DB write access who flips unverified_public → verified_bound
+  // (or edits depackaged_metadata any other way) must be caught at read time.
+  describe('verdict is tamper-evident (sealed read rejects post-write edits)', () => {
+    const SEL = 'SELECT * FROM inbox_messages WHERE id = ?'
+
+    it('P2P: an unaltered row verifies; editing depackaged_metadata is rejected', async () => {
+      const hsId = randomUUID()
+      vi.mocked(classifyLivePbeapTrust).mockReturnValue(LESSER)
+      const result = await processBeapPackageInline(db, makePBeapPackage(hsId), hsId, { sourceType: 'p2p', receivedAt: new Date().toISOString() })
+      expect(result.outcome).toBe('inbox')
+
+      // Positive control: the legitimately-sealed row reads back.
+      clearTamperingEvents()
+      expect(sealedQuery(db, SEL, [result.rowId!], 'depackaged_json', { forceKeySource: 'outer' })).toHaveLength(1)
+      expect(getTamperingEvents()).toHaveLength(0)
+
+      // Attacker upgrades the verdict directly in the DB.
+      const forged = JSON.parse(db.prepare('SELECT depackaged_metadata AS m FROM inbox_messages WHERE id=?').get(result.rowId!).m)
+      forged.pbeap_trust = { level: 'verified_bound', reason: 'forged', bound_handshake_id: hsId }
+      db.prepare('UPDATE inbox_messages SET depackaged_metadata=? WHERE id=?').run(JSON.stringify(forged), result.rowId!)
+
+      // Sealed read now refuses the row and records the tamper.
+      clearTamperingEvents()
+      expect(sealedQuery(db, SEL, [result.rowId!], 'depackaged_json', { forceKeySource: 'outer' })).toHaveLength(0)
+      expect(getTamperingEvents().some((e) => e.reason === 'metadata_hash_mismatch')).toBe(true)
+    })
+
+    it('email: an unaltered row verifies; editing depackaged_metadata is rejected', async () => {
+      const hsId = randomUUID()
+      vi.mocked(classifyLivePbeapTrust).mockReturnValue(LESSER)
+      const raw = {
+        messageId: `mail-tamper-${hsId}`, from: { address: 'a@dev.test' }, to: [], subject: 'pBEAP',
+        text: makePBeapPackage(hsId), date: new Date().toISOString(), attachments: [],
+      }
+      const res = await detectAndRouteMessageInline(db, 'acc', raw as any, null, true)
+      expect(res.type).toBe('beap')
+
+      clearTamperingEvents()
+      expect(sealedQuery(db, SEL, [res.inboxMessageId], 'depackaged_json', { forceKeySource: 'outer' })).toHaveLength(1)
+      expect(getTamperingEvents()).toHaveLength(0)
+
+      const forged = JSON.parse(db.prepare('SELECT depackaged_metadata AS m FROM inbox_messages WHERE id=?').get(res.inboxMessageId).m)
+      forged.pbeap_trust = { level: 'verified_bound', reason: 'forged', bound_handshake_id: hsId }
+      db.prepare('UPDATE inbox_messages SET depackaged_metadata=? WHERE id=?').run(JSON.stringify(forged), res.inboxMessageId)
+
+      clearTamperingEvents()
+      expect(sealedQuery(db, SEL, [res.inboxMessageId], 'depackaged_json', { forceKeySource: 'outer' })).toHaveLength(0)
+      expect(getTamperingEvents().some((e) => e.reason === 'metadata_hash_mismatch')).toBe(true)
     })
   })
 })

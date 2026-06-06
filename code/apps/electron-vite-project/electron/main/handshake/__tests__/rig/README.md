@@ -132,10 +132,11 @@ Closes the Item-4 persistence gap above. The explicit pBEAP trust verdict
 `inbox_messages.depackaged_metadata` on **both** live ingest paths, where before it was
 computed and only logged (column stayed NULL).
 
-**Purely additive — no schema change, no read/display-path change.** `depackaged_metadata`
-already exists (schema v63). The seal binds only `depackaged_json` (the canonical content),
-so the metadata column sits **outside** the seal — persisting it cannot affect sealed
-read-path verification. The email path stores a **verdict-only** payload (no `format` key),
+**No schema change, no display-behaviour change.** `depackaged_metadata` already exists
+(schema v63). The canonical content (`depackaged_json`) is unchanged, so existing sealed
+read-path verification of message content is unaffected; the verdict is additionally bound
+into the seal for tamper-evidence (see Hardening below). The email path stores a
+**verdict-only** payload (no `format` key),
 so the format-routing readers (`depackagedFormatFromJson` / `depackagedFormatFromMessage`)
 still fall through to `depackaged_json` exactly as before; the P2P path persists the wrapper
 metadata it already built (`format: 'beap_message_main_process'`, which no consumer branches on).
@@ -160,3 +161,29 @@ pnpm test:native-db apps/electron-vite-project/electron/main/email/__tests__/pbe
 cannot yet reach — see the Build-C note above; its real verdict logic is unit-covered in
 `livePbeapTrust.test.ts`. The test proves the **persistence wiring** carries whatever verdict
 the classifier returns.)
+
+### Hardening — the verdict is **tamper-evident**, not merely stored
+
+A stored-but-unsealed trust verdict is a security liability: anyone with DB write access
+could flip `unverified_public → verified_bound` undetected (latent risk the moment a
+verified-sender badge ships). So the verdict is now **bound into the row seal**, following the
+existing Att-2 attachment-hash pattern:
+
+- `computeSeal(canonicalJson, rowId, source, boundMetadataJson?)` — when metadata is supplied,
+  its SHA-256 is folded into the HMAC'd `seal_input_json` as `meta_sha256`.
+- `sealedQuery` — for rows whose seal carries `meta_sha256`, it recomputes
+  `sha256(depackaged_metadata)` at read time and **rejects** the row (records
+  `metadata_hash_mismatch`) on any mismatch. Backward compatible: rows without `meta_sha256`
+  (legacy / non-pBEAP) skip the check.
+- `inboxSealedRead.resealInboxRowToLedger` — the inner→outer migration re-binds the metadata
+  so a legitimate reseal cannot silently strip the protection.
+
+Both ingest paths bind the verdict (`messageRouter` re-seals every email_beap row via
+`computeSeal`; the P2P non-confidential path seals via `computeSeal`). **Limitation:** the
+P2P *confidential* branch uses the validator subprocess's seal directly, so its metadata is
+not yet seal-bound (Build-C follow-up); pBEAP is non-confidential by default so this is not
+the live path.
+
+| Proof | File | Result |
+|---|---|---|
+| Unaltered row verifies (1 row, no tamper events); editing `depackaged_metadata` post-write → sealed read returns 0 rows + records `metadata_hash_mismatch` — P2P and email | `email/__tests__/pbeapTrustPersistence.regression.test.ts` | green (6/6) |
