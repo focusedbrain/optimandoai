@@ -17,11 +17,15 @@
  */
 
 import { randomUUID } from 'crypto'
+import * as os from 'os'
+import * as path from 'path'
 import { CriticalJobDispatcher } from './dispatcher'
 import { DEFAULT_RESOLUTION_TABLE } from './resolution'
 import { buildResolutionContext } from './context'
 import { InProcessExecutor } from './executors/inProcessExecutor'
 import { RemoteHandshakeExecutor } from './executors/remoteHandshakeExecutor'
+import { createCrosvmMicroVmExecutor } from './executors/microVmExecutor'
+import type { CrosvmProviderConfig } from '../depackaging-microvm/crosvmProvider'
 import type { CriticalJobErrorCode } from './types'
 import type { DepackageEmailResult } from '../depackaging-microvm/emailDepackage'
 
@@ -38,16 +42,38 @@ export type DepackageDispatchOutcome =
   | { readonly ok: true; readonly result: DepackageEmailResult }
   | { readonly ok: false; readonly code: CriticalJobErrorCode; readonly message: string }
 
+/**
+ * Resolve the crosvm backend paths for the microVM executor. Env vars win (the
+ * same ones the rig tests honor); otherwise the rig defaults under `~/build`.
+ * The executor's `isAvailable()` (a real fs/device probe) gates selection, so on
+ * a host without crosvm/kvm/vhost-vsock or the golden image, `exec=microvm`
+ * routing fails closed (E_NO_EXECUTOR) rather than ever parsing in-process.
+ */
+function resolveCrosvmConfig(): CrosvmProviderConfig {
+  const home = os.homedir()
+  const rig = path.join(home, 'build', 'rig')
+  return {
+    crosvmBin: process.env.CROSVM_BIN ?? path.join(home, 'build', 'crosvm', 'target', 'release', 'crosvm'),
+    goldenRootfsPath: process.env.CROSVM_GOLDEN ?? path.join(rig, 'golden-base.ext4'),
+    kernelPath: process.env.CROSVM_KERNEL ?? path.join(rig, 'vmlinuz'),
+    overlayDir: process.env.CROSVM_OVERLAY_DIR ?? path.join(rig, 'overlays'),
+    vsockHostClientPath: process.env.CROSVM_VSOCK_CLIENT ?? path.join(rig, 'vsock-host-client'),
+  }
+}
+
 function buildDispatcher(): CriticalJobDispatcher {
   const ctx = buildResolutionContext()
-  // in-process (sandbox/appliance) + the Build C topology-aware remote executor.
-  // The microVM executor for depackage-email is wired at the rig-gated cutover
-  // site with real provider config; absent here, paid/appliance microVM routing
-  // fails closed (INV-7). Absent linked topology, the workstation remote rows are
-  // unavailable → E_NO_EXECUTOR (exactly Build A behavior).
+  // in-process (sandbox/appliance free-tier floor) + the rig-proven microVM
+  // executor (paid/appliance, or any tier under WRDESK_CRITICAL_EXEC=microvm) +
+  // the Build C topology-aware remote executor. The microVM executor's
+  // `isAvailable()` probes the host, so absent crosvm/kvm/vhost-vsock/golden the
+  // microVM rows fail closed (E_NO_EXECUTOR) — never an in-process fallback.
+  // Absent linked topology, the workstation remote rows are unavailable
+  // → E_NO_EXECUTOR (exactly Build A behavior).
   return new CriticalJobDispatcher(
     {
       'in-process': new InProcessExecutor(ctx.role),
+      microvm: createCrosvmMicroVmExecutor(resolveCrosvmConfig()),
       'remote-handshake': new RemoteHandshakeExecutor({ topology: ctx.topology.linked }),
     },
     DEFAULT_RESOLUTION_TABLE,

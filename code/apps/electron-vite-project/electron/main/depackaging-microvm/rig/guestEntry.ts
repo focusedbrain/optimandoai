@@ -28,7 +28,7 @@
  */
 
 import { runDepackagingJob } from '../depackagingWorker'
-import { depackageEmail, depackageEmailStructured } from '../emailDepackage'
+import { runDepackageEmailJob } from '../emailDepackage'
 import type { JobSpec } from '../hypervisorProvider'
 
 interface GuestJobInput {
@@ -69,14 +69,18 @@ async function main(): Promise<void> {
 
   const inputBytes = Buffer.from(parsed.inputBytes_b64 ?? '', 'base64')
 
-  // B2 (Phase 1 uplift + D4): the email worker runs INSIDE this same bundle.
+  // B2 (Phase 1 uplift + D4): the email worker runs INSIDE this same bundle and
+  // SIGNS its typed result (transport integrity), exactly like the B1 path below.
   if (parsed.kind === 'depackage-email') {
-    const limits = parsed.maxInputBytes != null ? { maxInputBytes: parsed.maxInputBytes } : undefined
-    const out =
-      parsed.inputForm === 'provider-structured-json'
-        ? depackageEmailStructured(inputBytes, parsed.sandboxPeerX25519PubB64, { provider: parsed.provider }, limits)
-        : depackageEmail(inputBytes, parsed.sandboxPeerX25519PubB64, limits)
-    process.stdout.write(JSON.stringify({ jobId: parsed.jobId, kind: 'depackage-email', result: out }))
+    const signed = runDepackageEmailJob({
+      jobId: parsed.jobId,
+      inputBytes,
+      sandboxPeerX25519PubB64: parsed.sandboxPeerX25519PubB64,
+      inputForm: parsed.inputForm,
+      provider: parsed.provider,
+      maxInputBytes: parsed.maxInputBytes,
+    })
+    process.stdout.write(JSON.stringify(signed))
     return
   }
 

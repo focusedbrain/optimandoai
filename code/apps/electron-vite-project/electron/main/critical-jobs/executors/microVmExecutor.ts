@@ -17,6 +17,7 @@
 
 import { CrosvmProvider, type CrosvmProviderConfig } from '../../depackaging-microvm/crosvmProvider'
 import type {
+  DepackageEmailJobResult,
   JobSpec,
   SandboxHypervisorProvider,
 } from '../../depackaging-microvm/hypervisorProvider'
@@ -35,11 +36,12 @@ export class MicroVMExecutor implements CriticalJobExecutor {
   constructor(private readonly provider: SandboxHypervisorProvider) {}
 
   supports(kind: CriticalJobKind): boolean {
-    // Only the email-pipeline depackage worker exists today. `decrypt-qbeap` is
-    // the other genuinely microVM-capable kind (its INV-6 venue is a LOCAL
-    // per-action microVM with per-job key provisioning) but is RESERVED and
-    // unimplemented in B1, so it is not advertised here (Amendment 1).
-    return kind === 'depackage'
+    // The two email-pipeline depackage workers run in the microVM: `depackage`
+    // (B1, bare SafeText) and `depackage-email` (B2, the typed plain|carrier|mixed
+    // union). `decrypt-qbeap` is the other genuinely microVM-capable kind (its
+    // INV-6 venue is a LOCAL per-action microVM with per-job key provisioning) but
+    // is RESERVED and unimplemented in B1, so it is not advertised here.
+    return kind === 'depackage' || kind === 'depackage-email'
   }
 
   /** Probe without throwing — the provider's own availability check is
@@ -53,10 +55,15 @@ export class MicroVMExecutor implements CriticalJobExecutor {
   }
 
   async run<K extends CriticalJobKind>(spec: CriticalJobSpec<K>): Promise<CriticalJobResult<K>> {
+    if (spec.kind === 'depackage-email') {
+      return this.runDepackageEmail(spec as CriticalJobSpec<'depackage-email'>) as Promise<
+        CriticalJobResult<K>
+      >
+    }
     if (spec.kind !== 'depackage') {
       throw new CriticalJobError(
         'E_UNSUPPORTED_KIND',
-        `MicroVMExecutor supports only "depackage" in this build, not "${spec.kind}"`,
+        `MicroVMExecutor supports only "depackage"/"depackage-email" in this build, not "${spec.kind}"`,
       )
     }
     const dspec = spec as CriticalJobSpec<'depackage'>
@@ -78,7 +85,7 @@ export class MicroVMExecutor implements CriticalJobExecutor {
       },
     }
 
-    const job = await this.provider.runJob(jobSpec)
+    const job = (await this.provider.runJob(jobSpec)) as JobResult
     const result = depackageJobResultToCriticalResult(job)
     // The provider nukes the ephemeral overlay after every job — truthfully
     // per-action flushable.
@@ -86,6 +93,52 @@ export class MicroVMExecutor implements CriticalJobExecutor {
       ...result,
       meta: { executorId: this.id, flushed: 'per-action', durationMs: 0 },
     } as CriticalJobResult<K>
+  }
+
+  private async runDepackageEmail(
+    spec: CriticalJobSpec<'depackage-email'>,
+  ): Promise<CriticalJobResult<'depackage-email'>> {
+    if (!spec.custodyPubKeyB64) {
+      throw new CriticalJobError(
+        'E_EXECUTION_ERROR',
+        'depackage-email requires custodyPubKeyB64 (sandbox X25519 public key)',
+      )
+    }
+    const jobSpec: JobSpec = {
+      jobId: spec.jobId,
+      kind: 'depackage-email',
+      inputBytes: spec.input.inputBytes,
+      sandboxPeerX25519PubB64: spec.custodyPubKeyB64,
+      inputForm: spec.input.inputForm,
+      provider: spec.input.provider,
+      limits: {
+        maxWallClockMs: spec.limits.maxWallClockMs,
+        maxInputBytes: spec.input.maxInputBytes ?? spec.limits.maxInputBytes,
+      },
+    }
+
+    const job = (await this.provider.runJob(jobSpec)) as DepackageEmailJobResult
+    const meta = { executorId: this.id, flushed: 'per-action' as const, durationMs: 0 }
+    // A transport-level failure (non-JSON / bad signature / provider throw) is a
+    // dispatch error → fail closed. A worker VERDICT failure (`result.ok===false`,
+    // validly signed) is a legitimate quarantine output; pass it through with the
+    // signature so the dispatcher centrally verifies + the consumer quarantines.
+    if (job.error) {
+      return {
+        jobId: spec.jobId,
+        ok: false,
+        error: { code: 'E_EXECUTION_ERROR', message: job.error },
+        meta,
+      }
+    }
+    return {
+      jobId: spec.jobId,
+      ok: true,
+      output: job.result,
+      result_signing_pub_b64: job.result_signing_pub_b64,
+      result_signature_b64: job.result_signature_b64,
+      meta,
+    }
   }
 }
 

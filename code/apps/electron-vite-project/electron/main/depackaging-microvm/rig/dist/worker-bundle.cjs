@@ -2307,6 +2307,57 @@ function signJobResult(base, signingPrivKey) {
     result_signature_b64: Buffer.from(sig).toString("base64")
   };
 }
+function stableStringify(value) {
+  if (value === void 0 || value === null || typeof value !== "object") {
+    return JSON.stringify(value) ?? "null";
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => stableStringify(v === void 0 ? null : v)).join(",")}]`;
+  }
+  const obj = value;
+  const keys = Object.keys(obj).filter((k) => obj[k] !== void 0).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
+}
+function canonicalDepackageEmailResultBytes(jobId, result) {
+  let body;
+  if (!result.ok) {
+    body = { jobId, ok: false, code: result.code };
+  } else {
+    const artifacts = (result.artifacts ?? []).map((a) => ({
+      blob_id: a.blob_id,
+      content_type: a.content_type,
+      ciphertext_sha256: (0, import_crypto3.createHash)("sha256").update(a.blob.ciphertext_b64, "utf8").digest("hex")
+    }));
+    const packages = (result.type === "beap-carrier" || result.type === "mixed" ? result.packages : []).map(
+      (p) => ({
+        encodingHint: p.encodingHint,
+        source: p.source,
+        bytes_sha256: (0, import_crypto3.createHash)("sha256").update(p.bytesB64, "utf8").digest("hex")
+      })
+    );
+    const safeText = result.type === "beap-carrier" ? result.carrierSafeText ?? null : result.safeText;
+    body = {
+      jobId,
+      ok: true,
+      type: result.type,
+      safeText,
+      artifacts,
+      packages,
+      displayEnvelope: result.displayEnvelope,
+      threadingHints: result.threadingHints
+    };
+  }
+  return Buffer.from(stableStringify(body), "utf8");
+}
+function signDepackageEmailResult(jobId, result, signingPrivKey) {
+  const msg = canonicalDepackageEmailResultBytes(jobId, result);
+  const sig = ed25519.sign(msg, signingPrivKey);
+  const pub = ed25519.getPublicKey(signingPrivKey);
+  return {
+    result_signing_pub_b64: Buffer.from(pub).toString("base64"),
+    result_signature_b64: Buffer.from(sig).toString("base64")
+  };
+}
 
 function depackage(inputBytes, sandboxPeerX25519PubB64) {
   let subjectRaw = "";
@@ -3266,6 +3317,23 @@ function depackageEmailStructured(providerJson, sandboxPubB64, opts, limits) {
     return toFailureResult(err);
   }
 }
+function runDepackageEmailJob(input) {
+  try {
+    const limits = input.maxInputBytes != null ? { maxInputBytes: input.maxInputBytes } : void 0;
+    const result = input.inputForm === "provider-structured-json" ? depackageEmailStructured(input.inputBytes, input.sandboxPeerX25519PubB64, { provider: input.provider }, limits) : depackageEmail(input.inputBytes, input.sandboxPeerX25519PubB64, limits);
+    const signingPriv = ed25519.utils.randomPrivateKey();
+    const sig = signDepackageEmailResult(input.jobId, result, signingPriv);
+    signingPriv.fill(0);
+    return { jobId: input.jobId, kind: "depackage-email", result, ...sig };
+  } catch (err) {
+    return {
+      jobId: input.jobId,
+      kind: "depackage-email",
+      result: { ok: false, code: "E_MALFORMED_MIME", message: err instanceof Error ? err.message : String(err) },
+      error: err instanceof Error ? err.message : String(err)
+    };
+  }
+}
 
 function readStdin() {
   return new Promise((resolve, reject) => {
@@ -3289,9 +3357,15 @@ async function main() {
   }
   const inputBytes = Buffer.from(parsed.inputBytes_b64 ?? "", "base64");
   if (parsed.kind === "depackage-email") {
-    const limits = parsed.maxInputBytes != null ? { maxInputBytes: parsed.maxInputBytes } : void 0;
-    const out = parsed.inputForm === "provider-structured-json" ? depackageEmailStructured(inputBytes, parsed.sandboxPeerX25519PubB64, { provider: parsed.provider }, limits) : depackageEmail(inputBytes, parsed.sandboxPeerX25519PubB64, limits);
-    process.stdout.write(JSON.stringify({ jobId: parsed.jobId, kind: "depackage-email", result: out }));
+    const signed = runDepackageEmailJob({
+      jobId: parsed.jobId,
+      inputBytes,
+      sandboxPeerX25519PubB64: parsed.sandboxPeerX25519PubB64,
+      inputForm: parsed.inputForm,
+      provider: parsed.provider,
+      maxInputBytes: parsed.maxInputBytes
+    });
+    process.stdout.write(JSON.stringify(signed));
     return;
   }
   const spec = {

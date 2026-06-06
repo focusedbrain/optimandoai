@@ -25,8 +25,10 @@
  */
 
 import { randomUUID } from 'crypto'
+import { ed25519 } from '@noble/curves/ed25519'
 import { encryptForQuarantine } from '../quarantine-encrypt/index'
 import type { QuarantineBlobFile } from '../quarantine-blob-storage/index'
+import { signDepackageEmailResult, type DepackageEmailJobResult } from './hypervisorProvider'
 import { constructSafeText, type SafeTextV1 } from './safeText'
 import { htmlToSafeText } from './htmlToText'
 import {
@@ -482,5 +484,47 @@ export function depackageEmailStructured(
     return buildResultFromParse(parsed, sandboxPubB64)
   } catch (err: unknown) {
     return toFailureResult(err)
+  }
+}
+
+/** Inputs for one signed `depackage-email` job (as the guest receives them). */
+export interface DepackageEmailJobInput {
+  readonly jobId: string
+  readonly inputBytes: Buffer
+  readonly sandboxPeerX25519PubB64: string
+  readonly inputForm?: 'rfc822' | 'provider-structured-json'
+  readonly provider?: string
+  readonly maxInputBytes?: number
+}
+
+/**
+ * Full `depackage-email` job entry: run the email worker (RFC822 or D4 walker),
+ * then SIGN the typed result with a per-job Ed25519 key — the same transport-
+ * integrity discipline `runDepackagingJob` applies to the B1 result. Used by BOTH
+ * the in-guest entry (`rig/guestEntry.ts`) and the in-process executor, so every
+ * `depackage-email` result is signed and the dispatcher can verify it uniformly.
+ *
+ * A worker failure (`result.ok === false`) is still a VALID, SIGNED output (the
+ * job ran and produced a verdict); the consumer quarantines it. Only an internal
+ * throw becomes a transport-level `error`.
+ */
+export function runDepackageEmailJob(input: DepackageEmailJobInput): DepackageEmailJobResult {
+  try {
+    const limits = input.maxInputBytes != null ? { maxInputBytes: input.maxInputBytes } : undefined
+    const result =
+      input.inputForm === 'provider-structured-json'
+        ? depackageEmailStructured(input.inputBytes, input.sandboxPeerX25519PubB64, { provider: input.provider }, limits)
+        : depackageEmail(input.inputBytes, input.sandboxPeerX25519PubB64, limits)
+    const signingPriv = ed25519.utils.randomPrivateKey()
+    const sig = signDepackageEmailResult(input.jobId, result, signingPriv)
+    signingPriv.fill(0)
+    return { jobId: input.jobId, kind: 'depackage-email', result, ...sig }
+  } catch (err: unknown) {
+    return {
+      jobId: input.jobId,
+      kind: 'depackage-email',
+      result: { ok: false, code: 'E_MALFORMED_MIME', message: err instanceof Error ? err.message : String(err) },
+      error: err instanceof Error ? err.message : String(err),
+    }
   }
 }

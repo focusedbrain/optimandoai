@@ -67,7 +67,13 @@ export interface DepackageOutcome {
  * (does NOT fall back) when the crosvm path is unavailable.
  */
 export async function depackageUntrustedBytes(spec: JobSpec): Promise<DepackageOutcome> {
-  const result = await getDepackagingProvider().runJob(spec)
+  const runResult = await getDepackagingProvider().runJob(spec)
+  // This service routes the B1 `depackage` kind only (bare SafeText). The
+  // `depackage-email` typed union is handled by the seam (`liveDepackageCutover`).
+  if ('kind' in runResult && runResult.kind === 'depackage-email') {
+    return { ok: false, error: 'depackagingService handles only the depackage kind' }
+  }
+  const result = runResult as JobResult
   if (!result.ok) return { ok: false, error: result.error, result }
 
   const v = validateSafeText(result.safeText)

@@ -33,7 +33,7 @@ import {
   type ResolutionTable,
   type ResolvedExecutor,
 } from './resolution'
-import { verifyDepackageResult } from './verify'
+import { verifyDepackageResult, verifyDepackageEmailResult } from './verify'
 
 export type ExecutorRegistry = Partial<Record<ExecutorId, CriticalJobExecutor>>
 
@@ -106,14 +106,24 @@ export class CriticalJobDispatcher {
     }
 
     // Centralized post-result verification for safe-text kinds — no executor can
-    // skip it. A failing result becomes ok:false with a typed code.
+    // skip it. A failing result becomes ok:false with a typed code. The two
+    // depackage kinds share the discipline (signature + closed-schema safe-text
+    // re-validation) but project different output shapes, so branch by kind.
     let result = raw
     if (raw.ok && SAFE_TEXT_OUTPUT_KINDS.has(spec.kind)) {
-      const verdict = verifyDepackageResult(raw as CriticalJobResult<'depackage'>)
-      if (!verdict.ok) {
-        return this.fail(spec, verdict.code, verdict.message, start, chosen.id)
+      if (spec.kind === 'depackage-email') {
+        const verdict = verifyDepackageEmailResult(raw as CriticalJobResult<'depackage-email'>)
+        if (!verdict.ok) {
+          return this.fail(spec, verdict.code, verdict.message, start, chosen.id)
+        }
+        result = { ...raw, output: verdict.output as CriticalJobResult<K>['output'] }
+      } else {
+        const verdict = verifyDepackageResult(raw as CriticalJobResult<'depackage'>)
+        if (!verdict.ok) {
+          return this.fail(spec, verdict.code, verdict.message, start, chosen.id)
+        }
+        result = { ...raw, output: verdict.output as CriticalJobResult<K>['output'] }
       }
-      result = { ...raw, output: verdict.output as CriticalJobResult<K>['output'] }
     }
 
     const meta: ResultMeta = {

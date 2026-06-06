@@ -340,4 +340,5 @@ export class CriticalJobError extends Error {
 /** Kinds whose output is depackage-style and MUST pass `verify.ts` (signature + safe-text). */
 export const SAFE_TEXT_OUTPUT_KINDS: ReadonlySet<CriticalJobKind> = new Set<CriticalJobKind>([
   'depackage',
+  'depackage-email',
 ])

@@ -39,6 +39,8 @@ import * as path from 'path'
 import { randomInt, randomUUID } from 'crypto'
 import {
   verifyJobResultSignature,
+  verifyDepackageEmailResultSignature,
+  type DepackageEmailJobResult,
   type JobResult,
   type JobSpec,
   type SandboxHypervisorProvider,
@@ -118,7 +120,7 @@ export class CrosvmProvider implements SandboxHypervisorProvider {
     }
   }
 
-  async runJob(spec: JobSpec): Promise<JobResult> {
+  async runJob(spec: JobSpec): Promise<JobResult | DepackageEmailJobResult> {
     if (!(await this.isAvailable())) {
       // Fail loud — NEVER fall back to in-process parsing of untrusted bytes.
       throw new Error(
@@ -145,12 +147,48 @@ export class CrosvmProvider implements SandboxHypervisorProvider {
       crosvm.stderr?.on('data', (d) => { guestSerial += d.toString() })
 
       // RUN: hand the untrusted bytes in / get the signed result out over vsock.
+      // `kind`/`inputForm`/`provider` select the guest worker + parser; they are
+      // routing discriminators, NOT a host-side parse of the untrusted content.
       const input = JSON.stringify({
         jobId: spec.jobId,
+        kind: spec.kind,
         inputBytes_b64: spec.inputBytes.toString('base64'),
         sandboxPeerX25519PubB64: spec.sandboxPeerX25519PubB64,
+        ...(spec.kind === 'depackage-email'
+          ? {
+              inputForm: spec.inputForm ?? 'rfc822',
+              provider: spec.provider,
+              maxInputBytes: spec.limits?.maxInputBytes,
+            }
+          : {}),
       })
       const rawResult = await this.runHostClient(input, cid, port, wallClockMs)
+
+      // COLLECT/VERIFY: parse the kind-appropriate result, then check the guest's
+      // transport-integrity signature before trusting it. The orchestrator still
+      // re-validates safe-text downstream (the signature proves integrity only).
+      if (spec.kind === 'depackage-email') {
+        let emailResult: DepackageEmailJobResult
+        try {
+          emailResult = JSON.parse(rawResult) as DepackageEmailJobResult
+        } catch {
+          return {
+            jobId: spec.jobId,
+            kind: 'depackage-email',
+            result: { ok: false, code: 'E_MALFORMED_MIME', message: 'guest returned non-JSON over vsock' },
+            error: `guest returned non-JSON over vsock (serial tail: ${guestSerial.slice(-200)})`,
+          }
+        }
+        if (!verifyDepackageEmailResultSignature(emailResult)) {
+          return {
+            jobId: spec.jobId,
+            kind: 'depackage-email',
+            result: { ok: false, code: 'E_MALFORMED_MIME', message: 'job result signature invalid' },
+            error: 'job result signature invalid',
+          }
+        }
+        return emailResult
+      }
 
       let result: JobResult
       try {

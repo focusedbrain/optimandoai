@@ -18,9 +18,12 @@
 
 import {
   verifyJobResultSignature,
+  verifyDepackageEmailResultSignature,
+  type DepackageEmailJobResult,
   type JobResult,
 } from '../depackaging-microvm/hypervisorProvider'
 import { validateSafeText } from '../depackaging-microvm/safeText'
+import type { DepackageEmailResult } from '../depackaging-microvm/emailDepackage'
 import { toCourierRecord, type CourierArtifactRecord } from '../depackaging-microvm/blindCourier'
 import type { CriticalJobResult, DepackageOutput } from './types'
 
@@ -112,4 +115,61 @@ export function verifyDepackageResult(r: CriticalJobResult<'depackage'>): Depack
   }
   const courier = toCourierRecord(jr, v.value)
   return { ok: true, output: { safeText: courier.safeText, artifacts: courier.artifacts } }
+}
+
+export type DepackageEmailVerification =
+  | { readonly ok: true; readonly output: DepackageEmailResult }
+  | {
+      readonly ok: false
+      readonly code: 'E_SIGNATURE_INVALID' | 'E_SAFETEXT_REJECTED'
+      readonly message: string
+    }
+
+/**
+ * Verify a `depackage-email` result the same way the B1 depackage path is
+ * verified, generalized to the typed union:
+ *   1. transport-integrity signature over the whole result, then
+ *   2. closed-schema re-validation of EVERY safe-text present (the orchestrator
+ *      never passes the guest's claimed safe-text through unchecked).
+ *
+ * A worker VERDICT failure (`result.ok === false`) is a valid, signed output (the
+ * consumer quarantines it) — it has no safe-text, so only the signature is
+ * checked. Success variants carry `safeText` (plain | mixed) or `carrierSafeText`
+ * (beap-carrier); the validated copy replaces the worker's claimed value.
+ */
+export function verifyDepackageEmailResult(
+  r: CriticalJobResult<'depackage-email'>,
+): DepackageEmailVerification {
+  const result = r.output
+  if (!result) {
+    return { ok: false, code: 'E_SIGNATURE_INVALID', message: 'missing depackage-email output' }
+  }
+  const jr: DepackageEmailJobResult = {
+    jobId: r.jobId,
+    kind: 'depackage-email',
+    result,
+    result_signing_pub_b64: r.result_signing_pub_b64,
+    result_signature_b64: r.result_signature_b64,
+  }
+  if (!verifyDepackageEmailResultSignature(jr)) {
+    return { ok: false, code: 'E_SIGNATURE_INVALID', message: 'job result signature invalid' }
+  }
+  if (!result.ok) {
+    // Signed worker-failure verdict — nothing to re-validate; consumer quarantines.
+    return { ok: true, output: result }
+  }
+  if (result.type === 'beap-carrier') {
+    if (!result.carrierSafeText) return { ok: true, output: result }
+    const v = validateSafeText(result.carrierSafeText)
+    if (!v.ok) {
+      return { ok: false, code: 'E_SAFETEXT_REJECTED', message: `safe-text rejected: ${v.reason}` }
+    }
+    return { ok: true, output: { ...result, carrierSafeText: v.value } }
+  }
+  // plain | mixed both carry `safeText`.
+  const v = validateSafeText(result.safeText)
+  if (!v.ok) {
+    return { ok: false, code: 'E_SAFETEXT_REJECTED', message: `safe-text rejected: ${v.reason}` }
+  }
+  return { ok: true, output: { ...result, safeText: v.value } }
 }
