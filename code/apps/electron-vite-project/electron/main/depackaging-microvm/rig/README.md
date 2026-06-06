@@ -455,3 +455,62 @@ Bringing the full gated suite green is a separate maintenance epic (and a global
 dev-vs-test ABI decision: the repo's root `postinstall` installs a node-ABI
 `better-sqlite3` for tests, which `electron-vite-project`'s `postinstall`
 electron-rebuilds back to Electron ABI) — deliberately out of scope here.
+
+---
+
+## 2026-06-06 (later) — rig re-run was ENVIRONMENTAL, not code + image/bundle preflight guard
+
+### The 14:04 / 14:10 rig failures were environmental (stale golden image)
+
+Two background runs of `dispatcher.microvm.email.rig.test.ts` failed — plain mail
+`res.ok=false`, carrier mail **timed out at 90s**. This was NOT a code regression.
+The runs executed at 14:04 and 14:10 against a golden image that was only
+(re)built at **14:21**; the device ACLs (`setfacl … /dev/vhost-vsock`) were also
+being (re)granted after a host reboot. Once the image was rebuilt and perms set,
+the **re-run on the rebuilt image was 3/3 green** (plain ~2.6s, beap-carrier
+~2.7s, fail-closed → `E_NO_EXECUTOR`), overlays nuked. Diagnosis confirmed the
+rebuilt image's staged `vsock.ko` vermagic (`6.17.0-29-generic`) matches the rig
+`vmlinuz` (self-consistent guest), `/dev/kvm`+`/dev/vhost-vsock` were RW, and the
+worker bundle + image timestamps aligned. No source change was required.
+
+> Distinction from earlier entries: those recorded suites that were **skip-guarded**
+> (never executed) or **failed**. This entry records a suite that now **RAN GREEN**
+> on the rebuilt image — the earlier red was a stale-artifact/perms artifact of
+> running *before* the rebuild, not a defect in the code under test.
+
+### Cheap preflight so a stale image fails FAST instead of timing out
+
+To stop a stale golden image from manifesting as a 90s vsock timeout (exactly the
+14:10 carrier symptom), the build now stamps a **shared marker** and the provider
+checks it at job-create time:
+
+- **Marker = the worker bundle's sha256** (`artifact_sha256`). It is a SIDECAR,
+  never inlined into `worker-bundle.cjs` (the bundle stays byte-for-byte
+  reproducible, FIX-SPEC A). `buildWorkerBundle.mjs` writes `dist/worker-bundle.marker`;
+  `build-golden-image.sh` stamps the SAME sha both INTO the image
+  (`/opt/worker/BUILD_MARKER`) and into a host-readable sidecar `${IMG}.marker`.
+- **Guard lives in `CrosvmProvider.preflightImageBundle()`** (production path), run
+  at the top of `runJob` AFTER `isAvailable()` and BEFORE any overlay/boot. It
+  reads `${goldenRootfsPath}.marker` (no mount, no boot) and compares to the
+  orchestrator's expected bundle sha (`expectedBundleSha256`, wired by
+  `liveDepackageCutover` from the committed provenance; env override
+  `CROSVM_EXPECTED_BUNDLE_SHA256`). Mismatch or missing marker →
+  `ImageBundleMismatchError` (`code: E_IMAGE_BUNDLE_MISMATCH`, message
+  "stale golden image — rebuild required"). `MicroVMExecutor` rethrows it as a
+  typed `CriticalJobError` so the dispatcher surfaces the exact code — never a
+  generic `E_TIMEOUT`/`E_EXECUTION_ERROR`. Unset expected sha ⇒ guard disabled
+  (back-compat).
+- **Proofs:**
+  - Off-rig `crosvmImageBundlePreflight.test.ts` (6 tests, ~30ms): mismatch →
+    `E_IMAGE_BUNDLE_MISMATCH`; missing sidecar → throws; match → resolves;
+    unconfigured → no-op; `runJob` rejects in **<2s** (never boots); dispatcher
+    surfaces `ok:false code=E_IMAGE_BUNDLE_MISMATCH executor=microvm`.
+  - On-rig `dispatcher.microvm.email.rig.test.ts` now runs the guard on the REAL
+    backend: the plain/carrier happy paths boot with markers MATCHING (proving the
+    guard passes valid images), plus a 4th test with a deliberately wrong expected
+    sha → fast `E_IMAGE_BUNDLE_MISMATCH` (<5s, no overlay created). **4/4 green.**
+  - Full `depackaging-microvm` + `critical-jobs` regression: **220/220 green.**
+
+> TODO(attestation): the marker is a build-time content hash, not a runtime
+> measurement of the booted image. Replace with an attested image measurement
+> once guest attestation lands.
