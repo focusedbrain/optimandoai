@@ -11,6 +11,7 @@ Run the suites under Electron's Node ABI (better-sqlite3 binding):
 cd code
 pnpm test:native-db apps/electron-vite-project/electron/main/handshake/__tests__/pairingCodeRelayGap.rig.test.ts
 pnpm test:native-db apps/electron-vite-project/electron/main/handshake/__tests__/pairingActivation.rig.test.ts
+pnpm test:native-db apps/electron-vite-project/electron/main/handshake/__tests__/relayFailureMode.rig.test.ts
 ```
 
 Contents:
@@ -53,6 +54,8 @@ registration. No wire-format or capsule-type changes.
 | Resolved wire → relay routes the internal initiate (200/202), registry carries `acceptor_device_id` (GREEN) | `pairingCodeRelayGap.rig.test.ts` | green |
 | NORMAL pairing → **ACTIVE** on both instances; accept + bilateral context_sync carried over the real relay; real signature/enforcement path | `pairingActivation.rig.test.ts` | green |
 | Same capsule byte-identical over WS-live push (200) and store-pull (202) | `pairingActivation.rig.test.ts` | green |
+| Harness **kills** the relay (POST → ECONNREFUSED) then **restarts** it on the same port + same sqlite; pre-outage registry + stored capsules survive; delivery recovers | `relayFailureMode.rig.test.ts` | green |
+| Real outbound capsule queue **holds** a row across the outage and **drains** on recovery, delivering exactly once (relay store stays at 1 — no double insert) | `relayFailureMode.rig.test.ts` | green |
 
 ### What Phase 2 (two boxes) will prove — NOT machine-provable single-box
 
