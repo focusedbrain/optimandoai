@@ -37,6 +37,7 @@ import { emailGateway } from './gateway'
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
 import { decryptQBeapPackage } from '../beap/decryptQBeapPackage'
+import { classifyLivePbeapTrust, pbeapTrustMetadata } from '../depackaging-microvm/livePbeapTrust'
 import { validatorOrchestrator } from '../validator-process/orchestrator'
 import { isSeamValidationCutoverEnabled, isSeamDepackageCutoverEnabled } from '../critical-jobs/featureFlags'
 import { assertNoInlineParse } from './inlineParseGuard'
@@ -576,6 +577,15 @@ export async function detectAndRouteMessageInline(
           depackageError = 'pBEAP package has no payload field'
         } else {
           canonicalJson = Buffer.from(payloadB64, 'base64').toString('utf-8')
+          // Build 2b: stop SILENTLY trusting pBEAP on the email path. Resolve an
+          // explicit trust decision (today: unverified_public — Gate-5 signing
+          // bytes not yet mirrored in main). Persisting it on this path needs a
+          // metadata/seal-structure change (deferred); we record it explicitly
+          // here so it is no longer a silent trust.
+          const pbeapTrust = classifyLivePbeapTrust({ header: packageObj?.header })
+          if (pbeapTrust.level !== 'verified_bound') {
+            console.warn('[messageRouter] pBEAP not authenticated', pbeapTrustMetadata(pbeapTrust).pbeap_trust)
+          }
         }
       } catch (err: unknown) {
         depackageError = err instanceof Error ? err.message : String(err)

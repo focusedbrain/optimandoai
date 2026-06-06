@@ -27,6 +27,7 @@ import { createHash, randomUUID } from 'crypto'
 
 import { decryptQBeapPackage, type DecryptedQBeapContent } from '../beap/decryptQBeapPackage'
 import { getHandshakeRecord } from '../handshake/db'
+import { classifyLivePbeapTrust, pbeapTrustMetadata } from '../depackaging-microvm/livePbeapTrust'
 import type { ProvenanceMetadata } from '@repo/ingestion-core'
 import { evaluateAutoresponder } from '../beap/autoresponderEvaluator'
 import { logAutoresponderDecision } from '../beap/autoresponderAudit'
@@ -1152,11 +1153,17 @@ async function processBeapPackageInlineInternal(
         depackageError = 'pBEAP package has no payload field'
       } else {
         canonicalJson = Buffer.from(payloadB64, 'base64').toString('utf-8')
+        // Build 2b: stop SILENTLY trusting pBEAP. Record an explicit trust
+        // decision instead of a passive note. Today this resolves to
+        // `unverified_public` (the Gate-5 signing-bytes canonicalization is not
+        // yet mirrored in main); it becomes `verified_bound` once that lands,
+        // with no change to this recording.
+        const pbeapTrust = classifyLivePbeapTrust({ header: (pkg as Record<string, unknown>).header })
         depackagedMetadata = JSON.stringify({
           format: 'beap_message_main_process',
           encoding: 'pBEAP',
           source: 'main_process_p2p_inline',
-          trust_note: 'Public pBEAP payload decoded in main process without Stage-5 sandbox signature / gate verification.',
+          ...pbeapTrustMetadata(pbeapTrust),
         })
       }
     } catch (err: unknown) {
