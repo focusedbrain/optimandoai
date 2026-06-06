@@ -100,10 +100,12 @@ real local relay and a real in-process `createP2PServer` (no `relay.wrdesk.com`)
   counterparty + valid signature; each lesser verdict — `no_sender_fingerprint`,
   `no_signature`, `signing_bytes_unavailable`, `no_handshake_for_fingerprint`,
   `signature_did_not_verify_under_counterparty_key` — plus the `pbeap_trust` metadata shape).
-  A relay rig would add **no** trust semantics. **Open gap (Build C, not test infra):** the
-  live ingest call sites pass header-only (no counterparties / signing bytes) and
-  `writeP2PInboxRow` does not persist `pbeap_trust` into `inbox_messages.depackaged_metadata`
-  (the email path only logs it). The verdict is computed but not stored end-to-end yet.
+  A relay rig would add **no** trust semantics. **Persistence gap — now CLOSED** (see the
+  2026-06-06 micro-build below): the verdict is persisted end-to-end on both ingest paths.
+  Still deferred to Build C (not test infra): the live call sites pass header-only
+  (no counterparties / signing bytes), so the live verdict is `unverified_public` until the
+  Gate-5 signing-bytes canonicalization is mirrored in main — at which point `verified_bound`
+  becomes reachable with no change to how either call site records it.
 - **Item 5 — clone outcomes:** the relay-transport halves (`live`=WS push 200,
   `queued`=store-pull 202) are now machine-proven for the message_package wire (item 3 above),
   and the pure relay→matrix mapper is unit-covered (`beapSandboxCloneDeliverySemantics.test.ts`).
@@ -120,3 +122,41 @@ operation and uses the relay store/WS as transport. It cannot host two live
 orchestrator WS clients with distinct device ids in one process (orchestrator mode /
 session / WS holder are module singletons), so direct-P2P and live-both-online
 internal flows are deferred to the two-box runbook, by design.
+
+---
+
+## 2026-06-06 (micro-build) — pBEAP trust verdict now persisted end-to-end
+
+Closes the Item-4 persistence gap above. The explicit pBEAP trust verdict
+(`classifyLivePbeapTrust` → `pbeapTrustMetadata`) is now **persisted** to
+`inbox_messages.depackaged_metadata` on **both** live ingest paths, where before it was
+computed and only logged (column stayed NULL).
+
+**Purely additive — no schema change, no read/display-path change.** `depackaged_metadata`
+already exists (schema v63). The seal binds only `depackaged_json` (the canonical content),
+so the metadata column sits **outside** the seal — persisting it cannot affect sealed
+read-path verification. The email path stores a **verdict-only** payload (no `format` key),
+so the format-routing readers (`depackagedFormatFromJson` / `depackagedFormatFromMessage`)
+still fall through to `depackaged_json` exactly as before; the P2P path persists the wrapper
+metadata it already built (`format: 'beap_message_main_process'`, which no consumer branches on).
+
+Wiring:
+- `messageRouter.detectAndRouteMessageInline` — capture the verdict in the pBEAP branch,
+  thread it onto the inbox `writePayload`, add `depackaged_metadata` to `INBOX_INSERT_SQL`
+  and both bind sites.
+- `beapEmailIngestion.writeP2PInboxRow` — add `depackaged_metadata` to `P2P_INBOX_INSERT_SQL`
+  and bind the already-constructed `p.depackagedMetadata`.
+
+| Proof | File | Result |
+|---|---|---|
+| P2P path (`processBeapPackageInline`) — `verified_bound` and `unverified_public` both land in `inbox_messages.depackaged_metadata` | `email/__tests__/pbeapTrustPersistence.regression.test.ts` | green |
+| email-sync path (`detectAndRouteMessageInline`) — same; **plus** asserts `depackagedFormatFromJson` is unchanged vs. NULL metadata (routing preserved) | `email/__tests__/pbeapTrustPersistence.regression.test.ts` | green |
+
+```bash
+pnpm test:native-db apps/electron-vite-project/electron/main/email/__tests__/pbeapTrustPersistence.regression.test.ts
+```
+
+(The classifier is mocked per-test to drive `verified_bound`, which the live call sites
+cannot yet reach — see the Build-C note above; its real verdict logic is unit-covered in
+`livePbeapTrust.test.ts`. The test proves the **persistence wiring** carries whatever verdict
+the classifier returns.)
