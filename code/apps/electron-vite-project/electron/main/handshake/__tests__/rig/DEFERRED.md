@@ -27,11 +27,16 @@ _Last updated: 2026-06-06._
   P2P **confidential** branch seals via the validator subprocess and does not yet bind the
   verdict metadata. _Unblocks:_ route the confidential-branch metadata through the
   `boundMetadataJson` arg of `computeSeal` (needs a seal/schema touch on that branch).
-- **pBEAP Gate-5 signing-bytes canonicalization in main** — live call sites pass header-only
-  (no counterparties / signing bytes), so the live verdict is `unverified_public`;
-  `verified_bound` is unreachable on the live path until Gate-5 canonicalization is mirrored
-  in main. _Unblocks:_ port the Gate-5 signing-bytes canonicalization into main (the verdict
-  then records `verified_bound` with no call-site change). Owned by Build C.
+- **pBEAP `verified_bound` on the live path** — live call sites (`messageRouter` +
+  `beapEmailIngestion`) pass header-only, so `classifyPbeapTrust` always returns
+  `unverified_public` (reason `signing_bytes_unavailable` for well-formed traffic — the
+  `signingBytes` guard short-circuits before any binding check). _Unblocks (BOTH required):_
+  (1) port the Gate-5 signing-bytes canonicalization into main, and (2) wire the paired
+  counterparty's fingerprint + Ed25519 pubkey into `knownCounterparties` at both call sites.
+  With only (1), well-formed traffic advances to `no_handshake_for_fingerprint` — still
+  `unverified_public`. Once both are wired, `verified_bound` is **provable on the single-box
+  Phase 1 harness** (real Ed25519, no relay/trust dependence — see `livePbeapTrust.test.ts`);
+  **no two-box hardware session is required** to prove it. Owned by Build C.
 
 ## Two-box only — deferred to the cross-machine runbook
 

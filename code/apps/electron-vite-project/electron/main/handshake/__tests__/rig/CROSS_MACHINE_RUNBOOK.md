@@ -169,11 +169,23 @@ For each step below, note the **timestamp** when you act so log lines can be mat
 
 ### 4. pBEAP trust decision
 - **Do:** Send a pBEAP (plaintext-BEAP) item from host to sandbox.
-- **Expect:** sandbox records a trust verdict in the item metadata.
-- **Look:** sandbox item metadata `verified_bound` when bound to the known paired
-  counterparty with a valid signature; a lesser verdict otherwise. App log `livePbeapTrust`.
-- **PASS:** verdict present and matches the binding state (verified_bound for the
-  paired peer).
+- **Expect:** sandbox records an explicit trust verdict in the item metadata — and on
+  the current build that verdict is **`unverified_public` with reason
+  `signing_bytes_unavailable`**, even for the correctly-paired peer. This is expected,
+  not a failure: `verified_bound` is **not yet reachable on the live path**, pending two
+  wirings that are deliberately deferred — (a) Gate-5 signing-bytes canonicalization
+  mirrored in main, and (b) the paired counterparty's fingerprint + Ed25519 pubkey wired
+  into `knownCounterparties` at both live call sites (`messageRouter` + `beapEmailIngestion`).
+  Until both land, the `signingBytes` guard short-circuits before any binding check, so the
+  live verdict is always a lesser one. Do **not** expect `verified_bound` this session.
+- **Look:** sandbox item metadata `pbeap_trust.level = unverified_public`,
+  `pbeap_trust.reason = signing_bytes_unavailable` (or an earlier lesser reason —
+  `no_sender_fingerprint` / `no_signature` — if the header is malformed). App log
+  `livePbeapTrust`. Confirm the verdict is **seal-bound** (it lives in `depackaged_metadata`,
+  covered by the row seal — tamper-evident on read).
+- **PASS:** an explicit lesser verdict is recorded and seal-bound — nothing is silently
+  trusted, and no `verified_bound` badge appears. (A `verified_bound` result this session
+  would itself be a defect, not a pass.)
 
 ### 5. Clone gesture (live / relay_pending / queued)
 - **Do (live):** With both online, clone a BEAP from the host inbox to the sandbox.
