@@ -141,9 +141,17 @@ function mergeInternalInitiatePairingWireFields(opts: {
   senderDeviceRole?: 'host' | 'sandbox'
   senderComputerName?: string
   receiverPairingCode?: string
+  /**
+   * Peer orchestrator instance id resolved from {@link receiverPairingCode} via
+   * the coordination service. Optional and wire-only (excluded from capsule_hash);
+   * when present the relay's same-principal initiate guard can resolve a route
+   * instead of rejecting with `initiate_missing_routing_fields`.
+   */
+  receiverDeviceId?: string
 }): Partial<HandshakeCapsuleWire> {
   const s = opts.coordinationSenderDeviceId?.trim()
   const code = opts.receiverPairingCode?.trim()
+  const r = opts.receiverDeviceId?.trim()
   if (!s) {
     throw new InternalCapsuleRelayIdentityError(
       'internal initiate capsule requires sender_device_id (local orchestrator instance id)',
@@ -171,6 +179,9 @@ function mergeInternalInitiatePairingWireFields(opts: {
     sender_device_role: opts.senderDeviceRole,
     sender_computer_name: sname,
     receiver_pairing_code: code,
+    // Routing-only; included when resolved so the relay can route the initiate.
+    // Distinct-from-sender is enforced upstream (anti-self-pair) and by the relay.
+    ...(r && r !== s ? { receiver_device_id: r } : {}),
   }
 }
 
@@ -285,6 +296,14 @@ export interface InitiateOptions {
    * internal initiate capsules and replaces `internalEndpointPeer.deviceId`.
    */
   internalReceiverPairingCode?: string;
+  /**
+   * Internal initiate (pairing-code routing): the peer's orchestrator instance id,
+   * resolved from {@link internalReceiverPairingCode} via the coordination service.
+   * Optional and wire-only (excluded from capsule_hash). When present it is emitted as
+   * `receiver_device_id` so the relay can route the initiate; when absent the initiate
+   * still travels out-of-band (email/file) exactly as before.
+   */
+  internalReceiverDeviceId?: string;
 }
 
 /** Result of buildInitiateCapsuleWithContent including keypair for persistence */
@@ -532,6 +551,7 @@ function buildInitiateCapsuleCore(
       senderDeviceRole: opts.initiatorDeviceRole,
       senderComputerName: opts.initiatorComputerName,
       receiverPairingCode: opts.internalReceiverPairingCode,
+      receiverDeviceId: opts.internalReceiverDeviceId,
     })
   } else if (coordinationDeviceId) {
     internalWire = { sender_device_id: coordinationDeviceId }

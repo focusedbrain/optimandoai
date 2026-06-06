@@ -70,6 +70,7 @@ import { notifyBeapDeliveryAck, waitForBeapDeliveryAck } from '../p2p/beapDelive
 import { randomBytes, randomUUID } from 'crypto'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
+import { resolvePairingCodeViaCoordination } from './resolvePairingCode'
 import { processIncomingInput } from '../ingestion/ingestionPipeline'
 import { replayBufferedContextSync } from '../p2p/coordinationWs'
 import { canonicalRebuild } from './canonicalRebuild'
@@ -1359,6 +1360,23 @@ export async function handleHandshakeRPC(
       const p2pEndpoint = p2pEndpointParam ?? getEffectiveRelayEndpoint(p2pConfig, localEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const p2pAuthToken = p2pEndpoint ? randomUUID() : null
 
+      // Pairing-code → relay device-id resolution. Internal initiates that traverse
+      // the coordination relay must carry receiver_device_id on the wire and register
+      // acceptor_device_id, or the relay's same-principal initiate guard rejects with
+      // initiate_missing_routing_fields / no_route_for_internal_initiate. The renderer
+      // only knows the peer by its 6-digit code, so resolve it to the peer instance id
+      // here. Legacy callers that still pass counterparty_device_id keep that value.
+      // Fail-open: null → out-of-band (email/file) delivery exactly as before.
+      let resolvedReceiverDeviceId: string | undefined
+      if (initHandshakeType === 'internal' && initReceiverPairingCode && p2pConfig.use_coordination) {
+        if (initCounterpartyDeviceId?.trim()) {
+          resolvedReceiverDeviceId = initCounterpartyDeviceId.trim()
+        } else {
+          const resolvedPeer = await resolvePairingCodeViaCoordination(db, initReceiverPairingCode, _getOidcToken)
+          if (resolvedPeer?.instance_id) resolvedReceiverDeviceId = resolvedPeer.instance_id
+        }
+      }
+
       let keyAgreementRaw: BeapKeyAgreementMaterial
       try {
         keyAgreementRaw = await ensureKeyAgreementKeys(
@@ -1409,6 +1427,7 @@ export async function handleHandshakeRPC(
               initiatorDeviceRole: initDeviceRole,
               initiatorComputerName: initDeviceName.trim(),
               internalReceiverPairingCode: initReceiverPairingCode,
+              ...(resolvedReceiverDeviceId ? { internalReceiverDeviceId: resolvedReceiverDeviceId } : {}),
             }
           : {}),
       })
@@ -1477,8 +1496,8 @@ export async function handleHandshakeRPC(
                 acceptor_email: receiverEmail,
                 handshake_type: initHandshakeType,
                 ...(localRelayDeviceId ? { initiator_device_id: localRelayDeviceId } : {}),
-                ...(initHandshakeType === 'internal' && initCounterpartyDeviceId?.trim()
-                  ? { acceptor_device_id: initCounterpartyDeviceId.trim() }
+                ...(initHandshakeType === 'internal' && resolvedReceiverDeviceId
+                  ? { acceptor_device_id: resolvedReceiverDeviceId }
                   : {}),
               })
             : await registerHandshakeWithRelay(db, capsule.handshake_id, p2pAuthToken ?? '', receiverEmail)
