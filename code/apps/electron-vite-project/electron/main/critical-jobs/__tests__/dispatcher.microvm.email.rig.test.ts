@@ -13,7 +13,8 @@
  */
 
 import { describe, test, expect } from 'vitest'
-import { existsSync, accessSync, constants, readdirSync } from 'fs'
+import { existsSync, accessSync, constants, readdirSync, readFileSync } from 'fs'
+import { fileURLToPath } from 'url'
 import * as os from 'os'
 import * as path from 'path'
 import { x25519 } from '@noble/curves/ed25519'
@@ -27,15 +28,40 @@ import { DEFAULT_RESOLUTION_TABLE } from '../resolution'
 const home = os.homedir()
 const rig = path.join(home, 'build', 'rig')
 
+// The sha256 of the worker bundle this checkout ships — i.e. what the golden
+// image MUST have baked. Read from the committed provenance so the happy-path
+// tests below exercise the real image/bundle consistency guard (markers match),
+// and the mismatch test can prove a stale image fails fast.
+const goldenRootfsPath = process.env.CROSVM_GOLDEN ?? path.join(rig, 'golden-base.ext4')
+const EXPECTED_BUNDLE_SHA256: string = JSON.parse(
+  readFileSync(
+    path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '..',
+      '..',
+      'depackaging-microvm',
+      'rig',
+      'dist',
+      'worker-bundle.provenance.json',
+    ),
+    'utf8',
+  ),
+).artifact_sha256
+
 const cfg: CrosvmProviderConfig = {
   crosvmBin: process.env.CROSVM_BIN ?? path.join(home, 'build', 'crosvm', 'target', 'release', 'crosvm'),
-  goldenRootfsPath: process.env.CROSVM_GOLDEN ?? path.join(rig, 'golden-base.ext4'),
+  goldenRootfsPath,
   kernelPath: process.env.CROSVM_KERNEL ?? path.join(rig, 'vmlinuz'),
   // DEDICATED overlay dir: vitest runs test files in parallel workers, and the
   // overlay-nuke assertion reads the whole dir — a shared dir would race the B1
   // depackage rig test. The provider mkdir's this recursively.
   overlayDir: process.env.CROSVM_OVERLAY_DIR_EMAIL ?? path.join(rig, 'overlays-email'),
   vsockHostClientPath: process.env.CROSVM_VSOCK_CLIENT ?? path.join(rig, 'vsock-host-client'),
+  // Image/bundle consistency guard active on the real path: the rebuilt golden
+  // image is stamped with this same sha, so the happy-path runs below prove the
+  // guard passes valid images; the mismatch test below proves it fails fast.
+  expectedBundleSha256: EXPECTED_BUNDLE_SHA256,
+  goldenImageMarkerPath: process.env.CROSVM_GOLDEN_MARKER ?? `${goldenRootfsPath}.marker`,
 }
 
 function rigAvailable(): boolean {
@@ -143,6 +169,45 @@ describe.skipIf(!RIG)('Build B1 — depackage-email through dispatcher → micro
       // The opaque carrier bytes round-trip exactly (the orchestrator never parsed them).
       expect(Buffer.from(out.packages[0].bytesB64, 'base64').toString('utf8')).toBe(QBEAP_PKG)
 
+      const leftover = readdirSync(cfg.overlayDir).filter((f) => f.startsWith('overlay-'))
+      expect(leftover).toEqual([])
+    },
+    VM_TIMEOUT,
+  )
+
+  test(
+    'stale golden image (marker mismatch) → fast E_IMAGE_BUNDLE_MISMATCH, never a 90s boot/timeout',
+    async () => {
+      // Same REAL, available rig backend — only the EXPECTED bundle sha is wrong,
+      // simulating an orchestrator newer than the on-disk golden image. The
+      // provider must trip its cheap preflight BEFORE booting.
+      const staleDispatcher = new CriticalJobDispatcher(
+        {
+          'in-process': new InProcessExecutor('sandbox'),
+          microvm: createCrosvmMicroVmExecutor({ ...cfg, expectedBundleSha256: 'f'.repeat(64) }),
+          'remote-handshake': new RemoteHandshakeExecutor(),
+        },
+        DEFAULT_RESOLUTION_TABLE,
+        { role: 'sandbox', tier: 'paid', topology: { linked: [] } },
+      )
+      const sandbox = makeSandboxKeys()
+      const t0 = Date.now()
+      const res = await staleDispatcher.dispatch({
+        jobId: 'rig-email-stale-image-1',
+        kind: 'depackage-email',
+        input: { inputBytes: eml(['Subject: x', 'Content-Type: text/plain'], 'never parsed') },
+        custodyPubKeyB64: sandbox.pubB64,
+        limits: { maxWallClockMs: VM_TIMEOUT },
+        flush: 'per-action',
+      })
+      const elapsed = Date.now() - t0
+      expect(res.ok).toBe(false)
+      if (res.ok) return
+      expect(res.error?.code).toBe('E_IMAGE_BUNDLE_MISMATCH')
+      expect(res.meta?.executorId).toBe('microvm')
+      // Fast: the preflight read a sidecar, it never booted a VM. Way under VM_TIMEOUT.
+      expect(elapsed).toBeLessThan(5_000)
+      // And it left no overlay behind (it never created one).
       const leftover = readdirSync(cfg.overlayDir).filter((f) => f.startsWith('overlay-'))
       expect(leftover).toEqual([])
     },
