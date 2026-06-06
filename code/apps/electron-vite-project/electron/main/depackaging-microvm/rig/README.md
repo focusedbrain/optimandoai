@@ -259,3 +259,199 @@ Implemented + proven on this box (2026-06-06):
 `/dev/vhost-vsock` loses its ACL on reboot (udev rule didn't reapply). Restore with:
 `sudo setfacl -m u:$USER:rw /dev/vhost-vsock` (or re-run `host-setup-root.sh`).
 `/dev/kvm` persists via its ACL. Then: `pnpm vitest run .../crosvmProvider.rig.test.ts`.
+
+---
+
+## Build B1 — audit + verification pass (2026-06-06)
+
+**Finding (reported, not absorbed): the B1/B2 live-email cutover is already
+implemented and committed at HEAD `8d4ea3c0`** (authored 2026-06-05, before this
+session). The prompt's premise — "splice `depackagingService` behind
+`WRDESK_SEAM_EMAIL_CUTOVER`" — is superseded by the real constructs already in
+the tree:
+
+- **Depackage leg (spliced):** `messageRouter.ts:326` gates ingest on
+  `isSeamDepackageCutoverEnabled()` → `routeViaDepackageSeam` (`:916`) →
+  `dispatchDepackageEmail` (`liveDepackageCutover.ts`, kind `depackage-email`).
+  Plain mail → `writePlainSeamInbox` storing **SafeTextV1 + sealed artifacts**;
+  carrier/mixed → re-enter pipeline-2 with the guest-extracted package; failures
+  → `quarantineRawBytes` with mapped reason codes. Providers feed raw values
+  (`gmail/outlook/imap`); `inlineParseGuard.ts` is the invariant-0 tripwire.
+  Flag: **`WRDESK_SEAM_DEPACKAGE_CUTOVER`** (env + `seam-flags.json`), default OFF.
+- **Validation leg (spliced):** `messageRouter.ts:612` + `beapEmailIngestion` route
+  content validation through `dispatchValidateDecryptedBeap`, fail-closed
+  (`seam_validation_dispatch_failed:<code>`). Flag: **`WRDESK_SEAM_VALIDATION_CUTOVER`**.
+- The **SafeTextV1 plain-mail representation** (the Step-0.3 product-visible change)
+  was therefore decided/committed when B2 was built; it is the existing flag-on
+  behavior, not introduced by this session.
+
+**The one genuine gap vs. the prompt's rig criteria (4.2 / 4.3):** the rig-proven
+microVM never runs the LIVE `depackage-email` job. `liveDepackageCutover`'s
+dispatcher wires only `in-process` + `remote-handshake` (no microVM executor);
+`MicroVMExecutor` supports only Build-1 `depackage` (not `depackage-email`); and
+the `JobSpec`/`JobResult` transport is Build-1-shaped (no `inputForm`/`provider`,
+and the `JobResult` can't represent the `plain|carrier|mixed` union the
+`guestEntry.ts:73-79` already emits). So with the depackage flag ON the live
+worker runs **in-process** only. Closing this is a cross-cutting build (VM
+protocol + executor + dispatcher wiring + golden-image confirm + rig proofs),
+**not** a splice — DEFERRED pending a scope decision.
+
+### Proofs run this session
+
+**Ran green** (vitest under node, `code/`):
+- `critical-jobs/**` — **112/112**. Includes the dev-box **validation parity**
+  (`cutoverParity.devbox.test.ts`: seam == inline byte-identical, real validator
+  subprocess) and **depackage parity** (`depackageParity.test.ts`: InProcessExecutor
+  == pure worker).
+- `depackaging-microvm/**` + `email/**` — **362 passed / 62 skipped**.
+
+**Ran green ON RIG** (real crosvm, `/dev/vhost-vsock` ACL present this session):
+- `dispatcher.microvm.rig.test.ts` — `dispatch()` runs **kind `depackage`** in the
+  microVM, central signature + safe-text verify, overlay nuked. `executor=microvm`,
+  `flushed=per-action`, ~3.5s.
+- `crosvmProvider.rig.test.ts` (6) — text-purity / blind-courier / ephemerality /
+  zero-egress / legacy-repair through the real VM.
+- `depackagingService.test.ts` (rig) — bytes through the VM → re-validated
+  safe-text + courier record.
+
+**Skip-guarded (NOT run here)** — all gated on `better-sqlite3`, which isn't
+loadable under the plain-node vitest runtime (the installed binary is built for
+Electron's ABI; rebuilding it for node would disturb the Electron native module):
+- `messageRouter.depackageSeam.test.ts` (7) — contains **both** the flag-ON
+  in-process consumer suite **and** the flag-OFF inline-parity suite (i.e. the
+  prompt's proof-#1 for the live path). `describe.skipIf(!Database)`.
+- `b72DecryptedContentReseal.test.ts` (10), `mergeExtensionDepackaged.validation.test.ts`
+  (4), `messageRouter.ingestTransaction.test.ts` (2 of 3).
+
+To run the live-path DB parity, run these under Electron's runtime (or rebuild
+better-sqlite3 for node) — an environment change kept out of this verification pass.
+
+---
+
+## 2026-06-06 — Build B1 close-out: microVM executes the LIVE `depackage-email` job
+
+The "one genuine gap" above (microVM never runs the live `depackage-email`) is
+**CLOSED**. The flag-gated email path can now route the typed email worker into
+the rig-proven crosvm microVM end-to-end, with the SAME verification discipline
+the B1 `depackage` kind already enjoys. No invariants relaxed.
+
+### What changed (the right way, not a shim)
+
+- **Signed email result (transport integrity), uniform across executors.** The
+  `depackage-email` worker emits a typed `plain | beap-carrier | mixed` union (or
+  a typed failure). It is now SIGNED in-guest exactly like `runDepackagingJob`
+  signs the B1 result: `emailDepackage.runDepackageEmailJob()` runs the worker +
+  signs with a per-job Ed25519 key. BOTH the guest entry (`rig/guestEntry.ts`)
+  and the in-process executor call it, so every result — whichever executor — is
+  signed, and the dispatcher verifies it uniformly. The signed wire shape is
+  `DepackageEmailJobResult` (`hypervisorProvider.ts`).
+- **Canonical bytes over the union.** `canonicalDepackageEmailResultBytes` commits
+  to the variant `type`, each safe-text, per-artifact ciphertext digests,
+  per-package byte digests, and the display/threading metadata (bytes HASHED, not
+  embedded — mirrors `canonicalJobResultBytes`). A recursive key-sort
+  (`stableStringify`) makes guest-sign and host-verify byte-identical.
+  - **Determinism bug found + fixed on the rig:** `JSON.stringify` DROPS
+    `undefined`-valued keys on the wire (e.g. an absent `DisplayEnvelope.from`,
+    or a sealed artifact with no `filename`), but the first serializer emitted
+    them as `null` → guest/host bytes diverged → signature failed → live job
+    `ok:false`. Fixed `stableStringify` to omit `undefined` keys exactly as JSON
+    does. Locked down off-rig by `__tests__/emailResultSigning.test.ts` (sign →
+    JSON round-trip → verify, incl. undefined-laden envelopes + a tamper case).
+- **Transport carries the routing discriminators.** `JobSpec` gained optional
+  `inputForm` / `provider`; `CrosvmProvider.runJob` sends `kind` + (for email)
+  `inputForm` / `provider` / `maxInputBytes`, parses the email-result variant, and
+  verifies its signature before returning. `runJob` now returns
+  `JobResult | DepackageEmailJobResult` (a plain `Promise<JobResult>` is still
+  assignable, so the depackage path / fakes are untouched).
+- **Executor + dispatcher.** `MicroVMExecutor.supports('depackage-email')` and
+  maps spec→`JobSpec`→signed result→`CriticalJobResult`. The dispatcher's central
+  post-verify now branches by kind: `verifyDepackageEmailResult` checks the
+  signature AND re-validates **every** safe-text against the closed schema
+  (`validateSafeText`), replacing the worker's claimed value; a signed worker
+  failure passes through for the consumer to quarantine. `SAFE_TEXT_OUTPUT_KINDS`
+  now includes `depackage-email`, so no executor can skip it.
+- **Live wiring + fail-closed.** `liveDepackageCutover` now registers the crosvm
+  `MicroVMExecutor` (config from env / `~/build/rig` defaults). Its
+  `isAvailable()` probes the host, so on a box without crosvm/kvm/vhost-vsock/
+  golden image, paid/`exec=microvm` routing fails closed with `E_NO_EXECUTOR` —
+  NEVER an in-process fallback for an untrusted-content kind.
+
+### Golden image
+
+Rebuilt with the signing guest bundle. **Kernel-pin caveat (PROVISIONING.md):**
+the host kernel had been point-upgraded `6.17.0-29 → -35`; an unpinned rebuild
+staged `-35` vsock/overlay modules against the committed `-29` `vmlinuz`, so
+`insmod` failed in-guest and every job hit a vsock **connect timeout**. Rebuilt
+with `KREL=6.17.0-29-generic` (matches `vmlinuz`); booting + vsock restored.
+Bundle sha `bf7eb844…`; smoke test (`smokeTest.mjs`) green for all three parse
+paths and now asserts the in-guest signature on each.
+
+### Proofs run this session
+
+**Ran green** (vitest under node, `code/`, full trees together):
+- `critical-jobs/**` + `depackaging-microvm/**` + `email/**` —
+  **482 passed / 62 skipped**, 0 failed. Includes the new
+  `emailResultSigning.test.ts` (5) wire round-trip + tamper guard, and the
+  existing dev-box cutover/parity suites unchanged.
+
+**Ran green ON RIG** (real crosvm, `/dev/kvm` + `/dev/vhost-vsock` ACLs present):
+- **4.2 — live `depackage-email` in the microVM** (`dispatcher.microvm.email.rig.test.ts`):
+  - plain mail → `executor=microvm`, central signature + safe-text verify, typed
+    `plain` union, overlay nuked (`flushed=per-action`, ~3s).
+  - carrier mail → typed `beap-carrier` union; the opaque package round-trips
+    byte-exact (the orchestrator never parsed it); overlay nuked.
+- **4.3 — fail-closed** (same file, runs always): an unavailable microVM backend →
+  paid-sandbox `depackage-email` returns `E_NO_EXECUTOR`, executor **never**
+  `in-process` (untrusted bytes never parsed in the orchestrator).
+- **Inline-parse guard:** each live-path assertion pins `meta.executorId ===
+  'microvm'` — the only venue that parsed the bytes.
+- `dispatcher.microvm.rig.test.ts` (B1 `depackage`) + `crosvmProvider.rig.test.ts`
+  (6) + `depackagingService.test.ts` — still green against the rebuilt image.
+
+**Test isolation:** the rig suites now use dedicated overlay dirs
+(`overlays`, `overlays-dispatcher`, `overlays-email`) so the per-action-flush
+("overlay nuked") assertions don't race across vitest's parallel file workers.
+
+### Live-path DB parity — now PROVEN under Electron's runtime
+
+The flag-ON/flag-OFF live email-path parity (`messageRouter.depackageSeam.test.ts`)
+was the README's "proof #1" but had **never actually run** — it `skipIf(!Database)`s
+under plain-`node` vitest (the `better-sqlite3` binding is electron-rebuilt to
+Electron's ABI). Doing this right, without a divergent second binary: run it on the
+runtime the product ships — **Electron's embedded Node** via `ELECTRON_RUN_AS_NODE`,
+where that exact binary loads natively.
+
+- New runner: `scripts/run-native-db-tests.cjs` + `pnpm test:native-db`
+  (`ELECTRON_RUN_AS_NODE=1 electron node_modules/vitest/vitest.mjs run --pool=forks …`).
+- **Result: 7/7 green** — flag-ON: plain → sealed inbox row from guest SafeText;
+  HTML-only → body in-guest + HTML sealed as artifact; carrier → proven pipeline-2
+  (`email_beap`); ambiguous → quarantine with mapped reason; no opaque payload →
+  HELD; no paired sandbox → HELD. flag-OFF: inline path byte-for-byte unchanged.
+- Under plain `node` it still **skips cleanly** (7 skipped, 0 errors) — CI is
+  unaffected.
+
+The test had **bit-rotted while perpetually skipped**; fixing it (not the easy
+path of leaving it skipped) surfaced three real staleness bugs in the harness:
+1. seal binding is now source-aware — bind BOTH `'inner'` and `'outer'` (plain
+   mail seals with `'outer'`);
+2. `findPairedSandboxHandshake` needs a non-null `session` and
+   `listAvailableInternalSandboxes` now returns `{ success, sandboxes }`;
+3. `vi.mock` specifiers resolve relative to the TEST file — the `main/`-level
+   modules needed `../../`, not `../` (a mismatched path silently no-ops the mock,
+   so the real handshake/quarantine modules had been running), and factory state
+   must be `vi.hoisted` (the mocked modules import transitively during the
+   ESM-hoisted `import` of messageRouter, before plain consts initialize).
+
+**Scope note (other `better-sqlite3`-gated suites):** running the whole `email`
+tree under Electron's Node shows **305 passed / 26 failed**. The 26 are
+**pre-existing and independent** of this build (a skipped test cannot have been
+regressed by it): some are the SAME seal-source/mock-path rot in unrelated
+subsystems (`b4P2PRelayMigration`, `b7IpcContentUpdates`, `beapInboxClonePrepareSealGate`,
+`inboxSealedRead`, one of `messageRouter.ingestTransaction`), and the
+`googleOAuthBuiltin.packaged` failures are Electron-runtime-sensitive (they PASS
+under plain `node`). The 2 other depackage-adjacent gated files the README named
+(`b72DecryptedContentReseal`, `mergeExtensionDepackaged.validation`) already pass.
+Bringing the full gated suite green is a separate maintenance epic (and a global
+dev-vs-test ABI decision: the repo's root `postinstall` installs a node-ABI
+`better-sqlite3` for tests, which `electron-vite-project`'s `postinstall`
+electron-rebuilds back to Electron ABI) — deliberately out of scope here.
