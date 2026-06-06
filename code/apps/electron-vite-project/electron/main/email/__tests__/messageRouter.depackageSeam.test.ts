@@ -10,7 +10,6 @@
 import { createRequire } from 'module'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHash, createHmac } from 'crypto'
-import { x25519 } from '@noble/curves/ed25519'
 import { bindKeyProvider, unbindKeyProvider, clearTamperingEvents } from '../../sealed-storage'
 
 const require = createRequire(import.meta.url)
@@ -22,7 +21,30 @@ try {
 } catch { Database = null }
 
 const TEST_DEK = Buffer.from('00'.repeat(32), 'hex')
-const SANDBOX_PUB = Buffer.from(x25519.getPublicKey(x25519.utils.randomPrivateKey())).toString('base64')
+
+// HOISTED state for the module mocks below. `vi.mock` is hoisted ABOVE module
+// top-level consts, and the mocked handshake modules are imported transitively
+// during the (ESM-hoisted) `import` of messageRouter — i.e. BEFORE plain consts
+// initialize. Referencing plain consts in those factories is a TDZ bug (it was
+// latent only because this suite was perpetually skipped). `vi.hoisted` makes
+// the values exist at hoist time. SANDBOX_PUB is a fixed VALID x25519 public key
+// (pub of priv=0x11*32) so the in-guest artifact sealing works.
+const h = vi.hoisted(() => ({
+  SANDBOX_PUB: 'e06Qm75//kTEZaIgA31gjuNYl9Me+XLwf3SJLLD3PxM=',
+  // Mutable so individual tests can simulate "no paired sandbox".
+  sandboxState: {
+    list: [{ handshake_id: 'hs-1', sandbox_keying_complete: true }] as Array<{
+      handshake_id: string
+      sandbox_keying_complete: boolean
+    }>,
+  },
+}))
+const SANDBOX_PUB = h.SANDBOX_PUB
+const sandboxState = h.sandboxState
+// `findPairedSandboxHandshake` short-circuits to null on a falsy session; the
+// flag-on seam needs a paired sandbox to obtain the custody key. A truthy stub
+// suffices — the internalSandboxesApi/handshake lookups are mocked below.
+const SESSION = { sessionId: 'test-session', userId: 'test-user' } as any
 
 function buildValidSealForRowId(canonicalJson: string, rowId: string) {
   const contentSha256 = createHash('sha256').update(canonicalJson, 'utf8').digest('hex')
@@ -31,20 +53,23 @@ function buildValidSealForRowId(canonicalJson: string, rowId: string) {
   return { seal, seal_input_json }
 }
 
-// Mutable so individual tests can simulate "no paired sandbox".
-const sandboxState: { list: Array<{ handshake_id: string; sandbox_keying_complete: boolean }> } = {
-  list: [{ handshake_id: 'hs-1', sandbox_keying_complete: true }],
-}
-
+// NOTE on mock paths: `vi.mock` specifiers resolve relative to THIS test file
+// (email/__tests__/), NOT relative to messageRouter (email/). email-local modules
+// are `../X`; main-level modules are `../../X`. messageRouter imports the latter
+// as `../X` (correct for ITS location) — mirroring that here silently no-ops the
+// mock, which is why the real handshake/quarantine modules ran before.
 vi.mock('../gateway', () => ({ emailGateway: { getProviderSync: () => 'gmail' } }))
-vi.mock('../handshake/internalSandboxesApi', () => ({
-  listAvailableInternalSandboxes: () => ({ sandboxes: sandboxState.list }),
+vi.mock('../../handshake/internalSandboxesApi', () => ({
+  // Current API shape: { success, sandboxes }. `findPairedSandboxHandshake`
+  // returns null on a falsy `success`, which previously masqueraded as
+  // "no paired sandbox" when this mock omitted the field.
+  listAvailableInternalSandboxes: () => ({ success: true, sandboxes: h.sandboxState.list }),
   isEligibleActiveInternalHostSandboxRecord: () => true,
 }))
-vi.mock('../handshake/db', () => ({
-  getHandshakeRecord: () => ({ peer_x25519_public_key_b64: SANDBOX_PUB }),
+vi.mock('../../handshake/db', () => ({
+  getHandshakeRecord: () => ({ peer_x25519_public_key_b64: h.SANDBOX_PUB }),
 }))
-vi.mock('../quarantine-blob-storage/index', () => ({
+vi.mock('../../quarantine-blob-storage/index', () => ({
   writeQuarantineBlob: (_blob: unknown) => ({
     storage_id: 'blob-' + Math.random().toString(16).slice(2),
     blob_sha256: 'a'.repeat(64),
@@ -111,7 +136,10 @@ describe.skipIf(!Database)('B2 depackage-seam consumer (flag-on, in-process)', (
 
   beforeEach(async () => {
     db = createTestDb()
-    bindKeyProvider(() => TEST_DEK)
+    // Plain-mail rows seal with the 'outer' provider; sealed validator output
+    // uses 'inner'. Bind BOTH (the API is source-aware now).
+    bindKeyProvider(() => TEST_DEK, 'inner')
+    bindKeyProvider(() => TEST_DEK, 'outer')
     clearTamperingEvents()
     sandboxState.list = [{ handshake_id: 'hs-1', sandbox_keying_complete: true }]
     process.env.WRDESK_ROLE = 'sandbox'
@@ -125,7 +153,7 @@ describe.skipIf(!Database)('B2 depackage-seam consumer (flag-on, in-process)', (
     })
   })
   afterEach(() => {
-    unbindKeyProvider(); vi.restoreAllMocks(); db?.close()
+    unbindKeyProvider('inner'); unbindKeyProvider('outer'); vi.restoreAllMocks(); db?.close()
     delete process.env.WRDESK_ROLE
     delete process.env.WRDESK_SEAM_DEPACKAGE_CUTOVER
   })
@@ -136,7 +164,7 @@ describe.skipIf(!Database)('B2 depackage-seam consumer (flag-on, in-process)', (
       date: new Date().toISOString(),
       rawRfc822: eml(['Subject: Real Subject', 'Content-Type: text/plain'], 'hello from the guest'),
     }
-    const res = await detectAndRouteMessage(db, 'acc', raw)
+    const res = await detectAndRouteMessage(db, 'acc', raw, SESSION)
     expect(res.type).toBe('plain')
     const row = db.prepare('SELECT * FROM inbox_messages WHERE id = ?').get(res.inboxMessageId) as any
     expect(row.source_type).toBe('email_plain')
@@ -151,7 +179,7 @@ describe.skipIf(!Database)('B2 depackage-seam consumer (flag-on, in-process)', (
       date: new Date().toISOString(),
       rawRfc822: eml(['Subject: H', 'Content-Type: text/html'], '<p>Hi <b>there</b></p>'),
     }
-    const res = await detectAndRouteMessage(db, 'acc', raw)
+    const res = await detectAndRouteMessage(db, 'acc', raw, SESSION)
     expect(res.type).toBe('plain')
     const row = db.prepare('SELECT * FROM inbox_messages WHERE id = ?').get(res.inboxMessageId) as any
     expect(row.body_text).toContain('Hi')
@@ -165,7 +193,7 @@ describe.skipIf(!Database)('B2 depackage-seam consumer (flag-on, in-process)', (
       date: new Date().toISOString(),
       rawRfc822: eml(['Subject: pkg', 'Content-Type: text/plain'], PBEAP_PKG),
     }
-    const res = await detectAndRouteMessage(db, 'acc', raw)
+    const res = await detectAndRouteMessage(db, 'acc', raw, SESSION)
     expect(res.type).toBe('beap')
     const row = db.prepare('SELECT * FROM inbox_messages WHERE id = ?').get(res.inboxMessageId) as any
     expect(row.source_type).toBe('email_beap')
@@ -178,7 +206,7 @@ describe.skipIf(!Database)('B2 depackage-seam consumer (flag-on, in-process)', (
       date: new Date().toISOString(),
       rawRfc822: eml(['Subject: w', 'Content-Type: text/plain'], weird),
     }
-    const res = await detectAndRouteMessage(db, 'acc', raw)
+    const res = await detectAndRouteMessage(db, 'acc', raw, SESSION)
     expect(res.type).toBe('quarantine')
     const q = db.prepare('SELECT * FROM quarantine_messages WHERE id = ?').get(res.inboxMessageId) as any
     expect(q.rejection_reason).toBe('email_depackage_ambiguous')
@@ -192,7 +220,7 @@ describe.skipIf(!Database)('B2 depackage-seam consumer (flag-on, in-process)', (
       text: 'this body must NOT be parsed inline', date: new Date().toISOString(),
       // no rawRfc822
     }
-    await expect(detectAndRouteMessage(db, 'acc', raw)).rejects.toBeInstanceOf(DepackageCutoverHeldError)
+    await expect(detectAndRouteMessage(db, 'acc', raw, SESSION)).rejects.toBeInstanceOf(DepackageCutoverHeldError)
     expect((db.prepare('SELECT COUNT(*) c FROM inbox_messages').get() as any).c).toBe(0)
   })
 
@@ -203,14 +231,17 @@ describe.skipIf(!Database)('B2 depackage-seam consumer (flag-on, in-process)', (
       date: new Date().toISOString(),
       rawRfc822: eml(['Subject: x', 'Content-Type: text/plain'], 'hi'),
     }
-    await expect(detectAndRouteMessage(db, 'acc', raw)).rejects.toBeInstanceOf(DepackageCutoverHeldError)
+    await expect(detectAndRouteMessage(db, 'acc', raw, SESSION)).rejects.toBeInstanceOf(DepackageCutoverHeldError)
   })
 })
 
 describe.skipIf(!Database)('B2 flag-off parity (inline path untouched)', () => {
   let db: import('better-sqlite3').Database
   beforeEach(async () => {
-    db = createTestDb(); bindKeyProvider(() => TEST_DEK); clearTamperingEvents()
+    db = createTestDb()
+    bindKeyProvider(() => TEST_DEK, 'inner')
+    bindKeyProvider(() => TEST_DEK, 'outer')
+    clearTamperingEvents()
     delete process.env.WRDESK_SEAM_DEPACKAGE_CUTOVER
     const orchMod = await import('../../validator-process/orchestrator')
     vi.spyOn(orchMod.validatorOrchestrator, 'validate').mockImplementation(async (args: any) => {
@@ -220,7 +251,7 @@ describe.skipIf(!Database)('B2 flag-off parity (inline path untouched)', () => {
       return { outcome: { ok: true, sealed: { seal, seal_input_json, canonical_json: canonicalJson, validated_at: new Date().toISOString(), validator_version: 'test' } } } as any
     })
   })
-  afterEach(() => { unbindKeyProvider(); vi.restoreAllMocks(); db?.close() })
+  afterEach(() => { unbindKeyProvider('inner'); unbindKeyProvider('outer'); vi.restoreAllMocks(); db?.close() })
 
   it('flag OFF: plain mail ingests via the inline text path (rawRfc822 ignored)', async () => {
     const raw: any = {
@@ -228,7 +259,7 @@ describe.skipIf(!Database)('B2 flag-off parity (inline path untouched)', () => {
       text: 'inline body', date: new Date().toISOString(),
       rawRfc822: eml(['Subject: SEAM', 'Content-Type: text/plain'], 'seam body'),
     }
-    const res = await detectAndRouteMessage(db, 'acc', raw)
+    const res = await detectAndRouteMessage(db, 'acc', raw, SESSION)
     expect(res.type).toBe('plain')
     const row = db.prepare('SELECT * FROM inbox_messages WHERE id = ?').get(res.inboxMessageId) as any
     expect(row.subject).toBe('inline-sub')        // provider envelope, NOT seam
