@@ -26,7 +26,7 @@
     "smoke:pdf": "node scripts/smoke-pdfjs-parser.cjs",
     "diagnose": "node scripts/diagnose-websocket.js",
     "restart": "bash scripts/restart.sh",
-    "postinstall": "electron-builder install-app-deps && electron-rebuild -f -w better-sqlite3,keytar,canvas",
+    "postinstall": "node scripts/postinstall-native.cjs",
     "rebuild:native": "electron-rebuild -f -w better-sqlite3,keytar,canvas"
   },
   "dependencies": {
