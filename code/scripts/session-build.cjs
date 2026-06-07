@@ -16,6 +16,6 @@ function main() {
 try {
   main()
 } catch (err) {
-  console.error(`session:build failed: ${err.message}`)
+  console.error(err.message?.includes('\n') ? err.message : `session:build failed: ${err.message}`)
   process.exit(1)
 }

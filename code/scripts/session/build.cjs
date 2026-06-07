@@ -5,6 +5,7 @@
  * and returns provenance read back from the compiled main bundle.
  */
 const { execSync, spawnSync } = require('node:child_process')
+const { spawnPnpmSync, formatSpawnFailure } = require('./lib.cjs')
 const fs = require('node:fs')
 const path = require('node:path')
 
@@ -126,12 +127,18 @@ function formatBuildLine(provenance) {
 
 function runOrchestratorBuild() {
   killOrchestrator()
-  const res = spawnSync('pnpm', ['run', 'build'], {
+  const res = spawnPnpmSync(['run', 'build'], {
     cwd: ELECTRON_APP,
-    stdio: 'inherit',
+    stdio: 'pipe',
     env: process.env,
   })
-  if (res.status !== 0) throw new Error('orchestrator build failed (pnpm run build)')
+  if (res.stdout) process.stdout.write(res.stdout)
+  if (res.stderr) process.stderr.write(res.stderr)
+  if (res.status !== 0 || res.error) {
+    throw new Error(
+      formatSpawnFailure('orchestrator build (pnpm run build in apps/electron-vite-project)', res),
+    )
+  }
   const commit = execSync('git rev-parse HEAD', { cwd: CODE_ROOT, encoding: 'utf8' }).trim()
   const provenance = {
     commit,

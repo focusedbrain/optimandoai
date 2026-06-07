@@ -16,6 +16,38 @@ const PID_FILE = '/tmp/coord-xmachine.pid'
 const RELAY_DB = '/tmp/coord-xmachine.db'
 const RELAY_LOG = path.join(os.homedir(), 'relay-xmachine.log')
 
+/**
+ * Windows: `spawnSync('pnpm')` without `shell: true` fails with ENOENT (pnpm is a .cmd shim).
+ */
+function spawnPnpmSync(args, options = {}) {
+  const { cwd, stdio = 'pipe', env = process.env, ...rest } = options
+  const usePipe = stdio !== 'inherit'
+  const spawnOpts = {
+    cwd,
+    env,
+    shell: process.platform === 'win32',
+    ...rest,
+  }
+  if (usePipe) {
+    spawnOpts.stdio = ['ignore', 'pipe', 'pipe']
+    spawnOpts.encoding = 'utf8'
+  } else {
+    spawnOpts.stdio = 'inherit'
+  }
+  return spawnSync('pnpm', args, spawnOpts)
+}
+
+function formatSpawnFailure(label, res) {
+  const lines = [`${label} failed`]
+  if (res.error) lines.push(`spawn error: ${res.error.message}`)
+  if (res.status != null) lines.push(`exit code: ${res.status}`)
+  const stderr = typeof res.stderr === 'string' ? res.stderr.trim() : ''
+  const stdout = typeof res.stdout === 'string' ? res.stdout.trim() : ''
+  if (stderr) lines.push(`stderr:\n${stderr}`)
+  else if (stdout) lines.push(`stdout:\n${stdout}`)
+  return lines.join('\n')
+}
+
 function ledgerDbPath() {
   return path.join(os.homedir(), '.opengiraffe', 'electron-data', 'handshake-ledger.db')
 }
@@ -77,12 +109,14 @@ function configureCoordinationOnMachine(relayIp) {
 }
 
 function buildCoordinationService() {
-  const res = spawnSync('pnpm', ['--filter', '@repo/coordination-service', 'build'], {
+  const res = spawnPnpmSync(['--filter', '@repo/coordination-service', 'build'], {
     cwd: CODE_ROOT,
-    stdio: 'inherit',
+    stdio: 'pipe',
     env: process.env,
   })
-  if (res.status !== 0) throw new Error('coordination-service build failed')
+  if (res.status !== 0 || res.error) {
+    throw new Error(formatSpawnFailure('coordination-service build (pnpm --filter @repo/coordination-service build)', res))
+  }
 }
 
 function readPid() {
@@ -193,6 +227,8 @@ module.exports = {
   RELAY_LOG,
   RELAY_DB,
   PID_FILE,
+  spawnPnpmSync,
+  formatSpawnFailure,
   detectLanIPv4,
   relayUrls,
   configureCoordinationOnMachine,
