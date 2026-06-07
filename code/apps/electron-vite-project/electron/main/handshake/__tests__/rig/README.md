@@ -22,7 +22,9 @@ Contents:
   in-process; owns start / stop (relay-down) / restart (same port + same sqlite).
 - `pairingFlow.ts` — shared helper driving a cross-principal handshake to ACTIVE on
   two DBs over the real relay (reused by the revoke/transport suites).
-- `CROSS_MACHINE_RUNBOOK.md` — human-operated two-box session (Phase 2).
+- `CROSS_MACHINE_RUNBOOK.md` — human-operated two-box session (Phase 2). Bootstrap:
+  `cd code && pnpm session:start` (mini-PC: full build + relay + config); Windows:
+  `pnpm session:build` + `pnpm session:configure-remote`; teardown: `pnpm session:stop`.
 - `DEFERRED.md` — consolidated tracked list of every deferral (by-design, hardening,
   two-box-only, test-infra debt) so they are not re-discovered piecemeal.
 

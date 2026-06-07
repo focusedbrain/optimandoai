@@ -38,6 +38,7 @@ function gitMetaFromClosestRepo(fromDir: string): { branch: string; commit: stri
   }
 }
 const RUNTIME_IDENTITY_GIT_META = gitMetaFromClosestRepo(root)
+const BUILD_TIMESTAMP_ISO = new Date().toISOString()
 
 const oauthId =
   process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() ||
@@ -55,6 +56,7 @@ export default defineConfig({
     __ORCHESTRATOR_BUILD_STAMP__: JSON.stringify(ORCHESTRATOR_BUILD_STAMP),
     __WR_RUNTIME_GIT_BRANCH__: JSON.stringify(RUNTIME_IDENTITY_GIT_META.branch),
     __WR_RUNTIME_GIT_COMMIT__: JSON.stringify(RUNTIME_IDENTITY_GIT_META.commit),
+    __WR_BUILD_TIMESTAMP__: JSON.stringify(BUILD_TIMESTAMP_ISO),
   },
   resolve: {
     alias: [
@@ -83,6 +85,7 @@ export default defineConfig({
             __ORCHESTRATOR_BUILD_STAMP__: JSON.stringify(ORCHESTRATOR_BUILD_STAMP),
             __WR_RUNTIME_GIT_BRANCH__: JSON.stringify(RUNTIME_IDENTITY_GIT_META.branch),
             __WR_RUNTIME_GIT_COMMIT__: JSON.stringify(RUNTIME_IDENTITY_GIT_META.commit),
+            __WR_BUILD_TIMESTAMP__: JSON.stringify(BUILD_TIMESTAMP_ISO),
             __WRDESK_HOST_AI_P2P_BUNDLE_DEFAULTS_ON__: true,
             __BUILD_TIME_GOOGLE_OAUTH_CLIENT_ID__: JSON.stringify(oauthId),
             __BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__: JSON.stringify(oauthSecret),

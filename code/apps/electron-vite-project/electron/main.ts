@@ -693,6 +693,7 @@ function validateLaunchSecret(incoming: string): boolean {
 declare const __ORCHESTRATOR_BUILD_STAMP__: string | undefined
 declare const __WR_RUNTIME_GIT_COMMIT__: string | undefined
 declare const __WR_RUNTIME_GIT_BRANCH__: string | undefined
+declare const __WR_BUILD_TIMESTAMP__: string | undefined
 
 function runtimeIdentityCommit(): string {
   return typeof __WR_RUNTIME_GIT_COMMIT__ !== 'undefined' && String(__WR_RUNTIME_GIT_COMMIT__).trim()
@@ -706,11 +707,18 @@ function runtimeIdentityBranch(): string {
     : 'dev'
 }
 
+function runtimeBuildTimestamp(): string {
+  return typeof __WR_BUILD_TIMESTAMP__ !== 'undefined' && String(__WR_BUILD_TIMESTAMP__).trim()
+    ? String(__WR_BUILD_TIMESTAMP__).trim()
+    : 'unknown'
+}
+
 /** Single-line startup / reload marker; also written via main `console.*` file hook when enabled. */
 function logRuntimeIdentityLine(loadedRendererUrl: string): void {
   const pid = process.pid
   const branch = runtimeIdentityBranch()
   const commit = runtimeIdentityCommit()
+  const builtAt = runtimeBuildTimestamp()
   const stamp = orchestratorBuildMeta().orchestratorBuildStamp
   let appPath = ''
   let userDataPath = ''
@@ -723,7 +731,7 @@ function logRuntimeIdentityLine(loadedRendererUrl: string): void {
   }
   const electronAppPath = process.execPath
   console.log(
-    `[pid=${pid}] [RUNTIME_IDENTITY] branch=${branch} commit=${commit} buildStamp=${stamp} appPath=${appPath} userDataPath=${userDataPath} processType=main electronAppPath=${electronAppPath} loadedRendererUrl=${loadedRendererUrl}`,
+    `[pid=${pid}] [RUNTIME_IDENTITY] branch=${branch} commit=${commit} builtAt=${builtAt} buildStamp=${stamp} appPath=${appPath} userDataPath=${userDataPath} processType=main electronAppPath=${electronAppPath} loadedRendererUrl=${loadedRendererUrl}`,
   )
 }
 

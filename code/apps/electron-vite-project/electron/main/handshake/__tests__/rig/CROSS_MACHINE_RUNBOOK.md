@@ -72,51 +72,83 @@ git log --oneline -1                     # MUST equal the mini-PC hash
 
 ---
 
-## Step 1 — Start the relay (relay box)
+## Step 1 — Build + bootstrap (mini-PC / relay box)
 
-Primary run uses a **local, LAN relay we control** (required for the relay-down test).
+From the mini-PC (relay host), one command runs the **full orchestrator packaging build**
+(`pnpm run build` in `electron-vite-project`), kills any stale WR Desk instance, starts the
+LAN relay, and patches **this machine's** `p2p_config`. Requires a prior WR Desk login on
+the mini-PC (stored refresh token — same as Step 2 on Windows).
 
-**Build + start (Linux relay box, bash):**
 ```bash
-cd ~/Dokumente/dev/optimandoai/code/packages/coordination-service
-pnpm install && pnpm build
-# Real identities → validate real SSO JWTs against auth.wrdesk.com JWKS (needs internet).
-COORD_PORT=51249 COORD_HOST=0.0.0.0 COORD_DB_PATH=/tmp/coord-xmachine.db \
-  node dist/index.js | tee ~/relay-xmachine.log
+cd ~/Dokumente/dev/optimandoai/code
+pnpm session:start
 ```
-Confirm it is listening:
-```bash
-curl -s http://127.0.0.1:51249/health    # → {"status":"ok",...}
-```
-Open port 51249 on the relay host firewall for the LAN.
 
-> Do NOT set `COORD_TEST_MODE=1` for the human run — that bypasses auth. TEST_MODE is
-> only for the automated single-box harness.
+`session:start` prints four operator lines plus a resume marker:
 
-**PASS:** `/health` returns ok; both app boxes can `curl http://RELAY_IP:51249/health`.
+1. `build commit=… short=… stamp=… builtAt=…` — **record this**; both apps must log the
+   same `commit` at launch (Step 3).
+2. `windows: …` — copy to the Windows operator for Step 2.
+3. `launch: …` — exact binary path for this machine in Step 3.
+4. `ready — begin runbook at step 2`
+
+Under the hood (no manual steps): full `electron-vite-project` build (stale binaries
+impossible), `coordination-service` build + start on port **51249** with
+`COORD_DB_PATH=/tmp/coord-xmachine.db`, logs to `~/relay-xmachine.log`, relay pid at
+`/tmp/coord-xmachine.pid`. Real SSO JWT validation (needs internet). **Do NOT** set
+`COORD_TEST_MODE=1` — harness-only.
+
+Teardown when the session ends: `pnpm session:stop` (preserves `/tmp/coord-xmachine.db`
+for the relay-down recovery test in F1).
+
+**PASS:** `build commit=` matches Step 0 `git log --oneline -1` hash; `/health` ok locally
+(`curl -s http://127.0.0.1:51249/health`).
 
 ---
 
-## Step 2 — Point both orchestrators at the LAN relay
+## Step 2 — Build + configure Windows (host)
 
-On **each** app box, set the coordination endpoint to the LAN relay (NOT
-relay.wrdesk.com) for the primary run:
+On **Windows Pro**, run the `windows:` line printed by `session:start` (adjust the clone
+path if yours differs from `$HOME\dev\optimandoai`):
 
-- If the app exposes a **Relay / Coordination URL** setting in Settings → Network:
-  set `Coordination URL = http://RELAY_IP:51249` and `WS = ws://RELAY_IP:51249/beap/ws`,
-  then restart the app.
-- Otherwise set it in the `p2p_config` row of the app's handshake DB before launch
-  (fields `coordination_url`, `coordination_ws_url`, `coordination_enabled=1`,
-  `relay_mode='local'`). Confirm the exact affordance with the dev team.
+```powershell
+cd $HOME\dev\optimandoai\code; pnpm session:build; pnpm session:configure-remote <RELAY_IP>
+```
 
-Launch both apps, log into account **X** on both. Set roles: Windows = **host**,
-mini-PC = **sandbox** (Orchestrator settings).
+(`<RELAY_IP>` is filled in by `session:start` — e.g. `192.168.1.50`.)
 
-**Where to look:** app log line `[DEVICE_ID_BINDING]` (each box prints its
-`getCanonicalRelayDeviceId` = orchestrator instance id) and a WS connect line to
-`ws://RELAY_IP:51249/beap/ws?device_id=...`.
+- `session:build` — full packaging build + kill stale WR Desk; prints its own `build …`
+  line and `launch: C:\build-output\buildNNN\win-unpacked\WRDeskT.exe`.
+- `session:configure-remote` — patches Windows `p2p_config` to the LAN relay.
 
-**PASS:** both apps show a connected coordination WS to `RELAY_IP`.
+**Restart WR Desk** from the `launch:` path `session:build` printed (close any old
+instance first). Requires a prior WR Desk login on Windows (stored refresh token).
+
+**PASS:** Windows `build commit=` matches Step 0 hash; `p2p_config` points at
+`http://RELAY_IP:51249` / `ws://RELAY_IP:51249/beap/ws`; only the freshly built EXE is
+running.
+
+---
+
+## Step 3 — Launch both orchestrators (provenance check)
+
+**mini-PC:** launch using the `launch:` path from Step 1 (not an old install).
+**Windows:** already restarted from Step 2 `launch:` path.
+
+Log into account **X** on both. Set roles: Windows = **host**, mini-PC = **sandbox**
+(Orchestrator settings).
+
+**Where to look:**
+
+- `[RUNTIME_IDENTITY]` in each app log — must include `commit=<hash>` and `builtAt=<iso>`
+  matching the Step 1 / Step 2 `build` lines.
+- `[DEVICE_ID_BINDING]` — each box prints its `getCanonicalRelayDeviceId`.
+- WS connect line to `ws://RELAY_IP:51249/beap/ws?device_id=...`.
+
+**PASS:** both apps log `commit=` equal to the Step 0 git hash **and** to the `build commit=`
+from Step 1 (mini-PC) / Step 2 (Windows); both show a connected coordination WS to `RELAY_IP`.
+**FAIL:** `commit=` differs from Step 0 → stale binary; rebuild and relaunch from the printed
+`launch:` path.
 
 ---
 
@@ -130,7 +162,7 @@ tail -f ~/.config/wrdesk*/logs/*.log 2>/dev/null || tail -f ~/.opengiraffe/**/lo
 ```powershell
 Get-Content -Wait "$env:APPDATA\wrdesk*\logs\*.log"
 ```
-**Relay:** `~/relay-xmachine.log` (already `tee`'d in Step 1).
+**Relay:** `~/relay-xmachine.log` (written by `session:start`).
 
 For each step below, note the **timestamp** when you act so log lines can be matched.
 
@@ -227,7 +259,7 @@ For each step below, note the **timestamp** when you act so log lines can be mat
 ### F1. Relay down → queue holds → drains on recovery
 - **Do:** With both apps online and a message mid-send, **stop the relay**
   (`Ctrl-C` on the relay box). Send a host→sandbox message. Restart the relay
-  (re-run Step 1 with the SAME `COORD_DB_PATH`). Wait ~30 s.
+  (`pnpm session:start` reuses the same `COORD_DB_PATH=/tmp/coord-xmachine.db`). Wait ~30 s.
 - **Expect:** the message is held while the relay is down and delivered after recovery,
   exactly once.
 - **Look:** host log `stored_offline` / outbound queue retains the row; after restart
@@ -260,7 +292,8 @@ Validate the deployed path AFTER the local run passes. Keep it tiny.
 ## Evidence collection (commit a record)
 
 Save, into `rig-evidence/<date>/`:
-1. `git log --oneline -1` output from **both** machines (Step 0).
+1. `git log --oneline -1` output from **both** machines (Step 0) **and** the `[RUNTIME_IDENTITY]` line
+   from each app (Step 3) showing matching `commit=` / `builtAt=`.
 2. The relay log (`~/relay-xmachine.log`) covering the whole session.
 3. App logs from both machines (paths above), trimmed to the session window.
 4. A filled copy of this checklist with PASS/FAIL + timestamp per step.
