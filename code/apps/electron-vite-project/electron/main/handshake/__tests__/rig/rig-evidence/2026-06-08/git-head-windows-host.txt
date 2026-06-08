@@ -1,0 +1,6 @@
+# Windows Pro (host) — 2026-06-08 session close
+# Recorded at session close; matched mini-PC at Step 0 / Step 3.
+branch=feature/layered-sandbox
+45fb23eab204fb83545db55dd73e4f6196059899
+
+# Operator-confirmed: [RUNTIME_IDENTITY] commit=45fb23ea on host launch after session:build.

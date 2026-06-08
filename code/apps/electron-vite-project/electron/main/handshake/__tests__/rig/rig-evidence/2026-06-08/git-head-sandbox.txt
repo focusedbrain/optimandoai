@@ -1,0 +1,9 @@
+# mini-PC (sandbox / relay host) — 2026-06-08 session close
+branch=feature/layered-sandbox
+45fb23eab204fb83545db55dd73e4f6196059899
+
+# RUNTIME_IDENTITY (Step 3)
+[pid=18067] branch=feature/layered-sandbox commit=45fb23eab204fb83545db55dd73e4f6196059899 builtAt=2026-06-08T17:47:46.038Z buildStamp=build007
+
+# build commit= from session:start
+build commit=45fb23eab204fb83545db55dd73e4f6196059899 short=45fb23e stamp=build007 builtAt=2026-06-08T17:49:35.234Z

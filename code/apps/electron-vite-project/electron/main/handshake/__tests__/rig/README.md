@@ -209,3 +209,55 @@ the live path.
 | Proof | File | Result |
 |---|---|---|
 | Unaltered row verifies (1 row, no tamper events); editing `depackaged_metadata` post-write → sealed read returns 0 rows + records `metadata_hash_mismatch` — P2P and email | `email/__tests__/pbeapTrustPersistence.regression.test.ts` | green (6/6) |
+
+---
+
+## 2026-06-08 — Cross-machine handshake matrix proven on real hardware
+
+**Branch:** `feature/layered-sandbox`. **HEAD:** `45fb23eab204fb83545db55dd73e4f6196059899`
+(`45fb23ea`). **Machines:** Windows Pro (host) + mini-PC Linux (sandbox) + LAN relay on
+mini-PC (`192.168.178.29:51249`). Evidence: `rig-evidence/2026-06-08/`.
+
+### Matrix proven (human-operated, two boxes)
+
+| Item | Result | Notes |
+|---|---|---|
+| 0 — HEAD sync both machines | PASS | both `45fb23ea` |
+| 1 — Pairing → ACTIVE, both device ids on relay | PASS | `relay-registry.txt`; Phase-0 gap fix confirmed live |
+| 2 — context_sync both directions | PASS | push_live context_sync on `hs-e0c54755` |
+| 3 — qBEAP live delivery host→sandbox | PASS | push_live + sandbox ingest |
+| 4 — pBEAP trust (lesser verdict) | PASS | per runbook expectation |
+| 5 — Clone live (+ second clone) | PASS | `CLONE_RECEIVE persist_success` ×2 |
+| 6 — Quarantine custody | PASS | operator session; INV-5 scrubbed logs |
+| 7 — Host-AI inference | PASS (post-fix) | see regression below |
+| 8 — Revoke → refuse → re-pair → restore | PASS | `hs-980a3c3e` REVOKED → `hs-e0c54755` ACTIVE |
+
+Also exercised: **inbox automation** (host Ollama analyze stream, 4× accepted),
+**attachments** (host→sandbox message with `attachments: 1`), **BEAP messaging** and
+**cloning** on the re-paired handshake.
+
+### Regression found and fixed during session
+
+**Host-AI outbound Bearer inversion** — regressed in `fd61df3e` (build87, latent since
+2026-04-26). Fresh internal pairing reached ACTIVE (capsule path correct) but sandbox→host
+inference 401'd on `/beap/ingest` because `outboundP2pBearerToCounterpartyIngest` returned
+`counterparty_p2p_token` instead of `local_p2p_auth_token`. Fixed in **`45fb23ea`** with
+P9 distinct-token regression test (`p2p-transport.test.ts` — asserts 200 for caller token,
+401 for peer token). Step 7 **PASS** confirmed after rebuild on both boxes.
+
+### Known benign mislabel (not a defect)
+
+**Duplicate-accept `COUNTERSIGNATURE_INVALID`** — on re-pair, a replayed accept capsule
+logged a signature-failure error on the host even though the handshake was already ACTIVE.
+Expected behaviour: idempotent no-op. Mislabel tracked in `DEFERRED.md`.
+
+### Not exercised this session
+
+- F1 relay-down recovery (relay preserved for future run)
+- Final smoke against deployed `relay.wrdesk.com`
+
+### Boundary note (unchanged)
+
+Single-box rig remains the gate for automated no-regression; this session adds the
+hardware-only dimension the harness cannot simulate (distinct instance ids, real LAN
+direct-P2P, live clone/offline, host-AI across machines).

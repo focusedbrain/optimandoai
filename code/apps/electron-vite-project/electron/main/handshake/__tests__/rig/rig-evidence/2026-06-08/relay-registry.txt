@@ -1,0 +1,22 @@
+# coordination_handshake_registry summary (from relay log RELAY_IDENTITY lines)
+# COORD_DB_PATH=/tmp/coord-xmachine.db  RELAY_IP=192.168.178.29:51249
+#
+# internal handshakes with BOTH device ids populated (Phase-0 gap fix verified):
+
+handshake_id=hs-616e8389-515f-4511-a00d-f3c0a5acea04
+  initiator_device_id=4a90a60b-3f53-43c5-92b3-1bbe9d943063  (sandbox)
+  acceptor_device_id=8929353a-5cbc-46f7-b4d9-6439b82a14ca      (host)
+  handshake_type=internal  same_principal=true
+  note=April stale handshake; token alignment artifact pre-fd61df3e
+
+handshake_id=hs-980a3c3e-93b8-4423-ae4f-5b911a000e57
+  initiator_device_id=8929353a-5cbc-46f7-b4d9-6439b82a14ca      (host)
+  acceptor_device_id=4a90a60b-3f53-43c5-92b3-1bbe9d943063  (sandbox)
+  handshake_type=internal  same_principal=true
+  note=First fresh pairing of session; exposed fd61df3e Bearer inversion (401) before fix
+
+handshake_id=hs-e0c54755-afcf-4ffe-ad05-17037df31722
+  initiator_device_id=8929353a-5cbc-46f7-b4d9-6439b82a14ca      (host)
+  acceptor_device_id=4a90a60b-3f53-43c5-92b3-1bbe9d943063  (sandbox)
+  handshake_type=internal  same_principal=true
+  note=Re-pair after revoke; host-AI verified PASS on build 45fb23ea

@@ -5,7 +5,18 @@ tracked in one place rather than re-discovered. One line each: **what** / **why 
 **what unblocks it**. "By design" items are not pending work — they are decisions, listed so
 they are not mistaken for gaps.
 
-_Last updated: 2026-06-06._
+_Last updated: 2026-06-08._
+
+## Logging / UX mislabels — pending
+
+- **Duplicate-accept `COUNTERSIGNATURE_INVALID` mislabel** — when an accept capsule is
+  replayed on an already-ACTIVE internal handshake (e.g. during re-pair or duplicate relay
+  delivery), the host logs `COUNTERSIGNATURE_INVALID` as if the signature failed. Observed
+  on the 2026-06-08 cross-machine session; handshake state was already ACTIVE and processing
+  continued correctly. Expected behaviour: treat as idempotent no-op (same as duplicate
+  context_sync), log at debug/info with reason `accept_already_active`, not a signature-
+  failure error. _Unblocks:_ add ACTIVE-state early return in accept ingest before
+  countersignature verification; align log level/message.
 
 ## Architectural — by design (NOT pending)
 
