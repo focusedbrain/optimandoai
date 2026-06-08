@@ -2535,7 +2535,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           probe = {
             ok: false,
             code: InternalInferenceErrorCode.HOST_AI_DIRECT_AUTH_MISSING,
-            message: 'counterparty_p2p_token',
+            message: 'local_p2p_auth_token',
             directP2pAvailable: true,
           }
         } else {

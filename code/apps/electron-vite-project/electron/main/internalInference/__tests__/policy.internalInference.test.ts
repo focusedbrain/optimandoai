@@ -95,8 +95,12 @@ describe('internalInferenceEndpointGateOk', () => {
 })
 
 describe('outboundP2pBearerToCounterpartyIngest', () => {
-  test('returns counterparty_p2p_token (Bearer to peer /beap/ingest), not local', () => {
-    expect(outboundP2pBearerToCounterpartyIngest(baseRecord({}))).toBe('pt')
-    expect(outboundP2pBearerToCounterpartyIngest(baseRecord({ counterparty_p2p_token: '  secret  ' }))).toBe('secret')
+  test('returns local_p2p_auth_token (Bearer to present on peer /beap/ingest), not counterparty token', () => {
+    // baseRecord has local_p2p_auth_token='t', counterparty_p2p_token='pt'
+    // Outbound must present OUR token ('t'), NOT the peer's token ('pt').
+    expect(outboundP2pBearerToCounterpartyIngest(baseRecord({}))).toBe('t')
+    expect(outboundP2pBearerToCounterpartyIngest(baseRecord({ local_p2p_auth_token: '  my-secret  ' }))).toBe('my-secret')
+    // Sanity: must NOT return the counterparty token — that is the pre-fd61df3e bug value.
+    expect(outboundP2pBearerToCounterpartyIngest(baseRecord({}))).not.toBe('pt')
   })
 })

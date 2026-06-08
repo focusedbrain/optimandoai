@@ -365,15 +365,19 @@ export function assertSandboxReceivesResultFromHost(
 }
 
 /**
- * Bearer token this device must send when **calling the peer’s** `p2p_endpoint` (POST
- * `/beap/ingest`, policy GET, reachability, internal inference). That is the secret the **peer**
- * gave you to authenticate to their BEAP listener, stored as `counterparty_p2p_token` on the local
- * handshake row. It is not `local_p2p_auth_token` (the secret this device expects inbound peers
- * to present on *our* listener — the server compares the request Bearer to *its*
- * `counterparty_p2p_token`, see `p2pServer` / `p2pReachabilityGet` / `p2pHostPolicyGet`).
+ * Bearer token this device must send when **calling the peer's** `p2p_endpoint` (POST
+ * `/beap/ingest`, policy GET, reachability, internal inference).
+ *
+ * This is `local_p2p_auth_token` — the secret **this device minted** and embedded in its
+ * outbound capsules as `p2p_auth_token`. The peer stored it as their `counterparty_p2p_token`
+ * and their ingest gate compares the inbound Bearer to that stored value.
+ *
+ * `counterparty_p2p_token` is the *opposite* direction: it is the peer's token, which the peer
+ * sends when calling *our* ingest — not what we send to theirs.
+ * (See `p2pServer.ts:counterparty_p2p_token` gate, `outboundQueue.ts:local_p2p_auth_token`.)
  */
 export function outboundP2pBearerToCounterpartyIngest(r: HandshakeRecord): string {
-  return typeof r.counterparty_p2p_token === 'string' ? r.counterparty_p2p_token.trim() : ''
+  return typeof r.local_p2p_auth_token === 'string' ? r.local_p2p_auth_token.trim() : ''
 }
 
 /**

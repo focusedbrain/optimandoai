@@ -980,10 +980,9 @@ async function probeHostInferencePolicyFromSandboxImpl(
   const fP2p = getP2pInferenceFlags()
   const token = outboundP2pBearerToCounterpartyIngest(ar.record)
   if (!token) {
-    const hasLocal = !!(ar.record.local_p2p_auth_token && String(ar.record.local_p2p_auth_token).trim())
     probeDone(false)
     p2p(
-      `capability_probe_auth_skip reason=${InternalInferenceErrorCode.HOST_AI_DIRECT_AUTH_MISSING} handshake=${hid} counterparty_p2p_token_set=no local_p2p_auth_token_set=${hasLocal ? 'yes' : 'no'}`,
+      `capability_probe_auth_skip reason=${InternalInferenceErrorCode.HOST_AI_DIRECT_AUTH_MISSING} handshake=${hid} local_p2p_auth_token_set=no`,
     )
     p2pClassificationDetail(`classification=${P2P_CAPABILITY_PROBE.AUTH_REJECTED} reason=host_ai_direct_auth_missing`)
     logHostAiStage({

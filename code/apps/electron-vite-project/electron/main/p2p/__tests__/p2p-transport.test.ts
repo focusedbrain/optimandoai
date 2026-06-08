@@ -1361,6 +1361,152 @@ describe('P7: Full Roundtrip', () => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════
+// P9: Regression — Distinct-token ingest auth (fd61df3e / build87 fix)
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Before commit fd61df3e (build87, 2026-04-26), outboundP2pBearerToCounterpartyIngest
+// correctly returned local_p2p_auth_token.  fd61df3e accidentally flipped it to
+// counterparty_p2p_token, causing every fresh-paired host-AI session to 401 on
+// /beap/ingest.  Existing tests (P2_08, P3) masked the bug by setting both tokens
+// to the same value.  This suite uses DISTINCT tokens so the inversion is detectable.
+//
+// Auth model recap:
+//   local_p2p_auth_token   = the token THIS device minted; sent outbound (to the peer's ingest).
+//   counterparty_p2p_token = the token the PEER minted; the server expects it from inbound callers.
+//
+// Server DB row for this suite:
+//   local_p2p_auth_token   = HOST_LOCAL_TOKEN    (server's own token — irrelevant to caller auth)
+//   counterparty_p2p_token = SANDBOX_LOCAL_TOKEN (server expects THIS from the caller)
+//
+// Caller (sandbox) must present SANDBOX_LOCAL_TOKEN → 200/non-401.
+// Pre-fix bug: caller sent HOST_LOCAL_TOKEN (counterparty) → 401.
+
+describe('P9: Regression — Distinct-token ingest auth (fd61df3e fix)', () => {
+  // The token the sandbox minted (correct outbound Bearer after fix).
+  const SANDBOX_LOCAL_TOKEN = 'p9-sandbox-local-p2p-token'
+  // The token the host minted — what outboundP2pBearerToCounterpartyIngest returned pre-fix.
+  const HOST_LOCAL_TOKEN = 'p9-host-local-p2p-token'
+
+  let p9Server: Server | null = null
+  let p9Url: string = ''
+  let p9Db: any
+  let p9HandshakeId: string
+
+  beforeEach(() => {
+    resetRateLimitsForTests()
+  })
+
+  beforeAll(async () => {
+    if (skipIfNoSqlite()) return
+    p9Db = createP2PTestDb()
+    // Full ACTIVE handshake via capsule pipeline (state must be ACTIVE for auth gate).
+    const setup = await createValidHandshakeWithContextSync(p9Db)
+    p9HandshakeId = setup.handshakeId
+    // Overwrite with DISTINCT tokens — the critical difference from P2_08/P3.
+    // Server expects SANDBOX_LOCAL_TOKEN from the caller (stored as counterparty_p2p_token).
+    // HOST_LOCAL_TOKEN is the server's own outbound token — NOT what caller should present.
+    p9Db
+      .prepare(
+        'UPDATE handshakes SET local_p2p_auth_token = ?, counterparty_p2p_token = ? WHERE handshake_id = ?',
+      )
+      .run(HOST_LOCAL_TOKEN, SANDBOX_LOCAL_TOKEN, p9HandshakeId)
+
+    const config: P2PConfig = {
+      enabled: true,
+      port: 0,
+      bind_address: '127.0.0.1',
+      tls_enabled: false,
+      tls_cert_path: null,
+      tls_key_path: null,
+      local_p2p_endpoint: null,
+    }
+    p9Server = createP2PServer(
+      config,
+      () => p9Db,
+      () => buildTestSession({ wrdesk_user_id: 'a', email: 'a@t.com' }),
+    ) as Server
+    if (p9Server) {
+      await new Promise<void>((r) => {
+        if (p9Server!.listening) r()
+        else p9Server!.once('listening', () => r())
+      })
+      const addr = p9Server!.address()
+      const port = typeof addr !== 'string' && addr ? addr.port : 51249
+      p9Url = `http://127.0.0.1:${port}/beap/ingest`
+    }
+  })
+
+  afterAll(async () => {
+    if (p9Server) await new Promise<void>((r) => p9Server!.close(() => r()))
+  })
+
+  test('P9_01_caller_local_token_accepted', async () => {
+    // The sandbox presents its own local_p2p_auth_token.  The server's
+    // counterparty_p2p_token = SANDBOX_LOCAL_TOKEN → auth passes (200 or 400 from
+    // capsule-body validation, but never 401).
+    if (skipIfNoSqlite() || !p9Url) return
+    const res = await fetch(p9Url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${SANDBOX_LOCAL_TOKEN}`,
+      },
+      body: JSON.stringify({ handshake_id: p9HandshakeId }),
+    })
+    expect(res.status).not.toBe(401)
+  })
+
+  test('P9_02_counterparty_token_rejected_401', async () => {
+    // Pre-fix behaviour: outboundP2pBearerToCounterpartyIngest returned HOST_LOCAL_TOKEN
+    // (the peer's token).  The server's counterparty_p2p_token is SANDBOX_LOCAL_TOKEN ≠
+    // HOST_LOCAL_TOKEN → auth gate rejects → 401.  This test would have PASSED the
+    // pre-fix code (both tokens were the same) and FAILS it here by design.
+    if (skipIfNoSqlite() || !p9Url) return
+    const res = await fetch(p9Url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${HOST_LOCAL_TOKEN}`,
+      },
+      body: JSON.stringify({ handshake_id: p9HandshakeId }),
+    })
+    expect(res.status).toBe(401)
+  })
+
+  test('P9_03_capsule_delivery_path_uses_local_token', async () => {
+    // outboundQueue.ts:270 always used local_p2p_auth_token directly (never changed
+    // in fd61df3e).  Confirm it remains green with distinct tokens: the queue must
+    // send Bearer <local_p2p_auth_token>, not Bearer <counterparty_p2p_token>.
+    if (skipIfNoSqlite()) return
+    const capsuleDb = createP2PTestDb()
+    const setup = await createValidHandshakeWithContextSync(capsuleDb)
+    const outboundLocal = 'p9-outbound-local-distinct'
+    const outboundCounterparty = 'p9-outbound-counterparty-distinct'
+    capsuleDb
+      .prepare(
+        'UPDATE handshakes SET local_p2p_auth_token = ?, counterparty_p2p_token = ? WHERE handshake_id = ?',
+      )
+      .run(outboundLocal, outboundCounterparty, setup.handshakeId)
+
+    let capturedBearer: string | null = null
+    const { server: mockSrv, url: mockUrl } = await startMockServer((req, res) => {
+      capturedBearer = req.headers.authorization ?? null
+      res.writeHead(200)
+      res.end(JSON.stringify({ success: true }))
+    })
+    try {
+      const capsule = minimalContextSyncCapsule(setup.handshakeId)
+      enqueueOutboundCapsule(capsuleDb, setup.handshakeId, mockUrl, capsule)
+      await processOutboundQueue(capsuleDb)
+      expect(capturedBearer).toBe(`Bearer ${outboundLocal}`)
+      expect(capturedBearer).not.toBe(`Bearer ${outboundCounterparty}`)
+    } finally {
+      await new Promise<void>((r) => mockSrv.close(() => r()))
+    }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════
 // P8: TLS
 // ═══════════════════════════════════════════════════════════════════════
 
