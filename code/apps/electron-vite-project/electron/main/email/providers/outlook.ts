@@ -57,6 +57,7 @@ import {
 import { sanitizeHtmlToText } from '../sanitizer'
 import { oauthServerManager } from '../oauth-server'
 import { getCredentialsForOAuth, type OutlookCreds } from '../credentials'
+import { resolveOAuthScopeString, type OAuthScopeRole } from '../oauthScopes'
 
 /**
  * Microsoft Graph API scopes
@@ -758,7 +759,9 @@ export class OutlookProvider extends BaseEmailProvider {
    * - Concurrent request prevention
    * - State machine for flow management
    */
-  async startOAuthFlow(): Promise<{ oauth: EmailAccountConfig['oauth']; email: string }> {
+  async startOAuthFlow(
+    scopeRole: OAuthScopeRole = 'all',
+  ): Promise<{ oauth: EmailAccountConfig['oauth']; email: string }> {
     const oauthConfigRaw = await getCredentialsForOAuth('outlook')
     if (!oauthConfigRaw) {
       throw new Error('Outlook OAuth client credentials not configured. Please set up an Azure AD application.')
@@ -781,7 +784,7 @@ export class OutlookProvider extends BaseEmailProvider {
         5 * 60 * 1000,
       )
 
-      const authUrl = this.buildAuthUrl(oauthConfig.clientId, oauthConfig.tenantId, callbackUrl)
+      const authUrl = this.buildAuthUrl(oauthConfig.clientId, oauthConfig.tenantId, callbackUrl, scopeRole)
       console.log('[Outlook] Opening OAuth in system browser:', authUrl.substring(0, 100) + '...')
       
       // Open browser
@@ -809,7 +812,7 @@ export class OutlookProvider extends BaseEmailProvider {
       console.log('[Outlook] Auth code received, exchanging for tokens...')
       
       // Exchange code for tokens
-      const tokens = await this.exchangeCodeForTokens(oauthConfig, result.code, callbackUrl)
+      const tokens = await this.exchangeCodeForTokens(oauthConfig, result.code, callbackUrl, scopeRole)
       if (!tokens) {
         throw new Error('Failed to exchange authorization code for tokens')
       }
@@ -854,14 +857,19 @@ export class OutlookProvider extends BaseEmailProvider {
    * Build the OAuth authorization URL
    * Uses dynamic port from the OAuth server manager
    */
-  private buildAuthUrl(clientId: string, tenantId: string | undefined, redirectUri: string): string {
+  private buildAuthUrl(
+    clientId: string,
+    tenantId: string | undefined,
+    redirectUri: string,
+    scopeRole: OAuthScopeRole = 'all',
+  ): string {
     const tenant = tenantId || 'organizations'
     
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
       response_type: 'code',
-      scope: OUTLOOK_SCOPES.join(' '),
+      scope: resolveOAuthScopeString('microsoft365', scopeRole),
       response_mode: 'query',
       prompt: 'consent'
     })
@@ -875,6 +883,7 @@ export class OutlookProvider extends BaseEmailProvider {
     oauthConfig: { clientId: string; clientSecret?: string; tenantId?: string },
     code: string,
     redirectUri: string,
+    scopeRole: OAuthScopeRole = 'all',
   ): Promise<EmailAccountConfig['oauth']> {
     const tenant = oauthConfig.tenantId || 'organizations'
     
@@ -884,7 +893,7 @@ export class OutlookProvider extends BaseEmailProvider {
         client_id: oauthConfig.clientId,
         redirect_uri: redirectUri,
         grant_type: 'authorization_code',
-        scope: OUTLOOK_SCOPES.join(' ')
+        scope: resolveOAuthScopeString('microsoft365', scopeRole)
       }
       
       // Client secret is optional for public clients (desktop apps)
@@ -975,6 +984,10 @@ export class OutlookProvider extends BaseEmailProvider {
 
     const tenant = oauthConfig.tenantId || 'organizations'
     return new Promise((resolve, reject) => {
+      // Single-machine 'all' refresh (unchanged). The A2 read/send tokens are
+      // stored role-scoped (roleScopedTokenStore) but are not refreshed/used by
+      // this provider instance until Prompt 3 relocates fetch to the sandbox;
+      // role-scoped refresh requests the granted subset there, not this bundle.
       const postParams: Record<string, string> = {
         client_id: oauthConfig.clientId,
         refresh_token: this.refreshToken!,

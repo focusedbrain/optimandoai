@@ -95,3 +95,60 @@ describe('INV-2 wire-level assertion', () => {
     ).toThrow(/INV-2/)
   })
 })
+
+describe('INV-2 extension — OAuth/credential tokens never cross the handshake (Prompt 2)', () => {
+  // The A2 split keeps send-client and read-client tokens NODE-LOCAL
+  // (email/roleScopedTokenStore). A `critical_job_*` payload must never carry one.
+  const tokenFields = [
+    'accessToken',
+    'access_token',
+    'refreshToken',
+    'refresh_token',
+    'oauthToken',
+    'oauth_token',
+    'clientSecret',
+    'client_secret',
+    'bearerToken',
+    'imapPassword',
+    'smtp_password',
+  ]
+
+  for (const field of tokenFields) {
+    test(`rejects "${field}" nested in input`, () => {
+      expect(() =>
+        assertNoKeyMaterialOnWire({
+          jobId: 'j',
+          kind: 'depackage',
+          input: { inputBytes: {}, [field]: 'leak' },
+          limits: { maxWallClockMs: 1 },
+          flush: 'per-action',
+        } as never),
+      ).toThrow(/INV-2/)
+    })
+  }
+
+  test('a clean depackage spec (raw bytes only) still passes', () => {
+    expect(() =>
+      assertNoKeyMaterialOnWire({
+        jobId: 'j',
+        kind: 'depackage',
+        input: { inputBytes: { $buf: 'AAA=' } },
+        custodyPubKeyB64: 'cHVi',
+        limits: { maxWallClockMs: 1 },
+        flush: 'per-action',
+      } as never),
+    ).not.toThrow()
+  })
+
+  test('serializeCriticalJobSpec throws if an access token sneaks into input', () => {
+    expect(() =>
+      serializeCriticalJobSpec({
+        jobId: 'j2',
+        kind: 'depackage',
+        input: { inputBytes: Buffer.from('hi'), accessToken: 'ya29.secret' } as never,
+        limits: { maxWallClockMs: 1000 },
+        flush: 'per-action',
+      }),
+    ).toThrow(/INV-2/)
+  })
+})

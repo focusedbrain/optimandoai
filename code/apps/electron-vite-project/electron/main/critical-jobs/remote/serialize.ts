@@ -67,8 +67,15 @@ export function decodeBuffers(value: unknown): unknown {
  * Field-name patterns that must NEVER appear anywhere in a wire spec (INV-2).
  * `custodyPubKeyB64` is explicitly allowed (public). The match is conservative —
  * it targets private/seal/vault key shapes, not the public custody key.
+ *
+ * Prompt 2 extension (A2 split): OAuth/credential MATERIAL must also never cross
+ * the handshake. The host send-client token and the sandbox read-client token are
+ * NODE-LOCAL (see `email/roleScopedTokenStore.ts`); a `critical_job_*` payload is
+ * never the carrier. We reject token/secret/password field shapes here so an
+ * accidental serialization fails closed at the wire instead of leaking a token.
  */
-const FORBIDDEN_KEY_PATTERN = /(privatekey|priv_key|secretkey|secret_key|sealkey|seal_key|vaultkey|vault_key|privkey)/i
+const FORBIDDEN_KEY_PATTERN =
+  /(privatekey|priv_key|secretkey|secret_key|sealkey|seal_key|vaultkey|vault_key|privkey|accesstoken|access_token|refreshtoken|refresh_token|oauthtoken|oauth_token|clientsecret|client_secret|bearertoken|bearer_token|imap_?password|smtp_?password)/i
 
 const ALLOWED_SPEC_TOP_KEYS: ReadonlySet<string> = new Set([
   'jobId',

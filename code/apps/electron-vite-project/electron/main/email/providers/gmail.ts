@@ -14,6 +14,7 @@ import * as path from 'path'
 import { randomBytes, createHash } from 'node:crypto'
 import { isOpaqueIngestionActive } from '../opaqueIngestion'
 import { assertNoInlineParse } from '../inlineParseGuard'
+import { resolveOAuthScopeString, type OAuthScopeRole } from '../oauthScopes'
 import { 
   BaseEmailProvider, 
   RawEmailMessage, 
@@ -134,13 +135,13 @@ function sha256base64url(input: string): string {
 }
 
 /**
- * Gmail API scopes
+ * Gmail API scopes.
+ *
+ * Prompt 2 (A2 split): the canonical scope sets now live in `email/oauthScopes.ts`.
+ * The authorize URL selects the per-role set via `resolveOAuthScopeString('gmail',
+ * role)` — single-machine 'all' (read+modify+send bundle), host send-only, or
+ * sandbox read-only.
  */
-const GMAIL_SCOPES = [
-  'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.modify',
-  'https://www.googleapis.com/auth/gmail.send'
-]
 
 /**
  * OAuth2 config storage path
@@ -701,6 +702,7 @@ export class GmailProvider extends BaseEmailProvider {
   async startOAuthFlow(
     email?: string,
     resolved?: ResolvedGmailOAuth,
+    scopeRole: OAuthScopeRole = 'all',
   ): Promise<NonNullable<EmailAccountConfig['oauth']>> {
     const oauthConfig = resolved ?? (await resolveGmailOAuthForConnect())
     this.standardConnectAuthorizeClientIdFingerprint = null
@@ -740,6 +742,7 @@ export class GmailProvider extends BaseEmailProvider {
         oauthConfig.authMode,
         codeChallenge,
         callbackUrl,
+        scopeRole,
       )
       if (oauthConfig.credentialSourceUsed === 'builtin_public') {
         this.standardConnectAuthorizeClientIdFingerprint = oauthClientIdFingerprint(oauthConfig.clientId)
@@ -822,12 +825,13 @@ export class GmailProvider extends BaseEmailProvider {
     authMode: ResolvedGmailOAuth['authMode'],
     codeChallenge: string | undefined,
     redirectUri: string,
+    scopeRole: OAuthScopeRole = 'all',
   ): string {
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
       response_type: 'code',
-      scope: GMAIL_SCOPES.join(' '),
+      scope: resolveOAuthScopeString('gmail', scopeRole),
       access_type: 'offline',
       prompt: 'consent',
       ...(email ? { login_hint: email } : {}),
