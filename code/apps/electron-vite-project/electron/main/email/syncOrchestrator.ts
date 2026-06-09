@@ -25,6 +25,7 @@ import {
 import { emailGateway } from './gateway'
 import { detectAndRouteMessage, type RawEmailMessage } from './messageRouter'
 import { isOpaqueIngestionActive } from './opaqueIngestion'
+import { resolveIngestionOwnership, assertHostMayReadPoll } from './ingestionOwnership'
 import type { SSOSession } from '../handshake/types'
 import { emailDebugLog, emailDebugWarn } from './emailDebug'
 import {
@@ -98,8 +99,14 @@ export interface SyncResult {
   listedFromProvider?: number
   /** Skipped during ingest — `email_message_id` already in `inbox_messages` for this account. */
   skippedDuplicate?: number
-  /** Set when no provider work ran — e.g. user paused processing for this account row. */
-  skipReason?: 'processing_paused'
+  /**
+   * Set when no provider work ran:
+   *  - `processing_paused`: user paused processing for this account row.
+   *  - `ingestion_delegated_to_sandbox`: Prompt 3 (A2) — a linked sandbox owns
+   *    email ingestion, so the host did NOT read-poll/parse (it keeps its send
+   *    client for outbound). The sandbox node fetches + depackages + returns BEAP.
+   */
+  skipReason?: 'processing_paused' | 'ingestion_delegated_to_sandbox'
 }
 
 export interface EmailSyncStateUpdates {
@@ -440,6 +447,26 @@ async function syncAccountEmailsImpl(
     }
   }
 
+  // Prompt 3 (A2 multi-machine): fetch-ownership gate — the SINGLE source of
+  // truth (`resolveIngestionOwnership`, derived from the same topology as
+  // `isOpaqueIngestionActive`). When a linked sandbox owns email ingestion, the
+  // host does NOT read-poll: it performs NO list, NO detail fetch, NO parse —
+  // raw untrusted mail never touches the host. The host keeps its send client
+  // for outbound (unaffected). The sandbox node runs the poll (sandboxIngestion).
+  // This is explicit and logged (which node owns ingestion, and why).
+  const ownership = resolveIngestionOwnership()
+  if (ownership.thisNodeRole === 'host' && !ownership.hostShouldReadPoll) {
+    console.log(
+      `[SyncOrchestrator] read-poll DISABLED — ${ownership.reason}. account=${accountId} (host keeps send client only)`,
+    )
+    return {
+      ...result,
+      listedFromProvider: 0,
+      skippedDuplicate: 0,
+      skipReason: 'ingestion_delegated_to_sandbox',
+    }
+  }
+
   try {
     const accountInfo = await emailGateway.getAccount(accountId)
     if (accountInfo?.provider === 'imap') {
@@ -567,6 +594,10 @@ async function syncAccountEmailsImpl(
     })
     markPullActive(accountId)
     try {
+      // Prompt 3 tripwire (defense-in-depth): if the ownership gate above is ever
+      // bypassed by a regression, fail closed LOUDLY here — the host must never
+      // list/fetch/parse untrusted mail while a linked sandbox owns ingestion.
+      assertHostMayReadPoll('syncOrchestrator.list+fetch', ownership)
       const basePullLabels = accountCfg ? resolveImapPullFolders(accountCfg) : ['INBOX']
       let pullFolders: string[]
       if (accountCfg?.provider === 'imap') {
@@ -1032,6 +1063,29 @@ export function startAutoSync(
 
       const accCfg = emailGateway.getAccountConfig(accountId)
       if (accCfg?.processingPaused === true) {
+        scheduleNext()
+        return
+      }
+
+      // Prompt 3 (A2): if THIS node is the sandbox that owns ingestion, run the
+      // sandbox-side poll (its READ client fetches + depackages locally + returns
+      // BEAP to the host) instead of the host gateway read-poll. Routed off the
+      // SAME ownership single-source-of-truth as the host gate. Only engages under
+      // a linked topology, so single-machine auto-sync is unchanged.
+      const tickOwnership = resolveIngestionOwnership()
+      if (tickOwnership.sandboxShouldReadPoll) {
+        try {
+          const { runSandboxIngestionPoll } = await import('./sandboxIngestion')
+          const sres = await runSandboxIngestionPoll({ accountId })
+          console.log(
+            `[AUTO_SYNC] sandbox-role poll account=${accountId} status=${sres.status} fetched=${sres.fetched} delivered=${sres.delivered} held=${sres.held}`,
+          )
+          if (onSyncComplete) onSyncComplete(null)
+        } catch (err: any) {
+          // Fail closed: a sandbox poll error NEVER falls back to host read-poll.
+          console.warn('[AUTO_SYNC] sandbox-role poll error (fail closed):', err?.message)
+          if (onSyncComplete) onSyncComplete(null, err)
+        }
         scheduleNext()
         return
       }
