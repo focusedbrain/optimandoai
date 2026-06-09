@@ -12,7 +12,7 @@ import * as https from 'https'
 import * as fs from 'fs'
 import * as path from 'path'
 import { randomBytes, createHash } from 'node:crypto'
-import { isSeamDepackageCutoverEnabled } from '../../critical-jobs/featureFlags'
+import { isOpaqueIngestionActive } from '../opaqueIngestion'
 import { assertNoInlineParse } from '../inlineParseGuard'
 import { 
   BaseEmailProvider, 
@@ -392,6 +392,27 @@ export class GmailProvider extends BaseEmailProvider {
       }
     }
 
+    // ── Prompt 1 (host inertness): ID-only listing. The sync loop re-fetches each
+    // message via `getMessage` (opaque `format=raw`); the list itself must not pull
+    // or parse any content on the host. Return id-only stubs and skip phase 2. ──
+    if (isOpaqueIngestionActive()) {
+      return allIds.map((id) => ({
+        id,
+        threadId: undefined,
+        subject: '',
+        from: { email: '' },
+        to: [],
+        cc: [],
+        date: new Date(),
+        bodyHtml: undefined,
+        bodyText: undefined,
+        flags: { seen: false, flagged: false, answered: false, draft: false, deleted: false },
+        labels: [],
+        folder: 'INBOX',
+        headers: {},
+      }))
+    }
+
     // ── Phase 2: fetch full messages in concurrent batches (dedupe is in syncOrchestrator). ──
     const messages: RawEmailMessage[] = []
     const CONCURRENT_BATCH = 10
@@ -422,7 +443,7 @@ export class GmailProvider extends BaseEmailProvider {
       // opaque payload + id/threadId/labelIds/internalDate; NO header/body parse
       // happens in the orchestrator. The key-less guest derives the display
       // envelope from `rawRfc822` post-depackage.
-      if (isSeamDepackageCutoverEnabled()) {
+      if (isOpaqueIngestionActive()) {
         const rawResp = await this.apiRequest('GET', `/users/me/messages/${messageId}?format=raw`)
         return this.buildRawGmailMessage(rawResp)
       }

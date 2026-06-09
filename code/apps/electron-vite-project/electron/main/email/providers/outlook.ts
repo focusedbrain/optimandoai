@@ -12,13 +12,34 @@ import type { IncomingHttpHeaders } from 'http'
 import * as https from 'https'
 import * as fs from 'fs'
 import * as path from 'path'
-import { isSeamDepackageCutoverEnabled } from '../../critical-jobs/featureFlags'
+import { isOpaqueIngestionActive } from '../opaqueIngestion'
+import { assertNoInlineParse } from '../inlineParseGuard'
 import { 
   BaseEmailProvider, 
   RawEmailMessage, 
   RawAttachment, 
   FolderInfo 
 } from './base'
+
+/**
+ * Prompt 1 (host inertness): thrown when inert ingestion is active but the only
+ * proven opaque Outlook input — raw MIME via Graph `/$value` — is not enabled
+ * (the `/$value` fidelity spike has not passed; default preference is the
+ * provider-structured-json form, which the host must NOT assemble because it
+ * reads body/attachment content). Per the invariant, Outlook ingestion FAILS
+ * CLOSED here rather than parsing attacker-controlled bytes on the host.
+ */
+export const OUTLOOK_OPAQUE_UNPROVEN_CODE = 'E_OUTLOOK_OPAQUE_UNPROVEN' as const
+export class OutlookOpaqueUnprovenError extends Error {
+  readonly code = OUTLOOK_OPAQUE_UNPROVEN_CODE
+  constructor(public readonly messageId: string) {
+    super(
+      `Outlook inert ingestion requires raw MIME via /$value (WRDESK_OUTLOOK_OPAQUE_INPUT=value); ` +
+        `the host will not parse Outlook mail. messageId=${messageId}`,
+    )
+    this.name = 'OutlookOpaqueUnprovenError'
+  }
+}
 import { 
   EmailAccountConfig, 
   MessageSearchOptions, 
@@ -305,6 +326,12 @@ export class OutlookProvider extends BaseEmailProvider {
       )
     }
 
+    // Prompt 1 (host inertness): ID-only listing — the sync loop re-fetches each
+    // message opaquely via getMessage; never pull/parse content during listing.
+    if (isOpaqueIngestionActive()) {
+      return ids.map((id) => this.outlookListStub(id, folderId))
+    }
+
     /** Lower concurrency + small gaps reduce delegated-token throttling (was yielding ~100 successes then nulls). */
     const CONCURRENCY = 4
     const INTER_BATCH_MS = 200
@@ -361,7 +388,9 @@ export class OutlookProvider extends BaseEmailProvider {
       const raw = await this.fetchAllMessagesTwoPhase(folderId, options, maxTotal)
       let messages: any[] = raw
 
-      const useClientFilter = !!(options?.from || options?.subject)
+      // Inert ingestion produces id-only stubs (no from/subject) — host-side
+      // from/subject filtering is not possible and is skipped (the inbox filters).
+      const useClientFilter = !isOpaqueIngestionActive() && !!(options?.from || options?.subject)
       if (useClientFilter && messages.length > 0) {
         const fromFilter = options?.from?.toLowerCase()
         const subjectFilter = options?.subject?.toLowerCase()
@@ -380,6 +409,14 @@ export class OutlookProvider extends BaseEmailProvider {
         })
       }
       return messages
+    }
+
+    // Prompt 1 (host inertness): single-page UI list is ID-only when inert.
+    if (isOpaqueIngestionActive()) {
+      const { collected } = await this.fetchMessagesListResponse(folderId, options, pageTop, 'id')
+      return collected
+        .filter((m: any) => typeof m?.id === 'string' && m.id)
+        .map((m: any) => this.outlookListStub(m.id, folderId))
     }
 
     const { collected, useClientFilter } = await this.fetchMessagesListResponse(
@@ -412,78 +449,96 @@ export class OutlookProvider extends BaseEmailProvider {
   }
   
   async fetchMessage(messageId: string, folderHint?: string): Promise<RawEmailMessage | null> {
+    // Prompt 1 (host inertness): when inert ingestion is active, fetch the OPAQUE
+    // raw MIME ONLY and never parse. This runs OUTSIDE the try below so a
+    // fail-closed throw propagates (the legacy catch returns null/parses — that
+    // must never mask an inert-path failure into a silent skip).
+    if (isOpaqueIngestionActive()) {
+      return this.fetchMessageOpaque(messageId, folderHint)
+    }
     try {
       const response = await this.graphApiRequest(
         'GET',
         `/me/messages/${messageId}?$select=id,conversationId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,body,isRead,flag,isDraft,hasAttachments,internetMessageHeaders,internetMessageId`
       )
 
-      const msg = this.parseOutlookMessage(response, folderHint || 'inbox')
-
-      // B2 byte-courier (R2 / INV-7): the opaque raw MIME via Graph `/$value` is
-      // implemented (binary-safe) but is NOT the default. Until the `/$value`
-      // fidelity spike PASSES on a real account (verification runbook 0009 V5),
-      // unproven fidelity is "fidelity doubt" and INV-7 forbids defaulting onto it.
-      // Default Outlook preference is `provider-structured-json` (guest-side
-      // walker — a PENDING build item, see 0008 deviations); opt into the raw path
-      // only for the spike via `WRDESK_OUTLOOK_OPAQUE_INPUT=value`. With the
-      // default, no opaque payload is set here ⇒ the seam fails closed (HELD) for
-      // Outlook, never inline-parses. The `$select` parse above is unchanged and
-      // the flag-off path is untouched.
-      if (msg && isSeamDepackageCutoverEnabled() && this.outlookPrefersRawValue()) {
-        try {
-          const raw = await this.graphApiRequestRaw(`/me/messages/${messageId}/$value`)
-          if (raw && raw.length > 0) {
-            msg.rawRfc822 = raw
-          }
-        } catch (e) {
-          console.warn('[Outlook] $value fetch failed (seam will hold):', messageId, e)
-        }
-      } else if (msg && isSeamDepackageCutoverEnabled()) {
-        // B2.1 (D4): the DEFAULT Outlook opaque form is provider-structured-json.
-        // Ship the Graph message resource UNPARSED (the orchestrator only collects
-        // + serializes opaque fields; it never interprets the body/attachments).
-        // The guest's structured-json walker treats it as untrusted structure.
-        try {
-          const structured: Record<string, unknown> = {
-            subject: response.subject,
-            body: response.body,
-            // B2.2: ship the Graph envelope fields OPAQUE; the guest decodes +
-            // normalizes them (the orchestrator does not parse headers flag-on).
-            from: response.from,
-            toRecipients: response.toRecipients,
-            ccRecipients: response.ccRecipients,
-            replyTo: response.replyTo,
-            receivedDateTime: response.receivedDateTime,
-            // RFC Message-ID for in-guest threading hints (provider-native field).
-            internetMessageId: response.internetMessageId,
-          }
-          if (response.hasAttachments) {
-            const attResp = await this.graphApiRequest('GET', `/me/messages/${messageId}/attachments`)
-            const all: any[] = attResp?.value ?? []
-            // Only file attachments carry `contentBytes` (item/reference carry none).
-            structured.attachments = all
-              .filter((a) => typeof a?.contentBytes === 'string')
-              .map((a) => ({
-                '@odata.type': a['@odata.type'],
-                name: a.name,
-                contentType: a.contentType,
-                contentBytes: a.contentBytes,
-              }))
-          }
-          msg.providerStructuredJson = {
-            provider: 'outlook',
-            json: Buffer.from(JSON.stringify(structured), 'utf-8'),
-          }
-        } catch (e) {
-          console.warn('[Outlook] structured-json assembly failed (seam will hold):', messageId, e)
-        }
-      }
-
-      return msg
+      return this.parseOutlookMessage(response, folderHint || 'inbox')
     } catch (err) {
       console.error('[Outlook] Error fetching message:', messageId, err)
       return null
+    }
+  }
+
+  /**
+   * Inert detail fetch: raw MIME via Graph `/$value` ONLY. The host reads no
+   * message content — just provider operational metadata (isRead/isDraft/
+   * receivedDateTime/hasAttachments) for ordering/flags — and forwards the opaque
+   * bytes. The guest derives the display envelope post-depackage. Fails CLOSED
+   * (throws) if `/$value` is not enabled or returns nothing; it NEVER falls back
+   * to parsing on the host.
+   */
+  /** ID-only list row for inert ingestion (no content fields). */
+  private outlookListStub(id: string, folder: string): RawEmailMessage {
+    return {
+      id,
+      threadId: undefined,
+      subject: '',
+      from: { email: '' },
+      to: [],
+      cc: [],
+      date: new Date(),
+      bodyHtml: undefined,
+      bodyText: undefined,
+      flags: { seen: false, flagged: false, answered: false, draft: false, deleted: false },
+      labels: [],
+      folder,
+      headers: {},
+    }
+  }
+
+  private async fetchMessageOpaque(messageId: string, folderHint?: string): Promise<RawEmailMessage> {
+    if (!this.outlookPrefersRawValue()) {
+      // /$value fidelity unproven (default) ⇒ no proven opaque input ⇒ fail closed.
+      throw new OutlookOpaqueUnprovenError(messageId)
+    }
+    // Provider operational metadata ONLY — no body/from/subject/recipients select.
+    let meta: any = {}
+    try {
+      meta = await this.graphApiRequest(
+        'GET',
+        `/me/messages/${messageId}?$select=id,isRead,isDraft,receivedDateTime,hasAttachments`,
+      )
+    } catch (e) {
+      // Metadata is non-content; a miss must not force a parse — proceed with
+      // defaults and rely on the opaque bytes below.
+      meta = {}
+    }
+    const raw = await this.graphApiRequestRaw(`/me/messages/${messageId}/$value`)
+    if (!raw || raw.length === 0) {
+      throw new Error(`[Outlook] /$value returned no bytes for ${messageId} (fail closed; host will not parse)`)
+    }
+    return {
+      id: typeof meta?.id === 'string' ? meta.id : messageId,
+      threadId: undefined,
+      subject: '',
+      from: { email: '' },
+      to: [],
+      cc: [],
+      date: meta?.receivedDateTime ? new Date(meta.receivedDateTime) : new Date(),
+      bodyHtml: undefined,
+      bodyText: undefined,
+      flags: {
+        seen: meta?.isRead === true,
+        flagged: false,
+        answered: false,
+        draft: meta?.isDraft === true,
+        deleted: false,
+      },
+      labels: [],
+      folder: folderHint || 'inbox',
+      headers: {},
+      hasAttachments: meta?.hasAttachments === true,
+      rawRfc822: raw,
     }
   }
   
@@ -1194,6 +1249,10 @@ export class OutlookProvider extends BaseEmailProvider {
   }
   
   private parseOutlookMessage(raw: any, folder: string): RawEmailMessage {
+    // Tripwire (host inertness): Graph-field parsing must NEVER run while inert
+    // ingestion is active. The inert path uses `fetchMessageOpaque` (/$value), so
+    // reaching here under inert ingestion is a regression → fail closed loudly.
+    assertNoInlineParse('outlook.parseOutlookMessage')
     const from = raw.from?.emailAddress || {}
     const toRecipients = raw.toRecipients || []
     const ccRecipients = raw.ccRecipients || []

@@ -86,6 +86,7 @@ vi.mock('../pdf-extractor', () => ({
 }))
 
 import { detectAndRouteMessage, DepackageCutoverHeldError } from '../messageRouter'
+import { __resetOpaqueIngestionCacheForTests } from '../opaqueIngestion'
 
 function createTestDb(): import('better-sqlite3').Database {
   if (!Database) throw new Error('better-sqlite3 unavailable')
@@ -264,5 +265,62 @@ describe.skipIf(!Database)('B2 flag-off parity (inline path untouched)', () => {
     const row = db.prepare('SELECT * FROM inbox_messages WHERE id = ?').get(res.inboxMessageId) as any
     expect(row.subject).toBe('inline-sub')        // provider envelope, NOT seam
     expect(row.body_text).toBe('inline body')     // inline text, NOT guest-derived
+  })
+})
+
+describe.skipIf(!Database)('Prompt 1: cutover DEFAULT via linked topology (no flag)', () => {
+  let db: import('better-sqlite3').Database
+  beforeEach(() => {
+    db = createTestDb()
+    bindKeyProvider(() => TEST_DEK, 'inner')
+    bindKeyProvider(() => TEST_DEK, 'outer')
+    clearTamperingEvents()
+    sandboxState.list = [{ handshake_id: 'hs-1', sandbox_keying_complete: true }]
+    // PROVE activation is NOT via the explicit flag — it is the topology default.
+    delete process.env.WRDESK_SEAM_DEPACKAGE_CUTOVER
+    process.env.WRDESK_TOPOLOGY_LINKED = JSON.stringify([
+      { role: 'sandbox', handshakeId: 'hs-1', jobKinds: ['depackage-email'] },
+    ])
+    // Depackage runs on the node that owns it (the sandbox); under sandbox/free the
+    // depackage-email job resolves to the in-process guest. (On the workstation host
+    // it would route to remote-handshake → a live sandbox; absent one it custody-seals.)
+    process.env.WRDESK_ROLE = 'sandbox'
+    __resetOpaqueIngestionCacheForTests()
+  })
+  afterEach(() => {
+    unbindKeyProvider('inner'); unbindKeyProvider('outer'); vi.restoreAllMocks(); db?.close()
+    delete process.env.WRDESK_TOPOLOGY_LINKED
+    delete process.env.WRDESK_ROLE
+    __resetOpaqueIngestionCacheForTests()
+  })
+
+  it('crafted message, attacker body, NO opaque blob → HELD (host never inline-parses)', async () => {
+    const raw: any = {
+      messageId: 'tp-1', from: { address: 'a@b.com' }, to: [], subject: 's',
+      text: '<script>evil()</script> attacker-controlled body that must NOT be parsed',
+      html: '<p>do not parse me</p>', date: new Date().toISOString(),
+      // deliberately no rawRfc822 / providerStructuredJson
+    }
+    await expect(detectAndRouteMessage(db, 'acc', raw, SESSION)).rejects.toBeInstanceOf(DepackageCutoverHeldError)
+    expect((db.prepare('SELECT COUNT(*) c FROM inbox_messages').get() as any).c).toBe(0)
+  })
+
+  it('opaque blob present → depackaged in-guest (plain row from guest SafeText), no host parse', async () => {
+    const orchMod = await import('../../validator-process/orchestrator')
+    vi.spyOn(orchMod.validatorOrchestrator, 'validate').mockImplementation(async (args: any) => {
+      const rowId = String(args.target_row_id ?? 'row')
+      const canonicalJson = args.plaintext_or_encrypted?.content ?? '{}'
+      const { seal, seal_input_json } = buildValidSealForRowId(canonicalJson, rowId)
+      return { outcome: { ok: true, sealed: { seal, seal_input_json, canonical_json: canonicalJson, validated_at: new Date().toISOString(), validator_version: 'test' } } } as any
+    })
+    const raw: any = {
+      messageId: 'tp-2', from: { address: 'a@b.com' }, to: [], subject: 'provider-envelope-ignored',
+      date: new Date().toISOString(),
+      rawRfc822: eml(['Subject: Guest Subject', 'Content-Type: text/plain'], 'guest-derived body'),
+    }
+    const res = await detectAndRouteMessage(db, 'acc', raw, SESSION)
+    expect(res.type).toBe('plain')
+    const row = db.prepare('SELECT * FROM inbox_messages WHERE id = ?').get(res.inboxMessageId) as any
+    expect(row.subject).toBe('Guest Subject') // guest-derived, proves the host did not use the provider envelope
   })
 })

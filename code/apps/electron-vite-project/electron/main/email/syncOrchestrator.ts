@@ -24,6 +24,8 @@ import {
 } from './inboxOrchestratorRemoteQueue'
 import { emailGateway } from './gateway'
 import { detectAndRouteMessage, type RawEmailMessage } from './messageRouter'
+import { isOpaqueIngestionActive } from './opaqueIngestion'
+import type { SSOSession } from '../handshake/types'
 import { emailDebugLog, emailDebugWarn } from './emailDebug'
 import {
   IMAP_SYNC_FOLDER_EXPAND_MS,
@@ -75,6 +77,13 @@ export interface SyncAccountOptions {
    * @deprecated No longer used — manual Pull is incremental after the first Smart Sync bootstrap.
    */
   fullSync?: boolean
+  /**
+   * Prompt 1: SSO session used to resolve the paired sandbox for the depackage
+   * seam when inert ingestion is active. When omitted, the orchestrator falls
+   * back to `handshake/ipc.getCurrentSession()`; if still null, the seam fails
+   * closed (HELD) — it never downgrades to inline parsing.
+   */
+  session?: SSOSession | null
 }
 
 export interface SyncResult {
@@ -743,6 +752,26 @@ async function syncAccountEmailsImpl(
       })
       detailFetchPhaseStartedAt = Date.now()
 
+      // Prompt 1: resolve the host-inertness decision ONCE for this run, and the
+      // session used to find the paired sandbox for the seam. When inert, the host
+      // skips attachment pre-fetch and routes opaque bytes through the depackage
+      // seam; without a session/sandbox the seam HELDs (fail closed), never parses.
+      const opaqueIngestion = isOpaqueIngestionActive()
+      let ingestionSession: SSOSession | null = options.session ?? null
+      if (opaqueIngestion && !ingestionSession) {
+        try {
+          const hs = await import('../handshake/ipc')
+          ingestionSession = (hs.getCurrentSession?.() as SSOSession | null) ?? null
+        } catch {
+          ingestionSession = null
+        }
+      }
+      if (opaqueIngestion) {
+        console.log(
+          `[SyncOrchestrator] inert ingestion ACTIVE (blind courier) account=${accountId} sandboxSession=${ingestionSession ? 'present' : 'absent'}`,
+        )
+      }
+
       for (const msg of messages) {
         if (existingIds.has(msg.id)) {
           skippedDuplicate++
@@ -766,38 +795,44 @@ async function syncAccountEmailsImpl(
           }
 
           const attachments: Array<{ id: string; filename: string; mimeType: string; size: number; contentId?: string; content?: Buffer }> = []
-          // Always list attachments (Gmail/Outlook APIs). Empty list is harmless; IMAP may return [] until implemented.
-          try {
-            const attList = await emailGateway.listAttachments(accountId, msg.id)
-            console.log(
-              `[SyncOrchestrator] Attachments for ${msg.id}: ${attList.length} listed (detail flags hasAttachments=${detail.hasAttachments} count=${detail.attachmentCount})`,
-            )
-            for (const att of attList) {
-              let content: Buffer | undefined
-              try {
-                const buf = await emailGateway.fetchAttachmentBuffer(accountId, msg.id, att.id)
-                if (buf) content = buf
-              } catch {
-                // Non-fatal: attachment without content still gets registered
+          // Prompt 1 (host inertness): when inert ingestion is active, the host is a
+          // blind courier — it does NOT list or download attachment bytes. The opaque
+          // blob carries everything; the sandbox guest extracts attachments during
+          // depackage. Only the legacy (no-sandbox / non-isolated) path pre-fetches.
+          if (!opaqueIngestion) {
+            // Always list attachments (Gmail/Outlook APIs). Empty list is harmless; IMAP may return [] until implemented.
+            try {
+              const attList = await emailGateway.listAttachments(accountId, msg.id)
+              console.log(
+                `[SyncOrchestrator] Attachments for ${msg.id}: ${attList.length} listed (detail flags hasAttachments=${detail.hasAttachments} count=${detail.attachmentCount})`,
+              )
+              for (const att of attList) {
+                let content: Buffer | undefined
+                try {
+                  const buf = await emailGateway.fetchAttachmentBuffer(accountId, msg.id, att.id)
+                  if (buf) content = buf
+                } catch {
+                  // Non-fatal: attachment without content still gets registered
+                }
+                attachments.push({
+                  id: att.id,
+                  filename: att.filename,
+                  mimeType: att.mimeType,
+                  size: att.size,
+                  contentId: att.contentId,
+                  content,
+                })
               }
-              attachments.push({
-                id: att.id,
-                filename: att.filename,
-                mimeType: att.mimeType,
-                size: att.size,
-                contentId: att.contentId,
-                content,
-              })
+            } catch (attListErr: any) {
+              console.warn(
+                `[SyncOrchestrator] listAttachments failed for ${msg.id}:`,
+                attListErr?.message ?? attListErr,
+              )
             }
-          } catch (attListErr: any) {
-            console.warn(
-              `[SyncOrchestrator] listAttachments failed for ${msg.id}:`,
-              attListErr?.message ?? attListErr,
-            )
           }
 
           const rawMsg = mapToRawEmailMessage(detail, attachments, { provider: accountInfo?.provider })
-          const routeResult = await detectAndRouteMessage(db, accountId, rawMsg)
+          const routeResult = await detectAndRouteMessage(db, accountId, rawMsg, ingestionSession)
 
           newCount++
           result.newInboxMessageIds.push(routeResult.inboxMessageId)

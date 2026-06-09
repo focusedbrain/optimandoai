@@ -39,7 +39,8 @@ import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
 import { decryptQBeapPackage } from '../beap/decryptQBeapPackage'
 import { classifyLivePbeapTrust, pbeapTrustMetadata } from '../depackaging-microvm/livePbeapTrust'
 import { validatorOrchestrator } from '../validator-process/orchestrator'
-import { isSeamValidationCutoverEnabled, isSeamDepackageCutoverEnabled } from '../critical-jobs/featureFlags'
+import { isSeamValidationCutoverEnabled } from '../critical-jobs/featureFlags'
+import { isOpaqueIngestionActive } from './opaqueIngestion'
 import { assertNoInlineParse } from './inlineParseGuard'
 import { prepareSealedInsert, runSealedTransaction, computeSeal, type ChildAttachmentDescriptor } from '../sealed-storage/index'
 import {
@@ -309,13 +310,16 @@ const QUARANTINE_INSERT_SQL = `
  *                 Pass null when session is unavailable.
  */
 /**
- * Public entry. B2 flag (`WRDESK_SEAM_DEPACKAGE_CUTOVER`, default OFF):
- *   - OFF → the original inline path runs unchanged (byte-identical behavior).
- *   - ON  → the opaque payload is depackaged inside the isolated guest via
+ * Public entry. Routing depends on `isOpaqueIngestionActive()` — the explicit B2
+ * cutover flag (`WRDESK_SEAM_DEPACKAGE_CUTOVER`) OR an active linked-sandbox
+ * topology (Prompt 1, the cutover default):
+ *   - inactive → the original inline path runs unchanged (byte-identical, the
+ *           clearly-marked legacy non-isolated path; no sandbox configured).
+ *   - active   → the opaque payload is depackaged inside the isolated guest via
  *           `dispatch({kind:'depackage-email'})` and this becomes a consumer of
  *           the typed result; the orchestrator never parses the raw bytes. Any
  *           failure to establish the safety contract fails closed / quarantines
- *           (INV-7) — there is no inline fallback while the flag is on.
+ *           (INV-7) — there is no inline fallback while inert ingestion is active.
  */
 export async function detectAndRouteMessage(
   db: any,
@@ -323,7 +327,7 @@ export async function detectAndRouteMessage(
   rawMsg: RawEmailMessage,
   session?: SSOSession | null,
 ): Promise<DetectAndRouteResult> {
-  if (isSeamDepackageCutoverEnabled()) {
+  if (isOpaqueIngestionActive()) {
     return routeViaDepackageSeam(db, accountId, rawMsg, session ?? null)
   }
   return detectAndRouteMessageInline(db, accountId, rawMsg, session)

@@ -9,7 +9,7 @@ import * as ImapMod from 'imap'
 import * as nodemailer from 'nodemailer'
 import type ImapApi from 'imap'
 import { simpleParser, ParsedMail } from 'mailparser'
-import { isSeamDepackageCutoverEnabled } from '../../critical-jobs/featureFlags'
+import { isOpaqueIngestionActive } from '../opaqueIngestion'
 import { assertNoInlineParse } from '../inlineParseGuard'
 import { 
   BaseEmailProvider, 
@@ -540,8 +540,12 @@ export class ImapProvider extends BaseEmailProvider {
       : Math.min(Math.max(1, options?.syncMaxMessages ?? limit), limit)
     const chunkSize = 60
 
+    // Prompt 1 (host inertness): when inert ingestion is active the LIST phase is
+    // ID-only — no HEADER.FIELDS/TEXT fetch, no header parse on the host. The
+    // detail fetch later forwards the opaque blob; the guest derives the envelope.
+    const opaque = isOpaqueIngestionActive()
     const attachParser = (msg: ImapConnection.ImapMessage, msgData: Partial<RawEmailMessage>) => {
-      msg.on('body', (stream, info) => {
+      if (!opaque) msg.on('body', (stream, info) => {
         let buffer = ''
         stream.on('data', (chunk) => {
           buffer += chunk.toString('utf8')
@@ -649,8 +653,9 @@ export class ImapProvider extends BaseEmailProvider {
             // connection.search() returns UIDs, not sequence numbers.
             // Use this.client!.fetch (UID-based) not seq.fetch (sequence-based).
             const fetch = this.client!.fetch(spec, {
-              bodies: ['HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)', 'TEXT'],
-              struct: true,
+              // Inert ingestion: fetch attributes (UID/flags) ONLY — no header/body bytes.
+              bodies: opaque ? [] : ['HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)', 'TEXT'],
+              struct: !opaque,
             })
             fetch.on('message', (msg) => {
               const msgData: Partial<RawEmailMessage> = {
@@ -697,8 +702,10 @@ export class ImapProvider extends BaseEmailProvider {
       : Math.min(Math.max(1, options?.syncMaxMessages ?? limit), limit)
     const chunkSize = 60
 
+    // Prompt 1 (host inertness): ID-only list when inert ingestion is active.
+    const opaque = isOpaqueIngestionActive()
     const attachParser = (msg: any, msgData: Partial<RawEmailMessage>) => {
-      msg.on('body', (stream: NodeJS.ReadableStream, info: { which: string }) => {
+      if (!opaque) msg.on('body', (stream: NodeJS.ReadableStream, info: { which: string }) => {
         let buffer = ''
         stream.on('data', (chunk: Buffer | string) => {
           buffer += chunk.toString('utf8')
@@ -787,8 +794,9 @@ export class ImapProvider extends BaseEmailProvider {
             // connection.search() returns UIDs, not sequence numbers.
             // Use this.client!.fetch (UID-based) not seq.fetch (sequence-based).
             const fetch = this.client!.fetch(spec, {
-              bodies: ['HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)', 'TEXT'],
-              struct: true,
+              // Inert ingestion: fetch attributes (UID/flags) ONLY — no header/body bytes.
+              bodies: opaque ? [] : ['HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)', 'TEXT'],
+              struct: !opaque,
             })
             fetch.on('message', (msg) => {
               const msgData: Partial<RawEmailMessage> = {
@@ -992,7 +1000,7 @@ export class ImapProvider extends BaseEmailProvider {
               // ── B2.2 flag-ON: provider-native bookkeeping ONLY. No ENVELOPE /
               // header FETCH parse, no local header decoding. The key-less guest
               // derives the display envelope from `rawRfc822` post-depackage.
-              if (isSeamDepackageCutoverEnabled()) {
+              if (isOpaqueIngestionActive()) {
                 message = {
                   id: messageId,
                   uid: messageId,

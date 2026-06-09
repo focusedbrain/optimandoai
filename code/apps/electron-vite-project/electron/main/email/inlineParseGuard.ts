@@ -1,23 +1,24 @@
 /**
  * B2.1 (D5.2) — the inline-parse guard: the runtime embodiment of invariant-0.
  *
- * Invariant-0 (types.ts §INV-1/INV-7): when the email-depackage cutover is ON,
+ * Invariant-0 (types.ts §INV-1/INV-7): when host ingestion is inert (the explicit
+ * cutover flag OR an active linked-sandbox topology — see `isOpaqueIngestionActive`),
  * untrusted message structure is parsed ONLY inside the isolated, key-less guest
  * — NEVER inline in the orchestrator. This guard makes that a *proof* rather than
  * an absence of logs: it is placed at every orchestrator-side inline-parse entry
  * point (the raw-byte carrier detection in `messageRouter`, the `gateway.ts`
- * HTML→text derivation). When the flag is ON, reaching one of those points throws
- * `InlineParseForbiddenError` (typed `E_INLINE_PARSE_FORBIDDEN`), which the
- * ingestion consumer maps to a quarantine reason. When the flag is OFF the guard
- * is inert (one cheap flag read) — zero behavior change.
+ * HTML→text derivation). When inert ingestion is active, reaching one of those
+ * points throws `InlineParseForbiddenError` (typed `E_INLINE_PARSE_FORBIDDEN`),
+ * which the ingestion consumer maps to a quarantine reason. Otherwise the guard
+ * is inert (one cheap decision read) — zero behavior change.
  *
- * It is ALWAYS-ON with the flag (not test-only): in correct flag-on operation the
- * guarded points are never reached (the byte-courier path replaced them), so the
- * guard only ever fires on a regression / missed cutover location — and when it
- * does, it fails closed loudly instead of silently parsing untrusted bytes.
+ * It is ALWAYS-ON (not test-only): in correct inert operation the guarded points
+ * are never reached (the byte-courier path replaced them), so the guard only ever
+ * fires on a regression / missed cutover location — and when it does, it fails
+ * closed loudly instead of silently parsing untrusted bytes.
  */
 
-import { isSeamDepackageCutoverEnabled } from '../critical-jobs/featureFlags'
+import { isOpaqueIngestionActive } from './opaqueIngestion'
 
 export const INLINE_PARSE_FORBIDDEN_CODE = 'E_INLINE_PARSE_FORBIDDEN' as const
 
@@ -38,7 +39,7 @@ export class InlineParseForbiddenError extends Error {
  * @param entryPoint stable identifier of the guarded site (for logs/quarantine).
  */
 export function assertNoInlineParse(entryPoint: string): void {
-  if (isSeamDepackageCutoverEnabled()) {
+  if (isOpaqueIngestionActive()) {
     throw new InlineParseForbiddenError(entryPoint)
   }
 }
