@@ -11479,6 +11479,13 @@ async function runDeviceKeyMigration(
             handshakeHealthStartupEmitted = false
             console.warn('[HANDSHAKE_HEALTH] import_failed', (e as Error)?.message ?? e)
           })
+
+        // Prompt 4: rebuild linked[] from ACTIVE internal handshakes on cold start
+        // so ingestionOwnership never reads a stale/missing config. Must run before
+        // the first sync tick (syncOrchestrator consults resolveIngestionOwnership).
+        void import('./main/handshake/topologyAutoWire')
+          .then((m) => m.syncTopologyFromActiveHandshakes(handshakeDb))
+          .catch((e) => console.warn('[TOPOLOGY_AUTO_WIRE] startup sync failed:', (e as Error)?.message ?? e))
       }
       // Each operation is failure-isolated: a rejection in one must not prevent
       // the others from running. Previously these were chained in .then() so a

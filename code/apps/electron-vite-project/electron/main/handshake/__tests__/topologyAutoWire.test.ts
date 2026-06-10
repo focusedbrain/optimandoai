@@ -217,6 +217,26 @@ describe('topologyAutoWire — syncTopologyFromActiveHandshakes', () => {
     vi.clearAllMocks()
   })
 
+  it('STARTUP — wiped config + ACTIVE internal handshake → linked[] rebuilt, ownership resolves to sandbox', async () => {
+    // Simulates cold start: linked[] is empty (wiped config), but the ledger has an ACTIVE
+    // internal handshake where this node is Host and the peer is Sandbox.
+    // After syncTopologyFromActiveHandshakes, linked[] gains the entry and
+    // hasLinkedDepackageSandbox() returns true → ownership resolves to sandbox.
+    const { listHandshakeRecords } = await import('../db')
+    ;(listHandshakeRecords as ReturnType<typeof vi.fn>).mockReturnValueOnce([
+      makeRecord({ handshake_id: 'hs-startup' }),
+    ])
+
+    const { syncTopologyFromActiveHandshakes } = await import('../topologyAutoWire')
+    syncTopologyFromActiveHandshakes({ fake: 'db' })
+
+    expect(linked).toHaveLength(1)
+    expect(linked[0].handshakeId).toBe('hs-startup')
+    expect(linked[0].jobKinds).toContain('depackage-email')
+    // After sync, the linked entry exists — resolveIngestionOwnership (host mode) would
+    // return owner='sandbox' because hasLinkedDepackageSandbox() reads this entry.
+  })
+
   it('E — startup sync adds linked entries for all ACTIVE eligible rows', async () => {
     const { listHandshakeRecords } = await import('../db')
     ;(listHandshakeRecords as ReturnType<typeof vi.fn>).mockReturnValueOnce([

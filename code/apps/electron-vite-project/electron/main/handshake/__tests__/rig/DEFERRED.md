@@ -5,7 +5,7 @@ tracked in one place rather than re-discovered. One line each: **what** / **why 
 **what unblocks it**. "By design" items are not pending work — they are decisions, listed so
 they are not mistaken for gaps.
 
-_Last updated: 2026-06-08._
+_Last updated: 2026-06-10._
 
 ## Logging / UX mislabels — pending
 
@@ -78,6 +78,18 @@ so the baseline is green and no-regression claims stay verifiable. None are prod
   provider-owned key buffer is zeroized, but `sealKeyCopy()` deliberately zeroizes only the
   gate's private copy and never the provider buffer. _Unblocks:_ re-author to assert the
   internal copy is zeroized / not retained.
+
+## Email ingestion — Prompt 4 follow-ups
+
+- **Orphaned-sandbox read-poll noise** — when `orchestrator-mode.json` sets `mode='sandbox'`
+  but there is no live active internal handshake (e.g. the paired host was reset),
+  `resolveIngestionOwnership` still returns `sandboxShouldReadPoll=true` because the decision
+  uses `orchestratorModeStore.mode` directly. The poll immediately fails-closed (no read token →
+  HELD quarantine — safe, not a security gap), but generates noisy HELD rows and log lines until
+  the pairing is repaired. _Fix_: gate `sandboxShouldReadPoll` on `hasActiveInternalHandshake(db)`
+  inside `ingestionOwnership.ts` so an orphaned sandbox stays idle. _Priority:_ low.
+  _Unblocks:_ expose a `hasActiveInternalHandshake` helper from `internalSandboxesApi.ts` and
+  thread `db` into `resolveIngestionOwnership` (interface change — needs a callsite audit).
 
 ## Infra / platform — later builds
 
