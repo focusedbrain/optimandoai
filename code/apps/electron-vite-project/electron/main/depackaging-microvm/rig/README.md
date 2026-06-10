@@ -12,6 +12,12 @@
 > access + a post-reboot unprivileged vsock smoke — until then the full `worker`
 > boot fails closed on `/dev/vhost-vsock: Permission denied`.
 
+> **2026-06-10 — Prompt 5 rig session (mini-PC).** Synced to HEAD `643609d4`.
+> Pre-flight: `/dev/kvm` OK; **`/dev/vhost-vsock` FAIL** (post-reboot ACL missing —
+> operator fix in `rig-evidence/2026-06-10/PREFLIGHT.md`). Build + bundle marker
+> `bf7eb844…` match; `E_IMAGE_BUNDLE_MISMATCH` preflight 6/6 green. Part A microVM
+> legs NOT RUN (7 rig tests skipped). Parts B/C live NOT RUN. See evidence README.
+
 > **2026-06-10 — Prompt 5 dev-box session (Windows).** No rig work this session.
 > Code-testable Part C (Outlook `/$value` fidelity) done: `outlookRfc822Fidelity.test.ts`
 > (12 pass, 4 rig-skip — RIG-1 through RIG-4 require a real Microsoft Graph session).

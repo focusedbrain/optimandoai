@@ -256,6 +256,23 @@ Expected behaviour: idempotent no-op. Mislabel tracked in `DEFERRED.md`.
 - F1 relay-down recovery (relay preserved for future run)
 - Final smoke against deployed `relay.wrdesk.com`
 
+---
+
+## 2026-06-10 — Prompt 5 rig session (mini-PC) — HALTED pre-flight
+
+**HEAD:** `643609d4` (synced from Windows push). **Relay:** local `pnpm session:start`
+(`192.168.178.29:51249`, `/health` ok).
+
+**Proven this session:** Step 0 sync; build stamp matches HEAD; `E_IMAGE_BUNDLE_MISMATCH`
+preflight + golden/bundle marker alignment (`bf7eb844…`); Part C code tests (12 pass /
+4 rig-skip); A2 worker-contract DI tests (6 pass).
+
+**NOT proven (fail-closed):** Part A microVM depackage-email final leg; Part B A2 live
+ingestion; Part C RIG-1..4 live Graph gates. **Blocker:** `/dev/vhost-vsock` permission
+denied after reboot — operator must run fix in `rig-evidence/2026-06-10/PREFLIGHT.md`
+before any crosvm boot. Part B additionally needs `fetchOpaque`/`deliverToHost` wiring
+(host-side ingest route) + read-client OAuth consent.
+
 ### Boundary note (unchanged)
 
 Single-box rig remains the gate for automated no-regression; this session adds the
