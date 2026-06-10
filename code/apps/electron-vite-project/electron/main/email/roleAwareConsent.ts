@@ -159,17 +159,20 @@ export async function connectReadClient(
 }
 
 /**
- * Prompt-4 stub flag: the sandbox read-consent UI entry is not wired into the setup
- * flow yet. Prompt 4 flips this and adds the renderer entry.
+ * Prompt 4: the sandbox read-consent UI entry is wired into the three-beat setup
+ * flow (InitiateHandshakeDialog beat 3) for multi-machine internal handshakes.
+ * Single-machine: NO second email setup — the flag and the UI guard both ensure
+ * the sandbox email dialog is ONLY shown when the topology has a separate fetching
+ * node (isMultiMachineTopology check in the renderer).
  */
-export const SANDBOX_READ_CONSENT_UI_REACHABLE = false
+export const SANDBOX_READ_CONSENT_UI_REACHABLE = true
 
-/** Guard used by any UI surface that tries to launch sandbox read consent early. */
+/** Guard used by any UI surface that tries to launch sandbox read consent. */
 export function assertSandboxReadConsentEntryReachable(): void {
   if (!SANDBOX_READ_CONSENT_UI_REACHABLE) {
     throw new Error(
-      'Sandbox read-consent UI entry is not wired yet (Prompt 4). The connect path ' +
-        '(connectReadClient) is real and callable programmatically (Prompt 3).',
+      'Sandbox read-consent UI entry is not reachable. Check topology: it should only ' +
+        'appear on multi-machine internal handshakes (A2).',
     )
   }
 }

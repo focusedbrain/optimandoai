@@ -440,10 +440,21 @@ export function processHandshakeCapsule(
       updateHandshakeRecord(db, record)
       if (stateBeforeContextSync !== HS.ACTIVE && record.state === HS.ACTIVE) {
         const hid = input.handshake_id
+        const activeRecord = record
         queueMicrotask(() => {
           void import('../internalInference/p2pEndpointRepair')
             .then((m) => m.runP2pEndpointRepairAfterInternalHandshakeActive(db, hid))
             .catch(() => {})
+        })
+        // Prompt 4: auto-wire linked topology so resolveIngestionOwnership() flips
+        // immediately when this handshake becomes ACTIVE. Runs async/fire-and-forget
+        // so a wiring error never blocks the state transition.
+        queueMicrotask(() => {
+          void import('./topologyAutoWire')
+            .then((m) => m.autoWireTopologyForHandshake(activeRecord))
+            .catch((err) => {
+              console.error('[TOPOLOGY_AUTO_WIRE] autoWireTopologyForHandshake failed:', err?.message)
+            })
         })
       }
     } else if (input.capsuleType === 'handshake-revoke') {

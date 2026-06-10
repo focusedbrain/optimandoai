@@ -59,6 +59,16 @@ function resolveNodeRole(): NodeRole {
 /**
  * The fetch-ownership decision. Pure read off topology + persisted role; never
  * throws (a missing/parse-failed config → host-owned, the safe legacy default).
+ *
+ * Two signals make a sandbox the ingestion owner:
+ *  1. `hasLinkedDepackageSandbox()` — the HOST's orchestrator-mode.json has a
+ *     linked entry for depackage-email. Set by Prompt 4 topology auto-wire when
+ *     an internal handshake with a sandbox peer becomes ACTIVE. The host read-poll
+ *     is disabled and remote routing activates (in the host's resolution table).
+ *  2. `thisNodeRole === 'sandbox'` — the persisted orchestrator role is 'sandbox'.
+ *     On a multi-machine appliance the sandbox node never needs its OWN linked[]
+ *     entry to know it should run the poll; the role itself is the signal. On
+ *     single-machine the role is always 'host', so this branch never fires there.
  */
 export function resolveIngestionOwnership(): IngestionOwnership {
   const thisNodeRole = resolveNodeRole()
@@ -73,6 +83,22 @@ export function resolveIngestionOwnership(): IngestionOwnership {
       reason:
         `linked sandbox covers email depackage → sandbox owns ingestion; ` +
         `thisNode=${thisNodeRole} ${thisNodeRole === 'host' ? 'read-poll DISABLED (send only)' : 'runs the read-poll'}`,
+    }
+  }
+
+  // Sandbox-mode node (second machine) owns ingestion even before its host has
+  // completed the topology auto-wire, so the read-poll starts as soon as the
+  // sandbox has a valid read-token and the host has a live handshake. Fail-closed
+  // semantics in sandboxIngestion.ts ensure no silent fallback.
+  if (thisNodeRole === 'sandbox') {
+    return {
+      owner: 'sandbox',
+      thisNodeRole: 'sandbox',
+      hostShouldReadPoll: false,
+      sandboxShouldReadPoll: true,
+      reason:
+        `orchestrator mode is 'sandbox' → this node owns email ingestion ` +
+        `(A2 multi-machine; linked entry on host may not be wired yet but sandbox runs the poll)`,
     }
   }
 

@@ -81,6 +81,16 @@ export async function revokeHandshake(
     /* no-op: internal inference P2P session cleanup must not break revocation */
   }
 
+  // Prompt 4: remove the topology auto-wire entry so resolveIngestionOwnership()
+  // reverts to host-owned immediately. Best-effort — a wiring error must never
+  // block or revert the revocation itself.
+  try {
+    const { removeTopologyForHandshake } = await import('./topologyAutoWire')
+    removeTopologyForHandshake(handshakeId)
+  } catch (err: any) {
+    console.warn('[TOPOLOGY_AUTO_WIRE] removeTopologyForHandshake on revoke failed:', err?.message)
+  }
+
   // 5. Best-effort peer notification: build and enqueue a signed revoke capsule.
   //    Only for local-user initiated revocations (remote-capsule means we already received theirs).
   //    Requires a session, signing keys, and a known counterparty.

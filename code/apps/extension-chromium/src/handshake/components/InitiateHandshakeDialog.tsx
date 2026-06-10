@@ -279,6 +279,7 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
               Internal handshake (connect my own devices)
             </label>
 
+            {/* Beat 1 — at checkbox: why + what to expect */}
             {isInternal && (
               <div style={{
                 background: 'rgba(83, 74, 183, 0.06)',
@@ -294,13 +295,17 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                 </div>
                 <div style={{ marginBottom: '4px' }}>
                   Internal handshakes link two of your devices under the same SSO account.
-                  Set one device as <strong>Host</strong> (runs the local LLM) and the other as <strong>Sandbox</strong> (processes documents locally, uses the Host for inference).
+                  Set one as <strong>Host</strong> (holds your BEAP inbox and runs inference) and
+                  the other as <strong>Sandbox</strong> (fetches and depackages your email
+                  in isolation — raw email never touches the Host).
                 </div>
                 <div style={{ marginBottom: '4px' }}>
-                  BEAP capsules flow securely between both devices. Only extracted text is sent for inference — files and images never leave the Sandbox.
+                  Your BEAP inbox stays on the Host. Only processed results travel from
+                  Sandbox to Host — no raw message content, no attachments, no headers.
                 </div>
                 <div style={{ fontSize: '11px', color: '#888' }}>
-                  Both devices must be logged in with the same account. Accept the handshake on the other device to complete the connection.
+                  Both devices must be logged in with the same account. Accept the handshake on
+                  the other device to complete the connection.
                 </div>
               </div>
             )}
@@ -337,6 +342,44 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                 <p style={{ fontSize: '11px', color: t.textMuted, marginTop: '8px', marginBottom: 0, lineHeight: 1.45 }}>
                   The other device must be the opposite role ({deviceRole === 'host' ? 'Sandbox' : 'Host'}).
                 </p>
+              </div>
+            )}
+
+            {/* Beat 2 — consequence: what you will do next, topology-conditional */}
+            {isInternal && deviceRole === 'host' && (
+              <div style={{
+                background: 'rgba(59, 130, 246, 0.06)',
+                borderRadius: '8px',
+                padding: '9px 12px',
+                fontSize: '11.5px',
+                lineHeight: '1.5',
+                color: '#374151',
+              }}>
+                <strong style={{ fontSize: '11.5px' }}>What to expect next (Host):</strong>{' '}
+                After this handshake activates, you do nothing extra here — your BEAP inbox is
+                already on this device. On the <em>other</em> (Sandbox) device you will be
+                prompted to connect a read-only email account so it can fetch mail on your behalf.
+                No email setup is needed on this Host.
+              </div>
+            )}
+
+            {/* Beat 2 — consequence for sandbox role: email setup expected here */}
+            {isInternal && deviceRole === 'sandbox' && (
+              <div style={{
+                background: 'rgba(59, 130, 246, 0.06)',
+                borderRadius: '8px',
+                padding: '9px 12px',
+                fontSize: '11.5px',
+                lineHeight: '1.5',
+                color: '#374151',
+              }}>
+                <strong style={{ fontSize: '11.5px' }}>What to expect next (Sandbox):</strong>{' '}
+                After the handshake activates, you will be prompted to connect a{' '}
+                <strong>read-only</strong> email account on this device.
+                {/* Beat 3 — sandbox email dialog reassurance, shown inline */}
+                {' '}That connection is isolated and read-only — it can fetch but never send,
+                and the credentials are stored only on this Sandbox device. Your BEAP inbox
+                and outbound mail remain on the Host.
               </div>
             )}
 

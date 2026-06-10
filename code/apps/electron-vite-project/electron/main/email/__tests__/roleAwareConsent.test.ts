@@ -132,8 +132,8 @@ describe('role-aware consent', () => {
     ).rejects.toThrow(/HOST node/i)
   })
 
-  test('sandbox read-consent UI entry is not reachable yet (Prompt 4)', () => {
-    expect(SANDBOX_READ_CONSENT_UI_REACHABLE).toBe(false)
-    expect(() => assertSandboxReadConsentEntryReachable()).toThrow(/Prompt 4/)
+  test('sandbox read-consent UI entry is reachable (Prompt 4 wired it)', () => {
+    expect(SANDBOX_READ_CONSENT_UI_REACHABLE).toBe(true)
+    expect(() => assertSandboxReadConsentEntryReachable()).not.toThrow()
   })
 })

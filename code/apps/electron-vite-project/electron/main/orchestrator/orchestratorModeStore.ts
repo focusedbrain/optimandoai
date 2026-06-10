@@ -253,7 +253,15 @@ function validateForWrite(config: OrchestratorModeConfig): OrchestratorModeConfi
     throw new Error('OrchestratorMode: connectedPeers must be an array')
   }
   const connectedPeers = config.connectedPeers.map((p) => validatePeer(p))
-  return { mode: config.mode, deviceName, instanceId, pairingCode, connectedPeers }
+  // Preserve the linked topology array (Prompt 4 auto-wire). Structural parse
+  // only here — key-locality (INV-6) validation lives in critical-jobs/topology.ts.
+  const linked = Array.isArray(config.linked)
+    ? (config.linked.filter(isLinkedConfigEntry) as LinkedTopologyConfigEntry[])
+    : undefined
+  return {
+    mode: config.mode, deviceName, instanceId, pairingCode, connectedPeers,
+    ...(linked && linked.length > 0 ? { linked } : {}),
+  }
 }
 
 export function setOrchestratorMode(config: OrchestratorModeConfig): void {
@@ -394,6 +402,46 @@ export function removeConnectedPeer(instanceId: string): void {
     ...c,
     connectedPeers: c.connectedPeers.filter((p) => p.instanceId !== id),
   })
+}
+
+/**
+ * Prompt 4 (topology auto-wire): idempotently add one linked-topology entry to
+ * the persisted config. Adds only if no entry with the same handshakeId exists.
+ */
+export function addLinkedTopologyEntry(entry: LinkedTopologyConfigEntry): void {
+  const hid = entry.handshakeId.trim()
+  if (!hid) return
+  const c = getOrchestratorMode()
+  const existing = Array.isArray(c.linked) ? c.linked : []
+  if (existing.some((e) => e.handshakeId === hid)) {
+    // Already wired — idempotent.
+    return
+  }
+  const next: LinkedTopologyConfigEntry[] = [...existing, { ...entry, handshakeId: hid }]
+  persistConfig({ ...c, linked: next })
+}
+
+/**
+ * Prompt 4 (topology auto-wire): remove the linked entry for a handshake (on
+ * revoke / expiry). Idempotent: no-op if no matching entry exists.
+ * Also invalidates the ingestion-ownership cache so the decision updates
+ * within the TTL.
+ */
+export function removeLinkedTopologyEntry(handshakeId: string): void {
+  const hid = typeof handshakeId === 'string' ? handshakeId.trim() : ''
+  if (!hid) return
+  const c = getOrchestratorMode()
+  const existing = Array.isArray(c.linked) ? c.linked : []
+  const next = existing.filter((e) => e.handshakeId !== hid)
+  if (next.length === existing.length) return // nothing changed
+  persistConfig({ ...c, linked: next.length > 0 ? next : undefined } as OrchestratorModeConfig)
+  // Eagerly drop the cached topology decision so the next ownership check
+  // sees the removal within milliseconds rather than waiting the full TTL.
+  try {
+    void import('../email/opaqueIngestion').then((m) => m.__resetOpaqueIngestionCacheForTests?.())
+  } catch {
+    /* best-effort — the TTL will expire naturally */
+  }
 }
 
 export function updatePeerStatus(
