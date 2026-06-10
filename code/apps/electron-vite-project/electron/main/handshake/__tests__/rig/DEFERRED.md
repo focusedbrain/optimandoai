@@ -5,7 +5,7 @@ tracked in one place rather than re-discovered. One line each: **what** / **why 
 **what unblocks it**. "By design" items are not pending work — they are decisions, listed so
 they are not mistaken for gaps.
 
-_Last updated: 2026-06-10._
+_Last updated: 2026-06-10 (Prompt 5 dev-box session)._
 
 ## Logging / UX mislabels — pending
 
@@ -78,6 +78,44 @@ so the baseline is green and no-regression claims stay verifiable. None are prod
   provider-owned key buffer is zeroized, but `sealKeyCopy()` deliberately zeroizes only the
   gate's private copy and never the provider buffer. _Unblocks:_ re-author to assert the
   internal copy is zeroized / not retained.
+
+## Prompt 5 — rig proof legs (Windows dev-box session, 2026-06-10)
+
+All three Prompt 5 parts require the mini-PC rig. None were executed or simulated
+here. The Windows dev box cannot access /dev/kvm, /dev/vhost-vsock, or real OAuth
+tokens for a live email account.
+
+- **Part A — Build C final leg (depackage-email critical job through crosvm microVM)**
+  _Status: NOT run._ The rig has crosvm installed and the golden image verified
+  (`sha256 68374091…`, kernel `6.17.0-35-generic`). Known blocker: `/dev/vhost-vsock:
+  Permission denied` — `sudo usermod -aG kvm konge` and the persistent udev rule must
+  be confirmed to have survived the last reboot (`ls -la /dev/vhost-vsock`,
+  `getfacl /dev/vhost-vsock`) before the first crosvm boot attempt.
+  _Unblocks:_ operator at rig: (1) verify vsock perms, (2) `pnpm session:build` both
+  instances at HEAD `f9106441`+, (3) run `pairingActivation.rig.test.ts` to confirm
+  the relay/handshake path, (4) drive one `depackage-email` critical job from the
+  host-role instance and observe `[CROSVM_JOB]` + `[CRITICAL_JOB_RESULT]` in the
+  sandbox log, (5) confirm signed result arrives in host inbox.
+
+- **Part B — A2 live ingestion (sandbox reads real email with read client)**
+  _Status: NOT run._ `sandboxIngestion.ts` is wired but the two-machine transport
+  (Prompt 5 rig leg, stubbed with TODO throws) is not yet implemented.
+  _Unblocks:_ Part A must pass first; then implement the real `fetchOpaque`
+  (uses the live read-client token from `roleScopedTokenStore`) and `deliverToHost`
+  (POSTs the BEAP result to the host's `/beap/ingest`) in `sandboxIngestion.ts`.
+
+- **Part C — Outlook /$value spike (live fidelity vs real Microsoft Graph)**
+  _Status: Code side DONE (see `outlookRfc822Fidelity.test.ts`, 12 pass / 4 rig-skip).
+  Live validation NOT run._ The four rig-gate skipped tests (RIG-1 through RIG-4)
+  define the exact evidence required before `WRDESK_OUTLOOK_OPAQUE_INPUT` can be
+  flipped from `structured-json` to `value` as the default (removing
+  `OutlookOpaqueUnprovenError`). Until those four gates pass on a real Outlook/M365
+  test account, Outlook inert ingestion remains fail-closed.
+  _Unblocks:_ operator at rig with a Microsoft test account (Outlook.com or M365
+  tenant); run the four `it.skip` gates in `outlookRfc822Fidelity.test.ts`; commit
+  evidence under `rig-evidence/<date>/`; remove the four skips; flip the provider.
+  Known open question: whether `Mail.Read` alone is sufficient for `/$value`
+  (some tenants require `Mail.ReadWrite`) — must be documented in the rig session.
 
 ## Email ingestion — Prompt 4 follow-ups
 

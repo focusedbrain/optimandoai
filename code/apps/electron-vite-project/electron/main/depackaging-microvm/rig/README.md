@@ -12,6 +12,16 @@
 > access + a post-reboot unprivileged vsock smoke — until then the full `worker`
 > boot fails closed on `/dev/vhost-vsock: Permission denied`.
 
+> **2026-06-10 — Prompt 5 dev-box session (Windows).** No rig work this session.
+> Code-testable Part C (Outlook `/$value` fidelity) done: `outlookRfc822Fidelity.test.ts`
+> (12 pass, 4 rig-skip — RIG-1 through RIG-4 require a real Microsoft Graph session).
+> Parts A (crosvm critical-job proof) and B (A2 live ingestion) remain blocked on
+> rig access. `OutlookOpaqueUnprovenError` stays in place. See
+> `handshake/__tests__/rig/rig-evidence/2026-06-10/README.md` and `DEFERRED.md`.
+> **Rig pre-flight for next session:** (1) verify `/dev/vhost-vsock` ACL survived
+> reboot; (2) `pnpm session:build` at HEAD `f9106441`+; (3) confirm
+> `E_IMAGE_BUNDLE_MISMATCH` preflight passes with current bundle.
+
 **Gating spike. Run on the mini-PC (bare-metal AMD Ryzen Linux).** Its only job:
 get crosvm booting a minimal guest, assemble a golden image that carries the
 Build-1 depackaging worker, and **report the host↔guest I/O mechanism** so
