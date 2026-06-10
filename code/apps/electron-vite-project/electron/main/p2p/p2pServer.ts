@@ -52,6 +52,7 @@ import { handleGetP2PReachability } from '../internalInference/p2pReachabilityGe
 import { isInternalServiceRpcShape, tryHandleInternalServiceP2P } from '../internalInference/p2pServiceDispatch'
 import { isCriticalJobServiceRpcShape } from '../critical-jobs/remote/wire'
 import { tryHandleCriticalJobServiceP2P } from '../critical-jobs/remote/criticalJobServiceDispatch'
+import { isSandboxEmailDeliveryShape, tryHandleSandboxEmailDelivery } from '../critical-jobs/remote/sandboxEmailDelivery'
 import {
   logBeapIngressReceived,
   logP2pBeapRejection,
@@ -358,6 +359,15 @@ function createP2PRequestHandler(
     // Same auth + direct-ingest channel as internal inference; never relay.
     if (isCriticalJobServiceRpcShape(parsed)) {
       const handled = await tryHandleCriticalJobServiceP2P(db, parsed, res)
+      if (handled) {
+        return
+      }
+    }
+
+    // Sandbox→host email delivery (Part B A2 ingestion): sandbox-depackaged result
+    // → host inbox write.  Same per-handshake Bearer auth; host never touches raw bytes.
+    if (isSandboxEmailDeliveryShape(parsed)) {
+      const handled = await tryHandleSandboxEmailDelivery(db, parsed, res)
       if (handled) {
         return
       }

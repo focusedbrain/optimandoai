@@ -1,0 +1,136 @@
+/**
+ * Prompt 5 Part B — sandbox-side opaque email fetch implementation.
+ *
+ * Implements the `fetchOpaque` dep for `sandboxIngestion.ts` for the Outlook /
+ * Microsoft Graph provider. The sandbox holds the read-scoped token; this
+ * module uses it to list and fetch messages as opaque RFC822 bytes WITHOUT
+ * parsing any content.
+ *
+ * Isolation invariants:
+ *   - INV-1: no attacker-controlled bytes are inspected here. Only provider-
+ *     supplied operational metadata (receivedDateTime, hasAttachments, isRead)
+ *     is used for bookkeeping.
+ *   - INV-2: the read token never leaves this node. No token field is
+ *     serialised into any RPC payload.
+ *   - INV-5: only counts / ids / provider-type are logged, never message bytes
+ *     or token values.
+ *
+ * Other providers (Gmail XOAUTH2, IMAP) deferred — see DEFERRED.md Part B.
+ *
+ * Design note: the OutlookProvider instance is created and destroyed per call
+ * to keep the token lifecycle explicit and avoid accidental state leakage
+ * between polls.
+ */
+
+import { OutlookProvider } from './providers/outlook'
+import type { OAuthTokens } from './secure-storage'
+import type { SandboxFetchedMessage } from './sandboxIngestion'
+import type { EmailAccountConfig } from './types'
+
+/** Maximum messages fetched per poll (one page). */
+const MAX_MESSAGES_PER_POLL = 20
+
+function fetchLog(...args: unknown[]): void {
+  // INV-5: ids / counts / provider only.
+  console.log('[SandboxFetch]', ...args)
+}
+
+/**
+ * Fetch opaque RFC822 bytes for up to `maxMessages` inbox messages using the
+ * Outlook read-scoped access token.
+ *
+ * The token must have `Mail.Read` scope (or `Mail.ReadWrite` as a superset).
+ * The function sets `WRDESK_OUTLOOK_OPAQUE_INPUT=value` for the duration of
+ * the call so `OutlookProvider.fetchMessageOpaque` uses the `/$value` raw-MIME
+ * path rather than the provider-structured-json form.
+ *
+ * Throws if the token is missing, Graph returns an error, or the `/$value`
+ * endpoint is inaccessible (bubbles up to `runSandboxIngestionPoll`'s
+ * `held_fetch_failed` handler — never a silent drop).
+ */
+export async function fetchOpaqueViaOutlook(
+  accountId: string,
+  readToken: OAuthTokens,
+  opts: {
+    maxMessages?: number
+    folder?: string
+  } = {},
+): Promise<SandboxFetchedMessage[]> {
+  const maxMessages = opts.maxMessages ?? MAX_MESSAGES_PER_POLL
+  const folder = opts.folder ?? 'inbox'
+
+  // Force the /$value raw-MIME path for the duration of this call.
+  // `OutlookProvider.fetchMessageOpaque` gates on this env var; we restore it
+  // after the call to avoid leaking the override into other code paths.
+  const prevOutlookOpaque = process.env.WRDESK_OUTLOOK_OPAQUE_INPUT
+  process.env.WRDESK_OUTLOOK_OPAQUE_INPUT = 'value'
+
+  const provider = new OutlookProvider()
+  try {
+    // Construct a minimal EmailAccountConfig carrying only the OAuth tokens.
+    // The OutlookProvider reads `config.oauth.*` in `connect()` and uses
+    // `this.accessToken` for all Graph API calls thereafter.
+    const config: EmailAccountConfig = {
+      id: accountId,
+      provider: 'microsoft365',
+      email: '',
+      displayName: '',
+      status: 'active',
+      createdAt: 0,
+      updatedAt: 0,
+      oauth: {
+        accessToken: readToken.accessToken,
+        refreshToken: readToken.refreshToken ?? '',
+        expiresAt: (readToken as any).expiresAt ?? (Date.now() + 3_600_000),
+        scope: (readToken as any).scope ?? '',
+      },
+    }
+
+    await provider.connect(config)
+
+    // List IDs only (ID_ONLY select; no content fields).
+    const listResult = await (provider as any).graphApiRequest(
+      'GET',
+      `/me/mailFolders/${folder}/messages?$select=id,receivedDateTime,hasAttachments,isRead&$top=${maxMessages}&$orderby=receivedDateTime%20desc`,
+    )
+    const items: Array<{ id: string; receivedDateTime?: string; hasAttachments?: boolean }> =
+      (listResult?.value ?? []).slice(0, maxMessages)
+
+    fetchLog(`listed ${items.length} message id(s). account=${accountId} folder=${folder}`)
+
+    const messages: SandboxFetchedMessage[] = []
+    for (const item of items) {
+      if (!item.id) continue
+      try {
+        const raw = await provider.fetchMessage(item.id, folder)
+        if (!raw?.rawRfc822 || raw.rawRfc822.length === 0) {
+          fetchLog(`SKIP — empty rawRfc822. id=${item.id}`)
+          continue
+        }
+        messages.push({
+          id: item.id,
+          opaqueBytes: raw.rawRfc822,
+          form: { inputForm: 'rfc822' },
+          receivedAt: item.receivedDateTime,
+          folder,
+        })
+      } catch (err) {
+        // Log per-message failures but continue (fail-closed per-message:
+        // a network error on one message does not abort the whole poll).
+        const msg = err instanceof Error ? err.message : String(err)
+        fetchLog(`SKIP — fetch error. id=${item.id} err=${msg}`)
+      }
+    }
+
+    fetchLog(`fetched ${messages.length} opaque message(s). account=${accountId}`)
+    return messages
+  } finally {
+    // Restore the override to avoid leaking.
+    if (prevOutlookOpaque === undefined) {
+      delete process.env.WRDESK_OUTLOOK_OPAQUE_INPUT
+    } else {
+      process.env.WRDESK_OUTLOOK_OPAQUE_INPUT = prevOutlookOpaque
+    }
+    await provider.disconnect()
+  }
+}

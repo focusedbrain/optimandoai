@@ -5,7 +5,7 @@ tracked in one place rather than re-discovered. One line each: **what** / **why 
 **what unblocks it**. "By design" items are not pending work — they are decisions, listed so
 they are not mistaken for gaps.
 
-_Last updated: 2026-06-10 (Prompt 5 rig session — mini-PC, halted on vhost-vsock)._
+_Last updated: 2026-06-10 (Prompt 5 rig session — mini-PC, session 2, vhost-vsock green; Part A closed)._
 
 ## Logging / UX mislabels — pending
 
@@ -82,35 +82,34 @@ so the baseline is green and no-regression claims stay verifiable. None are prod
 ## Prompt 5 — rig proof legs (2026-06-10)
 
 **Windows dev-box session:** code-only (Part C unit tests). No rig access.  
-**Mini-PC rig session (`643609d4`):** pre-flight ran; **halted on `/dev/vhost-vsock`
-permission denied** (ACL did not survive reboot). Parts A/B/C live legs NOT run —
-fail-closed, not simulated.
+**Mini-PC rig session 1 (`643609d4`):** halted on `/dev/vhost-vsock`.  
+**Mini-PC rig session 2 (resumed `c052051d`):** vhost-vsock green; Part A **CLOSED**.
 
 - **Part A — Build C final leg (depackage-email critical job through crosvm microVM)**
-  _Status: NOT run (2026-06-10 rig)._ Pre-flight: `/dev/kvm` OK (ACL); `/dev/vhost-vsock`
-  **FAIL** (`getfacl` shows no `user:konge` entry; user not in `kvm` group). Build at
-  HEAD OK; bundle marker `bf7eb844…` matches golden sidecar; `E_IMAGE_BUNDLE_MISMATCH`
-  preflight 6/6 green. MicroVM rig suites skip 7/10 tests for missing vhost-vsock.
-  _Unblocks:_ operator runs the fix in `rig-evidence/2026-06-10/PREFLIGHT.md`, verifies
-  all four post-reboot checks, then: pair host+sandbox at HEAD `643609d4`+, drive one
-  `depackage-email` critical job host→sandbox→microVM, confirm signed result + host inbox row.
+  _Status: **CLOSED** (2026-06-10 rig session 2)._
+  `loopbackHttp.email.rig.test.ts` 3/3 pass. Proof: workstation→RemoteHandshakeExecutor→
+  real HTTP→sandbox receiver (paid, MicroVMExecutor)→crosvm; `flushed=per-action` proves
+  microVM ran; sender-side verify OK (`ok=true`); overlay nuked per-action.
+  Configuration: single-box, two in-process dispatcher instances, real localhost HTTP.
+  See `rig-evidence/2026-06-10/README.md` for the full proof chain.
 
 - **Part B — A2 live ingestion (sandbox reads real email with read client)**
-  _Status: NOT run._ `sandboxIngestion.ts` poll + ownership gate wired; default
-  `fetchOpaque` / `deliverToHost` still fail-closed throws. Completing them is **more
-  than stub fill-in:** `fetchOpaque` needs read-token provider connect + opaque list/fetch;
-  `deliverToHost` needs a **new host-side `/beap/ingest` service shape** (guest-derived
-  depackage result → host inbox write without host parse) — mirror `criticalJobServiceDispatch`.
-  _Unblocks:_ (1) vhost-vsock fix + Part A green; (2) implement fetch + host ingest route;
-  (3) operator read-client OAuth consent on sandbox (`connectReadClient`); (4) live poll proof.
+  _Status: Code complete; live run awaiting operator read-client consent._
+  Implemented this session: `sandboxEmailFetch.ts` (`fetchOpaqueViaOutlook`),
+  `sandboxEmailDelivery.ts` (`sandbox_email_delivery` RPC + host handler),
+  `b2LiveIngestion.rig.test.ts` (tripwire 1/1 pass, live skips).
+  Default `deliverToHost` remains fail-closed; rig test injects local DB write.
+  _Unblocks:_ (1) operator sets `WRDESK_PART_B_ACCOUNT_ID=<id>` and runs
+  `connectReadClient` to store read-scoped token; (2) re-run `b2LiveIngestion.rig.test.ts`.
 
 - **Part C — Outlook /$value spike (live fidelity vs real Microsoft Graph)**
-  _Status: Code side DONE (`outlookRfc822Fidelity.test.ts`, 12 pass / 4 rig-skip).
-  Live validation NOT run._ Do NOT flip `WRDESK_OUTLOOK_OPAQUE_INPUT` to `value` until
-  RIG-1..4 pass on a real account. If RIG-1 fails (403 / Mail.Read insufficient), STOP
-  and report — do NOT bump sandbox scope to Mail.ReadWrite without sign-off.
+  _Status: Test bodies implemented; live validation awaiting Microsoft test account._
+  RIG-1..4 now have real test bodies (were stubs). Activate with:
+  `WRDESK_PART_C_ACCESS_TOKEN=<token> WRDESK_PART_C_MESSAGE_ID=<id>`.
+  GATE: if RIG-1 returns 403 (Mail.Read insufficient for `/$value`), STOP and report —
+  do NOT flip `WRDESK_OUTLOOK_OPAQUE_INPUT` and do NOT bump scope without sign-off.
   _Unblocks:_ operator Microsoft test account at rig; run RIG-1..4; commit evidence;
-  remove skips + flip flag only if all four pass.
+  flip `WRDESK_OUTLOOK_OPAQUE_INPUT` only if all four pass.
 
 ## Email ingestion — Prompt 4 follow-ups
 
