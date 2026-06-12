@@ -834,7 +834,9 @@ export function EmailConnectWizard({
           const st = gmailOAuthMeta?.gmailBuiltinProviderStatus
           if (st === 'credentials_incomplete') {
             setCredError(
-              'Google OAuth pairing secret is missing. Paste and save it under Integrations below (stored encrypted locally), then try Connect Google again.',
+              gmailOAuthMeta?.developerModeEnabled
+                ? 'Google OAuth pairing secret is missing. Paste and save it under Integrations below (stored encrypted locally), then try Connect Google again.'
+                : 'OAuth configuration error — the built-in Google OAuth client secret is unavailable. Check for an app update.',
             )
           } else if (st === 'not_configured') {
             setCredError(
@@ -1574,9 +1576,18 @@ export function EmailConnectWizard({
                         >
                           {gmailOAuthMeta.gmailBuiltinProviderStatus === 'credentials_incomplete' ? (
                             <>
-                              The app includes a Google OAuth client id, but the pairing <strong>client secret</strong> is not
-                              set for this machine. Add it under Integrations below — it is stored with OS-backed encryption and is
-                              not bundled in the app.
+                              {gmailOAuthMeta.developerModeEnabled ? (
+                                <>
+                                  The app includes a Google OAuth client id, but the pairing <strong>client secret</strong> is not
+                                  set for this machine. Add it under Integrations below — it is stored with OS-backed encryption and is
+                                  not bundled in the app.
+                                </>
+                              ) : (
+                                <>
+                                  <strong>OAuth configuration error.</strong>{' '}
+                                  The built-in Google OAuth client secret is unavailable. Check for an app update or contact support.
+                                </>
+                              )}
                             </>
                           ) : gmailOAuthMeta.gmailBuiltinProviderStatus === 'not_configured' ? (
                             <>
@@ -1598,6 +1609,7 @@ export function EmailConnectWizard({
                         </div>
                       )}
                       {gmailOAuthMeta?.gmailBuiltinProviderStatus === 'credentials_incomplete' &&
+                        gmailOAuthMeta?.developerModeEnabled &&
                         (isElectron() || isExtension()) && (
                           <div
                             style={{
@@ -1692,8 +1704,7 @@ export function EmailConnectWizard({
                         Connect Google
                       </button>
                       {(gmailOAuthMeta?.developerModeEnabled === true ||
-                        !!existingGmail ||
-                        gmailOAuthMeta?.gmailBuiltinProviderStatus === 'credentials_incomplete') && (
+                        !!existingGmail) && (
                         <button
                           type="button"
                           onClick={() => {
@@ -2002,9 +2013,8 @@ export function EmailConnectWizard({
                         <ol style={{ margin: '8px 0 0 16px', padding: 0 }}>
                           <li>Go to <a href="https://portal.azure.com" target="_blank" rel="noopener noreferrer" style={{ color: isPro ? '#3b82f6' : '#60a5fa' }}>Azure Portal</a></li>
                           <li>Register an application in Azure Active Directory</li>
-                          <li>Add redirect URI: http://127.0.0.1:{OAUTH_CALLBACK_PORT}/callback</li>
-                          <li>Create a client secret</li>
-                          <li>Copy Application (client) ID, Client Secret, and Tenant ID below</li>
+                          <li>Under Authentication, add a Mobile/Desktop redirect URI: http://127.0.0.1:{OAUTH_CALLBACK_PORT}/callback — and enable &quot;Allow public client flows&quot;</li>
+                          <li>Copy Application (client) ID and Tenant ID below; client secret is optional for public clients</li>
                         </ol>
                       </div>
                       <div>
@@ -2018,12 +2028,12 @@ export function EmailConnectWizard({
                         />
                       </div>
                       <div>
-                        <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Client Secret *</label>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Client Secret <span style={{ fontWeight: 400 }}>(optional — skip for public clients)</span></label>
                         <input
                           type="password"
                           value={outlookCreds.clientSecret}
                           onChange={(e) => setOutlookCreds((p) => ({ ...p, clientSecret: e.target.value }))}
-                          placeholder="Optional for public clients"
+                          placeholder="Leave blank for public client / PKCE-only"
                           style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
                         />
                       </div>
