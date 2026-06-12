@@ -13,10 +13,31 @@
  */
 import { defineConfig } from 'vitest/config'
 import path from 'node:path'
+import type { Plugin } from 'vite'
+
+/**
+ * Vitest runs in Node's native ESM mode. The vite-electron-renderer plugin transforms
+ * `import fs from 'fs'` into `import { ... } from '.vite-electron-renderer/fs.mjs'` — a
+ * CJS shim that uses `require()`.  In ESM that throws "require is not defined".
+ * This plugin intercepts those shim requests and redirects them to the real Node modules.
+ */
+function bypassElectronRendererShims(): Plugin {
+  return {
+    name: 'bypass-vite-electron-renderer-shims',
+    enforce: 'pre',
+    resolveId(id) {
+      const shimMatch = id.match(/[/\\]\.vite-electron-renderer[/\\](.+)\.mjs$/)
+      if (shimMatch) {
+        return { id: `node:${shimMatch[1]}`, external: true }
+      }
+    },
+  }
+}
 
 const repoRoot = __dirname
 
 export default defineConfig({
+  plugins: [bypassElectronRendererShims()],
   resolve: {
     alias: [
       // Global Electron mock: unblocks suites that import production modules
@@ -53,7 +74,9 @@ export default defineConfig({
     ],
     server: {
       deps: {
-        external: ['ws', 'better-sqlite3'],
+        // Node built-ins are marked external so vite-electron-renderer does not replace them
+        // with CJS-shim .mjs files that break in Node's native ESM test environment.
+        external: ['ws', 'better-sqlite3', 'fs', 'path', 'os', 'crypto', 'child_process', 'http', 'https', 'url', 'net', 'stream', 'util', 'events', 'buffer', 'tls', 'zlib'],
       },
     },
   },
