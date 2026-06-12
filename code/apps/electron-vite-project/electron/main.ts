@@ -2884,15 +2884,37 @@ app.whenReady().then(async () => {
         console.error('[REVOKE] setRevokeNotifyCallback failed:', err?.message)
       }
 
-      // UX-3 D2: when enforcement.ts processes a remote-capsule revoke on the
-      // sandbox, push topology:sandboxReadCleanupHint (same helper as above).
+      // Gap-fix + UX-3 D1/D2: when enforcement.ts processes a remote-capsule revoke,
+      // removeTopologyForHandshake has already run and this callback fires.
+      // Dispatch by role: host → revoke transition banner (topology:handshakeRevoked),
+      // sandbox → read-cleanup hint (topology:sandboxReadCleanupHint).
       try {
-        const { setSandboxRevokeHintCallback } = await import('./main/handshake/enforcement')
-        setSandboxRevokeHintCallback(async (handshakeId: string) => {
-          await fireSandboxReadCleanupHint(handshakeId)
+        const { setRemoteRevokeCallback } = await import('./main/handshake/enforcement')
+        setRemoteRevokeCallback(async (handshakeId: string, localDeviceRole: 'host' | 'sandbox' | null) => {
+          try {
+            if (localDeviceRole === 'sandbox') {
+              await fireSandboxReadCleanupHint(handshakeId)
+            } else {
+              // host (or unknown): send revoke transition banner
+              const { emailGateway } = await import('./main/email/gateway')
+              const accounts = await emailGateway.listAccounts()
+              const hasAccounts = accounts.some((a: { status: string }) => a.status === 'active')
+              const wins = win ? [win] : BrowserWindow.getAllWindows()
+              wins.forEach((w) => {
+                if (!w.isDestroyed() && w.webContents) {
+                  w.webContents.send('topology:handshakeRevoked', { handshakeId, hasAccounts })
+                }
+              })
+              console.log(
+                `[REVOKE] topology:handshakeRevoked (remote) handshakeId=${handshakeId} hasAccounts=${hasAccounts}`,
+              )
+            }
+          } catch (err: any) {
+            console.error('[REVOKE] remoteRevokeCallback dispatch failed:', err?.message)
+          }
         })
       } catch (err: any) {
-        console.error('[REVOKE] setSandboxRevokeHintCallback failed:', err?.message)
+        console.error('[REVOKE] setRemoteRevokeCallback failed:', err?.message)
       }
 
       // UX-1 D4: when auto-wire succeeds on the host (handshake → ACTIVE), push

@@ -9,18 +9,11 @@
  * ingestion layer. Passing CandidateCapsuleEnvelope produces a compile error.
  */
 
-// ── UX-3 D2: sandbox read-cleanup hint callback (remote-capsule revoke path) ─
-// Fires when this node (sandbox) processes an inbound handshake-revoke capsule.
-// Registered by main.ts to push topology:sandboxReadCleanupHint to the renderer.
-// UX-only — does NOT touch ownership or fail-closed logic; those are LOCKED.
-// NOTE: The ownership gap (removeTopologyForHandshake not called here) is tracked
-// in DEFERRED.md and must be fixed in a separate task.
-type SandboxRevokeHintCb = (handshakeId: string) => void
-let _sandboxRevokeHintCb: SandboxRevokeHintCb | null = null
-
-export function setSandboxRevokeHintCallback(cb: SandboxRevokeHintCb | null): void {
-  _sandboxRevokeHintCb = cb
-}
+// ── Remote-capsule revoke callback (UX-3 D2 + gap-fix) ──────────────────────
+// Registry lives in a separate module so tests can import it without pulling in
+// all of enforcement.ts. Re-exported here for backward compat with main.ts.
+export { setRemoteRevokeCallback } from './remoteRevokeCallbackRegistry'
+import { getRemoteRevokeCallback } from './remoteRevokeCallbackRegistry'
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type {
@@ -475,20 +468,35 @@ export function processHandshakeCapsule(
       record = buildRevokeRecord(handshakeRecord!, input)
       updateHandshakeRecord(db, record)
       markContextBlocksInactiveByHandshake(db, input.handshake_id)
-      // UX-3 D2: notify main.ts on the SANDBOX so it can show the read-cleanup hint.
-      // Role check: if this node's device role for this handshake is 'sandbox',
-      // fire the hint callback. Best-effort via queueMicrotask — never blocks enforcement.
+      // Gap-fix (remote-capsule revoke must unwind topology):
+      // Remove the topology auto-wire entry so resolveIngestionOwnership() reverts
+      // to host-owned immediately — same as the local-user path in revocation.ts:99-105.
+      // Logged loudly on failure (silent mail stop is the impact) but never blocks processing.
+      // UX-3 callback fires inside .then() so it runs only after successful removal.
       {
         const prevRecord = handshakeRecord!
-        const localDeviceRole =
+        const localDeviceRole: 'host' | 'sandbox' | null =
           prevRecord.local_role === 'initiator'
-            ? prevRecord.initiator_device_role
-            : prevRecord.acceptor_device_role
-        if (localDeviceRole === 'sandbox') {
-          queueMicrotask(() => {
-            try { _sandboxRevokeHintCb?.(input.handshake_id) } catch { /* never block */ }
-          })
-        }
+            ? (prevRecord.initiator_device_role ?? null)
+            : (prevRecord.acceptor_device_role ?? null)
+        const capturedHsId = input.handshake_id
+        queueMicrotask(() => {
+          void import('./topologyAutoWire')
+            .then(({ removeTopologyForHandshake }) => {
+              removeTopologyForHandshake(capturedHsId)
+              console.log(
+                `[TOPOLOGY_AUTO_WIRE] removeTopologyForHandshake (remote-capsule revoke) handshakeId=${capturedHsId}`,
+              )
+              // UX-3: notify main.ts to push the role-appropriate banner/hint.
+              try { getRemoteRevokeCallback()?.(capturedHsId, localDeviceRole) } catch { /* never block */ }
+            })
+            .catch((err: any) => {
+              console.error(
+                '[TOPOLOGY_AUTO_WIRE] removeTopologyForHandshake (remote-capsule revoke) failed:',
+                err?.message,
+              )
+            })
+        })
       }
     } else {
       throw new Error(`Unknown capsuleType: ${input.capsuleType}`)

@@ -5,7 +5,7 @@ tracked in one place rather than re-discovered. One line each: **what** / **why 
 **what unblocks it**. "By design" items are not pending work — they are decisions, listed so
 they are not mistaken for gaps.
 
-_Last updated: 2026-06-10 (Prompt 5 rig session — mini-PC, session 2, vhost-vsock green; Part A closed)._
+_Last updated: 2026-06-12 (remote-capsule revoke gap closed; UX-3 revocation section updated)._
 
 ## Logging / UX mislabels — pending
 
@@ -114,16 +114,20 @@ so the baseline is green and no-regression claims stay verifiable. None are prod
 ## UX-3 / Revocation — gaps (2026-06-12)
 
 - **Remote-capsule revoke does not call `removeTopologyForHandshake`** —
-  `enforcement.ts:460-463` processes an inbound `handshake-revoke` capsule by calling
+  ~~`enforcement.ts:460-463` processes an inbound `handshake-revoke` capsule by calling
   `buildRevokeRecord` + `updateHandshakeRecord` but does **not** call
   `removeTopologyForHandshake`. If the sandbox peer sends a revoke capsule, the host's
   `orchestrator-mode.json` linked entry remains; `resolveIngestionOwnership()` continues
   returning `owner: 'sandbox'` and inbound mail stays delegated until a cold restart or the
   user force-revokes locally. The Trigger D toast/banner also does not fire for the remote
-  path. _Fix_: add a post-enforcement hook that fires `removeTopologyForHandshake` (and the
-  revoke notification callback) for `handshake-revoke` capsule types — same as the local-user
-  path. _Priority_: medium. _Unblocks_: ownership/fail-closed invariants are LOCKED;
-  schedule this as its own task after sign-off on the fix scope.
+  path.~~
+  **CLOSED 2026-06-12** — `enforcement.ts` now calls `removeTopologyForHandshake` via
+  `queueMicrotask` + dynamic import after the record update succeeds (same pattern and
+  fail-loud logging as the local-user path in `revocation.ts:99-105`). The unified
+  `_remoteRevokeCb` fires inside `.then()` so it only runs on successful removal; `main.ts`
+  dispatches by `localDeviceRole`: host → `topology:handshakeRevoked` banner (D1), sandbox →
+  `topology:sandboxReadCleanupHint` (D2). Regression test:
+  `enforcement.remoteRevoke.test.ts`.
 
 ## Email ingestion — Prompt 4 follow-ups
 
