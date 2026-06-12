@@ -28,12 +28,21 @@ function providerDisplayLabel(provider: EmailAccount['provider']): string {
   }
 }
 
+/**
+ * UX-2b D4 — topology-aware sync-mode badge per account row.
+ *
+ * Single-machine (no ingestionStatus or OK_SINGLE_MACHINE): unchanged.
+ * Host delegated (PAUSED_HOST_DELEGATED, thisNodeRole=host): "Outbound only"
+ * Sandbox node (thisNodeRole=sandbox): "Inbound (read-only)"
+ */
 function RemoteSyncBadge({
   provider,
   processingPaused,
+  ingestionStatus,
 }: {
   provider: EmailAccount['provider']
   processingPaused?: boolean
+  ingestionStatus?: IngestionTopologyStatus | null
 }) {
   if (processingPaused) {
     return (
@@ -50,7 +59,45 @@ function RemoteSyncBadge({
       </span>
     )
   }
+
+  // Topology-aware overrides for OAuth providers (A2 split participants).
   if (provider === 'microsoft365' || provider === 'gmail' || provider === 'zoho') {
+    const isHostDelegated =
+      ingestionStatus?.code === 'PAUSED_HOST_DELEGATED' && ingestionStatus?.thisNodeRole === 'host'
+    const isSandboxNode = ingestionStatus?.thisNodeRole === 'sandbox'
+
+    if (isHostDelegated) {
+      return (
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            color: 'var(--text-primary, #0369a1)',
+            letterSpacing: 0.2,
+          }}
+          title="Inbound mail is fetched on your sandbox device"
+        >
+          Outbound only
+        </span>
+      )
+    }
+
+    if (isSandboxNode) {
+      return (
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: 'var(--text-secondary, #0f766e)',
+            letterSpacing: 0.2,
+          }}
+          title="This device only receives mail (read-only). Sending is done on the host device."
+        >
+          Inbound (read-only)
+        </span>
+      )
+    }
+
     return (
       <span
         style={{
@@ -64,6 +111,7 @@ function RemoteSyncBadge({
       </span>
     )
   }
+
   return (
     <span
       style={{
@@ -327,7 +375,11 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                       <span style={{ color: mutedColor, fontWeight: 400 }}>·</span>
                       <span style={{ color: mutedColor, fontWeight: 500 }}>{providerDisplayLabel(account.provider)}</span>
                       <span style={{ color: mutedColor, fontWeight: 400 }}>·</span>
-                      <RemoteSyncBadge provider={account.provider} processingPaused={account.processingPaused} />
+                      <RemoteSyncBadge
+                        provider={account.provider}
+                        processingPaused={account.processingPaused}
+                        ingestionStatus={ingestionStatus}
+                      />
                       {account.processingPaused ? (
                         <span
                           style={{
