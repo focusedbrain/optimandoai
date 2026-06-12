@@ -1,8 +1,8 @@
 # Vite ephemeral config (sometimes dropped next to vite.config.ts)
 **/vite.config.ts.timestamp-*.mjs
 
-# Google OAuth Desktop client secret — keep local or inject via CI (prepare-google-oauth-resource.cjs); never commit real GOCSPX-
-apps/electron-vite-project/resources/google-oauth-client-secret.txt
+# google-oauth-client-secret.txt is now tracked (Desktop client secrets are not confidential;
+# PKCE provides the security). Bundling alongside the client id so fresh devices work out of the box.
 
 # Node and build artifacts
 node_modules/
