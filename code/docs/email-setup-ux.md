@@ -1,6 +1,6 @@
 # Email setup UX — surfaces, triggers, and copy reference
 
-_Last updated: 2026-06-12 (UX-1 D1–D6, UX-3 D1–D3 / copy audit pass)_
+_Last updated: 2026-06-12 (UX-1 D1–D6, UX-3 D1–D3 / copy audit pass; UX-2b D1–D4 / topology explainer, wizard, badges)_
 
 This document is the **single source of truth for all user-facing copy** introduced in the
 multi-machine email ingestion UX (Prompts 1–5 engineering, UX-1/UX-3 build prompts). It
@@ -304,6 +304,117 @@ Provider links:
 
 ---
 
+---
+
+## UX-2b surfaces (topology-aware setup paths + persistent explainer)
+
+### Topology scenario matrix — `IngestionTopologyExplainer` (Deliverable 1)
+
+The explainer is rendered inside / below every "Connected Email Accounts" section
+(`EmailProvidersSection`). It is **non-dismissible** (orientation, not a notice) and is
+**always visible** when an ingestion-status code and node role are available.  
+Suppressed when `ingestionStatus` is `null` (extension / non-IPC surfaces).
+
+| # | `code` | `thisNodeRole` | `hasAccounts` | Explainer copy | Status chip |
+|---|--------|----------------|---------------|----------------|-------------|
+| 1 | any except delegated/sandbox | `host` | false | "Connect an email account to send and receive mail on this device." | — |
+| 2 | `OK_SINGLE_MACHINE` | `host` | true | _(suppressed — single-machine, no dual-setup wording)_ | — |
+| 3 | `PAUSED_HOST_DELEGATED` | `host` | true | "You're using a sandbox device: this machine sends your mail, your sandbox receives it. To receive mail, a read-only email connection must be set up on the sandbox device." | Sandbox inbox: **set up ✓** (when `OK_SANDBOX_FETCHING`) · **not set up yet** (when `PAUSED_HOST_DELEGATED` / `ACTION_NEEDED_READ_CONSENT`) |
+| 4 | `PAUSED_HOST_DELEGATED` | `host` | false | "You're using a sandbox device: set up your email here for sending. Receiving is set up separately on the sandbox device (read-only)." | — |
+| 5 | `OK_SANDBOX_FETCHING` | `sandbox` | true | "This device receives mail for your workspace (read-only — it cannot send). Sending happens on your host device." | ✓ Inbox: receiving |
+| 6 | `ACTION_NEEDED_READ_CONSENT` | `sandbox` | any | "Connect a read-only email account on this device to receive mail. Sending stays on your host device." | [Connect read-only account →] CTA |
+
+**Tier-accuracy:** ✓ No microVM/hardware claims. "sandbox device" / "host device" are always peer-opaque.
+
+**Component:** `IngestionTopologyExplainer` (`apps/extension-chromium/src/wrguard/components/IngestionTopologyExplainer.tsx`)
+
+---
+
+### 14 — Host send-only wizard intro (Trigger C)
+
+| Field | Value |
+|-------|-------|
+| **Surface** | Full-screen wizard modal (Inbox / Bulk Inbox) |
+| **Component** | `EmailConnectWizard` (`apps/extension-chromium/src/shared/components/EmailConnectWizard.tsx`) — `wizardMode='host_send_only'`, `intro` step |
+| **Node** | Host |
+| **Trigger** | `openConnectEmail()` called when `ingestionStatus.code === 'PAUSED_HOST_DELEGATED'` and `thisNodeRole === 'host'` (wired via `useConnectEmailFlow`) |
+| **Dismissal** | Cancelable at any step; does not reopen automatically |
+
+**Copy (intro step):**
+
+> **Set up outbound mail**
+>
+> Your sandbox fetches inbound mail. Set up outbound mail here (send only).
+> To receive mail, use Connect Email on your sandbox device.
+>
+> [Cancel]  [Continue →]
+
+**Copy (provider step, host_send_only mode):**
+
+> **Choose your mail provider**
+>
+> This account will be used for **sending only**.
+> Inbound mail is handled by your sandbox device.
+
+**Tier-accuracy:** ✓ "sandbox device" — no implementation claim.
+
+---
+
+### 15 — Sandbox connect-email routing (Trigger C, sandbox side)
+
+| Field | Value |
+|-------|-------|
+| **Component** | `useConnectEmailFlow` (`apps/extension-chromium/src/shared/email/connectEmailFlow.tsx`) |
+| **Node** | Sandbox |
+| **Trigger** | `openConnectEmail()` called when `thisNodeRole === 'sandbox'` (any code); `onOpenSandboxReadConsent` provided |
+| **Behaviour** | Calls `onOpenSandboxReadConsent()` directly — opens `SandboxReadConsentWizard` (entry #5–8 above) instead of `EmailConnectWizard`. No intermediate modal. |
+
+---
+
+### Account-row sync-mode badges (Deliverable 4)
+
+Rendered inside each OAuth account row in `EmailProvidersSection` via `RemoteSyncBadge`.
+`ingestionStatus` is threaded from the section-level prop.
+
+| Condition | Badge text | Tooltip |
+|-----------|-----------|---------|
+| `processingPaused === true` (any topology) | `⏸ Sync paused` | "Mail sync is paused — click Resume to fetch mail again." |
+| `code === 'PAUSED_HOST_DELEGATED'` + `thisNodeRole === 'host'` | **Outbound only** | "Inbound mail is fetched on your sandbox device" |
+| `thisNodeRole === 'sandbox'` | **Inbound (read-only)** | "This device only receives mail (read-only). Sending is done on the host device." |
+| Single-machine / `ingestionStatus` null | `🟢 Smart Sync` | — |
+| IMAP accounts (any topology) | `🟢 Pull & Classify` | "IMAP: fetch mail and classify locally." |
+
+**Suppression:** IMAP accounts never receive topology badges (they are not A2 split participants). Single-machine rows are unchanged.
+
+---
+
+### UX-2b suppression rules
+
+| Surface | Condition for suppression |
+|---------|--------------------------|
+| `IngestionTopologyExplainer` | `ingestionStatus` prop is `null` / not passed (extension / non-IPC mount sites) |
+| `IngestionTopologyExplainer` scenarios 1 & 2 | Single-machine or no accounts: no dual-setup wording shown |
+| Topology account badges | `ingestionStatus` null → falls back to `🟢 Smart Sync` / `🟢 Pull & Classify` |
+| Host send-only wizard intro | `ingestionStatus.code !== 'PAUSED_HOST_DELEGATED'` on host → default wizard (no intro step) |
+| Sandbox routing shortcut | `onOpenSandboxReadConsent` not provided → default `EmailConnectWizard` (extension contexts without IPC) |
+
+---
+
+### UX-2b IPC additions
+
+| Channel | Direction | Payload | Consumer |
+|---------|-----------|---------|----------|
+| `email:connectSendAccount` | renderer → main | `{ provider: 'gmail' \| 'outlook'; displayName?: string }` | `EmailConnectWizard` (`host_send_only` mode connecting step) |
+
+**`email:connectSendAccount` invariants:**
+- Calls `connectSendClient` (host-only — throws if called from a sandbox node).
+- Scope invariant guard: planned send scopes must not include any read scope (`scopeSetCanRead` on `plannedScopesForRole`).
+- Registered account has no `oauth` field (gateway row); token lives in `roleScopedTokenStore` role=`'send'`.
+- Outbound send path (`gateway.sendEmail`) bridges send-role token as synthetic `oauth` config before `provider.connect()`, mirroring the `sandboxEmailFetch.ts` read bridge (see Deliverable 3).
+- Token refresh writes back to `roleScopedTokenStore` role=`'send'`, not to `persistEmailAccounts`.
+
+---
+
 ## Copy audit results (2026-06-12)
 
 ### Issues found and fixed
@@ -346,6 +457,9 @@ Provider links:
 | Revoke transition banner (Trigger D host) | 24-hour TTL, manually dismissible | `wr.revokeNotice.<id>` (`{ revokedAt, hasAccounts, dismissed }`) |
 | Sandbox read-cleanup hint (Trigger D sandbox) | One-time forever | `wr.sandboxReadCleanupHint.dismissed.<id>` |
 | Sandbox read-consent wizard (Trigger B) | Closes on action/cancel; re-opens via "Connect now" CTA | — |
+| **IngestionTopologyExplainer (UX-2b D1)** | **Non-dismissible** — persistent orientation copy | — |
+| **Host send-only wizard (UX-2b D2, Trigger C)** | Cancelable; re-opens each time `openConnectEmail()` is called | — |
+| **Account-row badges (UX-2b D4)** | Live (no dismissal; driven by `ingestionStatus` poll) | — |
 
 ---
 
@@ -356,6 +470,15 @@ Provider links:
 | `topology:ingestionDelegated` | `{ handshakeId }` | `useTopologyDelegationModal` → `IngestionDelegationModal` |
 | `topology:handshakeRevoked` | `{ handshakeId, hasAccounts }` | `useRevocationBanner` → `RevocationNoticeBanner` |
 | `topology:sandboxReadCleanupHint` | `{ handshakeId, readAccounts: [{ accountId, email, provider }] }` | `useSandboxReadCleanupHint` → `SandboxReadCleanupHint` |
+
+## IPC calls (renderer → main)
+
+| Channel | Payload | Consumer |
+|---------|---------|----------|
+| `email:getIngestionStatus` | `{ accountIds?: string[] }` | `useIngestionStatus` hook → `IngestionTopologyExplainer`, `IngestionStatusBanner`, badges |
+| `email:connectReadAccount` | `{ provider, displayName? }` | `SandboxReadConsentWizard` (UX-1 Trigger B) |
+| `email:connectSendAccount` | `{ provider, displayName? }` | `EmailConnectWizard` in `host_send_only` mode (UX-2b Trigger C) |
+| `email:deleteReadToken` | `accountId` | `SandboxReadCleanupHint` (UX-3) |
 
 ---
 
@@ -370,3 +493,23 @@ Provider links:
   hint), the gateway account row remains and the sync loop may generate HELD rows until the
   app is restarted or the row is pruned. Copy correctly advises the user that removing is
   optional; the noise is a P3 backend issue tracked in `DEFERRED.md`.
+
+- **Bundled-'all' scope purity (UX-2b D3)** — Accounts connected before the A2 split (bundled
+  OAuth `all`-scope client) hold a read+send scope. They are excluded from the D3 send bridge
+  (they retain the `account.oauth` path), so they continue to work unchanged. The semantic
+  contradiction (host account holds read scope after delegation) is documented in `DEFERRED.md`
+  and is not surfaced to the user.
+
+- **Send consent symmetric guard** — `runRoleScopedConsent` warns (does not throw) if the OAuth
+  server returns a read scope for a send consent. The IPC handler's planned-scope guard
+  (`scopeSetCanRead` on `plannedScopesForRole`) prevents this in production; the server-side
+  case is documented in the `roleAwareConsent.test.ts` "Trigger-C bad grant" test.
+
+- **IMAP send-role bridge** — `gateway.sendEmail` only bridges `roleScopedTokenStore` for
+  `gmail` and `microsoft365` providers. IMAP accounts always use full `account.smtp` credentials
+  and are not A2 split participants; no IMAP send bridge is needed.
+
+- **`IngestionTopologyExplainer` on extension surfaces** — `popup-chat.tsx` and
+  `WRGuardWorkspace.tsx` mount `EmailProvidersSection` without `ingestionStatus` (IPC not
+  available in those extension contexts). The explainer is suppressed (`null` prop); no
+  topology messaging appears in the extension popup. Considered acceptable for current tier.
