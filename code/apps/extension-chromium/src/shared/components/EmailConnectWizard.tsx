@@ -24,9 +24,16 @@ export interface EmailConnectWizardProps {
   launchSource?: ConnectEmailLaunchSource
   /** When set (Electron), skip provider picker and open Custom IMAP pre-filled for password update. */
   reconnectAccountId?: string | null
+  /**
+   * UX-2b D2: topology-aware mode.
+   *   'default'         — unchanged single-machine behaviour (all scopes).
+   *   'host_send_only'  — shows intro step + requests send scopes via connectSendAccount IPC.
+   * Defaults to 'default'.
+   */
+  wizardMode?: 'default' | 'host_send_only'
 }
 
-type Step = 'provider' | 'credentials' | 'connecting' | 'result'
+type Step = 'intro' | 'provider' | 'credentials' | 'connecting' | 'result'
 type Provider = 'gmail' | 'outlook' | 'zoho' | 'custom'
 type ResultType = 'success' | 'failure'
 type SecurityModeUi = 'ssl' | 'starttls' | 'none'
@@ -120,8 +127,10 @@ export function EmailConnectWizard({
   theme = 'default',
   launchSource,
   reconnectAccountId = null,
+  wizardMode = 'default',
 }: EmailConnectWizardProps) {
-  const [step, setStep] = useState<Step>('provider')
+  const initialStep: Step = wizardMode === 'host_send_only' ? 'intro' : 'provider'
+  const [step, setStep] = useState<Step>(initialStep)
   const [provider, setProvider] = useState<Provider | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [result, setResult] = useState<ResultType | null>(null)
@@ -185,7 +194,7 @@ export function EmailConnectWizard({
   const inputBg = isPro ? '#fff' : 'rgba(255,255,255,0.08)'
 
   const reset = useCallback(() => {
-    setStep('provider')
+    setStep(wizardMode === 'host_send_only' ? 'intro' : 'provider')
     setProvider(null)
     setConnecting(false)
     setResult(null)
@@ -634,6 +643,28 @@ export function EmailConnectWizard({
     [],
   )
 
+  /**
+   * UX-2b D2 — Send-only consent for host nodes. Electron-only; uses the
+   * email:connectSendAccount IPC which calls connectSendClient with SEND scopes.
+   */
+  const connectSendAccount = useCallback(
+    async (
+      provider: 'gmail' | 'outlook',
+    ): Promise<{ ok: boolean; email?: string; error?: string }> => {
+      if (!isElectron()) {
+        return { ok: false, error: 'Send-only connect requires the desktop app.' }
+      }
+      const label = provider === 'gmail' ? 'Gmail (send only)' : 'Outlook (send only)'
+      const res = await (window as any).emailAccounts?.connectSendAccount?.({ provider, displayName: label })
+      return {
+        ok: !!res?.ok,
+        email: res?.data?.email,
+        error: res?.error,
+      }
+    },
+    [],
+  )
+
   const connectZoho = useCallback(
     async (
       syncWindowDays?: number,
@@ -960,7 +991,13 @@ export function EmailConnectWizard({
     const connect = async () => {
       try {
         let res: { ok: boolean; email?: string; error?: string; debug?: GmailConnectFailureDebug | null }
-        if (provider === 'gmail') {
+
+        // ── UX-2b D2: host send-only path ─────────────────────────────────────
+        if (wizardMode === 'host_send_only' && (provider === 'gmail' || provider === 'outlook')) {
+          const sr = await connectSendAccount(provider)
+          res = { ok: sr.ok, email: sr.email, error: sr.error }
+        // ──────────────────────────────────────────────────────────────────────
+        } else if (provider === 'gmail') {
           res = await connectGmail(connectSyncWindowDays, gmailOAuthCredentialSourceRef.current)
         } else if (provider === 'outlook') {
           res = await connectOutlook(connectSyncWindowDays)
@@ -1127,7 +1164,10 @@ export function EmailConnectWizard({
   const hasExtension = isExtension()
   const canConnect = hasElectron || hasExtension
   const modalWidth =
-    step === 'provider' ? 'min(520px, 96vw)' : provider === 'custom' ? 'min(500px, 96vw)' : '400px'
+    step === 'intro' ? '400px'
+    : step === 'provider' ? 'min(520px, 96vw)'
+    : provider === 'custom' ? 'min(500px, 96vw)'
+    : '400px'
 
   return (
     <>
@@ -1170,8 +1210,14 @@ export function EmailConnectWizard({
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span style={{ fontSize: '24px' }}>📧</span>
             <div>
-              <div style={{ fontSize: '16px', fontWeight: '600' }}>Connect Your Email</div>
-              <div style={{ fontSize: '11px', opacity: 0.9 }}>Secure access via OAuth or IMAP/SMTP</div>
+              <div style={{ fontSize: '16px', fontWeight: '600' }}>
+                {wizardMode === 'host_send_only' ? 'Set Up Outbound Mail' : 'Connect Your Email'}
+              </div>
+              <div style={{ fontSize: '11px', opacity: 0.9 }}>
+                {wizardMode === 'host_send_only'
+                  ? 'Send-only — your sandbox device receives mail'
+                  : 'Secure access via OAuth or IMAP/SMTP'}
+              </div>
               {launchSource != null && (
                 <div style={{ fontSize: '10px', opacity: 0.88, marginTop: '3px' }}>
                   {formatConnectEmailLaunchSource(launchSource)}
@@ -1197,13 +1243,57 @@ export function EmailConnectWizard({
         </div>
 
         <div style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
+          {/* UX-2b D2: Host send-only intro step */}
+          {step === 'intro' && (
+            <div>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: textColor, marginBottom: 8 }}>
+                Set up outbound mail (send only)
+              </div>
+              <p style={{ fontSize: '13px', color: textColor, lineHeight: 1.6, margin: '0 0 12px' }}>
+                Your sandbox device fetches inbound mail. Set up outbound mail here (send only).
+                To receive mail, use <strong>Connect Email</strong> on your sandbox device.
+              </p>
+              <p style={{ fontSize: '12px', color: mutedColor, lineHeight: 1.5, margin: '0 0 20px' }}>
+                Only the <em>send</em> permission will be requested — this device will not download
+                or read your inbox.
+              </p>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  style={{
+                    padding: '8px 16px', borderRadius: 6, border: `1px solid ${borderColor}`,
+                    background: 'transparent', color: textColor, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep('provider')}
+                  style={{
+                    padding: '8px 16px', borderRadius: 6, border: 'none',
+                    background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                    color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  }}
+                >
+                  Continue →
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Step 1: Provider */}
           {step === 'provider' && (
             <>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: textColor, marginBottom: 6 }}>Connect email account</div>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: textColor, marginBottom: 6 }}>
+                {wizardMode === 'host_send_only' ? 'Choose outbound mail provider' : 'Connect email account'}
+              </div>
               <div style={{ fontSize: '12px', color: mutedColor, marginBottom: 14, lineHeight: 1.45 }}>
-                Recommended providers offer <strong>Smart Sync</strong> — pull, classify, and mirror sorted emails back to your
-                mailbox automatically.
+                {wizardMode === 'host_send_only'
+                  ? 'Select your email provider. Only send permissions will be requested — mail is received on your sandbox device.'
+                  : <>Recommended providers offer <strong>Smart Sync</strong> — pull, classify, and mirror sorted emails back to your mailbox automatically.</>
+                }
               </div>
               {!canConnect && (
                 <div

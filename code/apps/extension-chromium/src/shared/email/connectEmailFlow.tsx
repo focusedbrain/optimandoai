@@ -5,11 +5,19 @@
  * Provider capability flags, mailbox/sync-target modeling, and credential storage are owned by the
  * Electron **main** process (`electron-vite-project/electron/main/email/domain/`). Keep provider
  * rules out of this file — UI launch only.
+ *
+ * UX-2b D2: topology-aware routing.
+ *   - Host with linked sandbox (ingestionStatus.code === 'PAUSED_HOST_DELEGATED'):
+ *       → EmailConnectWizard opens in 'host_send_only' mode (intro step + send scopes).
+ *   - Sandbox node (ingestionStatus.thisNodeRole === 'sandbox'):
+ *       → onOpenSandboxReadConsent() is called instead of opening EmailConnectWizard.
+ *   - Single-machine / null status: unchanged.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { EmailConnectWizard } from '../components/EmailConnectWizard'
 import { ConnectEmailLaunchSource } from './connectEmailTypes'
+import type { IngestionTopologyStatus } from '../../wrguard/components/IngestionTopologyExplainer'
 
 export { ConnectEmailLaunchSource, formatConnectEmailLaunchSource } from './connectEmailTypes'
 
@@ -22,6 +30,17 @@ export interface UseConnectEmailFlowOptions {
   /** User closed the modal without completing a successful connection (X, backdrop, back-out). */
   onCancel?: (source: ConnectEmailLaunchSource | null) => void
   theme: ConnectEmailFlowTheme
+  /**
+   * UX-2b D2: current ingestion topology status from email:getIngestionStatus.
+   * Null/omitted = single-machine or IPC not available → wizard unchanged.
+   */
+  ingestionStatus?: IngestionTopologyStatus | null
+  /**
+   * UX-2b D2: called when openConnectEmail() is triggered on a sandbox node.
+   * Caller should open SandboxReadConsentWizard. When omitted, EmailConnectWizard
+   * opens with default mode (fallback for contexts without the read-consent wizard).
+   */
+  onOpenSandboxReadConsent?: () => void
 }
 
 export function wizardThemeFromFlowTheme(flow: ConnectEmailFlowTheme): 'professional' | 'default' {
@@ -55,9 +74,21 @@ export function useConnectEmailFlow(options: UseConnectEmailFlowOptions): UseCon
 
   const pendingSuccessRef = useRef(false)
 
-  const openConnectEmail = useCallback((source: ConnectEmailLaunchSource, options?: { reconnectAccountId?: string }) => {
-    console.info('[ConnectEmailFlow] open', { source, reconnectAccountId: options?.reconnectAccountId })
-    setReconnectAccountId(options?.reconnectAccountId?.trim() || null)
+  const openConnectEmail = useCallback((source: ConnectEmailLaunchSource, openOpts?: { reconnectAccountId?: string }) => {
+    const { ingestionStatus, onOpenSandboxReadConsent } = optsRef.current
+
+    // ── UX-2b D2: sandbox routing ─────────────────────────────────────────────
+    // On sandbox nodes, route to the UX-1 read-consent wizard instead of the
+    // full connect wizard (which would request all scopes — wrong on sandbox).
+    if (ingestionStatus?.thisNodeRole === 'sandbox' && onOpenSandboxReadConsent) {
+      console.info('[ConnectEmailFlow] sandbox node — routing to read-consent wizard', { source })
+      onOpenSandboxReadConsent()
+      return
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    console.info('[ConnectEmailFlow] open', { source, reconnectAccountId: openOpts?.reconnectAccountId })
+    setReconnectAccountId(openOpts?.reconnectAccountId?.trim() || null)
     setLaunchSource(source)
     setIsOpen(true)
   }, [])
@@ -89,6 +120,14 @@ export function useConnectEmailFlow(options: UseConnectEmailFlowOptions): UseCon
 
   const wizardTheme = wizardThemeFromFlowTheme(options.theme)
 
+  // ── UX-2b D2: determine wizard mode from topology ──────────────────────────
+  const wizardMode: 'default' | 'host_send_only' =
+    options.ingestionStatus?.code === 'PAUSED_HOST_DELEGATED' &&
+    options.ingestionStatus?.thisNodeRole === 'host'
+      ? 'host_send_only'
+      : 'default'
+  // ──────────────────────────────────────────────────────────────────────────
+
   const connectEmailFlowModal = (
     <EmailConnectWizard
       isOpen={isOpen}
@@ -97,6 +136,7 @@ export function useConnectEmailFlow(options: UseConnectEmailFlowOptions): UseCon
       theme={wizardTheme}
       launchSource={launchSource ?? undefined}
       reconnectAccountId={reconnectAccountId}
+      wizardMode={wizardMode}
     />
   )
 
