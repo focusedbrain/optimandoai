@@ -57,6 +57,7 @@ import { AutoSortSessionHistory } from './AutoSortSessionHistory'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
+import { useIngestionStatus } from '../hooks/useIngestionStatus'
 import { canShowSandboxCloneAction } from '../lib/beapInboxSandboxVisibility'
 import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
 import {
@@ -1724,7 +1725,15 @@ export default function EmailInboxBulkView({
   } = useInternalSandboxesList()
   const bulkActiveHostSandboxHandshakeCount =
     bulkInternalSandboxes.length + bulkInternalSandboxesIncomplete.length
-  const { mode: bulkOrchestratorMode, ready: bulkHostModeReady } = useOrchestratorMode()
+  const {
+    mode: bulkOrchestratorMode,
+    ready: bulkHostModeReady,
+    ledgerProvesLocalHostPeerSandbox: bulkLedgerProvesLocalHostPeerSandbox,
+  } = useOrchestratorMode()
+  const { status: bulkIngestionStatus } = useIngestionStatus({
+    mode: bulkOrchestratorMode,
+    ledgerProvesLocalHostPeerSandbox: bulkLedgerProvesLocalHostPeerSandbox,
+  })
   const [bulkSandboxCloneFor, setBulkSandboxCloneFor] = useState<InboxMessage | null>(null)
   const [bulkSandboxClonePickerContext, setBulkSandboxClonePickerContext] = useState<{
     cloneReason: 'external_link_or_artifact_review'
@@ -5984,14 +5993,15 @@ export default function EmailInboxBulkView({
               <EmailProvidersSection
                 theme="professional"
                 emailAccounts={providerAccounts}
-              isLoadingEmailAccounts={isLoadingProviderAccounts}
-              selectedEmailAccountId={selectedProviderAccountId}
-              onConnectEmail={handleConnectEmail}
-              onDisconnectEmail={handleDisconnectEmail}
-              onSetProcessingPaused={handleSetProcessingPaused}
-              onSelectEmailAccount={setSelectedProviderAccountId}
-              onUpdateImapCredentials={handleUpdateImapCredentials}
-              listAccountsError={providerListError}
+                isLoadingEmailAccounts={isLoadingProviderAccounts}
+                selectedEmailAccountId={selectedProviderAccountId}
+                onConnectEmail={handleConnectEmail}
+                onDisconnectEmail={handleDisconnectEmail}
+                onSetProcessingPaused={handleSetProcessingPaused}
+                onSelectEmailAccount={setSelectedProviderAccountId}
+                onUpdateImapCredentials={handleUpdateImapCredentials}
+                listAccountsError={providerListError}
+                ingestionStatus={bulkIngestionStatus}
               />
           </div>
         )}

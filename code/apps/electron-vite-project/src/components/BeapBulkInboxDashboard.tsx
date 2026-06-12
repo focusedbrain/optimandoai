@@ -10,6 +10,8 @@ import { BeapBulkInbox } from '@ext/beap-messages/components/BeapBulkInbox'
 import { createBeapReplyAiProvider } from '@ext/beap-messages/services/beapReplyAiProvider'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
+import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
+import { useIngestionStatus } from '../hooks/useIngestionStatus'
 import { BeapInlineComposer } from './BeapInlineComposer'
 import { EmailInlineComposer } from './EmailInlineComposer'
 
@@ -135,6 +137,15 @@ export default function BeapBulkInboxDashboard({
   const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
     onAfterConnected: loadEmailAccounts,
     theme: 'professional',
+  })
+
+  const {
+    mode: beapBulkOrchestratorMode,
+    ledgerProvesLocalHostPeerSandbox: beapBulkLedgerProvesLocalHostPeerSandbox,
+  } = useOrchestratorMode()
+  const { status: beapBulkIngestionStatus } = useIngestionStatus({
+    mode: beapBulkOrchestratorMode,
+    ledgerProvesLocalHostPeerSandbox: beapBulkLedgerProvesLocalHostPeerSandbox,
   })
 
   useEffect(() => {
@@ -276,6 +287,7 @@ export default function BeapBulkInboxDashboard({
         onSetProcessingPaused={handleSetProcessingPaused}
         onSelectEmailAccount={setSelectedEmailAccountId}
         onUpdateImapCredentials={handleUpdateImapCredentials}
+        ingestionStatus={beapBulkIngestionStatus}
       />
 
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>

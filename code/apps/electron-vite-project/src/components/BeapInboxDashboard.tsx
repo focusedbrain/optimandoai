@@ -13,6 +13,8 @@ import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { BeapMessageDetailPanel } from '@ext/beap-messages/components/BeapMessageDetailPanel'
 import { createBeapReplyAiProvider } from '@ext/beap-messages/services/beapReplyAiProvider'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
+import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
+import { useIngestionStatus } from '../hooks/useIngestionStatus'
 import type { BeapMessageDetailPanelHandle } from '@ext/beap-messages/components/BeapMessageDetailPanel'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { useBeapInboxStore } from '@ext/beap-messages/useBeapInboxStore'
@@ -200,6 +202,15 @@ export default function BeapInboxDashboard({
   const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
     onAfterConnected: loadEmailAccounts,
     theme: THEME,
+  })
+
+  const {
+    mode: beapOrchestratorMode,
+    ledgerProvesLocalHostPeerSandbox: beapLedgerProvesLocalHostPeerSandbox,
+  } = useOrchestratorMode()
+  const { status: beapIngestionStatus } = useIngestionStatus({
+    mode: beapOrchestratorMode,
+    ledgerProvesLocalHostPeerSandbox: beapLedgerProvesLocalHostPeerSandbox,
   })
 
   useEffect(() => {
@@ -568,6 +579,7 @@ export default function BeapInboxDashboard({
               onSetProcessingPaused={handleSetProcessingPaused}
               onSelectEmailAccount={setSelectedEmailAccountId}
               onUpdateImapCredentials={handleUpdateImapCredentials}
+              ingestionStatus={beapIngestionStatus}
             />
             <div style={{
               flex: 1,

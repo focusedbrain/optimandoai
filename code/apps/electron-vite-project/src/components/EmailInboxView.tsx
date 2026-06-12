@@ -4364,6 +4364,10 @@ export default function EmailInboxView({
                 onSelectEmailAccount={setSelectedProviderAccountId}
                 onUpdateImapCredentials={handleUpdateImapCredentials}
                 listAccountsError={providerListError}
+                ingestionStatus={ingestionStatus}
+                onOpenReadConsentWizard={
+                  ingestionStatus?.thisNodeRole === 'sandbox' ? openReadConsentWizard : undefined
+                }
               />
               {primaryAccountId && window.emailInbox?.patchAccountSyncPreferences && (
                 <div
