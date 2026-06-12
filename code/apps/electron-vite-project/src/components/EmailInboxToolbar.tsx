@@ -146,7 +146,7 @@ export default function EmailInboxToolbar({
                     cursor: 'pointer',
                   }}
                 >
-                  Sandbox
+                  Send to Sandbox
                 </button>
               ) : (
                 <button
@@ -164,7 +164,7 @@ export default function EmailInboxToolbar({
                     cursor: 'pointer',
                   }}
                 >
-                  Sandbox (setup)
+                  Sandbox setup
                 </button>
               )}
             </div>

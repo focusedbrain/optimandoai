@@ -207,8 +207,12 @@ export default function BeapInboxDashboard({
 
   const {
     mode: beapOrchestratorMode,
+    isSandbox: beapIsSandbox,
+    ledgerProvesInternalSandboxToHost: beapLedgerProvesInternalSandboxToHost,
     ledgerProvesLocalHostPeerSandbox: beapLedgerProvesLocalHostPeerSandbox,
+    ready: beapOrchestratorReady,
   } = useOrchestratorMode()
+  const beapOrphanedSandbox = beapIsSandbox && !beapLedgerProvesInternalSandboxToHost && beapOrchestratorReady
   const { status: beapIngestionStatus } = useIngestionStatus({
     mode: beapOrchestratorMode,
     ledgerProvesLocalHostPeerSandbox: beapLedgerProvesLocalHostPeerSandbox,
@@ -334,6 +338,40 @@ export default function BeapInboxDashboard({
   }, [selectMessage, onMessageSelect])
 
   if (showFirstRun) {
+    // D4 — Orphaned sandbox: never show connect-email CTA; show pairing prompt instead.
+    if (beapOrphanedSandbox) {
+      return (
+        <div style={{
+          position: 'relative',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%',
+          overflow: 'hidden',
+          background: 'var(--color-bg, #0f172a)',
+          color: 'var(--color-text, #e2e8f0)',
+          padding: '48px 32px',
+          textAlign: 'center',
+        }}>
+          <div style={{ fontSize: 32, marginBottom: 16, opacity: 0.3 }}>⏳</div>
+          <p
+            data-testid="beap-orphaned-sandbox-placeholder"
+            style={{
+              fontSize: 14,
+              lineHeight: 1.65,
+              maxWidth: 380,
+              margin: 0,
+              color: 'var(--color-text, #e2e8f0)',
+            }}
+          >
+            Awaiting pairing — complete the internal handshake with your host device to start
+            processing mail.
+          </p>
+        </div>
+      )
+    }
+
     return (
       <div style={{
         position: 'relative',

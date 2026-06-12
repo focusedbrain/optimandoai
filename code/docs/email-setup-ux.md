@@ -482,6 +482,110 @@ Rendered inside each OAuth account row in `EmailProvidersSection` via `RemoteSyn
 
 ---
 
+---
+
+## Sandbox viewport rules (Build B — CloneInboxView)
+
+_Added: 2026-06-12 (Build B — Sandbox Viewport UI)_
+
+### What the sandbox shows — and never shows
+
+A node in `sandbox` mode is **not a mail client**. Its inbox role is limited to:
+
+1. **Receiving BEAP clones** sent by the host (rows where `depackaged_metadata.inbox_response_path.sandbox_clone === true`).
+2. **Responding to those clones** via the existing `original_response_path` / `reply_transport` reply path.
+3. **Configuring the read-only email account** that lets it fetch mail for delivery to the host.
+
+The sandbox **never shows**:
+
+| Surface | Why suppressed |
+|---------|----------------|
+| `EmailInboxBulkView` / ⚡ bulk-mode toggle | Bulk triage is a host-side action; sandbox has no canonical inbox |
+| `EmailInboxSyncControls` | Sandbox does not manage its own sync window |
+| `EmailProvidersSection` | Full provider management is host-side |
+| `SyncFailureBanner` | Sync is not the sandbox's concern |
+| `IngestionDelegationModal` | Delegation flow is host→sandbox, not relevant on sandbox |
+| ✉ compose / BEAP compose nav shortcuts | Sandbox cannot originate mail or BEAP messages |
+| Connect-email first-run CTA | Replaced by "Awaiting pairing" on orphaned sandbox; `SandboxReadConsentWizard` is the correct entry point |
+
+**Non-feature (by design):** There is no "use sandbox as full inbox" option. A sandbox-role node is a mail processor, not a viewer. If you need to read your mail, use the host.
+
+---
+
+### Clone Inbox — component and filter
+
+**Component:** `CloneInboxView` (`src/components/CloneInboxView.tsx`)
+
+Rendered in `App.tsx` when `isSandbox === true` for the `beap-inbox` view, replacing both `EmailInboxView` and `EmailInboxBulkView`.
+
+**Clone filter:** Client-side, applied to `allMessages` from `useEmailInboxStore`:
+
+```typescript
+depackaged_metadata?.inbox_response_path?.sandbox_clone === true
+```
+
+Quarantine-clone rows (`sandbox_clone_quarantine`) live in `quarantine_messages` (separate table) and do not produce displayable inbox rows — no filter adjustment needed.
+
+**Header subtext (exact copy):**
+
+> Cloned messages from your host for safe viewing and testing. Your mail lives on the host device.
+
+---
+
+### Processing console (D3)
+
+Shown at the top of the Clone Inbox **only when paired** (`!orphanedSandbox`). Driven entirely by the existing `useIngestionStatus` hook — no new IPC.
+
+| Field | Source | Notes |
+|-------|--------|-------|
+| Status | `status.code` mapped to plain words (see below) | Tier-accurate — no microVM/hardware claims |
+| Delivered to host | `Σ accounts[i].lastPollDelivered` | Cumulative across all accounts |
+| Held | `Σ accounts[i].lastPollHeld` | Only shown when `> 0` |
+| Last check | `max(accounts[i].lastPollAt)` formatted as relative time | "just now" / "Xm ago" / etc. |
+
+**Status code → plain words mapping:**
+
+| `IngestionStatusCode` | Displayed as |
+|-----------------------|--------------|
+| `OK_SANDBOX_FETCHING` | Processing normally |
+| `OK_SINGLE_MACHINE` | Processing normally |
+| `DEGRADED_HELD_MESSAGES` | Processing normally _(held count shown separately)_ |
+| `ACTION_NEEDED_READ_CONSENT` | Read consent needed |
+| `PAUSED_SANDBOX_UNREACHABLE` | Provider unreachable |
+| `PAUSED_HOST_DELEGATED` | Provider unreachable |
+| _(null / loading)_ | Checking… |
+
+**Tier-accuracy:** ✓ No microVM/hardware claims. "Processing normally" / "provider unreachable" describe observable behaviour, not implementation.
+
+---
+
+### Orphaned sandbox empty state (D4)
+
+**Condition:** `isSandbox && !ledgerProvesInternalSandboxToHost && ready` (`orphanedSandbox`).
+
+**Where applied:**
+- `CloneInboxView` — replaces the entire view content
+- `BeapInboxDashboard` first-run block — replaces `BeapInboxFirstRun` (connect-email CTA)
+
+**Exact copy:**
+
+> Awaiting pairing — complete the internal handshake with your host device to start processing mail.
+
+**Invariant:** A sandbox-role node **never** shows the connect-email CTA (`BeapInboxFirstRun`) or reverts to a full mail-client experience, regardless of pairing state.
+
+---
+
+### Host chip rename (D5)
+
+`EmailInboxToolbar.tsx` — host-side action chip shown when a paired sandbox is detected:
+
+| Before | After | Rationale |
+|--------|-------|-----------|
+| `Sandbox` | `Send to Sandbox` | Clarifies this is an action (clone to sandbox), not the sandbox node's own identity |
+| `Sandbox (setup)` | `Sandbox setup` | Removes parentheses; consistent with renamed active chip |
+
+---
+
 ## Known gaps (DEFERRED)
 
 - **Remote-capsule revoke (`enforcement.ts`)** — `removeTopologyForHandshake` is not called when
