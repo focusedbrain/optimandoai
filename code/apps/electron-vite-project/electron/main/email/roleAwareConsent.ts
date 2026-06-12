@@ -148,8 +148,8 @@ export async function connectSendClient(
 }
 
 /**
- * SANDBOX entry point: initiate the READ consent. Real and role-correct, but its
- * UI entry is not yet reachable from the setup flow (Prompt 4).
+ * SANDBOX entry point: initiate the READ consent. Narrow read-only scopes only.
+ * UI entry: SandboxReadConsentWizard (UX-1 D5) → email:connectReadAccount IPC.
  */
 export async function connectReadClient(
   params: { accountId: string; provider: ConsentProvider; email?: string },
@@ -159,23 +159,15 @@ export async function connectReadClient(
 }
 
 /**
- * Prompt 4: the sandbox read-consent UI entry is wired into the three-beat setup
- * flow (InitiateHandshakeDialog beat 3) for multi-machine internal handshakes.
- * Single-machine: NO second email setup — the flag and the UI guard both ensure
- * the sandbox email dialog is ONLY shown when the topology has a separate fetching
- * node (isMultiMachineTopology check in the renderer).
+ * UX-1 D5: the sandbox read-consent UI entry is wired via SandboxReadConsentWizard
+ * (EmailInboxView.tsx) and is reachable when:
+ *   - This node is the sandbox that owns ingestion (sandboxShouldReadPoll=true)
+ *   - No read token is stored for any account (ACTION_NEEDED_READ_CONSENT)
+ *
+ * Single-machine: never shown — useIngestionStatus returns null when the host has
+ * no linked sandbox (suppression rule in useIngestionStatus.ts).
  */
 export const SANDBOX_READ_CONSENT_UI_REACHABLE = true
-
-/** Guard used by any UI surface that tries to launch sandbox read consent. */
-export function assertSandboxReadConsentEntryReachable(): void {
-  if (!SANDBOX_READ_CONSENT_UI_REACHABLE) {
-    throw new Error(
-      'Sandbox read-consent UI entry is not reachable. Check topology: it should only ' +
-        'appear on multi-machine internal handshakes (A2).',
-    )
-  }
-}
 
 /** Audit helper: the scope set a role WOULD request for a provider (no side effects). */
 export function plannedScopesForRole(provider: ConsentProvider, role: ConsentRole): readonly string[] {

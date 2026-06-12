@@ -38,7 +38,10 @@ import { isHostMode } from '../orchestrator/orchestratorModeStore'
 const DEBUG_INBOX_AI_IPC_VERBOSE = false
 
 // ── WRExpert.md: user-editable AI behaviour (userData, survives app updates) ──
-const RULES_PATH = path.join(app.getPath('userData'), 'WRExpert.md')
+/** Lazy — must not capture `userData` at import time (see `electron/bootstrapUserData.ts`). */
+function getRulesPath(): string {
+  return path.join(app.getPath('userData'), 'WRExpert.md')
+}
 /** Bundled main chunk lives in dist-electron/ — same base as main.ts (not per-source __dirname in ESM). */
 const DEFAULT_RULES_PATH = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -153,21 +156,22 @@ Signature: do not add a signature — the user will add their own.
 let rulesCache = { content: '', mtime: 0 }
 
 function getInboxAiRules(): string {
-  if (!fs.existsSync(RULES_PATH)) {
+  const rulesPath = getRulesPath()
+  if (!fs.existsSync(rulesPath)) {
     let defaults: string
     try {
       defaults = fs.readFileSync(DEFAULT_RULES_PATH, 'utf-8')
     } catch {
       defaults = DEFAULT_WREXPERT_CONTENT
     }
-    fs.writeFileSync(RULES_PATH, defaults, 'utf-8')
+    fs.writeFileSync(rulesPath, defaults, 'utf-8')
     rulesCache = { content: defaults, mtime: Date.now() }
     return defaults
   }
   try {
-    const stats = fs.statSync(RULES_PATH)
+    const stats = fs.statSync(rulesPath)
     if (stats.mtimeMs !== rulesCache.mtime) {
-      rulesCache = { content: fs.readFileSync(RULES_PATH, 'utf-8'), mtime: stats.mtimeMs }
+      rulesCache = { content: fs.readFileSync(rulesPath, 'utf-8'), mtime: stats.mtimeMs }
     }
     return rulesCache.content
   } catch {
@@ -663,6 +667,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     'email:checkOutlookCredentials', 'email:checkZohoCredentials',
     'email:setOutlookCredentials', 'email:connectOutlook', 'email:showOutlookSetup',
     'email:setZohoCredentials', 'email:connectZoho',
+    'email:connectReadAccount',
     'email:connectImap', 'email:connectCustomMailbox',
     'email:validateImapLifecycleRemote',
     'email:listMessages', 'email:getMessage', 'email:markAsRead', 'email:markAsUnread', 'email:flagMessage',
@@ -1174,6 +1179,82 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     }
   })
   
+  /**
+   * UX-1 D5 — Sandbox read-consent entry point.
+   *
+   * Called by SandboxReadConsentWizard when the user completes the OAuth flow on
+   * the sandbox node. Runs the read-only OAuth consent (via connectReadClient /
+   * runRoleScopedConsent with role='read') and then registers a gateway account
+   * row (without re-running OAuth) so listAccounts() returns this accountId and
+   * the auto-sync loop calls runSandboxIngestionPoll() for it.
+   *
+   * Scope guard: if the planned read scopes contain any send scope, this is a
+   * Prompt-2 invariant violation — the handler throws immediately (no OAuth UI
+   * is opened). This must never happen; if it does, the caller should STOP and
+   * report rather than workaround it.
+   *
+   * INV-5: returns only non-secret metadata.
+   */
+  ipcMain.handle(
+    'email:connectReadAccount',
+    async (_e, params: { provider: 'gmail' | 'outlook'; displayName?: string }) => {
+      try {
+        const { connectReadClient, plannedScopesForRole } = await import('./roleAwareConsent')
+        const { scopeSetCanSend } = await import('./oauthScopes')
+
+        const oauthProvider = params.provider === 'outlook' ? 'microsoft365' : 'gmail'
+
+        // ── Prompt-2 scope invariant guard ────────────────────────────────────
+        // If the read scope set contains any send scope, that is a Prompt-2 bug.
+        // STOP — do not open the OAuth UI around a bad scope.
+        const plannedScopes = plannedScopesForRole(oauthProvider, 'read')
+        if (scopeSetCanSend([...plannedScopes])) {
+          throw new Error(
+            `PROMPT2_SCOPE_INVARIANT: read consent for provider=${oauthProvider} would request ` +
+              `a send scope (${plannedScopes.join(' ')}). This is a Prompt-2 scope bug — ` +
+              `do not ship the wizard around it. Report and fix the scope set in oauthScopes.ts.`,
+          )
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
+        // Generate a stable account id for this consent.
+        const { randomUUID } = await import('crypto')
+        const accountId = randomUUID()
+
+        const result = await connectReadClient({ accountId, provider: oauthProvider })
+
+        // Register a gateway row (no oauth in gateway — token is in roleScopedTokenStore).
+        const account = await emailGateway.registerReadOnlyAccount({
+          accountId: result.accountId,
+          email: result.email ?? '',
+          provider: oauthProvider,
+          displayName: params.displayName,
+        })
+
+        // Notify renderer that a new account is connected (same channel as the
+        // full-connect paths so any listener (auto-sync wiring, etc.) picks it up).
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed() && win.webContents) {
+            win.webContents.send('email:accountConnected', {
+              provider: oauthProvider,
+              email: result.email,
+              accountId: result.accountId,
+            })
+          }
+        })
+
+        console.log(
+          `[Email IPC] connectReadAccount success accountId=${result.accountId} ` +
+            `provider=${oauthProvider} grantedScope="${result.grantedScope}"`,
+        )
+        return { ok: true, data: { accountId: result.accountId, email: result.email, provider: oauthProvider, account } }
+      } catch (error: any) {
+        console.error('[Email IPC] connectReadAccount error:', error?.message)
+        return { ok: false, error: error?.message ?? String(error) }
+      }
+    },
+  )
+
   /**
    * Connect IMAP account (legacy; optional SMTP)
    */
@@ -5925,7 +6006,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
 
   ipcMain.handle('inbox:getAiRules', async () => {
     try {
-      return fs.readFileSync(RULES_PATH, 'utf-8')
+      return fs.readFileSync(getRulesPath(), 'utf-8')
     } catch {
       return getInboxAiRules()
     }
@@ -5933,7 +6014,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
 
   ipcMain.handle('inbox:saveAiRules', async (_e, content: string) => {
     try {
-      fs.writeFileSync(RULES_PATH, content ?? '', 'utf-8')
+      fs.writeFileSync(getRulesPath(), content ?? '', 'utf-8')
       rulesCache.mtime = 0
       return { ok: true }
     } catch (err: any) {

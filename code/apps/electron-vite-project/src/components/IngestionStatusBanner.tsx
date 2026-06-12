@@ -65,6 +65,11 @@ const DEGRADED_BORDER = 'rgba(251,191,36,0.2)'
 type Props = {
   /** Result from useIngestionStatus. Null → banner renders nothing. */
   status: IngestionStatusResult | null
+  /**
+   * UX-1 D5: optional CTA to open the sandbox read-consent wizard.
+   * Shown only on ACTION_NEEDED_READ_CONSENT when status.thisNodeRole === 'sandbox'.
+   */
+  onConnectReadAccount?: () => void
 }
 
 /**
@@ -72,7 +77,7 @@ type Props = {
  * Returns null for all OK states and when status is null (suppressed /
  * loading).
  */
-export function IngestionStatusBanner({ status }: Props) {
+export function IngestionStatusBanner({ status, onConnectReadAccount }: Props) {
   if (!status) return null
 
   const copy = COPY[status.code]
@@ -112,6 +117,29 @@ export function IngestionStatusBanner({ status }: Props) {
       >
         {copy.detail}
       </div>
+      {/* UX-1 D5: "Connect now" CTA — only on sandbox for ACTION_NEEDED_READ_CONSENT */}
+      {status.code === 'ACTION_NEEDED_READ_CONSENT' &&
+        status.thisNodeRole === 'sandbox' &&
+        onConnectReadAccount && (
+          <button
+            type="button"
+            data-testid="ingestion-banner-connect-cta"
+            onClick={onConnectReadAccount}
+            style={{
+              marginTop: 8,
+              padding: '5px 14px',
+              fontSize: 11,
+              fontWeight: 600,
+              background: 'rgba(251,191,36,0.22)',
+              color: 'var(--text-primary, var(--text-primary-prof, #0f172a))',
+              border: '1px solid rgba(251,191,36,0.5)',
+              borderRadius: 6,
+              cursor: 'pointer',
+            }}
+          >
+            Connect now
+          </button>
+        )}
     </div>
   )
 }

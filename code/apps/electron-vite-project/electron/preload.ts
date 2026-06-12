@@ -1226,6 +1226,9 @@ contextBridge.exposeInMainWorld('emailAccounts', {
   /** UX-1 D1 — aggregated ingestion status enum for topology banners. */
   getIngestionStatus: (accountIds?: string[]) =>
     ipcRenderer.invoke('email:getIngestionStatus', accountIds),
+  /** UX-1 D5 — sandbox read-consent wizard entry point. */
+  connectReadAccount: (params: { provider: 'gmail' | 'outlook'; displayName?: string }) =>
+    ipcRenderer.invoke('email:connectReadAccount', params),
   getAccount: (accountId: string) => ipcRenderer.invoke('email:getAccount', accountId),
   setProcessingPaused: (accountId: string, paused: boolean) =>
     ipcRenderer.invoke('email:setProcessingPaused', accountId, paused),

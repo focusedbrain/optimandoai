@@ -18,8 +18,10 @@ import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email
 import { SyncFailureBanner } from './SyncFailureBanner'
 import { IngestionStatusBanner } from './IngestionStatusBanner'
 import { IngestionDelegationModal } from './IngestionDelegationModal'
+import { SandboxReadConsentWizard } from './SandboxReadConsentWizard'
 import { useIngestionStatus } from '../hooks/useIngestionStatus'
 import { useTopologyDelegationModal } from '../hooks/useTopologyDelegationModal'
+import { useSandboxReadConsent } from '../hooks/useSandboxReadConsent'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import { useEmailInboxStore, activeEmailAccountIdsForSync, type InboxMessage } from '../stores/useEmailInboxStore'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
@@ -2890,6 +2892,10 @@ export default function EmailInboxView({
   // is received from main (handshake ACTIVE + auto-wire succeeded + host has accounts).
   const { pendingHandshakeId: delegationModalHandshakeId, dismiss: dismissDelegationModal } =
     useTopologyDelegationModal()
+
+  // UX-1 D5: sandbox read-consent wizard — opens on sandbox when ACTION_NEEDED_READ_CONSENT.
+  const { showWizard: showReadConsentWizard, openWizard: openReadConsentWizard, closeWizard: closeReadConsentWizard } =
+    useSandboxReadConsent(ingestionStatus)
   const {
     sandboxes: internalSandboxes,
     incomplete: internalSandboxesIncomplete,
@@ -4087,7 +4093,13 @@ export default function EmailInboxView({
         ) : null}
 
         {/* UX-1 D3 — topology banner: ACTION_NEEDED_READ_CONSENT / PAUSED / DEGRADED */}
-        <IngestionStatusBanner status={ingestionStatus} />
+        {/* UX-1 D5: pass CTA only when this node is the sandbox; host sees detail-only banner */}
+        <IngestionStatusBanner
+          status={ingestionStatus}
+          onConnectReadAccount={
+            ingestionStatus?.thisNodeRole === 'sandbox' ? openReadConsentWizard : undefined
+          }
+        />
 
         <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
           {sandboxRowFeedback && leftPanelTab === 'inbox' ? (
@@ -4693,6 +4705,13 @@ export default function EmailInboxView({
           handshakeId={delegationModalHandshakeId}
           onDismiss={dismissDelegationModal}
         />
+      )}
+
+      {/* UX-1 D5 — sandbox read-consent wizard: shown on the sandbox node when
+          ACTION_NEEDED_READ_CONSENT. Calls email:connectReadAccount (read-only
+          scopes only). Banner's "Connect now" CTA or auto-open on shouldShowPrompt. */}
+      {showReadConsentWizard && (
+        <SandboxReadConsentWizard onClose={closeReadConsentWizard} />
       )}
     </div>
   )

@@ -7,6 +7,7 @@
  */
 
 import { app } from 'electron'
+import { isUserDataPathBootstrapped } from '../../userDataBootstrapState'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as crypto from 'crypto'
@@ -364,10 +365,35 @@ function encryptImapSmtpPasswordsForDisk(account: EmailAccountConfig): EmailAcco
  * Storage file for email accounts
  */
 function getAccountsPath(): string {
+  if (!app.isPackaged && !isUserDataPathBootstrapped()) {
+    console.error(
+      '[EmailGateway] INVARIANT VIOLATION: getAccountsPath() before bootstrapUserData — ' +
+        'accounts may load from the default Electron userData path instead of ~/.opengiraffe/electron-data',
+    )
+  }
   const userData = app.getPath('userData')
   const accountsPath = path.join(userData, 'email-accounts.json')
   emailAccountsDebugLog('getAccountsPath() =', accountsPath)
   return accountsPath
+}
+
+let startupPersistenceLogged = false
+
+/** One-line startup diagnostic — first `listAccounts` call (recurrence visible in logs). */
+function logStartupPersistenceOnce(): void {
+  if (startupPersistenceLogged) return
+  startupPersistenceLogged = true
+  const d = emailAccountsPersistenceDiagnostics
+  const rowCount = d.rehydrateSnapshot?.rowCount ?? 'n/a'
+  const loadDetail =
+    d.load.ok === false
+      ? `loadOk=false phase=${d.load.phase}`
+      : d.load.ok && 'fileMissing' in d.load && d.load.fileMissing
+        ? 'loadOk=true fileMissing=true'
+        : 'loadOk=true'
+  console.log(
+    `[EmailGateway] startup persistence: accountsFilePath=${getAccountsPath()} rowCount=${rowCount} ${loadDetail}`,
+  )
 }
 
 function getAccountsBackupPath(): string {
@@ -796,6 +822,7 @@ class EmailGateway implements IEmailGateway {
   // =================================================================
   
   async listAccounts(): Promise<EmailAccountInfo[]> {
+    logStartupPersistenceOnce()
     return this.accounts.map((acc) => this.toAccountInfo(acc))
   }
 
@@ -868,7 +895,51 @@ class EmailGateway implements IEmailGateway {
 
     return this.toAccountInfo(account)
   }
-  
+
+  /**
+   * UX-1 D5 — Register a sandbox read-only account in the gateway without
+   * running a new OAuth flow or testConnection. The read token is already in
+   * roleScopedTokenStore under role='read'. This creates the gateway row so
+   * listAccounts() returns the accountId and the sync loop can call
+   * runSandboxIngestionPoll({ accountId }) for it.
+   *
+   * Idempotent: if an account with the given id already exists, returns it
+   * unchanged (accounts from the same OAuth user may re-connect after expiry).
+   */
+  async registerReadOnlyAccount(params: {
+    accountId: string
+    email: string
+    provider: 'gmail' | 'microsoft365'
+    displayName?: string
+  }): Promise<EmailAccountInfo> {
+    const existing = this.accounts.find((a) => a.id === params.accountId)
+    if (existing) return this.toAccountInfo(existing)
+
+    const now = Date.now()
+    const account: EmailAccountConfig = {
+      id: params.accountId,
+      displayName: params.displayName || params.email || 'Read-only account',
+      email: params.email,
+      provider: params.provider,
+      authType: 'oauth',
+      folders: { monitored: ['INBOX'], inbox: 'INBOX' },
+      sync: { maxAgeDays: 0, syncWindowDays: 30, maxMessagesPerPull: 500, analyzePdfs: false, batchSize: 50 },
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+      // oauth field intentionally absent: token lives in roleScopedTokenStore role='read'
+    }
+    this.accounts.push(account)
+    console.log('[EmailGateway] Registered read-only sandbox account:', params.accountId, params.email, params.provider)
+    try {
+      persistEmailAccounts(this.accounts)
+    } catch (e) {
+      if (!isAccountIdPresentOnDisk(params.accountId)) this.accounts.pop()
+      throw e
+    }
+    return this.toAccountInfo(account)
+  }
+
   async updateAccount(id: string, updates: Partial<EmailAccountConfig>): Promise<EmailAccountInfo> {
     const index = this.accounts.findIndex(a => a.id === id)
     if (index === -1) {
