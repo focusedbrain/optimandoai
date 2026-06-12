@@ -345,7 +345,9 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
               </div>
             )}
 
-            {/* Beat 2 — consequence: what you will do next, topology-conditional */}
+            {/* Beat 2 — consequence: what you will see next, topology-conditional.
+                UX-1 D6: corrected to match Trigger A (host migration modal, D4) and
+                Trigger B (sandbox read-consent wizard, D5) which are now real. */}
             {isInternal && deviceRole === 'host' && (
               <div style={{
                 background: 'rgba(59, 130, 246, 0.06)',
@@ -353,17 +355,19 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                 padding: '9px 12px',
                 fontSize: '11.5px',
                 lineHeight: '1.5',
-                color: '#374151',
+                color: 'var(--text-primary, var(--text-primary-prof, #374151))',
               }}>
                 <strong style={{ fontSize: '11.5px' }}>What to expect next (Host):</strong>{' '}
-                After this handshake activates, you do nothing extra here — your BEAP inbox is
-                already on this device. On the <em>other</em> (Sandbox) device you will be
-                prompted to connect a read-only email account so it can fetch mail on your behalf.
-                No email setup is needed on this Host.
+                When the handshake activates you will see a notice that inbound mail has moved to
+                your sandbox device. <strong>Sending from this Host continues unchanged.</strong>{' '}
+                No extra email setup is needed here — the sandbox user will be prompted on their
+                device to connect a read-only account.
               </div>
             )}
 
-            {/* Beat 2 — consequence for sandbox role: email setup expected here */}
+            {/* Beat 2 — consequence for sandbox role: Trigger B wizard fires here.
+                UX-1 D6: "will be prompted" is now true — Trigger B (D5) wired.
+                Wording aligned with SandboxReadConsentWizard spec copy. */}
             {isInternal && deviceRole === 'sandbox' && (
               <div style={{
                 background: 'rgba(59, 130, 246, 0.06)',
@@ -371,15 +375,13 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                 padding: '9px 12px',
                 fontSize: '11.5px',
                 lineHeight: '1.5',
-                color: '#374151',
+                color: 'var(--text-primary, var(--text-primary-prof, #374151))',
               }}>
                 <strong style={{ fontSize: '11.5px' }}>What to expect next (Sandbox):</strong>{' '}
                 After the handshake activates, you will be prompted to connect a{' '}
-                <strong>read-only</strong> email account on this device.
-                {/* Beat 3 — sandbox email dialog reassurance, shown inline */}
-                {' '}That connection is isolated and read-only — it can fetch but never send,
-                and the credentials are stored only on this Sandbox device. Your BEAP inbox
-                and outbound mail remain on the Host.
+                <strong>read-only</strong> email account on this device so WR Desk can fetch
+                mail safely. That account <strong>cannot send mail</strong> — credentials stay
+                only on this Sandbox device. Your BEAP inbox and outbound mail remain on the Host.
               </div>
             )}
 
