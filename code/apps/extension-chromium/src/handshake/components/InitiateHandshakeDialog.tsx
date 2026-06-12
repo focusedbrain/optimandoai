@@ -381,7 +381,7 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                 After the handshake activates, you will be prompted to connect a{' '}
                 <strong>read-only</strong> email account on this device so WR Desk can fetch
                 mail safely. That account <strong>cannot send mail</strong> — credentials stay
-                only on this Sandbox device. Your BEAP inbox and outbound mail remain on the Host.
+                only on this device. Your BEAP inbox and outbound mail remain on the Host.
               </div>
             )}
 

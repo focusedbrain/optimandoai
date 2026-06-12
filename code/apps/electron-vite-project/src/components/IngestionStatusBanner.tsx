@@ -33,7 +33,7 @@ import type { IngestionStatusCode } from '../../electron/main/email/ingestionSta
 const COPY: Partial<Record<IngestionStatusCode, { title: string; detail: string; level: 'warn' | 'degraded' }>> = {
   ACTION_NEEDED_READ_CONSENT: {
     title: 'Inbound mail is paused',
-    detail: 'Connect a read-only mail account on your sandbox device to resume receiving mail.',
+    detail: 'Connect a read-only email account on your sandbox device to resume receiving mail.',
     level: 'warn',
   },
   PAUSED_SANDBOX_UNREACHABLE: {

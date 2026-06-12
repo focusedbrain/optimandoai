@@ -15,7 +15,7 @@
 const MODAL_COPY = {
   title: 'Your sandbox is now connected.',
   body: [
-    'Inbound mail is now fetched on your sandbox device — connect a read-only mail account there to resume receiving mail.',
+    'Inbound mail is now fetched on your sandbox device — connect a read-only email account there to resume receiving mail.',
     'Sending from this device is unchanged and keeps working.',
   ],
   cta: 'Got it',

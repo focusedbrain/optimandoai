@@ -26,7 +26,7 @@ describe('IngestionDelegationModal — required copy (spec)', () => {
   it('explains inbound mail moves to sandbox + action needed', () => {
     const html = render()
     expect(html).toContain('Inbound mail is now fetched on your sandbox device')
-    expect(html).toContain('connect a read-only mail account there')
+    expect(html).toContain('connect a read-only email account there')
   })
 
   it('explains outbound is unchanged', () => {

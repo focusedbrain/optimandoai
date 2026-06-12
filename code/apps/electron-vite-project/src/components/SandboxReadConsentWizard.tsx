@@ -22,8 +22,8 @@ import { useState } from 'react'
 // ── Spec copy ─────────────────────────────────────────────────────────────────
 const COPY = {
   intro: {
-    title: 'Connect a read-only mail account',
-    body: 'Connect a read-only email account on this device so WR Desk can fetch mail safely. This connection cannot send mail, and credentials stay only on this sandbox.',
+    title: 'Connect a read-only email account',
+    body: 'Connect a read-only email account on this device so WR Desk can fetch mail safely. This connection cannot send mail, and credentials stay only on this device.',
     cta: 'Choose provider',
   },
   providerPick: {

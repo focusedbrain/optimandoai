@@ -17,15 +17,15 @@ function render() {
 }
 
 describe('SandboxReadConsentWizard — intro-step spec copy', () => {
-  it('title: "Connect a read-only mail account"', () => {
-    expect(render()).toContain('Connect a read-only mail account')
+  it('title: "Connect a read-only email account"', () => {
+    expect(render()).toContain('Connect a read-only email account')
   })
 
-  it('spec body copy: read-only, cannot send, credentials stay on sandbox', () => {
+  it('spec body copy: read-only, cannot send, credentials stay on this device', () => {
     const html = render()
     expect(html).toContain('Connect a read-only email account on this device')
     expect(html).toContain('cannot send mail')
-    expect(html).toContain('credentials stay only on this sandbox')
+    expect(html).toContain('credentials stay only on this device')
   })
 
   it('"Choose provider" CTA present on intro step', () => {
