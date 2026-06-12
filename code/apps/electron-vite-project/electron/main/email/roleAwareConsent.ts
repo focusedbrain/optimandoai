@@ -169,6 +169,13 @@ export async function connectReadClient(
  */
 export const SANDBOX_READ_CONSENT_UI_REACHABLE = true
 
+/** Throws if the sandbox read-consent UI entry is not reachable (regression guard). */
+export function assertSandboxReadConsentEntryReachable(): void {
+  if (!SANDBOX_READ_CONSENT_UI_REACHABLE) {
+    throw new Error('Sandbox read-consent UI entry is not reachable (SANDBOX_READ_CONSENT_UI_REACHABLE=false)')
+  }
+}
+
 /** Audit helper: the scope set a role WOULD request for a provider (no side effects). */
 export function plannedScopesForRole(provider: ConsentProvider, role: ConsentRole): readonly string[] {
   return resolveOAuthScopes(provider, SCOPE_ROLE_FOR[role])

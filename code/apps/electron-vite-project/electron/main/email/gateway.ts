@@ -1756,6 +1756,67 @@ class EmailGateway implements IEmailGateway {
   
   async sendEmail(accountId: string, payload: SendEmailPayload): Promise<SendResult> {
     const account = this.findAccount(accountId)
+
+    // ── UX-2b D3: send-role token bridge ──────────────────────────────────────
+    // A2 send-only accounts (created via email:connectSendAccount / connectSendClient)
+    // have no account.oauth — their token lives in roleScopedTokenStore role='send'.
+    // Mirror the sandboxEmailFetch.ts read bridge: create a fresh provider, inject
+    // the send token as a synthetic oauth config, and persist refreshes back to the
+    // role store (not to account.oauth / persistEmailAccounts).
+    // Existing bundled accounts (account.oauth present) are untouched.
+    if (!account.oauth && (account.provider === 'gmail' || account.provider === 'microsoft365')) {
+      const { loadRoleScopedTokens, saveRoleScopedTokens } = await import('./roleScopedTokenStore')
+      const roleRecord = loadRoleScopedTokens(accountId, 'send')
+      if (roleRecord) {
+        const { GmailProvider } = await import('./providers/gmail')
+        const { OutlookProvider } = await import('./providers/outlook')
+        const sendProvider = account.provider === 'gmail' ? new GmailProvider() : new OutlookProvider()
+
+        const syntheticConfig: EmailAccountConfig = {
+          ...account,
+          oauth: {
+            accessToken: roleRecord.tokens.accessToken,
+            refreshToken: roleRecord.tokens.refreshToken,
+            expiresAt: roleRecord.tokens.expiresAt,
+            scope: roleRecord.tokens.scope ?? roleRecord.grantedScope ?? '',
+            oauthClientId: roleRecord.tokens.oauthClientId,
+            gmailRefreshUsesSecret: roleRecord.tokens.gmailRefreshUsesSecret,
+            gmailOAuthClientSecret: roleRecord.tokens.gmailOAuthClientSecret,
+          },
+        }
+
+        // Token refresh writes back to roleScopedTokenStore role='send', NOT to
+        // persistEmailAccounts — the gateway row intentionally has no oauth field.
+        if ('onTokenRefresh' in sendProvider) {
+          ;(sendProvider as any).onTokenRefresh = (newTokens: {
+            accessToken: string
+            refreshToken: string
+            expiresAt: number
+          }) => {
+            const current = loadRoleScopedTokens(accountId, 'send')
+            saveRoleScopedTokens(
+              accountId,
+              'send',
+              {
+                ...(current?.tokens ?? {}),
+                accessToken: newTokens.accessToken,
+                refreshToken: newTokens.refreshToken,
+                expiresAt: newTokens.expiresAt,
+              },
+              { clientId: current?.clientId, grantedScope: current?.grantedScope },
+            )
+            console.log(`[EmailGateway] send-role token refreshed for accountId=${accountId}`)
+          }
+        }
+
+        await sendProvider.connect(syntheticConfig)
+        return sendProvider.sendEmail(payload)
+      }
+      // No role='send' token — fall through to default; provider.connect will
+      // throw "requires OAuth authentication", which is the correct error signal.
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     const provider = await this.getConnectedProvider(account)
     return provider.sendEmail(payload)
   }
