@@ -17,7 +17,9 @@ import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSec
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { SyncFailureBanner } from './SyncFailureBanner'
 import { IngestionStatusBanner } from './IngestionStatusBanner'
+import { IngestionDelegationModal } from './IngestionDelegationModal'
 import { useIngestionStatus } from '../hooks/useIngestionStatus'
+import { useTopologyDelegationModal } from '../hooks/useTopologyDelegationModal'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import { useEmailInboxStore, activeEmailAccountIdsForSync, type InboxMessage } from '../stores/useEmailInboxStore'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
@@ -2883,6 +2885,11 @@ export default function EmailInboxView({
     mode: orchestratorMode,
     ledgerProvesLocalHostPeerSandbox,
   })
+
+  // UX-1 D4: one-time host migration modal — fires when topology:ingestionDelegated
+  // is received from main (handshake ACTIVE + auto-wire succeeded + host has accounts).
+  const { pendingHandshakeId: delegationModalHandshakeId, dismiss: dismissDelegationModal } =
+    useTopologyDelegationModal()
   const {
     sandboxes: internalSandboxes,
     incomplete: internalSandboxesIncomplete,
@@ -4677,6 +4684,16 @@ export default function EmailInboxView({
           <EmailComposeOverlay ... />
         </div>
       )} */}
+
+      {/* UX-1 D4 — one-time host migration modal: fires once per handshakeId when
+          sandbox is newly connected and host has existing email accounts. The
+          account-presence guard runs in main.ts before sending the IPC event. */}
+      {delegationModalHandshakeId && (
+        <IngestionDelegationModal
+          handshakeId={delegationModalHandshakeId}
+          onDismiss={dismissDelegationModal}
+        />
+      )}
     </div>
   )
 }

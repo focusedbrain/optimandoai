@@ -21,6 +21,18 @@
  * directly (Prompt 4 extension to ingestionOwnership.ts).
  */
 
+// ── UX-1 D4: delegation notification callback ────────────────────────────────
+// Called once after autoWireTopologyForHandshake succeeds on the HOST node.
+// Registered by main.ts so it can send topology:ingestionDelegated to the renderer.
+// Module-level so the dynamic-import microtask in enforcement.ts picks it up.
+type DelegationCallback = (handshakeId: string) => void
+let _delegationCallback: DelegationCallback | null = null
+
+export function setTopologyDelegationCallback(cb: DelegationCallback | null): void {
+  _delegationCallback = cb
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 import { listHandshakeRecords } from './db'
 import { HandshakeState, type HandshakeRecord } from './types'
 import {
@@ -127,6 +139,8 @@ export function autoWireTopologyForHandshake(
     `[TOPOLOGY_AUTO_WIRE] Linked handshake ${record.handshake_id} for depackage-email ` +
       `(localRole=host peerRole=sandbox)`,
   )
+  // UX-1 D4: notify main.ts so it can push topology:ingestionDelegated to the renderer.
+  try { _delegationCallback?.(record.handshake_id) } catch { /* never block wiring */ }
 }
 
 /**

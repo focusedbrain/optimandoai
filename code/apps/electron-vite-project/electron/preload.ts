@@ -760,6 +760,12 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
 ipcRenderer.on('handshake-list-refresh', () => {
   window.dispatchEvent(new CustomEvent('handshake-list-refresh'))
 })
+// ── UX-1 D4: host auto-wire → renderer migration modal trigger ───────────────
+// Fired by main.ts after autoWireTopologyForHandshake succeeds on the host AND
+// the host has at least one connected email account.
+ipcRenderer.on('topology:ingestionDelegated', (_e, data: { handshakeId: string }) => {
+  window.dispatchEvent(new CustomEvent('topology:ingestionDelegated', { detail: data }))
+})
 /** Main → renderer: persisted host/sandbox orchestrator mode changed (IPC or local HTTP). */
 ipcRenderer.on('orchestrator-mode-did-change', () => {
   window.dispatchEvent(new CustomEvent('orchestrator-mode-changed'))

@@ -1,4 +1,5 @@
-﻿import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
+﻿import './bootstrapUserData'
+import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
 import { loginWithKeycloak, prepareLoginUrl, setUrlOpener } from '../src/auth/login'
 import { saveRefreshToken, clearRefreshToken } from '../src/auth/tokenStore'
 import { ensureSession, updateSessionFromTokens, clearSession, getCachedUserInfo, getAccessToken } from '../src/auth/session'
@@ -2563,9 +2564,6 @@ async function setupFileLogging() {
   }
 }
 
-// Fix Windows cache permission errors by setting a custom user data directory
-const customUserDataPath = path.join(os.homedir(), '.opengiraffe', 'electron-data')
-app.setPath('userData', customUserDataPath)
 // Disable GPU to prevent crashes on some Windows systems
 app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('disable-gpu')
@@ -2810,6 +2808,32 @@ app.whenReady().then(async () => {
         if (emailRegErr instanceof Error && emailRegErr.stack) {
           console.error('[MAIN] registerEmailHandlers stack:', emailRegErr.stack)
         }
+      }
+
+      // UX-1 D4: when auto-wire succeeds on the host (handshake → ACTIVE), push
+      // topology:ingestionDelegated to the renderer so the one-time migration modal
+      // can fire. Guard: only send if the host has at least one connected email
+      // account (otherwise the modal is not actionable).
+      try {
+        const { setTopologyDelegationCallback } = await import('./main/handshake/topologyAutoWire')
+        setTopologyDelegationCallback(async (handshakeId: string) => {
+          try {
+            const { emailGateway } = await import('./main/email/gateway')
+            const accounts = await emailGateway.listAccounts()
+            if (!accounts?.length) return
+            const wins = win ? [win] : BrowserWindow.getAllWindows()
+            wins.forEach((w) => {
+              if (!w.isDestroyed() && w.webContents) {
+                w.webContents.send('topology:ingestionDelegated', { handshakeId })
+              }
+            })
+            console.log(`[TOPOLOGY] topology:ingestionDelegated sent handshakeId=${handshakeId} accounts=${accounts.length}`)
+          } catch (err: any) {
+            console.error('[TOPOLOGY] delegation notification failed:', err?.message)
+          }
+        })
+      } catch (err: any) {
+        console.error('[TOPOLOGY] setTopologyDelegationCallback failed:', err?.message)
       }
     } catch (emailImportErr) {
       console.error('[MAIN] FATAL: Failed to import email/ipc module:', emailImportErr)
