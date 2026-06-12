@@ -904,18 +904,6 @@ export class OutlookProvider extends BaseEmailProvider {
       const postData = new URLSearchParams(postParams).toString()
       const tokenUrl = `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`
 
-      // TEMPORARY DEBUG - remove after debugging
-      console.log('=== OUTLOOK TOKEN EXCHANGE DEBUG ===')
-      console.log('Token URL:', tokenUrl)
-      console.log('Client ID:', oauthConfig.clientId)
-      console.log('Client Secret (first 4 chars):', oauthConfig.clientSecret ? oauthConfig.clientSecret.substring(0, 4) + '...' : '(none)')
-      console.log('Tenant ID:', tenant)
-      console.log('Redirect URI:', redirectUri)
-      console.log('Grant type:', 'authorization_code')
-      console.log('Code (first 10 chars):', code?.substring(0, 10) + '...')
-      console.log('Scopes:', OUTLOOK_SCOPES.join(' '))
-      console.log('=== END DEBUG ===')
-
       const options = {
         hostname: 'login.microsoftonline.com',
         path: `/${tenant}/oauth2/v2.0/token`,
