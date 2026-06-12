@@ -1257,6 +1257,70 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
   )
 
   /**
+   * UX-2b D2 — Host send-only consent entry point.
+   *
+   * Mirrors email:connectReadAccount but uses connectSendClient (SEND scopes only).
+   * Guard: connectSendClient throws if called from a sandbox node (isSandboxMode()).
+   * Scope invariant: the planned send scope set must NOT contain any read scope.
+   */
+  ipcMain.handle(
+    'email:connectSendAccount',
+    async (_e, params: { provider: 'gmail' | 'outlook'; displayName?: string }) => {
+      try {
+        const { connectSendClient, plannedScopesForRole } = await import('./roleAwareConsent')
+        const { scopeSetCanRead } = await import('./oauthScopes')
+
+        const oauthProvider = params.provider === 'outlook' ? 'microsoft365' : 'gmail'
+
+        // ── Scope invariant guard ──────────────────────────────────────────────
+        // Send scope set must not accidentally include read scopes.
+        const plannedScopes = plannedScopesForRole(oauthProvider, 'send')
+        if (scopeSetCanRead([...plannedScopes])) {
+          throw new Error(
+            `SEND_SCOPE_INVARIANT: send consent for provider=${oauthProvider} would request ` +
+              `a read scope (${plannedScopes.join(' ')}). Fix the scope set in oauthScopes.ts.`,
+          )
+        }
+        // ──────────────────────────────────────────────────────────────────────
+
+        const { randomUUID } = await import('crypto')
+        const accountId = randomUUID()
+
+        // connectSendClient throws on sandbox nodes (A2 invariant).
+        const result = await connectSendClient({ accountId, provider: oauthProvider })
+
+        // Register a gateway row (no oauth in gateway — token lives in roleScopedTokenStore role='send').
+        const account = await emailGateway.registerSendOnlyAccount({
+          accountId: result.accountId,
+          email: result.email ?? '',
+          provider: oauthProvider,
+          displayName: params.displayName,
+        })
+
+        // Notify renderer — same channel used by all connect paths.
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed() && win.webContents) {
+            win.webContents.send('email:accountConnected', {
+              provider: oauthProvider,
+              email: result.email,
+              accountId: result.accountId,
+            })
+          }
+        })
+
+        console.log(
+          `[Email IPC] connectSendAccount success accountId=${result.accountId} ` +
+            `provider=${oauthProvider} grantedScope="${result.grantedScope}"`,
+        )
+        return { ok: true, data: { accountId: result.accountId, email: result.email, provider: oauthProvider, account } }
+      } catch (error: any) {
+        console.error('[Email IPC] connectSendAccount error:', error?.message)
+        return { ok: false, error: error?.message ?? String(error) }
+      }
+    },
+  )
+
+  /**
    * UX-3 D2 — Delete the read-role token for an account (Prompt 2 independent revocation).
    * Token-only: does NOT remove the gateway row (orphaned-poll stays DEFERRED per spec).
    * The renderer should also link the user to the provider's security page for full revoke.

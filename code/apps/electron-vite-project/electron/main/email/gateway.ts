@@ -940,6 +940,44 @@ class EmailGateway implements IEmailGateway {
     return this.toAccountInfo(account)
   }
 
+  /**
+   * UX-2b D2 — Register a send-only host account (token lives in roleScopedTokenStore role='send').
+   * Mirrors registerReadOnlyAccount; the oauth field is intentionally absent.
+   */
+  async registerSendOnlyAccount(params: {
+    accountId: string
+    email: string
+    provider: 'gmail' | 'microsoft365'
+    displayName?: string
+  }): Promise<EmailAccountInfo> {
+    const existing = this.accounts.find((a) => a.id === params.accountId)
+    if (existing) return this.toAccountInfo(existing)
+
+    const now = Date.now()
+    const account: EmailAccountConfig = {
+      id: params.accountId,
+      displayName: params.displayName || params.email || 'Send-only account',
+      email: params.email,
+      provider: params.provider,
+      authType: 'oauth2',
+      folders: { monitored: [], inbox: 'INBOX' },
+      sync: { maxAgeDays: 0, syncWindowDays: 30, maxMessagesPerPull: 0, analyzePdfs: false, batchSize: 0 },
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+      // oauth field intentionally absent: token lives in roleScopedTokenStore role='send'
+    }
+    this.accounts.push(account)
+    console.log('[EmailGateway] Registered send-only host account:', params.accountId, params.email, params.provider)
+    try {
+      persistEmailAccounts(this.accounts)
+    } catch (e) {
+      if (!isAccountIdPresentOnDisk(params.accountId)) this.accounts.pop()
+      throw e
+    }
+    return this.toAccountInfo(account)
+  }
+
   async updateAccount(id: string, updates: Partial<EmailAccountConfig>): Promise<EmailAccountInfo> {
     const index = this.accounts.findIndex(a => a.id === id)
     if (index === -1) {

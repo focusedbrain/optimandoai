@@ -1244,6 +1244,9 @@ contextBridge.exposeInMainWorld('emailAccounts', {
   /** UX-1 D5 — sandbox read-consent wizard entry point. */
   connectReadAccount: (params: { provider: 'gmail' | 'outlook'; displayName?: string }) =>
     ipcRenderer.invoke('email:connectReadAccount', params),
+  /** UX-2b D2 — host send-only consent wizard entry point (host nodes only). */
+  connectSendAccount: (params: { provider: 'gmail' | 'outlook'; displayName?: string }) =>
+    ipcRenderer.invoke('email:connectSendAccount', params),
   /** UX-3 D2 — delete the read-role token for an account (independent revoke per Prompt 2). */
   deleteReadToken: (accountId: string) => ipcRenderer.invoke('email:deleteReadToken', accountId),
   getAccount: (accountId: string) => ipcRenderer.invoke('email:getAccount', accountId),
