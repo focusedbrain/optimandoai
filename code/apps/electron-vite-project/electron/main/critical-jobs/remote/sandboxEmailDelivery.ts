@@ -25,6 +25,7 @@
 
 import type * as http from 'http'
 import type { DepackageEmailJobResult } from '../../depackaging-microvm/hypervisorProvider'
+import type { DepackageEmailResult } from '../../depackaging-microvm/emailDepackage'
 import type { SandboxFetchedMessage } from '../../email/sandboxIngestion'
 import type { SandboxDeliveryResult } from '../../email/sandboxIngestion'
 
@@ -45,7 +46,7 @@ export interface SandboxEmailDeliveryWire {
   /** Provider folder name (not content). */
   folder?: string
   /** Guest-derived depackage result. Contains ONLY safe content produced by the guest. */
-  depackaged_result: DepackageEmailJobResult
+  depackaged_result: DepackageEmailResult
   /** Account ID the message belongs to (opaque routing key). */
   account_id: string
 }
@@ -102,7 +103,7 @@ export async function postSandboxEmailDelivery(
     source_message_id: msg.id,
     received_at: msg.receivedAt,
     folder: msg.folder,
-    depackaged_result: result,
+    depackaged_result: result.result,
     account_id: opts.accountId,
   }
 
@@ -142,8 +143,8 @@ export const httpSandboxDeliveryTransport: SandboxDeliveryTransport = async ({ u
 export type SandboxDeliveryHostWriter = (
   db: unknown,
   accountId: string,
-  depackaged: DepackageEmailJobResult,
-  meta: { sourceMessageId: string; receivedAt?: string; folder?: string },
+  depackaged: DepackageEmailResult,
+  meta: { sourceMessageId: string; receivedAt?: string; folder?: string; handshakeId?: string },
 ) => Promise<{ inboxRowId: string | null }>
 
 function writeJson(res: http.ServerResponse, status: number, body: unknown): void {
@@ -190,6 +191,7 @@ export async function tryHandleSandboxEmailDelivery(
       sourceMessageId: msg.source_message_id,
       receivedAt: msg.received_at,
       folder: msg.folder,
+      handshakeId: msg.handshake_id,
     })
     inboxRowId = r.inboxRowId
   } catch (err) {
@@ -205,18 +207,23 @@ export async function tryHandleSandboxEmailDelivery(
 }
 
 /**
- * Default host writer: converts the guest-derived `DepackageEmailJobResult`
- * to a `RawEmailMessage` and calls `detectAndRouteMessageInline` with
- * `viaSeam=true` (guest-derived content, host never parsed raw bytes).
+ * Default host writer: converts the guest-derived `DepackageEmailResult`
+ * to a host inbox row.
+ *
+ * - `plain`:        builds a `RawEmailMessage` and calls `detectAndRouteMessageInline`
+ *                   with `viaSeam=true` (guest-derived content; host never parses raw bytes).
+ * - `beap-carrier`/`mixed`: hands the first extracted BEAP package (opaque bytes
+ *                   from the guest) to `processBeapPackageInline` — the same pipeline
+ *                   used for native P2P BEAP ingestion. Produces a host inbox row with
+ *                   `source_type='p2p_relay'`. Errors throw so the delivery is HELD
+ *                   (retryable), never silently dropped.
  */
 const defaultHostWriter: SandboxDeliveryHostWriter = async (db, accountId, result, meta) => {
-  // Lazy import to keep the module free of heavy dependencies at load time.
-  const { detectAndRouteMessageInline } = await import('../../email/messageRouter')
-
   if (!result.ok) return { inboxRowId: null }
   const out = result
 
   if (out.type === 'plain') {
+    const { detectAndRouteMessageInline } = await import('../../email/messageRouter')
     const env = out.displayEnvelope
     const rawMsg: any = {
       id: meta.sourceMessageId,
@@ -242,7 +249,29 @@ const defaultHostWriter: SandboxDeliveryHostWriter = async (db, accountId, resul
     return { inboxRowId: r.inboxMessageId ?? null }
   }
 
-  // beap-carrier / other types: not yet routed by this default writer.
-  // DEFERRED: route BEAP carrier packages through the host BEAP pipeline.
+  if (out.type === 'beap-carrier' || out.type === 'mixed') {
+    const { processBeapPackageInline } = await import('../../email/beapEmailIngestion')
+    const pkg = out.packages[0]
+    if (!pkg?.bytesB64) {
+      const hid = meta.handshakeId ?? 'unknown'
+      console.warn(`[SandboxDelivery] beap-carrier missing package bytes. handshake_id=${hid}`)
+      throw new Error('beap_carrier_no_package_bytes')
+    }
+    const pkgJson = Buffer.from(pkg.bytesB64, 'base64').toString('utf-8')
+    const handshakeId = meta.handshakeId ?? '__seam_carrier__'
+    const r = await processBeapPackageInline(db as any, pkgJson, handshakeId, {
+      sourceType: 'p2p_relay',
+      receivedAt: meta.receivedAt,
+    })
+    if (r.outcome === 'inbox' || r.outcome === 'quarantine') {
+      return { inboxRowId: r.rowId ?? null }
+    }
+    const failReason = r.error ?? 'beap_carrier_routing_failed'
+    console.warn(
+      `[SandboxDelivery] beap-carrier routing error. handshake_id=${handshakeId} outcome=${r.outcome} reason=${failReason}`,
+    )
+    throw new Error(`beap_carrier_routing_failed: ${failReason}`)
+  }
+
   return { inboxRowId: null }
 }
