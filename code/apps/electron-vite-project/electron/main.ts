@@ -2810,30 +2810,89 @@ app.whenReady().then(async () => {
         }
       }
 
+      // ── UX-3 D1+D2 shared helper ─────────────────────────────────────────────
+      // Sends topology:sandboxReadCleanupHint to the renderer when the sandbox
+      // has orphaned read tokens after a revoke (both local-user and remote-capsule paths).
+      async function fireSandboxReadCleanupHint(handshakeId: string): Promise<void> {
+        try {
+          const { emailGateway } = await import('./main/email/gateway')
+          const { hasRoleScopedTokens } = await import('./main/email/roleScopedTokenStore')
+          const accounts = await emailGateway.listAccounts()
+          const readAccounts = accounts
+            .filter((a: { id: string }) => hasRoleScopedTokens(a.id, 'read'))
+            .map((a: { id: string; email: string; provider: string }) => ({
+              accountId: a.id,
+              email: a.email,
+              provider: a.provider,
+            }))
+          if (!readAccounts.length) return
+          const wins = win ? [win] : BrowserWindow.getAllWindows()
+          wins.forEach((w) => {
+            if (!w.isDestroyed() && w.webContents) {
+              w.webContents.send('topology:sandboxReadCleanupHint', { handshakeId, readAccounts })
+            }
+          })
+          console.log(`[REVOKE] topology:sandboxReadCleanupHint sent handshakeId=${handshakeId} readAccounts=${readAccounts.length}`)
+        } catch (err: any) {
+          console.error('[REVOKE] fireSandboxReadCleanupHint failed:', err?.message)
+        }
+      }
+
       // UX-3 D1: when a handshake is revoked (local-user path), push
-      // topology:handshakeRevoked to the renderer so the revoke transition banner fires.
-      // `hasAccounts` tells the renderer which copy variant to show (happy path vs
-      // "connect an account"). Driven by emailGateway.listAccounts() post-removal.
+      // topology:handshakeRevoked (host) or topology:sandboxReadCleanupHint (sandbox)
+      // to the renderer. Role is determined from the handshake record in the DB.
       try {
         const { setRevokeNotifyCallback } = await import('./main/handshake/revocation')
         setRevokeNotifyCallback(async (handshakeId: string) => {
           try {
-            const { emailGateway } = await import('./main/email/gateway')
-            const accounts = await emailGateway.listAccounts()
-            const hasAccounts = accounts.some((a: { status: string }) => a.status === 'active')
-            const wins = win ? [win] : BrowserWindow.getAllWindows()
-            wins.forEach((w) => {
-              if (!w.isDestroyed() && w.webContents) {
-                w.webContents.send('topology:handshakeRevoked', { handshakeId, hasAccounts })
+            // Determine local device role for this handshake to pick the right notification.
+            let localDeviceRole: 'host' | 'sandbox' | null = null
+            try {
+              const db = await getHandshakeDb()
+              if (db) {
+                const { getHandshakeRecord } = await import('./main/handshake/db')
+                const record = getHandshakeRecord(db, handshakeId)
+                if (record) {
+                  localDeviceRole = (record.local_role === 'initiator'
+                    ? record.initiator_device_role
+                    : record.acceptor_device_role) as 'host' | 'sandbox' | null
+                }
               }
-            })
-            console.log(`[REVOKE] topology:handshakeRevoked sent handshakeId=${handshakeId} hasAccounts=${hasAccounts}`)
+            } catch { /* best-effort — fall through to host path */ }
+
+            if (localDeviceRole === 'sandbox') {
+              // Sandbox: show read-cleanup hint (D2)
+              await fireSandboxReadCleanupHint(handshakeId)
+            } else {
+              // Host (or unknown role): show revoke transition banner (D1)
+              const { emailGateway } = await import('./main/email/gateway')
+              const accounts = await emailGateway.listAccounts()
+              const hasAccounts = accounts.some((a: { status: string }) => a.status === 'active')
+              const wins = win ? [win] : BrowserWindow.getAllWindows()
+              wins.forEach((w) => {
+                if (!w.isDestroyed() && w.webContents) {
+                  w.webContents.send('topology:handshakeRevoked', { handshakeId, hasAccounts })
+                }
+              })
+              console.log(`[REVOKE] topology:handshakeRevoked sent handshakeId=${handshakeId} hasAccounts=${hasAccounts}`)
+            }
           } catch (err: any) {
             console.error('[REVOKE] notification failed:', err?.message)
           }
         })
       } catch (err: any) {
         console.error('[REVOKE] setRevokeNotifyCallback failed:', err?.message)
+      }
+
+      // UX-3 D2: when enforcement.ts processes a remote-capsule revoke on the
+      // sandbox, push topology:sandboxReadCleanupHint (same helper as above).
+      try {
+        const { setSandboxRevokeHintCallback } = await import('./main/handshake/enforcement')
+        setSandboxRevokeHintCallback(async (handshakeId: string) => {
+          await fireSandboxReadCleanupHint(handshakeId)
+        })
+      } catch (err: any) {
+        console.error('[REVOKE] setSandboxRevokeHintCallback failed:', err?.message)
       }
 
       // UX-1 D4: when auto-wire succeeds on the host (handshake → ACTIVE), push

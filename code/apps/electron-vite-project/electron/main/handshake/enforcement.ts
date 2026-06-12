@@ -9,6 +9,20 @@
  * ingestion layer. Passing CandidateCapsuleEnvelope produces a compile error.
  */
 
+// ── UX-3 D2: sandbox read-cleanup hint callback (remote-capsule revoke path) ─
+// Fires when this node (sandbox) processes an inbound handshake-revoke capsule.
+// Registered by main.ts to push topology:sandboxReadCleanupHint to the renderer.
+// UX-only — does NOT touch ownership or fail-closed logic; those are LOCKED.
+// NOTE: The ownership gap (removeTopologyForHandshake not called here) is tracked
+// in DEFERRED.md and must be fixed in a separate task.
+type SandboxRevokeHintCb = (handshakeId: string) => void
+let _sandboxRevokeHintCb: SandboxRevokeHintCb | null = null
+
+export function setSandboxRevokeHintCallback(cb: SandboxRevokeHintCb | null): void {
+  _sandboxRevokeHintCb = cb
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 import type {
   VerifiedCapsuleInput,
   ReceiverPolicy,
@@ -461,6 +475,21 @@ export function processHandshakeCapsule(
       record = buildRevokeRecord(handshakeRecord!, input)
       updateHandshakeRecord(db, record)
       markContextBlocksInactiveByHandshake(db, input.handshake_id)
+      // UX-3 D2: notify main.ts on the SANDBOX so it can show the read-cleanup hint.
+      // Role check: if this node's device role for this handshake is 'sandbox',
+      // fire the hint callback. Best-effort via queueMicrotask — never blocks enforcement.
+      {
+        const prevRecord = handshakeRecord!
+        const localDeviceRole =
+          prevRecord.local_role === 'initiator'
+            ? prevRecord.initiator_device_role
+            : prevRecord.acceptor_device_role
+        if (localDeviceRole === 'sandbox') {
+          queueMicrotask(() => {
+            try { _sandboxRevokeHintCb?.(input.handshake_id) } catch { /* never block */ }
+          })
+        }
+      }
     } else {
       throw new Error(`Unknown capsuleType: ${input.capsuleType}`)
     }

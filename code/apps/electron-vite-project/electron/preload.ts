@@ -772,6 +772,15 @@ ipcRenderer.on('topology:ingestionDelegated', (_e, data: { handshakeId: string }
 ipcRenderer.on('topology:handshakeRevoked', (_e, data: { handshakeId: string; hasAccounts: boolean }) => {
   window.dispatchEvent(new CustomEvent('topology:handshakeRevoked', { detail: data }))
 })
+// ── UX-3 D2: sandbox revoke → renderer read-cleanup hint ─────────────────────
+// Fired by main.ts on the sandbox when a handshake is revoked (either path).
+// readAccounts = accounts that still hold an orphaned read token.
+ipcRenderer.on(
+  'topology:sandboxReadCleanupHint',
+  (_e, data: { handshakeId: string; readAccounts: { accountId: string; email: string; provider: string }[] }) => {
+    window.dispatchEvent(new CustomEvent('topology:sandboxReadCleanupHint', { detail: data }))
+  },
+)
 /** Main → renderer: persisted host/sandbox orchestrator mode changed (IPC or local HTTP). */
 ipcRenderer.on('orchestrator-mode-did-change', () => {
   window.dispatchEvent(new CustomEvent('orchestrator-mode-changed'))
@@ -1235,6 +1244,8 @@ contextBridge.exposeInMainWorld('emailAccounts', {
   /** UX-1 D5 — sandbox read-consent wizard entry point. */
   connectReadAccount: (params: { provider: 'gmail' | 'outlook'; displayName?: string }) =>
     ipcRenderer.invoke('email:connectReadAccount', params),
+  /** UX-3 D2 — delete the read-role token for an account (independent revoke per Prompt 2). */
+  deleteReadToken: (accountId: string) => ipcRenderer.invoke('email:deleteReadToken', accountId),
   getAccount: (accountId: string) => ipcRenderer.invoke('email:getAccount', accountId),
   setProcessingPaused: (accountId: string, paused: boolean) =>
     ipcRenderer.invoke('email:setProcessingPaused', accountId, paused),

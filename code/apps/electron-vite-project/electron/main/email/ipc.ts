@@ -668,6 +668,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     'email:setOutlookCredentials', 'email:connectOutlook', 'email:showOutlookSetup',
     'email:setZohoCredentials', 'email:connectZoho',
     'email:connectReadAccount',
+    'email:deleteReadToken',
     'email:connectImap', 'email:connectCustomMailbox',
     'email:validateImapLifecycleRemote',
     'email:listMessages', 'email:getMessage', 'email:markAsRead', 'email:markAsUnread', 'email:flagMessage',
@@ -1254,6 +1255,23 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
       }
     },
   )
+
+  /**
+   * UX-3 D2 — Delete the read-role token for an account (Prompt 2 independent revocation).
+   * Token-only: does NOT remove the gateway row (orphaned-poll stays DEFERRED per spec).
+   * The renderer should also link the user to the provider's security page for full revoke.
+   */
+  ipcMain.handle('email:deleteReadToken', async (_e, accountId: string) => {
+    try {
+      const { deleteRoleScopedTokens } = await import('./roleScopedTokenStore')
+      const removed = deleteRoleScopedTokens(accountId, 'read')
+      console.log(`[Email IPC] deleteReadToken accountId=${accountId} removed=${removed}`)
+      return { ok: true, removed }
+    } catch (error: any) {
+      console.error('[Email IPC] deleteReadToken error:', error?.message)
+      return { ok: false, error: error?.message ?? String(error) }
+    }
+  })
 
   /**
    * Connect IMAP account (legacy; optional SMTP)
