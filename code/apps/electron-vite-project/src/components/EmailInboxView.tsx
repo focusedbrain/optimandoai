@@ -3205,6 +3205,8 @@ export default function EmailInboxView({
   const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
     onAfterConnected: handleAfterEmailConnected,
     theme: 'dark',
+    ingestionStatus: ingestionStatus ?? undefined,
+    onOpenSandboxReadConsent: ingestionStatus?.thisNodeRole === 'sandbox' ? openReadConsentWizard : undefined,
   })
 
   useEffect(() => {

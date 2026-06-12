@@ -4028,6 +4028,7 @@ export default function EmailInboxBulkView({
   const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
     onAfterConnected: handleAfterEmailConnected,
     theme: 'dark',
+    ingestionStatus: bulkIngestionStatus ?? undefined,
   })
 
   useEffect(() => {

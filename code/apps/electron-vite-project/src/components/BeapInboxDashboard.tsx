@@ -202,6 +202,7 @@ export default function BeapInboxDashboard({
   const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
     onAfterConnected: loadEmailAccounts,
     theme: THEME,
+    ingestionStatus: beapIngestionStatus ?? undefined,
   })
 
   const {
