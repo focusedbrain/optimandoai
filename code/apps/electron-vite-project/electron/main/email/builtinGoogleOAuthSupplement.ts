@@ -36,6 +36,7 @@ export function normalizeSupplementDesktopSecret(raw: string | null | undefined)
     lower.startsWith('unconfigured') ||
     lower.includes('__') ||
     lower.includes('paste_') ||
+    lower.includes('localdevbypass') ||
     lower === 'none'
   ) {
     return null

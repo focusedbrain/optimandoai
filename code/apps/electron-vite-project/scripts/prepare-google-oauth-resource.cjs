@@ -43,7 +43,8 @@ function isPlaceholderSecretLine(line) {
     lower.includes('your_secret') ||
     lower.includes('placeholder') ||
     lower.startsWith('unconfigured') ||
-    lower.includes('paste_')
+    lower.includes('paste_') ||
+    lower.includes('localdevbypass')
   )
 }
 

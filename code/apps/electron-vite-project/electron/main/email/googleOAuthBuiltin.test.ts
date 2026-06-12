@@ -45,6 +45,7 @@ describe('normalizeGoogleOAuthClientSecret', () => {
 
   it('rejects placeholders and short strings', () => {
     expect(normalizeGoogleOAuthClientSecret('REPLACE_WITH_CLIENT_SECRET')).toBeNull()
+    expect(normalizeGoogleOAuthClientSecret('LocalDevBypassSecretKey9876543210')).toBeNull()
     expect(normalizeGoogleOAuthClientSecret('short')).toBeNull()
     expect(normalizeGoogleOAuthClientSecret('')).toBeNull()
   })
