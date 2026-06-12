@@ -134,6 +134,29 @@ function emptyResult(status: SandboxIngestionStatus, ok: boolean): SandboxIngest
   return { ok, status, fetched: 0, depackaged: 0, delivered: 0, held: 0, errors: [], inboxMessageIds: [] }
 }
 
+// ── Last-poll outcome store ────────────────────────────────────────────────
+// Keyed by accountId. Written by runSandboxIngestionPoll at the end of every
+// poll (including HELD/not_owner). Read by email:getIngestionStatus IPC to
+// give the renderer a real-code signal rather than a guess. INV-5: only
+// status codes, counters, and error counts — never message content.
+
+interface LastPollRecord {
+  result: SandboxIngestionResult
+  at: number
+}
+
+const _lastPollOutcomes = new Map<string, LastPollRecord>()
+
+/** All recorded per-account outcomes (for the IPC status aggregator). */
+export function getLastSandboxPollOutcomes(): ReadonlyMap<string, LastPollRecord> {
+  return _lastPollOutcomes
+}
+
+/** Test-only: clear the last-poll store between test cases. */
+export function __resetLastSandboxPollOutcomesForTests(): void {
+  _lastPollOutcomes.clear()
+}
+
 /**
  * Run ONE sandbox-side ingestion poll for an account. Safe to call on any node:
  * it no-ops unless THIS node is the sandbox that owns ingestion. Never throws for
@@ -159,13 +182,17 @@ export async function runSandboxIngestionPoll(
   const tokenRecord = loadReadToken(accountId)
   if (!tokenRecord) {
     sandboxLog(`HELD — read consent missing (sandbox owns ingestion). account=${accountId}`)
-    return emptyResult('held_read_consent_missing', false)
+    const r = emptyResult('held_read_consent_missing', false)
+    _lastPollOutcomes.set(accountId, { result: r, at: Date.now() })
+    return r
   }
 
   const custodyPubKeyB64 = deps.custodyPubKeyB64
   if (!custodyPubKeyB64) {
     sandboxLog(`HELD — no custody key to seal depackage artifacts. account=${accountId}`)
-    return emptyResult('held_no_custody_key', false)
+    const r = emptyResult('held_no_custody_key', false)
+    _lastPollOutcomes.set(accountId, { result: r, at: Date.now() })
+    return r
   }
 
   const fetchOpaque = deps.fetchOpaque ?? defaultFetchOpaque
@@ -179,7 +206,9 @@ export async function runSandboxIngestionPoll(
     // Sandbox offline / provider error → fail closed. Host does NOT read-parse.
     const msg = err instanceof Error ? err.message : String(err)
     sandboxLog(`HELD — read fetch failed (fail closed; host does NOT fall back). account=${accountId} err=${msg}`)
-    return { ...emptyResult('held_fetch_failed', false), errors: [msg] }
+    const r = { ...emptyResult('held_fetch_failed', false), errors: [msg] }
+    _lastPollOutcomes.set(accountId, { result: r, at: Date.now() })
+    return r
   }
 
   const result: SandboxIngestionResult = {
@@ -233,5 +262,6 @@ export async function runSandboxIngestionPoll(
   sandboxLog(
     `poll done account=${accountId} fetched=${result.fetched} depackaged=${result.depackaged} delivered=${result.delivered} held=${result.held}`,
   )
+  _lastPollOutcomes.set(accountId, { result, at: Date.now() })
   return result
 }

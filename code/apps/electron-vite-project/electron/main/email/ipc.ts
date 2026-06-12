@@ -183,6 +183,7 @@ function getInboxAiRulesForPrompt(): string {
     .join('\n')
 }
 import { emailGateway } from './gateway'
+import { resolveIngestionStatus } from './ingestionStatus'
 import { pickOauthDebugFromError } from './gmailOAuthConnectDebug'
 import { DIAGNOSE_IMAP_IPC_DEV, EMAIL_DEBUG, emailDebugLog, gmailPersistenceDebugLog } from './emailDebug'
 import { runDiagnoseImapStandalone } from './diagnoseImapStandalone'
@@ -665,7 +666,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     'email:validateImapLifecycleRemote',
     'email:listMessages', 'email:getMessage', 'email:markAsRead', 'email:markAsUnread', 'email:flagMessage',
     'email:listAttachments', 'email:extractAttachmentText', 'email:sendReply', 'email:sendEmail', 'email:sendBeapEmail',
-    'email:syncAccount', 'email:getSyncStatus',
+    'email:syncAccount', 'email:getSyncStatus', 'email:getIngestionStatus',
   ] as const
   channels.forEach(ch => ipcMain.removeHandler(ch))
   ipcMain.removeHandler('email:diagnoseImap')
@@ -1451,7 +1452,35 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
       return { ok: false, error: error.message }
     }
   })
-  
+
+  /**
+   * UX-1 — Aggregated email ingestion status for the renderer.
+   *
+   * Returns an {@link IngestionStatusResult} with a typed `code` the renderer
+   * switches on to show banners / CTAs without guessing at backend state.
+   *
+   * INV-5 compliant: carries ownership metadata, token presence booleans, and
+   * per-message counters only — never message content, tokens, or credential
+   * bytes. Callers must not log the full result object.
+   *
+   * Accepts an optional array of accountIds; when omitted, all known email
+   * accounts are included automatically.
+   */
+  ipcMain.handle('email:getIngestionStatus', async (_e, accountIds?: string[]) => {
+    try {
+      let ids: string[] = accountIds ?? []
+      if (ids.length === 0) {
+        const accounts = await emailGateway.listAccounts()
+        ids = accounts.map((a: any) => a.id as string)
+      }
+      const status = resolveIngestionStatus(ids)
+      return { ok: true, data: status }
+    } catch (error: any) {
+      console.error('[Email IPC] getIngestionStatus error:', error.message)
+      return { ok: false, error: error.message }
+    }
+  })
+
   console.log('[Email IPC] Handlers registered')
 }
 
