@@ -184,6 +184,7 @@ function getInboxAiRulesForPrompt(): string {
 }
 import { emailGateway } from './gateway'
 import { resolveIngestionStatus } from './ingestionStatus'
+import { mapSkipReasonToIpcWarning } from './ipcSyncResultShape'
 import { pickOauthDebugFromError } from './gmailOAuthConnectDebug'
 import { DIAGNOSE_IMAP_IPC_DEV, EMAIL_DEBUG, emailDebugLog, gmailPersistenceDebugLog } from './emailDebug'
 import { runDiagnoseImapStandalone } from './diagnoseImapStandalone'
@@ -2711,25 +2712,27 @@ Rules:
       skippedDupes: result.skippedDuplicate ?? 0,
       errors: errors.length,
     }
-    const pausedSkip = result.skipReason === 'processing_paused'
-    const pausedHint =
-      'Mail sync is paused for this account — no mail was fetched. Use Resume on the account card, then pull again.'
-    const pullHint = pausedSkip
-      ? pausedHint
+    // UX-1 (D2): both processing_paused and ingestion_delegated_to_sandbox must
+    // surface as ok:false with a user-actionable syncWarning. Previously only
+    // processing_paused got a message; ingestion_delegated_to_sandbox was silent
+    // (ok:true, 0 messages, no hint), causing invisible mail stoppage after pairing.
+    // mapSkipReasonToIpcWarning covers both; copy strings live in ipcSyncResultShape.ts.
+    const skipMapping = mapSkipReasonToIpcWarning(result.skipReason)
+    const pullHint = skipMapping.isSkip
+      ? skipMapping.hint
       : result.newMessages > 0
         ? `${result.newMessages} new message(s) pulled — run Auto-Sort to classify and enqueue lifecycle moves (unsorted mail stays in server Inbox until classified).`
         : undefined
 
-    if (pausedSkip) {
-      const pausedMsg = `${pausedHint} (Connected Email Accounts → Resume.)`
+    if (skipMapping.isSkip) {
       return {
         ok: false,
-        error: pausedMsg,
+        error: skipMapping.msg,
         data: result,
         pullStats,
         pullHint,
         warningCount: 1,
-        syncWarnings: [pausedMsg],
+        syncWarnings: [skipMapping.msg],
       }
     }
 
