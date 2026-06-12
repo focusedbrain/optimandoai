@@ -10,6 +10,10 @@
 
 import React from 'react'
 import { pickDefaultEmailAccountRowId } from '../../shared/email/pickDefaultAccountRow'
+import {
+  IngestionTopologyExplainer,
+  type IngestionTopologyStatus,
+} from './IngestionTopologyExplainer'
 
 function providerDisplayLabel(provider: EmailAccount['provider']): string {
   switch (provider) {
@@ -140,6 +144,15 @@ export interface EmailProvidersSectionProps {
   onSetProcessingPaused?: (accountId: string, paused: boolean) => void | Promise<void>
   /** Load/list/bridge failure — do not present as “no accounts” without context. */
   listAccountsError?: string | null
+
+  /**
+   * UX-2b: pre-fetched ingestion topology status from email:getIngestionStatus.
+   * Null/omitted = IPC not available in this context or suppressed (single-machine).
+   * Drives the IngestionTopologyExplainer.
+   */
+  ingestionStatus?: IngestionTopologyStatus | null
+  /** UX-2b: Opens the read-consent wizard (scenario 6 CTA). Electron-only. */
+  onOpenReadConsentWizard?: () => void
 }
 
 export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
@@ -153,6 +166,8 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
   onUpdateImapCredentials,
   onSetProcessingPaused,
   listAccountsError,
+  ingestionStatus,
+  onOpenReadConsentWizard,
 }) => {
   const defaultEmailAccountRowId = pickDefaultEmailAccountRowId(emailAccounts)
   const isLightTheme = theme === 'professional' || theme === 'standard'
@@ -481,6 +496,13 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
           </select>
         </div>
       )}
+      {/* UX-2b: topology-aware orientation explainer */}
+      <IngestionTopologyExplainer
+        status={ingestionStatus ?? null}
+        hasAccounts={emailAccounts.length > 0}
+        onOpenReadConsentWizard={onOpenReadConsentWizard}
+        theme={theme}
+      />
     </div>
   )
 }
