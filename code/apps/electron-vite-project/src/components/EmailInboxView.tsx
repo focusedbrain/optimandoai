@@ -19,9 +19,11 @@ import { SyncFailureBanner } from './SyncFailureBanner'
 import { IngestionStatusBanner } from './IngestionStatusBanner'
 import { IngestionDelegationModal } from './IngestionDelegationModal'
 import { SandboxReadConsentWizard } from './SandboxReadConsentWizard'
+import { RevocationNoticeBanner } from './RevocationNoticeBanner'
 import { useIngestionStatus } from '../hooks/useIngestionStatus'
 import { useTopologyDelegationModal } from '../hooks/useTopologyDelegationModal'
 import { useSandboxReadConsent } from '../hooks/useSandboxReadConsent'
+import { useRevocationBanner } from '../hooks/useRevocationBanner'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import { useEmailInboxStore, activeEmailAccountIdsForSync, type InboxMessage } from '../stores/useEmailInboxStore'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
@@ -2896,6 +2898,9 @@ export default function EmailInboxView({
   // UX-1 D5: sandbox read-consent wizard — opens on sandbox when ACTION_NEEDED_READ_CONSENT.
   const { showWizard: showReadConsentWizard, openWizard: openReadConsentWizard, closeWizard: closeReadConsentWizard } =
     useSandboxReadConsent(ingestionStatus)
+
+  // UX-3 D1: revoke transition banner — shows on host for 24h after sandbox is unlinked.
+  const { notice: revokeNotice, dismiss: dismissRevokeNotice } = useRevocationBanner()
   const {
     sandboxes: internalSandboxes,
     incomplete: internalSandboxesIncomplete,
@@ -4091,6 +4096,9 @@ export default function EmailInboxView({
             onRemoveAccount={handleDisconnectEmail}
           />
         ) : null}
+
+        {/* UX-3 D1 — revoke transition banner: 24h-dismissible, fires after sandbox unlinked */}
+        <RevocationNoticeBanner notice={revokeNotice} onDismiss={dismissRevokeNotice} />
 
         {/* UX-1 D3 — topology banner: ACTION_NEEDED_READ_CONSENT / PAUSED / DEGRADED */}
         {/* UX-1 D5: pass CTA only when this node is the sandbox; host sees detail-only banner */}

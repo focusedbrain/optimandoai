@@ -111,6 +111,20 @@ so the baseline is green and no-regression claims stay verifiable. None are prod
   _Unblocks:_ operator Microsoft test account at rig; run RIG-1..4; commit evidence;
   flip `WRDESK_OUTLOOK_OPAQUE_INPUT` only if all four pass.
 
+## UX-3 / Revocation — gaps (2026-06-12)
+
+- **Remote-capsule revoke does not call `removeTopologyForHandshake`** —
+  `enforcement.ts:460-463` processes an inbound `handshake-revoke` capsule by calling
+  `buildRevokeRecord` + `updateHandshakeRecord` but does **not** call
+  `removeTopologyForHandshake`. If the sandbox peer sends a revoke capsule, the host's
+  `orchestrator-mode.json` linked entry remains; `resolveIngestionOwnership()` continues
+  returning `owner: 'sandbox'` and inbound mail stays delegated until a cold restart or the
+  user force-revokes locally. The Trigger D toast/banner also does not fire for the remote
+  path. _Fix_: add a post-enforcement hook that fires `removeTopologyForHandshake` (and the
+  revoke notification callback) for `handshake-revoke` capsule types — same as the local-user
+  path. _Priority_: medium. _Unblocks_: ownership/fail-closed invariants are LOCKED;
+  schedule this as its own task after sign-off on the fix scope.
+
 ## Email ingestion — Prompt 4 follow-ups
 
 - **Orphaned-sandbox read-poll noise** — when `orchestrator-mode.json` sets `mode='sandbox'`

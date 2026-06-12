@@ -8,6 +8,18 @@
  * 5. Best-effort peer notification if local-user initiated.
  */
 
+// ── UX-3 D1: revoke notification callback ────────────────────────────────────
+// Called once after removeTopologyForHandshake succeeds (local-user path).
+// Registered by main.ts so it can push topology:handshakeRevoked to the renderer.
+// NOTE: remote-capsule revoke path (enforcement.ts) does NOT fire this — see DEFERRED.md.
+type RevokeNotifyCallback = (handshakeId: string) => void
+let _revokeNotifyCallback: RevokeNotifyCallback | null = null
+
+export function setRevokeNotifyCallback(cb: RevokeNotifyCallback | null): void {
+  _revokeNotifyCallback = cb
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 import type { SSOSession } from './types'
 import { HandshakeState } from './types'
 import {
@@ -87,6 +99,8 @@ export async function revokeHandshake(
   try {
     const { removeTopologyForHandshake } = await import('./topologyAutoWire')
     removeTopologyForHandshake(handshakeId)
+    // UX-3 D1: notify main.ts so it can push topology:handshakeRevoked to the renderer.
+    try { _revokeNotifyCallback?.(handshakeId) } catch { /* never block revocation */ }
   } catch (err: any) {
     console.warn('[TOPOLOGY_AUTO_WIRE] removeTopologyForHandshake on revoke failed:', err?.message)
   }

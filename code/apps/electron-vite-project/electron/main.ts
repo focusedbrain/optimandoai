@@ -2810,6 +2810,32 @@ app.whenReady().then(async () => {
         }
       }
 
+      // UX-3 D1: when a handshake is revoked (local-user path), push
+      // topology:handshakeRevoked to the renderer so the revoke transition banner fires.
+      // `hasAccounts` tells the renderer which copy variant to show (happy path vs
+      // "connect an account"). Driven by emailGateway.listAccounts() post-removal.
+      try {
+        const { setRevokeNotifyCallback } = await import('./main/handshake/revocation')
+        setRevokeNotifyCallback(async (handshakeId: string) => {
+          try {
+            const { emailGateway } = await import('./main/email/gateway')
+            const accounts = await emailGateway.listAccounts()
+            const hasAccounts = accounts.some((a: { status: string }) => a.status === 'active')
+            const wins = win ? [win] : BrowserWindow.getAllWindows()
+            wins.forEach((w) => {
+              if (!w.isDestroyed() && w.webContents) {
+                w.webContents.send('topology:handshakeRevoked', { handshakeId, hasAccounts })
+              }
+            })
+            console.log(`[REVOKE] topology:handshakeRevoked sent handshakeId=${handshakeId} hasAccounts=${hasAccounts}`)
+          } catch (err: any) {
+            console.error('[REVOKE] notification failed:', err?.message)
+          }
+        })
+      } catch (err: any) {
+        console.error('[REVOKE] setRevokeNotifyCallback failed:', err?.message)
+      }
+
       // UX-1 D4: when auto-wire succeeds on the host (handshake → ACTIVE), push
       // topology:ingestionDelegated to the renderer so the one-time migration modal
       // can fire. Guard: only send if the host has at least one connected email

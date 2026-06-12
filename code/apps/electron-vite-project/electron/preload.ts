@@ -766,6 +766,12 @@ ipcRenderer.on('handshake-list-refresh', () => {
 ipcRenderer.on('topology:ingestionDelegated', (_e, data: { handshakeId: string }) => {
   window.dispatchEvent(new CustomEvent('topology:ingestionDelegated', { detail: data }))
 })
+// ── UX-3 D1: handshake revoke → renderer revoke transition banner ────────────
+// Fired by main.ts after removeTopologyForHandshake succeeds (local-user path).
+// hasAccounts=true → happy-path copy; false → "connect account here" copy.
+ipcRenderer.on('topology:handshakeRevoked', (_e, data: { handshakeId: string; hasAccounts: boolean }) => {
+  window.dispatchEvent(new CustomEvent('topology:handshakeRevoked', { detail: data }))
+})
 /** Main → renderer: persisted host/sandbox orchestrator mode changed (IPC or local HTTP). */
 ipcRenderer.on('orchestrator-mode-did-change', () => {
   window.dispatchEvent(new CustomEvent('orchestrator-mode-changed'))
