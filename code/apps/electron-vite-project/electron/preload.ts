@@ -1217,6 +1217,9 @@ contextBridge.exposeInMainWorld('email', {
 // ── Email Accounts ─────────────────────────────────────────────────────────
 contextBridge.exposeInMainWorld('emailAccounts', {
   listAccounts: () => ipcRenderer.invoke('email:listAccounts'),
+  /** UX-1 D1 — aggregated ingestion status enum for topology banners. */
+  getIngestionStatus: (accountIds?: string[]) =>
+    ipcRenderer.invoke('email:getIngestionStatus', accountIds),
   getAccount: (accountId: string) => ipcRenderer.invoke('email:getAccount', accountId),
   setProcessingPaused: (accountId: string, paused: boolean) =>
     ipcRenderer.invoke('email:setProcessingPaused', accountId, paused),

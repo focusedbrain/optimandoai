@@ -16,6 +16,8 @@ import { BeapInlineComposer } from './BeapInlineComposer'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { SyncFailureBanner } from './SyncFailureBanner'
+import { IngestionStatusBanner } from './IngestionStatusBanner'
+import { useIngestionStatus } from '../hooks/useIngestionStatus'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import { useEmailInboxStore, activeEmailAccountIdsForSync, type InboxMessage } from '../stores/useEmailInboxStore'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
@@ -2874,7 +2876,13 @@ export default function EmailInboxView({
 
   const { prioritize } = useInboxPreloadQueue({ messages, analysisCache })
 
-  const { mode: orchestratorMode, ready: hostModeReady } = useOrchestratorMode()
+  const { mode: orchestratorMode, ready: hostModeReady, ledgerProvesLocalHostPeerSandbox } = useOrchestratorMode()
+
+  // UX-1 D3: persistent ingestion topology banner (ACTION_NEEDED / PAUSED / DEGRADED).
+  const { status: ingestionStatus } = useIngestionStatus({
+    mode: orchestratorMode,
+    ledgerProvesLocalHostPeerSandbox,
+  })
   const {
     sandboxes: internalSandboxes,
     incomplete: internalSandboxesIncomplete,
@@ -4070,6 +4078,9 @@ export default function EmailInboxView({
             onRemoveAccount={handleDisconnectEmail}
           />
         ) : null}
+
+        {/* UX-1 D3 — topology banner: ACTION_NEEDED_READ_CONSENT / PAUSED / DEGRADED */}
+        <IngestionStatusBanner status={ingestionStatus} />
 
         <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
           {sandboxRowFeedback && leftPanelTab === 'inbox' ? (
