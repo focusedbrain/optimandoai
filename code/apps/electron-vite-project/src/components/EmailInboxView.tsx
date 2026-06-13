@@ -4109,7 +4109,7 @@ export default function EmailInboxView({
         <IngestionStatusBanner
           status={ingestionStatus}
           onConnectReadAccount={
-            ingestionStatus?.thisNodeRole === 'sandbox' ? openReadConsentWizard : undefined
+            ingestionStatus?.thisNodeRole === 'sandbox' ? handleConnectEmail : undefined
           }
         />
 

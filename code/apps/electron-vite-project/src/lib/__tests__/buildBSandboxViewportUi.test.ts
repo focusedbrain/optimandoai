@@ -1,15 +1,11 @@
 /**
- * Build B — Sandbox Viewport UI source-level invariants.
+ * Sandbox inbox viewport UI source-level invariants.
  *
- * Reads source files as text and verifies:
- *   D1: Bulk-inbox gate (App.tsx)
- *   D2: Clone Inbox nav label + render branch + suppressed surfaces (App.tsx, CloneInboxView.tsx)
- *   D3: Processing console status mapping + fields (CloneInboxView.tsx)
- *   D4: Orphaned-sandbox placeholder copy (CloneInboxView.tsx, BeapInboxDashboard.tsx)
- *   D5: Host chip rename (EmailInboxToolbar.tsx)
+ * Sandbox renders the same EmailInboxView as host with exactly two differences:
+ *   • Nav label "Inbox Clone" (host: "Inbox")
+ *   • Bulk toggle hidden (!isSandbox guard)
  *
  * Uses readFileSync — runs in Node/vitest environment (same as other lib/__tests__ files).
- * No React components are imported here.
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -24,9 +20,9 @@ function read(...parts: string[]): string {
   return readFileSync(join(srcRoot, ...parts), 'utf-8')
 }
 
-// ── D1 — Bulk-inbox gate ──────────────────────────────────────────────────────
+// ── Bulk-inbox gate ───────────────────────────────────────────────────────────
 
-describe('D1 — App.tsx bulk-inbox gate', () => {
+describe('App.tsx bulk-inbox gate', () => {
   const src = read('App.tsx')
 
   it('imports useOrchestratorMode', () => {
@@ -44,165 +40,70 @@ describe('D1 — App.tsx bulk-inbox gate', () => {
     expect(toggleIdx).toBeGreaterThan(guardIdx)
   })
 
-  it('EmailInboxBulkView render branch appears after isSandbox ? branch', () => {
-    const sandboxIdx = src.indexOf('isSandbox ?')
-    const bulkViewIdx = src.indexOf('<EmailInboxBulkView')
-    expect(sandboxIdx).toBeGreaterThan(-1)
-    expect(bulkViewIdx).toBeGreaterThan(sandboxIdx)
+  it('EmailInboxBulkView only when !isSandbox && inboxBulkMode', () => {
+    expect(src).toContain('!isSandbox && inboxBulkMode')
+    expect(src).toContain('<EmailInboxBulkView')
   })
 })
 
-// ── D2 — Clone Inbox nav label + render + suppressed surfaces ─────────────────
+// ── Sandbox inbox parity with host ────────────────────────────────────────────
 
-describe('D2 — App.tsx Clone Inbox nav label', () => {
+describe('App.tsx sandbox inbox parity', () => {
   const src = read('App.tsx')
 
-  it('nav label is "Clone Inbox" when isSandbox', () => {
-    expect(src).toContain("isSandbox ? 'Clone Inbox' : 'Inbox'")
+  it('nav label is "Inbox Clone" when isSandbox', () => {
+    expect(src).toContain("isSandbox ? 'Inbox Clone' : 'Inbox'")
   })
 
-  it('imports CloneInboxView', () => {
-    expect(src).toContain("import CloneInboxView from './components/CloneInboxView'")
+  it('does NOT import CloneInboxView', () => {
+    expect(src).not.toContain("import CloneInboxView")
+    expect(src).not.toContain('<CloneInboxView')
   })
 
-  it('renders <CloneInboxView> when isSandbox', () => {
-    expect(src).toContain('<CloneInboxView')
+  it('sandbox and host both render EmailInboxView (bulk branch excluded)', () => {
+    const beapIdx = src.indexOf(") : activeView === 'beap-inbox' ? (")
+    expect(beapIdx).toBeGreaterThan(-1)
+    const slice = src.slice(beapIdx)
+    expect(slice).toContain('<EmailInboxView')
+    expect(slice).not.toContain('<CloneInboxView')
   })
 
-  it('compose shortcuts (✉ / BEAP) gated by !isSandbox', () => {
-    const guardIdx = src.indexOf('!isSandbox &&')
+  it('compose shortcuts (✉ / BEAP) are NOT gated by !isSandbox', () => {
     const emailComposeIdx = src.indexOf("setInboxComposeRequest('email')")
-    expect(guardIdx).toBeGreaterThan(-1)
-    expect(emailComposeIdx).toBeGreaterThan(guardIdx)
-  })
-})
-
-describe('D2 — CloneInboxView.tsx suppressed surfaces', () => {
-  const src = read('components', 'CloneInboxView.tsx')
-
-  it('does NOT import EmailInboxSyncControls', () => {
-    expect(src).not.toMatch(/import.*EmailInboxSyncControls/)
-  })
-
-  it('does NOT import EmailProvidersSection', () => {
-    expect(src).not.toMatch(/import.*EmailProvidersSection/)
-  })
-
-  it('does NOT import SyncFailureBanner', () => {
-    expect(src).not.toMatch(/import.*SyncFailureBanner/)
-  })
-
-  it('does NOT import IngestionDelegationModal', () => {
-    expect(src).not.toMatch(/import.*IngestionDelegationModal/)
-  })
-
-  it('uses unified EmailConnectWizard for mail processing setup CTA', () => {
-    expect(src).toContain('useConnectEmailFlow')
-    expect(src).not.toContain('SandboxReadConsentWizard')
-  })
-
-  it('header subtext matches spec exactly', () => {
-    expect(src).toContain(
-      'Cloned messages from your host for safe viewing and testing. Your mail lives on the host device.',
+    const beapComposeIdx = src.indexOf("setInboxComposeRequest('beap')")
+    expect(emailComposeIdx).toBeGreaterThan(-1)
+    expect(beapComposeIdx).toBeGreaterThan(-1)
+    const composeRegion = src.slice(
+      Math.max(0, emailComposeIdx - 400),
+      beapComposeIdx + 200,
     )
-  })
-
-  it('uses isCloneMessage filter', () => {
-    expect(src).toContain('isCloneMessage')
-  })
-
-  it('uses useIngestionStatus hook', () => {
-    expect(src).toContain('useIngestionStatus')
-  })
-
-  it('tier accuracy: no microVM/hardware claims', () => {
-    const lower = src.toLowerCase()
-    expect(lower).not.toContain('microvm')
-    expect(lower).not.toContain('crosvm')
-    expect(lower).not.toContain('hardware')
-    expect(lower).not.toContain('virtual machine')
+    expect(composeRegion).not.toMatch(/!isSandbox\s*&&[\s\S]{0,200}setInboxComposeRequest\('email'\)/)
   })
 })
 
-// ── D3 — Processing console ───────────────────────────────────────────────────
+describe('EmailInboxView.tsx — full provider section (sandbox uses same component)', () => {
+  const src = read('components', 'EmailInboxView.tsx')
 
-describe('D3 — CloneInboxView.tsx processing console', () => {
-  const src = read('components', 'CloneInboxView.tsx')
-
-  it('exports SandboxProcessingConsole', () => {
-    expect(src).toContain('export function SandboxProcessingConsole')
+  it('imports EmailProvidersSection', () => {
+    expect(src).toMatch(/import.*EmailProvidersSection/)
   })
 
-  it('status code → plain words mapping present for all three phrases', () => {
-    expect(src).toContain('Processing normally')
-    expect(src).toContain('Read consent needed')
-    expect(src).toContain('Provider unreachable')
+  it('renders EmailProvidersSection with multi-account select (Default Account in section)', () => {
+    expect(src).toContain('<EmailProvidersSection')
+    const providersSrc = readFileSync(
+      join(srcRoot, '..', '..', 'extension-chromium', 'src', 'wrguard', 'components', 'EmailProvidersSection.tsx'),
+      'utf-8',
+    )
+    expect(providersSrc).toContain('Default Account')
   })
 
-  it('console has data-testid="sandbox-processing-console"', () => {
-    expect(src).toContain('sandbox-processing-console')
-  })
-
-  it('shows delivered-to-host total', () => {
-    expect(src).toContain('console-delivered')
-    expect(src).toContain('lastPollDelivered')
-  })
-
-  it('shows held count field', () => {
-    expect(src).toContain('console-held')
-    expect(src).toContain('lastPollHeld')
-  })
-
-  it('shows last-poll time field', () => {
-    expect(src).toContain('console-last-poll')
-    expect(src).toContain('lastPollAt')
-  })
-})
-
-// ── D4 — Orphaned sandbox placeholder ─────────────────────────────────────────
-
-describe('D4 — CloneInboxView.tsx orphaned placeholder', () => {
-  const src = read('components', 'CloneInboxView.tsx')
-
-  it('exports OrphanedSandboxPlaceholder', () => {
-    expect(src).toContain('export function OrphanedSandboxPlaceholder')
-  })
-
-  it('shows awaiting-pairing copy (exact spec wording)', () => {
-    expect(src).toContain('Awaiting pairing')
-    expect(src).toContain('complete the internal handshake with your host device')
-    expect(src).toContain('start processing mail')
-  })
-
-  it('derives orphanedSandbox = isSandbox && !ledgerProvesInternalSandboxToHost && ready', () => {
-    expect(src).toContain('orphanedSandbox')
-    expect(src).toContain('ledgerProvesInternalSandboxToHost')
-  })
-})
-
-describe('D4 — BeapInboxDashboard.tsx orphaned placeholder', () => {
-  const src = read('components', 'BeapInboxDashboard.tsx')
-
-  it('first-run block checks beapOrphanedSandbox', () => {
-    expect(src).toContain('beapOrphanedSandbox')
-  })
-
-  it('shows awaiting-pairing copy in the first-run orphaned block', () => {
-    expect(src).toContain('Awaiting pairing')
-    expect(src).toContain('complete the internal handshake with your host device')
-  })
-
-  it('data-testid for the orphaned placeholder row', () => {
-    expect(src).toContain('beap-orphaned-sandbox-placeholder')
+  it('sandbox ingestion banner wires connect CTA to handleConnectEmail', () => {
+    expect(src).toContain("ingestionStatus?.thisNodeRole === 'sandbox' ? handleConnectEmail")
+    expect(src).not.toContain('openReadConsentWizard')
   })
 })
 
 // ── REGRESSION: isSandbox uses ledgerProvesInternalSandboxToHost ──────────────
-//
-// Root cause: accepting in sandbox role writes acceptor_device_role='sandbox' to
-// the ledger but never writes orchestrator-mode.json.mode='sandbox'. Build B's
-// isSandbox must be `mode === 'sandbox' || ledgerProvesInternalSandboxToHost` so a
-// node with a stale file still gets Clone Inbox / no bulk.
 
 describe('REGRESSION — useOrchestratorMode isSandbox must include ledgerProvesInternalSandboxToHost', () => {
   const src = readFileSync(
@@ -211,22 +112,19 @@ describe('REGRESSION — useOrchestratorMode isSandbox must include ledgerProves
   )
 
   it('isSandbox is derived as mode===sandbox OR ledgerProvesInternalSandboxToHost (not mode alone)', () => {
-    // The effective isSandbox line must combine both signals
     expect(src).toContain('ledgerProvesInternalSandboxToHost')
-    // Must NOT be the old mode-only pattern: `isSandbox: mode === 'sandbox'`
     expect(src).not.toMatch(/isSandbox:\s*mode\s*===\s*['"]sandbox['"](?!\s*\|\|)/)
   })
 
   it('isHost accounts for isSandbox (host=true only when not effectively sandbox)', () => {
-    // isHost should not be true when ledger says sandbox but mode says host
     expect(src).toContain('isHost')
     expect(src).toMatch(/isHost:.*!isSandbox|isHost:.*&&.*!isSandbox|!isSandbox.*isHost/)
   })
 })
 
-// ── D5 — Host chip rename ─────────────────────────────────────────────────────
+// ── Host chip rename (unchanged) ──────────────────────────────────────────────
 
-describe('D5 — EmailInboxToolbar.tsx chip rename', () => {
+describe('EmailInboxToolbar.tsx chip rename', () => {
   const src = read('components', 'EmailInboxToolbar.tsx')
 
   it('uses "Send to Sandbox" for the active chip', () => {

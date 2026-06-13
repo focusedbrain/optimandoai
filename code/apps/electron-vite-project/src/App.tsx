@@ -6,7 +6,6 @@ import HybridSearch from './components/HybridSearch'
 import HandshakeInitiateModal from './components/HandshakeInitiateModal'
 import EmailInboxView from './components/EmailInboxView'
 import EmailInboxBulkView from './components/EmailInboxBulkView'
-import CloneInboxView from './components/CloneInboxView'
 import { useOrchestratorMode } from './hooks/useOrchestratorMode'
 import WrChatDashboardPanel from './components/WrChatDashboardPanel'
 import {
@@ -445,7 +444,7 @@ function App() {
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveView('beap-inbox') } }}
             style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
           >
-            {isSandbox ? 'Clone Inbox' : 'Inbox'}
+            {isSandbox ? 'Inbox Clone' : 'Inbox'}
             {!isSandbox && (
               <label
                 onClick={(e) => e.stopPropagation()}
@@ -478,39 +477,35 @@ function App() {
             >
               🤝
             </button>
-            {!isSandbox && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => { setActiveView('beap-inbox'); setInboxComposeRequest('email') }}
-                  title="New Email"
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    width: 26, height: 26, padding: 0, borderRadius: 6,
-                    background: 'transparent', color: 'var(--text-secondary)',
-                    border: '1px solid var(--border)',
-                    fontSize: 13, cursor: 'pointer', flexShrink: 0,
-                  }}
-                >
-                  ✉
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setActiveView('beap-inbox'); setInboxComposeRequest('beap') }}
-                  title="New BEAP™ Message"
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    height: 26, padding: '0 7px', borderRadius: 6,
-                    background: 'transparent', color: 'var(--text-secondary)',
-                    border: '1px solid var(--border)',
-                    fontSize: 10, fontWeight: 600, cursor: 'pointer',
-                    letterSpacing: '0.3px', flexShrink: 0,
-                  }}
-                >
-                  BEAP
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              onClick={() => { setActiveView('beap-inbox'); setInboxComposeRequest('email') }}
+              title="New Email"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 26, height: 26, padding: 0, borderRadius: 6,
+                background: 'transparent', color: 'var(--text-secondary)',
+                border: '1px solid var(--border)',
+                fontSize: 13, cursor: 'pointer', flexShrink: 0,
+              }}
+            >
+              ✉
+            </button>
+            <button
+              type="button"
+              onClick={() => { setActiveView('beap-inbox'); setInboxComposeRequest('beap') }}
+              title="New BEAP™ Message"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                height: 26, padding: '0 7px', borderRadius: 6,
+                background: 'transparent', color: 'var(--text-secondary)',
+                border: '1px solid var(--border)',
+                fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                letterSpacing: '0.3px', flexShrink: 0,
+              }}
+            >
+              BEAP
+            </button>
           </div>
           <div
             className="app-header__wr-watchdog"
@@ -593,21 +588,7 @@ function App() {
             onSelectAttachment={setSelectedAttachmentId}
           />
         ) : activeView === 'beap-inbox' ? (
-          isSandbox ? (
-            // D2 — Sandbox renders Clone Inbox, never the full mail-client views
-            <CloneInboxView
-              selectedMessageId={selectedMessageId}
-              onSelectMessage={(id) => {
-                setSelectedMessageId(id)
-                if (!id) setSelectedAttachmentId(null)
-              }}
-              selectedAttachmentId={selectedAttachmentId}
-              onSelectAttachment={setSelectedAttachmentId}
-              onNavigateToHandshake={handleNavigateToHandshakeFromInbox}
-              onOpenHandshakesView={handleOpenHandshakesViewFromInbox}
-            />
-          ) : inboxBulkMode ? (
-            // D1 — bulk view only reachable on non-sandbox nodes
+          !isSandbox && inboxBulkMode ? (
             <EmailInboxBulkView
               accounts={emailAccounts}
               onEmailAccountsChanged={loadEmailAccounts}
