@@ -1345,9 +1345,10 @@ export default function EmailMessageDetail({
                 type="button"
                 onClick={handleDelete}
                 className="inbox-detail-toolbar-text-btn inbox-detail-toolbar-text-btn--danger"
-                aria-label="Delete"
+                aria-label="Remove from WRDesk inbox"
+                title="Remove from WRDesk inbox only — does not delete from Gmail, Outlook, or the origin mailbox"
               >
-                Delete
+                Remove
               </button>
             </div>
             {showDetailActionEnd ? (

@@ -193,6 +193,7 @@ export default function EmailInboxToolbar({
           </span>
           <button
             onClick={onBulkDelete}
+            title="Remove selected from WRDesk inbox only — does not delete from the origin mailbox"
             style={{
               padding: '5px 10px',
               fontSize: 10,
@@ -204,7 +205,7 @@ export default function EmailInboxToolbar({
               cursor: 'pointer',
             }}
           >
-            Delete
+            Remove
           </button>
           <button
             onClick={onBulkArchive}

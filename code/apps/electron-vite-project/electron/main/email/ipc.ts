@@ -208,7 +208,8 @@ import {
   type SyncResult,
 } from './syncOrchestrator'
 import { isLikelyEmailAuthError } from './emailAuthErrors'
-import { bulkQueueDeletion, cancelRemoteDeletion, deleteAllDirectBeapMessages } from './remoteDeletion'
+import { cancelRemoteDeletion, deleteAllDirectBeapMessages } from './remoteDeletion'
+import { bulkDeleteMessagesLocal } from './localInboxDeletion'
 import {
   enqueueOrchestratorRemoteMutations,
   scheduleOrchestratorRemoteDrain,
@@ -3481,35 +3482,28 @@ Rules:
     }
   })
 
-  // ── Deletion ──
-  ipcMain.handle('inbox:deleteMessages', async (_e, messageIds: string[], gracePeriodHours?: number) => {
+  // ── Deletion (local WRDesk store only — no origin mailbox API; Prompt 2 is separate) ──
+  ipcMain.handle('inbox:deleteMessages', async (_e, messageIds: string[], _gracePeriodHours?: number) => {
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
       const ids = messageIds ?? []
-      let touchedDirectBeap = false
-      for (const id of ids) {
-        const r = db
-          .prepare('SELECT source_type, account_id FROM inbox_messages WHERE id = ?')
-          .get(id) as { source_type?: string | null; account_id?: string | null } | undefined
-        if (r && (r.source_type === 'direct_beap' || r.account_id === '__p2p_beap__')) {
-          touchedDirectBeap = true
-          break
-        }
-      }
-      const result = bulkQueueDeletion(db, ids, gracePeriodHours ?? 72)
-      if (touchedDirectBeap) {
+      const result = bulkDeleteMessagesLocal(db, ids)
+      if (result.deleted > 0) {
         BrowserWindow.getAllWindows().forEach((w) => {
           try {
             if (!w.isDestroyed() && w.webContents) {
-              w.webContents.send('inbox:newMessages', { inboxInvalidate: true, reason: 'direct_beap_deleted' })
+              w.webContents.send('inbox:newMessages', {
+                inboxInvalidate: true,
+                reason: 'local_inbox_delete',
+              })
             }
           } catch {
             /* ignore */
           }
         })
       }
-      return { ok: true, data: result }
+      return { ok: true, data: { queued: result.deleted, failed: result.failed } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Delete failed' }
     }

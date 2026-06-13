@@ -1524,39 +1524,30 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     return true
   },
 
-  deleteMessages: async (ids, gracePeriodHours) => {
+  deleteMessages: async (ids, _gracePeriodHours) => {
     const bridge = getBridge()
     if (!bridge?.deleteMessages) return
-    const res = await bridge.deleteMessages(ids, gracePeriodHours)
+    const res = await bridge.deleteMessages(ids)
     if (res.ok) {
       get().clearBulkAiOutputsForIds(ids)
-      const now = new Date().toISOString()
       const idSet = new Set(ids)
       set((s) => {
-        const updatedMsg = (m: InboxMessage) =>
-          idSet.has(m.id) ? { ...m, deleted: 1, deleted_at: now, purge_after: null } : m
         const selectedWasDeleted = s.selectedMessage && ids.includes(s.selectedMessage.id)
+        const nextMessages = s.messages.filter((m) => !idSet.has(m.id))
+        const removedInView = s.messages.length - nextMessages.length
         if (s.bulkMode) {
-          const removedInView = s.messages.filter((m) => idSet.has(m.id)).length
           void fetchBulkTabCountsServer(s.filter).then((tc) => {
             const fk = s.filter.filter as keyof typeof tc
             set({ tabCounts: tc, total: tc[fk] ?? 0 })
           })
-          return {
-            allMessages: [],
-            messages: s.messages.filter((m) => !idSet.has(m.id)),
-            total: Math.max(0, s.total - removedInView),
-            multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
-            selectedMessageId: s.selectedMessageId,
-            selectedMessage: selectedWasDeleted ? updatedMsg(s.selectedMessage!) : s.selectedMessage,
-          }
         }
         return {
-          messages: s.messages.map(updatedMsg),
-          total: s.total,
+          allMessages: s.bulkMode ? [] : s.allMessages,
+          messages: nextMessages,
+          total: Math.max(0, s.total - removedInView),
           multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
-          selectedMessageId: s.selectedMessageId,
-          selectedMessage: selectedWasDeleted ? updatedMsg(s.selectedMessage!) : s.selectedMessage,
+          selectedMessageId: selectedWasDeleted ? null : s.selectedMessageId,
+          selectedMessage: selectedWasDeleted ? null : s.selectedMessage,
         }
       })
     }
