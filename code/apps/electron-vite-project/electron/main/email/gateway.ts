@@ -1931,6 +1931,92 @@ class EmailGateway implements IEmailGateway {
   }
   
   /**
+   * Sandbox-role connect: read-only OAuth scopes, token in roleScopedTokenStore,
+   * gateway row via registerReadOnlyAccount (status active, no account.oauth).
+   */
+  private async connectRoleScopedOAuthAccount(
+    provider: 'gmail' | 'microsoft365',
+    displayName?: string,
+    gmailOptions?: { gmailOAuthCredentialSource?: GmailOAuthCredentialSource },
+  ): Promise<EmailAccountInfo> {
+    const { scopeSetCanSend, resolveOAuthScopes } = await import('./oauthScopes')
+    const planned = resolveOAuthScopes(provider, 'read')
+    if (scopeSetCanSend([...planned])) {
+      throw new Error(`Read connect would request send scope for provider=${provider}`)
+    }
+
+    const { saveRoleScopedTokens } = await import('./roleScopedTokenStore')
+    const { randomUUID } = await import('crypto')
+
+    let email = ''
+    let oauth: NonNullable<EmailAccountConfig['oauth']>
+
+    if (provider === 'gmail') {
+      const credentialSource =
+        gmailOptions?.gmailOAuthCredentialSource ?? defaultGmailOAuthCredentialSource()
+      const resolved = await resolveGmailOAuthForConnect(credentialSource)
+      oauth = await gmailProvider.startOAuthFlow(undefined, resolved, 'read')
+      email = await gmailProvider.fetchProfileEmailAddress(oauth)
+    } else {
+      const r = await outlookProvider.startOAuthFlow('read')
+      if (!r.oauth) throw new Error('Outlook OAuth produced no tokens')
+      oauth = r.oauth
+      email = r.email
+    }
+
+    if (!oauth.accessToken) {
+      throw new Error(`Role-scoped OAuth produced no tokens (provider=${provider})`)
+    }
+
+    const grantedScopes = (oauth.scope ?? '').split(/\s+/).filter(Boolean)
+    if (grantedScopes.length > 0 && scopeSetCanSend(grantedScopes)) {
+      throw new Error('Read consent returned a SEND scope — refusing to store')
+    }
+
+    const norm = (email || '').trim().toLowerCase()
+    const existing = norm
+      ? this.accounts.find(
+          (a) => a.provider === provider && (a.email || '').trim().toLowerCase() === norm,
+        )
+      : undefined
+    const accountId = existing?.id ?? randomUUID()
+
+    saveRoleScopedTokens(
+      accountId,
+      'read',
+      {
+        accessToken: oauth.accessToken,
+        refreshToken: oauth.refreshToken,
+        expiresAt: oauth.expiresAt,
+        scope: oauth.scope,
+        oauthClientId: oauth.oauthClientId,
+        gmailRefreshUsesSecret: oauth.gmailRefreshUsesSecret,
+        gmailOAuthClientSecret: oauth.gmailOAuthClientSecret,
+      },
+      { clientId: oauth.oauthClientId, grantedScope: oauth.scope },
+    )
+
+    if (existing) {
+      await this.updateAccount(existing.id, {
+        email: email || existing.email,
+        displayName: (displayName && displayName.trim()) || existing.displayName,
+        lastError: undefined,
+        status: 'active',
+      })
+      const row = this.accounts.find((a) => a.id === existing.id)
+      if (!row) throw new Error('Account disappeared during read-scoped reconnect')
+      return this.toAccountInfo(row)
+    }
+
+    return this.registerReadOnlyAccount({
+      accountId,
+      email: email || '',
+      provider,
+      displayName,
+    })
+  }
+
+  /**
    * Start Gmail OAuth flow and create account
    */
   async connectGmailAccount(
@@ -1938,6 +2024,11 @@ class EmailGateway implements IEmailGateway {
     syncWindowDays?: number,
     options?: { gmailOAuthCredentialSource?: GmailOAuthCredentialSource },
   ): Promise<EmailAccountInfo> {
+    const { resolveConnectOAuthScopeRole } = await import('./resolveConnectOAuthScopeRole')
+    if ((await resolveConnectOAuthScopeRole()) === 'read') {
+      return this.connectRoleScopedOAuthAccount('gmail', displayName, options)
+    }
+
     const credentialSource =
       options?.gmailOAuthCredentialSource ?? defaultGmailOAuthCredentialSource()
     const resolved = await resolveGmailOAuthForConnect(credentialSource)
@@ -2028,6 +2119,11 @@ class EmailGateway implements IEmailGateway {
    * Start Outlook/Microsoft 365 OAuth flow and create account
    */
   async connectOutlookAccount(displayName?: string, syncWindowDays?: number): Promise<EmailAccountInfo> {
+    const { resolveConnectOAuthScopeRole } = await import('./resolveConnectOAuthScopeRole')
+    if ((await resolveConnectOAuthScopeRole()) === 'read') {
+      return this.connectRoleScopedOAuthAccount('microsoft365', displayName)
+    }
+
     const { oauth, email } = await outlookProvider.startOAuthFlow()
     const norm = (email || '').trim().toLowerCase()
     const existing = norm

@@ -10,10 +10,9 @@
  * The two consents produce two independently-revocable tokens stored in SEPARATE
  * role-keyed files (`roleScopedTokenStore`); neither node can read the other's.
  *
- * Prompt-4 boundary: the sandbox-role consent UI is NOT yet reachable from the
- * setup flow (`SANDBOX_READ_CONSENT_UI_REACHABLE = false`). The underlying connect
- * path + storage below are REAL and role-correct, so Prompt 3 (sandbox fetch) can
- * call `connectReadClient` programmatically before Prompt 4 wires the UI.
+ * Prompt-4 boundary: sandbox read scopes are requested in main via
+ * resolveConnectOAuthScopeRole when the unified EmailConnectWizard runs on a
+ * sandbox-role node. connectReadClient remains for gateway + tests.
  *
  * INV-2: the resulting tokens are persisted node-locally and never travel over a
  * `critical_job_*` payload. INV-5: only non-secret metadata is returned/logged.
@@ -149,31 +148,13 @@ export async function connectSendClient(
 
 /**
  * SANDBOX entry point: initiate the READ consent. Narrow read-only scopes only.
- * UI entry: SandboxReadConsentWizard (UX-1 D5) → email:connectReadAccount IPC.
+ * Used by gateway read-scoped connect (resolveConnectOAuthScopeRole) and tests.
  */
 export async function connectReadClient(
   params: { accountId: string; provider: ConsentProvider; email?: string },
   deps?: ConsentDeps,
 ): Promise<RoleConsentResult> {
   return runRoleScopedConsent({ ...params, role: 'read' }, deps)
-}
-
-/**
- * UX-1 D5: the sandbox read-consent UI entry is wired via SandboxReadConsentWizard
- * (EmailInboxView.tsx) and is reachable when:
- *   - This node is the sandbox that owns ingestion (sandboxShouldReadPoll=true)
- *   - No read token is stored for any account (ACTION_NEEDED_READ_CONSENT)
- *
- * Single-machine: never shown — useIngestionStatus returns null when the host has
- * no linked sandbox (suppression rule in useIngestionStatus.ts).
- */
-export const SANDBOX_READ_CONSENT_UI_REACHABLE = true
-
-/** Throws if the sandbox read-consent UI entry is not reachable (regression guard). */
-export function assertSandboxReadConsentEntryReachable(): void {
-  if (!SANDBOX_READ_CONSENT_UI_REACHABLE) {
-    throw new Error('Sandbox read-consent UI entry is not reachable (SANDBOX_READ_CONSENT_UI_REACHABLE=false)')
-  }
 }
 
 /** Audit helper: the scope set a role WOULD request for a provider (no side effects). */

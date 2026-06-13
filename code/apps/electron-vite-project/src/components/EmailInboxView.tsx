@@ -18,12 +18,10 @@ import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email
 import { SyncFailureBanner } from './SyncFailureBanner'
 import { IngestionStatusBanner } from './IngestionStatusBanner'
 import { IngestionDelegationModal } from './IngestionDelegationModal'
-import { SandboxReadConsentWizard } from './SandboxReadConsentWizard'
 import { RevocationNoticeBanner } from './RevocationNoticeBanner'
 import { SandboxReadCleanupHint } from './SandboxReadCleanupHint'
 import { useIngestionStatus } from '../hooks/useIngestionStatus'
 import { useTopologyDelegationModal } from '../hooks/useTopologyDelegationModal'
-import { useSandboxReadConsent } from '../hooks/useSandboxReadConsent'
 import { useRevocationBanner } from '../hooks/useRevocationBanner'
 import { useSandboxReadCleanupHint } from '../hooks/useSandboxReadCleanupHint'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
@@ -2897,9 +2895,6 @@ export default function EmailInboxView({
   const { pendingHandshakeId: delegationModalHandshakeId, dismiss: dismissDelegationModal } =
     useTopologyDelegationModal()
 
-  // UX-1 D5: sandbox read-consent wizard — opens on sandbox when ACTION_NEEDED_READ_CONSENT.
-  const { showWizard: showReadConsentWizard, openWizard: openReadConsentWizard, closeWizard: closeReadConsentWizard } =
-    useSandboxReadConsent(ingestionStatus)
 
   // UX-3 D1: revoke transition banner — shows on host for 24h after sandbox is unlinked.
   const { notice: revokeNotice, dismiss: dismissRevokeNotice } = useRevocationBanner()
@@ -3200,13 +3195,12 @@ export default function EmailInboxView({
     await loadProviderAccounts()
     useEmailInboxStore.getState().clearLastSyncWarnings()
     useEmailInboxStore.getState().clearRemoteSyncLog()
+    window.dispatchEvent(new CustomEvent('email-account-connected'))
   }, [loadProviderAccounts])
 
   const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
     onAfterConnected: handleAfterEmailConnected,
     theme: 'dark',
-    ingestionStatus: ingestionStatus ?? undefined,
-    onOpenSandboxReadConsent: ingestionStatus?.thisNodeRole === 'sandbox' ? openReadConsentWizard : undefined,
   })
 
   useEffect(() => {
@@ -4367,9 +4361,6 @@ export default function EmailInboxView({
                 onUpdateImapCredentials={handleUpdateImapCredentials}
                 listAccountsError={providerListError}
                 ingestionStatus={ingestionStatus}
-                onOpenReadConsentWizard={
-                  ingestionStatus?.thisNodeRole === 'sandbox' ? openReadConsentWizard : undefined
-                }
               />
               {primaryAccountId && window.emailInbox?.patchAccountSyncPreferences && (
                 <div
@@ -4727,13 +4718,6 @@ export default function EmailInboxView({
           handshakeId={delegationModalHandshakeId}
           onDismiss={dismissDelegationModal}
         />
-      )}
-
-      {/* UX-1 D5 — sandbox read-consent wizard: shown on the sandbox node when
-          ACTION_NEEDED_READ_CONSENT. Calls email:connectReadAccount (read-only
-          scopes only). Banner's "Connect now" CTA or auto-open on shouldShowPrompt. */}
-      {showReadConsentWizard && (
-        <SandboxReadConsentWizard onClose={closeReadConsentWizard} />
       )}
     </div>
   )

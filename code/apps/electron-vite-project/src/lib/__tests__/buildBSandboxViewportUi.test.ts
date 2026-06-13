@@ -96,8 +96,9 @@ describe('D2 — CloneInboxView.tsx suppressed surfaces', () => {
     expect(src).not.toMatch(/import.*IngestionDelegationModal/)
   })
 
-  it('keeps SandboxReadConsentWizard (mail processing setup)', () => {
-    expect(src).toContain('SandboxReadConsentWizard')
+  it('uses unified EmailConnectWizard for mail processing setup CTA', () => {
+    expect(src).toContain('useConnectEmailFlow')
+    expect(src).not.toContain('SandboxReadConsentWizard')
   })
 
   it('header subtext matches spec exactly', () => {

@@ -2,20 +2,19 @@
  * CloneInboxView — Sandbox-only "Clone Inbox" view.
  *
  * Shown when mode === 'sandbox'. Suppresses all full mail-client surfaces.
- * Kept: SandboxReadConsentWizard (mail processing setup),
- *       SandboxProcessingConsole (D3), clone message list, EmailMessageDetail.
+ * Kept: SandboxProcessingConsole (D3), clone message list, EmailMessageDetail.
+ * Mail connect uses the shared EmailConnectWizard (same as host).
  *
  * Orphaned state (D4): shows "Awaiting pairing" — never the connect-email CTA.
  *
  * ui-readability: every surface sets explicit bg + color.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { useEmailInboxStore, type InboxMessage } from '../stores/useEmailInboxStore'
 import { useIngestionStatus } from '../hooks/useIngestionStatus'
-import { useSandboxReadConsent } from '../hooks/useSandboxReadConsent'
-import { SandboxReadConsentWizard } from './SandboxReadConsentWizard'
+import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import EmailMessageDetail from './EmailMessageDetail'
 import type { IngestionStatusResult } from '../../electron/main/email/ingestionStatus'
 
@@ -231,7 +230,14 @@ export default function CloneInboxView({
     ledgerProvesLocalHostPeerSandbox: false,
   })
 
-  const { showWizard, openWizard, closeWizard } = useSandboxReadConsent(status)
+  const handleAfterEmailConnected = useCallback(async () => {
+    window.dispatchEvent(new CustomEvent('email-account-connected'))
+  }, [])
+
+  const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
+    onAfterConnected: handleAfterEmailConnected,
+    theme: 'professional',
+  })
 
   const [hoveredId, setHoveredId] = useState<string | null>(null)
 
@@ -256,9 +262,6 @@ export default function CloneInboxView({
     >
       {/* D3 — Processing console: visible in paired state */}
       {!orphanedSandbox && <SandboxProcessingConsole status={status} />}
-
-      {/* D2 — SandboxReadConsentWizard: mail processing setup */}
-      {showWizard && <SandboxReadConsentWizard onClose={closeWizard} />}
 
       {orphanedSandbox ? (
         // D4 — Orphaned state: never show connect-email CTA
@@ -326,7 +329,7 @@ export default function CloneInboxView({
                   <button
                     type="button"
                     data-testid="clone-inbox-consent-cta"
-                    onClick={openWizard}
+                    onClick={() => openConnectEmail(ConnectEmailLaunchSource.Inbox)}
                     style={{
                       display: 'block',
                       width: '100%',
@@ -466,6 +469,7 @@ export default function CloneInboxView({
           </div>
         </div>
       )}
+      {connectEmailFlowModal}
     </div>
   )
 }

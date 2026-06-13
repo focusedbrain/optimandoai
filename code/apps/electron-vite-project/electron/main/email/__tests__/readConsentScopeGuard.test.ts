@@ -1,7 +1,7 @@
 /**
  * UX-1 D5 — Prompt-2 scope invariant: read consent must NOT request send scope.
  *
- * The IPC handler (email:connectReadAccount) hard-stops before opening any OAuth
+ * The read scope guard in gateway.connectRoleScopedOAuthAccount hard-stops before OAuth
  * UI if the planned read scopes contain a send-capable scope. This test verifies
  * that invariant holds for every supported provider in oauthScopes.ts so a
  * future change that accidentally adds a send scope to GMAIL_READ_SCOPES or
@@ -61,7 +61,7 @@ describe('Prompt-2 scope invariant — read consent scopes (D5 gate)', () => {
   })
 
   it('no provider x read combination triggers the D5 IPC stop-guard', () => {
-    // Replicates the exact guard from email:connectReadAccount handler.
+    // Replicates the guard from gateway.connectRoleScopedOAuthAccount.
     for (const provider of ['gmail', 'microsoft365'] as const) {
       const planned = resolveOAuthScopes(provider, 'read')
       expect(

@@ -199,8 +199,6 @@ export interface EmailProvidersSectionProps {
    * Drives the IngestionTopologyExplainer.
    */
   ingestionStatus?: IngestionTopologyStatus | null
-  /** UX-2b: Opens the read-consent wizard (scenario 6 CTA). Electron-only. */
-  onOpenReadConsentWizard?: () => void
 }
 
 export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
@@ -215,7 +213,6 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
   onSetProcessingPaused,
   listAccountsError,
   ingestionStatus,
-  onOpenReadConsentWizard,
 }) => {
   const defaultEmailAccountRowId = pickDefaultEmailAccountRowId(emailAccounts)
   const isLightTheme = theme === 'professional' || theme === 'standard'
@@ -552,7 +549,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
       <IngestionTopologyExplainer
         status={ingestionStatus ?? null}
         hasAccounts={emailAccounts.length > 0}
-        onOpenReadConsentWizard={onOpenReadConsentWizard}
+        onConnectEmail={onConnectEmail}
         theme={theme}
       />
     </div>

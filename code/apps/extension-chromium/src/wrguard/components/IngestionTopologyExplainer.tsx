@@ -90,8 +90,8 @@ export interface IngestionTopologyExplainerProps {
   /** From email:getIngestionStatus. null = suppressed/loading/single-machine. */
   status: IngestionTopologyStatus | null
   hasAccounts: boolean
-  /** Scenario 6 CTA: open the UX-1 read-consent wizard. */
-  onOpenReadConsentWizard?: () => void
+  /** Scenario 6 CTA: open the shared connect-email wizard. */
+  onConnectEmail?: () => void
   /** Visual theme. */
   theme?: string
 }
@@ -99,7 +99,7 @@ export interface IngestionTopologyExplainerProps {
 export const IngestionTopologyExplainer: React.FC<IngestionTopologyExplainerProps> = ({
   status,
   hasAccounts,
-  onOpenReadConsentWizard,
+  onConnectEmail,
   theme,
 }) => {
   if (!status) return null
@@ -253,9 +253,9 @@ export const IngestionTopologyExplainer: React.FC<IngestionTopologyExplainerProp
           Connect a read-only email account on this device to receive mail. Sending stays on
           your host device.
         </span>
-        {onOpenReadConsentWizard && (
-          <button type="button" onClick={onOpenReadConsentWizard} style={ctaButtonStyle}>
-            Set up read access →
+        {onConnectEmail && (
+          <button type="button" onClick={onConnectEmail} style={ctaButtonStyle}>
+            Connect email account →
           </button>
         )}
       </div>

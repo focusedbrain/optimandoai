@@ -42,8 +42,6 @@ import {
   connectSendClient,
   connectReadClient,
   plannedScopesForRole,
-  assertSandboxReadConsentEntryReachable,
-  SANDBOX_READ_CONSENT_UI_REACHABLE,
 } from '../roleAwareConsent'
 import { loadRoleScopedTokens, hasRoleScopedTokens, __setRoleTokenStoreBaseDirForTests } from '../roleScopedTokenStore'
 import { GMAIL_READ_SCOPES, GMAIL_SEND_SCOPES, OUTLOOK_SEND_SCOPES, OUTLOOK_READ_SCOPES, scopeSetCanSend, scopeSetCanRead } from '../oauthScopes'
@@ -130,11 +128,6 @@ describe('role-aware consent', () => {
     await expect(
       connectSendClient({ accountId: 'a4', provider: 'gmail' }, { gmailFlow: async () => ({ oauth: null }) }),
     ).rejects.toThrow(/HOST node/i)
-  })
-
-  test('sandbox read-consent UI entry is reachable (Prompt 4 wired it)', () => {
-    expect(SANDBOX_READ_CONSENT_UI_REACHABLE).toBe(true)
-    expect(() => assertSandboxReadConsentEntryReachable()).not.toThrow()
   })
 })
 
