@@ -31,7 +31,7 @@
  * If a logic gap is found, STOP and report (per UX-1 spec).
  */
 
-import { resolveIngestionOwnership } from './ingestionOwnership'
+import { resolveIngestionOwnershipWithLedger } from './ingestionOwnership'
 import { hasRoleScopedTokens } from './roleScopedTokenStore'
 import { getLastSandboxPollOutcomes } from './sandboxIngestion'
 
@@ -98,8 +98,8 @@ export interface IngestionStatusResult {
  *   the ids of all connected email accounts; the caller (IPC handler) obtains
  *   them from `emailGateway.listAccounts()`.
  */
-export function resolveIngestionStatus(accountIds: readonly string[]): IngestionStatusResult {
-  const ownership = resolveIngestionOwnership()
+export async function resolveIngestionStatus(accountIds: readonly string[]): Promise<IngestionStatusResult> {
+  const ownership = await resolveIngestionOwnershipWithLedger()
   const lastPolls = getLastSandboxPollOutcomes()
 
   const accounts: IngestionAccountStatus[] = accountIds.map((accountId) => {

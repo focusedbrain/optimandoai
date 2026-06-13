@@ -1637,7 +1637,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
         const accounts = await emailGateway.listAccounts()
         ids = accounts.map((a: any) => a.id as string)
       }
-      const status = resolveIngestionStatus(ids)
+      const status = await resolveIngestionStatus(ids)
       return { ok: true, data: status }
     } catch (error: any) {
       console.error('[Email IPC] getIngestionStatus error:', error.message)

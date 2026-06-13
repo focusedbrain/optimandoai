@@ -100,10 +100,18 @@ export function useOrchestratorMode() {
     logOrchestratorModeVsHandshakeMismatch({ configuredMode: mode, handshakeLocalRole: role })
   }, [ready, mode, ledgerProvesInternalSandboxToHost, ledgerProvesLocalHostPeerSandbox])
 
+  // Effective sandbox: either the persisted file says sandbox, OR the active ledger proves
+  // this device is the Sandbox side of a Sandbox↔Host pair (same-account, ACTIVE internal
+  // handshake). The file can remain 'host' after a sandbox-role accept — no sync-back exists.
+  // This mirrors the Host-AI pattern in listInferenceTargets.ts ("orchestrator-mode.json can
+  // remain 'host' while the ledger is authoritative"). The signal is directional: the ledger
+  // check uses THIS device's coordination ID to derive localRole, so the host never self-flips.
+  const isSandbox = mode === 'sandbox' || ledgerProvesInternalSandboxToHost
+
   return {
     mode,
-    isHost: mode === 'host',
-    isSandbox: mode === 'sandbox',
+    isHost: mode === 'host' && !isSandbox,
+    isSandbox,
     /** ACTIVE internal ledger: local Sandbox ↔ peer Host (see main `orchestrator:getMode`). */
     ledgerProvesInternalSandboxToHost,
     /** This device is Host on an ACTIVE internal row — hide Host AI ↻. */

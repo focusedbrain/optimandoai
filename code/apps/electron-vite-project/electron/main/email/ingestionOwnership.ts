@@ -60,45 +60,54 @@ function resolveNodeRole(): NodeRole {
  * The fetch-ownership decision. Pure read off topology + persisted role; never
  * throws (a missing/parse-failed config → host-owned, the safe legacy default).
  *
- * Two signals make a sandbox the ingestion owner:
+ * Three signals make a sandbox the ingestion owner:
  *  1. `hasLinkedDepackageSandbox()` — the HOST's orchestrator-mode.json has a
  *     linked entry for depackage-email. Set by Prompt 4 topology auto-wire when
- *     an internal handshake with a sandbox peer becomes ACTIVE. The host read-poll
- *     is disabled and remote routing activates (in the host's resolution table).
+ *     an internal handshake with a sandbox peer becomes ACTIVE.
  *  2. `thisNodeRole === 'sandbox'` — the persisted orchestrator role is 'sandbox'.
- *     On a multi-machine appliance the sandbox node never needs its OWN linked[]
- *     entry to know it should run the poll; the role itself is the signal. On
- *     single-machine the role is always 'host', so this branch never fires there.
+ *  3. `opts.ledgerProvesSandbox === true` — the ACTIVE internal ledger proves this
+ *     device is the Sandbox side of a Sandbox↔Host pair even though
+ *     orchestrator-mode.json still says 'host' (stale file, no sync-back on accept).
+ *     Mirrors the Host-AI pattern in listInferenceTargets.ts. The signal is
+ *     directional: deriveInternalHostAiPeerRoles matches this device's coordination
+ *     ID, so the host never reports ledgerProvesSandbox=true for itself.
+ *     Use {@link resolveIngestionOwnershipWithLedger} to supply this automatically.
  */
-export function resolveIngestionOwnership(): IngestionOwnership {
+export function resolveIngestionOwnership(opts?: { ledgerProvesSandbox?: boolean }): IngestionOwnership {
   const thisNodeRole = resolveNodeRole()
+  const ledgerSandbox = opts?.ledgerProvesSandbox === true
+  const effectiveSandbox = thisNodeRole === 'sandbox' || ledgerSandbox
   const linkedSandboxOwnsIngestion = hasLinkedDepackageSandbox()
 
   if (linkedSandboxOwnsIngestion) {
     return {
       owner: 'sandbox',
-      thisNodeRole,
+      thisNodeRole: effectiveSandbox ? 'sandbox' : thisNodeRole,
       hostShouldReadPoll: false,
-      sandboxShouldReadPoll: thisNodeRole === 'sandbox',
+      sandboxShouldReadPoll: effectiveSandbox,
       reason:
         `linked sandbox covers email depackage → sandbox owns ingestion; ` +
-        `thisNode=${thisNodeRole} ${thisNodeRole === 'host' ? 'read-poll DISABLED (send only)' : 'runs the read-poll'}`,
+        `thisNode=${effectiveSandbox ? 'sandbox' : thisNodeRole}${effectiveSandbox && ledgerSandbox ? ' (ledger-derived)' : ''} ` +
+        `${effectiveSandbox ? 'runs the read-poll' : 'read-poll DISABLED (send only)'}`,
     }
   }
 
   // Sandbox-mode node (second machine) owns ingestion even before its host has
-  // completed the topology auto-wire, so the read-poll starts as soon as the
-  // sandbox has a valid read-token and the host has a live handshake. Fail-closed
-  // semantics in sandboxIngestion.ts ensure no silent fallback.
-  if (thisNodeRole === 'sandbox') {
+  // completed the topology auto-wire. Also covers the stale-file case: accepting
+  // a sandbox-role internal handshake writes acceptor_device_role='sandbox' to
+  // the ledger but does NOT update orchestrator-mode.json — effectiveSandbox catches
+  // that via opts.ledgerProvesSandbox so the sandbox starts polling immediately.
+  if (effectiveSandbox) {
     return {
       owner: 'sandbox',
       thisNodeRole: 'sandbox',
       hostShouldReadPoll: false,
       sandboxShouldReadPoll: true,
-      reason:
-        `orchestrator mode is 'sandbox' → this node owns email ingestion ` +
-        `(A2 multi-machine; linked entry on host may not be wired yet but sandbox runs the poll)`,
+      reason: ledgerSandbox && thisNodeRole !== 'sandbox'
+        ? `ledger proves sandbox role (orchestrator-mode.json stale, mode=host) → this node owns email ingestion ` +
+          `(A2 multi-machine; BEAP-delivery to host via P2P)`
+        : `orchestrator mode is 'sandbox' → this node owns email ingestion ` +
+          `(A2 multi-machine; linked entry on host may not be wired yet but sandbox runs the poll)`,
     }
   }
 
@@ -111,6 +120,26 @@ export function resolveIngestionOwnership(): IngestionOwnership {
       `no linked sandbox for email depackage → host owns ingestion ` +
       `(single-machine; Prompt 1 courier/legacy, fetch NOT relocated); thisNode=${thisNodeRole}`,
   }
+}
+
+/**
+ * Async version: consults the ACTIVE internal handshake ledger to detect the
+ * stale-file case (orchestrator-mode.json says 'host' but the device accepted in
+ * sandbox role — no sync-back exists). Falls back to the file-only path on any
+ * error. Use this at all production call sites in async contexts; the sync
+ * {@link resolveIngestionOwnership} remains for test injection via `deps.ownership`.
+ */
+export async function resolveIngestionOwnershipWithLedger(): Promise<IngestionOwnership> {
+  let ledgerProvesSandbox = false
+  try {
+    const { hasActiveInternalLedgerSandboxToHostForHostAi } = await import(
+      '../internalInference/listInferenceTargets'
+    )
+    ledgerProvesSandbox = await hasActiveInternalLedgerSandboxToHostForHostAi()
+  } catch {
+    // Fallback to file-only — never throw; host-owned is the safe default.
+  }
+  return resolveIngestionOwnership({ ledgerProvesSandbox })
 }
 
 /** Thrown when host read-poll/parse is attempted while a sandbox owns ingestion. */

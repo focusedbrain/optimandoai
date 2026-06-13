@@ -31,7 +31,7 @@
 
 import { dispatchDepackageEmail, type DepackageDispatchOutcome, type DepackageInputForm } from '../critical-jobs/liveDepackageCutover'
 import { loadRoleScopedTokens, type RoleScopedTokenRecord } from './roleScopedTokenStore'
-import { resolveIngestionOwnership, type IngestionOwnership } from './ingestionOwnership'
+import { resolveIngestionOwnershipWithLedger, type IngestionOwnership } from './ingestionOwnership'
 import type { OAuthTokens } from './secure-storage'
 
 /** One opaque message blob the sandbox read client fetched. Bytes are NEVER parsed by this module. */
@@ -167,7 +167,7 @@ export async function runSandboxIngestionPoll(
 ): Promise<SandboxIngestionResult> {
   const { accountId } = options
   const deps = options.deps ?? {}
-  const ownership = deps.ownership ?? resolveIngestionOwnership()
+  const ownership = deps.ownership ?? await resolveIngestionOwnershipWithLedger()
 
   // Only the sandbox owner polls. (The host gate keeps the host from read-polling;
   // a non-owner sandbox simply has no ingestion responsibility.)

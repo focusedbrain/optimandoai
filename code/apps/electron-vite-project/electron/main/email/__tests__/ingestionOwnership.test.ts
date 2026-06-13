@@ -82,3 +82,71 @@ describe('ingestionOwnership — fetch-ownership single source of truth (Prompt 
     expect(o.hostShouldReadPoll).toBe(true)
   })
 })
+
+// ── Regression: sandbox role from ledger (stale orchestrator-mode.json) ───────
+//
+// Root cause: accepting an internal handshake in sandbox role writes
+// acceptor_device_role='sandbox' to the handshake ledger but NEVER writes
+// orchestrator-mode.json.mode='sandbox' (no sync-back exists). Without the
+// opts.ledgerProvesSandbox path, a correctly-paired sandbox was treated as
+// host: isSandbox=false, hostShouldReadPoll=true → pulled mail locally.
+
+describe('resolveIngestionOwnership — REGRESSION: stale orchestrator-mode.json, ledger proves sandbox', () => {
+  beforeEach(() => {
+    hasLinkedDepackageSandbox.mockReset()
+    getOrchestratorMode.mockReset()
+  })
+
+  it('paired sandbox with stale mode=host: ledgerProvesSandbox=true → sandboxShouldReadPoll=true, owner=sandbox', () => {
+    // orchestrator-mode.json still says 'host' (never sync-backed after accept)
+    hasLinkedDepackageSandbox.mockReturnValue(false)
+    getOrchestratorMode.mockReturnValue({ mode: 'host' })
+
+    const o = resolveIngestionOwnership({ ledgerProvesSandbox: true })
+    expect(o.owner).toBe('sandbox')
+    expect(o.thisNodeRole).toBe('sandbox')
+    expect(o.sandboxShouldReadPoll).toBe(true)
+    expect(o.hostShouldReadPoll).toBe(false)
+  })
+
+  it('host node (mode=host, ledgerProvesSandbox=false): unchanged — stays host', () => {
+    hasLinkedDepackageSandbox.mockReturnValue(false)
+    getOrchestratorMode.mockReturnValue({ mode: 'host' })
+
+    const o = resolveIngestionOwnership({ ledgerProvesSandbox: false })
+    expect(o.owner).toBe('host')
+    expect(o.hostShouldReadPoll).toBe(true)
+    expect(o.sandboxShouldReadPoll).toBe(false)
+  })
+
+  it('single-machine (mode=host, no linked sandbox, no ledger): unchanged', () => {
+    hasLinkedDepackageSandbox.mockReturnValue(false)
+    getOrchestratorMode.mockReturnValue({ mode: 'host' })
+
+    // No opts = no ledger value injected → backward-compatible sync path
+    const o = resolveIngestionOwnership()
+    expect(o.owner).toBe('host')
+    expect(o.hostShouldReadPoll).toBe(true)
+    expect(o.sandboxShouldReadPoll).toBe(false)
+  })
+
+  it('stale sandbox + linked sandbox entry: both signals agree → sandboxShouldReadPoll=true', () => {
+    // Edge: linked entry exists on sandbox (unlikely but must not break)
+    hasLinkedDepackageSandbox.mockReturnValue(true)
+    getOrchestratorMode.mockReturnValue({ mode: 'host' })
+
+    const o = resolveIngestionOwnership({ ledgerProvesSandbox: true })
+    expect(o.owner).toBe('sandbox')
+    expect(o.sandboxShouldReadPoll).toBe(true)
+  })
+
+  it('mode=sandbox + ledgerProvesSandbox=true: effective sandbox, no double-counting issue', () => {
+    hasLinkedDepackageSandbox.mockReturnValue(false)
+    getOrchestratorMode.mockReturnValue({ mode: 'sandbox' })
+
+    const o = resolveIngestionOwnership({ ledgerProvesSandbox: true })
+    expect(o.owner).toBe('sandbox')
+    expect(o.sandboxShouldReadPoll).toBe(true)
+    expect(o.thisNodeRole).toBe('sandbox')
+  })
+})

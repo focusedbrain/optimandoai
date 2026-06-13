@@ -25,7 +25,7 @@ import {
 import { emailGateway } from './gateway'
 import { detectAndRouteMessage, type RawEmailMessage } from './messageRouter'
 import { isOpaqueIngestionActive } from './opaqueIngestion'
-import { resolveIngestionOwnership, assertHostMayReadPoll } from './ingestionOwnership'
+import { resolveIngestionOwnershipWithLedger, assertHostMayReadPoll } from './ingestionOwnership'
 import type { SSOSession } from '../handshake/types'
 import { emailDebugLog, emailDebugWarn } from './emailDebug'
 import {
@@ -454,7 +454,7 @@ async function syncAccountEmailsImpl(
   // raw untrusted mail never touches the host. The host keeps its send client
   // for outbound (unaffected). The sandbox node runs the poll (sandboxIngestion).
   // This is explicit and logged (which node owns ingestion, and why).
-  const ownership = resolveIngestionOwnership()
+  const ownership = await resolveIngestionOwnershipWithLedger()
   if (ownership.thisNodeRole === 'host' && !ownership.hostShouldReadPoll) {
     console.log(
       `[SyncOrchestrator] read-poll DISABLED — ${ownership.reason}. account=${accountId} (host keeps send client only)`,
@@ -1072,7 +1072,7 @@ export function startAutoSync(
       // BEAP to the host) instead of the host gateway read-poll. Routed off the
       // SAME ownership single-source-of-truth as the host gate. Only engages under
       // a linked topology, so single-machine auto-sync is unchanged.
-      const tickOwnership = resolveIngestionOwnership()
+      const tickOwnership = await resolveIngestionOwnershipWithLedger()
       if (tickOwnership.sandboxShouldReadPoll) {
         try {
           const { runSandboxIngestionPoll } = await import('./sandboxIngestion')

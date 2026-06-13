@@ -38,7 +38,8 @@ vi.mock('../ingestionOwnership', () => {
     readonly code = 'E_HOST_READ_POLL_FORBIDDEN' as const
   }
   return {
-    resolveIngestionOwnership: () => ownershipState.value,
+    // syncOrchestrator now calls the async with-ledger variant
+    resolveIngestionOwnershipWithLedger: () => Promise.resolve(ownershipState.value),
     assertHostMayReadPoll: (site: string, o?: IngestionOwnership) => {
       const own = o ?? ownershipState.value
       if (own.thisNodeRole === 'host' && !own.hostShouldReadPoll) {

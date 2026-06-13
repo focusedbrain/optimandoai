@@ -196,6 +196,33 @@ describe('D4 — BeapInboxDashboard.tsx orphaned placeholder', () => {
   })
 })
 
+// ── REGRESSION: isSandbox uses ledgerProvesInternalSandboxToHost ──────────────
+//
+// Root cause: accepting in sandbox role writes acceptor_device_role='sandbox' to
+// the ledger but never writes orchestrator-mode.json.mode='sandbox'. Build B's
+// isSandbox must be `mode === 'sandbox' || ledgerProvesInternalSandboxToHost` so a
+// node with a stale file still gets Clone Inbox / no bulk.
+
+describe('REGRESSION — useOrchestratorMode isSandbox must include ledgerProvesInternalSandboxToHost', () => {
+  const src = readFileSync(
+    join(srcRoot, 'hooks', 'useOrchestratorMode.ts'),
+    'utf-8',
+  )
+
+  it('isSandbox is derived as mode===sandbox OR ledgerProvesInternalSandboxToHost (not mode alone)', () => {
+    // The effective isSandbox line must combine both signals
+    expect(src).toContain('ledgerProvesInternalSandboxToHost')
+    // Must NOT be the old mode-only pattern: `isSandbox: mode === 'sandbox'`
+    expect(src).not.toMatch(/isSandbox:\s*mode\s*===\s*['"]sandbox['"](?!\s*\|\|)/)
+  })
+
+  it('isHost accounts for isSandbox (host=true only when not effectively sandbox)', () => {
+    // isHost should not be true when ledger says sandbox but mode says host
+    expect(src).toContain('isHost')
+    expect(src).toMatch(/isHost:.*!isSandbox|isHost:.*&&.*!isSandbox|!isSandbox.*isHost/)
+  })
+})
+
 // ── D5 — Host chip rename ─────────────────────────────────────────────────────
 
 describe('D5 — EmailInboxToolbar.tsx chip rename', () => {
