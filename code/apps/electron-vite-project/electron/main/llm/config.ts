@@ -295,6 +295,30 @@ export const MODEL_CATALOG: LlmModelConfig[] = [
     description: '4-bit quantized. Gemma 3 12B; long-context general model from Google.'
   },
   {
+    id: 'gemma4:12b',
+    displayName: 'Gemma 4 12B (4-bit)',
+    provider: 'Google',
+    tier: 'performance',
+    minRamGb: 9,
+    recommendedRamGb: 12,
+    diskSizeGb: 8.0,
+    contextWindow: 262144,
+    description:
+      'Q4_K_M default (Ollama tag gemma4:12b). Ollama ~7.6GB. Google Gemma 4 12B; text and image input; 256K context; reasoning, tools, and coding per upstream docs.'
+  },
+  {
+    id: 'gemma4:12b-it-q8_0',
+    displayName: 'Gemma 4 12B (8-bit, ~14GB)',
+    provider: 'Google',
+    tier: 'performance',
+    minRamGb: 14,
+    recommendedRamGb: 18,
+    diskSizeGb: 14.0,
+    contextWindow: 262144,
+    description:
+      'Q8_0 (Ollama tag gemma4:12b-it-q8_0). Ollama ~13GB; needs ~14GB+ RAM. Higher-quality Gemma 4 12B quant; text and image input; 256K context.'
+  },
+  {
     id: 'gemma4:26b',
     displayName: 'Gemma 4 26B MoE A4B (Q4_K_M)',
     provider: 'Google',
