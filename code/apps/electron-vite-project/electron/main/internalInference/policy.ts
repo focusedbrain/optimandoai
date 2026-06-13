@@ -155,7 +155,13 @@ export function isCoordinationServiceEndpointUrl(p2pEndpoint: string, coordinati
   try {
     const c = new URL(coordinationBase.trim().replace(/\/$/, ''))
     const p = new URL(t)
-    return p.host === c.host && p.pathname.includes('beap')
+    if (p.host !== c.host) return false
+    // /beap/ingest is the P2P server's direct ingest path, NOT a coordination-service route.
+    // Coordination routes: /beap/capsule, /beap/ws, /beap/p2p-signal, /beap/flush-queued, etc.
+    // When coordination and the P2P server share the same host:port (single-machine setup),
+    // /beap/ingest must still be classified 'direct' so the host-AI BEAP ad publishes correctly.
+    if (p.pathname === '/beap/ingest' || p.pathname.startsWith('/beap/ingest/')) return false
+    return p.pathname.startsWith('/beap/')
   } catch {
     return false
   }

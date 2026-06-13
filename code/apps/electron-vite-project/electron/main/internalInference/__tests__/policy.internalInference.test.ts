@@ -1,13 +1,17 @@
 import { describe, expect, test, vi } from 'vitest'
 
 vi.mock('../../p2p/p2pConfig', () => ({
-  getP2PConfig: () => ({ coordination_url: 'https://coord.test.invalid' }),
+  getP2PConfig: vi.fn(() => ({ coordination_url: 'https://coord.test.invalid' })),
 }))
+import { getP2PConfig } from '../../p2p/p2pConfig'
 import { InternalInferenceErrorCode } from '../errors'
 import {
   assertRecordForServiceRpc,
   internalInferenceEndpointGateOk,
+  isCoordinationServiceEndpointUrl,
   outboundP2pBearerToCounterpartyIngest,
+  p2pEndpointKind,
+  p2pEndpointMvpClass,
 } from '../policy'
 import { HandshakeState, type HandshakeRecord } from '../../handshake/types'
 
@@ -102,5 +106,77 @@ describe('outboundP2pBearerToCounterpartyIngest', () => {
     expect(outboundP2pBearerToCounterpartyIngest(baseRecord({ local_p2p_auth_token: '  my-secret  ' }))).toBe('my-secret')
     // Sanity: must NOT return the counterparty token — that is the pre-fd61df3e bug value.
     expect(outboundP2pBearerToCounterpartyIngest(baseRecord({}))).not.toBe('pt')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Regression: isCoordinationServiceEndpointUrl over-matched /beap/ingest
+// When coordination and the P2P server share the same host:port (single-machine
+// setup), /beap/ingest was misclassified 'relay' — blocking the host BEAP ad
+// and breaking cross-device host-AI inference.
+// ---------------------------------------------------------------------------
+describe('isCoordinationServiceEndpointUrl — /beap/ingest must never be relay (regression)', () => {
+  const coordSameHost = 'http://192.168.178.28:51249'
+
+  test('REGRESSION: /beap/ingest on same host:port as coordination_url → false (not coordination)', () => {
+    expect(isCoordinationServiceEndpointUrl('http://192.168.178.28:51249/beap/ingest', coordSameHost)).toBe(false)
+  })
+
+  test('REGRESSION: /beap/ingest with trailing path segment on same host → false', () => {
+    expect(isCoordinationServiceEndpointUrl('http://192.168.178.28:51249/beap/ingest/foo', coordSameHost)).toBe(false)
+  })
+
+  test('/beap/capsule on same host → true (genuine coordination route)', () => {
+    expect(isCoordinationServiceEndpointUrl('http://192.168.178.28:51249/beap/capsule', coordSameHost)).toBe(true)
+  })
+
+  test('/beap/ws on same host → true (genuine coordination route)', () => {
+    expect(isCoordinationServiceEndpointUrl('http://192.168.178.28:51249/beap/ws', coordSameHost)).toBe(true)
+  })
+
+  test('/beap/p2p-signal on same host → true (genuine coordination route)', () => {
+    expect(isCoordinationServiceEndpointUrl('http://192.168.178.28:51249/beap/p2p-signal', coordSameHost)).toBe(true)
+  })
+
+  test('/beap/flush-queued on same host → true (genuine coordination route)', () => {
+    expect(isCoordinationServiceEndpointUrl('http://192.168.178.28:51249/beap/flush-queued', coordSameHost)).toBe(true)
+  })
+
+  test('different host → false regardless of path', () => {
+    expect(isCoordinationServiceEndpointUrl('http://192.168.178.29:51249/beap/capsule', coordSameHost)).toBe(false)
+  })
+
+  test('relay.wrdesk.com /beap/capsule → true (fast-path preserved)', () => {
+    expect(isCoordinationServiceEndpointUrl('https://relay.wrdesk.com/beap/capsule', null)).toBe(true)
+  })
+
+  test('no coordinationBase → false for non-wrdesk URLs', () => {
+    expect(isCoordinationServiceEndpointUrl('http://192.168.178.28:51249/beap/ingest', null)).toBe(false)
+    expect(isCoordinationServiceEndpointUrl('http://192.168.178.28:51249/beap/ingest', undefined)).toBe(false)
+    expect(isCoordinationServiceEndpointUrl('http://192.168.178.28:51249/beap/ingest', '')).toBe(false)
+  })
+})
+
+describe('p2pEndpointKind — same-host coordination regression', () => {
+  test('REGRESSION: /beap/ingest on same host as coordination_url → direct', () => {
+    vi.mocked(getP2PConfig).mockReturnValueOnce({ coordination_url: 'http://192.168.178.28:51249' } as any)
+    expect(p2pEndpointKind({}, 'http://192.168.178.28:51249/beap/ingest')).toBe('direct')
+  })
+
+  test('/beap/capsule on same host as coordination_url → relay', () => {
+    vi.mocked(getP2PConfig).mockReturnValueOnce({ coordination_url: 'http://192.168.178.28:51249' } as any)
+    expect(p2pEndpointKind({}, 'http://192.168.178.28:51249/beap/capsule')).toBe('relay')
+  })
+
+  test('different host → direct', () => {
+    vi.mocked(getP2PConfig).mockReturnValueOnce({ coordination_url: 'http://192.168.178.28:51249' } as any)
+    expect(p2pEndpointKind({}, 'http://10.0.0.5:51249/beap/ingest')).toBe('direct')
+  })
+})
+
+describe('p2pEndpointMvpClass — same-host coordination regression', () => {
+  test('REGRESSION: /beap/ingest on same host as coordination_url → direct_lan (not relay)', () => {
+    vi.mocked(getP2PConfig).mockReturnValueOnce({ coordination_url: 'http://192.168.178.28:51249' } as any)
+    expect(p2pEndpointMvpClass({}, 'http://192.168.178.28:51249/beap/ingest')).toBe('direct_lan')
   })
 })
