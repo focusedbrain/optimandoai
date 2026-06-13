@@ -1,6 +1,18 @@
 /**
  * Relay server HTTP/HTTPS routes.
- * POST /beap/ingest, GET /beap/pull, POST /beap/ack, POST /beap/register-handshake, GET /health
+ * POST /beap/ingest, GET /beap/pull, POST /beap/ack,
+ * POST /beap/register-handshake, POST /beap/device-register, GET /health
+ *
+ * Native-BEAP host-only routing (relay-side):
+ *   - capsule_type === 'message_package' is the only account-addressed native
+ *     BEAP type at the relay level.  When at least one device has registered a
+ *     role, these capsules are stored with host_only=true.
+ *   - All other capsule_types (initiate, accept, refresh, revoke, context_sync)
+ *     are handshake / infrastructure traffic and always fan-out to all pullers.
+ *   - GET /beap/pull?device_id=<id>: if the device is a registered sandbox,
+ *     host_only capsules are excluded.  No device_id → legacy fan-out.
+ *   - Conflict rules: 0 hosts or 2+ hosts → fan-out + loud log.
+ *   - No device registration → legacy fan-out (backward compat, no flag-day).
  */
 
 import http from 'http'
@@ -15,6 +27,11 @@ import {
   registerHandshake,
   lookupHandshakeToken,
   cleanupExpired,
+  registerDevice,
+  getDeviceRole,
+  getRegisteredHostCount,
+  getRegisteredDeviceCount,
+  type DeviceRole,
 } from './store.js'
 import { extractBearerToken, verifyHostAuth, verifyIngestAuth } from './auth.js'
 import { getHealthPayload } from './health.js'
@@ -37,6 +54,76 @@ const STATUS_MESSAGES: Record<number, string> = {
   422: 'Capsule rejected',
   429: 'Too many requests',
   500: 'Internal server error',
+}
+
+/**
+ * The single capsule_type that represents an account-addressed native BEAP
+ * message at the relay level.  All other types are handshake / infrastructure
+ * and must always fan-out to every puller.
+ */
+const NATIVE_BEAP_CAPSULE_TYPE = 'message_package'
+
+/**
+ * Capsule types that are device-targeted (clones, handshake lifecycle,
+ * infrastructure).  These fan-out regardless of device role registration.
+ *
+ * Exhaustive list for the current ingestion-core CapsuleType union:
+ *   initiate | accept | refresh | revoke | context_sync | internal_draft
+ * (message_package is the only native-BEAP type and is handled separately.)
+ */
+const FANOUT_CAPSULE_TYPES = new Set([
+  'initiate',
+  'accept',
+  'refresh',
+  'revoke',
+  'context_sync',
+  'internal_draft',
+  // Guard-rail: sandbox_clone and critical_job variants that may appear in
+  // future schema extensions are also explicitly fan-out.
+  'sandbox_clone',
+  'sandbox_clone_quarantine',
+])
+
+function isNativeBeapCapsule(capsuleJson: string): boolean {
+  try {
+    const parsed = JSON.parse(capsuleJson) as Record<string, unknown>
+    const ct = parsed?.capsule_type
+    if (typeof ct !== 'string') return false
+    const normalized = ct.trim()
+    if (FANOUT_CAPSULE_TYPES.has(normalized)) return false
+    // Any unknown type is conservatively treated as native (host-only) —
+    // failing open to delivery on the host is safe; failing open to the
+    // sandbox would be the bug this routing prevents.
+    return normalized === NATIVE_BEAP_CAPSULE_TYPE || !FANOUT_CAPSULE_TYPES.has(normalized)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Determine whether this capsule should be stored as host_only.
+ *
+ * Returns true iff:
+ *   - The capsule is a native BEAP type, AND
+ *   - At least one device has registered a role (any role), AND
+ *   - Exactly one host is registered (conflict = fan-out + log).
+ */
+function shouldStoreAsHostOnly(capsuleJson: string): { hostOnly: boolean; conflict: boolean } {
+  if (!isNativeBeapCapsule(capsuleJson)) return { hostOnly: false, conflict: false }
+
+  const totalRegistered = getRegisteredDeviceCount()
+  if (totalRegistered === 0) {
+    // No roles registered — legacy orchestrator, fan-out as today.
+    return { hostOnly: false, conflict: false }
+  }
+
+  const hostCount = getRegisteredHostCount()
+  if (hostCount === 1) {
+    return { hostOnly: true, conflict: false }
+  }
+
+  // Zero hosts or multiple hosts: conflict — fail open (fan-out) and log loudly.
+  return { hostOnly: false, conflict: true }
 }
 
 function getClientIp(req: http.IncomingMessage): string {
@@ -79,12 +166,23 @@ async function readBody(req: http.IncomingMessage, maxBytes: number): Promise<{ 
   return { body: Buffer.concat(chunks).toString('utf8'), ok: true }
 }
 
+function parseQueryParam(url: string, name: string): string | null {
+  try {
+    const idx = url.indexOf('?')
+    if (idx === -1) return null
+    const params = new URLSearchParams(url.slice(idx + 1))
+    return params.get(name)
+  } catch {
+    return null
+  }
+}
+
 export function createRequestHandler(config: RelayConfig): (req: http.IncomingMessage, res: http.ServerResponse) => void {
   return (req: http.IncomingMessage, res: http.ServerResponse) => {
     void (async () => {
       const ip = getClientIp(req)
       const url = req.url ?? ''
-      const [path, _query] = url.split('?')
+      const [path] = url.split('?')
 
       if (req.method === 'GET' && path === '/health') {
         const payload = getHealthPayload()
@@ -140,7 +238,21 @@ export function createRequestHandler(config: RelayConfig): (req: http.IncomingMe
           res.end(JSON.stringify({ error: 'Capsule rejected' }))
           return
         }
-        const id = storeCapsule(handshakeId, body, ip, config.max_capsule_age_days)
+
+        // Native-BEAP host-only routing decision.
+        const { hostOnly, conflict } = shouldStoreAsHostOnly(body)
+        if (conflict) {
+          console.error(
+            '[Relay] NATIVE_BEAP_ROUTING_CONFLICT: host role ambiguous — fan-out to all devices. ' +
+              'Ensure exactly one device is registered as host. ' +
+              JSON.stringify({ handshake_id: handshakeId, host_count: getRegisteredHostCount(), ip }),
+          )
+        }
+        if (hostOnly) {
+          console.log('[Relay] native_beap_host_only', JSON.stringify({ handshake_id: handshakeId, ip }))
+        }
+
+        const id = storeCapsule(handshakeId, body, ip, config.max_capsule_age_days, undefined, hostOnly)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ status: 'stored', id }))
         return
@@ -152,7 +264,21 @@ export function createRequestHandler(config: RelayConfig): (req: http.IncomingMe
           sendError(res, 401, ip)
           return
         }
-        const rows = getUnacknowledgedCapsules()
+
+        // Device-role-aware filtering.
+        // A registered sandbox never receives host_only capsules.
+        // An unregistered puller (legacy / no device_id param) gets all capsules.
+        const deviceId = parseQueryParam(url, 'device_id')?.trim() || null
+        let excludeHostOnly = false
+        if (deviceId) {
+          const role = getDeviceRole(deviceId)
+          if (role === 'sandbox') {
+            excludeHostOnly = true
+            console.log('[Relay] pull_sandbox_filtered', JSON.stringify({ device_id: deviceId }))
+          }
+        }
+
+        const rows = getUnacknowledgedCapsules(excludeHostOnly)
         const capsules = rows.map((r) => ({
           id: r.id,
           handshake_id: r.handshake_id,
@@ -227,6 +353,43 @@ export function createRequestHandler(config: RelayConfig): (req: http.IncomingMe
         registerHandshake(handshakeId, expectedToken, counterpartyEmail)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ registered: true }))
+        return
+      }
+
+      if (req.method === 'POST' && path === '/beap/device-register') {
+        const token = extractBearerToken(req.headers.authorization)
+        if (!verifyHostAuth(token, config.relay_auth_secret)) {
+          sendError(res, 401, ip)
+          return
+        }
+        const { body, ok } = await readBody(req, config.max_body_size)
+        if (!ok) {
+          sendError(res, 413, ip)
+          return
+        }
+        let deviceId: string
+        let deviceRole: DeviceRole
+        try {
+          const parsed = JSON.parse(body) as { device_id?: unknown; device_role?: unknown }
+          if (typeof parsed?.device_id !== 'string' || !parsed.device_id.trim()) {
+            sendError(res, 400, ip)
+            return
+          }
+          const role = parsed?.device_role
+          if (role !== 'host' && role !== 'sandbox') {
+            sendError(res, 400, ip)
+            return
+          }
+          deviceId = parsed.device_id.trim()
+          deviceRole = role
+        } catch {
+          sendError(res, 400, ip)
+          return
+        }
+        registerDevice(deviceId, deviceRole)
+        console.log('[Relay] device_registered', JSON.stringify({ device_id: deviceId, role: deviceRole, ip }))
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ registered: true, device_id: deviceId, role: deviceRole }))
         return
       }
 

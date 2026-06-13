@@ -967,7 +967,7 @@ import {
 } from './main/handshake/ledger'
 import { setEmailSendFn } from './main/handshake/emailTransport'
 import { processOutboundQueue, setOutboundQueueAuthRefresh, logProcessOutboundQueueFailure } from './main/handshake/outboundQueue'
-import { pullFromRelay } from './main/p2p/relayPull'
+import { pullFromRelay, registerDeviceRoleWithRelay } from './main/p2p/relayPull'
 import { createP2PServer, logP2pServerDisabledState } from './main/p2p/p2pServer'
 import { createCoordinationWsClient } from './main/p2p/coordinationWs'
 import {
@@ -11711,6 +11711,11 @@ async function runDeviceKeyMigration(
       setP2PHealthRelayMode(p2pConfig.relay_mode, p2pConfig.use_coordination)
       // Only pull from relay when relay_mode=remote (coordination mode uses WebSocket push)
       if (p2pConfig.relay_mode === 'remote') {
+        // Register device role first so the relay applies host-only filtering from the
+        // very first pull.  Fire-and-forget — pull proceeds even if registration fails.
+        registerDeviceRoleWithRelay(handshakeDb).catch((err) => {
+          console.warn('[P2P] registerDeviceRoleWithRelay error:', err?.message)
+        })
         pullFromRelay(handshakeDb, () => getCurrentSession()).catch((err) => {
           console.warn('[P2P] pullFromRelay error:', err?.message)
         })

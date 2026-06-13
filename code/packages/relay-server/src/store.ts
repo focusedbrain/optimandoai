@@ -1,5 +1,5 @@
 /**
- * SQLite storage for relay capsules and handshake registry.
+ * SQLite storage for relay capsules, handshake registry, and device role registry.
  */
 
 import Database from 'better-sqlite3'
@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS relay_capsules (
   sender_ip TEXT,
   received_at TEXT NOT NULL,
   acknowledged_at TEXT,
-  expires_at TEXT NOT NULL
+  expires_at TEXT NOT NULL,
+  host_only INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_relay_capsules_handshake ON relay_capsules(handshake_id);
@@ -25,7 +26,23 @@ CREATE TABLE IF NOT EXISTS relay_handshake_registry (
   counterparty_email TEXT,
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS relay_device_registry (
+  device_id TEXT PRIMARY KEY,
+  device_role TEXT NOT NULL,
+  registered_at TEXT NOT NULL,
+  last_seen_at TEXT
+);
 `
+
+/**
+ * Migration: add host_only column to existing relay_capsules tables
+ * created before this schema version.  SQLite ALTER TABLE ADD COLUMN is
+ * idempotent-safe when wrapped in try/catch.
+ */
+const MIGRATIONS = [
+  `ALTER TABLE relay_capsules ADD COLUMN host_only INTEGER NOT NULL DEFAULT 0`,
+]
 
 let db: Database.Database | null = null
 
@@ -33,6 +50,13 @@ export function initStore(config: RelayConfig): void {
   if (db) return
   db = new Database(config.db_path)
   db.exec(SCHEMA)
+  for (const migration of MIGRATIONS) {
+    try {
+      db.exec(migration)
+    } catch {
+      // Column already exists from SCHEMA — expected on fresh install.
+    }
+  }
 }
 
 export function closeStore(): void {
@@ -62,15 +86,17 @@ export function storeCapsule(
   senderIp: string | null,
   maxAgeDays: number,
   expiresAt?: string,
+  hostOnly?: boolean,
 ): string {
   const d = getDb()
   const id = generateId()
   const now = new Date().toISOString()
   const expires = expiresAt ?? new Date(Date.now() + maxAgeDays * 24 * 60 * 60 * 1000).toISOString()
+  const hostOnlyVal = hostOnly ? 1 : 0
   d.prepare(
-    `INSERT INTO relay_capsules (id, handshake_id, capsule_json, sender_ip, received_at, acknowledged_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, NULL, ?)`,
-  ).run(id, handshakeId, capsuleJson, senderIp ?? null, now, expires)
+    `INSERT INTO relay_capsules (id, handshake_id, capsule_json, sender_ip, received_at, acknowledged_at, expires_at, host_only)
+     VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`,
+  ).run(id, handshakeId, capsuleJson, senderIp ?? null, now, expires, hostOnlyVal)
   return id
 }
 
@@ -82,15 +108,24 @@ export interface RelayCapsuleRow {
   received_at: string
   acknowledged_at: string | null
   expires_at: string
+  host_only: number
 }
 
-export function getUnacknowledgedCapsules(): RelayCapsuleRow[] {
+/**
+ * Return unacknowledged capsules.
+ *
+ * @param excludeHostOnly - When true (sandbox device), host_only capsules are
+ *   excluded so the sandbox never receives account-addressed native BEAP.
+ *   When false/undefined (host or legacy no-role), all capsules are returned.
+ */
+export function getUnacknowledgedCapsules(excludeHostOnly?: boolean): RelayCapsuleRow[] {
   const d = getDb()
-  const rows = d.prepare(
-    `SELECT id, handshake_id, capsule_json, sender_ip, received_at, acknowledged_at, expires_at
-     FROM relay_capsules WHERE acknowledged_at IS NULL ORDER BY received_at ASC`,
-  ).all() as RelayCapsuleRow[]
-  return rows
+  const sql = excludeHostOnly
+    ? `SELECT id, handshake_id, capsule_json, sender_ip, received_at, acknowledged_at, expires_at, host_only
+       FROM relay_capsules WHERE acknowledged_at IS NULL AND host_only = 0 ORDER BY received_at ASC`
+    : `SELECT id, handshake_id, capsule_json, sender_ip, received_at, acknowledged_at, expires_at, host_only
+       FROM relay_capsules WHERE acknowledged_at IS NULL ORDER BY received_at ASC`
+  return d.prepare(sql).all() as RelayCapsuleRow[]
 }
 
 export function acknowledgeCapsules(ids: string[]): number {
@@ -136,5 +171,63 @@ export function lookupHandshakeToken(handshakeId: string): string | null {
 export function countUnacknowledged(): number {
   const d = getDb()
   const row = d.prepare(`SELECT COUNT(*) as c FROM relay_capsules WHERE acknowledged_at IS NULL`).get() as { c: number }
+  return row?.c ?? 0
+}
+
+// ─── Device Role Registry ────────────────────────────────────────────────────
+
+export type DeviceRole = 'host' | 'sandbox'
+
+/**
+ * Register or update a device's role.  Called by the orchestrator on startup
+ * so the relay knows which device should receive account-addressed native BEAP.
+ */
+export function registerDevice(deviceId: string, role: DeviceRole): void {
+  const d = getDb()
+  const now = new Date().toISOString()
+  d.prepare(
+    `INSERT INTO relay_device_registry (device_id, device_role, registered_at, last_seen_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(device_id) DO UPDATE SET device_role = excluded.device_role, last_seen_at = excluded.last_seen_at`,
+  ).run(deviceId, role, now, now)
+}
+
+/**
+ * Returns the device role, or null if the device has not registered a role.
+ */
+export function getDeviceRole(deviceId: string): DeviceRole | null {
+  const d = getDb()
+  const row = d.prepare(`SELECT device_role FROM relay_device_registry WHERE device_id = ?`).get(deviceId) as { device_role: string } | undefined
+  const role = row?.device_role
+  if (role === 'host' || role === 'sandbox') return role
+  return null
+}
+
+/**
+ * Returns all device_ids currently registered with role = 'host'.
+ */
+export function getRegisteredHostIds(): string[] {
+  const d = getDb()
+  const rows = d.prepare(`SELECT device_id FROM relay_device_registry WHERE device_role = 'host'`).all() as { device_id: string }[]
+  return rows.map((r) => r.device_id)
+}
+
+/**
+ * Returns the count of devices registered with role = 'host'.
+ * Used to detect conflict (zero hosts or multiple hosts) at ingest time.
+ */
+export function getRegisteredHostCount(): number {
+  const d = getDb()
+  const row = d.prepare(`SELECT COUNT(*) as c FROM relay_device_registry WHERE device_role = 'host'`).get() as { c: number }
+  return row?.c ?? 0
+}
+
+/**
+ * Returns the count of devices that have registered any role.
+ * Zero means no device has ever called /beap/device-register → legacy fan-out.
+ */
+export function getRegisteredDeviceCount(): number {
+  const d = getDb()
+  const row = d.prepare(`SELECT COUNT(*) as c FROM relay_device_registry`).get() as { c: number }
   return row?.c ?? 0
 }

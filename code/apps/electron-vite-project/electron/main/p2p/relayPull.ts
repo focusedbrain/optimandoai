@@ -23,7 +23,7 @@ import { buildContextSyncCapsuleWithContent } from '../handshake/capsuleBuilder'
 import { internalRelayCapsuleWireOptsFromRecord } from '../handshake/internalCoordinationWire'
 import type { ContextBlockForCommitment } from '../handshake/contextCommitment'
 import type { SSOSession } from '../handshake/types'
-import { getInstanceId } from '../orchestrator/orchestratorModeStore'
+import { getInstanceId, getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import {
   setP2PHealthRelayPullSuccess,
   setP2PHealthRelayPullFailure,
@@ -107,8 +107,20 @@ export async function pullFromRelay(
     return
   }
 
+  // Include device_id so the relay can apply host-only filtering for sandbox nodes.
+  let pullUrlWithDevice = pullUrl
   try {
-    const res = await fetch(pullUrl, {
+    const instanceId = getInstanceId()?.trim()
+    if (instanceId) {
+      const sep = pullUrl.includes('?') ? '&' : '?'
+      pullUrlWithDevice = `${pullUrl}${sep}device_id=${encodeURIComponent(instanceId)}`
+    }
+  } catch {
+    // Non-fatal: fall back to unidentified pull (legacy fan-out)
+  }
+
+  try {
+    const res = await fetch(pullUrlWithDevice, {
       method: 'GET',
       headers: { Authorization: `Bearer ${authSecret}` },
     })
@@ -404,5 +416,68 @@ async function sendAck(ackUrl: string, authSecret: string, ids: string[]): Promi
     })
   } catch (err: any) {
     console.warn('[Relay] Ack failed:', err?.message)
+  }
+}
+
+/**
+ * Register this device's role (host | sandbox) with the local relay so that
+ * account-addressed native BEAP capsules (capsule_type = 'message_package')
+ * are delivered exclusively to the host device.
+ *
+ * Called once on relay client startup and whenever the orchestrator mode
+ * changes.  Safe to call repeatedly — the relay upserts.
+ *
+ * If relay_mode is not 'remote', or config is missing, this is a no-op.
+ */
+export async function registerDeviceRoleWithRelay(db: any): Promise<void> {
+  if (!db) return
+
+  const config = getP2PConfig(db)
+  if (config.relay_mode !== 'remote') return
+
+  const pullUrl = config.relay_pull_url?.trim()
+  const authSecret = config.relay_auth_secret?.trim()
+  if (!pullUrl || !authSecret) return
+
+  // Derive /beap/device-register from /beap/pull
+  const registerUrl = pullUrl.replace(/\/pull\/?$/, '/device-register')
+  if (registerUrl === pullUrl) {
+    console.warn('[Relay] relay_pull_url must end with /pull — skipping device-register')
+    return
+  }
+
+  let deviceId: string
+  try {
+    deviceId = getInstanceId()?.trim() ?? ''
+  } catch {
+    deviceId = ''
+  }
+  if (!deviceId) {
+    console.warn('[Relay] getInstanceId() empty — skipping device-register (role will default to legacy fan-out)')
+    return
+  }
+
+  const mode = getOrchestratorMode().mode
+  if (mode !== 'host' && mode !== 'sandbox') {
+    // Orchestrator mode not yet determined — skip; will be called again after mode is set.
+    return
+  }
+
+  try {
+    const res = await fetch(registerUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authSecret}`,
+      },
+      body: JSON.stringify({ device_id: deviceId, device_role: mode }),
+    })
+    if (res.ok) {
+      console.log('[Relay] device_role_registered', JSON.stringify({ device_id: deviceId, role: mode }))
+    } else {
+      console.warn('[Relay] device-register failed:', res.status, res.statusText)
+    }
+  } catch (err: any) {
+    console.warn('[Relay] device-register error:', err?.message)
   }
 }

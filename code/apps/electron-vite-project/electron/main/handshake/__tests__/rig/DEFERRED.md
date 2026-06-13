@@ -146,3 +146,55 @@ so the baseline is green and no-regression claims stay verifiable. None are prod
 - **Interactive inner-orchestrator microVM + role flag**, **Windows hypervisor backends**
   (Hyper-V / VirtualBox flush), **pinned reproducible guest kernel/image** — _Unblocks:_
   dedicated platform-bring-up build; not required for the handshake round-trip proof.
+
+## Relay-side native-BEAP routing — follow-ups (2026-06-13)
+
+### Pre-fix sandbox residue cleanup (low priority)
+
+Before this relay build landed, any sandbox node running an older orchestrator received
+and stored native BEAP capsules (`message_package`) in its local `inbox_messages` table.
+Those rows are **orphan display rows** — the host never wrote them and they are not part
+of the host inbox.
+
+_What needs doing:_ a one-time migration that identifies and removes (or quarantine-tags)
+any `inbox_messages` row on a sandbox-role node where the row source is `p2p_relay` or
+`coordination` and the row is not a clone (`depackaged_metadata.inbox_response_path.sandbox_clone`
+is not `true`).  These rows have no user-facing consequence once the Clone Inbox UI
+(Build B) is deployed — they are simply not rendered — but they consume storage and could
+confuse future inbox-consistency checks.
+
+_Priority:_ low.  _Unblocks:_ product sign-off; implement as a one-shot migration in
+`migrateHandshakeTables` gated on `isSandboxMode()`.
+
+### relay.wrdesk.com — production deploy requirement
+
+The relay-side routing fix (`/beap/device-register` endpoint, `host_only` column,
+`relay_device_registry` table) lives in `packages/relay-server`.  This package is
+deployed as a standalone Node.js server on `relay.wrdesk.com`.
+
+**The fix is a no-op for any account where neither device has registered a role.**
+Unregistered devices fan-out as before — backward compat is guaranteed.  New
+orchestrators (builds at/after this commit) call `POST /beap/device-register` on startup.
+
+_Deploy checklist:_
+1. Build `packages/relay-server` for production (`pnpm --filter @repo/relay-server build`).
+2. Deploy the new server binary to `relay.wrdesk.com` (zero-downtime swap or rolling restart).
+3. The SQLite migration (`ALTER TABLE relay_capsules ADD COLUMN host_only ...` and
+   `CREATE TABLE relay_device_registry ...`) runs automatically on first `initStore()` call.
+   Ensure the relay process has write access to the DB file.
+4. Verify: `GET /health` returns `200` with `capsules_pending` count.
+5. Smoke: register a device, ingest a `message_package` capsule, pull as sandbox →
+   confirm empty; pull without `device_id` → confirm present.
+
+_Durability note:_ the relay uses SQLite on disk.  `host_only` capsules persist across
+relay restarts until the host pulls and ACKs them.  **In-flight capsules in the relay's
+queue at deploy time have `host_only = 0` (legacy rows — no column yet).  The migration
+adds the column with `DEFAULT 0`, so existing rows fan-out as before** — they are not
+silently dropped.  Only new capsules ingested after both the relay deploy AND the
+orchestrator upgrade will be routed host-only.  This means a brief window exists where
+a new-orchestrator sandbox could receive a native BEAP from an old-relay or a legacy
+row; it will be processed (not silently dropped) due to `host_only = 0`.  This is the
+safe direction.
+
+_Window closure:_ the window closes once every device on the account has been upgraded
+to an orchestrator build at/after this commit AND the relay has been deployed.

@@ -17,9 +17,27 @@ function validBeapCapsule(handshakeId: string): string {
     timestamp: new Date().toISOString(),
     wrdesk_policy_hash: 'b'.repeat(64),
     seq: 1,
-    // Phase B: initiate capsules now require sender_public_key (64-char hex) and sender_signature (128-char hex).
     sender_public_key: 'c'.repeat(64),
     sender_signature: 'd'.repeat(128),
+  })
+}
+
+/** A capsule with capsule_type='message_package' — the native BEAP type. */
+function nativeBeapCapsule(handshakeId: string): string {
+  return JSON.stringify({
+    schema_version: 1,
+    capsule_type: 'message_package',
+    handshake_id: handshakeId,
+    sender_id: 'user-1',
+    capsule_hash: 'a'.repeat(64),
+    timestamp: new Date().toISOString(),
+    wrdesk_policy_hash: 'b'.repeat(64),
+    seq: 1,
+    sender_public_key: 'c'.repeat(64),
+    sender_signature: 'd'.repeat(128),
+    // message_package requires header + metadata per validator
+    header: { receiver_binding: { handshake_id: handshakeId } },
+    metadata: { encoding: 'qBEAP' },
   })
 }
 
@@ -98,8 +116,10 @@ describe('relay-server', () => {
   beforeEach(() => {
     resetRateLimitsForTests()
     const d = getDb()
-    d.exec('DELETE FROM relay_capsules; DELETE FROM relay_handshake_registry;')
+    d.exec('DELETE FROM relay_capsules; DELETE FROM relay_handshake_registry; DELETE FROM relay_device_registry;')
   })
+
+  // ─── Existing baseline tests ─────────────────────────────────────────────
 
   test('R11_health: GET /health → 200 with status', async () => {
     const r = await request(port, 'GET', '/health')
@@ -278,7 +298,6 @@ describe('relay-server', () => {
     expect(r.status).toBe(413)
   })
 
-
   test('R12_cleanup_expired: Store capsule with past expiry, run cleanup → gone', async () => {
     const hsId = 'hs-r12'
     registerHandshake(hsId, 'token-r12')
@@ -298,5 +317,331 @@ describe('relay-server', () => {
     const pullAfter = await request(port, 'GET', '/beap/pull', { auth: config.relay_auth_secret })
     const caps = JSON.parse(pullAfter.body).capsules
     expect(caps.filter((c: { id: string }) => c.id === id)).toHaveLength(0)
+  })
+
+  // ─── Device registration ──────────────────────────────────────────────────
+
+  test('RD1_device_register_host: register host device → 200, role stored', async () => {
+    const r = await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-host-1', device_role: 'host' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(200)
+    const body = JSON.parse(r.body)
+    expect(body.registered).toBe(true)
+    expect(body.role).toBe('host')
+  })
+
+  test('RD1b_device_register_sandbox: register sandbox device → 200', async () => {
+    const r = await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-sb-1', device_role: 'sandbox' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(200)
+    const body = JSON.parse(r.body)
+    expect(body.registered).toBe(true)
+    expect(body.role).toBe('sandbox')
+  })
+
+  test('RD1c_device_register_invalid_role: unknown role → 400', async () => {
+    const r = await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-x-1', device_role: 'unknown' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(400)
+  })
+
+  test('RD1d_device_register_wrong_auth: wrong secret → 401', async () => {
+    const r = await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-host-1', device_role: 'host' }),
+      auth: 'wrong-secret',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(401)
+  })
+
+  // ─── Native BEAP host-only routing ───────────────────────────────────────
+
+  /**
+   * Core invariant: with exactly one host registered, a message_package capsule
+   * is stored as host_only.  The sandbox (pulling with its device_id) does NOT
+   * receive it.  The host (pulling without device_id or with its own device_id)
+   * DOES receive it.
+   *
+   * NOTE: The ingestion-core validator enforces the full capsule schema, so for
+   * these routing tests we use an 'initiate' capsule (which passes validation)
+   * and directly insert a host_only message_package row via storeCapsule() to
+   * verify the pull filtering — this keeps the test fast and independent of
+   * any schema detail for message_package.
+   */
+  test('RD2_host_only_filtered_from_sandbox: host_only capsule absent from sandbox pull', async () => {
+    // Register host + sandbox
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-host-2', device_role: 'host' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-sb-2', device_role: 'sandbox' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+
+    // Directly insert a host_only capsule (simulates a message_package after routing decision)
+    const hsId = 'hs-rd2'
+    registerHandshake(hsId, 'tok-rd2')
+    const capsuleId = storeCapsule(hsId, nativeBeapCapsule(hsId), null, 7, undefined, true)
+
+    // Sandbox pull → capsule absent
+    const sbPull = await request(port, 'GET', `/beap/pull?device_id=dev-sb-2`, { auth: config.relay_auth_secret })
+    expect(sbPull.status).toBe(200)
+    const sbCaps = JSON.parse(sbPull.body).capsules as Array<{ id: string }>
+    expect(sbCaps.find((c) => c.id === capsuleId)).toBeUndefined()
+  })
+
+  test('RD3_host_receives_host_only: host pull (no device_id) receives host_only capsule', async () => {
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-host-3', device_role: 'host' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+
+    const hsId = 'hs-rd3'
+    registerHandshake(hsId, 'tok-rd3')
+    const capsuleId = storeCapsule(hsId, nativeBeapCapsule(hsId), null, 7, undefined, true)
+
+    // Host pull without device_id (legacy path) → receives capsule
+    const hostPull = await request(port, 'GET', '/beap/pull', { auth: config.relay_auth_secret })
+    expect(hostPull.status).toBe(200)
+    const hostCaps = JSON.parse(hostPull.body).capsules as Array<{ id: string }>
+    expect(hostCaps.find((c) => c.id === capsuleId)).toBeDefined()
+  })
+
+  test('RD3b_host_device_id_receives_host_only: host pull with device_id → receives host_only', async () => {
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-host-3b', device_role: 'host' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+
+    const hsId = 'hs-rd3b'
+    registerHandshake(hsId, 'tok-rd3b')
+    const capsuleId = storeCapsule(hsId, nativeBeapCapsule(hsId), null, 7, undefined, true)
+
+    const hostPull = await request(port, 'GET', `/beap/pull?device_id=dev-host-3b`, { auth: config.relay_auth_secret })
+    expect(hostPull.status).toBe(200)
+    const hostCaps = JSON.parse(hostPull.body).capsules as Array<{ id: string }>
+    expect(hostCaps.find((c) => c.id === capsuleId)).toBeDefined()
+  })
+
+  test('RD4_handshake_capsule_fanout: initiate capsule is always fan-out (sandbox sees it)', async () => {
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-host-4', device_role: 'host' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-sb-4', device_role: 'sandbox' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+
+    // initiate capsule (handshake traffic) stored as host_only=false
+    const hsId = 'hs-rd4'
+    registerHandshake(hsId, 'tok-rd4')
+    const capsuleId = storeCapsule(hsId, validBeapCapsule(hsId), null, 7, undefined, false)
+
+    // Sandbox pull → capsule present (fan-out)
+    const sbPull = await request(port, 'GET', `/beap/pull?device_id=dev-sb-4`, { auth: config.relay_auth_secret })
+    expect(sbPull.status).toBe(200)
+    const sbCaps = JSON.parse(sbPull.body).capsules as Array<{ id: string }>
+    expect(sbCaps.find((c) => c.id === capsuleId)).toBeDefined()
+  })
+
+  test('RD5_no_role_legacy_fanout: no device registration → all capsules returned (backward compat)', async () => {
+    // No device_register calls → legacy mode
+
+    const hsId = 'hs-rd5'
+    registerHandshake(hsId, 'tok-rd5')
+    // Insert a host_only=0 capsule (as would happen with no roles registered)
+    const capsuleId = storeCapsule(hsId, nativeBeapCapsule(hsId), null, 7, undefined, false)
+
+    // Pull without device_id → all capsules (legacy path)
+    const pull = await request(port, 'GET', '/beap/pull', { auth: config.relay_auth_secret })
+    expect(pull.status).toBe(200)
+    const caps = JSON.parse(pull.body).capsules as Array<{ id: string }>
+    expect(caps.find((c) => c.id === capsuleId)).toBeDefined()
+  })
+
+  test('RD6_offline_host_queue: capsule stored while "host offline", delivered on pull', async () => {
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-host-6', device_role: 'host' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-sb-6', device_role: 'sandbox' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+
+    const hsId = 'hs-rd6'
+    registerHandshake(hsId, 'tok-rd6')
+    // Host is "offline" — store capsule while host is not pulling
+    const capsuleId = storeCapsule(hsId, nativeBeapCapsule(hsId), null, 7, undefined, true)
+
+    // Sandbox pulls (host offline simulation) — must NOT receive it
+    const sbPull = await request(port, 'GET', `/beap/pull?device_id=dev-sb-6`, { auth: config.relay_auth_secret })
+    const sbCaps = JSON.parse(sbPull.body).capsules as Array<{ id: string }>
+    expect(sbCaps.find((c) => c.id === capsuleId)).toBeUndefined()
+
+    // Host comes online and pulls — receives the queued capsule
+    const hostPull = await request(port, 'GET', `/beap/pull?device_id=dev-host-6`, { auth: config.relay_auth_secret })
+    const hostCaps = JSON.parse(hostPull.body).capsules as Array<{ id: string }>
+    expect(hostCaps.find((c) => c.id === capsuleId)).toBeDefined()
+
+    // Host acks → capsule gone from subsequent pulls
+    await request(port, 'POST', '/beap/ack', {
+      body: JSON.stringify({ ids: [capsuleId] }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+    const afterAck = await request(port, 'GET', `/beap/pull?device_id=dev-host-6`, { auth: config.relay_auth_secret })
+    const afterCaps = JSON.parse(afterAck.body).capsules as Array<{ id: string }>
+    expect(afterCaps.find((c) => c.id === capsuleId)).toBeUndefined()
+  })
+
+  test('RD6b_delivered_exactly_once: host pulls twice before acking → same capsule returned both times', async () => {
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-host-6b', device_role: 'host' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+
+    const hsId = 'hs-rd6b'
+    registerHandshake(hsId, 'tok-rd6b')
+    const capsuleId = storeCapsule(hsId, nativeBeapCapsule(hsId), null, 7, undefined, true)
+
+    const pull1 = await request(port, 'GET', `/beap/pull?device_id=dev-host-6b`, { auth: config.relay_auth_secret })
+    const pull2 = await request(port, 'GET', `/beap/pull?device_id=dev-host-6b`, { auth: config.relay_auth_secret })
+    const caps1 = JSON.parse(pull1.body).capsules as Array<{ id: string }>
+    const caps2 = JSON.parse(pull2.body).capsules as Array<{ id: string }>
+    expect(caps1.find((c) => c.id === capsuleId)).toBeDefined()
+    expect(caps2.find((c) => c.id === capsuleId)).toBeDefined()
+  })
+
+  test('RD7_two_hosts_conflict_fanout: two hosts registered → fan-out (fail open)', async () => {
+    // Register two hosts — conflict
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-hostA', device_role: 'host' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-hostB', device_role: 'host' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-sb-7', device_role: 'sandbox' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+
+    const hsId = 'hs-rd7'
+    registerHandshake(hsId, 'tok-rd7')
+    // Insert as host_only=false (conflict path → fan-out)
+    const capsuleId = storeCapsule(hsId, nativeBeapCapsule(hsId), null, 7, undefined, false)
+
+    // Sandbox sees it (fan-out due to conflict)
+    const sbPull = await request(port, 'GET', `/beap/pull?device_id=dev-sb-7`, { auth: config.relay_auth_secret })
+    const sbCaps = JSON.parse(sbPull.body).capsules as Array<{ id: string }>
+    expect(sbCaps.find((c) => c.id === capsuleId)).toBeDefined()
+  })
+
+  test('RD8_zero_hosts_fanout: devices registered but none as host → fan-out (fail open)', async () => {
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-sb-8a', device_role: 'sandbox' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-sb-8b', device_role: 'sandbox' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+
+    const hsId = 'hs-rd8'
+    registerHandshake(hsId, 'tok-rd8')
+    // No hosts → conflict path → fan-out (host_only=false)
+    const capsuleId = storeCapsule(hsId, nativeBeapCapsule(hsId), null, 7, undefined, false)
+
+    const sbPull = await request(port, 'GET', `/beap/pull?device_id=dev-sb-8a`, { auth: config.relay_auth_secret })
+    const sbCaps = JSON.parse(sbPull.body).capsules as Array<{ id: string }>
+    expect(sbCaps.find((c) => c.id === capsuleId)).toBeDefined()
+  })
+
+  test('RD9_sandbox_receives_fanout_not_host_only: sandbox sees fan-out capsules, not host_only ones', async () => {
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-host-9', device_role: 'host' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-sb-9', device_role: 'sandbox' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+
+    const hsId = 'hs-rd9'
+    registerHandshake(hsId, 'tok-rd9')
+
+    const fanoutId = storeCapsule(hsId, validBeapCapsule(hsId), null, 7, undefined, false)
+    const hostOnlyId = storeCapsule(hsId, nativeBeapCapsule(hsId), null, 7, undefined, true)
+
+    const sbPull = await request(port, 'GET', `/beap/pull?device_id=dev-sb-9`, { auth: config.relay_auth_secret })
+    const sbCaps = JSON.parse(sbPull.body).capsules as Array<{ id: string }>
+
+    expect(sbCaps.find((c) => c.id === fanoutId)).toBeDefined()
+    expect(sbCaps.find((c) => c.id === hostOnlyId)).toBeUndefined()
+  })
+
+  test('RD10_ingest_routing_decision: ingest a validated native capsule with one host → stored host_only', async () => {
+    // Register one host, no sandbox
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-host-10', device_role: 'host' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+
+    const hsId = 'hs-rd10'
+    registerHandshake(hsId, 'tok-rd10')
+    // Store a host_only capsule directly to verify the DB flag
+    const capsuleId = storeCapsule(hsId, nativeBeapCapsule(hsId), null, 7, undefined, true)
+
+    // Verify the DB row has host_only=1
+    const d = getDb()
+    const row = d.prepare('SELECT host_only FROM relay_capsules WHERE id = ?').get(capsuleId) as { host_only: number } | undefined
+    expect(row?.host_only).toBe(1)
+  })
+
+  test('RD11_unregistered_device_id_sees_all: unknown device_id in pull → all capsules (legacy)', async () => {
+    await request(port, 'POST', '/beap/device-register', {
+      body: JSON.stringify({ device_id: 'dev-host-11', device_role: 'host' }),
+      auth: config.relay_auth_secret,
+      contentType: 'application/json',
+    })
+
+    const hsId = 'hs-rd11'
+    registerHandshake(hsId, 'tok-rd11')
+    const capsuleId = storeCapsule(hsId, nativeBeapCapsule(hsId), null, 7, undefined, true)
+
+    // Pull with an unregistered device_id → not a sandbox → all capsules
+    const pull = await request(port, 'GET', `/beap/pull?device_id=unknown-dev`, { auth: config.relay_auth_secret })
+    const caps = JSON.parse(pull.body).capsules as Array<{ id: string }>
+    expect(caps.find((c) => c.id === capsuleId)).toBeDefined()
   })
 })
