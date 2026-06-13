@@ -1246,6 +1246,8 @@ contextBridge.exposeInMainWorld('emailAccounts', {
   getAccount: (accountId: string) => ipcRenderer.invoke('email:getAccount', accountId),
   setProcessingPaused: (accountId: string, paused: boolean) =>
     ipcRenderer.invoke('email:setProcessingPaused', accountId, paused),
+  setDeleteFromProviderOnLocalDelete: (accountId: string, enabled: boolean) =>
+    ipcRenderer.invoke('email:setDeleteFromProviderOnLocalDelete', accountId, enabled),
   testConnection: (accountId: string) => ipcRenderer.invoke('email:testConnection', accountId),
   getImapReconnectHints: (accountId: string) => ipcRenderer.invoke('email:getImapReconnectHints', accountId),
   updateImapCredentials: (
@@ -1413,7 +1415,11 @@ contextBridge.exposeInMainWorld('emailInbox', {
   toggleStar: (id: string) => ipcRenderer.invoke('inbox:toggleStar', id),
   archiveMessages: (ids: string[]) => ipcRenderer.invoke('inbox:archiveMessages', ids),
   setCategory: (ids: string[], category: string) => ipcRenderer.invoke('inbox:setCategory', ids, category),
-  deleteMessages: (ids: string[], gracePeriodHours?: number) => ipcRenderer.invoke('inbox:deleteMessages', ids, gracePeriodHours),
+  deleteMessages: (
+    ids: string[],
+    gracePeriodHours?: number,
+    options?: { originDeleteConfirmed?: boolean },
+  ) => ipcRenderer.invoke('inbox:deleteMessages', ids, gracePeriodHours, options),
   /** Dev: remove all native BEAP (`direct_beap`) rows from local DB. */
   deleteAllDirectBeap: () => ipcRenderer.invoke('inbox:deleteAllDirectBeap'),
   cancelDeletion: (id: string) => ipcRenderer.invoke('inbox:cancelDeletion', id),

@@ -913,7 +913,7 @@ class EmailGateway implements IEmailGateway {
       send: hasRoleScopedTokens(id, 'send'),
     })
     const displayConfigs = dedupeMailboxConfigsForDisplay(this.accounts, probe, { isSandbox })
-    return displayConfigs.map((acc) => this.toAccountInfo(acc))
+    return Promise.all(displayConfigs.map((acc) => this.buildAccountInfo(acc)))
   }
 
   /** Last load/save/decrypt diagnostics for IPC/HTTP (not a second source of truth). */
@@ -928,7 +928,7 @@ class EmailGateway implements IEmailGateway {
   
   async getAccount(id: string): Promise<EmailAccountInfo | null> {
     const account = this.accounts.find(a => a.id === id)
-    return account ? this.toAccountInfo(account) : null
+    return account ? this.buildAccountInfo(account) : null
   }
 
   /** Full persisted config for connect (IMAP consolidation, diagnostics). */
@@ -1154,6 +1154,36 @@ class EmailGateway implements IEmailGateway {
       throw e
     }
     return this.toAccountInfo(account)
+  }
+
+  async setDeleteFromProviderOnLocalDelete(
+    id: string,
+    enabled: boolean,
+  ): Promise<EmailAccountInfo> {
+    const index = this.accounts.findIndex((a) => a.id === id)
+    if (index === -1) {
+      throw new Error('Account not found')
+    }
+    const account = this.accounts[index]
+    const prev = account.deleteFromProviderOnLocalDelete
+    const prevUpdated = account.updatedAt
+    account.deleteFromProviderOnLocalDelete = enabled === true
+    if (!account.deleteFromProviderOnLocalDelete) {
+      delete (account as { deleteFromProviderOnLocalDelete?: boolean }).deleteFromProviderOnLocalDelete
+    }
+    account.updatedAt = Date.now()
+    try {
+      persistEmailAccounts(this.accounts)
+    } catch (e) {
+      if (prev === true) {
+        account.deleteFromProviderOnLocalDelete = true
+      } else {
+        delete (account as { deleteFromProviderOnLocalDelete?: boolean }).deleteFromProviderOnLocalDelete
+      }
+      account.updatedAt = prevUpdated
+      throw e
+    }
+    return this.buildAccountInfo(account)
   }
   
   async deleteAccount(id: string): Promise<void> {
@@ -2765,6 +2795,22 @@ class EmailGateway implements IEmailGateway {
     return provider
   }
   
+  private async buildAccountInfo(account: EmailAccountConfig): Promise<EmailAccountInfo> {
+    const info = this.toAccountInfo(account)
+    try {
+      const { assessOriginDeleteCapability } = await import('./originMailboxDeleteCapability')
+      const cap = await assessOriginDeleteCapability(account)
+      return {
+        ...info,
+        originDeleteFromProviderCapable: cap.canTrashOnProvider,
+        originDeleteBlockReason: cap.blockReason,
+        originDeleteTrashMethod: cap.trashMethod,
+      }
+    } catch {
+      return info
+    }
+  }
+
   private toAccountInfo(account: EmailAccountConfig): EmailAccountInfo {
     const defaultFolders = getFoldersForAccountOperation(account, undefined)
     return {
@@ -2774,6 +2820,7 @@ class EmailGateway implements IEmailGateway {
       provider: account.provider,
       status: account.status,
       processingPaused: account.processingPaused === true,
+      deleteFromProviderOnLocalDelete: account.deleteFromProviderOnLocalDelete === true,
       lastError: account.lastError,
       lastSyncAt: account.lastSyncAt,
       folders: {

@@ -60,7 +60,11 @@ import { runBeapSessionAutomationForMessage } from '../lib/runBeapSessionAutomat
 import { InboxBeapSourceBadgeDetail } from './InboxBeapSourceBadge'
 import BeapRedirectDialog from './BeapRedirectDialog'
 import { listHandshakes } from '../shims/handshakeRpc'
-import { UI_BADGE } from '../styles/uiContrastTokens'
+import {
+  confirmOriginDeleteIfNeeded,
+  originDeleteConfirmedForSelection,
+  type OriginDeleteAccountRow,
+} from '../utils/originDeleteFlow'
 
 export interface EmailMessageDetailProps {
   message: InboxMessage | null
@@ -114,6 +118,8 @@ export interface EmailMessageDetailProps {
   internalSandboxesRefresh?: () => Promise<InternalSandboxesListSnapshot>
   /** Open Handshakes (e.g. from link-dialog “no Sandbox” help). */
   onOpenHandshakesView?: () => void
+  /** Per-account origin-delete settings for destructive confirm (Prompt 2). */
+  originDeleteAccounts?: OriginDeleteAccountRow[]
 }
 
 // ── Helpers ──
@@ -348,6 +354,7 @@ export default function EmailMessageDetail({
   activeIdentityCompleteHostSandboxCount: activeIdentityCompleteFromParent,
   identityIncompleteHostSandboxCount = 0,
   sandboxLiveEligibleCount = 0,
+  originDeleteAccounts = [],
 }: EmailMessageDetailProps) {
   const activeIdentityCompleteHostSandboxCount =
     activeIdentityCompleteFromParent ?? activeInternalHandshakeCount
@@ -1184,8 +1191,13 @@ export default function EmailMessageDetail({
   }, [message.id, archiveMessages])
 
   const handleDelete = useCallback(() => {
-    deleteMessages([message.id])
-  }, [message.id, deleteMessages])
+    if (!message) return
+    const ids = [message.id]
+    if (!confirmOriginDeleteIfNeeded(ids, [message], originDeleteAccounts)) return
+    void deleteMessages(ids, undefined, {
+      originDeleteConfirmed: originDeleteConfirmedForSelection(ids, [message], originDeleteAccounts),
+    })
+  }, [message, deleteMessages, originDeleteAccounts])
 
   const handleCancelDeletion = useCallback(() => {
     cancelDeletion(message.id)

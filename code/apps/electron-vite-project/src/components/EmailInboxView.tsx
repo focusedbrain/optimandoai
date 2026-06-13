@@ -13,6 +13,10 @@ import { type DraftAttachment } from './EmailComposeOverlay'
 import { EmailInlineComposer } from './EmailInlineComposer'
 import BeapMessageImportZone from './BeapMessageImportZone'
 import { BeapInlineComposer } from './BeapInlineComposer'
+import {
+  confirmOriginDeleteIfNeeded,
+  originDeleteConfirmedForSelection,
+} from '../utils/originDeleteFlow'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { SyncFailureBanner } from './SyncFailureBanner'
@@ -2960,6 +2964,9 @@ export default function EmailInboxView({
       provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
       status: 'active' | 'auth_error' | 'error' | 'disabled'
       processingPaused?: boolean
+      deleteFromProviderOnLocalDelete?: boolean
+      originDeleteFromProviderCapable?: boolean
+      originDeleteBlockReason?: string
       lastError?: string
     }>
   >([])
@@ -3100,6 +3107,9 @@ export default function EmailInboxView({
         provider?: string
         status?: string
         processingPaused?: boolean
+        deleteFromProviderOnLocalDelete?: boolean
+        originDeleteFromProviderCapable?: boolean
+        originDeleteBlockReason?: string
         lastError?: string
       }>
       setProviderAccounts(
@@ -3128,6 +3138,9 @@ export default function EmailInboxView({
             provider,
             status,
             processingPaused: a.processingPaused === true,
+            deleteFromProviderOnLocalDelete: a.deleteFromProviderOnLocalDelete === true,
+            originDeleteFromProviderCapable: a.originDeleteFromProviderCapable === true,
+            originDeleteBlockReason: a.originDeleteBlockReason,
             lastError: a.lastError,
           }
         }),
@@ -3280,6 +3293,35 @@ export default function EmailInboxView({
     [loadProviderAccounts, onEmailAccountsChanged],
   )
 
+  const handleSetDeleteFromProviderOnLocalDelete = useCallback(
+    async (id: string, enabled: boolean) => {
+      if (typeof window.emailAccounts?.setDeleteFromProviderOnLocalDelete !== 'function') return
+      if (
+        enabled &&
+        !window.confirm(
+          'Enable “Also delete from the email provider”?\n\nWhen you remove mail in WRDesk, matching messages will also be moved to Trash / Deleted Items on Gmail, Outlook, or your IMAP server (recoverable there). This is destructive and off by default.',
+        )
+      ) {
+        return
+      }
+      setProviderAccounts((rows) =>
+        rows.map((a) =>
+          a.id === id ? { ...a, deleteFromProviderOnLocalDelete: enabled } : a,
+        ),
+      )
+      try {
+        const res = await window.emailAccounts.setDeleteFromProviderOnLocalDelete(id, enabled)
+        if (!res?.ok) throw new Error((res as { error?: string })?.error || 'Failed')
+        await loadProviderAccounts()
+        onEmailAccountsChanged?.()
+      } catch {
+        await loadProviderAccounts()
+        onEmailAccountsChanged?.()
+      }
+    },
+    [loadProviderAccounts, onEmailAccountsChanged],
+  )
+
   // Sync App-level selection to store when props change
   useEffect(() => {
     if (selectedMessageIdProp !== undefined && selectedMessageIdProp !== selectedMessageId) {
@@ -3420,9 +3462,13 @@ export default function EmailInboxView({
 
   const handleBulkDelete = useCallback(() => {
     const ids = Array.from(multiSelectIds)
-    if (ids.length) deleteMessages(ids)
+    if (!ids.length) return
+    if (!confirmOriginDeleteIfNeeded(ids, messages, providerAccounts)) return
+    void deleteMessages(ids, undefined, {
+      originDeleteConfirmed: originDeleteConfirmedForSelection(ids, messages, providerAccounts),
+    })
     clearMultiSelect()
-  }, [multiSelectIds, deleteMessages, clearMultiSelect])
+  }, [multiSelectIds, deleteMessages, clearMultiSelect, messages, providerAccounts])
 
   const handleBulkArchive = useCallback(() => {
     const ids = Array.from(multiSelectIds)
@@ -4333,6 +4379,7 @@ export default function EmailInboxView({
                 onConnectEmail={handleConnectEmail}
                 onDisconnectEmail={handleDisconnectEmail}
                 onSetProcessingPaused={handleSetProcessingPaused}
+                onSetDeleteFromProviderOnLocalDelete={handleSetDeleteFromProviderOnLocalDelete}
                 onSelectEmailAccount={setSelectedProviderAccountId}
                 onUpdateImapCredentials={handleUpdateImapCredentials}
                 listAccountsError={providerListError}
@@ -4492,6 +4539,7 @@ export default function EmailInboxView({
               internalSandboxListReady={internalSandboxListReady}
               onOpenHandshakesView={onOpenHandshakesView}
               sandboxLiveEligibleCount={cloneEligibleSandboxes.length}
+              originDeleteAccounts={providerAccounts}
             />
           </div>
           <div className="inbox-detail-ai" data-collapsed={aiPanelCollapsed}>

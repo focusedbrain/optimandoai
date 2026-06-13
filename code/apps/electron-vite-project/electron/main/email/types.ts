@@ -386,6 +386,12 @@ export interface EmailAccountConfig {
    * Omitted or false = not paused. Not the same as `status: 'disabled'`.
    */
   processingPaused?: boolean
+
+  /**
+   * Prompt 2 — when true, deleting in WRDesk also trashes on the origin mailbox (opt-in, default off).
+   * Requires modify scope on this node; fails closed when scope is insufficient.
+   */
+  deleteFromProviderOnLocalDelete?: boolean
   
   /** Last error message if status is 'error' */
   lastError?: string
@@ -420,6 +426,14 @@ export interface EmailAccountInfo {
   status: 'active' | 'error' | 'disabled' | 'auth_error'
   /** True when the user paused processing for this account (credentials and sync prefs unchanged). */
   processingPaused?: boolean
+  /** Prompt 2 — opt-in: also trash on provider when removing locally (default off). */
+  deleteFromProviderOnLocalDelete?: boolean
+  /** Whether this node can call provider trash APIs for this account (scope + role). */
+  originDeleteFromProviderCapable?: boolean
+  /** Human-readable reason when origin delete is not available on this node. */
+  originDeleteBlockReason?: string
+  /** Trash method when capable (informational for UI). */
+  originDeleteTrashMethod?: string
   lastError?: string
   lastSyncAt?: number
   folders: {
@@ -807,6 +821,7 @@ export interface IEmailGateway {
   ): Promise<EmailAccountInfo>
   /** User toggle: pause or resume background processing (does not change `status` or credentials). */
   setProcessingPaused(id: string, paused: boolean): Promise<EmailAccountInfo>
+  setDeleteFromProviderOnLocalDelete(id: string, enabled: boolean): Promise<EmailAccountInfo>
   deleteAccount(id: string): Promise<void>
   testConnection(id: string): Promise<{ success: boolean; error?: string }>
   getImapReconnectHints(id: string): Promise<ImapReconnectHints | null>

@@ -136,6 +136,11 @@ export interface EmailAccount {
   status: 'active' | 'auth_error' | 'error' | 'disabled'
   /** From Electron listAccounts — user paused processing (orthogonal to status). */
   processingPaused?: boolean
+  /** Prompt 2 — opt-in origin trash when removing locally (default off). */
+  deleteFromProviderOnLocalDelete?: boolean
+  /** Whether this node can call provider trash APIs (scope + role). */
+  originDeleteFromProviderCapable?: boolean
+  originDeleteBlockReason?: string
   lastError?: string
 }
 
@@ -190,6 +195,8 @@ export interface EmailProvidersSectionProps {
   onUpdateImapCredentials?: (accountId: string) => void
   /** Pause/resume background mail sync (non-destructive; credentials stay saved). */
   onSetProcessingPaused?: (accountId: string, paused: boolean) => void | Promise<void>
+  /** Prompt 2 — opt-in: also trash on provider when removing locally. */
+  onSetDeleteFromProviderOnLocalDelete?: (accountId: string, enabled: boolean) => void | Promise<void>
   /** Load/list/bridge failure — do not present as “no accounts” without context. */
   listAccountsError?: string | null
 
@@ -211,6 +218,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
   onSelectEmailAccount,
   onUpdateImapCredentials,
   onSetProcessingPaused,
+  onSetDeleteFromProviderOnLocalDelete,
   listAccountsError,
   ingestionStatus,
 }) => {
@@ -414,6 +422,65 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                       <div style={pausedRowNoteStyle(isLightTheme)}>
                         Syncing is off — this account stays connected. Your password and settings are unchanged.
                       </div>
+                    ) : null}
+                    {typeof onSetDeleteFromProviderOnLocalDelete === 'function' ? (
+                      <label
+                        style={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: 8,
+                          marginTop: 10,
+                          fontSize: 11,
+                          lineHeight: 1.4,
+                          color: 'var(--text-primary, var(--text-primary-prof, #0f172a))',
+                          cursor: account.originDeleteFromProviderCapable === false ? 'not-allowed' : 'pointer',
+                        }}
+                        title={
+                          account.originDeleteFromProviderCapable === false
+                            ? account.originDeleteBlockReason ??
+                              'Provider trash is not available on this device (insufficient OAuth scope).'
+                            : 'When enabled, removing mail in WRDesk also moves it to Trash / Deleted Items on your provider (recoverable there).'
+                        }
+                      >
+                        <input
+                          type="checkbox"
+                          checked={account.deleteFromProviderOnLocalDelete === true}
+                          disabled={account.originDeleteFromProviderCapable === false}
+                          onChange={(e) =>
+                            void onSetDeleteFromProviderOnLocalDelete(account.id, e.target.checked)
+                          }
+                          style={{ marginTop: 2, flexShrink: 0 }}
+                        />
+                        <span>
+                          <span style={{ fontWeight: 600 }}>
+                            Also delete from the email provider when I delete here
+                          </span>
+                          <span
+                            style={{
+                              display: 'block',
+                              marginTop: 2,
+                              fontSize: 10,
+                              color: 'var(--text-secondary, var(--text-secondary-prof, #64748b))',
+                            }}
+                          >
+                            Off by default. Moves to provider Trash / Deleted Items — not permanent delete.
+                          </span>
+                          {account.originDeleteFromProviderCapable === false &&
+                          account.originDeleteBlockReason ? (
+                            <span
+                              style={{
+                                display: 'block',
+                                marginTop: 4,
+                                fontSize: 10,
+                                color: 'var(--text-primary, var(--text-primary-prof, #b45309))',
+                                fontWeight: 500,
+                              }}
+                            >
+                              Not available on this device: {account.originDeleteBlockReason}
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
                     ) : null}
                     <div
                       style={{

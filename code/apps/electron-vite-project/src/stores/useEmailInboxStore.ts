@@ -314,7 +314,7 @@ interface EmailInboxState {
   markRead: (ids: string[], read: boolean) => Promise<void>
   toggleStar: (id: string) => Promise<void>
   archiveMessages: (ids: string[]) => Promise<boolean>
-  deleteMessages: (ids: string[], gracePeriodHours?: number) => Promise<void>
+  deleteMessages: (ids: string[], gracePeriodHours?: number, options?: { originDeleteConfirmed?: boolean }) => Promise<void>
   /** Move messages to Pending Delete (soft, 7-day grace). Use for AI-recommended pending_delete. */
   markPendingDeleteImmediate: (ids: string[]) => Promise<boolean>
   /** Move messages to Pending Review (14-day grace in DB). Immediate IPC + local state. */
@@ -1524,10 +1524,10 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     return true
   },
 
-  deleteMessages: async (ids, _gracePeriodHours) => {
+  deleteMessages: async (ids, _gracePeriodHours, options) => {
     const bridge = getBridge()
     if (!bridge?.deleteMessages) return
-    const res = await bridge.deleteMessages(ids)
+    const res = await bridge.deleteMessages(ids, undefined, options)
     if (res.ok) {
       get().clearBulkAiOutputsForIds(ids)
       const idSet = new Set(ids)
@@ -1550,6 +1550,12 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
           selectedMessage: selectedWasDeleted ? null : s.selectedMessage,
         }
       })
+      const data = res.data as
+        | { originFailed?: number; originTrashed?: number }
+        | undefined
+      if (data && (data.originFailed ?? 0) > 0 && (data.originTrashed ?? 0) === 0) {
+        console.warn('[Inbox] Local remove succeeded; provider trash failed or was skipped.')
+      }
     }
   },
 

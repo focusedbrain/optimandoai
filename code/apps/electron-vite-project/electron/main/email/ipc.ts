@@ -210,6 +210,7 @@ import {
 import { isLikelyEmailAuthError } from './emailAuthErrors'
 import { cancelRemoteDeletion, deleteAllDirectBeapMessages } from './remoteDeletion'
 import { bulkDeleteMessagesLocal } from './localInboxDeletion'
+import { trashOnOriginAfterLocalDelete } from './originMailboxDelete'
 import {
   enqueueOrchestratorRemoteMutations,
   scheduleOrchestratorRemoteDrain,
@@ -671,7 +672,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
   console.log('[Email IPC] Registering handlers...')
   
   const channels = [
-    'email:listAccounts', 'email:getAccount', 'email:setProcessingPaused', 'email:deleteAccount', 'email:testConnection',
+    'email:listAccounts', 'email:getAccount', 'email:setProcessingPaused', 'email:setDeleteFromProviderOnLocalDelete', 'email:deleteAccount', 'email:testConnection',
     'email:getImapReconnectHints', 'email:updateImapCredentials',
     'email:getImapPresets', 'email:setGmailCredentials', 'email:connectGmail',
     'email:getGmailOAuthRuntimeDiagnostics', 'email:showGmailSetup',
@@ -744,6 +745,22 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
       return { ok: false, error: error.message }
     }
   })
+
+  ipcMain.handle(
+    'email:setDeleteFromProviderOnLocalDelete',
+    async (_e, accountId: unknown, enabled: unknown) => {
+      try {
+        const id = typeof accountId === 'string' ? accountId.trim() : ''
+        if (!id) return { ok: false, error: 'accountId required' }
+        if (typeof enabled !== 'boolean') return { ok: false, error: 'enabled must be a boolean' }
+        const info = await emailGateway.setDeleteFromProviderOnLocalDelete(id, enabled)
+        return { ok: true, data: info }
+      } catch (error: any) {
+        console.error('[Email IPC] setDeleteFromProviderOnLocalDelete error:', error)
+        return { ok: false, error: error.message }
+      }
+    },
+  )
   
   /**
    * Delete an account
@@ -3482,13 +3499,26 @@ Rules:
     }
   })
 
-  // ── Deletion (local WRDesk store only — no origin mailbox API; Prompt 2 is separate) ──
-  ipcMain.handle('inbox:deleteMessages', async (_e, messageIds: string[], _gracePeriodHours?: number) => {
+  // ── Deletion (local WRDesk store; optional origin trash when per-account toggle ON) ──
+  ipcMain.handle(
+    'inbox:deleteMessages',
+    async (
+      _e,
+      messageIds: string[],
+      _gracePeriodHours?: number,
+      options?: { originDeleteConfirmed?: boolean },
+    ) => {
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
       const ids = messageIds ?? []
       const result = bulkDeleteMessagesLocal(db, ids)
+      const origin =
+        result.deleted > 0
+          ? await trashOnOriginAfterLocalDelete(db, ids, {
+              originDeleteConfirmed: options?.originDeleteConfirmed === true,
+            })
+          : { attempted: 0, trashed: 0, skipped: 0, failed: 0, results: [] }
       if (result.deleted > 0) {
         BrowserWindow.getAllWindows().forEach((w) => {
           try {
@@ -3503,7 +3533,16 @@ Rules:
           }
         })
       }
-      return { ok: true, data: { queued: result.deleted, failed: result.failed } }
+      return {
+        ok: true,
+        data: {
+          queued: result.deleted,
+          failed: result.failed,
+          originTrashed: origin.trashed,
+          originFailed: origin.failed,
+          originSkipped: origin.skipped,
+        },
+      }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Delete failed' }
     }
