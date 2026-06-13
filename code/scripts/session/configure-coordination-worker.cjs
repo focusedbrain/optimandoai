@@ -56,20 +56,26 @@ function openLedger(dbPath, ledgerToken) {
 function upsertCoordination(db, coordinationUrl, coordinationWsUrl) {
   const row = db.prepare('SELECT id FROM p2p_config WHERE id = 1').get()
   if (!row) {
+    // port=51250: P2P ingest server binds here. Coordination service uses 51249 (RELAY_PORT in lib.cjs).
+    // Distinct ports prevent EADDRINUSE when both run on the same machine (e.g. the host box).
     db.prepare(
       `INSERT INTO p2p_config (
         id, enabled, port, bind_address, tls_enabled, relay_mode,
         coordination_url, coordination_ws_url, coordination_enabled
-      ) VALUES (1, 1, 51249, '0.0.0.0', 0, 'local', ?, ?, 1)`,
+      ) VALUES (1, 1, 51250, '0.0.0.0', 0, 'local', ?, ?, 1)`,
     ).run(coordinationUrl, coordinationWsUrl)
     return
   }
+  // Also update port and clear stale local_p2p_endpoint so the P2P server re-publishes
+  // the correct endpoint on next startup (important when migrating from port=51249).
   db.prepare(
     `UPDATE p2p_config SET
       relay_mode = 'local',
       coordination_url = ?,
       coordination_ws_url = ?,
-      coordination_enabled = 1
+      coordination_enabled = 1,
+      port = 51250,
+      local_p2p_endpoint = NULL
      WHERE id = 1`,
   ).run(coordinationUrl, coordinationWsUrl)
 }
