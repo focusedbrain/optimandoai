@@ -122,24 +122,12 @@ describe('REGRESSION — useOrchestratorMode isSandbox must include ledgerProves
   })
 })
 
-// ── Host chip rename (unchanged) ──────────────────────────────────────────────
-
-describe('EmailInboxToolbar.tsx chip rename', () => {
+describe('EmailInboxToolbar.tsx — no toolbar sandbox chip', () => {
   const src = read('components', 'EmailInboxToolbar.tsx')
 
-  it('uses "Send to Sandbox" for the active chip', () => {
-    expect(src).toContain('Send to Sandbox')
-  })
-
-  it('uses "Sandbox setup" for the incomplete chip', () => {
-    expect(src).toContain('Sandbox setup')
-  })
-
-  it('does NOT use old standalone "Sandbox" button label', () => {
-    expect(src).not.toMatch(/>\s*Sandbox\s*<\/button>/)
-  })
-
-  it('does NOT use old "Sandbox (setup)" label', () => {
-    expect(src).not.toContain('Sandbox (setup)')
+  it('does not render Send to Sandbox or Sandbox setup chips', () => {
+    expect(src).not.toContain('Send to Sandbox')
+    expect(src).not.toContain('Sandbox setup')
+    expect(src).not.toContain('internalSandbox')
   })
 })

@@ -2905,7 +2905,6 @@ export default function EmailInboxView({
     sandboxes: internalSandboxes,
     incomplete: internalSandboxesIncomplete,
     loading: internalSandboxesLoading,
-    hasUsableSandbox,
     lastSuccess: internalSandboxesListLastSuccess,
     cloneEligibleSandboxes,
     sendableCloneSandboxes,
@@ -2916,12 +2915,6 @@ export default function EmailInboxView({
   } = useInternalSandboxesList()
   const activeHostSandboxHandshakeCount =
     internalSandboxes.length + internalSandboxesIncomplete.length
-
-  const showInternalSandboxInboxRow =
-    hostModeReady &&
-    orchestratorMode === 'host' &&
-    authoritativeDeviceInternalRole !== 'sandbox' &&
-    (internalSandboxesLoading || hasUsableSandbox || internalSandboxesIncomplete.length > 0)
 
   useEffect(() => {
     if (!selectedMessage) return
@@ -4028,23 +4021,6 @@ export default function EmailInboxView({
           }
           onEmailCompose={() => handleComposeClick(handleOpenEmailCompose)}
           onBeapCompose={() => handleComposeClick(handleOpenBeapDraft)}
-          internalSandbox={
-            showInternalSandboxInboxRow
-              ? {
-                  loading: internalSandboxesLoading,
-                  hasUsable: hasUsableSandbox,
-                  hasIdentityIncomplete:
-                    !hasUsableSandbox && internalSandboxesIncomplete.length > 0,
-                  liveStatusLabel: internalSandboxes[0]?.live_status_optional ?? null,
-                  onOpenHandshake: () => {
-                    const id =
-                      internalSandboxes[0]?.handshake_id ??
-                      internalSandboxesIncomplete[0]?.handshake_id
-                    if (id) onNavigateToHandshake?.(id)
-                  },
-                }
-              : undefined
-          }
         />
 
         <div style={{ display: 'flex', gap: 4, margin: '8px 12px 4px', flexShrink: 0 }}>

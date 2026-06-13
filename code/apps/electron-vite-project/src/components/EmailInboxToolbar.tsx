@@ -41,17 +41,6 @@ export interface EmailInboxToolbarProps {
   onEmailCompose?: () => void
   /** Open the BEAP capsule composer. Placed as a small button next to the Type selector. */
   onBeapCompose?: () => void
-  /**
-   * Internal Host→Sandbox handshakes from `internalSandboxes.listAvailable` (ledger; no vault unlock).
-   * Omitted when the feature is not active or the user has no internal sandbox rows.
-   */
-  internalSandbox?: {
-    loading: boolean
-    hasUsable: boolean
-    hasIdentityIncomplete: boolean
-    liveStatusLabel?: string | null
-    onOpenHandshake?: () => void
-  }
 }
 
 // ── Filter tabs (aligned with Bulk Inbox workflow buckets) ──
@@ -92,7 +81,6 @@ export default function EmailInboxToolbar({
   onBulkCategorize,
   onEmailCompose,
   onBeapCompose,
-  internalSandbox,
 }: EmailInboxToolbarProps) {
   const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
 
@@ -118,57 +106,6 @@ export default function EmailInboxToolbar({
       </div>
 
       <div className="inbox-toolbar-settings">
-        {internalSandbox != null &&
-          (internalSandbox.loading ||
-            internalSandbox.hasUsable ||
-            internalSandbox.hasIdentityIncomplete) && (
-            <div className="inbox-toolbar-settings-row">
-              <span className="inbox-toolbar-settings-label">Sandbox</span>
-              {internalSandbox.loading ? (
-                <span style={{ fontSize: 11, color: 'var(--color-text-muted, #94a3b8)' }}>Checking…</span>
-              ) : internalSandbox.hasUsable ? (
-                <button
-                  type="button"
-                  title={
-                    internalSandbox.liveStatusLabel
-                      ? `Coordination: ${internalSandbox.liveStatusLabel}`
-                      : 'Open internal sandbox handshake'
-                  }
-                  onClick={() => internalSandbox.onOpenHandshake?.()}
-                  style={{
-                    padding: '4px 10px',
-                    fontSize: 10,
-                    fontWeight: 600,
-                    borderRadius: 4,
-                    border: '1px solid rgba(124, 58, 237, 0.4)',
-                    background: 'rgba(124, 58, 237, 0.12)',
-                    color: 'var(--purple-accent, #a78bfa)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Send to Sandbox
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  title="Internal coordination identity is not complete for this sandbox yet — open handshake to finish setup"
-                  onClick={() => internalSandbox.onOpenHandshake?.()}
-                  style={{
-                    padding: '4px 10px',
-                    fontSize: 10,
-                    fontWeight: 600,
-                    borderRadius: 4,
-                    border: '1px solid rgba(245, 158, 11, 0.45)',
-                    background: 'rgba(245, 158, 11, 0.08)',
-                    color: '#f59e0b',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Sandbox setup
-                </button>
-              )}
-            </div>
-          )}
         <div className="inbox-toolbar-settings-row">
           <span className="inbox-toolbar-settings-label">Type</span>
           <InboxMessageKindSelect
