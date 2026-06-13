@@ -66,6 +66,7 @@ import {
 } from './secure-storage'
 import { getProviderAccountCapabilities } from './domain/capabilitiesRegistry'
 import { getFoldersForAccountOperation, resolveMailboxesForAccount } from './domain/mailboxResolution'
+import { findExistingMailboxAccountInList } from './domain/mailboxAccountDedupe'
 import type {
   OrchestratorRemoteOperation,
   OrchestratorRemoteApplyResult,
@@ -811,6 +812,7 @@ function persistEmailAccounts(accounts: EmailAccountConfig[]): void {
 class EmailGateway implements IEmailGateway {
   private providers: Map<string, IEmailProvider> = new Map()
   private accounts: EmailAccountConfig[] = []
+  private mailboxDuplicateCollapseAttempted = false
   
   constructor() {
     this.accounts = loadAccounts()
@@ -820,10 +822,98 @@ class EmailGateway implements IEmailGateway {
   // =================================================================
   // Account Management
   // =================================================================
+
+  /**
+   * Reconnect dedupe: match by normalized email+provider, or a single empty-email
+   * orphan row per provider (role-split residue before email backfill).
+   */
+  private findExistingMailboxAccount(
+    provider: EmailAccountConfig['provider'],
+    email: string,
+  ): EmailAccountConfig | undefined {
+    return findExistingMailboxAccountInList(this.accounts, provider, email)
+  }
+
+  /** Remove duplicate gateway rows for the same mailbox; migrate read tokens to winner. */
+  private async collapseDuplicateMailboxRowsOnDisk(): Promise<void> {
+    if (this.mailboxDuplicateCollapseAttempted) return
+    this.mailboxDuplicateCollapseAttempted = true
+
+    const {
+      findDuplicateMailboxGroups,
+      normalizeMailboxEmail,
+    } = await import('./domain/mailboxAccountDedupe')
+    const {
+      migrateRoleScopedTokens,
+      deleteRoleScopedTokens,
+      hasRoleScopedTokens,
+    } = await import('./roleScopedTokenStore')
+
+    let isSandbox = false
+    try {
+      const { resolveConnectOAuthScopeRole } = await import('./resolveConnectOAuthScopeRole')
+      isSandbox = (await resolveConnectOAuthScopeRole()) === 'read'
+    } catch {
+      isSandbox = false
+    }
+
+    const probe = (id: string) => ({
+      read: hasRoleScopedTokens(id, 'read'),
+      send: hasRoleScopedTokens(id, 'send'),
+    })
+
+    let changed = false
+    for (const { winner, losers } of findDuplicateMailboxGroups(this.accounts, probe, { isSandbox })) {
+      for (const loser of losers) {
+        migrateRoleScopedTokens(loser.id, winner.id, 'read')
+        deleteRoleScopedTokens(loser.id, 'read')
+        deleteRoleScopedTokens(loser.id, 'send')
+        const provider = this.providers.get(loser.id)
+        if (provider) {
+          await provider.disconnect().catch(() => undefined)
+          this.providers.delete(loser.id)
+        }
+        const idx = this.accounts.findIndex((a) => a.id === loser.id)
+        if (idx >= 0) {
+          this.accounts.splice(idx, 1)
+          changed = true
+          console.log(
+            `[EmailGateway] Removed duplicate mailbox row loser=${loser.id} winner=${winner.id} email=${normalizeMailboxEmail(winner.email)}`,
+          )
+        }
+      }
+    }
+
+    if (changed) {
+      try {
+        persistEmailAccounts(this.accounts)
+      } catch (e) {
+        console.warn('[EmailGateway] collapseDuplicateMailboxRows persist failed:', e)
+      }
+    }
+  }
   
   async listAccounts(): Promise<EmailAccountInfo[]> {
     logStartupPersistenceOnce()
-    return this.accounts.map((acc) => this.toAccountInfo(acc))
+    await this.collapseDuplicateMailboxRowsOnDisk()
+
+    const { dedupeMailboxConfigsForDisplay } = await import('./domain/mailboxAccountDedupe')
+    const { hasRoleScopedTokens } = await import('./roleScopedTokenStore')
+
+    let isSandbox = false
+    try {
+      const { resolveConnectOAuthScopeRole } = await import('./resolveConnectOAuthScopeRole')
+      isSandbox = (await resolveConnectOAuthScopeRole()) === 'read'
+    } catch {
+      isSandbox = false
+    }
+
+    const probe = (id: string) => ({
+      read: hasRoleScopedTokens(id, 'read'),
+      send: hasRoleScopedTokens(id, 'send'),
+    })
+    const displayConfigs = dedupeMailboxConfigsForDisplay(this.accounts, probe, { isSandbox })
+    return displayConfigs.map((acc) => this.toAccountInfo(acc))
   }
 
   /** Last load/save/decrypt diagnostics for IPC/HTTP (not a second source of truth). */
@@ -1085,6 +1175,13 @@ class EmailGateway implements IEmailGateway {
     } catch (e) {
       this.accounts.splice(index, 0, removed)
       throw e
+    }
+    try {
+      const { deleteRoleScopedTokens } = await import('./roleScopedTokenStore')
+      deleteRoleScopedTokens(id, 'read')
+      deleteRoleScopedTokens(id, 'send')
+    } catch (e) {
+      console.warn('[EmailGateway] deleteAccount: role token cleanup failed:', id, e)
     }
   }
   
@@ -1974,11 +2071,7 @@ class EmailGateway implements IEmailGateway {
     }
 
     const norm = (email || '').trim().toLowerCase()
-    const existing = norm
-      ? this.accounts.find(
-          (a) => a.provider === provider && (a.email || '').trim().toLowerCase() === norm,
-        )
-      : undefined
+    const existing = this.findExistingMailboxAccount(provider, email || '')
     const accountId = existing?.id ?? randomUUID()
 
     saveRoleScopedTokens(

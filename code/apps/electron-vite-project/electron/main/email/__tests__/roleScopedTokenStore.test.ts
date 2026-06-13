@@ -53,6 +53,7 @@ import {
   loadRoleScopedTokens,
   hasRoleScopedTokens,
   deleteRoleScopedTokens,
+  migrateRoleScopedTokens,
   listRoleScopedTokenRoles,
   __setRoleTokenStoreBaseDirForTests,
 } from '../roleScopedTokenStore'
@@ -136,5 +137,13 @@ describe('role-scoped token storage', () => {
   test('load returns null when a role has no stored token', () => {
     expect(loadRoleScopedTokens('nobody', 'send')).toBeNull()
     expect(hasRoleScopedTokens('nobody', 'read')).toBe(false)
+  })
+
+  test('migrateRoleScopedTokens moves read token to winner and removes loser file', () => {
+    saveRoleScopedTokens('loser', 'read', { accessToken: 'R', refreshToken: 'R', expiresAt: 2 })
+    expect(migrateRoleScopedTokens('loser', 'winner', 'read')).toBe(true)
+    expect(hasRoleScopedTokens('loser', 'read')).toBe(false)
+    expect(hasRoleScopedTokens('winner', 'read')).toBe(true)
+    expect(loadRoleScopedTokens('winner', 'read')!.tokens.accessToken).toBe('R')
   })
 })

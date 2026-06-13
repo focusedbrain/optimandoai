@@ -157,6 +157,27 @@ export function deleteRoleScopedTokens(accountId: string, role: TokenRole): bool
   return true
 }
 
+/**
+ * Move a role's token file from one account id to another (duplicate-row cleanup).
+ * No-op when the source has no token or the destination already has one for that role.
+ */
+export function migrateRoleScopedTokens(fromAccountId: string, toAccountId: string, role: TokenRole): boolean {
+  if (fromAccountId === toAccountId) return false
+  if (hasRoleScopedTokens(toAccountId, role)) {
+    deleteRoleScopedTokens(fromAccountId, role)
+    return false
+  }
+  const rec = loadRoleScopedTokens(fromAccountId, role)
+  if (!rec) return false
+  saveRoleScopedTokens(toAccountId, role, rec.tokens, {
+    clientId: rec.clientId,
+    grantedScope: rec.grantedScope,
+  })
+  deleteRoleScopedTokens(fromAccountId, role)
+  roleLog(`migrated tokens role=${role} from=${fromAccountId} to=${toAccountId}`)
+  return true
+}
+
 /** Which split roles currently hold tokens for an account (for audit/UX). */
 export function listRoleScopedTokenRoles(accountId: string): TokenRole[] {
   const roles: TokenRole[] = []
