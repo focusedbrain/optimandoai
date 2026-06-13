@@ -10,8 +10,8 @@
  *
  * Protocol:
  *   1. Sandbox POSTs `sandbox_email_delivery` to the host's `/beap/ingest`.
- *      Bearer token = `counterparty_p2p_token` from the handshake record
- *      (same auth as `critical_job_*`).
+ *      Bearer token = this device's `local_p2p_auth_token` (see
+ *      `outboundP2pBearerToCounterpartyIngest` — same auth as Host AI direct HTTP).
  *   2. Host verifies the handshake record, calls `detectAndRouteMessageInline`
  *      with `viaSeam=true` (guest-derived content, not raw bytes), returns
  *      `{ accepted: true, inbox_row_id }`.

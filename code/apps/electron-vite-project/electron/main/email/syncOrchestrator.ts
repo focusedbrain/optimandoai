@@ -1076,7 +1076,11 @@ export function startAutoSync(
       if (tickOwnership.sandboxShouldReadPoll) {
         try {
           const { runSandboxIngestionPoll } = await import('./sandboxIngestion')
-          const sres = await runSandboxIngestionPoll({ accountId })
+          const { buildProductionSandboxIngestionDeps } = await import('./sandboxIngestionProduction')
+          const sres = await runSandboxIngestionPoll({
+            accountId,
+            deps: buildProductionSandboxIngestionDeps(accountId, db),
+          })
           console.log(
             `[AUTO_SYNC] sandbox-role poll account=${accountId} status=${sres.status} fetched=${sres.fetched} delivered=${sres.delivered} held=${sres.held}`,
           )

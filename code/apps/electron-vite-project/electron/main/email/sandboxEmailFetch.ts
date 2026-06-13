@@ -15,7 +15,8 @@
  *   - INV-5: only counts / ids / provider-type are logged, never message bytes
  *     or token values.
  *
- * Other providers (Gmail XOAUTH2, IMAP) deferred — see DEFERRED.md Part B.
+ * Gmail opaque fetch: `fetchOpaqueViaGmail` (read-scoped Gmail API `format=raw`).
+ * IMAP and other providers: fail closed via `sandboxOpaqueFetchRouter.ts`.
  *
  * Design note: the OutlookProvider instance is created and destroyed per call
  * to keep the token lifecycle explicit and avoid accidental state leakage
@@ -23,6 +24,7 @@
  */
 
 import { OutlookProvider } from './providers/outlook'
+import { GmailProvider } from './providers/gmail'
 import type { OAuthTokens } from './secure-storage'
 import type { SandboxFetchedMessage } from './sandboxIngestion'
 import type { EmailAccountConfig } from './types'
@@ -131,6 +133,104 @@ export async function fetchOpaqueViaOutlook(
     } else {
       process.env.WRDESK_OUTLOOK_OPAQUE_INPUT = prevOutlookOpaque
     }
+    await provider.disconnect()
+  }
+}
+
+function gmailRawResponseToSandboxMessage(raw: {
+  id?: string
+  raw?: string
+  internalDate?: string
+  labelIds?: string[]
+}): SandboxFetchedMessage | null {
+  if (!raw?.id) return null
+  const rawB64Url = raw.raw
+  if (!rawB64Url) return null
+  const opaqueBytes = Buffer.from(rawB64Url, 'base64url')
+  if (opaqueBytes.length === 0) return null
+  const labelIds = raw.labelIds ?? []
+  return {
+    id: raw.id,
+    opaqueBytes,
+    form: { inputForm: 'rfc822' },
+    receivedAt: raw.internalDate ? new Date(Number(raw.internalDate)).toISOString() : undefined,
+    folder: labelIds.includes('INBOX') ? 'INBOX' : (labelIds[0] || 'INBOX'),
+  }
+}
+
+/**
+ * Fetch opaque RFC822 bytes for up to `maxMessages` inbox messages using the
+ * Gmail read-scoped access token (`format=raw` — no host/sandbox MIME parse).
+ */
+export async function fetchOpaqueViaGmail(
+  accountId: string,
+  readToken: OAuthTokens,
+  opts: {
+    maxMessages?: number
+    folder?: string
+  } = {},
+): Promise<SandboxFetchedMessage[]> {
+  const maxMessages = opts.maxMessages ?? MAX_MESSAGES_PER_POLL
+  const folder = (opts.folder ?? 'inbox').toLowerCase()
+
+  const provider = new GmailProvider()
+  try {
+    const config: EmailAccountConfig = {
+      id: accountId,
+      provider: 'gmail',
+      email: '',
+      displayName: '',
+      status: 'active',
+      createdAt: 0,
+      updatedAt: 0,
+      oauth: {
+        accessToken: readToken.accessToken,
+        refreshToken: readToken.refreshToken ?? '',
+        expiresAt: (readToken as { expiresAt?: number }).expiresAt ?? (Date.now() + 3_600_000),
+        scope: (readToken as { scope?: string }).scope ?? '',
+      },
+    }
+
+    await provider.connect(config)
+
+    const listParams = new URLSearchParams({
+      maxResults: String(maxMessages),
+      q: `in:${folder}`,
+    })
+    const listResult = await (provider as unknown as {
+      apiRequest: (method: string, path: string) => Promise<{ messages?: Array<{ id: string }> }>
+    }).apiRequest('GET', `/users/me/messages?${listParams.toString()}`)
+    const items = (listResult?.messages ?? []).slice(0, maxMessages)
+
+    fetchLog(`listed ${items.length} message id(s). account=${accountId} folder=${folder} provider=gmail`)
+
+    const messages: SandboxFetchedMessage[] = []
+    for (const item of items) {
+      if (!item.id) continue
+      try {
+        const rawResp = await (provider as unknown as {
+          apiRequest: (method: string, path: string) => Promise<Record<string, unknown>>
+        }).apiRequest('GET', `/users/me/messages/${item.id}?format=raw`)
+        const mapped = gmailRawResponseToSandboxMessage(rawResp as {
+          id?: string
+          raw?: string
+          internalDate?: string
+          labelIds?: string[]
+        })
+        if (!mapped) {
+          fetchLog(`SKIP — empty raw payload. id=${item.id}`)
+          continue
+        }
+        messages.push(mapped)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        fetchLog(`SKIP — fetch error. id=${item.id} err=${msg}`)
+      }
+    }
+
+    fetchLog(`fetched ${messages.length} opaque message(s). account=${accountId} provider=gmail`)
+    return messages
+  } finally {
     await provider.disconnect()
   }
 }
