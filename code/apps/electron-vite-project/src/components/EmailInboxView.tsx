@@ -2886,7 +2886,7 @@ export default function EmailInboxView({
 
   const { prioritize } = useInboxPreloadQueue({ messages, analysisCache })
 
-  const { mode: orchestratorMode, ready: hostModeReady, ledgerProvesLocalHostPeerSandbox } = useOrchestratorMode()
+  const { mode: orchestratorMode, ready: hostModeReady, ledgerProvesLocalHostPeerSandbox, isSandbox } = useOrchestratorMode()
 
   // UX-1 D3: persistent ingestion topology banner (ACTION_NEEDED / PAUSED / DEGRADED).
   const { status: ingestionStatus } = useIngestionStatus({
@@ -4379,7 +4379,10 @@ export default function EmailInboxView({
                 onConnectEmail={handleConnectEmail}
                 onDisconnectEmail={handleDisconnectEmail}
                 onSetProcessingPaused={handleSetProcessingPaused}
-                onSetDeleteFromProviderOnLocalDelete={handleSetDeleteFromProviderOnLocalDelete}
+                onSetDeleteFromProviderOnLocalDelete={
+                  !isSandbox ? handleSetDeleteFromProviderOnLocalDelete : undefined
+                }
+                isSandbox={isSandbox}
                 onSelectEmailAccount={setSelectedProviderAccountId}
                 onUpdateImapCredentials={handleUpdateImapCredentials}
                 listAccountsError={providerListError}

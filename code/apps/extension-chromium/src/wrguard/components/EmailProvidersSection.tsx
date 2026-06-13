@@ -206,6 +206,12 @@ export interface EmailProvidersSectionProps {
    * Drives the IngestionTopologyExplainer.
    */
   ingestionStatus?: IngestionTopologyStatus | null
+
+  /**
+   * Effective sandbox role (same signal as App bulk toggle: useOrchestratorMode().isSandbox).
+   * When true, origin-delete toggle is structurally absent — not shown disabled.
+   */
+  isSandbox?: boolean
 }
 
 export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
@@ -221,6 +227,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
   onSetDeleteFromProviderOnLocalDelete,
   listAccountsError,
   ingestionStatus,
+  isSandbox = false,
 }) => {
   const defaultEmailAccountRowId = pickDefaultEmailAccountRowId(emailAccounts)
   const isLightTheme = theme === 'professional' || theme === 'standard'
@@ -423,7 +430,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                         Syncing is off — this account stays connected. Your password and settings are unchanged.
                       </div>
                     ) : null}
-                    {typeof onSetDeleteFromProviderOnLocalDelete === 'function' ? (
+                    {typeof onSetDeleteFromProviderOnLocalDelete === 'function' && !isSandbox ? (
                       <label
                         style={{
                           display: 'flex',

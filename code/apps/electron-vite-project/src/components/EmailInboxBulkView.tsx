@@ -1727,6 +1727,7 @@ export default function EmailInboxBulkView({
     bulkInternalSandboxes.length + bulkInternalSandboxesIncomplete.length
   const {
     mode: bulkOrchestratorMode,
+    isSandbox: bulkIsSandbox,
     ready: bulkHostModeReady,
     ledgerProvesLocalHostPeerSandbox: bulkLedgerProvesLocalHostPeerSandbox,
   } = useOrchestratorMode()
@@ -6003,6 +6004,7 @@ export default function EmailInboxBulkView({
                 onUpdateImapCredentials={handleUpdateImapCredentials}
                 listAccountsError={providerListError}
                 ingestionStatus={bulkIngestionStatus}
+                isSandbox={bulkIsSandbox}
               />
           </div>
         )}

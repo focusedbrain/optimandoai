@@ -142,6 +142,7 @@ export default function BeapBulkInboxDashboard({
 
   const {
     mode: beapBulkOrchestratorMode,
+    isSandbox: beapBulkIsSandbox,
     ledgerProvesLocalHostPeerSandbox: beapBulkLedgerProvesLocalHostPeerSandbox,
   } = useOrchestratorMode()
   const { status: beapBulkIngestionStatus } = useIngestionStatus({
@@ -289,6 +290,7 @@ export default function BeapBulkInboxDashboard({
         onSelectEmailAccount={setSelectedEmailAccountId}
         onUpdateImapCredentials={handleUpdateImapCredentials}
         ingestionStatus={beapBulkIngestionStatus}
+        isSandbox={beapBulkIsSandbox}
       />
 
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>

@@ -619,6 +619,7 @@ export default function BeapInboxDashboard({
               onSelectEmailAccount={setSelectedEmailAccountId}
               onUpdateImapCredentials={handleUpdateImapCredentials}
               ingestionStatus={beapIngestionStatus}
+              isSandbox={beapIsSandbox}
             />
             <div style={{
               flex: 1,
