@@ -332,6 +332,7 @@ function App() {
     return subscribeInboxNewMessagesBackgroundRefresh({
       onNewMessages: window.emailInbox?.onNewMessages,
       refreshMessages: () => useEmailInboxStore.getState().refreshMessages(),
+      clearSyncFailureWarnings: () => useEmailInboxStore.getState().clearLastSyncWarnings(),
     })
   }, [])
 

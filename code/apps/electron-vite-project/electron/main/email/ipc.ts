@@ -512,6 +512,18 @@ let inboxDbGetterForEmailIpc: (() => Promise<any> | any) | null = null
  * - Failure / timeout / `!result.ok`: send lightweight `{ inboxInvalidate: true, reason }`.
  */
 function broadcastInboxSnapshotAfterSync(result: SyncResult | null, error?: unknown): void {
+  if (result?.skipReason === 'ingestion_delegated_to_sandbox') {
+    const payload = { ...result, clearSyncFailureWarnings: true as const }
+    BrowserWindow.getAllWindows().forEach((w) => {
+      try {
+        if (!w.isDestroyed() && w.webContents) w.webContents.send('inbox:newMessages', payload)
+      } catch {
+        /* ignore */
+      }
+    })
+    return
+  }
+
   const useInvalidate = error != null || result == null || !result.ok
   const payload: unknown = useInvalidate
     ? {

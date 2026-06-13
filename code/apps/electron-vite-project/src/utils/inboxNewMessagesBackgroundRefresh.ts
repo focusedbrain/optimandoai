@@ -8,9 +8,16 @@ export const INBOX_NEW_MESSAGES_BACKGROUND_DEBOUNCE_MS = 400
 export function subscribeInboxNewMessagesBackgroundRefresh(options: {
   onNewMessages?: (handler: (data: unknown) => void) => (() => void) | undefined
   refreshMessages: () => void | Promise<void>
+  /** Clears stale sync-failure banners after delegated auto-sync skip. */
+  clearSyncFailureWarnings?: () => void
   debounceMs?: number
 }): () => void {
-  const { onNewMessages, refreshMessages, debounceMs = INBOX_NEW_MESSAGES_BACKGROUND_DEBOUNCE_MS } = options
+  const {
+    onNewMessages,
+    refreshMessages,
+    clearSyncFailureWarnings,
+    debounceMs = INBOX_NEW_MESSAGES_BACKGROUND_DEBOUNCE_MS,
+  } = options
   if (!onNewMessages) return () => {}
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -23,7 +30,14 @@ export function subscribeInboxNewMessagesBackgroundRefresh(options: {
   }
 
   const unsub = onNewMessages((data: unknown) => {
-    const payload = data as { inboxInvalidate?: boolean; reason?: string } | null | undefined
+    const payload = data as {
+      inboxInvalidate?: boolean
+      reason?: string
+      clearSyncFailureWarnings?: boolean
+    } | null | undefined
+    if (payload?.clearSyncFailureWarnings) {
+      clearSyncFailureWarnings?.()
+    }
     if (payload?.inboxInvalidate && typeof payload.reason === 'string' && payload.reason) {
       console.warn('[INBOX-BG] Auto-sync failure:', payload.reason)
     }

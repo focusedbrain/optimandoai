@@ -15,7 +15,14 @@ export function isAuthSyncFailureMessage(message: string): boolean {
   )
 }
 
-export type SyncFailureKind = 'auth' | 'tls' | 'network' | 'timeout' | 'generic'
+/** Marker shared with ipcSyncResultShape DELEGATED_HINT — keep in sync. */
+export const DELEGATED_SYNC_MARKER = 'Inbound mail is fetched on your sandbox device'
+
+export function isDelegatedSyncMessage(message: string): boolean {
+  return (message || '').includes(DELEGATED_SYNC_MARKER)
+}
+
+export type SyncFailureKind = 'auth' | 'tls' | 'network' | 'timeout' | 'generic' | 'delegated'
 
 /**
  * Classify a sync warning line for inbox UI (auth vs TLS vs network vs timeout vs generic).
@@ -23,6 +30,7 @@ export type SyncFailureKind = 'auth' | 'tls' | 'network' | 'timeout' | 'generic'
  */
 export function classifySyncFailureMessage(message: string): SyncFailureKind {
   const raw = message || ''
+  if (isDelegatedSyncMessage(raw)) return 'delegated'
   if (isAuthSyncFailureMessage(raw)) return 'auth'
   const m = raw.toLowerCase()
   if (/timed out|timeout|etimedout|deadline exceeded|syncaccountemails timed out/i.test(m)) return 'timeout'

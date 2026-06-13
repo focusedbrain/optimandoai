@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { classifySyncFailureMessage, parseBracketedAccountSyncMessage } from './syncFailureUi'
+import { classifySyncFailureMessage, parseBracketedAccountSyncMessage, isDelegatedSyncMessage, DELEGATED_SYNC_MARKER } from './syncFailureUi'
+import { DELEGATED_HINT } from '../../electron/main/email/ipcSyncResultShape'
 
 describe('parseBracketedAccountSyncMessage', () => {
   it('parses account id and message', () => {
@@ -56,5 +57,12 @@ describe('classifySyncFailureMessage', () => {
 
   it('classifies network resets', () => {
     expect(classifySyncFailureMessage('socket hang up')).toBe('network')
+  })
+
+  it('classifies delegated ingestion skip as delegated, not generic', () => {
+    expect(DELEGATED_HINT).toContain(DELEGATED_SYNC_MARKER)
+    expect(isDelegatedSyncMessage(DELEGATED_HINT)).toBe(true)
+    expect(classifySyncFailureMessage(DELEGATED_HINT)).toBe('delegated')
+    expect(classifySyncFailureMessage('authentication failed')).toBe('auth')
   })
 })

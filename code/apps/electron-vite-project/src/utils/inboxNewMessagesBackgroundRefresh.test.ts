@@ -86,4 +86,28 @@ describe('subscribeInboxNewMessagesBackgroundRefresh', () => {
     cleanup()
     expect(refreshMessages).not.toHaveBeenCalled()
   })
+
+  it('clears sync failure warnings when delegated auto-sync sets clearSyncFailureWarnings', async () => {
+    let ipcHandler: ((data: unknown) => void) | undefined
+    const onNewMessages = vi.fn((handler: (data: unknown) => void) => {
+      ipcHandler = handler
+      return vi.fn()
+    })
+    const refreshMessages = vi.fn().mockResolvedValue(undefined)
+    const clearSyncFailureWarnings = vi.fn()
+
+    const cleanup = subscribeInboxNewMessagesBackgroundRefresh({
+      onNewMessages,
+      refreshMessages,
+      clearSyncFailureWarnings,
+      debounceMs: 50,
+    })
+
+    ipcHandler?.({ ok: true, skipReason: 'ingestion_delegated_to_sandbox', clearSyncFailureWarnings: true })
+    expect(clearSyncFailureWarnings).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(50)
+    expect(refreshMessages).toHaveBeenCalledOnce()
+
+    cleanup()
+  })
 })

@@ -5,7 +5,8 @@ import {
   type SyncFailureKind,
 } from '../utils/syncFailureUi'
 
-const MUTED = '#64748b'
+const MUTED = 'var(--text-secondary, #64748b)'
+const PRIMARY = 'var(--text-primary, var(--text-primary-prof, #0f172a))'
 
 type AccountLite = { id: string; email: string; provider?: string }
 
@@ -16,15 +17,18 @@ type Props = {
   onRemoveAccount: (accountId: string) => void
 }
 
+type ParsedRow = {
+  key: string
+  accountId: string
+  email: string
+  isImap: boolean
+  kind: SyncFailureKind
+  message: string
+}
+
 export function SyncFailureBanner({ warnings, accounts, onUpdateCredentials, onRemoveAccount }: Props) {
   const rows = useMemo(() => {
-    const out: Array<{
-      key: string
-      accountId: string
-      email: string
-      isImap: boolean
-      kind: SyncFailureKind
-    }> = []
+    const out: ParsedRow[] = []
     const seen = new Set<string>()
     for (const line of warnings) {
       const parsed = parseBracketedAccountSyncMessage(line)
@@ -43,6 +47,7 @@ export function SyncFailureBanner({ warnings, accounts, onUpdateCredentials, onR
           email,
           isImap,
           kind,
+          message,
         })
       } else if (!seen.has('__unscoped__')) {
         seen.add('__unscoped__')
@@ -52,95 +57,140 @@ export function SyncFailureBanner({ warnings, accounts, onUpdateCredentials, onR
           email: 'Email account',
           isImap: true,
           kind: classifySyncFailureMessage(line),
+          message: line,
         })
       }
     }
     return out
   }, [warnings, accounts])
 
-  if (rows.length === 0) return null
+  const delegatedRows = rows.filter((r) => r.kind === 'delegated')
+  const failureRows = rows.filter((r) => r.kind !== 'delegated')
+
+  if (delegatedRows.length === 0 && failureRows.length === 0) return null
 
   return (
-    <div
-      role="alert"
-      style={{
-        padding: '10px 12px',
-        fontSize: 12,
-        color: '#0f172a',
-        background: 'rgba(251,191,36,0.12)',
-        borderBottom: '1px solid rgba(251,191,36,0.35)',
-      }}
-    >
-      <div style={{ fontWeight: 700, marginBottom: 8 }}>Sync issue</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {rows.map((r) => (
-          <div
-            key={r.key}
-            style={{
-              padding: '8px 10px',
-              borderRadius: 8,
-              background: 'rgba(255,255,255,0.6)',
-              border: '1px solid rgba(251,191,36,0.4)',
-            }}
-          >
-            {r.kind === 'auth' && r.isImap ? (
-              <>
-                <div style={{ marginBottom: 6 }}>
-                  <span style={{ marginRight: 6 }}>⚠️</span>
-                  <strong>{r.email}</strong>: Authentication failed (live sync cannot update).
+    <>
+      {delegatedRows.length > 0 ? (
+        <div
+          role="status"
+          style={{
+            padding: '10px 12px',
+            fontSize: 12,
+            color: PRIMARY,
+            background: 'var(--bg-elevated, rgba(224,242,254,0.35))',
+            borderBottom: '1px solid rgba(14,116,144,0.25)',
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 8, color: PRIMARY }}>Outbound only on this device</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {delegatedRows.map((r) => (
+              <div
+                key={r.key}
+                style={{
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  background: 'var(--bg-surface, rgba(255,255,255,0.65))',
+                  border: '1px solid rgba(14,116,144,0.2)',
+                  color: PRIMARY,
+                }}
+              >
+                <div style={{ fontSize: 11, lineHeight: 1.45 }}>
+                  <strong>{r.email}</strong>: {r.message.replace(/\s*\(Settings.*\)\s*$/i, '').trim()}
                 </div>
-                <div style={{ fontSize: 11, color: MUTED, marginBottom: 8, lineHeight: 1.4 }}>
-                  IMAP password may be incorrect or expired. For providers like web.de, use the full email as username,
-                  enable IMAP in the provider, and create an app password if required.
+                <div style={{ fontSize: 10, color: MUTED, marginTop: 4, lineHeight: 1.4 }}>
+                  Inbound mail is fetched on your sandbox device. This host account is for outbound mail only.
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {r.accountId ? (
-                    <>
-                      <button
-                        type="button"
-                        className="sync-failure-banner-btn sync-failure-banner-btn--primary"
-                        onClick={() => onUpdateCredentials(r.accountId)}
-                      >
-                        Update credentials
-                      </button>
-                      <button
-                        type="button"
-                        className="sync-failure-banner-btn"
-                        onClick={() => onRemoveAccount(r.accountId)}
-                      >
-                        Remove account
-                      </button>
-                    </>
-                  ) : (
-                    <span style={{ fontSize: 11, color: MUTED }}>Open Email Accounts below to reconnect.</span>
-                  )}
-                </div>
-              </>
-            ) : r.kind === 'timeout' ? (
-              <div style={{ fontSize: 11, lineHeight: 1.45 }}>
-                <strong>{r.email}</strong>: Live sync timed out. Messages you see may be from this device only until sync
-                completes. Try again in a moment or reduce the sync window in settings.
               </div>
-            ) : r.kind === 'tls' ? (
-              <div style={{ fontSize: 11, lineHeight: 1.45 }}>
-                <strong>{r.email}</strong>: TLS/SSL issue reaching the mail server. For web.de use host{' '}
-                <code style={{ fontSize: 10 }}>imap.web.de</code>, port <code style={{ fontSize: 10 }}>993</code>, and
-                SSL/TLS (not STARTTLS on that port).
-              </div>
-            ) : r.kind === 'network' ? (
-              <div style={{ fontSize: 11, lineHeight: 1.45 }}>
-                <strong>{r.email}</strong>: Network error — could not reach the mail server. Check your connection or VPN.
-                Cached messages may still be shown.
-              </div>
-            ) : (
-              <div style={{ fontSize: 11, lineHeight: 1.45 }}>
-                <strong>{r.email}</strong>: Live sync failed. Cached messages may still be shown. Check the account in
-                Email Accounts or try again.
-              </div>
-            )}
+            ))}
           </div>
-        ))}
-      </div>
-    </div>
+        </div>
+      ) : null}
+
+      {failureRows.length > 0 ? (
+        <div
+          role="alert"
+          style={{
+            padding: '10px 12px',
+            fontSize: 12,
+            color: PRIMARY,
+            background: 'rgba(251,191,36,0.12)',
+            borderBottom: '1px solid rgba(251,191,36,0.35)',
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 8, color: PRIMARY }}>Sync issue</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {failureRows.map((r) => (
+              <div
+                key={r.key}
+                style={{
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  background: 'rgba(255,255,255,0.6)',
+                  border: '1px solid rgba(251,191,36,0.4)',
+                  color: PRIMARY,
+                }}
+              >
+                {r.kind === 'auth' && r.isImap ? (
+                  <>
+                    <div style={{ marginBottom: 6 }}>
+                      <span style={{ marginRight: 6 }}>⚠️</span>
+                      <strong>{r.email}</strong>: Authentication failed (live sync cannot update).
+                    </div>
+                    <div style={{ fontSize: 11, color: MUTED, marginBottom: 8, lineHeight: 1.4 }}>
+                      IMAP password may be incorrect or expired. For providers like web.de, use the full email as username,
+                      enable IMAP in the provider, and create an app password if required.
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {r.accountId ? (
+                        <>
+                          <button
+                            type="button"
+                            className="sync-failure-banner-btn sync-failure-banner-btn--primary"
+                            onClick={() => onUpdateCredentials(r.accountId)}
+                          >
+                            Update credentials
+                          </button>
+                          <button
+                            type="button"
+                            className="sync-failure-banner-btn"
+                            onClick={() => onRemoveAccount(r.accountId)}
+                          >
+                            Remove account
+                          </button>
+                        </>
+                      ) : (
+                        <span style={{ fontSize: 11, color: MUTED }}>Open Email Accounts below to reconnect.</span>
+                      )}
+                    </div>
+                  </>
+                ) : r.kind === 'timeout' ? (
+                  <div style={{ fontSize: 11, lineHeight: 1.45 }}>
+                    <strong>{r.email}</strong>: Live sync timed out. Messages you see may be from this device only until sync
+                    completes. Try again in a moment or reduce the sync window in settings.
+                  </div>
+                ) : r.kind === 'tls' ? (
+                  <div style={{ fontSize: 11, lineHeight: 1.45 }}>
+                    <strong>{r.email}</strong>: TLS/SSL issue reaching the mail server. For web.de use host{' '}
+                    <code style={{ fontSize: 10 }}>imap.web.de</code>, port <code style={{ fontSize: 10 }}>993</code>, and
+                    SSL/TLS (not STARTTLS on that port).
+                  </div>
+                ) : r.kind === 'network' ? (
+                  <div style={{ fontSize: 11, lineHeight: 1.45 }}>
+                    <strong>{r.email}</strong>: Network error — could not reach the mail server. Check your connection or VPN.
+                    Cached messages may still be shown.
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, lineHeight: 1.45 }}>
+                    <strong>{r.email}</strong>: Live sync failed. Cached messages may still be shown. Check the account in
+                    Email Accounts or try again.
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </>
   )
 }
