@@ -18,7 +18,12 @@
 import http from 'http'
 import https from 'https'
 import { readFileSync } from 'fs'
-import { validateInput } from '@repo/ingestion-core'
+import {
+  validateInput,
+  classifySandboxOutboundCapsule,
+  createSandboxContextSyncRateLimiter,
+  SANDBOX_CONTEXT_SYNC_MAX_BYTES,
+} from '@repo/ingestion-core'
 import type { RelayConfig } from './config.js'
 import {
   storeCapsule,
@@ -44,6 +49,21 @@ import {
 
 const IP_LIMIT = 30
 const HANDSHAKE_LIMIT = 5
+
+// P2 sandbox-egress backstop: per-sandbox-device context_sync rate limiter
+// (infra cap on the residual covert channel; shared algorithm with coordination).
+const sandboxContextSyncLimiter = createSandboxContextSyncRateLimiter()
+
+/** Top-level sender_device_id off the ingest wire (best-effort; null when absent/malformed). */
+function parseSenderDeviceId(body: string): string | null {
+  try {
+    const parsed = JSON.parse(body) as Record<string, unknown>
+    const id = parsed?.sender_device_id
+    return typeof id === 'string' && id.trim().length > 0 ? id.trim() : null
+  } catch {
+    return null
+  }
+}
 
 const STATUS_MESSAGES: Record<number, string> = {
   400: 'Bad request',
@@ -227,6 +247,63 @@ export function createRequestHandler(config: RelayConfig): (req: http.IncomingMe
           sendError(res, 401, ip, handshakeId)
           return
         }
+        // ── P2 sandbox-egress backstop (deepest guard, defense-in-depth) ──────────
+        // If the sender device maps to a registered sandbox role, refuse data-plane
+        // capsules (native BEAP message_package / non-allowlisted type) — the sandbox
+        // is data-plane receive-only. Permit the allowlist (handshake lifecycle,
+        // context_sync [capped], inference, sandbox_email_delivery, p2p_signal).
+        // Discriminate by role+type — never blanket-reject. A non-sandbox / unknown
+        // sender is unaffected (host + legacy fan-out preserved).
+        {
+          const senderDeviceId = parseSenderDeviceId(body)
+          if (senderDeviceId && getDeviceRole(senderDeviceId) === 'sandbox') {
+            let parsedForClass: unknown = null
+            try {
+              parsedForClass = JSON.parse(body)
+            } catch {
+              parsedForClass = null
+            }
+            const cls = classifySandboxOutboundCapsule(parsedForClass)
+            if (!cls.allowed) {
+              console.warn(
+                '[Relay] sandbox_data_egress_forbidden',
+                JSON.stringify({
+                  handshake_id: handshakeId,
+                  sender_device_id: senderDeviceId,
+                  capsule_type: cls.type,
+                  is_native_beap: cls.isNativeBeap,
+                  ip,
+                }),
+              )
+              res.writeHead(422, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: 'sandbox_data_egress_forbidden', code: 'sandbox_data_egress_forbidden' }))
+              return
+            }
+            if (cls.isContextSync) {
+              const byteLen = Buffer.byteLength(body, 'utf8')
+              if (byteLen > SANDBOX_CONTEXT_SYNC_MAX_BYTES) {
+                console.warn(
+                  '[Relay] sandbox_context_sync_over_cap',
+                  JSON.stringify({ handshake_id: handshakeId, sender_device_id: senderDeviceId, bytes: byteLen, cap: SANDBOX_CONTEXT_SYNC_MAX_BYTES, ip }),
+                )
+                res.writeHead(413, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ error: 'sandbox_context_sync_over_cap', code: 'sandbox_context_sync_over_cap' }))
+                return
+              }
+              const rl = sandboxContextSyncLimiter.check(senderDeviceId)
+              if (!rl.ok) {
+                console.warn(
+                  '[Relay] sandbox_context_sync_throttled',
+                  JSON.stringify({ handshake_id: handshakeId, sender_device_id: senderDeviceId, count: rl.count, limit: rl.limit, ip }),
+                )
+                res.writeHead(429, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ error: 'sandbox_context_sync_throttled', code: 'sandbox_context_sync_throttled' }))
+                return
+              }
+            }
+          }
+        }
+
         const rawInput = {
           body,
           mime_type: 'application/vnd.beap+json' as const,

@@ -30,10 +30,14 @@
 
 import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { ledgerProvesLocalSandboxToHostFromDb } from '../internalInference/hostAiInternalPairingLedger'
+import { SANDBOX_OUTBOUND_ALLOWED_TYPES } from '@repo/ingestion-core'
+
+export { SANDBOX_OUTBOUND_ALLOWED_TYPES }
 
 /**
- * The ONLY capsule / service-message types a sandbox-role node may emit outward.
- * Everything not in this set is denied.
+ * The ONLY capsule / service-message types a sandbox-role node may emit outward
+ * (re-exported from the shared source of truth `@repo/ingestion-core` so P1 (IPC)
+ * and P2 (relay/coordination ingress) classify identically — do not fork):
  *
  *   - Handshake lifecycle (pairing / staying paired): initiate, accept, refresh,
  *     revoke, context_sync. Pairing a fresh sandbox happens before the device has
@@ -45,24 +49,6 @@ import { ledgerProvesLocalSandboxToHostFromDb } from '../internalInference/hostA
  *     host inbox only and originates no user-composed message.
  *   - p2p_signal: metadata-only WebRTC signaling (SDP/ICE control, no bodies).
  */
-export const SANDBOX_OUTBOUND_ALLOWED_TYPES: ReadonlySet<string> = new Set([
-  // Handshake lifecycle (control plane)
-  'initiate',
-  'accept',
-  'refresh',
-  'revoke',
-  'context_sync',
-  // Internal inference to the paired host (Host AI)
-  'internal_inference_request',
-  'internal_inference_result',
-  'internal_inference_error',
-  'internal_inference_cancel',
-  'internal_inference_capabilities_request',
-  // Depackage → host ingestion handoff (plumbing, not messaging)
-  'sandbox_email_delivery',
-  // Metadata-only signaling
-  'p2p_signal',
-])
 
 export const SANDBOX_DATA_EGRESS_FORBIDDEN = 'SANDBOX_DATA_EGRESS_FORBIDDEN' as const
 

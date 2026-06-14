@@ -8,7 +8,13 @@ import https from 'https'
 import { readFile } from 'fs/promises'
 import { WebSocketServer } from 'ws'
 import { randomUUID } from 'crypto'
-import { validateInput, isCoordinationRelayNativeBeap } from '@repo/ingestion-core'
+import {
+  validateInput,
+  isCoordinationRelayNativeBeap,
+  classifySandboxOutboundCapsule,
+  SANDBOX_CONTEXT_SYNC_MAX_BYTES,
+  createSandboxContextSyncRateLimiter,
+} from '@repo/ingestion-core'
 import type { CoordinationConfig } from './config.js'
 import { createStore } from './store.js'
 import { createAuth } from './auth.js'
@@ -32,6 +38,10 @@ const log = {
 }
 
 const MAX_BODY_BYTES = 15 * 1024 * 1024
+
+// P2 sandbox-egress backstop: per-sandbox-device context_sync rate limiter (infra
+// cap on the residual covert channel; see sandboxEgressClassification). Per-process.
+const sandboxContextSyncLimiter = createSandboxContextSyncRateLimiter()
 
 const STATUS_MESSAGES: Record<number, string> = {
   400: 'Bad request',
@@ -715,6 +725,73 @@ function createRequestHandler(
         if (!handshakeRegistry.isSenderAuthorized(handshakeId, identity.userId)) {
           sendError(res, 403, { error: 'RELAY_SENDER_UNAUTHORIZED' })
           return
+        }
+
+        // ── P2 sandbox-egress backstop (deepest guard, defense-in-depth) ──────────
+        // Resolve sender_device_id -> registry role. A sandbox-role device is
+        // data-plane receive-only: it may emit ONLY the allowlist (handshake
+        // lifecycle, context_sync, inference, sandbox_email_delivery, p2p_signal).
+        // Any data-plane capsule (native BEAP message_package / non-allowlisted type)
+        // from a sandbox device is refused here even if it forged past the app layer.
+        // Discriminate by role+type — never blanket-reject sandbox traffic.
+        {
+          const senderDeviceId =
+            typeof parsed?.sender_device_id === 'string' ? parsed.sender_device_id.trim() : ''
+          const senderRole = handshakeRegistry.getDeviceRoleForSender(handshakeId, senderDeviceId)
+          if (senderRole === 'sandbox') {
+            const cls = classifySandboxOutboundCapsule(parsed)
+            if (!cls.allowed) {
+              log.info('sandbox_data_egress_forbidden', {
+                route: '/beap/capsule',
+                handshake_id: handshakeId,
+                sender_device_id: senderDeviceId,
+                capsule_type: cls.type,
+                is_native_beap: cls.isNativeBeap,
+              })
+              sendError(res, 403, {
+                error: 'sandbox_data_egress_forbidden',
+                code: 'sandbox_data_egress_forbidden',
+                detail:
+                  'Sandbox-role devices are data-plane receive-only. Content-bearing capsules cannot egress from the sandbox.',
+              })
+              return
+            }
+            // context_sync is permitted but bounded at ingress (infra-only residual cap).
+            if (cls.isContextSync) {
+              const byteLen = Buffer.byteLength(body, 'utf8')
+              if (byteLen > SANDBOX_CONTEXT_SYNC_MAX_BYTES) {
+                log.info('sandbox_context_sync_over_cap', {
+                  route: '/beap/capsule',
+                  handshake_id: handshakeId,
+                  sender_device_id: senderDeviceId,
+                  bytes: byteLen,
+                  cap: SANDBOX_CONTEXT_SYNC_MAX_BYTES,
+                })
+                sendError(res, 413, {
+                  error: 'sandbox_context_sync_over_cap',
+                  code: 'sandbox_context_sync_over_cap',
+                  detail: `context_sync payload exceeds the sandbox ingress cap (${SANDBOX_CONTEXT_SYNC_MAX_BYTES} bytes).`,
+                })
+                return
+              }
+              const rl = sandboxContextSyncLimiter.check(senderDeviceId)
+              if (!rl.ok) {
+                log.info('sandbox_context_sync_throttled', {
+                  route: '/beap/capsule',
+                  handshake_id: handshakeId,
+                  sender_device_id: senderDeviceId,
+                  count: rl.count,
+                  limit: rl.limit,
+                })
+                sendError(res, 429, {
+                  error: 'sandbox_context_sync_throttled',
+                  code: 'sandbox_context_sync_throttled',
+                  detail: 'context_sync rate limit exceeded for this sandbox device.',
+                })
+                return
+              }
+            }
+          }
         }
 
         // Capsule-type whitelist for non-message-package envelopes.

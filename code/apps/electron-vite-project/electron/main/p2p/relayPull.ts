@@ -24,6 +24,7 @@ import { internalRelayCapsuleWireOptsFromRecord } from '../handshake/internalCoo
 import type { ContextBlockForCommitment } from '../handshake/contextCommitment'
 import type { SSOSession } from '../handshake/types'
 import { getInstanceId, getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
+import { isEffectiveSandboxNode } from '../sandbox/sandboxOutboundPolicy'
 import {
   setP2PHealthRelayPullSuccess,
   setP2PHealthRelayPullFailure,
@@ -457,9 +458,19 @@ export async function registerDeviceRoleWithRelay(db: any): Promise<void> {
     return
   }
 
+  // Effective-role registration (P2): register by the LEDGER-AUTHORITATIVE role, not
+  // mode-only. A ledger-proven sandbox whose orchestrator-mode.json still says 'host'
+  // (no sync-back on accept) must register as 'sandbox' so the relay/coordination
+  // ingress guards can refuse its data-plane capsules. Without this fix the .29
+  // sandbox would register as 'host' and slip the role-based ingress guard.
   const mode = getOrchestratorMode().mode
-  if (mode !== 'host' && mode !== 'sandbox') {
-    // Orchestrator mode not yet determined — skip; will be called again after mode is set.
+  let role: 'host' | 'sandbox'
+  if (isEffectiveSandboxNode(db)) {
+    role = 'sandbox'
+  } else if (mode === 'host') {
+    role = 'host'
+  } else {
+    // Not ledger-proven sandbox and mode not yet 'host' — skip; called again after mode is set.
     return
   }
 
@@ -470,10 +481,13 @@ export async function registerDeviceRoleWithRelay(db: any): Promise<void> {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${authSecret}`,
       },
-      body: JSON.stringify({ device_id: deviceId, device_role: mode }),
+      body: JSON.stringify({ device_id: deviceId, device_role: role }),
     })
     if (res.ok) {
-      console.log('[Relay] device_role_registered', JSON.stringify({ device_id: deviceId, role: mode }))
+      console.log(
+        '[Relay] device_role_registered',
+        JSON.stringify({ device_id: deviceId, role, persisted_mode: mode }),
+      )
     } else {
       console.warn('[Relay] device-register failed:', res.status, res.statusText)
     }

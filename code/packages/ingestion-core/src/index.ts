@@ -18,6 +18,20 @@ export {
   hasEncryptedMessagePackageBody,
   detectBeapMessagePackage,
 } from './beapDetection.js';
+export {
+  SANDBOX_OUTBOUND_ALLOWED_TYPES,
+  SANDBOX_CONTEXT_SYNC_MAX_BYTES,
+  SANDBOX_CONTEXT_SYNC_RATE_WINDOW_MS,
+  SANDBOX_CONTEXT_SYNC_MAX_PER_WINDOW,
+  deriveCapsuleTypeForEgress,
+  isSandboxAllowedOutboundType,
+  classifySandboxOutboundCapsule,
+  createSandboxContextSyncRateLimiter,
+} from './sandboxEgressClassification.js';
+export type {
+  SandboxEgressCapsuleClass,
+  SandboxContextSyncRateLimiter,
+} from './sandboxEgressClassification.js';
 export { ingestInput } from './ingestor.js';
 export { validateCapsule, validateSessionImportArtefact } from './validator.js';
 export { validateDecryptedBeapContent, CONTENT_VALIDATOR_VERSION } from './contentValidator.js';

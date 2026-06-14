@@ -47,6 +47,17 @@ export interface HandshakeRegistryAdapter {
   ): RecipientRoute | null
   isSenderAuthorized(handshakeId: string, senderUserId: string): boolean
   /**
+   * Resolve the device role ('host' | 'sandbox') for the given sender device id
+   * within a handshake row, by matching it against the stored initiator/acceptor
+   * device ids. Returns null when the row, the device id, or its role is unknown.
+   * Used by the coordination ingress backstop to refuse data-plane capsules from a
+   * sandbox-role device while permitting its control-plane / plumbing capsules.
+   */
+  getDeviceRoleForSender(
+    handshakeId: string,
+    senderDeviceId: string | undefined | null,
+  ): 'host' | 'sandbox' | null
+  /**
    * True iff a registry row exists for `handshakeId` and both user IDs are
    * identical — i.e. both endpoints belong to the same `wrdesk_user_id`.
    *
@@ -165,6 +176,21 @@ export function createHandshakeRegistry(store: StoreAdapter): HandshakeRegistryA
       const h = this.getHandshake(handshakeId)
       if (!h) return false
       return h.initiator_user_id === senderUserId || h.acceptor_user_id === senderUserId
+    },
+
+    getDeviceRoleForSender(
+      handshakeId: string,
+      senderDeviceId: string | undefined | null,
+    ): 'host' | 'sandbox' | null {
+      const sd = (senderDeviceId ?? '').trim()
+      if (!sd) return null
+      const h = this.getHandshake(handshakeId)
+      if (!h) return null
+      const normalizeRole = (r: string | null): 'host' | 'sandbox' | null =>
+        r === 'host' || r === 'sandbox' ? r : null
+      if ((h.initiator_device_id ?? '').trim() === sd) return normalizeRole(h.initiator_device_role)
+      if ((h.acceptor_device_id ?? '').trim() === sd) return normalizeRole(h.acceptor_device_role)
+      return null
     },
 
     isSamePrincipalHandshake(handshakeId: string): boolean {
