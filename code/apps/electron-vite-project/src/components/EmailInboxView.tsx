@@ -332,6 +332,7 @@ interface InboxDetailAiPanelProps {
 }
 
 function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDelete, onCollapsedChange }: InboxDetailAiPanelProps) {
+  const { isSandbox: panelIsSandbox } = useOrchestratorMode()
   const [analysis, setAnalysis] = useState<NormalInboxAiResult | null>(null)
   const [receivedFields, setReceivedFields] = useState<Set<NormalInboxAiResultKey>>(new Set())
   const [analysisLoading, setAnalysisLoading] = useState(false)
@@ -2152,18 +2153,36 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                     {visibleSections.has('draft') && (
                       <>
                         <div className="capsule-draft-actions">
-                          <button
-                            type="button"
-                            className="capsule-draft-send"
-                            onClick={() => void handleSendCapsuleReply()}
-                            disabled={
-                              sendingCapsule ||
-                              sendResult?.success === true ||
-                              (!capsulePublicText.trim() && !capsuleEncryptedText.trim())
-                            }
-                          >
-                            {sendingCapsule ? 'Sending…' : '📤 Send BEAP Reply'}
-                          </button>
+                          {panelIsSandbox ? (
+                            /* P3 sandbox UI: sending disabled on sandbox — informational, not an error */
+                            <div
+                              className="capsule-draft-send-disabled-notice"
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 6,
+                                padding: '8px 12px', borderRadius: 8,
+                                background: 'var(--bg-elevated, #f8fafc)',
+                                color: 'var(--text-secondary, #64748b)',
+                                border: '1px solid var(--border, #e2e8f0)',
+                                fontSize: 13,
+                              }}
+                            >
+                              <span aria-hidden>🔒</span>
+                              Sending messages is disabled on the sandbox for security.
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="capsule-draft-send"
+                              onClick={() => void handleSendCapsuleReply()}
+                              disabled={
+                                sendingCapsule ||
+                                sendResult?.success === true ||
+                                (!capsulePublicText.trim() && !capsuleEncryptedText.trim())
+                              }
+                            >
+                              {sendingCapsule ? 'Sending…' : '📤 Send BEAP Reply'}
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="capsule-draft-clear"
@@ -2320,14 +2339,32 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           </button>
                         )}
                         {message && onSendDraft && !draftError && (
-                          <button
-                            type="button"
-                            className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
-                            onClick={handleSend}
-                            disabled={sending || !(editedDraft || draft)?.trim()}
-                          >
-                            {sending ? 'Sending...' : usesEmailReplyTransport ? 'Send via Email' : 'Send via BEAP'}
-                          </button>
+                          panelIsSandbox ? (
+                            /* P3 sandbox UI: sending disabled on sandbox — informational */
+                            <div
+                              className="sandbox-send-disabled-notice"
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 6,
+                                padding: '8px 12px', borderRadius: 8,
+                                background: 'var(--bg-elevated, #f8fafc)',
+                                color: 'var(--text-secondary, #64748b)',
+                                border: '1px solid var(--border, #e2e8f0)',
+                                fontSize: 13,
+                              }}
+                            >
+                              <span aria-hidden>🔒</span>
+                              Sending messages is disabled on the sandbox for security.
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
+                              onClick={handleSend}
+                              disabled={sending || !(editedDraft || draft)?.trim()}
+                            >
+                              {sending ? 'Sending...' : usesEmailReplyTransport ? 'Send via Email' : 'Send via BEAP'}
+                            </button>
+                          )
                         )}
                         {onArchive && messageId ? (
                           <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={handleArchive}>
@@ -3034,16 +3071,19 @@ export default function EmailInboxView({
   }, [composeMode])
 
   // Honour a compose request from the parent (e.g. header button in App.tsx).
+  // P3 sandbox UI: compose requests are ignored on sandbox — no outbound composers.
   useEffect(() => {
     if (!composeRequest) return
-    if (composeRequest === 'email') {
-      setComposeMode('email')
-      setComposeReplyTo(null)
-      selectMessage(null)
-    } else if (composeRequest === 'beap') {
-      setComposeMode('beap')
-      setComposeReplyTo(null)
-      selectMessage(null)
+    if (!isSandbox) {
+      if (composeRequest === 'email') {
+        setComposeMode('email')
+        setComposeReplyTo(null)
+        selectMessage(null)
+      } else if (composeRequest === 'beap') {
+        setComposeMode('beap')
+        setComposeReplyTo(null)
+        selectMessage(null)
+      }
     }
     onComposeRequestHandled?.()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4065,8 +4105,8 @@ export default function EmailInboxView({
                 }
               : undefined
           }
-          onEmailCompose={() => handleComposeClick(handleOpenEmailCompose)}
-          onBeapCompose={() => handleComposeClick(handleOpenBeapDraft)}
+          onEmailCompose={!isSandbox ? () => handleComposeClick(handleOpenEmailCompose) : undefined}
+          onBeapCompose={!isSandbox ? () => handleComposeClick(handleOpenBeapDraft) : undefined}
         />
 
         <div style={{ display: 'flex', gap: 4, margin: '8px 12px 4px', flexShrink: 0 }}>
@@ -4483,7 +4523,8 @@ export default function EmailInboxView({
       )}
 
       {/* Compose placeholders or detail workspace */}
-      {composeMode === 'beap' ? (
+      {/* P3 sandbox UI: inline composers absent on sandbox — structurally not mounted */}
+      {!isSandbox && composeMode === 'beap' ? (
         <BeapInlineComposer
           onClose={() => {
             setComposeMode(null)
@@ -4496,7 +4537,7 @@ export default function EmailInboxView({
           }}
           replyToHandshakeId={composeReplyTo?.handshakeId}
         />
-      ) : composeMode === 'email' ? (
+      ) : !isSandbox && composeMode === 'email' ? (
         <EmailInlineComposer
           onClose={() => {
             setComposeMode(null)
@@ -4671,61 +4712,63 @@ export default function EmailInboxView({
         </div>
       ) : null}
 
-      {/* Compose buttons ? floating bottom-right */}
-      <div
-        style={{
-          position: 'fixed',
-          bottom: 20,
-          right: 20,
-          display: 'flex',
-          gap: 8,
-          alignItems: 'center',
-          zIndex: 100,
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => handleComposeClick(handleOpenEmailCompose)}
-          title="New Email"
+      {/* Compose buttons ? floating bottom-right — P3 sandbox UI: absent on sandbox */}
+      {!isSandbox && (
+        <div
           style={{
+            position: 'fixed',
+            bottom: 20,
+            right: 20,
             display: 'flex',
+            gap: 8,
             alignItems: 'center',
-            gap: 4,
-            padding: '10px 14px',
-            borderRadius: 24,
-            background: '#2563eb',
-            color: '#fff',
-            border: 'none',
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: 'pointer',
-            boxShadow: '0 2px 8px rgba(37,99,235,0.3)',
+            zIndex: 100,
           }}
         >
-          ✉️+
-        </button>
-        <button
-          type="button"
-          onClick={() => handleComposeClick(handleOpenBeapDraft)}
-          title="New BEAP™ Message"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '10px 18px',
-            borderRadius: 24,
-            background: '#7c3aed',
-            color: '#fff',
-            border: 'none',
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: 'pointer',
-            boxShadow: '0 2px 8px rgba(124,58,237,0.3)',
-          }}
-        >
-          + BEAP
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={() => handleComposeClick(handleOpenEmailCompose)}
+            title="New Email"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '10px 14px',
+              borderRadius: 24,
+              background: '#2563eb',
+              color: '#fff',
+              border: 'none',
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 2px 8px rgba(37,99,235,0.3)',
+            }}
+          >
+            ✉️+
+          </button>
+          <button
+            type="button"
+            onClick={() => handleComposeClick(handleOpenBeapDraft)}
+            title="New BEAP™ Message"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '10px 18px',
+              borderRadius: 24,
+              background: '#7c3aed',
+              color: '#fff',
+              border: 'none',
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 2px 8px rgba(124,58,237,0.3)',
+            }}
+          >
+            + BEAP
+          </button>
+        </div>
+      )}
 
       {connectEmailFlowModal}
 

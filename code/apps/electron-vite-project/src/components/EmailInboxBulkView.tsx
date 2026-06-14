@@ -6601,7 +6601,8 @@ export default function EmailInboxBulkView({
             </div>
           </div>
         )}
-        {composeMode === 'beap' ? (
+        {/* P3 sandbox UI: inline composers absent on sandbox */}
+        {!bulkIsSandbox && composeMode === 'beap' ? (
           <div
             style={{
               position: 'absolute',
@@ -6628,7 +6629,7 @@ export default function EmailInboxBulkView({
               replyToHandshakeId={composeReplyTo?.handshakeId}
             />
           </div>
-        ) : composeMode === 'email' ? (
+        ) : !bulkIsSandbox && composeMode === 'email' ? (
           <div
             style={{
               position: 'absolute',
@@ -6721,61 +6722,63 @@ export default function EmailInboxBulkView({
         />
       )}
 
-      {/* Compose buttons — floating bottom-right */}
-      <div
-        style={{
-          position: 'fixed',
-          bottom: 20,
-          right: 20,
-          display: 'flex',
-          gap: 8,
-          alignItems: 'center',
-          zIndex: 100,
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => handleComposeClick(handleOpenEmailCompose)}
-          title="New Email"
+      {/* Compose buttons — floating bottom-right: P3 sandbox UI: absent on sandbox */}
+      {!bulkIsSandbox && (
+        <div
           style={{
+            position: 'fixed',
+            bottom: 20,
+            right: 20,
             display: 'flex',
+            gap: 8,
             alignItems: 'center',
-            gap: 4,
-            padding: '10px 14px',
-            borderRadius: 24,
-            background: '#2563eb',
-            color: '#fff',
-            border: 'none',
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: 'pointer',
-            boxShadow: '0 2px 8px rgba(37,99,235,0.3)',
+            zIndex: 100,
           }}
         >
-          ✉️+
-        </button>
-        <button
-          type="button"
-          onClick={() => handleComposeClick(handleOpenBeapDraft)}
-          title="New BEAP™ Message"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '10px 18px',
-            borderRadius: 24,
-            background: '#7c3aed',
-            color: '#fff',
-            border: 'none',
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: 'pointer',
-            boxShadow: '0 2px 8px rgba(124,58,237,0.3)',
-          }}
-        >
-          + BEAP
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={() => handleComposeClick(handleOpenEmailCompose)}
+            title="New Email"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '10px 14px',
+              borderRadius: 24,
+              background: '#2563eb',
+              color: '#fff',
+              border: 'none',
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 2px 8px rgba(37,99,235,0.3)',
+            }}
+          >
+            ✉️+
+          </button>
+          <button
+            type="button"
+            onClick={() => handleComposeClick(handleOpenBeapDraft)}
+            title="New BEAP™ Message"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '10px 18px',
+              borderRadius: 24,
+              background: '#7c3aed',
+              color: '#fff',
+              border: 'none',
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 2px 8px rgba(124,58,237,0.3)',
+            }}
+          >
+            + BEAP
+          </button>
+        </div>
+      )}
 
       {/* EmailComposeOverlay removed — use EmailInlineComposer via composeMode (Prompt 3/6) */}
 

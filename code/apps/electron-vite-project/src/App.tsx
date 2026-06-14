@@ -478,35 +478,40 @@ function App() {
             >
               🤝
             </button>
-            <button
-              type="button"
-              onClick={() => { setActiveView('beap-inbox'); setInboxComposeRequest('email') }}
-              title="New Email"
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                width: 26, height: 26, padding: 0, borderRadius: 6,
-                background: 'transparent', color: 'var(--text-secondary)',
-                border: '1px solid var(--border)',
-                fontSize: 13, cursor: 'pointer', flexShrink: 0,
-              }}
-            >
-              ✉
-            </button>
-            <button
-              type="button"
-              onClick={() => { setActiveView('beap-inbox'); setInboxComposeRequest('beap') }}
-              title="New BEAP™ Message"
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                height: 26, padding: '0 7px', borderRadius: 6,
-                background: 'transparent', color: 'var(--text-secondary)',
-                border: '1px solid var(--border)',
-                fontSize: 10, fontWeight: 600, cursor: 'pointer',
-                letterSpacing: '0.3px', flexShrink: 0,
-              }}
-            >
-              BEAP
-            </button>
+            {/* P3 sandbox UI: compose shortcuts absent on sandbox — backend (P1/P2) already refuses sends */}
+            {!isSandbox && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => { setActiveView('beap-inbox'); setInboxComposeRequest('email') }}
+                  title="New Email"
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 26, height: 26, padding: 0, borderRadius: 6,
+                    background: 'transparent', color: 'var(--text-secondary)',
+                    border: '1px solid var(--border)',
+                    fontSize: 13, cursor: 'pointer', flexShrink: 0,
+                  }}
+                >
+                  ✉
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setActiveView('beap-inbox'); setInboxComposeRequest('beap') }}
+                  title="New BEAP™ Message"
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    height: 26, padding: '0 7px', borderRadius: 6,
+                    background: 'transparent', color: 'var(--text-secondary)',
+                    border: '1px solid var(--border)',
+                    fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                    letterSpacing: '0.3px', flexShrink: 0,
+                  }}
+                >
+                  BEAP
+                </button>
+              </>
+            )}
           </div>
           <div
             className="app-header__wr-watchdog"
@@ -528,9 +533,12 @@ function App() {
                   return
                 }
                 goToDashboard()
-                if (composerId === 'emailComposer') setDashboardComposeMode('email')
-                else if (composerId === 'beapComposer') setDashboardComposeMode('beap')
-                else if (composerId === 'letterComposer') setDashboardComposeMode('letter')
+                if (!isSandbox) {
+                  // P3 sandbox UI: outbound composers absent on sandbox
+                  if (composerId === 'emailComposer') setDashboardComposeMode('email')
+                  else if (composerId === 'beapComposer') setDashboardComposeMode('beap')
+                  else if (composerId === 'letterComposer') setDashboardComposeMode('letter')
+                }
               }}
               onWatchdogAlert={(threats) => {
                 try {

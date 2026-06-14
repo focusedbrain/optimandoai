@@ -69,16 +69,18 @@ describe('App.tsx sandbox inbox parity', () => {
     expect(slice).not.toContain('<CloneInboxView')
   })
 
-  it('compose shortcuts (✉ / BEAP) are NOT gated by !isSandbox', () => {
+  it('compose shortcuts (✉ / BEAP) ARE gated by !isSandbox (P3 sandbox UI)', () => {
+    // P3: compose shortcuts are hidden on sandbox — structurally absent, not shown-disabled.
+    // Updated from the pre-P3 invariant "not gated" to the P3 invariant "gated on !isSandbox".
     const emailComposeIdx = src.indexOf("setInboxComposeRequest('email')")
     const beapComposeIdx = src.indexOf("setInboxComposeRequest('beap')")
     expect(emailComposeIdx).toBeGreaterThan(-1)
     expect(beapComposeIdx).toBeGreaterThan(-1)
-    const composeRegion = src.slice(
-      Math.max(0, emailComposeIdx - 400),
-      beapComposeIdx + 200,
-    )
-    expect(composeRegion).not.toMatch(/!isSandbox\s*&&[\s\S]{0,200}setInboxComposeRequest\('email'\)/)
+    // Both calls must appear after the !isSandbox guard
+    const guardIdx = src.indexOf("P3 sandbox UI: compose shortcuts absent on sandbox")
+    expect(guardIdx).toBeGreaterThan(-1)
+    expect(emailComposeIdx).toBeGreaterThan(guardIdx)
+    expect(beapComposeIdx).toBeGreaterThan(guardIdx)
   })
 })
 

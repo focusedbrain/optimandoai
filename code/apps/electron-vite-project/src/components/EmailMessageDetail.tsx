@@ -360,7 +360,7 @@ export default function EmailMessageDetail({
     activeIdentityCompleteFromParent ?? activeInternalHandshakeCount
   const activeHostSandboxHandshakeTotalCount =
     activeIdentityCompleteHostSandboxCount + identityIncompleteHostSandboxCount
-  const { mode: orchestratorMode, ready: modeReady } = useOrchestratorMode()
+  const { mode: orchestratorMode, ready: modeReady, isSandbox: detailIsSandbox } = useOrchestratorMode()
   const [beapRedirectOpen, setBeapRedirectOpen] = useState(false)
   const [beapPanelOpen, setBeapPanelOpen] = useState(false)
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
@@ -1369,16 +1369,35 @@ export default function EmailMessageDetail({
                 aria-label="Reply, redirect, and Sandbox"
               >
                 {canShowDetailReply && (
-                  <button
-                    type="button"
-                    onClick={handleReply}
-                    className="inbox-action-icon-only inbox-detail-reply-icon-only"
-                    {...beapInboxReplyTooltipProps()}
-                  >
-                    <span className="inbox-detail-reply-glyph" aria-hidden>
-                      ↩
-                    </span>
-                  </button>
+                  detailIsSandbox ? (
+                    /* P3 sandbox UI: reply absent on sandbox — informational lock notice */
+                    <div
+                      className="inbox-detail-reply-sandbox-notice"
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 5,
+                        padding: '4px 10px', borderRadius: 6,
+                        background: 'var(--bg-elevated, #f8fafc)',
+                        color: 'var(--text-secondary, #64748b)',
+                        border: '1px solid var(--border, #e2e8f0)',
+                        fontSize: 12,
+                      }}
+                      title="Sending messages is disabled on the sandbox for security."
+                    >
+                      <span aria-hidden>🔒</span>
+                      Sending messages is disabled on the sandbox for security.
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleReply}
+                      className="inbox-action-icon-only inbox-detail-reply-icon-only"
+                      {...beapInboxReplyTooltipProps()}
+                    >
+                      <span className="inbox-detail-reply-glyph" aria-hidden>
+                        ↩
+                      </span>
+                    </button>
+                  )
                 )}
                 {canShowInboxRedirectAndSandbox && (
                   <>
