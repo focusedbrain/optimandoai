@@ -60,6 +60,7 @@ import { runBeapSessionAutomationForMessage } from '../lib/runBeapSessionAutomat
 import { InboxBeapSourceBadgeDetail } from './InboxBeapSourceBadge'
 import BeapRedirectDialog from './BeapRedirectDialog'
 import { listHandshakes } from '../shims/handshakeRpc'
+import { UI_BADGE } from '../styles/uiContrastTokens'
 import {
   confirmOriginDeleteIfNeeded,
   originDeleteConfirmedForSelection,

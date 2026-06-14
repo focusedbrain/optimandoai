@@ -121,6 +121,11 @@ describe('EmailMessageDetail.tsx reply-icon gate', () => {
     expect(src).toContain('isSandbox: detailIsSandbox')
   })
 
+  it('imports UI_BADGE for deletion/automation badge styles (regression: df35248f removed import)', () => {
+    expect(src).toMatch(/import\s*\{\s*UI_BADGE\s*\}\s*from\s*['"]\.\.\/styles\/uiContrastTokens['"]/)
+    expect(src).toContain('...UI_BADGE.red')
+  })
+
   it('reply ↩ button replaced with lock notice when detailIsSandbox', () => {
     expect(src).toContain('detailIsSandbox ?')
     expect(src).toContain(LOCK_COPY)
