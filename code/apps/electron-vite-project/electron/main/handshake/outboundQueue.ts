@@ -44,6 +44,11 @@ import {
   validateInternalCapsuleBeforeEnqueue,
   type EnqueueOutboundCapsuleResult,
 } from './internalRelayOutboundGuards'
+import {
+  assertSandboxDataEgressAllowed,
+  deriveOutboundCapsuleType,
+  isEffectiveSandboxNode,
+} from '../sandbox/sandboxOutboundPolicy'
 
 export type { EnqueueOutboundCapsuleResult } from './internalRelayOutboundGuards'
 
@@ -413,6 +418,38 @@ export function enqueueOutboundCapsule(
       invariant: 'INTERNAL_ENDPOINT_INCOMPLETE',
       message: 'Database unavailable',
       missing_fields: [],
+    }
+  }
+  // ── Sandbox outbound data-egress lockdown (P1 choke point) ───────────────────
+  // Allowlist, deny-by-default, discriminated BY TYPE. A sandbox-role node may only
+  // enqueue control-plane / plumbing capsules (handshake lifecycle, Host AI, the
+  // depackage→host handoff, signaling). Any content-bearing type (native BEAP
+  // message_package, qBEAP/pBEAP, clone responses, internal_draft, unknown) is
+  // refused server-side even if a compromised renderer calls this directly.
+  if (isEffectiveSandboxNode(db)) {
+    const capsuleType = deriveOutboundCapsuleType(capsule)
+    const egress = assertSandboxDataEgressAllowed({
+      operation: 'capsule_enqueue',
+      capsuleType,
+      destination: targetEndpoint,
+    })
+    if (!egress.ok) {
+      console.warn(
+        '[P2P-QUEUE]',
+        JSON.stringify({
+          event: 'enqueue_blocked_sandbox_egress',
+          handshake_id: handshakeId,
+          code: egress.code,
+          capsule_type: capsuleType,
+        }),
+      )
+      return {
+        enqueued: false,
+        phase: 'enqueue_guard',
+        invariant: egress.code,
+        message: egress.message,
+        missing_fields: [],
+      }
     }
   }
   const guard = validateInternalCapsuleBeforeEnqueue(db, handshakeId, capsule)

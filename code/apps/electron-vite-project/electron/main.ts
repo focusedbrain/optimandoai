@@ -37,6 +37,7 @@ import {
   type PairingCodeRegistrar,
 } from './main/orchestrator/orchestratorModeStore'
 import { resolvePdfjsDistWorkerFileUrl } from './main/pdfjsWorkerSrc'
+import { assertSandboxDataEgressAllowed, isEffectiveSandboxNode, resolveEffectiveSandboxNode } from './main/sandbox/sandboxOutboundPolicy'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
@@ -3545,6 +3546,14 @@ app.whenReady().then(async () => {
         if (typeof p.handshakeId === 'string' && typeof p.packageJson === 'string' && p.packageJson.length > 0) {
           const db = await getLedgerDbOrOpen()
           if (!db) return { success: false, error: 'Database unavailable' }
+          // Sandbox outbound lockdown (defense-in-depth): a sandbox-role node may
+          // not forward a human-composed BEAP package to the P2P pipeline.
+          if (isEffectiveSandboxNode(db)) {
+            const egress = assertSandboxDataEgressAllowed({ operation: 'beap_reply' })
+            if (!egress.ok) {
+              return { success: false, queued: false, error: egress.message, code: egress.code }
+            }
+          }
           return await handleHandshakeRPC(
             'handshake.sendBeapViaP2P',
             {
@@ -10740,6 +10749,15 @@ async function runDeviceKeyMigration(
           return
         }
         console.log('[HTTP-EMAIL] POST /api/email/send', accountId)
+        // Sandbox outbound lockdown (defense-in-depth): plain email send is human
+        // messaging — never permitted from a sandbox node, regardless of credentials.
+        if (await resolveEffectiveSandboxNode()) {
+          const egress = assertSandboxDataEgressAllowed({ operation: 'email_send' })
+          if (!egress.ok) {
+            res.status(403).json({ ok: false, error: egress.message, code: egress.code })
+            return
+          }
+        }
         const { emailGateway } = await import('./main/email/gateway')
         const payload: { to: string[]; subject: string; bodyText: string; attachments?: { filename: string; mimeType: string; contentBase64: string }[] } = {
           to: Array.isArray(to) ? to : [String(to)],
@@ -10770,6 +10788,15 @@ async function runDeviceKeyMigration(
           return
         }
         console.log('[HTTP-EMAIL] POST /api/email/send-beap', to)
+        // Sandbox outbound lockdown (defense-in-depth): BEAP-via-email is human
+        // messaging — never permitted from a sandbox node, regardless of credentials.
+        if (await resolveEffectiveSandboxNode()) {
+          const egress = assertSandboxDataEgressAllowed({ operation: 'email_beap_send' })
+          if (!egress.ok) {
+            res.status(403).json({ ok: false, error: egress.message, code: egress.code })
+            return
+          }
+        }
         const { emailGateway } = await import('./main/email/gateway')
         const { pickDefaultEmailAccountRowId } = await import('./main/email/domain/accountRowPicker')
         const accounts = await emailGateway.listAccounts()

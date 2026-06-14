@@ -195,6 +195,26 @@ import { runDiagnoseImapStandalone } from './diagnoseImapStandalone'
 import { pickDefaultEmailAccountRowId } from './domain/accountRowPicker'
 import { checkExistingCredentials, saveCredentials, isVaultUnlocked } from './credentials'
 import {
+  assertSandboxDataEgressAllowed,
+  resolveEffectiveSandboxNode,
+  type SandboxEgressVerdict,
+  type SandboxOutboundOperation,
+} from '../sandbox/sandboxOutboundPolicy'
+
+/**
+ * Sandbox outbound lockdown for the email send IPCs (defense-in-depth, independent
+ * of OAuth scope): a sandbox-role node may not send/reply/compose email or BEAP-via-
+ * email, regardless of credential state. Returns `{ ok: true }` on host / single-machine.
+ */
+async function assertSandboxEmailEgress(
+  operation: SandboxOutboundOperation,
+): Promise<SandboxEgressVerdict> {
+  if (await resolveEffectiveSandboxNode()) {
+    return assertSandboxDataEgressAllowed({ operation })
+  }
+  return { ok: true }
+}
+import {
   MessageSearchOptions,
   SendEmailPayload,
   IMAP_PRESETS,
@@ -1420,6 +1440,8 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     payload: Omit<SendEmailPayload, 'inReplyTo' | 'references'>
   ) => {
     try {
+      const egress = await assertSandboxEmailEgress('email_reply')
+      if (!egress.ok) return { ok: false, error: egress.message, code: egress.code }
       const result = await emailGateway.sendReply(accountId, messageId, payload)
       return { ok: true, data: result }
     } catch (error: any) {
@@ -1437,6 +1459,8 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     payload: SendEmailPayload
   ) => {
     try {
+      const egress = await assertSandboxEmailEgress('email_send')
+      if (!egress.ok) return { ok: false, error: egress.message, code: egress.code }
       const result = await emailGateway.sendEmail(accountId, payload)
       return { ok: true, data: result }
     } catch (error: any) {
@@ -1454,6 +1478,8 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     contract: { to: string; subject: string; body: string; attachments: { name: string; data: string; mime: string }[] }
   ) => {
     try {
+      const egress = await assertSandboxEmailEgress('email_beap_send')
+      if (!egress.ok) return { ok: false, error: egress.message, code: egress.code }
       const accounts = await emailGateway.listAccounts()
       const accountId = pickDefaultEmailAccountRowId(accounts)
       if (!accountId) {

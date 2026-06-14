@@ -66,6 +66,7 @@ import {
 import { tryEnqueueContextSync, retryDeferredInitialContextSyncForInternalHandshake } from './contextSyncEnqueue'
 import { deriveRelationshipId } from './relationshipId'
 import { enqueueOutboundCapsule, logProcessOutboundQueueFailure, processOutboundQueue, type ProcessOutboundQueueResult } from './outboundQueue'
+import { assertSandboxDataEgressAllowed, isEffectiveSandboxNode } from '../sandbox/sandboxOutboundPolicy'
 import { notifyBeapDeliveryAck, waitForBeapDeliveryAck } from '../p2p/beapDeliveryAck'
 import { randomBytes, randomUUID } from 'crypto'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
@@ -930,6 +931,15 @@ export async function handleHandshakeRPC(
       if (!db) {
         console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=db_unavailable`)
         return { success: false, error: 'Database unavailable' }
+      }
+      // Sandbox outbound lockdown (defense-in-depth, independent of the queue choke
+      // point): a sandbox-role node never sends a human-composed BEAP message_package.
+      if (isEffectiveSandboxNode(db)) {
+        const egress = assertSandboxDataEgressAllowed({ operation: 'beap_send' })
+        if (!egress.ok) {
+          console.log(`[BEAP_MSG_SEND] failed messageId=${_msgId} reason=${egress.code}`)
+          return { success: false, queued: false, error: egress.message, code: egress.code }
+        }
       }
       const activeCheck = diagnoseHandshakeInactive(db, handshakeId, new Date())
       if (!activeCheck.active) {

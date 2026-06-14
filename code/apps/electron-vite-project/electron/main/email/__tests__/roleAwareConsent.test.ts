@@ -19,8 +19,13 @@ vi.mock('electron', () => ({ app: { getPath: () => os.tmpdir() } }))
 vi.mock('../providers/gmail', () => ({ GmailProvider: class {} }))
 vi.mock('../providers/outlook', () => ({ OutlookProvider: class {} }))
 
-const isSandboxMode = vi.fn(() => false)
-vi.mock('../../orchestrator/orchestratorModeStore', () => ({ isSandboxMode: () => isSandboxMode() }))
+// connectSendClient now uses the ledger-authoritative effective-sandbox signal
+// (mode==='sandbox' OR ledger-proves-sandbox), not isSandboxMode()/mode alone.
+const isEffectiveSandbox = vi.fn(async () => false)
+vi.mock('../resolveConnectOAuthScopeRole', () => ({
+  isEffectiveSandboxNode: () => isEffectiveSandbox(),
+  resolveConnectOAuthScopeRole: async () => ((await isEffectiveSandbox()) ? 'read' : 'all'),
+}))
 
 vi.mock('../secure-storage', () => {
   class SecureStorageUnavailableError extends Error {}
@@ -51,7 +56,7 @@ let dir: string
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consent-'))
   __setRoleTokenStoreBaseDirForTests(dir)
-  isSandboxMode.mockReturnValue(false)
+  isEffectiveSandbox.mockResolvedValue(false)
 })
 
 afterEach(() => {
@@ -123,10 +128,18 @@ describe('role-aware consent', () => {
     expect(hasRoleScopedTokens('a3', 'read')).toBe(false)
   })
 
-  test('send consent is refused on a sandbox-mode node (host-initiated only)', async () => {
-    isSandboxMode.mockReturnValue(true)
+  test('send consent is refused on an effective-sandbox node (host-initiated only)', async () => {
+    isEffectiveSandbox.mockResolvedValue(true)
     await expect(
       connectSendClient({ accountId: 'a4', provider: 'gmail' }, { gmailFlow: async () => ({ oauth: null }) }),
+    ).rejects.toThrow(/HOST node/i)
+  })
+
+  test('send consent is refused on a ledger-proven sandbox even if mode file says host', async () => {
+    // resolveEffectiveSandboxNode returns true via the ledger, not the mode file.
+    isEffectiveSandbox.mockResolvedValue(true)
+    await expect(
+      connectSendClient({ accountId: 'a5', provider: 'gmail' }, { gmailFlow: async () => ({ oauth: null }) }),
     ).rejects.toThrow(/HOST node/i)
   })
 })

@@ -20,7 +20,7 @@
 
 import { GmailProvider } from './providers/gmail'
 import { OutlookProvider } from './providers/outlook'
-import { isSandboxMode } from '../orchestrator/orchestratorModeStore'
+import { isEffectiveSandboxNode } from './resolveConnectOAuthScopeRole'
 import { saveRoleScopedTokens, type TokenRole } from './roleScopedTokenStore'
 import { resolveOAuthScopes, scopeSetCanSend, scopeSetCanRead, type OAuthScopeRole } from './oauthScopes'
 import type { OAuthTokens } from './secure-storage'
@@ -140,7 +140,10 @@ export async function connectSendClient(
   params: { accountId: string; provider: ConsentProvider; email?: string },
   deps?: ConsentDeps,
 ): Promise<RoleConsentResult> {
-  if (isSandboxMode()) {
+  // Effective sandbox (ledger-authoritative): a ledger-proven sandbox whose
+  // orchestrator-mode.json still says 'host' (no sync-back on accept) must also be
+  // refused — not mode-only. Send capability belongs to the host node.
+  if (await isEffectiveSandboxNode()) {
     throw new Error('Send consent must be initiated on the HOST node (A2: host = send-only).')
   }
   return runRoleScopedConsent({ ...params, role: 'send' }, deps)

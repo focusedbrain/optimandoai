@@ -15,6 +15,13 @@ export function rowProvesLocalHostPeerSandboxForHostAi(r: HandshakeRecord): bool
   return dr.ok && dr.localRole === 'host' && dr.peerRole === 'sandbox'
 }
 
+/** This instance is Sandbox and peer is Host (same account). */
+export function rowProvesLocalSandboxToHostForHostAi(r: HandshakeRecord): boolean {
+  if (!handshakeSamePrincipal(r)) return false
+  const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
+  return dr.ok && dr.localRole === 'sandbox' && dr.peerRole === 'host'
+}
+
 /**
  * ACTIVE `internal` handshakes for Host-AI ledger derivation. The host-side scan
  * ({@link hostHasActiveInternalLedgerHostPeerSandboxFromDb}) and the sandbox-side scans
@@ -44,6 +51,26 @@ export function hostHasActiveInternalLedgerHostPeerSandboxFromDb(db: unknown): b
     if (rowProvesLocalHostPeerSandboxForHostAi(r0)) {
       return true
     }
+  }
+  return false
+}
+
+/**
+ * Synchronous, db-based ledger-authoritative Sandbox→Host signal: any ACTIVE
+ * internal row proves this device is the Sandbox side of a same-principal
+ * Sandbox↔Host pair. Shared with `sandbox/sandboxOutboundPolicy.ts` so the
+ * outbound-egress lockdown reuses the exact same proof as Host AI /
+ * `orchestrator:getMode`. Returns `false` (never throws) when the ledger
+ * cannot be read. Lives in this leaf module (no `listInferenceTargets` /
+ * `p2pEndpointRepair` side effects) so lightweight egress call sites can import it.
+ */
+export function ledgerProvesLocalSandboxToHostFromDb(db: unknown): boolean {
+  try {
+    for (const r0 of listActiveInternalHandshakesForHostAi(db)) {
+      if (rowProvesLocalSandboxToHostForHostAi(r0)) return true
+    }
+  } catch {
+    /* fail-closed to "not proven" */
   }
   return false
 }
