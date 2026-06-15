@@ -95,7 +95,10 @@ describe('EmailMessageDetail — sandbox lock notice (mount)', () => {
       />,
     )
     expect(html).toContain(LOCK_COPY)
+    // SandboxLockSurface merges className prop → class list contains both base and passed class
     expect(html).toContain('inbox-detail-reply-sandbox-notice')
+    expect(html).toContain('sandbox-lock-surface')
+    expect(html).toContain('data-testid="sandbox-lock-reply"')
     expect(html).not.toContain('inbox-detail-reply-glyph')
   })
 

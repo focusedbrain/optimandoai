@@ -25,6 +25,7 @@ import { isInboxMessageActionable } from '../lib/inboxMessageActionable'
 import type { InternalSandboxesListSnapshot, InternalSandboxTargetWire } from '../hooks/useInternalSandboxesList'
 import { resolveActiveSandboxCloneTargets } from '../lib/resolveActiveSandboxCloneTargets'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
+import { SandboxLockSurface } from './SandboxLockSurface'
 import { beapInboxCloneToSandboxApi, sandboxCloneFeedbackFromOutcome } from '../lib/beapInboxCloneToSandbox'
 import {
   SANDBOX_CLONE_COPY,
@@ -1372,21 +1373,11 @@ export default function EmailMessageDetail({
                 {canShowDetailReply && (
                   detailIsSandbox ? (
                     /* P3 sandbox UI: reply absent on sandbox — informational lock notice */
-                    <div
+                    <SandboxLockSurface
+                      variant="compact"
                       className="inbox-detail-reply-sandbox-notice"
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 5,
-                        padding: '4px 10px', borderRadius: 6,
-                        background: 'var(--bg-elevated, #f8fafc)',
-                        color: 'var(--text-secondary, #64748b)',
-                        border: '1px solid var(--border, #e2e8f0)',
-                        fontSize: 12,
-                      }}
-                      title="Sending messages is disabled on the sandbox for security."
-                    >
-                      <span aria-hidden>🔒</span>
-                      Sending messages is disabled on the sandbox for security.
-                    </div>
+                      data-testid="sandbox-lock-reply"
+                    />
                   ) : (
                     <button
                       type="button"

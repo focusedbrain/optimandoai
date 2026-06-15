@@ -24,6 +24,7 @@ import { IngestionStatusBanner } from './IngestionStatusBanner'
 import { IngestionDelegationModal } from './IngestionDelegationModal'
 import { RevocationNoticeBanner } from './RevocationNoticeBanner'
 import { SandboxReadCleanupHint } from './SandboxReadCleanupHint'
+import { SandboxLockSurface } from './SandboxLockSurface'
 import { useIngestionStatus } from '../hooks/useIngestionStatus'
 import { useTopologyDelegationModal } from '../hooks/useTopologyDelegationModal'
 import { useRevocationBanner } from '../hooks/useRevocationBanner'
@@ -331,7 +332,8 @@ interface InboxDetailAiPanelProps {
   onCollapsedChange?: (collapsed: boolean) => void
 }
 
-function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDelete, onCollapsedChange }: InboxDetailAiPanelProps) {
+/** @internal exported for sandbox-affordance mount tests only */
+export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDelete, onCollapsedChange }: InboxDetailAiPanelProps) {
   const { isSandbox: panelIsSandbox } = useOrchestratorMode()
   const [analysis, setAnalysis] = useState<NormalInboxAiResult | null>(null)
   const [receivedFields, setReceivedFields] = useState<Set<NormalInboxAiResultKey>>(new Set())
@@ -1604,24 +1606,26 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           </span>
           <span>Summary</span>
         </button>
-        <button
-          type="button"
-          className={`inbox-detail-ai-section-toggle${visibleSections.has('draft') ? ' inbox-detail-ai-section-toggle--active' : ''}`}
-          onClick={() => {
-            const willShow = !visibleSections.has('draft')
-            toggleSection('draft')
-            if (willShow && !draft && !draftLoading && !isNativeBeap) {
-              void handleDraftReply()
-            }
-          }}
-          aria-pressed={visibleSections.has('draft')}
-          aria-label="Toggle draft section"
-        >
-          <span className="inbox-detail-ai-section-toggle-check" aria-hidden>
-            {visibleSections.has('draft') ? '☑' : '☐'}
-          </span>
-          <span>✎ Draft</span>
-        </button>
+        {!panelIsSandbox && (
+          <button
+            type="button"
+            className={`inbox-detail-ai-section-toggle${visibleSections.has('draft') ? ' inbox-detail-ai-section-toggle--active' : ''}`}
+            onClick={() => {
+              const willShow = !visibleSections.has('draft')
+              toggleSection('draft')
+              if (willShow && !draft && !draftLoading && !isNativeBeap) {
+                void handleDraftReply()
+              }
+            }}
+            aria-pressed={visibleSections.has('draft')}
+            aria-label="Toggle draft section"
+          >
+            <span className="inbox-detail-ai-section-toggle-check" aria-hidden>
+              {visibleSections.has('draft') ? '☑' : '☐'}
+            </span>
+            <span>✎ Draft</span>
+          </button>
+        )}
         <button
           type="button"
           className={`inbox-detail-ai-section-toggle${visibleSections.has('analysis') ? ' inbox-detail-ai-section-toggle--active' : ''}`}
@@ -1881,14 +1885,16 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           role="alert"
                         >
                           <span>{draftErrorMessage || 'AI generation failed for the selected model.'}</span>
-                          <button
-                            type="button"
-                            className="capsule-draft-retry"
-                            onClick={() => void handleDraftReply()}
-                            disabled={draftLoading}
-                          >
-                            Retry
-                          </button>
+                          {!panelIsSandbox && (
+                            <button
+                              type="button"
+                              className="capsule-draft-retry"
+                              onClick={() => void handleDraftReply()}
+                              disabled={draftLoading}
+                            >
+                              Retry
+                            </button>
+                          )}
                         </div>
                       )}
                       <div
@@ -1918,71 +1924,81 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                               ? ' — connected to chat'
                               : ''}
                           </label>
-                          <button
-                            type="button"
-                            onClick={handleCapsulePublicRefineConnect}
-                            title={
-                              draftRefineConnected &&
+                          {!panelIsSandbox && (
+                            <button
+                              type="button"
+                              onClick={handleCapsulePublicRefineConnect}
+                              title={
+                                draftRefineConnected &&
+                                draftRefineMessageId === messageId &&
+                                draftRefineTarget === 'capsule-public'
+                                  ? 'Disconnect AI refinement'
+                                  : 'Connect top chat for AI refinement'
+                              }
+                              style={{
+                                flexShrink: 0,
+                                background:
+                                  draftRefineConnected &&
+                                  draftRefineMessageId === messageId &&
+                                  draftRefineTarget === 'capsule-public'
+                                    ? '#7c3aed'
+                                    : 'transparent',
+                                color:
+                                  draftRefineConnected &&
+                                  draftRefineMessageId === messageId &&
+                                  draftRefineTarget === 'capsule-public'
+                                    ? '#fff'
+                                    : '#7c3aed',
+                                border: '1px solid #7c3aed',
+                                borderRadius: 4,
+                                padding: '4px 10px',
+                                fontSize: 10,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {draftRefineConnected &&
                               draftRefineMessageId === messageId &&
                               draftRefineTarget === 'capsule-public'
-                                ? 'Disconnect AI refinement'
-                                : 'Connect top chat for AI refinement'
-                            }
-                            style={{
-                              flexShrink: 0,
-                              background:
-                                draftRefineConnected &&
-                                draftRefineMessageId === messageId &&
-                                draftRefineTarget === 'capsule-public'
-                                  ? '#7c3aed'
-                                  : 'transparent',
-                              color:
-                                draftRefineConnected &&
-                                draftRefineMessageId === messageId &&
-                                draftRefineTarget === 'capsule-public'
-                                  ? '#fff'
-                                  : '#7c3aed',
-                              border: '1px solid #7c3aed',
-                              borderRadius: 4,
-                              padding: '4px 10px',
-                              fontSize: 10,
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            {draftRefineConnected &&
-                            draftRefineMessageId === messageId &&
-                            draftRefineTarget === 'capsule-public'
-                              ? '✏️ AI connected'
-                              : '✏️ AI refine'}
-                          </button>
+                                ? '✏️ AI connected'
+                                : '✏️ AI refine'}
+                            </button>
+                          )}
                         </div>
-                        {draftRefineConnected &&
+                        {!panelIsSandbox && draftRefineConnected &&
                           draftRefineMessageId === messageId &&
                           draftRefineTarget === 'capsule-public' && (
                             <span className="ai-draft-connect-hint" style={{ marginBottom: 4 }}>
                               Connected to chat ↑ — type instructions to refine
                             </span>
                           )}
-                        <textarea
-                          className={`capsule-draft-textarea${
-                            draftRefineConnected &&
-                            draftRefineMessageId === messageId &&
-                            draftRefineTarget === 'capsule-public'
-                              ? ' capsule-draft-textarea--refine-connected'
-                              : ''
-                          }`}
-                          placeholder="Short public preview (1–2 sentences). Full reply belongs in the encrypted field."
-                          value={capsulePublicText}
-                          onChange={(e) => {
-                            setCapsulePublicText(e.target.value)
-                            setCapsulePublicSource('user_edit')
-                          }}
-                          onFocus={() => {
-                            useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
-                          }}
-                          rows={3}
-                        />
+                        {panelIsSandbox ? (
+                          <SandboxLockSurface
+                            variant="field"
+                            className="capsule-pbeap-lock"
+                            data-testid="sandbox-lock-pbeap"
+                          />
+                        ) : (
+                          <textarea
+                            className={`capsule-draft-textarea${
+                              draftRefineConnected &&
+                              draftRefineMessageId === messageId &&
+                              draftRefineTarget === 'capsule-public'
+                                ? ' capsule-draft-textarea--refine-connected'
+                                : ''
+                            }`}
+                            placeholder="Short public preview (1–2 sentences). Full reply belongs in the encrypted field."
+                            value={capsulePublicText}
+                            onChange={(e) => {
+                              setCapsulePublicText(e.target.value)
+                              setCapsulePublicSource('user_edit')
+                            }}
+                            onFocus={() => {
+                              useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
+                            }}
+                            rows={3}
+                          />
+                        )}
                       </div>
                       <div
                         className={`capsule-draft-field capsule-draft-field--encrypted${
@@ -2011,71 +2027,81 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                               ? ' — connected to chat'
                               : ''}
                           </label>
-                          <button
-                            type="button"
-                            onClick={handleCapsuleEncryptedRefineConnect}
-                            title={
-                              draftRefineConnected &&
+                          {!panelIsSandbox && (
+                            <button
+                              type="button"
+                              onClick={handleCapsuleEncryptedRefineConnect}
+                              title={
+                                draftRefineConnected &&
+                                draftRefineMessageId === messageId &&
+                                draftRefineTarget === 'capsule-encrypted'
+                                  ? 'Disconnect AI refinement'
+                                  : 'Connect top chat for AI refinement'
+                              }
+                              style={{
+                                flexShrink: 0,
+                                background:
+                                  draftRefineConnected &&
+                                  draftRefineMessageId === messageId &&
+                                  draftRefineTarget === 'capsule-encrypted'
+                                    ? '#7c3aed'
+                                    : 'transparent',
+                                color:
+                                  draftRefineConnected &&
+                                  draftRefineMessageId === messageId &&
+                                  draftRefineTarget === 'capsule-encrypted'
+                                    ? '#fff'
+                                    : '#7c3aed',
+                                border: '1px solid #7c3aed',
+                                borderRadius: 4,
+                                padding: '4px 10px',
+                                fontSize: 10,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {draftRefineConnected &&
                               draftRefineMessageId === messageId &&
                               draftRefineTarget === 'capsule-encrypted'
-                                ? 'Disconnect AI refinement'
-                                : 'Connect top chat for AI refinement'
-                            }
-                            style={{
-                              flexShrink: 0,
-                              background:
-                                draftRefineConnected &&
-                                draftRefineMessageId === messageId &&
-                                draftRefineTarget === 'capsule-encrypted'
-                                  ? '#7c3aed'
-                                  : 'transparent',
-                              color:
-                                draftRefineConnected &&
-                                draftRefineMessageId === messageId &&
-                                draftRefineTarget === 'capsule-encrypted'
-                                  ? '#fff'
-                                  : '#7c3aed',
-                              border: '1px solid #7c3aed',
-                              borderRadius: 4,
-                              padding: '4px 10px',
-                              fontSize: 10,
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            {draftRefineConnected &&
-                            draftRefineMessageId === messageId &&
-                            draftRefineTarget === 'capsule-encrypted'
-                              ? '✏️ AI connected'
-                              : '✏️ AI refine'}
-                          </button>
+                                ? '✏️ AI connected'
+                                : '✏️ AI refine'}
+                            </button>
+                          )}
                         </div>
-                        {draftRefineConnected &&
+                        {!panelIsSandbox && draftRefineConnected &&
                           draftRefineMessageId === messageId &&
                           draftRefineTarget === 'capsule-encrypted' && (
                             <span className="ai-draft-connect-hint" style={{ marginBottom: 4 }}>
                               Connected to chat ↑ — type instructions to refine
                             </span>
                           )}
-                        <textarea
-                          className={`capsule-draft-textarea capsule-draft-textarea--encrypted${
-                            draftRefineConnected &&
-                            draftRefineMessageId === messageId &&
-                            draftRefineTarget === 'capsule-encrypted'
-                              ? ' capsule-draft-textarea--refine-connected'
-                              : ''
-                          }`}
-                          placeholder="Full AI draft reply — encrypted capsule body (authoritative when present)."
-                          value={capsuleEncryptedText}
-                          onChange={(e) => {
-                            setCapsuleEncryptedText(e.target.value)
-                            setCapsuleEncryptedSource('user_edit')
-                          }}
-                          onFocus={() => {
-                            useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
-                          }}
-                          rows={4}
-                        />
+                        {panelIsSandbox ? (
+                          <SandboxLockSurface
+                            variant="field"
+                            className="capsule-qbeap-lock"
+                            data-testid="sandbox-lock-qbeap"
+                          />
+                        ) : (
+                          <textarea
+                            className={`capsule-draft-textarea capsule-draft-textarea--encrypted${
+                              draftRefineConnected &&
+                              draftRefineMessageId === messageId &&
+                              draftRefineTarget === 'capsule-encrypted'
+                                ? ' capsule-draft-textarea--refine-connected'
+                                : ''
+                            }`}
+                            placeholder="Full AI draft reply — encrypted capsule body (authoritative when present)."
+                            value={capsuleEncryptedText}
+                            onChange={(e) => {
+                              setCapsuleEncryptedText(e.target.value)
+                              setCapsuleEncryptedSource('user_edit')
+                            }}
+                            onFocus={() => {
+                              useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
+                            }}
+                            rows={4}
+                          />
+                        )}
                         <div className="capsule-field-hint">
                           ⚠ This content is end-to-end encrypted and capsule-bound.
                         </div>
@@ -2120,55 +2146,48 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           )}
                         </select>
                       </div>
-                      <div className="capsule-draft-field">
-                        <label className="capsule-field-label">Attachments</label>
-                        <input
-                          type="file"
-                          accept=".pdf,.txt,.json,application/pdf,text/plain,application/json"
-                          multiple
-                          className="capsule-file-input"
-                          onChange={(e) => {
-                            if (e.target.files) setCapsuleAttachments(Array.from(e.target.files))
-                          }}
-                        />
-                        {capsuleAttachments.length > 0 && (
-                          <div className="capsule-attachment-list">
-                            {capsuleAttachments.map((f, i) => (
-                              <div key={`${f.name}-${i}`} className="capsule-attachment-chip">
-                                📎 {f.name}
-                                <button
-                                  type="button"
-                                  className="capsule-attachment-remove"
-                                  onClick={() => setCapsuleAttachments((prev) => prev.filter((_, j) => j !== i))}
-                                  aria-label="Remove attachment"
-                                >
-                                  ×
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      {!panelIsSandbox && (
+                        <div className="capsule-draft-field">
+                          <label className="capsule-field-label">Attachments</label>
+                          <input
+                            type="file"
+                            accept=".pdf,.txt,.json,application/pdf,text/plain,application/json"
+                            multiple
+                            className="capsule-file-input"
+                            onChange={(e) => {
+                              if (e.target.files) setCapsuleAttachments(Array.from(e.target.files))
+                            }}
+                          />
+                          {capsuleAttachments.length > 0 && (
+                            <div className="capsule-attachment-list">
+                              {capsuleAttachments.map((f, i) => (
+                                <div key={`${f.name}-${i}`} className="capsule-attachment-chip">
+                                  📎 {f.name}
+                                  <button
+                                    type="button"
+                                    className="capsule-attachment-remove"
+                                    onClick={() => setCapsuleAttachments((prev) => prev.filter((_, j) => j !== i))}
+                                    aria-label="Remove attachment"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                     {visibleSections.has('draft') && (
                       <>
                         <div className="capsule-draft-actions">
                           {panelIsSandbox ? (
-                            /* P3 sandbox UI: sending disabled on sandbox — informational, not an error */
-                            <div
+                            /* P4 sandbox UI: send + draft generation locked on sandbox */
+                            <SandboxLockSurface
+                              variant="compact"
                               className="capsule-draft-send-disabled-notice"
-                              style={{
-                                display: 'flex', alignItems: 'center', gap: 6,
-                                padding: '8px 12px', borderRadius: 8,
-                                background: 'var(--bg-elevated, #f8fafc)',
-                                color: 'var(--text-secondary, #64748b)',
-                                border: '1px solid var(--border, #e2e8f0)',
-                                fontSize: 13,
-                              }}
-                            >
-                              <span aria-hidden>🔒</span>
-                              Sending messages is disabled on the sandbox for security.
-                            </div>
+                              data-testid="sandbox-lock-capsule-send"
+                            />
                           ) : (
                             <button
                               type="button"
@@ -2183,31 +2202,35 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                               {sendingCapsule ? 'Sending…' : '📤 Send BEAP Reply'}
                             </button>
                           )}
-                          <button
-                            type="button"
-                            className="capsule-draft-clear"
-                            onClick={() => {
-                              if (capsuleSendSuccessTimerRef.current) {
-                                clearTimeout(capsuleSendSuccessTimerRef.current)
-                                capsuleSendSuccessTimerRef.current = null
-                              }
-                              setCapsulePublicText('')
-                              setCapsuleEncryptedText('')
-                              setSelectedSessionId(null)
-                              setCapsuleAttachments([])
-                              setSendResult(null)
-                            }}
-                          >
-                            Clear
-                          </button>
-                          <button
-                            type="button"
-                            className="capsule-draft-clear"
-                            onClick={() => void handleDraftReply()}
-                            disabled={draftLoading}
-                          >
-                            {draftLoading ? 'Generating…' : 'Draft'}
-                          </button>
+                          {!panelIsSandbox && (
+                            <button
+                              type="button"
+                              className="capsule-draft-clear"
+                              onClick={() => {
+                                if (capsuleSendSuccessTimerRef.current) {
+                                  clearTimeout(capsuleSendSuccessTimerRef.current)
+                                  capsuleSendSuccessTimerRef.current = null
+                                }
+                                setCapsulePublicText('')
+                                setCapsuleEncryptedText('')
+                                setSelectedSessionId(null)
+                                setCapsuleAttachments([])
+                                setSendResult(null)
+                              }}
+                            >
+                              Clear
+                            </button>
+                          )}
+                          {!panelIsSandbox && (
+                            <button
+                              type="button"
+                              className="capsule-draft-clear"
+                              onClick={() => void handleDraftReply()}
+                              disabled={draftLoading}
+                            >
+                              {draftLoading ? 'Generating…' : 'Draft'}
+                            </button>
+                          )}
                         </div>
                         {sendResult && (
                           <div
@@ -2253,50 +2276,60 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                     {draft ? <span className="ai-draft-connect-hint">click to refine with AI ↑</span> : null}
                   </div>
                   <div className="inbox-detail-ai-row-value inbox-ai-draft-section">
-                      {draftError && (
+                    {draftError && (
                       <div className="inbox-detail-ai-error-banner">
                         <span>{draftErrorMessage || 'AI generation failed for the selected model.'}</span>
-                        <button type="button" onClick={handleRetryDraft}>
-                          Retry
-                        </button>
+                        {!panelIsSandbox && (
+                          <button type="button" onClick={handleRetryDraft}>
+                            Retry
+                          </button>
+                        )}
                       </div>
                     )}
-                    {draftRefineConnected && draftRefineMessageId === messageId && (
+                    {!panelIsSandbox && draftRefineConnected && draftRefineMessageId === messageId && (
                       <span className="ai-draft-connect-hint" style={{ marginBottom: 4 }}>
                         Connected to chat ↑ — type instructions to refine
                       </span>
                     )}
-                    <textarea
-                      ref={draftTextareaRef}
-                      value={editedDraft || draft || ''}
-                      onChange={(e) => setEditedDraft(e.target.value)}
-                      onClick={handleDraftRefineConnect}
-                      onFocus={() => {
-                        setDraftSubFocused(true)
-                        useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
-                        handleDraftRefineConnect()
-                      }}
-                      onBlur={() => {
-                        const stillConnected = useDraftRefineStore.getState().connected
-                        setDraftSubFocused(false)
-                        if (!stillConnected) {
-                          useEmailInboxStore.getState().setEditingDraftForMessageId(null)
+                    {panelIsSandbox ? (
+                      <SandboxLockSurface
+                        variant="field"
+                        className="inbox-draft-textarea-lock"
+                        data-testid="sandbox-lock-draft"
+                      />
+                    ) : (
+                      <textarea
+                        ref={draftTextareaRef}
+                        value={editedDraft || draft || ''}
+                        onChange={(e) => setEditedDraft(e.target.value)}
+                        onClick={handleDraftRefineConnect}
+                        onFocus={() => {
+                          setDraftSubFocused(true)
+                          useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
+                          handleDraftRefineConnect()
+                        }}
+                        onBlur={() => {
+                          const stillConnected = useDraftRefineStore.getState().connected
+                          setDraftSubFocused(false)
+                          if (!stillConnected) {
+                            useEmailInboxStore.getState().setEditingDraftForMessageId(null)
+                          }
+                        }}
+                        className="inbox-detail-ai-draft-textarea"
+                        readOnly={draftLoading}
+                        aria-busy={draftLoading}
+                        placeholder={
+                          draftLoading
+                            ? 'Draft will be generated…'
+                            : analysisLoading
+                              ? 'Draft will be generated when analysis finishes…'
+                              : analysis?.needsReply
+                                ? 'Edit draft before sending…'
+                                : 'Optional reply — no response required for this message.'
                         }
-                      }}
-                      className="inbox-detail-ai-draft-textarea"
-                      readOnly={draftLoading}
-                      aria-busy={draftLoading}
-                      placeholder={
-                        draftLoading
-                          ? 'Draft will be generated…'
-                          : analysisLoading
-                            ? 'Draft will be generated when analysis finishes…'
-                            : analysis?.needsReply
-                              ? 'Edit draft before sending…'
-                              : 'Optional reply — no response required for this message.'
-                      }
-                    />
-                    {refinedDraftText && draftRefineConnected && draftRefineMessageId === messageId && (
+                      />
+                    )}
+                    {!panelIsSandbox && refinedDraftText && draftRefineConnected && draftRefineMessageId === messageId && (
                       <div className="inbox-detail-ai-refined-preview">
                         <div className="inbox-detail-ai-refined-header">
                           <span className="inbox-detail-ai-refined-label">Suggested refinement:</span>
@@ -2313,7 +2346,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                         <div className="inbox-detail-ai-refined-content">{refinedDraftText}</div>
                       </div>
                     )}
-                    {attachments.length > 0 && (
+                    {!panelIsSandbox && attachments.length > 0 && (
                       <div className="draft-attachments">
                         {attachments.map((a, i) => (
                           <div key={i} className="attachment-chip">
@@ -2328,7 +2361,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                     )}
                     <div className="bulk-draft-actions-toolbar-wrap inbox-detail-ai-draft-actions">
                       <div className="bulk-draft-actions-toolbar">
-                        {usesEmailReplyTransport && (
+                        {usesEmailReplyTransport && !panelIsSandbox && (
                           <button
                             type="button"
                             className="bulk-action-card-btn bulk-action-card-btn--secondary"
@@ -2340,21 +2373,12 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                         )}
                         {message && onSendDraft && !draftError && (
                           panelIsSandbox ? (
-                            /* P3 sandbox UI: sending disabled on sandbox — informational */
-                            <div
+                            /* P4 sandbox UI: send locked — component replaces inline div */
+                            <SandboxLockSurface
+                              variant="compact"
                               className="sandbox-send-disabled-notice"
-                              style={{
-                                display: 'flex', alignItems: 'center', gap: 6,
-                                padding: '8px 12px', borderRadius: 8,
-                                background: 'var(--bg-elevated, #f8fafc)',
-                                color: 'var(--text-secondary, #64748b)',
-                                border: '1px solid var(--border, #e2e8f0)',
-                                fontSize: 13,
-                              }}
-                            >
-                              <span aria-hidden>🔒</span>
-                              Sending messages is disabled on the sandbox for security.
-                            </div>
+                              data-testid="sandbox-lock-email-send"
+                            />
                           ) : (
                             <button
                               type="button"
@@ -2371,9 +2395,11 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                             Archive
                           </button>
                         ) : null}
-                        <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={handleRegenerateDraft}>
-                          Regenerate
-                        </button>
+                        {!panelIsSandbox && (
+                          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={handleRegenerateDraft}>
+                            Regenerate
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
