@@ -3,7 +3,30 @@
  * Extracts fields from incomplete or complete LLM JSON output.
  */
 
-import type { NormalInboxAiResult } from '../types/inboxAi'
+import type { NormalInboxAiResult, ScamWatchdogResult } from '../types/inboxAi'
+
+/**
+ * Assemble the Scam Watchdog result from the model's flat `scamStatus` / `scamFindings`
+ * keys. The flagging guard is enforced HERE (not just in the prompt): a message is
+ * `flagged` if and only if it has at least one concrete, nameable finding. A `flagged`
+ * status with no findings collapses to `clear` (false-positive discipline), and findings
+ * present always mean `flagged` even if the model labelled it `clear`.
+ */
+export function assembleScamWatchdog(
+  statusRaw: unknown,
+  findingsRaw: unknown,
+): ScamWatchdogResult {
+  const findings = Array.isArray(findingsRaw)
+    ? findingsRaw
+        .filter((x): x is string => typeof x === 'string')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+        .map((s) => s.slice(0, 300))
+        .slice(0, 10)
+    : []
+  void statusRaw
+  return { status: findings.length > 0 ? 'flagged' : 'clear', findings }
+}
 
 /** Normalize LLM `draftReply` (string, JSON string, or capsule object). */
 export function normalizeDraftReplyField(
@@ -49,6 +72,7 @@ const DEFAULTS: NormalInboxAiResult = {
   actionItems: [],
   archiveRecommendation: 'keep',
   archiveReason: '',
+  scamWatchdog: { status: 'clear', findings: [] },
 }
 
 function stripBom(text: string): string {
@@ -191,6 +215,7 @@ function normalInboxAiFromParsed(parsed: Record<string, unknown>): NormalInboxAi
     archiveRecommendation: parsed.archiveRecommendation === 'archive' ? 'archive' : 'keep',
     archiveReason: String(parsed.archiveReason ?? '').slice(0, 300),
     draftReply: draftFromFlat ?? normalizeDraftReplyField(parsed.draftReply),
+    scamWatchdog: assembleScamWatchdog(parsed.scamStatus, parsed.scamFindings),
   }
 }
 
@@ -255,6 +280,7 @@ export function tryParsePartialAnalysis(
         'archiveRecommendation',
         'archiveReason',
         'draftReply',
+        'scamWatchdog',
       ],
     }
   }
@@ -309,6 +335,19 @@ export function tryParsePartialAnalysis(
     const items = inner.match(strRegex)?.map((s) => s.slice(1, -1).replace(/\\"/g, '"')) ?? []
     result.actionItems = items.slice(0, 10)
     receivedKeys.push('actionItems')
+  }
+
+  const scamFindingsMatch = text.match(/"scamFindings"\s*:\s*\[(.*?)(?:\]|$)/s)
+  const scamStatusMatch = text.match(/"scamStatus"\s*:\s*"(clear|flagged)"/)
+  if (scamFindingsMatch || scamStatusMatch) {
+    let findings: string[] = []
+    if (scamFindingsMatch) {
+      const inner = scamFindingsMatch[1]
+      const strRegex = new RegExp('"([^"\\\\]*(?:\\\\.[^"\\\\]*)*)"', 'g')
+      findings = inner.match(strRegex)?.map((s) => s.slice(1, -1).replace(/\\"/g, '"')) ?? []
+    }
+    result.scamWatchdog = assembleScamWatchdog(scamStatusMatch?.[1], findings)
+    receivedKeys.push('scamWatchdog')
   }
 
   const draftReplyNullMatch = text.match(/"draftReply"\s*:\s*null/)

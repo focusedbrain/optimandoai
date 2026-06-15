@@ -445,7 +445,7 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
       }
       setAnalysis(cachedAdj)
       setAnalysisStreamParseFailed(false)
-      setReceivedFields(new Set(['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason', 'draftReply']))
+      setReceivedFields(new Set(['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason', 'draftReply', 'scamWatchdog']))
       if (!skipEmailDraft) {
         if (cachedAdj.draftReply && typeof cachedAdj.draftReply === 'string') {
           setDraft(cachedAdj.draftReply)
@@ -495,6 +495,7 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
       actionItems: [],
       archiveRecommendation: 'keep',
       archiveReason: '',
+      scamWatchdog: { status: 'clear', findings: [] },
     }
 
     const cleanup = () => {
@@ -600,7 +601,7 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
           adjusted = { ...adjusted, summary: ov.summary }
         }
         setAnalysis(adjusted)
-        setReceivedFields(new Set(['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason', 'draftReply']))
+        setReceivedFields(new Set(['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason', 'draftReply', 'scamWatchdog']))
         if (!skipEmailDraft) {
           if (adjusted.draftReply && typeof adjusted.draftReply === 'string') {
             setDraft(adjusted.draftReply)
@@ -1800,6 +1801,45 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
                       </button>
                     )}
                   </>
+                ) : (
+                  <span className="inbox-detail-ai-muted">—</span>
+                )}
+              </div>
+            </div>
+
+            {/* Scam Watchdog — phishing / social-engineering signals (informational only) */}
+            <div className="inbox-detail-ai-row">
+              <span className="inbox-detail-ai-row-label">Scam Watchdog</span>
+              <div className="inbox-detail-ai-row-value">
+                {analysisLoading && !receivedFields.has('scamWatchdog') ? (
+                  <span className="inbox-detail-ai-skeleton-inline" />
+                ) : analysis?.scamWatchdog && analysis.scamWatchdog.status === 'flagged' && analysis.scamWatchdog.findings.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span className="inbox-detail-ai-response-needed">
+                      <span className="inbox-detail-ai-dot" style={{ background: '#ef4444' }} />
+                      <span style={{ color: 'var(--text-primary, var(--text-primary-prof))', fontWeight: 600 }}>
+                        Possible scam indicators
+                      </span>
+                    </span>
+                    <ul className="inbox-detail-ai-action-list">
+                      {analysis.scamWatchdog.findings.map((finding, idx) => (
+                        <li
+                          key={idx}
+                          className="inbox-detail-ai-action-item"
+                          style={{ color: 'var(--text-primary, var(--text-primary-prof))' }}
+                        >
+                          {finding}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : analysis ? (
+                  <span className="inbox-detail-ai-response-needed">
+                    <span className="inbox-detail-ai-dot" style={{ background: '#22c55e' }} />
+                    <span style={{ color: 'var(--text-primary, var(--text-primary-prof))' }}>
+                      No scam indicators detected
+                    </span>
+                  </span>
                 ) : (
                   <span className="inbox-detail-ai-muted">—</span>
                 )}

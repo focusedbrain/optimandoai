@@ -33,6 +33,20 @@ export const SORT_CATEGORIES: SortCategory[] = [
 export type AdvisoryRecommendedAction = 'archive' | 'keep'
 
 /**
+ * Scam Watchdog — peer analysis category that flags phishing / social-engineering signals.
+ * Informational only: it surfaces concrete, nameable findings the user can self-verify.
+ * It never auto-acts, blocks, or deletes. `flagged` requires at least one concrete finding;
+ * an unremarkable message is `clear` with an empty `findings` array.
+ */
+export type ScamWatchdogStatus = 'clear' | 'flagged'
+
+export interface ScamWatchdogResult {
+  status: ScamWatchdogStatus
+  /** Concrete, nameable findings (one specific reason each). Empty when status is 'clear'. */
+  findings: string[]
+}
+
+/**
  * Result of aiAnalyzeMessage for Normal Inbox.
  * Advisory: informative only. No DB writes, no auto-actions, no silent reclassification.
  */
@@ -51,6 +65,12 @@ export interface NormalInboxAiResult {
    * Native BEAP uses { publicMessage, encryptedMessage } (from LLM keys draftReplyPublic / draftReplyFull or legacy nested draftReply); email uses a plain string.
    */
   draftReply?: string | { publicMessage: string; encryptedMessage: string } | null
+  /**
+   * Scam Watchdog findings (phishing / social-engineering). Peer analysis category, auto-run
+   * with the rest of the combined analysis. Optional for backward compatibility with cached
+   * results produced before this category existed.
+   */
+  scamWatchdog?: ScamWatchdogResult
 }
 
 /**

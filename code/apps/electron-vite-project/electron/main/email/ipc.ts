@@ -288,6 +288,8 @@ import {
 import { resolveInboxReplyMode } from '../../../src/lib/inboxAiCloneClassification'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
 import { streamInboxOllamaAnalyzeWithSandboxRouting } from './inboxOllamaChatStreamSandbox'
+import { appendScamWatchdogToSystemPrompt, buildScamWatchdogUserContext } from './scamWatchdog'
+import { assembleScamWatchdog } from '../../../src/utils/parseInboxAiJson'
 import { buildInboxAiAnalyzeErrorPayload, buildInboxAiDraftIpcFailure } from './inboxAiErrorMapping'
 import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } from '../../../src/lib/inboxSortSourceWeighting'
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
@@ -4272,7 +4274,7 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
         ? buildNativeBeapAnalyzeBody(row)
         : (row.body_text || '').trim().slice(0, 8000)
       const sortWAnalyze = sortSourceWeightingFromMessageRow(row)
-      const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWAnalyze)}`
+      const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWAnalyze)}${buildScamWatchdogUserContext(body)}`
 
       const { tone, sortRules } = getToneAndSortForPrompts(db)
       const contextBlock = getContextBlockForPrompts(db)
@@ -4306,6 +4308,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
       if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
       if (sortRules) systemPrompt += `\n\nUser custom sorting rules: ${sortRules}`
       if (contextBlock) systemPrompt += contextBlock
+      systemPrompt = appendScamWatchdogToSystemPrompt(systemPrompt)
 
       console.log('[AI-ANALYZE] System prompt length:', systemPrompt.length)
       console.log('[AI-ANALYZE] Calling LLM...')
@@ -4321,6 +4324,8 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
         archiveRecommendation?: string
         archiveReason?: string
         draftReply?: string | null
+        scamStatus?: string
+        scamFindings?: string[]
       }
 
       const parseFailed = !parsed || typeof parsed !== 'object' || Object.keys(parsed).length === 0
@@ -4341,6 +4346,9 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
       const actionItems = parseFailed ? [] : (Array.isArray(parsed.actionItems) ? parsed.actionItems.filter((x): x is string => typeof x === 'string').slice(0, 10) : [])
       const archiveRecommendation = parseFailed ? 'keep' : (parsed.archiveRecommendation === 'archive' ? 'archive' : 'keep')
       const archiveReason = (parseFailed ? 'Could not determine' : (parsed.archiveReason ?? '')).slice(0, 300)
+      const scamWatchdog = parseFailed
+        ? { status: 'clear' as const, findings: [] as string[] }
+        : assembleScamWatchdog(parsed.scamStatus, parsed.scamFindings)
       let draftReply: string | { publicMessage: string; encryptedMessage: string } | null = null
       if (!parseFailed && needsReply) {
         if (isNativeBeap) {
@@ -4372,6 +4380,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
           archiveRecommendation,
           archiveReason,
           draftReply,
+          scamWatchdog,
         },
       }
     } catch (err: any) {
@@ -4677,7 +4686,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
             ? buildNativeBeapAnalyzeBody(row)
             : (row.body_text || '').trim().slice(0, 8000)
           const sortWStream = sortSourceWeightingFromMessageRow(row)
-          const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWStream)}`
+          const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWStream)}${buildScamWatchdogUserContext(body)}`
 
           const { tone, sortRules } = getToneAndSortForPrompts(db)
           const contextBlock = getContextBlockForPrompts(db)
@@ -4704,6 +4713,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
           if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
           if (sortRules) systemPrompt += `\n\nUser custom sorting rules: ${sortRules}`
           if (contextBlock) systemPrompt += contextBlock
+          systemPrompt = appendScamWatchdogToSystemPrompt(systemPrompt)
 
           const up = userPrompt || ''
           console.log(

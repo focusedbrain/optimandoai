@@ -361,6 +361,8 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
     'actionItems',
     'archiveRecommendation',
     'archiveReason',
+    'scamStatus',
+    'scamFindings',
   ]
 
   const baseDiag = (lane: string | undefined, baseUrl: string): InboxOllamaStreamFetchDiag => ({
