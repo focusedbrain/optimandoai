@@ -1203,6 +1203,13 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `CREATE INDEX IF NOT EXISTS idx_hsp_profile ON handshake_hs_profiles(profile_id)`,
     ],
   },
+  {
+    version: 70,
+    description:
+      'Schema v70 (Host-initiated sync Prompt 0): handshakes.topology_pairing_kind — ' +
+      'co-located inner-VM vs remote dedicated Host↔Sandbox topology marker; legacy rows infer at read time.',
+    sql: [`ALTER TABLE handshakes ADD COLUMN topology_pairing_kind TEXT`],
+  },
 ]
 
 /**
@@ -1654,6 +1661,7 @@ export function serializeHandshakeRecord(record: HandshakeRecord): any {
     internal_routing_key: record.internal_routing_key ?? null,
     internal_coordination_identity_complete: record.internal_coordination_identity_complete ? 1 : 0,
     internal_coordination_repair_needed: record.internal_coordination_repair_needed ? 1 : 0,
+    topology_pairing_kind: record.topology_pairing_kind ?? null,
   }
 }
 
@@ -1715,6 +1723,10 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
     internal_routing_key: row.internal_routing_key ?? null,
     internal_coordination_identity_complete: row.internal_coordination_identity_complete === 1,
     internal_coordination_repair_needed: row.internal_coordination_repair_needed === 1,
+    topology_pairing_kind:
+      row.topology_pairing_kind === 'local_inner_vm' || row.topology_pairing_kind === 'remote_dedicated'
+        ? row.topology_pairing_kind
+        : null,
   }
 }
 
@@ -1820,7 +1832,8 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     handshake_type, initiator_device_name, acceptor_device_name, initiator_device_role, acceptor_device_role,
     initiator_coordination_device_id, acceptor_coordination_device_id,
     internal_peer_device_id, internal_peer_device_role, internal_peer_computer_name,
-    internal_routing_key, internal_coordination_identity_complete, internal_coordination_repair_needed
+    internal_routing_key, internal_coordination_identity_complete, internal_coordination_repair_needed,
+    topology_pairing_kind
   ) VALUES (
     @handshake_id, @relationship_id, @state, @initiator_json, @acceptor_json,
     @local_role, @sharing_mode, @reciprocal_allowed,
@@ -1837,7 +1850,8 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     @handshake_type, @initiator_device_name, @acceptor_device_name, @initiator_device_role, @acceptor_device_role,
     @initiator_coordination_device_id, @acceptor_coordination_device_id,
     @internal_peer_device_id, @internal_peer_device_role, @internal_peer_computer_name,
-    @internal_routing_key, @internal_coordination_identity_complete, @internal_coordination_repair_needed
+    @internal_routing_key, @internal_coordination_identity_complete, @internal_coordination_repair_needed,
+    @topology_pairing_kind
   )`).run(s)
 }
 
@@ -1900,8 +1914,20 @@ export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
     internal_peer_computer_name = @internal_peer_computer_name,
     internal_routing_key = @internal_routing_key,
     internal_coordination_identity_complete = @internal_coordination_identity_complete,
-    internal_coordination_repair_needed = @internal_coordination_repair_needed
+    internal_coordination_repair_needed = @internal_coordination_repair_needed,
+    topology_pairing_kind = @topology_pairing_kind
   WHERE handshake_id = @handshake_id`).run(s)
+}
+
+/** Prompt 0: persist inferred/co-located topology marker on an internal Host↔Sandbox row. */
+export function updateHandshakeTopologyPairingKind(
+  db: any,
+  handshakeId: string,
+  kind: 'local_inner_vm' | 'remote_dedicated',
+): void {
+  const hid = typeof handshakeId === 'string' ? handshakeId.trim() : ''
+  if (!db || !hid) return
+  db.prepare(`UPDATE handshakes SET topology_pairing_kind = ? WHERE handshake_id = ?`).run(kind, hid)
 }
 
 export function getHandshakeRecord(db: any, handshakeId: string): HandshakeRecord | null {

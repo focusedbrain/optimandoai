@@ -30,10 +30,14 @@ export interface ConnectedPeer {
  * internal handshake H to a node playing role R". Stored raw here; key-locality
  * (INV-6) validation lives in `critical-jobs/topology.ts` (the seam owns it).
  */
+export type SandboxPairingKind = 'local_inner_vm' | 'remote_dedicated'
+
 export interface LinkedTopologyConfigEntry {
   role: 'sandbox' | 'appliance'
   handshakeId: string
   jobKinds: string[]
+  /** Prompt 0: co-located inner VM vs remote dedicated sandbox (optional on legacy rows). */
+  pairingKind?: SandboxPairingKind
 }
 
 export interface OrchestratorModeConfig {
@@ -161,6 +165,8 @@ function buildConfigFromRaw(raw: unknown): {
 function isLinkedConfigEntry(x: unknown): x is LinkedTopologyConfigEntry {
   if (x == null || typeof x !== 'object') return false
   const o = x as Record<string, unknown>
+  const pk = o.pairingKind
+  if (pk !== undefined && pk !== 'local_inner_vm' && pk !== 'remote_dedicated') return false
   return (
     (o.role === 'sandbox' || o.role === 'appliance') &&
     typeof o.handshakeId === 'string' &&

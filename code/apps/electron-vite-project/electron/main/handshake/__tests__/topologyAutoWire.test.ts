@@ -31,6 +31,7 @@ vi.mock('../../orchestrator/orchestratorModeStore', () => ({
 
 vi.mock('../db', () => ({
   listHandshakeRecords: vi.fn(() => []),
+  updateHandshakeTopologyPairingKind: vi.fn(),
 }))
 
 // ─── Test helpers ─────────────────────────────────────────────────────────────

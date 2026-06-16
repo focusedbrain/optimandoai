@@ -442,7 +442,15 @@ export interface HandshakeRecord {
    * (migration backfill or runtime finalize). Outbound coordination envelopes are blocked until UX repair.
    */
   internal_coordination_repair_needed?: boolean;
+  /**
+   * Host↔Sandbox topology marker (Prompt 0): co-located inner VM vs remote dedicated pair.
+   * Set at topology auto-wire; legacy rows infer from peer endpoint / relay config.
+   */
+  topology_pairing_kind?: SandboxPairingKind | null;
 }
+
+/** @see sandboxTopologyKind.ts */
+export type SandboxPairingKind = 'local_inner_vm' | 'remote_dedicated';
 
 /** Material returned from `ensureKeyAgreementKeys` / persisted on `handshakes` for qBEAP. */
 export interface BeapKeyAgreementMaterial {

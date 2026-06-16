@@ -458,7 +458,7 @@ export function processHandshakeCapsule(
         // so a wiring error never blocks the state transition.
         queueMicrotask(() => {
           void import('./topologyAutoWire')
-            .then((m) => m.autoWireTopologyForHandshake(activeRecord))
+            .then((m) => m.autoWireTopologyForHandshake(activeRecord, { db }))
             .catch((err) => {
               console.error('[TOPOLOGY_AUTO_WIRE] autoWireTopologyForHandshake failed:', err?.message)
             })

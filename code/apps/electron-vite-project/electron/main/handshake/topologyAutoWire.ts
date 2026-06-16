@@ -33,7 +33,7 @@ export function setTopologyDelegationCallback(cb: DelegationCallback | null): vo
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { listHandshakeRecords } from './db'
+import { listHandshakeRecords, updateHandshakeTopologyPairingKind } from './db'
 import { HandshakeState, type HandshakeRecord } from './types'
 import {
   getOrchestratorMode,
@@ -41,6 +41,7 @@ import {
   removeLinkedTopologyEntry,
   type LinkedTopologyConfigEntry,
 } from '../orchestrator/orchestratorModeStore'
+import { inferSandboxPairingKindFromHandshake } from './sandboxTopologyKind'
 
 /** Thrown when the persisted mode conflicts with the ledger role for a handshake. */
 export class TopologyRoleConflictError extends Error {
@@ -111,6 +112,7 @@ function assertRolePrecedence(handshakeId: string, localLedgerRole: 'host' | 'sa
  */
 export function autoWireTopologyForHandshake(
   record: HandshakeRecord,
+  opts?: { db?: unknown },
 ): void {
   if (record.handshake_type !== 'internal') return
   if (record.state !== HandshakeState.ACTIVE) return
@@ -129,10 +131,26 @@ export function autoWireTopologyForHandshake(
   // Validate boot-flag consistency only for the host-wiring path.
   assertRolePrecedence(record.handshake_id, localRole)
 
+  const pairingKind = inferSandboxPairingKindFromHandshake(record, {
+    db: opts?.db,
+    explicitKind: record.topology_pairing_kind ?? undefined,
+  })
+  if (opts?.db && record.topology_pairing_kind !== pairingKind) {
+    try {
+      updateHandshakeTopologyPairingKind(opts.db as any, record.handshake_id, pairingKind)
+    } catch (err) {
+      console.error(
+        `[TOPOLOGY_AUTO_WIRE] Failed to persist topology_pairing_kind for ${record.handshake_id}:`,
+        (err as Error).message,
+      )
+    }
+  }
+
   const entry: LinkedTopologyConfigEntry = {
     role: 'sandbox',
     handshakeId: record.handshake_id,
     jobKinds: EMAIL_DEPACKAGE_KINDS as string[],
+    pairingKind,
   }
   addLinkedTopologyEntry(entry)
   console.log(
@@ -187,10 +205,25 @@ export function syncTopologyFromActiveHandshakes(db: unknown): void {
         )
         continue
       }
+      const pairingKind = inferSandboxPairingKindFromHandshake(record, {
+        db,
+        explicitKind: record.topology_pairing_kind ?? undefined,
+      })
+      if (record.topology_pairing_kind !== pairingKind) {
+        try {
+          updateHandshakeTopologyPairingKind(db as any, record.handshake_id, pairingKind)
+        } catch (err) {
+          console.error(
+            `[TOPOLOGY_AUTO_WIRE] Failed to persist topology_pairing_kind for ${record.handshake_id}:`,
+            (err as Error).message,
+          )
+        }
+      }
       const entry: LinkedTopologyConfigEntry = {
         role: 'sandbox',
         handshakeId: record.handshake_id,
         jobKinds: EMAIL_DEPACKAGE_KINDS as string[],
+        pairingKind,
       }
       addLinkedTopologyEntry(entry)
     }
