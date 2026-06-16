@@ -22,6 +22,10 @@ import {
   type IngestionPollResultWire,
 } from './wire'
 import { httpIngestionPollTransport, type IngestionPollTransport } from './send'
+import {
+  recordHostIngestionPollAck,
+  recordHostIngestionPollUnreachable,
+} from './hostAckStore'
 
 const DEFAULT_POLL_TIMEOUT_MS = (() => {
   const raw = Number(process.env.WRDESK_INGESTION_POLL_TRIGGER_TIMEOUT_MS)
@@ -143,6 +147,7 @@ export async function sendDedicatedSandboxIngestionPollTrigger(
   const transport = opts.transport ?? httpIngestionPollTransport
   const sent = await transport({ endpoint, bearer, wire, timeoutMs })
   if (!sent.ok) {
+    recordHostIngestionPollUnreachable(accountId, requestId)
     return { ok: false, code: sent.code, message: sent.message }
   }
 
@@ -158,6 +163,17 @@ export async function sendDedicatedSandboxIngestionPollTrigger(
   console.log(
     `[IngestionPollTrigger] host trigger ack. request_id=${requestId} status=${body.poll_status} fetched=${body.fetched} delivered=${body.delivered} held=${body.held}`,
   )
+
+  recordHostIngestionPollAck({
+    accountId,
+    requestId,
+    pollStatus: body.poll_status,
+    fetched: body.fetched,
+    depackaged: body.depackaged,
+    delivered: body.delivered,
+    held: body.held,
+    at: Date.now(),
+  })
 
   return {
     ok: true,

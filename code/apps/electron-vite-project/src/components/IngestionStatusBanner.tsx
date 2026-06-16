@@ -13,10 +13,9 @@
  * Silent states (no banner):
  *   OK_SINGLE_MACHINE           → healthy single-machine, no topology info needed
  *   OK_SANDBOX_FETCHING         → sandbox working, no user action needed
- *   PAUSED_HOST_DELEGATED       → transient waiting state; shown only when
- *                                 sandbox hasn't confirmed fetching yet — silent
- *                                 because the action ("connect sandbox account") is
- *                                 only possible on the sandbox device, not here.
+ *   PAUSED_HOST_DELEGATED       → normal delegated waiting; silent except when
+ *                                 PROMPT 4 dedicated host learns missing read
+ *                                 provider / unreachable from trigger ack
  *
  * Suppression: do NOT render this component when the caller has determined that
  * the topology is single-machine (useIngestionStatus returns null).
@@ -27,6 +26,13 @@
 
 import type { IngestionStatusResult } from '../../electron/main/email/ingestionStatus'
 import type { IngestionStatusCode } from '../../electron/main/email/ingestionStatus'
+import {
+  HOST_SANDBOX_POLL_UNREACHABLE_HINT,
+  HOST_SANDBOX_READ_ACCOUNT_MISSING_HINT,
+  SANDBOX_READ_ACCOUNT_SETUP_CTA,
+  SANDBOX_READ_ACCOUNT_SETUP_DETAIL,
+  SANDBOX_READ_ACCOUNT_SETUP_TITLE,
+} from '../lib/dedicatedSandboxMissingReadProviderCopy'
 
 // ── Copy ─────────────────────────────────────────────────────────────────────
 
@@ -46,6 +52,41 @@ const COPY: Partial<Record<IngestionStatusCode, { title: string; detail: string;
     detail: 'Some messages were held for review on your sandbox. Check the sandbox device for details.',
     level: 'degraded',
   },
+}
+
+function copyForStatus(status: IngestionStatusResult): { title: string; detail: string; level: 'warn' | 'degraded' } | null {
+  const base = COPY[status.code]
+  if (!base) return null
+
+  if (status.code === 'ACTION_NEEDED_READ_CONSENT') {
+    if (status.sandboxTopologyKind === 'dedicated' && status.thisNodeRole === 'host') {
+      return {
+        ...base,
+        title: 'Sandbox read account needed',
+        detail: HOST_SANDBOX_READ_ACCOUNT_MISSING_HINT,
+      }
+    }
+    if (status.sandboxTopologyKind === 'dedicated' && status.thisNodeRole === 'sandbox') {
+      return {
+        ...base,
+        title: SANDBOX_READ_ACCOUNT_SETUP_TITLE,
+        detail: SANDBOX_READ_ACCOUNT_SETUP_DETAIL,
+      }
+    }
+  }
+
+  if (
+    status.code === 'PAUSED_SANDBOX_UNREACHABLE' &&
+    status.sandboxTopologyKind === 'dedicated' &&
+    status.thisNodeRole === 'host'
+  ) {
+    return {
+      ...base,
+      detail: HOST_SANDBOX_POLL_UNREACHABLE_HINT,
+    }
+  }
+
+  return base
 }
 
 // ── Palette ───────────────────────────────────────────────────────────────────
@@ -80,7 +121,7 @@ type Props = {
 export function IngestionStatusBanner({ status, onConnectReadAccount }: Props) {
   if (!status) return null
 
-  const copy = COPY[status.code]
+  const copy = copyForStatus(status)
   if (!copy) return null  // OK states or unknown → no banner
 
   const isWarn = copy.level === 'warn'
@@ -137,7 +178,9 @@ export function IngestionStatusBanner({ status, onConnectReadAccount }: Props) {
               cursor: 'pointer',
             }}
           >
-            Connect now
+            {status.sandboxTopologyKind === 'dedicated'
+              ? SANDBOX_READ_ACCOUNT_SETUP_CTA
+              : 'Connect now'}
           </button>
         )}
     </div>

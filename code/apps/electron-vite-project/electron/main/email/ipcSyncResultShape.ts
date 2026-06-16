@@ -45,6 +45,29 @@ export function formatIngestionPollTriggerPullHint(trigger: IngestionPollTrigger
   return `${TRIGGER_SUCCESS_HINT} Fetched ${trigger.fetched}, delivered ${trigger.delivered}, held ${trigger.held}.`
 }
 
+/** Host Sync feedback after a dedicated trigger ack (PROMPT 4). */
+export function mapIngestionPollTriggerHostFeedback(trigger: IngestionPollTriggerCounts): {
+  ok: boolean
+  pullHint: string
+  syncWarnings: string[]
+} {
+  if (trigger.pollStatus === 'held_read_consent_missing') {
+    const msg =
+      'The sandbox device has no email account set up — set up a read-only account on the sandbox to receive mail.'
+    return { ok: false, pullHint: msg, syncWarnings: [msg] }
+  }
+  if (trigger.pollStatus === 'held_fetch_failed' || trigger.pollStatus === 'trigger_unreachable') {
+    const msg =
+      'Your sandbox device could not fetch mail. Check that it is online, the internal handshake is active, and the read account is connected on the sandbox.'
+    return { ok: false, pullHint: msg, syncWarnings: [msg] }
+  }
+  return {
+    ok: true,
+    pullHint: formatIngestionPollTriggerPullHint(trigger),
+    syncWarnings: [],
+  }
+}
+
 // ── Skip-reason mapping ───────────────────────────────────────────────────────
 
 export interface SkipReasonIpcResult {

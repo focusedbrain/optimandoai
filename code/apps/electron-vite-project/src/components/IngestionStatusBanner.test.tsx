@@ -14,7 +14,10 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { IngestionStatusBanner } from './IngestionStatusBanner'
 import type { IngestionStatusResult } from '../../electron/main/email/ingestionStatus'
 
-function makeStatus(code: IngestionStatusResult['code']): IngestionStatusResult {
+function makeStatus(
+  code: IngestionStatusResult['code'],
+  over: Partial<IngestionStatusResult> = {},
+): IngestionStatusResult {
   return {
     code,
     owner: code === 'OK_SINGLE_MACHINE' ? 'host' : 'sandbox',
@@ -24,6 +27,8 @@ function makeStatus(code: IngestionStatusResult['code']): IngestionStatusResult 
     ownershipReason: 'test',
     accounts: [],
     resolvedAt: Date.now(),
+    sandboxTopologyKind: 'none',
+    ...over,
   }
 }
 
@@ -37,6 +42,35 @@ describe('IngestionStatusBanner — actionable states render correct copy', () =
     expect(html).toContain('read-only')
     expect(html).toContain('data-testid="ingestion-status-banner"')
     expect(html).toContain('data-ingestion-code="ACTION_NEEDED_READ_CONSENT"')
+  })
+
+  it('dedicated host ACTION_NEEDED shows actionable missing read-account copy', () => {
+    const html = renderToStaticMarkup(
+      <IngestionStatusBanner
+        status={makeStatus('ACTION_NEEDED_READ_CONSENT', {
+          thisNodeRole: 'host',
+          owner: 'sandbox',
+          sandboxTopologyKind: 'dedicated',
+        })}
+      />,
+    )
+    expect(html).toContain('Sandbox read account needed')
+    expect(html).toContain('no email account set up')
+    expect(html).not.toContain('ingestion-banner-connect-cta')
+  })
+
+  it('dedicated sandbox ACTION_NEEDED shows local setup CTA', () => {
+    const html = renderToStaticMarkup(
+      <IngestionStatusBanner
+        status={makeStatus('ACTION_NEEDED_READ_CONSENT', {
+          thisNodeRole: 'sandbox',
+          sandboxTopologyKind: 'dedicated',
+        })}
+        onConnectReadAccount={() => {}}
+      />,
+    )
+    expect(html).toContain('Set up read-only account')
+    expect(html).toContain('Set up a read-only email account here')
   })
 
   it('PAUSED_SANDBOX_UNREACHABLE: title + detail about unreachable sandbox', () => {

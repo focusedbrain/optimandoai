@@ -29,7 +29,8 @@ vi.mock('../sandboxIngestion', () => ({
   getLastSandboxPollOutcomes: () => mockGetLastSandboxPollOutcomes(),
 }))
 
-import { resolveIngestionStatus, type IngestionStatusResult } from '../ingestionStatus'
+import { resolveIngestionStatus, type IngestionStatusResult, _setIngestionStatusTopologyKindForTests } from '../ingestionStatus'
+import { _resetHostIngestionPollAcksForTests, recordHostIngestionPollAck } from '../ingestionPollTrigger/hostAckStore'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -89,6 +90,8 @@ describe('resolveIngestionStatus — IngestionStatusCode mapping', () => {
     mockHasRoleScopedTokens.mockReset()
     mockGetLastSandboxPollOutcomes.mockReset()
     mockGetLastSandboxPollOutcomes.mockReturnValue(new Map())
+    _setIngestionStatusTopologyKindForTests(null)
+    _resetHostIngestionPollAcksForTests()
   })
 
   // ── OK_SINGLE_MACHINE ──────────────────────────────────────────────────────
@@ -141,6 +144,7 @@ describe('resolveIngestionStatus — IngestionStatusCode mapping', () => {
   // ── ACTION_NEEDED_READ_CONSENT ─────────────────────────────────────────────
 
   it('ACTION_NEEDED_READ_CONSENT — sandbox owns, read consent missing for one account', async () => {
+    _setIngestionStatusTopologyKindForTests('dedicated')
     mockResolveIngestionOwnership.mockReturnValue(sandboxOwnsOnSandbox())
     // acc1 has consent, acc2 does not
     mockHasRoleScopedTokens.mockImplementation((id, role) => role === 'read' && id === 'acc1')
@@ -156,6 +160,7 @@ describe('resolveIngestionStatus — IngestionStatusCode mapping', () => {
   })
 
   it('ACTION_NEEDED_READ_CONSENT — maps to sandboxIngestion held_read_consent_missing', async () => {
+    _setIngestionStatusTopologyKindForTests('dedicated')
     mockResolveIngestionOwnership.mockReturnValue(sandboxOwnsOnSandbox())
     mockHasRoleScopedTokens.mockReturnValue(false) // no read consent
     // The sandbox ran a poll and returned held_read_consent_missing
@@ -288,5 +293,94 @@ describe('resolveIngestionStatus — IngestionStatusCode mapping', () => {
 
     const res = await resolveIngestionStatus(['acc3', 'acc1', 'acc2'])
     expect(res.accounts.map((a) => a.accountId)).toEqual(['acc3', 'acc1', 'acc2'])
+  })
+
+  // ── PROMPT 4 dedicated topology ───────────────────────────────────────────
+
+  it('dedicated sandbox, no read accounts → ACTION_NEEDED_READ_CONSENT', async () => {
+    _setIngestionStatusTopologyKindForTests('dedicated')
+    mockResolveIngestionOwnership.mockReturnValue(sandboxOwnsOnSandbox())
+    mockHasRoleScopedTokens.mockReturnValue(false)
+
+    const res = await resolveIngestionStatus([])
+    expect(res.code).toBe('ACTION_NEEDED_READ_CONSENT')
+    expect(res.sandboxTopologyKind).toBe('dedicated')
+  })
+
+  it('single-machine sandbox, missing read consent → silent PAUSED_HOST_DELEGATED', async () => {
+    _setIngestionStatusTopologyKindForTests('single_machine')
+    mockResolveIngestionOwnership.mockReturnValue(sandboxOwnsOnSandbox())
+    mockHasRoleScopedTokens.mockReturnValue(false)
+
+    const res = await resolveIngestionStatus(['acc1'])
+    expect(res.code).toBe('PAUSED_HOST_DELEGATED')
+    expect(res.sandboxTopologyKind).toBe('single_machine')
+  })
+
+  it('dedicated delegated host learns missing read account from trigger ack', async () => {
+    _setIngestionStatusTopologyKindForTests('dedicated')
+    mockResolveIngestionOwnership.mockReturnValue(delegatedOwnershipOnHost())
+    recordHostIngestionPollAck({
+      accountId: 'acc-host',
+      requestId: 'req-1',
+      pollStatus: 'held_read_consent_missing',
+      fetched: 0,
+      depackaged: 0,
+      delivered: 0,
+      held: 0,
+      at: Date.now(),
+    })
+
+    const res = await resolveIngestionStatus(['acc-host'])
+    expect(res.code).toBe('ACTION_NEEDED_READ_CONSENT')
+    expect(res.thisNodeRole).toBe('host')
+  })
+
+  it('dedicated delegated host distinguishes fetch failure from missing read account', async () => {
+    _setIngestionStatusTopologyKindForTests('dedicated')
+    mockResolveIngestionOwnership.mockReturnValue(delegatedOwnershipOnHost())
+    recordHostIngestionPollAck({
+      accountId: 'acc-host',
+      requestId: 'req-2',
+      pollStatus: 'held_fetch_failed',
+      fetched: 0,
+      depackaged: 0,
+      delivered: 0,
+      held: 0,
+      at: Date.now(),
+    })
+
+    const res = await resolveIngestionStatus(['acc-host'])
+    expect(res.code).toBe('PAUSED_SANDBOX_UNREACHABLE')
+  })
+
+  it('dedicated delegated host with ok trigger ack stays quiet', async () => {
+    _setIngestionStatusTopologyKindForTests('dedicated')
+    mockResolveIngestionOwnership.mockReturnValue(delegatedOwnershipOnHost())
+    recordHostIngestionPollAck({
+      accountId: 'acc-host',
+      requestId: 'req-3',
+      pollStatus: 'ok',
+      fetched: 1,
+      depackaged: 1,
+      delivered: 1,
+      held: 0,
+      at: Date.now(),
+    })
+
+    const res = await resolveIngestionStatus(['acc-host'])
+    expect(res.code).toBe('PAUSED_HOST_DELEGATED')
+  })
+
+  it('dedicated sandbox working → OK_SANDBOX_FETCHING (quiet)', async () => {
+    _setIngestionStatusTopologyKindForTests('dedicated')
+    mockResolveIngestionOwnership.mockReturnValue(sandboxOwnsOnSandbox())
+    mockHasRoleScopedTokens.mockReturnValue(true)
+    mockGetLastSandboxPollOutcomes.mockReturnValue(new Map([
+      ['acc1', pollOutcome('ok', { fetched: 2, delivered: 2, held: 0 })],
+    ]))
+
+    const res = await resolveIngestionStatus(['acc1'])
+    expect(res.code).toBe('OK_SANDBOX_FETCHING')
   })
 })

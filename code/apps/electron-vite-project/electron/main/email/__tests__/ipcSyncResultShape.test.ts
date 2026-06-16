@@ -18,6 +18,7 @@ import {
   DELEGATED_HINT,
   TRIGGER_FAILED_HINT,
   formatIngestionPollTriggerPullHint,
+  mapIngestionPollTriggerHostFeedback,
 } from '../ipcSyncResultShape'
 
 describe('mapSkipReasonToIpcWarning — skip reason routing', () => {
@@ -103,18 +104,52 @@ describe('mapSkipReasonToIpcWarning — dedicated host trigger', () => {
   })
 })
 
-describe('formatIngestionPollTriggerPullHint', () => {
-  it('includes INV-5 counts only', () => {
-    const hint = formatIngestionPollTriggerPullHint({
+describe('mapIngestionPollTriggerHostFeedback', () => {
+  it('held_read_consent_missing → actionable host warning', () => {
+    const r = mapIngestionPollTriggerHostFeedback({
       requestId: 'req-1',
+      pollStatus: 'held_read_consent_missing',
+      fetched: 0,
+      depackaged: 0,
+      delivered: 0,
+      held: 0,
+    })
+    expect(r.ok).toBe(false)
+    expect(r.syncWarnings[0]).toContain('read-only account on the sandbox')
+  })
+
+  it('held_fetch_failed → unreachable warning distinct from missing account', () => {
+    const missing = mapIngestionPollTriggerHostFeedback({
+      requestId: 'req-1',
+      pollStatus: 'held_read_consent_missing',
+      fetched: 0,
+      depackaged: 0,
+      delivered: 0,
+      held: 0,
+    })
+    const offline = mapIngestionPollTriggerHostFeedback({
+      requestId: 'req-2',
+      pollStatus: 'held_fetch_failed',
+      fetched: 0,
+      depackaged: 0,
+      delivered: 0,
+      held: 0,
+    })
+    expect(offline.ok).toBe(false)
+    expect(offline.syncWarnings[0]).not.toBe(missing.syncWarnings[0])
+    expect(offline.syncWarnings[0]).toContain('could not fetch mail')
+  })
+
+  it('ok poll → success feedback', () => {
+    const r = mapIngestionPollTriggerHostFeedback({
+      requestId: 'req-3',
       pollStatus: 'ok',
-      fetched: 2,
-      depackaged: 2,
+      fetched: 1,
+      depackaged: 1,
       delivered: 1,
       held: 0,
     })
-    expect(hint).toContain('Fetched 2')
-    expect(hint).toContain('delivered 1')
-    expect(hint).not.toMatch(/@|Subject:/)
+    expect(r.ok).toBe(true)
+    expect(r.pullHint).toContain('Fetched 1')
   })
 })

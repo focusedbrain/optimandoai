@@ -34,6 +34,13 @@
 import { resolveIngestionOwnershipWithLedger } from './ingestionOwnership'
 import { hasRoleScopedTokens } from './roleScopedTokenStore'
 import { getLastSandboxPollOutcomes } from './sandboxIngestion'
+import { resolveSandboxTopologyKind, type SandboxTopologyKind } from '../handshake/sandboxTopologyKind'
+import { getLastHostIngestionPollAcks } from './ingestionPollTrigger/hostAckStore'
+import {
+  hostAckIndicatesMissingReadProvider,
+  hostAckIndicatesPollUnreachable,
+  sandboxDedicatedMissingReadProvider,
+} from './dedicatedSandboxReadProviderStatus'
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -86,9 +93,23 @@ export interface IngestionStatusResult {
 
   /** Unix ms when this snapshot was computed. */
   resolvedAt: number
+
+  /** Dedicated vs single-machine vs unpaired (`resolveSandboxTopologyKind`). */
+  sandboxTopologyKind: SandboxTopologyKind
 }
 
 // ── Resolver ─────────────────────────────────────────────────────────────────
+
+let topologyKindOverrideForTests: SandboxTopologyKind | null = null
+
+/** Test-only override for `resolveSandboxTopologyKind()`. */
+export function _setIngestionStatusTopologyKindForTests(kind: SandboxTopologyKind | null): void {
+  topologyKindOverrideForTests = kind
+}
+
+function readSandboxTopologyKind(): SandboxTopologyKind {
+  return topologyKindOverrideForTests ?? resolveSandboxTopologyKind()
+}
 
 /**
  * Compute the ingestion status snapshot for the given account ids. Pure read —
@@ -101,6 +122,8 @@ export interface IngestionStatusResult {
 export async function resolveIngestionStatus(accountIds: readonly string[]): Promise<IngestionStatusResult> {
   const ownership = await resolveIngestionOwnershipWithLedger()
   const lastPolls = getLastSandboxPollOutcomes()
+  const sandboxTopologyKind = readSandboxTopologyKind()
+  const hostTriggerAcks = getLastHostIngestionPollAcks()
 
   const accounts: IngestionAccountStatus[] = accountIds.map((accountId) => {
     const readConsentPresent = hasRoleScopedTokens(accountId, 'read')
@@ -126,6 +149,7 @@ export async function resolveIngestionStatus(accountIds: readonly string[]): Pro
     ownershipReason: ownership.reason,
     accounts,
     resolvedAt: Date.now(),
+    sandboxTopologyKind,
   }
 
   // ── S1: single machine, host owns ingestion ──────────────────────────────
@@ -133,19 +157,34 @@ export async function resolveIngestionStatus(accountIds: readonly string[]): Pro
     return { ...base, code: 'OK_SINGLE_MACHINE' }
   }
 
-  // ── Host that delegated to sandbox (this node is the host) ───────────────
-  // ingestion_delegated_to_sandbox: syncOrchestrator.ts:466
+  // ── Dedicated delegated host — learn sandbox state from trigger acks (PROMPT 4) ─
   if (ownership.thisNodeRole === 'host' && !ownership.hostShouldReadPoll) {
+    if (sandboxTopologyKind === 'dedicated') {
+      if (hostAckIndicatesMissingReadProvider(hostTriggerAcks, accountIds)) {
+        return { ...base, code: 'ACTION_NEEDED_READ_CONSENT' }
+      }
+      if (hostAckIndicatesPollUnreachable(hostTriggerAcks, accountIds)) {
+        return { ...base, code: 'PAUSED_SANDBOX_UNREACHABLE' }
+      }
+    }
     return { ...base, code: 'PAUSED_HOST_DELEGATED' }
   }
 
   // ── Sandbox path ─────────────────────────────────────────────────────────
   if (ownership.sandboxShouldReadPoll) {
-    // ACTION_NEEDED: any account is missing its read-consent token.
-    // sandboxIngestion.ts:183 held_read_consent_missing
-    const anyMissingConsent = accounts.some((a) => !a.readConsentPresent)
-    if (anyMissingConsent) {
+    if (sandboxTopologyKind === 'dedicated' && sandboxDedicatedMissingReadProvider(accounts)) {
       return { ...base, code: 'ACTION_NEEDED_READ_CONSENT' }
+    }
+
+    // Single-machine inner-VM sandbox: no missing-provider warnings (PROMPT 4).
+    if (sandboxTopologyKind === 'single_machine') {
+      if (accounts.some((a) => !a.readConsentPresent)) {
+        return { ...base, code: 'PAUSED_HOST_DELEGATED' }
+      }
+    } else if (sandboxTopologyKind !== 'dedicated') {
+      if (accounts.some((a) => !a.readConsentPresent)) {
+        return { ...base, code: 'ACTION_NEEDED_READ_CONSENT' }
+      }
     }
 
     // No poll has run yet (consent just granted, first tick hasn't fired).
