@@ -40,6 +40,8 @@ vi.mock('../ingestionOwnership', () => {
   return {
     // syncOrchestrator now calls the async with-ledger variant
     resolveIngestionOwnershipWithLedger: () => Promise.resolve(ownershipState.value),
+    isDedicatedSandboxFetchNode: () => Promise.resolve(false),
+    INGESTION_HOST_TRIGGERED_ONLY_SKIP: 'ingestion_host_triggered_only',
     assertHostMayReadPoll: (site: string, o?: IngestionOwnership) => {
       const own = o ?? ownershipState.value
       if (own.thisNodeRole === 'host' && !own.hostShouldReadPoll) {

@@ -21,6 +21,10 @@ export const PAUSED_HINT =
 export const DELEGATED_HINT =
   'Inbound mail is fetched on your sandbox device. Connect a read-only account there to resume receiving mail.'
 
+/** Dedicated sandbox: inbound fetch is initiated by the paired host only (PROMPT 1). */
+export const HOST_TRIGGERED_HINT =
+  'Inbound mail sync waits for your host device to trigger a pull. Manual Sync and auto-sync are disabled on this dedicated sandbox.'
+
 // ── Skip-reason mapping ───────────────────────────────────────────────────────
 
 export interface SkipReasonIpcResult {
@@ -57,6 +61,14 @@ export function mapSkipReasonToIpcWarning(
       isSkip: true,
       hint,
       msg: `${hint} (Settings → Email Accounts → add a read-only account on the sandbox machine.)`,
+    }
+  }
+  if (skipReason === 'ingestion_host_triggered_only') {
+    const hint = HOST_TRIGGERED_HINT
+    return {
+      isSkip: true,
+      hint,
+      msg: hint,
     }
   }
   return { isSkip: false }

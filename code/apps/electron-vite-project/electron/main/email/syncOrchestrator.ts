@@ -25,7 +25,7 @@ import {
 import { emailGateway } from './gateway'
 import { detectAndRouteMessage, type RawEmailMessage } from './messageRouter'
 import { isOpaqueIngestionActive } from './opaqueIngestion'
-import { resolveIngestionOwnershipWithLedger, assertHostMayReadPoll } from './ingestionOwnership'
+import { resolveIngestionOwnershipWithLedger, assertHostMayReadPoll, isDedicatedSandboxFetchNode, INGESTION_HOST_TRIGGERED_ONLY_SKIP } from './ingestionOwnership'
 import type { SSOSession } from '../handshake/types'
 import { emailDebugLog, emailDebugWarn } from './emailDebug'
 import {
@@ -105,8 +105,10 @@ export interface SyncResult {
    *  - `ingestion_delegated_to_sandbox`: Prompt 3 (A2) — a linked sandbox owns
    *    email ingestion, so the host did NOT read-poll/parse (it keeps its send
    *    client for outbound). The sandbox node fetches + depackages + returns BEAP.
+   *  - `ingestion_host_triggered_only`: dedicated sandbox — no self-initiated pull;
+   *    host trigger (PROMPT 2+) is the only allowed fetch path.
    */
-  skipReason?: 'processing_paused' | 'ingestion_delegated_to_sandbox'
+  skipReason?: 'processing_paused' | 'ingestion_delegated_to_sandbox' | typeof INGESTION_HOST_TRIGGERED_ONLY_SKIP
 }
 
 export interface EmailSyncStateUpdates {
@@ -464,6 +466,18 @@ async function syncAccountEmailsImpl(
       listedFromProvider: 0,
       skippedDuplicate: 0,
       skipReason: 'ingestion_delegated_to_sandbox',
+    }
+  }
+
+  if (await isDedicatedSandboxFetchNode(db)) {
+    console.log(
+      `[SyncOrchestrator] dedicated sandbox — host-triggered ingestion only; skipping self pull. account=${accountId}`,
+    )
+    return {
+      ...result,
+      listedFromProvider: 0,
+      skippedDuplicate: 0,
+      skipReason: INGESTION_HOST_TRIGGERED_ONLY_SKIP,
     }
   }
 
@@ -1074,6 +1088,13 @@ export function startAutoSync(
       // a linked topology, so single-machine auto-sync is unchanged.
       const tickOwnership = await resolveIngestionOwnershipWithLedger()
       if (tickOwnership.sandboxShouldReadPoll) {
+        if (await isDedicatedSandboxFetchNode(db)) {
+          console.log(
+            `[AUTO_SYNC] dedicated sandbox — host-triggered only; skipping self poll account=${accountId}`,
+          )
+          scheduleNext()
+          return
+        }
         try {
           const { runSandboxIngestionPoll } = await import('./sandboxIngestion')
           const { buildProductionSandboxIngestionDeps } = await import('./sandboxIngestionProduction')

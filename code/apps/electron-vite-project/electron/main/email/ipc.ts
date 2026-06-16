@@ -189,6 +189,7 @@ function getInboxAiRulesForPrompt(): string {
 import { emailGateway } from './gateway'
 import { resolveIngestionStatus } from './ingestionStatus'
 import { mapSkipReasonToIpcWarning } from './ipcSyncResultShape'
+import { isDedicatedSandboxFetchNode, INGESTION_HOST_TRIGGERED_ONLY_SKIP } from './ingestionOwnership'
 import { pickOauthDebugFromError } from './gmailOAuthConnectDebug'
 import { DIAGNOSE_IMAP_IPC_DEV, EMAIL_DEBUG, emailDebugLog, gmailPersistenceDebugLog } from './emailDebug'
 import { runDiagnoseImapStandalone } from './diagnoseImapStandalone'
@@ -536,7 +537,7 @@ let inboxDbGetterForEmailIpc: (() => Promise<any> | any) | null = null
  * - Failure / timeout / `!result.ok`: send lightweight `{ inboxInvalidate: true, reason }`.
  */
 function broadcastInboxSnapshotAfterSync(result: SyncResult | null, error?: unknown): void {
-  if (result?.skipReason === 'ingestion_delegated_to_sandbox') {
+  if (result?.skipReason === 'ingestion_delegated_to_sandbox' || result?.skipReason === INGESTION_HOST_TRIGGERED_ONLY_SKIP) {
     const payload = { ...result, clearSyncFailureWarnings: true as const }
     BrowserWindow.getAllWindows().forEach((w) => {
       try {
@@ -583,6 +584,10 @@ function ensureImapBruteForceAutoSyncIntervalRegistered(getDb: () => Promise<any
         const accounts = await emailGateway.listAccounts()
         const db = typeof getDb === 'function' ? await getDb() : getDb
         if (!db) return
+
+        if (await isDedicatedSandboxFetchNode(db)) {
+          return
+        }
 
         for (const acc of accounts) {
           if (acc.provider !== 'imap' || acc.status !== 'active') continue
@@ -2734,6 +2739,34 @@ Rules:
     })
     const db = await resolveDb()
     if (!db) return { ok: false, error: 'Database unavailable' }
+
+    if (await isDedicatedSandboxFetchNode(db)) {
+      console.log(
+        `[PULL] inbox:${kind === 'pullMore' ? 'pullMore' : 'syncAccount'} skipped — ${INGESTION_HOST_TRIGGERED_ONLY_SKIP} account=${accountId}`,
+      )
+      const skipped: SyncResult = {
+        ok: true,
+        newMessages: 0,
+        beapMessages: 0,
+        plainMessages: 0,
+        errors: [],
+        newInboxMessageIds: [],
+        listedFromProvider: 0,
+        skippedDuplicate: 0,
+        skipReason: INGESTION_HOST_TRIGGERED_ONLY_SKIP,
+      }
+      const skipMapping = mapSkipReasonToIpcWarning(skipped.skipReason)
+      const pullStats = { listed: 0, new: 0, skippedDupes: 0, errors: 0 }
+      return {
+        ok: false,
+        error: skipMapping.isSkip ? skipMapping.msg : 'Inbound sync is host-triggered on this sandbox device.',
+        data: skipped,
+        pullStats,
+        pullHint: skipMapping.isSkip ? skipMapping.hint : undefined,
+        warningCount: 1,
+        syncWarnings: [skipMapping.isSkip ? skipMapping.msg : 'Inbound sync is host-triggered on this sandbox device.'],
+      }
+    }
 
     let result: Awaited<ReturnType<typeof syncAccountEmails>>
     try {

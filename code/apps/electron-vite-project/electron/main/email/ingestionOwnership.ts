@@ -142,6 +142,25 @@ export async function resolveIngestionOwnershipWithLedger(): Promise<IngestionOw
   return resolveIngestionOwnership({ ledgerProvesSandbox })
 }
 
+/** Skip reason when a dedicated sandbox must not self-pull (host-initiated sync only). */
+export const INGESTION_HOST_TRIGGERED_ONLY_SKIP = 'ingestion_host_triggered_only' as const
+
+/**
+ * True on a separate-machine dedicated sandbox that owns ingestion fetch
+ * (`sandboxShouldReadPoll`) — self-initiated pulls are forbidden; PROMPT 2+
+ * host trigger replaces them. Single-machine (`single_machine` topology) is false.
+ */
+export async function isDedicatedSandboxFetchNode(db?: unknown): Promise<boolean> {
+  const ownership = await resolveIngestionOwnershipWithLedger()
+  if (!ownership.sandboxShouldReadPoll) return false
+  try {
+    const { resolveSandboxTopologyKind } = await import('../handshake/sandboxTopologyKind')
+    return resolveSandboxTopologyKind(db) === 'dedicated'
+  } catch {
+    return false
+  }
+}
+
 /** Thrown when host read-poll/parse is attempted while a sandbox owns ingestion. */
 export class HostReadPollForbiddenError extends Error {
   readonly code = 'E_HOST_READ_POLL_FORBIDDEN' as const
