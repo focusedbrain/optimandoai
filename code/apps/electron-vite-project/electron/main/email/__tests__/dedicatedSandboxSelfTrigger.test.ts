@@ -10,6 +10,10 @@ const getAccount = vi.fn()
 const runSandboxIngestionPoll = vi.fn()
 const dedicatedFetchNode = vi.hoisted(() => ({ value: false }))
 const topologyKind = vi.hoisted(() => ({ value: 'none' as 'single_machine' | 'dedicated' | 'none' }))
+const hostTriggerMock = vi.hoisted(() => ({
+  shouldTrigger: vi.fn(() => Promise.resolve(false)),
+  sendTrigger: vi.fn(),
+}))
 
 const ownershipState = vi.hoisted(() => ({
   value: {
@@ -32,6 +36,11 @@ vi.mock('../gateway', () => ({
 
 vi.mock('../handshake/sandboxTopologyKind', () => ({
   resolveSandboxTopologyKind: () => topologyKind.value,
+}))
+
+vi.mock('../ingestionPollTrigger/hostTrigger', () => ({
+  shouldHostTriggerDedicatedSandboxPoll: (...args: unknown[]) => hostTriggerMock.shouldTrigger(...args),
+  sendDedicatedSandboxIngestionPollTrigger: (...args: unknown[]) => hostTriggerMock.sendTrigger(...args),
 }))
 
 vi.mock('../sandboxIngestion', () => ({
@@ -101,6 +110,9 @@ describe('syncAccountEmails — dedicated sandbox self-trigger gate', () => {
     runSandboxIngestionPoll.mockReset()
     dedicatedFetchNode.value = false
     topologyKind.value = 'none'
+    hostTriggerMock.shouldTrigger.mockReset()
+    hostTriggerMock.sendTrigger.mockReset()
+    hostTriggerMock.shouldTrigger.mockResolvedValue(false)
     ownershipState.value = {
       owner: 'sandbox',
       thisNodeRole: 'sandbox',
@@ -146,7 +158,7 @@ describe('syncAccountEmails — dedicated sandbox self-trigger gate', () => {
     expect(getAccount).toHaveBeenCalled()
   })
 
-  it('dedicated host → delegated skip unchanged (not host-triggered sandbox skip)', async () => {
+  it('dedicated delegated host → sends poll trigger (host does not fetch locally)', async () => {
     dedicatedFetchNode.value = false
     topologyKind.value = 'dedicated'
     ownershipState.value = {
@@ -156,13 +168,26 @@ describe('syncAccountEmails — dedicated sandbox self-trigger gate', () => {
       sandboxShouldReadPoll: false,
       reason: 'linked sandbox owns ingestion',
     }
+    hostTriggerMock.shouldTrigger.mockResolvedValue(true)
+    hostTriggerMock.sendTrigger.mockResolvedValue({
+      ok: true,
+      trigger: {
+        requestId: 'req-dedicated',
+        pollStatus: 'ok',
+        fetched: 1,
+        depackaged: 1,
+        delivered: 1,
+        held: 0,
+      },
+    })
     getAccountConfig.mockReturnValue({ provider: 'gmail' })
     getAccount.mockRejectedValue(new Error('HOST_SHOULD_NOT_FETCH'))
 
     const r = await syncAccountEmails({} as any, { accountId: 'acc-host-delegated' })
-    expect(r.skipReason).toBe('ingestion_delegated_to_sandbox')
+    expect(r.skipReason).toBe('ingestion_triggered_to_sandbox')
     expect(r.skipReason).not.toBe(INGESTION_HOST_TRIGGERED_ONLY_SKIP)
     expect(getAccount).not.toHaveBeenCalled()
+    expect(hostTriggerMock.sendTrigger).toHaveBeenCalled()
   })
 })
 

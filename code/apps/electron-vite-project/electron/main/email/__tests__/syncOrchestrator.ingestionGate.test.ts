@@ -33,6 +33,14 @@ const ownershipState = vi.hoisted(() => ({
     reason: 'test-default',
   } as IngestionOwnership,
 }))
+const hostTriggerMock = vi.hoisted(() => ({
+  shouldTrigger: vi.fn(() => Promise.resolve(false)),
+  sendTrigger: vi.fn(),
+}))
+vi.mock('../ingestionPollTrigger/hostTrigger', () => ({
+  shouldHostTriggerDedicatedSandboxPoll: (...args: unknown[]) => hostTriggerMock.shouldTrigger(...args),
+  sendDedicatedSandboxIngestionPollTrigger: (...args: unknown[]) => hostTriggerMock.sendTrigger(...args),
+}))
 vi.mock('../ingestionOwnership', () => {
   class HostReadPollForbiddenError extends Error {
     readonly code = 'E_HOST_READ_POLL_FORBIDDEN' as const
@@ -58,9 +66,12 @@ describe('syncAccountEmails — Prompt 3 ingestion-ownership gate', () => {
   beforeEach(() => {
     getAccountConfig.mockReset()
     getAccount.mockReset()
+    hostTriggerMock.shouldTrigger.mockReset()
+    hostTriggerMock.sendTrigger.mockReset()
+    hostTriggerMock.shouldTrigger.mockResolvedValue(false)
   })
 
-  it('linked sandbox owns ingestion + host node → host does NOT read-poll (no fetch, no parse)', async () => {
+  it('linked sandbox owns ingestion + host node (non-dedicated) → host does NOT read-poll (no fetch, no parse)', async () => {
     getAccountConfig.mockReturnValue({ provider: 'gmail' })
     // The host should NEVER reach provider work; if it did, this would throw.
     getAccount.mockRejectedValue(new Error('HOST_SHOULD_NOT_FETCH'))
@@ -80,6 +91,42 @@ describe('syncAccountEmails — Prompt 3 ingestion-ownership gate', () => {
     expect(r.newInboxMessageIds).toEqual([])
     // INV: host performed no provider read work at all.
     expect(getAccount).not.toHaveBeenCalled()
+    expect(hostTriggerMock.sendTrigger).not.toHaveBeenCalled()
+  })
+
+  it('dedicated delegated host → sends ingestion poll trigger instead of local fetch', async () => {
+    getAccountConfig.mockReturnValue({ provider: 'gmail' })
+    getAccount.mockRejectedValue(new Error('HOST_SHOULD_NOT_FETCH'))
+    ownershipState.value = {
+      owner: 'sandbox',
+      thisNodeRole: 'host',
+      hostShouldReadPoll: false,
+      sandboxShouldReadPoll: false,
+      reason: 'linked sandbox owns ingestion',
+    }
+    hostTriggerMock.shouldTrigger.mockResolvedValue(true)
+    hostTriggerMock.sendTrigger.mockResolvedValue({
+      ok: true,
+      trigger: {
+        requestId: 'req-1',
+        pollStatus: 'ok',
+        fetched: 2,
+        depackaged: 2,
+        delivered: 1,
+        held: 0,
+      },
+    })
+
+    const r = await syncAccountEmails({} as any, { accountId: 'acc-dedicated-host' })
+    expect(r.ok).toBe(true)
+    expect(r.skipReason).toBe('ingestion_triggered_to_sandbox')
+    expect(r.ingestionPollTrigger?.fetched).toBe(2)
+    expect(r.ingestionPollTrigger?.delivered).toBe(1)
+    expect(getAccount).not.toHaveBeenCalled()
+    expect(hostTriggerMock.sendTrigger).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ accountId: 'acc-dedicated-host' }),
+    )
   })
 
   it('single-machine (host owns ingestion) → enters sync body and fetches as today', async () => {

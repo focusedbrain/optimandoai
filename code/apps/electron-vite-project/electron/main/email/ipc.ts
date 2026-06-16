@@ -188,7 +188,7 @@ function getInboxAiRulesForPrompt(): string {
 }
 import { emailGateway } from './gateway'
 import { resolveIngestionStatus } from './ingestionStatus'
-import { mapSkipReasonToIpcWarning } from './ipcSyncResultShape'
+import { mapSkipReasonToIpcWarning, formatIngestionPollTriggerPullHint } from './ipcSyncResultShape'
 import { isDedicatedSandboxFetchNode, INGESTION_HOST_TRIGGERED_ONLY_SKIP } from './ingestionOwnership'
 import { pickOauthDebugFromError } from './gmailOAuthConnectDebug'
 import { DIAGNOSE_IMAP_IPC_DEV, EMAIL_DEBUG, emailDebugLog, gmailPersistenceDebugLog } from './emailDebug'
@@ -2834,9 +2834,11 @@ Rules:
     const skipMapping = mapSkipReasonToIpcWarning(result.skipReason)
     const pullHint = skipMapping.isSkip
       ? skipMapping.hint
-      : result.newMessages > 0
-        ? `${result.newMessages} new message(s) pulled — run Auto-Sort to classify and enqueue lifecycle moves (unsorted mail stays in server Inbox until classified).`
-        : undefined
+      : result.skipReason === 'ingestion_triggered_to_sandbox' && result.ingestionPollTrigger
+        ? formatIngestionPollTriggerPullHint(result.ingestionPollTrigger)
+        : result.newMessages > 0
+          ? `${result.newMessages} new message(s) pulled — run Auto-Sort to classify and enqueue lifecycle moves (unsorted mail stays in server Inbox until classified).`
+          : undefined
 
     if (skipMapping.isSkip) {
       return {

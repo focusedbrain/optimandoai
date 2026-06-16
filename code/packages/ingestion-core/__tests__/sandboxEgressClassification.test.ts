@@ -82,6 +82,15 @@ describe('sandbox egress classification (shared P1/P2 source of truth)', () => {
     }
   });
 
+  test('ingestion_poll_* host→sandbox control is NOT sandbox-outbound allowlisted', () => {
+    for (const t of ['ingestion_poll_request', 'ingestion_poll_result', 'ingestion_poll_error']) {
+      expect(SANDBOX_OUTBOUND_ALLOWED_TYPES.has(t)).toBe(false);
+      const cls = classifySandboxOutboundCapsule({ type: t });
+      expect(cls.allowed).toBe(false);
+      expect(cls.dataPlane).toBe(true);
+    }
+  });
+
   test('type-less message-package-shaped body classifies as message_package', () => {
     expect(deriveCapsuleTypeForEgress(nativeBeapPackage())).toBe('message_package');
     expect(deriveCapsuleTypeForEgress({})).toBe('');

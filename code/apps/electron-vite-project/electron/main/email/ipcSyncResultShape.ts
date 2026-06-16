@@ -25,6 +25,26 @@ export const DELEGATED_HINT =
 export const HOST_TRIGGERED_HINT =
   'Inbound mail sync waits for your host device to trigger a pull. Manual Sync and auto-sync are disabled on this dedicated sandbox.'
 
+/** Dedicated delegated host: sandbox poll was triggered; counts only (INV-5). */
+export const TRIGGER_SUCCESS_HINT =
+  'Sandbox ingestion poll triggered on your paired sandbox device. New mail arrives via the normal delivery path.'
+
+export const TRIGGER_FAILED_HINT =
+  'Could not reach your paired sandbox to run an ingestion poll. Check that the sandbox is online and the internal handshake is active, then try Sync again.'
+
+export interface IngestionPollTriggerCounts {
+  requestId: string
+  pollStatus: string
+  fetched: number
+  depackaged: number
+  delivered: number
+  held: number
+}
+
+export function formatIngestionPollTriggerPullHint(trigger: IngestionPollTriggerCounts): string {
+  return `${TRIGGER_SUCCESS_HINT} Fetched ${trigger.fetched}, delivered ${trigger.delivered}, held ${trigger.held}.`
+}
+
 // ── Skip-reason mapping ───────────────────────────────────────────────────────
 
 export interface SkipReasonIpcResult {
@@ -65,6 +85,14 @@ export function mapSkipReasonToIpcWarning(
   }
   if (skipReason === 'ingestion_host_triggered_only') {
     const hint = HOST_TRIGGERED_HINT
+    return {
+      isSkip: true,
+      hint,
+      msg: hint,
+    }
+  }
+  if (skipReason === 'ingestion_trigger_failed') {
+    const hint = TRIGGER_FAILED_HINT
     return {
       isSkip: true,
       hint,

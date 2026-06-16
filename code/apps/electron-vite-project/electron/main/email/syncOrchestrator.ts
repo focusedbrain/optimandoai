@@ -26,6 +26,7 @@ import { emailGateway } from './gateway'
 import { detectAndRouteMessage, type RawEmailMessage } from './messageRouter'
 import { isOpaqueIngestionActive } from './opaqueIngestion'
 import { resolveIngestionOwnershipWithLedger, assertHostMayReadPoll, isDedicatedSandboxFetchNode, INGESTION_HOST_TRIGGERED_ONLY_SKIP } from './ingestionOwnership'
+import { sendDedicatedSandboxIngestionPollTrigger, shouldHostTriggerDedicatedSandboxPoll } from './ingestionPollTrigger/hostTrigger'
 import type { SSOSession } from '../handshake/types'
 import { emailDebugLog, emailDebugWarn } from './emailDebug'
 import {
@@ -107,8 +108,25 @@ export interface SyncResult {
    *    client for outbound). The sandbox node fetches + depackages + returns BEAP.
    *  - `ingestion_host_triggered_only`: dedicated sandbox — no self-initiated pull;
    *    host trigger (PROMPT 2+) is the only allowed fetch path.
+   *  - `ingestion_triggered_to_sandbox`: dedicated delegated host sent a poll trigger;
+   *    host did not read-poll locally (mail returns via sandbox_email_delivery).
+   *  - `ingestion_trigger_failed`: dedicated host trigger transport/handler failed.
    */
-  skipReason?: 'processing_paused' | 'ingestion_delegated_to_sandbox' | typeof INGESTION_HOST_TRIGGERED_ONLY_SKIP
+  skipReason?:
+    | 'processing_paused'
+    | 'ingestion_delegated_to_sandbox'
+    | typeof INGESTION_HOST_TRIGGERED_ONLY_SKIP
+    | 'ingestion_triggered_to_sandbox'
+    | 'ingestion_trigger_failed'
+  /** Present when a dedicated host sent an ingestion poll trigger (counts only, INV-5). */
+  ingestionPollTrigger?: {
+    requestId: string
+    pollStatus: string
+    fetched: number
+    depackaged: number
+    delivered: number
+    held: number
+  }
 }
 
 export interface EmailSyncStateUpdates {
@@ -458,6 +476,37 @@ async function syncAccountEmailsImpl(
   // This is explicit and logged (which node owns ingestion, and why).
   const ownership = await resolveIngestionOwnershipWithLedger()
   if (ownership.thisNodeRole === 'host' && !ownership.hostShouldReadPoll) {
+    if (await shouldHostTriggerDedicatedSandboxPoll(db, ownership)) {
+      const triggered = await sendDedicatedSandboxIngestionPollTrigger(db, {
+        accountId,
+        pullMore: options.pullMore,
+      })
+      if (!triggered.ok) {
+        console.warn(
+          `[SyncOrchestrator] dedicated host trigger failed — ${triggered.code}: ${triggered.message}. account=${accountId}`,
+        )
+        return {
+          ...result,
+          ok: false,
+          listedFromProvider: 0,
+          skippedDuplicate: 0,
+          skipReason: 'ingestion_trigger_failed',
+          errors: [triggered.message],
+        }
+      }
+      console.log(
+        `[SyncOrchestrator] dedicated host trigger sent — host did NOT read-poll. account=${accountId} ` +
+          `request_id=${triggered.trigger.requestId} fetched=${triggered.trigger.fetched} delivered=${triggered.trigger.delivered}`,
+      )
+      return {
+        ...result,
+        ok: true,
+        listedFromProvider: 0,
+        skippedDuplicate: 0,
+        skipReason: 'ingestion_triggered_to_sandbox',
+        ingestionPollTrigger: triggered.trigger,
+      }
+    }
     console.log(
       `[SyncOrchestrator] read-poll DISABLED — ${ownership.reason}. account=${accountId} (host keeps send client only)`,
     )

@@ -16,6 +16,8 @@ import {
   mapSkipReasonToIpcWarning,
   PAUSED_HINT,
   DELEGATED_HINT,
+  TRIGGER_FAILED_HINT,
+  formatIngestionPollTriggerPullHint,
 } from '../ipcSyncResultShape'
 
 describe('mapSkipReasonToIpcWarning — skip reason routing', () => {
@@ -84,5 +86,35 @@ describe('mapSkipReasonToIpcWarning — delegated copy contract (UX-1 D2)', () =
     const r = mapSkipReasonToIpcWarning('processing_paused')
     if (!r.isSkip) throw new Error('type narrowing')
     expect(r.msg).toContain(r.hint)
+  })
+})
+
+describe('mapSkipReasonToIpcWarning — dedicated host trigger', () => {
+  it('ingestion_trigger_failed → actionable error copy', () => {
+    const r = mapSkipReasonToIpcWarning('ingestion_trigger_failed')
+    expect(r.isSkip).toBe(true)
+    if (!r.isSkip) throw new Error('type narrowing')
+    expect(r.hint).toBe(TRIGGER_FAILED_HINT)
+    expect(r.msg).toContain('sandbox')
+  })
+
+  it('ingestion_triggered_to_sandbox is not a skip (success path uses pullHint)', () => {
+    expect(mapSkipReasonToIpcWarning('ingestion_triggered_to_sandbox').isSkip).toBe(false)
+  })
+})
+
+describe('formatIngestionPollTriggerPullHint', () => {
+  it('includes INV-5 counts only', () => {
+    const hint = formatIngestionPollTriggerPullHint({
+      requestId: 'req-1',
+      pollStatus: 'ok',
+      fetched: 2,
+      depackaged: 2,
+      delivered: 1,
+      held: 0,
+    })
+    expect(hint).toContain('Fetched 2')
+    expect(hint).toContain('delivered 1')
+    expect(hint).not.toMatch(/@|Subject:/)
   })
 })
