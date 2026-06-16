@@ -4,6 +4,10 @@ import {
   logOrchestratorModeVsHandshakeMismatch,
   handshakeRoleForModeMismatch,
 } from '../lib/orchestratorModeVsHandshake'
+import {
+  isDedicatedSandboxHostTriggeredIngestion,
+  type SandboxTopologyKind,
+} from '../lib/dedicatedSandboxIngestionUi'
 /**
  * Host vs Sandbox from the **main-process** persist file (same as `isSandboxMode()` / `handshake:getAvailableModels`):
  * `orchestrator:getMode` → `orchestrator-mode.json` in Electron `userData`. Do not use `localStorage` for
@@ -15,6 +19,7 @@ export function useOrchestratorMode() {
   const [ready, setReady] = useState(false)
   const [ledgerProvesInternalSandboxToHost, setLedgerProvesInternalSandboxToHost] = useState(false)
   const [ledgerProvesLocalHostPeerSandbox, setLedgerProvesLocalHostPeerSandbox] = useState(false)
+  const [sandboxTopologyKind, setSandboxTopologyKind] = useState<SandboxTopologyKind>('none')
 
   useEffect(() => {
     let cancelled = false
@@ -25,6 +30,7 @@ export function useOrchestratorMode() {
           setMode(null)
           setLedgerProvesInternalSandboxToHost(false)
           setLedgerProvesLocalHostPeerSandbox(false)
+          setSandboxTopologyKind('none')
           setReady(true)
         }
         return
@@ -34,6 +40,7 @@ export function useOrchestratorMode() {
           mode?: string
           ledgerProvesInternalSandboxToHost?: boolean
           ledgerProvesLocalHostPeerSandbox?: boolean
+          sandboxTopologyKind?: SandboxTopologyKind
         } | null
         if (cancelled) return
         const m = cfg?.mode
@@ -44,11 +51,16 @@ export function useOrchestratorMode() {
         }
         setLedgerProvesInternalSandboxToHost(cfg?.ledgerProvesInternalSandboxToHost === true)
         setLedgerProvesLocalHostPeerSandbox(cfg?.ledgerProvesLocalHostPeerSandbox === true)
+        const tk = cfg?.sandboxTopologyKind
+        setSandboxTopologyKind(
+          tk === 'single_machine' || tk === 'dedicated' || tk === 'none' ? tk : 'none',
+        )
       } catch {
         if (!cancelled) {
           setMode(null)
           setLedgerProvesInternalSandboxToHost(false)
           setLedgerProvesLocalHostPeerSandbox(false)
+          setSandboxTopologyKind('none')
         }
       } finally {
         if (!cancelled) setReady(true)
@@ -107,6 +119,10 @@ export function useOrchestratorMode() {
   // remain 'host' while the ledger is authoritative"). The signal is directional: the ledger
   // check uses THIS device's coordination ID to derive localRole, so the host never self-flips.
   const isSandbox = mode === 'sandbox' || ledgerProvesInternalSandboxToHost
+  const isDedicatedSandboxHostTriggered = isDedicatedSandboxHostTriggeredIngestion(
+    isSandbox,
+    sandboxTopologyKind,
+  )
 
   return {
     mode,
@@ -116,6 +132,10 @@ export function useOrchestratorMode() {
     ledgerProvesInternalSandboxToHost,
     /** This device is Host on an ACTIVE internal row — hide Host AI ↻. */
     ledgerProvesLocalHostPeerSandbox,
+    /** Co-located inner-VM vs remote dedicated pair (`resolveSandboxTopologyKind`). */
+    sandboxTopologyKind,
+    /** Dedicated sandbox: inbound fetch is host-triggered only (no local Sync/Auto). */
+    isDedicatedSandboxHostTriggered,
     ready,
   }
 }

@@ -4,6 +4,7 @@
  */
 
 import React from 'react'
+import { DEDICATED_SANDBOX_HOST_TRIGGERED_STATUS } from '../lib/dedicatedSandboxIngestionUi'
 
 export interface EmailInboxSyncControlsProps {
   accountSyncWindowDays: number
@@ -19,6 +20,11 @@ export interface EmailInboxSyncControlsProps {
   remoteSyncBusy: boolean
   /** When every account is IMAP, the primary button is "Pull" and no remote reconcile runs. */
   pullOnly: boolean
+  /**
+   * Dedicated sandbox (PROMPT 3): hide local Sync / Auto / toolbar sync window;
+   * show read-only host-triggered status instead.
+   */
+  hostTriggeredIngestion?: boolean
 }
 
 /** Maps stored `0` (legacy all-mail) to the 1y option value used in the UI. */
@@ -37,8 +43,26 @@ export default function EmailInboxSyncControls({
   syncing,
   remoteSyncBusy,
   pullOnly,
+  hostTriggeredIngestion = false,
 }: EmailInboxSyncControlsProps) {
   const patchOk = typeof window !== 'undefined' && !!window.emailInbox?.patchAccountSyncPreferences
+
+  if (hostTriggeredIngestion) {
+    return (
+      <span
+        className="bulk-view-host-triggered-sync-status"
+        role="status"
+        title={DEDICATED_SANDBOX_HOST_TRIGGERED_STATUS}
+        style={{
+          fontSize: 11,
+          lineHeight: 1.45,
+          color: 'var(--text-secondary, var(--text-secondary-prof, #64748b))',
+        }}
+      >
+        {DEDICATED_SANDBOX_HOST_TRIGGERED_STATUS}
+      </span>
+    )
+  }
 
   return (
     <>

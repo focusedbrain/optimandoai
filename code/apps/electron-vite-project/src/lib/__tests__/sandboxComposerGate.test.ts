@@ -204,6 +204,7 @@ describe('Pairing and read-setup UI are NOT removed on sandbox', () => {
     const src = read('components/EmailInboxView.tsx')
     // Email providers section (read-only setup) is not gated
     expect(src).toContain('EmailProvidersSection')
+    expect(src).toContain('hostTriggeredIngestion={isDedicatedSandboxHostTriggered}')
   })
 })
 

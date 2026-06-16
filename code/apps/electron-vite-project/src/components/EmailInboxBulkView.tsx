@@ -1728,6 +1728,7 @@ export default function EmailInboxBulkView({
   const {
     mode: bulkOrchestratorMode,
     isSandbox: bulkIsSandbox,
+    isDedicatedSandboxHostTriggered: bulkIsDedicatedSandboxHostTriggered,
     ready: bulkHostModeReady,
     ledgerProvesLocalHostPeerSandbox: bulkLedgerProvesLocalHostPeerSandbox,
   } = useOrchestratorMode()
@@ -5195,6 +5196,7 @@ export default function EmailInboxBulkView({
               syncing={syncing}
               remoteSyncBusy={remoteSyncBusy}
               pullOnly={bulkToolbarPullOnly}
+              hostTriggeredIngestion={bulkIsDedicatedSandboxHostTriggered}
             />
             <button
               type="button"

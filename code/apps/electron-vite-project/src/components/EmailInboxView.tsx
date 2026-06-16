@@ -8,6 +8,7 @@
 import { useEffect, useCallback, useState, useRef, useMemo, type CSSProperties, type MouseEvent, type FormEvent } from 'react'
 import EmailInboxToolbar from './EmailInboxToolbar'
 import { emailInboxSyncWindowSelectValue } from './EmailInboxSyncControls'
+import { DEDICATED_SANDBOX_SYNC_WINDOW_HINT } from '../lib/dedicatedSandboxIngestionUi'
 import EmailMessageDetail from './EmailMessageDetail'
 import { type DraftAttachment } from './EmailComposeOverlay'
 import { EmailInlineComposer } from './EmailInlineComposer'
@@ -2989,7 +2990,7 @@ export default function EmailInboxView({
 
   const { prioritize } = useInboxPreloadQueue({ messages, analysisCache })
 
-  const { mode: orchestratorMode, ready: hostModeReady, ledgerProvesLocalHostPeerSandbox, isSandbox } = useOrchestratorMode()
+  const { mode: orchestratorMode, ready: hostModeReady, ledgerProvesLocalHostPeerSandbox, isSandbox, isDedicatedSandboxHostTriggered } = useOrchestratorMode()
 
   // UX-1 D3: persistent ingestion topology banner (ACTION_NEEDED / PAUSED / DEGRADED).
   const { status: ingestionStatus } = useIngestionStatus({
@@ -4154,6 +4155,7 @@ export default function EmailInboxView({
           autoSyncEligibleAccountIds={autoSyncEligibleAccountIds}
           onToggleAutoSync={handleToggleAutoSyncAll}
           pullOnly={inboxToolbarPullOnly}
+          hostTriggeredIngestion={isDedicatedSandboxHostTriggered}
           bulkMode={bulkMode}
           onBulkModeChange={setBulkMode}
           selectedCount={selectedCount}
@@ -4532,7 +4534,9 @@ export default function EmailInboxView({
                     </select>
                   </label>
                   <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, lineHeight: 1.45 }}>
-                    Editable after connecting. Only recent mail syncs initially; expand the sync window to include older mail.
+                    {isDedicatedSandboxHostTriggered
+                      ? DEDICATED_SANDBOX_SYNC_WINDOW_HINT
+                      : 'Editable after connecting. Only recent mail syncs initially; expand the sync window to include older mail.'}
                     {accountSyncWindowDays === 0 ? (
                       <span style={{ color: '#b45309', display: 'block', marginTop: 4 }}>
                         Warning: syncing all mail may take a long time.

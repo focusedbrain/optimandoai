@@ -319,6 +319,8 @@ describe('InboxDetailAiPanel — sandbox mount-render (P4 regression guard)', ()
       isHost: false,
       ledgerProvesInternalSandboxToHost: true,
       ledgerProvesLocalHostPeerSandbox: false,
+      sandboxTopologyKind: 'dedicated',
+      isDedicatedSandboxHostTriggered: true,
     })
   })
 

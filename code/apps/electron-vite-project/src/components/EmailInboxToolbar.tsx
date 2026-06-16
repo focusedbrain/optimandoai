@@ -30,6 +30,8 @@ export interface EmailInboxToolbarProps {
   onToggleAutoSync: (enabled: boolean) => void
   /** When every account is IMAP, primary button shows Pull (matches Bulk). */
   pullOnly: boolean
+  /** Dedicated sandbox: host-triggered ingestion — hide local pull controls. */
+  hostTriggeredIngestion?: boolean
   bulkMode: boolean
   onBulkModeChange: (enabled: boolean) => void
   selectedCount: number
@@ -72,6 +74,7 @@ export default function EmailInboxToolbar({
   autoSyncEligibleAccountIds,
   onToggleAutoSync,
   pullOnly,
+  hostTriggeredIngestion = false,
   bulkMode: _bulkMode,
   onBulkModeChange: _onBulkModeChange,
   selectedCount,
@@ -181,6 +184,7 @@ export default function EmailInboxToolbar({
             syncing={syncing}
             remoteSyncBusy={remoteSyncBusy}
             pullOnly={pullOnly}
+            hostTriggeredIngestion={hostTriggeredIngestion}
           />
         </div>
       </div>

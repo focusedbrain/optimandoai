@@ -12,6 +12,7 @@ import {
   type OrchestratorModeConfig,
 } from './orchestratorModeStore'
 import { broadcastOrchestratorModeChanged } from './broadcastModeChange'
+import type { SandboxTopologyKind } from '../handshake/sandboxTopologyKind'
 
 /**
  * Register orchestrator IPC handlers (idempotent if Electron replaces on duplicate channel names).
@@ -27,6 +28,7 @@ export function registerOrchestratorIPC(): void {
     const base = getOrchestratorMode()
     let ledgerProvesInternalSandboxToHost = false
     let ledgerProvesLocalHostPeerSandbox = false
+    let sandboxTopologyKind: SandboxTopologyKind = 'none'
     try {
       const { hasActiveInternalLedgerSandboxToHostForHostAi, hasActiveInternalLedgerLocalHostPeerSandboxForHostUi } =
         await import('../internalInference/listInferenceTargets')
@@ -35,7 +37,15 @@ export function registerOrchestratorIPC(): void {
     } catch (e) {
       console.warn('[Orchestrator IPC] ledger role hints failed:', e)
     }
-    return { ...base, ledgerProvesInternalSandboxToHost, ledgerProvesLocalHostPeerSandbox }
+    try {
+      const { getHandshakeDbForInternalInference } = await import('../internalInference/dbAccess')
+      const { resolveSandboxTopologyKind } = await import('../handshake/sandboxTopologyKind')
+      const db = await getHandshakeDbForInternalInference()
+      sandboxTopologyKind = resolveSandboxTopologyKind(db)
+    } catch (e) {
+      console.warn('[Orchestrator IPC] sandboxTopologyKind failed:', e)
+    }
+    return { ...base, ledgerProvesInternalSandboxToHost, ledgerProvesLocalHostPeerSandbox, sandboxTopologyKind }
   })
 
   ipcMain.handle('orchestrator:setMode', async (_event, config: OrchestratorModeConfig) => {
