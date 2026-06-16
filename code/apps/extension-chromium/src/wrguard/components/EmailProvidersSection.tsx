@@ -39,10 +39,13 @@ function RemoteSyncBadge({
   provider,
   processingPaused,
   ingestionStatus,
+  isSandbox = false,
 }: {
   provider: EmailAccount['provider']
   processingPaused?: boolean
   ingestionStatus?: IngestionTopologyStatus | null
+  /** Fallback when ingestionStatus is omitted (e.g. WRGuard workspace). */
+  isSandbox?: boolean
 }) {
   if (processingPaused) {
     return (
@@ -64,7 +67,7 @@ function RemoteSyncBadge({
   if (provider === 'microsoft365' || provider === 'gmail' || provider === 'zoho') {
     const isHostDelegated =
       ingestionStatus?.code === 'PAUSED_HOST_DELEGATED' && ingestionStatus?.thisNodeRole === 'host'
-    const isSandboxNode = ingestionStatus?.thisNodeRole === 'sandbox'
+    const isSandboxNode = isSandbox || ingestionStatus?.thisNodeRole === 'sandbox'
 
     if (isHostDelegated) {
       return (
@@ -391,6 +394,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                         provider={account.provider}
                         processingPaused={account.processingPaused}
                         ingestionStatus={ingestionStatus}
+                        isSandbox={isSandbox}
                       />
                       {account.processingPaused ? (
                         <span

@@ -30,6 +30,10 @@ import { resolveOrchestratorRemoteNames } from './domain/mailboxLifecycleMapping
 import { getRemoteSyncReceivedAtLowerBoundIso } from './domain/smartSyncPrefs'
 import { emailGateway } from './gateway'
 import { isPullActive } from './syncPullLock'
+import {
+  SANDBOX_REMOTE_MUTATIONS_HOST_ONLY,
+  thisNodeMayPerformRemoteProviderMutations,
+} from './ingestionOwnership'
 
 /** Optional push to renderer debug log (set from `ipc.registerInboxHandlers`). */
 export type OrchestratorDrainProgressPayload = {
@@ -261,6 +265,15 @@ export function enqueueOrchestratorRemoteMutations(
   const skipReasons: string[] = []
   if (!db || !messageIds?.length) return { enqueued, skipped, skipReasons }
 
+  if (!thisNodeMayPerformRemoteProviderMutations()) {
+    console.log('[ENQUEUE_MUT] skipped — sandbox node (remote mutations host-only policy)')
+    return {
+      enqueued: 0,
+      skipped: messageIds.length,
+      skipReasons: messageIds.map((id) => `${id}: ${SANDBOX_REMOTE_MUTATIONS_HOST_ONLY}`),
+    }
+  }
+
   console.log('[ENQUEUE_MUT] Called:', messageIds.length, 'ids, op=', operation)
 
   const select = db.prepare(
@@ -402,6 +415,11 @@ export async function processOrchestratorRemoteQueueBatch(
     deferredDueToPull: 0,
   }
   if (!db) return result
+
+  if (!thisNodeMayPerformRemoteProviderMutations()) {
+    console.log('[DRAIN_BATCH] skipped — sandbox node (remote mutations host-only policy)')
+    return result
+  }
 
   const pendingCount = db
     .prepare(
@@ -1322,6 +1340,10 @@ export function forceDrainRestart(): void {
  */
 export function scheduleOrchestratorRemoteDrain(getDb: () => Promise<any> | any): void {
   if (simpleOrchestratorRemoteDrainPrimary) {
+    return
+  }
+  if (!thisNodeMayPerformRemoteProviderMutations()) {
+    console.log('[DRAIN] schedule skipped — sandbox node (remote mutations host-only policy)')
     return
   }
   console.log(`[DRAIN] schedule called, chainScheduled=${drainChainScheduled}`)

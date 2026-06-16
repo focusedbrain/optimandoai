@@ -25,7 +25,6 @@ import { isInboxMessageActionable } from '../lib/inboxMessageActionable'
 import type { InternalSandboxesListSnapshot, InternalSandboxTargetWire } from '../hooks/useInternalSandboxesList'
 import { resolveActiveSandboxCloneTargets } from '../lib/resolveActiveSandboxCloneTargets'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
-import { SandboxLockSurface } from './SandboxLockSurface'
 import { beapInboxCloneToSandboxApi, sandboxCloneFeedbackFromOutcome } from '../lib/beapInboxCloneToSandbox'
 import {
   SANDBOX_CLONE_COPY,
@@ -1176,7 +1175,7 @@ export default function EmailMessageDetail({
   const isDeleted = message.deleted === 1
 
   const actionable = isInboxMessageActionable(message)
-  const canShowDetailReply = Boolean(onReply) && actionable
+  const canShowDetailReply = Boolean(onReply) && actionable && !detailIsSandbox
   const canShowInboxRedirectAndSandbox = actionable
   const showDetailActionEnd = canShowDetailReply || canShowInboxRedirectAndSandbox
   const beapRedirectDetailTip = beapInboxRedirectTooltipPropsForDetail()
@@ -1371,25 +1370,16 @@ export default function EmailMessageDetail({
                 aria-label="Reply, redirect, and Sandbox"
               >
                 {canShowDetailReply && (
-                  detailIsSandbox ? (
-                    /* P3 sandbox UI: reply absent on sandbox — informational lock notice */
-                    <SandboxLockSurface
-                      variant="compact"
-                      className="inbox-detail-reply-sandbox-notice"
-                      data-testid="sandbox-lock-reply"
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleReply}
-                      className="inbox-action-icon-only inbox-detail-reply-icon-only"
-                      {...beapInboxReplyTooltipProps()}
-                    >
-                      <span className="inbox-detail-reply-glyph" aria-hidden>
-                        ↩
-                      </span>
-                    </button>
-                  )
+                  <button
+                    type="button"
+                    onClick={handleReply}
+                    className="inbox-action-icon-only inbox-detail-reply-icon-only"
+                    {...beapInboxReplyTooltipProps()}
+                  >
+                    <span className="inbox-detail-reply-glyph" aria-hidden>
+                      ↩
+                    </span>
+                  </button>
                 )}
                 {canShowInboxRedirectAndSandbox && (
                   <>

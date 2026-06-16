@@ -185,3 +185,18 @@ export function assertHostMayReadPoll(site: string, ownership: IngestionOwnershi
     throw new HostReadPollForbiddenError(site)
   }
 }
+
+/** Skip reason when sandbox must not enqueue/drain remote provider mutations. */
+export const SANDBOX_REMOTE_MUTATIONS_HOST_ONLY = 'sandbox_remote_mutations_host_only' as const
+
+/**
+ * Remote folder/delete lifecycle mirroring is host-only. Sandbox keeps local sort
+ * columns; it must not attempt provider mutations (policy gate, not credential failure).
+ */
+export function thisNodeMayPerformRemoteProviderMutations(
+  ownership: IngestionOwnership = resolveIngestionOwnership(),
+): boolean {
+  if (ownership.sandboxShouldReadPoll) return false
+  if (ownership.thisNodeRole === 'sandbox') return false
+  return ownership.thisNodeRole === 'host'
+}

@@ -14,12 +14,24 @@ vi.mock('../gateway', () => ({
   },
 }))
 
+const mayRemoteMutate = vi.hoisted(() => ({ value: true }))
+
+vi.mock('../ingestionOwnership', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../ingestionOwnership')>()
+  return {
+    ...actual,
+    thisNodeMayPerformRemoteProviderMutations: () => mayRemoteMutate.value,
+  }
+})
+
 import { enqueueOrchestratorRemoteMutations, enqueueRemoteOpsForLocalLifecycleState } from '../inboxOrchestratorRemoteQueue'
 import { emailGateway } from '../gateway'
+import { SANDBOX_REMOTE_MUTATIONS_HOST_ONLY } from '../ingestionOwnership'
 
 describe('enqueueOrchestratorRemoteMutations', () => {
   beforeEach(() => {
     vi.mocked(emailGateway.getProviderSync).mockReturnValue('gmail')
+    mayRemoteMutate.value = true
   })
 
   function makeDb(row: Record<string, unknown> | undefined) {
@@ -58,6 +70,26 @@ describe('enqueueOrchestratorRemoteMutations', () => {
   it('returns zeros for empty message id list', () => {
     const { db } = makeDb(undefined)
     expect(enqueueOrchestratorRemoteMutations(db, [], 'archive')).toEqual({ enqueued: 0, skipped: 0, skipReasons: [] })
+  })
+
+  it('skips all ids on sandbox (host-only remote mutation policy)', () => {
+    mayRemoteMutate.value = false
+    const { db, upsertRuns } = makeDb({
+      id: 'm1',
+      account_id: 'a1',
+      email_message_id: 'em1',
+      source_type: 'email_plain',
+    })
+    const r = enqueueOrchestratorRemoteMutations(db, ['m1', 'm2'], 'archive')
+    expect(r).toEqual({
+      enqueued: 0,
+      skipped: 2,
+      skipReasons: [
+        `m1: ${SANDBOX_REMOTE_MUTATIONS_HOST_ONLY}`,
+        `m2: ${SANDBOX_REMOTE_MUTATIONS_HOST_ONLY}`,
+      ],
+    })
+    expect(upsertRuns).toHaveLength(0)
   })
 
   it('skips when inbox row missing account_id or email_message_id', () => {

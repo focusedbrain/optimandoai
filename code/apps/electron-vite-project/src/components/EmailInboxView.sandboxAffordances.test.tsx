@@ -365,9 +365,10 @@ describe('InboxDetailAiPanel — sandbox: draft textarea locked', () => {
     })
   })
 
-  it('renders lock surface in draft slot', () => {
+  it('renders lock surface in draft slot exactly once', () => {
     const html = renderPanel(baseMessage(), vi.fn())
     expect(html).toContain('sandbox-lock-draft')
+    expect(html).not.toContain('sandbox-lock-reply')
   })
 
   it('draft textarea is absent on sandbox', () => {

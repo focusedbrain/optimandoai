@@ -14,6 +14,8 @@ import {
   resolveIngestionOwnership,
   assertHostMayReadPoll,
   HostReadPollForbiddenError,
+  thisNodeMayPerformRemoteProviderMutations,
+  SANDBOX_REMOTE_MUTATIONS_HOST_ONLY,
 } from '../ingestionOwnership'
 
 describe('ingestionOwnership — fetch-ownership single source of truth (Prompt 3)', () => {
@@ -148,5 +150,34 @@ describe('resolveIngestionOwnership — REGRESSION: stale orchestrator-mode.json
     expect(o.owner).toBe('sandbox')
     expect(o.sandboxShouldReadPoll).toBe(true)
     expect(o.thisNodeRole).toBe('sandbox')
+  })
+})
+
+describe('thisNodeMayPerformRemoteProviderMutations — PROMPT 5 host-only remote lifecycle', () => {
+  beforeEach(() => {
+    hasLinkedDepackageSandbox.mockReset()
+    getOrchestratorMode.mockReset()
+  })
+
+  it('single-machine host may perform remote provider mutations', () => {
+    hasLinkedDepackageSandbox.mockReturnValue(false)
+    getOrchestratorMode.mockReturnValue({ mode: 'host' })
+    expect(thisNodeMayPerformRemoteProviderMutations()).toBe(true)
+  })
+
+  it('delegated host may perform remote provider mutations', () => {
+    hasLinkedDepackageSandbox.mockReturnValue(true)
+    getOrchestratorMode.mockReturnValue({ mode: 'host' })
+    expect(thisNodeMayPerformRemoteProviderMutations()).toBe(true)
+  })
+
+  it('sandbox node is denied remote provider mutations', () => {
+    hasLinkedDepackageSandbox.mockReturnValue(true)
+    getOrchestratorMode.mockReturnValue({ mode: 'sandbox' })
+    expect(thisNodeMayPerformRemoteProviderMutations()).toBe(false)
+  })
+
+  it('exports stable skip reason token for enqueue/drain policy gate', () => {
+    expect(SANDBOX_REMOTE_MUTATIONS_HOST_ONLY).toBe('sandbox_remote_mutations_host_only')
   })
 })

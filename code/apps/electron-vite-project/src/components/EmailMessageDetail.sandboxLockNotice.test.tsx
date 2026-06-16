@@ -33,8 +33,6 @@ vi.mock('../shims/handshakeRpc', () => ({
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import EmailMessageDetail from './EmailMessageDetail'
 
-const LOCK_COPY = 'Sending messages is disabled on the sandbox for security.'
-
 function baseMessage(overrides: Partial<InboxMessage> = {}): InboxMessage {
   return {
     id: 'msg-sandbox-1',
@@ -86,7 +84,7 @@ describe('EmailMessageDetail — sandbox lock notice (mount)', () => {
     })
   })
 
-  it('renders lock notice instead of reply when isSandbox and onReply is set', () => {
+  it('does not render duplicate reply lock notice on sandbox (draft lock lives in inbox panel)', () => {
     const html = renderToStaticMarkup(
       <EmailMessageDetail
         message={baseMessage()}
@@ -94,11 +92,8 @@ describe('EmailMessageDetail — sandbox lock notice (mount)', () => {
         authoritativeDeviceInternalRole="sandbox"
       />,
     )
-    expect(html).toContain(LOCK_COPY)
-    // SandboxLockSurface merges className prop → class list contains both base and passed class
-    expect(html).toContain('inbox-detail-reply-sandbox-notice')
-    expect(html).toContain('sandbox-lock-surface')
-    expect(html).toContain('data-testid="sandbox-lock-reply"')
+    expect(html).not.toContain('data-testid="sandbox-lock-reply"')
+    expect(html).not.toContain('inbox-detail-reply-sandbox-notice')
     expect(html).not.toContain('inbox-detail-reply-glyph')
   })
 

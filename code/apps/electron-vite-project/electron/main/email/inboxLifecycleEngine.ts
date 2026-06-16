@@ -19,6 +19,7 @@ import {
   scheduleOrchestratorRemoteDrain,
 } from './inboxOrchestratorRemoteQueue'
 import { prepareSealedOperationalUpdate } from '../sealed-storage/index'
+import { thisNodeMayPerformRemoteProviderMutations } from './ingestionOwnership'
 
 const LOG = '[InboxLifecycle]'
 
@@ -82,18 +83,21 @@ export async function runInboxLifecycleTick(
   const deleteCutoff = pendingDeleteExpiryCutoffIso(nowMs)
 
   const getDb = options?.getDb ?? (() => db)
+  const mayRemoteMutate = thisNodeMayPerformRemoteProviderMutations()
 
-  try {
-    result.executedPendingDeletionsPass1 = await executePendingDeletions(db)
-    if (result.executedPendingDeletionsPass1.executed || result.executedPendingDeletionsPass1.failed) {
-      console.log(
-        `${LOG} executePendingDeletions (pass1) executed=${result.executedPendingDeletionsPass1.executed} failed=${result.executedPendingDeletionsPass1.failed}`,
-      )
+  if (mayRemoteMutate) {
+    try {
+      result.executedPendingDeletionsPass1 = await executePendingDeletions(db)
+      if (result.executedPendingDeletionsPass1.executed || result.executedPendingDeletionsPass1.failed) {
+        console.log(
+          `${LOG} executePendingDeletions (pass1) executed=${result.executedPendingDeletionsPass1.executed} failed=${result.executedPendingDeletionsPass1.failed}`,
+        )
+      }
+    } catch (e: any) {
+      const msg = e?.message ?? String(e)
+      result.errors.push(`executePendingDeletions_pass1:${msg}`)
+      console.error(`${LOG} executePendingDeletions pass1 error:`, msg)
     }
-  } catch (e: any) {
-    const msg = e?.message ?? String(e)
-    result.errors.push(`executePendingDeletions_pass1:${msg}`)
-    console.error(`${LOG} executePendingDeletions pass1 error:`, msg)
   }
 
   // ── Pending Review (≥14d in review) → Pending Delete (local). NOT final deletion. ──
@@ -136,19 +140,21 @@ export async function runInboxLifecycleTick(
       console.log(
         `${LOG} promoted ${promoted.length} message(s) from Pending Review → Pending Delete (cutoff <= ${reviewCutoff} UTC)`,
       )
-      try {
-        const enq = enqueueOrchestratorRemoteMutations(db, promoted, 'pending_delete')
-        result.remoteEnqueuedAfterReviewPromotion = enq.enqueued
-        scheduleOrchestratorRemoteDrain(getDb)
-        if (enq.enqueued || enq.skipped) {
-          console.log(
-            `${LOG} remote orchestrator enqueue after review promotion: enqueued=${enq.enqueued} skipped=${enq.skipped}`,
-          )
+      if (mayRemoteMutate) {
+        try {
+          const enq = enqueueOrchestratorRemoteMutations(db, promoted, 'pending_delete')
+          result.remoteEnqueuedAfterReviewPromotion = enq.enqueued
+          scheduleOrchestratorRemoteDrain(getDb)
+          if (enq.enqueued || enq.skipped) {
+            console.log(
+              `${LOG} remote orchestrator enqueue after review promotion: enqueued=${enq.enqueued} skipped=${enq.skipped}`,
+            )
+          }
+        } catch (e: any) {
+          const msg = e?.message ?? String(e)
+          result.errors.push(`remote_enqueue_review_promotion:${msg}`)
+          console.error(`${LOG} remote enqueue after review promotion failed:`, msg)
         }
-      } catch (e: any) {
-        const msg = e?.message ?? String(e)
-        result.errors.push(`remote_enqueue_review_promotion:${msg}`)
-        console.error(`${LOG} remote enqueue after review promotion failed:`, msg)
       }
     }
   } catch (e: any) {
@@ -181,6 +187,9 @@ export async function runInboxLifecycleTick(
     )
 
     for (const r of deleteIds) {
+      if (!mayRemoteMutate) {
+        continue
+      }
       const q = queueRemoteDeletion(db, r.id, 0)
       if (q.ok) {
         try {
@@ -208,17 +217,19 @@ export async function runInboxLifecycleTick(
     console.error(`${LOG} promote Pending Delete → final queue error:`, msg)
   }
 
-  try {
-    result.executedPendingDeletionsPass2 = await executePendingDeletions(db)
-    if (result.executedPendingDeletionsPass2.executed || result.executedPendingDeletionsPass2.failed) {
-      console.log(
-        `${LOG} executePendingDeletions (pass2) executed=${result.executedPendingDeletionsPass2.executed} failed=${result.executedPendingDeletionsPass2.failed}`,
-      )
+  if (mayRemoteMutate) {
+    try {
+      result.executedPendingDeletionsPass2 = await executePendingDeletions(db)
+      if (result.executedPendingDeletionsPass2.executed || result.executedPendingDeletionsPass2.failed) {
+        console.log(
+          `${LOG} executePendingDeletions (pass2) executed=${result.executedPendingDeletionsPass2.executed} failed=${result.executedPendingDeletionsPass2.failed}`,
+        )
+      }
+    } catch (e: any) {
+      const msg = e?.message ?? String(e)
+      result.errors.push(`executePendingDeletions_pass2:${msg}`)
+      console.error(`${LOG} executePendingDeletions pass2 error:`, msg)
     }
-  } catch (e: any) {
-    const msg = e?.message ?? String(e)
-    result.errors.push(`executePendingDeletions_pass2:${msg}`)
-    console.error(`${LOG} executePendingDeletions pass2 error:`, msg)
   }
 
   return result

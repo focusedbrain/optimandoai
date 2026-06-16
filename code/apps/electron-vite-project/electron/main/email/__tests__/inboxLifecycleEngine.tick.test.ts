@@ -18,8 +18,18 @@ vi.mock('../inboxOrchestratorRemoteQueue', () => ({
   scheduleOrchestratorRemoteDrain: scheduleDrainMock,
 }))
 
+const mayRemoteMutate = vi.hoisted(() => ({ value: true }))
+
+vi.mock('../ingestionOwnership', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../ingestionOwnership')>()
+  return {
+    ...actual,
+    thisNodeMayPerformRemoteProviderMutations: () => mayRemoteMutate.value,
+  }
+})
+
 import { runInboxLifecycleTick, PENDING_REVIEW_RETENTION_MS, PENDING_DELETE_RETENTION_MS } from '../inboxLifecycleEngine'
-import { queueRemoteDeletion } from '../remoteDeletion'
+import { executePendingDeletions, queueRemoteDeletion } from '../remoteDeletion'
 
 describe('inbox lifecycle timing constants', () => {
   it('uses 14d pending review and 7d pending delete retention windows', () => {
@@ -41,9 +51,13 @@ describe('runInboxLifecycleTick', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2025-04-10T00:00:00.000Z'))
+    mayRemoteMutate.value = true
     enqueueMock.mockClear()
     scheduleDrainMock.mockClear()
+    vi.mocked(queueRemoteDeletion).mockClear()
+    vi.mocked(executePendingDeletions).mockClear()
     vi.mocked(queueRemoteDeletion).mockReturnValue({ ok: true })
+    vi.mocked(executePendingDeletions).mockResolvedValue({ executed: 0, failed: 0 })
   })
 
   afterEach(() => {
@@ -135,5 +149,19 @@ describe('runInboxLifecycleTick', () => {
     expect(r.skippedFinalDeleteOrphanAccount).toBe(1)
     expect(r.promotedPendingDeleteToFinalQueue).toBe(0)
     expect(r.errors.filter((e) => e.startsWith('queue_final:'))).toHaveLength(0)
+  })
+
+  it('sandbox: keeps local review promotion but skips remote enqueue/drain and deletion executor', async () => {
+    mayRemoteMutate.value = false
+    const { db, promotionRuns } = createDb({ reviewIds: ['r1'], deleteIds: ['d1'] })
+    const r = await runInboxLifecycleTick(db)
+    expect(r.promotedReviewToPendingDelete).toBe(1)
+    expect(promotionRuns).toHaveLength(1)
+    expect(enqueueMock).not.toHaveBeenCalled()
+    expect(scheduleDrainMock).not.toHaveBeenCalled()
+    expect(r.remoteEnqueuedAfterReviewPromotion).toBe(0)
+    expect(queueRemoteDeletion).not.toHaveBeenCalled()
+    expect(r.promotedPendingDeleteToFinalQueue).toBe(0)
+    expect(executePendingDeletions).not.toHaveBeenCalled()
   })
 })
