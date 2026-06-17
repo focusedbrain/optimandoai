@@ -50,7 +50,7 @@ export function depackageJobResultToCriticalResult(job: JobResult): CriticalJobR
   return {
     jobId: job.jobId,
     ok: true,
-    output: { safeText: job.safeText!, artifacts },
+    output: { safeText: job.safeText!, artifacts, stage_attestation: job.stage_attestation },
     result_signing_pub_b64: job.result_signing_pub_b64,
     result_signature_b64: job.result_signature_b64,
   }
@@ -74,6 +74,7 @@ function reconstructJobResult(r: CriticalJobResult<'depackage'>): JobResult {
       filename: a.filename,
       blob: a.ciphertext,
     })),
+    stage_attestation: out?.stage_attestation,
     result_signing_pub_b64: r.result_signing_pub_b64,
     result_signature_b64: r.result_signature_b64,
   }

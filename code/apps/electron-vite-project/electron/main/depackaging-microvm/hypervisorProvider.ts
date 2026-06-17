@@ -23,6 +23,7 @@ import { createHash } from 'crypto'
 import { isWeakEd25519PublicKey } from '../security/ed25519WeakKey'
 import type { SafeTextV1 } from './safeText'
 import type { BlobArtifact } from './depackagingWorker'
+import type { StageAttestation } from './stageAttestation'
 // Type-only (erased at compile → no runtime cycle): `emailDepackage` imports the
 // runtime signing helpers below, so the value-level dependency is one-directional.
 import type { DepackageEmailResult } from './emailDepackage'
@@ -91,6 +92,8 @@ export interface JobResult {
   readonly ok: boolean
   readonly safeText?: SafeTextV1
   readonly artifacts?: readonly BlobArtifact[]
+  /** Stage-1 attestation from the validation chain (L2+). */
+  readonly stage_attestation?: StageAttestation
   /**
    * Ed25519 public key (base64) the guest used to sign this result, plus the
    * detached signature over `canonicalJobResultBytes`. Build 1 wires the
@@ -145,26 +148,29 @@ export interface SandboxHypervisorProvider {
  * The guest signs these; the orchestrator verifies before trusting the result.
  * Excludes the signature fields themselves.
  */
-export function canonicalJobResultBytes(r: Pick<JobResult, 'jobId' | 'ok' | 'safeText' | 'artifacts'>): Buffer {
+export function canonicalJobResultBytes(
+  r: Pick<JobResult, 'jobId' | 'ok' | 'safeText' | 'artifacts' | 'stage_attestation'>,
+): Buffer {
   const artifactDigest = (r.artifacts ?? []).map((a) => ({
     blob_id: a.blob_id,
     content_type: a.content_type,
-    // Hash of the ciphertext — proves the result commits to exact blob bytes
-    // without embedding them.
     ciphertext_sha256: createHash('sha256').update(a.blob.ciphertext_b64, 'utf8').digest('hex'),
   }))
-  const canonical = {
+  const canonical: Record<string, unknown> = {
     jobId: r.jobId,
     ok: r.ok,
     safeText: r.safeText ?? null,
     artifacts: artifactDigest,
+  }
+  if (r.stage_attestation) {
+    canonical.stage_attestation = r.stage_attestation
   }
   return Buffer.from(JSON.stringify(canonical), 'utf8')
 }
 
 /** Sign a result with a per-job Ed25519 key (guest-side). */
 export function signJobResult(
-  base: Pick<JobResult, 'jobId' | 'ok' | 'safeText' | 'artifacts'>,
+  base: Pick<JobResult, 'jobId' | 'ok' | 'safeText' | 'artifacts' | 'stage_attestation'>,
   signingPrivKey: Uint8Array,
 ): { result_signing_pub_b64: string; result_signature_b64: string } {
   const msg = canonicalJobResultBytes(base)
@@ -266,6 +272,9 @@ export function canonicalDepackageEmailResultBytes(
       packages,
       displayEnvelope: result.displayEnvelope,
       threadingHints: result.threadingHints,
+    }
+    if (result.ok && 'stage_attestation' in result && result.stage_attestation) {
+      body.stage_attestation = result.stage_attestation
     }
   }
   return Buffer.from(stableStringify(body), 'utf8')

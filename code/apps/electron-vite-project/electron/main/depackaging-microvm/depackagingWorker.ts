@@ -29,6 +29,8 @@ import type { QuarantineBlobFile } from '../quarantine-blob-storage/index'
 import { extractMime } from './mimeExtract'
 import { constructSafeText, type SafeTextV1 } from './safeText'
 import { signJobResult, type JobResult, type JobSpec } from './hypervisorProvider'
+import { applyStage1Validation } from './stage1Validation'
+import type { StageAttestation } from './stageAttestation'
 
 /** An original artifact, encrypted so only the sandbox can ever open it. */
 export interface BlobArtifact {
@@ -43,6 +45,7 @@ export interface BlobArtifact {
 export interface DepackagingOutput {
   readonly safeText: SafeTextV1
   readonly artifacts: readonly BlobArtifact[]
+  readonly stage_attestation?: StageAttestation
 }
 
 /**
@@ -92,13 +95,15 @@ export function depackage(inputBytes: Buffer, sandboxPeerX25519PubB64: string): 
     })
   }
 
-  const safeText = constructSafeText({
+  const rawSafeText = constructSafeText({
     subjectRaw,
     plainTextBodyRaw,
     attachmentBlobIds: artifacts.map((a) => a.blob_id),
   })
 
-  return { safeText, artifacts }
+  const { paddedSafeText, attestation } = applyStage1Validation(rawSafeText)
+
+  return { safeText: paddedSafeText, artifacts, stage_attestation: attestation }
 }
 
 /**
@@ -113,8 +118,8 @@ export function depackage(inputBytes: Buffer, sandboxPeerX25519PubB64: string): 
  */
 export function runDepackagingJob(spec: JobSpec): JobResult {
   try {
-    const { safeText, artifacts } = depackage(spec.inputBytes, spec.sandboxPeerX25519PubB64)
-    const base = { jobId: spec.jobId, ok: true as const, safeText, artifacts }
+    const { safeText, artifacts, stage_attestation } = depackage(spec.inputBytes, spec.sandboxPeerX25519PubB64)
+    const base = { jobId: spec.jobId, ok: true as const, safeText, artifacts, stage_attestation }
     const signingPriv = ed25519.utils.randomPrivateKey()
     const sig = signJobResult(base, signingPriv)
     signingPriv.fill(0)

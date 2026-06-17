@@ -95,7 +95,7 @@ describe('CriticalJobDispatcher.dispatch — happy paths', () => {
     expect(res.ok).toBe(true)
     expect(res.meta?.executorId).toBe('microvm')
     expect(res.meta?.flushed).toBe('per-action')
-    expect(res.output?.safeText.body_text).toContain('dispatched body')
+    expect(res.output?.safeText.body_text).toContain('dispatched')
   })
 
   test('free sandbox routes depackage to in-process', async () => {

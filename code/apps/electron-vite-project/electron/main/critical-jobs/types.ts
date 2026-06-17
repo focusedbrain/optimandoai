@@ -83,6 +83,7 @@
 
 import type { JobKind } from '../depackaging-microvm/hypervisorProvider'
 import type { SafeTextV1 } from '../depackaging-microvm/safeText'
+import type { StageAttestation } from '../depackaging-microvm/stageAttestation'
 import type { CourierArtifactRecord } from '../depackaging-microvm/blindCourier'
 import type { DepackageEmailResult } from '../depackaging-microvm/emailDepackage'
 import type {
@@ -184,6 +185,8 @@ export type FlushMode = 'per-action' | 'per-vm' | 'session'
 export interface DepackageOutput {
   readonly safeText: SafeTextV1
   readonly artifacts: readonly CourierArtifactRecord[]
+  /** Stage-1 attestation from the validation chain (L2+). */
+  readonly stage_attestation?: StageAttestation
 }
 
 /**
