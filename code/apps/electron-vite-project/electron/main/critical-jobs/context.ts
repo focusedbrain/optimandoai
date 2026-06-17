@@ -15,11 +15,15 @@
  *     `WRDESK_TOPOLOGY_LINKED` env / `--topology-linked=` argv override, validated
  *     for key-locality (INV-6) by `critical-jobs/topology.ts`. Absent config →
  *     `{ linked: [] }` (exactly the Build A behavior — no remote routing).
+ *   - localMicrovmAvailable: true on Linux with /dev/kvm; enables workstation
+ *     depackage to route to the local CrosvmProvider without a linked sandbox.
  *
  * This is the ONLY seam module that reads env/argv/persisted mode; the dispatcher
  * itself takes a ResolutionContext explicitly and stays pure-testable.
  */
 
+import { existsSync } from 'fs'
+import * as os from 'os'
 import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import type { Role, Tier } from './types'
 import type { ResolutionContext } from './resolution'
@@ -64,11 +68,35 @@ function resolveExecOverride(
   return undefined
 }
 
+/**
+ * Fast sync platform pre-check: is this a Linux host with /dev/kvm accessible?
+ * When true, the resolution layer substitutes remote-handshake → microvm for
+ * workstation depackage (the Linux-native single-machine path). The full
+ * availability check (crosvm binary, golden image, vhost-vsock) happens at
+ * dispatch time via MicroVMExecutor.isAvailable(); this flag only gates the
+ * routing decision. Env override: WRDESK_LOCAL_MICROVM=0 disables.
+ */
+export function detectLocalMicrovmAvailable(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const override = env.WRDESK_LOCAL_MICROVM
+  if (override === '0' || override === 'false') return false
+  if (override === '1' || override === 'true') return true
+  if (os.platform() !== 'linux') return false
+  try {
+    return existsSync('/dev/kvm')
+  } catch {
+    return false
+  }
+}
+
 export interface BuildContextOptions {
   /** Coarse tier; defaults to 'free' (full JWT wiring deferred to the live build). */
   tier?: Tier
   env?: NodeJS.ProcessEnv
   argv?: readonly string[]
+  /** Override local microVM detection (for testing). */
+  localMicrovmAvailable?: boolean
 }
 
 export function buildResolutionContext(opts: BuildContextOptions = {}): ResolutionContext {
@@ -85,5 +113,6 @@ export function buildResolutionContext(opts: BuildContextOptions = {}): Resoluti
     tier: opts.tier ?? 'free',
     topology: { linked: loadLinkedTopology(persistedLinked, env, argv) },
     execOverride: resolveExecOverride(env),
+    localMicrovmAvailable: opts.localMicrovmAvailable ?? detectLocalMicrovmAvailable(env),
   }
 }

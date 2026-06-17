@@ -38,6 +38,16 @@ export interface ResolutionContext {
   }
   /** Optional per-machine override of the table's chosen executor. */
   readonly execOverride?: 'in-process' | 'microvm'
+  /**
+   * True when the workstation has a local microVM backend (Linux + /dev/kvm).
+   * When set, the resolver substitutes `remote-handshake` → `microvm` for kinds
+   * the table routes remote — so a Linux workstation dispatches depackage to the
+   * local CrosvmProvider (highest-assurance single-machine tier, one level of HW
+   * virtualization, no linked sandbox required). The microVM executor's own
+   * `isAvailable()` is the full availability gate at dispatch time; this flag is
+   * the fast platform pre-check.
+   */
+  readonly localMicrovmAvailable?: boolean
 }
 
 export interface ResolvedExecutor {
@@ -143,6 +153,13 @@ function lookupRule(table: ResolutionTable, ctx: ResolutionContext): ResolutionR
  * if the (kind, context) is unsupported. When `execOverride` is set, it replaces
  * the chosen executor ONLY for kinds the table already supports in this context
  * (so unsupported kinds stay unsupported), and drops any fallback.
+ *
+ * When `localMicrovmAvailable` is true and the table resolves to
+ * `remote-handshake`, the resolver substitutes `microvm` (no fallback — fail
+ * closed if the microVM executor is unavailable). This is the Linux-native
+ * single-machine path: depackage runs in a local crosvm microVM without needing
+ * a linked remote sandbox. INV-1 is preserved (microvm is isolated execution,
+ * not in-process). INV-3 is preserved (no implicit fallback to in-process).
  */
 export function resolve(
   table: ResolutionTable,
@@ -155,6 +172,9 @@ export function resolve(
   if (!base) return null
   if (ctx.execOverride) {
     return { executorId: ctx.execOverride }
+  }
+  if (ctx.localMicrovmAvailable && base.executorId === 'remote-handshake') {
+    return { executorId: 'microvm' }
   }
   return base
 }
