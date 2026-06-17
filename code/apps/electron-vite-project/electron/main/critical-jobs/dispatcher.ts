@@ -105,20 +105,28 @@ export class CriticalJobDispatcher {
       return this.fail(spec, code, message, start, chosen.id)
     }
 
-    // Centralized post-result verification for safe-text kinds — no executor can
-    // skip it. A failing result becomes ok:false with a typed code. The two
-    // depackage kinds share the discipline (signature + closed-schema safe-text
-    // re-validation) but project different output shapes, so branch by kind.
+    // Centralized post-result verification: transport signature → host final
+    // stage (detection + pad + attest) → de-pad → chain verify → final
+    // validateSafeText + detection. No executor can skip it. Stage count is
+    // topology-driven (currently 2 for all topologies; becomes 3 for dedicated
+    // when the host-VM validator lands).
     let result = raw
     if (raw.ok && SAFE_TEXT_OUTPUT_KINDS.has(spec.kind)) {
+      const stageCount = this.expectedValidationStageCount()
       if (spec.kind === 'depackage-email') {
-        const verdict = verifyDepackageEmailResult(raw as CriticalJobResult<'depackage-email'>)
+        const verdict = verifyDepackageEmailResult(
+          raw as CriticalJobResult<'depackage-email'>,
+          stageCount,
+        )
         if (!verdict.ok) {
           return this.fail(spec, verdict.code, verdict.message, start, chosen.id)
         }
         result = { ...raw, output: verdict.output as CriticalJobResult<K>['output'] }
       } else {
-        const verdict = verifyDepackageResult(raw as CriticalJobResult<'depackage'>)
+        const verdict = verifyDepackageResult(
+          raw as CriticalJobResult<'depackage'>,
+          stageCount,
+        )
         if (!verdict.ok) {
           return this.fail(spec, verdict.code, verdict.message, start, chosen.id)
         }
@@ -133,6 +141,17 @@ export class CriticalJobDispatcher {
     }
     this.logOk(spec, meta)
     return { ...result, meta }
+  }
+
+  /**
+   * Topology-driven expected validation stage count. Currently 2 for all
+   * topologies (sandbox-guest stage 1 + host stage 2). When the host-VM
+   * validator lands for dedicated topology, this becomes 3 for dedicated
+   * (dedicated-sandbox stage 1 → host-VM stage 2 → host stage 3).
+   */
+  private expectedValidationStageCount(): number {
+    // Future: inspect this.ctx for dedicated topology → return 3
+    return 2
   }
 
   private runWithTimeout<K extends CriticalJobKind>(

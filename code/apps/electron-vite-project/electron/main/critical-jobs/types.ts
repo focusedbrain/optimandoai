@@ -318,6 +318,7 @@ export type CriticalJobErrorCode =
   | 'E_TIMEOUT' // dispatcher-level wall-clock exceeded
   | 'E_SIGNATURE_INVALID' // result signature failed verification
   | 'E_SAFETEXT_REJECTED' // safe-text failed closed-schema re-validation
+  | 'E_CHAIN_INVALID' // attestation chain verification failed (L3: missing attestation, chain link, CCH, detection)
   | 'E_EXECUTION_ERROR' // executor threw / job failed internally
   | 'E_INVALID_TABLE' // resolution table violates INV-1/INV-3
   | 'E_IMAGE_BUNDLE_MISMATCH' // golden image's baked worker bundle != expected (stale image) — fail fast, never boot

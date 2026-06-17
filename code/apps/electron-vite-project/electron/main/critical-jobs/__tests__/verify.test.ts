@@ -43,9 +43,9 @@ describe('verifyDepackageResult', () => {
     if (!r.ok) expect(r.code).toBe('E_SIGNATURE_INVALID')
   })
 
-  test('E_SAFETEXT_REJECTED when a validly-signed result carries an invalid safe-text', () => {
-    // Sign over a safe-text that is structurally invalid (extra key). The
-    // signature is valid, but the closed-schema re-validation must reject it.
+  test('E_CHAIN_INVALID when result has no stage-1 attestation (chain gate before safe-text)', () => {
+    // A validly-signed result without an attestation is rejected at the chain
+    // level (missing attestation) before reaching safe-text validation.
     const badSafeText = {
       schema: 'safe-text/v1',
       subject: 'x',
@@ -65,6 +65,6 @@ describe('verifyDepackageResult', () => {
     }
     const r = verifyDepackageResult(result)
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.code).toBe('E_SAFETEXT_REJECTED')
+    if (!r.ok) expect(r.code).toBe('E_CHAIN_INVALID')
   })
 })
