@@ -8,7 +8,7 @@ import manifest from './manifest.config.ts'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /** Build stamp (also set as import.meta.env). */
-const VITE_EXT_BUILD_STAMP = 'build025'
+const VITE_EXT_BUILD_STAMP = 'build026'
 
 export default defineConfig({
   plugins: [react(), crx({ manifest })],
