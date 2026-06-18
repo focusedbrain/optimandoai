@@ -26,10 +26,18 @@
  *   binary/image missing), `isAvailable()` is false and `runJob` THROWS. The
  *   orchestrator must NEVER fall back to parsing untrusted bytes in-process.
  *
- * NOTE on trust: the guest result-signing key is per-job and NOT yet bound to an
- * attested VM identity (attestation is a later build). So signature verification
- * proves transport integrity only; the orchestrator MUST still re-validate
- * `safeText` against the closed schema (`validateSafeText`).
+ * TRUST MODEL (VM-identity-bound attestation): the host generates a fresh
+ * Ed25519 keypair per boot, injects the private key into the guest via the vsock
+ * job payload (host→its-own-VM channel), and verifies the result's signature
+ * against the public key it provisioned. Only a VM the host booted from the
+ * expected golden image possesses the host-provisioned key. A poisoned image that
+ * self-generates a key will fail verification (pub key mismatch → fail closed).
+ * The orchestrator still re-validates `safeText` against the closed schema
+ * (`validateSafeText`) as defense-in-depth.
+ *
+ * TODO(attestation): `expectedBundleSha256` is a build-time content hash, not a
+ * runtime measurement. Replace with SEV-SNP / TDX measured boot when hardware
+ * attestation is available (FUTURE, dedicated-hardware only).
  */
 
 import { spawn } from 'child_process'
@@ -37,6 +45,7 @@ import { promises as fs } from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { randomInt, randomUUID } from 'crypto'
+import { ed25519 } from '@noble/curves/ed25519'
 import {
   verifyJobResultSignature,
   verifyDepackageEmailResultSignature,
@@ -207,6 +216,24 @@ export class CrosvmProvider implements SandboxHypervisorProvider {
     const cid = this.allocateCid()
     const overlayPath = path.join(this.cfg.overlayDir, `overlay-${spec.jobId}-${randomUUID()}.img`)
 
+    // VM-IDENTITY-BOUND ATTESTATION: generate a fresh Ed25519 keypair per boot.
+    // The private key is injected into the VM via the vsock job payload (a local
+    // host→VM channel, not a network wire). The guest signs the result with it.
+    // The host verifies against the public key IT provisioned — only a VM the
+    // host booted possesses this key. A poisoned image that self-generates a key
+    // will fail verification (pub key mismatch).
+    //
+    // What this proves: "This result was produced inside a VM the host booted
+    // from a golden image whose content hash matches the expected value, for this
+    // specific job, signed with a key only that VM possessed."
+    //
+    // Limits (documented honestly): depends on the host being uncompromised
+    // (accepted design assumption). The expectedBundleSha256 check is a preflight
+    // content-hash, not a runtime measured-boot (true measured boot / SEV-SNP /
+    // TDX is FUTURE, dedicated-hardware only).
+    const hostSigningPriv = ed25519.utils.randomPrivateKey()
+    const hostSigningPubB64 = Buffer.from(ed25519.getPublicKey(hostSigningPriv)).toString('base64')
+
     let crosvm: ReturnType<typeof spawn> | undefined
     try {
       await fs.mkdir(this.cfg.overlayDir, { recursive: true })
@@ -219,14 +246,19 @@ export class CrosvmProvider implements SandboxHypervisorProvider {
       crosvm.stdout?.on('data', (d) => { guestSerial += d.toString() })
       crosvm.stderr?.on('data', (d) => { guestSerial += d.toString() })
 
-      // RUN: hand the untrusted bytes in / get the signed result out over vsock.
-      // `kind`/`inputForm`/`provider` select the guest worker + parser; they are
-      // routing discriminators, NOT a host-side parse of the untrusted content.
+      // RUN: hand the untrusted bytes + the host-provisioned signing key to the
+      // guest over vsock. The key travels host→its-own-VM (local socket, same
+      // trust boundary as the overlay). INV-2: the key is ephemeral (per-job),
+      // never stored, never on a network wire, never in the JobSpec TypeScript
+      // type — it exists only in host memory and guest memory for one job.
+      const hostSigningKeyB64 = Buffer.from(hostSigningPriv).toString('base64')
+      hostSigningPriv.fill(0) // zeroize host copy now that it's base64-encoded for transit
       const input = JSON.stringify({
         jobId: spec.jobId,
         kind: spec.kind,
         inputBytes_b64: spec.inputBytes.toString('base64'),
         sandboxPeerX25519PubB64: spec.sandboxPeerX25519PubB64,
+        hostProvisionedSigningKey_b64: hostSigningKeyB64,
         ...(spec.kind === 'depackage-email'
           ? {
               inputForm: spec.inputForm ?? 'rfc822',
@@ -237,9 +269,8 @@ export class CrosvmProvider implements SandboxHypervisorProvider {
       })
       const rawResult = await this.runHostClient(input, cid, port, wallClockMs)
 
-      // COLLECT/VERIFY: parse the kind-appropriate result, then check the guest's
-      // transport-integrity signature before trusting it. The orchestrator still
-      // re-validates safe-text downstream (the signature proves integrity only).
+      // COLLECT/VERIFY: parse the result, then verify the signature against the
+      // HOST-PROVISIONED public key (provenance) — not the self-asserted key.
       if (spec.kind === 'depackage-email') {
         let emailResult: DepackageEmailJobResult
         try {
@@ -252,12 +283,12 @@ export class CrosvmProvider implements SandboxHypervisorProvider {
             error: `guest returned non-JSON over vsock (serial tail: ${guestSerial.slice(-200)})`,
           }
         }
-        if (!verifyDepackageEmailResultSignature(emailResult)) {
+        if (!verifyDepackageEmailResultSignature(emailResult, hostSigningPubB64)) {
           return {
             jobId: spec.jobId,
             kind: 'depackage-email',
-            result: { ok: false, code: 'E_MALFORMED_MIME', message: 'job result signature invalid' },
-            error: 'job result signature invalid',
+            result: { ok: false, code: 'E_MALFORMED_MIME', message: 'job result signature invalid or provenance mismatch (signing key does not match host-provisioned key)' },
+            error: 'job result signature invalid or provenance mismatch',
           }
         }
         return emailResult
@@ -274,9 +305,8 @@ export class CrosvmProvider implements SandboxHypervisorProvider {
         }
       }
 
-      // COLLECT/VERIFY: transport-integrity signature check before trusting.
-      if (!verifyJobResultSignature(result)) {
-        return { jobId: spec.jobId, ok: false, error: 'job result signature invalid' }
+      if (!verifyJobResultSignature(result, hostSigningPubB64)) {
+        return { jobId: spec.jobId, ok: false, error: 'job result signature invalid or provenance mismatch (signing key does not match host-provisioned key)' }
       }
       return result
     } catch (err: unknown) {

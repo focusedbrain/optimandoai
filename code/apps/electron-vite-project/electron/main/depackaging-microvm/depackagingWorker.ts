@@ -108,21 +108,25 @@ export function depackage(inputBytes: Buffer, sandboxPeerX25519PubB64: string): 
 
 /**
  * Full job entry point as the guest would run it: depackage, then sign the
- * result with a per-job Ed25519 key. Returns a `JobResult` ready to hand back
- * to the orchestrator over the provider transport.
+ * result with an Ed25519 key. Returns a `JobResult` ready to hand back to the
+ * orchestrator over the provider transport.
  *
- * The per-job signing key is generated here (in-guest). Binding this key to an
- * attested VM identity is deferred (attestation build); for Build 1 it proves
- * the result was not mutated in transit, and the orchestrator still
- * re-validates `safeText` against the closed schema regardless.
+ * @param hostSigningKey  When the host provisions a per-boot signing key (VM-
+ *   identity-bound attestation), the guest uses it instead of self-generating.
+ *   This proves to the host that the result came from the VM it booted: only
+ *   that VM possesses the host-provisioned key. When absent (in-process
+ *   executor, tests without provenance), a fresh random key is generated
+ *   (backward-compatible — proves transport integrity only).
  */
-export function runDepackagingJob(spec: JobSpec): JobResult {
+export function runDepackagingJob(spec: JobSpec, hostSigningKey?: Uint8Array): JobResult {
   try {
     const { safeText, artifacts, stage_attestation } = depackage(spec.inputBytes, spec.sandboxPeerX25519PubB64)
     const base = { jobId: spec.jobId, ok: true as const, safeText, artifacts, stage_attestation }
-    const signingPriv = ed25519.utils.randomPrivateKey()
+    const selfGenerated = !hostSigningKey
+    const signingPriv = hostSigningKey ?? ed25519.utils.randomPrivateKey()
     const sig = signJobResult(base, signingPriv)
-    signingPriv.fill(0)
+    if (selfGenerated) signingPriv.fill(0)
+    else try { hostSigningKey!.fill(0) } catch { /* host key may be non-writable in tests */ }
     return { ...base, ...sig }
   } catch (err: unknown) {
     return {

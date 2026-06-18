@@ -504,25 +504,33 @@ export interface DepackageEmailJobInput {
 
 /**
  * Full `depackage-email` job entry: run the email worker (RFC822 or D4 walker),
- * then SIGN the typed result with a per-job Ed25519 key — the same transport-
- * integrity discipline `runDepackagingJob` applies to the B1 result. Used by BOTH
- * the in-guest entry (`rig/guestEntry.ts`) and the in-process executor, so every
+ * then SIGN the typed result with an Ed25519 key — the same transport-integrity
+ * discipline `runDepackagingJob` applies to the B1 result. Used by BOTH the
+ * in-guest entry (`rig/guestEntry.ts`) and the in-process executor, so every
  * `depackage-email` result is signed and the dispatcher can verify it uniformly.
  *
  * A worker failure (`result.ok === false`) is still a VALID, SIGNED output (the
  * job ran and produced a verdict); the consumer quarantines it. Only an internal
  * throw becomes a transport-level `error`.
+ *
+ * @param hostSigningKey  Host-provisioned per-boot signing key for VM-identity
+ *   attestation. See `runDepackagingJob` for the trust model.
  */
-export function runDepackageEmailJob(input: DepackageEmailJobInput): DepackageEmailJobResult {
+export function runDepackageEmailJob(
+  input: DepackageEmailJobInput,
+  hostSigningKey?: Uint8Array,
+): DepackageEmailJobResult {
   try {
     const limits = input.maxInputBytes != null ? { maxInputBytes: input.maxInputBytes } : undefined
     const result =
       input.inputForm === 'provider-structured-json'
         ? depackageEmailStructured(input.inputBytes, input.sandboxPeerX25519PubB64, { provider: input.provider }, limits)
         : depackageEmail(input.inputBytes, input.sandboxPeerX25519PubB64, limits)
-    const signingPriv = ed25519.utils.randomPrivateKey()
+    const selfGenerated = !hostSigningKey
+    const signingPriv = hostSigningKey ?? ed25519.utils.randomPrivateKey()
     const sig = signDepackageEmailResult(input.jobId, result, signingPriv)
-    signingPriv.fill(0)
+    if (selfGenerated) signingPriv.fill(0)
+    else try { hostSigningKey!.fill(0) } catch { /* host key may be non-writable in tests */ }
     return { jobId: input.jobId, kind: 'depackage-email', result, ...sig }
   } catch (err: unknown) {
     return {

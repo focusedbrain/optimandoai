@@ -186,20 +186,25 @@ export function signJobResult(
  * Verify a job-result signature (orchestrator-side). Returns true only if the
  * detached signature matches the canonical bytes under the embedded public key.
  *
- * NOTE: this proves *integrity of transport* (the result wasn't mutated after
- * signing) but NOT *identity* — binding `result_signing_pub_b64` to a genuine,
- * attested job VM is deferred to the attestation build. Until then the
- * orchestrator MUST still re-validate `safeText` against the closed schema
- * (`validateSafeText`) and treat the signer key as untrusted-by-default.
+ * When `expectedPubB64` is provided (VM-identity-bound attestation), the
+ * result's `result_signing_pub_b64` MUST match it — proving the result was
+ * signed by the host-provisioned key, not a self-generated one. This closes the
+ * provenance gap: only a VM the host booted possesses the host-provisioned key.
+ *
+ * When `expectedPubB64` is absent, this proves transport integrity only (the
+ * result wasn't mutated after signing). The orchestrator MUST still re-validate
+ * `safeText` against the closed schema (`validateSafeText`).
  */
-export function verifyJobResultSignature(r: JobResult): boolean {
+export function verifyJobResultSignature(
+  r: JobResult,
+  expectedPubB64?: string,
+): boolean {
   if (!r.result_signature_b64 || !r.result_signing_pub_b64) return false
+  if (expectedPubB64 && r.result_signing_pub_b64 !== expectedPubB64) return false
   try {
     const msg = canonicalJobResultBytes(r)
     const sig = Buffer.from(r.result_signature_b64, 'base64')
     const pub = new Uint8Array(Buffer.from(r.result_signing_pub_b64, 'base64'))
-    // Reject small-order / identity / non-canonical signing keys before verify:
-    // the library accepts them with an all-zero signature (forgery vector). INV-7.
     if (isWeakEd25519PublicKey(pub)) return false
     return ed25519.verify(new Uint8Array(sig), new Uint8Array(msg), pub)
   } catch {
@@ -296,12 +301,16 @@ export function signDepackageEmailResult(
 }
 
 /**
- * Verify a depackage-email result's transport-integrity signature (host-side).
- * Same weak-key rejection as `verifyJobResultSignature`. Proves integrity only;
- * the orchestrator still re-validates each safe-text against the closed schema.
+ * Verify a depackage-email result's signature (host-side). Same weak-key
+ * rejection and optional `expectedPubB64` provenance check as
+ * `verifyJobResultSignature`.
  */
-export function verifyDepackageEmailResultSignature(r: DepackageEmailJobResult): boolean {
+export function verifyDepackageEmailResultSignature(
+  r: DepackageEmailJobResult,
+  expectedPubB64?: string,
+): boolean {
   if (!r.result_signature_b64 || !r.result_signing_pub_b64) return false
+  if (expectedPubB64 && r.result_signing_pub_b64 !== expectedPubB64) return false
   try {
     const msg = canonicalDepackageEmailResultBytes(r.jobId, r.result)
     const sig = Buffer.from(r.result_signature_b64, 'base64')
