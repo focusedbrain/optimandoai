@@ -1,19 +1,16 @@
 /**
  * Shared post-result verification for the routing seam (Build A → L3).
  *
- * For depackage-style results, the dispatcher runs the FULL chain verification:
- *   1. `verifyJobResultSignature` — transport integrity (Ed25519).
- *   2. Host stage-N: detection on padded text, pad once more, produce host
- *      attestation (chained to prior).
- *   3. De-pad ALL layers → exact original raw text.
- *   4. `verifyAttestationChain` — chain links, CCH, stage count.
- *   5. `validateSafeText` — closed-schema re-validation on de-padded text.
- *   6. `detectThreats` — final raw-text detection.
- *   7. Only when ALL gates pass → text is trusted.
+ * After the padding teardown (Step 3), the host final stage is:
+ *   1. `verifyJobResultSignature` — Ed25519 transport integrity, with optional
+ *      VM-identity-bound provenance check (Step 1: host-provisioned key).
+ *   2. `validateSafeText` — closed-schema re-validation (L5) + retained
+ *      character blocklist (L2).
+ *   3. `detectThreats` — defense-in-depth (L3). Non-load-bearing: findings
+ *      log/flag but do NOT silently pass. The gate is provenance + schema.
  *
- * The stage count is TOPOLOGY-DRIVEN: 2 for single-machine (sandbox stage 1 +
- * host stage 2), configurable to 3 for dedicated when the host-VM validator
- * lands. Passed as a parameter with a default of 2.
+ * NO padding, NO de-pad, NO chain verification. The text arrives as the
+ * SafeTextV1 the guest constructed; the host verifies, does not transform.
  */
 
 import {
@@ -23,14 +20,7 @@ import {
   type JobResult,
 } from '../depackaging-microvm/hypervisorProvider'
 import { validateSafeText, type SafeTextV1 } from '../depackaging-microvm/safeText'
-import { pad, unpadLayers } from '../depackaging-microvm/padTransform'
-import { detectThreats } from '../depackaging-microvm/paddingAwareDetection'
-import {
-  canonicalContentHash,
-  createStageAttestation,
-  verifyAttestationChain,
-  type StageAttestation,
-} from '../depackaging-microvm/stageAttestation'
+import { detectThreats } from '../depackaging-microvm/defenseInDepthDetection'
 import type { DepackageEmailResult } from '../depackaging-microvm/emailDepackage'
 import { toCourierRecord, type CourierArtifactRecord } from '../depackaging-microvm/blindCourier'
 import type { CriticalJobResult, DepackageOutput } from './types'
@@ -58,7 +48,7 @@ export function depackageJobResultToCriticalResult(job: JobResult): CriticalJobR
   return {
     jobId: job.jobId,
     ok: true,
-    output: { safeText: job.safeText!, artifacts, stage_attestation: job.stage_attestation },
+    output: { safeText: job.safeText!, artifacts },
     result_signing_pub_b64: job.result_signing_pub_b64,
     result_signature_b64: job.result_signature_b64,
   }
@@ -82,7 +72,6 @@ function reconstructJobResult(r: CriticalJobResult<'depackage'>): JobResult {
       filename: a.filename,
       blob: a.ciphertext,
     })),
-    stage_attestation: out?.stage_attestation,
     result_signing_pub_b64: r.result_signing_pub_b64,
     result_signature_b64: r.result_signature_b64,
   }
@@ -104,172 +93,95 @@ export type DepackageVerification =
   | { readonly ok: true; readonly output: DepackageOutput }
   | {
       readonly ok: false
-      readonly code: 'E_SIGNATURE_INVALID' | 'E_SAFETEXT_REJECTED' | 'E_CHAIN_INVALID'
+      readonly code: 'E_SIGNATURE_INVALID' | 'E_SAFETEXT_REJECTED'
       readonly message: string
     }
 
 /**
- * Verify a depackage result through the FULL validation chain (L3):
- *   1. Transport signature (Ed25519)
- *   2. Host detection on padded text → fail closed
- *   3. Host pads + attests (stage N, chained to prior)
- *   4. De-pad ALL layers → raw text
- *   5. verifyAttestationChain → fail closed
- *   6. validateSafeText on raw → fail closed
- *   7. detectThreats on raw → fail closed
+ * Verify a depackage result (post-padding-teardown):
+ *   1. Transport signature (Ed25519) — proves transport integrity / VM provenance.
+ *   2. validateSafeText — closed-schema re-validation (L5) + blocklist (L2).
+ *   3. detectThreats — defense-in-depth (L3), non-load-bearing.
  *
- * @param expectedStageCount  Topology-driven. Default 2 (sandbox + host).
+ * Fail closed on signature or schema failure. Detection findings are logged
+ * but treated as a hard gate per defense-in-depth policy.
  */
 export function verifyDepackageResult(
   r: CriticalJobResult<'depackage'>,
-  expectedStageCount: number = 2,
 ): DepackageVerification {
   const jr = reconstructJobResult(r)
   if (!verifyJobResultSignature(jr)) {
     return { ok: false, code: 'E_SIGNATURE_INVALID', message: 'job result signature invalid' }
   }
 
-  const stage1Att = r.output?.stage_attestation
-  if (!stage1Att) {
-    return { ok: false, code: 'E_CHAIN_INVALID', message: 'missing stage-1 attestation' }
-  }
-  const paddedSafeText = jr.safeText
-  if (!paddedSafeText) {
-    return { ok: false, code: 'E_CHAIN_INVALID', message: 'missing safe-text in result' }
+  const safeText = jr.safeText
+  if (!safeText) {
+    return { ok: false, code: 'E_SAFETEXT_REJECTED', message: 'missing safe-text in result' }
   }
 
-  const chainResult = runHostFinalStage(
-    paddedSafeText,
-    [stage1Att],
-    expectedStageCount,
-  )
-  if (!chainResult.ok) {
-    return chainResult
+  const hostResult = runHostFinalStage(safeText)
+  if (!hostResult.ok) {
+    return hostResult
   }
 
   const courier = toCourierRecord(
-    { ...jr, safeText: chainResult.rawSafeText },
-    chainResult.rawSafeText,
+    { ...jr, safeText: hostResult.safeText },
+    hostResult.safeText,
   )
   return {
     ok: true,
     output: {
       safeText: courier.safeText,
       artifacts: courier.artifacts,
-      stage_attestation: stage1Att,
     },
   }
 }
 
 // ── Shared host final-stage logic ────────────────────────────────────────────
 
-type ChainFailure = {
+type HostStageFailure = {
   readonly ok: false
-  readonly code: 'E_CHAIN_INVALID' | 'E_SAFETEXT_REJECTED'
+  readonly code: 'E_SAFETEXT_REJECTED'
   readonly message: string
 }
 
 /**
- * The host's final validation stage. Shared by both B1 and B2 verification.
+ * The host's final validation stage (post-padding-teardown).
  *
- * 1. Detect on received padded text (host detection pass). Fail closed.
- * 2. Pad once more → host attestation (chained to prior).
- * 3. De-pad ALL layers → raw text.
- * 4. verifyAttestationChain.
- * 5. validateSafeText on raw.
- * 6. detectThreats on raw (final raw detection).
+ * 1. validateSafeText — closed-schema re-validation (L5) + blocklist (L2).
+ * 2. detectThreats — defense-in-depth (L3). Findings fail closed.
+ *
+ * The text is the raw SafeTextV1 the guest constructed. No padding, no de-pad,
+ * no chain verification. The host verifies; it does not transform.
  */
 function runHostFinalStage(
-  paddedSafeText: SafeTextV1,
-  priorAttestations: readonly StageAttestation[],
-  expectedStageCount: number,
+  safeText: SafeTextV1,
 ):
-  | { readonly ok: true; readonly rawSafeText: SafeTextV1; readonly allAttestations: readonly StageAttestation[] }
-  | ChainFailure {
-  const hostStageId = priorAttestations.length + 1
-
-  // Gate 1: host detection on padded text
-  const bodyDetection = detectThreats(paddedSafeText.body_text)
-  if (!bodyDetection.pass) {
-    return {
-      ok: false,
-      code: 'E_CHAIN_INVALID',
-      message: `host stage-${hostStageId} detection on padded body: ${bodyDetection.findings.map((f) => `${f.category}:${f.detail}`).join(', ')}`,
-    }
-  }
-  const subjectDetection = detectThreats(paddedSafeText.subject)
-  if (!subjectDetection.pass) {
-    return {
-      ok: false,
-      code: 'E_CHAIN_INVALID',
-      message: `host stage-${hostStageId} detection on padded subject: ${subjectDetection.findings.map((f) => `${f.category}:${f.detail}`).join(', ')}`,
-    }
-  }
-
-  // Gate 2: host pads + attests
-  const hostPaddedBody = pad(paddedSafeText.body_text)
-  const lastPrior = priorAttestations[priorAttestations.length - 1]
-  const cch = lastPrior.canonical_content_hash
-  const hostAttestation = createStageAttestation(
-    hostStageId,
-    'host',
-    cch,
-    hostPaddedBody,
-    lastPrior,
-  )
-  const allAttestations = [...priorAttestations, hostAttestation]
-
-  // Gate 3: de-pad ALL layers → raw
-  let rawBody: string
-  let rawSubject: string
-  try {
-    rawBody = unpadLayers(paddedSafeText.body_text, priorAttestations.length)
-    rawSubject = unpadLayers(paddedSafeText.subject, priorAttestations.length)
-  } catch (err) {
-    return {
-      ok: false,
-      code: 'E_CHAIN_INVALID',
-      message: `de-pad integrity error: ${err instanceof Error ? err.message : String(err)}`,
-    }
-  }
-
-  // Gate 4: verify attestation chain
-  const chainResult = verifyAttestationChain(allAttestations, rawBody, expectedStageCount)
-  if (!chainResult.ok) {
-    return { ok: false, code: 'E_CHAIN_INVALID', message: `chain verification: ${chainResult.reason}` }
-  }
-
-  // Gate 5: validateSafeText on de-padded raw text
-  const rawSafeText: SafeTextV1 = {
-    schema: paddedSafeText.schema,
-    subject: rawSubject,
-    body_text: rawBody,
-    attachment_refs: paddedSafeText.attachment_refs,
-  }
-  const v = validateSafeText(rawSafeText)
+  | { readonly ok: true; readonly safeText: SafeTextV1 }
+  | HostStageFailure {
+  const v = validateSafeText(safeText)
   if (!v.ok) {
     return { ok: false, code: 'E_SAFETEXT_REJECTED', message: `safe-text rejected: ${v.reason}` }
   }
 
-  // Gate 6: final raw-text detection
-  const rawBodyDetection = detectThreats(rawBody)
-  if (!rawBodyDetection.pass) {
+  const bodyDetection = detectThreats(safeText.body_text)
+  if (!bodyDetection.pass) {
     return {
       ok: false,
-      code: 'E_CHAIN_INVALID',
-      message: `final raw detection on body: ${rawBodyDetection.findings.map((f) => `${f.category}:${f.detail}`).join(', ')}`,
+      code: 'E_SAFETEXT_REJECTED',
+      message: `defense-in-depth detection on body: ${bodyDetection.findings.map((f) => `${f.category}:${f.detail}`).join(', ')}`,
     }
   }
-  const rawSubjectDetection = detectThreats(rawSubject)
-  if (!rawSubjectDetection.pass) {
+  const subjectDetection = detectThreats(safeText.subject)
+  if (!subjectDetection.pass) {
     return {
       ok: false,
-      code: 'E_CHAIN_INVALID',
-      message: `final raw detection on subject: ${rawSubjectDetection.findings.map((f) => `${f.category}:${f.detail}`).join(', ')}`,
+      code: 'E_SAFETEXT_REJECTED',
+      message: `defense-in-depth detection on subject: ${subjectDetection.findings.map((f) => `${f.category}:${f.detail}`).join(', ')}`,
     }
   }
 
-  return { ok: true, rawSafeText: v.value, allAttestations }
+  return { ok: true, safeText: v.value }
 }
 
 // ── depackage-email verification ─────────────────────────────────────────────
@@ -278,18 +190,17 @@ export type DepackageEmailVerification =
   | { readonly ok: true; readonly output: DepackageEmailResult }
   | {
       readonly ok: false
-      readonly code: 'E_SIGNATURE_INVALID' | 'E_SAFETEXT_REJECTED' | 'E_CHAIN_INVALID'
+      readonly code: 'E_SIGNATURE_INVALID' | 'E_SAFETEXT_REJECTED'
       readonly message: string
     }
 
 /**
- * Verify a `depackage-email` result through the full chain (L3).
+ * Verify a `depackage-email` result (post-padding-teardown).
  *
- * @param expectedStageCount  Topology-driven. Default 2.
+ * Same three gates as `verifyDepackageResult`: signature → schema → detection.
  */
 export function verifyDepackageEmailResult(
   r: CriticalJobResult<'depackage-email'>,
-  expectedStageCount: number = 2,
 ): DepackageEmailVerification {
   const result = r.output
   if (!result) {
@@ -309,24 +220,19 @@ export function verifyDepackageEmailResult(
     return { ok: true, output: result }
   }
 
-  const stage1Att = result.stage_attestation
-  if (!stage1Att) {
-    return { ok: false, code: 'E_CHAIN_INVALID', message: 'missing stage-1 attestation in email result' }
-  }
-
-  const paddedSafeText =
+  const safeText =
     result.type === 'beap-carrier' ? result.carrierSafeText : result.safeText
-  if (!paddedSafeText) {
+  if (!safeText) {
     return { ok: true, output: result }
   }
 
-  const chainResult = runHostFinalStage(paddedSafeText, [stage1Att], expectedStageCount)
-  if (!chainResult.ok) {
-    return chainResult
+  const hostResult = runHostFinalStage(safeText)
+  if (!hostResult.ok) {
+    return hostResult
   }
 
   if (result.type === 'beap-carrier') {
-    return { ok: true, output: { ...result, carrierSafeText: chainResult.rawSafeText } }
+    return { ok: true, output: { ...result, carrierSafeText: hostResult.safeText } }
   }
-  return { ok: true, output: { ...result, safeText: chainResult.rawSafeText } }
+  return { ok: true, output: { ...result, safeText: hostResult.safeText } }
 }

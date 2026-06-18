@@ -105,18 +105,14 @@ export class CriticalJobDispatcher {
       return this.fail(spec, code, message, start, chosen.id)
     }
 
-    // Centralized post-result verification: transport signature → host final
-    // stage (detection + pad + attest) → de-pad → chain verify → final
-    // validateSafeText + detection. No executor can skip it. Stage count is
-    // topology-driven (currently 2 for all topologies; becomes 3 for dedicated
-    // when the host-VM validator lands).
+    // Centralized post-result verification: transport signature (Ed25519 +
+    // optional VM-identity provenance) → validateSafeText (L5 schema + L2
+    // blocklist) → detectThreats (L3 defense-in-depth). No executor can skip it.
     let result = raw
     if (raw.ok && SAFE_TEXT_OUTPUT_KINDS.has(spec.kind)) {
-      const stageCount = this.expectedValidationStageCount()
       if (spec.kind === 'depackage-email') {
         const verdict = verifyDepackageEmailResult(
           raw as CriticalJobResult<'depackage-email'>,
-          stageCount,
         )
         if (!verdict.ok) {
           return this.fail(spec, verdict.code, verdict.message, start, chosen.id)
@@ -125,7 +121,6 @@ export class CriticalJobDispatcher {
       } else {
         const verdict = verifyDepackageResult(
           raw as CriticalJobResult<'depackage'>,
-          stageCount,
         )
         if (!verdict.ok) {
           return this.fail(spec, verdict.code, verdict.message, start, chosen.id)
@@ -141,17 +136,6 @@ export class CriticalJobDispatcher {
     }
     this.logOk(spec, meta)
     return { ...result, meta }
-  }
-
-  /**
-   * Topology-driven expected validation stage count. Currently 2 for all
-   * topologies (sandbox-guest stage 1 + host stage 2). When the host-VM
-   * validator lands for dedicated topology, this becomes 3 for dedicated
-   * (dedicated-sandbox stage 1 → host-VM stage 2 → host stage 3).
-   */
-  private expectedValidationStageCount(): number {
-    // Future: inspect this.ctx for dedicated topology → return 3
-    return 2
   }
 
   private runWithTimeout<K extends CriticalJobKind>(

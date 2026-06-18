@@ -1,5 +1,10 @@
 /**
- * verify.ts — depackage signature + safe-text re-validation gate.
+ * verify.ts — depackage signature + safe-text re-validation + defense-in-depth.
+ *
+ * Post-padding-teardown: the host final stage is:
+ *   1. Ed25519 signature verification (transport integrity / VM provenance)
+ *   2. validateSafeText (L5 schema + L2 blocklist)
+ *   3. detectThreats (L3 defense-in-depth)
  */
 
 import { describe, test, expect } from 'vitest'
@@ -43,9 +48,7 @@ describe('verifyDepackageResult', () => {
     if (!r.ok) expect(r.code).toBe('E_SIGNATURE_INVALID')
   })
 
-  test('E_CHAIN_INVALID when result has no stage-1 attestation (chain gate before safe-text)', () => {
-    // A validly-signed result without an attestation is rejected at the chain
-    // level (missing attestation) before reaching safe-text validation.
+  test('E_SAFETEXT_REJECTED when safe-text has extra keys (schema re-validation)', () => {
     const badSafeText = {
       schema: 'safe-text/v1',
       subject: 'x',
@@ -65,6 +68,57 @@ describe('verifyDepackageResult', () => {
     }
     const r = verifyDepackageResult(result)
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.code).toBe('E_CHAIN_INVALID')
+    if (!r.ok) expect(r.code).toBe('E_SAFETEXT_REJECTED')
+  })
+
+  test('E_SAFETEXT_REJECTED when body contains threat (defense-in-depth detection)', () => {
+    const threatSafeText = {
+      schema: 'safe-text/v1' as const,
+      subject: 'test',
+      body_text: 'malicious eval(code) injection',
+      attachment_refs: [] as string[],
+    }
+    const base = { jobId: 'threat1', ok: true as const, safeText: threatSafeText, artifacts: [] }
+    const priv = ed25519.utils.randomPrivateKey()
+    const sig = signJobResult(base, priv)
+    priv.fill(0)
+    const result = {
+      jobId: 'threat1',
+      ok: true,
+      output: { safeText: threatSafeText, artifacts: [] },
+      ...sig,
+    }
+    const r = verifyDepackageResult(result)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.code).toBe('E_SAFETEXT_REJECTED')
+  })
+
+  test('E_SAFETEXT_REJECTED when result has missing safe-text', () => {
+    const base = { jobId: 'notext', ok: true as const, safeText: undefined, artifacts: [] }
+    const priv = ed25519.utils.randomPrivateKey()
+    const sig = signJobResult(base as unknown as JobResult, priv)
+    priv.fill(0)
+    const result = {
+      jobId: 'notext',
+      ok: true,
+      output: { safeText: undefined as never, artifacts: [] },
+      ...sig,
+    }
+    const r = verifyDepackageResult(result)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.code).toBe('E_SAFETEXT_REJECTED')
+  })
+
+  test('host stage no longer references padTransform or stageAttestation', () => {
+    const r = verifyDepackageResult(realResult())
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect((r.output as Record<string, unknown>).stage_attestation).toBeUndefined()
+    }
+  })
+
+  test('detectThreats still runs as defense-in-depth (clean text passes)', () => {
+    const r = verifyDepackageResult(realResult())
+    expect(r.ok).toBe(true)
   })
 })

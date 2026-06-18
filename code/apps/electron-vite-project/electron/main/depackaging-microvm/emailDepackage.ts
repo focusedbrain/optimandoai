@@ -31,8 +31,6 @@ import type { QuarantineBlobFile } from '../quarantine-blob-storage/index'
 import { signDepackageEmailResult, type DepackageEmailJobResult } from './hypervisorProvider'
 import { constructSafeText, type SafeTextV1 } from './safeText'
 import { htmlToSafeText } from './htmlToText'
-import { applyStage1Validation } from './stage1Validation'
-import type { StageAttestation } from './stageAttestation'
 import {
   DepackageFailure,
   DEPACKAGE_DEFAULTS as DEFAULTS,
@@ -78,9 +76,9 @@ export interface OpaquePackage {
 // ── Typed result union ───────────────────────────────────────────────────────
 
 export type DepackageEmailResult =
-  | { readonly ok: true; readonly type: 'plain'; readonly safeText: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope; readonly threadingHints: ThreadingHints; readonly stage_attestation?: StageAttestation }
-  | { readonly ok: true; readonly type: 'beap-carrier'; readonly packages: readonly OpaquePackage[]; readonly carrierSafeText?: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope; readonly threadingHints: ThreadingHints; readonly stage_attestation?: StageAttestation }
-  | { readonly ok: true; readonly type: 'mixed'; readonly packages: readonly OpaquePackage[]; readonly safeText: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope; readonly threadingHints: ThreadingHints; readonly stage_attestation?: StageAttestation }
+  | { readonly ok: true; readonly type: 'plain'; readonly safeText: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope; readonly threadingHints: ThreadingHints }
+  | { readonly ok: true; readonly type: 'beap-carrier'; readonly packages: readonly OpaquePackage[]; readonly carrierSafeText?: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope; readonly threadingHints: ThreadingHints }
+  | { readonly ok: true; readonly type: 'mixed'; readonly packages: readonly OpaquePackage[]; readonly safeText: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope; readonly threadingHints: ThreadingHints }
   | { readonly ok: false; readonly code: DepackageFailureCode; readonly message: string }
 
 // ── Bounded MIME parse (recursive, fail-closed) ──────────────────────────────
@@ -422,8 +420,7 @@ function buildResultFromParse(parsed: ParseOut, sandboxPubB64: string): Depackag
       plainTextBodyRaw: bodyText,
       attachmentBlobIds: artifacts.map((a) => a.blob_id),
     })
-    const { paddedSafeText, attestation } = applyStage1Validation(rawSafeText)
-    return { ok: true, type: 'plain', safeText: paddedSafeText, artifacts, displayEnvelope, threadingHints, stage_attestation: attestation }
+    return { ok: true, type: 'plain', safeText: rawSafeText, artifacts, displayEnvelope, threadingHints }
   }
 
   const artifacts = sealArtifacts(sealLeaves, sandboxPubB64)
@@ -433,16 +430,14 @@ function buildResultFromParse(parsed: ParseOut, sandboxPubB64: string): Depackag
       plainTextBodyRaw: bodyText,
       attachmentBlobIds: artifacts.map((a) => a.blob_id),
     })
-    const { paddedSafeText, attestation } = applyStage1Validation(rawSafeText)
-    return { ok: true, type: 'mixed', packages, safeText: paddedSafeText, artifacts, displayEnvelope, threadingHints, stage_attestation: attestation }
+    return { ok: true, type: 'mixed', packages, safeText: rawSafeText, artifacts, displayEnvelope, threadingHints }
   }
   const rawCarrierSafeText = constructSafeText({
     subjectRaw: parsed.subject,
     plainTextBodyRaw: '',
     attachmentBlobIds: artifacts.map((a) => a.blob_id),
   })
-  const { paddedSafeText: paddedCarrierSafeText, attestation: carrierAttestation } = applyStage1Validation(rawCarrierSafeText)
-  return { ok: true, type: 'beap-carrier', packages, carrierSafeText: paddedCarrierSafeText, artifacts, displayEnvelope, threadingHints, stage_attestation: carrierAttestation }
+  return { ok: true, type: 'beap-carrier', packages, carrierSafeText: rawCarrierSafeText, artifacts, displayEnvelope, threadingHints }
 }
 
 function toFailureResult(err: unknown): DepackageEmailResult {

@@ -63,9 +63,8 @@ describe('Invariant 1 — text-purity by positive construction', () => {
     )
   })
 
-  test('the legitimate plain-text body survives (may contain stage-1 padding chars)', () => {
-    const stripped = out.safeText.body_text.replace(/\uFFFC/g, '')
-    expect(stripped).toContain('legitimate plain-text body')
+  test('the legitimate plain-text body survives verbatim', () => {
+    expect(out.safeText.body_text).toContain('legitimate plain-text body')
   })
 
   test('active HTML content is ABSENT from safe-text (not sanitized — discarded)', () => {
