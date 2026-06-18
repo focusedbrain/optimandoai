@@ -1,6 +1,47 @@
 /**
  * SafeText v1 — the closed, allowlist-constructed text schema (Build 1).
  *
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * LAYERED SECURITY MODEL — which layer guarantees what
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * L1  INERT-SINK DISCIPLINE (the actual no-code guarantee)
+ *     SafeText content is NEVER used in an executable context. Every consumer
+ *     renders it as React text nodes, stores it via parameterized SQL, or passes
+ *     it as clearly-delimited DATA in LLM prompts. Code in the text is harmless
+ *     because no sink interprets it. Audit: Step 2 of the layered-sandbox
+ *     refactor confirmed zero executable sinks (no innerHTML, no eval, no
+ *     dangerouslySetInnerHTML, no shell interpolation, no SQL concat).
+ *
+ * L2  CHARACTER BLOCKLIST — encoding/invisible-char HYGIENE (this file)
+ *     `toPlainTextField` strips C0/C1 controls, DEL, Unicode bidi/format
+ *     controls, zero-width chars, and BOM. `validateSafeText` rejects text
+ *     containing any of these on the receive side. This prevents encoding-
+ *     smuggling and invisible-character attacks. It is NOT the no-code
+ *     guarantee — `eval("alert(1)")` passes the blocklist intact because
+ *     those are normal printable characters that appear in legitimate email.
+ *     The no-code guarantee is L1 (inert sinks).
+ *
+ * L3  detectThreats — DEFENSE-IN-DEPTH early warning (non-load-bearing)
+ *     Flags suspicious patterns (code constructs, script tags, etc.) as an
+ *     additional signal. Retained for monitoring/alerting, not as a gate.
+ *
+ * L4  VM-IDENTITY ATTESTATION — PROVENANCE
+ *     Host-provisioned ephemeral key proves the result came from a VM the
+ *     host booted from a verified golden image. See crosvmProvider.ts.
+ *
+ * L5  STRUCTURAL POSITIVE CONSTRUCTION (this file)
+ *     `constructSafeText` builds SafeTextV1 field-by-field from only permitted
+ *     inputs. `validateSafeText` enforces a closed-key allowlist, type checks,
+ *     length bounds, and blob-UUID format. No path exists for unexpected fields
+ *     to appear. This is genuinely real positive construction at the structural
+ *     level (schema shape), distinct from character-level filtering.
+ *
+ * The combination is stronger than any single layer. Do not mistake L2 for the
+ * no-code guarantee (it is not), and do not replace L2 with a character
+ * allowlist (that would break legitimate email containing <, >, {, }, =, ;).
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
  * TEXT-PURITY INVARIANT (Invariant 1):
  *   The depackaging worker NEVER passes through the rich decoded MIME/JSON. It
  *   POSITIVELY CONSTRUCTS a fresh object containing ONLY the explicitly-permitted,
