@@ -25,7 +25,19 @@ function readExtensionOutDirStamp(): string {
   }
   return 'build0'
 }
-const ORCHESTRATOR_BUILD_STAMP = readExtensionOutDirStamp()
+const BASE_ORCHESTRATOR_BUILD_STAMP = readExtensionOutDirStamp()
+
+function gitShortHead(fromDir: string): string {
+  try {
+    const cwd = execSync('git rev-parse --show-toplevel', { cwd: fromDir, encoding: 'utf8' }).trim()
+    return execSync('git rev-parse --short=7 HEAD', { cwd: cwd || fromDir, encoding: 'utf8' }).trim()
+  } catch {
+    return 'unknown'
+  }
+}
+
+/** RUNTIME_IDENTITY buildStamp: `build106 (<short-hash>)` — outDir stays `build106` for paths. */
+const ORCHESTRATOR_BUILD_STAMP = `${BASE_ORCHESTRATOR_BUILD_STAMP} (${gitShortHead(root)})`
 
 function gitMetaFromClosestRepo(fromDir: string): { branch: string; commit: string } {
   try {
