@@ -11,8 +11,14 @@ import {
   deriveInternalHostAiPeerRoles,
   outboundP2pBearerToCounterpartyIngest,
 } from '../../internalInference/policy'
-import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
-import { resolveSandboxTopologyKind } from '../../handshake/sandboxTopologyKind'
+import { getInstanceId, getOrchestratorMode } from '../../orchestrator/orchestratorModeStore'
+import {
+  hostnameFromP2pUrl,
+  isLoopbackP2pHost,
+  resolveSandboxTopologyKind,
+  type SandboxPairingKind,
+  type SandboxTopologyKind,
+} from '../../handshake/sandboxTopologyKind'
 import {
   resolveIngestionOwnershipWithLedger,
   type IngestionOwnership,
@@ -45,12 +51,88 @@ export type SendDedicatedSandboxIngestionPollTriggerResult =
   | { ok: true; trigger: IngestionPollTriggerCounts }
   | { ok: false; code: string; message: string }
 
+export type IngestionTriggerDecision = 'trigger' | 'delegate'
+
+export interface IngestionTriggerDecisionContext {
+  topologyKind: SandboxTopologyKind
+  twoDevicePair: boolean
+  hostDeviceId: string
+  peerSandboxDeviceId: string
+  p2pEndpointHost: string | null
+  topologyPairingKind: SandboxPairingKind | null
+  linkedPairingKind: SandboxPairingKind | null
+  decision: IngestionTriggerDecision
+}
+
 function peerCoordinationId(record: HandshakeRecord, thisId: string): string {
   const ini = (record.initiator_coordination_device_id ?? '').trim()
   const acc = (record.acceptor_coordination_device_id ?? '').trim()
   if (ini && ini !== thisId) return ini
   if (acc && acc !== thisId) return acc
   return acc || ini || ''
+}
+
+function linkedPairingKindForHandshake(handshakeId: string): SandboxPairingKind | null {
+  try {
+    const linked = getOrchestratorMode().linked ?? []
+    const entry = linked.find((e) => e.handshakeId === handshakeId)
+    if (entry?.pairingKind === 'local_inner_vm' || entry?.pairingKind === 'remote_dedicated') {
+      return entry.pairingKind
+    }
+  } catch {
+    /* missing/parse-failed config */
+  }
+  return null
+}
+
+function endpointHostPort(url: string): string {
+  const ep = url.trim()
+  if (!ep) return '(none)'
+  try {
+    const u = new URL(ep)
+    return u.port ? `${u.hostname}:${u.port}` : u.hostname
+  } catch {
+    return '(invalid)'
+  }
+}
+
+/**
+ * True when the ACTIVE host→sandbox handshake proves separate hardware orchestrators:
+ * both coordination device ids are present, distinct, and the sandbox peer id differs
+ * from this host's id.
+ *
+ * In-host VM pairs are excluded when the peer endpoint is strict loopback AND the pair
+ * carries a deliberate `local_inner_vm` marker (installer / provisioning). That pattern
+ * is co-located self-poll — not a misclassified two-device LAN pair where the endpoint
+ * was transiently stored as a host-local LAN address during pairing.
+ */
+export function isGenuineTwoDeviceHostSandboxPairForTrigger(
+  record: HandshakeRecord | null,
+  localDeviceId: string,
+): boolean {
+  if (!record?.internal_coordination_identity_complete) return false
+
+  const localId = localDeviceId.trim()
+  if (!localId) return false
+
+  const dr = deriveInternalHostAiPeerRoles(record, localId)
+  if (!dr.ok || dr.localRole !== 'host' || dr.peerRole !== 'sandbox') return false
+
+  const ini = (record.initiator_coordination_device_id ?? '').trim()
+  const acc = (record.acceptor_coordination_device_id ?? '').trim()
+  if (!ini || !acc || ini === acc) return false
+
+  const peerId = peerCoordinationId(record, localId)
+  if (!peerId || peerId === localId) return false
+
+  const peerHost = hostnameFromP2pUrl(record.p2p_endpoint)
+  if (peerHost && isLoopbackP2pHost(peerHost)) {
+    const linkedKind = linkedPairingKindForHandshake(record.handshake_id)
+    const explicitKind = linkedKind ?? record.topology_pairing_kind ?? null
+    if (explicitKind === 'local_inner_vm') return false
+  }
+
+  return true
 }
 
 /** ACTIVE internal row where this device is Host and peer is Sandbox. */
@@ -72,9 +154,48 @@ export function findActiveHostToSandboxHandshakeRecord(db: unknown): HandshakeRe
   return null
 }
 
+export function evaluateHostIngestionPollTriggerDecision(
+  db: unknown,
+  ownership: IngestionOwnership,
+): IngestionTriggerDecisionContext {
+  const hostDeviceId = getInstanceId().trim()
+  const record = findActiveHostToSandboxHandshakeRecord(db)
+  const peerSandboxDeviceId = record ? peerCoordinationId(record, hostDeviceId) : ''
+  const topologyKind = resolveSandboxTopologyKind(db)
+  const topologyPairingKind = record?.topology_pairing_kind ?? null
+  const linkedPairingKind = record ? linkedPairingKindForHandshake(record.handshake_id) : null
+  const twoDevicePair = isGenuineTwoDeviceHostSandboxPairForTrigger(record, hostDeviceId)
+  const p2pEndpointHost = hostnameFromP2pUrl(record?.p2p_endpoint ?? null)
+
+  const shouldTrigger =
+    topologyKind === 'dedicated' || (topologyKind === 'single_machine' && twoDevicePair)
+
+  return {
+    topologyKind,
+    twoDevicePair,
+    hostDeviceId,
+    peerSandboxDeviceId,
+    p2pEndpointHost,
+    topologyPairingKind,
+    linkedPairingKind,
+    decision: shouldTrigger ? 'trigger' : 'delegate',
+  }
+}
+
+function logIngestionTriggerDecision(ctx: IngestionTriggerDecisionContext): void {
+  console.log(
+    `[IngestionTriggerDecision] topology=${ctx.topologyKind} two_device_pair=${ctx.twoDevicePair} ` +
+      `host_device_id=${ctx.hostDeviceId || '(none)'} peer_sandbox_device_id=${ctx.peerSandboxDeviceId || '(none)'} ` +
+      `p2p_endpoint_host=${ctx.p2pEndpointHost ?? '(none)'} ` +
+      `topology_pairing_kind=${ctx.topologyPairingKind ?? '(null)'} ` +
+      `linked_pairing_kind=${ctx.linkedPairingKind ?? '(null)'} decision=${ctx.decision}`,
+  )
+}
+
 /**
  * Dedicated delegated host only: host must not read-poll locally and topology
- * must be separate-machine dedicated (not single_machine inner-VM).
+ * must be separate-machine dedicated (not single_machine inner-VM), with a
+ * decision-time override when distinct host/sandbox device ids prove two-device.
  */
 export async function shouldHostTriggerDedicatedSandboxPoll(
   db?: unknown,
@@ -82,7 +203,10 @@ export async function shouldHostTriggerDedicatedSandboxPoll(
 ): Promise<boolean> {
   const o = ownership ?? (await resolveIngestionOwnershipWithLedger())
   if (o.thisNodeRole !== 'host' || o.hostShouldReadPoll) return false
-  return resolveSandboxTopologyKind(db) === 'dedicated'
+
+  const ctx = evaluateHostIngestionPollTriggerDecision(db, o)
+  logIngestionTriggerDecision(ctx)
+  return ctx.decision === 'trigger'
 }
 
 export async function sendDedicatedSandboxIngestionPollTrigger(
@@ -127,6 +251,7 @@ export async function sendDedicatedSandboxIngestionPollTrigger(
   const requestId = randomUUID()
   const nowMs = Date.now()
   const timeoutMs = opts.timeoutMs ?? DEFAULT_POLL_TIMEOUT_MS
+  const targetHostPort = endpointHostPort(endpoint)
   const wire = {
     type: 'ingestion_poll_request' as const,
     schema_version: INGESTION_POLL_SCHEMA_VERSION,
@@ -141,12 +266,17 @@ export async function sendDedicatedSandboxIngestionPollTrigger(
   }
 
   console.log(
-    `[IngestionPollTrigger] host sending trigger. request_id=${requestId} account=${accountId} handshake=${record.handshake_id}`,
+    `[IngestionPollTrigger] host sending trigger. request_id=${requestId} account=${accountId} ` +
+      `handshake=${record.handshake_id} target=${targetHostPort}`,
   )
 
   const transport = opts.transport ?? httpIngestionPollTransport
   const sent = await transport({ endpoint, bearer, wire, timeoutMs })
   if (!sent.ok) {
+    console.warn(
+      `[IngestionPollTrigger] host trigger unreachable. request_id=${requestId} target=${targetHostPort} ` +
+        `code=${sent.code} message=${sent.message}`,
+    )
     recordHostIngestionPollUnreachable(accountId, requestId)
     return { ok: false, code: sent.code, message: sent.message }
   }
@@ -156,12 +286,17 @@ export async function sendDedicatedSandboxIngestionPollTrigger(
   }
 
   if (sent.body.type === 'ingestion_poll_error') {
+    console.warn(
+      `[IngestionPollTrigger] host trigger error ack. request_id=${requestId} target=${targetHostPort} ` +
+        `code=${sent.body.code} message=${sent.body.message}`,
+    )
     return { ok: false, code: sent.body.code, message: sent.body.message }
   }
 
   const body = sent.body as IngestionPollResultWire
   console.log(
-    `[IngestionPollTrigger] host trigger ack. request_id=${requestId} status=${body.poll_status} fetched=${body.fetched} delivered=${body.delivered} held=${body.held}`,
+    `[IngestionPollTrigger] host trigger ack. request_id=${requestId} target=${targetHostPort} ` +
+      `status=${body.poll_status} fetched=${body.fetched} delivered=${body.delivered} held=${body.held}`,
   )
 
   recordHostIngestionPollAck({

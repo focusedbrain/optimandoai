@@ -187,4 +187,27 @@ export function listRoleScopedTokenRoles(accountId: string): TokenRole[] {
   return roles
 }
 
+/** Account ids that currently have a sandbox read-client token file (metadata only). */
+export function listReadScopedAccountIds(): string[] {
+  const dir = baseDir()
+  if (!fs.existsSync(dir)) return []
+  const ids: string[] = []
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.endsWith('__read.json')) continue
+    const p = path.join(dir, name)
+    try {
+      const envelope = JSON.parse(fs.readFileSync(p, 'utf-8')) as { accountId?: string }
+      if (typeof envelope.accountId === 'string' && envelope.accountId.trim()) {
+        ids.push(envelope.accountId.trim())
+        continue
+      }
+    } catch {
+      /* fall through to filename stem */
+    }
+    const stem = name.slice(0, -'__read.json'.length)
+    if (stem) ids.push(stem)
+  }
+  return [...new Set(ids)]
+}
+
 export { SecureStorageUnavailableError }

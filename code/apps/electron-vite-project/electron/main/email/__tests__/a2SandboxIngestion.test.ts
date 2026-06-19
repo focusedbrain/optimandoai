@@ -97,13 +97,25 @@ describe('runSandboxIngestionPoll — worker contract (DI)', () => {
 
   it('FAIL CLOSED: read consent missing → HELD, never fetches, never hands back to host', async () => {
     const fetchOpaque = vi.fn()
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     const r = await runSandboxIngestionPoll({
-      accountId: 'acc',
-      deps: { ownership: SANDBOX_OWNER, loadReadToken: () => null, custodyPubKeyB64: CUSTODY_PUB, fetchOpaque },
+      accountId: 'host-acc-id',
+      deps: {
+        ownership: SANDBOX_OWNER,
+        loadReadToken: () => null,
+        listReadScopedAccountIds: () => ['sandbox-local-acc'],
+        custodyPubKeyB64: CUSTODY_PUB,
+        fetchOpaque,
+      },
     })
     expect(r.ok).toBe(false)
     expect(r.status).toBe('held_read_consent_missing')
     expect(fetchOpaque).not.toHaveBeenCalled()
+    const line = logSpy.mock.calls.map((c) => String(c[1] ?? '')).find((s) => s.includes('read-token lookup:'))
+    expect(line).toContain('trigger_account=host-acc-id')
+    expect(line).toContain('available_read_accounts=[sandbox-local-acc]')
+    expect(line).toContain('match=false')
+    logSpy.mockRestore()
   })
 
   it('FAIL CLOSED: sandbox offline / provider error → HELD, no delivery, no host fallback', async () => {
@@ -125,12 +137,20 @@ describe('runSandboxIngestionPoll — worker contract (DI)', () => {
   })
 
   it('FAIL CLOSED: no custody key → HELD (cannot seal artifacts)', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     const r = await runSandboxIngestionPoll({
       accountId: 'acc',
-      deps: { ownership: SANDBOX_OWNER, loadReadToken: () => ({ accountId: 'acc', role: 'read', tokens: FAKE_TOKENS, savedAt: 0 }) },
+      deps: {
+        ownership: SANDBOX_OWNER,
+        loadReadToken: () => ({ accountId: 'acc', role: 'read', tokens: FAKE_TOKENS, savedAt: 0 }),
+        listReadScopedAccountIds: () => ['acc'],
+      },
     })
     expect(r.ok).toBe(false)
     expect(r.status).toBe('held_no_custody_key')
+    const line = logSpy.mock.calls.map((c) => String(c[1] ?? '')).find((s) => s.includes('no custody key'))
+    expect(line).toContain('re-pair')
+    logSpy.mockRestore()
   })
 
   it('per-message HELD: a depackage worker failure holds that message (retry), never host-parses', async () => {

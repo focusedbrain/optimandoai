@@ -48,9 +48,13 @@ vi.mock('../../../internalInference/listInferenceTargets', () => ({
   registerP2pEnsureCacheInvalidator: vi.fn(),
 }))
 
-vi.mock('../../../handshake/sandboxTopologyKind', () => ({
-  resolveSandboxTopologyKind: () => topologyKind.value,
-}))
+vi.mock('../../../handshake/sandboxTopologyKind', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../handshake/sandboxTopologyKind')>()
+  return {
+    ...actual,
+    resolveSandboxTopologyKind: () => topologyKind.value,
+  }
+})
 
 vi.mock('../../../handshake/db', () => ({
   listHandshakeRecords: (...args: unknown[]) => listHandshakeRecords(...args),
@@ -58,6 +62,10 @@ vi.mock('../../../handshake/db', () => ({
 
 vi.mock('../../../orchestrator/orchestratorModeStore', () => ({
   getInstanceId: () => getInstanceId(),
+  getOrchestratorMode: () => ({
+    mode: 'host',
+    linked: [] as Array<{ handshakeId: string; pairingKind?: string }>,
+  }),
 }))
 
 vi.mock('../../ingestionOwnership', () => ({
@@ -121,6 +129,65 @@ describe('shouldHostTriggerDedicatedSandboxPoll', () => {
     ownershipState.hostShouldReadPoll = false
     expect(await shouldHostTriggerDedicatedSandboxPoll({})).toBe(true)
   })
+
+  it('returns true for misclassified single_machine when distinct host/sandbox device ids (two-device override)', async () => {
+    topologyKind.value = 'single_machine'
+    ownershipState.hostShouldReadPoll = false
+    getInstanceId.mockReturnValue('8929353a')
+    listHandshakeRecords.mockReturnValue([
+      hostToSandboxRecord({
+        initiator_coordination_device_id: '8929353a',
+        acceptor_coordination_device_id: '4a90a60b',
+        topology_pairing_kind: 'local_inner_vm',
+        p2p_endpoint: 'http://192.168.178.28:51250/beap/ingest',
+      }),
+    ])
+    expect(await shouldHostTriggerDedicatedSandboxPoll({})).toBe(true)
+  })
+
+  it('returns false for in-host VM loopback + deliberate local_inner_vm even with distinct device ids', async () => {
+    topologyKind.value = 'single_machine'
+    ownershipState.hostShouldReadPoll = false
+    getInstanceId.mockReturnValue('dev-ws-1')
+    listHandshakeRecords.mockReturnValue([
+      hostToSandboxRecord({
+        topology_pairing_kind: 'local_inner_vm',
+        p2p_endpoint: 'http://127.0.0.1:51249/beap/ingest',
+      }),
+    ])
+    expect(await shouldHostTriggerDedicatedSandboxPoll({})).toBe(false)
+  })
+
+  it('returns false when topology is none (linux-native / unpaired)', async () => {
+    topologyKind.value = 'none'
+    ownershipState.hostShouldReadPoll = false
+    listHandshakeRecords.mockReturnValue([])
+    expect(await shouldHostTriggerDedicatedSandboxPoll({})).toBe(false)
+  })
+
+  it('emits [IngestionTriggerDecision] with topology, device ids, and decision', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    topologyKind.value = 'single_machine'
+    ownershipState.hostShouldReadPoll = false
+    getInstanceId.mockReturnValue('8929353a')
+    listHandshakeRecords.mockReturnValue([
+      hostToSandboxRecord({
+        initiator_coordination_device_id: '8929353a',
+        acceptor_coordination_device_id: '4a90a60b',
+        topology_pairing_kind: 'local_inner_vm',
+        p2p_endpoint: 'http://192.168.178.28:51250/beap/ingest',
+      }),
+    ])
+    await shouldHostTriggerDedicatedSandboxPoll({})
+    const line = logSpy.mock.calls.map((c) => String(c[0])).find((s) => s.includes('[IngestionTriggerDecision]'))
+    expect(line).toBeDefined()
+    expect(line).toContain('topology=single_machine')
+    expect(line).toContain('two_device_pair=true')
+    expect(line).toContain('host_device_id=8929353a')
+    expect(line).toContain('peer_sandbox_device_id=4a90a60b')
+    expect(line).toContain('decision=trigger')
+    logSpy.mockRestore()
+  })
 })
 
 describe('sendDedicatedSandboxIngestionPollTrigger', () => {
@@ -175,8 +242,14 @@ describe('sendDedicatedSandboxIngestionPollTrigger', () => {
     )
   })
 
-  it('rejects when not dedicated delegated host', async () => {
+  it('rejects when in-host VM delegated host (loopback local_inner_vm)', async () => {
     topologyKind.value = 'single_machine'
+    listHandshakeRecords.mockReturnValue([
+      hostToSandboxRecord({
+        topology_pairing_kind: 'local_inner_vm',
+        p2p_endpoint: 'http://127.0.0.1:51249/beap/ingest',
+      }),
+    ])
     const out = await sendDedicatedSandboxIngestionPollTrigger({}, { accountId: 'acc-1' })
     expect(out.ok).toBe(false)
     if (out.ok) return

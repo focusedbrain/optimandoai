@@ -30,7 +30,11 @@
  */
 
 import { dispatchDepackageEmail, type DepackageDispatchOutcome, type DepackageInputForm } from '../critical-jobs/liveDepackageCutover'
-import { loadRoleScopedTokens, type RoleScopedTokenRecord } from './roleScopedTokenStore'
+import {
+  listReadScopedAccountIds,
+  loadRoleScopedTokens,
+  type RoleScopedTokenRecord,
+} from './roleScopedTokenStore'
 import { resolveIngestionOwnershipWithLedger, type IngestionOwnership } from './ingestionOwnership'
 import type { OAuthTokens } from './secure-storage'
 
@@ -81,6 +85,8 @@ export interface SandboxIngestionDeps {
   ) => Promise<SandboxDeliveryResult>
   /** Resolve the read token. Default: `roleScopedTokenStore` role='read'. */
   loadReadToken?: (accountId: string) => RoleScopedTokenRecord | null
+  /** List account ids with local read tokens (diagnostics). Default: `listReadScopedAccountIds`. */
+  listReadScopedAccountIds?: () => string[]
   /** Sandbox's OWN custody public key (sealing target for depackage artifacts). */
   custodyPubKeyB64?: string
   /** Override the ownership decision (tests/fixtures). */
@@ -179,7 +185,13 @@ export async function runSandboxIngestionPoll(
   // Read consent must be present locally. Missing → fail closed (HELD). NEVER hand
   // back to the host to read-poll untrusted mail.
   const loadReadToken = deps.loadReadToken ?? ((id: string) => loadRoleScopedTokens(id, 'read'))
+  const listReadAccounts = deps.listReadScopedAccountIds ?? listReadScopedAccountIds
+  const availableReadAccounts = listReadAccounts()
   const tokenRecord = loadReadToken(accountId)
+  sandboxLog(
+    `read-token lookup: trigger_account=${accountId} available_read_accounts=[${availableReadAccounts.join(',')}] ` +
+      `match=${tokenRecord != null}`,
+  )
   if (!tokenRecord) {
     sandboxLog(`HELD — read consent missing (sandbox owns ingestion). account=${accountId}`)
     const r = emptyResult('held_read_consent_missing', false)
@@ -189,7 +201,10 @@ export async function runSandboxIngestionPoll(
 
   const custodyPubKeyB64 = deps.custodyPubKeyB64
   if (!custodyPubKeyB64) {
-    sandboxLog(`HELD — no custody key to seal depackage artifacts. account=${accountId}`)
+    sandboxLog(
+      `HELD — no custody key (handshake local_x25519_public_key_b64 missing on sandbox). ` +
+        `account=${accountId} action=re-pair host↔sandbox`,
+    )
     const r = emptyResult('held_no_custody_key', false)
     _lastPollOutcomes.set(accountId, { result: r, at: Date.now() })
     return r
