@@ -7,7 +7,7 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\build001'
+ *   return 'C:\\build-output\\build002'
  */
 function windowsOutputDirMarker() {
   return 'C:\\build-output\\build002'
