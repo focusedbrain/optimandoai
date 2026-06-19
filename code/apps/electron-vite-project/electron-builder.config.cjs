@@ -89,13 +89,14 @@ module.exports = {
   extraResources,
   win: {
     /**
-     * Use `dir` (unpacked) only as the default Windows artifact. It always fills
-     * `win-unpacked` with `WRDeskT.exe` and Electron DLLs.
-     * Do NOT add `portable` here: the follow-up NSIS/portable step can leave `win-unpacked`
-     * incomplete on some machines (only locales/resources). For a one-file build run
-     * `pnpm run build:portable` separately.
+     * `dir` — dev/unpacked artifact (`win-unpacked` + WRDeskT.exe).
+     * `nsis` — production installer with role page + host seed (build/installer/).
+     * Do NOT add `portable` here: run `pnpm run build:portable` separately.
      */
-    target: ['dir'],
+    target: [
+      { target: 'dir', arch: ['x64'] },
+      { target: 'nsis', arch: ['x64'] },
+    ],
     /** ASCII-only, no spaces — spaces in the .exe name have caused 0-byte or broken PE files on some Windows pack runs. */
     artifactName: 'WR-Desk-Setup-${version}.${ext}',
     executableName: 'WRDeskT',
@@ -106,6 +107,8 @@ module.exports = {
   nsis: {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
+    /** Custom role page, edition notices, orchestrator-mode.json seed — see build/installer/ */
+    include: 'installer/installer.nsh',
   },
   /**
    * Host AI HTTP safety net: `p2pInferenceFlags.ts` defaults `WRDESK_P2P_INFERENCE_HTTP_FALLBACK`

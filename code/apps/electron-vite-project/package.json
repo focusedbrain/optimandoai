@@ -21,6 +21,8 @@
     "build:clean": "node scripts/clean.cjs && electron-rebuild -f -w better-sqlite3,keytar,canvas && vite build && node scripts/smoke-pdfjs-parser.cjs && node scripts/clean-windows-build-output.cjs && node scripts/run-electron-builder.cjs && node scripts/verify-windows-unpacked.cjs",
     "build:portable": "node scripts/dist-clean-artifacts.cjs && vite build && node scripts/smoke-pdfjs-parser.cjs && node scripts/clean-windows-build-output.cjs && node scripts/run-electron-builder.cjs --win dir portable && node scripts/verify-windows-unpacked.cjs",
     "build:nsis": "node scripts/kill-wr-desk.cjs && node scripts/dist-clean-artifacts.cjs && node scripts/copy-pnpm-transitive-deps.cjs && vite build && node scripts/smoke-pdfjs-parser.cjs && node scripts/clean-windows-build-output.cjs && node scripts/run-electron-builder.cjs --win nsis && node scripts/verify-windows-unpacked.cjs",
+    "test:installer-win-role": "vitest run --config ../../vitest.config.ts scripts/installer/__tests__/winRoleInstaller.test.ts",
+    "test:installer-win-home-guest": "vitest run --config ../../vitest.config.ts scripts/guest/__tests__/winHomeGuest.test.ts",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "smoke:pdf": "node scripts/smoke-pdfjs-parser.cjs",
