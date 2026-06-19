@@ -193,6 +193,7 @@ import {
   mapIngestionPollTriggerHostFeedback,
   mapIngestionPollTriggerPendingFeedback,
 } from './ipcSyncResultShape'
+import { finalizePendingIngestionPollSyncResult } from './ingestionPollTrigger/hostIngestionPollCompletion'
 import { isDedicatedSandboxFetchNode, INGESTION_HOST_TRIGGERED_ONLY_SKIP, mayTriggerRemoteProviderMutationAtIpc, SANDBOX_REMOTE_MUTATIONS_HOST_ONLY } from './ingestionOwnership'
 import { pickOauthDebugFromError } from './gmailOAuthConnectDebug'
 import { DIAGNOSE_IMAP_IPC_DEV, EMAIL_DEBUG, emailDebugLog, gmailPersistenceDebugLog } from './emailDebug'
@@ -2825,6 +2826,8 @@ Rules:
         syncWarnings: [msg],
       }
     }
+
+    result = await finalizePendingIngestionPollSyncResult(result)
 
     try {
       const beapDrained = await processPendingP2PBeapEmails(db)

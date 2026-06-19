@@ -4,6 +4,7 @@
  */
 
 import { recordHostIngestionPollUnreachable } from './hostAckStore'
+import { rejectHostIngestionPollCompletion } from './hostIngestionPollCompletion'
 
 export interface HostIngestionPollPendingEntry {
   requestId: string
@@ -34,6 +35,10 @@ export function registerHostIngestionPollPending(opts: {
     if (!pendingByRequestId.has(opts.requestId)) return
     pendingByRequestId.delete(opts.requestId)
     recordHostIngestionPollUnreachable(opts.accountId, opts.requestId)
+    rejectHostIngestionPollCompletion(
+      opts.requestId,
+      new Error(`ingestion poll pending expired after ${opts.timeoutMs}ms`),
+    )
     console.warn(
       `[IngestionPollTrigger] sealed relay pending expired. request_id=${opts.requestId} account=${opts.accountId}`,
     )

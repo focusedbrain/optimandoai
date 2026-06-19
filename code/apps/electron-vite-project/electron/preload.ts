@@ -791,6 +791,13 @@ ipcRenderer.on('host-ai:orchestrator-build-changed', () => {
 ipcRenderer.on('vault-status-changed', () => {
   window.dispatchEvent(new CustomEvent('vault-status-changed'))
 })
+/** A5: host async poll completion — refresh ingestion status banners without blocking IPC return. */
+ipcRenderer.on(
+  'email:hostIngestionPollComplete',
+  (_e, data: { accountId: string; requestId: string; pollStatus: string; fetched: number; delivered: number; held: number; at: number }) => {
+    window.dispatchEvent(new CustomEvent('email:hostIngestionPollComplete', { detail: data }))
+  },
+)
 /** Main → renderer: session_* KV was written (e.g. extension rename). Dashboard refetches `orchestrator.listSessions`. */
 ipcRenderer.on('orchestrator:session-display-updated', (_e, payload: unknown) => {
   window.dispatchEvent(new CustomEvent('orchestrator-session-display-updated', { detail: payload }))

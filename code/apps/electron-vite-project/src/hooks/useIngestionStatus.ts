@@ -127,12 +127,14 @@ export function useIngestionStatus({
     window.addEventListener('handshake-list-refresh', onEvent)
     window.addEventListener('email-account-connected', onEvent)
     window.addEventListener('inbox-sync-complete', onEvent)
+    window.addEventListener('email:hostIngestionPollComplete', onEvent)
     document.addEventListener('visibilitychange', onVis)
     return () => {
       window.removeEventListener('orchestrator-mode-changed', onEvent)
       window.removeEventListener('handshake-list-refresh', onEvent)
       window.removeEventListener('email-account-connected', onEvent)
       window.removeEventListener('inbox-sync-complete', onEvent)
+      window.removeEventListener('email:hostIngestionPollComplete', onEvent)
       document.removeEventListener('visibilitychange', onVis)
     }
   }, [fetch, scheduleNext])
