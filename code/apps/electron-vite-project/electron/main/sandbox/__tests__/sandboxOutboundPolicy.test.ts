@@ -28,6 +28,7 @@ import {
   SANDBOX_DATA_EGRESS_FORBIDDEN,
   assertSandboxDataEgressAllowed,
   assertSandboxMaySealServiceRpcInnerType,
+  assertSandboxMayReceiveSealedServiceRpcInnerType,
   deriveOutboundCapsuleType,
   isEffectiveSandboxNode,
 } from '../sandboxOutboundPolicy'
@@ -121,6 +122,17 @@ describe('sealed service-RPC inner type gate (construction-time egress)', () => 
         capsuleType: 'sealed_service_rpc_v1',
       }).ok,
     ).toBe(true)
+  })
+})
+
+describe('sealed service-RPC inbound inner type gate (A4 receive)', () => {
+  test('sandbox may receive host-originated ingestion_poll_request', () => {
+    expect(assertSandboxMayReceiveSealedServiceRpcInnerType('ingestion_poll_request').ok).toBe(true)
+  })
+
+  test('sandbox rejects inbound result/error inner types (wrong direction)', () => {
+    expect(assertSandboxMayReceiveSealedServiceRpcInnerType('ingestion_poll_result').ok).toBe(false)
+    expect(assertSandboxMayReceiveSealedServiceRpcInnerType('ingestion_poll_error').ok).toBe(false)
   })
 })
 

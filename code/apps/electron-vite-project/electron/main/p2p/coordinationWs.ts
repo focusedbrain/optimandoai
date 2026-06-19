@@ -37,6 +37,8 @@ import { tryHandleCoordinationP2pSignal } from '../internalInference/relayP2pSig
 import type { ReasonCode } from '../vault/capabilityBroker'
 import { notifyBeapDeliveryAck } from './beapDeliveryAck'
 import { postPeerDeliveryAckToSender } from './peerDeliveryAck'
+import { SEALED_SERVICE_RPC_CAPSULE_TYPE } from '@repo/ingestion-core'
+import { tryHandleIngestionPollRelayCapsule } from '../email/ingestionPollTrigger/relayCapsuleHandler'
 
 /** Send JSON on the open coordination WS (recipient → relay → sender ingest ack). */
 let _coordinationWsJsonSender: ((payload: Record<string, unknown>) => boolean) | null = null
@@ -1011,6 +1013,23 @@ export function createCoordinationWsClient(
               }
             } catch {
               /* non-fatal */
+            }
+            if (ctEarly === SEALED_SERVICE_RPC_CAPSULE_TYPE) {
+              tryHandleIngestionPollRelayCapsule({
+                relayMessageId: msg.id,
+                capsule: cap,
+                db,
+                ssoSession,
+                sendAck,
+                getOidcToken,
+              }).catch((err) => {
+                console.error(
+                  '[Coordination] Sealed service-RPC poll handler failed:',
+                  (err as Error)?.message ?? err,
+                )
+                sendAck([msg.id])
+              })
+              return
             }
             if (capsuleHandler) {
               capsuleHandler(capsuleMsg).catch((err) => {

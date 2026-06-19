@@ -37,6 +37,49 @@ export { SANDBOX_OUTBOUND_ALLOWED_TYPES, SEALED_SERVICE_RPC_CAPSULE_TYPE }
 export const SANDBOX_DATA_EGRESS_FORBIDDEN = 'SANDBOX_DATA_EGRESS_FORBIDDEN' as const
 
 /**
+ * Inner service-RPC types a sandbox may receive inside a sealed_service_rpc_v1
+ * envelope from the paired host (inbound relay). Host-only triggers only.
+ */
+export const SANDBOX_PERMITTED_SEALED_SERVICE_RPC_INBOUND_INNER_TYPES: ReadonlySet<string> = new Set([
+  'ingestion_poll_request',
+])
+
+export type SandboxSealedServiceRpcInboundInnerVerdict =
+  | { ok: true }
+  | {
+      ok: false
+      code: 'E_INGESTION_POLL_FORBIDDEN'
+      innerType: string
+      message: string
+    }
+
+/** Gate after openServiceRpcPayload — sandbox may act only on host poll triggers. */
+export function assertSandboxMayReceiveSealedServiceRpcInnerType(
+  innerType: string,
+): SandboxSealedServiceRpcInboundInnerVerdict {
+  const t = typeof innerType === 'string' ? innerType.trim() : ''
+  if (!t) {
+    return {
+      ok: false,
+      code: 'E_INGESTION_POLL_FORBIDDEN',
+      innerType: t || '(empty)',
+      message: 'Sealed service-RPC inner type is required on inbound relay',
+    }
+  }
+  if (SANDBOX_PERMITTED_SEALED_SERVICE_RPC_INBOUND_INNER_TYPES.has(t)) {
+    return { ok: true }
+  }
+  return {
+    ok: false,
+    code: 'E_INGESTION_POLL_FORBIDDEN',
+    innerType: t,
+    message:
+      'This sandbox is not permitted to act on that sealed service-RPC type. ' +
+      'Only host-originated ingestion_poll_request triggers may be processed.',
+  }
+}
+
+/**
  * Inner service-RPC types a sandbox may place inside a sealed_service_rpc_v1
  * envelope before sealing. Enforced at construction time in the app — the relay
  * and ingress classifiers see only the opaque capsule_type (INV-RELAY-BLIND).
