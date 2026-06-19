@@ -76,6 +76,8 @@ import { orchestratorRemoteFromImapLifecycleFields } from './domain/mailboxLifec
 import { validateCustomImapSmtpPayload } from './domain/customImapSmtpPayloadValidation'
 import { normalizeSecurityMode } from './domain/securityModeNormalize'
 import { emailAccountsDebugLog, emailDebugLog, gmailPersistenceDebugLog } from './emailDebug'
+import { stopAutoSyncLoopForAccount } from './autoSyncLoopRegistry'
+import { purgeAccountLedgerState } from './accountDeletePersistence'
 
 /** Surface to listAccounts IPC/HTTP — not a second store; mirrors last load + last save attempt. */
 export type EmailAccountsCredentialDecryptIssue = {
@@ -1187,19 +1189,23 @@ class EmailGateway implements IEmailGateway {
     return this.buildAccountInfo(account)
   }
   
-  async deleteAccount(id: string): Promise<void> {
+  async deleteAccount(id: string, options?: { db?: unknown }): Promise<void> {
     const index = this.accounts.findIndex(a => a.id === id)
     if (index === -1) {
       throw new Error('Account not found')
     }
-    
-    // Disconnect provider
+
+    // 1) Stop per-account auto-sync so no timer keeps calling syncAccountEmails(deletedId).
+    stopAutoSyncLoopForAccount(id)
+
+    // 2) Disconnect cached provider for this id only.
     const provider = this.providers.get(id)
     if (provider) {
       await provider.disconnect()
       this.providers.delete(id)
     }
-    
+
+    // 3) Remove gateway row + persist (rollback in-memory row on disk failure).
     const [removed] = this.accounts.splice(index, 1)
     try {
       persistEmailAccounts(this.accounts)
@@ -1207,12 +1213,28 @@ class EmailGateway implements IEmailGateway {
       this.accounts.splice(index, 0, removed)
       throw e
     }
+
+    // 4) Role-scoped tokens (read + send).
     try {
       const { deleteRoleScopedTokens } = await import('./roleScopedTokenStore')
       deleteRoleScopedTokens(id, 'read')
       deleteRoleScopedTokens(id, 'send')
     } catch (e) {
       console.warn('[EmailGateway] deleteAccount: role token cleanup failed:', id, e)
+    }
+
+    // 5) SQL ledger: email_sync_state + remote queue (inbox_messages retained for local history).
+    const db = options?.db
+    if (db) {
+      try {
+        purgeAccountLedgerState(db, id)
+      } catch (e) {
+        console.warn(
+          '[EmailGateway] deleteAccount: ledger cleanup failed (gateway row already removed):',
+          id,
+          e,
+        )
+      }
     }
   }
   

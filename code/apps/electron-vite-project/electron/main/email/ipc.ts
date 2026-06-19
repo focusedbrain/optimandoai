@@ -527,7 +527,11 @@ function normalizeNativeBeapDraftReply(parsed: Record<string, unknown>): {
   return null
 }
 
-const activeAutoSyncLoops = new Map<string, { stop: () => void }>()
+import {
+  registerAutoSyncLoop,
+  stopAutoSyncLoopForAccount,
+  hasAutoSyncLoop,
+} from './autoSyncLoopRegistry'
 
 /** Set from `main.ts` with the same getter as inbox — used for post-connect remote queue cleanup. */
 let inboxDbGetterForEmailIpc: (() => Promise<any> | any) | null = null
@@ -622,7 +626,7 @@ function startStoredAutoSyncLoopIfMissing(
   accountId: string,
   getDbForRemoteDrain?: () => Promise<any> | any,
 ): void {
-  if (activeAutoSyncLoops.has(accountId)) return
+  if (hasAutoSyncLoop(accountId)) return
   const row = db
     .prepare('SELECT sync_interval_ms FROM email_sync_state WHERE account_id = ?')
     .get(accountId) as { sync_interval_ms?: number } | undefined
@@ -634,7 +638,7 @@ function startStoredAutoSyncLoopIfMissing(
     (r, e) => broadcastInboxSnapshotAfterSync(r, e),
     getDbForRemoteDrain,
   )
-  activeAutoSyncLoops.set(accountId, loop)
+  registerAutoSyncLoop(accountId, loop)
 }
 
 /**
@@ -799,7 +803,14 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
    */
   ipcMain.handle('email:deleteAccount', async (_e, accountId: string) => {
     try {
-      await emailGateway.deleteAccount(accountId)
+      let db: unknown = null
+      if (inboxDbGetterForEmailIpc) {
+        db =
+          typeof inboxDbGetterForEmailIpc === 'function'
+            ? await inboxDbGetterForEmailIpc()
+            : inboxDbGetterForEmailIpc
+      }
+      await emailGateway.deleteAccount(accountId, { db: db ?? undefined })
       return { ok: true }
     } catch (error: any) {
       console.error('[Email IPC] deleteAccount error:', error)
@@ -3199,11 +3210,7 @@ Rules:
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
       updateSyncState(db, accountId, { auto_sync_enabled: enabled ? 1 : 0 })
-      const existing = activeAutoSyncLoops.get(accountId)
-      if (existing) {
-        existing.stop()
-        activeAutoSyncLoops.delete(accountId)
-      }
+      stopAutoSyncLoopForAccount(accountId)
       if (enabled) {
         startStoredAutoSyncLoopIfMissing(db, accountId, resolveDb)
       }

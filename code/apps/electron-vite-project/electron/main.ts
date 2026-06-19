@@ -6561,7 +6561,8 @@ async function runDeviceKeyMigration(
               console.log('[MAIN] ðŸ“§ Received EMAIL_DELETE_ACCOUNT request:', msg.accountId)
               try {
                 const { emailGateway } = await import('./main/email/gateway')
-                await emailGateway.deleteAccount(msg.accountId)
+                const db = await getHandshakeDb()
+                await emailGateway.deleteAccount(msg.accountId, { db: db ?? undefined })
                 socket.send(JSON.stringify({ id: msg.id, ok: true }))
               } catch (err: any) {
                 console.error('[MAIN] Error deleting email account:', err)
@@ -10718,7 +10719,8 @@ async function runDeviceKeyMigration(
         const { id } = req.params
         console.log('[HTTP-EMAIL] DELETE /api/email/accounts/:id', id)
         const { emailGateway } = await import('./main/email/gateway')
-        await emailGateway.deleteAccount(id)
+        const db = await getHandshakeDb()
+        await emailGateway.deleteAccount(id, { db: db ?? undefined })
         res.json({ ok: true })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error deleting account:', error)
