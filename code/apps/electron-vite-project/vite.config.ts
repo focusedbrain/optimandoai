@@ -36,7 +36,7 @@ function gitShortHead(fromDir: string): string {
   }
 }
 
-/** RUNTIME_IDENTITY buildStamp: `build106 (<short-hash>)` — outDir stays `build106` for paths. */
+/** RUNTIME_IDENTITY buildStamp: `build001 (<short-hash>)` — outDir stays `build001` for paths. */
 const ORCHESTRATOR_BUILD_STAMP = `${BASE_ORCHESTRATOR_BUILD_STAMP} (${gitShortHead(root)})`
 
 function gitMetaFromClosestRepo(fromDir: string): { branch: string; commit: string } {
