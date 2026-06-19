@@ -23,7 +23,9 @@ import {
   TRIGGER_FETCH_FAILED_HINT,
   formatIngestionPollTriggerPullHint,
   mapIngestionPollTriggerHostFeedback,
+  mapIngestionPollTriggerPendingFeedback,
   mapIngestionTriggerFailureSkipReason,
+  TRIGGER_PENDING_HINT,
 } from '../ipcSyncResultShape'
 
 describe('mapSkipReasonToIpcWarning — skip reason routing', () => {
@@ -124,6 +126,10 @@ describe('mapSkipReasonToIpcWarning — dedicated host trigger', () => {
   it('ingestion_triggered_to_sandbox is not a skip (success path uses pullHint)', () => {
     expect(mapSkipReasonToIpcWarning('ingestion_triggered_to_sandbox').isSkip).toBe(false)
   })
+
+  it('ingestion_trigger_pending is not a skip (async ok path uses pullHint)', () => {
+    expect(mapSkipReasonToIpcWarning('ingestion_trigger_pending').isSkip).toBe(false)
+  })
 })
 
 describe('mapIngestionTriggerFailureSkipReason', () => {
@@ -136,9 +142,27 @@ describe('mapIngestionTriggerFailureSkipReason', () => {
     expect(mapIngestionTriggerFailureSkipReason('E_INGESTION_POLL_LINK_DOWN')).toBe('ingestion_trigger_unreachable')
     expect(mapIngestionTriggerFailureSkipReason('E_INGESTION_POLL_PEER_ENDPOINT')).toBe('ingestion_trigger_unreachable')
   })
+
+  it('maps sealed RPC seal failures to rejected (fail loud, no fallback)', () => {
+    expect(mapIngestionTriggerFailureSkipReason('E_SEALED_RPC_MISSING_PEER_X25519')).toBe('ingestion_trigger_rejected')
+  })
 })
 
 describe('mapIngestionPollTriggerHostFeedback', () => {
+  it('pending poll → syncing pullHint (A3)', () => {
+    const r = mapIngestionPollTriggerPendingFeedback({
+      requestId: 'req-pending',
+      pollStatus: 'pending',
+      fetched: 0,
+      depackaged: 0,
+      delivered: 0,
+      held: 0,
+    })
+    expect(r.ok).toBe(true)
+    expect(r.pullHint).toBe(TRIGGER_PENDING_HINT)
+    expect(r.pullHint).toContain('Syncing')
+  })
+
   it('held_read_consent_missing → actionable host warning', () => {
     const r = mapIngestionPollTriggerHostFeedback({
       requestId: 'req-1',

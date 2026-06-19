@@ -109,19 +109,19 @@ describe('syncAccountEmails — Prompt 3 ingestion-ownership gate', () => {
       ok: true,
       trigger: {
         requestId: 'req-1',
-        pollStatus: 'ok',
-        fetched: 2,
-        depackaged: 2,
-        delivered: 1,
+        pollStatus: 'pending',
+        fetched: 0,
+        depackaged: 0,
+        delivered: 0,
         held: 0,
       },
     })
 
     const r = await syncAccountEmails({} as any, { accountId: 'acc-dedicated-host' })
     expect(r.ok).toBe(true)
-    expect(r.skipReason).toBe('ingestion_triggered_to_sandbox')
-    expect(r.ingestionPollTrigger?.fetched).toBe(2)
-    expect(r.ingestionPollTrigger?.delivered).toBe(1)
+    expect(r.skipReason).toBe('ingestion_trigger_pending')
+    expect(r.ingestionPollTrigger?.pollStatus).toBe('pending')
+    expect(r.ingestionPollTrigger?.fetched).toBe(0)
     expect(getAccount).not.toHaveBeenCalled()
     expect(hostTriggerMock.sendTrigger).toHaveBeenCalledWith(
       expect.anything(),

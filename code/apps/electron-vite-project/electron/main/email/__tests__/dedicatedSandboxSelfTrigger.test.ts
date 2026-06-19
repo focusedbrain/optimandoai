@@ -173,10 +173,10 @@ describe('syncAccountEmails — dedicated sandbox self-trigger gate', () => {
       ok: true,
       trigger: {
         requestId: 'req-dedicated',
-        pollStatus: 'ok',
-        fetched: 1,
-        depackaged: 1,
-        delivered: 1,
+        pollStatus: 'pending',
+        fetched: 0,
+        depackaged: 0,
+        delivered: 0,
         held: 0,
       },
     })
@@ -184,7 +184,7 @@ describe('syncAccountEmails — dedicated sandbox self-trigger gate', () => {
     getAccount.mockRejectedValue(new Error('HOST_SHOULD_NOT_FETCH'))
 
     const r = await syncAccountEmails({} as any, { accountId: 'acc-host-delegated' })
-    expect(r.skipReason).toBe('ingestion_triggered_to_sandbox')
+    expect(r.skipReason).toBe('ingestion_trigger_pending')
     expect(r.skipReason).not.toBe(INGESTION_HOST_TRIGGERED_ONLY_SKIP)
     expect(getAccount).not.toHaveBeenCalled()
     expect(hostTriggerMock.sendTrigger).toHaveBeenCalled()

@@ -29,6 +29,10 @@ export const HOST_TRIGGERED_HINT =
 export const TRIGGER_SUCCESS_HINT =
   'Sandbox ingestion poll triggered on your paired sandbox device. New mail arrives via the normal delivery path.'
 
+/** A3 sealed relay: trigger sent; async result pending on sandbox ack (A5). */
+export const TRIGGER_PENDING_HINT =
+  'Syncing with your paired sandbox device — waiting for the ingestion poll to complete.'
+
 /** Transport / link-down before sandbox ack (E_INGESTION_POLL_LINK_DOWN). */
 export const TRIGGER_FAILED_HINT =
   'Sandbox device unreachable — mail was not synced. Check the sandbox is on, logged in, and connected, then try Sync again.'
@@ -62,11 +66,26 @@ export function formatIngestionPollTriggerPullHint(trigger: IngestionPollTrigger
 }
 
 /** Host Sync feedback after a dedicated trigger ack (PROMPT 4). */
+export function mapIngestionPollTriggerPendingFeedback(trigger: IngestionPollTriggerCounts): {
+  ok: true
+  pullHint: string
+  syncWarnings: string[]
+} {
+  return {
+    ok: true,
+    pullHint: TRIGGER_PENDING_HINT,
+    syncWarnings: [],
+  }
+}
+
 export function mapIngestionPollTriggerHostFeedback(trigger: IngestionPollTriggerCounts): {
   ok: boolean
   pullHint: string
   syncWarnings: string[]
 } {
+  if (trigger.pollStatus === 'pending') {
+    return mapIngestionPollTriggerPendingFeedback(trigger)
+  }
   if (trigger.pollStatus === 'held_read_consent_missing') {
     return {
       ok: false,
@@ -157,12 +176,18 @@ export function mapSkipReasonToIpcWarning(
       msg: hint,
     }
   }
+  if (skipReason === 'ingestion_trigger_pending') {
+    return { isSkip: false }
+  }
   return { isSkip: false }
 }
 
 /** Map host trigger transport error codes to IPC skip reasons for loud, accurate UI copy. */
 export function mapIngestionTriggerFailureSkipReason(code: string): 'ingestion_trigger_unreachable' | 'ingestion_trigger_rejected' {
   if (code === 'E_INGESTION_POLL_PROTOCOL' || code === 'E_INGESTION_POLL_AUTH') {
+    return 'ingestion_trigger_rejected'
+  }
+  if (code.startsWith('E_SEALED_RPC_')) {
     return 'ingestion_trigger_rejected'
   }
   return 'ingestion_trigger_unreachable'

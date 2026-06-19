@@ -188,7 +188,11 @@ function getInboxAiRulesForPrompt(): string {
 }
 import { emailGateway } from './gateway'
 import { resolveIngestionStatus } from './ingestionStatus'
-import { mapSkipReasonToIpcWarning, mapIngestionPollTriggerHostFeedback } from './ipcSyncResultShape'
+import {
+  mapSkipReasonToIpcWarning,
+  mapIngestionPollTriggerHostFeedback,
+  mapIngestionPollTriggerPendingFeedback,
+} from './ipcSyncResultShape'
 import { isDedicatedSandboxFetchNode, INGESTION_HOST_TRIGGERED_ONLY_SKIP, mayTriggerRemoteProviderMutationAtIpc, SANDBOX_REMOTE_MUTATIONS_HOST_ONLY } from './ingestionOwnership'
 import { pickOauthDebugFromError } from './gmailOAuthConnectDebug'
 import { DIAGNOSE_IMAP_IPC_DEV, EMAIL_DEBUG, emailDebugLog, gmailPersistenceDebugLog } from './emailDebug'
@@ -2857,15 +2861,21 @@ Rules:
     // (ok:true, 0 messages, no hint), causing invisible mail stoppage after pairing.
     // mapSkipReasonToIpcWarning covers both; copy strings live in ipcSyncResultShape.ts.
     const skipMapping = mapSkipReasonToIpcWarning(result.skipReason)
+    const pendingFeedback =
+      result.skipReason === 'ingestion_trigger_pending' && result.ingestionPollTrigger
+        ? mapIngestionPollTriggerPendingFeedback(result.ingestionPollTrigger)
+        : null
     const triggerFeedback =
       result.skipReason === 'ingestion_triggered_to_sandbox' && result.ingestionPollTrigger
         ? mapIngestionPollTriggerHostFeedback(result.ingestionPollTrigger)
         : null
     const pullHint = skipMapping.isSkip
       ? skipMapping.hint
-      : triggerFeedback
-        ? triggerFeedback.pullHint
-        : result.newMessages > 0
+      : pendingFeedback
+        ? pendingFeedback.pullHint
+        : triggerFeedback
+          ? triggerFeedback.pullHint
+          : result.newMessages > 0
           ? `${result.newMessages} new message(s) pulled — run Auto-Sort to classify and enqueue lifecycle moves (unsorted mail stays in server Inbox until classified).`
           : undefined
 

@@ -19,6 +19,7 @@ import {
 } from '../receiver'
 import {
   sendDedicatedSandboxIngestionPollTrigger,
+  sendDedicatedSandboxIngestionPollTriggerViaDirectHttp,
   shouldHostTriggerDedicatedSandboxPoll,
 } from '../hostTrigger'
 import type { IngestionPollTransport } from '../send'
@@ -203,7 +204,7 @@ describe('shouldHostTriggerDedicatedSandboxPoll', () => {
   })
 })
 
-describe('sendDedicatedSandboxIngestionPollTrigger', () => {
+describe('sendDedicatedSandboxIngestionPollTriggerViaDirectHttp', () => {
   beforeEach(() => {
     topologyKind.value = 'dedicated'
     ownershipState.thisNodeRole = 'host'
@@ -232,7 +233,7 @@ describe('sendDedicatedSandboxIngestionPollTrigger', () => {
       },
     }))
 
-    const out = await sendDedicatedSandboxIngestionPollTrigger(
+    const out = await sendDedicatedSandboxIngestionPollTriggerViaDirectHttp(
       {},
       { accountId: 'acc-1', transport },
     )
@@ -263,7 +264,7 @@ describe('sendDedicatedSandboxIngestionPollTrigger', () => {
         p2p_endpoint: 'http://127.0.0.1:51249/beap/ingest',
       }),
     ])
-    const out = await sendDedicatedSandboxIngestionPollTrigger({}, { accountId: 'acc-1' })
+    const out = await sendDedicatedSandboxIngestionPollTriggerViaDirectHttp({}, { accountId: 'acc-1' })
     expect(out.ok).toBe(false)
     if (out.ok) return
     expect(out.code).toBe('E_INGESTION_POLL_NOT_APPLICABLE')
@@ -274,7 +275,7 @@ describe('sendDedicatedSandboxIngestionPollTrigger', () => {
     listHandshakeRecords.mockReturnValue([
       hostToSandboxRecord({ p2p_endpoint: 'http://coordination:51249/beap/capsule' }),
     ])
-    const out = await sendDedicatedSandboxIngestionPollTrigger({}, { accountId: 'acc-1' })
+    const out = await sendDedicatedSandboxIngestionPollTriggerViaDirectHttp({}, { accountId: 'acc-1' })
     expect(out.ok).toBe(false)
     if (out.ok) return
     expect(out.code).toBe('E_INGESTION_POLL_PEER_ENDPOINT')

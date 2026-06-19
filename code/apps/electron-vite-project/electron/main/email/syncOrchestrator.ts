@@ -109,8 +109,8 @@ export interface SyncResult {
    *    client for outbound). The sandbox node fetches + depackages + returns BEAP.
    *  - `ingestion_host_triggered_only`: dedicated sandbox — no self-initiated pull;
    *    host trigger (PROMPT 2+) is the only allowed fetch path.
-   *  - `ingestion_triggered_to_sandbox`: dedicated delegated host sent a poll trigger;
-   *    host did not read-poll locally (mail returns via sandbox_email_delivery).
+   *  - `ingestion_triggered_to_sandbox`: legacy synchronous direct trigger ack (A6 removal).
+   *  - `ingestion_trigger_pending`: sealed relay trigger sent; async result pending (A3/A5).
    *  - `ingestion_trigger_unreachable`: dedicated host trigger could not reach sandbox.
    *  - `ingestion_trigger_rejected`: sandbox reached but rejected trigger (auth/protocol).
    *  - `ingestion_trigger_failed`: legacy alias for unreachable trigger failures.
@@ -120,6 +120,7 @@ export interface SyncResult {
     | 'ingestion_delegated_to_sandbox'
     | typeof INGESTION_HOST_TRIGGERED_ONLY_SKIP
     | 'ingestion_triggered_to_sandbox'
+    | 'ingestion_trigger_pending'
     | 'ingestion_trigger_unreachable'
     | 'ingestion_trigger_rejected'
     | 'ingestion_trigger_failed'
@@ -499,16 +500,18 @@ async function syncAccountEmailsImpl(
           errors: [triggered.message],
         }
       }
+      const isPending = triggered.trigger.pollStatus === 'pending'
       console.log(
-        `[SyncOrchestrator] dedicated host trigger sent — host did NOT read-poll. account=${accountId} ` +
-          `request_id=${triggered.trigger.requestId} fetched=${triggered.trigger.fetched} delivered=${triggered.trigger.delivered}`,
+        `[SyncOrchestrator] dedicated host trigger ${isPending ? 'pending (sealed relay)' : 'ack'} — host did NOT read-poll. account=${accountId} ` +
+          `request_id=${triggered.trigger.requestId}` +
+          (isPending ? '' : ` fetched=${triggered.trigger.fetched} delivered=${triggered.trigger.delivered}`),
       )
       return {
         ...result,
         ok: true,
         listedFromProvider: 0,
         skippedDuplicate: 0,
-        skipReason: 'ingestion_triggered_to_sandbox',
+        skipReason: isPending ? 'ingestion_trigger_pending' : 'ingestion_triggered_to_sandbox',
         ingestionPollTrigger: triggered.trigger,
       }
     }
