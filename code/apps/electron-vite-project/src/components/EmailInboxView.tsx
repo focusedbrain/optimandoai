@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useCallback, useState, useRef, useMemo, type CSSProperties, type MouseEvent, type FormEvent } from 'react'
-import EmailInboxToolbar from './EmailInboxToolbar'
+import EmailInboxToolbar, { INBOX_FILTER_LABELS } from './EmailInboxToolbar'
 import { emailInboxSyncWindowSelectValue } from './EmailInboxSyncControls'
 import { DEDICATED_SANDBOX_SYNC_WINDOW_HINT } from '../lib/dedicatedSandboxIngestionUi'
 import EmailMessageDetail from './EmailMessageDetail'
@@ -2973,6 +2973,7 @@ export default function EmailInboxView({
     setFilter,
     toggleMultiSelect,
     clearMultiSelect,
+    selectAllMatchingCurrentFilter,
     markRead,
     archiveMessages,
     deleteMessages,
@@ -3461,6 +3462,43 @@ export default function EmailInboxView({
     [selectedMessageId, selectAttachment, onSelectAttachment]
   )
   const selectedCount = multiSelectIds.size
+  const [matchingSelectInProgress, setMatchingSelectInProgress] = useState(false)
+
+  const loadedCount = messages.length
+  const activeFilter = filter.filter
+  const totalMatchingCount =
+    (tabCounts[activeFilter as keyof typeof tabCounts] as number | undefined) ?? total ?? 0
+  const currentTabLabel =
+    INBOX_FILTER_LABELS[activeFilter as keyof typeof INBOX_FILTER_LABELS] ?? activeFilter
+
+  const allLoadedSelected =
+    loadedCount > 0 && messages.every((m) => multiSelectIds.has(m.id))
+  const someLoadedSelected = messages.some((m) => multiSelectIds.has(m.id))
+  const allMatchingSelected = totalMatchingCount > 0 && selectedCount === totalMatchingCount
+  const showSelectAllMatchingLink =
+    totalMatchingCount > loadedCount && !allMatchingSelected
+
+  const handleBulkHeaderCheckboxChange = useCallback(() => {
+    if (allLoadedSelected || someLoadedSelected) {
+      clearMultiSelect()
+      return
+    }
+    for (const m of messages) {
+      if (!multiSelectIds.has(m.id)) toggleMultiSelect(m.id)
+    }
+  }, [
+    allLoadedSelected,
+    someLoadedSelected,
+    messages,
+    multiSelectIds,
+    clearMultiSelect,
+    toggleMultiSelect,
+  ])
+
+  const handleSelectAllMatching = useCallback(() => {
+    setMatchingSelectInProgress(true)
+    void selectAllMatchingCurrentFilter().finally(() => setMatchingSelectInProgress(false))
+  }, [selectAllMatchingCurrentFilter])
 
   const handleSyncWindowChange = useCallback(
     async (days: number) => {
@@ -4153,6 +4191,16 @@ export default function EmailInboxView({
           bulkMode={rowSelectMode}
           onBulkModeChange={handleRowSelectModeChange}
           selectedCount={selectedCount}
+          loadedCount={loadedCount}
+          totalMatchingCount={totalMatchingCount}
+          currentTabLabel={currentTabLabel}
+          bulkHeaderChecked={allLoadedSelected}
+          bulkHeaderIndeterminate={someLoadedSelected && !allLoadedSelected}
+          onBulkHeaderCheckboxChange={handleBulkHeaderCheckboxChange}
+          showSelectAllMatchingLink={showSelectAllMatchingLink}
+          matchingSelectInProgress={matchingSelectInProgress}
+          onSelectAllMatching={handleSelectAllMatching}
+          onClearBulkSelection={clearMultiSelect}
           onBulkDelete={handleBulkDelete}
           onBulkArchive={handleBulkArchive}
           onBulkMoveToPendingReview={

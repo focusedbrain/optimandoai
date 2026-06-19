@@ -69,16 +69,30 @@ export function confirmOriginDeleteIfNeeded(
   messages: Array<{ id: string; account_id?: string | null }>,
   accounts: OriginDeleteAccountRow[],
 ): boolean {
+  const n = ids.length
+  if (n === 0) return false
+
+  const countLine = n === 1 ? 'Delete 1 message?' : `Delete ${n} messages?`
+
   const relevantAccountIds = messageAccountIds(ids, messages).filter((accountId) => {
     const acc = accountById(accounts, accountId)
     return acc?.deleteFromProviderOnLocalDelete === true
   })
-  if (relevantAccountIds.length === 0) return true
+  if (relevantAccountIds.length === 0) {
+    if (n > 1) {
+      return window.confirm(
+        `${countLine}\n\nThis removes them from WRDesk only (not from your mail provider).\n\nContinue?`,
+      )
+    }
+    return true
+  }
 
   const needsPrompt = relevantAccountIds.some((id) => !sessionConfirmed(id))
   if (!needsPrompt) return true
 
   const lines: string[] = [
+    countLine,
+    '',
     'Smart Sync is enabled for this account.',
     '',
     'WRDesk will remove the message locally AND move it to Trash / Deleted Items on your mail provider (recoverable there, not permanent).',

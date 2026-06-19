@@ -27,6 +27,7 @@ import { SyncFailureBanner } from './SyncFailureBanner'
 import EmailInboxSyncControls from './EmailInboxSyncControls'
 import { InboxMessageKindSelect } from './InboxMessageKindSelect'
 import InboxBulkActionsBar from './InboxBulkActionsBar'
+import { INBOX_FILTER_LABELS } from './EmailInboxToolbar'
 import { useDeleteFromProviderOnLocalDelete } from '../hooks/useDeleteFromProviderOnLocalDelete'
 import {
   confirmOriginDeleteIfNeeded,
@@ -1971,6 +1972,7 @@ export default function EmailInboxBulkView({
   const [selectedProviderAccountId, setSelectedProviderAccountId] = useState<string | null>(null)
   /** Message-management select — distinct from AI Auto-Sort toolbar checkbox (store `bulkMode`). */
   const [rowSelectMode, setRowSelectMode] = useState(false)
+  const [rowMatchingSelectInProgress, setRowMatchingSelectInProgress] = useState(false)
   /** True when every listed account is IMAP — unified Sync runs pull only (no remote enqueue). */
   const bulkToolbarPullOnly = useMemo(
     () => providerAccounts.length > 0 && providerAccounts.every((a) => a.provider === 'imap'),
@@ -2708,6 +2710,40 @@ export default function EmailInboxBulkView({
     },
     [clearMultiSelect],
   )
+
+  const rowLoadedCount = messages.length
+  const rowCurrentTabLabel =
+    INBOX_FILTER_LABELS[filter.filter as keyof typeof INBOX_FILTER_LABELS] ?? filter.filter
+  const rowTotalMatchingCount = total
+  const rowAllLoadedSelected =
+    rowLoadedCount > 0 && messages.every((m) => multiSelectIds.has(m.id))
+  const rowSomeLoadedSelected = messages.some((m) => multiSelectIds.has(m.id))
+  const rowAllMatchingSelected =
+    rowTotalMatchingCount > 0 && selectedCount === rowTotalMatchingCount
+  const rowShowSelectAllMatchingLink =
+    rowTotalMatchingCount > rowLoadedCount && !rowAllMatchingSelected
+
+  const handleRowSelectAllLoaded = useCallback(() => {
+    if (rowAllLoadedSelected || rowSomeLoadedSelected) {
+      clearMultiSelect()
+      return
+    }
+    for (const m of messages) {
+      if (!multiSelectIds.has(m.id)) toggleMultiSelect(m.id)
+    }
+  }, [
+    rowAllLoadedSelected,
+    rowSomeLoadedSelected,
+    messages,
+    multiSelectIds,
+    clearMultiSelect,
+    toggleMultiSelect,
+  ])
+
+  const handleRowSelectAllMatching = useCallback(() => {
+    setRowMatchingSelectInProgress(true)
+    void selectAllMatchingCurrentFilter().finally(() => setRowMatchingSelectInProgress(false))
+  }, [selectAllMatchingCurrentFilter])
 
   /** Per-message classify + immediate moves. Callers: toolbar Auto-Sort, per-row Retry only. */
   const runAiCategorizeForIds = useCallback(
@@ -6104,7 +6140,18 @@ export default function EmailInboxBulkView({
                 </label>
               </div>
               <InboxBulkActionsBar
+                selectMode={rowSelectMode}
                 selectedCount={selectedCount}
+                loadedCount={rowLoadedCount}
+                totalMatchingCount={rowTotalMatchingCount}
+                currentTabLabel={rowCurrentTabLabel}
+                headerChecked={rowAllLoadedSelected}
+                headerIndeterminate={rowSomeLoadedSelected && !rowAllLoadedSelected}
+                onHeaderCheckboxChange={handleRowSelectAllLoaded}
+                showSelectAllMatchingLink={rowShowSelectAllMatchingLink}
+                matchingSelectInProgress={rowMatchingSelectInProgress}
+                onSelectAllMatching={handleRowSelectAllMatching}
+                onClearSelection={clearMultiSelect}
                 onBulkDelete={handleBulkDelete}
                 onBulkArchive={handleBulkArchive}
                 onBulkMoveToPendingReview={

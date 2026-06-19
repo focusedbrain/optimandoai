@@ -47,6 +47,16 @@ export interface EmailInboxToolbarProps {
   onBulkArchive: () => void
   onBulkMoveToPendingReview?: () => void
   onBulkCategorize?: () => void
+  loadedCount?: number
+  totalMatchingCount?: number
+  currentTabLabel?: string
+  bulkHeaderChecked?: boolean
+  bulkHeaderIndeterminate?: boolean
+  onBulkHeaderCheckboxChange?: () => void
+  showSelectAllMatchingLink?: boolean
+  matchingSelectInProgress?: boolean
+  onSelectAllMatching?: () => void
+  onClearBulkSelection?: () => void
   /** Open a new email compose form. Shown on the sync row (host only). */
   onEmailCompose?: () => void
   /** Open the BEAP capsule composer. Shown on the sync row (host only). */
@@ -56,7 +66,7 @@ export interface EmailInboxToolbarProps {
 // ── Filter tabs (aligned with Bulk Inbox workflow buckets) ──
 
 const FILTER_TABS = ['all', 'urgent', 'pending_delete', 'pending_review', 'archived'] as const
-const FILTER_LABELS: Record<(typeof FILTER_TABS)[number], string> = {
+export const INBOX_FILTER_LABELS: Record<(typeof FILTER_TABS)[number], string> = {
   all: 'All',
   urgent: 'Urgent',
   pending_delete: 'Pending Delete',
@@ -92,6 +102,16 @@ export default function EmailInboxToolbar({
   onBulkArchive,
   onBulkMoveToPendingReview,
   onBulkCategorize,
+  loadedCount = 0,
+  totalMatchingCount = 0,
+  currentTabLabel = 'All',
+  bulkHeaderChecked = false,
+  bulkHeaderIndeterminate = false,
+  onBulkHeaderCheckboxChange,
+  showSelectAllMatchingLink = false,
+  matchingSelectInProgress = false,
+  onSelectAllMatching,
+  onClearBulkSelection,
   onEmailCompose,
   onBeapCompose,
 }: EmailInboxToolbarProps) {
@@ -115,7 +135,7 @@ export default function EmailInboxToolbar({
               type="button"
               onClick={() => onFilterChange({ filter: tab })}
             >
-              {FILTER_LABELS[tab]} ({tabCounts[tab]})
+              {INBOX_FILTER_LABELS[tab]} ({tabCounts[tab]})
             </button>
           )
         })}
@@ -235,7 +255,18 @@ export default function EmailInboxToolbar({
       </div>
 
       <InboxBulkActionsBar
+        selectMode={bulkMode}
         selectedCount={selectedCount}
+        loadedCount={loadedCount}
+        totalMatchingCount={totalMatchingCount}
+        currentTabLabel={currentTabLabel}
+        headerChecked={bulkHeaderChecked}
+        headerIndeterminate={bulkHeaderIndeterminate}
+        onHeaderCheckboxChange={onBulkHeaderCheckboxChange ?? (() => {})}
+        showSelectAllMatchingLink={showSelectAllMatchingLink}
+        matchingSelectInProgress={matchingSelectInProgress}
+        onSelectAllMatching={onSelectAllMatching ?? (() => {})}
+        onClearSelection={onClearBulkSelection ?? (() => {})}
         deleteOnlyBulkActions={deleteOnlyBulkActions}
         onBulkDelete={onBulkDelete}
         onBulkArchive={onBulkArchive}
