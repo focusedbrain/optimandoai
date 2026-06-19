@@ -456,6 +456,10 @@ export interface EmailAccountInfo {
     syncWindowDays?: number
     maxMessagesPerPull?: number
   }
+  /** IMAP endpoint (no secrets) — present when `provider` is `imap`. */
+  imapHost?: string
+  imapPort?: number
+  imapSecurity?: SecurityMode
 }
 
 /** Non-secret fields to prefill “Update credentials” for IMAP (passwords never included). */

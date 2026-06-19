@@ -1965,6 +1965,9 @@ export default function EmailInboxBulkView({
       originDeleteFromProviderCapable?: boolean
       originDeleteBlockReason?: string
       lastError?: string
+      imapHost?: string
+      imapPort?: number
+      imapSecurity?: string
     }>
   >([])
   const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
@@ -3998,6 +4001,9 @@ export default function EmailInboxBulkView({
         originDeleteFromProviderCapable?: boolean
         originDeleteBlockReason?: string
         lastError?: string
+        imapHost?: string
+        imapPort?: number
+        imapSecurity?: string
       }>
       setProviderAccounts(
         data.map((a) => {
@@ -4029,6 +4035,9 @@ export default function EmailInboxBulkView({
             originDeleteFromProviderCapable: a.originDeleteFromProviderCapable === true,
             originDeleteBlockReason: a.originDeleteBlockReason,
             lastError: a.lastError,
+            imapHost: a.imapHost,
+            imapPort: a.imapPort,
+            imapSecurity: a.imapSecurity,
           }
         }),
       )
@@ -6033,7 +6042,14 @@ export default function EmailInboxBulkView({
       {lastSyncWarnings && lastSyncWarnings.length > 0 ? (
         <SyncFailureBanner
           warnings={lastSyncWarnings}
-          accounts={providerAccounts.map((a) => ({ id: a.id, email: a.email, provider: a.provider }))}
+          accounts={providerAccounts.map((a) => ({
+            id: a.id,
+            email: a.email,
+            provider: a.provider,
+            imapHost: a.imapHost,
+            imapPort: a.imapPort,
+            imapSecurity: a.imapSecurity,
+          }))}
           onUpdateCredentials={handleUpdateImapCredentials}
           onRemoveAccount={handleDisconnectEmail}
         />

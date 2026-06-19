@@ -2864,6 +2864,13 @@ class EmailGateway implements IEmailGateway {
         syncWindowDays: typeof account.sync?.syncWindowDays === 'number' ? account.sync.syncWindowDays : 30,
         maxMessagesPerPull: typeof account.sync?.maxMessagesPerPull === 'number' ? account.sync.maxMessagesPerPull : 500,
       },
+      ...(account.provider === 'imap' && account.imap
+        ? {
+            imapHost: account.imap.host,
+            imapPort: account.imap.port,
+            imapSecurity: account.imap.security,
+          }
+        : {}),
     }
   }
   

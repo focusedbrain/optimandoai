@@ -50,3 +50,49 @@ export function classifySyncFailureMessage(message: string): SyncFailureKind {
   }
   return 'generic'
 }
+
+export function providerLabelForSyncBanner(provider?: string): string {
+  switch (provider) {
+    case 'gmail':
+      return 'Gmail'
+    case 'microsoft365':
+      return 'Microsoft 365'
+    case 'zoho':
+      return 'Zoho'
+    case 'imap':
+      return 'IMAP'
+    default:
+      return provider?.trim() || 'mail'
+  }
+}
+
+export type TlsBannerAccountContext = {
+  email: string
+  provider?: string
+  imapHost?: string
+  imapPort?: number
+  imapSecurity?: string
+}
+
+/** Account-specific TLS guidance for SyncFailureBanner (never hard-codes a provider example). */
+export function buildTlsSyncFailureCopy(ctx: TlsBannerAccountContext): { lead: string; hint: string } {
+  const host = ctx.imapHost?.trim()
+  if (host) {
+    const port = typeof ctx.imapPort === 'number' && ctx.imapPort > 0 ? ctx.imapPort : 993
+    const security =
+      ctx.imapSecurity === 'starttls' ? 'STARTTLS' : ctx.imapSecurity === 'none' ? 'none' : 'SSL/TLS'
+    const portHint =
+      port === 993 && ctx.imapSecurity !== 'starttls'
+        ? `${security} (not STARTTLS on that port)`
+        : security
+    return {
+      lead: 'TLS/SSL issue reaching the mail server.',
+      hint: `Configured IMAP: host ${host}, port ${port}, ${portHint}.`,
+    }
+  }
+  const label = providerLabelForSyncBanner(ctx.provider)
+  return {
+    lead: `TLS/SSL issue reaching the mail server for this account (${label}).`,
+    hint: 'Check server settings, certificate trust, and VPN or proxy interference.',
+  }
+}

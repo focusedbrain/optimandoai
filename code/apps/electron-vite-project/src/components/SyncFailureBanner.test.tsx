@@ -33,4 +33,58 @@ describe('SyncFailureBanner', () => {
     expect(html).toContain('Authentication failed')
     expect(html).toContain('role="alert"')
   })
+
+  it('shows Gmail-specific TLS copy without web.de boilerplate', () => {
+    const html = renderToStaticMarkup(
+      <SyncFailureBanner
+        warnings={['[gmail-1] unable to verify the first certificate']}
+        accounts={[{ id: 'gmail-1', email: 'user@gmail.com', provider: 'gmail' }]}
+        onUpdateCredentials={() => {}}
+        onRemoveAccount={() => {}}
+      />,
+    )
+    expect(html).toContain('user@gmail.com')
+    expect(html).toContain('Gmail')
+    expect(html).not.toContain('imap.web.de')
+    expect(html).not.toContain('For web.de')
+  })
+
+  it('shows configured IMAP host for web.de TLS errors', () => {
+    const html = renderToStaticMarkup(
+      <SyncFailureBanner
+        warnings={['[wd-1] TLS handshake failed']}
+        accounts={[
+          {
+            id: 'wd-1',
+            email: 'user@web.de',
+            provider: 'imap',
+            imapHost: 'imap.web.de',
+            imapPort: 993,
+            imapSecurity: 'ssl',
+          },
+        ]}
+        onUpdateCredentials={() => {}}
+        onRemoveAccount={() => {}}
+      />,
+    )
+    expect(html).toContain('user@web.de')
+    expect(html).toContain('imap.web.de')
+    expect(html).toContain('993')
+    expect(html).not.toContain('For web.de use')
+  })
+
+  it('shows generic TLS copy when IMAP host is unavailable', () => {
+    const html = renderToStaticMarkup(
+      <SyncFailureBanner
+        warnings={['[unk-1] certificate has expired']}
+        accounts={[{ id: 'unk-1', email: 'mystery@example.com', provider: 'imap' }]}
+        onUpdateCredentials={() => {}}
+        onRemoveAccount={() => {}}
+      />,
+    )
+    expect(html).toContain('mystery@example.com')
+    expect(html).toContain('IMAP')
+    expect(html).not.toContain('web.de')
+    expect(html).not.toContain('imap.web.de')
+  })
 })

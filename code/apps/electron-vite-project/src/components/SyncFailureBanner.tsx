@@ -2,13 +2,21 @@ import React, { useMemo } from 'react'
 import {
   parseBracketedAccountSyncMessage,
   classifySyncFailureMessage,
+  buildTlsSyncFailureCopy,
   type SyncFailureKind,
 } from '../utils/syncFailureUi'
 
 const MUTED = 'var(--text-secondary, #64748b)'
 const PRIMARY = 'var(--text-primary, var(--text-primary-prof, #0f172a))'
 
-type AccountLite = { id: string; email: string; provider?: string }
+type AccountLite = {
+  id: string
+  email: string
+  provider?: string
+  imapHost?: string
+  imapPort?: number
+  imapSecurity?: string
+}
 
 type Props = {
   warnings: string[]
@@ -21,6 +29,10 @@ type ParsedRow = {
   key: string
   accountId: string
   email: string
+  provider?: string
+  imapHost?: string
+  imapPort?: number
+  imapSecurity?: string
   isImap: boolean
   kind: SyncFailureKind
   message: string
@@ -45,6 +57,10 @@ export function SyncFailureBanner({ warnings, accounts, onUpdateCredentials, onR
           key: accountId,
           accountId,
           email,
+          provider: acc?.provider,
+          imapHost: acc?.imapHost,
+          imapPort: acc?.imapPort,
+          imapSecurity: acc?.imapSecurity,
           isImap,
           kind,
           message,
@@ -170,11 +186,21 @@ export function SyncFailureBanner({ warnings, accounts, onUpdateCredentials, onR
                     completes. Try again in a moment or reduce the sync window in settings.
                   </div>
                 ) : r.kind === 'tls' ? (
-                  <div style={{ fontSize: 11, lineHeight: 1.45 }}>
-                    <strong>{r.email}</strong>: TLS/SSL issue reaching the mail server. For web.de use host{' '}
-                    <code style={{ fontSize: 10 }}>imap.web.de</code>, port <code style={{ fontSize: 10 }}>993</code>, and
-                    SSL/TLS (not STARTTLS on that port).
-                  </div>
+                  (() => {
+                    const copy = buildTlsSyncFailureCopy({
+                      email: r.email,
+                      provider: r.provider,
+                      imapHost: r.imapHost,
+                      imapPort: r.imapPort,
+                      imapSecurity: r.imapSecurity,
+                    })
+                    return (
+                      <div style={{ fontSize: 11, lineHeight: 1.45 }}>
+                        <strong>{r.email}</strong>: {copy.lead}
+                        <div style={{ fontSize: 10, color: MUTED, marginTop: 4, lineHeight: 1.4 }}>{copy.hint}</div>
+                      </div>
+                    )
+                  })()
                 ) : r.kind === 'network' ? (
                   <div style={{ fontSize: 11, lineHeight: 1.45 }}>
                     <strong>{r.email}</strong>: Network error — could not reach the mail server. Check your connection or VPN.

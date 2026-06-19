@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifySyncFailureMessage, parseBracketedAccountSyncMessage, isDelegatedSyncMessage, DELEGATED_SYNC_MARKER } from './syncFailureUi'
+import { classifySyncFailureMessage, parseBracketedAccountSyncMessage, isDelegatedSyncMessage, DELEGATED_SYNC_MARKER, buildTlsSyncFailureCopy } from './syncFailureUi'
 import { DELEGATED_HINT } from '../../electron/main/email/ipcSyncResultShape'
 
 describe('parseBracketedAccountSyncMessage', () => {
@@ -64,5 +64,39 @@ describe('classifySyncFailureMessage', () => {
     expect(isDelegatedSyncMessage(DELEGATED_HINT)).toBe(true)
     expect(classifySyncFailureMessage(DELEGATED_HINT)).toBe('delegated')
     expect(classifySyncFailureMessage('authentication failed')).toBe('auth')
+  })
+})
+
+describe('buildTlsSyncFailureCopy', () => {
+  it('uses configured IMAP host for web.de accounts', () => {
+    const copy = buildTlsSyncFailureCopy({
+      email: 'user@web.de',
+      provider: 'imap',
+      imapHost: 'imap.web.de',
+      imapPort: 993,
+      imapSecurity: 'ssl',
+    })
+    expect(copy.hint).toContain('imap.web.de')
+    expect(copy.hint).toContain('993')
+    expect(copy.hint).not.toMatch(/for web\.de use/i)
+  })
+
+  it('uses generic provider label for Gmail without IMAP host', () => {
+    const copy = buildTlsSyncFailureCopy({
+      email: 'user@gmail.com',
+      provider: 'gmail',
+    })
+    expect(copy.lead).toContain('Gmail')
+    expect(copy.hint).not.toContain('web.de')
+    expect(copy.hint).not.toContain('imap.web.de')
+  })
+
+  it('falls back to generic copy when provider host is unknown', () => {
+    const copy = buildTlsSyncFailureCopy({
+      email: 'mystery@example.com',
+      provider: 'imap',
+    })
+    expect(copy.lead).toContain('IMAP')
+    expect(copy.hint).not.toContain('web.de')
   })
 })
