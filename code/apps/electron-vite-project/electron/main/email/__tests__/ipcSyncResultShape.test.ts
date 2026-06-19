@@ -17,11 +17,13 @@ import {
   PAUSED_HINT,
   DELEGATED_HINT,
   TRIGGER_FAILED_HINT,
+  TRIGGER_REJECTED_HINT,
   TRIGGER_UNREACHABLE_HINT,
   TRIGGER_READ_CONSENT_MISSING_HINT,
   TRIGGER_FETCH_FAILED_HINT,
   formatIngestionPollTriggerPullHint,
   mapIngestionPollTriggerHostFeedback,
+  mapIngestionTriggerFailureSkipReason,
 } from '../ipcSyncResultShape'
 
 describe('mapSkipReasonToIpcWarning — skip reason routing', () => {
@@ -94,8 +96,8 @@ describe('mapSkipReasonToIpcWarning — delegated copy contract (UX-1 D2)', () =
 })
 
 describe('mapSkipReasonToIpcWarning — dedicated host trigger', () => {
-  it('ingestion_trigger_failed → loud unreachable copy', () => {
-    const r = mapSkipReasonToIpcWarning('ingestion_trigger_failed')
+  it('ingestion_trigger_unreachable → loud unreachable copy', () => {
+    const r = mapSkipReasonToIpcWarning('ingestion_trigger_unreachable')
     expect(r.isSkip).toBe(true)
     if (!r.isSkip) throw new Error('type narrowing')
     expect(r.hint).toBe(TRIGGER_FAILED_HINT)
@@ -103,8 +105,36 @@ describe('mapSkipReasonToIpcWarning — dedicated host trigger', () => {
     expect(r.msg).toContain('mail was not synced')
   })
 
+  it('ingestion_trigger_rejected → loud authentication rejection copy', () => {
+    const r = mapSkipReasonToIpcWarning('ingestion_trigger_rejected')
+    expect(r.isSkip).toBe(true)
+    if (!r.isSkip) throw new Error('type narrowing')
+    expect(r.hint).toBe(TRIGGER_REJECTED_HINT)
+    expect(r.msg).toContain('rejected')
+    expect(r.msg).toContain('pairing')
+  })
+
+  it('ingestion_trigger_failed remains unreachable copy for backward compatibility', () => {
+    const r = mapSkipReasonToIpcWarning('ingestion_trigger_failed')
+    expect(r.isSkip).toBe(true)
+    if (!r.isSkip) throw new Error('type narrowing')
+    expect(r.hint).toBe(TRIGGER_FAILED_HINT)
+  })
+
   it('ingestion_triggered_to_sandbox is not a skip (success path uses pullHint)', () => {
     expect(mapSkipReasonToIpcWarning('ingestion_triggered_to_sandbox').isSkip).toBe(false)
+  })
+})
+
+describe('mapIngestionTriggerFailureSkipReason', () => {
+  it('maps protocol/auth errors to rejected', () => {
+    expect(mapIngestionTriggerFailureSkipReason('E_INGESTION_POLL_PROTOCOL')).toBe('ingestion_trigger_rejected')
+    expect(mapIngestionTriggerFailureSkipReason('E_INGESTION_POLL_AUTH')).toBe('ingestion_trigger_rejected')
+  })
+
+  it('maps link-down and peer endpoint errors to unreachable', () => {
+    expect(mapIngestionTriggerFailureSkipReason('E_INGESTION_POLL_LINK_DOWN')).toBe('ingestion_trigger_unreachable')
+    expect(mapIngestionTriggerFailureSkipReason('E_INGESTION_POLL_PEER_ENDPOINT')).toBe('ingestion_trigger_unreachable')
   })
 })
 

@@ -31,6 +31,19 @@ const ownershipState = vi.hoisted(() => ({
 const listHandshakeRecords = vi.hoisted(() => vi.fn(() => [] as HandshakeRecord[]))
 const getInstanceId = vi.hoisted(() => vi.fn(() => 'dev-ws-1'))
 
+const resolveSandboxPeerDirectBeapIngestEndpoint = vi.hoisted(() =>
+  vi.fn((_db: unknown, _hid: string, ledger: string | null | undefined) => {
+    const t = typeof ledger === 'string' ? ledger.trim() : ''
+    if (!t || !t.includes('/beap/ingest')) return null
+    return t.replace(':51249/', ':51250/')
+  }),
+)
+
+vi.mock('../../../handshake/resolvePeerDirectBeapIngestEndpoint', () => ({
+  resolveSandboxPeerDirectBeapIngestEndpoint: (...args: unknown[]) =>
+    resolveSandboxPeerDirectBeapIngestEndpoint(...args),
+}))
+
 vi.mock('electron', () => ({
   app: { getPath: () => process.cwd(), getAppPath: () => process.cwd() },
 }))
@@ -230,7 +243,7 @@ describe('sendDedicatedSandboxIngestionPollTrigger', () => {
     expect(out.trigger.held).toBe(1)
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
-        endpoint: 'http://10.0.0.2:51249/beap/ingest',
+        endpoint: 'http://10.0.0.2:51250/beap/ingest',
         bearer: 'host-bearer',
         wire: expect.objectContaining({
           type: 'ingestion_poll_request',
@@ -254,6 +267,17 @@ describe('sendDedicatedSandboxIngestionPollTrigger', () => {
     expect(out.ok).toBe(false)
     if (out.ok) return
     expect(out.code).toBe('E_INGESTION_POLL_NOT_APPLICABLE')
+  })
+
+  it('fails with peer endpoint error when ingest URL cannot be resolved', async () => {
+    resolveSandboxPeerDirectBeapIngestEndpoint.mockReturnValueOnce(null)
+    listHandshakeRecords.mockReturnValue([
+      hostToSandboxRecord({ p2p_endpoint: 'http://coordination:51249/beap/capsule' }),
+    ])
+    const out = await sendDedicatedSandboxIngestionPollTrigger({}, { accountId: 'acc-1' })
+    expect(out.ok).toBe(false)
+    if (out.ok) return
+    expect(out.code).toBe('E_INGESTION_POLL_PEER_ENDPOINT')
   })
 })
 

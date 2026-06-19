@@ -32,6 +32,7 @@ import {
   recordHostIngestionPollAck,
   recordHostIngestionPollUnreachable,
 } from './hostAckStore'
+import { resolveSandboxPeerDirectBeapIngestEndpoint } from '../../handshake/resolvePeerDirectBeapIngestEndpoint'
 
 const DEFAULT_POLL_TIMEOUT_MS = (() => {
   const raw = Number(process.env.WRDESK_INGESTION_POLL_TRIGGER_TIMEOUT_MS)
@@ -237,9 +238,14 @@ export async function sendDedicatedSandboxIngestionPollTrigger(
     return { ok: false, code: sendGate.code, message: 'host role gate failed' }
   }
 
-  const endpoint = typeof record.p2p_endpoint === 'string' ? record.p2p_endpoint.trim() : ''
+  const ledgerEndpoint = typeof record.p2p_endpoint === 'string' ? record.p2p_endpoint.trim() : ''
+  const endpoint = resolveSandboxPeerDirectBeapIngestEndpoint(db, record.handshake_id, ledgerEndpoint)
   if (!endpoint) {
-    return { ok: false, code: 'E_INGESTION_POLL_LINK_DOWN', message: 'sandbox endpoint missing on handshake' }
+    const detail =
+      ledgerEndpoint && ledgerEndpoint.includes('/beap/ingest')
+        ? 'sandbox direct ingest endpoint could not be resolved from handshake — re-pair or refresh the internal handshake'
+        : 'sandbox endpoint missing on handshake'
+    return { ok: false, code: 'E_INGESTION_POLL_PEER_ENDPOINT', message: detail }
   }
 
   const bearer = outboundP2pBearerToCounterpartyIngest(record)
@@ -252,6 +258,13 @@ export async function sendDedicatedSandboxIngestionPollTrigger(
   const nowMs = Date.now()
   const timeoutMs = opts.timeoutMs ?? DEFAULT_POLL_TIMEOUT_MS
   const targetHostPort = endpointHostPort(endpoint)
+  const ledgerHostPort = ledgerEndpoint ? endpointHostPort(ledgerEndpoint) : '(none)'
+  if (ledgerHostPort !== targetHostPort) {
+    console.log(
+      `[IngestionPollTrigger] peer ingest endpoint resolved. handshake=${record.handshake_id} ` +
+        `ledger=${ledgerHostPort} resolved=${targetHostPort}`,
+    )
+  }
   const wire = {
     type: 'ingestion_poll_request' as const,
     schema_version: INGESTION_POLL_SCHEMA_VERSION,
@@ -273,11 +286,17 @@ export async function sendDedicatedSandboxIngestionPollTrigger(
   const transport = opts.transport ?? httpIngestionPollTransport
   const sent = await transport({ endpoint, bearer, wire, timeoutMs })
   if (!sent.ok) {
+    const outcome =
+      sent.code === 'E_INGESTION_POLL_PROTOCOL' || sent.code === 'E_INGESTION_POLL_AUTH'
+        ? 'rejected'
+        : 'unreachable'
     console.warn(
-      `[IngestionPollTrigger] host trigger unreachable. request_id=${requestId} target=${targetHostPort} ` +
+      `[IngestionPollTrigger] host trigger ${outcome}. request_id=${requestId} target=${targetHostPort} ` +
         `code=${sent.code} message=${sent.message}`,
     )
-    recordHostIngestionPollUnreachable(accountId, requestId)
+    if (sent.code === 'E_INGESTION_POLL_LINK_DOWN' || sent.code === 'E_INGESTION_POLL_PEER_ENDPOINT') {
+      recordHostIngestionPollUnreachable(accountId, requestId)
+    }
     return { ok: false, code: sent.code, message: sent.message }
   }
 

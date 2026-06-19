@@ -23,10 +23,8 @@ import { getHandshakeRecord } from './db'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getP2PConfig } from '../p2p/p2pConfig'
 import { getCoordinationWsClient } from '../p2p/coordinationWsHolder'
-import {
-  normalizeP2pIngestUrl,
-  peekHostAdvertisedMvpDirectEntry,
-} from '../internalInference/p2pEndpointRepair'
+import { normalizeP2pIngestUrl } from '../internalInference/p2pEndpointRepair'
+import { resolvePeerDirectBeapIngestEndpoint } from './resolvePeerDirectBeapIngestEndpoint'
 import { isCoordinationRelayNativeBeap } from '../../../../../packages/ingestion-core/src/beapDetection.ts'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
 import {
@@ -201,34 +199,6 @@ export interface ProcessOutboundQueueResult {
 
 function jitterMs(max = 400): number {
   return Math.floor(Math.random() * max)
-}
-
-function isDirectBeapIngestEndpoint(endpoint: string): boolean {
-  const u = endpoint.trim().toLowerCase()
-  return u.includes('/beap/ingest')
-}
-
-/** Resolve peer LAN `/beap/ingest` when the queue row still points at coordination relay. */
-function resolvePeerDirectBeapIngestEndpoint(
-  db: any,
-  handshakeId: string,
-  queueTargetEndpoint: string,
-): string | null {
-  const seen = new Set<string>()
-  const tryOne = (raw: string | null | undefined): string | null => {
-    const t = typeof raw === 'string' ? raw.trim() : ''
-    if (!t || !isDirectBeapIngestEndpoint(t)) return null
-    const n = normalizeP2pIngestUrl(t)
-    if (seen.has(n)) return null
-    seen.add(n)
-    return n
-  }
-  for (const raw of [queueTargetEndpoint, peekHostAdvertisedMvpDirectEntry(handshakeId)?.url]) {
-    const u = tryOne(raw)
-    if (u) return u
-  }
-  const rec = getHandshakeRecord(db, handshakeId)
-  return tryOne(rec?.p2p_endpoint)
 }
 
 async function ensureSenderCoordinationWsForDeliveryAck(): Promise<void> {

@@ -4,6 +4,7 @@
  */
 import {
   TRIGGER_FAILED_HINT,
+  TRIGGER_REJECTED_HINT,
   TRIGGER_UNREACHABLE_HINT,
   TRIGGER_READ_CONSENT_MISSING_HINT,
   TRIGGER_FETCH_FAILED_HINT,
@@ -37,6 +38,7 @@ export type SyncFailureKind =
   | 'generic'
   | 'delegated'
   | 'sandbox_unreachable'
+  | 'sandbox_rejected'
   | 'sandbox_no_read'
   | 'sandbox_fetch_failed'
 
@@ -48,6 +50,7 @@ function matchesIngestionTriggerCopy(message: string, copy: string): boolean {
 
 /** Classify dedicated-host ingestion trigger outcomes surfaced via syncWarnings. */
 export function classifyIngestionTriggerSyncMessage(message: string): SyncFailureKind | null {
+  if (matchesIngestionTriggerCopy(message, TRIGGER_REJECTED_HINT)) return 'sandbox_rejected'
   if (matchesIngestionTriggerCopy(message, TRIGGER_UNREACHABLE_HINT)) return 'sandbox_unreachable'
   if (matchesIngestionTriggerCopy(message, TRIGGER_FAILED_HINT)) return 'sandbox_unreachable'
   if (matchesIngestionTriggerCopy(message, TRIGGER_READ_CONSENT_MISSING_HINT)) return 'sandbox_no_read'

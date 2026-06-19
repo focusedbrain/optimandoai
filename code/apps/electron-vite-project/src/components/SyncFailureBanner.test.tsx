@@ -105,6 +105,20 @@ describe('SyncFailureBanner', () => {
     expect(html).not.toContain('pending read account')
   })
 
+  it('shows distinct rejected-auth state when sandbox reached but rejected trigger', () => {
+    const html = renderToStaticMarkup(
+      <SyncFailureBanner
+        warnings={['[acc-host] Sandbox rejected the sync request (authentication) — the device pairing may need refreshing.']}
+        accounts={[{ id: 'acc-host', email: 'user@gmail.com', provider: 'gmail' }]}
+        onUpdateCredentials={() => {}}
+        onRemoveAccount={() => {}}
+      />,
+    )
+    expect(html).toContain('data-sync-failure-kind="sandbox_rejected"')
+    expect(html).toContain('authentication was rejected')
+    expect(html).not.toContain('data-sync-failure-kind="sandbox_unreachable"')
+  })
+
   it('shows distinct no-read-account state when sandbox lacks read consent', () => {
     const html = renderToStaticMarkup(
       <SyncFailureBanner

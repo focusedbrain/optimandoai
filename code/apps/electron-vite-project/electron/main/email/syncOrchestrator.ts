@@ -27,6 +27,7 @@ import { detectAndRouteMessage, type RawEmailMessage } from './messageRouter'
 import { isOpaqueIngestionActive } from './opaqueIngestion'
 import { resolveIngestionOwnershipWithLedger, assertHostMayReadPoll, isDedicatedSandboxFetchNode, INGESTION_HOST_TRIGGERED_ONLY_SKIP } from './ingestionOwnership'
 import { sendDedicatedSandboxIngestionPollTrigger, shouldHostTriggerDedicatedSandboxPoll } from './ingestionPollTrigger/hostTrigger'
+import { mapIngestionTriggerFailureSkipReason } from './ipcSyncResultShape'
 import type { SSOSession } from '../handshake/types'
 import { emailDebugLog, emailDebugWarn } from './emailDebug'
 import {
@@ -110,13 +111,17 @@ export interface SyncResult {
    *    host trigger (PROMPT 2+) is the only allowed fetch path.
    *  - `ingestion_triggered_to_sandbox`: dedicated delegated host sent a poll trigger;
    *    host did not read-poll locally (mail returns via sandbox_email_delivery).
-   *  - `ingestion_trigger_failed`: dedicated host trigger transport/handler failed.
+   *  - `ingestion_trigger_unreachable`: dedicated host trigger could not reach sandbox.
+   *  - `ingestion_trigger_rejected`: sandbox reached but rejected trigger (auth/protocol).
+   *  - `ingestion_trigger_failed`: legacy alias for unreachable trigger failures.
    */
   skipReason?:
     | 'processing_paused'
     | 'ingestion_delegated_to_sandbox'
     | typeof INGESTION_HOST_TRIGGERED_ONLY_SKIP
     | 'ingestion_triggered_to_sandbox'
+    | 'ingestion_trigger_unreachable'
+    | 'ingestion_trigger_rejected'
     | 'ingestion_trigger_failed'
   /** Present when a dedicated host sent an ingestion poll trigger (counts only, INV-5). */
   ingestionPollTrigger?: {
@@ -490,7 +495,7 @@ async function syncAccountEmailsImpl(
           ok: false,
           listedFromProvider: 0,
           skippedDuplicate: 0,
-          skipReason: 'ingestion_trigger_failed',
+          skipReason: mapIngestionTriggerFailureSkipReason(triggered.code),
           errors: [triggered.message],
         }
       }

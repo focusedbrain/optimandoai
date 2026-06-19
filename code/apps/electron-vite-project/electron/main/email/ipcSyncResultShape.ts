@@ -33,6 +33,10 @@ export const TRIGGER_SUCCESS_HINT =
 export const TRIGGER_FAILED_HINT =
   'Sandbox device unreachable — mail was not synced. Check the sandbox is on, logged in, and connected, then try Sync again.'
 
+/** Host reached sandbox but auth/protocol rejected the trigger (E_INGESTION_POLL_PROTOCOL / 401). */
+export const TRIGGER_REJECTED_HINT =
+  'Sandbox rejected the sync request (authentication) — the device pairing may need refreshing.'
+
 /** Sandbox ack: HTTP reached sandbox but poll_status = trigger_unreachable. */
 export const TRIGGER_UNREACHABLE_HINT = TRIGGER_FAILED_HINT
 
@@ -137,7 +141,7 @@ export function mapSkipReasonToIpcWarning(
       msg: hint,
     }
   }
-  if (skipReason === 'ingestion_trigger_failed') {
+  if (skipReason === 'ingestion_trigger_unreachable' || skipReason === 'ingestion_trigger_failed') {
     const hint = TRIGGER_FAILED_HINT
     return {
       isSkip: true,
@@ -145,5 +149,21 @@ export function mapSkipReasonToIpcWarning(
       msg: hint,
     }
   }
+  if (skipReason === 'ingestion_trigger_rejected') {
+    const hint = TRIGGER_REJECTED_HINT
+    return {
+      isSkip: true,
+      hint,
+      msg: hint,
+    }
+  }
   return { isSkip: false }
+}
+
+/** Map host trigger transport error codes to IPC skip reasons for loud, accurate UI copy. */
+export function mapIngestionTriggerFailureSkipReason(code: string): 'ingestion_trigger_unreachable' | 'ingestion_trigger_rejected' {
+  if (code === 'E_INGESTION_POLL_PROTOCOL' || code === 'E_INGESTION_POLL_AUTH') {
+    return 'ingestion_trigger_rejected'
+  }
+  return 'ingestion_trigger_unreachable'
 }

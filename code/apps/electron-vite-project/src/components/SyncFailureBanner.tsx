@@ -84,7 +84,10 @@ export function SyncFailureBanner({ warnings, accounts, onUpdateCredentials, onR
 
   const delegatedRows = rows.filter((r) => r.kind === 'delegated')
   const ingestionRows = rows.filter((r) =>
-    r.kind === 'sandbox_unreachable' || r.kind === 'sandbox_no_read' || r.kind === 'sandbox_fetch_failed',
+    r.kind === 'sandbox_unreachable' ||
+    r.kind === 'sandbox_rejected' ||
+    r.kind === 'sandbox_no_read' ||
+    r.kind === 'sandbox_fetch_failed',
   )
   const failureRows = rows.filter(
     (r) => r.kind !== 'delegated' && !ingestionRows.includes(r),
@@ -163,6 +166,10 @@ export function SyncFailureBanner({ warnings, accounts, onUpdateCredentials, onR
                 {r.kind === 'sandbox_unreachable' ? (
                   <div style={{ fontSize: 10, color: MUTED, marginTop: 4, lineHeight: 1.4 }}>
                     Mail was not synced on this Sync. Start the sandbox app and confirm the internal handshake is active.
+                  </div>
+                ) : r.kind === 'sandbox_rejected' ? (
+                  <div style={{ fontSize: 10, color: MUTED, marginTop: 4, lineHeight: 1.4 }}>
+                    The host reached the sandbox, but authentication was rejected. Re-pair the host and sandbox devices if this persists.
                   </div>
                 ) : r.kind === 'sandbox_no_read' ? (
                   <div style={{ fontSize: 10, color: MUTED, marginTop: 4, lineHeight: 1.4 }}>
