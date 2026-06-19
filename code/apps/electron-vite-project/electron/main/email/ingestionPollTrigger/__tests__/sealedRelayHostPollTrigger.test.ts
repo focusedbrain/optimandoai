@@ -8,11 +8,8 @@ import type { HandshakeRecord, PartyIdentity } from '../../../handshake/types'
 import { SEALED_SERVICE_RPC_CAPSULE_TYPE } from '@repo/ingestion-core'
 import {
   sendDedicatedSandboxIngestionPollTrigger,
-  sendDedicatedSandboxIngestionPollTriggerViaDirectHttp,
   DEFAULT_INGESTION_POLL_TRIGGER_TIMEOUT_MS,
 } from '../hostTrigger'
-import type { IngestionPollTransport } from '../send'
-import { INGESTION_POLL_SCHEMA_VERSION } from '../wire'
 import {
   _resetHostIngestionPollPendingForTests,
   getHostIngestionPollPending,
@@ -32,14 +29,6 @@ const ownershipState = vi.hoisted(() => ({
 const listHandshakeRecords = vi.hoisted(() => vi.fn(() => [] as HandshakeRecord[]))
 const getInstanceId = vi.hoisted(() => vi.fn(() => 'dev-ws-1'))
 const sendCapsuleViaCoordination = vi.hoisted(() => vi.fn())
-
-vi.mock('../../../handshake/resolvePeerDirectBeapIngestEndpoint', () => ({
-  resolveSandboxPeerDirectBeapIngestEndpoint: vi.fn((_db: unknown, _hid: string, ledger: string | null | undefined) => {
-    const t = typeof ledger === 'string' ? ledger.trim() : ''
-    if (!t || !t.includes('/beap/ingest')) return null
-    return t.replace(':51249/', ':51250/')
-  }),
-}))
 
 vi.mock('../../../handshake/p2pTransport', () => ({
   sendCapsuleViaCoordination: (...args: unknown[]) => sendCapsuleViaCoordination(...args),
@@ -239,53 +228,6 @@ describe('sendDedicatedSandboxIngestionPollTrigger — sealed relay (A3)', () =>
     vi.advanceTimersByTime(5_000)
     expect(getHostIngestionPollPending(out.trigger.requestId)).toBeUndefined()
     expect(getLastHostIngestionPollAck('acc-timeout')?.pollStatus).toBe('trigger_unreachable')
-  })
-})
-
-describe('sendDedicatedSandboxIngestionPollTriggerViaDirectHttp — legacy path retained (A6 removal)', () => {
-  beforeEach(() => {
-    topologyKind.value = 'dedicated'
-    ownershipState.hostShouldReadPoll = false
-    getInstanceId.mockReturnValue('dev-ws-1')
-    listHandshakeRecords.mockReturnValue([hostToSandboxRecord()])
-    sendCapsuleViaCoordination.mockReset()
-    _resetHostIngestionPollAcksForTests()
-  })
-
-  it('still posts ingestion_poll_request via HTTP transport when called explicitly', async () => {
-    const transport: IngestionPollTransport = vi.fn(async ({ wire }) => ({
-      ok: true,
-      body: {
-        type: 'ingestion_poll_result',
-        schema_version: INGESTION_POLL_SCHEMA_VERSION,
-        request_id: wire.request_id,
-        handshake_id: wire.handshake_id,
-        sender_device_id: 'dev-sand-1',
-        target_device_id: 'dev-ws-1',
-        created_at: new Date().toISOString(),
-        account_id: wire.account_id,
-        poll_status: 'ok',
-        fetched: 3,
-        depackaged: 3,
-        delivered: 2,
-        held: 1,
-      },
-    }))
-
-    const out = await sendDedicatedSandboxIngestionPollTriggerViaDirectHttp(
-      {},
-      { accountId: 'acc-1', transport },
-    )
-    expect(out.ok).toBe(true)
-    if (!out.ok) return
-    expect(out.trigger.fetched).toBe(3)
-    expect(transport).toHaveBeenCalledWith(
-      expect.objectContaining({
-        endpoint: 'http://10.0.0.2:51250/beap/ingest',
-        wire: expect.objectContaining({ type: 'ingestion_poll_request' }),
-      }),
-    )
-    expect(sendCapsuleViaCoordination).not.toHaveBeenCalled()
   })
 })
 

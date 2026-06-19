@@ -19,10 +19,8 @@ import {
 } from '../receiver'
 import {
   sendDedicatedSandboxIngestionPollTrigger,
-  sendDedicatedSandboxIngestionPollTriggerViaDirectHttp,
   shouldHostTriggerDedicatedSandboxPoll,
 } from '../hostTrigger'
-import type { IngestionPollTransport } from '../send'
 
 const topologyKind = vi.hoisted(() => ({ value: 'none' as 'single_machine' | 'dedicated' | 'none' }))
 const ownershipState = vi.hoisted(() => ({
@@ -31,19 +29,6 @@ const ownershipState = vi.hoisted(() => ({
 }))
 const listHandshakeRecords = vi.hoisted(() => vi.fn(() => [] as HandshakeRecord[]))
 const getInstanceId = vi.hoisted(() => vi.fn(() => 'dev-ws-1'))
-
-const resolveSandboxPeerDirectBeapIngestEndpoint = vi.hoisted(() =>
-  vi.fn((_db: unknown, _hid: string, ledger: string | null | undefined) => {
-    const t = typeof ledger === 'string' ? ledger.trim() : ''
-    if (!t || !t.includes('/beap/ingest')) return null
-    return t.replace(':51249/', ':51250/')
-  }),
-)
-
-vi.mock('../../../handshake/resolvePeerDirectBeapIngestEndpoint', () => ({
-  resolveSandboxPeerDirectBeapIngestEndpoint: (...args: unknown[]) =>
-    resolveSandboxPeerDirectBeapIngestEndpoint(...args),
-}))
 
 vi.mock('electron', () => ({
   app: { getPath: () => process.cwd(), getAppPath: () => process.cwd() },
@@ -144,7 +129,7 @@ describe('shouldHostTriggerDedicatedSandboxPoll', () => {
     expect(await shouldHostTriggerDedicatedSandboxPoll({})).toBe(true)
   })
 
-  it('returns true for misclassified single_machine when distinct host/sandbox device ids (two-device override)', async () => {
+  it('returns false for single_machine even with distinct host/sandbox device ids (relay routes by identity)', async () => {
     topologyKind.value = 'single_machine'
     ownershipState.hostShouldReadPoll = false
     getInstanceId.mockReturnValue('8929353a')
@@ -156,7 +141,7 @@ describe('shouldHostTriggerDedicatedSandboxPoll', () => {
         p2p_endpoint: 'http://192.168.178.28:51250/beap/ingest',
       }),
     ])
-    expect(await shouldHostTriggerDedicatedSandboxPoll({})).toBe(true)
+    expect(await shouldHostTriggerDedicatedSandboxPoll({})).toBe(false)
   })
 
   it('returns false for in-host VM loopback + deliberate local_inner_vm even with distinct device ids', async () => {
@@ -181,104 +166,23 @@ describe('shouldHostTriggerDedicatedSandboxPoll', () => {
 
   it('emits [IngestionTriggerDecision] with topology, device ids, and decision', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-    topologyKind.value = 'single_machine'
+    topologyKind.value = 'dedicated'
     ownershipState.hostShouldReadPoll = false
     getInstanceId.mockReturnValue('8929353a')
     listHandshakeRecords.mockReturnValue([
       hostToSandboxRecord({
         initiator_coordination_device_id: '8929353a',
         acceptor_coordination_device_id: '4a90a60b',
-        topology_pairing_kind: 'local_inner_vm',
-        p2p_endpoint: 'http://192.168.178.28:51250/beap/ingest',
       }),
     ])
     await shouldHostTriggerDedicatedSandboxPoll({})
     const line = logSpy.mock.calls.map((c) => String(c[0])).find((s) => s.includes('[IngestionTriggerDecision]'))
     expect(line).toBeDefined()
-    expect(line).toContain('topology=single_machine')
-    expect(line).toContain('two_device_pair=true')
+    expect(line).toContain('topology=dedicated')
     expect(line).toContain('host_device_id=8929353a')
     expect(line).toContain('peer_sandbox_device_id=4a90a60b')
     expect(line).toContain('decision=trigger')
     logSpy.mockRestore()
-  })
-})
-
-describe('sendDedicatedSandboxIngestionPollTriggerViaDirectHttp', () => {
-  beforeEach(() => {
-    topologyKind.value = 'dedicated'
-    ownershipState.thisNodeRole = 'host'
-    ownershipState.hostShouldReadPoll = false
-    getInstanceId.mockReturnValue('dev-ws-1')
-    listHandshakeRecords.mockReturnValue([hostToSandboxRecord()])
-  })
-
-  it('posts ingestion_poll_request and maps synchronous counts ack (no host fetch)', async () => {
-    const transport: IngestionPollTransport = vi.fn(async ({ wire }) => ({
-      ok: true,
-      body: {
-        type: 'ingestion_poll_result',
-        schema_version: INGESTION_POLL_SCHEMA_VERSION,
-        request_id: wire.request_id,
-        handshake_id: wire.handshake_id,
-        sender_device_id: 'dev-sand-1',
-        target_device_id: 'dev-ws-1',
-        created_at: new Date().toISOString(),
-        account_id: wire.account_id,
-        poll_status: 'ok',
-        fetched: 3,
-        depackaged: 3,
-        delivered: 2,
-        held: 1,
-      },
-    }))
-
-    const out = await sendDedicatedSandboxIngestionPollTriggerViaDirectHttp(
-      {},
-      { accountId: 'acc-1', transport },
-    )
-    expect(out.ok).toBe(true)
-    if (!out.ok) return
-    expect(out.trigger.fetched).toBe(3)
-    expect(out.trigger.delivered).toBe(2)
-    expect(out.trigger.held).toBe(1)
-    expect(transport).toHaveBeenCalledWith(
-      expect.objectContaining({
-        endpoint: 'http://10.0.0.2:51250/beap/ingest',
-        bearer: 'host-bearer',
-        wire: expect.objectContaining({
-          type: 'ingestion_poll_request',
-          account_id: 'acc-1',
-          sender_device_id: 'dev-ws-1',
-          target_device_id: 'dev-sand-1',
-        }),
-      }),
-    )
-  })
-
-  it('rejects when in-host VM delegated host (loopback local_inner_vm)', async () => {
-    topologyKind.value = 'single_machine'
-    listHandshakeRecords.mockReturnValue([
-      hostToSandboxRecord({
-        topology_pairing_kind: 'local_inner_vm',
-        p2p_endpoint: 'http://127.0.0.1:51249/beap/ingest',
-      }),
-    ])
-    const out = await sendDedicatedSandboxIngestionPollTriggerViaDirectHttp({}, { accountId: 'acc-1' })
-    expect(out.ok).toBe(false)
-    if (out.ok) return
-    expect(out.code).toBe('E_INGESTION_POLL_NOT_APPLICABLE')
-  })
-
-  it('fails with peer endpoint error when ingest URL cannot be resolved', async () => {
-    resolveSandboxPeerDirectBeapIngestEndpoint.mockReturnValueOnce(null)
-    listHandshakeRecords.mockReturnValue([
-      hostToSandboxRecord({ p2p_endpoint: 'http://coordination:51249/beap/capsule' }),
-    ])
-    const out = await sendDedicatedSandboxIngestionPollTriggerViaDirectHttp({}, { accountId: 'acc-1' })
-    expect(out.ok).toBe(false)
-    if (out.ok) return
-    expect(out.code).toBe('E_INGESTION_POLL_PEER_ENDPOINT')
   })
 })
 

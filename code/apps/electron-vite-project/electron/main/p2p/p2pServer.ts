@@ -52,8 +52,6 @@ import { handleGetP2PReachability } from '../internalInference/p2pReachabilityGe
 import { isInternalServiceRpcShape, tryHandleInternalServiceP2P } from '../internalInference/p2pServiceDispatch'
 import { isCriticalJobServiceRpcShape } from '../critical-jobs/remote/wire'
 import { tryHandleCriticalJobServiceP2P } from '../critical-jobs/remote/criticalJobServiceDispatch'
-import { isIngestionPollServiceRpcShape } from '../email/ingestionPollTrigger/wire'
-import { tryHandleIngestionPollServiceP2P } from '../email/ingestionPollTrigger/dispatch'
 import { isSandboxEmailDeliveryShape, tryHandleSandboxEmailDelivery } from '../critical-jobs/remote/sandboxEmailDelivery'
 import {
   logBeapIngressReceived,
@@ -361,15 +359,6 @@ function createP2PRequestHandler(
     // Same auth + direct-ingest channel as internal inference; never relay.
     if (isCriticalJobServiceRpcShape(parsed)) {
       const handled = await tryHandleCriticalJobServiceP2P(db, parsed, res)
-      if (handled) {
-        return
-      }
-    }
-
-    // Host→sandbox ingestion poll trigger (PROMPT 2): control-plane only; synchronous
-    // HTTP 200 body carries counts (INV-5). Mail bytes use sandbox_email_delivery.
-    if (isIngestionPollServiceRpcShape(parsed)) {
-      const handled = await tryHandleIngestionPollServiceP2P(db, parsed, res)
       if (handled) {
         return
       }

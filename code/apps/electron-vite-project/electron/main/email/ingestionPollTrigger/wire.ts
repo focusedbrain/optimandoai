@@ -1,12 +1,9 @@
 /**
  * Host→sandbox ingestion poll trigger — control-plane service messages (PROMPT 2).
  *
- * Direction: host POSTs `ingestion_poll_request` to the sandbox `/beap/ingest`;
- * sandbox runs ONE `runSandboxIngestionPoll` and returns `ingestion_poll_result`
- * (counts only, INV-5) as the synchronous HTTP 200 body. Mail bytes return via the
- * existing `sandbox_email_delivery` path — not in this envelope.
- *
- * Never coordination-relay whitelisted (direct HTTP only, mirror `critical_job_*`).
+ * Host→sandbox ingestion poll trigger — E2E-sealed service RPC over coordination relay (A3–A5).
+ * Sandbox runs ONE `runSandboxIngestionPoll` per request; counts return via sealed
+ * `ingestion_poll_result` on the relay. Mail bytes use `sandbox_email_delivery`.
  */
 
 export const INGESTION_POLL_SCHEMA_VERSION = 1
