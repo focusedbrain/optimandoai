@@ -4609,7 +4609,9 @@ export default function EmailInboxView({
               <div style={{ fontSize: 32, marginBottom: 12, opacity: 0.3 }}>✉</div>
               <div style={{ fontSize: 13, textAlign: 'center' }}>
                 {messages.length === 0
-                  ? 'Connect an email account or import a .beap file to get started'
+                  ? isSandbox
+                    ? 'Inbox Clone shows BEAP messages cloned from your host. Clone messages from the host inbox to add them here.'
+                    : 'Connect an email account or import a .beap file to get started'
                   : 'Select a message to view details'}
               </div>
             </div>

@@ -3,6 +3,9 @@
  * and read-only `inbox:dashboardSnapshot`. Keep a single implementation.
  */
 
+import { isSandboxMode } from '../orchestrator/orchestratorModeStore'
+import { sandboxCloneInboxSqlPredicate } from './sandboxCloneInboxFilter'
+
 /** Options shared by inbox:listMessages and inbox:listMessageIds (WHERE clause only). */
 export type InboxListFilterOptions = {
   filter?: string
@@ -104,6 +107,12 @@ export function buildInboxMessagesWhereClause(options: InboxListFilterOptions = 
     const q = `%${search.trim()}%`
     conditions.push('(subject LIKE ? OR body_text LIKE ? OR from_address LIKE ? OR from_name LIKE ?)')
     params.push(q, q, q, q)
+  }
+
+  // Sandbox orchestrator: Inbox Clone lists only Host→Sandbox BEAP clones (read-time gate;
+  // legacy non-clone rows remain in DB but are hidden). Host behavior unchanged.
+  if (isSandboxMode()) {
+    conditions.push(sandboxCloneInboxSqlPredicate())
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''

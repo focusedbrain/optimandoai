@@ -39,24 +39,24 @@ function renderProviders(opts: {
 }
 
 describe('EmailProvidersSection — RemoteSyncBadge sandbox fallback', () => {
-  it('shows Inbound (read-only) on sandbox when ingestionStatus is null', () => {
+  it('shows Headless ingestion on sandbox when ingestionStatus is null', () => {
     const html = renderProviders({ isSandbox: true, ingestionStatus: null })
-    expect(html).toContain('Inbound (read-only)')
+    expect(html).toContain('Headless ingestion')
     expect(html).not.toContain('Smart Sync')
   })
 
   it('shows green Smart Sync on host when ingestionStatus is null', () => {
     const html = renderProviders({ isSandbox: false, ingestionStatus: null })
     expect(html).toContain('Smart Sync')
-    expect(html).not.toContain('Inbound (read-only)')
+    expect(html).not.toContain('Headless ingestion')
   })
 
-  it('shows Inbound (read-only) when ingestionStatus proves sandbox role', () => {
+  it('shows Headless ingestion when ingestionStatus proves sandbox role', () => {
     const html = renderProviders({
       isSandbox: false,
       ingestionStatus: { code: 'OK', thisNodeRole: 'sandbox' },
     })
-    expect(html).toContain('Inbound (read-only)')
+    expect(html).toContain('Headless ingestion')
     expect(html).not.toContain('Smart Sync')
   })
 })

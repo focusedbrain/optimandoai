@@ -14,7 +14,8 @@ describe('isDedicatedSandboxHostTriggeredIngestion', () => {
 })
 
 describe('DEDICATED_SANDBOX_HOST_TRIGGERED_STATUS', () => {
-  it('names host-triggered fetch model', () => {
-    expect(DEDICATED_SANDBOX_HOST_TRIGGERED_STATUS).toContain('host device')
+  it('describes clone-only inbox and headless depackage to host', () => {
+    expect(DEDICATED_SANDBOX_HOST_TRIGGERED_STATUS).toContain('cloned')
+    expect(DEDICATED_SANDBOX_HOST_TRIGGERED_STATUS).toContain('host inbox')
   })
 })

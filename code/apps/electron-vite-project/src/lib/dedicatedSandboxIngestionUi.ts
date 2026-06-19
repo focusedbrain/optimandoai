@@ -7,11 +7,11 @@ export type SandboxTopologyKind = 'single_machine' | 'dedicated' | 'none'
 
 /** Read-only toolbar copy when the paired host triggers all inbound fetches. */
 export const DEDICATED_SANDBOX_HOST_TRIGGERED_STATUS =
-  'Mail is fetched when the host device syncs.'
+  'Inbox Clone shows only BEAP messages cloned from your host. When the host syncs, this device depackages mail headlessly and delivers results to the host inbox — not listed here.'
 
-/** Account sync panel hint — sync window still configures poll reach on host trigger. */
+/** Account sync panel hint — sync window configures host-triggered headless fetch reach. */
 export const DEDICATED_SANDBOX_SYNC_WINDOW_HINT =
-  'Sets how far back mail is fetched when your host device syncs. Expand the window to include older mail.'
+  'Sets how far back the host-triggered headless fetch reaches. Expanding the window includes older mail on the next host sync; only cloned messages appear in this inbox.'
 
 export function isDedicatedSandboxHostTriggeredIngestion(
   isSandbox: boolean,

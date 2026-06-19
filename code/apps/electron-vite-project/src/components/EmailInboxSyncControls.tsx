@@ -54,13 +54,19 @@ export default function EmailInboxSyncControls({
   const patchOk = typeof window !== 'undefined' && !!window.emailInbox?.patchAccountSyncPreferences
 
   const syncButtonTitle = readOnlyIngestionNode
-    ? 'Fetch new mail on this device (read-only — does not move folders on your provider; Smart Sync runs on your host device)'
+    ? 'Headless fetch only — depackages mail to your host inbox. Inbox Clone lists BEAP messages cloned from the host only.'
     : pullOnly
       ? 'Fetch new mail from the server (IMAP: local classification only; no server folder moves)'
       : 'Pull new mail on this host device, then mirror lifecycle folders to Gmail / Microsoft 365 / Zoho when Smart Sync applies'
 
   const syncButtonLabel =
-    syncing || remoteSyncBusy ? '↻ Syncing…' : readOnlyIngestionNode || pullOnly ? '↻ Pull' : '↻ Sync'
+    syncing || remoteSyncBusy
+      ? '↻ Syncing…'
+      : readOnlyIngestionNode
+        ? '↻ Headless pull'
+        : pullOnly
+          ? '↻ Pull'
+          : '↻ Sync'
 
   if (hostTriggeredIngestion) {
     return (

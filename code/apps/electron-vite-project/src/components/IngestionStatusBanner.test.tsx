@@ -37,9 +37,9 @@ describe('IngestionStatusBanner — actionable states render correct copy', () =
     const html = renderToStaticMarkup(
       <IngestionStatusBanner status={makeStatus('ACTION_NEEDED_READ_CONSENT')} />,
     )
-    expect(html).toContain('Inbound mail is paused')
+    expect(html).toContain('Headless ingestion paused')
     expect(html).toContain('sandbox device')
-    expect(html).toContain('read-only')
+    expect(html).toContain('headlessly')
     expect(html).toContain('data-testid="ingestion-status-banner"')
     expect(html).toContain('data-ingestion-code="ACTION_NEEDED_READ_CONSENT"')
   })
@@ -55,7 +55,7 @@ describe('IngestionStatusBanner — actionable states render correct copy', () =
       />,
     )
     expect(html).toContain('Sandbox read account needed')
-    expect(html).toContain('no email account set up')
+    expect(html).toContain('no read-only email account')
     expect(html).not.toContain('ingestion-banner-connect-cta')
   })
 
@@ -70,14 +70,14 @@ describe('IngestionStatusBanner — actionable states render correct copy', () =
       />,
     )
     expect(html).toContain('Set up read-only account')
-    expect(html).toContain('Set up a read-only email account here')
+    expect(html).toContain('Connect a read-only email account here')
   })
 
   it('PAUSED_SANDBOX_UNREACHABLE: title + detail about unreachable sandbox', () => {
     const html = renderToStaticMarkup(
       <IngestionStatusBanner status={makeStatus('PAUSED_SANDBOX_UNREACHABLE')} />,
     )
-    expect(html).toContain('Inbound mail is paused')
+    expect(html).toContain('Headless ingestion paused')
     expect(html).toContain('unreachable')
     expect(html).toContain('data-ingestion-code="PAUSED_SANDBOX_UNREACHABLE"')
   })
@@ -90,7 +90,7 @@ describe('IngestionStatusBanner — actionable states render correct copy', () =
     expect(html).toContain('sandbox')
     expect(html).toContain('data-ingestion-code="DEGRADED_HELD_MESSAGES"')
     // Degraded is not a hard "paused" — title should not say "paused"
-    expect(html).not.toContain('Inbound mail is paused')
+    expect(html).not.toContain('Headless ingestion paused')
   })
 })
 

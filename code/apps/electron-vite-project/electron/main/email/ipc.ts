@@ -266,6 +266,8 @@ import { ensureInboxAttachmentsFromBeapPackageJson, formatBeapInboxDbError, proc
 import { notifyBeapInboxDashboard } from './beapInboxDashboardNotify'
 import type { InboxListFilterOptions } from './inboxWhereClause'
 import { buildInboxMessagesWhereClause } from './inboxWhereClause'
+import { isPersistedInboxRowSandboxClone } from './sandboxCloneInboxFilter'
+import { isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { collectReadOnlyDashboardSnapshot } from './dashboardSnapshot'
 import {
   appendAnalysisStreamReplayChunk,
@@ -3350,6 +3352,9 @@ Rules:
       if (!db) return { ok: false, error: 'Database unavailable' }
       const row = loadVerifiedInboxMessageById(db, messageId)
       if (!row) return { ok: false, error: 'Message not found or seal verification failed' }
+      if (isSandboxMode() && !isPersistedInboxRowSandboxClone(row)) {
+        return { ok: false, error: 'Message not found or seal verification failed' }
+      }
       const st = row.source_type as string | undefined
       const pkgJson = row.beap_package_json as string | null | undefined
       if ((st === 'direct_beap' || st === 'email_beap') && pkgJson) {

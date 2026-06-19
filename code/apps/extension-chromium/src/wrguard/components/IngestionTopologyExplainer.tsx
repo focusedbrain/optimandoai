@@ -173,8 +173,9 @@ export const IngestionTopologyExplainer: React.FC<IngestionTopologyExplainerProp
         <span style={{ color: textColor, fontWeight: 600 }}>🖥 Host device (sends mail)</span>
         <span>
           You&apos;re using a paired sandbox device: this machine sends your mail; your sandbox
-          receives it. To receive mail, a read-only connection must be completed on the sandbox
-          device.
+          depackages inbound mail headlessly and delivers it to this host inbox. The sandbox Inbox
+          Clone shows only BEAP messages cloned there — connect a read-only account on the sandbox
+          to enable headless depackaging.
         </span>
         <span
           style={{
@@ -183,7 +184,7 @@ export const IngestionTopologyExplainer: React.FC<IngestionTopologyExplainerProp
             color: isLight ? '#854d0e' : '#fbbf24',
           }}
         >
-          ⏳ Sandbox inbox: pending setup on sandbox device
+          ⏳ Sandbox headless ingestion: pending read account on sandbox device
         </span>
       </div>
     )
@@ -196,20 +197,21 @@ export const IngestionTopologyExplainer: React.FC<IngestionTopologyExplainerProp
         <span style={{ color: textColor, fontWeight: 600 }}>🖥 Host device (sends mail)</span>
         <span>
           You&apos;re using a paired sandbox device: connect your email here for sending.
-          Receiving is handled separately on the sandbox device (read-only).
+          Inbound mail is depackaged headlessly on the sandbox and delivered to this host inbox.
         </span>
       </div>
     )
   }
 
-  // ── #5: Sandbox, receiving OK (or degraded but still fetching) ────────────
+  // ── #5: Sandbox, headless ingestion OK (or degraded but still polling) ───
   if (scenario === 'sandbox_receiving') {
     return (
-      <div style={infoStyle} aria-label="Sandbox inbox receiver status">
-        <span style={{ color: textColor, fontWeight: 600 }}>📥 Sandbox device (receives mail)</span>
+      <div style={infoStyle} aria-label="Sandbox headless ingestion status">
+        <span style={{ color: textColor, fontWeight: 600 }}>📥 Sandbox device (headless ingestion)</span>
         <span>
-          This device receives mail for your workspace (read-only — it cannot send or mirror
-          deletes, archive, or sorting to your provider). Smart Sync runs on your host device.
+          This device depackages inbound mail headlessly when the host syncs and delivers results to
+          your host inbox. Inbox Clone here lists only BEAP messages cloned from the host. Smart Sync
+          runs on your host device.
         </span>
         <span
           style={{
@@ -218,7 +220,7 @@ export const IngestionTopologyExplainer: React.FC<IngestionTopologyExplainerProp
             color: isLight ? '#166534' : '#4ade80',
           }}
         >
-          ✓ Inbox: receiving
+          ✓ Headless ingestion active (delivered to host; clones only here)
         </span>
       </div>
     )
@@ -233,13 +235,13 @@ export const IngestionTopologyExplainer: React.FC<IngestionTopologyExplainerProp
           background: isLight ? 'rgba(239,68,68,0.06)' : 'rgba(248,113,113,0.08)',
           borderLeft: '3px solid rgba(239,68,68,0.35)',
         }}
-        aria-label="Sandbox inbox degraded"
+        aria-label="Sandbox headless ingestion degraded"
       >
-        <span style={{ color: textColor, fontWeight: 600 }}>📥 Sandbox device (receives mail)</span>
+        <span style={{ color: textColor, fontWeight: 600 }}>📥 Sandbox device (headless ingestion)</span>
         <span>
-          This device is the inbox reader but is currently unable to fetch mail. Check your
-          connection and account credentials on this device. It does not change folders on your
-          mail provider — Smart Sync runs on the host device.
+          Headless depackaging is unavailable on this device. Check your connection and read-account
+          credentials here. Results are delivered to the host inbox when working; Inbox Clone here
+          shows only cloned BEAP messages.
         </span>
       </div>
     )
@@ -249,10 +251,11 @@ export const IngestionTopologyExplainer: React.FC<IngestionTopologyExplainerProp
   if (scenario === 'sandbox_needs_consent') {
     return (
       <div style={actionStyle} aria-label="Sandbox read consent needed">
-        <span style={{ color: textColor, fontWeight: 600 }}>📥 Sandbox device (receives mail)</span>
+        <span style={{ color: textColor, fontWeight: 600 }}>📥 Sandbox device (headless ingestion)</span>
         <span>
-          Connect a read-only email account on this device to receive mail. Sending and Smart Sync
-          (provider folder moves) stay on your host device.
+          Connect a read-only email account on this device to enable headless depackaging when the
+          host syncs. Delivered mail goes to the host inbox; Inbox Clone here shows only BEAP
+          messages cloned from the host.
         </span>
         {onConnectEmail && (
           <button type="button" onClick={onConnectEmail} style={ctaButtonStyle}>

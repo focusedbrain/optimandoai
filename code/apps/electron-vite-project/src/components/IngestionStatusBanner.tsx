@@ -38,18 +38,20 @@ import {
 
 const COPY: Partial<Record<IngestionStatusCode, { title: string; detail: string; level: 'warn' | 'degraded' }>> = {
   ACTION_NEEDED_READ_CONSENT: {
-    title: 'Inbound mail is paused',
-    detail: 'Connect a read-only email account on your sandbox device to resume receiving mail.',
+    title: 'Headless ingestion paused',
+    detail:
+      'Connect a read-only email account on this sandbox device so it can depackage mail headlessly and deliver to the host inbox.',
     level: 'warn',
   },
   PAUSED_SANDBOX_UNREACHABLE: {
-    title: 'Inbound mail is paused',
+    title: 'Headless ingestion paused',
     detail: 'Your sandbox device is unreachable. Check that it is online and the handshake is active.',
     level: 'warn',
   },
   DEGRADED_HELD_MESSAGES: {
     title: 'Some messages were held',
-    detail: 'Some messages were held for review on your sandbox. Check the sandbox device for details.',
+    detail:
+      'Some messages were held during headless depackaging on your sandbox. Check the sandbox device for details.',
     level: 'degraded',
   },
 }

@@ -42,13 +42,14 @@ describe('EmailInboxSyncControls — dedicated sandbox host-triggered UI', () =>
     expect(html).not.toContain('bulk-view-host-triggered-sync-status')
   })
 
-  it('sandbox read-only node never advertises remote folder sync in pull title', () => {
+  it('sandbox read-only node describes headless fetch, not local inbox population', () => {
     const html = renderToStaticMarkup(
       <EmailInboxSyncControls {...baseProps} readOnlyIngestionNode pullOnly={false} />,
     )
-    expect(html).toContain('Smart Sync runs on your host device')
+    expect(html).toContain('host inbox')
+    expect(html).toContain('cloned')
     expect(html).not.toContain('enqueue remote folder sync')
-    expect(html).toContain('↻ Pull')
+    expect(html).toContain('↻ Headless pull')
     expect(html).not.toContain('↻ Sync')
   })
 })

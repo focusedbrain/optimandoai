@@ -94,9 +94,9 @@ function RemoteSyncBadge({
             color: 'var(--text-secondary, #0f766e)',
             letterSpacing: 0.2,
           }}
-          title="This device only receives mail (read-only). Sending is done on the host device."
+          title="Read-only depackaging on this device — results go to the host inbox; Inbox Clone lists cloned BEAP only."
         >
-          Inbound (read-only)
+          Headless ingestion
         </span>
       )
     }
