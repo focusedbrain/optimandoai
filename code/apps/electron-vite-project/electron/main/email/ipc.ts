@@ -189,7 +189,7 @@ function getInboxAiRulesForPrompt(): string {
 import { emailGateway } from './gateway'
 import { resolveIngestionStatus } from './ingestionStatus'
 import { mapSkipReasonToIpcWarning, mapIngestionPollTriggerHostFeedback } from './ipcSyncResultShape'
-import { isDedicatedSandboxFetchNode, INGESTION_HOST_TRIGGERED_ONLY_SKIP } from './ingestionOwnership'
+import { isDedicatedSandboxFetchNode, INGESTION_HOST_TRIGGERED_ONLY_SKIP, mayTriggerRemoteProviderMutationAtIpc, SANDBOX_REMOTE_MUTATIONS_HOST_ONLY } from './ingestionOwnership'
 import { pickOauthDebugFromError } from './gmailOAuthConnectDebug'
 import { DIAGNOSE_IMAP_IPC_DEV, EMAIL_DEBUG, emailDebugLog, gmailPersistenceDebugLog } from './emailDebug'
 import { runDiagnoseImapStandalone } from './diagnoseImapStandalone'
@@ -780,6 +780,9 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
         const id = typeof accountId === 'string' ? accountId.trim() : ''
         if (!id) return { ok: false, error: 'accountId required' }
         if (typeof enabled !== 'boolean') return { ok: false, error: 'enabled must be a boolean' }
+        if (!mayTriggerRemoteProviderMutationAtIpc('email:setDeleteFromProviderOnLocalDelete')) {
+          return { ok: false, error: SANDBOX_REMOTE_MUTATIONS_HOST_ONLY }
+        }
         const info = await emailGateway.setDeleteFromProviderOnLocalDelete(id, enabled)
         return { ok: true, data: info }
       } catch (error: any) {
@@ -2691,6 +2694,7 @@ Rules:
    */
   function fireRemoteOrchestratorSync(db: any, ids: string[], operation: OrchestratorRemoteOperation) {
     if (!db || !ids?.length) return
+    if (!mayTriggerRemoteProviderMutationAtIpc(`fireRemoteOrchestratorSync:${operation}`)) return
     try {
       const r = enqueueOrchestratorRemoteMutations(db, ids, operation)
       if (r.enqueued === 0 && r.skipped > 0) {
@@ -2717,6 +2721,14 @@ Rules:
       const ids = Array.isArray(messageIds)
         ? messageIds.filter((x): x is string => typeof x === 'string' && x.trim() !== '')
         : []
+      if (!mayTriggerRemoteProviderMutationAtIpc('inbox:enqueueRemoteLifecycleMirror')) {
+        return {
+          ok: true,
+          enqueued: 0,
+          skipped: ids.length,
+          skipReasons: ids.map((id) => `${id}: ${SANDBOX_REMOTE_MUTATIONS_HOST_ONLY}`),
+        }
+      }
       const r = ids.length
         ? enqueueRemoteOpsForLocalLifecycleState(db, ids)
         : { enqueued: 0, skipped: 0, skipReasons: [] as string[] }
@@ -3592,12 +3604,19 @@ Rules:
       if (!db) return { ok: false, error: 'Database unavailable' }
       const ids = messageIds ?? []
       const result = bulkDeleteMessagesLocal(db, ids)
-      const origin =
-        result.deleted > 0
-          ? await trashOnOriginAfterLocalDelete(db, ids, {
-              originDeleteConfirmed: options?.originDeleteConfirmed === true,
-            })
-          : { attempted: 0, trashed: 0, skipped: 0, failed: 0, results: [] }
+      const mayOriginTrash =
+        result.deleted > 0 && mayTriggerRemoteProviderMutationAtIpc('inbox:deleteMessages:originTrash')
+      const origin = mayOriginTrash
+        ? await trashOnOriginAfterLocalDelete(db, ids, {
+            originDeleteConfirmed: options?.originDeleteConfirmed === true,
+          })
+        : {
+            attempted: 0,
+            trashed: 0,
+            skipped: result.deleted > 0 ? result.deleted : 0,
+            failed: 0,
+            results: [] as import('./originMailboxDelete').OriginDeleteAttemptResult[],
+          }
       if (result.deleted > 0) {
         BrowserWindow.getAllWindows().forEach((w) => {
           try {
@@ -5707,6 +5726,9 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
   /** Reconcile entire account: enqueue moves where local lifecycle ≠ `imap_remote_mailbox`. */
   ipcMain.handle('inbox:fullRemoteSync', async (_e, accountId: string) => {
     try {
+      if (!mayTriggerRemoteProviderMutationAtIpc('inbox:fullRemoteSync')) {
+        return { ok: true, enqueued: 0, skipped: 0, inboxRestoreNeeded: 0 }
+      }
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
       if (typeof accountId !== 'string' || !accountId.trim()) {
@@ -5728,6 +5750,9 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
   /** Run {@link enqueueFullRemoteSync} for every distinct account among these message ids. */
   ipcMain.handle('inbox:fullRemoteSyncForMessages', async (_e, messageIds: string[]) => {
     try {
+      if (!mayTriggerRemoteProviderMutationAtIpc('inbox:fullRemoteSyncForMessages')) {
+        return { ok: true, enqueued: 0, skipped: 0, inboxRestoreNeeded: 0 }
+      }
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
       const ids = Array.isArray(messageIds)
@@ -5749,6 +5774,20 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
   /** Full lifecycle reconcile for every connected email account — **no** inline bounded drain; background drain until empty. */
   ipcMain.handle('inbox:fullRemoteSyncAllAccounts', async () => {
     try {
+      if (!mayTriggerRemoteProviderMutationAtIpc('inbox:fullRemoteSyncAllAccounts')) {
+        return {
+          ok: true,
+          enqueued: 0,
+          skipped: 0,
+          inboxRestoreNeeded: 0,
+          accountCount: 0,
+          unmirroredIds: 0,
+          unmirroredEnqueued: 0,
+          unmirroredSkipped: 0,
+          orphanPendingCleared: 0,
+          backgroundDrain: true,
+        }
+      }
       // Clear ALL pull locks — stale locks from crashed pulls block the drain (defer every row for that account).
       clearAllPullActiveLocks()
       console.log('[SYNC_REMOTE] IPC inbox:fullRemoteSyncAllAccounts handler started')

@@ -15,6 +15,7 @@ import {
   assertHostMayReadPoll,
   HostReadPollForbiddenError,
   thisNodeMayPerformRemoteProviderMutations,
+  mayTriggerRemoteProviderMutationAtIpc,
   SANDBOX_REMOTE_MUTATIONS_HOST_ONLY,
 } from '../ingestionOwnership'
 
@@ -179,5 +180,24 @@ describe('thisNodeMayPerformRemoteProviderMutations — PROMPT 5 host-only remot
 
   it('exports stable skip reason token for enqueue/drain policy gate', () => {
     expect(SANDBOX_REMOTE_MUTATIONS_HOST_ONLY).toBe('sandbox_remote_mutations_host_only')
+  })
+})
+
+describe('mayTriggerRemoteProviderMutationAtIpc — IPC defense-in-depth gate', () => {
+  beforeEach(() => {
+    hasLinkedDepackageSandbox.mockReset()
+    getOrchestratorMode.mockReset()
+  })
+
+  it('delegates to thisNodeMayPerformRemoteProviderMutations (host allowed)', () => {
+    hasLinkedDepackageSandbox.mockReturnValue(false)
+    getOrchestratorMode.mockReturnValue({ mode: 'host' })
+    expect(mayTriggerRemoteProviderMutationAtIpc('test:host')).toBe(true)
+  })
+
+  it('denies sandbox node at IPC boundary', () => {
+    hasLinkedDepackageSandbox.mockReturnValue(false)
+    getOrchestratorMode.mockReturnValue({ mode: 'sandbox' })
+    expect(mayTriggerRemoteProviderMutationAtIpc('test:sandbox')).toBe(false)
   })
 })

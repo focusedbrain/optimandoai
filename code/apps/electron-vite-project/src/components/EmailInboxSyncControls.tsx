@@ -25,6 +25,11 @@ export interface EmailInboxSyncControlsProps {
    * show read-only host-triggered status instead.
    */
   hostTriggeredIngestion?: boolean
+  /**
+   * Sandbox orchestrator (read-only ingestion). Hides remote folder-sync affordances;
+   * pull is local fetch only — Smart Sync runs on the host device.
+   */
+  readOnlyIngestionNode?: boolean
 }
 
 /** Maps stored `0` (legacy all-mail) to the 1y option value used in the UI. */
@@ -44,8 +49,18 @@ export default function EmailInboxSyncControls({
   remoteSyncBusy,
   pullOnly,
   hostTriggeredIngestion = false,
+  readOnlyIngestionNode = false,
 }: EmailInboxSyncControlsProps) {
   const patchOk = typeof window !== 'undefined' && !!window.emailInbox?.patchAccountSyncPreferences
+
+  const syncButtonTitle = readOnlyIngestionNode
+    ? 'Fetch new mail on this device (read-only — does not move folders on your provider; Smart Sync runs on your host device)'
+    : pullOnly
+      ? 'Fetch new mail from the server (IMAP: local classification only; no server folder moves)'
+      : 'Pull new mail on this host device, then mirror lifecycle folders to Gmail / Microsoft 365 / Zoho when Smart Sync applies'
+
+  const syncButtonLabel =
+    syncing || remoteSyncBusy ? '↻ Syncing…' : readOnlyIngestionNode || pullOnly ? '↻ Pull' : '↻ Sync'
 
   if (hostTriggeredIngestion) {
     return (
@@ -98,13 +113,9 @@ export default function EmailInboxSyncControls({
         className="bulk-view-pull-btn"
         onClick={() => void onUnifiedSync()}
         disabled={syncing || remoteSyncBusy || !primaryAccountId}
-        title={
-          pullOnly
-            ? 'Fetch new mail from the server (IMAP: local classification only; no server folder moves)'
-            : 'Pull new mail, then enqueue remote folder sync for Gmail / Microsoft 365 / Zoho'
-        }
+        title={syncButtonTitle}
       >
-        {syncing || remoteSyncBusy ? '↻ Syncing…' : pullOnly ? '↻ Pull' : '↻ Sync'}
+        {syncButtonLabel}
       </button>
     </>
   )

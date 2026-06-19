@@ -208,8 +208,8 @@ export const IngestionTopologyExplainer: React.FC<IngestionTopologyExplainerProp
       <div style={infoStyle} aria-label="Sandbox inbox receiver status">
         <span style={{ color: textColor, fontWeight: 600 }}>📥 Sandbox device (receives mail)</span>
         <span>
-          This device receives mail for your workspace (read-only — it cannot send). Sending
-          happens on your host device.
+          This device receives mail for your workspace (read-only — it cannot send or mirror
+          deletes, archive, or sorting to your provider). Smart Sync runs on your host device.
         </span>
         <span
           style={{
@@ -238,7 +238,8 @@ export const IngestionTopologyExplainer: React.FC<IngestionTopologyExplainerProp
         <span style={{ color: textColor, fontWeight: 600 }}>📥 Sandbox device (receives mail)</span>
         <span>
           This device is the inbox reader but is currently unable to fetch mail. Check your
-          connection and account credentials on this device.
+          connection and account credentials on this device. It does not change folders on your
+          mail provider — Smart Sync runs on the host device.
         </span>
       </div>
     )
@@ -250,8 +251,8 @@ export const IngestionTopologyExplainer: React.FC<IngestionTopologyExplainerProp
       <div style={actionStyle} aria-label="Sandbox read consent needed">
         <span style={{ color: textColor, fontWeight: 600 }}>📥 Sandbox device (receives mail)</span>
         <span>
-          Connect a read-only email account on this device to receive mail. Sending stays on
-          your host device.
+          Connect a read-only email account on this device to receive mail. Sending and Smart Sync
+          (provider folder moves) stay on your host device.
         </span>
         {onConnectEmail && (
           <button type="button" onClick={onConnectEmail} style={ctaButtonStyle}>

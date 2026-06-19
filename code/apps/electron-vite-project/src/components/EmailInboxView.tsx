@@ -2414,12 +2414,16 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
                         )}
                         {message && onSendDraft && !draftError && (
                           panelIsSandbox ? (
-                            /* P4 sandbox UI: send locked — component replaces inline div */
-                            <SandboxLockSurface
-                              variant="compact"
-                              className="sandbox-send-disabled-notice"
+                            <button
+                              type="button"
+                              className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
+                              disabled
+                              aria-label="Send disabled on sandbox"
                               data-testid="sandbox-lock-email-send"
-                            />
+                              title="Sending is disabled on the sandbox (see notice above)"
+                            >
+                              {usesEmailReplyTransport ? 'Send via Email' : 'Send via BEAP'}
+                            </button>
                           ) : (
                             <button
                               type="button"
@@ -2735,19 +2739,11 @@ function InboxMessageRow({
   const bodyPreview = (message.body_text || '').slice(0, 100).replace(/\s+/g, ' ').trim()
   const hasAttachments = message.has_attachments === 1
 
-  const handleClick = () => {
-    if (bulkMode) {
-      onToggleMultiSelect()
-    } else {
-      onSelect()
-    }
-  }
-
   return (
     <div
-      onClick={handleClick}
+      onClick={onSelect}
       onMouseEnter={onMouseEnter}
-      className={`inbox-message-row ${selected && !bulkMode ? 'inbox-message-row--selected' : ''} ${bulkMode && multiSelected ? 'inbox-message-row--multi' : ''}`}
+      className={`inbox-message-row ${selected ? 'inbox-message-row--selected' : ''} ${multiSelected ? 'inbox-message-row--multi' : ''}`}
       style={{
         display: 'flex',
         alignItems: 'flex-start',
@@ -2758,19 +2754,20 @@ function InboxMessageRow({
         minWidth: 0,
       }}
     >
-      {bulkMode && (
-        <div
-          style={{
-            flexShrink: 0,
-            width: 18,
-            height: 18,
-            borderRadius: 4,
-            border: `2px solid ${multiSelected ? 'var(--purple-accent, #9333ea)' : 'var(--color-border, rgba(255,255,255,0.2))'}`,
-            background: multiSelected ? 'var(--purple-accent, #9333ea)' : 'transparent',
+      {bulkMode ? (
+        <input
+          type="checkbox"
+          checked={multiSelected}
+          aria-label="Select message for bulk actions"
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            e.stopPropagation()
+            onToggleMultiSelect()
           }}
+          style={{ flexShrink: 0, marginTop: 2, cursor: 'pointer' }}
         />
-      )}
-      {!bulkMode && selected && (
+      ) : null}
+      {selected ? (
         <span
           style={{
             flexShrink: 0,
@@ -2783,7 +2780,7 @@ function InboxMessageRow({
         >
           👉
         </span>
-      )}
+      ) : null}
 
       {/* B = normal BEAP row; S = sandbox clone (see inboxMessageIsSandboxBeapClone) */}
       <InboxBeapSourceBadgeListRow message={message} />
@@ -2965,7 +2962,6 @@ export default function EmailInboxView({
     selectedAttachmentId,
     filter,
     tabCounts,
-    bulkMode,
     multiSelectIds,
     analysisCache,
     autoSyncEnabled,
@@ -2974,7 +2970,6 @@ export default function EmailInboxView({
     selectMessage,
     selectAttachment,
     setFilter,
-    setBulkMode,
     toggleMultiSelect,
     clearMultiSelect,
     markRead,
@@ -3106,8 +3101,22 @@ export default function EmailInboxView({
   } | null>(null)
 
   const [leftPanelTab, setLeftPanelTab] = useState<'inbox' | 'sent'>('inbox')
+  /** Normal-inbox bulk checkbox column — local only (store `bulkMode` is owned by EmailInboxBulkView). */
+  const [rowSelectMode, setRowSelectMode] = useState(false)
   const [sentMessages, setSentMessages] = useState<Array<Record<string, unknown>>>([])
   const [sentLoading, setSentLoading] = useState(false)
+
+  const handleRowSelectModeChange = useCallback(
+    (enabled: boolean) => {
+      setRowSelectMode(enabled)
+      if (!enabled) clearMultiSelect()
+    },
+    [clearMultiSelect],
+  )
+
+  useEffect(() => {
+    clearMultiSelect()
+  }, [leftPanelTab, selectedProviderAccountId, clearMultiSelect])
 
   const loadSentMessages = useCallback(async () => {
     setSentLoading(true)
@@ -3406,7 +3415,7 @@ export default function EmailInboxView({
       if (
         enabled &&
         !window.confirm(
-          'Enable “Also delete from the email provider”?\n\nWhen you remove mail in WRDesk, matching messages will also be moved to Trash / Deleted Items on Gmail, Outlook, or your IMAP server (recoverable there). This is destructive and off by default.',
+          'Enable Smart Sync for this account?\n\nOn this host device, local delete, archive, and sorting will be mirrored to Gmail, Outlook, or your IMAP mailbox so your provider stays consistent with WRDesk. Deletes move to Trash / Deleted Items (recoverable there). Off by default.',
         )
       ) {
         return
@@ -4156,8 +4165,9 @@ export default function EmailInboxView({
           onToggleAutoSync={handleToggleAutoSyncAll}
           pullOnly={inboxToolbarPullOnly}
           hostTriggeredIngestion={isDedicatedSandboxHostTriggered}
-          bulkMode={bulkMode}
-          onBulkModeChange={setBulkMode}
+          readOnlyIngestionNode={isSandbox}
+          bulkMode={rowSelectMode}
+          onBulkModeChange={handleRowSelectModeChange}
           selectedCount={selectedCount}
           onBulkDelete={handleBulkDelete}
           onBulkArchive={handleBulkArchive}
@@ -4168,7 +4178,10 @@ export default function EmailInboxView({
                   const ids = Array.from(multiSelectIds)
                   if (ids.length) {
                     const cat = window.prompt('Category name (or leave empty to clear):')
-                    if (cat !== null) setCategory(ids, cat)
+                    if (cat !== null) {
+                      setCategory(ids, cat)
+                      clearMultiSelect()
+                    }
                   }
                 }
               : undefined
@@ -4182,6 +4195,7 @@ export default function EmailInboxView({
             type="button"
             onClick={() => {
               setLeftPanelTab('inbox')
+              clearMultiSelect()
             }}
             style={{
               padding: '4px 12px',
@@ -4200,6 +4214,7 @@ export default function EmailInboxView({
             type="button"
             onClick={() => {
               setLeftPanelTab('sent')
+              clearMultiSelect()
               selectMessage(null)
               onSelectMessage?.(null)
               void loadSentMessages()
@@ -4422,7 +4437,7 @@ export default function EmailInboxView({
                 key={msg.id}
                 message={msg}
                 selected={selectedMessageId === msg.id}
-                bulkMode={bulkMode}
+                bulkMode={rowSelectMode}
                 multiSelected={multiSelectIds.has(msg.id)}
                 onSelect={() => handleSelectMessage(msg.id)}
                 onToggleMultiSelect={() => toggleMultiSelect(msg.id)}

@@ -79,7 +79,7 @@ export function confirmOriginDeleteIfNeeded(
   if (!needsPrompt) return true
 
   const lines: string[] = [
-    'You enabled “Also delete from the email provider” for this account.',
+    'Smart Sync is enabled for this account.',
     '',
     'WRDesk will remove the message locally AND move it to Trash / Deleted Items on your mail provider (recoverable there, not permanent).',
     '',

@@ -109,6 +109,7 @@ function RemoteSyncBadge({
           color: '#15803d',
           letterSpacing: 0.2,
         }}
+        title="Host device: can mirror local delete, archive, and sorting to this provider when Smart Sync is enabled for the account."
       >
         🟢 Smart Sync
       </span>
@@ -123,7 +124,7 @@ function RemoteSyncBadge({
         color: '#0f766e',
         letterSpacing: 0.2,
       }}
-      title="IMAP: fetch mail and classify locally. The app does not move folders on the mail server."
+      title="IMAP: fetch mail and classify locally on this device. Does not move folders on the mail server (host-only Smart Sync for OAuth accounts)."
     >
       🟢 Pull & Classify
     </span>
@@ -139,7 +140,10 @@ export interface EmailAccount {
   status: 'active' | 'auth_error' | 'error' | 'disabled'
   /** From Electron listAccounts — user paused processing (orthogonal to status). */
   processingPaused?: boolean
-  /** Prompt 2 — opt-in origin trash when removing locally (default off). */
+  /**
+   * Smart Sync master switch (persisted key `deleteFromProviderOnLocalDelete` — host-only UI).
+   * Today gates provider trash on local delete; archive/sort mirror is separate (see types.ts).
+   */
   deleteFromProviderOnLocalDelete?: boolean
   /** Whether this node can call provider trash APIs (scope + role). */
   originDeleteFromProviderCapable?: boolean
@@ -198,7 +202,7 @@ export interface EmailProvidersSectionProps {
   onUpdateImapCredentials?: (accountId: string) => void
   /** Pause/resume background mail sync (non-destructive; credentials stay saved). */
   onSetProcessingPaused?: (accountId: string, paused: boolean) => void | Promise<void>
-  /** Prompt 2 — opt-in: also trash on provider when removing locally. */
+  /** Host-only: toggle Smart Sync (`deleteFromProviderOnLocalDelete` persisted field). */
   onSetDeleteFromProviderOnLocalDelete?: (accountId: string, enabled: boolean) => void | Promise<void>
   /** Load/list/bridge failure — do not present as “no accounts” without context. */
   listAccountsError?: string | null
@@ -212,7 +216,7 @@ export interface EmailProvidersSectionProps {
 
   /**
    * Effective sandbox role (same signal as App bulk toggle: useOrchestratorMode().isSandbox).
-   * When true, origin-delete toggle is structurally absent — not shown disabled.
+   * When true, Smart Sync toggle is structurally absent — not shown disabled.
    */
   isSandbox?: boolean
 }
@@ -449,8 +453,8 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                         title={
                           account.originDeleteFromProviderCapable === false
                             ? account.originDeleteBlockReason ??
-                              'Provider trash is not available on this device (insufficient OAuth scope).'
-                            : 'When enabled, removing mail in WRDesk also moves it to Trash / Deleted Items on your provider (recoverable there).'
+                              'Smart Sync is not available on this device (insufficient OAuth scope).'
+                            : 'When enabled on this host device, local delete, archive, and sorting are mirrored to your provider mailbox. Deletes use Trash / Deleted Items (recoverable).'
                         }
                       >
                         <input
@@ -463,9 +467,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                           style={{ marginTop: 2, flexShrink: 0 }}
                         />
                         <span>
-                          <span style={{ fontWeight: 600 }}>
-                            Also delete from the email provider when I delete here
-                          </span>
+                          <span style={{ fontWeight: 600 }}>Smart Sync</span>
                           <span
                             style={{
                               display: 'block',
@@ -474,7 +476,8 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                               color: 'var(--text-secondary, var(--text-secondary-prof, #64748b))',
                             }}
                           >
-                            Off by default. Moves to provider Trash / Deleted Items — not permanent delete.
+                            Host only. Off by default. Mirrors local delete, archive, and sorting to your
+                            provider so both stay consistent. Deletes use Trash / Deleted Items — not permanent.
                           </span>
                           {account.originDeleteFromProviderCapable === false &&
                           account.originDeleteBlockReason ? (
@@ -487,7 +490,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                                 fontWeight: 500,
                               }}
                             >
-                              Not available on this device: {account.originDeleteBlockReason}
+                              Smart Sync unavailable on this device: {account.originDeleteBlockReason}
                             </span>
                           ) : null}
                         </span>

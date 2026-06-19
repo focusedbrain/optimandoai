@@ -388,8 +388,11 @@ export interface EmailAccountConfig {
   processingPaused?: boolean
 
   /**
-   * Prompt 2 — when true, deleting in WRDesk also trashes on the origin mailbox (opt-in, default off).
-   * Requires modify scope on this node; fails closed when scope is insufficient.
+   * Smart Sync master switch (persisted key name is historical). Host-only UI.
+   * When true: local delete also trashes on the origin mailbox (opt-in, default off).
+   * Archive/sort lifecycle mirror (`enqueueOrchestratorRemoteMutations`) is host-gated by
+   * `thisNodeMayPerformRemoteProviderMutations` but is NOT gated on this flag today — see
+   * `originMailboxDelete.ts` / `inboxOrchestratorRemoteQueue.ts`.
    */
   deleteFromProviderOnLocalDelete?: boolean
   
@@ -426,7 +429,7 @@ export interface EmailAccountInfo {
   status: 'active' | 'error' | 'disabled' | 'auth_error'
   /** True when the user paused processing for this account (credentials and sync prefs unchanged). */
   processingPaused?: boolean
-  /** Prompt 2 — opt-in: also trash on provider when removing locally (default off). */
+  /** Smart Sync master switch — see `EmailAccountConfig.deleteFromProviderOnLocalDelete`. */
   deleteFromProviderOnLocalDelete?: boolean
   /** Whether this node can call provider trash APIs for this account (scope + role). */
   originDeleteFromProviderCapable?: boolean

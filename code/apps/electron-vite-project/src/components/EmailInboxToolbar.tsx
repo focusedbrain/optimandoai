@@ -32,6 +32,8 @@ export interface EmailInboxToolbarProps {
   pullOnly: boolean
   /** Dedicated sandbox: host-triggered ingestion — hide local pull controls. */
   hostTriggeredIngestion?: boolean
+  /** Sandbox orchestrator — read-only pull; no remote folder-sync affordances. */
+  readOnlyIngestionNode?: boolean
   bulkMode: boolean
   onBulkModeChange: (enabled: boolean) => void
   selectedCount: number
@@ -75,8 +77,9 @@ export default function EmailInboxToolbar({
   onToggleAutoSync,
   pullOnly,
   hostTriggeredIngestion = false,
-  bulkMode: _bulkMode,
-  onBulkModeChange: _onBulkModeChange,
+  readOnlyIngestionNode = false,
+  bulkMode,
+  onBulkModeChange,
   selectedCount,
   onBulkDelete,
   onBulkArchive,
@@ -110,6 +113,29 @@ export default function EmailInboxToolbar({
 
       <div className="inbox-toolbar-settings">
         <div className="inbox-toolbar-settings-row">
+          <label
+            className="inbox-toolbar-bulk-select-toggle"
+            title="Show checkboxes to select messages for bulk actions"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 11,
+              fontWeight: 600,
+              color: 'var(--text-primary, var(--text-primary-prof, #e2e8f0))',
+              cursor: 'pointer',
+              flexShrink: 0,
+              marginRight: 8,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={bulkMode}
+              onChange={(e) => onBulkModeChange(e.target.checked)}
+              aria-label="Select messages for bulk actions"
+            />
+            Select
+          </label>
           <span className="inbox-toolbar-settings-label">Type</span>
           <InboxMessageKindSelect
             id="inbox-message-kind-normal"
@@ -185,6 +211,7 @@ export default function EmailInboxToolbar({
             remoteSyncBusy={remoteSyncBusy}
             pullOnly={pullOnly}
             hostTriggeredIngestion={hostTriggeredIngestion}
+            readOnlyIngestionNode={readOnlyIngestionNode}
           />
         </div>
       </div>

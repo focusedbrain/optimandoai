@@ -4,7 +4,7 @@
  * Sandbox renders the same EmailInboxView as host with exactly two differences:
  *   • Nav label "Inbox Clone" (host: "Inbox")
  *   • Bulk toggle hidden (!isSandbox guard)
- *   • Origin-delete toggle hidden (!isSandbox guard — host-only)
+ *   • Smart Sync toggle hidden (!isSandbox guard — host-only)
  *
  * Uses readFileSync — runs in Node/vitest environment (same as other lib/__tests__ files).
  */
@@ -113,7 +113,7 @@ describe('EmailInboxView.tsx — full provider section (sandbox uses same compon
       'utf-8',
     )
     expect(providersSrc).toContain('!isSandbox')
-    expect(providersSrc).toContain('Also delete from the email provider when I delete here')
+    expect(providersSrc).toContain('Smart Sync')
     expect(providersSrc).toMatch(/onSetDeleteFromProviderOnLocalDelete.*!isSandbox|!isSandbox.*onSetDeleteFromProviderOnLocalDelete/)
   })
 })

@@ -200,3 +200,17 @@ export function thisNodeMayPerformRemoteProviderMutations(
   if (ownership.thisNodeRole === 'sandbox') return false
   return ownership.thisNodeRole === 'host'
 }
+
+/**
+ * IPC defense-in-depth gate for remote-provider mutation triggers.
+ * Reuses {@link thisNodeMayPerformRemoteProviderMutations} (sync file topology — same
+ * resolution as `enqueueOrchestratorRemoteMutations` / drain). Do not use `isHostMode()`
+ * alone; persisted mode can disagree with ledger-aware UI but behavior layer matches this.
+ */
+export function mayTriggerRemoteProviderMutationAtIpc(site: string): boolean {
+  const allowed = thisNodeMayPerformRemoteProviderMutations()
+  if (!allowed) {
+    console.log(`[REMOTE_MUT_IPC] blocked site=${site} reason=${SANDBOX_REMOTE_MUTATIONS_HOST_ONLY}`)
+  }
+  return allowed
+}

@@ -41,6 +41,16 @@ describe('EmailInboxSyncControls — dedicated sandbox host-triggered UI', () =>
     expect(html).toContain('bulk-view-toolbar-sync-select')
     expect(html).not.toContain('bulk-view-host-triggered-sync-status')
   })
+
+  it('sandbox read-only node never advertises remote folder sync in pull title', () => {
+    const html = renderToStaticMarkup(
+      <EmailInboxSyncControls {...baseProps} readOnlyIngestionNode pullOnly={false} />,
+    )
+    expect(html).toContain('Smart Sync runs on your host device')
+    expect(html).not.toContain('enqueue remote folder sync')
+    expect(html).toContain('↻ Pull')
+    expect(html).not.toContain('↻ Sync')
+  })
 })
 
 describe('EmailInboxToolbar — dedicated sandbox mount-render', () => {
@@ -108,5 +118,6 @@ describe('EmailInboxView wiring — read-provider setup untouched', () => {
     const src = readFileSync(join(__dirname, 'EmailInboxView.tsx'), 'utf8')
     expect(src).toContain('EmailProvidersSection')
     expect(src).toContain('hostTriggeredIngestion={isDedicatedSandboxHostTriggered}')
+    expect(src).toContain('readOnlyIngestionNode={isSandbox}')
   })
 })

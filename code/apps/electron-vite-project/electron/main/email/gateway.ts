@@ -1156,6 +1156,7 @@ class EmailGateway implements IEmailGateway {
     return this.toAccountInfo(account)
   }
 
+  /** Persists Smart Sync on/off to `deleteFromProviderOnLocalDelete` (storage key unchanged). */
   async setDeleteFromProviderOnLocalDelete(
     id: string,
     enabled: boolean,

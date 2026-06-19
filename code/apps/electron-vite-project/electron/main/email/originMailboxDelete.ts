@@ -1,7 +1,8 @@
 /**
  * Prompt 2 — optional trash on origin mailbox after local WRDesk delete (Prompt 1).
  *
- * Only runs when per-account `deleteFromProviderOnLocalDelete` is true.
+ * Only runs when per-account Smart Sync (`deleteFromProviderOnLocalDelete`) is true.
+ * Archive/sort provider mirror is separate and not gated on this flag — see types.ts.
  * Uses provider trash/move APIs (recoverable) — never permanent delete.
  */
 
