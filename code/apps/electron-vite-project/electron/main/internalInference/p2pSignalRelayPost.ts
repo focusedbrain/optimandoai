@@ -24,8 +24,31 @@ import {
   reregisterInternalHandshakeAfterCoordinationP2pSignal403,
 } from '../p2p/relaySync'
 import type { HostAiBeapAdOllamaModelWireEntry } from './hostAiBeapAdOllamaModelCount'
+import { isUnifiedServiceRpcRelayEnabled } from './unifiedServiceRpcRelayFlags'
+import { getRegisteredHostAiUnifiedRelaySend } from './hostAiUnifiedRelayRegistration'
 
 export { P2P_SIGNAL_WIRE_SCHEMA_VERSION }
+
+async function sendHostAiP2pSignalBodyViaUnifiedRelayWhenEnabled(params: {
+  db: unknown
+  handshakeId: string
+  senderDeviceId: string
+  receiverDeviceId: string
+  p2pSignalBodyJson: string
+}): Promise<
+  | null
+  | { readonly ok: true; readonly status: 200 | 202 }
+  | { readonly ok: false; readonly status: number; readonly code: string; readonly message: string }
+> {
+  if (!isUnifiedServiceRpcRelayEnabled()) {
+    return null
+  }
+  const send = getRegisteredHostAiUnifiedRelaySend()
+  if (!send) {
+    return null
+  }
+  return send(params)
+}
 
 /** Max 429 retries per signaling message (same body); then offer/answer fatal, ICE non-fatal counter. */
 const MAX_429_RETRIES_PER_MESSAGE = 12
@@ -518,6 +541,44 @@ export async function sendHostAiP2pSignalOutbound(params: {
       `[P2P_SIGNAL_OUT] sending type=${params.kind} handshake=${hid} session=${redactIdForLog(sid)} target_device=${receiver} bytes=${Buffer.byteLength(body, 'utf8')}`,
     )
 
+    const unifiedOut = await sendHostAiP2pSignalBodyViaUnifiedRelayWhenEnabled({
+      db: params.db,
+      handshakeId: hid,
+      senderDeviceId: sender,
+      receiverDeviceId: receiver,
+      p2pSignalBodyJson: body,
+    })
+    if (unifiedOut !== null) {
+      if (unifiedOut.ok) {
+        reset429SlotOnSuccess(hid, sid)
+        if (params.kind === 'ice') {
+          const soft = getRelayOutboundSoft(hid, sid)
+          soft.iceConsecutiveFailures = 0
+          soft.iceFailureStreakStartMs = null
+        }
+        console.log(
+          `[P2P_SIGNAL_OUT] accepted status=${unifiedOut.status} type=${params.kind} path=unified_relay handshake=${hid} session=${redactIdForLog(sid)}`,
+        )
+        if (params.kind === 'offer' || params.kind === 'answer' || params.kind === 'ice') {
+          const okKind = params.kind === 'ice' ? 'ice' : params.kind
+          console.log(
+            `[P2P_SIGNAL_SEND] type=${okKind} ok=true path=unified_relay handshake=${hid} session=${redactIdForLog(sid)}`,
+          )
+        }
+        return
+      }
+      console.log(
+        `[P2P_SIGNAL_OUT] failed status=${unifiedOut.status} type=${params.kind} code=${unifiedOut.code} path=unified_relay handshake=${hid} session=${redactIdForLog(sid)}`,
+      )
+      if (params.kind === 'offer' || params.kind === 'answer') {
+        failHostAiP2pSessionForTerminalSignalingError(
+          hid,
+          InternalInferenceErrorCode.RELAY_UNREACHABLE,
+        )
+      }
+      return
+    }
+
     const postFn = p2pSignalRelayPostTestHooks.post ?? postP2pSignalToCoordinationWithOptionalAuthRetry
     const max429 = p2pSignalRelayPostTestHooks.max429Retries ?? MAX_429_RETRIES_PER_MESSAGE
 
@@ -748,6 +809,20 @@ export async function postHostAiDirectBeapAdToCoordination(params: {
     ollamaCapabilities: params.ollamaCapabilities,
     publisherIdentity: params.publisherIdentity,
   })
+  const unifiedOut = await sendHostAiP2pSignalBodyViaUnifiedRelayWhenEnabled({
+    db: params.db,
+    handshakeId: hid,
+    senderDeviceId: params.senderDeviceId.trim(),
+    receiverDeviceId: params.receiverDeviceId.trim(),
+    p2pSignalBodyJson: body,
+  })
+  if (unifiedOut !== null) {
+    return {
+      ok: unifiedOut.ok,
+      status: unifiedOut.ok ? unifiedOut.status : unifiedOut.status,
+      bodyText: unifiedOut.ok ? '' : unifiedOut.message,
+    }
+  }
   const postFn = p2pSignalRelayPostTestHooks.post ?? postP2pSignalToCoordinationWithOptionalAuthRetry
   const endpoint = `${base.replace(/\/$/, '')}/beap/p2p-signal`
   const messageType = 'p2p_host_ai_direct_beap_ad'
@@ -870,6 +945,21 @@ export async function postHostAiDirectBeapAdRequestToCoordination(params: {
     senderDeviceId: params.senderDeviceId.trim(),
     receiverDeviceId: params.receiverDeviceId.trim(),
   })
+  const unifiedOut = await sendHostAiP2pSignalBodyViaUnifiedRelayWhenEnabled({
+    db: params.db,
+    handshakeId: hid,
+    senderDeviceId: params.senderDeviceId.trim(),
+    receiverDeviceId: params.receiverDeviceId.trim(),
+    p2pSignalBodyJson: body,
+  })
+  if (unifiedOut !== null) {
+    return {
+      ok: unifiedOut.ok,
+      status: unifiedOut.ok ? unifiedOut.status : unifiedOut.status,
+      bodyText: unifiedOut.ok ? '' : unifiedOut.message,
+      errorBodyCode: undefined,
+    }
+  }
   const postFn = p2pSignalRelayPostTestHooks.post ?? postP2pSignalToCoordinationWithOptionalAuthRetry
   try {
     const res = await postFn(base, token.trim(), body)

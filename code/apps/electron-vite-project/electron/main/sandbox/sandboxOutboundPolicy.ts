@@ -42,6 +42,7 @@ export const SANDBOX_DATA_EGRESS_FORBIDDEN = 'SANDBOX_DATA_EGRESS_FORBIDDEN' as 
  */
 export const SANDBOX_PERMITTED_SEALED_SERVICE_RPC_INBOUND_INNER_TYPES: ReadonlySet<string> = new Set([
   'ingestion_poll_request',
+  'host_ai_p2p_signal_v1',
 ])
 
 export type SandboxSealedServiceRpcInboundInnerVerdict =
@@ -89,6 +90,7 @@ export function assertSandboxMayReceiveSealedServiceRpcInnerType(
 export const SANDBOX_PERMITTED_SEALED_SERVICE_RPC_INNER_TYPES: ReadonlySet<string> = new Set([
   'ingestion_poll_result',
   'ingestion_poll_error',
+  'host_ai_p2p_signal_v1',
 ])
 
 export type SandboxSealedServiceRpcInnerVerdict =

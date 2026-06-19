@@ -34,6 +34,13 @@ export async function tryHandleSealedServiceRpcRelayCapsule(
   if (ct !== SEALED_SERVICE_RPC_CAPSULE_TYPE) return
 
   if (await tryHandleIngestionPollResultRelayCapsule(ctx)) return
+  const { isUnifiedServiceRpcRelayEnabled } = await import('../../internalInference/unifiedServiceRpcRelayFlags')
+  if (isUnifiedServiceRpcRelayEnabled()) {
+    const { tryHandleHostAiUnifiedServiceRpcRelayCapsule } = await import(
+      '../../internalInference/hostAiUnifiedServiceRpcRelayHandler'
+    )
+    if (await tryHandleHostAiUnifiedServiceRpcRelayCapsule(ctx)) return
+  }
   if (await tryHandleIngestionPollRelayCapsule(ctx)) return
 
   console.warn('[IngestionPollTrigger] sealed_service_rpc_v1 not handled on this node — ack to avoid relay retry')

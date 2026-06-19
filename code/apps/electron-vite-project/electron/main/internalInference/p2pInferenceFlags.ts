@@ -5,6 +5,7 @@
  */
 
 import { logP2pSignalWireSchemaStartupLine } from './p2pSignalWireSchemaVersion'
+import { blocksPlaintextHttpInferenceFallback } from './unifiedServiceRpcRelayFlags'
 
 declare const __ORCHESTRATOR_BUILD_STAMP__: string | undefined
 declare const __WRDESK_HOST_AI_P2P_BUNDLE_DEFAULTS_ON__: boolean | undefined
@@ -252,6 +253,7 @@ export function isP2pInferenceFeatureTouched(): boolean {
  * or set `WRDESK_P2P_INFERENCE_HTTP_INTERNAL_COMPAT=1`. Other service RPCs (caps, cancel) are unchanged.
  */
 export function shouldRejectHttpInternalInferenceRequest(): boolean {
+  if (blocksPlaintextHttpInferenceFallback()) return true
   const f = getP2pInferenceFlags()
   if (f.p2pInferenceHttpInternalCompat) return false
   return (

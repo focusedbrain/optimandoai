@@ -3,6 +3,7 @@
  */
 
 import { getP2pInferenceFlags } from '../p2pInferenceFlags'
+import { blocksPlaintextHttpInferenceFallback } from '../unifiedServiceRpcRelayFlags'
 import { isP2pDataChannelUpForHandshake } from '../p2pSession/p2pSessionWait'
 import type { HostAiTransport, HostAiTransportIntent, HostAiTransportLogReason, HostAiTransportPreference } from './hostAiTransportTypes'
 
@@ -92,12 +93,25 @@ export function decideHostAiIntentRoute(
         shouldEmitFallbackLog: false,
       }
     }
-    if (flags.p2pInferenceHttpFallback) {
+    if (flags.p2pInferenceHttpFallback && !blocksPlaintextHttpInferenceFallback()) {
       return {
         choice: { preferred: 'p2p', selected: 'http_direct', reason: 'p2p_not_ready_fallback_http' },
         shouldEmitFallbackLog: true,
       }
     }
+    if (flags.p2pInferenceHttpFallback && blocksPlaintextHttpInferenceFallback()) {
+      return {
+        choice: { preferred: 'p2p', selected: 'unavailable', reason: 'p2p_not_ready_no_fallback' },
+        shouldEmitFallbackLog: false,
+      }
+    }
+    return {
+      choice: { preferred: 'p2p', selected: 'unavailable', reason: 'p2p_not_ready_no_fallback' },
+      shouldEmitFallbackLog: false,
+    }
+  }
+
+  if (blocksPlaintextHttpInferenceFallback()) {
     return {
       choice: { preferred: 'p2p', selected: 'unavailable', reason: 'p2p_not_ready_no_fallback' },
       shouldEmitFallbackLog: false,

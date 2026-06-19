@@ -5676,6 +5676,15 @@ app.whenReady().then(async () => {
     const { registerInternalInferenceIpc } = await import('./main/internalInference/ipc')
     registerInternalInferenceIpc()
     console.log('[MAIN] Internal-inference IPC handlers registered')
+    void import('./main/internalInference/unifiedServiceRpcRelayFlags').then(({ isUnifiedServiceRpcRelayEnabled }) => {
+      if (!isUnifiedServiceRpcRelayEnabled()) return
+      void Promise.all([
+        import('./main/internalInference/hostAiUnifiedServiceRpcRelay'),
+        import('./main/internalInference/hostAiUnifiedRelayRegistration'),
+      ]).then(([relay, reg]) => {
+        reg.registerHostAiUnifiedRelaySend(relay.trySendHostAiP2pSignalViaUnifiedRelay)
+      })
+    })
     const { logHostAiHealthStartupLine } = await import('./main/internalInference/hostAiHostOrchestratorHealth')
     logHostAiHealthStartupLine()
     void import('./main/internalInference/p2pSessionManagerStub').then((m) =>
