@@ -10,6 +10,7 @@
 /** Direct source import: Vitest + `@repo/ingestion-core` index alias can yield incomplete exports for this module. */
 import { randomUUID } from 'crypto'
 import { isCoordinationRelayNativeBeap } from '../../../../../packages/ingestion-core/src/beapDetection.ts'
+import { SEALED_SERVICE_RPC_CAPSULE_TYPE } from '../../../../../packages/ingestion-core/src/sealedServiceRpcConstants.ts'
 import { BEAP_CORRELATION_HEADER_OUT } from '../p2p/beapIngressLog'
 import { getCanonicalRelayDeviceId, logDeviceIdBinding } from '../p2p/relayDeviceBinding'
 import { decodeJwtSubForLogs } from '../p2p/relayIdentity'
@@ -36,7 +37,7 @@ const TIMEOUT_MS = 30_000
  * Keep this set, `COORDINATION_RELAY_ALLOWED_CAPSULE_TYPES` below, and
  * server.ts:RELAY_ALLOWED_TYPES synchronised.
  */
-const RELAY_HANDSHAKE_CAPSULE_TYPES = new Set(['accept', 'context_sync', 'refresh', 'revoke', 'initiate'])
+const RELAY_HANDSHAKE_CAPSULE_TYPES = new Set(['accept', 'context_sync', 'refresh', 'revoke', 'initiate', SEALED_SERVICE_RPC_CAPSULE_TYPE])
 
 /**
  * Relay accepts these when not a native message package — exact mirror of
@@ -51,7 +52,7 @@ const RELAY_HANDSHAKE_CAPSULE_TYPES = new Set(['accept', 'context_sync', 'refres
  * Keep this list, `RELAY_HANDSHAKE_CAPSULE_TYPES` above, and
  * server.ts:RELAY_ALLOWED_TYPES synchronised.
  */
-export const COORDINATION_RELAY_ALLOWED_CAPSULE_TYPES = ['accept', 'context_sync', 'refresh', 'revoke', 'initiate'] as const
+export const COORDINATION_RELAY_ALLOWED_CAPSULE_TYPES = ['accept', 'context_sync', 'refresh', 'revoke', 'initiate', SEALED_SERVICE_RPC_CAPSULE_TYPE] as const
 
 /**
  * True iff coordination `/beap/capsule` would accept this body (same rules as coordination-service):

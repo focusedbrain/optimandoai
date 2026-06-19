@@ -12,10 +12,12 @@
 
 import { randomBytes, createCipheriv, createDecipheriv, hkdfSync } from 'crypto'
 import { x25519 } from '@noble/curves/ed25519'
+import { SEALED_SERVICE_RPC_CAPSULE_TYPE } from '@repo/ingestion-core'
 import type { HandshakeRecord } from '../handshake/types'
 
 /** Non-secret marker for relay allowlist / dispatch (A2). Inner RPC type stays in ciphertext. */
-export const SEALED_SERVICE_RPC_ENVELOPE_TYPE = 'sealed_service_rpc_v1' as const
+export const SEALED_SERVICE_RPC_ENVELOPE_TYPE = SEALED_SERVICE_RPC_CAPSULE_TYPE
+export { SEALED_SERVICE_RPC_CAPSULE_TYPE }
 export const SEALED_SERVICE_RPC_SCHEMA_VERSION = 1 as const
 
 /** Domain-separate from quarantine-blob-v1 (quarantine-encrypt/index.ts:42). */

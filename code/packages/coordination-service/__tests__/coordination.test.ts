@@ -40,6 +40,26 @@ function samePrincipalCapsule(
   return JSON.stringify(o)
 }
 
+/** Opaque E2E-sealed service-RPC envelope (A2) — no handshake hash fields. */
+function sealedServiceRpcCapsule(
+  handshakeId: string,
+  senderDeviceId: string,
+  receiverDeviceId: string,
+): string {
+  return JSON.stringify({
+    schema_version: 1,
+    capsule_type: 'sealed_service_rpc_v1',
+    envelope_type: 'sealed_service_rpc_v1',
+    handshake_id: handshakeId,
+    sender_device_id: senderDeviceId,
+    receiver_device_id: receiverDeviceId,
+    sender_ephemeral_x25519_pub_b64: Buffer.alloc(32, 1).toString('base64'),
+    salt_b64: Buffer.alloc(16, 2).toString('base64'),
+    nonce_b64: Buffer.alloc(12, 3).toString('base64'),
+    ciphertext_b64: Buffer.alloc(32, 4).toString('base64'),
+  })
+}
+
 function makeConfig(overrides: Partial<CoordinationConfig>): CoordinationConfig {
   const base: CoordinationConfig = {
     port: 0,
@@ -1268,6 +1288,89 @@ describe('coordination-service', () => {
     await new Promise((res) => setTimeout(res, 200))
     expect(received.length).toBeGreaterThanOrEqual(1)
     sbxWs.close()
+  })
+
+  test('CS_A2_01: sealed_service_rpc_v1 host → sandbox routes by device id (200 live push)', async () => {
+    const hsId = 'hs-a2-01'
+    const user = 'spuserA2a'
+    const devHost = 'dev-host-a2a'
+    const devSbx = 'dev-sbx-a2a'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: user,
+        acceptor_user_id: user,
+        initiator_device_id: devHost,
+        acceptor_device_id: devSbx,
+      }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    const received: Array<{ type?: string; capsule?: Record<string, unknown> }> = []
+    const sbxWs = await wsConnectWithDevice(port, `test-${user}-pro`, devSbx, (data) => {
+      const msg = JSON.parse(data.toString()) as { type?: string; capsule?: Record<string, unknown> }
+      if (msg.type === 'capsule') received.push(msg)
+    })
+    await new Promise((r) => setTimeout(r, 100))
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: sealedServiceRpcCapsule(hsId, devHost, devSbx),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(200)
+    await new Promise((res) => setTimeout(res, 200))
+    expect(received.length).toBeGreaterThanOrEqual(1)
+    expect(received[0]?.capsule?.capsule_type).toBe('sealed_service_rpc_v1')
+    expect(JSON.stringify(received[0]?.capsule ?? {})).not.toContain('ingestion_poll')
+    sbxWs.close()
+  })
+
+  test('CS_A2_02: sealed_service_rpc_v1 missing sender_device_id → 400', async () => {
+    const hsId = 'hs-a2-02'
+    const user = 'spuserA2b'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: user,
+        acceptor_user_id: user,
+        initiator_device_id: 'dev-host-a2b',
+        acceptor_device_id: 'dev-sbx-a2b',
+      }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    const body = JSON.parse(sealedServiceRpcCapsule(hsId, 'dev-host-a2b', 'dev-sbx-a2b')) as Record<string, unknown>
+    delete body.sender_device_id
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: JSON.stringify(body),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(400)
+  })
+
+  test('CS_A2_03: sealed_service_rpc_v1 offline recipient → 202 queued', async () => {
+    const hsId = 'hs-a2-03'
+    const user = 'spuserA2c'
+    const devHost = 'dev-host-a2c'
+    const devSbx = 'dev-sbx-a2c'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: user,
+        acceptor_user_id: user,
+        initiator_device_id: devHost,
+        acceptor_device_id: devSbx,
+      }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: sealedServiceRpcCapsule(hsId, devHost, devSbx),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(202)
   })
 
   test('CS_SP_02: sandbox offline → 202 queued', async () => {

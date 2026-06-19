@@ -251,7 +251,8 @@ export function createRequestHandler(config: RelayConfig): (req: http.IncomingMe
         // If the sender device maps to a registered sandbox role, refuse data-plane
         // capsules (native BEAP message_package / non-allowlisted type) — the sandbox
         // is data-plane receive-only. Permit the allowlist (handshake lifecycle,
-        // context_sync [capped], inference, sandbox_email_delivery, p2p_signal).
+        // context_sync [capped], inference, sandbox_email_delivery, p2p_signal,
+        // sealed_service_rpc_v1 (opaque E2E service-RPC envelope)).
         // Discriminate by role+type — never blanket-reject. A non-sandbox / unknown
         // sender is unaffected (host + legacy fan-out preserved).
         {

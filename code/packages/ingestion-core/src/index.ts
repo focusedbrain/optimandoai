@@ -19,6 +19,10 @@ export {
   detectBeapMessagePackage,
 } from './beapDetection.js';
 export {
+  SEALED_SERVICE_RPC_CAPSULE_TYPE,
+} from './sealedServiceRpcConstants.js';
+export type { SealedServiceRpcCapsuleType } from './sealedServiceRpcConstants.js';
+export {
   SANDBOX_OUTBOUND_ALLOWED_TYPES,
   SANDBOX_CONTEXT_SYNC_MAX_BYTES,
   SANDBOX_CONTEXT_SYNC_RATE_WINDOW_MS,

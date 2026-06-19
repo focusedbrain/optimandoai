@@ -27,6 +27,7 @@ import {
   SANDBOX_OUTBOUND_ALLOWED_TYPES,
   SANDBOX_DATA_EGRESS_FORBIDDEN,
   assertSandboxDataEgressAllowed,
+  assertSandboxMaySealServiceRpcInnerType,
   deriveOutboundCapsuleType,
   isEffectiveSandboxNode,
 } from '../sandboxOutboundPolicy'
@@ -50,6 +51,7 @@ describe('allowlist (capsule_enqueue) — permitted control-plane / plumbing typ
     'internal_inference_capabilities_request',
     'sandbox_email_delivery',
     'p2p_signal',
+    'sealed_service_rpc_v1',
   ]
   test.each(allowed)('permits %s', (capsuleType) => {
     expect(assertSandboxDataEgressAllowed({ operation: 'capsule_enqueue', capsuleType }).ok).toBe(true)
@@ -97,6 +99,28 @@ describe('messaging operations are always denied (regardless of payload)', () =>
     // operation is the authority — a forged allowlisted capsuleType cannot launder an email send.
     const v = assertSandboxDataEgressAllowed({ operation: 'email_send', capsuleType: 'context_sync' })
     expect(v.ok).toBe(false)
+  })
+})
+
+describe('sealed service-RPC inner type gate (construction-time egress)', () => {
+  test('sandbox may seal ingestion_poll_result and ingestion_poll_error', () => {
+    expect(assertSandboxMaySealServiceRpcInnerType('ingestion_poll_result').ok).toBe(true)
+    expect(assertSandboxMaySealServiceRpcInnerType('ingestion_poll_error').ok).toBe(true)
+  })
+
+  test('sandbox may NOT seal ingestion_poll_request (host-only trigger)', () => {
+    const v = assertSandboxMaySealServiceRpcInnerType('ingestion_poll_request')
+    expect(v.ok).toBe(false)
+    if (!v.ok) expect(v.code).toBe(SANDBOX_DATA_EGRESS_FORBIDDEN)
+  })
+
+  test('opaque sealed capsule_type is allowlisted on capsule_enqueue', () => {
+    expect(
+      assertSandboxDataEgressAllowed({
+        operation: 'capsule_enqueue',
+        capsuleType: 'sealed_service_rpc_v1',
+      }).ok,
+    ).toBe(true)
   })
 })
 

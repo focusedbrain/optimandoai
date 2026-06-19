@@ -30,9 +30,60 @@
 
 import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { ledgerProvesLocalSandboxToHostFromDb } from '../internalInference/hostAiInternalPairingLedger'
-import { SANDBOX_OUTBOUND_ALLOWED_TYPES } from '@repo/ingestion-core'
+import { SANDBOX_OUTBOUND_ALLOWED_TYPES, SEALED_SERVICE_RPC_CAPSULE_TYPE } from '@repo/ingestion-core'
 
-export { SANDBOX_OUTBOUND_ALLOWED_TYPES }
+export { SANDBOX_OUTBOUND_ALLOWED_TYPES, SEALED_SERVICE_RPC_CAPSULE_TYPE }
+
+export const SANDBOX_DATA_EGRESS_FORBIDDEN = 'SANDBOX_DATA_EGRESS_FORBIDDEN' as const
+
+/**
+ * Inner service-RPC types a sandbox may place inside a sealed_service_rpc_v1
+ * envelope before sealing. Enforced at construction time in the app — the relay
+ * and ingress classifiers see only the opaque capsule_type (INV-RELAY-BLIND).
+ *
+ * Host-only inner types (e.g. ingestion_poll_request) must never appear here.
+ */
+export const SANDBOX_PERMITTED_SEALED_SERVICE_RPC_INNER_TYPES: ReadonlySet<string> = new Set([
+  'ingestion_poll_result',
+  'ingestion_poll_error',
+])
+
+export type SandboxSealedServiceRpcInnerVerdict =
+  | { ok: true }
+  | {
+      ok: false
+      code: typeof SANDBOX_DATA_EGRESS_FORBIDDEN
+      innerType: string
+      message: string
+    }
+
+/**
+ * Gate before `sealServiceRpcPayload` on sandbox nodes. Plaintext inner types
+ * like `ingestion_poll_request` remain forbidden even though the outer relay
+ * capsule_type is opaque.
+ */
+export function assertSandboxMaySealServiceRpcInnerType(innerType: string): SandboxSealedServiceRpcInnerVerdict {
+  const t = typeof innerType === 'string' ? innerType.trim() : ''
+  if (!t) {
+    return {
+      ok: false,
+      code: SANDBOX_DATA_EGRESS_FORBIDDEN,
+      innerType: t || '(empty)',
+      message: 'Sealed service-RPC inner type is required before egress',
+    }
+  }
+  if (SANDBOX_PERMITTED_SEALED_SERVICE_RPC_INNER_TYPES.has(t)) {
+    return { ok: true }
+  }
+  return {
+    ok: false,
+    code: SANDBOX_DATA_EGRESS_FORBIDDEN,
+    innerType: t,
+    message:
+      'This sandbox is not permitted to seal and send that service-RPC type outward. ' +
+      'Poll triggers are host-only; only poll results/errors may egress from the sandbox.',
+  }
+}
 
 /**
  * The ONLY capsule / service-message types a sandbox-role node may emit outward
@@ -48,9 +99,8 @@ export { SANDBOX_OUTBOUND_ALLOWED_TYPES }
  *     plumbing, NOT messaging — it carries guest-derived safe content to the paired
  *     host inbox only and originates no user-composed message.
  *   - p2p_signal: metadata-only WebRTC signaling (SDP/ICE control, no bodies).
+ *   - sealed_service_rpc_v1: opaque E2E envelope; inner type gated before seal.
  */
-
-export const SANDBOX_DATA_EGRESS_FORBIDDEN = 'SANDBOX_DATA_EGRESS_FORBIDDEN' as const
 
 /**
  * Logical outbound operations. `capsule_enqueue` is the relay-queue choke point

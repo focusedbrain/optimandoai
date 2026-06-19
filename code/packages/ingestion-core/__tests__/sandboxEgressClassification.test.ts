@@ -33,6 +33,7 @@ describe('sandbox egress classification (shared P1/P2 source of truth)', () => {
         'refresh',
         'revoke',
         'sandbox_email_delivery',
+        'sealed_service_rpc_v1',
       ].sort(),
     );
   });
@@ -89,6 +90,23 @@ describe('sandbox egress classification (shared P1/P2 source of truth)', () => {
       expect(cls.allowed).toBe(false);
       expect(cls.dataPlane).toBe(true);
     }
+  });
+
+  test('opaque sealed_service_rpc_v1 capsule is allowlisted at relay egress (inner type not visible)', () => {
+    const cls = classifySandboxOutboundCapsule({
+      schema_version: 1,
+      capsule_type: 'sealed_service_rpc_v1',
+      envelope_type: 'sealed_service_rpc_v1',
+      handshake_id: 'hs-1',
+      sender_device_id: 'dev-sand',
+      receiver_device_id: 'dev-host',
+      sender_ephemeral_x25519_pub_b64: Buffer.alloc(32, 1).toString('base64'),
+      salt_b64: Buffer.alloc(16, 2).toString('base64'),
+      nonce_b64: Buffer.alloc(12, 3).toString('base64'),
+      ciphertext_b64: Buffer.alloc(32, 4).toString('base64'),
+    });
+    expect(cls.allowed).toBe(true);
+    expect(cls.type).toBe('sealed_service_rpc_v1');
   });
 
   test('type-less message-package-shaped body classifies as message_package', () => {
