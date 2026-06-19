@@ -172,8 +172,10 @@ export type DashboardAutomationHomeProps = {
   onNavigateInbox: () => void
   /** Assistant / drafting surface. */
   onNavigateWrChat: () => void
-  /** Batch mail + document triage surface. */
+  /** Batch mail + document triage surface (host only — sandbox uses normal Inbox). */
   onNavigateBulkInbox: () => void
+  /** Sandbox orchestrator — hides Bulk Inbox automation card. */
+  isSandbox?: boolean
   /** Open full-width Email Composer (Analysis canvas) — no popup, no route change. */
   onOpenEmailComposer?: () => void
   /** Open full-width BEAP Composer (Analysis canvas). */
@@ -267,6 +269,7 @@ export function DashboardAutomationHome({
   onOpenEmailComposer,
   onOpenBeapComposer,
   onOpenLetterComposer,
+  isSandbox = false,
 }: DashboardAutomationHomeProps) {
   const { projects, activeProjectId, setActiveProject, composerIcons } = useProjectStore(
     useShallow((s) => ({
@@ -394,7 +397,8 @@ Automation activated from the dashboard. Continue in WR Chat.`
   )
 
   const starterCards: AutomationCardDef[] = useMemo(
-    () => [
+    () =>
+      [
       // --- Row 1: Composers ---
       {
         id: 'reply-letter',
@@ -427,16 +431,20 @@ Automation activated from the dashboard. Continue in WR Chat.`
         onEdit: () => setIconPickerTarget('beapComposer'),
       },
       // --- Row 2: Actions + Intelligence (Card 6 follows as custom JSX) ---
-      {
-        id: 'document-actions',
-        accent: 'document',
-        icon: '\u{1F4C4}',
-        title: 'Document Actions',
-        valueLine: 'Sort, open attachments, and triage in batch.',
-        composerId: 'documentActions',
-        onRun: onNavigateBulkInbox,
-        onEdit: () => setIconPickerTarget('documentActions'),
-      },
+      ...(!isSandbox
+        ? [
+            {
+              id: 'document-actions',
+              accent: 'document' as const,
+              icon: '\u{1F4C4}',
+              title: 'Document Actions',
+              valueLine: 'Sort, open attachments, and triage in batch.',
+              composerId: 'documentActions' as const,
+              onRun: onNavigateBulkInbox,
+              onEdit: () => setIconPickerTarget('documentActions'),
+            },
+          ]
+        : []),
       {
         id: 'smart-summary',
         accent: 'summary',
@@ -449,6 +457,7 @@ Automation activated from the dashboard. Continue in WR Chat.`
       },
     ],
     [
+      isSandbox,
       onNavigateBulkInbox,
       onNavigateWrChat,
       onOpenEmailComposer,

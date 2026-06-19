@@ -33,8 +33,10 @@ export interface ProjectSetupSectionProps {
   emailAccounts?: DashboardEmailAccountRow[]
   /** Refresh dashboard snapshot + inbox list, then optionally navigate to bulk inbox */
   onRefreshOperations?: () => void | Promise<void>
-  /** Open Bulk Inbox so user can run AI Auto-Sort (after refresh) */
+  /** Open Bulk Inbox so user can run AI Auto-Sort (after refresh) — host only; sandbox opens normal Inbox via parent callback. */
   onOpenBulkInboxForAnalysis?: () => void
+  /** Sandbox orchestrator — bulk-specific copy/cards hidden. */
+  isSandbox?: boolean
   /** Latest autosort session from dashboard snapshot (read-only status — no invented fields) */
   latestAutosortSession?: AnalysisDashboardAutosortSessionMeta | null
 }
@@ -290,6 +292,7 @@ export function ProjectSetupSection({
   onRefreshOperations,
   onOpenBulkInboxForAnalysis,
   latestAutosortSession = null,
+  isSandbox = false,
 }: ProjectSetupSectionProps) {
   const copy = projectSetup ?? FALLBACK_SETUP
   const [modalOpen, setModalOpen] = useState(false)
@@ -382,7 +385,7 @@ export function ProjectSetupSection({
   const autoDisabled = accountIds.length === 0
   const autoMonitoringActive = !autoDisabled && autoSyncEnabled
   const hasRefreshHandler = typeof onRefreshOperations === 'function'
-  const hasBulkOpenHandler = typeof onOpenBulkInboxForAnalysis === 'function'
+  const hasBulkOpenHandler = !isSandbox && typeof onOpenBulkInboxForAnalysis === 'function'
   const runCommandDisabled = loading || runBusy || !hasRefreshHandler
 
   /** No persisted project id in this build — do not imply a draft name is the “active project”. */
@@ -473,7 +476,9 @@ export function ProjectSetupSection({
               title={
                 !hasRefreshHandler
                   ? 'Refresh is not wired in this view'
-                  : 'Run now: refresh dashboard and inbox, then open Bulk Inbox when available'
+                  : isSandbox
+                    ? 'Run now: refresh dashboard and inbox, then open Inbox'
+                    : 'Run now: refresh dashboard and inbox, then open Bulk Inbox when available'
               }
             >
               {runBusy ? 'Running…' : 'Run Analysis Now'}
@@ -481,9 +486,11 @@ export function ProjectSetupSection({
             <p className="project-setup-section__ops-run-hint">
               {!hasRefreshHandler
                 ? 'Refresh not connected.'
-                : hasBulkOpenHandler
-                  ? 'Refresh snapshot + inbox · open Bulk Inbox (run Auto-Sort there).'
-                  : 'Refresh snapshot + inbox · open Inbox for Auto-Sort.'}
+                : isSandbox
+                  ? 'Refresh snapshot + inbox · open Inbox.'
+                  : hasBulkOpenHandler
+                    ? 'Refresh snapshot + inbox · open Bulk Inbox (run Auto-Sort there).'
+                    : 'Refresh snapshot + inbox · open Inbox for Auto-Sort.'}
             </p>
           </div>
         </div>

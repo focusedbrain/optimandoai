@@ -8,6 +8,7 @@ import type { InboxMessageKindFilter } from '../lib/inboxMessageKind'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import EmailInboxSyncControls from './EmailInboxSyncControls'
 import { InboxMessageKindSelect } from './InboxMessageKindSelect'
+import InboxBulkActionsBar from './InboxBulkActionsBar'
 
 // ── Types ──
 
@@ -34,6 +35,11 @@ export interface EmailInboxToolbarProps {
   hostTriggeredIngestion?: boolean
   /** Sandbox orchestrator — read-only pull; no remote folder-sync affordances. */
   readOnlyIngestionNode?: boolean
+  /**
+   * Sandbox delete-only inbox: hide workflow filter tabs and non-delete bulk actions
+   * (Archive, Pending Review, Categorize). Select + Remove remain.
+   */
+  deleteOnlyBulkActions?: boolean
   bulkMode: boolean
   onBulkModeChange: (enabled: boolean) => void
   selectedCount: number
@@ -41,9 +47,9 @@ export interface EmailInboxToolbarProps {
   onBulkArchive: () => void
   onBulkMoveToPendingReview?: () => void
   onBulkCategorize?: () => void
-  /** Open a new email compose form. Placed as a small button next to the Type selector. */
+  /** Open a new email compose form. Shown on the sync row (host only). */
   onEmailCompose?: () => void
-  /** Open the BEAP capsule composer. Placed as a small button next to the Type selector. */
+  /** Open the BEAP capsule composer. Shown on the sync row (host only). */
   onBeapCompose?: () => void
 }
 
@@ -78,6 +84,7 @@ export default function EmailInboxToolbar({
   pullOnly,
   hostTriggeredIngestion = false,
   readOnlyIngestionNode = false,
+  deleteOnlyBulkActions = false,
   bulkMode,
   onBulkModeChange,
   selectedCount,
@@ -89,12 +96,15 @@ export default function EmailInboxToolbar({
   onBeapCompose,
 }: EmailInboxToolbarProps) {
   const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
+  const visibleFilterTabs = deleteOnlyBulkActions
+    ? (['all'] as const)
+    : FILTER_TABS
 
   return (
     <div className="email-inbox-toolbar">
       {/* Filter tabs row */}
       <div className="inbox-toolbar-tabs" role="tablist" aria-label="Inbox filters">
-        {FILTER_TABS.map((tab) => {
+        {visibleFilterTabs.map((tab) => {
           return (
             <button
               key={tab}
@@ -115,7 +125,11 @@ export default function EmailInboxToolbar({
         <div className="inbox-toolbar-settings-row">
           <label
             className="inbox-toolbar-bulk-select-toggle"
-            title="Show checkboxes to select messages for bulk actions"
+            title={
+              deleteOnlyBulkActions
+                ? 'Show checkboxes to select messages for delete'
+                : 'Show checkboxes to select messages for bulk actions'
+            }
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -132,7 +146,11 @@ export default function EmailInboxToolbar({
               type="checkbox"
               checked={bulkMode}
               onChange={(e) => onBulkModeChange(e.target.checked)}
-              aria-label="Select messages for bulk actions"
+              aria-label={
+                deleteOnlyBulkActions
+                  ? 'Select messages for delete'
+                  : 'Select messages for bulk actions'
+              }
             />
             Select
           </label>
@@ -144,8 +162,24 @@ export default function EmailInboxToolbar({
             value={messageKind}
             onChange={onMessageKindChange}
           />
+        </div>
+        <div className="inbox-toolbar-settings-row inbox-toolbar-settings-row--sync">
+          <EmailInboxSyncControls
+            accountSyncWindowDays={accountSyncWindowDays}
+            onSyncWindowChange={onSyncWindowChange}
+            primaryAccountId={primaryAccountId}
+            autoSyncEligibleAccountIds={autoSyncEligibleAccountIds}
+            autoSyncEnabled={autoSyncEnabled}
+            onToggleAutoSync={onToggleAutoSync}
+            onUnifiedSync={onUnifiedSync}
+            syncing={syncing}
+            remoteSyncBusy={remoteSyncBusy}
+            pullOnly={pullOnly}
+            hostTriggeredIngestion={hostTriggeredIngestion}
+            readOnlyIngestionNode={readOnlyIngestionNode}
+          />
           {(onEmailCompose || onBeapCompose) && (
-            <div style={{ display: 'flex', gap: 4, marginLeft: 6 }}>
+            <div className="inbox-toolbar-composers-right inbox-toolbar-composers-right--compact">
               {onEmailCompose && (
                 <button
                   type="button"
@@ -198,97 +232,16 @@ export default function EmailInboxToolbar({
             </div>
           )}
         </div>
-        <div className="inbox-toolbar-settings-row">
-          <EmailInboxSyncControls
-            accountSyncWindowDays={accountSyncWindowDays}
-            onSyncWindowChange={onSyncWindowChange}
-            primaryAccountId={primaryAccountId}
-            autoSyncEligibleAccountIds={autoSyncEligibleAccountIds}
-            autoSyncEnabled={autoSyncEnabled}
-            onToggleAutoSync={onToggleAutoSync}
-            onUnifiedSync={onUnifiedSync}
-            syncing={syncing}
-            remoteSyncBusy={remoteSyncBusy}
-            pullOnly={pullOnly}
-            hostTriggeredIngestion={hostTriggeredIngestion}
-            readOnlyIngestionNode={readOnlyIngestionNode}
-          />
-        </div>
       </div>
 
-      {/* Bulk actions (when selectedCount > 0) */}
-      {selectedCount > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 11, color: 'var(--color-text-muted, #94a3b8)' }}>
-            {selectedCount} selected
-          </span>
-          <button
-            onClick={onBulkDelete}
-            title="Remove selected from WRDesk inbox only — does not delete from the origin mailbox"
-            style={{
-              padding: '5px 10px',
-              fontSize: 10,
-              fontWeight: 600,
-              borderRadius: 4,
-              border: '1px solid rgba(239,68,68,0.3)',
-              background: 'rgba(239,68,68,0.1)',
-              color: '#ef4444',
-              cursor: 'pointer',
-            }}
-          >
-            Remove
-          </button>
-          <button
-            onClick={onBulkArchive}
-            style={{
-              padding: '5px 10px',
-              fontSize: 10,
-              fontWeight: 600,
-              borderRadius: 4,
-              border: '1px solid var(--color-border, rgba(255,255,255,0.2))',
-              background: 'var(--color-surface, rgba(255,255,255,0.04))',
-              color: 'var(--color-text, #e2e8f0)',
-              cursor: 'pointer',
-            }}
-          >
-            Archive
-          </button>
-          {onBulkMoveToPendingReview && (
-            <button
-              onClick={onBulkMoveToPendingReview}
-              style={{
-                padding: '5px 10px',
-                fontSize: 10,
-                fontWeight: 600,
-                borderRadius: 4,
-                border: '1px solid rgba(245,158,11,0.4)',
-                background: 'rgba(245,158,11,0.1)',
-                color: '#f59e0b',
-                cursor: 'pointer',
-              }}
-            >
-              Move to Pending Review
-            </button>
-          )}
-          {onBulkCategorize && (
-            <button
-              onClick={onBulkCategorize}
-              style={{
-                padding: '5px 10px',
-                fontSize: 10,
-                fontWeight: 600,
-                borderRadius: 4,
-                border: '1px solid var(--color-border, rgba(255,255,255,0.2))',
-                background: 'var(--color-surface, rgba(255,255,255,0.04))',
-                color: 'var(--color-text, #e2e8f0)',
-                cursor: 'pointer',
-              }}
-            >
-              Categorize
-            </button>
-          )}
-        </div>
-      )}
+      <InboxBulkActionsBar
+        selectedCount={selectedCount}
+        deleteOnlyBulkActions={deleteOnlyBulkActions}
+        onBulkDelete={onBulkDelete}
+        onBulkArchive={onBulkArchive}
+        onBulkMoveToPendingReview={onBulkMoveToPendingReview}
+        onBulkCategorize={onBulkCategorize}
+      />
     </div>
   )
 }

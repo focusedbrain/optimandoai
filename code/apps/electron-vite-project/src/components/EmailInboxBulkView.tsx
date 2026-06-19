@@ -26,6 +26,12 @@ import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccou
 import { SyncFailureBanner } from './SyncFailureBanner'
 import EmailInboxSyncControls from './EmailInboxSyncControls'
 import { InboxMessageKindSelect } from './InboxMessageKindSelect'
+import InboxBulkActionsBar from './InboxBulkActionsBar'
+import { useDeleteFromProviderOnLocalDelete } from '../hooks/useDeleteFromProviderOnLocalDelete'
+import {
+  confirmOriginDeleteIfNeeded,
+  originDeleteConfirmedForSelection,
+} from '../utils/originDeleteFlow'
 import LinkWarningDialog from './LinkWarningDialog'
 import SandboxLinkInfoDialog from './SandboxLinkInfoDialog'
 import { openAppExternalUrl } from '../lib/openAppExternalUrl'
@@ -1954,12 +1960,17 @@ export default function EmailInboxBulkView({
       provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
       status: 'active' | 'auth_error' | 'error' | 'disabled'
       processingPaused?: boolean
+      deleteFromProviderOnLocalDelete?: boolean
+      originDeleteFromProviderCapable?: boolean
+      originDeleteBlockReason?: string
       lastError?: string
     }>
   >([])
   const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
   const [providerListError, setProviderListError] = useState<string | null>(null)
   const [selectedProviderAccountId, setSelectedProviderAccountId] = useState<string | null>(null)
+  /** Message-management select — distinct from AI Auto-Sort toolbar checkbox (store `bulkMode`). */
+  const [rowSelectMode, setRowSelectMode] = useState(false)
   /** True when every listed account is IMAP — unified Sync runs pull only (no remote enqueue). */
   const bulkToolbarPullOnly = useMemo(
     () => providerAccounts.length > 0 && providerAccounts.every((a) => a.provider === 'imap'),
@@ -2658,9 +2669,13 @@ export default function EmailInboxBulkView({
 
   const handleBulkDelete = useCallback(() => {
     const ids = Array.from(multiSelectIds)
-    if (ids.length) deleteMessages(ids)
+    if (!ids.length) return
+    if (!confirmOriginDeleteIfNeeded(ids, messages, providerAccounts)) return
+    void deleteMessages(ids, undefined, {
+      originDeleteConfirmed: originDeleteConfirmedForSelection(ids, messages, providerAccounts),
+    })
     clearMultiSelect()
-  }, [multiSelectIds, deleteMessages, clearMultiSelect])
+  }, [multiSelectIds, deleteMessages, clearMultiSelect, messages, providerAccounts])
 
   const handleBulkArchive = useCallback(() => {
     const ids = Array.from(multiSelectIds)
@@ -2685,6 +2700,14 @@ export default function EmailInboxBulkView({
       }
     }
   }, [multiSelectIds, setCategory, clearMultiSelect])
+
+  const handleRowSelectModeChange = useCallback(
+    (enabled: boolean) => {
+      setRowSelectMode(enabled)
+      if (!enabled) clearMultiSelect()
+    },
+    [clearMultiSelect],
+  )
 
   /** Per-message classify + immediate moves. Callers: toolbar Auto-Sort, per-row Retry only. */
   const runAiCategorizeForIds = useCallback(
@@ -3935,6 +3958,9 @@ export default function EmailInboxBulkView({
         provider?: string
         status?: string
         processingPaused?: boolean
+        deleteFromProviderOnLocalDelete?: boolean
+        originDeleteFromProviderCapable?: boolean
+        originDeleteBlockReason?: string
         lastError?: string
       }>
       setProviderAccounts(
@@ -3963,6 +3989,9 @@ export default function EmailInboxBulkView({
             provider,
             status,
             processingPaused: a.processingPaused === true,
+            deleteFromProviderOnLocalDelete: a.deleteFromProviderOnLocalDelete === true,
+            originDeleteFromProviderCapable: a.originDeleteFromProviderCapable === true,
+            originDeleteBlockReason: a.originDeleteBlockReason,
             lastError: a.lastError,
           }
         }),
@@ -4011,6 +4040,12 @@ export default function EmailInboxBulkView({
       setIsLoadingProviderAccounts(false)
     }
   }, [])
+
+  const handleSetDeleteFromProviderOnLocalDelete = useDeleteFromProviderOnLocalDelete({
+    setProviderAccounts,
+    loadProviderAccounts,
+    onEmailAccountsChanged,
+  })
 
   useEffect(() => {
     loadProviderAccounts()
@@ -6002,6 +6037,9 @@ export default function EmailInboxBulkView({
                 onConnectEmail={handleConnectEmail}
                 onDisconnectEmail={handleDisconnectEmail}
                 onSetProcessingPaused={handleSetProcessingPaused}
+                onSetDeleteFromProviderOnLocalDelete={
+                  !bulkIsSandbox ? handleSetDeleteFromProviderOnLocalDelete : undefined
+                }
                 onSelectEmailAccount={setSelectedProviderAccountId}
                 onUpdateImapCredentials={handleUpdateImapCredentials}
                 listAccountsError={providerListError}
@@ -6042,7 +6080,38 @@ export default function EmailInboxBulkView({
                     </span>
                   ) : null}
                 </span>
+                <label
+                  className="bulk-view-row-select-toggle"
+                  title="Show checkboxes to select messages for bulk actions"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: 'var(--text-primary, var(--text-primary-prof, #0f172a))',
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={rowSelectMode}
+                    onChange={(e) => handleRowSelectModeChange(e.target.checked)}
+                    aria-label="Select messages for bulk actions"
+                  />
+                  Select
+                </label>
               </div>
+              <InboxBulkActionsBar
+                selectedCount={selectedCount}
+                onBulkDelete={handleBulkDelete}
+                onBulkArchive={handleBulkArchive}
+                onBulkMoveToPendingReview={
+                  selectedCount > 0 ? () => void handleBulkMoveToPendingReview() : undefined
+                }
+                onBulkCategorize={selectedCount > 0 ? handleBulkCategorize : undefined}
+              />
               {showBulkStatusDock ? (
                 <div className="bulk-view-status-dock" role="region" aria-label="Bulk inbox status">
                   {aiSortProgress ? (
@@ -6353,6 +6422,7 @@ export default function EmailInboxBulkView({
                       if (
                         (e.target as HTMLElement).closest('.bulk-view-expand-btn') ||
                         (e.target as HTMLElement).closest('.bulk-view-msg-delete-btn') ||
+                        (e.target as HTMLElement).closest('.bulk-view-row-select-checkbox') ||
                         (e.target as HTMLElement).closest('.inbox-handshake-nav-btn') ||
                         (e.target as HTMLElement).closest('[data-subfocus="attachment"]')
                       ) {
@@ -6371,6 +6441,20 @@ export default function EmailInboxBulkView({
                     <div className="bulk-view-message-inner">
                       <div className="bulk-view-message-header">
                         <div className="bulk-view-message-meta">
+                          {rowSelectMode ? (
+                            <input
+                              type="checkbox"
+                              className="bulk-view-row-select-checkbox"
+                              checked={isMultiSelected}
+                              aria-label="Select message for bulk actions"
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                e.stopPropagation()
+                                toggleMultiSelect(msg.id)
+                              }}
+                              style={{ flexShrink: 0, marginTop: 2, cursor: 'pointer' }}
+                            />
+                          ) : null}
                           {isFocused ? (
                             <span
                               className="bulk-view-message-focus-cue"

@@ -74,8 +74,10 @@ interface AnalysisCanvasProps {
   onOpenInbox?: () => void
   /** Mail accounts from app shell — Auto mode toggle. */
   emailAccounts?: DashboardEmailAccountRow[]
-  /** After refresh, open Bulk Inbox for AI Auto-Sort. */
+  /** After refresh, open Inbox (Bulk on host, normal on sandbox). */
   onOpenBulkInboxForAnalysis?: () => void
+  /** Sandbox orchestrator — hides Bulk Inbox affordances in dashboard copy/cards. */
+  isSandbox?: boolean
   /** Navigate to WR Chat (starter cards, automation home). */
   onNavigateToWrChat?: () => void
   /** Header multi-trigger selection — closes Project WIKI hero when switching to Watchdog (see workspace rules below). */
@@ -99,6 +101,7 @@ export default function AnalysisCanvas({
   onOpenInbox,
   emailAccounts,
   onOpenBulkInboxForAnalysis,
+  isSandbox = false,
   onNavigateToWrChat,
   activeTriggerFunctionId,
   projectAssistantCreateToken = 0,
@@ -377,6 +380,7 @@ export default function AnalysisCanvas({
               </div>
             ) : (
               <DashboardAutomationHome
+                isSandbox={isSandbox}
                 onOpenProjectAssistantWorkspace={handleOpenProjectAssistantWorkspace}
                 onNavigateInbox={() => onOpenInbox?.()}
                 onNavigateWrChat={() => onNavigateToWrChat?.()}

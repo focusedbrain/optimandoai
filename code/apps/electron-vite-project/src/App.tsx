@@ -111,6 +111,14 @@ function App() {
   const { primaryIssue: handshakeHealthIssue, extraCount: handshakeHealthExtraCount, dismiss: dismissHandshakeHealth } =
     useActiveHandshakeHealthBanner()
   const { isSandbox } = useOrchestratorMode()
+  /** Sandbox: Bulk Inbox is host-only — never leave bulk mode latched after host→sandbox switch. */
+  useEffect(() => {
+    if (isSandbox) setInboxBulkMode(false)
+  }, [isSandbox])
+  const openInboxAfterAnalysisRefresh = useCallback(() => {
+    setActiveView('beap-inbox')
+    setInboxBulkMode(!isSandbox)
+  }, [isSandbox])
   const [emailAccounts, setEmailAccounts] = useState<
     Array<{ id: string; email: string; status?: string; processingPaused?: boolean }>
   >([])
@@ -524,7 +532,7 @@ function App() {
               onComposerOpen={(composerId) => {
                 if (composerId === 'documentActions') {
                   setActiveView('beap-inbox')
-                  setInboxBulkMode(true)
+                  setInboxBulkMode(!isSandbox)
                   return
                 }
                 if (composerId === 'smartSummary') {
@@ -645,10 +653,8 @@ function App() {
               clearDashboardWrChatSpeechOpenMeta()
               setActiveView('wr-chat')
             }}
-            onOpenBulkInboxForAnalysis={() => {
-              setActiveView('beap-inbox')
-              setInboxBulkMode(true)
-            }}
+            isSandbox={isSandbox}
+            onOpenBulkInboxForAnalysis={openInboxAfterAnalysisRefresh}
           />
         )}
         {showInitiateModal && (

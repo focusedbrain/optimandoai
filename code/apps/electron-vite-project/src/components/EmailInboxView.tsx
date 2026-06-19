@@ -38,6 +38,7 @@ import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
 import { resolveActiveSandboxCloneTargets } from '../lib/resolveActiveSandboxCloneTargets'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
+import { useDeleteFromProviderOnLocalDelete } from '../hooks/useDeleteFromProviderOnLocalDelete'
 import { beapInboxCloneToSandboxApi, sandboxCloneFeedbackFromOutcome } from '../lib/beapInboxCloneToSandbox'
 import {
   SANDBOX_CLONE_COPY,
@@ -1791,7 +1792,7 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
                         ? `Consider archiving${(analysis.archiveReason || '').trim() ? ` — ${analysis.archiveReason}` : ''}`
                         : `Keep for now${(analysis.archiveReason || '').trim() ? ` — ${analysis.archiveReason}` : ''}`}
                     </span>
-                    {analysis.archiveRecommendation === 'archive' && onArchive && (
+                    {analysis.archiveRecommendation === 'archive' && onArchive && !panelIsSandbox && (
                       <button
                         type="button"
                         className="inbox-detail-ai-btn-primary inbox-detail-ai-archive-btn"
@@ -2288,7 +2289,7 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
                     )}
                     <div className="bulk-draft-actions-toolbar-wrap inbox-detail-ai-draft-actions">
                       <div className="bulk-draft-actions-toolbar">
-                        {onArchive && messageId ? (
+                        {onArchive && messageId && !panelIsSandbox ? (
                           <button
                             type="button"
                             className="bulk-action-card-btn bulk-action-card-btn--secondary"
@@ -2435,7 +2436,7 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
                             </button>
                           )
                         )}
-                        {onArchive && messageId ? (
+                        {onArchive && messageId && !panelIsSandbox ? (
                           <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={handleArchive}>
                             Archive
                           </button>
@@ -3409,34 +3410,11 @@ export default function EmailInboxView({
     [loadProviderAccounts, onEmailAccountsChanged],
   )
 
-  const handleSetDeleteFromProviderOnLocalDelete = useCallback(
-    async (id: string, enabled: boolean) => {
-      if (typeof window.emailAccounts?.setDeleteFromProviderOnLocalDelete !== 'function') return
-      if (
-        enabled &&
-        !window.confirm(
-          'Enable Smart Sync for this account?\n\nOn this host device, local delete, archive, and sorting will be mirrored to Gmail, Outlook, or your IMAP mailbox so your provider stays consistent with WRDesk. Deletes move to Trash / Deleted Items (recoverable there). Off by default.',
-        )
-      ) {
-        return
-      }
-      setProviderAccounts((rows) =>
-        rows.map((a) =>
-          a.id === id ? { ...a, deleteFromProviderOnLocalDelete: enabled } : a,
-        ),
-      )
-      try {
-        const res = await window.emailAccounts.setDeleteFromProviderOnLocalDelete(id, enabled)
-        if (!res?.ok) throw new Error((res as { error?: string })?.error || 'Failed')
-        await loadProviderAccounts()
-        onEmailAccountsChanged?.()
-      } catch {
-        await loadProviderAccounts()
-        onEmailAccountsChanged?.()
-      }
-    },
-    [loadProviderAccounts, onEmailAccountsChanged],
-  )
+  const handleSetDeleteFromProviderOnLocalDelete = useDeleteFromProviderOnLocalDelete({
+    setProviderAccounts,
+    loadProviderAccounts,
+    onEmailAccountsChanged,
+  })
 
   // Sync App-level selection to store when props change
   useEffect(() => {
@@ -3567,14 +3545,19 @@ export default function EmailInboxView({
         /* keep shouldEnqueueRemote true */
       }
     }
-    if (shouldEnqueueRemote) await enqueueFullRemoteSync()
-  }, [accounts, primaryAccountId, syncAllAccounts, enqueueFullRemoteSync])
+    if (shouldEnqueueRemote && !isSandbox) await enqueueFullRemoteSync()
+  }, [accounts, primaryAccountId, syncAllAccounts, enqueueFullRemoteSync, isSandbox])
 
   /** True when every listed account is IMAP — unified Sync runs pull only (matches Bulk Inbox). */
   const inboxToolbarPullOnly = useMemo(
     () => providerAccounts.length > 0 && providerAccounts.every((a) => a.provider === 'imap'),
     [providerAccounts],
   )
+
+  useEffect(() => {
+    if (!isSandbox) return
+    if (filter.filter !== 'all') setFilter({ filter: 'all' })
+  }, [isSandbox, filter.filter, setFilter])
 
   const handleBulkDelete = useCallback(() => {
     const ids = Array.from(multiSelectIds)
@@ -4166,14 +4149,17 @@ export default function EmailInboxView({
           pullOnly={inboxToolbarPullOnly}
           hostTriggeredIngestion={isDedicatedSandboxHostTriggered}
           readOnlyIngestionNode={isSandbox}
+          deleteOnlyBulkActions={isSandbox}
           bulkMode={rowSelectMode}
           onBulkModeChange={handleRowSelectModeChange}
           selectedCount={selectedCount}
           onBulkDelete={handleBulkDelete}
           onBulkArchive={handleBulkArchive}
-          onBulkMoveToPendingReview={selectedCount > 0 ? handleBulkMoveToPendingReview : undefined}
+          onBulkMoveToPendingReview={
+            !isSandbox && selectedCount > 0 ? handleBulkMoveToPendingReview : undefined
+          }
           onBulkCategorize={
-            selectedCount > 0
+            !isSandbox && selectedCount > 0
               ? () => {
                   const ids = Array.from(multiSelectIds)
                   if (ids.length) {
@@ -4676,7 +4662,7 @@ export default function EmailInboxView({
               messageId={selectedMessageId}
               message={selectedMessage}
               onSendDraft={handleSendDraft}
-              onArchive={archiveMessages}
+              onArchive={isSandbox ? undefined : archiveMessages}
               onDelete={deleteMessages}
               onCollapsedChange={setAiPanelCollapsed}
             />

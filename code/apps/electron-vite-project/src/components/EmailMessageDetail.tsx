@@ -1346,14 +1346,16 @@ export default function EmailMessageDetail({
               >
                 {message.starred === 1 ? '★' : '☆'}
               </button>
-              <button
-                type="button"
-                onClick={handleArchive}
-                className="inbox-detail-toolbar-text-btn"
-                aria-label="Archive"
-              >
-                Archive
-              </button>
+              {!detailIsSandbox ? (
+                <button
+                  type="button"
+                  onClick={handleArchive}
+                  className="inbox-detail-toolbar-text-btn"
+                  aria-label="Archive"
+                >
+                  Archive
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={handleDelete}
