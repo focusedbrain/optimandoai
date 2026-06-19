@@ -17,6 +17,9 @@ import {
   PAUSED_HINT,
   DELEGATED_HINT,
   TRIGGER_FAILED_HINT,
+  TRIGGER_UNREACHABLE_HINT,
+  TRIGGER_READ_CONSENT_MISSING_HINT,
+  TRIGGER_FETCH_FAILED_HINT,
   formatIngestionPollTriggerPullHint,
   mapIngestionPollTriggerHostFeedback,
 } from '../ipcSyncResultShape'
@@ -91,12 +94,13 @@ describe('mapSkipReasonToIpcWarning — delegated copy contract (UX-1 D2)', () =
 })
 
 describe('mapSkipReasonToIpcWarning — dedicated host trigger', () => {
-  it('ingestion_trigger_failed → actionable error copy', () => {
+  it('ingestion_trigger_failed → loud unreachable copy', () => {
     const r = mapSkipReasonToIpcWarning('ingestion_trigger_failed')
     expect(r.isSkip).toBe(true)
     if (!r.isSkip) throw new Error('type narrowing')
     expect(r.hint).toBe(TRIGGER_FAILED_HINT)
-    expect(r.msg).toContain('sandbox')
+    expect(r.msg).toContain('unreachable')
+    expect(r.msg).toContain('mail was not synced')
   })
 
   it('ingestion_triggered_to_sandbox is not a skip (success path uses pullHint)', () => {
@@ -115,10 +119,34 @@ describe('mapIngestionPollTriggerHostFeedback', () => {
       held: 0,
     })
     expect(r.ok).toBe(false)
-    expect(r.syncWarnings[0]).toContain('read-only account on the sandbox')
+    expect(r.syncWarnings[0]).toBe(TRIGGER_READ_CONSENT_MISSING_HINT)
+    expect(r.syncWarnings[0]).toContain('no read account configured')
   })
 
-  it('held_fetch_failed → unreachable warning distinct from missing account', () => {
+  it('trigger_unreachable → loud unreachable copy distinct from fetch failed', () => {
+    const unreachable = mapIngestionPollTriggerHostFeedback({
+      requestId: 'req-2a',
+      pollStatus: 'trigger_unreachable',
+      fetched: 0,
+      depackaged: 0,
+      delivered: 0,
+      held: 0,
+    })
+    const fetchFailed = mapIngestionPollTriggerHostFeedback({
+      requestId: 'req-2b',
+      pollStatus: 'held_fetch_failed',
+      fetched: 0,
+      depackaged: 0,
+      delivered: 0,
+      held: 0,
+    })
+    expect(unreachable.ok).toBe(false)
+    expect(unreachable.syncWarnings[0]).toBe(TRIGGER_UNREACHABLE_HINT)
+    expect(fetchFailed.syncWarnings[0]).toBe(TRIGGER_FETCH_FAILED_HINT)
+    expect(unreachable.syncWarnings[0]).not.toBe(fetchFailed.syncWarnings[0])
+  })
+
+  it('held_fetch_failed → distinct fetch failure copy', () => {
     const missing = mapIngestionPollTriggerHostFeedback({
       requestId: 'req-1',
       pollStatus: 'held_read_consent_missing',

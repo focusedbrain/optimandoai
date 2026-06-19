@@ -159,13 +159,11 @@ export async function resolveIngestionStatus(accountIds: readonly string[]): Pro
 
   // ── Dedicated delegated host — learn sandbox state from trigger acks (PROMPT 4) ─
   if (ownership.thisNodeRole === 'host' && !ownership.hostShouldReadPoll) {
-    if (sandboxTopologyKind === 'dedicated') {
-      if (hostAckIndicatesMissingReadProvider(hostTriggerAcks, accountIds)) {
-        return { ...base, code: 'ACTION_NEEDED_READ_CONSENT' }
-      }
-      if (hostAckIndicatesPollUnreachable(hostTriggerAcks, accountIds)) {
-        return { ...base, code: 'PAUSED_SANDBOX_UNREACHABLE' }
-      }
+    if (hostAckIndicatesMissingReadProvider(hostTriggerAcks, accountIds)) {
+      return { ...base, code: 'ACTION_NEEDED_READ_CONSENT' }
+    }
+    if (hostAckIndicatesPollUnreachable(hostTriggerAcks, accountIds)) {
+      return { ...base, code: 'PAUSED_SANDBOX_UNREACHABLE' }
     }
     return { ...base, code: 'PAUSED_HOST_DELEGATED' }
   }

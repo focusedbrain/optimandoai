@@ -36,7 +36,9 @@ import {
 
 // ── Copy ─────────────────────────────────────────────────────────────────────
 
-const COPY: Partial<Record<IngestionStatusCode, { title: string; detail: string; level: 'warn' | 'degraded' }>> = {
+const COPY: Partial<
+  Record<IngestionStatusCode, { title: string; detail: string; level: 'warn' | 'degraded' | 'error' }>
+> = {
   ACTION_NEEDED_READ_CONSENT: {
     title: 'Headless ingestion paused',
     detail:
@@ -44,9 +46,9 @@ const COPY: Partial<Record<IngestionStatusCode, { title: string; detail: string;
     level: 'warn',
   },
   PAUSED_SANDBOX_UNREACHABLE: {
-    title: 'Headless ingestion paused',
-    detail: 'Your sandbox device is unreachable. Check that it is online and the handshake is active.',
-    level: 'warn',
+    title: 'Sandbox unreachable',
+    detail: 'Your sandbox device is unreachable. Mail was not synced — check that it is online and the handshake is active.',
+    level: 'error',
   },
   DEGRADED_HELD_MESSAGES: {
     title: 'Some messages were held',
@@ -56,7 +58,7 @@ const COPY: Partial<Record<IngestionStatusCode, { title: string; detail: string;
   },
 }
 
-function copyForStatus(status: IngestionStatusResult): { title: string; detail: string; level: 'warn' | 'degraded' } | null {
+function copyForStatus(status: IngestionStatusResult): { title: string; detail: string; level: 'warn' | 'degraded' | 'error' } | null {
   const base = COPY[status.code]
   if (!base) return null
 
@@ -97,6 +99,8 @@ function copyForStatus(status: IngestionStatusResult): { title: string; detail: 
 
 const WARN_BG = 'rgba(251,191,36,0.12)'
 const WARN_BORDER = 'rgba(251,191,36,0.35)'
+const ERR_BG = 'rgba(239,68,68,0.12)'
+const ERR_BORDER = 'rgba(239,68,68,0.4)'
 const WARN_TITLE_COLOR = 'var(--text-primary, var(--text-primary-prof, #0f172a))'
 const WARN_DETAIL_COLOR = 'var(--text-secondary, var(--text-secondary-prof, #374151))'
 
@@ -126,19 +130,20 @@ export function IngestionStatusBanner({ status, onConnectReadAccount }: Props) {
   const copy = copyForStatus(status)
   if (!copy) return null  // OK states or unknown → no banner
 
+  const isError = copy.level === 'error'
   const isWarn = copy.level === 'warn'
 
   return (
     <div
-      role="status"
-      aria-live="polite"
+      role={isError ? 'alert' : 'status'}
+      aria-live={isError ? 'assertive' : 'polite'}
       data-testid="ingestion-status-banner"
       data-ingestion-code={status.code}
       style={{
         padding: '10px 12px',
         fontSize: 12,
-        background: isWarn ? WARN_BG : DEGRADED_BG,
-        borderBottom: `1px solid ${isWarn ? WARN_BORDER : DEGRADED_BORDER}`,
+        background: isError ? ERR_BG : isWarn ? WARN_BG : DEGRADED_BG,
+        borderBottom: `1px solid ${isError ? ERR_BORDER : isWarn ? WARN_BORDER : DEGRADED_BORDER}`,
         color: WARN_TITLE_COLOR,
       }}
     >

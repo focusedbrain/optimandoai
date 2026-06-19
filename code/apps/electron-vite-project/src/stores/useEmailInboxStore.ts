@@ -23,6 +23,14 @@ import {
   getAutosortDiagRunId,
 } from '../lib/autosortDiagnostics'
 
+function notifyIngestionStatusRefresh(): void {
+  try {
+    window.dispatchEvent(new CustomEvent('inbox-sync-complete'))
+  } catch {
+    /* ignore */
+  }
+}
+
 export type { InboxMessageKindFilter }
 export { coerceInboxMessageKindFilter, deriveInboxMessageKind, messageMatchesKindFilter } from '../lib/inboxMessageKind'
 
@@ -1761,6 +1769,8 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         error: null,
         lastSyncWarnings: [`[${accountId}] ${msg}`],
       })
+    } finally {
+      notifyIngestionStatusRefresh()
     }
   },
 
@@ -1870,6 +1880,8 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         error: null,
         lastSyncWarnings: [`[${accountId}] ${msg}`],
       })
+    } finally {
+      notifyIngestionStatusRefresh()
     }
   },
 
@@ -2020,6 +2032,8 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         error: err instanceof Error ? err.message : 'Sync failed',
         lastSyncWarnings: null,
       })
+    } finally {
+      notifyIngestionStatusRefresh()
     }
   },
 

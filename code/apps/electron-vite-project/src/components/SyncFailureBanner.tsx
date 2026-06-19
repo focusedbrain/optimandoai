@@ -8,6 +8,8 @@ import {
 
 const MUTED = 'var(--text-secondary, #64748b)'
 const PRIMARY = 'var(--text-primary, var(--text-primary-prof, #0f172a))'
+const ERR_BG = 'rgba(239,68,68,0.12)'
+const ERR_BORDER = 'rgba(239,68,68,0.4)'
 
 type AccountLite = {
   id: string
@@ -81,9 +83,14 @@ export function SyncFailureBanner({ warnings, accounts, onUpdateCredentials, onR
   }, [warnings, accounts])
 
   const delegatedRows = rows.filter((r) => r.kind === 'delegated')
-  const failureRows = rows.filter((r) => r.kind !== 'delegated')
+  const ingestionRows = rows.filter((r) =>
+    r.kind === 'sandbox_unreachable' || r.kind === 'sandbox_no_read' || r.kind === 'sandbox_fetch_failed',
+  )
+  const failureRows = rows.filter(
+    (r) => r.kind !== 'delegated' && !ingestionRows.includes(r),
+  )
 
-  if (delegatedRows.length === 0 && failureRows.length === 0) return null
+  if (delegatedRows.length === 0 && failureRows.length === 0 && ingestionRows.length === 0) return null
 
   return (
     <>
@@ -117,6 +124,55 @@ export function SyncFailureBanner({ warnings, accounts, onUpdateCredentials, onR
                 <div style={{ fontSize: 10, color: MUTED, marginTop: 4, lineHeight: 1.4 }}>
                   Inbound mail is fetched on your sandbox device. This host account is for outbound mail only.
                 </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {ingestionRows.length > 0 ? (
+        <div
+          role="alert"
+          aria-live="assertive"
+          data-testid="sync-failure-ingestion-alert"
+          style={{
+            padding: '10px 12px',
+            fontSize: 12,
+            color: PRIMARY,
+            background: ERR_BG,
+            borderBottom: `1px solid ${ERR_BORDER}`,
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 8, color: PRIMARY }}>Sandbox sync failed</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {ingestionRows.map((r) => (
+              <div
+                key={r.key}
+                data-sync-failure-kind={r.kind}
+                style={{
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  background: 'var(--bg-elevated, rgba(255,255,255,0.75))',
+                  border: `1px solid ${ERR_BORDER}`,
+                  color: PRIMARY,
+                }}
+              >
+                <div style={{ fontSize: 11, lineHeight: 1.45 }}>
+                  <strong>{r.email}</strong>: {r.message}
+                </div>
+                {r.kind === 'sandbox_unreachable' ? (
+                  <div style={{ fontSize: 10, color: MUTED, marginTop: 4, lineHeight: 1.4 }}>
+                    Mail was not synced on this Sync. Start the sandbox app and confirm the internal handshake is active.
+                  </div>
+                ) : r.kind === 'sandbox_no_read' ? (
+                  <div style={{ fontSize: 10, color: MUTED, marginTop: 4, lineHeight: 1.4 }}>
+                    The host reached the sandbox, but no read-only mailbox is configured there yet.
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 10, color: MUTED, marginTop: 4, lineHeight: 1.4 }}>
+                    The sandbox is reachable but could not pull mail from the provider.
+                  </div>
+                )}
               </div>
             ))}
           </div>

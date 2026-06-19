@@ -2,6 +2,13 @@
  * Parse sync warning lines like `[account-uuid] listMessages INBOX: authentication failed`
  * (see useEmailInboxStore syncAllAccounts).
  */
+import {
+  TRIGGER_FAILED_HINT,
+  TRIGGER_UNREACHABLE_HINT,
+  TRIGGER_READ_CONSENT_MISSING_HINT,
+  TRIGGER_FETCH_FAILED_HINT,
+} from '../../electron/main/email/ipcSyncResultShape'
+
 export function parseBracketedAccountSyncMessage(line: string): { accountId: string; message: string } | null {
   const m = line.match(/^\[([^\]]+)\]\s*(.*)$/)
   if (!m) return null
@@ -22,7 +29,31 @@ export function isDelegatedSyncMessage(message: string): boolean {
   return (message || '').includes(DELEGATED_SYNC_MARKER)
 }
 
-export type SyncFailureKind = 'auth' | 'tls' | 'network' | 'timeout' | 'generic' | 'delegated'
+export type SyncFailureKind =
+  | 'auth'
+  | 'tls'
+  | 'network'
+  | 'timeout'
+  | 'generic'
+  | 'delegated'
+  | 'sandbox_unreachable'
+  | 'sandbox_no_read'
+  | 'sandbox_fetch_failed'
+
+function matchesIngestionTriggerCopy(message: string, copy: string): boolean {
+  const m = (message || '').trim()
+  const c = copy.trim()
+  return m === c || m.includes(c)
+}
+
+/** Classify dedicated-host ingestion trigger outcomes surfaced via syncWarnings. */
+export function classifyIngestionTriggerSyncMessage(message: string): SyncFailureKind | null {
+  if (matchesIngestionTriggerCopy(message, TRIGGER_UNREACHABLE_HINT)) return 'sandbox_unreachable'
+  if (matchesIngestionTriggerCopy(message, TRIGGER_FAILED_HINT)) return 'sandbox_unreachable'
+  if (matchesIngestionTriggerCopy(message, TRIGGER_READ_CONSENT_MISSING_HINT)) return 'sandbox_no_read'
+  if (matchesIngestionTriggerCopy(message, TRIGGER_FETCH_FAILED_HINT)) return 'sandbox_fetch_failed'
+  return null
+}
 
 /**
  * Classify a sync warning line for inbox UI (auth vs TLS vs network vs timeout vs generic).
@@ -30,6 +61,8 @@ export type SyncFailureKind = 'auth' | 'tls' | 'network' | 'timeout' | 'generic'
  */
 export function classifySyncFailureMessage(message: string): SyncFailureKind {
   const raw = message || ''
+  const ingestionKind = classifyIngestionTriggerSyncMessage(raw)
+  if (ingestionKind) return ingestionKind
   if (isDelegatedSyncMessage(raw)) return 'delegated'
   if (isAuthSyncFailureMessage(raw)) return 'auth'
   const m = raw.toLowerCase()

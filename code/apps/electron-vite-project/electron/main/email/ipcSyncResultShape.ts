@@ -29,8 +29,20 @@ export const HOST_TRIGGERED_HINT =
 export const TRIGGER_SUCCESS_HINT =
   'Sandbox ingestion poll triggered on your paired sandbox device. New mail arrives via the normal delivery path.'
 
+/** Transport / link-down before sandbox ack (E_INGESTION_POLL_LINK_DOWN). */
 export const TRIGGER_FAILED_HINT =
-  'Could not reach your paired sandbox to run an ingestion poll. Check that the sandbox is online and the internal handshake is active, then try Sync again.'
+  'Sandbox device unreachable — mail was not synced. Check the sandbox is on, logged in, and connected, then try Sync again.'
+
+/** Sandbox ack: HTTP reached sandbox but poll_status = trigger_unreachable. */
+export const TRIGGER_UNREACHABLE_HINT = TRIGGER_FAILED_HINT
+
+/** Sandbox ack: read consent / read account missing on sandbox. */
+export const TRIGGER_READ_CONSENT_MISSING_HINT =
+  'Sandbox has no read account configured — set up a read-only email account on the sandbox device to receive mail.'
+
+/** Sandbox ack: sandbox ran poll but provider fetch failed. */
+export const TRIGGER_FETCH_FAILED_HINT =
+  'Sandbox could not fetch mail — check the sandbox is online and the read account credentials are valid.'
 
 export interface IngestionPollTriggerCounts {
   requestId: string
@@ -52,14 +64,25 @@ export function mapIngestionPollTriggerHostFeedback(trigger: IngestionPollTrigge
   syncWarnings: string[]
 } {
   if (trigger.pollStatus === 'held_read_consent_missing') {
-    const msg =
-      'The sandbox device has no email account set up — set up a read-only account on the sandbox to receive mail.'
-    return { ok: false, pullHint: msg, syncWarnings: [msg] }
+    return {
+      ok: false,
+      pullHint: TRIGGER_READ_CONSENT_MISSING_HINT,
+      syncWarnings: [TRIGGER_READ_CONSENT_MISSING_HINT],
+    }
   }
-  if (trigger.pollStatus === 'held_fetch_failed' || trigger.pollStatus === 'trigger_unreachable') {
-    const msg =
-      'Your sandbox device could not fetch mail. Check that it is online, the internal handshake is active, and the read account is connected on the sandbox.'
-    return { ok: false, pullHint: msg, syncWarnings: [msg] }
+  if (trigger.pollStatus === 'trigger_unreachable') {
+    return {
+      ok: false,
+      pullHint: TRIGGER_UNREACHABLE_HINT,
+      syncWarnings: [TRIGGER_UNREACHABLE_HINT],
+    }
+  }
+  if (trigger.pollStatus === 'held_fetch_failed') {
+    return {
+      ok: false,
+      pullHint: TRIGGER_FETCH_FAILED_HINT,
+      syncWarnings: [TRIGGER_FETCH_FAILED_HINT],
+    }
   }
   return {
     ok: true,

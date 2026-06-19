@@ -30,7 +30,7 @@ vi.mock('../sandboxIngestion', () => ({
 }))
 
 import { resolveIngestionStatus, type IngestionStatusResult, _setIngestionStatusTopologyKindForTests } from '../ingestionStatus'
-import { _resetHostIngestionPollAcksForTests, recordHostIngestionPollAck } from '../ingestionPollTrigger/hostAckStore'
+import { _resetHostIngestionPollAcksForTests, recordHostIngestionPollAck, recordHostIngestionPollUnreachable } from '../ingestionPollTrigger/hostAckStore'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -352,6 +352,34 @@ describe('resolveIngestionStatus — IngestionStatusCode mapping', () => {
 
     const res = await resolveIngestionStatus(['acc-host'])
     expect(res.code).toBe('PAUSED_SANDBOX_UNREACHABLE')
+  })
+
+  it('single_machine delegated host learns trigger_unreachable from ack', async () => {
+    _setIngestionStatusTopologyKindForTests('single_machine')
+    mockResolveIngestionOwnership.mockReturnValue(delegatedOwnershipOnHost())
+    recordHostIngestionPollUnreachable('acc-host', 'req-unreach')
+
+    const res = await resolveIngestionStatus(['acc-host'])
+    expect(res.code).toBe('PAUSED_SANDBOX_UNREACHABLE')
+    expect(res.sandboxTopologyKind).toBe('single_machine')
+  })
+
+  it('single_machine delegated host learns missing read account from ack', async () => {
+    _setIngestionStatusTopologyKindForTests('single_machine')
+    mockResolveIngestionOwnership.mockReturnValue(delegatedOwnershipOnHost())
+    recordHostIngestionPollAck({
+      accountId: 'acc-host',
+      requestId: 'req-consent',
+      pollStatus: 'held_read_consent_missing',
+      fetched: 0,
+      depackaged: 0,
+      delivered: 0,
+      held: 0,
+      at: Date.now(),
+    })
+
+    const res = await resolveIngestionStatus(['acc-host'])
+    expect(res.code).toBe('ACTION_NEEDED_READ_CONSENT')
   })
 
   it('dedicated delegated host with ok trigger ack stays quiet', async () => {

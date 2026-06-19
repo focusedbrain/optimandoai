@@ -52,6 +52,8 @@ export interface IngestionTopologyStatus {
 type ExplainerScenario =
   | 'host_delegated_with_accounts'
   | 'host_delegated_no_accounts'
+  | 'host_sandbox_unreachable'
+  | 'host_sandbox_needs_read'
   | 'sandbox_receiving'
   | 'sandbox_degraded'
   | 'sandbox_needs_consent'
@@ -60,10 +62,18 @@ function deriveScenario(
   status: IngestionTopologyStatus,
   hasAccounts: boolean,
 ): ExplainerScenario | null {
-  const { code } = status
+  const { code, thisNodeRole } = status
 
   // Single-machine: never show dual-setup wording
   if (code === 'OK_SINGLE_MACHINE') return null
+
+  if (code === 'PAUSED_SANDBOX_UNREACHABLE' && thisNodeRole === 'host') {
+    return 'host_sandbox_unreachable'
+  }
+
+  if (code === 'ACTION_NEEDED_READ_CONSENT' && thisNodeRole === 'host') {
+    return 'host_sandbox_needs_read'
+  }
 
   if (code === 'PAUSED_HOST_DELEGATED') {
     return hasAccounts ? 'host_delegated_with_accounts' : 'host_delegated_no_accounts'
@@ -140,6 +150,13 @@ export const IngestionTopologyExplainer: React.FC<IngestionTopologyExplainerProp
     color: mutedColor,
   }
 
+  const errorStyle: React.CSSProperties = {
+    ...containerStyle,
+    background: isLight ? 'rgba(239,68,68,0.08)' : 'rgba(248,113,113,0.1)',
+    borderLeft: '3px solid rgba(239,68,68,0.45)',
+    color: mutedColor,
+  }
+
   const chipStyle: React.CSSProperties = {
     display: 'inline-flex',
     alignItems: 'center',
@@ -164,6 +181,50 @@ export const IngestionTopologyExplainer: React.FC<IngestionTopologyExplainerProp
     cursor: 'pointer',
     background: isLight ? '#3b82f6' : 'rgba(99,179,237,0.25)',
     color: isLight ? '#fff' : 'rgba(147,210,255,1)',
+  }
+
+  // ── Host: sandbox unreachable after trigger (loud — not "pending read account") ─
+  if (scenario === 'host_sandbox_unreachable') {
+    return (
+      <div style={errorStyle} aria-label="Sandbox unreachable on host sync" role="alert">
+        <span style={{ color: textColor, fontWeight: 600 }}>🖥 Host device (sends mail)</span>
+        <span>
+          Sandbox device unreachable — mail was not synced. Check the sandbox is on, logged in, and connected,
+          then try Sync again.
+        </span>
+        <span
+          style={{
+            ...chipStyle,
+            background: isLight ? 'rgba(239,68,68,0.12)' : 'rgba(248,113,113,0.16)',
+            color: isLight ? '#991b1b' : '#fca5a5',
+          }}
+        >
+          ✕ Sandbox unreachable — mail not synced
+        </span>
+      </div>
+    )
+  }
+
+  // ── Host: sandbox reached but no read account configured ───────────────────
+  if (scenario === 'host_sandbox_needs_read') {
+    return (
+      <div style={actionStyle} aria-label="Sandbox read account needed on host">
+        <span style={{ color: textColor, fontWeight: 600 }}>🖥 Host device (sends mail)</span>
+        <span>
+          The sandbox has no read account configured. Set up a read-only email account on the sandbox device
+          so it can depackage inbound mail when you Sync from this host.
+        </span>
+        <span
+          style={{
+            ...chipStyle,
+            background: isLight ? 'rgba(234,179,8,0.13)' : 'rgba(234,179,8,0.16)',
+            color: isLight ? '#854d0e' : '#fbbf24',
+          }}
+        >
+          ⚠ Sandbox read account needed
+        </span>
+      </div>
+    )
   }
 
   // ── #3: Host, delegation steady-state, account connected ─────────────────

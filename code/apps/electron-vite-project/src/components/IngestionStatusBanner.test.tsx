@@ -55,7 +55,7 @@ describe('IngestionStatusBanner — actionable states render correct copy', () =
       />,
     )
     expect(html).toContain('Sandbox read account needed')
-    expect(html).toContain('no read-only email account')
+    expect(html).toContain('no read account configured')
     expect(html).not.toContain('ingestion-banner-connect-cta')
   })
 
@@ -73,12 +73,13 @@ describe('IngestionStatusBanner — actionable states render correct copy', () =
     expect(html).toContain('Connect a read-only email account here')
   })
 
-  it('PAUSED_SANDBOX_UNREACHABLE: title + detail about unreachable sandbox', () => {
+  it('PAUSED_SANDBOX_UNREACHABLE: loud alert copy about unreachable sandbox', () => {
     const html = renderToStaticMarkup(
       <IngestionStatusBanner status={makeStatus('PAUSED_SANDBOX_UNREACHABLE')} />,
     )
-    expect(html).toContain('Headless ingestion paused')
-    expect(html).toContain('unreachable')
+    expect(html).toContain('Sandbox unreachable')
+    expect(html).toContain('Mail was not synced')
+    expect(html).toContain('role="alert"')
     expect(html).toContain('data-ingestion-code="PAUSED_SANDBOX_UNREACHABLE"')
   })
 

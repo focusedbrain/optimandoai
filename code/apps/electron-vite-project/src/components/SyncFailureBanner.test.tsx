@@ -87,4 +87,34 @@ describe('SyncFailureBanner', () => {
     expect(html).not.toContain('web.de')
     expect(html).not.toContain('imap.web.de')
   })
+
+  it('shows loud sandbox unreachable alert when trigger transport fails', () => {
+    const html = renderToStaticMarkup(
+      <SyncFailureBanner
+        warnings={['[acc-host] Sandbox device unreachable — mail was not synced. Check the sandbox is on, logged in, and connected, then try Sync again.']}
+        accounts={[{ id: 'acc-host', email: 'user@gmail.com', provider: 'gmail' }]}
+        onUpdateCredentials={() => {}}
+        onRemoveAccount={() => {}}
+      />,
+    )
+    expect(html).toContain('data-testid="sync-failure-ingestion-alert"')
+    expect(html).toContain('role="alert"')
+    expect(html).toContain('Sandbox sync failed')
+    expect(html).toContain('mail was not synced')
+    expect(html).toContain('data-sync-failure-kind="sandbox_unreachable"')
+    expect(html).not.toContain('pending read account')
+  })
+
+  it('shows distinct no-read-account state when sandbox lacks read consent', () => {
+    const html = renderToStaticMarkup(
+      <SyncFailureBanner
+        warnings={['[acc-host] Sandbox has no read account configured — set up a read-only email account on the sandbox device to receive mail.']}
+        accounts={[{ id: 'acc-host', email: 'user@gmail.com', provider: 'gmail' }]}
+        onUpdateCredentials={() => {}}
+        onRemoveAccount={() => {}}
+      />,
+    )
+    expect(html).toContain('data-sync-failure-kind="sandbox_no_read"')
+    expect(html).toContain('no read-only mailbox is configured')
+  })
 })

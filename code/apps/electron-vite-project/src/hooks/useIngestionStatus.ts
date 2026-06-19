@@ -126,11 +126,13 @@ export function useIngestionStatus({
     window.addEventListener('orchestrator-mode-changed', onEvent)
     window.addEventListener('handshake-list-refresh', onEvent)
     window.addEventListener('email-account-connected', onEvent)
+    window.addEventListener('inbox-sync-complete', onEvent)
     document.addEventListener('visibilitychange', onVis)
     return () => {
       window.removeEventListener('orchestrator-mode-changed', onEvent)
       window.removeEventListener('handshake-list-refresh', onEvent)
       window.removeEventListener('email-account-connected', onEvent)
+      window.removeEventListener('inbox-sync-complete', onEvent)
       document.removeEventListener('visibilitychange', onVis)
     }
   }, [fetch, scheduleNext])

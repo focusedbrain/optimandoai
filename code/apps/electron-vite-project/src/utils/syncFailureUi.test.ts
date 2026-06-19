@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { classifySyncFailureMessage, parseBracketedAccountSyncMessage, isDelegatedSyncMessage, DELEGATED_SYNC_MARKER, buildTlsSyncFailureCopy } from './syncFailureUi'
+import { classifySyncFailureMessage, parseBracketedAccountSyncMessage, isDelegatedSyncMessage, DELEGATED_SYNC_MARKER, buildTlsSyncFailureCopy, classifyIngestionTriggerSyncMessage } from './syncFailureUi'
+import { TRIGGER_FAILED_HINT, TRIGGER_READ_CONSENT_MISSING_HINT, TRIGGER_FETCH_FAILED_HINT } from '../../electron/main/email/ipcSyncResultShape'
 import { DELEGATED_HINT } from '../../electron/main/email/ipcSyncResultShape'
 
 describe('parseBracketedAccountSyncMessage', () => {
@@ -98,5 +99,20 @@ describe('buildTlsSyncFailureCopy', () => {
     })
     expect(copy.lead).toContain('IMAP')
     expect(copy.hint).not.toContain('web.de')
+  })
+})
+
+describe('classifyIngestionTriggerSyncMessage', () => {
+  it('classifies transport unreachable as sandbox_unreachable', () => {
+    expect(classifyIngestionTriggerSyncMessage(TRIGGER_FAILED_HINT)).toBe('sandbox_unreachable')
+    expect(classifySyncFailureMessage(TRIGGER_FAILED_HINT)).toBe('sandbox_unreachable')
+  })
+
+  it('classifies missing read consent distinctly from fetch failed', () => {
+    expect(classifyIngestionTriggerSyncMessage(TRIGGER_READ_CONSENT_MISSING_HINT)).toBe('sandbox_no_read')
+    expect(classifyIngestionTriggerSyncMessage(TRIGGER_FETCH_FAILED_HINT)).toBe('sandbox_fetch_failed')
+    expect(classifyIngestionTriggerSyncMessage(TRIGGER_READ_CONSENT_MISSING_HINT)).not.toBe(
+      classifyIngestionTriggerSyncMessage(TRIGGER_FETCH_FAILED_HINT),
+    )
   })
 })
