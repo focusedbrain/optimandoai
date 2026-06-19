@@ -18,6 +18,7 @@ import type {
   CapsuleType,
 } from './types.js';
 import { INGESTION_CONSTANTS } from './types.js';
+import { SEALED_SERVICE_RPC_CAPSULE_TYPE } from './sealedServiceRpcConstants.js';
 
 const VALID_CAPSULE_TYPES = new Set([
   'accept',
@@ -26,6 +27,7 @@ const VALID_CAPSULE_TYPES = new Set([
   'internal_draft',
   'refresh',
   'revoke',
+  SEALED_SERVICE_RPC_CAPSULE_TYPE,
 ]);
 
 const MESSAGE_PACKAGE_REQUIRED_TOP_LEVEL = ['header', 'metadata'] as const;
@@ -99,6 +101,16 @@ const REQUIRED_FIELDS_BY_TYPE: Record<string, RequiredFieldSpec[]> = {
     { field: 'sender_signature' },
   ],
   internal_draft: [{ field: 'timestamp' }],
+  [SEALED_SERVICE_RPC_CAPSULE_TYPE]: [
+    { field: 'handshake_id' },
+    { field: 'sender_device_id' },
+    { field: 'receiver_device_id' },
+    { field: 'envelope_type' },
+    { field: 'sender_ephemeral_x25519_pub_b64' },
+    { field: 'salt_b64' },
+    { field: 'nonce_b64' },
+    { field: 'ciphertext_b64' },
+  ],
 };
 
 const HEX_REGEX = /^[0-9a-fA-F]+$/;
@@ -709,7 +721,7 @@ export function validateCapsule(candidate: CandidateCapsuleEnvelope): Validation
   }
 }
 
-const RELAY_HANDSHAKE_CAPSULE_TYPES = new Set(['accept', 'context_sync', 'refresh', 'revoke', 'initiate']);
+const RELAY_HANDSHAKE_CAPSULE_TYPES = new Set(['accept', 'context_sync', 'refresh', 'revoke', 'initiate', 'sealed_service_rpc_v1']);
 
 /** Matches `hasEncryptedMessagePackageBody` in beapDetection — native wire encrypted artefacts. */
 function hasMessagePackageEncryptedBody(obj: Record<string, unknown>): boolean {
@@ -910,12 +922,19 @@ function runValidation(candidate: CandidateCapsuleEnvelope): ValidationResult {
     }
   }
 
-  if (capsuleType !== 'internal_draft') {
+  if (capsuleType !== 'internal_draft' && capsuleType !== SEALED_SERVICE_RPC_CAPSULE_TYPE) {
     if (!('capsule_hash' in obj) || typeof obj.capsule_hash !== 'string') {
       return fail('CRYPTOGRAPHIC_FIELD_MISSING', 'capsule_hash is required');
     }
     if (!('sender_id' in obj) || typeof obj.sender_id !== 'string') {
       return fail('CRYPTOGRAPHIC_FIELD_MISSING', 'sender_id is required');
+    }
+  }
+
+  if (capsuleType === SEALED_SERVICE_RPC_CAPSULE_TYPE) {
+    const et = obj.envelope_type;
+    if (typeof et !== 'string' || et.trim() !== SEALED_SERVICE_RPC_CAPSULE_TYPE) {
+      return fail('INVALID_ENUM_VALUE', 'envelope_type must equal sealed_service_rpc_v1');
     }
   }
 

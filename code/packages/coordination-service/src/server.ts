@@ -730,7 +730,8 @@ function createRequestHandler(
         // ── P2 sandbox-egress backstop (deepest guard, defense-in-depth) ──────────
         // Resolve sender_device_id -> registry role. A sandbox-role device is
         // data-plane receive-only: it may emit ONLY the allowlist (handshake
-        // lifecycle, context_sync, inference, sandbox_email_delivery, p2p_signal).
+        // lifecycle, context_sync, inference, sandbox_email_delivery, p2p_signal,
+        // sealed_service_rpc_v1).
         // Any data-plane capsule (native BEAP message_package / non-allowlisted type)
         // from a sandbox device is refused here even if it forged past the app layer.
         // Discriminate by role+type — never blanket-reject sandbox traffic.
@@ -812,7 +813,7 @@ function createRequestHandler(
         // External (cross-user) initiates must still be delivered out-of-band
         // (file/email/USB) — they are rejected here with 400.
         if (!isMessagePackage) {
-          const RELAY_ALLOWED_TYPES = ['accept', 'context_sync', 'refresh', 'revoke', 'inference:chat', 'inference:response', 'initiate']
+          const RELAY_ALLOWED_TYPES = ['accept', 'context_sync', 'refresh', 'revoke', 'inference:chat', 'inference:response', 'initiate', 'sealed_service_rpc_v1']
           const capsuleType = typeof parsed?.capsule_type === 'string' ? parsed.capsule_type : ''
           if (!RELAY_ALLOWED_TYPES.includes(capsuleType)) {
             sendError(res, 400, {

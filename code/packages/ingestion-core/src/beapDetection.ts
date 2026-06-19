@@ -90,7 +90,7 @@ export function hasEncryptedMessagePackageBody(obj: Record<string, unknown>): bo
  * Handshake capsules that use `capsule_type` at top level (relay gate on coordination).
  * Native BEAP wire must NOT use these strings — otherwise it is classified as handshake, not wire.
  */
-const RELAY_HANDSHAKE_CAPSULE_TYPES = new Set(['accept', 'context_sync', 'refresh', 'revoke', 'initiate']);
+const RELAY_HANDSHAKE_CAPSULE_TYPES = new Set(['accept', 'context_sync', 'refresh', 'revoke', 'initiate', 'sealed_service_rpc_v1']);
 
 /**
  * Detect qBEAP/pBEAP message packages: header + metadata + (envelope | payload | encrypted body).

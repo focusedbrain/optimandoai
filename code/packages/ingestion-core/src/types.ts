@@ -84,6 +84,7 @@ export type CapsuleType =
   | 'revoke'
   | 'context_sync'
   | 'internal_draft'
+  | 'sealed_service_rpc_v1'
   | 'message_package';
 
 /**

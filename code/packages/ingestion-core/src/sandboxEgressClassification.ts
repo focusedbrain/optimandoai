@@ -17,8 +17,17 @@
  */
 
 import { isCoordinationRelayNativeBeap } from './beapDetection.js';
+import { SEALED_SERVICE_RPC_CAPSULE_TYPE } from './sealedServiceRpcConstants.js';
 
-/** The ONLY capsule / service-message types a sandbox-role node may emit outward. */
+/**
+ * The ONLY capsule / service-message types a sandbox-role node may emit outward.
+ *
+ * `sealed_service_rpc_v1` is the opaque relay envelope (A1/A2): the relay and
+ * ingress backstop see only this capsule_type. Which inner service-RPC types a
+ * sandbox may place inside the ciphertext is enforced at seal-construction time
+ * in the app (`assertSandboxMaySealServiceRpcInnerType` in sandboxOutboundPolicy.ts)
+ * — NOT by reading ciphertext on the relay (INV-RELAY-BLIND).
+ */
 export const SANDBOX_OUTBOUND_ALLOWED_TYPES: ReadonlySet<string> = new Set([
   // Handshake lifecycle (control plane)
   'initiate',
@@ -36,6 +45,8 @@ export const SANDBOX_OUTBOUND_ALLOWED_TYPES: ReadonlySet<string> = new Set([
   'sandbox_email_delivery',
   // Metadata-only signaling
   'p2p_signal',
+  // Opaque E2E-sealed service-RPC (inner type gated before seal in app)
+  SEALED_SERVICE_RPC_CAPSULE_TYPE,
 ]);
 
 /**

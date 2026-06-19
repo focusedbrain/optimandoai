@@ -14,7 +14,8 @@ process.env.COORD_TEST_MODE = '1'
  * A sandbox-role device (resolved via sender_device_id -> registry role) is
  * data-plane receive-only: native BEAP / non-allowlisted capsules are refused
  * 403 sandbox_data_egress_forbidden; the allowlist (handshake lifecycle,
- * context_sync [capped], inference, sandbox_email_delivery, p2p_signal) is
+ * context_sync [capped], inference, sandbox_email_delivery, p2p_signal,
+ * sealed_service_rpc_v1) is
  * permitted. Host devices and unknown senders are unaffected. INV-HANDSHAKE:
  * lifecycle capsules from the sandbox are accepted.
  */
@@ -125,6 +126,25 @@ function lifecycleCapsule(
   })
 }
 
+function sealedServiceRpcCapsule(
+  handshakeId: string,
+  senderDeviceId: string,
+  receiverDeviceId: string,
+): string {
+  return JSON.stringify({
+    schema_version: 1,
+    capsule_type: 'sealed_service_rpc_v1',
+    envelope_type: 'sealed_service_rpc_v1',
+    handshake_id: handshakeId,
+    sender_device_id: senderDeviceId,
+    receiver_device_id: receiverDeviceId,
+    sender_ephemeral_x25519_pub_b64: Buffer.alloc(32, 1).toString('base64'),
+    salt_b64: Buffer.alloc(16, 2).toString('base64'),
+    nonce_b64: Buffer.alloc(12, 3).toString('base64'),
+    ciphertext_b64: Buffer.alloc(32, 4).toString('base64'),
+  })
+}
+
 /** Native BEAP message package (data-plane). handshake_id resolved from header binding. */
 function nativeBeapPackage(handshakeId: string, senderDeviceId: string): string {
   return JSON.stringify({
@@ -208,6 +228,18 @@ describe('coordination /beap/capsule — sandbox egress backstop (P2)', () => {
     expect(r.body).not.toContain('sandbox_data_egress_forbidden')
     expect(r.body).not.toContain('sandbox_context_sync_over_cap')
     expect(r.body).not.toContain('sandbox_context_sync_throttled')
+    expect(r.status).not.toBe(403)
+  })
+
+  test('sealed_service_rpc_v1 from sandbox passes egress backstop (opaque; inner type not inspected)', async () => {
+    const hs = 'hs-sbx-sealed'
+    await registerSandboxHandshake(port, hs, 'dev-host-sealed', 'dev-sand-sealed')
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: sealedServiceRpcCapsule(hs, 'dev-sand-sealed', 'dev-host-sealed'),
+      auth: AUTH,
+      contentType: 'application/json',
+    })
+    expect(r.body).not.toContain('sandbox_data_egress_forbidden')
     expect(r.status).not.toBe(403)
   })
 
