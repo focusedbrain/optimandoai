@@ -387,6 +387,19 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
   }
 
   /**
+   * Fail-closed guard (item 4): a cross-device Sandbox→Host context (handshakeId present) must NEVER be
+   * silently served by the Sandbox's own 127.0.0.1 loopback. If a paired remote selection somehow resolved
+   * to a `local_ollama` plan, surface a loud routing error instead of masquerading + hanging ~45s. Genuine
+   * local selections (no handshakeId) keep using loopback below.
+   */
+  if (plan.mode === 'local_ollama' && execCtx?.handshakeId?.trim()) {
+    throw new InferenceRoutingUnavailableError(
+      'cross_device_caps_not_accepted',
+      'sealed_required_no_local_masquerade',
+    )
+  }
+
+  /**
    * Cross-device Sandbox→Host inference goes over the **sealed relay** transport (whole-response
    * capsule). There is no plaintext LAN stream. The sealed result is yielded as a single chunk —
    * the IPC consumer concatenates chunks, so a one-shot final result is tolerated (no UI change).

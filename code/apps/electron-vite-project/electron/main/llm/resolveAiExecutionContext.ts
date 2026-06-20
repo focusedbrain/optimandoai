@@ -18,6 +18,15 @@ import { isCpuSafeModel } from '../inference/inferenceCapabilityResolver'
 
 export const NO_AI_MODEL_SELECTED = 'No AI model selected'
 
+/**
+ * Fail-closed error when a cross-device (same-principal) Sandbox→Host handshake is active and a remote
+ * Host model is selected, but no sealed host target resolves. We surface this loudly instead of silently
+ * downgrading to the Sandbox's own 127.0.0.1 loopback (which does not serve the selected remote model and
+ * would hang for the full timeout). Local loopback stays valid only when there is no cross-device handshake.
+ */
+export const HOST_SEALED_TARGET_UNAVAILABLE =
+  'Host AI is selected, but the paired Host is not reachable over the sealed relay right now.'
+
 /** Host active Ollama model from coordination-delivered peer roster (`peekHostAdvertisedMvpDirectEntry.ollamaRoster`), when it matches remote tags. */
 function preferredModelFromPeerOllamaRoster(handshakeId: string, remoteModels: string[]): string | null {
   const hid = String(handshakeId ?? '').trim()
@@ -280,9 +289,10 @@ export async function resolveAiExecutionContextForLlm(): Promise<ResolveAiExecut
       if (!ctx.handshakeId?.trim()) {
         const fb = await fallbackFromListSandbox(ctx)
         if (fb) return { ok: true, ctx: fb }
-        const local = await tryLocalContext()
-        if (local) return { ok: true, ctx: local }
-        return { ok: false, error: NO_AI_MODEL_SELECTED }
+        // Cross-device Sandbox→Host is active (isEffectiveSandboxSideForAiExecution) and a remote Host
+        // model is selected, but no sealed host target resolved. FAIL CLOSED — do NOT masquerade as the
+        // Sandbox's own 127.0.0.1 loopback (which doesn't serve the selected remote model, hangs ~45s).
+        return { ok: false, error: HOST_SEALED_TARGET_UNAVAILABLE }
       }
       const fb = await fallbackFromListSandbox(ctx)
       if (fb) return { ok: true, ctx: fb }
