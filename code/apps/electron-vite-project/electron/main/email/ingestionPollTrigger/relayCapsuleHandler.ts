@@ -12,7 +12,7 @@ import type { HandshakeRecord, SSOSession } from '../../handshake/types'
 import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
 import { assertSandboxMayReceiveSealedServiceRpcInnerType, assertSandboxMaySealServiceRpcInnerType } from '../../sandbox/sandboxOutboundPolicy'
 import {
-  openServiceRpcPayload,
+  openServiceRpcPayloadResolvingLocalKey,
   sealServiceRpcPayload,
   type SealedServiceRpcEnvelope,
 } from '../../serviceRpc/sealedServiceRpc'
@@ -221,10 +221,10 @@ export async function handleIngestionPollRelayCapsule(
     return
   }
 
-  const opened = openServiceRpcPayload(record, envelope)
+  const opened = await openServiceRpcPayloadResolvingLocalKey(record, envelope)
   if (!opened.ok) {
     console.warn(
-      `[IngestionPollTrigger] sealed relay open failed — not running poll. handshake=${envelope.handshake_id} code=${opened.code}`,
+      `[IngestionPollTrigger] sealed relay request-open-on-sandbox failed — not running poll. handshake=${envelope.handshake_id} code=${opened.code}`,
     )
     ctx.sendAck([ctx.relayMessageId])
     return

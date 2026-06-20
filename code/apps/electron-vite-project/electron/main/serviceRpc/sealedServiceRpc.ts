@@ -113,13 +113,20 @@ export function resolvePeerX25519PubForSeal(record: HandshakeRecord): SealServic
   return { pubB64 }
 }
 
-export function resolveLocalX25519PrivForOpen(record: HandshakeRecord): OpenServiceRpcResult | { privB64: string } {
-  const privB64 = trimNonEmpty(record.local_x25519_private_key_b64)
+export function resolveLocalX25519PrivForOpen(
+  record: HandshakeRecord,
+  fallbackPrivB64?: string | null,
+): OpenServiceRpcResult | { privB64: string } {
+  // Legacy handshakes carry the X25519 private key on the record. Post device-key
+  // migration the private key lives ONLY in the orchestrator-DB device key store, so
+  // the caller resolves it there and passes it as `fallbackPrivB64`. Fail-closed either way.
+  const privB64 = trimNonEmpty(record.local_x25519_private_key_b64) || trimNonEmpty(fallbackPrivB64)
   if (!privB64) {
     return {
       ok: false,
       code: 'E_SEALED_RPC_MISSING_LOCAL_X25519',
-      message: 'local_x25519_private_key_b64 missing on handshake record — cannot open (no plaintext fallback)',
+      message:
+        'local X25519 private key unavailable (handshake record + orchestrator device key store) — cannot open (no plaintext fallback)',
     }
   }
   const priv = decodeX25519PrivB64(privB64)
@@ -255,12 +262,18 @@ export function sealServiceRpcPayload(
 }
 
 /**
- * Open a sealed service-RPC envelope using `local_x25519_private_key_b64`.
- * Mirrors `decryptQuarantineBlob` (quarantine-encrypt/index.ts:137-180).
+ * Open a sealed service-RPC envelope using the local device's X25519 private key.
+ *
+ * The private key is resolved from the handshake record (legacy) or, when absent there,
+ * from `localX25519PrivB64Override` (the orchestrator-DB device key store — see
+ * `openServiceRpcPayloadResolvingLocalKey`). Mirrors `decryptQuarantineBlob`
+ * (quarantine-encrypt/index.ts:137-180). Pure/synchronous: the async key lookup happens
+ * in the resolver wrapper so this stays unit-testable.
  */
 export function openServiceRpcPayload(
   record: HandshakeRecord,
   envelope: SealedServiceRpcEnvelope,
+  localX25519PrivB64Override?: string | null,
 ): OpenServiceRpcResult {
   const shapeErr = validateEnvelopeShape(envelope)
   if (shapeErr) return shapeErr
@@ -274,7 +287,7 @@ export function openServiceRpcPayload(
     }
   }
 
-  const local = resolveLocalX25519PrivForOpen(record)
+  const local = resolveLocalX25519PrivForOpen(record, localX25519PrivB64Override)
   if ('ok' in local && local.ok === false) return local
 
   const privBytes = decodeX25519PrivB64(local.privB64)
@@ -330,4 +343,34 @@ export function openServiceRpcPayload(
     const msg = err instanceof Error ? err.message : String(err)
     return { ok: false, code: 'E_SEALED_RPC_DECRYPT_FAILED', message: msg }
   }
+}
+
+/**
+ * Open a sealed service-RPC envelope, resolving the local device's X25519 private key from
+ * the SAME store the seal path / qBEAP decrypt use (INV-CRYPTO-REUSE):
+ *   1. legacy handshakes keep the private key on the record (`local_x25519_private_key_b64`);
+ *   2. post device-key migration it lives in the orchestrator-DB device key store
+ *      (`getDeviceX25519KeyPair`, key_id `x25519_device_v1`), mirroring
+ *      `decryptQBeapPackage.ts` and `ipc.ts` `beap.deriveSharedSecret`.
+ *
+ * Works in BOTH directions (sandbox opening the host's request; host opening the sandbox's
+ * result) because each device opens with its own static device key. Fail-closed: if neither
+ * source yields a 32-byte key, `openServiceRpcPayload` returns `E_SEALED_RPC_MISSING_LOCAL_X25519`
+ * — never a plaintext fallback (INV-ENCRYPT).
+ */
+export async function openServiceRpcPayloadResolvingLocalKey(
+  record: HandshakeRecord,
+  envelope: SealedServiceRpcEnvelope,
+): Promise<OpenServiceRpcResult> {
+  let localPrivB64 = trimNonEmpty(record.local_x25519_private_key_b64)
+  if (!localPrivB64) {
+    try {
+      const { getDeviceX25519KeyPair } = await import('../device-keys/deviceKeyStore')
+      const deviceKp = await getDeviceX25519KeyPair()
+      localPrivB64 = trimNonEmpty(deviceKp.privateKey)
+    } catch {
+      // Leave empty — openServiceRpcPayload fails closed with MISSING_LOCAL_X25519 (no plaintext).
+    }
+  }
+  return openServiceRpcPayload(record, envelope, localPrivB64 || undefined)
 }

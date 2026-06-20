@@ -9,7 +9,7 @@ import { BrowserWindow } from 'electron'
 import { getHandshakeRecord } from '../../handshake/db'
 import type { HandshakeRecord } from '../../handshake/types'
 import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
-import { openServiceRpcPayload } from '../../serviceRpc/sealedServiceRpc'
+import { openServiceRpcPayloadResolvingLocalKey } from '../../serviceRpc/sealedServiceRpc'
 import {
   recordHostIngestionPollAck,
   type HostIngestionPollAck,
@@ -151,10 +151,10 @@ export async function tryHandleIngestionPollResultRelayCapsule(
     return true
   }
 
-  const opened = openServiceRpcPayload(record, envelope)
+  const opened = await openServiceRpcPayloadResolvingLocalKey(record, envelope)
   if (!opened.ok) {
     console.warn(
-      `[IngestionPollTrigger] host sealed result open failed. request_handshake=${envelope.handshake_id} code=${opened.code}`,
+      `[IngestionPollTrigger] result-open-on-host failed. request_handshake=${envelope.handshake_id} code=${opened.code}`,
     )
     ctx.sendAck([ctx.relayMessageId])
     return true
@@ -175,11 +175,15 @@ export async function tryHandleIngestionPollResultRelayCapsule(
       : ''
   const receiveGate = assertHostMayReceiveSealedServiceRpcInnerType(innerType)
   if (!receiveGate.ok) {
-    console.warn(
-      `[IngestionPollTrigger] host sealed result rejected inner type=${receiveGate.innerType}`,
+    // Not a host-inbound result/error — this is the host's REQUEST arriving on the sandbox
+    // (the sandbox is the envelope receiver, so this result handler ran first). Decline WITHOUT
+    // acking so the dispatch falls through to the sandbox request handler, which runs the poll.
+    // The request handler owns the ack. (On the host, requests carry receiver=sandbox and are
+    // already declined by the receiver check above, so this path only fires on the sandbox.)
+    console.log(
+      `[IngestionPollTrigger] result-handler declining non-result inner type=${receiveGate.innerType} — yielding to request handler`,
     )
-    ctx.sendAck([ctx.relayMessageId])
-    return true
+    return false
   }
 
   if (!isValidIngestionPollBaseEnvelope(inner)) {
