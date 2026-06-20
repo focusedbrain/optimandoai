@@ -27,30 +27,6 @@ import {
   type IngestionPollResultWire,
 } from './wire'
 
-/** Inner types the host may receive inside sealed_service_rpc_v1 (sandbox → host). */
-export const HOST_PERMITTED_SEALED_SERVICE_RPC_INBOUND_INNER_TYPES = new Set([
-  'ingestion_poll_result',
-  'ingestion_poll_error',
-  'host_ai_inference_request_v1',
-])
-
-export function assertHostMayReceiveSealedServiceRpcInnerType(
-  innerType: string,
-): { ok: true } | { ok: false; innerType: string; message: string } {
-  const t = typeof innerType === 'string' ? innerType.trim() : ''
-  if (!t) {
-    return { ok: false, innerType: t || '(empty)', message: 'sealed service-RPC inner type required' }
-  }
-  if (HOST_PERMITTED_SEALED_SERVICE_RPC_INBOUND_INNER_TYPES.has(t)) {
-    return { ok: true }
-  }
-  return {
-    ok: false,
-    innerType: t,
-    message: 'host rejects sealed inner type — only sandbox poll results/errors are accepted',
-  }
-}
-
 export function mapIngestionPollWireToHostAck(
   accountId: string,
   wire: IngestionPollResultWire | IngestionPollErrorWire,
@@ -174,15 +150,15 @@ export async function tryHandleIngestionPollResultRelayCapsule(
     inner && typeof inner === 'object' && !Array.isArray(inner)
       ? String((inner as Record<string, unknown>).type ?? '')
       : ''
-  const receiveGate = assertHostMayReceiveSealedServiceRpcInnerType(innerType)
-  if (!receiveGate.ok) {
-    // Not a host-inbound result/error — this is the host's REQUEST arriving on the sandbox
-    // (the sandbox is the envelope receiver, so this result handler ran first). Decline WITHOUT
-    // acking so the dispatch falls through to the sandbox request handler, which runs the poll.
-    // The request handler owns the ack. (On the host, requests carry receiver=sandbox and are
-    // already declined by the receiver check above, so this path only fires on the sandbox.)
+  // This handler ONLY claims ingestion-poll RESULT/ERROR wires. Every other sealed inner type the
+  // host (or sandbox) may legitimately receive on this shared dispatch — notably
+  // `host_ai_inference_request_v1` (sandbox→host inference) and the inference result/error types —
+  // must DECLINE here (return false, NO ack) so the dispatch falls through to its owning handler
+  // later in the chain. The owning handler emits its own ack. Using the broad host-receive permit
+  // set as the claim predicate caused inference requests to be swallowed here as "invalid poll wire".
+  if (innerType !== 'ingestion_poll_result' && innerType !== 'ingestion_poll_error') {
     console.log(
-      `[IngestionPollTrigger] result-handler declining non-result inner type=${receiveGate.innerType} — yielding to request handler`,
+      `[IngestionPollTrigger] result-handler declining non-poll inner type=${innerType || '(empty)'} — yielding to next handler`,
     )
     return false
   }

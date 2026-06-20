@@ -269,6 +269,49 @@ describe('tryHandleIngestionPollResultRelayCapsule (A5)', () => {
     expect(webContentsSend).not.toHaveBeenCalled()
   })
 
+  it('declines a sealed host_ai_inference_request_v1 (no ack) so dispatch falls through to the inference handler', async () => {
+    // Regression: the inference REQUEST must NOT be claimed by the poll-result handler.
+    // It is addressed to this host (receiver=dev-ws-1) and opens fine, but its inner type is
+    // not a poll result/error — the handler must return false WITHOUT acking so the shared
+    // dispatch reaches tryHandleHostAiSealedInferenceRequestRelayCapsule. (Previously this was
+    // swallowed as "invalid poll wire envelope".)
+    const inferenceRequestInner = {
+      type: 'host_ai_inference_request_v1',
+      schema_version: 1,
+      request_id: 'req-infer-1',
+      handshake_id: handshakeId,
+      sender_device_id: 'dev-sand-1',
+      receiver_device_id: 'dev-ws-1',
+      model: 'llama3',
+      messages: [{ role: 'user', content: 'hi' }],
+      created_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+    }
+    const sealed = sealServiceRpcPayload(sandboxRecord, {
+      handshake_id: handshakeId,
+      sender_device_id: 'dev-sand-1',
+      receiver_device_id: 'dev-ws-1',
+      plaintextJson: inferenceRequestInner,
+    })
+    if (!sealed.ok) throw new Error(sealed.message)
+    const capsule = buildSealedServiceRpcRelayCapsule(sealed.envelope)
+
+    const handled = await tryHandleIngestionPollResultRelayCapsule(
+      {
+        relayMessageId: 'relay-infer-1',
+        capsule,
+        db: {},
+        ssoSession: { wrdesk_user_id: 'u1' } as never,
+        sendAck,
+        getOidcToken: async () => 'tok',
+      },
+      { getRecord: () => hostRecord },
+    )
+
+    expect(handled).toBe(false)
+    expect(sendAck).not.toHaveBeenCalled()
+  })
+
   it('returns false when receiver_device_id is not this host', async () => {
     const inner = makeResultWire('req-other-dev')
     const sealed = sealServiceRpcPayload(sandboxRecord, {
