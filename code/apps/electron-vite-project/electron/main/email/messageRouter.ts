@@ -195,6 +195,24 @@ export function makeInboxAttachmentStorageId(
 
 // ── Email ID resolution ──
 
+/** Coerce message timestamps to ISO strings for SQLite TEXT columns (better-sqlite3 rejects Date). */
+function coerceReceivedAtIso(value: unknown, fallbackIso: string): string {
+  if (value == null || value === '') return fallbackIso
+  if (value instanceof Date) {
+    const t = value.getTime()
+    return Number.isNaN(t) ? fallbackIso : value.toISOString()
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const d = new Date(value)
+    return Number.isNaN(d.getTime()) ? fallbackIso : d.toISOString()
+  }
+  if (typeof value === 'string') {
+    const t = Date.parse(value)
+    return Number.isNaN(t) ? fallbackIso : new Date(t).toISOString()
+  }
+  return fallbackIso
+}
+
 function resolveStorageEmailMessageId(accountId: string, rawMsg: RawEmailMessage): string {
   let provider: string | null = null
   try { provider = emailGateway.getProviderSync(accountId) } catch { provider = null }
@@ -355,7 +373,7 @@ export async function detectAndRouteMessageInline(
   const messageId = resolveStorageEmailMessageId(accountId, rawMsg)
   const inboxMessageId = randomUUID()
   const now = new Date().toISOString()
-  const receivedAt = rawMsg.date || now
+  const receivedAt = coerceReceivedAtIso(rawMsg.date, now)
 
   const fromAddr = rawMsg.from?.address ?? (rawMsg.from as any)?.email ?? ''
   const fromName = rawMsg.from?.name ?? null
@@ -990,7 +1008,7 @@ async function routeViaDepackageSeam(
       from: env.from ? { address: env.from.email, name: env.from.name } : rawMsg.from,
       to: env.to.map((a) => ({ address: a.email, name: a.name })),
       cc: env.cc.map((a) => ({ address: a.email, name: a.name })),
-      date: rawMsg.date || env.date,
+      date: coerceReceivedAtIso(rawMsg.date ?? env.date, new Date().toISOString()),
       // Guest-derived threading key (no orchestrator header parse).
       headers: th?.messageId ? { ...rawMsg.headers, messageId: th.messageId } : rawMsg.headers,
       text: pkgJson,
@@ -1020,7 +1038,7 @@ async function quarantineRawBytes(
   rejectionReason: string,
 ): Promise<DetectAndRouteResult> {
   const fromAddr = rawMsg.from?.address ?? (rawMsg.from as any)?.email ?? ''
-  const receivedAt = rawMsg.date || new Date().toISOString()
+  const receivedAt = coerceReceivedAtIso(rawMsg.date, new Date().toISOString())
   const folder = rawMsg.folder != null && String(rawMsg.folder).trim() !== '' ? String(rawMsg.folder).trim() : 'INBOX'
 
   const encResult = encryptForQuarantine(opaque, sandbox.peer_x25519_public_key_b64)
@@ -1083,7 +1101,7 @@ async function writePlainSeamInbox(
   const now = new Date().toISOString()
   // Bookkeeping date is provider-native (IMAP INTERNALDATE / Gmail internalDate /
   // Graph receivedDateTime); fall back to the guest-decoded Date header.
-  const receivedAt = rawMsg.date || envelope.date || now
+  const receivedAt = coerceReceivedAtIso(rawMsg.date ?? envelope.date, now)
   // B2.2: from/to/cc/subject come from the GUEST-derived display envelope — the
   // orchestrator parsed no headers. (subject == safeText.subject == envelope.subject.)
   const fromAddr = envelope.from?.email ?? ''

@@ -234,7 +234,7 @@ const defaultHostWriter: SandboxDeliveryHostWriter = async (db, accountId, resul
       cc: (env.cc ?? []).map((a: any) => ({ address: a.email, name: a.name })),
       text: out.safeText.body_text ?? '',
       html: null,
-      date: meta.receivedAt ? new Date(meta.receivedAt) : new Date(),
+      date: meta.receivedAt ?? new Date().toISOString(),
       folder: meta.folder ?? 'INBOX',
       attachments: (out.safeText.attachment_refs ?? []).map((_ref: unknown, i: number) => ({
         filename: `attachment-${i + 1}`,
