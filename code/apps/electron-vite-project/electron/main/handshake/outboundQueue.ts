@@ -4,12 +4,10 @@
  * All outbound sends go through this queue. Never send directly from accept handler.
  * Table: outbound_capsule_queue (created by handshake migration v6).
  *
- * When use_coordination: target = coordination_url/beap/capsule, auth = OIDC token.
- * When !use_coordination: target = relay URL from queue, auth = handshake Bearer token.
+ * Delivery is coordination-relay only (direct-LAN /beap/ingest retired).
  */
 
 import {
-  sendCapsuleViaHttp,
   sendCapsuleViaCoordination,
   describeOutboundPayloadForLogs,
   type SendCapsuleResult,
@@ -23,9 +21,6 @@ import { getHandshakeRecord } from './db'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getP2PConfig } from '../p2p/p2pConfig'
 import { getCoordinationWsClient } from '../p2p/coordinationWsHolder'
-import { normalizeP2pIngestUrl } from '../internalInference/p2pEndpointRepair'
-import { resolvePeerDirectBeapIngestEndpoint } from './resolvePeerDirectBeapIngestEndpoint'
-import { isCoordinationRelayNativeBeap } from '../../../../../packages/ingestion-core/src/beapDetection.ts'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
 import {
   setP2PHealthOutboundSuccess,
@@ -214,73 +209,6 @@ async function ensureSenderCoordinationWsForDeliveryAck(): Promise<void> {
   } catch {
     /* non-fatal — HTTP relay may still succeed; ACK may arrive via IPC wait */
   }
-}
-
-/** Prefer direct POST to peer `/beap/ingest` so HTTP body can confirm inbox persistence. */
-function shouldRetryViaCoordinationAfterDirectFailure(result: SendCapsuleResult): boolean {
-  if (result.success) return false
-  const err = (result.error ?? '').toLowerCase()
-  if (result.statusCode != null && result.statusCode >= 400 && result.statusCode < 500) {
-    return result.statusCode === 401 || result.statusCode === 403 || result.statusCode === 429
-  }
-  return /connection refused|econnrefused|enotfound|getaddrinfo|timeout|aborted|fetch failed|network/.test(
-    err,
-  )
-}
-
-async function tryDirectNativeBeapIngestSend(
-  db: any,
-  row: { handshake_id: string; target_endpoint: string },
-  capsule: object,
-): Promise<SendCapsuleResult | null> {
-  if (!isCoordinationRelayNativeBeap(capsule as Record<string, unknown>)) return null
-  const endpoint = resolvePeerDirectBeapIngestEndpoint(
-    db,
-    row.handshake_id,
-    String(row.target_endpoint ?? ''),
-  )
-  if (!endpoint) return null
-  const record = getHandshakeRecord(db, row.handshake_id)
-  if (!record) return null
-  const bearerToken = record.local_p2p_auth_token ?? null
-  let result = await sendCapsuleViaHttp(capsule, endpoint, row.handshake_id, bearerToken)
-  const freshEp = resolvePeerDirectBeapIngestEndpoint(db, row.handshake_id, record.p2p_endpoint ?? '')
-  const errText = (result.error ?? '').toLowerCase()
-  if (
-    !result.success &&
-    freshEp &&
-    freshEp !== endpoint &&
-    /connection refused|econnrefused|enotfound|getaddrinfo|could not resolve/.test(errText)
-  ) {
-    result = await sendCapsuleViaHttp(capsule, freshEp, row.handshake_id, bearerToken)
-  }
-  if (result.success) {
-    console.info(
-      '[P2P-QUEUE]',
-      JSON.stringify({
-        event: 'direct_beap_ingest_attempt',
-        handshake_id: row.handshake_id,
-        endpoint,
-        recipient_ingest_confirmed: result.recipientIngestConfirmed === true,
-        ingest_row_id: result.ingestRowId ?? null,
-      }),
-    )
-    return result
-  }
-  if (shouldRetryViaCoordinationAfterDirectFailure(result)) {
-    console.info(
-      '[P2P-QUEUE]',
-      JSON.stringify({
-        event: 'direct_beap_ingest_fallback_coordination',
-        handshake_id: row.handshake_id,
-        endpoint,
-        error: result.error ?? null,
-        http_status: result.statusCode ?? null,
-      }),
-    )
-    return null
-  }
-  return result
 }
 
 function classifySendFailure(
@@ -1007,10 +935,7 @@ async function processOutboundQueueInner(
     )
     let result: SendCapsuleResult
 
-    const directFirst = await tryDirectNativeBeapIngestSend(db, row, capsule)
-    if (directFirst) {
-      result = directFirst
-    } else if (config.use_coordination && getOidcToken) {
+    if (config.use_coordination && getOidcToken) {
       const token = await getOidcToken()
       const targetUrl = config.coordination_url?.trim() ?? ''
       if (!token?.trim()) {
@@ -1087,40 +1012,14 @@ async function processOutboundQueueInner(
         }
       }
     } else {
-      const record = getHandshakeRecord(db, row.handshake_id)
-      // P2P Bearer auth is transport-only; renew tokens via handshake-refresh / delivery retry without changing handshake trust state.
-      const bearerToken = record?.local_p2p_auth_token ?? null
-      let endpoint = row.target_endpoint
-      result = await sendCapsuleViaHttp(capsule, endpoint, row.handshake_id, bearerToken)
-      const freshEp = record?.p2p_endpoint?.trim()
-      const errText = (result.error ?? '').toLowerCase()
-      if (
-        !result.success &&
-        freshEp &&
-        freshEp !== endpoint.trim() &&
-        /connection refused|econnrefused|enotfound|getaddrinfo|could not resolve/.test(errText)
-      ) {
-        console.info(
-          '[P2P-QUEUE]',
-          JSON.stringify({
-            event: 'route_refresh_attempt',
-            queue_row_id: row.id,
-            handshake_id: row.handshake_id,
-            old_endpoint: endpoint,
-            new_endpoint: freshEp,
-          }),
-        )
-        db.prepare(`UPDATE outbound_capsule_queue SET target_endpoint = ? WHERE id = ?`).run(freshEp, row.id)
-        endpoint = freshEp
-        result = await sendCapsuleViaHttp(capsule, endpoint, row.handshake_id, bearerToken)
-        console.info(
-          '[P2P-QUEUE]',
-          JSON.stringify({
-            event: result.success ? 'route_refresh_success' : 'route_refresh_failure',
-            queue_row_id: row.id,
-          }),
-        )
-      }
+      return recordCoordinationPreflightFailure(
+        db,
+        row,
+        now,
+        'Coordination relay required — direct-LAN P2P ingest is retired',
+        'CONFIG_PERMANENT',
+        getOidcToken,
+      )
     }
 
     console.log(`[P2P-QUEUE] Transport result for row ${row.id}: ${JSON.stringify(result)}`)

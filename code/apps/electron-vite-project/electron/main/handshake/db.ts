@@ -1210,6 +1210,14 @@ const HANDSHAKE_MIGRATIONS: Array<{
       'co-located inner-VM vs remote dedicated Host↔Sandbox topology marker; legacy rows infer at read time.',
     sql: [`ALTER TABLE handshakes ADD COLUMN topology_pairing_kind TEXT`],
   },
+  {
+    version: 71,
+    description:
+      'Schema v71: retire direct-LAN P2P ingest listener — sealed relay only; disable local /beap/ingest server.',
+    sql: [
+      `UPDATE p2p_config SET enabled = 0, local_p2p_endpoint = NULL WHERE id = 1`,
+    ],
+  },
 ]
 
 /**

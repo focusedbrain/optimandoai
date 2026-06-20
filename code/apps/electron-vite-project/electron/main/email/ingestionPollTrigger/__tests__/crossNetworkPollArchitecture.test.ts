@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'fs'
+import { readFileSync, existsSync } from 'fs'
 import { join } from 'path'
 
 const TRIGGER_DIR = join(__dirname, '..')
@@ -48,10 +48,9 @@ describe('cross-network poll architecture (B1 contract)', () => {
     expect(() => readModule('send.ts')).toThrow()
   })
 
-  it('p2p ingest server no longer registers plaintext ingestion_poll HTTP handler', () => {
-    const p2pServer = readFileSync(join(TRIGGER_DIR, '..', '..', 'p2p', 'p2pServer.ts'), 'utf8')
-    expect(p2pServer).not.toMatch(/tryHandleIngestionPollServiceP2P/)
-    expect(p2pServer).not.toMatch(/ingestionPollTrigger\/dispatch/)
+  it('direct-LAN p2pServer ingest module removed (sealed relay only)', () => {
+    const p2pServerPath = join(TRIGGER_DIR, '..', '..', 'p2p', 'p2pServer.ts')
+    expect(existsSync(p2pServerPath)).toBe(false)
   })
 
   it('default p2p config targets public relay (outbound dial, not LAN peer)', () => {

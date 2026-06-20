@@ -57,7 +57,6 @@ describe('Entrypoint Guard — Static Analysis', () => {
     'ipc.ts',
     'index.ts',
     'ingestionPipeline.ts',
-    'p2pServer.ts',
     'relayPull.ts',
   ])
 

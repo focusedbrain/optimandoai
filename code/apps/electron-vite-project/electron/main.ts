@@ -969,7 +969,6 @@ import {
 import { setEmailSendFn } from './main/handshake/emailTransport'
 import { processOutboundQueue, setOutboundQueueAuthRefresh, logProcessOutboundQueueFailure } from './main/handshake/outboundQueue'
 import { pullFromRelay, registerDeviceRoleWithRelay } from './main/p2p/relayPull'
-import { createP2PServer, logP2pServerDisabledState } from './main/p2p/p2pServer'
 import { createCoordinationWsClient } from './main/p2p/coordinationWs'
 import {
   setCoordinationWsClient,
@@ -982,8 +981,8 @@ import { drainExtensionMergeBuffer } from './main/email/mergeExtensionDepackaged
 import { getAuditForMessage, getAutoresponderAuditLog } from './main/beap/autoresponderAudit'
 import { setBeapInboxDashboardNotifier, notifyBeapInboxDashboard } from './main/email/beapInboxDashboardNotify'
 import { setBeapDeliveryAckNotifier } from './main/p2p/beapDeliveryAck'
-import { getP2PConfig, upsertP2PConfig, computeLocalP2PEndpoint } from './main/p2p/p2pConfig'
-import { getP2PHealth, setP2PHealthQueueCounts, setP2PHealthSelfTest, setP2PHealthRelayMode } from './main/p2p/p2pHealth'
+import { getP2PConfig, upsertP2PConfig } from './main/p2p/p2pConfig'
+import { getP2PHealth, setP2PHealthQueueCounts, setP2PHealthRelayMode } from './main/p2p/p2pHealth'
 import { getQueueStatus, getQueueEntries } from './main/handshake/outboundQueue'
 import { migrateHandshakeTables } from './main/handshake/db'
 import { completePendingContextSyncs, tryEnqueueContextSync } from './main/handshake/contextSyncEnqueue'
@@ -11508,8 +11507,7 @@ async function runDeviceKeyMigration(
       }
     })
 
-    // P2P outbound queue + P2P server startup (default-on, start as soon as db available)
-    let p2pServerStarted = false
+    // P2P outbound queue + coordination relay startup (direct-LAN ingest listener retired)
     const getHandshakeDb = () => {
       const L = getLedgerDb()
       if (L) return L
@@ -11754,61 +11752,6 @@ async function runDeviceKeyMigration(
         pullFromRelay(handshakeDb, () => getCurrentSession()).catch((err) => {
           console.warn('[P2P] pullFromRelay error:', err?.message)
         })
-      }
-      if (!p2pServerStarted) {
-        try {
-          migrateHandshakeTables(handshakeDb)
-
-          // Device key migration: move X25519 keypair from chrome.storage to orchestrator DB.
-          // If the extension is not yet connected, migration is DEFERRED (returns false) and
-          // retried on the next WebSocket connection. A key is generated only when the extension
-          // IS connected and explicitly confirms it has no key (true first run).
-          ;(async () => {
-            try {
-              const { migrateDeviceKeyFromExtension } = await import('./main/device-keys/deviceKeyMigration')
-              const completed = await runDeviceKeyMigration(migrateDeviceKeyFromExtension, wsClients)
-              if (!completed) {
-                // Mark migration as pending so the WS connection handler retries it
-                ;(globalThis as any).__og_device_key_migration_pending__ = true
-              }
-            } catch (err) {
-              console.error('[MAIN] Device key migration failed (non-fatal):', err)
-            }
-          })()
-          setOutboundQueueAuthRefresh(async () => {
-            await ensureSession()
-          })
-          const config = getP2PConfig(handshakeDb)
-          if (config.enabled) {
-            const getDb = () => getHandshakeDb()
-            const getSsoSession = () => getCurrentSession()
-            const server = createP2PServer(
-              config,
-              getDb,
-              getSsoSession,
-              (localEndpoint) => {
-                try {
-                  upsertP2PConfig(handshakeDb, { local_p2p_endpoint: localEndpoint })
-                  console.log('[P2P] local_p2p_endpoint:', localEndpoint)
-                  console.log(`[P2P-SERVER] p2p_config.local_p2p_endpoint=${localEndpoint}`)
-                  void import('./main/internalInference/p2pEndpointRepair')
-                    .then((m) => m.runP2pEndpointRepairPass(handshakeDb, 'p2p_server_listen'))
-                    .catch(() => {})
-                  // Self-test: connect to own endpoint
-                  fetch(localEndpoint, { method: 'POST', body: JSON.stringify({ handshake_id: 'self-test' }), headers: { 'Content-Type': 'application/json' } })
-                    .then(() => setP2PHealthSelfTest(true))
-                    .catch(() => setP2PHealthSelfTest(false))
-                } catch {}
-              },
-              () => { p2pServerStarted = false },
-            )
-            if (server) p2pServerStarted = true
-          } else {
-            logP2pServerDisabledState(config)
-          }
-        } catch (err: any) {
-          console.warn('[P2P] Server startup skipped:', err?.message)
-        }
       }
       // Coordination WebSocket: single ref in coordinationWsHolder (no parallel closure variable)
       const coordConfig = getP2PConfig(handshakeDb)

@@ -8,7 +8,7 @@ import { getInstanceId, getOrchestratorMode } from '../orchestrator/orchestrator
 import { getAccessToken } from '../../../src/auth/session'
 import { getHostAiLedgerRoleSummaryFromDb } from './hostAiEffectiveRole'
 import { HandshakeState, type HandshakeRecord } from '../handshake/types'
-import { getP2PConfig, computeLocalP2PEndpoint } from '../p2p/p2pConfig'
+import { getP2PConfig } from '../p2p/p2pConfig'
 import { InternalInferenceErrorCode } from './errors'
 import {
   type HostAiEndpointCandidate,
@@ -249,12 +249,9 @@ function kindForLog(db: any, url: string | null | undefined): P2pMvpEndpointClas
  * The URL this Host would publish for direct LAN ingest, only when it is valid for inference MVP
  * (non-relay, non-loopback per policy).
  */
-export function getHostPublishedMvpDirectP2pIngestUrl(db: any): string | null {
-  const cfg = getP2PConfig(db)
-  if (!cfg.enabled) return null
-  const url = computeLocalP2PEndpoint(cfg)
-  if (p2pEndpointMvpClass(db, url) !== 'direct_lan') return null
-  return url
+export function getHostPublishedMvpDirectP2pIngestUrl(_db: any): string | null {
+  /** Direct-LAN ingest listener retired — sealed relay is the only live plane. */
+  return null
 }
 
 /**

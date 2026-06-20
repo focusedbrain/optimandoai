@@ -5,20 +5,18 @@
 
 import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { getCoordinationWsClient } from '../p2p/coordinationWsHolder'
-import { getP2PConfig, computeLocalP2PEndpoint, type P2PConfig } from '../p2p/p2pConfig'
+import { getP2PConfig, type P2PConfig } from '../p2p/p2pConfig'
 import { getAccessToken } from '../../../src/auth/session'
 import { ollamaManager } from '../llm/ollama-manager'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { redactIdForLog } from './internalInferenceLogRedact'
 import { logP2pSignalWireSchemaStartupLine } from './p2pSignalWireSchemaVersion'
 
-/** Published or computed direct LAN BEAP ingest URL for one-line health logs. */
+/** Legacy stored direct endpoint hint for one-line health logs (not a live listener). */
 function resolveDirectBeapIngestForHealth(cfg: P2PConfig): string {
   const pub = (cfg.local_p2p_endpoint ?? '').trim()
-  if (!pub) return computeLocalP2PEndpoint(cfg)
-  if (pub.includes('/beap/ingest')) return pub.replace(/\/$/, '')
-  if (/^https?:\/\//i.test(pub)) return `${pub.replace(/\/$/, '')}/beap/ingest`
-  return pub
+  if (!pub) return 'none'
+  return pub.replace(/\/$/, '')
 }
 
 /**

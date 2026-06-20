@@ -35,7 +35,7 @@ let health: P2PHealthStatus = {
   server_running: false,
   server_error: null,
   local_endpoint: null,
-  port: 51249,
+  port: 0,
   tls_enabled: false,
   last_outbound_success: null,
   last_outbound_failure: null,
@@ -172,7 +172,7 @@ export function formatP2PErrorForUser(
   endpoint?: string,
   port?: number,
 ): string {
-  const portNum = port ?? 51249
+  const portNum = port ?? 0
   const err = (rawError || '').toLowerCase()
 
   if (err.includes('eaddrinuse') || err.includes('address already in use')) {

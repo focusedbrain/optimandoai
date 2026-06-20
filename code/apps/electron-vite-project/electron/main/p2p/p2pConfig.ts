@@ -31,10 +31,10 @@ export interface P2PConfig {
   use_coordination: boolean
 }
 
-/** Default config: P2P enabled out of the box, relay_mode=local (P2P server acts as relay). */
+/** Default config: direct-LAN ingest listener retired; coordination relay is the only transport plane. */
 export const DEFAULT_P2P_CONFIG: P2PConfig = {
-  enabled: true,
-  port: 51249,
+  enabled: false,
+  port: 0,
   bind_address: '0.0.0.0',
   tls_enabled: false,
   tls_cert_path: null,
