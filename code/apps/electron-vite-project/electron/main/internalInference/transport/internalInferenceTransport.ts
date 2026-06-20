@@ -1389,11 +1389,25 @@ export type RequestHostCompletionOpts = {
 /**
  * POST internal_inference_request to the Host (direct HTTP in Phase 1 when selected transport is http_direct).
  */
+/** Typed `boolean` (not literal `true`) so the retired legacy body stays type-checked but never runs. */
+const RETIRE_LEGACY_HTTP_INFERENCE: boolean = true
+
 export async function requestHostCompletion(
   handshakeId: string,
   request: InternalInferenceRequestWire,
   opts: RequestHostCompletionOpts,
 ): Promise<DirectServiceSendResult> {
+  // RETIRED LANE: Sandbox→Host plaintext `legacy_http` inference (`POST {peer}:51249/beap/ingest`)
+  // is removed. Sandbox→Host inference rides the sealed relay (`sendSealedHostAiInferenceRequest`).
+  // No production caller reaches this function; the body below is unreachable. Fail closed at entry
+  // so it can never POST a prompt to a plaintext peer ingest. See internal-inference-p2p-invariants.mdc.
+  if (RETIRE_LEGACY_HTTP_INFERENCE) {
+    return {
+      ok: false,
+      code: InternalInferenceErrorCode.POLICY_FORBIDDEN,
+      error: 'legacy_http inference is retired; use the sealed relay transport',
+    }
+  }
   const hid = String(handshakeId ?? '').trim()
   const { record, correlationChain: reqChain, beapCorrelationId: reqBeapCorr } = opts
   const chain = (reqChain && reqChain.trim() ? reqChain.trim() : null) || newHostAiCorrelationChain()
@@ -1817,30 +1831,15 @@ export async function sendHostInferenceResult(
       error: 'verified_direct_http_required',
     }
   }
-  const post = await postServiceEnvelopeDirect(
-    result,
-    targetEndpoint,
-    record.handshake_id,
-    outboundP2pBearerToCounterpartyIngest(record) || null,
-    {
-      request_id: result.request_id,
-      sender_device_id: result.sender_device_id,
-      target_device_id: result.target_device_id,
-      message_type: messageType as InternalServiceMessageType,
-    },
-    resultBeapCorr,
-  )
-  if (post.ok) {
-    if (messageType === 'internal_inference_result' && result.type === 'internal_inference_result') {
-      logHostAiInferComplete({
-        handshakeId: hid,
-        requestId: result.request_id,
-        durationMs: result.duration_ms,
-        outputBytes: Buffer.byteLength(result.output, 'utf8'),
-      })
-    } else if (messageType === 'internal_inference_error' && result.type === 'internal_inference_error') {
-      logHostAiInferError({ handshakeId: hid, requestId: result.request_id, code: result.code })
-    }
+  // RETIRED LANE: the reverse plaintext result POST (`POST {peer}:51249/beap/ingest`) is removed.
+  // The DC reply path above stays; sealed-relay inbound requests reply via the sealed relay handler.
+  // Never send an inference result over plaintext HTTP. See internal-inference-p2p-invariants.mdc.
+  void targetEndpoint
+  void resultBeapCorr
+  void hid
+  return {
+    ok: false,
+    code: InternalInferenceErrorCode.SERVICE_RPC_NOT_SUPPORTED,
+    error: 'legacy_http result POST is retired; use DC or sealed relay',
   }
-  return post
 }

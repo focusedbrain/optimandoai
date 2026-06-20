@@ -525,7 +525,7 @@ declare global {
           failureCode?: string | null
           beapFailureCode?: string | null
           ollamaDirectFailureCode?: string | null
-          transportMode?: 'webrtc_p2p' | 'legacy_http' | 'none'
+          transportMode?: 'webrtc_p2p' | 'sealed_relay' | 'none'
           legacyEndpointKind?: 'direct' | 'relay' | 'missing' | 'invalid'
           p2pUiPhase?: string
           hostSelectorState?: 'available' | 'checking' | 'unavailable'

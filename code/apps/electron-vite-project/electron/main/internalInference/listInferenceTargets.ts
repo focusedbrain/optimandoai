@@ -411,7 +411,7 @@ export type HostP2pUiPhase =
   /** Roles, ledger, or route identity do not match Sandbox→Host pairing (not a transport timeout). */
   | 'host_internal_identity_mismatch'
 
-export type HostListTransportMode = 'webrtc_p2p' | 'legacy_http' | 'none'
+export type HostListTransportMode = 'webrtc_p2p' | 'sealed_relay' | 'none'
 export type HostListLegacyEndpointKind = 'direct' | 'relay' | 'missing' | 'invalid'
 
 function p2pStackEnabledForList(f: P2pInferenceFlagSnapshot): boolean {
@@ -1553,7 +1553,7 @@ async function tryEmitOllamaDirectOnlyRowsAfterBeapProbeFailure(p: {
   if (tagsNow.classification !== 'available' || tagsNow.models.length === 0) return false
 
   const secondary = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
-  const transportProbeLabel = listDec.preferredTransport === 'legacy_http' ? 'direct_http' : 'webrtc_p2p'
+  const transportProbeLabel = listDec.preferredTransport === 'sealed_relay' ? 'sealed_relay' : 'webrtc_p2p'
   const laneStatusUntrusted: HostAiTargetStatus = 'ollama_direct_only'
   const peek = peekHostAdvertisedMvpDirectEntry(hid)
   const hostActiveModel =
@@ -1984,8 +1984,8 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     const inferenceTrusted = listDec.inferenceHandshakeTrusted === true
     const handshakeTrustReason = listDec.inferenceHandshakeTrustReason ?? null
     const transportDecideLogReason: string = (() => {
-      if (listDec.preferredTransport === 'legacy_http' && epK === 'direct') {
-        return 'internal_direct_http_preferred'
+      if (listDec.preferredTransport === 'sealed_relay' && epK === 'direct') {
+        return 'internal_sealed_relay_preferred'
       }
       if (listDec.preferredTransport === 'webrtc_p2p' && epK === 'relay') {
         return 'relay_signaling_webrtc'
@@ -3242,7 +3242,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
 
     if (odCand && odTags?.classification === 'available' && odTags.models.length > 0) {
       const secondary = secondaryLabelFromMeta(hm.hostName, hm.roleLabel, hm.pairingDisplay)
-      const transportProbeLabel = listDec.preferredTransport === 'legacy_http' ? 'direct_http' : 'webrtc_p2p'
+      const transportProbeLabel = listDec.preferredTransport === 'sealed_relay' ? 'sealed_relay' : 'webrtc_p2p'
       const peerEndpointMissingUntrusted =
         !inferenceTrusted && handshakeTrustReason === 'peer_host_endpoint_missing'
       /** BEAP ingest missing/untrusted — Ollama tags still enumerate ⇒ `ollama_direct_only` lane (not `handshake_active_but_endpoint_missing`, which disables selector). */
@@ -3531,7 +3531,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         ? [hostActiveModelForRows, ...rosterSorted.filter((m) => m !== hostActiveModelForRows)]
         : rosterSorted
     const displayFromHost = pProbe.displayLabelFromHost?.trim()
-    const transportProbeLabel = listDec.preferredTransport === 'legacy_http' ? 'direct_http' : 'webrtc_p2p'
+    const transportProbeLabel = listDec.preferredTransport === 'sealed_relay' ? 'sealed_relay' : 'webrtc_p2p'
     let pushedPolicy = 0
     for (const dm of orderedPolicyModels) {
       if (!dm) continue

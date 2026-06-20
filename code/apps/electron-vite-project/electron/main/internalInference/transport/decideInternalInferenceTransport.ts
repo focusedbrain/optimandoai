@@ -57,7 +57,13 @@ export type HostAiSelectorPhase =
   | 'policy_disabled'
   | 'no_model'
 
-export type HostAiPreferredTransport = 'webrtc_p2p' | 'legacy_http' | 'none'
+/**
+ * Inference wire the selector may prefer. Plaintext `legacy_http` (Sandbox→Host `:51249`/`:11434`)
+ * has been removed — the only Sandbox→Host inference transports are the **sealed relay**
+ * (`sealed_relay`, whole-response capsule) and the WebRTC data channel (`webrtc_p2p`, accelerator).
+ * If neither is available the selector returns `none` (fail-closed) — never a plaintext option.
+ */
+export type HostAiPreferredTransport = 'webrtc_p2p' | 'sealed_relay' | 'none'
 
 export type HandshakeDerivedRoles = {
   /** Ledger says local sandbox ↔ remote host. */
@@ -158,7 +164,7 @@ export type HostAiTransportAuthoritative =
       phase: 'connecting' | 'ready' | 'failed'
       allowLegacyHttpProbe: false
     }
-  | { kind: 'legacy_http'; phase: 'available' | 'invalid'; allowLegacyHttpProbe: true }
+  | { kind: 'sealed_relay'; phase: 'available'; allowLegacyHttpProbe: false }
   | { kind: 'none'; phase: 'disabled' | 'unavailable'; allowLegacyHttpProbe: false }
 
 /**
@@ -192,11 +198,11 @@ export function decideHostAiTransport(
     else if (d.selectorPhase === 'p2p_unavailable' && d.failureCode) ph = 'failed'
     return { kind: 'webrtc_p2p', phase: ph, allowLegacyHttpProbe: false }
   }
-  if (d.preferredTransport === 'legacy_http') {
+  if (d.preferredTransport === 'sealed_relay') {
     return {
-      kind: 'legacy_http',
-      phase: d.selectorPhase === 'legacy_http_invalid' ? 'invalid' : 'available',
-      allowLegacyHttpProbe: true,
+      kind: 'sealed_relay',
+      phase: 'available',
+      allowLegacyHttpProbe: false,
     }
   }
   if (d.selectorPhase === 'policy_disabled' || d.failureCode === 'HOST_POLICY_DISABLED') {
@@ -668,8 +674,8 @@ export function decideInternalInferenceTransport(
         ...hostAiRouteSnap(input),
         targetDetected: true,
         selectorPhase: 'legacy_http_available',
-        preferredTransport: 'legacy_http',
-        reason: 'inference_handshake_trust_lan',
+        preferredTransport: 'sealed_relay',
+        reason: 'inference_sealed_relay',
         mayUseLegacyHttpFallback: mayFb,
         legacyHttpFallbackViable: legacyViable,
         p2pTransportEndpointOpen: true,
@@ -691,8 +697,8 @@ export function decideInternalInferenceTransport(
         ...hostAiRouteSnap(input),
         targetDetected: true,
         selectorPhase: 'legacy_http_available',
-        preferredTransport: 'legacy_http',
-        reason: 'internal_direct_http_preferred',
+        preferredTransport: 'sealed_relay',
+        reason: 'internal_sealed_relay_preferred',
         mayUseLegacyHttpFallback: mayFb,
         legacyHttpFallbackViable: legacyViable,
         p2pTransportEndpointOpen: true,
@@ -714,7 +720,7 @@ export function decideInternalInferenceTransport(
       ...hostAiRouteSnap(input),
       targetDetected: true,
       selectorPhase: 'legacy_http_available',
-      preferredTransport: 'legacy_http',
+      preferredTransport: 'sealed_relay',
       mayUseLegacyHttpFallback: mayFb,
       legacyHttpFallbackViable: legacyViable,
       p2pTransportEndpointOpen: true,
@@ -754,16 +760,16 @@ export function decideInternalInferenceTransport(
           : 'P2P transport stack is not fully configured.',
       }
     }
-    // Legacy-only (WebRTC off): direct HTTP to p2p_endpoint / MVP rules apply; MVP is isolated here.
+    // Legacy WebRTC-off slice: the model is reachable, but Sandbox→Host inference now rides the
+    // sealed relay (whole-response capsule), never plaintext HTTP. Prefer sealed_relay here.
     if (legacyPostOk) {
       return {
         ...hostAiRouteSnap(input),
         targetDetected: true,
         selectorPhase: 'legacy_http_available',
-        preferredTransport: 'legacy_http',
+        preferredTransport: 'sealed_relay',
         mayUseLegacyHttpFallback: mayFb,
         legacyHttpFallbackViable: legacyViable,
-        // True so `decideHostAiIntentRoute` may select `http_direct` (same gate as P2P-capable rows; list still uses `p2pEnsureEligibleForList` before WebRTC ensure).
         p2pTransportEndpointOpen: true,
         failureCode: null,
         userSafeReason: null,

@@ -10,7 +10,6 @@ import {
   logSandboxInferenceSend,
 } from '../internalInference/chatWithContextRagOllamaGeneration'
 import { resolveSandboxInferenceTarget } from '../internalInference/resolveSandboxInferenceTarget'
-import { getSandboxOllamaDirectRouteCandidate } from '../internalInference/sandboxHostAiOllamaDirectCandidate'
 import { planSandboxHostChatExecution, type BeapContentAiTask } from '../internalInference/beapContentAiRoute'
 import { isEffectiveSandboxSideForAiExecution } from '../llm/resolveAiExecutionContext'
 import type { AiExecutionContext } from '../llm/aiExecutionTypes'
@@ -329,15 +328,6 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
   }
 }
 
-function resolveStreamBase(execCtx: AiExecutionContext | null | undefined, planMode: string): string {
-  let streamBase = (execCtx?.baseUrl ?? '').trim().replace(/\/$/, '')
-  if (!streamBase && execCtx?.handshakeId?.trim() && planMode === 'ollama_direct') {
-    const cand = getSandboxOllamaDirectRouteCandidate(execCtx.handshakeId.trim())
-    streamBase = (cand?.base_url ?? '').trim().replace(/\/$/, '')
-  }
-  return streamBase
-}
-
 /**
  * Replaces deprecated `OLLAMA_BASE_URL` streaming for inbox analyze: routes sandbox traffic through
  * {@link resolveSandboxInferenceTarget} when LAN base is unknown.
@@ -396,38 +386,54 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
     throw new Error(plan.message)
   }
 
-  const streamBase = resolveStreamBase(execCtx, plan.mode)
-
-  /** LAN Ollama direct — never downgrade to localhost when remote lane is ready */
-  if (
-    execCtx?.lane === 'ollama_direct' &&
-    execCtx.ollamaDirectReady === true &&
-    streamBase &&
-    plan.mode === 'ollama_direct'
-  ) {
-    const odOrigin = streamBase.trim().replace(/\/$/, '')
-    yield* streamOllamaChatNdjsonFromBaseUrl(streamBase, systemPrompt, userPrompt, bareModel, {
-      diag: baseDiag('ollama_direct', streamBase),
-      gpuChatGate: { kind: 'remote', origin: odOrigin, modelBare: bareModel },
-      abortSignal: streamOpts?.abortSignal,
-      responseFormat,
-      expectedSchemaKeys,
+  /**
+   * Cross-device Sandbox→Host inference goes over the **sealed relay** transport (whole-response
+   * capsule). There is no plaintext LAN stream. The sealed result is yielded as a single chunk —
+   * the IPC consumer concatenates chunks, so a one-shot final result is tolerated (no UI change).
+   */
+  if (plan.mode === 'sealed_host') {
+    const hid = execCtx?.handshakeId?.trim()
+    if (!hid) {
+      throw new InferenceRoutingUnavailableError('no_local_ollama_no_cross_device_host')
+    }
+    console.log(
+      `[HOST_AI_SEALED_INFERENCE_SEND] surface=inbox_ai_analyze_stream handshake=${hid} requestId=${
+        streamOpts?.requestId ?? 'null'
+      } model=${bareModel}`,
+    )
+    const { runSandboxHostInferenceChat } = await import('../internalInference/sandboxHostChat')
+    const out = await runSandboxHostInferenceChat({
+      handshakeId: hid,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      model: bareModel,
+      timeoutMs: INBOX_LLM_TIMEOUT_MS,
+      ...(responseFormat === 'json' ? { responseFormat: 'json' as const, temperature: 0 } : {}),
     })
+    if (!out.ok) {
+      const e = new Error(out.message || out.code || 'Host inference failed')
+      ;(e as Error & { inboxFailureCode?: string }).inboxFailureCode = out.code
+      throw e
+    }
+    const text = typeof out.output === 'string' ? out.output : ''
+    console.log(
+      `[INBOX_SEALED_ANALYSIS_RESULT] ${JSON.stringify({
+        surface: 'inbox_ai_analyze_stream',
+        requestId: streamOpts?.requestId ?? null,
+        handshakeId: hid,
+        outputChars: text.length,
+      })}`,
+    )
+    if (text) yield text
     return
   }
 
-  if (plan.mode === 'ollama_direct' && streamBase) {
-    const odOrigin = streamBase.trim().replace(/\/$/, '')
-    yield* streamOllamaChatNdjsonFromBaseUrl(streamBase, systemPrompt, userPrompt, bareModel, {
-      diag: baseDiag('ollama_direct', streamBase),
-      gpuChatGate: { kind: 'remote', origin: odOrigin, modelBare: bareModel },
-      abortSignal: streamOpts?.abortSignal,
-      responseFormat,
-      expectedSchemaKeys,
-    })
-    return
-  }
-
+  /**
+   * `local_ollama` — the Sandbox's OWN loopback Ollama (127.0.0.1). Loopback is host-internal,
+   * not a Sandbox→Host LAN plane, so streaming here is allowed.
+   */
   const target = await resolveSandboxInferenceTarget({
     handshakeId: execCtx?.handshakeId,
   })
@@ -442,6 +448,15 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
     throw new InferenceRoutingUnavailableError('local_probe_error', target.detail)
   }
 
+  if (target.kind !== 'local_sandbox') {
+    // A cross-device target must never be reached over plaintext LAN — only the sealed path above
+    // may talk to the Host. Fail closed rather than fall back to a 192.168.x:11434 stream.
+    throw new InferenceRoutingUnavailableError(
+      'cross_device_caps_not_accepted',
+      'cross_device_requires_sealed_transport',
+    )
+  }
+
   logSandboxInferenceSend(target, 'inbox_ai_stream')
 
   const tb = target.baseUrl.trim().replace(/\/$/, '')
@@ -449,7 +464,7 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
     ? { kind: 'local' }
     : { kind: 'remote', origin: tb, modelBare: bareModel }
   yield* streamOllamaChatNdjsonFromBaseUrl(tb, systemPrompt, userPrompt, bareModel, {
-    diag: baseDiag(target.kind === 'local_sandbox' ? 'local_sandbox' : 'cross_device', tb),
+    diag: baseDiag('local_sandbox', tb),
     gpuChatGate,
     abortSignal: streamOpts?.abortSignal,
     responseFormat,

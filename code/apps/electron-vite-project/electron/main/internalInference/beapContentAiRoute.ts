@@ -1,6 +1,8 @@
 /**
- * BEAP / Host-AI content routing: simple plaintext-in → chat-out uses LAN `ollama_direct`
- * when possible; top-chat tool orchestration keeps BEAP transport and requires `beapReady`.
+ * Host-AI content routing. Sandbox→Host inference always goes over the **sealed relay**
+ * transport (`sealed_host`); the Sandbox's own loopback Ollama stays `local_ollama`.
+ * Plaintext LAN `ollama_direct` (`192.168.x:11434`) has been removed — see
+ * `internal-inference-p2p-invariants.mdc`. Only transport selection changed; trust/role/model frozen.
  */
 
 import type { AiExecutionContext } from '../llm/aiExecutionTypes'
@@ -14,25 +16,30 @@ export type BeapContentAiTask = {
   requiresTopChatTools?: boolean
 }
 
+/** Transport label for diagnostics — never the removed `ollama_direct` LAN wire. */
+function routeTransportLabel(ai: AiExecutionContext | null | undefined): 'local' | 'sealed_host' {
+  return ai?.lane === 'local' ? 'local' : 'sealed_host'
+}
+
 export function logBeapContentAiRoute(task: BeapContentAiTask, ai: AiExecutionContext | null | undefined): void {
-  const lane = ai?.lane ?? 'local'
+  const transport = routeTransportLabel(ai)
   const model = (ai?.model ?? '').trim()
-  const baseUrl = ai?.baseUrl?.trim().length ? ai.baseUrl!.trim() : null
   const beapReady = ai?.beapReady === true
-  const ollamaDirectReady = ai?.ollamaDirectReady === true
   const requiresTopChatTools = task.requiresTopChatTools === true
   console.log(
-    `[BEAP_CONTENT_AI_ROUTE] task=${task.kind} lane=${lane} model=${model} baseUrl=${baseUrl} beapReady=${beapReady} ollamaDirectReady=${ollamaDirectReady} requiresTopChatTools=${requiresTopChatTools}`,
+    `[BEAP_CONTENT_AI_ROUTE] task=${task.kind} transport=${transport} model=${model} beapReady=${beapReady} requiresTopChatTools=${requiresTopChatTools}`,
   )
 }
 
 export type SandboxContentHostExecutionPlan =
-  | { mode: 'ollama_direct' }
-  | { mode: 'beap_transport' }
+  | { mode: 'sealed_host' }
+  | { mode: 'local_ollama' }
   | { mode: 'blocked'; code: string; message: string }
 
 /**
  * How {@link SandboxHostChat} should reach the Host for sandbox callers that have {@link AiExecutionContext}.
+ * Cross-device Host inference resolves to `sealed_host` (sealed relay); the Sandbox's own loopback
+ * Ollama resolves to `local_ollama`. There is no plaintext LAN path.
  */
 export function planSandboxHostChatExecution(
   aiExecution: AiExecutionContext | null | undefined,
@@ -49,38 +56,12 @@ export function planSandboxHostChatExecution(
           'Top-chat BEAP tools are unavailable because the host BEAP endpoint is not advertised or not ready.',
       }
     }
-    return { mode: 'beap_transport' }
+    return { mode: 'sealed_host' }
   }
 
-  if (!aiExecution) {
-    return { mode: 'ollama_direct' }
+  if (aiExecution?.lane === 'local') {
+    return { mode: 'local_ollama' }
   }
 
-  const odlReady = aiExecution.ollamaDirectReady === true
-  const lane = aiExecution.lane
-
-  if (lane === 'local') {
-    return { mode: 'ollama_direct' }
-  }
-
-  const simpleKinds: BeapContentAiTaskKind[] = ['summary', 'analysis', 'draft', 'refine']
-  const isSimpleContent = simpleKinds.includes(task.kind)
-
-  if (isSimpleContent && lane === 'ollama_direct' && odlReady) {
-    return { mode: 'ollama_direct' }
-  }
-
-  if (isSimpleContent && lane === 'beap' && odlReady) {
-    return { mode: 'ollama_direct' }
-  }
-
-  if (lane === 'ollama_direct' && odlReady) {
-    return { mode: 'ollama_direct' }
-  }
-
-  if (lane === 'beap' && odlReady && (task.kind === 'chat_rag' || task.kind === 'other')) {
-    return { mode: 'ollama_direct' }
-  }
-
-  return { mode: 'beap_transport' }
+  return { mode: 'sealed_host' }
 }

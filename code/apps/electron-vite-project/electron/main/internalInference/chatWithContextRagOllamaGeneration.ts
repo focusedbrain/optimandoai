@@ -10,7 +10,6 @@ import { getInstanceId, getOrchestratorMode, isSandboxMode } from '../orchestrat
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { getHostAiLedgerRoleSummaryFromDb } from './hostAiEffectiveRole'
 import { getSandboxOllamaDirectRouteCandidate } from './sandboxHostAiOllamaDirectCandidate'
-import { executeSandboxHostAiOllamaDirectEmbed } from './sandboxHostAiOllamaDirectEmbed'
 import { resolveSandboxInferenceTarget, type SandboxInferenceTarget } from './resolveSandboxInferenceTarget'
 import { planSandboxHostChatExecution, type BeapContentAiTask } from './beapContentAiRoute'
 import { bareOllamaModelNameForApi } from '../../../src/lib/hostInferenceModelIds'
@@ -223,20 +222,12 @@ export async function runOllamaGenerateEmbeddingWithSandboxRouting(
     return embedder.generateEmbedding(text)
   }
 
-  const cand = getSandboxOllamaDirectRouteCandidate(target.handshakeId)
-  const peerHostId = String(cand?.peer_host_device_id ?? '').trim()
-  const out = await executeSandboxHostAiOllamaDirectEmbed({
-    handshakeId: target.handshakeId,
-    currentDeviceId: getInstanceId(),
-    peerHostDeviceId: peerHostId,
-    model: ollama.getOllamaEmbedModel(),
-    input: text,
-    timeoutMs: 120_000,
-  })
-  if (!out.ok) {
-    throw new Error(out.message || out.code || 'Host embedding failed')
-  }
-  return out.embedding
+  // Cross-device Sandbox→Host embeddings have no sealed transport (Option A seals chat inference
+  // only). Fail closed rather than send embedding input over plaintext LAN `ollama_direct`.
+  throw new InferenceRoutingUnavailableError(
+    'cross_device_caps_not_accepted',
+    'cross_device_embedding_requires_sealed_transport',
+  )
 }
 
 /** Wraps an Ollama provider so HybridSearch / queues call {@link runOllamaGenerateEmbeddingWithSandboxRouting}. */
