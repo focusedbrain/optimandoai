@@ -1157,7 +1157,7 @@ export function startAutoSync(
           const { buildProductionSandboxIngestionDeps } = await import('./sandboxIngestionProduction')
           const sres = await runSandboxIngestionPoll({
             accountId,
-            deps: buildProductionSandboxIngestionDeps(accountId, db),
+            deps: buildProductionSandboxIngestionDeps(db),
           })
           console.log(
             `[AUTO_SYNC] sandbox-role poll account=${accountId} status=${sres.status} fetched=${sres.fetched} delivered=${sres.delivered} held=${sres.held}`,

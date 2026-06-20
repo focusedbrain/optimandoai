@@ -59,6 +59,7 @@ describe('runSandboxIngestionPoll — worker contract (DI)', () => {
       accountId: 'acc',
       deps: {
         ownership: SANDBOX_OWNER,
+        listReadScopedAccountIds: () => ['acc'],
         loadReadToken: () => ({ accountId: 'acc', role: 'read', tokens: FAKE_TOKENS, savedAt: 0 }),
         custodyPubKeyB64: CUSTODY_PUB,
         fetchOpaque: async (_id, token) => {
@@ -70,7 +71,7 @@ describe('runSandboxIngestionPoll — worker contract (DI)', () => {
           depackageSeen.push(bytes)
           return { ok: true, result: { ok: true, type: 'plain', safeText: { subject: 's', body_text: 't', attachment_refs: [] }, artifacts: [], displayEnvelope: { from: undefined, to: [], cc: [], subject: 's', date: '' }, threadingHints: undefined } as any }
         },
-        deliverToHost: async (msg) => ({ delivered: true, inboxMessageId: `inbox-${msg.id}` }),
+        deliverToHost: async (_readAccountId, msg) => ({ delivered: true, inboxMessageId: `inbox-${msg.id}` }),
       },
     })
     expect(r.ok).toBe(true)
@@ -88,14 +89,14 @@ describe('runSandboxIngestionPoll — worker contract (DI)', () => {
     const fetchOpaque = vi.fn()
     const r = await runSandboxIngestionPoll({
       accountId: 'acc',
-      deps: { ownership: HOST_NODE, fetchOpaque, custodyPubKeyB64: CUSTODY_PUB, loadReadToken: () => ({ accountId: 'acc', role: 'read', tokens: FAKE_TOKENS, savedAt: 0 }) },
+      deps: { ownership: HOST_NODE, fetchOpaque, custodyPubKeyB64: CUSTODY_PUB, listReadScopedAccountIds: () => ['acc'], loadReadToken: () => ({ accountId: 'acc', role: 'read', tokens: FAKE_TOKENS, savedAt: 0 }) },
     })
     expect(r.status).toBe('not_owner')
     expect(r.ok).toBe(true)
     expect(fetchOpaque).not.toHaveBeenCalled()
   })
 
-  it('FAIL CLOSED: read consent missing → HELD, never fetches, never hands back to host', async () => {
+  it('FAIL CLOSED: read consent missing → HELD when zero read-enabled accounts, never fetches', async () => {
     const fetchOpaque = vi.fn()
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     const r = await runSandboxIngestionPoll({
@@ -114,8 +115,39 @@ describe('runSandboxIngestionPoll — worker contract (DI)', () => {
     const line = logSpy.mock.calls.map((c) => String(c[1] ?? '')).find((s) => s.includes('read-token lookup:'))
     expect(line).toContain('trigger_account=host-acc-id')
     expect(line).toContain('available_read_accounts=[sandbox-local-acc]')
-    expect(line).toContain('match=false')
+    expect(line).toContain('read_enabled_accounts=[]')
+    expect(line).toContain('count=0')
     logSpy.mockRestore()
+  })
+
+  it('MVP: host trigger send-account id does NOT select sandbox read account — polls all read-enabled', async () => {
+    const fetchAccounts: string[] = []
+    const r = await runSandboxIngestionPoll({
+      accountId: '31d48383-host-send-account',
+      deps: {
+        ownership: SANDBOX_OWNER,
+        listReadScopedAccountIds: () => ['275d87d4-read-a', '9c95441b-read-b'],
+        loadReadToken: (id) =>
+          id === '275d87d4-read-a' || id === '9c95441b-read-b'
+            ? { accountId: id, role: 'read', tokens: FAKE_TOKENS, savedAt: 0 }
+            : null,
+        custodyPubKeyB64: CUSTODY_PUB,
+        fetchOpaque: async (readAccountId) => {
+          fetchAccounts.push(readAccountId)
+          return readAccountId === '275d87d4-read-a'
+            ? [{ id: 'm-a1', opaqueBytes: Buffer.from('a') }]
+            : [{ id: 'm-b1', opaqueBytes: Buffer.from('b') }, { id: 'm-b2', opaqueBytes: Buffer.from('c') }]
+        },
+        depackage: async () =>
+          ({ ok: true, result: { ok: true, type: 'plain', safeText: { subject: 's', body_text: 't', attachment_refs: [] }, artifacts: [], displayEnvelope: { from: undefined, to: [], cc: [], subject: 's', date: '' } } as any }),
+        deliverToHost: async (_readAccountId, msg) => ({ delivered: true, inboxMessageId: `inbox-${msg.id}` }),
+      },
+    })
+    expect(r.ok).toBe(true)
+    expect(r.status).toBe('ok')
+    expect(fetchAccounts).toEqual(['275d87d4-read-a', '9c95441b-read-b'])
+    expect(r.fetched).toBe(3)
+    expect(r.delivered).toBe(3)
   })
 
   it('FAIL CLOSED: sandbox offline / provider error → HELD, no delivery, no host fallback', async () => {
@@ -124,6 +156,7 @@ describe('runSandboxIngestionPoll — worker contract (DI)', () => {
       accountId: 'acc',
       deps: {
         ownership: SANDBOX_OWNER,
+        listReadScopedAccountIds: () => ['acc'],
         loadReadToken: () => ({ accountId: 'acc', role: 'read', tokens: FAKE_TOKENS, savedAt: 0 }),
         custodyPubKeyB64: CUSTODY_PUB,
         fetchOpaque: async () => { throw new Error('ETIMEDOUT provider offline') },
@@ -158,6 +191,7 @@ describe('runSandboxIngestionPoll — worker contract (DI)', () => {
       accountId: 'acc',
       deps: {
         ownership: SANDBOX_OWNER,
+        listReadScopedAccountIds: () => ['acc'],
         loadReadToken: () => ({ accountId: 'acc', role: 'read', tokens: FAKE_TOKENS, savedAt: 0 }),
         custodyPubKeyB64: CUSTODY_PUB,
         fetchOpaque: async () => [{ id: 'bad', opaqueBytes: Buffer.from('x') }],
@@ -294,13 +328,11 @@ describe.skipIf(!Database)('A2 end-to-end: sandbox fetch+depackage → BEAP at h
       accountId: 'acc',
       deps: {
         ownership: SANDBOX_OWNER,
+        listReadScopedAccountIds: () => ['acc'],
         loadReadToken: () => ({ accountId: 'acc', role: 'read', tokens: FAKE_TOKENS, savedAt: 0 }),
         custodyPubKeyB64: CUSTODY_PUB,
-        // Read client returns the message as OPAQUE bytes — never pre-parsed.
         fetchOpaque: async () => [{ id: 'ext-1', opaqueBytes: opaque, form: { inputForm: 'rfc822' } }],
-        // depackage uses the REAL in-process guest (default dispatchDepackageEmail).
-        // Deliver the guest-derived BEAP to the host inbox via the proven write.
-        deliverToHost: async (_msg, outcome) => {
+        deliverToHost: async (_readAccountId, _msg, outcome) => {
           if (!outcome.ok || !outcome.result.ok) return { delivered: false }
           const res = outcome.result
           if (res.type !== 'plain') return { delivered: false }

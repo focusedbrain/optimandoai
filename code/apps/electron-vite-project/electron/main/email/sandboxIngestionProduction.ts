@@ -96,7 +96,6 @@ export function resolveSandboxHostDeliveryContext(db: unknown): SandboxHostDeliv
  * Production deps for `runSandboxIngestionPoll` — used by auto-sync on sandbox owner nodes.
  */
 export function buildProductionSandboxIngestionDeps(
-  accountId: string,
   db: unknown,
   opts?: { deliveryTransport?: SandboxDeliveryTransport },
 ): SandboxIngestionDeps {
@@ -106,11 +105,11 @@ export function buildProductionSandboxIngestionDeps(
   return {
     custodyPubKeyB64,
     fetchOpaque: (id, readToken) => fetchOpaqueForProviderAccount(id, readToken),
-    deliverToHost: async (msg, outcome) => {
+    deliverToHost: async (readAccountId, msg, outcome) => {
       if (!deliveryCtx) return { delivered: false }
       if (!outcome.ok) return { delivered: false }
       return postSandboxEmailDelivery(msg, outcome, {
-        accountId,
+        accountId: readAccountId,
         handshakeId: deliveryCtx.handshakeId,
         hostEndpoint: deliveryCtx.hostEndpoint,
         hostP2pToken: deliveryCtx.hostP2pToken,

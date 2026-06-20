@@ -80,6 +80,7 @@ export interface SandboxIngestionDeps {
    * Prompt 5). The host writes inbox rows exactly as today.
    */
   deliverToHost?: (
+    readAccountId: string,
     msg: SandboxFetchedMessage,
     outcome: DepackageDispatchOutcome,
   ) => Promise<SandboxDeliveryResult>
@@ -115,6 +116,7 @@ export interface SandboxIngestionResult {
 }
 
 export interface SandboxIngestionOptions {
+  /** Host trigger send-account id — correlation/logging only; NOT used to select which sandbox read accounts to poll. */
   accountId: string
   deps?: SandboxIngestionDeps
 }
@@ -163,67 +165,57 @@ export function __resetLastSandboxPollOutcomesForTests(): void {
   _lastPollOutcomes.clear()
 }
 
-/**
- * Run ONE sandbox-side ingestion poll for an account. Safe to call on any node:
- * it no-ops unless THIS node is the sandbox that owns ingestion. Never throws for
- * expected failure modes — it returns a typed HELD status (fail closed, INV-3).
- */
-export async function runSandboxIngestionPoll(
-  options: SandboxIngestionOptions,
+function mergePollResults(into: SandboxIngestionResult, partial: SandboxIngestionResult): void {
+  into.fetched += partial.fetched
+  into.depackaged += partial.depackaged
+  into.delivered += partial.delivered
+  into.held += partial.held
+  into.errors.push(...partial.errors)
+  into.inboxMessageIds.push(...partial.inboxMessageIds)
+}
+
+function finalizeAggregatedPollStatus(partials: SandboxIngestionResult[]): Pick<SandboxIngestionResult, 'ok' | 'status'> {
+  if (partials.length === 0) {
+    return { ok: false, status: 'held_read_consent_missing' }
+  }
+  if (partials.every((p) => p.status === 'held_fetch_failed')) {
+    return { ok: false, status: 'held_fetch_failed' }
+  }
+  return { ok: true, status: 'ok' }
+}
+
+/** Poll one sandbox read account (consent already verified for this id). */
+async function pollOneSandboxReadAccount(
+  readAccountId: string,
+  triggerAccountId: string,
+  deps: SandboxIngestionDeps,
+  custodyPubKeyB64: string,
 ): Promise<SandboxIngestionResult> {
-  const { accountId } = options
-  const deps = options.deps ?? {}
-  const ownership = deps.ownership ?? await resolveIngestionOwnershipWithLedger()
-
-  // Only the sandbox owner polls. (The host gate keeps the host from read-polling;
-  // a non-owner sandbox simply has no ingestion responsibility.)
-  if (!ownership.sandboxShouldReadPoll) {
-    sandboxLog(`poll skipped — not the ingestion owner. account=${accountId} role=${ownership.thisNodeRole} owner=${ownership.owner}`)
-    return emptyResult('not_owner', true)
-  }
-
-  // Read consent must be present locally. Missing → fail closed (HELD). NEVER hand
-  // back to the host to read-poll untrusted mail.
   const loadReadToken = deps.loadReadToken ?? ((id: string) => loadRoleScopedTokens(id, 'read'))
-  const listReadAccounts = deps.listReadScopedAccountIds ?? listReadScopedAccountIds
-  const availableReadAccounts = listReadAccounts()
-  const tokenRecord = loadReadToken(accountId)
-  sandboxLog(
-    `read-token lookup: trigger_account=${accountId} available_read_accounts=[${availableReadAccounts.join(',')}] ` +
-      `match=${tokenRecord != null}`,
-  )
+  const tokenRecord = loadReadToken(readAccountId)
   if (!tokenRecord) {
-    sandboxLog(`HELD — read consent missing (sandbox owns ingestion). account=${accountId}`)
-    const r = emptyResult('held_read_consent_missing', false)
-    _lastPollOutcomes.set(accountId, { result: r, at: Date.now() })
-    return r
-  }
-
-  const custodyPubKeyB64 = deps.custodyPubKeyB64
-  if (!custodyPubKeyB64) {
     sandboxLog(
-      `HELD — no custody key (handshake local_x25519_public_key_b64 missing on sandbox). ` +
-        `account=${accountId} action=re-pair host↔sandbox`,
+      `skip read account=${readAccountId} — token missing mid-poll. trigger_account=${triggerAccountId}`,
     )
-    const r = emptyResult('held_no_custody_key', false)
-    _lastPollOutcomes.set(accountId, { result: r, at: Date.now() })
-    return r
+    return emptyResult('held_read_consent_missing', false)
   }
 
   const fetchOpaque = deps.fetchOpaque ?? defaultFetchOpaque
-  const depackage = deps.depackage ?? ((bytes: Buffer, key: string, form?: DepackageInputForm) => dispatchDepackageEmail(bytes, key, undefined, form ?? {}))
+  const depackage =
+    deps.depackage ??
+    ((bytes: Buffer, key: string, form?: DepackageInputForm) =>
+      dispatchDepackageEmail(bytes, key, undefined, form ?? {}))
   const deliverToHost = deps.deliverToHost ?? defaultDeliverToHost
 
   let fetched: SandboxFetchedMessage[]
   try {
-    fetched = await fetchOpaque(accountId, tokenRecord.tokens)
+    fetched = await fetchOpaque(readAccountId, tokenRecord.tokens)
   } catch (err: unknown) {
-    // Sandbox offline / provider error → fail closed. Host does NOT read-parse.
     const msg = err instanceof Error ? err.message : String(err)
-    sandboxLog(`HELD — read fetch failed (fail closed; host does NOT fall back). account=${accountId} err=${msg}`)
-    const r = { ...emptyResult('held_fetch_failed', false), errors: [msg] }
-    _lastPollOutcomes.set(accountId, { result: r, at: Date.now() })
-    return r
+    sandboxLog(
+      `HELD — read fetch failed for account=${readAccountId} (fail closed; host does NOT fall back). trigger_account=${triggerAccountId} err=${msg}`,
+    )
+    return { ...emptyResult('held_fetch_failed', false), errors: [msg] }
   }
 
   const result: SandboxIngestionResult = {
@@ -236,13 +228,13 @@ export async function runSandboxIngestionPoll(
     errors: [],
     inboxMessageIds: [],
   }
-  sandboxLog(`fetched ${fetched.length} message(s) with READ client. account=${accountId}`)
+  sandboxLog(
+    `fetched ${fetched.length} message(s) with READ client. read_account=${readAccountId} trigger_account=${triggerAccountId}`,
+  )
 
   for (const msg of fetched) {
     try {
       const outcome = await depackage(msg.opaqueBytes, custodyPubKeyB64, msg.form)
-      // A dispatch/worker failure is HELD per message (retry next poll) — never a
-      // host parse, never a silent drop.
       if (!outcome.ok) {
         result.held++
         result.errors.push(`${msg.id}: depackage dispatch failed (${outcome.code})`)
@@ -257,7 +249,7 @@ export async function runSandboxIngestionPoll(
       }
       result.depackaged++
 
-      const delivery = await deliverToHost(msg, outcome)
+      const delivery = await deliverToHost(readAccountId, msg, outcome)
       if (delivery.delivered) {
         result.delivered++
         if (delivery.inboxMessageId) result.inboxMessageIds.push(delivery.inboxMessageId)
@@ -275,8 +267,87 @@ export async function runSandboxIngestionPoll(
   }
 
   sandboxLog(
-    `poll done account=${accountId} fetched=${result.fetched} depackaged=${result.depackaged} delivered=${result.delivered} held=${result.held}`,
+    `read account done read_account=${readAccountId} trigger_account=${triggerAccountId} fetched=${result.fetched} depackaged=${result.depackaged} delivered=${result.delivered} held=${result.held}`,
   )
-  _lastPollOutcomes.set(accountId, { result, at: Date.now() })
   return result
+}
+
+/**
+ * Run ONE sandbox-side ingestion poll for an account. Safe to call on any node:
+ * it no-ops unless THIS node is the sandbox that owns ingestion. Never throws for
+ * expected failure modes — it returns a typed HELD status (fail closed, INV-3).
+ *
+ * `options.accountId` is the host trigger send-account id (correlation/logging only).
+ * The sandbox polls ALL of its own read-enabled accounts — send and receive ids differ
+ * by design. TODO(option-b): map trigger_account → specific sandbox read account.
+ */
+export async function runSandboxIngestionPoll(
+  options: SandboxIngestionOptions,
+): Promise<SandboxIngestionResult> {
+  const triggerAccountId = options.accountId
+  const deps = options.deps ?? {}
+  const ownership = deps.ownership ?? await resolveIngestionOwnershipWithLedger()
+
+  if (!ownership.sandboxShouldReadPoll) {
+    sandboxLog(
+      `poll skipped — not the ingestion owner. trigger_account=${triggerAccountId} role=${ownership.thisNodeRole} owner=${ownership.owner}`,
+    )
+    return emptyResult('not_owner', true)
+  }
+
+  const loadReadToken = deps.loadReadToken ?? ((id: string) => loadRoleScopedTokens(id, 'read'))
+  const listReadAccounts = deps.listReadScopedAccountIds ?? listReadScopedAccountIds
+  const availableReadAccounts = listReadAccounts()
+  // TODO(option-b): map trigger_account -> specific sandbox read account; MVP polls all read-enabled.
+  const readAccountIds = availableReadAccounts.filter((id) => loadReadToken(id) != null)
+
+  sandboxLog(
+    `read-token lookup: trigger_account=${triggerAccountId} (correlation only) ` +
+      `available_read_accounts=[${availableReadAccounts.join(',')}] ` +
+      `read_enabled_accounts=[${readAccountIds.join(',')}] count=${readAccountIds.length}`,
+  )
+
+  if (readAccountIds.length === 0) {
+    sandboxLog(
+      `HELD — read consent missing (no read-enabled sandbox accounts). trigger_account=${triggerAccountId}`,
+    )
+    const r = emptyResult('held_read_consent_missing', false)
+    _lastPollOutcomes.set(triggerAccountId, { result: r, at: Date.now() })
+    return r
+  }
+
+  const custodyPubKeyB64 = deps.custodyPubKeyB64
+  if (!custodyPubKeyB64) {
+    sandboxLog(
+      `HELD — no custody key (handshake local_x25519_public_key_b64 missing on sandbox). ` +
+        `trigger_account=${triggerAccountId} action=re-pair host↔sandbox`,
+    )
+    const r = emptyResult('held_no_custody_key', false)
+    _lastPollOutcomes.set(triggerAccountId, { result: r, at: Date.now() })
+    return r
+  }
+
+  const partials: SandboxIngestionResult[] = []
+  for (const readAccountId of readAccountIds) {
+    sandboxLog(`polling read account=${readAccountId} trigger_account=${triggerAccountId}`)
+    partials.push(await pollOneSandboxReadAccount(readAccountId, triggerAccountId, deps, custodyPubKeyB64))
+  }
+
+  const aggregated: SandboxIngestionResult = {
+    ...emptyResult('ok', true),
+    ...finalizeAggregatedPollStatus(partials),
+  }
+  for (const partial of partials) {
+    mergePollResults(aggregated, partial)
+  }
+
+  sandboxLog(
+    `poll done trigger_account=${triggerAccountId} read_accounts=${readAccountIds.length} ` +
+      `fetched=${aggregated.fetched} depackaged=${aggregated.depackaged} delivered=${aggregated.delivered} held=${aggregated.held}`,
+  )
+  _lastPollOutcomes.set(triggerAccountId, { result: aggregated, at: Date.now() })
+  for (let i = 0; i < readAccountIds.length; i++) {
+    _lastPollOutcomes.set(readAccountIds[i], { result: partials[i], at: Date.now() })
+  }
+  return aggregated
 }

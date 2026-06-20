@@ -204,8 +204,9 @@ describe('buildProductionSandboxIngestionDeps — production poll path', () => {
     const r = await runSandboxIngestionPoll({
       accountId: 'acc-gmail',
       deps: {
-        ...buildProductionSandboxIngestionDeps('acc-gmail', {}, { deliveryTransport: mockTransport }),
+        ...buildProductionSandboxIngestionDeps({}, { deliveryTransport: mockTransport }),
         ownership: h.SANDBOX_OWNER,
+        listReadScopedAccountIds: () => ['acc-gmail'],
         loadReadToken: () => ({
           accountId: 'acc-gmail',
           role: 'read',
@@ -257,8 +258,9 @@ describe('buildProductionSandboxIngestionDeps — fail-closed HELD modes', () =>
     const r = await runSandboxIngestionPoll({
       accountId: 'acc',
       deps: {
-        ...buildProductionSandboxIngestionDeps('acc', {}),
+        ...buildProductionSandboxIngestionDeps({}),
         ownership: h.SANDBOX_OWNER,
+        listReadScopedAccountIds: () => ['acc'],
         loadReadToken: () => ({ accountId: 'acc', role: 'read', tokens: h.FAKE_TOKENS, savedAt: 0 }),
         fetchOpaque,
       },
@@ -275,8 +277,9 @@ describe('buildProductionSandboxIngestionDeps — fail-closed HELD modes', () =>
     const r = await runSandboxIngestionPoll({
       accountId: 'acc-imap',
       deps: {
-        ...buildProductionSandboxIngestionDeps('acc-imap', {}),
+        ...buildProductionSandboxIngestionDeps({}),
         ownership: h.SANDBOX_OWNER,
+        listReadScopedAccountIds: () => ['acc-imap'],
         loadReadToken: () => ({
           accountId: 'acc-imap',
           role: 'read',
@@ -303,8 +306,9 @@ describe('buildProductionSandboxIngestionDeps — fail-closed HELD modes', () =>
     const r = await runSandboxIngestionPoll({
       accountId: 'acc-gmail',
       deps: {
-        ...buildProductionSandboxIngestionDeps('acc-gmail', {}),
+        ...buildProductionSandboxIngestionDeps({}),
         ownership: h.SANDBOX_OWNER,
+        listReadScopedAccountIds: () => ['acc-gmail'],
         loadReadToken: () => ({
           accountId: 'acc-gmail',
           role: 'read',

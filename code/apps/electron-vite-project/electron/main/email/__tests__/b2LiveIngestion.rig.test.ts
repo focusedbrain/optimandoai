@@ -224,6 +224,7 @@ describe.skipIf(!RIG)('Part B A2 live ingestion rig — real Outlook read token'
       accountId: PART_B_ACCOUNT_ID,
       deps: {
         ownership: SANDBOX_OWNER,
+        listReadScopedAccountIds: () => [PART_B_ACCOUNT_ID],
         loadReadToken: () => tokenRecord,
         custodyPubKeyB64,
         // REAL fetchOpaque: uses the Outlook read-scoped token to fetch actual messages.
@@ -232,7 +233,7 @@ describe.skipIf(!RIG)('Part B A2 live ingestion rig — real Outlook read token'
         },
         // deliverToHost: writes to the rig's test DB via the proven host write path.
         // INV-1: the host receives ONLY guest-derived safe content — never raw bytes.
-        deliverToHost: async (_msg, outcome) => {
+        deliverToHost: async (_readAccountId, _msg, outcome) => {
           if (!outcome.ok || !outcome.result.ok) return { delivered: false }
           const res = outcome.result
           if (res.type !== 'plain') {
@@ -305,6 +306,7 @@ describe('Part B tripwire: HELD path fires when fetchOpaque throws', () => {
           sandboxShouldReadPoll: true,
           reason: 'tripwire test',
         },
+        listReadScopedAccountIds: () => ['acc-tripwire'],
         loadReadToken: () => ({
           accountId: 'acc-tripwire', role: 'read',
           tokens: { accessToken: 'fake', refreshToken: 'fake' } as any,

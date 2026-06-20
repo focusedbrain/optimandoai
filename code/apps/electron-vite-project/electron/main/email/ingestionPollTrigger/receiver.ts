@@ -109,7 +109,7 @@ export async function handleIngestionPollRequest(
 
   const poll = await runPoll({
     accountId,
-    deps: buildDeps(accountId, deps.db),
+    deps: buildDeps(deps.db),
   })
 
   console.log(
