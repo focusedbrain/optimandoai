@@ -244,7 +244,6 @@ export function registerInternalInferenceIpc(): void {
       temperature: params.temperature,
       max_tokens: params.max_tokens,
       timeoutMs: params.timeoutMs,
-      execution_transport: parseExecutionTransport(params.execution_transport),
     })
   }
 
@@ -282,7 +281,6 @@ export function registerInternalInferenceIpc(): void {
         messages: params.messages,
         model: typeof params.model === 'string' ? params.model : undefined,
         timeoutMs,
-        execution_transport: parseExecutionTransport(params.execution_transport),
       })
     },
   )

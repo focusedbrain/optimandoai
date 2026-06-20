@@ -9991,8 +9991,6 @@ async function runDeviceKeyMigration(
 
         const model =
           typeof body.model === 'string' && body.model.trim() ? body.model.trim().slice(0, 200) : undefined
-        const execution_transport =
-          body.execution_transport === 'ollama_direct' ? ('ollama_direct' as const) : undefined
         const timeout_ms =
           typeof body.timeout_ms === 'number' && Number.isFinite(body.timeout_ms) && body.timeout_ms > 0
             ? Math.floor(body.timeout_ms)
@@ -10002,7 +10000,6 @@ async function runDeviceKeyMigration(
           handshakeId: handshake_id,
           messages,
           model,
-          execution_transport,
           timeoutMs: timeout_ms,
         })
         if (r.ok) {

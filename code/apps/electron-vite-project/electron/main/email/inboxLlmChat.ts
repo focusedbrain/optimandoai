@@ -275,7 +275,6 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
         messages,
         model: modelOverride,
         timeoutMs,
-        execution_transport: plan.mode === 'ollama_direct' ? 'ollama_direct' : undefined,
         ...(contentTask?.kind === 'analysis' ? { responseFormat: 'json' as const, temperature: 0 } : {}),
       })
       if (!out.ok) {

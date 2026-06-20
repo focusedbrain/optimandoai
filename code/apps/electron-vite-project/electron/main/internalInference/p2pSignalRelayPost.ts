@@ -751,10 +751,8 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
     receiver_device_id: params.receiverDeviceId,
     created_at: createdAt,
     expires_at: expiresAt,
-    endpoint_url: params.endpointUrl,
     ad_seq: params.adSeq,
     owner_role: 'host',
-    /** Optional v1 route envelope; coordination ignores unknown top-level keys except forbidden. */
     host_ai_route: {
       type: 'host_ai.route_advertisement',
       version: 1,
@@ -763,8 +761,7 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
       from_role: 'host' as const,
       to_device_id: params.receiverDeviceId,
       routes: [
-        { kind: 'direct_http' as const, endpoint: params.endpointUrl, optional: true, ttl_ms: HOST_AI_BEAP_AD_TTL_MS },
-        { kind: 'relay' as const, available: true },
+        { kind: 'sealed_relay' as const, available: true },
         { kind: 'webrtc' as const, available: true },
       ],
       capabilities: caps,

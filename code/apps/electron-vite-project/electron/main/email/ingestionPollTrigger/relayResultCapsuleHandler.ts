@@ -31,6 +31,7 @@ import {
 export const HOST_PERMITTED_SEALED_SERVICE_RPC_INBOUND_INNER_TYPES = new Set([
   'ingestion_poll_result',
   'ingestion_poll_error',
+  'host_ai_inference_request_v1',
 ])
 
 export function assertHostMayReceiveSealedServiceRpcInnerType(

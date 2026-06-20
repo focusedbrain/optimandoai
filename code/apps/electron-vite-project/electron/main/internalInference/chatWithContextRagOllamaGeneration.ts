@@ -163,7 +163,6 @@ export async function runOllamaGenerateChatWithSandboxRouting(
     handshakeId: target.handshakeId,
     messages,
     model: modelForOllamaApi,
-    execution_transport: routePlan.mode === 'ollama_direct' ? 'ollama_direct' : undefined,
   })
   if (!r.ok) {
     const msg = r.message || r.code || 'Host inference failed'
