@@ -8,7 +8,7 @@
 import { BrowserWindow } from 'electron'
 import { getHandshakeRecord } from '../../handshake/db'
 import type { HandshakeRecord } from '../../handshake/types'
-import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
+import { getInstanceId, isSandboxMode } from '../../orchestrator/orchestratorModeStore'
 import { openServiceRpcPayloadResolvingLocalKey } from '../../serviceRpc/sealedServiceRpc'
 import {
   recordHostIngestionPollAck,
@@ -26,6 +26,11 @@ import {
   type IngestionPollErrorWire,
   type IngestionPollResultWire,
 } from './wire'
+import {
+  HOST_AI_INFERENCE_ERROR_INNER_TYPE,
+  HOST_AI_INFERENCE_REQUEST_INNER_TYPE,
+  HOST_AI_INFERENCE_RESULT_INNER_TYPE,
+} from '../../internalInference/hostAiSealedInferenceRelayWire'
 
 export function mapIngestionPollWireToHostAck(
   accountId: string,
@@ -106,6 +111,17 @@ export async function tryHandleIngestionPollResultRelayCapsule(
 ): Promise<boolean> {
   if (!isSealedServiceRpcRelayCapsule(ctx.capsule)) return false
 
+  /**
+   * Ingestion poll RESULT/ERROR capsules are host-only: the host registers pending
+   * (`registerHostIngestionPollPending`) before send and correlates on `request_id` here.
+   * Sandbox must never claim them — an empty pending map used to ack+drop Host AI inference
+   * results that fell through with `request_id=<handshake_id>` and block
+   * `tryHandleHostAiSealedInferenceResultRelayCapsule`.
+   */
+  if (isSandboxMode()) {
+    return false
+  }
+
   const envelope = parseSealedServiceRpcEnvelopeFromRelayCapsule(ctx.capsule)
   if (!envelope) {
     console.warn('[IngestionPollTrigger] host sealed result — invalid envelope shape')
@@ -150,6 +166,17 @@ export async function tryHandleIngestionPollResultRelayCapsule(
     inner && typeof inner === 'object' && !Array.isArray(inner)
       ? String((inner as Record<string, unknown>).type ?? '')
       : ''
+  // Host AI sealed inference inner types — decline (no ack) so dispatch reaches the inference handlers.
+  if (
+    innerType === HOST_AI_INFERENCE_REQUEST_INNER_TYPE ||
+    innerType === HOST_AI_INFERENCE_RESULT_INNER_TYPE ||
+    innerType === HOST_AI_INFERENCE_ERROR_INNER_TYPE
+  ) {
+    console.log(
+      `[IngestionPollTrigger] result-handler declining host-ai inner type=${innerType} — yielding to inference handler`,
+    )
+    return false
+  }
   // This handler ONLY claims ingestion-poll RESULT/ERROR wires. Every other sealed inner type the
   // host (or sandbox) may legitimately receive on this shared dispatch — notably
   // `host_ai_inference_request_v1` (sandbox→host inference) and the inference result/error types —

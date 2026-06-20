@@ -1,5 +1,6 @@
 /**
- * Coordination WS dispatch for sealed_service_rpc_v1 — host result (A5) then sandbox request (A4).
+ * Coordination WS dispatch for sealed_service_rpc_v1 — Host AI inference result first on sandbox,
+ * then ingestion poll result (host-only), unified relay, inference request, poll request.
  */
 
 import { SEALED_SERVICE_RPC_CAPSULE_TYPE } from '@repo/ingestion-core'
@@ -33,6 +34,11 @@ export async function tryHandleSealedServiceRpcRelayCapsule(
     typeof ctx.capsule.capsule_type === 'string' ? ctx.capsule.capsule_type.trim() : ''
   if (ct !== SEALED_SERVICE_RPC_CAPSULE_TYPE) return
 
+  const { tryHandleHostAiSealedInferenceResultRelayCapsule } = await import(
+    '../../internalInference/hostAiSealedInferenceRelayResultHandler'
+  )
+  if (await tryHandleHostAiSealedInferenceResultRelayCapsule(ctx)) return
+
   if (await tryHandleIngestionPollResultRelayCapsule(ctx)) return
   const { isUnifiedServiceRpcRelayEnabled } = await import('../../internalInference/unifiedServiceRpcRelayFlags')
   if (isUnifiedServiceRpcRelayEnabled()) {
@@ -46,11 +52,6 @@ export async function tryHandleSealedServiceRpcRelayCapsule(
     '../../internalInference/hostAiSealedInferenceRelayHandler'
   )
   if (await tryHandleHostAiSealedInferenceRequestRelayCapsule(ctx)) return
-
-  const { tryHandleHostAiSealedInferenceResultRelayCapsule } = await import(
-    '../../internalInference/hostAiSealedInferenceRelayResultHandler'
-  )
-  if (await tryHandleHostAiSealedInferenceResultRelayCapsule(ctx)) return
 
   if (await tryHandleIngestionPollRelayCapsule(ctx)) return
 

@@ -39,6 +39,12 @@ const LABEL: Record<BadgeVariant, string> = {
 
 /** Map resolved capability to a display variant. No "Remote" label. */
 function toVariant(cap: InferenceCapabilityForUi): BadgeVariant {
+  if (cap.backend === 'remote-host') {
+    if (cap.hostHardware === 'gpu') return 'gpu'
+    if (cap.hostHardware === 'cpu') return 'cpu'
+    // Sealed-relay / beap_ready host without LAN GPU probe — connected, hardware unknown.
+    return 'info'
+  }
   if (cap.hostHardware === 'gpu') return 'gpu'
   if (cap.hostHardware === 'cpu') return 'cpu'
   // hardware unknown — show Info if there is a specific reason, else Unavailable

@@ -390,12 +390,14 @@ export function registerLlmHandlers() {
             peerDeviceId: fb.peerDeviceId ?? null,
           }
 
-          // Probe the *host* Ollama GPU status (skip local nvidia-smi via remote scope).
-          // This tells the badge whether the Windows host is using GPU or CPU.
           const hostBaseUrl = (fb.baseUrl ?? '').trim().replace(/\/$/, '')
+          const sealedBeapReady = fb.lane === 'beap' && fb.beapReady !== false && !hostBaseUrl
           if (hostBaseUrl) {
             const hostGpu = await getGpuInferenceStatusRemote(hostBaseUrl, fb.model ?? '')
             gpuAvailable = hostGpu.available
+          } else if (sealedBeapReady) {
+            // Sealed relay: list already proved beap_ready — do not let dead LAN :51249 probe drive "Unavailable".
+            gpuAvailable = false
           } else {
             gpuAvailable = false
           }

@@ -29,10 +29,12 @@ import {
 import type { IngestionPollErrorWire, IngestionPollResultWire } from '../wire'
 
 const getInstanceId = vi.hoisted(() => vi.fn(() => 'dev-ws-1'))
+const isSandboxMode = vi.hoisted(() => vi.fn(() => false))
 const webContentsSend = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../orchestrator/orchestratorModeStore', () => ({
   getInstanceId: () => getInstanceId(),
+  isSandboxMode: () => isSandboxMode(),
 }))
 
 vi.mock('electron', async (importOriginal) => {
@@ -334,6 +336,72 @@ describe('tryHandleIngestionPollResultRelayCapsule (A5)', () => {
       },
       { getRecord: () => hostRecord },
     )
+    expect(handled).toBe(false)
+    expect(sendAck).not.toHaveBeenCalled()
+  })
+
+  it('returns false on sandbox without ack so Host AI inference results reach their handler', async () => {
+    isSandboxMode.mockReturnValue(true)
+    const inner = makeResultWire('req-sbx-no-poll-pending')
+    const sealed = sealServiceRpcPayload(sandboxRecord, {
+      handshake_id: handshakeId,
+      sender_device_id: 'dev-sand-1',
+      receiver_device_id: 'dev-ws-1',
+      plaintextJson: inner,
+    })
+    if (!sealed.ok) throw new Error(sealed.message)
+    const capsule = buildSealedServiceRpcRelayCapsule(sealed.envelope)
+
+    const handled = await tryHandleIngestionPollResultRelayCapsule(
+      {
+        relayMessageId: 'relay-sbx-decline',
+        capsule,
+        db: {},
+        ssoSession: { wrdesk_user_id: 'u1' } as never,
+        sendAck,
+        getOidcToken: async () => 'tok',
+      },
+      { getRecord: () => hostRecord },
+    )
+
+    expect(handled).toBe(false)
+    expect(sendAck).not.toHaveBeenCalled()
+    isSandboxMode.mockReturnValue(false)
+  })
+
+  it('declines host_ai_inference_result_v1 (no ack) so dispatch reaches the inference result handler', async () => {
+    const inferenceResultInner = {
+      type: 'host_ai_inference_result_v1',
+      schema_version: 1,
+      request_id: 'req-infer-result-1',
+      handshake_id: handshakeId,
+      sender_device_id: 'dev-ws-1',
+      receiver_device_id: 'dev-sand-1',
+      model: 'llama3',
+      output: 'hello',
+      duration_ms: 12,
+    }
+    const sealed = sealServiceRpcPayload(hostRecord, {
+      handshake_id: handshakeId,
+      sender_device_id: 'dev-ws-1',
+      receiver_device_id: 'dev-ws-1',
+      plaintextJson: inferenceResultInner,
+    })
+    if (!sealed.ok) throw new Error(sealed.message)
+    const capsule = buildSealedServiceRpcRelayCapsule(sealed.envelope)
+
+    const handled = await tryHandleIngestionPollResultRelayCapsule(
+      {
+        relayMessageId: 'relay-infer-result-1',
+        capsule,
+        db: {},
+        ssoSession: { wrdesk_user_id: 'u1' } as never,
+        sendAck,
+        getOidcToken: async () => 'tok',
+      },
+      { getRecord: () => hostRecord },
+    )
+
     expect(handled).toBe(false)
     expect(sendAck).not.toHaveBeenCalled()
   })
