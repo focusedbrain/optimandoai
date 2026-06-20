@@ -101,6 +101,7 @@ import {
 import type { HostAiEndpointDiagnostics } from '../../../src/lib/hostAiUiDiagnostics'
 import { hostAiUserFacingMessageFromTarget } from '../../../src/lib/hostAiUiDiagnostics'
 import type { HostAiTargetStatus } from './hostAiTargetStatus'
+import { readStoredAiExecutionContext } from '../llm/aiExecutionContextStore'
 
 const L = '[HOST_INFERENCE_TARGETS]'
 /** One-shot: seed `hostAdvertisedMvpDirectByHandshake` from DB before first list probe (cold start). */
@@ -2211,95 +2212,89 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
      * already proven ACTIVE + same-principal + Sandbox→Host (role gate @ ~1802, `handshakeSamePrincipal`
      * @ ~1797, `assertRecordForServiceRpc` @ ~1820) and has passed the trust / endpoint gates above.
      * Under sealed-only transport the relay carries reachability, so host-target availability is
-     * decided by **trust + sealed-decided**, NOT by a LAN reachability probe. The removed direct-LAN
-     * caps / Ollama `/api/tags` probe (which dials the dead `:51249` plane) must NOT gate this path —
-     * we skip it entirely here (the probe stays for `webrtc_p2p`/legacy rows below). Models come from
-     * the coordination/relay-advertised host roster (`peekHostAdvertisedMvpDirectEntry`), never a LAN dial.
+     * **trust + sealed-decided + a resolved model name** — NOT a LAN probe and NOT a host-advertised
+     * roster (Ollama has no sealed roster; `/api/tags` is the deleted LAN plane). The persisted
+     * Sandbox selection is authoritative; an optional relay `ollamaRoster` active id/name is advisory
+     * fallback only when nothing is stored.
      *
      * INV-HOSTAI-FROZEN: trust/role unchanged — this only swaps the availability SIGNAL from
-     * "LAN reachable" to "trusted + sealed-decided".
+     * "roster advertised" to "trusted + sealed-decided + selected model".
      */
     if (listDec.preferredTransport === 'sealed_relay') {
-      const sealedRoster = peekHostAdvertisedMvpDirectEntry(hid)?.ollamaRoster ?? null
-      const sealedActiveModel =
-        sealedRoster?.active_model_id?.trim() || sealedRoster?.active_model_name?.trim() || null
-      const sealedRosterModels = [
-        ...new Set(
-          [
-            sealedActiveModel,
-            ...(sealedRoster?.models ?? []).map((m) => String(m?.name ?? '').trim()),
-          ].filter((m): m is string => Boolean(m)),
-        ),
-      ]
       const sealedSecondary = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
-      const sealedOrdered =
-        sealedActiveModel && sealedRosterModels.includes(sealedActiveModel)
-          ? [sealedActiveModel, ...sealedRosterModels.filter((m) => m !== sealedActiveModel)]
-          : sealedRosterModels
-      if (sealedOrdered.length > 0) {
-        let sealedPushed = 0
-        for (const dm of sealedOrdered) {
-          if (!dm) continue
-          if (isSandboxMode() && sealedActiveModel && dm !== sealedActiveModel) continue
-          sealedPushed += 1
-          const primaryLabel = `Host AI · ${dm}`
-          const t: HostTargetDraft = {
-            kind: 'host_internal',
-            id: buildHostTargetId(hid, dm),
-            label: primaryLabel,
-            display_label: primaryLabel,
-            displayTitle: primaryLabel,
-            displaySubtitle: sealedSecondary,
-            model: dm,
-            model_id: dm,
-            provider: 'host_internal',
-            handshake_id: hid,
-            host_device_id: hostDevice,
-            host_computer_name: ml0.hostName,
-            host_pairing_code: ml0.digits6,
-            host_orchestrator_role: 'host',
-            host_orchestrator_role_label: ml0.roleLabel,
-            internal_identifier_6: ml0.digits6,
-            secondary_label: sealedSecondary,
-            direct_reachable: true,
-            policy_enabled: true,
-            available: true,
-            hostTargetAvailable: true,
-            availability: 'available',
-            unavailable_reason: null,
-            host_role: 'Host',
-            selector_phase: 'legacy_http_available',
-            ...baseMetaFromDec(listDec, leK),
-            p2pUiPhase: 'ready',
-            failureCode: null,
-            host_ai_target_status: 'beap_ready',
-            hostActiveModel: sealedActiveModel,
-            beapReady: true,
-            ollamaDirectReady: false,
-            visibleInModelSelector: true,
-            trustedForBeap: true,
-            canChat: true,
-            canUseTopChatTools: true,
-            canUseOllamaDirect: false,
-            trusted: true,
-          }
-          targets.push(finalizeItem(t))
+      const storedCtx = readStoredAiExecutionContext()
+      const storedHid = storedCtx?.handshakeId?.trim() || ''
+      const storedModelRaw = storedCtx?.model?.trim() || ''
+      const storedModel =
+        storedModelRaw && (!storedHid || storedHid === hid) ? storedModelRaw : null
+      const sealedRoster = peekHostAdvertisedMvpDirectEntry(hid)?.ollamaRoster ?? null
+      const rosterActiveModel =
+        sealedRoster?.active_model_id?.trim() || sealedRoster?.active_model_name?.trim() || null
+      const sealedModel = storedModel || rosterActiveModel || null
+      const sealedModelSource = storedModel
+        ? 'stored_selection'
+        : rosterActiveModel
+          ? 'roster_active_fallback'
+          : null
+
+      if (sealedModel && sealedModelSource) {
+        const primaryLabel = `Host AI · ${sealedModel}`
+        const t: HostTargetDraft = {
+          kind: 'host_internal',
+          id: buildHostTargetId(hid, sealedModel),
+          label: primaryLabel,
+          display_label: primaryLabel,
+          displayTitle: primaryLabel,
+          displaySubtitle: sealedSecondary,
+          model: sealedModel,
+          model_id: sealedModel,
+          provider: 'host_internal',
+          handshake_id: hid,
+          host_device_id: hostDevice,
+          host_computer_name: ml0.hostName,
+          host_pairing_code: ml0.digits6,
+          host_orchestrator_role: 'host',
+          host_orchestrator_role_label: ml0.roleLabel,
+          internal_identifier_6: ml0.digits6,
+          secondary_label: sealedSecondary,
+          direct_reachable: true,
+          policy_enabled: true,
+          available: true,
+          hostTargetAvailable: true,
+          availability: 'available',
+          unavailable_reason: null,
+          host_role: 'Host',
+          selector_phase: 'legacy_http_available',
+          ...baseMetaFromDec(listDec, leK),
+          p2pUiPhase: 'ready',
+          failureCode: null,
+          host_ai_target_status: 'beap_ready',
+          hostActiveModel: sealedModel,
+          beapReady: true,
+          ollamaDirectReady: false,
+          visibleInModelSelector: true,
+          trustedForBeap: true,
+          canChat: true,
+          canUseTopChatTools: true,
+          canUseOllamaDirect: false,
+          trusted: true,
         }
+        targets.push(finalizeItem(t))
         hadCapabilitiesProbed = false
         console.log(
-          `[HOST_AI_CAPABILITY_PROBE] transport=sealed_relay ok=true handshake=${hid} source=sealed_advertised_roster models=${sealedPushed} (lan_probe_skipped_non_gating)`,
+          `[HOST_AI_CAPABILITY_PROBE] transport=sealed_relay ok=true handshake=${hid} source=${sealedModelSource} model=${sealedModel} (lan_probe_skipped_non_gating)`,
         )
         console.log(
-          `${L} beap_target_available=true ollama_direct_available=false transport=sealed_relay handshake=${hid} models=${sealedPushed} reason=sealed_decided_trusted`,
+          `${L} beap_target_available=true ollama_direct_available=false transport=sealed_relay handshake=${hid} model=${sealedModel} source=${sealedModelSource} reason=sealed_decided_trusted`,
         )
         continue
       }
 
       /**
-       * Sealed-decided + trusted, but the host roster has not been advertised yet (cold start). Do NOT
-       * run the dead-LAN probe and do NOT emit `CAPABILITY_PROBE_FAILED` — surface a non-disabling
-       * "checking" row so the selector neither hides the host nor masquerades a model. The resolver
-       * (item 4) fails closed loudly rather than streaming to loopback when no sealed model resolves.
+       * Sealed-decided + trusted, but no model name resolves (no persisted selection for this
+       * handshake and no advisory roster active model). Do NOT run the dead-LAN probe and do NOT emit
+       * `CAPABILITY_PROBE_FAILED` — surface a non-disabling "checking" row so the selector neither
+       * hides the host nor masquerades a model.
        */
       const sealedCheckingLabel = primaryLabelForP2pUiPhase('connecting')
       const tSealedChecking: HostTargetDraft = {
@@ -2334,7 +2329,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       }
       hadCapabilitiesProbed = false
       console.log(
-        `${L} beap_target_available=false transport=sealed_relay handshake=${hid} reason=sealed_roster_not_advertised_yet (lan_probe_skipped_non_gating)`,
+        `${L} beap_target_available=false transport=sealed_relay handshake=${hid} reason=sealed_no_model_resolved (lan_probe_skipped_non_gating)`,
       )
       targets.push(finalizeItem(tSealedChecking))
       continue
