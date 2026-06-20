@@ -6,7 +6,8 @@
  */
 
 import { getHandshakeRecord } from '../handshake/db'
-import { getInstanceId, isSandboxMode } from '../orchestrator/orchestratorModeStore'
+import { getInstanceId } from '../orchestrator/orchestratorModeStore'
+import { isEffectiveSandboxNode } from '../sandbox/sandboxOutboundPolicy'
 import {
   openServiceRpcPayloadResolvingLocalKey,
 } from '../serviceRpc/sealedServiceRpc'
@@ -40,7 +41,10 @@ function innerTypeFromPlaintext(plaintextJson: string): string | null {
 export async function tryHandleHostAiSealedInferenceResultRelayCapsule(
   ctx: IngestionPollRelayCapsuleContext,
 ): Promise<boolean> {
-  if (!isSandboxMode()) return false
+  if (!isEffectiveSandboxNode(ctx.db)) {
+    console.log(`${L} skipped reason=not_sandbox_receiver`)
+    return false
+  }
 
   const envelope = parseSealedServiceRpcEnvelopeFromRelayCapsule(ctx.capsule)
   if (!envelope) return false

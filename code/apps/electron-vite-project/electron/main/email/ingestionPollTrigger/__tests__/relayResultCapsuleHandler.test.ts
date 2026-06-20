@@ -29,12 +29,15 @@ import {
 import type { IngestionPollErrorWire, IngestionPollResultWire } from '../wire'
 
 const getInstanceId = vi.hoisted(() => vi.fn(() => 'dev-ws-1'))
-const isSandboxMode = vi.hoisted(() => vi.fn(() => false))
+const isEffectiveSandboxNode = vi.hoisted(() => vi.fn((_db: unknown) => false))
 const webContentsSend = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../orchestrator/orchestratorModeStore', () => ({
   getInstanceId: () => getInstanceId(),
-  isSandboxMode: () => isSandboxMode(),
+}))
+
+vi.mock('../../../sandbox/sandboxOutboundPolicy', () => ({
+  isEffectiveSandboxNode: (db: unknown) => isEffectiveSandboxNode(db),
 }))
 
 vi.mock('electron', async (importOriginal) => {
@@ -149,6 +152,7 @@ describe('tryHandleIngestionPollResultRelayCapsule (A5)', () => {
     sendAck.mockReset()
     webContentsSend.mockReset()
     getInstanceId.mockReturnValue('dev-ws-1')
+    isEffectiveSandboxNode.mockReturnValue(false)
     _resetHostIngestionPollAcksForTests()
     _resetHostIngestionPollPendingForTests()
     _resetHostIngestionPollCompletionForTests()
@@ -340,8 +344,8 @@ describe('tryHandleIngestionPollResultRelayCapsule (A5)', () => {
     expect(sendAck).not.toHaveBeenCalled()
   })
 
-  it('returns false on sandbox without ack so Host AI inference results reach their handler', async () => {
-    isSandboxMode.mockReturnValue(true)
+  it('returns false on ledger-proven sandbox without ack so Host AI inference results reach their handler', async () => {
+    isEffectiveSandboxNode.mockReturnValue(true)
     const inner = makeResultWire('req-sbx-no-poll-pending')
     const sealed = sealServiceRpcPayload(sandboxRecord, {
       handshake_id: handshakeId,
@@ -366,7 +370,7 @@ describe('tryHandleIngestionPollResultRelayCapsule (A5)', () => {
 
     expect(handled).toBe(false)
     expect(sendAck).not.toHaveBeenCalled()
-    isSandboxMode.mockReturnValue(false)
+    isEffectiveSandboxNode.mockReturnValue(false)
   })
 
   it('declines host_ai_inference_result_v1 (no ack) so dispatch reaches the inference result handler', async () => {
@@ -381,9 +385,9 @@ describe('tryHandleIngestionPollResultRelayCapsule (A5)', () => {
       output: 'hello',
       duration_ms: 12,
     }
-    const sealed = sealServiceRpcPayload(hostRecord, {
+    const sealed = sealServiceRpcPayload(sandboxRecord, {
       handshake_id: handshakeId,
-      sender_device_id: 'dev-ws-1',
+      sender_device_id: 'dev-sand-1',
       receiver_device_id: 'dev-ws-1',
       plaintextJson: inferenceResultInner,
     })

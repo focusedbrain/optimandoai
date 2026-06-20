@@ -8,7 +8,8 @@
 import { BrowserWindow } from 'electron'
 import { getHandshakeRecord } from '../../handshake/db'
 import type { HandshakeRecord } from '../../handshake/types'
-import { getInstanceId, isSandboxMode } from '../../orchestrator/orchestratorModeStore'
+import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
+import { isEffectiveSandboxNode } from '../../sandbox/sandboxOutboundPolicy'
 import { openServiceRpcPayloadResolvingLocalKey } from '../../serviceRpc/sealedServiceRpc'
 import {
   recordHostIngestionPollAck,
@@ -118,7 +119,7 @@ export async function tryHandleIngestionPollResultRelayCapsule(
    * results that fell through with `request_id=<handshake_id>` and block
    * `tryHandleHostAiSealedInferenceResultRelayCapsule`.
    */
-  if (isSandboxMode()) {
+  if (isEffectiveSandboxNode(ctx.db)) {
     return false
   }
 
