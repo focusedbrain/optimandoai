@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { HandshakeRecord } from '../../handshake/types'
 import type { IngestionOwnership } from '../ingestionOwnership'
 import type { OAuthTokens } from '../secure-storage'
+import type { RoleScopedTokenRecord } from '../roleScopedTokenStore'
 import type { SandboxFetchedMessage } from '../sandboxIngestion'
 
 const h = vi.hoisted(() => {
@@ -18,6 +19,12 @@ const h = vi.hoisted(() => {
     reason: 'test: sandbox owns ingestion',
   }
   const FAKE_TOKENS: OAuthTokens = { accessToken: 'read-at', refreshToken: 'read-rt' } as OAuthTokens
+  const FAKE_RECORD: RoleScopedTokenRecord = {
+    accountId: 'acc',
+    role: 'read',
+    tokens: FAKE_TOKENS,
+    savedAt: 0,
+  }
   const CUSTODY_PUB = 'e06Qm75//kTEZaIgA31gjuNYl9Me+XLwf3SJLLD3PxM='
   const HOST_INGEST = 'http://192.168.178.28:51250/beap/ingest'
   const HOST_TOKEN = 'sandbox-local-p2p-token'
@@ -53,6 +60,7 @@ const h = vi.hoisted(() => {
   return {
     SANDBOX_OWNER,
     FAKE_TOKENS,
+    FAKE_RECORD,
     CUSTODY_PUB,
     HOST_INGEST,
     HOST_TOKEN,
@@ -147,7 +155,7 @@ describe('fetchOpaqueForProviderAccount — provider router', () => {
   it('routes gmail → fetchOpaqueViaGmail', async () => {
     h.mockGetAccountConfig.mockReturnValue({ provider: 'gmail' })
     const { fetchOpaqueForProviderAccount } = await import('../sandboxOpaqueFetchRouter')
-    const rows = await fetchOpaqueForProviderAccount('acc-gmail', h.FAKE_TOKENS)
+    const rows = await fetchOpaqueForProviderAccount('acc-gmail', h.FAKE_RECORD)
     expect(rows[0]?.id).toBe('g1')
     expect(h.gmailImpl).toHaveBeenCalled()
     expect(h.outlookImpl).not.toHaveBeenCalled()
@@ -156,7 +164,7 @@ describe('fetchOpaqueForProviderAccount — provider router', () => {
   it('routes microsoft365 → fetchOpaqueViaOutlook', async () => {
     h.mockGetAccountConfig.mockReturnValue({ provider: 'microsoft365' })
     const { fetchOpaqueForProviderAccount } = await import('../sandboxOpaqueFetchRouter')
-    await fetchOpaqueForProviderAccount('acc-outlook', h.FAKE_TOKENS)
+    await fetchOpaqueForProviderAccount('acc-outlook', h.FAKE_RECORD)
     expect(h.outlookImpl).toHaveBeenCalled()
     expect(h.gmailImpl).not.toHaveBeenCalled()
   })
@@ -166,7 +174,7 @@ describe('fetchOpaqueForProviderAccount — provider router', () => {
     const { fetchOpaqueForProviderAccount, SandboxFetchUnsupportedProviderError } = await import(
       '../sandboxOpaqueFetchRouter',
     )
-    await expect(fetchOpaqueForProviderAccount('acc-imap', h.FAKE_TOKENS)).rejects.toBeInstanceOf(
+    await expect(fetchOpaqueForProviderAccount('acc-imap', h.FAKE_RECORD)).rejects.toBeInstanceOf(
       SandboxFetchUnsupportedProviderError,
     )
   })

@@ -25,7 +25,7 @@
 
 import { OutlookProvider } from './providers/outlook'
 import { GmailProvider } from './providers/gmail'
-import type { OAuthTokens } from './secure-storage'
+import type { RoleScopedTokenRecord } from './roleScopedTokenStore'
 import type { SandboxFetchedMessage } from './sandboxIngestion'
 import type { EmailAccountConfig } from './types'
 
@@ -35,6 +35,32 @@ const MAX_MESSAGES_PER_POLL = 20
 function fetchLog(...args: unknown[]): void {
   // INV-5: ids / counts / provider only.
   console.log('[SandboxFetch]', ...args)
+}
+
+/**
+ * Build synthetic `config.oauth` for sandbox read fetch — mirrors host send bridge
+ * (`gateway.ts` role='send' synthetic config) so token refresh can resolve client id.
+ */
+export function oauthConfigFromRoleScopedReadRecord(
+  record: RoleScopedTokenRecord,
+): NonNullable<EmailAccountConfig['oauth']> {
+  const tokens = record.tokens
+  const oauthClientId =
+    tokens.oauthClientId?.trim() || record.clientId?.trim() || undefined
+
+  return {
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken ?? '',
+    expiresAt: tokens.expiresAt ?? Date.now() + 3_600_000,
+    scope: tokens.scope ?? record.grantedScope ?? '',
+    ...(oauthClientId ? { oauthClientId } : {}),
+    ...(tokens.gmailRefreshUsesSecret != null
+      ? { gmailRefreshUsesSecret: tokens.gmailRefreshUsesSecret }
+      : {}),
+    ...(tokens.gmailOAuthClientSecret?.trim()
+      ? { gmailOAuthClientSecret: tokens.gmailOAuthClientSecret.trim() }
+      : {}),
+  }
 }
 
 /**
@@ -52,7 +78,7 @@ function fetchLog(...args: unknown[]): void {
  */
 export async function fetchOpaqueViaOutlook(
   accountId: string,
-  readToken: OAuthTokens,
+  tokenRecord: RoleScopedTokenRecord,
   opts: {
     maxMessages?: number
     folder?: string
@@ -60,6 +86,7 @@ export async function fetchOpaqueViaOutlook(
 ): Promise<SandboxFetchedMessage[]> {
   const maxMessages = opts.maxMessages ?? MAX_MESSAGES_PER_POLL
   const folder = opts.folder ?? 'inbox'
+  const oauth = oauthConfigFromRoleScopedReadRecord(tokenRecord)
 
   // Force the /$value raw-MIME path for the duration of this call.
   // `OutlookProvider.fetchMessageOpaque` gates on this env var; we restore it
@@ -69,9 +96,10 @@ export async function fetchOpaqueViaOutlook(
 
   const provider = new OutlookProvider()
   try {
-    // Construct a minimal EmailAccountConfig carrying only the OAuth tokens.
-    // The OutlookProvider reads `config.oauth.*` in `connect()` and uses
-    // `this.accessToken` for all Graph API calls thereafter.
+    fetchLog(
+      `connect outlook read account=${accountId} hasClientId=${!!oauth.oauthClientId} hasRefreshSecret=${!!oauth.gmailOAuthClientSecret}`,
+    )
+
     const config: EmailAccountConfig = {
       id: accountId,
       provider: 'microsoft365',
@@ -80,12 +108,7 @@ export async function fetchOpaqueViaOutlook(
       status: 'active',
       createdAt: 0,
       updatedAt: 0,
-      oauth: {
-        accessToken: readToken.accessToken,
-        refreshToken: readToken.refreshToken ?? '',
-        expiresAt: (readToken as any).expiresAt ?? (Date.now() + 3_600_000),
-        scope: (readToken as any).scope ?? '',
-      },
+      oauth,
     }
 
     await provider.connect(config)
@@ -164,7 +187,7 @@ function gmailRawResponseToSandboxMessage(raw: {
  */
 export async function fetchOpaqueViaGmail(
   accountId: string,
-  readToken: OAuthTokens,
+  tokenRecord: RoleScopedTokenRecord,
   opts: {
     maxMessages?: number
     folder?: string
@@ -172,9 +195,14 @@ export async function fetchOpaqueViaGmail(
 ): Promise<SandboxFetchedMessage[]> {
   const maxMessages = opts.maxMessages ?? MAX_MESSAGES_PER_POLL
   const folder = (opts.folder ?? 'inbox').toLowerCase()
+  const oauth = oauthConfigFromRoleScopedReadRecord(tokenRecord)
 
   const provider = new GmailProvider()
   try {
+    fetchLog(
+      `connect gmail read account=${accountId} hasClientId=${!!oauth.oauthClientId} hasRefreshSecret=${!!oauth.gmailOAuthClientSecret}`,
+    )
+
     const config: EmailAccountConfig = {
       id: accountId,
       provider: 'gmail',
@@ -183,12 +211,7 @@ export async function fetchOpaqueViaGmail(
       status: 'active',
       createdAt: 0,
       updatedAt: 0,
-      oauth: {
-        accessToken: readToken.accessToken,
-        refreshToken: readToken.refreshToken ?? '',
-        expiresAt: (readToken as { expiresAt?: number }).expiresAt ?? (Date.now() + 3_600_000),
-        scope: (readToken as { scope?: string }).scope ?? '',
-      },
+      oauth,
     }
 
     await provider.connect(config)

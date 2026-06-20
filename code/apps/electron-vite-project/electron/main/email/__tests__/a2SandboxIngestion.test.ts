@@ -18,6 +18,7 @@ import { createRequire } from 'module'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHash, createHmac } from 'crypto'
 import type { IngestionOwnership } from '../ingestionOwnership'
+import type { RoleScopedTokenRecord } from '../roleScopedTokenStore'
 import type { OAuthTokens } from '../secure-storage'
 import type { SandboxFetchedMessage } from '../sandboxIngestion'
 
@@ -44,6 +45,12 @@ const HOST_NODE: IngestionOwnership = {
 }
 
 const FAKE_TOKENS: OAuthTokens = { accessToken: 'a', refreshToken: 'r' } as unknown as OAuthTokens
+const FAKE_RECORD: RoleScopedTokenRecord = {
+  accountId: 'acc',
+  role: 'read',
+  tokens: FAKE_TOKENS,
+  savedAt: 0,
+}
 const CUSTODY_PUB = 'e06Qm75//kTEZaIgA31gjuNYl9Me+XLwf3SJLLD3PxM=' // pub of priv=0x11*32
 
 import { runSandboxIngestionPoll } from '../sandboxIngestion'
@@ -62,9 +69,10 @@ describe('runSandboxIngestionPoll — worker contract (DI)', () => {
         listReadScopedAccountIds: () => ['acc'],
         loadReadToken: () => ({ accountId: 'acc', role: 'read', tokens: FAKE_TOKENS, savedAt: 0 }),
         custodyPubKeyB64: CUSTODY_PUB,
-        fetchOpaque: async (_id, token) => {
+        fetchOpaque: async (_id, tokenRecord) => {
           // INV-2: the read token is used LOCALLY for fetch only.
-          expect(token).toBe(FAKE_TOKENS)
+          expect(tokenRecord.tokens).toBe(FAKE_TOKENS)
+          expect(tokenRecord.accountId).toBe('acc')
           return fetched
         },
         depackage: async (bytes) => {

@@ -36,7 +36,6 @@ import {
   type RoleScopedTokenRecord,
 } from './roleScopedTokenStore'
 import { resolveIngestionOwnershipWithLedger, type IngestionOwnership } from './ingestionOwnership'
-import type { OAuthTokens } from './secure-storage'
 
 /** One opaque message blob the sandbox read client fetched. Bytes are NEVER parsed by this module. */
 export interface SandboxFetchedMessage {
@@ -63,7 +62,7 @@ export interface SandboxIngestionDeps {
    * closed (real read-fetch wiring is the Prompt 5 rig leg) so production without
    * the rig HELDs rather than silently doing nothing.
    */
-  fetchOpaque?: (accountId: string, readToken: OAuthTokens) => Promise<SandboxFetchedMessage[]>
+  fetchOpaque?: (accountId: string, tokenRecord: RoleScopedTokenRecord) => Promise<SandboxFetchedMessage[]>
   /**
    * Depackage one opaque blob LOCALLY → typed union. Default: `dispatchDepackageEmail`
    * (sandbox role → in-process inside the VM; paid → microVM; fails closed with
@@ -209,7 +208,7 @@ async function pollOneSandboxReadAccount(
 
   let fetched: SandboxFetchedMessage[]
   try {
-    fetched = await fetchOpaque(readAccountId, tokenRecord.tokens)
+    fetched = await fetchOpaque(readAccountId, tokenRecord)
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
     sandboxLog(

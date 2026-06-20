@@ -3,7 +3,7 @@
  */
 
 import { emailGateway } from './gateway'
-import type { OAuthTokens } from './secure-storage'
+import type { RoleScopedTokenRecord } from './roleScopedTokenStore'
 import type { SandboxFetchedMessage } from './sandboxIngestion'
 import { fetchOpaqueViaGmail, fetchOpaqueViaOutlook } from './sandboxEmailFetch'
 
@@ -22,16 +22,16 @@ export class SandboxFetchUnsupportedProviderError extends Error {
  */
 export async function fetchOpaqueForProviderAccount(
   accountId: string,
-  readToken: OAuthTokens,
+  tokenRecord: RoleScopedTokenRecord,
   opts?: { maxMessages?: number; folder?: string },
 ): Promise<SandboxFetchedMessage[]> {
   const config = emailGateway.getAccountConfig(accountId)
   const provider = config?.provider
   if (provider === 'gmail') {
-    return fetchOpaqueViaGmail(accountId, readToken, opts)
+    return fetchOpaqueViaGmail(accountId, tokenRecord, opts)
   }
   if (provider === 'microsoft365') {
-    return fetchOpaqueViaOutlook(accountId, readToken, opts)
+    return fetchOpaqueViaOutlook(accountId, tokenRecord, opts)
   }
   throw new SandboxFetchUnsupportedProviderError(String(provider ?? 'unknown'))
 }

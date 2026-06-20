@@ -228,8 +228,8 @@ describe.skipIf(!RIG)('Part B A2 live ingestion rig — real Outlook read token'
         loadReadToken: () => tokenRecord,
         custodyPubKeyB64,
         // REAL fetchOpaque: uses the Outlook read-scoped token to fetch actual messages.
-        fetchOpaque: async (accountId, readToken) => {
-          return fetchOpaqueViaOutlook(accountId, readToken, { maxMessages: 3 })
+        fetchOpaque: async (accountId, tokenRecord) => {
+          return fetchOpaqueViaOutlook(accountId, tokenRecord, { maxMessages: 3 })
         },
         // deliverToHost: writes to the rig's test DB via the proven host write path.
         // INV-1: the host receives ONLY guest-derived safe content — never raw bytes.

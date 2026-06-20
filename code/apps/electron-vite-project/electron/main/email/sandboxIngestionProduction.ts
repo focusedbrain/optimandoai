@@ -104,7 +104,7 @@ export function buildProductionSandboxIngestionDeps(
 
   return {
     custodyPubKeyB64,
-    fetchOpaque: (id, readToken) => fetchOpaqueForProviderAccount(id, readToken),
+    fetchOpaque: (id, tokenRecord) => fetchOpaqueForProviderAccount(id, tokenRecord),
     deliverToHost: async (readAccountId, msg, outcome) => {
       if (!deliveryCtx) return { delivered: false }
       if (!outcome.ok) return { delivered: false }
