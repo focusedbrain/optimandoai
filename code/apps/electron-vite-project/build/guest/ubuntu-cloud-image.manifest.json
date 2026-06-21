@@ -1,0 +1,11 @@
+{
+  "product": "ubuntu-24.04-server-cloudimg-amd64",
+  "officialSource": "https://cloud-images.ubuntu.com/releases/noble/release/",
+  "url": "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img",
+  "sha256": "53fdde898feed8b027d94baa9cfe8229867f330a1d9c49dc7d84465ee7f229f7",
+  "sha256sumsUrl": "https://cloud-images.ubuntu.com/releases/noble/release/SHA256SUMS",
+  "filename": "ubuntu-24.04-server-cloudimg-amd64.img",
+  "release": "noble",
+  "version": "24.04 LTS",
+  "notes": "Image is fetched at provision time only. Do not commit the .img to the repo or bundle it in the installer."
+}

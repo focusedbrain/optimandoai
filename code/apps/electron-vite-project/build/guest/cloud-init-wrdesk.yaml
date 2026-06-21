@@ -1,0 +1,40 @@
+#cloud-config
+# First-boot configuration for WR Desk Windows Home isolation guest.
+# Guest is an isolation appliance — NOT orchestrator mode sandbox.
+
+users:
+  - name: wrdesk
+    groups: [sudo, kvm]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: false
+    plain_text_passwd: wrdesk-guest-local
+
+package_update: true
+package_upgrade: false
+
+packages:
+  - curl
+  - ca-certificates
+  - qemu-kvm
+  - cpu-checker
+
+write_files:
+  - path: /etc/wrdesk/guest-ports.json
+    permissions: '0644'
+    content: |
+      {"coordination":{"port":51249},"p2pIngest":{"port":51250}}
+
+runcmd:
+  - mkdir -p /opt/wrdesk /home/wrdesk/.opengiraffe/guest-appliance
+  - |
+    for src in /media/sf_wrdesk/in-guest-install-stack.sh /opt/wrdesk/in-guest-install-stack.sh; do
+      if [ -f "$src" ]; then
+        install -m 0755 "$src" /opt/wrdesk/in-guest-install-stack.sh
+        break
+      fi
+    done
+  - |
+    if [ -x /opt/wrdesk/in-guest-install-stack.sh ]; then
+      WRDESK_GUEST_PORTS_FILE=/etc/wrdesk/guest-ports.json /opt/wrdesk/in-guest-install-stack.sh
+    fi

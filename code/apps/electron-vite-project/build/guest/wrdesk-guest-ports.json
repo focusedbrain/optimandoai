@@ -1,0 +1,15 @@
+{
+  "description": "Canonical coordination/P2P ports for WR Desk Home isolation guest. Sources: packages/coordination-service/src/config.ts (COORD_PORT default 51249), scripts/session/configure-coordination-worker.cjs (P2P ingest 51250 when coordination also runs on host).",
+  "coordination": {
+    "port": 51249,
+    "bind": "0.0.0.0",
+    "source": "packages/coordination-service/src/config.ts"
+  },
+  "p2pIngest": {
+    "port": 51250,
+    "bind": "0.0.0.0",
+    "source": "scripts/session/configure-coordination-worker.cjs"
+  },
+  "windowsHostForwardedToGuest": true,
+  "healthPath": "/health"
+}
