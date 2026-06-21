@@ -5690,6 +5690,9 @@ app.whenReady().then(async () => {
       m.maybeInitP2pSessionManagerStub({ phase: 'app_init' }),
     )
 
+    const { scheduleStartupWarmup } = await import('./main/llm/startupWarmup')
+    scheduleStartupWarmup({ phase: 'llm_ipc_registered' })
+
     registerOrchestratorIPC()
     console.log('[MAIN] Orchestrator IPC handlers registered')
 
