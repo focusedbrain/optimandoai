@@ -309,6 +309,32 @@ interface LlmBridge {
   >
 }
 
+/** Shared custom WR Chat modes (main-process store). */
+interface CustomModesBridge {
+  list: () => Promise<{ ok: true; data: unknown[] } | { ok: false; error: string }>
+  create: (draft: Record<string, unknown>) => Promise<{ ok: true; data: unknown[] } | { ok: false; error: string }>
+  update: (
+    id: string,
+    patch: Record<string, unknown>,
+  ) => Promise<{ ok: true; data: unknown[] } | { ok: false; error: string }>
+  delete: (id: string) => Promise<{ ok: true; data: unknown[] } | { ok: false; error: string }>
+  import: (
+    modes: unknown[],
+    origin: 'dashboard' | 'extension',
+  ) => Promise<{ ok: true; data: unknown[] } | { ok: false; error: string }>
+  getMigrationStatus: () => Promise<
+    | {
+        ok: true
+        data: {
+          localStorageImport: { dashboard: boolean; extension: boolean }
+          completedAt?: string
+        }
+      }
+    | { ok: false; error: string }
+  >
+  onChanged: (handler: (data: { modes: unknown[] }) => void) => () => void
+}
+
 /** TEMPORARY — main process log viewer (remove before production) */
 interface MainProcessLogEntry {
   ts: string
@@ -383,6 +409,8 @@ interface Window {
   beap?: BeapBridge
   /** Preload: local Ollama status and persisted active model (same store as Backend Configuration). */
   llm?: LlmBridge
+  /** Shared custom WR Chat modes (main-process JSON store). */
+  customModes?: CustomModesBridge
   /** Dashboard Letter Composer — mammoth + Ollama field extraction in main process. */
   letterComposer?: LetterComposerBridge
   /** User-installed LibreOffice — `soffice` detection and PDF conversion. */

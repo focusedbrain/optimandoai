@@ -267,6 +267,73 @@ const OrchestratorRegeneratePairingCode = {
   route: '/api/orchestrator/regenerate-pairing-code',
 }
 
+// ── Custom WR Chat modes (shared main-process store) ──
+
+const customModeDraftSchema = z
+  .object({
+    name: z.string().optional(),
+    description: z.string().optional(),
+    icon: z.string().optional(),
+    modelProvider: z.string().optional(),
+    modelName: z.string().optional(),
+    endpoint: z.string().optional(),
+    sessionId: z.string().nullable().optional(),
+    sessionMode: z.enum(['shared', 'dedicated', 'fresh']).optional(),
+    searchFocus: z.string().optional(),
+    ignoreInstructions: z.string().optional(),
+    intervalSeconds: z.number().nullable().optional(),
+    metadata: z.record(z.unknown()).optional(),
+  })
+  .passthrough()
+
+const CustomModesList = {
+  method: 'customModes.list' as const,
+  schema: z.void(),
+  http: 'GET' as const,
+  route: '/api/custom-modes',
+}
+
+const CustomModesGetMigrationStatus = {
+  method: 'customModes.getMigrationStatus' as const,
+  schema: z.void(),
+  http: 'GET' as const,
+  route: '/api/custom-modes/migration-status',
+}
+
+const CustomModesCreate = {
+  method: 'customModes.create' as const,
+  schema: z.object({ draft: customModeDraftSchema }),
+  http: 'POST' as const,
+  route: '/api/custom-modes',
+}
+
+const CustomModesUpdate = {
+  method: 'customModes.update' as const,
+  schema: z.object({
+    id: z.string().min(1).max(200),
+    patch: customModeDraftSchema,
+  }),
+  http: 'PATCH' as const,
+  build: (p: { id: string }) => `/api/custom-modes/${encodeURIComponent(p.id)}`,
+}
+
+const CustomModesDelete = {
+  method: 'customModes.delete' as const,
+  schema: z.object({ id: z.string().min(1).max(200) }),
+  http: 'DELETE' as const,
+  build: (p: { id: string }) => `/api/custom-modes/${encodeURIComponent(p.id)}`,
+}
+
+const CustomModesImport = {
+  method: 'customModes.import' as const,
+  schema: z.object({
+    modes: z.array(z.record(z.unknown())).max(500),
+    origin: z.enum(['dashboard', 'extension']),
+  }),
+  http: 'POST' as const,
+  route: '/api/custom-modes/import',
+}
+
 // Pairing-code resolution intentionally has no extension-facing RPC. The 6-digit
 // code is forwarded through the existing handshake initiate / buildForDownload IPC
 // (`counterparty_pairing_code`) and resolved on the Electron side via the
@@ -296,6 +363,12 @@ const RPC_REGISTRY = [
   OrchestratorGetMode,
   OrchestratorSetMode,
   OrchestratorRegeneratePairingCode,
+  CustomModesList,
+  CustomModesGetMigrationStatus,
+  CustomModesCreate,
+  CustomModesUpdate,
+  CustomModesDelete,
+  CustomModesImport,
 ] as const
 
 type RpcDef = (typeof RPC_REGISTRY)[number]
@@ -405,9 +478,13 @@ export function handleElectronRpc(
 
       // Attach body for POST/PUT/PATCH (from validated params, not raw input)
       if (def.http !== 'GET' && def.http !== 'DELETE' && validatedParams !== undefined) {
-        fetchOptions.body = JSON.stringify(validatedParams)
+        if (def.http === 'PATCH' && def.method === 'customModes.update') {
+          const p = validatedParams as { id?: string; patch?: unknown }
+          fetchOptions.body = JSON.stringify({ patch: p.patch ?? {} })
+        } else {
+          fetchOptions.body = JSON.stringify(validatedParams)
+        }
       }
-      // DELETE with body (e.g., llm.deleteModel has no body — path param only)
       // POST with body from validated params
       if (def.http === 'POST' && validatedParams !== undefined) {
         fetchOptions.body = JSON.stringify(validatedParams)

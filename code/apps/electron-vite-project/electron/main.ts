@@ -5672,6 +5672,12 @@ app.whenReady().then(async () => {
     registerLlmHandlers()
     console.log('[MAIN] LLM IPC handlers registered')
 
+    const { registerCustomModesHandlers } = await import('./main/customModes/ipc')
+    const { setCustomModesExtensionBroadcast } = await import('./main/customModes/broadcast')
+    setCustomModesExtensionBroadcast(broadcastToExtensions)
+    registerCustomModesHandlers()
+    console.log('[MAIN] Custom modes IPC handlers registered')
+
     const { registerInternalInferenceIpc } = await import('./main/internalInference/ipc')
     registerInternalInferenceIpc()
     console.log('[MAIN] Internal-inference IPC handlers registered')
@@ -9877,6 +9883,96 @@ async function runDeviceKeyMigration(
         res.json({ ok: true })
       } catch (error: any) {
         console.error('[HTTP-LLM] ai-execution-context failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // GET/POST/PATCH/DELETE /api/custom-modes — shared custom WR Chat modes (extension RPC; X-Launch-Secret).
+    httpApp.get('/api/custom-modes/migration-status', async (_req, res) => {
+      try {
+        const { getMigrationStatus } = await import('./main/customModes/customModesStore')
+        res.json({ ok: true, data: getMigrationStatus() })
+      } catch (error: any) {
+        console.error('[HTTP] GET /api/custom-modes/migration-status failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    httpApp.get('/api/custom-modes', async (_req, res) => {
+      try {
+        const { listModes } = await import('./main/customModes/customModesStore')
+        res.json({ ok: true, data: listModes() })
+      } catch (error: any) {
+        console.error('[HTTP] GET /api/custom-modes failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    httpApp.post('/api/custom-modes', async (req, res) => {
+      try {
+        const draft = req.body?.draft
+        if (!draft || typeof draft !== 'object') {
+          res.status(400).json({ ok: false, error: 'invalid draft' })
+          return
+        }
+        const { createMode } = await import('./main/customModes/customModesStore')
+        const { broadcastCustomModesChanged } = await import('./main/customModes/broadcast')
+        const result = await createMode(draft)
+        if (result.ok) broadcastCustomModesChanged(result.data)
+        res.status(result.ok ? 200 : 400).json(result)
+      } catch (error: any) {
+        console.error('[HTTP] POST /api/custom-modes failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    httpApp.patch('/api/custom-modes/:id', async (req, res) => {
+      try {
+        const id = typeof req.params.id === 'string' ? req.params.id : ''
+        const patch = req.body?.patch ?? req.body
+        if (!id || !patch || typeof patch !== 'object') {
+          res.status(400).json({ ok: false, error: 'invalid update payload' })
+          return
+        }
+        const { updateMode } = await import('./main/customModes/customModesStore')
+        const { broadcastCustomModesChanged } = await import('./main/customModes/broadcast')
+        const result = await updateMode(id, patch)
+        if (result.ok) broadcastCustomModesChanged(result.data)
+        res.status(result.ok ? 200 : 400).json(result)
+      } catch (error: any) {
+        console.error('[HTTP] PATCH /api/custom-modes/:id failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    httpApp.delete('/api/custom-modes/:id', async (req, res) => {
+      try {
+        const id = typeof req.params.id === 'string' ? req.params.id : ''
+        if (!id) {
+          res.status(400).json({ ok: false, error: 'invalid id' })
+          return
+        }
+        const { deleteMode } = await import('./main/customModes/customModesStore')
+        const { broadcastCustomModesChanged } = await import('./main/customModes/broadcast')
+        const result = await deleteMode(id)
+        if (result.ok) broadcastCustomModesChanged(result.data)
+        res.status(result.ok ? 200 : 400).json(result)
+      } catch (error: any) {
+        console.error('[HTTP] DELETE /api/custom-modes/:id failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    httpApp.post('/api/custom-modes/import', async (req, res) => {
+      try {
+        const modes = req.body?.modes
+        const origin = req.body?.origin
+        if (!Array.isArray(modes) || (origin !== 'dashboard' && origin !== 'extension')) {
+          res.status(400).json({ ok: false, error: 'invalid import payload' })
+          return
+        }
+        const { importModes } = await import('./main/customModes/customModesStore')
+        const { broadcastCustomModesChanged } = await import('./main/customModes/broadcast')
+        const result = await importModes(modes, origin)
+        if (result.ok) broadcastCustomModesChanged(result.data)
+        res.status(result.ok ? 200 : 400).json(result)
+      } catch (error: any) {
+        console.error('[HTTP] POST /api/custom-modes/import failed:', error)
         res.status(500).json({ ok: false, error: error.message })
       }
     })

@@ -1,97 +1,187 @@
 /**
- * Persisted user-defined WR Chat modes (schema v2).
+ * Persisted user-defined WR Chat modes (schema v2) — thin cache over main-process store.
  */
 
 import { create } from 'zustand'
-import { persist, createJSONStorage } from 'zustand/middleware'
 import type { CustomModeDefinition, CustomModeDraft } from '../shared/ui/customModeTypes'
 import {
-  buildCustomModeFromDraft,
   getCustomModeScopeFromMetadata,
-  normalizeCustomModeFields,
   normalizeCustomModeNameKey,
 } from '../shared/ui/customModeTypes'
-import {
-  CUSTOM_MODES_PERSIST_KEY,
-  migrateCustomModesPersistedState,
-} from '../shared/ui/customModePersistence'
 import { syncCustomModeDiffWatcher } from '../services/syncCustomModeDiffWatcher'
+import { customModesClient } from '../services/customModesClient'
+import {
+  runCustomModesMigrationIfNeeded,
+  warnIfLegacyCustomModesLocalStorageReappears,
+} from '../services/customModesMigration'
 
-const SCHEMA_VERSION = 2
+type StoreResponse =
+  | { ok: true; data: CustomModeDefinition[] }
+  | { ok: false; error: string }
 
 interface CustomModesState {
   modes: CustomModeDefinition[]
-  addMode: (draft: CustomModeDraft) => string
+  addMode: (draft: CustomModeDraft) => Promise<string>
   updateMode: (id: string, patch: Partial<CustomModeDraft>) => void
   removeMode: (id: string) => void
   getById: (id: string) => CustomModeDefinition | undefined
 }
 
-export const useCustomModesStore = create<CustomModesState>()(
-  persist(
-    (set, get) => ({
-      modes: [],
+function isElectronDashboard(): boolean {
+  return typeof window !== 'undefined' && !!(window as { customModes?: unknown }).customModes
+}
 
-      addMode: (draft) => {
-        const nameKey = normalizeCustomModeNameKey(draft.name)
-        if (get().modes.some((m) => normalizeCustomModeNameKey(m.name) === nameKey)) {
-          throw new Error('An automation with this name already exists. Choose a different name.')
-        }
+function detectMigrationOrigin(): 'dashboard' | 'extension' {
+  return isElectronDashboard() ? 'dashboard' : 'extension'
+}
 
-        let def: CustomModeDefinition
-        try {
-          def = buildCustomModeFromDraft(draft)
-        } catch (e) {
-          console.error('[CustomModes] buildCustomModeFromDraft failed', e)
-          throw new Error('Could not create this automation. Check your inputs and try again.')
-        }
+async function listFromMain(): Promise<StoreResponse> {
+  if (isElectronDashboard()) {
+    const api = (window as {
+      customModes?: {
+        list: () => Promise<StoreResponse>
+      }
+    }).customModes
+    if (!api?.list) return { ok: false, error: 'customModes API unavailable' }
+    return api.list()
+  }
+  return customModesClient.list()
+}
 
-        try {
-          set((s) => ({ modes: [...s.modes, def] }))
-        } catch (e) {
-          console.error('[CustomModes] persist failed', e)
-          throw new Error('Could not save the automation to storage. Try again or free some space.')
-        }
+async function createOnMain(draft: CustomModeDraft): Promise<StoreResponse> {
+  if (isElectronDashboard()) {
+    const api = (window as {
+      customModes?: {
+        create: (draft: CustomModeDraft) => Promise<StoreResponse>
+      }
+    }).customModes
+    if (!api?.create) return { ok: false, error: 'customModes API unavailable' }
+    return api.create(draft)
+  }
+  return customModesClient.create(draft)
+}
 
-        return def.id
-      },
+async function updateOnMain(id: string, patch: Partial<CustomModeDraft>): Promise<StoreResponse> {
+  if (isElectronDashboard()) {
+    const api = (window as {
+      customModes?: {
+        update: (id: string, patch: Partial<CustomModeDraft>) => Promise<StoreResponse>
+      }
+    }).customModes
+    if (!api?.update) return { ok: false, error: 'customModes API unavailable' }
+    return api.update(id, patch)
+  }
+  return customModesClient.update(id, patch)
+}
 
-      updateMode: (id, patch) => {
-        if (!id.startsWith('custom:')) return
-        set((s) => ({
-          modes: s.modes.map((m) => {
-            if (m.id !== id) return m
-            const now = new Date().toISOString()
-            const next = normalizeCustomModeFields({
-              ...m,
-              ...patch,
-              id,
-              type: 'custom',
-              updatedAt: now,
-            })
-            const scope = getCustomModeScopeFromMetadata(next.metadata as Record<string, unknown> | undefined)
-            void syncCustomModeDiffWatcher(id, next.name, scope.diffWatchFolders)
-            return next
-          }),
-        }))
-      },
+async function deleteOnMain(id: string): Promise<StoreResponse> {
+  if (isElectronDashboard()) {
+    const api = (window as {
+      customModes?: {
+        delete: (id: string) => Promise<StoreResponse>
+      }
+    }).customModes
+    if (!api?.delete) return { ok: false, error: 'customModes API unavailable' }
+    return api.delete(id)
+  }
+  return customModesClient.delete(id)
+}
 
-      removeMode: (id) => {
-        if (!id.startsWith('custom:')) return
-        const existing = get().modes.find((m) => m.id === id)
-        void syncCustomModeDiffWatcher(id, existing?.name ?? 'Mode', null)
-        set((s) => ({ modes: s.modes.filter((m) => m.id !== id) }))
-      },
+export const useCustomModesStore = create<CustomModesState>()((set, get) => ({
+  modes: [],
 
-      getById: (id) => get().modes.find((m) => m.id === id),
-    }),
-    {
-      name: CUSTOM_MODES_PERSIST_KEY,
-      version: SCHEMA_VERSION,
-      storage: createJSONStorage(() => localStorage),
-      partialize: (s) => ({ modes: s.modes }),
-      migrate: (persistedState, version) =>
-        migrateCustomModesPersistedState(persistedState, version),
-    },
-  ),
-)
+  addMode: async (draft) => {
+    const nameKey = normalizeCustomModeNameKey(draft.name)
+    if (get().modes.some((m) => normalizeCustomModeNameKey(m.name) === nameKey)) {
+      throw new Error('An automation with this name already exists. Choose a different name.')
+    }
+
+    const beforeIds = new Set(get().modes.map((m) => m.id))
+    let result: StoreResponse
+    try {
+      result = await createOnMain(draft)
+    } catch (e) {
+      console.error('[CustomModes] create IPC failed', e)
+      throw new Error('Could not create this automation. Check your inputs and try again.')
+    }
+
+    if (!result.ok) {
+      throw new Error(result.error || 'Could not create this automation.')
+    }
+
+    set({ modes: result.data })
+    const created = result.data.find((m) => !beforeIds.has(m.id))
+    if (!created) {
+      throw new Error('Could not save the automation to storage. Try again or free some space.')
+    }
+    return created.id
+  },
+
+  updateMode: (id, patch) => {
+    if (!id.startsWith('custom:')) return
+    void (async () => {
+      const result = await updateOnMain(id, patch)
+      if (!result.ok) {
+        console.error('[CustomModes] update failed:', result.error)
+        return
+      }
+      set({ modes: result.data })
+      const next = result.data.find((m) => m.id === id)
+      if (next) {
+        const scope = getCustomModeScopeFromMetadata(next.metadata as Record<string, unknown> | undefined)
+        void syncCustomModeDiffWatcher(id, next.name, scope.diffWatchFolders)
+      }
+    })()
+  },
+
+  removeMode: (id) => {
+    if (!id.startsWith('custom:')) return
+    const existing = get().modes.find((m) => m.id === id)
+    void (async () => {
+      const result = await deleteOnMain(id)
+      if (!result.ok) {
+        console.error('[CustomModes] delete failed:', result.error)
+        return
+      }
+      void syncCustomModeDiffWatcher(id, existing?.name ?? 'Mode', null)
+      set({ modes: result.data })
+    })()
+  },
+
+  getById: (id) => get().modes.find((m) => m.id === id),
+}))
+
+async function hydrateCustomModesStore(): Promise<void> {
+  const result = await listFromMain()
+  if (result.ok) {
+    useCustomModesStore.setState({ modes: result.data })
+  } else {
+    console.warn('[CustomModes] hydrate failed:', result.error)
+  }
+}
+
+function subscribeCustomModesChanged(): void {
+  if (isElectronDashboard()) {
+    const api = (window as {
+      customModes?: {
+        onChanged: (handler: (payload: { modes: CustomModeDefinition[] }) => void) => () => void
+      }
+    }).customModes
+    api?.onChanged(({ modes }) => {
+      useCustomModesStore.setState({ modes })
+    })
+    return
+  }
+  customModesClient.onChanged((modes) => {
+    useCustomModesStore.setState({ modes })
+  })
+}
+
+void (async () => {
+  const origin = detectMigrationOrigin()
+  await runCustomModesMigrationIfNeeded(origin)
+  await hydrateCustomModesStore()
+  warnIfLegacyCustomModesLocalStorageReappears()
+})()
+
+subscribeCustomModesChanged()

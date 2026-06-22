@@ -1368,6 +1368,15 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               try {
                 chrome.runtime.sendMessage({ type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl, promptContext })
               } catch {}
+            } else if (data.type === 'CUSTOM_MODES_CHANGED') {
+              try {
+                chrome.runtime.sendMessage({
+                  type: 'CUSTOM_MODES_CHANGED',
+                  modes: Array.isArray(data.modes) ? data.modes : [],
+                })
+              } catch {
+                /* no listener */
+              }
             } else if (data.type === 'DIFF_RESULT') {
               try {
                 chrome.runtime.sendMessage({

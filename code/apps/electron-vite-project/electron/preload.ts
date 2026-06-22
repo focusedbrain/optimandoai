@@ -1568,6 +1568,50 @@ contextBridge.exposeInMainWorld('integrity', {
 })
 
 // ── Local LLM (Ollama) — status + active model (shared with Backend Configuration persistence) ──
+// ── Custom WR Chat modes (shared main-process store) ───────────────────────
+contextBridge.exposeInMainWorld('customModes', {
+  list: () => ipcRenderer.invoke('customModes:list'),
+  create: (draft: Record<string, unknown>) => {
+    if (!draft || typeof draft !== 'object') {
+      throw new Error('customModes.create: expected draft object')
+    }
+    return ipcRenderer.invoke('customModes:create', { draft })
+  },
+  update: (id: string, patch: Record<string, unknown>) => {
+    assertString(id, 'id')
+    if (!patch || typeof patch !== 'object') {
+      throw new Error('customModes.update: expected patch object')
+    }
+    return ipcRenderer.invoke('customModes:update', { id, patch })
+  },
+  delete: (id: string) => {
+    assertString(id, 'id')
+    return ipcRenderer.invoke('customModes:delete', { id })
+  },
+  import: (modes: unknown[], origin: 'dashboard' | 'extension') => {
+    if (!Array.isArray(modes)) {
+      throw new Error('customModes.import: expected modes array')
+    }
+    if (origin !== 'dashboard' && origin !== 'extension') {
+      throw new Error('customModes.import: invalid origin')
+    }
+    return ipcRenderer.invoke('customModes:import', { modes, origin })
+  },
+  getMigrationStatus: () => ipcRenderer.invoke('customModes:getMigrationStatus'),
+  onChanged: (handler: (data: { modes: unknown[] }) => void) => {
+    const fn = (_e: Electron.IpcRendererEvent, data: unknown) => {
+      if (!data || typeof data !== 'object') return
+      const modes = (data as Record<string, unknown>).modes
+      if (!Array.isArray(modes)) return
+      handler({ modes })
+    }
+    ipcRenderer.on('customModes:changed', fn)
+    return () => {
+      ipcRenderer.removeListener('customModes:changed', fn)
+    }
+  },
+})
+
 contextBridge.exposeInMainWorld('llm', {
   getStatus: () => ipcRenderer.invoke('llm:getStatus'),
   getGpuStatus: () =>

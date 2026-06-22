@@ -177,7 +177,7 @@ export function AddModeWizardHost({ theme }: AddModeWizardHostProps) {
         editTarget={editTarget}
         onClose={handleCloseAll}
         theme={lightboxTheme}
-        onSave={(draft) => {
+        onSave={async (draft) => {
           if (editTarget) {
             updateMode(editTarget.id, draft)
             const def = useCustomModesStore.getState().getById(editTarget.id)
@@ -186,7 +186,7 @@ export function AddModeWizardHost({ theme }: AddModeWizardHostProps) {
               void syncCustomModeDiffWatcher(editTarget.id, def.name, scope.diffWatchFolders)
             }
           } else {
-            const id = addMode(draft)
+            const id = await addMode(draft)
             const def = useCustomModesStore.getState().getById(id)
             if (def) {
               const scope = getCustomModeScopeFromMetadata(def.metadata as Record<string, unknown> | undefined)
