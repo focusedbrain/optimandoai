@@ -14,6 +14,11 @@ import path from 'node:path'
 import { captureScreenshot } from '../lmgtfy/capture'
 import type { Selection } from '../lmgtfy/overlay'
 import type { ChatMessage } from '../main/llm/types'
+import { WATCHDOG_SYSTEM_PROMPT } from '../../../extension-chromium/src/shared/ui/watchdogPrompts'
+import { BUILTIN_SCAM_WATCHDOG_ID } from '../../../extension-chromium/src/shared/ui/scamWatchdogBuiltIn'
+import { getModeById } from '../main/customModes/customModesStore'
+
+export { WATCHDOG_SYSTEM_PROMPT } from '../../../extension-chromium/src/shared/ui/watchdogPrompts'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -145,35 +150,21 @@ function maybeGlobalGc(): void {
   }
 }
 
-export const WATCHDOG_SYSTEM_PROMPT = `You are a cybersecurity watchdog assistant. You are shown screenshots of a user's computer screens and text content from their open browser tabs.
-Analyse ALL content for security threats including but not limited to:
-
-Phishing attempts (fake login pages, credential harvesting)
-Scam websites or messages (fake prizes, urgency tactics, too-good-to-be-true offers)
-Fraud indicators (fake invoices, impersonation, business email compromise)
-Suspicious or malicious links (URL mismatches, homograph attacks, shortened URLs to unknown destinations)
-Chat fraud (romance scams, fake tech support, social engineering in messaging apps)
-Social engineering (urgency, impersonation, manipulation outside chat contexts)
-Malware indicators (fake download buttons, deceptive install prompts, suspicious executables)
-Fishy emails (spoofed senders, urgent action requests, unexpected attachments)
-Fake or spoofed websites (banking, social media, government impersonation)
-Suspicious browser extensions or popups
-
-Respond ONLY with a JSON object. No markdown, no explanation outside the JSON.
-If threats are found:
-{
-"threats": [
-{
-"severity": "low|medium|high|critical",
-"category": "phishing|scam|malware|social_engineering|suspicious_link|fake_login|chat_fraud|fraud|other",
-"source": "Screen 1|Tab: example.com|etc",
-"summary": "Brief description of what was detected",
-"advice": "What the user should do"
+export function resolveWatchdogSystemPromptFromMode(): string {
+  const mode = getModeById(BUILTIN_SCAM_WATCHDOG_ID)
+  const focus = mode?.searchFocus?.trim()
+  return focus || WATCHDOG_SYSTEM_PROMPT
 }
-]
+
+export async function resolveWatchdogEffectiveModelId(configModelId?: string): Promise<string> {
+  const configured = configModelId?.trim()
+  if (configured) return configured
+  const mode = getModeById(BUILTIN_SCAM_WATCHDOG_ID)
+  const fromMode = mode?.modelName?.trim()
+  if (fromMode) return fromMode
+  const { ollamaManager } = await import('../main/llm/ollama-manager')
+  return (await ollamaManager.getEffectiveChatModelName()) || DEFAULT_WATCHDOG_MODEL_ID
 }
-If everything looks safe:
-{ "threats": [] }`
 
 /** Smart Summary — executive workspace overview (same capture as Watchdog; plain-text reply). */
 const SMART_SUMMARY_SYSTEM_PROMPT = `You are a workspace activity summarizer for WR Desk, a secure business communication platform. Analyze the user's current workspace and provide a concise executive summary.
@@ -436,7 +427,7 @@ export class WatchdogService {
       ...(imageB64s.length > 0 ? { images: imageB64s } : {}),
     }
 
-    const messages: ChatMessage[] = [{ role: 'system', content: WATCHDOG_SYSTEM_PROMPT }, userMsg]
+    const messages: ChatMessage[] = [{ role: 'system', content: resolveWatchdogSystemPromptFromMode() }, userMsg]
 
     const modelId = this.config.modelId?.trim()
     return { messages, ...(modelId ? { modelId } : {}) }
@@ -573,9 +564,7 @@ export class WatchdogService {
         const { ollamaManager } = await import('../main/llm/ollama-manager')
         this.logWatchdogRemotePrivacyNote(ollamaManager)
 
-        const configured = this.config.modelId?.trim()
-        const effective =
-          configured || (await ollamaManager.getEffectiveChatModelName()) || DEFAULT_WATCHDOG_MODEL_ID
+        const effective = await resolveWatchdogEffectiveModelId(this.config.modelId)
         const chatRes = await ollamaManager.chat(effective, messages)
         responseText = typeof chatRes?.content === 'string' ? chatRes.content : ''
         responseLen = responseText.length

@@ -373,6 +373,7 @@ export const AddModeWizard: React.FC<AddModeWizardProps> = ({
             themeTokens={t}
             inlineErrors={inlineErrors}
             showInlineErrors={inlineErrorStep === step}
+            editTarget={editTarget}
           />
         </div>
 

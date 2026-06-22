@@ -3,7 +3,8 @@
  */
 
 import React from 'react'
-import type { CustomModeDraft } from '../../../shared/ui/customModeTypes'
+import type { CustomModeDefinition, CustomModeDraft } from '../../../shared/ui/customModeTypes'
+import { isBuiltInModeId } from '../../../shared/ui/customModeTypes'
 import { getThemeTokens } from '../../../shared/ui/lightboxTheme'
 import type { AddModeWizardStepIndex } from './addModeWizardTypes'
 import type { InlineFieldErrors } from './addModeWizardValidation'
@@ -21,6 +22,7 @@ export function AddModeWizardStepBody({
   themeTokens: t,
   inlineErrors = {},
   showInlineErrors = false,
+  editTarget,
 }: {
   stepIndex: AddModeWizardStepIndex
   data: CustomModeDraft
@@ -28,11 +30,21 @@ export function AddModeWizardStepBody({
   themeTokens: ReturnType<typeof getThemeTokens>
   inlineErrors?: InlineFieldErrors
   showInlineErrors?: boolean
+  editTarget?: CustomModeDefinition | null
 }) {
   const err = showInlineErrors ? inlineErrors : {}
+  const lockBasics = editTarget != null && isBuiltInModeId(editTarget.id)
   switch (stepIndex) {
     case 0:
-      return <StepBasics data={data} setData={setData} t={t} fieldErrors={err} />
+      return (
+        <StepBasics
+          data={data}
+          setData={setData}
+          t={t}
+          fieldErrors={err}
+          lockName={lockBasics}
+        />
+      )
     case 1:
       return <StepModel data={data} setData={setData} t={t} fieldErrors={err} />
     case 2:

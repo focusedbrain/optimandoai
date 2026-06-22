@@ -12,7 +12,7 @@ import {
   getAvailableModes,
   BuiltInMode,
 } from '../../shared/ui/uiState'
-import { isCustomModeId } from '../../shared/ui/customModeTypes'
+import { isCustomModeId, isPersistedModeId } from '../../shared/ui/customModeTypes'
 import { safeCustomModeRowLabel } from '../../shared/ui/customModeDisplay'
 import {
   WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT,

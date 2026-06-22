@@ -10,9 +10,24 @@ import { isUserDataPathBootstrapped } from '../../userDataBootstrapState'
 import type { CustomModeDefinition, CustomModeDraft } from '../../../../extension-chromium/src/shared/ui/customModeTypes'
 import {
   buildCustomModeFromDraft,
+  isModeDeletable,
   normalizeCustomModeFields,
   normalizeCustomModeNameKey,
 } from '../../../../extension-chromium/src/shared/ui/customModeTypes'
+import { ensureBuiltInModes } from './builtInModes'
+
+function persistBuiltInSeedIfNeeded(envelope: CustomModesFileEnvelope): CustomModesFileEnvelope {
+  const ensured = ensureBuiltInModes(envelope.modes)
+  if (ensured.length > envelope.modes.length) {
+    const written = writeModes(ensured)
+    return {
+      ...envelope,
+      schemaVersion: CUSTOM_MODES_SCHEMA_VERSION,
+      modes: written,
+    }
+  }
+  return { ...envelope, modes: ensured }
+}
 import {
   CUSTOM_MODES_SCHEMA_VERSION,
   coerceCustomModeRecord,
@@ -147,10 +162,12 @@ function atomicWriteModes(envelope: CustomModesFileEnvelope): void {
 }
 
 function normalizeModesFromRaw(raw: unknown[]): CustomModeDefinition[] {
-  return raw
-    .map((row) => coerceCustomModeRecord(row))
-    .filter((m): m is CustomModeDefinition => m !== null)
-    .map((m) => normalizeCustomModeFields(m))
+  return ensureBuiltInModes(
+    raw
+      .map((row) => coerceCustomModeRecord(row))
+      .filter((m): m is CustomModeDefinition => m !== null)
+      .map((m) => normalizeCustomModeFields(m)),
+  )
 }
 
 function readModesEnvelope(): CustomModesFileEnvelope {
@@ -160,35 +177,35 @@ function readModesEnvelope(): CustomModesFileEnvelope {
     updatedAt: new Date().toISOString(),
   }
   const p = modesPath()
-  if (!fs.existsSync(p)) return empty
+  if (!fs.existsSync(p)) return persistBuiltInSeedIfNeeded(empty)
 
   const tryParse = (label: 'primary' | 'backup', text: string): CustomModesFileEnvelope | null => {
     try {
       const parsed = JSON.parse(text) as unknown
       if (Array.isArray(parsed)) {
-        return {
+        return persistBuiltInSeedIfNeeded({
           schemaVersion: CUSTOM_MODES_SCHEMA_VERSION,
           modes: normalizeModesFromRaw(parsed),
           updatedAt: new Date().toISOString(),
-        }
+        })
       }
       if (!parsed || typeof parsed !== 'object') return null
       const o = parsed as Record<string, unknown>
       if (Array.isArray(o.modes)) {
         const migrated = migrateCustomModesPersistedState({ state: { modes: o.modes } }, CUSTOM_MODES_SCHEMA_VERSION)
-        return {
+        return persistBuiltInSeedIfNeeded({
           schemaVersion: CUSTOM_MODES_SCHEMA_VERSION,
           modes: migrated.state.modes,
           updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : new Date().toISOString(),
-        }
+        })
       }
       if (o.state && typeof o.state === 'object' && Array.isArray((o.state as { modes?: unknown[] }).modes)) {
         const migrated = migrateCustomModesPersistedState(parsed, CUSTOM_MODES_SCHEMA_VERSION)
-        return {
+        return persistBuiltInSeedIfNeeded({
           schemaVersion: CUSTOM_MODES_SCHEMA_VERSION,
           modes: migrated.state.modes,
           updatedAt: new Date().toISOString(),
-        }
+        })
       }
       console.warn(`[CustomModes] readModesEnvelope: unrecognized shape (${label})`)
       return null
@@ -201,7 +218,7 @@ function readModesEnvelope(): CustomModesFileEnvelope {
   try {
     const primary = fs.readFileSync(p, 'utf-8')
     const fromPrimary = tryParse('primary', primary)
-    if (fromPrimary) return fromPrimary
+    if (fromPrimary) return persistBuiltInSeedIfNeeded(fromPrimary)
   } catch (e) {
     console.warn('[CustomModes] readModesEnvelope primary read failed:', e instanceof Error ? e.message : e)
   }
@@ -213,18 +230,18 @@ function readModesEnvelope(): CustomModesFileEnvelope {
       const fromBackup = tryParse('backup', backup)
       if (fromBackup) {
         console.warn('[CustomModes] Loaded modes from .bak after primary read/parse failed')
-        return fromBackup
+        return persistBuiltInSeedIfNeeded(fromBackup)
       }
     } catch (e) {
       console.warn('[CustomModes] readModesEnvelope backup read failed:', e instanceof Error ? e.message : e)
     }
   }
 
-  return empty
+  return persistBuiltInSeedIfNeeded(empty)
 }
 
 function writeModes(modes: CustomModeDefinition[]): CustomModeDefinition[] {
-  const normalized = modes.map((m) => normalizeCustomModeFields(m))
+  const normalized = ensureBuiltInModes(modes.map((m) => normalizeCustomModeFields(m)))
   atomicWriteModes({
     schemaVersion: CUSTOM_MODES_SCHEMA_VERSION,
     modes: normalized,
@@ -327,7 +344,7 @@ export async function createMode(draft: CustomModeDraft): Promise<StoreResult> {
 
 export async function updateMode(id: string, patch: Partial<CustomModeDraft>): Promise<StoreResult> {
   return withStoreLock(() => {
-    if (!id.startsWith('custom:')) {
+    if (!id.startsWith('custom:') && !id.startsWith('built-in:')) {
       return { ok: false, error: 'invalid mode id' }
     }
     const envelope = readModesEnvelope()
@@ -335,7 +352,8 @@ export async function updateMode(id: string, patch: Partial<CustomModeDraft>): P
     if (idx < 0) {
       return { ok: false, error: 'mode not found' }
     }
-    const nextName = patch.name !== undefined ? patch.name : envelope.modes[idx].name
+    const existing = envelope.modes[idx]
+    const nextName = patch.name !== undefined ? patch.name : existing.name
     if (findDuplicateName(envelope.modes, nextName, id)) {
       return { ok: false, error: 'A mode with this name already exists. Choose a different name.' }
     }
@@ -347,7 +365,9 @@ export async function updateMode(id: string, patch: Partial<CustomModeDraft>): P
           ...m,
           ...patch,
           id,
-          type: 'custom',
+          type: m.type,
+          builtInKey: m.builtInKey,
+          deletable: m.type === 'built-in' ? false : m.deletable,
           updatedAt: now,
         })
       }),
@@ -357,12 +377,16 @@ export async function updateMode(id: string, patch: Partial<CustomModeDraft>): P
 
 export async function deleteMode(id: string): Promise<StoreResult> {
   return withStoreLock(() => {
-    if (!id.startsWith('custom:')) {
+    if (!id.startsWith('custom:') && !id.startsWith('built-in:')) {
       return { ok: false, error: 'invalid mode id' }
     }
     const envelope = readModesEnvelope()
-    if (!envelope.modes.some((m) => m.id === id)) {
+    const target = envelope.modes.find((m) => m.id === id)
+    if (!target) {
       return { ok: false, error: 'mode not found' }
+    }
+    if (!isModeDeletable(target)) {
+      return { ok: false, error: 'Built-in modes cannot be deleted.' }
     }
     return mutateModes((modes) => modes.filter((m) => m.id !== id))
   })

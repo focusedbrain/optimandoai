@@ -6,7 +6,7 @@
  * used with any state management solution (Zustand, Redux, vanilla, etc.)
  */
 
-import { isCustomModeId } from './customModeTypes'
+import { isCustomModeId, isPersistedModeId } from './customModeTypes'
 
 // =============================================================================
 // Core Types
@@ -235,7 +235,7 @@ export function getDisplayLabel(state: UIState): string {
   if (state.workspace !== 'wr-chat') {
     return workspace.label
   }
-  if (isCustomModeId(state.mode)) {
+  if (isPersistedModeId(state.mode)) {
     return `${workspace.label} · Custom mode`
   }
   const mode = MODE_INFO[state.mode as BuiltInMode]
@@ -250,7 +250,7 @@ export function getShortDisplayLabel(state: UIState): { workspace: string; mode:
   if (state.workspace !== 'wr-chat') {
     return { workspace: workspace.label, mode: '' }
   }
-  if (isCustomModeId(state.mode)) {
+  if (isPersistedModeId(state.mode)) {
     return { workspace: workspace.label, mode: 'Custom' }
   }
   const mode = MODE_INFO[state.mode as BuiltInMode]
@@ -267,7 +267,7 @@ export function isPlaceholderMode(state: UIState): boolean {
   if (state.workspace !== 'wr-chat') {
     return false // MailGuard and Overlay are functional
   }
-  if (isCustomModeId(state.mode)) {
+  if (isPersistedModeId(state.mode)) {
     return false
   }
   return MODE_INFO[state.mode as BuiltInMode].isPlaceholder
@@ -287,7 +287,7 @@ export function getAvailableModes(role: Role): BuiltInMode[] {
  * Map UI mode to a built-in for capability checks. Custom modes inherit Commands behavior by default.
  */
 export function resolveModeForCapabilities(mode: Mode): BuiltInMode {
-  if (isCustomModeId(mode)) {
+  if (isPersistedModeId(mode)) {
     return 'commands'
   }
   return mode as BuiltInMode

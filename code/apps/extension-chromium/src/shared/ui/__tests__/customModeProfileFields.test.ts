@@ -40,7 +40,7 @@ function baseMode(partial: Partial<CustomModeDefinition> = {}): CustomModeDefini
 
 describe('custom mode profileFields', () => {
   it('schema version is v3', () => {
-    expect(CUSTOM_MODES_SCHEMA_VERSION).toBe(3)
+    expect(CUSTOM_MODES_SCHEMA_VERSION).toBe(4)
   })
 
   it('old modes without profileFields load unchanged via migration', () => {

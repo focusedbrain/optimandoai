@@ -1,6 +1,6 @@
 /**
- * Custom WR Chat modes — persisted schema (v3).
- * Built-in modes remain in uiState.ts (MODE_INFO); only `type: "custom"` rows are stored here.
+ * Custom WR Chat modes — persisted schema (v4).
+ * User rows: `custom:*`. Shipped built-in rows: `built-in:*` (non-deletable, e.g. Scam Watchdog).
  *
  * Optional `metadata` is reserved for future expert / fine-tuned / provider-specific extensions
  * without breaking the core shape.
@@ -14,7 +14,7 @@ import {
   snapSecondsToIntervalPreset,
 } from './customModeIntervalPresets'
 
-/** Persisted custom rows are always `custom`; `built-in` documents the union for tooling/UI. */
+/** Persisted rows: `custom:*` (user) or `built-in:*` (shipped, non-deletable). */
 export type ModeTypeKind = 'built-in' | 'custom'
 
 export type SessionMode = 'shared' | 'dedicated' | 'fresh'
@@ -33,9 +33,13 @@ export interface CustomModeProfileField {
 }
 
 export interface CustomModeDefinition {
-  /** Stable id, format `custom:<uuid>` */
+  /** Stable id — `custom:<uuid>` or `built-in:<key>`. */
   id: string
-  type: 'custom'
+  type: ModeTypeKind
+  /** When `false`, delete is rejected (built-in modes). */
+  deletable?: boolean
+  /** Stable built-in identifier, e.g. `scam-watchdog`. */
+  builtInKey?: string
   name: string
   description: string
   icon: string
@@ -279,6 +283,20 @@ export function isCustomModeId(mode: string): boolean {
   return typeof mode === 'string' && mode.startsWith('custom:')
 }
 
+export function isBuiltInModeId(mode: string): boolean {
+  return typeof mode === 'string' && mode.startsWith('built-in:')
+}
+
+export function isPersistedModeId(mode: string): boolean {
+  return isCustomModeId(mode) || isBuiltInModeId(mode)
+}
+
+export function isModeDeletable(def: CustomModeDefinition): boolean {
+  if (def.type === 'built-in') return false
+  if (def.deletable === false) return false
+  return def.id.startsWith('custom:')
+}
+
 /**
  * Build a full persisted record from a draft (new mode).
  */
@@ -301,12 +319,18 @@ export function normalizeCustomModeFields(
   partial: Partial<CustomModeDefinition> & { id?: string; intervalMinutes?: number | null },
 ): CustomModeDefinition {
   const now = new Date().toISOString()
-  const id = partial.id?.startsWith('custom:') ? partial.id : createCustomModeId()
+  const id =
+    partial.id?.startsWith('custom:') || partial.id?.startsWith('built-in:')
+      ? partial.id
+      : partial.type === 'built-in' && partial.builtInKey
+        ? `built-in:${partial.builtInKey}`
+        : createCustomModeId()
+  const type: ModeTypeKind = id.startsWith('built-in:') ? 'built-in' : 'custom'
   const intervalSeconds = migrateIntervalSeconds(partial)
 
-  return {
+  const normalized: CustomModeDefinition = {
     id,
-    type: 'custom',
+    type,
     name: (partial.name ?? 'Untitled').trim() || 'Untitled',
     description: typeof partial.description === 'string' ? partial.description : '',
     icon: (partial.icon ?? '⚡').trim() || '⚡',
@@ -329,6 +353,14 @@ export function normalizeCustomModeFields(
     updatedAt: partial.updatedAt && isIsoDate(partial.updatedAt) ? partial.updatedAt : now,
     metadata: sanitizeCustomModeMetadataForPersist(partial.metadata),
   }
+  if (type === 'built-in') {
+    normalized.deletable = false
+    if (partial.builtInKey) normalized.builtInKey = partial.builtInKey
+    else if (id.startsWith('built-in:')) normalized.builtInKey = id.slice('built-in:'.length)
+  } else if (partial.deletable === false) {
+    normalized.deletable = false
+  }
+  return normalized
 }
 
 /** Drop wizard-only keys (e.g. live Ollama tag lists) before persisting. */

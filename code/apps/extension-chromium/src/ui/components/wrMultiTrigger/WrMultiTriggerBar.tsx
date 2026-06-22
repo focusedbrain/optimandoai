@@ -19,7 +19,12 @@ import type {
 } from '../../../types/triggerTypes'
 import { useChatFocusStore } from '../../../stores/chatFocusStore'
 import { useCustomModesStore } from '../../../stores/useCustomModesStore'
+import { useUIStore } from '../../../stores/useUIStore'
 import { getCustomModeTriggerBarIcon } from '../../../shared/ui/customModeTypes'
+import {
+  BUILTIN_SCAM_WATCHDOG_ID,
+  isScamWatchdogBuiltInMode,
+} from '../../../shared/ui/scamWatchdogBuiltIn'
 import WatchdogIcon from '../WatchdogIcon'
 import WrChatWatchdogButton from '../WrChatWatchdogButton'
 import {
@@ -174,7 +179,10 @@ export default function WrMultiTriggerBar({
   onChatFocusRequest,
   onEnsureWrChatOpen,
 }: WrMultiTriggerBarProps) {
-  const [activeFunctionId, setActiveFunctionId] = useState<TriggerFunctionId>({ type: 'watchdog' })
+  const [activeFunctionId, setActiveFunctionId] = useState<TriggerFunctionId>({
+    type: 'custom-automation',
+    modeId: BUILTIN_SCAM_WATCHDOG_ID,
+  })
   const [projectList, setProjectList] = useState<TriggerProjectEntry[]>([])
   const [composerShortcutList, setComposerShortcutList] = useState<TriggerComposerEntry[]>([])
   const customModes = useCustomModesStore(useShallow((s) => s.modes))
@@ -247,9 +255,15 @@ export default function WrMultiTriggerBar({
     return () => document.removeEventListener('mousedown', onDoc)
   }, [dropdownOpen])
 
+  const scamWatchdogMode = useMemo(
+    () => customModes.find((m) => isScamWatchdogBuiltInMode(m)) ?? null,
+    [customModes],
+  )
+
   const pinnedCustomRows = useMemo(() => {
     const rows: TriggerBarDropdownRow[] = []
     for (const m of customModes) {
+      if (isScamWatchdogBuiltInMode(m)) continue
       const icon = getCustomModeTriggerBarIcon(m.metadata as Record<string, unknown> | undefined)
       if (!icon) continue
       const functionId: TriggerFunctionId = { type: 'custom-automation', modeId: m.id }
@@ -266,20 +280,24 @@ export default function WrMultiTriggerBar({
   }, [customModes])
 
   const dropdownRows = useMemo((): TriggerBarDropdownRow[] => {
-    const watchdogRow: TriggerBarDropdownRow = {
-      id: 'watchdog',
-      label: 'Scam Watchdog',
-      icon: '',
-      functionId: { type: 'watchdog' },
-      automationUiKind: automationUiKindFromTriggerFunctionId({ type: 'watchdog' }),
+    const rows: TriggerBarDropdownRow[] = []
+    if (scamWatchdogMode) {
+      const functionId: TriggerFunctionId = { type: 'custom-automation', modeId: scamWatchdogMode.id }
+      rows.push({
+        id: scamWatchdogMode.id,
+        label: scamWatchdogMode.name.trim() || 'Scam Watchdog',
+        icon: scamWatchdogMode.icon?.trim() || '',
+        functionId,
+        automationUiKind: 'monitor',
+      })
     }
     return [
-      watchdogRow,
+      ...rows,
       ...pinnedCustomRows,
       ...buildProjectDropdownRows(projectList),
       ...buildComposerDropdownRows(composerShortcutList),
     ]
-  }, [projectList, pinnedCustomRows, composerShortcutList])
+  }, [projectList, pinnedCustomRows, composerShortcutList, scamWatchdogMode])
 
   const activeProject = useMemo(() => {
     if (activeFunctionId.type !== 'auto-optimizer') return null
@@ -366,8 +384,14 @@ export default function WrMultiTriggerBar({
         def.icon?.trim() ||
         '\u26A1'
       const name = def.name.trim() || 'Mode'
-      if (current.mode === 'custom-automation' && current.modeId === def.id) {
+      const uiMode = useUIStore.getState().mode
+      if (
+        current.mode === 'custom-automation' &&
+        current.modeId === def.id &&
+        uiMode === def.id
+      ) {
         clearAndNotify()
+        useUIStore.getState().setMode('commands')
         return
       }
       const mode: ChatFocusMode = {
@@ -378,10 +402,20 @@ export default function WrMultiTriggerBar({
         startedAt: new Date().toISOString(),
       }
       const desc = def.description?.trim()
-      const intro = `${icon} **${name}**${desc ? `\n\n${desc}` : ''}
+      const intro = isScamWatchdogBuiltInMode(def)
+        ? `🐕 **Scam Watchdog automation active**
+
+I'm now focused on scam and fraud detection. You can:
+- Share screenshots of suspicious messages, emails, or websites
+- Paste suspicious text, URLs, or contact details for analysis
+- Describe a situation you'd like me to evaluate for fraud potential
+
+Send me anything you'd like analyzed.`
+        : `${icon} **${name}**${desc ? `\n\n${desc}` : ''}
 
 I'm focused on this automation. Continue in WR Chat with the same model and settings you chose for this mode.`
       runAfterOpen(() => {
+        useUIStore.getState().setMode(def.id)
         useChatFocusStore.getState().setChatFocusWithIntro(mode, null, intro)
         try {
           onChatFocusRequest?.(mode)
@@ -424,36 +458,7 @@ Use the trigger icon to open the composer popup, or add draft context here in ch
       return
     }
 
-    if (activeFunctionId.type === 'watchdog') {
-      if (current.mode === 'scam-watchdog') {
-        clearAndNotify()
-        return
-      }
-      const mode: ChatFocusMode = { mode: 'scam-watchdog' }
-      const intro = `🐕 **Scam Watchdog automation active**
-
-I'm now focused on scam and fraud detection. You can:
-- Share screenshots of suspicious messages, emails, or websites
-- Paste suspicious text, URLs, or contact details for analysis
-- Describe a situation you'd like me to evaluate for fraud potential
-
-Send me anything you'd like analyzed.`
-      runAfterOpen(() => {
-        useChatFocusStore.getState().setChatFocusWithIntro(mode, null, intro)
-        try {
-          onChatFocusRequest?.(mode)
-        } catch {
-          /* noop */
-        }
-        try {
-          window.dispatchEvent(new CustomEvent(WRCHAT_CHAT_FOCUS_REQUEST_EVENT, { detail: mode }))
-        } catch {
-          /* noop */
-        }
-      })
-      return
-    }
-
+    if (activeFunctionId.type !== 'auto-optimizer') return
     const pid = activeFunctionId.projectId
     if (current.mode === 'auto-optimizer' && current.projectId === pid) {
       clearAndNotify()
@@ -656,7 +661,11 @@ What would you like to add?`
                     if (!selected) e.currentTarget.style.background = 'transparent'
                   }}
                 >
-                  {row.id === 'watchdog' ? (
+                  {isScamWatchdogBuiltInMode(
+                    row.functionId.type === 'custom-automation'
+                      ? customModes.find((m) => m.id === row.functionId.modeId)
+                      : undefined,
+                  ) ? (
                     <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
                       <WatchdogIcon size={14} />
                     </span>
@@ -754,6 +763,9 @@ What would you like to add?`
         activeCustomMode.icon?.trim())) ||
     '\u26A1'
 
+  const showWatchdogTrigger =
+    activeFunctionId.type === 'custom-automation' && isScamWatchdogBuiltInMode(activeCustomMode)
+
   return (
     <div
       ref={rootRef}
@@ -765,7 +777,7 @@ What would you like to add?`
       }}
     >
       <div style={{ display: 'inline-flex', alignItems: 'center' }}>
-        {activeFunctionId.type === 'watchdog' ? (
+        {showWatchdogTrigger ? (
           <WrChatWatchdogButton
             theme={theme}
             onWatchdogAlert={onWatchdogAlert}

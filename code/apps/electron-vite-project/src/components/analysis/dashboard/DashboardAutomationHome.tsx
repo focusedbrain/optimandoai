@@ -30,7 +30,7 @@ import {
 import { useCustomModesStore } from '@ext/stores/useCustomModesStore'
 import { useChatFocusStore, WRCHAT_APPEND_ASSISTANT_EVENT } from '@ext/stores/chatFocusStore'
 import { useUIStore } from '@ext/stores/useUIStore'
-import { getCustomModeTriggerBarIcon } from '@ext/shared/ui/customModeTypes'
+import { getCustomModeTriggerBarIcon, isModeDeletable } from '@ext/shared/ui/customModeTypes'
 import { PROJECT_ICON_CHOICES } from './projectIconChoices'
 import './DashboardAutomationHome.css'
 
@@ -538,9 +538,8 @@ Mode activated from the dashboard. Continue in WR Chat.`
 
   const handleAutomationDelete = useCallback(
     (modeId: string) => {
-      if (!modeId.startsWith('custom:')) return
       const def = useCustomModesStore.getState().getById(modeId)
-      if (!def) return
+      if (!def || !isModeDeletable(def)) return
       const label = def.name?.trim() || 'Untitled'
       if (!window.confirm(`Delete mode "${label}"? This cannot be undone.`)) return
       removeMode(modeId)
@@ -679,13 +678,18 @@ Mode activated from the dashboard. Continue in WR Chat.`
                 >
                   Edit
                 </button>
-                <button
-                  type="button"
-                  className="dash-auto-home__btn dash-auto-home__btn--ghost dash-auto-home__btn--danger"
-                  onClick={() => handleAutomationDelete(selectedAutomationId)}
-                >
-                  Delete
-                </button>
+                {(() => {
+                  const sel = useCustomModesStore.getState().getById(selectedAutomationId)
+                  return sel && isModeDeletable(sel) ? (
+                    <button
+                      type="button"
+                      className="dash-auto-home__btn dash-auto-home__btn--ghost dash-auto-home__btn--danger"
+                      onClick={() => handleAutomationDelete(selectedAutomationId)}
+                    >
+                      Delete
+                    </button>
+                  ) : null
+                })()}
               </>
             ) : (
               <button

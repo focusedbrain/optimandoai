@@ -6,6 +6,7 @@ import { create } from 'zustand'
 import type { CustomModeDefinition, CustomModeDraft } from '../shared/ui/customModeTypes'
 import {
   getCustomModeScopeFromMetadata,
+  isModeDeletable,
   normalizeCustomModeNameKey,
 } from '../shared/ui/customModeTypes'
 import { syncCustomModeDiffWatcher } from '../services/syncCustomModeDiffWatcher'
@@ -118,7 +119,7 @@ export const useCustomModesStore = create<CustomModesState>()((set, get) => ({
   },
 
   updateMode: (id, patch) => {
-    if (!id.startsWith('custom:')) return
+    if (!id.startsWith('custom:') && !id.startsWith('built-in:')) return
     void (async () => {
       const result = await updateOnMain(id, patch)
       if (!result.ok) {
@@ -135,8 +136,11 @@ export const useCustomModesStore = create<CustomModesState>()((set, get) => ({
   },
 
   removeMode: (id) => {
-    if (!id.startsWith('custom:')) return
     const existing = get().modes.find((m) => m.id === id)
+    if (!existing || !isModeDeletable(existing)) {
+      console.warn('[CustomModes] delete rejected for mode:', id)
+      return
+    }
     void (async () => {
       const result = await deleteOnMain(id)
       if (!result.ok) {

@@ -12,7 +12,9 @@ function makeMode(partial: Partial<CustomModeDefinition> & { id: string; name: s
   const now = partial.updatedAt ?? partial.createdAt ?? '2026-01-01T00:00:00.000Z'
   return {
     id: partial.id,
-    type: 'custom',
+    type: partial.type ?? 'custom',
+    deletable: partial.deletable,
+    builtInKey: partial.builtInKey,
     name: partial.name,
     description: partial.description ?? '',
     icon: partial.icon ?? '⚡',
@@ -125,13 +127,13 @@ describe('customModesStore', () => {
     const first = await importModes(legacy, 'extension')
     expect(first.ok).toBe(true)
     if (!first.ok) return
-    expect(first.data).toHaveLength(1)
+    expect(first.data.filter((m) => m.id.startsWith('custom:'))).toHaveLength(1)
 
     const second = await importModes(legacy, 'extension')
     expect(second.ok).toBe(true)
     if (!second.ok) return
-    expect(second.data).toHaveLength(1)
-    expect(listModes()).toHaveLength(1)
+    expect(second.data.filter((m) => m.id.startsWith('custom:'))).toHaveLength(1)
+    expect(listModes().filter((m) => m.id.startsWith('custom:'))).toHaveLength(1)
   })
 
   it('concurrent writes re-read file so neither mutation is dropped', async () => {
@@ -161,7 +163,7 @@ describe('customModesStore', () => {
     const modes = listModes()
     expect(modes.some((m) => m.name === 'Concurrent A')).toBe(true)
     expect(modes.some((m) => m.name === 'Concurrent B')).toBe(true)
-    expect(modes).toHaveLength(2)
+    expect(modes.filter((m) => m.id.startsWith('custom:'))).toHaveLength(2)
   })
 
   it('createMode rejects duplicate names', async () => {

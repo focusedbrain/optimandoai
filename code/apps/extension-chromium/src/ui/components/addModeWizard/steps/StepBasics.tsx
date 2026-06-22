@@ -20,11 +20,13 @@ export function StepBasics({
   setData,
   t,
   fieldErrors,
+  lockName = false,
 }: {
   data: CustomModeDraft
   setData: (patch: Partial<CustomModeDraft>) => void
   t: ReturnType<typeof getThemeTokens>
   fieldErrors: InlineFieldErrors
+  lockName?: boolean
 }) {
   const nameErr = fieldErrors.name
   return (
@@ -44,7 +46,14 @@ export function StepBasics({
           aria-invalid={nameErr ? true : undefined}
           aria-describedby={nameErr ? 'cmw-name-err' : undefined}
           aria-required
+          readOnly={lockName}
+          disabled={lockName}
         />
+        {lockName ? (
+          <p style={{ margin: '6px 0 0', fontSize: 11, color: t.textMuted, lineHeight: 1.45 }}>
+            Built-in mode name is fixed. Edit instructions and model allocation on later steps.
+          </p>
+        ) : null}
         <WizardFieldError id="cmw-name-err" message={nameErr} t={t} />
       </div>
       <div>
