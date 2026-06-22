@@ -283,6 +283,7 @@ export function DashboardAutomationHome({
   const [snapshotBusyId, setSnapshotBusyId] = useState<string | null>(null)
   const [iconPickerTarget, setIconPickerTarget] = useState<ComposerId | null>(null)
   const customModes = useCustomModesStore((s) => s.modes)
+  const removeMode = useCustomModesStore((s) => s.removeMode)
   const [selectedAutomationId, setSelectedAutomationId] = useState('')
 
   const customModesSorted = useMemo(
@@ -364,9 +365,7 @@ Automation activated from the dashboard. Continue in WR Chat.`
 
       window.setTimeout(() => {
         useUIStore.getState().setWorkspace('wr-chat')
-        if (def.modelName?.trim()) {
-          useUIStore.getState().setMode(def.id)
-        }
+        useUIStore.getState().setMode(def.id)
 
         useChatFocusStore.getState().setChatFocusWithIntro(mode, null, intro)
 
@@ -537,6 +536,19 @@ Automation activated from the dashboard. Continue in WR Chat.`
     }
   }, [])
 
+  const handleAutomationDelete = useCallback(
+    (modeId: string) => {
+      if (!modeId.startsWith('custom:')) return
+      const def = useCustomModesStore.getState().getById(modeId)
+      if (!def) return
+      const label = def.name?.trim() || 'Untitled'
+      if (!window.confirm(`Delete automation "${label}"? This cannot be undone.`)) return
+      removeMode(modeId)
+      setSelectedAutomationId((prev) => (prev === modeId ? '' : prev))
+    },
+    [removeMode],
+  )
+
   /** Same path as WrMultiTriggerBar “+ Add Project WIKI” row — does not change active project id. */
   const launchAddProjectWikiFromSelector = useCallback(() => {
     try {
@@ -659,13 +671,22 @@ Automation activated from the dashboard. Continue in WR Chat.`
               Run
             </button>
             {selectedAutomationId ? (
-              <button
-                type="button"
-                className="dash-auto-home__btn dash-auto-home__btn--ghost"
-                onClick={() => handleAutomationEdit(selectedAutomationId)}
-              >
-                Edit
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="dash-auto-home__btn dash-auto-home__btn--ghost"
+                  onClick={() => handleAutomationEdit(selectedAutomationId)}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  className="dash-auto-home__btn dash-auto-home__btn--ghost dash-auto-home__btn--danger"
+                  onClick={() => handleAutomationDelete(selectedAutomationId)}
+                >
+                  Delete
+                </button>
+              </>
             ) : (
               <button
                 type="button"

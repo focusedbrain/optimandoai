@@ -277,6 +277,25 @@
   background: #f8fafc;
 }
 
+.dash-auto-home__btn--danger {
+  color: var(--text-primary, #b91c1c);
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+.dash-auto-home__btn--danger:hover {
+  background: rgba(254, 226, 226, 0.85);
+  color: var(--text-primary, #991b1b);
+}
+
+[data-ui-theme='standard'] .dash-auto-home .dash-auto-home__btn--danger {
+  color: #b91c1c;
+}
+
+[data-ui-theme='standard'] .dash-auto-home .dash-auto-home__btn--danger:hover {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .dash-auto-home__btn--sm {
   padding: 5px 9px;
   font-size: 10px;
