@@ -1,5 +1,5 @@
 /**
- * Custom WR Chat modes — persisted schema (v2).
+ * Custom WR Chat modes — persisted schema (v3).
  * Built-in modes remain in uiState.ts (MODE_INFO); only `type: "custom"` rows are stored here.
  *
  * Optional `metadata` is reserved for future expert / fine-tuned / provider-specific extensions
@@ -19,6 +19,19 @@ export type ModeTypeKind = 'built-in' | 'custom'
 
 export type SessionMode = 'shared' | 'dedicated' | 'fresh'
 
+/** Structured profile field for career-builder-style modes (optional on any custom mode). */
+export type CustomModeProfileFieldType = 'text' | 'longtext' | 'select'
+
+export interface CustomModeProfileField {
+  /** Stable key within the mode (slug from label when omitted on input). */
+  key: string
+  label: string
+  value: string
+  type?: CustomModeProfileFieldType
+  /** Required when `type` is `select`. */
+  options?: string[]
+}
+
 export interface CustomModeDefinition {
   /** Stable id, format `custom:<uuid>` */
   id: string
@@ -34,6 +47,11 @@ export interface CustomModeDefinition {
   sessionMode: SessionMode
   searchFocus: string
   ignoreInstructions: string
+  /**
+   * Optional structured profile fields (goals, location, criteria, etc.) folded into the LLM prefix.
+   * Modes without this field behave exactly as before v3 schema.
+   */
+  profileFields?: CustomModeProfileField[]
   /**
    * Optional periodic scan interval (seconds). Only preset values from the wizard select are stored.
    * Chat and manual scan are always available; when set, periodic runs are also scheduled.
@@ -154,8 +172,87 @@ export function defaultCustomModeDraft(): CustomModeDraft {
     sessionMode: 'shared',
     searchFocus: '',
     ignoreInstructions: '',
+    profileFields: undefined,
     intervalSeconds: null,
     metadata: undefined,
+  }
+}
+
+/** Slug for a profile field key from its label (wizard + normalize). */
+export function slugCustomModeProfileFieldKey(label: string, index: number): string {
+  const slug = label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '')
+  return slug || `field_${index + 1}`
+}
+
+/** Coerce persisted / draft profile rows; returns `undefined` when empty or invalid. */
+export function normalizeProfileFields(raw: unknown): CustomModeProfileField[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: CustomModeProfileField[] = []
+  const seenKeys = new Set<string>()
+  raw.forEach((row, i) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return
+    const r = row as Record<string, unknown>
+    const label = typeof r.label === 'string' ? r.label.trim() : ''
+    const value = typeof r.value === 'string' ? r.value : ''
+    if (!label && !value.trim()) return
+    let key = typeof r.key === 'string' ? r.key.trim() : ''
+    if (!key) key = slugCustomModeProfileFieldKey(label || `Field ${i + 1}`, i)
+    let uniqueKey = key
+    let n = 2
+    while (seenKeys.has(uniqueKey)) {
+      uniqueKey = `${key}_${n++}`
+    }
+    seenKeys.add(uniqueKey)
+    const type =
+      r.type === 'text' || r.type === 'longtext' || r.type === 'select' ? r.type : undefined
+    let options: string[] | undefined
+    if (type === 'select' && Array.isArray(r.options)) {
+      options = (r.options as unknown[])
+        .filter((x): x is string => typeof x === 'string')
+        .map((s) => s.trim())
+        .filter(Boolean)
+      if (options.length === 0) options = undefined
+    }
+    const field: CustomModeProfileField = {
+      key: uniqueKey,
+      label: label || uniqueKey,
+      value,
+    }
+    if (type) field.type = type
+    if (options?.length) field.options = options
+    out.push(field)
+  })
+  return out.length ? out : undefined
+}
+
+/** Labeled block for LLM prefix injection; `null` when no non-empty fields. */
+export function formatCustomModeProfileFieldsForPrefix(
+  fields: CustomModeProfileField[] | undefined,
+): string | null {
+  if (!fields?.length) return null
+  const lines = fields
+    .map((f) => {
+      const label = f.label?.trim()
+      const value = f.value?.trim()
+      if (!label || !value) return null
+      return `${label}: ${value}`
+    })
+    .filter((line): line is string => line !== null)
+  if (lines.length === 0) return null
+  return `[Mode profile]\n${lines.join('\n')}`
+}
+
+/** Empty profile row for the wizard “add field” action. */
+export function createEmptyCustomModeProfileField(index: number): CustomModeProfileField {
+  return {
+    key: slugCustomModeProfileFieldKey('', index),
+    label: '',
+    value: '',
+    type: 'text',
   }
 }
 
@@ -226,6 +323,7 @@ export function normalizeCustomModeFields(
         : 'shared',
     searchFocus: typeof partial.searchFocus === 'string' ? partial.searchFocus : '',
     ignoreInstructions: typeof partial.ignoreInstructions === 'string' ? partial.ignoreInstructions : '',
+    profileFields: normalizeProfileFields(partial.profileFields),
     intervalSeconds,
     createdAt: partial.createdAt && isIsoDate(partial.createdAt) ? partial.createdAt : now,
     updatedAt: partial.updatedAt && isIsoDate(partial.updatedAt) ? partial.updatedAt : now,

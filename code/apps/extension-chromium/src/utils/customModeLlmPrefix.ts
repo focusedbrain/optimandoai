@@ -4,6 +4,7 @@
 
 import type { CustomModeRuntimeConfig } from '../shared/ui/customModeRuntime'
 import { formatCustomModeIntervalPresetLabel } from '../shared/ui/customModeIntervalPresets'
+import { formatCustomModeProfileFieldsForPrefix } from '../shared/ui/customModeTypes'
 
 export function getCustomModeLlmPrefix(runtime: CustomModeRuntimeConfig | null): string | null {
   if (!runtime) return null
@@ -12,6 +13,9 @@ export function getCustomModeLlmPrefix(runtime: CustomModeRuntimeConfig | null):
   if (focus) parts.push(`[Mode focus: ${focus}]`)
   const ignore = runtime.ignoreInstructions?.trim()
   if (ignore) parts.push(`[Deprioritize or ignore: ${ignore}]`)
+
+  const profileBlock = formatCustomModeProfileFieldsForPrefix(runtime.profileFields)
+  if (profileBlock) parts.push(profileBlock)
 
   if (runtime.sessionId?.trim()) {
     parts.push(`[Session id: ${runtime.sessionId.trim()}]`)

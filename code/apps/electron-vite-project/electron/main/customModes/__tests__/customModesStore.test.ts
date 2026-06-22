@@ -187,6 +187,51 @@ describe('customModesStore', () => {
       expect(second.error).toMatch(/already exists/i)
     }
   })
+
+  it('profileFields round-trip through create, reload, and update', async () => {
+    const { createMode, listModes, updateMode } = await import('../customModesStore')
+    const draft = {
+      name: 'Profile Mode',
+      description: '',
+      icon: '⚡',
+      modelProvider: 'ollama',
+      modelName: 'llama3',
+      endpoint: 'http://127.0.0.1:11434',
+      sessionId: null as string | null,
+      sessionMode: 'shared' as const,
+      searchFocus: 'jobs',
+      ignoreInstructions: '',
+      profileFields: [
+        { key: 'goals', label: 'Goals', value: 'Staff engineer', type: 'longtext' as const },
+        { key: 'location', label: 'Location', value: 'Remote', type: 'text' as const },
+      ],
+      intervalSeconds: null as number | null,
+    }
+    const created = await createMode(draft)
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+
+    const createdMode = created.data.find((m) => m.name === 'Profile Mode')
+    expect(createdMode?.profileFields).toEqual(draft.profileFields)
+
+    const reloaded = listModes().find((m) => m.id === createdMode?.id)
+    expect(reloaded?.profileFields).toEqual(draft.profileFields)
+
+    const updated = await updateMode(createdMode!.id, {
+      ...draft,
+      profileFields: [
+        { key: 'goals', label: 'Goals', value: 'Principal engineer', type: 'longtext' as const },
+        { key: 'location', label: 'Location', value: 'Hybrid London', type: 'text' as const },
+        { key: 'donts', label: "Don'ts", value: 'No agencies', type: 'text' as const },
+      ],
+    })
+    expect(updated.ok).toBe(true)
+    if (!updated.ok) return
+
+    const afterEdit = listModes().find((m) => m.id === createdMode!.id)
+    expect(afterEdit?.profileFields).toHaveLength(3)
+    expect(afterEdit?.profileFields?.[0].value).toBe('Principal engineer')
+  })
 })
 
 describe('migrateCustomModesPersistedState (unchanged helper)', () => {

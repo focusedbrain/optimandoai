@@ -56,6 +56,12 @@ export function StepReview({
 
   const triggerBarReview = getCustomModeTriggerBarIcon(md) || '—'
 
+  const profileReview =
+    (data.profileFields ?? [])
+      .filter((f) => f.label.trim() && f.value.trim())
+      .map((f) => `${f.label.trim()}: ${f.value.trim()}`)
+      .join('; ') || '—'
+
   const rows: { k: string; v: string }[] = [
     { k: 'Name', v: nameSafe || '—' },
     { k: 'Description', v: safeDraftString(data.description).trim() || '—' },
@@ -71,6 +77,7 @@ export function StepReview({
       : []),
     { k: 'Session', v: sessionLabel },
     { k: 'Detection focus', v: focusSafe || '—' },
+    { k: 'Profile fields', v: profileReview },
     {
       k: 'WR Expert profile',
       v: wrLoaded ? (wrName ? `Loaded: ${wrName}` : 'Loaded (parsed rules)') : '—',

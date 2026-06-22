@@ -13,7 +13,8 @@ import {
 /** Zustand persist localStorage name (unchanged so existing installs keep their data). */
 export const CUSTOM_MODES_PERSIST_KEY = 'wr-ui-custom-modes-v1'
 
-export const CUSTOM_MODES_SCHEMA_VERSION = 2
+/** v3: optional `profileFields` on custom mode rows (structured wizard fields). */
+export const CUSTOM_MODES_SCHEMA_VERSION = 3
 
 type PersistedSlice = { modes: CustomModeDefinition[] }
 

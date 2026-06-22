@@ -15,6 +15,7 @@ import { getThemeTokens, labelStyle } from '../../../../shared/ui/lightboxTheme'
 import type { InlineFieldErrors } from '../addModeWizardValidation'
 import { inputStyleWithError, wizardFieldColumnStyle, wizardTextareaStyle } from '../wizardStyles'
 import { WizardFieldError } from './WizardFieldError'
+import { StepProfileFields } from './StepProfileFields'
 import { getElectronPickDirectory } from '../../../../utils/electronPickDirectory'
 import { parseWrExpertMarkdown, sha256HexUtf8 } from '../../../../utils/parseWrExpertMarkdown'
 
@@ -144,6 +145,8 @@ export function StepFocus({
           style={wizardTextareaStyle(t)}
         />
       </div>
+
+      <StepProfileFields data={data} setData={setData} t={t} />
 
       <div
         style={{
