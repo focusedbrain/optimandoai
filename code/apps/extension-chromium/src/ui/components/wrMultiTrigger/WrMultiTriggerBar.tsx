@@ -255,7 +255,7 @@ export default function WrMultiTriggerBar({
       const functionId: TriggerFunctionId = { type: 'custom-automation', modeId: m.id }
       rows.push({
         id: m.id,
-        label: m.name.trim() || 'Automation',
+        label: m.name.trim() || 'Mode',
         icon,
         functionId,
         automationUiKind: automationUiKindFromTriggerFunctionId(functionId),
@@ -365,7 +365,7 @@ export default function WrMultiTriggerBar({
         getCustomModeTriggerBarIcon(def.metadata as Record<string, unknown> | undefined) ||
         def.icon?.trim() ||
         '\u26A1'
-      const name = def.name.trim() || 'Automation'
+      const name = def.name.trim() || 'Mode'
       if (current.mode === 'custom-automation' && current.modeId === def.id) {
         clearAndNotify()
         return
@@ -707,7 +707,7 @@ What would you like to add?`
               <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>
                 ✨
               </span>
-              <span>+ Add Automation</span>
+              <span>+ Add Mode</span>
             </button>
           </li>
           <li role="presentation">

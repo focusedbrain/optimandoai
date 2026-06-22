@@ -97,7 +97,7 @@ class AddModeWizardErrorBoundary extends React.Component<
           >
             <h3 style={{ margin: '0 0 8px', fontSize: 18 }}>Something went wrong</h3>
             <p style={{ margin: '0 0 20px', fontSize: 14, lineHeight: 1.45, color: '#475569' }}>
-              The automation wizard encountered an error. You can close this dialog and try again.
+              The mode wizard encountered an error. You can close this dialog and try again.
             </p>
             <button
               type="button"

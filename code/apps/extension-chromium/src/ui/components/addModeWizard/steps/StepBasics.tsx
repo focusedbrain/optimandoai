@@ -31,7 +31,7 @@ export function StepBasics({
     <div style={wizardFieldColumnStyle()}>
       <div>
         <label htmlFor="cmw-name" style={labelStyle(t)}>
-          Automation name <span aria-hidden="true">*</span>
+          Mode name <span aria-hidden="true">*</span>
         </label>
         <input
           id="cmw-name"
@@ -57,7 +57,7 @@ export function StepBasics({
           type="text"
           value={safeDraftString(data.description)}
           onChange={(e) => setData({ description: e.target.value })}
-          placeholder="One line — what this automation is for"
+          placeholder="One line — what this mode is for"
           style={inputStyle(t)}
           autoComplete="off"
         />

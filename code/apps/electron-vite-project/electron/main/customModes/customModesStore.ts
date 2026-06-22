@@ -312,7 +312,7 @@ export function getMigrationStatus(): CustomModesMigrationMeta {
 export async function createMode(draft: CustomModeDraft): Promise<StoreResult> {
   return withStoreLock(() => {
     if (findDuplicateName(readModesEnvelope().modes, draft.name ?? '')) {
-      return { ok: false, error: 'An automation with this name already exists. Choose a different name.' }
+      return { ok: false, error: 'A mode with this name already exists. Choose a different name.' }
     }
     let created: CustomModeDefinition
     try {
@@ -337,7 +337,7 @@ export async function updateMode(id: string, patch: Partial<CustomModeDraft>): P
     }
     const nextName = patch.name !== undefined ? patch.name : envelope.modes[idx].name
     if (findDuplicateName(envelope.modes, nextName, id)) {
-      return { ok: false, error: 'An automation with this name already exists. Choose a different name.' }
+      return { ok: false, error: 'A mode with this name already exists. Choose a different name.' }
     }
     const now = new Date().toISOString()
     return mutateModes((modes) =>

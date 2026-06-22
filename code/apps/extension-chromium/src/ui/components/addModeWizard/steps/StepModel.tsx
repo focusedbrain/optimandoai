@@ -217,7 +217,7 @@ export function StepModel({
             </select>
             {orphanSelection ? (
               <p style={{ margin: '8px 0 0', fontSize: 11, color: t.warningText }}>
-                This automation points at a model that is not in the list above. Choose an installed model or fix the
+                This mode points at a model that is not in the list above. Choose an installed model or fix the
                 endpoint.
               </p>
             ) : null}
@@ -240,7 +240,7 @@ export function StepModel({
           </>
         )}
         <p style={{ fontSize: 12, color: t.textMuted, marginTop: 8, lineHeight: 1.45 }}>
-          Optional. If set, this model will be pre-selected when the automation activates. You can change the model
+          Optional. If set, this model will be pre-selected when the mode activates. You can change the model
           anytime during runtime in WR Chat.
         </p>
       </div>

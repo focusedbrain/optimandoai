@@ -93,7 +93,7 @@ export const useCustomModesStore = create<CustomModesState>()((set, get) => ({
   addMode: async (draft) => {
     const nameKey = normalizeCustomModeNameKey(draft.name)
     if (get().modes.some((m) => normalizeCustomModeNameKey(m.name) === nameKey)) {
-      throw new Error('An automation with this name already exists. Choose a different name.')
+      throw new Error('A mode with this name already exists. Choose a different name.')
     }
 
     const beforeIds = new Set(get().modes.map((m) => m.id))
@@ -102,17 +102,17 @@ export const useCustomModesStore = create<CustomModesState>()((set, get) => ({
       result = await createOnMain(draft)
     } catch (e) {
       console.error('[CustomModes] create IPC failed', e)
-      throw new Error('Could not create this automation. Check your inputs and try again.')
+      throw new Error('Could not create this mode. Check your inputs and try again.')
     }
 
     if (!result.ok) {
-      throw new Error(result.error || 'Could not create this automation.')
+      throw new Error(result.error || 'Could not create this mode.')
     }
 
     set({ modes: result.data })
     const created = result.data.find((m) => !beforeIds.has(m.id))
     if (!created) {
-      throw new Error('Could not save the automation to storage. Try again or free some space.')
+      throw new Error('Could not save the mode to storage. Try again or free some space.')
     }
     return created.id
   },

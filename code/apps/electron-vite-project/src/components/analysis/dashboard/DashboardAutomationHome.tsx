@@ -346,7 +346,7 @@ export function DashboardAutomationHome({
         getCustomModeTriggerBarIcon(def.metadata as Record<string, unknown> | undefined) ||
         def.icon?.trim() ||
         '\u26A1'
-      const name = def.name.trim() || 'Automation'
+      const name = def.name.trim() || 'Mode'
       const desc = def.description?.trim()
 
       const mode = {
@@ -359,7 +359,7 @@ export function DashboardAutomationHome({
 
       const intro = `${icon} **${name}**${desc ? `\n\n${desc}` : ''}
 
-Automation activated from the dashboard. Continue in WR Chat.`
+Mode activated from the dashboard. Continue in WR Chat.`
 
       onNavigateWrChat?.()
 
@@ -542,7 +542,7 @@ Automation activated from the dashboard. Continue in WR Chat.`
       const def = useCustomModesStore.getState().getById(modeId)
       if (!def) return
       const label = def.name?.trim() || 'Untitled'
-      if (!window.confirm(`Delete automation "${label}"? This cannot be undone.`)) return
+      if (!window.confirm(`Delete mode "${label}"? This cannot be undone.`)) return
       removeMode(modeId)
       setSelectedAutomationId((prev) => (prev === modeId ? '' : prev))
     },
@@ -582,7 +582,7 @@ Automation activated from the dashboard. Continue in WR Chat.`
         <div className="dash-auto-home__starters-header-main">
           <span className="dash-auto-home__kicker">Automation workspace</span>
         </div>
-        <div className="dash-auto-home__creation-toolbar" role="toolbar" aria-label="Add automations">
+        <div className="dash-auto-home__creation-toolbar" role="toolbar" aria-label="Add modes">
           <button
             type="button"
             className="dash-auto-home__create-btn"
@@ -592,7 +592,7 @@ Automation activated from the dashboard. Continue in WR Chat.`
             <span className="dash-auto-home__create-btn-icon" aria-hidden>
               {'\u2728'}
             </span>
-            <span>+ Add Automation</span>
+            <span>+ Add Mode</span>
           </button>
         </div>
       </header>
@@ -636,12 +636,12 @@ Automation activated from the dashboard. Continue in WR Chat.`
               {'\u26A1'}
             </span>
             <h3 id="dash-auto-home-my-automations-title" className="dash-auto-home__starter-title">
-              My Automations
+              My Modes
             </h3>
           </div>
 
           {customModes.length === 0 ? (
-            <p className="dash-auto-home__starter-value">No automations yet. Create one to get started.</p>
+            <p className="dash-auto-home__starter-value">No modes yet. Create one to get started.</p>
           ) : (
             <div className="dash-auto-home__automation-selector">
               <select
@@ -649,9 +649,9 @@ Automation activated from the dashboard. Continue in WR Chat.`
                 value={selectedAutomationId}
                 onChange={(e) => setSelectedAutomationId(e.target.value)}
                 className="dash-auto-home__automation-select"
-                aria-label="Select a custom automation to run"
+                aria-label="Select a custom mode to run"
               >
-                <option value="">Select an automation…</option>
+                <option value="">Select a mode…</option>
                 {customModesSorted.map((m) => (
                   <option key={m.id} value={m.id}>
                     {(m.icon?.trim() ? `${m.icon.trim()} ` : '') + m.name}

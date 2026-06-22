@@ -120,7 +120,7 @@ export function StepFocus({
           <span style={{ fontWeight: 400, textTransform: 'none', opacity: 0.85 }}>(optional)</span>
         </label>
         <p style={helperStyle}>
-          Topics, keywords, entities, or patterns the assistant should prioritize for this automation.
+          Topics, keywords, entities, or patterns the assistant should prioritize for this mode.
         </p>
         <textarea
           id="cmw-focus"
