@@ -31,6 +31,7 @@ import { useCustomModesStore } from '@ext/stores/useCustomModesStore'
 import { useChatFocusStore, WRCHAT_APPEND_ASSISTANT_EVENT } from '@ext/stores/chatFocusStore'
 import { useUIStore } from '@ext/stores/useUIStore'
 import { getCustomModeTriggerBarIcon, isModeDeletable } from '@ext/shared/ui/customModeTypes'
+import { ModeRowAffordances } from '@ext/ui/components/ModeRowAffordances'
 import { PROJECT_ICON_CHOICES } from './projectIconChoices'
 import './DashboardAutomationHome.css'
 
@@ -642,22 +643,29 @@ Mode activated from the dashboard. Continue in WR Chat.`
           {customModes.length === 0 ? (
             <p className="dash-auto-home__starter-value">No modes yet. Create one to get started.</p>
           ) : (
-            <div className="dash-auto-home__automation-selector">
-              <select
-                id="dash-auto-home-automation-select"
-                value={selectedAutomationId}
-                onChange={(e) => setSelectedAutomationId(e.target.value)}
-                className="dash-auto-home__automation-select"
-                aria-label="Select a custom mode to run"
-              >
-                <option value="">Select a mode…</option>
-                {customModesSorted.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {(m.icon?.trim() ? `${m.icon.trim()} ` : '') + m.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <ul className="dash-auto-home__mode-list" aria-label="Your modes">
+              {customModesSorted.map((m) => {
+                const selected = selectedAutomationId === m.id
+                const label = (m.icon?.trim() ? `${m.icon.trim()} ` : '') + (m.name?.trim() || 'Untitled')
+                return (
+                  <li key={m.id} className={selected ? 'dash-auto-home__mode-list-item--selected' : undefined}>
+                    <button
+                      type="button"
+                      className="dash-auto-home__mode-list-select"
+                      onClick={() => setSelectedAutomationId(m.id)}
+                      aria-pressed={selected}
+                    >
+                      {label}
+                    </button>
+                    <ModeRowAffordances
+                      modeId={m.id}
+                      tone="light"
+                      onDeleted={(id) => setSelectedAutomationId((prev) => (prev === id ? '' : prev))}
+                    />
+                  </li>
+                )
+              })}
+            </ul>
           )}
 
           <div className="dash-auto-home__starter-actions">

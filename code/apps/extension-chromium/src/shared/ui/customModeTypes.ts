@@ -20,7 +20,14 @@ export type ModeTypeKind = 'built-in' | 'custom'
 export type SessionMode = 'shared' | 'dedicated' | 'fresh'
 
 /** Structured profile field for career-builder-style modes (optional on any custom mode). */
-export type CustomModeProfileFieldType = 'text' | 'longtext' | 'select'
+export type CustomModeProfileFieldType =
+  | 'text'
+  | 'longtext'
+  | 'number'
+  | 'toggle'
+  | 'date'
+  | 'select'
+  | 'multiselect'
 
 export interface CustomModeProfileField {
   /** Stable key within the mode (slug from label when omitted on input). */
@@ -28,7 +35,7 @@ export interface CustomModeProfileField {
   label: string
   value: string
   type?: CustomModeProfileFieldType
-  /** Required when `type` is `select`. */
+  /** Required when `type` is `select` or `multiselect`. */
   options?: string[]
 }
 
@@ -193,6 +200,26 @@ export function slugCustomModeProfileFieldKey(label: string, index: number): str
 }
 
 /** Coerce persisted / draft profile rows; returns `undefined` when empty or invalid. */
+const PROFILE_FIELD_TYPES: CustomModeProfileFieldType[] = [
+  'text',
+  'longtext',
+  'number',
+  'toggle',
+  'date',
+  'select',
+  'multiselect',
+]
+
+function isProfileFieldType(v: unknown): v is CustomModeProfileFieldType {
+  return typeof v === 'string' && (PROFILE_FIELD_TYPES as string[]).includes(v)
+}
+
+function profileFieldHasContent(type: CustomModeProfileFieldType | undefined, value: string): boolean {
+  const t = type ?? 'text'
+  if (t === 'toggle') return value === 'yes' || value === 'no'
+  return Boolean(value.trim())
+}
+
 export function normalizeProfileFields(raw: unknown): CustomModeProfileField[] | undefined {
   if (!Array.isArray(raw)) return undefined
   const out: CustomModeProfileField[] = []
@@ -202,7 +229,8 @@ export function normalizeProfileFields(raw: unknown): CustomModeProfileField[] |
     const r = row as Record<string, unknown>
     const label = typeof r.label === 'string' ? r.label.trim() : ''
     const value = typeof r.value === 'string' ? r.value : ''
-    if (!label && !value.trim()) return
+    const type = isProfileFieldType(r.type) ? r.type : undefined
+    if (!label && !profileFieldHasContent(type, value)) return
     let key = typeof r.key === 'string' ? r.key.trim() : ''
     if (!key) key = slugCustomModeProfileFieldKey(label || `Field ${i + 1}`, i)
     let uniqueKey = key
@@ -211,10 +239,8 @@ export function normalizeProfileFields(raw: unknown): CustomModeProfileField[] |
       uniqueKey = `${key}_${n++}`
     }
     seenKeys.add(uniqueKey)
-    const type =
-      r.type === 'text' || r.type === 'longtext' || r.type === 'select' ? r.type : undefined
     let options: string[] | undefined
-    if (type === 'select' && Array.isArray(r.options)) {
+    if ((type === 'select' || type === 'multiselect') && Array.isArray(r.options)) {
       options = (r.options as unknown[])
         .filter((x): x is string => typeof x === 'string')
         .map((s) => s.trim())
@@ -233,18 +259,41 @@ export function normalizeProfileFields(raw: unknown): CustomModeProfileField[] |
   return out.length ? out : undefined
 }
 
+function isTruthyToggleValue(value: string): boolean {
+  const v = value.trim().toLowerCase()
+  return v === 'yes' || v === 'true' || v === '1' || v === 'on'
+}
+
+/** Single profile line for LLM prefix; `null` when field should be omitted. */
+export function formatCustomModeProfileFieldLine(field: CustomModeProfileField): string | null {
+  const label = field.label?.trim()
+  if (!label) return null
+  const type = field.type ?? 'text'
+  if (type === 'toggle') {
+    const raw = field.value?.trim()
+    if (!raw) return null
+    return `${label}: ${isTruthyToggleValue(raw) ? 'yes' : 'no'}`
+  }
+  if (type === 'multiselect') {
+    const parts = field.value
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (parts.length === 0) return null
+    return `${label}: ${parts.join(', ')}`
+  }
+  const value = field.value?.trim()
+  if (!value) return null
+  return `${label}: ${value}`
+}
+
 /** Labeled block for LLM prefix injection; `null` when no non-empty fields. */
 export function formatCustomModeProfileFieldsForPrefix(
   fields: CustomModeProfileField[] | undefined,
 ): string | null {
   if (!fields?.length) return null
   const lines = fields
-    .map((f) => {
-      const label = f.label?.trim()
-      const value = f.value?.trim()
-      if (!label || !value) return null
-      return `${label}: ${value}`
-    })
+    .map((f) => formatCustomModeProfileFieldLine(f))
     .filter((line): line is string => line !== null)
   if (lines.length === 0) return null
   return `[Mode profile]\n${lines.join('\n')}`

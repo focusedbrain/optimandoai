@@ -39,8 +39,8 @@ function baseMode(partial: Partial<CustomModeDefinition> = {}): CustomModeDefini
 }
 
 describe('custom mode profileFields', () => {
-  it('schema version is v3', () => {
-    expect(CUSTOM_MODES_SCHEMA_VERSION).toBe(4)
+  it('schema version is v5', () => {
+    expect(CUSTOM_MODES_SCHEMA_VERSION).toBe(5)
   })
 
   it('old modes without profileFields load unchanged via migration', () => {
@@ -134,5 +134,54 @@ describe('custom mode profileFields', () => {
       ],
     })
     expect(normalized.profileFields).toEqual([{ key: 'b', label: 'Valid', value: 'yes' }])
+  })
+
+  it('typed fields persist and fold into prefix', () => {
+    const mode = baseMode({
+      profileFields: [
+        { key: 'loc', label: 'Location', value: 'Hamburg', type: 'text' },
+        { key: 'rel', label: 'Open to relocation', value: 'yes', type: 'toggle' },
+        {
+          key: 'ind',
+          label: 'Industries',
+          value: 'fintech, security',
+          type: 'multiselect',
+          options: ['fintech', 'security', 'health'],
+        },
+        {
+          key: 'level',
+          label: 'Seniority',
+          value: 'Senior',
+          type: 'select',
+          options: ['Junior', 'Senior'],
+        },
+      ],
+    })
+    const json = stringifyCustomModes([mode])
+    const parsed = parseCustomModesJson(json)
+    expect(parsed[0].profileFields).toEqual(mode.profileFields)
+
+    const prefix = getCustomModeLlmPrefix(customModeDefinitionToRuntime(mode))
+    expect(prefix).toContain('Location: Hamburg')
+    expect(prefix).toContain('Open to relocation: yes')
+    expect(prefix).toContain('Industries: fintech, security')
+    expect(prefix).toContain('Seniority: Senior')
+  })
+
+  it('toggle off and empty multiselect are omitted from prefix', () => {
+    const prefix = getCustomModeLlmPrefix(
+      customModeDefinitionToRuntime(
+        baseMode({
+          profileFields: [
+            { key: 'a', label: 'Flag', value: 'no', type: 'toggle' },
+            { key: 'b', label: 'Tags', value: '', type: 'multiselect', options: ['a', 'b'] },
+            { key: 'c', label: 'Note', value: 'ok', type: 'text' },
+          ],
+        }),
+      ),
+    )
+    expect(prefix).toContain('Flag: no')
+    expect(prefix).not.toContain('Tags:')
+    expect(prefix).toContain('Note: ok')
   })
 })

@@ -14,6 +14,7 @@ import {
 } from '../../shared/ui/uiState'
 import { isCustomModeId, isPersistedModeId } from '../../shared/ui/customModeTypes'
 import { safeCustomModeRowLabel } from '../../shared/ui/customModeDisplay'
+import { ModeRowAffordances } from './ModeRowAffordances'
 import {
   WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT,
   WRCHAT_CUSTOM_MODE_WIZARD_SAVED,
@@ -160,14 +161,15 @@ export const ModeSelect: React.FC<ModeSelectProps> = ({
   return (
     <>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: compact ? 4 : 6 }}>
-        <select
-          value={currentValue}
-          onChange={handleChange}
-          style={getStyles()}
-          className={className}
-          title={getDisplayText()}
-          aria-label="Workspace, built-in mode, custom modes, and workspaces"
-        >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <select
+            value={currentValue}
+            onChange={handleChange}
+            style={{ ...getStyles(), flex: 1, minWidth: 0 }}
+            className={className}
+            title={getDisplayText()}
+            aria-label="Workspace, built-in mode, custom modes, and workspaces"
+          >
           <optgroup label="Built-in" style={optionStyle}>
             {availableModes.map((modeId) => {
               const info = MODE_INFO[modeId]
@@ -213,6 +215,17 @@ export const ModeSelect: React.FC<ModeSelectProps> = ({
             </option>
           </optgroup>
         </select>
+          {workspace === 'wr-chat' && isPersistedModeId(mode) ? (
+            <ModeRowAffordances
+              modeId={mode}
+              compact
+              tone={theme === 'professional' ? 'light' : theme === 'dark' ? 'dark' : 'default'}
+              onDeleted={(id) => {
+                if (mode === id) setMode('commands')
+              }}
+            />
+          ) : null}
+        </div>
 
         {successMessage ? (
           <span

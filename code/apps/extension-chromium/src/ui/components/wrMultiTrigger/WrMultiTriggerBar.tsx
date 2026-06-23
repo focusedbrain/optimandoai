@@ -34,6 +34,7 @@ import {
   automationUiKindFromTriggerFunctionId,
 } from './automationUiKind'
 import { TriggerButtonShell } from './TriggerButtonShell'
+import { ModeRowAffordances } from '../ModeRowAffordances'
 
 /**
  * Dispatched on speech bubble click (also calls `onChatFocusRequest` if provided).
@@ -635,49 +636,70 @@ What would you like to add?`
         >
           {dropdownRows.map((row) => {
             const selected = functionIdKey(row.functionId) === functionIdKey(activeFunctionId)
+            const modeId =
+              row.functionId.type === 'custom-automation' ? row.functionId.modeId : null
             return (
               <li key={row.id}>
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={selected}
-                  data-automation-ui-kind={row.automationUiKind}
-                  onClick={() => handleDropdownRowClick(row)}
+                <div
                   style={{
-                    width: '100%',
-                    textAlign: 'left',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 8,
-                    padding: '8px 12px',
-                    border: 'none',
+                    gap: 2,
+                    paddingRight: modeId ? 4 : 0,
                     background: selected ? dropdownSurface.hover : 'transparent',
-                    color: dropdownSurface.text,
-                    cursor: 'pointer',
-                    fontSize: 12,
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!selected) e.currentTarget.style.background = dropdownSurface.hover
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!selected) e.currentTarget.style.background = 'transparent'
                   }}
                 >
-                  {isScamWatchdogBuiltInMode(
-                    row.functionId.type === 'custom-automation'
-                      ? customModes.find((m) => m.id === row.functionId.modeId)
-                      : undefined,
-                  ) ? (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
-                      <WatchdogIcon size={14} />
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    data-automation-ui-kind={row.automationUiKind}
+                    onClick={() => handleDropdownRowClick(row)}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      textAlign: 'left',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '8px 12px',
+                      border: 'none',
+                      background: 'transparent',
+                      color: dropdownSurface.text,
+                      cursor: 'pointer',
+                      fontSize: 12,
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!selected) e.currentTarget.parentElement!.style.background = dropdownSurface.hover
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!selected) e.currentTarget.parentElement!.style.background = 'transparent'
+                    }}
+                  >
+                    {isScamWatchdogBuiltInMode(
+                      row.functionId.type === 'custom-automation'
+                        ? customModes.find((m) => m.id === row.functionId.modeId)
+                        : undefined,
+                    ) ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+                        <WatchdogIcon size={14} />
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 14, lineHeight: 1 }}>{row.icon}</span>
+                    )}
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {row.label}
                     </span>
-                  ) : (
-                    <span style={{ fontSize: 14, lineHeight: 1 }}>{row.icon}</span>
-                  )}
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {row.label}
-                  </span>
-                </button>
+                  </button>
+                  {modeId ? (
+                    <ModeRowAffordances
+                      modeId={modeId}
+                      compact
+                      tone={isLight ? 'light' : 'dark'}
+                      onAfterAction={() => setDropdownOpen(false)}
+                    />
+                  ) : null}
+                </div>
               </li>
             )
           })}

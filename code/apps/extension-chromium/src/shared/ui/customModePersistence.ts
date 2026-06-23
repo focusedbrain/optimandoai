@@ -13,8 +13,8 @@ import {
 /** Zustand persist localStorage name (unchanged so existing installs keep their data). */
 export const CUSTOM_MODES_PERSIST_KEY = 'wr-ui-custom-modes-v1'
 
-/** v4: built-in mode rows (`built-in:*`, non-deletable). */
-export const CUSTOM_MODES_SCHEMA_VERSION = 4
+/** v5: richer profile field types (number, toggle, date, multiselect). v4: built-in mode rows. */
+export const CUSTOM_MODES_SCHEMA_VERSION = 5
 
 type PersistedSlice = { modes: CustomModeDefinition[] }
 
