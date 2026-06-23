@@ -39,6 +39,7 @@ export function StepReview({
   const nameSafe = safeDraftString(data.name).trim()
   const modelSafe = safeDraftString(data.modelName).trim()
   const focusSafe = safeDraftString(data.searchFocus).trim()
+  const systemInstructionsSafe = safeDraftString(data.systemInstructions).trim()
   const md = data.metadata && typeof data.metadata === 'object' ? (data.metadata as Record<string, unknown>) : undefined
   const wrName =
     md && typeof md.wrExpertFileName === 'string' && md.wrExpertFileName.trim()
@@ -76,15 +77,16 @@ export function StepReview({
       ? [{ k: 'Endpoint', v: safeDraftString(data.endpoint).trim() || '—' }]
       : []),
     { k: 'Session', v: sessionLabel },
-    { k: 'Detection focus', v: focusSafe || '—' },
-    { k: 'Profile fields', v: profileReview },
+    { k: 'System instructions for this mode', v: systemInstructionsSafe || '—' },
+    { k: 'Detection Focus', v: focusSafe || '—' },
+    { k: 'Structured Context Fields', v: profileReview },
     {
       k: 'WR Expert profile',
       v: wrLoaded ? (wrName ? `Loaded: ${wrName}` : 'Loaded (parsed rules)') : '—',
     },
     { k: 'Scope URLs', v: scopeUrlsReview || '—' },
     { k: 'Diff watch folders', v: diffFolderReview },
-    { k: 'Ignore patterns', v: safeDraftString(data.ignoreInstructions).trim() || '—' },
+    { k: 'What should this mode ignore?', v: safeDraftString(data.ignoreInstructions).trim() || '—' },
     { k: 'Periodic scan', v: intervalLine },
   ]
 

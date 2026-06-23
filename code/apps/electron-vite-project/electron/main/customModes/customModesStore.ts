@@ -14,19 +14,29 @@ import {
   normalizeCustomModeFields,
   normalizeCustomModeNameKey,
 } from '../../../../extension-chromium/src/shared/ui/customModeTypes'
-import { ensureBuiltInModes } from './builtInModes'
+import { ensureBuiltInModes, backfillEmptyScamWatchdogFields } from './builtInModes'
 
 function persistBuiltInSeedIfNeeded(envelope: CustomModesFileEnvelope): CustomModesFileEnvelope {
-  const ensured = ensureBuiltInModes(envelope.modes)
-  if (ensured.length > envelope.modes.length) {
-    const written = writeModes(ensured)
+  let modes = ensureBuiltInModes(envelope.modes)
+  let needsWrite = modes.length > envelope.modes.length
+
+  const meta = readMeta()
+  const backfill = backfillEmptyScamWatchdogFields(modes)
+  modes = backfill.modes
+  if (backfill.changed) needsWrite = true
+  if (!meta.scamWatchdogSearchFocusBackfill) {
+    writeMeta({ ...meta, scamWatchdogSearchFocusBackfill: true })
+  }
+
+  if (needsWrite) {
+    const written = writeModes(modes)
     return {
       ...envelope,
       schemaVersion: CUSTOM_MODES_SCHEMA_VERSION,
       modes: written,
     }
   }
-  return { ...envelope, modes: ensured }
+  return { ...envelope, modes }
 }
 import {
   CUSTOM_MODES_SCHEMA_VERSION,
@@ -42,6 +52,8 @@ export type CustomModesMigrationOrigin = 'dashboard' | 'extension'
 export interface CustomModesMigrationMeta {
   localStorageImport: { dashboard: boolean; extension: boolean }
   completedAt?: string
+  /** One-time backfill of empty built-in Scam Watchdog searchFocus from seed. */
+  scamWatchdogSearchFocusBackfill?: boolean
 }
 
 interface CustomModesFileEnvelope {
@@ -99,6 +111,7 @@ function readMeta(): CustomModesMigrationMeta {
         extension: ls?.extension === true,
       },
       completedAt: typeof parsed.completedAt === 'string' ? parsed.completedAt : undefined,
+      scamWatchdogSearchFocusBackfill: parsed.scamWatchdogSearchFocusBackfill === true,
     }
   } catch (e) {
     console.warn('[CustomModes] readMeta failed:', e instanceof Error ? e.message : e)

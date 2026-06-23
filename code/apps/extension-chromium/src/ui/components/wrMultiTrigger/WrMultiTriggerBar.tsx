@@ -26,7 +26,12 @@ import {
   BUILTIN_SCAM_WATCHDOG_ID,
   isScamWatchdogBuiltInMode,
 } from '../../../shared/ui/scamWatchdogBuiltIn'
-import WatchdogIcon from '../WatchdogIcon'
+import {
+  buildTriggerBarDropdownSections,
+  flattenTriggerBarDropdownSections,
+  type TriggerBarDropdownRow,
+  type TriggerBarDropdownSection,
+} from './dropdownSections'
 import WrChatWatchdogButton from '../WrChatWatchdogButton'
 import {
   ADD_AUTOMATION_ROW_UI_KIND,
@@ -127,45 +132,6 @@ function SpeechBubbleButton({
   )
 }
 
-type TriggerBarDropdownRow = {
-  id: string
-  label: string
-  icon: string
-  functionId: TriggerFunctionId
-  /** Derived in UI only; exposed on DOM for tests / future styling — does not affect selection or APIs. */
-  automationUiKind: ReturnType<typeof automationUiKindFromTriggerFunctionId>
-}
-
-function buildProjectDropdownRows(projects: TriggerProjectEntry[]): TriggerBarDropdownRow[] {
-  const rows: TriggerBarDropdownRow[] = []
-  for (const p of projects) {
-    const functionId: TriggerFunctionId = { type: 'auto-optimizer', projectId: p.projectId }
-    rows.push({
-      id: p.projectId,
-      label: p.title,
-      icon: p.icon,
-      functionId,
-      automationUiKind: automationUiKindFromTriggerFunctionId(functionId),
-    })
-  }
-  return rows
-}
-
-function buildComposerDropdownRows(entries: TriggerComposerEntry[]): TriggerBarDropdownRow[] {
-  const rows: TriggerBarDropdownRow[] = []
-  for (const c of entries) {
-    const functionId: TriggerFunctionId = { type: 'composer-shortcut', composerId: c.composerId }
-    rows.push({
-      id: `composer:${c.composerId}`,
-      label: c.title,
-      icon: c.icon,
-      functionId,
-      automationUiKind: automationUiKindFromTriggerFunctionId(functionId),
-    })
-  }
-  return rows
-}
-
 function functionIdKey(fid: TriggerFunctionId): string {
   if (fid.type === 'watchdog') return 'watchdog'
   if (fid.type === 'auto-optimizer') return fid.projectId
@@ -218,9 +184,8 @@ export default function WrMultiTriggerBar({
     setActiveFunctionId((current) => {
       if (current.type !== 'custom-automation') return current
       const def = customModes.find((m) => m.id === current.modeId)
-      const pin = def ? getCustomModeTriggerBarIcon(def.metadata as Record<string, unknown> | undefined) : ''
-      if (!def || !pin) return { type: 'watchdog' }
-      return current
+      if (def) return current
+      return { type: 'custom-automation', modeId: BUILTIN_SCAM_WATCHDOG_ID }
     })
   }, [customModes])
 
@@ -228,7 +193,9 @@ export default function WrMultiTriggerBar({
     setActiveFunctionId((current) => {
       if (current.type !== 'composer-shortcut') return current
       const still = composerShortcutList.some((c) => c.composerId === current.composerId)
-      return still ? current : { type: 'watchdog' }
+      return still
+        ? current
+        : { type: 'custom-automation', modeId: BUILTIN_SCAM_WATCHDOG_ID }
     })
   }, [composerShortcutList])
 
@@ -257,49 +224,15 @@ export default function WrMultiTriggerBar({
     return () => document.removeEventListener('mousedown', onDoc)
   }, [dropdownOpen])
 
-  const scamWatchdogMode = useMemo(
-    () => customModes.find((m) => isScamWatchdogBuiltInMode(m)) ?? null,
-    [customModes],
+  const dropdownSections = useMemo(
+    () => buildTriggerBarDropdownSections(customModes, projectList, composerShortcutList),
+    [customModes, projectList, composerShortcutList],
   )
 
-  const pinnedCustomRows = useMemo(() => {
-    const rows: TriggerBarDropdownRow[] = []
-    for (const m of customModes) {
-      if (isScamWatchdogBuiltInMode(m)) continue
-      const icon = getCustomModeTriggerBarIcon(m.metadata as Record<string, unknown> | undefined)
-      if (!icon) continue
-      const functionId: TriggerFunctionId = { type: 'custom-automation', modeId: m.id }
-      rows.push({
-        id: m.id,
-        label: m.name.trim() || 'Mode',
-        icon,
-        functionId,
-        automationUiKind: automationUiKindFromTriggerFunctionId(functionId),
-      })
-    }
-    rows.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
-    return rows
-  }, [customModes])
-
-  const dropdownRows = useMemo((): TriggerBarDropdownRow[] => {
-    const rows: TriggerBarDropdownRow[] = []
-    if (scamWatchdogMode) {
-      const functionId: TriggerFunctionId = { type: 'custom-automation', modeId: scamWatchdogMode.id }
-      rows.push({
-        id: scamWatchdogMode.id,
-        label: scamWatchdogMode.name.trim() || 'Scam Watchdog',
-        icon: scamWatchdogMode.icon?.trim() || '',
-        functionId,
-        automationUiKind: 'monitor',
-      })
-    }
-    return [
-      ...rows,
-      ...pinnedCustomRows,
-      ...buildProjectDropdownRows(projectList),
-      ...buildComposerDropdownRows(composerShortcutList),
-    ]
-  }, [projectList, pinnedCustomRows, composerShortcutList, scamWatchdogMode])
+  const dropdownRows = useMemo(
+    () => flattenTriggerBarDropdownSections(dropdownSections),
+    [dropdownSections],
+  )
 
   const activeProject = useMemo(() => {
     if (activeFunctionId.type !== 'auto-optimizer') return null
@@ -580,10 +513,129 @@ What would you like to add?`
   const isLight = theme === 'standard'
   const isDark = theme === 'dark'
   const dropdownSurface = isLight
-    ? { bg: '#ffffff', border: '#cbd5e1', text: '#0f172a', hover: '#f1f5f9' }
+    ? {
+        bg: '#ffffff',
+        border: '#cbd5e1',
+        text: '#0f172a',
+        sectionLabel: '#475569',
+        hover: '#f1f5f9',
+      }
     : isDark
-      ? { bg: 'rgba(15,23,42,0.95)', border: 'rgba(148,163,184,0.35)', text: '#f1f5f9', hover: 'rgba(99,102,241,0.25)' }
-      : { bg: 'rgba(49,32,68,0.98)', border: 'rgba(167,139,250,0.45)', text: '#f5f3ff', hover: 'rgba(118,75,162,0.45)' }
+      ? {
+          bg: 'rgba(15,23,42,0.95)',
+          border: 'rgba(148,163,184,0.35)',
+          text: '#f1f5f9',
+          sectionLabel: '#94a3b8',
+          hover: 'rgba(99,102,241,0.25)',
+        }
+      : {
+          bg: 'rgba(49,32,68,0.98)',
+          border: 'rgba(167,139,250,0.45)',
+          text: '#f5f3ff',
+          sectionLabel: '#c4b5fd',
+          hover: 'rgba(118,75,162,0.45)',
+        }
+
+  const renderDropdownRow = (row: TriggerBarDropdownRow) => {
+    const selected = functionIdKey(row.functionId) === functionIdKey(activeFunctionId)
+    const modeId = row.functionId.type === 'custom-automation' ? row.functionId.modeId : null
+    return (
+      <li key={row.id}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            paddingRight: modeId ? 4 : 0,
+            background: selected ? dropdownSurface.hover : 'transparent',
+          }}
+        >
+          <button
+            type="button"
+            role="option"
+            aria-selected={selected}
+            data-automation-ui-kind={row.automationUiKind}
+            onClick={() => handleDropdownRowClick(row)}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              textAlign: 'left',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '8px 12px',
+              border: 'none',
+              background: 'transparent',
+              color: dropdownSurface.text,
+              cursor: 'pointer',
+              fontSize: 12,
+            }}
+            onMouseEnter={(e) => {
+              if (!selected) e.currentTarget.parentElement!.style.background = dropdownSurface.hover
+            }}
+            onMouseLeave={(e) => {
+              if (!selected) e.currentTarget.parentElement!.style.background = 'transparent'
+            }}
+          >
+            <span style={{ fontSize: 14, lineHeight: 1, flexShrink: 0 }}>{row.icon}</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {row.label}
+            </span>
+          </button>
+          {modeId ? (
+            <ModeRowAffordances
+              modeId={modeId}
+              compact
+              tone={isLight ? 'light' : 'dark'}
+              onAfterAction={() => setDropdownOpen(false)}
+            />
+          ) : null}
+        </div>
+      </li>
+    )
+  }
+
+  const renderSectionAddButton = (
+    section: TriggerBarDropdownSection,
+    label: string,
+    icon: string,
+    uiKind: typeof ADD_AUTOMATION_ROW_UI_KIND | typeof ADD_PROJECT_ASSISTANT_ROW_UI_KIND,
+    onClick: () => void,
+  ) => (
+    <li role="presentation" key={`${section.id}-add`}>
+      <button
+        type="button"
+        role="option"
+        data-automation-ui-kind={uiKind}
+        onClick={onClick}
+        style={{
+          width: '100%',
+          textAlign: 'left',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 12px',
+          border: 'none',
+          background: 'transparent',
+          color: dropdownSurface.text,
+          cursor: 'pointer',
+          fontSize: 12,
+          fontWeight: 600,
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = dropdownSurface.hover
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'transparent'
+        }}
+      >
+        <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>
+          {icon}
+        </span>
+        <span>{label}</span>
+      </button>
+    </li>
+  )
 
   const dropdownLeadingSlot = (
     <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
@@ -622,7 +674,7 @@ What would you like to add?`
             marginTop: 4,
             minWidth: 200,
             maxWidth: 280,
-            maxHeight: 240,
+            maxHeight: 'min(calc(100vh - 120px), 480px)',
             overflowY: 'auto',
             zIndex: 50,
             listStyle: 'none',
@@ -634,148 +686,54 @@ What would you like to add?`
             boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
           }}
         >
-          {dropdownRows.map((row) => {
-            const selected = functionIdKey(row.functionId) === functionIdKey(activeFunctionId)
-            const modeId =
-              row.functionId.type === 'custom-automation' ? row.functionId.modeId : null
-            return (
-              <li key={row.id}>
+          {dropdownSections.map((section, sectionIdx) => (
+            <React.Fragment key={section.id}>
+              {sectionIdx > 0 ? (
+                <li
+                  role="presentation"
+                  aria-hidden
+                  style={{
+                    borderTop: `1px solid ${dropdownSurface.border}`,
+                    marginTop: 4,
+                    marginBottom: 2,
+                  }}
+                />
+              ) : null}
+              <li role="presentation">
                 <div
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 2,
-                    paddingRight: modeId ? 4 : 0,
-                    background: selected ? dropdownSurface.hover : 'transparent',
+                    padding: '6px 12px 4px',
+                    fontSize: 10,
+                    fontWeight: 600,
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                    color: dropdownSurface.sectionLabel,
                   }}
                 >
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={selected}
-                    data-automation-ui-kind={row.automationUiKind}
-                    onClick={() => handleDropdownRowClick(row)}
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      textAlign: 'left',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      padding: '8px 12px',
-                      border: 'none',
-                      background: 'transparent',
-                      color: dropdownSurface.text,
-                      cursor: 'pointer',
-                      fontSize: 12,
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!selected) e.currentTarget.parentElement!.style.background = dropdownSurface.hover
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!selected) e.currentTarget.parentElement!.style.background = 'transparent'
-                    }}
-                  >
-                    {isScamWatchdogBuiltInMode(
-                      row.functionId.type === 'custom-automation'
-                        ? customModes.find((m) => m.id === row.functionId.modeId)
-                        : undefined,
-                    ) ? (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
-                        <WatchdogIcon size={14} />
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: 14, lineHeight: 1 }}>{row.icon}</span>
-                    )}
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {row.label}
-                    </span>
-                  </button>
-                  {modeId ? (
-                    <ModeRowAffordances
-                      modeId={modeId}
-                      compact
-                      tone={isLight ? 'light' : 'dark'}
-                      onAfterAction={() => setDropdownOpen(false)}
-                    />
-                  ) : null}
+                  {section.label}
                 </div>
               </li>
-            )
-          })}
-          <li
-            role="presentation"
-            style={{
-              borderTop: `1px solid ${dropdownSurface.border}`,
-              marginTop: 4,
-              paddingTop: 4,
-            }}
-          >
-            <button
-              type="button"
-              role="option"
-              data-automation-ui-kind={ADD_AUTOMATION_ROW_UI_KIND}
-              onClick={handleAddModeRowClick}
-              style={{
-                width: '100%',
-                textAlign: 'left',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '8px 12px',
-                border: 'none',
-                background: 'transparent',
-                color: dropdownSurface.text,
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: 600,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = dropdownSurface.hover
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent'
-              }}
-            >
-              <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>
-                ✨
-              </span>
-              <span>+ Add Mode</span>
-            </button>
-          </li>
-          <li role="presentation">
-            <button
-              type="button"
-              role="option"
-              data-automation-ui-kind={ADD_PROJECT_ASSISTANT_ROW_UI_KIND}
-              onClick={handleAddProjectAssistantRowClick}
-              style={{
-                width: '100%',
-                textAlign: 'left',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '8px 12px',
-                border: 'none',
-                background: 'transparent',
-                color: dropdownSurface.text,
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: 600,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = dropdownSurface.hover
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent'
-              }}
-            >
-              <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>
-                📋
-              </span>
-              <span>+ Add Project WIKI</span>
-            </button>
-          </li>
+              {section.rows.map((row) => renderDropdownRow(row))}
+              {section.id === 'modes'
+                ? renderSectionAddButton(
+                    section,
+                    '+ Add Mode',
+                    '✨',
+                    ADD_AUTOMATION_ROW_UI_KIND,
+                    handleAddModeRowClick,
+                  )
+                : null}
+              {section.id === 'projects'
+                ? renderSectionAddButton(
+                    section,
+                    '+ Add Project WIKI',
+                    '📋',
+                    ADD_PROJECT_ASSISTANT_ROW_UI_KIND,
+                    handleAddProjectAssistantRowClick,
+                  )
+                : null}
+            </React.Fragment>
+          ))}
         </ul>
       ) : null}
     </div>

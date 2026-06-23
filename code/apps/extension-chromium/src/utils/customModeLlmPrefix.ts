@@ -9,6 +9,8 @@ import { formatCustomModeProfileFieldsForPrefix } from '../shared/ui/customModeT
 export function getCustomModeLlmPrefix(runtime: CustomModeRuntimeConfig | null): string | null {
   if (!runtime) return null
   const parts: string[] = []
+  const system = runtime.systemInstructions?.trim()
+  if (system) parts.push(`[System instructions for this mode]\n${system}`)
   const focus = runtime.searchFocus?.trim()
   if (focus) parts.push(`[Mode focus: ${focus}]`)
   const ignore = runtime.ignoreInstructions?.trim()

@@ -16,6 +16,7 @@ export interface CustomModeRuntimeConfig {
   endpoint: string
   sessionId: string | null
   sessionMode: SessionMode
+  systemInstructions: string
   searchFocus: string
   ignoreInstructions: string
   /** Structured profile fields (optional). */
@@ -63,6 +64,7 @@ export function customModeDefinitionToRuntime(def: CustomModeDefinition): Custom
     endpoint: def.endpoint,
     sessionId: def.sessionId,
     sessionMode: def.sessionMode,
+    systemInstructions: def.systemInstructions,
     searchFocus: def.searchFocus,
     ignoreInstructions: def.ignoreInstructions,
     profileFields: def.profileFields,

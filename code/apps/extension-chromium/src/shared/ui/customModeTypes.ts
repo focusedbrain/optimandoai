@@ -29,6 +29,20 @@ export type CustomModeProfileFieldType =
   | 'select'
   | 'multiselect'
 
+/** How a structured context field is applied in inference (future options reserved). */
+export type CustomModeProfileFieldUsage = 'context' | 'must_match' | 'prioritize' | 'exclude'
+
+export const CUSTOM_MODE_PROFILE_FIELD_USAGE_OPTIONS: {
+  value: CustomModeProfileFieldUsage
+  label: string
+  disabled?: boolean
+}[] = [
+  { value: 'context', label: 'Use as context' },
+  { value: 'must_match', label: 'Must match', disabled: true },
+  { value: 'prioritize', label: 'Prioritize', disabled: true },
+  { value: 'exclude', label: 'Exclude', disabled: true },
+]
+
 export interface CustomModeProfileField {
   /** Stable key within the mode (slug from label when omitted on input). */
   key: string
@@ -37,6 +51,8 @@ export interface CustomModeProfileField {
   type?: CustomModeProfileFieldType
   /** Required when `type` is `select` or `multiselect`. */
   options?: string[]
+  /** How this field should influence inference; defaults to `context`. */
+  usage?: CustomModeProfileFieldUsage
 }
 
 export interface CustomModeDefinition {
@@ -56,6 +72,8 @@ export interface CustomModeDefinition {
   endpoint: string
   sessionId: string | null
   sessionMode: SessionMode
+  /** Overall role/behavior instruction for this mode (optional). */
+  systemInstructions: string
   searchFocus: string
   ignoreInstructions: string
   /**
@@ -181,6 +199,7 @@ export function defaultCustomModeDraft(): CustomModeDraft {
     endpoint: DEFAULT_OLLAMA_ENDPOINT,
     sessionId: null,
     sessionMode: 'shared',
+    systemInstructions: '',
     searchFocus: '',
     ignoreInstructions: '',
     profileFields: undefined,
@@ -220,6 +239,15 @@ function profileFieldHasContent(type: CustomModeProfileFieldType | undefined, va
   return Boolean(value.trim())
 }
 
+function isProfileFieldUsage(v: unknown): v is CustomModeProfileFieldUsage {
+  return (
+    v === 'context' ||
+    v === 'must_match' ||
+    v === 'prioritize' ||
+    v === 'exclude'
+  )
+}
+
 export function normalizeProfileFields(raw: unknown): CustomModeProfileField[] | undefined {
   if (!Array.isArray(raw)) return undefined
   const out: CustomModeProfileField[] = []
@@ -251,6 +279,7 @@ export function normalizeProfileFields(raw: unknown): CustomModeProfileField[] |
       key: uniqueKey,
       label: label || uniqueKey,
       value,
+      usage: isProfileFieldUsage(r.usage) ? r.usage : 'context',
     }
     if (type) field.type = type
     if (options?.length) field.options = options
@@ -296,7 +325,7 @@ export function formatCustomModeProfileFieldsForPrefix(
     .map((f) => formatCustomModeProfileFieldLine(f))
     .filter((line): line is string => line !== null)
   if (lines.length === 0) return null
-  return `[Mode profile]\n${lines.join('\n')}`
+  return `[User-provided context]\n${lines.join('\n')}`
 }
 
 /** Empty profile row for the wizard “add field” action. */
@@ -306,6 +335,7 @@ export function createEmptyCustomModeProfileField(index: number): CustomModeProf
     label: '',
     value: '',
     type: 'text',
+    usage: 'context',
   }
 }
 
@@ -343,6 +373,14 @@ export function isPersistedModeId(mode: string): boolean {
 export function isModeDeletable(def: CustomModeDefinition): boolean {
   if (def.type === 'built-in') return false
   if (def.deletable === false) return false
+  return def.id.startsWith('custom:')
+}
+
+/** User-owned custom modes for My Modes — excludes built-ins / system rows. */
+export function isUserOwnedCustomMode(def: CustomModeDefinition): boolean {
+  if (def.type === 'built-in') return false
+  if (def.deletable === false) return false
+  if (def.id === 'built-in:scam-watchdog' || def.builtInKey === 'scam-watchdog') return false
   return def.id.startsWith('custom:')
 }
 
@@ -394,6 +432,7 @@ export function normalizeCustomModeFields(
       partial.sessionMode === 'dedicated' || partial.sessionMode === 'fresh' || partial.sessionMode === 'shared'
         ? partial.sessionMode
         : 'shared',
+    systemInstructions: typeof partial.systemInstructions === 'string' ? partial.systemInstructions : '',
     searchFocus: typeof partial.searchFocus === 'string' ? partial.searchFocus : '',
     ignoreInstructions: typeof partial.ignoreInstructions === 'string' ? partial.ignoreInstructions : '',
     profileFields: normalizeProfileFields(partial.profileFields),

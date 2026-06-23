@@ -39,8 +39,8 @@ function baseMode(partial: Partial<CustomModeDefinition> = {}): CustomModeDefini
 }
 
 describe('custom mode profileFields', () => {
-  it('schema version is v5', () => {
-    expect(CUSTOM_MODES_SCHEMA_VERSION).toBe(5)
+  it('schema version is v6', () => {
+    expect(CUSTOM_MODES_SCHEMA_VERSION).toBe(6)
   })
 
   it('old modes without profileFields load unchanged via migration', () => {
@@ -101,7 +101,9 @@ describe('custom mode profileFields', () => {
       profileFields: [{ key: 'dos', label: "Do's", value: 'Apply to fintech', type: 'text' }],
       intervalSeconds: null,
     })
-    expect(def.profileFields).toEqual([{ key: 'dos', label: "Do's", value: 'Apply to fintech', type: 'text' }])
+    expect(def.profileFields).toEqual([
+      { key: 'dos', label: "Do's", value: 'Apply to fintech', type: 'text', usage: 'context' },
+    ])
   })
 
   it('profileFields fold into LLM prefix; absent leaves prefix unchanged', () => {
@@ -115,13 +117,13 @@ describe('custom mode profileFields', () => {
         }),
       ),
     )
-    expect(withProfile).toContain('[Mode profile]')
+    expect(withProfile).toContain('[User-provided context]')
     expect(withProfile).toContain('Goals: Lead role')
     expect(withProfile).toContain("Don'ts: No crypto")
     expect(withProfile).toContain('[Mode focus: invoices]')
 
     const withoutProfile = getCustomModeLlmPrefix(customModeDefinitionToRuntime(baseMode()))
-    expect(withoutProfile).not.toContain('[Mode profile]')
+    expect(withoutProfile).not.toContain('[User-provided context]')
     expect(withoutProfile).toBe('[Mode focus: invoices]\n[Deprioritize or ignore: noise]')
   })
 
@@ -133,7 +135,7 @@ describe('custom mode profileFields', () => {
         { key: 'b', label: 'Valid', value: 'yes' },
       ],
     })
-    expect(normalized.profileFields).toEqual([{ key: 'b', label: 'Valid', value: 'yes' }])
+    expect(normalized.profileFields).toEqual([{ key: 'b', label: 'Valid', value: 'yes', usage: 'context' }])
   })
 
   it('typed fields persist and fold into prefix', () => {

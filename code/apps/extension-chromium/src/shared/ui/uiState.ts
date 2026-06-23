@@ -7,6 +7,7 @@
  */
 
 import { isCustomModeId, isPersistedModeId } from './customModeTypes'
+import { BUILTIN_SCAM_WATCHDOG_ID } from './scamWatchdogBuiltIn'
 
 // =============================================================================
 // Core Types
@@ -54,13 +55,13 @@ export interface UIState {
 /**
  * Default initial state
  * - Workspace: WR Chat
- * - Mode: Commands (default)
+ * - Mode: Scam Watchdog built-in (default)
  * - Composer: Text input
  * - Role: User (change to 'admin' for testing admin features)
  */
 export const initialUIState: UIState = {
   workspace: 'wr-chat',
-  mode: 'commands',
+  mode: BUILTIN_SCAM_WATCHDOG_ID,
   composerMode: 'text',
   role: 'user' // Change to 'admin' for testing admin features
 }
@@ -214,7 +215,7 @@ export function setRole(state: UIState, role: Role): UIState {
     return {
       ...state,
       role,
-      mode: 'commands',
+      mode: BUILTIN_SCAM_WATCHDOG_ID,
     }
   }
   return {

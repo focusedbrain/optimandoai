@@ -8,6 +8,8 @@ import { SCAM_WATCHDOG_DEFAULT_SEARCH_FOCUS } from './watchdogPrompts'
 
 export const BUILTIN_SCAM_WATCHDOG_ID = 'built-in:scam-watchdog' as const
 export const BUILTIN_SCAM_WATCHDOG_KEY = 'scam-watchdog' as const
+/** Default dog icon for Scam Watchdog rows (service dog emoji). */
+export const SCAM_WATCHDOG_DEFAULT_ICON = '🐕‍🦺' as const
 
 const BUILTIN_SEED_TIMESTAMP = '2026-01-01T00:00:00.000Z'
 
@@ -20,7 +22,7 @@ export function createDefaultScamWatchdogBuiltInMode(): CustomModeDefinition {
     name: 'Scam Watchdog',
     description:
       'Scam and fraud detection for WR Chat and screen scans. Share suspicious content in chat or run a vision scan from the trigger bar.',
-    icon: '🐕‍🦺',
+    icon: SCAM_WATCHDOG_DEFAULT_ICON,
     modelProvider: 'ollama',
     modelName: '',
     endpoint: 'http://127.0.0.1:11434',
