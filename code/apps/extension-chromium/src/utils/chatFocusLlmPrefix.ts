@@ -1,5 +1,5 @@
-import { BUILTIN_SCAM_WATCHDOG_ID } from '../../shared/ui/scamWatchdogBuiltIn'
-import { SCAM_WATCHDOG_CHAT_INSTRUCTION } from '../../shared/ui/watchdogPrompts'
+import { BUILTIN_SCAM_WATCHDOG_ID } from '../shared/ui/scamWatchdogBuiltIn'
+import { SCAM_WATCHDOG_CHAT_INSTRUCTION } from '../shared/ui/watchdogPrompts'
 import type { ChatFocusMeta } from '../stores/chatFocusStore'
 
 /** Must match `useProjectStore` persist key (`wr-desk-projects`) — used to read description/goals when focus meta is incomplete. */
