@@ -9823,6 +9823,28 @@ async function runDeviceKeyMigration(
       }
     })
     
+    // POST /api/llm/mode-model-warm — headless mode-model warm on speech bubble / interval enable.
+    httpApp.post('/api/llm/mode-model-warm', async (req, res) => {
+      try {
+        const body = req.body as { modeId?: unknown; trigger?: unknown }
+        const modeId = typeof body?.modeId === 'string' ? body.modeId.trim() : ''
+        const triggerRaw = body?.trigger
+        const trigger =
+          triggerRaw === 'interval' || triggerRaw === 'speech_bubble' ? triggerRaw : null
+        if (!modeId || !trigger) {
+          res.status(400).json({ ok: false, error: 'invalid payload' })
+          return
+        }
+        const { scheduleModeModelWarmOnTrigger } = await import('./main/llm/modeModelWarmupTrigger')
+        scheduleModeModelWarmOnTrigger(modeId, trigger)
+        res.json({ ok: true })
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error ?? 'unknown')
+        console.error('[HTTP-LLM] mode-model-warm failed:', msg)
+        res.status(500).json({ ok: false, error: msg })
+      }
+    })
+    
     // POST /api/llm/ai-execution-context — same persistence as `llm:setAiExecutionContext` IPC (extension WR Chat).
     httpApp.post('/api/llm/ai-execution-context', async (req, res) => {
       try {

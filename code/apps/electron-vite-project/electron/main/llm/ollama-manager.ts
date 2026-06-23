@@ -27,6 +27,7 @@ import { buildLocalLlmRuntimeInfo } from './localLlmRuntimeStatus'
 import { noteOllamaActiveModelChangedForBulkPrewarm } from './ollamaBulkPrewarm'
 import { collectOllamaHttpBasesFromEnv } from './ollamaHttpBases'
 import { assertGpuInferenceAvailable } from '../inference/inferenceGate'
+import { getAdaptiveKeepAlive } from './adaptiveWarmupStrategy'
 
 const execAsync = promisify(exec)
 
@@ -610,7 +611,11 @@ export class OllamaManager {
   /**
    * Chat with a model
    */
-  async chat(modelId: string, messages: ChatMessage[]): Promise<ChatResponse> {
+  async chat(
+    modelId: string,
+    messages: ChatMessage[],
+    opts?: { keepAlive?: string },
+  ): Promise<ChatResponse> {
     if (DEBUG_AI_DIAGNOSTICS) {
       console.warn('⚡ ollamaManager.chat CALLED', new Date().toISOString(), { model: modelId || 'unknown' })
     }
@@ -634,7 +639,7 @@ export class OllamaManager {
         model: modelId,
         messages: serializedMessages,
         stream: false,
-        keep_alive: '2m',
+        keep_alive: opts?.keepAlive ?? getAdaptiveKeepAlive(),
       }
       // Do NOT also set root `images` when messages already carry `images` — duplicate payloads
       // confuse vision models (e.g. Gemma) and can surface as `[img-0]` / missing attachment errors.

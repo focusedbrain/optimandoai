@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { WatchdogThreat } from '../../../utils/formatWatchdogAlert'
 import { fetchTriggerProjects } from '../../../services/fetchTriggerProjects'
+import { requestModeModelWarmOnTrigger } from '../../../services/modeModelWarmOnTrigger'
 import { triggerOptimizerSnapshot } from '../../../services/fetchOptimizerTrigger'
 import type {
   ChatFocusMode,
@@ -417,6 +418,7 @@ I'm focused on this automation. Continue in WR Chat with the same model and sett
       runAfterOpen(() => {
         useUIStore.getState().setMode(def.id)
         useChatFocusStore.getState().setChatFocusWithIntro(mode, null, intro)
+        requestModeModelWarmOnTrigger(def.id, 'speech_bubble')
         try {
           onChatFocusRequest?.(mode)
         } catch {

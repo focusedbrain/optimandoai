@@ -434,5 +434,26 @@ export function registerLlmHandlers() {
     }
   })
 
+  ipcMain.handle(
+    'llm:modeModelWarmOnTrigger',
+    async (_event, payload: { modeId?: string; trigger?: string }) => {
+      try {
+        const modeId = typeof payload?.modeId === 'string' ? payload.modeId.trim() : ''
+        const triggerRaw = payload?.trigger
+        const trigger =
+          triggerRaw === 'interval' || triggerRaw === 'speech_bubble' ? triggerRaw : null
+        if (!modeId || !trigger) {
+          return { ok: false as const, error: 'invalid payload' }
+        }
+        const { scheduleModeModelWarmOnTrigger } = await import('./modeModelWarmupTrigger')
+        scheduleModeModelWarmOnTrigger(modeId, trigger)
+        return { ok: true as const }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err ?? 'unknown')
+        return { ok: false as const, error: msg }
+      }
+    },
+  )
+
   console.log('[LLM IPC] Handlers registered successfully')
 }
