@@ -3,10 +3,10 @@
  *
  * Labels and when they appear
  * ─────────────────────────────────────────────────────────────────────────────
- *  GPU         Host (local or paired Windows) is running with GPU offload.
+ *  Host GPU    Sandbox using paired Host GPU inference (remote-host + gpu).
+ *  GPU         Local machine running with GPU offload.
  *  CPU         Ollama is running on CPU with a CPU-safe model.
- *  Info        A backend exists but the selected model is blocked (too large
- *              for CPU, or host hardware is unknown).
+ *  Info        A backend exists but hardware is unknown or model blocked.
  *  Unavailable No usable backend and no actionable reason.
  * ─────────────────────────────────────────────────────────────────────────────
  *
@@ -19,11 +19,12 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
-type BadgeVariant = 'loading' | 'gpu' | 'cpu' | 'info' | 'unavailable'
+type BadgeVariant = 'loading' | 'gpu' | 'hostGpu' | 'cpu' | 'info' | 'unavailable'
 
 const BG: Record<BadgeVariant, string> = {
   loading:     '#64748b',
   gpu:         '#15803d',
+  hostGpu:     '#15803d',
   cpu:         '#1d4ed8',
   info:        '#92400e',
   unavailable: '#7f1d1d',
@@ -32,15 +33,16 @@ const BG: Record<BadgeVariant, string> = {
 const LABEL: Record<BadgeVariant, string> = {
   loading:     'Checking…',
   gpu:         'GPU',
+  hostGpu:     'Host GPU',
   cpu:         'CPU',
   info:        'Info',
   unavailable: 'Unavailable',
 }
 
-/** Map resolved capability to a display variant. No "Remote" label. */
+/** Map resolved capability to a display variant. */
 function toVariant(cap: InferenceCapabilityForUi): BadgeVariant {
   if (cap.backend === 'remote-host') {
-    if (cap.hostHardware === 'gpu') return 'gpu'
+    if (cap.hostHardware === 'gpu') return 'hostGpu'
     if (cap.hostHardware === 'cpu') return 'cpu'
     // Sealed-relay / beap_ready host without LAN GPU probe — connected, hardware unknown.
     return 'info'
@@ -114,7 +116,7 @@ export function GpuInferenceBarBadge(): JSX.Element | null {
           lineHeight: 1,
           whiteSpace: 'nowrap',
           cursor: 'default',
-          maxWidth: 120,
+          maxWidth: 132,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
         }}

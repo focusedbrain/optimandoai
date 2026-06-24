@@ -14,7 +14,7 @@ import {
   normalizeCustomModeFields,
   normalizeCustomModeNameKey,
 } from '../../../../extension-chromium/src/shared/ui/customModeTypes'
-import { ensureBuiltInModes, backfillEmptyScamWatchdogFields } from './builtInModes'
+import { ensureBuiltInModes, backfillEmptyScamWatchdogFields, backfillScamWatchdogChatOnlySearchFocus } from './builtInModes'
 
 function persistBuiltInSeedIfNeeded(envelope: CustomModesFileEnvelope): CustomModesFileEnvelope {
   let modes = ensureBuiltInModes(envelope.modes)
@@ -26,6 +26,12 @@ function persistBuiltInSeedIfNeeded(envelope: CustomModesFileEnvelope): CustomMo
   if (backfill.changed) needsWrite = true
   if (!meta.scamWatchdogSearchFocusBackfill) {
     writeMeta({ ...meta, scamWatchdogSearchFocusBackfill: true })
+  }
+  if (!meta.scamWatchdogChatScanSplitBackfill) {
+    const split = backfillScamWatchdogChatOnlySearchFocus(modes)
+    modes = split.modes
+    if (split.changed) needsWrite = true
+    writeMeta({ ...readMeta(), scamWatchdogChatScanSplitBackfill: true })
   }
 
   if (needsWrite) {
@@ -54,6 +60,8 @@ export interface CustomModesMigrationMeta {
   completedAt?: string
   /** One-time backfill of empty built-in Scam Watchdog searchFocus from seed. */
   scamWatchdogSearchFocusBackfill?: boolean
+  /** One-time split of legacy bundled Scam Watchdog searchFocus (chat + scan JSON). */
+  scamWatchdogChatScanSplitBackfill?: boolean
 }
 
 interface CustomModesFileEnvelope {

@@ -716,6 +716,8 @@ export type HostAiBeapAdSignalOllamaCapabilities = {
   model_source: string
   /** Host Ollama runs one loaded model at a time for remote inference (VRAM). */
   max_concurrent_local_models: 1
+  /** Host-local GPU can offload the active model (Host probe at BEAP ad publish time). */
+  gpu_inference_available?: boolean
 }
 
 export function buildHostAiDirectBeapAdSignalBody(params: {

@@ -263,6 +263,8 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
   }
 
   const ollama = await hostAiBeapAdLocalOllamaModelRoster()
+  const { isGpuInferenceAvailable } = await import('../inference/inferenceGate')
+  const hostGpuAvailable = await isGpuInferenceAvailable()
   const ollamaCaps: HostAiBeapAdSignalOllamaCapabilities = {
     provider: 'ollama',
     models_count: ollama.models_count,
@@ -272,6 +274,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
     active_model_name: ollama.active_model_name,
     model_source: ollama.model_source,
     max_concurrent_local_models: 1,
+    gpu_inference_available: hostGpuAvailable,
   }
   if (!ollama.ollama_ok || ollama.models_count < 1) {
     console.log(

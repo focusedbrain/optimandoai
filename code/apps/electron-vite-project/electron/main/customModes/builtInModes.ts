@@ -22,6 +22,8 @@ import {
 
 } from '../../../../extension-chromium/src/shared/ui/scamWatchdogBuiltIn'
 
+import { scamWatchdogSearchFocusToChatOnly } from '../../../../extension-chromium/src/shared/ui/watchdogPrompts'
+
 
 
 /** Ensure shipped built-in modes exist exactly once (never overwrite user edits). */
@@ -109,6 +111,54 @@ export function backfillEmptyScamWatchdogFields(modes: CustomModeDefinition[]): 
       ...m,
 
       ...patch,
+
+      updatedAt: new Date().toISOString(),
+
+    })
+
+  })
+
+  return { modes: next, changed }
+
+}
+
+
+
+/**
+
+ * One-time: split legacy bundled Scam Watchdog searchFocus (chat + scan JSON) into chat-only.
+
+ * Does not overwrite user-edited chat-only text.
+
+ */
+
+export function backfillScamWatchdogChatOnlySearchFocus(modes: CustomModeDefinition[]): {
+
+  modes: CustomModeDefinition[]
+
+  changed: boolean
+
+} {
+
+  let changed = false
+
+  const next = modes.map((m) => {
+
+    if (m.id !== BUILTIN_SCAM_WATCHDOG_ID) return m
+
+    const current = m.searchFocus?.trim() ?? ''
+
+    const chatOnly = scamWatchdogSearchFocusToChatOnly(current)
+
+    if (chatOnly == null || chatOnly === current) return m
+
+    changed = true
+
+    return normalizeCustomModeFields({
+
+      ...m,
+
+      searchFocus: chatOnly,
 
       updatedAt: new Date().toISOString(),
 

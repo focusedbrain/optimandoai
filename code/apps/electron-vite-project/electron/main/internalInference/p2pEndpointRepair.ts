@@ -44,6 +44,8 @@ export type HostAiPeerAdvertisedOllamaRoster = {
   active_model_name: string | null
   model_source: string | null
   max_concurrent_local_models: number
+  /** From relay BEAP ad capabilities — Host GPU probe at publish time. */
+  gpu_inference_available?: boolean | null
 }
 
 type PeerHeaderEntry = {
@@ -135,6 +137,14 @@ export function peekHostAdvertisedMvpDirectEntry(handshakeId: string): PeerHeade
   const hid = String(handshakeId ?? '').trim()
   if (!hid) return null
   return hostAdvertisedMvpDirectByHandshake.get(hid) ?? null
+}
+
+/** Sandbox: Host GPU signal from relay BEAP ad capabilities (no LAN probe). */
+export function peekHostGpuInferenceAvailableFromRelay(handshakeId: string): boolean | null {
+  const roster = peekHostAdvertisedMvpDirectEntry(handshakeId)?.ollamaRoster
+  if (roster?.gpu_inference_available === true) return true
+  if (roster?.gpu_inference_available === false) return false
+  return null
 }
 
 /**
@@ -779,12 +789,17 @@ function parseHostAiOllamaRosterFromRelayHostAiRoute(raw: Record<string, unknown
     }
   }
 
+  const gpuRaw = c.gpu_inference_available
+  const gpu_inference_available =
+    gpuRaw === true ? true : gpuRaw === false ? false : null
+
   return {
     models: modelsOut,
     active_model_id,
     active_model_name,
     model_source: modelSource,
     max_concurrent_local_models: maxConcurrentLocalModels,
+    gpu_inference_available,
   }
 }
 

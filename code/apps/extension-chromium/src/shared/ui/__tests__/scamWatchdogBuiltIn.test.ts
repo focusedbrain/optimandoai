@@ -9,7 +9,7 @@ import {
   isScamWatchdogBuiltInMode,
 } from '../scamWatchdogBuiltIn'
 import { isModeDeletable } from '../customModeTypes'
-import { getCustomModeLlmPrefix } from '../../../utils/customModeLlmPrefix'
+import { getCustomModeLlmPrefix, getCustomModeLlmPrefixForWrChat } from '../../../utils/customModeLlmPrefix'
 import { customModeDefinitionToRuntime } from '../customModeRuntime'
 import { getEffectiveLlmModelNameForActiveMode } from '../../../stores/activeCustomModeRuntime'
 
@@ -25,11 +25,14 @@ describe('scamWatchdogBuiltIn schema', () => {
     expect(isModeDeletable(mode)).toBe(false)
   })
 
-  it('searchFocus folds into custom-mode LLM prefix pipeline', () => {
+  it('searchFocus is chat-only in default seed; scan JSON stays off WR Chat prefix', () => {
     const mode = createDefaultScamWatchdogBuiltInMode()
-    const prefix = getCustomModeLlmPrefix(customModeDefinitionToRuntime(mode))
-    expect(prefix).toContain('[Mode focus:')
-    expect(prefix).toMatch(/scam|fraud|phishing/i)
+    expect(mode.searchFocus).toBe(mode.searchFocus.trim())
+    expect(mode.searchFocus).not.toContain('Respond ONLY with a JSON object')
+    const full = getCustomModeLlmPrefix(customModeDefinitionToRuntime(mode))
+    const chat = getCustomModeLlmPrefixForWrChat(customModeDefinitionToRuntime(mode))
+    expect(full).toMatch(/scam|fraud|phishing/i)
+    expect(chat).toBeNull()
   })
 
   it('empty modelName defers to WR Chat picker fallback', () => {

@@ -48,11 +48,21 @@ import { AddModeWizardHost } from './ui/components/AddModeWizardHost'
 import ChatFocusBanner from './ui/components/ChatFocusBanner'
 import { WRCHAT_APPEND_ASSISTANT_EVENT, useChatFocusStore } from './stores/chatFocusStore'
 import { getChatFocusLlmPrefix } from './utils/chatFocusLlmPrefix'
-import { getCustomModeLlmPrefix, mergeLlmContextPrefixes } from './utils/customModeLlmPrefix'
+import { getChatFocusLlmPrefix } from './utils/chatFocusLlmPrefix'
+import { buildInferenceContextPrefix } from './lib/globalSessionContextLlmPrefix'
 import {
   getActiveCustomModeRuntime,
   getEffectiveLlmModelNameForActiveMode,
+  useActiveCustomModeRuntime,
 } from './stores/activeCustomModeRuntime'
+import {
+  inferenceSessionKeyContextFromMode,
+  logGlobalContextSessionKey,
+  ORCHESTRATOR_ACTIVE_MODE_ID_KEY,
+  ORCHESTRATOR_ACTIVE_MODE_SESSION_ID_KEY,
+  ORCHESTRATOR_ACTIVE_SESSION_STORAGE_KEY,
+  resolveOrchestratorSessionKeyForInference,
+} from './lib/resolveOrchestratorSessionKey'
 import { prependHiddenContextToLastUserContent } from './utils/prependChatFocusToLastUser'
 import { getThemeTokens } from './shared/ui/lightboxTheme'
 import { formatWatchdogAlert, type WatchdogThreat } from './utils/formatWatchdogAlert'
@@ -191,6 +201,22 @@ function sessionListLabel(
   fallback: string,
 ): string {
   return sessionDisplayLabel(s ?? undefined, fallback)
+}
+
+/** Canonical inference session key — same resolver Global Context save uses (Stage 1). */
+function resolveSidepanelInferenceSessionKey(
+  sidepanelSessionKey: string,
+  logSource?: string,
+): string {
+  const rt = getActiveCustomModeRuntime()
+  const resolved =
+    resolveOrchestratorSessionKeyForInference(
+      inferenceSessionKeyContextFromMode(rt, sidepanelSessionKey),
+    ) || sidepanelSessionKey.trim()
+  if (logSource) {
+    logGlobalContextSessionKey('read', resolved || null, logSource)
+  }
+  return resolved
 }
 
 function SidepanelOrchestrator() {
@@ -1498,11 +1524,14 @@ function SidepanelOrchestrator() {
       }
 
       const enrichedTriggerText = enrichRouteTextWithOcr(triggerText, ocrText)
-      const sessionKeyForRouteScreenshot = getActiveCustomModeRuntime()?.sessionId?.trim() || sessionKey
-      const mergedContextPrefixScreenshot = mergeLlmContextPrefixes(
-        getChatFocusLlmPrefix(useChatFocusStore.getState()),
-        getCustomModeLlmPrefix(getActiveCustomModeRuntime()),
-      )
+      const sessionKeyForRouteScreenshot = resolveSidepanelInferenceSessionKey(sessionKey)
+      const mergedContextPrefixScreenshot = await buildInferenceContextPrefix({
+        sessionKey: sessionKeyForRouteScreenshot,
+        chatFocusPrefix: getChatFocusLlmPrefix(useChatFocusStore.getState()),
+        modeRuntime: getActiveCustomModeRuntime(),
+        resolvedModelId: currentModel,
+        wrChatPickerModelId: currentModel,
+      })
       const enrichedRouteTextForScreenshot = mergedContextPrefixScreenshot
         ? `${mergedContextPrefixScreenshot}\n\n${enrichedTriggerText}`
         : enrichedTriggerText
@@ -1566,9 +1595,20 @@ function SidepanelOrchestrator() {
           }
           
           try {
+            const agentModelId = (modelResolution as BrainResolution & { ok: true }).model
+            const agentContextPrefix = await buildInferenceContextPrefix({
+              sessionKey: sessionKeyForRouteScreenshot,
+              chatFocusPrefix: getChatFocusLlmPrefix(useChatFocusStore.getState()),
+              modeRuntime: getActiveCustomModeRuntime(),
+              resolvedModelId: agentModelId,
+              wrChatPickerModelId: currentModel,
+            })
+            const userContent = agentContextPrefix
+              ? `${agentContextPrefix}\n\n${enrichedTriggerText}`
+              : enrichedTriggerText
             const llmMessages = [
               { role: 'system', content: wrappedInput },
-              { role: 'user', content: enrichedTriggerText },
+              { role: 'user', content: userContent },
             ]
             const { body: llmBody, error: keyError } = await buildLlmRequestBody(
               modelResolution as BrainResolution & { ok: true },
@@ -1826,15 +1866,27 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
     })
   }, [applyOrchestratorWrChatPresent])
 
+  const activeModeRuntime = useActiveCustomModeRuntime()
+
   // Mirror sessionKey to chrome.storage.local so processFlow.ts can discover it
   // (processFlow runs in the sidepanel context but reads from chrome.storage.local)
   useEffect(() => {
     if (sessionKey) {
       try {
-        chrome.storage?.local?.set({ 'optimando-active-session-key': sessionKey })
+        chrome.storage?.local?.set({ [ORCHESTRATOR_ACTIVE_SESSION_STORAGE_KEY]: sessionKey })
       } catch {}
     }
   }, [sessionKey])
+
+  // Mirror active mode session link so content-script Global Context save uses the same key as inference.
+  useEffect(() => {
+    try {
+      chrome.storage?.local?.set({
+        [ORCHESTRATOR_ACTIVE_MODE_SESSION_ID_KEY]: activeModeRuntime?.sessionId?.trim() || null,
+        [ORCHESTRATOR_ACTIVE_MODE_ID_KEY]: activeModeRuntime?.modeId || null,
+      })
+    } catch {}
+  }, [activeModeRuntime, sessionKey])
 
   // Load and listen for theme changes AND session changes
   useEffect(() => {
@@ -1864,8 +1916,8 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         }
         
         // Handle active session key changes - reload session data when session changes
-        if (changes['optimando-active-session-key']) {
-          const newSessionKey = changes['optimando-active-session-key'].newValue
+        if (changes[ORCHESTRATOR_ACTIVE_SESSION_STORAGE_KEY]) {
+          const newSessionKey = changes[ORCHESTRATOR_ACTIVE_SESSION_STORAGE_KEY].newValue
           
           if (newSessionKey) {
             // Reload session data from SQLite
@@ -2204,48 +2256,66 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
 
   // Load session data immediately on mount and when sidebar becomes visible
   useEffect(() => {
+    const applySessionFromSqlite = (sessions: Record<string, any>, key: string) => {
+      const session = sessions[key]
+      if (!session) return false
+      setSessionName(sessionListLabel(session, 'Unnamed Session'))
+      setSessionKey(key)
+      setIsLocked(session.isLocked || false)
+      setAgentBoxes(session.agentBoxes || [])
+      return true
+    }
+
     const loadSessionDataFromStorage = () => {
-      // Load session data from SQLite (single source of truth)
-      chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS_FROM_SQLITE' }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.error('❌ Error loading sessions from SQLite:', chrome.runtime.lastError.message)
-          setSessionName('No Session')
-          setSessionKey('')
-          return
-        }
-        
-        if (!response || !response.success || !response.sessions || Object.keys(response.sessions).length === 0) {
-          setSessionName('No Session')
-          setSessionKey('')
-          return
-        }
-        
-        // Get the most recent session (by timestamp)
-        let mostRecentSession: any = null
-        let mostRecentKey: string = ''
-        let mostRecentTime = 0
-        
-        Object.entries(response.sessions).forEach(([key, session]: [string, any]) => {
-          if (session && session.timestamp) {
-            const sessionTime = new Date(session.timestamp).getTime()
-            if (sessionTime > mostRecentTime) {
-              mostRecentTime = sessionTime
-              mostRecentSession = session
-              mostRecentKey = key
+      // Prefer mirrored active session key (tab / Global Context / prior sidepanel) over most-recent SQLite.
+      chrome.storage?.local?.get([ORCHESTRATOR_ACTIVE_SESSION_STORAGE_KEY], (stored) => {
+        const preferredKey =
+          typeof stored?.[ORCHESTRATOR_ACTIVE_SESSION_STORAGE_KEY] === 'string'
+            ? stored[ORCHESTRATOR_ACTIVE_SESSION_STORAGE_KEY]
+            : null
+
+        chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS_FROM_SQLITE' }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error('❌ Error loading sessions from SQLite:', chrome.runtime.lastError.message)
+            setSessionName('No Session')
+            setSessionKey('')
+            return
+          }
+
+          if (!response || !response.success || !response.sessions || Object.keys(response.sessions).length === 0) {
+            setSessionName('No Session')
+            setSessionKey('')
+            return
+          }
+
+          const sessions = response.sessions as Record<string, any>
+          if (preferredKey && applySessionFromSqlite(sessions, preferredKey)) {
+            return
+          }
+
+          // Fallback: most recent session (by timestamp)
+          let mostRecentSession: any = null
+          let mostRecentKey = ''
+          let mostRecentTime = 0
+
+          Object.entries(sessions).forEach(([key, session]: [string, any]) => {
+            if (session && session.timestamp) {
+              const sessionTime = new Date(session.timestamp).getTime()
+              if (sessionTime > mostRecentTime) {
+                mostRecentTime = sessionTime
+                mostRecentSession = session
+                mostRecentKey = key
+              }
             }
+          })
+
+          if (mostRecentSession && mostRecentKey) {
+            applySessionFromSqlite(sessions, mostRecentKey)
+          } else {
+            setSessionName('No Session')
+            setSessionKey('')
           }
         })
-        
-        // If we found a session, use it
-        if (mostRecentSession && mostRecentKey) {
-          setSessionName(sessionListLabel(mostRecentSession, 'Unnamed Session'))
-          setSessionKey(mostRecentKey)
-          setIsLocked(mostRecentSession.isLocked || false)
-          setAgentBoxes(mostRecentSession.agentBoxes || [])
-        } else {
-          setSessionName('No Session')
-          setSessionKey('')
-        }
       })
     }
 
@@ -3224,11 +3294,20 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         
         return { success: false, error: modelResolution.error }
       }
-      
-      const llmMessages = [
-        { role: 'system', content: reasoningContext },
-        ...processedMessages.slice(-3)
-      ]
+
+      const inferenceSessionKey = resolveSidepanelInferenceSessionKey(sessionKey)
+      const contextPrefix = await buildInferenceContextPrefix({
+        sessionKey: inferenceSessionKey,
+        modeRuntime: getActiveCustomModeRuntime(),
+        resolvedModelId: (modelResolution as BrainResolution & { ok: true }).model,
+        wrChatPickerModelId: fallbackModel,
+      })
+      let recentMessages = processedMessages.slice(-3)
+      if (contextPrefix) {
+        recentMessages = prependHiddenContextToLastUserContent(recentMessages, contextPrefix)
+      }
+      const llmMessages = [{ role: 'system', content: reasoningContext }, ...recentMessages]
+
       const { body: llmBody, error: keyError } = await buildLlmRequestBody(
         modelResolution as BrainResolution & { ok: true },
         llmMessages
@@ -3472,11 +3551,14 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
       // When routeText is empty (capture-only), use OCR text so agent tags in the image can match
       const effectiveRouteTextForMatch = routeText || ocrText || (effectiveImageUrl ? '[screenshot]' : '')
       const enrichedTriggerText = enrichRouteTextWithOcr(effectiveRouteTextForMatch, ocrText)
-      const sessionKeyForRouteTrigger = getActiveCustomModeRuntime()?.sessionId?.trim() || sessionKey
-      const mergedContextPrefixTrigger = mergeLlmContextPrefixes(
-        getChatFocusLlmPrefix(useChatFocusStore.getState()),
-        getCustomModeLlmPrefix(getActiveCustomModeRuntime()),
-      )
+      const sessionKeyForRouteTrigger = resolveSidepanelInferenceSessionKey(sessionKey)
+      const mergedContextPrefixTrigger = await buildInferenceContextPrefix({
+        sessionKey: sessionKeyForRouteTrigger,
+        chatFocusPrefix: getChatFocusLlmPrefix(useChatFocusStore.getState()),
+        modeRuntime: getActiveCustomModeRuntime(),
+        resolvedModelId: currentModel,
+        wrChatPickerModelId: currentModel,
+      })
       const enrichedTriggerTextForLlm = mergedContextPrefixTrigger
         ? `${mergedContextPrefixTrigger}\n\n${enrichedTriggerText}`
         : enrichedTriggerText
@@ -3580,11 +3662,22 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
             continue
           }
           
+          const triggerAgentModelId = (modelResolution as BrainResolution & { ok: true }).model
+          const triggerAgentPrefix = await buildInferenceContextPrefix({
+            sessionKey: sessionKeyForRouteTrigger,
+            chatFocusPrefix: getChatFocusLlmPrefix(useChatFocusStore.getState()),
+            modeRuntime: getActiveCustomModeRuntime(),
+            resolvedModelId: triggerAgentModelId,
+            wrChatPickerModelId: currentModel,
+          })
+          const triggerUserContent = triggerAgentPrefix
+            ? `${triggerAgentPrefix}\n\n${enrichedTriggerText}`
+            : enrichedTriggerText
           const triggerLlmMessages = [
             { role: 'system', content: wrappedInput },
             {
               role: 'user',
-              content: enrichedTriggerTextForLlm,
+              content: triggerUserContent,
               ...(triggerVisionB64 ? { images: [triggerVisionB64] } : {}),
             },
           ]
@@ -4009,7 +4102,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
     
     try {
       const baseUrl = 'http://127.0.0.1:51248'
-      const sessionKeyForRoute = getActiveCustomModeRuntime()?.sessionId?.trim() || sessionKey
+      const sessionKeyForRoute = resolveSidepanelInferenceSessionKey(sessionKey, 'sidepanel-wrchat-send')
 
       await runWrChatExtensionPreSend({
         origin: 'sidebar_wrchat',
@@ -4067,10 +4160,14 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
       // When user typed nothing (screenshot-only send), use OCR text so agent tags can match
       const effectiveLlmRouteText = llmRouteText || ocrText || (resolvedCurrentTurnImageUrl ? '[screenshot]' : '')
       const enrichedRouteText = enrichRouteTextWithOcr(effectiveLlmRouteText, ocrText)
-      const mergedContextPrefix = mergeLlmContextPrefixes(
-        getChatFocusLlmPrefix(useChatFocusStore.getState()),
-        getCustomModeLlmPrefix(getActiveCustomModeRuntime()),
-      )
+      const wrChatPickerModel = activeLlmModelRef.current || activeLlmModel
+      const mergedContextPrefix = await buildInferenceContextPrefix({
+        sessionKey: sessionKeyForRoute,
+        chatFocusPrefix: getChatFocusLlmPrefix(useChatFocusStore.getState()),
+        modeRuntime: getActiveCustomModeRuntime(),
+        resolvedModelId: effectiveLlmModel,
+        wrChatPickerModelId: wrChatPickerModel,
+      })
       const enrichedRouteTextForLlm = mergedContextPrefix
         ? `${mergedContextPrefix}\n\n${enrichedRouteText}`
         : enrichedRouteText
@@ -4185,10 +4282,6 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         }
       }
 
-      if (mergedContextPrefix) {
-        processedMessagesForLlm = prependHiddenContextToLastUserContent(processedMessagesForLlm, mergedContextPrefix)
-      }
-      
       // =================================================================
       // STEP 3.5: NLP CLASSIFICATION (diagnostics, does not override routing)
       // Classify input text (or OCR text) for structured logging.
@@ -4290,8 +4383,12 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         // PATH C: BUTLER LLM RESPONSE
         // No agent match - use butler personality for general questions
         // =================================================================
+        let butlerMessages = processedMessagesForLlm
+        if (mergedContextPrefix) {
+          butlerMessages = prependHiddenContextToLastUserContent(processedMessagesForLlm, mergedContextPrefix)
+        }
         const butlerResult = await getButlerResponse(
-          processedMessagesForLlm,
+          butlerMessages,
           effectiveLlmModel,
           baseUrl,
           resolvedCurrentTurnImageUrl,
@@ -4326,7 +4423,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
       try {
         const cf = useChatFocusStore.getState()
         if (cf.chatFocusMode.mode === 'auto-optimizer') {
-          const sk = (getActiveCustomModeRuntime()?.sessionId?.trim() || sessionKey).trim()
+          const sk = resolveSidepanelInferenceSessionKey(sessionKey).trim()
           const t = (errorMsg ?? '').trim()
           if (sk && t) {
             void import('./services/optimizationSidebarChatSync').then(({ appendOptimizationSidebarChatLog }) =>

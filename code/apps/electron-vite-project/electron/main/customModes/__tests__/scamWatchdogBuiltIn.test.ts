@@ -111,11 +111,27 @@ describe('watchdogService built-in mode reads', () => {
     }
   })
 
-  it('reads searchFocus from built-in mode for scan system prompt', async () => {
+  it('uses WATCHDOG_SYSTEM_PROMPT for scan when searchFocus is chat-only', async () => {
     const { updateMode } = await import('../customModesStore')
-    await updateMode(BUILTIN_SCAM_WATCHDOG_ID, { searchFocus: 'Edited watchdog scan prompt' })
+    await updateMode(BUILTIN_SCAM_WATCHDOG_ID, { searchFocus: 'Chat-only scam hint for users' })
     const { resolveWatchdogSystemPromptFromMode } = await import('../../../watchdog/watchdogService')
-    expect(resolveWatchdogSystemPromptFromMode()).toBe('Edited watchdog scan prompt')
+    const { WATCHDOG_SYSTEM_PROMPT } = await import(
+      '../../../../../extension-chromium/src/shared/ui/watchdogPrompts'
+    )
+    expect(resolveWatchdogSystemPromptFromMode()).toBe(WATCHDOG_SYSTEM_PROMPT)
+    expect(resolveWatchdogSystemPromptFromMode()).toContain('"threats"')
+  })
+
+  it('still resolves legacy bundled searchFocus to scan prompt for watchdog scan', async () => {
+    const { updateMode } = await import('../customModesStore')
+    const { SCAM_WATCHDOG_LEGACY_BUNDLED_SEARCH_FOCUS } = await import(
+      '../../../../../extension-chromium/src/shared/ui/watchdogPrompts'
+    )
+    await updateMode(BUILTIN_SCAM_WATCHDOG_ID, { searchFocus: SCAM_WATCHDOG_LEGACY_BUNDLED_SEARCH_FOCUS })
+    const { resolveWatchdogSystemPromptFromMode } = await import('../../../watchdog/watchdogService')
+    const prompt = resolveWatchdogSystemPromptFromMode()
+    expect(prompt).toContain('Respond ONLY with a JSON object')
+    expect(prompt).toContain('"threats"')
   })
 
   it('reads modelName when set on built-in mode', async () => {

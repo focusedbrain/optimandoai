@@ -6,16 +6,7 @@ import type { CustomModeRuntimeConfig } from '../shared/ui/customModeRuntime'
 import { formatCustomModeIntervalPresetLabel } from '../shared/ui/customModeIntervalPresets'
 import { formatCustomModeProfileFieldsForPrefix } from '../shared/ui/customModeTypes'
 
-export function getCustomModeLlmPrefix(runtime: CustomModeRuntimeConfig | null): string | null {
-  if (!runtime) return null
-  const parts: string[] = []
-  const system = runtime.systemInstructions?.trim()
-  if (system) parts.push(`[System instructions for this mode]\n${system}`)
-  const focus = runtime.searchFocus?.trim()
-  if (focus) parts.push(`[Mode focus: ${focus}]`)
-  const ignore = runtime.ignoreInstructions?.trim()
-  if (ignore) parts.push(`[Deprioritize or ignore: ${ignore}]`)
-
+function appendWrChatContextParts(runtime: CustomModeRuntimeConfig, parts: string[]): void {
   const profileBlock = formatCustomModeProfileFieldsForPrefix(runtime.profileFields)
   if (profileBlock) parts.push(profileBlock)
 
@@ -23,10 +14,6 @@ export function getCustomModeLlmPrefix(runtime: CustomModeRuntimeConfig | null):
     parts.push(`[Session id: ${runtime.sessionId.trim()}]`)
   } else if (runtime.sessionMode !== 'shared') {
     parts.push(`[Session mode: ${runtime.sessionMode}]`)
-  }
-
-  if (runtime.intervalSeconds != null && runtime.intervalSeconds >= 1) {
-    parts.push(`[Periodic scan every ${formatCustomModeIntervalPresetLabel(runtime.intervalSeconds)}]`)
   }
 
   const scopeUrls = runtime.scopeUrls?.filter((u) => u.trim()) ?? []
@@ -47,18 +34,49 @@ export function getCustomModeLlmPrefix(runtime: CustomModeRuntimeConfig | null):
     if (eh.length) parts.push(`[WR Expert entity hints: ${eh.join('; ')}]`)
     if (dt.length) parts.push(`[WR Expert deprioritize: ${dt.join('; ')}]`)
   }
+}
+
+/**
+ * Full mode prefix — includes analysis/scan instructions (`searchFocus`, `systemInstructions`).
+ * Use on mode RUN / scan paths, not normal WR Chat.
+ */
+export function getCustomModeLlmPrefix(runtime: CustomModeRuntimeConfig | null): string | null {
+  if (!runtime) return null
+  const parts: string[] = []
+  const system = runtime.systemInstructions?.trim()
+  if (system) parts.push(`[System instructions for this mode]\n${system}`)
+  const focus = runtime.searchFocus?.trim()
+  if (focus) parts.push(`[Mode focus: ${focus}]`)
+  const ignore = runtime.ignoreInstructions?.trim()
+  if (ignore) parts.push(`[Deprioritize or ignore: ${ignore}]`)
+
+  appendWrChatContextParts(runtime, parts)
+
+  if (runtime.intervalSeconds != null && runtime.intervalSeconds >= 1) {
+    parts.push(`[Periodic scan every ${formatCustomModeIntervalPresetLabel(runtime.intervalSeconds)}]`)
+  }
 
   if (parts.length === 0) return null
   return parts.join('\n')
 }
 
+/**
+ * WR Chat conversational prefix — user-provided context only.
+ * Does NOT inject mode analysis/scan instructions (`searchFocus`, `systemInstructions`, scan interval).
+ * Mode behavior applies when the mode is RUN, not because it is selected in the UI.
+ */
+export function getCustomModeLlmPrefixForWrChat(runtime: CustomModeRuntimeConfig | null): string | null {
+  if (!runtime) return null
+  const parts: string[] = []
+  appendWrChatContextParts(runtime, parts)
+  if (parts.length === 0) return null
+  return parts.join('\n')
+}
+
 export function mergeLlmContextPrefixes(
-  chatFocusPrefix: string | null | undefined,
-  customModePrefix: string | null | undefined,
+  ...chunks: Array<string | null | undefined>
 ): string | null {
-  const chunks = [chatFocusPrefix, customModePrefix].filter(
-    (x): x is string => typeof x === 'string' && x.length > 0,
-  )
-  if (chunks.length === 0) return null
-  return chunks.join('\n\n')
+  const parts = chunks.filter((x): x is string => typeof x === 'string' && x.length > 0)
+  if (parts.length === 0) return null
+  return parts.join('\n\n')
 }

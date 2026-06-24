@@ -55,7 +55,7 @@ export function getChatFocusLlmPrefix(state: {
     return `[System context: ${SCAM_WATCHDOG_CHAT_INSTRUCTION}]`
   }
   if (m.mode === 'custom-automation' && m.modeId === BUILTIN_SCAM_WATCHDOG_ID) {
-    return null
+    return `[System context: ${SCAM_WATCHDOG_CHAT_INSTRUCTION}]`
   }
   if (m.mode === 'custom-automation') {
     const name = m.modeName?.trim() || 'custom automation'

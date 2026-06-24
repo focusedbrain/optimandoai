@@ -124,18 +124,22 @@ describe('resolveInferenceCapabilityFromInput — 6 acceptance criteria', () => 
       if (r.backend === 'unavailable') {
         return r.unavailableReason ? 'Info' : 'Unavailable'
       }
-      // Both local and remote paths use hostHardware for the label
+      if (r.backend === 'remote-host') {
+        if (r.hostHardware === 'gpu') return 'Host GPU'
+        if (r.hostHardware === 'cpu') return 'CPU'
+        return 'Info'
+      }
       if (r.hostHardware === 'gpu')  return 'GPU'
       if (r.hostHardware === 'cpu')  return 'CPU'
       return 'Info'  // unknown hardware
     }
 
-    // remote-host + GPU => "GPU" (not "Remote")
+    // remote-host + GPU => "Host GPU" (sandbox using host GPU)
     expect(label(resolveInferenceCapabilityFromInput({
       isSandbox: true,
       remoteContext: { modelName: 'gemma3:12b', baseUrl: 'http://host:11434' },
       gpuAvailable: true, ollamaRunning: false, modelName: 'gemma3:12b',
-    }))).toBe('GPU')
+    }))).toBe('Host GPU')
 
     // remote-host + CPU => "CPU" (not "Remote")
     expect(label(resolveInferenceCapabilityFromInput({

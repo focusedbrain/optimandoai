@@ -16,6 +16,12 @@ import { assertBeapTabImportPayload } from './beap-messages/beapSessionBridgeGua
 import { BEAP_EDIT_SESSION_IMPORT_TYPE } from './beap-messages/beapSessionEditBridge'
 import { BEAP_RUN_AUTOMATION_TYPE } from './beap-messages/beapSessionRunBridge'
 import { electronRpc } from './rpc/electronRpc'
+import {
+  globalSessionContextStorageKeys,
+  logGlobalContextSessionKey,
+  readOrchestratorSessionHintsFromChromeStorage,
+  resolveOrchestratorSessionKeyForInferenceAsync,
+} from './lib/resolveOrchestratorSessionKey'
 
 // ── WRVault Autofill: initialize the field icon + popover pipeline ──
 // Content scripts run at document_end, so DOM is ready.
@@ -26010,24 +26016,28 @@ function initializeExtension() {
 
 
   function openContextLightbox() {
+    void openContextLightboxAsync()
+  }
 
+  async function openContextLightboxAsync() {
+    const hints = await readOrchestratorSessionHintsFromChromeStorage()
+    const resolvedKey = await resolveOrchestratorSessionKeyForInferenceAsync({
+      modeSessionId: hints.activeModeSessionId,
+      modeIsActive: !!hints.activeModeId,
+      sidepanelSessionKey: hints.sidepanelSessionKey,
+    })
 
-    
+    if (resolvedKey) {
+      setCurrentSessionKey(resolvedKey)
+    }
 
-    // Get current session key for session-scoped contexts
+    logGlobalContextSessionKey('save', resolvedKey, 'openContextLightbox')
 
-    const sessionKey = getCurrentSessionKey()
-
-
-    
-
-    // Storage keys
-
-    const userContextKey = sessionKey ? `user_context_${sessionKey}` : null
-
-    const publisherContextKey = sessionKey ? `publisher_context_${sessionKey}` : null
-
-    const accountContextKey = 'optimando_account_context' // Global key
+    const sessionKey = resolvedKey
+    const contextKeys = sessionKey ? globalSessionContextStorageKeys(sessionKey) : null
+    const userContextKey = contextKeys?.userContextKey ?? null
+    const publisherContextKey = contextKeys?.publisherContextKey ?? null
+    const accountContextKey = contextKeys?.accountContextKey ?? 'optimando_account_context'
 
     
 
@@ -26075,7 +26085,12 @@ function initializeExtension() {
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
+          <div>
           <h2 style="margin: 0; font-size: 20px; color: ${csTheme().text};">📄 Global Context Management</h2>
+          <p id="global-context-session-target" style="margin: 6px 0 0; font-size: 12px; color: ${csTheme().text}; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;">
+            Session target: ${sessionKey ? sessionKey : '(none — save a session first)'}
+          </p>
+          </div>
 
           <button id="close-context-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -26295,17 +26310,11 @@ function initializeExtension() {
 
           <!-- Action Buttons -->
 
-          <div style="display: flex; justify-content: center; gap: 15px; margin-top: 20px;">
+          <p style="margin: 0 0 12px; font-size: 13px; color: ${csTheme().text}; text-align: center;">
+            Saved context is injected automatically during WR Chat inference for this session.
+          </p>
 
-            <button id="inject-context-btn" style="
-
-              background: ${csTheme().accentGrad};
-
-              border: none; color: #fff; padding: 12px 24px; border-radius: 8px;
-
-              cursor: pointer; font-size: 14px; font-weight: 600;
-
-            ">Inject Context to LLMs</button>
+          <div style="display: flex; justify-content: center; gap: 15px; margin-top: 8px;">
 
             <button id="save-context-btn" style="
 
@@ -26971,16 +26980,6 @@ ${pageText}
 
     
 
-    // Inject context to LLMs
-
-    document.getElementById('inject-context-btn')?.addEventListener('click', () => {
-
-      alert('Context injection to LLMs functionality would be implemented here')
-
-    })
-
-    
-
     // Save context
 
     document.getElementById('save-context-btn')?.addEventListener('click', () => {
@@ -27017,6 +27016,8 @@ ${pageText}
       if (publisherContextKey) dataToSave[publisherContextKey] = publisherContextData
 
       dataToSave[accountContextKey] = accountContextData
+
+      logGlobalContextSessionKey('save', sessionKey, 'save-context-btn')
 
       
 
@@ -44823,6 +44824,7 @@ ${pageText}
       modeLinkedSessionId: activeSessionKey,
       currentOrchestratorSessionId: activeSessionKey,
       sessionKey: activeSessionKey,
+      inferenceSessionKey: activeSessionKey,
       fallbackModel,
       inputText: '',
       processedMessages: [{ role: 'user', content: '' }],

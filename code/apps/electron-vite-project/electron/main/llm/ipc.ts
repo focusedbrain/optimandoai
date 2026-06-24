@@ -28,6 +28,7 @@ import {
 } from './aiExecutionContextStore'
 import type { AiExecutionLane } from './aiExecutionTypes'
 import { getSandboxOllamaDirectRouteCandidate } from '../internalInference/sandboxHostAiOllamaDirectCandidate'
+import { peekHostGpuInferenceAvailableFromRelay } from '../internalInference/p2pEndpointRepair'
 
 /**
  * Register all LLM-related IPC handlers
@@ -395,9 +396,10 @@ export function registerLlmHandlers() {
           if (hostBaseUrl) {
             const hostGpu = await getGpuInferenceStatusRemote(hostBaseUrl, fb.model ?? '')
             gpuAvailable = hostGpu.available
-          } else if (sealedBeapReady) {
-            // Sealed relay: list already proved beap_ready — do not let dead LAN :51249 probe drive "Unavailable".
-            gpuAvailable = false
+          } else if (sealedBeapReady || (fb.lane === 'beap' && fb.beapReady !== false)) {
+            const hid = (fb.handshakeId ?? '').trim()
+            const relayGpu = hid ? peekHostGpuInferenceAvailableFromRelay(hid) : null
+            gpuAvailable = relayGpu === true
           } else {
             gpuAvailable = false
           }

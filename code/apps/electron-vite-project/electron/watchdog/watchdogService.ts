@@ -14,7 +14,10 @@ import path from 'node:path'
 import { captureScreenshot } from '../lmgtfy/capture'
 import type { Selection } from '../lmgtfy/overlay'
 import type { ChatMessage } from '../main/llm/types'
-import { WATCHDOG_SYSTEM_PROMPT } from '../../../extension-chromium/src/shared/ui/watchdogPrompts'
+import {
+  WATCHDOG_SYSTEM_PROMPT,
+  extractScamWatchdogScanPromptFromLegacySearchFocus,
+} from '../../../extension-chromium/src/shared/ui/watchdogPrompts'
 import { BUILTIN_SCAM_WATCHDOG_ID } from '../../../extension-chromium/src/shared/ui/scamWatchdogBuiltIn'
 import { getModeById } from '../main/customModes/customModesStore'
 
@@ -152,8 +155,10 @@ function maybeGlobalGc(): void {
 
 export function resolveWatchdogSystemPromptFromMode(): string {
   const mode = getModeById(BUILTIN_SCAM_WATCHDOG_ID)
-  const focus = mode?.searchFocus?.trim()
-  return focus || WATCHDOG_SYSTEM_PROMPT
+  const focus = mode?.searchFocus?.trim() ?? ''
+  const legacyScan = extractScamWatchdogScanPromptFromLegacySearchFocus(focus)
+  if (legacyScan) return legacyScan
+  return WATCHDOG_SYSTEM_PROMPT
 }
 
 export async function resolveWatchdogEffectiveModelId(configModelId?: string): Promise<string> {

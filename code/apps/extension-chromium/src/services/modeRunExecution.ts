@@ -8,7 +8,10 @@
 
 import type { WrChatSurface } from '../ui/components/wrChatSurface'
 import type { WrChatSelectorRow } from '../lib/wrChatModelsFromLlmStatus'
+import type { CustomModeRuntimeConfig } from '../shared/ui/customModeRuntime'
 import { runAgentBoxInferencePreSend } from '../lib/agentBoxInferencePreSend'
+import { buildInferenceContextPrefix } from '../lib/globalSessionContextLlmPrefix'
+import { prependHiddenContextToLastUserContent } from '../utils/prependChatFocusToLastUser'
 import { ensureLaunchSecretForElectronHttp } from './ensureLaunchSecretForElectronHttp'
 import {
   matchAgentsForModeRun,
@@ -84,6 +87,10 @@ export type ExecuteModeRunAgentsOptions = {
   beforeEachLlmCall?: () => Promise<void>
   sourceSurface?: WrChatSurface
   signal?: AbortSignal
+  /** Canonical orchestrator session key for Global Session Context (Layer 1). */
+  inferenceSessionKey?: string | null
+  /** Active mode runtime — Layer 2 when resolved model matches allocation. */
+  modeRuntime?: CustomModeRuntimeConfig | null
 }
 
 /**
@@ -109,6 +116,8 @@ export async function executeModeRunAgents(
     beforeEachLlmCall,
     sourceSurface,
     signal,
+    inferenceSessionKey,
+    modeRuntime,
   } = options
 
   const agents = await loadAgentsFromSession(sessionKey)
@@ -138,6 +147,8 @@ export async function executeModeRunAgents(
       beforeEachLlmCall,
       sourceSurface,
       signal,
+      inferenceSessionKey,
+      modeRuntime,
     })
     executions.push(one)
   }
@@ -160,6 +171,8 @@ type RunOneParams = {
   beforeEachLlmCall?: () => Promise<void>
   sourceSurface?: WrChatSurface
   signal?: AbortSignal
+  inferenceSessionKey?: string | null
+  modeRuntime?: CustomModeRuntimeConfig | null
 }
 
 async function runAgentMatchLlm(p: RunOneParams): Promise<ModeRunAgentExecutionResult> {
@@ -201,7 +214,19 @@ async function runAgentMatchLlm(p: RunOneParams): Promise<ModeRunAgentExecutionR
       return { ...baseResult, success: false, error: modelResolution.error }
     }
 
-    const llmMessages = [{ role: 'system', content: reasoningContext }, ...processedMessages.slice(-3)]
+    const canonicalSessionKey = p.inferenceSessionKey ?? sessionKey ?? null
+    const contextPrefix = await buildInferenceContextPrefix({
+      sessionKey: canonicalSessionKey,
+      modeRuntime: p.modeRuntime,
+      resolvedModelId: (modelResolution as BrainResolution & { ok: true }).model,
+      wrChatPickerModelId: wrchat,
+    })
+    let recentMessages = processedMessages.slice(-3)
+    if (contextPrefix) {
+      recentMessages = prependHiddenContextToLastUserContent(recentMessages, contextPrefix)
+    }
+    const llmMessages = [{ role: 'system', content: reasoningContext }, ...recentMessages]
+
     const { body: llmBody, error: keyError } = await buildLlmRequestBody(
       modelResolution as BrainResolution & { ok: true },
       llmMessages,

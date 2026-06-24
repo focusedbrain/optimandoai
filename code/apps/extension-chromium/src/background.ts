@@ -90,6 +90,7 @@ async function triggerPendingBeapRun(sessionKey: string): Promise<void> {
       modeLinkedSessionId: sessionKey,
       currentOrchestratorSessionId: sessionKey,
       sessionKey,
+      inferenceSessionKey: sessionKey,
       fallbackModel: pending.fallbackModel,
       inputText: '',
       processedMessages: [{ role: 'user', content: '' }],

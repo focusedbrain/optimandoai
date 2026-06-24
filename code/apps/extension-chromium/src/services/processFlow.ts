@@ -295,17 +295,26 @@ const TRIGGERS_STORAGE_KEY = 'optimando-tagged-triggers'
 /**
  * Get current session key - async version that reads from chrome.storage
  */
-async function getCurrentSessionKeyAsync(): Promise<string | null> {
-  return new Promise((resolve) => {
-    try {
-      chrome.storage?.local?.get(['optimando-active-session-key'], (data: any) => {
-        const sessionKey = data?.['optimando-active-session-key'] || null
-        resolve(sessionKey)
-      })
-    } catch {
-      resolve(null)
-    }
+async function resolveProcessFlowSessionKey(providedSessionKey?: string | null): Promise<string | null> {
+  const {
+    normalizeOrchestratorSessionKey,
+    readOrchestratorSessionHintsFromChromeStorage,
+    resolveOrchestratorSessionKeyForInference,
+    resolveOrchestratorSessionKeyForInferenceAsync,
+  } = await import('../lib/resolveOrchestratorSessionKey')
+
+  const explicit = normalizeOrchestratorSessionKey(providedSessionKey)
+  if (explicit) return explicit
+
+  const hints = await readOrchestratorSessionHintsFromChromeStorage()
+  const sync = resolveOrchestratorSessionKeyForInference({
+    modeSessionId: hints.activeModeSessionId,
+    modeIsActive: !!hints.activeModeId,
+    sidepanelSessionKey: hints.sidepanelSessionKey,
   })
+  if (sync) return sync
+
+  return resolveOrchestratorSessionKeyForInferenceAsync()
 }
 
 /**
@@ -413,7 +422,7 @@ export async function loadSavedTriggers(): Promise<any[]> {
 export async function loadAgentsFromSession(providedSessionKey?: string): Promise<AgentConfig[]> {
   try {
     // Use provided session key (e.g. from sidepanel state) or fall back to async discovery
-    const sessionKey = providedSessionKey || await getCurrentSessionKeyAsync()
+    const sessionKey = (await resolveProcessFlowSessionKey(providedSessionKey)) || ''
     
     if (!sessionKey) {
       console.warn('[ProcessFlow] No session key found - cannot load agents')
@@ -604,7 +613,7 @@ function extractBoxAgentNumber(box: any): number | undefined {
  */
 export async function loadAgentBoxesFromSession(providedSessionKey?: string): Promise<AgentBox[]> {
   try {
-    const sessionKey = providedSessionKey || await getCurrentSessionKeyAsync()
+    const sessionKey = (await resolveProcessFlowSessionKey(providedSessionKey)) || ''
 
     if (!sessionKey) {
       console.warn('[ProcessFlow] No session key found - cannot load agent boxes')
@@ -1276,7 +1285,7 @@ export async function updateAgentBoxOutput(
   sourceSurface?: WrChatSurface
 ): Promise<boolean> {
   try {
-    const sessionKey = providedSessionKey || await getCurrentSessionKeyAsync()
+    const sessionKey = (await resolveProcessFlowSessionKey(providedSessionKey)) || ''
     if (!sessionKey) {
       console.warn('[ProcessFlow] No session key found - cannot update agent box output')
       return false

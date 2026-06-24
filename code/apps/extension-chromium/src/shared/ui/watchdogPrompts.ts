@@ -36,8 +36,35 @@ If everything looks safe:
 export const SCAM_WATCHDOG_CHAT_INSTRUCTION =
   'User has Scam Watchdog automation focus. Analyze input for potential scam, fraud, or phishing indicators.'
 
-/** Default editable `searchFocus` for the built-in Scam Watchdog mode (chat + scan). */
-export const SCAM_WATCHDOG_DEFAULT_SEARCH_FOCUS = `${SCAM_WATCHDOG_CHAT_INSTRUCTION}
+/** Marker between chat and scan sections in legacy bundled `searchFocus` (pre chat/scan split). */
+export const SCAM_WATCHDOG_SCAN_SECTION_MARKER = '\n\nFor screen scans:\n'
 
-For screen scans:
-${WATCHDOG_SYSTEM_PROMPT}`
+/** Legacy bundled default — used for one-time backfill only. */
+export const SCAM_WATCHDOG_LEGACY_BUNDLED_SEARCH_FOCUS = `${SCAM_WATCHDOG_CHAT_INSTRUCTION}${SCAM_WATCHDOG_SCAN_SECTION_MARKER}${WATCHDOG_SYSTEM_PROMPT}`
+
+/** Default editable `searchFocus` for the built-in Scam Watchdog mode (chat-facing only). */
+export const SCAM_WATCHDOG_DEFAULT_SEARCH_FOCUS = SCAM_WATCHDOG_CHAT_INSTRUCTION
+
+/** Returns the scan-only portion from a legacy bundled `searchFocus`, or null. */
+export function extractScamWatchdogScanPromptFromLegacySearchFocus(focus: string): string | null {
+  const t = focus.trim()
+  if (!t) return null
+  if (t.includes(SCAM_WATCHDOG_SCAN_SECTION_MARKER)) {
+    const scanPart = t.split(SCAM_WATCHDOG_SCAN_SECTION_MARKER).slice(1).join(SCAM_WATCHDOG_SCAN_SECTION_MARKER).trim()
+    if (scanPart.includes('"threats"') || scanPart.includes('Respond ONLY with a JSON')) return scanPart
+  }
+  if (t.includes('Respond ONLY with a JSON object') && t.includes('"threats"')) return t
+  return null
+}
+
+/** Strip legacy scan JSON from bundled searchFocus; returns chat-only text or null if unchanged. */
+export function scamWatchdogSearchFocusToChatOnly(focus: string): string | null {
+  const t = focus.trim()
+  if (!t) return null
+  if (t === SCAM_WATCHDOG_LEGACY_BUNDLED_SEARCH_FOCUS.trim()) return SCAM_WATCHDOG_CHAT_INSTRUCTION
+  const scanPart = extractScamWatchdogScanPromptFromLegacySearchFocus(t)
+  if (!scanPart) return null
+  const chatPart = t.slice(0, t.indexOf(SCAM_WATCHDOG_SCAN_SECTION_MARKER)).trim()
+  if (chatPart && !chatPart.includes('Respond ONLY with a JSON object')) return chatPart
+  return SCAM_WATCHDOG_CHAT_INSTRUCTION
+}
