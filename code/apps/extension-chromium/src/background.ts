@@ -6,136 +6,287 @@ import { maybePresentOrchestratorDisplayGridSession } from './services/presentOr
 import { findOpenSessionSurface } from './services/sessionSurfaceResolver'
 import { activateSessionForOptimization } from './services/sessionActivationForOptimization'
 
+import { RUN_MODE_ALLOCATED_SESSION_TYPE } from './services/runModeAllocatedSessionAutomation'
+import type { CustomModeRuntimeConfig } from './shared/ui/customModeRuntime'
+import {
+  parseModeIdFromIntervalAlarm,
+  rescheduleModeIntervalAlarm,
+  syncModeIntervalSchedulers,
+  syncModeIntervalSchedulersFromStore,
+} from './services/modeIntervalScheduler'
+
 // ---------------------------------------------------------------------------
-// Pending BEAP runs — in-memory registry keyed by sessionKey.
+// Pending session runs — in-memory registry keyed by sessionKey.
 //
 // Lifecycle:
-//   registerPendingBeapRun(sk, model) — called by BEAP_INBOX_PRESENT_GRID and
-//     PRESENT_ORCHESTRATOR_DISPLAY_GRID(source=beap-inbox) BEFORE the grid tab
-//     opens, so the ready signal never races with registration.
+//   registerPendingBeapRun(sk, model) — BEAP_INBOX_PRESENT_GRID /
+//     PRESENT_ORCHESTRATOR_DISPLAY_GRID(source=beap-inbox) BEFORE grid tab opens.
 //
-//   triggerPendingBeapRun(sk) — called by BEAP_GRID_SURFACE_READY once the
-//     grid tab reports its surface is painted and agent boxes are positioned.
-//     The `triggered` flag makes repeated ready signals no-ops (idempotent).
-//     Idempotency policy: CONTINUE — if a run was already started for this
-//     sessionKey, do not restart it. Re-clicking Run Automation on the same
-//     capsule always generates a fresh sessionKey, so it naturally starts a
-//     new pipeline; only the grid-tab's own duplicate ready-pings are no-ops.
+//   registerPendingModeSessionRun(sk, { modeRuntime, … }) — mode-action first open.
 //
-//   Safety timeout: 30 s after registration without a ready signal → entry is
-//     removed so stale Map entries do not accumulate in long-lived SWs.
+//   triggerPendingSessionRun(sk) — BEAP_GRID_SURFACE_READY once grid is painted.
+//
+//   Mode-action refresh-if-active: executeModeSessionRunDirect (no present/pending) when
+//   findOpenSessionSurface reports an open grid tab — bypasses BEAP no-op guards.
+//
+//
+//   Safety timeout: 30 s after registration without a ready signal → entry removed.
 // ---------------------------------------------------------------------------
 
-type PendingBeapRun = {
+type PendingSessionRunSource = 'beap-inbox' | 'mode-action'
+
+type PendingSessionRun = {
+  source: PendingSessionRunSource
   fallbackModel: string
   registeredAt: number
   triggered: boolean
   timeoutId: ReturnType<typeof setTimeout>
+  modeRuntime?: CustomModeRuntimeConfig | null
+  modeId?: string
 }
 
-const pendingBeapRuns = new Map<string, PendingBeapRun>()
+const pendingSessionRuns = new Map<string, PendingSessionRun>()
 
-const BEAP_RUN_READY_TIMEOUT_MS = 30_000
+/** Prevents overlapping executeModeRunAgents for the same session key (interval + manual). */
+const modeSessionExecuteInFlight = new Set<string>()
+
+function isSessionRunInFlight(sessionKey: string): boolean {
+  return modeSessionExecuteInFlight.has(sessionKey.trim())
+}
+
+const SESSION_RUN_READY_TIMEOUT_MS = 30_000
 
 /** Emitted by grid-display.js after createSlots() paints all agent-box slots. */
 const BEAP_GRID_SURFACE_READY = 'BEAP_GRID_SURFACE_READY' as const
 
-function registerPendingBeapRun(sessionKey: string, fallbackModel: string): void {
-  if (pendingBeapRuns.has(sessionKey)) return
+function registerPendingSessionRun(
+  sessionKey: string,
+  opts: {
+    fallbackModel: string
+    source: PendingSessionRunSource
+    modeRuntime?: CustomModeRuntimeConfig | null
+    modeId?: string
+    /** Replace an existing registration (mode-action refresh race). */
+    replace?: boolean
+  },
+): void {
+  if (pendingSessionRuns.has(sessionKey) && !opts.replace) return
+  const existing = pendingSessionRuns.get(sessionKey)
+  if (existing) clearTimeout(existing.timeoutId)
+
   const timeoutId = setTimeout(() => {
-    pendingBeapRuns.delete(sessionKey)
-    console.log('[BG] BEAP pending run expired (no ready signal in 30 s):', sessionKey)
-  }, BEAP_RUN_READY_TIMEOUT_MS)
-  pendingBeapRuns.set(sessionKey, {
-    fallbackModel: fallbackModel || 'tinyllama',
+    pendingSessionRuns.delete(sessionKey)
+    console.log('[BG] Pending session run expired (no ready signal in 30 s):', sessionKey)
+  }, SESSION_RUN_READY_TIMEOUT_MS)
+
+  pendingSessionRuns.set(sessionKey, {
+    source: opts.source,
+    fallbackModel: opts.fallbackModel || 'tinyllama',
     registeredAt: Date.now(),
     triggered: false,
     timeoutId,
+    modeRuntime: opts.modeRuntime ?? null,
+    modeId: opts.modeId,
   })
-  console.log('[BG] BEAP pending run registered:', sessionKey, '— waiting for grid ready signal')
+  console.log('[BG] Pending session run registered:', sessionKey, 'source=', opts.source)
 }
 
-/**
- * Called when the grid tab reports its surface is ready.
- * Runs executeModeRunAgents in background (storage-fallback path) and writes
- * the result to chrome.storage.local under beap_run_result_<sessionKey>.
- *
- * Ordering guarantee:
- *   (a) Session blob already in chrome.storage.local (set before grid tab opened).
- *   (b) Grid tabs rendered  ← this function is called only after grid signals ready.
- *   (c) Agent boxes positioned ← grid-display.js sends ready AFTER createSlots().
- *   (d) Hybrid tabs: not yet managed in presentOrchestratorDisplayGridSession;
- *       execution will still succeed as agents read from storage, not hybrid tabs.
- */
-async function triggerPendingBeapRun(sessionKey: string): Promise<void> {
-  const pending = pendingBeapRuns.get(sessionKey)
-  if (!pending) {
-    console.log('[BG] BEAP_GRID_SURFACE_READY: no pending run for', sessionKey, '— ignoring')
-    return
-  }
-  if (pending.triggered) {
-    console.log('[BG] BEAP_GRID_SURFACE_READY: run already triggered for', sessionKey, '— no-op (idempotent)')
-    return
-  }
-  pending.triggered = true
-  clearTimeout(pending.timeoutId)
-  pendingBeapRuns.delete(sessionKey)
-  console.log('[BG] BEAP run triggered for', sessionKey, '— calling executeModeRunAgents')
+function registerPendingBeapRun(sessionKey: string, fallbackModel: string): void {
+  registerPendingSessionRun(sessionKey, { fallbackModel, source: 'beap-inbox' })
+}
 
+function registerPendingModeSessionRun(
+  sessionKey: string,
+  payload: { fallbackModel: string; modeRuntime: CustomModeRuntimeConfig; modeId: string },
+): void {
+  registerPendingSessionRun(sessionKey, {
+    fallbackModel: payload.fallbackModel,
+    source: 'mode-action',
+    modeRuntime: payload.modeRuntime,
+    modeId: payload.modeId,
+    replace: true,
+  })
+}
+
+async function executeModeSessionRunCore(args: {
+  sessionKey: string
+  fallbackModel: string
+  modeRuntime?: CustomModeRuntimeConfig | null
+  runMode?: boolean
+}): Promise<{
+  ok: boolean
+  matchCount?: number
+  executed?: string[]
+  error?: string
+  busy?: boolean
+  interpreted?: import('./services/beapRunAutomationResult').BeapAutomationModeRunOk | import('./services/beapRunAutomationResult').BeapAutomationModeRunErr
+}> {
+  const sk = args.sessionKey.trim()
+  if (modeSessionExecuteInFlight.has(sk)) {
+    return { ok: false, error: 'Session run already in progress', busy: true }
+  }
+  modeSessionExecuteInFlight.add(sk)
   try {
     const { executeModeRunAgents } = await import('./services/modeRunExecution')
     const { interpretBeapAutomationModeRun } = await import('./services/beapRunAutomationResult')
 
     const runResult = await executeModeRunAgents({
-      modeLinkedSessionId: sessionKey,
-      currentOrchestratorSessionId: sessionKey,
-      sessionKey,
-      inferenceSessionKey: sessionKey,
-      fallbackModel: pending.fallbackModel,
+      modeLinkedSessionId: sk,
+      currentOrchestratorSessionId: sk,
+      sessionKey: sk,
+      inferenceSessionKey: sk,
+      fallbackModel: args.fallbackModel,
       inputText: '',
       processedMessages: [{ role: 'user', content: '' }],
+      modeRuntime: args.modeRuntime ?? null,
+      runMode: args.runMode ?? !!args.modeRuntime,
     })
 
-    const interpreted = interpretBeapAutomationModeRun(sessionKey, runResult)
-    console.log('[BG] BEAP run result:', sessionKey, interpreted.ok ? 'ok' : interpreted.error)
-
-    try {
-      await chrome.storage.local.set({
-        [`beap_run_result_${sessionKey}`]: {
-          ...interpreted,
-          completedAt: Date.now(),
-        },
-      })
-    } catch (e) {
-      console.warn('[BG] Failed to persist BEAP run result:', e)
+    const interpreted = interpretBeapAutomationModeRun(sk, runResult)
+    if (!interpreted.ok) {
+      return { ok: false, error: interpreted.error, interpreted }
     }
-
-    try {
-      chrome.runtime.sendMessage({
-        type: 'BEAP_RUN_AUTOMATION_COMPLETE',
-        sessionKey,
-        result: interpreted,
-      })
-    } catch {
-      /* sidepanel/popup may not be open — best-effort notification */
+    return {
+      ok: true,
+      matchCount: interpreted.matchCount,
+      executed: interpreted.executed,
+      interpreted,
     }
   } catch (e) {
-    console.error('[BG] executeModeRunAgents threw:', e)
     const errMsg = e instanceof Error ? e.message : String(e)
+    return { ok: false, error: errMsg }
+  } finally {
+    modeSessionExecuteInFlight.delete(sk)
+  }
+}
+
+async function executeModeSessionRunDirectForOrchestrator(args: {
+  sessionKey: string
+  fallbackModel: string
+  modeRuntime: CustomModeRuntimeConfig
+}): Promise<{
+  ok: boolean
+  matchCount?: number
+  executed?: string[]
+  error?: string
+  busy?: boolean
+}> {
+  const run = await executeModeSessionRunCore({
+    sessionKey: args.sessionKey,
+    fallbackModel: args.fallbackModel,
+    modeRuntime: args.modeRuntime,
+    runMode: true,
+  })
+  return {
+    ok: run.ok,
+    matchCount: run.matchCount,
+    executed: run.executed,
+    error: run.error,
+    busy: run.busy,
+  }
+}
+
+async function handleModeIntervalAlarmTick(modeId: string): Promise<void> {
+  try {
+    const { requestModeModelWarmOnTrigger } = await import('./services/modeModelWarmOnTrigger')
+    requestModeModelWarmOnTrigger(modeId, 'interval')
+
+    const { runModeAllocatedSessionAutomation } = await import(
+      './services/runModeAllocatedSessionAutomation'
+    )
+    const result = await runModeAllocatedSessionAutomation(
+      { modeId, trigger: 'interval' },
+      {
+        registerPendingModeSessionRun,
+        executeModeSessionRunDirect: executeModeSessionRunDirectForOrchestrator,
+        isSessionRunInFlight,
+      },
+    )
+    if (result.busy) {
+      console.log('[ModeInterval] skipped — run in flight:', modeId)
+    } else if (!result.ok && !result.skipped) {
+      console.warn('[ModeInterval] tick failed:', modeId, result.error)
+    }
+  } catch (e) {
+    console.warn('[ModeInterval] tick error:', modeId, e)
+  } finally {
+    rescheduleModeIntervalAlarm(modeId)
+  }
+}
+
+/**
+ * Called when the grid tab reports its surface is ready.
+ */
+async function triggerPendingSessionRun(sessionKey: string, opts?: { force?: boolean }): Promise<void> {
+  const pending = pendingSessionRuns.get(sessionKey)
+  if (!pending) {
+    console.log('[BG] BEAP_GRID_SURFACE_READY: no pending run for', sessionKey, '— ignoring')
+    return
+  }
+  if (pending.triggered && !opts?.force) {
+    console.log('[BG] BEAP_GRID_SURFACE_READY: run already triggered for', sessionKey, '— no-op (idempotent)')
+    return
+  }
+  pending.triggered = true
+  clearTimeout(pending.timeoutId)
+  pendingSessionRuns.delete(sessionKey)
+  console.log('[BG] Session run triggered for', sessionKey, 'source=', pending.source)
+
+  const run = await executeModeSessionRunCore({
+    sessionKey,
+    fallbackModel: pending.fallbackModel,
+    modeRuntime: pending.modeRuntime,
+    runMode: pending.source === 'mode-action' || !!pending.modeRuntime,
+  })
+
+  const storageKey =
+    pending.source === 'mode-action' ? `mode_run_result_${sessionKey}` : `beap_run_result_${sessionKey}`
+
+  if (!run.ok) {
+    console.warn('[BG] Session run failed:', sessionKey, run.error)
     try {
       await chrome.storage.local.set({
-        [`beap_run_result_${sessionKey}`]: {
+        [storageKey]: {
           ok: false,
           sessionKey,
           phase: 'mode_run',
-          error: errMsg,
+          error: run.error,
           completedAt: Date.now(),
         },
       })
     } catch {
       /* non-fatal */
     }
+    return
   }
+
+  console.log('[BG] Session run result:', sessionKey, 'ok', run.executed?.length ?? 0, 'agents')
+
+  try {
+    await chrome.storage.local.set({
+      [storageKey]: {
+        ...(run.interpreted ?? { ok: true, sessionKey, matchCount: run.matchCount, executed: run.executed }),
+        completedAt: Date.now(),
+      },
+    })
+  } catch (e) {
+    console.warn('[BG] Failed to persist session run result:', e)
+  }
+
+  try {
+    chrome.runtime.sendMessage({
+      type: pending.source === 'mode-action' ? 'MODE_SESSION_RUN_COMPLETE' : 'BEAP_RUN_AUTOMATION_COMPLETE',
+      sessionKey,
+      result: run.interpreted ?? { ok: true, sessionKey, matchCount: run.matchCount, executed: run.executed },
+    })
+  } catch {
+    /* sidepanel/popup may not be open */
+  }
+}
+
+/** @deprecated alias */
+async function triggerPendingBeapRun(sessionKey: string): Promise<void> {
+  return triggerPendingSessionRun(sessionKey)
 }
 
 try {
@@ -146,6 +297,18 @@ try {
   })
 } catch {
   /* ignore */
+}
+
+void syncModeIntervalSchedulersFromStore()
+
+try {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    const modeId = parseModeIdFromIntervalAlarm(alarm.name)
+    if (!modeId) return
+    void handleModeIntervalAlarmTick(modeId)
+  })
+} catch {
+  /* alarms unavailable */
 }
 
 declare global {
@@ -1370,10 +1533,12 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                 chrome.runtime.sendMessage({ type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl, promptContext })
               } catch {}
             } else if (data.type === 'CUSTOM_MODES_CHANGED') {
+              const modes = Array.isArray(data.modes) ? data.modes : []
+              void syncModeIntervalSchedulers(modes)
               try {
                 chrome.runtime.sendMessage({
                   type: 'CUSTOM_MODES_CHANGED',
-                  modes: Array.isArray(data.modes) ? data.modes : [],
+                  modes,
                 })
               } catch {
                 /* no listener */
@@ -2431,6 +2596,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false // synchronous response
   }
 
+  if (msg.type === 'SYNC_MODE_INTERVAL_SCHEDULERS') {
+    const modes = Array.isArray((msg as Record<string, unknown>).modes)
+      ? ((msg as Record<string, unknown>).modes as import('./shared/ui/customModeTypes').CustomModeDefinition[])
+      : []
+    void syncModeIntervalSchedulers(modes)
+    try {
+      sendResponse({ ok: true })
+    } catch {
+      /* channel closed */
+    }
+    return false
+  }
+
   if (msg.type === 'ACTIVATE_SESSION_FOR_OPTIMIZATION') {
     const raw = msg as { project?: { id?: string; linkedSessionIds?: unknown } }
     const p = raw.project
@@ -2539,6 +2717,55 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
+  if (msg.type === RUN_MODE_ALLOCATED_SESSION_TYPE) {
+    const modeId =
+      typeof (msg as Record<string, unknown>).modeId === 'string'
+        ? ((msg as Record<string, unknown>).modeId as string).trim()
+        : ''
+    const triggerRaw = (msg as Record<string, unknown>).trigger
+    const trigger =
+      triggerRaw === 'speech_bubble' || triggerRaw === 'interval' || triggerRaw === 'manual_icon'
+        ? triggerRaw
+        : 'manual_icon'
+    const fallbackModel =
+      typeof (msg as Record<string, unknown>).fallbackModel === 'string'
+        ? ((msg as Record<string, unknown>).fallbackModel as string).trim()
+        : undefined
+    const refreshIfActive = (msg as Record<string, unknown>).refreshIfActive !== false
+
+    void (async () => {
+      try {
+        const { runModeAllocatedSessionAutomation } = await import(
+          './services/runModeAllocatedSessionAutomation'
+        )
+        const result = await runModeAllocatedSessionAutomation(
+          { modeId, trigger, fallbackModel, refreshIfActive },
+          {
+            registerPendingModeSessionRun,
+            executeModeSessionRunDirect: executeModeSessionRunDirectForOrchestrator,
+            isSessionRunInFlight,
+          },
+        )
+        try {
+          sendResponse(result)
+        } catch {
+          /* channel closed */
+        }
+      } catch (e) {
+        try {
+          sendResponse({
+            ok: false,
+            error: e instanceof Error ? e.message : String(e),
+            phase: 'mode_run',
+          })
+        } catch {
+          /* channel closed */
+        }
+      }
+    })()
+    return true
+  }
+
   // Grid tab surface ready → trigger pending BEAP mode run.
   // Sent by grid-display.js after createSlots() paints all agent-box slots.
   // See registerPendingBeapRun / triggerPendingBeapRun at top of background.ts.
@@ -2548,7 +2775,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         ? ((msg as Record<string, unknown>).sessionKey as string).trim()
         : ''
     if (sk) {
-      void triggerPendingBeapRun(sk)
+      void triggerPendingSessionRun(sk)
     }
     try {
       sendResponse({ ok: true })

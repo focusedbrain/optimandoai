@@ -4,7 +4,11 @@
  */
 
 import type { CustomModeRuntimeConfig } from '../shared/ui/customModeRuntime'
-import { getCustomModeLlmPrefixForWrChat, mergeLlmContextPrefixes } from '../utils/customModeLlmPrefix'
+import {
+  getCustomModeLlmPrefix,
+  getCustomModeLlmPrefixForWrChat,
+  mergeLlmContextPrefixes,
+} from '../utils/customModeLlmPrefix'
 import {
   loadGlobalSessionContextForKey,
   type LoadedGlobalSessionContext,
@@ -79,15 +83,22 @@ export async function buildInferenceContextPrefix(options: {
   modeRuntime?: CustomModeRuntimeConfig | null
   resolvedModelId: string
   wrChatPickerModelId: string
+  /** Mode-action / automation run — full prefix incl. systemInstructions + searchFocus. */
+  runMode?: boolean
 }): Promise<string | null> {
   const globalBlock = await loadAndFormatGlobalSessionContextPrefix(options.sessionKey)
-  const modeBlock = shouldApplyModeContextLayer(
-    options.modeRuntime,
-    options.resolvedModelId,
-    options.wrChatPickerModelId,
-  )
-    ? getCustomModeLlmPrefixForWrChat(options.modeRuntime ?? null)
-    : null
+  let modeBlock: string | null = null
+  if (options.runMode && options.modeRuntime) {
+    modeBlock = getCustomModeLlmPrefix(options.modeRuntime)
+  } else if (
+    shouldApplyModeContextLayer(
+      options.modeRuntime,
+      options.resolvedModelId,
+      options.wrChatPickerModelId,
+    )
+  ) {
+    modeBlock = getCustomModeLlmPrefixForWrChat(options.modeRuntime ?? null)
+  }
 
   return mergeLlmContextPrefixes(globalBlock, options.chatFocusPrefix, modeBlock)
 }

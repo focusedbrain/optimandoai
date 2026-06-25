@@ -91,6 +91,8 @@ export type ExecuteModeRunAgentsOptions = {
   inferenceSessionKey?: string | null
   /** Active mode runtime — Layer 2 when resolved model matches allocation. */
   modeRuntime?: CustomModeRuntimeConfig | null
+  /** Mode-action automation run — inject full mode prefix (systemInstructions, searchFocus). */
+  runMode?: boolean
 }
 
 /**
@@ -118,6 +120,7 @@ export async function executeModeRunAgents(
     signal,
     inferenceSessionKey,
     modeRuntime,
+    runMode,
   } = options
 
   const agents = await loadAgentsFromSession(sessionKey)
@@ -149,6 +152,7 @@ export async function executeModeRunAgents(
       signal,
       inferenceSessionKey,
       modeRuntime,
+      runMode,
     })
     executions.push(one)
   }
@@ -173,6 +177,7 @@ type RunOneParams = {
   signal?: AbortSignal
   inferenceSessionKey?: string | null
   modeRuntime?: CustomModeRuntimeConfig | null
+  runMode?: boolean
 }
 
 async function runAgentMatchLlm(p: RunOneParams): Promise<ModeRunAgentExecutionResult> {
@@ -220,6 +225,7 @@ async function runAgentMatchLlm(p: RunOneParams): Promise<ModeRunAgentExecutionR
       modeRuntime: p.modeRuntime,
       resolvedModelId: (modelResolution as BrainResolution & { ok: true }).model,
       wrChatPickerModelId: wrchat,
+      runMode: p.runMode,
     })
     let recentMessages = processedMessages.slice(-3)
     if (contextPrefix) {

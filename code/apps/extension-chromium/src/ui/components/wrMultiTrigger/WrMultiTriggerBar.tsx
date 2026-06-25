@@ -10,6 +10,11 @@ import { useShallow } from 'zustand/react/shallow'
 import type { WatchdogThreat } from '../../../utils/formatWatchdogAlert'
 import { fetchTriggerProjects } from '../../../services/fetchTriggerProjects'
 import { requestModeModelWarmOnTrigger } from '../../../services/modeModelWarmOnTrigger'
+import { syncCustomModeIntervalRunners } from '../../../services/modeIntervalRunner'
+import {
+  modeHasAllocatedSession,
+  requestRunModeAllocatedSession,
+} from '../../../services/runModeAllocatedSessionAutomation'
 import { triggerOptimizerSnapshot } from '../../../services/fetchOptimizerTrigger'
 import type {
   ChatFocusMode,
@@ -154,6 +159,7 @@ export default function WrMultiTriggerBar({
   const [projectList, setProjectList] = useState<TriggerProjectEntry[]>([])
   const [composerShortcutList, setComposerShortcutList] = useState<TriggerComposerEntry[]>([])
   const customModes = useCustomModesStore(useShallow((s) => s.modes))
+  const [customModeSessionRunning, setCustomModeSessionRunning] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   /** Snapshot request in flight per project (scanning pulse on icon). */
   const [optimizerScanningByProject, setOptimizerScanningByProject] = useState<Record<string, boolean>>({})
@@ -243,6 +249,15 @@ export default function WrMultiTriggerBar({
     if (activeFunctionId.type !== 'custom-automation') return null
     return customModes.find((m) => m.id === activeFunctionId.modeId) ?? null
   }, [activeFunctionId, customModes])
+
+  const activeCustomModeHasSession = useMemo(
+    () => modeHasAllocatedSession(activeCustomMode),
+    [activeCustomMode],
+  )
+
+  useEffect(() => {
+    syncCustomModeIntervalRunners(customModes)
+  }, [customModes])
 
   const activeComposer = useMemo(() => {
     if (activeFunctionId.type !== 'composer-shortcut') return null
@@ -465,6 +480,22 @@ What would you like to add?`
   const optimizerPid =
     activeFunctionId.type === 'auto-optimizer' ? activeFunctionId.projectId : ''
   const optimizerScanning = optimizerPid ? (optimizerScanningByProject[optimizerPid] ?? false) : false
+
+  const handleCustomModeIconClick = useCallback(() => {
+    const def = activeCustomMode
+    if (!def || !modeHasAllocatedSession(def)) return
+    setCustomModeSessionRunning(true)
+    requestModeModelWarmOnTrigger(def.id, 'speech_bubble')
+    void requestRunModeAllocatedSession(def.id, 'manual_icon')
+      .then((result) => {
+        if (!result.ok && !result.skipped) {
+          console.warn('[WrMultiTriggerBar] Mode session run failed:', def.id, result.error)
+        }
+      })
+      .finally(() => {
+        setCustomModeSessionRunning(false)
+      })
+  }, [activeCustomMode])
 
   const handleOptimizerIconClick = useCallback(async () => {
     if (activeFunctionId.type !== 'auto-optimizer') return
@@ -778,15 +809,21 @@ What would you like to add?`
                 {customBarIcon}
               </span>
             }
-            scanning={false}
+            scanning={activeCustomModeHasSession && customModeSessionRunning}
             cleanFlash={false}
-            onIconClick={() => {
-              /* Pinned automation: no project snapshot — icon is display-only. */
-            }}
-            disabled={false}
+            onIconClick={handleCustomModeIconClick}
+            disabled={!activeCustomModeHasSession || customModeSessionRunning}
             middleSlot={<SpeechBubbleButton tooltip={speechTooltipCustom} onPress={emitChatFocus} />}
-            scanButtonTitle="Pinned automation (no snapshot)"
-            scanButtonAriaLabel="Pinned automation shortcut"
+            scanButtonTitle={
+              activeCustomModeHasSession
+                ? `Run ${activeCustomMode?.name.trim() || 'automation'} session now`
+                : 'Pinned automation (no session run)'
+            }
+            scanButtonAriaLabel={
+              activeCustomModeHasSession
+                ? `Run ${activeCustomMode?.name.trim() || 'automation'} session now`
+                : 'Pinned automation shortcut'
+            }
           />
         ) : activeFunctionId.type === 'composer-shortcut' ? (
           <TriggerButtonShell
