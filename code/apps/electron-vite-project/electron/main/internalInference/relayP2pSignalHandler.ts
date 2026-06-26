@@ -212,6 +212,24 @@ async function handleHostAiDirectBeapAdRequestFromRelay(
       relayMessageId,
     })}`,
   )
+  const { ensureHostAiP2pSession } = await import('./p2pSession/p2pInferenceSessionManager')
+  try {
+    const st = await ensureHostAiP2pSession(hid, 'sandbox_peer_beap_ad_request')
+    console.log(
+      `[HOST_AI_P2P_OFFER_ENSURE] ${JSON.stringify({
+        handshakeId: hid,
+        phase: st.phase,
+        sessionPresent: Boolean(st.sessionId),
+        role: st.p2pWebrtcLocalRole,
+        trigger: 'p2p_host_ai_direct_beap_ad_request',
+      })}`,
+    )
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.log(
+      `[HOST_AI_P2P_OFFER_ENSURE] failed handshake=${hid} trigger=p2p_host_ai_direct_beap_ad_request err=${JSON.stringify(msg.slice(0, 200))}`,
+    )
+  }
   const { publishHostAiDirectBeapAdvertisementsForEligibleHost } = await import('./hostAiDirectBeapAdPublish')
   await publishHostAiDirectBeapAdvertisementsForEligibleHost(db, {
     context: 'sandbox_peer_republish_request_ws',

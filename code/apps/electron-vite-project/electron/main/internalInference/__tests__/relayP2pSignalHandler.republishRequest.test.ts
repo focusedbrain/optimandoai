@@ -5,9 +5,31 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { HandshakeState, type HandshakeRecord } from '../../handshake/types'
 
 const publishMock = vi.hoisted(() => vi.fn(async () => {}))
+const ensureP2pMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    handshakeId: 'hs-rep',
+    sessionId: 'sess-offer-1',
+    phase: 'signaling',
+    p2pWebrtcLocalRole: 'offerer',
+  })),
+)
 
 vi.mock('../hostAiDirectBeapAdPublish', () => ({
   publishHostAiDirectBeapAdvertisementsForEligibleHost: (...a: unknown[]) => publishMock(...a),
+}))
+
+vi.mock('../p2pSession/p2pInferenceSessionManager', () => ({
+  ensureHostAiP2pSession: (...a: unknown[]) => ensureP2pMock(...a),
+}))
+
+vi.mock('../p2pEndpointRepair', () => ({
+  applyHostAiDirectBeapAdFromRelayPayload: vi.fn(),
+}))
+
+vi.mock('../../p2p/p2pConfig', () => ({
+  getP2PConfig: () => ({
+    coordination_url: 'https://relay.example',
+  }),
 }))
 
 const handshakeRows: HandshakeRecord[] = []
@@ -70,12 +92,11 @@ function hostSideRow(hid: string): HandshakeRecord {
   } as HandshakeRecord
 }
 
-import { tryHandleCoordinationP2pSignal } from '../relayP2pSignalHandler'
-
 describe('relayP2pSignalHandler — Host AI BEAP ad republish request', () => {
   afterEach(() => {
     handshakeRows.length = 0
     publishMock.mockClear()
+    ensureP2pMock.mockClear()
   })
 
   test('Host invokes publish when requester is paired sandbox', async () => {
@@ -103,11 +124,13 @@ describe('relayP2pSignalHandler — Host AI BEAP ad republish request', () => {
       () => ({}),
     )
     await vi.waitFor(() => expect(publishMock).toHaveBeenCalled())
+    expect(ensureP2pMock).toHaveBeenCalledWith('hs-rep', 'sandbox_peer_beap_ad_request')
     expect(publishMock.mock.calls[0][1]).toMatchObject({ context: 'sandbox_peer_republish_request_ws' })
     const out = log.mock.calls.map((c) => c.join(' ')).join('\n')
     expect(out).toContain('[HOST_AI_ENDPOINT_REPUBLISH_RECEIVED]')
     expect(out).toContain('"validPairing":true')
     expect(out).toContain('"willPublish":true')
+    expect(out).toContain('[HOST_AI_P2P_OFFER_ENSURE]')
     log.mockRestore()
   })
 
@@ -137,6 +160,7 @@ describe('relayP2pSignalHandler — Host AI BEAP ad republish request', () => {
     )
     await new Promise((r) => setTimeout(r, 50))
     expect(publishMock).not.toHaveBeenCalled()
+    expect(ensureP2pMock).not.toHaveBeenCalled()
     const out = log.mock.calls.map((c) => c.join(' ')).join('\n')
     expect(out).toContain('not_host_for_sandbox_peer')
     log.mockRestore()
