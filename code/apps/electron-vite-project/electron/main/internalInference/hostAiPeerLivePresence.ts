@@ -12,7 +12,7 @@ import { InternalInferenceErrorCode } from './errors'
 import { assertRecordForServiceRpc, handshakeSamePrincipal } from './policy'
 
 /** Match relay BEAP ad TTL — attestation expires when live proof is no longer fresh. */
-export const HOST_PEER_LIVE_PRESENCE_TTL_MS = 300_000
+export const HOST_PEER_LIVE_PRESENCE_TTL_MS = 86_400_000
 
 export type HostPeerLivePresenceSource = 'http_policy' | 'webrtc_caps' | 'relay_ad' | 'http_header'
 
