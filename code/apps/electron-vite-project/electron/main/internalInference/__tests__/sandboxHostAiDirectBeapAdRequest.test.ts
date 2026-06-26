@@ -14,6 +14,15 @@ vi.mock('../../../../src/auth/session', () => ({
   getAccessToken: () => 'tok',
 }))
 
+vi.mock('../../sealed-storage', () => ({
+  sealedQuery: vi.fn(),
+  prepareSealedOperationalUpdate: vi.fn(),
+}))
+
+vi.mock('../hostAiPeerLivePresence', () => ({
+  tryRecordHostPeerLivePresenceFromRelayAd: vi.fn(),
+}))
+
 const listRows: HandshakeRecord[] = []
 
 vi.mock('../../handshake/db', () => ({
@@ -46,6 +55,32 @@ vi.mock('../hostAiEffectiveRole', () => ({
 const postReq = vi.hoisted(() => vi.fn(async () => ({ ok: true, status: 200, bodyText: '' })))
 vi.mock('../p2pSignalRelayPost', () => ({
   postHostAiDirectBeapAdRequestToCoordination: (...a: unknown[]) => postReq(...a),
+}))
+
+vi.mock('../p2pInferenceFlags', () => ({
+  getP2pInferenceFlags: () => ({
+    p2pInferenceEnabled: true,
+    p2pInferenceSignalingEnabled: true,
+    p2pInferenceWebrtcEnabled: true,
+  }),
+}))
+
+vi.mock('../p2pSession/p2pSessionWait', () => ({
+  isP2pDataChannelUpForHandshake: () => false,
+  HOST_AI_CAPABILITY_DC_WAIT_MS: 8_000,
+}))
+
+vi.mock('../p2pSession/p2pInferenceSessionManager', () => ({
+  P2pSessionPhase: {
+    starting: 'starting',
+    signaling: 'signaling',
+    connecting: 'connecting',
+    datachannel_open: 'datachannel_open',
+    ready: 'ready',
+    failed: 'failed',
+    closed: 'closed',
+  },
+  getSessionState: () => null,
 }))
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/sandbox-beap-req-test' } }))
@@ -129,6 +164,50 @@ describe('sandboxMaybeRequestHostDirectBeapAdvertisement', () => {
     const { sandboxMaybeRequestHostDirectBeapAdvertisement } = await import('../sandboxHostAiDirectBeapAdRequest')
     await sandboxMaybeRequestHostDirectBeapAdvertisement({} as any, 'test')
     expect(postReq).not.toHaveBeenCalled()
+  })
+})
+
+describe('sandboxRequestHostAiP2pOfferAfterBeapAdAccepted', () => {
+  afterEach(() => {
+    postReq.mockClear()
+    resetSandboxHostAiDirectBeapAdRequestStateForTests()
+  })
+
+  it('posts ad_request after BEAP ad accepted when WebRTC path is active', async () => {
+    const { sandboxRequestHostAiP2pOfferAfterBeapAdAccepted } = await import('../sandboxHostAiDirectBeapAdRequest')
+    await sandboxRequestHostAiP2pOfferAfterBeapAdAccepted(
+      {} as any,
+      'hs-offer',
+      sandboxHostRow('hs-offer'),
+      3,
+      'beap_ad_accepted',
+    )
+    expect(postReq).toHaveBeenCalledWith(
+      expect.objectContaining({
+        handshakeId: 'hs-offer',
+        senderDeviceId: 'dev-sand-1',
+        receiverDeviceId: 'dev-host-1',
+      }),
+    )
+  })
+
+  it('debounces duplicate offer request for same ad seq', async () => {
+    const { sandboxRequestHostAiP2pOfferAfterBeapAdAccepted } = await import('../sandboxHostAiDirectBeapAdRequest')
+    await sandboxRequestHostAiP2pOfferAfterBeapAdAccepted(
+      {} as any,
+      'hs-dup',
+      sandboxHostRow('hs-dup'),
+      1,
+      'beap_ad_accepted',
+    )
+    await sandboxRequestHostAiP2pOfferAfterBeapAdAccepted(
+      {} as any,
+      'hs-dup',
+      sandboxHostRow('hs-dup'),
+      1,
+      'beap_ad_accepted',
+    )
+    expect(postReq).toHaveBeenCalledTimes(1)
   })
 })
 

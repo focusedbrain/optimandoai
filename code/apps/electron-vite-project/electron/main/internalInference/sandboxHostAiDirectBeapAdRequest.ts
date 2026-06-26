@@ -1,12 +1,13 @@
 /**
- * Sandbox-only: when a valid internal sandbox→Host handshake exists but the peer Host LAN BEAP
- * advertisement is missing in-process, POST a coordination `p2p_host_ai_direct_beap_ad_request`
- * so the paired Host republishes `p2p_host_ai_direct_beap_ad`. Does not publish Host AI from sandbox.
+ * Sandbox-only: coordination `p2p_host_ai_direct_beap_ad_request` to the paired Host.
+ * - Legacy path: republish when direct-LAN BEAP map entry is missing.
+ * - WebRTC path: after sealed-relay BEAP ad accepted, request Host offer (81ffe55a reactive trigger).
+ * Does not publish Host AI from sandbox.
  */
 
 import { getAccessToken } from '../../../src/auth/session'
 import { listHandshakeRecords } from '../handshake/db'
-import { HandshakeState } from '../handshake/types'
+import { HandshakeState, type HandshakeRecord } from '../handshake/types'
 import { getInstanceId, getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { getP2PConfig } from '../p2p/p2pConfig'
 import { getHostAiLedgerRoleSummaryFromDb } from './hostAiEffectiveRole'
@@ -17,15 +18,128 @@ import {
   requestBeapAdRefreshIfMapMiss,
   resolveSandboxToHostHttpDirectIngest,
 } from './p2pEndpointRepair'
+import { getP2pInferenceFlags } from './p2pInferenceFlags'
 import { deriveInternalHostAiPeerRoles } from './policy'
 import { postHostAiDirectBeapAdRequestToCoordination } from './p2pSignalRelayPost'
 
 const lastRepublishRequestAtByHandshake = new Map<string, number>()
 const SANDBOX_REPUBLISH_MIN_INTERVAL_MS = 15_000
 
+/** One in-flight offer-request gate per handshake (debounced until DC/connecting or dc_wait timeout). */
+const lastP2pOfferRequestByHandshake = new Map<string, { sentAt: number; adSeq: number }>()
+
 /** @internal */
 export function resetSandboxHostAiDirectBeapAdRequestStateForTests(): void {
   lastRepublishRequestAtByHandshake.clear()
+  lastP2pOfferRequestByHandshake.clear()
+}
+
+async function p2pTransportAlreadyAdvancing(hid: string): Promise<boolean> {
+  const { getSessionState, P2pSessionPhase } = await import('./p2pSession/p2pInferenceSessionManager')
+  const { isP2pDataChannelUpForHandshake } = await import('./p2pSession/p2pSessionWait')
+  if (isP2pDataChannelUpForHandshake(hid)) {
+    return true
+  }
+  const st = getSessionState(hid)
+  if (!st) {
+    return false
+  }
+  return (
+    st.phase === P2pSessionPhase.connecting ||
+    st.phase === P2pSessionPhase.datachannel_open ||
+    st.phase === P2pSessionPhase.ready ||
+    st.phase === P2pSessionPhase.starting
+  )
+}
+
+async function maySendP2pOfferRequest(hid: string, adSeq: number): Promise<{ send: boolean; reason: string }> {
+  const { getSessionState, P2pSessionPhase } = await import('./p2pSession/p2pInferenceSessionManager')
+  const { HOST_AI_CAPABILITY_DC_WAIT_MS } = await import('./p2pSession/p2pSessionWait')
+  if (await p2pTransportAlreadyAdvancing(hid)) {
+    lastP2pOfferRequestByHandshake.delete(hid)
+    return { send: false, reason: 'dc_or_connecting' }
+  }
+  const prev = lastP2pOfferRequestByHandshake.get(hid)
+  if (!prev) {
+    return { send: true, reason: 'first_after_ad' }
+  }
+  if (adSeq > prev.adSeq) {
+    return { send: true, reason: 'newer_ad_seq' }
+  }
+  const elapsed = Date.now() - prev.sentAt
+  if (elapsed >= HOST_AI_CAPABILITY_DC_WAIT_MS) {
+    const st = getSessionState(hid)
+    if (st?.phase === P2pSessionPhase.signaling) {
+      return { send: true, reason: 'dc_wait_elapsed_retry' }
+    }
+  }
+  return { send: false, reason: 'debounced_inflight' }
+}
+
+/**
+ * After sandbox accepts a Host BEAP ad: ask the Host (via coordination) to ensure its WebRTC offer.
+ * Host remains passive — `relayP2pSignalHandler` calls `ensureHostAiP2pSession` on this request.
+ */
+export async function sandboxRequestHostAiP2pOfferAfterBeapAdAccepted(
+  db: any,
+  handshakeId: string,
+  record: HandshakeRecord,
+  adSeq: number,
+  context: string,
+): Promise<void> {
+  const hid = String(handshakeId ?? '').trim()
+  if (!db || !hid || !record) {
+    return
+  }
+  const f = getP2pInferenceFlags()
+  if (!f.p2pInferenceEnabled || !f.p2pInferenceSignalingEnabled || !f.p2pInferenceWebrtcEnabled) {
+    return
+  }
+  const localId = getInstanceId().trim()
+  const dr = deriveInternalHostAiPeerRoles(record, localId)
+  if (!dr.ok || dr.localRole !== 'sandbox' || dr.peerRole !== 'host') {
+    return
+  }
+  const modeHint = String(getOrchestratorMode().mode)
+  const ledger = getHostAiLedgerRoleSummaryFromDb(db, localId, modeHint)
+  if (ledger.effective_host_ai_role !== 'sandbox' || !ledger.can_probe_host_endpoint) {
+    return
+  }
+  const gate = await maySendP2pOfferRequest(hid, adSeq)
+  if (!gate.send) {
+    console.log(
+      `[HOST_AI_P2P_OFFER_REQUEST] skipped handshake=${hid} reason=${gate.reason} adSeq=${adSeq} context=${context}`,
+    )
+    return
+  }
+  const cfg = getP2PConfig(db)
+  if (!cfg.use_coordination || !cfg.coordination_url?.trim()) {
+    return
+  }
+  const token = getAccessToken()
+  if (!token?.trim()) {
+    console.log(`[HOST_AI_P2P_OFFER_REQUEST] skipped handshake=${hid} reason=no_bearer context=${context}`)
+    return
+  }
+  lastP2pOfferRequestByHandshake.set(hid, { sentAt: Date.now(), adSeq })
+  const postRes = await postHostAiDirectBeapAdRequestToCoordination({
+    db,
+    handshakeId: hid,
+    senderDeviceId: dr.localCoordinationDeviceId,
+    receiverDeviceId: dr.peerCoordinationDeviceId,
+  })
+  console.log(
+    `[HOST_AI_P2P_OFFER_REQUEST] ${JSON.stringify({
+      handshakeId: hid,
+      requesterDeviceId: dr.localCoordinationDeviceId,
+      targetDeviceId: dr.peerCoordinationDeviceId,
+      payloadType: 'p2p_host_ai_direct_beap_ad_request',
+      adSeq,
+      gateReason: gate.reason,
+      status: postRes.ok ? 'ok' : `http_${postRes.status}`,
+      context,
+    })}`,
+  )
 }
 
 /**

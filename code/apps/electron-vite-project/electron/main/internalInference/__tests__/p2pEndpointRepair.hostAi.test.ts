@@ -5,6 +5,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/wrdesk-p2p-repair-test' } }))
+vi.mock('../../../../src/auth/session', () => ({
+  getAccessToken: () => 'tok',
+}))
+vi.mock('../../sealed-storage', () => ({
+  sealedQuery: vi.fn(),
+  prepareSealedOperationalUpdate: vi.fn(),
+}))
+
+vi.mock('../hostAiPeerLivePresence', () => ({
+  tryRecordHostPeerLivePresenceFromRelayAd: vi.fn(),
+}))
 import { InternalInferenceErrorCode } from '../errors'
 import { HandshakeState, type HandshakeRecord } from '../../handshake/types'
 import { getHandshakeRecord } from '../../handshake/db'
@@ -48,6 +59,11 @@ vi.mock('../../handshake/db', () => ({
   updateHandshakeRecord: (_db: unknown, next: HandshakeRecord) => {
     updateHandshakeRecord(next)
   },
+}))
+
+const offerAfterAdMock = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock('../sandboxHostAiDirectBeapAdRequest', () => ({
+  sandboxRequestHostAiP2pOfferAfterBeapAdAccepted: (...a: unknown[]) => offerAfterAdMock(...a),
 }))
 
 function relayRow(hid: string): HandshakeRecord {
@@ -284,6 +300,7 @@ describe('applyHostAiDirectBeapAdFromRelayPayload', () => {
     vi.mocked(getHandshakeRecord).mockReset()
     updateHandshakeRecord.mockReset()
     resetHostAdvertisedMvpDirectForTests()
+    offerAfterAdMock.mockClear()
   })
 
   it('accepts valid host ad, updates peer map + ledger', () => {
@@ -341,8 +358,15 @@ describe('applyHostAiDirectBeapAdFromRelayPayload', () => {
     })
     const r = applyHostAiDirectBeapAdFromRelayPayload(db, capabilityOnly as any, 'rm-cap-only')
     expect(r).toEqual({ ok: true })
-    expect(peekHostAdvertisedMvpDirectP2pEndpoint('hs-apply')).toBeNull()
+    expect(peekHostAdvertisedMvpDirectP2pEndpoint('hs-apply')).toBeFalsy()
     expect(peekHostGpuInferenceAvailableFromRelay('hs-apply')).toBe(true)
+    expect(offerAfterAdMock).toHaveBeenCalledWith(
+      db,
+      'hs-apply',
+      expect.objectContaining({ handshake_id: 'hs-apply' }),
+      1,
+      'beap_ad_accepted',
+    )
   })
 
   it('accepts sealed-relay wire placeholder endpoint_url as capability-only (relay field_required)', () => {
@@ -366,9 +390,16 @@ describe('applyHostAiDirectBeapAdFromRelayPayload', () => {
     })
     const r = applyHostAiDirectBeapAdFromRelayPayload(db, placeholderAd as any, 'rm-placeholder')
     expect(r).toEqual({ ok: true })
-    expect(peekHostAdvertisedMvpDirectP2pEndpoint('hs-apply')).toBeNull()
+    expect(peekHostAdvertisedMvpDirectP2pEndpoint('hs-apply')).toBeFalsy()
     expect(peekHostGpuInferenceAvailableFromRelay('hs-apply')).toBe(true)
     expect(updateHandshakeRecord).not.toHaveBeenCalled()
+    expect(offerAfterAdMock).toHaveBeenCalledWith(
+      db,
+      'hs-apply',
+      expect.objectContaining({ handshake_id: 'hs-apply' }),
+      1,
+      'beap_ad_accepted',
+    )
   })
 
   it('rejects stale ad_seq', () => {

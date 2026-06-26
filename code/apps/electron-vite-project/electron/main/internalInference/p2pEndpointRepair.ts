@@ -974,6 +974,11 @@ export function applyHostAiDirectBeapAdFromRelayPayload(
       relayMessageId,
     })}`,
   )
+  void import('./sandboxHostAiDirectBeapAdRequest')
+    .then(({ sandboxRequestHostAiP2pOfferAfterBeapAdAccepted }) =>
+      sandboxRequestHostAiP2pOfferAfterBeapAdAccepted(db, hid, ar.record, adSeq, 'beap_ad_accepted'),
+    )
+    .catch(() => {})
   return { ok: true }
 }
 
