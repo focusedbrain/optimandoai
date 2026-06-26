@@ -9,10 +9,12 @@ import { getCurrentSession } from '../handshake/ipc'
 import type { HandshakeRecord, PartyIdentity, SSOSession } from '../handshake/types'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { InternalInferenceErrorCode } from './errors'
+import { isHostSandboxPairEligible } from './hostAiInternalPairingLedger'
 import { assertRecordForServiceRpc, handshakeSamePrincipal } from './policy'
+import { getP2pInferenceFlags } from './p2pInferenceFlags'
 
-/** Match relay BEAP ad TTL — attestation expires when live proof is no longer fresh. */
-export const HOST_PEER_LIVE_PRESENCE_TTL_MS = 86_400_000
+/** Fallback TTL when relay ad omits `expires_at` — drives re-dial timing only, not eligibility. */
+export const HOST_PEER_LIVE_PRESENCE_TTL_MS = 300_000
 
 export type HostPeerLivePresenceSource = 'http_policy' | 'webrtc_caps' | 'relay_ad' | 'http_header'
 
@@ -221,6 +223,49 @@ export function hostPublisherIdentityWireFields(session: SSOSession | null | und
     ...(iss ? { hostPublisherIss: iss } : {}),
     ...(sub ? { hostPublisherSub: sub } : {}),
   }
+}
+
+/**
+ * When the pair is permanently eligible but live presence expired, nudge the existing
+ * sandbox ad_request → host offer / P2P session re-establish path (liveness only).
+ */
+export async function nudgeHostPeerLivePresenceRedial(
+  db: unknown,
+  handshakeId: string,
+  record: HandshakeRecord,
+  context: string,
+): Promise<void> {
+  const hid = handshakeId.trim()
+  if (!db || !hid || !isHostSandboxPairEligible(record)) return
+  const f = getP2pInferenceFlags()
+  if (f.p2pInferenceEnabled && f.p2pInferenceSignalingEnabled && f.p2pInferenceWebrtcEnabled) {
+    try {
+      const { ensureHostAiP2pSession } = await import('./p2pSession/p2pInferenceSessionManager')
+      void ensureHostAiP2pSession(hid, 'presence_redial').catch(() => {})
+    } catch {
+      /* best-effort */
+    }
+    try {
+      const { sandboxRequestHostAiP2pOfferAfterBeapAdAccepted } = await import('./sandboxHostAiDirectBeapAdRequest')
+      void sandboxRequestHostAiP2pOfferAfterBeapAdAccepted(db, hid, record, 0, context).catch(() => {})
+    } catch {
+      /* best-effort */
+    }
+  }
+  try {
+    const { sandboxMaybeRequestHostDirectBeapAdvertisement } = await import('./sandboxHostAiDirectBeapAdRequest')
+    void sandboxMaybeRequestHostDirectBeapAdvertisement(db, context).catch(() => {})
+  } catch {
+    /* best-effort */
+  }
+  console.log(
+    `[HOST_AI_PEER_LIVE_PRESENCE] ${JSON.stringify({
+      handshake_id: hid,
+      ok: false,
+      reason: 'presence_lapsed_redial_nudged',
+      context,
+    })}`,
+  )
 }
 
 export async function assertSandboxHostPeerLivePresenceForHandshake(

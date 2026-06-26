@@ -7,6 +7,7 @@
  * List targets and intent routing must not branch on p2p_endpoint_kind alone; use this result.
  */
 import { InternalInferenceErrorCode } from '../errors'
+import { isHostSandboxPairEligible } from '../hostAiInternalPairingLedger'
 import { getP2pInferenceFlags, isWebRtcHostAiArchitectureEnabled, type P2pInferenceFlagSnapshot } from '../p2pInferenceFlags'
 import {
   coordinationDeviceIdForHandshakeDeviceRole,
@@ -439,6 +440,14 @@ function computeHostAiRouteFieldsForDecider(
           `[HOST_AI_ENDPOINT_REJECTED] handshake=${hid} reason=sandbox_resolve_denied deny_detail=${res.host_ai_endpoint_deny_detail} code=${res.code}`,
         )
       }
+      /** Transport-not-ready (DC up, HTTP probe skipped) is liveness — permanent eligibility still holds. */
+      if (isHostSandboxPairEligible(handshakeRecord) && sessionState?.dataChannelUp === true) {
+        return {
+          trusted: true,
+          reason: 'handshake_inference_trust',
+          normalizedUrl: null,
+        }
+      }
       return {
         trusted: false,
         reason: 'peer_host_endpoint_missing',
@@ -553,6 +562,7 @@ export function decideInternalInferenceTransport(
     le.p2pEndpointKind === 'direct' &&
     p2pOn &&
     trHandshake !== 'url_not_private_lan' &&
+    !(trust && trHandshake === 'peer_host_endpoint_missing') &&
     !wrtcArch
   ) {
     const tr = trHandshake
@@ -940,6 +950,7 @@ export function deriveHostAiHandshakeRoles(r: HandshakeRecord): HandshakeDerived
   const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
   const samePrincipal = handshakeSamePrincipal(r)
   const internalComplete = r.internal_coordination_identity_complete === true
+  const pairEligible = isHostSandboxPairEligible(r)
   if (!dr.ok) {
     return {
       ledgerSandboxToHost: false,
@@ -948,15 +959,12 @@ export function deriveHostAiHandshakeRoles(r: HandshakeRecord): HandshakeDerived
       peerHostDeviceIdPresent: false,
     }
   }
-  const pairOk =
-    (dr.localRole === 'sandbox' && dr.peerRole === 'host') ||
-    (dr.localRole === 'host' && dr.peerRole === 'sandbox')
   return {
     /** Internal Host↔Sandbox row for this instance id (coordination identity), not orchestrator file. */
-    ledgerSandboxToHost: pairOk,
+    ledgerSandboxToHost: pairEligible,
     samePrincipal,
     internalIdentityComplete: internalComplete,
-    peerHostDeviceIdPresent: pairOk && Boolean((dr.peerCoordinationDeviceId ?? '').trim()),
+    peerHostDeviceIdPresent: pairEligible && Boolean((dr.peerCoordinationDeviceId ?? '').trim()),
   }
 }
 

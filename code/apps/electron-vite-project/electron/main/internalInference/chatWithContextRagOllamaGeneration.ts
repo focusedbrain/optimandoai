@@ -51,18 +51,29 @@ export class InferenceRoutingUnavailableError extends Error {
 }
 
 export function logSandboxInferenceSend(target: SandboxInferenceTarget, surface: string): void {
-  if (target.kind === 'unavailable') {
+  if (target.kind === 'unavailable' || target.kind === 'cross_device_reconnecting') {
     return
   }
   console.log(
     `[SBX_INFERENCE_SEND] ${JSON.stringify({
       kind: target.kind,
-      base_url: target.kind !== 'unavailable' ? target.baseUrl : null,
+      base_url: target.baseUrl,
       handshake_id: target.kind === 'cross_device' ? target.handshakeId : null,
       surface,
       timestamp: new Date().toISOString(),
     })}`,
   )
+}
+
+async function resolveCrossDeviceAfterReconnectingRetry(
+  target: Extract<SandboxInferenceTarget, { kind: 'cross_device_reconnecting' }>,
+): Promise<Extract<SandboxInferenceTarget, { kind: 'cross_device' }>> {
+  await new Promise((r) => setTimeout(r, 1500))
+  const retry = await resolveSandboxInferenceTarget({ handshakeId: target.handshakeId })
+  if (retry.kind === 'cross_device') {
+    return retry
+  }
+  throw new InferenceRoutingUnavailableError('local_probe_error', retry.detail ?? 'host_peer_reconnecting')
 }
 
 function handshakeHintFromParams(params: {
@@ -139,7 +150,11 @@ export async function runOllamaGenerateChatWithSandboxRouting(
   }
 
   const handshakeId = handshakeHintFromParams(opts.ragParams)
-  const target = await resolveSandboxInferenceTarget({ handshakeId })
+  let target = await resolveSandboxInferenceTarget({ handshakeId })
+
+  if (target.kind === 'cross_device_reconnecting') {
+    target = await resolveCrossDeviceAfterReconnectingRetry(target)
+  }
 
   if (target.kind === 'unavailable') {
     if (target.reason === 'no_local_ollama_no_cross_device_host') {
@@ -203,7 +218,11 @@ export async function runOllamaGenerateEmbeddingWithSandboxRouting(
 
   const ollama = provider as OllamaProvider
   const handshakeId = handshakeHintFromParams(ragParams)
-  const target = await resolveSandboxInferenceTarget({ handshakeId })
+  let target = await resolveSandboxInferenceTarget({ handshakeId })
+
+  if (target.kind === 'cross_device_reconnecting') {
+    target = await resolveCrossDeviceAfterReconnectingRetry(target)
+  }
 
   if (target.kind === 'unavailable') {
     if (target.reason === 'no_local_ollama_no_cross_device_host') {
