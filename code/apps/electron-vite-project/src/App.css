@@ -3253,6 +3253,38 @@ body {
   gap: 10px;
 }
 
+.bulk-view-auto-analyze-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: var(--text-primary, var(--text-primary-prof, #e2e8f0));
+}
+
+.bulk-view-auto-analyze-toggle__label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary, var(--text-primary-prof, #e2e8f0));
+  white-space: nowrap;
+}
+
+.bulk-view-auto-analyze-toggle input[type='checkbox'] {
+  cursor: pointer;
+  accent-color: var(--color-accent, #6366f1);
+}
+
+.bulk-view-auto-analyze-toggle:has(input:disabled) {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.bulk-view-auto-analyze-toggle:has(input:disabled) input {
+  cursor: not-allowed;
+}
+
 /* Shared Normal + Bulk inbox — product-facing type filter (workflow labels) */
 .inbox-message-kind-toolbar {
   display: inline-flex;

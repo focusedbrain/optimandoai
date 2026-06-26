@@ -6046,6 +6046,8 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       const batchSize = getInboxSetting(db, 'inbox_batch_size')
       const batchSizeNum = typeof batchSize === 'number' ? batchSize : (typeof batchSize === 'string' ? parseInt(batchSize, 10) : 10)
       const validBatch = [10, 12, 24, 48].includes(batchSizeNum) ? batchSizeNum : 10
+      const rawAutoAnalyze = getInboxSetting(db, 'inbox_auto_analyze_enabled')
+      const autoAnalyzeEnabled = rawAutoAnalyze === true
       return {
         ok: true,
         data: {
@@ -6053,6 +6055,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
           sortRules: typeof sortRules === 'string' ? sortRules : '',
           contextDocs: Array.isArray(contextDocs) ? contextDocs : [],
           batchSize: validBatch,
+          autoAnalyzeEnabled,
         },
       }
     } catch (err: any) {
@@ -6060,7 +6063,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
     }
   })
 
-  ipcMain.handle('inbox:setInboxSettings', async (_e, partial: { tone?: string; sortRules?: string; batchSize?: number }) => {
+  ipcMain.handle('inbox:setInboxSettings', async (_e, partial: { tone?: string; sortRules?: string; batchSize?: number; autoAnalyzeEnabled?: boolean }) => {
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
@@ -6068,6 +6071,9 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       if (partial.sortRules !== undefined) setInboxSetting(db, 'inbox_ai_sort_rules', partial.sortRules)
       if (partial.batchSize !== undefined && [10, 12, 24, 48].includes(partial.batchSize)) {
         setInboxSetting(db, 'inbox_batch_size', partial.batchSize)
+      }
+      if (partial.autoAnalyzeEnabled !== undefined) {
+        setInboxSetting(db, 'inbox_auto_analyze_enabled', !!partial.autoAnalyzeEnabled)
       }
       return { ok: true }
     } catch (err: any) {

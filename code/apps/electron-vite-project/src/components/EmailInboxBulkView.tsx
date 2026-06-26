@@ -2373,6 +2373,10 @@ export default function EmailInboxBulkView({
   const bulkAnalyzeStreamCleanupRef = useRef<Map<string, () => void>>(new Map())
   /** Bumps when Analyze starts/ends so action rows re-read in-flight state from the ref. */
   const [bulkAnalyzeUiEpoch, setBulkAnalyzeUiEpoch] = useState(0)
+  /** Global lazy auto-analyze (viewport IntersectionObserver). Default off until settings load. */
+  const [inboxAutoAnalyzeEnabled, setInboxAutoAnalyzeEnabled] = useState(false)
+  const inboxAutoAnalyzeEnabledRef = useRef(false)
+  inboxAutoAnalyzeEnabledRef.current = inboxAutoAnalyzeEnabled
 
   useEffect(() => {
     return () => {
@@ -2889,6 +2893,21 @@ export default function EmailInboxBulkView({
   useEffect(() => {
     syncBulkBatchSizeFromSettings()
   }, [syncBulkBatchSizeFromSettings])
+
+  useEffect(() => {
+    void (async () => {
+      const bridge = window.emailInbox
+      if (!bridge?.getInboxSettings) return
+      try {
+        const res = await bridge.getInboxSettings()
+        if (res?.ok && res.data) {
+          setInboxAutoAnalyzeEnabled(res.data.autoAnalyzeEnabled === true)
+        }
+      } catch {
+        /* default off */
+      }
+    })()
+  }, [])
 
   const bulkScrollContainerRef = useRef<HTMLDivElement>(null)
   const bulkLoadSentinelRef = useRef<HTMLDivElement>(null)
@@ -3965,6 +3984,11 @@ export default function EmailInboxBulkView({
   const bulkLazyAnalyzeQueuedRef = useRef<Set<string>>(new Set())
   const bulkLazyAnalyzeInFlightCountRef = useRef(0)
 
+  const clearBulkLazyAnalyzeQueue = useCallback(() => {
+    bulkLazyAnalyzeQueueRef.current = []
+    bulkLazyAnalyzeQueuedRef.current.clear()
+  }, [])
+
   const processBulkLazyAnalyzeQueueRef = useRef<() => void>(() => {})
 
   const processBulkLazyAnalyzeQueue = useCallback(() => {
@@ -4003,6 +4027,8 @@ export default function EmailInboxBulkView({
 
   const enqueueBulkLazyAnalyze = useCallback(
     (messageId: string) => {
+      if (!inboxAutoAnalyzeEnabledRef.current) return
+
       const id = messageId.trim()
       if (!id) return
 
@@ -4021,6 +4047,36 @@ export default function EmailInboxBulkView({
       scheduleBulkLazyAnalyzeIdle(() => processBulkLazyAnalyzeQueueRef.current())
     },
     [],
+  )
+
+  const enqueueVisibleBulkLazyAnalyzeRows = useCallback(() => {
+    if (!inboxAutoAnalyzeEnabledRef.current) return
+    const root = bulkScrollContainerRef.current
+    if (!root) return
+    const rootRect = root.getBoundingClientRect()
+    root.querySelectorAll('.bulk-view-row[data-msg-id]').forEach((row) => {
+      const rect = row.getBoundingClientRect()
+      if (rect.bottom < rootRect.top || rect.top > rootRect.bottom) return
+      const messageId = row.getAttribute('data-msg-id')?.trim()
+      if (messageId) enqueueBulkLazyAnalyze(messageId)
+    })
+    if (bulkLazyAnalyzeQueueRef.current.length > 0) {
+      scheduleBulkLazyAnalyzeIdle(() => processBulkLazyAnalyzeQueueRef.current())
+    }
+  }, [enqueueBulkLazyAnalyze])
+
+  const handleInboxAutoAnalyzeToggle = useCallback(
+    (enabled: boolean) => {
+      setInboxAutoAnalyzeEnabled(enabled)
+      inboxAutoAnalyzeEnabledRef.current = enabled
+      if (!enabled) {
+        clearBulkLazyAnalyzeQueue()
+      } else {
+        enqueueVisibleBulkLazyAnalyzeRows()
+      }
+      void window.emailInbox?.setInboxSettings?.({ autoAnalyzeEnabled: enabled })
+    },
+    [clearBulkLazyAnalyzeQueue, enqueueVisibleBulkLazyAnalyzeRows],
   )
 
   /** Lazy auto-analyze: enqueue visible rows as they enter the bulk scrollport (concurrency 1). */
@@ -4046,19 +4102,8 @@ export default function EmailInboxBulkView({
   /** After Auto-Sort finishes, resume lazy analysis for currently visible rows. */
   useEffect(() => {
     if (isSortingActive) return
-    const root = bulkScrollContainerRef.current
-    if (!root) return
-    const rootRect = root.getBoundingClientRect()
-    root.querySelectorAll('.bulk-view-row[data-msg-id]').forEach((row) => {
-      const rect = row.getBoundingClientRect()
-      if (rect.bottom < rootRect.top || rect.top > rootRect.bottom) return
-      const messageId = row.getAttribute('data-msg-id')?.trim()
-      if (messageId) enqueueBulkLazyAnalyze(messageId)
-    })
-    if (bulkLazyAnalyzeQueueRef.current.length > 0) {
-      scheduleBulkLazyAnalyzeIdle(() => processBulkLazyAnalyzeQueueRef.current())
-    }
-  }, [isSortingActive, displayMessages, enqueueBulkLazyAnalyze])
+    enqueueVisibleBulkLazyAnalyzeRows()
+  }, [isSortingActive, displayMessages, enqueueVisibleBulkLazyAnalyzeRows])
 
   /** Toolbar Auto-Sort: “All” = full tab ID drain; paged = current selection only. */
   const handleAiAutoSort = useCallback(async () => {
@@ -5642,6 +5687,22 @@ export default function EmailInboxBulkView({
             >
               ⚡AI Auto-Sort
             </button>
+            <label
+              className="bulk-view-auto-analyze-toggle"
+              title={
+                inboxAutoAnalyzeEnabled
+                  ? 'Automatic analysis is on — messages analyze as you scroll (uses CPU/GPU). Turn off to analyze manually with the per-row Analyze button.'
+                  : 'Automatic analysis is off — use the per-row Analyze button on each message. Turn on to analyze automatically as messages scroll into view (uses more CPU/GPU).'
+              }
+            >
+              <input
+                type="checkbox"
+                checked={inboxAutoAnalyzeEnabled}
+                onChange={(e) => handleInboxAutoAnalyzeToggle(e.target.checked)}
+                disabled={isSortingActive}
+              />
+              <span className="bulk-view-auto-analyze-toggle__label">Auto-analyze messages</span>
+            </label>
             <BulkOllamaModelSelect
               variant="toolbar"
               disabled={isSortingActive}

@@ -103,6 +103,10 @@ function clearBuildCaches() {
    * Electron Chromium caches under custom userData (see main.ts app.setPath).
    * Do NOT delete all of userData — only bytecode/GPU/HTTP disk cache so the next
    * launch does not reuse stale renderer artifacts.
+   *
+   * PRESERVE (not touched by this script): orchestrator-mode.json, email-accounts.json,
+   * email-role-tokens/, inbox SQLite DB + inbox_settings rows (e.g. inbox_batch_size,
+   * inbox_auto_analyze_enabled), and other userData files outside Code/GPU/HTTP Cache.
    */
   const userData = path.join(os.homedir(), '.opengiraffe', 'electron-data')
   for (const sub of ['Code Cache', 'GPUCache', 'Cache']) {
