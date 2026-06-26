@@ -53,6 +53,13 @@ describe('modeIntervalScheduler', () => {
     expect(modeNeedsIntervalRun(customMode({ sessionId: null, intervalSeconds: 30 }))).toBe(false)
     expect(modeNeedsIntervalRun(customMode({ intervalSeconds: null }))).toBe(false)
     expect(modeNeedsIntervalRun(createDefaultScamWatchdogBuiltInMode())).toBe(false)
+    expect(
+      modeNeedsIntervalRun({
+        ...createDefaultScamWatchdogBuiltInMode(),
+        sessionId: 'session_1775237973387',
+        intervalSeconds: 15,
+      }),
+    ).toBe(true)
   })
 
   it('syncModeIntervalSchedulers creates alarm for eligible modes', async () => {

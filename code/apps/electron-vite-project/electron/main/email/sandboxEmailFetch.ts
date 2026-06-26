@@ -25,7 +25,11 @@
 
 import { OutlookProvider } from './providers/outlook'
 import { GmailProvider } from './providers/gmail'
-import { getCredentialsForOAuth } from './credentials'
+import { getCredentialsForOAuth, type GmailCreds } from './credentials'
+import {
+  resolveBuiltinGoogleOAuthClientSecret,
+  resolveBuiltinGoogleOAuthClientWithMeta,
+} from './googleOAuthBuiltin'
 import {
   loadRoleScopedTokens,
   saveRoleScopedTokens,
@@ -93,9 +97,46 @@ export function wireSandboxReadProviderTokenRefresh(
   }
 }
 
+/** Built-in Desktop Gmail client (standard Connect) when sandbox has no developer OAuth vault. */
+function resolveBuiltinGmailOauthForSandboxFetch(): Pick<
+  NonNullable<EmailAccountConfig['oauth']>,
+  'oauthClientId' | 'gmailOAuthClientSecret' | 'gmailRefreshUsesSecret'
+> | null {
+  const metas = [
+    resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true }),
+    resolveBuiltinGoogleOAuthClientWithMeta(),
+  ]
+  for (const meta of metas) {
+    const clientId = meta?.clientId?.trim()
+    if (!clientId) continue
+    const secret = resolveBuiltinGoogleOAuthClientSecret(meta)
+    return {
+      oauthClientId: clientId,
+      ...(secret ? { gmailOAuthClientSecret: secret } : {}),
+      gmailRefreshUsesSecret: false,
+    }
+  }
+  return null
+}
+
+function oauthFromLocalGmailCredentials(
+  base: NonNullable<EmailAccountConfig['oauth']>,
+  userCreds: GmailCreds,
+): NonNullable<EmailAccountConfig['oauth']> {
+  const clientId = userCreds.clientId.trim()
+  const clientSecret = userCreds.clientSecret?.trim()
+  return {
+    ...base,
+    oauthClientId: clientId,
+    ...(clientSecret
+      ? { gmailRefreshUsesSecret: true, gmailOAuthClientSecret: clientSecret }
+      : {}),
+  }
+}
+
 /**
  * Resolve oauth for connect/refresh — record fields first, then local OAuth vault/file
- * (same tiers as host Gmail refresh) when legacy read tokens lack clientId metadata.
+ * (same tiers as host Gmail refresh), then built-in Gmail client for dedicated sandboxes.
  */
 export async function resolveOauthForSandboxReadFetch(
   accountId: string,
@@ -107,18 +148,31 @@ export async function resolveOauthForSandboxReadFetch(
 
   const credProvider = providerKind === 'microsoft365' ? 'outlook' : 'gmail'
   const userCreds = await getCredentialsForOAuth(credProvider)
-  const clientId =
-    userCreds && 'clientId' in userCreds && typeof userCreds.clientId === 'string'
-      ? userCreds.clientId.trim()
-      : ''
-  if (clientId) {
-    fetchLog(
-      `oauth client id resolved from local credentials account=${accountId} provider=${providerKind}`,
-    )
-    return { ...base, oauthClientId: clientId }
+  if (userCreds && 'clientId' in userCreds && typeof userCreds.clientId === 'string') {
+    const clientId = userCreds.clientId.trim()
+    if (clientId) {
+      fetchLog(
+        `oauth client id resolved from local credentials account=${accountId} provider=${providerKind}`,
+      )
+      if (providerKind === 'gmail') {
+        return oauthFromLocalGmailCredentials(base, userCreds as GmailCreds)
+      }
+      return { ...base, oauthClientId: clientId }
+    }
   }
+
+  if (providerKind === 'gmail') {
+    const builtin = resolveBuiltinGmailOauthForSandboxFetch()
+    if (builtin?.oauthClientId) {
+      fetchLog(
+        `oauth client id resolved from builtin gmail client account=${accountId} hasRefreshSecret=${!!builtin.gmailOAuthClientSecret}`,
+      )
+      return { ...base, ...builtin }
+    }
+  }
+
   fetchLog(
-    `oauth client id missing on read token and local credentials account=${accountId} provider=${providerKind}`,
+    `oauth client id missing on read token, local credentials, and builtin gmail account=${accountId} provider=${providerKind}`,
   )
   return base
 }

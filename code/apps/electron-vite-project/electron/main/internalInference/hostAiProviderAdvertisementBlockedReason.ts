@@ -18,6 +18,10 @@ export function deriveProviderAdvertisementBlockedReason(p: {
   models_count: number
   host_published_direct_endpoint: string | null
   advertisement_headers_can_generate: boolean
+  /** Sealed-relay BEAP ad would succeed (direct-LAN retired). */
+  sealed_relay_ad_can_publish?: boolean
+  coordination_ready?: boolean
+  host_peer_sandbox?: boolean
 }): string {
   if (p.effective_role === 'sandbox') return 'sandbox_device_must_not_publish_host_ad'
   if (p.effective_role === 'mixed') return 'ledger_role_mixed_cannot_publish_host_ad'
@@ -33,8 +37,13 @@ export function deriveProviderAdvertisementBlockedReason(p: {
   }
   if (!p.ollama_ok) return 'ollama_discovery_failed'
   if (p.models_count < 1) return 'no_ollama_models'
-  if (p.host_published_direct_endpoint == null || String(p.host_published_direct_endpoint).trim() === '')
+  if (p.sealed_relay_ad_can_publish) return 'unknown'
+  if (!p.coordination_ready) return 'coordination_unavailable'
+  if (!p.host_peer_sandbox) return 'host_inference_policy_no_internal_sandbox_peer'
+  if (p.host_published_direct_endpoint == null || String(p.host_published_direct_endpoint).trim() === '') {
+    if (p.advertisement_headers_can_generate) return 'unknown'
     return 'no_host_published_direct_endpoint'
+  }
   if (!p.advertisement_headers_can_generate) return 'advertisement_headers_not_generatable'
   return 'unknown'
 }

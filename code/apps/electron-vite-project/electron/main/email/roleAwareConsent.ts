@@ -115,6 +115,8 @@ export async function runRoleScopedConsent(
     expiresAt: oauth.expiresAt,
     scope: oauth.scope,
     oauthClientId: oauth.oauthClientId,
+    gmailRefreshUsesSecret: oauth.gmailRefreshUsesSecret,
+    gmailOAuthClientSecret: oauth.gmailOAuthClientSecret,
   }
   saveRoleScopedTokens(params.accountId, params.role, tokens, {
     clientId: oauth.oauthClientId,

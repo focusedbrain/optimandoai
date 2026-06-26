@@ -27,6 +27,7 @@ import {
   type P2pMvpEndpointClass,
 } from './policy'
 import type { HostAiBeapAdOllamaModelWireEntry } from './hostAiBeapAdOllamaModelCount'
+import { hostAiDirectBeapAdEndpointUrlIsInertPlaceholder } from './hostAiDirectBeapAdWire'
 
 export const P2P_DIRECT_P2P_ENDPOINT_HEADER = 'X-BEAP-Direct-P2P-Endpoint'
 
@@ -815,7 +816,8 @@ export function applyHostAiDirectBeapAdFromRelayPayload(
 ): { ok: true } | { ok: false; reason: string } {
   const hid = typeof raw.handshake_id === 'string' ? raw.handshake_id.trim() : ''
   const sender = typeof raw.sender_device_id === 'string' ? raw.sender_device_id.trim() : ''
-  const advRaw = typeof raw.endpoint_url === 'string' ? raw.endpoint_url.trim() : ''
+  const endpointWire = typeof raw.endpoint_url === 'string' ? raw.endpoint_url : ''
+  const advRaw = hostAiDirectBeapAdEndpointUrlIsInertPlaceholder(endpointWire) ? '' : endpointWire.trim()
   const adSeq = raw.ad_seq
   const expRaw = typeof raw.expires_at === 'string' ? raw.expires_at.trim() : ''
   const reject = (reason: string): { ok: false; reason: string } => {

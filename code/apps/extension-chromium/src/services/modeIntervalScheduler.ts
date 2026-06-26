@@ -5,7 +5,6 @@
 
 import type { CustomModeDefinition } from '../shared/ui/customModeTypes'
 import { normalizeOrchestratorSessionKey } from '../lib/resolveOrchestratorSessionKey'
-import { isScamWatchdogBuiltInMode } from '../shared/ui/scamWatchdogBuiltIn'
 import { customModesClient } from './customModesClient'
 
 export const MODE_INTERVAL_ALARM_PREFIX = 'mode-session-interval:'
@@ -23,7 +22,6 @@ export function parseModeIdFromIntervalAlarm(alarmName: string): string | null {
 }
 
 export function modeNeedsIntervalRun(def: CustomModeDefinition): boolean {
-  if (isScamWatchdogBuiltInMode(def)) return false
   const seconds = def.intervalSeconds
   if (seconds == null || seconds < 1) return false
   return !!normalizeOrchestratorSessionKey(def.sessionId)

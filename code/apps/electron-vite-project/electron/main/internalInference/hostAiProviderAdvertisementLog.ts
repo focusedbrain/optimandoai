@@ -18,6 +18,7 @@ import {
   hostDirectP2pAdvertisementHeaders,
   P2P_DIRECT_P2P_ENDPOINT_HEADER,
 } from './p2pEndpointRepair'
+import { getP2PConfig } from '../p2p/p2pConfig'
 import { hasActiveInternalLedgerLocalHostPeerSandboxForHostUi } from './listInferenceTargets'
 import { deriveProviderAdvertisementBlockedReason } from './hostAiProviderAdvertisementBlockedReason'
 
@@ -125,7 +126,7 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
     mayPublishEndpointAsLedgerHost && mvpListenerUrl?.trim()
       ? mvpListenerUrl.trim()
       : null
-  const advertisement_headers_can_generate = Boolean(
+  const directLanHeadersCanGenerate = Boolean(
     mayPublishEndpointAsLedgerHost && headersTechnicallyGeneratable,
   )
 
@@ -133,20 +134,35 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
   const policyAllowsRemote = policyRes?.allowRemoteInference === true
   const policyExplicitUserDisabled = policyRes?.explicitUserDisabled === true
   const policyDenialReason = policyRes?.denialReason ?? null
+  const cfg = dbProv ? getP2PConfig(dbProv) : null
+  const coordinationReady = Boolean(cfg?.use_coordination && cfg?.coordination_url?.trim())
+  /** Sealed-relay BEAP ad path — direct-LAN listener retired; coordination + paired sandbox suffices. */
+  const sealedRelayAdCanPublish = Boolean(
+    mayPublishEndpointAsLedgerHost &&
+      hostSidePair &&
+      coordinationReady &&
+      policyAllowsRemote &&
+      input.ollamaDiscoveryOk === true &&
+      input.ollamaModelCount > 0,
+  )
+  /** Direct-LAN HTTP headers **or** sealed-relay capability ad (endpoint=null is expected when LAN retired). */
+  const advertisement_headers_can_generate = directLanHeadersCanGenerate || sealedRelayAdCanPublish
   if (dbProv && policyRes) {
     logHostAiRemotePolicyDecision(dbProv, policyRes, {
       context: 'host_ai_provider_advertisement',
       endpointPresent: Boolean(mvpListenerUrl?.trim()),
     })
   }
-  /** Full Host AI provider lane: host-only ledger + policy + reachable Ollama with models + MVP listener + outbound headers. */
+  const directLanAdvertisementReady = Boolean(
+    hostPublishedEndpoint !== null && directLanHeadersCanGenerate,
+  )
+  /** Host AI provider lane: ledger host + policy + Ollama models + (direct-LAN headers **or** sealed-relay publish). */
   const advertisedAsHostAi = Boolean(
     mayPublishEndpointAsLedgerHost &&
       policyAllowsRemote &&
       input.ollamaDiscoveryOk === true &&
       input.ollamaModelCount > 0 &&
-      hostPublishedEndpoint !== null &&
-      advertisement_headers_can_generate,
+      (directLanAdvertisementReady || sealedRelayAdCanPublish),
   )
 
   const provider_blocked_reason = advertisedAsHostAi
@@ -161,6 +177,9 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
         models_count: input.ollamaModelCount,
         host_published_direct_endpoint: hostPublishedEndpoint,
         advertisement_headers_can_generate,
+        sealed_relay_ad_can_publish: sealedRelayAdCanPublish,
+        coordination_ready: coordinationReady,
+        host_peer_sandbox: hostSidePair,
       })
 
   /** `role` for diagnostics: sandbox ledger never impersonates Host; orchestrator hint only when ledger is none/mixed. */
@@ -209,13 +228,15 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
   }
 
   if (db_open_ok) {
-    if (advertisedAsHostAi && hostPublishedEndpoint != null) {
+    if (advertisedAsHostAi) {
       console.log(
         `[HOST_AI_PROVIDER_ADVERTISEMENT_READY] ` +
           JSON.stringify({
             role: 'host',
             advertised_as_host_ai: true,
             endpoint: hostPublishedEndpoint,
+            endpointKind: directLanAdvertisementReady ? 'direct_lan' : 'sealed_relay',
+            sealed_relay_ad_can_publish: sealedRelayAdCanPublish,
             endpoint_owner_device_id: currentId,
             handshake_id: diagnosticPublishHandshakeId,
             models_count: input.ollamaModelCount,
@@ -237,6 +258,8 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
             models_count: input.ollamaModelCount,
             endpoint: hostPublishedEndpoint,
             advertisement_headers_can_generate,
+            sealed_relay_ad_can_publish: sealedRelayAdCanPublish,
+            coordination_ready: coordinationReady,
           }),
       )
     }

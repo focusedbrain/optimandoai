@@ -50,8 +50,17 @@ const customMode = (partial: Partial<CustomModeDefinition>): CustomModeDefinitio
   }) as CustomModeDefinition
 
 describe('modeHasAllocatedSession', () => {
-  it('returns false for Scam Watchdog', () => {
+  it('returns false for Scam Watchdog without sessionId (seed default)', () => {
     expect(modeHasAllocatedSession(createDefaultScamWatchdogBuiltInMode())).toBe(false)
+  })
+
+  it('returns true for built-in Scam Watchdog when sessionId is attached', () => {
+    expect(
+      modeHasAllocatedSession({
+        ...createDefaultScamWatchdogBuiltInMode(),
+        sessionId: 'session_1775237973387',
+      }),
+    ).toBe(true)
   })
 
   it('returns true when sessionId is a valid orchestrator key', () => {
@@ -68,13 +77,27 @@ describe('resolveModeAllocatedSessionRun', () => {
     vi.mocked(customModesClient.list).mockReset()
   })
 
-  it('skips Scam Watchdog', async () => {
+  it('skips Scam Watchdog when sessionId is null', async () => {
     vi.mocked(customModesClient.list).mockResolvedValue({
       ok: true,
       data: [createDefaultScamWatchdogBuiltInMode()],
     })
     const r = await resolveModeAllocatedSessionRun('built-in:scam-watchdog')
-    expect(r).toEqual({ skip: true, reason: 'Scam Watchdog has no allocated session' })
+    expect(r).toEqual({ skip: true, reason: 'Mode has no allocated session' })
+  })
+
+  it('resolves session key for Scam Watchdog with attached sessionId', async () => {
+    vi.mocked(customModesClient.list).mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          ...createDefaultScamWatchdogBuiltInMode(),
+          sessionId: 'session_1775237973387',
+        },
+      ],
+    })
+    const r = await resolveModeAllocatedSessionRun('built-in:scam-watchdog')
+    expect('sessionKey' in r && r.sessionKey).toBe('session_1775237973387')
   })
 
   it('resolves session key for linked custom mode', async () => {

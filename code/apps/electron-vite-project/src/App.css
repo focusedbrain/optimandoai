@@ -4369,6 +4369,7 @@ body {
 
 /* Full-row expand/collapse — reads as footer rail, not a thin sliver */
 .bulk-card-expand-toggle {
+  position: relative;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -4389,6 +4390,27 @@ body {
   /* Span both grid columns — makes toggle a true full-row control */
   grid-column: 1 / -1;
   grid-row: 2;
+}
+
+.bulk-card-footer-actions {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  z-index: 1;
+}
+
+.bulk-card-expand-toggle-label {
+  pointer-events: none;
+}
+
+.bulk-view--compact .bulk-card-footer-actions {
+  left: 8px;
+  gap: 4px;
 }
 
 /* .bulk-card-expand-toggle--left is no longer applied; rule kept as no-op */

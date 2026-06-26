@@ -3979,12 +3979,16 @@ export default function EmailInboxBulkView({
     (messageId: string) => {
       const id = messageId.trim()
       if (!id) return
-      if (isSortingRef.current || useEmailInboxStore.getState().isSortingActive) return
-      if (bulkLazyAnalyzeQueuedRef.current.has(id)) return
-      if (bulkAnalyzeInFlightRef.current.has(id)) return
 
       const msg = displayMessagesRef.current.find((m) => m.id === id)
-      if (!msg || !bulkRowNeedsLazyAnalyze(msg, bulkAiOutputsRef.current)) return
+      const storeSorting = useEmailInboxStore.getState().isSortingActive
+      const refSorting = isSortingRef.current
+      const needsAnalyze = msg ? bulkRowNeedsLazyAnalyze(msg, bulkAiOutputsRef.current) : false
+
+      if (refSorting || storeSorting) return
+      if (bulkLazyAnalyzeQueuedRef.current.has(id)) return
+      if (bulkAnalyzeInFlightRef.current.has(id)) return
+      if (!msg || !needsAnalyze) return
 
       bulkLazyAnalyzeQueuedRef.current.add(id)
       bulkLazyAnalyzeQueueRef.current.push(id)
@@ -4001,8 +4005,8 @@ export default function EmailInboxBulkView({
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
+          const messageId = (entry.target as HTMLElement).getAttribute('data-msg-id')?.trim() ?? null
           if (!entry.isIntersecting) continue
-          const messageId = (entry.target as HTMLElement).getAttribute('data-msg-id')?.trim()
           if (messageId) enqueueBulkLazyAnalyze(messageId)
         }
       },
@@ -7000,71 +7004,6 @@ export default function EmailInboxBulkView({
                             {((output?.summary || output?.reason || msg.sort_reason) ?? '').trim().length > 120 ? '…' : ''}
                           </div>
                         ) : null}
-                        {showRowActions ? (
-                          <div
-                            style={{
-                              display: 'flex',
-                              flexWrap: 'wrap',
-                              gap: 6,
-                              alignItems: 'center',
-                              marginBottom: 6,
-                              flexShrink: 0,
-                            }}
-                          >
-                            {canRowRunAutomation ? (
-                              <InboxRunAutomationActionIcon
-                                row
-                                title="Run Automation — import and execute attached session"
-                                ariaLabel="Run Automation"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  e.preventDefault()
-                                  handleBulkRowRunAutomation(e, msg)
-                                }}
-                              />
-                            ) : null}
-                            {canShowRowReply ? (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  e.preventDefault()
-                                  handleReply(msg)
-                                }}
-                                className="inbox-action-icon-only inbox-detail-reply-icon-only"
-                                {...beapInboxReplyTooltipProps()}
-                              >
-                                <span className="inbox-detail-reply-glyph" aria-hidden>
-                                  ↩
-                                </span>
-                              </button>
-                            ) : null}
-                            {canRowRedirect ? (
-                              <InboxRedirectActionIcon
-                                row
-                                title={rowRedirectTip.title}
-                                ariaLabel={rowRedirectTip['aria-label']}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  e.preventDefault()
-                                  setBeapRedirectForMessage(msg)
-                                }}
-                              />
-                            ) : null}
-                            {canRowSandbox ? (
-                              <InboxSandboxCloneActionIcon
-                                row
-                                title={rowSandboxTip.title}
-                                ariaLabel={rowSandboxTip['aria-label']}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  e.preventDefault()
-                                  handleBulkRowSandbox(e, msg)
-                                }}
-                              />
-                            ) : null}
-                          </div>
-                        ) : null}
                       </div>
                       <div className="bulk-view-message-scroll">
                         <div
@@ -7173,6 +7112,12 @@ export default function EmailInboxBulkView({
                   <div
                     className="bulk-card-expand-toggle"
                     onClick={(e) => {
+                      if (
+                        (e.target as HTMLElement).closest('.beap-action-icon') ||
+                        (e.target as HTMLElement).closest('.inbox-action-icon-only')
+                      ) {
+                        return
+                      }
                       e.stopPropagation()
                       toggleCardExpand(msg.id)
                     }}
@@ -7186,7 +7131,69 @@ export default function EmailInboxBulkView({
                     tabIndex={0}
                     title={isCardExpanded ? 'Show less' : 'Show more'}
                   >
-                    {isCardExpanded ? '▴ Show less' : '▾ Show more'}
+                    {showRowActions ? (
+                      <div
+                        className="bulk-card-footer-actions"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                      >
+                        {canRowRunAutomation ? (
+                          <InboxRunAutomationActionIcon
+                            row
+                            title="Run Automation — import and execute attached session"
+                            ariaLabel="Run Automation"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              e.preventDefault()
+                              handleBulkRowRunAutomation(e, msg)
+                            }}
+                          />
+                        ) : null}
+                        {canShowRowReply ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              e.preventDefault()
+                              handleReply(msg)
+                            }}
+                            className="inbox-action-icon-only inbox-detail-reply-icon-only"
+                            {...beapInboxReplyTooltipProps()}
+                          >
+                            <span className="inbox-detail-reply-glyph" aria-hidden>
+                              ↩
+                            </span>
+                          </button>
+                        ) : null}
+                        {canRowRedirect ? (
+                          <InboxRedirectActionIcon
+                            row
+                            title={rowRedirectTip.title}
+                            ariaLabel={rowRedirectTip['aria-label']}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              e.preventDefault()
+                              setBeapRedirectForMessage(msg)
+                            }}
+                          />
+                        ) : null}
+                        {canRowSandbox ? (
+                          <InboxSandboxCloneActionIcon
+                            row
+                            title={rowSandboxTip.title}
+                            ariaLabel={rowSandboxTip['aria-label']}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              e.preventDefault()
+                              handleBulkRowSandbox(e, msg)
+                            }}
+                          />
+                        ) : null}
+                      </div>
+                    ) : null}
+                    <span className="bulk-card-expand-toggle-label">
+                      {isCardExpanded ? '▴ Show less' : '▾ Show more'}
+                    </span>
                   </div>
                 </div>
               )

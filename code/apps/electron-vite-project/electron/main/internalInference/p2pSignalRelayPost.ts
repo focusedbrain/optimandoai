@@ -24,6 +24,7 @@ import {
   reregisterInternalHandshakeAfterCoordinationP2pSignal403,
 } from '../p2p/relaySync'
 import type { HostAiBeapAdOllamaModelWireEntry } from './hostAiBeapAdOllamaModelCount'
+import { wireEndpointUrlForHostAiDirectBeapAd } from './hostAiDirectBeapAdWire'
 import { isUnifiedServiceRpcRelayEnabled } from './unifiedServiceRpcRelayFlags'
 import { getRegisteredHostAiUnifiedRelaySend } from './hostAiUnifiedRelayRegistration'
 
@@ -725,7 +726,7 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
   sessionId: string
   senderDeviceId: string
   receiverDeviceId: string
-  /** Retired direct-LAN ingest URL — omitted from wire when absent. */
+  /** Retired direct-LAN ingest URL — wire uses sealed-relay placeholder when absent (relay requires field). */
   endpointUrl?: string | null
   adSeq: number
   ollamaCapabilities: HostAiBeapAdSignalOllamaCapabilities
@@ -744,7 +745,6 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
   const pubW = (pub.wrdesk_user_id ?? '').trim()
   const pubIss = (pub.iss ?? '').trim()
   const pubSub = (pub.sub ?? '').trim()
-  const endpointTrim = typeof params.endpointUrl === 'string' ? params.endpointUrl.trim() : ''
   return JSON.stringify({
     schema_version: P2P_SIGNAL_WIRE_SCHEMA_VERSION,
     signal_type: 'p2p_host_ai_direct_beap_ad',
@@ -757,7 +757,7 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
     expires_at: expiresAt,
     ad_seq: params.adSeq,
     owner_role: 'host',
-    ...(endpointTrim ? { endpoint_url: endpointTrim } : {}),
+    endpoint_url: wireEndpointUrlForHostAiDirectBeapAd(params.endpointUrl),
     host_ai_route: {
       type: 'host_ai.route_advertisement',
       version: 1,

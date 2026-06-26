@@ -9,7 +9,6 @@ import {
   type CustomModeRuntimeConfig,
 } from '../shared/ui/customModeRuntime'
 import { normalizeOrchestratorSessionKey } from '../lib/resolveOrchestratorSessionKey'
-import { isScamWatchdogBuiltInMode } from '../shared/ui/scamWatchdogBuiltIn'
 import { customModesClient } from './customModesClient'
 import { fetchOrchestratorSession } from './fetchOrchestratorSession'
 import { maybePresentOrchestratorDisplayGridSession } from './presentOrchestratorDisplayGridSession'
@@ -70,9 +69,6 @@ export async function resolveModeAllocatedSessionRun(
   if (!listed.ok) return { error: listed.error || 'Could not load custom modes' }
   const def = listed.data.find((m) => m.id === id)
   if (!def) return { error: `Mode not found: ${id}` }
-  if (isScamWatchdogBuiltInMode(def)) {
-    return { skip: true, reason: 'Scam Watchdog has no allocated session' }
-  }
 
   const sessionKey = normalizeOrchestratorSessionKey(def.sessionId)
   if (!sessionKey) {
@@ -240,6 +236,6 @@ export function requestRunModeAllocatedSession(
 }
 
 export function modeHasAllocatedSession(def: CustomModeDefinition | null | undefined): boolean {
-  if (!def || isScamWatchdogBuiltInMode(def)) return false
+  if (!def) return false
   return !!normalizeOrchestratorSessionKey(def.sessionId)
 }

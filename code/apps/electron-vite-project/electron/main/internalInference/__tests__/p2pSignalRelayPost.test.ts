@@ -8,8 +8,10 @@ import {
   sendHostAiP2pSignalOutbound,
   P2P_SIGNAL_WIRE_SCHEMA_VERSION,
   buildHostAiDirectBeapAdRequestBody,
+  buildHostAiDirectBeapAdSignalBody,
   postHostAiDirectBeapAdRequestToCoordination,
 } from '../p2pSignalRelayPost'
+import { HOST_AI_DIRECT_BEAP_AD_SEALED_RELAY_ENDPOINT_PLACEHOLDER } from '../hostAiDirectBeapAdWire'
 
 const failMock = vi.fn()
 const getSessionStateMock = vi.fn(() => ({
@@ -353,6 +355,53 @@ describe('p2pSignalRelayPost', () => {
     })
     expect(failMock).not.toHaveBeenCalled()
     expect(n).toBe(3)
+  })
+
+  it('buildHostAiDirectBeapAdSignalBody: sealed-relay placeholder when direct URL absent', () => {
+    const body = buildHostAiDirectBeapAdSignalBody({
+      handshakeId: 'hs-ad',
+      sessionId: 'host_ai_beap_ad:hs-ad:1',
+      senderDeviceId: 'dev-host',
+      receiverDeviceId: 'dev-sand',
+      adSeq: 1,
+      ollamaCapabilities: {
+        provider: 'ollama',
+        models_count: 1,
+        available: true,
+        models: [],
+        active_model_id: 'm',
+        active_model_name: 'm',
+        model_source: 'test',
+        max_concurrent_local_models: 1,
+        gpu_inference_available: true,
+      },
+    })
+    const p = JSON.parse(body) as Record<string, unknown>
+    expect(p.endpoint_url).toBe(HOST_AI_DIRECT_BEAP_AD_SEALED_RELAY_ENDPOINT_PLACEHOLDER)
+  })
+
+  it('buildHostAiDirectBeapAdSignalBody: real direct URL when present', () => {
+    const direct = 'http://192.168.1.2:51249/beap/ingest'
+    const body = buildHostAiDirectBeapAdSignalBody({
+      handshakeId: 'hs-ad',
+      sessionId: 'host_ai_beap_ad:hs-ad:1',
+      senderDeviceId: 'dev-host',
+      receiverDeviceId: 'dev-sand',
+      endpointUrl: direct,
+      adSeq: 1,
+      ollamaCapabilities: {
+        provider: 'ollama',
+        models_count: 1,
+        available: true,
+        models: [],
+        active_model_id: 'm',
+        active_model_name: 'm',
+        model_source: 'test',
+        max_concurrent_local_models: 1,
+      },
+    })
+    const p = JSON.parse(body) as Record<string, unknown>
+    expect(p.endpoint_url).toBe(direct)
   })
 
   it('buildHostAiDirectBeapAdRequestBody: 90s TTL, sandbox owner_role, coordination signal_type', () => {
