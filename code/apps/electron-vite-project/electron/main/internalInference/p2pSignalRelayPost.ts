@@ -725,7 +725,8 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
   sessionId: string
   senderDeviceId: string
   receiverDeviceId: string
-  endpointUrl: string
+  /** Retired direct-LAN ingest URL — omitted from wire when absent. */
+  endpointUrl?: string | null
   adSeq: number
   ollamaCapabilities: HostAiBeapAdSignalOllamaCapabilities
   publisherIdentity?: {
@@ -743,6 +744,7 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
   const pubW = (pub.wrdesk_user_id ?? '').trim()
   const pubIss = (pub.iss ?? '').trim()
   const pubSub = (pub.sub ?? '').trim()
+  const endpointTrim = typeof params.endpointUrl === 'string' ? params.endpointUrl.trim() : ''
   return JSON.stringify({
     schema_version: P2P_SIGNAL_WIRE_SCHEMA_VERSION,
     signal_type: 'p2p_host_ai_direct_beap_ad',
@@ -755,6 +757,7 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
     expires_at: expiresAt,
     ad_seq: params.adSeq,
     owner_role: 'host',
+    ...(endpointTrim ? { endpoint_url: endpointTrim } : {}),
     host_ai_route: {
       type: 'host_ai.route_advertisement',
       version: 1,
@@ -777,7 +780,8 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
 export async function postHostAiDirectBeapAdToCoordination(params: {
   db: any
   handshakeId: string
-  endpointUrl: string
+  /** Retired direct-LAN ingest URL — omit for sealed-relay capability-only ads. */
+  endpointUrl?: string | null
   senderDeviceId: string
   receiverDeviceId: string
   adSeq: number
@@ -803,7 +807,7 @@ export async function postHostAiDirectBeapAdToCoordination(params: {
     sessionId,
     senderDeviceId: params.senderDeviceId.trim(),
     receiverDeviceId: params.receiverDeviceId.trim(),
-    endpointUrl: params.endpointUrl.trim(),
+    endpointUrl: params.endpointUrl?.trim() || undefined,
     adSeq: params.adSeq,
     ollamaCapabilities: params.ollamaCapabilities,
     publisherIdentity: params.publisherIdentity,

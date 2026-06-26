@@ -415,6 +415,87 @@ export interface ElectronRpcResponse {
  *
  * @returns true if the message was handled (keeps channel open for async)
  */
+/**
+ * Core RPC dispatch (registry lookup, schema validation, localhost fetch).
+ * Used by MV3 background (`handleElectronRpc`) and dashboard chrome shim.
+ */
+export async function executeElectronRpcRequest(
+  msg: Pick<ElectronRpcRequest, 'method' | 'params' | 'timeout'>,
+  launchSecret: string | null,
+  electronBaseUrl: string,
+): Promise<ElectronRpcResponse> {
+  const def = REGISTRY_MAP.get(msg.method)
+  if (!def) {
+    console.warn(`[RPC] Rejected: unknown method "${msg.method}"`)
+    return { success: false, error: `Unknown RPC method: ${msg.method}` }
+  }
+
+  let validatedParams: unknown = undefined
+  if ('parse' in def.schema && def.schema !== z.void()) {
+    const result = (def.schema as z.ZodType).safeParse(msg.params)
+    if (!result.success) {
+      const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+      console.warn(`[RPC] Rejected: schema validation failed for "${msg.method}": ${issues}`)
+      return { success: false, error: `Invalid params: ${issues}` }
+    }
+    validatedParams = result.data
+  }
+
+  try {
+    let url: string
+    if ('build' in def && typeof def.build === 'function') {
+      url = `${electronBaseUrl}${(def.build as (p: unknown) => string)(validatedParams)}`
+    } else if ('route' in def) {
+      url = `${electronBaseUrl}${(def as { route: string }).route}`
+    } else {
+      return { success: false, error: 'Internal: no route defined' }
+    }
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (launchSecret) {
+      headers['X-Launch-Secret'] = launchSecret
+    }
+
+    const fetchOptions: RequestInit = {
+      method: def.http,
+      headers,
+      signal: AbortSignal.timeout(msg.timeout ?? 15000),
+    }
+
+    if (def.http !== 'GET' && def.http !== 'DELETE' && validatedParams !== undefined) {
+      if (def.http === 'PATCH' && def.method === 'customModes.update') {
+        const p = validatedParams as { id?: string; patch?: unknown }
+        fetchOptions.body = JSON.stringify({ patch: p.patch ?? {} })
+      } else {
+        fetchOptions.body = JSON.stringify(validatedParams)
+      }
+    }
+    if (def.http === 'POST' && validatedParams !== undefined) {
+      fetchOptions.body = JSON.stringify(validatedParams)
+    }
+
+    const response = await fetch(url, fetchOptions)
+    const text = await response.text()
+    let data: unknown
+    try {
+      data = JSON.parse(text)
+    } catch {
+      data = text
+    }
+
+    return {
+      success: response.ok,
+      status: response.status,
+      data,
+      error: response.ok ? undefined : `HTTP ${response.status}`,
+    }
+  } catch (e: unknown) {
+    const error = e instanceof Error ? e.message : String(e)
+    console.error(`[RPC] Error in "${msg.method}":`, error)
+    return { success: false, error }
+  }
+}
+
 export function handleElectronRpc(
   msg: ElectronRpcRequest,
   sender: chrome.runtime.MessageSender,
@@ -429,85 +510,7 @@ export function handleElectronRpc(
     return true
   }
 
-  // ── Gate 2: Method lookup ──
-  const def = REGISTRY_MAP.get(msg.method)
-  if (!def) {
-    console.warn(`[RPC] Rejected: unknown method "${msg.method}"`)
-    sendResponse({ success: false, error: `Unknown RPC method: ${msg.method}` })
-    return true
-  }
-
-  // ── Gate 3: Schema validation ──
-  let validatedParams: unknown = undefined
-  if ('parse' in def.schema && def.schema !== z.void()) {
-    const result = (def.schema as z.ZodType).safeParse(msg.params)
-    if (!result.success) {
-      const issues = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')
-      console.warn(`[RPC] Rejected: schema validation failed for "${msg.method}": ${issues}`)
-      sendResponse({ success: false, error: `Invalid params: ${issues}` })
-      return true
-    }
-    validatedParams = result.data
-  }
-
-  // ── Dispatch (async) ──
-  ;(async () => {
-    try {
-      // Build URL from hardcoded route or build function — NEVER from caller input
-      let url: string
-      if ('build' in def && typeof def.build === 'function') {
-        url = `${electronBaseUrl}${(def.build as (p: any) => string)(validatedParams)}`
-      } else if ('route' in def) {
-        url = `${electronBaseUrl}${(def as { route: string }).route}`
-      } else {
-        sendResponse({ success: false, error: 'Internal: no route defined' })
-        return
-      }
-
-      // Build headers — launch secret injected here, never exposed to caller
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (launchSecret) {
-        headers['X-Launch-Secret'] = launchSecret
-      }
-
-      const fetchOptions: RequestInit = {
-        method: def.http,
-        headers,
-        signal: AbortSignal.timeout(msg.timeout ?? 15000),
-      }
-
-      // Attach body for POST/PUT/PATCH (from validated params, not raw input)
-      if (def.http !== 'GET' && def.http !== 'DELETE' && validatedParams !== undefined) {
-        if (def.http === 'PATCH' && def.method === 'customModes.update') {
-          const p = validatedParams as { id?: string; patch?: unknown }
-          fetchOptions.body = JSON.stringify({ patch: p.patch ?? {} })
-        } else {
-          fetchOptions.body = JSON.stringify(validatedParams)
-        }
-      }
-      // POST with body from validated params
-      if (def.http === 'POST' && validatedParams !== undefined) {
-        fetchOptions.body = JSON.stringify(validatedParams)
-      }
-
-      const response = await fetch(url, fetchOptions)
-      const text = await response.text()
-      let data: unknown
-      try { data = JSON.parse(text) } catch { data = text }
-
-      sendResponse({
-        success: response.ok,
-        status: response.status,
-        data,
-        error: response.ok ? undefined : `HTTP ${response.status}`,
-      })
-    } catch (e: unknown) {
-      const error = e instanceof Error ? e.message : String(e)
-      console.error(`[RPC] Error in "${msg.method}":`, error)
-      sendResponse({ success: false, error })
-    }
-  })()
-
+  void executeElectronRpcRequest(msg, launchSecret, electronBaseUrl).then(sendResponse)
   return true // Keep channel open for async response
 }
 

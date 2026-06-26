@@ -1,10 +1,9 @@
 /**
  * Host-only: push authenticated `p2p_host_ai_direct_beap_ad` over coordination so the peer sandbox
- * learns the host LAN BEAP ingest **before** the first HTTP capability probe (bootstrap).
+ * learns Host Ollama capabilities (model roster, `gpu_inference_available`) via the sealed-relay plane.
  *
- * Gating matches {@link buildHostAiProviderAdvertisementPayload}: ledger `effective_host_ai_role === 'host'`,
- * policy, local Ollama models, MVP LAN listener URL, and outbound `X-BEAP-*` advertisement headers — never publishes
- * from a sandbox-derived ledger identity.
+ * Direct-LAN ingest is retired; publish is gated on coordination + ledger host role + policy + Ollama models —
+ * not on a local MVP direct BEAP listener URL.
  */
 
 import { listHandshakeRecords } from '../handshake/db'
@@ -110,11 +109,13 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
   const coordinationReady = Boolean(cfg.use_coordination && cfg.coordination_url?.trim())
   const policyRes = resolveHostAiRemoteInferencePolicy(canonDb)
   const endpointRepair = await import('./p2pEndpointRepair')
+  /** Retired direct-LAN ingest — omitted from relay ads; sealed relay carries capabilities. */
   const directUrl = endpointRepair.getHostPublishedMvpDirectP2pIngestUrl(canonDb)
-  const p2pEndpointReady = Boolean(directUrl?.trim())
+  const directLanEndpointPresent = Boolean(directUrl?.trim())
+  const sealedRelayPublishReady = coordinationReady
   logHostAiRemotePolicyDecision(canonDb, policyRes, {
     context: input.context,
-    endpointPresent: p2pEndpointReady,
+    endpointPresent: directLanEndpointPresent,
     canonDbUsed: true,
   })
   const ledger = getHostAiLedgerRoleSummaryFromDb(canonDb, localId, modeHint)
@@ -136,9 +137,10 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
       peerDeviceId: null as string | null,
       effectiveHostAiRole: effectiveRole,
       can_publish_host_endpoint: canPublish,
-      p2pEndpointReady,
-      directBeapUrlPresent: p2pEndpointReady,
+      p2pEndpointReady: sealedRelayPublishReady,
+      directBeapUrlPresent: directLanEndpointPresent,
       coordinationReady,
+      publishPlane: 'sealed_relay',
       ollamaOk: null,
       modelsCount: null,
       skipReason,
@@ -160,9 +162,10 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
       peerDeviceId: null,
       effectiveHostAiRole: effectiveRole,
       can_publish_host_endpoint: canPublish,
-      p2pEndpointReady,
-      directBeapUrlPresent: p2pEndpointReady,
+      p2pEndpointReady: false,
+      directBeapUrlPresent: directLanEndpointPresent,
       coordinationReady: false,
+      publishPlane: 'sealed_relay',
       ollamaOk: null,
       modelsCount: null,
       skipReason: 'coordination_unavailable',
@@ -170,28 +173,6 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
       context: input.context,
     })
     scheduleHostAiBeapAdRepublishRetry(canonDb, 'no_coordination')
-    return
-  }
-
-  if (!directUrl) {
-    console.log(
-      `[HOST_AI_HOST_BEAP_AD_PUBLISH] ${JSON.stringify({
-        handshakeId: null,
-        localDeviceId: localId,
-        peerDeviceId: null,
-        effectiveHostAiRole: effectiveRole,
-        can_publish_host_endpoint: canPublish,
-        p2pEndpointReady: false,
-        directBeapUrlPresent: false,
-        coordinationReady,
-        ollamaOk: null,
-        modelsCount: null,
-        skipReason: 'no_mvp_direct_endpoint',
-        published: false,
-        context: input.context,
-      })}`,
-    )
-    scheduleHostAiBeapAdRepublishRetry(canonDb, 'no_mvp_direct_endpoint')
     return
   }
 
@@ -203,9 +184,10 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         peerDeviceId: null,
         effectiveHostAiRole: effectiveRole,
         can_publish_host_endpoint: canPublish,
-        p2pEndpointReady,
-        directBeapUrlPresent: true,
+        p2pEndpointReady: sealedRelayPublishReady,
+        directBeapUrlPresent: directLanEndpointPresent,
         coordinationReady,
+        publishPlane: 'sealed_relay',
         ollamaOk: null,
         modelsCount: null,
         skipReason: 'effective_role_not_exclusive_host',
@@ -224,9 +206,10 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         peerDeviceId: null,
         effectiveHostAiRole: effectiveRole,
         can_publish_host_endpoint: false,
-        p2pEndpointReady,
-        directBeapUrlPresent: true,
+        p2pEndpointReady: sealedRelayPublishReady,
+        directBeapUrlPresent: directLanEndpointPresent,
         coordinationReady,
+        publishPlane: 'sealed_relay',
         ollamaOk: null,
         modelsCount: null,
         skipReason: 'cannot_publish_host_endpoint',
@@ -234,31 +217,6 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         context: input.context,
       })}`,
     )
-    return
-  }
-
-  const hdrs = endpointRepair.hostDirectP2pAdvertisementHeaders(canonDb)
-  const headerVal = hdrs[endpointRepair.P2P_DIRECT_P2P_ENDPOINT_HEADER]
-  const hasHeader = typeof headerVal === 'string' && headerVal.trim().length > 0
-  if (!hasHeader) {
-    console.log(
-      `[HOST_AI_HOST_BEAP_AD_PUBLISH] ${JSON.stringify({
-        handshakeId: null,
-        localDeviceId: localId,
-        peerDeviceId: null,
-        effectiveHostAiRole: effectiveRole,
-        can_publish_host_endpoint: canPublish,
-        p2pEndpointReady,
-        directBeapUrlPresent: true,
-        coordinationReady,
-        ollamaOk: null,
-        modelsCount: null,
-        skipReason: 'no_beap_endpoint_header',
-        published: false,
-        context: input.context,
-      })}`,
-    )
-    scheduleHostAiBeapAdRepublishRetry(canonDb, 'no_beap_endpoint_header')
     return
   }
 
@@ -284,9 +242,10 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         peerDeviceId: null,
         effectiveHostAiRole: effectiveRole,
         can_publish_host_endpoint: canPublish,
-        p2pEndpointReady,
-        directBeapUrlPresent: true,
+        p2pEndpointReady: sealedRelayPublishReady,
+        directBeapUrlPresent: directLanEndpointPresent,
         coordinationReady,
+        publishPlane: 'sealed_relay',
         ollamaOk: ollama.ollama_ok,
         modelsCount: ollama.models_count,
         skipReason: 'ollama_models_gate',
@@ -362,9 +321,10 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         peerDeviceId: peerCoord || null,
         effectiveHostAiRole: effectiveRole,
         can_publish_host_endpoint: canPublish,
-        p2pEndpointReady,
-        directBeapUrlPresent: true,
+        p2pEndpointReady: sealedRelayPublishReady,
+        directBeapUrlPresent: directLanEndpointPresent,
         coordinationReady,
+        publishPlane: 'sealed_relay',
         ollamaOk: ollama.ollama_ok,
         modelsCount: ollama.models_count,
         skipReason: null,
@@ -376,7 +336,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
     const res = await postHostAiDirectBeapAdToCoordination({
       db: canonDb,
       handshakeId: hid,
-      endpointUrl: directUrl,
+      endpointUrl: directUrl ?? undefined,
       senderDeviceId: dr.localCoordinationDeviceId,
       receiverDeviceId: dr.peerCoordinationDeviceId,
       adSeq: seq,
@@ -400,9 +360,10 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         peerDeviceId: peerCoord || null,
         effectiveHostAiRole: effectiveRole,
         can_publish_host_endpoint: canPublish,
-        p2pEndpointReady,
-        directBeapUrlPresent: true,
+        p2pEndpointReady: sealedRelayPublishReady,
+        directBeapUrlPresent: directLanEndpointPresent,
         coordinationReady,
+        publishPlane: 'sealed_relay',
         ollamaOk: ollama.ollama_ok,
         modelsCount: ollama.models_count,
         skipReason: relayOk ? null : `relay_post_${res.status}`,
@@ -414,12 +375,14 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
     if (relayOk) {
       published += 1
       const ttlMs = 300_000
+      const endpointKind = directLanEndpointPresent ? 'direct_lan' : 'sealed_relay'
       console.log(
         `[HOST_AI_HOST_BEAP_AD_PUBLISHED] ${JSON.stringify({
           handshakeId: hid,
           endpointOwnerDeviceId: dr.localCoordinationDeviceId,
-          endpoint: directUrl,
-          endpointKind: 'direct_lan',
+          endpoint: directUrl ?? null,
+          endpointKind,
+          gpu_inference_available: hostGpuAvailable,
           modelsCount: ollama.models_count,
           ttlMs,
           context: input.context,
@@ -430,7 +393,9 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         `[HOST_AI_PROVIDER_ADVERTISEMENT] published host_direct_beap_ad ${JSON.stringify({
           handshake_id: hid,
           ad_seq: seq,
-          endpoint_url: directUrl,
+          endpoint_url: directUrl ?? null,
+          endpointKind,
+          gpu_inference_available: hostGpuAvailable,
           context: input.context,
           relay_status: res.status,
           models_count: ollama.models_count,
@@ -442,7 +407,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
     republishRetryAttempts = 0
     clearHostAiBeapRepublishTimer()
     console.log(
-      `[HOST_AI_HOST_BEAP_AD_PUBLISH] done count=${published} context=${input.context} endpoint=${directUrl}`,
+      `[HOST_AI_HOST_BEAP_AD_PUBLISH] done count=${published} context=${input.context} plane=sealed_relay direct_lan_endpoint=${directUrl ?? 'none'}`,
     )
   } else if (attemptedPost > 0 && republishTimer == null) {
     scheduleHostAiBeapAdRepublishRetry(canonDb, 'all_relay_posts_failed')

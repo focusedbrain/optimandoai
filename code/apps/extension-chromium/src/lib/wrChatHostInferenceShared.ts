@@ -10,7 +10,11 @@ import {
   isHostInternalChatModelId,
 } from './inferenceSubmitRouting'
 
-export type WrChatSubmitOrigin = 'dashboard_wrchat' | 'sidebar_wrchat' | 'popup_wrchat'
+export type WrChatSubmitOrigin =
+  | 'dashboard_wrchat'
+  | 'sidebar_wrchat'
+  | 'popup_wrchat'
+  | 'mode_run_agent'
 
 export type ResolvedWrChatExecutionTransport =
   | 'host_cross_device'

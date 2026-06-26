@@ -12,6 +12,7 @@ import {
   applyHostAiDirectBeapAdFromRelayPayload,
   peekHostAdvertisedMvpDirectEntry,
   peekHostAdvertisedMvpDirectP2pEndpoint,
+  peekHostGpuInferenceAvailableFromRelay,
   resetHostAdvertisedMvpDirectForTests,
   resetP2pEndpointRepairSessionGates,
   resolveSandboxToHostHttpDirectIngest,
@@ -316,6 +317,31 @@ describe('applyHostAiDirectBeapAdFromRelayPayload', () => {
     const ent = peekHostAdvertisedMvpDirectEntry('hs-apply')
     expect(ent?.ollamaRoster?.active_model_id).toBe('gemma2:12b')
     expect(ent?.ollamaRoster?.models).toHaveLength(2)
+  })
+
+  it('accepts sealed-relay capability-only ad without endpoint_url (direct-LAN retired)', () => {
+    vi.mocked(getHandshakeRecord).mockReturnValue(relayRow('hs-apply') as any)
+    const capabilityOnly = basePayload({
+      endpoint_url: undefined,
+      host_ai_route: {
+        type: 'host_ai.route_advertisement',
+        capabilities: {
+          provider: 'ollama',
+          models_count: 1,
+          available: true,
+          models: [{ id: 'gemma2:12b', name: 'gemma2:12b', provider: 'ollama', available: true, active: true }],
+          active_model_id: 'gemma2:12b',
+          active_model_name: 'gemma2:12b',
+          model_source: 'test',
+          max_concurrent_local_models: 1,
+          gpu_inference_available: true,
+        },
+      },
+    })
+    const r = applyHostAiDirectBeapAdFromRelayPayload(db, capabilityOnly as any, 'rm-cap-only')
+    expect(r).toEqual({ ok: true })
+    expect(peekHostAdvertisedMvpDirectP2pEndpoint('hs-apply')).toBeNull()
+    expect(peekHostGpuInferenceAvailableFromRelay('hs-apply')).toBe(true)
   })
 
   it('rejects stale ad_seq', () => {

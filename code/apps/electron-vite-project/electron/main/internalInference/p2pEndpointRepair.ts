@@ -873,20 +873,6 @@ export function applyHostAiDirectBeapAdFromRelayPayload(
       return { ok: false, reason: 'expired' }
     }
   }
-  if (!advRaw) {
-    console.log(`[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'no_endpoint_url', relayMessageId })}`)
-    return { ok: false, reason: 'no_endpoint_url' }
-  }
-  if (p2pEndpointMvpClass(db, advRaw) !== 'direct_lan') {
-    console.log(`[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'not_mvp_direct', relayMessageId })}`)
-    return { ok: false, reason: 'not_mvp_direct' }
-  }
-  if (ingestUrlMatchesThisDevicesMvpDirectBeap(db, advRaw)) {
-    console.log(
-      `[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'same_as_local_sandbox_beap', relayMessageId })}`,
-    )
-    return { ok: false, reason: 'same_as_local_sandbox_beap' }
-  }
   const r0 = getHandshakeRecord(db, hid)
   const ar = assertRecordForServiceRpc(r0)
   if (!ar.ok) {
@@ -914,8 +900,27 @@ export function applyHostAiDirectBeapAdFromRelayPayload(
     console.log(`[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'owner_role_not_host', relayMessageId })}`)
     return { ok: false, reason: 'owner_role' }
   }
-  hostAiRelayBeapAdLastSeq.set(hid, adSeq)
   const ollamaRoster = parseHostAiOllamaRosterFromRelayHostAiRoute(raw)
+  const capabilityOnlyAd = !advRaw
+  if (capabilityOnlyAd && !ollamaRoster) {
+    console.log(
+      `[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'no_endpoint_or_capabilities', relayMessageId })}`,
+    )
+    return { ok: false, reason: 'no_endpoint_or_capabilities' }
+  }
+  if (advRaw) {
+    if (p2pEndpointMvpClass(db, advRaw) !== 'direct_lan') {
+      console.log(`[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'not_mvp_direct', relayMessageId })}`)
+      return { ok: false, reason: 'not_mvp_direct' }
+    }
+    if (ingestUrlMatchesThisDevicesMvpDirectBeap(db, advRaw)) {
+      console.log(
+        `[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'same_as_local_sandbox_beap', relayMessageId })}`,
+      )
+      return { ok: false, reason: 'same_as_local_sandbox_beap' }
+    }
+  }
+  hostAiRelayBeapAdLastSeq.set(hid, adSeq)
   if (ollamaRoster) {
     console.log(
       `[HOST_AI_MODEL_ROSTER_RECEIVED] ${JSON.stringify({
@@ -923,39 +928,46 @@ export function applyHostAiDirectBeapAdFromRelayPayload(
         hostDeviceId: expectHost,
         models: ollamaRoster.models.map((m) => m.name),
         activeModelId: ollamaRoster.active_model_id,
+        gpuInferenceAvailable: ollamaRoster.gpu_inference_available,
         source: 'relay_beap_ad',
       })}`,
     )
   }
   hostAdvertisedMvpDirectByHandshake.set(hid, {
-    url: normalizeP2pIngestUrl(advRaw),
+    url: advRaw ? normalizeP2pIngestUrl(advRaw) : '',
     ownerDeviceId: expectHost,
     adSource: 'relay',
     ollamaRoster: ollamaRoster ?? null,
   })
   tryRecordHostPeerLivePresenceFromRelayAd(hid, ar.record, raw)
-  const r = ar.record
-  const current = (r.p2p_endpoint ?? '').trim()
-  const newNorm = normalizeP2pIngestUrl(advRaw)
-  const oldNorm = current ? normalizeP2pIngestUrl(current) : ''
-  const dbUpdated = newNorm !== oldNorm
-  if (dbUpdated) {
-    const oldKind = kindForLog(db, current || null)
-    const newKind = kindForLog(db, advRaw)
-    console.log(
-      `[HOST_INFERENCE_P2P] endpoint_relay_ad_repair_begin handshake=${hid} old=${oldKind} new=${newKind}`,
-    )
-    const next: HandshakeRecord = { ...r, p2p_endpoint: newNorm }
-    updateHandshakeRecord(db, next)
+  let dbUpdated = false
+  let endpointKind: 'direct_lan' | 'sealed_relay' = capabilityOnlyAd ? 'sealed_relay' : 'direct_lan'
+  let acceptedEndpoint: string | null = capabilityOnlyAd ? null : normalizeP2pIngestUrl(advRaw)
+  if (advRaw) {
+    const r = ar.record
+    const current = (r.p2p_endpoint ?? '').trim()
+    const newNorm = normalizeP2pIngestUrl(advRaw)
+    const oldNorm = current ? normalizeP2pIngestUrl(current) : ''
+    dbUpdated = newNorm !== oldNorm
+    if (dbUpdated) {
+      const oldKind = kindForLog(db, current || null)
+      const newKind = kindForLog(db, advRaw)
+      console.log(
+        `[HOST_INFERENCE_P2P] endpoint_relay_ad_repair_begin handshake=${hid} old=${oldKind} new=${newKind}`,
+      )
+      const next: HandshakeRecord = { ...r, p2p_endpoint: newNorm }
+      updateHandshakeRecord(db, next)
+    }
+    acceptedEndpoint = newNorm
   }
   invalidateP2pEnsureCachesForHandshake(hid)
   console.log(
     `[HOST_AI_ENDPOINT_AD_ACCEPTED] ${JSON.stringify({
       handshakeId: hid,
       ownerDeviceId: expectHost,
-      endpointKind: 'direct_lan',
+      endpointKind,
       dbUpdated,
-      endpoint: newNorm,
+      endpoint: acceptedEndpoint,
       seq: adSeq,
       relayMessageId,
     })}`,

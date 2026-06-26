@@ -53,6 +53,13 @@ interface AnalysisDashboardBridge {
     sessionKey: string,
     session?: Record<string, unknown>,
     source?: string,
+    options?: {
+      pendingModeSessionRun?: {
+        fallbackModel: string
+        modeRuntime: Record<string, unknown>
+        modeId: string
+      }
+    },
   ) => void
   /** Relay live Agent Box refresh to extension after dashboard WR Chat persists output (matches MV3 background broadcast). */
   relayAgentBoxOutputLive: (data: {

@@ -8,9 +8,22 @@
 
 import type { WrChatSurface } from '../ui/components/wrChatSurface'
 import type { WrChatSelectorRow } from '../lib/wrChatModelsFromLlmStatus'
+import { buildWrChatSelectorModelsFromLlmStatus } from '../lib/wrChatModelsFromLlmStatus'
 import type { CustomModeRuntimeConfig } from '../shared/ui/customModeRuntime'
 import { runAgentBoxInferencePreSend } from '../lib/agentBoxInferencePreSend'
 import { buildInferenceContextPrefix } from '../lib/globalSessionContextLlmPrefix'
+import { isHostInferenceRouteId, parseAnyHostInferenceModelId } from '../lib/hostInferenceRouteIds'
+import {
+  formatInternalInferenceErrorCode,
+  getRequestHostCompletion,
+  isHostInternalChatModelId,
+} from '../lib/inferenceSubmitRouting'
+import {
+  logWrChatInferenceRoutingPreflight,
+  postWrChatHostInternalCompletionHttp,
+  resolveWrChatExecutionTransport,
+  wrChatHostInternalWireModel,
+} from '../lib/wrChatHostInferenceShared'
 import { prependHiddenContextToLastUserContent } from '../utils/prependChatFocusToLastUser'
 import { ensureLaunchSecretForElectronHttp } from './ensureLaunchSecretForElectronHttp'
 import {
@@ -23,6 +36,7 @@ import {
   updateAgentBoxOutput,
   type AgentMatch,
   type BrainResolution,
+  type LlmRequestBody,
 } from './processFlow'
 
 const DEFAULT_LLM_BASE = 'http://127.0.0.1:51248'
@@ -95,9 +109,178 @@ export type ExecuteModeRunAgentsOptions = {
   runMode?: boolean
 }
 
+/** Mode allocated model when set; otherwise WR Chat fallback (mirrors `getEffectiveLlmModelNameForActiveMode`). */
+export function resolveModeRunWrchatModelId(
+  modeRuntime: CustomModeRuntimeConfig | null | undefined,
+  fallbackModel: string,
+): string {
+  const allocated = modeRuntime?.modelName?.trim()
+  if (allocated) return allocated
+  return fallbackModel.trim()
+}
+
+/** WR Chat selector rows for Host AI routing (`llm.status` / GET `/api/llm/status`). */
+export async function fetchWrChatAvailableModelsForModeRun(
+  baseUrl: string = DEFAULT_LLM_BASE,
+  getFetchHeaders: () => Promise<Record<string, string>> = defaultGetFetchHeaders,
+): Promise<WrChatSelectorRow[]> {
+  try {
+    const headers = await getFetchHeaders()
+    const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/llm/status`, {
+      method: 'GET',
+      headers,
+      signal: AbortSignal.timeout(20_000),
+    })
+    if (!res.ok) return []
+    const j = (await res.json()) as { ok?: boolean; data?: Parameters<typeof buildWrChatSelectorModelsFromLlmStatus>[0] }
+    if (!j.ok || !j.data) return []
+    return buildWrChatSelectorModelsFromLlmStatus(j.data)
+  } catch {
+    return []
+  }
+}
+
+function resolveModeRunHostRouteModelId(
+  wrchatModelId: string,
+  resolvedModelId: string,
+  availableModels?: readonly WrChatSelectorRow[],
+): string | null {
+  const wr = wrchatModelId.trim()
+  const resolved = resolvedModelId.trim()
+  if (wr && isHostInternalChatModelId(wr, availableModels)) return wr
+  if (resolved && isHostInternalChatModelId(resolved, availableModels)) return resolved
+  if (resolved && isHostInferenceRouteId(resolved)) return resolved
+  if (wr && isHostInferenceRouteId(wr)) return wr
+  return null
+}
+
+type ModeRunLlmSubmitResult = { ok: true; content: string } | { ok: false; error: string }
+
+/** Host AI (sealed relay / IPC) or local/cloud HTTP — same resolution family as WR Chat. */
+async function submitModeRunAgentLlm(args: {
+  hostRouteModelId: string | null
+  llmMessages: Array<{ role: string; content: string }>
+  llmBody: LlmRequestBody
+  availableModels: readonly WrChatSelectorRow[]
+  baseUrl: string
+  getFetchHeaders: () => Promise<Record<string, string>>
+  signal?: AbortSignal
+}): Promise<ModeRunLlmSubmitResult> {
+  const { hostRouteModelId, llmMessages, llmBody, availableModels, baseUrl, getFetchHeaders, signal } = args
+
+  if (hostRouteModelId) {
+    const row = availableModels.find((m) => m.name === hostRouteModelId)
+    const parsed = parseAnyHostInferenceModelId(hostRouteModelId)
+    if (!parsed?.handshakeId) {
+      return { ok: false, error: 'That Host model id is not recognized. Select Host AI again in the model menu.' }
+    }
+    if (row?.hostAi && row.hostAvailable === false) {
+      return {
+        ok: false,
+        error:
+          'This Host model is not available. Pick another model or check the model and AI settings on the Host machine.',
+      }
+    }
+
+    const wireModel = wrChatHostInternalWireModel(parsed, row)
+    const execution_transport =
+      row?.execution_transport === 'ollama_direct' ? ('ollama_direct' as const) : undefined
+    const hostMessages = llmMessages.map((m) => ({
+      role: m.role as 'system' | 'user' | 'assistant',
+      content: m.content,
+    }))
+
+    const runHost =
+      typeof globalThis !== 'undefined'
+        ? getRequestHostCompletion(globalThis as unknown as Window)
+        : undefined
+
+    if (runHost) {
+      logWrChatInferenceRoutingPreflight({
+        origin: 'mode_run_agent',
+        selectedModelId: hostRouteModelId,
+        resolvedExecutionTransport: resolveWrChatExecutionTransport(hostRouteModelId, availableModels),
+        inferencePath: 'host_internal_ipc',
+        modelSent: wireModel ?? parsed.model ?? null,
+        hostTargetId: hostRouteModelId,
+        handshakeId: parsed.handshakeId,
+        execution_transport: execution_transport ?? 'beap',
+        fallbackUsed: false,
+      })
+      try {
+        const r = (await runHost({
+          targetId: hostRouteModelId,
+          handshakeId: parsed.handshakeId,
+          messages: hostMessages,
+          model: wireModel,
+          timeoutMs: 120_000,
+          execution_transport,
+        })) as { ok?: boolean; output?: string; code?: string; message?: string }
+        if (r && r.ok === true && typeof r.output === 'string') {
+          return { ok: true, content: r.output }
+        }
+        const er = r as { code?: string; message?: string }
+        return {
+          ok: false,
+          error: formatInternalInferenceErrorCode(er.code, er.message ?? 'Host inference failed'),
+        }
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : 'Host inference failed' }
+      }
+    }
+
+    logWrChatInferenceRoutingPreflight({
+      origin: 'mode_run_agent',
+      selectedModelId: hostRouteModelId,
+      resolvedExecutionTransport: resolveWrChatExecutionTransport(hostRouteModelId, availableModels),
+      inferencePath: 'host_internal_http',
+      modelSent: wireModel ?? parsed.model ?? null,
+      hostTargetId: hostRouteModelId,
+      handshakeId: parsed.handshakeId,
+      execution_transport: execution_transport ?? 'beap',
+      fallbackUsed: false,
+    })
+
+    const headers = await getFetchHeaders()
+    const post = await postWrChatHostInternalCompletionHttp({
+      baseUrl,
+      headers,
+      handshakeId: parsed.handshakeId,
+      messages: hostMessages,
+      model: wireModel,
+      execution_transport,
+      timeoutMs: 120_000,
+      targetId: hostRouteModelId,
+      debugWrchatOrigin: 'mode_run_agent',
+    })
+    if (post.ok) return { ok: true, content: post.output }
+    return { ok: false, error: formatInternalInferenceErrorCode(post.code, post.message) }
+  }
+
+  const headers = await getFetchHeaders()
+  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/llm/chat`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(llmBody),
+    signal: signal ?? AbortSignal.timeout(600_000),
+  })
+
+  if (!response.ok) {
+    const errBody = await response.json().catch(() => ({}))
+    const err = (errBody as { error?: string }).error || 'LLM request failed'
+    return { ok: false, error: err }
+  }
+
+  const result = await response.json()
+  if (result.ok && result.data?.content) {
+    return { ok: true, content: result.data.content as string }
+  }
+  return { ok: false, error: 'No output from LLM' }
+}
+
 /**
  * 1) `matchAgentsForModeRun` — mode/session gate + `mode_trigger` only.
- * 2) For each match, load agent config and call `/api/llm/chat` like sidepanel `processWithAgent`.
+ * 2) For each match, run the same Host AI / local / cloud resolution as WR Chat (not sandbox-only HTTP chat).
  */
 export async function executeModeRunAgents(
   options: ExecuteModeRunAgentsOptions,
@@ -261,40 +444,42 @@ async function runAgentMatchLlm(p: RunOneParams): Promise<ModeRunAgentExecutionR
 
     if (p.beforeEachLlmCall) await p.beforeEachLlmCall()
 
-    const headers = await p.getFetchHeaders()
-    const response: Response = await fetch(`${baseUrl}/api/llm/chat`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(llmBody),
-      signal: p.signal ?? AbortSignal.timeout(600_000),
+    const resolvedModelId = (llmBody as { modelId: string }).modelId
+    const hostRouteModelId = resolveModeRunHostRouteModelId(
+      wrchat,
+      resolvedModelId,
+      p.availableModels,
+    )
+
+    const llmResult = await submitModeRunAgentLlm({
+      hostRouteModelId,
+      llmMessages,
+      llmBody,
+      availableModels: p.availableModels ?? [],
+      baseUrl,
+      getFetchHeaders: p.getFetchHeaders,
+      signal: p.signal,
     })
 
-    if (!response.ok) {
-      const errBody = await response.json().catch(() => ({}))
-      const err = (errBody as { error?: string }).error || 'LLM request failed'
-      return { ...baseResult, success: false, error: err }
+    if (!llmResult.ok) {
+      return { ...baseResult, success: false, error: llmResult.error }
     }
 
-    const result = await response.json()
-    if (result.ok && result.data?.content) {
-      const output = result.data.content as string
-      const allBoxIds =
-        match.targetBoxIds && match.targetBoxIds.length > 0
-          ? match.targetBoxIds
-          : match.agentBoxId
-            ? [match.agentBoxId]
-            : []
+    const output = llmResult.content
+    const allBoxIds =
+      match.targetBoxIds && match.targetBoxIds.length > 0
+        ? match.targetBoxIds
+        : match.agentBoxId
+          ? [match.agentBoxId]
+          : []
 
-      const reasoningMeta = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${inputText || '(mode run)'}`
+    const reasoningMeta = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${inputText || '(mode run)'}`
 
-      for (const boxId of allBoxIds) {
-        await updateAgentBoxOutput(boxId, output, reasoningMeta, sessionKey, p.sourceSurface)
-      }
-
-      return { ...baseResult, success: true, output }
+    for (const boxId of allBoxIds) {
+      await updateAgentBoxOutput(boxId, output, reasoningMeta, sessionKey, p.sourceSurface)
     }
 
-    return { ...baseResult, success: false, error: 'No output from LLM' }
+    return { ...baseResult, success: true, output }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Agent processing failed'
     return { ...baseResult, success: false, error: message }

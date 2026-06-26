@@ -17,6 +17,35 @@ export class SandboxFetchUnsupportedProviderError extends Error {
   }
 }
 
+export type SandboxFetchFailureKind =
+  | 'unsupported_provider'
+  | 'oauth_client_id_missing'
+  | 'oauth_refresh_failed'
+  | 'other'
+
+/** Rig diagnosis: classify fetchOpaque throws for sandbox sync banner triage. */
+export function classifySandboxFetchFailure(err: unknown): {
+  kind: SandboxFetchFailureKind
+  message: string
+} {
+  if (err instanceof SandboxFetchUnsupportedProviderError) {
+    return { kind: 'unsupported_provider', message: err.message }
+  }
+  const message = err instanceof Error ? err.message : String(err)
+  const lower = message.toLowerCase()
+  if (lower.includes('missing oauth client id') || lower.includes('missing credentials')) {
+    return { kind: 'oauth_client_id_missing', message }
+  }
+  if (
+    lower.includes('invalid_grant') ||
+    lower.includes('token refresh failed') ||
+    lower.includes('cannot refresh token')
+  ) {
+    return { kind: 'oauth_refresh_failed', message }
+  }
+  return { kind: 'other', message }
+}
+
 /**
  * Provider router for sandbox opaque fetch — gmail / outlook only; others fail closed.
  */

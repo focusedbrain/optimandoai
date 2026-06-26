@@ -13,7 +13,7 @@ import { isScamWatchdogBuiltInMode } from '../shared/ui/scamWatchdogBuiltIn'
 import { customModesClient } from './customModesClient'
 import { fetchOrchestratorSession } from './fetchOrchestratorSession'
 import { maybePresentOrchestratorDisplayGridSession } from './presentOrchestratorDisplayGridSession'
-import { findOpenSessionSurface } from './sessionSurfaceResolver'
+import { findOpenSessionSurface, type SessionSurface } from './sessionSurfaceResolver'
 import { readBeapRunFallbackLlmModel } from '../beap-messages/beapSessionRunBridge'
 
 export const RUN_MODE_ALLOCATED_SESSION_TYPE = 'RUN_MODE_ALLOCATED_SESSION' as const
@@ -111,6 +111,13 @@ export type RunModeAllocatedSessionAutomationDeps = {
   }) => Promise<ModeSessionRunExecuteResult>
   /** True when agent execution is already running for this session key. */
   isSessionRunInFlight?: (sessionKey: string) => boolean
+  /** Dashboard shim: detect open grids without real chrome.tabs. Defaults to extension resolver. */
+  findOpenSessionSurface?: (sessionKey: string) => Promise<SessionSurface | null>
+  /** Dashboard shim: Electron → extension WS present path. Defaults to extension tabs.create. */
+  presentOrchestratorDisplayGridSession?: (
+    sessionKey: string,
+    session: Record<string, unknown>,
+  ) => Promise<void>
 }
 
 export async function runModeAllocatedSessionAutomation(
@@ -151,7 +158,7 @@ export async function runModeAllocatedSessionAutomation(
     return { ok: false, error: `Failed to mirror session: ${msg}`, phase: 'mirror' }
   }
 
-  const surface = await findOpenSessionSurface(sessionKey)
+  const surface = await (deps.findOpenSessionSurface ?? findOpenSessionSurface)(sessionKey)
 
   if (refreshIfActive && surface?.kind === 'grid_tab') {
     console.log('[ModeSessionRun] Grid already open — refresh in place', sessionKey, options.trigger)
@@ -179,7 +186,10 @@ export async function runModeAllocatedSessionAutomation(
   }
 
   deps.registerPendingModeSessionRun(sessionKey, { fallbackModel, modeRuntime, modeId: options.modeId })
-  await maybePresentOrchestratorDisplayGridSession(sessionKey, fetched.data)
+  await (deps.presentOrchestratorDisplayGridSession ?? maybePresentOrchestratorDisplayGridSession)(
+    sessionKey,
+    fetched.data,
+  )
 
   console.log('[ModeSessionRun] Display grids requested (first-open)', sessionKey, options.trigger)
   return { ok: true, sessionKey, phase: 'presented' }

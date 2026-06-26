@@ -30,6 +30,8 @@
  */
 
 import { dispatchDepackageEmail, type DepackageDispatchOutcome, type DepackageInputForm } from '../critical-jobs/liveDepackageCutover'
+import { emailGateway } from './gateway'
+import { classifySandboxFetchFailure } from './sandboxOpaqueFetchRouter'
 import {
   listReadScopedAccountIds,
   loadRoleScopedTokens,
@@ -183,6 +185,24 @@ function finalizeAggregatedPollStatus(partials: SandboxIngestionResult[]): Pick<
   return { ok: true, status: 'ok' }
 }
 
+/** Poll targets: read token file + gateway row; skip orphan token files (poll-all MVP). */
+function resolvePollableSandboxReadAccountIds(
+  availableReadAccounts: string[],
+  loadReadToken: (id: string) => RoleScopedTokenRecord | null,
+): string[] {
+  const pollIds: string[] = []
+  for (const id of availableReadAccounts) {
+    if (!loadReadToken(id)) continue
+    const cfg = emailGateway.getAccountConfig(id)
+    if (!cfg) {
+      sandboxLog(`skip read account=${id} — no gateway row (stale read token file?)`)
+      continue
+    }
+    pollIds.push(id)
+  }
+  return pollIds
+}
+
 /** Poll one sandbox read account (consent already verified for this id). */
 async function pollOneSandboxReadAccount(
   readAccountId: string,
@@ -210,9 +230,11 @@ async function pollOneSandboxReadAccount(
   try {
     fetched = await fetchOpaque(readAccountId, tokenRecord)
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const classified = classifySandboxFetchFailure(err)
+    const msg = classified.message
     sandboxLog(
-      `HELD — read fetch failed for account=${readAccountId} (fail closed; host does NOT fall back). trigger_account=${triggerAccountId} err=${msg}`,
+      `HELD — read fetch failed for account=${readAccountId} (fail closed; host does NOT fall back). ` +
+        `trigger_account=${triggerAccountId} failure_kind=${classified.kind} err=${msg}`,
     )
     return { ...emptyResult('held_fetch_failed', false), errors: [msg] }
   }
@@ -298,7 +320,7 @@ export async function runSandboxIngestionPoll(
   const listReadAccounts = deps.listReadScopedAccountIds ?? listReadScopedAccountIds
   const availableReadAccounts = listReadAccounts()
   // TODO(option-b): map trigger_account -> specific sandbox read account; MVP polls all read-enabled.
-  const readAccountIds = availableReadAccounts.filter((id) => loadReadToken(id) != null)
+  const readAccountIds = resolvePollableSandboxReadAccountIds(availableReadAccounts, loadReadToken)
 
   sandboxLog(
     `read-token lookup: trigger_account=${triggerAccountId} (correlation only) ` +

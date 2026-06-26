@@ -1507,12 +1507,17 @@ async function createWindow() {
       if (!sk) return
       const session = p.session && typeof p.session === 'object' ? (p.session as Record<string, unknown>) : undefined
       const source = typeof p.source === 'string' ? p.source.trim() : undefined
+      const pendingModeSessionRun =
+        p.pendingModeSessionRun && typeof p.pendingModeSessionRun === 'object'
+          ? (p.pendingModeSessionRun as Record<string, unknown>)
+          : undefined
 
       const message = {
         type: 'PRESENT_ORCHESTRATOR_DISPLAY_GRID' as const,
         sessionKey: sk,
         ...(session ? { session } : {}),
         ...(source ? { source } : {}),
+        ...(pendingModeSessionRun ? { pendingModeSessionRun } : {}),
       }
 
       const MAX_RETRIES = 6

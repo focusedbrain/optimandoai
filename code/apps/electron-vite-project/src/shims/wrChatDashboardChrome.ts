@@ -14,6 +14,9 @@ import { wrChatDashboardWarn } from '../lib/wrChatDashboardLog'
  * - chrome.storage.local → localStorage for keys WR Chat reads/writes
  * - chrome.tabs.query → empty synthetic tab (dashboard has no real website URL context)
  * - ELECTRON_EXECUTE_TRIGGER → no-op (extension background would handle automation)
+ * - RUN_MODE_ALLOCATED_SESSION → dashboard mode-run bridge (`wrChatDashboardModeRunBridge.ts`)
+ * - SYNC_MODE_INTERVAL_SCHEDULERS → dashboard interval timers (`wrChatDashboardModeInterval.ts`)
+ * - ELECTRON_RPC → `executeElectronRpcRequest` + localhost fetch (same registry as MV3 background)
  */
 
 const BASE_URL = 'http://127.0.0.1:51248'
@@ -493,6 +496,79 @@ export function ensureWrdeskChromeShim(): void {
         return
       }
 
+      if (t === 'RUN_MODE_ALLOCATED_SESSION') {
+        void (async () => {
+          try {
+            const { handleDashboardRunModeAllocatedSession } = await import('./wrChatDashboardModeRunBridge')
+            const result = await handleDashboardRunModeAllocatedSession(msg as Record<string, unknown>)
+            finish(result)
+          } catch (e) {
+            finish(
+              {
+                ok: false,
+                error: e instanceof Error ? e.message : String(e),
+                phase: 'mode_run',
+              },
+              e instanceof Error ? e.message : String(e),
+            )
+          }
+        })()
+        return
+      }
+
+      if (t === 'SYNC_MODE_INTERVAL_SCHEDULERS') {
+        void (async () => {
+          try {
+            const { syncDashboardModeIntervalSchedulers } = await import('./wrChatDashboardModeInterval')
+            const modes = Array.isArray((msg as Record<string, unknown>).modes)
+              ? ((msg as Record<string, unknown>).modes as import('@ext/shared/ui/customModeTypes').CustomModeDefinition[])
+              : []
+            syncDashboardModeIntervalSchedulers(modes)
+            finish({ ok: true })
+          } catch (e) {
+            finish(
+              { ok: false, error: e instanceof Error ? e.message : String(e) },
+              e instanceof Error ? e.message : String(e),
+            )
+          }
+        })()
+        return
+      }
+
+      if (t === 'ELECTRON_RPC') {
+        void (async () => {
+          try {
+            const rpcMsg = msg as {
+              method?: string
+              params?: unknown
+              timeout?: number
+            }
+            const method = typeof rpcMsg.method === 'string' ? rpcMsg.method.trim() : ''
+            if (!method) {
+              finish({ success: false, error: 'Missing RPC method' })
+              return
+            }
+            const headers = await getAuthHeaders()
+            const secret = headers['X-Launch-Secret']?.trim() || null
+            const { executeElectronRpcRequest } = await import('@ext/rpc/electronRpc')
+            const result = await executeElectronRpcRequest(
+              {
+                method: method as import('@ext/rpc/electronRpc').RpcMethod,
+                params: rpcMsg.params,
+                timeout: typeof rpcMsg.timeout === 'number' ? rpcMsg.timeout : undefined,
+              },
+              secret,
+              BASE_URL,
+            )
+            finish(result)
+          } catch (e) {
+            const err = e instanceof Error ? e.message : String(e)
+            finish({ success: false, error: err }, err)
+          }
+        })()
+        return
+      }
+
       if (t === 'ACTIVATE_SESSION_FOR_OPTIMIZATION') {
         const raw = msg as { project?: { id?: string; linkedSessionIds?: unknown } }
         const p = raw.project
@@ -539,4 +615,15 @@ export function ensureWrdeskChromeShim(): void {
     storage: { local: storageLocal } as unknown as typeof chrome.storage,
     tabs: tabs as unknown as typeof chrome.tabs,
   } as typeof chrome
+
+  void (async () => {
+    try {
+      const { customModesClient } = await import('@ext/services/customModesClient')
+      const { syncDashboardModeIntervalSchedulers } = await import('./wrChatDashboardModeInterval')
+      const listed = await customModesClient.list()
+      if (listed.ok) syncDashboardModeIntervalSchedulers(listed.data)
+    } catch {
+      /* non-fatal */
+    }
+  })()
 }

@@ -1,12 +1,21 @@
 /**
- * Host AI: relay `p2p_host_ai_direct_beap_ad` publish must not arm cooldown before MVP direct URL exists.
- * Republish retries when Ollama or MVP URL gate clears after startup.
+ * Host AI: relay `p2p_host_ai_direct_beap_ad` publish over sealed relay (direct-LAN URL optional/retired).
+ * Republish retries when Ollama models gate clears after startup.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HandshakeState, type HandshakeRecord } from '../../handshake/types'
 
 vi.mock('../../handshake/ledger', () => ({
   getLedgerDb: () => null,
+}))
+
+vi.mock('../../sealed-storage', () => ({
+  sealedQuery: vi.fn(),
+  prepareSealedOperationalUpdate: vi.fn(),
+}))
+
+vi.mock('../../handshake/ipc', () => ({
+  getCurrentSession: () => null,
 }))
 
 vi.mock('../dbAccess', () => ({
@@ -33,13 +42,14 @@ vi.mock('../hostAiBeapAdOllamaModelCount', () => ({
   },
 }))
 
+vi.mock('../../inference/inferenceGate', () => ({
+  isGpuInferenceAvailable: async () => true,
+}))
+
 vi.mock('../p2pEndpointRepair', () => ({
   getHostPublishedMvpDirectP2pIngestUrl: (db: unknown) => getHostUrl(db),
   P2P_DIRECT_P2P_ENDPOINT_HEADER: 'X-BEAP-Direct-P2P-Endpoint',
-  hostDirectP2pAdvertisementHeaders: () => ({
-    'X-BEAP-Direct-P2P-Endpoint': 'http://192.168.1.2:51249/beap/ingest',
-  }),
-  // Triage 0015/0016: module gained this export; partial mock must include it.
+  hostDirectP2pAdvertisementHeaders: () => ({}),
   registerP2pEnsureCacheInvalidator: vi.fn(),
 }))
 
@@ -119,6 +129,11 @@ vi.mock('../hostAiEffectiveRole', () => ({
   }),
 }))
 
+vi.mock('../hostAiPeerLivePresence', () => ({
+  assertHostMachineSessionMatchesHandshakeHostParty: () => ({ ok: true as const }),
+  partyIdentityFromSession: () => null,
+}))
+
 vi.mock('../hostAiPairingStateStore', () => ({
   isHostAiLedgerAsymmetricTerminal: () => false,
 }))
@@ -141,23 +156,32 @@ describe('publishHostAiDirectBeapAdvertisementsForEligibleHost', () => {
     resetHostAiDirectBeapAdPublishStateForTests()
   })
 
-  it('publishes after MVP URL appears even when an earlier call had no URL (no premature cooldown)', async () => {
-    getHostUrl
-      .mockReturnValueOnce(null)
-      .mockReturnValue('http://192.168.1.2:51249/beap/ingest')
+  it('publishes over sealed relay when MVP direct URL is absent (direct-LAN retired)', async () => {
+    getHostUrl.mockReturnValue(null)
     const { publishHostAiDirectBeapAdvertisementsForEligibleHost } = await import('../hostAiDirectBeapAdPublish')
-    await publishHostAiDirectBeapAdvertisementsForEligibleHost({} as any, { context: 'test_early_no_url' })
-    expect(postBeapAd).not.toHaveBeenCalled()
-    await publishHostAiDirectBeapAdvertisementsForEligibleHost({} as any, { context: 'test_later_url' })
+    await publishHostAiDirectBeapAdvertisementsForEligibleHost({} as any, { context: 'test_sealed_relay_no_direct_url' })
     expect(postBeapAd).toHaveBeenCalledWith(
       expect.objectContaining({
+        endpointUrl: undefined,
         ollamaCapabilities: expect.objectContaining({
           active_model_id: 'm',
           max_concurrent_local_models: 1,
+          gpu_inference_available: true,
         }),
       }),
     )
     expect(postBeapAd).toHaveBeenCalledTimes(1)
+  })
+
+  it('still includes direct endpoint_url on wire when legacy MVP URL is present', async () => {
+    getHostUrl.mockReturnValue('http://192.168.1.2:51249/beap/ingest')
+    const { publishHostAiDirectBeapAdvertisementsForEligibleHost } = await import('../hostAiDirectBeapAdPublish')
+    await publishHostAiDirectBeapAdvertisementsForEligibleHost({} as any, { context: 'test_legacy_direct_url' })
+    expect(postBeapAd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpointUrl: 'http://192.168.1.2:51249/beap/ingest',
+      }),
+    )
   })
 
   it('early ollama_models_gate schedules retry and publishes when models appear', async () => {
@@ -179,22 +203,9 @@ describe('publishHostAiDirectBeapAdvertisementsForEligibleHost', () => {
         active_model_name: 'm',
         model_source: 't',
       })
-    getHostUrl.mockReturnValue('http://192.168.1.2:51249/beap/ingest')
+    getHostUrl.mockReturnValue(null)
     const { publishHostAiDirectBeapAdvertisementsForEligibleHost } = await import('../hostAiDirectBeapAdPublish')
     await publishHostAiDirectBeapAdvertisementsForEligibleHost({} as any, { context: 't_ollama_retry' })
-    expect(postBeapAd).not.toHaveBeenCalled()
-    await vi.advanceTimersByTimeAsync(3000)
-    expect(postBeapAd).toHaveBeenCalled()
-    vi.useRealTimers()
-  })
-
-  it('early no_mvp_direct_endpoint schedules retry and publishes when URL appears on retry path', async () => {
-    vi.useFakeTimers()
-    getHostUrl
-      .mockReturnValueOnce(null)
-      .mockReturnValue('http://192.168.1.2:51249/beap/ingest')
-    const { publishHostAiDirectBeapAdvertisementsForEligibleHost } = await import('../hostAiDirectBeapAdPublish')
-    await publishHostAiDirectBeapAdvertisementsForEligibleHost({} as any, { context: 't_url_first' })
     expect(postBeapAd).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(3000)
     expect(postBeapAd).toHaveBeenCalled()

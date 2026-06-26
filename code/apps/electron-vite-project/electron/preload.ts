@@ -741,12 +741,20 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
     sessionKey: string,
     sessionData?: Record<string, unknown>,
     source?: string,
+    options?: {
+      pendingModeSessionRun?: {
+        fallbackModel: string
+        modeRuntime: Record<string, unknown>
+        modeId: string
+      }
+    },
   ) => {
     if (typeof sessionKey !== 'string' || !sessionKey.trim()) return
     ipcRenderer.send('PRESENT_ORCHESTRATOR_DISPLAY_GRID', {
       sessionKey: sessionKey.trim(),
       ...(sessionData && typeof sessionData === 'object' ? { session: sessionData } : {}),
       ...(typeof source === 'string' && source.trim() ? { source: source.trim() } : {}),
+      ...(options?.pendingModeSessionRun ? { pendingModeSessionRun: options.pendingModeSessionRun } : {}),
     })
   },
   /** After dashboard WR Chat persists agent box output via HTTP shim, relay live UI update to the extension (WS → background → runtime). */

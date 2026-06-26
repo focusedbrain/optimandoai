@@ -25,7 +25,12 @@
 
 import { OutlookProvider } from './providers/outlook'
 import { GmailProvider } from './providers/gmail'
-import type { RoleScopedTokenRecord } from './roleScopedTokenStore'
+import { getCredentialsForOAuth } from './credentials'
+import {
+  loadRoleScopedTokens,
+  saveRoleScopedTokens,
+  type RoleScopedTokenRecord,
+} from './roleScopedTokenStore'
 import type { SandboxFetchedMessage } from './sandboxIngestion'
 import type { EmailAccountConfig } from './types'
 
@@ -63,6 +68,61 @@ export function oauthConfigFromRoleScopedReadRecord(
   }
 }
 
+/** Persist provider refresh back to role='read' (mirrors gateway send-role bridge). */
+export function wireSandboxReadProviderTokenRefresh(
+  accountId: string,
+  provider: GmailProvider | OutlookProvider,
+): void {
+  provider.onTokenRefresh = (newTokens: { accessToken: string; refreshToken: string; expiresAt: number }) => {
+    const current = loadRoleScopedTokens(accountId, 'read')
+    saveRoleScopedTokens(
+      accountId,
+      'read',
+      {
+        ...(current?.tokens ?? {}),
+        accessToken: newTokens.accessToken,
+        refreshToken: newTokens.refreshToken,
+        expiresAt: newTokens.expiresAt,
+      },
+      {
+        clientId: current?.clientId ?? current?.tokens.oauthClientId,
+        grantedScope: current?.grantedScope,
+      },
+    )
+    fetchLog(`read token refreshed account=${accountId}`)
+  }
+}
+
+/**
+ * Resolve oauth for connect/refresh — record fields first, then local OAuth vault/file
+ * (same tiers as host Gmail refresh) when legacy read tokens lack clientId metadata.
+ */
+export async function resolveOauthForSandboxReadFetch(
+  accountId: string,
+  tokenRecord: RoleScopedTokenRecord,
+  providerKind: 'gmail' | 'microsoft365',
+): Promise<NonNullable<EmailAccountConfig['oauth']>> {
+  const base = oauthConfigFromRoleScopedReadRecord(tokenRecord)
+  if (base.oauthClientId?.trim()) return base
+
+  const credProvider = providerKind === 'microsoft365' ? 'outlook' : 'gmail'
+  const userCreds = await getCredentialsForOAuth(credProvider)
+  const clientId =
+    userCreds && 'clientId' in userCreds && typeof userCreds.clientId === 'string'
+      ? userCreds.clientId.trim()
+      : ''
+  if (clientId) {
+    fetchLog(
+      `oauth client id resolved from local credentials account=${accountId} provider=${providerKind}`,
+    )
+    return { ...base, oauthClientId: clientId }
+  }
+  fetchLog(
+    `oauth client id missing on read token and local credentials account=${accountId} provider=${providerKind}`,
+  )
+  return base
+}
+
 /**
  * Fetch opaque RFC822 bytes for up to `maxMessages` inbox messages using the
  * Outlook read-scoped access token.
@@ -86,7 +146,7 @@ export async function fetchOpaqueViaOutlook(
 ): Promise<SandboxFetchedMessage[]> {
   const maxMessages = opts.maxMessages ?? MAX_MESSAGES_PER_POLL
   const folder = opts.folder ?? 'inbox'
-  const oauth = oauthConfigFromRoleScopedReadRecord(tokenRecord)
+  const oauth = await resolveOauthForSandboxReadFetch(accountId, tokenRecord, 'microsoft365')
 
   // Force the /$value raw-MIME path for the duration of this call.
   // `OutlookProvider.fetchMessageOpaque` gates on this env var; we restore it
@@ -95,6 +155,7 @@ export async function fetchOpaqueViaOutlook(
   process.env.WRDESK_OUTLOOK_OPAQUE_INPUT = 'value'
 
   const provider = new OutlookProvider()
+  wireSandboxReadProviderTokenRefresh(accountId, provider)
   try {
     fetchLog(
       `connect outlook read account=${accountId} hasClientId=${!!oauth.oauthClientId} hasRefreshSecret=${!!oauth.gmailOAuthClientSecret}`,
@@ -195,9 +256,10 @@ export async function fetchOpaqueViaGmail(
 ): Promise<SandboxFetchedMessage[]> {
   const maxMessages = opts.maxMessages ?? MAX_MESSAGES_PER_POLL
   const folder = (opts.folder ?? 'inbox').toLowerCase()
-  const oauth = oauthConfigFromRoleScopedReadRecord(tokenRecord)
+  const oauth = await resolveOauthForSandboxReadFetch(accountId, tokenRecord, 'gmail')
 
   const provider = new GmailProvider()
+  wireSandboxReadProviderTokenRefresh(accountId, provider)
   try {
     fetchLog(
       `connect gmail read account=${accountId} hasClientId=${!!oauth.oauthClientId} hasRefreshSecret=${!!oauth.gmailOAuthClientSecret}`,

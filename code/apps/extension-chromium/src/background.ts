@@ -127,19 +127,31 @@ async function executeModeSessionRunCore(args: {
   }
   modeSessionExecuteInFlight.add(sk)
   try {
-    const { executeModeRunAgents } = await import('./services/modeRunExecution')
+    const {
+      executeModeRunAgents,
+      resolveModeRunWrchatModelId,
+      fetchWrChatAvailableModelsForModeRun,
+    } = await import('./services/modeRunExecution')
     const { interpretBeapAutomationModeRun } = await import('./services/beapRunAutomationResult')
+
+    const fallbackModel = args.fallbackModel.trim()
+    const modeRuntime = args.modeRuntime ?? null
+    const wrchatModelId = resolveModeRunWrchatModelId(modeRuntime, fallbackModel)
+    const availableModels = await fetchWrChatAvailableModelsForModeRun()
 
     const runResult = await executeModeRunAgents({
       modeLinkedSessionId: sk,
       currentOrchestratorSessionId: sk,
       sessionKey: sk,
       inferenceSessionKey: sk,
-      fallbackModel: args.fallbackModel,
+      fallbackModel,
+      wrchatModelId,
+      defaultModelId: wrchatModelId,
+      availableModels,
       inputText: '',
       processedMessages: [{ role: 'user', content: '' }],
-      modeRuntime: args.modeRuntime ?? null,
-      runMode: args.runMode ?? !!args.modeRuntime,
+      modeRuntime,
+      runMode: args.runMode ?? !!modeRuntime,
     })
 
     const interpreted = interpretBeapAutomationModeRun(sk, runResult)
@@ -1907,12 +1919,40 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               const fromAutoOpt = data.source === 'auto-optimization'
               void (async () => {
                 try {
+                  const pendingModeRaw = data.pendingModeSessionRun
+                  const pendingMode =
+                    pendingModeRaw && typeof pendingModeRaw === 'object' && !Array.isArray(pendingModeRaw)
+                      ? (pendingModeRaw as Record<string, unknown>)
+                      : null
+                  if (pendingMode) {
+                    const fallbackModel =
+                      typeof pendingMode.fallbackModel === 'string' && pendingMode.fallbackModel.trim()
+                        ? pendingMode.fallbackModel.trim()
+                        : 'tinyllama'
+                    const modeRuntime =
+                      pendingMode.modeRuntime && typeof pendingMode.modeRuntime === 'object'
+                        ? (pendingMode.modeRuntime as CustomModeRuntimeConfig)
+                        : null
+                    const modeId =
+                      typeof pendingMode.modeId === 'string' ? pendingMode.modeId.trim() : ''
+                    if (modeRuntime) {
+                      registerPendingModeSessionRun(sessionKey, {
+                        fallbackModel,
+                        modeRuntime,
+                        modeId,
+                      })
+                    }
+                  }
+
                   const surface = await findOpenSessionSurface(sessionKey)
                   if (surface?.kind === 'grid_tab') {
                     const msg = fromAutoOpt
                       ? `[AutoOpt] Session ${sessionKey} display grids already open, skipping`
                       : `[BG] PRESENT_ORCHESTRATOR_DISPLAY_GRID: grid already open ${sessionKey}`
                     console.log(msg)
+                    if (pendingMode) {
+                      void triggerPendingSessionRun(sessionKey)
+                    }
                     return
                   }
                   let sessionBlob: Record<string, unknown> | null = null

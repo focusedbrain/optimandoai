@@ -3,10 +3,11 @@
  * Toolbar: Select all, bulk actions, infinite scroll (next page). Batch size “All” = entire current tab (drained fetch + id list), not one page.
  * Collapsible provider section at top for account management.
  *
- * AI Auto-Sort: runs only on explicit toolbar / per-row actions (never from effects). Classify → immediate moves; no preview countdown.
+ * AI Auto-Sort: runs on explicit toolbar / per-row Analyze. Lazy viewport analysis uses
+ * IntersectionObserver + a concurrency-1 queue (handleBulkAnalyzeOne — advisory stream, not classify).
  */
 
-import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo, type MouseEvent, type ReactNode } from 'react'
 import {
   useEmailInboxStore,
   activeEmailAccountIdsForSync,
@@ -66,16 +67,45 @@ import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { useIngestionStatus } from '../hooks/useIngestionStatus'
 import { canShowSandboxCloneAction } from '../lib/beapInboxSandboxVisibility'
-import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
+import { beapInboxCloneToSandboxApi, sandboxCloneFeedbackFromOutcome } from '../lib/beapInboxCloneToSandbox'
 import {
   resolveHostSandboxCloneClickAction,
   SANDBOX_IDENTITY_INCOMPLETE_USER_MESSAGE,
   SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE,
   sandboxCloneUnavailableDialogVariant,
+  logSandboxTargetResolution,
+  mapSandboxClickActionToResolutionDecision,
 } from '../lib/beapInboxHostSandboxClickPolicy'
 import { resolveActiveSandboxCloneTargets } from '../lib/resolveActiveSandboxCloneTargets'
 import BeapSandboxCloneDialog from './BeapSandboxCloneDialog'
 import BeapSandboxUnavailableDialog, { type BeapSandboxUnavailableVariant } from './BeapSandboxUnavailableDialog'
+import BeapRedirectDialog from './BeapRedirectDialog'
+import {
+  InboxRedirectActionIcon,
+  InboxSandboxCloneActionIcon,
+  InboxRunAutomationActionIcon,
+} from './InboxActionIcons'
+import {
+  beapHostSandboxCloneTooltipForAvailability,
+  beapInboxRedirectTooltipPropsForRow,
+  beapInboxReplyTooltipProps,
+} from '../lib/beapInboxActionTooltips'
+import { isInboxMessageActionable } from '../lib/inboxMessageActionable'
+import {
+  SANDBOX_CLONE_COPY,
+  viewSandboxChecking,
+  viewSandboxCloning,
+  viewSandboxIdentityIncomplete,
+  viewSandboxKeyingIncomplete,
+  viewSandboxListLoadFailed,
+  viewSandboxNoOrchestrator,
+  type SandboxCloneFeedbackView,
+} from '../lib/sandboxCloneFeedbackUi'
+import SandboxCloneFeedbackBadge from './SandboxCloneFeedbackBadge'
+import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
+import { canShowInboxRunAutomation, resolveInboxSessionArtefact } from '../lib/inboxSessionArtefact'
+import { runBeapSessionAutomationForMessage } from '../lib/runBeapSessionAutomation'
+import { UI_BADGE } from '../styles/uiContrastTokens'
 import '../components/handshakeViewTypes'
 import {
   DEBUG_AUTOSORT_DIAGNOSTICS,
@@ -289,6 +319,29 @@ function shortIdForSummary(id: string): string {
 /** True when bulk triage has both category and recommended action (full structured analysis). */
 function hasFullBulkAnalysis(output: BulkAiResultEntry | undefined): boolean {
   return !!(output?.category && output?.recommendedAction)
+}
+
+/** Lazy auto-analyze: row needs advisory triage (same gate as per-row Analyze / "Not yet analyzed"). */
+function bulkRowNeedsLazyAnalyze(
+  msg: InboxMessage,
+  bulkOutputs: Record<string, BulkAiResultEntry>,
+): boolean {
+  const output = bulkOutputs[msg.id] ?? parsePersistedAnalysis(msg.ai_analysis_json, msg)
+  if (output?.autosortFailure) return false
+  if (output?.bulkAnalysisStreaming) return false
+  return shouldShowBulkAnalyzeButton(output)
+}
+
+const BULK_LAZY_ANALYZE_CONCURRENCY = 1
+
+function scheduleBulkLazyAnalyzeIdle(cb: () => void): void {
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    ;(
+      window as Window & { requestIdleCallback: (fn: () => void, opts?: { timeout: number }) => number }
+    ).requestIdleCallback(cb, { timeout: 1500 })
+  } else {
+    setTimeout(cb, 0)
+  }
 }
 
 /** Show explicit Analyze when triage is incomplete; hide on failure rows (Retry Auto-Sort covers that). */
@@ -1751,11 +1804,213 @@ export default function EmailInboxBulkView({
   const [bulkSandboxUnavailableOpen, setBulkSandboxUnavailableOpen] = useState(false)
   const [bulkSandboxUnavailableVariant, setBulkSandboxUnavailableVariant] =
     useState<BeapSandboxUnavailableVariant>('not_configured')
+  const [beapRedirectForMessage, setBeapRedirectForMessage] = useState<InboxMessage | null>(null)
+  const [bulkSandboxRowFeedback, setBulkSandboxRowFeedback] = useState<SandboxCloneFeedbackView | null>(null)
+  const [beapRunAutomationForMessage, setBeapRunAutomationForMessage] = useState<InboxMessage | null>(null)
+  const [runAutomationImporting, setRunAutomationImporting] = useState(false)
+  const [runAutomationRowFeedback, setRunAutomationRowFeedback] = useState<{
+    type: 'success' | 'error'
+    message: string
+  } | null>(null)
 
   const openBulkSandboxUnavailableDialog = useCallback(() => {
     setBulkSandboxUnavailableVariant(sandboxCloneUnavailableDialogVariant(bulkSandboxAvailability))
     setBulkSandboxUnavailableOpen(true)
   }, [bulkSandboxAvailability])
+
+  const handleBulkRowSandbox = useCallback(
+    (_e: MouseEvent, m: InboxMessage) => {
+      if (!bulkHostModeReady || bulkOrchestratorMode !== 'host') {
+        const blockedReason =
+          bulkOrchestratorMode === 'sandbox'
+            ? 'not_host_sandbox_instance'
+            : !bulkHostModeReady
+              ? 'orchestrator_mode_not_ready'
+              : 'not_host'
+        if (bulkOrchestratorMode === 'sandbox') {
+          logSandboxTargetResolution({
+            source: 'inbox_row',
+            messageId: m.id,
+            modeReady: bulkHostModeReady,
+            orchestratorMode: bulkOrchestratorMode,
+            isHost: false,
+            targetCount: 0,
+            internalSandboxRowsCount: bulkInternalSandboxes.length,
+            activeSandboxTargetsCount: bulkActiveHostSandboxHandshakeCount,
+            liveSandboxTargetsCount: bulkCloneEligibleSandboxes.length,
+            selectedTargetHandshakeId: bulkSendableCloneSandboxes[0]?.handshake_id ?? null,
+            action: null,
+            decision: 'sandbox_mode_hide_action',
+            reason: 'orchestrator_sandbox',
+          })
+        } else {
+          logSandboxTargetResolution({
+            source: 'inbox_row',
+            messageId: m.id,
+            modeReady: bulkHostModeReady,
+            orchestratorMode: bulkOrchestratorMode,
+            isHost: false,
+            targetCount: 0,
+            internalSandboxRowsCount: bulkInternalSandboxes.length,
+            activeSandboxTargetsCount: bulkActiveHostSandboxHandshakeCount,
+            liveSandboxTargetsCount: bulkCloneEligibleSandboxes.length,
+            selectedTargetHandshakeId: bulkSendableCloneSandboxes[0]?.handshake_id ?? null,
+            action: null,
+            decision: 'mode_not_ready_hide_action',
+            reason: blockedReason,
+          })
+        }
+        return
+      }
+      void (async () => {
+        const snap = await refreshBulkInternalSandboxesList()
+        if (!snap.success) {
+          const v = viewSandboxListLoadFailed(snap.error)
+          setBulkSandboxRowFeedback(v)
+          if (!v.persistUntilDismiss) {
+            window.setTimeout(() => setBulkSandboxRowFeedback(null), 8000)
+          }
+          return
+        }
+        const resolved = resolveActiveSandboxCloneTargets(snap.sandboxes, snap.incomplete)
+        const { sendableTargets, activeHostSandboxCount, liveEligibleCount, identityCompleteRows, incompleteRows } =
+          resolved
+        const next = resolveHostSandboxCloneClickAction({
+          internalListLoading: false,
+          listLastSuccess: true,
+          sendableTargetCount: sendableTargets.length,
+          activeIdentityCompleteHostSandboxCount: identityCompleteRows.length,
+          identityIncompleteHostSandboxCount: incompleteRows.length,
+        })
+        logSandboxTargetResolution({
+          source: 'inbox_row',
+          messageId: m.id,
+          modeReady: bulkHostModeReady,
+          orchestratorMode: bulkOrchestratorMode,
+          isHost: true,
+          targetCount: sendableTargets.length,
+          internalSandboxRowsCount: identityCompleteRows.length,
+          activeSandboxTargetsCount: activeHostSandboxCount,
+          liveSandboxTargetsCount: liveEligibleCount,
+          selectedTargetHandshakeId: sendableTargets[0]?.handshake_id ?? null,
+          action: next,
+          decision: mapSandboxClickActionToResolutionDecision(next),
+          reason: 'host_sandbox_routing_fresh_list',
+        })
+        if (next === 'loading_refresh') {
+          setBulkSandboxRowFeedback(viewSandboxChecking())
+          window.setTimeout(() => setBulkSandboxRowFeedback(null), 5000)
+          return
+        }
+        if (next === 'open_unavailable_dialog') {
+          setBulkSandboxRowFeedback(viewSandboxNoOrchestrator())
+          openBulkSandboxUnavailableDialog()
+          return
+        }
+        if (next === 'keying_incomplete') {
+          setBulkSandboxRowFeedback(viewSandboxKeyingIncomplete())
+          window.setTimeout(() => setBulkSandboxRowFeedback(null), 8000)
+          return
+        }
+        if (next === 'identity_incomplete') {
+          setBulkSandboxRowFeedback(viewSandboxIdentityIncomplete())
+          window.setTimeout(() => setBulkSandboxRowFeedback(null), 8000)
+          return
+        }
+        if (next === 'open_target_picker') {
+          setBulkSandboxCloneFor(m)
+          return
+        }
+        try {
+          setBulkSandboxRowFeedback(viewSandboxCloning())
+          const r = await beapInboxCloneToSandboxApi({ sourceMessageId: m.id })
+          if (r.success) {
+            const fb = sandboxCloneFeedbackFromOutcome(r)
+            setBulkSandboxRowFeedback(fb.view)
+            void refreshMessages()
+            if (!fb.view.persistUntilDismiss) {
+              window.setTimeout(() => setBulkSandboxRowFeedback(null), 5500)
+            }
+          } else {
+            setBulkSandboxRowFeedback(sandboxCloneFeedbackFromOutcome(r).view)
+          }
+        } catch (e) {
+          setBulkSandboxRowFeedback({
+            variant: 'error',
+            message: SANDBOX_CLONE_COPY.failedGeneric,
+            persistUntilDismiss: true,
+            screenReaderDetail: e instanceof Error ? e.message : String(e),
+          })
+        }
+      })()
+    },
+    [
+      bulkHostModeReady,
+      bulkOrchestratorMode,
+      bulkInternalSandboxes.length,
+      bulkActiveHostSandboxHandshakeCount,
+      bulkCloneEligibleSandboxes.length,
+      bulkSendableCloneSandboxes,
+      openBulkSandboxUnavailableDialog,
+      refreshBulkInternalSandboxesList,
+      refreshMessages,
+    ],
+  )
+
+  const runAutomationDialogSessionRef = useMemo((): SessionImportDialogSessionRef | null => {
+    if (!beapRunAutomationForMessage) return null
+    const { refs } = resolveInboxSessionArtefact(beapRunAutomationForMessage)
+    if (refs.length === 0) return null
+    const primary = refs[0]
+    const cap = primary.requiredCapability
+    return {
+      sessionId: primary.sessionId,
+      sessionName: primary.sessionName,
+      requiredCapability:
+        cap != null && typeof cap === 'object'
+          ? JSON.stringify(cap)
+          : cap != null
+            ? String(cap)
+            : undefined,
+    }
+  }, [beapRunAutomationForMessage])
+
+  const handleBulkRowRunAutomation = useCallback((_e: MouseEvent, m: InboxMessage) => {
+    if (!canShowInboxRunAutomation(m)) return
+    setBeapRunAutomationForMessage(m)
+    setRunAutomationRowFeedback(null)
+  }, [])
+
+  const handleConfirmRunAutomation = useCallback(async () => {
+    if (!beapRunAutomationForMessage) return
+    setRunAutomationImporting(true)
+    setRunAutomationRowFeedback(null)
+    try {
+      const result = await runBeapSessionAutomationForMessage(beapRunAutomationForMessage)
+      if (!result.ok) {
+        setRunAutomationRowFeedback({ type: 'error', message: result.error })
+        return
+      }
+      setBeapRunAutomationForMessage(null)
+      const name = result.sessionName || result.sessionKey || 'session'
+      setRunAutomationRowFeedback({
+        type: 'success',
+        message: `Running automation \u201c${name}\u201d \u2014 grid tab will appear shortly.`,
+      })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[BEAP_RUN] unexpected error messageId=' + beapRunAutomationForMessage.id, e)
+      setRunAutomationRowFeedback({ type: 'error', message: msg })
+    } finally {
+      setRunAutomationImporting(false)
+    }
+  }, [beapRunAutomationForMessage])
+
+  useEffect(() => {
+    if (!runAutomationRowFeedback || runAutomationRowFeedback.type === 'error') return
+    const id = setTimeout(() => setRunAutomationRowFeedback(null), 6000)
+    return () => clearTimeout(id)
+  }, [runAutomationRowFeedback])
 
   useEffect(() => {
     void refreshInboxSyncBackendState({
@@ -3672,6 +3927,108 @@ export default function EmailInboxBulkView({
       setBulkAnalyzeUiEpoch((e) => e + 1)
     }
   }, [])
+
+  const displayMessagesRef = useRef(displayMessages)
+  displayMessagesRef.current = displayMessages
+  const bulkAiOutputsRef = useRef(bulkAiOutputs)
+  bulkAiOutputsRef.current = bulkAiOutputs
+  const handleBulkAnalyzeOneRef = useRef(handleBulkAnalyzeOne)
+  handleBulkAnalyzeOneRef.current = handleBulkAnalyzeOne
+
+  const bulkLazyAnalyzeQueueRef = useRef<string[]>([])
+  const bulkLazyAnalyzeQueuedRef = useRef<Set<string>>(new Set())
+  const bulkLazyAnalyzeInFlightCountRef = useRef(0)
+
+  const processBulkLazyAnalyzeQueueRef = useRef<() => void>(() => {})
+
+  const processBulkLazyAnalyzeQueue = useCallback(() => {
+    if (bulkLazyAnalyzeInFlightCountRef.current >= BULK_LAZY_ANALYZE_CONCURRENCY) return
+    if (isSortingRef.current || useEmailInboxStore.getState().isSortingActive) return
+
+    while (bulkLazyAnalyzeQueueRef.current.length > 0) {
+      if (isSortingRef.current || useEmailInboxStore.getState().isSortingActive) return
+
+      const messageId = bulkLazyAnalyzeQueueRef.current.shift()
+      if (!messageId) return
+      bulkLazyAnalyzeQueuedRef.current.delete(messageId)
+
+      if (bulkAnalyzeInFlightRef.current.has(messageId)) continue
+
+      const msg = displayMessagesRef.current.find((m) => m.id === messageId)
+      if (!msg || !bulkRowNeedsLazyAnalyze(msg, bulkAiOutputsRef.current)) continue
+
+      bulkLazyAnalyzeInFlightCountRef.current += 1
+      void handleBulkAnalyzeOneRef
+        .current(messageId)
+        .finally(() => {
+          bulkLazyAnalyzeInFlightCountRef.current = Math.max(
+            0,
+            bulkLazyAnalyzeInFlightCountRef.current - 1,
+          )
+          if (bulkLazyAnalyzeQueueRef.current.length > 0) {
+            scheduleBulkLazyAnalyzeIdle(() => processBulkLazyAnalyzeQueueRef.current())
+          }
+        })
+      return
+    }
+  }, [])
+
+  processBulkLazyAnalyzeQueueRef.current = processBulkLazyAnalyzeQueue
+
+  const enqueueBulkLazyAnalyze = useCallback(
+    (messageId: string) => {
+      const id = messageId.trim()
+      if (!id) return
+      if (isSortingRef.current || useEmailInboxStore.getState().isSortingActive) return
+      if (bulkLazyAnalyzeQueuedRef.current.has(id)) return
+      if (bulkAnalyzeInFlightRef.current.has(id)) return
+
+      const msg = displayMessagesRef.current.find((m) => m.id === id)
+      if (!msg || !bulkRowNeedsLazyAnalyze(msg, bulkAiOutputsRef.current)) return
+
+      bulkLazyAnalyzeQueuedRef.current.add(id)
+      bulkLazyAnalyzeQueueRef.current.push(id)
+      scheduleBulkLazyAnalyzeIdle(() => processBulkLazyAnalyzeQueueRef.current())
+    },
+    [],
+  )
+
+  /** Lazy auto-analyze: enqueue visible rows as they enter the bulk scrollport (concurrency 1). */
+  useEffect(() => {
+    const root = bulkScrollContainerRef.current
+    if (!root) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue
+          const messageId = (entry.target as HTMLElement).getAttribute('data-msg-id')?.trim()
+          if (messageId) enqueueBulkLazyAnalyze(messageId)
+        }
+      },
+      { root, rootMargin: '120px 0px 120px 0px', threshold: 0.08 },
+    )
+
+    root.querySelectorAll('.bulk-view-row[data-msg-id]').forEach((row) => observer.observe(row))
+    return () => observer.disconnect()
+  }, [displayMessages, enqueueBulkLazyAnalyze, filter.filter, loading])
+
+  /** After Auto-Sort finishes, resume lazy analysis for currently visible rows. */
+  useEffect(() => {
+    if (isSortingActive) return
+    const root = bulkScrollContainerRef.current
+    if (!root) return
+    const rootRect = root.getBoundingClientRect()
+    root.querySelectorAll('.bulk-view-row[data-msg-id]').forEach((row) => {
+      const rect = row.getBoundingClientRect()
+      if (rect.bottom < rootRect.top || rect.top > rootRect.bottom) return
+      const messageId = row.getAttribute('data-msg-id')?.trim()
+      if (messageId) enqueueBulkLazyAnalyze(messageId)
+    })
+    if (bulkLazyAnalyzeQueueRef.current.length > 0) {
+      scheduleBulkLazyAnalyzeIdle(() => processBulkLazyAnalyzeQueueRef.current())
+    }
+  }, [isSortingActive, displayMessages, enqueueBulkLazyAnalyze])
 
   /** Toolbar Auto-Sort: “All” = full tab ID drain; paged = current selection only. */
   const handleAiAutoSort = useCallback(async () => {
@@ -6039,6 +6396,24 @@ export default function EmailInboxBulkView({
         </div>
       ) : null}
 
+      {bulkSandboxRowFeedback ? (
+        <div
+          style={{
+            padding: '8px 12px 10px',
+            borderBottom: '1px solid var(--border, var(--color-border, #e5e7eb))',
+            flexShrink: 0,
+            background: 'var(--bg-surface, var(--color-surface, #f9fafb))',
+            color: 'var(--text-primary, var(--text-primary-prof, inherit))',
+          }}
+        >
+          <SandboxCloneFeedbackBadge
+            view={bulkSandboxRowFeedback}
+            onDismiss={() => setBulkSandboxRowFeedback(null)}
+            maxWidth="100%"
+          />
+        </div>
+      ) : null}
+
       {lastSyncWarnings && lastSyncWarnings.length > 0 ? (
         <SyncFailureBanner
           warnings={lastSyncWarnings}
@@ -6469,6 +6844,22 @@ export default function EmailInboxBulkView({
               const bgTint = isUnsorted ? undefined : (CATEGORY_BG[category] ?? 'transparent')
               /** Prefer reconciled AI output over DB when present (promotional cap clears needs_reply). */
               const needsReply = output ? !!output.needsReply : msg.needs_reply === 1
+              const canRowAction = isInboxMessageActionable(msg)
+              const bulkRowSandboxParams = {
+                modeReady: bulkHostModeReady,
+                orchestratorMode: bulkOrchestratorMode,
+                message: msg,
+                authoritativeDeviceInternalRole: bulkAuthoritativeDeviceInternalRole,
+                internalSandboxListReady: bulkInternalSandboxListReady,
+              }
+              const canRowSandbox = canShowSandboxCloneAction(bulkRowSandboxParams)
+              const canRowRedirect = canRowAction && !bulkIsSandbox
+              const canShowRowReply = !bulkIsSandbox && canRowAction
+              const canRowRunAutomation = canShowInboxRunAutomation(msg)
+              const rowRedirectTip = beapInboxRedirectTooltipPropsForRow()
+              const rowSandboxTip = beapHostSandboxCloneTooltipForAvailability(bulkSandboxAvailability, 'row')
+              const showRowActions =
+                canRowRunAutomation || canRowRedirect || canRowSandbox || canShowRowReply
 
               return (
                 <div
@@ -6487,7 +6878,9 @@ export default function EmailInboxBulkView({
                         (e.target as HTMLElement).closest('.bulk-view-msg-delete-btn') ||
                         (e.target as HTMLElement).closest('.bulk-view-row-select-checkbox') ||
                         (e.target as HTMLElement).closest('.inbox-handshake-nav-btn') ||
-                        (e.target as HTMLElement).closest('[data-subfocus="attachment"]')
+                        (e.target as HTMLElement).closest('[data-subfocus="attachment"]') ||
+                        (e.target as HTMLElement).closest('.beap-action-icon') ||
+                        (e.target as HTMLElement).closest('.inbox-action-icon-only')
                       ) {
                         return
                       }
@@ -6605,6 +6998,71 @@ export default function EmailInboxBulkView({
                           <div className="bulk-view-message-preview-line" style={{ fontSize: 11, fontStyle: 'italic', color: MUTED, marginBottom: 6, flexShrink: 0 }}>
                             {((output?.summary || output?.reason || msg.sort_reason) ?? '').trim().slice(0, 120)}
                             {((output?.summary || output?.reason || msg.sort_reason) ?? '').trim().length > 120 ? '…' : ''}
+                          </div>
+                        ) : null}
+                        {showRowActions ? (
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: 6,
+                              alignItems: 'center',
+                              marginBottom: 6,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {canRowRunAutomation ? (
+                              <InboxRunAutomationActionIcon
+                                row
+                                title="Run Automation — import and execute attached session"
+                                ariaLabel="Run Automation"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  e.preventDefault()
+                                  handleBulkRowRunAutomation(e, msg)
+                                }}
+                              />
+                            ) : null}
+                            {canShowRowReply ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  e.preventDefault()
+                                  handleReply(msg)
+                                }}
+                                className="inbox-action-icon-only inbox-detail-reply-icon-only"
+                                {...beapInboxReplyTooltipProps()}
+                              >
+                                <span className="inbox-detail-reply-glyph" aria-hidden>
+                                  ↩
+                                </span>
+                              </button>
+                            ) : null}
+                            {canRowRedirect ? (
+                              <InboxRedirectActionIcon
+                                row
+                                title={rowRedirectTip.title}
+                                ariaLabel={rowRedirectTip['aria-label']}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  e.preventDefault()
+                                  setBeapRedirectForMessage(msg)
+                                }}
+                              />
+                            ) : null}
+                            {canRowSandbox ? (
+                              <InboxSandboxCloneActionIcon
+                                row
+                                title={rowSandboxTip.title}
+                                ariaLabel={rowSandboxTip['aria-label']}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  e.preventDefault()
+                                  handleBulkRowSandbox(e, msg)
+                                }}
+                              />
+                            ) : null}
                           </div>
                         ) : null}
                       </div>
@@ -6955,6 +7413,95 @@ export default function EmailInboxBulkView({
         onClose={() => setBulkSandboxUnavailableOpen(false)}
         onOpenHandshakes={() => onOpenHandshakesView?.()}
       />
+
+      {beapRedirectForMessage ? (
+        <BeapRedirectDialog
+          message={beapRedirectForMessage}
+          onClose={() => setBeapRedirectForMessage(null)}
+          onSent={() => {
+            setBeapRedirectForMessage(null)
+            void refreshMessages()
+          }}
+        />
+      ) : null}
+
+      {beapRunAutomationForMessage && runAutomationDialogSessionRef ? (
+        <SessionImportDialog
+          sessionRef={runAutomationDialogSessionRef}
+          messageId={beapRunAutomationForMessage.id}
+          onConfirm={() => void handleConfirmRunAutomation()}
+          onCancel={() => {
+            if (!runAutomationImporting) {
+              setBeapRunAutomationForMessage(null)
+              setRunAutomationRowFeedback(null)
+            }
+          }}
+          importing={runAutomationImporting}
+        />
+      ) : null}
+
+      {runAutomationRowFeedback ? (
+        <div
+          role="alert"
+          style={{
+            position: 'fixed',
+            bottom: 88,
+            right: 20,
+            zIndex: 200,
+            maxWidth: 380,
+            padding: '10px 14px',
+            borderRadius: 8,
+            fontSize: 12,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 8,
+            ...(runAutomationRowFeedback.type === 'success' ? UI_BADGE.green : UI_BADGE.red),
+          }}
+        >
+          <span style={{ flexShrink: 0, fontWeight: 700, fontSize: 14 }}>
+            {runAutomationRowFeedback.type === 'success' ? '✓' : '✕'}
+          </span>
+          <span style={{ flex: 1, color: 'inherit' }}>{runAutomationRowFeedback.message}</span>
+          {runAutomationRowFeedback.type === 'error' ? (
+            <button
+              type="button"
+              onClick={() => void handleConfirmRunAutomation()}
+              style={{
+                flexShrink: 0,
+                marginLeft: 4,
+                padding: '2px 8px',
+                fontSize: 11,
+                fontWeight: 600,
+                borderRadius: 5,
+                border: '1px solid #fca5a5',
+                background: '#fff',
+                color: '#991b1b',
+                cursor: 'pointer',
+              }}
+            >
+              Retry
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setRunAutomationRowFeedback(null)}
+            aria-label="Dismiss"
+            style={{
+              flexShrink: 0,
+              marginLeft: 4,
+              padding: '0 4px',
+              fontSize: 16,
+              lineHeight: 1,
+              border: 'none',
+              background: 'transparent',
+              color: 'inherit',
+              cursor: 'pointer',
+            }}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
 
       {expandedMessageId && (
         <div

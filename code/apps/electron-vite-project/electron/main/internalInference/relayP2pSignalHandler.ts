@@ -28,6 +28,13 @@ const WEBRTC_SIGNAL_TYPES = new Set([
 const BEAP_AD_TYPE = 'p2p_host_ai_direct_beap_ad'
 const BEAP_AD_REQUEST_TYPE = 'p2p_host_ai_direct_beap_ad_request'
 
+function relayBeapAdHasHostAiCapabilities(raw: Record<string, unknown>): boolean {
+  const har = raw.host_ai_route
+  if (!har || typeof har !== 'object' || Array.isArray(har)) return false
+  const cap = (har as Record<string, unknown>).capabilities
+  return cap != null && typeof cap === 'object' && !Array.isArray(cap)
+}
+
 const ALL_P2P_SIGNAL_TYPES = new Set([...WEBRTC_SIGNAL_TYPES, BEAP_AD_TYPE, BEAP_AD_REQUEST_TYPE])
 
 type P2pSignalDrop = 'forbidden_key' | 'schema' | 'type' | 'field' | 'expired' | 'ttl' | 'parse' | 'stale'
@@ -304,7 +311,7 @@ export function tryHandleCoordinationP2pSignal(
   if (isBeapAd) {
     const ep = typeof p.endpoint_url === 'string' ? p.endpoint_url.trim() : ''
     const seq = p.ad_seq
-    if (!ep) {
+    if (!ep && !relayBeapAdHasHostAiCapabilities(p)) {
       logDropped(p.handshake_id, 'field', relayMessageId)
       return true
     }

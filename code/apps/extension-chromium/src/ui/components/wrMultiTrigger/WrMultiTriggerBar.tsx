@@ -368,6 +368,17 @@ I'm focused on this automation. Continue in WR Chat with the same model and sett
         useUIStore.getState().setMode(def.id)
         useChatFocusStore.getState().setChatFocusWithIntro(mode, null, intro)
         requestModeModelWarmOnTrigger(def.id, 'speech_bubble')
+        if (modeHasAllocatedSession(def)) {
+          void requestRunModeAllocatedSession(def.id, 'speech_bubble').then((result) => {
+            if (!result.ok && !result.skipped) {
+              console.warn(
+                '[WrMultiTriggerBar] Mode session run (speech bubble) failed:',
+                def.id,
+                result.error,
+              )
+            }
+          })
+        }
         try {
           onChatFocusRequest?.(mode)
         } catch {
