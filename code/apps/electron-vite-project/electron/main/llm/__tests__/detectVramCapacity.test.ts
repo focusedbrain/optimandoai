@@ -69,4 +69,60 @@ describe('detectVramCapacity', () => {
     })
     expect(max).toBe(1)
   })
+
+  it('returns maxResident=1 when GPU is present but VRAM capacity is unknown (never fake 4 GB)', async () => {
+    hardwareDetectMock.mockResolvedValue({
+      gpuAvailable: true,
+      gpuVramSource: 'unknown',
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          models: [
+            { name: 'gemma:12b', size: 8 * 1024 ** 3 },
+            { name: 'llama:8b', size: 5 * 1024 ** 3 },
+          ],
+        }),
+      }),
+    )
+
+    const { estimateMaxResidentModels, estimateAvailableModelMemoryGb } = await import('../detectVramCapacity')
+    const est = await estimateAvailableModelMemoryGb()
+    expect(est.source).toBe('gpu_vram_unknown')
+    expect(est.availableMemoryGb).toBe(0)
+    const max = await estimateMaxResidentModels({
+      defaultModelId: 'gemma:12b',
+      extraModelIds: ['llama:8b'],
+    })
+    expect(max).toBe(1)
+  })
+
+  it('uses nvidia-smi VRAM for two-resident when reported above AdapterRAM cap', async () => {
+    hardwareDetectMock.mockResolvedValue({
+      gpuAvailable: true,
+      gpuVramGb: 16,
+      gpuVramSource: 'nvidia-smi',
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          models: [
+            { name: 'gemma:12b', size: 8 * 1024 ** 3 },
+            { name: 'llama:8b', size: 5 * 1024 ** 3 },
+          ],
+        }),
+      }),
+    )
+
+    const { estimateMaxResidentModels } = await import('../detectVramCapacity')
+    const max = await estimateMaxResidentModels({
+      defaultModelId: 'gemma:12b',
+      extraModelIds: ['llama:8b'],
+    })
+    expect(max).toBe(2)
+  })
 })

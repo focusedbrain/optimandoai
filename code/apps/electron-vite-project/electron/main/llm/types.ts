@@ -20,6 +20,8 @@ export interface HardwareInfo {
   cpuHasFMA?: boolean  // FMA instruction set support (often bundled with AVX2)
   gpuAvailable: boolean
   gpuVramGb?: number
+  /** Provenance for warmup VRAM sizing — not used by the Ollama GPU gate. */
+  gpuVramSource?: string
   diskFreeGb: number
   osType: OsType
   warnings: string[]

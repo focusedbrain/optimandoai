@@ -13,24 +13,46 @@ const MODEL_OVERHEAD = 1.15
 
 export type VramCapacityEstimate = {
   availableMemoryGb: number
-  source: 'gpu_vram' | 'system_ram'
+  source: 'gpu_vram' | 'gpu_vram_unknown' | 'system_ram'
   gpuAvailable: boolean
+  vramDetectSource?: string
+}
+
+function logVramDetect(source: string, totalGb: number | 'unknown'): void {
+  console.log(`[VRAM_DETECT] source=${source} totalGb=${totalGb}`)
 }
 
 export async function estimateAvailableModelMemoryGb(): Promise<VramCapacityEstimate> {
   const hw = await hardwareService.detect()
-  if (hw.gpuAvailable && typeof hw.gpuVramGb === 'number' && hw.gpuVramGb > 0) {
+  const detectSource = hw.gpuVramSource ?? (hw.gpuAvailable ? 'unknown' : 'no-gpu')
+
+  if (typeof hw.gpuVramGb === 'number' && hw.gpuVramGb > 0) {
+    logVramDetect(detectSource, hw.gpuVramGb)
     return {
       availableMemoryGb: hw.gpuVramGb * MEMORY_HEADROOM,
       source: 'gpu_vram',
       gpuAvailable: true,
+      vramDetectSource: detectSource,
     }
   }
+
+  if (hw.gpuAvailable) {
+    logVramDetect(detectSource, 'unknown')
+    return {
+      availableMemoryGb: 0,
+      source: 'gpu_vram_unknown',
+      gpuAvailable: true,
+      vramDetectSource: detectSource,
+    }
+  }
+
+  logVramDetect('no-gpu', 'unknown')
   const freeRamGb = os.freemem() / 1024 ** 3
   return {
     availableMemoryGb: Math.min(freeRamGb * 0.4, 12),
     source: 'system_ram',
     gpuAvailable: false,
+    vramDetectSource: 'no-gpu',
   }
 }
 
