@@ -2365,8 +2365,10 @@ export default function EmailInboxBulkView({
   const prevFilterRef = useRef<string>(filter.filter)
   /** True while a bulk sort is in flight — synchronous guard before any await (store isSortingActive lags one frame). */
   const isSortingRef = useRef(false)
-  /** Per-message guard for explicit “Analyze” so double-clicks don’t start concurrent classify runs. */
-  const bulkAnalyzeInFlightRef = useRef<Set<string>>(new Set())
+  /** Per-message guard: tracks whether lazy auto or manual Analyze is in flight for a row. */
+  const bulkAnalyzeInFlightKindRef = useRef<Map<string, 'auto' | 'manual'>>(new Map())
+  const isBulkManualAnalyzeInFlight = (messageId: string) =>
+    bulkAnalyzeInFlightKindRef.current.get(messageId) === 'manual'
   /** Unsubscribes `onAiAnalyzeChunk` / `onAiAnalyzeError` for per-row streaming. */
   const bulkAnalyzeStreamCleanupRef = useRef<Map<string, () => void>>(new Map())
   /** Bumps when Analyze starts/ends so action rows re-read in-flight state from the ref. */
@@ -3794,7 +3796,7 @@ export default function EmailInboxBulkView({
    * Per-row manual Analyze: stream (or one-shot) advisory analysis only — same IPC as Normal Inbox.
    * Does NOT call classify / Auto-Sort (no DB sort_category writes, no archive/pending moves, no list rebucket).
    */
-  const handleBulkAnalyzeOne = useCallback(async (messageId: string) => {
+  const handleBulkAnalyzeOne = useCallback(async (messageId: string, source: 'auto' | 'manual' = 'auto') => {
     const bridge = window.emailInbox
     if (!bridge) return
     const hasStream =
@@ -3804,8 +3806,29 @@ export default function EmailInboxBulkView({
       console.warn('[BULK-ANALYZE] Need aiAnalyzeMessageStream or aiAnalyzeMessage')
       return
     }
-    if (bulkAnalyzeInFlightRef.current.has(messageId)) return
-    bulkAnalyzeInFlightRef.current.add(messageId)
+
+    const inFlightKind = bulkAnalyzeInFlightKindRef.current.get(messageId)
+    if (source === 'manual') {
+      if (inFlightKind === 'manual') return
+      if (inFlightKind === 'auto') {
+        bulkAnalyzeInFlightKindRef.current.set(messageId, 'manual')
+        setBulkAnalyzeUiEpoch((e) => e + 1)
+        try {
+          if (hasStream) {
+            await bridge.aiAnalyzeMessageStream!(messageId, { manual: true, supersede: true })
+          } else {
+            await bridge.aiAnalyzeMessage!(messageId)
+          }
+        } catch (e) {
+          console.warn('[BULK-ANALYZE] manual attach to auto run:', e)
+        }
+        return
+      }
+    } else if (inFlightKind === 'manual' || inFlightKind === 'auto') {
+      return
+    }
+
+    bulkAnalyzeInFlightKindRef.current.set(messageId, source)
 
     bulkAnalyzeStreamCleanupRef.current.get(messageId)?.()
     bulkAnalyzeStreamCleanupRef.current.delete(messageId)
@@ -3874,7 +3897,10 @@ export default function EmailInboxBulkView({
         if (DEBUG_AI_DIAGNOSTICS) {
           console.warn('⚡ EmailInboxBulkView calling aiAnalyzeMessageStream', new Date().toISOString(), { messageId })
         }
-        await bridge.aiAnalyzeMessageStream!(messageId, {})
+        await bridge.aiAnalyzeMessageStream!(
+          messageId,
+          source === 'manual' ? { manual: true, supersede: true } : {},
+        )
         if (!streamFailed) {
           finalNormal = tryParseAnalysis(accumulatedText)
         }
@@ -3923,7 +3949,7 @@ export default function EmailInboxBulkView({
       }
     } finally {
       cleanupListeners()
-      bulkAnalyzeInFlightRef.current.delete(messageId)
+      bulkAnalyzeInFlightKindRef.current.delete(messageId)
       setBulkAnalyzeUiEpoch((e) => e + 1)
     }
   }, [])
@@ -3952,14 +3978,14 @@ export default function EmailInboxBulkView({
       if (!messageId) return
       bulkLazyAnalyzeQueuedRef.current.delete(messageId)
 
-      if (bulkAnalyzeInFlightRef.current.has(messageId)) continue
+      if (bulkAnalyzeInFlightKindRef.current.has(messageId)) continue
 
       const msg = displayMessagesRef.current.find((m) => m.id === messageId)
       if (!msg || !bulkRowNeedsLazyAnalyze(msg, bulkAiOutputsRef.current)) continue
 
       bulkLazyAnalyzeInFlightCountRef.current += 1
       void handleBulkAnalyzeOneRef
-        .current(messageId)
+        .current(messageId, 'auto')
         .finally(() => {
           bulkLazyAnalyzeInFlightCountRef.current = Math.max(
             0,
@@ -3987,7 +4013,7 @@ export default function EmailInboxBulkView({
 
       if (refSorting || storeSorting) return
       if (bulkLazyAnalyzeQueuedRef.current.has(id)) return
-      if (bulkAnalyzeInFlightRef.current.has(id)) return
+      if (bulkAnalyzeInFlightKindRef.current.has(id)) return
       if (!msg || !needsAnalyze) return
 
       bulkLazyAnalyzeQueuedRef.current.add(id)
@@ -5134,7 +5160,7 @@ export default function EmailInboxBulkView({
       }
 
       if (output && (hasFullStructured || hasDraftReady || output.bulkAnalysisStreaming)) {
-        const analyzeRunning = bulkAnalyzeInFlightRef.current.has(msg.id)
+        const analyzeRunning = isBulkManualAnalyzeInFlight(msg.id)
         const showAnalyzeBtn = shouldShowBulkAnalyzeButton(output)
         return (
           <BulkActionCardStructured
@@ -5153,7 +5179,7 @@ export default function EmailInboxBulkView({
             handleMoveToPendingReviewOne={handleMoveToPendingReviewOne}
             handleSummarize={handleSummarize}
             handleDraftReply={handleDraftReply}
-            handleBulkAnalyze={handleBulkAnalyzeOne}
+            handleBulkAnalyze={(id) => handleBulkAnalyzeOne(id, 'manual')}
             analyzeRunning={analyzeRunning}
             showAnalyzeButton={showAnalyzeBtn}
             handleUndoPendingDelete={handleUndoPendingDelete}
@@ -5172,7 +5198,7 @@ export default function EmailInboxBulkView({
       // Fallback: summary / errors only (draft success uses BulkActionCardStructured above)
       if (output?.summary || output?.summaryError || output?.draftError) {
         const fbShowAnalyze = shouldShowBulkAnalyzeButton(output)
-        const fbAnalyzeRunning = bulkAnalyzeInFlightRef.current.has(msg.id)
+        const fbAnalyzeRunning = isBulkManualAnalyzeInFlight(msg.id)
         const fallbackSummaryCls = isExpanded ? 'bulk-action-card-summary bulk-action-card-summary--expanded' : 'bulk-action-card-summary bulk-action-card-summary--collapsed'
         return (
           <div className={`bulk-action-card bulk-action-card--fallback ${isExpanded ? 'bulk-action-card--expanded' : ''}`}>
@@ -5224,7 +5250,7 @@ export default function EmailInboxBulkView({
                 <button
                   type="button"
                   className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
-                  onClick={() => handleBulkAnalyzeOne(msg.id)}
+                  onClick={() => handleBulkAnalyzeOne(msg.id, 'manual')}
                   disabled={fbAnalyzeRunning || !!output?.loading}
                   title="Run full AI triage (classify) for this message"
                 >
@@ -5261,7 +5287,7 @@ export default function EmailInboxBulkView({
       }
 
       // Guidance state: not yet analyzed
-      const guidanceAnalyzeRunning = bulkAnalyzeInFlightRef.current.has(msg.id)
+      const guidanceAnalyzeRunning = isBulkManualAnalyzeInFlight(msg.id)
       return (
         <div className="bulk-action-card bulk-action-card--guidance">
           <div className="bulk-action-card-body">
@@ -5290,7 +5316,7 @@ export default function EmailInboxBulkView({
             <button
               type="button"
               className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
-              onClick={() => handleBulkAnalyzeOne(msg.id)}
+              onClick={() => handleBulkAnalyzeOne(msg.id, 'manual')}
               disabled={guidanceAnalyzeRunning}
               title="Run full AI triage (classify) for this message"
             >

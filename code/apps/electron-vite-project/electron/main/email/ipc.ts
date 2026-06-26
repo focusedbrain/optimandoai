@@ -287,6 +287,7 @@ import {
   replayAnalysisStreamState,
   runInboxAiTaskWithDedup,
   syncInboxAiSelectionForTaskKey,
+  tryAttachManualInboxAnalysisToRunningAuto,
   waitForInboxAiTask,
   type InboxAiStreamInvokeOpts,
 } from './inboxAiTaskDedup'
@@ -4657,10 +4658,20 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
       }
     }
 
+    if (manual && supersede && !event.sender.isDestroyed()) {
+      const attached = await tryAttachManualInboxAnalysisToRunningAuto(analyzeDedupeKey, (channel, payload) => {
+        if (!event.sender.isDestroyed()) event.sender.send(channel, payload)
+      })
+      if (attached) {
+        return { started: true, attachedToAuto: true, requestId: attached.requestId }
+      }
+    }
+
     return runInboxAiTaskWithDedup(
       analyzeDedupeKey,
       {
         supersede,
+        manual,
         supersedeKeyPrefix: `analysis-stream:${messageId}:`,
         messageId,
         abortControllers: analyzeStreamAbortByMessageId,
