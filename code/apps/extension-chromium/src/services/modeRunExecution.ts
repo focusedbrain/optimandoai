@@ -25,6 +25,12 @@ import {
   wrChatHostInternalWireModel,
 } from '../lib/wrChatHostInferenceShared'
 import { prependHiddenContextToLastUserContent } from '../utils/prependChatFocusToLastUser'
+import {
+  applyModelFallbackBanner,
+  buildLlmRequestBodyWithAvailability,
+  postLlmChatWithAvailability,
+  type ModelFallbackInfo,
+} from '../lib/declaredModelAvailability'
 import { ensureLaunchSecretForElectronHttp } from './ensureLaunchSecretForElectronHttp'
 import {
   matchAgentsForModeRun,
@@ -32,7 +38,6 @@ import {
   loadAgentBoxesFromSession,
   wrapInputForAgent,
   resolveAgentBoxInference,
-  buildLlmRequestBody,
   updateAgentBoxOutput,
   type AgentMatch,
   type BrainResolution,
@@ -154,7 +159,9 @@ function resolveModeRunHostRouteModelId(
   return null
 }
 
-type ModeRunLlmSubmitResult = { ok: true; content: string } | { ok: false; error: string }
+type ModeRunLlmSubmitResult =
+  | { ok: true; content: string; modelFallback?: ModelFallbackInfo }
+  | { ok: false; error: string }
 
 /** Host AI (sealed relay / IPC) or local/cloud HTTP — same resolution family as WR Chat. */
 async function submitModeRunAgentLlm(args: {
@@ -165,8 +172,18 @@ async function submitModeRunAgentLlm(args: {
   baseUrl: string
   getFetchHeaders: () => Promise<Record<string, string>>
   signal?: AbortSignal
+  preResolvedFallback?: ModelFallbackInfo
 }): Promise<ModeRunLlmSubmitResult> {
-  const { hostRouteModelId, llmMessages, llmBody, availableModels, baseUrl, getFetchHeaders, signal } = args
+  const {
+    hostRouteModelId,
+    llmMessages,
+    llmBody,
+    availableModels,
+    baseUrl,
+    getFetchHeaders,
+    signal,
+    preResolvedFallback,
+  } = args
 
   if (hostRouteModelId) {
     const row = availableModels.find((m) => m.name === hostRouteModelId)
@@ -258,24 +275,22 @@ async function submitModeRunAgentLlm(args: {
   }
 
   const headers = await getFetchHeaders()
-  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/llm/chat`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(llmBody),
+  const post = await postLlmChatWithAvailability({
+    body: llmBody,
+    origin: 'mode_run_agent',
+    baseUrl,
+    getFetchHeaders: async () => headers,
     signal: signal ?? AbortSignal.timeout(600_000),
+    preResolvedFallback: preResolvedFallback,
   })
-
-  if (!response.ok) {
-    const errBody = await response.json().catch(() => ({}))
-    const err = (errBody as { error?: string }).error || 'LLM request failed'
-    return { ok: false, error: err }
+  if (post.ok) {
+    return {
+      ok: true,
+      content: post.content,
+      modelFallback: post.modelFallback ?? preResolvedFallback,
+    }
   }
-
-  const result = await response.json()
-  if (result.ok && result.data?.content) {
-    return { ok: true, content: result.data.content as string }
-  }
-  return { ok: false, error: 'No output from LLM' }
+  return { ok: false, error: post.error }
 }
 
 /**
@@ -416,21 +431,27 @@ async function runAgentMatchLlm(p: RunOneParams): Promise<ModeRunAgentExecutionR
     }
     const llmMessages = [{ role: 'system', content: reasoningContext }, ...recentMessages]
 
-    const { body: llmBody, error: keyError } = await buildLlmRequestBody(
-      modelResolution as BrainResolution & { ok: true },
-      llmMessages,
-    )
-    if (keyError) {
+    const { body: llmBody, error: availError, modelFallback: preFallback } =
+      await buildLlmRequestBodyWithAvailability(
+        modelResolution as BrainResolution & { ok: true },
+        llmMessages,
+        {
+          origin: 'mode_run_agent',
+          baseUrl,
+          getFetchHeaders: p.getFetchHeaders,
+        },
+      )
+    if (availError) {
       if (match.agentBoxId) {
         await updateAgentBoxOutput(
           match.agentBoxId,
-          keyError,
-          `Agent: ${match.agentName} | Missing API key`,
+          availError,
+          `Agent: ${match.agentName} | Model unavailable`,
           sessionKey,
           p.sourceSurface,
         )
       }
-      return { ...baseResult, success: false, error: keyError }
+      return { ...baseResult, success: false, error: availError }
     }
 
     await runAgentBoxInferencePreSend({
@@ -459,13 +480,17 @@ async function runAgentMatchLlm(p: RunOneParams): Promise<ModeRunAgentExecutionR
       baseUrl,
       getFetchHeaders: p.getFetchHeaders,
       signal: p.signal,
+      preResolvedFallback: preFallback,
     })
 
     if (!llmResult.ok) {
       return { ...baseResult, success: false, error: llmResult.error }
     }
 
-    const output = llmResult.content
+    const output = applyModelFallbackBanner(
+      llmResult.content,
+      llmResult.modelFallback ?? preFallback,
+    )
     const allBoxIds =
       match.targetBoxIds && match.targetBoxIds.length > 0
         ? match.targetBoxIds

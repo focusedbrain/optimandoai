@@ -10156,6 +10156,32 @@ async function runDeviceKeyMigration(
       }
     })
     
+    // POST /api/llm/resolve-model — declared local model availability + loud fallback metadata
+    httpApp.post('/api/llm/resolve-model', async (req, res) => {
+      try {
+        if (isSandboxMode()) {
+          return res.status(503).json({
+            ok: false,
+            error:
+              'Sandbox inference over HTTP is removed — complete an internal handshake in the Handshakes panel; inference will use the BEAP channel.',
+          })
+        }
+        const requestedModelId =
+          typeof req.body?.requestedModelId === 'string' ? req.body.requestedModelId : ''
+        const origin = typeof req.body?.origin === 'string' ? req.body.origin.trim() : 'http_resolve'
+        const { resolveDeclaredLocalOllamaModel } = await import('./main/llm/resolveDeclaredModelAvailability')
+        const resolution = await resolveDeclaredLocalOllamaModel(requestedModelId, origin || 'http_resolve')
+        if (!resolution.ok) {
+          res.status(400).json(resolution)
+          return
+        }
+        res.json({ ok: true, ...resolution })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error in resolve-model:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
     // POST /api/llm/chat - Chat with model (local Ollama or cloud provider)
     httpApp.post('/api/llm/chat', async (req, res) => {
       try {
@@ -10184,10 +10210,13 @@ async function runDeviceKeyMigration(
         }
         
         const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const { resolveDeclaredLocalOllamaModel, toModelFallbackWire } = await import(
+          './main/llm/resolveDeclaredModelAvailability',
+        )
         
         // If no modelId specified, use persisted preference or first installed model
-        let activeModelId = modelId
-        if (!activeModelId) {
+        let requestedModelId = typeof modelId === 'string' ? modelId.trim() : ''
+        if (!requestedModelId) {
           const resolved = await ollamaManager.getEffectiveChatModelName()
           if (!resolved) {
             res.status(400).json({ 
@@ -10196,11 +10225,29 @@ async function runDeviceKeyMigration(
             })
             return
           }
-          activeModelId = resolved
+          requestedModelId = resolved
         }
+
+        const availability = await resolveDeclaredLocalOllamaModel(
+          requestedModelId,
+          typeof req.body?.origin === 'string' ? req.body.origin : 'http_llm_chat',
+        )
+        if (!availability.ok) {
+          res.status(400).json({ ok: false, error: availability.error })
+          return
+        }
+        const activeModelId = availability.actualModel
         
         const response = await ollamaManager.chat(activeModelId, enrichedMessages)
-        res.json({ ok: true, data: response })
+        const modelFallback = toModelFallbackWire(availability)
+        res.json({
+          ok: true,
+          data: {
+            ...response,
+            content: response.content,
+            ...(modelFallback ? { modelFallback } : {}),
+          },
+        })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error in chat:', error)
         res.status(500).json({ ok: false, error: error.message })
