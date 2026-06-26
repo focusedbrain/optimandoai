@@ -3285,6 +3285,11 @@ body {
   cursor: not-allowed;
 }
 
+.bulk-view-auto-analyze-toggle--row-header {
+  margin-left: 10px;
+  flex-shrink: 0;
+}
+
 /* Shared Normal + Bulk inbox — product-facing type filter (workflow labels) */
 .inbox-message-kind-toolbar {
   display: inline-flex;

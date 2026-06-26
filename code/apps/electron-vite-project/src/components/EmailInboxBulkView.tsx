@@ -5687,22 +5687,6 @@ export default function EmailInboxBulkView({
             >
               ⚡AI Auto-Sort
             </button>
-            <label
-              className="bulk-view-auto-analyze-toggle"
-              title={
-                inboxAutoAnalyzeEnabled
-                  ? 'Automatic analysis is on — messages analyze as you scroll (uses CPU/GPU). Turn off to analyze manually with the per-row Analyze button.'
-                  : 'Automatic analysis is off — use the per-row Analyze button on each message. Turn on to analyze automatically as messages scroll into view (uses more CPU/GPU).'
-              }
-            >
-              <input
-                type="checkbox"
-                checked={inboxAutoAnalyzeEnabled}
-                onChange={(e) => handleInboxAutoAnalyzeToggle(e.target.checked)}
-                disabled={isSortingActive}
-              />
-              <span className="bulk-view-auto-analyze-toggle__label">Auto-analyze messages</span>
-            </label>
             <BulkOllamaModelSelect
               variant="toolbar"
               disabled={isSortingActive}
@@ -6619,6 +6603,23 @@ export default function EmailInboxBulkView({
                     aria-label="Select messages for bulk actions"
                   />
                   Select
+                </label>
+                <label
+                  className="bulk-view-auto-analyze-toggle bulk-view-auto-analyze-toggle--row-header"
+                  title={
+                    inboxAutoAnalyzeEnabled
+                      ? 'Automatic analysis is on — messages analyze as you scroll (uses CPU/GPU). Turn off to analyze manually with the per-row Analyze button.'
+                      : 'Automatic analysis is off — use the per-row Analyze button on each message. Turn on to analyze automatically as messages scroll into view (uses more CPU/GPU).'
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    checked={inboxAutoAnalyzeEnabled}
+                    onChange={(e) => handleInboxAutoAnalyzeToggle(e.target.checked)}
+                    disabled={isSortingActive}
+                    aria-label="Auto-analyze messages as they scroll into view"
+                  />
+                  <span className="bulk-view-auto-analyze-toggle__label">Auto-analyze</span>
                 </label>
               </div>
               <InboxBulkActionsBar

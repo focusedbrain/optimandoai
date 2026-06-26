@@ -378,6 +378,10 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
   const streamCleanupRef = useRef<(() => void) | null>(null)
   /** Stops auto re-entry: effect re-runs after stream error (e.g. Zustand or StrictMode) must not call analyze again. */
   const autoAnalyzeStreamFailedRef = useRef<Set<string>>(new Set())
+  /** Global lazy auto-analyze pref (inbox_auto_analyze_enabled). Default off until settings load. */
+  const [inboxAutoAnalyzeEnabled, setInboxAutoAnalyzeEnabled] = useState(false)
+  const inboxAutoAnalyzeEnabledRef = useRef(false)
+  inboxAutoAnalyzeEnabledRef.current = inboxAutoAnalyzeEnabled
   /**
    * When the user runs manual Summarize while the analysis stream is still running (or before it finishes),
    * stream chunks / completion must not overwrite that summary. Cleared on message change and when a fresh stream starts (e.g. Retry).
@@ -400,6 +404,21 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
     messageRef.current = message
   }, [message])
 
+  useEffect(() => {
+    void (async () => {
+      const bridge = window.emailInbox
+      if (!bridge?.getInboxSettings) return
+      try {
+        const res = await bridge.getInboxSettings()
+        if (res?.ok && res.data) {
+          setInboxAutoAnalyzeEnabled(res.data.autoAnalyzeEnabled === true)
+        }
+      } catch {
+        /* default off */
+      }
+    })()
+  }, [])
+
   const replyMode = message ? resolveInboxReplyMode(message) : 'email'
   const isNativeBeap = replyMode === 'native_beap'
   const isSortingActive = useEmailInboxStore((s) => s.isSortingActive)
@@ -414,6 +433,50 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
       console.log('[ANALYSIS] runAnalysisStream triggered for:', messageId)
     }
     if (!window.emailInbox?.aiAnalyzeMessageStream || !window.emailInbox.onAiAnalyzeChunk) return
+
+    if (!manual && !inboxAutoAnalyzeEnabledRef.current) {
+      const cachedOff = useEmailInboxStore.getState().analysisCache[messageId]
+      if (cachedOff) {
+        autoAnalyzeStreamFailedRef.current.delete(messageId)
+        const triOff = reconcileAnalyzeTriage(
+          {
+            urgencyScore: cachedOff.urgencyScore,
+            needsReply: cachedOff.needsReply,
+            urgencyReason: cachedOff.urgencyReason,
+            summary: cachedOff.summary,
+          },
+          { subject: msg?.subject, body: msg?.body_text },
+        )
+        const skipEmailDraftOff = !!(msg && resolveInboxReplyMode(msg) === 'native_beap')
+        setAnalysis({
+          ...cachedOff,
+          urgencyScore: triOff.urgencyScore,
+          needsReply: triOff.needsReply,
+          draftReply: skipEmailDraftOff
+            ? cachedOff.draftReply
+            : triOff.needsReply
+              ? cachedOff.draftReply
+              : null,
+        })
+        setAnalysisStreamParseFailed(false)
+        setReceivedFields(
+          new Set([
+            'needsReply',
+            'needsReplyReason',
+            'summary',
+            'urgencyScore',
+            'urgencyReason',
+            'actionItems',
+            'archiveRecommendation',
+            'archiveReason',
+            'draftReply',
+            'scamWatchdog',
+          ]),
+        )
+      }
+      setAnalysisLoading(false)
+      return
+    }
 
     // Note: direct_beap messages are now auto-analyzed on open, same as other messages.
     // The previous guard (skip auto for direct_beap) blocked analysis when the user
@@ -873,6 +936,7 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
     const wasSorting = prevSortingActiveRef.current
     prevSortingActiveRef.current = isSortingActive
     if (!wasSorting || isSortingActive || !messageId) return
+    if (!inboxAutoAnalyzeEnabledRef.current) return
     if (autoAnalyzeStreamFailedRef.current.has(messageId)) return
     if (useEmailInboxStore.getState().analysisCache[messageId]) return
     void runAnalysisStreamRef.current()

@@ -4658,6 +4658,16 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
       }
     }
 
+    if (!manual) {
+      const rawAutoAnalyze = getInboxSetting(dbPre, 'inbox_auto_analyze_enabled')
+      if (rawAutoAnalyze !== true) {
+        console.log(
+          `[INBOX_AUTO_ANALYZE] rejected auto analysis-stream messageId=${messageId} reason=pref_off`,
+        )
+        return { started: false, skipped: true, reason: 'auto_analyze_disabled' }
+      }
+    }
+
     if (manual && supersede && !event.sender.isDestroyed()) {
       const attached = await tryAttachManualInboxAnalysisToRunningAuto(analyzeDedupeKey, (channel, payload) => {
         if (!event.sender.isDestroyed()) event.sender.send(channel, payload)
