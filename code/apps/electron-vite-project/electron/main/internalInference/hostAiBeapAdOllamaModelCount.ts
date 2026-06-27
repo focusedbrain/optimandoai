@@ -25,23 +25,23 @@ export type HostAiBeapAdLocalOllamaModelRosterResult = {
 
 export async function hostAiBeapAdLocalOllamaModelRoster(): Promise<HostAiBeapAdLocalOllamaModelRosterResult> {
   try {
-    const { ollamaManager } = await import('../llm/ollama-manager')
+    const { localLlmManager } = await import('../llm/local-llm-manager')
     const { getHostInternalInferencePolicy } = await import('./hostInferencePolicyStore')
-    const { resolveModelForInternalInference } = await import('../llm/internalHostInferenceOllama')
+    const { resolveModelForInternalInference } = await import('../llm/internalHostInferenceLocal')
     const hostPolicy = getHostInternalInferencePolicy()
     const allow = hostPolicy.modelAllowlist ?? []
     let resolved = await resolveModelForInternalInference(undefined, allow)
     let modelSource = 'resolveModelForInternalInference'
     if (!('model' in resolved)) {
-      const st = await ollamaManager.getStatus()
+      const st = await localLlmManager.getStatus()
       const active = st.activeModel?.trim()
-      const nameSet = new Set((await ollamaManager.listModels()).map((x) => x.name))
+      const nameSet = new Set((await localLlmManager.listModels()).map((x) => x.name))
       if (active && nameSet.has(active) && (allow.length === 0 || allow.includes(active))) {
         resolved = { model: active }
         modelSource = 'ollama_status_activeModel'
       }
     }
-    const installed = await ollamaManager.listModels()
+    const installed = await localLlmManager.listModels()
     const n = Array.isArray(installed) ? installed.length : 0
     const activeId = 'model' in resolved ? resolved.model.trim() : null
     const models: HostAiBeapAdOllamaModelWireEntry[] = (installed ?? []).map((m) => {

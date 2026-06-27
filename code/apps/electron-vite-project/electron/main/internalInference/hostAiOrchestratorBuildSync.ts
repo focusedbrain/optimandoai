@@ -7,7 +7,7 @@ import path from 'path'
 import { closeAllP2pInferenceSessions, P2pSessionLogReason } from './p2pSession/p2pInferenceSessionManager'
 import { resetListInferenceTargetsIpcCacheForOrchestrator } from './ipc'
 import { clearHostAiListTransientStateForOrchestratorBuildChange } from './listInferenceTargets'
-import { ollamaManager } from '../llm/ollama-manager'
+import { localLlmManager } from '../llm/local-llm-manager'
 
 const FILENAME = 'last-host-ai-orchestrator-build-stamp.txt'
 
@@ -39,7 +39,7 @@ export function runHostAiInvalidationIfOrchestratorBuildChanged(args: {
   resetListInferenceTargetsIpcCacheForOrchestrator()
   closeAllP2pInferenceSessions(P2pSessionLogReason.orchestrator_build_changed)
   try {
-    ollamaManager.invalidateModelsCache()
+    localLlmManager.invalidateModelsCache()
   } catch {
     /* ignore */
   }

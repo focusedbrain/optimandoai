@@ -19,14 +19,14 @@ vi.mock('../../email/inboxLlmChat', () => ({
 const listModels = vi.fn()
 const getEffectiveChatModelName = vi.fn()
 
-vi.mock('../ollama-manager', () => ({
-  ollamaManager: {
+vi.mock('../local-llm-manager', () => ({
+  localLlmManager: {
     listModels: () => listModels(),
     getEffectiveChatModelName: () => getEffectiveChatModelName(),
   },
 }))
 
-import { resolveModelForInternalInference } from '../internalHostInferenceOllama'
+import { resolveModelForInternalInference } from '../internalHostInferenceLocal'
 
 describe('resolveModelForInternalInference — multi-entry allowlist uses effective active when installed', () => {
   beforeEach(() => {

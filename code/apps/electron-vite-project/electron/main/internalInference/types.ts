@@ -101,7 +101,7 @@ export interface InternalInferenceCapabilitiesResultWire {
   host_pairing_code: string
   models: InternalInferenceCapabilitiesModelEntry[]
   policy_enabled: boolean
-  /** Set when `policy_enabled` — Host’s active local Ollama from getEffective + policy (activeOllamaModelStore is read via ollamaManager). */
+  /** Set when `policy_enabled` — Host’s active local Ollama from getEffective + policy (activeOllamaModelStore is read via localLlmManager). */
   active_local_llm?: ActiveLocalLlmWire
   inference_error_code?: string
   /**

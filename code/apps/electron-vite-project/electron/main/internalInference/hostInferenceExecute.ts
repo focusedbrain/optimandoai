@@ -3,9 +3,9 @@
  */
 
 import { InboxLlmTimeoutError } from '../email/inboxLlmChat'
-import * as internalHostOllama from '../llm/internalHostInferenceOllama'
-import type { InternalHostInferenceMessage } from '../llm/internalHostInferenceOllama'
-import { ollamaManager } from '../llm/ollama-manager'
+import * as internalHostOllama from '../llm/internalHostInferenceLocal'
+import type { InternalHostInferenceMessage } from '../llm/internalHostInferenceLocal'
+import { localLlmManager } from '../llm/local-llm-manager'
 import { InternalInferenceErrorCode } from './errors'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { tryAcquireHostInferenceSlot } from './hostInferenceConcurrency'
@@ -134,7 +134,7 @@ export async function runHostInternalInference(
   if (requested) {
     let eff: string | null = null
     try {
-      eff = await ollamaManager.getEffectiveChatModelName()
+      eff = await localLlmManager.getEffectiveChatModelName()
     } catch {
       eff = null
     }

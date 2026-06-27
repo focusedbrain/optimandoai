@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { hardwareDiagnostics } from '../hardware-diagnostics'
-import { OllamaManager } from '../ollama-manager-enhanced'
+import { LocalLlmManager } from '../local-llm-manager'
 import { ollamaLogger } from '../rotating-logger'
 import fs from 'fs'
 
@@ -90,10 +90,10 @@ describe('Rotating Logger', () => {
 })
 
 describe('Ollama Manager - Integration', () => {
-  let manager: OllamaManager
+  let manager: LocalLlmManager
   
   beforeAll(() => {
-    manager = new OllamaManager()
+    manager = new LocalLlmManager()
   })
   
   afterAll(async () => {
@@ -163,7 +163,7 @@ describe('Auto-Fallback Simulation', () => {
 
 describe('Safe Model Options', () => {
   it('should generate conservative defaults when no diagnostics', () => {
-    const manager = new OllamaManager()
+    const manager = new LocalLlmManager()
     
     // Before initialization, should use conservative defaults
     const health = manager.getHealthStatus()
@@ -185,14 +185,14 @@ describe('Safe Model Options', () => {
 })
 
 describe('User-Friendly Error Messages', () => {
-  let manager: OllamaManager
+  let manager: LocalLlmManager
   
   beforeAll(() => {
-    manager = new OllamaManager()
+    manager = new LocalLlmManager()
   })
   
   it('should convert timeout errors', () => {
-    const manager = new OllamaManager()
+    const manager = new LocalLlmManager()
     
     // Access private method via type casting (for testing only)
     const error = (manager as any).getUserFriendlyError('Model load timed out after 90s')
@@ -204,7 +204,7 @@ describe('User-Friendly Error Messages', () => {
   })
   
   it('should convert GPU errors', () => {
-    const manager = new OllamaManager()
+    const manager = new LocalLlmManager()
     
     const error = (manager as any).getUserFriendlyError('Vulkan driver error')
     
@@ -213,7 +213,7 @@ describe('User-Friendly Error Messages', () => {
   })
   
   it('should convert memory errors', () => {
-    const manager = new OllamaManager()
+    const manager = new LocalLlmManager()
     
     const error = (manager as any).getUserFriendlyError('out of memory')
     
@@ -223,7 +223,7 @@ describe('User-Friendly Error Messages', () => {
 })
 
 // Export for manual testing
-export { hardwareDiagnostics, OllamaManager, ollamaLogger }
+export { hardwareDiagnostics, LocalLlmManager, ollamaLogger }
 
 
 

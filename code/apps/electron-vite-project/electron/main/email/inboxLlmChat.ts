@@ -6,12 +6,12 @@ import { getProvider, type UserRagSettings } from '../handshake/aiProviders'
 import { ocrRouter } from '../ocr/router'
 import { DEBUG_AUTOSORT_DIAGNOSTICS, autosortDiagLog } from '../autosortDiagnostics'
 import type { VisionProvider } from '../ocr/types'
-import { DEBUG_ACTIVE_OLLAMA_MODEL } from '../llm/activeOllamaModelStore'
+import { DEBUG_ACTIVE_LOCAL_MODEL } from '../llm/activeLocalModelStore'
 import {
   DEBUG_OLLAMA_RUNTIME_TRACE,
   ollamaRuntimeLog,
   type OllamaRuntimeRequestTrace,
-} from '../llm/ollamaRuntimeDiagnostics'
+} from '../llm/localLlmRuntimeDiagnostics'
 import type { AiExecutionContext } from '../llm/aiExecutionTypes'
 import {
   NO_AI_MODEL_SELECTED,
@@ -19,6 +19,7 @@ import {
   resolveAiExecutionContextForLlm,
 } from '../llm/resolveAiExecutionContext'
 import type { BeapContentAiTask } from '../internalInference/beapContentAiRoute'
+import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../llm/localLlmPaths'
 
 export const INBOX_LLM_TIMEOUT_MS = 45_000
 
@@ -168,7 +169,7 @@ export async function preResolveInboxLlm(): Promise<ResolvedLlmContext | null> {
   if (providerLower === 'ollama') {
     const r = await resolveAiExecutionContextForLlm()
     if (!r.ok) return null
-    if (DEBUG_ACTIVE_OLLAMA_MODEL) {
+    if (DEBUG_ACTIVE_LOCAL_MODEL) {
       console.warn('[ActiveOllamaModel] preResolveInboxLlm →', r.ctx.model, r.ctx.lane)
     }
     return { model: r.ctx.model, provider: 'ollama', aiExecution: r.ctx }
@@ -244,7 +245,7 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
     if (!modelOverride) {
       throw new Error(NO_AI_MODEL_SELECTED)
     }
-    if (DEBUG_ACTIVE_OLLAMA_MODEL) {
+    if (DEBUG_ACTIVE_LOCAL_MODEL) {
       console.warn('[ActiveOllamaModel] inboxLlmChat ollama →', modelOverride, aiExecution.lane)
     }
   } else {
@@ -290,7 +291,7 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
   if (provider.id === 'ollama' && aiExecution) {
     const { OllamaProvider } = await import('../handshake/aiProviders')
     const ollamaProv = new OllamaProvider({
-      baseUrl: aiExecution.baseUrl ?? 'http://127.0.0.1:11434',
+      baseUrl: aiExecution.baseUrl ?? HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE,
       model: modelOverride,
       chatModel: modelOverride,
       lane: aiExecution.lane,

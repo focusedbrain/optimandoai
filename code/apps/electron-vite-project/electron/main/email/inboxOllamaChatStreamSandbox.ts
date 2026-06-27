@@ -20,7 +20,9 @@ import {
   isLikelyLoopbackOrigin,
 } from '../inference/inferenceGate'
 
-const LOCAL_OLLAMA_BASE = 'http://127.0.0.1:11434'
+import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../llm/localLlmPaths'
+
+const LOCAL_LLM_BASE = HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE
 
 export type InboxOllamaGpuChatGate =
   | { kind: 'local' }
@@ -369,8 +371,8 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
 
   /** Exclusive host machine (no ledger sandbox peer): historical local-only stream */
   if (!effectiveSandbox) {
-    yield* streamOllamaChatNdjsonFromBaseUrl(LOCAL_OLLAMA_BASE, systemPrompt, userPrompt, bareModel, {
-      diag: baseDiag('local', LOCAL_OLLAMA_BASE),
+    yield* streamOllamaChatNdjsonFromBaseUrl(LOCAL_LLM_BASE, systemPrompt, userPrompt, bareModel, {
+      diag: baseDiag('local', LOCAL_LLM_BASE),
       gpuChatGate: { kind: 'local' },
       abortSignal: streamOpts?.abortSignal,
       responseFormat: 'json',

@@ -26,7 +26,7 @@ import { _resetHostInferencePolicyForTests } from '../hostInferencePolicyStore'
 import { _resetConcurrencyForTests } from '../hostInferenceConcurrency'
 import * as dbAccess from '../dbAccess'
 import * as hostIx from '../hostInferenceExecute'
-import * as ollamaInf from '../../llm/internalHostInferenceOllama'
+import * as ollamaInf from '../../llm/internalHostInferenceLocal'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)

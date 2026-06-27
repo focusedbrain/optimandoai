@@ -6,7 +6,9 @@ import { HOST_AI_ROUTE_KIND_OLLAMA_DIRECT } from './hostAiOllamaDirect'
 import { getHostLanIpCandidates } from './hostAiOllamaDirectLanIp'
 import type { InternalInferenceCapabilitiesResultWire } from './types'
 
-const DEFAULT_ALLOWED_PORTS = new Set([11434])
+import { DEFAULT_LLAMACPP_PORT } from '../llm/localLlmPaths'
+
+const DEFAULT_ALLOWED_PORTS = new Set([DEFAULT_LLAMACPP_PORT])
 
 function readAllowedPortsFromEnv(): Set<number> {
   const raw = (process.env.WRDESK_HOST_AI_OLLAMA_DIRECT_ALLOWED_PORTS ?? '').trim()

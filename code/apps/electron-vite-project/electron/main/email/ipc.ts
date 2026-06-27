@@ -20,7 +20,7 @@ import {
   ollamaRuntimeBeginBatch,
   ollamaRuntimeEndBatch,
   type OllamaClassifyBatchChunkDiag,
-} from '../llm/ollamaRuntimeDiagnostics'
+} from '../llm/localLlmRuntimeDiagnostics'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -312,7 +312,7 @@ import {
 } from './inboxSealedRead'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
 import { inboxLlmChat, isLlmAvailable, INBOX_LLM_TIMEOUT_MS, resolveInboxLlmSettings, preResolveInboxLlm, type ResolvedLlmContext } from './inboxLlmChat'
-import { maybePrewarmOllamaForBulkClassify, type OllamaBulkPrewarmDiag } from '../llm/ollamaBulkPrewarm'
+import { maybePrewarmLocalLlmForBulkClassify, type LocalLlmBulkPrewarmDiag } from '../llm/localLlmBulkPrewarm'
 
 /** Per-page strings from DB `extracted_text` (extraction joins pages with \\n\\n). */
 function inboxPagesFromStoredExtractedText(text: string): string[] {
@@ -327,8 +327,8 @@ function inboxPagesFromStoredExtractedText(text: string): string[] {
 
 /** @deprecated Use `inboxLlmChat` from `./inboxLlmChat` (unified provider). Kept for Ollama NDJSON stream path. */
 async function callInboxOllamaChat(systemPrompt: string, userPrompt: string): Promise<string> {
-  const { ollamaManager } = await import('../llm/ollama-manager')
-  const modelId = await ollamaManager.getEffectiveChatModelName()
+  const { localLlmManager } = await import('../llm/local-llm-manager')
+  const modelId = await localLlmManager.getEffectiveChatModelName()
   if (!modelId) {
     throw new Error('No LLM model installed. Install a model in LLM Settings first.')
   }
@@ -340,7 +340,7 @@ async function callInboxOllamaChat(systemPrompt: string, userPrompt: string): Pr
     setTimeout(() => reject(new Error('LLM_TIMEOUT: response exceeded 45s')), INBOX_LLM_TIMEOUT_MS)
   )
   const response = await Promise.race([
-    ollamaManager.chat(modelId, messages),
+    localLlmManager.chat(modelId, messages),
     timeoutPromise,
   ])
   return response?.content?.trim() ?? 'No response from model.'
@@ -349,8 +349,8 @@ async function callInboxOllamaChat(systemPrompt: string, userPrompt: string): Pr
 /** @deprecated Use `isLlmAvailable` from `./inboxLlmChat`. */
 async function isOllamaAvailable(): Promise<boolean> {
   try {
-    const { ollamaManager } = await import('../llm/ollama-manager')
-    const models = await ollamaManager.listModels()
+    const { localLlmManager } = await import('../llm/local-llm-manager')
+    const models = await localLlmManager.listModels()
     return models.length > 0
   } catch {
     return false
@@ -5413,12 +5413,12 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       return { results: ids.map((messageId) => ({ messageId, error: 'llm_unavailable' })), batchRuntime: undefined }
     }
 
-    let ollamaPrewarm: OllamaBulkPrewarmDiag | undefined
+    let ollamaPrewarm: LocalLlmBulkPrewarmDiag | undefined
     if (resolvedLlm.provider.toLowerCase() === 'ollama') {
       if (chunkIndex == null || chunkIndex === 1) {
         // Fire-and-forget: model loads in background while first classify prepares.
         // Previously awaited here, which blocked the entire first chunk for 10–20 s on a cold model.
-        void maybePrewarmOllamaForBulkClassify(resolvedLlm.model, { chunkIndex })
+        void maybePrewarmLocalLlmForBulkClassify(resolvedLlm.model, { chunkIndex })
         ollamaPrewarm = undefined
       }
       if (DEBUG_AUTOSORT_TIMING) {

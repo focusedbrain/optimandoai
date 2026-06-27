@@ -10,7 +10,8 @@ import { listSandboxHostInternalInferenceTargets } from '../internalInference/li
 import { getHandshakeDbForInternalInference } from '../internalInference/dbAccess'
 import { getHostAiLedgerRoleSummaryFromDb } from '../internalInference/hostAiEffectiveRole'
 import { getInstanceId, getOrchestratorMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
-import { ollamaManager } from './ollama-manager'
+import { localLlmManager } from './local-llm-manager'
+import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from './localLlmPaths'
 import type { AiExecutionContext, ResolveAiExecutionContextResult } from './aiExecutionTypes'
 import { readStoredAiExecutionContext } from './aiExecutionContextStore'
 import { isGpuInferenceAvailable } from '../inference/inferenceGate'
@@ -231,14 +232,14 @@ export async function fallbackFromListSandbox(storedOverride?: AiExecutionContex
 }
 
 async function tryLocalContext(): Promise<AiExecutionContext | null> {
-  const name = await ollamaManager.getEffectiveChatModelName()
+  const name = await localLlmManager.getEffectiveChatModelName()
   if (!name) return null
 
   // Capability gate: only route to local when hardware can actually run the model.
   // GPU → allowed always.  No GPU → only CPU-safe models (or dev override).
   const gpuOk = await isGpuInferenceAvailable()
   if (gpuOk) {
-    return { lane: 'local', model: name, baseUrl: 'http://127.0.0.1:11434' }
+    return { lane: 'local', model: name, baseUrl: HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE }
   }
 
   const allowCpuOverride =
@@ -246,7 +247,7 @@ async function tryLocalContext(): Promise<AiExecutionContext | null> {
     /^true$/i.test(process.env.WRDESK_ALLOW_CPU_INFERENCE ?? '')
 
   if (allowCpuOverride || isCpuSafeModel(name)) {
-    return { lane: 'local', model: name, baseUrl: 'http://127.0.0.1:11434' }
+    return { lane: 'local', model: name, baseUrl: HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE }
   }
 
   // Model is too large for CPU and no GPU — decline local routing so the caller
@@ -282,7 +283,7 @@ export async function resolveAiExecutionContextForLlm(): Promise<ResolveAiExecut
         if (local) return { ok: true, ctx: local }
         return { ok: false, error: NO_AI_MODEL_SELECTED }
       }
-      return { ok: true, ctx: { ...ctx, baseUrl: ctx.baseUrl ?? 'http://127.0.0.1:11434' } }
+      return { ok: true, ctx: { ...ctx, baseUrl: ctx.baseUrl ?? HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } }
     }
 
     if (ctx.lane === 'ollama_direct' || ctx.lane === 'beap') {
@@ -310,7 +311,7 @@ export async function resolveAiExecutionContextForLlm(): Promise<ResolveAiExecut
       return { ok: true, ctx }
     }
 
-    return { ok: true, ctx: { ...ctx, baseUrl: ctx.baseUrl ?? 'http://127.0.0.1:11434' } }
+    return { ok: true, ctx: { ...ctx, baseUrl: ctx.baseUrl ?? HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } }
   }
 
   if (await isEffectiveSandboxSideForAiExecution()) {

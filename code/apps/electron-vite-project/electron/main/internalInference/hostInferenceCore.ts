@@ -5,7 +5,7 @@
 
 import { getHandshakeRecord } from '../handshake/db'
 import type { HandshakeRecord } from '../handshake/types'
-import type { InternalHostInferenceMessage } from '../llm/internalHostInferenceOllama'
+import type { InternalHostInferenceMessage } from '../llm/internalHostInferenceLocal'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { InternalInferenceErrorCode } from './errors'
 import { buildInternalInferenceCapabilitiesResult } from './hostInferenceCapabilities'

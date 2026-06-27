@@ -2,7 +2,7 @@
  * Central declared-model availability: missing local Ollama tags → active model fallback (loud, never silent).
  */
 
-import { ollamaManager } from './ollama-manager'
+import { localLlmManager } from './local-llm-manager'
 
 export type ModelFallbackReason = 'not_installed' | 'no_active_model'
 
@@ -42,14 +42,14 @@ export function logModelFallbackLine(fields: {
 
 /**
  * Resolve a declared local Ollama model id before chat.
- * Fallback target: {@link ollamaManager.getEffectiveChatModelName} (persisted active + installed tags).
+ * Fallback target: {@link localLlmManager.getEffectiveChatModelName} (persisted active + installed tags).
  */
 export async function resolveDeclaredLocalOllamaModel(
   requestedModelId: string | null | undefined,
   origin: string,
 ): Promise<DeclaredModelResolution> {
   const requested = typeof requestedModelId === 'string' ? requestedModelId.trim() : ''
-  const models = await ollamaManager.listModels()
+  const models = await localLlmManager.listModels()
   const installedNames = models.map((m) => m.name)
 
   if (requested && isOllamaModelInstalled(installedNames, requested)) {
@@ -62,7 +62,7 @@ export async function resolveDeclaredLocalOllamaModel(
     }
   }
 
-  const active = await ollamaManager.getEffectiveChatModelName()
+  const active = await localLlmManager.getEffectiveChatModelName()
   if (!active) {
     const err = requested
       ? `Model "${requested}" is not installed and no active model is loaded. Install a model or pick one in LLM Settings.`

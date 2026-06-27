@@ -7,11 +7,11 @@ import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { InternalInferenceErrorCode } from './errors'
 import { buildHostOllamaDirectBaseUrl, selectHostLanIpForPeer } from './hostAiOllamaDirectLanIp'
 import {
-  fetchOllamaApiTagsJson,
+  fetchLlamacppModelsJson,
   normalizeHostLoopbackOllamaBaseUrl,
-  parseOllamaTagsBody,
+  parseLlamacppModelsBody,
 } from './hostAiOllamaNativeDiscovery'
-import { ollamaManager } from '../llm/ollama-manager'
+import { localLlmManager } from '../llm/local-llm-manager'
 
 export type HostOllamaDirectAdvertisement = {
   transport: 'ollama_direct'
@@ -70,13 +70,13 @@ export async function buildHostOllamaDirectAdvertisement(
       ? String(opts.peer_device_id).trim()
       : null
 
-  const loopBase = normalizeHostLoopbackOllamaBaseUrl(ollamaManager.getBaseUrl())
+  const loopBase = normalizeHostLoopbackOllamaBaseUrl(localLlmManager.getBaseUrl())
 
   const localFetch = opts?.localTagsPrefetch
     ? { ok: opts.localTagsPrefetch.ok, json: opts.localTagsPrefetch.json }
-    : await fetchOllamaApiTagsJson(loopBase)
+    : await fetchLlamacppModelsJson(loopBase)
 
-  const localParsed = parseOllamaTagsBody(localFetch.ok ? localFetch.json : null)
+  const localParsed = parseLlamacppModelsBody(localFetch.ok ? localFetch.json : null)
   const localModelsCount = localParsed.rawCount
   const localOk = Boolean(localFetch.ok && localFetch.json != null)
 

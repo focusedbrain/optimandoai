@@ -4,7 +4,7 @@
  */
 
 import { getOrchestratorMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
-import type { OllamaStatus } from './types'
+import type { LocalLlmStatus } from './types'
 
 /** Deduped discovery log (same semantics as former inline helper in main.ts). */
 let lastLocalProviderOllamaDiscoveryLogSig = ''
@@ -62,7 +62,7 @@ export type WrChatAvailableModelRow = {
 
 export type ComputeHandshakeAvailableModelsOpts = {
   /**
-   * Skip `ollamaManager.listModels()` and use these entries (e.g. `getStatus().modelsInstalled`)
+   * Skip `localLlmManager.listModels()` and use these entries (e.g. `getStatus().modelsInstalled`)
    * so `llm:getStatus` does not double-fetch local tags.
    */
   reuseLocalModels?: ReadonlyArray<{ name?: string | null }>
@@ -208,8 +208,8 @@ export async function computeHandshakeAvailableModels(
       logLocalProviderOllamaDiscovery(ollamaDiscoveryOk, null)
     } else {
       try {
-        const { ollamaManager } = await import('./ollama-manager')
-        const installed = await ollamaManager.listModels()
+        const { localLlmManager } = await import('./local-llm-manager')
+        const installed = await localLlmManager.listModels()
         ollamaModelCount = Array.isArray(installed) ? installed.length : 0
         for (const m of installed) {
           const name = m?.name?.trim?.() || ''
@@ -314,8 +314,8 @@ export async function computeHandshakeAvailableModels(
 
 /** Attach unified WR Chat registry rows to Ollama status (extension + HTTP GET `/api/llm/status`). */
 export async function augmentOllamaStatusWithWrChatModels(
-  status: OllamaStatus,
-): Promise<OllamaStatus & { wrChatAvailableModels?: WrChatAvailableModelRow[] }> {
+  status: LocalLlmStatus,
+): Promise<LocalLlmStatus & { wrChatAvailableModels?: WrChatAvailableModelRow[] }> {
   try {
     const gav = await computeHandshakeAvailableModels({
       reuseLocalModels: status.modelsInstalled,

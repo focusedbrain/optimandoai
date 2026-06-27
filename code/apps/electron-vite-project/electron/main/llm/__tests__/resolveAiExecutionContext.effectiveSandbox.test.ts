@@ -51,8 +51,8 @@ vi.mock('../../internalInference/listInferenceTargets', () => ({
   listSandboxHostInternalInferenceTargets: async () => ({ targets: [] }),
 }))
 
-vi.mock('../ollama-manager', () => ({
-  ollamaManager: {
+vi.mock('../local-llm-manager', () => ({
+  localLlmManager: {
     getEffectiveChatModelName: (...args: unknown[]) => getEffectiveChatModelNameMock(...args),
   },
 }))

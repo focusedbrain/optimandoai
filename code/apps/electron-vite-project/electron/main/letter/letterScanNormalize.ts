@@ -443,8 +443,8 @@ export async function normalizeLetterScanExtraction(
   const textSlice = fullText.slice(0, 6000)
   const preFiltered = preFilterFields(fullText.slice(0, 500_000))
 
-  const { ollamaManager } = await import('../llm/ollama-manager')
-  const modelId = await ollamaManager.getEffectiveChatModelName()
+  const { localLlmManager } = await import('../llm/local-llm-manager')
+  const modelId = await localLlmManager.getEffectiveChatModelName()
   if (!modelId) {
     return {
       ok: false,
@@ -479,7 +479,7 @@ ${textSlice}`
 
   let content = ''
   try {
-    const response = await ollamaManager.chat(modelId, messages)
+    const response = await localLlmManager.chat(modelId, messages)
     content = response?.content?.trim() ?? ''
   } catch (e) {
     return {

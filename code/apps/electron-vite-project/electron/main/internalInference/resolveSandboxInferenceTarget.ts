@@ -34,9 +34,10 @@ import {
 import { InternalInferenceErrorCode } from './errors'
 import { getSandboxOllamaDirectRouteCandidate } from './sandboxHostAiOllamaDirectCandidate'
 
-const LOCAL_TAGS_URL = 'http://127.0.0.1:11434/api/tags'
-/** Literal base for local sandbox Ollama (tags + chat callers use sibling paths). */
-const LOCAL_SANDBOX_BASE_URL = 'http://127.0.0.1:11434' as const
+import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../llm/localLlmPaths'
+
+const LOCAL_MODELS_URL = `${HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE}/v1/models`
+const LOCAL_SANDBOX_BASE_URL = HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE
 
 const PRESENCE_REDIAL_WAIT_MS = 2_000
 const PRESENCE_REDIAL_POLL_MS = 200
@@ -97,7 +98,7 @@ async function probeLocalSandboxOllama(): Promise<boolean> {
   try {
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), LOCAL_PROBE_TIMEOUT_MS)
-    const res = await fetch(LOCAL_TAGS_URL, { signal: ac.signal })
+    const res = await fetch(LOCAL_MODELS_URL, { signal: ac.signal })
     clearTimeout(timer)
     const ok = res.ok
     localProbeCache = { okAt: now, ok }

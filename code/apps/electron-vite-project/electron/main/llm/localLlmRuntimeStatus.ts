@@ -1,8 +1,8 @@
 /**
- * Evidence-based local LLM / Ollama *hardware capability* hints.
+ * Evidence-based local LLM / llama.cpp *hardware capability* hints.
  *
- * The Electron app cannot see whether Ollama actually offloads to CUDA/Metal on each request;
- * Ollama decides that internally. We only classify whether the *machine* is plausibly GPU-capable
+ * The Electron app cannot see whether llama-server actually offloads to CUDA/Metal on each request;
+ * the server decides that internally. We only classify whether the *machine* is plausibly GPU-capable
  * and whether recent HTTP timings suggest a warm (resident) model — never "GPU proven in use".
  */
 
@@ -10,10 +10,10 @@ import os from 'os'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import {
-  DEBUG_OLLAMA_RUNTIME_TRACE,
-  ollamaRuntimeLog,
-  ollamaRuntimeObservedWarmModel,
-} from './ollamaRuntimeDiagnostics'
+  DEBUG_LOCAL_LLM_RUNTIME_TRACE,
+  localLlmRuntimeLog,
+  localLlmRuntimeObservedWarmModel,
+} from './localLlmRuntimeDiagnostics'
 import type { LocalLlmRuntimeClassification, LocalLlmRuntimeInfo } from './types'
 
 const execAsync = promisify(exec)
@@ -152,7 +152,7 @@ function buildSummaryAndEvidence(
     evidence += `; adapters=${hints.adapterNamesSample.slice(0, 3).join('; ')}`
   }
   if (hints.nvidiaSmiResponded) evidence += '; nvidia-smi responded'
-  if (warmObservation) evidence += '; recent /api/chat reports low load_duration (model likely resident; GPU vs CPU not determined)'
+  if (warmObservation) evidence += '; recent chat completions report low latency (model likely resident; GPU vs CPU not determined)'
 
   switch (classification) {
     case 'gpu_capable':
@@ -163,7 +163,7 @@ function buildSummaryAndEvidence(
       }
     case 'gpu_unconfirmed':
       return {
-        summary: 'Local Ollama reachable — GPU use not confirmed from this app.',
+        summary: 'Local llama-server reachable — GPU use not confirmed from this app.',
         evidence,
         runtimeObservation: warm,
       }
@@ -185,8 +185,8 @@ function buildSummaryAndEvidence(
 /**
  * Conservative classification. Never claims CUDA/Metal is active — only hardware + reachability hints.
  */
-export function classifyLocalLlmRuntime(hints: GpuHints, ollamaRunning: boolean): LocalLlmRuntimeClassification {
-  if (!ollamaRunning) return 'unknown'
+export function classifyLocalLlmRuntime(hints: GpuHints, localLlmRunning: boolean): LocalLlmRuntimeClassification {
+  if (!localLlmRunning) return 'unknown'
 
   if (hints.appleSilicon) return 'gpu_capable'
 
@@ -205,20 +205,20 @@ export function classifyLocalLlmRuntime(hints: GpuHints, ollamaRunning: boolean)
 }
 
 export async function buildLocalLlmRuntimeInfo(params: {
-  ollamaRunning: boolean
+  localLlmRunning: boolean
   activeModel?: string
 }): Promise<LocalLlmRuntimeInfo> {
-  if (!params.ollamaRunning) {
+  if (!params.localLlmRunning) {
     const info: LocalLlmRuntimeInfo = {
       classification: 'unknown',
-      summary: 'Start local Ollama to assess acceleration hints.',
-      evidence: 'Ollama HTTP API not reachable on the configured port.',
+      summary: 'Start local llama-server to assess acceleration hints.',
+      evidence: 'Local LLM HTTP API not reachable on the configured port.',
       runtimeObservation: 'none',
     }
-    if (DEBUG_OLLAMA_RUNTIME_TRACE) {
-      ollamaRuntimeLog('localLlmRuntime:classified', {
+    if (DEBUG_LOCAL_LLM_RUNTIME_TRACE) {
+      localLlmRuntimeLog('localLlmRuntime:classified', {
         classification: 'unknown',
-        ollamaRunning: false,
+        localLlmRunning: false,
         activeModel: params.activeModel ?? null,
       })
     }
@@ -226,7 +226,7 @@ export async function buildLocalLlmRuntimeInfo(params: {
   }
 
   const hints = await getGpuAccelerationHintsCached()
-  const warm = ollamaRuntimeObservedWarmModel()
+  const warm = localLlmRuntimeObservedWarmModel()
   const classification = classifyLocalLlmRuntime(hints, true)
 
   const { summary, evidence, runtimeObservation } = buildSummaryAndEvidence(classification, hints, warm)
@@ -238,11 +238,11 @@ export async function buildLocalLlmRuntimeInfo(params: {
     runtimeObservation,
   }
 
-  if (DEBUG_OLLAMA_RUNTIME_TRACE) {
-    ollamaRuntimeLog('localLlmRuntime:classified', {
+  if (DEBUG_LOCAL_LLM_RUNTIME_TRACE) {
+    localLlmRuntimeLog('localLlmRuntime:classified', {
       classification,
       activeModel: params.activeModel ?? null,
-      ollamaRunning: params.ollamaRunning,
+      localLlmRunning: params.localLlmRunning,
       appleSilicon: hints.appleSilicon,
       nvidiaAdapter: hints.nvidiaAdapterByName,
       nvidiaSmi: hints.nvidiaSmiResponded,

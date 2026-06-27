@@ -1,13 +1,13 @@
 /**
  * Host: build `internal_inference_capabilities_result` (metadata only — no prompts, no user files).
  * Model list is **native Ollama**: `GET http://127.0.0.1:<port>/api/tags` on the Host machine only (see {@link hostAiModelsFromOllamaTagsModels}).
- * Active chat selection remains from `ollamaManager.getEffectiveChatModelName()` (Host-local store).
+ * Active chat selection remains from `localLlmManager.getEffectiveChatModelName()` (Host-local store).
  */
 
 import { createHash } from 'node:crypto'
 import type { HandshakeRecord } from '../handshake/types'
 import { getInstanceId, getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
-import { ollamaManager } from '../llm/ollama-manager'
+import { localLlmManager } from '../llm/local-llm-manager'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
 import { resolveHostAiRemoteInferencePolicyBestEffort } from './hostAiRemoteInferencePolicyResolve'
@@ -19,11 +19,11 @@ import {
   type InternalInferenceCapabilitiesResultWire,
 } from './types'
 import {
-  fetchOllamaApiTagsJson,
+  fetchLlamacppModelsJson,
   hostAiModelsFromOllamaTagsModels,
   logHostAiOllamaDiscovery,
   normalizeHostLoopbackOllamaBaseUrl,
-  parseOllamaTagsBody,
+  parseLlamacppModelsBody,
 } from './hostAiOllamaNativeDiscovery'
 import {
   buildHostOllamaDirectAdvertisement,
@@ -150,7 +150,7 @@ export async function buildInternalInferenceCapabilitiesResult(
     mapped_models_count: 0,
     probe_http_model_count: 0,
     provider_probe_ok: false,
-    endpoint: ollamaManager.getBaseUrl(),
+    endpoint: localLlmManager.getBaseUrl(),
     mapping_fatal: false,
   }
 
@@ -174,10 +174,10 @@ export async function buildInternalInferenceCapabilitiesResult(
     dr.ok && dr.localRole === 'host' ? 'host' : dr.ok ? dr.localRole : 'unknown'
 
   /** LAN `ollama_direct_*` proof (loopback + Host-LAN GET) — independent of sandbox policy / legacy models[]. */
-  const loopbackBase = normalizeHostLoopbackOllamaBaseUrl(ollamaManager.getBaseUrl())
+  const loopbackBase = normalizeHostLoopbackOllamaBaseUrl(localLlmManager.getBaseUrl())
   meta.endpoint = loopbackBase
-  const tagsFetch = await fetchOllamaApiTagsJson(loopbackBase)
-  const parsedPrefetch = parseOllamaTagsBody(tagsFetch.json)
+  const tagsFetch = await fetchLlamacppModelsJson(loopbackBase)
+  const parsedPrefetch = parseLlamacppModelsBody(tagsFetch.json)
   meta.raw_models_count = parsedPrefetch.rawCount
   meta.probe_http_model_count = parsedPrefetch.rawCount
   meta.provider_probe_ok = Boolean(tagsFetch.ok && tagsFetch.json != null)
@@ -229,7 +229,7 @@ export async function buildInternalInferenceCapabilitiesResult(
 
     let syntheticActiveFallback = false
     if (mappedWireModels.length === 0 && meta.provider_probe_ok) {
-      const eff = ((await ollamaManager.getEffectiveChatModelName()) ?? '').trim()
+      const eff = ((await localLlmManager.getEffectiveChatModelName()) ?? '').trim()
       if (eff && (allow.length === 0 || allow.includes(eff))) {
         mappedWireModels = [
           { provider: 'ollama', model: eff, label: eff, enabled: true, source: 'host_ollama' },
@@ -285,7 +285,7 @@ export async function buildInternalInferenceCapabilitiesResult(
 
     base.models = mappedWireModels
 
-    const eff = await ollamaManager.getEffectiveChatModelName()
+    const eff = await localLlmManager.getEffectiveChatModelName()
     const name = (eff ?? '').trim()
     const inAllow = name.length > 0 && (allow.length === 0 || allow.includes(name))
     base.active_local_llm = {

@@ -6,7 +6,9 @@
 import os from 'os'
 import { hardwareService } from './hardware'
 
-const OLLAMA_TAGS = 'http://127.0.0.1:11434/api/tags'
+import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from './localLlmPaths'
+
+const LLAMACPP_MODELS = `${HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE}/v1/models`
 const DEFAULT_UNKNOWN_MODEL_GB = 4
 const MEMORY_HEADROOM = 0.75
 const MODEL_OVERHEAD = 1.15
@@ -56,22 +58,25 @@ export async function estimateAvailableModelMemoryGb(): Promise<VramCapacityEsti
   }
 }
 
-export async function fetchOllamaModelSizeBytesByName(): Promise<Map<string, number>> {
+export async function fetchLocalLlmModelSizeBytesByName(): Promise<Map<string, number>> {
   const out = new Map<string, number>()
   try {
-    const res = await fetch(OLLAMA_TAGS, { signal: AbortSignal.timeout(8_000) })
+    const res = await fetch(LLAMACPP_MODELS, { signal: AbortSignal.timeout(8_000) })
     if (!res.ok) return out
-    const data = (await res.json()) as { models?: Array<{ name?: string; size?: number }> }
-    for (const m of data.models ?? []) {
-      const name = m.name?.trim()
-      if (!name || typeof m.size !== 'number' || m.size <= 0) continue
-      out.set(name, m.size)
+    const data = (await res.json()) as { data?: Array<{ id?: string }> }
+    for (const m of data.data ?? []) {
+      const name = m.id?.trim()
+      if (!name) continue
+      out.set(name, 0)
     }
   } catch {
     /* best effort */
   }
   return out
 }
+
+/** @deprecated */
+export const fetchOllamaModelSizeBytesByName = fetchLocalLlmModelSizeBytesByName
 
 function modelSizeGb(modelId: string, sizes: Map<string, number>): number {
   const bytes = sizes.get(modelId)
@@ -88,7 +93,7 @@ export async function estimateMaxResidentModels(opts: {
   extraModelIds?: string[]
 } = {}): Promise<number> {
   const { availableMemoryGb } = await estimateAvailableModelMemoryGb()
-  const sizes = await fetchOllamaModelSizeBytesByName()
+  const sizes = await fetchLocalLlmModelSizeBytesByName()
 
   const ids = new Set<string>()
   const defaultId = opts.defaultModelId?.trim()

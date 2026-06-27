@@ -7,7 +7,7 @@ import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { getCoordinationWsClient } from '../p2p/coordinationWsHolder'
 import { getP2PConfig, type P2PConfig } from '../p2p/p2pConfig'
 import { getAccessToken } from '../../../src/auth/session'
-import { ollamaManager } from '../llm/ollama-manager'
+import { localLlmManager } from '../llm/local-llm-manager'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { redactIdForLog } from './internalInferenceLogRedact'
 import { logP2pSignalWireSchemaStartupLine } from './p2pSignalWireSchemaVersion'
@@ -45,7 +45,7 @@ export async function logHostAiOrchestratorHealthLine(): Promise<void> {
     let ollamaOk = false
     let modelCount = 0
     try {
-      const models = await ollamaManager.listModels()
+      const models = await localLlmManager.listModels()
       ollamaOk = true
       modelCount = Array.isArray(models) ? models.length : 0
     } catch {

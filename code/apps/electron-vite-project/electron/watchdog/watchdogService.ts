@@ -2,8 +2,8 @@
  * Watchdog security scanner — multi-display capture + DOM snapshots (from extension)
  * and LLM-based threat analysis.
  *
- * **LLM path:** calls `ollamaManager.chat()` directly (same underlying stack as
- * `POST /api/llm/chat` for local Ollama) via dynamic `import('../main/llm/ollama-manager')`.
+ * **LLM path:** calls `localLlmManager.chat()` directly (same underlying stack as
+ * `POST /api/llm/chat` for local Ollama) via dynamic `import('../main/llm/local-llm-manager')`.
  * Avoids HTTP loopback and keeps `X-Launch-Secret` out of the scan hot path.
  */
 
@@ -167,8 +167,8 @@ export async function resolveWatchdogEffectiveModelId(configModelId?: string): P
   const mode = getModeById(BUILTIN_SCAM_WATCHDOG_ID)
   const fromMode = mode?.modelName?.trim()
   if (fromMode) return fromMode
-  const { ollamaManager } = await import('../main/llm/ollama-manager')
-  return (await ollamaManager.getEffectiveChatModelName()) || DEFAULT_WATCHDOG_MODEL_ID
+  const { localLlmManager } = await import('../main/llm/local-llm-manager')
+  return (await localLlmManager.getEffectiveChatModelName()) || DEFAULT_WATCHDOG_MODEL_ID
 }
 
 /** Smart Summary — executive workspace overview (same capture as Watchdog; plain-text reply). */
@@ -566,11 +566,11 @@ export class WatchdogService {
 
       let responseText = ''
       try {
-        const { ollamaManager } = await import('../main/llm/ollama-manager')
-        this.logWatchdogRemotePrivacyNote(ollamaManager)
+        const { localLlmManager } = await import('../main/llm/local-llm-manager')
+        this.logWatchdogRemotePrivacyNote(localLlmManager)
 
         const effective = await resolveWatchdogEffectiveModelId(this.config.modelId)
-        const chatRes = await ollamaManager.chat(effective, messages)
+        const chatRes = await localLlmManager.chat(effective, messages)
         responseText = typeof chatRes?.content === 'string' ? chatRes.content : ''
         responseLen = responseText.length
         if (!responseText) {
@@ -585,7 +585,7 @@ export class WatchdogService {
           return result
         }
       } catch (e) {
-        console.warn('[Watchdog] ollamaManager.chat failed:', e instanceof Error ? e.message : e)
+        console.warn('[Watchdog] localLlmManager.chat failed:', e instanceof Error ? e.message : e)
         this.scheduleDeletion(capturePaths)
         const result: WatchdogResult = {
           scanId,
@@ -674,13 +674,13 @@ export class WatchdogService {
 
       const messages = this.buildSummaryPrompt(scan)
 
-      const { ollamaManager } = await import('../main/llm/ollama-manager')
-      this.logWatchdogRemotePrivacyNote(ollamaManager)
+      const { localLlmManager } = await import('../main/llm/local-llm-manager')
+      this.logWatchdogRemotePrivacyNote(localLlmManager)
 
       const configured = this.config.modelId?.trim()
       const effective =
-        configured || (await ollamaManager.getEffectiveChatModelName()) || DEFAULT_WATCHDOG_MODEL_ID
-      const chatRes = await ollamaManager.chat(effective, messages)
+        configured || (await localLlmManager.getEffectiveChatModelName()) || DEFAULT_WATCHDOG_MODEL_ID
+      const chatRes = await localLlmManager.chat(effective, messages)
       const responseText = typeof chatRes?.content === 'string' ? chatRes.content.trim() : ''
 
       this.deletePaths(capturePaths)
@@ -704,12 +704,12 @@ export class WatchdogService {
 
   /**
    * Extension `buildLlmRequestBody` routes cloud when `!isLocal` and adds `provider` + `apiKey`.
-   * Watchdog uses `ollamaManager.chat()` only (no provider/apiKey on the request body). Warn if the
+   * Watchdog uses `localLlmManager.chat()` only (no provider/apiKey on the request body). Warn if the
    * configured Ollama base URL is not localhost (e.g. remote Ollama tunnel).
    */
-  private logWatchdogRemotePrivacyNote(ollamaManager: { getBaseUrl: () => string }): void {
+  private logWatchdogRemotePrivacyNote(localLlmManager: { getBaseUrl: () => string }): void {
     try {
-      const u = new URL(ollamaManager.getBaseUrl())
+      const u = new URL(localLlmManager.getBaseUrl())
       const host = u.hostname.toLowerCase()
       if (host !== '127.0.0.1' && host !== 'localhost') {
         console.warn(

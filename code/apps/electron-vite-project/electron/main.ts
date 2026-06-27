@@ -4098,12 +4098,12 @@ app.whenReady().then(async () => {
     /** Generate a draft reply via LLM (no RAG). Used by BEAP "Draft with AI". */
     ipcMain.handle('handshake:generateDraft', async (_e, prompt: string) => {
       try {
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-        const modelId = await ollamaManager.getEffectiveChatModelName()
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const modelId = await localLlmManager.getEffectiveChatModelName()
         if (!modelId) {
           return { success: false, error: 'No LLM model installed. Install a model in LLM Settings first.' }
         }
-        const response = await ollamaManager.chat(modelId, [{ role: 'user', content: prompt || '' }])
+        const response = await localLlmManager.chat(modelId, [{ role: 'user', content: prompt || '' }])
         return { success: true, answer: response?.content ?? '' }
       } catch (err: any) {
         console.error('[MAIN] handshake:generateDraft error:', err?.message)
@@ -5671,7 +5671,7 @@ app.whenReady().then(async () => {
   try {
     console.log('[MAIN] ===== INITIALIZING LLM SERVICES =====')
     const { registerLlmHandlers } = await import('./main/llm/ipc')
-    const { ollamaManager } = await import('./main/llm/ollama-manager')
+    const { localLlmManager } = await import('./main/llm/local-llm-manager')
     
     // Register IPC handlers
     registerLlmHandlers()
@@ -5767,13 +5767,13 @@ app.whenReady().then(async () => {
     }
     
     // Check if Ollama is installed and auto-start if configured
-    const installed = await ollamaManager.checkInstalled()
+    const installed = await localLlmManager.checkInstalled()
     console.log('[MAIN] Ollama installed:', installed)
     
     if (installed) {
       if (!isSandboxMode()) {
         try {
-          await ollamaManager.start()
+          await localLlmManager.start()
           console.log('[MAIN] Ollama started successfully')
         } catch (error) {
           console.warn('[MAIN] Failed to auto-start Ollama:', error)
@@ -9622,9 +9622,9 @@ async function runDeviceKeyMigration(
     // GET /api/llm/status â€” same payload as IPC `llm:getStatus` (includes `localRuntime` when built).
     httpApp.get('/api/llm/status', async (_req, res) => {
       try {
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
         const { augmentOllamaStatusWithWrChatModels } = await import('./main/llm/handshakeAvailableModelsCompute')
-        const base = await ollamaManager.getStatus()
+        const base = await localLlmManager.getStatus()
         const status = await augmentOllamaStatusWithWrChatModels(base)
         res.json({ ok: true, data: status })
       } catch (error: any) {
@@ -9640,8 +9640,8 @@ async function runDeviceKeyMigration(
           res.status(400).json({ ok: false, error: 'Ollama management is disabled in sandbox mode' })
           return
         }
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-        await ollamaManager.start()
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        await localLlmManager.start()
         res.json({ ok: true })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error starting Ollama:', error)
@@ -9656,8 +9656,8 @@ async function runDeviceKeyMigration(
           res.status(400).json({ ok: false, error: 'Ollama management is disabled in sandbox mode' })
           return
         }
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-        await ollamaManager.stop()
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        await localLlmManager.stop()
         res.json({ ok: true })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error stopping Ollama:', error)
@@ -9668,8 +9668,8 @@ async function runDeviceKeyMigration(
     // GET /api/llm/models - List installed models
     httpApp.get('/api/llm/models', async (_req, res) => {
       try {
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-        const models = await ollamaManager.listModels()
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const models = await localLlmManager.listModels()
         res.json({ ok: true, data: models })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error listing models:', error)
@@ -9707,13 +9707,13 @@ async function runDeviceKeyMigration(
           return
         }
 
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
 
         console.log('[HTTP-LLM] Starting model pull for:', modelId)
 
-        // Start async pull. Progress is stored on ollamaManager.downloadProgress for polling.
+        // Start async pull. Progress is stored on localLlmManager.downloadProgress for polling.
         // After completion, verify the model exists and update the terminal progress state.
-        ollamaManager.pullModel(modelId, (progress) => {
+        localLlmManager.pullModel(modelId, (progress) => {
           // Stored for GET /api/llm/install-progress polling.
         }).then(async () => {
           console.log('[HTTP-LLM] Install stream done, verifying:', modelId)
@@ -9721,7 +9721,7 @@ async function runDeviceKeyMigration(
           // Cache was cleared by pullModel (Patch 1); this re-queries Ollama directly.
           let verified = false
           try {
-            const models = await ollamaManager.listModels()
+            const models = await localLlmManager.listModels()
             verified = models.some((m: { name: string }) => m.name === modelId)
             console.log('[HTTP-LLM] Verification result for', modelId, ':', verified ? 'FOUND' : 'NOT FOUND')
           } catch (verifyErr: any) {
@@ -9729,7 +9729,7 @@ async function runDeviceKeyMigration(
           }
 
           // Update downloadProgress to a terminal state so the UI poller gets the final result.
-          ollamaManager.downloadProgress = verified
+          localLlmManager.downloadProgress = verified
             ? { modelId, status: 'verified', progress: 100 }
             : {
                 modelId,
@@ -9742,7 +9742,7 @@ async function runDeviceKeyMigration(
           console.log('[HTTP-LLM] Terminal progress state set for', modelId, '- verified:', verified)
         }).catch((error: any) => {
           console.error('[HTTP-LLM] Model installation failed:', error)
-          ollamaManager.downloadProgress = {
+          localLlmManager.downloadProgress = {
             modelId,
             status: 'error',
             progress: 0,
@@ -9760,8 +9760,8 @@ async function runDeviceKeyMigration(
     // GET /api/llm/install-progress - Get current installation progress
     httpApp.get('/api/llm/install-progress', async (_req, res) => {
       try {
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-        const progress = ollamaManager.getDownloadProgress()
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const progress = localLlmManager.getDownloadProgress()
         console.log('[HTTP-LLM] Returning progress:', progress)
         res.json({ ok: true, progress })
       } catch (error: any) {
@@ -9781,8 +9781,8 @@ async function runDeviceKeyMigration(
           return
         }
         const { modelId } = req.params
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-        await ollamaManager.deleteModel(modelId)
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        await localLlmManager.deleteModel(modelId)
         res.json({ ok: true })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error deleting model:', error)
@@ -9806,19 +9806,19 @@ async function runDeviceKeyMigration(
           })
           return
         }
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-        const { DEBUG_ACTIVE_OLLAMA_MODEL } = await import('./main/llm/activeOllamaModelStore')
-        if (DEBUG_ACTIVE_OLLAMA_MODEL) {
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const { DEBUG_ACTIVE_LOCAL_MODEL } = await import('./main/llm/activeLocalModelStore')
+        if (DEBUG_ACTIVE_LOCAL_MODEL) {
           console.warn('[HTTP-LLM] Set active model requested:', modelId)
         }
-        const result = await ollamaManager.setActiveModelPreference(modelId)
+        const result = await localLlmManager.setActiveModelPreference(modelId)
         if (!result.ok) {
           res.status(400).json({ ok: false, error: result.error })
           return
         }
         const { broadcastActiveOllamaModelChanged } = await import('./main/llm/broadcastActiveModel')
         broadcastActiveOllamaModelChanged(modelId)
-        if (DEBUG_ACTIVE_OLLAMA_MODEL) {
+        if (DEBUG_ACTIVE_LOCAL_MODEL) {
           console.warn('[HTTP-LLM] Set active model persisted:', modelId.trim())
         }
         res.json({ ok: true })
@@ -9897,8 +9897,8 @@ async function runDeviceKeyMigration(
           }
         }
         if (!isSandboxMode() && toStore.lane === 'local') {
-          const { ollamaManager } = await import('./main/llm/ollama-manager')
-          const pref = await ollamaManager.setActiveModelPreference(toStore.model)
+          const { localLlmManager } = await import('./main/llm/local-llm-manager')
+          const pref = await localLlmManager.setActiveModelPreference(toStore.model)
           if (!pref.ok) {
             res.status(400).json({ ok: false, error: pref.error })
             return
@@ -10141,8 +10141,8 @@ async function runDeviceKeyMigration(
     // GET /api/llm/first-available - Preferred chat model (persisted active or first installed)
     httpApp.get('/api/llm/first-available', async (_req, res) => {
       try {
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-        const modelId = await ollamaManager.getEffectiveChatModelName()
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const modelId = await localLlmManager.getEffectiveChatModelName()
         
         if (!modelId) {
           res.json({ ok: false, error: 'No models installed. Please install a model first.' })
@@ -10209,7 +10209,7 @@ async function runDeviceKeyMigration(
           return
         }
         
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
         const { resolveDeclaredLocalOllamaModel, toModelFallbackWire } = await import(
           './main/llm/resolveDeclaredModelAvailability',
         )
@@ -10217,7 +10217,7 @@ async function runDeviceKeyMigration(
         // If no modelId specified, use persisted preference or first installed model
         let requestedModelId = typeof modelId === 'string' ? modelId.trim() : ''
         if (!requestedModelId) {
-          const resolved = await ollamaManager.getEffectiveChatModelName()
+          const resolved = await localLlmManager.getEffectiveChatModelName()
           if (!resolved) {
             res.status(400).json({ 
               ok: false, 
@@ -10238,7 +10238,7 @@ async function runDeviceKeyMigration(
         }
         const activeModelId = availability.actualModel
         
-        const response = await ollamaManager.chat(activeModelId, enrichedMessages)
+        const response = await localLlmManager.chat(activeModelId, enrichedMessages)
         const modelFallback = toModelFallbackWire(availability)
         res.json({
           ok: true,

@@ -10,13 +10,13 @@ vi.mock('../../inference/gpuStatus', () => ({
   clearGpuStatusCache: vi.fn(),
 }))
 
-vi.mock('../ollamaBulkPrewarm', () => ({
-  noteOllamaActiveModelChangedForBulkPrewarm: vi.fn(),
+vi.mock('../localLlmBulkPrewarm', () => ({
+  noteLocalLlmActiveModelChangedForBulkPrewarm: vi.fn(),
 }))
 
 import type { ChatMessage } from '../types'
 
-describe('OllamaManager.chat + inference gate', () => {
+describe('LocalLlmManager.chat + inference gate', () => {
   const prevFetch = globalThis.fetch
   beforeEach(async () => {
     assertGate.mockReset()
@@ -25,9 +25,8 @@ describe('OllamaManager.chat + inference gate', () => {
       return {
         ok: true,
         json: async () => ({
-          message: { content: 'hi' },
+          choices: [{ message: { content: 'hi' } }],
           model: 'm',
-          done: true,
         }),
       }
     }) as typeof fetch
@@ -37,9 +36,9 @@ describe('OllamaManager.chat + inference gate', () => {
     globalThis.fetch = prevFetch
   })
 
-  it('calls assertGpuInferenceAvailable before POST /api/chat', async () => {
-    const { OllamaManager } = await import('../ollama-manager')
-    const m = new OllamaManager()
+  it('calls assertGpuInferenceAvailable before POST /v1/chat/completions', async () => {
+    const { LocalLlmManager } = await import('../local-llm-manager')
+    const m = new LocalLlmManager()
     const msgs: ChatMessage[] = [{ role: 'user', content: 'x' }]
     await m.chat('m', msgs)
     expect(assertGate).toHaveBeenCalledTimes(1)

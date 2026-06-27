@@ -1,13 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
-vi.mock('../ollama-manager', () => ({
-  ollamaManager: {
+vi.mock('../local-llm-manager', () => ({
+  localLlmManager: {
     listModels: vi.fn(),
     getEffectiveChatModelName: vi.fn(),
   },
 }))
 
-import { ollamaManager } from '../ollama-manager'
+import { localLlmManager } from '../local-llm-manager'
 import {
   isOllamaModelInstalled,
   resolveDeclaredLocalOllamaModel,
@@ -15,11 +15,11 @@ import {
 
 describe('resolveDeclaredLocalOllamaModel', () => {
   beforeEach(() => {
-    vi.mocked(ollamaManager.listModels).mockResolvedValue([
+    vi.mocked(localLlmManager.listModels).mockResolvedValue([
       { name: 'gemma4:12b-it-q8_0', size: 1, modified: '', digest: '', isActive: true },
       { name: 'llama3.1:8b', size: 1, modified: '', digest: '', isActive: false },
     ])
-    vi.mocked(ollamaManager.getEffectiveChatModelName).mockResolvedValue('gemma4:12b-it-q8_0')
+    vi.mocked(localLlmManager.getEffectiveChatModelName).mockResolvedValue('gemma4:12b-it-q8_0')
   })
 
   it('returns installed model unchanged', async () => {
@@ -44,7 +44,7 @@ describe('resolveDeclaredLocalOllamaModel', () => {
   })
 
   it('hard-fails when no active model exists', async () => {
-    vi.mocked(ollamaManager.getEffectiveChatModelName).mockResolvedValue(null)
+    vi.mocked(localLlmManager.getEffectiveChatModelName).mockResolvedValue(null)
     const r = await resolveDeclaredLocalOllamaModel('gemma3:12b', 'test')
     expect(r.ok).toBe(false)
     if (!r.ok) {

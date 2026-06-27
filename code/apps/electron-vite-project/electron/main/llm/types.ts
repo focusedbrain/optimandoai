@@ -44,7 +44,7 @@ export interface LlmModelConfig {
 }
 
 /**
- * Installed model information from Ollama
+ * Installed model information from local llama.cpp backend
  */
 export interface InstalledModel {
   name: string                  // Full model name with tag
@@ -68,13 +68,13 @@ export interface LocalLlmRuntimeInfo {
 }
 
 /**
- * Ollama runtime status
+ * Local llama.cpp runtime status
  */
-export interface OllamaStatus {
-  installed: boolean            // Ollama binary found
-  running: boolean              // Ollama service is running
-  version?: string              // Ollama version string
-  port: number                  // Port Ollama is running on
+export interface LocalLlmStatus {
+  installed: boolean            // llama-server binary or GGUF models found
+  running: boolean              // llama-server is responding
+  version?: string              // llama.cpp / server version string
+  port: number                  // Port llama-server is running on
   modelsInstalled: InstalledModel[]
   activeModel?: string          // Currently active model ID
   /** Hardware/reachability hints — optional for backward compatibility with older payloads. */
@@ -83,7 +83,7 @@ export interface OllamaStatus {
   wrChatAvailableModels?: Array<{
     id: string
     displayName: string
-    kind: 'local_ollama' | 'host_internal' | 'cloud'
+    kind: 'local_llm' | 'host_internal' | 'cloud'
     displaySubtitle?: string
   }>
 }
@@ -92,10 +92,10 @@ export interface OllamaStatus {
  * LLM configuration stored in app data
  */
 export interface LlmConfig {
-  ollamaPath: string            // Path to Ollama binary
-  ollamaPort: number            // Port for Ollama API
+  llamaServerPath: string       // Path to llama-server binary
+  llamaServerPort: number       // Port for OpenAI-compatible API
   activeModelId: string         // Currently active model
-  autoStart: boolean            // Auto-start Ollama on app launch
+  autoStart: boolean            // Auto-start llama-server on app launch
 }
 
 /**
@@ -104,7 +104,7 @@ export interface LlmConfig {
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
-  /** Vision: base64 without data URI prefix — forwarded to Ollama `images` for capable models. */
+  /** Vision: base64 without data URI prefix — forwarded for capable models when supported. */
   images?: string[]
 }
 

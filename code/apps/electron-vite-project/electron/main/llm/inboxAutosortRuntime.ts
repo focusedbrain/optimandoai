@@ -13,8 +13,8 @@
  */
 
 import { ocrRouter } from '../ocr/router'
-import { ollamaManager } from './ollama-manager'
-import { getStoredActiveOllamaModelId } from './activeOllamaModelStore'
+import { localLlmManager } from './local-llm-manager'
+import { getStoredActiveLocalModelId } from './activeLocalModelStore'
 import {
   buildLocalLlmRuntimeInfo,
   type LocalLlmRuntimeClassification,
@@ -34,7 +34,7 @@ export interface ResolvedInboxRuntime {
   // Routing
   provider: string                        // 'ollama' when allowed, else the backend provider
   model: string | null                    // exact name from /api/tags, or null when blocked
-  endpoint: string                        // 'http://127.0.0.1:11434'
+  endpoint: string                        // 'http://127.0.0.1:8080'
 
   // Model state
   storedModelId: string | null            // raw value from active-ollama-model.json
@@ -54,7 +54,7 @@ export interface ResolvedInboxRuntime {
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const OLLAMA_ENDPOINT = 'http://127.0.0.1:11434'
+const OLLAMA_ENDPOINT = 'http://127.0.0.1:8080'
 
 // ── Internal helpers ───────────────────────────────────────────────────────
 
@@ -107,7 +107,7 @@ export async function resolveInboxAutosortRuntime(): Promise<ResolvedInboxRuntim
   }
 
   // ── 2. Ollama must be running ──────────────────────────────────────────
-  const running = await ollamaManager.isRunning()
+  const running = await localLlmManager.isRunning()
   if (!running) {
     console.log('[AutosortRuntime] BLOCKED ollama_not_running')
     return blocked(
@@ -119,7 +119,7 @@ export async function resolveInboxAutosortRuntime(): Promise<ResolvedInboxRuntim
   }
 
   // ── 3. At least one model must be installed ────────────────────────────
-  const models = await ollamaManager.listModels()
+  const models = await localLlmManager.listModels()
   const installedNames = models.map((m) => m.name)
   if (installedNames.length === 0) {
     console.log('[AutosortRuntime] BLOCKED no_model_installed')
@@ -132,7 +132,7 @@ export async function resolveInboxAutosortRuntime(): Promise<ResolvedInboxRuntim
   }
 
   // ── 4. A stored model preference must exist and match exactly ─────────
-  const storedId = getStoredActiveOllamaModelId()
+  const storedId = getStoredActiveLocalModelId()
   if (!storedId) {
     console.log('[AutosortRuntime] BLOCKED no_stored_model_preference')
     return blocked(
@@ -155,7 +155,7 @@ export async function resolveInboxAutosortRuntime(): Promise<ResolvedInboxRuntim
 
   // ── 5. GPU must be positively verified ────────────────────────────────
   const localRuntime = await buildLocalLlmRuntimeInfo({
-    ollamaRunning: true,
+    localLlmRunning: true,
     activeModel: storedId,
   })
 

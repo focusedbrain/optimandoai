@@ -431,8 +431,8 @@ export function registerLetterComposerIpcHandlers(): void {
     }
     const slice = html.slice(0, 8000)
     try {
-      const { ollamaManager } = await import('../llm/ollama-manager')
-      const modelId = await ollamaManager.getEffectiveChatModelName()
+      const { localLlmManager } = await import('../llm/local-llm-manager')
+      const modelId = await localLlmManager.getEffectiveChatModelName()
       if (!modelId) {
         console.warn('[letter:extractFields] No effective Ollama model')
         return []
@@ -444,7 +444,7 @@ export function registerLetterComposerIpcHandlers(): void {
           content: `Analyze this letter template HTML and extract all fillable fields:\n\n${slice}`,
         },
       ]
-      const response = await ollamaManager.chat(modelId, messages)
+      const response = await localLlmManager.chat(modelId, messages)
       const text = response?.content || '[]'
       const cleaned = text
         .replace(/```json?\s*/gi, '')

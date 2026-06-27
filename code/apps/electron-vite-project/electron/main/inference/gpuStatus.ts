@@ -10,11 +10,11 @@ import path from 'path'
 import os from 'os'
 
 import {
-  DEBUG_ACTIVE_OLLAMA_MODEL,
-  getStoredActiveOllamaModelId,
-  resolveEffectiveOllamaModel,
-} from '../llm/activeOllamaModelStore'
-import { collectOllamaHttpBasesFromEnv } from '../llm/ollamaHttpBases'
+  DEBUG_ACTIVE_LOCAL_MODEL,
+  getStoredActiveLocalModelId,
+  resolveEffectiveLocalModel,
+} from '../llm/activeLocalModelStore'
+import { collectLlamacppHttpBasesFromEnv } from '../llm/llamacppHttpBases'
 
 const execAsync = promisify(exec)
 
@@ -201,30 +201,30 @@ async function fetchJsonWithTimeout(url: string, ms: number): Promise<{ ok: bool
   }
 }
 
-async function firstResponsiveOllamaBase(bases: string[]): Promise<{ base: string; version: string | null } | null> {
+async function firstResponsiveLlamacppBase(bases: string[]): Promise<{ base: string; version: string | null } | null> {
   for (const b of bases) {
     const origin = b.replace(/\/$/, '')
-    const v = await fetchJsonWithTimeout(`${origin}/api/version`, 4000)
-    if (!v.ok) continue
-    const ver =
-      typeof (v.json as { version?: unknown })?.version === 'string'
-        ? String((v.json as { version: string }).version).trim()
-        : null
-    return { base: origin, version: ver || null }
+    const health = await fetchJsonWithTimeout(`${origin}/health`, 4000)
+    if (health.ok) {
+      return { base: origin, version: 'llama.cpp' }
+    }
+    const models = await fetchJsonWithTimeout(`${origin}/v1/models`, 4000)
+    if (!models.ok) continue
+    return { base: origin, version: 'llama.cpp' }
   }
   return null
 }
 
-async function fetchTagsModelNames(origin: string): Promise<string[]> {
-  const j = await fetchJsonWithTimeout(`${origin}/api/tags`, 5000)
+async function fetchV1ModelNames(origin: string): Promise<string[]> {
+  const j = await fetchJsonWithTimeout(`${origin}/v1/models`, 5000)
   if (!j.ok) return []
-  const models = (j.json as { models?: unknown })?.models
-  if (!Array.isArray(models)) return []
+  const data = (j.json as { data?: unknown })?.data
+  if (!Array.isArray(data)) return []
   const names: string[] = []
-  for (const row of models) {
+  for (const row of data) {
     const n =
-      typeof row === 'object' && row !== null && 'name' in row && typeof (row as { name: unknown }).name === 'string'
-        ? String((row as { name: string }).name).trim()
+      typeof row === 'object' && row !== null && 'id' in row && typeof (row as { id: unknown }).id === 'string'
+        ? String((row as { id: string }).id).trim()
         : ''
     if (n) names.push(n)
   }
@@ -294,7 +294,7 @@ async function probeGpuInferenceStatus(params: {
     }
   }
 
-  const alive = await firstResponsiveOllamaBase(bases)
+  const alive = await firstResponsiveLlamacppBase(bases)
   if (!alive) {
     const reason: GpuUnavailableReason = 'OLLAMA_NOT_RUNNING'
     return {
@@ -337,23 +337,23 @@ async function probeGpuInferenceStatus(params: {
     }
   }
 
-  const installedNames = await fetchTagsModelNames(responsiveBase)
+  const installedNames = await fetchV1ModelNames(responsiveBase)
   let activeModel: string | null = null
   const hints = modelHints.map((s) => s.trim()).filter(Boolean)
   if (hints.length > 0) {
     const want = hints[0]!
     if (installedNames.includes(want)) activeModel = want
     else {
-      const resolved = resolveEffectiveOllamaModel(installedNames, want)
+      const resolved = resolveEffectiveLocalModel(installedNames, want)
       activeModel = resolved.model
     }
   } else if (installedNames.length > 0) {
-    const stored = getStoredActiveOllamaModelId()
-    const resolved = resolveEffectiveOllamaModel(installedNames, stored)
+    const stored = getStoredActiveLocalModelId()
+    const resolved = resolveEffectiveLocalModel(installedNames, stored)
     activeModel = resolved.model
   }
 
-  if (DEBUG_ACTIVE_OLLAMA_MODEL) {
+  if (DEBUG_ACTIVE_LOCAL_MODEL) {
     console.warn('[gpuStatus]', { responsiveBase, activeModel, installedCount: installedNames.length })
   }
 
@@ -453,7 +453,7 @@ export async function getGpuStatus(): Promise<GpuStatus> {
     return cachedLocal.status
   }
   const status = await probeGpuInferenceStatus({
-    httpBases: collectOllamaHttpBasesFromEnv(),
+    httpBases: collectLlamacppHttpBasesFromEnv(),
     modelHints: [],
     scope: 'local-machine',
   })

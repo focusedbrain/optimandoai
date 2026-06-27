@@ -7,7 +7,7 @@ import { getHandshakeDbForInternalInference } from '../internalInference/dbAcces
 import { isEffectiveSandboxNode } from '../sandbox/sandboxOutboundPolicy'
 import { assertGpuInferenceAvailable } from '../inference/inferenceGate'
 import { getAdaptiveKeepAlive } from './adaptiveWarmupStrategy'
-import { ollamaManager } from './ollama-manager'
+import { localLlmManager } from './local-llm-manager'
 
 const OLLAMA_READY_POLL_MS = 500
 const OLLAMA_READY_MAX_WAIT_MS = 45_000
@@ -36,7 +36,7 @@ export async function warmModel(modelId: string, opts?: { keepAlive?: string }):
   const t0 = Date.now()
   try {
     await assertGpuInferenceAvailable()
-    await ollamaManager.chat(trimmed, [{ role: 'user', content: 'ok' }], { keepAlive })
+    await localLlmManager.chat(trimmed, [{ role: 'user', content: 'ok' }], { keepAlive })
     return { ok: true, ms: Date.now() - t0 }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -48,7 +48,7 @@ async function waitForOllamaRunning(maxWaitMs: number): Promise<boolean> {
   const deadline = Date.now() + maxWaitMs
   while (Date.now() < deadline) {
     try {
-      if (await ollamaManager.isRunning()) return true
+      if (await localLlmManager.isRunning()) return true
     } catch {
       /* retry */
     }
