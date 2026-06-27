@@ -9688,7 +9688,126 @@ async function runDeviceKeyMigration(
       }
     })
     
-    // POST /api/llm/models/install - Install a model
+    // POST /api/llm/models/import-pick — OS file picker import (no network egress)
+    httpApp.post('/api/llm/models/import-pick', async (_req, res) => {
+      try {
+        if (isSandboxMode()) {
+          res.status(400).json({
+            ok: false,
+            error: 'Model installation is disabled in sandbox mode — install models on the host machine',
+          })
+          return
+        }
+        const { dialog } = await import('electron')
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const { broadcastModelsInstalledChanged } = await import('./main/llm/broadcastModelsChanged')
+        const pick = await dialog.showOpenDialog({
+          title: 'Import GGUF model',
+          properties: ['openFile'],
+          filters: [{ name: 'GGUF Models', extensions: ['gguf'] }],
+        })
+        if (pick.canceled || !pick.filePaths[0]) {
+          res.json({ ok: false, cancelled: true })
+          return
+        }
+        const sourcePath = pick.filePaths[0]
+        const runImport = async (overwrite: boolean) =>
+          localLlmManager.importModelFromFile(sourcePath, {
+            overwrite,
+            onProgress: (progress) => {
+              localLlmManager.setDownloadProgress(progress)
+            },
+          })
+        let result
+        try {
+          result = await runImport(false)
+        } catch (err: unknown) {
+          const e = err as Error & { code?: string; modelId?: string }
+          if (e.code !== 'MODEL_EXISTS') throw err
+          const confirm = await dialog.showMessageBox({
+            type: 'warning',
+            buttons: ['Cancel', 'Replace'],
+            defaultId: 0,
+            cancelId: 0,
+            title: 'Replace existing model?',
+            message: `A model named "${e.modelId ?? 'this file'}" is already installed.`,
+          })
+          if (confirm.response !== 1) {
+            res.json({ ok: false, cancelled: true })
+            return
+          }
+          result = await runImport(true)
+        }
+        broadcastModelsInstalledChanged({ modelId: result.modelId, sha256: result.sha256 })
+        localLlmManager.setDownloadProgress({
+          modelId: result.modelId,
+          status: 'verified',
+          progress: 100,
+          digest: result.sha256,
+        })
+        res.json({ ok: true, data: result })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] import-pick failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // POST /api/llm/models/download-from-url — HTTPS Hugging Face allowlist only
+    httpApp.post('/api/llm/models/download-from-url', async (req, res) => {
+      try {
+        const url = typeof req.body?.url === 'string' ? req.body.url.trim() : ''
+        if (!url) {
+          res.status(400).json({ ok: false, error: 'url is required' })
+          return
+        }
+        if (isSandboxMode()) {
+          res.status(400).json({
+            ok: false,
+            error: 'Model installation is disabled in sandbox mode — install models on the host machine',
+          })
+          return
+        }
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const { broadcastModelsInstalledChanged } = await import('./main/llm/broadcastModelsChanged')
+        localLlmManager
+          .downloadModelFromUrl(url, (progress) => {
+            localLlmManager.setDownloadProgress(progress)
+          })
+          .then((result) => {
+            broadcastModelsInstalledChanged({ modelId: result.modelId, sha256: result.sha256 })
+            localLlmManager.setDownloadProgress({
+              modelId: result.modelId,
+              status: 'verified',
+              progress: 100,
+              digest: result.sha256,
+            })
+          })
+          .catch((error: Error) => {
+            localLlmManager.setDownloadProgress({
+              modelId: '',
+              status: 'error',
+              progress: 0,
+              error: error.message,
+            })
+          })
+        res.json({ ok: true, message: 'Download started' })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] download-from-url failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    httpApp.post('/api/llm/models/download-cancel', async (_req, res) => {
+      try {
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        localLlmManager.cancelModelDownload()
+        res.json({ ok: true })
+      } catch (error: any) {
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // POST /api/llm/models/install - Legacy Ollama pull (deprecated)
     httpApp.post('/api/llm/models/install', async (req, res) => {
       try {
         const { modelId } = req.body
@@ -9729,25 +9848,26 @@ async function runDeviceKeyMigration(
           }
 
           // Update downloadProgress to a terminal state so the UI poller gets the final result.
-          localLlmManager.downloadProgress = verified
-            ? { modelId, status: 'verified', progress: 100 }
-            : {
-                modelId,
-                status: 'verification_failed',
-                progress: 0,
-                error: `Model "${modelId}" was not found in Ollama after installation. ` +
-                  'It may still be processing â€” try refreshing the model list.',
-              }
+          localLlmManager.setDownloadProgress(
+            verified
+              ? { modelId, status: 'verified', progress: 100 }
+              : {
+                  modelId,
+                  status: 'verification_failed',
+                  progress: 0,
+                  error: `Model "${modelId}" was not found after installation. Try refreshing the model list.`,
+                },
+          )
 
           console.log('[HTTP-LLM] Terminal progress state set for', modelId, '- verified:', verified)
         }).catch((error: any) => {
           console.error('[HTTP-LLM] Model installation failed:', error)
-          localLlmManager.downloadProgress = {
+          localLlmManager.setDownloadProgress({
             modelId,
             status: 'error',
             progress: 0,
             error: error.message,
-          }
+          })
         })
 
         res.json({ ok: true, message: 'Installation started' })
@@ -9782,7 +9902,9 @@ async function runDeviceKeyMigration(
         }
         const { modelId } = req.params
         const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const { broadcastModelsInstalledChanged } = await import('./main/llm/broadcastModelsChanged')
         await localLlmManager.deleteModel(modelId)
+        broadcastModelsInstalledChanged()
         res.json({ ok: true })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error deleting model:', error)

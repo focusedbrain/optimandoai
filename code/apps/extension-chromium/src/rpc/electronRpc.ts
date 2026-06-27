@@ -133,6 +133,27 @@ const LlmInstallModel = {
   route: '/api/llm/models/install',
 }
 
+const LlmImportModelFromPicker = {
+  method: 'llm.importModelFromPicker' as const,
+  schema: z.void(),
+  http: 'POST' as const,
+  route: '/api/llm/models/import-pick',
+}
+
+const LlmDownloadModelFromUrl = {
+  method: 'llm.downloadModelFromUrl' as const,
+  schema: z.object({ url: z.string().url().max(4000) }),
+  http: 'POST' as const,
+  route: '/api/llm/models/download-from-url',
+}
+
+const LlmCancelModelDownload = {
+  method: 'llm.cancelModelDownload' as const,
+  schema: z.void(),
+  http: 'POST' as const,
+  route: '/api/llm/models/download-cancel',
+}
+
 const LlmDeleteModel = {
   method: 'llm.deleteModel' as const,
   schema: z.object({ modelId: z.string().min(1).max(200) }),
@@ -353,6 +374,9 @@ const RPC_REGISTRY = [
   LlmCatalog,
   LlmStart,
   LlmInstallModel,
+  LlmImportModelFromPicker,
+  LlmDownloadModelFromUrl,
+  LlmCancelModelDownload,
   LlmDeleteModel,
   LlmActivateModel,
   LlmPerformance,

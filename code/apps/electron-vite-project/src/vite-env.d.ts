@@ -308,6 +308,7 @@ interface LlmBridge {
     ctx: Record<string, unknown>,
   ) => Promise<{ ok: true } | { ok: false; error: string }>
   onActiveModelChanged: (cb: (data: { modelId: string }) => void) => () => void
+  onModelsChanged: (cb: (data: { modelId?: string; sha256?: string }) => void) => () => void
   resolveAutosortRuntime: () => Promise<
     { ok: true; data: ResolvedInboxRuntime } | { ok: false; error: string }
   >

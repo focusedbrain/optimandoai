@@ -649,6 +649,15 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
   }, [ready])
 
   useLayoutEffect(() => {
+    if (!ready) return
+    const api = window.llm
+    if (!api?.onModelsChanged) return
+    return api.onModelsChanged(() => {
+      void refreshModelsRef.current('manual_refresh', { force: true })
+    })
+  }, [ready])
+
+  useLayoutEffect(() => {
     if (!activeLlmModel) {
       setHostAiStale(false)
       return

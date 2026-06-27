@@ -153,7 +153,8 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   const [hardware, setHardware] = useState<HardwareInfo | null>(null)
   const [status, setStatus] = useState<OllamaStatus | null>(null)
   const [modelCatalog, setModelCatalog] = useState<LlmModelConfig[]>(FALLBACK_CATALOG)
-  const [selectedModel, setSelectedModel] = useState('')
+  const [downloadUrl, setDownloadUrl] = useState('')
+  const [lastInstallSha256, setLastInstallSha256] = useState<string | null>(null)
   const [installing, setInstalling] = useState<string | null>(null)
   const [installProgress, setInstallProgress] = useState(0)
   const [installStatus, setInstallStatus] = useState('')
@@ -174,6 +175,10 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         getCatalog: () => (window as any).electron.ipcRenderer.invoke('llm:getModelCatalog'),
         startOllama: () => (window as any).electron.ipcRenderer.invoke('llm:startOllama'),
         installModel: (modelId: string) => (window as any).electron.ipcRenderer.invoke('llm:installModel', modelId),
+        importModelFromPicker: () => (window as any).electron.ipcRenderer.invoke('llm:importModelFromPicker'),
+        downloadModelFromUrl: (url: string) =>
+          (window as any).electron.ipcRenderer.invoke('llm:downloadModelFromUrl', url),
+        cancelModelDownload: () => (window as any).electron.ipcRenderer.invoke('llm:cancelModelDownload'),
         deleteModel: (modelId: string) => (window as any).electron.ipcRenderer.invoke('llm:deleteModel', modelId),
         setActiveModel: (modelId: string) => (window as any).electron.ipcRenderer.invoke('llm:setActiveModel', modelId),
         getPerformanceEstimate: (modelId: string) => (window as any).electron.ipcRenderer.invoke('llm:getPerformanceEstimate', modelId),
@@ -201,6 +206,9 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         getCatalog: () => rpc('llm.catalog'),
         startOllama: () => rpc('llm.start'),
         installModel: (modelId: string) => rpc('llm.installModel', { modelId }),
+        importModelFromPicker: () => rpc('llm.importModelFromPicker'),
+        downloadModelFromUrl: (url: string) => rpc('llm.downloadModelFromUrl', { url }),
+        cancelModelDownload: () => rpc('llm.cancelModelDownload'),
         deleteModel: (modelId: string) => rpc('llm.deleteModel', { modelId }),
         setActiveModel: (modelId: string) => rpc('llm.activateModel', { modelId }),
         getPerformanceEstimate: (modelId: string) => rpc('llm.performance', { modelId }),
@@ -229,8 +237,9 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         setInstallStatus(progress.status || '')
 
         if (progress.status === 'verified') {
-          // Verified: model confirmed present in Ollama after install.
+          if (progress.digest) setLastInstallSha256(progress.digest)
           showNotification('Model installed and verified successfully!', 'success')
+          notifyModelInstalled(progress.modelId || 'gguf')
           setTimeout(() => {
             setInstalling(null)
             loadData()
@@ -351,86 +360,109 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
     }
   }
   
-  const handleInstallModel = async () => {
-    if (!selectedModel) return
-
-    setInstalling(selectedModel)
-    setInstallProgress(0)
-    setInstallStatus('Starting installation...')
-
+  const notifyModelInstalled = (modelId: string) => {
     try {
-      const res = await api.installModel(selectedModel)
-      if (res.ok && res.data?.ok) {
-        // Poll for progress if using HTTP (no real-time updates via IPC events)
-        if (bridge === 'http') {
-          const pollInterval = setInterval(async () => {
-            try {
-              const progressRes = await rpc('llm.installProgress')
-              if (progressRes.ok && progressRes.data) {
-                const progress = progressRes.data.progress
-                if (progress) {
-                  setInstallProgress(progress.progress || 0)
-                  setInstallStatus(progress.status || 'Downloading...')
+      chrome.storage?.local?.set({
+        'llm-model-installed': { modelId, timestamp: Date.now() },
+      })
+    } catch (e) {
+      console.warn('[LlmSettings] Failed to notify model installation:', e)
+    }
+  }
 
-                  if (progress.status === 'verified') {
-                    // Verified success: model confirmed present in Ollama after install.
-                    clearInterval(pollInterval)
-                    showNotification('Model installed and verified successfully!', 'success')
-                    try {
-                      chrome.storage?.local?.set({
-                        'llm-model-installed': { modelId: selectedModel, timestamp: Date.now() },
-                      })
-                    } catch (e) {
-                      console.warn('[LlmSettings] Failed to notify model installation:', e)
-                    }
-                    setTimeout(() => { setInstalling(null); loadData() }, 500)
-
-                  } else if (progress.status === 'verification_failed') {
-                    // Stream ended but model not found in Ollama — show failure, not success.
-                    clearInterval(pollInterval)
-                    showNotification(
-                      progress.error || 'Install verification failed — model not found in Ollama.',
-                      'error',
-                    )
-                    setInstalling(null)
-
-                  } else if (progress.status === 'error') {
-                    clearInterval(pollInterval)
-                    showNotification(progress.error || 'Installation failed.', 'error')
-                    setInstalling(null)
-
-                  } else if (progress.status === 'success' || progress.progress >= 100) {
-                    // Legacy fallback: older backend without verification support.
-                    clearInterval(pollInterval)
-                    showNotification('Model installed successfully!', 'success')
-                    try {
-                      chrome.storage?.local?.set({
-                        'llm-model-installed': { modelId: selectedModel, timestamp: Date.now() },
-                      })
-                    } catch (e) {
-                      console.warn('[LlmSettings] Failed to notify model installation:', e)
-                    }
-                    setTimeout(() => { setInstalling(null); loadData() }, 1000)
-                  }
-                } else {
-                  console.log('[LlmSettings] No progress data yet')
-                }
-              }
-            } catch (pollError) {
-              console.warn('[LlmSettings] Poll error:', pollError)
-            }
-          }, 1000)
-
-          // Safety timeout — 30 minutes for very large models
-          setTimeout(() => clearInterval(pollInterval), 1_800_000)
+  const pollInstallProgressHttp = (modelLabel: string) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const progressRes = await rpc('llm.installProgress')
+        if (!progressRes.ok || !progressRes.data) return
+        const progress = progressRes.data.progress
+        if (!progress) return
+        setInstallProgress(progress.progress || 0)
+        const bytes =
+          progress.completed != null && progress.total
+            ? `${(progress.completed / (1024 ** 2)).toFixed(1)} / ${(progress.total / (1024 ** 2)).toFixed(1)} MB`
+            : null
+        setInstallStatus(
+          bytes ? `${progress.status || 'working'} (${bytes})` : progress.status || 'Working…',
+        )
+        if (progress.digest) setLastInstallSha256(progress.digest)
+        if (progress.status === 'verified') {
+          clearInterval(pollInterval)
+          showNotification('Model installed and verified successfully!', 'success')
+          notifyModelInstalled(progress.modelId || modelLabel)
+          setTimeout(() => {
+            setInstalling(null)
+            loadData()
+          }, 500)
+        } else if (progress.status === 'error' || progress.status === 'verification_failed') {
+          clearInterval(pollInterval)
+          showNotification(progress.error || 'Installation failed.', 'error')
+          setInstalling(null)
         }
-      } else {
-        showNotification(res.data?.error || res.error || 'Installation failed', 'error')
-        setInstalling(null)
+      } catch (pollError) {
+        console.warn('[LlmSettings] Poll error:', pollError)
       }
-    } catch (error: any) {
-      showNotification(error.message || 'Installation failed', 'error')
+    }, 1000)
+    setTimeout(() => clearInterval(pollInterval), 1_800_000)
+  }
+
+  const handleImportFromPicker = async () => {
+    setInstalling('import')
+    setInstallProgress(0)
+    setInstallStatus('Opening file picker…')
+    try {
+      const res = await api.importModelFromPicker()
+      if (res.data?.cancelled || res.cancelled) {
+        setInstalling(null)
+        return
+      }
+      const inner = res.data?.data ?? res.data
+      if (res.ok && inner?.sha256) {
+        setLastInstallSha256(inner.sha256)
+        showNotification(`Imported ${inner.modelId}`, 'success')
+        notifyModelInstalled(inner.modelId)
+        setInstalling(null)
+        await loadData()
+        return
+      }
+      if (bridge === 'http' && res.ok) {
+        pollInstallProgressHttp('import')
+        return
+      }
+      showNotification(res.data?.error || res.error || 'Import failed', 'error')
       setInstalling(null)
+    } catch (error: any) {
+      showNotification(error.message || 'Import failed', 'error')
+      setInstalling(null)
+    }
+  }
+
+  const handleDownloadFromUrl = async () => {
+    const url = downloadUrl.trim()
+    if (!url) return
+    setInstalling('download')
+    setInstallProgress(0)
+    setInstallStatus('Starting HTTPS download…')
+    try {
+      const res = await api.downloadModelFromUrl(url)
+      if (res.ok && (res.data?.ok ?? res.ok)) {
+        if (bridge === 'http') pollInstallProgressHttp(url)
+        return
+      }
+      showNotification(res.data?.error || res.error || 'Download failed to start', 'error')
+      setInstalling(null)
+    } catch (error: any) {
+      showNotification(error.message || 'Download failed', 'error')
+      setInstalling(null)
+    }
+  }
+
+  const handleCancelDownload = async () => {
+    try {
+      await api.cancelModelDownload()
+    } finally {
+      setInstalling(null)
+      setInstallStatus('Cancelled')
     }
   }
   
@@ -889,6 +921,14 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
                 </div>
                 <div style={{ opacity: 0.7 }}>
                   {(model.size / (1024**3)).toFixed(2)} GB
+                  {model.digest ? (
+                    <>
+                      <br />
+                      <span style={{ fontFamily: 'monospace', fontSize: '8px', wordBreak: 'break-all' }}>
+                        SHA256: {model.digest}
+                      </span>
+                    </>
+                  ) : null}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '4px' }}>
@@ -934,149 +974,27 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         </div>
       )}
       
-      {/* Install New Model - Always show */}
+      {/* Install GGUF model — file picker (recommended) or verified HTTPS download */}
       {!loading && (
         <div style={{
           padding: '10px',
           background: bgPrimary,
           borderRadius: '6px',
-          marginTop: '12px'
+          marginTop: '12px',
+          color: textColor,
         }}>
           <div style={{ fontWeight: '600', marginBottom: '8px', fontSize: '10px', opacity: 0.8 }}>
-            INSTALL NEW MODEL
+            INSTALL GGUF MODEL
           </div>
-          
-          {status && !status.installed && !isSandbox && (
-            <div style={{
-              padding: '10px',
-              background: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              borderRadius: '4px',
-              fontSize: '10px',
-              marginBottom: '8px'
-            }}>
-              <div style={{ fontWeight: '600', marginBottom: '6px' }}>
-                ⚠️ Ollama Not Installed
-              </div>
-              <div style={{ marginBottom: '8px', opacity: 0.9 }}>
-                Ollama is required to run local LLMs. Please install it to continue.
-              </div>
-              <a 
-                href="https://ollama.ai/download" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                style={{
-                  display: 'inline-block',
-                  padding: '6px 12px',
-                  background: '#2563eb',
-                  color: '#fff',
-                  textDecoration: 'none',
-                  borderRadius: '4px',
-                  fontSize: '10px',
-                  fontWeight: '600'
-                }}
-              >
-                Download Ollama
-              </a>
-            </div>
-          )}
-          
-          {status && status.installed && !status.running && !isSandbox && (
-            <div style={{
-              padding: '8px',
-              background: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              borderRadius: '4px',
-              fontSize: '10px',
-              marginBottom: '8px'
-            }}>
-              ⚠️ Ollama is not running. Start Ollama to install models.
-              <button
-                type="button"
-                onClick={handleStartOllama}
-                style={{
-                  marginTop: '6px',
-                  padding: '4px 8px',
-                  background: '#2563eb',
-                  border: 'none',
-                  borderRadius: '4px',
-                  color: '#fff',
-                  fontSize: '10px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  display: 'block'
-                }}
-              >
-                Start Ollama
-              </button>
-            </div>
-          )}
-          
-          <select
-            value={selectedModel}
-            onChange={(e) => setSelectedModel(e.target.value)}
-            disabled={
-              sandboxOllamaDisabled ||
-              !!installing ||
-              !!(status && (!status.installed || !status.running))
-            }
-            style={{
-              width: '100%',
-              padding: '8px',
-              background: 'rgba(255,255,255,0.1)',
-              border: '1px solid rgba(255,255,255,0.2)',
-              borderRadius: '4px',
-              color: textColor,
-              fontSize: '10px',
-              marginBottom: '8px',
-              cursor:
-                sandboxOllamaDisabled || installing || (status && (!status.installed || !status.running))
-                  ? 'not-allowed'
-                  : 'pointer',
-              opacity:
-                sandboxOllamaDisabled || (status && (!status.installed || !status.running)) ? 0.45 : 1,
-            }}
-          >
-            <option value="">-- Select a model --</option>
-            {modelCatalog.map((model) => {
-              const isInstalled = status?.modelsInstalled.some(m => m.name === model.id)
-              const estimate = getEstimateForModel(model.id)
-              const indicator = estimate ? 
-                (estimate.estimate === 'fast' ? '🟢' :
-                 estimate.estimate === 'usable' ? '🟡' :
-                 estimate.estimate === 'slow' ? '🟠' : '🔴') : ''
-              
-              return (
-                <option key={model.id} value={model.id}>
-                  {indicator} {model.displayName} - {model.diskSizeGb}GB ({model.provider}) {isInstalled ? '[INSTALLED]' : ''}
-                </option>
-              )
-            })}
-          </select>
-          
-          {selectedModel && modelCatalog.find(m => m.id === selectedModel) && (
-            <div style={{
-              fontSize: '9px',
-              marginBottom: '8px',
-              padding: '6px',
-              background: 'rgba(59,130,246,0.1)',
-              border: '1px solid rgba(59,130,246,0.3)',
-              borderRadius: '4px'
-            }}>
-              <strong>{modelCatalog.find(m => m.id === selectedModel)!.displayName}</strong>
-              <br/>
-              {modelCatalog.find(m => m.id === selectedModel)!.description}
-              <br/>
-              <span style={{ opacity: 0.8 }}>
-                RAM: {modelCatalog.find(m => m.id === selectedModel)!.recommendedRamGb}GB • 
-                Size: {modelCatalog.find(m => m.id === selectedModel)!.diskSizeGb}GB
-              </span>
-            </div>
-          )}
-          
+          <p style={{ fontSize: '10px', margin: '0 0 10px', color: 'var(--text-primary, inherit)', lineHeight: 1.45 }}>
+            Recommended: import a <strong>.gguf</strong> you obtained and verified out-of-band (no network egress).
+            Optional: download from an allowlisted <strong>Hugging Face HTTPS</strong> link — SHA256 is shown so you can
+            cross-check the publisher checksum.
+          </p>
+
           {installing && (
             <div style={{ marginBottom: '8px' }}>
-              <div style={{ fontSize: '10px', marginBottom: '4px', opacity: 0.8 }}>
+              <div style={{ fontSize: '10px', marginBottom: '4px', color: 'var(--text-primary, inherit)' }}>
                 {installStatus}
               </div>
               <div style={{
@@ -1084,30 +1002,92 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
                 height: '6px',
                 background: 'rgba(255,255,255,0.1)',
                 borderRadius: '3px',
-                overflow: 'hidden'
+                overflow: 'hidden',
               }}>
                 <div style={{
                   width: `${installProgress}%`,
                   height: '100%',
                   background: 'linear-gradient(90deg, #2563eb, #60a5fa)',
-                  transition: 'width 0.3s ease'
+                  transition: 'width 0.3s ease',
                 }} />
               </div>
               <div style={{ fontSize: '9px', marginTop: '2px', textAlign: 'right', opacity: 0.8 }}>
                 {installProgress.toFixed(0)}%
               </div>
+              {installing === 'download' && (
+                <button
+                  type="button"
+                  onClick={handleCancelDownload}
+                  style={{
+                    marginTop: '6px',
+                    padding: '4px 8px',
+                    fontSize: '9px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel download
+                </button>
+              )}
             </div>
           )}
-          
+
+          {lastInstallSha256 && (
+            <div style={{
+              fontSize: '9px',
+              marginBottom: '8px',
+              padding: '6px',
+              background: 'rgba(34,197,94,0.08)',
+              border: '1px solid rgba(34,197,94,0.25)',
+              borderRadius: '4px',
+              color: 'var(--text-primary, inherit)',
+            }}>
+              <div style={{ fontWeight: 600, marginBottom: '4px' }}>Last install SHA256</div>
+              <code style={{ wordBreak: 'break-all', fontSize: '8px' }}>{lastInstallSha256}</code>
+            </div>
+          )}
+
           <button
             type="button"
-            onClick={handleInstallModel}
-            disabled={
-              sandboxOllamaDisabled ||
-              !selectedModel ||
-              !!installing ||
-              !!(status && (!status.installed || !status.running))
-            }
+            onClick={handleImportFromPicker}
+            disabled={sandboxOllamaDisabled || !!installing}
+            style={{
+              width: '100%',
+              padding: '10px 12px',
+              marginBottom: '8px',
+              background: '#059669',
+              border: 'none',
+              borderRadius: '6px',
+              color: '#fff',
+              fontSize: '12px',
+              fontWeight: '600',
+              cursor: sandboxOllamaDisabled || installing ? 'not-allowed' : 'pointer',
+              opacity: sandboxOllamaDisabled || installing ? 0.5 : 1,
+            }}
+          >
+            {installing === 'import' ? 'Importing…' : '📁 Import from file (recommended)'}
+          </button>
+
+          <input
+            type="url"
+            value={downloadUrl}
+            onChange={(e) => setDownloadUrl(e.target.value)}
+            placeholder="https://huggingface.co/…/resolve/main/model.gguf"
+            disabled={sandboxOllamaDisabled || !!installing}
+            style={{
+              width: '100%',
+              padding: '8px',
+              marginBottom: '8px',
+              background: 'rgba(255,255,255,0.08)',
+              border: '1px solid rgba(255,255,255,0.2)',
+              borderRadius: '4px',
+              color: textColor,
+              fontSize: '10px',
+            }}
+          />
+          <button
+            type="button"
+            onClick={handleDownloadFromUrl}
+            disabled={sandboxOllamaDisabled || !!installing || !downloadUrl.trim()}
             style={{
               width: '100%',
               padding: '10px 12px',
@@ -1118,22 +1098,11 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
               fontSize: '12px',
               fontWeight: '600',
               cursor:
-                sandboxOllamaDisabled ||
-                !selectedModel ||
-                installing ||
-                (status && (!status.installed || !status.running))
-                  ? 'not-allowed'
-                  : 'pointer',
-              opacity:
-                sandboxOllamaDisabled ||
-                !selectedModel ||
-                installing ||
-                (status && (!status.installed || !status.running))
-                  ? 0.5
-                  : 1,
+                sandboxOllamaDisabled || installing || !downloadUrl.trim() ? 'not-allowed' : 'pointer',
+              opacity: sandboxOllamaDisabled || installing || !downloadUrl.trim() ? 0.5 : 1,
             }}
           >
-            {installing ? 'Installing...' : '⚡ Install Selected Model'}
+            {installing === 'download' ? 'Downloading…' : '⬇ Download from Hugging Face URL'}
           </button>
         </div>
       )}

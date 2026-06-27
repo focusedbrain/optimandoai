@@ -1647,6 +1647,23 @@ contextBridge.exposeInMainWorld('llm', {
       ipcRenderer.removeListener('llm:activeModelChanged', fn)
     }
   },
+  onModelsChanged: (handler: (data: { modelId?: string; sha256?: string }) => void) => {
+    const fn = (_e: Electron.IpcRendererEvent, data: unknown) => {
+      if (!data || typeof data !== 'object') {
+        handler({})
+        return
+      }
+      const o = data as Record<string, unknown>
+      handler({
+        modelId: typeof o.modelId === 'string' ? o.modelId : undefined,
+        sha256: typeof o.sha256 === 'string' ? o.sha256 : undefined,
+      })
+    }
+    ipcRenderer.on('llm:modelsChanged', fn)
+    return () => {
+      ipcRenderer.removeListener('llm:modelsChanged', fn)
+    }
+  },
   resolveAutosortRuntime: () => ipcRenderer.invoke('llm:resolveAutosortRuntime'),
   resolveInferenceCapability: () =>
     ipcRenderer.invoke('llm:resolveInferenceCapability') as Promise<

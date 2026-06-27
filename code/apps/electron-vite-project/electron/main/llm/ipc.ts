@@ -3,7 +3,7 @@
  * Electron IPC interface for renderer process to communicate with LLM services
  */
 
-import { ipcMain, IpcMainInvokeEvent } from 'electron'
+import { ipcMain, IpcMainInvokeEvent, dialog } from 'electron'
 import { hardwareService } from './hardware'
 import { localLlmManager } from './local-llm-manager'
 import { getGpuStatus, getGpuInferenceStatusRemote } from '../inference/gpuStatus'
@@ -18,6 +18,7 @@ import {
 } from './resolveAiExecutionContext'
 import { DEBUG_ACTIVE_LOCAL_MODEL } from './activeLocalModelStore'
 import { broadcastActiveLocalModelChanged } from './broadcastActiveModel'
+import { broadcastModelsInstalledChanged } from './broadcastModelsChanged'
 import { MODEL_CATALOG, getModelConfig } from './config'
 import { ChatRequest } from './types'
 import { resolveInboxAutosortRuntime } from './inboxAutosortRuntime'
@@ -224,9 +225,136 @@ export function registerLlmHandlers() {
         }
       }
       await localLlmManager.deleteModel(modelId)
+      _getStatusCache = null
+      broadcastModelsInstalledChanged()
       return { ok: true }
     } catch (error: any) {
       console.error('[LLM IPC] Delete model failed:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  /** High-assurance import: OS file picker → copy GGUF into models dir (no network). */
+  ipcMain.handle('llm:importModelFromPicker', async (event: IpcMainInvokeEvent) => {
+    try {
+      if (isSandboxMode()) {
+        return {
+          ok: false,
+          error: 'Model installation is disabled in sandbox mode — install models on the host machine',
+        }
+      }
+      const pick = await dialog.showOpenDialog({
+        title: 'Import GGUF model',
+        properties: ['openFile'],
+        filters: [{ name: 'GGUF Models', extensions: ['gguf'] }],
+      })
+      if (pick.canceled || !pick.filePaths[0]) {
+        return { ok: false, cancelled: true as const }
+      }
+      const sourcePath = pick.filePaths[0]
+      let overwrite = false
+      try {
+        const result = await localLlmManager.importModelFromFile(sourcePath, {
+          onProgress: (progress) => event.sender.send('llm:installProgress', progress),
+        })
+        _getStatusCache = null
+        broadcastModelsInstalledChanged({ modelId: result.modelId, sha256: result.sha256 })
+        event.sender.send('llm:installProgress', {
+          modelId: result.modelId,
+          status: 'verified',
+          progress: 100,
+          digest: result.sha256,
+        })
+        return { ok: true as const, data: result }
+      } catch (err: unknown) {
+        const e = err as Error & { code?: string; modelId?: string }
+        if (e.code !== 'MODEL_EXISTS') throw err
+        const confirm = await dialog.showMessageBox({
+          type: 'warning',
+          buttons: ['Cancel', 'Replace'],
+          defaultId: 0,
+          cancelId: 0,
+          title: 'Replace existing model?',
+          message: `A model named "${e.modelId ?? 'this file'}" is already installed.`,
+          detail: 'Replacing will delete the existing GGUF in your models folder.',
+        })
+        if (confirm.response !== 1) {
+          return { ok: false, cancelled: true as const }
+        }
+        overwrite = true
+        const result = await localLlmManager.importModelFromFile(sourcePath, {
+          overwrite,
+          onProgress: (progress) => event.sender.send('llm:installProgress', progress),
+        })
+        _getStatusCache = null
+        broadcastModelsInstalledChanged({ modelId: result.modelId, sha256: result.sha256 })
+        event.sender.send('llm:installProgress', {
+          modelId: result.modelId,
+          status: 'verified',
+          progress: 100,
+          digest: result.sha256,
+        })
+        return { ok: true as const, data: result }
+      }
+    } catch (error: any) {
+      console.error('[LLM IPC] importModelFromPicker failed:', error)
+      event.sender.send('llm:installProgress', {
+        modelId: '',
+        status: 'error',
+        progress: 0,
+        error: error.message,
+      })
+      return { ok: false, error: error.message }
+    }
+  })
+
+  /** Convenience HTTPS download from allowlisted Hugging Face hosts only. */
+  ipcMain.handle('llm:downloadModelFromUrl', async (event: IpcMainInvokeEvent, url: string) => {
+    try {
+      if (isSandboxMode()) {
+        return {
+          ok: false,
+          error: 'Model installation is disabled in sandbox mode — install models on the host machine',
+        }
+      }
+      const trimmed = typeof url === 'string' ? url.trim() : ''
+      if (!trimmed) return { ok: false, error: 'url is required' }
+
+      localLlmManager
+        .downloadModelFromUrl(trimmed, (progress) => {
+          event.sender.send('llm:installProgress', progress)
+        })
+        .then((result) => {
+          _getStatusCache = null
+          broadcastModelsInstalledChanged({ modelId: result.modelId, sha256: result.sha256 })
+          event.sender.send('llm:installProgress', {
+            modelId: result.modelId,
+            status: 'verified',
+            progress: 100,
+            digest: result.sha256,
+          })
+        })
+        .catch((error: Error) => {
+          event.sender.send('llm:installProgress', {
+            modelId: '',
+            status: 'error',
+            progress: 0,
+            error: error.message,
+          })
+        })
+
+      return { ok: true, message: 'Download started' }
+    } catch (error: any) {
+      console.error('[LLM IPC] downloadModelFromUrl failed:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('llm:cancelModelDownload', async () => {
+    try {
+      localLlmManager.cancelModelDownload()
+      return { ok: true }
+    } catch (error: any) {
       return { ok: false, error: error.message }
     }
   })

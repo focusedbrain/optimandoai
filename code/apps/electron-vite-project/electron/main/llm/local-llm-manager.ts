@@ -28,6 +28,13 @@ import { collectLlamacppHttpBasesFromEnv } from './llamacppHttpBases'
 import { assertGpuInferenceAvailable } from '../inference/inferenceGate'
 import { getAdaptiveKeepAlive } from './adaptiveWarmupStrategy'
 import { DEFAULT_LLAMACPP_PORT, getLocalLlmModelsDirectory } from './localLlmPaths'
+import {
+  deleteInstalledGguf,
+  downloadGgufFromAllowedUrl,
+  importGgufFromUserPath,
+  readInstalledModelSha256,
+  type ModelInstallResult,
+} from './localLlmModelInstall'
 
 const execAsync = promisify(exec)
 
@@ -72,6 +79,7 @@ export class LocalLlmManager {
   private process: ChildProcess | null = null
   private baseUrl: string = ''
   private downloadProgress: DownloadProgress | null = null
+  private downloadAbort: AbortController | null = null
 
   private _modelsCache: InstalledModel[] | null = null
   private _modelsCacheTime = 0
@@ -208,7 +216,7 @@ export class LocalLlmManager {
           name: modelIdFromGgufFilename(e.name),
           size: st.size,
           modified: st.mtime.toISOString(),
-          digest: '',
+          digest: readInstalledModelSha256(full),
           isActive: false,
         })
       }
@@ -457,7 +465,52 @@ export class LocalLlmManager {
   async pullModel(modelId: string, onProgress?: (progress: DownloadProgress) => void): Promise<void> {
     void modelId
     void onProgress
-    throw new Error('Model download is not implemented in Phase 1 — use Phase 2 install UI')
+    throw new Error(
+      'Ollama-style model pull is removed. Import a .gguf file via Backend Configuration or download from an allowlisted Hugging Face HTTPS URL.',
+    )
+  }
+
+  cancelModelDownload(): void {
+    this.downloadAbort?.abort()
+    this.downloadAbort = null
+  }
+
+  async importModelFromFile(
+    sourcePath: string,
+    opts?: { overwrite?: boolean; onProgress?: (progress: DownloadProgress) => void },
+  ): Promise<ModelInstallResult> {
+    this.downloadProgress = null
+    const result = await importGgufFromUserPath(sourcePath, {
+      overwrite: opts?.overwrite,
+      onProgress: (p) => {
+        this.downloadProgress = p
+        opts?.onProgress?.(p)
+      },
+    })
+    this.invalidateModelsCache()
+    return result
+  }
+
+  async downloadModelFromUrl(
+    url: string,
+    onProgress?: (progress: DownloadProgress) => void,
+  ): Promise<ModelInstallResult> {
+    this.downloadAbort?.abort()
+    this.downloadAbort = new AbortController()
+    this.downloadProgress = { modelId: '', status: 'starting', progress: 0 }
+    try {
+      const result = await downloadGgufFromAllowedUrl(url, {
+        signal: this.downloadAbort.signal,
+        onProgress: (p) => {
+          this.downloadProgress = p
+          onProgress?.(p)
+        },
+      })
+      this.invalidateModelsCache()
+      return result
+    } finally {
+      this.downloadAbort = null
+    }
   }
 
   async deleteModel(modelId: string): Promise<void> {
@@ -465,7 +518,7 @@ export class LocalLlmManager {
     if (!gguf || !fs.existsSync(gguf)) {
       throw new Error(`Model "${modelId}" not found in models directory`)
     }
-    fs.unlinkSync(gguf)
+    deleteInstalledGguf(gguf)
     this.invalidateModelsCache()
   }
 
@@ -507,6 +560,10 @@ export class LocalLlmManager {
 
   getDownloadProgress(): DownloadProgress | null {
     return this.downloadProgress
+  }
+
+  setDownloadProgress(progress: DownloadProgress | null): void {
+    this.downloadProgress = progress
   }
 
   getBaseUrl(): string {

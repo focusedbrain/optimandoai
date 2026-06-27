@@ -1367,6 +1367,14 @@ export default function HybridSearch({
     })
   }, [loadModels])
 
+  useLayoutEffect(() => {
+    const api = window.llm
+    if (!api?.onModelsChanged) return
+    return api.onModelsChanged(() => {
+      void loadModels('manual_refresh', { force: true })
+    })
+  }, [loadModels])
+
   // App resume and account switch: refetch (Host hook also reloads on handshake-list-refresh + orchestrator-mode-changed).
   useEffect(() => {
     const onResume = () => {
