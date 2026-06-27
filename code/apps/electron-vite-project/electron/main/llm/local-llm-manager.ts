@@ -3,7 +3,7 @@
  * Manages llama-server runtime: lifecycle, model operations, OpenAI-compatible HTTP API.
  */
 
-import { exec, spawn, ChildProcess } from 'child_process'
+import { exec, spawn, ChildProcess, execSync } from 'child_process'
 import { promisify } from 'util'
 import path from 'path'
 import fs from 'fs'
@@ -77,6 +77,13 @@ export class LocalLlmManager {
   private serverBinaryPath: string = ''
   private serverPort: number = DEFAULT_LLAMACPP_PORT
   private process: ChildProcess | null = null
+  private weOwnProcess = false
+  private supervisionEnabled = false
+  private shuttingDown = false
+  private restartTimer: ReturnType<typeof setTimeout> | null = null
+  private restartAttemptTimes: number[] = []
+  private readonly maxRestartAttempts = 5
+  private readonly restartWindowMs = 300_000
   private baseUrl: string = ''
   private downloadProgress: DownloadProgress | null = null
   private downloadAbort: AbortController | null = null
@@ -108,12 +115,174 @@ export class LocalLlmManager {
         return
       }
 
+      if (platform === 'win32') {
+        const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Local')
+        const windowsPath = path.join(localAppData, 'Programs', 'llama.cpp', binaryName)
+        if (fs.existsSync(windowsPath)) {
+          this.serverBinaryPath = windowsPath
+          console.log('[LocalLlm] Using Windows installation:', windowsPath)
+          return
+        }
+      }
+
       this.serverBinaryPath = binaryName
       console.log('[LocalLlm] Using llama-server from PATH')
     } catch (error) {
       console.error('[LocalLlm] Failed to initialize server binary path:', error)
       this.serverBinaryPath = 'llama-server'
     }
+  }
+
+  /** True when a resolved llama-server binary exists (bundled, install path, or PATH). */
+  isBinaryAvailable(): boolean {
+    const p = this.serverBinaryPath.trim()
+    if (!p) return false
+    if (path.isAbsolute(p) || p.includes(path.sep) || p.includes('\\')) {
+      return fs.existsSync(p)
+    }
+    try {
+      if (process.platform === 'win32') {
+        const out = execSync(`where ${p}`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] })
+        return out.trim().length > 0
+      }
+      execSync(`which ${p}`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  enableSupervision(): void {
+    this.supervisionEnabled = true
+  }
+
+  private clearRestartTimer(): void {
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer)
+      this.restartTimer = null
+    }
+  }
+
+  private pruneRestartWindow(): void {
+    const cutoff = Date.now() - this.restartWindowMs
+    this.restartAttemptTimes = this.restartAttemptTimes.filter((t) => t >= cutoff)
+  }
+
+  private scheduleSupervisedRestart(reason: string): void {
+    if (!this.supervisionEnabled || this.shuttingDown) return
+    this.pruneRestartWindow()
+    if (this.restartAttemptTimes.length >= this.maxRestartAttempts) {
+      console.warn(
+        `[LOCAL_LLM_LIFECYCLE] restart_exhausted reason=${reason} attempts=${this.restartAttemptTimes.length} — manual intervention required`,
+      )
+      return
+    }
+    const attempt = this.restartAttemptTimes.length + 1
+    const backoffMs = Math.min(1000 * 2 ** (attempt - 1), 30_000)
+    this.restartAttemptTimes.push(Date.now())
+    this.clearRestartTimer()
+    console.log(
+      `[LOCAL_LLM_LIFECYCLE] restart_scheduled reason=${reason} attempt=${attempt} backoff_ms=${backoffMs}`,
+    )
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = null
+      void this.ensureManagedServerRunning({ reason: `crash_restart:${reason}` })
+    }, backoffMs)
+  }
+
+  private attachProcessExitHandler(proc: ChildProcess): void {
+    proc.on('exit', (code, signal) => {
+      if (this.process === proc) {
+        this.process = null
+        this.weOwnProcess = false
+      }
+      if (this.shuttingDown) {
+        console.log(`[LOCAL_LLM_LIFECYCLE] child_exit expected code=${code ?? 'null'} signal=${signal ?? 'null'}`)
+        return
+      }
+      console.warn(
+        `[LOCAL_LLM_LIFECYCLE] child_exit_unexpected code=${code ?? 'null'} signal=${signal ?? 'null'}`,
+      )
+      this.scheduleSupervisedRestart('process_exit')
+    })
+  }
+
+  async waitUntilReady(timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (await this.isServerResponding()) return true
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+    return false
+  }
+
+  /**
+   * Host orchestrator entry: spawn when binary + GGUF exist; health-check before marking ready.
+   * Does not throw — surfaces reason for logging.
+   */
+  async ensureManagedServerRunning(p: { reason: string }): Promise<{
+    ok: boolean
+    running: boolean
+    reason?: string
+  }> {
+    if (await this.isServerResponding()) {
+      console.log(`[LOCAL_LLM_LIFECYCLE] ready reason=already_running trigger=${p.reason}`)
+      return { ok: true, running: true }
+    }
+
+    if (!this.isBinaryAvailable()) {
+      return { ok: false, running: false, reason: 'binary_missing' }
+    }
+
+    const active = await this.getEffectiveChatModelName()
+    const gguf = active ? resolveGgufPathForModelId(active) : null
+    if (!gguf) {
+      console.log(
+        `[LOCAL_LLM_LIFECYCLE] deferred reason=no_model_installed trigger=${p.reason} — install a GGUF to auto-start`,
+      )
+      return { ok: false, running: false, reason: 'no_model_installed' }
+    }
+
+    try {
+      await this.spawnOwnedServer(gguf, p.reason)
+      const ready = await this.waitUntilReady(30_000)
+      if (!ready) {
+        return { ok: false, running: false, reason: 'health_check_timeout' }
+      }
+      console.log(
+        `[LOCAL_LLM_LIFECYCLE] ready endpoint=${this.baseUrl}/v1/models model=${active} trigger=${p.reason}`,
+      )
+      this.restartAttemptTimes = []
+      return { ok: true, running: true }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`[LOCAL_LLM_LIFECYCLE] spawn_failed trigger=${p.reason} detail=${msg.slice(0, 200)}`)
+      return { ok: false, running: false, reason: `spawn_failed:${msg.slice(0, 120)}` }
+    }
+  }
+
+  async shutdownManagedServer(phase: string): Promise<void> {
+    this.shuttingDown = true
+    this.clearRestartTimer()
+    console.log(`[LOCAL_LLM_LIFECYCLE] stopping phase=${phase} we_own=${this.weOwnProcess}`)
+    await this.stop()
+  }
+
+  private async spawnOwnedServer(gguf: string, trigger: string): Promise<void> {
+    if (this.process && this.weOwnProcess) {
+      console.log('[LocalLlm] Owned llama-server process already tracked')
+      return
+    }
+
+    console.log(`[LocalLlm] Starting llama-server on loopback trigger=${trigger} model=${path.basename(gguf)}`)
+    const proc = spawn(
+      this.serverBinaryPath,
+      ['--host', '127.0.0.1', '--port', String(this.serverPort), '-m', gguf],
+      { stdio: 'ignore', windowsHide: true },
+    )
+    this.process = proc
+    this.weOwnProcess = true
+    this.attachProcessExitHandler(proc)
   }
 
   private collectHttpBases(): string[] {
@@ -173,10 +342,13 @@ export class LocalLlmManager {
   }
 
   async checkInstalled(): Promise<boolean> {
+    if (!this.isBinaryAvailable()) {
+      return this.scanGgufModelsOnDisk().length > 0
+    }
     try {
-      return (await this.probeHttpModelsWithLogging()).ok
+      return (await this.probeHttpModelsWithLogging()).ok || this.scanGgufModelsOnDisk().length > 0
     } catch {
-      return false
+      return this.scanGgufModelsOnDisk().length > 0
     }
   }
 
@@ -251,40 +423,11 @@ export class LocalLlmManager {
   }
 
   async start(): Promise<void> {
-    if (await this.isRunning()) {
-      console.log('[LocalLlm] Server already running')
-      return
+    this.enableSupervision()
+    const result = await this.ensureManagedServerRunning({ reason: 'manual_start' })
+    if (!result.ok || !result.running) {
+      throw new Error(result.reason ?? 'Failed to start llama-server')
     }
-
-    const active = await this.getEffectiveChatModelName()
-    const gguf = active ? resolveGgufPathForModelId(active) : null
-    if (!gguf) {
-      throw new Error('No GGUF model found in models directory — install a model first (Phase 2)')
-    }
-
-    try {
-      console.log('[LocalLlm] Starting llama-server on loopback…')
-      this.process = spawn(
-        this.serverBinaryPath,
-        ['--host', '127.0.0.1', '--port', String(this.serverPort), '-m', gguf],
-        { detached: true, stdio: 'ignore', windowsHide: true },
-      )
-      this.process.unref()
-      await this.waitForServer(30000)
-      console.log('[LocalLlm] Server started successfully')
-    } catch (error) {
-      console.error('[LocalLlm] Failed to start server:', error)
-      throw new Error('Failed to start llama-server')
-    }
-  }
-
-  private async waitForServer(timeoutMs: number): Promise<void> {
-    const startTime = Date.now()
-    while (Date.now() - startTime < timeoutMs) {
-      if (await this.isServerResponding()) return
-      await new Promise((resolve) => setTimeout(resolve, 500))
-    }
-    throw new Error('llama-server did not start within timeout')
   }
 
   private async isServerResponding(): Promise<boolean> {
@@ -308,9 +451,15 @@ export class LocalLlmManager {
   }
 
   async stop(): Promise<void> {
-    if (this.process) {
-      this.process.kill()
+    this.clearRestartTimer()
+    if (this.process && this.weOwnProcess) {
+      try {
+        this.process.kill()
+      } catch {
+        /* ignore */
+      }
       this.process = null
+      this.weOwnProcess = false
     }
     try {
       if (process.platform === 'win32') {
@@ -319,7 +468,7 @@ export class LocalLlmManager {
         await execAsync('pkill -f llama-server')
       }
     } catch {
-      /* ignore */
+      /* ignore — process may not be running */
     }
   }
 

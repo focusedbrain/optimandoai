@@ -51,6 +51,13 @@ async function runSandboxSealedStartupWarmupPlaceholder(): Promise<void> {
 }
 
 async function runHostLocalDefaultModelWarmup(): Promise<void> {
+  const { localLlmManager } = await import('./local-llm-manager')
+  const ready = await localLlmManager.waitUntilReady(45_000)
+  if (!ready) {
+    console.log(`${L} skipped reason=llama_server_not_ready`)
+    return
+  }
+
   const resolved = await resolveAiExecutionContextForLlm()
   if (!resolved.ok) {
     console.log(`${L} skipped reason=no_default_model`)

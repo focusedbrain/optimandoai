@@ -1183,6 +1183,13 @@ let popupIsOpen = false
 // Set flag when app is actually quitting
 app.on('before-quit', async () => {
   isAppQuitting = true
+
+  try {
+    const { shutdownHostLocalLlmLifecycle } = await import('./main/llm/localLlmLifecycle')
+    await shutdownHostLocalLlmLifecycle({ phase: 'before_quit' })
+  } catch (err) {
+    console.error('[MAIN] Error shutting down local LLM lifecycle:', err)
+  }
   
   // Shutdown OAuth server manager
   try {
@@ -5671,7 +5678,6 @@ app.whenReady().then(async () => {
   try {
     console.log('[MAIN] ===== INITIALIZING LLM SERVICES =====')
     const { registerLlmHandlers } = await import('./main/llm/ipc')
-    const { localLlmManager } = await import('./main/llm/local-llm-manager')
     
     // Register IPC handlers
     registerLlmHandlers()
@@ -5700,9 +5706,6 @@ app.whenReady().then(async () => {
     void import('./main/internalInference/p2pSessionManagerStub').then((m) =>
       m.maybeInitP2pSessionManagerStub({ phase: 'app_init' }),
     )
-
-    const { scheduleStartupWarmup } = await import('./main/llm/startupWarmup')
-    scheduleStartupWarmup({ phase: 'llm_ipc_registered' })
 
     registerOrchestratorIPC()
     console.log('[MAIN] Orchestrator IPC handlers registered')
@@ -5766,25 +5769,13 @@ app.whenReady().then(async () => {
       console.error('[MAIN] Failed to wire BEAP email bridge:', bridgeErr)
     }
     
-    // Check if Ollama is installed and auto-start if configured
-    const installed = await localLlmManager.checkInstalled()
-    console.log('[MAIN] Ollama installed:', installed)
-    
-    if (installed) {
-      if (!isSandboxMode()) {
-        try {
-          await localLlmManager.start()
-          console.log('[MAIN] Ollama started successfully')
-        } catch (error) {
-          console.warn('[MAIN] Failed to auto-start Ollama:', error)
-          // Not critical, user can start manually
-        }
-      } else {
-        console.log('[MAIN] Sandbox mode: skipping local Ollama startup')
-      }
-    } else {
-      console.warn('[MAIN] Ollama not found - repair flow will be needed')
-    }
+    // Host-only: orchestrator-managed llama-server lifecycle (mirrors prior Ollama spawn on app ready).
+    const { initHostLocalLlmLifecycle } = await import('./main/llm/localLlmLifecycle')
+    const llmLifecycle = await initHostLocalLlmLifecycle({ phase: 'app_ready' })
+    console.log('[MAIN] Local LLM lifecycle init:', llmLifecycle)
+
+    const { scheduleStartupWarmup } = await import('./main/llm/startupWarmup')
+    scheduleStartupWarmup({ phase: 'after_llm_lifecycle' })
   } catch (error) {
     console.error('[MAIN] Error initializing LLM services:', error)
     // Continue app startup even if LLM init fails
@@ -9739,6 +9730,8 @@ async function runDeviceKeyMigration(
           result = await runImport(true)
         }
         broadcastModelsInstalledChanged({ modelId: result.modelId, sha256: result.sha256 })
+        const { ensureLocalLlmAfterModelInstall } = await import('./main/llm/localLlmLifecycle')
+        void ensureLocalLlmAfterModelInstall('http_import_model_picker')
         localLlmManager.setDownloadProgress({
           modelId: result.modelId,
           status: 'verified',
@@ -9773,8 +9766,10 @@ async function runDeviceKeyMigration(
           .downloadModelFromUrl(url, (progress) => {
             localLlmManager.setDownloadProgress(progress)
           })
-          .then((result) => {
+          .then(async (result) => {
             broadcastModelsInstalledChanged({ modelId: result.modelId, sha256: result.sha256 })
+            const { ensureLocalLlmAfterModelInstall } = await import('./main/llm/localLlmLifecycle')
+            void ensureLocalLlmAfterModelInstall('http_download_model_url')
             localLlmManager.setDownloadProgress({
               modelId: result.modelId,
               status: 'verified',

@@ -19,6 +19,7 @@ import {
 import { DEBUG_ACTIVE_LOCAL_MODEL } from './activeLocalModelStore'
 import { broadcastActiveLocalModelChanged } from './broadcastActiveModel'
 import { broadcastModelsInstalledChanged } from './broadcastModelsChanged'
+import { ensureLocalLlmAfterModelInstall } from './localLlmLifecycle'
 import { MODEL_CATALOG, getModelConfig } from './config'
 import { ChatRequest } from './types'
 import { resolveInboxAutosortRuntime } from './inboxAutosortRuntime'
@@ -193,6 +194,7 @@ export function registerLlmHandlers() {
         })
         _getStatusCache = null
         broadcastModelsInstalledChanged({ modelId: result.modelId, sha256: result.sha256 })
+        void ensureLocalLlmAfterModelInstall('import_model_picker')
         event.sender.send('llm:installProgress', {
           modelId: result.modelId,
           status: 'verified',
@@ -222,6 +224,7 @@ export function registerLlmHandlers() {
         })
         _getStatusCache = null
         broadcastModelsInstalledChanged({ modelId: result.modelId, sha256: result.sha256 })
+        void ensureLocalLlmAfterModelInstall('import_model_picker')
         event.sender.send('llm:installProgress', {
           modelId: result.modelId,
           status: 'verified',
@@ -261,6 +264,7 @@ export function registerLlmHandlers() {
         .then((result) => {
           _getStatusCache = null
           broadcastModelsInstalledChanged({ modelId: result.modelId, sha256: result.sha256 })
+          void ensureLocalLlmAfterModelInstall('download_model_url')
           event.sender.send('llm:installProgress', {
             modelId: result.modelId,
             status: 'verified',
