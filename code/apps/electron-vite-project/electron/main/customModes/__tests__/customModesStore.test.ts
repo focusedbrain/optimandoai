@@ -7,6 +7,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { CustomModeDefinition } from '../../../../extension-chromium/src/shared/ui/customModeTypes'
+import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../../llm/localLlmPaths'
 
 function makeMode(partial: Partial<CustomModeDefinition> & { id: string; name: string }): CustomModeDefinition {
   const now = partial.updatedAt ?? partial.createdAt ?? '2026-01-01T00:00:00.000Z'
@@ -20,7 +21,7 @@ function makeMode(partial: Partial<CustomModeDefinition> & { id: string; name: s
     icon: partial.icon ?? '⚡',
     modelProvider: partial.modelProvider ?? 'ollama',
     modelName: partial.modelName ?? 'llama3',
-    endpoint: partial.endpoint ?? 'http://127.0.0.1:11434',
+    endpoint: partial.endpoint ?? HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE,
     sessionId: partial.sessionId ?? null,
     sessionMode: partial.sessionMode ?? 'shared',
     searchFocus: partial.searchFocus ?? '',
@@ -144,7 +145,7 @@ describe('customModesStore', () => {
       icon: '⚡',
       modelProvider: 'ollama',
       modelName: 'model-a',
-      endpoint: 'http://127.0.0.1:11434',
+      endpoint: HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE,
       sessionId: null as string | null,
       sessionMode: 'shared' as const,
       searchFocus: '',
@@ -174,7 +175,7 @@ describe('customModesStore', () => {
       icon: '⚡',
       modelProvider: 'ollama',
       modelName: 'm1',
-      endpoint: 'http://127.0.0.1:11434',
+      endpoint: HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE,
       sessionId: null as string | null,
       sessionMode: 'shared' as const,
       searchFocus: '',
@@ -198,7 +199,7 @@ describe('customModesStore', () => {
       icon: '⚡',
       modelProvider: 'ollama',
       modelName: 'llama3',
-      endpoint: 'http://127.0.0.1:11434',
+      endpoint: HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE,
       sessionId: null as string | null,
       sessionMode: 'shared' as const,
       searchFocus: 'jobs',
@@ -248,7 +249,7 @@ describe('migrateCustomModesPersistedState (unchanged helper)', () => {
             id: 'custom:legacy-nested',
             name: 'Nested',
             icon: '⚡',
-            model: { provider: 'ollama', modelName: 'x', endpoint: 'http://127.0.0.1:11434' },
+            model: { provider: 'ollama', modelName: 'x', endpoint: HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE },
             session: { sessionMode: 'shared' },
             focus: { lookFor: 'stuff' },
             runBehavior: 'manual',

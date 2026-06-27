@@ -42,7 +42,7 @@ vi.mock('../../internalInference/hostAiEffectiveRole', () => ({
 
 vi.mock('../../internalInference/sandboxHostAiOllamaDirectCandidate', () => ({
   getSandboxOllamaDirectRouteCandidate: () => ({
-    base_url: 'http://192.168.178.28:11434',
+    base_url: 'http://192.168.178.28:8080',
     peer_host_device_id: 'dev-host-coord-1',
   }),
 }))
@@ -83,7 +83,7 @@ describe('resolveAiExecutionContextForLlm — ledger sandbox vs orchestrator hos
     if (!r.ok) throw new Error('expected ok')
     expect(r.ctx.lane).toBe('ollama_direct')
     expect(r.ctx.model).toBe('gemma3:12b')
-    expect(r.ctx.baseUrl).toBe('http://192.168.178.28:11434')
+    expect(r.ctx.baseUrl).toBe('http://192.168.178.28:8080')
     expect(getEffectiveChatModelNameMock).not.toHaveBeenCalled()
   })
 })

@@ -13,6 +13,7 @@ import { _resetHandshakeRateLimitForTests } from '../hostInferenceRequestRateLim
 import { _resetPendingForTests } from '../pendingRequests'
 import { _resetConcurrencyForTests } from '../hostInferenceConcurrency'
 import { INTERNAL_INFERENCE_SCHEMA_VERSION } from '../types'
+import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../../llm/localLlmPaths'
 
 const { isHostModeMock, isSandboxModeMock, getInstanceIdMock, getHSMock } = vi.hoisted(() => ({
   isHostModeMock: vi.fn(() => true),
@@ -67,7 +68,7 @@ vi.mock('../hostInferenceCapabilities', () => ({
       mapped_models_count: 0,
       probe_http_model_count: 0,
       provider_probe_ok: true,
-      endpoint: 'http://127.0.0.1:11434',
+      endpoint: HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE,
       mapping_fatal: false,
     },
   })),

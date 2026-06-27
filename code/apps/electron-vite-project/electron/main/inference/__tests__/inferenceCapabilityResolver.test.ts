@@ -44,7 +44,7 @@ describe('resolveInferenceCapabilityFromInput — 6 acceptance criteria', () => 
       isSandbox: true,
       remoteContext: {
         modelName: 'gemma3:12b',
-        baseUrl: 'http://192.168.1.5:11434',
+        baseUrl: 'http://192.168.1.5:8080',
         handshakeId: 'hs-1',
         peerDeviceId: 'win-host-1',
       },
@@ -54,7 +54,7 @@ describe('resolveInferenceCapabilityFromInput — 6 acceptance criteria', () => 
     })
     expect(r.backend).toBe('remote-host')
     expect(r.hostHardware).toBe('gpu')
-    expect(r.remoteBaseUrl).toBe('http://192.168.1.5:11434')
+    expect(r.remoteBaseUrl).toBe('http://192.168.1.5:8080')
     expect(r.handshakeId).toBe('hs-1')
     expect(r.userMessage).toContain('Host GPU inference is available')
   })
@@ -63,7 +63,7 @@ describe('resolveInferenceCapabilityFromInput — 6 acceptance criteria', () => 
   it('1b. sandbox + healthy paired host (CPU, small model) => remote-host, hardware:cpu', () => {
     const r = resolveInferenceCapabilityFromInput({
       isSandbox: true,
-      remoteContext: { modelName: 'gemma2:2b', baseUrl: 'http://192.168.1.5:11434' },
+      remoteContext: { modelName: 'gemma2:2b', baseUrl: 'http://192.168.1.5:8080' },
       gpuAvailable: false,  // host GPU probe: no GPU
       ollamaRunning: false,
       modelName: 'gemma2:2b',
@@ -137,14 +137,14 @@ describe('resolveInferenceCapabilityFromInput — 6 acceptance criteria', () => 
     // remote-host + GPU => "Host GPU" (sandbox using host GPU)
     expect(label(resolveInferenceCapabilityFromInput({
       isSandbox: true,
-      remoteContext: { modelName: 'gemma3:12b', baseUrl: 'http://host:11434' },
+      remoteContext: { modelName: 'gemma3:12b', baseUrl: 'http://host:8080' },
       gpuAvailable: true, ollamaRunning: false, modelName: 'gemma3:12b',
     }))).toBe('Host GPU')
 
     // remote-host + CPU => "CPU" (not "Remote")
     expect(label(resolveInferenceCapabilityFromInput({
       isSandbox: true,
-      remoteContext: { modelName: 'gemma2:2b', baseUrl: 'http://host:11434' },
+      remoteContext: { modelName: 'gemma2:2b', baseUrl: 'http://host:8080' },
       gpuAvailable: false, ollamaRunning: false, modelName: 'gemma2:2b',
     }))).toBe('CPU')
 
@@ -227,7 +227,7 @@ describe('resolveInferenceCapabilityFromInput — edge cases', () => {
   it('remote-host + unknown hardware (no GPU, large model) => hostHardware:unknown', () => {
     const r = resolveInferenceCapabilityFromInput({
       isSandbox: true,
-      remoteContext: { modelName: 'gemma3:12b', baseUrl: 'http://host:11434' },
+      remoteContext: { modelName: 'gemma3:12b', baseUrl: 'http://host:8080' },
       gpuAvailable: false,
       ollamaRunning: false,
       modelName: 'gemma3:12b',

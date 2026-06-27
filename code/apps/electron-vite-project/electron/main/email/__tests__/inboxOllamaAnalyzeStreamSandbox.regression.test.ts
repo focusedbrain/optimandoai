@@ -49,7 +49,7 @@ describe('streamInboxOllamaAnalyzeWithSandboxRouting', () => {
       model: 'gemma3:12b',
       handshakeId: 'hs-1',
       peerDeviceId: 'host-1',
-      baseUrl: 'http://192.168.178.28:11434',
+      baseUrl: 'http://192.168.178.28:8080',
       beapReady: false,
       ollamaDirectReady: true,
     }
@@ -65,7 +65,7 @@ describe('streamInboxOllamaAnalyzeWithSandboxRouting', () => {
     }
 
     expect(captured.length).toBeGreaterThanOrEqual(1)
-    expect(captured[0]).toBe('http://192.168.178.28:11434/api/chat')
+    expect(captured[0]).toBe('http://192.168.178.28:8080/api/chat')
     expect(captured.some((u) => u.includes('127.0.0.1'))).toBe(false)
   })
 })

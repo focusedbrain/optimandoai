@@ -9,6 +9,7 @@ import {
   isInferenceRoutingUnavailableError,
 } from '../internalInference/chatWithContextRagOllamaGeneration'
 import { inferenceRoutingUnavailableUserMessage } from '../internalInference/inferenceRoutingIpcPayload'
+import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../llm/localLlmPaths'
 
 export type InboxAiErrorCode =
   | 'no_model_selected'
@@ -164,7 +165,7 @@ export function classifyInboxAiError(
   if (!remoteLane && (lane === 'local' || !lane)) {
     if (
       transportFailureMessage(msg) &&
-      looksLikeLocalUrl(baseUrl ?? 'http://127.0.0.1:11434')
+      looksLikeLocalUrl(baseUrl ?? HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE)
     ) {
       return { code: 'local_ollama_unreachable', debug: debugBase }
     }

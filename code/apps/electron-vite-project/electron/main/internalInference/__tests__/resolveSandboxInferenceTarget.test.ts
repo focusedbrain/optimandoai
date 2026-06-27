@@ -4,6 +4,9 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type { SandboxOllamaDirectRouteCandidate } from '../sandboxHostAiOllamaDirectCandidate'
+import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../../llm/localLlmPaths'
+
+const HOST_LAN_LLM_BASE = 'http://192.168.178.28:8080'
 
 const candidateMap = vi.hoisted(() => ({ value: undefined as SandboxOllamaDirectRouteCandidate | undefined }))
 const getCandidateMock = vi.hoisted(() => vi.fn<(id: string) => SandboxOllamaDirectRouteCandidate | undefined>((id) => candidateMap.value))
@@ -54,7 +57,7 @@ vi.mock('../../handshake/db', () => ({
 const sampleCandidate: SandboxOllamaDirectRouteCandidate = {
   route_kind: 'ollama_direct',
   handshake_id: 'hs-a',
-  base_url: 'http://192.168.178.28:11434',
+  base_url: HOST_LAN_LLM_BASE,
   endpoint_owner_device_id: 'host-dev',
   peer_host_device_id: 'host-dev',
   validated_at_ms: Date.now(),
@@ -91,7 +94,7 @@ describe('resolveSandboxInferenceTarget', () => {
     const r = await resolveSandboxInferenceTarget({})
     expect(r.kind).toBe('local_sandbox')
     if (r.kind === 'local_sandbox') {
-      expect(r.baseUrl).toBe('http://127.0.0.1:11434')
+      expect(r.baseUrl).toBe(HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE)
       expect(r.execution_transport).toBe('local_ollama')
     }
   })
@@ -110,7 +113,7 @@ describe('resolveSandboxInferenceTarget', () => {
     const r = await resolveSandboxInferenceTarget({ handshakeId: 'hs-a' })
     expect(r.kind).toBe('cross_device')
     if (r.kind === 'cross_device') {
-      expect(r.baseUrl).toBe('http://192.168.178.28:11434')
+      expect(r.baseUrl).toBe(HOST_LAN_LLM_BASE)
       expect(r.execution_transport).toBe('ollama_direct')
       expect(r.endpointOwnerDeviceId).toBe('host-dev')
       expect(r.handshakeId).toBe('hs-a')
@@ -141,7 +144,7 @@ describe('resolveSandboxInferenceTarget', () => {
       expect(r.kind).toBe('cross_device')
       if (r.kind === 'cross_device') {
         expect(r.handshakeId).toBe('hs-a')
-        expect(r.baseUrl).toBe('http://192.168.178.28:11434')
+        expect(r.baseUrl).toBe(HOST_LAN_LLM_BASE)
       }
       expect(fetchSpy).not.toHaveBeenCalled()
     } finally {

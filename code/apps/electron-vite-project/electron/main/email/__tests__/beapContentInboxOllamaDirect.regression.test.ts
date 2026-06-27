@@ -123,7 +123,7 @@ function ollamaDirectOnlyAiExecution(): AiExecutionContext {
     model: 'llama3:latest',
     handshakeId: 'hs-internal-odl-1',
     peerDeviceId: 'dev-host-coord-1',
-    baseUrl: 'http://192.168.178.28:11434',
+    baseUrl: 'http://192.168.178.28:8080',
     beapReady: false,
     ollamaDirectReady: true,
   }
@@ -222,7 +222,7 @@ describe('beapContent inbox — remote ollama_direct', () => {
     const routeLine = logs.find((l) => l.includes('[BEAP_CONTENT_AI_ROUTE]'))
     expect(routeLine).toBeDefined()
     expect(String(routeLine)).toMatch(/lane=ollama_direct/)
-    expect(String(routeLine)).toMatch(/192\.168\.178\.28:11434/)
+    expect(String(routeLine)).toMatch(/192\.168\.178\.28:8080/)
 
     const err = Object.assign(new Error('ECONNREFUSED'), {
       inboxFailureCode: InternalInferenceErrorCode.OLLAMA_LAN_NOT_REACHABLE,
