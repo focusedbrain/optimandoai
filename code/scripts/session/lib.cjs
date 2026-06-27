@@ -192,6 +192,19 @@ function startRelay() {
   return { reused: false, pid: child.pid }
 }
 
+/**
+ * Start the LAN coordination relay if needed and block until /health succeeds.
+ * Idempotent: reuses an already-live relay (startRelay → { reused: true }).
+ * Throws on health timeout so deploy fails loudly when the relay does not come up.
+ */
+async function ensureRelayUp(host = '127.0.0.1', port = RELAY_PORT) {
+  const result = startRelay()
+  await waitForHealth(host, port)
+  const action = result.reused ? 'reused' : 'started'
+  console.log(`relay ok (${action}) pid=${result.pid} health=http://${host}:${port}/health`)
+  return result
+}
+
 function stopRelay() {
   const pid = readPid()
   if (!pid) return { stopped: false, reason: 'not_running' }
@@ -233,6 +246,7 @@ module.exports = {
   relayUrls,
   configureCoordinationOnMachine,
   startRelay,
+  ensureRelayUp,
   stopRelay,
   waitForHealth,
   windowsHostLine,
