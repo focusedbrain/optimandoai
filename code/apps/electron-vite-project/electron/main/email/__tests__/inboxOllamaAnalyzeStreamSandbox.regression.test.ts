@@ -1,8 +1,7 @@
 /**
- * Regression: inbox analyze NDJSON stream uses LAN execCtx.baseUrl on effective sandbox (never implicit localhost fallback).
+ * Regression: inbox analyze SSE stream posts to loopback /v1/chat/completions on host-only execution.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AiExecutionContext } from '../../llm/aiExecutionTypes'
 
 vi.mock('electron', () => ({
   app: {
@@ -11,30 +10,80 @@ vi.mock('electron', () => ({
   },
 }))
 
-const effSandboxMock = vi.fn(async () => true)
+const effSandboxMock = vi.fn(async () => false)
 
 vi.mock('../../llm/resolveAiExecutionContext', () => ({
   isEffectiveSandboxSideForAiExecution: () => effSandboxMock(),
 }))
 
+vi.mock('../../inference/inferenceGate', () => ({
+  assertGpuInferenceAvailable: vi.fn(async () => undefined),
+  assertGpuInferenceAvailableForRemoteOllama: vi.fn(async () => undefined),
+  isLikelyLoopbackOrigin: vi.fn(() => true),
+}))
+
+vi.mock('../../llm/aiExecutionContextStore', () => ({
+  readStoredAiExecutionContext: vi.fn(() => null),
+}))
+
+vi.mock('../../internalInference/chatWithContextRagOllamaGeneration', () => ({
+  InferenceRoutingUnavailableError: class InferenceRoutingUnavailableError extends Error {
+    constructor(code?: string, detail?: string) {
+      super(detail ?? code ?? 'routing_unavailable')
+      this.name = 'InferenceRoutingUnavailableError'
+    }
+  },
+  logSandboxInferenceSend: vi.fn(),
+}))
+
+vi.mock('../../internalInference/resolveSandboxInferenceTarget', () => ({
+  resolveSandboxInferenceTarget: vi.fn(),
+}))
+
+vi.mock('../inboxLlmChat', () => ({
+  INBOX_LLM_TIMEOUT_MS: 45_000,
+}))
+
+vi.mock('../../llm/localLlmPaths', () => ({
+  HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE: 'http://127.0.0.1:8080',
+}))
+
 describe('streamInboxOllamaAnalyzeWithSandboxRouting', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    effSandboxMock.mockResolvedValue(true)
+    effSandboxMock.mockResolvedValue(false)
   })
 
-  it('posts to execCtx.baseUrl/api/chat when lane=ollama_direct and ollamaDirectReady', async () => {
-    const captured: string[] = []
+  it('posts OpenAI SSE to loopback /v1/chat/completions on host-only path', async () => {
+    const capturedUrls: string[] = []
+    let capturedBody: Record<string, unknown> | null = null
+    const ssePayload =
+      'data: {"choices":[{"delta":{"content":"{\\"needsReply\\":"}}]}\n\n' +
+      'data: {"choices":[{"delta":{"content":"false}"}}]}\n\n' +
+      'data: [DONE]\n\n'
+    const encoder = new TextEncoder()
+    const sseBytes = encoder.encode(ssePayload)
+    let readOffset = 0
+
     const prevFetch = globalThis.fetch
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      captured.push(typeof input === 'string' ? input : input instanceof URL ? input.href : String(input))
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      capturedUrls.push(typeof input === 'string' ? input : input instanceof URL ? input.href : String(input))
+      if (init?.body && typeof init.body === 'string') {
+        capturedBody = JSON.parse(init.body) as Record<string, unknown>
+      }
       return {
         ok: true,
+        status: 200,
         body: {
           getReader() {
             return {
               async read() {
-                return { done: true as const, value: undefined }
+                if (readOffset >= sseBytes.length) {
+                  return { done: true as const, value: undefined }
+                }
+                const value = sseBytes.subarray(readOffset)
+                readOffset = sseBytes.length
+                return { done: false as const, value }
               },
             }
           },
@@ -44,28 +93,28 @@ describe('streamInboxOllamaAnalyzeWithSandboxRouting', () => {
 
     const { streamInboxOllamaAnalyzeWithSandboxRouting } = await import('../inboxOllamaChatStreamSandbox')
 
-    const execCtx: AiExecutionContext = {
-      lane: 'ollama_direct',
-      model: 'gemma3:12b',
-      handshakeId: 'hs-1',
-      peerDeviceId: 'host-1',
-      baseUrl: 'http://192.168.178.28:8080',
-      beapReady: false,
-      ollamaDirectReady: true,
-    }
-
+    const chunks: string[] = []
     try {
-      for await (const _ of streamInboxOllamaAnalyzeWithSandboxRouting('sys', 'user', 'gemma3:12b', execCtx, {
+      for await (const chunk of streamInboxOllamaAnalyzeWithSandboxRouting('sys', 'user', 'gemma3:12b', null, {
         kind: 'analysis',
       })) {
-        /* drain */
+        chunks.push(chunk)
       }
     } finally {
       globalThis.fetch = prevFetch
     }
 
-    expect(captured.length).toBeGreaterThanOrEqual(1)
-    expect(captured[0]).toBe('http://192.168.178.28:8080/api/chat')
-    expect(captured.some((u) => u.includes('127.0.0.1'))).toBe(false)
+    expect(capturedUrls.length).toBeGreaterThanOrEqual(1)
+    expect(capturedUrls[0]).toBe('http://127.0.0.1:8080/v1/chat/completions')
+    expect(capturedBody).toMatchObject({
+      model: 'gemma3:12b',
+      stream: true,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: 'sys' },
+        { role: 'user', content: 'user' },
+      ],
+    })
+    expect(chunks.join('')).toBe('{"needsReply":false}')
   })
 })

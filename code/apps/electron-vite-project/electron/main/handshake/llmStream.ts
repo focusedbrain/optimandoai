@@ -10,6 +10,7 @@ import {
   ollamaRuntimeLog,
 } from '../llm/localLlmRuntimeDiagnostics'
 import { assertGpuInferenceAvailableForChatBase } from '../inference/inferenceGate'
+import { parseOpenAiChatCompletionsSseLine } from '../llm/openAiSseChatStream'
 
 export type StreamSender = (channel: string, payload: unknown) => void
 export type OnToken = (token: string) => void
@@ -65,19 +66,10 @@ export async function streamLocalLlmChat(
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
       for (const line of lines) {
-        const trimmed = line.trim()
-        if (!trimmed || !trimmed.startsWith('data:')) continue
-        const payload = trimmed.slice(5).trim()
-        if (payload === '[DONE]') continue
-        try {
-          const obj = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string } }> }
-          const delta = obj.choices?.[0]?.delta?.content ?? ''
-          if (delta) {
-            full += delta
-            send('handshake:chatStreamToken', { token: delta })
-          }
-        } catch {
-          /* skip malformed SSE chunk */
+        const parsed = parseOpenAiChatCompletionsSseLine(line)
+        if (parsed?.kind === 'delta') {
+          full += parsed.content
+          send('handshake:chatStreamToken', { token: parsed.content })
         }
       }
     }

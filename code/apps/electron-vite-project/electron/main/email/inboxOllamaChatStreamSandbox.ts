@@ -1,5 +1,5 @@
 /**
- * Inbox NDJSON `/api/chat` streaming with Sandbox resolver routing (cross-device LAN `ollama_direct`).
+ * Inbox OpenAI SSE `/v1/chat/completions` streaming with Sandbox resolver routing.
  * Uses ledger-aware sandbox detection (same as {@link resolveAiExecutionContextForLlm}) — persisted
  * orchestrator `host` must not force `127.0.0.1` when the coordination ledger proves sandbox↔host.
  */
@@ -19,6 +19,7 @@ import {
   assertGpuInferenceAvailableForRemoteOllama,
   isLikelyLoopbackOrigin,
 } from '../inference/inferenceGate'
+import { parseOpenAiChatCompletionsSseLine } from '../llm/openAiSseChatStream'
 
 import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../llm/localLlmPaths'
 
@@ -91,7 +92,7 @@ function logStreamEvent(name: string, payload: Record<string, unknown>): void {
   console.log(`[${name}] ${JSON.stringify(payload)}`)
 }
 
-async function* streamOllamaChatNdjsonFromBaseUrl(
+async function* streamLocalLlmChatSseFromBaseUrl(
   baseUrl: string,
   systemPrompt: string,
   userPrompt: string,
@@ -106,7 +107,7 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
   },
 ): AsyncGenerator<string, void, undefined> {
   const normalizedBase = baseUrl.trim().replace(/\/$/, '')
-  const url = `${normalizedBase}/api/chat`
+  const url = `${normalizedBase}/v1/chat/completions`
   const innerAc = new AbortController()
   const timeoutId = setTimeout(() => innerAc.abort(), opts.diag.timeoutMs)
   const fetchSignal = mergeAbortSignals(opts.abortSignal, innerAc.signal)
@@ -132,31 +133,28 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
         opts.gpuChatGate.modelBare,
       )
     }
-    const requestOptions = opts.responseFormat === 'json'
-      ? { temperature: 0, top_p: 0.9, num_predict: 1024 }
-      : undefined
     const body: Record<string, unknown> = {
       model: modelId,
       stream: true,
-      keep_alive: '2m',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
     }
     if (opts.responseFormat === 'json') {
-      body.format = 'json'
-      body.options = requestOptions
+      body.response_format = { type: 'json_object' }
+      body.temperature = 0
+      body.max_tokens = 1024
     }
     logStreamEvent('ANALYSIS_REQUEST_OPTIONS', {
       requestId: opts.diag.requestId ?? null,
       model: modelId,
       format: opts.responseFormat ?? null,
       stream: true,
-      temperature: requestOptions?.temperature ?? null,
-      num_predict: requestOptions?.num_predict ?? null,
-      top_p: requestOptions?.top_p ?? null,
-      max_tokens: null,
+      temperature: opts.responseFormat === 'json' ? 0 : null,
+      num_predict: null,
+      top_p: null,
+      max_tokens: opts.responseFormat === 'json' ? 1024 : null,
       messageCount: 2,
       systemPromptLen: systemPrompt.length,
       userPromptLen: userPrompt.length,
@@ -222,40 +220,8 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
             linePrefix: line.slice(0, 120),
           })
         }
-        try {
-          const parsed = JSON.parse(line) as { message?: { content?: string }; done?: boolean }
-          if (parsed.done === true) {
-            sawDone = true
-            logStreamEvent('INBOX_OLLAMA_STREAM_DONE', {
-              requestId: opts.diag.requestId ?? null,
-              lineCount,
-              chunkCount,
-              cumulativeChars,
-            })
-          }
-          if (parsed.message?.content) {
-            const chunk = parsed.message.content
-            chunkCount += 1
-            cumulativeChars += chunk.length
-            finalText += chunk
-            logStreamEvent('INBOX_OLLAMA_STREAM_CHUNK', {
-              requestId: opts.diag.requestId ?? null,
-              chunkCount,
-              chunkChars: chunk.length,
-              cumulativeChars,
-            })
-            yield chunk
-          }
-        } catch {
-          /* partial line */
-        }
-      }
-    }
-    if (buffer.trim()) {
-      lineCount += 1
-      try {
-        const parsed = JSON.parse(buffer) as { message?: { content?: string }; done?: boolean }
-        if (parsed.done === true) {
+        const parsed = parseOpenAiChatCompletionsSseLine(line)
+        if (parsed?.kind === 'done') {
           sawDone = true
           logStreamEvent('INBOX_OLLAMA_STREAM_DONE', {
             requestId: opts.diag.requestId ?? null,
@@ -264,8 +230,8 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
             cumulativeChars,
           })
         }
-        if (parsed.message?.content) {
-          const chunk = parsed.message.content
+        if (parsed?.kind === 'delta') {
+          const chunk = parsed.content
           chunkCount += 1
           cumulativeChars += chunk.length
           finalText += chunk
@@ -277,8 +243,32 @@ async function* streamOllamaChatNdjsonFromBaseUrl(
           })
           yield chunk
         }
-      } catch {
-        /* partial */
+      }
+    }
+    if (buffer.trim()) {
+      lineCount += 1
+      const parsed = parseOpenAiChatCompletionsSseLine(buffer)
+      if (parsed?.kind === 'done') {
+        sawDone = true
+        logStreamEvent('INBOX_OLLAMA_STREAM_DONE', {
+          requestId: opts.diag.requestId ?? null,
+          lineCount,
+          chunkCount,
+          cumulativeChars,
+        })
+      }
+      if (parsed?.kind === 'delta') {
+        const chunk = parsed.content
+        chunkCount += 1
+        cumulativeChars += chunk.length
+        finalText += chunk
+        logStreamEvent('INBOX_OLLAMA_STREAM_CHUNK', {
+          requestId: opts.diag.requestId ?? null,
+          chunkCount,
+          chunkChars: chunk.length,
+          cumulativeChars,
+        })
+        yield chunk
       }
     }
     logStreamEvent('INBOX_OLLAMA_STREAM_FINAL_LENGTH', {
@@ -362,7 +352,7 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
     requestId: streamOpts?.requestId,
     lane,
     baseUrl,
-    url: `${baseUrl.replace(/\/$/, '')}/api/chat`,
+    url: `${baseUrl.replace(/\/$/, '')}/v1/chat/completions`,
     model: bareModel,
     handshakeId: execCtx?.handshakeId?.trim() || undefined,
     timeoutMs: INBOX_LLM_TIMEOUT_MS,
@@ -371,7 +361,7 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
 
   /** Exclusive host machine (no ledger sandbox peer): historical local-only stream */
   if (!effectiveSandbox) {
-    yield* streamOllamaChatNdjsonFromBaseUrl(LOCAL_LLM_BASE, systemPrompt, userPrompt, bareModel, {
+    yield* streamLocalLlmChatSseFromBaseUrl(LOCAL_LLM_BASE, systemPrompt, userPrompt, bareModel, {
       diag: baseDiag('local', LOCAL_LLM_BASE),
       gpuChatGate: { kind: 'local' },
       abortSignal: streamOpts?.abortSignal,
@@ -478,7 +468,7 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
   const gpuChatGate: InboxOllamaGpuChatGate = isLikelyLoopbackOrigin(tb)
     ? { kind: 'local' }
     : { kind: 'remote', origin: tb, modelBare: bareModel }
-  yield* streamOllamaChatNdjsonFromBaseUrl(tb, systemPrompt, userPrompt, bareModel, {
+  yield* streamLocalLlmChatSseFromBaseUrl(tb, systemPrompt, userPrompt, bareModel, {
     diag: baseDiag('local_sandbox', tb),
     gpuChatGate,
     abortSignal: streamOpts?.abortSignal,
