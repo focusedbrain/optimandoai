@@ -31,6 +31,10 @@ import {
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { computeSamePrincipalCoordinationSkipOwn } from './coordinationSamePrincipalInbound'
 import { requestCoordinationFlushQueued } from './coordinationFlushQueued'
+import {
+  normalizeCoordinationUrlForLocalDial,
+  normalizeCoordinationWsUrlForLocalDial,
+} from './coordinationUrlLocalDial'
 import { getCanonicalRelayDeviceId, logDeviceIdBinding } from './relayDeviceBinding'
 import { relayIdentitySnapshot } from './relayIdentity'
 import { tryHandleCoordinationP2pSignal } from '../internalInference/relayP2pSignalHandler'
@@ -705,7 +709,7 @@ export function createCoordinationWsClient(
       console.log('[Coordination] Skipping connect: use_coordination=', config.use_coordination, 'coordination_enabled=', config.coordination_enabled)
       return
     }
-    const wsUrl = config.coordination_ws_url?.trim()
+    const wsUrl = normalizeCoordinationWsUrlForLocalDial(config.coordination_ws_url?.trim() ?? '')
     if (!wsUrl) {
       console.log('[Coordination] Skipping connect: no coordination_ws_url')
       return
@@ -847,7 +851,7 @@ export function createCoordinationWsClient(
         console.log('[RELAY-WS] Connected to:', wsUrl)
         console.log('[RELAY-WS] Connection state:', ws?.readyState)
         resolve()
-        const cu = config.coordination_url?.trim()
+        const cu = normalizeCoordinationUrlForLocalDial(config.coordination_url?.trim() ?? '')
         if (cu && token?.trim()) {
           void requestCoordinationFlushQueued(cu, token, 'ws_connect')
           void import('../handshake/handshakeHealthRemoteCheck').then((m) =>

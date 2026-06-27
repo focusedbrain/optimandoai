@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto'
 import { getAccessToken } from '../../../src/auth/session'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeRecord } from '../handshake/db'
+import { normalizeCoordinationUrlForLocalDial } from '../p2p/coordinationUrlLocalDial'
 import { getP2PConfig } from '../p2p/p2pConfig'
 import { InternalInferenceErrorCode, type InternalInferenceErrorCodeType } from './errors'
 import { getP2pInferenceFlags } from './p2pInferenceFlags'
@@ -166,7 +167,8 @@ async function withRelayOutboundQueue(handshakeId: string, fn: () => Promise<voi
 
 function coordinationBaseUrl(db: any): string | null {
   const u = getP2PConfig(db).coordination_url?.trim()
-  return u || null
+  if (!u) return null
+  return normalizeCoordinationUrlForLocalDial(u) || null
 }
 
 function parseCoordinationP2pSignalPostError(bodyText: string): string | undefined {

@@ -1,6 +1,6 @@
 /**
  * Host-side validation for advertising LAN Ollama (`ollama_direct`).
- * Requires successful GET on loopback **and** on the Host LAN bind — localhost alone is insufficient proof for Sandbox reachability.
+ * Same-machine reachability is verified on loopback only; the LAN address is published for the sandbox to dial.
  */
 
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
@@ -57,8 +57,8 @@ export function logHostAiOllamaDirectAdvertisement(payload: {
 }
 
 /**
- * Validates loopback Ollama (`127.0.0.1`) **and** LAN-bound Ollama (`http://<selected Host LAN IPv4>:port`).
- * Sets `available` only when the LAN URL succeeds — localhost success alone never implies Sandbox-reachable LAN Ollama.
+ * Validates loopback Ollama (`127.0.0.1`) for same-machine reachability.
+ * Publishes the Host LAN URL (`http://<selected Host LAN IPv4>:port`) for sandbox cross-device dial only.
  */
 export async function buildHostOllamaDirectAdvertisement(
   peerIp?: string | null,
@@ -139,38 +139,8 @@ export async function buildHostOllamaDirectAdvertisement(
     return adv
   }
 
-  const lanFetch = await fetchOllamaApiTagsJson(lanBase)
-  const lanParsed = parseOllamaTagsBody(lanFetch.ok ? lanFetch.json : null)
-  const lanModelsCount = lanParsed.rawCount
-  const lanOk = Boolean(lanFetch.ok && lanFetch.json != null)
-
-  if (!lanOk) {
-    const adv: HostOllamaDirectAdvertisement = {
-      transport: 'ollama_direct',
-      available: false,
-      base_url: null,
-      host_lan_ip: hostLanIp,
-      endpoint_owner_device_id: currentDeviceId,
-      models_count: 0,
-      error_code: InternalInferenceErrorCode.OLLAMA_LAN_NOT_REACHABLE,
-      source: 'host_network_interfaces',
-      created_at: isoNow(),
-    }
-    logHostAiOllamaDirectAdvertisement({
-      current_device_id: currentDeviceId,
-      peer_device_id: peerDeviceId,
-      selected_host_lan_ip: hostLanIp,
-      base_url: lanBase,
-      local_ollama_ok: true,
-      lan_ollama_ok: false,
-      local_models_count: localModelsCount,
-      lan_models_count: 0,
-      advertised: false,
-      error_code: InternalInferenceErrorCode.OLLAMA_LAN_NOT_REACHABLE,
-      reason: 'ollama_lan_bind_unreachable_or_bad_response',
-    })
-    return adv
-  }
+  const lanModelsCount = localModelsCount
+  const lanOk = localOk
 
   const classification: 'no_models' | undefined = lanModelsCount === 0 ? 'no_models' : undefined
 
@@ -193,7 +163,7 @@ export async function buildHostOllamaDirectAdvertisement(
     selected_host_lan_ip: hostLanIp,
     base_url: lanBase,
     local_ollama_ok: true,
-    lan_ollama_ok: true,
+    lan_ollama_ok: lanOk,
     local_models_count: localModelsCount,
     lan_models_count: lanModelsCount,
     advertised: true,

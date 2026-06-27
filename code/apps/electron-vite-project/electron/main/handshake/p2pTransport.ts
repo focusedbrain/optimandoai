@@ -13,6 +13,7 @@ import { isCoordinationRelayNativeBeap } from '../../../../../packages/ingestion
 import { SEALED_SERVICE_RPC_CAPSULE_TYPE } from '../../../../../packages/ingestion-core/src/sealedServiceRpcConstants.ts'
 import { BEAP_CORRELATION_HEADER_OUT } from '../p2p/beapIngressLog'
 import { getCanonicalRelayDeviceId, logDeviceIdBinding } from '../p2p/relayDeviceBinding'
+import { normalizeCoordinationUrlForLocalDial } from '../p2p/coordinationUrlLocalDial'
 import { decodeJwtSubForLogs } from '../p2p/relayIdentity'
 import { getHandshakeRecord } from './db'
 import {
@@ -574,7 +575,7 @@ export async function sendCapsuleViaCoordination(
   queueHandshakeId: string,
   db?: any,
 ): Promise<SendCapsuleResult> {
-  const base = coordinationUrl.replace(/\/$/, '')
+  const base = normalizeCoordinationUrlForLocalDial(coordinationUrl).replace(/\/$/, '')
   const targetEndpoint = `${base}/beap/capsule`
   const payload = buildCoordinationCapsulePostBody(capsule, queueHandshakeId) as Record<string, unknown>
   // Same-account (internal) relay routing uses initiator_device_id / acceptor_device_id; the service
