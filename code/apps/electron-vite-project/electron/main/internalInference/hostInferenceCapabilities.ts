@@ -1,6 +1,6 @@
 /**
  * Host: build `internal_inference_capabilities_result` (metadata only — no prompts, no user files).
- * Model list is **native Ollama**: `GET http://127.0.0.1:<port>/api/tags` on the Host machine only (see {@link hostAiModelsFromOllamaTagsModels}).
+ * Model list is **llama.cpp OpenAI API**: `GET http://127.0.0.1:<port>/v1/models` on the Host machine only (see {@link hostAiModelsFromOllamaTagsModels}).
  * Active chat selection remains from `localLlmManager.getEffectiveChatModelName()` (Host-local store).
  */
 
@@ -204,7 +204,7 @@ export async function buildInternalInferenceCapabilitiesResult(
       role: 'host',
       endpoint_owner_device_id: localHostId || null,
       ollama_base_url: loopbackBase,
-      source: 'host_local_api_tags',
+      source: 'host_local_v1_models',
       ok: meta.provider_probe_ok,
       models_count: parsed.rawCount,
       error: tagsFetch.error,
@@ -213,11 +213,11 @@ export async function buildInternalInferenceCapabilitiesResult(
     const hashedNames = parsed.rawModels.map((m) => hashModelNameForLog(String(m.model ?? m.name ?? '')))
     console.log(
       `[HOST_AI_CAPS_PROVIDER_RAW] ${JSON.stringify({
-        provider: 'ollama',
+        provider: 'llamacpp',
         endpoint: meta.endpoint,
         provider_ok: meta.provider_probe_ok,
         raw_models_count: meta.raw_models_count,
-        discovery: 'native_api_tags',
+        discovery: 'native_v1_models',
         raw_model_names_redacted_or_hashed: hashedNames,
       })}`,
     )
@@ -232,7 +232,7 @@ export async function buildInternalInferenceCapabilitiesResult(
       const eff = ((await localLlmManager.getEffectiveChatModelName()) ?? '').trim()
       if (eff && (allow.length === 0 || allow.includes(eff))) {
         mappedWireModels = [
-          { provider: 'ollama', model: eff, label: eff, enabled: true, source: 'host_ollama' },
+          { provider: 'llamacpp', model: eff, label: eff, enabled: true, source: 'host_ollama' },
         ]
         syntheticActiveFallback = true
         console.log(
@@ -264,13 +264,13 @@ export async function buildInternalInferenceCapabilitiesResult(
       meta.mapping_fatal = true
       base.inference_error_code = InternalInferenceErrorCode.MODEL_MAPPING_DROPPED_ALL
       base.models = []
-      base.active_local_llm = { provider: 'ollama', model: '', label: '', enabled: false }
+      base.active_local_llm = { provider: 'llamacpp', model: '', label: '', enabled: false }
       logHostAiCapsModelSource({
         handshake_id: record.handshake_id,
         current_device_id: getInstanceId().trim(),
         local_derived_role: localDerivedRole,
         provider_ok: meta.provider_probe_ok,
-        provider_source: 'native_api_tags',
+        provider_source: 'native_v1_models',
         provider_models_count: meta.probe_http_model_count,
         provider_model_names: parsed.rawModels.map((m) => String(m.model ?? m.name ?? '').trim()).filter(Boolean).slice(0, 32),
         active_local_llm: base.active_local_llm,
@@ -289,7 +289,7 @@ export async function buildInternalInferenceCapabilitiesResult(
     const name = (eff ?? '').trim()
     const inAllow = name.length > 0 && (allow.length === 0 || allow.includes(name))
     base.active_local_llm = {
-      provider: 'ollama',
+      provider: 'llamacpp',
       model: name,
       label: name,
       enabled: Boolean(inAllow),
@@ -328,7 +328,7 @@ export async function buildInternalInferenceCapabilitiesResult(
       current_device_id: getInstanceId().trim(),
       local_derived_role: localDerivedRole,
       provider_ok: meta.provider_probe_ok,
-      provider_source: 'native_api_tags',
+      provider_source: 'native_v1_models',
       provider_models_count: meta.probe_http_model_count,
       provider_model_names: parsed.rawModels.map((m) => String(m.model ?? m.name ?? '').trim()).filter(Boolean).slice(0, 32),
       active_local_llm: base.active_local_llm,
@@ -343,7 +343,7 @@ export async function buildInternalInferenceCapabilitiesResult(
   } catch {
     meta.provider_probe_ok = false
     base.inference_error_code = InternalInferenceErrorCode.PROBE_OLLAMA_UNAVAILABLE
-    base.active_local_llm = { provider: 'ollama', model: '', label: '', enabled: false }
+    base.active_local_llm = { provider: 'llamacpp', model: '', label: '', enabled: false }
     base.models = []
     logHostAiCapsModelSource({
       handshake_id: record.handshake_id,

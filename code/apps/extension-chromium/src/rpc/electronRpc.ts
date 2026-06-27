@@ -126,13 +126,6 @@ const LlmStart = {
   route: '/api/llm/start',
 }
 
-const LlmInstallModel = {
-  method: 'llm.installModel' as const,
-  schema: z.object({ modelId: z.string().min(1).max(200) }),
-  http: 'POST' as const,
-  route: '/api/llm/models/install',
-}
-
 const LlmImportModelFromPicker = {
   method: 'llm.importModelFromPicker' as const,
   schema: z.void(),
@@ -373,7 +366,6 @@ const RPC_REGISTRY = [
   LlmStatus,
   LlmCatalog,
   LlmStart,
-  LlmInstallModel,
   LlmImportModelFromPicker,
   LlmDownloadModelFromUrl,
   LlmCancelModelDownload,

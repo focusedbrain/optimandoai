@@ -224,7 +224,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
   const { isGpuInferenceAvailable } = await import('../inference/inferenceGate')
   const hostGpuAvailable = await isGpuInferenceAvailable()
   const ollamaCaps: HostAiBeapAdSignalOllamaCapabilities = {
-    provider: 'ollama',
+    provider: 'llamacpp',
     models_count: ollama.models_count,
     available: ollama.models_count > 0,
     models: ollama.models,

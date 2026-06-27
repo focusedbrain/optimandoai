@@ -70,17 +70,17 @@ export interface InternalInferenceCapabilitiesRequestWire extends InternalServic
 }
 
 export interface InternalInferenceCapabilitiesModelEntry {
-  provider: 'ollama'
+  provider: 'llamacpp' | 'ollama'
   model: string
   label: string
   enabled: boolean
-  /** Populated when rows come from Host `/api/tags` (not reconstructed sandbox-side state). */
+  /** Populated when rows come from Host `/v1/models` (not reconstructed sandbox-side state). */
   source?: 'host_ollama'
 }
 
-/** Current Host local Ollama selection (drives Sandbox “Host” label; not hardcoded in Sandbox). */
+/** Current Host local LLM selection (drives Sandbox “Host” label; not hardcoded in Sandbox). */
 export interface ActiveLocalLlmWire {
-  provider: 'ollama'
+  provider: 'llamacpp' | 'ollama'
   model: string
   label: string
   enabled: boolean

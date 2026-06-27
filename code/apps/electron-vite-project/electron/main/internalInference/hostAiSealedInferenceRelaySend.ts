@@ -112,12 +112,23 @@ export async function sendSealedHostAiInferenceRequest(params: {
     return { ok: false, code: sealed.code, message: sealed.message }
   }
 
+  console.log(
+    `[PHASE3_SEALED_BOUNDARY] sandbox_seal_ok handshake=${hid} host_device=${hostDeviceId} request_id=${requestId}`,
+  )
+
   const promise = registerInternalInferenceRequest(requestId, params.timeoutMs)
 
   const sent = await sendSealedServiceRpcViaCoordinationRelay(db, ar.record, sealed.envelope, {})
   if (!sent.ok) {
+    console.log(
+      `[PHASE3_SEALED_BOUNDARY] sandbox_relay_post_failed handshake=${hid} request_id=${requestId} code=${sent.code}`,
+    )
     return { ok: false, code: sent.code, message: sent.message }
   }
+
+  console.log(
+    `[PHASE3_SEALED_BOUNDARY] sandbox_relay_post_ok handshake=${hid} request_id=${requestId} (sealed path — no WebRTC session ensure)`,
+  )
 
   console.log(`${L} sent request_id=${requestId} handshake=${hid} model=${params.model?.trim() || 'default'}`)
   return { ok: true, request_id: requestId, promise }

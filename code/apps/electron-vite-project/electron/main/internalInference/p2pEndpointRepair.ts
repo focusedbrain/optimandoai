@@ -773,7 +773,10 @@ function parseHostAiOllamaRosterFromRelayHostAiRoute(raw: Record<string, unknown
       const id = typeof mo.id === 'string' && mo.id.trim() ? mo.id.trim() : name
       const available = mo.available !== false
       const active = mo.active === true || (activeIdRaw != null && (id === activeIdRaw || name === activeIdRaw))
-      modelsOut.push({ id, name, provider: 'ollama', available, active })
+      const providerRaw = typeof mo.provider === 'string' ? mo.provider.trim().toLowerCase() : ''
+      const provider: 'llamacpp' | 'ollama' =
+        providerRaw === 'llamacpp' || providerRaw === 'ollama' ? providerRaw : 'llamacpp'
+      modelsOut.push({ id, name, provider, available, active })
     }
   }
 

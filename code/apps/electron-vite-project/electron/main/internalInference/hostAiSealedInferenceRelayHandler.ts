@@ -125,6 +125,9 @@ export async function tryHandleHostAiSealedInferenceRequestRelayCapsule(
   }
 
   console.log(`${L} request_received request_id=${req.request_id} handshake=${req.handshake_id}`)
+  console.log(
+    `[PHASE3_SEALED_BOUNDARY] host_relay_request_received request_id=${req.request_id} handshake=${req.handshake_id} (sealed relay — not HOST_AI_SESSION_ENSURE)`,
+  )
 
   const inferResult = await runHostInternalInference({
     handshakeId: req.handshake_id,
@@ -194,6 +197,9 @@ export async function tryHandleHostAiSealedInferenceRequestRelayCapsule(
 
   await sealAndSendInferenceOutcome(ctx.db, ar.record, localDeviceId, envelope.sender_device_id, outcome, ctx)
   console.log(`${L} response_sent request_id=${req.request_id} type=${outcome.type} handshake=${req.handshake_id}`)
+  console.log(
+    `[PHASE3_SEALED_BOUNDARY] host_inference_complete request_id=${req.request_id} outcome=${outcome.type} duration_ms=${outcome.duration_ms ?? 'n/a'}`,
+  )
   return true
 }
 

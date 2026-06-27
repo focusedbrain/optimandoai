@@ -7,7 +7,7 @@
 export type HostAiBeapAdOllamaModelWireEntry = {
   id: string
   name: string
-  provider: 'ollama'
+  provider: 'llamacpp' | 'ollama'
   available: boolean
   /** Exactly one Host execution model at a time (VRAM); see `max_concurrent_local_models`. */
   active: boolean
@@ -38,7 +38,7 @@ export async function hostAiBeapAdLocalOllamaModelRoster(): Promise<HostAiBeapAd
       const nameSet = new Set((await localLlmManager.listModels()).map((x) => x.name))
       if (active && nameSet.has(active) && (allow.length === 0 || allow.includes(active))) {
         resolved = { model: active }
-        modelSource = 'ollama_status_activeModel'
+        modelSource = 'llamacpp_status_activeModel'
       }
     }
     const installed = await localLlmManager.listModels()
@@ -51,7 +51,7 @@ export async function hostAiBeapAdLocalOllamaModelRoster(): Promise<HostAiBeapAd
       return {
         id: name,
         name,
-        provider: 'ollama' as const,
+        provider: 'llamacpp' as const,
         available: allowed,
         active: Boolean(activeId && name === activeId),
       }

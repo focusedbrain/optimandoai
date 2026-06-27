@@ -710,7 +710,7 @@ const HOST_AI_BEAP_AD_TTL_MS = 300_000
 
 /** Nested in `host_ai_route.capabilities` on relay BEAP ads — Sandbox merges into selector (no transport change). */
 export type HostAiBeapAdSignalOllamaCapabilities = {
-  provider: 'ollama'
+  provider: 'llamacpp' | 'ollama'
   models_count: number
   available: boolean
   models: HostAiBeapAdOllamaModelWireEntry[]

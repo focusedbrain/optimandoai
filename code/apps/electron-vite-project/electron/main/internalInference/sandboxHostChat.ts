@@ -114,6 +114,10 @@ export async function runSandboxHostInferenceChat(params: {
     })}`,
   )
 
+  console.log(
+    `[PHASE3_SEALED_BOUNDARY] sandbox_eligible handshake=${hid} peer_host=${peerHostId} model=${mlog || 'default'} transport=sealed_relay`,
+  )
+
   const { sendSealedHostAiInferenceRequest } = await import('./hostAiSealedInferenceRelaySend')
   const sendResult = await sendSealedHostAiInferenceRequest({
     handshakeId: hid,
@@ -124,6 +128,9 @@ export async function runSandboxHostInferenceChat(params: {
   })
 
   if (!sendResult.ok) {
+    console.log(
+      `[PHASE3_SEALED_BOUNDARY] sandbox_send_failed handshake=${hid} code=${sendResult.code}`,
+    )
     console.log(
       `[AI_REQUEST_ERROR] ${JSON.stringify({
         origin: 'sandbox_host_chat',
@@ -148,6 +155,9 @@ export async function runSandboxHostInferenceChat(params: {
       )
       return { ok: false, code: pr.code, message: pr.message }
     }
+    console.log(
+      `[PHASE3_SEALED_BOUNDARY] sandbox_response_received handshake=${hid} request_id=${sendResult.request_id} output_len=${String(pr.output ?? '').length}`,
+    )
     console.log(
       `[AI_RENDERER_RESPONSE_RECEIVED] ${JSON.stringify({
         origin: 'sandbox_host_chat',

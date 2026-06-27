@@ -174,7 +174,6 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         getStatus: () => (window as any).electron.ipcRenderer.invoke('llm:getStatus'),
         getCatalog: () => (window as any).electron.ipcRenderer.invoke('llm:getModelCatalog'),
         startOllama: () => (window as any).electron.ipcRenderer.invoke('llm:startOllama'),
-        installModel: (modelId: string) => (window as any).electron.ipcRenderer.invoke('llm:installModel', modelId),
         importModelFromPicker: () => (window as any).electron.ipcRenderer.invoke('llm:importModelFromPicker'),
         downloadModelFromUrl: (url: string) =>
           (window as any).electron.ipcRenderer.invoke('llm:downloadModelFromUrl', url),
@@ -205,7 +204,6 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         getStatus: () => rpc('llm.status'),
         getCatalog: () => rpc('llm.catalog'),
         startOllama: () => rpc('llm.start'),
-        installModel: (modelId: string) => rpc('llm.installModel', { modelId }),
         importModelFromPicker: () => rpc('llm.importModelFromPicker'),
         downloadModelFromUrl: (url: string) => rpc('llm.downloadModelFromUrl', { url }),
         cancelModelDownload: () => rpc('llm.cancelModelDownload'),

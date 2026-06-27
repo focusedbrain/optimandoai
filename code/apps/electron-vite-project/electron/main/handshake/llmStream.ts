@@ -360,7 +360,7 @@ export interface StreamLLMParams {
   systemPrompt: string
   userPrompt: string
   apiKey?: string
-  /** Ollama `/api/chat` base URL (no trailing slash). Defaults to http://127.0.0.1:11434 */
+  /** llama.cpp OpenAI API base URL (no trailing slash). Defaults to http://127.0.0.1:8080 */
   ollamaBaseUrl?: string
 }
 
