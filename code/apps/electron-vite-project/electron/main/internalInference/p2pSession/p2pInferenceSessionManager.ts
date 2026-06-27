@@ -235,6 +235,23 @@ function isHostAiP2pPreDataChannelPhase(phase: P2pSessionPhaseType): boolean {
   )
 }
 
+/** Post-signaling phases that may retain a stale cached `datachannel_open` after pod/peer loss. */
+function isHostAiP2pPostDataChannelCachedPhase(phase: P2pSessionPhaseType): boolean {
+  return (
+    phase === P2pSessionPhase.connecting ||
+    phase === P2pSessionPhase.datachannel_open ||
+    phase === P2pSessionPhase.ready
+  )
+}
+
+/**
+ * One stale-desync recovery per episode (sandbox ad_request while host thinks DC is open).
+ * Cleared on organic transport reset, successful DC open, or test reset.
+ */
+const hostAiStaleAdRequestRecoveryLatched = new Set<string>()
+
+const SANDBOX_PEER_BEAP_AD_REQUEST_ENSURE_REASON = 'sandbox_peer_beap_ad_request'
+
 function computeHostAiP2pSessionStaleEvictionDetail(
   s: P2pSessionState,
   nowMs: number,
@@ -530,7 +547,60 @@ export function subscribeP2pCapabilityDcWait(
 }
 
 /**
+ * Tear down a cached post-DC session after pod `datachannel_close` or terminal ICE/conn `failed`.
+ * Ignores stale session ids and pre-DC phases. Event-driven only — no polling.
+ */
+export function resetHostAiP2pSessionForTransportLoss(
+  handshakeId: string,
+  expectedSessionId: string | null | undefined,
+  transportReason: string,
+): boolean {
+  const hid = typeof handshakeId === 'string' ? handshakeId.trim() : ''
+  if (!hid) return false
+  const m = sessions.get(hid)
+  if (!m) return false
+  const s = m.state
+  const sidExpected = typeof expectedSessionId === 'string' ? expectedSessionId.trim() : ''
+  if (sidExpected && s.sessionId !== sidExpected) {
+    return false
+  }
+  if (!isHostAiP2pPostDataChannelCachedPhase(s.phase)) {
+    return false
+  }
+  const oldSid = s.sessionId
+  const sidLog = oldSid ? redactIdForLog(oldSid) : 'null'
+  console.log(
+    `[HOST_AI_SESSION_TRANSPORT_RESET] handshake=${hid} session=${sidLog} old_phase=${s.phase} reason=${transportReason}`,
+  )
+  emitP2pCapabilityDcWait(hid, { kind: 'session_terminal', lastErrorCode: null })
+  if (oldSid) {
+    clearSignalingOfferDeadline(hid, oldSid)
+    clearOfferStartWatchdog(hid, oldSid)
+    offerSentForSession.delete(sessionOpKey(hid, oldSid))
+  }
+  tearDownP2pTransportAndRelayForHandshake(hid, oldSid)
+  sessions.delete(hid)
+  const t = now()
+  const final: P2pSessionState = withDerivedUi({
+    handshakeId: hid,
+    sessionId: null,
+    phase: P2pSessionPhase.closed,
+    p2pUiPhase: P2pSessionUiPhase.ledger,
+    lastErrorCode: null,
+    connectedAt: null,
+    updatedAt: t,
+    signalingExpiresAt: null,
+    boundLocalDeviceId: '',
+    boundPeerDeviceId: '',
+    ...noOfferMilestones(),
+  })
+  emitSessionState(final)
+  return true
+}
+
+/**
  * From the WebRTC pod: `RTCPeerConnection` ICE or connection state reached `failed`.
+ * `disconnected` is intentionally ignored (often transient).
  */
 export function notifyWebrtcTransportTerminalIceOrConnectionFailed(
   handshakeId: string,
@@ -545,6 +615,7 @@ export function notifyWebrtcTransportTerminalIceOrConnectionFailed(
   const m = sessions.get(hid)
   if (!m || m.state.sessionId !== sid) return
   emitP2pCapabilityDcWait(hid, { kind: 'webrtc_ice_terminal', ice, conn })
+  resetHostAiP2pSessionForTransportLoss(hid, sid, `ice_terminal ice=${ice} conn=${conn}`)
 }
 
 function now() {
@@ -810,6 +881,39 @@ function syntheticSessionStormCooldownState(handshakeId: string): P2pSessionStat
   return withDerivedUi(st)
 }
 
+function beginHostAiEnsureSessionChain(handshakeId: string, reason: string): Promise<P2pSessionState> {
+  const hid = typeof handshakeId === 'string' ? handshakeId.trim() : ''
+  const inflightExisting = ensureSessionInFlight.get(hid)
+  if (inflightExisting) {
+    return inflightExisting.promise
+  }
+  const f0 = getP2pInferenceFlags()
+  const sessionStormUntilMs = hostAiSessionStormOpenUntilMs(hid)
+  if (f0.p2pInferenceEnabled && f0.p2pInferenceSignalingEnabled && sessionStormUntilMs > 0) {
+    console.log(
+      `[HOST_AI_SESSION_ENSURE] session_storm_pause handshake=${hid} open_until_ms=${sessionStormUntilMs} skip_new_session`,
+    )
+    return Promise.resolve(syntheticSessionStormCooldownState(hid))
+  }
+  if (f0.p2pInferenceEnabled && f0.p2pInferenceSignalingEnabled && isP2pRelaySignalingCircuitOpen()) {
+    console.log(
+      `[HOST_AI_SESSION_ENSURE] relay_429_circuit_open handshake=${hid} open_until_ms=${getP2pRelaySignalingCircuitOpenUntilMs()} skip_new_session`,
+    )
+    return Promise.resolve(syntheticRelayCircuitCooldownState(hid))
+  }
+  const chain = newHostAiCorrelationChain()
+  console.log(`[HOST_AI_SESSION_ENSURE] ensure_chain_start handshake=${hid} chain=${chain} reason=${reason}`)
+  const p = ensureSession(hid, reason)
+    .then((st) => st, (e) => {
+      throw e
+    })
+    .finally(() => {
+      ensureSessionInFlight.delete(hid)
+    })
+  ensureSessionInFlight.set(hid, { chain, promise: p })
+  return p
+}
+
 /**
  * Single owner for Host AI WebRTC session attempts: one in-flight promise, reuse of an
  * already-active session (signaling … ready), and failed-state cooldown.
@@ -853,6 +957,31 @@ export function ensureHostAiP2pSession(handshakeId: string, reason: string): Pro
       const fReuse = getP2pInferenceFlags()
       if (needsWebrtcOfferPipelineRepair(s, fReuse.p2pInferenceWebrtcEnabled)) {
         // Invalid passive signaling: must run the awaited offer start path (falls through to ensure).
+      } else if (
+        reason === SANDBOX_PEER_BEAP_AD_REQUEST_ENSURE_REASON &&
+        (s.phase === P2pSessionPhase.datachannel_open || s.phase === P2pSessionPhase.ready)
+      ) {
+        if (hostAiStaleAdRequestRecoveryLatched.has(hid)) {
+          const inflightRecovery = ensureSessionInFlight.get(hid)
+          if (inflightRecovery) {
+            console.log(
+              `[HOST_AI_SESSION_ENSURE] reuse_inflight_stale_recovery handshake=${hid} requested_reason=${reason}`,
+            )
+            return inflightRecovery.promise
+          }
+          const sidLogLatched = s.sessionId ? redactIdForLog(s.sessionId) : 'null'
+          console.log(
+            `[HOST_AI_SESSION_ENSURE] reuse_active_stale_recovery_latched handshake=${hid} session=${sidLogLatched} phase=${s.phase} requested_reason=${reason}`,
+          )
+          return Promise.resolve(withDerivedUi(s))
+        }
+        hostAiStaleAdRequestRecoveryLatched.add(hid)
+        const sidLogStale = s.sessionId ? redactIdForLog(s.sessionId) : 'null'
+        console.log(
+          `[HOST_AI_SESSION_ENSURE] stale_datachannel_peer_ad_request handshake=${hid} session=${sidLogStale} phase=${s.phase} action=transport_reset_then_reoffer`,
+        )
+        resetHostAiP2pSessionForTransportLoss(hid, s.sessionId, 'sandbox_peer_beap_ad_request_desync')
+        return beginHostAiEnsureSessionChain(hid, reason)
       } else {
         const sidLog2 = s.sessionId ? redactIdForLog(s.sessionId) : 'null'
         console.log(
@@ -862,31 +991,7 @@ export function ensureHostAiP2pSession(handshakeId: string, reason: string): Pro
       }
     }
   }
-  const f0 = getP2pInferenceFlags()
-  const sessionStormUntilMs = hostAiSessionStormOpenUntilMs(hid)
-  if (f0.p2pInferenceEnabled && f0.p2pInferenceSignalingEnabled && sessionStormUntilMs > 0) {
-    console.log(
-      `[HOST_AI_SESSION_ENSURE] session_storm_pause handshake=${hid} open_until_ms=${sessionStormUntilMs} skip_new_session`,
-    )
-    return Promise.resolve(syntheticSessionStormCooldownState(hid))
-  }
-  if (f0.p2pInferenceEnabled && f0.p2pInferenceSignalingEnabled && isP2pRelaySignalingCircuitOpen()) {
-    console.log(
-      `[HOST_AI_SESSION_ENSURE] relay_429_circuit_open handshake=${hid} open_until_ms=${getP2pRelaySignalingCircuitOpenUntilMs()} skip_new_session`,
-    )
-    return Promise.resolve(syntheticRelayCircuitCooldownState(hid))
-  }
-  const chain = newHostAiCorrelationChain()
-  console.log(`[HOST_AI_SESSION_ENSURE] ensure_chain_start handshake=${hid} chain=${chain} reason=${reason}`)
-  const p = ensureSession(hid, reason)
-    .then((st) => st, (e) => {
-      throw e
-    })
-    .finally(() => {
-      ensureSessionInFlight.delete(hid)
-    })
-  ensureSessionInFlight.set(hid, { chain, promise: p })
-  return p
+  return beginHostAiEnsureSessionChain(hid, reason)
 }
 
 /**
@@ -1413,6 +1518,7 @@ export function markDataChannelOpenForP2pSession(handshakeId: string, p2pSession
       `[P2P_DC_OPEN_PHASE_RESET] handshake=${hid} session=${redactIdForLog(sid)} from=failed to=datachannel_open`,
     )
   }
+  hostAiStaleAdRequestRecoveryLatched.delete(hid)
   setSession(hid, {
     ...st,
     phase: P2pSessionPhase.datachannel_open,
@@ -1492,6 +1598,7 @@ export function _resetP2pInferenceSessionsForTests(): void {
   sessions.clear()
   ensureSessionInFlight.clear()
   capabilityDcWaitListeners.clear()
+  hostAiStaleAdRequestRecoveryLatched.clear()
   resetP2pRelaySignalingCircuitForTests()
 }
 
