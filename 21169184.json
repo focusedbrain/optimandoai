@@ -1,0 +1,656 @@
+{
+  "access": {
+    "embargo": {
+      "active": false,
+      "reason": null
+    },
+    "files": "public",
+    "record": "public",
+    "status": "open"
+  },
+  "created": "2026-07-03T14:55:37.588041+00:00",
+  "custom_fields": {},
+  "deletion_status": {
+    "is_deleted": false,
+    "status": "P"
+  },
+  "files": {
+    "count": 19,
+    "enabled": true,
+    "entries": {
+      "Annex_I_Protocol_Enforcement_Mechanics-v10.pdf": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:aa295201a615cfb17515692828eae881",
+        "ext": "pdf",
+        "id": "bbecc21b-3732-4704-8072-9636ad746e72",
+        "key": "Annex_I_Protocol_Enforcement_Mechanics-v10.pdf",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/Annex_I_Protocol_Enforcement_Mechanics-v10.pdf/content",
+          "iiif_api": "https://zenodo.org/api/iiif/record:21169184:Annex_I_Protocol_Enforcement_Mechanics-v10.pdf/full/full/0/default.png",
+          "iiif_base": "https://zenodo.org/api/iiif/record:21169184:Annex_I_Protocol_Enforcement_Mechanics-v10.pdf",
+          "iiif_canvas": "https://zenodo.org/api/iiif/record:21169184/canvas/Annex_I_Protocol_Enforcement_Mechanics-v10.pdf",
+          "iiif_info": "https://zenodo.org/api/iiif/record:21169184:Annex_I_Protocol_Enforcement_Mechanics-v10.pdf/info.json",
+          "self": "https://zenodo.org/api/records/21169184/files/Annex_I_Protocol_Enforcement_Mechanics-v10.pdf"
+        },
+        "metadata": {
+          "height": 842,
+          "width": 595
+        },
+        "mimetype": "application/pdf",
+        "size": 4137856,
+        "storage_class": "L"
+      },
+      "Annex_I_Protocol_Enforcement_Mechanics-v10.pdf.ots": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:14d7c23805c9f6f713b8c4c8d07a8232",
+        "ext": "ots",
+        "id": "3aa52392-a03a-4c1a-9fcb-bf85d5bf1f7e",
+        "key": "Annex_I_Protocol_Enforcement_Mechanics-v10.pdf.ots",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/Annex_I_Protocol_Enforcement_Mechanics-v10.pdf.ots/content",
+          "self": "https://zenodo.org/api/records/21169184/files/Annex_I_Protocol_Enforcement_Mechanics-v10.pdf.ots"
+        },
+        "metadata": {},
+        "mimetype": "application/octet-stream",
+        "size": 549,
+        "storage_class": "L"
+      },
+      "CANONCIAL-SPECIFICATION LICENSE(CSL1.4).txt": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:0a90c7bbbadcb9e06cf3499862a3f080",
+        "ext": "txt",
+        "id": "c1ba2afd-ee3c-4ccd-be88-aeea128c3596",
+        "key": "CANONCIAL-SPECIFICATION LICENSE(CSL1.4).txt",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/CANONCIAL-SPECIFICATION%20LICENSE(CSL1.4).txt/content",
+          "self": "https://zenodo.org/api/records/21169184/files/CANONCIAL-SPECIFICATION%20LICENSE(CSL1.4).txt"
+        },
+        "metadata": {},
+        "mimetype": "text/plain",
+        "size": 5842,
+        "storage_class": "L"
+      },
+      "CANONCIAL-SPECIFICATION LICENSE(CSL1.4).txt.ots": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:7affa0a4d9f8f9d520fb1d4ef3e389ef",
+        "ext": "ots",
+        "id": "a2791295-3f0a-4828-bdc2-4eb8e95c563e",
+        "key": "CANONCIAL-SPECIFICATION LICENSE(CSL1.4).txt.ots",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/CANONCIAL-SPECIFICATION%20LICENSE(CSL1.4).txt.ots/content",
+          "self": "https://zenodo.org/api/records/21169184/files/CANONCIAL-SPECIFICATION%20LICENSE(CSL1.4).txt.ots"
+        },
+        "metadata": {},
+        "mimetype": "application/octet-stream",
+        "size": 654,
+        "storage_class": "L"
+      },
+      "GOVERNANCE-2.1.txt": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:82b3e4244c09815da2d613327f2eef40",
+        "ext": "txt",
+        "id": "0be554c1-9f7a-4d16-b3ed-f0473150b292",
+        "key": "GOVERNANCE-2.1.txt",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/GOVERNANCE-2.1.txt/content",
+          "self": "https://zenodo.org/api/records/21169184/files/GOVERNANCE-2.1.txt"
+        },
+        "metadata": {},
+        "mimetype": "text/plain",
+        "size": 5461,
+        "storage_class": "L"
+      },
+      "GOVERNANCE-2.1.txt.ots": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:49dafa7a2ba5f5830a2f2b09c4d1f7cc",
+        "ext": "ots",
+        "id": "a11a0e4a-260c-47d7-8f2c-b115320f27cb",
+        "key": "GOVERNANCE-2.1.txt.ots",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/GOVERNANCE-2.1.txt.ots/content",
+          "self": "https://zenodo.org/api/records/21169184/files/GOVERNANCE-2.1.txt.ots"
+        },
+        "metadata": {},
+        "mimetype": "application/octet-stream",
+        "size": 584,
+        "storage_class": "L"
+      },
+      "Optirando.png": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:13a6722973e1e68eafa9e89d7566d58c",
+        "ext": "png",
+        "id": "88dab974-4c8c-47d9-a2ea-966de0829fe9",
+        "key": "Optirando.png",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/Optirando.png/content",
+          "iiif_api": "https://zenodo.org/api/iiif/record:21169184:Optirando.png/full/full/0/default.png",
+          "iiif_base": "https://zenodo.org/api/iiif/record:21169184:Optirando.png",
+          "iiif_canvas": "https://zenodo.org/api/iiif/record:21169184/canvas/Optirando.png",
+          "iiif_info": "https://zenodo.org/api/iiif/record:21169184:Optirando.png/info.json",
+          "self": "https://zenodo.org/api/records/21169184/files/Optirando.png"
+        },
+        "metadata": {
+          "height": 100,
+          "width": 300
+        },
+        "mimetype": "image/png",
+        "size": 90423,
+        "storage_class": "L"
+      },
+      "Optirando.png.ots": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:b0a9e3d0005dd64d524eac5dcb169dae",
+        "ext": "ots",
+        "id": "a770d76f-ccb5-485b-a6ca-5860e5800e0b",
+        "key": "Optirando.png.ots",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/Optirando.png.ots/content",
+          "self": "https://zenodo.org/api/records/21169184/files/Optirando.png.ots"
+        },
+        "metadata": {},
+        "mimetype": "application/octet-stream",
+        "size": 654,
+        "storage_class": "L"
+      },
+      "SiliconCargo-research-paper-v202.pdf": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:81e9a1ba41de8bd0751c697840088129",
+        "ext": "pdf",
+        "id": "38f80925-817c-4422-8a9b-7f6605d605cb",
+        "key": "SiliconCargo-research-paper-v202.pdf",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/SiliconCargo-research-paper-v202.pdf/content",
+          "iiif_api": "https://zenodo.org/api/iiif/record:21169184:SiliconCargo-research-paper-v202.pdf/full/full/0/default.png",
+          "iiif_base": "https://zenodo.org/api/iiif/record:21169184:SiliconCargo-research-paper-v202.pdf",
+          "iiif_canvas": "https://zenodo.org/api/iiif/record:21169184/canvas/SiliconCargo-research-paper-v202.pdf",
+          "iiif_info": "https://zenodo.org/api/iiif/record:21169184:SiliconCargo-research-paper-v202.pdf/info.json",
+          "self": "https://zenodo.org/api/records/21169184/files/SiliconCargo-research-paper-v202.pdf"
+        },
+        "metadata": {
+          "height": 612,
+          "width": 792
+        },
+        "mimetype": "application/pdf",
+        "size": 12254594,
+        "storage_class": "L"
+      },
+      "SiliconCargo-research-paper-v202.pdf.ots": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:c23641869ce67dd2e64eee6cfab2fd4d",
+        "ext": "ots",
+        "id": "95986aa1-6c8b-408a-a547-a6c5da7b5484",
+        "key": "SiliconCargo-research-paper-v202.pdf.ots",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/SiliconCargo-research-paper-v202.pdf.ots/content",
+          "self": "https://zenodo.org/api/records/21169184/files/SiliconCargo-research-paper-v202.pdf.ots"
+        },
+        "metadata": {},
+        "mimetype": "application/octet-stream",
+        "size": 619,
+        "storage_class": "L"
+      },
+      "ogpl-1.4_license.txt": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:6325a7f38f74e651d84999832dab75c5",
+        "ext": "txt",
+        "id": "926f6122-8cd9-4ca3-8ac4-a2b0eddeefb5",
+        "key": "ogpl-1.4_license.txt",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/ogpl-1.4_license.txt/content",
+          "self": "https://zenodo.org/api/records/21169184/files/ogpl-1.4_license.txt"
+        },
+        "metadata": {},
+        "mimetype": "text/plain",
+        "size": 6010,
+        "storage_class": "L"
+      },
+      "ogpl-1.4_license.txt.ots": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:0df5631c447c76fa3bba786cbd8583c7",
+        "ext": "ots",
+        "id": "d3f89403-d4ad-474e-a326-726073c789b5",
+        "key": "ogpl-1.4_license.txt.ots",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/ogpl-1.4_license.txt.ots/content",
+          "self": "https://zenodo.org/api/records/21169184/files/ogpl-1.4_license.txt.ots"
+        },
+        "metadata": {},
+        "mimetype": "application/octet-stream",
+        "size": 829,
+        "storage_class": "L"
+      },
+      "optimandoai-v1.zip.ots": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:c49221307540236b8fbb9d4f5f123ce2",
+        "ext": "ots",
+        "id": "9bd87ec9-3a2b-4ac8-a5cb-a607e721449d",
+        "key": "optimandoai-v1.zip.ots",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/optimandoai-v1.zip.ots/content",
+          "self": "https://zenodo.org/api/records/21169184/files/optimandoai-v1.zip.ots"
+        },
+        "metadata": {},
+        "mimetype": "application/octet-stream",
+        "size": 584,
+        "storage_class": "L"
+      },
+      "readme.txt": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:2f2740be764c21c1b295761e735aac4a",
+        "ext": "txt",
+        "id": "f08a052f-e606-4a24-8533-0aec676a7b3c",
+        "key": "readme.txt",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/readme.txt/content",
+          "self": "https://zenodo.org/api/records/21169184/files/readme.txt"
+        },
+        "metadata": {},
+        "mimetype": "text/plain",
+        "size": 4428,
+        "storage_class": "L"
+      },
+      "readme.txt.ots": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:e330ac973bbf93c6264a461d8a00b5f8",
+        "ext": "ots",
+        "id": "a188b555-682b-44c6-a401-4cf27cbed9fd",
+        "key": "readme.txt.ots",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/readme.txt.ots/content",
+          "self": "https://zenodo.org/api/records/21169184/files/readme.txt.ots"
+        },
+        "metadata": {},
+        "mimetype": "application/octet-stream",
+        "size": 654,
+        "storage_class": "L"
+      },
+      "wrcode_qr_gate_4outputs_colored.png": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:5150ffcd518a7c4617be21ba508df730",
+        "ext": "png",
+        "id": "592aa4ff-326f-465e-ac25-3ae64d89fe9c",
+        "key": "wrcode_qr_gate_4outputs_colored.png",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/wrcode_qr_gate_4outputs_colored.png/content",
+          "iiif_api": "https://zenodo.org/api/iiif/record:21169184:wrcode_qr_gate_4outputs_colored.png/full/full/0/default.png",
+          "iiif_base": "https://zenodo.org/api/iiif/record:21169184:wrcode_qr_gate_4outputs_colored.png",
+          "iiif_canvas": "https://zenodo.org/api/iiif/record:21169184/canvas/wrcode_qr_gate_4outputs_colored.png",
+          "iiif_info": "https://zenodo.org/api/iiif/record:21169184:wrcode_qr_gate_4outputs_colored.png/info.json",
+          "self": "https://zenodo.org/api/records/21169184/files/wrcode_qr_gate_4outputs_colored.png"
+        },
+        "metadata": {
+          "height": 610,
+          "width": 1135
+        },
+        "mimetype": "image/png",
+        "size": 30623,
+        "storage_class": "L"
+      },
+      "wrcode_qr_gate_4outputs_colored.png.ots": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:a1a440e9081e409309b15c4343e7e421",
+        "ext": "ots",
+        "id": "4afbbf02-8709-4195-afc3-c121230860eb",
+        "key": "wrcode_qr_gate_4outputs_colored.png.ots",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/wrcode_qr_gate_4outputs_colored.png.ots/content",
+          "self": "https://zenodo.org/api/records/21169184/files/wrcode_qr_gate_4outputs_colored.png.ots"
+        },
+        "metadata": {},
+        "mimetype": "application/octet-stream",
+        "size": 444,
+        "storage_class": "L"
+      },
+      "wrcodeui.pdf": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:8ba5ba1bc79fdb9b84f6d7880451c93c",
+        "ext": "pdf",
+        "id": "bc6d3775-ac3e-44c6-8064-2a060f7ac45b",
+        "key": "wrcodeui.pdf",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/wrcodeui.pdf/content",
+          "iiif_api": "https://zenodo.org/api/iiif/record:21169184:wrcodeui.pdf/full/full/0/default.png",
+          "iiif_base": "https://zenodo.org/api/iiif/record:21169184:wrcodeui.pdf",
+          "iiif_canvas": "https://zenodo.org/api/iiif/record:21169184/canvas/wrcodeui.pdf",
+          "iiif_info": "https://zenodo.org/api/iiif/record:21169184:wrcodeui.pdf/info.json",
+          "self": "https://zenodo.org/api/records/21169184/files/wrcodeui.pdf"
+        },
+        "metadata": {
+          "height": 595,
+          "width": 842
+        },
+        "mimetype": "application/pdf",
+        "size": 1085410,
+        "storage_class": "L"
+      },
+      "wrcodeui.pdf.ots": {
+        "access": {
+          "hidden": false
+        },
+        "checksum": "md5:1783768bfd6cfb624d5816b8d4d0873f",
+        "ext": "ots",
+        "id": "a17102f6-04c6-47c2-9b6c-ee61238d16be",
+        "key": "wrcodeui.pdf.ots",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/wrcodeui.pdf.ots/content",
+          "self": "https://zenodo.org/api/records/21169184/files/wrcodeui.pdf.ots"
+        },
+        "metadata": {},
+        "mimetype": "application/octet-stream",
+        "size": 549,
+        "storage_class": "L"
+      }
+    },
+    "order": [],
+    "total_bytes": 17626767
+  },
+  "id": "21169184",
+  "is_draft": false,
+  "is_published": true,
+  "links": {
+    "access": "https://zenodo.org/api/records/21169184/access",
+    "access_grants": "https://zenodo.org/api/records/21169184/access/grants",
+    "access_links": "https://zenodo.org/api/records/21169184/access/links",
+    "access_request": "https://zenodo.org/api/records/21169184/access/request",
+    "access_users": "https://zenodo.org/api/records/21169184/access/users",
+    "archive": "https://zenodo.org/api/records/21169184/files-archive",
+    "archive_media": "https://zenodo.org/api/records/21169184/media-files-archive",
+    "communities": "https://zenodo.org/api/records/21169184/communities",
+    "communities-suggestions": "https://zenodo.org/api/records/21169184/communities-suggestions",
+    "doi": "https://doi.org/10.5281/zenodo.21169184",
+    "draft": "https://zenodo.org/api/records/21169184/draft",
+    "file_modification": "https://zenodo.org/api/records/21169184/file-modification",
+    "files": "https://zenodo.org/api/records/21169184/files",
+    "latest": "https://zenodo.org/api/records/21169184/versions/latest",
+    "latest_html": "https://zenodo.org/records/21169184/latest",
+    "media_files": "https://zenodo.org/api/records/21169184/media-files",
+    "parent": "https://zenodo.org/api/records/15664278",
+    "parent_doi": "https://doi.org/10.5281/zenodo.15664278",
+    "parent_doi_html": "https://zenodo.org/doi/10.5281/zenodo.15664278",
+    "parent_html": "https://zenodo.org/records/15664278",
+    "preview_html": "https://zenodo.org/records/21169184?preview=1",
+    "quota_increase": "https://zenodo.org/api/records/21169184/quota-increase",
+    "request_deletion": "https://zenodo.org/api/records/21169184/request-deletion",
+    "requests": "https://zenodo.org/api/records/21169184/requests",
+    "reserve_doi": "https://zenodo.org/api/records/21169184/draft/pids/doi",
+    "self": "https://zenodo.org/api/records/21169184",
+    "self_doi": "https://doi.org/10.5281/zenodo.21169184",
+    "self_doi_html": "https://zenodo.org/doi/10.5281/zenodo.21169184",
+    "self_html": "https://zenodo.org/records/21169184",
+    "self_iiif_manifest": "https://zenodo.org/api/iiif/record:21169184/manifest",
+    "self_iiif_sequence": "https://zenodo.org/api/iiif/record:21169184/sequence/default",
+    "thumbnails": {
+      "10": "https://zenodo.org/api/iiif/record:21169184:wrcodeui.pdf/full/%5E10,/0/default.jpg",
+      "100": "https://zenodo.org/api/iiif/record:21169184:wrcodeui.pdf/full/%5E100,/0/default.jpg",
+      "1200": "https://zenodo.org/api/iiif/record:21169184:wrcodeui.pdf/full/%5E1200,/0/default.jpg",
+      "250": "https://zenodo.org/api/iiif/record:21169184:wrcodeui.pdf/full/%5E250,/0/default.jpg",
+      "50": "https://zenodo.org/api/iiif/record:21169184:wrcodeui.pdf/full/%5E50,/0/default.jpg",
+      "750": "https://zenodo.org/api/iiif/record:21169184:wrcodeui.pdf/full/%5E750,/0/default.jpg"
+    },
+    "versions": "https://zenodo.org/api/records/21169184/versions"
+  },
+  "media_files": {
+    "count": 5,
+    "enabled": true,
+    "entries": {
+      "Annex_I_Protocol_Enforcement_Mechanics-v10.pdf.ptif": {
+        "access": {
+          "hidden": true
+        },
+        "ext": "ptif",
+        "id": "0fed6115-d677-46d6-ae9f-f36c1daed0d3",
+        "key": "Annex_I_Protocol_Enforcement_Mechanics-v10.pdf.ptif",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/Annex_I_Protocol_Enforcement_Mechanics-v10.pdf.ptif/content",
+          "self": "https://zenodo.org/api/records/21169184/files/Annex_I_Protocol_Enforcement_Mechanics-v10.pdf.ptif"
+        },
+        "metadata": null,
+        "mimetype": "application/octet-stream",
+        "processor": {
+          "source_file_id": "bbecc21b-3732-4704-8072-9636ad746e72",
+          "status": "init",
+          "type": "image-tiles"
+        },
+        "size": 0,
+        "storage_class": "L"
+      },
+      "Optirando.png.ptif": {
+        "access": {
+          "hidden": true
+        },
+        "ext": "ptif",
+        "id": "00ac77d3-5fdd-4772-a482-bf4cfb422fcd",
+        "key": "Optirando.png.ptif",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/Optirando.png.ptif/content",
+          "self": "https://zenodo.org/api/records/21169184/files/Optirando.png.ptif"
+        },
+        "metadata": null,
+        "mimetype": "application/octet-stream",
+        "processor": {
+          "source_file_id": "88dab974-4c8c-47d9-a2ea-966de0829fe9",
+          "status": "init",
+          "type": "image-tiles"
+        },
+        "size": 0,
+        "storage_class": "L"
+      },
+      "SiliconCargo-research-paper-v202.pdf.ptif": {
+        "access": {
+          "hidden": true
+        },
+        "ext": "ptif",
+        "id": "4de6b934-6774-4846-8cd9-4b09805acb87",
+        "key": "SiliconCargo-research-paper-v202.pdf.ptif",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/SiliconCargo-research-paper-v202.pdf.ptif/content",
+          "self": "https://zenodo.org/api/records/21169184/files/SiliconCargo-research-paper-v202.pdf.ptif"
+        },
+        "metadata": null,
+        "mimetype": "application/octet-stream",
+        "processor": {
+          "source_file_id": "38f80925-817c-4422-8a9b-7f6605d605cb",
+          "status": "init",
+          "type": "image-tiles"
+        },
+        "size": 0,
+        "storage_class": "L"
+      },
+      "wrcode_qr_gate_4outputs_colored.png.ptif": {
+        "access": {
+          "hidden": true
+        },
+        "ext": "ptif",
+        "id": "cc566ea3-5eda-4aaf-9559-3f52b03e02cf",
+        "key": "wrcode_qr_gate_4outputs_colored.png.ptif",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/wrcode_qr_gate_4outputs_colored.png.ptif/content",
+          "self": "https://zenodo.org/api/records/21169184/files/wrcode_qr_gate_4outputs_colored.png.ptif"
+        },
+        "metadata": null,
+        "mimetype": "application/octet-stream",
+        "processor": {
+          "source_file_id": "592aa4ff-326f-465e-ac25-3ae64d89fe9c",
+          "status": "init",
+          "type": "image-tiles"
+        },
+        "size": 0,
+        "storage_class": "L"
+      },
+      "wrcodeui.pdf.ptif": {
+        "access": {
+          "hidden": true
+        },
+        "ext": "ptif",
+        "id": "ac0f75f3-2a6b-430d-ad15-6833afb82c53",
+        "key": "wrcodeui.pdf.ptif",
+        "links": {
+          "content": "https://zenodo.org/api/records/21169184/files/wrcodeui.pdf.ptif/content",
+          "self": "https://zenodo.org/api/records/21169184/files/wrcodeui.pdf.ptif"
+        },
+        "metadata": null,
+        "mimetype": "application/octet-stream",
+        "processor": {
+          "source_file_id": "bc6d3775-ac3e-44c6-8064-2a060f7ac45b",
+          "status": "init",
+          "type": "image-tiles"
+        },
+        "size": 0,
+        "storage_class": "L"
+      }
+    },
+    "order": [],
+    "total_bytes": 0
+  },
+  "metadata": {
+    "additional_descriptions": [
+      {
+        "description": "<p>... Developed and published by siliconcargo.com, a company focused on AI workflow orchestration and enterprise automation.&nbsp;</p>\n<p>&nbsp;</p>",
+        "lang": {
+          "id": "enc",
+          "title": {
+            "en": "En"
+          }
+        },
+        "type": {
+          "id": "notes",
+          "title": {
+            "de": "Anmerkungen",
+            "en": "Notes"
+          }
+        }
+      }
+    ],
+    "copyright": "\u00a9 2026 Oscar Schreyer / siliconcargo.com",
+    "creators": [
+      {
+        "affiliations": [
+          {
+            "name": "Optimando.ai"
+          }
+        ],
+        "person_or_org": {
+          "family_name": "Schreyer",
+          "given_name": "Oscar",
+          "name": "Schreyer, Oscar",
+          "type": "personal"
+        },
+        "role": {
+          "id": "projectleader",
+          "title": {
+            "de": "ProjektleiterIn",
+            "en": "Project leader"
+          }
+        }
+      }
+    ],
+    "description": "<p>Schreyer, Oscar &nbsp;<br>Affiliation: siliconcargo.com &ndash; AI Workflow Automation</p>",
+    "publication_date": "2026-07-03",
+    "publisher": "Zenodo",
+    "resource_type": {
+      "id": "publication-conferencepaper",
+      "title": {
+        "de": "Konferenzbeitrag",
+        "en": "Conference paper"
+      }
+    },
+    "title": "Optirando: A Framework for Fully Customizable AI Agent Orchestration in the Browser for Real-Time Task Support",
+    "version": "siliconcargo-research-paper-v202plusAnnex-I v10"
+  },
+  "parent": {
+    "access": {
+      "grants": [],
+      "links": [],
+      "owned_by": {
+        "user": "1343218"
+      },
+      "settings": {
+        "accept_conditions_text": null,
+        "allow_guest_requests": false,
+        "allow_user_requests": false,
+        "secret_link_expiration": 0
+      }
+    },
+    "communities": {},
+    "id": "15664278",
+    "pids": {
+      "doi": {
+        "client": "datacite",
+        "identifier": "10.5281/zenodo.15664278",
+        "provider": "datacite"
+      }
+    }
+  },
+  "pids": {
+    "doi": {
+      "client": "datacite",
+      "identifier": "10.5281/zenodo.21169184",
+      "provider": "datacite"
+    },
+    "oai": {
+      "identifier": "oai:zenodo.org:21169184",
+      "provider": "oai"
+    }
+  },
+  "revision_id": 3,
+  "stats": {
+    "all_versions": {
+      "data_volume": 4316941013.0,
+      "downloads": 5512,
+      "unique_downloads": 5395,
+      "unique_views": 2971,
+      "views": 3114
+    },
+    "this_version": {
+      "data_volume": 0.0,
+      "downloads": 0,
+      "unique_downloads": 0,
+      "unique_views": 0,
+      "views": 0
+    }
+  },
+  "status": "published",
+  "swh": {},
+  "updated": "2026-07-03T14:55:39.434573+00:00",
+  "versions": {
+    "index": 232,
+    "is_latest": true,
+    "is_latest_draft": true
+  }
+}
