@@ -35,6 +35,16 @@ import {
   readInstalledModelSha256,
   type ModelInstallResult,
 } from './localLlmModelInstall'
+import { getLocalLlmServerConfig } from './localLlmServerConfig'
+import {
+  buildLlamaServerArgs,
+  computeMaxCtxForVram,
+  estimateKvBytesPerTokenFromGgufFile,
+  queryNvidiaVramUsage,
+  readLlamaServerHelpText,
+  type ResolvedSpawnPlan,
+} from './llamaServerArgs'
+import { RotatingLogWriter, llamaServerLogPath } from './llamaServerLog'
 
 const execAsync = promisify(exec)
 
@@ -112,6 +122,14 @@ export class LocalLlmManager {
   private readonly PROBE_OK_TTL_MS = 3_000
   private readonly PROBE_BACKOFF_BASE_MS = 2_000
   private readonly PROBE_BACKOFF_MAX_MS = 30_000
+
+  // build038: managed spawn configuration state
+  private serverLogWriter: RotatingLogWriter | null = null
+  private lastSpawnPlan: ResolvedSpawnPlan | null = null
+  private lastSpawnClampNotice: string | null = null
+  private helpTextCache: { binaryPath: string; text: string } | null = null
+  private restartPending = false
+  private restartWaitingForTasks = false
 
   constructor() {
     this.serverPort = DEFAULT_LLAMACPP_PORT
@@ -286,21 +304,191 @@ export class LocalLlmManager {
     await this.stop()
   }
 
+  /** Cached `--help` output of the installed binary (re-read when the path changes). */
+  private async getServerHelpText(): Promise<string> {
+    if (this.helpTextCache && this.helpTextCache.binaryPath === this.serverBinaryPath) {
+      return this.helpTextCache.text
+    }
+    const text = await readLlamaServerHelpText(this.serverBinaryPath)
+    this.helpTextCache = { binaryPath: this.serverBinaryPath, text }
+    return text
+  }
+
+  /**
+   * build038: resolve the spawn plan for a GGUF — persisted config, flag
+   * verification against the installed binary's --help, and VRAM-fit ctx clamp
+   * based on the actual model file size + GGUF KV metadata.
+   */
+  private async resolveSpawnPlan(gguf: string): Promise<ResolvedSpawnPlan> {
+    const config = getLocalLlmServerConfig()
+    let helpText = ''
+    try {
+      helpText = await this.getServerHelpText()
+    } catch (e) {
+      console.warn('[LOCAL_LLM_SPAWN] help_probe_failed — spawning with base args only:', e)
+    }
+
+    let maxCtxTokens: number | null = null
+    try {
+      const vram = await queryNvidiaVramUsage()
+      if (vram) {
+        const modelFileBytes = fs.statSync(gguf).size
+        const kv = estimateKvBytesPerTokenFromGgufFile(gguf)
+        const fit = computeMaxCtxForVram({
+          vramTotalBytes: vram.totalBytes,
+          modelFileBytes,
+          kvBytesPerToken: kv.kvBytesPerToken,
+          parallel: config.parallel,
+          trainedCtx: kv.trainedCtx,
+        })
+        maxCtxTokens = fit.maxCtx
+        console.log(
+          `[LOCAL_LLM_SPAWN] vram_budget total_mb=${Math.round(vram.totalBytes / 1024 ** 2)} model_mb=${Math.round(modelFileBytes / 1024 ** 2)} kv_per_token=${kv.kvBytesPerToken} kv_source=${kv.source} max_ctx=${fit.maxCtx} fits=${fit.fits}`,
+        )
+      }
+    } catch (e) {
+      console.warn('[LOCAL_LLM_SPAWN] vram_budget_failed — no ctx clamp applied:', e)
+    }
+
+    return buildLlamaServerArgs({
+      ggufPath: gguf,
+      port: this.serverPort,
+      config,
+      helpText,
+      maxCtxTokens,
+    })
+  }
+
   private async spawnOwnedServer(gguf: string, trigger: string): Promise<void> {
     if (this.process && this.weOwnProcess) {
       console.log('[LocalLlm] Owned llama-server process already tracked')
       return
     }
 
+    const plan = await this.resolveSpawnPlan(gguf)
+    this.lastSpawnPlan = plan
+    for (const flag of plan.unsupportedFlags) {
+      console.warn(`[LOCAL_LLM_SPAWN] flag_unsupported=${flag} — omitted for this binary`)
+    }
+    if (plan.ctxClamped) {
+      this.lastSpawnClampNotice = `Settings reduced to fit your GPU memory (context ${plan.ctxRequested.toLocaleString()} → ${plan.ctxTokens.toLocaleString()} tokens).`
+      console.warn(
+        `[LOCAL_LLM_SPAWN] ctx_clamped from=${plan.ctxRequested} to=${plan.ctxTokens} reason=vram_fit`,
+      )
+    } else {
+      this.lastSpawnClampNotice = null
+    }
+
     console.log(`[LocalLlm] Starting llama-server on loopback trigger=${trigger} model=${path.basename(gguf)}`)
-    const proc = spawn(
-      this.serverBinaryPath,
-      ['--host', '127.0.0.1', '--port', String(this.serverPort), '-m', gguf],
-      { stdio: 'ignore', windowsHide: true },
+    console.log(`[LOCAL_LLM_SPAWN] args=${JSON.stringify(plan.args)}`)
+
+    this.serverLogWriter?.close()
+    this.serverLogWriter = new RotatingLogWriter(llamaServerLogPath())
+    this.serverLogWriter.write(
+      `\n===== [${new Date().toISOString()}] spawn trigger=${trigger} args=${JSON.stringify(plan.args)} =====\n`,
     )
+
+    const proc = spawn(this.serverBinaryPath, plan.args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    })
+    proc.stdout?.on('data', (chunk: Buffer) => this.serverLogWriter?.write(chunk))
+    proc.stderr?.on('data', (chunk: Buffer) => this.serverLogWriter?.write(chunk))
     this.process = proc
     this.weOwnProcess = true
     this.attachProcessExitHandler(proc)
+  }
+
+  /** UI: last applied spawn settings + clamp notice (null before the first spawn). */
+  getLastSpawnPlan(): { plan: ResolvedSpawnPlan | null; clampNotice: string | null } {
+    return { plan: this.lastSpawnPlan, clampNotice: this.lastSpawnClampNotice }
+  }
+
+  /**
+   * UI: computed "Maximum" ctx for the active model with the given parallel
+   * setting, plus current VRAM usage for the status line.
+   */
+  async computeServerConfigInsight(parallel: number): Promise<{
+    maxCtxTokens: number | null
+    kvSource: 'gguf' | 'fallback' | null
+    vramUsedBytes: number | null
+    vramTotalBytes: number | null
+  }> {
+    const vram = await queryNvidiaVramUsage()
+    let maxCtxTokens: number | null = null
+    let kvSource: 'gguf' | 'fallback' | null = null
+    try {
+      const active = await this.getEffectiveChatModelName()
+      const gguf = active ? resolveGgufPathForModelId(active) : null
+      if (vram && gguf) {
+        const kv = estimateKvBytesPerTokenFromGgufFile(gguf)
+        kvSource = kv.source
+        maxCtxTokens = computeMaxCtxForVram({
+          vramTotalBytes: vram.totalBytes,
+          modelFileBytes: fs.statSync(gguf).size,
+          kvBytesPerToken: kv.kvBytesPerToken,
+          parallel,
+          trainedCtx: kv.trainedCtx,
+        }).maxCtx
+      }
+    } catch {
+      /* insight is best-effort */
+    }
+    return {
+      maxCtxTokens,
+      kvSource,
+      vramUsedBytes: vram?.usedBytes ?? null,
+      vramTotalBytes: vram?.totalBytes ?? null,
+    }
+  }
+
+  getRestartState(): { pending: boolean; waitingForTasks: boolean } {
+    return { pending: this.restartPending, waitingForTasks: this.restartWaitingForTasks }
+  }
+
+  /**
+   * build038 "Apply & restart AI server": graceful restart that waits for
+   * in-flight inference to drain (up to `maxWaitMs`) before killing the server.
+   * Returns immediately; the UI polls {@link getRestartState} + server status.
+   */
+  async restartManagedServerGraceful(p?: { maxWaitMs?: number }): Promise<{
+    ok: boolean
+    queued: boolean
+    reason?: string
+  }> {
+    if (this.restartPending) {
+      return { ok: true, queued: true, reason: 'restart_already_pending' }
+    }
+    this.restartPending = true
+    const maxWaitMs = p?.maxWaitMs ?? 600_000
+    void (async () => {
+      try {
+        const deadline = Date.now() + maxWaitMs
+        while (localLlmRuntimeGetInFlight() > 0 && Date.now() < deadline) {
+          this.restartWaitingForTasks = true
+          await new Promise((resolve) => setTimeout(resolve, 1_000))
+        }
+        this.restartWaitingForTasks = false
+        console.log('[LOCAL_LLM_LIFECYCLE] restart_apply_settings draining_done')
+        this.shuttingDown = true
+        try {
+          await this.stop()
+          // Let the old child's exit event drain while shuttingDown=true so it is
+          // logged as expected and does not schedule a competing supervised restart.
+          await new Promise((resolve) => setTimeout(resolve, 500))
+        } finally {
+          this.shuttingDown = false
+        }
+        this.invalidateProbeCache()
+        await this.ensureManagedServerRunning({ reason: 'apply_settings_restart' })
+      } catch (e) {
+        console.warn('[LOCAL_LLM_LIFECYCLE] restart_apply_settings_failed:', e)
+      } finally {
+        this.restartPending = false
+        this.restartWaitingForTasks = false
+      }
+    })()
+    return { ok: true, queued: true }
   }
 
   private collectHttpBases(): string[] {
@@ -543,6 +731,8 @@ export class LocalLlmManager {
 
   async stop(): Promise<void> {
     this.clearRestartTimer()
+    this.serverLogWriter?.close()
+    this.serverLogWriter = null
     if (this.process && this.weOwnProcess) {
       try {
         this.process.kill()
@@ -679,6 +869,7 @@ export class LocalLlmManager {
   refreshServerBinaryPath(): void {
     this.initializeServerBinaryPath()
     this.invalidateProbeCache()
+    this.helpTextCache = null
   }
 
   async getEffectiveChatModelName(): Promise<string | null> {

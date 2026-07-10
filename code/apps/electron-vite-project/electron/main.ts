@@ -9870,6 +9870,49 @@ async function runDeviceKeyMigration(
         res.status(500).json({ ok: false, error: error.message })
       }
     })
+
+    // GET /api/llm/server-config — build038: persisted inference settings + computed
+    // max ctx / VRAM insight + last applied spawn plan for the Inference Settings panel.
+    httpApp.get('/api/llm/server-config', async (_req, res) => {
+      try {
+        const { getLocalLlmServerConfigView } = await import('./main/llm/localLlmServerConfigApi')
+        res.json({ ok: true, data: await getLocalLlmServerConfigView() })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] server-config get failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // POST /api/llm/server-config — build038: persist inference settings (does not restart).
+    httpApp.post('/api/llm/server-config', async (req, res) => {
+      try {
+        if (isSandboxMode()) {
+          res.status(400).json({ ok: false, error: 'Local LLM management is disabled in sandbox mode' })
+          return
+        }
+        const { applyLocalLlmServerConfigPatch } = await import('./main/llm/localLlmServerConfigApi')
+        res.json({ ok: true, data: { config: applyLocalLlmServerConfigPatch(req.body) } })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] server-config set failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // POST /api/llm/server-restart — build038 "Apply & restart AI server": graceful,
+    // waits for in-flight inference to drain, then restarts with the persisted settings.
+    httpApp.post('/api/llm/server-restart', async (_req, res) => {
+      try {
+        if (isSandboxMode()) {
+          res.status(400).json({ ok: false, error: 'Local LLM management is disabled in sandbox mode' })
+          return
+        }
+        const { restartLocalLlmServerForSettings } = await import('./main/llm/localLlmServerConfigApi')
+        res.json({ ok: true, data: await restartLocalLlmServerForSettings() })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] server-restart failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
     
     // DELETE /api/llm/models/:modelId - Delete a model
     httpApp.delete('/api/llm/models/:modelId', async (req, res) => {

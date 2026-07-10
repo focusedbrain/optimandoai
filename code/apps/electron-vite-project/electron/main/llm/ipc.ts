@@ -150,6 +150,43 @@ export function registerLlmHandlers() {
     }
   })
 
+  // build038: llama-server inference settings (mirrors HTTP /api/llm/server-config in main.ts)
+  ipcMain.handle('llm:serverConfigGet', async () => {
+    try {
+      const { getLocalLlmServerConfigView } = await import('./localLlmServerConfigApi')
+      return { ok: true, data: await getLocalLlmServerConfigView() }
+    } catch (error: any) {
+      console.error('[LLM IPC] serverConfigGet failed:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('llm:serverConfigSet', async (_event, patch: unknown) => {
+    try {
+      if (isSandboxMode()) {
+        return { ok: false, error: 'Local LLM management is disabled in sandbox mode' }
+      }
+      const { applyLocalLlmServerConfigPatch } = await import('./localLlmServerConfigApi')
+      return { ok: true, data: { config: applyLocalLlmServerConfigPatch(patch) } }
+    } catch (error: any) {
+      console.error('[LLM IPC] serverConfigSet failed:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('llm:serverRestart', async () => {
+    try {
+      if (isSandboxMode()) {
+        return { ok: false, error: 'Local LLM management is disabled in sandbox mode' }
+      }
+      const { restartLocalLlmServerForSettings } = await import('./localLlmServerConfigApi')
+      return { ok: true, data: await restartLocalLlmServerForSettings() }
+    } catch (error: any) {
+      console.error('[LLM IPC] serverRestart failed:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
   // List installed models
   ipcMain.handle('llm:listModels', async () => {
     try {

@@ -91,6 +91,33 @@ interface OrchestratorModeConfig {
   mode: 'host' | 'sandbox'
 }
 
+/** build038: persisted llama-server inference settings (user-language, no raw flags). */
+interface LlmServerConfig {
+  ctxMode: 'standard' | 'long' | 'max'
+  parallel: 1 | 2 | 4
+  reasoningEnabled: boolean
+}
+
+/** build038: `GET /api/llm/server-config` payload. */
+interface LlmServerConfigView {
+  config: LlmServerConfig
+  ctxPresets: { standard: number; long: number }
+  maxCtxTokens: number | null
+  kvSource: 'gguf' | 'fallback' | null
+  vramUsedBytes: number | null
+  vramTotalBytes: number | null
+  applied: {
+    args: string[]
+    ctxTokens: number
+    parallel: number
+    reasoningEnabled: boolean
+  } | null
+  clampNotice: string | null
+  restart: { pending: boolean; waitingForTasks: boolean }
+  serverRunning: boolean
+  activeModel: string | null
+}
+
 // ─── Typed RPC adapter ───────────────────────────────────────────────────
 // Maps electronRpc's { success, data, error } → { ok, data, error }
 // to keep the existing result handling unchanged.
@@ -133,6 +160,16 @@ function isCatalogEntity(x: unknown): x is LlmModelConfig[] {
 
 function isBinaryStatusEntity(x: unknown): x is LlamaServerBinaryStatus {
   return typeof x === 'object' && x !== null && typeof (x as LlamaServerBinaryStatus).binaryInstalled === 'boolean'
+}
+
+function isServerConfigViewEntity(x: unknown): x is LlmServerConfigView {
+  return (
+    typeof x === 'object' &&
+    x !== null &&
+    typeof (x as LlmServerConfigView).config === 'object' &&
+    (x as LlmServerConfigView).config !== null &&
+    typeof (x as LlmServerConfigView).config.reasoningEnabled === 'boolean'
+  )
 }
 
 // Hardcoded fallback catalog in case API is unavailable
@@ -190,6 +227,10 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   const [binaryStatus, setBinaryStatus] = useState<LlamaServerBinaryStatus | null>(null)
   const [binaryInstalling, setBinaryInstalling] = useState(false)
   const [binaryInstallProgress, setBinaryInstallProgress] = useState<LlamaServerBinaryInstallProgress | null>(null)
+  // build038: Inference Settings (host-only)
+  const [serverConfigView, setServerConfigView] = useState<LlmServerConfigView | null>(null)
+  const [draftServerConfig, setDraftServerConfig] = useState<LlmServerConfig | null>(null)
+  const [applyingSettings, setApplyingSettings] = useState<null | 'saving' | 'waiting' | 'restarting'>(null)
   
   // Bridge-agnostic API
   const api = useMemo(() => {
@@ -211,6 +252,10 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         installLlamaServerBinary: (variant: 'cpu' | 'cuda' | 'vulkan') =>
           (window as any).electron.ipcRenderer.invoke('llm:installLlamaServerBinary', variant),
         getBinaryInstallProgress: () => (window as any).electron.ipcRenderer.invoke('llm:binaryInstallProgress'),
+        getServerConfig: () => (window as any).electron.ipcRenderer.invoke('llm:serverConfigGet'),
+        setServerConfig: (patch: Partial<LlmServerConfig>) =>
+          (window as any).electron.ipcRenderer.invoke('llm:serverConfigSet', patch),
+        restartServer: () => (window as any).electron.ipcRenderer.invoke('llm:serverRestart'),
         getOrchestratorMode: async (): Promise<{ ok: boolean; config?: OrchestratorModeConfig }> => {
           try {
             const config = await (window as any).electron.ipcRenderer.invoke('orchestrator:getMode')
@@ -244,6 +289,9 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         installLlamaServerBinary: (variant: 'cpu' | 'cuda' | 'vulkan') =>
           rpc('llm.installLlamaServerBinary', { variant }),
         getBinaryInstallProgress: () => rpc('llm.binaryInstallProgress'),
+        getServerConfig: () => rpc('llm.serverConfigGet'),
+        setServerConfig: (patch: Partial<LlmServerConfig>) => rpc('llm.serverConfigSet', patch),
+        restartServer: () => rpc('llm.serverRestart'),
         getOrchestratorMode: async (): Promise<{ ok: boolean; config?: OrchestratorModeConfig }> => {
           const res = await rpc('orchestrator.getMode')
           const data = res.data as { ok?: boolean; config?: unknown } | undefined
@@ -318,7 +366,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
       })()
       
       // Try to fetch data, but don't block on errors
-      const [hwRes, statusRes, catalogRes, binaryStatusRes] = await Promise.all([
+      const [hwRes, statusRes, catalogRes, binaryStatusRes, serverConfigRes] = await Promise.all([
         api.getHardware().catch((e: Error) => {
           console.warn('[LlmSettings] Hardware API failed:', e.message)
           return { ok: false, error: e.message }
@@ -335,6 +383,10 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           console.warn('[LlmSettings] Binary status API failed:', e.message)
           return { ok: false, error: e.message }
         }),
+        api.getServerConfig().catch((e: Error) => {
+          console.warn('[LlmSettings] Server config API failed:', e.message)
+          return { ok: false, error: e.message }
+        }),
         orchPromise,
       ])
 
@@ -349,6 +401,12 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
       // else keep FALLBACK_CATALOG
       const binaryStatusEntity = unwrapLlmEnvelope(binaryStatusRes, isBinaryStatusEntity)
       if (binaryStatusEntity) setBinaryStatus(binaryStatusEntity)
+      const serverConfigEntity = unwrapLlmEnvelope(serverConfigRes, isServerConfigViewEntity)
+      if (serverConfigEntity) {
+        setServerConfigView(serverConfigEntity)
+        // Preserve unsaved edits across background refreshes; adopt server state otherwise.
+        setDraftServerConfig((prev) => prev ?? { ...serverConfigEntity.config })
+      }
       
       // If all APIs failed, show connection error but still allow UI to work
       if (!hwRes.ok && !statusRes.ok && !catalogRes.ok) {
@@ -439,6 +497,69 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
     setTimeout(poll, 500)
   }
   
+  /** Fetch the freshest server-config view (used by the apply/restart poll loop). */
+  const fetchServerConfigView = async (): Promise<LlmServerConfigView | null> => {
+    try {
+      const res = await api.getServerConfig()
+      return unwrapLlmEnvelope(res, isServerConfigViewEntity)
+    } catch {
+      return null
+    }
+  }
+
+  /** build038 "Apply & restart AI server": persist settings, restart gracefully, poll until back up. */
+  const handleApplyServerSettings = async () => {
+    if (!draftServerConfig || applyingSettings) return
+    setApplyingSettings('saving')
+    try {
+      const saveRes = await api.setServerConfig(draftServerConfig)
+      const saveOk = saveRes.ok && (saveRes.data?.ok ?? true) !== false
+      if (!saveOk) {
+        showNotification(saveRes.data?.error || saveRes.error || 'Failed to save settings', 'error')
+        setApplyingSettings(null)
+        return
+      }
+      const restartRes = await api.restartServer()
+      const restartOk = restartRes.ok && (restartRes.data?.ok ?? true) !== false
+      if (!restartOk) {
+        showNotification(restartRes.data?.error || restartRes.error || 'Failed to restart AI server', 'error')
+        setApplyingSettings(null)
+        return
+      }
+      setApplyingSettings('restarting')
+
+      const deadline = Date.now() + 15 * 60_000
+      const poll = async () => {
+        if (Date.now() > deadline) {
+          setApplyingSettings(null)
+          showNotification('AI server restart timed out — check the status above.', 'error')
+          return
+        }
+        const view = await fetchServerConfigView()
+        if (view) {
+          setServerConfigView(view)
+          if (view.restart.pending) {
+            setApplyingSettings(view.restart.waitingForTasks ? 'waiting' : 'restarting')
+            setTimeout(poll, 1500)
+            return
+          }
+          if (view.serverRunning) {
+            setApplyingSettings(null)
+            setDraftServerConfig({ ...view.config })
+            showNotification('AI server restarted with the new settings', 'success')
+            await loadData()
+            return
+          }
+        }
+        setTimeout(poll, 1500)
+      }
+      setTimeout(poll, 1500)
+    } catch (error: any) {
+      setApplyingSettings(null)
+      showNotification(error.message || 'Failed to apply settings', 'error')
+    }
+  }
+
   const notifyModelInstalled = (modelId: string) => {
     try {
       chrome.storage?.local?.set({
@@ -1122,6 +1243,195 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         </div>
       )}
       
+      {/* build038: Inference Settings — host-only (sandbox has no local server) */}
+      {!isSandbox && !loading && serverConfigView && draftServerConfig && (() => {
+        const view = serverConfigView
+        const draft = draftServerConfig
+        const dirty =
+          draft.ctxMode !== view.config.ctxMode ||
+          draft.parallel !== view.config.parallel ||
+          draft.reasoningEnabled !== view.config.reasoningEnabled
+        const gb = (bytes: number) => (bytes / 1024 ** 3).toFixed(1)
+        const maxLabel =
+          view.maxCtxTokens != null
+            ? `Maximum (~${view.maxCtxTokens.toLocaleString()} tokens on your GPU)`
+            : 'Maximum (computed from your GPU memory)'
+        const applied = view.applied
+        const busyLabel =
+          applyingSettings === 'waiting'
+            ? 'Waiting for current task to finish…'
+            : applyingSettings === 'restarting'
+              ? 'Restarting AI server…'
+              : applyingSettings === 'saving'
+                ? 'Saving…'
+                : null
+        const selectStyle: React.CSSProperties = {
+          width: '100%',
+          padding: '5px 8px',
+          borderRadius: '4px',
+          border: '1px solid rgba(148,163,184,0.4)',
+          background: tt.isLight ? '#ffffff' : 'rgba(15,23,42,0.6)',
+          color: textColor,
+          fontSize: '10px',
+        }
+        return (
+          <div style={{
+            padding: '10px',
+            background: bgPrimary,
+            borderRadius: '6px',
+            marginBottom: '12px',
+            color: textColor,
+            fontSize: '11px',
+          }}>
+            <div style={{ fontWeight: '600', marginBottom: '8px', fontSize: '10px', opacity: 0.8 }}>
+              INFERENCE SETTINGS
+            </div>
+
+            {/* a. Response style */}
+            <div style={{ marginBottom: '10px' }}>
+              <div style={{ fontWeight: '600', fontSize: '10px', marginBottom: '4px' }}>Response style</div>
+              {([
+                { value: false, label: 'Fast & direct (recommended)' },
+                { value: true, label: 'Deep reasoning (slower, more thorough)' },
+              ] as const).map((opt) => (
+                <label
+                  key={String(opt.value)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', marginBottom: '3px', cursor: 'pointer' }}
+                >
+                  <input
+                    type="radio"
+                    name="llm-response-style"
+                    checked={draft.reasoningEnabled === opt.value}
+                    disabled={!!applyingSettings}
+                    onChange={() => setDraftServerConfig({ ...draft, reasoningEnabled: opt.value })}
+                  />
+                  {opt.label}
+                </label>
+              ))}
+              <div style={{ fontSize: '9px', opacity: 0.75, lineHeight: 1.4, marginTop: '2px' }}>
+                Deep reasoning makes the model think step-by-step before answering. Automated tasks like inbox
+                analysis work best with Fast &amp; direct.
+              </div>
+            </div>
+
+            {/* b. Memory per conversation */}
+            <div style={{ marginBottom: '10px' }}>
+              <div style={{ fontWeight: '600', fontSize: '10px', marginBottom: '4px' }}>Memory per conversation</div>
+              <select
+                value={draft.ctxMode}
+                disabled={!!applyingSettings}
+                onChange={(e) =>
+                  setDraftServerConfig({ ...draft, ctxMode: e.target.value as LlmServerConfig['ctxMode'] })
+                }
+                style={selectStyle}
+              >
+                <option value="standard">Standard (recommended) — {view.ctxPresets.standard.toLocaleString()} tokens</option>
+                <option value="long">Long documents — {view.ctxPresets.long.toLocaleString()} tokens</option>
+                <option value="max">{maxLabel}</option>
+              </select>
+              <div style={{ fontSize: '9px', opacity: 0.75, lineHeight: 1.4, marginTop: '2px' }}>
+                More memory lets the AI read longer inputs but uses more GPU memory.
+              </div>
+            </div>
+
+            {/* c. Parallel tasks */}
+            <div style={{ marginBottom: '10px' }}>
+              <div style={{ fontWeight: '600', fontSize: '10px', marginBottom: '4px' }}>Parallel tasks</div>
+              <select
+                value={draft.parallel}
+                disabled={!!applyingSettings}
+                onChange={(e) =>
+                  setDraftServerConfig({ ...draft, parallel: Number(e.target.value) as LlmServerConfig['parallel'] })
+                }
+                style={selectStyle}
+              >
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+                <option value={4}>4 (recommended)</option>
+              </select>
+              <div style={{ fontSize: '9px', opacity: 0.75, lineHeight: 1.4, marginTop: '2px' }}>
+                How many AI tasks can run at the same time. Lower this if you see out-of-memory errors.
+              </div>
+            </div>
+
+            {/* Non-blocking clamp notice */}
+            {view.clampNotice && (
+              <div style={{
+                padding: '6px 8px',
+                marginBottom: '8px',
+                borderRadius: '4px',
+                fontSize: '9px',
+                lineHeight: 1.4,
+                background: 'rgba(245,158,11,0.12)',
+                border: '1px solid rgba(245,158,11,0.35)',
+                color: 'var(--text-primary, inherit)',
+              }}>
+                {view.clampNotice}
+              </div>
+            )}
+
+            {/* e. Apply & restart */}
+            {busyLabel ? (
+              <div style={{
+                padding: '6px 8px',
+                borderRadius: '4px',
+                fontSize: '10px',
+                background: 'rgba(59,130,246,0.12)',
+                border: '1px solid rgba(59,130,246,0.35)',
+                color: 'var(--text-primary, inherit)',
+                marginBottom: '8px',
+              }}>
+                {busyLabel}
+              </div>
+            ) : dirty ? (
+              <button
+                type="button"
+                onClick={handleApplyServerSettings}
+                style={{
+                  width: '100%',
+                  padding: '7px 10px',
+                  marginBottom: '8px',
+                  background: '#2563eb',
+                  border: 'none',
+                  borderRadius: '4px',
+                  color: '#fff',
+                  fontSize: '10px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                }}
+              >
+                Apply &amp; restart AI server
+              </button>
+            ) : null}
+
+            {/* d. Read-only status line */}
+            <div style={{
+              fontSize: '9px',
+              opacity: 0.85,
+              lineHeight: 1.5,
+              borderTop: '1px solid rgba(148,163,184,0.25)',
+              paddingTop: '6px',
+              color: 'var(--text-primary, inherit)',
+            }}>
+              Server: <strong>{view.serverRunning ? 'running' : 'stopped'}</strong>
+              {view.activeModel ? <> · Model: <strong>{view.activeModel}</strong></> : null}
+              {view.vramUsedBytes != null && view.vramTotalBytes != null ? (
+                <> · VRAM: <strong>{gb(view.vramUsedBytes)} / {gb(view.vramTotalBytes)} GB</strong></>
+              ) : null}
+              {applied ? (
+                <>
+                  {' '}· Applied: <strong>{applied.ctxTokens.toLocaleString()} tokens</strong> ·{' '}
+                  <strong>{applied.parallel} parallel</strong> ·{' '}
+                  <strong>{applied.reasoningEnabled ? 'Deep reasoning' : 'Fast & direct'}</strong>
+                </>
+              ) : (
+                <> · Applied: <strong>defaults on next start</strong></>
+              )}
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Install GGUF model — file picker (recommended) or verified HTTPS download */}
       {!loading && (
         <div style={{

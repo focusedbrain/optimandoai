@@ -205,6 +205,33 @@ const LlmCancelBinaryInstall = {
   route: '/api/llm/binary/install-cancel',
 }
 
+// ── build038: llama-server inference settings ──
+
+const LlmServerConfigGet = {
+  method: 'llm.serverConfigGet' as const,
+  schema: z.void(),
+  http: 'GET' as const,
+  route: '/api/llm/server-config',
+}
+
+const LlmServerConfigSet = {
+  method: 'llm.serverConfigSet' as const,
+  schema: z.object({
+    ctxMode: z.enum(['standard', 'long', 'max']).optional(),
+    parallel: z.union([z.literal(1), z.literal(2), z.literal(4)]).optional(),
+    reasoningEnabled: z.boolean().optional(),
+  }),
+  http: 'POST' as const,
+  route: '/api/llm/server-config',
+}
+
+const LlmServerRestart = {
+  method: 'llm.serverRestart' as const,
+  schema: z.void(),
+  http: 'POST' as const,
+  route: '/api/llm/server-restart',
+}
+
 const LlmSetAiExecutionContext = {
   method: 'llm.setAiExecutionContext' as const,
   schema: z.object({
@@ -407,6 +434,9 @@ const RPC_REGISTRY = [
   LlmInstallLlamaServerBinary,
   LlmBinaryInstallProgress,
   LlmCancelBinaryInstall,
+  LlmServerConfigGet,
+  LlmServerConfigSet,
+  LlmServerRestart,
   LlmSetAiExecutionContext,
   DashboardOpen,
   DashboardStatus,
