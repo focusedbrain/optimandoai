@@ -5,7 +5,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  *  Host GPU    Sandbox using paired Host GPU inference (remote-host + gpu).
  *  GPU         Local machine running with GPU offload.
- *  CPU         Ollama is running on CPU with a CPU-safe model.
+ *  CPU         The local LLM (llama.cpp) is running on CPU with a CPU-safe model.
  *  Info        A backend exists but hardware is unknown or model blocked.
  *  Unavailable No usable backend and no actionable reason.
  * ─────────────────────────────────────────────────────────────────────────────
@@ -14,7 +14,7 @@
  *  - On a Linux sandbox getGpuStatus() probes the local Linux machine and
  *    maps to "GPU Issue" even when a healthy Windows host is paired.
  *  - The resolveInferenceCapability IPC call handles sandbox vs host routing
- *    and probes the *host* Ollama for sandbox devices.
+ *    and probes the *host* local LLM for sandbox devices.
  */
 
 import { useCallback, useEffect, useState } from 'react'

@@ -16,8 +16,11 @@ export function inferenceRoutingUnavailableUserMessage(reason: InferenceRoutingR
       ? `Connection to host AI is incomplete. ${detail}`
       : 'Connection to host AI is incomplete. Try reconnecting from the host.'
   }
+  // Note: `no_local_ollama_no_cross_device_host` is an internal reason-code identifier shared
+  // with `chatWithContextRagOllamaGeneration.ts` / `resolveSandboxInferenceTarget.ts` tests;
+  // left as-is to avoid a wide, low-value rename — only the user-facing copy changes here.
   if (reason === 'no_local_ollama_no_cross_device_host') {
-    return 'No AI available. Either install Ollama on this device, or connect to a host running Ollama.'
+    return 'No AI available. Either install a local LLM (llama.cpp) on this device, or connect to a host running one.'
   }
   return detail?.trim() || 'Inference is not available on this device.'
 }

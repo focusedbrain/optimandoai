@@ -708,7 +708,12 @@ export async function sendHostAiP2pSignalOutbound(params: {
 /** Must stay within coordination-service `tryParseP2pSignalRequest` TTL for `p2p_host_ai_direct_beap_ad` (60s–600s). */
 const HOST_AI_BEAP_AD_TTL_MS = 300_000
 
-/** Nested in `host_ai_route.capabilities` on relay BEAP ads — Sandbox merges into selector (no transport change). */
+/**
+ * Nested in `host_ai_route.capabilities` on relay BEAP ads — Sandbox merges into selector (no transport change).
+ * WIRE-FREEZE: this type name and every field name below are serialized verbatim into the BEAP ad
+ * body (see `buildHostAiDirectBeapAdSignalBody`). Do not rename as part of the Ollama→llama.cpp
+ * internal-naming cleanup — only the *values* changed (`provider: 'llamacpp'`); the wire shape is frozen.
+ */
 export type HostAiBeapAdSignalOllamaCapabilities = {
   provider: 'llamacpp' | 'ollama'
   models_count: number

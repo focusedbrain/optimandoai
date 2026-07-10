@@ -1378,7 +1378,7 @@ function SidepanelOrchestrator() {
         }
 
         if (!status.installed || !status.running) {
-          setLlmError('Ollama not running. Please start it from LLM Settings.')
+          setLlmError('Local LLM (llama.cpp) not running. Please start it from LLM Settings.')
           return
         }
 

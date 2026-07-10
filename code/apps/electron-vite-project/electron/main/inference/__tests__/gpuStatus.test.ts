@@ -57,14 +57,14 @@ describe('gpuStatus', () => {
       })
     })
 
-    it('returns OLLAMA_NOT_RUNNING when llama-server is unreachable everywhere', async () => {
+    it('returns LOCAL_LLM_NOT_RUNNING when llama-server is unreachable everywhere', async () => {
       mockFetchHandlers({
         'http://127.0.0.1:8080/': () => ({ ok: false, json: {} }),
         'http://localhost:8080/': () => ({ ok: false, json: {} }),
       })
       const s = await getGpuStatus()
       expect(s.available).toBe(false)
-      expect(s.reason).toBe('OLLAMA_NOT_RUNNING')
+      expect(s.reason).toBe('LOCAL_LLM_NOT_RUNNING')
     })
 
     it('returns available:true when ps match shows full VRAM residency', async () => {
@@ -106,7 +106,7 @@ describe('gpuStatus', () => {
       const s = await getGpuStatus()
       expect(s.available).toBe(false)
       expect(s.reason).toBeDefined()
-      expect(['MODEL_TOO_LARGE_FOR_GPU', 'GPU_NOT_DETECTED_BY_OLLAMA']).toContain(s.reason)
+      expect(['MODEL_TOO_LARGE_FOR_GPU', 'GPU_NOT_DETECTED_BY_LLAMACPP']).toContain(s.reason)
     })
 
     it('memoizes identical getGpuStatus results for TTL window', async () => {

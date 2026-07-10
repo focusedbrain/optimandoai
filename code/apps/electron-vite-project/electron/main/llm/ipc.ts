@@ -111,6 +111,45 @@ export function registerLlmHandlers() {
     }
   })
   
+  // B0: llama-server binary provisioning (mirrors HTTP /api/llm/binary/* in main.ts)
+  ipcMain.handle('llm:binaryStatus', async () => {
+    try {
+      const { detectRecommendedLlamaServerVariant } = await import('./llamaServerBinaryInstall')
+      const binaryInstalled = localLlmManager.isBinaryAvailable()
+      const recommended = await detectRecommendedLlamaServerVariant()
+      return { ok: true, data: { binaryInstalled, recommendedVariant: recommended.variant, reason: recommended.reason } }
+    } catch (error: any) {
+      console.error('[LLM IPC] binaryStatus failed:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('llm:installLlamaServerBinary', async (_event, variantRaw: unknown) => {
+    try {
+      if (isSandboxMode()) {
+        return { ok: false, error: 'llama-server install is disabled in sandbox mode' }
+      }
+      const variant = variantRaw === 'cuda' || variantRaw === 'vulkan' ? variantRaw : 'cpu'
+      const { installLlamaServerBinary } = await import('./llamaServerBinaryInstall')
+      installLlamaServerBinary(variant).catch((error: Error) => {
+        console.error('[LLM IPC] installLlamaServerBinary failed:', error)
+      })
+      return { ok: true, message: 'llama-server install started', variant }
+    } catch (error: any) {
+      console.error('[LLM IPC] installLlamaServerBinary failed to start:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('llm:binaryInstallProgress', async () => {
+    try {
+      const { getLlamaServerBinaryInstallProgress } = await import('./llamaServerBinaryInstall')
+      return { ok: true, progress: getLlamaServerBinaryInstallProgress() }
+    } catch (error: any) {
+      return { ok: false, error: error.message }
+    }
+  })
+
   // List installed models
   ipcMain.handle('llm:listModels', async () => {
     try {
@@ -489,7 +528,7 @@ export function registerLlmHandlers() {
         isSandbox,
         remoteContext,
         gpuAvailable,
-        ollamaRunning: localLlmRunning,
+        localLlmRunning,
         modelName: modelName ?? null,
         allowCpuOverride,
       })

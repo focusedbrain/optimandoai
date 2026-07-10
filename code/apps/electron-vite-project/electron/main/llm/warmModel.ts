@@ -1,5 +1,5 @@
 /**
- * Shared headless throwaway Ollama warmup — used by startup default warm and mode on-trigger warm.
+ * Shared headless throwaway llama.cpp warmup — used by startup default warm and mode on-trigger warm.
  * Host-local path only; sandbox nodes skip.
  */
 
@@ -9,8 +9,11 @@ import { assertGpuInferenceAvailable } from '../inference/inferenceGate'
 import { getAdaptiveKeepAlive } from './adaptiveWarmupStrategy'
 import { localLlmManager } from './local-llm-manager'
 
-const OLLAMA_READY_POLL_MS = 500
-const OLLAMA_READY_MAX_WAIT_MS = 45_000
+// B2: poll the shared cached prober (via `isRunning` → `probeCached`) rather than raw-probing
+// every 500ms — the cache/backoff inside `LocalLlmManager` now absorbs this cadence, so this
+// loop is a lifecycle-state check, not an independent network prober. Total wait cap unchanged.
+const LOCAL_LLM_READY_POLL_MS = 1_000
+const LOCAL_LLM_READY_MAX_WAIT_MS = 45_000
 
 export type WarmModelResult = {
   ok: boolean
@@ -27,9 +30,9 @@ export async function warmModel(modelId: string, opts?: { keepAlive?: string }):
     return { ok: false, skippedReason: 'effective_sandbox_node' }
   }
 
-  const ollamaUp = await waitForOllamaRunning(OLLAMA_READY_MAX_WAIT_MS)
-  if (!ollamaUp) {
-    return { ok: false, skippedReason: 'ollama_unreachable' }
+  const localLlmUp = await waitForLocalLlmRunning(LOCAL_LLM_READY_MAX_WAIT_MS)
+  if (!localLlmUp) {
+    return { ok: false, skippedReason: 'local_llm_unreachable' }
   }
 
   const keepAlive = opts?.keepAlive ?? getAdaptiveKeepAlive()
@@ -44,7 +47,7 @@ export async function warmModel(modelId: string, opts?: { keepAlive?: string }):
   }
 }
 
-async function waitForOllamaRunning(maxWaitMs: number): Promise<boolean> {
+async function waitForLocalLlmRunning(maxWaitMs: number): Promise<boolean> {
   const deadline = Date.now() + maxWaitMs
   while (Date.now() < deadline) {
     try {
@@ -52,7 +55,7 @@ async function waitForOllamaRunning(maxWaitMs: number): Promise<boolean> {
     } catch {
       /* retry */
     }
-    await new Promise((r) => setTimeout(r, OLLAMA_READY_POLL_MS))
+    await new Promise((r) => setTimeout(r, LOCAL_LLM_READY_POLL_MS))
   }
   return false
 }

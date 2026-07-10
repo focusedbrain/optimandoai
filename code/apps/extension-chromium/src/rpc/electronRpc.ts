@@ -175,6 +175,36 @@ const LlmInstallProgress = {
   route: '/api/llm/install-progress',
 }
 
+// ── B0: llama-server binary provisioning ──
+
+const LlmBinaryStatus = {
+  method: 'llm.binaryStatus' as const,
+  schema: z.void(),
+  http: 'GET' as const,
+  route: '/api/llm/binary/status',
+}
+
+const LlmInstallLlamaServerBinary = {
+  method: 'llm.installLlamaServerBinary' as const,
+  schema: z.object({ variant: z.enum(['cpu', 'cuda', 'vulkan']) }),
+  http: 'POST' as const,
+  route: '/api/llm/binary/install',
+}
+
+const LlmBinaryInstallProgress = {
+  method: 'llm.binaryInstallProgress' as const,
+  schema: z.void(),
+  http: 'GET' as const,
+  route: '/api/llm/binary/install-progress',
+}
+
+const LlmCancelBinaryInstall = {
+  method: 'llm.cancelBinaryInstall' as const,
+  schema: z.void(),
+  http: 'POST' as const,
+  route: '/api/llm/binary/install-cancel',
+}
+
 const LlmSetAiExecutionContext = {
   method: 'llm.setAiExecutionContext' as const,
   schema: z.object({
@@ -373,6 +403,10 @@ const RPC_REGISTRY = [
   LlmActivateModel,
   LlmPerformance,
   LlmInstallProgress,
+  LlmBinaryStatus,
+  LlmInstallLlamaServerBinary,
+  LlmBinaryInstallProgress,
+  LlmCancelBinaryInstall,
   LlmSetAiExecutionContext,
   DashboardOpen,
   DashboardStatus,

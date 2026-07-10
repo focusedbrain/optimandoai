@@ -49,7 +49,7 @@ describe('resolveInferenceCapabilityFromInput — 6 acceptance criteria', () => 
         peerDeviceId: 'win-host-1',
       },
       gpuAvailable: true,   // host GPU probe returned true
-      ollamaRunning: false,
+      localLlmRunning: false,
       modelName: 'gemma3:12b',
     })
     expect(r.backend).toBe('remote-host')
@@ -65,7 +65,7 @@ describe('resolveInferenceCapabilityFromInput — 6 acceptance criteria', () => 
       isSandbox: true,
       remoteContext: { modelName: 'gemma2:2b', baseUrl: 'http://192.168.1.5:8080' },
       gpuAvailable: false,  // host GPU probe: no GPU
-      ollamaRunning: false,
+      localLlmRunning: false,
       modelName: 'gemma2:2b',
     })
     expect(r.backend).toBe('remote-host')
@@ -79,7 +79,7 @@ describe('resolveInferenceCapabilityFromInput — 6 acceptance criteria', () => 
       isSandbox: false,
       remoteContext: null,
       gpuAvailable: true,
-      ollamaRunning: true,
+      localLlmRunning: true,
       modelName: 'gemma3:12b',
     })
     expect(r.backend).toBe('local-gpu')
@@ -87,13 +87,13 @@ describe('resolveInferenceCapabilityFromInput — 6 acceptance criteria', () => 
     expect(r.modelName).toBe('gemma3:12b')
   })
 
-  // Acceptance 3: local Ollama + CPU-safe model + no GPU => local-cpu, hardware:cpu
+  // Acceptance 3: local llm + CPU-safe model + no GPU => local-cpu, hardware:cpu
   it('3. local Ollama + CPU-safe model + no GPU => local-cpu, hardware:cpu', () => {
     const r = resolveInferenceCapabilityFromInput({
       isSandbox: false,
       remoteContext: null,
       gpuAvailable: false,
-      ollamaRunning: true,
+      localLlmRunning: true,
       modelName: 'gemma2:2b',
     })
     expect(r.backend).toBe('local-cpu')
@@ -107,7 +107,7 @@ describe('resolveInferenceCapabilityFromInput — 6 acceptance criteria', () => 
       isSandbox: false,
       remoteContext: null,
       gpuAvailable: false,
-      ollamaRunning: true,
+      localLlmRunning: true,
       modelName: 'gemma3:12b',
     })
     expect(r.backend).toBe('unavailable')
@@ -138,32 +138,32 @@ describe('resolveInferenceCapabilityFromInput — 6 acceptance criteria', () => 
     expect(label(resolveInferenceCapabilityFromInput({
       isSandbox: true,
       remoteContext: { modelName: 'gemma3:12b', baseUrl: 'http://host:8080' },
-      gpuAvailable: true, ollamaRunning: false, modelName: 'gemma3:12b',
+      gpuAvailable: true, localLlmRunning: false, modelName: 'gemma3:12b',
     }))).toBe('Host GPU')
 
     // remote-host + CPU => "CPU" (not "Remote")
     expect(label(resolveInferenceCapabilityFromInput({
       isSandbox: true,
       remoteContext: { modelName: 'gemma2:2b', baseUrl: 'http://host:8080' },
-      gpuAvailable: false, ollamaRunning: false, modelName: 'gemma2:2b',
+      gpuAvailable: false, localLlmRunning: false, modelName: 'gemma2:2b',
     }))).toBe('CPU')
 
     // local-gpu => "GPU"
     expect(label(resolveInferenceCapabilityFromInput({
       isSandbox: false, remoteContext: null,
-      gpuAvailable: true, ollamaRunning: true, modelName: 'gemma3:12b',
+      gpuAvailable: true, localLlmRunning: true, modelName: 'gemma3:12b',
     }))).toBe('GPU')
 
     // local-cpu => "CPU"
     expect(label(resolveInferenceCapabilityFromInput({
       isSandbox: false, remoteContext: null,
-      gpuAvailable: false, ollamaRunning: true, modelName: 'gemma2:2b',
+      gpuAvailable: false, localLlmRunning: true, modelName: 'gemma2:2b',
     }))).toBe('CPU')
 
     // unavailable with reason => "Info"
     expect(label(resolveInferenceCapabilityFromInput({
       isSandbox: false, remoteContext: null,
-      gpuAvailable: false, ollamaRunning: true, modelName: 'gemma3:12b',
+      gpuAvailable: false, localLlmRunning: true, modelName: 'gemma3:12b',
     }))).toBe('Info')
   })
 
@@ -175,7 +175,7 @@ describe('resolveInferenceCapabilityFromInput — 6 acceptance criteria', () => 
       isSandbox: false,
       remoteContext: null,
       gpuAvailable: false,
-      ollamaRunning: true,
+      localLlmRunning: true,
       modelName: 'phi4-mini',
     })
     expect(r.backend).toBe('local-cpu')
@@ -189,7 +189,7 @@ describe('resolveInferenceCapabilityFromInput — edge cases', () => {
   it('sandbox + no remote host falls through to GPU tier', () => {
     const r = resolveInferenceCapabilityFromInput({
       isSandbox: true, remoteContext: null,
-      gpuAvailable: true, ollamaRunning: true, modelName: 'gemma3:12b',
+      gpuAvailable: true, localLlmRunning: true, modelName: 'gemma3:12b',
     })
     expect(r.backend).toBe('local-gpu')
     expect(r.hostHardware).toBe('gpu')
@@ -198,7 +198,7 @@ describe('resolveInferenceCapabilityFromInput — edge cases', () => {
   it('allowCpuOverride permits large model on CPU', () => {
     const r = resolveInferenceCapabilityFromInput({
       isSandbox: false, remoteContext: null,
-      gpuAvailable: false, ollamaRunning: true,
+      gpuAvailable: false, localLlmRunning: true,
       modelName: 'gemma3:12b', allowCpuOverride: true,
     })
     expect(r.backend).toBe('local-cpu')
@@ -209,19 +209,19 @@ describe('resolveInferenceCapabilityFromInput — edge cases', () => {
   it('no model selected => unavailable/no_model_selected', () => {
     const r = resolveInferenceCapabilityFromInput({
       isSandbox: false, remoteContext: null,
-      gpuAvailable: false, ollamaRunning: true, modelName: null,
+      gpuAvailable: false, localLlmRunning: true, modelName: null,
     })
     expect(r.backend).toBe('unavailable')
     expect(r.unavailableReason).toBe('no_model_selected')
   })
 
-  it('ollama not running => unavailable/ollama_not_running', () => {
+  it('local llm not running => unavailable/local_llm_not_running', () => {
     const r = resolveInferenceCapabilityFromInput({
       isSandbox: false, remoteContext: null,
-      gpuAvailable: false, ollamaRunning: false, modelName: 'gemma3:12b',
+      gpuAvailable: false, localLlmRunning: false, modelName: 'gemma3:12b',
     })
     expect(r.backend).toBe('unavailable')
-    expect(r.unavailableReason).toBe('ollama_not_running')
+    expect(r.unavailableReason).toBe('local_llm_not_running')
   })
 
   it('remote-host + unknown hardware (no GPU, large model) => hostHardware:unknown', () => {
@@ -229,7 +229,7 @@ describe('resolveInferenceCapabilityFromInput — edge cases', () => {
       isSandbox: true,
       remoteContext: { modelName: 'gemma3:12b', baseUrl: 'http://host:8080' },
       gpuAvailable: false,
-      ollamaRunning: false,
+      localLlmRunning: false,
       modelName: 'gemma3:12b',
     })
     expect(r.backend).toBe('remote-host')

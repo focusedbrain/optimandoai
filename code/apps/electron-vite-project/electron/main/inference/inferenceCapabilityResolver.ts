@@ -25,7 +25,7 @@ export interface InferenceCapabilityResult {
   backend: InferenceBackend
   /** Active model for the resolved backend. */
   modelName?: string
-  /** Set for `remote-host`: the peer Ollama base URL. */
+  /** Set for `remote-host`: the peer host base URL. */
   remoteBaseUrl?: string
   /** Set for `remote-host`: the handshake pairing identifier. */
   handshakeId?: string
@@ -34,7 +34,7 @@ export interface InferenceCapabilityResult {
   /**
    * Hardware the backend actually uses.
    * `'gpu'`     — model is offloaded to GPU VRAM.
-   * `'cpu'`     — Ollama is running but using CPU only (CPU-safe model).
+   * `'cpu'`     — the local LLM is running but using CPU only (CPU-safe model).
    * `'unknown'` — could not determine hardware (e.g. model not yet loaded,
    *               or host probed but PS endpoint returned no data).
    */
@@ -61,11 +61,11 @@ export interface InferenceCapabilityInput {
   /**
    * `true` when the local GPU can fully offload the selected model.
    * For the remote path this reflects the *host* GPU status
-   * (derived from a remote Ollama probe, not local nvidia-smi).
+   * (derived from a remote host probe, not local nvidia-smi).
    */
   gpuAvailable: boolean
-  /** `true` when the local Ollama port is reachable. */
-  ollamaRunning: boolean
+  /** `true` when the local llama-server port is reachable. */
+  localLlmRunning: boolean
   /** Currently selected / effective model name (`null` = nothing configured). */
   modelName: string | null
   /** Dev escape hatch — mirrors `WRDESK_ALLOW_CPU_INFERENCE=1`. */
@@ -110,16 +110,16 @@ export function isCpuSafeModel(modelName: string): boolean {
  * |------|--------------|---------------------------------------------------|
  * |  1   | remote-host  | Sandbox device + healthy paired host               |
  * |  2   | local-gpu    | GPU probe returned `available: true`               |
- * |  3   | local-cpu    | Ollama running + CPU-safe model (or dev override)  |
+ * |  3   | local-cpu    | Local LLM running + CPU-safe model (or dev override) |
  * |  4   | unavailable  | None of the above                                  |
  *
  * The caller is responsible for supplying the already-resolved `gpuAvailable`
- * and `ollamaRunning` flags — this function does no async I/O itself.
+ * and `localLlmRunning` flags — this function does no async I/O itself.
  */
 export function resolveInferenceCapabilityFromInput(
   input: InferenceCapabilityInput,
 ): InferenceCapabilityResult {
-  const { isSandbox, remoteContext, gpuAvailable, ollamaRunning, modelName, allowCpuOverride } = input
+  const { isSandbox, remoteContext, gpuAvailable, localLlmRunning, modelName, allowCpuOverride } = input
 
   // ── Tier 1: sandbox + healthy remote host ────────────────────────────────
   if (isSandbox && remoteContext != null) {
@@ -156,13 +156,13 @@ export function resolveInferenceCapabilityFromInput(
   }
 
   // ── Tier 3: local CPU (CPU-safe models or dev override) ──────────────────
-  if (ollamaRunning) {
+  if (localLlmRunning) {
     if (!modelName) {
       return {
         backend: 'unavailable',
         hostHardware: 'unknown',
         unavailableReason: 'no_model_selected',
-        userMessage: 'No AI model selected. Configure an Ollama model in Settings.',
+        userMessage: 'No AI model selected. Configure a local llama.cpp model in Settings.',
       }
     }
     if (allowCpuOverride === true) {
@@ -197,14 +197,14 @@ export function resolveInferenceCapabilityFromInput(
       backend: 'unavailable',
       hostHardware: 'unknown',
       unavailableReason: 'no_model_selected',
-      userMessage: 'No AI model selected. Configure an Ollama model in Settings.',
+      userMessage: 'No AI model selected. Configure a local llama.cpp model in Settings.',
     }
   }
   return {
     backend: 'unavailable',
     hostHardware: 'unknown',
-    unavailableReason: 'ollama_not_running',
+    unavailableReason: 'local_llm_not_running',
     modelName,
-    userMessage: 'Ollama is not running. Start Ollama to use local AI inference.',
+    userMessage: 'The local LLM (llama.cpp) is not running. Start it to use local AI inference.',
   }
 }

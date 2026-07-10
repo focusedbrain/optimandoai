@@ -1348,7 +1348,7 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
       const rawMsg = caughtErr instanceof Error ? caughtErr.message : String(caughtErr ?? '')
       const { userMessage } = inboxAiDraftReplyErrorDisplay({
         ok: false,
-        inboxErrorCode: rawMsg.startsWith('LLM_UNAVAILABLE:') ? 'local_ollama_unreachable'
+        inboxErrorCode: rawMsg.startsWith('LLM_UNAVAILABLE:') ? 'local_llm_unreachable'
           : rawMsg.startsWith('LLM_TIMEOUT') ? 'timeout'
           : rawMsg === 'No AI model selected' ? 'no_model_selected'
           : 'generation_failed',

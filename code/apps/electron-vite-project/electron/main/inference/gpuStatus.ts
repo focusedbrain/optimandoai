@@ -1,5 +1,5 @@
 /**
- * GPU / Ollama inference readiness diagnostics for local WR Desk safety gating.
+ * GPU / local llama.cpp inference readiness diagnostics for local WR Desk safety gating.
  * Never throws — returns a structured GpuStatus report for UI and assertions.
  */
 
@@ -20,9 +20,9 @@ const execAsync = promisify(exec)
 
 export type GpuUnavailableReason =
   | 'NVIDIA_DRIVER_MISSING'
-  | 'OLLAMA_NOT_RUNNING'
-  | 'OLLAMA_VERSION_TOO_OLD'
-  | 'GPU_NOT_DETECTED_BY_OLLAMA'
+  | 'LOCAL_LLM_NOT_RUNNING'
+  | 'LOCAL_LLM_VERSION_TOO_OLD'
+  | 'GPU_NOT_DETECTED_BY_LLAMACPP'
   | 'MODEL_TOO_LARGE_FOR_GPU'
   | 'PARTIAL_GPU_OFFLOAD'
   | 'UNKNOWN'
@@ -33,19 +33,19 @@ export interface GpuStatus {
   detail: {
     nvidiaSmiPresent: boolean
     nvidiaSmiOutput: string | null
-    ollamaRunning: boolean
-    ollamaVersion: string | null
+    localLlmRunning: boolean
+    localLlmVersion: string | null
     activeModelOnGpu: boolean | null
     activeModelVramUsed: number | null
     activeModelTotal: number | null
-    ollamaServerLogTail: string | null
+    localLlmServerLogTail: string | null
   }
   userMessage: string
   technicalSummary: string
 }
 
-/** Baseline documented in ops — verify against supported Ollama releases during upgrades. */
-const MIN_GOOD_OLLAMA_VERSION = '0.4.0'
+/** Baseline kept for the (currently unreachable for llama.cpp — see `firstResponsiveLlamacppBase`) version gate. */
+const MIN_GOOD_LLAMACPP_VERSION = '0.4.0'
 const STATUS_TTL_MS = 60_000
 
 type CacheEntry = { at: number; status: GpuStatus }
@@ -109,7 +109,8 @@ function matchPsModelRow(
   return null
 }
 
-async function tryNvidiaSmi(): Promise<{ present: boolean; output: string | null }> {
+/** Reused by B0 (`llamaServerBinaryInstall.ts`) to recommend a CUDA vs. CPU release variant. */
+export async function detectNvidiaSmi(): Promise<{ present: boolean; output: string | null }> {
   try {
     const { stdout } = await execAsync('nvidia-smi', { timeout: 8_000, windowsHide: true })
     const o = stdout?.trim() || ''
@@ -123,19 +124,19 @@ async function tryNvidiaSmi(): Promise<{ present: boolean; output: string | null
   }
 }
 
-function ollamaServerLogCandidates(): string[] {
+function localLlmServerLogCandidates(): string[] {
   const out: string[] = []
   if (process.platform === 'win32') {
     const lad = process.env.LOCALAPPDATA
-    if (lad) out.push(path.join(lad, 'Ollama', 'server.log'))
+    if (lad) out.push(path.join(lad, 'llama.cpp', 'server.log'))
   }
   const home = os.homedir()
-  out.push(path.join(home, '.ollama', 'logs', 'server.log'))
+  out.push(path.join(home, '.llama.cpp', 'logs', 'server.log'))
   return [...new Set(out)]
 }
 
-async function readOllamaLogTail(maxLines = 500): Promise<string | null> {
-  for (const p of ollamaServerLogCandidates()) {
+async function readLocalLlmLogTail(maxLines = 500): Promise<string | null> {
+  for (const p of localLlmServerLogCandidates()) {
     try {
       if (!fs.existsSync(p)) continue
       const raw = fs.readFileSync(p, 'utf-8')
@@ -155,30 +156,30 @@ function refineReasonFromLogs(
 ): GpuUnavailableReason {
   if (!tail) return fallback
   const lower = tail.toLowerCase()
-  if (lower.includes('no compatible gpus were discovered')) return 'GPU_NOT_DETECTED_BY_OLLAMA'
-  if (lower.includes('cuda driver insufficient')) return 'GPU_NOT_DETECTED_BY_OLLAMA'
+  if (lower.includes('no compatible gpus were discovered')) return 'GPU_NOT_DETECTED_BY_LLAMACPP'
+  if (lower.includes('cuda driver insufficient')) return 'GPU_NOT_DETECTED_BY_LLAMACPP'
   if (lower.includes('gpu memory insufficient')) return 'MODEL_TOO_LARGE_FOR_GPU'
   if (/loaded\s+\d+\s+layers\s+on\s+gpu/i.test(tail)) return 'PARTIAL_GPU_OFFLOAD'
   return fallback
 }
 
-function userMessagesFor(reason: GpuUnavailableReason, minVersion = MIN_GOOD_OLLAMA_VERSION): string {
+function userMessagesFor(reason: GpuUnavailableReason, minVersion = MIN_GOOD_LLAMACPP_VERSION): string {
   switch (reason) {
     case 'NVIDIA_DRIVER_MISSING':
       return 'NVIDIA GPU driver is not installed or not detected. Install/update the NVIDIA driver from your GPU manufacturer\'s website. AI features are disabled until GPU inference is available.'
-    case 'OLLAMA_NOT_RUNNING':
-      return 'Ollama is not running. AI features require Ollama to be running with GPU support.'
-    case 'OLLAMA_VERSION_TOO_OLD':
-      return `Ollama version is too old. Please update Ollama to at least version ${minVersion}.`
-    case 'GPU_NOT_DETECTED_BY_OLLAMA':
-      return 'Ollama cannot detect a GPU. Check that your GPU driver is current and reinstall Ollama if needed.'
+    case 'LOCAL_LLM_NOT_RUNNING':
+      return 'The local LLM (llama.cpp) is not running. AI features require it to be running with GPU support.'
+    case 'LOCAL_LLM_VERSION_TOO_OLD':
+      return `The local LLM (llama.cpp) version is too old. Please update to at least version ${minVersion}.`
+    case 'GPU_NOT_DETECTED_BY_LLAMACPP':
+      return 'llama.cpp cannot detect a GPU. Check that your GPU driver is current and reinstall llama-server if needed.'
     case 'MODEL_TOO_LARGE_FOR_GPU':
       return 'Current model (gemma3:12b) does not fit in available GPU memory. Switch to a smaller model (e.g. llama3.1:8b) in Settings.'
     case 'PARTIAL_GPU_OFFLOAD':
       return 'Current model is partially running on CPU due to insufficient GPU memory. AI features are disabled to prevent thermal damage. Switch to a smaller model in Settings.'
     case 'UNKNOWN':
     default:
-      return 'GPU inference could not be verified. Ensure Ollama is running with a GPU-accelerated model load before using AI features.'
+      return 'GPU inference could not be verified. Ensure the local LLM (llama.cpp) is running with a GPU-accelerated model load before using AI features.'
   }
 }
 
@@ -231,6 +232,13 @@ async function fetchV1ModelNames(origin: string): Promise<string[]> {
   return names
 }
 
+/**
+ * llama-server has no built-in equivalent of `ollama ps` (per-model VRAM residency). This always
+ * returns `[]` for a real llama.cpp endpoint, which routes `probeGpuInferenceStatus` down the
+ * "optimistic allow" branch below (model not matched → assume available). Pre-existing behavior,
+ * carried over from the Ollama probe as-is; a real llama.cpp VRAM-offload signal is a separate,
+ * larger feature and out of scope for this cleanup (no invented mechanisms).
+ */
 async function fetchPsRows(
   origin: string,
 ): Promise<Array<{ name?: string; model?: string; size?: number; size_vram?: number }>> {
@@ -240,12 +248,12 @@ async function fetchPsRows(
   return Array.isArray(models) ? (models as Array<{ name?: string; model?: string; size?: number; size_vram?: number }>) : []
 }
 
-type ProbeScope = 'local-machine' | 'remote-ollama-only'
+type ProbeScope = 'local-machine' | 'remote-llm-only'
 
 async function probeGpuInferenceStatus(params: {
   httpBases: string[]
   modelHints: string[]
-  /** When probing a remote LAN Ollama, skip NVIDIA-SMI — local GPU driver is unrelated. */
+  /** When probing a remote LAN host, skip NVIDIA-SMI — local GPU driver is unrelated. */
   scope: ProbeScope
 }): Promise<GpuStatus> {
   const { httpBases, modelHints, scope } = params
@@ -256,7 +264,7 @@ async function probeGpuInferenceStatus(params: {
 
   if (scope === 'local-machine') {
     if (process.platform !== 'darwin') {
-      const smi = await tryNvidiaSmi()
+      const smi = await detectNvidiaSmi()
       nvidiaSmiPresent = smi.present
       nvidiaSmiOutput = smi.output
       if (!smi.present) {
@@ -271,7 +279,7 @@ async function probeGpuInferenceStatus(params: {
     nvidiaSmiOutput = null
   }
 
-  const logTail = await readOllamaLogTail(500)
+  const logTail = await readLocalLlmLogTail(500)
 
   if (stoppedForNvidia) {
     const reason: GpuUnavailableReason = 'NVIDIA_DRIVER_MISSING'
@@ -282,12 +290,12 @@ async function probeGpuInferenceStatus(params: {
       detail: {
         nvidiaSmiPresent,
         nvidiaSmiOutput,
-        ollamaRunning: false,
-        ollamaVersion: null,
+        localLlmRunning: false,
+        localLlmVersion: null,
         activeModelOnGpu: null,
         activeModelVramUsed: null,
         activeModelTotal: null,
-        ollamaServerLogTail: logTail,
+        localLlmServerLogTail: logTail,
       },
       userMessage,
       technicalSummary: buildTechnicalSummary({ reason, stoppedForNvidia, scope }),
@@ -296,44 +304,44 @@ async function probeGpuInferenceStatus(params: {
 
   const alive = await firstResponsiveLlamacppBase(bases)
   if (!alive) {
-    const reason: GpuUnavailableReason = 'OLLAMA_NOT_RUNNING'
+    const reason: GpuUnavailableReason = 'LOCAL_LLM_NOT_RUNNING'
     return {
       available: false,
       reason,
       detail: {
         nvidiaSmiPresent,
         nvidiaSmiOutput,
-        ollamaRunning: false,
-        ollamaVersion: null,
+        localLlmRunning: false,
+        localLlmVersion: null,
         activeModelOnGpu: null,
         activeModelVramUsed: null,
         activeModelTotal: null,
-        ollamaServerLogTail: logTail,
+        localLlmServerLogTail: logTail,
       },
       userMessage: userMessagesFor(reason),
       technicalSummary: buildTechnicalSummary({ basesTried: bases, reason }),
     }
   }
 
-  const { base: responsiveBase, version: ollamaVersion } = alive
+  const { base: responsiveBase, version: localLlmVersion } = alive
 
-  if (ollamaVersion && !semverAtLeast(ollamaVersion, MIN_GOOD_OLLAMA_VERSION)) {
-    const refined: GpuUnavailableReason = 'OLLAMA_VERSION_TOO_OLD'
+  if (localLlmVersion && !semverAtLeast(localLlmVersion, MIN_GOOD_LLAMACPP_VERSION)) {
+    const refined: GpuUnavailableReason = 'LOCAL_LLM_VERSION_TOO_OLD'
     return {
       available: false,
       reason: refined,
       detail: {
         nvidiaSmiPresent,
         nvidiaSmiOutput,
-        ollamaRunning: true,
-        ollamaVersion,
+        localLlmRunning: true,
+        localLlmVersion,
         activeModelOnGpu: null,
         activeModelVramUsed: null,
         activeModelTotal: null,
-        ollamaServerLogTail: logTail,
+        localLlmServerLogTail: logTail,
       },
       userMessage: userMessagesFor(refined),
-      technicalSummary: buildTechnicalSummary({ ollamaVersion, minimum: MIN_GOOD_OLLAMA_VERSION }),
+      technicalSummary: buildTechnicalSummary({ localLlmVersion, minimum: MIN_GOOD_LLAMACPP_VERSION }),
     }
   }
 
@@ -373,12 +381,12 @@ async function probeGpuInferenceStatus(params: {
       detail: {
         nvidiaSmiPresent,
         nvidiaSmiOutput,
-        ollamaRunning: true,
-        ollamaVersion,
+        localLlmRunning: true,
+        localLlmVersion,
         activeModelOnGpu: null,
         activeModelVramUsed: null,
         activeModelTotal: null,
-        ollamaServerLogTail: logTail,
+        localLlmServerLogTail: logTail,
       },
       userMessage: 'GPU inference looks available (model not loaded yet; first request loads weights).',
       technicalSummary: buildTechnicalSummary({ responsiveBase, activeModel, rows: rows.length }),
@@ -390,7 +398,7 @@ async function probeGpuInferenceStatus(params: {
   const eps = Math.max(match.size * 0.015, 8 * 1024 * 1024)
 
   if (match.size_vram <= 0) {
-    reason = refineReasonFromLogs(logTail, nvidiaSmiPresent ? 'MODEL_TOO_LARGE_FOR_GPU' : 'GPU_NOT_DETECTED_BY_OLLAMA')
+    reason = refineReasonFromLogs(logTail, nvidiaSmiPresent ? 'MODEL_TOO_LARGE_FOR_GPU' : 'GPU_NOT_DETECTED_BY_LLAMACPP')
     if (!nvidiaSmiPresent && process.platform === 'darwin') {
       reason = refineReasonFromLogs(logTail, 'MODEL_TOO_LARGE_FOR_GPU')
     }
@@ -409,12 +417,12 @@ async function probeGpuInferenceStatus(params: {
       detail: {
         nvidiaSmiPresent,
         nvidiaSmiOutput,
-        ollamaRunning: true,
-        ollamaVersion,
+        localLlmRunning: true,
+        localLlmVersion,
         activeModelOnGpu: true,
         activeModelVramUsed,
         activeModelTotal,
-        ollamaServerLogTail: logTail,
+        localLlmServerLogTail: logTail,
       },
       userMessage: 'GPU inference is available.',
       technicalSummary: buildTechnicalSummary({ responsiveBase, activeModel }),
@@ -429,12 +437,12 @@ async function probeGpuInferenceStatus(params: {
     detail: {
       nvidiaSmiPresent,
       nvidiaSmiOutput,
-      ollamaRunning: true,
-      ollamaVersion,
+      localLlmRunning: true,
+      localLlmVersion,
       activeModelOnGpu,
       activeModelVramUsed,
       activeModelTotal,
-      ollamaServerLogTail: logTail,
+      localLlmServerLogTail: logTail,
     },
     userMessage: userMessagesFor(refined),
     technicalSummary: buildTechnicalSummary({
@@ -462,7 +470,7 @@ export async function getGpuStatus(): Promise<GpuStatus> {
 }
 
 /**
- * Probes GPU offload for Ollama at a specific origin (e.g. Sandbox → Host LAN URL).
+ * Probes GPU offload for a llama.cpp endpoint at a specific origin (e.g. Sandbox → Host LAN URL).
  */
 export async function getGpuInferenceStatusRemote(origin: string, modelBareHint: string): Promise<GpuStatus> {
   const o = origin.replace(/\/$/, '')
@@ -473,7 +481,7 @@ export async function getGpuInferenceStatusRemote(origin: string, modelBareHint:
   const status = await probeGpuInferenceStatus({
     httpBases: [o],
     modelHints: [modelBareHint],
-    scope: 'remote-ollama-only',
+    scope: 'remote-llm-only',
   })
   remoteCache.set(key, { at: now, status })
   return status

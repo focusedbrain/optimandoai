@@ -219,7 +219,7 @@ interface IntegrityBridge {
   getStatus: () => Promise<IntegrityStatus>
 }
 
-/** Ollama status payload from `ollamaManager.getStatus()` / `llm:getStatus`. */
+/** Local llama.cpp status payload from `localLlmManager.getStatus()` / `llm:getStatus`. */
 interface LlmOllamaStatus {
   installed: boolean
   running: boolean
@@ -277,8 +277,8 @@ interface GpuStatusForUi {
 
 /** Block reason returned by `llm:resolveAutosortRuntime`. */
 type AutosortBlockReason =
-  | 'provider_not_ollama'
-  | 'ollama_not_running'
+  | 'provider_not_local_llm'
+  | 'local_llm_not_running'
   | 'no_model_installed'
   | 'no_stored_model_preference'
   | 'stored_model_not_installed'
@@ -292,7 +292,7 @@ interface ResolvedInboxRuntime {
   storedModelId: string | null
   storedModelInstalled: boolean
   installedModels: string[]
-  ollamaRunning: boolean
+  localLlmRunning: boolean
   gpuClassification: 'gpu_capable' | 'gpu_unconfirmed' | 'cpu_likely' | 'unknown'
   gpuEvidence: string | undefined
   autosortAllowed: boolean

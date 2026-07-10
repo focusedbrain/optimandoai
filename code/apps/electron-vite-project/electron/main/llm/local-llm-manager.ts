@@ -95,6 +95,24 @@ export class LocalLlmManager {
   private _modelsInFlight: Promise<InstalledModel[]> | null = null
   private readonly MODELS_CACHE_TTL_MS = 600_000
 
+  // --- Shared cached probe (B2): single underlying probe for checkInstalled/getStatus/
+  // isRunning/listModelsRaw. TTL when healthy; exponential backoff while down so a stopped
+  // or not-yet-installed server does not get hammered by every uncoordinated caller.
+  private _probeCache: {
+    at: number
+    result: { ok: boolean; serverReachable: boolean; baseUrl: string; modelCount: number }
+  } | null = null
+  private _probeInFlight: Promise<{
+    ok: boolean
+    serverReachable: boolean
+    baseUrl: string
+    modelCount: number
+  }> | null = null
+  private _probeBackoffMs = 2_000
+  private readonly PROBE_OK_TTL_MS = 3_000
+  private readonly PROBE_BACKOFF_BASE_MS = 2_000
+  private readonly PROBE_BACKOFF_MAX_MS = 30_000
+
   constructor() {
     this.serverPort = DEFAULT_LLAMACPP_PORT
     this.baseUrl = `http://127.0.0.1:${this.serverPort}`
@@ -301,7 +319,20 @@ export class LocalLlmManager {
     }
   }
 
-  async probeHttpModelsWithLogging(): Promise<{ ok: boolean; baseUrl: string; modelCount: number }> {
+  /**
+   * `ok` = "usable somehow" (server reachable OR GGUF found on disk) — kept for
+   * `checkInstalled()`'s historical "is there anything to work with" semantics.
+   * `serverReachable` = strictly "llama-server answered over HTTP" — the ONLY field B1
+   * consumers (`serverRunning`, `isRunning`, `getStatus().running`) may use. Do not derive
+   * "is the server running" from `ok`: a disk-only GGUF match must never report the server
+   * as reachable (that was the root cause of the `ollama_ok: true`-while-down regression).
+   */
+  async probeHttpModelsWithLogging(): Promise<{
+    ok: boolean
+    serverReachable: boolean
+    baseUrl: string
+    modelCount: number
+  }> {
     const bases = this.collectHttpBases()
     for (const b of bases) {
       try {
@@ -320,7 +351,7 @@ export class LocalLlmManager {
         }
         this.applyResolvedBaseUrl(b)
         console.log(`[HOST_PROVIDER] llamacpp_probe method=http endpoint=${b} ok=true models=${total}`)
-        return { ok: true, baseUrl: b, modelCount: total }
+        return { ok: true, serverReachable: true, baseUrl: b, modelCount: total }
       } catch {
         console.log(`[HOST_PROVIDER] llamacpp_probe method=http endpoint=${b} ok=false reason=unreachable`)
       }
@@ -331,14 +362,72 @@ export class LocalLlmManager {
       console.log(
         `[HOST_PROVIDER] llamacpp_probe method=disk endpoint=${b} ok=true models=${diskOnly.length} server=offline`,
       )
-      return { ok: true, baseUrl: b, modelCount: diskOnly.length }
+      return { ok: true, serverReachable: false, baseUrl: b, modelCount: diskOnly.length }
     }
     console.log('[HOST_PROVIDER] llamacpp_probe method=http ok=false reason=unreachable')
-    return { ok: false, baseUrl: bases[0] ?? `http://127.0.0.1:${DEFAULT_LLAMACPP_PORT}`, modelCount: 0 }
+    return {
+      ok: false,
+      serverReachable: false,
+      baseUrl: bases[0] ?? `http://127.0.0.1:${DEFAULT_LLAMACPP_PORT}`,
+      modelCount: 0,
+    }
   }
 
-  async probeHttpTagsWithLogging(): Promise<{ ok: boolean; baseUrl: string; modelCount: number }> {
+  async probeHttpTagsWithLogging(): Promise<{
+    ok: boolean
+    serverReachable: boolean
+    baseUrl: string
+    modelCount: number
+  }> {
     return this.probeHttpModelsWithLogging()
+  }
+
+  /**
+   * Shared cached prober (B2) — wraps {@link probeHttpModelsWithLogging} with a short TTL
+   * cache while healthy and exponential backoff (2s → 30s) while unreachable, so uncoordinated
+   * callers (UI polling, warmup poll loop, BEAP ad gate, provider status) collapse onto a single
+   * underlying network probe instead of firing one each. All read paths in this class
+   * (`checkInstalled`, `getStatus`, `isRunning`, `listModelsRaw`) should call this instead of the
+   * raw prober.
+   */
+  async probeCached(): Promise<{
+    ok: boolean
+    serverReachable: boolean
+    baseUrl: string
+    modelCount: number
+  }> {
+    const now = Date.now()
+    if (this._probeCache) {
+      // Cache/backoff is keyed on `serverReachable`, not `ok` — a disk-only match must not
+      // reset the backoff clock as if the server had actually answered.
+      const ttl = this._probeCache.result.serverReachable ? this.PROBE_OK_TTL_MS : this._probeBackoffMs
+      if (now - this._probeCache.at < ttl) {
+        return this._probeCache.result
+      }
+    }
+    if (this._probeInFlight) return this._probeInFlight
+    this._probeInFlight = this.probeHttpModelsWithLogging().then(
+      (result) => {
+        this._probeCache = { at: Date.now(), result }
+        this._probeBackoffMs = result.serverReachable
+          ? this.PROBE_BACKOFF_BASE_MS
+          : Math.min(this._probeBackoffMs * 2, this.PROBE_BACKOFF_MAX_MS)
+        this._probeInFlight = null
+        return result
+      },
+      (err) => {
+        this._probeInFlight = null
+        throw err
+      },
+    )
+    return this._probeInFlight
+  }
+
+  /** Force the next {@link probeCached} call to re-probe immediately (e.g. after install/start). */
+  invalidateProbeCache(): void {
+    this._probeCache = null
+    this._probeInFlight = null
+    this._probeBackoffMs = this.PROBE_BACKOFF_BASE_MS
   }
 
   async checkInstalled(): Promise<boolean> {
@@ -346,7 +435,7 @@ export class LocalLlmManager {
       return this.scanGgufModelsOnDisk().length > 0
     }
     try {
-      return (await this.probeHttpModelsWithLogging()).ok || this.scanGgufModelsOnDisk().length > 0
+      return (await this.probeCached()).ok || this.scanGgufModelsOnDisk().length > 0
     } catch {
       return this.scanGgufModelsOnDisk().length > 0
     }
@@ -445,9 +534,11 @@ export class LocalLlmManager {
   }
 
   async isRunning(): Promise<boolean> {
-    const r = await this.probeHttpModelsWithLogging()
-    if (r.ok && (await this.isServerResponding())) return true
-    return false
+    // B2: read the shared cached probe only — do not layer an extra uncached `/health`
+    // fetch on top (that previously defeated the cache/backoff for every caller of isRunning).
+    // Uses `serverReachable` (real HTTP signal), never `ok` (which also covers disk-only).
+    const r = await this.probeCached()
+    return r.serverReachable
   }
 
   async stop(): Promise<void> {
@@ -473,9 +564,13 @@ export class LocalLlmManager {
   }
 
   async getStatus(): Promise<LocalLlmStatus> {
-    const probe = await this.probeHttpModelsWithLogging()
+    // B2: `running`/`installed` both derive from the single shared cached probe — no
+    // separate uncached `/health` round trip per status call. `running` uses the strict
+    // `serverReachable` signal; `installed` keeps the broader "usable somehow" (server OR
+    // disk) semantics that `checkInstalled()` also uses, via `probe.ok`.
+    const probe = await this.probeCached()
     const installed = probe.ok
-    const running = await this.isServerResponding()
+    const running = probe.serverReachable
     const version = installed ? await this.getVersion() : undefined
 
     let modelsInstalled: InstalledModel[] = []
@@ -494,7 +589,7 @@ export class LocalLlmManager {
       }
     }
 
-    const localRuntime = await buildLocalLlmRuntimeInfo({ localLlmRunning: probe.ok, activeModel })
+    const localRuntime = await buildLocalLlmRuntimeInfo({ localLlmRunning: probe.serverReachable, activeModel })
 
     return {
       installed,
@@ -525,21 +620,18 @@ export class LocalLlmManager {
       if (!response.ok) return null
       return response.json() as Promise<OpenAiModelsResponse>
     }
+    // B2: consult the shared cached probe first — while backed off (server known-down), skip
+    // the direct network attempt entirely and serve from disk instead of firing an independent
+    // uncached fetch every time the model list is requested.
+    const pr = await this.probeCached()
+    if (!pr.serverReachable) {
+      return this.scanGgufModelsOnDisk()
+    }
     try {
       const data = await fetchModels(this.baseUrl)
       if (data) return this.parseOpenAiModelsResponse(data)
     } catch (error) {
       console.error('[LocalLlm] Error listing models from server:', error)
-    }
-    const disk = this.scanGgufModelsOnDisk()
-    if (disk.length > 0) return disk
-    const pr = await this.probeHttpModelsWithLogging()
-    if (!pr.ok) return []
-    try {
-      const data = await fetchModels(this.baseUrl)
-      if (data) return this.parseOpenAiModelsResponse(data)
-    } catch (error) {
-      console.error('[LocalLlm] Error listing models after probe:', error)
     }
     return this.scanGgufModelsOnDisk()
   }
@@ -580,6 +672,13 @@ export class LocalLlmManager {
     this._modelsCacheTime = 0
     this._modelsCacheValidEpoch = -1
     this._modelsInFlight = null
+    this.invalidateProbeCache()
+  }
+
+  /** Re-resolve the server binary path (bundled → Windows install dir → PATH) after a fresh B0 install. */
+  refreshServerBinaryPath(): void {
+    this.initializeServerBinaryPath()
+    this.invalidateProbeCache()
   }
 
   async getEffectiveChatModelName(): Promise<string | null> {
@@ -672,7 +771,9 @@ export class LocalLlmManager {
   }
 
   async chat(modelId: string, messages: ChatMessage[], opts?: { keepAlive?: string }): Promise<ChatResponse> {
-    void opts?.keepAlive ?? getAdaptiveKeepAlive()
+    // llama-server's OpenAI-compatible endpoint has no `keep_alive` concept (Ollama-specific);
+    // kept as a no-op read so callers passing `opts.keepAlive` don't need updating yet.
+    void (opts?.keepAlive ?? getAdaptiveKeepAlive())
     const t0 = Date.now()
     localLlmRuntimeInFlightDelta(1)
     try {
@@ -717,6 +818,10 @@ export class LocalLlmManager {
 
   getBaseUrl(): string {
     return this.baseUrl
+  }
+
+  getPort(): number {
+    return this.serverPort
   }
 
   getModelsDirectory(): string {

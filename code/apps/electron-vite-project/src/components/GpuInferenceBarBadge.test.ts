@@ -39,7 +39,7 @@ describe('GpuInferenceBarBadge label mapping', () => {
       isSandbox: true,
       remoteContext: { modelName: 'gemma3:12b', baseUrl: null, handshakeId: 'h1' },
       gpuAvailable: true,
-      ollamaRunning: false,
+      localLlmRunning: false,
       modelName: 'gemma3:12b',
     })
     expect(cap.backend).toBe('remote-host')
@@ -52,7 +52,7 @@ describe('GpuInferenceBarBadge label mapping', () => {
       isSandbox: false,
       remoteContext: null,
       gpuAvailable: true,
-      ollamaRunning: true,
+      localLlmRunning: true,
       modelName: 'gemma3:12b',
     })
     expect(LABEL[toVariant(cap)]).toBe('GPU')
@@ -63,7 +63,7 @@ describe('GpuInferenceBarBadge label mapping', () => {
       isSandbox: true,
       remoteContext: { modelName: 'gemma3:12b' },
       gpuAvailable: false,
-      ollamaRunning: false,
+      localLlmRunning: false,
       modelName: 'gemma3:12b',
     })
     expect(LABEL[toVariant(cap)]).toBe('Info')

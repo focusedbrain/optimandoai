@@ -13,8 +13,8 @@ import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../llm/localLlmPaths'
 
 export type InboxAiErrorCode =
   | 'no_model_selected'
-  | 'local_ollama_unreachable'
-  | 'remote_ollama_unreachable'
+  | 'local_llm_unreachable'
+  | 'remote_llm_unreachable'
   | 'beap_endpoint_missing'
   | 'generation_failed'
   | 'timeout'
@@ -111,10 +111,10 @@ export function classifyInboxAiError(
   }
 
   // Circuit-breaker or GPU-gate block: thrown as `LLM_UNAVAILABLE: <reason>`.
-  // Classify as local_ollama_unreachable so the renderer can surface a meaningful message
+  // Classify as local_llm_unreachable so the renderer can surface a meaningful message
   // (e.g. "paused after repeated timeouts") rather than the generic generation-failed banner.
   if (msg.startsWith('LLM_UNAVAILABLE:')) {
-    return { code: 'local_ollama_unreachable', debug: { ...debugBase, failureCode: 'llm_unavailable' } }
+    return { code: 'local_llm_unreachable', debug: { ...debugBase, failureCode: 'llm_unavailable' } }
   }
 
   // Validator subprocess not yet running (race between vault.unlock non-awaited start
@@ -150,14 +150,16 @@ export function classifyInboxAiError(
   }
 
   if (fc && REMOTE_OLLAMA_CODES.has(fc)) {
+    // WIRE-FREEZE: `lane === 'ollama_direct'` compares against the frozen transport/lane
+    // wire value — only the InboxAiErrorCode result values below are renamed.
     if (lane === 'ollama_direct' || lane === 'beap') {
-      return { code: 'remote_ollama_unreachable', debug: debugBase }
+      return { code: 'remote_llm_unreachable', debug: debugBase }
     }
     if (lane === 'local' || lane === undefined) {
-      return { code: 'local_ollama_unreachable', debug: debugBase }
+      return { code: 'local_llm_unreachable', debug: debugBase }
     }
     return {
-      code: !looksLikeLocalUrl(baseUrl) ? 'remote_ollama_unreachable' : 'local_ollama_unreachable',
+      code: !looksLikeLocalUrl(baseUrl) ? 'remote_llm_unreachable' : 'local_llm_unreachable',
       debug: debugBase,
     }
   }
@@ -167,12 +169,12 @@ export function classifyInboxAiError(
       transportFailureMessage(msg) &&
       looksLikeLocalUrl(baseUrl ?? HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE)
     ) {
-      return { code: 'local_ollama_unreachable', debug: debugBase }
+      return { code: 'local_llm_unreachable', debug: debugBase }
     }
   }
 
   if (remoteLane && transportFailureMessage(msg)) {
-    return { code: 'remote_ollama_unreachable', debug: debugBase }
+    return { code: 'remote_llm_unreachable', debug: debugBase }
   }
 
   if (/embed|embedding|\/api\/embed|semantic/i.test(msg) && !/\/api\/chat/i.test(msg)) {

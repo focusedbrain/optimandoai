@@ -1,9 +1,10 @@
 /**
  * Host-only: push authenticated `p2p_host_ai_direct_beap_ad` over coordination so the peer sandbox
- * learns Host Ollama capabilities (model roster, `gpu_inference_available`) via the sealed-relay plane.
+ * learns Host llama.cpp capabilities (model roster, `gpu_inference_available`) via the sealed-relay plane.
  *
- * Direct-LAN ingest is retired; publish is gated on coordination + ledger host role + policy + Ollama models —
- * not on a local MVP direct BEAP listener URL.
+ * Direct-LAN ingest is retired; publish is gated on coordination + ledger host role + policy + llama.cpp
+ * models (`serverRunning && modelsInstalled >= 1`, see `getLocalLlmProviderStatus`) — not on a local
+ * MVP direct BEAP listener URL.
  */
 
 import { listHandshakeRecords } from '../handshake/db'
@@ -34,11 +35,19 @@ let lastHostBeapAdPublishAllAt = 0
 const publishCooldownMs = 2_000
 const adSeqByHandshake = new Map<string, number>()
 
-const REPUBLISH_RETRY_MS = 2_800
+// B2: backoff instead of a fixed-interval retry loop while gated (e.g. waiting on
+// llamacpp_models_gate / no_coordination) — starts at the old 2.8s cadence and doubles
+// up to a 30s cap so a long-gated host does not keep firing ~64 fixed-interval attempts.
+const REPUBLISH_RETRY_BASE_MS = 2_800
+const REPUBLISH_RETRY_MAX_MS = 30_000
 const MAX_REPUBLISH_RETRIES = 64
 let republishRetryAttempts = 0
 let republishTimer: ReturnType<typeof setTimeout> | null = null
 let republishDbRef: any = null
+
+function nextRepublishBackoffMs(attempt: number): number {
+  return Math.min(REPUBLISH_RETRY_BASE_MS * 2 ** Math.max(0, attempt - 1), REPUBLISH_RETRY_MAX_MS)
+}
 
 function nextAdSeq(handshakeId: string): number {
   const hid = handshakeId.trim()
@@ -65,13 +74,14 @@ function scheduleHostAiBeapAdRepublishRetry(db: any, skipReason: string): void {
   if (republishTimer) {
     return
   }
+  const delayMs = nextRepublishBackoffMs(republishRetryAttempts + 1)
   republishTimer = setTimeout(() => {
     republishTimer = null
     republishRetryAttempts += 1
     void publishHostAiDirectBeapAdvertisementsForEligibleHost(republishDbRef, {
       context: `republish_after_${skipReason}`,
     })
-  }, REPUBLISH_RETRY_MS)
+  }, delayMs)
 }
 
 /** @internal */
@@ -141,7 +151,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
       directBeapUrlPresent: directLanEndpointPresent,
       coordinationReady,
       publishPlane: 'sealed_relay',
-      ollamaOk: null,
+      llamaServerOk: null,
       modelsCount: null,
       skipReason,
       published: false,
@@ -166,7 +176,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
       directBeapUrlPresent: directLanEndpointPresent,
       coordinationReady: false,
       publishPlane: 'sealed_relay',
-      ollamaOk: null,
+      llamaServerOk: null,
       modelsCount: null,
       skipReason: 'coordination_unavailable',
       published: false,
@@ -188,7 +198,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         directBeapUrlPresent: directLanEndpointPresent,
         coordinationReady,
         publishPlane: 'sealed_relay',
-        ollamaOk: null,
+        llamaServerOk: null,
         modelsCount: null,
         skipReason: 'effective_role_not_exclusive_host',
         published: false,
@@ -210,7 +220,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         directBeapUrlPresent: directLanEndpointPresent,
         coordinationReady,
         publishPlane: 'sealed_relay',
-        ollamaOk: null,
+        llamaServerOk: null,
         modelsCount: null,
         skipReason: 'cannot_publish_host_endpoint',
         published: false,
@@ -220,21 +230,25 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
     return
   }
 
-  const ollama = await hostAiBeapAdLocalOllamaModelRoster()
+  // `providerStatus` here is the llama.cpp model roster (real reachability via
+  // `hostAiBeapAdLocalOllamaModelRoster` → `getLocalLlmProviderStatus`, B1).
+  const providerStatus = await hostAiBeapAdLocalOllamaModelRoster()
   const { isGpuInferenceAvailable } = await import('../inference/inferenceGate')
   const hostGpuAvailable = await isGpuInferenceAvailable()
-  const ollamaCaps: HostAiBeapAdSignalOllamaCapabilities = {
+  // WIRE-FREEZE: `HostAiBeapAdSignalOllamaCapabilities` and its field names are serialized
+  // into the BEAP ad `host_ai_route.capabilities` payload sent to the peer — do not rename.
+  const providerCaps: HostAiBeapAdSignalOllamaCapabilities = {
     provider: 'llamacpp',
-    models_count: ollama.models_count,
-    available: ollama.models_count > 0,
-    models: ollama.models,
-    active_model_id: ollama.active_model_id,
-    active_model_name: ollama.active_model_name,
-    model_source: ollama.model_source,
+    models_count: providerStatus.models_count,
+    available: providerStatus.models_count > 0,
+    models: providerStatus.models,
+    active_model_id: providerStatus.active_model_id,
+    active_model_name: providerStatus.active_model_name,
+    model_source: providerStatus.model_source,
     max_concurrent_local_models: 1,
     gpu_inference_available: hostGpuAvailable,
   }
-  if (!ollama.ollama_ok || ollama.models_count < 1) {
+  if (!providerStatus.ollama_ok || providerStatus.models_count < 1) {
     console.log(
       `[HOST_AI_HOST_BEAP_AD_PUBLISH] ${JSON.stringify({
         handshakeId: null,
@@ -246,14 +260,14 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         directBeapUrlPresent: directLanEndpointPresent,
         coordinationReady,
         publishPlane: 'sealed_relay',
-        ollamaOk: ollama.ollama_ok,
-        modelsCount: ollama.models_count,
-        skipReason: 'ollama_models_gate',
+        llamaServerOk: providerStatus.ollama_ok,
+        modelsCount: providerStatus.models_count,
+        skipReason: 'llamacpp_models_gate',
         published: false,
         context: input.context,
       })}`,
     )
-    scheduleHostAiBeapAdRepublishRetry(canonDb, 'ollama_models_gate')
+    scheduleHostAiBeapAdRepublishRetry(canonDb, 'llamacpp_models_gate')
     return
   }
 
@@ -307,10 +321,10 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
       `[HOST_AI_MODEL_ROSTER_PUBLISH] ${JSON.stringify({
         handshakeId: hid,
         hostDeviceId: localId,
-        models: ollama.models.map((m) => m.name),
-        activeModelId: ollama.active_model_id,
-        activeModelName: ollama.active_model_name,
-        modelSource: ollama.model_source,
+        models: providerStatus.models.map((m) => m.name),
+        activeModelId: providerStatus.active_model_id,
+        activeModelName: providerStatus.active_model_name,
+        modelSource: providerStatus.model_source,
         maxConcurrentLocalModels: 1,
       })}`,
     )
@@ -325,8 +339,8 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         directBeapUrlPresent: directLanEndpointPresent,
         coordinationReady,
         publishPlane: 'sealed_relay',
-        ollamaOk: ollama.ollama_ok,
-        modelsCount: ollama.models_count,
+        llamaServerOk: providerStatus.ollama_ok,
+        modelsCount: providerStatus.models_count,
         skipReason: null,
         published: null,
         relayPostPending: true,
@@ -340,7 +354,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
       senderDeviceId: dr.localCoordinationDeviceId,
       receiverDeviceId: dr.peerCoordinationDeviceId,
       adSeq: seq,
-      ollamaCapabilities: ollamaCaps,
+      ollamaCapabilities: providerCaps, // WIRE-FREEZE: param name mirrors frozen HostAiBeapAdSignalOllamaCapabilities
       publisherIdentity: (() => {
         const p = partyIdentityFromSession(getCurrentSession())
         if (!p) return undefined
@@ -364,8 +378,8 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         directBeapUrlPresent: directLanEndpointPresent,
         coordinationReady,
         publishPlane: 'sealed_relay',
-        ollamaOk: ollama.ollama_ok,
-        modelsCount: ollama.models_count,
+        llamaServerOk: providerStatus.ollama_ok,
+        modelsCount: providerStatus.models_count,
         skipReason: relayOk ? null : `relay_post_${res.status}`,
         published: relayOk,
         relayStatus: res.status,
@@ -383,7 +397,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
           endpoint: directUrl ?? null,
           endpointKind,
           gpu_inference_available: hostGpuAvailable,
-          modelsCount: ollama.models_count,
+          modelsCount: providerStatus.models_count,
           ttlMs,
           context: input.context,
           ad_seq: seq,
@@ -398,7 +412,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
           gpu_inference_available: hostGpuAvailable,
           context: input.context,
           relay_status: res.status,
-          models_count: ollama.models_count,
+          models_count: providerStatus.models_count,
         })}`,
       )
     }

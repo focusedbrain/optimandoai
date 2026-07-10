@@ -18,28 +18,28 @@ function userMessageForInboxAiCode(
   switch (code) {
     case 'no_model_selected':
       return 'Select an AI model first.'
-    case 'local_ollama_unreachable': {
+    case 'local_llm_unreachable': {
       const raw = payload.message ?? ''
       if (raw.includes('circuit open') || raw.includes('repeated timeouts')) {
         // Extract "retries in ~Xm" hint if present so the user knows when to expect recovery.
         const retryHint = raw.match(/retries in ~[^)]+/)?.[0]
         return retryHint
-          ? `Local Ollama is temporarily paused after repeated timeouts (${retryHint}).`
-          : 'Local Ollama is temporarily paused after repeated timeouts — it will recover automatically.'
+          ? `Local LLM (llama.cpp) is temporarily paused after repeated timeouts (${retryHint}).`
+          : 'Local LLM (llama.cpp) is temporarily paused after repeated timeouts — it will recover automatically.'
       }
       if (raw.includes('GPU inference') || raw.includes('CPU-only') || raw.includes('Inbox AI is disabled')) {
         return 'Inbox AI is paused — GPU inference is unavailable on this device.'
       }
-      return 'Local Ollama is not reachable.'
+      return 'Local LLM (llama.cpp) is not reachable.'
     }
-    case 'remote_ollama_unreachable':
-      return 'Remote Ollama is not reachable on the host device.'
+    case 'remote_llm_unreachable':
+      return 'Remote Host AI is not reachable on the host device.'
     case 'beap_endpoint_missing':
-      return 'Top-chat BEAP tools are unavailable because the host BEAP endpoint is not advertised. Remote Ollama direct can still be used.'
+      return 'Top-chat BEAP tools are unavailable because the host BEAP endpoint is not advertised. Remote Host AI direct can still be used.'
     case 'generation_failed':
     case 'llm_error': {
       // Surface the backend error detail when it is more specific than the generic label.
-      // This covers Ollama API errors (e.g. context length exceeded, model not found) that
+      // This covers llama.cpp API errors (e.g. context length exceeded, model not found) that
       // are not caught by any other classification branch.
       const detail = payload.message?.trim()
       if (detail && detail !== 'AI generation failed for the selected model.' && detail.length < 200) {
@@ -57,7 +57,7 @@ function userMessageForInboxAiCode(
       return detail || 'Database error.'
     }
     case 'timeout':
-      return 'Analysis timed out. Ollama may be slow or unavailable.'
+      return 'Analysis timed out. The local LLM may be slow or unavailable.'
     default:
       return null
   }

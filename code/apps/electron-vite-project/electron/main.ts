@@ -9814,6 +9814,62 @@ async function runDeviceKeyMigration(
         res.status(500).json({ ok: false, error: error.message })
       }
     })
+
+    // GET /api/llm/binary/status — B0: is llama-server(.exe) resolved on disk, and which
+    // release variant (cpu/cuda/vulkan) is recommended for this machine.
+    httpApp.get('/api/llm/binary/status', async (_req, res) => {
+      try {
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const { detectRecommendedLlamaServerVariant } = await import('./main/llm/llamaServerBinaryInstall')
+        const binaryInstalled = localLlmManager.isBinaryAvailable()
+        const recommended = await detectRecommendedLlamaServerVariant()
+        res.json({ ok: true, data: { binaryInstalled, recommendedVariant: recommended.variant, reason: recommended.reason } })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] binary/status failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // POST /api/llm/binary/install — B0: download+extract llama-server from the official
+    // ggml-org/llama.cpp GitHub release (fire-and-forget; poll binary/install-progress).
+    httpApp.post('/api/llm/binary/install', async (req, res) => {
+      try {
+        if (isSandboxMode()) {
+          res.status(400).json({ ok: false, error: 'llama-server install is disabled in sandbox mode' })
+          return
+        }
+        const variantRaw = typeof req.body?.variant === 'string' ? req.body.variant.trim() : 'cpu'
+        const variant = variantRaw === 'cuda' || variantRaw === 'vulkan' ? variantRaw : 'cpu'
+        const { installLlamaServerBinary } = await import('./main/llm/llamaServerBinaryInstall')
+        installLlamaServerBinary(variant).catch((error: Error) => {
+          console.error('[HTTP-LLM] binary/install failed:', error)
+        })
+        res.json({ ok: true, message: 'llama-server install started', variant })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] binary/install failed to start:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // GET /api/llm/binary/install-progress — poll progress for the B0 install flow.
+    httpApp.get('/api/llm/binary/install-progress', async (_req, res) => {
+      try {
+        const { getLlamaServerBinaryInstallProgress } = await import('./main/llm/llamaServerBinaryInstall')
+        res.json({ ok: true, progress: getLlamaServerBinaryInstallProgress() })
+      } catch (error: any) {
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    httpApp.post('/api/llm/binary/install-cancel', async (_req, res) => {
+      try {
+        const { cancelLlamaServerBinaryInstall } = await import('./main/llm/llamaServerBinaryInstall')
+        cancelLlamaServerBinaryInstall()
+        res.json({ ok: true })
+      } catch (error: any) {
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
     
     // DELETE /api/llm/models/:modelId - Delete a model
     httpApp.delete('/api/llm/models/:modelId', async (req, res) => {

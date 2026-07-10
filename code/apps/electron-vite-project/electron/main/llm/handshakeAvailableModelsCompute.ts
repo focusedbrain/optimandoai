@@ -208,10 +208,14 @@ export async function computeHandshakeAvailableModels(
       logLocalProviderOllamaDiscovery(ollamaDiscoveryOk, null)
     } else {
       try {
-        const { localLlmManager } = await import('./local-llm-manager')
-        const installed = await localLlmManager.listModels()
-        ollamaModelCount = Array.isArray(installed) ? installed.length : 0
-        for (const m of installed) {
+        // B1: `ollamaDiscoveryOk` must reflect the real llama-server reachability signal, not
+        // "the model list call didn't throw" — `listModels()` can succeed via its disk-scan
+        // fallback while the server itself is down, which previously reported ok=true regardless.
+        const { getLocalLlmProviderStatus } = await import('./localLlmProviderStatus')
+        const providerStatus = await getLocalLlmProviderStatus()
+        ollamaModelCount = providerStatus.modelsCount
+        ollamaDiscoveryOk = providerStatus.serverRunning
+        for (const m of providerStatus.modelsInstalled) {
           const name = m?.name?.trim?.() || ''
           if (!name) continue
           localModels.push({
@@ -222,7 +226,7 @@ export async function computeHandshakeAvailableModels(
             inferenceTargetContext: 'sandbox_local',
           })
         }
-        logLocalProviderOllamaDiscovery(true, null)
+        logLocalProviderOllamaDiscovery(ollamaDiscoveryOk, null)
       } catch (err: unknown) {
         ollamaDiscoveryOk = false
         ollamaModelCount = 0

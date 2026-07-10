@@ -32,7 +32,7 @@ interface InstalledModel {
   isActive: boolean
 }
 
-interface OllamaStatus {
+interface LocalLlmStatus {
   installed: boolean
   running: boolean
   version?: string
@@ -67,6 +67,25 @@ interface LlmSettingsProps {
   bridge: 'ipc' | 'http'  // IPC for Electron, HTTP for Extension
 }
 
+/** B0: llama-server binary provisioning status (`GET /api/llm/binary/status`). */
+interface LlamaServerBinaryStatus {
+  binaryInstalled: boolean
+  recommendedVariant: 'cpu' | 'cuda' | 'vulkan'
+  reason: string
+}
+
+/** B0: llama-server binary install progress (`GET /api/llm/binary/install-progress`). */
+interface LlamaServerBinaryInstallProgress {
+  status: 'starting' | 'resolving_release' | 'downloading' | 'extracting' | 'verifying' | 'complete' | 'error'
+  progress: number
+  variant?: 'cpu' | 'cuda' | 'vulkan'
+  version?: string
+  completed?: number
+  total?: number
+  sha256?: string
+  error?: string
+}
+
 /** Matches Electron `orchestratorModeStore` payload (subset used by UI). */
 interface OrchestratorModeConfig {
   mode: 'host' | 'sandbox'
@@ -98,18 +117,22 @@ function isHardwareEntity(x: unknown): x is HardwareInfo {
   return typeof x === 'object' && x !== null && 'totalRamGb' in x && 'cpuCores' in x
 }
 
-function isOllamaStatusEntity(x: unknown): x is OllamaStatus {
+function isLocalLlmStatusEntity(x: unknown): x is LocalLlmStatus {
   return (
     typeof x === 'object' &&
     x !== null &&
-    typeof (x as OllamaStatus).installed === 'boolean' &&
-    typeof (x as OllamaStatus).running === 'boolean' &&
-    Array.isArray((x as OllamaStatus).modelsInstalled)
+    typeof (x as LocalLlmStatus).installed === 'boolean' &&
+    typeof (x as LocalLlmStatus).running === 'boolean' &&
+    Array.isArray((x as LocalLlmStatus).modelsInstalled)
   )
 }
 
 function isCatalogEntity(x: unknown): x is LlmModelConfig[] {
   return Array.isArray(x) && x.length > 0
+}
+
+function isBinaryStatusEntity(x: unknown): x is LlamaServerBinaryStatus {
+  return typeof x === 'object' && x !== null && typeof (x as LlamaServerBinaryStatus).binaryInstalled === 'boolean'
 }
 
 // Hardcoded fallback catalog in case API is unavailable
@@ -130,8 +153,8 @@ const FALLBACK_CATALOG: LlmModelConfig[] = [
   { id: 'mistral:7b-instruct-q4_0', displayName: 'Mistral 7B Q4', provider: 'Mistral', tier: 'balanced', minRamGb: 3, recommendedRamGb: 4, diskSizeGb: 2.6, contextWindow: 8192, description: 'Balanced.' },
   { id: 'mistral:7b-instruct-q5_K_M', displayName: 'Mistral 7B Q5', provider: 'Mistral', tier: 'balanced', minRamGb: 4, recommendedRamGb: 5, diskSizeGb: 3.2, contextWindow: 8192, description: 'Better quality.' },
   { id: 'llama3:8b', displayName: 'Llama 3 8B (Q4)', provider: 'Meta', tier: 'balanced', minRamGb: 5, recommendedRamGb: 6, diskSizeGb: 4.7, contextWindow: 8192, description: 'High quality.' },
-  { id: 'gemma4:e2b', displayName: 'Gemma 4 E2B Edge (Q4_K_M)', provider: 'Google', tier: 'balanced', minRamGb: 8, recommendedRamGb: 10, diskSizeGb: 7.2, contextWindow: 131072, description: 'Gemma 4 edge; ~2.3B eff. params; 128K ctx; text+image (Ollama ~7.2GB).' },
-  { id: 'gemma4:e4b', displayName: 'Gemma 4 E4B Edge (Q4_K_M)', provider: 'Google', tier: 'balanced', minRamGb: 10, recommendedRamGb: 12, diskSizeGb: 9.6, contextWindow: 131072, description: 'Gemma 4 edge; ~4.5B eff. params; 128K ctx; text+image (Ollama ~9.6GB).' },
+  { id: 'gemma4:e2b', displayName: 'Gemma 4 E2B Edge (Q4_K_M)', provider: 'Google', tier: 'balanced', minRamGb: 8, recommendedRamGb: 10, diskSizeGb: 7.2, contextWindow: 131072, description: 'Gemma 4 edge; ~2.3B eff. params; 128K ctx; text+image (~7.2GB).' },
+  { id: 'gemma4:e4b', displayName: 'Gemma 4 E4B Edge (Q4_K_M)', provider: 'Google', tier: 'balanced', minRamGb: 10, recommendedRamGb: 12, diskSizeGb: 9.6, contextWindow: 131072, description: 'Gemma 4 edge; ~4.5B eff. params; 128K ctx; text+image (~9.6GB).' },
   { id: 'mistral:7b', displayName: 'Mistral 7B Full', provider: 'Mistral', tier: 'performance', minRamGb: 7, recommendedRamGb: 8, diskSizeGb: 4.1, contextWindow: 8192, description: 'Full precision.' },
   { id: 'llama3.1:8b', displayName: 'Llama 3.1 8B (Q4)', provider: 'Meta', tier: 'performance', minRamGb: 6, recommendedRamGb: 8, diskSizeGb: 4.7, contextWindow: 131072, description: '128K context.' },
   { id: 'gemma2:9b', displayName: 'Gemma 2 9B (Q4)', provider: 'Google', tier: 'performance', minRamGb: 7, recommendedRamGb: 9, diskSizeGb: 5.4, contextWindow: 8192, description: 'Latest Google.' },
@@ -142,8 +165,8 @@ const FALLBACK_CATALOG: LlmModelConfig[] = [
   { id: 'qwen2.5:14b', displayName: 'Qwen 2.5 14B (Q4)', provider: 'Alibaba', tier: 'performance', minRamGb: 10, recommendedRamGb: 14, diskSizeGb: 9.0, contextWindow: 131072, description: 'Multilingual conversational model.' },
   { id: 'qwen2.5-coder:14b', displayName: 'Qwen 2.5 Coder 14B (Q4)', provider: 'Alibaba', tier: 'performance', minRamGb: 10, recommendedRamGb: 14, diskSizeGb: 9.0, contextWindow: 131072, description: 'Code-focused Qwen 2.5.' },
   { id: 'gemma3:12b', displayName: 'Gemma 3 12B (Q4)', provider: 'Google', tier: 'performance', minRamGb: 9, recommendedRamGb: 12, diskSizeGb: 8.0, contextWindow: 131072, description: 'Long-context Gemma 3.' },
-  { id: 'gemma4:26b', displayName: 'Gemma 4 26B MoE A4B (Q4_K_M)', provider: 'Google', tier: 'performance', minRamGb: 20, recommendedRamGb: 24, diskSizeGb: 18, contextWindow: 262144, description: 'Gemma 4 MoE; ~25.2B total / ~3.8B active; 256K ctx; text+image (Ollama ~18GB).' },
-  { id: 'gemma4:31b', displayName: 'Gemma 4 31B Dense (Q4_K_M)', provider: 'Google', tier: 'high-end', minRamGb: 24, recommendedRamGb: 32, diskSizeGb: 20, contextWindow: 262144, description: 'Gemma 4 dense ~30.7B; 256K ctx; text+image (Ollama ~20GB).' },
+  { id: 'gemma4:26b', displayName: 'Gemma 4 26B MoE A4B (Q4_K_M)', provider: 'Google', tier: 'performance', minRamGb: 20, recommendedRamGb: 24, diskSizeGb: 18, contextWindow: 262144, description: 'Gemma 4 MoE; ~25.2B total / ~3.8B active; 256K ctx; text+image (~18GB).' },
+  { id: 'gemma4:31b', displayName: 'Gemma 4 31B Dense (Q4_K_M)', provider: 'Google', tier: 'high-end', minRamGb: 24, recommendedRamGb: 32, diskSizeGb: 20, contextWindow: 262144, description: 'Gemma 4 dense ~30.7B; 256K ctx; text+image (~20GB).' },
   { id: 'mixtral:8x7b', displayName: 'Mixtral 8x7B MoE (Q4)', provider: 'Mistral', tier: 'high-end', minRamGb: 24, recommendedRamGb: 32, diskSizeGb: 26, contextWindow: 32768, description: 'Mixture of Experts.' },
   { id: 'llama3.1:70b', displayName: 'Llama 3.1 70B (Q4)', provider: 'Meta', tier: 'high-end', minRamGb: 48, recommendedRamGb: 64, diskSizeGb: 40, contextWindow: 131072, description: 'Enterprise-grade.' },
   { id: 'llama3.1:405b-q2_K', displayName: 'Llama 3.1 405B (Q2_K)', provider: 'Meta', tier: 'high-end', minRamGb: 128, recommendedRamGb: 192, diskSizeGb: 136, contextWindow: 131072, description: 'Largest Llama.' }
@@ -151,7 +174,7 @@ const FALLBACK_CATALOG: LlmModelConfig[] = [
 
 export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   const [hardware, setHardware] = useState<HardwareInfo | null>(null)
-  const [status, setStatus] = useState<OllamaStatus | null>(null)
+  const [status, setStatus] = useState<LocalLlmStatus | null>(null)
   const [modelCatalog, setModelCatalog] = useState<LlmModelConfig[]>(FALLBACK_CATALOG)
   const [downloadUrl, setDownloadUrl] = useState('')
   const [lastInstallSha256, setLastInstallSha256] = useState<string | null>(null)
@@ -164,6 +187,9 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [orchestratorConfig, setOrchestratorConfig] = useState<OrchestratorModeConfig | null>(null)
+  const [binaryStatus, setBinaryStatus] = useState<LlamaServerBinaryStatus | null>(null)
+  const [binaryInstalling, setBinaryInstalling] = useState(false)
+  const [binaryInstallProgress, setBinaryInstallProgress] = useState<LlamaServerBinaryInstallProgress | null>(null)
   
   // Bridge-agnostic API
   const api = useMemo(() => {
@@ -173,7 +199,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         getHardware: () => (window as any).electron.ipcRenderer.invoke('llm:getHardware'),
         getStatus: () => (window as any).electron.ipcRenderer.invoke('llm:getStatus'),
         getCatalog: () => (window as any).electron.ipcRenderer.invoke('llm:getModelCatalog'),
-        startOllama: () => (window as any).electron.ipcRenderer.invoke('llm:startOllama'),
+        startLocalLlm: () => (window as any).electron.ipcRenderer.invoke('llm:startOllama'),
         importModelFromPicker: () => (window as any).electron.ipcRenderer.invoke('llm:importModelFromPicker'),
         downloadModelFromUrl: (url: string) =>
           (window as any).electron.ipcRenderer.invoke('llm:downloadModelFromUrl', url),
@@ -181,6 +207,10 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         deleteModel: (modelId: string) => (window as any).electron.ipcRenderer.invoke('llm:deleteModel', modelId),
         setActiveModel: (modelId: string) => (window as any).electron.ipcRenderer.invoke('llm:setActiveModel', modelId),
         getPerformanceEstimate: (modelId: string) => (window as any).electron.ipcRenderer.invoke('llm:getPerformanceEstimate', modelId),
+        getBinaryStatus: () => (window as any).electron.ipcRenderer.invoke('llm:binaryStatus'),
+        installLlamaServerBinary: (variant: 'cpu' | 'cuda' | 'vulkan') =>
+          (window as any).electron.ipcRenderer.invoke('llm:installLlamaServerBinary', variant),
+        getBinaryInstallProgress: () => (window as any).electron.ipcRenderer.invoke('llm:binaryInstallProgress'),
         getOrchestratorMode: async (): Promise<{ ok: boolean; config?: OrchestratorModeConfig }> => {
           try {
             const config = await (window as any).electron.ipcRenderer.invoke('orchestrator:getMode')
@@ -203,13 +233,17 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         getHardware: () => rpc('llm.hardware'),
         getStatus: () => rpc('llm.status'),
         getCatalog: () => rpc('llm.catalog'),
-        startOllama: () => rpc('llm.start'),
+        startLocalLlm: () => rpc('llm.start'),
         importModelFromPicker: () => rpc('llm.importModelFromPicker'),
         downloadModelFromUrl: (url: string) => rpc('llm.downloadModelFromUrl', { url }),
         cancelModelDownload: () => rpc('llm.cancelModelDownload'),
         deleteModel: (modelId: string) => rpc('llm.deleteModel', { modelId }),
         setActiveModel: (modelId: string) => rpc('llm.activateModel', { modelId }),
         getPerformanceEstimate: (modelId: string) => rpc('llm.performance', { modelId }),
+        getBinaryStatus: () => rpc('llm.binaryStatus'),
+        installLlamaServerBinary: (variant: 'cpu' | 'cuda' | 'vulkan') =>
+          rpc('llm.installLlamaServerBinary', { variant }),
+        getBinaryInstallProgress: () => rpc('llm.binaryInstallProgress'),
         getOrchestratorMode: async (): Promise<{ ok: boolean; config?: OrchestratorModeConfig }> => {
           const res = await rpc('orchestrator.getMode')
           const data = res.data as { ok?: boolean; config?: unknown } | undefined
@@ -243,8 +277,8 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
             loadData()
           }, 500)
         } else if (progress.status === 'verification_failed') {
-          // Install stream ended but model not found in Ollama.
-          showNotification(progress.error || 'Install verification failed — model not found in Ollama.', 'error')
+          // Install stream ended but model not found in the local llama.cpp registry.
+          showNotification(progress.error || 'Install verification failed — model not found.', 'error')
           setInstalling(null)
         } else if (progress.status === 'error') {
           showNotification(progress.error || 'Installation failed.', 'error')
@@ -284,7 +318,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
       })()
       
       // Try to fetch data, but don't block on errors
-      const [hwRes, statusRes, catalogRes] = await Promise.all([
+      const [hwRes, statusRes, catalogRes, binaryStatusRes] = await Promise.all([
         api.getHardware().catch((e: Error) => {
           console.warn('[LlmSettings] Hardware API failed:', e.message)
           return { ok: false, error: e.message }
@@ -297,6 +331,10 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           console.warn('[LlmSettings] Catalog API failed:', e.message)
           return { ok: false, error: e.message }
         }),
+        api.getBinaryStatus().catch((e: Error) => {
+          console.warn('[LlmSettings] Binary status API failed:', e.message)
+          return { ok: false, error: e.message }
+        }),
         orchPromise,
       ])
 
@@ -304,11 +342,13 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
       
       const hwEntity = unwrapLlmEnvelope(hwRes, isHardwareEntity)
       if (hwEntity) setHardware(hwEntity)
-      const statusEntity = unwrapLlmEnvelope(statusRes, isOllamaStatusEntity)
+      const statusEntity = unwrapLlmEnvelope(statusRes, isLocalLlmStatusEntity)
       if (statusEntity) setStatus(statusEntity)
       const catalogEntity = unwrapLlmEnvelope(catalogRes, isCatalogEntity)
       if (catalogEntity) setModelCatalog(catalogEntity)
       // else keep FALLBACK_CATALOG
+      const binaryStatusEntity = unwrapLlmEnvelope(binaryStatusRes, isBinaryStatusEntity)
+      if (binaryStatusEntity) setBinaryStatus(binaryStatusEntity)
       
       // If all APIs failed, show connection error but still allow UI to work
       if (!hwRes.ok && !statusRes.ok && !catalogRes.ok) {
@@ -343,19 +383,60 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
     }
   }, [bridge])
   
-  const handleStartOllama = async () => {
+  const handleStartLocalLlm = async () => {
     try {
-      const res = await api.startOllama()
+      const res = await api.startLocalLlm()
       // res.ok = HTTP success, res.data.ok = API success
       if (res.ok && res.data?.ok) {
-        showNotification('Ollama started successfully', 'success')
+        showNotification('Local LLM server started successfully', 'success')
         setTimeout(() => loadData(), 2000)
       } else {
-        showNotification(res.data?.error || res.error || 'Failed to start Ollama', 'error')
+        showNotification(res.data?.error || res.error || 'Failed to start local LLM server', 'error')
       }
     } catch (error: any) {
-      showNotification(error.message || 'Failed to start Ollama', 'error')
+      showNotification(error.message || 'Failed to start local LLM server', 'error')
     }
+  }
+
+  const handleInstallBinary = async (variant: 'cpu' | 'cuda' | 'vulkan') => {
+    if (binaryInstalling) return
+    setBinaryInstalling(true)
+    setBinaryInstallProgress({ status: 'starting', progress: 0, variant })
+    try {
+      await api.installLlamaServerBinary(variant)
+    } catch (error: any) {
+      setBinaryInstalling(false)
+      showNotification(error.message || 'Failed to start llama-server download', 'error')
+      return
+    }
+
+    const poll = async () => {
+      try {
+        const res: any = await api.getBinaryInstallProgress()
+        // HTTP bridge nests the JSON body in `res.data`; IPC bridge resolves it directly.
+        const progress: LlamaServerBinaryInstallProgress | undefined = res?.data?.progress ?? res?.progress
+        if (!progress || typeof progress.status !== 'string') {
+          setTimeout(poll, 700)
+          return
+        }
+        setBinaryInstallProgress(progress)
+        if (progress.status === 'complete') {
+          setBinaryInstalling(false)
+          showNotification('llama-server installed successfully', 'success')
+          await loadData()
+          return
+        }
+        if (progress.status === 'error') {
+          setBinaryInstalling(false)
+          showNotification(progress.error || 'llama-server installation failed', 'error')
+          return
+        }
+        setTimeout(poll, 700)
+      } catch {
+        setTimeout(poll, 1500)
+      }
+    }
+    setTimeout(poll, 500)
   }
   
   const notifyModelInstalled = (modelId: string) => {
@@ -547,7 +628,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   const bgPrimary = tt.cardBg
 
   const isSandbox = orchestratorConfig?.mode === 'sandbox'
-  const sandboxOllamaDisabled = isSandbox
+  const sandboxLocalLlmDisabled = isSandbox
 
   /** Extension Settings persists host/sandbox to localStorage only when the user clicks Save. */
   const showHostServingLabel = useMemo(() => {
@@ -565,7 +646,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   return (
     <div style={{ padding: '10px', color: textColor }}>
       <h4 style={{ margin: '0 0 12px 0', fontSize: '13px', fontWeight: '600' }}>
-        Local LLM (Ollama)
+        Local LLM (llama.cpp)
       </h4>
       {showHostServingLabel && (
         <div
@@ -593,7 +674,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           }}
         >
           {
-            '🔗 Sandbox Mode — Inference will use the BEAP channel after you create an internal handshake in the Handshakes panel. Local Ollama management is disabled.'
+            '🔗 Sandbox Mode — Inference will use the BEAP channel after you create an internal handshake in the Handshakes panel. Local LLM management is disabled.'
           }
         </div>
       )}
@@ -629,31 +710,31 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           </div>
           <div style={{ display: 'flex', gap: '6px' }}>
             <button
-              disabled={sandboxOllamaDisabled}
+              disabled={sandboxLocalLlmDisabled}
               onClick={async () => {
-                if (sandboxOllamaDisabled) return
+                if (sandboxLocalLlmDisabled) return
                 try {
-                  await api.startOllama()
-                  showNotification('Attempting to start Ollama...', 'success')
+                  await api.startLocalLlm()
+                  showNotification('Attempting to start local LLM server...', 'success')
                   setTimeout(() => loadData(), 3000)
                 } catch (e: any) {
-                  showNotification('Failed to start Ollama', 'error')
+                  showNotification('Failed to start local LLM server', 'error')
                 }
               }}
               style={{
                 flex: 1,
                 padding: '6px 10px',
-                background: sandboxOllamaDisabled ? '#94a3b8' : '#22c55e',
+                background: sandboxLocalLlmDisabled ? '#94a3b8' : '#22c55e',
                 border: 'none',
                 borderRadius: '4px',
                 color: '#fff',
                 fontSize: '10px',
                 fontWeight: '600',
-                cursor: sandboxOllamaDisabled ? 'not-allowed' : 'pointer',
-                opacity: sandboxOllamaDisabled ? 0.55 : 1,
+                cursor: sandboxLocalLlmDisabled ? 'not-allowed' : 'pointer',
+                opacity: sandboxLocalLlmDisabled ? 0.55 : 1,
               }}
             >
-              Start Ollama
+              Start Server
             </button>
             <button
               onClick={loadData}
@@ -809,81 +890,150 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           </div>
         </div>
       )}
-      {!isSandbox && status && (
-        <div style={{
-          padding: '10px',
-          background: status.running ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
-          border: `1px solid ${status.running ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)'}`,
-          borderRadius: '6px',
-          marginBottom: '12px',
-          fontSize: '11px'
-        }}>
-          <div style={{ fontWeight: '600', marginBottom: '6px', fontSize: '10px' }}>
-            {status.running ? '✅ OLLAMA RUNNING' : '❌ OLLAMA NOT RUNNING'}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '4px', fontSize: '10px' }}>
-            <span style={{ opacity: 0.7 }}>Installed:</span>
-            <span>{status.installed ? '✅ Yes' : '❌ No'}</span>
-            {status.version && (
-              <>
-                <span style={{ opacity: 0.7 }}>Version:</span>
-                <span>{status.version}</span>
-              </>
-            )}
-            <span style={{ opacity: 0.7 }}>Port:</span>
-            <span>{status.port}</span>
-            {status.localRuntime && (
-              <>
-                <span style={{ opacity: 0.7 }}>Runtime:</span>
-                <span title={status.localRuntime.evidence ?? status.localRuntime.summary}>
-                  {status.localRuntime.summary}
-                </span>
-              </>
-            )}
-          </div>
-          
-          {!status.installed && (
-            <div style={{
-              marginTop: '8px',
-              padding: '8px',
-              background: 'rgba(239,68,68,0.2)',
-              border: '1px solid rgba(239,68,68,0.4)',
-              borderRadius: '4px',
-              fontSize: '10px'
-            }}>
-              ⚠️ Ollama not found. Please install Ollama from{' '}
-              <a 
-                href="https://ollama.ai" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                style={{ color: '#60a5fa', textDecoration: 'underline' }}
-              >
-                ollama.ai
-              </a>
-              {' '}or check if it's installed correctly.
+      {!isSandbox && status && (() => {
+        // B5: four mutually-exclusive states, derived from the unified provider status
+        // (binaryStatus from GET /api/llm/binary/status, status from GET /api/llm/status).
+        const binaryInstalled = binaryStatus?.binaryInstalled ?? status.installed
+        const hasModels = status.modelsInstalled.length > 0
+        const uiState: 'binary_missing' | 'no_model' | 'server_stopped' | 'running' = !binaryInstalled
+          ? 'binary_missing'
+          : !hasModels
+            ? 'no_model'
+            : status.running
+              ? 'running'
+              : 'server_stopped'
+
+        const stateColors = {
+          binary_missing: { bg: 'rgba(239,68,68,0.15)', border: 'rgba(239,68,68,0.4)' },
+          no_model: { bg: 'rgba(245,158,11,0.15)', border: 'rgba(245,158,11,0.4)' },
+          server_stopped: { bg: 'rgba(245,158,11,0.15)', border: 'rgba(245,158,11,0.4)' },
+          running: { bg: 'rgba(34,197,94,0.15)', border: 'rgba(34,197,94,0.4)' },
+        }[uiState]
+
+        const stateLabel = {
+          binary_missing: '⚠️ LLAMA-SERVER NOT INSTALLED',
+          no_model: '⚠️ NO MODEL INSTALLED',
+          server_stopped: '⏸ SERVER STOPPED',
+          running: '✅ SERVER RUNNING',
+        }[uiState]
+
+        return (
+          <div style={{
+            padding: '10px',
+            background: stateColors.bg,
+            border: `1px solid ${stateColors.border}`,
+            borderRadius: '6px',
+            marginBottom: '12px',
+            fontSize: '11px'
+          }}>
+            <div style={{ fontWeight: '600', marginBottom: '6px', fontSize: '10px' }}>
+              {stateLabel}
             </div>
-          )}
-          
-          {status.installed && !status.running && (
-            <button
-              onClick={handleStartOllama}
-              style={{
-                marginTop: '8px',
-                padding: '6px 10px',
-                background: '#2563eb',
-                border: 'none',
-                borderRadius: '4px',
-                color: '#fff',
-                fontSize: '10px',
-                fontWeight: '600',
-                cursor: 'pointer'
-              }}
-            >
-              Start Ollama
-            </button>
-          )}
-        </div>
-      )}
+
+            {uiState === 'running' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '4px', fontSize: '10px' }}>
+                {status.activeModel && (
+                  <>
+                    <span style={{ opacity: 0.7 }}>Model:</span>
+                    <span style={{ fontWeight: '600' }}>{status.activeModel}</span>
+                  </>
+                )}
+                <span style={{ opacity: 0.7 }}>Port:</span>
+                <span>{status.port}</span>
+                {status.localRuntime && (
+                  <>
+                    <span style={{ opacity: 0.7 }}>GPU Offload:</span>
+                    <span title={status.localRuntime.evidence ?? status.localRuntime.summary}>
+                      {status.localRuntime.summary}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+
+            {uiState === 'binary_missing' && (
+              <div style={{ fontSize: '10px', lineHeight: 1.5 }}>
+                <div style={{ marginBottom: '8px', color: 'var(--text-primary, var(--text-primary-prof))' }}>
+                  The llama.cpp inference server (llama-server) is not installed yet. Install it now — the
+                  download comes directly from the official ggml-org/llama.cpp GitHub releases over HTTPS, with
+                  a SHA256 checksum shown before use.
+                </div>
+                {binaryInstalling && binaryInstallProgress ? (
+                  <div style={{ marginBottom: '4px' }}>
+                    <div style={{ marginBottom: '4px' }}>
+                      {binaryInstallProgress.status === 'resolving_release' && 'Resolving latest release…'}
+                      {binaryInstallProgress.status === 'downloading' && `Downloading… ${binaryInstallProgress.progress}%`}
+                      {binaryInstallProgress.status === 'extracting' && 'Extracting…'}
+                      {binaryInstallProgress.status === 'verifying' && 'Verifying SHA256…'}
+                      {binaryInstallProgress.status === 'starting' && 'Starting install…'}
+                    </div>
+                    {binaryInstallProgress.sha256 && (
+                      <div style={{ fontSize: '9px', opacity: 0.75, wordBreak: 'break-all', marginBottom: '4px' }}>
+                        SHA256: {binaryInstallProgress.sha256}
+                      </div>
+                    )}
+                    <div style={{
+                      height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.15)', overflow: 'hidden'
+                    }}>
+                      <div style={{
+                        height: '100%', width: `${binaryInstallProgress.progress}%`,
+                        background: '#2563eb', transition: 'width 0.3s'
+                      }} />
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    disabled={sandboxLocalLlmDisabled}
+                    onClick={() => handleInstallBinary(binaryStatus?.recommendedVariant ?? 'cpu')}
+                    style={{
+                      padding: '6px 10px',
+                      background: sandboxLocalLlmDisabled ? '#94a3b8' : '#2563eb',
+                      border: 'none',
+                      borderRadius: '4px',
+                      color: '#fff',
+                      fontSize: '10px',
+                      fontWeight: '600',
+                      cursor: sandboxLocalLlmDisabled ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    Install llama-server ({(binaryStatus?.recommendedVariant ?? 'cpu').toUpperCase()} build)
+                  </button>
+                )}
+              </div>
+            )}
+
+            {uiState === 'no_model' && (
+              <div style={{ fontSize: '10px', color: 'var(--text-primary, var(--text-primary-prof))' }}>
+                llama-server is installed but no GGUF model is installed yet. Install one below to activate
+                local inference.
+              </div>
+            )}
+
+            {uiState === 'server_stopped' && (
+              <>
+                <div style={{ fontSize: '10px', marginBottom: '8px', color: 'var(--text-primary, var(--text-primary-prof))' }}>
+                  A model is installed but the server is not running.
+                </div>
+                <button
+                  onClick={handleStartLocalLlm}
+                  style={{
+                    padding: '6px 10px',
+                    background: '#2563eb',
+                    border: 'none',
+                    borderRadius: '4px',
+                    color: '#fff',
+                    fontSize: '10px',
+                    fontWeight: '600',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Start Server
+                </button>
+              </>
+            )}
+          </div>
+        )
+      })()}
       {/* Installed Models */}
       {status?.modelsInstalled && status.modelsInstalled.length > 0 && (
         <div style={{ marginBottom: '12px' }}>
@@ -933,7 +1083,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
                 {!model.isActive && (
                   <button
                     type="button"
-                    disabled={sandboxOllamaDisabled}
+                    disabled={sandboxLocalLlmDisabled}
                     onClick={() => handleActivateModel(model.name)}
                     style={{
                       padding: '4px 8px',
@@ -942,8 +1092,8 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
                       borderRadius: '3px',
                       color: '#60a5fa',
                       fontSize: '9px',
-                      cursor: sandboxOllamaDisabled ? 'not-allowed' : 'pointer',
-                      opacity: sandboxOllamaDisabled ? 0.45 : 1,
+                      cursor: sandboxLocalLlmDisabled ? 'not-allowed' : 'pointer',
+                      opacity: sandboxLocalLlmDisabled ? 0.45 : 1,
                     }}
                   >
                     ⚡ Use
@@ -952,7 +1102,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
                 <button
                   type="button"
                   onClick={() => handleDeleteModel(model.name)}
-                  disabled={deleting === model.name || sandboxOllamaDisabled}
+                  disabled={deleting === model.name || sandboxLocalLlmDisabled}
                   style={{
                     padding: '4px 8px',
                     background: 'rgba(239,68,68,0.2)',
@@ -960,8 +1110,8 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
                     borderRadius: '3px',
                     color: '#ef4444',
                     fontSize: '9px',
-                    cursor: deleting === model.name || sandboxOllamaDisabled ? 'not-allowed' : 'pointer',
-                    opacity: deleting === model.name ? 0.5 : sandboxOllamaDisabled ? 0.45 : 1,
+                    cursor: deleting === model.name || sandboxLocalLlmDisabled ? 'not-allowed' : 'pointer',
+                    opacity: deleting === model.name ? 0.5 : sandboxLocalLlmDisabled ? 0.45 : 1,
                   }}
                 >
                   {deleting === model.name ? '...' : '🗑'}
@@ -1047,7 +1197,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           <button
             type="button"
             onClick={handleImportFromPicker}
-            disabled={sandboxOllamaDisabled || !!installing}
+            disabled={sandboxLocalLlmDisabled || !!installing}
             style={{
               width: '100%',
               padding: '10px 12px',
@@ -1058,8 +1208,8 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
               color: '#fff',
               fontSize: '12px',
               fontWeight: '600',
-              cursor: sandboxOllamaDisabled || installing ? 'not-allowed' : 'pointer',
-              opacity: sandboxOllamaDisabled || installing ? 0.5 : 1,
+              cursor: sandboxLocalLlmDisabled || installing ? 'not-allowed' : 'pointer',
+              opacity: sandboxLocalLlmDisabled || installing ? 0.5 : 1,
             }}
           >
             {installing === 'import' ? 'Importing…' : '📁 Import from file (recommended)'}
@@ -1070,7 +1220,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
             value={downloadUrl}
             onChange={(e) => setDownloadUrl(e.target.value)}
             placeholder="https://huggingface.co/…/resolve/main/model.gguf"
-            disabled={sandboxOllamaDisabled || !!installing}
+            disabled={sandboxLocalLlmDisabled || !!installing}
             style={{
               width: '100%',
               padding: '8px',
@@ -1085,7 +1235,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           <button
             type="button"
             onClick={handleDownloadFromUrl}
-            disabled={sandboxOllamaDisabled || !!installing || !downloadUrl.trim()}
+            disabled={sandboxLocalLlmDisabled || !!installing || !downloadUrl.trim()}
             style={{
               width: '100%',
               padding: '10px 12px',
@@ -1096,8 +1246,8 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
               fontSize: '12px',
               fontWeight: '600',
               cursor:
-                sandboxOllamaDisabled || installing || !downloadUrl.trim() ? 'not-allowed' : 'pointer',
-              opacity: sandboxOllamaDisabled || installing || !downloadUrl.trim() ? 0.5 : 1,
+                sandboxLocalLlmDisabled || installing || !downloadUrl.trim() ? 'not-allowed' : 'pointer',
+              opacity: sandboxLocalLlmDisabled || installing || !downloadUrl.trim() ? 0.5 : 1,
             }}
           >
             {installing === 'download' ? 'Downloading…' : '⬇ Download from Hugging Face URL'}

@@ -7,7 +7,7 @@ import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { getCoordinationWsClient } from '../p2p/coordinationWsHolder'
 import { getP2PConfig, type P2PConfig } from '../p2p/p2pConfig'
 import { getAccessToken } from '../../../src/auth/session'
-import { localLlmManager } from '../llm/local-llm-manager'
+import { getLocalLlmProviderStatus } from '../llm/localLlmProviderStatus'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { redactIdForLog } from './internalInferenceLogRedact'
 import { logP2pSignalWireSchemaStartupLine } from './p2pSignalWireSchemaVersion'
@@ -42,12 +42,15 @@ export async function logHostAiOrchestratorHealthLine(): Promise<void> {
     const token = getAccessToken()
     const account = token?.trim() ? 'signed_in' : 'signed_out'
 
+    // B1: read the single unified provider status — never re-derive "is it up" locally
+    // (a `listModels()` call succeeding via its disk-scan fallback is not the same as the
+    // server being reachable).
     let ollamaOk = false
     let modelCount = 0
     try {
-      const models = await localLlmManager.listModels()
-      ollamaOk = true
-      modelCount = Array.isArray(models) ? models.length : 0
+      const providerStatus = await getLocalLlmProviderStatus()
+      ollamaOk = providerStatus.serverRunning
+      modelCount = providerStatus.modelsCount
     } catch {
       ollamaOk = false
       modelCount = 0
