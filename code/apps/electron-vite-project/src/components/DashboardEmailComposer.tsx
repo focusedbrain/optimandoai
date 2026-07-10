@@ -295,7 +295,7 @@ export function DashboardEmailComposer({ onClose }: DashboardEmailComposerProps)
             )}
           </div>
 
-          <p className="dashboard-email-composer__tagline compose-field-fixed">— Automate your inbox. wrdesk.com</p>
+          <p className="dashboard-email-composer__tagline compose-field-fixed">— Automate your inbox. optirando.com</p>
 
           <div className="dashboard-email-composer__signature compose-field-fixed">
             <div className="dashboard-email-composer__signature-label">Signature (appended on send)</div>

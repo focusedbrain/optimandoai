@@ -6,7 +6,7 @@ import {
   SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE,
 } from './beapInboxHostSandboxClickPolicy'
 
-export const SANDBOX_UPGRADE_URL_FALLBACK = 'https://wrdesk.com/pricing'
+export const SANDBOX_UPGRADE_URL_FALLBACK = 'https://optirando.com/pricing'
 
 export const SANDBOX_CLONE_COPY = {
   successLive: 'Message cloned and sent to Sandbox.',

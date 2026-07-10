@@ -171,35 +171,11 @@ describe('tryHandleInternalServiceP2P (inbox not used)', () => {
   })
 })
 
-describe('log hygiene', () => {
-  it('directSend path does not log user messages in p2pServiceDispatch', async () => {
-    const { postServiceEnvelopeDirect } = await import('../directSend')
-    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    global.fetch = vi.fn(
-      async () =>
-        new Response('{}', { status: 200, statusText: 'OK' }) as any,
-    ) as any
-    await postServiceEnvelopeDirect(
-      {
-        type: 'internal_inference_request',
-        request_id: 'r',
-        messages: [{ role: 'user', content: 'SECRET_PROMPT' }],
-      } as any,
-      'http://127.0.0.1:1/beap/ingest',
-      'hs',
-      'bearer',
-      {
-        request_id: 'r',
-        sender_device_id: 'a',
-        target_device_id: 'b',
-        message_type: 'internal_inference_request',
-      },
-    )
-    const joined = log.mock.calls.map((c) => c.join(' ')).join('\n')
-    expect(joined).not.toContain('SECRET_PROMPT')
-    log.mockRestore()
-  })
-})
+/**
+ * `directSend.ts` (postServiceEnvelopeDirect) was deleted (Part C dead-code removal): its only
+ * production caller was inside `requestHostCompletion`'s retired unreachable body. The log-hygiene
+ * coverage it had here is now moot — legacy_http inference/result POSTs no longer execute at all.
+ */
 
 const defaultPolicy = {
   allowSandboxInference: true,

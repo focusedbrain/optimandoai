@@ -24,7 +24,7 @@ export interface CoordinationConfig {
 export function loadConfig(): CoordinationConfig {
   const port = parseInt(process.env.COORD_PORT ?? '51249', 10)
   const host = process.env.COORD_HOST ?? '0.0.0.0'
-  const oidcIssuer = process.env.COORD_OIDC_ISSUER ?? 'https://auth.wrdesk.com/realms/wrdesk'
+  const oidcIssuer = process.env.COORD_OIDC_ISSUER ?? 'https://auth.optirando.com/realms/wrdesk'
   const oidcJwksUrl = process.env.COORD_OIDC_JWKS_URL ?? `${oidcIssuer}/protocol/openid-connect/certs`
   const oidcAudience = process.env.COORD_OIDC_AUDIENCE?.trim() || null
   const dbPath = process.env.COORD_DB_PATH ?? './data/coordination.db'

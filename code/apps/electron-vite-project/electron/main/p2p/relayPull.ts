@@ -11,7 +11,8 @@ import { processHandshakeCapsule } from '../handshake/enforcement'
 import { maybeEnqueueInitialContextSyncAfterInboundAccept } from '../handshake/contextSyncEnqueue'
 import { canonicalRebuild } from '../handshake/canonicalRebuild'
 import { buildDefaultReceiverPolicy } from '../handshake/types'
-import { migrateHandshakeTables } from '../handshake/db'
+import { migrateHandshakeTables, getHandshakeRecord } from '../handshake/db'
+import { unsealContextSyncCapsuleIfNeeded } from '../handshake/contextSyncSeal'
 import { processBeapPackageInline } from '../email/beapEmailIngestion'
 import {
   insertIngestionAuditRecord,
@@ -294,10 +295,21 @@ export async function pullFromRelay(
           continue
         }
 
-        const canonicalValidated = {
+        let canonicalValidated = {
           ...distribution.validated_capsule,
           capsule: rebuildResult.capsule as any,
         }
+
+        // Fail-closed gate: reject plaintext context_sync content, unseal
+        // context_blocks_sealed before ingestion. No-op for other capsule types.
+        const unsealResult = await unsealContextSyncCapsuleIfNeeded(db, getHandshakeRecord, canonicalValidated.capsule as Record<string, unknown>)
+        if (!unsealResult.ok) {
+          console.warn(`[Relay] ${unsealResult.code}:`, unsealResult.message)
+          rejected++
+          idsToAck.push(cap.id)
+          continue
+        }
+        canonicalValidated = { ...canonicalValidated, capsule: unsealResult.capsule as any }
 
         const handshakeResult = processHandshakeCapsule(
           db,
@@ -365,6 +377,8 @@ export async function pullFromRelay(
                       context_blocks: contextBlocks,
                       local_public_key: localPub,
                       local_private_key: localPriv,
+                      peerX25519PublicKeyB64: record.peer_x25519_public_key_b64,
+                      localRole: record.local_role,
                       ...(reverseInternalWire ?? {}),
                     })
                     const enqRev = enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint.trim(), contextSyncCapsule)

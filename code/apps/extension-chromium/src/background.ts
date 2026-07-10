@@ -119,57 +119,20 @@ async function executeModeSessionRunCore(args: {
   executed?: string[]
   error?: string
   busy?: boolean
+  timedOut?: boolean
   interpreted?: import('./services/beapRunAutomationResult').BeapAutomationModeRunOk | import('./services/beapRunAutomationResult').BeapAutomationModeRunErr
 }> {
-  const sk = args.sessionKey.trim()
-  if (modeSessionExecuteInFlight.has(sk)) {
-    return { ok: false, error: 'Session run already in progress', busy: true }
-  }
-  modeSessionExecuteInFlight.add(sk)
-  try {
-    const {
-      executeModeRunAgents,
-      resolveModeRunWrchatModelId,
-      fetchWrChatAvailableModelsForModeRun,
-    } = await import('./services/modeRunExecution')
-    const { interpretBeapAutomationModeRun } = await import('./services/beapRunAutomationResult')
-
-    const fallbackModel = args.fallbackModel.trim()
-    const modeRuntime = args.modeRuntime ?? null
-    const wrchatModelId = resolveModeRunWrchatModelId(modeRuntime, fallbackModel)
-    const availableModels = await fetchWrChatAvailableModelsForModeRun()
-
-    const runResult = await executeModeRunAgents({
-      modeLinkedSessionId: sk,
-      currentOrchestratorSessionId: sk,
-      sessionKey: sk,
-      inferenceSessionKey: sk,
-      fallbackModel,
-      wrchatModelId,
-      defaultModelId: wrchatModelId,
-      availableModels,
-      inputText: '',
-      processedMessages: [{ role: 'user', content: '' }],
-      modeRuntime,
-      runMode: args.runMode ?? !!modeRuntime,
-    })
-
-    const interpreted = interpretBeapAutomationModeRun(sk, runResult)
-    if (!interpreted.ok) {
-      return { ok: false, error: interpreted.error, interpreted }
-    }
-    return {
-      ok: true,
-      matchCount: interpreted.matchCount,
-      executed: interpreted.executed,
-      interpreted,
-    }
-  } catch (e) {
-    const errMsg = e instanceof Error ? e.message : String(e)
-    return { ok: false, error: errMsg }
-  } finally {
-    modeSessionExecuteInFlight.delete(sk)
-  }
+  const { executeModeSessionRunWithInFlightGuard } = await import(
+    './services/modeSessionRunInFlightExecute'
+  )
+  return executeModeSessionRunWithInFlightGuard({
+    inFlight: modeSessionExecuteInFlight,
+    sessionKey: args.sessionKey,
+    fallbackModel: args.fallbackModel,
+    modeRuntime: args.modeRuntime ?? null,
+    runMode: args.runMode ?? !!args.modeRuntime,
+    logPrefix: 'BG',
+  })
 }
 
 async function executeModeSessionRunDirectForOrchestrator(args: {
@@ -195,6 +158,7 @@ async function executeModeSessionRunDirectForOrchestrator(args: {
     executed: run.executed,
     error: run.error,
     busy: run.busy,
+    timedOut: run.timedOut,
   }
 }
 
@@ -217,7 +181,8 @@ async function handleModeIntervalAlarmTick(modeId: string): Promise<void> {
     if (result.busy) {
       console.log('[ModeInterval] skipped — run in flight:', modeId)
     } else if (!result.ok && !result.skipped) {
-      console.warn('[ModeInterval] tick failed:', modeId, result.error)
+      const { reportModeSessionRunResult } = await import('./services/modeSessionRunResultReporting')
+      reportModeSessionRunResult('ModeInterval', modeId, 'interval', result)
     }
   } catch (e) {
     console.warn('[ModeInterval] tick error:', modeId, e)
@@ -2246,7 +2211,7 @@ const tabDisplayGridsActive = new Map<number, boolean>();
 
 // Remove sidepanel disabling - we'll show minimal UI instead
 
-// Handle extension icon click: open the side panel + open wrdesk.com if not logged in
+// Handle extension icon click: open the side panel + open optirando.com if not logged in
 chrome.action.onClicked.addListener(async (tab) => {
   try {
     // Check if display grids are active for this tab
@@ -2259,7 +2224,7 @@ chrome.action.onClicked.addListener(async (tab) => {
       await chrome.sidePanel.open({ tabId: tab.id })
     }
     
-    // Check if user is logged in - if not, open wrdesk.com immediately
+    // Check if user is logged in - if not, open optirando.com immediately
     try {
       const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/status`, {
         method: 'GET',
@@ -2268,11 +2233,11 @@ chrome.action.onClicked.addListener(async (tab) => {
       });
       const data = await response.json();
       if (!data.loggedIn) {
-        // Not logged in - open wrdesk.com
+        // Not logged in - open optirando.com
         await openWrdeskHomeIfNeeded();
       }
     } catch {
-      // Electron not reachable - user is not logged in, open wrdesk.com
+      // Electron not reachable - user is not logged in, open optirando.com
       await openWrdeskHomeIfNeeded();
     }
   } catch (e) {
@@ -2280,7 +2245,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
-// Helper to open wrdesk.com without tab spam
+// Helper to open optirando.com without tab spam
 async function openWrdeskHomeIfNeeded(): Promise<void> {
   try {
     // Debounce: check if we opened recently
@@ -2290,14 +2255,14 @@ async function openWrdeskHomeIfNeeded(): Promise<void> {
       return;
     }
     
-    // Check if wrdesk.com is already open in any tab
-    const existingTabs = await chrome.tabs.query({ url: 'https://wrdesk.com/*' });
+    // Check if optirando.com is already open in any tab
+    const existingTabs = await chrome.tabs.query({ url: 'https://optirando.com/*' });
     if (existingTabs.length > 0) {
       return;
     }
     
     // Create new tab
-    await chrome.tabs.create({ url: 'https://wrdesk.com', active: true });
+    await chrome.tabs.create({ url: 'https://optirando.com', active: true });
     await chrome.storage.session.set({ wrdeskHomeOpenedAt: now });
   } catch (e: any) {
     console.error('[BG] openWrdeskHomeIfNeeded error:', e.message);
@@ -3389,12 +3354,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
 
-  // Handle "Open WRDesk Home" - opens wrdesk.com if not already open (NO tab spam)
+  // Handle "Open WRDesk Home" - opens optirando.com if not already open (NO tab spam)
   // Used when extension popup/sidepanel is opened in logged-out state
   if (msg && msg.type === 'OPEN_WRDESK_HOME_IF_NEEDED') {
     (async () => {
       try {
-        // Check if we've already opened wrdesk.com recently (debounce within 5 seconds)
+        // Check if we've already opened optirando.com recently (debounce within 5 seconds)
         const storage = await chrome.storage.session.get(['wrdeskHomeOpenedAt']);
         const lastOpened = storage.wrdeskHomeOpenedAt as number | undefined;
         const now = Date.now();
@@ -3404,8 +3369,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
         
-        // Query all tabs for existing wrdesk.com tab
-        const existingTabs = await chrome.tabs.query({ url: 'https://wrdesk.com/*' });
+        // Query all tabs for existing optirando.com tab
+        const existingTabs = await chrome.tabs.query({ url: 'https://optirando.com/*' });
         
         if (existingTabs.length > 0) {
           sendResponse({ ok: true, action: 'already_open', tabId: existingTabs[0].id });
@@ -3414,11 +3379,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         
         // No existing tab - create one without stealing focus
         const newTab = await chrome.tabs.create({ 
-          url: 'https://wrdesk.com',
+          url: 'https://optirando.com',
           active: false  // Do NOT steal focus
         });
         
-        // Mark that we opened wrdesk.com (for debouncing)
+        // Mark that we opened optirando.com (for debouncing)
         await chrome.storage.session.set({ wrdeskHomeOpenedAt: now });
         
         sendResponse({ ok: true, action: 'created', tabId: newTab.id });
@@ -3430,23 +3395,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
 
-  // Handle "Create Account" - opens wrdesk.com
+  // Handle "Create Account" - opens optirando.com
   if (msg && msg.type === 'OPEN_REGISTER_PAGE') {
     (async () => {
       try {
-        // Check if wrdesk.com is already open
-        const existingTabs = await chrome.tabs.query({ url: 'https://wrdesk.com/*' });
+        // Check if optirando.com is already open
+        const existingTabs = await chrome.tabs.query({ url: 'https://optirando.com/*' });
         if (existingTabs.length > 0 && existingTabs[0].id) {
           // Activate existing tab
           await chrome.tabs.update(existingTabs[0].id, { active: true });
         } else {
           // Open new tab
-          await chrome.tabs.create({ url: 'https://wrdesk.com', active: true });
+          await chrome.tabs.create({ url: 'https://optirando.com', active: true });
         }
         sendResponse({ ok: true });
       } catch (e: any) {
         console.error('[BG] OPEN_REGISTER_PAGE error:', e.message);
-        chrome.tabs.create({ url: 'https://wrdesk.com', active: true });
+        chrome.tabs.create({ url: 'https://optirando.com', active: true });
         sendResponse({ ok: false, error: e.message });
       }
     })();

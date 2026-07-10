@@ -14,7 +14,6 @@ import {
   tryHandleInternalServiceP2P,
   isInternalServiceRpcShape,
 } from '../p2pServiceDispatch'
-import { postServiceEnvelopeDirect } from '../directSend'
 import {
   INTERNAL_INFERENCE_SCHEMA_VERSION,
   type InternalInferenceResultWire,
@@ -162,62 +161,16 @@ function resultPayload(over: Record<string, unknown> = {}): Record<string, unkno
 // ── 1. Transport & module invariants ─────────────────────────────
 
 describe('direct Host inference — transport invariants', () => {
-  it('postServiceEnvelopeDirect does not import coordination relay', () => {
-    const src = readFileSync(join(internalInfDir, 'directSend.ts'), 'utf8')
-    expect(src).not.toContain('sendCapsuleViaCoordination')
-    expect(src).not.toContain('outboundQueue')
-  })
+  /**
+   * `directSend.ts` (postServiceEnvelopeDirect) was deleted (Part C dead-code removal): its only
+   * production caller was inside `requestHostCompletion`'s retired unreachable body. The three
+   * tests that lived here (source-content check + two direct POST behavior checks) are moot —
+   * legacy_http inference POSTs no longer execute at all.
+   */
 
   it('sandboxHostChat uses internal inference transport (no coordination)', () => {
     const src = readFileSync(join(internalInfDir, 'sandboxHostChat.ts'), 'utf8')
     expect(src).not.toContain('sendCapsuleViaCoordination')
-    expect(src).toContain('requestHostCompletion')
-  })
-
-  it('POST targets peer p2p_endpoint (ingest) with JSON body and Bearer', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }) as any)
-    globalThis.fetch = fetchMock as any
-    await postServiceEnvelopeDirect(
-      { type: 'internal_inference_request', x: 1 } as any,
-      'http://192.168.1.2:9/beap/ingest',
-      'hs-99',
-      'bear',
-      {
-        request_id: 'rid',
-        sender_device_id: 'a',
-        target_device_id: 'b',
-        message_type: 'internal_inference_request',
-      },
-    )
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe('http://192.168.1.2:9/beap/ingest')
-    expect(init?.method).toBe('POST')
-    expect((init?.headers as Record<string, string>)['Authorization']).toMatch(/^Bearer /)
-    const corr = (init?.headers as Record<string, string>)['X-Correlation-Id']
-    expect(typeof corr).toBe('string')
-    expect(corr!.length).toBeGreaterThan(8)
-  })
-
-  it('HTTP 202 Accepted is not treated as success (direct-only MVP)', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 202, statusText: 'Accepted' }) as any)
-    globalThis.fetch = fetchMock as any
-    const r = await postServiceEnvelopeDirect(
-      { type: 'internal_inference_request' } as any,
-      'http://127.0.0.1:1/beap/ingest',
-      'hs',
-      'bearer',
-      {
-        request_id: 'r',
-        sender_device_id: 'a',
-        target_device_id: 'b',
-        message_type: 'internal_inference_request',
-      },
-    )
-    expect(r.ok).toBe(false)
-    if (!r.ok) {
-      expect(r.code).toBe(InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE)
-    }
   })
 })
 
@@ -462,29 +415,9 @@ describe('direct Host inference — authorization (Sandbox inbound result)', () 
 })
 
 // ── 4. Privacy (logging) ───────────────────────────────────────────
-
-describe('direct Host inference — log hygiene', () => {
-  it('postServiceEnvelopeDirect does not log RELAY-POST full body pattern', async () => {
-    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    globalThis.fetch = vi.fn(async () => new Response('{}', { status: 200 }) as any) as any
-    await postServiceEnvelopeDirect(
-      { type: 'internal_inference_request', messages: [{ role: 'user', content: 'SECRET' }] } as any,
-      'http://127.0.0.1:1/beap/ingest',
-      'hs',
-      'b',
-      {
-        request_id: 'r',
-        sender_device_id: 'a',
-        target_device_id: 'b',
-        message_type: 'internal_inference_request',
-      },
-    )
-    const joined = log.mock.calls.map((c) => c.join(' ')).join('\n')
-    expect(joined).not.toContain('SECRET')
-    expect(joined).not.toMatch(/RELAY-POST.*Body:/i)
-    log.mockRestore()
-  })
-})
+// `direct Host inference — log hygiene` (postServiceEnvelopeDirect RELAY-POST body redaction) was
+// removed (Part C dead-code removal): `postServiceEnvelopeDirect` / `directSend.ts` no longer exist —
+// their only caller was `requestHostCompletion`'s retired HTTP body. See internal-inference-p2p-invariants.mdc.
 
 // ── 5. runSandboxHostInferenceChat (entry) ──────────────────────────
 
@@ -574,11 +507,10 @@ describe('internal inference service vs qBEAP inbox path', () => {
 // ── 6b. Dual transport paths (normal BEAP vs internal inference) ──
 
 describe('existing app behavior — transport modules coexist', () => {
-  it('coordination/relay path remains in p2pTransport; direct inference is internalInference/directSend', async () => {
+  it('coordination/relay path remains in p2pTransport (direct HTTP capsule send is retired)', async () => {
     const p2p = await import('../../handshake/p2pTransport')
-    const { postServiceEnvelopeDirect: postDirect } = await import('../directSend')
     expect(p2p.sendCapsuleViaCoordination).toBeTypeOf('function')
-    expect(postDirect).toBeTypeOf('function')
+    expect((p2p as any).sendCapsuleViaHttp).toBeUndefined()
   })
 })
 

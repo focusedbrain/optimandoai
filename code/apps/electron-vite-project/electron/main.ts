@@ -767,7 +767,7 @@ function orchestratorBuildMeta(): { orchestratorBuildStamp: string; orchestrator
 }
 
 // CORS: Allowed origins for WRDesk (extension + website). No wildcard in production.
-const CORS_ALLOWED_ORIGINS = new Set(['https://wrdesk.com', 'https://www.wrdesk.com'])
+const CORS_ALLOWED_ORIGINS = new Set(['https://optirando.com', 'https://www.optirando.com'])
 
 /**
  * Electron renderer (Vite dev) runs at http://localhost:&lt;port&gt; or http://127.0.0.1:&lt;port&gt;.
@@ -7104,7 +7104,7 @@ async function runDeviceKeyMigration(
     // SECURITY: CORS + Private Network Access (PNA) â€” allow WRDesk origins only.
     //
     // Allowed origins:
-    //   - https://wrdesk.com
+    //   - https://optirando.com
     //   - chrome-extension://* (any WRDesk extension ID)
     //
     // Rejects all other origins. No wildcard "*" in production.

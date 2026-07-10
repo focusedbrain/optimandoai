@@ -4132,7 +4132,7 @@ export default function EmailInboxView({
         selectedPath: 'email_send',
       })
       const subject = msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject || '(No subject)'}`
-      const fullBody = (draft || '').trim() + '\n\n—\nAutomate your inbox. Try wrdesk.com\nhttps://wrdesk.com'
+      const fullBody = (draft || '').trim() + '\n\n—\nAutomate your inbox. Try optirando.com\nhttps://optirando.com'
       const emailAttachments: { filename: string; mimeType: string; contentBase64: string }[] = []
       if (window.emailInbox?.readFileForAttachment && attachments?.length) {
         for (const pa of attachments) {

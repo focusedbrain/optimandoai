@@ -14,7 +14,7 @@
  * 5. Exposes live progress (N of M sent), failed IDs, and retry action.
  *
  * Send logic mirrors useReplyComposer:
- *   BEAP mode  → buildPackage → record as sent (stub)
+ *   BEAP mode  → buildPackage + executeEmailAction → record as sent
  *   Email mode → buildPackage + executeEmailAction → record as sent
  *
  * @version 1.0.0
@@ -159,6 +159,24 @@ export function useBulkSend(config: UseBulkSendConfig = {}): UseBulkSendReturn {
         if (!buildResult.success || !buildResult.package) {
           const err = buildResult.error ?? 'BEAP build failed.'
           console.error('[BEAP-SEND] Delivery failed — full debug:', JSON.stringify({ message: err, phase: 'package_build' }))
+          return { success: false, error: err }
+        }
+
+        // Deliver. packageConfig.deliveryMethod is always 'email' for BEAP replies —
+        // same call the email branch below uses. On failure, the item is marked
+        // failed and the batch loop (runBatch) continues to the next item.
+        const beapEmailResult = await executeEmailAction(buildResult.package, packageConfig)
+        if (!beapEmailResult.success) {
+          const err = beapEmailResult.message || 'BEAP reply delivery failed.'
+          console.error(
+            '[BEAP-SEND] Delivery failed — full debug:',
+            JSON.stringify({
+              message: beapEmailResult.message,
+              action: beapEmailResult.action,
+              clientSendFailureDebug: beapEmailResult.clientSendFailureDebug,
+              outbound_debug: beapEmailResult.p2pOutboundDebug,
+            }),
+          )
           return { success: false, error: err }
         }
         return { success: true, error: null }

@@ -8,10 +8,8 @@
  */
 
 /** Direct source import: Vitest + `@repo/ingestion-core` index alias can yield incomplete exports for this module. */
-import { randomUUID } from 'crypto'
 import { isCoordinationRelayNativeBeap } from '../../../../../packages/ingestion-core/src/beapDetection.ts'
 import { SEALED_SERVICE_RPC_CAPSULE_TYPE } from '../../../../../packages/ingestion-core/src/sealedServiceRpcConstants.ts'
-import { BEAP_CORRELATION_HEADER_OUT } from '../p2p/beapIngressLog'
 import { getCanonicalRelayDeviceId, logDeviceIdBinding } from '../p2p/relayDeviceBinding'
 import { normalizeCoordinationUrlForLocalDial } from '../p2p/coordinationUrlLocalDial'
 import { decodeJwtSubForLogs } from '../p2p/relayIdentity'
@@ -560,11 +558,11 @@ function parseRetryAfterSeconds(response: Response): number | undefined {
 }
 
 /**
- * POST a capsule to the wrdesk.com Coordination Service.
+ * POST a capsule to the optirando.com Coordination Service.
  * Uses OIDC token for auth. The service looks up the handshake in its registry.
  *
  * @param capsule - Serializable capsule object (will be JSON.stringify'd)
- * @param coordinationUrl - Base URL e.g. https://coordination.wrdesk.com (will append /beap/capsule)
+ * @param coordinationUrl - Base URL e.g. https://coordination.optirando.com (will append /beap/capsule)
  * @param oidcToken - OIDC access token for Authorization: Bearer
  * @param queueHandshakeId - Handshake id for this outbound row; merged as top-level `handshake_id` for coordination routing
  */
@@ -694,8 +692,16 @@ async function sendCapsuleViaHttpWithAuth(
     clearTimeout(timeout)
 
     const responseText = await response.text()
+    const capLog = capsule as Record<string, unknown>
     console.log('[RELAY-POST] URL:', targetEndpoint)
-    console.log('[RELAY-POST] Body:', JSON.stringify(capsule, null, 2))
+    console.log(
+      '[RELAY-POST] Body meta:',
+      JSON.stringify({
+        handshake_id: typeof capLog.handshake_id === 'string' ? capLog.handshake_id : null,
+        capsule_type: typeof capLog.capsule_type === 'string' ? capLog.capsule_type : null,
+        size_bytes: Buffer.byteLength(body, 'utf-8'),
+      }),
+    )
     console.log('[RELAY-POST] Response status:', response.status)
     console.log('[RELAY-POST] Response body:', responseText.slice(0, 8000))
 
@@ -768,117 +774,7 @@ async function sendCapsuleViaHttpWithAuth(
 }
 
 /**
- * POST a capsule to the target ingestion endpoint.
- *
- * @param capsule - Serializable capsule object (will be JSON.stringify'd)
- * @param targetEndpoint - Full URL e.g. https://host:port/beap/ingest
- * @param handshakeId - For logging and X-BEAP-Handshake header
- * @param bearerToken - Counterparty's p2p auth token for Authorization: Bearer
+ * RETIRED: `sendCapsuleViaHttp` (direct HTTP POST to a peer's LAN `p2p_endpoint`) has been
+ * removed. Zero production callers — the outbound queue fails closed instead of dialing a
+ * peer IP directly. See internal-inference-p2p-invariants.mdc ("no LAN-IP dials between peers").
  */
-export async function sendCapsuleViaHttp(
-  capsule: object,
-  targetEndpoint: string,
-  handshakeId: string,
-  bearerToken?: string | null,
-): Promise<SendCapsuleResult> {
-  if (!targetEndpoint || typeof targetEndpoint !== 'string') {
-    return { success: false, error: 'targetEndpoint is required' }
-  }
-  const trimmed = targetEndpoint.trim()
-  if (trimmed.length === 0) {
-    return { success: false, error: 'targetEndpoint is required' }
-  }
-
-  const body = JSON.stringify(capsule)
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS)
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'X-BEAP-Handshake': handshakeId,
-    [BEAP_CORRELATION_HEADER_OUT]: randomUUID(),
-  }
-  if (bearerToken?.trim()) {
-    headers['Authorization'] = `Bearer ${bearerToken.trim()}`
-  }
-
-  try {
-    const response = await fetch(trimmed, {
-      method: 'POST',
-      headers,
-      body,
-      signal: controller.signal,
-    })
-
-    clearTimeout(timeout)
-
-    const responseText = await response.text()
-    console.log('[RELAY-POST] URL:', trimmed)
-    try {
-      console.log('[RELAY-POST] Body:', JSON.stringify(JSON.parse(body), null, 2))
-    } catch {
-      console.log('[RELAY-POST] Body:', body.slice(0, 8000))
-    }
-    console.log('[RELAY-POST] Response status:', response.status)
-    console.log('[RELAY-POST] Response body:', responseText.slice(0, 8000))
-
-    console.log('[HANDSHAKE-DEBUG] Sending to relay:', trimmed, 'status:', response.status)
-
-    if (response.status === 200) {
-      const ingestAck = parseDirectIngestHttpAck(responseText)
-      const recipientIngestConfirmed = ingestAck?.persisted_inbox === true
-      console.log('[P2P] Context-sync delivered', {
-        handshake_id: handshakeId,
-        endpoint: trimmed,
-        recipientIngestConfirmed,
-        ingestRowId: ingestAck?.row_id ?? null,
-      })
-      return {
-        success: true,
-        statusCode: 200,
-        ...(recipientIngestConfirmed
-          ? { recipientIngestConfirmed: true, ingestRowId: ingestAck?.row_id }
-          : {}),
-      }
-    }
-
-    const retryAfterSec = parseRetryAfterSeconds(response)
-    console.warn('[P2P] Context-sync delivery failed', { handshake_id: handshakeId, endpoint: trimmed, status: response.status })
-    const responseBodySnippet = sanitizeHttpResponseBodyForLogs(responseText)
-    const snapshot = buildOutboundRequestDebugSnapshot(
-      'direct',
-      trimmed,
-      capsule,
-      body,
-      headers['Content-Type'] ?? 'application/json',
-      response.status,
-      responseBodySnippet.length > 0 ? responseBodySnippet : undefined,
-    )
-    logOutboundRequestFailureDiagnostics(snapshot)
-    const errMsg = `HTTP ${response.status}`
-    return {
-      success: false,
-      error: errMsg,
-      statusCode: response.status,
-      outboundDebug: snapshot,
-      ...(retryAfterSec !== undefined && { retryAfterSec }),
-      ...(responseBodySnippet.length > 0 && { responseBodySnippet }),
-    }
-  } catch (err: any) {
-    clearTimeout(timeout)
-    const errMsg = err?.message ?? err?.name ?? String(err)
-    console.warn('[P2P] Context-sync delivery error', { handshake_id: handshakeId, endpoint: trimmed, error: errMsg })
-    const snapshot = buildOutboundRequestDebugSnapshot(
-      'direct',
-      trimmed,
-      capsule,
-      body,
-      'application/json',
-      0,
-      undefined,
-      errMsg,
-    )
-    logOutboundRequestFailureDiagnostics(snapshot)
-    return { success: false, error: errMsg, outboundDebug: snapshot }
-  }
-}

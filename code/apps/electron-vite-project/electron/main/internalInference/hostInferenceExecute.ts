@@ -21,7 +21,9 @@ function retryableForCode(code: string): boolean {
   return (
     code === InternalInferenceErrorCode.PROVIDER_BUSY ||
     code === InternalInferenceErrorCode.PROVIDER_TIMEOUT ||
-    code === InternalInferenceErrorCode.OLLAMA_UNAVAILABLE
+    code === InternalInferenceErrorCode.OLLAMA_UNAVAILABLE ||
+    // Backend starting/restarting is retryable, same as the retired Ollama code above.
+    code === InternalInferenceErrorCode.LOCAL_LLM_UNAVAILABLE
   )
 }
 
@@ -52,9 +54,14 @@ export function buildHostInferenceErrorWire(
   }
 }
 
-function mapOllamaError(e: unknown): { code: string; message: string } {
+function mapLocalLlmError(e: unknown): { code: string; message: string } {
   const c = (e as { code?: string })?.code
-  if (c === 'MODEL_UNAVAILABLE' || c === 'OLLAMA_UNAVAILABLE') {
+  if (
+    c === 'MODEL_UNAVAILABLE' ||
+    c === 'OLLAMA_UNAVAILABLE' ||
+    c === 'LOCAL_LLM_UNAVAILABLE' ||
+    c === 'HOST_NO_ACTIVE_LOCAL_LLM'
+  ) {
     return { code: c, message: c }
   }
   if (
@@ -279,7 +286,7 @@ export async function runHostInternalInference(
       },
     }
   } catch (e) {
-    const m = mapOllamaError(e)
+    const m = mapLocalLlmError(e)
     console.log(
       `[AI_REQUEST_ERROR] ${JSON.stringify({
         origin: 'host_internal_execution',

@@ -26204,7 +26204,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">Publisher Context from wrdesk.com</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">Publisher Context from optirando.com</h3>
 
               <div style="display: flex; gap: 10px; margin-bottom: 15px;">
 
@@ -26226,7 +26226,7 @@ function initializeExtension() {
 
                   cursor: pointer; font-size: 12px; font-weight: 500;
 
-                ">Load from wrdesk.com</button>
+                ">Load from optirando.com</button>
 
               </div>
 
@@ -26242,7 +26242,7 @@ function initializeExtension() {
 
                 font-family: 'Consolas', monospace; line-height: 1.5;
 
-              " placeholder="Publisher context will be loaded from wrdesk.com or injected via template..."></textarea>
+              " placeholder="Publisher context will be loaded from optirando.com or injected via template..."></textarea>
 
             </div>
 
@@ -26974,7 +26974,7 @@ ${pageText}
 
       const textarea = document.getElementById('publisher-context-text') as HTMLTextAreaElement
 
-      if (textarea) textarea.value = 'Loading context from wrdesk.com...\n[This would connect to wrdesk.com API]'
+      if (textarea) textarea.value = 'Loading context from optirando.com...\n[This would connect to optirando.com API]'
 
     })
 
@@ -32608,7 +32608,7 @@ ${pageText}
 
 
     document.getElementById('btn-change-plan')?.addEventListener('click', () => {
-      window.open('https://wrdesk.com/?page_id=1080&v=5f02f0889301', '_blank', 'noopener,noreferrer')
+      window.open('https://optirando.com/?page_id=1080&v=5f02f0889301', '_blank', 'noopener,noreferrer')
     })
 
     // Fetch current plan from auth status
@@ -40882,7 +40882,7 @@ ${pageText}
             text-align: left;
           ">
             <div style="font-size: 14px; margin-bottom: 2px; font-weight: 600;">Markdown</div>
-            <div style="font-size: 11px; color: ${csTheme().muted};">Documentation format, best for wrdesk.com</div>
+            <div style="font-size: 11px; color: ${csTheme().muted};">Documentation format, best for optirando.com</div>
           </button>
         </div>
         

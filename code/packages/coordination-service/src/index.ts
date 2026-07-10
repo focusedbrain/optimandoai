@@ -1,6 +1,6 @@
 /**
  * Coordination Service — Entry point
- * Multi-tenant relay for BEAP capsules on wrdesk.com
+ * Multi-tenant relay for BEAP capsules on optirando.com
  */
 
 import { loadConfig } from './config.js'

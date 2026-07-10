@@ -9,7 +9,12 @@
 import { networkInterfaces } from 'os'
 import { isP2pPublishedHostLoopback } from './p2pConfig'
 
-const KNOWN_PUBLIC_COORDINATION_HOSTS = new Set(['relay.wrdesk.com', 'coordination.wrdesk.com'])
+const KNOWN_PUBLIC_COORDINATION_HOSTS = new Set([
+  'relay.wrdesk.com',
+  'coordination.wrdesk.com',
+  'relay.optirando.com',
+  'coordination.optirando.com',
+])
 
 function normalizeHostname(hostname: string): string {
   const h = hostname.trim().toLowerCase()

@@ -15,6 +15,7 @@ import {
   modeHasAllocatedSession,
   requestRunModeAllocatedSession,
 } from '../../../services/runModeAllocatedSessionAutomation'
+import { reportModeSessionRunResult } from '../../../services/modeSessionRunResultReporting'
 import { triggerOptimizerSnapshot } from '../../../services/fetchOptimizerTrigger'
 import type {
   ChatFocusMode,
@@ -370,13 +371,7 @@ I'm focused on this automation. Continue in WR Chat with the same model and sett
         requestModeModelWarmOnTrigger(def.id, 'speech_bubble')
         if (modeHasAllocatedSession(def)) {
           void requestRunModeAllocatedSession(def.id, 'speech_bubble').then((result) => {
-            if (!result.ok && !result.skipped) {
-              console.warn(
-                '[WrMultiTriggerBar] Mode session run (speech bubble) failed:',
-                def.id,
-                result.error,
-              )
-            }
+            reportModeSessionRunResult('WrMultiTriggerBar', def.id, 'speech_bubble', result)
           })
         }
         try {
@@ -499,9 +494,7 @@ What would you like to add?`
     requestModeModelWarmOnTrigger(def.id, 'speech_bubble')
     void requestRunModeAllocatedSession(def.id, 'manual_icon')
       .then((result) => {
-        if (!result.ok && !result.skipped) {
-          console.warn('[WrMultiTriggerBar] Mode session run failed:', def.id, result.error)
-        }
+        reportModeSessionRunResult('WrMultiTriggerBar', def.id, 'manual_icon', result)
       })
       .finally(() => {
         setCustomModeSessionRunning(false)

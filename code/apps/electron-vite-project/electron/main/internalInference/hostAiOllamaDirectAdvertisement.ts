@@ -30,8 +30,8 @@ export type HostOllamaDirectAdvertisement = {
 export type HostOllamaDirectAdvertisementOpts = {
   peer_device_id?: string | null
   /**
-   * When set (e.g. after Host loopback `/api/tags` for caps build), reused so we do not duplicate the localhost probe.
-   * Must correspond to `GET` against {@link normalizeHostLoopbackOllamaBaseUrl}(manager URL) — i.e. `127.0.0.1:<port>/api/tags`.
+   * When set (e.g. after Host loopback `/v1/models` for caps build), reused so we do not duplicate the localhost probe.
+   * Must correspond to `GET` against {@link normalizeHostLoopbackOllamaBaseUrl}(manager URL) — i.e. `127.0.0.1:<port>/v1/models`.
    */
   localTagsPrefetch?: { ok: boolean; json: unknown | null }
 }

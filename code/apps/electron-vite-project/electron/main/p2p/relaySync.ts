@@ -1,5 +1,5 @@
 /**
- * Relay Sync — Register handshakes with remote relay or wrdesk.com Coordination Service.
+ * Relay Sync — Register handshakes with remote relay or optirando.com Coordination Service.
  *
  * When use_coordination: register with coordination service (OIDC auth).
  * When relay_mode=remote: register with own relay (Bearer secret).

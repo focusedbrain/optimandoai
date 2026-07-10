@@ -19,7 +19,8 @@ import { maybeEnqueueInitialContextSyncAfterInboundAccept } from '../handshake/c
 import { canonicalRebuild } from '../handshake/canonicalRebuild'
 import type { SSOSession } from '../handshake/types'
 import { buildDefaultReceiverPolicy } from '../handshake/types'
-import { migrateHandshakeTables } from '../handshake/db'
+import { migrateHandshakeTables, getHandshakeRecord } from '../handshake/db'
+import { unsealContextSyncCapsuleIfNeeded } from '../handshake/contextSyncSeal'
 import {
   insertQuarantineRecord,
   listQuarantineRecords,
@@ -122,10 +123,25 @@ export async function handleIngestionRPC(
           }
 
           // Wrap the canonical capsule back into the ValidatedCapsule envelope
-          const canonicalValidated = {
+          let canonicalValidated = {
             ...distribution.validated_capsule,
             capsule: rebuildResult.capsule as any,
           }
+
+          // Fail-closed gate: reject plaintext context_sync content, unseal
+          // context_blocks_sealed before ingestion. No-op for other capsule types.
+          const unsealResult = await unsealContextSyncCapsuleIfNeeded(db, getHandshakeRecord, canonicalValidated.capsule as Record<string, unknown>)
+          if (!unsealResult.ok) {
+            console.warn(`[INGESTION] ${unsealResult.code}:`, unsealResult.message)
+            return {
+              type: 'ingestion-result',
+              success: false,
+              error: 'Capsule rejected',
+              reason: unsealResult.code,
+              distribution_target: 'handshake_pipeline',
+            }
+          }
+          canonicalValidated = { ...canonicalValidated, capsule: unsealResult.capsule as any }
 
           const handshakeResult = processHandshakeCapsule(
             db,
@@ -280,10 +296,24 @@ export function registerIngestionRoutes(app: any, getDb: () => any, getSsoSessio
               })
             }
 
-            const canonicalValidated = {
+            let canonicalValidated = {
               ...distribution.validated_capsule,
               capsule: rebuildResult.capsule as any,
             }
+
+            // Fail-closed gate: reject plaintext context_sync content, unseal
+            // context_blocks_sealed before ingestion. No-op for other capsule types.
+            const unsealResult = await unsealContextSyncCapsuleIfNeeded(db, getHandshakeRecord, canonicalValidated.capsule as Record<string, unknown>)
+            if (!unsealResult.ok) {
+              console.warn(`[INGESTION] ${unsealResult.code}:`, unsealResult.message)
+              return res.status(400).json({
+                success: false,
+                error: 'Capsule rejected',
+                reason: unsealResult.code,
+                distribution_target: 'handshake_pipeline',
+              })
+            }
+            canonicalValidated = { ...canonicalValidated, capsule: unsealResult.capsule as any }
 
             const receiverPolicy = buildDefaultReceiverPolicy()
             const handshakeResult = processHandshakeCapsule(

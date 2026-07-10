@@ -567,7 +567,7 @@ function P2PDeliveryStatus({ handshakeId, p2pEndpoint }: { handshakeId: string; 
   const pending = entries.filter((e) => e.status === 'pending')
   const sent = entries.filter((e) => e.status === 'sent')
   const failed = entries.filter((e) => e.status === 'failed')
-  const deliveryLabel = useCoordination ? 'wrdesk.com' : 'P2P'
+  const deliveryLabel = useCoordination ? 'optirando.com' : 'P2P'
   if (sent.length > 0 && pending.length === 0 && failed.length === 0) return <MetaRow label="P2P" value={`Delivered via ${deliveryLabel} ✓`} />
   if (pending.length > 0) return <MetaRow label="P2P" value={useCoordination ? 'Delivery pending — recipient may be offline' : `Context delivery in progress... (attempt ${(pending[0]?.retry_count ?? 0) + 1})`} />
   if (failed.length > 0) {

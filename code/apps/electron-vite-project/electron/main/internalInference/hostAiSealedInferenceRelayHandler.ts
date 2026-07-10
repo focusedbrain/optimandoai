@@ -1,7 +1,7 @@
 /**
  * Host-side handler for inbound sealed Host AI inference REQUEST capsules.
  *
- * Open (A1) → validate inner type → run Ollama (unchanged execution core) → seal result (A1) → relay send.
+ * Open (A1) → validate inner type → run local LLM via llama.cpp (hostInferenceExecute.ts) → seal result (A1) → relay send.
  * INV-ENCRYPT: prompt/completion only inside ciphertext; relay never sees plaintext.
  * INV-HOSTAI-FROZEN: trust/role/policy unchanged — only transport swapped.
  */

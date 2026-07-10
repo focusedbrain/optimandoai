@@ -6,7 +6,7 @@
 const crypto = require('node:crypto')
 const path = require('path')
 
-const ISS = 'https://auth.wrdesk.com/realms/wrdesk'
+const ISS = 'https://auth.optirando.com/realms/wrdesk'
 
 function buildLedgerSessionToken(wrdeskUserId, iss) {
   return crypto.createHash('sha256').update(`${wrdeskUserId}:${iss}:beap-ledger`).digest('hex')

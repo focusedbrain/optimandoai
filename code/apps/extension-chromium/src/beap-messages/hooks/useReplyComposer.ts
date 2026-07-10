@@ -8,10 +8,11 @@
  * 1. Determine reply mode (BEAP or email) from message provenance — immutable.
  * 2. Own draft text, attachment list, sending state, and AI-drafting state.
  * 3. Expose sendReply():
- *    - BEAP mode  → packages a reply capsule via useBeapDraftActions pattern and
- *                   records it in the store.
+ *    - BEAP mode  → packages a reply capsule, delivers it via executeEmailAction
+ *                   (packageConfig.deliveryMethod is always 'email' for replies),
+ *                   and records it in the store only after delivery succeeds.
  *    - Email mode → composes an email with the mandatory WR Desk signature, dispatches
- *                   via executeEmailAction-compatible flow, records in store.
+ *                   via executeEmailAction, records in store.
  * 4. Expose saveDraft(): persists current composer text to BeapMessage.draftReply.
  * 5. Expose generateAiDraft(): gate-checks semantic authorization, calls the AI
  *    provider, populates the composer text as an editable draft.
@@ -50,7 +51,7 @@ import { hasHandshakeKeyMaterial, handshakeRecordToRecipient } from '../../hands
 // =============================================================================
 
 /** Mandatory WR Desk promotional email signature. */
-export const EMAIL_SIGNATURE = '\n\n—\nAutomate your inbox. Try wrdesk.com\nhttps://wrdesk.com'
+export const EMAIL_SIGNATURE = '\n\n—\nAutomate your inbox. Try optirando.com\nhttps://optirando.com'
 
 /** Derive a reply subject from a message. */
 export function deriveReplySubject(message: BeapMessage): string {
@@ -137,7 +138,7 @@ export interface ReplyComposerState {
 export interface SendResult {
   mode: ReplyMode
   sentAt: number
-  /** DeliveryResult from the email send path (null for BEAP). */
+  /** DeliveryResult from the delivery call (both BEAP and email replies deliver via executeEmailAction). */
   emailResult: DeliveryResult | null
 }
 
@@ -202,7 +203,8 @@ export interface ReplyComposerActions {
 
   /**
    * Send the current draft text.
-   * BEAP: packages reply capsule via buildPackage, writes DraftReply{status:'sent'}.
+   * BEAP: packages reply capsule via buildPackage, delivers via executeEmailAction,
+   *       writes DraftReply{status:'sent'} only after delivery succeeds.
    * Email: appends EMAIL_SIGNATURE, dispatches via executeEmailAction, writes store.
    */
   sendReply: () => Promise<void>
@@ -481,9 +483,27 @@ export function useReplyComposer(
           throw new Error(bm)
         }
 
-        // Write to store as sent
+        // Deliver. packageConfig.deliveryMethod is always 'email' for BEAP replies
+        // (the qBEAP/pBEAP capsule is transported as an email payload) — same call
+        // the email reply path below and the single-compose path (executeDeliveryAction's
+        // 'email' branch) use. The draft may only be marked 'sent' once this succeeds.
+        const beapEmailResult = await executeEmailAction(buildResult.package, packageConfig)
+        if (!beapEmailResult.success) {
+          console.error(
+            '[BEAP-SEND] Delivery failed — full debug:',
+            JSON.stringify({
+              message: beapEmailResult.message,
+              action: beapEmailResult.action,
+              clientSendFailureDebug: beapEmailResult.clientSendFailureDebug,
+              outbound_debug: beapEmailResult.p2pOutboundDebug,
+            }),
+          )
+          throw new Error(beapEmailResult.message || 'BEAP reply delivery failed.')
+        }
+
+        // Write to store as sent — only after delivery succeeds
         setDraftReply(message.messageId, { content, mode: 'beap', status: 'sent' })
-        const result: SendResult = { mode: 'beap', sentAt: Date.now(), emailResult: null }
+        const result: SendResult = { mode: 'beap', sentAt: Date.now(), emailResult: beapEmailResult }
         setSendResult(result)
         setDraftTextState('')
         setStoredDraftContent('')

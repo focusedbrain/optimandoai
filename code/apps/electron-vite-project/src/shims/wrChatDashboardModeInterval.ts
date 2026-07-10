@@ -45,7 +45,8 @@ async function handleDashboardModeIntervalTick(modeId: string): Promise<void> {
     if (result.busy) {
       console.log('[DashboardModeInterval] skipped — run in flight:', modeId)
     } else if (!result.ok && !result.skipped) {
-      console.warn('[DashboardModeInterval] tick failed:', modeId, result.error)
+      const { reportModeSessionRunResult } = await import('@ext/services/modeSessionRunResultReporting')
+      reportModeSessionRunResult('DashboardModeInterval', modeId, 'interval', result)
     }
   } catch (e) {
     console.warn('[DashboardModeInterval] tick error:', modeId, e)

@@ -578,7 +578,7 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
           </span>
           {!hasHandshake && (
             <span style={{ fontSize: '10px', color: dimColor }}>
-              with wrdesk.com signature
+              with optirando.com signature
             </span>
           )}
           {/* View Handshake link — only for messages with a handshake */}

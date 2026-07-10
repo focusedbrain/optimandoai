@@ -149,7 +149,7 @@ function localCoordinationDeviceId(r: HandshakeRecord): string | null {
 
 export function isCoordinationServiceEndpointUrl(p2pEndpoint: string, coordinationBase: string | undefined | null): boolean {
   const t = p2pEndpoint.trim().toLowerCase()
-  if (t.includes('relay.wrdesk.com') && t.includes('/beap/')) {
+  if ((t.includes('relay.wrdesk.com') || t.includes('relay.optirando.com')) && t.includes('/beap/')) {
     return true
   }
   if (!coordinationBase?.trim()) return false

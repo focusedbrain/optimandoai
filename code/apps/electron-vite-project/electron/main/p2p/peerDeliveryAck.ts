@@ -40,7 +40,26 @@ export function resolveSenderDeliveryAckEndpoint(db: any, handshakeId: string): 
   return tryOne(rec?.p2p_endpoint)
 }
 
-/** Fire-and-forget: notify sender over direct HTTP (Bearer = counterparty_p2p_token on recipient ledger). */
+/**
+ * Typed `boolean` (not literal `true`) so the retired direct-dial body stays
+ * type-checked but never runs.
+ */
+const RETIRE_DIRECT_PEER_DELIVERY_ACK: boolean = true
+
+/**
+ * Fire-and-forget: notify sender over direct HTTP (Bearer = counterparty_p2p_token on recipient ledger).
+ *
+ * RETIRED LANE: every caller of this function already calls
+ * `publishBeapIngestAckOverCoordinationRelay` (the `beap_ingest_ack` message
+ * over the coordination WebSocket) unconditionally immediately beforehand —
+ * that is the live, relay-mediated delivery-ack path. This direct-HTTP
+ * fallback dials the same retired direct-LAN advertisement
+ * (`peekHostAdvertisedMvpDirectEntry` / `p2p_endpoint`) as
+ * `sandboxEmailDelivery.ts`'s transport, which is permanently unpublished
+ * (Schema v71) and so already resolves to no endpoint in practice. Fail
+ * closed at entry so a stale/legacy ledger `p2p_endpoint` can never cause a
+ * direct dial between peers; the relay ack above is sufficient on its own.
+ */
 export function postPeerDeliveryAckToSender(
   db: any,
   handshakeId: string,
@@ -50,6 +69,10 @@ export function postPeerDeliveryAckToSender(
   const hid = String(handshakeId ?? '').trim()
   const rid = String(rowId ?? '').trim()
   if (!hid || !rid || !db) return
+  if (RETIRE_DIRECT_PEER_DELIVERY_ACK) {
+    console.log(`[BEAP_DELIVERY] peer_ack_skip handshake=${hid} reason=direct_peer_ack_retired`)
+    return
+  }
   const url = resolveSenderDeliveryAckEndpoint(db, hid)
   if (!url) {
     console.log(`[BEAP_DELIVERY] peer_ack_skip handshake=${hid} reason=no_sender_direct_endpoint`)

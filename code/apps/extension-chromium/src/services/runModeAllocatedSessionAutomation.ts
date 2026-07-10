@@ -25,6 +25,8 @@ export type ModeSessionRunExecuteResult = {
   executed?: string[]
   error?: string
   busy?: boolean
+  /** Hard timeout fired — latch released; not a concurrent busy skip. */
+  timedOut?: boolean
 }
 
 export type RunModeAllocatedSessionAutomationResult =
@@ -41,6 +43,7 @@ export type RunModeAllocatedSessionAutomationResult =
       phase?: 'resolve' | 'fetch' | 'mirror' | 'present' | 'mode_run'
       skipped?: boolean
       busy?: boolean
+      timedOut?: boolean
     }
 
 export type RunModeAllocatedSessionOptions = {
@@ -170,7 +173,12 @@ export async function runModeAllocatedSessionAutomation(
       }
     }
     if (!run.ok) {
-      return { ok: false, error: run.error ?? 'Mode run failed', phase: 'mode_run' }
+      return {
+        ok: false,
+        error: run.error ?? 'Mode run failed',
+        phase: 'mode_run',
+        timedOut: run.timedOut,
+      }
     }
     return {
       ok: true,

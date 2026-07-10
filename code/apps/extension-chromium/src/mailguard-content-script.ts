@@ -1467,8 +1467,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 // =============================================================================
 // WRGuard™ Overlay Configuration URLs (single source of truth)
 // =============================================================================
-const WRDESK_LEARN_URL = 'https://help.wrdesk.com/how-wrdesk-works'
-const WRDESK_API_CONNECT_URL = 'https://help.wrdesk.com/connect-apis'
+const WRDESK_LEARN_URL = 'https://help.optirando.com/how-wrdesk-works'
+const WRDESK_API_CONNECT_URL = 'https://help.optirando.com/connect-apis'
 
 let wrguardOverlayElement: HTMLElement | null = null
 

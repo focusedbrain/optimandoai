@@ -107,7 +107,7 @@ export default function P2PStatusBadge() {
     )
   }
 
-  // Coordination mode: show wrdesk.com connection status
+  // Coordination mode: show optirando.com connection status
   if (health.use_coordination) {
     if (health.coordination_last_error && health.coordination_last_error.toLowerCase().includes('auth')) {
       return (
@@ -122,19 +122,19 @@ export default function P2PStatusBadge() {
     if (health.coordination_connected) {
       return (
         <span
-          title="Connected to wrdesk.com for instant delivery"
+          title="Connected to optirando.com for instant delivery"
           style={{ ...chip, ...UI_BADGE.green }}
         >
-          Connected to wrdesk.com
+          Connected to optirando.com
         </span>
       )
     }
     return (
       <span
-        title="Reconnecting to wrdesk.com…"
+        title="Reconnecting to optirando.com…"
         style={{ ...chip, ...UI_BADGE.amber }}
       >
-        Reconnecting to wrdesk.com…
+        Reconnecting to optirando.com…
       </span>
     )
   }

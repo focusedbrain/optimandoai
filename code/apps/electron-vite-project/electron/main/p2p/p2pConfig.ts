@@ -48,8 +48,8 @@ export const DEFAULT_P2P_CONFIG: P2PConfig = {
   remote_relay_mtls_cert: null,
   remote_relay_mtls_key: null,
   relay_cert_fingerprint: null,
-  coordination_url: 'https://relay.wrdesk.com',
-  coordination_ws_url: 'wss://relay.wrdesk.com/beap/ws',
+  coordination_url: 'https://relay.optirando.com',
+  coordination_ws_url: 'wss://relay.optirando.com/beap/ws',
   coordination_enabled: true,
   use_coordination: true,
 }
@@ -93,7 +93,7 @@ export function getP2PConfig(db: any): P2PConfig {
 
 /**
  * Resolve the effective p2p_endpoint for capsule building.
- * - use_coordination: coordination_url + /beap/capsule (wrdesk.com relay)
+ * - use_coordination: coordination_url + /beap/capsule (optirando.com relay)
  * - relay_mode 'remote': relay_url (user-configured remote relay)
  * - relay_mode 'disabled': local_p2p_endpoint (direct P2P, no relay)
  * - relay_mode 'local' without coordination: local_p2p_endpoint (P2P server acts as relay)

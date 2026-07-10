@@ -1218,6 +1218,16 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `UPDATE p2p_config SET enabled = 0, local_p2p_endpoint = NULL WHERE id = 1`,
     ],
   },
+  {
+    version: 72,
+    description:
+      'Schema v72: domain migration wrdesk.com -> optirando.com — update coordination_url/coordination_ws_url ' +
+      'for installs still pointing at the retired relay.wrdesk.com / coordination.wrdesk.com hosts.',
+    sql: [
+      `UPDATE p2p_config SET coordination_url = 'https://relay.optirando.com' WHERE coordination_url IN ('https://relay.wrdesk.com', 'https://coordination.wrdesk.com')`,
+      `UPDATE p2p_config SET coordination_ws_url = 'wss://relay.optirando.com/beap/ws' WHERE coordination_ws_url IN ('wss://relay.wrdesk.com/beap/ws', 'wss://coordination.wrdesk.com/beap/ws')`,
+    ],
+  },
 ]
 
 /**
