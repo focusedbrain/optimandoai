@@ -20,8 +20,24 @@ import {
 } from '../llm/resolveAiExecutionContext'
 import type { BeapContentAiTask } from '../internalInference/beapContentAiRoute'
 import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../llm/localLlmPaths'
+import { EMPTY_LLM_RESPONSE_ERROR } from '../llm/llamaChatResponseContent'
 
 export const INBOX_LLM_TIMEOUT_MS = 45_000
+
+/**
+ * build038: local llama.cpp lanes get a longer client-side budget than cloud. The 45s cloud
+ * timeout raced long local generations (model load + long "Type C" analyses measured at
+ * 11–92s), producing intermittent client-side timeouts while the server kept generating.
+ * Generation itself is now bounded via {@link INBOX_LLM_MAX_OUTPUT_TOKENS}.
+ */
+export const INBOX_LLM_LOCAL_TIMEOUT_MS = 120_000
+
+/**
+ * build038: cap on `max_tokens` for inbox analysis/summarize/draft calls against local
+ * llama.cpp — closes the unbounded-generation path (no cap + client abort left the server
+ * generating to completion anyway, holding a slot).
+ */
+export const INBOX_LLM_MAX_OUTPUT_TOKENS = 2_048
 
 /**
  * Set to true during debugging to see every isLlmAvailable / inboxLlmChat call in the console.
@@ -211,7 +227,7 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
   const {
     system,
     user,
-    timeoutMs = INBOX_LLM_TIMEOUT_MS,
+    timeoutMs: timeoutMsParam,
     resolvedContext,
     aiExecution: aiExecutionParam,
     llmTrace,
@@ -275,7 +291,10 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
         handshakeId: hid,
         messages,
         model: modelOverride,
-        timeoutMs,
+        // Host executes on the same local llama.cpp — give it the local budget, and bound
+        // generation so a runaway response cannot outlive the client-side timeout.
+        timeoutMs: timeoutMsParam ?? INBOX_LLM_LOCAL_TIMEOUT_MS,
+        max_tokens: INBOX_LLM_MAX_OUTPUT_TOKENS,
         ...(contentTask?.kind === 'analysis' ? { responseFormat: 'json' as const, temperature: 0 } : {}),
       })
       if (!out.ok) {
@@ -284,11 +303,17 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
         throw e
       }
       const trimmed = typeof out.output === 'string' ? out.output.trim() : ''
-      return trimmed || 'No response from model.'
+      if (!trimmed) {
+        throw new Error(EMPTY_LLM_RESPONSE_ERROR)
+      }
+      return trimmed
     }
   }
 
   if (provider.id === 'ollama' && aiExecution) {
+    // Local llama.cpp lane: longer client budget than cloud (long analyses measured 11–92s),
+    // with generation bounded by max_tokens so the server cannot run unbounded past the abort.
+    const timeoutMs = timeoutMsParam ?? INBOX_LLM_LOCAL_TIMEOUT_MS
     const { OllamaProvider } = await import('../handshake/aiProviders')
     const ollamaProv = new OllamaProvider({
       baseUrl: aiExecution.baseUrl ?? HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE,
@@ -326,23 +351,28 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
         stream: false,
         signal: ac.signal,
         runtimeTrace: llmTrace,
+        maxTokens: INBOX_LLM_MAX_OUTPUT_TOKENS,
         ...(contentTask?.kind === 'analysis' ? { temperature: 0, responseFormat: 'json' as const } : {}),
         ...(bulkOllamaAutosort ? { ollamaKeepAlive: '15m' as const } : {}),
       })
       clearTimeout(timeoutId)
       const trimmed = typeof text === 'string' ? text.trim() : ''
-      return trimmed || 'No response from model.'
+      if (!trimmed) {
+        throw new Error(EMPTY_LLM_RESPONSE_ERROR)
+      }
+      return trimmed
     } catch (e) {
       clearTimeout(timeoutId)
       const abortErr = isAbortError(e)
       if (ac.signal.aborted && (abortErr || outerTimeoutFired)) {
-        throw new InboxLlmTimeoutError()
+        throw new InboxLlmTimeoutError(`${LLM_TIMEOUT_PREFIX}: inbox LLM exceeded ${timeoutMs}ms`)
       }
       throw e
     }
   }
 
   if (provider.id !== 'ollama') {
+    const timeoutMs = timeoutMsParam ?? INBOX_LLM_TIMEOUT_MS
     const ac = new AbortController()
     let outerTimeoutFired = false
     const timeoutId = setTimeout(() => {
@@ -381,7 +411,10 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
         })
       }
       const trimmed = typeof text === 'string' ? text.trim() : ''
-      return trimmed || 'No response from model.'
+      if (!trimmed) {
+        throw new Error(EMPTY_LLM_RESPONSE_ERROR)
+      }
+      return trimmed
     } catch (e) {
       clearTimeout(timeoutId)
       const abortErr = isAbortError(e)

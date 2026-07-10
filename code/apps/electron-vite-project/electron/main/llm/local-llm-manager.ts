@@ -45,6 +45,7 @@ import {
   type ResolvedSpawnPlan,
 } from './llamaServerArgs'
 import { RotatingLogWriter, llamaServerLogPath } from './llamaServerLog'
+import { extractLlamaChatContent } from './llamaChatResponseContent'
 
 const execAsync = promisify(exec)
 
@@ -56,7 +57,7 @@ type OpenAiModelsResponse = {
 
 type OpenAiChatCompletionResponse = {
   model?: string
-  choices?: Array<{ message?: { content?: string } }>
+  choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>
   usage?: { prompt_tokens?: number; completion_tokens?: number }
 }
 
@@ -131,6 +132,14 @@ export class LocalLlmManager {
   private restartPending = false
   private restartWaitingForTasks = false
 
+  // build038: server-healthy event (warmup anchor). Emits on every observed
+  // down→up transition — app-owned spawns, supervised restarts, apply-settings
+  // restarts, and externally started servers alike. `spawnGeneration` gives
+  // listeners a per-spawn identity for dedup/logging.
+  private spawnGeneration = 0
+  private lastServerReachable: boolean | null = null
+  private serverHealthyListeners = new Set<(generation: number) => void>()
+
   constructor() {
     this.serverPort = DEFAULT_LLAMACPP_PORT
     this.baseUrl = `http://127.0.0.1:${this.serverPort}`
@@ -192,6 +201,33 @@ export class LocalLlmManager {
     this.supervisionEnabled = true
   }
 
+  /** Subscribe to server down→up transitions (warmup anchor). Returns an unsubscribe fn. */
+  onServerHealthy(cb: (generation: number) => void): () => void {
+    this.serverHealthyListeners.add(cb)
+    return () => this.serverHealthyListeners.delete(cb)
+  }
+
+  /** Monotonic id of the current owned spawn (0 before the first spawn). */
+  getSpawnGeneration(): number {
+    return this.spawnGeneration
+  }
+
+  /** Record an observed reachability state; emits `server_healthy` on the down→up edge. */
+  private noteServerReachability(reachable: boolean): void {
+    const was = this.lastServerReachable
+    this.lastServerReachable = reachable
+    if (!reachable || was === true) return
+    const generation = this.spawnGeneration
+    console.log(`[LOCAL_LLM_LIFECYCLE] server_healthy generation=${generation}`)
+    for (const cb of [...this.serverHealthyListeners]) {
+      try {
+        cb(generation)
+      } catch (e) {
+        console.warn('[LOCAL_LLM_LIFECYCLE] server_healthy_listener_failed:', e)
+      }
+    }
+  }
+
   private clearRestartTimer(): void {
     if (this.restartTimer) {
       clearTimeout(this.restartTimer)
@@ -231,6 +267,7 @@ export class LocalLlmManager {
       if (this.process === proc) {
         this.process = null
         this.weOwnProcess = false
+        this.lastServerReachable = false
       }
       if (this.shuttingDown) {
         console.log(`[LOCAL_LLM_LIFECYCLE] child_exit expected code=${code ?? 'null'} signal=${signal ?? 'null'}`)
@@ -263,6 +300,7 @@ export class LocalLlmManager {
   }> {
     if (await this.isServerResponding()) {
       console.log(`[LOCAL_LLM_LIFECYCLE] ready reason=already_running trigger=${p.reason}`)
+      this.noteServerReachability(true)
       return { ok: true, running: true }
     }
 
@@ -289,6 +327,8 @@ export class LocalLlmManager {
         `[LOCAL_LLM_LIFECYCLE] ready endpoint=${this.baseUrl}/v1/models model=${active} trigger=${p.reason}`,
       )
       this.restartAttemptTimes = []
+      this.invalidateProbeCache()
+      this.noteServerReachability(true)
       return { ok: true, running: true }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -396,6 +436,10 @@ export class LocalLlmManager {
     proc.stderr?.on('data', (chunk: Buffer) => this.serverLogWriter?.write(chunk))
     this.process = proc
     this.weOwnProcess = true
+    // New spawn = new generation; start it in the "down" state so the upcoming
+    // health confirmation emits exactly one server_healthy for this spawn.
+    this.spawnGeneration += 1
+    this.lastServerReachable = false
     this.attachProcessExitHandler(proc)
   }
 
@@ -601,6 +645,7 @@ export class LocalLlmManager {
           ? this.PROBE_BACKOFF_BASE_MS
           : Math.min(this._probeBackoffMs * 2, this.PROBE_BACKOFF_MAX_MS)
         this._probeInFlight = null
+        this.noteServerReachability(result.serverReachable)
         return result
       },
       (err) => {
@@ -733,6 +778,7 @@ export class LocalLlmManager {
     this.clearRestartTimer()
     this.serverLogWriter?.close()
     this.serverLogWriter = null
+    this.lastServerReachable = false
     if (this.process && this.weOwnProcess) {
       try {
         this.process.kill()
@@ -961,7 +1007,11 @@ export class LocalLlmManager {
     this.invalidateModelsCache()
   }
 
-  async chat(modelId: string, messages: ChatMessage[], opts?: { keepAlive?: string }): Promise<ChatResponse> {
+  async chat(
+    modelId: string,
+    messages: ChatMessage[],
+    opts?: { keepAlive?: string; maxTokens?: number; timeoutMs?: number },
+  ): Promise<ChatResponse> {
     // llama-server's OpenAI-compatible endpoint has no `keep_alive` concept (Ollama-specific);
     // kept as a no-op read so callers passing `opts.keepAlive` don't need updating yet.
     void (opts?.keepAlive ?? getAdaptiveKeepAlive())
@@ -969,21 +1019,28 @@ export class LocalLlmManager {
     localLlmRuntimeInFlightDelta(1)
     try {
       await assertGpuInferenceAvailable()
+      const body: Record<string, unknown> = {
+        model: modelId,
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        stream: false,
+      }
+      if (opts?.maxTokens != null && Number.isFinite(opts.maxTokens) && opts.maxTokens > 0) {
+        body.max_tokens = Math.floor(opts.maxTokens)
+      }
       const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: modelId,
-          messages: messages.map((m) => ({ role: m.role, content: m.content })),
-          stream: false,
-        }),
-        signal: AbortSignal.timeout(120000),
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(opts?.timeoutMs ?? 120000),
       })
       if (!response.ok) throw new Error(`Chat request failed: ${response.statusText}`)
 
       const data = (await response.json()) as OpenAiChatCompletionResponse
+      // reasoning_content fallback: with --jinja + reasoning enabled the answer can land in
+      // reasoning_content with an empty content. Empty stays '' here — callers decide to error.
+      const extracted = extractLlamaChatContent(data.choices?.[0]?.message)
       const out: ChatResponse = {
-        content: data.choices?.[0]?.message?.content ?? '',
+        content: extracted.content,
         model: data.model || modelId,
         done: true,
         promptEvalCount: data.usage?.prompt_tokens,

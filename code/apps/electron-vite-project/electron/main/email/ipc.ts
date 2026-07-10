@@ -311,7 +311,8 @@ import {
   loadVerifiedInboxMessageById,
 } from './inboxSealedRead'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
-import { inboxLlmChat, isLlmAvailable, INBOX_LLM_TIMEOUT_MS, resolveInboxLlmSettings, preResolveInboxLlm, type ResolvedLlmContext } from './inboxLlmChat'
+import { inboxLlmChat, isLlmAvailable, INBOX_LLM_LOCAL_TIMEOUT_MS, INBOX_LLM_MAX_OUTPUT_TOKENS, resolveInboxLlmSettings, preResolveInboxLlm, type ResolvedLlmContext } from './inboxLlmChat'
+import { EMPTY_LLM_RESPONSE_ERROR } from '../llm/llamaChatResponseContent'
 import { maybePrewarmLocalLlmForBulkClassify, type LocalLlmBulkPrewarmDiag } from '../llm/localLlmBulkPrewarm'
 
 /** Per-page strings from DB `extracted_text` (extraction joins pages with \\n\\n). */
@@ -336,14 +337,26 @@ async function callInboxOllamaChat(systemPrompt: string, userPrompt: string): Pr
     { role: 'system' as const, content: systemPrompt },
     { role: 'user' as const, content: userPrompt },
   ]
+  // build038: local llama.cpp path gets the local budget (not the 45s cloud timeout) and a
+  // bounded generation; empty output is an error, not a fake success string.
   const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('LLM_TIMEOUT: response exceeded 45s')), INBOX_LLM_TIMEOUT_MS)
+    setTimeout(
+      () => reject(new Error(`LLM_TIMEOUT: response exceeded ${INBOX_LLM_LOCAL_TIMEOUT_MS}ms`)),
+      INBOX_LLM_LOCAL_TIMEOUT_MS,
+    )
   )
   const response = await Promise.race([
-    localLlmManager.chat(modelId, messages),
+    localLlmManager.chat(modelId, messages, {
+      maxTokens: INBOX_LLM_MAX_OUTPUT_TOKENS,
+      timeoutMs: INBOX_LLM_LOCAL_TIMEOUT_MS,
+    }),
     timeoutPromise,
   ])
-  return response?.content?.trim() ?? 'No response from model.'
+  const trimmed = response?.content?.trim() ?? ''
+  if (!trimmed) {
+    throw new Error(EMPTY_LLM_RESPONSE_ERROR)
+  }
+  return trimmed
 }
 
 /** @deprecated Use `isLlmAvailable` from `./inboxLlmChat`. */

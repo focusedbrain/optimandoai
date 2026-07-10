@@ -42,6 +42,8 @@ vi.mock('../../internalInference/resolveSandboxInferenceTarget', () => ({
 
 vi.mock('../inboxLlmChat', () => ({
   INBOX_LLM_TIMEOUT_MS: 45_000,
+  INBOX_LLM_LOCAL_TIMEOUT_MS: 120_000,
+  INBOX_LLM_MAX_OUTPUT_TOKENS: 2_048,
 }))
 
 vi.mock('../../llm/localLlmPaths', () => ({

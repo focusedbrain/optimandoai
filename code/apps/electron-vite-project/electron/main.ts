@@ -5769,6 +5769,11 @@ app.whenReady().then(async () => {
       console.error('[MAIN] Failed to wire BEAP email bridge:', bridgeErr)
     }
     
+    // build038: register the event-anchored warmup BEFORE lifecycle init so the very first
+    // server-healthy transition (app-ready spawn) is caught — warms once per spawn generation.
+    const { initWarmupOnServerHealthy } = await import('./main/llm/warmupOnServerHealthy')
+    await initWarmupOnServerHealthy()
+
     // Host-only: orchestrator-managed llama-server lifecycle (mirrors prior Ollama spawn on app ready).
     const { initHostLocalLlmLifecycle } = await import('./main/llm/localLlmLifecycle')
     const llmLifecycle = await initHostLocalLlmLifecycle({ phase: 'app_ready' })

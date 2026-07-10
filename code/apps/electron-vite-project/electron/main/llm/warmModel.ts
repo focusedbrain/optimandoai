@@ -39,10 +39,16 @@ export async function warmModel(modelId: string, opts?: { keepAlive?: string }):
   const t0 = Date.now()
   try {
     await assertGpuInferenceAvailable()
-    await localLlmManager.chat(trimmed, [{ role: 'user', content: 'ok' }], { keepAlive })
-    return { ok: true, ms: Date.now() - t0 }
+    // max_tokens: 1 — the goal is (A) model load at server spawn and (B) first-inference GPU
+    // kernel/graph init, not text generation. One decoded token exercises both; wall time here
+    // is effectively time-to-first-token for the cold path.
+    await localLlmManager.chat(trimmed, [{ role: 'user', content: 'ok' }], { keepAlive, maxTokens: 1 })
+    const ttftMs = Date.now() - t0
+    console.log(`[WARMUP] ok model=${trimmed} ttft_ms=${ttftMs}`)
+    return { ok: true, ms: ttftMs }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
+    console.warn(`[WARMUP] failed model=${trimmed} detail=${JSON.stringify(msg.slice(0, 160))}`)
     return { ok: false, skippedReason: `warmup_failed:${msg.slice(0, 120)}` }
   }
 }

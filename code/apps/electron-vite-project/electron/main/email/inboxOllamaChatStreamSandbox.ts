@@ -4,7 +4,7 @@
  * orchestrator `host` must not force `127.0.0.1` when the coordination ledger proves sandbox↔host.
  */
 
-import { INBOX_LLM_TIMEOUT_MS } from './inboxLlmChat'
+import { INBOX_LLM_TIMEOUT_MS, INBOX_LLM_LOCAL_TIMEOUT_MS, INBOX_LLM_MAX_OUTPUT_TOKENS } from './inboxLlmChat'
 import {
   InferenceRoutingUnavailableError,
   logSandboxInferenceSend,
@@ -414,7 +414,9 @@ export async function* streamInboxOllamaAnalyzeWithSandboxRouting(
         { role: 'user', content: userPrompt },
       ],
       model: bareModel,
-      timeoutMs: INBOX_LLM_TIMEOUT_MS,
+      // Host executes on local llama.cpp — local budget + bounded generation (build038).
+      timeoutMs: INBOX_LLM_LOCAL_TIMEOUT_MS,
+      max_tokens: INBOX_LLM_MAX_OUTPUT_TOKENS,
       ...(responseFormat === 'json' ? { responseFormat: 'json' as const, temperature: 0 } : {}),
     })
     if (!out.ok) {

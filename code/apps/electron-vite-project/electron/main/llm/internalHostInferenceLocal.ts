@@ -6,6 +6,7 @@
 import { localLlmManager } from './local-llm-manager'
 import { InboxLlmTimeoutError } from '../email/inboxLlmChat'
 import { assertGpuInferenceAvailable } from '../inference/inferenceGate'
+import { extractLlamaChatContent } from './llamaChatResponseContent'
 
 export interface InternalHostInferenceMessage {
   role: 'system' | 'user' | 'assistant'
@@ -141,10 +142,18 @@ export async function runInternalHostLocalLlmInference(
     }
     const data = (await response.json()) as {
       model?: string
-      choices?: Array<{ message?: { content?: string } }>
+      choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>
       usage?: { prompt_tokens?: number; completion_tokens?: number }
     }
-    const text = (data.choices?.[0]?.message?.content ?? '').trim() || 'No response from model.'
+    // build038: reasoning_content fallback; a truly empty response is an inference error, not
+    // a fake "No response from model." success (which broke downstream JSON parsing silently).
+    const extracted = extractLlamaChatContent(data.choices?.[0]?.message)
+    if (extracted.empty) {
+      const err = new Error('EMPTY_LLM_RESPONSE')
+      ;(err as any).code = 'INTERNAL_INFERENCE_FAILED'
+      throw err
+    }
+    const text = extracted.content.trim()
     clearTimeout(timer)
     return {
       text,

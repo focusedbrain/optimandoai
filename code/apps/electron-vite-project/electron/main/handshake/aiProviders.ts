@@ -21,6 +21,7 @@ import {
   type OllamaRuntimeRequestTrace,
 } from '../llm/localLlmRuntimeDiagnostics'
 import { assertGpuInferenceAvailableForChatBase } from '../inference/inferenceGate'
+import { extractLlamaChatContent } from '../llm/llamaChatResponseContent'
 
 /**
  * Set true only during local debugging.
@@ -53,6 +54,12 @@ export interface GenerateChatOptions {
    * pauses between chunks are less likely to unload the model from GPU/RAM.
    */
   ollamaKeepAlive?: string
+  /**
+   * build038: OpenAI-compatible `max_tokens` cap — bounds generation on local llama.cpp
+   * analysis calls so a runaway/deep-reasoning generation cannot run unbounded past the
+   * caller's client-side timeout.
+   */
+  maxTokens?: number
 }
 
 export interface AIProvider {
@@ -345,6 +352,9 @@ export class OllamaProvider implements AIProvider {
           messages: messages.map(m => ({ role: m.role, content: m.content })),
           ...(options?.responseFormat === 'json' ? { response_format: { type: 'json_object' } } : {}),
           ...(options?.temperature !== undefined ? { temperature: options.temperature } : {}),
+          ...(options?.maxTokens != null && options.maxTokens > 0
+            ? { max_tokens: Math.floor(options.maxTokens) }
+            : {}),
         }),
       })
       if (!res.ok) {
@@ -352,7 +362,7 @@ export class OllamaProvider implements AIProvider {
         throw new Error(`Local LLM ${res.status}: ${res.statusText}`)
       }
       const data = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string } }>
+        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>
         model?: string
         usage?: { prompt_tokens?: number; completion_tokens?: number }
       }
@@ -383,7 +393,15 @@ export class OllamaProvider implements AIProvider {
         console.log(`[LLM] ${model}: ${wallMs}ms, ~${_promptChars}ch prompt`)
       }
       ollamaRuntimeRecordChatTiming(wallMs)
-      return data.choices?.[0]?.message?.content ?? 'No response from model.'
+      // build038: prefer content; fall back to reasoning_content (--jinja + deep reasoning can
+      // leave content empty). A truly empty response is returned as '' — callers (inboxLlmChat)
+      // treat empty as an error instead of the old "No response from model." coercion, which
+      // silently broke downstream JSON parsing.
+      const extracted = extractLlamaChatContent(data.choices?.[0]?.message)
+      if (extracted.usedReasoningFallback) {
+        console.warn(`[LLM] reasoning_content_fallback model=${model} content_empty=true`)
+      }
+      return extracted.content
     } catch (e: unknown) {
       const name = e && typeof e === 'object' && 'name' in e ? String((e as Error).name) : ''
       const fetchAborted = name === 'AbortError'
