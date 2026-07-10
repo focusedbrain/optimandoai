@@ -22,6 +22,7 @@ import {
 } from '../llm/localLlmRuntimeDiagnostics'
 import { assertGpuInferenceAvailableForChatBase } from '../inference/inferenceGate'
 import { extractLlamaChatContent } from '../llm/llamaChatResponseContent'
+import { parseLlamaContextOverflowFromBody } from '../llm/llamaContextOverflow'
 
 /**
  * Set true only during local debugging.
@@ -359,7 +360,10 @@ export class OllamaProvider implements AIProvider {
       })
       if (!res.ok) {
         outcome = 'http_error'
-        throw new Error(`Local LLM ${res.status}: ${res.statusText}`)
+        const bodyText = await res.text()
+        const overflow = parseLlamaContextOverflowFromBody(bodyText)
+        if (overflow) throw overflow
+        throw new Error(`Local LLM ${res.status}: ${res.statusText}${bodyText ? ` — ${bodyText.slice(0, 240)}` : ''}`)
       }
       const data = (await res.json()) as {
         choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>

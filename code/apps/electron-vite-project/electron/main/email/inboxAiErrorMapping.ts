@@ -10,12 +10,17 @@ import {
 } from '../internalInference/chatWithContextRagOllamaGeneration'
 import { inferenceRoutingUnavailableUserMessage } from '../internalInference/inferenceRoutingIpcPayload'
 import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../llm/localLlmPaths'
+import {
+  contextOverflowDetails,
+  isLlamaContextOverflowError,
+} from '../llm/llamaContextOverflow'
 
 export type InboxAiErrorCode =
   | 'no_model_selected'
   | 'local_llm_unreachable'
   | 'remote_llm_unreachable'
   | 'beap_endpoint_missing'
+  | 'context_overflow'
   | 'generation_failed'
   | 'timeout'
   | 'inference_routing_unavailable'
@@ -30,6 +35,8 @@ export type InboxAiErrorDebug = {
   operation?: string
   failureCode?: string
   inferenceRoutingReason?: string
+  promptTokens?: number
+  slotLimit?: number
 }
 
 /** Enable richer IPC error payloads (lane, baseUrl, …). Internal use only — never expose in UI. */
@@ -82,7 +89,21 @@ function legacyAnalyzeErrorField(code: InboxAiErrorCode): string {
   if (code === 'timeout') return 'timeout'
   if (code === 'inference_routing_unavailable') return 'inference_routing_unavailable'
   if (code === 'no_model_selected') return 'no_model_selected'
+  if (code === 'context_overflow') return 'llm_error'
   return 'llm_error'
+}
+
+export const INBOX_CONTEXT_OVERFLOW_USER_MESSAGE =
+  'This email is too large for the current AI memory settings. Increase Memory per conversation or reduce Parallel tasks in Inference Settings.'
+
+function inboxAiUserMessage(
+  code: InboxAiErrorCode,
+  err: unknown,
+  ir: { reason: string; detail?: string } | null,
+): string {
+  if (ir) return inferenceRoutingUnavailableUserMessage(ir.reason, ir.detail)
+  if (code === 'context_overflow') return INBOX_CONTEXT_OVERFLOW_USER_MESSAGE
+  return errMsg(err)
 }
 
 export function classifyInboxAiError(
@@ -181,6 +202,18 @@ export function classifyInboxAiError(
     return { code: 'semantic_context_unavailable', debug: debugBase }
   }
 
+  if (isLlamaContextOverflowError(err)) {
+    const { promptTokens, slotLimit } = contextOverflowDetails(err)
+    return {
+      code: 'context_overflow',
+      debug: {
+        ...debugBase,
+        ...(promptTokens != null ? { promptTokens } : {}),
+        ...(slotLimit != null ? { slotLimit } : {}),
+      },
+    }
+  }
+
   return { code: 'generation_failed', debug: debugBase }
 }
 
@@ -200,7 +233,7 @@ export function buildInboxAiAnalyzeErrorPayload(
     model: ctx.model,
   })
   const showDebug = inboxAiDevDebugEnabled()
-  const userMsg = ir ? inferenceRoutingUnavailableUserMessage(ir.reason, ir.detail) : errMsg(err)
+  const userMsg = inboxAiUserMessage(code, err, ir)
   const out: Record<string, unknown> = {
     messageId: ctx.messageId,
     error: legacyAnalyzeErrorField(code),
@@ -230,7 +263,7 @@ export function buildInboxAiDraftIpcFailure(
     model: ctx.model,
   })
   const showDebug = inboxAiDevDebugEnabled()
-  const userMsg = ir ? inferenceRoutingUnavailableUserMessage(ir.reason, ir.detail) : errMsg(err)
+  const userMsg = inboxAiUserMessage(code, err, ir)
   const base: Record<string, unknown> = {
     ok: false,
     error: code === 'timeout' ? 'timeout' : 'llm_error',

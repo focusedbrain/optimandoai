@@ -98,18 +98,20 @@ interface LlmServerConfig {
   reasoningEnabled: boolean
 }
 
-/** build038: `GET /api/llm/server-config` payload. */
+/** build039: `GET /api/llm/server-config` payload. */
 interface LlmServerConfigView {
   config: LlmServerConfig
   ctxPresets: { standard: number; long: number }
-  maxCtxTokens: number | null
+  maxCtxPerSlot: number | null
   kvSource: 'gguf' | 'fallback' | null
   vramUsedBytes: number | null
   vramTotalBytes: number | null
   applied: {
     args: string[]
     ctxTokens: number
+    ctxPerSlot: number
     parallel: number
+    parallelRequested: number
     reasoningEnabled: boolean
   } | null
   clampNotice: string | null
@@ -1253,8 +1255,8 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           draft.reasoningEnabled !== view.config.reasoningEnabled
         const gb = (bytes: number) => (bytes / 1024 ** 3).toFixed(1)
         const maxLabel =
-          view.maxCtxTokens != null
-            ? `Maximum (~${view.maxCtxTokens.toLocaleString()} tokens on your GPU)`
+          view.maxCtxPerSlot != null
+            ? `Maximum (~${view.maxCtxPerSlot.toLocaleString()} tokens per conversation on your GPU)`
             : 'Maximum (computed from your GPU memory)'
         const applied = view.applied
         const busyLabel =
@@ -1420,8 +1422,15 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
               ) : null}
               {applied ? (
                 <>
-                  {' '}· Applied: <strong>{applied.ctxTokens.toLocaleString()} tokens</strong> ·{' '}
-                  <strong>{applied.parallel} parallel</strong> ·{' '}
+                  {' '}· Applied: <strong>{applied.ctxPerSlot.toLocaleString()} tokens/conversation</strong>
+                  {' '}(<strong>{applied.ctxTokens.toLocaleString()}</strong> total ctx ·{' '}
+                  <strong>
+                    {applied.parallel}
+                    {applied.parallel !== applied.parallelRequested
+                      ? ` parallel (requested ${applied.parallelRequested})`
+                      : ' parallel'}
+                  </strong>
+                  ) ·{' '}
                   <strong>{applied.reasoningEnabled ? 'Deep reasoning' : 'Fast & direct'}</strong>
                 </>
               ) : (

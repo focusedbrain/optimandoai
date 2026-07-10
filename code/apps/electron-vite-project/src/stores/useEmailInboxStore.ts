@@ -384,6 +384,7 @@ interface EmailInboxState {
     primaryAccountId: string | null
   }) => Promise<void>
   setAnalysisCache: (messageId: string, result: NormalInboxAiResult) => void
+  clearAnalysisCacheForMessage: (messageId: string) => void
   clearAnalysisCache: () => void
   /** Pass `{ toggle: true }` so a second call with the same id clears selection (bulk draft chrome). Omit or false = always select that id. */
   setEditingDraftForMessageId: (id: string | null, options?: { toggle?: boolean }) => void
@@ -2103,6 +2104,14 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     set((state) => ({
       analysisCache: { ...state.analysisCache, [messageId]: result },
     })),
+
+  clearAnalysisCacheForMessage: (messageId) =>
+    set((state) => {
+      if (!state.analysisCache[messageId]) return state
+      const next = { ...state.analysisCache }
+      delete next[messageId]
+      return { analysisCache: next }
+    }),
 
   clearAnalysisCache: () => set({ analysisCache: {} }),
 }))

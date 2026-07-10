@@ -16,8 +16,8 @@ import {
 export interface LocalLlmServerConfigView {
   config: LocalLlmServerConfig
   ctxPresets: { standard: number; long: number }
-  /** Computed "Maximum" ctx for the active model at the configured parallel value. */
-  maxCtxTokens: number | null
+  /** Computed "Maximum" per-slot ctx for the active model at the configured parallel value. */
+  maxCtxPerSlot: number | null
   kvSource: 'gguf' | 'fallback' | null
   vramUsedBytes: number | null
   vramTotalBytes: number | null
@@ -25,7 +25,9 @@ export interface LocalLlmServerConfigView {
   applied: {
     args: string[]
     ctxTokens: number
+    ctxPerSlot: number
     parallel: number
+    parallelRequested: number
     reasoningEnabled: boolean
   } | null
   clampNotice: string | null
@@ -48,7 +50,7 @@ export async function getLocalLlmServerConfigView(): Promise<LocalLlmServerConfi
   return {
     config,
     ctxPresets: { standard: LOCAL_LLM_CTX_STANDARD, long: LOCAL_LLM_CTX_LONG },
-    maxCtxTokens: insight.maxCtxTokens,
+    maxCtxPerSlot: insight.maxCtxPerSlot,
     kvSource: insight.kvSource,
     vramUsedBytes: insight.vramUsedBytes,
     vramTotalBytes: insight.vramTotalBytes,
@@ -56,7 +58,9 @@ export async function getLocalLlmServerConfigView(): Promise<LocalLlmServerConfi
       ? {
           args: plan.args,
           ctxTokens: plan.ctxTokens,
-          parallel: plan.parallel,
+          ctxPerSlot: plan.ctxPerSlot,
+          parallel: plan.parallelApplied,
+          parallelRequested: plan.parallelRequested,
           reasoningEnabled: plan.reasoningEnabled,
         }
       : null,

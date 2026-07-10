@@ -1,5 +1,5 @@
 /**
- * llama-server spawn argument resolution (build038).
+ * llama-server spawn argument resolution (build039).
  *
  * - Builds explicit args (-ngl, --jinja, --ctx-size, --parallel, --flash-attn,
  *   --reasoning-budget) from the persisted {@link LocalLlmServerConfig}.
@@ -7,18 +7,17 @@
  *   before spawn: releases shift flags, and an unknown flag makes llama-server
  *   exit, which would put supervision into a restart loop. Unsupported flags are
  *   omitted with a `[LOCAL_LLM_SPAWN] flag_unsupported=<flag>` log.
- * - VRAM budgeting for ctx uses the actual quantized GGUF file size plus a KV
- *   bytes/token estimate read from the GGUF header (block_count, embedding
- *   length, KV head count) — no hardcoded per-model numbers — so it stays
- *   correct for whatever model the user installs.
+ * - VRAM budgeting plans **per-slot** context (build039): presets are per-slot
+ *   values; `--ctx-size` = per_slot × parallel. KV is costed as parallel ×
+ *   per_slot × kv_bytes/token (kv_unified=false worst case).
  */
 
 import fs from 'fs'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import {
-  ctxTokensForMode,
   LOCAL_LLM_CTX_LONG,
+  LOCAL_LLM_CTX_STANDARD,
   type LocalLlmServerConfig,
 } from './localLlmServerConfig'
 
@@ -306,16 +305,46 @@ export const VRAM_HEADROOM_BYTES = 2 * 1024 ** 3
 export const CTX_MIN_TOKENS = 4_096
 export const CTX_ABSOLUTE_MAX_TOKENS = 262_144
 
+/** Workload floor: inbox analyze (~6k prompt) + max_tokens 2048 + template overhead. */
+export const MIN_CTX_PER_SLOT = 8_192
+
+function parallelCandidates(requested: 1 | 2 | 4): readonly (1 | 2 | 4)[] {
+  if (requested >= 4) return [4, 2, 1]
+  if (requested >= 2) return [2, 1]
+  return [1]
+}
+
 /**
- * Largest `--ctx-size` that keeps >= 2 GB VRAM headroom given the quantized
- * model file size (weights fully offloaded via -ngl) and the KV bytes/token
- * estimate. Result is floored to a multiple of 1024 and clamped to
- * [CTX_MIN_TOKENS, min(trainedCtx, CTX_ABSOLUTE_MAX_TOKENS)].
- *
- * `parallel` slots share one unified KV buffer of `ctx` tokens in llama-server,
- * so the budget is per total ctx; a small per-slot overhead is charged anyway
- * to stay conservative.
+ * Largest per-slot context that keeps >= 2 GB VRAM headroom given the quantized
+ * model file size and KV bytes/token. Costs KV as parallel × per_slot × kv_bytes
+ * (kv_unified=false worst case). Result is floored to a multiple of 1024.
  */
+export function computeMaxCtxPerSlotForVram(p: {
+  vramTotalBytes: number
+  modelFileBytes: number
+  kvBytesPerToken: number
+  parallel: number
+  trainedCtx?: number
+  headroomBytes?: number
+}): { maxCtxPerSlot: number; fits: boolean } {
+  const headroom = p.headroomBytes ?? VRAM_HEADROOM_BYTES
+  const perSlotOverhead = 64 * 1024 * 1024
+  const parallel = Math.max(1, p.parallel)
+  const budget = p.vramTotalBytes - p.modelFileBytes - headroom - parallel * perSlotOverhead
+  const trainedCap = p.trainedCtx ?? CTX_ABSOLUTE_MAX_TOKENS
+  const upper = Math.min(trainedCap, Math.floor(CTX_ABSOLUTE_MAX_TOKENS / parallel))
+  if (budget <= 0 || p.kvBytesPerToken <= 0) {
+    return { maxCtxPerSlot: Math.min(CTX_MIN_TOKENS, upper), fits: false }
+  }
+  const rawPerSlot = Math.floor(budget / (parallel * p.kvBytesPerToken))
+  const floored = Math.floor(rawPerSlot / 1024) * 1024
+  if (floored < CTX_MIN_TOKENS) {
+    return { maxCtxPerSlot: Math.min(CTX_MIN_TOKENS, upper), fits: false }
+  }
+  return { maxCtxPerSlot: Math.min(floored, upper), fits: true }
+}
+
+/** @deprecated Use {@link computeMaxCtxPerSlotForVram}; returns global `--ctx-size` (= per_slot × parallel). */
 export function computeMaxCtxForVram(p: {
   vramTotalBytes: number
   modelFileBytes: number
@@ -324,20 +353,115 @@ export function computeMaxCtxForVram(p: {
   trainedCtx?: number
   headroomBytes?: number
 }): { maxCtx: number; fits: boolean } {
-  const headroom = p.headroomBytes ?? VRAM_HEADROOM_BYTES
-  const perSlotOverhead = 64 * 1024 * 1024 // compute/state buffers per slot, conservative
-  const budget =
-    p.vramTotalBytes - p.modelFileBytes - headroom - Math.max(1, p.parallel) * perSlotOverhead
-  const upper = Math.min(p.trainedCtx ?? CTX_ABSOLUTE_MAX_TOKENS, CTX_ABSOLUTE_MAX_TOKENS)
-  if (budget <= 0 || p.kvBytesPerToken <= 0) {
-    return { maxCtx: Math.min(CTX_MIN_TOKENS, upper), fits: false }
+  const r = computeMaxCtxPerSlotForVram(p)
+  return { maxCtx: r.maxCtxPerSlot * Math.max(1, p.parallel), fits: r.fits }
+}
+
+export interface SpawnContextBudget {
+  parallelRequested: number
+  parallelApplied: number
+  ctxPerSlot: number
+  /** llama-server `--ctx-size` (= ctxPerSlot × parallelApplied). */
+  ctxGlobal: number
+  ctxRequestedPerSlot: number
+  ctxClamped: boolean
+  parallelReduced: boolean
+  belowFloor: boolean
+}
+
+/** Resolve per-slot ctx, auto-degrading parallel before dropping below {@link MIN_CTX_PER_SLOT}. */
+export function resolveSpawnContextBudget(p: {
+  config: LocalLlmServerConfig
+  vramTotalBytes: number | null
+  modelFileBytes: number | null
+  kvBytesPerToken: number
+  trainedCtx?: number
+}): SpawnContextBudget {
+  const parallelRequested = p.config.parallel
+  const vramKnown =
+    p.vramTotalBytes != null && p.modelFileBytes != null && p.vramTotalBytes > 0 && p.modelFileBytes > 0
+
+  const perSlotForMode = (parallel: number): number => {
+    const mode = p.config.ctxMode
+    if (mode === 'standard') return LOCAL_LLM_CTX_STANDARD
+    if (mode === 'long') return LOCAL_LLM_CTX_LONG
+    if (vramKnown) {
+      return computeMaxCtxPerSlotForVram({
+        vramTotalBytes: p.vramTotalBytes!,
+        modelFileBytes: p.modelFileBytes!,
+        kvBytesPerToken: p.kvBytesPerToken,
+        parallel,
+        trainedCtx: p.trainedCtx,
+      }).maxCtxPerSlot
+    }
+    return LOCAL_LLM_CTX_LONG
   }
-  const rawTokens = Math.floor(budget / p.kvBytesPerToken)
-  const floored = Math.floor(rawTokens / 1024) * 1024
-  if (floored < CTX_MIN_TOKENS) {
-    return { maxCtx: Math.min(CTX_MIN_TOKENS, upper), fits: false }
+
+  const ctxRequestedPerSlot = perSlotForMode(parallelRequested)
+
+  if (!vramKnown) {
+    const perSlot = ctxRequestedPerSlot
+    return {
+      parallelRequested,
+      parallelApplied: parallelRequested,
+      ctxPerSlot: perSlot,
+      ctxGlobal: perSlot * parallelRequested,
+      ctxRequestedPerSlot,
+      ctxClamped: false,
+      parallelReduced: false,
+      belowFloor: perSlot < MIN_CTX_PER_SLOT,
+    }
   }
-  return { maxCtx: Math.min(floored, upper), fits: true }
+
+  for (const parallel of parallelCandidates(parallelRequested)) {
+    let perSlot = perSlotForMode(parallel)
+    const affordable = computeMaxCtxPerSlotForVram({
+      vramTotalBytes: p.vramTotalBytes!,
+      modelFileBytes: p.modelFileBytes!,
+      kvBytesPerToken: p.kvBytesPerToken,
+      parallel,
+      trainedCtx: p.trainedCtx,
+    }).maxCtxPerSlot
+    let ctxClamped = false
+    if (perSlot > affordable) {
+      perSlot = affordable
+      ctxClamped = true
+    }
+    if (perSlot >= MIN_CTX_PER_SLOT) {
+      const requestedAtParallel = perSlotForMode(parallel)
+      return {
+        parallelRequested,
+        parallelApplied: parallel,
+        ctxPerSlot: perSlot,
+        ctxGlobal: perSlot * parallel,
+        ctxRequestedPerSlot,
+        ctxClamped: ctxClamped || perSlot < requestedAtParallel,
+        parallelReduced: parallel < parallelRequested,
+        belowFloor: false,
+      }
+    }
+  }
+
+  const perSlot = Math.max(
+    CTX_MIN_TOKENS,
+    computeMaxCtxPerSlotForVram({
+      vramTotalBytes: p.vramTotalBytes!,
+      modelFileBytes: p.modelFileBytes!,
+      kvBytesPerToken: p.kvBytesPerToken,
+      parallel: 1,
+      trainedCtx: p.trainedCtx,
+    }).maxCtxPerSlot,
+  )
+  return {
+    parallelRequested,
+    parallelApplied: 1,
+    ctxPerSlot: perSlot,
+    ctxGlobal: perSlot,
+    ctxRequestedPerSlot,
+    ctxClamped: true,
+    parallelReduced: parallelRequested > 1,
+    belowFloor: perSlot < MIN_CTX_PER_SLOT,
+  }
 }
 
 /** nvidia-smi VRAM used/total in bytes (null when no NVIDIA GPU / tool missing). */
@@ -394,26 +518,31 @@ export function flashAttnTakesValue(helpText: string): boolean {
 
 export interface ResolvedSpawnPlan {
   args: string[]
+  /** Global `--ctx-size` (= ctxPerSlot × parallelApplied). */
   ctxTokens: number
+  ctxPerSlot: number
+  ctxGlobal: number
   ctxClamped: boolean
-  ctxRequested: number
+  ctxRequestedPerSlot: number
+  parallelRequested: number
+  parallelApplied: number
+  parallelReduced: boolean
   unsupportedFlags: string[]
   reasoningEnabled: boolean
+  /** Applied parallel (alias for parallelApplied). */
   parallel: number
 }
 
 /**
  * Build the final spawn argv for llama-server. Managed flags absent from the
  * binary's --help are omitted (logged by the caller via `unsupportedFlags`).
- *
- * `maxCtxTokens` is the VRAM-fit ceiling (null → unknown, no clamp).
  */
 export function buildLlamaServerArgs(p: {
   ggufPath: string
   port: number
   config: LocalLlmServerConfig
   helpText: string
-  maxCtxTokens: number | null
+  spawnBudget: SpawnContextBudget
 }): ResolvedSpawnPlan {
   const supported = parseSupportedFlagsFromHelp(p.helpText)
   const unsupportedFlags: string[] = []
@@ -437,20 +566,9 @@ export function buildLlamaServerArgs(p: {
   }
   pushIfSupported('--jinja')
 
-  const modeCtx = ctxTokensForMode(p.config.ctxMode)
-  // 'max' without a VRAM reading (no NVIDIA GPU / nvidia-smi missing) falls back to the
-  // 'long' preset instead of the absolute ceiling — an unclamped 262k ctx would exhaust
-  // RAM/VRAM on exactly the machines where we cannot budget it.
-  const requested =
-    modeCtx === 'max' ? (p.maxCtxTokens ?? LOCAL_LLM_CTX_LONG) : modeCtx
-  let ctxTokens = requested
-  let ctxClamped = false
-  if (p.maxCtxTokens !== null && ctxTokens > p.maxCtxTokens) {
-    ctxTokens = p.maxCtxTokens
-    ctxClamped = modeCtx !== 'max'
-  }
-  pushIfSupported('--ctx-size', String(ctxTokens))
-  pushIfSupported('--parallel', String(p.config.parallel))
+  const budget = p.spawnBudget
+  pushIfSupported('--ctx-size', String(budget.ctxGlobal))
+  pushIfSupported('--parallel', String(budget.parallelApplied))
 
   if (supported.has('--flash-attn')) {
     if (flashAttnTakesValue(p.helpText)) {
@@ -466,12 +584,17 @@ export function buildLlamaServerArgs(p: {
 
   return {
     args,
-    ctxTokens,
-    ctxClamped,
-    ctxRequested: requested,
+    ctxTokens: budget.ctxGlobal,
+    ctxPerSlot: budget.ctxPerSlot,
+    ctxGlobal: budget.ctxGlobal,
+    ctxClamped: budget.ctxClamped,
+    ctxRequestedPerSlot: budget.ctxRequestedPerSlot,
+    parallelRequested: budget.parallelRequested,
+    parallelApplied: budget.parallelApplied,
+    parallelReduced: budget.parallelReduced,
     unsupportedFlags,
     reasoningEnabled: p.config.reasoningEnabled,
-    parallel: p.config.parallel,
+    parallel: budget.parallelApplied,
   }
 }
 

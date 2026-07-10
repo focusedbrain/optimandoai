@@ -4,11 +4,12 @@
  * The app owns and configures llama-server entirely — these three values are the
  * only user-tunable knobs, exposed in the Backend Configuration panel in plain
  * language. Defaults are production-correct: a user who never opens the section
- * gets the recommended setup (ctx 16384, parallel 4, reasoning off).
+ * gets the recommended setup (8192 tokens/conversation, parallel 4, reasoning off).
  *
- * `ctxMode` maps to `--ctx-size` at spawn:
- *   'standard' → 16384, 'long' → 32768, 'max' → computed against detected VRAM
- *   (see {@link computeMaxCtxForVram} in llamaServerArgs.ts).
+ * `ctxMode` maps to per-slot context at spawn (build039):
+ *   'standard' → 8192/slot, 'long' → 16384/slot, 'max' → computed per-slot against VRAM
+ *   (see {@link resolveSpawnContextBudget} in llamaServerArgs.ts). The llama-server
+ *   `--ctx-size` arg is per_slot × parallel (kv_unified=false divides by parallel).
  */
 
 import fs from 'fs'
@@ -28,8 +29,10 @@ export interface LocalLlmServerConfig {
   reasoningEnabled: boolean
 }
 
-export const LOCAL_LLM_CTX_STANDARD = 16_384
-export const LOCAL_LLM_CTX_LONG = 32_768
+/** Per-slot preset: "Standard (recommended)" in the UI. */
+export const LOCAL_LLM_CTX_STANDARD = 8_192
+/** Per-slot preset: "Long documents" in the UI. */
+export const LOCAL_LLM_CTX_LONG = 16_384
 
 export const DEFAULT_LOCAL_LLM_SERVER_CONFIG: LocalLlmServerConfig = {
   ctxMode: 'standard',

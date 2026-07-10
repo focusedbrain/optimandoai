@@ -21,6 +21,8 @@ import {
 import type { BeapContentAiTask } from '../internalInference/beapContentAiRoute'
 import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../llm/localLlmPaths'
 import { EMPTY_LLM_RESPONSE_ERROR } from '../llm/llamaChatResponseContent'
+import { localLlmManager } from '../llm/local-llm-manager'
+import { guardInboxPromptForCtxSlot } from './inboxPromptGuard'
 
 export const INBOX_LLM_TIMEOUT_MS = 45_000
 
@@ -273,6 +275,30 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
     { role: 'user' as const, content: user },
   ]
 
+  let systemForChat = system
+  let userForChat = user
+
+  if (provider.id === 'ollama' && aiExecution?.lane === 'local' && contentTask?.kind === 'analysis') {
+    const guarded = guardInboxPromptForCtxSlot({
+      system,
+      user,
+      ctxPerSlot: localLlmManager.getAppliedCtxPerSlot(),
+      maxOutputTokens: INBOX_LLM_MAX_OUTPUT_TOKENS,
+    })
+    if (guarded.truncated) {
+      console.warn(
+        `[inbox_prompt_truncated] estimated=${guarded.estimatedPromptTokens} slot_limit=${guarded.slotLimit} ctx_per_slot=${guarded.slotLimit}`,
+      )
+    }
+    systemForChat = guarded.system
+    userForChat = guarded.user
+  }
+
+  const chatMessages = [
+    { role: 'system' as const, content: systemForChat },
+    { role: 'user' as const, content: userForChat },
+  ]
+
   if (provider.id === 'ollama' && aiExecution && (await isEffectiveSandboxSideForAiExecution())) {
     if (aiExecution.lane === 'ollama_direct' || aiExecution.lane === 'beap') {
       const { planSandboxHostChatExecution } = await import('../internalInference/beapContentAiRoute')
@@ -289,7 +315,7 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
       const { runSandboxHostInferenceChat } = await import('../internalInference/sandboxHostChat')
       const out = await runSandboxHostInferenceChat({
         handshakeId: hid,
-        messages,
+        messages: chatMessages,
         model: modelOverride,
         // Host executes on the same local llama.cpp — give it the local budget, and bound
         // generation so a runaway response cannot outlive the client-side timeout.
@@ -346,7 +372,7 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
     }
     try {
       const bulkOllamaAutosort = llmTrace?.source === 'bulk_autosort'
-      const text = await ollamaProv.generateChat(messages, {
+      const text = await ollamaProv.generateChat(chatMessages, {
         model: modelOverride,
         stream: false,
         signal: ac.signal,
@@ -397,7 +423,7 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
     }
 
     try {
-      const text = await provider.generateChat(messages, {
+      const text = await provider.generateChat(chatMessages, {
         model: modelOverride,
         stream: false,
         signal: ac.signal,

@@ -38,12 +38,14 @@ import {
 import { getLocalLlmServerConfig } from './localLlmServerConfig'
 import {
   buildLlamaServerArgs,
-  computeMaxCtxForVram,
+  computeMaxCtxPerSlotForVram,
   estimateKvBytesPerTokenFromGgufFile,
   queryNvidiaVramUsage,
   readLlamaServerHelpText,
+  resolveSpawnContextBudget,
   type ResolvedSpawnPlan,
 } from './llamaServerArgs'
+import { LOCAL_LLM_CTX_STANDARD } from './localLlmServerConfig'
 import { RotatingLogWriter, llamaServerLogPath } from './llamaServerLog'
 import { extractLlamaChatContent } from './llamaChatResponseContent'
 
@@ -355,9 +357,9 @@ export class LocalLlmManager {
   }
 
   /**
-   * build038: resolve the spawn plan for a GGUF — persisted config, flag
-   * verification against the installed binary's --help, and VRAM-fit ctx clamp
-   * based on the actual model file size + GGUF KV metadata.
+   * build039: resolve the spawn plan for a GGUF — persisted config, flag
+   * verification against the installed binary's --help, and per-slot VRAM-fit
+   * budgeting (auto-degrades parallel before dropping below workload floor).
    */
   private async resolveSpawnPlan(gguf: string): Promise<ResolvedSpawnPlan> {
     const config = getLocalLlmServerConfig()
@@ -368,26 +370,30 @@ export class LocalLlmManager {
       console.warn('[LOCAL_LLM_SPAWN] help_probe_failed — spawning with base args only:', e)
     }
 
-    let maxCtxTokens: number | null = null
+    let spawnBudget = resolveSpawnContextBudget({
+      config,
+      vramTotalBytes: null,
+      modelFileBytes: null,
+      kvBytesPerToken: 0,
+    })
     try {
       const vram = await queryNvidiaVramUsage()
+      const modelFileBytes = fs.statSync(gguf).size
+      const kv = estimateKvBytesPerTokenFromGgufFile(gguf)
+      spawnBudget = resolveSpawnContextBudget({
+        config,
+        vramTotalBytes: vram?.totalBytes ?? null,
+        modelFileBytes,
+        kvBytesPerToken: kv.kvBytesPerToken,
+        trainedCtx: kv.trainedCtx,
+      })
       if (vram) {
-        const modelFileBytes = fs.statSync(gguf).size
-        const kv = estimateKvBytesPerTokenFromGgufFile(gguf)
-        const fit = computeMaxCtxForVram({
-          vramTotalBytes: vram.totalBytes,
-          modelFileBytes,
-          kvBytesPerToken: kv.kvBytesPerToken,
-          parallel: config.parallel,
-          trainedCtx: kv.trainedCtx,
-        })
-        maxCtxTokens = fit.maxCtx
         console.log(
-          `[LOCAL_LLM_SPAWN] vram_budget total_mb=${Math.round(vram.totalBytes / 1024 ** 2)} model_mb=${Math.round(modelFileBytes / 1024 ** 2)} kv_per_token=${kv.kvBytesPerToken} kv_source=${kv.source} max_ctx=${fit.maxCtx} fits=${fit.fits}`,
+          `[LOCAL_LLM_SPAWN] vram_budget total_mb=${Math.round(vram.totalBytes / 1024 ** 2)} model_mb=${Math.round(modelFileBytes / 1024 ** 2)} kv_per_token=${kv.kvBytesPerToken} kv_source=${kv.source} per_slot=${spawnBudget.ctxPerSlot} global_ctx=${spawnBudget.ctxGlobal} parallel=${spawnBudget.parallelApplied}/${spawnBudget.parallelRequested}`,
         )
       }
     } catch (e) {
-      console.warn('[LOCAL_LLM_SPAWN] vram_budget_failed — no ctx clamp applied:', e)
+      console.warn('[LOCAL_LLM_SPAWN] vram_budget_failed — using unbudgeted per-slot presets:', e)
     }
 
     return buildLlamaServerArgs({
@@ -395,7 +401,7 @@ export class LocalLlmManager {
       port: this.serverPort,
       config,
       helpText,
-      maxCtxTokens,
+      spawnBudget,
     })
   }
 
@@ -410,14 +416,26 @@ export class LocalLlmManager {
     for (const flag of plan.unsupportedFlags) {
       console.warn(`[LOCAL_LLM_SPAWN] flag_unsupported=${flag} — omitted for this binary`)
     }
-    if (plan.ctxClamped) {
-      this.lastSpawnClampNotice = `Settings reduced to fit your GPU memory (context ${plan.ctxRequested.toLocaleString()} → ${plan.ctxTokens.toLocaleString()} tokens).`
+    if (plan.parallelReduced) {
       console.warn(
-        `[LOCAL_LLM_SPAWN] ctx_clamped from=${plan.ctxRequested} to=${plan.ctxTokens} reason=vram_fit`,
+        `[LOCAL_LLM_SPAWN] parallel_reduced from=${plan.parallelRequested} to=${plan.parallelApplied} reason=ctx_floor`,
       )
-    } else {
-      this.lastSpawnClampNotice = null
     }
+    const notices: string[] = []
+    if (plan.parallelReduced) {
+      notices.push(
+        `Parallel tasks reduced from ${plan.parallelRequested} to ${plan.parallelApplied} to keep ${plan.ctxPerSlot.toLocaleString()} tokens per conversation.`,
+      )
+    }
+    if (plan.ctxClamped && plan.ctxPerSlot < plan.ctxRequestedPerSlot) {
+      notices.push(
+        `Memory per conversation reduced from ${plan.ctxRequestedPerSlot.toLocaleString()} to ${plan.ctxPerSlot.toLocaleString()} tokens to fit your GPU.`,
+      )
+      console.warn(
+        `[LOCAL_LLM_SPAWN] ctx_clamped per_slot from=${plan.ctxRequestedPerSlot} to=${plan.ctxPerSlot} reason=vram_fit`,
+      )
+    }
+    this.lastSpawnClampNotice = notices.length ? notices.join(' ') : null
 
     console.log(`[LocalLlm] Starting llama-server on loopback trigger=${trigger} model=${path.basename(gguf)}`)
     console.log(`[LOCAL_LLM_SPAWN] args=${JSON.stringify(plan.args)}`)
@@ -448,18 +466,23 @@ export class LocalLlmManager {
     return { plan: this.lastSpawnPlan, clampNotice: this.lastSpawnClampNotice }
   }
 
+  /** Per-slot context from the last spawn plan (defaults to Standard preset before first spawn). */
+  getAppliedCtxPerSlot(): number {
+    return this.lastSpawnPlan?.ctxPerSlot ?? LOCAL_LLM_CTX_STANDARD
+  }
+
   /**
-   * UI: computed "Maximum" ctx for the active model with the given parallel
+   * UI: computed "Maximum" per-slot ctx for the active model at the given parallel
    * setting, plus current VRAM usage for the status line.
    */
   async computeServerConfigInsight(parallel: number): Promise<{
-    maxCtxTokens: number | null
+    maxCtxPerSlot: number | null
     kvSource: 'gguf' | 'fallback' | null
     vramUsedBytes: number | null
     vramTotalBytes: number | null
   }> {
     const vram = await queryNvidiaVramUsage()
-    let maxCtxTokens: number | null = null
+    let maxCtxPerSlot: number | null = null
     let kvSource: 'gguf' | 'fallback' | null = null
     try {
       const active = await this.getEffectiveChatModelName()
@@ -467,19 +490,19 @@ export class LocalLlmManager {
       if (vram && gguf) {
         const kv = estimateKvBytesPerTokenFromGgufFile(gguf)
         kvSource = kv.source
-        maxCtxTokens = computeMaxCtxForVram({
+        maxCtxPerSlot = computeMaxCtxPerSlotForVram({
           vramTotalBytes: vram.totalBytes,
           modelFileBytes: fs.statSync(gguf).size,
           kvBytesPerToken: kv.kvBytesPerToken,
           parallel,
           trainedCtx: kv.trainedCtx,
-        }).maxCtx
+        }).maxCtxPerSlot
       }
     } catch {
       /* insight is best-effort */
     }
     return {
-      maxCtxTokens,
+      maxCtxPerSlot,
       kvSource,
       vramUsedBytes: vram?.usedBytes ?? null,
       vramTotalBytes: vram?.totalBytes ?? null,
