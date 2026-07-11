@@ -24,6 +24,7 @@ import {
   resolveWrChatExecutionTransport,
   wrChatHostInternalWireModel,
 } from '../lib/wrChatHostInferenceShared'
+import { resolveWrChatHostSelectionForSend } from '../lib/wrChatSelectionHygiene'
 import { prependHiddenContextToLastUserContent } from '../utils/prependChatFocusToLastUser'
 import {
   applyModelFallbackBanner,
@@ -186,8 +187,16 @@ async function submitModeRunAgentLlm(args: {
   } = args
 
   if (hostRouteModelId) {
-    const row = availableModels.find((m) => m.name === hostRouteModelId)
-    const parsed = parseAnyHostInferenceModelId(hostRouteModelId)
+    // Selection hygiene (extension A4 mirror): stale/encoded selections alias-resolve or migrate
+    // to the roster's active model before the request is built.
+    const hygiene = resolveWrChatHostSelectionForSend({
+      surface: 'mode_run_agent',
+      selectedModelId: hostRouteModelId,
+      availableModels,
+    })
+    const effectiveHostRouteModelId = hygiene.effectiveModelId
+    const row = availableModels.find((m) => m.name === effectiveHostRouteModelId)
+    const parsed = parseAnyHostInferenceModelId(effectiveHostRouteModelId)
     if (!parsed?.handshakeId) {
       return { ok: false, error: 'That Host model id is not recognized. Select Host AI again in the model menu.' }
     }
@@ -199,7 +208,7 @@ async function submitModeRunAgentLlm(args: {
       }
     }
 
-    const wireModel = wrChatHostInternalWireModel(parsed, row)
+    const wireModel = hygiene.wireModel ?? wrChatHostInternalWireModel(parsed, row)
     const execution_transport =
       row?.execution_transport === 'ollama_direct' ? ('ollama_direct' as const) : undefined
     const hostMessages = llmMessages.map((m) => ({
@@ -215,18 +224,18 @@ async function submitModeRunAgentLlm(args: {
     if (runHost) {
       logWrChatInferenceRoutingPreflight({
         origin: 'mode_run_agent',
-        selectedModelId: hostRouteModelId,
-        resolvedExecutionTransport: resolveWrChatExecutionTransport(hostRouteModelId, availableModels),
+        selectedModelId: effectiveHostRouteModelId,
+        resolvedExecutionTransport: resolveWrChatExecutionTransport(effectiveHostRouteModelId, availableModels),
         inferencePath: 'host_internal_ipc',
         modelSent: wireModel ?? parsed.model ?? null,
-        hostTargetId: hostRouteModelId,
+        hostTargetId: effectiveHostRouteModelId,
         handshakeId: parsed.handshakeId,
         execution_transport: execution_transport ?? 'beap',
-        fallbackUsed: false,
+        fallbackUsed: hygiene.migrated,
       })
       try {
         const r = (await runHost({
-          targetId: hostRouteModelId,
+          targetId: effectiveHostRouteModelId,
           handshakeId: parsed.handshakeId,
           messages: hostMessages,
           model: wireModel,
@@ -248,14 +257,14 @@ async function submitModeRunAgentLlm(args: {
 
     logWrChatInferenceRoutingPreflight({
       origin: 'mode_run_agent',
-      selectedModelId: hostRouteModelId,
-      resolvedExecutionTransport: resolveWrChatExecutionTransport(hostRouteModelId, availableModels),
+      selectedModelId: effectiveHostRouteModelId,
+      resolvedExecutionTransport: resolveWrChatExecutionTransport(effectiveHostRouteModelId, availableModels),
       inferencePath: 'host_internal_http',
       modelSent: wireModel ?? parsed.model ?? null,
-      hostTargetId: hostRouteModelId,
+      hostTargetId: effectiveHostRouteModelId,
       handshakeId: parsed.handshakeId,
       execution_transport: execution_transport ?? 'beap',
-      fallbackUsed: false,
+      fallbackUsed: hygiene.migrated,
     })
 
     const headers = await getFetchHeaders()
@@ -267,7 +276,7 @@ async function submitModeRunAgentLlm(args: {
       model: wireModel,
       execution_transport,
       timeoutMs: 120_000,
-      targetId: hostRouteModelId,
+      targetId: effectiveHostRouteModelId,
       debugWrchatOrigin: 'mode_run_agent',
     })
     if (post.ok) return { ok: true, content: post.output }

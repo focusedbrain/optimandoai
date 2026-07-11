@@ -9,6 +9,7 @@ import {
   type WrChatExtensionSelectionSource,
 } from './wrChatExtensionModelPersistence'
 import type { WrChatSelectorRow } from './wrChatModelsFromLlmStatus'
+import { resolveWrChatHostSelectionForSend } from './wrChatSelectionHygiene'
 import { electronRpc } from '../rpc/electronRpc'
 
 export type WrChatExtensionOrigin = 'sidebar_wrchat' | 'popup_wrchat'
@@ -37,13 +38,21 @@ export async function runWrChatExtensionPreSend(options: {
   selectionSource?: WrChatExtensionSelectionSource
 }): Promise<void> {
   const persisted = loadPersistedWrChatExtensionModel()
+  // Selection hygiene: never push a stale/encoded host selection into `llm.setAiExecutionContext`;
+  // resolve or migrate it against the current rows first (same discipline as the send path).
+  const hygiene = resolveWrChatHostSelectionForSend({
+    surface: options.origin,
+    selectedModelId: options.resolvedModelId,
+    availableModels: options.availableModels,
+  })
+  const resolvedModelId = hygiene.effectiveModelId
   const selectionSourceForLog: 'user' | 'default' =
     options.selectionSource != null
       ? mapExtensionSelectionSourceForLog(options.selectionSource)
-      : logSelectionSourceForSend(persisted, options.resolvedModelId)
+      : logSelectionSourceForSend(persisted, resolvedModelId)
 
   const fallbackUsed = selectionSourceForLog !== 'user'
-  const payload = buildWrChatExtensionAiExecutionPayload(options.resolvedModelId, options.availableModels)
+  const payload = buildWrChatExtensionAiExecutionPayload(resolvedModelId, options.availableModels)
 
   wrChatExtensionDebugLog('model_select_context', {
     origin: options.origin,
@@ -75,8 +84,8 @@ export async function runWrChatExtensionPreSend(options: {
   wrChatExtensionDebugLog('before_send', {
     origin: options.origin,
     selectedModelUi: options.activeLlmModelUi ?? null,
-    resolvedModelId: options.resolvedModelId,
-    modelIdSent: options.resolvedModelId,
+    resolvedModelId,
+    modelIdSent: resolvedModelId,
     selectionSource: selectionSourceForLog,
     fallbackUsed,
     aiExecutionContextAvailable,
@@ -87,7 +96,7 @@ export async function runWrChatExtensionPreSend(options: {
     wrChatExtensionDebugLog('ai_execution_context_miss', {
       origin: options.origin,
       aiExecutionContextAvailable: false,
-      resolvedModelId: options.resolvedModelId,
+      resolvedModelId,
     })
   }
 }
