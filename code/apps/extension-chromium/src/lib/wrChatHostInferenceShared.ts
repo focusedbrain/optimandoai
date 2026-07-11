@@ -9,8 +9,12 @@ import {
   formatInternalInferenceErrorCode,
   isHostInternalChatModelId,
 } from './inferenceSubmitRouting'
-import { canonicalLocalModelName } from './localModelIdentity'
-import { resolveWrChatHostSelectionForSend } from './wrChatSelectionHygiene'
+import { canonicalLocalModelName } from '@shared/llm/localModelIdentity'
+import {
+  resolveWrChatExtensionModelForSend,
+  resolveWrChatHostWireModelForSend,
+} from './wrChatHostModelSelectionResolve'
+import type { WrChatSelectorRow } from './wrChatModelsFromLlmStatus'
 
 export type WrChatSubmitOrigin =
   | 'dashboard_wrchat'
@@ -51,18 +55,27 @@ export function resolveWrChatExecutionTransport(
 }
 
 /**
- * Prefer tag from `host-internal:…:<model>`; else optional row hint (legacy ids).
+ * Prefer tag from `host-internal:…:<model>`; alias-resolve against roster when rows are provided.
  * Always CANONICAL outbound (decoded + path/.gguf stripped) — same discipline as
  * `hostAiSealedInferenceRelaySend` on the Electron side.
  */
 export function wrChatHostInternalWireModel(
-  parsed: { model?: string } | null | undefined,
-  row: { hostLocalModelName?: string } | undefined,
+  parsed: { handshakeId?: string; model?: string } | null | undefined,
+  row: { hostLocalModelName?: string; hostActiveModel?: string | null } | undefined,
+  rows?: readonly WrChatHostSelectorRow[],
 ): string | undefined {
-  const fromRoute = canonicalLocalModelName(parsed?.model)
-  if (fromRoute) return fromRoute
-  const fromRow = canonicalLocalModelName(row?.hostLocalModelName)
-  return fromRow || undefined
+  if (rows && rows.length > 0 && parsed?.handshakeId) {
+    const resolved = resolveWrChatHostWireModelForSend(
+      { handshakeId: parsed.handshakeId, model: parsed.model },
+      row as WrChatSelectorRow | undefined,
+      rows as readonly WrChatSelectorRow[],
+    )
+    if (resolved) return resolved
+  }
+  const fromRoute = parsed?.model?.trim()
+  if (fromRoute) return canonicalLocalModelName(fromRoute) || fromRoute
+  const fromRow = row?.hostLocalModelName?.trim() || row?.hostActiveModel?.trim()
+  return fromRow ? canonicalLocalModelName(fromRow) || fromRow : undefined
 }
 
 export type WrChatInferenceRoutingLog = {
@@ -212,21 +225,24 @@ export async function runWrChatHostInferenceForExtensionSurface(opts: {
   headers: Record<string, string>
   fallbackUsed: boolean
 }): Promise<{ assistantText: string; success: boolean }> {
-  /**
-   * Selection hygiene (extension A4 mirror): alias-resolve the stored/selected host route against
-   * the current rows; a stale URL-encoded Ollama tag migrates to the roster's active model instead
-   * of round-tripping to a guaranteed MODEL_UNAVAILABLE.
-   */
-  const hygiene = resolveWrChatHostSelectionForSend({
-    surface: opts.origin,
-    selectedModelId: opts.selectedModelId,
-    availableModels: opts.availableModels,
-  })
-  const selectedModelId = hygiene.effectiveModelId
-  const row = opts.availableModels?.find((m) => m.name === selectedModelId)
+  const rows = opts.availableModels ?? []
+  const sendResolved = resolveWrChatExtensionModelForSend(opts.selectedModelId, rows, opts.origin)
+  if (sendResolved.error) {
+    if (sendResolved.error === 'HOST_NO_ACTIVE_LOCAL_LLM') {
+      return {
+        success: false,
+        assistantText: `❌ ${formatInternalInferenceErrorCode(sendResolved.error)}`,
+      }
+    }
+    return { success: false, assistantText: sendResolved.error }
+  }
+
+  const selectedModelId = sendResolved.modelId
+  const selectionMigrated = selectedModelId !== opts.selectedModelId
+  const row = rows.find((m) => m.name === selectedModelId)
   const parsed = parseAnyHostInferenceModelId(selectedModelId)
-  const resolvedExec = resolveWrChatExecutionTransport(selectedModelId, opts.availableModels)
-  const wireModel = hygiene.wireModel ?? wrChatHostInternalWireModel(parsed, row)
+  const resolvedExec = resolveWrChatExecutionTransport(selectedModelId, rows)
+  const wireModel = sendResolved.wireModel ?? wrChatHostInternalWireModel(parsed, row, rows)
   const execution_transport = row?.execution_transport === 'ollama_direct' ? ('ollama_direct' as const) : undefined
 
   logWrChatInferenceRoutingPreflight({
@@ -238,7 +254,7 @@ export async function runWrChatHostInferenceForExtensionSurface(opts: {
     hostTargetId: selectedModelId,
     handshakeId: parsed?.handshakeId ?? null,
     execution_transport: execution_transport ?? 'beap',
-    fallbackUsed: opts.fallbackUsed || hygiene.migrated,
+    fallbackUsed: opts.fallbackUsed || selectionMigrated,
   })
   console.log(
     `[AI_REQUEST_BEGIN] ${JSON.stringify({

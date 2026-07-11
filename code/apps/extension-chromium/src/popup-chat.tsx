@@ -54,8 +54,8 @@ import {
   persistWrChatExtensionModelId,
   loadPersistedWrChatExtensionModel,
   subscribeWrChatExtensionModel,
-  clearPersistedWrChatExtensionModel,
 } from './lib/wrChatExtensionModelPersistence'
+import { reconcileWrChatExtensionModelWithRoster } from './lib/wrChatHostModelSelectionResolve'
 import { runWrChatExtensionPreSend, wrChatExtensionDebugLog } from './lib/wrChatExtensionPreSend'
 import { isHostInferenceRouteId } from './lib/hostInferenceRouteIds'
 import { getVaultStatus } from './vault/api'
@@ -518,29 +518,17 @@ function PopupChatApp() {
         if (models.length > 0) {
           setAvailableModels(models)
           const currentModel = activeLlmModelRef.current || activeLlmModel
-          const modelStillExists = currentModel && models.some((m) => m.name === currentModel)
-          const persisted = loadPersistedWrChatExtensionModel()
-          if (persisted?.modelId && !models.some((m) => m.name === persisted.modelId)) {
-            if (persisted.selectionSource === 'user') {
-              clearPersistedWrChatExtensionModel()
+          const { modelId: reconciled, selectionSource } = reconcileWrChatExtensionModelWithRoster(
+            currentModel,
+            models,
+            'popup_wrchat',
+          )
+          if (reconciled && (currentModel !== reconciled || !models.some((m) => m.name === currentModel))) {
+            setActiveLlmModel(reconciled)
+            activeLlmModelRef.current = reconciled
+            if (selectionSource === 'auto') {
+              persistWrChatExtensionModelId(reconciled, 'auto')
             }
-          }
-          const persistedOk =
-            persisted?.selectionSource === 'user' && persisted.modelId && models.some((m) => m.name === persisted.modelId)
-              ? persisted.modelId
-              : null
-
-          if (persistedOk) {
-            if (currentModel !== persistedOk || !modelStillExists) {
-              setActiveLlmModel(persistedOk)
-              activeLlmModelRef.current = persistedOk
-            }
-          } else if (!modelStillExists) {
-            const selectedModel = chooseDefaultWrChatModel(models)
-            if (!selectedModel) return true
-            setActiveLlmModel(selectedModel)
-            activeLlmModelRef.current = selectedModel
-            persistWrChatExtensionModelId(selectedModel, 'auto')
           }
           return true
         }

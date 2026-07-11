@@ -4,6 +4,7 @@
  */
 
 import { isHostInferenceRouteId, parseAnyHostInferenceModelId } from './hostInferenceRouteIds'
+import { resolveWrChatHostWireModelForSend } from './wrChatHostModelSelectionResolve'
 import type { WrChatSelectorRow } from './wrChatModelsFromLlmStatus'
 
 export type WrChatExtensionAiExecutionPayload = {
@@ -46,7 +47,8 @@ export function buildWrChatExtensionAiExecutionPayload(
   const parsed = parseAnyHostInferenceModelId(id)
   if (!parsed) return null
 
-  const model = normalizeHostModelFromRow(row, parsed.model)
+  const model =
+    resolveWrChatHostWireModelForSend(parsed, row, rows) ?? normalizeHostModelFromRow(row, parsed.model)
   if (!model) return null
 
   const lane: WrChatExtensionAiExecutionPayload['lane'] =

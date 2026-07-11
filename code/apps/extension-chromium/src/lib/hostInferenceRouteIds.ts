@@ -5,6 +5,10 @@
 const HOST_INFERENCE_PREFIX = 'host-inference:'
 const HOST_INTERNAL_PREFIX = 'host-internal:'
 
+export function hostInternalInferenceModelId(handshakeId: string, model: string): string {
+  return `${HOST_INTERNAL_PREFIX}${encodeURIComponent(handshakeId.trim())}:${encodeURIComponent(model.trim())}`
+}
+
 function parseHostInferenceModelId(id: string | null | undefined): { handshakeId: string } | null {
   if (typeof id !== 'string' || !id.startsWith(HOST_INFERENCE_PREFIX)) {
     return null
