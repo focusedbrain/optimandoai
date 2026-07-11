@@ -2204,54 +2204,72 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           : null
 
       if (sealedModel && sealedModelSource) {
-        const primaryLabel = `Host AI · ${sealedModel}`
-        const t: HostTargetDraft = {
-          kind: 'host_internal',
-          id: buildHostTargetId(hid, sealedModel),
-          label: primaryLabel,
-          display_label: primaryLabel,
-          displayTitle: primaryLabel,
-          displaySubtitle: sealedSecondary,
-          model: sealedModel,
-          model_id: sealedModel,
-          provider: 'host_internal',
-          handshake_id: hid,
-          host_device_id: hostDevice,
-          host_computer_name: ml0.hostName,
-          host_pairing_code: ml0.digits6,
-          host_orchestrator_role: 'host',
-          host_orchestrator_role_label: ml0.roleLabel,
-          internal_identifier_6: ml0.digits6,
-          secondary_label: sealedSecondary,
-          direct_reachable: true,
-          policy_enabled: true,
-          available: true,
-          hostTargetAvailable: true,
-          availability: 'available',
-          unavailable_reason: null,
-          host_role: 'Host',
-          selector_phase: 'legacy_http_available',
-          ...baseMetaFromDec(listDec, leK),
-          p2pUiPhase: 'ready',
-          failureCode: null,
-          host_ai_target_status: 'beap_ready',
-          hostActiveModel: sealedModel,
-          beapReady: true,
-          ollamaDirectReady: false,
-          visibleInModelSelector: true,
-          trustedForBeap: true,
-          canChat: true,
-          canUseTopChatTools: true,
-          canUseOllamaDirect: false,
-          trusted: true,
+        /**
+         * Emit one selector row per advertised roster model (relay BEAP ad capabilities) so the
+         * Sandbox sees the full Host roster over sealed_relay — not just the resolved primary.
+         * The resolved model stays first/active. LAN deprecated, see Teil B (no `/api/tags` probe).
+         */
+        const sealedModelNames: string[] = [sealedModel]
+        if (sealedRoster) {
+          for (const rm of sealedRoster.models) {
+            const nm = (rm.name || rm.id || '').trim()
+            if (!nm || nm === sealedModel) continue
+            if (rm.available === false) continue
+            sealedModelNames.push(nm)
+          }
         }
-        targets.push(finalizeItem(t))
+        for (const nm of sealedModelNames) {
+          const isPrimary = nm === sealedModel
+          const primaryLabel = `Host AI · ${nm}`
+          const t: HostTargetDraft = {
+            kind: 'host_internal',
+            id: buildHostTargetId(hid, nm),
+            label: primaryLabel,
+            display_label: primaryLabel,
+            displayTitle: primaryLabel,
+            displaySubtitle: sealedSecondary,
+            model: nm,
+            model_id: nm,
+            provider: 'host_internal',
+            handshake_id: hid,
+            host_device_id: hostDevice,
+            host_computer_name: ml0.hostName,
+            host_pairing_code: ml0.digits6,
+            host_orchestrator_role: 'host',
+            host_orchestrator_role_label: ml0.roleLabel,
+            internal_identifier_6: ml0.digits6,
+            secondary_label: sealedSecondary,
+            direct_reachable: true,
+            policy_enabled: true,
+            available: true,
+            hostTargetAvailable: true,
+            availability: 'available',
+            unavailable_reason: null,
+            host_role: 'Host',
+            selector_phase: 'legacy_http_available',
+            ...baseMetaFromDec(listDec, leK),
+            p2pUiPhase: 'ready',
+            failureCode: null,
+            host_ai_target_status: 'beap_ready',
+            hostActiveModel: sealedModel,
+            isHostActiveModel: isPrimary,
+            beapReady: true,
+            ollamaDirectReady: false,
+            visibleInModelSelector: true,
+            trustedForBeap: true,
+            canChat: true,
+            canUseTopChatTools: true,
+            canUseOllamaDirect: false,
+            trusted: true,
+          }
+          targets.push(finalizeItem(t))
+        }
         hadCapabilitiesProbed = false
         console.log(
-          `[HOST_AI_CAPABILITY_PROBE] transport=sealed_relay ok=true handshake=${hid} source=${sealedModelSource} model=${sealedModel} (lan_probe_skipped_non_gating)`,
+          `[HOST_AI_CAPABILITY_PROBE] transport=sealed_relay ok=true handshake=${hid} source=${sealedModelSource} model=${sealedModel} roster_models=${sealedModelNames.length} (lan_probe_skipped_non_gating)`,
         )
         console.log(
-          `${L} beap_target_available=true ollama_direct_available=false transport=sealed_relay handshake=${hid} model=${sealedModel} source=${sealedModelSource} reason=sealed_decided_trusted`,
+          `${L} beap_target_available=true ollama_direct_available=false transport=sealed_relay handshake=${hid} model=${sealedModel} source=${sealedModelSource} models=${sealedModelNames.length} reason=sealed_decided_trusted`,
         )
         continue
       }

@@ -1,6 +1,12 @@
 /**
- * Inference-only direct HTTP trust (Sandbox→Host, same user).
- * Does not read BEAP advertisement state — handshake row + bearer + URL shape only.
+ * Inference trust for internal Sandbox→Host targets (same user).
+ *
+ * Trust is **handshake-bound**: `trusted = state==ACTIVE && type==internal && same_principal
+ * && roles sandbox→host && identity_complete && bearer_present`. The transport endpoint does
+ * NOT gate trust — `sealed_relay` rows (endpoint null / sentinel `wrdesk.invalid` / relay URL)
+ * are a fully trusted transport. The former private-LAN-URL check has been removed from this
+ * gate; URL classification only decides whether a legacy direct-LAN URL is surfaced as
+ * `normalizedUrl` for the deprecated LAN path. LAN deprecated, see Teil B.
  */
 
 import type { HandshakeRecord } from '../../handshake/types'
@@ -12,21 +18,22 @@ import {
 import { normalizeP2pIngestUrl } from '../p2pEndpointRepair'
 
 export type InferenceDirectHttpTrustReason =
-  | 'handshake_inference_trust'
+  /** All handshake criteria satisfied (ACTIVE, internal, same principal, sandbox→host, identity complete, bearer). */
+  | 'handshake_bound'
   | 'state_not_active'
   | 'handshake_type_not_internal'
   | 'not_same_principal'
   | 'not_sandbox_to_host'
   | 'identity_not_complete'
-  | 'url_not_private_lan'
   | 'missing_bearer_token'
   | 'self_loop_detected'
-  /** Sandbox→Host: no peer-owned LAN BEAP available (ledger/header poisoned or missing); do not trust handshake URL alone. */
+  /** @deprecated LAN-era reason — no longer produced now that trust is handshake-bound (kept for log/consumer compat). LAN deprecated, see Teil B. */
   | 'peer_host_endpoint_missing'
 
 /**
- * Mirrors `isPrivateLanHttpBeapUrl` in `decideInternalInferenceTransport.ts`.
- * Not exported from `p2pEndpointRepair.ts`; kept local to avoid editing that module.
+ * LAN deprecated, see Teil B — classification only. This no longer gates trust; it only decides
+ * whether a legacy direct-LAN ingest URL is exposed as `normalizedUrl` for the deprecated
+ * direct-HTTP path. Mirrors `isPrivateLanHttpBeapUrl` in `decideInternalInferenceTransport.ts`.
  */
 function isPrivateLanHttpBeapUrl(p2pEndpoint: string | null | undefined): boolean {
   const raw = String(p2pEndpoint ?? '').trim()
@@ -63,8 +70,9 @@ export function inferenceDirectHttpTrust(input: {
   localBeapEndpoint: string | null
   /**
    * Sandbox→Host only: LAN ingest URL chosen by {@link resolveSandboxToHostHttpDirectIngest}
-   * (peer header / relay / repaired ledger). When set, overrides `handshakeRecord.p2p_endpoint` for trust
-   * so the ledger row cannot force `self_loop_detected` when it wrongly holds this sandbox’s BEAP URL.
+   * (peer header / relay / repaired ledger). When set, overrides `handshakeRecord.p2p_endpoint` for the
+   * legacy `normalizedUrl` so the ledger row cannot force `self_loop_detected` when it wrongly holds
+   * this sandbox’s BEAP URL. Trust itself is handshake-bound and independent of this URL.
    */
   sandboxPeerLanEndpoint?: string | null
 }): {
@@ -90,32 +98,35 @@ export function inferenceDirectHttpTrust(input: {
     return { trusted: false, reason: 'identity_not_complete', normalizedUrl: null }
   }
 
-  const overrideEp =
-    rolesSandboxToHost(roles) &&
-    typeof sandboxPeerLanEndpoint === 'string' &&
-    sandboxPeerLanEndpoint.trim()
-      ? sandboxPeerLanEndpoint.trim()
-      : ''
-  const rawEp = overrideEp || (typeof r.p2p_endpoint === 'string' ? r.p2p_endpoint.trim() : '')
-  if (!rawEp || !isPrivateLanHttpBeapUrl(rawEp)) {
-    return { trusted: false, reason: 'url_not_private_lan', normalizedUrl: null }
-  }
-
   const bearer =
     typeof counterpartyP2pToken === 'string' ? counterpartyP2pToken.trim() : ''
   if (!bearer) {
     return { trusted: false, reason: 'missing_bearer_token', normalizedUrl: null }
   }
 
-  const normalizedUrl = normalizeP2pIngestUrl(rawEp)
-  const localRaw = typeof localBeapEndpoint === 'string' ? localBeapEndpoint.trim() : ''
-  if (localRaw && normalizeP2pIngestUrl(localRaw) === normalizedUrl) {
-    return { trusted: false, reason: 'self_loop_detected', normalizedUrl: null }
+  /**
+   * LAN deprecated, see Teil B: the endpoint URL no longer gates trust. A missing / sentinel /
+   * relay endpoint means `sealed_relay` transport (normalizedUrl null). Only a private-LAN BEAP
+   * URL is surfaced as `normalizedUrl` for the legacy direct-HTTP path — and still rejected as a
+   * self-loop when it equals this device’s own BEAP.
+   */
+  const overrideEp =
+    typeof sandboxPeerLanEndpoint === 'string' && sandboxPeerLanEndpoint.trim()
+      ? sandboxPeerLanEndpoint.trim()
+      : ''
+  const rawEp = overrideEp || (typeof r.p2p_endpoint === 'string' ? r.p2p_endpoint.trim() : '')
+  let normalizedUrl: string | null = null
+  if (rawEp && isPrivateLanHttpBeapUrl(rawEp)) {
+    normalizedUrl = normalizeP2pIngestUrl(rawEp)
+    const localRaw = typeof localBeapEndpoint === 'string' ? localBeapEndpoint.trim() : ''
+    if (localRaw && normalizeP2pIngestUrl(localRaw) === normalizedUrl) {
+      return { trusted: false, reason: 'self_loop_detected', normalizedUrl: null }
+    }
   }
 
   return {
     trusted: true,
-    reason: 'handshake_inference_trust',
+    reason: 'handshake_bound',
     normalizedUrl,
   }
 }

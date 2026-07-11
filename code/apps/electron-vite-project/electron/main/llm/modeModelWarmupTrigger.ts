@@ -7,6 +7,7 @@ import { getModeById } from '../customModes/customModesStore'
 import { getHandshakeDbForInternalInference } from '../internalInference/dbAccess'
 import { isEffectiveSandboxNode } from '../sandbox/sandboxOutboundPolicy'
 import { resolveAdaptiveWarmupStrategy } from './adaptiveWarmupStrategy'
+import { resolveDeclaredLocalOllamaModel } from './resolveDeclaredModelAvailability'
 import { warmModel } from './warmModel'
 
 const L = '[WARMUP]'
@@ -30,8 +31,22 @@ async function runModeModelWarmOnTrigger(modeId: string, trigger: ModeWarmTrigge
   const mode = getModeById(modeId)
   if (!mode) return
 
-  const modelId = mode.modelName?.trim()
-  if (!modelId) return
+  const declaredModelId = mode.modelName?.trim()
+  if (!declaredModelId) return
+
+  /**
+   * Warm the actually installed/active model, never a stale declared tag (e.g. Ollama-era
+   * `gemma4:12b-it-q8_0` in old mode configs). `resolveDeclaredLocalOllamaModel` logs
+   * `[MODEL_FALLBACK]` loudly when the declared tag is not installed.
+   */
+  const resolution = await resolveDeclaredLocalOllamaModel(declaredModelId, 'mode_warmup_trigger')
+  if (!resolution.ok) {
+    console.log(
+      `${L} mode model=${declaredModelId} skipped reason=${resolution.reason} (trigger=${trigger})`,
+    )
+    return
+  }
+  const modelId = resolution.actualModel
 
   const strategy = await resolveAdaptiveWarmupStrategy()
   console.log(`${L} mode model=${modelId} warming (trigger=${trigger})`)
