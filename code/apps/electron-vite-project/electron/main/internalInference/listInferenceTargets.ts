@@ -107,6 +107,11 @@ import type { HostAiEndpointDiagnostics } from '../../../src/lib/hostAiUiDiagnos
 import { hostAiUserFacingMessageFromTarget } from '../../../src/lib/hostAiUiDiagnostics'
 import type { HostAiTargetStatus } from './hostAiTargetStatus'
 import { readStoredAiExecutionContext } from '../llm/aiExecutionContextStore'
+import {
+  canonicalLocalModelName,
+  dedupeCanonicalModelNames,
+  resolveLocalModelAlias,
+} from '../llm/localModelIdentity'
 
 const L = '[HOST_INFERENCE_TARGETS]'
 /** One-shot: seed `hostAdvertisedMvpDirectByHandshake` from DB before first list probe (cold start). */
@@ -2191,11 +2196,29 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       const storedCtx = readStoredAiExecutionContext()
       const storedHid = storedCtx?.handshakeId?.trim() || ''
       const storedModelRaw = storedCtx?.model?.trim() || ''
-      const storedModel =
-        storedModelRaw && (!storedHid || storedHid === hid) ? storedModelRaw : null
       const sealedRoster = peekHostAdvertisedMvpDirectEntry(hid)?.ollamaRoster ?? null
+      const sealedRosterNames = sealedRoster
+        ? dedupeCanonicalModelNames(
+            sealedRoster.models
+              .filter((rm) => rm.available !== false)
+              .map((rm) => rm.name || rm.id),
+          )
+        : []
+      /**
+       * A4 selection hygiene: the selector shows CANONICAL names only (no path/tag spellings).
+       * A stored selection counts only when it alias-resolves against the received roster; a stale
+       * tag (e.g. Ollama-era `gemma4:12b-it-q8_0`) must not surface as a Host row.
+       */
+      const storedModelForHid = storedModelRaw && (!storedHid || storedHid === hid) ? storedModelRaw : null
+      const storedModel = storedModelForHid
+        ? sealedRosterNames.length > 0
+          ? resolveLocalModelAlias(storedModelForHid, sealedRosterNames)
+          : canonicalLocalModelName(storedModelForHid) || null
+        : null
       const rosterActiveModel =
-        sealedRoster?.active_model_id?.trim() || sealedRoster?.active_model_name?.trim() || null
+        canonicalLocalModelName(sealedRoster?.active_model_id) ||
+        canonicalLocalModelName(sealedRoster?.active_model_name) ||
+        null
       const sealedModel = storedModel || rosterActiveModel || null
       const sealedModelSource = storedModel
         ? 'stored_selection'
@@ -2207,17 +2230,10 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         /**
          * Emit one selector row per advertised roster model (relay BEAP ad capabilities) so the
          * Sandbox sees the full Host roster over sealed_relay — not just the resolved primary.
-         * The resolved model stays first/active. LAN deprecated, see Teil B (no `/api/tags` probe).
+         * The resolved model stays first/active; names are canonical and de-duplicated.
+         * LAN deprecated, see Teil B (no `/api/tags` probe).
          */
-        const sealedModelNames: string[] = [sealedModel]
-        if (sealedRoster) {
-          for (const rm of sealedRoster.models) {
-            const nm = (rm.name || rm.id || '').trim()
-            if (!nm || nm === sealedModel) continue
-            if (rm.available === false) continue
-            sealedModelNames.push(nm)
-          }
-        }
+        const sealedModelNames: string[] = dedupeCanonicalModelNames([sealedModel, ...sealedRosterNames])
         for (const nm of sealedModelNames) {
           const isPrimary = nm === sealedModel
           const primaryLabel = `Host AI · ${nm}`

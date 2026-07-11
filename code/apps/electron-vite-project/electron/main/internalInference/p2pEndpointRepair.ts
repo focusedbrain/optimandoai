@@ -937,6 +937,18 @@ export function applyHostAiDirectBeapAdFromRelayPayload(
         source: 'relay_beap_ad',
       })}`,
     )
+    // A4 selection hygiene: alias-map the persisted selection against this roster; migrate
+    // unresolvable (stale-tag) selections to the roster's active model instead of resending them.
+    // (This handler is sync — fire-and-forget; migration is idempotent.)
+    void import('./sandboxHostRosterSelectionMigration')
+      .then((m) =>
+        m.migrateStoredSelectionForReceivedHostRoster({
+          handshakeId: hid,
+          rosterModels: ollamaRoster.models,
+          rosterActiveModelId: ollamaRoster.active_model_id ?? null,
+        }),
+      )
+      .catch((e) => console.warn('[HOST_AI_SELECTION_MIGRATION] failed:', e))
   }
   hostAdvertisedMvpDirectByHandshake.set(hid, {
     url: advRaw ? normalizeP2pIngestUrl(advRaw) : '',

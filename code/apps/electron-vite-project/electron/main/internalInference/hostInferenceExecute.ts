@@ -6,6 +6,7 @@ import { InboxLlmTimeoutError } from '../email/inboxLlmChat'
 import * as internalHostOllama from '../llm/internalHostInferenceLocal'
 import type { InternalHostInferenceMessage } from '../llm/internalHostInferenceLocal'
 import { localLlmManager } from '../llm/local-llm-manager'
+import { canonicalLocalModelName, localModelIdsMatch } from '../llm/localModelIdentity'
 import { InternalInferenceErrorCode } from './errors'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { tryAcquireHostInferenceSlot } from './hostInferenceConcurrency'
@@ -136,8 +137,14 @@ export async function runHostInternalInference(
     }
   }
 
-  /** Sandbox should send the Host’s active local model tag; reject mismatch vs effective Ollama config. (Before slot.) */
+  /**
+   * Sandbox may spell the Host model as full GGUF path, filename, or canonical name — resolve via
+   * alias set against the loaded model instead of strict string equality (fixes MODEL_UNAVAILABLE
+   * for path-vs-name mismatches). Unresolvable ids (e.g. stale Ollama tags) still error, but the
+   * payload now names the Host's canonical active model so the Sandbox can correct its selection.
+   */
   const requested = ctx.modelRequested?.trim()
+  let modelForExecution = ctx.modelRequested
   if (requested) {
     let eff: string | null = null
     try {
@@ -173,11 +180,13 @@ export async function runHostInternalInference(
         },
       }
     }
-    if (eff.trim() !== requested) {
+    const activeCanonical = canonicalLocalModelName(eff)
+    if (!localModelIdsMatch(requested, eff)) {
       console.log(
         `[AI_REQUEST_ERROR] ${JSON.stringify({
           origin: 'host_internal_execution',
           modelId: requested,
+          hostActiveModel: activeCanonical,
           errorCode: InternalInferenceErrorCode.MODEL_UNAVAILABLE,
           errorMessage: 'model not active on Host',
         })}`,
@@ -191,12 +200,13 @@ export async function runHostInternalInference(
             peerDeviceId: ctx.peerDeviceId,
           },
           InternalInferenceErrorCode.MODEL_UNAVAILABLE,
-          'model not active on Host',
+          `model not active on Host (active=${activeCanonical})`,
           t0,
         ),
         log: { ...baseLog, duration_ms: Date.now() - t0, error_code: InternalInferenceErrorCode.MODEL_UNAVAILABLE },
       }
     }
+    modelForExecution = activeCanonical
   }
 
   const slot = tryAcquireHostInferenceSlot()
@@ -221,7 +231,7 @@ export async function runHostInternalInference(
   try {
     const out = await internalHostOllama.runInternalHostOllamaInference({
       messages: ctx.messages,
-      requestedModel: ctx.modelRequested,
+      requestedModel: modelForExecution,
       modelAllowlist: policy.modelAllowlist,
       signal: parentAbort.signal,
       temperature: ctx.options?.temperature,

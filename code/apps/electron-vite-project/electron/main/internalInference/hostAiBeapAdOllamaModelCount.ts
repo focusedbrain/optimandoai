@@ -28,6 +28,7 @@ export async function hostAiBeapAdLocalOllamaModelRoster(): Promise<HostAiBeapAd
     const { getLocalLlmProviderStatus } = await import('../llm/localLlmProviderStatus')
     const { getHostInternalInferencePolicy } = await import('./hostInferencePolicyStore')
     const { resolveModelForInternalInference } = await import('../llm/internalHostInferenceLocal')
+    const { canonicalLocalModelName, localModelIdsMatch } = await import('../llm/localModelIdentity')
     const hostPolicy = getHostInternalInferencePolicy()
     const allow = hostPolicy.modelAllowlist ?? []
     const providerStatus = await getLocalLlmProviderStatus()
@@ -35,34 +36,45 @@ export async function hostAiBeapAdLocalOllamaModelRoster(): Promise<HostAiBeapAd
     let modelSource = 'resolveModelForInternalInference'
     if (!('model' in resolved)) {
       const active = providerStatus.activeModel?.trim()
-      const nameSet = new Set(providerStatus.modelsInstalled.map((x) => x.name))
-      if (active && nameSet.has(active) && (allow.length === 0 || allow.includes(active))) {
-        resolved = { model: active }
+      const nameSet = new Set(providerStatus.modelsInstalled.map((x) => canonicalLocalModelName(x.name)))
+      const activeCanon = canonicalLocalModelName(active)
+      if (
+        activeCanon &&
+        nameSet.has(activeCanon) &&
+        (allow.length === 0 || allow.some((a) => localModelIdsMatch(a, activeCanon)))
+      ) {
+        resolved = { model: activeCanon }
         modelSource = 'llamacpp_status_activeModel'
       }
     }
     const installed = providerStatus.modelsInstalled
-    const n = Array.isArray(installed) ? installed.length : 0
-    const activeId = 'model' in resolved ? resolved.model.trim() : null
-    const models: HostAiBeapAdOllamaModelWireEntry[] = (installed ?? []).map((m): HostAiBeapAdOllamaModelWireEntry | null => {
-      const name = String(m.name ?? '').trim()
-      if (!name) return null
-      const allowed = allow.length === 0 || allow.includes(name)
-      return {
+    /**
+     * Canonical identity outward: exactly ONE roster entry per model (filename without .gguf),
+     * never the full GGUF path as its own entry. `activeId` is canonical too.
+     */
+    const activeId = 'model' in resolved ? canonicalLocalModelName(resolved.model) || null : null
+    const seen = new Set<string>()
+    const models: HostAiBeapAdOllamaModelWireEntry[] = []
+    for (const m of installed ?? []) {
+      const name = canonicalLocalModelName(m.name)
+      if (!name || seen.has(name)) continue
+      seen.add(name)
+      const allowed = allow.length === 0 || allow.some((a) => localModelIdsMatch(a, name))
+      models.push({
         id: name,
         name,
         provider: 'llamacpp',
         available: allowed,
         active: Boolean(activeId && name === activeId),
-      }
-    }).filter((x): x is HostAiBeapAdOllamaModelWireEntry => x != null)
+      })
+    }
     return {
       // B1 fix: this must reflect the real llama-server reachability probe (`serverRunning`),
       // never "the roster derivation above didn't throw". A filesystem GGUF scan always
       // succeeds even with zero models and even when the server itself is unreachable —
       // that previously produced `ollama_ok: true` while the server was actually down.
       ollama_ok: providerStatus.serverRunning,
-      models_count: n,
+      models_count: models.length,
       models,
       active_model_id: activeId,
       active_model_name: activeId,

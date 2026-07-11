@@ -15,6 +15,7 @@ import {
   resolveEffectiveLocalModel,
   setStoredActiveLocalModelId,
 } from './activeLocalModelStore'
+import { canonicalLocalModelName, resolveLocalModelAlias } from './localModelIdentity'
 import {
   DEBUG_LOCAL_LLM_RUNTIME_TRACE,
   localLlmRuntimeGetInFlight,
@@ -748,7 +749,10 @@ export class LocalLlmManager {
     const rows = Array.isArray(data?.data) ? data.data : []
     const fromApi: InstalledModel[] = []
     for (const row of rows) {
-      const id = typeof row.id === 'string' ? row.id.trim() : ''
+      const rawId = typeof row.id === 'string' ? row.id.trim() : ''
+      // llama-server reports the full GGUF path as the model id — canonicalize to the filename
+      // without .gguf so path and disk-scan entries merge into ONE model instead of duplicating.
+      const id = canonicalLocalModelName(rawId)
       if (!id) continue
       fromApi.push({
         name: id,
@@ -945,7 +949,27 @@ export class LocalLlmManager {
     const models = await this.listModels()
     const names = models.map((m) => m.name)
     const stored = getStoredActiveLocalModelId()
-    const { model } = resolveEffectiveLocalModel(names, stored)
+    // Alias-tolerant: a stored path/filename spelling resolves to the installed canonical name.
+    const storedResolved = stored ? resolveLocalModelAlias(stored, names) : null
+    const { model } = resolveEffectiveLocalModel(names, storedResolved ?? stored)
+    /**
+     * Self-heal stale persistence: when the stored preference does not resolve against the
+     * installed models (legacy Ollama tag like `gemma4:12b-it-q8_0`) or is a non-canonical alias
+     * (full GGUF path), REPLACE it with the resolved canonical name so the legacy value can never
+     * re-enter roster publish or the BEAP ad.
+     */
+    if (stored && model && stored !== model) {
+      try {
+        setStoredActiveLocalModelId(model)
+        console.log(
+          `[MODEL_PERSIST_REPAIR] stored=${JSON.stringify(stored)} replaced_with=${JSON.stringify(model)} reason=${
+            storedResolved ? 'alias_normalized' : 'stale_unresolvable'
+          }`,
+        )
+      } catch (e) {
+        console.warn('[MODEL_PERSIST_REPAIR] persist failed:', e)
+      }
+    }
     console.log('[MODEL-DEBUG] resolved:', model, { stored, installedNames: names })
     return model
   }

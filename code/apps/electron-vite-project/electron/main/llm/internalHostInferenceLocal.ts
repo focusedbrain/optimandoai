@@ -7,6 +7,11 @@ import { localLlmManager } from './local-llm-manager'
 import { InboxLlmTimeoutError } from '../email/inboxLlmChat'
 import { assertGpuInferenceAvailable } from '../inference/inferenceGate'
 import { extractLlamaChatContent } from './llamaChatResponseContent'
+import {
+  canonicalLocalModelName,
+  localModelIdsMatch,
+  resolveLocalModelAlias,
+} from './localModelIdentity'
 
 export interface InternalHostInferenceMessage {
   role: 'system' | 'user' | 'assistant'
@@ -45,44 +50,51 @@ export async function resolveModelForInternalInference(
   allowlist: string[],
 ): Promise<{ model: string } | { error: 'MODEL_UNAVAILABLE' }> {
   const installed = await localLlmManager.listModels()
-  const names = new Set(installed.map((m) => m.name))
+  const installedNames = installed.map((m) => m.name)
 
   if (installed.length === 0) {
     return { error: 'MODEL_UNAVAILABLE' }
   }
 
+  // Alias resolution (path / filename / canonical name), never strict string equality.
   if (allowlist.length > 0) {
     for (const id of allowlist) {
-      if (!names.has(id)) {
+      if (!resolveLocalModelAlias(id, installedNames)) {
         return { error: 'MODEL_UNAVAILABLE' }
       }
     }
   }
 
+  const allowlistMatches = (name: string) =>
+    allowlist.length === 0 || allowlist.some((a) => localModelIdsMatch(a, name))
+
   const req = requested?.trim()
   if (req) {
-    if (!names.has(req)) {
+    const resolved = resolveLocalModelAlias(req, installedNames)
+    if (!resolved) {
       return { error: 'MODEL_UNAVAILABLE' }
     }
-    if (allowlist.length > 0 && !allowlist.includes(req)) {
+    if (!allowlistMatches(resolved)) {
       return { error: 'MODEL_UNAVAILABLE' }
     }
-    return { model: req }
+    return { model: resolved }
   }
 
   if (allowlist.length > 0) {
     const active = await localLlmManager.getEffectiveChatModelName()
-    if (active && names.has(active) && allowlist.includes(active)) {
-      return { model: active }
+    const activeResolved = active ? resolveLocalModelAlias(active, installedNames) : null
+    if (activeResolved && allowlistMatches(activeResolved)) {
+      return { model: activeResolved }
     }
-    return { model: allowlist[0]! }
+    return { model: canonicalLocalModelName(allowlist[0]!) }
   }
 
   const active = await localLlmManager.getEffectiveChatModelName()
-  if (active && names.has(active)) {
-    return { model: active }
+  const activeResolved = active ? resolveLocalModelAlias(active, installedNames) : null
+  if (activeResolved) {
+    return { model: activeResolved }
   }
-  const first = installed[0]?.name
+  const first = canonicalLocalModelName(installed[0]?.name)
   return first ? { model: first } : { error: 'MODEL_UNAVAILABLE' }
 }
 
