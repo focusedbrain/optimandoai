@@ -102,11 +102,6 @@ export default defineConfig({
             __BUILD_TIME_GOOGLE_OAUTH_CLIENT_ID__: JSON.stringify(oauthId),
             __BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__: JSON.stringify(oauthSecret),
           },
-          resolve: {
-            alias: [
-              { find: /^@shared\/(.+)$/, replacement: path.resolve(root, '../../packages/shared/src/$1') },
-            ],
-          },
           plugins: [
             {
               name: 'externalize-ws-and-native-optional',

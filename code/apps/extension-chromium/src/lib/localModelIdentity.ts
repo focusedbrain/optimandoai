@@ -1,13 +1,13 @@
 /**
- * Canonical identity for local GGUF models.
+ * MIRROR of `apps/electron-vite-project/electron/main/llm/localModelIdentity.ts` (single source of
+ * truth is the electron module — keep the logic byte-identical, do not fork behavior here).
+ * Mirrored because the extension build cannot import across app packages (same pattern as
+ * `hostInferenceRouteIds.ts`).
  *
- * One model, three historical spellings: full Windows path
- * (`C:\...\gemma-4-12B-it-Q4_K_M.gguf`, llama-server `/v1/models` id), GGUF filename, and the
- * canonical name (filename without `.gguf`). Everything that leaves the process (roster publish,
- * BEAP ad, selector rows, outbound inference requests) uses the CANONICAL name; everything that
- * compares model identity resolves through the alias set instead of strict string equality.
- *
- * Pure string helpers — no imports, safe from module cycles.
+ * Canonical identity for local GGUF models: one model, three historical spellings — full Windows
+ * path, GGUF filename, canonical name (filename without `.gguf`) — plus stale Ollama-era tags.
+ * Everything outbound uses the CANONICAL name; every identity comparison resolves through the
+ * alias set instead of strict string equality.
  */
 
 /** Canonical local model name: path basename without a trailing `.gguf` (case-insensitive). */

@@ -9,7 +9,7 @@ import {
   type WrChatExtensionSelectionSource,
 } from './wrChatExtensionModelPersistence'
 import type { WrChatSelectorRow } from './wrChatModelsFromLlmStatus'
-import { resolveWrChatExtensionModelForSend } from './wrChatHostModelSelectionResolve'
+import { resolveWrChatHostSelectionForSend } from './wrChatSelectionHygiene'
 import { electronRpc } from '../rpc/electronRpc'
 
 export type WrChatExtensionOrigin = 'sidebar_wrchat' | 'popup_wrchat'
@@ -38,12 +38,14 @@ export async function runWrChatExtensionPreSend(options: {
   selectionSource?: WrChatExtensionSelectionSource
 }): Promise<void> {
   const persisted = loadPersistedWrChatExtensionModel()
-  const sendResolved = resolveWrChatExtensionModelForSend(
-    options.resolvedModelId,
-    options.availableModels,
-    options.origin,
-  )
-  const resolvedModelId = sendResolved.modelId
+  // Selection hygiene: never push a stale/encoded host selection into `llm.setAiExecutionContext`;
+  // resolve or migrate it against the current rows first (same discipline as the send path).
+  const hygiene = resolveWrChatHostSelectionForSend({
+    surface: options.origin,
+    selectedModelId: options.resolvedModelId,
+    availableModels: options.availableModels,
+  })
+  const resolvedModelId = hygiene.effectiveModelId
   const selectionSourceForLog: 'user' | 'default' =
     options.selectionSource != null
       ? mapExtensionSelectionSourceForLog(options.selectionSource)

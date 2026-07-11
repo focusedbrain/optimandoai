@@ -18,11 +18,3 @@ export * from './vault/vaultCapabilities';
 // Handshake context governance (fine-grained policy model)
 export * from './handshake/contextGovernance';
 export * from './handshake/types';
-
-// Local GGUF model identity (canonical names + alias resolution)
-export {
-  canonicalLocalModelName,
-  dedupeCanonicalModelNames,
-  localModelIdsMatch,
-  resolveLocalModelAlias,
-} from './llm/localModelIdentity';
