@@ -3,8 +3,8 @@
  * Fail-closed — stale ledger hydration, ODL tag cache hits, and synthetic probes do not substitute.
  */
 
+import { fullClaimIdentityMatch, samePrincipalFullClaim } from '@repo/ingestion-core'
 import { getHandshakeRecord } from '../handshake/db'
-import { sessionMatchesParty } from '../handshake/handshakeAccountIsolation'
 import { getCurrentSession } from '../handshake/ipc'
 import type { HandshakeRecord, PartyIdentity, SSOSession } from '../handshake/types'
 import { getHandshakeDbForInternalInference } from './dbAccess'
@@ -53,15 +53,10 @@ export function partyIdentityMatchesExpected(
   expected: PartyIdentity | null | undefined,
 ): boolean {
   if (!actual || !expected) return false
-  return sessionMatchesParty(
-    {
-      email: actual.email ?? '',
-      wrdesk_user_id: actual.wrdesk_user_id,
-      iss: actual.iss,
-      sub: actual.sub,
-    },
-    expected,
-  )
+  // Both sides can be partial attestations (wire publisher identity carries no
+  // email) — symmetric full-claim comparison: every shared claim must match,
+  // at least one identifying claim must overlap, no OR-logic.
+  return samePrincipalFullClaim(actual, expected).ok
 }
 
 export function publisherIdentityFromWireFields(raw: {
@@ -199,9 +194,10 @@ export function assertHostMachineSessionMatchesHandshakeHostParty(
   if (record.handshake_type !== 'internal' || !handshakeSamePrincipal(record)) {
     return { ok: false, code: InternalInferenceErrorCode.HOST_AI_IDENTITY_INCOMPLETE }
   }
+  const sessionParty = partyIdentityFromSession(session)
   const matchesEitherParty =
-    sessionMatchesParty(session, record.initiator) ||
-    (record.acceptor != null && sessionMatchesParty(session, record.acceptor))
+    fullClaimIdentityMatch(sessionParty, record.initiator).ok ||
+    (record.acceptor != null && fullClaimIdentityMatch(sessionParty, record.acceptor).ok)
   if (!matchesEitherParty) {
     return { ok: false, code: InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE }
   }

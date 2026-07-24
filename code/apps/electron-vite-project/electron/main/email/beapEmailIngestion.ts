@@ -678,7 +678,8 @@ export interface P2PInlineResult {
   outcome: 'inbox' | 'quarantine' | 'error'
   rowId?: string
   error?: string
-  reasonCode?: ReasonCode
+  /** Vault capability code, or an ingress admission block [VII.2.7]. */
+  reasonCode?: ReasonCode | `ingress_admission_${string}`
   retryable?: boolean
 }
 
@@ -994,6 +995,31 @@ async function processBeapPackageInlineInternal(
   const rowId = randomUUID()
 
   console.log(`[BEAP_DELIVERY] native_message_received messageId=${rowId} handshake=${handshakeId} sourceType=${sourceType}`)
+
+  // ── Stage 0: ingress admission filter [VII.2.7] ──────────────────────────
+  // First ingress stage for every inbox delivery: relationship must exist and
+  // be live. Blocked transmissions die pre-visibility — no inbox row, no
+  // placeholder, no dashboard notification; audit_log carries the record.
+  {
+    const { admitInboundDelivery } = await import('../handshake/ingressAdmission')
+    const admission = admitInboundDelivery(db, {
+      handshakeId,
+      kind: 'beap_message',
+      source: sourceType,
+    })
+    if (!admission.admitted) {
+      console.log(
+        `[BEAP_DELIVERY] receive_blocked messageId=${rowId} reason=ingress_admission:${admission.reason}`,
+      )
+      return {
+        outcome: 'error',
+        rowId,
+        error: `Inbound delivery refused: ${admission.reason}`,
+        reasonCode: `ingress_admission_${admission.reason}`,
+        retryable: false,
+      }
+    }
+  }
 
   // ── Parse outer package ──────────────────────────────────────────────────
   let pkg: Record<string, unknown>

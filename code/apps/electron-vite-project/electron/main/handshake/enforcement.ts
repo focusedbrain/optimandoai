@@ -50,6 +50,7 @@ import { indexCapsuleBlocks } from './capsuleBlockIndexer'
 import { buildSuccessAuditEntry, buildDenialAuditEntry } from './auditLog'
 import { verifyCapsuleSignature } from './signatureKeys'
 import { verifyCapsuleHashIntegrity } from './steps/verifyCapsuleHash'
+import { admitInboundDelivery } from './ingressAdmission'
 import { logHandshakeKeyBinding } from './keyBindingDebug'
 import { getNextStateAfterInboundContextSync } from './contextSyncActiveGate'
 export { getNextStateAfterInboundContextSync }
@@ -216,6 +217,25 @@ export function processHandshakeCapsule(
 
   const input = extractVerifiedInput(validated)
   const startTime = performance.now()
+
+  // Stage 0: ingress admission filter [VII.2.7] — first ingress stage.
+  // Control-plane capsules for a REVOKED/EXPIRED relationship die here,
+  // pre-visibility, with an audit_log record. Formation capsules (no record
+  // yet) are admitted; the state machine below owns them.
+  const admission = admitInboundDelivery(db, {
+    handshakeId: input.handshake_id,
+    kind: 'handshake_capsule',
+    source: validated.provenance?.source_type ?? 'unknown',
+  })
+  if (!admission.admitted) {
+    return {
+      success: false,
+      reason: ReasonCode.INVALID_STATE_TRANSITION,
+      failedStep: 'ingress_admission',
+      pipelineDurationMs: Math.round(performance.now() - startTime),
+    }
+  }
+
   const capsuleObj = validated.capsule as Record<string, any>
   const senderPublicKey = typeof capsuleObj?.sender_public_key === 'string' ? capsuleObj.sender_public_key : ''
   const senderSignature = typeof capsuleObj?.sender_signature === 'string' ? capsuleObj.sender_signature : ''

@@ -36,6 +36,21 @@ export type {
   SandboxEgressCapsuleClass,
   SandboxContextSyncRateLimiter,
 } from './sandboxEgressClassification.js';
+export {
+  ALL_IDENTITY_CLAIMS,
+  fullClaimIdentityMatch,
+  isPartialIdentityCollision,
+  samePrincipalFullClaim,
+} from './identityGuard.js';
+export type {
+  IdentityClaimName,
+  IdentityClaimSet,
+  FullClaimGuardResult,
+  FullClaimGuardOk,
+  FullClaimGuardFail,
+  FullClaimGuardFailReason,
+  SamePrincipalResult,
+} from './identityGuard.js';
 export { ingestInput } from './ingestor.js';
 export { validateCapsule, validateSessionImportArtefact } from './validator.js';
 export { validateDecryptedBeapContent, CONTENT_VALIDATOR_VERSION } from './contentValidator.js';

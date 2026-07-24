@@ -585,8 +585,30 @@ export async function detectAndRouteMessageInline(
     // depackaged_json exactly as before — persistence is additive, not a routing change.
     let pbeapTrustMetaJson: string | null = null
 
+    // ── Stage 0: ingress admission filter [VII.2.7] ──
+    // A BEAP package addressed to a revoked/expired/unknown relationship must
+    // never be depackaged into a visible email_beap row. Blocked packages skip
+    // decrypt+validate and take the encrypted quarantine containment below
+    // (never the BEAP inbox). Packages without a resolvable handshake id keep
+    // today's depackage-failure handling.
+    let ingressBlocked = false
+    if (handshakeId && handshakeId !== '__email_import__') {
+      const { admitInboundDelivery } = await import('../handshake/ingressAdmission')
+      const admission = admitInboundDelivery(db, {
+        handshakeId,
+        kind: encoding === 'qBEAP' ? 'beap_message' : 'handshake_capsule',
+        source: 'email',
+      })
+      if (!admission.admitted) {
+        ingressBlocked = true
+        depackageError = `ingress_admission_blocked:${admission.reason}`
+      }
+    }
+
     // ── Inline depackage ──
-    if (encoding === 'qBEAP') {
+    if (ingressBlocked) {
+      // canonicalJson stays null → quarantine containment path below.
+    } else if (encoding === 'qBEAP') {
       try {
         const decrypted = await decryptQBeapPackage(beapPackageJson, handshakeId ?? '', db, {
           reportFailure: (info) => console.warn('[messageRouter] qBEAP decrypt failure', info),
