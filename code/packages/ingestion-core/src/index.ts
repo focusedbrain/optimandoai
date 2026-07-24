@@ -51,6 +51,39 @@ export type {
   FullClaimGuardFailReason,
   SamePrincipalResult,
 } from './identityGuard.js';
+// Phase 2 — canonical core (A8, A1–A7, V3) [VII.3, VII.6.1.3]
+export {
+  canonicalJsonString,
+  canonicalJsonBytes,
+  domainTag,
+  signingBytes,
+  CanonicalizationError,
+} from './canonical.js';
+export type { CanonicalJsonValue } from './canonical.js';
+export {
+  parseContainer,
+  evaluateContainerCriticality,
+  isReservedNamespace,
+  isImplementedNamespace,
+  IMPLEMENTED_NAMESPACES,
+  RESERVED_NAMESPACES,
+} from './containers.js';
+export type { ContainerEntry, ContainerParseResult, CriticalityVerdict } from './containers.js';
+export {
+  parseCanonicalEnvelope,
+  coreSigningValue,
+  WR_CORE_OBJECT_TYPE,
+  WR_CANONICAL_SCHEMA_VERSION,
+} from './coreRecord.js';
+export type {
+  WrHandshakeCore,
+  WrCanonicalEnvelope,
+  CorePartyId,
+  CoreProfileRef,
+  CoreSignature,
+  CoreSignatureMode,
+  EnvelopeParseResult,
+} from './coreRecord.js';
 export { ingestInput } from './ingestor.js';
 export { validateCapsule, validateSessionImportArtefact } from './validator.js';
 export { validateDecryptedBeapContent, CONTENT_VALIDATOR_VERSION } from './contentValidator.js';

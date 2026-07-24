@@ -222,6 +222,7 @@ export function tryEnqueueContextSync(
       local_private_key: localPriv,
       peerX25519PublicKeyB64: record.peer_x25519_public_key_b64,
       localRole: record.local_role,
+      counterpartyIdentity: record.local_role === 'initiator' ? record.acceptor : record.initiator,
       ...(record.local_p2p_auth_token?.trim() ? { p2p_auth_token: record.local_p2p_auth_token.trim() } : {}),
       ...(internalRelayWire ?? {}),
     })

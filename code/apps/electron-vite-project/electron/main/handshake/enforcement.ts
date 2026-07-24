@@ -47,10 +47,12 @@ import {
 } from './db'
 import { ingestContextBlocks } from './contextIngestion'
 import { indexCapsuleBlocks } from './capsuleBlockIndexer'
-import { buildSuccessAuditEntry, buildDenialAuditEntry } from './auditLog'
+import { buildSuccessAuditEntry, buildDenialAuditEntry, type WireFormatMarker } from './auditLog'
 import { verifyCapsuleSignature } from './signatureKeys'
 import { verifyCapsuleHashIntegrity } from './steps/verifyCapsuleHash'
 import { admitInboundDelivery } from './ingressAdmission'
+import { hasCanonicalEnvelope, verifyCanonicalEnvelope } from './canonicalCore'
+import { checkAndRecordNonce, WR_CORE_NONCE_SCOPE } from './nonceStore'
 import { logHandshakeKeyBinding } from './keyBindingDebug'
 import { getNextStateAfterInboundContextSync } from './contextSyncActiveGate'
 export { getNextStateAfterInboundContextSync }
@@ -313,6 +315,58 @@ export function processHandshakeCapsule(
         success: false,
         reason: ReasonCode.SIGNATURE_INVALID,
         failedStep: 'signature_verification',
+        pipelineDurationMs: Math.round(performance.now() - startTime),
+      }
+    }
+  }
+
+  // 0c. Canonical v3 envelope (Phase 2, version-gated wire) [VII.3, VII.6.1.3].
+  // Capsules carrying `wr_canonical_v3` verify the full-coverage canonical
+  // form FAIL-CLOSED on top of the legacy rules above; capsules without it
+  // verify under legacy rules alone and are marked 'legacy_v2' in evidence.
+  const wireFormat: WireFormatMarker = hasCanonicalEnvelope(capsuleObj) ? 'canonical_v3' : 'legacy_v2'
+  if (wireFormat === 'canonical_v3') {
+    const envelopeResult = verifyCanonicalEnvelope(capsuleObj, senderPublicKey)
+    if (!envelopeResult.ok) {
+      const reason = envelopeResult.refusedNamespace
+        ? ReasonCode.UNKNOWN_CRITICAL_EXTENSION
+        : ReasonCode.CANONICAL_ENVELOPE_INVALID
+      // Visible refusal names the namespace for unknown critical entries [VII.3.5].
+      console.error('[HANDSHAKE] Canonical envelope refused:', {
+        handshake_id: input.handshake_id,
+        capsuleType: input.capsuleType,
+        reason: envelopeResult.reason,
+        refused_namespace: envelopeResult.refusedNamespace ?? null,
+      })
+      try {
+        const entry = buildDenialAuditEntry(input, reason, 'canonical_envelope_verification', 0, wireFormat)
+        entry.metadata = {
+          ...entry.metadata,
+          envelope_reason: envelopeResult.reason,
+          ...(envelopeResult.refusedNamespace ? { refused_namespace: envelopeResult.refusedNamespace } : {}),
+        }
+        insertAuditLogEntry(db, entry)
+      } catch { /* audit must not mask */ }
+      return {
+        success: false,
+        reason,
+        failedStep: 'canonical_envelope_verification',
+        pipelineDurationMs: Math.round(performance.now() - startTime),
+      }
+    }
+
+    // Freshness/replay: a seen nonce arriving with a DIFFERENT capsule hash is
+    // a replayed core [VII.3.1]; identical redelivery falls through to the
+    // duplicate-capsule dedup step.
+    const nonceCheck = checkAndRecordNonce(db, WR_CORE_NONCE_SCOPE, input.nonce, input.capsule_hash)
+    if (!nonceCheck.ok) {
+      try {
+        insertAuditLogEntry(db, buildDenialAuditEntry(input, ReasonCode.NONCE_REPLAY, 'core_nonce_replay', 0, wireFormat))
+      } catch { /* audit must not mask */ }
+      return {
+        success: false,
+        reason: ReasonCode.NONCE_REPLAY,
+        failedStep: 'core_nonce_replay',
         pipelineDurationMs: Math.round(performance.now() - startTime),
       }
     }
@@ -600,7 +654,7 @@ export function processHandshakeCapsule(
     insertSeenCapsuleHash(db, input.handshake_id, input.capsule_hash)
 
     // Audit log
-    insertAuditLogEntry(db, buildSuccessAuditEntry(input, record!, durationMs, blocksStored))
+    insertAuditLogEntry(db, buildSuccessAuditEntry(input, record!, durationMs, blocksStored, wireFormat))
   })
 
   try {

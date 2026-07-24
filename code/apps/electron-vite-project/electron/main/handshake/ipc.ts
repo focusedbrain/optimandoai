@@ -2275,6 +2275,8 @@ export async function handleHandshakeRPC(
         ...(p2pAuthToken ? { p2p_auth_token: p2pAuthToken } : {}),
         sender_x25519_public_key_b64: acceptKeyAgreement.sender_x25519_public_key_b64,
         sender_mlkem768_public_key_b64: acceptKeyAgreement.sender_mlkem768_public_key_b64,
+        // Phase 2: initiator full-claim identity for the signed core's initiator_id.
+        initiatorIdentity: record.initiator ?? null,
         initiatorCoordinationDeviceId: record.initiator_coordination_device_id?.trim() ?? undefined,
         isInternalHandshake: record.handshake_type === 'internal',
         ...(record.handshake_type === 'internal'
@@ -2788,6 +2790,8 @@ export async function handleHandshakeRPC(
         context_block_proofs: context_block_proofs ?? [],
         local_public_key: localPub,
         local_private_key: localPriv,
+        localHandshakeRole: record.local_role,
+        counterpartyIdentity: record.local_role === 'initiator' ? record.acceptor : record.initiator,
         ...(record.local_p2p_auth_token?.trim() ? { p2p_auth_token: record.local_p2p_auth_token.trim() } : {}),
         ...(refreshInternalWire ?? {}),
       })

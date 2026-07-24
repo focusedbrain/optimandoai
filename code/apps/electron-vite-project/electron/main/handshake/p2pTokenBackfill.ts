@@ -97,6 +97,8 @@ export function runActiveHandshakeLocalP2pTokenBackfill(
         local_public_key: localPub,
         local_private_key: localPriv,
         p2p_auth_token: token,
+        localHandshakeRole: rec.local_role,
+        counterpartyIdentity: rec.local_role === 'initiator' ? rec.acceptor : rec.initiator,
         ...(internalWire ?? {}),
       })
       let target = rec.p2p_endpoint?.trim() || ''

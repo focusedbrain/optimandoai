@@ -1228,6 +1228,67 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `UPDATE p2p_config SET coordination_ws_url = 'wss://relay.optirando.com/beap/ws' WHERE coordination_ws_url IN ('wss://relay.wrdesk.com/beap/ws', 'wss://coordination.wrdesk.com/beap/ws')`,
     ],
   },
+  {
+    version: 73,
+    description:
+      'Schema v73 (WR Handshake Phase 2, G6): key extraction — private key material moves out of relationship ' +
+      'rows into the dedicated handshake_key_store. Copy-before-null inside one transaction (rollback-safe); ' +
+      'old columns retained but nulled (no SQLite column drops pre-rebuild). The INSERT is idempotent ' +
+      '(ON CONFLICT DO NOTHING) so a re-run never overwrites extracted keys with the nulled columns.',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS handshake_key_store (
+        handshake_id TEXT PRIMARY KEY,
+        local_private_key TEXT,
+        local_x25519_private_key_b64 TEXT,
+        local_mlkem768_secret_key_b64 TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `INSERT INTO handshake_key_store (
+         handshake_id, local_private_key, local_x25519_private_key_b64, local_mlkem768_secret_key_b64,
+         created_at, updated_at
+       )
+       SELECT handshake_id, local_private_key, local_x25519_private_key_b64, local_mlkem768_secret_key_b64,
+              datetime('now'), datetime('now')
+         FROM handshakes
+        WHERE local_private_key IS NOT NULL
+           OR local_x25519_private_key_b64 IS NOT NULL
+           OR local_mlkem768_secret_key_b64 IS NOT NULL
+       ON CONFLICT(handshake_id) DO NOTHING`,
+      `UPDATE handshakes
+          SET local_private_key = NULL,
+              local_x25519_private_key_b64 = NULL,
+              local_mlkem768_secret_key_b64 = NULL
+        WHERE local_private_key IS NOT NULL
+           OR local_x25519_private_key_b64 IS NOT NULL
+           OR local_mlkem768_secret_key_b64 IS NOT NULL`,
+    ],
+  },
+  {
+    version: 74,
+    description:
+      'Schema v74 (WR Handshake Phase 2, G4 + A1): generic anti-rollback high-water store keyed by ' +
+      '(object_class, object_id) [IX.4.2, X.7.8] and the core nonce store for freshness/replay checks ' +
+      '[VII.3.1]. Consumers arrive over Phases 3–6; the stores land now. Both tables live in the same DB ' +
+      'as the objects they guard so a coherent snapshot restore keeps store and data consistent ' +
+      '(backup/restore semantics: phase-2 report §5).',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS wr_high_water_versions (
+        object_class TEXT NOT NULL,
+        object_id TEXT NOT NULL,
+        high_water_version INTEGER NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (object_class, object_id)
+      )`,
+      `CREATE TABLE IF NOT EXISTS wr_core_nonces (
+        scope TEXT NOT NULL,
+        nonce TEXT NOT NULL,
+        bound_hash TEXT,
+        seen_at TEXT NOT NULL,
+        PRIMARY KEY (scope, nonce)
+      )`,
+    ],
+  },
 ]
 
 /**
@@ -1538,6 +1599,17 @@ export function backfillLocalX25519PublicKey(
       return result
     }
 
+    // Phase 2 (G6): post-v73 the row column is NULL — the private key lives
+    // in handshake_key_store. Overlay before deriving.
+    for (const row of rows) {
+      if (!row.local_x25519_private_key_b64?.trim()) {
+        const keys = getHandshakeKeys(db, row.handshake_id)
+        if (keys?.local_x25519_private_key_b64?.trim()) {
+          row.local_x25519_private_key_b64 = keys.local_x25519_private_key_b64
+        }
+      }
+    }
+
     for (const row of rows) {
       // Row-level re-check: re-read the field immediately before writing to guard against
       // any TOCTOU window between the batch SELECT and this UPDATE.  If it was populated
@@ -1791,6 +1863,112 @@ export function updateHandshakePolicySelections(
   }
 }
 
+// ── Handshake key store (Phase 2, G6) ─────────────────────────────────────────
+// Private key material lives in handshake_key_store, not in relationship rows.
+// Readers overlay these values onto HandshakeRecord so every runtime consumer
+// (signing, X25519 ECDH, ML-KEM decapsulation) keeps working unchanged.
+
+export interface HandshakeKeyMaterial {
+  local_private_key: string | null
+  local_x25519_private_key_b64: string | null
+  local_mlkem768_secret_key_b64: string | null
+}
+
+/**
+ * Read key material for one handshake. Returns null when the store has no
+ * row (or does not exist yet on a pre-v73 / mock DB — callers fall back to
+ * the legacy row columns, which still carry keys exactly in that case).
+ */
+export function getHandshakeKeys(db: any, handshakeId: string): HandshakeKeyMaterial | null {
+  try {
+    const row = db.prepare(
+      `SELECT local_private_key, local_x25519_private_key_b64, local_mlkem768_secret_key_b64
+         FROM handshake_key_store WHERE handshake_id = ?`,
+    ).get(handshakeId) as HandshakeKeyMaterial | undefined
+    return row ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Upsert key material. Value-preserving on partial updates: a null field
+ * keeps the stored value (COALESCE) — keys are never silently erased through
+ * a record update that lacks them.
+ */
+export function upsertHandshakeKeys(
+  db: any,
+  handshakeId: string,
+  keys: Partial<HandshakeKeyMaterial>,
+): void {
+  const hasAny =
+    keys.local_private_key != null ||
+    keys.local_x25519_private_key_b64 != null ||
+    keys.local_mlkem768_secret_key_b64 != null
+  if (!hasAny) return
+  try {
+    db.prepare(
+      `INSERT INTO handshake_key_store (
+         handshake_id, local_private_key, local_x25519_private_key_b64, local_mlkem768_secret_key_b64,
+         created_at, updated_at
+       ) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+       ON CONFLICT(handshake_id) DO UPDATE SET
+         local_private_key = COALESCE(excluded.local_private_key, handshake_key_store.local_private_key),
+         local_x25519_private_key_b64 = COALESCE(excluded.local_x25519_private_key_b64, handshake_key_store.local_x25519_private_key_b64),
+         local_mlkem768_secret_key_b64 = COALESCE(excluded.local_mlkem768_secret_key_b64, handshake_key_store.local_mlkem768_secret_key_b64),
+         updated_at = datetime('now')`,
+    ).run(
+      handshakeId,
+      keys.local_private_key ?? null,
+      keys.local_x25519_private_key_b64 ?? null,
+      keys.local_mlkem768_secret_key_b64 ?? null,
+    )
+  } catch (e: any) {
+    // Pre-v73 / mock DBs without the table: keys remain on the row columns
+    // (serializeHandshakeRecord nulls them only when the store write works,
+    // see overlayKeysFromStore fallback). Surface anything else.
+    if (!e?.message?.includes('no such table')) throw e
+  }
+}
+
+/** Overlay key material from the store onto a deserialized record. */
+function overlayKeysFromStore(db: any, record: HandshakeRecord): HandshakeRecord {
+  const keys = getHandshakeKeys(db, record.handshake_id)
+  if (!keys) return record
+  return {
+    ...record,
+    local_private_key: keys.local_private_key ?? record.local_private_key ?? null,
+    local_x25519_private_key_b64: keys.local_x25519_private_key_b64 ?? record.local_x25519_private_key_b64 ?? null,
+    local_mlkem768_secret_key_b64: keys.local_mlkem768_secret_key_b64 ?? record.local_mlkem768_secret_key_b64 ?? null,
+  }
+}
+
+/** Batch overlay for list reads — one key-store query per call. */
+function overlayKeysFromStoreBatch(db: any, records: HandshakeRecord[]): HandshakeRecord[] {
+  if (records.length === 0) return records
+  let rows: Array<HandshakeKeyMaterial & { handshake_id: string }>
+  try {
+    rows = db.prepare(
+      `SELECT handshake_id, local_private_key, local_x25519_private_key_b64, local_mlkem768_secret_key_b64
+         FROM handshake_key_store`,
+    ).all() as Array<HandshakeKeyMaterial & { handshake_id: string }>
+  } catch {
+    return records
+  }
+  if (rows.length === 0) return records
+  const byId = new Map(rows.map((r) => [r.handshake_id, r]))
+  return records.map((record) => {
+    const keys = byId.get(record.handshake_id)
+    if (!keys) return record
+    return {
+      ...record,
+      local_private_key: keys.local_private_key ?? record.local_private_key ?? null,
+      local_x25519_private_key_b64: keys.local_x25519_private_key_b64 ?? record.local_x25519_private_key_b64 ?? null,
+      local_mlkem768_secret_key_b64: keys.local_mlkem768_secret_key_b64 ?? record.local_mlkem768_secret_key_b64 ?? null,
+    }
+  })
+}
+
 export function updateHandshakeSigningKeys(
   db: any,
   handshakeId: string,
@@ -1798,7 +1976,26 @@ export function updateHandshakeSigningKeys(
 ): void {
   db.prepare(
     'UPDATE handshakes SET local_public_key = ?, local_private_key = ? WHERE handshake_id = ?',
-  ).run(keys.local_public_key, keys.local_private_key, handshakeId)
+  ).run(keys.local_public_key, hasKeyStore(db) ? null : keys.local_private_key, handshakeId)
+  upsertHandshakeKeys(db, handshakeId, { local_private_key: keys.local_private_key })
+}
+
+/**
+ * True when the dedicated key store exists on this DB handle (post-v73).
+ * Checked via sqlite_master (positive evidence) rather than probing the
+ * table itself: mock DBs used in tests return undefined instead of throwing
+ * for unknown tables, which a probe-style check would misread as "store
+ * present" and silently route keys into a void.
+ */
+function hasKeyStore(db: any): boolean {
+  try {
+    const row = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'handshake_key_store'")
+      .get()
+    return !!row
+  } catch {
+    return false
+  }
 }
 
 export function updateHandshakeCounterpartyKey(
@@ -1833,7 +2030,20 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     new_counterparty: record.counterparty_public_key,
     record,
   })
-  const s = serializeHandshakeRecord(finalizeInternalHandshakePersistence(record))
+  const finalized = finalizeInternalHandshakePersistence(record)
+  const s = serializeHandshakeRecord(finalized)
+  // Phase 2 (G6): private key material goes to handshake_key_store, never to
+  // relationship rows. Pre-v73 handles (no store) keep the legacy row write.
+  if (hasKeyStore(db)) {
+    upsertHandshakeKeys(db, finalized.handshake_id, {
+      local_private_key: finalized.local_private_key ?? null,
+      local_x25519_private_key_b64: finalized.local_x25519_private_key_b64 ?? null,
+      local_mlkem768_secret_key_b64: finalized.local_mlkem768_secret_key_b64 ?? null,
+    })
+    s.local_private_key = null
+    s.local_x25519_private_key_b64 = null
+    s.local_mlkem768_secret_key_b64 = null
+  }
   db.prepare(`INSERT INTO handshakes (
     handshake_id, relationship_id, state, initiator_json, acceptor_json,
     local_role, sharing_mode, reciprocal_allowed,
@@ -1890,7 +2100,19 @@ export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
     new_counterparty: record.counterparty_public_key,
     record: prev,
   })
-  const s = serializeHandshakeRecord(finalizeInternalHandshakePersistence(record))
+  const finalizedForUpdate = finalizeInternalHandshakePersistence(record)
+  const s = serializeHandshakeRecord(finalizedForUpdate)
+  // Phase 2 (G6): see insertHandshakeRecord — keys divert to the key store.
+  if (hasKeyStore(db)) {
+    upsertHandshakeKeys(db, finalizedForUpdate.handshake_id, {
+      local_private_key: finalizedForUpdate.local_private_key ?? null,
+      local_x25519_private_key_b64: finalizedForUpdate.local_x25519_private_key_b64 ?? null,
+      local_mlkem768_secret_key_b64: finalizedForUpdate.local_mlkem768_secret_key_b64 ?? null,
+    })
+    s.local_private_key = null
+    s.local_x25519_private_key_b64 = null
+    s.local_mlkem768_secret_key_b64 = null
+  }
   db.prepare(`UPDATE handshakes SET
     relationship_id = @relationship_id, state = @state,
     initiator_json = @initiator_json, acceptor_json = @acceptor_json,
@@ -1950,7 +2172,7 @@ export function updateHandshakeTopologyPairingKind(
 
 export function getHandshakeRecord(db: any, handshakeId: string): HandshakeRecord | null {
   const row = db.prepare('SELECT * FROM handshakes WHERE handshake_id = ?').get(handshakeId) as any
-  return row ? deserializeHandshakeRecord(row) : null
+  return row ? overlayKeysFromStore(db, deserializeHandshakeRecord(row)) : null
 }
 
 /** Resolve handshake_id when the caller presents the peer's Bearer (matches our stored counterparty_p2p_token). */
@@ -2061,14 +2283,14 @@ export function listHandshakeRecords(
 
   sql += ' ORDER BY created_at DESC'
   const rows = db.prepare(sql).all(...params) as any[]
-  return rows.map(deserializeHandshakeRecord)
+  return overlayKeysFromStoreBatch(db, rows.map(deserializeHandshakeRecord))
 }
 
 export function getExistingHandshakesForLookup(db: any): HandshakeRecord[] {
   const rows = db.prepare(
     "SELECT * FROM handshakes WHERE state IN ('PENDING_ACCEPT','ACCEPTED','ACTIVE')"
   ).all() as any[]
-  return rows.map(deserializeHandshakeRecord)
+  return overlayKeysFromStoreBatch(db, rows.map(deserializeHandshakeRecord))
 }
 
 // ── Seen Capsule Hashes ──
