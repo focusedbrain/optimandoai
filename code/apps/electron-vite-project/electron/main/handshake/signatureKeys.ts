@@ -60,9 +60,15 @@ export function signCapsuleHash(capsuleHash: string, privateKeyHex: string): str
   const data = Buffer.from(capsuleHash, 'hex')
   let keyObj
   if (privateKeyHex.length === 64) {
-    // Raw seed: create keypair from seed for signing
-    const seed = Buffer.from(privateKeyHex, 'hex')
-    keyObj = generateKeyPairSync('ed25519', { seed }).privateKey
+    // Raw seed → wrap in PKCS#8 (RFC 8410). The previous
+    // generateKeyPairSync('ed25519', { seed }) form silently ignored the seed
+    // (no such option exists) and signed with a RANDOM key — any 64-char-hex
+    // key would have produced signatures that never verify.
+    const der = Buffer.concat([
+      Buffer.from('302e020100300506032b657004220420', 'hex'),
+      Buffer.from(privateKeyHex, 'hex'),
+    ])
+    keyObj = createPrivateKey({ key: der, format: 'der', type: 'pkcs8' })
   } else {
     // Full PKCS#8 DER
     keyObj = createPrivateKey({ key: Buffer.from(privateKeyHex, 'hex'), format: 'der', type: 'pkcs8' })

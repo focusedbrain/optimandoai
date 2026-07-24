@@ -109,6 +109,9 @@ export const RESERVED_NAMESPACES: ReadonlySet<string> = new Set([
   'optirando.credential.*',
   'optirando.transport.*',
   'optirando.decl.capability',
+  // Phase-3: publisher attestation block (schema-gated per profile [VII.4.5];
+  // attestation semantics beyond the schema gate stay unimplemented).
+  'optirando.attestation.publisher',
 ])
 
 function matchesFamily(ns: string, family: string): boolean {

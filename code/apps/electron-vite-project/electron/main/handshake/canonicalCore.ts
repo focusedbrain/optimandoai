@@ -28,7 +28,7 @@
  * enforcement arrives with the profile registry (Phase 3).
  */
 
-import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto'
+import { createHash, createPrivateKey, createPublicKey, sign, verify } from 'node:crypto'
 import {
   canonicalJsonBytes,
   canonicalJsonString,
@@ -37,6 +37,8 @@ import {
   evaluateContainerCriticality,
   parseCanonicalEnvelope,
   parseContainer,
+  resolveProfile,
+  checkProfileContainerRules,
   WR_CORE_OBJECT_TYPE,
   WR_CANONICAL_SCHEMA_VERSION,
 } from '@repo/ingestion-core'
@@ -61,13 +63,19 @@ export const PHASE2_EMISSION_PROFILE = Object.freeze({ id: 'legacy_v0', version:
 
 // ── Ed25519 over canonical bytes ──────────────────────────────────────────────
 
+/** PKCS#8 DER prefix for a raw 32-byte Ed25519 seed (RFC 8410). */
+const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex')
+
 function privateKeyFromHex(privateKeyHex: string) {
   if (!/^[a-f0-9]+$/i.test(privateKeyHex) || privateKeyHex.length < 64) {
     throw new Error('privateKey must be hex (64-char seed or PKCS#8 DER)')
   }
   if (privateKeyHex.length === 64) {
-    const seed = Buffer.from(privateKeyHex, 'hex')
-    return generateKeyPairSync('ed25519', { seed }).privateKey
+    // Raw seed → wrap in PKCS#8. NOTE: generateKeyPairSync('ed25519', { seed })
+    // silently IGNORES the seed option (Node has no such option) and returns a
+    // random keypair — signing with it produces signatures that never verify.
+    const der = Buffer.concat([ED25519_PKCS8_PREFIX, Buffer.from(privateKeyHex, 'hex')])
+    return createPrivateKey({ key: der, format: 'der', type: 'pkcs8' })
   }
   return createPrivateKey({ key: Buffer.from(privateKeyHex, 'hex'), format: 'der', type: 'pkcs8' })
 }
@@ -268,7 +276,13 @@ export type EnvelopeVerification =
       /** Namespaces of preserved-and-ignored unknown non-critical entries. */
       ignoredNamespaces: string[]
     }
-  | { ok: false; reason: string; refusedNamespace?: string }
+  | {
+      ok: false
+      reason: string
+      refusedNamespace?: string
+      /** Set on profile-dispatch refusals — named in the visible refusal [VII.4.2]. */
+      refusedProfile?: { id: string; version: number }
+    }
 
 /**
  * Fields cross-checked between the pipeline's capsule view and the signed
@@ -344,13 +358,33 @@ export function verifyCanonicalEnvelope(
   if (!parsed.ok) return { ok: false, reason: `envelope_parse:${parsed.reason}` }
   const { envelope } = parsed
 
+  // 1b — profile dispatch, FAIL-CLOSED [VII.4.2]: unknown profile id or
+  // unsupported profile version → visible refusal naming the profile; no
+  // fallback path exists. Profiles are registry records (Phase 3), never
+  // code branches; the record parameterizes the checks below.
+  const profileRef = envelope.core.profile
+  const resolution = resolveProfile(profileRef.id, profileRef.version)
+  if (!resolution.ok) {
+    return {
+      ok: false,
+      reason: `${resolution.reason}:${profileRef.id}@${profileRef.version}`,
+      refusedProfile: { id: profileRef.id, version: profileRef.version },
+    }
+  }
+  const profile = resolution.record
+
   // 2+3 — signatures. The full-coverage signature must be bound to the same
   // key the legacy surface pins (TOFU / counterparty pinning applies to both).
+  // Countersignature discipline [VII.3.2, Q3]: every signature in the ordered
+  // list verifies over the SAME core value (byte-identical by construction of
+  // bytesForMode); a countersignature over differing bytes cannot verify.
   let boundFullCoverage = false
+  const distinctValidKeys = new Set<string>()
   for (const signature of envelope.signatures) {
     if (!verifyCoreSignature(envelope.core, signature)) {
       return { ok: false, reason: `signature_invalid:${signature.signer}:${signature.mode}` }
     }
+    distinctValidKeys.add(signature.public_key.toLowerCase())
     if (
       signature.mode === 'canonical_bytes' &&
       signature.public_key === expectedSenderPublicKeyHex.toLowerCase()
@@ -360,6 +394,18 @@ export function verifyCanonicalEnvelope(
   }
   if (!boundFullCoverage) {
     return { ok: false, reason: 'no_full_coverage_signature_from_sender_key' }
+  }
+
+  // Per-profile signature cardinality (registry-parameterized): 2-sig
+  // profiles count as established only when DOUBLY signed over the identical
+  // core [VII.3.2]. Distinct keys, not list length — the same signer twice
+  // is one signature.
+  if (distinctValidKeys.size < profile.signature_cardinality) {
+    return {
+      ok: false,
+      reason: `signature_cardinality_unmet:${distinctValidKeys.size}<${profile.signature_cardinality}`,
+      refusedProfile: { id: profile.id, version: profile.version },
+    }
   }
 
   // 4 — container criticality (both containers; order preserved).
@@ -378,6 +424,19 @@ export function verifyCanonicalEnvelope(
       }
     }
     ignoredNamespaces.push(...verdict.ignoredNonCritical)
+  }
+
+  // 4b — profile container rules AT SCHEMA LEVEL [VII.4.5]: e.g. a
+  // `private_personal` core carrying a publisher_attestation block is
+  // rejected here, not by UI; `pbeap_publisher` requires one.
+  const allNamespaces = [...declarations.entries, ...extensions.entries].map((e) => e.ns)
+  const containerVerdict = checkProfileContainerRules(profile, allNamespaces)
+  if (!containerVerdict.ok) {
+    return {
+      ok: false,
+      reason: `${containerVerdict.reason}:${profile.id}`,
+      refusedProfile: { id: profile.id, version: profile.version },
+    }
   }
 
   // 5 — binding cross-check against the signed capsule declaration.

@@ -19,6 +19,7 @@ import type {
 } from './types'
 import { finalizeInternalHandshakePersistence } from './internalPersistence'
 import { logHandshakeKeyBinding, warnIfCounterpartyKeySuspiciousOverwrite } from './keyBindingDebug'
+import { adaptRecordToCoreStore, backfillWrCoreStore, deleteRuntimeRow, hasWrCoreStore } from './coreStore'
 
 // ── Migration ──
 
@@ -1289,7 +1290,82 @@ const HANDSHAKE_MIGRATIONS: Array<{
       )`,
     ],
   },
+  {
+    version: 75,
+    description:
+      'Schema v75 (WR Handshake Phase 3, G1–G3): core store + runtime split [XI.LB§6]. wr_handshake_core is ' +
+      'APPEND-ONLY (UPDATE/DELETE aborted by triggers — immutability is store-enforced, not writer discipline); ' +
+      'wr_handshake_runtime carries the mutable operational slice keyed by handshake. NEVER an in-place ALTER of ' +
+      'handshakes: the legacy table stays the read authority during the transition window and becomes read-only ' +
+      'in Phase 4. This migration is NOT applied to the frozen ledger handle (G5 — LEDGER_SCHEMA_FREEZE_VERSION).',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS wr_handshake_core (
+        core_hash TEXT PRIMARY KEY,
+        handshake_id TEXT NOT NULL UNIQUE,
+        profile_id TEXT NOT NULL,
+        profile_version INTEGER NOT NULL,
+        core_version INTEGER NOT NULL DEFAULT 1,
+        core_json TEXT NOT NULL,
+        signatures_json TEXT NOT NULL,
+        capture_provenance TEXT NOT NULL DEFAULT 'unknown_legacy',
+        backfilled INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      )`,
+      `CREATE TRIGGER IF NOT EXISTS trg_wr_core_no_update
+         BEFORE UPDATE ON wr_handshake_core
+       BEGIN
+         SELECT RAISE(ABORT, 'wr_handshake_core is append-only');
+       END`,
+      `CREATE TRIGGER IF NOT EXISTS trg_wr_core_no_delete
+         BEFORE DELETE ON wr_handshake_core
+       BEGIN
+         SELECT RAISE(ABORT, 'wr_handshake_core is append-only');
+       END`,
+      `CREATE TABLE IF NOT EXISTS wr_handshake_runtime (
+        handshake_id TEXT PRIMARY KEY,
+        core_hash TEXT NOT NULL,
+        state TEXT NOT NULL,
+        sharing_mode TEXT,
+        last_seq_sent INTEGER NOT NULL DEFAULT 0,
+        last_seq_received INTEGER NOT NULL DEFAULT 0,
+        last_capsule_hash_sent TEXT,
+        last_capsule_hash_received TEXT,
+        p2p_endpoint TEXT,
+        local_p2p_auth_token TEXT,
+        counterparty_p2p_token TEXT,
+        effective_policy_json TEXT,
+        repair_flags_json TEXT,
+        updated_at TEXT NOT NULL
+      )`,
+    ],
+  },
 ]
+
+/**
+ * G5 — ledger freeze. The `handshake-ledger.db` handle stops receiving full
+ * handshake migrations at this version: v75+ (core store split and everything
+ * after) never lands on the ledger. Its repurposing as the Tier-L evidence
+ * home is Phase 5 (Q10).
+ */
+export const LEDGER_SCHEMA_FREEZE_VERSION = 74
+
+/**
+ * Every table name the handshake migration chain (≤ maxVersion) can create.
+ * Source of truth for the ledger hygiene audit (G5): anything on a handle
+ * beyond this set + the ledger-native tables is undocumented.
+ */
+export function documentedHandshakeTableNames(maxVersion?: number): Set<string> {
+  const names = new Set<string>(['handshake_schema_migrations'])
+  for (const migration of HANDSHAKE_MIGRATIONS) {
+    if (maxVersion !== undefined && migration.version > maxVersion) continue
+    for (const sql of migration.sql) {
+      for (const match of sql.matchAll(/CREATE TABLE(?: IF NOT EXISTS)?\s+(\w+)/gi)) {
+        names.add(match[1])
+      }
+    }
+  }
+  return names
+}
 
 /**
  * Canonical columns for the email / inbox / sync pipeline. Repairs partial tables where
@@ -1515,7 +1591,28 @@ export function ensureEmailPipelineSchemaRepairs(db: any): void {
   }
 }
 
-export function migrateHandshakeTables(db: any): void {
+/**
+ * G5 — a frozen handle carries its freeze as DATA (`ledger_meta.wr_schema_freeze`,
+ * written by openLedger), so every migration entry point respects it — including
+ * lazy `migrateHandshakeTables(db)` calls that don't know which handle they got
+ * (e.g. the ingestion IPC layer). Handles without ledger_meta are never frozen.
+ */
+function detectPersistedFreezeVersion(db: any): number | undefined {
+  try {
+    const row = db
+      .prepare("SELECT value FROM ledger_meta WHERE key = 'wr_schema_freeze'")
+      .get() as { value: string } | undefined
+    if (row) {
+      const v = Number(row.value)
+      if (Number.isSafeInteger(v) && v > 0) return v
+    }
+  } catch {
+    // No ledger_meta table — not a ledger handle.
+  }
+  return undefined
+}
+
+export function migrateHandshakeTables(db: any, options?: { freezeAtVersion?: number }): void {
   // Ensure migrations table exists first
   try {
     db.prepare(`CREATE TABLE IF NOT EXISTS handshake_schema_migrations (
@@ -1527,7 +1624,14 @@ export function migrateHandshakeTables(db: any): void {
     console.warn('[HANDSHAKE DB] Could not create migrations table:', e?.message)
   }
 
+  const freezeAtVersion = options?.freezeAtVersion ?? detectPersistedFreezeVersion(db)
+
   for (const migration of HANDSHAKE_MIGRATIONS) {
+    // G5 — frozen handles (the ledger) never receive migrations past the
+    // freeze version. Fail-closed on the schema, not on the data: existing
+    // tables keep working; new WR core tables never appear here.
+    if (freezeAtVersion !== undefined && migration.version > freezeAtVersion) continue
+
     // Check if already applied
     try {
       const row = db.prepare(
@@ -1560,6 +1664,20 @@ export function migrateHandshakeTables(db: any): void {
   }
 
   ensureEmailPipelineSchemaRepairs(db)
+
+  // Phase 3 (G2) — backfill: one synthetic legacy_v0 core per existing
+  // relationship row that has none. Idempotent; never runs on frozen handles
+  // (they never got the v75 tables). Never fabricates signatures/provenance.
+  if (freezeAtVersion === undefined && hasWrCoreStore(db)) {
+    try {
+      const summary = backfillWrCoreStore(db, (h) => listHandshakeRecords(h))
+      if (summary.backfilled > 0 || summary.failed > 0) {
+        console.log('[WR-CORE] legacy_v0 backfill:', summary)
+      }
+    } catch (e: any) {
+      console.warn('[WR-CORE] backfill skipped:', e?.message)
+    }
+  }
 }
 
 // ── Post-migration backfill: local_x25519_public_key_b64 ──────────────────────────────────────
@@ -2081,6 +2199,10 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     @internal_routing_key, @internal_coordination_identity_complete, @internal_coordination_repair_needed,
     @topology_pairing_kind
   )`).run(s)
+  // Phase 3 (G1–G3): transition adapter — dual-write core + runtime rows when
+  // the split store exists on this handle. The legacy row above remains the
+  // read authority during the transition window.
+  adaptRecordToCoreStore(db, finalized)
 }
 
 export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
@@ -2157,6 +2279,9 @@ export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
     internal_coordination_repair_needed = @internal_coordination_repair_needed,
     topology_pairing_kind = @topology_pairing_kind
   WHERE handshake_id = @handshake_id`).run(s)
+  // Phase 3 (G1–G3): mirror mutable state into wr_handshake_runtime (the core
+  // row is append-only and untouched by updates — hash stability, T2).
+  adaptRecordToCoreStore(db, finalizedForUpdate)
 }
 
 /** Prompt 0: persist inferred/co-located topology marker on an internal Host↔Sandbox row. */
@@ -2583,6 +2708,9 @@ export function deleteHandshakeRecord(db: any, handshakeId: string): { success: 
     db.prepare('DELETE FROM outbound_capsule_queue WHERE handshake_id = ?').run(handshakeId)
     db.prepare('DELETE FROM audit_log WHERE handshake_id = ?').run(handshakeId)
     db.prepare('DELETE FROM handshakes WHERE handshake_id = ?').run(handshakeId)
+    // Phase 3: the runtime mirror goes with the row; the core record is
+    // append-only history and survives (store triggers abort DELETE anyway).
+    deleteRuntimeRow(db, handshakeId)
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err?.message ?? 'Delete failed' }

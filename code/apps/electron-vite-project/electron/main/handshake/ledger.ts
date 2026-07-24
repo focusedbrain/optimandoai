@@ -23,7 +23,8 @@ import { existsSync, mkdirSync } from 'fs'
 import { createRequire } from 'module'
 import { homedir } from 'os'
 import { createHash, createHmac } from 'crypto'
-import { migrateHandshakeTables } from './db'
+import { migrateHandshakeTables, LEDGER_SCHEMA_FREEZE_VERSION } from './db'
+import { sweepLedgerForFreeze, assertLedgerHygiene } from './ledgerHygiene'
 import { bindKeyProvider, unbindKeyProvider } from '../sealed-storage/index'
 import { deriveLedgerSealKey } from '../sealed-storage/ledgerSealKey'
 
@@ -220,12 +221,40 @@ export async function openLedger(sessionToken: string): Promise<any> {
 
   applySchema(db)
 
-  // Apply the full vault-schema handshake tables so processHandshakeCapsule
-  // can run against the ledger DB without vault access.
+  // Apply the vault-schema handshake tables so processHandshakeCapsule can
+  // run against the ledger DB without vault access — FROZEN at v74 (Phase 3,
+  // G5): the core-store split (v75+) and everything after never lands on the
+  // ledger handle. Its repurposing as the Tier-L evidence home is Phase 5.
+  // The freeze is persisted as ledger_meta data so LAZY migration calls that
+  // receive this handle elsewhere (ingestion IPC) respect it too.
   try {
-    migrateHandshakeTables(db)
+    db.prepare(`INSERT OR REPLACE INTO ledger_meta (key, value) VALUES ('wr_schema_freeze', ?)`).run(
+      String(LEDGER_SCHEMA_FREEZE_VERSION),
+    )
+    migrateHandshakeTables(db, { freezeAtVersion: LEDGER_SCHEMA_FREEZE_VERSION })
   } catch (err: any) {
     console.warn('[LEDGER] Handshake schema migration warning:', err?.message)
+  }
+
+  // One-time (idempotent) hygiene sweep under the freeze: key material off
+  // relationship rows, undocumented tables copied out to a sidecar and
+  // dropped, then assert documented-tables-only + integrity.
+  try {
+    const sweep = sweepLedgerForFreeze(db, { sidecarDir: dirname(dbPath) })
+    if (sweep.keyRowsSwept > 0 || sweep.undocumentedTablesRemoved.length > 0 || sweep.errors.length > 0) {
+      console.log('[LEDGER] Freeze sweep:', {
+        key_rows_swept: sweep.keyRowsSwept,
+        undocumented_removed: sweep.undocumentedTablesRemoved,
+        sidecar: sweep.sidecarPath,
+        errors: sweep.errors,
+      })
+    }
+    const hygiene = assertLedgerHygiene(db)
+    if (!hygiene.ok) {
+      console.warn('[LEDGER] Hygiene assertion failed:', hygiene)
+    }
+  } catch (err: any) {
+    console.warn('[LEDGER] Freeze sweep warning:', err?.message)
   }
 
   // Drain any WAL left by the previous session so reads stay fast.

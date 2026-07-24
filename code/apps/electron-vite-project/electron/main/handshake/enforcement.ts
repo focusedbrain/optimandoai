@@ -328,15 +328,22 @@ export function processHandshakeCapsule(
   if (wireFormat === 'canonical_v3') {
     const envelopeResult = verifyCanonicalEnvelope(capsuleObj, senderPublicKey)
     if (!envelopeResult.ok) {
+      // Profile-dispatch refusals are fail-closed and NAME the profile
+      // [VII.4.2]; unknown critical entries name the namespace [VII.3.5].
       const reason = envelopeResult.refusedNamespace
         ? ReasonCode.UNKNOWN_CRITICAL_EXTENSION
-        : ReasonCode.CANONICAL_ENVELOPE_INVALID
-      // Visible refusal names the namespace for unknown critical entries [VII.3.5].
+        : envelopeResult.refusedProfile
+          ? (envelopeResult.reason.startsWith('unknown_profile') ||
+             envelopeResult.reason.startsWith('unsupported_profile_version')
+              ? ReasonCode.UNKNOWN_PROFILE
+              : ReasonCode.PROFILE_SCHEMA_VIOLATION)
+          : ReasonCode.CANONICAL_ENVELOPE_INVALID
       console.error('[HANDSHAKE] Canonical envelope refused:', {
         handshake_id: input.handshake_id,
         capsuleType: input.capsuleType,
         reason: envelopeResult.reason,
         refused_namespace: envelopeResult.refusedNamespace ?? null,
+        refused_profile: envelopeResult.refusedProfile ?? null,
       })
       try {
         const entry = buildDenialAuditEntry(input, reason, 'canonical_envelope_verification', 0, wireFormat)
@@ -344,6 +351,9 @@ export function processHandshakeCapsule(
           ...entry.metadata,
           envelope_reason: envelopeResult.reason,
           ...(envelopeResult.refusedNamespace ? { refused_namespace: envelopeResult.refusedNamespace } : {}),
+          ...(envelopeResult.refusedProfile
+            ? { refused_profile: `${envelopeResult.refusedProfile.id}@${envelopeResult.refusedProfile.version}` }
+            : {}),
         }
         insertAuditLogEntry(db, entry)
       } catch { /* audit must not mask */ }

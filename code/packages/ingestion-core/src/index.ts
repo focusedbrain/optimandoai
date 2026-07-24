@@ -84,6 +84,21 @@ export type {
   CoreSignatureMode,
   EnvelopeParseResult,
 } from './coreRecord.js';
+// Phase 3 — profile registry with fail-closed dispatch (B1–B4, B7) [VII.4.1–4.2]
+export {
+  resolveProfile,
+  listProfileRecords,
+  checkProfileContainerRules,
+  PUBLISHER_ATTESTATION_NS,
+} from './profileRegistry.js';
+export type { WrProfileRecord, ProfileResolution, ProfileContainerVerdict } from './profileRegistry.js';
+// Phase 3 — ingress_path registry (Q4 groundwork) [VII.4.6]
+export {
+  INGRESS_PATH_REGISTRY,
+  isRegisteredIngressPath,
+  isRecordableIngressPath,
+} from './ingressRegistry.js';
+export type { IngressPathEntry } from './ingressRegistry.js';
 export { ingestInput } from './ingestor.js';
 export { validateCapsule, validateSessionImportArtefact } from './validator.js';
 export { validateDecryptedBeapContent, CONTENT_VALIDATOR_VERSION } from './contentValidator.js';

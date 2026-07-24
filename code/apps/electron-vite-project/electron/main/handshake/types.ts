@@ -533,6 +533,10 @@ export enum ReasonCode {
   CANONICAL_ENVELOPE_INVALID = 'CANONICAL_ENVELOPE_INVALID',
   UNKNOWN_CRITICAL_EXTENSION = 'UNKNOWN_CRITICAL_EXTENSION',
   NONCE_REPLAY = 'NONCE_REPLAY',
+  /** Phase 3 [VII.4.2]: unknown profile id / unsupported profile version — fail-closed, no fallback. */
+  UNKNOWN_PROFILE = 'UNKNOWN_PROFILE',
+  /** Phase 3 [VII.4.5, VII.3.2]: profile schema rule violated (attestation presence/absence, signature cardinality). */
+  PROFILE_SCHEMA_VIOLATION = 'PROFILE_SCHEMA_VIOLATION',
 }
 
 // ── Pipeline Types ──
