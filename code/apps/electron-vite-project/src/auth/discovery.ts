@@ -4,7 +4,7 @@ import { oidc } from './oidcConfig';
 // OIDC Discovery - Keycloak Well-Known Endpoint
 // ============================================================================
 // Fetches and caches OIDC configuration from:
-// https://auth.wrdesk.com/realms/wrdesk/.well-known/openid-configuration
+// https://auth.optirando.com/realms/wrdesk/.well-known/openid-configuration
 //
 // Caches in memory to avoid repeated network calls.
 // Returns clear error objects for UI display on failure.

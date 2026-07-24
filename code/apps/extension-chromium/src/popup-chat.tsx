@@ -324,7 +324,7 @@ function PopupChatApp() {
     setIsLaunchingElectron(false)
   }
 
-  // Open wrdesk.com when logged out (once per popup open, no tab spam)
+  // Open optirando.com when logged out (once per popup open, no tab spam)
   const hasTriedOpeningWrdeskRef = React.useRef(false);
   useEffect(() => {
     // Only trigger when isLoggedIn is definitively false (not null/loading)
@@ -333,9 +333,9 @@ function PopupChatApp() {
       hasTriedOpeningWrdeskRef.current = true;
       chrome.runtime.sendMessage({ type: 'OPEN_WRDESK_HOME_IF_NEEDED' }, (response) => {
         if (chrome.runtime.lastError) {
-          console.warn('[AUTH] Failed to open wrdesk.com:', chrome.runtime.lastError.message);
+          console.warn('[AUTH] Failed to open optirando.com:', chrome.runtime.lastError.message);
         } else {
-          console.log('[AUTH] Open wrdesk.com result:', response?.action);
+          console.log('[AUTH] Open optirando.com result:', response?.action);
         }
       });
     }
@@ -380,7 +380,7 @@ function PopupChatApp() {
     });
   };
   
-  // Handle Create Account click - opens wrdesk.com/register and highlights form
+  // Handle Create Account click - opens optirando.com/register and highlights form
   const handleCreateAccount = () => {
     chrome.runtime.sendMessage({ type: 'OPEN_REGISTER_PAGE' });
   };
@@ -1742,7 +1742,7 @@ function PopupChatApp() {
   }
 
   // Email Compose Content - plain email form with Connected Accounts, To, Subject, Body, Attachments, Signature
-  const EMAIL_SIGNATURE = '\n\n—\nAutomate your inbox. Try wrdesk.com\nhttps://wrdesk.com'
+  const EMAIL_SIGNATURE = '\n\n—\nAutomate your inbox. Try optirando.com\nhttps://optirando.com'
   const renderEmailComposeContent = () => {
     const isStandard = theme === 'standard'
     const isProTheme = theme === 'pro'
@@ -1947,7 +1947,7 @@ function PopupChatApp() {
             <>
               <div style={{ fontSize: '11px', fontWeight: 600, color: mutedColor }}>Signature (appended automatically)</div>
               <pre style={{ fontSize: 11, color: mutedColor, background: 'rgba(0,0,0,0.05)', padding: 8, borderRadius: 6, margin: 0, whiteSpace: 'pre-wrap', opacity: 0.6 }}>{EMAIL_SIGNATURE.trim()}</pre>
-              <a href="https://wrdesk.com" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#7c3aed', textDecoration: 'none', marginTop: 4, display: 'inline-block' }}>
+              <a href="https://optirando.com" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#7c3aed', textDecoration: 'none', marginTop: 4, display: 'inline-block' }}>
                 ✨ Upgrade to Pro to send without branding
               </a>
             </>

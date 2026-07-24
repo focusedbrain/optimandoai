@@ -141,6 +141,29 @@ describe('p2p_host_ai_direct_beap_ad', () => {
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('signaling_ttl')
   })
+
+  it('accepts sealed-relay inert endpoint_url placeholder (direct-LAN retired)', () => {
+    const body = JSON.stringify(
+      beapAdBase({
+        endpoint_url: 'https://wrdesk.invalid/host-ai/sealed-relay',
+      }),
+    )
+    const r = tryParseP2pSignalRequest(body, P2P_SIGNAL_MAX_BODY_BYTES)
+    expect(r.ok).toBe(true)
+  })
+
+  it('rejects missing endpoint_url for beap ad', () => {
+    const t0 = Date.now()
+    const body = JSON.stringify(
+      beapAdBase({
+        endpoint_url: undefined,
+      }),
+    )
+    delete (JSON.parse(body) as Record<string, unknown>).endpoint_url
+    const r = tryParseP2pSignalRequest(JSON.stringify(JSON.parse(body)), P2P_SIGNAL_MAX_BODY_BYTES)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toBe('field_required')
+  })
 })
 
 describe('p2p_host_ai_direct_beap_ad_request', () => {

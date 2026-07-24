@@ -7,7 +7,7 @@ import { useState, useRef, useEffect } from 'react'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 
 /** Appended to outbound body by send pipeline (shared with `EmailInlineComposer`). */
-export const EMAIL_SIGNATURE = '\n\n—\nAutomate your inbox. Try wrdesk.com\nhttps://wrdesk.com'
+export const EMAIL_SIGNATURE = '\n\n—\nAutomate your inbox. Try optirando.com\nhttps://optirando.com'
 
 export interface DraftAttachment {
   name: string

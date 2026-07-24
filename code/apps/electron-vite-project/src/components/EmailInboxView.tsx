@@ -82,6 +82,11 @@ import {
 } from '../lib/inboxAiCloneClassification'
 import { autosortDiagLog, DEBUG_AUTOSORT_DIAGNOSTICS } from '../lib/autosortDiagnostics'
 import {
+  INBOX_ANALYSIS_SELECTION_DEBOUNCE_MS,
+  shouldApplyAnalysisStreamResult,
+  shouldTriggerAnalysisOnSelectionChange,
+} from '../lib/inboxDetailAnalysisSelection'
+import {
   inboxAiAnalyzeStreamErrorDisplay,
   inboxAiDraftReplyErrorDisplay,
   type InboxAiErrorDebugPayload,
@@ -378,6 +383,16 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
   const streamCleanupRef = useRef<(() => void) | null>(null)
   /** Stops auto re-entry: effect re-runs after stream error (e.g. Zustand or StrictMode) must not call analyze again. */
   const autoAnalyzeStreamFailedRef = useRef<Set<string>>(new Set())
+  /** Monotonic token — increment on message switch to discard stale stream callbacks. */
+  const analysisRunGenerationRef = useRef(0)
+  /** Generation captured when a debounced selection analysis was scheduled. */
+  const selectionDebounceGenerationRef = useRef(0)
+  const visibleSectionsRef = useRef(visibleSections)
+  visibleSectionsRef.current = visibleSections
+  /** Global lazy auto-analyze pref (inbox_auto_analyze_enabled). Default off until settings load. */
+  const [inboxAutoAnalyzeEnabled, setInboxAutoAnalyzeEnabled] = useState(false)
+  const inboxAutoAnalyzeEnabledRef = useRef(false)
+  inboxAutoAnalyzeEnabledRef.current = inboxAutoAnalyzeEnabled
   /**
    * When the user runs manual Summarize while the analysis stream is still running (or before it finishes),
    * stream chunks / completion must not overwrite that summary. Cleared on message change and when a fresh stream starts (e.g. Retry).
@@ -400,20 +415,93 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
     messageRef.current = message
   }, [message])
 
+  useEffect(() => {
+    void (async () => {
+      const bridge = window.emailInbox
+      if (!bridge?.getInboxSettings) return
+      try {
+        const res = await bridge.getInboxSettings()
+        if (res?.ok && res.data) {
+          setInboxAutoAnalyzeEnabled(res.data.autoAnalyzeEnabled === true)
+        }
+      } catch {
+        /* default off */
+      }
+    })()
+  }, [])
+
   const replyMode = message ? resolveInboxReplyMode(message) : 'email'
   const isNativeBeap = replyMode === 'native_beap'
   const isSortingActive = useEmailInboxStore((s) => s.isSortingActive)
   /** Tracks prior `isSortingActive` so we can start deferred auto-analysis when bulk sort finishes. */
   const prevSortingActiveRef = useRef(useEmailInboxStore.getState().isSortingActive)
 
-  const runAnalysisStream = useCallback(async (opts?: { manual?: boolean; supersede?: boolean }) => {
+  const runAnalysisStream = useCallback(async (opts?: { manual?: boolean; supersede?: boolean; runGeneration?: number }) => {
     const manual = !!opts?.manual
-    const trigger: 'auto' | 'manual' | 'retry' = manual ? (opts?.supersede ? 'retry' : 'manual') : 'auto'
+    const trigger: 'auto' | 'manual' | 'retry' | 'selection' = manual
+      ? opts?.supersede
+        ? 'retry'
+        : opts?.runGeneration != null
+          ? 'selection'
+          : 'manual'
+      : 'auto'
+    const invokeGeneration = opts?.runGeneration ?? analysisRunGenerationRef.current
+    const acceptStreamEvent = (eventMessageId: string) =>
+      shouldApplyAnalysisStreamResult({
+        runGeneration: invokeGeneration,
+        activeGeneration: analysisRunGenerationRef.current,
+        eventMessageId,
+        panelMessageId: messageId,
+      })
     const msg = messageRef.current
     if (DEBUG_AUTOSORT_DIAGNOSTICS) {
       console.log('[ANALYSIS] runAnalysisStream triggered for:', messageId)
     }
     if (!window.emailInbox?.aiAnalyzeMessageStream || !window.emailInbox.onAiAnalyzeChunk) return
+
+    if (!manual && !inboxAutoAnalyzeEnabledRef.current) {
+      const cachedOff = useEmailInboxStore.getState().analysisCache[messageId]
+      if (cachedOff) {
+        autoAnalyzeStreamFailedRef.current.delete(messageId)
+        const triOff = reconcileAnalyzeTriage(
+          {
+            urgencyScore: cachedOff.urgencyScore,
+            needsReply: cachedOff.needsReply,
+            urgencyReason: cachedOff.urgencyReason,
+            summary: cachedOff.summary,
+          },
+          { subject: msg?.subject, body: msg?.body_text },
+        )
+        const skipEmailDraftOff = !!(msg && resolveInboxReplyMode(msg) === 'native_beap')
+        setAnalysis({
+          ...cachedOff,
+          urgencyScore: triOff.urgencyScore,
+          needsReply: triOff.needsReply,
+          draftReply: skipEmailDraftOff
+            ? cachedOff.draftReply
+            : triOff.needsReply
+              ? cachedOff.draftReply
+              : null,
+        })
+        setAnalysisStreamParseFailed(false)
+        setReceivedFields(
+          new Set([
+            'needsReply',
+            'needsReplyReason',
+            'summary',
+            'urgencyScore',
+            'urgencyReason',
+            'actionItems',
+            'archiveRecommendation',
+            'archiveReason',
+            'draftReply',
+            'scamWatchdog',
+          ]),
+        )
+      }
+      setAnalysisLoading(false)
+      return
+    }
 
     // Note: direct_beap messages are now auto-analyzed on open, same as other messages.
     // The previous guard (skip auto for direct_beap) blocked analysis when the user
@@ -508,7 +596,7 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
     }
 
     const unsubChunk = window.emailInbox.onAiAnalyzeChunk(({ messageId: mid, chunk }) => {
-      if (mid !== messageId) return
+      if (!acceptStreamEvent(mid)) return
       streamChunkCount += 1
       if (streamChunkCount === 1) {
         console.log(
@@ -551,7 +639,7 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
     })
 
     const unsubDone = window.emailInbox.onAiAnalyzeDone(({ messageId: mid }) => {
-      if (mid !== messageId) return
+      if (!acceptStreamEvent(mid)) return
       console.log(
         `[INBOX_AUDIT] renderer_stream_chunks_summary ${JSON.stringify({
           messageId,
@@ -660,7 +748,7 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
     })
 
     const unsubError = window.emailInbox.onAiAnalyzeError((payload) => {
-      if (payload.messageId !== messageId) return
+      if (!acceptStreamEvent(payload.messageId)) return
       const ep = payload as { message?: string; inboxErrorCode?: string; code?: string; error_code?: string }
       console.log(
         `[INBOX_AUDIT] renderer_error_received ${JSON.stringify({
@@ -828,18 +916,15 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
       clearTimeout(capsuleSendSuccessTimerRef.current)
       capsuleSendSuccessTimerRef.current = null
     }
+    analysisRunGenerationRef.current += 1
+    streamCleanupRef.current?.()
     manualSummaryOverrideRef.current = null
     useDraftRefineStore.getState().disconnect()
-    if (autoAnalyzeStreamFailedRef.current.has(messageId)) {
-      return () => {
-        streamCleanupRef.current?.()
-      }
-    }
     setAnalysisError(null)
     setAnalysisStreamParseFailed(false)
     setInboxAiAnalyzeDebug(null)
     setInboxAiSemanticDevNote(null)
-    setAnalysisLoading(true)
+    setAnalysisLoading(false)
     setAnalysis(null)
     setReceivedFields(new Set())
     setSummarizeLoading(false)
@@ -850,7 +935,6 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
     setDraftErrorDebug(null)
     setActionChecked({})
     setDraftSubFocused(false)
-    setVisibleSections(new Set(['summary', 'draft', 'analysis']))
     setCapsulePublicText('')
     setCapsuleEncryptedText('')
     setCapsulePublicSource('none')
@@ -862,20 +946,43 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
     setSendingCapsule(false)
     setAvailableSessions([])
     draftFallbackAttemptedRef.current = false
-    void runAnalysisStreamRef.current()
     return () => {
       streamCleanupRef.current?.()
     }
   }, [messageId, isNativeBeap])
 
-  /** When bulk auto-sort ends, run deferred advisory stream for the selected message (auto path only). */
+  /** While Analysis mode is active, debounce selection changes and run analysis for the new message. */
+  useEffect(() => {
+    if (!messageId) return
+    if (!shouldTriggerAnalysisOnSelectionChange(visibleSectionsRef.current.has('analysis'))) return
+
+    const scheduledGeneration = analysisRunGenerationRef.current
+    selectionDebounceGenerationRef.current = scheduledGeneration
+    const timer = window.setTimeout(() => {
+      if (selectionDebounceGenerationRef.current !== analysisRunGenerationRef.current) return
+      if (!shouldTriggerAnalysisOnSelectionChange(visibleSectionsRef.current.has('analysis'))) return
+      autoAnalyzeStreamFailedRef.current.delete(messageId)
+      setAnalysisLoading(true)
+      setAnalysis(null)
+      setReceivedFields(new Set())
+      void runAnalysisStreamRef.current({
+        manual: true,
+        runGeneration: scheduledGeneration,
+      })
+    }, INBOX_ANALYSIS_SELECTION_DEBOUNCE_MS)
+
+    return () => window.clearTimeout(timer)
+  }, [messageId, isNativeBeap])
+
+  /** When bulk auto-sort ends, run deferred analysis for the selected message (Analysis mode only). */
   useEffect(() => {
     const wasSorting = prevSortingActiveRef.current
     prevSortingActiveRef.current = isSortingActive
     if (!wasSorting || isSortingActive || !messageId) return
+    if (!visibleSectionsRef.current.has('analysis')) return
     if (autoAnalyzeStreamFailedRef.current.has(messageId)) return
     if (useEmailInboxStore.getState().analysisCache[messageId]) return
-    void runAnalysisStreamRef.current()
+    void runAnalysisStreamRef.current({ manual: true, runGeneration: analysisRunGenerationRef.current })
   }, [isSortingActive, messageId])
 
   /** FIX-H6: Clear draft-edit indicator when switching to a different message. */
@@ -1284,7 +1391,7 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
       const rawMsg = caughtErr instanceof Error ? caughtErr.message : String(caughtErr ?? '')
       const { userMessage } = inboxAiDraftReplyErrorDisplay({
         ok: false,
-        inboxErrorCode: rawMsg.startsWith('LLM_UNAVAILABLE:') ? 'local_ollama_unreachable'
+        inboxErrorCode: rawMsg.startsWith('LLM_UNAVAILABLE:') ? 'local_llm_unreachable'
           : rawMsg.startsWith('LLM_TIMEOUT') ? 'timeout'
           : rawMsg === 'No AI model selected' ? 'no_model_selected'
           : 'generation_failed',
@@ -1635,8 +1742,12 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
           onClick={() => {
             const willShow = !visibleSections.has('analysis')
             toggleSection('analysis')
-            if (willShow && !analysis && !analysisLoading) {
-              void runAnalysisStream({ manual: true })
+            if (willShow) {
+              autoAnalyzeStreamFailedRef.current.delete(messageId)
+              useEmailInboxStore.getState().clearAnalysisCacheForMessage(messageId)
+              if (!analysisLoading) {
+                void runAnalysisStream({ manual: true, supersede: true })
+              }
             }
           }}
           aria-pressed={visibleSections.has('analysis')}
@@ -4068,7 +4179,7 @@ export default function EmailInboxView({
         selectedPath: 'email_send',
       })
       const subject = msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject || '(No subject)'}`
-      const fullBody = (draft || '').trim() + '\n\n—\nAutomate your inbox. Try wrdesk.com\nhttps://wrdesk.com'
+      const fullBody = (draft || '').trim() + '\n\n—\nAutomate your inbox. Try optirando.com\nhttps://optirando.com'
       const emailAttachments: { filename: string; mimeType: string; contentBase64: string }[] = []
       if (window.emailInbox?.readFileForAttachment && attachments?.length) {
         for (const pa of attachments) {

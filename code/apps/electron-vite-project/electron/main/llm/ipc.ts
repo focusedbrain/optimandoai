@@ -3,9 +3,9 @@
  * Electron IPC interface for renderer process to communicate with LLM services
  */
 
-import { ipcMain, IpcMainInvokeEvent } from 'electron'
+import { ipcMain, IpcMainInvokeEvent, dialog } from 'electron'
 import { hardwareService } from './hardware'
-import { ollamaManager } from './ollama-manager'
+import { localLlmManager } from './local-llm-manager'
 import { getGpuStatus, getGpuInferenceStatusRemote } from '../inference/gpuStatus'
 import { isGpuInferenceAvailable } from '../inference/inferenceGate'
 import {
@@ -16,8 +16,10 @@ import {
   isEffectiveSandboxSideForAiExecution,
   fallbackFromListSandbox,
 } from './resolveAiExecutionContext'
-import { DEBUG_ACTIVE_OLLAMA_MODEL } from './activeOllamaModelStore'
-import { broadcastActiveOllamaModelChanged } from './broadcastActiveModel'
+import { DEBUG_ACTIVE_LOCAL_MODEL } from './activeLocalModelStore'
+import { broadcastActiveLocalModelChanged } from './broadcastActiveModel'
+import { broadcastModelsInstalledChanged } from './broadcastModelsChanged'
+import { ensureLocalLlmAfterModelInstall } from './localLlmLifecycle'
 import { MODEL_CATALOG, getModelConfig } from './config'
 import { ChatRequest } from './types'
 import { resolveInboxAutosortRuntime } from './inboxAutosortRuntime'
@@ -28,6 +30,7 @@ import {
 } from './aiExecutionContextStore'
 import type { AiExecutionLane } from './aiExecutionTypes'
 import { getSandboxOllamaDirectRouteCandidate } from '../internalInference/sandboxHostAiOllamaDirectCandidate'
+import { peekHostGpuInferenceAvailableFromRelay } from '../internalInference/p2pEndpointRepair'
 
 /**
  * Register all LLM-related IPC handlers
@@ -56,7 +59,7 @@ export function registerLlmHandlers() {
       return _getStatusCache.result
     }
     try {
-      const status = await ollamaManager.getStatus()
+      const status = await localLlmManager.getStatus()
       const { augmentOllamaStatusWithWrChatModels } = await import('./handshakeAvailableModelsCompute')
       const augmented = await augmentOllamaStatusWithWrChatModels(status)
       const result = { ok: true, data: augmented }
@@ -84,9 +87,9 @@ export function registerLlmHandlers() {
   ipcMain.handle('llm:startOllama', async () => {
     try {
       if (isSandboxMode()) {
-        return { ok: false, error: 'Ollama management is disabled in sandbox mode' }
+        return { ok: false, error: 'Local LLM management is disabled in sandbox mode' }
       }
-      await ollamaManager.start()
+      await localLlmManager.start()
       return { ok: true }
     } catch (error: any) {
       console.error('[LLM IPC] Start Ollama failed:', error)
@@ -98,9 +101,9 @@ export function registerLlmHandlers() {
   ipcMain.handle('llm:stopOllama', async () => {
     try {
       if (isSandboxMode()) {
-        return { ok: false, error: 'Ollama management is disabled in sandbox mode' }
+        return { ok: false, error: 'Local LLM management is disabled in sandbox mode' }
       }
-      await ollamaManager.stop()
+      await localLlmManager.stop()
       return { ok: true }
     } catch (error: any) {
       console.error('[LLM IPC] Stop Ollama failed:', error)
@@ -108,10 +111,86 @@ export function registerLlmHandlers() {
     }
   })
   
+  // B0: llama-server binary provisioning (mirrors HTTP /api/llm/binary/* in main.ts)
+  ipcMain.handle('llm:binaryStatus', async () => {
+    try {
+      const { detectRecommendedLlamaServerVariant } = await import('./llamaServerBinaryInstall')
+      const binaryInstalled = localLlmManager.isBinaryAvailable()
+      const recommended = await detectRecommendedLlamaServerVariant()
+      return { ok: true, data: { binaryInstalled, recommendedVariant: recommended.variant, reason: recommended.reason } }
+    } catch (error: any) {
+      console.error('[LLM IPC] binaryStatus failed:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('llm:installLlamaServerBinary', async (_event, variantRaw: unknown) => {
+    try {
+      if (isSandboxMode()) {
+        return { ok: false, error: 'llama-server install is disabled in sandbox mode' }
+      }
+      const variant = variantRaw === 'cuda' || variantRaw === 'vulkan' ? variantRaw : 'cpu'
+      const { installLlamaServerBinary } = await import('./llamaServerBinaryInstall')
+      installLlamaServerBinary(variant).catch((error: Error) => {
+        console.error('[LLM IPC] installLlamaServerBinary failed:', error)
+      })
+      return { ok: true, message: 'llama-server install started', variant }
+    } catch (error: any) {
+      console.error('[LLM IPC] installLlamaServerBinary failed to start:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('llm:binaryInstallProgress', async () => {
+    try {
+      const { getLlamaServerBinaryInstallProgress } = await import('./llamaServerBinaryInstall')
+      return { ok: true, progress: getLlamaServerBinaryInstallProgress() }
+    } catch (error: any) {
+      return { ok: false, error: error.message }
+    }
+  })
+
+  // build038: llama-server inference settings (mirrors HTTP /api/llm/server-config in main.ts)
+  ipcMain.handle('llm:serverConfigGet', async () => {
+    try {
+      const { getLocalLlmServerConfigView } = await import('./localLlmServerConfigApi')
+      return { ok: true, data: await getLocalLlmServerConfigView() }
+    } catch (error: any) {
+      console.error('[LLM IPC] serverConfigGet failed:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('llm:serverConfigSet', async (_event, patch: unknown) => {
+    try {
+      if (isSandboxMode()) {
+        return { ok: false, error: 'Local LLM management is disabled in sandbox mode' }
+      }
+      const { applyLocalLlmServerConfigPatch } = await import('./localLlmServerConfigApi')
+      return { ok: true, data: { config: applyLocalLlmServerConfigPatch(patch) } }
+    } catch (error: any) {
+      console.error('[LLM IPC] serverConfigSet failed:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('llm:serverRestart', async () => {
+    try {
+      if (isSandboxMode()) {
+        return { ok: false, error: 'Local LLM management is disabled in sandbox mode' }
+      }
+      const { restartLocalLlmServerForSettings } = await import('./localLlmServerConfigApi')
+      return { ok: true, data: await restartLocalLlmServerForSettings() }
+    } catch (error: any) {
+      console.error('[LLM IPC] serverRestart failed:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
   // List installed models
   ipcMain.handle('llm:listModels', async () => {
     try {
-      const models = await ollamaManager.listModels()
+      const models = await localLlmManager.listModels()
       return { ok: true, data: models }
     } catch (error: any) {
       console.error('[LLM IPC] List models failed:', error)
@@ -147,72 +226,6 @@ export function registerLlmHandlers() {
     }
   })
   
-  // Install/pull model — fire the download, then verify the model exists in Ollama before
-  // declaring success. Sends a terminal 'verified' or 'verification_failed' progress event.
-  ipcMain.handle('llm:installModel', async (event: IpcMainInvokeEvent, modelId: string) => {
-    try {
-      if (isSandboxMode()) {
-        return {
-          ok: false,
-          error: 'Model installation is disabled in sandbox mode — install models on the host machine',
-        }
-      }
-      console.log('[LLM IPC] Install started:', modelId)
-
-      // Run pull — progress events go to renderer in real-time.
-      // pullModel itself invalidates the listModels cache on stream completion (Patch 1).
-      ollamaManager.pullModel(modelId, (progress) => {
-        event.sender.send('llm:installProgress', progress)
-      }).then(async () => {
-        console.log('[LLM IPC] Install stream done, verifying:', modelId)
-
-        // Re-query Ollama to confirm the model is present (cache was cleared by pullModel).
-        let verified = false
-        try {
-          const models = await ollamaManager.listModels()
-          verified = models.some((m) => m.name === modelId)
-          console.log('[LLM IPC] Verification result for', modelId, ':', verified ? 'FOUND' : 'NOT FOUND')
-        } catch (verifyErr: any) {
-          console.error('[LLM IPC] Verification listModels failed:', verifyErr)
-        }
-
-        // Flush the 3-second status cache so the next llm:getStatus returns fresh data.
-        _getStatusCache = null
-        console.log('[LLM IPC] Status cache flushed after install of', modelId)
-
-        // Send terminal progress event.
-        if (verified) {
-          event.sender.send('llm:installProgress', {
-            modelId,
-            status: 'verified',
-            progress: 100,
-          })
-        } else {
-          event.sender.send('llm:installProgress', {
-            modelId,
-            status: 'verification_failed',
-            progress: 0,
-            error: `Model "${modelId}" was not found in Ollama after installation. ` +
-              'It may still be processing — try refreshing the model list.',
-          })
-        }
-      }).catch((error: any) => {
-        console.error('[LLM IPC] Install failed:', modelId, error)
-        event.sender.send('llm:installProgress', {
-          modelId,
-          status: 'error',
-          progress: 0,
-          error: error.message,
-        })
-      })
-
-      return { ok: true, message: 'Installation started' }
-    } catch (error: any) {
-      console.error('[LLM IPC] Install model failed:', error)
-      return { ok: false, error: error.message }
-    }
-  })
-  
   // Delete model
   ipcMain.handle('llm:deleteModel', async (_event, modelId: string) => {
     try {
@@ -222,10 +235,140 @@ export function registerLlmHandlers() {
           error: 'Model deletion is disabled in sandbox mode — manage models on the host machine',
         }
       }
-      await ollamaManager.deleteModel(modelId)
+      await localLlmManager.deleteModel(modelId)
+      _getStatusCache = null
+      broadcastModelsInstalledChanged()
       return { ok: true }
     } catch (error: any) {
       console.error('[LLM IPC] Delete model failed:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  /** High-assurance import: OS file picker → copy GGUF into models dir (no network). */
+  ipcMain.handle('llm:importModelFromPicker', async (event: IpcMainInvokeEvent) => {
+    try {
+      if (isSandboxMode()) {
+        return {
+          ok: false,
+          error: 'Model installation is disabled in sandbox mode — install models on the host machine',
+        }
+      }
+      const pick = await dialog.showOpenDialog({
+        title: 'Import GGUF model',
+        properties: ['openFile'],
+        filters: [{ name: 'GGUF Models', extensions: ['gguf'] }],
+      })
+      if (pick.canceled || !pick.filePaths[0]) {
+        return { ok: false, cancelled: true as const }
+      }
+      const sourcePath = pick.filePaths[0]
+      let overwrite = false
+      try {
+        const result = await localLlmManager.importModelFromFile(sourcePath, {
+          onProgress: (progress) => event.sender.send('llm:installProgress', progress),
+        })
+        _getStatusCache = null
+        broadcastModelsInstalledChanged({ modelId: result.modelId, sha256: result.sha256 })
+        void ensureLocalLlmAfterModelInstall('import_model_picker')
+        event.sender.send('llm:installProgress', {
+          modelId: result.modelId,
+          status: 'verified',
+          progress: 100,
+          digest: result.sha256,
+        })
+        return { ok: true as const, data: result }
+      } catch (err: unknown) {
+        const e = err as Error & { code?: string; modelId?: string }
+        if (e.code !== 'MODEL_EXISTS') throw err
+        const confirm = await dialog.showMessageBox({
+          type: 'warning',
+          buttons: ['Cancel', 'Replace'],
+          defaultId: 0,
+          cancelId: 0,
+          title: 'Replace existing model?',
+          message: `A model named "${e.modelId ?? 'this file'}" is already installed.`,
+          detail: 'Replacing will delete the existing GGUF in your models folder.',
+        })
+        if (confirm.response !== 1) {
+          return { ok: false, cancelled: true as const }
+        }
+        overwrite = true
+        const result = await localLlmManager.importModelFromFile(sourcePath, {
+          overwrite,
+          onProgress: (progress) => event.sender.send('llm:installProgress', progress),
+        })
+        _getStatusCache = null
+        broadcastModelsInstalledChanged({ modelId: result.modelId, sha256: result.sha256 })
+        void ensureLocalLlmAfterModelInstall('import_model_picker')
+        event.sender.send('llm:installProgress', {
+          modelId: result.modelId,
+          status: 'verified',
+          progress: 100,
+          digest: result.sha256,
+        })
+        return { ok: true as const, data: result }
+      }
+    } catch (error: any) {
+      console.error('[LLM IPC] importModelFromPicker failed:', error)
+      event.sender.send('llm:installProgress', {
+        modelId: '',
+        status: 'error',
+        progress: 0,
+        error: error.message,
+      })
+      return { ok: false, error: error.message }
+    }
+  })
+
+  /** Convenience HTTPS download from allowlisted Hugging Face hosts only. */
+  ipcMain.handle('llm:downloadModelFromUrl', async (event: IpcMainInvokeEvent, url: string) => {
+    try {
+      if (isSandboxMode()) {
+        return {
+          ok: false,
+          error: 'Model installation is disabled in sandbox mode — install models on the host machine',
+        }
+      }
+      const trimmed = typeof url === 'string' ? url.trim() : ''
+      if (!trimmed) return { ok: false, error: 'url is required' }
+
+      localLlmManager
+        .downloadModelFromUrl(trimmed, (progress) => {
+          event.sender.send('llm:installProgress', progress)
+        })
+        .then((result) => {
+          _getStatusCache = null
+          broadcastModelsInstalledChanged({ modelId: result.modelId, sha256: result.sha256 })
+          void ensureLocalLlmAfterModelInstall('download_model_url')
+          event.sender.send('llm:installProgress', {
+            modelId: result.modelId,
+            status: 'verified',
+            progress: 100,
+            digest: result.sha256,
+          })
+        })
+        .catch((error: Error) => {
+          event.sender.send('llm:installProgress', {
+            modelId: '',
+            status: 'error',
+            progress: 0,
+            error: error.message,
+          })
+        })
+
+      return { ok: true, message: 'Download started' }
+    } catch (error: any) {
+      console.error('[LLM IPC] downloadModelFromUrl failed:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('llm:cancelModelDownload', async () => {
+    try {
+      localLlmManager.cancelModelDownload()
+      return { ok: true }
+    } catch (error: any) {
       return { ok: false, error: error.message }
     }
   })
@@ -263,12 +406,12 @@ export function registerLlmHandlers() {
         }
       }
       if (!isSandboxMode() && toStore.lane === 'local') {
-        const pref = await ollamaManager.setActiveModelPreference(toStore.model)
+        const pref = await localLlmManager.setActiveModelPreference(toStore.model)
         if (!pref.ok) {
           return { ok: false as const, error: pref.error }
         }
         _getStatusCache = null
-        broadcastActiveOllamaModelChanged(toStore.model)
+        broadcastActiveLocalModelChanged(toStore.model)
       }
       writeStoredAiExecutionContext(toStore)
       _getStatusCache = null
@@ -285,17 +428,17 @@ export function registerLlmHandlers() {
         return {
           ok: false,
           error:
-            'Activating a local Ollama model is disabled in sandbox mode — the active model is managed on the host',
+            'Activating a local model is disabled in sandbox mode — the active model is managed on the host',
         }
       }
-      if (DEBUG_ACTIVE_OLLAMA_MODEL) console.warn('[LLM IPC] setActiveModel requested:', modelId)
-      const result = await ollamaManager.setActiveModelPreference(modelId)
+      if (DEBUG_ACTIVE_LOCAL_MODEL) console.warn('[LLM IPC] setActiveModel requested:', modelId)
+      const result = await localLlmManager.setActiveModelPreference(modelId)
       if (result.ok) {
         // Flush the getStatus cache so the next llm:getStatus call returns the updated activeModel
         // immediately — without this, the 3-second TTL cache would serve stale state to
         // BulkOllamaModelSelect and any other component that reads getStatus after a model change.
         _getStatusCache = null
-        broadcastActiveOllamaModelChanged(modelId)
+        broadcastActiveLocalModelChanged(modelId)
         console.log('[LLM IPC] setActiveModel persisted and cache flushed:', modelId?.trim())
       } else {
         console.warn('[LLM IPC] setActiveModel rejected:', modelId?.trim(), result)
@@ -332,13 +475,13 @@ export function registerLlmHandlers() {
 
       let modelId = request.modelId
       if (!modelId) {
-        const resolved = await ollamaManager.getEffectiveChatModelName()
+        const resolved = await localLlmManager.getEffectiveChatModelName()
         if (!resolved) {
           return { ok: false, error: 'No models installed. Install a model in LLM Settings first.' }
         }
         modelId = resolved
       }
-      const response = await ollamaManager.chat(modelId, request.messages)
+      const response = await localLlmManager.chat(modelId, request.messages)
       return { ok: true, data: response }
     } catch (error: any) {
       console.error('[LLM IPC] Chat failed:', error)
@@ -364,7 +507,7 @@ export function registerLlmHandlers() {
       const [isSandbox, localGpuAvailable, modelName] = await Promise.all([
         isEffectiveSandboxSideForAiExecution(),
         isGpuInferenceAvailable(),
-        ollamaManager.getEffectiveChatModelName(),
+        localLlmManager.getEffectiveChatModelName(),
       ])
 
       const allowCpuOverride =
@@ -395,26 +538,26 @@ export function registerLlmHandlers() {
           if (hostBaseUrl) {
             const hostGpu = await getGpuInferenceStatusRemote(hostBaseUrl, fb.model ?? '')
             gpuAvailable = hostGpu.available
-          } else if (sealedBeapReady) {
-            // Sealed relay: list already proved beap_ready — do not let dead LAN :51249 probe drive "Unavailable".
-            gpuAvailable = false
+          } else if (sealedBeapReady || (fb.lane === 'beap' && fb.beapReady !== false)) {
+            const hid = (fb.handshakeId ?? '').trim()
+            const relayGpu = hid ? peekHostGpuInferenceAvailableFromRelay(hid) : null
+            gpuAvailable = relayGpu === true
           } else {
             gpuAvailable = false
           }
         }
       }
 
-      // For CPU-fallback detection on local path: nvidia-smi early-return on
-      // platforms without NVIDIA sets ollamaRunning:false even if Ollama IS running.
+      // platforms without NVIDIA sets localLlmRunning:false even if llama-server IS running.
       // Do an independent lightweight probe so CPU-safe models aren't blocked.
-      let ollamaRunning = localGpuAvailable // gpu probe reaching Ollama implies it is running
-      if (!ollamaRunning && !isSandbox) {
+      let localLlmRunning = localGpuAvailable // gpu probe reaching server implies it is running
+      if (!localLlmRunning && !isSandbox) {
         try {
-          const base = ollamaManager.getBaseUrl().replace(/\/$/, '')
-          const r = await fetch(`${base}/api/version`, { signal: AbortSignal.timeout(3_000) })
-          ollamaRunning = r.ok
+          const base = localLlmManager.getBaseUrl().replace(/\/$/, '')
+          const r = await fetch(`${base}/v1/models`, { signal: AbortSignal.timeout(3_000) })
+          localLlmRunning = r.ok
         } catch {
-          ollamaRunning = false
+          localLlmRunning = false
         }
       }
 
@@ -422,7 +565,7 @@ export function registerLlmHandlers() {
         isSandbox,
         remoteContext,
         gpuAvailable,
-        ollamaRunning,
+        localLlmRunning,
         modelName: modelName ?? null,
         allowCpuOverride,
       })
@@ -433,6 +576,27 @@ export function registerLlmHandlers() {
       return { ok: false as const, error: msg }
     }
   })
+
+  ipcMain.handle(
+    'llm:modeModelWarmOnTrigger',
+    async (_event, payload: { modeId?: string; trigger?: string }) => {
+      try {
+        const modeId = typeof payload?.modeId === 'string' ? payload.modeId.trim() : ''
+        const triggerRaw = payload?.trigger
+        const trigger =
+          triggerRaw === 'interval' || triggerRaw === 'speech_bubble' ? triggerRaw : null
+        if (!modeId || !trigger) {
+          return { ok: false as const, error: 'invalid payload' }
+        }
+        const { scheduleModeModelWarmOnTrigger } = await import('./modeModelWarmupTrigger')
+        scheduleModeModelWarmOnTrigger(modeId, trigger)
+        return { ok: true as const }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err ?? 'unknown')
+        return { ok: false as const, error: msg }
+      }
+    },
+  )
 
   console.log('[LLM IPC] Handlers registered successfully')
 }

@@ -1,5 +1,6 @@
 import React from 'react'
 import { useChatFocusStore } from '../../stores/chatFocusStore'
+import { BUILTIN_SCAM_WATCHDOG_ID } from '../../shared/ui/scamWatchdogBuiltIn'
 
 export default function ChatFocusBanner({ theme = 'pro' }: { theme?: string }) {
   const chatFocusMode = useChatFocusStore((s) => s.chatFocusMode)
@@ -20,15 +21,17 @@ export default function ChatFocusBanner({ theme = 'pro' }: { theme?: string }) {
     hint =
       'Share anything that looks suspicious: photos, pasted text, links, or attachments. We help assess scam, fraud, or phishing risk.'
   } else if (chatFocusMode.mode === 'custom-automation') {
-    const ic = chatFocusMode.triggerBarIcon?.trim() || '\u2728'
-    const nm = chatFocusMode.modeName?.trim() || 'Automation'
+    const isScamWatchdog = chatFocusMode.modeId === BUILTIN_SCAM_WATCHDOG_ID
+    const ic = chatFocusMode.triggerBarIcon?.trim() || (isScamWatchdog ? '🐕' : '\u2728')
+    const nm = chatFocusMode.modeName?.trim() || (isScamWatchdog ? 'Scam Watchdog' : 'Automation')
     label = (
       <>
-        <span aria-hidden>{ic}</span> {nm}
+        <span aria-hidden>{ic}</span> {isScamWatchdog ? 'ScamWatchdog' : nm}
       </>
     )
-    hint =
-      'Pinned automation focus is on. Chat uses this automation’s context; switch mode in the workspace selector if needed.'
+    hint = isScamWatchdog
+      ? 'Share anything that looks suspicious: photos, pasted text, links, or attachments. We help assess scam, fraud, or phishing risk.'
+      : 'Pinned automation focus is on. Chat uses this automation’s context; switch mode in the workspace selector if needed.'
   } else if (chatFocusMode.mode === 'letter-composer') {
     const port = focusMeta?.letterComposerPort
     label = port === 'letter' ? '\u2709\uFE0F Letter viewer (WR Chat)' : '\u2709\uFE0F Letter template (WR Chat)'

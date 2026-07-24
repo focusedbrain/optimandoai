@@ -14,6 +14,8 @@ export interface LocalEmbeddingService {
 
 // ── Ollama Embedding Service ──
 
+import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../llm/localLlmPaths'
+
 const DEFAULT_EMBED_MODEL = 'nomic-embed-text'
 
 /**
@@ -27,7 +29,7 @@ export class OllamaEmbeddingService implements LocalEmbeddingService {
   readonly modelId: string
   private baseUrl: string
 
-  constructor(modelId: string = DEFAULT_EMBED_MODEL, baseUrl: string = 'http://127.0.0.1:11434') {
+  constructor(modelId: string = DEFAULT_EMBED_MODEL, baseUrl: string = HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE) {
     this.modelId = modelId
     this.baseUrl = baseUrl
   }

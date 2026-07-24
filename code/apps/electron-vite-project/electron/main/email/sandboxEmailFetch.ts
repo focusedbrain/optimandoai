@@ -25,7 +25,16 @@
 
 import { OutlookProvider } from './providers/outlook'
 import { GmailProvider } from './providers/gmail'
-import type { RoleScopedTokenRecord } from './roleScopedTokenStore'
+import { getCredentialsForOAuth, type GmailCreds } from './credentials'
+import {
+  resolveBuiltinGoogleOAuthClientSecret,
+  resolveBuiltinGoogleOAuthClientWithMeta,
+} from './googleOAuthBuiltin'
+import {
+  loadRoleScopedTokens,
+  saveRoleScopedTokens,
+  type RoleScopedTokenRecord,
+} from './roleScopedTokenStore'
 import type { SandboxFetchedMessage } from './sandboxIngestion'
 import type { EmailAccountConfig } from './types'
 
@@ -63,6 +72,111 @@ export function oauthConfigFromRoleScopedReadRecord(
   }
 }
 
+/** Persist provider refresh back to role='read' (mirrors gateway send-role bridge). */
+export function wireSandboxReadProviderTokenRefresh(
+  accountId: string,
+  provider: GmailProvider | OutlookProvider,
+): void {
+  provider.onTokenRefresh = (newTokens: { accessToken: string; refreshToken: string; expiresAt: number }) => {
+    const current = loadRoleScopedTokens(accountId, 'read')
+    saveRoleScopedTokens(
+      accountId,
+      'read',
+      {
+        ...(current?.tokens ?? {}),
+        accessToken: newTokens.accessToken,
+        refreshToken: newTokens.refreshToken,
+        expiresAt: newTokens.expiresAt,
+      },
+      {
+        clientId: current?.clientId ?? current?.tokens.oauthClientId,
+        grantedScope: current?.grantedScope,
+      },
+    )
+    fetchLog(`read token refreshed account=${accountId}`)
+  }
+}
+
+/** Built-in Desktop Gmail client (standard Connect) when sandbox has no developer OAuth vault. */
+function resolveBuiltinGmailOauthForSandboxFetch(): Pick<
+  NonNullable<EmailAccountConfig['oauth']>,
+  'oauthClientId' | 'gmailOAuthClientSecret' | 'gmailRefreshUsesSecret'
+> | null {
+  const metas = [
+    resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true }),
+    resolveBuiltinGoogleOAuthClientWithMeta(),
+  ]
+  for (const meta of metas) {
+    const clientId = meta?.clientId?.trim()
+    if (!clientId) continue
+    const secret = resolveBuiltinGoogleOAuthClientSecret(meta)
+    return {
+      oauthClientId: clientId,
+      ...(secret ? { gmailOAuthClientSecret: secret } : {}),
+      gmailRefreshUsesSecret: false,
+    }
+  }
+  return null
+}
+
+function oauthFromLocalGmailCredentials(
+  base: NonNullable<EmailAccountConfig['oauth']>,
+  userCreds: GmailCreds,
+): NonNullable<EmailAccountConfig['oauth']> {
+  const clientId = userCreds.clientId.trim()
+  const clientSecret = userCreds.clientSecret?.trim()
+  return {
+    ...base,
+    oauthClientId: clientId,
+    ...(clientSecret
+      ? { gmailRefreshUsesSecret: true, gmailOAuthClientSecret: clientSecret }
+      : {}),
+  }
+}
+
+/**
+ * Resolve oauth for connect/refresh — record fields first, then local OAuth vault/file
+ * (same tiers as host Gmail refresh), then built-in Gmail client for dedicated sandboxes.
+ */
+export async function resolveOauthForSandboxReadFetch(
+  accountId: string,
+  tokenRecord: RoleScopedTokenRecord,
+  providerKind: 'gmail' | 'microsoft365',
+): Promise<NonNullable<EmailAccountConfig['oauth']>> {
+  const base = oauthConfigFromRoleScopedReadRecord(tokenRecord)
+  if (base.oauthClientId?.trim()) return base
+
+  const credProvider = providerKind === 'microsoft365' ? 'outlook' : 'gmail'
+  const userCreds = await getCredentialsForOAuth(credProvider)
+  if (userCreds && 'clientId' in userCreds && typeof userCreds.clientId === 'string') {
+    const clientId = userCreds.clientId.trim()
+    if (clientId) {
+      fetchLog(
+        `oauth client id resolved from local credentials account=${accountId} provider=${providerKind}`,
+      )
+      if (providerKind === 'gmail') {
+        return oauthFromLocalGmailCredentials(base, userCreds as GmailCreds)
+      }
+      return { ...base, oauthClientId: clientId }
+    }
+  }
+
+  if (providerKind === 'gmail') {
+    const builtin = resolveBuiltinGmailOauthForSandboxFetch()
+    if (builtin?.oauthClientId) {
+      fetchLog(
+        `oauth client id resolved from builtin gmail client account=${accountId} hasRefreshSecret=${!!builtin.gmailOAuthClientSecret}`,
+      )
+      return { ...base, ...builtin }
+    }
+  }
+
+  fetchLog(
+    `oauth client id missing on read token, local credentials, and builtin gmail account=${accountId} provider=${providerKind}`,
+  )
+  return base
+}
+
 /**
  * Fetch opaque RFC822 bytes for up to `maxMessages` inbox messages using the
  * Outlook read-scoped access token.
@@ -86,7 +200,7 @@ export async function fetchOpaqueViaOutlook(
 ): Promise<SandboxFetchedMessage[]> {
   const maxMessages = opts.maxMessages ?? MAX_MESSAGES_PER_POLL
   const folder = opts.folder ?? 'inbox'
-  const oauth = oauthConfigFromRoleScopedReadRecord(tokenRecord)
+  const oauth = await resolveOauthForSandboxReadFetch(accountId, tokenRecord, 'microsoft365')
 
   // Force the /$value raw-MIME path for the duration of this call.
   // `OutlookProvider.fetchMessageOpaque` gates on this env var; we restore it
@@ -95,6 +209,7 @@ export async function fetchOpaqueViaOutlook(
   process.env.WRDESK_OUTLOOK_OPAQUE_INPUT = 'value'
 
   const provider = new OutlookProvider()
+  wireSandboxReadProviderTokenRefresh(accountId, provider)
   try {
     fetchLog(
       `connect outlook read account=${accountId} hasClientId=${!!oauth.oauthClientId} hasRefreshSecret=${!!oauth.gmailOAuthClientSecret}`,
@@ -195,9 +310,10 @@ export async function fetchOpaqueViaGmail(
 ): Promise<SandboxFetchedMessage[]> {
   const maxMessages = opts.maxMessages ?? MAX_MESSAGES_PER_POLL
   const folder = (opts.folder ?? 'inbox').toLowerCase()
-  const oauth = oauthConfigFromRoleScopedReadRecord(tokenRecord)
+  const oauth = await resolveOauthForSandboxReadFetch(accountId, tokenRecord, 'gmail')
 
   const provider = new GmailProvider()
+  wireSandboxReadProviderTokenRefresh(accountId, provider)
   try {
     fetchLog(
       `connect gmail read account=${accountId} hasClientId=${!!oauth.oauthClientId} hasRefreshSecret=${!!oauth.gmailOAuthClientSecret}`,

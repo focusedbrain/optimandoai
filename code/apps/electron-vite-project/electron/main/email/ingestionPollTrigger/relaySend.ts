@@ -9,6 +9,7 @@ import type { HandshakeRecord } from '../../handshake/types'
 import { sendCapsuleViaCoordination, type SendCapsuleResult } from '../../handshake/p2pTransport'
 import { getCoordinationOidcToken } from '../../handshake/ipc'
 import { getP2PConfig } from '../../p2p/p2pConfig'
+import { normalizeCoordinationUrlForLocalDial } from '../../p2p/coordinationUrlLocalDial'
 import {
   sealServiceRpcPayload,
   type SealedServiceRpcEnvelope,
@@ -62,7 +63,7 @@ export async function sendSealedServiceRpcViaCoordinationRelay(
   const getOidcToken = deps.getOidcToken ?? getCoordinationOidcToken
 
   const cfg = getP2PConfig(db as never)
-  const coordUrl = cfg.coordination_url?.trim() ?? ''
+  const coordUrl = normalizeCoordinationUrlForLocalDial(cfg.coordination_url?.trim() ?? '')
   if (!cfg.use_coordination || !coordUrl) {
     return {
       ok: false,

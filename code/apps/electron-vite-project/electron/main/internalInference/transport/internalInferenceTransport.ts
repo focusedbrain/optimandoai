@@ -6,12 +6,11 @@
 
 import { randomUUID } from 'crypto'
 import { getHandshakeDbForInternalInference } from '../dbAccess'
-import { postServiceEnvelopeDirect, type DirectServiceSendResult } from '../directSend'
 import { InternalInferenceErrorCode } from '../errors'
 import { getHostAiBuildStamp, logHostAiStage, newHostAiCorrelationChain } from '../hostAiStageLog'
 import { getP2pInferenceFlags, isWebRtcHostAiArchitectureEnabled } from '../p2pInferenceFlags'
 import { requestHostInferenceCapabilitiesOverDataChannel } from '../p2pDc/p2pDcCapabilities'
-import { sendHostInferenceRequestOverP2pDataChannel, sendInternalInferenceWireOverP2pDataChannel } from '../p2pDc/p2pDcInference'
+import { sendInternalInferenceWireOverP2pDataChannel } from '../p2pDc/p2pDcInference'
 import { getSessionState, P2pSessionPhase } from '../p2pSession/p2pInferenceSessionManager'
 import { isP2pDataChannelUpForHandshake } from '../p2pSession/p2pSessionWait'
 import {
@@ -1387,329 +1386,32 @@ export type RequestHostCompletionOpts = {
 }
 
 /**
- * POST internal_inference_request to the Host (direct HTTP in Phase 1 when selected transport is http_direct).
+ * Was defined in `../directSend` (deleted — Part C dead-code removal, its only production
+ * caller lived in `requestHostCompletion`'s retired body). Kept here as it's still the return
+ * type of `requestHostCompletion` / `sendHostInferenceResult`.
  */
-/** Typed `boolean` (not literal `true`) so the retired legacy body stays type-checked but never runs. */
-const RETIRE_LEGACY_HTTP_INFERENCE: boolean = true
+export type DirectServiceSendResult = { ok: true; status: number } | { ok: false; code: string; error: string }
 
+/**
+ * POST internal_inference_request to the Host (direct HTTP in Phase 1 when selected transport is http_direct).
+ *
+ * RETIRED: no production caller reaches this function. Sandbox→Host inference rides the
+ * sealed relay (`sendSealedHostAiInferenceRequest`); this fails closed at entry so it can
+ * never POST a prompt to a plaintext peer ingest. See internal-inference-p2p-invariants.mdc.
+ */
 export async function requestHostCompletion(
   handshakeId: string,
   request: InternalInferenceRequestWire,
   opts: RequestHostCompletionOpts,
 ): Promise<DirectServiceSendResult> {
-  // RETIRED LANE: Sandbox→Host plaintext `legacy_http` inference (`POST {peer}:51249/beap/ingest`)
-  // is removed. Sandbox→Host inference rides the sealed relay (`sendSealedHostAiInferenceRequest`).
-  // No production caller reaches this function; the body below is unreachable. Fail closed at entry
-  // so it can never POST a prompt to a plaintext peer ingest. See internal-inference-p2p-invariants.mdc.
-  if (RETIRE_LEGACY_HTTP_INFERENCE) {
-    return {
-      ok: false,
-      code: InternalInferenceErrorCode.POLICY_FORBIDDEN,
-      error: 'legacy_http inference is retired; use the sealed relay transport',
-    }
+  // Body deleted (Part C dead-code removal): everything that used to follow this guard —
+  // decideHostAiIntentRoute routing, sendHostInferenceRequestOverP2pDataChannel, and the
+  // postServiceEnvelopeDirect dispatch — was unreachable. See internal-inference-p2p-invariants.mdc.
+  return {
+    ok: false,
+    code: InternalInferenceErrorCode.POLICY_FORBIDDEN,
+    error: 'legacy_http inference is retired; use the sealed relay transport',
   }
-  const hid = String(handshakeId ?? '').trim()
-  const { record, correlationChain: reqChain, beapCorrelationId: reqBeapCorr } = opts
-  const chain = (reqChain && reqChain.trim() ? reqChain.trim() : null) || newHostAiCorrelationChain()
-  const httpBeapCorr = (reqBeapCorr && reqBeapCorr.trim() ? reqBeapCorr.trim() : null) || randomUUID()
-  const buildStamp = getHostAiBuildStamp()
-  const f0 = getP2pInferenceFlags()
-  const reqId0 = (request.request_id && String(request.request_id).trim()) || 'null'
-  const roles0 = deriveHostAiHandshakeRoles(record)
-  const roleOk0 =
-    roles0.ledgerSandboxToHost &&
-    roles0.samePrincipal &&
-    roles0.internalIdentityComplete &&
-    roles0.peerHostDeviceIdPresent
-  logHostAiStage({
-    chain,
-    stage: 'handshake_role',
-    reached: true,
-    success: roleOk0,
-    handshakeId: hid,
-    buildStamp,
-    flags: f0,
-    requestId: reqId0,
-    failureCode: roleOk0 ? null : 'TARGET_NOT_TRUSTED',
-  })
-  logHostAiStage({
-    chain,
-    stage: 'feature_flags',
-    reached: true,
-    success: true,
-    handshakeId: hid,
-    buildStamp,
-    flags: f0,
-    requestId: reqId0,
-  })
-  const db0 = await getHandshakeDbForInternalInference()
-  const dec0 = db0
-    ? decideInternalInferenceTransport(
-        await buildHostAiTransportDeciderInputAsync({
-          operationContext: 'request',
-          db: db0,
-          handshakeRecord: record,
-          featureFlags: f0,
-        }),
-      )
-    : null
-  const endpointGateOk = dec0?.p2pTransportEndpointOpen ?? false
-  const decision = decideHostAiIntentRoute(hid, 'request', endpointGateOk)
-  const selOk0 = decision.choice.selected !== 'unavailable'
-  if (db0) {
-    logHostAiStage({
-      chain,
-      stage: 'selector_target',
-      reached: true,
-      success: selOk0,
-      handshakeId: hid,
-      buildStamp,
-      flags: f0,
-      requestId: reqId0,
-      phase: dec0!.selectorPhase,
-      failureCode: selOk0 ? null : (decision.choice.reason as string) || (dec0!.failureCode as string | null),
-    })
-  } else {
-    logHostAiStage({
-      chain,
-      stage: 'selector_target',
-      reached: true,
-      success: true,
-      handshakeId: hid,
-      buildStamp,
-      flags: f0,
-      requestId: reqId0,
-      phase: 'no_db',
-    })
-  }
-  logHostAiStage({
-    chain,
-    stage: 'capabilities_request',
-    reached: false,
-    success: true,
-    handshakeId: hid,
-    buildStamp,
-    flags: f0,
-    requestId: reqId0,
-  })
-  logHostAiStage({
-    chain,
-    stage: 'capabilities_response',
-    reached: false,
-    success: true,
-    handshakeId: hid,
-    buildStamp,
-    flags: f0,
-    requestId: reqId0,
-  })
-  const webrtcReq = decision.choice.selected === 'webrtc_p2p'
-  const p2pSr = webrtcReq ? getSessionState(hid) : null
-  const p2pSidR = p2pSr?.sessionId?.trim() || null
-  const sigPhR = p2pSr?.phase
-  const sigOkR =
-    !webrtcReq ||
-    (Boolean(p2pSidR) && sigPhR !== P2pSessionPhase.failed && sigPhR !== P2pSessionPhase.closed)
-  logHostAiStage({
-    chain,
-    stage: 'signaling',
-    reached: webrtcReq,
-    success: webrtcReq ? Boolean(sigOkR) : true,
-    handshakeId: hid,
-    buildStamp,
-    flags: f0,
-    p2pSessionId: webrtcReq ? p2pSidR : null,
-    requestId: reqId0,
-    failureCode: webrtcReq ? null : webrtcReq && !sigOkR ? 'P2P_SIGNALING_INCOMPLETE' : null,
-  })
-  const dcUpR = isP2pDataChannelUpForHandshake(hid)
-  const dcOkR = !webrtcReq || dcUpR
-  logHostAiStage({
-    chain,
-    stage: 'datachannel',
-    reached: webrtcReq,
-    success: webrtcReq ? Boolean(dcOkR) : true,
-    handshakeId: hid,
-    buildStamp,
-    flags: f0,
-    p2pSessionId: webrtcReq ? p2pSidR : null,
-    requestId: reqId0,
-    failureCode: webrtcReq ? null : webrtcReq && !dcOkR ? 'DATACHANNEL_NOT_UP' : null,
-  })
-  emitTransportDiagnostics(hid, 'request', endpointGateOk, decision)
-  if (decision.choice.selected === 'unavailable') {
-    const reason = decision.choice.reason
-    console.log(
-      `[HOST_AI_CHAT_BLOCKED] handshake=${hid} reason=${String(reason)} failureCode=${
-        dec0?.failureCode == null ? 'null' : String(dec0.failureCode)
-      }`,
-    )
-    logHostAiStage({
-      chain,
-      stage: 'model_projection',
-      reached: true,
-      success: false,
-      handshakeId: hid,
-      buildStamp,
-      flags: f0,
-      requestId: reqId0,
-      phase: 'unavailable',
-      failureCode: String(reason),
-    })
-    touchState(hid, 'request', 'unavailable', reason)
-    const deniedMsg =
-      dec0?.userSafeReason?.trim() ||
-      (reason === 'p2p_not_ready_no_fallback'
-        ? 'Host AI cannot send this request yet: the P2P path is not ready and HTTP fallback to the Host is disabled. Wait for pairing/P2P, enable fallback if appropriate, then try again.'
-        : reason === 'non_direct_endpoint'
-          ? 'Host AI inbound path is blocked: sandbox cannot reach the Host ingest endpoint yet. Confirm the Host advertises a direct BEAP address and try Refresh.'
-          : String(reason))
-    return {
-      ok: false,
-      code: InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE,
-      error: deniedMsg,
-    }
-  }
-  const d = decision.choice
-  const promptBytes = Buffer.byteLength(JSON.stringify(request.messages), 'utf8')
-  const messageCount = request.messages.length
-  if (d.selected === 'webrtc_p2p') {
-    const p2pSid = getSessionState(hid)?.sessionId
-    if (p2pSid) {
-      logHostAiInferRequestSend({
-        handshakeId: hid,
-        requestId: request.request_id,
-        promptBytes,
-        messageCount,
-        transport: 'p2p',
-      })
-      const sent = await sendHostInferenceRequestOverP2pDataChannel(p2pSid, hid, request)
-      if (sent) {
-        logHostAiStage({
-          chain,
-          stage: 'model_projection',
-          reached: true,
-          success: true,
-          handshakeId: hid,
-          buildStamp,
-          flags: f0,
-          requestId: reqId0,
-          phase: 'dispatch_p2p',
-        })
-        touchState(hid, 'request', 'webrtc_p2p', d.reason)
-        return { ok: true, status: 200 }
-      }
-      if (!getP2pInferenceFlags().p2pInferenceHttpFallback) {
-        logHostAiStage({
-          chain,
-          stage: 'model_projection',
-          reached: true,
-          success: false,
-          handshakeId: hid,
-          buildStamp,
-          flags: f0,
-          requestId: reqId0,
-          phase: 'p2p_dc_send',
-          failureCode: 'DC_SEND_FAILED',
-        })
-        touchState(hid, 'request', 'unavailable', 'p2p_not_ready_no_fallback')
-        return {
-          ok: false,
-          code: InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE,
-          error: 'dc send failed',
-        }
-      }
-      logHostAiTransportFallback({
-        handshakeId: hid,
-        from: 'webrtc_p2p',
-        to: 'http_direct',
-        reason: 'p2p_dc_error_fallback_http',
-      })
-      touchState(hid, 'request', 'http_direct', 'p2p_dc_error_fallback_http')
-    } else {
-      if (!getP2pInferenceFlags().p2pInferenceHttpFallback) {
-        logHostAiStage({
-          chain,
-          stage: 'model_projection',
-          reached: true,
-          success: false,
-          handshakeId: hid,
-          buildStamp,
-          flags: f0,
-          requestId: reqId0,
-          phase: 'p2p_not_wired',
-          failureCode: 'P2P_UNAVAILABLE',
-        })
-        touchState(hid, 'request', 'unavailable', 'p2p_not_wired')
-        return {
-          ok: false,
-          code: InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE,
-          error: 'P2P_UNAVAILABLE',
-        }
-      }
-      logHostAiTransportFallback({
-        handshakeId: hid,
-        from: 'webrtc_p2p',
-        to: 'http_direct',
-        reason: 'p2p_not_wired',
-      })
-      touchState(hid, 'request', 'http_direct', 'p2p_not_wired')
-    }
-  } else {
-    touchState(hid, 'request', d.selected, d.reason)
-  }
-  const dbHttp = (await getHandshakeDbForInternalInference()) ?? db0
-  const verifiedHttpUrl = (dec0?.hostAiVerifiedDirectIngestUrl ?? '').trim()
-  if (!dbHttp || !verifiedHttpUrl) {
-    logHostAiStage({
-      chain,
-      stage: 'model_projection',
-      reached: true,
-      success: false,
-      handshakeId: hid,
-      buildStamp,
-      flags: f0,
-      requestId: reqId0,
-      phase: 'http_ingest',
-      failureCode: 'VERIFIED_DIRECT_HTTP_REQUIRED',
-    })
-    touchState(hid, 'request', 'unavailable', 'p2p_not_wired')
-    return {
-      ok: false,
-      code: InternalInferenceErrorCode.HOST_AI_NO_VERIFIED_PEER_ROUTE,
-      error: 'verified_direct_http_required',
-    }
-  }
-  logHostAiInferRequestSend({
-    handshakeId: hid,
-    requestId: request.request_id,
-    promptBytes,
-    messageCount,
-    transport: 'http',
-  })
-  logHostAiStage({
-    chain,
-    stage: 'model_projection',
-    reached: true,
-    success: true,
-    handshakeId: hid,
-    buildStamp,
-    flags: f0,
-    requestId: reqId0,
-    phase: 'dispatch_http',
-  })
-  return postServiceEnvelopeDirect(
-    request,
-    verifiedHttpUrl,
-    record.handshake_id,
-    outboundP2pBearerToCounterpartyIngest(record) || null,
-    {
-      request_id: request.request_id,
-      sender_device_id: request.sender_device_id,
-      target_device_id: request.target_device_id,
-      message_type: 'internal_inference_request',
-    },
-    httpBeapCorr,
-  )
 }
 
 /**
@@ -1722,8 +1424,10 @@ export async function sendHostInferenceResult(
   messageType: 'internal_inference_result' | 'internal_inference_error',
 ): Promise<DirectServiceSendResult> {
   const hid = String(handshakeId ?? '').trim()
-  const { record, targetEndpoint, beapCorrelationId: resBeapCorr } = opts
-  const resultBeapCorr = (resBeapCorr && resBeapCorr.trim() ? resBeapCorr.trim() : null) || randomUUID()
+  /** `targetEndpoint` / `beapCorrelationId` are unused: the plaintext HTTP result POST that
+   *  once consumed them is retired (see the trailing guard below). Kept in the opts type only
+   *  because `p2pServiceDispatch.ts` still passes them through `CoreInferenceHandoff`. */
+  const { record } = opts
   const db0 = await getHandshakeDbForInternalInference()
   const f0 = getP2pInferenceFlags()
   const decResult = db0
@@ -1804,39 +1508,11 @@ export async function sendHostInferenceResult(
   } else {
     touchState(hid, 'result', d.selected, d.reason)
   }
-  const dbRes = (await getHandshakeDbForInternalInference()) ?? db0
-  const decForVerified =
-    dbRes && dbRes !== db0
-      ? decideInternalInferenceTransport(
-          await buildHostAiTransportDeciderInputAsync({
-            operationContext: 'result',
-            db: dbRes,
-            handshakeRecord: record,
-            featureFlags: f0,
-          }),
-        )
-      : decResult
-  if (
-    !dbRes ||
-    !hostAiVerifiedHttpForHostSendResult({
-      dec: decForVerified,
-      db: dbRes,
-      record,
-      webrtcFailureHttpFallback,
-    })
-  ) {
-    return {
-      ok: false,
-      code: InternalInferenceErrorCode.SERVICE_RPC_NOT_SUPPORTED,
-      error: 'verified_direct_http_required',
-    }
-  }
-  // RETIRED LANE: the reverse plaintext result POST (`POST {peer}:51249/beap/ingest`) is removed.
-  // The DC reply path above stays; sealed-relay inbound requests reply via the sealed relay handler.
+  // Body deleted (Part C dead-code removal): the reverse plaintext result POST
+  // (`POST {peer}:51249/beap/ingest`) is retired — the "verified direct HTTP" gate that used
+  // to live here could never actually succeed; it only ever led to this same failure. The DC
+  // reply path above stays; sealed-relay inbound requests reply via the sealed relay handler.
   // Never send an inference result over plaintext HTTP. See internal-inference-p2p-invariants.mdc.
-  void targetEndpoint
-  void resultBeapCorr
-  void hid
   return {
     ok: false,
     code: InternalInferenceErrorCode.SERVICE_RPC_NOT_SUPPORTED,

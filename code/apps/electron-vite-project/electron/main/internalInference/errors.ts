@@ -15,6 +15,8 @@ export const InternalInferenceErrorCode = {
   HOST_NO_ACTIVE_LOCAL_LLM: 'HOST_NO_ACTIVE_LOCAL_LLM',
   MODEL_UNAVAILABLE: 'MODEL_UNAVAILABLE',
   OLLAMA_UNAVAILABLE: 'OLLAMA_UNAVAILABLE',
+  /** llama.cpp backend not running / not reachable (Ollama's successor as the local execution core). */
+  LOCAL_LLM_UNAVAILABLE: 'LOCAL_LLM_UNAVAILABLE',
   PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
   RATE_LIMITED: 'RATE_LIMITED',
   REQUEST_EXPIRED: 'REQUEST_EXPIRED',

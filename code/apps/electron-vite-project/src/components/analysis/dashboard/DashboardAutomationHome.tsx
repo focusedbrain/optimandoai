@@ -30,7 +30,7 @@ import {
 import { useCustomModesStore } from '@ext/stores/useCustomModesStore'
 import { useChatFocusStore, WRCHAT_APPEND_ASSISTANT_EVENT } from '@ext/stores/chatFocusStore'
 import { useUIStore } from '@ext/stores/useUIStore'
-import { getCustomModeTriggerBarIcon } from '@ext/shared/ui/customModeTypes'
+import { getCustomModeTriggerBarIcon, isModeDeletable, isUserOwnedCustomMode } from '@ext/shared/ui/customModeTypes'
 import { PROJECT_ICON_CHOICES } from './projectIconChoices'
 import './DashboardAutomationHome.css'
 
@@ -283,13 +283,14 @@ export function DashboardAutomationHome({
   const [snapshotBusyId, setSnapshotBusyId] = useState<string | null>(null)
   const [iconPickerTarget, setIconPickerTarget] = useState<ComposerId | null>(null)
   const customModes = useCustomModesStore((s) => s.modes)
+  const removeMode = useCustomModesStore((s) => s.removeMode)
   const [selectedAutomationId, setSelectedAutomationId] = useState('')
 
   const customModesSorted = useMemo(
     () =>
-      [...customModes].sort((a, b) =>
-        (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }),
-      ),
+      customModes
+        .filter(isUserOwnedCustomMode)
+        .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })),
     [customModes],
   )
 
@@ -345,7 +346,7 @@ export function DashboardAutomationHome({
         getCustomModeTriggerBarIcon(def.metadata as Record<string, unknown> | undefined) ||
         def.icon?.trim() ||
         '\u26A1'
-      const name = def.name.trim() || 'Automation'
+      const name = def.name.trim() || 'Mode'
       const desc = def.description?.trim()
 
       const mode = {
@@ -358,15 +359,13 @@ export function DashboardAutomationHome({
 
       const intro = `${icon} **${name}**${desc ? `\n\n${desc}` : ''}
 
-Automation activated from the dashboard. Continue in WR Chat.`
+Mode activated from the dashboard. Continue in WR Chat.`
 
       onNavigateWrChat?.()
 
       window.setTimeout(() => {
         useUIStore.getState().setWorkspace('wr-chat')
-        if (def.modelName?.trim()) {
-          useUIStore.getState().setMode(def.id)
-        }
+        useUIStore.getState().setMode(def.id)
 
         useChatFocusStore.getState().setChatFocusWithIntro(mode, null, intro)
 
@@ -381,9 +380,13 @@ Automation activated from the dashboard. Continue in WR Chat.`
   )
 
   useEffect(() => {
-    if (!selectedAutomationId) return
-    if (!customModes.some((m) => m.id === selectedAutomationId)) setSelectedAutomationId('')
-  }, [customModes, selectedAutomationId])
+    if (customModesSorted.length === 0) {
+      if (selectedAutomationId) setSelectedAutomationId('')
+      return
+    }
+    if (selectedAutomationId && customModesSorted.some((m) => m.id === selectedAutomationId)) return
+    setSelectedAutomationId(customModesSorted[0]?.id ?? '')
+  }, [customModesSorted, selectedAutomationId])
 
   const wikiProjectId = useMemo(() => {
     if (projects.length === 0) return null
@@ -537,6 +540,18 @@ Automation activated from the dashboard. Continue in WR Chat.`
     }
   }, [])
 
+  const handleAutomationDelete = useCallback(
+    (modeId: string) => {
+      const def = useCustomModesStore.getState().getById(modeId)
+      if (!def || !isModeDeletable(def)) return
+      const label = def.name?.trim() || 'Untitled'
+      if (!window.confirm(`Delete mode "${label}"? This cannot be undone.`)) return
+      removeMode(modeId)
+      setSelectedAutomationId((prev) => (prev === modeId ? '' : prev))
+    },
+    [removeMode],
+  )
+
   /** Same path as WrMultiTriggerBar “+ Add Project WIKI” row — does not change active project id. */
   const launchAddProjectWikiFromSelector = useCallback(() => {
     try {
@@ -570,7 +585,7 @@ Automation activated from the dashboard. Continue in WR Chat.`
         <div className="dash-auto-home__starters-header-main">
           <span className="dash-auto-home__kicker">Automation workspace</span>
         </div>
-        <div className="dash-auto-home__creation-toolbar" role="toolbar" aria-label="Add automations">
+        <div className="dash-auto-home__creation-toolbar" role="toolbar" aria-label="Add modes">
           <button
             type="button"
             className="dash-auto-home__create-btn"
@@ -580,7 +595,7 @@ Automation activated from the dashboard. Continue in WR Chat.`
             <span className="dash-auto-home__create-btn-icon" aria-hidden>
               {'\u2728'}
             </span>
-            <span>+ Add Automation</span>
+            <span>+ Add Mode</span>
           </button>
         </div>
       </header>
@@ -624,12 +639,12 @@ Automation activated from the dashboard. Continue in WR Chat.`
               {'\u26A1'}
             </span>
             <h3 id="dash-auto-home-my-automations-title" className="dash-auto-home__starter-title">
-              My Automations
+              My Modes
             </h3>
           </div>
 
-          {customModes.length === 0 ? (
-            <p className="dash-auto-home__starter-value">No automations yet. Create one to get started.</p>
+          {customModesSorted.length === 0 ? (
+            <p className="dash-auto-home__starter-value">No modes yet. Create one to get started.</p>
           ) : (
             <div className="dash-auto-home__automation-selector">
               <select
@@ -637,9 +652,9 @@ Automation activated from the dashboard. Continue in WR Chat.`
                 value={selectedAutomationId}
                 onChange={(e) => setSelectedAutomationId(e.target.value)}
                 className="dash-auto-home__automation-select"
-                aria-label="Select a custom automation to run"
+                aria-label="Select a custom mode to run"
               >
-                <option value="">Select an automation…</option>
+                <option value="">Select a mode…</option>
                 {customModesSorted.map((m) => (
                   <option key={m.id} value={m.id}>
                     {(m.icon?.trim() ? `${m.icon.trim()} ` : '') + m.name}
@@ -654,18 +669,32 @@ Automation activated from the dashboard. Continue in WR Chat.`
               type="button"
               className="dash-auto-home__btn dash-auto-home__btn--primary"
               onClick={() => handleAutomationRun(selectedAutomationId)}
-              disabled={customModes.length === 0 || !selectedAutomationId}
+              disabled={customModesSorted.length === 0 || !selectedAutomationId}
             >
               Run
             </button>
             {selectedAutomationId ? (
-              <button
-                type="button"
-                className="dash-auto-home__btn dash-auto-home__btn--ghost"
-                onClick={() => handleAutomationEdit(selectedAutomationId)}
-              >
-                Edit
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="dash-auto-home__btn dash-auto-home__btn--ghost"
+                  onClick={() => handleAutomationEdit(selectedAutomationId)}
+                >
+                  Edit
+                </button>
+                {(() => {
+                  const sel = useCustomModesStore.getState().getById(selectedAutomationId)
+                  return sel && isModeDeletable(sel) ? (
+                    <button
+                      type="button"
+                      className="dash-auto-home__btn dash-auto-home__btn--ghost dash-auto-home__btn--danger"
+                      onClick={() => handleAutomationDelete(selectedAutomationId)}
+                    >
+                      Delete
+                    </button>
+                  ) : null
+                })()}
+              </>
             ) : (
               <button
                 type="button"

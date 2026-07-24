@@ -868,8 +868,8 @@ export interface EmailInboxBridge {
   cancelPendingDelete: (messageId: string) => Promise<{ ok: boolean; data?: { cancelled: boolean }; error?: string }>
   cancelPendingReview: (messageId: string) => Promise<{ ok: boolean; data?: { cancelled: boolean }; error?: string }>
   unarchive: (messageId: string) => Promise<{ ok: boolean; data?: { unarchived: boolean }; error?: string }>
-  getInboxSettings: () => Promise<{ ok: boolean; data?: { tone: string; sortRules: string; contextDocs: unknown[]; batchSize: number }; error?: string }>
-  setInboxSettings: (partial: { tone?: string; sortRules?: string; batchSize?: number }) => Promise<{ ok: boolean; error?: string }>
+  getInboxSettings: () => Promise<{ ok: boolean; data?: { tone: string; sortRules: string; contextDocs: unknown[]; batchSize: number; autoAnalyzeEnabled: boolean }; error?: string }>
+  setInboxSettings: (partial: { tone?: string; sortRules?: string; batchSize?: number; autoAnalyzeEnabled?: boolean }) => Promise<{ ok: boolean; error?: string }>
   selectAndUploadContextDoc: () => Promise<{ ok: boolean; data?: { skipped?: boolean; doc?: unknown; docs?: unknown[] }; error?: string }>
   deleteContextDoc: (docId: string) => Promise<{ ok: boolean; data?: { docs: unknown[] }; error?: string }>
   listContextDocs: () => Promise<{ ok: boolean; data?: Array<{ id: string; name: string; size: number }>; error?: string }>

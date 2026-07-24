@@ -6,6 +6,8 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { WatchdogThreat } from '../../utils/formatWatchdogAlert'
+import { BUILTIN_SCAM_WATCHDOG_ID } from '../../shared/ui/scamWatchdogBuiltIn'
+import { requestModeModelWarmOnTrigger } from '../../services/modeModelWarmOnTrigger'
 import WatchdogIcon from './WatchdogIcon'
 import { TriggerButtonShell } from './wrMultiTrigger'
 
@@ -255,6 +257,9 @@ export default function WrChatWatchdogButton({
         if (!res.ok) {
           setContinuousEnabled(prev)
           return
+        }
+        if (enabled) {
+          requestModeModelWarmOnTrigger(BUILTIN_SCAM_WATCHDOG_ID, 'interval')
         }
         setHostOnline(true)
       } catch {

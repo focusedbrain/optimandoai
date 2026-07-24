@@ -70,6 +70,7 @@ import { assertSandboxDataEgressAllowed, isEffectiveSandboxNode } from '../sandb
 import { notifyBeapDeliveryAck, waitForBeapDeliveryAck } from '../p2p/beapDeliveryAck'
 import { randomBytes, randomUUID } from 'crypto'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
+import { normalizeCoordinationUrlForLocalDial } from '../p2p/coordinationUrlLocalDial'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
 import { resolvePairingCodeViaCoordination } from './resolvePairingCode'
 import { processIncomingInput } from '../ingestion/ingestionPipeline'
@@ -1542,7 +1543,9 @@ export async function handleHandshakeRPC(
             !!p2pConfig.coordination_url?.trim() &&
             regResult.success
           if (shouldRelayInitiate) {
-            const coordTarget = p2pConfig.coordination_url!.trim().replace(/\/$/, '') + '/beap/capsule'
+            const coordTarget =
+              normalizeCoordinationUrlForLocalDial(p2pConfig.coordination_url!.trim()).replace(/\/$/, '') +
+              '/beap/capsule'
             const enq = enqueueOutboundCapsule(db, capsule.handshake_id, coordTarget, capsule)
             if (!enq.enqueued) {
               console.warn(
@@ -2561,7 +2564,7 @@ export async function handleHandshakeRPC(
           const recordedTargetEndpoint = record.p2p_endpoint?.trim()
           const coordinationFallbackEndpoint =
             !recordedTargetEndpoint && p2pConfig.use_coordination && p2pConfig.coordination_url?.trim()
-              ? `${p2pConfig.coordination_url.trim().replace(/\/$/, '')}/beap/capsule`
+              ? `${normalizeCoordinationUrlForLocalDial(p2pConfig.coordination_url.trim()).replace(/\/$/, '')}/beap/capsule`
               : null
           const targetEndpoint = recordedTargetEndpoint || coordinationFallbackEndpoint
           if (targetEndpoint) {

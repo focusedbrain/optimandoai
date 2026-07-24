@@ -3,7 +3,8 @@
  */
 
 import { networkInterfaces } from 'node:os'
-import { ollamaManager } from '../llm/ollama-manager'
+import { localLlmManager } from '../llm/local-llm-manager'
+import { DEFAULT_LLAMACPP_PORT } from '../llm/localLlmPaths'
 
 function parseIpv4Octets(ip: string): number[] | null {
   const parts = ip.trim().split('.')
@@ -145,11 +146,11 @@ export function selectHostLanIpForPeer(peerIp?: string | null): string | null {
 /** TCP port Host Ollama listens on (from orchestrator config / manager). */
 export function hostOllamaListenPort(): number {
   try {
-    const u = new URL(ollamaManager.getBaseUrl())
-    const p = parseInt(u.port || '11434', 10)
-    return Number.isFinite(p) && p > 0 ? p : 11434
+    const u = new URL(localLlmManager.getBaseUrl())
+    const p = parseInt(u.port || String(DEFAULT_LLAMACPP_PORT), 10)
+    return Number.isFinite(p) && p > 0 ? p : DEFAULT_LLAMACPP_PORT
   } catch {
-    return 11434
+    return DEFAULT_LLAMACPP_PORT
   }
 }
 

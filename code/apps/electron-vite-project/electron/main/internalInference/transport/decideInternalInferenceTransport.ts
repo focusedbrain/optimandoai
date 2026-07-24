@@ -7,6 +7,7 @@
  * List targets and intent routing must not branch on p2p_endpoint_kind alone; use this result.
  */
 import { InternalInferenceErrorCode } from '../errors'
+import { isHostSandboxPairEligible } from '../hostAiInternalPairingLedger'
 import { getP2pInferenceFlags, isWebRtcHostAiArchitectureEnabled, type P2pInferenceFlagSnapshot } from '../p2pInferenceFlags'
 import {
   coordinationDeviceIdForHandshakeDeviceRole,
@@ -423,27 +424,29 @@ function computeHostAiRouteFieldsForDecider(
         clearHostAdvertisedMvpDirectForHandshake(hid)
       }
 
+      /**
+       * Trust is handshake-bound (see `inferenceDirectHttpTrust`); the resolve result only feeds
+       * the legacy `normalizedUrl` (direct-LAN diagnostics). A denied resolve no longer denies
+       * trust — sealed_relay needs no peer LAN endpoint. LAN deprecated, see Teil B.
+       */
+      let sandboxPeerLanEndpoint: string | null = null
       if (!skipHttpProbe) {
         const res = resolveSandboxToHostHttpDirectIngest(db as any, hid, handshakeRecord, '')
         if (res.ok) {
-          return inferenceDirectHttpTrust({
-            handshakeRecord,
-            roles,
-            counterpartyP2pToken: token,
-            localBeapEndpoint: localBeap,
-            sandboxPeerLanEndpoint: res.url,
-          })
+          sandboxPeerLanEndpoint = res.url
+        } else {
+          console.log(
+            `[HOST_AI_ENDPOINT_REJECTED] handshake=${hid} reason=sandbox_resolve_denied deny_detail=${res.host_ai_endpoint_deny_detail} code=${res.code} (non-gating: trust is handshake_bound)`,
+          )
         }
-        /** Never fall through to handshake-only trust: ledger `p2p_endpoint` may equal this sandbox's BEAP. */
-        console.log(
-          `[HOST_AI_ENDPOINT_REJECTED] handshake=${hid} reason=sandbox_resolve_denied deny_detail=${res.host_ai_endpoint_deny_detail} code=${res.code}`,
-        )
       }
-      return {
-        trusted: false,
-        reason: 'peer_host_endpoint_missing',
-        normalizedUrl: null,
-      }
+      return inferenceDirectHttpTrust({
+        handshakeRecord,
+        roles,
+        counterpartyP2pToken: token,
+        localBeapEndpoint: localBeap,
+        sandboxPeerLanEndpoint,
+      })
     }
 
     return inferenceDirectHttpTrust({
@@ -537,10 +540,12 @@ export function decideInternalInferenceTransport(
    * can supply `ollama_direct_*` for LAN Ollama discovery — independent of BEAP handshake trust.
    *
    * Exemptions:
-   * - **`url_not_private_lan`** — relay-style / hostname ingest URLs rely on WebRTC signaling; handshake HTTP trust intentionally fails without blocking P2P.
    * - **P2P stack off** — fall through to `legacy_http_invalid` / MVP path (nothing can report `webrtc` ready anyway).
    * - **Relay rows** (`p2pEndpointKind !== 'direct'`).
    * - **WebRTC architecture on** — defer to session/DC branches below; legacy POST remains gated by `legacyPostOk` / `legacyViable`.
+   *
+   * The former `url_not_private_lan` exemption is gone: trust is handshake-bound and no longer
+   * produces that reason. LAN deprecated, see Teil B.
    */
   const p2pOn = p2pStackEnabled(f)
   const kind = le.p2pEndpointKind
@@ -552,7 +557,7 @@ export function decideInternalInferenceTransport(
     !verifiedDirect &&
     le.p2pEndpointKind === 'direct' &&
     p2pOn &&
-    trHandshake !== 'url_not_private_lan' &&
+    !(trust && trHandshake === 'peer_host_endpoint_missing') &&
     !wrtcArch
   ) {
     const tr = trHandshake
@@ -639,6 +644,34 @@ export function decideInternalInferenceTransport(
       p2pTransportEndpointOpen: false,
       failureCode: kind === 'missing' ? 'MISSING_P2P_ENDPOINT' : 'INVALID_P2P_ENDPOINT',
       userSafeReason: 'No valid coordination or Host endpoint in the handshake record.',
+    }
+  }
+
+  /**
+   * Handshake-bound trusted internal Sandbox→Host rows ride the **sealed relay** (whole-response
+   * BEAP capsule) regardless of the ledger endpoint kind: `endpointKind=sealed_relay` needs no
+   * LAN URL and no WebRTC signaling attestation, so relay rows must not be parked in
+   * `connecting`/`p2p_unavailable` waiting for a data channel. A live WebRTC DC (accelerator)
+   * still wins via the `dcUp` branch below. LAN/direct conditions extended to sealed_relay —
+   * LAN deprecated, see Teil B.
+   */
+  if (
+    internalSlice &&
+    inferenceHandshakeTrusted &&
+    (kind === 'relay' || kind === 'direct') &&
+    !Boolean(ss?.dataChannelUp)
+  ) {
+    return {
+      ...hostAiRouteSnap(input),
+      targetDetected: true,
+      selectorPhase: 'legacy_http_available',
+      preferredTransport: 'sealed_relay',
+      reason: 'inference_sealed_relay',
+      mayUseLegacyHttpFallback: mayFb,
+      legacyHttpFallbackViable: legacyViable,
+      p2pTransportEndpointOpen: true,
+      failureCode: null,
+      userSafeReason: null,
     }
   }
 
@@ -940,6 +973,7 @@ export function deriveHostAiHandshakeRoles(r: HandshakeRecord): HandshakeDerived
   const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
   const samePrincipal = handshakeSamePrincipal(r)
   const internalComplete = r.internal_coordination_identity_complete === true
+  const pairEligible = isHostSandboxPairEligible(r)
   if (!dr.ok) {
     return {
       ledgerSandboxToHost: false,
@@ -948,15 +982,12 @@ export function deriveHostAiHandshakeRoles(r: HandshakeRecord): HandshakeDerived
       peerHostDeviceIdPresent: false,
     }
   }
-  const pairOk =
-    (dr.localRole === 'sandbox' && dr.peerRole === 'host') ||
-    (dr.localRole === 'host' && dr.peerRole === 'sandbox')
   return {
     /** Internal Host↔Sandbox row for this instance id (coordination identity), not orchestrator file. */
-    ledgerSandboxToHost: pairOk,
+    ledgerSandboxToHost: pairEligible,
     samePrincipal,
     internalIdentityComplete: internalComplete,
-    peerHostDeviceIdPresent: pairOk && Boolean((dr.peerCoordinationDeviceId ?? '').trim()),
+    peerHostDeviceIdPresent: pairEligible && Boolean((dr.peerCoordinationDeviceId ?? '').trim()),
   }
 }
 

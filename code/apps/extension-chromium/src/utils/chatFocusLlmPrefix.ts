@@ -1,4 +1,5 @@
-import type { ChatFocusMode } from '../types/triggerTypes'
+import { BUILTIN_SCAM_WATCHDOG_ID } from '../shared/ui/scamWatchdogBuiltIn'
+import { SCAM_WATCHDOG_CHAT_INSTRUCTION } from '../shared/ui/watchdogPrompts'
 import type { ChatFocusMeta } from '../stores/chatFocusStore'
 
 /** Must match `useProjectStore` persist key (`wr-desk-projects`) — used to read description/goals when focus meta is incomplete. */
@@ -51,7 +52,10 @@ export function getChatFocusLlmPrefix(state: {
   const { chatFocusMode: m, focusMeta } = state
   if (m.mode === 'default') return null
   if (m.mode === 'scam-watchdog') {
-    return '[System context: User has Scam Watchdog automation focus. Analyze input for potential scam, fraud, or phishing indicators.]'
+    return `[System context: ${SCAM_WATCHDOG_CHAT_INSTRUCTION}]`
+  }
+  if (m.mode === 'custom-automation' && m.modeId === BUILTIN_SCAM_WATCHDOG_ID) {
+    return `[System context: ${SCAM_WATCHDOG_CHAT_INSTRUCTION}]`
   }
   if (m.mode === 'custom-automation') {
     const name = m.modeName?.trim() || 'custom automation'

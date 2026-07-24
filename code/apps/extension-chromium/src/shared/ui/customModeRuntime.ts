@@ -4,7 +4,7 @@
  */
 
 import type { WrExpertParsedProfile } from '../../utils/parseWrExpertMarkdown'
-import type { CustomModeDefinition, SessionMode } from './customModeTypes'
+import type { CustomModeDefinition, CustomModeProfileField, SessionMode } from './customModeTypes'
 import { getCustomModeScopeFromMetadata } from './customModeTypes'
 
 export interface CustomModeRuntimeConfig {
@@ -16,8 +16,11 @@ export interface CustomModeRuntimeConfig {
   endpoint: string
   sessionId: string | null
   sessionMode: SessionMode
+  systemInstructions: string
   searchFocus: string
   ignoreInstructions: string
+  /** Structured profile fields (optional). */
+  profileFields: CustomModeProfileField[] | undefined
   intervalSeconds: number | null
   /** Optional http(s) URLs / host patterns this mode should prioritize. */
   scopeUrls: string[]
@@ -61,8 +64,10 @@ export function customModeDefinitionToRuntime(def: CustomModeDefinition): Custom
     endpoint: def.endpoint,
     sessionId: def.sessionId,
     sessionMode: def.sessionMode,
+    systemInstructions: def.systemInstructions,
     searchFocus: def.searchFocus,
     ignoreInstructions: def.ignoreInstructions,
+    profileFields: def.profileFields,
     intervalSeconds: def.intervalSeconds,
     scopeUrls: scope.scopeUrls,
     diffWatchFolders: scope.diffWatchFolders,

@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto'
 import { getAccessToken } from '../../../src/auth/session'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeRecord } from '../handshake/db'
+import { normalizeCoordinationUrlForLocalDial } from '../p2p/coordinationUrlLocalDial'
 import { getP2PConfig } from '../p2p/p2pConfig'
 import { InternalInferenceErrorCode, type InternalInferenceErrorCodeType } from './errors'
 import { getP2pInferenceFlags } from './p2pInferenceFlags'
@@ -24,6 +25,7 @@ import {
   reregisterInternalHandshakeAfterCoordinationP2pSignal403,
 } from '../p2p/relaySync'
 import type { HostAiBeapAdOllamaModelWireEntry } from './hostAiBeapAdOllamaModelCount'
+import { wireEndpointUrlForHostAiDirectBeapAd } from './hostAiDirectBeapAdWire'
 import { isUnifiedServiceRpcRelayEnabled } from './unifiedServiceRpcRelayFlags'
 import { getRegisteredHostAiUnifiedRelaySend } from './hostAiUnifiedRelayRegistration'
 
@@ -165,7 +167,8 @@ async function withRelayOutboundQueue(handshakeId: string, fn: () => Promise<voi
 
 function coordinationBaseUrl(db: any): string | null {
   const u = getP2PConfig(db).coordination_url?.trim()
-  return u || null
+  if (!u) return null
+  return normalizeCoordinationUrlForLocalDial(u) || null
 }
 
 function parseCoordinationP2pSignalPostError(bodyText: string): string | undefined {
@@ -705,9 +708,14 @@ export async function sendHostAiP2pSignalOutbound(params: {
 /** Must stay within coordination-service `tryParseP2pSignalRequest` TTL for `p2p_host_ai_direct_beap_ad` (60s–600s). */
 const HOST_AI_BEAP_AD_TTL_MS = 300_000
 
-/** Nested in `host_ai_route.capabilities` on relay BEAP ads — Sandbox merges into selector (no transport change). */
+/**
+ * Nested in `host_ai_route.capabilities` on relay BEAP ads — Sandbox merges into selector (no transport change).
+ * WIRE-FREEZE: this type name and every field name below are serialized verbatim into the BEAP ad
+ * body (see `buildHostAiDirectBeapAdSignalBody`). Do not rename as part of the Ollama→llama.cpp
+ * internal-naming cleanup — only the *values* changed (`provider: 'llamacpp'`); the wire shape is frozen.
+ */
 export type HostAiBeapAdSignalOllamaCapabilities = {
-  provider: 'ollama'
+  provider: 'llamacpp' | 'ollama'
   models_count: number
   available: boolean
   models: HostAiBeapAdOllamaModelWireEntry[]
@@ -716,6 +724,8 @@ export type HostAiBeapAdSignalOllamaCapabilities = {
   model_source: string
   /** Host Ollama runs one loaded model at a time for remote inference (VRAM). */
   max_concurrent_local_models: 1
+  /** Host-local GPU can offload the active model (Host probe at BEAP ad publish time). */
+  gpu_inference_available?: boolean
 }
 
 export function buildHostAiDirectBeapAdSignalBody(params: {
@@ -723,7 +733,8 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
   sessionId: string
   senderDeviceId: string
   receiverDeviceId: string
-  endpointUrl: string
+  /** Retired direct-LAN ingest URL — wire uses sealed-relay placeholder when absent (relay requires field). */
+  endpointUrl?: string | null
   adSeq: number
   ollamaCapabilities: HostAiBeapAdSignalOllamaCapabilities
   publisherIdentity?: {
@@ -753,6 +764,7 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
     expires_at: expiresAt,
     ad_seq: params.adSeq,
     owner_role: 'host',
+    endpoint_url: wireEndpointUrlForHostAiDirectBeapAd(params.endpointUrl),
     host_ai_route: {
       type: 'host_ai.route_advertisement',
       version: 1,
@@ -775,7 +787,8 @@ export function buildHostAiDirectBeapAdSignalBody(params: {
 export async function postHostAiDirectBeapAdToCoordination(params: {
   db: any
   handshakeId: string
-  endpointUrl: string
+  /** Retired direct-LAN ingest URL — omit for sealed-relay capability-only ads. */
+  endpointUrl?: string | null
   senderDeviceId: string
   receiverDeviceId: string
   adSeq: number
@@ -801,7 +814,7 @@ export async function postHostAiDirectBeapAdToCoordination(params: {
     sessionId,
     senderDeviceId: params.senderDeviceId.trim(),
     receiverDeviceId: params.receiverDeviceId.trim(),
-    endpointUrl: params.endpointUrl.trim(),
+    endpointUrl: params.endpointUrl?.trim() || undefined,
     adSeq: params.adSeq,
     ollamaCapabilities: params.ollamaCapabilities,
     publisherIdentity: params.publisherIdentity,

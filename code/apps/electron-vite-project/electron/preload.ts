@@ -741,12 +741,20 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
     sessionKey: string,
     sessionData?: Record<string, unknown>,
     source?: string,
+    options?: {
+      pendingModeSessionRun?: {
+        fallbackModel: string
+        modeRuntime: Record<string, unknown>
+        modeId: string
+      }
+    },
   ) => {
     if (typeof sessionKey !== 'string' || !sessionKey.trim()) return
     ipcRenderer.send('PRESENT_ORCHESTRATOR_DISPLAY_GRID', {
       sessionKey: sessionKey.trim(),
       ...(sessionData && typeof sessionData === 'object' ? { session: sessionData } : {}),
       ...(typeof source === 'string' && source.trim() ? { source: source.trim() } : {}),
+      ...(options?.pendingModeSessionRun ? { pendingModeSessionRun: options.pendingModeSessionRun } : {}),
     })
   },
   /** After dashboard WR Chat persists agent box output via HTTP shim, relay live UI update to the extension (WS → background → runtime). */
@@ -1515,7 +1523,7 @@ contextBridge.exposeInMainWorld('emailInbox', {
   cancelPendingReview: (messageId: string) => ipcRenderer.invoke('inbox:cancelPendingReview', messageId),
   unarchive: (messageId: string) => ipcRenderer.invoke('inbox:unarchive', messageId),
   getInboxSettings: () => ipcRenderer.invoke('inbox:getInboxSettings'),
-  setInboxSettings: (partial: { tone?: string; sortRules?: string; batchSize?: number }) => ipcRenderer.invoke('inbox:setInboxSettings', partial),
+  setInboxSettings: (partial: { tone?: string; sortRules?: string; batchSize?: number; autoAnalyzeEnabled?: boolean }) => ipcRenderer.invoke('inbox:setInboxSettings', partial),
   selectAndUploadContextDoc: () => ipcRenderer.invoke('inbox:selectAndUploadContextDoc'),
   deleteContextDoc: (docId: string) => ipcRenderer.invoke('inbox:deleteContextDoc', docId),
   listContextDocs: () => ipcRenderer.invoke('inbox:listContextDocs'),
@@ -1568,6 +1576,50 @@ contextBridge.exposeInMainWorld('integrity', {
 })
 
 // ── Local LLM (Ollama) — status + active model (shared with Backend Configuration persistence) ──
+// ── Custom WR Chat modes (shared main-process store) ───────────────────────
+contextBridge.exposeInMainWorld('customModes', {
+  list: () => ipcRenderer.invoke('customModes:list'),
+  create: (draft: Record<string, unknown>) => {
+    if (!draft || typeof draft !== 'object') {
+      throw new Error('customModes.create: expected draft object')
+    }
+    return ipcRenderer.invoke('customModes:create', { draft })
+  },
+  update: (id: string, patch: Record<string, unknown>) => {
+    assertString(id, 'id')
+    if (!patch || typeof patch !== 'object') {
+      throw new Error('customModes.update: expected patch object')
+    }
+    return ipcRenderer.invoke('customModes:update', { id, patch })
+  },
+  delete: (id: string) => {
+    assertString(id, 'id')
+    return ipcRenderer.invoke('customModes:delete', { id })
+  },
+  import: (modes: unknown[], origin: 'dashboard' | 'extension') => {
+    if (!Array.isArray(modes)) {
+      throw new Error('customModes.import: expected modes array')
+    }
+    if (origin !== 'dashboard' && origin !== 'extension') {
+      throw new Error('customModes.import: invalid origin')
+    }
+    return ipcRenderer.invoke('customModes:import', { modes, origin })
+  },
+  getMigrationStatus: () => ipcRenderer.invoke('customModes:getMigrationStatus'),
+  onChanged: (handler: (data: { modes: unknown[] }) => void) => {
+    const fn = (_e: Electron.IpcRendererEvent, data: unknown) => {
+      if (!data || typeof data !== 'object') return
+      const modes = (data as Record<string, unknown>).modes
+      if (!Array.isArray(modes)) return
+      handler({ modes })
+    }
+    ipcRenderer.on('customModes:changed', fn)
+    return () => {
+      ipcRenderer.removeListener('customModes:changed', fn)
+    }
+  },
+})
+
 contextBridge.exposeInMainWorld('llm', {
   getStatus: () => ipcRenderer.invoke('llm:getStatus'),
   getGpuStatus: () =>
@@ -1593,6 +1645,23 @@ contextBridge.exposeInMainWorld('llm', {
     ipcRenderer.on('llm:activeModelChanged', fn)
     return () => {
       ipcRenderer.removeListener('llm:activeModelChanged', fn)
+    }
+  },
+  onModelsChanged: (handler: (data: { modelId?: string; sha256?: string }) => void) => {
+    const fn = (_e: Electron.IpcRendererEvent, data: unknown) => {
+      if (!data || typeof data !== 'object') {
+        handler({})
+        return
+      }
+      const o = data as Record<string, unknown>
+      handler({
+        modelId: typeof o.modelId === 'string' ? o.modelId : undefined,
+        sha256: typeof o.sha256 === 'string' ? o.sha256 : undefined,
+      })
+    }
+    ipcRenderer.on('llm:modelsChanged', fn)
+    return () => {
+      ipcRenderer.removeListener('llm:modelsChanged', fn)
     }
   },
   resolveAutosortRuntime: () => ipcRenderer.invoke('llm:resolveAutosortRuntime'),

@@ -27,6 +27,7 @@ import {
   type P2pMvpEndpointClass,
 } from './policy'
 import type { HostAiBeapAdOllamaModelWireEntry } from './hostAiBeapAdOllamaModelCount'
+import { hostAiDirectBeapAdEndpointUrlIsInertPlaceholder } from './hostAiDirectBeapAdWire'
 
 export const P2P_DIRECT_P2P_ENDPOINT_HEADER = 'X-BEAP-Direct-P2P-Endpoint'
 
@@ -44,6 +45,8 @@ export type HostAiPeerAdvertisedOllamaRoster = {
   active_model_name: string | null
   model_source: string | null
   max_concurrent_local_models: number
+  /** From relay BEAP ad capabilities — Host GPU probe at publish time. */
+  gpu_inference_available?: boolean | null
 }
 
 type PeerHeaderEntry = {
@@ -135,6 +138,14 @@ export function peekHostAdvertisedMvpDirectEntry(handshakeId: string): PeerHeade
   const hid = String(handshakeId ?? '').trim()
   if (!hid) return null
   return hostAdvertisedMvpDirectByHandshake.get(hid) ?? null
+}
+
+/** Sandbox: Host GPU signal from relay BEAP ad capabilities (no LAN probe). */
+export function peekHostGpuInferenceAvailableFromRelay(handshakeId: string): boolean | null {
+  const roster = peekHostAdvertisedMvpDirectEntry(handshakeId)?.ollamaRoster
+  if (roster?.gpu_inference_available === true) return true
+  if (roster?.gpu_inference_available === false) return false
+  return null
 }
 
 /**
@@ -762,7 +773,10 @@ function parseHostAiOllamaRosterFromRelayHostAiRoute(raw: Record<string, unknown
       const id = typeof mo.id === 'string' && mo.id.trim() ? mo.id.trim() : name
       const available = mo.available !== false
       const active = mo.active === true || (activeIdRaw != null && (id === activeIdRaw || name === activeIdRaw))
-      modelsOut.push({ id, name, provider: 'ollama', available, active })
+      const providerRaw = typeof mo.provider === 'string' ? mo.provider.trim().toLowerCase() : ''
+      const provider: 'llamacpp' | 'ollama' =
+        providerRaw === 'llamacpp' || providerRaw === 'ollama' ? providerRaw : 'llamacpp'
+      modelsOut.push({ id, name, provider, available, active })
     }
   }
 
@@ -779,12 +793,17 @@ function parseHostAiOllamaRosterFromRelayHostAiRoute(raw: Record<string, unknown
     }
   }
 
+  const gpuRaw = c.gpu_inference_available
+  const gpu_inference_available =
+    gpuRaw === true ? true : gpuRaw === false ? false : null
+
   return {
     models: modelsOut,
     active_model_id,
     active_model_name,
     model_source: modelSource,
     max_concurrent_local_models: maxConcurrentLocalModels,
+    gpu_inference_available,
   }
 }
 
@@ -800,7 +819,8 @@ export function applyHostAiDirectBeapAdFromRelayPayload(
 ): { ok: true } | { ok: false; reason: string } {
   const hid = typeof raw.handshake_id === 'string' ? raw.handshake_id.trim() : ''
   const sender = typeof raw.sender_device_id === 'string' ? raw.sender_device_id.trim() : ''
-  const advRaw = typeof raw.endpoint_url === 'string' ? raw.endpoint_url.trim() : ''
+  const endpointWire = typeof raw.endpoint_url === 'string' ? raw.endpoint_url : ''
+  const advRaw = hostAiDirectBeapAdEndpointUrlIsInertPlaceholder(endpointWire) ? '' : endpointWire.trim()
   const adSeq = raw.ad_seq
   const expRaw = typeof raw.expires_at === 'string' ? raw.expires_at.trim() : ''
   const reject = (reason: string): { ok: false; reason: string } => {
@@ -858,20 +878,6 @@ export function applyHostAiDirectBeapAdFromRelayPayload(
       return { ok: false, reason: 'expired' }
     }
   }
-  if (!advRaw) {
-    console.log(`[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'no_endpoint_url', relayMessageId })}`)
-    return { ok: false, reason: 'no_endpoint_url' }
-  }
-  if (p2pEndpointMvpClass(db, advRaw) !== 'direct_lan') {
-    console.log(`[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'not_mvp_direct', relayMessageId })}`)
-    return { ok: false, reason: 'not_mvp_direct' }
-  }
-  if (ingestUrlMatchesThisDevicesMvpDirectBeap(db, advRaw)) {
-    console.log(
-      `[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'same_as_local_sandbox_beap', relayMessageId })}`,
-    )
-    return { ok: false, reason: 'same_as_local_sandbox_beap' }
-  }
   const r0 = getHandshakeRecord(db, hid)
   const ar = assertRecordForServiceRpc(r0)
   if (!ar.ok) {
@@ -899,8 +905,27 @@ export function applyHostAiDirectBeapAdFromRelayPayload(
     console.log(`[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'owner_role_not_host', relayMessageId })}`)
     return { ok: false, reason: 'owner_role' }
   }
-  hostAiRelayBeapAdLastSeq.set(hid, adSeq)
   const ollamaRoster = parseHostAiOllamaRosterFromRelayHostAiRoute(raw)
+  const capabilityOnlyAd = !advRaw
+  if (capabilityOnlyAd && !ollamaRoster) {
+    console.log(
+      `[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'no_endpoint_or_capabilities', relayMessageId })}`,
+    )
+    return { ok: false, reason: 'no_endpoint_or_capabilities' }
+  }
+  if (advRaw) {
+    if (p2pEndpointMvpClass(db, advRaw) !== 'direct_lan') {
+      console.log(`[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'not_mvp_direct', relayMessageId })}`)
+      return { ok: false, reason: 'not_mvp_direct' }
+    }
+    if (ingestUrlMatchesThisDevicesMvpDirectBeap(db, advRaw)) {
+      console.log(
+        `[HOST_AI_ENDPOINT_AD_REJECTED] ${JSON.stringify({ handshakeId: hid, reason: 'same_as_local_sandbox_beap', relayMessageId })}`,
+      )
+      return { ok: false, reason: 'same_as_local_sandbox_beap' }
+    }
+  }
+  hostAiRelayBeapAdLastSeq.set(hid, adSeq)
   if (ollamaRoster) {
     console.log(
       `[HOST_AI_MODEL_ROSTER_RECEIVED] ${JSON.stringify({
@@ -908,43 +933,67 @@ export function applyHostAiDirectBeapAdFromRelayPayload(
         hostDeviceId: expectHost,
         models: ollamaRoster.models.map((m) => m.name),
         activeModelId: ollamaRoster.active_model_id,
+        gpuInferenceAvailable: ollamaRoster.gpu_inference_available,
         source: 'relay_beap_ad',
       })}`,
     )
+    // A4 selection hygiene: alias-map the persisted selection against this roster; migrate
+    // unresolvable (stale-tag) selections to the roster's active model instead of resending them.
+    // (This handler is sync — fire-and-forget; migration is idempotent.)
+    void import('./sandboxHostRosterSelectionMigration')
+      .then((m) =>
+        m.migrateStoredSelectionForReceivedHostRoster({
+          handshakeId: hid,
+          rosterModels: ollamaRoster.models,
+          rosterActiveModelId: ollamaRoster.active_model_id ?? null,
+        }),
+      )
+      .catch((e) => console.warn('[HOST_AI_SELECTION_MIGRATION] failed:', e))
   }
   hostAdvertisedMvpDirectByHandshake.set(hid, {
-    url: normalizeP2pIngestUrl(advRaw),
+    url: advRaw ? normalizeP2pIngestUrl(advRaw) : '',
     ownerDeviceId: expectHost,
     adSource: 'relay',
     ollamaRoster: ollamaRoster ?? null,
   })
   tryRecordHostPeerLivePresenceFromRelayAd(hid, ar.record, raw)
-  const r = ar.record
-  const current = (r.p2p_endpoint ?? '').trim()
-  const newNorm = normalizeP2pIngestUrl(advRaw)
-  const oldNorm = current ? normalizeP2pIngestUrl(current) : ''
-  const dbUpdated = newNorm !== oldNorm
-  if (dbUpdated) {
-    const oldKind = kindForLog(db, current || null)
-    const newKind = kindForLog(db, advRaw)
-    console.log(
-      `[HOST_INFERENCE_P2P] endpoint_relay_ad_repair_begin handshake=${hid} old=${oldKind} new=${newKind}`,
-    )
-    const next: HandshakeRecord = { ...r, p2p_endpoint: newNorm }
-    updateHandshakeRecord(db, next)
+  let dbUpdated = false
+  let endpointKind: 'direct_lan' | 'sealed_relay' = capabilityOnlyAd ? 'sealed_relay' : 'direct_lan'
+  let acceptedEndpoint: string | null = capabilityOnlyAd ? null : normalizeP2pIngestUrl(advRaw)
+  if (advRaw) {
+    const r = ar.record
+    const current = (r.p2p_endpoint ?? '').trim()
+    const newNorm = normalizeP2pIngestUrl(advRaw)
+    const oldNorm = current ? normalizeP2pIngestUrl(current) : ''
+    dbUpdated = newNorm !== oldNorm
+    if (dbUpdated) {
+      const oldKind = kindForLog(db, current || null)
+      const newKind = kindForLog(db, advRaw)
+      console.log(
+        `[HOST_INFERENCE_P2P] endpoint_relay_ad_repair_begin handshake=${hid} old=${oldKind} new=${newKind}`,
+      )
+      const next: HandshakeRecord = { ...r, p2p_endpoint: newNorm }
+      updateHandshakeRecord(db, next)
+    }
+    acceptedEndpoint = newNorm
   }
   invalidateP2pEnsureCachesForHandshake(hid)
   console.log(
     `[HOST_AI_ENDPOINT_AD_ACCEPTED] ${JSON.stringify({
       handshakeId: hid,
       ownerDeviceId: expectHost,
-      endpointKind: 'direct_lan',
+      endpointKind,
       dbUpdated,
-      endpoint: newNorm,
+      endpoint: acceptedEndpoint,
       seq: adSeq,
       relayMessageId,
     })}`,
   )
+  void import('./sandboxHostAiDirectBeapAdRequest')
+    .then(({ sandboxRequestHostAiP2pOfferAfterBeapAdAccepted }) =>
+      sandboxRequestHostAiP2pOfferAfterBeapAdAccepted(db, hid, ar.record, adSeq, 'beap_ad_accepted'),
+    )
+    .catch(() => {})
   return { ok: true }
 }
 

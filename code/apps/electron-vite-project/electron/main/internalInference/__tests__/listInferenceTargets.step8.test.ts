@@ -1418,7 +1418,7 @@ describe('session identity isolation — Host AI list', () => {
     expect(r.targets[0]?.available).toBe(true)
   })
 
-  it('disabled target when host peer has no live identity-bound presence', async () => {
+  it('eligible target stays visible with reconnecting status when live presence expired', async () => {
     isSandboxModeMock.mockReturnValue(true)
     getCurrentSessionMock.mockReturnValue(sessionForParty('same-user'))
     listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost()])
@@ -1441,7 +1441,9 @@ describe('session identity isolation — Host AI list', () => {
     })
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.targets).toHaveLength(1)
-    expect(r.targets[0]?.available).toBe(false)
-    expect(r.targets[0]?.inference_error_code).toBe(InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE)
+    expect(r.targets[0]?.available).toBe(true)
+    expect(r.targets[0]?.policy_enabled).toBe(true)
+    expect(r.targets[0]?.p2pUiPhase).toBe('connecting')
+    expect(r.targets[0]?.inference_error_code).not.toBe(InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE)
   })
 })

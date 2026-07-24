@@ -32,6 +32,8 @@ type InflightEntry = {
   promise: Promise<unknown>
   startedAt: number
   state: 'running' | 'done' | 'error' | 'timeout' | 'aborted'
+  /** Whether the in-flight run was started by a manual invoke (vs lazy/auto). */
+  origin: 'auto' | 'manual'
 }
 
 const inboxAiTaskInflight = new Map<string, InflightEntry>()
@@ -202,6 +204,31 @@ export function replayAnalysisStreamState(
   return st.terminal?.kind ?? 'running'
 }
 
+/**
+ * Manual Analyze on a row where lazy auto-analysis is mid-stream: attach to the running auto
+ * task (replay buffered chunks + await completion) instead of aborting via supersede.
+ */
+export async function tryAttachManualInboxAnalysisToRunningAuto(
+  taskKey: string,
+  send: (channel: string, payload: Record<string, unknown>) => void,
+): Promise<(Record<string, unknown> & { requestId: string; attachedToAuto: true }) | null> {
+  const existing = inboxAiTaskInflight.get(taskKey)
+  if (!existing || existing.state !== 'running' || existing.origin !== 'auto') {
+    return null
+  }
+  console.log(
+    `[AI_TASK_ATTACH_MANUAL_TO_AUTO] ${JSON.stringify({
+      taskKey,
+      existingRequestId: existing.requestId,
+      elapsedMs: Date.now() - existing.startedAt,
+    })}`,
+  )
+  replayAnalysisStreamState(taskKey, send)
+  const r = (await existing.promise) as Record<string, unknown>
+  replayAnalysisStreamState(taskKey, send)
+  return { ...r, requestId: existing.requestId, attachedToAuto: true }
+}
+
 export async function waitForInboxAiTask(taskKey: string): Promise<boolean> {
   const existing = inboxAiTaskInflight.get(taskKey)
   if (!existing || existing.state !== 'running') return false
@@ -247,6 +274,7 @@ export async function runInboxAiTaskWithDedup<T extends Record<string, unknown>>
   taskKey: string,
   opts: {
     supersede?: boolean
+    manual?: boolean
     supersedeKeyPrefix: string
     messageId: string
     abortControllers?: Map<string, AbortController>
@@ -254,6 +282,7 @@ export async function runInboxAiTaskWithDedup<T extends Record<string, unknown>>
   run: (requestId: string, signal: AbortSignal) => Promise<T>,
 ): Promise<T & { requestId: string; deduped?: boolean }> {
   const { supersede, supersedeKeyPrefix, messageId, abortControllers } = opts
+  const manualRequest = opts.manual === true
 
   if (supersede) {
     if (abortControllers) {
@@ -349,7 +378,13 @@ export async function runInboxAiTaskWithDedup<T extends Record<string, unknown>>
     }
   })()
 
-  inboxAiTaskInflight.set(taskKey, { requestId, promise, startedAt, state: 'running' })
+  inboxAiTaskInflight.set(taskKey, {
+    requestId,
+    promise,
+    startedAt,
+    state: 'running',
+    origin: manualRequest ? 'manual' : 'auto',
+  })
 
   promise.finally(() => {
     const cur = inboxAiTaskInflight.get(taskKey)

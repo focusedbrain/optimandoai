@@ -97,7 +97,7 @@ class AddModeWizardErrorBoundary extends React.Component<
           >
             <h3 style={{ margin: '0 0 8px', fontSize: 18 }}>Something went wrong</h3>
             <p style={{ margin: '0 0 20px', fontSize: 14, lineHeight: 1.45, color: '#475569' }}>
-              The automation wizard encountered an error. You can close this dialog and try again.
+              The mode wizard encountered an error. You can close this dialog and try again.
             </p>
             <button
               type="button"
@@ -177,7 +177,7 @@ export function AddModeWizardHost({ theme }: AddModeWizardHostProps) {
         editTarget={editTarget}
         onClose={handleCloseAll}
         theme={lightboxTheme}
-        onSave={(draft) => {
+        onSave={async (draft) => {
           if (editTarget) {
             updateMode(editTarget.id, draft)
             const def = useCustomModesStore.getState().getById(editTarget.id)
@@ -186,7 +186,7 @@ export function AddModeWizardHost({ theme }: AddModeWizardHostProps) {
               void syncCustomModeDiffWatcher(editTarget.id, def.name, scope.diffWatchFolders)
             }
           } else {
-            const id = addMode(draft)
+            const id = await addMode(draft)
             const def = useCustomModesStore.getState().getById(id)
             if (def) {
               const scope = getCustomModeScopeFromMetadata(def.metadata as Record<string, unknown> | undefined)

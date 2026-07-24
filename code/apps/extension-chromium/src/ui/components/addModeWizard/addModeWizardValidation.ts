@@ -27,7 +27,7 @@ export function getInlineFieldErrorsForStep(
   const out: InlineFieldErrors = {}
   switch (stepIndex) {
     case 0:
-      if (!data.name?.trim()) out.name = 'Enter an automation name.'
+      if (!data.name?.trim()) out.name = 'Enter a mode name.'
       return out
     case 1: {
       const p = (data.modelProvider ?? 'ollama').trim().toLowerCase()
@@ -74,7 +74,7 @@ export function validateAddModeWizardStep(
 ): string | null {
   switch (stepIndex) {
     case 0: {
-      if (!data.name?.trim()) return 'Enter an automation name.'
+      if (!data.name?.trim()) return 'Enter a mode name.'
       return null
     }
     case 1: {

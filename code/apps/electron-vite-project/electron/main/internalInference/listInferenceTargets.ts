@@ -96,12 +96,22 @@ import {
 } from './sandboxHostAiOllamaDirectSyntheticProbe'
 import {
   hasHostPeerIdentityBoundLivePresence,
+  nudgeHostPeerLivePresenceRedial,
   tryRecordHostPeerLivePresenceFromCapabilitiesWire,
 } from './hostAiPeerLivePresence'
+import {
+  isHostSandboxPairEligible,
+  rowProvesLocalSandboxToHostForHostAi,
+} from './hostAiInternalPairingLedger'
 import type { HostAiEndpointDiagnostics } from '../../../src/lib/hostAiUiDiagnostics'
 import { hostAiUserFacingMessageFromTarget } from '../../../src/lib/hostAiUiDiagnostics'
 import type { HostAiTargetStatus } from './hostAiTargetStatus'
 import { readStoredAiExecutionContext } from '../llm/aiExecutionContextStore'
+import {
+  canonicalLocalModelName,
+  dedupeCanonicalModelNames,
+  resolveLocalModelAlias,
+} from '../llm/localModelIdentity'
 
 const L = '[HOST_INFERENCE_TARGETS]'
 /** One-shot: seed `hostAdvertisedMvpDirectByHandshake` from DB before first list probe (cold start). */
@@ -787,11 +797,18 @@ function deriveFromRecord(r: HandshakeRecord): DerivedInternalRoles {
   return deriveInternalHandshakeRoles(recordToInternalRoleSource(r))
 }
 
-/** This instance (coordination id) is Sandbox and peer is Host, same account — the Host AI target shape. */
-function rowProvesLocalSandboxToHostForHostAi(r: HandshakeRecord): boolean {
-  if (!handshakeSamePrincipal(r)) return false
-  const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
-  return dr.ok && dr.localRole === 'sandbox' && dr.peerRole === 'host'
+/** Overlay reconnecting liveness on eligible rows when live presence expired (never disables). */
+function overlayHostPeerPresenceLiveness(
+  draft: HostTargetDraft,
+  hostPeerLive: boolean,
+  pairEligible: boolean,
+): HostTargetDraft {
+  if (hostPeerLive || !pairEligible) return draft
+  return {
+    ...draft,
+    p2pUiPhase: 'connecting',
+    host_ai_target_status: draft.host_ai_target_status === 'offline' ? 'offline' : draft.host_ai_target_status,
+  }
 }
 
 function mapRoleGateFromDerived(d: DerivedInternalRoles): HostInternalInferenceRejectReason {
@@ -1536,7 +1553,7 @@ async function tryEmitOllamaDirectOnlyRowsAfterBeapProbeFailure(p: {
 }): Promise<boolean> {
   const { targets, hid, hostDevice, ml0, listDec, leK, odTagsPrefetch, beapFailureCode, record } = p
   if (!hostDevice.trim()) return false
-  if (!hasHostPeerIdentityBoundLivePresence(hid, record)) return false
+  if (!isHostSandboxPairEligible(record)) return false
   const odRescue = getSandboxOllamaDirectRouteCandidate(hid)
   const baseUrlStr = typeof odRescue?.base_url === 'string' ? odRescue.base_url.trim() : ''
   if (!odRescue || !baseUrlStr) return false
@@ -1626,52 +1643,6 @@ async function tryEmitOllamaDirectOnlyRowsAfterBeapProbeFailure(p: {
     `${L} beap_target_available=false ollama_direct_available=true transport=${transportProbeLabel} handshake=${hid} ollama_direct_models=${pushed} reason=beap_probe_failed_od_rescue`,
   )
   return pushed > 0
-}
-
-function draftHostPeerIdentityOfflineDisabledRow(
-  r0: HandshakeRecord,
-  hid: string,
-  hostDevice: string,
-  ml0: ReturnType<typeof metaLocal>,
-  listDec: HostAiTransportDeciderResult,
-  leK: HostListLegacyEndpointKind,
-): HostTargetDraft {
-  const sub = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
-  const lab = 'Host AI unavailable — Host identity offline'
-  return {
-    kind: 'host_internal',
-    id: buildHostTargetId(hid, 'unavailable'),
-    label: lab,
-    display_label: lab,
-    displayTitle: lab,
-    displaySubtitle: sub,
-    model: null,
-    model_id: null,
-    provider: 'host_internal',
-    handshake_id: hid,
-    host_device_id: hostDevice,
-    host_computer_name: ml0.hostName,
-    host_pairing_code: ml0.digits6,
-    host_orchestrator_role: 'host',
-    host_orchestrator_role_label: ml0.roleLabel,
-    internal_identifier_6: ml0.digits6,
-    secondary_label: sub,
-    direct_reachable: false,
-    policy_enabled: false,
-    available: false,
-    hostTargetAvailable: false,
-    availability: 'host_offline',
-    unavailable_reason: InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE,
-    hostAiStructuredUnavailableReason: 'host_peer_identity_offline',
-    host_role: 'Host',
-    inference_error_code: InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE,
-    ...baseMetaFromDec(listDec, leK),
-    p2pUiPhase: 'p2p_unavailable',
-    failureCode: InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE,
-    host_ai_target_status: 'offline',
-    host_selector_state: 'unavailable',
-    hostSelectorState: 'unavailable',
-  }
 }
 
 /**
@@ -1981,7 +1952,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       odTagsPrefetch != null &&
       Date.now() >= until429 &&
       sandboxOllamaDirectTagsAllowListTransportBypass(odTagsPrefetch) &&
-      hasHostPeerIdentityBoundLivePresence(hid, r0)
+      isHostSandboxPairEligible(r0)
     const inferenceTrusted = listDec.inferenceHandshakeTrusted === true
     const handshakeTrustReason = listDec.inferenceHandshakeTrustReason ?? null
     const transportDecideLogReason: string = (() => {
@@ -2225,11 +2196,29 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       const storedCtx = readStoredAiExecutionContext()
       const storedHid = storedCtx?.handshakeId?.trim() || ''
       const storedModelRaw = storedCtx?.model?.trim() || ''
-      const storedModel =
-        storedModelRaw && (!storedHid || storedHid === hid) ? storedModelRaw : null
       const sealedRoster = peekHostAdvertisedMvpDirectEntry(hid)?.ollamaRoster ?? null
+      const sealedRosterNames = sealedRoster
+        ? dedupeCanonicalModelNames(
+            sealedRoster.models
+              .filter((rm) => rm.available !== false)
+              .map((rm) => rm.name || rm.id),
+          )
+        : []
+      /**
+       * A4 selection hygiene: the selector shows CANONICAL names only (no path/tag spellings).
+       * A stored selection counts only when it alias-resolves against the received roster; a stale
+       * tag (e.g. Ollama-era `gemma4:12b-it-q8_0`) must not surface as a Host row.
+       */
+      const storedModelForHid = storedModelRaw && (!storedHid || storedHid === hid) ? storedModelRaw : null
+      const storedModel = storedModelForHid
+        ? sealedRosterNames.length > 0
+          ? resolveLocalModelAlias(storedModelForHid, sealedRosterNames)
+          : canonicalLocalModelName(storedModelForHid) || null
+        : null
       const rosterActiveModel =
-        sealedRoster?.active_model_id?.trim() || sealedRoster?.active_model_name?.trim() || null
+        canonicalLocalModelName(sealedRoster?.active_model_id) ||
+        canonicalLocalModelName(sealedRoster?.active_model_name) ||
+        null
       const sealedModel = storedModel || rosterActiveModel || null
       const sealedModelSource = storedModel
         ? 'stored_selection'
@@ -2238,54 +2227,65 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
           : null
 
       if (sealedModel && sealedModelSource) {
-        const primaryLabel = `Host AI · ${sealedModel}`
-        const t: HostTargetDraft = {
-          kind: 'host_internal',
-          id: buildHostTargetId(hid, sealedModel),
-          label: primaryLabel,
-          display_label: primaryLabel,
-          displayTitle: primaryLabel,
-          displaySubtitle: sealedSecondary,
-          model: sealedModel,
-          model_id: sealedModel,
-          provider: 'host_internal',
-          handshake_id: hid,
-          host_device_id: hostDevice,
-          host_computer_name: ml0.hostName,
-          host_pairing_code: ml0.digits6,
-          host_orchestrator_role: 'host',
-          host_orchestrator_role_label: ml0.roleLabel,
-          internal_identifier_6: ml0.digits6,
-          secondary_label: sealedSecondary,
-          direct_reachable: true,
-          policy_enabled: true,
-          available: true,
-          hostTargetAvailable: true,
-          availability: 'available',
-          unavailable_reason: null,
-          host_role: 'Host',
-          selector_phase: 'legacy_http_available',
-          ...baseMetaFromDec(listDec, leK),
-          p2pUiPhase: 'ready',
-          failureCode: null,
-          host_ai_target_status: 'beap_ready',
-          hostActiveModel: sealedModel,
-          beapReady: true,
-          ollamaDirectReady: false,
-          visibleInModelSelector: true,
-          trustedForBeap: true,
-          canChat: true,
-          canUseTopChatTools: true,
-          canUseOllamaDirect: false,
-          trusted: true,
+        /**
+         * Emit one selector row per advertised roster model (relay BEAP ad capabilities) so the
+         * Sandbox sees the full Host roster over sealed_relay — not just the resolved primary.
+         * The resolved model stays first/active; names are canonical and de-duplicated.
+         * LAN deprecated, see Teil B (no `/api/tags` probe).
+         */
+        const sealedModelNames: string[] = dedupeCanonicalModelNames([sealedModel, ...sealedRosterNames])
+        for (const nm of sealedModelNames) {
+          const isPrimary = nm === sealedModel
+          const primaryLabel = `Host AI · ${nm}`
+          const t: HostTargetDraft = {
+            kind: 'host_internal',
+            id: buildHostTargetId(hid, nm),
+            label: primaryLabel,
+            display_label: primaryLabel,
+            displayTitle: primaryLabel,
+            displaySubtitle: sealedSecondary,
+            model: nm,
+            model_id: nm,
+            provider: 'host_internal',
+            handshake_id: hid,
+            host_device_id: hostDevice,
+            host_computer_name: ml0.hostName,
+            host_pairing_code: ml0.digits6,
+            host_orchestrator_role: 'host',
+            host_orchestrator_role_label: ml0.roleLabel,
+            internal_identifier_6: ml0.digits6,
+            secondary_label: sealedSecondary,
+            direct_reachable: true,
+            policy_enabled: true,
+            available: true,
+            hostTargetAvailable: true,
+            availability: 'available',
+            unavailable_reason: null,
+            host_role: 'Host',
+            selector_phase: 'legacy_http_available',
+            ...baseMetaFromDec(listDec, leK),
+            p2pUiPhase: 'ready',
+            failureCode: null,
+            host_ai_target_status: 'beap_ready',
+            hostActiveModel: sealedModel,
+            isHostActiveModel: isPrimary,
+            beapReady: true,
+            ollamaDirectReady: false,
+            visibleInModelSelector: true,
+            trustedForBeap: true,
+            canChat: true,
+            canUseTopChatTools: true,
+            canUseOllamaDirect: false,
+            trusted: true,
+          }
+          targets.push(finalizeItem(t))
         }
-        targets.push(finalizeItem(t))
         hadCapabilitiesProbed = false
         console.log(
-          `[HOST_AI_CAPABILITY_PROBE] transport=sealed_relay ok=true handshake=${hid} source=${sealedModelSource} model=${sealedModel} (lan_probe_skipped_non_gating)`,
+          `[HOST_AI_CAPABILITY_PROBE] transport=sealed_relay ok=true handshake=${hid} source=${sealedModelSource} model=${sealedModel} roster_models=${sealedModelNames.length} (lan_probe_skipped_non_gating)`,
         )
         console.log(
-          `${L} beap_target_available=true ollama_direct_available=false transport=sealed_relay handshake=${hid} model=${sealedModel} source=${sealedModelSource} reason=sealed_decided_trusted`,
+          `${L} beap_target_available=true ollama_direct_available=false transport=sealed_relay handshake=${hid} model=${sealedModel} source=${sealedModelSource} models=${sealedModelNames.length} reason=sealed_decided_trusted`,
         )
         continue
       }
@@ -2634,7 +2634,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         odTagsPrefetch &&
         hostDevice.trim() !== '' &&
         sandboxOllamaDirectTagsAllowListTransportBypass(odTagsPrefetch) &&
-        hasHostPeerIdentityBoundLivePresence(hid, r0)
+        isHostSandboxPairEligible(r0)
       ) {
         /** BEAP/policy HTTP on cooldown — Ollama LAN tags already enumerated ⇒ list via `ollama_direct` only. */
         probe = buildSyntheticOkProbeFromOllamaDirectTags(
@@ -2652,7 +2652,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         }
         hadCapabilitiesProbed = true
       }
-    } else if (bypassOllamaDirectLan && odTagsPrefetch && hasHostPeerIdentityBoundLivePresence(hid, r0)) {
+    } else if (bypassOllamaDirectLan && odTagsPrefetch && isHostSandboxPairEligible(r0)) {
       probe = buildSyntheticOkProbeFromOllamaDirectTags(
         odTagsPrefetch,
         hostOllamaDirectSyntheticProbeMeta(hid, { hostName: ml0.hostName, digits6: ml0.digits6 }),
@@ -3132,13 +3132,16 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     hostAiDirectProbe429CooldownUntil.delete(hid)
     const hm = metaFromOkProbe(probe, displayName, pcc)
 
-    if (!hasHostPeerIdentityBoundLivePresence(hid, r0)) {
+    const hostPeerLive = hasHostPeerIdentityBoundLivePresence(hid, r0)
+    const pairEligibleForLiveness = isHostSandboxPairEligible(r0)
+    if (!hostPeerLive && pairEligibleForLiveness) {
+      void nudgeHostPeerLivePresenceRedial(db, hid, r0, 'list_targets_presence_lapse')
       console.log(
-        `${L} target_disabled handshake=${hid} reason=HOST_PEER_IDENTITY_NOT_LIVE detail=${InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE}`,
+        `${L} host_peer_presence_lapsed handshake=${hid} action=redial status=reconnecting detail=${InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE}`,
       )
-      targets.push(finalizeItem(draftHostPeerIdentityOfflineDisabledRow(r0, hid, hostDevice, ml0, listDec, leK)))
-      continue
     }
+    const finalizeEligibleRow = (draft: HostTargetDraft) =>
+      finalizeItem(overlayHostPeerPresenceLiveness(draft, hostPeerLive, pairEligibleForLiveness))
 
     const odCand = odCandPrefetch ?? getSandboxOllamaDirectRouteCandidate(hid)
     let odTags: SandboxOllamaDirectTagsFetchResult | null = odTagsPrefetch
@@ -3212,7 +3215,8 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     const listTransportProvenForSelection =
       isHostAiListTransportProven(listDec, hid) ||
       Boolean(getSandboxOllamaDirectRouteCandidate(hid)) ||
-      Boolean(odCand && odTags != null)
+      Boolean(odCand && odTags != null) ||
+      pairEligibleForLiveness
     if (!listTransportProvenForSelection) {
       const ml0 = metaLocal(displayName, pcc)
       const psub0 = secondaryLabelFromMeta(ml0.hostName, ml0.roleLabel, ml0.pairingDisplay)
@@ -3439,7 +3443,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
             canUseOllamaDirect: true,
             trusted: true,
           }
-          targets.push(finalizeItem(t))
+          targets.push(finalizeEligibleRow(t))
         }
         console.log(
           `[HOST_AI_CAPABILITY_PROBE] transport=${transportProbeLabel} ok=true handshake=${hid} source=ollama_direct tags_models=${pushed}`,
@@ -3507,7 +3511,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
             canUseOllamaDirect: true,
             trusted: false,
           }
-          targets.push(finalizeItem(t))
+          targets.push(finalizeEligibleRow(t))
         }
         console.log(
           `[HOST_AI_CAPABILITY_PROBE] transport=${transportProbeLabel} ok=tags_only handshake=${hid} source=ollama_direct tags_models=${pushed} beap_lane=untrusted_direct_only status=${laneStatusUntrusted}`,
@@ -3722,7 +3726,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
         })}`,
       )
       targets.push(
-        finalizeItem({
+        finalizeEligibleRow({
           ...t,
           beapReady: true,
           ollamaDirectReady: ollamaWireHostReachable,

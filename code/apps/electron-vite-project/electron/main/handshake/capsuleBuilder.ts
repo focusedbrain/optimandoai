@@ -38,6 +38,8 @@ import { deriveRelationshipId } from './relationshipId'
 import { generateSigningKeypair, signCapsuleHash, type SigningKeypair } from './signatureKeys'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { INTERNAL_ENDPOINT_ERROR_CODES } from '../../../../../packages/shared/src/handshake/internalEndpointValidation'
+import { sealContextSyncBlocks } from './contextSyncSeal'
+import type { SealedServiceRpcEnvelope } from '../serviceRpc/sealedServiceRpc'
 
 // ── Wire format types ──
 
@@ -218,6 +220,8 @@ export interface HandshakeCapsuleWire {
   readonly prev_hash?: string;
   readonly context_block_proofs?: ReadonlyArray<ContextBlockProof>;
   readonly context_blocks: ReadonlyArray<ContextBlockWireProof>;
+  /** context_sync only — E2E-sealed ciphertext of context_blocks[].content (see contextSyncSeal.ts). */
+  readonly context_blocks_sealed?: SealedServiceRpcEnvelope;
   /** Sender's P2P endpoint (advertised in initiate/accept). Optional. */
   readonly p2p_endpoint?: string | null;
   /** Bearer the peer stores as `counterparty_p2p_token` for this sender's outbound BEAP. Optional. */
@@ -478,6 +482,14 @@ export interface ContextSyncOptions {
   senderComputerName?: string;
   receiverComputerName?: string;
   p2p_auth_token?: string | null;
+  /**
+   * Peer's X25519 public key (base64) — required to seal `context_blocks[].content`
+   * for `buildContextSyncCapsuleWithContent`. Same key/resolution as the
+   * sealed_service_rpc_v1 send path (`record.peer_x25519_public_key_b64`).
+   */
+  peerX25519PublicKeyB64?: string | null;
+  /** This device's role on the handshake — used only as an AAD label for content sealing. */
+  localRole?: 'initiator' | 'acceptor';
 }
 
 // ── Builder functions ──
@@ -997,29 +1009,43 @@ export function buildContextSyncCapsule(
 
 /**
  * Build a `context_sync` handshake capsule WITH content for P2P delivery.
- * Same as buildContextSyncCapsule but includes actual block content (no stripContentFromBlocks).
+ *
+ * `context_blocks[].content` is E2E-sealed to the peer (X25519 ECDH + HKDF +
+ * AES-256-GCM, reusing `sealServiceRpcPayload` — see `contextSyncSeal.ts`) before
+ * it ever reaches this function's return value: the outgoing `context_blocks`
+ * field stays content-free (matches `buildContextSyncCapsule`'s stripped/proof-only
+ * shape, which is what `capsule_hash`/`context_commitment` are already computed
+ * over — unchanged), and the ciphertext is carried in a sibling
+ * `context_blocks_sealed` field. No plaintext fallback: sealing failure throws.
+ *
  * Use for automatic context-sync delivery after accept.
  */
 export function buildContextSyncCapsuleWithContent(
   session: SSOSession,
   opts: ContextSyncOptions,
-): HandshakeCapsuleWire & { context_blocks: ReadonlyArray<ContextBlockForCommitment> } {
+): HandshakeCapsuleWire {
   const base = buildContextSyncCapsule(session, opts)
   const canonicalBlocks = canonicalizeBlockIds(opts.context_blocks ?? [], opts.handshake_id)
   if (!canonicalBlocks || canonicalBlocks.length === 0) {
-    return base as HandshakeCapsuleWire & { context_blocks: ReadonlyArray<ContextBlockForCommitment> }
+    return base
   }
-  const blocksWithContent = canonicalBlocks.map(b => ({
-    block_id: b.block_id,
-    block_hash: b.block_hash,
-    type: b.type,
-    scope_id: b.scope_id ?? null,
-    content: b.content,
-  }))
+  const localRole = opts.localRole
+  if (!localRole) {
+    throw new Error('CONTEXT_SYNC_SEAL_FAILED: localRole is required to seal context_blocks[].content (no plaintext fallback)')
+  }
+  const sealed = sealContextSyncBlocks({
+    handshakeId: opts.handshake_id,
+    peerX25519PublicKeyB64: opts.peerX25519PublicKeyB64,
+    localRole,
+    blocks: canonicalBlocks,
+  })
+  if (!sealed.ok) {
+    throw new Error(`CONTEXT_SYNC_SEAL_FAILED: ${sealed.code}: ${sealed.message}`)
+  }
   return {
     ...base,
-    context_blocks: blocksWithContent,
-  } as HandshakeCapsuleWire & { context_blocks: ReadonlyArray<ContextBlockForCommitment> }
+    context_blocks_sealed: sealed.envelope,
+  }
 }
 
 /**

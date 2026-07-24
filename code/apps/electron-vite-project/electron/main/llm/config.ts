@@ -381,13 +381,13 @@ export const MODEL_CATALOG: LlmModelConfig[] = [
 
 /**
  * Default LLM configuration
- * ollamaPath will be set at runtime based on bundled location
+ * llamaServerPath will be set at runtime based on bundled location
  */
 export const DEFAULT_CONFIG: LlmConfig = {
-  ollamaPath: '',  // Set dynamically based on app resources path
-  ollamaPort: 11434,
-  activeModelId: 'mistral:7b-instruct-q4_0',
-  autoStart: true
+  llamaServerPath: '',
+  llamaServerPort: 8080,
+  activeModelId: 'mistral-7b-instruct-q4_0',
+  autoStart: true,
 }
 
 /**

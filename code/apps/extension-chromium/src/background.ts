@@ -6,135 +6,264 @@ import { maybePresentOrchestratorDisplayGridSession } from './services/presentOr
 import { findOpenSessionSurface } from './services/sessionSurfaceResolver'
 import { activateSessionForOptimization } from './services/sessionActivationForOptimization'
 
+import { RUN_MODE_ALLOCATED_SESSION_TYPE } from './services/runModeAllocatedSessionAutomation'
+import type { CustomModeRuntimeConfig } from './shared/ui/customModeRuntime'
+import {
+  parseModeIdFromIntervalAlarm,
+  rescheduleModeIntervalAlarm,
+  syncModeIntervalSchedulers,
+  syncModeIntervalSchedulersFromStore,
+} from './services/modeIntervalScheduler'
+
 // ---------------------------------------------------------------------------
-// Pending BEAP runs — in-memory registry keyed by sessionKey.
+// Pending session runs — in-memory registry keyed by sessionKey.
 //
 // Lifecycle:
-//   registerPendingBeapRun(sk, model) — called by BEAP_INBOX_PRESENT_GRID and
-//     PRESENT_ORCHESTRATOR_DISPLAY_GRID(source=beap-inbox) BEFORE the grid tab
-//     opens, so the ready signal never races with registration.
+//   registerPendingBeapRun(sk, model) — BEAP_INBOX_PRESENT_GRID /
+//     PRESENT_ORCHESTRATOR_DISPLAY_GRID(source=beap-inbox) BEFORE grid tab opens.
 //
-//   triggerPendingBeapRun(sk) — called by BEAP_GRID_SURFACE_READY once the
-//     grid tab reports its surface is painted and agent boxes are positioned.
-//     The `triggered` flag makes repeated ready signals no-ops (idempotent).
-//     Idempotency policy: CONTINUE — if a run was already started for this
-//     sessionKey, do not restart it. Re-clicking Run Automation on the same
-//     capsule always generates a fresh sessionKey, so it naturally starts a
-//     new pipeline; only the grid-tab's own duplicate ready-pings are no-ops.
+//   registerPendingModeSessionRun(sk, { modeRuntime, … }) — mode-action first open.
 //
-//   Safety timeout: 30 s after registration without a ready signal → entry is
-//     removed so stale Map entries do not accumulate in long-lived SWs.
+//   triggerPendingSessionRun(sk) — BEAP_GRID_SURFACE_READY once grid is painted.
+//
+//   Mode-action refresh-if-active: executeModeSessionRunDirect (no present/pending) when
+//   findOpenSessionSurface reports an open grid tab — bypasses BEAP no-op guards.
+//
+//
+//   Safety timeout: 30 s after registration without a ready signal → entry removed.
 // ---------------------------------------------------------------------------
 
-type PendingBeapRun = {
+type PendingSessionRunSource = 'beap-inbox' | 'mode-action'
+
+type PendingSessionRun = {
+  source: PendingSessionRunSource
   fallbackModel: string
   registeredAt: number
   triggered: boolean
   timeoutId: ReturnType<typeof setTimeout>
+  modeRuntime?: CustomModeRuntimeConfig | null
+  modeId?: string
 }
 
-const pendingBeapRuns = new Map<string, PendingBeapRun>()
+const pendingSessionRuns = new Map<string, PendingSessionRun>()
 
-const BEAP_RUN_READY_TIMEOUT_MS = 30_000
+/** Prevents overlapping executeModeRunAgents for the same session key (interval + manual). */
+const modeSessionExecuteInFlight = new Set<string>()
+
+function isSessionRunInFlight(sessionKey: string): boolean {
+  return modeSessionExecuteInFlight.has(sessionKey.trim())
+}
+
+const SESSION_RUN_READY_TIMEOUT_MS = 30_000
 
 /** Emitted by grid-display.js after createSlots() paints all agent-box slots. */
 const BEAP_GRID_SURFACE_READY = 'BEAP_GRID_SURFACE_READY' as const
 
-function registerPendingBeapRun(sessionKey: string, fallbackModel: string): void {
-  if (pendingBeapRuns.has(sessionKey)) return
+function registerPendingSessionRun(
+  sessionKey: string,
+  opts: {
+    fallbackModel: string
+    source: PendingSessionRunSource
+    modeRuntime?: CustomModeRuntimeConfig | null
+    modeId?: string
+    /** Replace an existing registration (mode-action refresh race). */
+    replace?: boolean
+  },
+): void {
+  if (pendingSessionRuns.has(sessionKey) && !opts.replace) return
+  const existing = pendingSessionRuns.get(sessionKey)
+  if (existing) clearTimeout(existing.timeoutId)
+
   const timeoutId = setTimeout(() => {
-    pendingBeapRuns.delete(sessionKey)
-    console.log('[BG] BEAP pending run expired (no ready signal in 30 s):', sessionKey)
-  }, BEAP_RUN_READY_TIMEOUT_MS)
-  pendingBeapRuns.set(sessionKey, {
-    fallbackModel: fallbackModel || 'tinyllama',
+    pendingSessionRuns.delete(sessionKey)
+    console.log('[BG] Pending session run expired (no ready signal in 30 s):', sessionKey)
+  }, SESSION_RUN_READY_TIMEOUT_MS)
+
+  pendingSessionRuns.set(sessionKey, {
+    source: opts.source,
+    fallbackModel: opts.fallbackModel || 'tinyllama',
     registeredAt: Date.now(),
     triggered: false,
     timeoutId,
+    modeRuntime: opts.modeRuntime ?? null,
+    modeId: opts.modeId,
   })
-  console.log('[BG] BEAP pending run registered:', sessionKey, '— waiting for grid ready signal')
+  console.log('[BG] Pending session run registered:', sessionKey, 'source=', opts.source)
+}
+
+function registerPendingBeapRun(sessionKey: string, fallbackModel: string): void {
+  registerPendingSessionRun(sessionKey, { fallbackModel, source: 'beap-inbox' })
+}
+
+function registerPendingModeSessionRun(
+  sessionKey: string,
+  payload: { fallbackModel: string; modeRuntime: CustomModeRuntimeConfig; modeId: string },
+): void {
+  registerPendingSessionRun(sessionKey, {
+    fallbackModel: payload.fallbackModel,
+    source: 'mode-action',
+    modeRuntime: payload.modeRuntime,
+    modeId: payload.modeId,
+    replace: true,
+  })
+}
+
+async function executeModeSessionRunCore(args: {
+  sessionKey: string
+  fallbackModel: string
+  modeRuntime?: CustomModeRuntimeConfig | null
+  runMode?: boolean
+}): Promise<{
+  ok: boolean
+  matchCount?: number
+  executed?: string[]
+  error?: string
+  busy?: boolean
+  timedOut?: boolean
+  interpreted?: import('./services/beapRunAutomationResult').BeapAutomationModeRunOk | import('./services/beapRunAutomationResult').BeapAutomationModeRunErr
+}> {
+  const { executeModeSessionRunWithInFlightGuard } = await import(
+    './services/modeSessionRunInFlightExecute'
+  )
+  return executeModeSessionRunWithInFlightGuard({
+    inFlight: modeSessionExecuteInFlight,
+    sessionKey: args.sessionKey,
+    fallbackModel: args.fallbackModel,
+    modeRuntime: args.modeRuntime ?? null,
+    runMode: args.runMode ?? !!args.modeRuntime,
+    logPrefix: 'BG',
+  })
+}
+
+async function executeModeSessionRunDirectForOrchestrator(args: {
+  sessionKey: string
+  fallbackModel: string
+  modeRuntime: CustomModeRuntimeConfig
+}): Promise<{
+  ok: boolean
+  matchCount?: number
+  executed?: string[]
+  error?: string
+  busy?: boolean
+}> {
+  const run = await executeModeSessionRunCore({
+    sessionKey: args.sessionKey,
+    fallbackModel: args.fallbackModel,
+    modeRuntime: args.modeRuntime,
+    runMode: true,
+  })
+  return {
+    ok: run.ok,
+    matchCount: run.matchCount,
+    executed: run.executed,
+    error: run.error,
+    busy: run.busy,
+    timedOut: run.timedOut,
+  }
+}
+
+async function handleModeIntervalAlarmTick(modeId: string): Promise<void> {
+  try {
+    const { requestModeModelWarmOnTrigger } = await import('./services/modeModelWarmOnTrigger')
+    requestModeModelWarmOnTrigger(modeId, 'interval')
+
+    const { runModeAllocatedSessionAutomation } = await import(
+      './services/runModeAllocatedSessionAutomation'
+    )
+    const result = await runModeAllocatedSessionAutomation(
+      { modeId, trigger: 'interval' },
+      {
+        registerPendingModeSessionRun,
+        executeModeSessionRunDirect: executeModeSessionRunDirectForOrchestrator,
+        isSessionRunInFlight,
+      },
+    )
+    if (result.busy) {
+      console.log('[ModeInterval] skipped — run in flight:', modeId)
+    } else if (!result.ok && !result.skipped) {
+      const { reportModeSessionRunResult } = await import('./services/modeSessionRunResultReporting')
+      reportModeSessionRunResult('ModeInterval', modeId, 'interval', result)
+    }
+  } catch (e) {
+    console.warn('[ModeInterval] tick error:', modeId, e)
+  } finally {
+    rescheduleModeIntervalAlarm(modeId)
+  }
 }
 
 /**
  * Called when the grid tab reports its surface is ready.
- * Runs executeModeRunAgents in background (storage-fallback path) and writes
- * the result to chrome.storage.local under beap_run_result_<sessionKey>.
- *
- * Ordering guarantee:
- *   (a) Session blob already in chrome.storage.local (set before grid tab opened).
- *   (b) Grid tabs rendered  ← this function is called only after grid signals ready.
- *   (c) Agent boxes positioned ← grid-display.js sends ready AFTER createSlots().
- *   (d) Hybrid tabs: not yet managed in presentOrchestratorDisplayGridSession;
- *       execution will still succeed as agents read from storage, not hybrid tabs.
  */
-async function triggerPendingBeapRun(sessionKey: string): Promise<void> {
-  const pending = pendingBeapRuns.get(sessionKey)
+async function triggerPendingSessionRun(sessionKey: string, opts?: { force?: boolean }): Promise<void> {
+  const pending = pendingSessionRuns.get(sessionKey)
   if (!pending) {
     console.log('[BG] BEAP_GRID_SURFACE_READY: no pending run for', sessionKey, '— ignoring')
     return
   }
-  if (pending.triggered) {
+  if (pending.triggered && !opts?.force) {
     console.log('[BG] BEAP_GRID_SURFACE_READY: run already triggered for', sessionKey, '— no-op (idempotent)')
     return
   }
   pending.triggered = true
   clearTimeout(pending.timeoutId)
-  pendingBeapRuns.delete(sessionKey)
-  console.log('[BG] BEAP run triggered for', sessionKey, '— calling executeModeRunAgents')
+  pendingSessionRuns.delete(sessionKey)
+  console.log('[BG] Session run triggered for', sessionKey, 'source=', pending.source)
 
-  try {
-    const { executeModeRunAgents } = await import('./services/modeRunExecution')
-    const { interpretBeapAutomationModeRun } = await import('./services/beapRunAutomationResult')
+  const run = await executeModeSessionRunCore({
+    sessionKey,
+    fallbackModel: pending.fallbackModel,
+    modeRuntime: pending.modeRuntime,
+    runMode: pending.source === 'mode-action' || !!pending.modeRuntime,
+  })
 
-    const runResult = await executeModeRunAgents({
-      modeLinkedSessionId: sessionKey,
-      currentOrchestratorSessionId: sessionKey,
-      sessionKey,
-      fallbackModel: pending.fallbackModel,
-      inputText: '',
-      processedMessages: [{ role: 'user', content: '' }],
-    })
+  const storageKey =
+    pending.source === 'mode-action' ? `mode_run_result_${sessionKey}` : `beap_run_result_${sessionKey}`
 
-    const interpreted = interpretBeapAutomationModeRun(sessionKey, runResult)
-    console.log('[BG] BEAP run result:', sessionKey, interpreted.ok ? 'ok' : interpreted.error)
-
+  if (!run.ok) {
+    console.warn('[BG] Session run failed:', sessionKey, run.error)
     try {
       await chrome.storage.local.set({
-        [`beap_run_result_${sessionKey}`]: {
-          ...interpreted,
-          completedAt: Date.now(),
-        },
-      })
-    } catch (e) {
-      console.warn('[BG] Failed to persist BEAP run result:', e)
-    }
-
-    try {
-      chrome.runtime.sendMessage({
-        type: 'BEAP_RUN_AUTOMATION_COMPLETE',
-        sessionKey,
-        result: interpreted,
-      })
-    } catch {
-      /* sidepanel/popup may not be open — best-effort notification */
-    }
-  } catch (e) {
-    console.error('[BG] executeModeRunAgents threw:', e)
-    const errMsg = e instanceof Error ? e.message : String(e)
-    try {
-      await chrome.storage.local.set({
-        [`beap_run_result_${sessionKey}`]: {
+        [storageKey]: {
           ok: false,
           sessionKey,
           phase: 'mode_run',
-          error: errMsg,
+          error: run.error,
           completedAt: Date.now(),
         },
       })
     } catch {
       /* non-fatal */
     }
+    return
   }
+
+  console.log('[BG] Session run result:', sessionKey, 'ok', run.executed?.length ?? 0, 'agents')
+
+  try {
+    await chrome.storage.local.set({
+      [storageKey]: {
+        ...(run.interpreted ?? { ok: true, sessionKey, matchCount: run.matchCount, executed: run.executed }),
+        completedAt: Date.now(),
+      },
+    })
+  } catch (e) {
+    console.warn('[BG] Failed to persist session run result:', e)
+  }
+
+  try {
+    chrome.runtime.sendMessage({
+      type: pending.source === 'mode-action' ? 'MODE_SESSION_RUN_COMPLETE' : 'BEAP_RUN_AUTOMATION_COMPLETE',
+      sessionKey,
+      result: run.interpreted ?? { ok: true, sessionKey, matchCount: run.matchCount, executed: run.executed },
+    })
+  } catch {
+    /* sidepanel/popup may not be open */
+  }
+}
+
+/** @deprecated alias */
+async function triggerPendingBeapRun(sessionKey: string): Promise<void> {
+  return triggerPendingSessionRun(sessionKey)
 }
 
 try {
@@ -145,6 +274,18 @@ try {
   })
 } catch {
   /* ignore */
+}
+
+void syncModeIntervalSchedulersFromStore()
+
+try {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    const modeId = parseModeIdFromIntervalAlarm(alarm.name)
+    if (!modeId) return
+    void handleModeIntervalAlarmTick(modeId)
+  })
+} catch {
+  /* alarms unavailable */
 }
 
 declare global {
@@ -1368,6 +1509,17 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               try {
                 chrome.runtime.sendMessage({ type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl, promptContext })
               } catch {}
+            } else if (data.type === 'CUSTOM_MODES_CHANGED') {
+              const modes = Array.isArray(data.modes) ? data.modes : []
+              void syncModeIntervalSchedulers(modes)
+              try {
+                chrome.runtime.sendMessage({
+                  type: 'CUSTOM_MODES_CHANGED',
+                  modes,
+                })
+              } catch {
+                /* no listener */
+              }
             } else if (data.type === 'DIFF_RESULT') {
               try {
                 chrome.runtime.sendMessage({
@@ -1732,12 +1884,40 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               const fromAutoOpt = data.source === 'auto-optimization'
               void (async () => {
                 try {
+                  const pendingModeRaw = data.pendingModeSessionRun
+                  const pendingMode =
+                    pendingModeRaw && typeof pendingModeRaw === 'object' && !Array.isArray(pendingModeRaw)
+                      ? (pendingModeRaw as Record<string, unknown>)
+                      : null
+                  if (pendingMode) {
+                    const fallbackModel =
+                      typeof pendingMode.fallbackModel === 'string' && pendingMode.fallbackModel.trim()
+                        ? pendingMode.fallbackModel.trim()
+                        : 'tinyllama'
+                    const modeRuntime =
+                      pendingMode.modeRuntime && typeof pendingMode.modeRuntime === 'object'
+                        ? (pendingMode.modeRuntime as CustomModeRuntimeConfig)
+                        : null
+                    const modeId =
+                      typeof pendingMode.modeId === 'string' ? pendingMode.modeId.trim() : ''
+                    if (modeRuntime) {
+                      registerPendingModeSessionRun(sessionKey, {
+                        fallbackModel,
+                        modeRuntime,
+                        modeId,
+                      })
+                    }
+                  }
+
                   const surface = await findOpenSessionSurface(sessionKey)
                   if (surface?.kind === 'grid_tab') {
                     const msg = fromAutoOpt
                       ? `[AutoOpt] Session ${sessionKey} display grids already open, skipping`
                       : `[BG] PRESENT_ORCHESTRATOR_DISPLAY_GRID: grid already open ${sessionKey}`
                     console.log(msg)
+                    if (pendingMode) {
+                      void triggerPendingSessionRun(sessionKey)
+                    }
                     return
                   }
                   let sessionBlob: Record<string, unknown> | null = null
@@ -2031,7 +2211,7 @@ const tabDisplayGridsActive = new Map<number, boolean>();
 
 // Remove sidepanel disabling - we'll show minimal UI instead
 
-// Handle extension icon click: open the side panel + open wrdesk.com if not logged in
+// Handle extension icon click: open the side panel + open optirando.com if not logged in
 chrome.action.onClicked.addListener(async (tab) => {
   try {
     // Check if display grids are active for this tab
@@ -2044,7 +2224,7 @@ chrome.action.onClicked.addListener(async (tab) => {
       await chrome.sidePanel.open({ tabId: tab.id })
     }
     
-    // Check if user is logged in - if not, open wrdesk.com immediately
+    // Check if user is logged in - if not, open optirando.com immediately
     try {
       const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/status`, {
         method: 'GET',
@@ -2053,11 +2233,11 @@ chrome.action.onClicked.addListener(async (tab) => {
       });
       const data = await response.json();
       if (!data.loggedIn) {
-        // Not logged in - open wrdesk.com
+        // Not logged in - open optirando.com
         await openWrdeskHomeIfNeeded();
       }
     } catch {
-      // Electron not reachable - user is not logged in, open wrdesk.com
+      // Electron not reachable - user is not logged in, open optirando.com
       await openWrdeskHomeIfNeeded();
     }
   } catch (e) {
@@ -2065,7 +2245,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
-// Helper to open wrdesk.com without tab spam
+// Helper to open optirando.com without tab spam
 async function openWrdeskHomeIfNeeded(): Promise<void> {
   try {
     // Debounce: check if we opened recently
@@ -2075,14 +2255,14 @@ async function openWrdeskHomeIfNeeded(): Promise<void> {
       return;
     }
     
-    // Check if wrdesk.com is already open in any tab
-    const existingTabs = await chrome.tabs.query({ url: 'https://wrdesk.com/*' });
+    // Check if optirando.com is already open in any tab
+    const existingTabs = await chrome.tabs.query({ url: 'https://optirando.com/*' });
     if (existingTabs.length > 0) {
       return;
     }
     
     // Create new tab
-    await chrome.tabs.create({ url: 'https://wrdesk.com', active: true });
+    await chrome.tabs.create({ url: 'https://optirando.com', active: true });
     await chrome.storage.session.set({ wrdeskHomeOpenedAt: now });
   } catch (e: any) {
     console.error('[BG] openWrdeskHomeIfNeeded error:', e.message);
@@ -2421,6 +2601,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false // synchronous response
   }
 
+  if (msg.type === 'SYNC_MODE_INTERVAL_SCHEDULERS') {
+    const modes = Array.isArray((msg as Record<string, unknown>).modes)
+      ? ((msg as Record<string, unknown>).modes as import('./shared/ui/customModeTypes').CustomModeDefinition[])
+      : []
+    void syncModeIntervalSchedulers(modes)
+    try {
+      sendResponse({ ok: true })
+    } catch {
+      /* channel closed */
+    }
+    return false
+  }
+
   if (msg.type === 'ACTIVATE_SESSION_FOR_OPTIMIZATION') {
     const raw = msg as { project?: { id?: string; linkedSessionIds?: unknown } }
     const p = raw.project
@@ -2529,6 +2722,55 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
+  if (msg.type === RUN_MODE_ALLOCATED_SESSION_TYPE) {
+    const modeId =
+      typeof (msg as Record<string, unknown>).modeId === 'string'
+        ? ((msg as Record<string, unknown>).modeId as string).trim()
+        : ''
+    const triggerRaw = (msg as Record<string, unknown>).trigger
+    const trigger =
+      triggerRaw === 'speech_bubble' || triggerRaw === 'interval' || triggerRaw === 'manual_icon'
+        ? triggerRaw
+        : 'manual_icon'
+    const fallbackModel =
+      typeof (msg as Record<string, unknown>).fallbackModel === 'string'
+        ? ((msg as Record<string, unknown>).fallbackModel as string).trim()
+        : undefined
+    const refreshIfActive = (msg as Record<string, unknown>).refreshIfActive !== false
+
+    void (async () => {
+      try {
+        const { runModeAllocatedSessionAutomation } = await import(
+          './services/runModeAllocatedSessionAutomation'
+        )
+        const result = await runModeAllocatedSessionAutomation(
+          { modeId, trigger, fallbackModel, refreshIfActive },
+          {
+            registerPendingModeSessionRun,
+            executeModeSessionRunDirect: executeModeSessionRunDirectForOrchestrator,
+            isSessionRunInFlight,
+          },
+        )
+        try {
+          sendResponse(result)
+        } catch {
+          /* channel closed */
+        }
+      } catch (e) {
+        try {
+          sendResponse({
+            ok: false,
+            error: e instanceof Error ? e.message : String(e),
+            phase: 'mode_run',
+          })
+        } catch {
+          /* channel closed */
+        }
+      }
+    })()
+    return true
+  }
+
   // Grid tab surface ready → trigger pending BEAP mode run.
   // Sent by grid-display.js after createSlots() paints all agent-box slots.
   // See registerPendingBeapRun / triggerPendingBeapRun at top of background.ts.
@@ -2538,7 +2780,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         ? ((msg as Record<string, unknown>).sessionKey as string).trim()
         : ''
     if (sk) {
-      void triggerPendingBeapRun(sk)
+      void triggerPendingSessionRun(sk)
     }
     try {
       sendResponse({ ok: true })
@@ -3112,12 +3354,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
 
-  // Handle "Open WRDesk Home" - opens wrdesk.com if not already open (NO tab spam)
+  // Handle "Open WRDesk Home" - opens optirando.com if not already open (NO tab spam)
   // Used when extension popup/sidepanel is opened in logged-out state
   if (msg && msg.type === 'OPEN_WRDESK_HOME_IF_NEEDED') {
     (async () => {
       try {
-        // Check if we've already opened wrdesk.com recently (debounce within 5 seconds)
+        // Check if we've already opened optirando.com recently (debounce within 5 seconds)
         const storage = await chrome.storage.session.get(['wrdeskHomeOpenedAt']);
         const lastOpened = storage.wrdeskHomeOpenedAt as number | undefined;
         const now = Date.now();
@@ -3127,8 +3369,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
         
-        // Query all tabs for existing wrdesk.com tab
-        const existingTabs = await chrome.tabs.query({ url: 'https://wrdesk.com/*' });
+        // Query all tabs for existing optirando.com tab
+        const existingTabs = await chrome.tabs.query({ url: 'https://optirando.com/*' });
         
         if (existingTabs.length > 0) {
           sendResponse({ ok: true, action: 'already_open', tabId: existingTabs[0].id });
@@ -3137,11 +3379,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         
         // No existing tab - create one without stealing focus
         const newTab = await chrome.tabs.create({ 
-          url: 'https://wrdesk.com',
+          url: 'https://optirando.com',
           active: false  // Do NOT steal focus
         });
         
-        // Mark that we opened wrdesk.com (for debouncing)
+        // Mark that we opened optirando.com (for debouncing)
         await chrome.storage.session.set({ wrdeskHomeOpenedAt: now });
         
         sendResponse({ ok: true, action: 'created', tabId: newTab.id });
@@ -3153,23 +3395,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
 
-  // Handle "Create Account" - opens wrdesk.com
+  // Handle "Create Account" - opens optirando.com
   if (msg && msg.type === 'OPEN_REGISTER_PAGE') {
     (async () => {
       try {
-        // Check if wrdesk.com is already open
-        const existingTabs = await chrome.tabs.query({ url: 'https://wrdesk.com/*' });
+        // Check if optirando.com is already open
+        const existingTabs = await chrome.tabs.query({ url: 'https://optirando.com/*' });
         if (existingTabs.length > 0 && existingTabs[0].id) {
           // Activate existing tab
           await chrome.tabs.update(existingTabs[0].id, { active: true });
         } else {
           // Open new tab
-          await chrome.tabs.create({ url: 'https://wrdesk.com', active: true });
+          await chrome.tabs.create({ url: 'https://optirando.com', active: true });
         }
         sendResponse({ ok: true });
       } catch (e: any) {
         console.error('[BG] OPEN_REGISTER_PAGE error:', e.message);
-        chrome.tabs.create({ url: 'https://wrdesk.com', active: true });
+        chrome.tabs.create({ url: 'https://optirando.com', active: true });
         sendResponse({ ok: false, error: e.message });
       }
     })();

@@ -3,6 +3,7 @@ import { InternalInferenceErrorCode } from '../errors'
 import { INTERNAL_INFERENCE_SCHEMA_VERSION } from '../types'
 import { HandshakeState, type HandshakeRecord } from '../../handshake/types'
 import type { HostInferenceCoreContext } from '../hostInferenceCore'
+import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../../llm/localLlmPaths'
 
 const orchestratorOms = vi.hoisted(() => ({ instanceId: 'dev-host' }))
 
@@ -39,7 +40,7 @@ vi.mock('../hostInferenceCapabilities', () => ({
       mapped_models_count: 0,
       probe_http_model_count: 0,
       provider_probe_ok: true,
-      endpoint: 'http://127.0.0.1:11434',
+      endpoint: HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE,
       mapping_fatal: false,
     },
   })),

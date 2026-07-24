@@ -4,12 +4,14 @@
  * register-handshake and initial pending delivery on WS connect.
  */
 
+import { normalizeCoordinationUrlForLocalDial } from './coordinationUrlLocalDial'
+
 export async function requestCoordinationFlushQueued(
   coordinationUrl: string,
   oidcToken: string,
   reason: 'post_register' | 'ws_connect',
 ): Promise<{ ok: boolean; delivered?: number; error?: string }> {
-  const base = coordinationUrl.replace(/\/$/, '')
+  const base = normalizeCoordinationUrlForLocalDial(coordinationUrl).replace(/\/$/, '')
   const url = `${base}/beap/flush-queued`
   console.log('[CLIENT-QUEUE-PULL] begin', JSON.stringify({ reason, url }))
   try {

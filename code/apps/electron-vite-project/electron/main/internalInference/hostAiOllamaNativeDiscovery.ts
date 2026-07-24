@@ -1,6 +1,6 @@
 /**
- * Host AI model discovery from native Ollama HTTP API (`GET /api/tags`).
- * Host builds enumerations only from Host-local Ollama; Sandbox may merge peer LAN `/api/tags`
+ * Host AI model discovery from native llama.cpp HTTP API (`GET /v1/models`).
+ * Host builds enumerations only from Host-local llama-server; Sandbox may merge peer LAN `/v1/models`
  * after verified peer-owned BEAP ingest (never sandbox localhost).
  */
 
@@ -9,9 +9,10 @@ import type { InternalInferenceCapabilitiesModelEntry, InternalInferenceCapabili
 import { InternalInferenceErrorCode } from './errors'
 import { deriveInternalHostAiPeerRoles } from './policy'
 import { ingestUrlMatchesThisDevicesMvpDirectBeap, peekHostAdvertisedMvpDirectEntry } from './p2pEndpointRepair'
+import { DEFAULT_LLAMACPP_PORT, HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../llm/localLlmPaths'
 
 /** Default Host-local listener when resolving base URL fails. */
-export const HOST_AI_DEFAULT_LOCAL_OLLAMA_BASE = 'http://127.0.0.1:11434'
+export const HOST_AI_DEFAULT_LOCAL_OLLAMA_BASE = HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE
 
 export type HostAiOllamaTagsDiscoveryLog = {
   current_device_id: string
@@ -31,7 +32,7 @@ export function normalizeHostLoopbackOllamaBaseUrl(resolvedBase: string): string
   try {
     const u = new URL(raw.includes('://') ? raw : `http://${raw}`)
     u.hostname = '127.0.0.1'
-    if (!u.port || u.port === '') u.port = '11434'
+    if (!u.port || u.port === '') u.port = String(DEFAULT_LLAMACPP_PORT)
     u.pathname = ''
     u.search = ''
     u.hash = ''
@@ -41,20 +42,14 @@ export function normalizeHostLoopbackOllamaBaseUrl(resolvedBase: string): string
   }
 }
 
-function parseTagsModels(raw: unknown): Array<{ name?: string; model?: string }> {
+function parseOpenAiModels(raw: unknown): Array<{ name?: string; model?: string }> {
   if (!raw || typeof raw !== 'object') return []
-  const models = (raw as { models?: unknown }).models
-  if (!Array.isArray(models)) return []
+  const data = (raw as { data?: unknown }).data
+  if (!Array.isArray(data)) return []
   const out: Array<{ name?: string; model?: string }> = []
-  for (const m of models) {
+  for (const m of data) {
     if (!m || typeof m !== 'object') continue
-    const o = m as { name?: unknown; model?: unknown }
-    const id =
-      typeof o.model === 'string'
-        ? o.model.trim()
-        : typeof o.name === 'string'
-          ? o.name.trim()
-          : ''
+    const id = typeof (m as { id?: unknown }).id === 'string' ? String((m as { id: string }).id).trim() : ''
     if (!id) continue
     out.push({ name: id, model: id })
   }
@@ -62,7 +57,7 @@ function parseTagsModels(raw: unknown): Array<{ name?: string; model?: string }>
 }
 
 /**
- * Maps Ollama `/api/tags` `models[]` entries into Host AI wire rows (provider + source host_ollama).
+ * Maps llama.cpp `/v1/models` entries into Host AI wire rows (provider + source host_ollama).
  */
 export function hostAiModelsFromOllamaTagsModels(
   rawModels: Array<{ name?: string; model?: string }>,
@@ -76,7 +71,7 @@ export function hostAiModelsFromOllamaTagsModels(
     const label = String(m.name ?? m.model ?? id).trim() || id
     const enabled = allow.length === 0 || allow.includes(id)
     wire.push({
-      provider: 'ollama',
+      provider: 'llamacpp',
       model: id,
       label,
       enabled,
@@ -86,22 +81,25 @@ export function hostAiModelsFromOllamaTagsModels(
   return wire
 }
 
-export function parseOllamaTagsBody(body: unknown): {
+export function parseLlamacppModelsBody(body: unknown): {
   rawModels: Array<{ name?: string; model?: string }>
   rawCount: number
 } {
-  const rawModels = parseTagsModels(body)
+  const rawModels = parseOpenAiModels(body)
   return { rawModels, rawCount: rawModels.length }
 }
 
-export async function fetchOllamaApiTagsJson(baseUrlNoTrailingSlash: string): Promise<{
+/** @deprecated Use parseLlamacppModelsBody */
+export const parseOllamaTagsBody = parseLlamacppModelsBody
+
+export async function fetchLlamacppModelsJson(baseUrlNoTrailingSlash: string): Promise<{
   ok: boolean
   httpStatus: number
   json: unknown | null
   error: string | null
 }> {
   const base = baseUrlNoTrailingSlash.replace(/\/$/, '')
-  const url = `${base}/api/tags`
+  const url = `${base}/v1/models`
   try {
     const res = await fetch(url, {
       method: 'GET',
@@ -126,6 +124,9 @@ export async function fetchOllamaApiTagsJson(baseUrlNoTrailingSlash: string): Pr
   }
 }
 
+/** @deprecated Use fetchLlamacppModelsJson */
+export const fetchOllamaApiTagsJson = fetchLlamacppModelsJson
+
 export function logHostAiOllamaDiscovery(payload: HostAiOllamaTagsDiscoveryLog): void {
   console.log(`[HOST_AI_OLLAMA_DISCOVERY] ${JSON.stringify(payload)}`)
 }
@@ -142,15 +143,18 @@ export function logSbxHostAiModelSource(payload: {
   console.log(`[SBX_HOST_AI_MODEL_SOURCE] ${JSON.stringify(payload)}`)
 }
 
-/** Derive `http://<lan-host>:11434` from a verified direct BEAP ingest URL (same hostname as Host LAN listener). */
-export function peerLanOllamaBaseUrlFromDirectBeapIngestUrl(ingestUrl: string, ollamaPort = '11434'): string | null {
+/** Derive `http://<lan-host>:8080` from a verified direct BEAP ingest URL (same hostname as Host LAN listener). */
+export function peerLanOllamaBaseUrlFromDirectBeapIngestUrl(
+  ingestUrl: string,
+  llamaPort = String(DEFAULT_LLAMACPP_PORT),
+): string | null {
   const t = typeof ingestUrl === 'string' ? ingestUrl.trim() : ''
   if (!t) return null
   try {
     const u = new URL(t)
     const host = u.hostname.trim()
     if (!host || host === 'localhost' || host === '127.0.0.1') return null
-    return `http://${host}:${ollamaPort}`
+    return `http://${host}:${llamaPort}`
   } catch {
     return null
   }
@@ -158,7 +162,7 @@ export function peerLanOllamaBaseUrlFromDirectBeapIngestUrl(ingestUrl: string, o
 
 /**
  * Sandbox direct LAN: after verified peer-owned BEAP ingest, optionally replace wire.models with
- * `GET http://<peer_lan_host>:11434/api/tags` so enumeration matches Host Ollama (never sandbox localhost).
+ * `GET http://<peer_lan_host>:8080/v1/models` so enumeration matches Host llama-server (never sandbox localhost).
  */
 export async function mergeSandboxCapabilitiesWireWithPeerLanOllamaTags(
   db: unknown,
@@ -212,7 +216,7 @@ export async function mergeSandboxCapabilitiesWireWithPeerLanOllamaTags(
     return reject('no_peer_lan_hostname_for_ollama', 'capabilities_wire', wire.models?.length ?? 0)
   }
 
-  const fetchRes = await fetchOllamaApiTagsJson(peerBase)
+  const fetchRes = await fetchLlamacppModelsJson(peerBase)
   logHostAiOllamaDiscovery({
     current_device_id: currentDeviceId.trim(),
     peer_device_id: peerHostDeviceId.trim(),
@@ -221,7 +225,7 @@ export async function mergeSandboxCapabilitiesWireWithPeerLanOllamaTags(
     ollama_base_url: peerBase,
     source: 'sandbox_peer_lan_api_tags',
     ok: fetchRes.ok && fetchRes.json != null,
-    models_count: fetchRes.ok && fetchRes.json != null ? parseOllamaTagsBody(fetchRes.json).rawCount : 0,
+    models_count: fetchRes.ok && fetchRes.json != null ? parseLlamacppModelsBody(fetchRes.json).rawCount : 0,
     error: fetchRes.ok ? null : fetchRes.error,
   })
 
@@ -229,7 +233,7 @@ export async function mergeSandboxCapabilitiesWireWithPeerLanOllamaTags(
     return reject(fetchRes.error ?? 'peer_ollama_tags_fetch_failed', 'capabilities_wire', wire.models?.length ?? 0)
   }
 
-  const parsed = parseOllamaTagsBody(fetchRes.json)
+  const parsed = parseLlamacppModelsBody(fetchRes.json)
   const mergedModels = hostAiModelsFromOllamaTagsModels(parsed.rawModels, [])
   const wireMc = wire.models?.length ?? 0
   logSbxHostAiModelSource({
@@ -267,4 +271,3 @@ export async function mergeSandboxCapabilitiesWireWithPeerLanOllamaTags(
   }
   return next
 }
-

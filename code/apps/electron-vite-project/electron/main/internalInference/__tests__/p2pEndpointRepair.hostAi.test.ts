@@ -5,13 +5,26 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/wrdesk-p2p-repair-test' } }))
+vi.mock('../../../../src/auth/session', () => ({
+  getAccessToken: () => 'tok',
+}))
+vi.mock('../../sealed-storage', () => ({
+  sealedQuery: vi.fn(),
+  prepareSealedOperationalUpdate: vi.fn(),
+}))
+
+vi.mock('../hostAiPeerLivePresence', () => ({
+  tryRecordHostPeerLivePresenceFromRelayAd: vi.fn(),
+}))
 import { InternalInferenceErrorCode } from '../errors'
 import { HandshakeState, type HandshakeRecord } from '../../handshake/types'
 import { getHandshakeRecord } from '../../handshake/db'
+import { HOST_AI_DIRECT_BEAP_AD_SEALED_RELAY_ENDPOINT_PLACEHOLDER } from '../hostAiDirectBeapAdWire'
 import {
   applyHostAiDirectBeapAdFromRelayPayload,
   peekHostAdvertisedMvpDirectEntry,
   peekHostAdvertisedMvpDirectP2pEndpoint,
+  peekHostGpuInferenceAvailableFromRelay,
   resetHostAdvertisedMvpDirectForTests,
   resetP2pEndpointRepairSessionGates,
   resolveSandboxToHostHttpDirectIngest,
@@ -46,6 +59,11 @@ vi.mock('../../handshake/db', () => ({
   updateHandshakeRecord: (_db: unknown, next: HandshakeRecord) => {
     updateHandshakeRecord(next)
   },
+}))
+
+const offerAfterAdMock = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock('../sandboxHostAiDirectBeapAdRequest', () => ({
+  sandboxRequestHostAiP2pOfferAfterBeapAdAccepted: (...a: unknown[]) => offerAfterAdMock(...a),
 }))
 
 function relayRow(hid: string): HandshakeRecord {
@@ -282,6 +300,7 @@ describe('applyHostAiDirectBeapAdFromRelayPayload', () => {
     vi.mocked(getHandshakeRecord).mockReset()
     updateHandshakeRecord.mockReset()
     resetHostAdvertisedMvpDirectForTests()
+    offerAfterAdMock.mockClear()
   })
 
   it('accepts valid host ad, updates peer map + ledger', () => {
@@ -316,6 +335,71 @@ describe('applyHostAiDirectBeapAdFromRelayPayload', () => {
     const ent = peekHostAdvertisedMvpDirectEntry('hs-apply')
     expect(ent?.ollamaRoster?.active_model_id).toBe('gemma2:12b')
     expect(ent?.ollamaRoster?.models).toHaveLength(2)
+  })
+
+  it('accepts sealed-relay capability-only ad without endpoint_url (direct-LAN retired)', () => {
+    vi.mocked(getHandshakeRecord).mockReturnValue(relayRow('hs-apply') as any)
+    const capabilityOnly = basePayload({
+      endpoint_url: undefined,
+      host_ai_route: {
+        type: 'host_ai.route_advertisement',
+        capabilities: {
+          provider: 'ollama',
+          models_count: 1,
+          available: true,
+          models: [{ id: 'gemma2:12b', name: 'gemma2:12b', provider: 'ollama', available: true, active: true }],
+          active_model_id: 'gemma2:12b',
+          active_model_name: 'gemma2:12b',
+          model_source: 'test',
+          max_concurrent_local_models: 1,
+          gpu_inference_available: true,
+        },
+      },
+    })
+    const r = applyHostAiDirectBeapAdFromRelayPayload(db, capabilityOnly as any, 'rm-cap-only')
+    expect(r).toEqual({ ok: true })
+    expect(peekHostAdvertisedMvpDirectP2pEndpoint('hs-apply')).toBeFalsy()
+    expect(peekHostGpuInferenceAvailableFromRelay('hs-apply')).toBe(true)
+    expect(offerAfterAdMock).toHaveBeenCalledWith(
+      db,
+      'hs-apply',
+      expect.objectContaining({ handshake_id: 'hs-apply' }),
+      1,
+      'beap_ad_accepted',
+    )
+  })
+
+  it('accepts sealed-relay wire placeholder endpoint_url as capability-only (relay field_required)', () => {
+    vi.mocked(getHandshakeRecord).mockReturnValue(relayRow('hs-apply') as any)
+    const placeholderAd = basePayload({
+      endpoint_url: HOST_AI_DIRECT_BEAP_AD_SEALED_RELAY_ENDPOINT_PLACEHOLDER,
+      host_ai_route: {
+        type: 'host_ai.route_advertisement',
+        capabilities: {
+          provider: 'ollama',
+          models_count: 1,
+          available: true,
+          models: [{ id: 'gemma2:12b', name: 'gemma2:12b', provider: 'ollama', available: true, active: true }],
+          active_model_id: 'gemma2:12b',
+          active_model_name: 'gemma2:12b',
+          model_source: 'test',
+          max_concurrent_local_models: 1,
+          gpu_inference_available: true,
+        },
+      },
+    })
+    const r = applyHostAiDirectBeapAdFromRelayPayload(db, placeholderAd as any, 'rm-placeholder')
+    expect(r).toEqual({ ok: true })
+    expect(peekHostAdvertisedMvpDirectP2pEndpoint('hs-apply')).toBeFalsy()
+    expect(peekHostGpuInferenceAvailableFromRelay('hs-apply')).toBe(true)
+    expect(updateHandshakeRecord).not.toHaveBeenCalled()
+    expect(offerAfterAdMock).toHaveBeenCalledWith(
+      db,
+      'hs-apply',
+      expect.objectContaining({ handshake_id: 'hs-apply' }),
+      1,
+      'beap_ad_accepted',
+    )
   })
 
   it('rejects stale ad_seq', () => {

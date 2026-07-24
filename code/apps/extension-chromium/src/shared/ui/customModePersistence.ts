@@ -13,7 +13,8 @@ import {
 /** Zustand persist localStorage name (unchanged so existing installs keep their data). */
 export const CUSTOM_MODES_PERSIST_KEY = 'wr-ui-custom-modes-v1'
 
-export const CUSTOM_MODES_SCHEMA_VERSION = 2
+/** v6: systemInstructions + profile field usage. v5: richer profile field types. v4: built-in mode rows. */
+export const CUSTOM_MODES_SCHEMA_VERSION = 6
 
 type PersistedSlice = { modes: CustomModeDefinition[] }
 
@@ -51,7 +52,7 @@ export function coerceCustomModeRecord(raw: unknown): CustomModeDefinition | nul
     return migrateLegacyNestedRow(r)
   }
 
-  if (typeof r.id === 'string' && r.id.startsWith('custom:')) {
+  if (typeof r.id === 'string' && (r.id.startsWith('custom:') || r.id.startsWith('built-in:'))) {
     return normalizeCustomModeFields(r as Partial<CustomModeDefinition>)
   }
 

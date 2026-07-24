@@ -57,24 +57,24 @@ describe('gpuStatus', () => {
       })
     })
 
-    it('returns OLLAMA_NOT_RUNNING when /api/version is unreachable everywhere', async () => {
+    it('returns LOCAL_LLM_NOT_RUNNING when llama-server is unreachable everywhere', async () => {
       mockFetchHandlers({
-        'http://127.0.0.1:11434/': () => ({ ok: false, json: {} }),
-        'http://localhost:11434/': () => ({ ok: false, json: {} }),
+        'http://127.0.0.1:8080/': () => ({ ok: false, json: {} }),
+        'http://localhost:8080/': () => ({ ok: false, json: {} }),
       })
       const s = await getGpuStatus()
       expect(s.available).toBe(false)
-      expect(s.reason).toBe('OLLAMA_NOT_RUNNING')
+      expect(s.reason).toBe('LOCAL_LLM_NOT_RUNNING')
     })
 
     it('returns available:true when ps match shows full VRAM residency', async () => {
       mockFetchHandlers({
-        'http://127.0.0.1:11434/api/version': () => ({ ok: true, json: { version: '0.5.0' } }),
-        'http://127.0.0.1:11434/api/tags': () => ({
+        'http://127.0.0.1:8080/health': () => ({ ok: true, json: {} }),
+        'http://127.0.0.1:8080/v1/models': () => ({
           ok: true,
-          json: { models: [{ name: 'mistral:7b' }] },
+          json: { data: [{ id: 'mistral:7b' }] },
         }),
-        'http://127.0.0.1:11434/api/ps': () => ({
+        'http://127.0.0.1:8080/api/ps': () => ({
           ok: true,
           json: {
             models: [{ name: 'mistral:7b', size: 1_000_000_000, size_vram: 1_000_000_000 }],
@@ -90,12 +90,12 @@ describe('gpuStatus', () => {
 
     it('returns MODEL-ish failure when loaded with size_vram===0', async () => {
       mockFetchHandlers({
-        'http://127.0.0.1:11434/api/version': () => ({ ok: true, json: { version: '0.5.0' } }),
-        'http://127.0.0.1:11434/api/tags': () => ({
+        'http://127.0.0.1:8080/health': () => ({ ok: true, json: {} }),
+        'http://127.0.0.1:8080/v1/models': () => ({
           ok: true,
-          json: { models: [{ name: 'heavy:latest' }] },
+          json: { data: [{ id: 'heavy:latest' }] },
         }),
-        'http://127.0.0.1:11434/api/ps': () => ({
+        'http://127.0.0.1:8080/api/ps': () => ({
           ok: true,
           json: {
             models: [{ name: 'heavy:latest', size: 8_000_000_000, size_vram: 0 }],
@@ -106,17 +106,17 @@ describe('gpuStatus', () => {
       const s = await getGpuStatus()
       expect(s.available).toBe(false)
       expect(s.reason).toBeDefined()
-      expect(['MODEL_TOO_LARGE_FOR_GPU', 'GPU_NOT_DETECTED_BY_OLLAMA']).toContain(s.reason)
+      expect(['MODEL_TOO_LARGE_FOR_GPU', 'GPU_NOT_DETECTED_BY_LLAMACPP']).toContain(s.reason)
     })
 
     it('memoizes identical getGpuStatus results for TTL window', async () => {
       mockFetchHandlers({
-        'http://127.0.0.1:11434/api/version': () => ({ ok: true, json: { version: '0.5.4' } }),
-        'http://127.0.0.1:11434/api/tags': () => ({
+        'http://127.0.0.1:8080/health': () => ({ ok: true, json: {} }),
+        'http://127.0.0.1:8080/v1/models': () => ({
           ok: true,
-          json: { models: [{ name: 'x:1' }] },
+          json: { data: [{ id: 'x:1' }] },
         }),
-        'http://127.0.0.1:11434/api/ps': () => ({
+        'http://127.0.0.1:8080/api/ps': () => ({
           ok: true,
           json: { models: [{ name: 'x:1', size: 100, size_vram: 100 }] },
         }),
@@ -146,7 +146,7 @@ describe('gpuStatus', () => {
     })
   })
 
-  describe('remote Ollama probe', () => {
+  describe('remote llama-server probe', () => {
     beforeEach(() => {
       execMock.mockImplementation(() => {
         throw new Error('unexpected exec')
@@ -155,12 +155,12 @@ describe('gpuStatus', () => {
 
     it('checks LAN origin without invoking NVIDIA-SMI', async () => {
       mockFetchHandlers({
-        'http://10.0.0.50:11434/api/version': () => ({ ok: true, json: { version: '0.9.9' } }),
-        'http://10.0.0.50:11434/api/tags': () => ({
+        'http://10.0.0.50:8080/health': () => ({ ok: true, json: {} }),
+        'http://10.0.0.50:8080/v1/models': () => ({
           ok: true,
-          json: { models: [{ name: 'qwen:mini' }] },
+          json: { data: [{ id: 'qwen:mini' }] },
         }),
-        'http://10.0.0.50:11434/api/ps': () => ({
+        'http://10.0.0.50:8080/api/ps': () => ({
           ok: true,
           json: {
             models: [{ name: 'qwen:mini', size: 900_000_000, size_vram: 900_000_000 }],
@@ -168,7 +168,7 @@ describe('gpuStatus', () => {
         }),
       })
 
-      const s = await getGpuInferenceStatusRemote('http://10.0.0.50:11434/', 'qwen:mini')
+      const s = await getGpuInferenceStatusRemote('http://10.0.0.50:8080/', 'qwen:mini')
       expect(s.available).toBe(true)
       expect(execMock).not.toHaveBeenCalled()
     })

@@ -8,16 +8,37 @@ import { HandshakeState, type HandshakeRecord } from '../handshake/types'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { deriveInternalHostAiPeerRoles, handshakeSamePrincipal } from './policy'
 
+/**
+ * Permanent Host↔Sandbox pair eligibility from the ACTIVE internal handshake ledger only.
+ * Never gated by presence TTL, relay-ad freshness, transport readiness, or Date.now().
+ */
+export function isHostSandboxPairEligible(r: HandshakeRecord): boolean {
+  if (r.state !== HandshakeState.ACTIVE) return false
+  if (r.handshake_type !== 'internal') return false
+  if (!handshakeSamePrincipal(r)) return false
+  const ini = (r.initiator_coordination_device_id ?? '').trim()
+  const acc = (r.acceptor_coordination_device_id ?? '').trim()
+  if (!ini || !acc) return false
+  const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
+  if (!dr.ok) return false
+  const rolePairOk =
+    (dr.localRole === 'sandbox' && dr.peerRole === 'host') ||
+    (dr.localRole === 'host' && dr.peerRole === 'sandbox')
+  if (!rolePairOk) return false
+  if (r.internal_coordination_identity_complete !== true) return false
+  return true
+}
+
 /** This instance is Host and peer is Sandbox (same account). */
 export function rowProvesLocalHostPeerSandboxForHostAi(r: HandshakeRecord): boolean {
-  if (!handshakeSamePrincipal(r)) return false
+  if (!isHostSandboxPairEligible(r)) return false
   const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
   return dr.ok && dr.localRole === 'host' && dr.peerRole === 'sandbox'
 }
 
 /** This instance is Sandbox and peer is Host (same account). */
 export function rowProvesLocalSandboxToHostForHostAi(r: HandshakeRecord): boolean {
-  if (!handshakeSamePrincipal(r)) return false
+  if (!isHostSandboxPairEligible(r)) return false
   const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
   return dr.ok && dr.localRole === 'sandbox' && dr.peerRole === 'host'
 }

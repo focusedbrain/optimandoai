@@ -15,6 +15,7 @@ import { getThemeTokens, labelStyle } from '../../../../shared/ui/lightboxTheme'
 import type { InlineFieldErrors } from '../addModeWizardValidation'
 import { inputStyleWithError, wizardFieldColumnStyle, wizardTextareaStyle } from '../wizardStyles'
 import { WizardFieldError } from './WizardFieldError'
+import { StepProfileFields } from './StepProfileFields'
 import { getElectronPickDirectory } from '../../../../utils/electronPickDirectory'
 import { parseWrExpertMarkdown, sha256HexUtf8 } from '../../../../utils/parseWrExpertMarkdown'
 
@@ -115,12 +116,28 @@ export function StepFocus({
   return (
     <div style={wizardFieldColumnStyle()}>
       <div>
-        <label htmlFor="cmw-focus" style={labelStyle(t)}>
-          Detection focus{' '}
+        <label htmlFor="cmw-system-instructions" style={labelStyle(t)}>
+          System instructions for this mode{' '}
           <span style={{ fontWeight: 400, textTransform: 'none', opacity: 0.85 }}>(optional)</span>
         </label>
         <p style={helperStyle}>
-          Topics, keywords, entities, or patterns the assistant should prioritize for this automation.
+          Tell this mode what it is and what to do — e.g. &apos;You are a scam detector. Flag phishing and fraud.&apos;
+        </p>
+        <textarea
+          id="cmw-system-instructions"
+          value={safeDraftString(data.systemInstructions)}
+          onChange={(e) => setData({ systemInstructions: e.target.value })}
+          placeholder="Describe this mode's overall role and behavior…"
+          style={wizardTextareaStyle(t)}
+        />
+      </div>
+      <div>
+        <label htmlFor="cmw-focus" style={labelStyle(t)}>
+          Detection Focus{' '}
+          <span style={{ fontWeight: 400, textTransform: 'none', opacity: 0.85 }}>(optional)</span>
+        </label>
+        <p style={helperStyle}>
+          Specific things this mode should look for — keywords, entities, signals.
         </p>
         <textarea
           id="cmw-focus"
@@ -132,10 +149,10 @@ export function StepFocus({
       </div>
       <div>
         <label htmlFor="cmw-ignore" style={labelStyle(t)}>
-          Ignore patterns{' '}
+          What should this mode ignore?{' '}
           <span style={{ fontWeight: 400, textTransform: 'none', opacity: 0.85 }}>(optional)</span>
         </label>
-        <p style={helperStyle}>Content or sections to skip (noise, boilerplate, off-topic areas).</p>
+        <p style={helperStyle}>Anything this mode should skip — e.g. newsletters, automated receipts.</p>
         <textarea
           id="cmw-ignore"
           value={safeDraftString(data.ignoreInstructions)}
@@ -144,6 +161,8 @@ export function StepFocus({
           style={wizardTextareaStyle(t)}
         />
       </div>
+
+      <StepProfileFields data={data} setData={setData} t={t} />
 
       <div
         style={{

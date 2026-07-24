@@ -565,7 +565,7 @@ export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendS
                       <button
                         onClick={() => {
                           setShowAccountDropdown(false);
-                          window.open('https://wrdesk.com', '_blank');
+                          window.open('https://optirando.com', '_blank');
                         }}
                         style={{
                           width: '100%',

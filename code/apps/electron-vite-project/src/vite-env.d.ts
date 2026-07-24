@@ -53,6 +53,13 @@ interface AnalysisDashboardBridge {
     sessionKey: string,
     session?: Record<string, unknown>,
     source?: string,
+    options?: {
+      pendingModeSessionRun?: {
+        fallbackModel: string
+        modeRuntime: Record<string, unknown>
+        modeId: string
+      }
+    },
   ) => void
   /** Relay live Agent Box refresh to extension after dashboard WR Chat persists output (matches MV3 background broadcast). */
   relayAgentBoxOutputLive: (data: {
@@ -212,7 +219,7 @@ interface IntegrityBridge {
   getStatus: () => Promise<IntegrityStatus>
 }
 
-/** Ollama status payload from `ollamaManager.getStatus()` / `llm:getStatus`. */
+/** Local llama.cpp status payload from `localLlmManager.getStatus()` / `llm:getStatus`. */
 interface LlmOllamaStatus {
   installed: boolean
   running: boolean
@@ -270,8 +277,8 @@ interface GpuStatusForUi {
 
 /** Block reason returned by `llm:resolveAutosortRuntime`. */
 type AutosortBlockReason =
-  | 'provider_not_ollama'
-  | 'ollama_not_running'
+  | 'provider_not_local_llm'
+  | 'local_llm_not_running'
   | 'no_model_installed'
   | 'no_stored_model_preference'
   | 'stored_model_not_installed'
@@ -285,7 +292,7 @@ interface ResolvedInboxRuntime {
   storedModelId: string | null
   storedModelInstalled: boolean
   installedModels: string[]
-  ollamaRunning: boolean
+  localLlmRunning: boolean
   gpuClassification: 'gpu_capable' | 'gpu_unconfirmed' | 'cpu_likely' | 'unknown'
   gpuEvidence: string | undefined
   autosortAllowed: boolean
@@ -301,12 +308,39 @@ interface LlmBridge {
     ctx: Record<string, unknown>,
   ) => Promise<{ ok: true } | { ok: false; error: string }>
   onActiveModelChanged: (cb: (data: { modelId: string }) => void) => () => void
+  onModelsChanged: (cb: (data: { modelId?: string; sha256?: string }) => void) => () => void
   resolveAutosortRuntime: () => Promise<
     { ok: true; data: ResolvedInboxRuntime } | { ok: false; error: string }
   >
   resolveInferenceCapability: () => Promise<
     { ok: true; data: InferenceCapabilityForUi } | { ok: false; error: string }
   >
+}
+
+/** Shared custom WR Chat modes (main-process store). */
+interface CustomModesBridge {
+  list: () => Promise<{ ok: true; data: unknown[] } | { ok: false; error: string }>
+  create: (draft: Record<string, unknown>) => Promise<{ ok: true; data: unknown[] } | { ok: false; error: string }>
+  update: (
+    id: string,
+    patch: Record<string, unknown>,
+  ) => Promise<{ ok: true; data: unknown[] } | { ok: false; error: string }>
+  delete: (id: string) => Promise<{ ok: true; data: unknown[] } | { ok: false; error: string }>
+  import: (
+    modes: unknown[],
+    origin: 'dashboard' | 'extension',
+  ) => Promise<{ ok: true; data: unknown[] } | { ok: false; error: string }>
+  getMigrationStatus: () => Promise<
+    | {
+        ok: true
+        data: {
+          localStorageImport: { dashboard: boolean; extension: boolean }
+          completedAt?: string
+        }
+      }
+    | { ok: false; error: string }
+  >
+  onChanged: (handler: (data: { modes: unknown[] }) => void) => () => void
 }
 
 /** TEMPORARY — main process log viewer (remove before production) */
@@ -383,6 +417,8 @@ interface Window {
   beap?: BeapBridge
   /** Preload: local Ollama status and persisted active model (same store as Backend Configuration). */
   llm?: LlmBridge
+  /** Shared custom WR Chat modes (main-process JSON store). */
+  customModes?: CustomModesBridge
   /** Dashboard Letter Composer — mammoth + Ollama field extraction in main process. */
   letterComposer?: LetterComposerBridge
   /** User-installed LibreOffice — `soffice` detection and PDF conversion. */

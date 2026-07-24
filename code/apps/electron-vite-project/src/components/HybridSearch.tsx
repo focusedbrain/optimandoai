@@ -1367,6 +1367,14 @@ export default function HybridSearch({
     })
   }, [loadModels])
 
+  useLayoutEffect(() => {
+    const api = window.llm
+    if (!api?.onModelsChanged) return
+    return api.onModelsChanged(() => {
+      void loadModels('manual_refresh', { force: true })
+    })
+  }, [loadModels])
+
   // App resume and account switch: refetch (Host hook also reloads on handshake-list-refresh + orchestrator-mode-changed).
   useEffect(() => {
     const onResume = () => {
@@ -2232,7 +2240,7 @@ export default function HybridSearch({
           if (result?.error === 'vault_locked') {
             setResponse('🔒 Unlock your vault to search handshake data.')
           } else if (result?.error === 'embedding_unavailable') {
-            setResponse('Search requires Ollama with an embedding model. Check Backend Configuration.')
+            setResponse('Search requires a local LLM (llama.cpp) with an embedding model. Check Backend Configuration.')
           } else if (result?.error === 'no_api_key') {
             setResponse(`No API key configured for ${result.provider ?? 'cloud provider'}. Add it in Extension Settings.`)
           } else if (result?.error === 'inference_routing_unavailable') {
@@ -2240,12 +2248,12 @@ export default function HybridSearch({
             setResponse(
               typeof r.message === 'string' && r.message.trim()
                 ? r.message
-                : 'No AI available. Either install Ollama on this device, or connect to a host running Ollama.',
+                : 'No AI available. Either install a local LLM (llama.cpp) on this device, or connect to a host running one.',
             )
           } else if (result?.error === 'ollama_unavailable') {
-            setResponse('Ollama is not running. Start Ollama to use local models.')
+            setResponse('Local LLM (llama.cpp) is not running. Start it to use local models.')
           } else if (result?.error === 'model_not_available') {
-            setResponse(result?.message ?? 'Configured Ollama model not found.')
+            setResponse(result?.message ?? 'Configured local model not found.')
           } else if (result?.error === 'model_execution_failed') {
             setResponse(result?.message ?? 'Model execution failed.')
           } else if (result?.error === 'api_call_failed') {

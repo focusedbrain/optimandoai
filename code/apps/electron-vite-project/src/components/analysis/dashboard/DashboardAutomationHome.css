@@ -157,6 +157,8 @@
 
 .dash-auto-home__automation-select {
   width: 100%;
+  height: auto;
+  max-height: none;
   padding: 6px 10px;
   font-size: 12px;
   border: 1px solid #e8e8e6;
@@ -275,6 +277,25 @@
 
 .dash-auto-home__btn--ghost:hover {
   background: #f8fafc;
+}
+
+.dash-auto-home__btn--danger {
+  color: var(--text-primary, #b91c1c);
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+.dash-auto-home__btn--danger:hover {
+  background: rgba(254, 226, 226, 0.85);
+  color: var(--text-primary, #991b1b);
+}
+
+[data-ui-theme='standard'] .dash-auto-home .dash-auto-home__btn--danger {
+  color: #b91c1c;
+}
+
+[data-ui-theme='standard'] .dash-auto-home .dash-auto-home__btn--danger:hover {
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .dash-auto-home__btn--sm {

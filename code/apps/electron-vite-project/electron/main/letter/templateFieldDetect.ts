@@ -162,8 +162,8 @@ export async function detectTemplateFieldsFromPdfPath(absPdfPath: string): Promi
     }
   }
 
-  const { ollamaManager } = await import('../llm/ollama-manager')
-  const modelId = await ollamaManager.getEffectiveChatModelName()
+  const { localLlmManager } = await import('../llm/local-llm-manager')
+  const modelId = await localLlmManager.getEffectiveChatModelName()
   if (!modelId) {
     return { ok: false, fields: [], error: 'No Ollama model configured. Set a chat model in settings.' }
   }
@@ -178,7 +178,7 @@ export async function detectTemplateFieldsFromPdfPath(absPdfPath: string): Promi
 
   let text = '[]'
   try {
-    const response = await ollamaManager.chat(modelId, messages)
+    const response = await localLlmManager.chat(modelId, messages)
     text = response?.content?.trim() || '[]'
   } catch (e) {
     return {

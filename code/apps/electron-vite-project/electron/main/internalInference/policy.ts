@@ -2,6 +2,7 @@ import type { HandshakeRecord } from '../handshake/types'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getP2PConfig } from '../p2p/p2pConfig'
 import { InternalInferenceErrorCode } from './errors'
+import { isHostSandboxPairEligible } from './hostAiInternalPairingLedger'
 
 function samePrincipal(r: HandshakeRecord): boolean {
   const a = r.initiator?.wrdesk_user_id
@@ -148,7 +149,7 @@ function localCoordinationDeviceId(r: HandshakeRecord): string | null {
 
 export function isCoordinationServiceEndpointUrl(p2pEndpoint: string, coordinationBase: string | undefined | null): boolean {
   const t = p2pEndpoint.trim().toLowerCase()
-  if (t.includes('relay.wrdesk.com') && t.includes('/beap/')) {
+  if ((t.includes('relay.wrdesk.com') || t.includes('relay.optirando.com')) && t.includes('/beap/')) {
     return true
   }
   if (!coordinationBase?.trim()) return false
@@ -291,19 +292,10 @@ export function assertRecordForServiceRpc(
   if (!r) {
     return { ok: false, code: InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE }
   }
-  if (r.handshake_type !== 'internal') {
-    return { ok: false, code: InternalInferenceErrorCode.POLICY_FORBIDDEN }
-  }
-  if (r.state !== 'ACTIVE') {
-    return { ok: false, code: InternalInferenceErrorCode.POLICY_FORBIDDEN }
-  }
-  if (!samePrincipal(r)) {
-    return { ok: false, code: InternalInferenceErrorCode.POLICY_FORBIDDEN }
-  }
   if (r.internal_coordination_repair_needed) {
     return { ok: false, code: InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE }
   }
-  if (r.internal_coordination_identity_complete !== true) {
+  if (!isHostSandboxPairEligible(r)) {
     return { ok: false, code: InternalInferenceErrorCode.POLICY_FORBIDDEN }
   }
   return { ok: true, record: r }

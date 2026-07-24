@@ -161,7 +161,7 @@ const getSandboxOdlCandMock = vi.hoisted(() =>
   vi.fn((hid: string) => ({
     route_kind: 'ollama_direct' as const,
     handshake_id: String(hid ?? '').trim(),
-    base_url: 'http://192.168.199.88:11434/',
+    base_url: 'http://192.168.199.88:8080/',
     endpoint_owner_device_id: 'dev-host-coord-1',
     peer_host_device_id: 'dev-host-coord-1',
     validated_at_ms: Date.now(),

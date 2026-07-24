@@ -1,6 +1,6 @@
 /**
- * Custom WR Chat modes — persisted schema (v2).
- * Built-in modes remain in uiState.ts (MODE_INFO); only `type: "custom"` rows are stored here.
+ * Custom WR Chat modes — persisted schema (v4).
+ * User rows: `custom:*`. Shipped built-in rows: `built-in:*` (non-deletable, e.g. Scam Watchdog).
  *
  * Optional `metadata` is reserved for future expert / fine-tuned / provider-specific extensions
  * without breaking the core shape.
@@ -14,15 +14,55 @@ import {
   snapSecondsToIntervalPreset,
 } from './customModeIntervalPresets'
 
-/** Persisted custom rows are always `custom`; `built-in` documents the union for tooling/UI. */
+/** Persisted rows: `custom:*` (user) or `built-in:*` (shipped, non-deletable). */
 export type ModeTypeKind = 'built-in' | 'custom'
 
 export type SessionMode = 'shared' | 'dedicated' | 'fresh'
 
+/** Structured profile field for career-builder-style modes (optional on any custom mode). */
+export type CustomModeProfileFieldType =
+  | 'text'
+  | 'longtext'
+  | 'number'
+  | 'toggle'
+  | 'date'
+  | 'select'
+  | 'multiselect'
+
+/** How a structured context field is applied in inference (future options reserved). */
+export type CustomModeProfileFieldUsage = 'context' | 'must_match' | 'prioritize' | 'exclude'
+
+export const CUSTOM_MODE_PROFILE_FIELD_USAGE_OPTIONS: {
+  value: CustomModeProfileFieldUsage
+  label: string
+  disabled?: boolean
+}[] = [
+  { value: 'context', label: 'Use as context' },
+  { value: 'must_match', label: 'Must match', disabled: true },
+  { value: 'prioritize', label: 'Prioritize', disabled: true },
+  { value: 'exclude', label: 'Exclude', disabled: true },
+]
+
+export interface CustomModeProfileField {
+  /** Stable key within the mode (slug from label when omitted on input). */
+  key: string
+  label: string
+  value: string
+  type?: CustomModeProfileFieldType
+  /** Required when `type` is `select` or `multiselect`. */
+  options?: string[]
+  /** How this field should influence inference; defaults to `context`. */
+  usage?: CustomModeProfileFieldUsage
+}
+
 export interface CustomModeDefinition {
-  /** Stable id, format `custom:<uuid>` */
+  /** Stable id — `custom:<uuid>` or `built-in:<key>`. */
   id: string
-  type: 'custom'
+  type: ModeTypeKind
+  /** When `false`, delete is rejected (built-in modes). */
+  deletable?: boolean
+  /** Stable built-in identifier, e.g. `scam-watchdog`. */
+  builtInKey?: string
   name: string
   description: string
   icon: string
@@ -32,8 +72,15 @@ export interface CustomModeDefinition {
   endpoint: string
   sessionId: string | null
   sessionMode: SessionMode
+  /** Overall role/behavior instruction for this mode (optional). */
+  systemInstructions: string
   searchFocus: string
   ignoreInstructions: string
+  /**
+   * Optional structured profile fields (goals, location, criteria, etc.) folded into the LLM prefix.
+   * Modes without this field behave exactly as before v3 schema.
+   */
+  profileFields?: CustomModeProfileField[]
   /**
    * Optional periodic scan interval (seconds). Only preset values from the wizard select are stored.
    * Chat and manual scan are always available; when set, periodic runs are also scheduled.
@@ -152,10 +199,143 @@ export function defaultCustomModeDraft(): CustomModeDraft {
     endpoint: DEFAULT_OLLAMA_ENDPOINT,
     sessionId: null,
     sessionMode: 'shared',
+    systemInstructions: '',
     searchFocus: '',
     ignoreInstructions: '',
+    profileFields: undefined,
     intervalSeconds: null,
     metadata: undefined,
+  }
+}
+
+/** Slug for a profile field key from its label (wizard + normalize). */
+export function slugCustomModeProfileFieldKey(label: string, index: number): string {
+  const slug = label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '')
+  return slug || `field_${index + 1}`
+}
+
+/** Coerce persisted / draft profile rows; returns `undefined` when empty or invalid. */
+const PROFILE_FIELD_TYPES: CustomModeProfileFieldType[] = [
+  'text',
+  'longtext',
+  'number',
+  'toggle',
+  'date',
+  'select',
+  'multiselect',
+]
+
+function isProfileFieldType(v: unknown): v is CustomModeProfileFieldType {
+  return typeof v === 'string' && (PROFILE_FIELD_TYPES as string[]).includes(v)
+}
+
+function profileFieldHasContent(type: CustomModeProfileFieldType | undefined, value: string): boolean {
+  const t = type ?? 'text'
+  if (t === 'toggle') return value === 'yes' || value === 'no'
+  return Boolean(value.trim())
+}
+
+function isProfileFieldUsage(v: unknown): v is CustomModeProfileFieldUsage {
+  return (
+    v === 'context' ||
+    v === 'must_match' ||
+    v === 'prioritize' ||
+    v === 'exclude'
+  )
+}
+
+export function normalizeProfileFields(raw: unknown): CustomModeProfileField[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: CustomModeProfileField[] = []
+  const seenKeys = new Set<string>()
+  raw.forEach((row, i) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return
+    const r = row as Record<string, unknown>
+    const label = typeof r.label === 'string' ? r.label.trim() : ''
+    const value = typeof r.value === 'string' ? r.value : ''
+    const type = isProfileFieldType(r.type) ? r.type : undefined
+    if (!label && !profileFieldHasContent(type, value)) return
+    let key = typeof r.key === 'string' ? r.key.trim() : ''
+    if (!key) key = slugCustomModeProfileFieldKey(label || `Field ${i + 1}`, i)
+    let uniqueKey = key
+    let n = 2
+    while (seenKeys.has(uniqueKey)) {
+      uniqueKey = `${key}_${n++}`
+    }
+    seenKeys.add(uniqueKey)
+    let options: string[] | undefined
+    if ((type === 'select' || type === 'multiselect') && Array.isArray(r.options)) {
+      options = (r.options as unknown[])
+        .filter((x): x is string => typeof x === 'string')
+        .map((s) => s.trim())
+        .filter(Boolean)
+      if (options.length === 0) options = undefined
+    }
+    const field: CustomModeProfileField = {
+      key: uniqueKey,
+      label: label || uniqueKey,
+      value,
+      usage: isProfileFieldUsage(r.usage) ? r.usage : 'context',
+    }
+    if (type) field.type = type
+    if (options?.length) field.options = options
+    out.push(field)
+  })
+  return out.length ? out : undefined
+}
+
+function isTruthyToggleValue(value: string): boolean {
+  const v = value.trim().toLowerCase()
+  return v === 'yes' || v === 'true' || v === '1' || v === 'on'
+}
+
+/** Single profile line for LLM prefix; `null` when field should be omitted. */
+export function formatCustomModeProfileFieldLine(field: CustomModeProfileField): string | null {
+  const label = field.label?.trim()
+  if (!label) return null
+  const type = field.type ?? 'text'
+  if (type === 'toggle') {
+    const raw = field.value?.trim()
+    if (!raw) return null
+    return `${label}: ${isTruthyToggleValue(raw) ? 'yes' : 'no'}`
+  }
+  if (type === 'multiselect') {
+    const parts = field.value
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (parts.length === 0) return null
+    return `${label}: ${parts.join(', ')}`
+  }
+  const value = field.value?.trim()
+  if (!value) return null
+  return `${label}: ${value}`
+}
+
+/** Labeled block for LLM prefix injection; `null` when no non-empty fields. */
+export function formatCustomModeProfileFieldsForPrefix(
+  fields: CustomModeProfileField[] | undefined,
+): string | null {
+  if (!fields?.length) return null
+  const lines = fields
+    .map((f) => formatCustomModeProfileFieldLine(f))
+    .filter((line): line is string => line !== null)
+  if (lines.length === 0) return null
+  return `[User-provided context]\n${lines.join('\n')}`
+}
+
+/** Empty profile row for the wizard “add field” action. */
+export function createEmptyCustomModeProfileField(index: number): CustomModeProfileField {
+  return {
+    key: slugCustomModeProfileFieldKey('', index),
+    label: '',
+    value: '',
+    type: 'text',
+    usage: 'context',
   }
 }
 
@@ -182,6 +362,28 @@ export function isCustomModeId(mode: string): boolean {
   return typeof mode === 'string' && mode.startsWith('custom:')
 }
 
+export function isBuiltInModeId(mode: string): boolean {
+  return typeof mode === 'string' && mode.startsWith('built-in:')
+}
+
+export function isPersistedModeId(mode: string): boolean {
+  return isCustomModeId(mode) || isBuiltInModeId(mode)
+}
+
+export function isModeDeletable(def: CustomModeDefinition): boolean {
+  if (def.type === 'built-in') return false
+  if (def.deletable === false) return false
+  return def.id.startsWith('custom:')
+}
+
+/** User-owned custom modes for My Modes — excludes built-ins / system rows. */
+export function isUserOwnedCustomMode(def: CustomModeDefinition): boolean {
+  if (def.type === 'built-in') return false
+  if (def.deletable === false) return false
+  if (def.id === 'built-in:scam-watchdog' || def.builtInKey === 'scam-watchdog') return false
+  return def.id.startsWith('custom:')
+}
+
 /**
  * Build a full persisted record from a draft (new mode).
  */
@@ -204,12 +406,18 @@ export function normalizeCustomModeFields(
   partial: Partial<CustomModeDefinition> & { id?: string; intervalMinutes?: number | null },
 ): CustomModeDefinition {
   const now = new Date().toISOString()
-  const id = partial.id?.startsWith('custom:') ? partial.id : createCustomModeId()
+  const id =
+    partial.id?.startsWith('custom:') || partial.id?.startsWith('built-in:')
+      ? partial.id
+      : partial.type === 'built-in' && partial.builtInKey
+        ? `built-in:${partial.builtInKey}`
+        : createCustomModeId()
+  const type: ModeTypeKind = id.startsWith('built-in:') ? 'built-in' : 'custom'
   const intervalSeconds = migrateIntervalSeconds(partial)
 
-  return {
+  const normalized: CustomModeDefinition = {
     id,
-    type: 'custom',
+    type,
     name: (partial.name ?? 'Untitled').trim() || 'Untitled',
     description: typeof partial.description === 'string' ? partial.description : '',
     icon: (partial.icon ?? '⚡').trim() || '⚡',
@@ -224,13 +432,23 @@ export function normalizeCustomModeFields(
       partial.sessionMode === 'dedicated' || partial.sessionMode === 'fresh' || partial.sessionMode === 'shared'
         ? partial.sessionMode
         : 'shared',
+    systemInstructions: typeof partial.systemInstructions === 'string' ? partial.systemInstructions : '',
     searchFocus: typeof partial.searchFocus === 'string' ? partial.searchFocus : '',
     ignoreInstructions: typeof partial.ignoreInstructions === 'string' ? partial.ignoreInstructions : '',
+    profileFields: normalizeProfileFields(partial.profileFields),
     intervalSeconds,
     createdAt: partial.createdAt && isIsoDate(partial.createdAt) ? partial.createdAt : now,
     updatedAt: partial.updatedAt && isIsoDate(partial.updatedAt) ? partial.updatedAt : now,
     metadata: sanitizeCustomModeMetadataForPersist(partial.metadata),
   }
+  if (type === 'built-in') {
+    normalized.deletable = false
+    if (partial.builtInKey) normalized.builtInKey = partial.builtInKey
+    else if (id.startsWith('built-in:')) normalized.builtInKey = id.slice('built-in:'.length)
+  } else if (partial.deletable === false) {
+    normalized.deletable = false
+  }
+  return normalized
 }
 
 /** Drop wizard-only keys (e.g. live Ollama tag lists) before persisting. */

@@ -126,11 +126,25 @@ const LlmStart = {
   route: '/api/llm/start',
 }
 
-const LlmInstallModel = {
-  method: 'llm.installModel' as const,
-  schema: z.object({ modelId: z.string().min(1).max(200) }),
+const LlmImportModelFromPicker = {
+  method: 'llm.importModelFromPicker' as const,
+  schema: z.void(),
   http: 'POST' as const,
-  route: '/api/llm/models/install',
+  route: '/api/llm/models/import-pick',
+}
+
+const LlmDownloadModelFromUrl = {
+  method: 'llm.downloadModelFromUrl' as const,
+  schema: z.object({ url: z.string().url().max(4000) }),
+  http: 'POST' as const,
+  route: '/api/llm/models/download-from-url',
+}
+
+const LlmCancelModelDownload = {
+  method: 'llm.cancelModelDownload' as const,
+  schema: z.void(),
+  http: 'POST' as const,
+  route: '/api/llm/models/download-cancel',
 }
 
 const LlmDeleteModel = {
@@ -159,6 +173,63 @@ const LlmInstallProgress = {
   schema: z.void(),
   http: 'GET' as const,
   route: '/api/llm/install-progress',
+}
+
+// ── B0: llama-server binary provisioning ──
+
+const LlmBinaryStatus = {
+  method: 'llm.binaryStatus' as const,
+  schema: z.void(),
+  http: 'GET' as const,
+  route: '/api/llm/binary/status',
+}
+
+const LlmInstallLlamaServerBinary = {
+  method: 'llm.installLlamaServerBinary' as const,
+  schema: z.object({ variant: z.enum(['cpu', 'cuda', 'vulkan']) }),
+  http: 'POST' as const,
+  route: '/api/llm/binary/install',
+}
+
+const LlmBinaryInstallProgress = {
+  method: 'llm.binaryInstallProgress' as const,
+  schema: z.void(),
+  http: 'GET' as const,
+  route: '/api/llm/binary/install-progress',
+}
+
+const LlmCancelBinaryInstall = {
+  method: 'llm.cancelBinaryInstall' as const,
+  schema: z.void(),
+  http: 'POST' as const,
+  route: '/api/llm/binary/install-cancel',
+}
+
+// ── build038: llama-server inference settings ──
+
+const LlmServerConfigGet = {
+  method: 'llm.serverConfigGet' as const,
+  schema: z.void(),
+  http: 'GET' as const,
+  route: '/api/llm/server-config',
+}
+
+const LlmServerConfigSet = {
+  method: 'llm.serverConfigSet' as const,
+  schema: z.object({
+    ctxMode: z.enum(['standard', 'long', 'max']).optional(),
+    parallel: z.union([z.literal(1), z.literal(2), z.literal(4)]).optional(),
+    reasoningEnabled: z.boolean().optional(),
+  }),
+  http: 'POST' as const,
+  route: '/api/llm/server-config',
+}
+
+const LlmServerRestart = {
+  method: 'llm.serverRestart' as const,
+  schema: z.void(),
+  http: 'POST' as const,
+  route: '/api/llm/server-restart',
 }
 
 const LlmSetAiExecutionContext = {
@@ -267,6 +338,73 @@ const OrchestratorRegeneratePairingCode = {
   route: '/api/orchestrator/regenerate-pairing-code',
 }
 
+// ── Custom WR Chat modes (shared main-process store) ──
+
+const customModeDraftSchema = z
+  .object({
+    name: z.string().optional(),
+    description: z.string().optional(),
+    icon: z.string().optional(),
+    modelProvider: z.string().optional(),
+    modelName: z.string().optional(),
+    endpoint: z.string().optional(),
+    sessionId: z.string().nullable().optional(),
+    sessionMode: z.enum(['shared', 'dedicated', 'fresh']).optional(),
+    searchFocus: z.string().optional(),
+    ignoreInstructions: z.string().optional(),
+    intervalSeconds: z.number().nullable().optional(),
+    metadata: z.record(z.unknown()).optional(),
+  })
+  .passthrough()
+
+const CustomModesList = {
+  method: 'customModes.list' as const,
+  schema: z.void(),
+  http: 'GET' as const,
+  route: '/api/custom-modes',
+}
+
+const CustomModesGetMigrationStatus = {
+  method: 'customModes.getMigrationStatus' as const,
+  schema: z.void(),
+  http: 'GET' as const,
+  route: '/api/custom-modes/migration-status',
+}
+
+const CustomModesCreate = {
+  method: 'customModes.create' as const,
+  schema: z.object({ draft: customModeDraftSchema }),
+  http: 'POST' as const,
+  route: '/api/custom-modes',
+}
+
+const CustomModesUpdate = {
+  method: 'customModes.update' as const,
+  schema: z.object({
+    id: z.string().min(1).max(200),
+    patch: customModeDraftSchema,
+  }),
+  http: 'PATCH' as const,
+  build: (p: { id: string }) => `/api/custom-modes/${encodeURIComponent(p.id)}`,
+}
+
+const CustomModesDelete = {
+  method: 'customModes.delete' as const,
+  schema: z.object({ id: z.string().min(1).max(200) }),
+  http: 'DELETE' as const,
+  build: (p: { id: string }) => `/api/custom-modes/${encodeURIComponent(p.id)}`,
+}
+
+const CustomModesImport = {
+  method: 'customModes.import' as const,
+  schema: z.object({
+    modes: z.array(z.record(z.unknown())).max(500),
+    origin: z.enum(['dashboard', 'extension']),
+  }),
+  http: 'POST' as const,
+  route: '/api/custom-modes/import',
+}
+
 // Pairing-code resolution intentionally has no extension-facing RPC. The 6-digit
 // code is forwarded through the existing handshake initiate / buildForDownload IPC
 // (`counterparty_pairing_code`) and resolved on the Electron side via the
@@ -285,17 +423,32 @@ const RPC_REGISTRY = [
   LlmStatus,
   LlmCatalog,
   LlmStart,
-  LlmInstallModel,
+  LlmImportModelFromPicker,
+  LlmDownloadModelFromUrl,
+  LlmCancelModelDownload,
   LlmDeleteModel,
   LlmActivateModel,
   LlmPerformance,
   LlmInstallProgress,
+  LlmBinaryStatus,
+  LlmInstallLlamaServerBinary,
+  LlmBinaryInstallProgress,
+  LlmCancelBinaryInstall,
+  LlmServerConfigGet,
+  LlmServerConfigSet,
+  LlmServerRestart,
   LlmSetAiExecutionContext,
   DashboardOpen,
   DashboardStatus,
   OrchestratorGetMode,
   OrchestratorSetMode,
   OrchestratorRegeneratePairingCode,
+  CustomModesList,
+  CustomModesGetMigrationStatus,
+  CustomModesCreate,
+  CustomModesUpdate,
+  CustomModesDelete,
+  CustomModesImport,
 ] as const
 
 type RpcDef = (typeof RPC_REGISTRY)[number]
@@ -342,6 +495,87 @@ export interface ElectronRpcResponse {
  *
  * @returns true if the message was handled (keeps channel open for async)
  */
+/**
+ * Core RPC dispatch (registry lookup, schema validation, localhost fetch).
+ * Used by MV3 background (`handleElectronRpc`) and dashboard chrome shim.
+ */
+export async function executeElectronRpcRequest(
+  msg: Pick<ElectronRpcRequest, 'method' | 'params' | 'timeout'>,
+  launchSecret: string | null,
+  electronBaseUrl: string,
+): Promise<ElectronRpcResponse> {
+  const def = REGISTRY_MAP.get(msg.method)
+  if (!def) {
+    console.warn(`[RPC] Rejected: unknown method "${msg.method}"`)
+    return { success: false, error: `Unknown RPC method: ${msg.method}` }
+  }
+
+  let validatedParams: unknown = undefined
+  if ('parse' in def.schema && def.schema !== z.void()) {
+    const result = (def.schema as z.ZodType).safeParse(msg.params)
+    if (!result.success) {
+      const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+      console.warn(`[RPC] Rejected: schema validation failed for "${msg.method}": ${issues}`)
+      return { success: false, error: `Invalid params: ${issues}` }
+    }
+    validatedParams = result.data
+  }
+
+  try {
+    let url: string
+    if ('build' in def && typeof def.build === 'function') {
+      url = `${electronBaseUrl}${(def.build as (p: unknown) => string)(validatedParams)}`
+    } else if ('route' in def) {
+      url = `${electronBaseUrl}${(def as { route: string }).route}`
+    } else {
+      return { success: false, error: 'Internal: no route defined' }
+    }
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (launchSecret) {
+      headers['X-Launch-Secret'] = launchSecret
+    }
+
+    const fetchOptions: RequestInit = {
+      method: def.http,
+      headers,
+      signal: AbortSignal.timeout(msg.timeout ?? 15000),
+    }
+
+    if (def.http !== 'GET' && def.http !== 'DELETE' && validatedParams !== undefined) {
+      if (def.http === 'PATCH' && def.method === 'customModes.update') {
+        const p = validatedParams as { id?: string; patch?: unknown }
+        fetchOptions.body = JSON.stringify({ patch: p.patch ?? {} })
+      } else {
+        fetchOptions.body = JSON.stringify(validatedParams)
+      }
+    }
+    if (def.http === 'POST' && validatedParams !== undefined) {
+      fetchOptions.body = JSON.stringify(validatedParams)
+    }
+
+    const response = await fetch(url, fetchOptions)
+    const text = await response.text()
+    let data: unknown
+    try {
+      data = JSON.parse(text)
+    } catch {
+      data = text
+    }
+
+    return {
+      success: response.ok,
+      status: response.status,
+      data,
+      error: response.ok ? undefined : `HTTP ${response.status}`,
+    }
+  } catch (e: unknown) {
+    const error = e instanceof Error ? e.message : String(e)
+    console.error(`[RPC] Error in "${msg.method}":`, error)
+    return { success: false, error }
+  }
+}
+
 export function handleElectronRpc(
   msg: ElectronRpcRequest,
   sender: chrome.runtime.MessageSender,
@@ -356,81 +590,7 @@ export function handleElectronRpc(
     return true
   }
 
-  // ── Gate 2: Method lookup ──
-  const def = REGISTRY_MAP.get(msg.method)
-  if (!def) {
-    console.warn(`[RPC] Rejected: unknown method "${msg.method}"`)
-    sendResponse({ success: false, error: `Unknown RPC method: ${msg.method}` })
-    return true
-  }
-
-  // ── Gate 3: Schema validation ──
-  let validatedParams: unknown = undefined
-  if ('parse' in def.schema && def.schema !== z.void()) {
-    const result = (def.schema as z.ZodType).safeParse(msg.params)
-    if (!result.success) {
-      const issues = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')
-      console.warn(`[RPC] Rejected: schema validation failed for "${msg.method}": ${issues}`)
-      sendResponse({ success: false, error: `Invalid params: ${issues}` })
-      return true
-    }
-    validatedParams = result.data
-  }
-
-  // ── Dispatch (async) ──
-  ;(async () => {
-    try {
-      // Build URL from hardcoded route or build function — NEVER from caller input
-      let url: string
-      if ('build' in def && typeof def.build === 'function') {
-        url = `${electronBaseUrl}${(def.build as (p: any) => string)(validatedParams)}`
-      } else if ('route' in def) {
-        url = `${electronBaseUrl}${(def as { route: string }).route}`
-      } else {
-        sendResponse({ success: false, error: 'Internal: no route defined' })
-        return
-      }
-
-      // Build headers — launch secret injected here, never exposed to caller
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (launchSecret) {
-        headers['X-Launch-Secret'] = launchSecret
-      }
-
-      const fetchOptions: RequestInit = {
-        method: def.http,
-        headers,
-        signal: AbortSignal.timeout(msg.timeout ?? 15000),
-      }
-
-      // Attach body for POST/PUT/PATCH (from validated params, not raw input)
-      if (def.http !== 'GET' && def.http !== 'DELETE' && validatedParams !== undefined) {
-        fetchOptions.body = JSON.stringify(validatedParams)
-      }
-      // DELETE with body (e.g., llm.deleteModel has no body — path param only)
-      // POST with body from validated params
-      if (def.http === 'POST' && validatedParams !== undefined) {
-        fetchOptions.body = JSON.stringify(validatedParams)
-      }
-
-      const response = await fetch(url, fetchOptions)
-      const text = await response.text()
-      let data: unknown
-      try { data = JSON.parse(text) } catch { data = text }
-
-      sendResponse({
-        success: response.ok,
-        status: response.status,
-        data,
-        error: response.ok ? undefined : `HTTP ${response.status}`,
-      })
-    } catch (e: unknown) {
-      const error = e instanceof Error ? e.message : String(e)
-      console.error(`[RPC] Error in "${msg.method}":`, error)
-      sendResponse({ success: false, error })
-    }
-  })()
-
+  void executeElectronRpcRequest(msg, launchSecret, electronBaseUrl).then(sendResponse)
   return true // Keep channel open for async response
 }
 

@@ -27,7 +27,7 @@ import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
 import { buildHostOllamaDirectBaseUrl } from './hostAiOllamaDirectLanIp'
 import { resolveHostAiRemoteInferencePolicy } from './hostAiRemoteInferencePolicyResolve'
 import { InternalInferenceErrorCode } from './errors'
-import { ollamaManager } from '../llm/ollama-manager'
+import { localLlmManager } from '../llm/local-llm-manager'
 import { hostDirectP2pAdvertisementHeaders } from './p2pEndpointRepair'
 import {
   assertHostMachineSessionMatchesHandshakeHostParty,
@@ -174,18 +174,18 @@ export async function handleGetInternalInferencePolicy(
   let availableOllamaModels: string[] = []
   if (allowSandboxInference) {
     try {
-      const installed = await ollamaManager.listModels()
+      const installed = await localLlmManager.listModels()
       const names = installed.map((m) => String(m.name ?? '').trim()).filter(Boolean)
       const allow = hostPolicy.modelAllowlist ?? []
       const filtered = allow.length === 0 ? names : names.filter((n) => allow.includes(n))
       availableOllamaModels = [...new Set(filtered)].sort((a, b) => a.localeCompare(b))
 
-      const { resolveModelForInternalInference } = await import('../llm/internalHostInferenceOllama')
+      const { resolveModelForInternalInference } = await import('../llm/internalHostInferenceLocal')
       let resolved = await resolveModelForInternalInference(undefined, allow)
       if (!('model' in resolved)) {
-        const st = await ollamaManager.getStatus()
+        const st = await localLlmManager.getStatus()
         const active = st.activeModel?.trim()
-        const nameSet = new Set((await ollamaManager.listModels()).map((x) => x.name))
+        const nameSet = new Set((await localLlmManager.listModels()).map((x) => x.name))
         if (active && nameSet.has(active) && (allow.length === 0 || allow.includes(active))) {
           resolved = { model: active }
         }

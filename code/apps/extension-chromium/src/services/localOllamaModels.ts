@@ -7,6 +7,10 @@
  */
 import { electronRpc } from '../rpc/electronRpc'
 import { DEFAULT_OLLAMA_ENDPOINT } from '../shared/ui/customModeTypes'
+import {
+  buildWrChatSelectorModelsFromLlmStatus,
+  type WrChatSelectorRow,
+} from '../lib/wrChatModelsFromLlmStatus'
 
 export type InstalledLocalModelsResult = {
   ok: boolean
@@ -98,6 +102,54 @@ export async function fetchInstalledLocalModelNames(): Promise<InstalledLocalMod
     return {
       ok: false,
       names: [],
+      error: e instanceof Error ? e.message : String(e),
+    }
+  }
+}
+
+export type WrChatSelectorModelsResult = {
+  ok: boolean
+  rows: WrChatSelectorRow[]
+  hostRows: WrChatSelectorRow[]
+  error?: string
+}
+
+/**
+ * WR Chat merged model registry (`computeHandshakeAvailableModels` → `wrChatAvailableModels` on `llm.status`).
+ * Same source as the WR Chat model picker and mode-run Host AI routing.
+ */
+export async function fetchWrChatSelectorModelsFromBackend(): Promise<WrChatSelectorModelsResult> {
+  try {
+    const result = await electronRpc('llm.status', undefined, 20000)
+    const { ok, status } = unwrapStatusPayload(result)
+    if (!ok || !status) {
+      return {
+        ok: false,
+        rows: [],
+        hostRows: [],
+        error: result.error || 'LLM status unavailable',
+      }
+    }
+    const rows = buildWrChatSelectorModelsFromLlmStatus({
+      modelsInstalled: status.modelsInstalled as Array<{ name?: string; size?: number }> | undefined,
+      wrChatAvailableModels: status.wrChatAvailableModels as
+        | Array<{
+            id: string
+            displayName: string
+            kind: string
+            execution_transport?: 'ollama_direct'
+            hostActiveModel?: string | null
+            isHostActiveModel?: boolean
+          }>
+        | undefined,
+    })
+    const hostRows = rows.filter((r) => r.hostAi === true || r.section === 'host')
+    return { ok: true, rows, hostRows }
+  } catch (e) {
+    return {
+      ok: false,
+      rows: [],
+      hostRows: [],
       error: e instanceof Error ? e.message : String(e),
     }
   }

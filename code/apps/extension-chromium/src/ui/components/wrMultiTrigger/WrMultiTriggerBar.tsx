@@ -9,6 +9,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { WatchdogThreat } from '../../../utils/formatWatchdogAlert'
 import { fetchTriggerProjects } from '../../../services/fetchTriggerProjects'
+import { requestModeModelWarmOnTrigger } from '../../../services/modeModelWarmOnTrigger'
+import { syncCustomModeIntervalRunners } from '../../../services/modeIntervalRunner'
+import {
+  modeHasAllocatedSession,
+  requestRunModeAllocatedSession,
+} from '../../../services/runModeAllocatedSessionAutomation'
+import { reportModeSessionRunResult } from '../../../services/modeSessionRunResultReporting'
 import { triggerOptimizerSnapshot } from '../../../services/fetchOptimizerTrigger'
 import type {
   ChatFocusMode,
@@ -19,8 +26,18 @@ import type {
 } from '../../../types/triggerTypes'
 import { useChatFocusStore } from '../../../stores/chatFocusStore'
 import { useCustomModesStore } from '../../../stores/useCustomModesStore'
+import { useUIStore } from '../../../stores/useUIStore'
 import { getCustomModeTriggerBarIcon } from '../../../shared/ui/customModeTypes'
-import WatchdogIcon from '../WatchdogIcon'
+import {
+  BUILTIN_SCAM_WATCHDOG_ID,
+  isScamWatchdogBuiltInMode,
+} from '../../../shared/ui/scamWatchdogBuiltIn'
+import {
+  buildTriggerBarDropdownSections,
+  flattenTriggerBarDropdownSections,
+  type TriggerBarDropdownRow,
+  type TriggerBarDropdownSection,
+} from './dropdownSections'
 import WrChatWatchdogButton from '../WrChatWatchdogButton'
 import {
   ADD_AUTOMATION_ROW_UI_KIND,
@@ -28,6 +45,7 @@ import {
   automationUiKindFromTriggerFunctionId,
 } from './automationUiKind'
 import { TriggerButtonShell } from './TriggerButtonShell'
+import { ModeRowAffordances } from '../ModeRowAffordances'
 
 /**
  * Dispatched on speech bubble click (also calls `onChatFocusRequest` if provided).
@@ -120,45 +138,6 @@ function SpeechBubbleButton({
   )
 }
 
-type TriggerBarDropdownRow = {
-  id: string
-  label: string
-  icon: string
-  functionId: TriggerFunctionId
-  /** Derived in UI only; exposed on DOM for tests / future styling — does not affect selection or APIs. */
-  automationUiKind: ReturnType<typeof automationUiKindFromTriggerFunctionId>
-}
-
-function buildProjectDropdownRows(projects: TriggerProjectEntry[]): TriggerBarDropdownRow[] {
-  const rows: TriggerBarDropdownRow[] = []
-  for (const p of projects) {
-    const functionId: TriggerFunctionId = { type: 'auto-optimizer', projectId: p.projectId }
-    rows.push({
-      id: p.projectId,
-      label: p.title,
-      icon: p.icon,
-      functionId,
-      automationUiKind: automationUiKindFromTriggerFunctionId(functionId),
-    })
-  }
-  return rows
-}
-
-function buildComposerDropdownRows(entries: TriggerComposerEntry[]): TriggerBarDropdownRow[] {
-  const rows: TriggerBarDropdownRow[] = []
-  for (const c of entries) {
-    const functionId: TriggerFunctionId = { type: 'composer-shortcut', composerId: c.composerId }
-    rows.push({
-      id: `composer:${c.composerId}`,
-      label: c.title,
-      icon: c.icon,
-      functionId,
-      automationUiKind: automationUiKindFromTriggerFunctionId(functionId),
-    })
-  }
-  return rows
-}
-
 function functionIdKey(fid: TriggerFunctionId): string {
   if (fid.type === 'watchdog') return 'watchdog'
   if (fid.type === 'auto-optimizer') return fid.projectId
@@ -174,10 +153,14 @@ export default function WrMultiTriggerBar({
   onChatFocusRequest,
   onEnsureWrChatOpen,
 }: WrMultiTriggerBarProps) {
-  const [activeFunctionId, setActiveFunctionId] = useState<TriggerFunctionId>({ type: 'watchdog' })
+  const [activeFunctionId, setActiveFunctionId] = useState<TriggerFunctionId>({
+    type: 'custom-automation',
+    modeId: BUILTIN_SCAM_WATCHDOG_ID,
+  })
   const [projectList, setProjectList] = useState<TriggerProjectEntry[]>([])
   const [composerShortcutList, setComposerShortcutList] = useState<TriggerComposerEntry[]>([])
   const customModes = useCustomModesStore(useShallow((s) => s.modes))
+  const [customModeSessionRunning, setCustomModeSessionRunning] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   /** Snapshot request in flight per project (scanning pulse on icon). */
   const [optimizerScanningByProject, setOptimizerScanningByProject] = useState<Record<string, boolean>>({})
@@ -208,9 +191,8 @@ export default function WrMultiTriggerBar({
     setActiveFunctionId((current) => {
       if (current.type !== 'custom-automation') return current
       const def = customModes.find((m) => m.id === current.modeId)
-      const pin = def ? getCustomModeTriggerBarIcon(def.metadata as Record<string, unknown> | undefined) : ''
-      if (!def || !pin) return { type: 'watchdog' }
-      return current
+      if (def) return current
+      return { type: 'custom-automation', modeId: BUILTIN_SCAM_WATCHDOG_ID }
     })
   }, [customModes])
 
@@ -218,7 +200,9 @@ export default function WrMultiTriggerBar({
     setActiveFunctionId((current) => {
       if (current.type !== 'composer-shortcut') return current
       const still = composerShortcutList.some((c) => c.composerId === current.composerId)
-      return still ? current : { type: 'watchdog' }
+      return still
+        ? current
+        : { type: 'custom-automation', modeId: BUILTIN_SCAM_WATCHDOG_ID }
     })
   }, [composerShortcutList])
 
@@ -247,39 +231,15 @@ export default function WrMultiTriggerBar({
     return () => document.removeEventListener('mousedown', onDoc)
   }, [dropdownOpen])
 
-  const pinnedCustomRows = useMemo(() => {
-    const rows: TriggerBarDropdownRow[] = []
-    for (const m of customModes) {
-      const icon = getCustomModeTriggerBarIcon(m.metadata as Record<string, unknown> | undefined)
-      if (!icon) continue
-      const functionId: TriggerFunctionId = { type: 'custom-automation', modeId: m.id }
-      rows.push({
-        id: m.id,
-        label: m.name.trim() || 'Automation',
-        icon,
-        functionId,
-        automationUiKind: automationUiKindFromTriggerFunctionId(functionId),
-      })
-    }
-    rows.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
-    return rows
-  }, [customModes])
+  const dropdownSections = useMemo(
+    () => buildTriggerBarDropdownSections(customModes, projectList, composerShortcutList),
+    [customModes, projectList, composerShortcutList],
+  )
 
-  const dropdownRows = useMemo((): TriggerBarDropdownRow[] => {
-    const watchdogRow: TriggerBarDropdownRow = {
-      id: 'watchdog',
-      label: 'Scam Watchdog',
-      icon: '',
-      functionId: { type: 'watchdog' },
-      automationUiKind: automationUiKindFromTriggerFunctionId({ type: 'watchdog' }),
-    }
-    return [
-      watchdogRow,
-      ...pinnedCustomRows,
-      ...buildProjectDropdownRows(projectList),
-      ...buildComposerDropdownRows(composerShortcutList),
-    ]
-  }, [projectList, pinnedCustomRows, composerShortcutList])
+  const dropdownRows = useMemo(
+    () => flattenTriggerBarDropdownSections(dropdownSections),
+    [dropdownSections],
+  )
 
   const activeProject = useMemo(() => {
     if (activeFunctionId.type !== 'auto-optimizer') return null
@@ -290,6 +250,15 @@ export default function WrMultiTriggerBar({
     if (activeFunctionId.type !== 'custom-automation') return null
     return customModes.find((m) => m.id === activeFunctionId.modeId) ?? null
   }, [activeFunctionId, customModes])
+
+  const activeCustomModeHasSession = useMemo(
+    () => modeHasAllocatedSession(activeCustomMode),
+    [activeCustomMode],
+  )
+
+  useEffect(() => {
+    syncCustomModeIntervalRunners(customModes)
+  }, [customModes])
 
   const activeComposer = useMemo(() => {
     if (activeFunctionId.type !== 'composer-shortcut') return null
@@ -365,9 +334,15 @@ export default function WrMultiTriggerBar({
         getCustomModeTriggerBarIcon(def.metadata as Record<string, unknown> | undefined) ||
         def.icon?.trim() ||
         '\u26A1'
-      const name = def.name.trim() || 'Automation'
-      if (current.mode === 'custom-automation' && current.modeId === def.id) {
+      const name = def.name.trim() || 'Mode'
+      const uiMode = useUIStore.getState().mode
+      if (
+        current.mode === 'custom-automation' &&
+        current.modeId === def.id &&
+        uiMode === def.id
+      ) {
         clearAndNotify()
+        useUIStore.getState().setMode('commands')
         return
       }
       const mode: ChatFocusMode = {
@@ -378,11 +353,27 @@ export default function WrMultiTriggerBar({
         startedAt: new Date().toISOString(),
       }
       const desc = def.description?.trim()
-      const intro = `${icon} **${name}**${desc ? `\n\n${desc}` : ''}
+      const intro = isScamWatchdogBuiltInMode(def)
+        ? `🐕 **Scam Watchdog automation active**
+
+I'm now focused on scam and fraud detection. You can:
+- Share screenshots of suspicious messages, emails, or websites
+- Paste suspicious text, URLs, or contact details for analysis
+- Describe a situation you'd like me to evaluate for fraud potential
+
+Send me anything you'd like analyzed.`
+        : `${icon} **${name}**${desc ? `\n\n${desc}` : ''}
 
 I'm focused on this automation. Continue in WR Chat with the same model and settings you chose for this mode.`
       runAfterOpen(() => {
+        useUIStore.getState().setMode(def.id)
         useChatFocusStore.getState().setChatFocusWithIntro(mode, null, intro)
+        requestModeModelWarmOnTrigger(def.id, 'speech_bubble')
+        if (modeHasAllocatedSession(def)) {
+          void requestRunModeAllocatedSession(def.id, 'speech_bubble').then((result) => {
+            reportModeSessionRunResult('WrMultiTriggerBar', def.id, 'speech_bubble', result)
+          })
+        }
         try {
           onChatFocusRequest?.(mode)
         } catch {
@@ -424,36 +415,7 @@ Use the trigger icon to open the composer popup, or add draft context here in ch
       return
     }
 
-    if (activeFunctionId.type === 'watchdog') {
-      if (current.mode === 'scam-watchdog') {
-        clearAndNotify()
-        return
-      }
-      const mode: ChatFocusMode = { mode: 'scam-watchdog' }
-      const intro = `🐕 **Scam Watchdog automation active**
-
-I'm now focused on scam and fraud detection. You can:
-- Share screenshots of suspicious messages, emails, or websites
-- Paste suspicious text, URLs, or contact details for analysis
-- Describe a situation you'd like me to evaluate for fraud potential
-
-Send me anything you'd like analyzed.`
-      runAfterOpen(() => {
-        useChatFocusStore.getState().setChatFocusWithIntro(mode, null, intro)
-        try {
-          onChatFocusRequest?.(mode)
-        } catch {
-          /* noop */
-        }
-        try {
-          window.dispatchEvent(new CustomEvent(WRCHAT_CHAT_FOCUS_REQUEST_EVENT, { detail: mode }))
-        } catch {
-          /* noop */
-        }
-      })
-      return
-    }
-
+    if (activeFunctionId.type !== 'auto-optimizer') return
     const pid = activeFunctionId.projectId
     if (current.mode === 'auto-optimizer' && current.projectId === pid) {
       clearAndNotify()
@@ -525,6 +487,20 @@ What would you like to add?`
     activeFunctionId.type === 'auto-optimizer' ? activeFunctionId.projectId : ''
   const optimizerScanning = optimizerPid ? (optimizerScanningByProject[optimizerPid] ?? false) : false
 
+  const handleCustomModeIconClick = useCallback(() => {
+    const def = activeCustomMode
+    if (!def || !modeHasAllocatedSession(def)) return
+    setCustomModeSessionRunning(true)
+    requestModeModelWarmOnTrigger(def.id, 'speech_bubble')
+    void requestRunModeAllocatedSession(def.id, 'manual_icon')
+      .then((result) => {
+        reportModeSessionRunResult('WrMultiTriggerBar', def.id, 'manual_icon', result)
+      })
+      .finally(() => {
+        setCustomModeSessionRunning(false)
+      })
+  }, [activeCustomMode])
+
   const handleOptimizerIconClick = useCallback(async () => {
     if (activeFunctionId.type !== 'auto-optimizer') return
     const pid = activeFunctionId.projectId
@@ -572,10 +548,129 @@ What would you like to add?`
   const isLight = theme === 'standard'
   const isDark = theme === 'dark'
   const dropdownSurface = isLight
-    ? { bg: '#ffffff', border: '#cbd5e1', text: '#0f172a', hover: '#f1f5f9' }
+    ? {
+        bg: '#ffffff',
+        border: '#cbd5e1',
+        text: '#0f172a',
+        sectionLabel: '#475569',
+        hover: '#f1f5f9',
+      }
     : isDark
-      ? { bg: 'rgba(15,23,42,0.95)', border: 'rgba(148,163,184,0.35)', text: '#f1f5f9', hover: 'rgba(99,102,241,0.25)' }
-      : { bg: 'rgba(49,32,68,0.98)', border: 'rgba(167,139,250,0.45)', text: '#f5f3ff', hover: 'rgba(118,75,162,0.45)' }
+      ? {
+          bg: 'rgba(15,23,42,0.95)',
+          border: 'rgba(148,163,184,0.35)',
+          text: '#f1f5f9',
+          sectionLabel: '#94a3b8',
+          hover: 'rgba(99,102,241,0.25)',
+        }
+      : {
+          bg: 'rgba(49,32,68,0.98)',
+          border: 'rgba(167,139,250,0.45)',
+          text: '#f5f3ff',
+          sectionLabel: '#c4b5fd',
+          hover: 'rgba(118,75,162,0.45)',
+        }
+
+  const renderDropdownRow = (row: TriggerBarDropdownRow) => {
+    const selected = functionIdKey(row.functionId) === functionIdKey(activeFunctionId)
+    const modeId = row.functionId.type === 'custom-automation' ? row.functionId.modeId : null
+    return (
+      <li key={row.id}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            paddingRight: modeId ? 4 : 0,
+            background: selected ? dropdownSurface.hover : 'transparent',
+          }}
+        >
+          <button
+            type="button"
+            role="option"
+            aria-selected={selected}
+            data-automation-ui-kind={row.automationUiKind}
+            onClick={() => handleDropdownRowClick(row)}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              textAlign: 'left',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '8px 12px',
+              border: 'none',
+              background: 'transparent',
+              color: dropdownSurface.text,
+              cursor: 'pointer',
+              fontSize: 12,
+            }}
+            onMouseEnter={(e) => {
+              if (!selected) e.currentTarget.parentElement!.style.background = dropdownSurface.hover
+            }}
+            onMouseLeave={(e) => {
+              if (!selected) e.currentTarget.parentElement!.style.background = 'transparent'
+            }}
+          >
+            <span style={{ fontSize: 14, lineHeight: 1, flexShrink: 0 }}>{row.icon}</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {row.label}
+            </span>
+          </button>
+          {modeId ? (
+            <ModeRowAffordances
+              modeId={modeId}
+              compact
+              tone={isLight ? 'light' : 'dark'}
+              onAfterAction={() => setDropdownOpen(false)}
+            />
+          ) : null}
+        </div>
+      </li>
+    )
+  }
+
+  const renderSectionAddButton = (
+    section: TriggerBarDropdownSection,
+    label: string,
+    icon: string,
+    uiKind: typeof ADD_AUTOMATION_ROW_UI_KIND | typeof ADD_PROJECT_ASSISTANT_ROW_UI_KIND,
+    onClick: () => void,
+  ) => (
+    <li role="presentation" key={`${section.id}-add`}>
+      <button
+        type="button"
+        role="option"
+        data-automation-ui-kind={uiKind}
+        onClick={onClick}
+        style={{
+          width: '100%',
+          textAlign: 'left',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 12px',
+          border: 'none',
+          background: 'transparent',
+          color: dropdownSurface.text,
+          cursor: 'pointer',
+          fontSize: 12,
+          fontWeight: 600,
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = dropdownSurface.hover
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'transparent'
+        }}
+      >
+        <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>
+          {icon}
+        </span>
+        <span>{label}</span>
+      </button>
+    </li>
+  )
 
   const dropdownLeadingSlot = (
     <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
@@ -614,7 +709,7 @@ What would you like to add?`
             marginTop: 4,
             minWidth: 200,
             maxWidth: 280,
-            maxHeight: 240,
+            maxHeight: 'min(calc(100vh - 120px), 480px)',
             overflowY: 'auto',
             zIndex: 50,
             listStyle: 'none',
@@ -626,123 +721,54 @@ What would you like to add?`
             boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
           }}
         >
-          {dropdownRows.map((row) => {
-            const selected = functionIdKey(row.functionId) === functionIdKey(activeFunctionId)
-            return (
-              <li key={row.id}>
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={selected}
-                  data-automation-ui-kind={row.automationUiKind}
-                  onClick={() => handleDropdownRowClick(row)}
+          {dropdownSections.map((section, sectionIdx) => (
+            <React.Fragment key={section.id}>
+              {sectionIdx > 0 ? (
+                <li
+                  role="presentation"
+                  aria-hidden
                   style={{
-                    width: '100%',
-                    textAlign: 'left',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '8px 12px',
-                    border: 'none',
-                    background: selected ? dropdownSurface.hover : 'transparent',
-                    color: dropdownSurface.text,
-                    cursor: 'pointer',
-                    fontSize: 12,
+                    borderTop: `1px solid ${dropdownSurface.border}`,
+                    marginTop: 4,
+                    marginBottom: 2,
                   }}
-                  onMouseEnter={(e) => {
-                    if (!selected) e.currentTarget.style.background = dropdownSurface.hover
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!selected) e.currentTarget.style.background = 'transparent'
+                />
+              ) : null}
+              <li role="presentation">
+                <div
+                  style={{
+                    padding: '6px 12px 4px',
+                    fontSize: 10,
+                    fontWeight: 600,
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                    color: dropdownSurface.sectionLabel,
                   }}
                 >
-                  {row.id === 'watchdog' ? (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
-                      <WatchdogIcon size={14} />
-                    </span>
-                  ) : (
-                    <span style={{ fontSize: 14, lineHeight: 1 }}>{row.icon}</span>
-                  )}
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {row.label}
-                  </span>
-                </button>
+                  {section.label}
+                </div>
               </li>
-            )
-          })}
-          <li
-            role="presentation"
-            style={{
-              borderTop: `1px solid ${dropdownSurface.border}`,
-              marginTop: 4,
-              paddingTop: 4,
-            }}
-          >
-            <button
-              type="button"
-              role="option"
-              data-automation-ui-kind={ADD_AUTOMATION_ROW_UI_KIND}
-              onClick={handleAddModeRowClick}
-              style={{
-                width: '100%',
-                textAlign: 'left',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '8px 12px',
-                border: 'none',
-                background: 'transparent',
-                color: dropdownSurface.text,
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: 600,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = dropdownSurface.hover
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent'
-              }}
-            >
-              <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>
-                ✨
-              </span>
-              <span>+ Add Automation</span>
-            </button>
-          </li>
-          <li role="presentation">
-            <button
-              type="button"
-              role="option"
-              data-automation-ui-kind={ADD_PROJECT_ASSISTANT_ROW_UI_KIND}
-              onClick={handleAddProjectAssistantRowClick}
-              style={{
-                width: '100%',
-                textAlign: 'left',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '8px 12px',
-                border: 'none',
-                background: 'transparent',
-                color: dropdownSurface.text,
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: 600,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = dropdownSurface.hover
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent'
-              }}
-            >
-              <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>
-                📋
-              </span>
-              <span>+ Add Project WIKI</span>
-            </button>
-          </li>
+              {section.rows.map((row) => renderDropdownRow(row))}
+              {section.id === 'modes'
+                ? renderSectionAddButton(
+                    section,
+                    '+ Add Mode',
+                    '✨',
+                    ADD_AUTOMATION_ROW_UI_KIND,
+                    handleAddModeRowClick,
+                  )
+                : null}
+              {section.id === 'projects'
+                ? renderSectionAddButton(
+                    section,
+                    '+ Add Project WIKI',
+                    '📋',
+                    ADD_PROJECT_ASSISTANT_ROW_UI_KIND,
+                    handleAddProjectAssistantRowClick,
+                  )
+                : null}
+            </React.Fragment>
+          ))}
         </ul>
       ) : null}
     </div>
@@ -753,6 +779,9 @@ What would you like to add?`
       (getCustomModeTriggerBarIcon(activeCustomMode.metadata as Record<string, unknown> | undefined) ||
         activeCustomMode.icon?.trim())) ||
     '\u26A1'
+
+  const showWatchdogTrigger =
+    activeFunctionId.type === 'custom-automation' && isScamWatchdogBuiltInMode(activeCustomMode)
 
   return (
     <div
@@ -765,7 +794,7 @@ What would you like to add?`
       }}
     >
       <div style={{ display: 'inline-flex', alignItems: 'center' }}>
-        {activeFunctionId.type === 'watchdog' ? (
+        {showWatchdogTrigger ? (
           <WrChatWatchdogButton
             theme={theme}
             onWatchdogAlert={onWatchdogAlert}
@@ -784,15 +813,21 @@ What would you like to add?`
                 {customBarIcon}
               </span>
             }
-            scanning={false}
+            scanning={activeCustomModeHasSession && customModeSessionRunning}
             cleanFlash={false}
-            onIconClick={() => {
-              /* Pinned automation: no project snapshot — icon is display-only. */
-            }}
-            disabled={false}
+            onIconClick={handleCustomModeIconClick}
+            disabled={!activeCustomModeHasSession || customModeSessionRunning}
             middleSlot={<SpeechBubbleButton tooltip={speechTooltipCustom} onPress={emitChatFocus} />}
-            scanButtonTitle="Pinned automation (no snapshot)"
-            scanButtonAriaLabel="Pinned automation shortcut"
+            scanButtonTitle={
+              activeCustomModeHasSession
+                ? `Run ${activeCustomMode?.name.trim() || 'automation'} session now`
+                : 'Pinned automation (no session run)'
+            }
+            scanButtonAriaLabel={
+              activeCustomModeHasSession
+                ? `Run ${activeCustomMode?.name.trim() || 'automation'} session now`
+                : 'Pinned automation shortcut'
+            }
           />
         ) : activeFunctionId.type === 'composer-shortcut' ? (
           <TriggerButtonShell

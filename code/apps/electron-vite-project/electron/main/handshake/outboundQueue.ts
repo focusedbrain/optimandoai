@@ -7,6 +7,7 @@
  * Delivery is coordination-relay only (direct-LAN /beap/ingest retired).
  */
 
+import { normalizeCoordinationUrlForLocalDial } from '../p2p/coordinationUrlLocalDial'
 import {
   sendCapsuleViaCoordination,
   describeOutboundPayloadForLogs,
@@ -937,7 +938,7 @@ async function processOutboundQueueInner(
 
     if (config.use_coordination && getOidcToken) {
       const token = await getOidcToken()
-      const targetUrl = config.coordination_url?.trim() ?? ''
+      const targetUrl = normalizeCoordinationUrlForLocalDial(config.coordination_url?.trim() ?? '')
       if (!token?.trim()) {
         console.warn(`[P2P-QUEUE] Early return: No OIDC token for row ${row.id}`)
         console.info(
@@ -1221,7 +1222,7 @@ async function processOutboundQueueInner(
 
     // HTTP 403 — coordination: structured body classifies terminal identity vs one-shot stale-registry re-register.
     if (result.statusCode === 403 && config.use_coordination && getOidcToken) {
-      const coordUrl = config.coordination_url?.trim() ?? ''
+      const coordUrl = normalizeCoordinationUrlForLocalDial(config.coordination_url?.trim() ?? '')
       if (coordUrl) {
         const r403 = await handleCoordinationOutbound403(db, row, now, result, coordUrl, getOidcToken)
         if (r403.done) return r403.result

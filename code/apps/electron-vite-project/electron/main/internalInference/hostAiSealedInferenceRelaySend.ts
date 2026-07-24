@@ -27,6 +27,7 @@ import {
   type PendingResult,
 } from './pendingRequests'
 import { assertSandboxMaySealServiceRpcInnerType } from '../sandbox/sandboxOutboundPolicy'
+import { canonicalLocalModelName } from '../llm/localModelIdentity'
 import {
   HOST_AI_INFERENCE_REQUEST_INNER_TYPE,
   HOST_AI_INFERENCE_RELAY_SCHEMA_VERSION,
@@ -90,7 +91,8 @@ export async function sendSealedHostAiInferenceRequest(params: {
     handshake_id: hid,
     sender_device_id: localDeviceId,
     receiver_device_id: hostDeviceId,
-    model: params.model?.trim() || undefined,
+    // A4: outbound requests carry the canonical model name only (never path / .gguf spellings).
+    model: canonicalLocalModelName(params.model) || undefined,
     messages: params.messages,
     options: params.options,
     created_at: new Date(now).toISOString(),
@@ -112,12 +114,23 @@ export async function sendSealedHostAiInferenceRequest(params: {
     return { ok: false, code: sealed.code, message: sealed.message }
   }
 
+  console.log(
+    `[PHASE3_SEALED_BOUNDARY] sandbox_seal_ok handshake=${hid} host_device=${hostDeviceId} request_id=${requestId}`,
+  )
+
   const promise = registerInternalInferenceRequest(requestId, params.timeoutMs)
 
   const sent = await sendSealedServiceRpcViaCoordinationRelay(db, ar.record, sealed.envelope, {})
   if (!sent.ok) {
+    console.log(
+      `[PHASE3_SEALED_BOUNDARY] sandbox_relay_post_failed handshake=${hid} request_id=${requestId} code=${sent.code}`,
+    )
     return { ok: false, code: sent.code, message: sent.message }
   }
+
+  console.log(
+    `[PHASE3_SEALED_BOUNDARY] sandbox_relay_post_ok handshake=${hid} request_id=${requestId} (sealed path — no WebRTC session ensure)`,
+  )
 
   console.log(`${L} sent request_id=${requestId} handshake=${hid} model=${params.model?.trim() || 'default'}`)
   return { ok: true, request_id: requestId, promise }

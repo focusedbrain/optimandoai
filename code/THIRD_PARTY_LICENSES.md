@@ -178,11 +178,12 @@ Diese Komponenten sind **keine** npm-Runtime-Dependencies des Monorepos, können
 - **Genutzt für:** Dokument-Textextraktion (Architektur und Extension-Code referenzieren Tika; teils **stubbed** / geplant — siehe u. a. `extension-chromium` Reconstruction-Dienste)
 - **Hinweis:** Kein `tika`-npm-Paket in den genannten `package.json`-Manifesten.
 
-### Ollama
+### llama.cpp (llama-server)
 
-- **Lizenz:** MIT (Referenzdatei: `apps/electron-vite-project/THIRD_PARTY_LICENSES/ollama-MIT.txt`)
-- **Genutzt für:** Lokaler LLM-/Inferenz-Dienst per **HTTP/API** (Electron-Hauptprozess und UI integrieren **Ollama** als extern laufenden Dienst; **nicht** als npm-Paket gebündelt)
-- **Hinweis:** Kein `ollama`-npm-Paket in den genannten `package.json`-Manifesten.
+- **Lizenz:** MIT (Referenzdatei: `apps/electron-vite-project/THIRD_PARTY_LICENSES/llamacpp-MIT.txt`)
+- **Copyright:** Georgi Gerganov and contributors
+- **Genutzt für:** Lokaler LLM-/Inferenz-Dienst per **OpenAI-kompatible HTTP/API** (`llama-server` auf Loopback `127.0.0.1:8080`); gebündeltes Binary unter `resources/llamacpp/` wenn vorhanden, sonst extern via PATH
+- **Hinweis:** Kein npm-Paket — externes Binary / gebündelte Ressource, nicht als npm-Dependency gebündelt
 
 ---
 

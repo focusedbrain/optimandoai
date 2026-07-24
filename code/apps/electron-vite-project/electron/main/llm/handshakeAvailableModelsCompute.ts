@@ -4,7 +4,7 @@
  */
 
 import { getOrchestratorMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
-import type { OllamaStatus } from './types'
+import type { LocalLlmStatus } from './types'
 
 /** Deduped discovery log (same semantics as former inline helper in main.ts). */
 let lastLocalProviderOllamaDiscoveryLogSig = ''
@@ -62,7 +62,7 @@ export type WrChatAvailableModelRow = {
 
 export type ComputeHandshakeAvailableModelsOpts = {
   /**
-   * Skip `ollamaManager.listModels()` and use these entries (e.g. `getStatus().modelsInstalled`)
+   * Skip `localLlmManager.listModels()` and use these entries (e.g. `getStatus().modelsInstalled`)
    * so `llm:getStatus` does not double-fetch local tags.
    */
   reuseLocalModels?: ReadonlyArray<{ name?: string | null }>
@@ -208,10 +208,14 @@ export async function computeHandshakeAvailableModels(
       logLocalProviderOllamaDiscovery(ollamaDiscoveryOk, null)
     } else {
       try {
-        const { ollamaManager } = await import('./ollama-manager')
-        const installed = await ollamaManager.listModels()
-        ollamaModelCount = Array.isArray(installed) ? installed.length : 0
-        for (const m of installed) {
+        // B1: `ollamaDiscoveryOk` must reflect the real llama-server reachability signal, not
+        // "the model list call didn't throw" — `listModels()` can succeed via its disk-scan
+        // fallback while the server itself is down, which previously reported ok=true regardless.
+        const { getLocalLlmProviderStatus } = await import('./localLlmProviderStatus')
+        const providerStatus = await getLocalLlmProviderStatus()
+        ollamaModelCount = providerStatus.modelsCount
+        ollamaDiscoveryOk = providerStatus.serverRunning
+        for (const m of providerStatus.modelsInstalled) {
           const name = m?.name?.trim?.() || ''
           if (!name) continue
           localModels.push({
@@ -222,7 +226,7 @@ export async function computeHandshakeAvailableModels(
             inferenceTargetContext: 'sandbox_local',
           })
         }
-        logLocalProviderOllamaDiscovery(true, null)
+        logLocalProviderOllamaDiscovery(ollamaDiscoveryOk, null)
       } catch (err: unknown) {
         ollamaDiscoveryOk = false
         ollamaModelCount = 0
@@ -314,8 +318,8 @@ export async function computeHandshakeAvailableModels(
 
 /** Attach unified WR Chat registry rows to Ollama status (extension + HTTP GET `/api/llm/status`). */
 export async function augmentOllamaStatusWithWrChatModels(
-  status: OllamaStatus,
-): Promise<OllamaStatus & { wrChatAvailableModels?: WrChatAvailableModelRow[] }> {
+  status: LocalLlmStatus,
+): Promise<LocalLlmStatus & { wrChatAvailableModels?: WrChatAvailableModelRow[] }> {
   try {
     const gav = await computeHandshakeAvailableModels({
       reuseLocalModels: status.modelsInstalled,

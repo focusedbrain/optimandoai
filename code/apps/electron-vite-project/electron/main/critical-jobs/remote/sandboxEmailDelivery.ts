@@ -122,8 +122,37 @@ export async function postSandboxEmailDelivery(
   }
 }
 
-/** Default HTTP transport for sandbox→host delivery. */
+/**
+ * Typed `boolean` (not literal `true`) so the retired direct-dial body stays
+ * type-checked but never runs.
+ */
+const RETIRE_DIRECT_SANDBOX_DELIVERY: boolean = true
+
+/**
+ * Default HTTP transport for sandbox→host delivery.
+ *
+ * RETIRED LANE: this dials the host's advertised direct-LAN `/beap/ingest` URL
+ * (`getHostPublishedMvpDirectP2pIngestUrl` / peer-advertised MVP direct entry).
+ * That advertisement path was permanently retired (Schema v71 — "retire
+ * direct-LAN P2P ingest listener; sealed relay only; disable local /beap/ingest
+ * server") and now unconditionally resolves to no endpoint, so this transport
+ * is already unreachable in practice — an accident of topology, not an
+ * enforced invariant. There is currently NO relay-mediated replacement that
+ * carries the actual guest-depackaged mail content (`sandbox_email_delivery`
+ * wire bytes): the sealed `ingestion_poll_result` relay RPC only returns
+ * metadata counts (see `ingestionPollTrigger/wire.ts`). Fail closed at entry
+ * so a stale/legacy ledger `p2p_endpoint` can never cause a plaintext-adjacent
+ * direct dial between peers. Sandbox→host email delivery has no working
+ * transport today; this needs a migration decision (route mail bytes over the
+ * sealed relay), not just this guard.
+ */
 export const httpSandboxDeliveryTransport: SandboxDeliveryTransport = async ({ url, token, wire }) => {
+  if (RETIRE_DIRECT_SANDBOX_DELIVERY) {
+    console.warn(
+      `[SandboxDelivery] retired direct transport call blocked (fail closed). delivery_id=${wire.delivery_id}`,
+    )
+    return { ok: false, error: 'direct_sandbox_delivery_retired' }
+  }
   const resp = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },

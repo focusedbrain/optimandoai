@@ -999,7 +999,7 @@ function createRequestHandler(
               error: 'Rate limit exceeded',
               limit: rateCheck.limit,
               tier: rateCheck.tier,
-              upgrade_url: 'https://wrdesk.com/pricing',
+              upgrade_url: 'https://optirando.com/pricing',
             })
             return
           }
@@ -1032,7 +1032,7 @@ function createRequestHandler(
           if (isSandboxClone && !hasSandboxEntitlement(identity.tier)) {
             sendError(res, 403, {
               error: 'sandbox_entitlement_required',
-              upgrade_url: 'https://wrdesk.com/pricing',
+              upgrade_url: 'https://optirando.com/pricing',
             })
             return
           }

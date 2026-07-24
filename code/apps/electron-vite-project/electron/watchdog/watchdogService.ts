@@ -2,8 +2,8 @@
  * Watchdog security scanner — multi-display capture + DOM snapshots (from extension)
  * and LLM-based threat analysis.
  *
- * **LLM path:** calls `ollamaManager.chat()` directly (same underlying stack as
- * `POST /api/llm/chat` for local Ollama) via dynamic `import('../main/llm/ollama-manager')`.
+ * **LLM path:** calls `localLlmManager.chat()` directly (same underlying stack as
+ * `POST /api/llm/chat` for local Ollama) via dynamic `import('../main/llm/local-llm-manager')`.
  * Avoids HTTP loopback and keeps `X-Launch-Secret` out of the scan hot path.
  */
 
@@ -14,6 +14,14 @@ import path from 'node:path'
 import { captureScreenshot } from '../lmgtfy/capture'
 import type { Selection } from '../lmgtfy/overlay'
 import type { ChatMessage } from '../main/llm/types'
+import {
+  WATCHDOG_SYSTEM_PROMPT,
+  extractScamWatchdogScanPromptFromLegacySearchFocus,
+} from '../../../extension-chromium/src/shared/ui/watchdogPrompts'
+import { BUILTIN_SCAM_WATCHDOG_ID } from '../../../extension-chromium/src/shared/ui/scamWatchdogBuiltIn'
+import { getModeById } from '../main/customModes/customModesStore'
+
+export { WATCHDOG_SYSTEM_PROMPT } from '../../../extension-chromium/src/shared/ui/watchdogPrompts'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -145,35 +153,23 @@ function maybeGlobalGc(): void {
   }
 }
 
-export const WATCHDOG_SYSTEM_PROMPT = `You are a cybersecurity watchdog assistant. You are shown screenshots of a user's computer screens and text content from their open browser tabs.
-Analyse ALL content for security threats including but not limited to:
-
-Phishing attempts (fake login pages, credential harvesting)
-Scam websites or messages (fake prizes, urgency tactics, too-good-to-be-true offers)
-Fraud indicators (fake invoices, impersonation, business email compromise)
-Suspicious or malicious links (URL mismatches, homograph attacks, shortened URLs to unknown destinations)
-Chat fraud (romance scams, fake tech support, social engineering in messaging apps)
-Social engineering (urgency, impersonation, manipulation outside chat contexts)
-Malware indicators (fake download buttons, deceptive install prompts, suspicious executables)
-Fishy emails (spoofed senders, urgent action requests, unexpected attachments)
-Fake or spoofed websites (banking, social media, government impersonation)
-Suspicious browser extensions or popups
-
-Respond ONLY with a JSON object. No markdown, no explanation outside the JSON.
-If threats are found:
-{
-"threats": [
-{
-"severity": "low|medium|high|critical",
-"category": "phishing|scam|malware|social_engineering|suspicious_link|fake_login|chat_fraud|fraud|other",
-"source": "Screen 1|Tab: example.com|etc",
-"summary": "Brief description of what was detected",
-"advice": "What the user should do"
+export function resolveWatchdogSystemPromptFromMode(): string {
+  const mode = getModeById(BUILTIN_SCAM_WATCHDOG_ID)
+  const focus = mode?.searchFocus?.trim() ?? ''
+  const legacyScan = extractScamWatchdogScanPromptFromLegacySearchFocus(focus)
+  if (legacyScan) return legacyScan
+  return WATCHDOG_SYSTEM_PROMPT
 }
-]
+
+export async function resolveWatchdogEffectiveModelId(configModelId?: string): Promise<string> {
+  const configured = configModelId?.trim()
+  if (configured) return configured
+  const mode = getModeById(BUILTIN_SCAM_WATCHDOG_ID)
+  const fromMode = mode?.modelName?.trim()
+  if (fromMode) return fromMode
+  const { localLlmManager } = await import('../main/llm/local-llm-manager')
+  return (await localLlmManager.getEffectiveChatModelName()) || DEFAULT_WATCHDOG_MODEL_ID
 }
-If everything looks safe:
-{ "threats": [] }`
 
 /** Smart Summary — executive workspace overview (same capture as Watchdog; plain-text reply). */
 const SMART_SUMMARY_SYSTEM_PROMPT = `You are a workspace activity summarizer for WR Desk, a secure business communication platform. Analyze the user's current workspace and provide a concise executive summary.
@@ -436,7 +432,7 @@ export class WatchdogService {
       ...(imageB64s.length > 0 ? { images: imageB64s } : {}),
     }
 
-    const messages: ChatMessage[] = [{ role: 'system', content: WATCHDOG_SYSTEM_PROMPT }, userMsg]
+    const messages: ChatMessage[] = [{ role: 'system', content: resolveWatchdogSystemPromptFromMode() }, userMsg]
 
     const modelId = this.config.modelId?.trim()
     return { messages, ...(modelId ? { modelId } : {}) }
@@ -570,13 +566,11 @@ export class WatchdogService {
 
       let responseText = ''
       try {
-        const { ollamaManager } = await import('../main/llm/ollama-manager')
-        this.logWatchdogRemotePrivacyNote(ollamaManager)
+        const { localLlmManager } = await import('../main/llm/local-llm-manager')
+        this.logWatchdogRemotePrivacyNote(localLlmManager)
 
-        const configured = this.config.modelId?.trim()
-        const effective =
-          configured || (await ollamaManager.getEffectiveChatModelName()) || DEFAULT_WATCHDOG_MODEL_ID
-        const chatRes = await ollamaManager.chat(effective, messages)
+        const effective = await resolveWatchdogEffectiveModelId(this.config.modelId)
+        const chatRes = await localLlmManager.chat(effective, messages)
         responseText = typeof chatRes?.content === 'string' ? chatRes.content : ''
         responseLen = responseText.length
         if (!responseText) {
@@ -591,7 +585,7 @@ export class WatchdogService {
           return result
         }
       } catch (e) {
-        console.warn('[Watchdog] ollamaManager.chat failed:', e instanceof Error ? e.message : e)
+        console.warn('[Watchdog] localLlmManager.chat failed:', e instanceof Error ? e.message : e)
         this.scheduleDeletion(capturePaths)
         const result: WatchdogResult = {
           scanId,
@@ -680,13 +674,13 @@ export class WatchdogService {
 
       const messages = this.buildSummaryPrompt(scan)
 
-      const { ollamaManager } = await import('../main/llm/ollama-manager')
-      this.logWatchdogRemotePrivacyNote(ollamaManager)
+      const { localLlmManager } = await import('../main/llm/local-llm-manager')
+      this.logWatchdogRemotePrivacyNote(localLlmManager)
 
       const configured = this.config.modelId?.trim()
       const effective =
-        configured || (await ollamaManager.getEffectiveChatModelName()) || DEFAULT_WATCHDOG_MODEL_ID
-      const chatRes = await ollamaManager.chat(effective, messages)
+        configured || (await localLlmManager.getEffectiveChatModelName()) || DEFAULT_WATCHDOG_MODEL_ID
+      const chatRes = await localLlmManager.chat(effective, messages)
       const responseText = typeof chatRes?.content === 'string' ? chatRes.content.trim() : ''
 
       this.deletePaths(capturePaths)
@@ -710,12 +704,12 @@ export class WatchdogService {
 
   /**
    * Extension `buildLlmRequestBody` routes cloud when `!isLocal` and adds `provider` + `apiKey`.
-   * Watchdog uses `ollamaManager.chat()` only (no provider/apiKey on the request body). Warn if the
+   * Watchdog uses `localLlmManager.chat()` only (no provider/apiKey on the request body). Warn if the
    * configured Ollama base URL is not localhost (e.g. remote Ollama tunnel).
    */
-  private logWatchdogRemotePrivacyNote(ollamaManager: { getBaseUrl: () => string }): void {
+  private logWatchdogRemotePrivacyNote(localLlmManager: { getBaseUrl: () => string }): void {
     try {
-      const u = new URL(ollamaManager.getBaseUrl())
+      const u = new URL(localLlmManager.getBaseUrl())
       const host = u.hostname.toLowerCase()
       if (host !== '127.0.0.1' && host !== 'localhost') {
         console.warn(

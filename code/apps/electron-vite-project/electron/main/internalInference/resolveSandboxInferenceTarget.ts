@@ -16,19 +16,31 @@
  * resolver entirely via execution_transport: 'ollama_direct'.
  */
 
+import { getHandshakeRecord } from '../handshake/db'
 import { filterHandshakeRecordsForCurrentSession } from '../handshake/handshakeAccountIsolation'
 import { getCurrentSession } from '../handshake/ipc'
 import { type HandshakeRecord } from '../handshake/types'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
-import { listActiveInternalHandshakesForHostAi } from './hostAiInternalPairingLedger'
-import { handshakeSamePrincipal, deriveInternalHostAiPeerRoles } from './policy'
+import {
+  isHostSandboxPairEligible,
+  listActiveInternalHandshakesForHostAi,
+  rowProvesLocalSandboxToHostForHostAi,
+} from './hostAiInternalPairingLedger'
+import {
+  hasHostPeerIdentityBoundLivePresence,
+  nudgeHostPeerLivePresenceRedial,
+} from './hostAiPeerLivePresence'
+import { InternalInferenceErrorCode } from './errors'
 import { getSandboxOllamaDirectRouteCandidate } from './sandboxHostAiOllamaDirectCandidate'
-import { assertSandboxHostPeerLivePresenceForHandshake } from './hostAiPeerLivePresence'
 
-const LOCAL_TAGS_URL = 'http://127.0.0.1:11434/api/tags'
-/** Literal base for local sandbox Ollama (tags + chat callers use sibling paths). */
-const LOCAL_SANDBOX_BASE_URL = 'http://127.0.0.1:11434' as const
+import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../llm/localLlmPaths'
+
+const LOCAL_MODELS_URL = `${HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE}/v1/models`
+const LOCAL_SANDBOX_BASE_URL = HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE
+
+const PRESENCE_REDIAL_WAIT_MS = 2_000
+const PRESENCE_REDIAL_POLL_MS = 200
 
 let localProbeCache: { okAt: number; ok: boolean } | null = null
 const LOCAL_PROBE_TTL_MS = 10_000
@@ -59,12 +71,18 @@ export type SandboxInferenceTarget =
       endpointOwnerDeviceId: string
     }
   | {
+      kind: 'cross_device_reconnecting'
+      handshakeId: string
+      reason: 'host_peer_presence_lapsed'
+      detail?: string
+    }
+  | {
       kind: 'unavailable'
       reason:
         | 'no_local_ollama_no_cross_device_host'
         | 'cross_device_caps_not_accepted'
         | 'local_probe_error'
-        | 'host_peer_identity_offline'
+        | 'host_pair_not_eligible'
       detail?: string
     }
 
@@ -80,7 +98,7 @@ async function probeLocalSandboxOllama(): Promise<boolean> {
   try {
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), LOCAL_PROBE_TIMEOUT_MS)
-    const res = await fetch(LOCAL_TAGS_URL, { signal: ac.signal })
+    const res = await fetch(LOCAL_MODELS_URL, { signal: ac.signal })
     clearTimeout(timer)
     const ok = res.ok
     localProbeCache = { okAt: now, ok }
@@ -89,13 +107,6 @@ async function probeLocalSandboxOllama(): Promise<boolean> {
     localProbeCache = { okAt: now, ok: false }
     return false
   }
-}
-
-/** Same semantics as {@link listInferenceTargets}'s row gate — local Sandbox, peer Host, same principal. */
-function rowProvesLocalSandboxToHostForHostAi(r: HandshakeRecord): boolean {
-  if (!handshakeSamePrincipal(r)) return false
-  const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
-  return dr.ok && dr.localRole === 'sandbox' && dr.peerRole === 'host'
 }
 
 /**
@@ -108,9 +119,6 @@ function rowProvesLocalSandboxToHostForHostAi(r: HandshakeRecord): boolean {
 export async function resolveActiveSandboxToHostHandshakeId(): Promise<string | undefined> {
   const db = await getHandshakeDbForInternalInference()
   if (!db) return undefined
-  // Routing a request to a host is a Host-AI *consumption* path → stays session-scoped (§2
-  // defense-in-depth). Uses the shared internal-handshake helper, then the same SSO-session filter as
-  // the handshake list. Per-row `rowProvesLocalSandboxToHostForHostAi` enforces same-principal + role.
   const ledgerActive = filterHandshakeRecordsForCurrentSession(
     listActiveInternalHandshakesForHostAi(db),
     getCurrentSession(),
@@ -158,6 +166,80 @@ function crossDeviceTargetFromCandidate(
   }
 }
 
+async function resolveHandshakeRecordForRouting(
+  handshakeId: string,
+): Promise<{ ok: true; record: HandshakeRecord } | { ok: false; code: string }> {
+  const hid = handshakeId.trim()
+  if (!hid) {
+    return { ok: false, code: InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE }
+  }
+  const db = await getHandshakeDbForInternalInference()
+  if (!db) {
+    return { ok: false, code: InternalInferenceErrorCode.NO_ACTIVE_INTERNAL_HOST_HANDSHAKE }
+  }
+  const r = getHandshakeRecord(db, hid)
+  if (!r || !isHostSandboxPairEligible(r)) {
+    return { ok: false, code: InternalInferenceErrorCode.POLICY_FORBIDDEN }
+  }
+  return { ok: true, record: r }
+}
+
+async function waitForLivePresenceAfterRedial(
+  db: unknown,
+  handshakeId: string,
+  record: HandshakeRecord,
+): Promise<boolean> {
+  if (hasHostPeerIdentityBoundLivePresence(handshakeId, record)) return true
+  void nudgeHostPeerLivePresenceRedial(db, handshakeId, record, 'resolve_sandbox_inference_target')
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < PRESENCE_REDIAL_WAIT_MS) {
+    await new Promise((r) => setTimeout(r, PRESENCE_REDIAL_POLL_MS))
+    if (hasHostPeerIdentityBoundLivePresence(handshakeId, record)) return true
+  }
+  return hasHostPeerIdentityBoundLivePresence(handshakeId, record)
+}
+
+async function crossDeviceRouteForEligibleHandshake(
+  handshakeId: string,
+  candidate: NonNullable<ReturnType<typeof getSandboxOllamaDirectRouteCandidate>>,
+  resolveReason: string,
+): Promise<SandboxInferenceTarget> {
+  const eligibility = await resolveHandshakeRecordForRouting(handshakeId)
+  if (!eligibility.ok) {
+    logResolveDecision({
+      kind: 'unavailable',
+      reason: 'host_pair_not_eligible',
+      handshakeId,
+    })
+    return {
+      kind: 'unavailable',
+      reason: 'host_pair_not_eligible',
+      detail: eligibility.code,
+    }
+  }
+  const db = await getHandshakeDbForInternalInference()
+  const live = await waitForLivePresenceAfterRedial(db, handshakeId, eligibility.record)
+  if (!live) {
+    logResolveDecision({
+      kind: 'cross_device_reconnecting',
+      reason: 'host_peer_presence_lapsed',
+      handshakeId,
+    })
+    return {
+      kind: 'cross_device_reconnecting',
+      handshakeId,
+      reason: 'host_peer_presence_lapsed',
+      detail: InternalInferenceErrorCode.HOST_AI_PEER_IDENTITY_OFFLINE,
+    }
+  }
+  logResolveDecision({
+    kind: 'cross_device',
+    reason: resolveReason,
+    handshakeId,
+  })
+  return crossDeviceTargetFromCandidate(handshakeId, candidate)
+}
+
 export async function resolveSandboxInferenceTarget(
   options: ResolveSandboxInferenceTargetOptions = {},
 ): Promise<SandboxInferenceTarget> {
@@ -203,25 +285,11 @@ export async function resolveSandboxInferenceTarget(
     }
 
     if (earlyCand && baseEarly && ownerEarly) {
-      const live = await assertSandboxHostPeerLivePresenceForHandshake(callerHandshakeId)
-      if (!live.ok) {
-        logResolveDecision({
-          kind: 'unavailable',
-          reason: 'host_peer_identity_offline',
-          handshakeId: callerHandshakeId,
-        })
-        return {
-          kind: 'unavailable',
-          reason: 'host_peer_identity_offline',
-          detail: live.code,
-        }
-      }
-      logResolveDecision({
-        kind: 'cross_device',
-        reason: 'caller_handshake_with_valid_candidate',
-        handshakeId: callerHandshakeId,
-      })
-      return crossDeviceTargetFromCandidate(callerHandshakeId, earlyCand)
+      return crossDeviceRouteForEligibleHandshake(
+        callerHandshakeId,
+        earlyCand,
+        'caller_handshake_with_valid_candidate',
+      )
     }
   }
 
@@ -260,10 +328,6 @@ export async function resolveSandboxInferenceTarget(
   const baseTrim = typeof candidate?.base_url === 'string' ? candidate.base_url.trim() : ''
   const ownerTrim =
     typeof candidate?.endpoint_owner_device_id === 'string' ? candidate.endpoint_owner_device_id.trim() : ''
-  /**
-   * Candidates are only persisted when acceptance passes; `{ base_url }` present is authoritative.
-   * If handshake exists but maps empty (`evaluateSandboxHostAi…` rejected or evicted): caps not usable.
-   */
   if (!candidate || !baseTrim || !ownerTrim) {
     logResolveDecision({
       kind: 'unavailable',
@@ -277,25 +341,9 @@ export async function resolveSandboxInferenceTarget(
     }
   }
 
-  const live = await assertSandboxHostPeerLivePresenceForHandshake(resolvedHandshake)
-  if (!live.ok) {
-    logResolveDecision({
-      kind: 'unavailable',
-      reason: 'host_peer_identity_offline',
-      handshakeId: resolvedHandshake,
-    })
-    return {
-      kind: 'unavailable',
-      reason: 'host_peer_identity_offline',
-      detail: live.code,
-    }
-  }
-
-  logResolveDecision({
-    kind: 'cross_device',
-    reason: callerHandshakeId ? 'caller_handshake_candidate_appeared_after_local_fail' : 'discovered_handshake_with_valid_candidate',
-    handshakeId: resolvedHandshake,
-  })
-
-  return crossDeviceTargetFromCandidate(resolvedHandshake, candidate)
+  return crossDeviceRouteForEligibleHandshake(
+    resolvedHandshake,
+    candidate,
+    callerHandshakeId ? 'caller_handshake_candidate_appeared_after_local_fail' : 'discovered_handshake_with_valid_candidate',
+  )
 }

@@ -8,6 +8,7 @@ import {
   markP2pCreateOfferBegin,
   markP2pPeerConnectionCreateBegin,
   notifyWebrtcTransportTerminalIceOrConnectionFailed,
+  resetHostAiP2pSessionForTransportLoss,
 } from '../p2pSession/p2pInferenceSessionManager'
 import { tryRouteP2pDataChannelJsonMessage } from '../p2pDc/p2pDcCapabilities'
 import { redactIdForLog } from '../internalInferenceLogRedact'
@@ -267,6 +268,9 @@ function onRendererToMain(_sender: Electron.WebContents, msg: unknown) {
         console.log(
           `[P2P_WEBRTC] datachannel_close session=${redactIdForLog(sessionId)} handshake=${handshakeId}`,
         )
+        if (handshakeId !== '__local_test__') {
+          resetHostAiP2pSessionForTransportLoss(handshakeId, sessionId, 'datachannel_close')
+        }
       }
       break
     }

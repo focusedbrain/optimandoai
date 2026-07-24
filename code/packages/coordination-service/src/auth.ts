@@ -1,5 +1,5 @@
 /**
- * Coordination Service — OIDC token validation via auth.wrdesk.com
+ * Coordination Service — OIDC token validation via auth.optirando.com
  * Fail-close: rejects on JWKS/storage failure. No fallback authentication.
  */
 

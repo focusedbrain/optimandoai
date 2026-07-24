@@ -6,7 +6,8 @@
  * used with any state management solution (Zustand, Redux, vanilla, etc.)
  */
 
-import { isCustomModeId } from './customModeTypes'
+import { isCustomModeId, isPersistedModeId } from './customModeTypes'
+import { BUILTIN_SCAM_WATCHDOG_ID } from './scamWatchdogBuiltIn'
 
 // =============================================================================
 // Core Types
@@ -54,13 +55,13 @@ export interface UIState {
 /**
  * Default initial state
  * - Workspace: WR Chat
- * - Mode: Commands (default)
+ * - Mode: Scam Watchdog built-in (default)
  * - Composer: Text input
  * - Role: User (change to 'admin' for testing admin features)
  */
 export const initialUIState: UIState = {
   workspace: 'wr-chat',
-  mode: 'commands',
+  mode: BUILTIN_SCAM_WATCHDOG_ID,
   composerMode: 'text',
   role: 'user' // Change to 'admin' for testing admin features
 }
@@ -214,7 +215,7 @@ export function setRole(state: UIState, role: Role): UIState {
     return {
       ...state,
       role,
-      mode: 'commands',
+      mode: BUILTIN_SCAM_WATCHDOG_ID,
     }
   }
   return {
@@ -235,7 +236,7 @@ export function getDisplayLabel(state: UIState): string {
   if (state.workspace !== 'wr-chat') {
     return workspace.label
   }
-  if (isCustomModeId(state.mode)) {
+  if (isPersistedModeId(state.mode)) {
     return `${workspace.label} · Custom mode`
   }
   const mode = MODE_INFO[state.mode as BuiltInMode]
@@ -250,7 +251,7 @@ export function getShortDisplayLabel(state: UIState): { workspace: string; mode:
   if (state.workspace !== 'wr-chat') {
     return { workspace: workspace.label, mode: '' }
   }
-  if (isCustomModeId(state.mode)) {
+  if (isPersistedModeId(state.mode)) {
     return { workspace: workspace.label, mode: 'Custom' }
   }
   const mode = MODE_INFO[state.mode as BuiltInMode]
@@ -267,7 +268,7 @@ export function isPlaceholderMode(state: UIState): boolean {
   if (state.workspace !== 'wr-chat') {
     return false // MailGuard and Overlay are functional
   }
-  if (isCustomModeId(state.mode)) {
+  if (isPersistedModeId(state.mode)) {
     return false
   }
   return MODE_INFO[state.mode as BuiltInMode].isPlaceholder
@@ -287,7 +288,7 @@ export function getAvailableModes(role: Role): BuiltInMode[] {
  * Map UI mode to a built-in for capability checks. Custom modes inherit Commands behavior by default.
  */
 export function resolveModeForCapabilities(mode: Mode): BuiltInMode {
-  if (isCustomModeId(mode)) {
+  if (isPersistedModeId(mode)) {
     return 'commands'
   }
   return mode as BuiltInMode

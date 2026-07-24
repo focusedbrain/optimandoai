@@ -19,8 +19,10 @@ import {
   ollamaRuntimeLog,
   ollamaRuntimeRecordChatTiming,
   type OllamaRuntimeRequestTrace,
-} from '../llm/ollamaRuntimeDiagnostics'
+} from '../llm/localLlmRuntimeDiagnostics'
 import { assertGpuInferenceAvailableForChatBase } from '../inference/inferenceGate'
+import { extractLlamaChatContent } from '../llm/llamaChatResponseContent'
+import { parseLlamaContextOverflowFromBody } from '../llm/llamaContextOverflow'
 
 /**
  * Set true only during local debugging.
@@ -53,6 +55,12 @@ export interface GenerateChatOptions {
    * pauses between chunks are less likely to unload the model from GPU/RAM.
    */
   ollamaKeepAlive?: string
+  /**
+   * build038: OpenAI-compatible `max_tokens` cap — bounds generation on local llama.cpp
+   * analysis calls so a runaway/deep-reasoning generation cannot run unbounded past the
+   * caller's client-side timeout.
+   */
+  maxTokens?: number
 }
 
 export interface AIProvider {
@@ -63,7 +71,9 @@ export interface AIProvider {
 
 // ── Ollama Provider ─────────────────────────────────────────────────────────
 
-const OLLAMA_BASE = 'http://127.0.0.1:11434'
+import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../llm/localLlmPaths'
+
+const LOCAL_LLM_BASE = HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE
 const DEFAULT_EMBED_MODEL = 'nomic-embed-text'
 const DEFAULT_CHAT_MODEL = 'llama3.1:8b'
 
@@ -185,7 +195,7 @@ export class OllamaProvider implements AIProvider {
 
   constructor(options?: OllamaProviderOptions) {
     const chatFromOpts = options?.chatModel?.trim() || options?.model?.trim()
-    this.baseUrl = (options?.baseUrl ?? OLLAMA_BASE).replace(/\/$/, '')
+    this.baseUrl = (options?.baseUrl ?? LOCAL_LLM_BASE).replace(/\/$/, '')
     this.embedModel = options?.embedModel?.trim() || DEFAULT_EMBED_MODEL
     this.chatModel = chatFromOpts || DEFAULT_CHAT_MODEL
     this.lane = options?.lane ?? 'local'
@@ -251,7 +261,7 @@ export class OllamaProvider implements AIProvider {
     })
 
     if (stream && send) {
-      const streamUrl = `${this.baseUrl}/api/chat`
+      const streamUrl = `${this.baseUrl}/v1/chat/completions`
       logOllamaProviderRequest({
         lane: this.lane,
         operation: 'chat',
@@ -293,7 +303,7 @@ export class OllamaProvider implements AIProvider {
       }
     }
 
-    const chatUrl = `${this.baseUrl}/api/chat`
+    const chatUrl = `${this.baseUrl}/v1/chat/completions`
     logOllamaProviderRequest({
       lane: this.lane,
       operation: 'chat',
@@ -340,25 +350,25 @@ export class OllamaProvider implements AIProvider {
         body: JSON.stringify({
           model,
           stream: false,
-          keep_alive: options?.ollamaKeepAlive ?? '2m',
           messages: messages.map(m => ({ role: m.role, content: m.content })),
-          ...(options?.responseFormat ? { format: options.responseFormat } : {}),
-          ...(options?.temperature !== undefined
-            ? { options: { temperature: options.temperature } }
+          ...(options?.responseFormat === 'json' ? { response_format: { type: 'json_object' } } : {}),
+          ...(options?.temperature !== undefined ? { temperature: options.temperature } : {}),
+          ...(options?.maxTokens != null && options.maxTokens > 0
+            ? { max_tokens: Math.floor(options.maxTokens) }
             : {}),
         }),
       })
       if (!res.ok) {
         outcome = 'http_error'
-        throw new Error(`Ollama ${res.status}: ${res.statusText}`)
+        const bodyText = await res.text()
+        const overflow = parseLlamaContextOverflowFromBody(bodyText)
+        if (overflow) throw overflow
+        throw new Error(`Local LLM ${res.status}: ${res.statusText}${bodyText ? ` — ${bodyText.slice(0, 240)}` : ''}`)
       }
       const data = (await res.json()) as {
-        message?: { content?: string }
+        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>
         model?: string
-        total_duration?: number
-        load_duration?: number
-        prompt_eval_count?: number
-        eval_count?: number
+        usage?: { prompt_tokens?: number; completion_tokens?: number }
       }
       const wallMs = Date.now() - _t0
       const inflightBeforeDec = ollamaRuntimeGetInFlight()
@@ -386,8 +396,16 @@ export class OllamaProvider implements AIProvider {
       if (DEBUG_AI_DIAGNOSTICS) {
         console.log(`[LLM] ${model}: ${wallMs}ms, ~${_promptChars}ch prompt`)
       }
-      ollamaRuntimeRecordChatTiming(wallMs, data.total_duration, data.load_duration)
-      return data.message?.content ?? 'No response from model.'
+      ollamaRuntimeRecordChatTiming(wallMs)
+      // build038: prefer content; fall back to reasoning_content (--jinja + deep reasoning can
+      // leave content empty). A truly empty response is returned as '' — callers (inboxLlmChat)
+      // treat empty as an error instead of the old "No response from model." coercion, which
+      // silently broke downstream JSON parsing.
+      const extracted = extractLlamaChatContent(data.choices?.[0]?.message)
+      if (extracted.usedReasoningFallback) {
+        console.warn(`[LLM] reasoning_content_fallback model=${model} content_empty=true`)
+      }
+      return extracted.content
     } catch (e: unknown) {
       const name = e && typeof e === 'object' && 'name' in e ? String((e as Error).name) : ''
       const fetchAborted = name === 'AbortError'

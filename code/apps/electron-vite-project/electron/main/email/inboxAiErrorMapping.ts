@@ -9,12 +9,18 @@ import {
   isInferenceRoutingUnavailableError,
 } from '../internalInference/chatWithContextRagOllamaGeneration'
 import { inferenceRoutingUnavailableUserMessage } from '../internalInference/inferenceRoutingIpcPayload'
+import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../llm/localLlmPaths'
+import {
+  contextOverflowDetails,
+  isLlamaContextOverflowError,
+} from '../llm/llamaContextOverflow'
 
 export type InboxAiErrorCode =
   | 'no_model_selected'
-  | 'local_ollama_unreachable'
-  | 'remote_ollama_unreachable'
+  | 'local_llm_unreachable'
+  | 'remote_llm_unreachable'
   | 'beap_endpoint_missing'
+  | 'context_overflow'
   | 'generation_failed'
   | 'timeout'
   | 'inference_routing_unavailable'
@@ -29,6 +35,8 @@ export type InboxAiErrorDebug = {
   operation?: string
   failureCode?: string
   inferenceRoutingReason?: string
+  promptTokens?: number
+  slotLimit?: number
 }
 
 /** Enable richer IPC error payloads (lane, baseUrl, …). Internal use only — never expose in UI. */
@@ -81,7 +89,21 @@ function legacyAnalyzeErrorField(code: InboxAiErrorCode): string {
   if (code === 'timeout') return 'timeout'
   if (code === 'inference_routing_unavailable') return 'inference_routing_unavailable'
   if (code === 'no_model_selected') return 'no_model_selected'
+  if (code === 'context_overflow') return 'llm_error'
   return 'llm_error'
+}
+
+export const INBOX_CONTEXT_OVERFLOW_USER_MESSAGE =
+  'This email is too large for the current AI memory settings. Increase Memory per conversation or reduce Parallel tasks in Inference Settings.'
+
+function inboxAiUserMessage(
+  code: InboxAiErrorCode,
+  err: unknown,
+  ir: { reason: string; detail?: string } | null,
+): string {
+  if (ir) return inferenceRoutingUnavailableUserMessage(ir.reason, ir.detail)
+  if (code === 'context_overflow') return INBOX_CONTEXT_OVERFLOW_USER_MESSAGE
+  return errMsg(err)
 }
 
 export function classifyInboxAiError(
@@ -110,10 +132,10 @@ export function classifyInboxAiError(
   }
 
   // Circuit-breaker or GPU-gate block: thrown as `LLM_UNAVAILABLE: <reason>`.
-  // Classify as local_ollama_unreachable so the renderer can surface a meaningful message
+  // Classify as local_llm_unreachable so the renderer can surface a meaningful message
   // (e.g. "paused after repeated timeouts") rather than the generic generation-failed banner.
   if (msg.startsWith('LLM_UNAVAILABLE:')) {
-    return { code: 'local_ollama_unreachable', debug: { ...debugBase, failureCode: 'llm_unavailable' } }
+    return { code: 'local_llm_unreachable', debug: { ...debugBase, failureCode: 'llm_unavailable' } }
   }
 
   // Validator subprocess not yet running (race between vault.unlock non-awaited start
@@ -149,14 +171,16 @@ export function classifyInboxAiError(
   }
 
   if (fc && REMOTE_OLLAMA_CODES.has(fc)) {
+    // WIRE-FREEZE: `lane === 'ollama_direct'` compares against the frozen transport/lane
+    // wire value — only the InboxAiErrorCode result values below are renamed.
     if (lane === 'ollama_direct' || lane === 'beap') {
-      return { code: 'remote_ollama_unreachable', debug: debugBase }
+      return { code: 'remote_llm_unreachable', debug: debugBase }
     }
     if (lane === 'local' || lane === undefined) {
-      return { code: 'local_ollama_unreachable', debug: debugBase }
+      return { code: 'local_llm_unreachable', debug: debugBase }
     }
     return {
-      code: !looksLikeLocalUrl(baseUrl) ? 'remote_ollama_unreachable' : 'local_ollama_unreachable',
+      code: !looksLikeLocalUrl(baseUrl) ? 'remote_llm_unreachable' : 'local_llm_unreachable',
       debug: debugBase,
     }
   }
@@ -164,18 +188,30 @@ export function classifyInboxAiError(
   if (!remoteLane && (lane === 'local' || !lane)) {
     if (
       transportFailureMessage(msg) &&
-      looksLikeLocalUrl(baseUrl ?? 'http://127.0.0.1:11434')
+      looksLikeLocalUrl(baseUrl ?? HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE)
     ) {
-      return { code: 'local_ollama_unreachable', debug: debugBase }
+      return { code: 'local_llm_unreachable', debug: debugBase }
     }
   }
 
   if (remoteLane && transportFailureMessage(msg)) {
-    return { code: 'remote_ollama_unreachable', debug: debugBase }
+    return { code: 'remote_llm_unreachable', debug: debugBase }
   }
 
   if (/embed|embedding|\/api\/embed|semantic/i.test(msg) && !/\/api\/chat/i.test(msg)) {
     return { code: 'semantic_context_unavailable', debug: debugBase }
+  }
+
+  if (isLlamaContextOverflowError(err)) {
+    const { promptTokens, slotLimit } = contextOverflowDetails(err)
+    return {
+      code: 'context_overflow',
+      debug: {
+        ...debugBase,
+        ...(promptTokens != null ? { promptTokens } : {}),
+        ...(slotLimit != null ? { slotLimit } : {}),
+      },
+    }
   }
 
   return { code: 'generation_failed', debug: debugBase }
@@ -197,7 +233,7 @@ export function buildInboxAiAnalyzeErrorPayload(
     model: ctx.model,
   })
   const showDebug = inboxAiDevDebugEnabled()
-  const userMsg = ir ? inferenceRoutingUnavailableUserMessage(ir.reason, ir.detail) : errMsg(err)
+  const userMsg = inboxAiUserMessage(code, err, ir)
   const out: Record<string, unknown> = {
     messageId: ctx.messageId,
     error: legacyAnalyzeErrorField(code),
@@ -227,7 +263,7 @@ export function buildInboxAiDraftIpcFailure(
     model: ctx.model,
   })
   const showDebug = inboxAiDevDebugEnabled()
-  const userMsg = ir ? inferenceRoutingUnavailableUserMessage(ir.reason, ir.detail) : errMsg(err)
+  const userMsg = inboxAiUserMessage(code, err, ir)
   const base: Record<string, unknown> = {
     ok: false,
     error: code === 'timeout' ? 'timeout' : 'llm_error',

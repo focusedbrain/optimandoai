@@ -20,7 +20,7 @@ import {
   ollamaRuntimeBeginBatch,
   ollamaRuntimeEndBatch,
   type OllamaClassifyBatchChunkDiag,
-} from '../llm/ollamaRuntimeDiagnostics'
+} from '../llm/localLlmRuntimeDiagnostics'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -287,6 +287,7 @@ import {
   replayAnalysisStreamState,
   runInboxAiTaskWithDedup,
   syncInboxAiSelectionForTaskKey,
+  tryAttachManualInboxAnalysisToRunningAuto,
   waitForInboxAiTask,
   type InboxAiStreamInvokeOpts,
 } from './inboxAiTaskDedup'
@@ -310,8 +311,9 @@ import {
   loadVerifiedInboxMessageById,
 } from './inboxSealedRead'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
-import { inboxLlmChat, isLlmAvailable, INBOX_LLM_TIMEOUT_MS, resolveInboxLlmSettings, preResolveInboxLlm, type ResolvedLlmContext } from './inboxLlmChat'
-import { maybePrewarmOllamaForBulkClassify, type OllamaBulkPrewarmDiag } from '../llm/ollamaBulkPrewarm'
+import { inboxLlmChat, isLlmAvailable, INBOX_LLM_LOCAL_TIMEOUT_MS, INBOX_LLM_MAX_OUTPUT_TOKENS, resolveInboxLlmSettings, preResolveInboxLlm, type ResolvedLlmContext } from './inboxLlmChat'
+import { EMPTY_LLM_RESPONSE_ERROR } from '../llm/llamaChatResponseContent'
+import { maybePrewarmLocalLlmForBulkClassify, type LocalLlmBulkPrewarmDiag } from '../llm/localLlmBulkPrewarm'
 
 /** Per-page strings from DB `extracted_text` (extraction joins pages with \\n\\n). */
 function inboxPagesFromStoredExtractedText(text: string): string[] {
@@ -326,8 +328,8 @@ function inboxPagesFromStoredExtractedText(text: string): string[] {
 
 /** @deprecated Use `inboxLlmChat` from `./inboxLlmChat` (unified provider). Kept for Ollama NDJSON stream path. */
 async function callInboxOllamaChat(systemPrompt: string, userPrompt: string): Promise<string> {
-  const { ollamaManager } = await import('../llm/ollama-manager')
-  const modelId = await ollamaManager.getEffectiveChatModelName()
+  const { localLlmManager } = await import('../llm/local-llm-manager')
+  const modelId = await localLlmManager.getEffectiveChatModelName()
   if (!modelId) {
     throw new Error('No LLM model installed. Install a model in LLM Settings first.')
   }
@@ -335,21 +337,33 @@ async function callInboxOllamaChat(systemPrompt: string, userPrompt: string): Pr
     { role: 'system' as const, content: systemPrompt },
     { role: 'user' as const, content: userPrompt },
   ]
+  // build038: local llama.cpp path gets the local budget (not the 45s cloud timeout) and a
+  // bounded generation; empty output is an error, not a fake success string.
   const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('LLM_TIMEOUT: response exceeded 45s')), INBOX_LLM_TIMEOUT_MS)
+    setTimeout(
+      () => reject(new Error(`LLM_TIMEOUT: response exceeded ${INBOX_LLM_LOCAL_TIMEOUT_MS}ms`)),
+      INBOX_LLM_LOCAL_TIMEOUT_MS,
+    )
   )
   const response = await Promise.race([
-    ollamaManager.chat(modelId, messages),
+    localLlmManager.chat(modelId, messages, {
+      maxTokens: INBOX_LLM_MAX_OUTPUT_TOKENS,
+      timeoutMs: INBOX_LLM_LOCAL_TIMEOUT_MS,
+    }),
     timeoutPromise,
   ])
-  return response?.content?.trim() ?? 'No response from model.'
+  const trimmed = response?.content?.trim() ?? ''
+  if (!trimmed) {
+    throw new Error(EMPTY_LLM_RESPONSE_ERROR)
+  }
+  return trimmed
 }
 
 /** @deprecated Use `isLlmAvailable` from `./inboxLlmChat`. */
 async function isOllamaAvailable(): Promise<boolean> {
   try {
-    const { ollamaManager } = await import('../llm/ollama-manager')
-    const models = await ollamaManager.listModels()
+    const { localLlmManager } = await import('../llm/local-llm-manager')
+    const models = await localLlmManager.listModels()
     return models.length > 0
   } catch {
     return false
@@ -4657,10 +4671,30 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
       }
     }
 
+    if (!manual) {
+      const rawAutoAnalyze = getInboxSetting(dbPre, 'inbox_auto_analyze_enabled')
+      if (rawAutoAnalyze !== true) {
+        console.log(
+          `[INBOX_AUTO_ANALYZE] rejected auto analysis-stream messageId=${messageId} reason=pref_off`,
+        )
+        return { started: false, skipped: true, reason: 'auto_analyze_disabled' }
+      }
+    }
+
+    if (manual && supersede && !event.sender.isDestroyed()) {
+      const attached = await tryAttachManualInboxAnalysisToRunningAuto(analyzeDedupeKey, (channel, payload) => {
+        if (!event.sender.isDestroyed()) event.sender.send(channel, payload)
+      })
+      if (attached) {
+        return { started: true, attachedToAuto: true, requestId: attached.requestId }
+      }
+    }
+
     return runInboxAiTaskWithDedup(
       analyzeDedupeKey,
       {
         supersede,
+        manual,
         supersedeKeyPrefix: `analysis-stream:${messageId}:`,
         messageId,
         abortControllers: analyzeStreamAbortByMessageId,
@@ -5392,12 +5426,12 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       return { results: ids.map((messageId) => ({ messageId, error: 'llm_unavailable' })), batchRuntime: undefined }
     }
 
-    let ollamaPrewarm: OllamaBulkPrewarmDiag | undefined
+    let ollamaPrewarm: LocalLlmBulkPrewarmDiag | undefined
     if (resolvedLlm.provider.toLowerCase() === 'ollama') {
       if (chunkIndex == null || chunkIndex === 1) {
         // Fire-and-forget: model loads in background while first classify prepares.
         // Previously awaited here, which blocked the entire first chunk for 10–20 s on a cold model.
-        void maybePrewarmOllamaForBulkClassify(resolvedLlm.model, { chunkIndex })
+        void maybePrewarmLocalLlmForBulkClassify(resolvedLlm.model, { chunkIndex })
         ollamaPrewarm = undefined
       }
       if (DEBUG_AUTOSORT_TIMING) {
@@ -6035,6 +6069,8 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       const batchSize = getInboxSetting(db, 'inbox_batch_size')
       const batchSizeNum = typeof batchSize === 'number' ? batchSize : (typeof batchSize === 'string' ? parseInt(batchSize, 10) : 10)
       const validBatch = [10, 12, 24, 48].includes(batchSizeNum) ? batchSizeNum : 10
+      const rawAutoAnalyze = getInboxSetting(db, 'inbox_auto_analyze_enabled')
+      const autoAnalyzeEnabled = rawAutoAnalyze === true
       return {
         ok: true,
         data: {
@@ -6042,6 +6078,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
           sortRules: typeof sortRules === 'string' ? sortRules : '',
           contextDocs: Array.isArray(contextDocs) ? contextDocs : [],
           batchSize: validBatch,
+          autoAnalyzeEnabled,
         },
       }
     } catch (err: any) {
@@ -6049,7 +6086,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
     }
   })
 
-  ipcMain.handle('inbox:setInboxSettings', async (_e, partial: { tone?: string; sortRules?: string; batchSize?: number }) => {
+  ipcMain.handle('inbox:setInboxSettings', async (_e, partial: { tone?: string; sortRules?: string; batchSize?: number; autoAnalyzeEnabled?: boolean }) => {
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
@@ -6057,6 +6094,9 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       if (partial.sortRules !== undefined) setInboxSetting(db, 'inbox_ai_sort_rules', partial.sortRules)
       if (partial.batchSize !== undefined && [10, 12, 24, 48].includes(partial.batchSize)) {
         setInboxSetting(db, 'inbox_batch_size', partial.batchSize)
+      }
+      if (partial.autoAnalyzeEnabled !== undefined) {
+        setInboxSetting(db, 'inbox_auto_analyze_enabled', !!partial.autoAnalyzeEnabled)
       }
       return { ok: true }
     } catch (err: any) {

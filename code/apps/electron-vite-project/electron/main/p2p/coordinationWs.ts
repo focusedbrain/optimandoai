@@ -1,7 +1,7 @@
 /**
- * Coordination WebSocket Client — Persistent connection to wrdesk.com for instant capsule delivery.
+ * Coordination WebSocket Client — Persistent connection to optirando.com for instant capsule delivery.
  *
- * When use_coordination is true, maintains a WebSocket to coordination.wrdesk.com.
+ * When use_coordination is true, maintains a WebSocket to coordination.optirando.com.
  * Receives capsules via push, sends ACKs after processing, auto-reconnects on disconnect.
  */
 
@@ -21,6 +21,7 @@ import { getHandshakeRecord, needsCanonicalRelayDeviceIdForCoordination } from '
 import { processBeapPackageInline } from '../email/beapEmailIngestion'
 import { maybeEnqueueInitialContextSyncAfterInboundAccept } from './coordinationHandshakePostIngest'
 import { retryDeferredInitialContextSyncForInternalHandshake } from '../handshake/contextSyncEnqueue'
+import { unsealContextSyncCapsuleIfNeeded } from '../handshake/contextSyncSeal'
 import {
   setP2PHealthCoordinationConnected,
   setP2PHealthCoordinationDisconnected,
@@ -31,6 +32,10 @@ import {
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { computeSamePrincipalCoordinationSkipOwn } from './coordinationSamePrincipalInbound'
 import { requestCoordinationFlushQueued } from './coordinationFlushQueued'
+import {
+  normalizeCoordinationUrlForLocalDial,
+  normalizeCoordinationWsUrlForLocalDial,
+} from './coordinationUrlLocalDial'
 import { getCanonicalRelayDeviceId, logDeviceIdBinding } from './relayDeviceBinding'
 import { relayIdentitySnapshot } from './relayIdentity'
 import { tryHandleCoordinationP2pSignal } from '../internalInference/relayP2pSignalHandler'
@@ -466,10 +471,21 @@ async function processCapsuleInternal(
       return
     }
 
-    const canonicalValidated = {
+    let canonicalValidated = {
       ...distribution.validated_capsule!,
       capsule: rebuildResult.capsule as any,
     }
+
+    // Fail-closed gate: context_sync content travels sealed (blind-courier invariant).
+    // Reject plaintext content and unseal context_blocks_sealed before it reaches
+    // processHandshakeCapsule / ingestContextBlocks. No-op for other capsule types.
+    const unsealResult = await unsealContextSyncCapsuleIfNeeded(db, getHandshakeRecord, canonicalValidated.capsule as Record<string, unknown>)
+    if (!unsealResult.ok) {
+      console.warn(`[Coordination] ${unsealResult.code}:`, unsealResult.message)
+      sendAckFn([id])
+      return
+    }
+    canonicalValidated = { ...canonicalValidated, capsule: unsealResult.capsule as any }
 
     console.log('[Coordination] Calling processHandshakeCapsule for:', id, 'capsuleType=', capsuleType)
     const stateBeforeIngest = getHandshakeRecord(db, handshakeId)?.state ?? 'unknown'
@@ -705,7 +721,7 @@ export function createCoordinationWsClient(
       console.log('[Coordination] Skipping connect: use_coordination=', config.use_coordination, 'coordination_enabled=', config.coordination_enabled)
       return
     }
-    const wsUrl = config.coordination_ws_url?.trim()
+    const wsUrl = normalizeCoordinationWsUrlForLocalDial(config.coordination_ws_url?.trim() ?? '')
     if (!wsUrl) {
       console.log('[Coordination] Skipping connect: no coordination_ws_url')
       return
@@ -847,7 +863,7 @@ export function createCoordinationWsClient(
         console.log('[RELAY-WS] Connected to:', wsUrl)
         console.log('[RELAY-WS] Connection state:', ws?.readyState)
         resolve()
-        const cu = config.coordination_url?.trim()
+        const cu = normalizeCoordinationUrlForLocalDial(config.coordination_url?.trim() ?? '')
         if (cu && token?.trim()) {
           void requestCoordinationFlushQueued(cu, token, 'ws_connect')
           void import('../handshake/handshakeHealthRemoteCheck').then((m) =>

@@ -5,7 +5,7 @@
 
 export type RelayDeliveryMode = 'pushed_live' | 'queued_recipient_offline'
 
-/** Minimal success shape from `sendCapsuleViaHttpWithAuth` / `sendCapsuleViaHttp` */
+/** Minimal success shape from `sendCapsuleViaHttpWithAuth` (relay-mediated capsule send) */
 export type SendCapsuleSuccessShape = {
   success: true
   statusCode?: number

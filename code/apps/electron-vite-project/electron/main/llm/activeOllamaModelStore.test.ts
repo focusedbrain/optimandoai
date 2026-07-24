@@ -12,10 +12,10 @@ vi.mock('electron', () => ({
 }))
 
 import {
-  resolveEffectiveOllamaModel,
-  setStoredActiveOllamaModelId,
-  getStoredActiveOllamaModelId,
-} from './activeOllamaModelStore'
+  resolveEffectiveLocalModel,
+  setStoredActiveLocalModelId,
+  getStoredActiveLocalModelId,
+} from './activeLocalModelStore'
 
 describe('activeOllamaModelStore', () => {
   beforeEach(() => {
@@ -27,9 +27,9 @@ describe('activeOllamaModelStore', () => {
     fs.rmSync(testUserData, { recursive: true, force: true })
   })
 
-  describe('resolveEffectiveOllamaModel', () => {
+  describe('resolveEffectiveLocalModel', () => {
     it('returns null when no models installed', () => {
-      expect(resolveEffectiveOllamaModel([], 'mistral')).toEqual({
+      expect(resolveEffectiveLocalModel([], 'mistral')).toEqual({
         model: null,
         usedFallback: false,
         missingStored: false,
@@ -37,7 +37,7 @@ describe('activeOllamaModelStore', () => {
     })
 
     it('uses stored id when present in tags', () => {
-      expect(resolveEffectiveOllamaModel(['a', 'b'], 'b')).toEqual({
+      expect(resolveEffectiveLocalModel(['a', 'b'], 'b')).toEqual({
         model: 'b',
         usedFallback: false,
         missingStored: false,
@@ -45,7 +45,7 @@ describe('activeOllamaModelStore', () => {
     })
 
     it('falls back to first when stored is missing but tags exist', () => {
-      expect(resolveEffectiveOllamaModel(['x', 'y'], 'deleted')).toEqual({
+      expect(resolveEffectiveLocalModel(['x', 'y'], 'deleted')).toEqual({
         model: 'x',
         usedFallback: true,
         missingStored: true,
@@ -53,7 +53,7 @@ describe('activeOllamaModelStore', () => {
     })
 
     it('falls back to first when nothing stored', () => {
-      expect(resolveEffectiveOllamaModel(['x', 'y'], null)).toEqual({
+      expect(resolveEffectiveLocalModel(['x', 'y'], null)).toEqual({
         model: 'x',
         usedFallback: true,
         missingStored: false,
@@ -63,8 +63,8 @@ describe('activeOllamaModelStore', () => {
 
   describe('persistence', () => {
     it('round-trips activeOllamaModelId', () => {
-      setStoredActiveOllamaModelId('llama3.1:8b')
-      expect(getStoredActiveOllamaModelId()).toBe('llama3.1:8b')
+      setStoredActiveLocalModelId('llama3.1:8b')
+      expect(getStoredActiveLocalModelId()).toBe('llama3.1:8b')
     })
   })
 })

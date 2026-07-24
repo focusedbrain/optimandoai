@@ -2,7 +2,7 @@
  * OIDC Configuration for Keycloak Authentication
  */
 export const oidc = {
-  issuer: 'https://auth.wrdesk.com/realms/wrdesk',
+  issuer: 'https://auth.optirando.com/realms/wrdesk',
   clientId: 'wrdesk-orchestrator',
   // offline_access scope enables Refresh Token issuance
   scopes: 'openid profile email offline_access',

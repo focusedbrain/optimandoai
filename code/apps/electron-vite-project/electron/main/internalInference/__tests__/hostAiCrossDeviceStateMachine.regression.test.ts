@@ -137,7 +137,7 @@ describe('Host AI cross-device inference regression', () => {
     resetHostAdvertisedMvpDirectForTests()
   })
 
-  it('Case 1: handshake ACTIVE + Ollama-tags ok but peer Host BEAP missing — transport connecting, BEAP/orchestration gated, OD-only', () => {
+  it('Case 1: handshake ACTIVE + Ollama-tags ok but peer Host BEAP missing — trust is handshake-bound, sealed_relay carries inference', () => {
     const listDec = decideInternalInferenceTransport(
       buildHostAiTransportDeciderInput({
         operationContext: 'capabilities',
@@ -150,12 +150,13 @@ describe('Host AI cross-device inference regression', () => {
         hostPolicyState: { allowSandboxInference: true, hasActiveModel: true },
       }),
     )
-    expect(listDec.inferenceHandshakeTrusted).toBe(false)
-    expect(listDec.inferenceHandshakeTrustReason).toBe('peer_host_endpoint_missing')
-    expect(listDec.selectorPhase).toBe('connecting')
-    expect(listDec.preferredTransport).toBe('webrtc_p2p')
+    /** A missing peer BEAP endpoint no longer denies trust — sealed_relay needs none. LAN deprecated, see Teil B. */
+    expect(listDec.inferenceHandshakeTrusted).toBe(true)
+    expect(listDec.inferenceHandshakeTrustReason).toBe('handshake_bound')
+    expect(listDec.selectorPhase).toBe('legacy_http_available')
+    expect(listDec.preferredTransport).toBe('sealed_relay')
     expect(listDec.failureCode).toBeNull()
-    expect(isHostAiListTransportProven(listDec, HID)).toBe(false)
+    expect(isHostAiListTransportProven(listDec, HID)).toBe(true)
 
     const secondary = 'Host · sandbox'
     const leK = 'relay' as const
@@ -247,7 +248,7 @@ describe('Host AI cross-device inference regression', () => {
       }),
     )
     expect(listDec.inferenceHandshakeTrusted).toBe(true)
-    expect(listDec.reason).toBe('inference_handshake_trust_lan')
+    expect(listDec.reason).toBe('inference_sealed_relay')
     expect(listDec.selectorPhase).toBe('legacy_http_available')
     expect(isHostAiListTransportProven(listDec, HID)).toBe(true)
 

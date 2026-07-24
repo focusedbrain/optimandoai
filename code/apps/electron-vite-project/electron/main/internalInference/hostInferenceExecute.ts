@@ -3,9 +3,10 @@
  */
 
 import { InboxLlmTimeoutError } from '../email/inboxLlmChat'
-import * as internalHostOllama from '../llm/internalHostInferenceOllama'
-import type { InternalHostInferenceMessage } from '../llm/internalHostInferenceOllama'
-import { ollamaManager } from '../llm/ollama-manager'
+import * as internalHostOllama from '../llm/internalHostInferenceLocal'
+import type { InternalHostInferenceMessage } from '../llm/internalHostInferenceLocal'
+import { localLlmManager } from '../llm/local-llm-manager'
+import { canonicalLocalModelName, localModelIdsMatch } from '../llm/localModelIdentity'
 import { InternalInferenceErrorCode } from './errors'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { tryAcquireHostInferenceSlot } from './hostInferenceConcurrency'
@@ -21,7 +22,9 @@ function retryableForCode(code: string): boolean {
   return (
     code === InternalInferenceErrorCode.PROVIDER_BUSY ||
     code === InternalInferenceErrorCode.PROVIDER_TIMEOUT ||
-    code === InternalInferenceErrorCode.OLLAMA_UNAVAILABLE
+    code === InternalInferenceErrorCode.OLLAMA_UNAVAILABLE ||
+    // Backend starting/restarting is retryable, same as the retired Ollama code above.
+    code === InternalInferenceErrorCode.LOCAL_LLM_UNAVAILABLE
   )
 }
 
@@ -52,9 +55,14 @@ export function buildHostInferenceErrorWire(
   }
 }
 
-function mapOllamaError(e: unknown): { code: string; message: string } {
+function mapLocalLlmError(e: unknown): { code: string; message: string } {
   const c = (e as { code?: string })?.code
-  if (c === 'MODEL_UNAVAILABLE' || c === 'OLLAMA_UNAVAILABLE') {
+  if (
+    c === 'MODEL_UNAVAILABLE' ||
+    c === 'OLLAMA_UNAVAILABLE' ||
+    c === 'LOCAL_LLM_UNAVAILABLE' ||
+    c === 'HOST_NO_ACTIVE_LOCAL_LLM'
+  ) {
     return { code: c, message: c }
   }
   if (
@@ -129,12 +137,18 @@ export async function runHostInternalInference(
     }
   }
 
-  /** Sandbox should send the Host’s active local model tag; reject mismatch vs effective Ollama config. (Before slot.) */
+  /**
+   * Sandbox may spell the Host model as full GGUF path, filename, or canonical name — resolve via
+   * alias set against the loaded model instead of strict string equality (fixes MODEL_UNAVAILABLE
+   * for path-vs-name mismatches). Unresolvable ids (e.g. stale Ollama tags) still error, but the
+   * payload now names the Host's canonical active model so the Sandbox can correct its selection.
+   */
   const requested = ctx.modelRequested?.trim()
+  let modelForExecution = ctx.modelRequested
   if (requested) {
     let eff: string | null = null
     try {
-      eff = await ollamaManager.getEffectiveChatModelName()
+      eff = await localLlmManager.getEffectiveChatModelName()
     } catch {
       eff = null
     }
@@ -166,11 +180,13 @@ export async function runHostInternalInference(
         },
       }
     }
-    if (eff.trim() !== requested) {
+    const activeCanonical = canonicalLocalModelName(eff)
+    if (!localModelIdsMatch(requested, eff)) {
       console.log(
         `[AI_REQUEST_ERROR] ${JSON.stringify({
           origin: 'host_internal_execution',
           modelId: requested,
+          hostActiveModel: activeCanonical,
           errorCode: InternalInferenceErrorCode.MODEL_UNAVAILABLE,
           errorMessage: 'model not active on Host',
         })}`,
@@ -184,12 +200,13 @@ export async function runHostInternalInference(
             peerDeviceId: ctx.peerDeviceId,
           },
           InternalInferenceErrorCode.MODEL_UNAVAILABLE,
-          'model not active on Host',
+          `model not active on Host (active=${activeCanonical})`,
           t0,
         ),
         log: { ...baseLog, duration_ms: Date.now() - t0, error_code: InternalInferenceErrorCode.MODEL_UNAVAILABLE },
       }
     }
+    modelForExecution = activeCanonical
   }
 
   const slot = tryAcquireHostInferenceSlot()
@@ -214,7 +231,7 @@ export async function runHostInternalInference(
   try {
     const out = await internalHostOllama.runInternalHostOllamaInference({
       messages: ctx.messages,
-      requestedModel: ctx.modelRequested,
+      requestedModel: modelForExecution,
       modelAllowlist: policy.modelAllowlist,
       signal: parentAbort.signal,
       temperature: ctx.options?.temperature,
@@ -279,7 +296,7 @@ export async function runHostInternalInference(
       },
     }
   } catch (e) {
-    const m = mapOllamaError(e)
+    const m = mapLocalLlmError(e)
     console.log(
       `[AI_REQUEST_ERROR] ${JSON.stringify({
         origin: 'host_internal_execution',

@@ -767,7 +767,7 @@ function orchestratorBuildMeta(): { orchestratorBuildStamp: string; orchestrator
 }
 
 // CORS: Allowed origins for WRDesk (extension + website). No wildcard in production.
-const CORS_ALLOWED_ORIGINS = new Set(['https://wrdesk.com', 'https://www.wrdesk.com'])
+const CORS_ALLOWED_ORIGINS = new Set(['https://optirando.com', 'https://www.optirando.com'])
 
 /**
  * Electron renderer (Vite dev) runs at http://localhost:&lt;port&gt; or http://127.0.0.1:&lt;port&gt;.
@@ -1183,6 +1183,13 @@ let popupIsOpen = false
 // Set flag when app is actually quitting
 app.on('before-quit', async () => {
   isAppQuitting = true
+
+  try {
+    const { shutdownHostLocalLlmLifecycle } = await import('./main/llm/localLlmLifecycle')
+    await shutdownHostLocalLlmLifecycle({ phase: 'before_quit' })
+  } catch (err) {
+    console.error('[MAIN] Error shutting down local LLM lifecycle:', err)
+  }
   
   // Shutdown OAuth server manager
   try {
@@ -1507,12 +1514,17 @@ async function createWindow() {
       if (!sk) return
       const session = p.session && typeof p.session === 'object' ? (p.session as Record<string, unknown>) : undefined
       const source = typeof p.source === 'string' ? p.source.trim() : undefined
+      const pendingModeSessionRun =
+        p.pendingModeSessionRun && typeof p.pendingModeSessionRun === 'object'
+          ? (p.pendingModeSessionRun as Record<string, unknown>)
+          : undefined
 
       const message = {
         type: 'PRESENT_ORCHESTRATOR_DISPLAY_GRID' as const,
         sessionKey: sk,
         ...(session ? { session } : {}),
         ...(source ? { source } : {}),
+        ...(pendingModeSessionRun ? { pendingModeSessionRun } : {}),
       }
 
       const MAX_RETRIES = 6
@@ -4093,12 +4105,12 @@ app.whenReady().then(async () => {
     /** Generate a draft reply via LLM (no RAG). Used by BEAP "Draft with AI". */
     ipcMain.handle('handshake:generateDraft', async (_e, prompt: string) => {
       try {
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-        const modelId = await ollamaManager.getEffectiveChatModelName()
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const modelId = await localLlmManager.getEffectiveChatModelName()
         if (!modelId) {
           return { success: false, error: 'No LLM model installed. Install a model in LLM Settings first.' }
         }
-        const response = await ollamaManager.chat(modelId, [{ role: 'user', content: prompt || '' }])
+        const response = await localLlmManager.chat(modelId, [{ role: 'user', content: prompt || '' }])
         return { success: true, answer: response?.content ?? '' }
       } catch (err: any) {
         console.error('[MAIN] handshake:generateDraft error:', err?.message)
@@ -5666,11 +5678,16 @@ app.whenReady().then(async () => {
   try {
     console.log('[MAIN] ===== INITIALIZING LLM SERVICES =====')
     const { registerLlmHandlers } = await import('./main/llm/ipc')
-    const { ollamaManager } = await import('./main/llm/ollama-manager')
     
     // Register IPC handlers
     registerLlmHandlers()
     console.log('[MAIN] LLM IPC handlers registered')
+
+    const { registerCustomModesHandlers } = await import('./main/customModes/ipc')
+    const { setCustomModesExtensionBroadcast } = await import('./main/customModes/broadcast')
+    setCustomModesExtensionBroadcast(broadcastToExtensions)
+    registerCustomModesHandlers()
+    console.log('[MAIN] Custom modes IPC handlers registered')
 
     const { registerInternalInferenceIpc } = await import('./main/internalInference/ipc')
     registerInternalInferenceIpc()
@@ -5752,25 +5769,18 @@ app.whenReady().then(async () => {
       console.error('[MAIN] Failed to wire BEAP email bridge:', bridgeErr)
     }
     
-    // Check if Ollama is installed and auto-start if configured
-    const installed = await ollamaManager.checkInstalled()
-    console.log('[MAIN] Ollama installed:', installed)
-    
-    if (installed) {
-      if (!isSandboxMode()) {
-        try {
-          await ollamaManager.start()
-          console.log('[MAIN] Ollama started successfully')
-        } catch (error) {
-          console.warn('[MAIN] Failed to auto-start Ollama:', error)
-          // Not critical, user can start manually
-        }
-      } else {
-        console.log('[MAIN] Sandbox mode: skipping local Ollama startup')
-      }
-    } else {
-      console.warn('[MAIN] Ollama not found - repair flow will be needed')
-    }
+    // build038: register the event-anchored warmup BEFORE lifecycle init so the very first
+    // server-healthy transition (app-ready spawn) is caught — warms once per spawn generation.
+    const { initWarmupOnServerHealthy } = await import('./main/llm/warmupOnServerHealthy')
+    await initWarmupOnServerHealthy()
+
+    // Host-only: orchestrator-managed llama-server lifecycle (mirrors prior Ollama spawn on app ready).
+    const { initHostLocalLlmLifecycle } = await import('./main/llm/localLlmLifecycle')
+    const llmLifecycle = await initHostLocalLlmLifecycle({ phase: 'app_ready' })
+    console.log('[MAIN] Local LLM lifecycle init:', llmLifecycle)
+
+    const { scheduleStartupWarmup } = await import('./main/llm/startupWarmup')
+    scheduleStartupWarmup({ phase: 'after_llm_lifecycle' })
   } catch (error) {
     console.error('[MAIN] Error initializing LLM services:', error)
     // Continue app startup even if LLM init fails
@@ -7099,7 +7109,7 @@ async function runDeviceKeyMigration(
     // SECURITY: CORS + Private Network Access (PNA) â€” allow WRDesk origins only.
     //
     // Allowed origins:
-    //   - https://wrdesk.com
+    //   - https://optirando.com
     //   - chrome-extension://* (any WRDesk extension ID)
     //
     // Rejects all other origins. No wildcard "*" in production.
@@ -9608,9 +9618,9 @@ async function runDeviceKeyMigration(
     // GET /api/llm/status â€” same payload as IPC `llm:getStatus` (includes `localRuntime` when built).
     httpApp.get('/api/llm/status', async (_req, res) => {
       try {
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
         const { augmentOllamaStatusWithWrChatModels } = await import('./main/llm/handshakeAvailableModelsCompute')
-        const base = await ollamaManager.getStatus()
+        const base = await localLlmManager.getStatus()
         const status = await augmentOllamaStatusWithWrChatModels(base)
         res.json({ ok: true, data: status })
       } catch (error: any) {
@@ -9626,8 +9636,8 @@ async function runDeviceKeyMigration(
           res.status(400).json({ ok: false, error: 'Ollama management is disabled in sandbox mode' })
           return
         }
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-        await ollamaManager.start()
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        await localLlmManager.start()
         res.json({ ok: true })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error starting Ollama:', error)
@@ -9642,8 +9652,8 @@ async function runDeviceKeyMigration(
           res.status(400).json({ ok: false, error: 'Ollama management is disabled in sandbox mode' })
           return
         }
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-        await ollamaManager.stop()
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        await localLlmManager.stop()
         res.json({ ok: true })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error stopping Ollama:', error)
@@ -9654,8 +9664,8 @@ async function runDeviceKeyMigration(
     // GET /api/llm/models - List installed models
     httpApp.get('/api/llm/models', async (_req, res) => {
       try {
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-        const models = await ollamaManager.listModels()
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const models = await localLlmManager.listModels()
         res.json({ ok: true, data: models })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error listing models:', error)
@@ -9674,17 +9684,9 @@ async function runDeviceKeyMigration(
       }
     })
     
-    // POST /api/llm/models/install - Install a model
-    httpApp.post('/api/llm/models/install', async (req, res) => {
+    // POST /api/llm/models/import-pick — OS file picker import (no network egress)
+    httpApp.post('/api/llm/models/import-pick', async (_req, res) => {
       try {
-        const { modelId } = req.body
-        console.log('[HTTP-LLM] Install request received - modelId:', modelId)
-
-        if (!modelId) {
-          res.status(400).json({ ok: false, error: 'modelId is required' })
-          return
-        }
-
         if (isSandboxMode()) {
           res.status(400).json({
             ok: false,
@@ -9692,66 +9694,227 @@ async function runDeviceKeyMigration(
           })
           return
         }
-
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-
-        console.log('[HTTP-LLM] Starting model pull for:', modelId)
-
-        // Start async pull. Progress is stored on ollamaManager.downloadProgress for polling.
-        // After completion, verify the model exists and update the terminal progress state.
-        ollamaManager.pullModel(modelId, (progress) => {
-          // Stored for GET /api/llm/install-progress polling.
-        }).then(async () => {
-          console.log('[HTTP-LLM] Install stream done, verifying:', modelId)
-
-          // Cache was cleared by pullModel (Patch 1); this re-queries Ollama directly.
-          let verified = false
-          try {
-            const models = await ollamaManager.listModels()
-            verified = models.some((m: { name: string }) => m.name === modelId)
-            console.log('[HTTP-LLM] Verification result for', modelId, ':', verified ? 'FOUND' : 'NOT FOUND')
-          } catch (verifyErr: any) {
-            console.error('[HTTP-LLM] Verification listModels failed:', verifyErr)
-          }
-
-          // Update downloadProgress to a terminal state so the UI poller gets the final result.
-          ollamaManager.downloadProgress = verified
-            ? { modelId, status: 'verified', progress: 100 }
-            : {
-                modelId,
-                status: 'verification_failed',
-                progress: 0,
-                error: `Model "${modelId}" was not found in Ollama after installation. ` +
-                  'It may still be processing â€” try refreshing the model list.',
-              }
-
-          console.log('[HTTP-LLM] Terminal progress state set for', modelId, '- verified:', verified)
-        }).catch((error: any) => {
-          console.error('[HTTP-LLM] Model installation failed:', error)
-          ollamaManager.downloadProgress = {
-            modelId,
-            status: 'error',
-            progress: 0,
-            error: error.message,
-          }
+        const { dialog } = await import('electron')
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const { broadcastModelsInstalledChanged } = await import('./main/llm/broadcastModelsChanged')
+        const pick = await dialog.showOpenDialog({
+          title: 'Import GGUF model',
+          properties: ['openFile'],
+          filters: [{ name: 'GGUF Models', extensions: ['gguf'] }],
         })
-
-        res.json({ ok: true, message: 'Installation started' })
+        if (pick.canceled || !pick.filePaths[0]) {
+          res.json({ ok: false, cancelled: true })
+          return
+        }
+        const sourcePath = pick.filePaths[0]
+        const runImport = async (overwrite: boolean) =>
+          localLlmManager.importModelFromFile(sourcePath, {
+            overwrite,
+            onProgress: (progress) => {
+              localLlmManager.setDownloadProgress(progress)
+            },
+          })
+        let result
+        try {
+          result = await runImport(false)
+        } catch (err: unknown) {
+          const e = err as Error & { code?: string; modelId?: string }
+          if (e.code !== 'MODEL_EXISTS') throw err
+          const confirm = await dialog.showMessageBox({
+            type: 'warning',
+            buttons: ['Cancel', 'Replace'],
+            defaultId: 0,
+            cancelId: 0,
+            title: 'Replace existing model?',
+            message: `A model named "${e.modelId ?? 'this file'}" is already installed.`,
+          })
+          if (confirm.response !== 1) {
+            res.json({ ok: false, cancelled: true })
+            return
+          }
+          result = await runImport(true)
+        }
+        broadcastModelsInstalledChanged({ modelId: result.modelId, sha256: result.sha256 })
+        const { ensureLocalLlmAfterModelInstall } = await import('./main/llm/localLlmLifecycle')
+        void ensureLocalLlmAfterModelInstall('http_import_model_picker')
+        localLlmManager.setDownloadProgress({
+          modelId: result.modelId,
+          status: 'verified',
+          progress: 100,
+          digest: result.sha256,
+        })
+        res.json({ ok: true, data: result })
       } catch (error: any) {
-        console.error('[HTTP-LLM] Error installing model:', error)
+        console.error('[HTTP-LLM] import-pick failed:', error)
         res.status(500).json({ ok: false, error: error.message })
       }
     })
-    
+
+    // POST /api/llm/models/download-from-url — HTTPS Hugging Face allowlist only
+    httpApp.post('/api/llm/models/download-from-url', async (req, res) => {
+      try {
+        const url = typeof req.body?.url === 'string' ? req.body.url.trim() : ''
+        if (!url) {
+          res.status(400).json({ ok: false, error: 'url is required' })
+          return
+        }
+        if (isSandboxMode()) {
+          res.status(400).json({
+            ok: false,
+            error: 'Model installation is disabled in sandbox mode — install models on the host machine',
+          })
+          return
+        }
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const { broadcastModelsInstalledChanged } = await import('./main/llm/broadcastModelsChanged')
+        localLlmManager
+          .downloadModelFromUrl(url, (progress) => {
+            localLlmManager.setDownloadProgress(progress)
+          })
+          .then(async (result) => {
+            broadcastModelsInstalledChanged({ modelId: result.modelId, sha256: result.sha256 })
+            const { ensureLocalLlmAfterModelInstall } = await import('./main/llm/localLlmLifecycle')
+            void ensureLocalLlmAfterModelInstall('http_download_model_url')
+            localLlmManager.setDownloadProgress({
+              modelId: result.modelId,
+              status: 'verified',
+              progress: 100,
+              digest: result.sha256,
+            })
+          })
+          .catch((error: Error) => {
+            localLlmManager.setDownloadProgress({
+              modelId: '',
+              status: 'error',
+              progress: 0,
+              error: error.message,
+            })
+          })
+        res.json({ ok: true, message: 'Download started' })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] download-from-url failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    httpApp.post('/api/llm/models/download-cancel', async (_req, res) => {
+      try {
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        localLlmManager.cancelModelDownload()
+        res.json({ ok: true })
+      } catch (error: any) {
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
     // GET /api/llm/install-progress - Get current installation progress
     httpApp.get('/api/llm/install-progress', async (_req, res) => {
       try {
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-        const progress = ollamaManager.getDownloadProgress()
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const progress = localLlmManager.getDownloadProgress()
         console.log('[HTTP-LLM] Returning progress:', progress)
         res.json({ ok: true, progress })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error getting install progress:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // GET /api/llm/binary/status — B0: is llama-server(.exe) resolved on disk, and which
+    // release variant (cpu/cuda/vulkan) is recommended for this machine.
+    httpApp.get('/api/llm/binary/status', async (_req, res) => {
+      try {
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const { detectRecommendedLlamaServerVariant } = await import('./main/llm/llamaServerBinaryInstall')
+        const binaryInstalled = localLlmManager.isBinaryAvailable()
+        const recommended = await detectRecommendedLlamaServerVariant()
+        res.json({ ok: true, data: { binaryInstalled, recommendedVariant: recommended.variant, reason: recommended.reason } })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] binary/status failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // POST /api/llm/binary/install — B0: download+extract llama-server from the official
+    // ggml-org/llama.cpp GitHub release (fire-and-forget; poll binary/install-progress).
+    httpApp.post('/api/llm/binary/install', async (req, res) => {
+      try {
+        if (isSandboxMode()) {
+          res.status(400).json({ ok: false, error: 'llama-server install is disabled in sandbox mode' })
+          return
+        }
+        const variantRaw = typeof req.body?.variant === 'string' ? req.body.variant.trim() : 'cpu'
+        const variant = variantRaw === 'cuda' || variantRaw === 'vulkan' ? variantRaw : 'cpu'
+        const { installLlamaServerBinary } = await import('./main/llm/llamaServerBinaryInstall')
+        installLlamaServerBinary(variant).catch((error: Error) => {
+          console.error('[HTTP-LLM] binary/install failed:', error)
+        })
+        res.json({ ok: true, message: 'llama-server install started', variant })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] binary/install failed to start:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // GET /api/llm/binary/install-progress — poll progress for the B0 install flow.
+    httpApp.get('/api/llm/binary/install-progress', async (_req, res) => {
+      try {
+        const { getLlamaServerBinaryInstallProgress } = await import('./main/llm/llamaServerBinaryInstall')
+        res.json({ ok: true, progress: getLlamaServerBinaryInstallProgress() })
+      } catch (error: any) {
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    httpApp.post('/api/llm/binary/install-cancel', async (_req, res) => {
+      try {
+        const { cancelLlamaServerBinaryInstall } = await import('./main/llm/llamaServerBinaryInstall')
+        cancelLlamaServerBinaryInstall()
+        res.json({ ok: true })
+      } catch (error: any) {
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // GET /api/llm/server-config — build038: persisted inference settings + computed
+    // max ctx / VRAM insight + last applied spawn plan for the Inference Settings panel.
+    httpApp.get('/api/llm/server-config', async (_req, res) => {
+      try {
+        const { getLocalLlmServerConfigView } = await import('./main/llm/localLlmServerConfigApi')
+        res.json({ ok: true, data: await getLocalLlmServerConfigView() })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] server-config get failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // POST /api/llm/server-config — build038: persist inference settings (does not restart).
+    httpApp.post('/api/llm/server-config', async (req, res) => {
+      try {
+        if (isSandboxMode()) {
+          res.status(400).json({ ok: false, error: 'Local LLM management is disabled in sandbox mode' })
+          return
+        }
+        const { applyLocalLlmServerConfigPatch } = await import('./main/llm/localLlmServerConfigApi')
+        res.json({ ok: true, data: { config: applyLocalLlmServerConfigPatch(req.body) } })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] server-config set failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // POST /api/llm/server-restart — build038 "Apply & restart AI server": graceful,
+    // waits for in-flight inference to drain, then restarts with the persisted settings.
+    httpApp.post('/api/llm/server-restart', async (_req, res) => {
+      try {
+        if (isSandboxMode()) {
+          res.status(400).json({ ok: false, error: 'Local LLM management is disabled in sandbox mode' })
+          return
+        }
+        const { restartLocalLlmServerForSettings } = await import('./main/llm/localLlmServerConfigApi')
+        res.json({ ok: true, data: await restartLocalLlmServerForSettings() })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] server-restart failed:', error)
         res.status(500).json({ ok: false, error: error.message })
       }
     })
@@ -9767,8 +9930,10 @@ async function runDeviceKeyMigration(
           return
         }
         const { modelId } = req.params
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-        await ollamaManager.deleteModel(modelId)
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const { broadcastModelsInstalledChanged } = await import('./main/llm/broadcastModelsChanged')
+        await localLlmManager.deleteModel(modelId)
+        broadcastModelsInstalledChanged()
         res.json({ ok: true })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error deleting model:', error)
@@ -9792,25 +9957,47 @@ async function runDeviceKeyMigration(
           })
           return
         }
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-        const { DEBUG_ACTIVE_OLLAMA_MODEL } = await import('./main/llm/activeOllamaModelStore')
-        if (DEBUG_ACTIVE_OLLAMA_MODEL) {
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const { DEBUG_ACTIVE_LOCAL_MODEL } = await import('./main/llm/activeLocalModelStore')
+        if (DEBUG_ACTIVE_LOCAL_MODEL) {
           console.warn('[HTTP-LLM] Set active model requested:', modelId)
         }
-        const result = await ollamaManager.setActiveModelPreference(modelId)
+        const result = await localLlmManager.setActiveModelPreference(modelId)
         if (!result.ok) {
           res.status(400).json({ ok: false, error: result.error })
           return
         }
         const { broadcastActiveOllamaModelChanged } = await import('./main/llm/broadcastActiveModel')
         broadcastActiveOllamaModelChanged(modelId)
-        if (DEBUG_ACTIVE_OLLAMA_MODEL) {
+        if (DEBUG_ACTIVE_LOCAL_MODEL) {
           console.warn('[HTTP-LLM] Set active model persisted:', modelId.trim())
         }
         res.json({ ok: true })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error setting active model:', error)
         res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/llm/mode-model-warm — headless mode-model warm on speech bubble / interval enable.
+    httpApp.post('/api/llm/mode-model-warm', async (req, res) => {
+      try {
+        const body = req.body as { modeId?: unknown; trigger?: unknown }
+        const modeId = typeof body?.modeId === 'string' ? body.modeId.trim() : ''
+        const triggerRaw = body?.trigger
+        const trigger =
+          triggerRaw === 'interval' || triggerRaw === 'speech_bubble' ? triggerRaw : null
+        if (!modeId || !trigger) {
+          res.status(400).json({ ok: false, error: 'invalid payload' })
+          return
+        }
+        const { scheduleModeModelWarmOnTrigger } = await import('./main/llm/modeModelWarmupTrigger')
+        scheduleModeModelWarmOnTrigger(modeId, trigger)
+        res.json({ ok: true })
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error ?? 'unknown')
+        console.error('[HTTP-LLM] mode-model-warm failed:', msg)
+        res.status(500).json({ ok: false, error: msg })
       }
     })
     
@@ -9861,8 +10048,8 @@ async function runDeviceKeyMigration(
           }
         }
         if (!isSandboxMode() && toStore.lane === 'local') {
-          const { ollamaManager } = await import('./main/llm/ollama-manager')
-          const pref = await ollamaManager.setActiveModelPreference(toStore.model)
+          const { localLlmManager } = await import('./main/llm/local-llm-manager')
+          const pref = await localLlmManager.setActiveModelPreference(toStore.model)
           if (!pref.ok) {
             res.status(400).json({ ok: false, error: pref.error })
             return
@@ -9874,6 +10061,96 @@ async function runDeviceKeyMigration(
         res.json({ ok: true })
       } catch (error: any) {
         console.error('[HTTP-LLM] ai-execution-context failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // GET/POST/PATCH/DELETE /api/custom-modes — shared custom WR Chat modes (extension RPC; X-Launch-Secret).
+    httpApp.get('/api/custom-modes/migration-status', async (_req, res) => {
+      try {
+        const { getMigrationStatus } = await import('./main/customModes/customModesStore')
+        res.json({ ok: true, data: getMigrationStatus() })
+      } catch (error: any) {
+        console.error('[HTTP] GET /api/custom-modes/migration-status failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    httpApp.get('/api/custom-modes', async (_req, res) => {
+      try {
+        const { listModes } = await import('./main/customModes/customModesStore')
+        res.json({ ok: true, data: listModes() })
+      } catch (error: any) {
+        console.error('[HTTP] GET /api/custom-modes failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    httpApp.post('/api/custom-modes', async (req, res) => {
+      try {
+        const draft = req.body?.draft
+        if (!draft || typeof draft !== 'object') {
+          res.status(400).json({ ok: false, error: 'invalid draft' })
+          return
+        }
+        const { createMode } = await import('./main/customModes/customModesStore')
+        const { broadcastCustomModesChanged } = await import('./main/customModes/broadcast')
+        const result = await createMode(draft)
+        if (result.ok) broadcastCustomModesChanged(result.data)
+        res.status(result.ok ? 200 : 400).json(result)
+      } catch (error: any) {
+        console.error('[HTTP] POST /api/custom-modes failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    httpApp.patch('/api/custom-modes/:id', async (req, res) => {
+      try {
+        const id = typeof req.params.id === 'string' ? req.params.id : ''
+        const patch = req.body?.patch ?? req.body
+        if (!id || !patch || typeof patch !== 'object') {
+          res.status(400).json({ ok: false, error: 'invalid update payload' })
+          return
+        }
+        const { updateMode } = await import('./main/customModes/customModesStore')
+        const { broadcastCustomModesChanged } = await import('./main/customModes/broadcast')
+        const result = await updateMode(id, patch)
+        if (result.ok) broadcastCustomModesChanged(result.data)
+        res.status(result.ok ? 200 : 400).json(result)
+      } catch (error: any) {
+        console.error('[HTTP] PATCH /api/custom-modes/:id failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    httpApp.delete('/api/custom-modes/:id', async (req, res) => {
+      try {
+        const id = typeof req.params.id === 'string' ? req.params.id : ''
+        if (!id) {
+          res.status(400).json({ ok: false, error: 'invalid id' })
+          return
+        }
+        const { deleteMode } = await import('./main/customModes/customModesStore')
+        const { broadcastCustomModesChanged } = await import('./main/customModes/broadcast')
+        const result = await deleteMode(id)
+        if (result.ok) broadcastCustomModesChanged(result.data)
+        res.status(result.ok ? 200 : 400).json(result)
+      } catch (error: any) {
+        console.error('[HTTP] DELETE /api/custom-modes/:id failed:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    httpApp.post('/api/custom-modes/import', async (req, res) => {
+      try {
+        const modes = req.body?.modes
+        const origin = req.body?.origin
+        if (!Array.isArray(modes) || (origin !== 'dashboard' && origin !== 'extension')) {
+          res.status(400).json({ ok: false, error: 'invalid import payload' })
+          return
+        }
+        const { importModes } = await import('./main/customModes/customModesStore')
+        const { broadcastCustomModesChanged } = await import('./main/customModes/broadcast')
+        const result = await importModes(modes, origin)
+        if (result.ok) broadcastCustomModesChanged(result.data)
+        res.status(result.ok ? 200 : 400).json(result)
+      } catch (error: any) {
+        console.error('[HTTP] POST /api/custom-modes/import failed:', error)
         res.status(500).json({ ok: false, error: error.message })
       }
     })
@@ -10015,8 +10292,8 @@ async function runDeviceKeyMigration(
     // GET /api/llm/first-available - Preferred chat model (persisted active or first installed)
     httpApp.get('/api/llm/first-available', async (_req, res) => {
       try {
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-        const modelId = await ollamaManager.getEffectiveChatModelName()
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const modelId = await localLlmManager.getEffectiveChatModelName()
         
         if (!modelId) {
           res.json({ ok: false, error: 'No models installed. Please install a model first.' })
@@ -10030,6 +10307,32 @@ async function runDeviceKeyMigration(
       }
     })
     
+    // POST /api/llm/resolve-model — declared local model availability + loud fallback metadata
+    httpApp.post('/api/llm/resolve-model', async (req, res) => {
+      try {
+        if (isSandboxMode()) {
+          return res.status(503).json({
+            ok: false,
+            error:
+              'Sandbox inference over HTTP is removed — complete an internal handshake in the Handshakes panel; inference will use the BEAP channel.',
+          })
+        }
+        const requestedModelId =
+          typeof req.body?.requestedModelId === 'string' ? req.body.requestedModelId : ''
+        const origin = typeof req.body?.origin === 'string' ? req.body.origin.trim() : 'http_resolve'
+        const { resolveDeclaredLocalOllamaModel } = await import('./main/llm/resolveDeclaredModelAvailability')
+        const resolution = await resolveDeclaredLocalOllamaModel(requestedModelId, origin || 'http_resolve')
+        if (!resolution.ok) {
+          res.status(400).json(resolution)
+          return
+        }
+        res.json({ ok: true, ...resolution })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error in resolve-model:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
     // POST /api/llm/chat - Chat with model (local Ollama or cloud provider)
     httpApp.post('/api/llm/chat', async (req, res) => {
       try {
@@ -10057,12 +10360,15 @@ async function runDeviceKeyMigration(
           return
         }
         
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const { localLlmManager } = await import('./main/llm/local-llm-manager')
+        const { resolveDeclaredLocalOllamaModel, toModelFallbackWire } = await import(
+          './main/llm/resolveDeclaredModelAvailability',
+        )
         
         // If no modelId specified, use persisted preference or first installed model
-        let activeModelId = modelId
-        if (!activeModelId) {
-          const resolved = await ollamaManager.getEffectiveChatModelName()
+        let requestedModelId = typeof modelId === 'string' ? modelId.trim() : ''
+        if (!requestedModelId) {
+          const resolved = await localLlmManager.getEffectiveChatModelName()
           if (!resolved) {
             res.status(400).json({ 
               ok: false, 
@@ -10070,11 +10376,29 @@ async function runDeviceKeyMigration(
             })
             return
           }
-          activeModelId = resolved
+          requestedModelId = resolved
         }
+
+        const availability = await resolveDeclaredLocalOllamaModel(
+          requestedModelId,
+          typeof req.body?.origin === 'string' ? req.body.origin : 'http_llm_chat',
+        )
+        if (!availability.ok) {
+          res.status(400).json({ ok: false, error: availability.error })
+          return
+        }
+        const activeModelId = availability.actualModel
         
-        const response = await ollamaManager.chat(activeModelId, enrichedMessages)
-        res.json({ ok: true, data: response })
+        const response = await localLlmManager.chat(activeModelId, enrichedMessages)
+        const modelFallback = toModelFallbackWire(availability)
+        res.json({
+          ok: true,
+          data: {
+            ...response,
+            content: response.content,
+            ...(modelFallback ? { modelFallback } : {}),
+          },
+        })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error in chat:', error)
         res.status(500).json({ ok: false, error: error.message })

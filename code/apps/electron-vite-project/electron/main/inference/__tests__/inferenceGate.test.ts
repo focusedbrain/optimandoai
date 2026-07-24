@@ -92,8 +92,8 @@ describe('inferenceGate', () => {
     })
 
     await expect(
-      assertGpuInferenceAvailableForRemoteOllama('http://lan:11434', 'mistral:latest'),
+      assertGpuInferenceAvailableForRemoteOllama('http://lan:8080', 'mistral:latest'),
     ).rejects.toBeInstanceOf(InferenceUnavailableError)
-    expect(getGpuInferenceStatusRemoteMock).toHaveBeenCalledWith('http://lan:11434', 'mistral:latest')
+    expect(getGpuInferenceStatusRemoteMock).toHaveBeenCalledWith('http://lan:8080', 'mistral:latest')
   })
 })

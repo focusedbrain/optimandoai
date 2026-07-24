@@ -1,6 +1,6 @@
 /**
- * Unit: `inferenceDirectHttpTrust` — handshake+bearer LAN trust (no BEAP ad).
- * Integration: decider LAN-prefer branch wiring (`inference_handshake_trust_lan` vs BEAP path).
+ * Unit: `inferenceDirectHttpTrust` — handshake-bound trust (state/type/principal/roles/identity/bearer).
+ * Integration: decider sealed_relay wiring (`inference_sealed_relay` vs BEAP-ad path).
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -124,7 +124,7 @@ const happyRoles: DeriveInternalHostAiPeerRolesResult = {
 }
 
 describe('inferenceDirectHttpTrust', () => {
-  it('happy path: trusted, handshake_inference_trust, normalized URL', () => {
+  it('happy path: trusted, handshake_bound, normalized URL', () => {
     const r = inferenceDirectHttpTrust({
       handshakeRecord: happyHandshakeRecord(),
       roles: happyRoles,
@@ -132,7 +132,7 @@ describe('inferenceDirectHttpTrust', () => {
       localBeapEndpoint: LOCAL_BEAP_OTHER,
     })
     expect(r.trusted).toBe(true)
-    expect(r.reason).toBe('handshake_inference_trust')
+    expect(r.reason).toBe('handshake_bound')
     expect(r.normalizedUrl).toBe(normalizeP2pIngestUrl(LAN_PEER))
   })
 
@@ -219,39 +219,66 @@ describe('inferenceDirectHttpTrust', () => {
     expect(r.normalizedUrl).toBeNull()
   })
 
-  it('url_not_private_lan — empty p2p_endpoint', () => {
+  /** sealed_relay: endpoint null/empty is a fully trusted transport (handshake-bound trust). */
+  it('sealed_relay — empty p2p_endpoint is trusted, normalizedUrl null', () => {
     const r = inferenceDirectHttpTrust({
       handshakeRecord: happyHandshakeRecord({ p2p_endpoint: '' }),
       roles: happyRoles,
       counterpartyP2pToken: 'test-bearer-abc123',
       localBeapEndpoint: LOCAL_BEAP_OTHER,
     })
-    expect(r.trusted).toBe(false)
-    expect(r.reason).toBe('url_not_private_lan')
+    expect(r.trusted).toBe(true)
+    expect(r.reason).toBe('handshake_bound')
     expect(r.normalizedUrl).toBeNull()
   })
 
-  it('url_not_private_lan — public IP', () => {
+  it('sealed_relay — relay URL is trusted, normalizedUrl null (LAN deprecated, see Teil B)', () => {
+    const r = inferenceDirectHttpTrust({
+      handshakeRecord: happyHandshakeRecord({ p2p_endpoint: 'https://relay.wrdesk.com/beap/capsule' }),
+      roles: happyRoles,
+      counterpartyP2pToken: 'test-bearer-abc123',
+      localBeapEndpoint: LOCAL_BEAP_OTHER,
+    })
+    expect(r.trusted).toBe(true)
+    expect(r.reason).toBe('handshake_bound')
+    expect(r.normalizedUrl).toBeNull()
+  })
+
+  it('sealed_relay — sentinel wrdesk.invalid is trusted, normalizedUrl null', () => {
+    const r = inferenceDirectHttpTrust({
+      handshakeRecord: happyHandshakeRecord({
+        p2p_endpoint: 'https://wrdesk.invalid/host-ai/sealed-relay',
+      }),
+      roles: happyRoles,
+      counterpartyP2pToken: 'test-bearer-abc123',
+      localBeapEndpoint: LOCAL_BEAP_OTHER,
+    })
+    expect(r.trusted).toBe(true)
+    expect(r.reason).toBe('handshake_bound')
+    expect(r.normalizedUrl).toBeNull()
+  })
+
+  it('non-LAN endpoint no longer denies trust — public IP trusted, normalizedUrl null', () => {
     const r = inferenceDirectHttpTrust({
       handshakeRecord: happyHandshakeRecord({ p2p_endpoint: 'http://8.8.8.8/beap/ingest' }),
       roles: happyRoles,
       counterpartyP2pToken: 'test-bearer-abc123',
       localBeapEndpoint: LOCAL_BEAP_OTHER,
     })
-    expect(r.trusted).toBe(false)
-    expect(r.reason).toBe('url_not_private_lan')
+    expect(r.trusted).toBe(true)
+    expect(r.reason).toBe('handshake_bound')
     expect(r.normalizedUrl).toBeNull()
   })
 
-  it('url_not_private_lan — malformed URL', () => {
+  it('malformed URL no longer denies trust — trusted, normalizedUrl null', () => {
     const r = inferenceDirectHttpTrust({
       handshakeRecord: happyHandshakeRecord({ p2p_endpoint: 'not-a-url' }),
       roles: happyRoles,
       counterpartyP2pToken: 'test-bearer-abc123',
       localBeapEndpoint: LOCAL_BEAP_OTHER,
     })
-    expect(r.trusted).toBe(false)
-    expect(r.reason).toBe('url_not_private_lan')
+    expect(r.trusted).toBe(true)
+    expect(r.reason).toBe('handshake_bound')
     expect(r.normalizedUrl).toBeNull()
   })
 
@@ -300,7 +327,7 @@ describe('inferenceDirectHttpTrust', () => {
       sandboxPeerLanEndpoint: LAN_PEER,
     })
     expect(r.trusted).toBe(true)
-    expect(r.reason).toBe('handshake_inference_trust')
+    expect(r.reason).toBe('handshake_bound')
     expect(r.normalizedUrl).toBe(normalizeP2pIngestUrl(LAN_PEER))
   })
 
@@ -312,7 +339,7 @@ describe('inferenceDirectHttpTrust', () => {
       localBeapEndpoint: null,
     })
     expect(r.trusted).toBe(true)
-    expect(r.reason).toBe('handshake_inference_trust')
+    expect(r.reason).toBe('handshake_bound')
     expect(r.normalizedUrl).toBe(normalizeP2pIngestUrl(LAN_PEER))
   })
 
@@ -358,7 +385,7 @@ describe('decideInternalInferenceTransport — inference trust wiring', () => {
     })
   }
 
-  it('A. inference handshake trust LAN path (no BEAP ad, verifiedDirect false)', () => {
+  it('A. handshake-bound trust (no BEAP ad, verifiedDirect false) — sealed_relay preferred', () => {
     const dec = decideInternalInferenceTransport(
       buildHostAiTransportDeciderInput({
         operationContext: 'capabilities',
@@ -368,9 +395,11 @@ describe('decideInternalInferenceTransport — inference trust wiring', () => {
         hostPolicyState: { allowSandboxInference: true, hasActiveModel: true },
       }),
     )
-    expect(dec.preferredTransport).toBe('legacy_http')
+    expect(dec.inferenceHandshakeTrusted).toBe(true)
+    expect(dec.inferenceHandshakeTrustReason).toBe('handshake_bound')
+    expect(dec.preferredTransport).toBe('sealed_relay')
     expect(dec.selectorPhase).toBe('legacy_http_available')
-    expect(dec.reason).toBe('inference_handshake_trust_lan')
+    expect(dec.reason).toBe('inference_sealed_relay')
   })
 
   it('B. BEAP attestation path when only ad present (no bearer)', () => {
@@ -388,12 +417,14 @@ describe('decideInternalInferenceTransport — inference trust wiring', () => {
         hostPolicyState: { allowSandboxInference: true, hasActiveModel: true },
       }),
     )
-    expect(dec.preferredTransport).toBe('legacy_http')
+    expect(dec.inferenceHandshakeTrusted).toBe(false)
+    expect(dec.inferenceHandshakeTrustReason).toBe('missing_bearer_token')
+    expect(dec.preferredTransport).toBe('sealed_relay')
     expect(dec.selectorPhase).toBe('legacy_http_available')
-    expect(dec.reason).toBe('internal_direct_http_preferred')
+    expect(dec.reason).toBe('internal_sealed_relay_preferred')
   })
 
-  it('C. both satisfied — handshake trust branch wins first', () => {
+  it('C. both satisfied — handshake-bound sealed_relay branch wins first', () => {
     const adUrl = 'http://192.168.50.20:51249/beap/ingest'
     setHostAdvertisedMvpDirectForTests(HID, adUrl, {
       ownerDeviceId: 'dev-host-coord-1',
@@ -408,11 +439,11 @@ describe('decideInternalInferenceTransport — inference trust wiring', () => {
         hostPolicyState: { allowSandboxInference: true, hasActiveModel: true },
       }),
     )
-    expect(dec.reason).toBe('inference_handshake_trust_lan')
-    expect(dec.preferredTransport).toBe('legacy_http')
+    expect(dec.reason).toBe('inference_sealed_relay')
+    expect(dec.preferredTransport).toBe('sealed_relay')
   })
 
-  it('D. neither path — WebRTC connecting (current default)', () => {
+  it('D. untrusted (no bearer), hostname endpoint — WebRTC connecting (current default)', () => {
     const dec = decideInternalInferenceTransport(
       buildHostAiTransportDeciderInput({
         operationContext: 'capabilities',
@@ -425,13 +456,14 @@ describe('decideInternalInferenceTransport — inference trust wiring', () => {
         hostPolicyState: { allowSandboxInference: true, hasActiveModel: true },
       }),
     )
-    expect(dec.reason).not.toBe('inference_handshake_trust_lan')
+    expect(dec.inferenceHandshakeTrusted).toBe(false)
+    expect(dec.reason).not.toBe('inference_sealed_relay')
     expect(dec.preferredTransport).toBe('webrtc_p2p')
     expect(dec.selectorPhase).toBe('connecting')
     expect(dec.reason).toBeUndefined()
   })
 
-  it('E. non-internal handshake — not inference_handshake_trust_lan', () => {
+  it('E. non-internal handshake — not handshake-bound sealed_relay', () => {
     const dec = decideInternalInferenceTransport(
       buildHostAiTransportDeciderInput({
         operationContext: 'capabilities',
@@ -444,11 +476,11 @@ describe('decideInternalInferenceTransport — inference trust wiring', () => {
         hostPolicyState: { allowSandboxInference: true, hasActiveModel: true },
       }),
     )
-    expect(dec.reason).not.toBe('inference_handshake_trust_lan')
+    expect(dec.reason).not.toBe('inference_sealed_relay')
   })
 
-  /** Ledger stores this sandbox’s MVP BEAP URL; peer Host advertises a different LAN ingest via header map — trust must follow resolve (peer URL), not the ledger row. */
-  it('F. poisoned ledger URL equals local BEAP but peer advertisement present — inference_handshake_trust_lan still wins', () => {
+  /** Ledger stores this sandbox’s MVP BEAP URL; peer Host advertises a different LAN ingest via header map — trust stays handshake-bound; sealed relay preferred. */
+  it('F. poisoned ledger URL equals local BEAP but peer advertisement present — sealed_relay wins', () => {
     const peerLan = 'http://192.168.178.88:51249/beap/ingest'
     setHostAdvertisedMvpDirectForTests(HID, peerLan, {
       ownerDeviceId: 'dev-host-coord-1',
@@ -466,16 +498,18 @@ describe('decideInternalInferenceTransport — inference trust wiring', () => {
         hostPolicyState: { allowSandboxInference: true, hasActiveModel: true },
       }),
     )
-    expect(dec.reason).toBe('inference_handshake_trust_lan')
-    expect(dec.preferredTransport).toBe('legacy_http')
+    expect(dec.reason).toBe('inference_sealed_relay')
+    expect(dec.preferredTransport).toBe('sealed_relay')
     expect(dec.selectorPhase).toBe('legacy_http_available')
   })
 
   /**
-   * Ledger holds this sandbox’s MVP BEAP and no peer Host advertisement — must not fall through to handshake URL trust (`self_loop_detected`).
-   * With WebRTC Host AI architecture on, the decider must not return `blocked` here: LAN Ollama-direct discovery must still run; BEAP/top-chat stay gated via trust reason + row-level failure codes.
+   * Ledger holds this sandbox’s MVP BEAP and no peer Host advertisement. Trust is handshake-bound
+   * (ACTIVE + internal + identity + bearer + roles), so the row is trusted and rides the sealed
+   * relay — the poisoned URL is irrelevant because the sealed path addresses the peer device id,
+   * never the ledger URL. LAN deprecated, see Teil B.
    */
-  it('G. poisoned ledger equals local BEAP, no peer ad — peer_host_endpoint_missing', () => {
+  it('G. poisoned ledger equals local BEAP, no peer ad — still handshake_bound + sealed_relay', () => {
     const dec = decideInternalInferenceTransport(
       buildHostAiTransportDeciderInput({
         operationContext: 'capabilities',
@@ -488,10 +522,10 @@ describe('decideInternalInferenceTransport — inference trust wiring', () => {
         hostPolicyState: { allowSandboxInference: true, hasActiveModel: true },
       }),
     )
-    expect(dec.inferenceHandshakeTrusted).toBe(false)
-    expect(dec.inferenceHandshakeTrustReason).toBe('peer_host_endpoint_missing')
-    expect(dec.selectorPhase).toBe('connecting')
-    expect(dec.preferredTransport).toBe('webrtc_p2p')
+    expect(dec.inferenceHandshakeTrusted).toBe(true)
+    expect(dec.inferenceHandshakeTrustReason).toBe('handshake_bound')
+    expect(dec.selectorPhase).toBe('legacy_http_available')
+    expect(dec.preferredTransport).toBe('sealed_relay')
     expect(dec.failureCode).toBeNull()
   })
 })

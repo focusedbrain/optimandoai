@@ -4,6 +4,9 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type { SandboxOllamaDirectRouteCandidate } from '../sandboxHostAiOllamaDirectCandidate'
+import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../../llm/localLlmPaths'
+
+const HOST_LAN_LLM_BASE = 'http://192.168.178.28:8080'
 
 const candidateMap = vi.hoisted(() => ({ value: undefined as SandboxOllamaDirectRouteCandidate | undefined }))
 const getCandidateMock = vi.hoisted(() => vi.fn<(id: string) => SandboxOllamaDirectRouteCandidate | undefined>((id) => candidateMap.value))
@@ -15,19 +18,46 @@ vi.mock('../sandboxHostAiOllamaDirectCandidate', () => ({
 const assertLivePresenceMock = vi.hoisted(() =>
   vi.fn(async () => ({ ok: true as const, record: { handshake_id: 'hs-a' } })),
 )
+const hasLivePresenceMock = vi.hoisted(() => vi.fn(() => true))
+const nudgeRedialMock = vi.hoisted(() => vi.fn(async () => {}))
 
 vi.mock('../hostAiPeerLivePresence', () => ({
+  hasHostPeerIdentityBoundLivePresence: (...a: unknown[]) => hasLivePresenceMock(...a),
+  nudgeHostPeerLivePresenceRedial: (...a: unknown[]) => nudgeRedialMock(...a),
   assertSandboxHostPeerLivePresenceForHandshake: (...a: unknown[]) => assertLivePresenceMock(...a),
 }))
 
+vi.mock('../hostAiInternalPairingLedger', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../hostAiInternalPairingLedger')>()
+  return {
+    ...orig,
+    isHostSandboxPairEligible: vi.fn(() => true),
+  }
+})
+
 vi.mock('../dbAccess', () => ({
-  getHandshakeDbForInternalInference: vi.fn(async () => null),
+  getHandshakeDbForInternalInference: vi.fn(async () => ({ __mock: true })),
+}))
+
+vi.mock('../../handshake/db', () => ({
+  getHandshakeRecord: vi.fn(() => ({
+    handshake_id: 'hs-a',
+    state: 'ACTIVE',
+    handshake_type: 'internal',
+    internal_coordination_identity_complete: true,
+    initiator_coordination_device_id: 'dev-sbx',
+    acceptor_coordination_device_id: 'dev-host',
+    initiator_device_role: 'sandbox',
+    acceptor_device_role: 'host',
+    initiator: { wrdesk_user_id: 'u1' },
+    acceptor: { wrdesk_user_id: 'u1' },
+  })),
 }))
 
 const sampleCandidate: SandboxOllamaDirectRouteCandidate = {
   route_kind: 'ollama_direct',
   handshake_id: 'hs-a',
-  base_url: 'http://192.168.178.28:11434',
+  base_url: HOST_LAN_LLM_BASE,
   endpoint_owner_device_id: 'host-dev',
   peer_host_device_id: 'host-dev',
   validated_at_ms: Date.now(),
@@ -39,6 +69,8 @@ describe('resolveSandboxInferenceTarget', () => {
     invalidateLocalSandboxOllamaProbeCache()
     candidateMap.value = undefined
     getCandidateMock.mockImplementation(() => candidateMap.value)
+    hasLivePresenceMock.mockReturnValue(true)
+    nudgeRedialMock.mockClear()
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
@@ -62,7 +94,7 @@ describe('resolveSandboxInferenceTarget', () => {
     const r = await resolveSandboxInferenceTarget({})
     expect(r.kind).toBe('local_sandbox')
     if (r.kind === 'local_sandbox') {
-      expect(r.baseUrl).toBe('http://127.0.0.1:11434')
+      expect(r.baseUrl).toBe(HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE)
       expect(r.execution_transport).toBe('local_ollama')
     }
   })
@@ -81,7 +113,7 @@ describe('resolveSandboxInferenceTarget', () => {
     const r = await resolveSandboxInferenceTarget({ handshakeId: 'hs-a' })
     expect(r.kind).toBe('cross_device')
     if (r.kind === 'cross_device') {
-      expect(r.baseUrl).toBe('http://192.168.178.28:11434')
+      expect(r.baseUrl).toBe(HOST_LAN_LLM_BASE)
       expect(r.execution_transport).toBe('ollama_direct')
       expect(r.endpointOwnerDeviceId).toBe('host-dev')
       expect(r.handshakeId).toBe('hs-a')
@@ -112,7 +144,7 @@ describe('resolveSandboxInferenceTarget', () => {
       expect(r.kind).toBe('cross_device')
       if (r.kind === 'cross_device') {
         expect(r.handshakeId).toBe('hs-a')
-        expect(r.baseUrl).toBe('http://192.168.178.28:11434')
+        expect(r.baseUrl).toBe(HOST_LAN_LLM_BASE)
       }
       expect(fetchSpy).not.toHaveBeenCalled()
     } finally {

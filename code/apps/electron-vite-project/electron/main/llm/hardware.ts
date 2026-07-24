@@ -61,6 +61,7 @@ export class HardwareService {
       cpuHasFMA: cpuCapabilities?.hasFMA || false,
       gpuAvailable: gpu.available,
       gpuVramGb: gpu.vramGb,
+      gpuVramSource: gpu.vramSource,
       diskFreeGb,
       osType,
       warnings,
@@ -185,31 +186,99 @@ export class HardwareService {
     return { name, hasAVX2, hasFMA }
   }
   
+  /** MiB from `nvidia-smi --query-gpu=memory.total` → GB (rounded 1 decimal). */
+  private static roundVramGbFromMib(mib: number): number {
+    return Math.round((mib / 1024) * 10) / 10
+  }
+
+  private static roundVramGbFromBytes(bytes: number): number {
+    return Math.round((bytes / 1024 ** 3) * 10) / 10
+  }
+
+  /** Primary: exact total VRAM on NVIDIA (Windows/Linux). */
+  private async queryNvidiaSmiVramGb(): Promise<number | null> {
+    try {
+      const { stdout } = await execAsync(
+        'nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits',
+        { timeout: 8_000, windowsHide: true },
+      )
+      let maxMib = 0
+      for (const line of stdout.split(/\r?\n/)) {
+        const mib = parseFloat(line.trim())
+        if (Number.isFinite(mib) && mib > maxMib) maxMib = mib
+      }
+      if (maxMib <= 0) return null
+      return HardwareService.roundVramGbFromMib(maxMib)
+    } catch {
+      return null
+    }
+  }
+
   /**
-   * Detect GPU capabilities (best effort)
+   * Secondary (Windows): 64-bit `HardwareInformation.qwMemorySize` — not subject to
+   * Win32_VideoController.AdapterRAM 32-bit overflow (~4 GB cap on >4 GB GPUs).
    */
-  private async detectGpu(): Promise<{ available: boolean; vramGb?: number }> {
+  private async queryWindowsRegistryQwordVramGb(): Promise<number | null> {
+    const ps = [
+      "$base = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}'",
+      '$max = 0',
+      'Get-ChildItem $base -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match \'^\\d{4}$\' } | ForEach-Object {',
+      '  $p = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue',
+      '  if ($null -eq $p) { return }',
+      '  $q = $p.\'HardwareInformation.qwMemorySize\'',
+      '  if ($null -ne $q -and [int64]$q -gt $max) { $max = [int64]$q }',
+      '}',
+      'if ($max -gt 0) { Write-Output $max }',
+    ].join('; ')
+    try {
+      const { stdout } = await execAsync(`powershell -NoProfile -Command "${ps}"`, {
+        timeout: 8_000,
+        windowsHide: true,
+      })
+      const bytes = parseInt(stdout.trim(), 10)
+      if (!Number.isFinite(bytes) || bytes <= 0) return null
+      return HardwareService.roundVramGbFromBytes(bytes)
+    } catch {
+      return null
+    }
+  }
+
+  /** GPU present on Windows without trusting AdapterRAM for capacity. */
+  private async detectWindowsGpuPresent(): Promise<boolean> {
+    try {
+      const { stdout } = await execAsync(
+        'powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"',
+        { timeout: 6_000, windowsHide: true },
+      )
+      return stdout
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .some((name) => name.length > 0 && !/^microsoft basic render driver$/i.test(name))
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Detect GPU capabilities (best effort).
+   * Never uses Win32_VideoController.AdapterRAM for VRAM size (32-bit overflow caps at ~4 GB).
+   */
+  private async detectGpu(): Promise<{ available: boolean; vramGb?: number; vramSource?: string }> {
     try {
       const platform = os.platform()
-      
+
+      const nvidiaVram = await this.queryNvidiaSmiVramGb()
+      if (nvidiaVram != null && nvidiaVram > 0) {
+        return { available: true, vramGb: nvidiaVram, vramSource: 'nvidia-smi' }
+      }
+
       if (platform === 'win32') {
-        // Windows: Use PowerShell Get-CimInstance (wmic removed from modern Windows 11)
-        const { stdout } = await execAsync(
-          'powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM | ConvertTo-Json"',
-          { timeout: 6000, windowsHide: true },
-        )
-        let gpus: { Name?: string; AdapterRAM?: number }[] = []
-        try {
-          const raw = JSON.parse(stdout.trim())
-          gpus = Array.isArray(raw) ? raw : [raw]
-        } catch { /* ignore parse failure */ }
-        const firstWithRam = gpus.find((g) => g.AdapterRAM && g.AdapterRAM > 0) ?? gpus[0]
-        const vramBytes = firstWithRam?.AdapterRAM ?? 0
-        if (vramBytes > 0) {
-          return {
-            available: true,
-            vramGb: Math.round(vramBytes / (1024 ** 3) * 10) / 10,
-          }
+        const registryVram = await this.queryWindowsRegistryQwordVramGb()
+        if (registryVram != null && registryVram > 0) {
+          return { available: true, vramGb: registryVram, vramSource: 'registry-qword' }
+        }
+        if (await this.detectWindowsGpuPresent()) {
+          return { available: true, vramSource: 'unknown' }
         }
       } else if (platform === 'darwin') {
         // macOS: Use system_profiler
@@ -225,10 +294,10 @@ export class HardwareService {
           }
         }
       } else {
-        // Linux: Use lspci
+        // Linux: discrete GPU presence via lspci (VRAM total already tried via nvidia-smi above)
         const { stdout } = await execAsync('lspci | grep -i vga')
         if (stdout.includes('NVIDIA') || stdout.includes('AMD') || stdout.includes('Intel')) {
-          return { available: true }
+          return { available: true, vramSource: 'unknown' }
         }
       }
     } catch (error) {

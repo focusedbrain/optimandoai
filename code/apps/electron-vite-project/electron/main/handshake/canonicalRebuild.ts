@@ -24,6 +24,15 @@
 import { normalizeNFC, stripControlChars, isValidEmail } from './sanitize'
 import { validateInternalEndpointPairDistinct } from '../../../../../packages/shared/src/handshake/internalEndpointValidation'
 
+/**
+ * Mirrors `SEALED_SERVICE_RPC_ENVELOPE_TYPE` / `SEALED_SERVICE_RPC_SCHEMA_VERSION`
+ * (serviceRpc/sealedServiceRpc.ts). Duplicated as local literals — not imported — so Gate 2
+ * never pulls in the crypto-backed sealing module (self-contained allowlist rebuild;
+ * these two values are non-secret markers, not key material).
+ */
+const SEALED_SERVICE_RPC_ENVELOPE_TYPE = 'sealed_service_rpc_v1' as const
+const SEALED_SERVICE_RPC_SCHEMA_VERSION = 1 as const
+
 // ── Max input size ──
 
 const MAX_INPUT_BYTES = 64 * 1024
@@ -91,6 +100,8 @@ export interface HandshakeCapsuleCanonical {
   readonly prev_hash?: string
   readonly context_block_proofs?: ReadonlyArray<ContextBlockProof>
   readonly context_blocks?: ReadonlyArray<CanonicalContextBlock>
+  /** context_sync only — E2E-sealed `context_blocks[].content` (ciphertext); see contextSyncSeal.ts */
+  readonly context_blocks_sealed?: CanonicalSealedContextBlocksEnvelope
   readonly p2p_endpoint?: string | null
   readonly p2p_auth_token?: string | null
   /** Ed25519 public key (64-char hex) — envelope, not in capsule_hash */
@@ -125,6 +136,23 @@ export interface CanonicalContextBlock {
   readonly scope_id: string | null
   readonly type: string
   readonly content: string | Record<string, unknown> | null
+}
+
+/**
+ * Structural mirror of `SealedServiceRpcEnvelope` (serviceRpc/sealedServiceRpc.ts) —
+ * duplicated here (not imported) so Gate 2 stays a self-contained allowlist rebuild
+ * with no dependency on the crypto-backed sealing module.
+ */
+export interface CanonicalSealedContextBlocksEnvelope {
+  readonly envelope_type: string
+  readonly schema_version: number
+  readonly handshake_id: string
+  readonly sender_device_id: string
+  readonly receiver_device_id: string
+  readonly sender_ephemeral_x25519_pub_b64: string
+  readonly salt_b64: string
+  readonly nonce_b64: string
+  readonly ciphertext_b64: string
 }
 
 // ── Denied fields — presence triggers immediate rejection ──
@@ -727,7 +755,8 @@ export function canonicalRebuild(raw: unknown): RebuildResult {
     }
   }
 
-  // Validate context_blocks (optional — carries actual content for ingestion)
+  // Validate context_blocks (optional — proof-only for context_sync since the
+  // sealing fix; other capsule types have never carried content in practice)
   if ('context_blocks' in obj && obj.context_blocks !== undefined) {
     const blocksResult = rebuildContextBlocks(obj.context_blocks)
     if (!blocksResult.ok) {
@@ -736,6 +765,16 @@ export function canonicalRebuild(raw: unknown): RebuildResult {
     if (blocksResult.blocks.length > 0) {
       canonical.context_blocks = blocksResult.blocks
     }
+  }
+
+  // Validate context_blocks_sealed (optional — context_sync only; ciphertext of
+  // context_blocks[].content, opened downstream via contextSyncSeal.ts).
+  if ('context_blocks_sealed' in obj && obj.context_blocks_sealed !== undefined && obj.context_blocks_sealed !== null) {
+    const sealedResult = rebuildContextBlocksSealed(obj.context_blocks_sealed)
+    if (!sealedResult.ok) {
+      return sealedResult
+    }
+    canonical.context_blocks_sealed = sealedResult.envelope
   }
 
   return { ok: true, capsule: canonical as unknown as HandshakeCapsuleCanonical }
@@ -814,4 +853,71 @@ function rebuildContextBlocks(raw: unknown): { ok: true; blocks: CanonicalContex
   }
 
   return { ok: true, blocks }
+}
+
+// ── Sealed context_blocks envelope structural validation ──
+// Mirrors serviceRpc/sealedServiceRpc.ts's SealedServiceRpcEnvelope shape. Only
+// structural/length checks here — AEAD open (and therefore real tamper/replay
+// detection) happens downstream in contextSyncSeal.ts, which has the key material.
+
+const MAX_SEALED_ID_LEN = 256
+const MAX_SEALED_B64_LEN = 96 * 1024 // generous; whole serialized capsule is already capped at MAX_INPUT_BYTES
+const B64_PATTERN = /^[A-Za-z0-9+/]+=*$/
+
+function rebuildContextBlocksSealed(
+  raw: unknown,
+): { ok: true; envelope: CanonicalSealedContextBlocksEnvelope } | { ok: false; reason: string; field: string } {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, reason: 'context_blocks_sealed must be a plain object', field: 'context_blocks_sealed' }
+  }
+  const e = raw as Record<string, unknown>
+
+  if (e.envelope_type !== SEALED_SERVICE_RPC_ENVELOPE_TYPE) {
+    return { ok: false, reason: `context_blocks_sealed.envelope_type must be ${SEALED_SERVICE_RPC_ENVELOPE_TYPE}`, field: 'context_blocks_sealed.envelope_type' }
+  }
+  if (e.schema_version !== SEALED_SERVICE_RPC_SCHEMA_VERSION) {
+    return { ok: false, reason: `context_blocks_sealed.schema_version must be ${SEALED_SERVICE_RPC_SCHEMA_VERSION}`, field: 'context_blocks_sealed.schema_version' }
+  }
+
+  const stringField = (name: string, maxLen: number, pattern?: RegExp): { ok: true; value: string } | { ok: false; reason: string; field: string } => {
+    const v = e[name]
+    if (typeof v !== 'string' || v.length === 0 || v.length > maxLen) {
+      return { ok: false, reason: `context_blocks_sealed.${name} must be a non-empty string (max ${maxLen})`, field: `context_blocks_sealed.${name}` }
+    }
+    const clean = sanitizeString(v)
+    if (pattern && !pattern.test(clean)) {
+      return { ok: false, reason: `context_blocks_sealed.${name} has invalid format`, field: `context_blocks_sealed.${name}` }
+    }
+    return { ok: true, value: clean }
+  }
+
+  const handshakeId = stringField('handshake_id', MAX_SEALED_ID_LEN)
+  if (!handshakeId.ok) return handshakeId
+  const senderDeviceId = stringField('sender_device_id', MAX_SEALED_ID_LEN)
+  if (!senderDeviceId.ok) return senderDeviceId
+  const receiverDeviceId = stringField('receiver_device_id', MAX_SEALED_ID_LEN)
+  if (!receiverDeviceId.ok) return receiverDeviceId
+  const senderEphemeralPub = stringField('sender_ephemeral_x25519_pub_b64', 128, B64_PATTERN)
+  if (!senderEphemeralPub.ok) return senderEphemeralPub
+  const salt = stringField('salt_b64', 128, B64_PATTERN)
+  if (!salt.ok) return salt
+  const nonce = stringField('nonce_b64', 128, B64_PATTERN)
+  if (!nonce.ok) return nonce
+  const ciphertext = stringField('ciphertext_b64', MAX_SEALED_B64_LEN, B64_PATTERN)
+  if (!ciphertext.ok) return ciphertext
+
+  return {
+    ok: true,
+    envelope: {
+      envelope_type: SEALED_SERVICE_RPC_ENVELOPE_TYPE,
+      schema_version: SEALED_SERVICE_RPC_SCHEMA_VERSION,
+      handshake_id: handshakeId.value,
+      sender_device_id: senderDeviceId.value,
+      receiver_device_id: receiverDeviceId.value,
+      sender_ephemeral_x25519_pub_b64: senderEphemeralPub.value,
+      salt_b64: salt.value,
+      nonce_b64: nonce.value,
+      ciphertext_b64: ciphertext.value,
+    },
+  }
 }

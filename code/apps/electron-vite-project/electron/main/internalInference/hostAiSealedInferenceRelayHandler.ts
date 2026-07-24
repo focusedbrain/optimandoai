@@ -1,7 +1,7 @@
 /**
  * Host-side handler for inbound sealed Host AI inference REQUEST capsules.
  *
- * Open (A1) → validate inner type → run Ollama (unchanged execution core) → seal result (A1) → relay send.
+ * Open (A1) → validate inner type → run local LLM via llama.cpp (hostInferenceExecute.ts) → seal result (A1) → relay send.
  * INV-ENCRYPT: prompt/completion only inside ciphertext; relay never sees plaintext.
  * INV-HOSTAI-FROZEN: trust/role/policy unchanged — only transport swapped.
  */
@@ -125,6 +125,9 @@ export async function tryHandleHostAiSealedInferenceRequestRelayCapsule(
   }
 
   console.log(`${L} request_received request_id=${req.request_id} handshake=${req.handshake_id}`)
+  console.log(
+    `[PHASE3_SEALED_BOUNDARY] host_relay_request_received request_id=${req.request_id} handshake=${req.handshake_id} (sealed relay — not HOST_AI_SESSION_ENSURE)`,
+  )
 
   const inferResult = await runHostInternalInference({
     handshakeId: req.handshake_id,
@@ -194,6 +197,9 @@ export async function tryHandleHostAiSealedInferenceRequestRelayCapsule(
 
   await sealAndSendInferenceOutcome(ctx.db, ar.record, localDeviceId, envelope.sender_device_id, outcome, ctx)
   console.log(`${L} response_sent request_id=${req.request_id} type=${outcome.type} handshake=${req.handshake_id}`)
+  console.log(
+    `[PHASE3_SEALED_BOUNDARY] host_inference_complete request_id=${req.request_id} outcome=${outcome.type} duration_ms=${outcome.duration_ms ?? 'n/a'}`,
+  )
   return true
 }
 

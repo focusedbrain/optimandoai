@@ -38,10 +38,44 @@ describe('deriveProviderAdvertisementBlockedReason', () => {
       deriveProviderAdvertisementBlockedReason({
         ...hostOk,
         host_published_direct_endpoint: null,
+        advertisement_headers_can_generate: false,
         policyAllowsRemote: true,
         ollama_ok: true,
         models_count: 2,
+        coordination_ready: true,
+        host_peer_sandbox: true,
       }),
     ).toBe('no_host_published_direct_endpoint')
+  })
+
+  it('null direct endpoint with sealed-relay generation enabled is not blocked', () => {
+    expect(
+      deriveProviderAdvertisementBlockedReason({
+        ...hostOk,
+        host_published_direct_endpoint: null,
+        advertisement_headers_can_generate: true,
+        policyAllowsRemote: true,
+        ollama_ok: true,
+        models_count: 2,
+        sealed_relay_ad_can_publish: true,
+        coordination_ready: true,
+        host_peer_sandbox: true,
+      }),
+    ).toBe('unknown')
+  })
+
+  it('missing direct endpoint without coordination reports coordination_unavailable', () => {
+    expect(
+      deriveProviderAdvertisementBlockedReason({
+        ...hostOk,
+        host_published_direct_endpoint: null,
+        advertisement_headers_can_generate: false,
+        policyAllowsRemote: true,
+        ollama_ok: true,
+        models_count: 2,
+        coordination_ready: false,
+        host_peer_sandbox: true,
+      }),
+    ).toBe('coordination_unavailable')
   })
 })

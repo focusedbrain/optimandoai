@@ -14,6 +14,14 @@ import { normaliseTriggerTag } from '../../utils/normaliseTriggerTag'
 import { enrichRouteTextWithOcr } from '../../services/processFlow'
 import { WRCHAT_APPEND_ASSISTANT_EVENT, useChatFocusStore } from '../../stores/chatFocusStore'
 import { getChatFocusLlmPrefix } from '../../utils/chatFocusLlmPrefix'
+import {
+  getActiveCustomModeRuntime,
+  getEffectiveLlmModelNameForActiveMode,
+} from '../../stores/activeCustomModeRuntime'
+import { buildInferenceContextPrefix } from '../../lib/globalSessionContextLlmPrefix'
+import {
+  resolveOrchestratorSessionKeyForInferenceAsync,
+} from '../../lib/resolveOrchestratorSessionKey'
 import { prependHiddenContextToLastUserContent } from '../../utils/prependChatFocusToLastUser'
 import ChatFocusBanner from './ChatFocusBanner'
 import OptimizationInfobox from './OptimizationInfobox'
@@ -326,6 +334,35 @@ function resolveModelIdForChat(
   } catch {
     return ''
   }
+}
+
+/** Custom mode `modelName` overrides picker; empty allocation → picker/default (mirrors sidepanel). */
+function resolveChatModelIdForSend(
+  activeLlmModel: string | undefined,
+  models: Array<{ name: string; hostAvailable?: boolean }> | undefined,
+): string {
+  const effective = getEffectiveLlmModelNameForActiveMode(activeLlmModel ?? '', activeLlmModel ?? '')
+  if (effective) return effective
+  return resolveModelIdForChat(activeLlmModel, models)
+}
+
+async function getMergedChatLlmPrefixForModel(
+  resolvedModelId: string,
+  wrChatPickerModelId: string,
+): Promise<string | null> {
+  const modeRt = getActiveCustomModeRuntime()
+  const sessionKey = await resolveOrchestratorSessionKeyForInferenceAsync({
+    modeSessionId: modeRt?.sessionId,
+    modeIsActive: !!modeRt,
+    sidepanelSessionKey: getOrchestratorSessionKeyForSync() || null,
+  })
+  return buildInferenceContextPrefix({
+    sessionKey,
+    chatFocusPrefix: getChatFocusLlmPrefix(useChatFocusStore.getState()),
+    modeRuntime: modeRt,
+    resolvedModelId,
+    wrChatPickerModelId,
+  })
 }
 
 function modelMenuPrimary(m: { name: string; displayTitle?: string }): string {
@@ -1087,7 +1124,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     if (isLoading) return
     setHostInternalRunUi(null)
 
-    const modelId = resolveModelIdForChat(activeLlmModel, availableModels)
+    const modelId = resolveChatModelIdForSend(activeLlmModel, availableModels)
     if (!modelId) {
       setMessages(prev => [...prev, {
         role: 'assistant',
@@ -1163,7 +1200,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         const useFreshHost = isDashboard && hasImage
         const effectiveLlmTextH = llmText || ocrHost || (hasImage ? '[screenshot]' : '')
         const enrichedTextH = enrichRouteTextWithOcr(effectiveLlmTextH, ocrHost)
-        const focusPrefixH = getChatFocusLlmPrefix(useChatFocusStore.getState())
+        const focusPrefixH = await getMergedChatLlmPrefixForModel(modelId, activeLlmModel ?? modelId)
         const enrichedForRouteH = focusPrefixH ? `${focusPrefixH}\n\n${enrichedTextH}` : enrichedTextH
         const parsedH = parseAnyHostInferenceModelId(modelId)
         const rowH = availableModels.find((m) => m.name === modelId)
@@ -1307,7 +1344,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         }
         const effectiveLlmTextExt = llmText || ocrExt || (hasImage ? '[screenshot]' : '')
         const enrichedTextExt = enrichRouteTextWithOcr(effectiveLlmTextExt, ocrExt)
-        const focusPrefixExt = getChatFocusLlmPrefix(useChatFocusStore.getState())
+        const focusPrefixExt = await getMergedChatLlmPrefixForModel(modelId, activeLlmModel ?? modelId)
         const enrichedForRouteExt = focusPrefixExt ? `${focusPrefixExt}\n\n${enrichedTextExt}` : enrichedTextExt
         const parsedExt = parseAnyHostInferenceModelId(modelId)
         const rowExt = availableModels.find((m) => m.name === modelId)
@@ -1419,12 +1456,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       // When user typed nothing (screenshot-only send), use OCR text so agent tags in the image can match
       const effectiveLlmText = llmText || ocrText || (hasImage ? '[screenshot]' : '')
       const enrichedText = enrichRouteTextWithOcr(effectiveLlmText, ocrText)
-      const focusPrefix = getChatFocusLlmPrefix(useChatFocusStore.getState())
+      const focusPrefix = await getMergedChatLlmPrefixForModel(modelId, activeLlmModel ?? modelId)
       const enrichedForRoute = focusPrefix ? `${focusPrefix}\n\n${enrichedText}` : enrichedText
-
-      if (focusPrefix && !useFreshPayload) {
-        processedMessages = prependHiddenContextToLastUserContent(processedMessages, focusPrefix)
-      }
 
       const freshUserMessage: Record<string, unknown> | null = useFreshPayload
         ? { role: 'user', content: enrichedForRoute, ...(visionB64ForSend ? { images: [visionB64ForSend] } : {}) }
@@ -1468,13 +1501,23 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               ? wrapInputForAgent(effectiveInput, agentConfig, ocrText)
               : enrichedForRoute
 
+            const modelToUse = match.agentBoxModel || modelId
+            const agentPrefix = await getMergedChatLlmPrefixForModel(modelToUse, activeLlmModel ?? modelId)
+            const agentUserBase = llmText || ocrText || '[screenshot]'
+            const agentUserContent = agentPrefix ? `${agentPrefix}\n\n${agentUserBase}` : agentUserBase
+
             const agentMessages = useFreshPayload
-              ? [{ role: 'system', content: agentInput }, freshUserMessage!]
+              ? [{ role: 'system', content: agentInput }, { ...(freshUserMessage as object), content: agentUserContent }]
               : [
                   { role: 'system', content: agentInput },
-                  ...processedMessages.filter(m => m.role === 'user'),
+                  ...(agentPrefix
+                    ? prependHiddenContextToLastUserContent(
+                        processedMessages.filter((m) => m.role === 'user'),
+                        agentPrefix,
+                      )
+                    : processedMessages.filter((m) => m.role === 'user')),
                 ]
-            const modelToUse = match.agentBoxModel || modelId
+
             if (wrChatEmbedContext !== 'dashboard') {
               wrChatExtensionDebugLog('before_api_llm_chat', {
                 origin: extInferenceOrigin,
@@ -1531,9 +1574,13 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         const { getButlerSystemPrompt } = processFlow
         const agentCount = 0
         const butlerPrompt = getButlerSystemPrompt(sessionName, agentCount, isConnected)
+        const butlerTail =
+          focusPrefix && !useFreshPayload
+            ? prependHiddenContextToLastUserContent(processedMessages, focusPrefix)
+            : processedMessages
         const butlerMessages = useFreshPayload
           ? [{ role: 'system', content: butlerPrompt }, freshUserMessage!]
-          : [{ role: 'system', content: butlerPrompt }, ...processedMessages]
+          : [{ role: 'system', content: butlerPrompt }, ...butlerTail]
         if (wrChatEmbedContext !== 'dashboard') {
           wrChatExtensionDebugLog('before_api_llm_chat', {
             origin: extInferenceOrigin,
@@ -1586,7 +1633,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       captureMode: 'screenshot' | 'stream',
     ) => {
       const isVideo = captureMode === 'stream'
-      const modelId = resolveModelIdForChat(activeLlmModel, availableModels)
+      const modelId = resolveChatModelIdForSend(activeLlmModel, availableModels)
       if (!modelId) {
         setMessages(prev => [
           ...prev,
@@ -1642,7 +1689,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           }
           const effectiveRouteTextH = routeText || ocrH || (hasImage ? '[screenshot]' : '')
           const enrichedTextH = enrichRouteTextWithOcr(effectiveRouteTextH, ocrH)
-          const focusPrefixTrigH = getChatFocusLlmPrefix(useChatFocusStore.getState())
+          const focusPrefixTrigH = await getMergedChatLlmPrefixForModel(modelId, activeLlmModel ?? modelId)
           const enrichedForRouteTrigH = focusPrefixTrigH ? `${focusPrefixTrigH}\n\n${enrichedTextH}` : enrichedTextH
           const useFreshHost = isDashboard && hasImage
           const parsedH = parseAnyHostInferenceModelId(modelId)
@@ -1752,7 +1799,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           }
           const effectiveRouteTr = routeText || ocrTr || (hasImage ? '[screenshot]' : '') || (isVideo ? '[stream]' : '')
           const enrichedTr = enrichRouteTextWithOcr(effectiveRouteTr, ocrTr)
-          const focusTrig = getChatFocusLlmPrefix(useChatFocusStore.getState())
+          const focusTrig = await getMergedChatLlmPrefixForModel(modelId, activeLlmModel ?? modelId)
           const enrichedForTrig = focusTrig ? `${focusTrig}\n\n${enrichedTr}` : enrichedTr
           const parsedTr = parseAnyHostInferenceModelId(modelId)
           const rowTr = availableModels.find((m) => m.name === modelId)
@@ -1822,7 +1869,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         // agent tags embedded in the screenshot can be matched. Fall back to a generic hint.
         const effectiveRouteText = routeText || ocrText || (hasImage ? '[screenshot]' : '')
         const enrichedText = enrichRouteTextWithOcr(effectiveRouteText, ocrText)
-        const focusPrefixTrig = getChatFocusLlmPrefix(useChatFocusStore.getState())
+        const focusPrefixTrig = await getMergedChatLlmPrefixForModel(modelId, activeLlmModel ?? modelId)
         const enrichedForRouteTrig = focusPrefixTrig ? `${focusPrefixTrig}\n\n${enrichedText}` : enrichedText
 
         // Pre-compute validated vision base64 for LLM calls (same as sidepanel's triggerVisionB64).
@@ -2026,7 +2073,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       const text = (message ?? '').trim()
       if (!text) return
 
-      const modelId = resolveModelIdForChat(activeLlmModel, availableModels)
+      const modelId = resolveChatModelIdForSend(activeLlmModel, availableModels)
       if (!modelId) {
         setMessages((prev) => [
           ...prev,
@@ -2063,7 +2110,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         const secret = await ensureLaunchSecret(secretRef)
         const isDashboard = wrChatEmbedContext === 'dashboard'
         const enrichedText = enrichRouteTextWithOcr(text, '')
-        const focusPrefixDiff = getChatFocusLlmPrefix(useChatFocusStore.getState())
+        const focusPrefixDiff = await getMergedChatLlmPrefixForModel(modelId, activeLlmModel ?? modelId)
         const enrichedForRouteDiff = focusPrefixDiff ? `${focusPrefixDiff}\n\n${enrichedText}` : enrichedText
         const hasImage = false
 

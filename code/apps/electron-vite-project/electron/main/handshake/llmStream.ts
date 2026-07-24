@@ -8,21 +8,24 @@ import {
   ollamaRuntimeGetInFlight,
   ollamaRuntimeInFlightDelta,
   ollamaRuntimeLog,
-} from '../llm/ollamaRuntimeDiagnostics'
+} from '../llm/localLlmRuntimeDiagnostics'
 import { assertGpuInferenceAvailableForChatBase } from '../inference/inferenceGate'
+import { parseOpenAiChatCompletionsSseLine } from '../llm/openAiSseChatStream'
 
 export type StreamSender = (channel: string, payload: unknown) => void
 export type OnToken = (token: string) => void
 
-const DEFAULT_OLLAMA_STREAM_BASE_URL = 'http://127.0.0.1:11434'
+import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../llm/localLlmPaths'
 
-/** Stream tokens from Ollama chat API (NDJSON). */
-export async function streamOllamaChat(
+const DEFAULT_LOCAL_LLM_STREAM_BASE_URL = HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE
+
+/** Stream tokens from llama.cpp OpenAI-compatible chat API (SSE). */
+export async function streamLocalLlmChat(
   model: string,
   systemPrompt: string,
   userPrompt: string,
   send: StreamSender,
-  baseUrl: string = DEFAULT_OLLAMA_STREAM_BASE_URL,
+  baseUrl: string = DEFAULT_LOCAL_LLM_STREAM_BASE_URL,
 ): Promise<string> {
   const t0 = Date.now()
   const inflightStart = ollamaRuntimeInFlightDelta(1)
@@ -35,7 +38,7 @@ export async function streamOllamaChat(
       baseUrlNoTrailingSlash: normBase,
       modelId: model || 'llama3',
     })
-    const chatUrl = `${normBase}/api/chat`
+    const chatUrl = `${normBase}/v1/chat/completions`
     const res = await fetch(chatUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -48,8 +51,8 @@ export async function streamOllamaChat(
         ],
       }),
     })
-    if (!res.ok) throw new Error(`Ollama ${res.status}: ${res.statusText}`)
-    if (!res.body) throw new Error('Ollama response has no body')
+    if (!res.ok) throw new Error(`Local LLM ${res.status}: ${res.statusText}`)
+    if (!res.body) throw new Error('Local LLM response has no body')
 
     let full = ''
     const reader = res.body.getReader()
@@ -63,30 +66,11 @@ export async function streamOllamaChat(
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
       for (const line of lines) {
-        const trimmed = line.trim()
-        if (!trimmed) continue
-        try {
-          const obj = JSON.parse(trimmed) as { message?: { content?: string }; response?: string; done?: boolean }
-          const delta = obj.message?.content ?? obj.response ?? ''
-          if (delta) {
-            full += delta
-            send('handshake:chatStreamToken', { token: delta })
-          }
-        } catch (parseErr) {
-          console.warn('Invalid NDJSON line skipped:', line)
+        const parsed = parseOpenAiChatCompletionsSseLine(line)
+        if (parsed?.kind === 'delta') {
+          full += parsed.content
+          send('handshake:chatStreamToken', { token: parsed.content })
         }
-      }
-    }
-    if (buffer.trim()) {
-      try {
-        const obj = JSON.parse(buffer.trim()) as { message?: { content?: string }; response?: string }
-        const delta = obj.message?.content ?? obj.response ?? ''
-        if (delta) {
-          full += delta
-          send('handshake:chatStreamToken', { token: delta })
-        }
-      } catch (parseErr) {
-        console.warn('Invalid NDJSON line skipped:', buffer.trim())
       }
     }
     if (DEBUG_OLLAMA_RUNTIME_TRACE) {
@@ -107,11 +91,14 @@ export async function streamOllamaChat(
       })
     }
     console.error('Streaming error:', streamErr)
-    throw new Error('ollama_stream_failed')
+    throw new Error('local_llm_stream_failed')
   } finally {
     ollamaRuntimeInFlightDelta(-1)
   }
 }
+
+/** @deprecated Use streamLocalLlmChat */
+export const streamOllamaChat = streamLocalLlmChat
 
 /** Stream tokens from OpenAI chat completions (SSE). */
 export async function streamOpenAIChat(
@@ -373,7 +360,7 @@ export interface StreamLLMParams {
   systemPrompt: string
   userPrompt: string
   apiKey?: string
-  /** Ollama `/api/chat` base URL (no trailing slash). Defaults to http://127.0.0.1:11434 */
+  /** llama.cpp OpenAI API base URL (no trailing slash). Defaults to http://127.0.0.1:8080 */
   ollamaBaseUrl?: string
 }
 

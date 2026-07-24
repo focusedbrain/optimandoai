@@ -9,7 +9,7 @@ import React from 'react'
 import { useUIStore, useIsPlaceholder } from '../../stores/useUIStore'
 import { useCustomModesStore } from '../../stores/useCustomModesStore'
 import { MODE_INFO, WORKSPACE_INFO, BuiltInMode } from '../../shared/ui/uiState'
-import { isCustomModeId } from '../../shared/ui/customModeTypes'
+import { isPersistedModeId } from '../../shared/ui/customModeTypes'
 
 interface ModeHeaderBadgeProps {
   /** Theme variant */
@@ -28,18 +28,18 @@ export const ModeHeaderBadge: React.FC<ModeHeaderBadgeProps> = ({
   const { workspace, mode } = useUIStore()
   const isPlaceholder = useIsPlaceholder()
   const customMode = useCustomModesStore((s) =>
-    isCustomModeId(mode) ? s.modes.find((m) => m.id === mode) : undefined,
+    isPersistedModeId(mode) ? s.modes.find((m) => m.id === mode) : undefined,
   )
 
   const workspaceInfo = WORKSPACE_INFO[workspace]
   const modeInfo =
     workspace === 'wr-chat'
-      ? isCustomModeId(mode) && customMode
+      ? isPersistedModeId(mode) && customMode
         ? {
             shortLabel: customMode.name.length > 14 ? `${customMode.name.slice(0, 14)}…` : customMode.name,
             label: customMode.name,
           }
-        : !isCustomModeId(mode)
+        : !isPersistedModeId(mode)
           ? MODE_INFO[mode as BuiltInMode]
           : null
       : null

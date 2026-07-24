@@ -1,9 +1,9 @@
 /**
- * Sandbox-only: list Host Ollama models via LAN `ollama_direct` base URL (`GET /api/tags`).
- * Never calls Sandbox localhost Ollama — only URLs produced by {@link evaluateSandboxHostAiOllamaDirectFromCapabilitiesWire}.
+ * Sandbox-only: list Host llama.cpp models via LAN `ollama_direct` base URL (`GET /v1/models`).
+ * Never calls Sandbox localhost — only URLs produced by {@link evaluateSandboxHostAiOllamaDirectFromCapabilitiesWire}.
  */
 
-import { parseOllamaTagsBody } from './hostAiOllamaNativeDiscovery'
+import { parseLlamacppModelsBody, fetchLlamacppModelsJson } from './hostAiOllamaNativeDiscovery'
 import {
   getSandboxOllamaDirectRouteCandidate,
   type SandboxOllamaDirectRouteCandidate,
@@ -15,7 +15,7 @@ export type SandboxOllamaDirectRemoteModelEntry = {
   id: string
   model: string
   label: string
-  provider: 'ollama'
+  provider: 'llamacpp'
   transport: 'ollama_direct'
   source: 'remote_ollama_tags'
   endpoint_owner_device_id: string
@@ -75,7 +75,7 @@ export function clearSandboxOllamaDirectTagsCacheForTests(): void {
   inflightByKey.clear()
 }
 
-/** Drop cached `/api/tags` entries for a handshake (e.g. after `ollama_direct` base URL changes). */
+/** Drop cached `/v1/models` entries for a handshake (e.g. after `ollama_direct` base URL changes). */
 export function invalidateSandboxOllamaDirectTagsCacheForHandshake(handshakeId: string): void {
   const p = `${String(handshakeId ?? '').trim()}:`
   if (!p || p === ':') return
@@ -100,7 +100,7 @@ function mapTagsToRemoteModels(
       id,
       model: id,
       label,
-      provider: 'ollama',
+      provider: 'llamacpp',
       transport: 'ollama_direct',
       source: 'remote_ollama_tags',
       endpoint_owner_device_id: endpointOwner.trim(),
@@ -121,18 +121,12 @@ async function fetchTagsPayloadOutbound(p: {
   const t0 = Date.now()
   const owner = p.peerHostDeviceId.trim()
   const base = p.baseUrl.replace(/\/$/, '')
-  const url = `${base}/api/tags`
   let http_status = 0
   try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(12_000),
-    })
-    http_status = res.status
-    if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      const errCode = `http_${http_status}${text ? `:${text.slice(0, 64)}` : ''}`
+    const fetchRes = await fetchLlamacppModelsJson(base)
+    http_status = fetchRes.httpStatus
+    if (!fetchRes.ok || fetchRes.json == null) {
+      const errCode = fetchRes.error ?? `http_${http_status}`
       const duration_ms = Date.now() - t0
       logOutboundTags({
         handshake_id: p.handshakeId,
@@ -157,7 +151,7 @@ async function fetchTagsPayloadOutbound(p: {
         duration_ms,
       }
     }
-    const json = await res.json().catch(() => null)
+    const json = fetchRes.json
     const duration_ms = Date.now() - t0
     if (json == null || typeof json !== 'object') {
       logOutboundTags({
@@ -183,7 +177,7 @@ async function fetchTagsPayloadOutbound(p: {
         duration_ms,
       }
     }
-    const parsed = parseOllamaTagsBody(json)
+    const parsed = parseLlamacppModelsBody(json)
     const models = mapTagsToRemoteModels(parsed.rawModels, owner)
     const models_count = models.length
     const classification: SandboxOllamaDirectTagsClassification =
@@ -299,7 +293,7 @@ function logInflightReuse(p: { handshake_id: string; peer_host_device_id: string
 }
 
 /**
- * GET `{candidate.base_url}/api/tags` on Sandbox — never localhost / Sandbox Ollama manager.
+ * GET `{candidate.base_url}/v1/models` on Sandbox — never localhost / Sandbox local LLM manager.
  */
 export async function fetchSandboxOllamaDirectTags(p: {
   handshakeId: string

@@ -28,6 +28,13 @@ const WEBRTC_SIGNAL_TYPES = new Set([
 const BEAP_AD_TYPE = 'p2p_host_ai_direct_beap_ad'
 const BEAP_AD_REQUEST_TYPE = 'p2p_host_ai_direct_beap_ad_request'
 
+function relayBeapAdHasHostAiCapabilities(raw: Record<string, unknown>): boolean {
+  const har = raw.host_ai_route
+  if (!har || typeof har !== 'object' || Array.isArray(har)) return false
+  const cap = (har as Record<string, unknown>).capabilities
+  return cap != null && typeof cap === 'object' && !Array.isArray(cap)
+}
+
 const ALL_P2P_SIGNAL_TYPES = new Set([...WEBRTC_SIGNAL_TYPES, BEAP_AD_TYPE, BEAP_AD_REQUEST_TYPE])
 
 type P2pSignalDrop = 'forbidden_key' | 'schema' | 'type' | 'field' | 'expired' | 'ttl' | 'parse' | 'stale'
@@ -205,6 +212,24 @@ async function handleHostAiDirectBeapAdRequestFromRelay(
       relayMessageId,
     })}`,
   )
+  const { ensureHostAiP2pSession } = await import('./p2pSession/p2pInferenceSessionManager')
+  try {
+    const st = await ensureHostAiP2pSession(hid, 'sandbox_peer_beap_ad_request')
+    console.log(
+      `[HOST_AI_P2P_OFFER_ENSURE] ${JSON.stringify({
+        handshakeId: hid,
+        phase: st.phase,
+        sessionPresent: Boolean(st.sessionId),
+        role: st.p2pWebrtcLocalRole,
+        trigger: 'p2p_host_ai_direct_beap_ad_request',
+      })}`,
+    )
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.log(
+      `[HOST_AI_P2P_OFFER_ENSURE] failed handshake=${hid} trigger=p2p_host_ai_direct_beap_ad_request err=${JSON.stringify(msg.slice(0, 200))}`,
+    )
+  }
   const { publishHostAiDirectBeapAdvertisementsForEligibleHost } = await import('./hostAiDirectBeapAdPublish')
   await publishHostAiDirectBeapAdvertisementsForEligibleHost(db, {
     context: 'sandbox_peer_republish_request_ws',
@@ -304,7 +329,7 @@ export function tryHandleCoordinationP2pSignal(
   if (isBeapAd) {
     const ep = typeof p.endpoint_url === 'string' ? p.endpoint_url.trim() : ''
     const seq = p.ad_seq
-    if (!ep) {
+    if (!ep && !relayBeapAdHasHostAiCapabilities(p)) {
       logDropped(p.handshake_id, 'field', relayMessageId)
       return true
     }
