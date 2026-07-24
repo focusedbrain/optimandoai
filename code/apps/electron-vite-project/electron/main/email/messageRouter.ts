@@ -592,6 +592,7 @@ export async function detectAndRouteMessageInline(
     // (never the BEAP inbox). Packages without a resolvable handshake id keep
     // today's depackage-failure handling.
     let ingressBlocked = false
+    let admittedGrantRef: string | null = null
     if (handshakeId && handshakeId !== '__email_import__') {
       const { admitInboundDelivery } = await import('../handshake/ingressAdmission')
       const admission = admitInboundDelivery(db, {
@@ -602,6 +603,9 @@ export async function detectAndRouteMessageInline(
       if (!admission.admitted) {
         ingressBlocked = true
         depackageError = `ingress_admission_blocked:${admission.reason}`
+      } else {
+        // Phase 5 [VII.10.3]: grant the delivery is admitted under.
+        admittedGrantRef = admission.grantRef
       }
     }
 
@@ -653,7 +657,14 @@ export async function detectAndRouteMessageInline(
       // routes through the critical-job dispatcher (in-process → same forked
       // validator subprocess, so parity is byte-identical). Flag OFF keeps the
       // original inline call verbatim. The qBEAP/pBEAP decrypt above is untouched.
-      const provenance = buildProvenance(fromAddr, messageId, bodyText, 'beap_capsule_present')
+      const provenance: ProvenanceMetadata = {
+        ...buildProvenance(fromAddr, messageId, bodyText, 'beap_capsule_present'),
+        transport_metadata: {
+          sender_address: fromAddr,
+          message_id: messageId,
+          grant_ref: admittedGrantRef ?? undefined,
+        },
+      }
       const validationInput = {
         envelope: packageObj ?? {},
         plaintext_or_encrypted: { kind: 'plaintext' as const, content: canonicalJson },

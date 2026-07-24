@@ -17,10 +17,16 @@
  *
  * Blocked transmissions die pre-visibility: no inbox row, no placeholder,
  * no notification — only an audit_log record (existing table, no schema
- * change) and a metadata-only console line.
+ * change), a Tier-L admission evidence record, and a metadata-only console
+ * line.
  *
- * Phase 5 slot: `grantRef` on the input reserves the place where
- * grant-object scoping will be evaluated without restructuring callers.
+ * Phase 5 (E2–E4): the filter CONSUMES grant objects [VII.10.2]. Message-
+ * class deliveries resolve the relationship's inbound DELIVERY grant
+ * (legacy rows are lazily backfilled from the flattened policy); a delivery
+ * declaring a scope outside the grant is blocked pre-visibility, logged as
+ * an off-scope event, and — after repetition — surfaces the one-tap revoke
+ * offer. Admitted deliveries carry the grant reference (`grantRef`) so every
+ * delivered item resolves the grant it was delivered under [VII.10.3].
  *
  * NOTE on service-RPC / DataChannel / p2p_signal ingress: those paths are
  * admitted by `assertRecordForServiceRpc` (internal + ACTIVE + same-principal
@@ -31,6 +37,15 @@
 import { fullClaimIdentityMatch, type IdentityClaimSet } from '@repo/ingestion-core'
 import { HandshakeState, type HandshakeRecord } from './types'
 import { getHandshakeRecord, insertAuditLogEntry } from './db'
+import {
+  ensureLegacyDeliveryGrant,
+  resolveActiveDeliveryGrant,
+  grantScopeAllows,
+  recordOffScopeEvent,
+  offScopeRevokeOfferDue,
+  type GrantRow,
+} from './grants'
+import { appendEvidenceBestEffort, poacAdmissionPayload } from './evidenceChain'
 
 /** Delivery class, decides which state window is admissible. */
 export type IngressDeliveryKind =
@@ -46,6 +61,8 @@ export type IngressBlockReason =
   | 'relationship_not_operational'
   | 'sender_identity_mismatch'
   | 'sharing_mode_scope_violation'
+  | 'delivery_rights_revoked'
+  | 'grant_scope_violation'
 
 export interface IngressAdmissionInput {
   handshakeId: string
@@ -61,12 +78,24 @@ export interface IngressAdmissionInput {
   senderClaims?: IdentityClaimSet | null
   /** Set when the delivery is known to carry shared-context payload. */
   carriesContext?: boolean
-  /** Phase 5: grant-object reference — reserved, not evaluated yet. */
-  grantRef?: string | null
+  /**
+   * Declared delivery scope, when the transport/package declares one. An
+   * undeclared scope is admitted under the grant's ground state; a declared
+   * scope outside the grant is blocked pre-visibility [VII.10.2].
+   */
+  scope?: string | null
 }
 
 export type IngressAdmissionResult =
-  | { admitted: true; record: HandshakeRecord | null }
+  | {
+      admitted: true
+      record: HandshakeRecord | null
+      /**
+       * Grant the delivery was admitted under [VII.10.3] — null only for
+       * control-plane capsules (formation precedes any grant).
+       */
+      grantRef: string | null
+    }
   | { admitted: false; reason: IngressBlockReason }
 
 /** Operational window for message-class deliveries. */
@@ -111,6 +140,18 @@ function block(
   } catch {
     /* audit failure must not mask the block */
   }
+  // Blocked admissions are PoAC-class evidence [IX.19.1] — Tier-L chain.
+  appendEvidenceBestEffort({
+    chainId: input.handshakeId,
+    recordType: 'poac',
+    payload: poacAdmissionPayload({
+      handshake_id: input.handshakeId,
+      decision: 'blocked',
+      reason,
+      kind: input.kind,
+      source: input.source,
+    }),
+  })
   console.log(
     `[INGRESS_ADMISSION] blocked handshake=${input.handshakeId} kind=${input.kind} source=${input.source} reason=${reason}`,
   )
@@ -138,7 +179,7 @@ export function admitInboundDelivery(
     // Formation capsules legitimately arrive before a record exists; the
     // handshake pipeline (receiver-email check, state machine) owns them.
     if (input.kind === 'handshake_capsule') {
-      return { admitted: true, record: null }
+      return { admitted: true, record: null, grantRef: null }
     }
     return block(db, input, 'unknown_relationship')
   }
@@ -165,7 +206,9 @@ export function admitInboundDelivery(
   }
 
   // Flattened sharing_mode scope: a receive-only relationship must not accept
-  // context-bearing deliveries originating from the acceptor side.
+  // context-bearing deliveries originating from the acceptor side. (Kept as
+  // defense-in-depth under the grant model — the legacy backfill derives its
+  // grant from the same flattened policy.)
   if (
     input.carriesContext === true &&
     record.sharing_mode === 'receive-only' &&
@@ -174,5 +217,42 @@ export function admitInboundDelivery(
     return block(db, input, 'sharing_mode_scope_violation')
   }
 
-  return { admitted: true, record }
+  // Grant-object consumption (Phase 5, E2) [VII.10.2–10.3]: message-class
+  // deliveries are admitted under the relationship's inbound delivery grant.
+  // Control-plane capsules are pre-grant (formation precedes any grant).
+  if (input.kind === 'beap_message') {
+    let grant: GrantRow | null = null
+    try {
+      grant = resolveActiveDeliveryGrant(db, input.handshakeId) ?? ensureLegacyDeliveryGrant(db, record)
+    } catch {
+      grant = null
+    }
+    if (!grant) {
+      return block(db, input, 'delivery_rights_revoked')
+    }
+    if (typeof input.scope === 'string' && input.scope.length > 0 && !grantScopeAllows(grant, input.scope)) {
+      try {
+        recordOffScopeEvent(db, {
+          handshakeId: input.handshakeId,
+          grantId: grant.grant_id,
+          scope: input.scope,
+          kind: input.kind,
+          source: input.source,
+        })
+        if (offScopeRevokeOfferDue(db, input.handshakeId)) {
+          // Surfaced to the UI as a one-tap revoke offer [VII.10.2]; the
+          // offer is read via offScopeRevokeOfferDue — no auto-revoke here.
+          console.log(
+            `[INGRESS_ADMISSION] off-scope repetition threshold reached handshake=${input.handshakeId} — revoke offer due`,
+          )
+        }
+      } catch {
+        /* off-scope bookkeeping failure must not mask the block */
+      }
+      return block(db, input, 'grant_scope_violation')
+    }
+    return { admitted: true, record, grantRef: grant.grant_id }
+  }
+
+  return { admitted: true, record, grantRef: null }
 }

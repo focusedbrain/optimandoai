@@ -91,10 +91,16 @@ export function getConnectOfferDb(): any {
   if (!_defaultStagingDb) {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const Database = require('better-sqlite3')
-    const dir = path.join(process.env.USERPROFILE || process.env.HOME || '.', '.opengiraffe')
-    fs.mkdirSync(dir, { recursive: true })
-    _defaultStagingDb = new Database(path.join(dir, 'connect-offers.db'))
-    _defaultStagingDb.pragma('journal_mode = WAL')
+    if (process.env.VITEST) {
+      // Test runs must never stage offers into the developer's real profile
+      // DB (they would leak into the app's pending list and across runs).
+      _defaultStagingDb = new Database(':memory:')
+    } else {
+      const dir = path.join(process.env.USERPROFILE || process.env.HOME || '.', '.opengiraffe')
+      fs.mkdirSync(dir, { recursive: true })
+      _defaultStagingDb = new Database(path.join(dir, 'connect-offers.db'))
+      _defaultStagingDb.pragma('journal_mode = WAL')
+    }
   }
   return _defaultStagingDb
 }

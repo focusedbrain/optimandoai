@@ -35,6 +35,9 @@ const LEDGER_NATIVE_TABLES: ReadonlySet<string> = new Set([
   'ledger_handshakes',
   'ledger_context_blocks',
   'ledger_schema_migrations',
+  // Phase 5 (Q10): Tier-L evidence chain home — the only NEW table class
+  // permitted on the ledger handle; written exclusively by evidenceChain.ts.
+  'wr_evidence_chain',
 ])
 
 const SWEEP_META_KEY = 'wr_ledger_sweep_v1'

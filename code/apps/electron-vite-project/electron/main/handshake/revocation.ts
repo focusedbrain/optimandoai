@@ -36,6 +36,8 @@ import {
   insertAuditLogEntry,
 } from './db'
 import { buildRevocationAuditEntry } from './auditLog'
+import { revokeGrantsForHandshake } from './grants'
+import { appendEvidenceBestEffort, poacContentDeletionPayload } from './evidenceChain'
 import { P2pSessionLogReason, closeSession } from '../internalInference/p2pSession/p2pInferenceSessionManager'
 
 export async function revokeHandshake(
@@ -60,7 +62,12 @@ export async function revokeHandshake(
     }
     updateHandshakeRecord(db, revoked)
 
-    // 2. Audit log
+    // 2. Kill ALL grant objects of the counterparty [VII.10.8] (Phase 5, E4).
+    //    Enforcement stays the receiver-side ingress filter; each revoked
+    //    grant produces its own PoAC record.
+    revokeGrantsForHandshake(db, handshakeId, `handshake_revoked:${source}`, actorUserId)
+
+    // 3. Audit log
     insertAuditLogEntry(db, buildRevocationAuditEntry(handshakeId, source, actorUserId))
   })
 
@@ -117,6 +124,18 @@ export function deleteRevokedRelationshipContent(
     })
   })
   tx()
+
+  // Content deletion is an authorized change — PoAC-recorded (Q8, Phase 5).
+  appendEvidenceBestEffort({
+    chainId: handshakeId,
+    recordType: 'poac',
+    payload: poacContentDeletionPayload({
+      handshake_id: handshakeId,
+      blocks_deleted: blocksDeleted,
+      embeddings_deleted: embeddingsDeleted,
+      actor_wrdesk_user_id: actorUserId ?? null,
+    }),
+  })
 
   return { ok: true, blocks_deleted: blocksDeleted, embeddings_deleted: embeddingsDeleted }
 }

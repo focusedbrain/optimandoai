@@ -1,18 +1,26 @@
 /**
- * Execution Authorization Gate
+ * Execution Authorization Gate (Phase 5 — V4) [VII.10.1, VII.2.6, IX.19.2]
  *
- * Central function that authorizes every tool invocation before execution.
- * No tool may execute without passing this gate. No alternate execution
- * entry point may exist that bypasses it.
+ * EXECUTION GRANTS ARE DELETED. The former process-global granted-tools
+ * set and the ACTIVE-handshake blanket execution authorization are gone:
+ * there is no standing right to execute anything. Authorization comes
+ * exclusively from a fresh, single-use, Intent-Hash-bound human consent
+ * record (see `execution/executionConsent.ts`) — verified here per
+ * invocation, never cached, never batch-approved [VII.10.5.5].
  *
- * Checks (in order):
- *   1. Handshake exists and is active
- *   2. Handshake is not revoked
- *   3. Tool is explicitly granted in capability set
- *   4. Scope matches effective policy
- *   5. Purpose matches effective policy
- *   6. Parameters are within constraints
- *   7. Attestation requirements met (if applicable)
+ * Checks (in order, fail-closed):
+ *   1. Consent-tap flow enabled (kill switch refuses ALL execution — it
+ *      never restores a consent-free path)
+ *   2. Relationship context is live (exists, not revoked, active window) —
+ *      necessary but NEVER sufficient
+ *   3. Consent record: exists, tapped by a human actor, unconsumed, and its
+ *      Intent Hash matches the request about to execute [IX.19.2]
+ *   4. Parameters are within constraints
+ *   5. Attestation requirements met (if applicable)
+ *
+ * Divergence between the executed and presented action (intent-hash
+ * mismatch) is a DEVIATION: the consent record is invalidated and the
+ * denial is recorded as such.
  *
  * Logs an audit record for every decision (allow and deny).
  */
@@ -23,40 +31,47 @@ import {
 } from '../handshake/db'
 import { diagnoseHandshakeInactive } from '../handshake/enforcement'
 import { HandshakeState as HS } from '../handshake/types'
+import {
+  isConsentTapExecutionEnabled,
+  verifyConsentForExecution,
+  type ExecutionConsentRow,
+} from '../execution/executionConsent'
 
 // ── Types ──
 
 export type AuthorizationDenialReason =
+  | 'EXECUTION_DISABLED'
   | 'HANDSHAKE_INACTIVE'
   | 'HANDSHAKE_REVOKED'
-  | 'TOOL_NOT_GRANTED'
-  | 'SCOPE_NOT_ALLOWED'
-  | 'PURPOSE_MISMATCH'
+  | 'CONSENT_REQUIRED'
+  | 'CONSENT_NOT_FOUND'
+  | 'CONSENT_NOT_TAPPED'
+  | 'CONSENT_CONSUMED'
+  | 'INTENT_HASH_MISMATCH'
   | 'PARAMETER_CONSTRAINT_VIOLATION'
   | 'ATTESTATION_REQUIRED';
 
 export type ToolAuthorizationResult =
-  | { readonly authorized: true }
-  | { readonly authorized: false; readonly reason: AuthorizationDenialReason; readonly details: string };
+  | { readonly authorized: true; readonly consent: ExecutionConsentRow }
+  | {
+      readonly authorized: false
+      readonly reason: AuthorizationDenialReason
+      readonly details: string
+      /** True when the denial is a deviation [IX.19.2] (executed ≠ presented). */
+      readonly deviation?: boolean
+    };
 
 export interface ToolInvocationRequest {
+  readonly request_id: string;
   readonly handshake_id: string;
   readonly tool_name: string;
   readonly parameters: Record<string, unknown>;
   readonly requested_scope: string;
   readonly requested_purpose: string;
+  readonly origin: string;
+  /** Reference to the per-tap consent record — REQUIRED, no default. */
+  readonly consent_ref?: string | null;
 }
-
-// ── Granted Tools Registry ──
-
-const GRANTED_TOOLS: ReadonlySet<string> = new Set([
-  'read-context',
-  'write-context',
-  'decrypt-payload',
-  'semantic-search',
-  'cloud-escalation',
-  'export-context',
-])
 
 // ── Main Function ──
 
@@ -90,6 +105,8 @@ export function authorizeToolInvocation(
         requested_purpose: request.requested_purpose,
         authorized: result.authorized,
         denial_reason: result.authorized ? undefined : result.reason,
+        consent_ref: request.consent_ref ?? null,
+        deviation: result.authorized ? undefined : result.deviation === true || undefined,
       },
     })
   } catch { /* audit failure must not mask result */ }
@@ -102,44 +119,51 @@ function runAuthorization(
   request: ToolInvocationRequest,
   now: Date,
 ): ToolAuthorizationResult {
-  // 1. Handshake exists and is active
+  // 1. Kill switch: refuses everything; never a consent-free path.
+  if (!isConsentTapExecutionEnabled()) {
+    return deny('EXECUTION_DISABLED', 'Tool execution is disabled (WRDESK_EXECUTION_CONSENT_TAP=0)')
+  }
+
+  // 2. Relationship context is live — necessary, never sufficient.
   const record = getHandshakeRecord(db, request.handshake_id)
   if (!record) {
     return deny('HANDSHAKE_INACTIVE', `Handshake ${request.handshake_id} not found`)
   }
-
-  // 2. Not revoked
   if (record.state === HS.REVOKED) {
     return deny('HANDSHAKE_REVOKED', `Handshake ${request.handshake_id} is revoked`)
   }
-
   const inactiveDiag = diagnoseHandshakeInactive(db, request.handshake_id, now)
   if (!inactiveDiag.active) {
     return deny('HANDSHAKE_INACTIVE', inactiveDiag.reason)
   }
 
-  // 3. Tool is explicitly granted
-  if (!GRANTED_TOOLS.has(request.tool_name)) {
-    return deny('TOOL_NOT_GRANTED', `Tool "${request.tool_name}" is not in the granted tools set`)
+  // 3. Per-tap consent with Intent Hash [VII.10.1, IX.19.2]. No consent
+  //    reference → refused; there is no default, no auto-accept, no cache.
+  if (!request.consent_ref) {
+    return deny('CONSENT_REQUIRED', 'Every execution requires a fresh human consent tap — no consent reference presented')
   }
-
-  // 4. Scope check — use handshake policy
-  const policy = record.effective_policy
-  if (!policy.allowedScopes.includes('*')) {
-    if (!policy.allowedScopes.includes(request.requested_scope)) {
-      return deny('SCOPE_NOT_ALLOWED', `Scope "${request.requested_scope}" is not allowed by effective policy`)
+  const consent = verifyConsentForExecution(db, request.consent_ref, {
+    request_id: request.request_id,
+    handshake_id: request.handshake_id,
+    tool_name: request.tool_name,
+    scope_id: request.requested_scope,
+    purpose_id: request.requested_purpose,
+    parameters: request.parameters,
+    origin: request.origin,
+  })
+  if (!consent.ok) {
+    const deviation = consent.reason === 'INTENT_HASH_MISMATCH'
+    return {
+      authorized: false,
+      reason: consent.reason,
+      details: deviation
+        ? 'Executed action diverges from the presented consent preview — consent record invalidated (deviation)'
+        : `Consent record check failed: ${consent.reason}`,
+      ...(deviation ? { deviation: true } : {}),
     }
   }
 
-  // 5. Purpose-specific checks
-  if (request.tool_name === 'cloud-escalation' && !policy.allowsCloudEscalation) {
-    return deny('PURPOSE_MISMATCH', 'Cloud escalation is not permitted by effective policy')
-  }
-  if (request.tool_name === 'export-context' && !policy.allowsExport) {
-    return deny('PURPOSE_MISMATCH', 'Export is not permitted by effective policy')
-  }
-
-  // 6. Parameter constraints
+  // 4. Parameter constraints
   if (request.parameters) {
     for (const [key, value] of Object.entries(request.parameters)) {
       if (typeof value === 'string' && value.length > 1_000_000) {
@@ -148,7 +172,7 @@ function runAuthorization(
     }
   }
 
-  // 7. Attestation check (for enterprise tier with attestation requirements)
+  // 5. Attestation check (for enterprise tier with attestation requirements)
   if (record.tier_snapshot?.effectiveTier === 'enterprise') {
     const signals = record.current_tier_signals
     if (!signals.hardwareAttestation?.verified) {
@@ -156,7 +180,7 @@ function runAuthorization(
     }
   }
 
-  return { authorized: true }
+  return { authorized: true, consent: consent.consent }
 }
 
 function deny(reason: AuthorizationDenialReason, details: string): ToolAuthorizationResult {

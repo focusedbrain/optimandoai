@@ -116,6 +116,20 @@ export type {
   CaptureMethodResolution,
   InvitationClassResolution,
 } from './captureMethods.js';
+// Phase 5 — capability-token schema (T4, Q13) [XII.12.6 annex-number-provisional]
+export {
+  parseCapabilityToken,
+  serializeCapabilityToken,
+  buildCapabilityTokenWire,
+  CAPABILITY_TOKEN_TYPES,
+  UNDERSTOOD_LIMIT_EXTENSIONS,
+} from './capabilityToken.js';
+export type {
+  CapabilityToken,
+  CapabilityTokenType,
+  CapabilityLimitExtension,
+  CapabilityTokenParseResult,
+} from './capabilityToken.js';
 export { ingestInput } from './ingestor.js';
 export { validateCapsule, validateSessionImportArtefact } from './validator.js';
 export { validateDecryptedBeapContent, CONTENT_VALIDATOR_VERSION } from './contentValidator.js';

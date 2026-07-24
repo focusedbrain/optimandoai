@@ -1,9 +1,25 @@
 /**
- * Handshake Ledger — Tier 1 storage for handshake metadata.
+ * Handshake Ledger — the append-only evidence / receipt store (Tier-L chain
+ * home, Phase 5 / Q10) plus, transitionally, the Tier-1 handshake pipeline DB.
  *
- * A separate SQLite database that stores only hashes, identifiers, and
- * cryptographic commitments from handshake capsules. It never stores
- * plaintext context data, so it does NOT require the vault to be unlocked.
+ * ROLE (post Phase-5 repurposing):
+ *  - PRIMARY: home of the hash-chained evidence store (`wr_evidence_chain`,
+ *    see `evidenceChain.ts`) — PoAC / PoAE / BER records, per-contract chains
+ *    with explicit genesis records [IX.19.1, X.10.1]. Evidence writers are
+ *    the only writers permitted on NEW ledger tables; the schema is frozen at
+ *    handshake-migration v74 (Phase 3) and swept of key material.
+ *  - TRANSITIONAL: the ledger still carries the frozen ≤v74 handshake tables
+ *    so the handshake pipeline can run while the vault is locked. Contract +
+ *    runtime state (wr_handshake_core / wr_handshake_runtime, v75+) lives in
+ *    the VAULT DB only — those tables are never applied here. Migrating the
+ *    remaining pipeline usage off this handle is tracked follow-up work; no
+ *    new non-evidence writers may be added.
+ *
+ * Historical note: the pre-Phase-3 header claimed this DB stored "only
+ * hashes, identifiers, and cryptographic commitments". That was not true — it
+ * received the full handshake migration chain, including private-key columns.
+ * The Phase-3 freeze + sweep (`ledgerHygiene.ts`) removed key material and
+ * undocumented tables; the claim above describes the actual current state.
  *
  * Lifecycle:
  *   - Opens when the SSO session becomes available (user logs in)
@@ -13,8 +29,6 @@
  * Protection model:
  *   - Encrypted at rest with a key derived from the SSO session token
  *   - Key is held in memory only while the session is active
- *   - Even if the file is compromised, no plaintext context is exposed
- *     (only hashes, which are non-reversible)
  */
 
 import { dirname, join } from 'path'
@@ -25,6 +39,7 @@ import { homedir } from 'os'
 import { createHash, createHmac } from 'crypto'
 import { migrateHandshakeTables, LEDGER_SCHEMA_FREEZE_VERSION } from './db'
 import { sweepLedgerForFreeze, assertLedgerHygiene } from './ledgerHygiene'
+import { ensureEvidenceSchema } from './evidenceChain'
 import { bindKeyProvider, unbindKeyProvider } from '../sealed-storage/index'
 import { deriveLedgerSealKey } from '../sealed-storage/ledgerSealKey'
 
@@ -156,6 +171,13 @@ function applySchema(db: any): void {
         console.warn('[LEDGER] Schema statement warning:', err?.message)
       }
     }
+  }
+  // Phase 5 (Q10): the Tier-L evidence chain is ledger-native schema —
+  // applied here, never through the (frozen) handshake migration chain.
+  try {
+    ensureEvidenceSchema(db)
+  } catch (err: any) {
+    console.warn('[LEDGER] Evidence schema warning:', err?.message)
   }
   // Record schema version
   db.prepare(

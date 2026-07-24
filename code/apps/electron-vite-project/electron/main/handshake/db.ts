@@ -20,6 +20,8 @@ import type {
 import { finalizeInternalHandshakePersistence } from './internalPersistence'
 import { logHandshakeKeyBinding, warnIfCounterpartyKeySuspiciousOverwrite } from './keyBindingDebug'
 import { adaptRecordToCoreStore, backfillWrCoreStore, deleteRuntimeRow, hasWrCoreStore, type FormationMeta } from './coreStore'
+import { appendEvidenceBestEffort, poacFormationPayload } from './evidenceChain'
+import { createGrant } from './grants'
 
 // ── Migration ──
 
@@ -1339,6 +1341,41 @@ const HANDSHAKE_MIGRATIONS: Array<{
       )`,
     ],
   },
+  {
+    version: 76,
+    description:
+      'Schema v76 (WR Handshake Phase 5, E2–E4): grant objects [VII.10.x]. Distinct, receiver-enforced right ' +
+      'objects (delivery / preparation — deliberately NO execute variant) replacing the flattened ' +
+      'effective_policy + sharing_mode bit as the enforcement authority. Created only behind an explicit consent ' +
+      'screen (consent_id → Hash-Pinned consent record); unlimited-until-revoke ground state; revocation kills ' +
+      'all rights via the receiver-side ingress filter. NOT applied to the frozen ledger handle.',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS wr_grants (
+        grant_id TEXT PRIMARY KEY,
+        handshake_id TEXT NOT NULL,
+        grant_type TEXT NOT NULL CHECK (grant_type IN ('delivery', 'preparation')),
+        direction TEXT NOT NULL DEFAULT 'inbound' CHECK (direction IN ('inbound', 'outbound')),
+        scopes_json TEXT NOT NULL,
+        limit_extensions_json TEXT,
+        consent_id TEXT,
+        backfilled INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        revoked_at TEXT,
+        revoke_reason TEXT
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_wr_grants_handshake ON wr_grants (handshake_id, grant_type, revoked_at)`,
+      `CREATE TABLE IF NOT EXISTS wr_grant_offscope_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        handshake_id TEXT NOT NULL,
+        grant_id TEXT,
+        scope TEXT,
+        kind TEXT NOT NULL,
+        source TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_wr_grant_offscope_handshake ON wr_grant_offscope_events (handshake_id)`,
+    ],
+  },
 ]
 
 /**
@@ -1664,6 +1701,25 @@ export function migrateHandshakeTables(db: any, options?: { freezeAtVersion?: nu
   }
 
   ensureEmailPipelineSchemaRepairs(db)
+
+  // Phase 5 (H1 hygiene) [IX.19.1]: audit_log is frozen for mutation — INSERT
+  // stays open (it remains the operational audit sink) but existing rows are
+  // read-only for forensics. Applied on every open (idempotent, not part of
+  // the version chain) so BOTH handles get it, including the frozen ledger.
+  try {
+    db.prepare(
+      `CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_update
+         BEFORE UPDATE ON audit_log
+         BEGIN SELECT RAISE(ABORT, 'audit_log rows are read-only (forensic freeze)'); END`,
+    ).run()
+    db.prepare(
+      `CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_delete
+         BEFORE DELETE ON audit_log
+         BEGIN SELECT RAISE(ABORT, 'audit_log rows are read-only (forensic freeze)'); END`,
+    ).run()
+  } catch (e: any) {
+    console.warn('[HANDSHAKE DB] audit_log freeze triggers warning:', e?.message)
+  }
 
   // Phase 3 (G2) — backfill: one synthetic legacy_v0 core per existing
   // relationship row that has none. Idempotent; never runs on frozen handles
@@ -2209,6 +2265,33 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord, formatio
   // the one pipeline pass FormationMeta so the core carries the real profile,
   // ingress_path, and capture provenance [IX.3.1 rule 5].
   adaptRecordToCoreStore(db, finalized, formation ? { formation } : undefined)
+  // Phase 5: a consented formation is PoAC-class evidence [IX.19.1] and
+  // creates the relationship's initial inbound DELIVERY grant behind the
+  // same consent event (E2 — the receiver-side filter consumes it).
+  if (formation) {
+    appendEvidenceBestEffort({
+      chainId: finalized.handshake_id,
+      recordType: 'poac',
+      payload: poacFormationPayload({
+        handshake_id: finalized.handshake_id,
+        profile_id: formation.profile_id,
+        consent_id: formation.consent_id,
+        capture_method: formation.capture_method,
+        ingress_path: formation.ingress_path,
+      }),
+    })
+    try {
+      createGrant(db, {
+        handshakeId: finalized.handshake_id,
+        grantType: 'delivery',
+        direction: 'inbound',
+        scopes: finalized.effective_policy?.allowedScopes ?? [],
+        consentId: formation.consent_id,
+      })
+    } catch (e) {
+      console.warn(`[GRANTS] initial delivery grant failed handshake=${finalized.handshake_id}: ${(e as Error)?.message}`)
+    }
+  }
 }
 
 export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
@@ -2715,7 +2798,10 @@ export function deleteHandshakeRecord(db: any, handshakeId: string): { success: 
     db.prepare('DELETE FROM context_store WHERE handshake_id = ?').run(handshakeId)
     db.prepare('DELETE FROM seen_capsule_hashes WHERE handshake_id = ?').run(handshakeId)
     db.prepare('DELETE FROM outbound_capsule_queue WHERE handshake_id = ?').run(handshakeId)
-    db.prepare('DELETE FROM audit_log WHERE handshake_id = ?').run(handshakeId)
+    // Phase 5 (H1 hygiene): audit rows are NEVER deleted with the relationship
+    // — the old audit_log is frozen for forensics, and the Tier-L evidence
+    // chain (wr_evidence_chain, append-only by trigger) survives regardless.
+    // Pre-existing purge losses from the old behavior are unrecoverable.
     db.prepare('DELETE FROM handshakes WHERE handshake_id = ?').run(handshakeId)
     // Phase 3: the runtime mirror goes with the row; the core record is
     // append-only history and survives (store triggers abort DELETE anyway).

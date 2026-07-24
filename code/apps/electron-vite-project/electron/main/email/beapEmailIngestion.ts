@@ -688,6 +688,7 @@ function buildP2PProvenance(
   transportSender: string | null,
   sourceType: ProvenanceMetadata['source_type'],
   packageJson: string,
+  grantRef?: string | null,
 ): ProvenanceMetadata {
   return {
     source_type: sourceType,
@@ -696,6 +697,8 @@ function buildP2PProvenance(
     transport_metadata: {
       sender_address: transportSender ?? undefined,
       message_id: handshakeId,
+      // Phase 5 [VII.10.3]: grant the delivery was admitted under.
+      grant_ref: grantRef ?? undefined,
     },
     input_classification: 'beap_capsule_present',
     raw_input_hash: createHash('sha256').update(packageJson, 'utf8').digest('hex'),
@@ -998,8 +1001,11 @@ async function processBeapPackageInlineInternal(
 
   // ── Stage 0: ingress admission filter [VII.2.7] ──────────────────────────
   // First ingress stage for every inbox delivery: relationship must exist and
-  // be live. Blocked transmissions die pre-visibility — no inbox row, no
-  // placeholder, no dashboard notification; audit_log carries the record.
+  // be live, and the delivery is admitted under the relationship's DELIVERY
+  // grant (Phase 5, E2 [VII.10.2]). Blocked transmissions die pre-visibility —
+  // no inbox row, no placeholder, no dashboard notification; audit_log and
+  // the evidence chain carry the record.
+  let admittedGrantRef: string | null = null
   {
     const { admitInboundDelivery } = await import('../handshake/ingressAdmission')
     const admission = admitInboundDelivery(db, {
@@ -1019,6 +1025,7 @@ async function processBeapPackageInlineInternal(
         retryable: false,
       }
     }
+    admittedGrantRef = admission.grantRef
   }
 
   // ── Parse outer package ──────────────────────────────────────────────────
@@ -1104,7 +1111,7 @@ async function processBeapPackageInlineInternal(
       packageJson,
       { id: rowId, subject: preview.subject, from_address: transportSender, body_text: preview.body_text },
     )
-    const provenance = buildP2PProvenance(handshakeId, transportSender, sourceType, packageJson)
+    const provenance = buildP2PProvenance(handshakeId, transportSender, sourceType, packageJson, admittedGrantRef)
     const resp = await validatorOrchestrator.validate({
       envelope: pkg,
       plaintext_or_encrypted: { kind: 'plaintext', content: dpJson },
@@ -1276,7 +1283,7 @@ async function processBeapPackageInlineInternal(
       // validation routes through the critical-job dispatcher (in-process → same
       // forked validator subprocess; byte-identical parity). Flag OFF runs the
       // original inline call. The qBEAP/pBEAP decrypt above stays untouched.
-      const provenance = buildP2PProvenance(handshakeId, transportSender, sourceType, packageJson)
+      const provenance = buildP2PProvenance(handshakeId, transportSender, sourceType, packageJson, admittedGrantRef)
       const validationInput = {
         envelope: pkg,
         plaintext_or_encrypted: { kind: 'plaintext' as const, content: depackagedJsonForRow },
