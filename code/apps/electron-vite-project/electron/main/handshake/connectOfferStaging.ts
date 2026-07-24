@@ -1,0 +1,438 @@
+/**
+ * Connect-offer staging store (Phase 4 — V2, Q1) [IX.3.1]
+ *
+ * Inbound invitations (email / relay / WS initiate capsules, .beap file
+ * imports) NO LONGER create relationship rows. They land here — a staging
+ * store that is deliberately NOT the relationship store — until:
+ *
+ *   verification chain → client-generated Connect offer → consent
+ *   → only then does the ONE formation pipeline create a core record.
+ *
+ * Rules [IX.3.1 rules 1–4]:
+ *  - Failed verification SUPPRESSES the offer entirely: the row is kept as a
+ *    logged record but is never listable and can never be consented to.
+ *    There is no "connect anyway".
+ *  - The Connect-offer preview is CLIENT-GENERATED from verified capsule
+ *    material — never counterparty free text — and canonically hashable at
+ *    presentation time (Intent-Hash substrate for Phase 5).
+ *  - Staged offers keep the 7-day timeout (Q7).
+ *
+ * Consent records are Hash-Pinned [IX.3.4]: preview hash + bound-definition
+ * hash + contract-state hash. A consent record whose hashes do not resolve
+ * against the staged material is invalid.
+ *
+ * Persistence: this store lives in its OWN SQLite file (connect-offers.db),
+ * outside the handshake migration chain. The handshake ledger is frozen at
+ * v74 (Phase 3) and the staging store must exist regardless of which
+ * relationship DB handle is active, so it never shares either handle.
+ */
+
+import { createHash, randomUUID } from 'node:crypto'
+import { canonicalJsonString, domainTag, type CanonicalJsonValue } from '@repo/ingestion-core'
+import { INPUT_LIMITS } from './types'
+
+// ── Schema ────────────────────────────────────────────────────────────────────
+
+export const CONNECT_OFFER_SCHEMA_VERSION = 1
+
+export function ensureConnectOfferSchema(db: any): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS wr_connect_offers (
+      offer_id TEXT PRIMARY KEY,
+      handshake_id TEXT NOT NULL,
+      capsule_json TEXT NOT NULL,
+      capsule_hash TEXT NOT NULL,
+      sender_email TEXT,
+      sender_iss TEXT,
+      sender_sub TEXT,
+      sender_wrdesk_user_id TEXT,
+      receiver_email TEXT,
+      profile_id TEXT NOT NULL,
+      ingress_path TEXT NOT NULL,
+      invitation_class TEXT NOT NULL DEFAULT 'public_bearer',
+      verification_status TEXT NOT NULL CHECK (verification_status IN ('verified', 'failed')),
+      verification_reason TEXT,
+      suppressed INTEGER NOT NULL DEFAULT 0,
+      staged_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      consumed_at TEXT,
+      consumed_action TEXT CHECK (consumed_action IN ('consented', 'declined', 'expired')),
+      consent_id TEXT,
+      UNIQUE (handshake_id, capsule_hash)
+    );
+    CREATE INDEX IF NOT EXISTS idx_wr_connect_offers_pending
+      ON wr_connect_offers (suppressed, consumed_at, expires_at);
+
+    CREATE TABLE IF NOT EXISTS wr_consent_records (
+      consent_id TEXT PRIMARY KEY,
+      offer_id TEXT,
+      handshake_id TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('initiator', 'acceptor')),
+      preview_hash TEXT NOT NULL,
+      bound_definition_hash TEXT NOT NULL,
+      contract_state_hash TEXT NOT NULL,
+      capture_method TEXT NOT NULL,
+      ingress_path TEXT NOT NULL,
+      source_reference TEXT,
+      actor_wrdesk_user_id TEXT NOT NULL,
+      consented_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_wr_consent_records_handshake
+      ON wr_consent_records (handshake_id);
+
+    CREATE TABLE IF NOT EXISTS wr_connect_offer_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `)
+  db.prepare(
+    `INSERT OR IGNORE INTO wr_connect_offer_meta (key, value) VALUES ('schema_version', ?)`,
+  ).run(String(CONNECT_OFFER_SCHEMA_VERSION))
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export interface ConnectOfferRow {
+  offer_id: string
+  handshake_id: string
+  capsule_json: string
+  capsule_hash: string
+  sender_email: string | null
+  sender_iss: string | null
+  sender_sub: string | null
+  sender_wrdesk_user_id: string | null
+  receiver_email: string | null
+  profile_id: string
+  ingress_path: string
+  invitation_class: string
+  verification_status: 'verified' | 'failed'
+  verification_reason: string | null
+  suppressed: number
+  staged_at: string
+  expires_at: string
+  consumed_at: string | null
+  consumed_action: 'consented' | 'declined' | 'expired' | null
+  consent_id: string | null
+}
+
+export interface StageConnectOfferInput {
+  handshake_id: string
+  /** Full initiate capsule as validated (verified material only). */
+  capsule: Record<string, unknown>
+  capsule_hash: string
+  sender_email?: string | null
+  sender_iss?: string | null
+  sender_sub?: string | null
+  sender_wrdesk_user_id?: string | null
+  receiver_email?: string | null
+  profile_id: string
+  ingress_path: string
+  invitation_class?: string
+  /** Verification chain verdict. `ok: false` suppresses the offer entirely. */
+  verification: { ok: true } | { ok: false; reason: string }
+}
+
+export interface ConsentRecordRow {
+  consent_id: string
+  offer_id: string | null
+  handshake_id: string
+  role: 'initiator' | 'acceptor'
+  preview_hash: string
+  bound_definition_hash: string
+  contract_state_hash: string
+  capture_method: string
+  ingress_path: string
+  source_reference: string | null
+  actor_wrdesk_user_id: string
+  consented_at: string
+}
+
+// ── Staging ───────────────────────────────────────────────────────────────────
+
+export type StageConnectOfferResult =
+  | { staged: true; offerId: string; suppressed: boolean }
+  | { staged: false; reason: 'duplicate'; offerId: string }
+
+/**
+ * Stage an inbound invitation. Failed verification stores a SUPPRESSED row
+ * (logged record [VII.2.7-adjacent]; never listable, never consentable).
+ */
+export function stageConnectOffer(db: any, input: StageConnectOfferInput): StageConnectOfferResult {
+  ensureConnectOfferSchema(db)
+  const existing = db
+    .prepare(`SELECT offer_id FROM wr_connect_offers WHERE handshake_id = ? AND capsule_hash = ?`)
+    .get(input.handshake_id, input.capsule_hash) as { offer_id: string } | undefined
+  if (existing) {
+    return { staged: false, reason: 'duplicate', offerId: existing.offer_id }
+  }
+  const offerId = randomUUID()
+  const now = Date.now()
+  const suppressed = input.verification.ok ? 0 : 1
+  db.prepare(
+    `INSERT INTO wr_connect_offers (
+       offer_id, handshake_id, capsule_json, capsule_hash,
+       sender_email, sender_iss, sender_sub, sender_wrdesk_user_id, receiver_email,
+       profile_id, ingress_path, invitation_class,
+       verification_status, verification_reason, suppressed,
+       staged_at, expires_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    offerId,
+    input.handshake_id,
+    JSON.stringify(input.capsule),
+    input.capsule_hash,
+    input.sender_email ?? null,
+    input.sender_iss ?? null,
+    input.sender_sub ?? null,
+    input.sender_wrdesk_user_id ?? null,
+    input.receiver_email ?? null,
+    input.profile_id,
+    input.ingress_path,
+    input.invitation_class ?? 'public_bearer',
+    input.verification.ok ? 'verified' : 'failed',
+    input.verification.ok ? null : input.verification.reason,
+    suppressed,
+    new Date(now).toISOString(),
+    new Date(now + INPUT_LIMITS.PENDING_TIMEOUT_MS).toISOString(),
+  )
+  if (suppressed) {
+    console.warn('[CONNECT_OFFER] Offer suppressed (verification failed):', {
+      offer_id: offerId,
+      handshake_id: input.handshake_id,
+      reason: (input.verification as { reason: string }).reason,
+    })
+  } else {
+    console.log('[CONNECT_OFFER] Offer staged:', {
+      offer_id: offerId,
+      handshake_id: input.handshake_id,
+      ingress_path: input.ingress_path,
+    })
+  }
+  return { staged: true, offerId, suppressed: suppressed === 1 }
+}
+
+/**
+ * Pending = verified, not suppressed, not consumed, not expired. Suppressed
+ * rows are structurally unreachable from here — the ONLY read surface for
+ * offer listings.
+ */
+export function listPendingConnectOffers(db: any, now: Date = new Date()): ConnectOfferRow[] {
+  ensureConnectOfferSchema(db)
+  return db
+    .prepare(
+      `SELECT * FROM wr_connect_offers
+       WHERE suppressed = 0 AND verification_status = 'verified'
+         AND consumed_at IS NULL AND expires_at > ?
+       ORDER BY staged_at DESC`,
+    )
+    .all(now.toISOString()) as ConnectOfferRow[]
+}
+
+/** Consentable = same predicate as listPendingConnectOffers, single row. */
+export function getConsentableOffer(db: any, offerId: string, now: Date = new Date()): ConnectOfferRow | null {
+  ensureConnectOfferSchema(db)
+  const row = db
+    .prepare(
+      `SELECT * FROM wr_connect_offers
+       WHERE offer_id = ? AND suppressed = 0 AND verification_status = 'verified'
+         AND consumed_at IS NULL AND expires_at > ?`,
+    )
+    .get(offerId, now.toISOString()) as ConnectOfferRow | undefined
+  return row ?? null
+}
+
+export function findPendingOfferByHandshakeId(
+  db: any,
+  handshakeId: string,
+  now: Date = new Date(),
+): ConnectOfferRow | null {
+  ensureConnectOfferSchema(db)
+  const row = db
+    .prepare(
+      `SELECT * FROM wr_connect_offers
+       WHERE handshake_id = ? AND suppressed = 0 AND verification_status = 'verified'
+         AND consumed_at IS NULL AND expires_at > ?
+       ORDER BY staged_at DESC LIMIT 1`,
+    )
+    .get(handshakeId, now.toISOString()) as ConnectOfferRow | undefined
+  return row ?? null
+}
+
+export function markOfferConsumed(
+  db: any,
+  offerId: string,
+  action: 'consented' | 'declined',
+  consentId?: string,
+): void {
+  db.prepare(
+    `UPDATE wr_connect_offers SET consumed_at = ?, consumed_action = ?, consent_id = ? WHERE offer_id = ?`,
+  ).run(new Date().toISOString(), action, consentId ?? null, offerId)
+}
+
+/** Q7: sweep past-timeout offers into consumed_action='expired' (idempotent). */
+export function expireStaleOffers(db: any, now: Date = new Date()): number {
+  ensureConnectOfferSchema(db)
+  const res = db
+    .prepare(
+      `UPDATE wr_connect_offers
+       SET consumed_at = ?, consumed_action = 'expired'
+       WHERE consumed_at IS NULL AND expires_at <= ?`,
+    )
+    .run(now.toISOString(), now.toISOString())
+  return res.changes as number
+}
+
+// ── Client-generated preview + Hash-Pinned consent [IX.3.4] ──────────────────
+
+const PREVIEW_DOMAIN = 'wr.connect_offer.preview'
+const BOUND_DEF_DOMAIN = 'wr.handshake.bound_definition'
+
+function sha256Hex(domain: string, canonical: string): string {
+  return createHash('sha256').update(domainTag(domain, 1)).update(canonical, 'utf8').digest('hex')
+}
+
+export interface ConnectOfferPreview {
+  /** Canonical preview object — built ONLY from verified capsule material. */
+  preview: Record<string, CanonicalJsonValue>
+  preview_hash: string
+  bound_definition_hash: string
+  /** Contract state at presentation time = the staged capsule hash. */
+  contract_state_hash: string
+}
+
+/**
+ * Build the client-generated Connect-offer preview from a staged offer.
+ * The preview never contains counterparty free text — only the verified,
+ * structured identity/profile/scope material — and is canonically hashable
+ * at presentation time (this is the Intent-Hash substrate Phase 5 reuses).
+ */
+export function buildConnectOfferPreview(offer: ConnectOfferRow): ConnectOfferPreview {
+  const capsule = JSON.parse(offer.capsule_json) as Record<string, any>
+  const scopes = Array.isArray(capsule?.context_scopes)
+    ? capsule.context_scopes.filter((s: unknown) => typeof s === 'string')
+    : []
+  const boundDefinition: Record<string, CanonicalJsonValue> = {
+    sender_email: offer.sender_email ?? '',
+    sender_iss: offer.sender_iss ?? '',
+    sender_sub: offer.sender_sub ?? '',
+    sender_wrdesk_user_id: offer.sender_wrdesk_user_id ?? '',
+    receiver_email: offer.receiver_email ?? '',
+    profile_id: offer.profile_id,
+  }
+  const preview: Record<string, CanonicalJsonValue> = {
+    offer_id: offer.offer_id,
+    handshake_id: offer.handshake_id,
+    bound_definition: boundDefinition,
+    scopes: [...scopes].sort(),
+    external_processing: typeof capsule?.external_processing === 'string' ? capsule.external_processing : 'none',
+    reciprocal_allowed: capsule?.reciprocal_allowed === true,
+    ingress_path: offer.ingress_path,
+    staged_at: offer.staged_at,
+    expires_at: offer.expires_at,
+  }
+  const previewHash = sha256Hex(PREVIEW_DOMAIN, canonicalJsonString(preview))
+  const boundDefinitionHash = sha256Hex(BOUND_DEF_DOMAIN, canonicalJsonString(boundDefinition))
+  return {
+    preview,
+    preview_hash: previewHash,
+    bound_definition_hash: boundDefinitionHash,
+    contract_state_hash: offer.capsule_hash,
+  }
+}
+
+export interface InsertConsentInput {
+  offer_id: string | null
+  handshake_id: string
+  role: 'initiator' | 'acceptor'
+  preview_hash: string
+  bound_definition_hash: string
+  contract_state_hash: string
+  capture_method: string
+  ingress_path: string
+  source_reference?: string | null
+  actor_wrdesk_user_id: string
+}
+
+export function insertConsentRecord(db: any, input: InsertConsentInput): ConsentRecordRow {
+  ensureConnectOfferSchema(db)
+  const row: ConsentRecordRow = {
+    consent_id: randomUUID(),
+    offer_id: input.offer_id,
+    handshake_id: input.handshake_id,
+    role: input.role,
+    preview_hash: input.preview_hash,
+    bound_definition_hash: input.bound_definition_hash,
+    contract_state_hash: input.contract_state_hash,
+    capture_method: input.capture_method,
+    ingress_path: input.ingress_path,
+    source_reference: input.source_reference ?? null,
+    actor_wrdesk_user_id: input.actor_wrdesk_user_id,
+    consented_at: new Date().toISOString(),
+  }
+  db.prepare(
+    `INSERT INTO wr_consent_records (
+       consent_id, offer_id, handshake_id, role,
+       preview_hash, bound_definition_hash, contract_state_hash,
+       capture_method, ingress_path, source_reference,
+       actor_wrdesk_user_id, consented_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    row.consent_id,
+    row.offer_id,
+    row.handshake_id,
+    row.role,
+    row.preview_hash,
+    row.bound_definition_hash,
+    row.contract_state_hash,
+    row.capture_method,
+    row.ingress_path,
+    row.source_reference,
+    row.actor_wrdesk_user_id,
+    row.consented_at,
+  )
+  return row
+}
+
+export function getConsentRecordForHandshake(db: any, handshakeId: string): ConsentRecordRow | null {
+  ensureConnectOfferSchema(db)
+  const row = db
+    .prepare(`SELECT * FROM wr_consent_records WHERE handshake_id = ? ORDER BY consented_at ASC LIMIT 1`)
+    .get(handshakeId) as ConsentRecordRow | undefined
+  return row ?? null
+}
+
+/**
+ * Hash-Pinned validity [IX.3.4]: a consent record is valid only if all three
+ * hashes resolve against the material it claims to bind. For acceptor-side
+ * consents the offer must still exist (suppressed offers cannot resolve —
+ * they were never presentable).
+ */
+export function consentRecordResolves(
+  db: any,
+  consent: ConsentRecordRow,
+): { valid: true } | { valid: false; reason: string } {
+  if (consent.offer_id) {
+    const offer = db
+      .prepare(`SELECT * FROM wr_connect_offers WHERE offer_id = ?`)
+      .get(consent.offer_id) as ConnectOfferRow | undefined
+    if (!offer) return { valid: false, reason: 'offer_not_found' }
+    if (offer.suppressed) return { valid: false, reason: 'offer_suppressed' }
+    const rebuilt = buildConnectOfferPreview(offer)
+    if (rebuilt.preview_hash !== consent.preview_hash) {
+      return { valid: false, reason: 'preview_hash_mismatch' }
+    }
+    if (rebuilt.bound_definition_hash !== consent.bound_definition_hash) {
+      return { valid: false, reason: 'bound_definition_hash_mismatch' }
+    }
+    if (rebuilt.contract_state_hash !== consent.contract_state_hash) {
+      return { valid: false, reason: 'contract_state_hash_mismatch' }
+    }
+    return { valid: true }
+  }
+  // Initiator-side self-consent: hashes bind the outgoing contract; nothing
+  // staged to resolve against beyond non-empty pins.
+  if (!consent.preview_hash || !consent.bound_definition_hash || !consent.contract_state_hash) {
+    return { valid: false, reason: 'missing_hash_pin' }
+  }
+  return { valid: true }
+}
