@@ -108,6 +108,60 @@ export function buildSyntheticLegacyCore(record: HandshakeRecord): WrHandshakeCo
   } as unknown as WrHandshakeCore
 }
 
+// ── Formation core (Phase 4 — the one pipeline) ──────────────────────────────
+
+/** Declaration namespace carrying capture provenance [IX.3.1 rule 5]. */
+export const CAPTURE_PROVENANCE_NS = 'optirando.decl.capture_provenance'
+
+/**
+ * Formation metadata recorded by the ONE pipeline on NEW formations only.
+ * Backfilled rows keep `unknown_legacy` provenance and a null ingress path —
+ * provenance is never fabricated.
+ */
+export interface FormationMeta {
+  profile_id: string
+  profile_version: number
+  /** Recordable ingress registry identifier (Q4 mapping; log-only downstream). */
+  ingress_path: string
+  capture_method: string
+  source_reference?: string | null
+  /** Hash-pinned consent record id [IX.3.4]. */
+  consent_id?: string | null
+  nonce?: string
+}
+
+/**
+ * Build the REAL core for a new formation: profile from the registry,
+ * ingress_path recorded (log-only), capture provenance as a signed contract
+ * declaration rendered in the consent preview and recorded in evidence.
+ */
+export function buildFormationCore(record: HandshakeRecord, formation: FormationMeta): WrHandshakeCore {
+  return {
+    profile: { id: formation.profile_id, version: formation.profile_version },
+    initiator_id: partyToCoreId(record.initiator),
+    responder_id: partyToCoreId(record.acceptor),
+    ingress_path: formation.ingress_path,
+    declarations: [
+      {
+        ns: CAPTURE_PROVENANCE_NS,
+        version: 1,
+        critical: false,
+        payload: {
+          method: formation.capture_method,
+          source_reference: formation.source_reference ?? null,
+          handshake_id: record.handshake_id,
+          relationship_id: record.relationship_id,
+          created_at: record.created_at,
+          ...(formation.consent_id ? { consent_id: formation.consent_id } : {}),
+        },
+      },
+    ],
+    extensions: [],
+    created_at: record.created_at,
+    nonce: formation.nonce ?? '',
+  } as unknown as WrHandshakeCore
+}
+
 // ── Writers (single entry, called from db.ts) ────────────────────────────────
 
 export interface InsertCoreArgs {
@@ -215,15 +269,29 @@ export function upsertRuntimeFromRecord(db: any, record: HandshakeRecord, coreHa
  * core (if absent) + mirrors runtime state. No-op on handles without the
  * store (frozen ledger, pre-v75, mock DBs).
  */
-export function adaptRecordToCoreStore(db: any, record: HandshakeRecord, opts?: { backfilled?: boolean }): void {
+export function adaptRecordToCoreStore(
+  db: any,
+  record: HandshakeRecord,
+  opts?: { backfilled?: boolean; formation?: FormationMeta },
+): void {
   if (!hasWrCoreStore(db)) return
   try {
-    const core = buildSyntheticLegacyCore(record)
+    // New formations through the one pipeline carry real formation metadata;
+    // everything else (updates, legacy writers) produces/keeps the synthetic
+    // legacy core with unfabricated provenance.
+    const formation = opts?.formation
+    const core = formation ? buildFormationCore(record, formation) : buildSyntheticLegacyCore(record)
     const result = insertCoreRecord(db, {
       core,
       handshakeId: record.handshake_id,
       signatures: [],
-      captureProvenance: 'unknown_legacy',
+      captureProvenance: formation
+        ? JSON.stringify({
+            method: formation.capture_method,
+            source_reference: formation.source_reference ?? null,
+            ingress_path: formation.ingress_path,
+          })
+        : 'unknown_legacy',
       backfilled: opts?.backfilled ?? false,
       coreVersion: 1,
     })

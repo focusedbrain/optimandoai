@@ -9,6 +9,7 @@ import {
 } from '../../../../../packages/shared/src/handshake/internalEndpointValidation'
 import { getHandshakeRecord } from './db'
 import { internalRelayCapsuleWireOptsFromRecord } from './internalCoordinationWire'
+import { wireDeclaresSamePrincipal } from './samePrincipalWire'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 
 export const LOCAL_INTERNAL_RELAY_VALIDATION_FAILED = 'LOCAL_INTERNAL_RELAY_VALIDATION_FAILED'
@@ -48,7 +49,7 @@ export function isInternalRelayCapsuleEnvelope(o: Record<string, unknown>): bool
  */
 export function collectInternalRelayWireGaps(o: Record<string, unknown>): string[] {
   const missing: string[] = []
-  if (o.handshake_type !== 'internal') missing.push('handshake_type')
+  if (!wireDeclaresSamePrincipal(o)) missing.push('handshake_type')
   if (!nz(o.sender_device_id)) missing.push('sender_device_id')
   const sr = o.sender_device_role
   if (sr !== 'host' && sr !== 'sandbox') missing.push('sender_device_role')
@@ -69,10 +70,10 @@ export function collectInternalRelayWireGaps(o: Record<string, unknown>): string
 }
 
 export function shouldValidateInternalRelayWire(
-  record: { handshake_type?: string | null } | null | undefined,
+  record: { same_principal?: boolean | null } | null | undefined,
   o: Record<string, unknown>,
 ): boolean {
-  if (!record || record.handshake_type !== 'internal') return false
+  if (!record || record.same_principal !== true) return false
   if (isCoordinationRelayNativeBeap(o)) return false
   return isInternalRelayCapsuleEnvelope(o)
 }
@@ -189,7 +190,7 @@ export function applyContextSyncInternalRoutingFromRecord(
   const ct = typeof payload.capsule_type === 'string' ? payload.capsule_type.trim() : ''
   if (ct !== 'context_sync') return
   const record = getHandshakeRecord(db, handshakeId.trim())
-  if (!record || record.handshake_type !== 'internal') return
+  if (!record || record.same_principal !== true) return
 
   let localId = ''
   try {

@@ -10,7 +10,7 @@ import {
 import type { InternalHandshakeRoleSource, InternalIdentitySource } from './internalIdentityUi'
 
 const base: InternalIdentitySource = {
-  handshake_type: 'internal',
+  same_principal: true,
   local_role: 'initiator',
   initiator_device_role: 'host',
   acceptor_device_role: 'sandbox',
@@ -83,7 +83,7 @@ describe('no pairing code', () => {
 })
 
 const activeInternal = (over: Partial<InternalHandshakeRoleSource> = {}): InternalHandshakeRoleSource => ({
-  handshake_type: 'internal',
+  same_principal: true,
   state: 'ACTIVE',
   local_role: 'initiator',
   initiator_device_role: 'sandbox',
@@ -193,7 +193,7 @@ describe('deriveInternalHandshakeRoles', () => {
   it('external (non-internal) handshake: not internal, flags false', () => {
     const d = deriveInternalHandshakeRoles(
       activeInternal({
-        handshake_type: 'standard',
+        same_principal: false,
         initiator_device_role: 'sandbox',
         acceptor_device_role: 'host',
       }),

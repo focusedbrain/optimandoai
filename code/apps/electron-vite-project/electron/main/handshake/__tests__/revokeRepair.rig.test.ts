@@ -15,7 +15,7 @@
  * Run under Electron's Node ABI: `pnpm test:native-db <thisFile>`.
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
 import Database from 'better-sqlite3'
 
 import { startRelayHarness, type RelayHarness } from './rig/coordinationRelayHarness'
@@ -23,6 +23,7 @@ import { driveCrossPrincipalToActive } from './rig/pairingFlow'
 import { migrateHandshakeTables, deleteHandshakeRecord } from '../db'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
 import { handleIngestionRPC } from '../../ingestion/ipc'
+import { installInMemoryConnectOffers, uninstallInMemoryConnectOffers } from './connectOfferConsentTestKit'
 import { setEmailSendFn, _resetEmailSendFn } from '../emailTransport'
 import { buildRevokeCapsule } from '../capsuleBuilder'
 import { revokeHandshake } from '../revocation'
@@ -63,7 +64,12 @@ describe('revoke → refused → re-pair (two real instances, real relay)', () =
     relay.resetState()
     _resetEmailSendFn()
     setEmailSendFn(vi.fn().mockResolvedValue({ success: true, messageId: 'm1' }))
+    // Phase 4 [IX.3.1]: pairingFlow drives initiates through the Connect-offer
+    // consent gate, which needs the in-memory staging store.
+    installInMemoryConnectOffers()
   })
+
+  afterEach(() => uninstallInMemoryConnectOffers())
 
   function ingest(capsuleJson: string, db: any, asSession: SSOSession) {
     return handleIngestionRPC(

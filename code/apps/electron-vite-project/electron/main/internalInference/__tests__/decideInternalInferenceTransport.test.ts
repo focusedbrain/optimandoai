@@ -39,7 +39,7 @@ function rolesOk(): HandshakeDerivedRoles {
 }
 
 const hr = { handshake_id: 'h1' } as unknown as HandshakeRecord
-const hrInternal = { handshake_id: 'h1', handshake_type: 'internal' } as unknown as HandshakeRecord
+const hrInternal = { handshake_id: 'h1', same_principal: true } as unknown as HandshakeRecord
 
 const base: Omit<
   HostAiTransportDeciderInput,

@@ -22,6 +22,7 @@
  */
 
 import { normalizeNFC, stripControlChars, isValidEmail } from './sanitize'
+import { wireDeclaresSamePrincipal } from './samePrincipalWire'
 import { validateInternalEndpointPairDistinct } from '../../../../../packages/shared/src/handshake/internalEndpointValidation'
 import { parseCanonicalEnvelope } from '@repo/ingestion-core'
 import type { WrCanonicalEnvelope } from '@repo/ingestion-core'
@@ -452,7 +453,7 @@ function rebuildContextBlockProofs(raw: unknown): { ok: true; proofs: ContextBlo
 function validateInternalHandshakeWireIfNeeded(
   canonical: Record<string, unknown>,
 ): RebuildResult | null {
-  if (canonical.handshake_type !== 'internal') {
+  if (!wireDeclaresSamePrincipal(canonical)) {
     return null
   }
 
@@ -703,8 +704,8 @@ export function canonicalRebuild(raw: unknown): RebuildResult {
   }
 
   // Internal / coordination routing (optional — preserved for relay + ledger).
-  // `receiver_pairing_code` is included so the new pairing-code initiate model
-  // survives Gate-2 rebuild and reaches `recipientPersist` /
+  // `receiver_pairing_code` is included so the pairing-code initiate model
+  // survives Gate-2 rebuild and reaches the formation pipeline /
   // `validateInternalHandshakeWireIfNeeded`.
   for (const coordField of [
     'handshake_type',

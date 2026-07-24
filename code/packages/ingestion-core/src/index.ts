@@ -99,6 +99,22 @@ export {
   isRecordableIngressPath,
 } from './ingressRegistry.js';
 export type { IngressPathEntry } from './ingressRegistry.js';
+// Phase 4 — capture methods + invitation classes (V2, C1–C3) [IX.3.1, IX.3.2]
+export {
+  CAPTURE_METHOD_REGISTRY,
+  INVITATION_CLASS_REGISTRY,
+  resolveCaptureMethodForFormation,
+  resolveInvitationClassForFormation,
+  captureMethodPermitsIngressPath,
+} from './captureMethods.js';
+export type {
+  CaptureMethodId,
+  CaptureMethodEntry,
+  InvitationClassId,
+  InvitationClassEntry,
+  CaptureMethodResolution,
+  InvitationClassResolution,
+} from './captureMethods.js';
 export { ingestInput } from './ingestor.js';
 export { validateCapsule, validateSessionImportArtefact } from './validator.js';
 export { validateDecryptedBeapContent, CONTENT_VALIDATOR_VERSION } from './contentValidator.js';

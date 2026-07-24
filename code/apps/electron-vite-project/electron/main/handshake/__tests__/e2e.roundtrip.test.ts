@@ -11,11 +11,15 @@
  * T18: Full initiate → accept → refresh round-trip (mocked email gateway)
  */
 
-import { describe, test, expect, beforeEach, vi } from 'vitest'
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { buildTestSession } from '../sessionFactory'
 import { createHandshakeTestDb } from './handshakeTestDb'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
-import { handleIngestionRPC } from '../../ingestion/ipc'
+import {
+  installInMemoryConnectOffers,
+  uninstallInMemoryConnectOffers,
+  submitCapsuleThroughConsentGate,
+} from './connectOfferConsentTestKit'
 import {
   handleHandshakeRPC,
   setSSOSessionProvider,
@@ -52,20 +56,13 @@ function bobSession(): SSOSession {
   })
 }
 
+// Phase 4 [IX.3.1]: inbound initiates stage a Connect offer; the kit consents
+// and re-runs the one pipeline behind the consent gate.
+beforeEach(() => installInMemoryConnectOffers())
+afterEach(() => uninstallInMemoryConnectOffers())
+
 async function submitCapsule(capsuleJson: string, db: any, session: SSOSession) {
-  return handleIngestionRPC(
-    'ingestion.ingest',
-    {
-      rawInput: {
-        body: capsuleJson,
-        mime_type: 'application/vnd.beap+json',
-      },
-      sourceType: 'email',
-      transportMeta: { channel_id: 'email:test', mime_type: 'application/vnd.beap+json' },
-    },
-    db,
-    session,
-  )
+  return submitCapsuleThroughConsentGate(capsuleJson, db, session, { channelId: 'email:test' })
 }
 
 describe('BEAP E2E Round-Trip — Two-Party Flow', () => {

@@ -20,12 +20,16 @@
  * on a real in-memory sqlite DB — no pipeline internals are mocked.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import Database from 'better-sqlite3'
 
 import { migrateHandshakeTables } from '../db'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
-import { handleIngestionRPC } from '../../ingestion/ipc'
+import {
+  installInMemoryConnectOffers,
+  uninstallInMemoryConnectOffers,
+  submitCapsuleThroughConsentGate,
+} from './connectOfferConsentTestKit'
 import { setEmailSendFn, _resetEmailSendFn } from '../emailTransport'
 import { buildInitiateCapsuleWithKeypair } from '../capsuleBuilder'
 import { buildTestSession } from '../sessionFactory'
@@ -52,17 +56,13 @@ function makeDb(): any {
   return db
 }
 
+// Phase 4 [IX.3.1]: inbound initiates stage a Connect offer; the kit consents
+// and re-runs the one pipeline behind the consent gate.
+beforeEach(() => installInMemoryConnectOffers())
+afterEach(() => uninstallInMemoryConnectOffers())
+
 function ingest(capsuleJson: string, db: any, asSession: SSOSession) {
-  return handleIngestionRPC(
-    'ingestion.ingest',
-    {
-      rawInput: { body: capsuleJson, mime_type: 'application/vnd.beap+json' },
-      sourceType: 'email',
-      transportMeta: { channel_id: 'relay:test', mime_type: 'application/vnd.beap+json' },
-    },
-    db,
-    asSession,
-  )
+  return submitCapsuleThroughConsentGate(capsuleJson, db, asSession, { channelId: 'relay:test' })
 }
 
 interface AuditRow {

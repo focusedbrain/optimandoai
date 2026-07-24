@@ -14,7 +14,7 @@ import {
   updateHandshakeCounterpartyKey,
   updateHandshakeContextSyncEnqueued,
 } from '../../db'
-import { handleIngestionRPC } from '../../../ingestion/ipc'
+import { submitCapsuleThroughConsentGate } from '../connectOfferConsentTestKit'
 import {
   buildInitiateCapsuleWithKeypair,
   buildAcceptCapsule,
@@ -44,17 +44,11 @@ export interface PairToActiveResult {
   bobKeys: RigKeypair
 }
 
+// Phase 4 [IX.3.1]: inbound initiates stage a Connect offer; the kit consents
+// and re-runs the one pipeline behind the consent gate. Caller must install
+// the in-memory staging store (connectOfferConsentTestKit).
 function ingest(capsuleJson: string, db: any, asSession: SSOSession) {
-  return handleIngestionRPC(
-    'ingestion.ingest',
-    {
-      rawInput: { body: capsuleJson, mime_type: 'application/vnd.beap+json' },
-      sourceType: 'email',
-      transportMeta: { channel_id: 'relay:test', mime_type: 'application/vnd.beap+json' },
-    },
-    db,
-    asSession,
-  )
+  return submitCapsuleThroughConsentGate(capsuleJson, db, asSession, { channelId: 'relay:test' })
 }
 
 async function relayPost(relay: RelayHarness, capsule: any, senderToken: string): Promise<number> {

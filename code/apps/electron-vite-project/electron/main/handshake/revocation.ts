@@ -131,7 +131,7 @@ export async function revokeHandshake(
         revokeLocalDev = undefined
       }
       const revokeInternalWire = internalRelayCapsuleWireOptsFromRecord(record, revokeLocalDev)
-      if (p2pConfig.use_coordination && record.handshake_type === 'internal' && !revokeInternalWire) {
+      if (p2pConfig.use_coordination && record.same_principal === true && !revokeInternalWire) {
         console.warn(
           '[Revoke] Skipping peer notify — INTERNAL_RELAY_ENDPOINTS_INCOMPLETE, handshake:',
           handshakeId,

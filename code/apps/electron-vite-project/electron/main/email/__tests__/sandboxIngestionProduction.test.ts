@@ -33,7 +33,7 @@ const h = vi.hoisted(() => {
     return {
       handshake_id: 'hs-prod-a2',
       state: 'ACTIVE',
-      handshake_type: 'internal',
+      same_principal: true,
       internal_coordination_identity_complete: true,
       initiator_coordination_device_id: 'dev-sandbox',
       acceptor_coordination_device_id: 'dev-host',

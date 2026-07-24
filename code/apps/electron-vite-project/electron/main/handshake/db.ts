@@ -19,7 +19,7 @@ import type {
 } from './types'
 import { finalizeInternalHandshakePersistence } from './internalPersistence'
 import { logHandshakeKeyBinding, warnIfCounterpartyKeySuspiciousOverwrite } from './keyBindingDebug'
-import { adaptRecordToCoreStore, backfillWrCoreStore, deleteRuntimeRow, hasWrCoreStore } from './coreStore'
+import { adaptRecordToCoreStore, backfillWrCoreStore, deleteRuntimeRow, hasWrCoreStore, type FormationMeta } from './coreStore'
 
 // ── Migration ──
 
@@ -1855,7 +1855,9 @@ export function serializeHandshakeRecord(record: HandshakeRecord): any {
     local_x25519_public_key_b64: record.local_x25519_public_key_b64 ?? null,
     local_mlkem768_secret_key_b64: record.local_mlkem768_secret_key_b64 ?? null,
     local_mlkem768_public_key_b64: record.local_mlkem768_public_key_b64 ?? null,
-    handshake_type: record.handshake_type ?? null,
+    // SINGLE column-compat write (Phase 4, Q9): the frozen legacy column
+    // persists the profile-derived same_principal parameter.
+    handshake_type: record.same_principal === true ? 'internal' : null,
     initiator_device_name: record.initiator_device_name ?? null,
     acceptor_device_name: record.acceptor_device_name ?? null,
     initiator_device_role: record.initiator_device_role ?? null,
@@ -1917,7 +1919,9 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
     local_mlkem768_public_key_b64: row.local_mlkem768_public_key_b64 ?? null,
     context_sync_pending: !!(row.context_sync_pending),
     policy_selections: parsePolicySelections(row.policy_selections),
-    handshake_type: row.handshake_type ?? null,
+    // SINGLE column-compat read (Phase 4, Q9): legacy column → profile-derived
+    // same_principal parameter. No other code reads the column value.
+    same_principal: row.handshake_type === 'internal',
     initiator_device_name: row.initiator_device_name ?? null,
     acceptor_device_name: row.acceptor_device_name ?? null,
     initiator_device_role: row.initiator_device_role ?? null,
@@ -2138,7 +2142,7 @@ export function updateHandshakeCounterpartyKey(
   ).run(counterparty_public_key, handshakeId)
 }
 
-export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
+export function insertHandshakeRecord(db: any, record: HandshakeRecord, formation?: FormationMeta): void {
   logHandshakeKeyBinding({
     source_function: 'insertHandshakeRecord',
     handshake_id: record.handshake_id,
@@ -2201,8 +2205,10 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
   )`).run(s)
   // Phase 3 (G1–G3): transition adapter — dual-write core + runtime rows when
   // the split store exists on this handle. The legacy row above remains the
-  // read authority during the transition window.
-  adaptRecordToCoreStore(db, finalized)
+  // read authority during the transition window. Phase 4: formations through
+  // the one pipeline pass FormationMeta so the core carries the real profile,
+  // ingress_path, and capture provenance [IX.3.1 rule 5].
+  adaptRecordToCoreStore(db, finalized, formation ? { formation } : undefined)
 }
 
 export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
@@ -2388,7 +2394,7 @@ export function refreshInternalHandshakePersistenceFlags(db: any, handshakeId: s
  */
 export function listHandshakeRecords(
   db: any,
-  filter?: { state?: HandshakeState; relationship_id?: string; handshake_type?: string },
+  filter?: { state?: HandshakeState; relationship_id?: string; same_principal?: boolean },
 ): HandshakeRecord[] {
   let sql = 'SELECT * FROM handshakes WHERE 1=1'
   const params: any[] = []
@@ -2401,9 +2407,12 @@ export function listHandshakeRecords(
     sql += ' AND relationship_id = ?'
     params.push(filter.relationship_id)
   }
-  if (filter?.handshake_type) {
-    sql += ' AND handshake_type = ?'
-    params.push(filter.handshake_type)
+  // Profile-derived same_principal filter maps to the frozen legacy column
+  // at this single persistence boundary (Phase 4, Q9).
+  if (filter?.same_principal === true) {
+    sql += " AND handshake_type = 'internal'"
+  } else if (filter?.same_principal === false) {
+    sql += " AND (handshake_type IS NULL OR handshake_type != 'internal')"
   }
 
   sql += ' ORDER BY created_at DESC'

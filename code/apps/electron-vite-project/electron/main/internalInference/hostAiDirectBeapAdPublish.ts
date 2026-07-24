@@ -284,7 +284,7 @@ export async function publishHostAiDirectBeapAdvertisementsForEligibleHost(
         JSON.stringify({ configured_mode: modeHint, effective_host_ai_role: ledger.effective_host_ai_role, context: input.context }),
     )
   }
-  const rows = listHandshakeRecords(canonDb, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })
+  const rows = listHandshakeRecords(canonDb, { state: HandshakeState.ACTIVE, same_principal: true })
   let published = 0
   let attemptedPost = 0
   for (const r of rows) {

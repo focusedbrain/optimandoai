@@ -71,7 +71,7 @@ function sandboxToHostRecord(over: Partial<HandshakeRecord> = {}): HandshakeReco
     p2p_endpoint: 'http://10.0.0.2:51249/beap/ingest',
     local_p2p_auth_token: 'secrettok',
     counterparty_p2p_token: 'peer-secrettok',
-    handshake_type: 'internal',
+    same_principal: true,
     initiator_device_role: 'sandbox',
     acceptor_device_role: 'host',
     acceptor_device_name: 'Workstation',

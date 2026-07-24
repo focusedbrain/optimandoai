@@ -93,7 +93,7 @@ function defaultRecord(over: Partial<HandshakeRecord>): HandshakeRecord {
     p2p_endpoint: 'http://10.0.0.2:51249/beap/ingest',
     local_p2p_auth_token: 'tok',
     counterparty_p2p_token: 'peer-tok',
-    handshake_type: 'internal',
+    same_principal: true,
     initiator_device_role: 'host',
     acceptor_device_role: 'sandbox',
     initiator_coordination_device_id: 'dev-host-1',
@@ -105,7 +105,7 @@ function defaultRecord(over: Partial<HandshakeRecord>): HandshakeRecord {
 
 describe('internal inference policy', () => {
   it('rejects non-internal', () => {
-    const r = defaultRecord({ handshake_type: 'standard' as any })
+    const r = defaultRecord({ same_principal: false as any })
     const ar = assertRecordForServiceRpc(r)
     expect(ar.ok).toBe(false)
     if (!ar.ok) expect(ar.code).toBe(InternalInferenceErrorCode.POLICY_FORBIDDEN)
@@ -350,7 +350,7 @@ describe('host dispatch with mocks', () => {
   it('returns 403 for external (standard) record', async () => {
     getHandshakeRecord.mockReturnValue(
       defaultRecord({
-        handshake_type: 'standard' as any,
+        same_principal: false as any,
         initiator: party('a'),
         acceptor: party('b'),
       }),

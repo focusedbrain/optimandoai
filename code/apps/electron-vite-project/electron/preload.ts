@@ -833,7 +833,7 @@ contextBridge.exposeInMainWorld('handshakeView', {
     return ipcRenderer.invoke('handshake:importCapsule', jsonString)
   },
   acceptHandshake: (id: unknown, sharingMode: unknown, fromAccountId: unknown, contextOpts?: unknown) => {
-    // Allowlisted fields only; X25519 / internal vs normal is enforced in main (persisted `record.handshake_type`).
+    // Allowlisted fields only; X25519 / internal vs normal is enforced in main (persisted `record.same_principal`).
     const safeOpts = buildHandshakeAcceptSafeOpts(contextOpts)
     return ipcRenderer.invoke('handshake:accept', assertString(id, 'id'), assertString(sharingMode, 'sharingMode'), typeof fromAccountId === 'string' ? fromAccountId : '', safeOpts)
   },
@@ -1083,7 +1083,7 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ...(Array.isArray(opts.profile_ids) ? { profile_ids: opts.profile_ids } : {}),
       ...(Array.isArray(opts.profile_items) ? { profile_items: opts.profile_items } : {}),
       ...(opts.policy_selections && typeof opts.policy_selections === 'object' ? { policy_selections: opts.policy_selections } : {}),
-      ...(opts.handshake_type === 'internal' || opts.handshake_type === 'standard' ? { handshake_type: opts.handshake_type } : {}),
+      ...(typeof opts.profile_id === 'string' && opts.profile_id.trim() ? { profile_id: opts.profile_id.trim() } : {}),
       ...(typeof opts.device_name === 'string' && opts.device_name.trim() ? { device_name: opts.device_name.trim() } : {}),
       ...(opts.device_role === 'host' || opts.device_role === 'sandbox' ? { device_role: opts.device_role } : {}),
       ...(typeof opts.counterparty_device_id === 'string' && opts.counterparty_device_id.trim()
@@ -1115,7 +1115,7 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ...(Array.isArray(opts.profile_ids) ? { profile_ids: opts.profile_ids } : {}),
       ...(Array.isArray(opts.profile_items) ? { profile_items: opts.profile_items } : {}),
       ...(opts.policy_selections && typeof opts.policy_selections === 'object' ? { policy_selections: opts.policy_selections } : {}),
-      ...(opts.handshake_type === 'internal' || opts.handshake_type === 'standard' ? { handshake_type: opts.handshake_type } : {}),
+      ...(typeof opts.profile_id === 'string' && opts.profile_id.trim() ? { profile_id: opts.profile_id.trim() } : {}),
       ...(typeof opts.device_name === 'string' && opts.device_name.trim() ? { device_name: opts.device_name.trim() } : {}),
       ...(opts.device_role === 'host' || opts.device_role === 'sandbox' ? { device_role: opts.device_role } : {}),
       ...(typeof opts.counterparty_device_id === 'string' && opts.counterparty_device_id.trim()

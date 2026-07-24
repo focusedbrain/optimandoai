@@ -148,8 +148,10 @@ describe('Phase 3 — acceptance 1: unknown-profile refusal [VII.4.2]', () => {
     expect(badVersion.ok).toBe(false)
     if (!badVersion.ok) expect(badVersion.reason).toBe('unsupported_profile_version')
 
-    // The initial registry content is exactly the five briefed records.
+    // The five briefed records plus the Phase-4 (Q9) `internal_device`
+    // profile (same-principal Cross-Device pairing).
     expect(listProfileRecords().map((r) => r.id).sort()).toEqual([
+      'internal_device',
       'legacy_v0',
       'org_cross',
       'org_internal',

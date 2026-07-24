@@ -88,7 +88,7 @@ export const HandshakeAcceptModal: React.FC<HandshakeAcceptModalProps> = ({
   const defaultPolicy = { ai_processing_mode: 'local_only' as const }
 
   const isInternal =
-    handshake.handshake_type === 'internal' ||
+    handshake.same_principal === true ||
     isSameAccountHandshakeEmails(handshake.counterparty_email, handshake.receiver_email)
 
   const [acceptorDeviceName, setAcceptorDeviceName] = useState('')

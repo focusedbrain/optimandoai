@@ -9,12 +9,12 @@ type QueueSnap = { pending: number; failed: number }
 export default function SecureContextSyncPendingBanner({
   handshakeId,
   vaultUnlocked,
-  handshakeType,
+  samePrincipal,
   internalCoordinationIdentityComplete,
 }: {
   handshakeId: string
   vaultUnlocked: boolean
-  handshakeType?: 'internal' | 'standard' | null
+  samePrincipal?: boolean | null
   internalCoordinationIdentityComplete?: boolean
 }) {
   const [busy, setBusy] = useState(false)
@@ -68,7 +68,7 @@ export default function SecureContextSyncPendingBanner({
 
   const vaultBlocked = vaultUnlocked === false
   const internalRelayIncomplete =
-    handshakeType === 'internal' &&
+    samePrincipal === true &&
     typeof internalCoordinationIdentityComplete === 'boolean' &&
     !internalCoordinationIdentityComplete
 

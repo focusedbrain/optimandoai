@@ -6,6 +6,7 @@ import {
 } from '@repo/ingestion-core'
 import { isSameAccountHandshakeEmails } from '../../../../../../packages/shared/src/handshake/receiverEmailValidation'
 import { computeInternalRoutingKey } from '../internalPersistence'
+import { wireDeclaresSamePrincipal } from '../samePrincipalWire'
 
 function senderClaims(input: VerifiedCapsuleInput): {
   iss: string
@@ -95,7 +96,7 @@ export const verifyHandshakeOwnership: PipelineStep = {
 
       // Same-principal internal: duplicate is keyed by device pair + owner, not email pair
       // (relationship_id embeds handshake_id so two device-pair handshakes differ on rel id alone).
-      if (input.handshake_type === 'internal') {
+      if (wireDeclaresSamePrincipal(input)) {
         const routeKey = computeInternalRoutingKey(
           input.sender_wrdesk_user_id,
           input.sender_device_id ?? undefined,
@@ -104,7 +105,7 @@ export const verifyHandshakeOwnership: PipelineStep = {
         if (routeKey) {
           const dupByRoute = existingHandshakes.find(
             h =>
-              h.handshake_type === 'internal' &&
+              h.same_principal === true &&
               (h.state === HandshakeState.PENDING_ACCEPT ||
                 h.state === HandshakeState.ACCEPTED ||
                 h.state === HandshakeState.ACTIVE) &&

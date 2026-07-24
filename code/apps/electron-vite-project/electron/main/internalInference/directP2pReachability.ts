@@ -240,7 +240,7 @@ export async function listHostToSandboxDirectReachabilityRows(): Promise<DirectR
   if (!db) {
     return []
   }
-  const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })
+  const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE, same_principal: true })
   const out: DirectReachabilityListRow[] = []
   for (const r of rows) {
     const ar = assertRecordForServiceRpc(r)

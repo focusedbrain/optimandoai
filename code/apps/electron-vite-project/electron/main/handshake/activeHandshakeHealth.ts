@@ -24,7 +24,7 @@ export function hasP2pTokenForLog(r: HandshakeRecord): boolean {
 }
 
 export function coordinationCompleteForLog(r: HandshakeRecord): boolean {
-  if (r.handshake_type === 'internal') {
+  if (r.same_principal === true) {
     return r.internal_coordination_identity_complete === true
   }
   return true

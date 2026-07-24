@@ -118,7 +118,7 @@ function hostAiVerifiedHttpForHostSendResult(args: {
   if (args.webrtcFailureHttpFallback) return false
   const dr = deriveInternalHostAiPeerRoles(args.record, getInstanceId().trim())
   if (!dr.ok || dr.localRole !== 'host' || dr.peerRole !== 'sandbox') return false
-  if (args.record.handshake_type !== 'internal') return false
+  if (args.record.same_principal !== true) return false
   return assertP2pEndpointDirect(args.db as any, args.record.p2p_endpoint).ok
 }
 

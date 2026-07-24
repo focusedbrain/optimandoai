@@ -17,7 +17,7 @@ export type InternalRelayCapsuleWireOpts = {
 
 type InternalRelayRecordSlice = Pick<
   HandshakeRecord,
-  | 'handshake_type'
+  | 'same_principal'
   | 'local_role'
   | 'initiator_coordination_device_id'
   | 'acceptor_coordination_device_id'
@@ -35,7 +35,7 @@ export function internalRelayCapsuleWireOptsFromRecord(
   record: InternalRelayRecordSlice,
   localDeviceId: string | undefined,
 ): InternalRelayCapsuleWireOpts | null {
-  if (record.handshake_type !== 'internal') return null
+  if (record.same_principal !== true) return null
   if (record.internal_coordination_identity_complete !== true) return null
   const loc = localDeviceId?.trim()
   if (!loc) return null

@@ -93,7 +93,7 @@ function makeHandshake(over: Partial<HandshakeRecord> = {}): HandshakeRecord {
     p2p_endpoint: LOCAL_SANDBOX_BEAP,
     local_p2p_auth_token: 'tok-sandbox',
     counterparty_p2p_token: 'tok-host',
-    handshake_type: 'internal',
+    same_principal: true,
     sharing_mode: null,
     reciprocal_allowed: false,
     tier_snapshot: {} as any,

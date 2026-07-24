@@ -74,7 +74,7 @@ function party(uid: string) {
 
 const hostRecord = {
   handshake_id: handshakeId,
-  handshake_type: 'internal',
+  same_principal: true,
   state: HandshakeState.ACTIVE,
   local_role: 'initiator',
   initiator: party('u1'),
@@ -92,7 +92,7 @@ const hostRecord = {
 
 const sandboxRecord = {
   handshake_id: handshakeId,
-  handshake_type: 'internal',
+  same_principal: true,
   state: HandshakeState.ACTIVE,
   local_role: 'acceptor',
   initiator: party('u1'),

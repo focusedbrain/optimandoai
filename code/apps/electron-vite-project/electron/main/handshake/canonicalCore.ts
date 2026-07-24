@@ -219,6 +219,15 @@ export interface BuildCoreOptions {
   nonce: string
   /** Extra extension entries (none in Phase 2 emissions). */
   extensions?: ContainerEntry[]
+  /**
+   * Phase 4: real profile assignment by the one pipeline. Emissions without
+   * one stay `legacy_v0` (Q2-blessed legacy signature discipline).
+   */
+  profile?: { id: string; version: number }
+  /** Phase 4 (Q4): recorded on new formations by the one pipeline; log-only. */
+  ingressPath?: string | null
+  /** Phase 4 [IX.3.1 rule 5]: capture provenance etc. as signed declarations. */
+  extraDeclarations?: ContainerEntry[]
 }
 
 /**
@@ -231,10 +240,10 @@ export function buildCoreForCapsule(
   opts: BuildCoreOptions,
 ): WrHandshakeCore {
   return {
-    profile: { ...PHASE2_EMISSION_PROFILE },
+    profile: opts.profile ? { ...opts.profile } : { ...PHASE2_EMISSION_PROFILE },
     initiator_id: opts.initiator,
     responder_id: opts.responder,
-    ingress_path: null,
+    ingress_path: opts.ingressPath ?? null,
     declarations: [
       {
         ns: CAPSULE_DECLARATION_NS,
@@ -242,6 +251,7 @@ export function buildCoreForCapsule(
         critical: true,
         payload: capsuleContentForSigning(capsule),
       },
+      ...(opts.extraDeclarations ?? []),
     ],
     extensions: opts.extensions ?? [],
     created_at: opts.createdAt,

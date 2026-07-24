@@ -250,7 +250,7 @@ function isInternalTrustedSandboxHost(
   trust: boolean,
   roles: HandshakeDerivedRoles,
 ): boolean {
-  return Boolean(hr && hr.handshake_type === 'internal' && trust && roles.ledgerSandboxToHost)
+  return Boolean(hr && hr.same_principal === true && trust && roles.ledgerSandboxToHost)
 }
 
 type HostAdvertisedPeek = ReturnType<typeof peekHostAdvertisedMvpDirectEntry>
@@ -460,7 +460,7 @@ function computeHostAiRouteFieldsForDecider(
     `[INFERENCE_TRUST_DEBUG] handshake=${handshakeRecord.handshake_id} ` +
       `trusted=${inferenceTrust.trusted} reason=${inferenceTrust.reason} ` +
       `state=${handshakeRecord.state} ` +
-      `type=${handshakeRecord.handshake_type} ` +
+      `same_principal=${handshakeRecord.same_principal === true} ` +
       `identity_complete=${handshakeRecord.internal_coordination_identity_complete} ` +
       `p2p_endpoint=${handshakeRecord.p2p_endpoint ?? 'null'} ` +
       `bearer_present=${Boolean(handshakeRecord.counterparty_p2p_token)} ` +
@@ -746,7 +746,7 @@ export function decideInternalInferenceTransport(
    * even when the full WebRTC stack is enabled. Relay-only rows still use WebRTC below.
    */
   const internalPreferDirectHttp =
-    Boolean(hr?.handshake_type === 'internal') && trust && legacyPostOk && kind === 'direct' && !p2pOn
+    Boolean(hr?.same_principal === true) && trust && legacyPostOk && kind === 'direct' && !p2pOn
 
   if (internalPreferDirectHttp) {
     return {
@@ -901,7 +901,7 @@ export function decideInternalInferenceTransport(
    * Expose P2P transport as open + `connecting` so the sandbox can `ensureHostAiP2pSession` and list can wait
    * for WebRTC/DC; direct BEAP is optional. Only fail here when the P2P session is terminal.
    */
-  if (hr?.handshake_type === 'internal' && trust && kind === 'relay' && !dcUp) {
+  if (hr?.same_principal === true && trust && kind === 'relay' && !dcUp) {
     if (p2pOn && ph !== P2pSessionPhase.failed) {
       return {
         ...hostAiRouteSnap(input),
