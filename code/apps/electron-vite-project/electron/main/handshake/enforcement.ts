@@ -44,7 +44,10 @@ import {
   getExistingHandshakesForLookup,
   insertAuditLogEntry,
   markContextBlocksInactiveByHandshake,
+  refreshInternalHandshakePersistenceFlags,
 } from './db'
+import { resolveProfile } from '@repo/ingestion-core'
+import { wireDeclaresSamePrincipal } from './samePrincipalWire'
 import { ingestContextBlocks } from './contextIngestion'
 import { indexCapsuleBlocks } from './capsuleBlockIndexer'
 import { buildSuccessAuditEntry, buildDenialAuditEntry, type WireFormatMarker } from './auditLog'
@@ -59,6 +62,7 @@ export { getNextStateAfterInboundContextSync }
 import { getP2PConfig } from '../p2p/p2pConfig'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
 import { retryDeferredInitialContextSyncForInternalHandshake } from './contextSyncEnqueue'
+import { stageInboundInitiate, completeFormationConsent, type FormationConsentRef } from './formationPipeline'
 /**
  * Map ValidatedCapsule's capsule_type to the handshake layer's CapsuleType.
  * internal_draft is not a handshake capsule type — it should not reach here.
@@ -189,6 +193,15 @@ export function processHandshakeCapsule(
   validated: ValidatedCapsule,
   receiverPolicy: ReceiverPolicy,
   ssoSession: SSOSession,
+  opts?: {
+    /**
+     * Phase 4 (Q1) [IX.3.1]: the consent gate. Without this, an inbound
+     * initiate capsule that passes the FULL verification chain produces a
+     * staged Connect offer — never a relationship row. Only the consent
+     * flow (formationPipeline.prepareFormationConsent) hands one in.
+     */
+    formationConsent?: FormationConsentRef
+  },
 ): HandshakeProcessResult {
   // Runtime guard: reject any input that did not pass through the Validator.
   // This catches forged objects, `as ValidatedCapsule` casts, and prototype-hacked inputs.
@@ -450,6 +463,43 @@ export function processHandshakeCapsule(
 
   const tierDecision = pipelineResult.context.tierDecision!
 
+  // 4b. Phase 4 (Q1) [IX.3.1 rules 1–4]: inbound initiate WITHOUT a consent
+  // event → Connect-offer staging store, NOT the relationship store. The
+  // full verification chain above has passed; a failed chain already
+  // returned (audit-logged) and therefore no offer is ever reachable for
+  // it. Context blocks land only after consent (pre-visibility).
+  if (input.capsuleType === 'handshake-initiate' && !opts?.formationConsent) {
+    const staging = stageInboundInitiate({
+      handshake_id: input.handshake_id,
+      capsule: capsuleObj,
+      capsule_hash: input.capsule_hash,
+      sender_email: input.senderIdentity?.email ?? null,
+      sender_iss: input.senderIdentity?.iss ?? null,
+      sender_sub: input.senderIdentity?.sub ?? null,
+      sender_wrdesk_user_id: input.sender_wrdesk_user_id ?? null,
+      receiver_email: input.receiver_email ?? null,
+      source_type: validated.provenance?.source_type ?? 'api',
+    })
+    if (!staging.staged && staging.reason !== 'duplicate') {
+      return {
+        success: false,
+        reason: ReasonCode.INTERNAL_ERROR,
+        failedStep: 'connect_offer_staging',
+        detail: staging.reason,
+        pipelineDurationMs: Math.round(performance.now() - startTime),
+      }
+    }
+    return {
+      success: true,
+      staged: true,
+      offerId: staging.offerId!,
+      handshakeRecord: null,
+      blocksStored: 0,
+      tierDecision,
+      pipelineDurationMs: Math.round(performance.now() - startTime),
+    }
+  }
+
   // 5. Compute record mutations
   let record: HandshakeRecord
   let blocksStored = 0
@@ -493,8 +543,26 @@ export function processHandshakeCapsule(
 
   const tx = db.transaction(() => {
     if (input.capsuleType === 'handshake-initiate') {
+      // Only reachable behind the consent gate (4b staged everything else).
       record = buildInitiateRecord(input, ssoSession, tierDecision, effectivePolicy, senderP2PEndpoint, senderP2PAuthToken, senderPublicKey, senderX25519, senderMlkem768)
-      insertHandshakeRecord(db, record)
+      const formationMeta = opts?.formationConsent?.formation
+      if (formationMeta) {
+        // Same-principal admission is a PROFILE-REGISTRY parameter (Q9) —
+        // the legacy row column is written FROM the profile record at this
+        // single persistence boundary (replaces the deleted force-internal
+        // UPDATE in the .beap import dialect).
+        const profileRes = resolveProfile(formationMeta.profile_id, formationMeta.profile_version)
+        if (profileRes.ok && profileRes.record.same_principal && record.same_principal !== true) {
+          record = { ...record, same_principal: true }
+        }
+      }
+      insertHandshakeRecord(db, record, formationMeta)
+      if (formationMeta) {
+        const profileRes = resolveProfile(formationMeta.profile_id, formationMeta.profile_version)
+        if (profileRes.ok && profileRes.record.same_principal) {
+          try { refreshInternalHandshakePersistenceFlags(db, record.handshake_id) } catch { /* flags refresh is best-effort */ }
+        }
+      }
     } else if (input.capsuleType === 'handshake-accept') {
       record = buildAcceptRecord(handshakeRecord!, input, ssoSession, tierDecision, effectivePolicy, senderP2PEndpoint, senderP2PAuthToken, senderPublicKey, senderX25519, senderMlkem768)
       updateHandshakeRecord(db, record)
@@ -671,7 +739,7 @@ export function processHandshakeCapsule(
     tx()
     if (input.capsuleType === 'handshake-accept') {
       const r = getHandshakeRecord(db, input.handshake_id)
-      if (r?.handshake_type === 'internal' && r.local_role === 'initiator' && r.state === HS.ACCEPTED) {
+      if (r?.same_principal === true && r.local_role === 'initiator' && r.state === HS.ACCEPTED) {
         scheduleInternalInitiatorPostAcceptCoordinationRepair(db, input.handshake_id, ssoSession)
       }
     }
@@ -711,6 +779,15 @@ export function processHandshakeCapsule(
       failedStep: isIngestionFailure ? 'context_ingestion' : 'atomic_transaction',
       detail: errMsg,
       pipelineDurationMs: durationMs,
+    }
+  }
+
+  // Consent-gated formation committed — consume the staged offer.
+  if (opts?.formationConsent) {
+    try {
+      completeFormationConsent(opts.formationConsent)
+    } catch (e: any) {
+      console.warn('[CONNECT_OFFER] completeFormationConsent failed (record committed):', e?.message)
     }
   }
 
@@ -888,9 +965,9 @@ function buildInitiateRecord(
     peer_x25519_public_key_b64: senderX25519,
     peer_mlkem768_public_key_b64: senderMlkem768,
     receiver_email: input.receiver_email || null,
-    ...(input.handshake_type === 'internal'
+    ...(wireDeclaresSamePrincipal(input)
       ? {
-          handshake_type: 'internal' as const,
+          same_principal: true,
           initiator_coordination_device_id: input.sender_device_id?.trim() || null,
           acceptor_coordination_device_id: input.receiver_device_id?.trim() || null,
           initiator_device_name: input.sender_computer_name?.trim() || null,
@@ -1004,7 +1081,7 @@ function buildAcceptRecord(
       : (existing.peer_mlkem768_public_key_b64 ?? null),
   }
 
-  if (existing.handshake_type === 'internal' && existing.local_role === 'initiator') {
+  if (existing.same_principal === true && existing.local_role === 'initiator') {
     // Initiator row: on internal accept, wire `sender_*` is the acceptor’s coordination identity.
     const acceptorDev = input.sender_device_id?.trim() || undefined
     const acceptorRole = input.sender_device_role ?? undefined
@@ -1041,7 +1118,7 @@ function scheduleInternalInitiatorPostAcceptCoordinationRepair(
         const getToken = () => ipc.getCoordinationOidcToken()
         const rec = getHandshakeRecord(db, handshakeId)
         if (!rec) return
-        if (rec.handshake_type !== 'internal' || rec.local_role !== 'initiator' || rec.state !== HS.ACCEPTED) {
+        if (rec.same_principal !== true || rec.local_role !== 'initiator' || rec.state !== HS.ACCEPTED) {
           return
         }
         if (!rec.acceptor) {
@@ -1070,7 +1147,7 @@ function scheduleInternalInitiatorPostAcceptCoordinationRepair(
                 acceptor_email: rec.acceptor.email,
                 initiator_device_id: iid,
                 acceptor_device_id: aid,
-                handshake_type: 'internal',
+                same_principal: true,
               },
             )
             if (!reg.success) {
@@ -1093,7 +1170,7 @@ function scheduleInternalInitiatorPostAcceptCoordinationRepair(
 function inboundPeerP2pAuthTokenUpdate(existing: HandshakeRecord, input: VerifiedCapsuleInput): string | null {
   const tok = input.p2p_auth_token?.trim()
   if (!tok) return null
-  if (existing.handshake_type === 'internal') {
+  if (existing.same_principal === true) {
     const senderDev = input.sender_device_id?.trim() ?? ''
     if (!senderDev) return null
     const peerDev =

@@ -62,6 +62,14 @@ export interface WrProfileRecord {
    * types — no new grant vocabulary may attach to them.
    */
   frozen_for_new_grant_types: boolean
+  /**
+   * Phase 4 (Q9): the admission situation "both endpoints belong to the SAME
+   * principal" is a PROFILE PARAMETER, not a code branch. Replaces the
+   * eliminated `handshake_type: 'internal' | 'standard'` discriminator:
+   * everything that used to branch on `handshake_type === 'internal'` reads
+   * this registry field instead.
+   */
+  same_principal: boolean
   /** Human-readable admission-situation label (UI rendering only). */
   display_label: string
 }
@@ -80,6 +88,7 @@ const RECORDS: readonly WrProfileRecord[] = Object.freeze([
     permitted_ingress_paths: ['wr_code_public', 'wr_ad'],
     permitted_grant_vocabularies: [],
     frozen_for_new_grant_types: false,
+    same_principal: false,
     display_label: 'Publisher (PBEAP)',
   },
   {
@@ -90,9 +99,10 @@ const RECORDS: readonly WrProfileRecord[] = Object.freeze([
     signature_cardinality: 1,
     mutual_consent_required: true,
     attestation: 'forbidden',
-    permitted_ingress_paths: ['wr_code_red', 'beap_invitation', 'relay_code_claim'],
+    permitted_ingress_paths: ['wr_code_red', 'beap_invitation', 'relay_code_claim', 'optirando.ingress.file_import'],
     permitted_grant_vocabularies: [],
     frozen_for_new_grant_types: false,
+    same_principal: false,
     display_label: 'Private / personal',
   },
   {
@@ -106,6 +116,7 @@ const RECORDS: readonly WrProfileRecord[] = Object.freeze([
     permitted_ingress_paths: ['wr_code_red', 'beap_invitation', 'relay_code_claim', 'optirando_code_entry'],
     permitted_grant_vocabularies: [],
     frozen_for_new_grant_types: false,
+    same_principal: false,
     display_label: 'Organization internal',
   },
   {
@@ -119,7 +130,25 @@ const RECORDS: readonly WrProfileRecord[] = Object.freeze([
     permitted_ingress_paths: ['wr_code_red', 'beap_invitation', 'relay_code_claim'],
     permitted_grant_vocabularies: [],
     frozen_for_new_grant_types: false,
+    same_principal: false,
     display_label: 'Organization cross',
+  },
+  {
+    // Phase 4 (Q9): Internal Handshake — same-user device pairing. Both
+    // endpoints belong to the SAME principal; "Cross-Device" is the UI label,
+    // not a separate mechanism. The 6-digit pairing code is the
+    // interim-conforming capture as `optirando_code_entry` (Q5).
+    id: 'internal_device',
+    version: 1,
+    role_symmetry: 'symmetric',
+    signature_cardinality: 1,
+    mutual_consent_required: true,
+    attestation: 'forbidden',
+    permitted_ingress_paths: ['optirando_code_entry', 'beap_invitation', 'optirando.ingress.file_import'],
+    permitted_grant_vocabularies: [],
+    frozen_for_new_grant_types: false,
+    same_principal: true,
+    display_label: 'Cross-Device',
   },
   {
     // Q2: blesses the historical signature discipline. Migrated/backfilled
@@ -134,9 +163,21 @@ const RECORDS: readonly WrProfileRecord[] = Object.freeze([
     permitted_ingress_paths: null,
     permitted_grant_vocabularies: [],
     frozen_for_new_grant_types: true,
+    same_principal: false,
     display_label: 'Legacy (pre-registry)',
   },
 ] satisfies WrProfileRecord[])
+
+/**
+ * Phase 4 (V8/I3) [XI.3-I9]: formation dialects RETIRED for new formations.
+ * These identifiers are intentionally NOT registered as profiles — resolving
+ * them fails closed as `unknown_profile`, and no adapter maps them onto a
+ * registered profile. Existing edge-agent pairings remain readable by the
+ * agent's own state store (read-only transition window); new device pairings
+ * form exclusively through the one pipeline under `internal_device`.
+ * Deployed agents are expected to upgrade in lockstep with the orchestrator.
+ */
+export const RETIRED_FORMATION_DIALECTS = Object.freeze(['edge_ingestor'] as const)
 
 const BY_ID = new Map<string, WrProfileRecord[]>()
 for (const record of RECORDS) {

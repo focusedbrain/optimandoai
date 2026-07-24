@@ -50,7 +50,8 @@ export async function registerHandshakeWithRelay(
     initiator_device_id?: string
     /** Optional — same-user / internal relay routing; omit for cross-party (unchanged). */
     acceptor_device_id?: string
-    handshake_type?: 'internal' | 'standard'
+    /** Profile-derived same-principal parameter (Q9) — emitted to the relay as the legacy wire field. */
+    same_principal?: boolean
   },
 ): Promise<{ success: boolean; error?: string }> {
   if (!db) return { success: false, error: 'No database' }
@@ -85,7 +86,7 @@ export async function registerHandshakeWithRelay(
         acceptor_user_id: handshakeDetails.acceptor_user_id,
         initiator_device_id: handshakeDetails.initiator_device_id ?? null,
         acceptor_device_id: handshakeDetails.acceptor_device_id ?? null,
-        handshake_type: handshakeDetails.handshake_type ?? null,
+        same_principal: handshakeDetails.same_principal === true,
         token_sub: tokenSub,
       }),
     )
@@ -108,7 +109,8 @@ export async function registerHandshakeWithRelay(
     if (handshakeDetails.acceptor_device_id) {
       registrationBody.acceptor_device_id = handshakeDetails.acceptor_device_id
     }
-    if (handshakeDetails.handshake_type === 'internal') {
+    if (handshakeDetails.same_principal === true) {
+      // Legacy relay wire field (server compat) — derived from profile.
       registrationBody.handshake_type = 'internal'
     }
     try {
@@ -247,7 +249,7 @@ export async function reregisterInternalHandshakeAfterCoordinationP2pSignal403(
   const hid = String(handshakeId ?? '').trim()
   if (!db || !hid) return { ok: false, reason: 'no_db_or_handshake' }
   const record = getHandshakeRecord(db, hid)
-  if (!record || record.handshake_type !== 'internal') {
+  if (!record || record.same_principal !== true) {
     return { ok: false, reason: 'not_internal' }
   }
   const cfg = getP2PConfig(db)
@@ -262,7 +264,7 @@ export async function reregisterInternalHandshakeAfterCoordinationP2pSignal403(
 
   const { coordinationRegistryUserIdsForSession } = await import('./relayIdentity')
   const regUserIds = coordinationRegistryUserIdsForSession(session, {
-    handshake_type: record.handshake_type,
+    same_principal: record.same_principal === true,
     initiator: record.initiator,
     acceptor: record.acceptor,
   })
@@ -272,7 +274,7 @@ export async function reregisterInternalHandshakeAfterCoordinationP2pSignal403(
     acceptor_user_id: regUserIds.acceptor_user_id,
     initiator_email: record.initiator?.email ?? '',
     acceptor_email: record.acceptor?.email ?? '',
-    handshake_type: 'internal',
+    same_principal: true,
     ...(record.initiator_coordination_device_id?.trim()
       ? { initiator_device_id: record.initiator_coordination_device_id.trim() }
       : {}),

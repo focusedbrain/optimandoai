@@ -25,7 +25,7 @@ interface HandshakeRecord {
   acceptor: { email: string; wrdesk_user_id: string } | null
   local_role: 'initiator' | 'acceptor'
   receiver_email?: string | null
-  handshake_type?: 'internal' | 'standard' | null
+  same_principal?: boolean | null
   initiator_device_role?: 'host' | 'sandbox' | null
   /** 6-digit pairing code from the initiate capsule's `receiver_pairing_code`. New
    *  internal capsules carry this; legacy capsules omit it (acceptance falls back
@@ -69,7 +69,7 @@ export default function AcceptHandshakeModal({
   const [localPairingCodeHint, setLocalPairingCodeHint] = useState<string | null>(null)
 
   const isInternal =
-    record.handshake_type === 'internal' ||
+    record.same_principal === true ||
     isSameAccountHandshakeEmails(record.initiator?.email, record.receiver_email)
 
   // Pairing-code-routed capsules carry receiver_pairing_code; legacy capsules don't.

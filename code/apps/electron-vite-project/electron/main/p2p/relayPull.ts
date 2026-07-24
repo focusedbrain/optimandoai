@@ -361,7 +361,7 @@ export async function pullFromRelay(
                       localRelayDev = ''
                     }
                     const reverseInternalWire = internalRelayCapsuleWireOptsFromRecord(record, localRelayDev)
-                    if (record.handshake_type === 'internal' && !reverseInternalWire) {
+                    if (record.same_principal === true && !reverseInternalWire) {
                       console.warn(
                         '[Relay] Skipping reverse context_sync — internal relay identity incomplete, handshake:',
                         record.handshake_id,

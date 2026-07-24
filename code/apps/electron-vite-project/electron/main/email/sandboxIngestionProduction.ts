@@ -45,7 +45,7 @@ export function findActiveSandboxToHostHandshakeRecord(db: unknown): HandshakeRe
   const localId = getInstanceId().trim()
   const rows = listHandshakeRecords(db as never, {
     state: HandshakeState.ACTIVE,
-    handshake_type: 'internal',
+    same_principal: true,
   })
   for (const r of rows) {
     const dr = deriveInternalHostAiPeerRoles(r, localId)

@@ -64,7 +64,7 @@ function makeHandshakeRecord(id: string): HandshakeRecord {
   return {
     handshake_id: id,
     state: HandshakeState.ACTIVE,
-    handshake_type: 'internal',
+    same_principal: true,
     relationship_id: 'rel-b9',
     local_role: 'initiator',
     initiator_device_role: 'host',

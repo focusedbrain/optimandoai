@@ -90,6 +90,7 @@ export {
   listProfileRecords,
   checkProfileContainerRules,
   PUBLISHER_ATTESTATION_NS,
+  RETIRED_FORMATION_DIALECTS,
 } from './profileRegistry.js';
 export type { WrProfileRecord, ProfileResolution, ProfileContainerVerdict } from './profileRegistry.js';
 // Phase 3 — ingress_path registry (Q4 groundwork) [VII.4.6]
@@ -99,6 +100,22 @@ export {
   isRecordableIngressPath,
 } from './ingressRegistry.js';
 export type { IngressPathEntry } from './ingressRegistry.js';
+// Phase 4 — capture methods + invitation classes (V2, C1–C3) [IX.3.1, IX.3.2]
+export {
+  CAPTURE_METHOD_REGISTRY,
+  INVITATION_CLASS_REGISTRY,
+  resolveCaptureMethodForFormation,
+  resolveInvitationClassForFormation,
+  captureMethodPermitsIngressPath,
+} from './captureMethods.js';
+export type {
+  CaptureMethodId,
+  CaptureMethodEntry,
+  InvitationClassId,
+  InvitationClassEntry,
+  CaptureMethodResolution,
+  InvitationClassResolution,
+} from './captureMethods.js';
 export { ingestInput } from './ingestor.js';
 export { validateCapsule, validateSessionImportArtefact } from './validator.js';
 export { validateDecryptedBeapContent, CONTENT_VALIDATOR_VERSION } from './contentValidator.js';

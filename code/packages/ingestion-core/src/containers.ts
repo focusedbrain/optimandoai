@@ -85,6 +85,10 @@ export const IMPLEMENTED_NAMESPACES: ReadonlySet<string> = new Set([
   // Full v2 capsule content carried as the signed core's capsule declaration
   // (Phase 2 dual-format wire; see electron handshake/canonicalCore.ts).
   'optirando.decl.capsule',
+  // Phase 4 [IX.3.1 rule 5]: capture provenance (method + source reference)
+  // as a signed contract field on NEW formations. Log/render-only — no
+  // semantic branch may read the payload (same discipline as ingress_path).
+  'optirando.decl.capture_provenance',
 ])
 
 /**

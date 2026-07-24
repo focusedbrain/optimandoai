@@ -191,7 +191,7 @@ export function assertHostMachineSessionMatchesHandshakeHostParty(
   // and more robust after the host/sandbox process-split — to match the session against EITHER party
   // rather than only the host-role party (whose identity JSON can be incomplete on one ledger copy
   // post-split, which previously produced spurious HOST_AI_IDENTITY_INCOMPLETE / *_OFFLINE denials).
-  if (record.handshake_type !== 'internal' || !handshakeSamePrincipal(record)) {
+  if (record.same_principal !== true || !handshakeSamePrincipal(record)) {
     return { ok: false, code: InternalInferenceErrorCode.HOST_AI_IDENTITY_INCOMPLETE }
   }
   const sessionParty = partyIdentityFromSession(session)

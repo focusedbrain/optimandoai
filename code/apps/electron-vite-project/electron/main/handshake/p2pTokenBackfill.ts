@@ -81,7 +81,7 @@ export function runActiveHandshakeLocalP2pTokenBackfill(
     }
     const internalWire = internalRelayCapsuleWireOptsFromRecord(rec, localDev)
     const p2pCfg = getP2PConfig(db)
-    if (rec.handshake_type === 'internal' && p2pCfg.use_coordination && !internalWire) {
+    if (rec.same_principal === true && p2pCfg.use_coordination && !internalWire) {
       continue
     }
 

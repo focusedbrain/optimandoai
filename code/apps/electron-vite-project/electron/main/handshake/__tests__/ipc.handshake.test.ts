@@ -5,7 +5,7 @@
  * IPC methods work correctly with mocked email transport and local pipeline.
  */
 
-import { describe, test, expect, beforeEach, vi } from 'vitest'
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   handleHandshakeRPC,
   setSSOSessionProvider,
@@ -20,6 +20,16 @@ import { createHandshakeTestDb } from './handshakeTestDb'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
 import { buildInitiateCapsule, buildAcceptCapsule } from '../capsuleBuilder'
 import { handleIngestionRPC } from '../../ingestion/ipc'
+import {
+  installInMemoryConnectOffers,
+  uninstallInMemoryConnectOffers,
+  submitCapsuleThroughConsentGate,
+} from './connectOfferConsentTestKit'
+
+// Phase 4 [IX.3.1]: inbound initiates stage a Connect offer; the kit consents
+// and re-runs the one pipeline behind the consent gate.
+beforeEach(() => installInMemoryConnectOffers())
+afterEach(() => uninstallInMemoryConnectOffers())
 import { updateHandshakeSigningKeys, updateHandshakeRecord, getHandshakeRecord } from '../db'
 import { mockKeypairFields, MOCK_EXTENSION_X25519_PUBLIC_B64 } from './mockKeypair'
 import type { SSOSession } from '../types'
@@ -394,16 +404,10 @@ describe('Handshake IPC — handshake.refresh', () => {
       receiverEmail: receiver.email,
       reciprocal_allowed: true,
     })
-    await handleIngestionRPC(
-      'ingestion.ingest',
-      {
-        rawInput: { body: JSON.stringify(initiate), mime_type: 'application/vnd.beap+json' },
-        sourceType: 'internal',
-        transportMeta: { channel_id: 'test' },
-      },
-      db,
-      receiver,
-    )
+    await submitCapsuleThroughConsentGate(JSON.stringify(initiate), db, receiver, {
+      sourceType: 'internal',
+      channelId: 'test',
+    })
 
     const { capsule: accept } = buildAcceptCapsule(receiver, {
       handshake_id: initiate.handshake_id,

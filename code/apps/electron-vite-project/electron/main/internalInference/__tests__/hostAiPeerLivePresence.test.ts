@@ -37,7 +37,7 @@ function sessionForId(id: string): SSOSession {
 function internalRecord(overrides: Partial<HandshakeRecord> = {}): HandshakeRecord {
   return {
     handshake_id: 'hs-live-1',
-    handshake_type: 'internal',
+    same_principal: true,
     state: HandshakeState.ACTIVE,
     initiator_device_role: 'host',
     acceptor_device_role: 'sandbox',
@@ -154,7 +154,7 @@ describe('assertHostMachineSessionMatchesHandshakeHostParty (§2 per-handshake g
   it('denies a non-internal handshake (HOST_AI_IDENTITY_INCOMPLETE) — §2', () => {
     getCurrentSessionMock.mockReturnValue(sessionForId('user-a'))
     const res = assertHostMachineSessionMatchesHandshakeHostParty(
-      internalRecord({ handshake_type: 'standard' as any }),
+      internalRecord({ same_principal: false as any }),
     )
     expect(res.ok).toBe(false)
     expect((res as { code: string }).code).toBe(InternalInferenceErrorCode.HOST_AI_IDENTITY_INCOMPLETE)

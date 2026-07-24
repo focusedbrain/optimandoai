@@ -66,7 +66,7 @@ export function inventoryRealmDistribution(
 
   for (const r of records) {
     inv.by_state[r.state] = (inv.by_state[r.state] ?? 0) + 1
-    if (r.handshake_type === 'internal') inv.internal_rows++
+    if (r.same_principal === true) inv.internal_rows++
     else inv.standard_rows++
 
     const hi = issuerHost(r.initiator)
@@ -77,7 +77,7 @@ export function inventoryRealmDistribution(
     if (r.acceptor && !ha) inv.rows_acceptor_iss_missing++
     if (hi && ha && hi !== ha) inv.rows_cross_realm_pair++
 
-    if (r.handshake_type === 'internal' && r.acceptor) {
+    if (r.same_principal === true && r.acceptor) {
       if (!samePrincipalFullClaim(r.initiator, r.acceptor).ok) {
         inv.internal_rows_principal_mismatch++
       }

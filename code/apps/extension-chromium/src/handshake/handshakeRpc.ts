@@ -178,7 +178,8 @@ export async function initiateHandshake(
     profile_ids?: string[]
     profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: PolicySelectionInput }>
     policy_selections?: PolicySelectionInput
-    handshake_type?: 'internal' | 'standard'
+    /** Phase 4 (Q9): formation profile — 'internal_device' for same-principal Cross-Device pairing. */
+    profile_id?: string
     device_name?: string
     device_role?: 'host' | 'sandbox'
     counterparty_device_id?: string
@@ -211,7 +212,7 @@ export async function initiateHandshake(
     ...(options?.profile_ids?.length ? { profile_ids: options.profile_ids } : {}),
     ...(options?.profile_items?.length ? { profile_items: options.profile_items } : {}),
     ...(options?.policy_selections ? { policy_selections: options.policy_selections } : {}),
-    handshake_type: options?.handshake_type,
+    profile_id: options?.profile_id,
     device_name: options?.device_name,
     device_role: options?.device_role,
     ...(options?.counterparty_device_id?.trim()
@@ -247,7 +248,8 @@ export async function buildHandshakeForDownload(
     profile_ids?: string[]
     profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: PolicySelectionInput }>
     policy_selections?: PolicySelectionInput
-    handshake_type?: 'internal' | 'standard'
+    /** Phase 4 (Q9): formation profile — see {@link initiateHandshake}. */
+    profile_id?: string
     device_name?: string
     device_role?: 'host' | 'sandbox'
     counterparty_device_id?: string
@@ -275,7 +277,7 @@ export async function buildHandshakeForDownload(
     ...(options?.profile_ids?.length ? { profile_ids: options.profile_ids } : {}),
     ...(options?.profile_items?.length ? { profile_items: options.profile_items } : {}),
     ...(options?.policy_selections ? { policy_selections: options.policy_selections } : {}),
-    handshake_type: options?.handshake_type,
+    profile_id: options?.profile_id,
     device_name: options?.device_name,
     device_role: options?.device_role,
     ...(options?.counterparty_device_id?.trim()
@@ -791,7 +793,7 @@ export function normalizeRecord(raw: any): HandshakeRecord {
     ...keyMat,
     p2pEndpoint: raw.p2p_endpoint ?? raw.p2pEndpoint ?? undefined,
     receiver_email: raw.receiver_email ?? null,
-    handshake_type: raw.handshake_type || null,
+    same_principal: raw.same_principal === true,
     initiator_device_name: raw.initiator_device_name || null,
     acceptor_device_name: raw.acceptor_device_name || null,
     initiator_device_role: raw.initiator_device_role || null,

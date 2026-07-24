@@ -108,7 +108,7 @@ function baseRecord(over: Partial<HandshakeRecord>): HandshakeRecord {
     counterparty_p2p_token: 'pt',
     initiator: parties.initiator,
     acceptor: parties.acceptor,
-    handshake_type: 'internal',
+    same_principal: true,
     internal_coordination_repair_needed: false,
     internal_coordination_identity_complete: true,
     internal_peer_pairing_code: '123456',
@@ -155,7 +155,7 @@ describe('hostInferenceCore policy (non-internal / standard handshakes)', () => 
 
   test('rejects standard (non-internal) handshake for capabilities', async () => {
     vi.mocked(getHandshakeRecord).mockReturnValue(
-      baseRecord({ handshake_type: 'standard' }) as any,
+      baseRecord({ same_principal: false }) as any,
     )
     const r = await handleInternalInferenceCapabilitiesRequest(capEnvelope, ctx)
     expect(r.ok).toBe(false)
@@ -166,7 +166,7 @@ describe('hostInferenceCore policy (non-internal / standard handshakes)', () => 
 
   test('rejects when handshake_type is null (not internal service)', async () => {
     vi.mocked(getHandshakeRecord).mockReturnValue(
-      baseRecord({ handshake_type: null as any }) as any,
+      baseRecord({ same_principal: null as any }) as any,
     )
     const r = await handleInternalInferenceCapabilitiesRequest(capEnvelope, ctx)
     expect(r.ok).toBe(false)

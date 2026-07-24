@@ -66,7 +66,7 @@ export function classifyPartyForSessionVisibility(
   return 'foreign'
 }
 
-/** Acceptor-side file import: party identity is not bound until accept (`recipientPersist.ts`). */
+/** Acceptor-side file import: party identity is not bound until accept (Connect-offer consent gate). */
 function isPendingAcceptorPartyForSession(r: HandshakeRecord, session: SSOSession): boolean {
   if (r.local_role !== 'acceptor') return false
   if (r.state !== HandshakeState.PENDING_REVIEW) return false
@@ -83,7 +83,7 @@ export function handshakeRowVisibilityForSession(
   r: HandshakeRecord,
   session: SSOSession,
 ): HandshakeRowVisibility {
-  if (r.handshake_type === 'internal') {
+  if (r.same_principal === true) {
     if (r.acceptor) {
       if (!samePrincipalFullClaim(r.initiator, r.acceptor).ok) {
         return { ok: false, reason: 'internal_mismatched_principals' }
@@ -104,7 +104,7 @@ export function handshakeRowVisibilityForSession(
   if (vsInitiator === 'mixed_realm_repair' || vsAcceptor === 'mixed_realm_repair') {
     console.warn(REPAIR_LOG, {
       handshake_id: r.handshake_id,
-      handshake_type: r.handshake_type ?? 'standard',
+      same_principal: r.same_principal === true,
       reason: 'full_claim_guard_failed_legacy_or_logic_matched',
     })
     return { ok: true, repair_needed: true, repair_reason: 'mixed_realm_claims' }
@@ -114,7 +114,7 @@ export function handshakeRowVisibilityForSession(
   }
   return {
     ok: false,
-    reason: r.handshake_type === 'internal' ? 'internal_session_not_party' : 'standard_session_not_party',
+    reason: r.same_principal === true ? 'internal_session_not_party' : 'standard_session_not_party',
   }
 }
 
@@ -140,7 +140,7 @@ export function filterHandshakeRecordsForCurrentSession(
     if (v.ok) {
       out.push(r)
     } else {
-      console.warn(HIDDEN, { handshake_id: r.handshake_id, reason: v.reason, handshake_type: r.handshake_type })
+      console.warn(HIDDEN, { handshake_id: r.handshake_id, reason: v.reason, same_principal: r.same_principal === true })
     }
   }
   return out

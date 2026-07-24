@@ -100,7 +100,7 @@ export function getHostAiLedgerRoleSummaryFromDb(
       effective_host_ai_role: 'none',
     }
   }
-  const rows = listHandshakeRecords(db as any, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })
+  const rows = listHandshakeRecords(db as any, { state: HandshakeState.ACTIVE, same_principal: true })
   let canPublish = false
   let canProbe = false
   let anyMismatch = false

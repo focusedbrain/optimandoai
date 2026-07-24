@@ -58,7 +58,7 @@ function logInternalHsTraceOutbound(
 ): void {
   try {
     const rec = getHandshakeRecord(db, handshakeId)
-    if (rec?.handshake_type !== 'internal') return
+    if (rec?.same_principal !== true) return
     const cap = capsule as Record<string, unknown>
     let localDev = ''
     try {
@@ -76,7 +76,7 @@ function logInternalHsTraceOutbound(
         trace: 'outbound_coordination_send',
         ts: new Date().toISOString(),
         handshake_id: handshakeId,
-        handshake_type: rec.handshake_type,
+        same_principal: rec.same_principal === true,
         capsule_type: typeof cap.capsule_type === 'string' ? cap.capsule_type : null,
         sender_wrdesk_user_id:
           typeof cap.sender_wrdesk_user_id === 'string' ? cap.sender_wrdesk_user_id : null,
@@ -571,11 +571,11 @@ async function handleCoordinationOutbound403(
     const { getCurrentSession } = await import('./ipc')
     const sess = getCurrentSession()
     const initiatorId =
-      record.handshake_type === 'internal' && sess?.sub?.trim()
+      record.same_principal === true && sess?.sub?.trim()
         ? sess.sub.trim()
         : (record.initiator?.sub ?? record.initiator?.wrdesk_user_id ?? '')
     const acceptorId =
-      record.handshake_type === 'internal' && sess?.sub?.trim()
+      record.same_principal === true && sess?.sub?.trim()
         ? sess.sub.trim()
         : (record.acceptor?.sub ?? record.acceptor?.wrdesk_user_id ?? '')
     const initiatorEmail = record.initiator?.email ?? ''
@@ -586,7 +586,7 @@ async function handleCoordinationOutbound403(
         acceptor_user_id: acceptorId,
         initiator_email: initiatorEmail,
         acceptor_email: acceptorEmail,
-        handshake_type: record.handshake_type === 'internal' ? 'internal' : undefined,
+        same_principal: record.same_principal === true,
         ...(record.initiator_coordination_device_id?.trim()
           ? { initiator_device_id: record.initiator_coordination_device_id.trim() }
           : {}),

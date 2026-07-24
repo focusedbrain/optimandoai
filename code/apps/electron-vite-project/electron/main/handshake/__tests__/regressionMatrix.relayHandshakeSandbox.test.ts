@@ -54,7 +54,7 @@ function baseInternalHostSandboxRecord(overrides: Partial<HandshakeRecord> = {})
   return {
     handshake_id: 'hs-sbx-1',
     state: HandshakeState.ACTIVE,
-    handshake_type: 'internal',
+    same_principal: true,
     local_role: 'initiator',
     initiator_device_role: 'host',
     acceptor_device_role: 'sandbox',
@@ -125,7 +125,7 @@ describe('regressionMatrix — same-principal skip (§7)', () => {
       computeSamePrincipalCoordinationSkipOwn({
         hasDb: true,
         handshakeId: 'x',
-        record: { handshake_type: 'internal' },
+        record: { same_principal: true },
         capsuleSenderDeviceId: 'DEV-A',
         localDeviceId: 'DEV-A',
       }),
@@ -134,7 +134,7 @@ describe('regressionMatrix — same-principal skip (§7)', () => {
       computeSamePrincipalCoordinationSkipOwn({
         hasDb: true,
         handshakeId: 'x',
-        record: { handshake_type: 'internal' },
+        record: { same_principal: true },
         capsuleSenderDeviceId: 'DEV-SANDBOX',
         localDeviceId: 'DEV-HOST',
       }),
