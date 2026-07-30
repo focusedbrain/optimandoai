@@ -1,0 +1,75 @@
+# WR Connect — Connect your website to the WR system (approx. 10 minutes)
+
+Works with any website on ordinary web hosting (cPanel, Plesk, IONOS, GoDaddy,
+Hetzner, …) — regardless of which system the website runs on. No programming
+knowledge required. You only need:
+- access to your web space (FTP or your host's file manager), and
+- access to your domain provider (wherever you manage your domain).
+
+## Step 1 — Upload the file
+
+Upload the file **wr-connect.php** to the **root directory** of your website —
+the folder that also contains `index.html` or `index.php` (often named `htdocs`,
+`httpdocs`, `public_html`, or `www`).
+
+## Step 2 — Open it in your browser
+
+Open: **https://your-domain.com/wr-connect.php**
+
+Setup runs automatically: your security keys are generated directly on your
+server (they are never transmitted anywhere) and the WR manifest is published.
+
+**Important:** The page then shows your personal **access key** —
+**store it like a password.** You will use it to sign in to this page in the
+future. (If you lose it: it is also stored in the file
+`wr-connect-data/admin-key.txt` on your web space.)
+
+## Step 3 — Create the DNS record and check
+
+1. The admin page shows a table with **Type, Name, and Value** — copy the
+   value using the **Copy** button.
+2. Log in at your domain provider → DNS management → create a **new TXT record**:
+   - **Type:** TXT
+   - **Name/Host:** `_wr` (some providers require `_wr.your-domain.com`)
+   - **Value:** paste the copied value
+3. Save, then click **"Check now"** on the admin page.
+   Two green dots = done. (DNS changes can take minutes to hours depending on
+   your provider — if red, simply check again later.)
+
+## Frequently asked questions
+
+**What does the file do?** It cryptographically proves that your domain and your
+website belong together — via two independent channels (DNS record + a signed
+file on your website). Only this makes your website securely verifiable for
+WR users.
+
+**Is any data transmitted?** No. The file contacts no external servers and
+transmits neither keys nor visitor data.
+
+**I use WordPress.** It works exactly the same (upload the file via FTP to the
+website root). Alternatively there is a WordPress plugin with identical
+functionality, installable directly from the admin area.
+
+**My website is not on PHP hosting (e.g. a purely static site on
+Netlify/GitHub Pages).** In that case the Optirando onboarding takes over
+(keys and files are generated there and provided to you for upload) — this
+path follows separately.
+
+**What comes later?** An update adds secure login detection (login/logout
+binding). Nothing to prepare — the required keys are already in place.
+
+## Security notes
+
+- **Open the file immediately after uploading it.** Setup runs on the first
+  visit and shows the admin address only once. If you suspect someone else
+  opened it first: delete the folder `wr-connect-data/` via FTP and open the
+  file again — new keys will be generated.
+- **Optional, minimal exposure:** once both checks are green you may **delete
+  `wr-connect.php` from the server**. Verification keeps working — the manifest
+  at `/.well-known/wr/manifest` is a static file. Keep the folder
+  `wr-connect-data/` (it holds your keys) and re-upload the script when a
+  future update adds the login binding.
+- Your access key is shown once at setup and works like a password: you enter
+  it in the sign-in form of the admin page. It is never part of any web address,
+  so it cannot leak via browser history, bookmarks, or server logs. Backup copy:
+  `wr-connect-data/admin-key.txt` on your web space.
