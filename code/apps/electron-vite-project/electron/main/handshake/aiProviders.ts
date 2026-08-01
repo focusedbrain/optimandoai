@@ -61,6 +61,11 @@ export interface GenerateChatOptions {
    * caller's client-side timeout.
    */
   maxTokens?: number
+  /**
+   * Art. 50: optional out-param filled with provenance already attached at stream/chat
+   * aggregation (exactly once). Callers must not re-mint.
+   */
+  provenanceOut?: { value?: import('../../../../../packages/shared/src/aiProvenance').AiProvenance }
 }
 
 export interface AIProvider {
@@ -279,7 +284,9 @@ export class OllamaProvider implements AIProvider {
         autosortDiagLog('OllamaProvider.generateChat:stream-start', { model, promptCharsApprox: _pc })
       }
       try {
-        return (await streamOllamaChat(model, systemMsg, userMsg, send, this.baseUrl)).content
+        const streamed = await streamOllamaChat(model, systemMsg, userMsg, send, this.baseUrl)
+        if (options?.provenanceOut) options.provenanceOut.value = streamed.provenance
+        return streamed.content
       } catch (e: unknown) {
         logOllamaProviderError({
           lane: this.lane,
@@ -404,6 +411,18 @@ export class OllamaProvider implements AIProvider {
       const extracted = extractLlamaChatContent(data.choices?.[0]?.message)
       if (extracted.usedReasoningFallback) {
         console.warn(`[LLM] reasoning_content_fallback model=${model} content_empty=true`)
+      }
+      // Art. 50: when caller requests provenanceOut, attach exactly once here (non-stream path).
+      if (options?.provenanceOut) {
+        const { attachAndLogProvenance } = await import('../aiProvenance/attachProvenance')
+        const { extractUpstreamMarking } = await import('../../../../../packages/shared/src/aiProvenance/generate')
+        const attached = attachAndLogProvenance(extracted.content, {
+          model_id: model,
+          provider: 'local',
+          upstream_marking: extractUpstreamMarking(data),
+        })
+        options.provenanceOut.value = attached.provenance
+        return attached.content
       }
       return extracted.content
     } catch (e: unknown) {
@@ -575,19 +594,39 @@ export class CloudAIProvider implements AIProvider {
     }
 
     const signal = options?.signal
+    const provenanceOut = options?.provenanceOut
     if (provider === 'openai') {
-      return this._chatOpenAI(messages, model, apiKey, stream, send, signal, options?.temperature)
+      return this._chatOpenAI(messages, model, apiKey, stream, send, signal, options?.temperature, provenanceOut)
     }
     if (provider === 'anthropic') {
-      return this._chatAnthropic(messages, model, apiKey, stream, send, signal)
+      return this._chatAnthropic(messages, model, apiKey, stream, send, signal, provenanceOut)
     }
     if (provider === 'google') {
-      return this._chatGoogle(messages, model, apiKey, stream, send, signal)
+      return this._chatGoogle(messages, model, apiKey, stream, send, signal, provenanceOut)
     }
     if (provider === 'xai') {
-      return this._chatXai(messages, model, apiKey, stream, send, signal)
+      return this._chatXai(messages, model, apiKey, stream, send, signal, provenanceOut)
     }
     throw new Error(`Unsupported cloud provider: ${provider}`)
+  }
+
+  private async _attachCloudProvenanceIfRequested(
+    content: string,
+    model: string,
+    providerLabel: import('../../../../../packages/shared/src/aiProvenance').AiProvenanceProvider,
+    provenanceOut: GenerateChatOptions['provenanceOut'],
+    upstreamBody?: unknown,
+  ): Promise<string> {
+    if (!provenanceOut) return content
+    const { attachAndLogProvenance } = await import('../aiProvenance/attachProvenance')
+    const { extractUpstreamMarking } = await import('../../../../../packages/shared/src/aiProvenance/generate')
+    const attached = attachAndLogProvenance(content, {
+      model_id: model,
+      provider: providerLabel,
+      upstream_marking: extractUpstreamMarking(upstreamBody),
+    })
+    provenanceOut.value = attached.provenance
+    return attached.content
   }
 
   private async _chatOpenAI(
@@ -598,12 +637,15 @@ export class CloudAIProvider implements AIProvider {
     send: StreamSender,
     signal?: AbortSignal,
     temperature?: number,
+    provenanceOut?: GenerateChatOptions['provenanceOut'],
   ): Promise<string> {
     if (stream && send) {
       const { streamOpenAIChat } = await import('./llmStream')
       const systemMsg = messages.find(m => m.role === 'system')?.content ?? ''
       const userMsg = messages.find(m => m.role === 'user')?.content ?? ''
-      return (await streamOpenAIChat(model, systemMsg, userMsg, apiKey, send)).content
+      const streamed = await streamOpenAIChat(model, systemMsg, userMsg, apiKey, send)
+      if (provenanceOut) provenanceOut.value = streamed.provenance
+      return streamed.content
     }
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -617,7 +659,8 @@ export class CloudAIProvider implements AIProvider {
     })
     if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`)
     const data = await res.json()
-    return data.choices?.[0]?.message?.content ?? 'No response from model.'
+    const content = data.choices?.[0]?.message?.content ?? 'No response from model.'
+    return this._attachCloudProvenanceIfRequested(content, model, 'cloud:openai', provenanceOut, data)
   }
 
   private async _chatAnthropic(
@@ -627,13 +670,16 @@ export class CloudAIProvider implements AIProvider {
     stream: boolean,
     send: StreamSender,
     signal?: AbortSignal,
+    provenanceOut?: GenerateChatOptions['provenanceOut'],
   ): Promise<string> {
     const systemMsg = messages.find(m => m.role === 'system')?.content ?? ''
     const userMsg = messages.find(m => m.role === 'user')?.content ?? ''
 
     if (stream && send) {
       const { streamAnthropicChat } = await import('./llmStream')
-      return (await streamAnthropicChat(model, systemMsg, userMsg, apiKey, send)).content
+      const streamed = await streamAnthropicChat(model, systemMsg, userMsg, apiKey, send)
+      if (provenanceOut) provenanceOut.value = streamed.provenance
+      return streamed.content
     }
     const combined = systemMsg ? `${systemMsg}\n\n${userMsg}` : userMsg
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -648,7 +694,8 @@ export class CloudAIProvider implements AIProvider {
     })
     if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`)
     const data = await res.json()
-    return data.content?.[0]?.text ?? 'No response from model.'
+    const content = data.content?.[0]?.text ?? 'No response from model.'
+    return this._attachCloudProvenanceIfRequested(content, model, 'cloud:anthropic', provenanceOut, data)
   }
 
   private async _chatGoogle(
@@ -658,13 +705,16 @@ export class CloudAIProvider implements AIProvider {
     stream: boolean,
     send: StreamSender,
     signal?: AbortSignal,
+    provenanceOut?: GenerateChatOptions['provenanceOut'],
   ): Promise<string> {
     const systemMsg = messages.find(m => m.role === 'system')?.content ?? ''
     const userMsg = messages.find(m => m.role === 'user')?.content ?? ''
 
     if (stream && send) {
       const { streamGoogleChat } = await import('./llmStream')
-      return (await streamGoogleChat(model, systemMsg, userMsg, apiKey, send)).content
+      const streamed = await streamGoogleChat(model, systemMsg, userMsg, apiKey, send)
+      if (provenanceOut) provenanceOut.value = streamed.provenance
+      return streamed.content
     }
     const combined = systemMsg ? `${systemMsg}\n\n${userMsg}` : userMsg
     const res = await fetch(
@@ -681,7 +731,8 @@ export class CloudAIProvider implements AIProvider {
     )
     if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`)
     const data = await res.json()
-    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response from model.'
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response from model.'
+    return this._attachCloudProvenanceIfRequested(content, model, 'cloud:gemini', provenanceOut, data)
   }
 
   private async _chatXai(
@@ -691,12 +742,15 @@ export class CloudAIProvider implements AIProvider {
     stream: boolean,
     send: StreamSender,
     signal?: AbortSignal,
+    provenanceOut?: GenerateChatOptions['provenanceOut'],
   ): Promise<string> {
     if (stream && send) {
       const { streamXaiChat } = await import('./llmStream')
       const systemMsg = messages.find(m => m.role === 'system')?.content ?? ''
       const userMsg = messages.find(m => m.role === 'user')?.content ?? ''
-      return (await streamXaiChat(model, systemMsg, userMsg, apiKey, send)).content
+      const streamed = await streamXaiChat(model, systemMsg, userMsg, apiKey, send)
+      if (provenanceOut) provenanceOut.value = streamed.provenance
+      return streamed.content
     }
     const res = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
@@ -706,7 +760,8 @@ export class CloudAIProvider implements AIProvider {
     })
     if (!res.ok) throw new Error(`xAI ${res.status}: ${await res.text()}`)
     const data = await res.json()
-    return data.choices?.[0]?.message?.content ?? 'No response from model.'
+    const content = data.choices?.[0]?.message?.content ?? 'No response from model.'
+    return this._attachCloudProvenanceIfRequested(content, model, 'cloud:xai', provenanceOut, data)
   }
 
   /** Check if embeddings are available (OpenAI key present). */

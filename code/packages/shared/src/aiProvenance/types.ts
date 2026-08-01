@@ -41,5 +41,7 @@ export type AiTextWithProvenance = {
 
 export const AI_VISIBLE_LABEL_LINE = '[AI-generated]'
 export const AI_UNVERIFIED_PROVENANCE_LABEL = 'AI-generated (unverified provenance)'
+/** Carrier-time meta only — never invent model_id / generated_at / content_sha256. */
+export const AI_CARRIER_ONLY_SCHEME = 'optirando-prov/1-carrier-only' as const
 export const AI_DISCLOSURE_ACK_KEY_MAIN = 'art50.aiDisclosure.acknowledgedAt'
 export const AI_DISCLOSURE_ACK_KEY_EXTENSION = 'art50_ai_disclosure_acknowledged_at'

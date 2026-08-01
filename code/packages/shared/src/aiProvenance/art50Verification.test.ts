@@ -2,12 +2,12 @@
  * WP9 — lightweight Art. 50 verification checks (headless).
  */
 import { describe, expect, it } from 'vitest'
+import { createProvenance } from './generate'
 import {
   AI_DISCLOSURE_ACK_KEY_EXTENSION,
   AI_DISCLOSURE_ACK_KEY_MAIN,
   AI_VISIBLE_LABEL_LINE,
   buildClipboardHtml,
-  createProvenance,
   markEditorialResponsible,
   markHumanEdited,
   serializeForHtmlMeta,

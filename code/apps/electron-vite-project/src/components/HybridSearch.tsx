@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
 import { AiInteractionDisclosure } from './ai/AiInteractionDisclosure'
 import { writeAiClipboard } from '../lib/aiClipboard'
-import { createProvenance } from '@shared/aiProvenance'
+import { isAiProvenance, type AiProvenance } from '@shared/aiProvenance'
 import {
   GROUP_CLOUD,
   GROUP_HOST_MODELS,
@@ -635,6 +635,7 @@ function prependChatAttachmentsToUserText(trimmed: string, attachments: ChatAtta
 interface ChatTurn {
   role: 'user' | 'assistant'
   content: string
+  provenance?: AiProvenance
 }
 
 const SUPPORTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
@@ -690,6 +691,8 @@ export default function HybridSearch({
 
   /** General chat conversation — user + assistant turns (non-draft-refine mode only) */
   const [chatMessages, setChatMessages] = useState<ChatTurn[]>([])
+  /** Provenance of the current (most recent) AI response — cleared on new query. */
+  const [chatResponseProvenance, setChatResponseProvenance] = useState<AiProvenance | null>(null)
   const chatContainerRef = useRef<HTMLDivElement>(null)
   /** Bumped on letter-composer field switch and on each chat submit so stale stream tokens are ignored. */
   const chatGenerationRef = useRef(0)
@@ -1091,16 +1094,14 @@ export default function HybridSearch({
         : undefined
       if (port === 'letter') return
       if (applyLetterComposerUseFromText(content)) return
-      const prov = createProvenance(content, {
-        model_id: selectedModelRef.current || 'unknown',
-        provider: 'local',
-      })
+      // Use provenance from the current AI response — do NOT mint in renderer.
+      const prov = chatResponseProvenance ?? undefined
       if (window.__wrdeskInsertDraft) window.__wrdeskInsertDraft(content, mode, prov)
       window.dispatchEvent(
         new CustomEvent('wrdesk:field-ai-applied', { detail: { text: content, mode, provenance: prov } }),
       )
     },
-    [applyLetterComposerUseFromText],
+    [applyLetterComposerUseFromText, chatResponseProvenance],
   )
 
   const contextDocuments = useAiDraftContextStore((s) => s.documents)
@@ -1657,12 +1658,14 @@ export default function HybridSearch({
 
     // ── Chat conversation: push previous AI answer + current user message, clear input ──
     if (mode === 'chat' && !isDraftRefineSession) {
+      const prevProv = chatResponseProvenance
       setChatMessages(prev => {
         const next = [...prev]
-        if (previousAnswer?.trim()) next.push({ role: 'assistant', content: previousAnswer.trim() })
+        if (previousAnswer?.trim()) next.push({ role: 'assistant', content: previousAnswer.trim(), provenance: prevProv ?? undefined })
         next.push({ role: 'user', content: trimmed })
         return next
       })
+      setChatResponseProvenance(null)
       setQuery('')
     }
 
@@ -2306,6 +2309,8 @@ export default function HybridSearch({
             })
             if (result.sources?.length) setChatSources(result.sources)
           }
+          const resultProv = (result as { provenance?: unknown }).provenance
+          if (isAiProvenance(resultProv)) setChatResponseProvenance(resultProv)
           if (isDraftRefine && answerText.trim()) {
             const refined = answerText.trim()
             draftRefineDeliverResponse(refined)
@@ -2486,8 +2491,8 @@ export default function HybridSearch({
   }, [])
 
   const handleCopyResult = useCallback((text: string) => {
-    void writeAiClipboard(text)
-  }, [])
+    void writeAiClipboard(text, chatResponseProvenance ?? undefined)
+  }, [chatResponseProvenance])
 
   return (
     <div

@@ -4336,7 +4336,7 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
         }
       }
 
-      return { ok: true, data: { draft } }
+      return { ok: true, data: { draft, provenance: draftProv.provenance } }
     } catch (err: unknown) {
       if (isDraftReplyRunStale(messageId, genAtStart)) {
         return buildInboxAiDraftIpcFailure(new Error('Draft superseded'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }, isNativeBeap ? { isNativeBeap: true } : undefined) as {
@@ -4954,8 +4954,9 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
               })}`,
             )
             assertMinimumAnalysisOutput(finalAnalysisText, { messageId, requestId })
+            const streamProv = attachAndLogProvenance(finalAnalysisText, inboxProviderForProvenance())
             markAnalysisStreamReplayDone(analyzeDedupeKey)
-            event.sender.send('inbox:aiAnalyzeMessageDone', { messageId })
+            event.sender.send('inbox:aiAnalyzeMessageDone', { messageId, provenance: streamProv.provenance })
             console.log(
               `[INBOX_AUDIT] analysis_done_sent ${JSON.stringify({
                 messageId,
@@ -5139,6 +5140,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
               }
             : undefined,
       })
+      const classifyProv = attachAndLogProvenance(raw ?? '', inboxProviderForProvenance())
       const parsed = parseAiJson(raw) as {
         category?: string
         urgency?: number
@@ -5247,6 +5249,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
         actionItems: [],
         draftReply: needsReply ? (parsed.draftReply ?? null) : null,
         status: 'classified',
+        provenance: classifyProv.provenance,
       }
       const sealResClassify = await resealWithAiAnalysis(db, messageId, aiAnalysisData)
       if (!sealResClassify.ok) {

@@ -2813,6 +2813,13 @@ app.whenReady().then(async () => {
         }
       }
       try {
+        const { registerArt50Ipc } = await import('./main/aiProvenance/art50Ipc')
+        registerArt50Ipc()
+        console.log('[MAIN] Art. 50 IPC handlers registered')
+      } catch (art50Err) {
+        console.error('[MAIN] registerArt50Ipc failed:', art50Err)
+      }
+      try {
         registerEmailHandlers(getInboxDb)
         console.log('[MAIN] Email Gateway IPC handlers registered')
       } catch (emailRegErr) {
@@ -4692,21 +4699,16 @@ app.whenReady().then(async () => {
                 { role: 'system' as const, content: system },
                 { role: 'user' as const, content: userPrompt },
               ]
+              const provenanceOut: { value?: import('../../../packages/shared/src/aiProvenance').AiProvenance } = {}
               const answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, ragMessages, {
                 model: params.model,
                 stream: !!doStream,
                 send: doStream ? send : undefined,
                 ragParams: sandboxRagRoutingParams(),
                 contentTask: ragContentTask,
+                provenanceOut,
               })
-              let ragProv: unknown
-              try {
-                const { createProvenance } = await import('../../../packages/shared/src/aiProvenance')
-                ragProv = createProvenance(typeof answer === 'string' ? answer : '', {
-                  model_id: String(params.model ?? provider.id ?? 'unknown'),
-                  provider: provider.id === 'ollama' ? 'local' : `cloud:${providerLower}`,
-                })
-              } catch { /* best-effort */ }
+              const ragProv = provenanceOut.value
               return toIPC({
                 success: true,
                 answer,
@@ -4957,6 +4959,7 @@ app.whenReady().then(async () => {
           { role: 'system' as const, content: systemPrompt },
           { role: 'user' as const, content: userPrompt },
         ]
+        const provenanceOut: { value?: import('../../../packages/shared/src/aiProvenance').AiProvenance } = {}
         try {
           answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, messages, {
             model: params.model,
@@ -4964,6 +4967,7 @@ app.whenReady().then(async () => {
             send: doStream ? send : undefined,
             ragParams: sandboxRagRoutingParams(),
             contentTask: ragContentTask,
+            provenanceOut,
           })
         } catch (err: unknown) {
           const ir = mapInferenceRoutingError(err)
@@ -5009,14 +5013,7 @@ app.whenReady().then(async () => {
         checkAILatency(total_ms)
 
         if (capsuleId && normalizedQuery) setCached(db, capsuleId, normalizedQuery, { answer, sources })
-        let chatWithContextProv: unknown
-        try {
-          const { createProvenance } = await import('../../../packages/shared/src/aiProvenance')
-          chatWithContextProv = createProvenance(typeof answer === 'string' ? answer : '', {
-            model_id: String(params.model ?? provider.id ?? 'unknown'),
-            provider: provider.id === 'ollama' ? 'local' : `cloud:${providerLower}`,
-          })
-        } catch { /* best-effort */ }
+        const chatWithContextProv = provenanceOut.value
         return toIPC({
           success: true,
           answer: doStream ? undefined : answer,
@@ -5086,23 +5083,15 @@ app.whenReady().then(async () => {
           { role: 'system' as const, content: params.systemPrompt },
           { role: 'user' as const, content: params.userPrompt },
         ]
+        const provenanceOut: { value?: import('../../../packages/shared/src/aiProvenance').AiProvenance } = {}
         const answer = await provider.generateChat(messages, {
           model: params.model,
           stream: doStream,
           send: doStream ? send : undefined,
+          provenanceOut,
           ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
         })
-        let chatDirectProvenance: import('../../../packages/shared/src/aiProvenance').AiProvenance | undefined
-        try {
-          const { createProvenance } = await import('../../../packages/shared/src/aiProvenance')
-          const providerKey = (params.provider ?? 'ollama').toLowerCase()
-          const providerLabel: import('../../../packages/shared/src/aiProvenance').AiProvenanceProvider =
-            providerKey === 'ollama' ? 'local' : `cloud:${providerKey}`
-          chatDirectProvenance = createProvenance(typeof answer === 'string' ? answer : '', {
-            model_id: params.model ?? 'unknown',
-            provider: providerLabel,
-          })
-        } catch { /* backward-compat: provenance is best-effort */ }
+        const chatDirectProvenance = provenanceOut.value
         return toIPC({ success: true, answer, contextBlocks: [], sources: [], ...(chatDirectProvenance !== undefined ? { provenance: chatDirectProvenance } : {}) })
       } catch (err: any) {
         console.error('[chatDirect] error:', err)
@@ -7039,7 +7028,7 @@ async function runDeviceKeyMigration(
     apiKey: string
   ) {
     const { attachAndLogProvenance } = await import('./main/aiProvenance/attachProvenance')
-    const { extractUpstreamMarking } = await import('../../../packages/shared/src/aiProvenance')
+    const { extractUpstreamMarking } = await import('../../../packages/shared/src/aiProvenance/generate')
 
     switch (provider) {
       case 'openai': {
@@ -7622,7 +7611,23 @@ async function runDeviceKeyMigration(
         res.status(500).json({ ok: false, error: error?.message || 'smart summary failed' })
       }
     })
-    httpApp.post('/api/wrchat/watchdog/continuous', async (req, res) => {
+        httpApp.post('/api/art50/editorial-responsibility', async (req, res) => {
+      try {
+        const { isAiProvenance, markEditorialResponsible } = await import('../../../packages/shared/src/aiProvenance')
+        const { logEditorialResponsibility } = await import('./main/aiProvenance/provenanceLog')
+        const raw = req.body?.provenance ?? req.body
+        if (!isAiProvenance(raw)) {
+          res.status(400).json({ ok: false, error: 'invalid_provenance' })
+          return
+        }
+        const next = markEditorialResponsible(raw)
+        logEditorialResponsibility(next)
+        res.json({ ok: true, provenance: next })
+      } catch (e: any) {
+        res.status(500).json({ ok: false, error: e?.message || 'editorial_log_failed' })
+      }
+    })
+httpApp.post('/api/wrchat/watchdog/continuous', async (req, res) => {
       try {
         const body = req.body && typeof req.body === 'object' ? (req.body as { enabled?: unknown }) : {}
         if (typeof body.enabled !== 'boolean') {

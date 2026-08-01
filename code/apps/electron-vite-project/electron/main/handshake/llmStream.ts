@@ -12,7 +12,8 @@ import {
 import { assertGpuInferenceAvailableForChatBase } from '../inference/inferenceGate'
 import { parseOpenAiChatCompletionsSseLine } from '../llm/openAiSseChatStream'
 import { attachAndLogProvenance } from '../aiProvenance/attachProvenance'
-import { extractUpstreamMarking, type AiTextWithProvenance } from '../../../../../packages/shared/src/aiProvenance'
+import { extractUpstreamMarking } from '../../../../../packages/shared/src/aiProvenance/generate'
+import type { AiTextWithProvenance } from '../../../../../packages/shared/src/aiProvenance'
 
 export type StreamSender = (channel: string, payload: unknown) => void
 export type OnToken = (token: string) => void

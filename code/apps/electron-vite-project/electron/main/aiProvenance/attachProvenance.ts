@@ -7,7 +7,7 @@ import {
   finalizeAiText,
   type AiTextWithProvenance,
   type CreateProvenanceInput,
-} from '../../../../../packages/shared/src/aiProvenance'
+} from '../../../../../packages/shared/src/aiProvenance/generate'
 import { logGeneration } from './provenanceLog'
 
 export function attachAndLogProvenance(

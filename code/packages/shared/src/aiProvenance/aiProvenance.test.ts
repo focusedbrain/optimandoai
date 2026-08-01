@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { createProvenance } from './generate'
 import {
-  createProvenance,
   markEditorialResponsible,
   markHumanEdited,
   serializeForHtmlMeta,

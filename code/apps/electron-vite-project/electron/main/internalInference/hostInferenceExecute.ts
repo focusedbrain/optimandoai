@@ -5,7 +5,6 @@
 import { InboxLlmTimeoutError } from '../email/inboxLlmChat'
 import * as internalHostOllama from '../llm/internalHostInferenceLocal'
 import type { InternalHostInferenceMessage } from '../llm/internalHostInferenceLocal'
-import { attachAndLogProvenance } from '../aiProvenance/attachProvenance'
 import { localLlmManager } from '../llm/local-llm-manager'
 import { canonicalLocalModelName, localModelIdsMatch } from '../llm/localModelIdentity'
 import { InternalInferenceErrorCode } from './errors'
@@ -275,10 +274,7 @@ export async function runHostInternalInference(
         },
       }
     }
-    const hostProv = attachAndLogProvenance(out.text, {
-      model_id: out.model,
-      provider: 'host-ai',
-    })
+    // Provenance was attached+logged exactly once in runInternalHostLocalLlmInference.
     return {
       wire: {
         type: 'internal_inference_result',
@@ -293,7 +289,7 @@ export async function runHostInternalInference(
         output: out.text,
         usage: out.usage,
         duration_ms: out.durationMs,
-        provenance: hostProv.provenance,
+        ...(out.provenance !== undefined ? { provenance: out.provenance } : {}),
       },
       log: {
         model: out.model,

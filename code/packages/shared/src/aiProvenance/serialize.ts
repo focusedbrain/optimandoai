@@ -1,5 +1,5 @@
 import type { AiProvenance } from './types'
-import { AI_VISIBLE_LABEL_LINE } from './types'
+import { AI_CARRIER_ONLY_SCHEME, AI_VISIBLE_LABEL_LINE } from './types'
 
 function toBase64Utf8(text: string): string {
   if (typeof Buffer !== 'undefined') {
@@ -81,6 +81,28 @@ export function buildClipboardHtml(plainBody: string, p: AiProvenance): string {
   return (
     `<!DOCTYPE html><html><head><meta charset="utf-8">\n` +
     `${serializeForHtmlMeta(p)}\n` +
+    `</head><body><pre>${escaped}</pre></body></html>`
+  )
+}
+
+/** HTML meta for AI-labelled content without generation-time provenance (legacy / absent). */
+export function buildCarrierOnlyHtmlMeta(): string {
+  return (
+    `<meta name="ai-generated" content="true">\n` +
+    `<meta name="ai-provenance-scheme" content="${AI_CARRIER_ONLY_SCHEME}">`
+  )
+}
+
+/** Clipboard HTML when no generation provenance is available — not a fabricated AiProvenance. */
+export function buildCarrierOnlyClipboardHtml(plainBody: string): string {
+  const labelled = withVisibleAiLabel(plainBody)
+  const escaped = labelled
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  return (
+    `<!DOCTYPE html><html><head><meta charset="utf-8">\n` +
+    `${buildCarrierOnlyHtmlMeta()}\n` +
     `</head><body><pre>${escaped}</pre></body></html>`
   )
 }
