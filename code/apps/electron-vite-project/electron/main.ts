@@ -4699,7 +4699,22 @@ app.whenReady().then(async () => {
                 ragParams: sandboxRagRoutingParams(),
                 contentTask: ragContentTask,
               })
-              return toIPC({ success: true, answer, sources, streamed: doStream, resultType: 'context_answer' })
+              let ragProv: unknown
+              try {
+                const { createProvenance } = await import('../../../packages/shared/src/aiProvenance')
+                ragProv = createProvenance(typeof answer === 'string' ? answer : '', {
+                  model_id: String(params.model ?? provider.id ?? 'unknown'),
+                  provider: provider.id === 'ollama' ? 'local' : `cloud:${providerLower}`,
+                })
+              } catch { /* best-effort */ }
+              return toIPC({
+                success: true,
+                answer,
+                sources,
+                streamed: doStream,
+                resultType: 'context_answer',
+                ...(ragProv !== undefined ? { provenance: ragProv } : {}),
+              })
             } catch (err: unknown) {
               const ir = mapInferenceRoutingError(err)
               if (ir) return ir
@@ -4994,12 +5009,21 @@ app.whenReady().then(async () => {
         checkAILatency(total_ms)
 
         if (capsuleId && normalizedQuery) setCached(db, capsuleId, normalizedQuery, { answer, sources })
+        let chatWithContextProv: unknown
+        try {
+          const { createProvenance } = await import('../../../packages/shared/src/aiProvenance')
+          chatWithContextProv = createProvenance(typeof answer === 'string' ? answer : '', {
+            model_id: String(params.model ?? provider.id ?? 'unknown'),
+            provider: provider.id === 'ollama' ? 'local' : `cloud:${providerLower}`,
+          })
+        } catch { /* best-effort */ }
         return toIPC({
           success: true,
           answer: doStream ? undefined : answer,
           sources,
           governanceNote: governanceNote ?? undefined,
           streamed: doStream,
+          ...(chatWithContextProv !== undefined ? { provenance: chatWithContextProv } : {}),
           ...(hybridResult.contextRetrieval && { contextRetrieval: hybridResult.contextRetrieval }),
           ...(debug && {
             latency: buildLatencyDebugPayload({
