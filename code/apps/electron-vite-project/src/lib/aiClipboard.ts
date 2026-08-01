@@ -5,8 +5,8 @@
  *  - text/plain: visible "[AI-generated]" label prepended
  *  - text/html: machine-readable provenance in <meta> tags + styled body
  *
- * If provenance is not supplied, creates a minimal one (model_id:'unknown',
- * provider:'local') so the Layer A machine-readable carrier is always present.
+ * When provenance is a valid AiProvenance, uses full buildClipboardHtml.
+ * When provenance is absent, uses carrier-only HTML meta (no model_id / generated_at minted).
  *
  * Falls back to plain-text-only if ClipboardItem is unavailable (e.g. some
  * non-secure contexts).
@@ -14,7 +14,7 @@
 
 import {
   buildClipboardHtml,
-  createProvenance,
+  buildCarrierOnlyClipboardHtml,
   isAiProvenance,
   withVisibleAiLabel,
   type AiProvenance,
@@ -24,12 +24,10 @@ export async function writeAiClipboard(
   text: string,
   provenance?: AiProvenance | null,
 ): Promise<void> {
-  const prov: AiProvenance = isAiProvenance(provenance)
-    ? provenance
-    : createProvenance(text, { model_id: 'unknown', provider: 'local' })
-
   const plain = withVisibleAiLabel(text)
-  const html = buildClipboardHtml(text, prov)
+  const html = isAiProvenance(provenance)
+    ? buildClipboardHtml(text, provenance)
+    : buildCarrierOnlyClipboardHtml(text)
 
   try {
     if (typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {

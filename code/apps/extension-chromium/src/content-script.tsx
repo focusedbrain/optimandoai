@@ -27866,16 +27866,11 @@ ${pageText}
       ;(drawer.querySelector('#export-json') as HTMLButtonElement)?.addEventListener('click', ()=> {
         const exportItem: Record<string, unknown> = { ...item }
         if (item.aiRootCause || item.aiSteps) {
+          // Carrier-only: never invent model_id / generated_at / content_sha256 at export time.
           exportItem._aiProvenance = {
+            marking_scheme: 'optirando-prov/1-carrier-only',
             synthetic: true,
             modality: 'text',
-            model_id: 'unknown',
-            provider: 'local',
-            generated_at: new Date().toISOString(),
-            marking_scheme: 'optirando-prov/1',
-            origin: 'ai',
-            human_edited: false,
-            editorial_responsible: false,
             fields: ['aiRootCause', 'aiSteps'],
           }
         }
