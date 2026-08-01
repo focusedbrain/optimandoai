@@ -2,6 +2,7 @@
  * Phase 7: Host↔Sandbox inference over WebRTC DataChannel (non-streaming, one request / one result).
  * Wire: inference_{request,result,error,cancel} — Ollama stays in main; transport pod only moves bytes.
  */
+import { isAiProvenance } from '../../../../../../packages/shared/src/aiProvenance'
 import { getHandshakeRecord } from '../../handshake/db'
 import type { HandshakeRecord } from '../../handshake/types'
 import { getInstanceId, isHostMode, isSandboxMode } from '../../orchestrator/orchestratorModeStore'
@@ -69,6 +70,7 @@ export async function sendInternalInferenceWireOverP2pDataChannel(
       output: wire.output,
       duration_ms: wire.duration_ms,
       finish_reason: 'stop' as const,
+      ...(wire.provenance !== undefined ? { provenance: wire.provenance } : {}),
     }
   } else {
     out = {
@@ -274,6 +276,7 @@ export function handleP2pDcInferenceResultAsSandbox(
     output: out,
     ...(model.trim() ? { model: model.trim() } : {}),
     ...(duration_ms !== undefined ? { duration_ms } : {}),
+    ...(isAiProvenance(raw.provenance) ? { provenance: raw.provenance } : {}),
   }
   if (!resolveInternalInferenceByRequestId(rid, pr)) {
     return false

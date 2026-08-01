@@ -5068,7 +5068,18 @@ app.whenReady().then(async () => {
           send: doStream ? send : undefined,
           ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
         })
-        return toIPC({ success: true, answer, contextBlocks: [], sources: [] })
+        let chatDirectProvenance: import('../../../packages/shared/src/aiProvenance').AiProvenance | undefined
+        try {
+          const { createProvenance } = await import('../../../packages/shared/src/aiProvenance')
+          const providerKey = (params.provider ?? 'ollama').toLowerCase()
+          const providerLabel: import('../../../packages/shared/src/aiProvenance').AiProvenanceProvider =
+            providerKey === 'ollama' ? 'local' : `cloud:${providerKey}`
+          chatDirectProvenance = createProvenance(typeof answer === 'string' ? answer : '', {
+            model_id: params.model ?? 'unknown',
+            provider: providerLabel,
+          })
+        } catch { /* backward-compat: provenance is best-effort */ }
+        return toIPC({ success: true, answer, contextBlocks: [], sources: [], ...(chatDirectProvenance !== undefined ? { provenance: chatDirectProvenance } : {}) })
       } catch (err: any) {
         console.error('[chatDirect] error:', err)
         return toIPC({ success: false, error: 'model_execution_failed', message: err?.message ?? 'Unknown error' })
@@ -10291,7 +10302,7 @@ async function runDeviceKeyMigration(
           timeoutMs: timeout_ms,
         })
         if (r.ok) {
-          res.json({ ok: true, data: { content: r.output, model: r.model } })
+          res.json({ ok: true, data: { content: r.output, model: r.model, ...(r.provenance !== undefined ? { provenance: r.provenance } : {}) } })
         } else {
           res.json({ ok: false, error: r.message, code: r.code })
         }
