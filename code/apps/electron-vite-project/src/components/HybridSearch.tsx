@@ -1,4 +1,7 @@
 import { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
+import { AiInteractionDisclosure } from './ai/AiInteractionDisclosure'
+import { writeAiClipboard } from '../lib/aiClipboard'
+import { createProvenance } from '@shared/aiProvenance'
 import {
   GROUP_CLOUD,
   GROUP_HOST_MODELS,
@@ -1088,7 +1091,14 @@ export default function HybridSearch({
         : undefined
       if (port === 'letter') return
       if (applyLetterComposerUseFromText(content)) return
-      if (window.__wrdeskInsertDraft) window.__wrdeskInsertDraft(content, mode)
+      const prov = createProvenance(content, {
+        model_id: selectedModelRef.current || 'unknown',
+        provider: 'local',
+      })
+      if (window.__wrdeskInsertDraft) window.__wrdeskInsertDraft(content, mode, prov)
+      window.dispatchEvent(
+        new CustomEvent('wrdesk:field-ai-applied', { detail: { text: content, mode, provenance: prov } }),
+      )
     },
     [applyLetterComposerUseFromText],
   )
@@ -2476,7 +2486,7 @@ export default function HybridSearch({
   }, [])
 
   const handleCopyResult = useCallback((text: string) => {
-    navigator.clipboard.writeText(text).then(() => {}).catch(() => {})
+    void writeAiClipboard(text)
   }, [])
 
   return (
@@ -2484,6 +2494,7 @@ export default function HybridSearch({
       className="hs-root"
       ref={containerRef}
     >
+      <AiInteractionDisclosure variant="full" />
       {selectedHandshakeId && selectedHandshakeEmail && (
         <div
           style={{

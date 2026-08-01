@@ -403,7 +403,12 @@ interface Window {
    * Project WIKI AI insert bridge: assigned by `ProjectOptimizationPanel` when a field or
    * milestone quick-edit is active; called from `HybridSearch` “Use” / “Use All”. Do not rename.
    */
-  __wrdeskInsertDraft?: (text: string, mode: 'append' | 'replace') => void
+  /**
+   * Art. 50 — optional `provenance` carries machine-readable AI provenance for the applied text.
+   * A `wrdesk:field-ai-applied` CustomEvent `{ detail: { text, mode, provenance } }` is also
+   * dispatched on `window` for any listener that wants to persist provenance alongside the value.
+   */
+  __wrdeskInsertDraft?: (text: string, mode: 'append' | 'replace', provenance?: import('@shared/aiProvenance').AiProvenance) => void
   LETmeGIRAFFETHATFORYOU?: LmgtfyBridge
   analysisDashboard?: AnalysisDashboardBridge
   lifecycle?: LifecycleBridge
