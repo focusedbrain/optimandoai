@@ -1453,8 +1453,8 @@ contextBridge.exposeInMainWorld('emailInbox', {
     ipcRenderer.on('inbox:aiAnalyzeMessageChunk', handler)
     return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageChunk', handler)
   },
-  onAiAnalyzeDone: (cb: (data: { messageId: string }) => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, data: { messageId: string }) => cb(data)
+  onAiAnalyzeDone: (cb: (data: { messageId: string; provenance?: unknown }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { messageId: string; provenance?: unknown }) => cb(data)
     ipcRenderer.on('inbox:aiAnalyzeMessageDone', handler)
     return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageDone', handler)
   },
@@ -2022,6 +2022,12 @@ contextBridge.exposeInMainWorld('libreoffice', {
     ipcRenderer.invoke('libreoffice:browseForSoffice') as Promise<
       { ok: true; path: string } | { ok: false; error?: string }
     >,
+})
+
+// ── Art. 50 editorial responsibility IPC ─────────────────────────────────────
+contextBridge.exposeInMainWorld('art50', {
+  logEditorialResponsibility: (p: unknown) =>
+    ipcRenderer.invoke('art50:logEditorialResponsibility', p) as Promise<unknown>,
 })
 
 // === TEMPORARY DEBUG LOG BRIDGE (remove before production) ===

@@ -485,7 +485,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const [showTagsMenu, setShowTagsMenu] = useState(false)
   /** Art. 50 disclosure: null = not loaded yet; '' = not acked; string = acked ISO date */
   const [disclosureAcked, setDisclosureAcked] = useState<string | null>(null)
-  const [disclosureDismissed, setDisclosureDismissed] = useState(false)
   const chatFocusMode = useChatFocusStore((s) => s.chatFocusMode)
   const invokeDashboardPreInference = useCallback(
     async (resolvedModelId: string, inferencePath: 'api_llm_chat' | 'internal_inference') => {
@@ -2929,7 +2928,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       )}
 
       {/* Art. 50 AI disclosure — shown on first use, compact badge afterwards */}
-      {disclosureAcked !== null && !disclosureDismissed && (
+      {disclosureAcked !== null && (
         disclosureAcked === '' ? (
           <div
             role="dialog"
@@ -3017,23 +3016,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           >
             <span aria-hidden="true" style={{ fontSize: 9 }}>✦</span>
             AI system
-            <button
-              type="button"
-              aria-label="Dismiss AI indicator"
-              onClick={() => setDisclosureDismissed(true)}
-              style={{
-                marginLeft: 2,
-                padding: '0 2px',
-                border: 'none',
-                background: 'transparent',
-                cursor: 'pointer',
-                color: isLight ? '#64748b' : 'rgba(255,255,255,0.4)',
-                fontSize: 11,
-                lineHeight: 1,
-              }}
-            >
-              ×
-            </button>
+            
           </div>
         )
       )}

@@ -2,7 +2,8 @@
  * Art. 50(1)/(5) — Layer B first-interaction disclosure.
  *
  * Renders a full notice + acknowledge button on first visit.
- * After acknowledgement: a compact persistent indicator on every AI surface.
+ * After acknowledgement: a compact persistent indicator on every AI surface
+ * (not dismissible to null).
  *
  * Acknowledgement is stored in localStorage under AI_DISCLOSURE_ACK_KEY_MAIN
  * ('art50.aiDisclosure.acknowledgedAt'). It is NOT stored in the handshake
@@ -50,7 +51,6 @@ export function AiInteractionDisclosure({
   variant = 'full',
 }: AiInteractionDisclosureProps) {
   const [acked, setAcked] = useState<boolean>(() => readAck() !== null)
-  const [dismissed, setDismissed] = useState(false)
 
   useEffect(() => {
     const stored = readAck()
@@ -60,15 +60,9 @@ export function AiInteractionDisclosure({
   const handleAcknowledge = useCallback(() => {
     writeAck()
     setAcked(true)
-    setDismissed(false)
-  }, [])
-
-  const handleDismissCompact = useCallback(() => {
-    setDismissed(true)
   }, [])
 
   if (variant === 'compact' || acked) {
-    if (dismissed) return null
     return (
       <div
         role="note"
@@ -89,25 +83,10 @@ export function AiInteractionDisclosure({
           lineHeight: 1.4,
         }}
       >
-        <span aria-hidden="true" style={{ fontSize: 10 }}>✦</span>
+        <span aria-hidden="true" style={{ fontSize: 10 }}>
+          ✦
+        </span>
         AI system
-        <button
-          type="button"
-          aria-label="Dismiss AI indicator"
-          onClick={handleDismissCompact}
-          style={{
-            marginLeft: 2,
-            padding: '0 2px',
-            border: 'none',
-            background: 'transparent',
-            cursor: 'pointer',
-            color: 'var(--text-secondary, #64748b)',
-            fontSize: 12,
-            lineHeight: 1,
-          }}
-        >
-          ×
-        </button>
       </div>
     )
   }
@@ -133,7 +112,9 @@ export function AiInteractionDisclosure({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span aria-hidden="true" style={{ fontSize: 16 }}>✦</span>
+        <span aria-hidden="true" style={{ fontSize: 16 }}>
+          ✦
+        </span>
         <strong
           id="ai-disclosure-title"
           style={{

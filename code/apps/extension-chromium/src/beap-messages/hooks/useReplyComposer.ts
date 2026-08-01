@@ -47,7 +47,8 @@ import { getHandshake } from '../../handshake/handshakeRpc'
 import { hasHandshakeKeyMaterial, handshakeRecordToRecipient } from '../../handshake/rpcTypes'
 import {
   type AiProvenance,
-  createProvenance,
+  isAiProvenance,
+  markEditorialResponsible,
   markHumanEdited,
   shouldApplyMachineMarking,
   shouldApplyVisibleSendLabel,
@@ -504,8 +505,20 @@ export function useReplyComposer(
           senderFingerprint: config.senderFingerprint ?? '',
           senderFingerprintShort: config.senderFingerprintShort ?? '',
           ...(replySessionArtefact ? { sessionImportArtefact: replySessionArtefact } : {}),
-          // Art. 50 Layer A: embed provenance when AI-assisted (BEAP editors are editorially responsible).
-          ...(shouldApplyMachineMarking(draftProvenance) ? { contentProvenance: draftProvenance! } : {}),
+          // Art. 50: BEAP composers take editorial responsibility (coded flag, not comment-only).
+          ...(shouldApplyMachineMarking(draftProvenance)
+            ? {
+                contentProvenance: (() => {
+                  const ed = markEditorialResponsible(draftProvenance!)
+                  try {
+                    chrome.runtime?.sendMessage?.({ type: 'ART50_LOG_EDITORIAL', provenance: ed })
+                  } catch {
+                    /* best-effort log */
+                  }
+                  return ed
+                })(),
+              }
+            : {}),
         }
 
         // buildPackage validates config internally
@@ -696,13 +709,12 @@ export function useReplyComposer(
       setDraftTextState(generatedTrimmed)
       setError(null)
 
-      // Art. 50: create provenance for this AI-generated draft.
-      const prov = createProvenance(generatedTrimmed, {
-        model_id: 'beap-composer/unknown',
-        provider: 'local',
-        origin: 'ai',
-      })
-      setDraftProvenance(prov)
+      // Art. 50: consume host-logged provenance from classify response — never mint here.
+      if (isAiProvenance(response.provenance)) {
+        setDraftProvenance(response.provenance)
+      } else {
+        setDraftProvenance(null)
+      }
       aiGeneratedTextRef.current = generatedTrimmed
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

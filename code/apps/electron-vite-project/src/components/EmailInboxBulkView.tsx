@@ -125,12 +125,13 @@ import {
 } from '../lib/autosortDiagnostics'
 import {
   type AiProvenance,
-  createProvenance,
+  isAiProvenance,
   markHumanEdited,
   markEditorialResponsible,
   shouldApplyMachineMarking,
   shouldApplyVisibleSendLabel,
   withVisibleAiLabel,
+  AI_UNVERIFIED_PROVENANCE_LABEL,
 } from '@shared/aiProvenance'
 
 const MUTED = '#64748b'
@@ -1084,6 +1085,11 @@ function BulkActionCardStructured({
               onClick={(e) => e.stopPropagation()}
             >
               <div className="bulk-action-card-analysis-popover-content">
+                {!draftProvenance && (
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary, var(--text-secondary-prof, #64748b))', marginBottom: 8, padding: '3px 6px', background: 'var(--bg-elevated, #f1f5f9)', borderRadius: 4, display: 'inline-block' }}>
+                    {AI_UNVERIFIED_PROVENANCE_LABEL}
+                  </div>
+                )}
                 {output.needsReply ? (
                   <div className="bulk-action-card-row">
                     <span className="bulk-action-card-row-label">Response needed</span>
@@ -1511,7 +1517,14 @@ function BulkActionCardStructured({
                       checked={editorialResponsible}
                       onChange={(e) => {
                         setEditorialResponsible(e.target.checked)
-                        if (e.target.checked) setAiLabelEnabled(false)
+                        if (e.target.checked) {
+                          setAiLabelEnabled(false)
+                          if (draftProvenance) {
+                            void window.art50?.logEditorialResponsibility(
+                              markEditorialResponsible(draftProvenance),
+                            )
+                          }
+                        }
                       }}
                     />
                     I take editorial responsibility
@@ -4819,13 +4832,11 @@ export default function EmailInboxBulkView({
           }
         })
         if (!isError && data?.draft) {
-          // Art. 50: store initial provenance with origin 'ai' for this AI-generated draft.
-          const prov = createProvenance(data.draft, {
-            model_id: 'inbox-ai/unknown',
-            provider: 'local',
-            origin: 'ai',
-          })
-          setBulkAiProvenances((prev) => ({ ...prev, [messageId]: prov }))
+          // Art. 50: use provenance from main process (never mint in renderer).
+          const prov = isAiProvenance((data as { provenance?: unknown }).provenance)
+            ? (data as { provenance: AiProvenance }).provenance
+            : null
+          if (prov) setBulkAiProvenances((prev) => ({ ...prev, [messageId]: prov }))
           useEmailInboxStore.getState().addBulkDraftManualCompose(messageId)
         } else if (!isError) {
           useEmailInboxStore.getState().addBulkDraftManualCompose(messageId)
@@ -5028,7 +5039,7 @@ export default function EmailInboxBulkView({
           phase: 'send_draft',
           selectedPath: 'native_beap_compose',
         })
-        if (draftBody?.trim()) void writeAiClipboard(draftBody)
+        if (draftBody?.trim()) void writeAiClipboard(draftBody, draftProvenance)
         setComposeMode('beap')
         return
       }

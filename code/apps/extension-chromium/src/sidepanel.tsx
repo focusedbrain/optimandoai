@@ -580,17 +580,20 @@ function SidepanelOrchestrator() {
   const ourFingerprintShort = identity ? formatFingerprintShort(identity.fingerprint) : '...'
 
   const replyComposerConfig = useMemo(() => {
-    const generate = async (prompt: string): Promise<string> => {
-      return new Promise((resolve, reject) => {
+    const generate = async (prompt: string) => {
+      return new Promise<{ content: string; provenance?: unknown }>((resolve, reject) => {
         chrome.runtime.sendMessage(
           { type: 'BEAP_GENERATE_DRAFT', prompt },
-          (response: { ok?: boolean; data?: { content?: string }; error?: string } | undefined) => {
+          (response: { ok?: boolean; data?: { content?: string; provenance?: unknown }; error?: string } | undefined) => {
             if (chrome.runtime.lastError) {
               reject(new Error(chrome.runtime.lastError?.message ?? 'Draft generation failed'))
               return
             }
             if (response?.ok && response?.data?.content != null) {
-              resolve(response.data.content)
+              resolve({
+                content: response.data.content,
+                ...(response.data.provenance ? { provenance: response.data.provenance } : {}),
+              })
             } else {
               reject(new Error(response?.error ?? 'Draft generation failed'))
             }

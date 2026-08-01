@@ -115,12 +115,13 @@ import { canShowInboxRunAutomation, capabilitiesForSessionAttach, resolveInboxSe
 import { runBeapSessionAutomationForMessage } from '../lib/runBeapSessionAutomation'
 import {
   type AiProvenance,
-  createProvenance,
+  isAiProvenance,
   markHumanEdited,
   markEditorialResponsible,
   shouldApplyMachineMarking,
   shouldApplyVisibleSendLabel,
   withVisibleAiLabel,
+  AI_UNVERIFIED_PROVENANCE_LABEL,
 } from '@shared/aiProvenance'
 
 /** Local HTTP API for orchestrator DB (matches `HTTP_PORT` in electron/main.ts). */
@@ -657,7 +658,7 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
       }
     })
 
-    const unsubDone = window.emailInbox.onAiAnalyzeDone(({ messageId: mid }) => {
+    const unsubDone = window.emailInbox.onAiAnalyzeDone(({ messageId: mid, provenance: doneProvenance }) => {
       if (!acceptStreamEvent(mid)) return
       console.log(
         `[INBOX_AUDIT] renderer_stream_chunks_summary ${JSON.stringify({
@@ -715,13 +716,8 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
           if (adjusted.draftReply && typeof adjusted.draftReply === 'string') {
             setDraft(adjusted.draftReply)
             setEditedDraft(adjusted.draftReply)
-            // Art. 50: create provenance for AI-generated draft.
-            const prov = createProvenance(adjusted.draftReply, {
-              model_id: 'inbox-ai/unknown',
-              provider: 'local',
-              origin: 'ai',
-            })
-            setDraftProvenance(prov)
+            // Art. 50: use provenance from main process (never mint in renderer).
+            setDraftProvenance(isAiProvenance(doneProvenance) ? doneProvenance : null)
             aiGeneratedDraftRef.current = adjusted.draftReply
             setAiLabelEnabled(true)
             setEditorialResponsible(false)
@@ -1853,6 +1849,11 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
         {visibleSections.has('analysis') && (
           <div className="inbox-detail-ai-section inbox-detail-ai-section--tab-panel">
             <div className="ai-analysis-body">
+            {analysis && !draftProvenance && !analysisLoading && (
+              <div style={{ fontSize: 11, color: 'var(--text-secondary, var(--text-secondary-prof, #64748b))', marginBottom: 8, padding: '3px 6px', background: 'var(--bg-elevated, #f1f5f9)', borderRadius: 4, display: 'inline-block' }}>
+                {AI_UNVERIFIED_PROVENANCE_LABEL}
+              </div>
+            )}
             {analysisStreamParseFailed && (
               <div style={{ ...analysisSoftNoticeBarStyle, marginBottom: 12 }} role="note">
                 <span>We couldn&apos;t read the analysis for this message. Try again if you need it.</span>
@@ -2623,7 +2624,14 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
                               checked={editorialResponsible}
                               onChange={(e) => {
                                 setEditorialResponsible(e.target.checked)
-                                if (e.target.checked) setAiLabelEnabled(false)
+                                if (e.target.checked) {
+                                  setAiLabelEnabled(false)
+                                  if (draftProvenance) {
+                                    void window.art50?.logEditorialResponsibility(
+                                      markEditorialResponsible(draftProvenance),
+                                    )
+                                  }
+                                }
                               }}
                             />
                             I take editorial responsibility (removes label, keeps MIME marking)
@@ -4257,7 +4265,7 @@ export default function EmailInboxView({
           phase: 'send_draft',
           selectedPath: 'native_beap_compose',
         })
-        void writeAiClipboard(draft)
+        void writeAiClipboard(draft, draftProvenance)
         setComposeMode('beap')
         return false
       }

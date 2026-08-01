@@ -428,4 +428,8 @@ interface Window {
   letterComposer?: LetterComposerBridge
   /** User-installed LibreOffice — `soffice` detection and PDF conversion. */
   libreoffice?: LibreOfficeBridge
+  /** Art. 50 editorial responsibility IPC (preload-exposed). */
+  art50?: {
+    logEditorialResponsibility: (provenance: unknown) => Promise<unknown>
+  }
 }
