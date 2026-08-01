@@ -4955,6 +4955,39 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
             )
             assertMinimumAnalysisOutput(finalAnalysisText, { messageId, requestId })
             const streamProv = attachAndLogProvenance(finalAnalysisText, inboxProviderForProvenance())
+            // Art. 50: persist same provenance object into ai_analysis_json (not a second mint).
+            try {
+              const dbPersist = await resolveDb()
+              if (dbPersist) {
+                const parsedStream =
+                  parseAnalysisJsonObjectFromStreamText(finalAnalysisText) ??
+                  ({ analysisText: finalAnalysisText } as Record<string, unknown>)
+                const existingRow = dbPersist
+                  .prepare('SELECT ai_analysis_json FROM inbox_messages WHERE id = ?')
+                  .get(messageId) as { ai_analysis_json?: string | null } | undefined
+                let merged: Record<string, unknown> = {}
+                if (existingRow?.ai_analysis_json) {
+                  try {
+                    merged = JSON.parse(existingRow.ai_analysis_json) as Record<string, unknown>
+                  } catch {
+                    merged = {}
+                  }
+                }
+                merged = { ...merged, ...parsedStream, provenance: streamProv.provenance }
+                const sealRes = await resealWithAiAnalysis(dbPersist, messageId, merged)
+                if (!sealRes.ok) {
+                  console.warn(
+                    '[Inbox IPC] aiAnalyzeMessageStream provenance persist re-seal failed:',
+                    sealRes.error,
+                  )
+                }
+              }
+            } catch (persistErr: unknown) {
+              console.warn(
+                '[Inbox IPC] aiAnalyzeMessageStream provenance persist failed:',
+                persistErr instanceof Error ? persistErr.message : String(persistErr),
+              )
+            }
             markAnalysisStreamReplayDone(analyzeDedupeKey)
             event.sender.send('inbox:aiAnalyzeMessageDone', { messageId, provenance: streamProv.provenance })
             console.log(
