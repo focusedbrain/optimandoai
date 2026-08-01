@@ -279,7 +279,7 @@ export class OllamaProvider implements AIProvider {
         autosortDiagLog('OllamaProvider.generateChat:stream-start', { model, promptCharsApprox: _pc })
       }
       try {
-        return await streamOllamaChat(model, systemMsg, userMsg, send, this.baseUrl)
+        return (await streamOllamaChat(model, systemMsg, userMsg, send, this.baseUrl)).content
       } catch (e: unknown) {
         logOllamaProviderError({
           lane: this.lane,
@@ -603,7 +603,7 @@ export class CloudAIProvider implements AIProvider {
       const { streamOpenAIChat } = await import('./llmStream')
       const systemMsg = messages.find(m => m.role === 'system')?.content ?? ''
       const userMsg = messages.find(m => m.role === 'user')?.content ?? ''
-      return streamOpenAIChat(model, systemMsg, userMsg, apiKey, send)
+      return (await streamOpenAIChat(model, systemMsg, userMsg, apiKey, send)).content
     }
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -633,7 +633,7 @@ export class CloudAIProvider implements AIProvider {
 
     if (stream && send) {
       const { streamAnthropicChat } = await import('./llmStream')
-      return streamAnthropicChat(model, systemMsg, userMsg, apiKey, send)
+      return (await streamAnthropicChat(model, systemMsg, userMsg, apiKey, send)).content
     }
     const combined = systemMsg ? `${systemMsg}\n\n${userMsg}` : userMsg
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -664,7 +664,7 @@ export class CloudAIProvider implements AIProvider {
 
     if (stream && send) {
       const { streamGoogleChat } = await import('./llmStream')
-      return streamGoogleChat(model, systemMsg, userMsg, apiKey, send)
+      return (await streamGoogleChat(model, systemMsg, userMsg, apiKey, send)).content
     }
     const combined = systemMsg ? `${systemMsg}\n\n${userMsg}` : userMsg
     const res = await fetch(
@@ -696,7 +696,7 @@ export class CloudAIProvider implements AIProvider {
       const { streamXaiChat } = await import('./llmStream')
       const systemMsg = messages.find(m => m.role === 'system')?.content ?? ''
       const userMsg = messages.find(m => m.role === 'user')?.content ?? ''
-      return streamXaiChat(model, systemMsg, userMsg, apiKey, send)
+      return (await streamXaiChat(model, systemMsg, userMsg, apiKey, send)).content
     }
     const res = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',

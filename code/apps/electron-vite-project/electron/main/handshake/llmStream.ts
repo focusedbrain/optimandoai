@@ -11,6 +11,8 @@ import {
 } from '../llm/localLlmRuntimeDiagnostics'
 import { assertGpuInferenceAvailableForChatBase } from '../inference/inferenceGate'
 import { parseOpenAiChatCompletionsSseLine } from '../llm/openAiSseChatStream'
+import { attachAndLogProvenance } from '../aiProvenance/attachProvenance'
+import { extractUpstreamMarking, type AiTextWithProvenance } from '../../../../../packages/shared/src/aiProvenance'
 
 export type StreamSender = (channel: string, payload: unknown) => void
 export type OnToken = (token: string) => void
@@ -26,7 +28,7 @@ export async function streamLocalLlmChat(
   userPrompt: string,
   send: StreamSender,
   baseUrl: string = DEFAULT_LOCAL_LLM_STREAM_BASE_URL,
-): Promise<string> {
+): Promise<AiTextWithProvenance> {
   const t0 = Date.now()
   const inflightStart = ollamaRuntimeInFlightDelta(1)
   if (DEBUG_OLLAMA_RUNTIME_TRACE) {
@@ -55,6 +57,7 @@ export async function streamLocalLlmChat(
     if (!res.body) throw new Error('Local LLM response has no body')
 
     let full = ''
+    let lastParsedObjLocal: unknown = undefined
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
@@ -71,6 +74,7 @@ export async function streamLocalLlmChat(
           full += parsed.content
           send('handshake:chatStreamToken', { token: parsed.content })
         }
+        if (parsed) lastParsedObjLocal = parsed
       }
     }
     if (DEBUG_OLLAMA_RUNTIME_TRACE) {
@@ -81,7 +85,11 @@ export async function streamLocalLlmChat(
         promptCharsApprox: systemPrompt.length + userPrompt.length,
       })
     }
-    return full || 'No response from model.'
+    return attachAndLogProvenance(full || 'No response from model.', {
+      model_id: model || 'llama3',
+      provider: 'local',
+      upstream_marking: extractUpstreamMarking(lastParsedObjLocal),
+    })
   } catch (streamErr: any) {
     if (DEBUG_OLLAMA_RUNTIME_TRACE) {
       ollamaRuntimeLog('streamOllamaChat:error', {
@@ -107,7 +115,7 @@ export async function streamOpenAIChat(
   userPrompt: string,
   apiKey: string,
   send: StreamSender,
-): Promise<string> {
+): Promise<AiTextWithProvenance> {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
@@ -124,6 +132,7 @@ export async function streamOpenAIChat(
   if (!res.body) throw new Error('OpenAI response has no body')
 
   let full = ''
+  let lastParsedObjOpenAI: unknown = undefined
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -140,6 +149,7 @@ export async function streamOpenAIChat(
         if (data === '[DONE]') continue
         try {
           const obj = JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> }
+          lastParsedObjOpenAI = obj
           const delta = obj.choices?.[0]?.delta?.content ?? ''
           if (delta) {
             full += delta
@@ -151,7 +161,11 @@ export async function streamOpenAIChat(
       }
     }
   }
-  return full || 'No response from model.'
+  return attachAndLogProvenance(full || 'No response from model.', {
+    model_id: model || 'gpt-4o',
+    provider: 'cloud:openai',
+    upstream_marking: extractUpstreamMarking(lastParsedObjOpenAI),
+  })
 }
 
 /** Stream tokens from xAI chat completions (SSE, same format as OpenAI). */
@@ -161,7 +175,7 @@ export async function streamXaiChat(
   userPrompt: string,
   apiKey: string,
   send: StreamSender,
-): Promise<string> {
+): Promise<AiTextWithProvenance> {
   const res = await fetch('https://api.x.ai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
@@ -178,6 +192,7 @@ export async function streamXaiChat(
   if (!res.body) throw new Error('xAI response has no body')
 
   let full = ''
+  let lastParsedObjXai: unknown = undefined
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -194,6 +209,7 @@ export async function streamXaiChat(
         if (data === '[DONE]') continue
         try {
           const obj = JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> }
+          lastParsedObjXai = obj
           const delta = obj.choices?.[0]?.delta?.content ?? ''
           if (delta) {
             full += delta
@@ -205,7 +221,11 @@ export async function streamXaiChat(
       }
     }
   }
-  return full || 'No response from model.'
+  return attachAndLogProvenance(full || 'No response from model.', {
+    model_id: model || 'grok-2-1212',
+    provider: 'cloud:xai',
+    upstream_marking: extractUpstreamMarking(lastParsedObjXai),
+  })
 }
 
 /** Stream tokens from Anthropic Messages API (SSE, content_block_delta with text_delta). */
@@ -215,7 +235,7 @@ export async function streamAnthropicChat(
   userPrompt: string,
   apiKey: string,
   send: StreamSender,
-): Promise<string> {
+): Promise<AiTextWithProvenance> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -235,6 +255,7 @@ export async function streamAnthropicChat(
   if (!res.body) throw new Error('Anthropic response has no body')
 
   let full = ''
+  let lastParsedObjAnthropic: unknown = undefined
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -254,6 +275,7 @@ export async function streamAnthropicChat(
             type?: string
             delta?: { type?: string; text?: string }
           }
+          lastParsedObjAnthropic = obj
           if (obj.type === 'content_block_delta' && obj.delta?.type === 'text_delta' && obj.delta.text) {
             full += obj.delta.text
             send('handshake:chatStreamToken', { token: obj.delta.text })
@@ -269,6 +291,7 @@ export async function streamAnthropicChat(
     if (data && data !== '[DONE]') {
       try {
         const obj = JSON.parse(data) as { type?: string; delta?: { type?: string; text?: string } }
+        lastParsedObjAnthropic = obj
         if (obj.type === 'content_block_delta' && obj.delta?.type === 'text_delta' && obj.delta.text) {
           full += obj.delta.text
           send('handshake:chatStreamToken', { token: obj.delta.text })
@@ -278,7 +301,11 @@ export async function streamAnthropicChat(
       }
     }
   }
-  return full || 'No response from model.'
+  return attachAndLogProvenance(full || 'No response from model.', {
+    model_id: model || 'claude-sonnet-4-20250514',
+    provider: 'cloud:anthropic',
+    upstream_marking: extractUpstreamMarking(lastParsedObjAnthropic),
+  })
 }
 
 /** Stream tokens from Google Gemini streamGenerateContent (SSE). */
@@ -288,7 +315,7 @@ export async function streamGoogleChat(
   userPrompt: string,
   apiKey: string,
   send: StreamSender,
-): Promise<string> {
+): Promise<AiTextWithProvenance> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-pro'}:streamGenerateContent?alt=sse&key=${apiKey}`
   const res = await fetch(url, {
     method: 'POST',
@@ -302,6 +329,7 @@ export async function streamGoogleChat(
   if (!res.body) throw new Error('Google response has no body')
 
   let full = ''
+  let lastParsedObjGoogle: unknown = undefined
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -320,6 +348,7 @@ export async function streamGoogleChat(
           const obj = JSON.parse(data) as {
             candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
           }
+          lastParsedObjGoogle = obj
           const text = obj.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
           if (text) {
             full += text
@@ -338,6 +367,7 @@ export async function streamGoogleChat(
         const obj = JSON.parse(data) as {
           candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
         }
+        lastParsedObjGoogle = obj
         const text = obj.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
         if (text) {
           full += text
@@ -348,7 +378,11 @@ export async function streamGoogleChat(
       }
     }
   }
-  return full || 'No response from model.'
+  return attachAndLogProvenance(full || 'No response from model.', {
+    model_id: model || 'gemini-pro',
+    provider: 'cloud:google',
+    upstream_marking: extractUpstreamMarking(lastParsedObjGoogle),
+  })
 }
 
 // ── Unified streaming interface ─────────────────────────────────────────────
@@ -366,13 +400,13 @@ export interface StreamLLMParams {
 
 /**
  * Unified streaming interface. Streams tokens to the UI via onToken.
- * Returns the full accumulated response.
+ * Returns the full accumulated response with AiProvenance attached.
  */
 export async function streamLLMResponse(
   provider: LLMProvider,
   params: StreamLLMParams,
   onToken: OnToken,
-): Promise<string> {
+): Promise<AiTextWithProvenance> {
   const send: StreamSender = (ch, payload) => {
     if (ch === 'handshake:chatStreamToken' && payload && typeof payload === 'object' && 'token' in payload) {
       const t = (payload as { token: string }).token

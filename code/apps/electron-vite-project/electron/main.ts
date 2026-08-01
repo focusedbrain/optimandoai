@@ -4111,7 +4111,11 @@ app.whenReady().then(async () => {
           return { success: false, error: 'No LLM model installed. Install a model in LLM Settings first.' }
         }
         const response = await localLlmManager.chat(modelId, [{ role: 'user', content: prompt || '' }])
-        return { success: true, answer: response?.content ?? '' }
+        return {
+          success: true,
+          answer: response?.content ?? '',
+          provenance: response?.provenance ?? null,
+        }
       } catch (err: any) {
         console.error('[MAIN] handshake:generateDraft error:', err?.message)
         return { success: false, error: err?.message ?? 'Draft generation failed' }
@@ -6991,13 +6995,17 @@ async function runDeviceKeyMigration(
   /**
    * Dispatch a chat request to a cloud LLM provider.
    * Reuses the same API patterns as handshake/aiProviders.ts.
+   * Returns content + AiProvenance (logged once here; no downstream re-log needed).
    */
   async function dispatchCloudChat(
     provider: string,
     modelId: string,
     messages: Array<{ role: string; content: string }>,
     apiKey: string
-  ): Promise<string> {
+  ) {
+    const { attachAndLogProvenance } = await import('./main/aiProvenance/attachProvenance')
+    const { extractUpstreamMarking } = await import('../../../packages/shared/src/aiProvenance')
+
     switch (provider) {
       case 'openai': {
         const model = modelId || 'gpt-4o-mini'
@@ -7011,7 +7019,8 @@ async function runDeviceKeyMigration(
           throw new Error(`OpenAI ${res.status}: ${errText}`)
         }
         const data: any = await res.json()
-        return data.choices?.[0]?.message?.content ?? 'No response from OpenAI.'
+        const content: string = data.choices?.[0]?.message?.content ?? 'No response from OpenAI.'
+        return attachAndLogProvenance(content, { model_id: model, provider: 'cloud:openai', upstream_marking: extractUpstreamMarking(data) })
       }
 
       case 'anthropic': {
@@ -7040,7 +7049,8 @@ async function runDeviceKeyMigration(
           throw new Error(`Anthropic ${res.status}: ${errText}`)
         }
         const data: any = await res.json()
-        return data.content?.[0]?.text ?? 'No response from Anthropic.'
+        const content: string = data.content?.[0]?.text ?? 'No response from Anthropic.'
+        return attachAndLogProvenance(content, { model_id: model, provider: 'cloud:anthropic', upstream_marking: extractUpstreamMarking(data) })
       }
 
       case 'gemini': {
@@ -7064,7 +7074,8 @@ async function runDeviceKeyMigration(
           throw new Error(`Gemini ${res.status}: ${errText}`)
         }
         const data: any = await res.json()
-        return data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response from Gemini.'
+        const content: string = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response from Gemini.'
+        return attachAndLogProvenance(content, { model_id: model, provider: 'cloud:gemini', upstream_marking: extractUpstreamMarking(data) })
       }
 
       case 'grok': {
@@ -7079,7 +7090,8 @@ async function runDeviceKeyMigration(
           throw new Error(`xAI/Grok ${res.status}: ${errText}`)
         }
         const data: any = await res.json()
-        return data.choices?.[0]?.message?.content ?? 'No response from Grok.'
+        const content: string = data.choices?.[0]?.message?.content ?? 'No response from Grok.'
+        return attachAndLogProvenance(content, { model_id: model, provider: 'cloud:grok', upstream_marking: extractUpstreamMarking(data) })
       }
 
       default:
@@ -7564,8 +7576,8 @@ async function runDeviceKeyMigration(
     })
     httpApp.post('/api/wrchat/smart-summary', async (_req, res) => {
       try {
-        const summary = await watchdogService.runSmartSummary()
-        res.json({ ok: true, summary })
+        const summaryResult = await watchdogService.runSmartSummary()
+        res.json({ ok: true, summary: summaryResult.text, provenance: summaryResult.provenance ?? undefined })
       } catch (error: any) {
         if (error?.message === 'Capture pipeline busy') {
           res.status(429).json({ ok: false, error: error.message })
@@ -10355,8 +10367,8 @@ async function runDeviceKeyMigration(
         // Cloud provider dispatch: when provider + apiKey are present, call the cloud API directly
         if (provider && apiKey) {
           console.log('[HTTP-LLM] Cloud dispatch:', provider, modelId)
-          const cloudContent = await dispatchCloudChat(provider, modelId, messages, apiKey)
-          res.json({ ok: true, data: { content: cloudContent } })
+          const cloudResult = await dispatchCloudChat(provider, modelId, messages, apiKey)
+          res.json({ ok: true, data: { content: cloudResult.content, provenance: cloudResult.provenance } })
           return
         }
         
@@ -10396,6 +10408,7 @@ async function runDeviceKeyMigration(
           data: {
             ...response,
             content: response.content,
+            ...(response.provenance ? { provenance: response.provenance } : {}),
             ...(modelFallback ? { modelFallback } : {}),
           },
         })
