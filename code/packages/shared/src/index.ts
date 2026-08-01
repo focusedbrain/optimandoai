@@ -1,5 +1,8 @@
 export const APP_NAME = "WR Desk™ Orchestrator";
 
+// EU AI Act Art. 50 provenance (machine-readable marking)
+export * from './aiProvenance';
+
 // WR Chat diff watchers (folder watch triggers)
 export type { DiffTrigger } from './wrChat/diffTrigger';
 
