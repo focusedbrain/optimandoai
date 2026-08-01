@@ -7,6 +7,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { AI_DISCLOSURE_ACK_KEY_EXTENSION } from '@shared/aiProvenance'
 import { WrChatCaptureButton } from './WrChatCaptureButton'
 import { WrChatDiffButton } from './WrChatDiffButton'
 import { formatWatchdogAlert, type WatchdogThreat } from '../../utils/formatWatchdogAlert'
@@ -482,6 +483,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const [pinnedDiffIds, setPinnedDiffIds] = useState<string[]>([])
   const [diffWatchers, setDiffWatchers] = useState<any[]>([])
   const [showTagsMenu, setShowTagsMenu] = useState(false)
+  /** Art. 50 disclosure: null = not loaded yet; '' = not acked; string = acked ISO date */
+  const [disclosureAcked, setDisclosureAcked] = useState<string | null>(null)
+  const [disclosureDismissed, setDisclosureDismissed] = useState(false)
   const chatFocusMode = useChatFocusStore((s) => s.chatFocusMode)
   const invokeDashboardPreInference = useCallback(
     async (resolvedModelId: string, inferencePath: 'api_llm_chat' | 'internal_inference') => {
@@ -655,6 +659,28 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         /* noop */
       }
     }
+  }, [])
+
+  useEffect(() => {
+    try {
+      chrome.storage?.local?.get([AI_DISCLOSURE_ACK_KEY_EXTENSION], (data: Record<string, unknown>) => {
+        const val = typeof data?.[AI_DISCLOSURE_ACK_KEY_EXTENSION] === 'string'
+          ? (data[AI_DISCLOSURE_ACK_KEY_EXTENSION] as string)
+          : ''
+        setDisclosureAcked(val)
+      })
+    } catch {
+      setDisclosureAcked('')
+    }
+  }, [])
+
+  const handleDisclosureAck = useCallback(() => {
+    const ts = new Date().toISOString()
+    try {
+      chrome.storage?.local?.set({ [AI_DISCLOSURE_ACK_KEY_EXTENSION]: ts })
+    } catch { /* noop */ }
+    setDisclosureAcked(ts)
+    setDisclosureDismissed(false)
   }, [])
 
   useEffect(() => {
@@ -2900,6 +2926,116 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           <span style={{ fontSize: 32, marginRight: 10 }}>📎</span>
           <span style={{ color: '#fff', fontSize: 18, fontWeight: 700 }}>Drop file or image here</span>
         </div>
+      )}
+
+      {/* Art. 50 AI disclosure — shown on first use, compact badge afterwards */}
+      {disclosureAcked !== null && !disclosureDismissed && (
+        disclosureAcked === '' ? (
+          <div
+            role="dialog"
+            aria-modal="false"
+            aria-labelledby="ext-ai-disclosure-title"
+            aria-describedby="ext-ai-disclosure-body"
+            style={{
+              background: isLight ? '#f8fafc' : '#1e293b',
+              color: isLight ? '#0f172a' : '#f1f5f9',
+              border: `1px solid ${isLight ? '#e2e8f0' : '#334155'}`,
+              borderRadius: 10,
+              padding: '12px 14px',
+              margin: '8px 8px 0',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 7,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span aria-hidden="true" style={{ fontSize: 15 }}>✦</span>
+              <strong
+                id="ext-ai-disclosure-title"
+                style={{ fontSize: 12, fontWeight: 700, color: isLight ? '#0f172a' : '#f1f5f9' }}
+              >
+                You are interacting with an AI system
+              </strong>
+            </div>
+            <p
+              id="ext-ai-disclosure-body"
+              style={{ margin: 0, fontSize: 11, lineHeight: 1.5, color: isLight ? '#0f172a' : '#f1f5f9' }}
+            >
+              This assistant uses AI to generate responses. AI outputs may be inaccurate.
+              Always review before relying on them. Outputs are labelled{' '}
+              <strong>[AI-generated]</strong> when copied.
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                type="button"
+                autoFocus
+                onClick={handleDisclosureAck}
+                aria-label="Acknowledge: I understand I am interacting with an AI system"
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: '#2563eb',
+                  color: '#fff',
+                  fontWeight: 600,
+                  fontSize: 11,
+                  cursor: 'pointer',
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    handleDisclosureAck()
+                  }
+                }}
+              >
+                Acknowledge
+              </button>
+              <span style={{ fontSize: 9, color: isLight ? '#64748b' : 'rgba(255,255,255,0.45)' }}>
+                EU AI Act Art. 50
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div
+            role="note"
+            aria-label="AI system indicator"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '2px 8px',
+              margin: '6px 8px 0',
+              borderRadius: 999,
+              fontSize: 10,
+              fontWeight: 600,
+              background: isLight ? '#f1f5f9' : 'rgba(255,255,255,0.07)',
+              color: isLight ? '#64748b' : 'rgba(255,255,255,0.45)',
+              border: `1px solid ${isLight ? '#e2e8f0' : 'rgba(255,255,255,0.12)'}`,
+              userSelect: 'none',
+              width: 'fit-content',
+            }}
+          >
+            <span aria-hidden="true" style={{ fontSize: 9 }}>✦</span>
+            AI system
+            <button
+              type="button"
+              aria-label="Dismiss AI indicator"
+              onClick={() => setDisclosureDismissed(true)}
+              style={{
+                marginLeft: 2,
+                padding: '0 2px',
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                color: isLight ? '#64748b' : 'rgba(255,255,255,0.4)',
+                fontSize: 11,
+                lineHeight: 1,
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )
       )}
 
       {/* Header — Clear, Tags, screen capture (LmGTFY) */}
