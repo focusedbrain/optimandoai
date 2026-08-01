@@ -13,6 +13,7 @@ import type { SelectedHandshakeRecipient } from '../../handshake/rpcTypes'
 import type { DeliveryMethod } from '../components/DeliveryMethodPanel'
 import type { BeapBuildResult } from '../../beap-builder/types'
 import type { CapsuleAttachment, SessionImportArtefact, QuarantineCloneTransportMetadata } from '../../beap-builder/canonical-types'
+import type { AiProvenance } from '@shared/aiProvenance'
 import { stripAgentBoxesFromGrids } from './stripAgentBoxesFromGrids'
 import { assertNoSemanticContentInTransport } from '../../beap-builder/parserService'
 import type {
@@ -451,6 +452,14 @@ export interface BeapPackageConfig {
    * per Canon A.3.054.8, A.3.054.7, A.3.054.10
    */
   sessionImportArtefact?: SessionImportArtefact
+
+  /**
+   * Art. 50 Layer A AI provenance for the message body.
+   * When present, embedded as `content_provenance` in the capsule payload (qBEAP)
+   * or public payload (pBEAP). Receivers that understand the field can surface
+   * machine-readable marking; receivers that do not understand it skip it silently.
+   */
+  contentProvenance?: AiProvenance
 }
 
 export interface BeapEnvelopeHeader {
@@ -1413,6 +1422,8 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
     ...(config.sessionImportArtefact
       ? { session_import_artefact: stripAgentBoxesFromGrids(config.sessionImportArtefact) }
       : {}),
+    // Art. 50 Layer A content provenance — absent when not AI-assisted.
+    ...(config.contentProvenance ? { content_provenance: config.contentProvenance } : {}),
   })
   
   // ==========================================================================
@@ -1910,6 +1921,8 @@ async function buildPBeapPackage(config: BeapPackageConfig): Promise<BeapPackage
     ...(config.sessionImportArtefact
       ? { session_import_artefact: stripAgentBoxesFromGrids(config.sessionImportArtefact) }
       : {}),
+    // Art. 50 Layer A content provenance — absent when not AI-assisted.
+    ...(config.contentProvenance ? { content_provenance: config.contentProvenance } : {}),
   })
   const payloadEncoded = safeBase64Encode(payloadPlain) // Base64 for transport, not encryption
 

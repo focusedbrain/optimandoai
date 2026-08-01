@@ -1269,7 +1269,7 @@ contextBridge.exposeInMainWorld('emailAccounts', {
     accountId: string,
     creds: { imapPassword: string; smtpPassword?: string; smtpUseSameCredentials?: boolean },
   ) => ipcRenderer.invoke('email:updateImapCredentials', accountId, creds),
-  sendEmail: (accountId: string, payload: { to: string[]; subject: string; bodyText: string; attachments?: { filename: string; mimeType: string; contentBase64: string }[] }) =>
+  sendEmail: (accountId: string, payload: { to: string[]; subject: string; bodyText: string; attachments?: { filename: string; mimeType: string; contentBase64: string }[]; provenance?: Record<string, unknown> }) =>
     ipcRenderer.invoke('email:sendEmail', accountId, payload),
   deleteAccount: (accountId: string) => ipcRenderer.invoke('email:deleteAccount', accountId),
   connectGmail: (displayName?: string, syncWindowDays?: number, gmailOAuthCredentialSource?: 'builtin_public' | 'developer_saved') =>

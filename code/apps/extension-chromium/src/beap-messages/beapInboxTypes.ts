@@ -273,6 +273,12 @@ export interface BeapMessage {
    */
   draftReply?: DraftReply
 
+  /**
+   * Art. 50 machine-readable content provenance from inbound capsule
+   * (`content_provenance`), when the sender embedded it.
+   */
+  contentProvenance?: Record<string, unknown>
+
   // -------------------------------------------------------------------------
   // Deletion scheduling
   // -------------------------------------------------------------------------
