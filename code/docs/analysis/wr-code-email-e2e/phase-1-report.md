@@ -122,21 +122,29 @@ evidence chain is the only retention point; it is written there too.
 
 ### 1C — Trust-signal hygiene
 
-1. **`InputCoordinator.evaluateEventTagConditions`** — both placeholders now
-   fail closed. A required `wrcode_valid` condition evaluates to
-   `passed = false` with "WRCode validation required, but no WRCode verdict is
-   available on this input"; a configured `sender_whitelist` likewise, because
-   that surface's `classifiedInput` carries inline-chat and OCR text and has no
-   sender address field at all. `EventTagMatcher` was already fail-closed and is
-   left alone; its behaviour is now pinned by tests so it stays that way.
+1. **`InputCoordinator.evaluateEventTagConditions`** — the placeholder now
+   fails closed. A configured `sender_whitelist` evaluates to `passed = false`,
+   because that surface's `classifiedInput` carries inline-chat and OCR text and
+   has no sender address field at all. The `default:` branch was also flipped to
+   fail closed, matching `EventTagMatcher`: a condition type this build cannot
+   evaluate is one it cannot honour. `EventTagMatcher` was already fail-closed
+   and is left alone; its behaviour is now pinned by tests so it stays that way.
 
-2. **The "Only accept WRCode-stamped emails" checkbox** is `disabled`, and the
-   copy claiming "Requires cryptographic verification of sender authenticity"
-   is replaced with "Not available yet — no WRCode verification runs on
-   incoming mail, so this setting cannot be turned on. A trigger that already
-   requires it will not fire." A stored `required: true` still round-trips and
-   still renders, so an existing restriction is neither silently dropped nor
-   silently satisfied.
+2. **`wrcode_valid` is retired outright** (see §4, correction 1). The concept it
+   named does not exist, so disabling the control was not sufficient. Removed:
+   the `WRCodeCondition` type and union member, the `EventTagConditionType`
+   variant, `NormalizedEvent.wrcodeValid` / `.wrcodeData`, `evaluateWRCode` and
+   both `case` branches, the schema enum value, the vestigial `wrcodeMatch`
+   trigger field, and the checkbox itself. The "Source & Security" section now
+   states that SPF/DKIM/DMARC run automatically on every incoming message and
+   are mandatory, so a reader learns why there is nothing to switch on.
+
+   `conditions/retiredConditions.ts` strips the condition from stored agent
+   configurations at every read boundary — `InputCoordinator`, `EventTagMatcher`,
+   and `TriggerMigration`. This is deliberate rather than incidental: with the
+   `default:` branch now failing closed, a stale entry left in place would
+   silently kill triggers that were never actually gated on anything. Dropping
+   it is not a downgrade, because nothing ever produced the verdict it read.
 
 3. **`ingressCaptureMethodForOffer`** returns `null` instead of defaulting to
    `'assisted_email'`, and `prepareFormationConsent` refuses with
@@ -186,10 +194,12 @@ identical.
 
 The 77 suite-load failures are the environment condition named in the master
 brief. In this environment they surface as
-`Failed to load url ../../../../../packages/shared/src/aiProvenance` (an
-extensionless directory import that the test resolver does not follow), reached
+`Failed to load url ../../../../../packages/shared/src/aiProvenance`, reached
 transitively through `email/providers/zoho.ts`. Native modules were not rebuilt
 and no test was modified to work around it.
+
+That path was subsequently found to be a genuine defect rather than a resolver
+quirk, and is fixed (§4, correction 2).
 
 One pre-existing failure is worth naming because it sits in code this phase
 touched and could be mistaken for a regression:
@@ -205,20 +215,46 @@ suite actually executed under the Electron ABI. Not fixed here — out of scope.
 
 ---
 
-## 4. Observations recorded, not implemented
+## 4. Corrections after review
+
+Two items were changed after the phase was first reported, on the author's
+decision. Both are recorded here because they alter what §1 delivered.
+
+**Correction 1 — `wrcode_valid` retired instead of disabled.** The order's item
+1C.2 asked for the checkbox to be disabled "until a real verdict exists". Review
+established that the premise was wrong: no such verdict will ever exist at that
+point, because channel provenance and publisher resolution are mandatory,
+structural pipeline stages. Per Phase 2A the CPR is computed *before* Step-1
+detection and a failing `channel_pass` short-circuits all WR parsing and code
+extraction, so a provenance-failed message yields no code and no affordance at
+all. There is consequently no class of "WRCode-stamped email" that a per-trigger
+checkbox could opt into, and copy promising the option "later" was as untrue as
+the copy it replaced.
+
+Four independent findings confirmed the condition could never have functioned:
+`NormalizedEvent.wrcodeValid` had no producer anywhere; `EventTagMatcher.evaluate`
+has no production caller; `routeEventTagTrigger` is fed `classifiedInput` whose
+sources are inline chat and OCR, never mail; and the control was rendered only
+for `channel === 'email'`, the one channel that never reaches this router.
+
+A future condition over the Channel Provenance Record would be a *different*
+condition reading a verdict the pipeline actually produces, not a rename of this
+one. It is out of scope until the email→automation bridge exists.
+
+**Correction 2 — `zoho.ts` provenance import depth.** `email/providers/zoho.ts`
+imported `../../../../../packages/shared/src/aiProvenance` with five levels where
+its three peers in the same directory (`gmail.ts`, `outlook.ts`, `imap.ts`)
+correctly use six. Pre-existing, and the cause of both the 77 suite-load failures
+above and the `pnpm session:build` failure. Fixed to six.
+
+---
+
+## 5. Observations recorded, not implemented
 
 Per the no-scope-creep rule, these were found while working the phase's items
 and are reported rather than changed.
 
-1. **`InputCoordinator` `default:` case still fails open.** An
-   `eventTagConditions` entry with an unrecognized `type` evaluates to
-   `passed = true` with "Unknown condition type". `EventTagMatcher` fails closed
-   on the same input (pinned by a new guard test). The order named only the two
-   placeholders, so the `default:` branch was left as-is — but any condition
-   type added to the schema without a matching case here will silently admit
-   everything.
-
-2. **`ingressMappingForSource` retains the same `'assisted_email'` default** for
+1. **`ingressMappingForSource` retains the same `'assisted_email'` default** for
    unmapped *source types* (`formationPipeline.ts`), and its totality is an
    asserted property of an existing acceptance test ("Q4 mapping is total: every
    transport source resolves to a recordable pair"). The order named the
@@ -227,18 +263,18 @@ and are reported rather than changed.
    maps legitimately to `assisted_email`. Worth a decision before Phase 5 makes
    `assisted_email` a truthful capture method with a live producer.
 
-3. **`wr_code_public` is a registered, recordable ingress path with no entry in
+2. **`wr_code_public` is a registered, recordable ingress path with no entry in
    `SOURCE_INGRESS_MAP`.** It is now the fixture for the 1C fail-closed test.
    Phase 5 will need to add its mapping (and `wr_code_red`) when the email→offer
    path is reconnected, otherwise WR-Code captures fail consent by design.
 
-4. **`sender_whitelist` copy in the trigger editor** ("Only emails from these
+3. **`sender_whitelist` copy in the trigger editor** ("Only emails from these
    addresses will be processed") is accurate for `EventTagMatcher`, which does
    perform the check against `event.senderAddress`, but not for the
    `InputCoordinator` surface, which now fails the condition closed. The copy was
-   left unchanged because the order scoped item 2 to the WRCode checkbox.
+   left unchanged because the order scoped item 2 to the WRCode control.
 
-5. **Phase 1 alignment is strict domain equality.** Relaxed (organizational)
+4. **Phase 1 alignment is strict domain equality.** Relaxed (organizational)
    DMARC alignment is deliberately not implemented — strict is the fail-closed
    direction, and Phase 3 owns alignment against the resolved publisher's bound
    origin set (3C), which is also what activates the Discovery Record field.
@@ -277,7 +313,12 @@ apps/electron-vite-project/electron/main/depackaging-microvm/emailDepackage.ts  
 apps/electron-vite-project/electron/main/depackaging-microvm/providerStructuredWalker.ts  Graph headers
 apps/electron-vite-project/electron/main/handshake/formationPipeline.ts                capture-method fail-closed
 apps/extension-chromium/src/services/InputCoordinator.ts              conditions fail closed
-apps/extension-chromium/src/content-script.tsx                        WRCode checkbox disabled + honest copy
+apps/extension-chromium/src/content-script.tsx                        WRCode control removed + honest copy
+apps/extension-chromium/src/automation/types.ts                       WRCodeCondition removed
+apps/extension-chromium/src/automation/conditions/EventTagMatcher.ts  evaluateWRCode removed
+apps/extension-chromium/src/automation/adapters/TriggerMigration.ts   strips retired conditions
+apps/extension-chromium/schemas/agent.schema.json                     enum + wrcodeMatch removed
+apps/electron-vite-project/electron/main/email/providers/zoho.ts      import depth fixed
 ```
 
 **Commit dependency** — `docs/spec/WR-Code_Check-Profile_Registry-Material_v1.4.md`

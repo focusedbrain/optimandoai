@@ -64,6 +64,7 @@ import type {
   UnifiedTriggerConfig,
   EventTagCondition
 } from '../automation/types'
+import { stripRetiredConditions } from '../automation/conditions/retiredConditions'
 
 /**
  * Configuration for the Input Coordinator
@@ -1321,7 +1322,7 @@ export class InputCoordinator {
   }
 
   /**
-   * Evaluate event tag conditions (WRCode, sender whitelist, keywords, website)
+   * Evaluate event tag conditions (sender whitelist, keywords, website)
    */
   private evaluateEventTagConditions(
     trigger: any,
@@ -1331,7 +1332,7 @@ export class InputCoordinator {
     const conditions: Array<{ type: string; passed: boolean; details: string }> = []
     let allPassed = true
     
-    const eventTagConditions = trigger.eventTagConditions || []
+    const eventTagConditions = stripRetiredConditions(trigger.eventTagConditions)
     
     this.log(`Evaluating conditions for trigger:`, {
       hasEventTagConditions: eventTagConditions.length,
@@ -1345,22 +1346,6 @@ export class InputCoordinator {
       let details = ''
       
       switch (condition.type) {
-        case 'wrcode_valid':
-          // A required condition with no verdict fails CLOSED. This routing
-          // surface carries inline chat and OCR input, which no WR Code
-          // validator has evaluated, so there is nothing here that could pass.
-          // Reporting "validation passed" would assert a check no code
-          // performs. `EventTagMatcher.evaluateWRCode` is the fail-closed
-          // reference for the surfaces that do carry an email verdict.
-          if (condition.required) {
-            passed = false
-            details = 'WRCode validation required, but no WRCode verdict is available on this input'
-          } else {
-            passed = true
-            details = 'WRCode not required'
-          }
-          break
-          
         case 'sender_whitelist':
           // Same rule: `classifiedInput` has no sender address (its sources are
           // inline chat and OCR, never a mail channel), so a configured
@@ -1413,7 +1398,10 @@ export class InputCoordinator {
           break
           
         default:
-          passed = true
+          // Fail CLOSED, matching `EventTagMatcher.evaluateCondition`. A
+          // condition type this build cannot evaluate is a condition it cannot
+          // honour, so the trigger must not fire on the strength of it.
+          passed = false
           details = `Unknown condition type: ${condition.type}`
       }
       

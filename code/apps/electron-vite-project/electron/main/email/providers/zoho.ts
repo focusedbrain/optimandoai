@@ -18,7 +18,7 @@ import {
   SendEmailPayload,
   SendResult,
 } from '../types'
-import { shouldApplyMachineMarking, encodeProvenancePayload } from '../../../../../packages/shared/src/aiProvenance'
+import { shouldApplyMachineMarking, encodeProvenancePayload } from '../../../../../../packages/shared/src/aiProvenance'
 import type {
   OrchestratorRemoteOperation,
   OrchestratorRemoteApplyResult,

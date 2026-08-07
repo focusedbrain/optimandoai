@@ -12809,12 +12809,6 @@ function initializeExtension() {
                   // Build structured eventTagConditions array
                   const eventTagConditions: any[] = []
                   
-                  // WRCode condition
-                  const wrcodeChecked = row.querySelector('.trigger-wrcode')?.checked
-                  if (wrcodeChecked) {
-                    eventTagConditions.push({ type: 'wrcode_valid', required: true })
-                  }
-                  
                   // Sender whitelist condition
                   const senderWhitelist = row.querySelector('.trigger-sender-whitelist')?.value?.trim() || ''
                   if (senderWhitelist) {
@@ -14266,12 +14260,6 @@ function initializeExtension() {
                 
                 // Build structured eventTagConditions array
                 const eventTagConditions: any[] = []
-                
-                // WRCode condition
-                const wrcodeChecked = row.querySelector('.trigger-wrcode')?.checked
-                if (wrcodeChecked) {
-                  eventTagConditions.push({ type: 'wrcode_valid', required: true })
-                }
                 
                 // Sender whitelist condition
                 const senderWhitelist = row.querySelector('.trigger-sender-whitelist')?.value?.trim() || ''
@@ -16739,7 +16727,6 @@ function initializeExtension() {
               
               // Get existing conditions
               const existingConditions = init?.eventTagConditions || []
-              const wrcodeCondition = existingConditions.find((c: any) => c.type === 'wrcode_valid')
               const senderCondition = existingConditions.find((c: any) => c.type === 'sender_whitelist')
               
               securitySection.innerHTML = `
@@ -16747,13 +16734,9 @@ function initializeExtension() {
                   <span style="font-size:14px">🔒</span> Source & Security
                 </div>
                 <div style="display:flex;flex-direction:column;gap:8px">
-                  <label style="display:flex;align-items:center;gap:8px;cursor:not-allowed">
-                    <input type="checkbox" class="trigger-wrcode" disabled ${wrcodeCondition?.required ? 'checked' : ''} style="width:16px;height:16px;cursor:not-allowed">
-                    <span style="font-size:12px;color:#0f172a">Only accept WRCode-stamped emails</span>
-                  </label>
-                  <div style="font-size:12px;color:#0f172a;background:#fef9c3;border:1px solid #fde047;border-radius:6px;padding:8px 10px;margin-left:24px;margin-bottom:4px">
-                    Not available yet — no WRCode verification runs on incoming mail, so this
-                    setting cannot be turned on. A trigger that already requires it will not fire.
+                  <div style="font-size:12px;color:#0f172a;background:#fff;border:1px solid #bbf7d0;border-radius:6px;padding:8px 10px">
+                    Sender authentication (SPF, DKIM, DMARC) runs automatically on every incoming
+                    message before it is depackaged. It is mandatory, so there is nothing to turn on here.
                   </div>
                   
                   <div style="margin-top:4px">
@@ -20315,10 +20298,6 @@ function initializeExtension() {
                       // Restore eventTagConditions
                       if (trigger.eventTagConditions) {
                         trigger.eventTagConditions.forEach((cond: any) => {
-                          if (cond.type === 'wrcode_valid') {
-                            const wrcodeCheck = row.querySelector('.trigger-wrcode') as HTMLInputElement
-                            if (wrcodeCheck) wrcodeCheck.checked = true
-                          }
                           if (cond.type === 'sender_whitelist' && cond.allowedSenders) {
                             const senderInput = row.querySelector('.trigger-sender-whitelist') as HTMLInputElement
                             if (senderInput) senderInput.value = cond.allowedSenders.join(', ')
@@ -23993,7 +23972,6 @@ function initializeExtension() {
             trigger.emails = row.querySelector('.trigger-emails')?.value || ''
             trigger.keywords = row.querySelector('.trigger-keywords')?.value || ''
             trigger.websiteFilter = row.querySelector('.trigger-website')?.value || ''
-            trigger.wrcodeMatch = row.querySelector('.trigger-wrcode')?.value || ''
             trigger.workflowId = row.querySelector('.trigger-workflow')?.value || ''
             trigger.command = row.querySelector('.trigger-command')?.value || ''
             

@@ -506,11 +506,6 @@
           "type": "string",
           "description": "[all types] URL pattern filter."
         },
-        "wrcodeMatch": {
-          "type": "string",
-          "description": "[tag_and_condition] WRCode matching ('on' or '')."
-        },
-        
         "sensorWorkflows": {
           "type": "array",
           "description": "[all types] Workflows to run before triggering (pre-processing)."
@@ -527,10 +522,9 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["wrcode_valid", "sender_whitelist", "body_keywords", "website_filter"],
+          "enum": ["sender_whitelist", "body_keywords", "website_filter"],
           "description": "Type of condition."
         },
-        "required": { "type": "boolean" },
         "allowedSenders": { "type": "array", "items": { "type": "string" } },
         "keywords": { "type": "array", "items": { "type": "string" } },
         "caseInsensitive": { "type": "boolean" },

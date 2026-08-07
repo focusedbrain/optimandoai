@@ -1,16 +1,22 @@
 /**
- * Guard — trust signals fail CLOSED and the UI never claims a check no code
- * performs (Phase 1C; report contradiction G4-1).
+ * Guard — trust signals fail CLOSED, and the UI never claims a check no code
+ * performs (Phase 1C, corrected).
  *
- * `InputCoordinator.evaluateEventTagConditions` used to hardcode `passed = true`
- * for `wrcode_valid` and `sender_whitelist` and report "WRCode validation
- * passed". Nothing validates a WR Code on that surface, and its input carries
- * no sender address, so those were assertions about checks that never ran —
- * the most dangerous shape a security control can take, because a required
- * condition silently admitted everything.
+ * Two separate defects are pinned here.
  *
- * These tests pin the corrected behaviour AND the honesty of the copy, because
- * a future refactor could restore either half independently.
+ * 1. `InputCoordinator.evaluateEventTagConditions` used to hardcode
+ *    `passed = true` for trust conditions. Its input carries no sender address
+ *    (the sources are inline chat and OCR), so a configured whitelist was an
+ *    assertion about a check that never ran — the most dangerous shape a
+ *    security control can take, because a required condition silently admitted
+ *    everything.
+ *
+ * 2. `wrcode_valid` was retired outright. Channel provenance (SPF/DKIM/DMARC)
+ *    and publisher resolution are MANDATORY pipeline stages that run before a
+ *    WR code is extracted at all; a message failing them yields no code and no
+ *    affordance [IX.3.1, XVI]. So there is no class of "WRCode-stamped email"
+ *    that a per-trigger checkbox could opt into. Disabling the control was not
+ *    enough — a disabled control still names a concept that does not exist.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -19,6 +25,7 @@ import { resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { InputCoordinator } from '../services/InputCoordinator'
 import { EventTagMatcher } from '../automation/conditions/EventTagMatcher'
+import { TriggerMigration } from '../automation/adapters/TriggerMigration'
 import type { EventTagRoutingInput } from '../automation/types'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
@@ -52,64 +59,54 @@ function inputWithConditions(conditions: unknown[]): EventTagRoutingInput {
   }
 }
 
-/** The single condition verdict the coordinator produced for `type`. */
-function verdictFor(conditions: unknown[], type: string) {
+function evaluate(conditions: unknown[]) {
   const batch = coordinator.routeEventTagTrigger(inputWithConditions(conditions))
-  // A failing condition drops the agent from the batch, so read the verdict
-  // through the private evaluator and corroborate it against routing below.
+  // A failing condition drops the agent from the batch, so read the verdicts
+  // through the private evaluator and corroborate them against routing.
   const evaluated = (coordinator as any).evaluateEventTagConditions(
     { eventTagConditions: conditions },
     inputWithConditions(conditions).classifiedInput,
     undefined,
   )
-  const condition = evaluated.conditions.find((c: any) => c.type === type)
-  expect(condition, `no verdict produced for ${type}`).toBeTruthy()
-  return { condition, routed: batch.results.length > 0, allPassed: evaluated.allPassed }
+  return {
+    verdicts: evaluated.conditions as Array<{ type: string; passed: boolean; details: string }>,
+    allPassed: evaluated.allPassed as boolean,
+    routed: batch.results.length > 0,
+  }
 }
 
-describe('InputCoordinator — required trust conditions fail closed', () => {
-  it('a required wrcode_valid condition fails, and the agent is not routed', () => {
-    const { condition, routed, allPassed } = verdictFor([{ type: 'wrcode_valid', required: true }], 'wrcode_valid')
-    expect(condition.passed).toBe(false)
-    expect(allPassed).toBe(false)
-    expect(routed).toBe(false)
-  })
-
-  it('the failure detail states there is no verdict, and never claims one passed', () => {
-    const { condition } = verdictFor([{ type: 'wrcode_valid', required: true }], 'wrcode_valid')
-    expect(condition.details).toMatch(/no WRCode verdict is available/i)
-    expect(condition.details).not.toMatch(/validation passed/i)
-  })
-
-  it('an optional wrcode_valid condition still passes — it asserts nothing', () => {
-    const { condition, routed } = verdictFor([{ type: 'wrcode_valid', required: false }], 'wrcode_valid')
-    expect(condition.passed).toBe(true)
-    expect(routed).toBe(true)
-  })
-
+describe('InputCoordinator — trust conditions fail closed', () => {
   it('a configured sender_whitelist fails, and the agent is not routed', () => {
-    const conditions = [{ type: 'sender_whitelist', allowedSenders: ['accounting@company.test'] }]
-    const { condition, routed } = verdictFor(conditions, 'sender_whitelist')
-    expect(condition.passed).toBe(false)
-    expect(condition.details).toMatch(/no sender address/i)
+    const { verdicts, routed } = evaluate([
+      { type: 'sender_whitelist', allowedSenders: ['accounting@company.test'] },
+    ])
+    const verdict = verdicts.find((c) => c.type === 'sender_whitelist')
+    expect(verdict?.passed).toBe(false)
+    expect(verdict?.details).toMatch(/no sender address/i)
     expect(routed).toBe(false)
   })
 
   it('an empty sender_whitelist passes — no restriction was configured', () => {
-    const { condition, routed } = verdictFor([{ type: 'sender_whitelist', allowedSenders: [] }], 'sender_whitelist')
-    expect(condition.passed).toBe(true)
+    const { verdicts, routed } = evaluate([{ type: 'sender_whitelist', allowedSenders: [] }])
+    expect(verdicts.find((c) => c.type === 'sender_whitelist')?.passed).toBe(true)
     expect(routed).toBe(true)
+  })
+
+  it('an unknown condition type fails closed rather than being waved through', () => {
+    const { verdicts, allPassed, routed } = evaluate([{ type: 'not_a_real_condition' }])
+    expect(verdicts.find((c) => c.type === 'not_a_real_condition')?.passed).toBe(false)
+    expect(allPassed).toBe(false)
+    expect(routed).toBe(false)
   })
 
   it('the fail-closed branches are not placeholders that hardcode a pass', () => {
     const source = readFileSync(resolve(extensionSrc, 'services/InputCoordinator.ts'), 'utf8')
     const section = source.slice(
-      source.indexOf("case 'wrcode_valid':"),
+      source.indexOf("case 'sender_whitelist':"),
       source.indexOf("case 'body_keywords':"),
     )
     expect(section.length).toBeGreaterThan(0)
     expect(section).not.toMatch(/Placeholder/i)
-    expect(section).not.toMatch(/WRCode validation passed/)
   })
 })
 
@@ -120,15 +117,6 @@ describe('EventTagMatcher — already fail-closed, keep it that way', () => {
     body: 'please pay',
     senderAddress: 'stranger@elsewhere.test',
   }) as any
-
-  it('a required wrcode_valid condition fails when the event carries no verdict', () => {
-    const res = matcher.evaluate(event, {
-      type: 'direct_tag',
-      tag: '#invoice',
-      eventTagConditions: [{ type: 'wrcode_valid', required: true }],
-    } as any)
-    expect(res.matched).toBe(false)
-  })
 
   it('an unknown condition type fails closed', () => {
     const res = matcher.evaluate(event, {
@@ -149,23 +137,68 @@ describe('EventTagMatcher — already fail-closed, keep it that way', () => {
   })
 })
 
-describe('trigger editor UI — the WRCode control claims nothing', () => {
-  const source = readFileSync(resolve(extensionSrc, 'content-script.tsx'), 'utf8')
-  const markup = source.slice(
-    source.indexOf('class="trigger-wrcode"') - 200,
-    source.indexOf('class="trigger-sender-whitelist"'),
-  )
+describe('wrcode_valid is retired, not merely disabled', () => {
+  const retired = { type: 'wrcode_valid', required: true }
 
-  it('the checkbox is disabled', () => {
-    expect(markup).toMatch(/<input[^>]*class="trigger-wrcode"[^>]*\sdisabled/)
+  it('a stale stored condition is stripped, not routed into the unknown-type branch', () => {
+    // It must not survive as an unrecognized type, which now fails closed and
+    // would silently kill triggers that were never actually gated on anything.
+    const { verdicts, allPassed } = evaluate([retired])
+    expect(verdicts.some((c) => c.type === 'wrcode_valid')).toBe(false)
+    expect(verdicts.some((c) => c.type === 'unknown')).toBe(false)
+    expect(allPassed).toBe(true)
   })
 
-  it('the copy states the check is not available yet', () => {
-    expect(markup).toMatch(/Not available yet/i)
+  it('the matcher strips it too', () => {
+    const event = EventTagMatcher.normalizeEmailEvent({
+      subject: '#invoice',
+      body: 'please pay',
+      senderAddress: 'anyone@elsewhere.test',
+    }) as any
+    const res = new EventTagMatcher().evaluate(event, {
+      type: 'direct_tag',
+      tag: '#invoice',
+      eventTagConditions: [retired],
+    } as any)
+    expect(res.matched).toBe(true)
+    expect(res.conditionResults?.some((c) => c.type === 'wrcode_valid')).toBe(false)
   })
 
-  it('no copy claims verification that no code performs', () => {
-    expect(markup).not.toMatch(/Requires cryptographic verification/i)
+  it('migration drops it from a stored trigger and reports the change', () => {
+    const migrator = new TriggerMigration()
+    const trigger = { id: 'T1', type: 'direct_tag' as const, tag: '#invoice', eventTagConditions: [retired] as any }
+    expect(migrator.needsMigration(trigger)).toBe(true)
+    const result = migrator.migrateTrigger(trigger)
+    expect(result.migrated).toBe(true)
+    expect(result.trigger.eventTagConditions?.some((c: any) => c.type === 'wrcode_valid')).toBe(false)
+  })
+
+  it('no evaluator, type, or UI control references it any more', () => {
+    for (const file of [
+      'services/InputCoordinator.ts',
+      'automation/conditions/EventTagMatcher.ts',
+      'automation/types.ts',
+    ]) {
+      const source = readFileSync(resolve(extensionSrc, file), 'utf8')
+      expect(source, `${file} still evaluates wrcode_valid`).not.toMatch(/case 'wrcode_valid'/)
+      expect(source, `${file} still declares a WRCode verdict field`).not.toMatch(/wrcodeValid|WRCodeCondition/)
+    }
+  })
+
+  it('the trigger editor offers no WRCode control and no longer names the concept', () => {
+    const source = readFileSync(resolve(extensionSrc, 'content-script.tsx'), 'utf8')
+    expect(source).not.toMatch(/trigger-wrcode/)
+    expect(source).not.toMatch(/WRCode-stamped/i)
     expect(source).not.toMatch(/Requires cryptographic verification of sender authenticity/i)
+  })
+
+  it('the security section states that provenance is automatic and mandatory', () => {
+    const source = readFileSync(resolve(extensionSrc, 'content-script.tsx'), 'utf8')
+    const markup = source.slice(
+      source.indexOf('Source & Security'),
+      source.indexOf('class="trigger-sender-whitelist"'),
+    )
+    expect(markup).toMatch(/SPF, DKIM, DMARC/)
+    expect(markup).toMatch(/mandatory/i)
   })
 })

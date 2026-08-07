@@ -26,11 +26,11 @@ import type {
   UnifiedTriggerConfig,
   EventTagCondition,
   EventChannel,
-  WRCodeCondition,
   SenderWhitelistCondition,
   BodyKeywordsCondition,
   WebsiteFilterCondition
 } from '../types'
+import { stripRetiredConditions } from './retiredConditions'
 
 /**
  * Result of evaluating a trigger against an event
@@ -103,7 +103,7 @@ export class EventTagMatcher {
     }
     
     // 3. Evaluate structured conditions (if any)
-    const conditions = trigger.eventTagConditions || []
+    const conditions = stripRetiredConditions(trigger.eventTagConditions)
     const conditionResults: MatchResult['conditionResults'] = []
     
     for (const condition of conditions) {
@@ -217,10 +217,6 @@ export class EventTagMatcher {
     const errors: string[] = []
     
     switch (condition.type) {
-      case 'wrcode_valid':
-        // No specific validation needed
-        break
-        
       case 'sender_whitelist':
         if (!condition.allowedSenders || condition.allowedSenders.length === 0) {
           errors.push('Sender whitelist must have at least one email address')
@@ -292,9 +288,6 @@ export class EventTagMatcher {
     condition: EventTagCondition
   ): { type: string; passed: boolean; details: string } {
     switch (condition.type) {
-      case 'wrcode_valid':
-        return this.evaluateWRCode(event, condition)
-        
       case 'sender_whitelist':
         return this.evaluateSenderWhitelist(event, condition)
         
@@ -310,25 +303,6 @@ export class EventTagMatcher {
           passed: false,
           details: `Unknown condition type: ${(condition as any).type}`
         }
-    }
-  }
-  
-  /**
-   * Evaluate WRCode validation condition
-   */
-  private evaluateWRCode(
-    event: NormalizedEvent, 
-    condition: WRCodeCondition
-  ): { type: string; passed: boolean; details: string } {
-    if (!condition.required) {
-      return { type: 'wrcode_valid', passed: true, details: 'WRCode not required' }
-    }
-    
-    const passed = event.wrcodeValid === true
-    return {
-      type: 'wrcode_valid',
-      passed,
-      details: passed ? 'WRCode validation passed' : 'WRCode validation failed or not present'
     }
   }
   
@@ -494,8 +468,6 @@ export class EventTagMatcher {
     subject: string
     body: string
     senderAddress: string
-    wrcodeValid?: boolean
-    wrcodeData?: Record<string, any>
     timestamp?: number
   }): Partial<NormalizedEvent> {
     const combinedText = `${params.subject} ${params.body}`
@@ -511,8 +483,6 @@ export class EventTagMatcher {
       subject: params.subject,
       body: params.body,
       senderAddress: params.senderAddress,
-      wrcodeValid: params.wrcodeValid,
-      wrcodeData: params.wrcodeData,
       extractedTags: EventTagMatcher.extractTags(combinedText),
       metadata: {
         tags: EventTagMatcher.extractTags(combinedText)
