@@ -4484,13 +4484,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })
         .then(result => {
           if (result.ok && result.data?.content != null) {
-            sendResponse({ ok: true, data: { content: result.data.content } })
+            sendResponse({
+              ok: true,
+              data: {
+                content: result.data.content,
+                ...(result.data.provenance ? { provenance: result.data.provenance } : {}),
+              },
+            })
           } else {
             sendResponse({ ok: false, error: result.error || 'Draft generation failed' })
           }
         })
         .catch(err => {
           sendResponse({ ok: false, error: err?.message || 'Draft generation failed' })
+        })
+      return true
+    }
+
+    case 'ART50_LOG_EDITORIAL': {
+      electronRequest('/api/art50/editorial-responsibility', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provenance: msg.provenance }),
+      })
+        .then(result => {
+          if (result.ok) sendResponse({ ok: true, provenance: result.provenance ?? result.data?.provenance })
+          else sendResponse({ ok: false, error: result.error || 'editorial_log_failed' })
+        })
+        .catch(err => {
+          sendResponse({ ok: false, error: err?.message || 'editorial_log_failed' })
         })
       return true
     }

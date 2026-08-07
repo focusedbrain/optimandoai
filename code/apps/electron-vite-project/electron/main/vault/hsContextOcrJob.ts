@@ -480,6 +480,16 @@ async function extractTextVision(
     }
   }
 
+  try {
+    const { attachAndLogProvenance } = await import('../aiProvenance/attachProvenance')
+    attachAndLogProvenance(fullText, {
+      model_id: VISION_MODEL,
+      provider: 'cloud:anthropic',
+    })
+  } catch {
+    /* provenance logging must not fail OCR */
+  }
+
   return {
     success: true,
     extracted_text: fullText,

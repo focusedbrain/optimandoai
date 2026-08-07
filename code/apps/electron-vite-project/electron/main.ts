@@ -2813,6 +2813,13 @@ app.whenReady().then(async () => {
         }
       }
       try {
+        const { registerArt50Ipc } = await import('./main/aiProvenance/art50Ipc')
+        registerArt50Ipc()
+        console.log('[MAIN] Art. 50 IPC handlers registered')
+      } catch (art50Err) {
+        console.error('[MAIN] registerArt50Ipc failed:', art50Err)
+      }
+      try {
         registerEmailHandlers(getInboxDb)
         console.log('[MAIN] Email Gateway IPC handlers registered')
       } catch (emailRegErr) {
@@ -4111,7 +4118,11 @@ app.whenReady().then(async () => {
           return { success: false, error: 'No LLM model installed. Install a model in LLM Settings first.' }
         }
         const response = await localLlmManager.chat(modelId, [{ role: 'user', content: prompt || '' }])
-        return { success: true, answer: response?.content ?? '' }
+        return {
+          success: true,
+          answer: response?.content ?? '',
+          provenance: response?.provenance ?? null,
+        }
       } catch (err: any) {
         console.error('[MAIN] handshake:generateDraft error:', err?.message)
         return { success: false, error: err?.message ?? 'Draft generation failed' }
@@ -4688,14 +4699,24 @@ app.whenReady().then(async () => {
                 { role: 'system' as const, content: system },
                 { role: 'user' as const, content: userPrompt },
               ]
+              const provenanceOut: { value?: import('../../../packages/shared/src/aiProvenance').AiProvenance } = {}
               const answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, ragMessages, {
                 model: params.model,
                 stream: !!doStream,
                 send: doStream ? send : undefined,
                 ragParams: sandboxRagRoutingParams(),
                 contentTask: ragContentTask,
+                provenanceOut,
               })
-              return toIPC({ success: true, answer, sources, streamed: doStream, resultType: 'context_answer' })
+              const ragProv = provenanceOut.value
+              return toIPC({
+                success: true,
+                answer,
+                sources,
+                streamed: doStream,
+                resultType: 'context_answer',
+                ...(ragProv !== undefined ? { provenance: ragProv } : {}),
+              })
             } catch (err: unknown) {
               const ir = mapInferenceRoutingError(err)
               if (ir) return ir
@@ -4938,6 +4959,7 @@ app.whenReady().then(async () => {
           { role: 'system' as const, content: systemPrompt },
           { role: 'user' as const, content: userPrompt },
         ]
+        const provenanceOut: { value?: import('../../../packages/shared/src/aiProvenance').AiProvenance } = {}
         try {
           answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, messages, {
             model: params.model,
@@ -4945,6 +4967,7 @@ app.whenReady().then(async () => {
             send: doStream ? send : undefined,
             ragParams: sandboxRagRoutingParams(),
             contentTask: ragContentTask,
+            provenanceOut,
           })
         } catch (err: unknown) {
           const ir = mapInferenceRoutingError(err)
@@ -4990,12 +5013,14 @@ app.whenReady().then(async () => {
         checkAILatency(total_ms)
 
         if (capsuleId && normalizedQuery) setCached(db, capsuleId, normalizedQuery, { answer, sources })
+        const chatWithContextProv = provenanceOut.value
         return toIPC({
           success: true,
           answer: doStream ? undefined : answer,
           sources,
           governanceNote: governanceNote ?? undefined,
           streamed: doStream,
+          ...(chatWithContextProv !== undefined ? { provenance: chatWithContextProv } : {}),
           ...(hybridResult.contextRetrieval && { contextRetrieval: hybridResult.contextRetrieval }),
           ...(debug && {
             latency: buildLatencyDebugPayload({
@@ -5058,13 +5083,16 @@ app.whenReady().then(async () => {
           { role: 'system' as const, content: params.systemPrompt },
           { role: 'user' as const, content: params.userPrompt },
         ]
+        const provenanceOut: { value?: import('../../../packages/shared/src/aiProvenance').AiProvenance } = {}
         const answer = await provider.generateChat(messages, {
           model: params.model,
           stream: doStream,
           send: doStream ? send : undefined,
+          provenanceOut,
           ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
         })
-        return toIPC({ success: true, answer, contextBlocks: [], sources: [] })
+        const chatDirectProvenance = provenanceOut.value
+        return toIPC({ success: true, answer, contextBlocks: [], sources: [], ...(chatDirectProvenance !== undefined ? { provenance: chatDirectProvenance } : {}) })
       } catch (err: any) {
         console.error('[chatDirect] error:', err)
         return toIPC({ success: false, error: 'model_execution_failed', message: err?.message ?? 'Unknown error' })
@@ -6991,13 +7019,17 @@ async function runDeviceKeyMigration(
   /**
    * Dispatch a chat request to a cloud LLM provider.
    * Reuses the same API patterns as handshake/aiProviders.ts.
+   * Returns content + AiProvenance (logged once here; no downstream re-log needed).
    */
   async function dispatchCloudChat(
     provider: string,
     modelId: string,
     messages: Array<{ role: string; content: string }>,
     apiKey: string
-  ): Promise<string> {
+  ) {
+    const { attachAndLogProvenance } = await import('./main/aiProvenance/attachProvenance')
+    const { extractUpstreamMarking } = await import('../../../packages/shared/src/aiProvenance/generate')
+
     switch (provider) {
       case 'openai': {
         const model = modelId || 'gpt-4o-mini'
@@ -7011,7 +7043,8 @@ async function runDeviceKeyMigration(
           throw new Error(`OpenAI ${res.status}: ${errText}`)
         }
         const data: any = await res.json()
-        return data.choices?.[0]?.message?.content ?? 'No response from OpenAI.'
+        const content: string = data.choices?.[0]?.message?.content ?? 'No response from OpenAI.'
+        return attachAndLogProvenance(content, { model_id: model, provider: 'cloud:openai', upstream_marking: extractUpstreamMarking(data) })
       }
 
       case 'anthropic': {
@@ -7040,7 +7073,8 @@ async function runDeviceKeyMigration(
           throw new Error(`Anthropic ${res.status}: ${errText}`)
         }
         const data: any = await res.json()
-        return data.content?.[0]?.text ?? 'No response from Anthropic.'
+        const content: string = data.content?.[0]?.text ?? 'No response from Anthropic.'
+        return attachAndLogProvenance(content, { model_id: model, provider: 'cloud:anthropic', upstream_marking: extractUpstreamMarking(data) })
       }
 
       case 'gemini': {
@@ -7064,7 +7098,8 @@ async function runDeviceKeyMigration(
           throw new Error(`Gemini ${res.status}: ${errText}`)
         }
         const data: any = await res.json()
-        return data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response from Gemini.'
+        const content: string = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response from Gemini.'
+        return attachAndLogProvenance(content, { model_id: model, provider: 'cloud:gemini', upstream_marking: extractUpstreamMarking(data) })
       }
 
       case 'grok': {
@@ -7079,7 +7114,8 @@ async function runDeviceKeyMigration(
           throw new Error(`xAI/Grok ${res.status}: ${errText}`)
         }
         const data: any = await res.json()
-        return data.choices?.[0]?.message?.content ?? 'No response from Grok.'
+        const content: string = data.choices?.[0]?.message?.content ?? 'No response from Grok.'
+        return attachAndLogProvenance(content, { model_id: model, provider: 'cloud:grok', upstream_marking: extractUpstreamMarking(data) })
       }
 
       default:
@@ -7564,8 +7600,8 @@ async function runDeviceKeyMigration(
     })
     httpApp.post('/api/wrchat/smart-summary', async (_req, res) => {
       try {
-        const summary = await watchdogService.runSmartSummary()
-        res.json({ ok: true, summary })
+        const summaryResult = await watchdogService.runSmartSummary()
+        res.json({ ok: true, summary: summaryResult.text, provenance: summaryResult.provenance ?? undefined })
       } catch (error: any) {
         if (error?.message === 'Capture pipeline busy') {
           res.status(429).json({ ok: false, error: error.message })
@@ -7575,7 +7611,23 @@ async function runDeviceKeyMigration(
         res.status(500).json({ ok: false, error: error?.message || 'smart summary failed' })
       }
     })
-    httpApp.post('/api/wrchat/watchdog/continuous', async (req, res) => {
+        httpApp.post('/api/art50/editorial-responsibility', async (req, res) => {
+      try {
+        const { isAiProvenance, markEditorialResponsible } = await import('../../../packages/shared/src/aiProvenance')
+        const { logEditorialResponsibility } = await import('./main/aiProvenance/provenanceLog')
+        const raw = req.body?.provenance ?? req.body
+        if (!isAiProvenance(raw)) {
+          res.status(400).json({ ok: false, error: 'invalid_provenance' })
+          return
+        }
+        const next = markEditorialResponsible(raw)
+        logEditorialResponsibility(next)
+        res.json({ ok: true, provenance: next })
+      } catch (e: any) {
+        res.status(500).json({ ok: false, error: e?.message || 'editorial_log_failed' })
+      }
+    })
+httpApp.post('/api/wrchat/watchdog/continuous', async (req, res) => {
       try {
         const body = req.body && typeof req.body === 'object' ? (req.body as { enabled?: unknown }) : {}
         if (typeof body.enabled !== 'boolean') {
@@ -10279,7 +10331,7 @@ async function runDeviceKeyMigration(
           timeoutMs: timeout_ms,
         })
         if (r.ok) {
-          res.json({ ok: true, data: { content: r.output, model: r.model } })
+          res.json({ ok: true, data: { content: r.output, model: r.model, ...(r.provenance !== undefined ? { provenance: r.provenance } : {}) } })
         } else {
           res.json({ ok: false, error: r.message, code: r.code })
         }
@@ -10355,8 +10407,8 @@ async function runDeviceKeyMigration(
         // Cloud provider dispatch: when provider + apiKey are present, call the cloud API directly
         if (provider && apiKey) {
           console.log('[HTTP-LLM] Cloud dispatch:', provider, modelId)
-          const cloudContent = await dispatchCloudChat(provider, modelId, messages, apiKey)
-          res.json({ ok: true, data: { content: cloudContent } })
+          const cloudResult = await dispatchCloudChat(provider, modelId, messages, apiKey)
+          res.json({ ok: true, data: { content: cloudResult.content, provenance: cloudResult.provenance } })
           return
         }
         
@@ -10396,6 +10448,7 @@ async function runDeviceKeyMigration(
           data: {
             ...response,
             content: response.content,
+            ...(response.provenance ? { provenance: response.provenance } : {}),
             ...(modelFallback ? { modelFallback } : {}),
           },
         })
