@@ -38,6 +38,12 @@ import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pd
 import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
 import { decryptQBeapPackage } from '../beap/decryptQBeapPackage'
 import { classifyLivePbeapTrust, pbeapTrustMetadata } from '../depackaging-microvm/livePbeapTrust'
+import {
+  channelProvenanceContentHash,
+  mergeChannelProvenanceMetadata,
+  produceChannelProvenance,
+  recordChannelProvenanceEvidence,
+} from './channelProvenanceProducer'
 import { validatorOrchestrator } from '../validator-process/orchestrator'
 import { isSeamValidationCutoverEnabled } from '../critical-jobs/featureFlags'
 import { isOpaqueIngestionActive } from './opaqueIngestion'
@@ -51,7 +57,7 @@ import { getHandshakeRecord } from '../handshake/db'
 import { encryptForQuarantine } from '../quarantine-encrypt/index'
 import { writeQuarantineBlob } from '../quarantine-blob-storage/index'
 import type { SSOSession } from '../handshake/types'
-import type { ProvenanceMetadata } from '@repo/ingestion-core'
+import type { ChannelProvenanceRecord, ProvenanceMetadata } from '@repo/ingestion-core'
 
 // ── Types ──
 
@@ -61,7 +67,17 @@ export interface RawEmailMessage {
   uid?: string
   /** IMAP folder the message was listed under (for remote MOVE chaining). */
   folder?: string
-  headers?: { messageId?: string; inReplyTo?: string; references?: string[] }
+  headers?: {
+    messageId?: string
+    inReplyTo?: string
+    references?: string[]
+    /**
+     * `Authentication-Results` values collected at the depackaging boundary
+     * (in-guest flag-on, by the provider flag-off). Consumed by the CPR
+     * producer and discarded — no verdict field of the record quotes them.
+     */
+    authenticationResults?: string[]
+  }
   from: { address: string; name?: string }
   to: Array<{ address: string; name?: string }>
   cc?: Array<{ address: string; name?: string }>
@@ -391,6 +407,22 @@ export async function detectAndRouteMessageInline(
   const imapRfcMessageId = rawMsg.headers?.messageId?.trim() || null
   const hasAttachments = attachments.length > 0
 
+  // ── Step 0: Channel Provenance Record [IX.3.1] ───────────────────────────
+  //
+  // Produced for EVERY message, before anything is derived from its content.
+  // Phase 1 records the verdict and persists it; Phase 2 makes a failing
+  // `channel_pass` short-circuit the detection below.
+  const channelProvenance = produceChannelProvenance({
+    authenticationResults: rawMsg.headers?.authenticationResults,
+    fromAddress: fromAddr,
+    contentSha256: channelProvenanceContentHash({
+      rawBytes: rawMsg.rawRfc822 ?? null,
+      messageId,
+      subject,
+      bodyText,
+    }),
+  })
+
   // ── Step 1: Detect BEAP vs plain (sync) ──────────────────────────────────
 
   let beapPackageJson: string | null = null
@@ -690,14 +722,15 @@ export async function detectAndRouteMessageInline(
 
       if (resp && resp.outcome.ok) {
         const sealed = resp.outcome.sealed
-        // Bind the pBEAP trust verdict tamper-evidently into the seal (when present),
-        // so the persisted depackaged_metadata cannot be altered post-write undetected.
-        const { seal, seal_input_json } = computeSeal(sealed.canonical_json, inboxMessageId, 'outer', pbeapTrustMetaJson)
+        // Bind the pBEAP trust verdict AND the channel verdict tamper-evidently
+        // into the seal, so neither can be altered post-write undetected.
+        const inboxMetaJson = mergeChannelProvenanceMetadata(pbeapTrustMetaJson, channelProvenance)
+        const { seal, seal_input_json } = computeSeal(sealed.canonical_json, inboxMessageId, 'outer', inboxMetaJson)
         writePayload = {
           kind: 'inbox',
           sourceType: 'email_beap',
           depackagedJson: sealed.canonical_json,
-          depackagedMetadata: pbeapTrustMetaJson,
+          depackagedMetadata: inboxMetaJson,
           seal,
           sealInputJson: seal_input_json,
           sealKeySource: 'ledger',
@@ -724,6 +757,7 @@ export async function detectAndRouteMessageInline(
           inboxMessageId, messageId, accountId, rawMsg, fromAddr,
           fromName, subject, bodyText, bodyHtml, toList, ccList,
           receivedAt, attachmentsCanonical,
+          mergeChannelProvenanceMetadata(pbeapTrustMetaJson, channelProvenance),
         )
       } else {
         const emailBytes = Buffer.from(beapPackageJson, 'utf-8')
@@ -735,6 +769,7 @@ export async function detectAndRouteMessageInline(
             inboxMessageId, messageId, accountId, rawMsg, fromAddr,
             fromName, subject, bodyText, bodyHtml, toList, ccList,
             receivedAt, attachmentsCanonical,
+            mergeChannelProvenanceMetadata(pbeapTrustMetaJson, channelProvenance),
           )
         } else {
           const blobResult = writeQuarantineBlob(encResult.blob)
@@ -762,6 +797,7 @@ export async function detectAndRouteMessageInline(
               inboxMessageId, messageId, accountId, rawMsg, fromAddr,
               fromName, subject, bodyText, bodyHtml, toList, ccList,
               receivedAt, attachmentsCanonical,
+              mergeChannelProvenanceMetadata(pbeapTrustMetaJson, channelProvenance),
             )
           } else {
             const qSealed = qResp.outcome.sealed
@@ -786,6 +822,7 @@ export async function detectAndRouteMessageInline(
       inboxMessageId, messageId, accountId, rawMsg, fromAddr,
       fromName, subject, bodyText, bodyHtml, toList, ccList,
       receivedAt, attachmentsCanonical,
+      mergeChannelProvenanceMetadata(null, channelProvenance),
     )
   }
 
@@ -822,6 +859,16 @@ export async function detectAndRouteMessageInline(
         row_id: writePayload.quarantineId,
       },
     )
+
+    // quarantine_messages has no depackaged_metadata column, so the evidence
+    // chain is where this message's channel verdict is retained [IX.11].
+    recordChannelProvenanceEvidence({
+      record: channelProvenance,
+      messageId,
+      rowId: writePayload.quarantineId,
+      path: viaSeam ? 'seam_carrier' : 'inline',
+      outcome: 'quarantine',
+    })
 
     return { type: 'quarantine', messageId, inboxMessageId: writePayload.quarantineId }
   }
@@ -926,6 +973,14 @@ export async function detectAndRouteMessageInline(
     'outer',
   )
 
+  recordChannelProvenanceEvidence({
+    record: channelProvenance,
+    messageId,
+    rowId: inboxMessageId,
+    path: viaSeam ? 'seam_carrier' : 'inline',
+    outcome: 'inbox',
+  })
+
   return {
     type: writePayload.sourceType === 'email_beap' ? 'beap' : 'plain',
     messageId,
@@ -1012,15 +1067,29 @@ async function routeViaDepackageSeam(
   const { dispatchDepackageEmail } = await import('../critical-jobs/liveDepackageCutover')
   const out = await dispatchDepackageEmail(opaque, sandbox.peer_x25519_public_key_b64, undefined, form)
 
+  // ── Channel Provenance Record [IX.3.1] ─────────────────────────────────────
+  //
+  // Flag-on, the authentication material is collected in-guest (header handling
+  // never happens here) and arrives typed and capped. A depackage failure means
+  // we never got any: the record is then `unverifiable`, which is a verdict —
+  // the message is still evidenced, it simply has no authenticated channel.
+  const contentSha256 = channelProvenanceContentHash({ rawBytes: opaque })
+  const guestMaterial = out.ok && out.result.ok ? out.result.channelAuthentication : undefined
+  const channelProvenance = produceChannelProvenance({
+    authenticationResults: guestMaterial?.authenticationResults,
+    fromAddress: guestMaterial?.fromDomain ?? null,
+    contentSha256,
+  })
+
   // INV-5 logging: identifiers/codes only, never plaintext/bytes.
   if (!out.ok) {
     console.warn('[messageRouter] depackage-email dispatch failed', { messageId, code: out.code })
-    return quarantineRawBytes(db, opaque, sandbox, messageId, rawMsg, mapDepackageCodeToReason(out.code))
+    return quarantineRawBytes(db, opaque, sandbox, messageId, rawMsg, mapDepackageCodeToReason(out.code), channelProvenance)
   }
   const result = out.result
   if (!result.ok) {
     console.warn('[messageRouter] depackage-email worker failure', { messageId, code: result.code })
-    return quarantineRawBytes(db, opaque, sandbox, messageId, rawMsg, mapDepackageCodeToReason(result.code))
+    return quarantineRawBytes(db, opaque, sandbox, messageId, rawMsg, mapDepackageCodeToReason(result.code), channelProvenance)
   }
 
   if (result.type === 'beap-carrier' || result.type === 'mixed') {
@@ -1042,8 +1111,16 @@ async function routeViaDepackageSeam(
       to: env.to.map((a) => ({ address: a.email, name: a.name })),
       cc: env.cc.map((a) => ({ address: a.email, name: a.name })),
       date: coerceReceivedAtIso(rawMsg.date ?? env.date, new Date().toISOString()),
-      // Guest-derived threading key (no orchestrator header parse).
-      headers: th?.messageId ? { ...rawMsg.headers, messageId: th.messageId } : rawMsg.headers,
+      // Guest-derived threading key + CPR material (no orchestrator header parse).
+      // The re-entered inline path produces and evidences the record itself, so
+      // the carrier case is evidenced exactly once, as `seam_carrier`.
+      headers: {
+        ...rawMsg.headers,
+        ...(th?.messageId ? { messageId: th.messageId } : {}),
+        ...(result.channelAuthentication
+          ? { authenticationResults: [...result.channelAuthentication.authenticationResults] }
+          : {}),
+      },
       text: pkgJson,
       html: undefined,
       attachments: [],
@@ -1054,7 +1131,7 @@ async function routeViaDepackageSeam(
 
   // Plain mail: consumer-wrap the guest SafeText, preserve sealed originals.
   console.warn('[messageRouter] depackage-email plain', { messageId, artifacts: result.artifacts.length })
-  return writePlainSeamInbox(db, accountId, rawMsg, messageId, result.safeText, result.artifacts, result.displayEnvelope, result.threadingHints)
+  return writePlainSeamInbox(db, accountId, rawMsg, messageId, result.safeText, result.artifacts, result.displayEnvelope, result.threadingHints, channelProvenance)
 }
 
 /**
@@ -1069,6 +1146,7 @@ async function quarantineRawBytes(
   messageId: string,
   rawMsg: RawEmailMessage,
   rejectionReason: string,
+  channelProvenance: ChannelProvenanceRecord,
 ): Promise<DetectAndRouteResult> {
   const fromAddr = rawMsg.from?.address ?? (rawMsg.from as any)?.email ?? ''
   const receivedAt = coerceReceivedAtIso(rawMsg.date, new Date().toISOString())
@@ -1109,6 +1187,13 @@ async function quarantineRawBytes(
     ],
     { seal: qSealed.seal, seal_input_json: qSealed.seal_input_json, canonical_json: qCanonicalJson, row_id: quarantineId },
   )
+  recordChannelProvenanceEvidence({
+    record: channelProvenance,
+    messageId,
+    rowId: quarantineId,
+    path: 'seam',
+    outcome: 'quarantine',
+  })
   return { type: 'quarantine', messageId, inboxMessageId: quarantineId }
 }
 
@@ -1128,7 +1213,8 @@ async function writePlainSeamInbox(
   safeText: { subject: string; body_text: string; attachment_refs: readonly string[] },
   artifacts: ReadonlyArray<{ blob_id: string; content_type: string; filename?: string; blob: import('../quarantine-blob-storage/index').QuarantineBlobFile }>,
   envelope: import('../depackaging-microvm/emailDepackage').DisplayEnvelope,
-  threadingHints?: import('../depackaging-microvm/emailDepackage').ThreadingHints,
+  threadingHints: import('../depackaging-microvm/emailDepackage').ThreadingHints | undefined,
+  channelProvenance: ChannelProvenanceRecord,
 ): Promise<DetectAndRouteResult> {
   const inboxMessageId = randomUUID()
   const now = new Date().toISOString()
@@ -1168,6 +1254,7 @@ async function writePlainSeamInbox(
     inboxMessageId, messageId, accountId, rawMsg, fromAddr, fromName,
     safeText.subject, safeText.body_text, null, toList, ccList, receivedAt,
     attachmentsCanonical,
+    mergeChannelProvenanceMetadata(null, channelProvenance),
   )
 
   const sealedInbox = prepareSealedInsert(db, INBOX_INSERT_SQL)
@@ -1175,7 +1262,7 @@ async function writePlainSeamInbox(
     inboxMessageId, payload.sourceType, null, accountId, messageId,
     fromAddr, fromName, JSON.stringify(toAddrs), JSON.stringify(ccAddrs),
     safeText.subject, safeText.body_text, null, null,
-    payload.depackagedJson, null, attachmentsCanonical.length > 0 ? 1 : 0, attachmentsCanonical.length,
+    payload.depackagedJson, payload.depackagedMetadata, attachmentsCanonical.length > 0 ? 1 : 0, attachmentsCanonical.length,
     receivedAt, now, folder, imapRfcMessageId,
     payload.validatedAt, payload.validatorVersion, payload.validationReason,
     payload.seal, payload.sealInputJson, 'ledger',
@@ -1186,6 +1273,13 @@ async function writePlainSeamInbox(
     [],
     'outer',
   )
+  recordChannelProvenanceEvidence({
+    record: channelProvenance,
+    messageId,
+    rowId: inboxMessageId,
+    path: 'seam',
+    outcome: 'inbox',
+  })
   return { type: 'plain', messageId, inboxMessageId }
 }
 
@@ -1205,10 +1299,16 @@ async function buildPlainEmailInboxPayload(
   ccList: Array<{ address: string; name?: string }>,
   receivedAt: string,
   attachmentsCanonical: ChildAttachmentDescriptor[],
+  /**
+   * `depackaged_metadata` JSON (the CPR, and `pbeap_trust` where one exists).
+   * Bound into the seal so the persisted verdict is tamper-evident.
+   */
+  depackagedMetadata?: string | null,
 ): Promise<{
   kind: 'inbox'
   sourceType: 'email_plain'
   depackagedJson: string
+  depackagedMetadata: string | null
   seal: string
   sealInputJson: string
   validatedAt: string
@@ -1251,12 +1351,14 @@ async function buildPlainEmailInboxPayload(
   }
   const canonicalJson = JSON.stringify(canonicalObj)
   const nowIso = new Date().toISOString()
-  const { seal, seal_input_json } = computeSeal(canonicalJson, inboxMessageId, 'outer')
+  const metadataJson = depackagedMetadata ?? null
+  const { seal, seal_input_json } = computeSeal(canonicalJson, inboxMessageId, 'outer', metadataJson)
 
   return {
     kind: 'inbox',
     sourceType: 'email_plain',
     depackagedJson: canonicalJson,
+    depackagedMetadata: metadataJson,
     seal,
     sealInputJson: seal_input_json,
     sealKeySource: 'ledger',

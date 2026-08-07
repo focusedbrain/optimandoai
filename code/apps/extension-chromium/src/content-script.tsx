@@ -16747,12 +16747,13 @@ function initializeExtension() {
                   <span style="font-size:14px">🔒</span> Source & Security
                 </div>
                 <div style="display:flex;flex-direction:column;gap:8px">
-                  <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-                    <input type="checkbox" class="trigger-wrcode" ${wrcodeCondition?.required ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer">
+                  <label style="display:flex;align-items:center;gap:8px;cursor:not-allowed">
+                    <input type="checkbox" class="trigger-wrcode" disabled ${wrcodeCondition?.required ? 'checked' : ''} style="width:16px;height:16px;cursor:not-allowed">
                     <span style="font-size:12px;color:#0f172a">Only accept WRCode-stamped emails</span>
                   </label>
-                  <div style="font-size:12px;color:#475569;padding-left:24px;margin-bottom:4px">
-                    Requires cryptographic verification of sender authenticity.
+                  <div style="font-size:12px;color:#0f172a;background:#fef9c3;border:1px solid #fde047;border-radius:6px;padding:8px 10px;margin-left:24px;margin-bottom:4px">
+                    Not available yet — no WRCode verification runs on incoming mail, so this
+                    setting cannot be turned on. A trigger that already requires it will not fire.
                   </div>
                   
                   <div style="margin-top:4px">

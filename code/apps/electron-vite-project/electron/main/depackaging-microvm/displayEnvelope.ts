@@ -43,7 +43,70 @@ export const ENVELOPE_CAPS = {
   MAX_RECIPIENTS: 256,
   MAX_MSGID_LEN: 998,
   MAX_REFERENCES: 64,
+  /** Channel-authentication material: bounded like every other header read. */
+  MAX_AUTH_RESULTS: 8,
+  MAX_AUTH_RESULT_LEN: 2048,
 } as const
+
+/**
+ * Channel-authentication material for the Channel Provenance Record
+ * [IX.3.1]. Collected here because header handling belongs in-guest; the
+ * verdicts themselves are computed by the single shared evaluator
+ * (`evaluateChannelAuthentication`) so there is exactly one implementation.
+ *
+ * These values are consumed and discarded at evaluation. Nothing from them is
+ * copied into the CPR — the record carries typed verdicts only.
+ */
+export interface ChannelAuthenticationMaterial {
+  /** `Authentication-Results` values in header order, count- and length-capped. */
+  readonly authenticationResults: readonly string[]
+  /** RFC5322.From domain, for alignment. */
+  readonly fromDomain?: string
+}
+
+/**
+ * Collect every `Authentication-Results` header. `parseHeaders` keeps only the
+ * first occurrence of a name, which is wrong here: a message that traversed
+ * several relays carries one per hop and the receiving gateway's is not
+ * necessarily first, so this reads the header block directly.
+ */
+export function channelAuthenticationFromHeaderBlock(
+  headerBlock: string,
+  envelope: DisplayEnvelope,
+): ChannelAuthenticationMaterial {
+  const results: string[] = []
+  const unfolded = (headerBlock ?? '').replace(/\r?\n[ \t]+/g, ' ')
+  for (const line of unfolded.split(/\r?\n/)) {
+    const idx = line.indexOf(':')
+    if (idx <= 0) continue
+    if (line.slice(0, idx).trim().toLowerCase() !== 'authentication-results') continue
+    const value = line.slice(idx + 1).trim()
+    if (value === '') continue
+    results.push(value.slice(0, ENVELOPE_CAPS.MAX_AUTH_RESULT_LEN))
+    if (results.length >= ENVELOPE_CAPS.MAX_AUTH_RESULTS) break
+  }
+  return channelAuthenticationMaterial(results, envelope)
+}
+
+/**
+ * Same shape from an already-extracted list — the provider-structured-json path,
+ * where the provider hands us named header values rather than a header block.
+ */
+export function channelAuthenticationMaterial(
+  authenticationResults: readonly string[],
+  envelope: DisplayEnvelope,
+): ChannelAuthenticationMaterial {
+  const fromEmail = envelope.from?.email
+  const at = typeof fromEmail === 'string' ? fromEmail.lastIndexOf('@') : -1
+  const fromDomain = at >= 0 ? fromEmail!.slice(at + 1).trim().toLowerCase() : undefined
+  return {
+    authenticationResults: authenticationResults
+      .filter((v) => typeof v === 'string' && v.trim() !== '')
+      .slice(0, ENVELOPE_CAPS.MAX_AUTH_RESULTS)
+      .map((v) => v.slice(0, ENVELOPE_CAPS.MAX_AUTH_RESULT_LEN)),
+    ...(fromDomain ? { fromDomain } : {}),
+  }
+}
 
 /**
  * B2.2 threading keys, derived IN-GUEST (header handling never in the orchestrator

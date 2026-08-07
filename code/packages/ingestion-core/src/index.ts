@@ -116,6 +116,42 @@ export type {
   CaptureMethodResolution,
   InvitationClassResolution,
 } from './captureMethods.js';
+// WR Code Baseline Code — check profile v1.4 [XVI.5.1–5.5]
+export {
+  ALPHABET,
+  normalize,
+  computeCheck,
+  verifyCheck,
+  parseStructure,
+  captureBaselineCode,
+  formatBaselineCodeForDisplay,
+  BASELINE_CODE_MIN_LENGTH,
+  BASELINE_CODE_PUBLISHER_LENGTH,
+} from './wrCode.js';
+export type { BaselineCodeCapture, BaselineCodeCaptureFailure } from './wrCode.js';
+// Channel Provenance Record [IX.3.1, IX.11]
+export {
+  CHANNEL_PROVENANCE_SCHEME,
+  CHANNEL_PROVENANCE_PRODUCER_VERSION,
+  evaluateChannelAuthentication,
+  computeChannelPass,
+  channelAlertRequired,
+  createChannelProvenanceRecord,
+  unverifiableChannelProvenanceRecord,
+  decodeChannelProvenanceRecord,
+  ratchetChannelProvenance,
+  channelProvenanceMetadata,
+  readChannelProvenanceMetadata,
+} from './channelProvenance.js';
+export type {
+  ChannelAuthVerdict,
+  DiscoveryRecordState,
+  ChannelMechanismResult,
+  ChannelProvenanceRecord,
+  ChannelAuthenticationMaterial,
+  ChannelAuthenticationEvaluation,
+  CreateChannelProvenanceInput,
+} from './channelProvenance.js';
 // Phase 5 — capability-token schema (T4, Q13) [XII.12.6 annex-number-provisional]
 export {
   parseCapabilityToken,

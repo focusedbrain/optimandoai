@@ -1346,12 +1346,15 @@ export class InputCoordinator {
       
       switch (condition.type) {
         case 'wrcode_valid':
-          // WRCode validation - check if email has valid WRCode stamp
-          // For now, skip if not required or if not an email channel
+          // A required condition with no verdict fails CLOSED. This routing
+          // surface carries inline chat and OCR input, which no WR Code
+          // validator has evaluated, so there is nothing here that could pass.
+          // Reporting "validation passed" would assert a check no code
+          // performs. `EventTagMatcher.evaluateWRCode` is the fail-closed
+          // reference for the surfaces that do carry an email verdict.
           if (condition.required) {
-            // In a real implementation, this would check the WRCode validation result
-            passed = true // Placeholder - would check classifiedInput metadata
-            details = passed ? 'WRCode validation passed' : 'WRCode validation required but not present'
+            passed = false
+            details = 'WRCode validation required, but no WRCode verdict is available on this input'
           } else {
             passed = true
             details = 'WRCode not required'
@@ -1359,11 +1362,12 @@ export class InputCoordinator {
           break
           
         case 'sender_whitelist':
-          // Sender whitelist - only for email channel
+          // Same rule: `classifiedInput` has no sender address (its sources are
+          // inline chat and OCR, never a mail channel), so a configured
+          // whitelist cannot be satisfied and must not be reported as checked.
           if (condition.allowedSenders && condition.allowedSenders.length > 0) {
-            // Would check against sender address from classifiedInput
-            passed = true // Placeholder
-            details = `Sender whitelist check (${condition.allowedSenders.length} addresses)`
+            passed = false
+            details = `Sender whitelist configured (${condition.allowedSenders.length} addresses), but this input carries no sender address to check`
           } else {
             passed = true
             details = 'No sender whitelist configured'

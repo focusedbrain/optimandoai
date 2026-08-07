@@ -260,6 +260,9 @@ export function prepareFormationConsent(args: {
   const invClass = resolveInvitationClassForFormation(offer.invitation_class)
   if (!invClass.ok) return { ok: false, reason: invClass.reason.toUpperCase() }
   const captureMethodId = ingressCaptureMethodForOffer(offer)
+  if (captureMethodId === null) {
+    return { ok: false, reason: `INGRESS_PATH_HAS_NO_CAPTURE_METHOD:${offer.ingress_path}` }
+  }
   const capture = resolveCaptureMethodForFormation(captureMethodId)
   if (!capture.ok) return { ok: false, reason: capture.reason.toUpperCase() }
   const profileRes = resolveProfile(offer.profile_id, 1)
@@ -311,11 +314,21 @@ export function completeFormationConsent(consentRef: FormationConsentRef): void 
   markOfferConsumed(getConnectOfferDb(), consentRef.offer_id, 'consented', consentRef.consent_id)
 }
 
-function ingressCaptureMethodForOffer(offer: ConnectOfferRow): string {
+/**
+ * The capture method recorded in the consent evidence, derived from the offer's
+ * ingress path. Returns null when no mapping matches.
+ *
+ * There is deliberately no fallback. The consent record is evidence of how the
+ * user actually received the invitation, so an unmapped ingress path must fail
+ * the consent rather than record a capture method nobody performed — a default
+ * of `assisted_email` would attest to an email capture for offers that never
+ * touched mail.
+ */
+function ingressCaptureMethodForOffer(offer: ConnectOfferRow): string | null {
   for (const mapping of Object.values(SOURCE_INGRESS_MAP)) {
     if (mapping.ingress_path === offer.ingress_path) return mapping.capture_method
   }
-  return 'assisted_email'
+  return null
 }
 
 // ── Initiator-side formation (explicit user creation = consent event) ─────────

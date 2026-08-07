@@ -581,6 +581,12 @@ export interface SanitizedMessageDetail extends SanitizedMessage {
     messageId?: string
     inReplyTo?: string
     references?: string[]
+    /**
+     * `Authentication-Results` values the receiving gateway wrote, for the
+     * Channel Provenance Record [IX.3.1]. Providers that cannot surface them
+     * leave this unset, and the CPR records `unverifiable` — never a pass.
+     */
+    authenticationResults?: string[]
   }
 
   /**
