@@ -16,6 +16,12 @@ Status: ADDITIVE delta to `WR-Code-Email-E2E_Refactor-Order_v1.0.md`. Nothing in
 - **A3 — Epoch anti-rollback is client state.** `last_seen_epoch` per publisher is persisted client-side; any CatalogHead with a lower epoch is rejected. A stale head (past freshness window) demotes cached material to visibly-stale and blocks NEW authorization-bearing admissions. (Annex XIV §XIV.5.5(2).)
 - **A4 — Audit link on every trust surface.** Offer previews and entry renders expose the per-item `GET /v1/audit/{hash}` link ("verify in repository"). (Annex XVII §XVII.6.)
 - **A5 — Platform suspension is a visible state.** A `suspension` record in a DualAssuranceEnvelope renders as its own state with distinct copy and the audit link — treated like non-resolvable for admission, never displayed as silent absence, never conflated with publisher-side `inactive`. (Annex XVII §XVII.3.3.)
+- **A6 — Suspension triple: three orthogonal layers, convergence is display-only.** Resolves the apparent collision between the publisher-signed entry status of Annex XVII §XVII.3.2 (`draft | published | suspended | retired`), the platform-side suspension of §XVII.3.3, and the D4 publisher status enum.
+  1. **Data.** `entry.status` is publisher-SIGNED; platform suspension lives exclusively in the envelope. The two `suspended`s cannot collide in data by construction (rejection-never-modification).
+  2. **Admission is conjunctive, fail-closed.** `admissible ⇔ D4 status == active AND entry.status == published AND envelope.suspension == null`. Any failing leg ⇒ typed reason.
+  3. **Display never conflates.** entry-suspended = "withdrawn by the publisher"; platform suspension = "suspended by the platform" + reason + audit link; D4 renders at publisher scope. Headline = failing leg closest to the object (platform > entry > publisher-part); all failing legs visible in detail (never-fails-silently). No enum merged or extended.
+
+  Phase 4 composes the surface from the three fields.
 
 ## Phase 3 — ADDITIONS (registry resolution client)
 
@@ -25,7 +31,7 @@ Status: ADDITIVE delta to `WR-Code-Email-E2E_Refactor-Order_v1.0.md`. Nothing in
 
 ## Phase 4 — ADDITIONS (status model & offer schema)
 
-- Status surface renders the platform-suspension state per A5 alongside the D4 publisher statuses (`active/inactive/revoked/superseded/compromised`); suspension arrives via envelope, not via the D4 enum — do not extend the enum, compose the display.
+- Status surface renders the platform-suspension state per A5 alongside the D4 publisher statuses (`active/inactive/revoked/superseded/compromised`); suspension arrives via envelope, not via the D4 enum — do not extend the enum, compose the display. The three-layer model, the conjunctive admission rule, and the headline precedence are ruled in **A6**; the surface composes from those three fields.
 - Offer schema (Q7 field list) gains: `evp_ref`, `value_statement` (from verified EVP), `catalog_epoch`, `audit_url`. **Hash coverage extension of O2:** the consent preview hash additionally covers `evp_ref` and `value_statement` — what the operator consents to includes the value promise shown.
 
 ## Phase 5 — ADDITIONS (email→offer path & offer UI)
