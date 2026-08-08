@@ -44,6 +44,7 @@ function sandboxLedgerRow(overrides: Partial<HandshakeRecord> = {}): HandshakeRe
     handshake_id: 'hs-caps-1',
     relationship_id: 'r',
     state: HandshakeState.ACTIVE,
+    same_principal: true,
     local_role: 'initiator',
     initiator: party(),
     acceptor: party(),

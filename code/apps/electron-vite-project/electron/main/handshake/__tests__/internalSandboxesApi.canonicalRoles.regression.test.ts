@@ -39,6 +39,7 @@ function hostSandboxRow(overrides: Partial<HandshakeRecord> = {}): HandshakeReco
     relationship_id: 'rel-1',
     state: HandshakeState.ACTIVE,
     handshake_type: 'internal',
+    same_principal: true,
     // Misleading local_role view: claims initiator/host while this machine may be sandbox.
     local_role: 'initiator',
     initiator_device_role: 'host',
