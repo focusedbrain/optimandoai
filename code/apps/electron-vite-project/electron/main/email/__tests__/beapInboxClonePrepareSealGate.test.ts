@@ -10,6 +10,7 @@ import {
   computeSeal,
 } from '../../sealed-storage/index'
 import { deriveLedgerSealKey } from '../../sealed-storage/ledgerSealKey'
+import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
 import { prepareBeapInboxSandboxClone } from '../beapInboxClonePrepare'
 import type { InternalSandboxListEntry } from '../../handshake/internalSandboxesApi'
 import { HandshakeState, type HandshakeRecord, type SSOSession } from '../../handshake/types'
@@ -57,6 +58,9 @@ function makeHandshakeRecord(id: string): HandshakeRecord {
     local_role: 'initiator',
     initiator_device_role: 'host',
     acceptor_device_role: 'sandbox',
+    // Host/sandbox roles are derived from coordination device ids, not local_role.
+    initiator_coordination_device_id: getInstanceId(),
+    acceptor_coordination_device_id: 'dev-sandbox-peer',
     internal_coordination_identity_complete: true,
     p2p_endpoint: 'http://127.0.0.1:51249/beap/ingest',
     local_x25519_public_key_b64: 'bG9jYWx4MjU1MTk=',
@@ -176,7 +180,7 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
     }
   })
 
-  it('direct_beap sandbox-clone-of-plain vmk row + outer-only → prepare succeeds (trusted read)', () => {
+  it('direct_beap sandbox-clone-of-plain ledger row + outer-only → prepare succeeds', () => {
     if (!ctx.db) return
 
     const entry = makeEligibleEntry()
@@ -192,7 +196,7 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
         sandbox_clone: true,
       },
     })
-    const s = ctx.buildValidSealForRowId(msgId, dep)
+    const s = computeSeal(dep, msgId, 'outer')
     ctx.db
       .prepare(
         `INSERT INTO inbox_messages
@@ -202,7 +206,7 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
          VALUES (?, 'direct_beap', 'hs-orig', 'Clone plain', 'cloned from newsletter', ?,
                  0, 'news@example.com', 'acc', '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z',
                  '2025-01-01T00:00:00.000Z', NULL,
-                 ?, ?, 'vmk')`,
+                 ?, ?, 'ledger')`,
       )
       .run(msgId, dep, s.seal, s.seal_input_json)
 
@@ -214,7 +218,7 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
     }
   })
 
-  it('native direct_beap vmk row + depackaged body + outer-only → prepare succeeds (list-boundary trusted read)', () => {
+  it('native direct_beap ledger row + depackaged body + outer-only → prepare succeeds (list boundary)', () => {
     if (!ctx.db) return
 
     const entry = makeEligibleEntry()
@@ -226,7 +230,7 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
       body: { text: 'native beap visible in inbox' },
       format: 'beap_qbeap_decrypted',
     })
-    const s = ctx.buildValidSealForRowId(msgId, dep)
+    const s = computeSeal(dep, msgId, 'outer')
     ctx.db
       .prepare(
         `INSERT INTO inbox_messages
@@ -235,7 +239,7 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
             seal, seal_input_json, seal_key_source)
          VALUES (?, 'direct_beap', 'hs-orig', 'Native', 'native beap visible in inbox', ?,
                  0, 'peer@test', 'acc', '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z',
-                 ?, ?, 'vmk')`,
+                 ?, ?, 'ledger')`,
       )
       .run(msgId, dep, s.seal, s.seal_input_json)
 
@@ -282,7 +286,12 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
     }
   })
 
-  it('email_plain vmk row + body_text only (no depackaged_json) + outer-only → prepare succeeds', () => {
+  // A row with no canonical plaintext has nothing the seal can bind, so `sealedQuery`
+  // cannot verify it and clone prepare refuses. Production writes NULL
+  // `depackaged_json` only for rows that genuinely have no plaintext yet
+  // (`beap_qbeap_pending_main`, main-process decode errors) — there is nothing to
+  // clone. Pinned so the refusal cannot be relaxed into a body_text fallback.
+  it('email_plain ledger row + body_text only (no depackaged_json) + outer-only → refused', () => {
     if (!ctx.db) return
 
     const entry = makeEligibleEntry()
@@ -290,7 +299,7 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
     getHandshakeRecord.mockReturnValue(makeHandshakeRecord(entry.handshake_id))
 
     const msgId = randomUUID()
-    const s = ctx.buildValidSealForRowId(msgId, '{}')
+    const s = computeSeal('', msgId, 'outer')
     ctx.db
       .prepare(
         `INSERT INTO inbox_messages
@@ -300,19 +309,19 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
          VALUES (?, 'email_plain', 'hs-orig', 'Plain body only', 'Hello from IMAP', NULL,
                  0, 'news@example.com', 'acc', '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z',
                  '2025-01-01T00:00:00.000Z', 'plain_email_no_validation_required',
-                 ?, ?, 'vmk')`,
+                 ?, ?, 'ledger')`,
       )
       .run(msgId, s.seal, s.seal_input_json)
 
     const r = prepareBeapInboxSandboxClone(ctx.db as any, makeSession(), msgId, entry.handshake_id, 'tag')
 
-    expect(r.ok).toBe(true)
-    if (r.ok) {
-      expect(r.encrypted_text).toContain('Hello from IMAP')
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.code).toBe('MESSAGE_NOT_FOUND')
     }
   })
 
-  it('email_plain vmk row + outer-only + conformant validation → prepare succeeds', () => {
+  it('email_plain ledger row + outer-only + conformant validation → prepare succeeds', () => {
     if (!ctx.db) return
 
     const entry = makeEligibleEntry()
@@ -326,7 +335,7 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
       body: { text: 'depackaged email body' },
       format: 'email_plain',
     })
-    const s = ctx.buildValidSealForRowId(msgId, canonical)
+    const s = computeSeal(canonical, msgId, 'outer')
     ctx.db
       .prepare(
         `INSERT INTO inbox_messages
@@ -336,7 +345,7 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
          VALUES (?, 'email_plain', 'hs-orig', 'XING newsletter', 'depackaged email body', ?,
                  0, 'news@xing.com', 'acc', '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z',
                  '2025-01-01T00:00:00.000Z', 'plain_email_no_validation_required',
-                 ?, ?, 'vmk')`,
+                 ?, ?, 'ledger')`,
       )
       .run(msgId, canonical, s.seal, s.seal_input_json)
 
