@@ -46,10 +46,12 @@ code/apps/extension-chromium/build*/
 graphify-out/
 code/graphify-out/
 
-# Cursor tooling artefacts (untracked dumps / agent state). Already-tracked
-# hand-authored rules under .cursor/rules/ remain tracked — gitignore does
-# not untrack them.
-.cursor/
+# Cursor tooling artefacts (agent state, dumps). The Graphify↔Cursor
+# integration is hand-authored and must stay visible: the always-on rule in
+# .cursor/rules/ and, when used, .cursor/mcp.json.
+.cursor/*
+!.cursor/rules/
+!.cursor/mcp.json
 
 # Accidental vitest JSON dumps (not source)
 code/phase2-before-native.json
