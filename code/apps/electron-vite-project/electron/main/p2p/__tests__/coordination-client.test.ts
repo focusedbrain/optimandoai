@@ -15,6 +15,11 @@ import { migrateHandshakeTables, insertHandshakeRecord } from '../../handshake/d
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
 import { upsertP2PConfig, getP2PConfig } from '../p2pConfig'
 import { buildTestSession } from '../../handshake/sessionFactory'
+import {
+  getOrchestratorMode,
+  setOrchestratorMode,
+  type OrchestratorModeConfig,
+} from '../../orchestrator/orchestratorModeStore'
 import type { HandshakeRecord } from '../../handshake/types'
 import {
   getP2PHealth,
@@ -51,13 +56,28 @@ function skipIfNoSqlite(): boolean {
 
 describe('Coordination Client', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>
+  let modeBefore: OrchestratorModeConfig | null = null
 
   beforeEach(() => {
     fetchSpy = vi.spyOn(globalThis, 'fetch')
+    // These tests send outbound, which only a host node may do. The Electron
+    // mock's userData dir is shared and persists across files and runs, so the
+    // orchestrator mode left behind by any other suite would otherwise decide
+    // the outcome here. Pin it, and put it back afterwards.
+    try {
+      modeBefore = getOrchestratorMode()
+      if (modeBefore.mode !== 'host') setOrchestratorMode({ ...modeBefore, mode: 'host' })
+    } catch {
+      modeBefore = null
+    }
   })
 
   afterEach(() => {
     fetchSpy?.restore?.()
+    if (modeBefore) {
+      try { setOrchestratorMode(modeBefore) } catch { /* best effort */ }
+      modeBefore = null
+    }
   })
 
   test('CC_05_outbound_via_coordination: use_coordination=true → outbound goes to coordination URL with OIDC token', async () => {
@@ -98,11 +118,14 @@ describe('Coordination Client', () => {
       new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
     )
 
-    enqueueOutboundCapsule(db, 'hs-cc05b', 'https://coordination.wrdesk.com/beap/capsule', {
+    // enqueue returns a typed result; discarding it is how a refused enqueue used
+    // to look like a drain that found nothing.
+    const enq = enqueueOutboundCapsule(db, 'hs-cc05b', 'https://coordination.wrdesk.com/beap/capsule', {
       header: { receiver_binding: {} },
       metadata: {},
       payloadEnc: { chunking: { count: 1, enabled: true, maxChunkBytes: 262144, merkleRoot: 'z' } },
     })
+    expect(enq.enqueued, enq.enqueued ? '' : `enqueue refused: ${JSON.stringify(enq)}`).toBe(true)
 
     await processOutboundQueue(db, async () => 'oidc-token-xyz')
     const call = (fetchSpy as any).mock.calls.find((c: any) => String(c[0]).includes('/beap/capsule'))
@@ -113,7 +136,11 @@ describe('Coordination Client', () => {
     expect(postBody.capsule_type).toBeUndefined()
   })
 
-  test('CC_06_outbound_via_relay: use_coordination=false → outbound goes to relay URL with Bearer token', async () => {
+  // Direct-LAN P2P ingest was retired: with use_coordination=false there is no
+  // outbound path left, and the queue must say so in a typed, permanent way
+  // rather than attempt the relay. Pinned because a silent re-enablement of
+  // direct relay egress is exactly what this refusal exists to prevent.
+  test('CC_06_outbound_via_relay: use_coordination=false → refused, coordination relay required', async () => {
     if (skipIfNoSqlite()) return
     const db = createTestDb()
     upsertP2PConfig(db, {
@@ -157,10 +184,15 @@ describe('Coordination Client', () => {
       seq: 1,
     })
 
-    await processOutboundQueue(db)
-    expect(fetchSpy).toHaveBeenCalled()
-    const call = (fetchSpy as any).mock.calls[0]
-    expect(call[1]?.headers?.Authorization).toBe('Bearer bearer-token-abc')
+    const res = await processOutboundQueue(db)
+
+    expect(res.delivered).toBe(false)
+    expect(res.code).toBe('PREFLIGHT_FAILED')
+    expect(res.failure_class).toBe('CONFIG_PERMANENT')
+    expect(String(res.error)).toMatch(/direct-LAN P2P ingest is retired/i)
+    // The capsule stays queued rather than being dropped, and nothing goes out.
+    expect(res.queued).toBe(true)
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   test('CC_07_register_handshake_coordination: use_coordination=true → registration goes to coordination service', async () => {
