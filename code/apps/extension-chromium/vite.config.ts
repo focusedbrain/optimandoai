@@ -16,6 +16,10 @@ export default defineConfig({
     alias: {
       '@shared': path.resolve(__dirname, '../../packages/shared/src'),
       '@shared-extension': path.resolve(__dirname, '../../packages/shared-extension/src'),
+      // [Order 02 / 2B] The rule-8 provenance alert must be the SAME component
+      // here as in the Electron surfaces — a re-implementation would be the
+      // per-surface divergence the alert contract forbids.
+      '@repo/shared-beap-ui': path.resolve(__dirname, '../../packages/shared-beap-ui/src/index.ts'),
     },
   },
   define: {
