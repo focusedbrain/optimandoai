@@ -210,8 +210,13 @@ export function parseOutboundUrl(raw: string): URL | null {
   if (u.protocol !== 'https:') return null
   if (u.username || u.password) return null
   if (!u.hostname) return null
-  // A literal non-public address is refused before DNS even runs.
-  if (isIP(u.hostname) !== 0 && !isPublicUnicastAddress(u.hostname)) return null
+  // `URL.hostname` keeps the brackets on an IPv6 literal, and `isIP('[::1]')`
+  // is 0 — so without unwrapping them a bracketed literal would slip past the
+  // literal-address check and only be caught later by the lookup guard.
+  const host = u.hostname.startsWith('[') && u.hostname.endsWith(']')
+    ? u.hostname.slice(1, -1)
+    : u.hostname
+  if (isIP(host) !== 0 && !isPublicUnicastAddress(host)) return null
   return u
 }
 
