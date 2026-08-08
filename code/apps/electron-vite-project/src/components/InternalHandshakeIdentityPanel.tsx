@@ -1,6 +1,6 @@
 /**
  * Internal same-account handshake: Host / Sandbox roles, human-facing ids, debug UUIDs.
- * Only rendered when handshake_type === 'internal'.
+ * Only rendered when same_principal === true.
  */
 
 import { useState } from 'react'

@@ -1951,7 +1951,7 @@ describe('coordination-service', () => {
     expect(r.status).toBe(403)
     const j = JSON.parse(r.body) as { error?: string; upgrade_url?: string }
     expect(j.error).toBe('sandbox_entitlement_required')
-    expect(j.upgrade_url).toBe('https://wrdesk.com/pricing')
+    expect(j.upgrade_url).toBe('https://optirando.com/pricing')
     const after = (relay.store.getDb().prepare('SELECT COUNT(*) as c FROM coordination_capsules').get() as { c: number }).c
     expect(after).toBe(before)
   })

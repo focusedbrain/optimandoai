@@ -106,7 +106,7 @@ export function tryEnqueueContextSync(
     localCoordId = ''
   }
   const internalRelayWire = internalRelayCapsuleWireOptsFromRecord(record, localCoordId)
-  if (record.handshake_type === 'internal' && !internalRelayWire) {
+  if (record.same_principal === true && !internalRelayWire) {
     console.warn('[ContextSync] INTERNAL_RELAY_ENDPOINTS_INCOMPLETE:', handshakeId)
     // Do not let callers treat this as "our context_sync is out" — ownSent in
     // buildContextSyncRecord uses last_seq_sent >= 1, not `context_sync_pending` alone, for the ACTIVE gate.
@@ -222,6 +222,7 @@ export function tryEnqueueContextSync(
       local_private_key: localPriv,
       peerX25519PublicKeyB64: record.peer_x25519_public_key_b64,
       localRole: record.local_role,
+      counterpartyIdentity: record.local_role === 'initiator' ? record.acceptor : record.initiator,
       ...(record.local_p2p_auth_token?.trim() ? { p2p_auth_token: record.local_p2p_auth_token.trim() } : {}),
       ...(internalRelayWire ?? {}),
     })
@@ -298,6 +299,7 @@ export function maybeEnqueueInitialContextSyncAfterInboundAccept(
   if (ct !== 'accept') return
 
   const r = args.handshakeResult.handshakeRecord
+  if (!r) return
   const logLine = (payload: Record<string, unknown>): void => {
     console.log('[POST_ACCEPT_CONTEXT_SYNC]', JSON.stringify(payload))
   }
@@ -377,7 +379,7 @@ export function retryDeferredInitialContextSyncForInternalHandshake(
   if (!db || !session) return
   const r0 = getHandshakeRecord(db, handshakeId)
   if (!r0) return
-  if (r0.handshake_type !== 'internal' || r0.state !== 'ACCEPTED' || !r0.context_sync_pending) {
+  if (r0.same_principal !== true || r0.state !== 'ACCEPTED' || !r0.context_sync_pending) {
     return
   }
   const result = tryEnqueueContextSync(db, handshakeId, session, {

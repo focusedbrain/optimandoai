@@ -47,7 +47,7 @@ function base(): HandshakeRecord {
     counterparty_p2p_token: 'pt',
     initiator: { email: 'a@a', wrdesk_user_id: 'u1', iss: 'i', sub: 's' },
     acceptor: { email: 'a@a', wrdesk_user_id: 'u1', iss: 'i', sub: 's' },
-    handshake_type: 'internal' as any,
+    same_principal: true as any,
     internal_coordination_repair_needed: false,
     internal_coordination_identity_complete: true,
     internal_peer_pairing_code: '123456',

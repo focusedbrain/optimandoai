@@ -585,8 +585,34 @@ export async function detectAndRouteMessageInline(
     // depackaged_json exactly as before — persistence is additive, not a routing change.
     let pbeapTrustMetaJson: string | null = null
 
+    // ── Stage 0: ingress admission filter [VII.2.7] ──
+    // A BEAP package addressed to a revoked/expired/unknown relationship must
+    // never be depackaged into a visible email_beap row. Blocked packages skip
+    // decrypt+validate and take the encrypted quarantine containment below
+    // (never the BEAP inbox). Packages without a resolvable handshake id keep
+    // today's depackage-failure handling.
+    let ingressBlocked = false
+    let admittedGrantRef: string | null = null
+    if (handshakeId && handshakeId !== '__email_import__') {
+      const { admitInboundDelivery } = await import('../handshake/ingressAdmission')
+      const admission = admitInboundDelivery(db, {
+        handshakeId,
+        kind: encoding === 'qBEAP' ? 'beap_message' : 'handshake_capsule',
+        source: 'email',
+      })
+      if (!admission.admitted) {
+        ingressBlocked = true
+        depackageError = `ingress_admission_blocked:${admission.reason}`
+      } else {
+        // Phase 5 [VII.10.3]: grant the delivery is admitted under.
+        admittedGrantRef = admission.grantRef
+      }
+    }
+
     // ── Inline depackage ──
-    if (encoding === 'qBEAP') {
+    if (ingressBlocked) {
+      // canonicalJson stays null → quarantine containment path below.
+    } else if (encoding === 'qBEAP') {
       try {
         const decrypted = await decryptQBeapPackage(beapPackageJson, handshakeId ?? '', db, {
           reportFailure: (info) => console.warn('[messageRouter] qBEAP decrypt failure', info),
@@ -631,7 +657,14 @@ export async function detectAndRouteMessageInline(
       // routes through the critical-job dispatcher (in-process → same forked
       // validator subprocess, so parity is byte-identical). Flag OFF keeps the
       // original inline call verbatim. The qBEAP/pBEAP decrypt above is untouched.
-      const provenance = buildProvenance(fromAddr, messageId, bodyText, 'beap_capsule_present')
+      const provenance: ProvenanceMetadata = {
+        ...buildProvenance(fromAddr, messageId, bodyText, 'beap_capsule_present'),
+        transport_metadata: {
+          sender_address: fromAddr,
+          message_id: messageId,
+          grant_ref: admittedGrantRef ?? undefined,
+        },
+      }
       const validationInput = {
         envelope: packageObj ?? {},
         plaintext_or_encrypted: { kind: 'plaintext' as const, content: canonicalJson },

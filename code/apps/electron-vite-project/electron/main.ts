@@ -3731,9 +3731,9 @@ app.whenReady().then(async () => {
         }
         // Before (split contract): isInternalAccept = contextOpts?.device_role === 'host' || 'sandbox'
         //   — could misclassify when device_role is missing/filtered.
-        // After: same source of truth as handleHandshakeRPC handshake.accept (record.handshake_type).
+        // After: same source of truth as handleHandshakeRPC handshake.accept (record.same_principal).
         // contextOpts.device_role remains for internal pairing/UX; it is not the X25519 guard signal.
-        const isInternalAccept = acceptRecord.handshake_type === 'internal'
+        const isInternalAccept = acceptRecord.same_principal === true
         const co = contextOpts
         const trimmedSenderX25519 =
           (typeof co?.senderX25519PublicKeyB64 === 'string' ? co.senderX25519PublicKeyB64.trim() : '') ||
@@ -3749,7 +3749,7 @@ app.whenReady().then(async () => {
             logNormalAcceptX25519BindingFailure({
               handshake_id: id,
               local_role: acceptRecord.local_role ?? null,
-              handshake_type: acceptRecord.handshake_type ?? null,
+              same_principal: acceptRecord.same_principal === true,
               params: {
                 senderX25519PublicKeyB64: co?.senderX25519PublicKeyB64,
                 key_agreement: co?.key_agreement,
@@ -3939,7 +3939,7 @@ app.whenReady().then(async () => {
         console.log('[HANDSHAKE:FORCE_REVOKE] record found:', record ? `state=${record.state}` : 'null')
         if (!record) return { success: false, error: `Handshake ${id} not found in database` }
         const session = getCurrentSession()
-        await revokeHandshake(db, id, 'local-user', session?.wrdesk_user_id, session ?? undefined, async () => getAccessToken() ?? null)
+        await revokeHandshake(db, id, 'local-user', session?.wrdesk_user_id)
         console.log('[HANDSHAKE:FORCE_REVOKE] revoke completed for id:', id)
         return { success: true }
       } catch (err: any) {
@@ -5073,7 +5073,7 @@ app.whenReady().then(async () => {
 
     // email:listAccounts is registered by registerEmailHandlers() â€” do not duplicate here
 
-    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; handshake_type?: 'internal' | 'standard'; device_name?: string; device_role?: 'host' | 'sandbox'; counterparty_device_id?: string; counterparty_device_role?: 'host' | 'sandbox'; counterparty_computer_name?: string; counterparty_pairing_code?: string }) => {
+    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; profile_id?: string; device_name?: string; device_role?: 'host' | 'sandbox'; counterparty_device_id?: string; counterparty_device_role?: 'host' | 'sandbox'; counterparty_computer_name?: string; counterparty_pairing_code?: string }) => {
       try {
         const db = await getHandshakeDb()
         return await handleHandshakeRPC('handshake.initiate', {
@@ -5086,7 +5086,7 @@ app.whenReady().then(async () => {
           ...(contextOpts?.profile_ids?.length ? { profile_ids: contextOpts.profile_ids } : {}),
           ...(contextOpts?.profile_items?.length ? { profile_items: contextOpts.profile_items } : {}),
           ...(contextOpts?.policy_selections ? { policy_selections: contextOpts.policy_selections } : {}),
-          handshake_type: contextOpts?.handshake_type,
+          profile_id: contextOpts?.profile_id,
           device_name: contextOpts?.device_name,
           device_role: contextOpts?.device_role,
           ...(contextOpts?.counterparty_device_id ? { counterparty_device_id: contextOpts.counterparty_device_id } : {}),
@@ -5103,7 +5103,7 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:buildForDownload', async (_e, receiverEmail: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; handshake_type?: 'internal' | 'standard'; device_name?: string; device_role?: 'host' | 'sandbox'; counterparty_device_id?: string; counterparty_device_role?: 'host' | 'sandbox'; counterparty_computer_name?: string; counterparty_pairing_code?: string }) => {
+    ipcMain.handle('handshake:buildForDownload', async (_e, receiverEmail: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; profile_id?: string; device_name?: string; device_role?: 'host' | 'sandbox'; counterparty_device_id?: string; counterparty_device_role?: 'host' | 'sandbox'; counterparty_computer_name?: string; counterparty_pairing_code?: string }) => {
       try {
         const db = await getHandshakeDb()
         if (!db) {
@@ -5119,7 +5119,7 @@ app.whenReady().then(async () => {
           ...(contextOpts?.profile_ids?.length ? { profile_ids: contextOpts.profile_ids } : {}),
           ...(contextOpts?.profile_items?.length ? { profile_items: contextOpts.profile_items } : {}),
           ...(contextOpts?.policy_selections ? { policy_selections: contextOpts.policy_selections } : {}),
-          handshake_type: contextOpts?.handshake_type,
+          profile_id: contextOpts?.profile_id,
           device_name: contextOpts?.device_name,
           device_role: contextOpts?.device_role,
           ...(contextOpts?.counterparty_device_id ? { counterparty_device_id: contextOpts.counterparty_device_id } : {}),
@@ -10180,7 +10180,7 @@ async function runDeviceKeyMigration(
         const ledger = hostAiEffectiveRole.getHostAiLedgerRoleSummaryFromDb(db, inst, String(om.mode))
         const internalRows =
           db != null
-            ? listHandshakeRecords(db as any, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })
+            ? listHandshakeRecords(db as any, { state: HandshakeState.ACTIVE, same_principal: true })
             : []
         const rec = db && handshake_id ? getHandshakeRecord(db, handshake_id) : null
         const peerHostForHandshake = rec ? peerCoordinationDeviceId(rec) : null

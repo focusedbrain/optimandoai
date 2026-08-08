@@ -32159,7 +32159,7 @@ ${pageText}
                   type: 'VAULT_RPC',
                   id,
                   method: 'handshake.list',
-                  params: { filter: { state: 'ACTIVE', handshake_type: 'internal' } },
+                  params: { filter: { state: 'ACTIVE', same_principal: true } },
                 },
                 (response) => {
                   resolve((response as Record<string, unknown>) ?? null)

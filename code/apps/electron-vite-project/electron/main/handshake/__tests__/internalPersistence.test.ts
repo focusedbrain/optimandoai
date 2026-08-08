@@ -50,7 +50,7 @@ describe('internalPersistence', () => {
   test('finalizeInternalHandshakePersistence marks complete only with full symmetry', () => {
     const incomplete = finalizeInternalHandshakePersistence(
       baseRecord({
-        handshake_type: 'internal',
+        same_principal: true,
         initiator_coordination_device_id: 'a',
         acceptor_coordination_device_id: 'b',
         initiator_device_role: 'host',
@@ -64,7 +64,7 @@ describe('internalPersistence', () => {
 
     const complete = finalizeInternalHandshakePersistence(
       baseRecord({
-        handshake_type: 'internal',
+        same_principal: true,
         initiator_coordination_device_id: 'a',
         acceptor_coordination_device_id: 'b',
         initiator_device_role: 'host',
@@ -78,7 +78,7 @@ describe('internalPersistence', () => {
   })
 
   test('standard handshake clears internal routing fields', () => {
-    const r = finalizeInternalHandshakePersistence(baseRecord({ handshake_type: 'standard' }))
+    const r = finalizeInternalHandshakePersistence(baseRecord({ same_principal: false }))
     expect(r.internal_routing_key).toBeNull()
     expect(r.internal_coordination_identity_complete).toBe(false)
     expect(r.internal_coordination_repair_needed).toBe(false)
@@ -87,7 +87,7 @@ describe('internalPersistence', () => {
   test('finalizeInternalHandshakePersistence sets repair_needed for incomplete internal ACTIVE', () => {
     const r = finalizeInternalHandshakePersistence(
       baseRecord({
-        handshake_type: 'internal',
+        same_principal: true,
         state: 'ACTIVE',
         initiator_coordination_device_id: 'a',
         acceptor_coordination_device_id: 'b',
@@ -104,7 +104,7 @@ describe('internalPersistence', () => {
   test('finalizeInternalHandshakePersistence clears repair_needed when identity becomes complete', () => {
     const r = finalizeInternalHandshakePersistence(
       baseRecord({
-        handshake_type: 'internal',
+        same_principal: true,
         state: 'ACTIVE',
         internal_coordination_repair_needed: true,
         initiator_coordination_device_id: 'a',
@@ -123,7 +123,7 @@ describe('internalPersistence', () => {
     expect(
       isInternalCoordinationIdentityComplete(
         baseRecord({
-          handshake_type: 'internal',
+          same_principal: true,
           initiator_coordination_device_id: 'x',
           acceptor_coordination_device_id: 'y',
           initiator_device_role: 'host',

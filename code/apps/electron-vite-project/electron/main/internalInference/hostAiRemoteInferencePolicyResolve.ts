@@ -55,7 +55,7 @@ function internalHostPairingDiagnosticFlags(db: unknown): {
   try {
     rows = listHandshakeRecords(db as Parameters<typeof listHandshakeRecords>[0], {
       state: HandshakeState.ACTIVE,
-      handshake_type: 'internal',
+      same_principal: true,
     })
   } catch {
     return { samePrincipalHostPairing: false, internalIdentityComplete: false }
