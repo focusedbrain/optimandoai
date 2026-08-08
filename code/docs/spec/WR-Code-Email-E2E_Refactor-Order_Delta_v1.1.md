@@ -45,6 +45,7 @@ Status: ADDITIVE delta to `WR-Code-Email-E2E_Refactor-Order_v1.0.md`. Nothing in
 - Offer UI first render = EVP-first-render (A2): verified publisher identity, signed value statement, scope-directory summary, next step — nothing bulk-loaded, no carrier text.
 - The audit link (A4) appears on the offer surface and on the consent preview.
 - Consent-time re-validation (O6) now also re-fetches the CatalogHead and re-checks epoch/freshness/suspension before consent completes.
+- **Named item — extension CPR plumbing (Phase 5).** Carry the Channel Provenance Record onto the extension's `BeapMessage` domain model so `BeapMessageDetailPanel`'s optional `channelProvenanceRecord` prop is populated from live data. Requires extending `handshake.beapInbox.list` / `getMany` to return `depackaged_metadata` (already sealed on the inbox row) and mapping `channel_provenance` in `inboxRowToBeapMessage` (and any parallel population point). Authorised under Order v1.0 §2B Option 2 when the Phase-2 trace showed the two alert fields cannot ride the existing wire without sync-path surgery. Under the single-branch workflow (`integration/consolidated-current`), this plumbing lands before any end test, so a never-alerting extension surface never reaches a tested build.
 
 ## Explicitly OUT OF SCOPE for this slice (deferred, tracked)
 

@@ -4,7 +4,11 @@ export { SessionSelector } from './SessionSelector'
 export { AttachmentPicker } from './AttachmentPicker'
 export { BeapMessageBody } from './BeapMessageBody'
 export { BeapIdentityBadge } from './BeapIdentityBadge'
-export { ChannelProvenanceAlert, channelAlertRequiredForDisplay } from './ChannelProvenanceAlert'
+export {
+  ChannelProvenanceAlert,
+  channelAlertRequiredForDisplay,
+  channelProvenanceAlertRecordFromUnknown,
+} from './ChannelProvenanceAlert'
 
 // Types
 export type {

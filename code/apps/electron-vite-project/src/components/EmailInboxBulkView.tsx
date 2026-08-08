@@ -36,6 +36,7 @@ import {
 } from '../utils/originDeleteFlow'
 import LinkWarningDialog from './LinkWarningDialog'
 import SandboxLinkInfoDialog from './SandboxLinkInfoDialog'
+import { channelProvenanceAlertRecordFromUnknown } from '@repo/shared-beap-ui'
 import { AiInteractionDisclosure } from './ai/AiInteractionDisclosure'
 import { writeAiClipboard } from '../lib/aiClipboard'
 import { openAppExternalUrl } from '../lib/openAppExternalUrl'
@@ -7491,6 +7492,9 @@ export default function EmailInboxBulkView({
         onSandbox={() => void handleBulkLinkWarningSandbox()}
         sandboxBusy={linkDialogSandboxBusy}
         showSandboxOrchestratorWarning={linkDialogShowSandboxOrchestratorWarning}
+        channelProvenanceRecord={channelProvenanceAlertRecordFromUnknown(
+          pendingLink?.message.depackaged_metadata,
+        )}
       />
       {bulkLinkKeyingNotice ? (
         <div

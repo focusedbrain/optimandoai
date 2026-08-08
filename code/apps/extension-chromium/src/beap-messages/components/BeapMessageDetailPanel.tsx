@@ -30,6 +30,10 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import {
+  ChannelProvenanceAlert,
+  type ChannelProvenanceAlertRecord,
+} from '@repo/shared-beap-ui'
 import type { BeapMessage, BeapAttachment, TrustLevel } from '../beapInboxTypes'
 import type { AiOutputEntry } from '../hooks/useBeapMessageAi'
 import { useBeapInboxStore } from '../useBeapInboxStore'
@@ -92,6 +96,14 @@ export interface BeapMessageDetailPanelProps {
    * Config for the shared BeapReplyComposer (sender fingerprint, AI provider, etc.).
    */
   replyComposerConfig?: import('../hooks/useReplyComposer').UseReplyComposerConfig
+
+  /**
+   * Optional CPR projection for the selected message. Wired behind this prop
+   * until Phase 5 lands "extension CPR plumbing" (beapInbox.list does not yet
+   * return `depackaged_metadata`, and BeapMessage has no CPR fields). When
+   * omitted the shared alert simply does not render — never a fake pass.
+   */
+  channelProvenanceRecord?: ChannelProvenanceAlertRecord | null
 }
 
 /** Ref handle so parent can push AI responses into the panel. */
@@ -231,6 +243,8 @@ interface MessageContentPanelProps {
   onDismissViewOriginalError?: () => void
   /** Optional — user-initiated summarize (selection no longer auto-triggers AI). */
   onSummarizeAttachment?: (attachment: BeapAttachment) => void
+  /** Optional CPR projection — see BeapMessageDetailPanelProps. */
+  channelProvenanceRecord?: ChannelProvenanceAlertRecord | null
 }
 
 const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
@@ -245,6 +259,7 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
   viewOriginalError,
   onDismissViewOriginalError,
   onSummarizeAttachment,
+  channelProvenanceRecord = null,
 }) => {
   const isProfessional = theme === 'professional'
   const textColor = isProfessional ? '#1f2937' : 'white'
@@ -600,6 +615,13 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
             </button>
           )}
         </div>
+      </div>
+
+      <div style={{ padding: '10px 16px 0', flexShrink: 0 }}>
+        <ChannelProvenanceAlert
+          record={channelProvenanceRecord}
+          surface="extension-beap-message-detail"
+        />
       </div>
 
       {/* ── Scrollable body ────────────────────────────── */}
@@ -1642,7 +1664,7 @@ const NoMessageSelected: React.FC<{ theme: 'default' | 'dark' | 'professional' }
 export const BeapMessageDetailPanel = React.forwardRef<
   BeapMessageDetailPanelHandle,
   BeapMessageDetailPanelProps
->(({ theme = 'default', onSetSearchContext, onAiQuery, onViewHandshake, onAttachmentSelect, replyComposerConfig }, ref) => {
+>(({ theme = 'default', onSetSearchContext, onAiQuery, onViewHandshake, onAttachmentSelect, replyComposerConfig, channelProvenanceRecord = null }, ref) => {
   const isProfessional = theme === 'professional'
 
   // Store
@@ -1828,6 +1850,7 @@ export const BeapMessageDetailPanel = React.forwardRef<
           viewOriginalError={viewOriginalError}
           onDismissViewOriginalError={() => setViewOriginalError(null)}
           onSummarizeAttachment={handleSummarizeAttachment}
+          channelProvenanceRecord={channelProvenanceRecord}
         />
       </div>
 

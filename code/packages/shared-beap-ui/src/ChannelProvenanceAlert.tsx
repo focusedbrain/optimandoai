@@ -21,6 +21,13 @@ import React from 'react'
 
 export type ChannelAlertVerdict = 'pass' | 'fail' | 'none' | 'unverifiable'
 
+const CHANNEL_ALERT_VERDICTS: readonly ChannelAlertVerdict[] = [
+  'pass',
+  'fail',
+  'none',
+  'unverifiable',
+]
+
 /**
  * Structurally typed to the two fields the rule reads, so this package needs no
  * dependency on `@repo/ingestion-core` and stays consumable by both apps. The
@@ -30,6 +37,51 @@ export type ChannelAlertVerdict = 'pass' | 'fail' | 'none' | 'unverifiable'
 export interface ChannelProvenanceAlertRecord {
   dkim: { verdict: ChannelAlertVerdict }
   dmarc: { verdict: ChannelAlertVerdict }
+}
+
+function isChannelAlertVerdict(value: unknown): value is ChannelAlertVerdict {
+  return (
+    typeof value === 'string' &&
+    (CHANNEL_ALERT_VERDICTS as readonly string[]).includes(value)
+  )
+}
+
+/**
+ * Fail-closed structural extract of the two fields the alert rule reads.
+ * Accepts a full CPR, a `depackaged_metadata` blob (object or JSON string), or
+ * an already-narrow alert record. Returns `null` when the two verdicts are not
+ * present — callers then render nothing rather than inventing a trigger.
+ */
+export function channelProvenanceAlertRecordFromUnknown(
+  raw: unknown,
+): ChannelProvenanceAlertRecord | null {
+  let value: unknown = raw
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value)
+    } catch {
+      return null
+    }
+  }
+  if (typeof value !== 'object' || value === null) return null
+  const obj = value as Record<string, unknown>
+  const nested =
+    obj.channel_provenance && typeof obj.channel_provenance === 'object'
+      ? (obj.channel_provenance as Record<string, unknown>)
+      : obj
+  const dkim = nested.dkim
+  const dmarc = nested.dmarc
+  if (typeof dkim !== 'object' || dkim === null) return null
+  if (typeof dmarc !== 'object' || dmarc === null) return null
+  const dkimVerdict = (dkim as Record<string, unknown>).verdict
+  const dmarcVerdict = (dmarc as Record<string, unknown>).verdict
+  if (!isChannelAlertVerdict(dkimVerdict) || !isChannelAlertVerdict(dmarcVerdict)) {
+    return null
+  }
+  return {
+    dkim: { verdict: dkimVerdict },
+    dmarc: { verdict: dmarcVerdict },
+  }
 }
 
 /** §IX.3.1 rule 8: DKIM AND DMARC absent or unverifiable. */
