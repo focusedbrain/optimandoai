@@ -22,7 +22,7 @@ import {
 function row(overrides: Partial<HandshakeRecord> = {}): HandshakeRecord {
   return {
     handshake_id: 'hs-1',
-    handshake_type: 'internal',
+    same_principal: true,
     state: HandshakeState.ACTIVE,
     initiator_device_role: 'host',
     acceptor_device_role: 'sandbox',
@@ -44,7 +44,7 @@ describe('listActiveInternalHandshakesForHostAi', () => {
   it('returns ACTIVE internal rows only, with no session filter applied', () => {
     listHandshakeRecordsMock.mockReturnValue([
       row({ handshake_id: 'internal-active' }),
-      row({ handshake_id: 'standard', handshake_type: 'standard' as any }),
+      row({ handshake_id: 'standard', same_principal: false as any }),
       row({ handshake_id: 'internal-pending', state: HandshakeState.PENDING_REVIEW }),
     ])
     const out = listActiveInternalHandshakesForHostAi({})

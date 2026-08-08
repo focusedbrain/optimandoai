@@ -16,6 +16,12 @@ export interface ToolRequest {
   readonly parameters: Record<string, unknown>;
   readonly requested_at: string;
   readonly origin: ToolRequestOrigin;
+  /**
+   * Phase 5 (V4) [VII.10.1]: reference to the single-use, Intent-Hash-bound
+   * human consent record for THIS execution. Required — execution without a
+   * fresh consent tap is refused fail-closed.
+   */
+  readonly consent_ref?: string;
 }
 
 export type ToolRequestOrigin = 'local_ui' | 'extension' | 'sandbox' | 'automation';

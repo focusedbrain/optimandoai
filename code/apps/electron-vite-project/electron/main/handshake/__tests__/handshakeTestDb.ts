@@ -21,6 +21,8 @@
 export function createHandshakeTestDb() {
   const handshakes = new Map<string, any>()
   const seenHashes = new Map<string, Set<string>>() // handshake_id → Set<hash>
+  const grants: any[] = [] // wr_grants (Phase 5)
+  const offscopeEvents: any[] = [] // wr_grant_offscope_events (Phase 5)
   const auditLog: any[] = []
   const ingestionAuditLog: any[] = []
   const quarantine: any[] = []
@@ -132,6 +134,48 @@ export function createHandshakeTestDb() {
           return { changes: 1 }
         }
 
+        // INSERT INTO wr_grants (Phase 5 grant objects)
+        if (/INSERT INTO wr_grants/i.test(sql)) {
+          grants.push({
+            grant_id: pos[0],
+            handshake_id: pos[1],
+            grant_type: pos[2],
+            direction: pos[3],
+            scopes_json: pos[4],
+            limit_extensions_json: pos[5],
+            consent_id: pos[6],
+            backfilled: pos[7],
+            created_at: pos[8],
+            revoked_at: null,
+            revoke_reason: null,
+          })
+          return { changes: 1 }
+        }
+
+        // UPDATE wr_grants SET revoked_at
+        if (/UPDATE wr_grants SET revoked_at/i.test(sql)) {
+          const g = grants.find((x) => x.grant_id === pos[2])
+          if (g) {
+            g.revoked_at = pos[0]
+            g.revoke_reason = pos[1]
+            return { changes: 1 }
+          }
+          return { changes: 0 }
+        }
+
+        // INSERT INTO wr_grant_offscope_events
+        if (/INSERT INTO wr_grant_offscope_events/i.test(sql)) {
+          offscopeEvents.push({
+            handshake_id: pos[0],
+            grant_id: pos[1],
+            scope: pos[2],
+            kind: pos[3],
+            source: pos[4],
+            created_at: pos[5],
+          })
+          return { changes: 1 }
+        }
+
         // INSERT INTO ingestion_audit_log
         if (/INSERT INTO ingestion_audit_log/i.test(sql)) {
           ingestionAuditLog.push({ args: args ?? pos })
@@ -239,6 +283,30 @@ export function createHandshakeTestDb() {
           return handshakes.get(pos[0]) ?? undefined
         }
 
+        // SELECT COUNT(*) FROM wr_grant_offscope_events
+        if (/COUNT\(\*\).*FROM wr_grant_offscope_events/i.test(sql)) {
+          return { n: offscopeEvents.filter((e) => e.handshake_id === pos[0]).length }
+        }
+
+        // SELECT * FROM wr_grants (single-row lookups: active grant / existing backfill probe)
+        if (/FROM wr_grants.*WHERE handshake_id/i.test(sql)) {
+          let rows = grants.filter(
+            (g) => g.handshake_id === pos[0] && g.grant_type === 'delivery' && g.direction === 'inbound',
+          )
+          if (/revoked_at IS NULL/i.test(sql)) rows = rows.filter((g) => g.revoked_at === null)
+          if (/created_at <= \?/.test(sql)) {
+            rows = grants
+              .filter((g) => g.handshake_id === pos[0] && g.grant_type === 'delivery' && g.direction === 'inbound')
+              .filter((g) => g.created_at <= pos[1] && (g.revoked_at === null || g.revoked_at > pos[2]))
+          }
+          if (/ORDER BY created_at DESC/i.test(sql)) {
+            rows = [...rows].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+          } else {
+            rows = [...rows].sort((a, b) => (a.created_at > b.created_at ? 1 : -1))
+          }
+          return rows[0] ?? undefined
+        }
+
         // SELECT from seen_capsule_hashes (individual)
         if (/seen_capsule_hashes.*WHERE handshake_id/i.test(sql)) {
           const set = seenHashes.get(pos[0])
@@ -267,6 +335,13 @@ export function createHandshakeTestDb() {
 
       all(...positional: any[]) {
         const pos = positional
+
+        // SELECT * FROM wr_grants (list / revoke sweeps)
+        if (/FROM wr_grants.*WHERE handshake_id/i.test(sql)) {
+          let rows = grants.filter((g) => g.handshake_id === pos[0])
+          if (/revoked_at IS NULL/i.test(sql)) rows = rows.filter((g) => g.revoked_at === null)
+          return [...rows].sort((a, b) => (a.created_at > b.created_at ? 1 : -1))
+        }
 
         // SELECT * FROM handshakes WHERE state IN (...)
         if (/FROM handshakes.*state IN/i.test(sql)) {
@@ -328,11 +403,14 @@ export function createHandshakeTestDb() {
 
   return {
     prepare,
+    // Phase 5: lazy schema ensures (wr_grants etc.) are no-ops on the mock.
+    exec(_sql: string) { /* CREATE-only statements — no-op */ },
     transaction(fn: any) {
       return (...args: any[]) => fn(...args)
     },
     // Introspection for assertions
     getHandshakes: () => Array.from(handshakes.values()),
+    getGrants: () => [...grants],
     getHandshake: (id: string) => handshakes.get(id),
     getAuditLog: () => auditLog,
     getIngestionAuditLog: () => ingestionAuditLog,

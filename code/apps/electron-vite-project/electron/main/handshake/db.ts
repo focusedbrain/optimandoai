@@ -19,6 +19,9 @@ import type {
 } from './types'
 import { finalizeInternalHandshakePersistence } from './internalPersistence'
 import { logHandshakeKeyBinding, warnIfCounterpartyKeySuspiciousOverwrite } from './keyBindingDebug'
+import { adaptRecordToCoreStore, backfillWrCoreStore, deleteRuntimeRow, hasWrCoreStore, type FormationMeta } from './coreStore'
+import { appendEvidenceBestEffort, poacFormationPayload } from './evidenceChain'
+import { createGrant } from './grants'
 
 // ── Migration ──
 
@@ -1228,7 +1231,178 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `UPDATE p2p_config SET coordination_ws_url = 'wss://relay.optirando.com/beap/ws' WHERE coordination_ws_url IN ('wss://relay.wrdesk.com/beap/ws', 'wss://coordination.wrdesk.com/beap/ws')`,
     ],
   },
+  {
+    version: 73,
+    description:
+      'Schema v73 (WR Handshake Phase 2, G6): key extraction — private key material moves out of relationship ' +
+      'rows into the dedicated handshake_key_store. Copy-before-null inside one transaction (rollback-safe); ' +
+      'old columns retained but nulled (no SQLite column drops pre-rebuild). The INSERT is idempotent ' +
+      '(ON CONFLICT DO NOTHING) so a re-run never overwrites extracted keys with the nulled columns.',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS handshake_key_store (
+        handshake_id TEXT PRIMARY KEY,
+        local_private_key TEXT,
+        local_x25519_private_key_b64 TEXT,
+        local_mlkem768_secret_key_b64 TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `INSERT INTO handshake_key_store (
+         handshake_id, local_private_key, local_x25519_private_key_b64, local_mlkem768_secret_key_b64,
+         created_at, updated_at
+       )
+       SELECT handshake_id, local_private_key, local_x25519_private_key_b64, local_mlkem768_secret_key_b64,
+              datetime('now'), datetime('now')
+         FROM handshakes
+        WHERE local_private_key IS NOT NULL
+           OR local_x25519_private_key_b64 IS NOT NULL
+           OR local_mlkem768_secret_key_b64 IS NOT NULL
+       ON CONFLICT(handshake_id) DO NOTHING`,
+      `UPDATE handshakes
+          SET local_private_key = NULL,
+              local_x25519_private_key_b64 = NULL,
+              local_mlkem768_secret_key_b64 = NULL
+        WHERE local_private_key IS NOT NULL
+           OR local_x25519_private_key_b64 IS NOT NULL
+           OR local_mlkem768_secret_key_b64 IS NOT NULL`,
+    ],
+  },
+  {
+    version: 74,
+    description:
+      'Schema v74 (WR Handshake Phase 2, G4 + A1): generic anti-rollback high-water store keyed by ' +
+      '(object_class, object_id) [IX.4.2, X.7.8] and the core nonce store for freshness/replay checks ' +
+      '[VII.3.1]. Consumers arrive over Phases 3–6; the stores land now. Both tables live in the same DB ' +
+      'as the objects they guard so a coherent snapshot restore keeps store and data consistent ' +
+      '(backup/restore semantics: phase-2 report §5).',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS wr_high_water_versions (
+        object_class TEXT NOT NULL,
+        object_id TEXT NOT NULL,
+        high_water_version INTEGER NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (object_class, object_id)
+      )`,
+      `CREATE TABLE IF NOT EXISTS wr_core_nonces (
+        scope TEXT NOT NULL,
+        nonce TEXT NOT NULL,
+        bound_hash TEXT,
+        seen_at TEXT NOT NULL,
+        PRIMARY KEY (scope, nonce)
+      )`,
+    ],
+  },
+  {
+    version: 75,
+    description:
+      'Schema v75 (WR Handshake Phase 3, G1–G3): core store + runtime split [XI.LB§6]. wr_handshake_core is ' +
+      'APPEND-ONLY (UPDATE/DELETE aborted by triggers — immutability is store-enforced, not writer discipline); ' +
+      'wr_handshake_runtime carries the mutable operational slice keyed by handshake. NEVER an in-place ALTER of ' +
+      'handshakes: the legacy table stays the read authority during the transition window and becomes read-only ' +
+      'in Phase 4. This migration is NOT applied to the frozen ledger handle (G5 — LEDGER_SCHEMA_FREEZE_VERSION).',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS wr_handshake_core (
+        core_hash TEXT PRIMARY KEY,
+        handshake_id TEXT NOT NULL UNIQUE,
+        profile_id TEXT NOT NULL,
+        profile_version INTEGER NOT NULL,
+        core_version INTEGER NOT NULL DEFAULT 1,
+        core_json TEXT NOT NULL,
+        signatures_json TEXT NOT NULL,
+        capture_provenance TEXT NOT NULL DEFAULT 'unknown_legacy',
+        backfilled INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      )`,
+      `CREATE TRIGGER IF NOT EXISTS trg_wr_core_no_update
+         BEFORE UPDATE ON wr_handshake_core
+       BEGIN
+         SELECT RAISE(ABORT, 'wr_handshake_core is append-only');
+       END`,
+      `CREATE TRIGGER IF NOT EXISTS trg_wr_core_no_delete
+         BEFORE DELETE ON wr_handshake_core
+       BEGIN
+         SELECT RAISE(ABORT, 'wr_handshake_core is append-only');
+       END`,
+      `CREATE TABLE IF NOT EXISTS wr_handshake_runtime (
+        handshake_id TEXT PRIMARY KEY,
+        core_hash TEXT NOT NULL,
+        state TEXT NOT NULL,
+        sharing_mode TEXT,
+        last_seq_sent INTEGER NOT NULL DEFAULT 0,
+        last_seq_received INTEGER NOT NULL DEFAULT 0,
+        last_capsule_hash_sent TEXT,
+        last_capsule_hash_received TEXT,
+        p2p_endpoint TEXT,
+        local_p2p_auth_token TEXT,
+        counterparty_p2p_token TEXT,
+        effective_policy_json TEXT,
+        repair_flags_json TEXT,
+        updated_at TEXT NOT NULL
+      )`,
+    ],
+  },
+  {
+    version: 76,
+    description:
+      'Schema v76 (WR Handshake Phase 5, E2–E4): grant objects [VII.10.x]. Distinct, receiver-enforced right ' +
+      'objects (delivery / preparation — deliberately NO execute variant) replacing the flattened ' +
+      'effective_policy + sharing_mode bit as the enforcement authority. Created only behind an explicit consent ' +
+      'screen (consent_id → Hash-Pinned consent record); unlimited-until-revoke ground state; revocation kills ' +
+      'all rights via the receiver-side ingress filter. NOT applied to the frozen ledger handle.',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS wr_grants (
+        grant_id TEXT PRIMARY KEY,
+        handshake_id TEXT NOT NULL,
+        grant_type TEXT NOT NULL CHECK (grant_type IN ('delivery', 'preparation')),
+        direction TEXT NOT NULL DEFAULT 'inbound' CHECK (direction IN ('inbound', 'outbound')),
+        scopes_json TEXT NOT NULL,
+        limit_extensions_json TEXT,
+        consent_id TEXT,
+        backfilled INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        revoked_at TEXT,
+        revoke_reason TEXT
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_wr_grants_handshake ON wr_grants (handshake_id, grant_type, revoked_at)`,
+      `CREATE TABLE IF NOT EXISTS wr_grant_offscope_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        handshake_id TEXT NOT NULL,
+        grant_id TEXT,
+        scope TEXT,
+        kind TEXT NOT NULL,
+        source TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_wr_grant_offscope_handshake ON wr_grant_offscope_events (handshake_id)`,
+    ],
+  },
 ]
+
+/**
+ * G5 — ledger freeze. The `handshake-ledger.db` handle stops receiving full
+ * handshake migrations at this version: v75+ (core store split and everything
+ * after) never lands on the ledger. Its repurposing as the Tier-L evidence
+ * home is Phase 5 (Q10).
+ */
+export const LEDGER_SCHEMA_FREEZE_VERSION = 74
+
+/**
+ * Every table name the handshake migration chain (≤ maxVersion) can create.
+ * Source of truth for the ledger hygiene audit (G5): anything on a handle
+ * beyond this set + the ledger-native tables is undocumented.
+ */
+export function documentedHandshakeTableNames(maxVersion?: number): Set<string> {
+  const names = new Set<string>(['handshake_schema_migrations'])
+  for (const migration of HANDSHAKE_MIGRATIONS) {
+    if (maxVersion !== undefined && migration.version > maxVersion) continue
+    for (const sql of migration.sql) {
+      for (const match of sql.matchAll(/CREATE TABLE(?: IF NOT EXISTS)?\s+(\w+)/gi)) {
+        names.add(match[1])
+      }
+    }
+  }
+  return names
+}
 
 /**
  * Canonical columns for the email / inbox / sync pipeline. Repairs partial tables where
@@ -1454,7 +1628,28 @@ export function ensureEmailPipelineSchemaRepairs(db: any): void {
   }
 }
 
-export function migrateHandshakeTables(db: any): void {
+/**
+ * G5 — a frozen handle carries its freeze as DATA (`ledger_meta.wr_schema_freeze`,
+ * written by openLedger), so every migration entry point respects it — including
+ * lazy `migrateHandshakeTables(db)` calls that don't know which handle they got
+ * (e.g. the ingestion IPC layer). Handles without ledger_meta are never frozen.
+ */
+function detectPersistedFreezeVersion(db: any): number | undefined {
+  try {
+    const row = db
+      .prepare("SELECT value FROM ledger_meta WHERE key = 'wr_schema_freeze'")
+      .get() as { value: string } | undefined
+    if (row) {
+      const v = Number(row.value)
+      if (Number.isSafeInteger(v) && v > 0) return v
+    }
+  } catch {
+    // No ledger_meta table — not a ledger handle.
+  }
+  return undefined
+}
+
+export function migrateHandshakeTables(db: any, options?: { freezeAtVersion?: number }): void {
   // Ensure migrations table exists first
   try {
     db.prepare(`CREATE TABLE IF NOT EXISTS handshake_schema_migrations (
@@ -1466,7 +1661,14 @@ export function migrateHandshakeTables(db: any): void {
     console.warn('[HANDSHAKE DB] Could not create migrations table:', e?.message)
   }
 
+  const freezeAtVersion = options?.freezeAtVersion ?? detectPersistedFreezeVersion(db)
+
   for (const migration of HANDSHAKE_MIGRATIONS) {
+    // G5 — frozen handles (the ledger) never receive migrations past the
+    // freeze version. Fail-closed on the schema, not on the data: existing
+    // tables keep working; new WR core tables never appear here.
+    if (freezeAtVersion !== undefined && migration.version > freezeAtVersion) continue
+
     // Check if already applied
     try {
       const row = db.prepare(
@@ -1499,6 +1701,39 @@ export function migrateHandshakeTables(db: any): void {
   }
 
   ensureEmailPipelineSchemaRepairs(db)
+
+  // Phase 5 (H1 hygiene) [IX.19.1]: audit_log is frozen for mutation — INSERT
+  // stays open (it remains the operational audit sink) but existing rows are
+  // read-only for forensics. Applied on every open (idempotent, not part of
+  // the version chain) so BOTH handles get it, including the frozen ledger.
+  try {
+    db.prepare(
+      `CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_update
+         BEFORE UPDATE ON audit_log
+         BEGIN SELECT RAISE(ABORT, 'audit_log rows are read-only (forensic freeze)'); END`,
+    ).run()
+    db.prepare(
+      `CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_delete
+         BEFORE DELETE ON audit_log
+         BEGIN SELECT RAISE(ABORT, 'audit_log rows are read-only (forensic freeze)'); END`,
+    ).run()
+  } catch (e: any) {
+    console.warn('[HANDSHAKE DB] audit_log freeze triggers warning:', e?.message)
+  }
+
+  // Phase 3 (G2) — backfill: one synthetic legacy_v0 core per existing
+  // relationship row that has none. Idempotent; never runs on frozen handles
+  // (they never got the v75 tables). Never fabricates signatures/provenance.
+  if (freezeAtVersion === undefined && hasWrCoreStore(db)) {
+    try {
+      const summary = backfillWrCoreStore(db, (h) => listHandshakeRecords(h))
+      if (summary.backfilled > 0 || summary.failed > 0) {
+        console.log('[WR-CORE] legacy_v0 backfill:', summary)
+      }
+    } catch (e: any) {
+      console.warn('[WR-CORE] backfill skipped:', e?.message)
+    }
+  }
 }
 
 // ── Post-migration backfill: local_x25519_public_key_b64 ──────────────────────────────────────
@@ -1536,6 +1771,17 @@ export function backfillLocalX25519PublicKey(
     } catch (e: any) {
       console.error('[HANDSHAKE DB] backfillLocalX25519PublicKey: query failed:', e?.message)
       return result
+    }
+
+    // Phase 2 (G6): post-v73 the row column is NULL — the private key lives
+    // in handshake_key_store. Overlay before deriving.
+    for (const row of rows) {
+      if (!row.local_x25519_private_key_b64?.trim()) {
+        const keys = getHandshakeKeys(db, row.handshake_id)
+        if (keys?.local_x25519_private_key_b64?.trim()) {
+          row.local_x25519_private_key_b64 = keys.local_x25519_private_key_b64
+        }
+      }
     }
 
     for (const row of rows) {
@@ -1665,7 +1911,9 @@ export function serializeHandshakeRecord(record: HandshakeRecord): any {
     local_x25519_public_key_b64: record.local_x25519_public_key_b64 ?? null,
     local_mlkem768_secret_key_b64: record.local_mlkem768_secret_key_b64 ?? null,
     local_mlkem768_public_key_b64: record.local_mlkem768_public_key_b64 ?? null,
-    handshake_type: record.handshake_type ?? null,
+    // SINGLE column-compat write (Phase 4, Q9): the frozen legacy column
+    // persists the profile-derived same_principal parameter.
+    handshake_type: record.same_principal === true ? 'internal' : null,
     initiator_device_name: record.initiator_device_name ?? null,
     acceptor_device_name: record.acceptor_device_name ?? null,
     initiator_device_role: record.initiator_device_role ?? null,
@@ -1727,7 +1975,9 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
     local_mlkem768_public_key_b64: row.local_mlkem768_public_key_b64 ?? null,
     context_sync_pending: !!(row.context_sync_pending),
     policy_selections: parsePolicySelections(row.policy_selections),
-    handshake_type: row.handshake_type ?? null,
+    // SINGLE column-compat read (Phase 4, Q9): legacy column → profile-derived
+    // same_principal parameter. No other code reads the column value.
+    same_principal: row.handshake_type === 'internal',
     initiator_device_name: row.initiator_device_name ?? null,
     acceptor_device_name: row.acceptor_device_name ?? null,
     initiator_device_role: row.initiator_device_role ?? null,
@@ -1791,6 +2041,112 @@ export function updateHandshakePolicySelections(
   }
 }
 
+// ── Handshake key store (Phase 2, G6) ─────────────────────────────────────────
+// Private key material lives in handshake_key_store, not in relationship rows.
+// Readers overlay these values onto HandshakeRecord so every runtime consumer
+// (signing, X25519 ECDH, ML-KEM decapsulation) keeps working unchanged.
+
+export interface HandshakeKeyMaterial {
+  local_private_key: string | null
+  local_x25519_private_key_b64: string | null
+  local_mlkem768_secret_key_b64: string | null
+}
+
+/**
+ * Read key material for one handshake. Returns null when the store has no
+ * row (or does not exist yet on a pre-v73 / mock DB — callers fall back to
+ * the legacy row columns, which still carry keys exactly in that case).
+ */
+export function getHandshakeKeys(db: any, handshakeId: string): HandshakeKeyMaterial | null {
+  try {
+    const row = db.prepare(
+      `SELECT local_private_key, local_x25519_private_key_b64, local_mlkem768_secret_key_b64
+         FROM handshake_key_store WHERE handshake_id = ?`,
+    ).get(handshakeId) as HandshakeKeyMaterial | undefined
+    return row ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Upsert key material. Value-preserving on partial updates: a null field
+ * keeps the stored value (COALESCE) — keys are never silently erased through
+ * a record update that lacks them.
+ */
+export function upsertHandshakeKeys(
+  db: any,
+  handshakeId: string,
+  keys: Partial<HandshakeKeyMaterial>,
+): void {
+  const hasAny =
+    keys.local_private_key != null ||
+    keys.local_x25519_private_key_b64 != null ||
+    keys.local_mlkem768_secret_key_b64 != null
+  if (!hasAny) return
+  try {
+    db.prepare(
+      `INSERT INTO handshake_key_store (
+         handshake_id, local_private_key, local_x25519_private_key_b64, local_mlkem768_secret_key_b64,
+         created_at, updated_at
+       ) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+       ON CONFLICT(handshake_id) DO UPDATE SET
+         local_private_key = COALESCE(excluded.local_private_key, handshake_key_store.local_private_key),
+         local_x25519_private_key_b64 = COALESCE(excluded.local_x25519_private_key_b64, handshake_key_store.local_x25519_private_key_b64),
+         local_mlkem768_secret_key_b64 = COALESCE(excluded.local_mlkem768_secret_key_b64, handshake_key_store.local_mlkem768_secret_key_b64),
+         updated_at = datetime('now')`,
+    ).run(
+      handshakeId,
+      keys.local_private_key ?? null,
+      keys.local_x25519_private_key_b64 ?? null,
+      keys.local_mlkem768_secret_key_b64 ?? null,
+    )
+  } catch (e: any) {
+    // Pre-v73 / mock DBs without the table: keys remain on the row columns
+    // (serializeHandshakeRecord nulls them only when the store write works,
+    // see overlayKeysFromStore fallback). Surface anything else.
+    if (!e?.message?.includes('no such table')) throw e
+  }
+}
+
+/** Overlay key material from the store onto a deserialized record. */
+function overlayKeysFromStore(db: any, record: HandshakeRecord): HandshakeRecord {
+  const keys = getHandshakeKeys(db, record.handshake_id)
+  if (!keys) return record
+  return {
+    ...record,
+    local_private_key: keys.local_private_key ?? record.local_private_key ?? null,
+    local_x25519_private_key_b64: keys.local_x25519_private_key_b64 ?? record.local_x25519_private_key_b64 ?? null,
+    local_mlkem768_secret_key_b64: keys.local_mlkem768_secret_key_b64 ?? record.local_mlkem768_secret_key_b64 ?? null,
+  }
+}
+
+/** Batch overlay for list reads — one key-store query per call. */
+function overlayKeysFromStoreBatch(db: any, records: HandshakeRecord[]): HandshakeRecord[] {
+  if (records.length === 0) return records
+  let rows: Array<HandshakeKeyMaterial & { handshake_id: string }>
+  try {
+    rows = db.prepare(
+      `SELECT handshake_id, local_private_key, local_x25519_private_key_b64, local_mlkem768_secret_key_b64
+         FROM handshake_key_store`,
+    ).all() as Array<HandshakeKeyMaterial & { handshake_id: string }>
+  } catch {
+    return records
+  }
+  if (rows.length === 0) return records
+  const byId = new Map(rows.map((r) => [r.handshake_id, r]))
+  return records.map((record) => {
+    const keys = byId.get(record.handshake_id)
+    if (!keys) return record
+    return {
+      ...record,
+      local_private_key: keys.local_private_key ?? record.local_private_key ?? null,
+      local_x25519_private_key_b64: keys.local_x25519_private_key_b64 ?? record.local_x25519_private_key_b64 ?? null,
+      local_mlkem768_secret_key_b64: keys.local_mlkem768_secret_key_b64 ?? record.local_mlkem768_secret_key_b64 ?? null,
+    }
+  })
+}
+
 export function updateHandshakeSigningKeys(
   db: any,
   handshakeId: string,
@@ -1798,7 +2154,26 @@ export function updateHandshakeSigningKeys(
 ): void {
   db.prepare(
     'UPDATE handshakes SET local_public_key = ?, local_private_key = ? WHERE handshake_id = ?',
-  ).run(keys.local_public_key, keys.local_private_key, handshakeId)
+  ).run(keys.local_public_key, hasKeyStore(db) ? null : keys.local_private_key, handshakeId)
+  upsertHandshakeKeys(db, handshakeId, { local_private_key: keys.local_private_key })
+}
+
+/**
+ * True when the dedicated key store exists on this DB handle (post-v73).
+ * Checked via sqlite_master (positive evidence) rather than probing the
+ * table itself: mock DBs used in tests return undefined instead of throwing
+ * for unknown tables, which a probe-style check would misread as "store
+ * present" and silently route keys into a void.
+ */
+function hasKeyStore(db: any): boolean {
+  try {
+    const row = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'handshake_key_store'")
+      .get()
+    return !!row
+  } catch {
+    return false
+  }
 }
 
 export function updateHandshakeCounterpartyKey(
@@ -1823,7 +2198,7 @@ export function updateHandshakeCounterpartyKey(
   ).run(counterparty_public_key, handshakeId)
 }
 
-export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
+export function insertHandshakeRecord(db: any, record: HandshakeRecord, formation?: FormationMeta): void {
   logHandshakeKeyBinding({
     source_function: 'insertHandshakeRecord',
     handshake_id: record.handshake_id,
@@ -1833,7 +2208,20 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     new_counterparty: record.counterparty_public_key,
     record,
   })
-  const s = serializeHandshakeRecord(finalizeInternalHandshakePersistence(record))
+  const finalized = finalizeInternalHandshakePersistence(record)
+  const s = serializeHandshakeRecord(finalized)
+  // Phase 2 (G6): private key material goes to handshake_key_store, never to
+  // relationship rows. Pre-v73 handles (no store) keep the legacy row write.
+  if (hasKeyStore(db)) {
+    upsertHandshakeKeys(db, finalized.handshake_id, {
+      local_private_key: finalized.local_private_key ?? null,
+      local_x25519_private_key_b64: finalized.local_x25519_private_key_b64 ?? null,
+      local_mlkem768_secret_key_b64: finalized.local_mlkem768_secret_key_b64 ?? null,
+    })
+    s.local_private_key = null
+    s.local_x25519_private_key_b64 = null
+    s.local_mlkem768_secret_key_b64 = null
+  }
   db.prepare(`INSERT INTO handshakes (
     handshake_id, relationship_id, state, initiator_json, acceptor_json,
     local_role, sharing_mode, reciprocal_allowed,
@@ -1871,6 +2259,39 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     @internal_routing_key, @internal_coordination_identity_complete, @internal_coordination_repair_needed,
     @topology_pairing_kind
   )`).run(s)
+  // Phase 3 (G1–G3): transition adapter — dual-write core + runtime rows when
+  // the split store exists on this handle. The legacy row above remains the
+  // read authority during the transition window. Phase 4: formations through
+  // the one pipeline pass FormationMeta so the core carries the real profile,
+  // ingress_path, and capture provenance [IX.3.1 rule 5].
+  adaptRecordToCoreStore(db, finalized, formation ? { formation } : undefined)
+  // Phase 5: a consented formation is PoAC-class evidence [IX.19.1] and
+  // creates the relationship's initial inbound DELIVERY grant behind the
+  // same consent event (E2 — the receiver-side filter consumes it).
+  if (formation) {
+    appendEvidenceBestEffort({
+      chainId: finalized.handshake_id,
+      recordType: 'poac',
+      payload: poacFormationPayload({
+        handshake_id: finalized.handshake_id,
+        profile_id: formation.profile_id,
+        consent_id: formation.consent_id,
+        capture_method: formation.capture_method,
+        ingress_path: formation.ingress_path,
+      }),
+    })
+    try {
+      createGrant(db, {
+        handshakeId: finalized.handshake_id,
+        grantType: 'delivery',
+        direction: 'inbound',
+        scopes: finalized.effective_policy?.allowedScopes ?? [],
+        consentId: formation.consent_id,
+      })
+    } catch (e) {
+      console.warn(`[GRANTS] initial delivery grant failed handshake=${finalized.handshake_id}: ${(e as Error)?.message}`)
+    }
+  }
 }
 
 export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
@@ -1890,7 +2311,19 @@ export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
     new_counterparty: record.counterparty_public_key,
     record: prev,
   })
-  const s = serializeHandshakeRecord(finalizeInternalHandshakePersistence(record))
+  const finalizedForUpdate = finalizeInternalHandshakePersistence(record)
+  const s = serializeHandshakeRecord(finalizedForUpdate)
+  // Phase 2 (G6): see insertHandshakeRecord — keys divert to the key store.
+  if (hasKeyStore(db)) {
+    upsertHandshakeKeys(db, finalizedForUpdate.handshake_id, {
+      local_private_key: finalizedForUpdate.local_private_key ?? null,
+      local_x25519_private_key_b64: finalizedForUpdate.local_x25519_private_key_b64 ?? null,
+      local_mlkem768_secret_key_b64: finalizedForUpdate.local_mlkem768_secret_key_b64 ?? null,
+    })
+    s.local_private_key = null
+    s.local_x25519_private_key_b64 = null
+    s.local_mlkem768_secret_key_b64 = null
+  }
   db.prepare(`UPDATE handshakes SET
     relationship_id = @relationship_id, state = @state,
     initiator_json = @initiator_json, acceptor_json = @acceptor_json,
@@ -1935,6 +2368,9 @@ export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
     internal_coordination_repair_needed = @internal_coordination_repair_needed,
     topology_pairing_kind = @topology_pairing_kind
   WHERE handshake_id = @handshake_id`).run(s)
+  // Phase 3 (G1–G3): mirror mutable state into wr_handshake_runtime (the core
+  // row is append-only and untouched by updates — hash stability, T2).
+  adaptRecordToCoreStore(db, finalizedForUpdate)
 }
 
 /** Prompt 0: persist inferred/co-located topology marker on an internal Host↔Sandbox row. */
@@ -1950,7 +2386,7 @@ export function updateHandshakeTopologyPairingKind(
 
 export function getHandshakeRecord(db: any, handshakeId: string): HandshakeRecord | null {
   const row = db.prepare('SELECT * FROM handshakes WHERE handshake_id = ?').get(handshakeId) as any
-  return row ? deserializeHandshakeRecord(row) : null
+  return row ? overlayKeysFromStore(db, deserializeHandshakeRecord(row)) : null
 }
 
 /** Resolve handshake_id when the caller presents the peer's Bearer (matches our stored counterparty_p2p_token). */
@@ -2041,7 +2477,7 @@ export function refreshInternalHandshakePersistenceFlags(db: any, handshakeId: s
  */
 export function listHandshakeRecords(
   db: any,
-  filter?: { state?: HandshakeState; relationship_id?: string; handshake_type?: string },
+  filter?: { state?: HandshakeState; relationship_id?: string; same_principal?: boolean },
 ): HandshakeRecord[] {
   let sql = 'SELECT * FROM handshakes WHERE 1=1'
   const params: any[] = []
@@ -2054,21 +2490,24 @@ export function listHandshakeRecords(
     sql += ' AND relationship_id = ?'
     params.push(filter.relationship_id)
   }
-  if (filter?.handshake_type) {
-    sql += ' AND handshake_type = ?'
-    params.push(filter.handshake_type)
+  // Profile-derived same_principal filter maps to the frozen legacy column
+  // at this single persistence boundary (Phase 4, Q9).
+  if (filter?.same_principal === true) {
+    sql += " AND handshake_type = 'internal'"
+  } else if (filter?.same_principal === false) {
+    sql += " AND (handshake_type IS NULL OR handshake_type != 'internal')"
   }
 
   sql += ' ORDER BY created_at DESC'
   const rows = db.prepare(sql).all(...params) as any[]
-  return rows.map(deserializeHandshakeRecord)
+  return overlayKeysFromStoreBatch(db, rows.map(deserializeHandshakeRecord))
 }
 
 export function getExistingHandshakesForLookup(db: any): HandshakeRecord[] {
   const rows = db.prepare(
     "SELECT * FROM handshakes WHERE state IN ('PENDING_ACCEPT','ACCEPTED','ACTIVE')"
   ).all() as any[]
-  return rows.map(deserializeHandshakeRecord)
+  return overlayKeysFromStoreBatch(db, rows.map(deserializeHandshakeRecord))
 }
 
 // ── Seen Capsule Hashes ──
@@ -2359,8 +2798,14 @@ export function deleteHandshakeRecord(db: any, handshakeId: string): { success: 
     db.prepare('DELETE FROM context_store WHERE handshake_id = ?').run(handshakeId)
     db.prepare('DELETE FROM seen_capsule_hashes WHERE handshake_id = ?').run(handshakeId)
     db.prepare('DELETE FROM outbound_capsule_queue WHERE handshake_id = ?').run(handshakeId)
-    db.prepare('DELETE FROM audit_log WHERE handshake_id = ?').run(handshakeId)
+    // Phase 5 (H1 hygiene): audit rows are NEVER deleted with the relationship
+    // — the old audit_log is frozen for forensics, and the Tier-L evidence
+    // chain (wr_evidence_chain, append-only by trigger) survives regardless.
+    // Pre-existing purge losses from the old behavior are unrecoverable.
     db.prepare('DELETE FROM handshakes WHERE handshake_id = ?').run(handshakeId)
+    // Phase 3: the runtime mirror goes with the row; the core record is
+    // append-only history and survives (store triggers abort DELETE anyway).
+    deleteRuntimeRow(db, handshakeId)
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err?.message ?? 'Delete failed' }

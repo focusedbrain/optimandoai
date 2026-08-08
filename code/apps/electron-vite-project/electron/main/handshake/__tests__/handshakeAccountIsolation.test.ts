@@ -66,7 +66,7 @@ describe('handshakeAccountIsolation', () => {
   test('hides internal row when initiator/acceptor are different principals', () => {
     const r = minimalRow({
       handshake_id: 'h1',
-      handshake_type: 'internal',
+      same_principal: true,
       initiator: party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' }),
       acceptor: party({ email: 'b@test.com', wrdesk_user_id: 'user-b', iss, sub: 'sub-b' }),
     })
@@ -77,7 +77,7 @@ describe('handshakeAccountIsolation', () => {
     const p = party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' })
     const r = minimalRow({
       handshake_id: 'h2',
-      handshake_type: 'internal',
+      same_principal: true,
       initiator: p,
       acceptor: { ...p },
     })
@@ -88,7 +88,7 @@ describe('handshakeAccountIsolation', () => {
     const p = party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' })
     const r = minimalRow({
       handshake_id: 'h3',
-      handshake_type: 'internal',
+      same_principal: true,
       initiator: p,
       acceptor: { ...p },
     })
@@ -98,7 +98,7 @@ describe('handshakeAccountIsolation', () => {
   test('standard handshake visible to initiator', () => {
     const r = minimalRow({
       handshake_id: 'h4',
-      handshake_type: 'standard',
+      same_principal: false,
       initiator: party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' }),
       acceptor: party({ email: 'b@test.com', wrdesk_user_id: 'user-b', iss, sub: 'sub-b' }),
     })
@@ -109,7 +109,7 @@ describe('handshakeAccountIsolation', () => {
   test('hides standard handshake for unrelated session', () => {
     const r = minimalRow({
       handshake_id: 'h5',
-      handshake_type: 'standard',
+      same_principal: false,
       initiator: party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' }),
       acceptor: party({ email: 'b@test.com', wrdesk_user_id: 'user-b', iss, sub: 'sub-b' }),
     })
@@ -139,7 +139,7 @@ describe('handshakeAccountIsolation', () => {
   test('filterHandshakeRecordsForCurrentSession logs hidden internal mismatch', () => {
     const r = minimalRow({
       handshake_id: 'h-bad',
-      handshake_type: 'internal',
+      same_principal: true,
       initiator: party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' }),
       acceptor: party({ email: 'b@test.com', wrdesk_user_id: 'user-b', iss, sub: 'sub-b' }),
     })
@@ -159,7 +159,7 @@ describe('handshakeAccountIsolation', () => {
   test('external pending acceptor with matching receiver_email → visible (regression fix)', () => {
     const r = minimalRow({
       handshake_id: 'h-pending-ext',
-      handshake_type: 'standard',
+      same_principal: false,
       state: HandshakeState.PENDING_REVIEW,
       local_role: 'acceptor',
       acceptor: null,
@@ -172,7 +172,7 @@ describe('handshakeAccountIsolation', () => {
   test('internal pending acceptor with matching receiver_email → visible (regression fix)', () => {
     const r = minimalRow({
       handshake_id: 'h-pending-int',
-      handshake_type: 'internal',
+      same_principal: true,
       state: HandshakeState.PENDING_REVIEW,
       local_role: 'acceptor',
       acceptor: null,
@@ -185,7 +185,7 @@ describe('handshakeAccountIsolation', () => {
   test('foreign pending row with non-matching receiver_email → hidden (regression guard)', () => {
     const r = minimalRow({
       handshake_id: 'h-foreign-pending',
-      handshake_type: 'standard',
+      same_principal: false,
       state: HandshakeState.PENDING_REVIEW,
       local_role: 'acceptor',
       acceptor: null,
@@ -207,7 +207,7 @@ describe('handshakeAccountIsolation', () => {
   test('active cross-account row, unrelated session → hidden', () => {
     const r = minimalRow({
       handshake_id: 'h-active-foreign',
-      handshake_type: 'standard',
+      same_principal: false,
       state: HandshakeState.ACTIVE,
       local_role: 'initiator',
       initiator: party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' }),
@@ -228,7 +228,7 @@ describe('handshakeAccountIsolation', () => {
   test('active row, current user is initiator → visible (unchanged)', () => {
     const r = minimalRow({
       handshake_id: 'h-active-initiator',
-      handshake_type: 'standard',
+      same_principal: false,
       state: HandshakeState.ACTIVE,
       local_role: 'initiator',
       initiator: party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' }),
@@ -240,7 +240,7 @@ describe('handshakeAccountIsolation', () => {
   test('active row, current user is acceptor → visible (unchanged)', () => {
     const r = minimalRow({
       handshake_id: 'h-active-acceptor',
-      handshake_type: 'standard',
+      same_principal: false,
       state: HandshakeState.ACTIVE,
       local_role: 'acceptor',
       initiator: party({ email: 'a@test.com', wrdesk_user_id: 'user-a', iss, sub: 'sub-a' }),
@@ -252,7 +252,7 @@ describe('handshakeAccountIsolation', () => {
   test('initiator-side pending PENDING_ACCEPT → visible (unchanged)', () => {
     const r = minimalRow({
       handshake_id: 'h-pending-out',
-      handshake_type: 'standard',
+      same_principal: false,
       state: HandshakeState.PENDING_ACCEPT,
       local_role: 'initiator',
       acceptor: null,
@@ -267,7 +267,7 @@ describe('handshakeAccountIsolation', () => {
     try {
       const r = minimalRow({
         handshake_id: 'h-legacy-receiver',
-        handshake_type: 'standard',
+        same_principal: false,
         state: HandshakeState.PENDING_REVIEW,
         local_role: 'acceptor',
         acceptor: null,
@@ -283,7 +283,7 @@ describe('handshakeAccountIsolation', () => {
   test('acceptor in non-pending state does not use pending acceptor helper', () => {
     const r = minimalRow({
       handshake_id: 'h-acceptor-active-no-match',
-      handshake_type: 'standard',
+      same_principal: false,
       state: HandshakeState.ACCEPTED,
       local_role: 'acceptor',
       receiver_email: 'b@test.com',

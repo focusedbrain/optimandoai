@@ -19,6 +19,12 @@ if (process.env.COORD_TEST_MODE === '1') {
 
 export interface ValidatedIdentity {
   userId: string
+  /**
+   * OIDC issuer the token was verified against. Load-bearing for full-claim
+   * identity binding [VII.3.8–3.10]: downstream checks must never compare
+   * `userId` (sub) alone across realms.
+   */
+  iss: string
   email: string
   tier: string
 }
@@ -26,12 +32,16 @@ export interface ValidatedIdentity {
 const CACHE_TTL_MS = 5 * 60 * 1000
 
 /**
- * Increment when the tier-resolution algorithm changes.
+ * Increment when the identity/tier-resolution algorithm changes.
  * Old cache rows hash to unreachable keys and expire naturally via TTL;
  * no DB migration or operational coordination is needed at deploy time.
  * Exported so tests can verify the versioning invariant.
+ *
+ * v3: issuer became part of ValidatedIdentity; the cache key now also binds
+ * the configured issuer so a config change can never resurrect identities
+ * validated against a different realm.
  */
-export const RESOLVER_VERSION = 2
+export const RESOLVER_VERSION = 3
 
 export interface AuthAdapter {
   extractBearerToken(authHeader: string | undefined): string | null
@@ -57,8 +67,12 @@ export function createAuth(
     return jwksCache
   }
 
+  // The cache key binds the configured issuer: every cached identity was
+  // verified against exactly this issuer, so `iss` can be restored from config
+  // on a cache hit without persisting it (and rows from a prior issuer config
+  // hash to unreachable keys).
   function tokenHash(token: string): string {
-    return createHash('sha256').update(`v${RESOLVER_VERSION}:${token}`).digest('hex')
+    return createHash('sha256').update(`v${RESOLVER_VERSION}:${config.oidc_issuer}:${token}`).digest('hex')
   }
 
   function getCachedIdentity(tokenHashVal: string): ValidatedIdentity | null {
@@ -69,7 +83,7 @@ export function createAuth(
          WHERE token_hash = ? AND expires_at > ?`,
       ).get(tokenHashVal, new Date().toISOString()) as { user_id: string; email: string; tier: string } | undefined
       if (!row) return null
-      return { userId: row.user_id, email: row.email, tier: row.tier }
+      return { userId: row.user_id, iss: config.oidc_issuer, email: row.email, tier: row.tier }
     } catch {
       return null
     }
@@ -97,7 +111,7 @@ export function createAuth(
         const parts = token.slice(5).split('-')
         const userId = parts[0] || 'test-user'
         const tier = parts[1] || 'pro'
-        return { userId, email: `${userId}@test.com`, tier }
+        return { userId, iss: config.oidc_issuer, email: `${userId}@test.com`, tier }
       }
 
       const hash = tokenHash(token)
@@ -118,6 +132,8 @@ export function createAuth(
 
         const identity: ValidatedIdentity = {
           userId: sub,
+          // jwtVerify enforced issuer === config.oidc_issuer above.
+          iss: config.oidc_issuer,
           email: email || (payload.preferred_username as string) || sub,
           tier,
         }

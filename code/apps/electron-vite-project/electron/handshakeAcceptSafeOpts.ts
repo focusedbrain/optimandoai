@@ -1,8 +1,8 @@
 /**
  * Pure builder for `handshake:accept` IPC options — shared with preload tests.
  * Forwards an explicit allowlist only (no pass-through of arbitrary objects).
- * Internal vs normal and X25519 requirements are decided in main using persisted
- * `record.handshake_type` — this module does not use `device_role` as proof of internal.
+ * Internal vs normal and X25519 requirements are decided in main using the persisted
+ * `record.same_principal` flag — this module does not use `device_role` as proof of internal.
  */
 
 const MAX_B64 = 8192

@@ -384,7 +384,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   const internalRpcExtras = () => {
     if (!isInternalHandshake) return {}
     return {
-      handshake_type: 'internal' as const,
+      profile_id: 'internal_device' as const,
       device_name: resolvedLocalComputerName,
       device_role: effectiveInternalRole,
       // handshakeRpc.ts infers this as the opposite of device_role, but we still

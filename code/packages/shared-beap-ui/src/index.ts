@@ -4,6 +4,7 @@ export { SessionSelector } from './SessionSelector'
 export { AttachmentPicker } from './AttachmentPicker'
 export { BeapMessageBody } from './BeapMessageBody'
 export { BeapIdentityBadge } from './BeapIdentityBadge'
+export { ChannelProvenanceAlert, channelAlertRequiredForDisplay } from './ChannelProvenanceAlert'
 
 // Types
 export type {
@@ -19,6 +20,11 @@ export type { SessionSelectorProps } from './SessionSelector'
 export type { AttachmentPickerProps } from './AttachmentPicker'
 export type { BeapMessageBodyProps } from './BeapMessageBody'
 export type { BeapIdentityBadgeProps } from './BeapIdentityBadge'
+export type {
+  ChannelProvenanceAlertProps,
+  ChannelProvenanceAlertRecord,
+  ChannelAlertVerdict,
+} from './ChannelProvenanceAlert'
 
 // Styles — consumers must import this OR include beap-ui.css in their build
 import './styles/beap-ui.css'

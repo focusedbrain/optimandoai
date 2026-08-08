@@ -35,7 +35,7 @@ export async function runSandboxPongTestFromHostHandshake(handshakeId: string): 
       if (record && record.state !== 'ACTIVE') {
         return { ok: false, code: ar.code, message: 'not active' }
       }
-      if (record?.handshake_type !== 'internal') {
+      if (record?.same_principal !== true) {
         return { ok: false, code: ar.code, message: 'not internal' }
       }
     }

@@ -114,7 +114,7 @@ export function autoWireTopologyForHandshake(
   record: HandshakeRecord,
   opts?: { db?: unknown },
 ): void {
-  if (record.handshake_type !== 'internal') return
+  if (record.same_principal !== true) return
   if (record.state !== HandshakeState.ACTIVE) return
   if (!record.internal_coordination_identity_complete) return
 
@@ -188,7 +188,7 @@ export function syncTopologyFromActiveHandshakes(db: unknown): void {
   try {
     const rows: HandshakeRecord[] = listHandshakeRecords(db as any, {
       state: HandshakeState.ACTIVE,
-      handshake_type: 'internal',
+      same_principal: true,
     })
     for (const record of rows) {
       if (!record.internal_coordination_identity_complete) continue

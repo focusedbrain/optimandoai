@@ -36,6 +36,8 @@ import {
 } from '../utils/originDeleteFlow'
 import LinkWarningDialog from './LinkWarningDialog'
 import SandboxLinkInfoDialog from './SandboxLinkInfoDialog'
+import { AiInteractionDisclosure } from './ai/AiInteractionDisclosure'
+import { writeAiClipboard } from '../lib/aiClipboard'
 import { openAppExternalUrl } from '../lib/openAppExternalUrl'
 import BeapMessageSafeLinkParts from './BeapMessageSafeLinkParts'
 import { beapInboxMessageBodyToLinkParts } from '../utils/safeLinks'
@@ -121,6 +123,16 @@ import {
   autosortTimingSetPostRunTailMs,
   setAutosortDiagRunId,
 } from '../lib/autosortDiagnostics'
+import {
+  type AiProvenance,
+  isAiProvenance,
+  markHumanEdited,
+  markEditorialResponsible,
+  shouldApplyMachineMarking,
+  shouldApplyVisibleSendLabel,
+  withVisibleAiLabel,
+  AI_UNVERIFIED_PROVENANCE_LABEL,
+} from '@shared/aiProvenance'
 
 const MUTED = '#64748b'
 
@@ -866,13 +878,15 @@ function BulkActionCardStructured({
   onAddDraftAttachment,
   onRemoveDraftAttachment,
   onNavigateToHandshake,
+  draftProvenance,
 }: {
   msg: InboxMessage
   output: BulkAiResultEntry
   isExpanded: boolean
   currentFilter: 'all' | 'unread' | 'starred' | 'deleted' | 'archived' | 'pending_delete' | 'pending_review' | 'urgent'
   updateDraftReply: (messageId: string, draftReply: string) => void
-  handleSendDraft: (msg: InboxMessage, draftBody: string, attachments?: Array<{ name: string; path: string; size: number }>) => void
+  handleSendDraft: (msg: InboxMessage, draftBody: string, attachments?: Array<{ name: string; path: string; size: number }>, provenance?: AiProvenance | null) => void
+  draftProvenance?: AiProvenance | null
   handleArchiveOne: (msg: InboxMessage) => void
   handleDeleteOne: (msg: InboxMessage) => void
   handlePendingDeleteOne: (msg: InboxMessage) => void
@@ -900,6 +914,10 @@ function BulkActionCardStructured({
   const [isAnalysisOpen, setIsAnalysisOpen] = useState(false)
   const analysisButtonRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLDivElement>(null)
+  /** Art. 50 Layer B: visible label ON by default when origin ai|mixed. */
+  const [aiLabelEnabled, setAiLabelEnabled] = useState(() => shouldApplyVisibleSendLabel(draftProvenance))
+  /** Art. 50 Layer B: editorial responsibility turns label OFF (MIME stays). */
+  const [editorialResponsible, setEditorialResponsible] = useState(false)
 
   const draftRefineConnect = useDraftRefineStore((s) => s.connect)
   const draftRefineDisconnect = useDraftRefineStore((s) => s.disconnect)
@@ -929,6 +947,14 @@ function BulkActionCardStructured({
       document.removeEventListener('keydown', handleEscape)
     }
   }, [isAnalysisOpen])
+
+  // Sync label default when provenance arrives (AI draft generated after first render).
+  useEffect(() => {
+    if (draftProvenance && shouldApplyMachineMarking(draftProvenance)) {
+      setAiLabelEnabled(true)
+      setEditorialResponsible(false)
+    }
+  }, [draftProvenance])
 
   /** Connect to chat bar for draft refinement — on click or focus (FIX-ISSUE-5).
    * Does NOT call onSelectMessage: draft selection is independent of message selection. */
@@ -1059,6 +1085,11 @@ function BulkActionCardStructured({
               onClick={(e) => e.stopPropagation()}
             >
               <div className="bulk-action-card-analysis-popover-content">
+                {!draftProvenance && (
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary, var(--text-secondary-prof, #64748b))', marginBottom: 8, padding: '3px 6px', background: 'var(--bg-elevated, #f1f5f9)', borderRadius: 4, display: 'inline-block' }}>
+                    {AI_UNVERIFIED_PROVENANCE_LABEL}
+                  </div>
+                )}
                 {output.needsReply ? (
                   <div className="bulk-action-card-row">
                     <span className="bulk-action-card-row-label">Response needed</span>
@@ -1453,10 +1484,67 @@ function BulkActionCardStructured({
                 📎 Attach
               </button>
             ) : null}
+            {/* Art. 50 Layer B label controls */}
+            {draftProvenance && shouldApplyMachineMarking(draftProvenance) && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 3,
+                  padding: '4px 8px',
+                  borderRadius: 5,
+                  background: 'var(--bg-elevated, var(--bg-elevated-prof, #f1f5f9))',
+                  color: 'var(--text-primary, var(--text-primary-prof, #0f172a))',
+                  border: '1px solid var(--border, var(--border-prof, rgba(15,23,42,0.12)))',
+                  fontSize: 11,
+                }}
+              >
+                <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: 'var(--text-primary, var(--text-primary-prof, #0f172a))' }}>
+                  <input
+                    type="checkbox"
+                    checked={aiLabelEnabled}
+                    onChange={(e) => {
+                      setAiLabelEnabled(e.target.checked)
+                      if (!e.target.checked) setEditorialResponsible(false)
+                    }}
+                  />
+                  Label as AI-generated
+                </label>
+                {aiLabelEnabled && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, paddingLeft: 16, cursor: 'pointer', color: 'var(--text-secondary, var(--text-secondary-prof, #475569))' }}>
+                    <input
+                      type="checkbox"
+                      checked={editorialResponsible}
+                      onChange={(e) => {
+                        setEditorialResponsible(e.target.checked)
+                        if (e.target.checked) {
+                          setAiLabelEnabled(false)
+                          if (draftProvenance) {
+                            void window.art50?.logEditorialResponsibility(
+                              markEditorialResponsible(draftProvenance),
+                            )
+                          }
+                        }
+                      }}
+                    />
+                    I take editorial responsibility
+                  </label>
+                )}
+              </div>
+            )}
             <button
               type="button"
               className={`bulk-action-card-btn bulk-action-card-btn--primary${rec === 'draft_reply_ready' ? ' bulk-action-card-btn--primary-emphasis' : ''}`}
-              onClick={() => handleSendDraft(msg, output.draftReply ?? '', draftAttachments.length > 0 ? draftAttachments : undefined)}
+              onClick={() => {
+                const body = output.draftReply ?? ''
+                const labelledBody = aiLabelEnabled && shouldApplyVisibleSendLabel(draftProvenance)
+                  ? withVisibleAiLabel(body)
+                  : body
+                const effectiveProv = editorialResponsible && draftProvenance
+                  ? markEditorialResponsible(draftProvenance)
+                  : draftProvenance
+                handleSendDraft(msg, labelledBody, draftAttachments.length > 0 ? draftAttachments : undefined, effectiveProv)
+              }}
             >
               {resolveInboxReplyMode(msg) === 'email' ? 'Send via Email' : 'Send via Handshake'}
             </button>
@@ -1516,7 +1604,16 @@ function BulkActionCardStructured({
             <button
               type="button"
               className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
-              onClick={() => handleSendDraft(msg, output.draftReply!)}
+              onClick={() => {
+                const body = output.draftReply!
+                const labelledBody = aiLabelEnabled && shouldApplyVisibleSendLabel(draftProvenance)
+                  ? withVisibleAiLabel(body)
+                  : body
+                const effectiveProv = editorialResponsible && draftProvenance
+                  ? markEditorialResponsible(draftProvenance)
+                  : draftProvenance
+                handleSendDraft(msg, labelledBody, undefined, effectiveProv)
+              }}
             >
               {resolveInboxReplyMode(msg) === 'email' ? '✉ Send via Email' : '✉ Send via Handshake'}
             </button>
@@ -2337,6 +2434,8 @@ export default function EmailInboxBulkView({
   } | null>(null)
   const [sendEmailToast, setSendEmailToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [draftAttachmentsByMessage, setDraftAttachmentsByMessage] = useState<Record<string, Array<{ name: string; path: string; size: number }>>>({})
+  /** Art. 50: provenance tracked per message after AI draft generation. */
+  const [bulkAiProvenances, setBulkAiProvenances] = useState<Record<string, AiProvenance | null>>({})
   const composeClickRef = useRef<number>(0)
 
   useEffect(() => {
@@ -4732,7 +4831,16 @@ export default function EmailInboxBulkView({
             },
           }
         })
-        if (!isError) useEmailInboxStore.getState().addBulkDraftManualCompose(messageId)
+        if (!isError && data?.draft) {
+          // Art. 50: use provenance from main process (never mint in renderer).
+          const prov = isAiProvenance((data as { provenance?: unknown }).provenance)
+            ? (data as { provenance: AiProvenance }).provenance
+            : null
+          if (prov) setBulkAiProvenances((prev) => ({ ...prev, [messageId]: prov }))
+          useEmailInboxStore.getState().addBulkDraftManualCompose(messageId)
+        } else if (!isError) {
+          useEmailInboxStore.getState().addBulkDraftManualCompose(messageId)
+        }
       } catch {
         setBulkAiOutputs((prev) => ({
           ...prev,
@@ -4753,6 +4861,12 @@ export default function EmailInboxBulkView({
       ...prev,
       [messageId]: { ...prev[messageId], draftReply },
     }))
+    // Art. 50: mark as human-edited when text changes after AI generation.
+    setBulkAiProvenances((prev) => {
+      const existing = prev[messageId]
+      if (!existing) return prev
+      return { ...prev, [messageId]: markHumanEdited(existing, draftReply) }
+    })
   }, [])
 
   const handleFocusPair = useCallback(
@@ -4915,7 +5029,7 @@ export default function EmailInboxBulkView({
 
   /** Send draft directly (no modal). */
   const handleSendDraft = useCallback(
-    async (msg: InboxMessage, draftBody: string, attachments?: Array<{ name: string; path: string; size: number }>) => {
+    async (msg: InboxMessage, draftBody: string, attachments?: Array<{ name: string; path: string; size: number }>, provenance?: AiProvenance | null) => {
       const replyMode = resolveInboxReplyMode(msg)
       const shouldSendEmail = replyMode === 'email'
 
@@ -4925,7 +5039,7 @@ export default function EmailInboxBulkView({
           phase: 'send_draft',
           selectedPath: 'native_beap_compose',
         })
-        if (draftBody?.trim()) navigator.clipboard?.writeText(draftBody).catch(() => {})
+        if (draftBody?.trim()) void writeAiClipboard(draftBody, draftProvenance)
         setComposeMode('beap')
         return
       }
@@ -4986,6 +5100,8 @@ export default function EmailInboxBulkView({
           subject: subject.trim() || '(No subject)',
           bodyText: fullBody,
           attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
+          // Art. 50 Layer A: pass provenance for MIME header injection.
+          ...(shouldApplyMachineMarking(provenance) ? { provenance: provenance! as Record<string, unknown> } : {}),
         })
         if (res.ok && res.data?.success) {
           setSendEmailToast({ type: 'success', message: `Email sent to ${to}` })
@@ -4993,6 +5109,8 @@ export default function EmailInboxBulkView({
             const { [msg.id]: _, ...rest } = prev
             return rest
           })
+          // Clear provenance after successful send.
+          setBulkAiProvenances((prev) => { const { [msg.id]: _, ...rest } = prev; return rest })
           updateDraftReply(msg.id, '')
           refreshMessages()
           setTimeout(() => setSendEmailToast(null), 3000)
@@ -5003,7 +5121,7 @@ export default function EmailInboxBulkView({
         setSendEmailToast({ type: 'error', message: err instanceof Error ? err.message : 'Failed to send' })
       }
     },
-    [updateDraftReply, refreshMessages, setComposeMode]
+    [updateDraftReply, refreshMessages, setComposeMode, setBulkAiProvenances]
   )
 
   const handleAddDraftAttachment = useCallback(async (msgId: string) => {
@@ -5218,6 +5336,7 @@ export default function EmailInboxBulkView({
             handleArchiveOne={handleArchiveOne}
             handleDeleteOne={handleDeleteOne}
             draftAttachments={draftAttachmentsByMessage[msg.id]}
+            draftProvenance={bulkAiProvenances[msg.id] ?? null}
             onAddDraftAttachment={() => handleAddDraftAttachment(msg.id)}
             onRemoveDraftAttachment={(i) => handleRemoveDraftAttachment(msg.id, i)}
             handlePendingDeleteOne={handlePendingDeleteOne}
@@ -5562,6 +5681,7 @@ export default function EmailInboxBulkView({
 
   return (
     <div className={`bulk-view-root ${bulkCompactMode ? 'bulk-view--compact' : ''}`} ref={bulkScrollContainerRef}>
+      <AiInteractionDisclosure variant="full" />
       {/* Toolbar — row 1: status tabs; row 2: Type filter; row 3: selection + AI / sync */}
       <div className="bulk-view-toolbar bulk-view-toolbar--stacked">
         <div className="bulk-view-toolbar-row bulk-view-toolbar-row--tabs">

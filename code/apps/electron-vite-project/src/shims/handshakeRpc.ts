@@ -48,7 +48,7 @@ export function mapLedgerHandshakeToRpc(raw: unknown): HandshakeRecord {
     peer_x25519_public_key_b64?: string | null
     peer_mlkem768_public_key_b64?: string | null
     local_x25519_public_key_b64?: string | null
-    handshake_type?: 'internal' | 'standard' | null
+    same_principal?: boolean | null
     initiator_device_name?: string | null
     acceptor_device_name?: string | null
     initiator_device_role?: 'host' | 'sandbox' | null
@@ -93,7 +93,7 @@ export function mapLedgerHandshakeToRpc(raw: unknown): HandshakeRecord {
     expires_at: r.expires_at ?? null,
     ...keyMat,
     p2pEndpoint: r.p2p_endpoint ?? null,
-    handshake_type: r.handshake_type ?? undefined,
+    same_principal: r.same_principal === true,
     initiator_device_name: r.initiator_device_name ?? null,
     acceptor_device_name: r.acceptor_device_name ?? null,
     initiator_device_role: r.initiator_device_role ?? null,
@@ -219,7 +219,7 @@ function classifyBeapGetDevicePublicKeyResultShape(raw: unknown): BeapDevicePubl
 function logNormalAcceptX25519ShimFailure(args: {
   handshakeId: string
   deviceRoleInternalHint: boolean
-  handshakeType?: string | null
+  samePrincipalHint?: boolean | null
   raw: unknown
 }): void {
   const beap = typeof window !== 'undefined' ? (window as Window & { beap?: { getDevicePublicKey?: unknown } }).beap : undefined
@@ -229,7 +229,7 @@ function logNormalAcceptX25519ShimFailure(args: {
     JSON.stringify({
       handshakeId: args.handshakeId,
       device_role_internal_hint: args.deviceRoleInternalHint,
-      handshake_type: args.handshakeType ?? null,
+      same_principal_hint: args.samePrincipalHint ?? null,
       has_beap: !!beap,
       has_getDevicePublicKey: typeof beap?.getDevicePublicKey === 'function',
       result_shape: resultShape,
@@ -249,7 +249,7 @@ export async function acceptHandshake(
     /**
      * UX for internal pairing in `AcceptHandshakeModal` (host/sandbox). This is a **hint only**;
      * whether the handshake is internal same-principal is **authoritative in main** via persisted
-     * `record.handshake_type`. The shim does not use `device_role` as the final security decision.
+     * `record.same_principal`. The shim does not use `device_role` as the final security decision.
      */
     device_name?: string
     device_role?: 'host' | 'sandbox'
@@ -262,13 +262,13 @@ export async function acceptHandshake(
    * X25519 + ML-KEM: supply keys for normal accepts when beap is available; main `ensureKeyAgreementKeys`
    * remains canonical for binding.
    *
-   * Control flow (after refactor — behavior aligned with main using `record.handshake_type`):
+   * Control flow (after refactor — behavior aligned with main using `record.same_principal`):
    * - **Before (conceptual bug):** `internalAccept := device_role` doubled as a security label; easy to
    *   misread as “internal handshake” vs persisted row state.
    * - **After:** `deviceRoleInternalHint` only affects *shim* fail-fast: when absent, the shim can treat
    *   the call as a normal accept path and require `getDevicePublicKey` before IPC. When present, the shim
    *   never returns ERR just for missing `senderX25519PublicKeyB64` — main/core loads the row and applies
-   *   `record.handshake_type` (see `handleHandshakeRPC` + `handshake:accept` in Electron main).
+   *   `record.same_principal` (see `handleHandshakeRPC` + `handshake:accept` in Electron main).
    * - `deviceRoleInternalHint` true → optional beap, forward without X25519 if unavailable.
    * - `deviceRoleInternalHint` false → require non-empty beap key; fail fast if missing.
    */
@@ -281,9 +281,9 @@ export async function acceptHandshake(
 
   const deviceRoleInternalHint =
     contextOpts?.device_role === 'host' || contextOpts?.device_role === 'sandbox'
-  const handshakeTypeOpt =
-    contextOpts && typeof contextOpts === 'object' && 'handshake_type' in contextOpts
-      ? (contextOpts as { handshake_type?: string }).handshake_type ?? null
+  const samePrincipalHintOpt =
+    contextOpts && typeof contextOpts === 'object' && 'same_principal' in contextOpts
+      ? ((contextOpts as { same_principal?: boolean }).same_principal ?? null)
       : null
 
   let normalAcceptBeapRaw: unknown = undefined
@@ -299,7 +299,7 @@ export async function acceptHandshake(
       logNormalAcceptX25519ShimFailure({
         handshakeId: handshakeId,
         deviceRoleInternalHint: false,
-        handshakeType: handshakeTypeOpt,
+        samePrincipalHint: samePrincipalHintOpt,
         raw: normalAcceptBeapRaw,
       })
       return {
@@ -344,13 +344,13 @@ export async function acceptHandshake(
 
   // When there is no device_role hint, the shim is on the normal-accept path: do not call IPC
   // without a concrete device X25519. When `deviceRoleInternalHint` is set, main may resolve the key
-  // from the orchestrator record for true internal handshakes (`record.handshake_type === 'internal'`).
+  // from the orchestrator record for true internal handshakes (`record.same_principal === true`).
   if (!deviceRoleInternalHint) {
     if (typeof senderX25519PublicKeyB64 !== 'string' || !senderX25519PublicKeyB64.trim()) {
       logNormalAcceptX25519ShimFailure({
         handshakeId: handshakeId,
         deviceRoleInternalHint: false,
-        handshakeType: handshakeTypeOpt,
+        samePrincipalHint: samePrincipalHintOpt,
         raw: normalAcceptBeapRaw,
       })
       return {

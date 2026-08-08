@@ -36,7 +36,7 @@ interface HandshakeRecord {
   receiver_email?: string | null
   context_sync_pending?: boolean
   policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
-  handshake_type?: 'internal' | 'standard' | null
+  same_principal?: boolean | null
   initiator_device_name?: string | null
   acceptor_device_name?: string | null
   initiator_device_role?: 'host' | 'sandbox' | null
@@ -290,7 +290,7 @@ export default function HandshakeView({
                     <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text, #0f1419)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {counterpartyEmail(r)}
                     </span>
-                    {r.handshake_type === 'internal' && (
+                    {r.same_principal === true && (
                       <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: 'rgba(83,74,183,0.1)', color: '#534AB7', marginLeft: '6px' }}>
                         Internal
                       </span>

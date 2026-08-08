@@ -1,11 +1,18 @@
 /**
- * Handshake revocation.
+ * Handshake revocation — SILENT [VII.10.7.2–7.4] (Phase 4, V5).
  *
  * 1. Mark REVOKED (historical records intact, tier_snapshot NOT modified).
  * 2. Future activation denied immediately.
- * 3. Crypto-erase or delete per receiver policy.
- * 4. Delete derived data (embeddings cascade via FK).
- * 5. Best-effort peer notification if local-user initiated.
+ * 3. NO peer notification of any kind: no capsule, no bounce, no state change
+ *    visible to the counterparty. Enforcement is exclusively the receiver-side
+ *    ingress admission filter (ingressAdmission.ts): transmissions from a
+ *    revoked counterparty die pre-visibility with a logged record. Old-build
+ *    peers keep a zombie ACTIVE record and keep transmitting — acceptable
+ *    BECAUSE the filter kills those transmissions pre-visibility.
+ * 4. Q8: revocation does NOT delete context blocks, embeddings, or audit
+ *    rows — evidence and digests persist. Content deletion is the separate
+ *    explicit operator action `deleteRevokedRelationshipContent`.
+ * 5. Re-handshake reanimates nothing.
  */
 
 // ── UX-3 D1: revoke notification callback ────────────────────────────────────
@@ -20,7 +27,6 @@ export function setRevokeNotifyCallback(cb: RevokeNotifyCallback | null): void {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { SSOSession } from './types'
 import { HandshakeState } from './types'
 import {
   getHandshakeRecord,
@@ -30,11 +36,8 @@ import {
   insertAuditLogEntry,
 } from './db'
 import { buildRevocationAuditEntry } from './auditLog'
-import { buildRevokeCapsule } from './capsuleBuilder'
-import { enqueueOutboundCapsule, processOutboundQueue } from './outboundQueue'
-import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
-import { getInstanceId } from '../orchestrator/orchestratorModeStore'
-import { internalRelayCapsuleWireOptsFromRecord } from './internalCoordinationWire'
+import { revokeGrantsForHandshake } from './grants'
+import { appendEvidenceBestEffort, poacContentDeletionPayload } from './evidenceChain'
 import { P2pSessionLogReason, closeSession } from '../internalInference/p2pSession/p2pInferenceSessionManager'
 
 export async function revokeHandshake(
@@ -42,8 +45,6 @@ export async function revokeHandshake(
   handshakeId: string,
   source: 'remote-capsule' | 'local-user',
   actorUserId?: string,
-  session?: SSOSession,
-  getOidcToken?: () => Promise<string | null>,
 ): Promise<void> {
   const record = getHandshakeRecord(db, handshakeId)
   if (!record) return
@@ -51,22 +52,8 @@ export async function revokeHandshake(
   // Already revoked — idempotent
   if (record.state === HandshakeState.REVOKED) return
 
-  // Snapshot signing keys before the transaction deletes context blocks.
-  // We need them after the transaction to build the outbound revoke capsule.
-  const localPub = record.local_public_key ?? ''
-  const localPriv = record.local_private_key ?? ''
-  const lastSeqReceived = record.last_seq_received ?? 0
-  const lastSeqSent = record.last_seq_sent ?? 0
-  const lastCapsuleHash = record.last_capsule_hash_received ?? ''
-  const counterpartyUserId = record.local_role === 'initiator'
-    ? record.acceptor?.wrdesk_user_id ?? ''
-    : record.initiator?.wrdesk_user_id ?? ''
-  const counterpartyEmail = record.local_role === 'initiator'
-    ? record.acceptor?.email ?? ''
-    : record.initiator?.email ?? ''
-
   const tx = db.transaction(() => {
-    // 1. Mark REVOKED
+    // 1. Mark REVOKED — content, evidence, and digests persist (Q8).
     const revoked = {
       ...record,
       state: HandshakeState.REVOKED,
@@ -75,13 +62,12 @@ export async function revokeHandshake(
     }
     updateHandshakeRecord(db, revoked)
 
-    // 2. Delete embeddings first (FK cascade would handle it, but explicit is safer)
-    deleteEmbeddingsByHandshake(db, handshakeId)
+    // 2. Kill ALL grant objects of the counterparty [VII.10.8] (Phase 5, E4).
+    //    Enforcement stays the receiver-side ingress filter; each revoked
+    //    grant produces its own PoAC record.
+    revokeGrantsForHandshake(db, handshakeId, `handshake_revoked:${source}`, actorUserId)
 
-    // 3. Delete context blocks (crypto-erase: deleting is sufficient since DB is encrypted)
-    deleteBlocksByHandshake(db, handshakeId)
-
-    // 4. Audit log
+    // 3. Audit log
     insertAuditLogEntry(db, buildRevocationAuditEntry(handshakeId, source, actorUserId))
   })
 
@@ -104,69 +90,52 @@ export async function revokeHandshake(
   } catch (err: any) {
     console.warn('[TOPOLOGY_AUTO_WIRE] removeTopologyForHandshake on revoke failed:', err?.message)
   }
+}
 
-  // 5. Best-effort peer notification: build and enqueue a signed revoke capsule.
-  //    Only for local-user initiated revocations (remote-capsule means we already received theirs).
-  //    Requires a session, signing keys, and a known counterparty.
-  if (
-    source === 'local-user' &&
-    session &&
-    localPub &&
-    localPriv &&
-    counterpartyUserId &&
-    counterpartyEmail
-  ) {
-    try {
-      const p2pConfig = getP2PConfig(db)
-      const targetEndpoint = record.p2p_endpoint?.trim() || getEffectiveRelayEndpoint(p2pConfig, null)
-      if (!targetEndpoint) {
-        console.warn('[Revoke] No target endpoint for peer notification, handshake:', handshakeId)
-        return
-      }
+/**
+ * Q8: separate EXPLICIT operator action — delete the shared-content payload
+ * (context blocks + embeddings) of an already-revoked relationship. Never
+ * called from `revokeHandshake`; a UI/IPC surface must invoke it as its own
+ * deliberate step. Audit rows are never deleted here — evidence persists.
+ */
+export function deleteRevokedRelationshipContent(
+  db: any,
+  handshakeId: string,
+  actorUserId?: string,
+): { ok: true; blocks_deleted: number; embeddings_deleted: number } | { ok: false; reason: 'not_found' | 'not_revoked' } {
+  const record = getHandshakeRecord(db, handshakeId)
+  if (!record) return { ok: false, reason: 'not_found' }
+  if (record.state !== HandshakeState.REVOKED) return { ok: false, reason: 'not_revoked' }
 
-      let revokeLocalDev: string | undefined
-      try {
-        revokeLocalDev = getInstanceId()?.trim() || undefined
-      } catch {
-        revokeLocalDev = undefined
-      }
-      const revokeInternalWire = internalRelayCapsuleWireOptsFromRecord(record, revokeLocalDev)
-      if (p2pConfig.use_coordination && record.handshake_type === 'internal' && !revokeInternalWire) {
-        console.warn(
-          '[Revoke] Skipping peer notify — INTERNAL_RELAY_ENDPOINTS_INCOMPLETE, handshake:',
-          handshakeId,
-        )
-        return
-      }
+  let blocksDeleted = 0
+  let embeddingsDeleted = 0
+  const tx = db.transaction(() => {
+    // Embeddings first (FK cascade would handle it, but explicit is safer),
+    // then blocks (crypto-erase: deleting suffices — the DB is encrypted).
+    embeddingsDeleted = deleteEmbeddingsByHandshake(db, handshakeId)
+    blocksDeleted = deleteBlocksByHandshake(db, handshakeId)
+    insertAuditLogEntry(db, {
+      timestamp: new Date().toISOString(),
+      action: 'revoked_content_deleted',
+      handshake_id: handshakeId,
+      reason_code: 'OK',
+      actor_wrdesk_user_id: actorUserId,
+      metadata: { blocks_deleted: blocksDeleted, embeddings_deleted: embeddingsDeleted },
+    })
+  })
+  tx()
 
-      const revokeCapsule = buildRevokeCapsule(session, {
-        handshake_id: handshakeId,
-        counterpartyUserId,
-        counterpartyEmail,
-        last_seq_sent: lastSeqSent,
-        last_seq_received: lastSeqReceived,
-        last_capsule_hash_received: lastCapsuleHash,
-        local_public_key: localPub,
-        local_private_key: localPriv,
-        ...(record.local_p2p_auth_token?.trim() ? { p2p_auth_token: record.local_p2p_auth_token.trim() } : {}),
-        ...(revokeInternalWire ?? {}),
-      })
+  // Content deletion is an authorized change — PoAC-recorded (Q8, Phase 5).
+  appendEvidenceBestEffort({
+    chainId: handshakeId,
+    recordType: 'poac',
+    payload: poacContentDeletionPayload({
+      handshake_id: handshakeId,
+      blocks_deleted: blocksDeleted,
+      embeddings_deleted: embeddingsDeleted,
+      actor_wrdesk_user_id: actorUserId ?? null,
+    }),
+  })
 
-      const enqRv = enqueueOutboundCapsule(db, handshakeId, targetEndpoint, revokeCapsule)
-      if (!enqRv.enqueued) {
-        console.warn('[Revoke] Revoke capsule enqueue blocked:', enqRv.message)
-        return
-      }
-      console.log('[Revoke] Revoke capsule enqueued for peer delivery, handshake:', handshakeId)
-
-      if (getOidcToken) {
-        processOutboundQueue(db, getOidcToken).catch((err: any) => {
-          console.warn('[Revoke] processOutboundQueue error:', err?.message)
-        })
-      }
-    } catch (err: any) {
-      // Best-effort: log but never block the local revoke
-      console.warn('[Revoke] Failed to enqueue revoke capsule for peer:', err?.message)
-    }
-  }
+  return { ok: true, blocks_deleted: blocksDeleted, embeddings_deleted: embeddingsDeleted }
 }

@@ -5,6 +5,7 @@
  * to the new structured Event Tag format.
  * 
  * Migration Rules:
+ * - Retired condition types are dropped (see `conditions/retiredConditions.ts`)
  * - Legacy `tagName` → `tag` (with # prefix)
  * - Legacy `expectedContext` → `eventTagConditions` with `body_keywords`
  * - Legacy `websiteFilter` → `eventTagConditions` with `website_filter`
@@ -24,6 +25,7 @@ import type {
   LegacyTrigger,
   LegacyListeningConfig
 } from '../types'
+import { isRetiredEventTagCondition, stripRetiredConditions } from '../conditions/retiredConditions'
 
 /**
  * Migration result for a single trigger
@@ -110,8 +112,15 @@ export class TriggerMigration {
       result.channel = 'chat'
     }
     
-    // Migrate legacy fields to eventTagConditions
-    const existingConditions = result.eventTagConditions || []
+    // Drop conditions this build no longer evaluates before anything reads them
+    const storedConditions = result.eventTagConditions || []
+    const existingConditions = stripRetiredConditions(storedConditions)
+    if (existingConditions.length !== storedConditions.length) {
+      const dropped = storedConditions.length - existingConditions.length
+      result.eventTagConditions = existingConditions
+      changes.push(`Removed ${dropped} retired condition(s) that no longer exist`)
+      needsMigration = true
+    }
     const newConditions: EventTagCondition[] = [...existingConditions]
     
     // Migrate expectedContext to body_keywords
@@ -331,6 +340,8 @@ export class TriggerMigration {
    */
   needsMigration(trigger: Partial<UnifiedTriggerConfig>): boolean {
     if (trigger.type !== 'direct_tag') return false
+    
+    if (trigger.eventTagConditions?.some(isRetiredEventTagCondition)) return true
     
     // Check for legacy fields
     if (trigger.tagName && !trigger.tag) return true

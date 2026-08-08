@@ -22,7 +22,10 @@
  */
 
 import { normalizeNFC, stripControlChars, isValidEmail } from './sanitize'
+import { wireDeclaresSamePrincipal } from './samePrincipalWire'
 import { validateInternalEndpointPairDistinct } from '../../../../../packages/shared/src/handshake/internalEndpointValidation'
+import { parseCanonicalEnvelope } from '@repo/ingestion-core'
+import type { WrCanonicalEnvelope } from '@repo/ingestion-core'
 
 /**
  * Mirrors `SEALED_SERVICE_RPC_ENVELOPE_TYPE` / `SEALED_SERVICE_RPC_SCHEMA_VERSION`
@@ -128,6 +131,12 @@ export interface HandshakeCapsuleCanonical {
    * not part of capsule_hash / context_hash inputs (advisory routing field).
    */
   readonly receiver_pairing_code?: string
+  /**
+   * Canonical v3 signed core envelope (Phase 2) — preserve-unknown
+   * passthrough, verified fail-closed in enforcement.ts. Never stripped,
+   * never reordered [VII.3.4–3.6].
+   */
+  readonly wr_canonical_v3?: WrCanonicalEnvelope
 }
 
 export interface CanonicalContextBlock {
@@ -444,7 +453,7 @@ function rebuildContextBlockProofs(raw: unknown): { ok: true; proofs: ContextBlo
 function validateInternalHandshakeWireIfNeeded(
   canonical: Record<string, unknown>,
 ): RebuildResult | null {
-  if (canonical.handshake_type !== 'internal') {
+  if (!wireDeclaresSamePrincipal(canonical)) {
     return null
   }
 
@@ -695,8 +704,8 @@ export function canonicalRebuild(raw: unknown): RebuildResult {
   }
 
   // Internal / coordination routing (optional — preserved for relay + ledger).
-  // `receiver_pairing_code` is included so the new pairing-code initiate model
-  // survives Gate-2 rebuild and reaches `recipientPersist` /
+  // `receiver_pairing_code` is included so the pairing-code initiate model
+  // survives Gate-2 rebuild and reaches the formation pipeline /
   // `validateInternalHandshakeWireIfNeeded`.
   for (const coordField of [
     'handshake_type',
@@ -775,6 +784,22 @@ export function canonicalRebuild(raw: unknown): RebuildResult {
       return sealedResult
     }
     canonical.context_blocks_sealed = sealedResult.envelope
+  }
+
+  // Canonical v3 envelope (Phase 2 — version-gated wire) [VII.3, VII.6.1.3].
+  // NEW FORMAT ≠ allowlist-strip: the envelope is structurally validated via
+  // the preserve-unknown parser and passed through BYTE-FAITHFULLY (original
+  // object, original container entries) so signature verification recomputes
+  // over exactly what the sender signed. Unknown container entries survive;
+  // criticality is enforced downstream in enforcement.ts, not here.
+  // A malformed envelope rejects the capsule (fail-closed) rather than being
+  // silently stripped — stripping would downgrade v3 capsules to legacy.
+  if ('wr_canonical_v3' in obj && obj.wr_canonical_v3 !== undefined && obj.wr_canonical_v3 !== null) {
+    const envelopeResult = parseCanonicalEnvelope(obj.wr_canonical_v3)
+    if (!envelopeResult.ok) {
+      return { ok: false, reason: `Invalid wr_canonical_v3 envelope: ${envelopeResult.reason}`, field: 'wr_canonical_v3' }
+    }
+    canonical.wr_canonical_v3 = obj.wr_canonical_v3
   }
 
   return { ok: true, capsule: canonical as unknown as HandshakeCapsuleCanonical }

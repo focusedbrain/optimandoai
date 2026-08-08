@@ -38,6 +38,12 @@ import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pd
 import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
 import { decryptQBeapPackage } from '../beap/decryptQBeapPackage'
 import { classifyLivePbeapTrust, pbeapTrustMetadata } from '../depackaging-microvm/livePbeapTrust'
+import {
+  channelProvenanceContentHash,
+  mergeChannelProvenanceMetadata,
+  produceChannelProvenance,
+  recordChannelProvenanceEvidence,
+} from './channelProvenanceProducer'
 import { validatorOrchestrator } from '../validator-process/orchestrator'
 import { isSeamValidationCutoverEnabled } from '../critical-jobs/featureFlags'
 import { isOpaqueIngestionActive } from './opaqueIngestion'
@@ -51,7 +57,7 @@ import { getHandshakeRecord } from '../handshake/db'
 import { encryptForQuarantine } from '../quarantine-encrypt/index'
 import { writeQuarantineBlob } from '../quarantine-blob-storage/index'
 import type { SSOSession } from '../handshake/types'
-import type { ProvenanceMetadata } from '@repo/ingestion-core'
+import type { ChannelProvenanceRecord, ProvenanceMetadata } from '@repo/ingestion-core'
 
 // ── Types ──
 
@@ -61,7 +67,17 @@ export interface RawEmailMessage {
   uid?: string
   /** IMAP folder the message was listed under (for remote MOVE chaining). */
   folder?: string
-  headers?: { messageId?: string; inReplyTo?: string; references?: string[] }
+  headers?: {
+    messageId?: string
+    inReplyTo?: string
+    references?: string[]
+    /**
+     * `Authentication-Results` values collected at the depackaging boundary
+     * (in-guest flag-on, by the provider flag-off). Consumed by the CPR
+     * producer and discarded — no verdict field of the record quotes them.
+     */
+    authenticationResults?: string[]
+  }
   from: { address: string; name?: string }
   to: Array<{ address: string; name?: string }>
   cc?: Array<{ address: string; name?: string }>
@@ -356,6 +372,88 @@ export async function detectAndRouteMessage(
  * flag-off path AND the proven pipeline-2 path that the B2 seam consumer re-enters
  * for an extracted carrier package (passing the package JSON as `text`).
  */
+interface BeapDetection {
+  readonly beapPackageJson: string | null
+  readonly handshakeId: string | null
+  readonly detectedType: 'beap' | 'plain'
+}
+
+/**
+ * The verdict for a message no detector was allowed to look at. Distinct from
+ * "looked and found nothing" only in how it was reached — deliberately the same
+ * shape, so a provenance-failed message cannot be told apart downstream by
+ * anything other than its CPR, and no code path can special-case it into an
+ * affordance.
+ */
+const NO_DETECTION: BeapDetection = Object.freeze({
+  beapPackageJson: null,
+  handshakeId: null,
+  detectedType: 'plain',
+})
+
+/**
+ * Carrier detection: attachments first, then a JSON body, then JSON attachments.
+ *
+ * [Order 02 / 2A] Extracted so that the provenance gate at the call site is a
+ * single visible boundary. Every WR parse and code extraction of the inline
+ * path lives in here; if this function is not called, none of it happens.
+ */
+function detectBeapPackageFromMessage(
+  attachments: NonNullable<RawEmailMessage['attachments']>,
+  bodyText: string,
+): BeapDetection {
+  for (const att of attachments) {
+    if (!isBeapAttachment(att)) continue
+    const content = att.content
+    if (!content || content.length === 0) continue
+    const text = content.toString('utf-8')
+    if (text.length > 65536) continue
+    const capsule = detectBeapCapsule(text)
+    if (capsule.detected && capsule.capsuleJson) {
+      let handshakeId: string
+      try { handshakeId = extractHandshakeId(JSON.parse(capsule.capsuleJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
+      return { beapPackageJson: capsule.capsuleJson, handshakeId, detectedType: 'beap' }
+    }
+    const pkg = detectBeapMessagePackage(text)
+    if (pkg.detected && pkg.packageJson) {
+      let handshakeId: string
+      try { handshakeId = extractHandshakeId(JSON.parse(pkg.packageJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
+      return { beapPackageJson: pkg.packageJson, handshakeId, detectedType: 'beap' }
+    }
+  }
+
+  if (bodyText.trim().startsWith('{')) {
+    const capsule = detectBeapCapsule(bodyText)
+    if (capsule.detected && capsule.capsuleJson) {
+      let handshakeId: string
+      try { handshakeId = extractHandshakeId(JSON.parse(capsule.capsuleJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
+      return { beapPackageJson: capsule.capsuleJson, handshakeId, detectedType: 'beap' }
+    }
+    const pkg = detectBeapMessagePackage(bodyText)
+    if (pkg.detected && pkg.packageJson) {
+      let handshakeId: string
+      try { handshakeId = extractHandshakeId(JSON.parse(pkg.packageJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
+      return { beapPackageJson: pkg.packageJson, handshakeId, detectedType: 'beap' }
+    }
+  }
+
+  for (const att of attachments) {
+    if (!isJsonAttachment(att)) continue
+    const content = att.content
+    if (!content || content.length === 0) continue
+    const text = content.toString('utf-8')
+    if (text.length > 65536) continue
+    try {
+      const parsed = JSON.parse(text)
+      if (detectBeapInJson(parsed)) {
+        return { beapPackageJson: text, handshakeId: extractHandshakeId(parsed) ?? '__email_import__', detectedType: 'beap' }
+      }
+    } catch { /* not valid JSON */ }
+  }
+
+  return NO_DETECTION
+}
+
 export async function detectAndRouteMessageInline(
   db: any,
   accountId: string,
@@ -391,65 +489,37 @@ export async function detectAndRouteMessageInline(
   const imapRfcMessageId = rawMsg.headers?.messageId?.trim() || null
   const hasAttachments = attachments.length > 0
 
+  // ── Step 0: Channel Provenance Record [IX.3.1] ───────────────────────────
+  //
+  // Produced for EVERY message, before anything is derived from its content.
+  // Phase 1 records the verdict and persists it; Phase 2 makes a failing
+  // `channel_pass` short-circuit the detection below.
+  const channelProvenance = produceChannelProvenance({
+    authenticationResults: rawMsg.headers?.authenticationResults,
+    fromAddress: fromAddr,
+    contentSha256: channelProvenanceContentHash({
+      rawBytes: rawMsg.rawRfc822 ?? null,
+      messageId,
+      subject,
+      bodyText,
+    }),
+  })
+
   // ── Step 1: Detect BEAP vs plain (sync) ──────────────────────────────────
+  //
+  // [Order 02 / 2A] Detection runs ONLY for a channel-authenticated message.
+  // A failing `channel_pass` (D5) short-circuits every WR parse and code
+  // extraction below: the message lands as plain carrying its CPR, and no
+  // affordance of any kind is derived from it. The suppression is structural
+  // — the detection code is never reached, rather than its result discarded
+  // afterwards, so there is no intermediate state a later change could leak.
+  const detection = channelProvenance.channel_pass
+    ? detectBeapPackageFromMessage(attachments, bodyText)
+    : NO_DETECTION
 
-  let beapPackageJson: string | null = null
-  let handshakeId: string | null = null
-  let detectedType: 'beap' | 'plain' = 'plain'
-
-  for (const att of attachments) {
-    if (!isBeapAttachment(att)) continue
-    const content = att.content
-    if (!content || content.length === 0) continue
-    const text = content.toString('utf-8')
-    if (text.length > 65536) continue
-    const capsule = detectBeapCapsule(text)
-    if (capsule.detected && capsule.capsuleJson) {
-      beapPackageJson = capsule.capsuleJson
-      try { handshakeId = extractHandshakeId(JSON.parse(capsule.capsuleJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
-      detectedType = 'beap'; break
-    }
-    const pkg = detectBeapMessagePackage(text)
-    if (pkg.detected && pkg.packageJson) {
-      beapPackageJson = pkg.packageJson
-      try { handshakeId = extractHandshakeId(JSON.parse(pkg.packageJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
-      detectedType = 'beap'; break
-    }
-  }
-
-  if (detectedType === 'plain' && bodyText.trim().startsWith('{')) {
-    const capsule = detectBeapCapsule(bodyText)
-    if (capsule.detected && capsule.capsuleJson) {
-      beapPackageJson = capsule.capsuleJson
-      try { handshakeId = extractHandshakeId(JSON.parse(capsule.capsuleJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
-      detectedType = 'beap'
-    }
-  }
-  if (detectedType === 'plain' && bodyText.trim().startsWith('{')) {
-    const pkg = detectBeapMessagePackage(bodyText)
-    if (pkg.detected && pkg.packageJson) {
-      beapPackageJson = pkg.packageJson
-      try { handshakeId = extractHandshakeId(JSON.parse(pkg.packageJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
-      detectedType = 'beap'
-    }
-  }
-  if (detectedType === 'plain') {
-    for (const att of attachments) {
-      if (!isJsonAttachment(att)) continue
-      const content = att.content
-      if (!content || content.length === 0) continue
-      const text = content.toString('utf-8')
-      if (text.length > 65536) continue
-      try {
-        const parsed = JSON.parse(text)
-        if (detectBeapInJson(parsed)) {
-          beapPackageJson = text
-          handshakeId = extractHandshakeId(parsed) ?? '__email_import__'
-          detectedType = 'beap'; break
-        }
-      } catch { /* not valid JSON */ }
-    }
-  }
+  const beapPackageJson: string | null = detection.beapPackageJson
+  const handshakeId: string | null = detection.handshakeId
+  const detectedType: 'beap' | 'plain' = detection.detectedType
 
   // ── Step 2a: Attachment preprocessing (Att-2, PR B-3.1) ──────────────────
   //
@@ -585,8 +655,34 @@ export async function detectAndRouteMessageInline(
     // depackaged_json exactly as before — persistence is additive, not a routing change.
     let pbeapTrustMetaJson: string | null = null
 
+    // ── Stage 0: ingress admission filter [VII.2.7] ──
+    // A BEAP package addressed to a revoked/expired/unknown relationship must
+    // never be depackaged into a visible email_beap row. Blocked packages skip
+    // decrypt+validate and take the encrypted quarantine containment below
+    // (never the BEAP inbox). Packages without a resolvable handshake id keep
+    // today's depackage-failure handling.
+    let ingressBlocked = false
+    let admittedGrantRef: string | null = null
+    if (handshakeId && handshakeId !== '__email_import__') {
+      const { admitInboundDelivery } = await import('../handshake/ingressAdmission')
+      const admission = admitInboundDelivery(db, {
+        handshakeId,
+        kind: encoding === 'qBEAP' ? 'beap_message' : 'handshake_capsule',
+        source: 'email',
+      })
+      if (!admission.admitted) {
+        ingressBlocked = true
+        depackageError = `ingress_admission_blocked:${admission.reason}`
+      } else {
+        // Phase 5 [VII.10.3]: grant the delivery is admitted under.
+        admittedGrantRef = admission.grantRef
+      }
+    }
+
     // ── Inline depackage ──
-    if (encoding === 'qBEAP') {
+    if (ingressBlocked) {
+      // canonicalJson stays null → quarantine containment path below.
+    } else if (encoding === 'qBEAP') {
       try {
         const decrypted = await decryptQBeapPackage(beapPackageJson, handshakeId ?? '', db, {
           reportFailure: (info) => console.warn('[messageRouter] qBEAP decrypt failure', info),
@@ -631,7 +727,14 @@ export async function detectAndRouteMessageInline(
       // routes through the critical-job dispatcher (in-process → same forked
       // validator subprocess, so parity is byte-identical). Flag OFF keeps the
       // original inline call verbatim. The qBEAP/pBEAP decrypt above is untouched.
-      const provenance = buildProvenance(fromAddr, messageId, bodyText, 'beap_capsule_present')
+      const provenance: ProvenanceMetadata = {
+        ...buildProvenance(fromAddr, messageId, bodyText, 'beap_capsule_present'),
+        transport_metadata: {
+          sender_address: fromAddr,
+          message_id: messageId,
+          grant_ref: admittedGrantRef ?? undefined,
+        },
+      }
       const validationInput = {
         envelope: packageObj ?? {},
         plaintext_or_encrypted: { kind: 'plaintext' as const, content: canonicalJson },
@@ -657,14 +760,15 @@ export async function detectAndRouteMessageInline(
 
       if (resp && resp.outcome.ok) {
         const sealed = resp.outcome.sealed
-        // Bind the pBEAP trust verdict tamper-evidently into the seal (when present),
-        // so the persisted depackaged_metadata cannot be altered post-write undetected.
-        const { seal, seal_input_json } = computeSeal(sealed.canonical_json, inboxMessageId, 'outer', pbeapTrustMetaJson)
+        // Bind the pBEAP trust verdict AND the channel verdict tamper-evidently
+        // into the seal, so neither can be altered post-write undetected.
+        const inboxMetaJson = mergeChannelProvenanceMetadata(pbeapTrustMetaJson, channelProvenance)
+        const { seal, seal_input_json } = computeSeal(sealed.canonical_json, inboxMessageId, 'outer', inboxMetaJson)
         writePayload = {
           kind: 'inbox',
           sourceType: 'email_beap',
           depackagedJson: sealed.canonical_json,
-          depackagedMetadata: pbeapTrustMetaJson,
+          depackagedMetadata: inboxMetaJson,
           seal,
           sealInputJson: seal_input_json,
           sealKeySource: 'ledger',
@@ -685,24 +789,27 @@ export async function detectAndRouteMessageInline(
       const rejectionReason = depackageError ?? 'depackage_failed'
       const sandboxHandshake = findPairedSandboxHandshake(db, session)
 
+      // [Order 02 / 2A] Fail-open closure, all three degradation branches.
+      //
+      // A depackage that failed produced a row we could not validate. The three
+      // ways quarantining can itself fail — no custody key, sealing failed,
+      // validator rejected — previously each fell back to a PLAIN inbox row,
+      // which presents unvalidated carrier content as ordinary mail. That is
+      // the fail-open: the worse the failure, the weaker the handling.
+      //
+      // All three now HOLD, matching what the seam path already does in
+      // `quarantineRawBytes`. Held means not inserted and not downgraded; the
+      // sync caller skips the message this round and retries. Consistency
+      // between the two paths is the point — an invariant that holds on only
+      // one of them is not an invariant.
       if (!sandboxHandshake) {
-        console.warn('[MessageRouter] No sandbox for quarantine; falling back to plain inbox row:', messageId)
-        writePayload = await buildPlainEmailInboxPayload(
-          inboxMessageId, messageId, accountId, rawMsg, fromAddr,
-          fromName, subject, bodyText, bodyHtml, toList, ccList,
-          receivedAt, attachmentsCanonical,
-        )
+        throw new DepackageCutoverHeldError('no_paired_sandbox')
       } else {
         const emailBytes = Buffer.from(beapPackageJson, 'utf-8')
         const encResult = encryptForQuarantine(emailBytes, sandboxHandshake.peer_x25519_public_key_b64)
 
         if (!encResult.ok) {
-          console.error('[MessageRouter] encryptForQuarantine failed:', encResult.error)
-          writePayload = await buildPlainEmailInboxPayload(
-            inboxMessageId, messageId, accountId, rawMsg, fromAddr,
-            fromName, subject, bodyText, bodyHtml, toList, ccList,
-            receivedAt, attachmentsCanonical,
-          )
+          throw new DepackageCutoverHeldError(`quarantine_seal_failed:${encResult.error}`)
         } else {
           const blobResult = writeQuarantineBlob(encResult.blob)
           const quarantineId = randomUUID()
@@ -723,12 +830,11 @@ export async function detectAndRouteMessageInline(
           })
 
           if (!qResp.outcome.ok) {
-            // Structural bug: host_quarantine content should always pass.
-            console.error('[MessageRouter] quarantine validator rejected (bug):', qResp.outcome.sealed_quarantine.rejection_reason)
-            writePayload = await buildPlainEmailInboxPayload(
-              inboxMessageId, messageId, accountId, rawMsg, fromAddr,
-              fromName, subject, bodyText, bodyHtml, toList, ccList,
-              receivedAt, attachmentsCanonical,
+            // host_quarantine content should always pass; a reject is a
+            // structural bug, and a bug is the last condition under which to
+            // relax handling.
+            throw new DepackageCutoverHeldError(
+              `quarantine_validator_rejected:${qResp.outcome.sealed_quarantine.rejection_reason}`,
             )
           } else {
             const qSealed = qResp.outcome.sealed
@@ -753,6 +859,7 @@ export async function detectAndRouteMessageInline(
       inboxMessageId, messageId, accountId, rawMsg, fromAddr,
       fromName, subject, bodyText, bodyHtml, toList, ccList,
       receivedAt, attachmentsCanonical,
+      mergeChannelProvenanceMetadata(null, channelProvenance),
     )
   }
 
@@ -789,6 +896,16 @@ export async function detectAndRouteMessageInline(
         row_id: writePayload.quarantineId,
       },
     )
+
+    // quarantine_messages has no depackaged_metadata column, so the evidence
+    // chain is where this message's channel verdict is retained [IX.11].
+    recordChannelProvenanceEvidence({
+      record: channelProvenance,
+      messageId,
+      rowId: writePayload.quarantineId,
+      path: viaSeam ? 'seam_carrier' : 'inline',
+      outcome: 'quarantine',
+    })
 
     return { type: 'quarantine', messageId, inboxMessageId: writePayload.quarantineId }
   }
@@ -893,6 +1010,14 @@ export async function detectAndRouteMessageInline(
     'outer',
   )
 
+  recordChannelProvenanceEvidence({
+    record: channelProvenance,
+    messageId,
+    rowId: inboxMessageId,
+    path: viaSeam ? 'seam_carrier' : 'inline',
+    outcome: 'inbox',
+  })
+
   return {
     type: writePayload.sourceType === 'email_beap' ? 'beap' : 'plain',
     messageId,
@@ -979,15 +1104,29 @@ async function routeViaDepackageSeam(
   const { dispatchDepackageEmail } = await import('../critical-jobs/liveDepackageCutover')
   const out = await dispatchDepackageEmail(opaque, sandbox.peer_x25519_public_key_b64, undefined, form)
 
+  // ── Channel Provenance Record [IX.3.1] ─────────────────────────────────────
+  //
+  // Flag-on, the authentication material is collected in-guest (header handling
+  // never happens here) and arrives typed and capped. A depackage failure means
+  // we never got any: the record is then `unverifiable`, which is a verdict —
+  // the message is still evidenced, it simply has no authenticated channel.
+  const contentSha256 = channelProvenanceContentHash({ rawBytes: opaque })
+  const guestMaterial = out.ok && out.result.ok ? out.result.channelAuthentication : undefined
+  const channelProvenance = produceChannelProvenance({
+    authenticationResults: guestMaterial?.authenticationResults,
+    fromAddress: guestMaterial?.fromDomain ?? null,
+    contentSha256,
+  })
+
   // INV-5 logging: identifiers/codes only, never plaintext/bytes.
   if (!out.ok) {
     console.warn('[messageRouter] depackage-email dispatch failed', { messageId, code: out.code })
-    return quarantineRawBytes(db, opaque, sandbox, messageId, rawMsg, mapDepackageCodeToReason(out.code))
+    return quarantineRawBytes(db, opaque, sandbox, messageId, rawMsg, mapDepackageCodeToReason(out.code), channelProvenance)
   }
   const result = out.result
   if (!result.ok) {
     console.warn('[messageRouter] depackage-email worker failure', { messageId, code: result.code })
-    return quarantineRawBytes(db, opaque, sandbox, messageId, rawMsg, mapDepackageCodeToReason(result.code))
+    return quarantineRawBytes(db, opaque, sandbox, messageId, rawMsg, mapDepackageCodeToReason(result.code), channelProvenance)
   }
 
   if (result.type === 'beap-carrier' || result.type === 'mixed') {
@@ -1009,8 +1148,16 @@ async function routeViaDepackageSeam(
       to: env.to.map((a) => ({ address: a.email, name: a.name })),
       cc: env.cc.map((a) => ({ address: a.email, name: a.name })),
       date: coerceReceivedAtIso(rawMsg.date ?? env.date, new Date().toISOString()),
-      // Guest-derived threading key (no orchestrator header parse).
-      headers: th?.messageId ? { ...rawMsg.headers, messageId: th.messageId } : rawMsg.headers,
+      // Guest-derived threading key + CPR material (no orchestrator header parse).
+      // The re-entered inline path produces and evidences the record itself, so
+      // the carrier case is evidenced exactly once, as `seam_carrier`.
+      headers: {
+        ...rawMsg.headers,
+        ...(th?.messageId ? { messageId: th.messageId } : {}),
+        ...(result.channelAuthentication
+          ? { authenticationResults: [...result.channelAuthentication.authenticationResults] }
+          : {}),
+      },
       text: pkgJson,
       html: undefined,
       attachments: [],
@@ -1021,7 +1168,7 @@ async function routeViaDepackageSeam(
 
   // Plain mail: consumer-wrap the guest SafeText, preserve sealed originals.
   console.warn('[messageRouter] depackage-email plain', { messageId, artifacts: result.artifacts.length })
-  return writePlainSeamInbox(db, accountId, rawMsg, messageId, result.safeText, result.artifacts, result.displayEnvelope, result.threadingHints)
+  return writePlainSeamInbox(db, accountId, rawMsg, messageId, result.safeText, result.artifacts, result.displayEnvelope, result.threadingHints, channelProvenance)
 }
 
 /**
@@ -1036,6 +1183,7 @@ async function quarantineRawBytes(
   messageId: string,
   rawMsg: RawEmailMessage,
   rejectionReason: string,
+  channelProvenance: ChannelProvenanceRecord,
 ): Promise<DetectAndRouteResult> {
   const fromAddr = rawMsg.from?.address ?? (rawMsg.from as any)?.email ?? ''
   const receivedAt = coerceReceivedAtIso(rawMsg.date, new Date().toISOString())
@@ -1076,6 +1224,13 @@ async function quarantineRawBytes(
     ],
     { seal: qSealed.seal, seal_input_json: qSealed.seal_input_json, canonical_json: qCanonicalJson, row_id: quarantineId },
   )
+  recordChannelProvenanceEvidence({
+    record: channelProvenance,
+    messageId,
+    rowId: quarantineId,
+    path: 'seam',
+    outcome: 'quarantine',
+  })
   return { type: 'quarantine', messageId, inboxMessageId: quarantineId }
 }
 
@@ -1095,7 +1250,8 @@ async function writePlainSeamInbox(
   safeText: { subject: string; body_text: string; attachment_refs: readonly string[] },
   artifacts: ReadonlyArray<{ blob_id: string; content_type: string; filename?: string; blob: import('../quarantine-blob-storage/index').QuarantineBlobFile }>,
   envelope: import('../depackaging-microvm/emailDepackage').DisplayEnvelope,
-  threadingHints?: import('../depackaging-microvm/emailDepackage').ThreadingHints,
+  threadingHints: import('../depackaging-microvm/emailDepackage').ThreadingHints | undefined,
+  channelProvenance: ChannelProvenanceRecord,
 ): Promise<DetectAndRouteResult> {
   const inboxMessageId = randomUUID()
   const now = new Date().toISOString()
@@ -1135,6 +1291,7 @@ async function writePlainSeamInbox(
     inboxMessageId, messageId, accountId, rawMsg, fromAddr, fromName,
     safeText.subject, safeText.body_text, null, toList, ccList, receivedAt,
     attachmentsCanonical,
+    mergeChannelProvenanceMetadata(null, channelProvenance),
   )
 
   const sealedInbox = prepareSealedInsert(db, INBOX_INSERT_SQL)
@@ -1142,7 +1299,7 @@ async function writePlainSeamInbox(
     inboxMessageId, payload.sourceType, null, accountId, messageId,
     fromAddr, fromName, JSON.stringify(toAddrs), JSON.stringify(ccAddrs),
     safeText.subject, safeText.body_text, null, null,
-    payload.depackagedJson, null, attachmentsCanonical.length > 0 ? 1 : 0, attachmentsCanonical.length,
+    payload.depackagedJson, payload.depackagedMetadata, attachmentsCanonical.length > 0 ? 1 : 0, attachmentsCanonical.length,
     receivedAt, now, folder, imapRfcMessageId,
     payload.validatedAt, payload.validatorVersion, payload.validationReason,
     payload.seal, payload.sealInputJson, 'ledger',
@@ -1153,6 +1310,13 @@ async function writePlainSeamInbox(
     [],
     'outer',
   )
+  recordChannelProvenanceEvidence({
+    record: channelProvenance,
+    messageId,
+    rowId: inboxMessageId,
+    path: 'seam',
+    outcome: 'inbox',
+  })
   return { type: 'plain', messageId, inboxMessageId }
 }
 
@@ -1172,10 +1336,16 @@ async function buildPlainEmailInboxPayload(
   ccList: Array<{ address: string; name?: string }>,
   receivedAt: string,
   attachmentsCanonical: ChildAttachmentDescriptor[],
+  /**
+   * `depackaged_metadata` JSON (the CPR, and `pbeap_trust` where one exists).
+   * Bound into the seal so the persisted verdict is tamper-evident.
+   */
+  depackagedMetadata?: string | null,
 ): Promise<{
   kind: 'inbox'
   sourceType: 'email_plain'
   depackagedJson: string
+  depackagedMetadata: string | null
   seal: string
   sealInputJson: string
   validatedAt: string
@@ -1218,12 +1388,14 @@ async function buildPlainEmailInboxPayload(
   }
   const canonicalJson = JSON.stringify(canonicalObj)
   const nowIso = new Date().toISOString()
-  const { seal, seal_input_json } = computeSeal(canonicalJson, inboxMessageId, 'outer')
+  const metadataJson = depackagedMetadata ?? null
+  const { seal, seal_input_json } = computeSeal(canonicalJson, inboxMessageId, 'outer', metadataJson)
 
   return {
     kind: 'inbox',
     sourceType: 'email_plain',
     depackagedJson: canonicalJson,
+    depackagedMetadata: metadataJson,
     seal,
     sealInputJson: seal_input_json,
     sealKeySource: 'ledger',

@@ -79,7 +79,7 @@ export function computeAuthoritativeDeviceInternalRole(
   if (!db || !session) return 'none'
   const rows = listHandshakeRecords(db, {
     state: HandshakeState.ACTIVE,
-    handshake_type: 'internal',
+    same_principal: true,
   })
   let host = false
   let sand = false
@@ -205,7 +205,7 @@ export function isEligibleActiveInternalHostSandboxRecord(
   session: SSOSession,
 ): boolean {
   if (record.state !== HandshakeState.ACTIVE) return false
-  if (record.handshake_type !== 'internal') return false
+  if (record.same_principal !== true) return false
   if (!sessionIsPartyOnVisibleHandshakeRow(record, session)) return false
   if (!isLocalHostPeerSandbox(record)) return false
   if (!record.internal_coordination_identity_complete) return false
@@ -260,7 +260,7 @@ export function listAvailableInternalSandboxes(
 
   const rows = listHandshakeRecords(db, {
     state: HandshakeState.ACTIVE,
-    handshake_type: 'internal',
+    same_principal: true,
   })
   const sandboxes: InternalSandboxListEntry[] = []
   const incomplete: InternalSandboxListIncompleteEntry[] = []

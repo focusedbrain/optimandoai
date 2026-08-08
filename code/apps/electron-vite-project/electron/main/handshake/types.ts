@@ -308,7 +308,13 @@ export interface VerifiedCapsuleInput {
   preview?: ExecutionCapsule;
   wrdesk_policy_hash: string;
   wrdesk_policy_version: string;
-  /** Internal initiate / accept capsule wire (optional). */
+  /**
+   * LEGACY WIRE COMPAT ONLY (Phase 4, Q9): v2 capsules declare same-principal
+   * pairing via this wire field. The ONLY permitted read is
+   * `wireDeclaresSamePrincipal` (samePrincipalWire.ts) — no other code may
+   * branch on it; the admission situation is the profile-registry parameter
+   * `same_principal` (internal_device profile).
+   */
   handshake_type?: 'internal' | 'standard' | null;
   sender_device_id?: string | null;
   receiver_device_id?: string | null;
@@ -400,8 +406,14 @@ export interface HandshakeRecord {
   context_sync_pending?: boolean;
   /** AI policy: ai_processing_mode (new) or legacy cloud_ai/internal_ai. Parsed from JSON. */
   policy_selections?: { ai_processing_mode?: string } | { cloud_ai?: boolean; internal_ai?: boolean };
-  /** Ledger-only: internal (same-account orchestrator) vs standard cross-party handshake */
-  handshake_type?: 'internal' | 'standard' | null;
+  /**
+   * Phase 4 (Q9): same-principal admission situation, derived at the SINGLE
+   * persistence boundary (db.ts row adapter) from the profile registry /
+   * legacy column. Replaces the eliminated `handshake_type` discriminator.
+   * "Cross-Device" is the UI label of the `internal_device` profile, not a
+   * separate mechanism.
+   */
+  same_principal?: boolean;
   initiator_device_name?: string | null;
   acceptor_device_name?: string | null;
   initiator_device_role?: 'host' | 'sandbox' | null;
@@ -529,6 +541,14 @@ export enum ReasonCode {
   INTERNAL_ERROR = 'INTERNAL_ERROR',
   SIGNATURE_INVALID = 'SIGNATURE_INVALID',
   COUNTERSIGNATURE_INVALID = 'COUNTERSIGNATURE_INVALID',
+  // Phase 2 — canonical core [VII.3.1, VII.3.5, VII.6.1.3]
+  CANONICAL_ENVELOPE_INVALID = 'CANONICAL_ENVELOPE_INVALID',
+  UNKNOWN_CRITICAL_EXTENSION = 'UNKNOWN_CRITICAL_EXTENSION',
+  NONCE_REPLAY = 'NONCE_REPLAY',
+  /** Phase 3 [VII.4.2]: unknown profile id / unsupported profile version — fail-closed, no fallback. */
+  UNKNOWN_PROFILE = 'UNKNOWN_PROFILE',
+  /** Phase 3 [VII.4.5, VII.3.2]: profile schema rule violated (attestation presence/absence, signature cardinality). */
+  PROFILE_SCHEMA_VIOLATION = 'PROFILE_SCHEMA_VIOLATION',
 }
 
 // ── Pipeline Types ──
@@ -595,8 +615,25 @@ export interface HandshakeProcessDenial {
   pipelineDurationMs: number;
 }
 
+/**
+ * Phase 4 (Q1) [IX.3.1]: an inbound initiate capsule that passes the full
+ * verification chain WITHOUT a consent event produces a staged Connect offer
+ * — never a relationship row. The record is created only when the one
+ * pipeline runs again behind the consent gate.
+ */
+export interface HandshakeProcessStaged {
+  success: true;
+  staged: true;
+  offerId: string;
+  handshakeRecord: null;
+  blocksStored: 0;
+  tierDecision: TierDecision;
+  pipelineDurationMs: number;
+}
+
 export type HandshakeProcessResult =
   | HandshakeProcessSuccess
+  | HandshakeProcessStaged
   | HandshakeProcessDenial;
 
 // ── Authorization Result ──
