@@ -221,6 +221,7 @@ as:
 - the Optirando™ framework;
 - WR runtime components;
 - WR Guard™;
+- BEAP™
 - WR Vault™;
 - WR MailGuard™;
 - WR Desk™ components;
@@ -383,7 +384,7 @@ Protected or claimed identifiers include, without limitation:
 
 - Optirando™;
 - Make Everything Smart™;
-- WR™;
+- WR™ Workflow Ready;
 - WR Desk™;
 - WR Code®;
 - BEAP™;
@@ -392,7 +393,14 @@ Protected or claimed identifiers include, without limitation:
 - WR Guard™;
 - WR Vault™;
 - WR MailGuard™;
+- WR Pointer™;
+- WR Connect™;
+- WR Graph™;
 - Silicon Cargo™;
+- Workflow Ready Cloud (WRC)™;
+- Fraud Watchdog™;
+- Ingres Watchdog ™;
+- Process Watchdog™;
 - Powered by Optirando™;
 - BEAP™-Compatible;
 - BEAP™-Certified;
@@ -474,7 +482,7 @@ published as separate files or records.
 A reference to the Optirando™ Specification includes, where applicable:
 
 - Paper v202;
-- Annex I through Annex XVI;
+- Annex I through Annex XVII;
 - subsequent incorporated Annexes;
 - and other normative documents expressly designated as part of the
   same Canon.
